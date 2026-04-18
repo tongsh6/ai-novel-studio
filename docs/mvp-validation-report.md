@@ -67,6 +67,11 @@ python3 scripts/novel_mvp.py chapter-check --chapter 2
 - 第 2 章被正确识别为“已有草稿但没有 metadata”
 - 当前状态落后于第 2 章这一问题也被正确提示
 
+后续补齐第 2 章 metadata 并推进状态后：
+
+- 第 2 章 `chapter-check` 也已通过
+- 当前仓库形成了第 1 章和第 2 章两章级别的最小可校验链
+
 ### 5. 状态回写
 
 ```bash
