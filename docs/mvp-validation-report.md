@@ -29,9 +29,9 @@ python3 scripts/novel_mvp.py status
 核心结论：
 
 - 仓库已有 2 份章节草稿
-- 仓库已有 2 份章节 metadata
+- 仓库初始存在 2 份章节 metadata
 - 实际 canonical metadata 只有 1 份
-- 第 1 章存在重复 metadata
+- 第 1 章初始存在重复 metadata
 - 当前状态文件仍停留在“构思 + 第 0 章”
 
 ### 2. 基线检查
@@ -54,7 +54,20 @@ python3 scripts/novel_mvp.py chapter-context --chapter 1
 - 能正确找到第 1 章草稿
 - 能输出当前项目状态包
 
-### 4. 状态回写
+### 4. 章节级校验
+
+```bash
+python3 scripts/novel_mvp.py chapter-check --chapter 1
+python3 scripts/novel_mvp.py chapter-check --chapter 2
+```
+
+验证结果：
+
+- 第 1 章校验通过
+- 第 2 章被正确识别为“已有草稿但没有 metadata”
+- 当前状态落后于第 2 章这一问题也被正确提示
+
+### 5. 状态回写
 
 ```bash
 python3 scripts/novel_mvp.py sync-state \
@@ -72,17 +85,35 @@ python3 scripts/novel_mvp.py sync-state \
 - `.character_states.json` 被成功写回
 - 历史状态记录开始生成
 
-### 5. 回写后再次检查
+### 6. 回写后再次检查
 
 ```bash
 python3 scripts/novel_mvp.py check
 ```
 
-剩余问题数：`1`
+中间结果：
 
-剩余问题：
+- 剩余问题数：`1`
+- 唯一问题：第 1 章 metadata 重复
 
-- 第 1 章存在重复 metadata
+### 7. 清理结构性问题后再次检查
+
+执行清理重复 metadata 后再次执行：
+
+```bash
+python3 scripts/novel_mvp.py check
+```
+
+最终问题数：`0`
+
+最终结果：
+
+```json
+{
+  "issues": [],
+  "issue_count": 0
+}
+```
 
 ## 结果判断
 
@@ -95,14 +126,10 @@ python3 scripts/novel_mvp.py check
 3. 当前状态可以被程序更新
 4. 校验结果会随回写而变化
 5. 当前仓库已经从“纯知识库”进入“可执行工作流雏形”
+6. 当前 MVP 校验可以跑到 0 问题
+7. CLI 已经具备最小章节级检查能力
 
-## 仍未解决的问题
-
-### 结构性问题
-
-- 第 1 章 metadata 重复
-
-### 能力缺口
+## 当前仍未覆盖的能力缺口
 
 - 没有细纲自动生成
 - 没有正文自动生成
@@ -116,5 +143,5 @@ python3 scripts/novel_mvp.py check
 
 1. 统一章节 metadata 结构
 2. 为角色、章节、伏笔、事件定义 schema
-3. 增加 `chapter outline` 与 `chapter check` 的更细粒度能力
+3. 增加 `chapter outline` 与更细粒度的章节状态回写能力
 4. 在此基础上接入主编排 Agent

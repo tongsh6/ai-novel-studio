@@ -13,6 +13,7 @@
 - `status`
 - `check`
 - `chapter-context`
+- `chapter-check`
 - `sync-state`
 
 脚本位置：
@@ -92,6 +93,21 @@ python3 scripts/novel_mvp.py sync-state \
 - `novel_writing_system/大纲管理/临时规划/.current_state.json`
 - `novel_writing_system/大纲管理/临时规划/.character_states.json`
 
+### 5. 检查单章资产与状态
+
+```bash
+python3 scripts/novel_mvp.py chapter-check --chapter 1
+```
+
+这个命令会检查：
+
+- 该章节是否存在 metadata
+- 该章节是否存在草稿
+- metadata 标题是否为空
+- metadata 前情摘要是否为空
+- 当前状态是否明显落后于目标章节
+- 活跃角色是否已经进入角色状态文件
+
 ## 当前 MVP 能验证什么
 
 ### 已验证的能力
@@ -100,6 +116,7 @@ python3 scripts/novel_mvp.py sync-state \
 - 可以扫描章节 metadata 与草稿
 - 可以程序化发现当前数据层问题
 - 可以为特定章节生成最小上下文包
+- 可以对单章做最小资产与状态检查
 - 可以把章节推进状态写回现有状态文件
 
 ## 本次实际验证结果
@@ -149,13 +166,46 @@ python3 scripts/novel_mvp.py sync-state \
 python3 scripts/novel_mvp.py check
 ```
 
-问题下降为 1 个，仅剩：
+在执行一次 metadata 清理后，问题清零：
 
-- 第 1 章存在重复 metadata
+```json
+{
+  "issues": [],
+  "issue_count": 0
+}
+```
+
+说明当前最小验证链已经跑通。
 
 这说明最小闭环已经成立：
 
-`读取 -> 发现问题 -> 回写状态 -> 再次校验`
+`读取 -> 发现问题 -> 回写状态 -> 清理结构问题 -> 再次校验`
+
+### 单章校验结果
+
+执行：
+
+```bash
+python3 scripts/novel_mvp.py chapter-check --chapter 1
+```
+
+结果：
+
+- 第 1 章 `ok = true`
+- metadata、草稿、当前状态三者一致
+
+执行：
+
+```bash
+python3 scripts/novel_mvp.py chapter-check --chapter 2
+```
+
+结果：
+
+- 能正确识别第 2 章已有草稿但没有 metadata
+- 能正确提示当前状态仍落后于第 2 章
+
+这证明 CLI 已经能做最小粒度的章节级校验，而不是只做全仓库扫描。
 
 ### 还没有覆盖的能力
 

@@ -204,6 +204,61 @@ def chapter_context(chapter: int) -> dict[str, Any]:
     }
 
 
+def chapter_check(chapter: int) -> dict[str, Any]:
+    current_state = load_json(CURRENT_STATE_PATH)
+    character_state = load_json(CHARACTER_STATE_PATH)
+    canonical_metadata = choose_canonical_metadata(collect_metadata())
+    entry = canonical_metadata.get(chapter)
+    draft_candidates = [
+        path for path in collect_drafts() if extract_chapter_number(path.name) == chapter
+    ]
+
+    issues: list[str] = []
+    warnings: list[str] = []
+
+    if entry is None:
+        issues.append(f"chapter {chapter} has no metadata")
+    else:
+        if not entry.title.strip():
+            issues.append(f"chapter {chapter} metadata.title is empty")
+        if not entry.previous_summary.strip():
+            warnings.append(f"chapter {chapter} metadata.previousSummary is empty")
+        if entry.is_auto_generated:
+            warnings.append(f"chapter {chapter} metadata is still marked auto-generated")
+
+    if not draft_candidates:
+        issues.append(f"chapter {chapter} has no draft markdown file")
+    elif len(draft_candidates) > 1:
+        warnings.append(
+            "chapter "
+            f"{chapter} has multiple draft files: "
+            + ", ".join(str(path.relative_to(ROOT)) for path in draft_candidates)
+        )
+
+    active_characters = current_state.get("context", {}).get("active_characters", [])
+    tracked_characters = character_state.get("characters", {})
+    missing_tracking = [name for name in active_characters if name not in tracked_characters]
+    if missing_tracking:
+        warnings.append(
+            "active characters missing from character state: " + ", ".join(missing_tracking)
+        )
+
+    if int(current_state.get("current_chapter", 0)) < chapter:
+        warnings.append(
+            f"current_state.current_chapter={current_state.get('current_chapter', 0)} "
+            f"is behind requested chapter {chapter}"
+        )
+
+    return {
+        "chapter": chapter,
+        "metadata_path": str(entry.path.relative_to(ROOT)) if entry else "",
+        "drafts": [str(path.relative_to(ROOT)) for path in draft_candidates],
+        "issues": issues,
+        "warnings": warnings,
+        "ok": not issues,
+    }
+
+
 def sync_state(
     chapter: int,
     state_name: str,
@@ -271,6 +326,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     context_parser.add_argument("--chapter", type=int, required=True)
 
+    chapter_check_parser = subparsers.add_parser(
+        "chapter-check", help="Validate chapter-level assets and state"
+    )
+    chapter_check_parser.add_argument("--chapter", type=int, required=True)
+
     sync_parser = subparsers.add_parser("sync-state", help="Update minimal state files")
     sync_parser.add_argument("--chapter", type=int, required=True)
     sync_parser.add_argument("--state", required=True)
@@ -302,6 +362,11 @@ def main() -> int:
     if args.command == "chapter-context":
         print_json(chapter_context(args.chapter))
         return 0
+
+    if args.command == "chapter-check":
+        result = chapter_check(args.chapter)
+        print_json(result)
+        return 1 if result["issues"] else 0
 
     if args.command == "sync-state":
         characters = [item.strip() for item in args.characters.split(",") if item.strip()]
