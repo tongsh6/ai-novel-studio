@@ -1,12 +1,27 @@
 {
-  "current_state": "构思",
-  "current_chapter": 0,
+  "current_state": "drafting",
+  "current_chapter": 1,
   "current_unit": "第一卷-单元1",
-  "started_at": "",
+  "started_at": "2026-04-18T17:48:36+00:00",
   "context": {
-    "active_characters": [],
-    "active_plot_hooks": [],
-    "emotional_tone": ""
+    "active_characters": [
+      "杨无尘",
+      "云山望岳",
+      "云河"
+    ],
+    "active_plot_hooks": [
+      "4417号实验体",
+      "敖荒种子",
+      "离开寂静山门"
+    ],
+    "emotional_tone": "宁静中带离别感"
   },
-  "history": []
+  "history": [
+    {
+      "timestamp": "2026-04-18T17:48:36+00:00",
+      "from_state": "构思",
+      "to_state": "drafting",
+      "chapter": 1
+    }
+  ]
 }

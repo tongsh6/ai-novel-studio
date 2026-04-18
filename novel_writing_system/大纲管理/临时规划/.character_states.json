@@ -1,7 +1,23 @@
 {
   "metadata": {
-    "last_updated": "",
-    "current_chapter": 0
+    "last_updated": "2026-04-18T17:48:36+00:00",
+    "current_chapter": 1
   },
-  "characters": {}
+  "characters": {
+    "杨无尘": {
+      "last_seen_chapter": 1,
+      "active": true,
+      "last_updated": "2026-04-18T17:48:36+00:00"
+    },
+    "云山望岳": {
+      "last_seen_chapter": 1,
+      "active": true,
+      "last_updated": "2026-04-18T17:48:36+00:00"
+    },
+    "云河": {
+      "last_seen_chapter": 1,
+      "active": true,
+      "last_updated": "2026-04-18T17:48:36+00:00"
+    }
+  }
 }
