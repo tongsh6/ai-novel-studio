@@ -1,132 +1,179 @@
 # AI Novel Studio
 
-一个用于 AI 辅助小说创作的项目仓库。
+一个面向多小说项目管理的 AI 小说工作台原型。
 
-当前 `temp` 分支里的核心内容还不是可执行程序，而是一套已经整理好的小说写作系统模板，包含世界观、人物、主线大纲、章节草稿、连续性规则和写作工具提示词。它适合用作后续 AI 写作工作流、自动化脚本或产品化系统的内容底座。
+当前分支的目标不是沉淀 `temp` 上的内容资产，而是验证一个最小产品形态是否成立：
 
-## 当前状态
+`用户通过页面管理多本小说，并完成其中一本小说的前三章推进`
 
-- 仓库当前以内容资产为主，不是完整的软件项目
-- 主要内容集中在 `novel_writing_system/`
-- 已有第一卷大纲、人物档案、世界观设定、章节草稿
-- 尚未补齐脚本、知识图谱、状态文件和运行入口
+## 本次 MVP 验证范围
 
-## 目录结构
+这版原型聚焦 4 个能力：
+
+- 同时管理多本小说项目
+- 每本小说维护独立的设定、大纲、章节和生成记录
+- 通过页面生成并查看前 3 章的细纲与草稿
+- 用基础状态流转验证“前三章已完成”的项目闭环
+
+本次不覆盖：
+
+- 真实 LLM 接入
+- 复杂质量门禁
+- 多人协作与权限
+- 经验学习引擎
+- 全书级编排
+
+## 目录
 
 ```text
 ai-novel-studio/
 ├── README.md
-└── novel_writing_system/
-    ├── 人物管理/
-    ├── 世界观设定/
-    ├── 大纲管理/
-    ├── 章节写作/
-    ├── 工具库/
-    └── 参考资源/
+├── docs/
+│   └── ui-mvp-spec.md
+├── server.py
+└── web/
+    ├── index.html
+    ├── styles.css
+    └── app.js
 ```
 
-### `人物管理/`
+## 运行方式
 
-用于维护人物档案、人物索引、人物弧光和成长追踪。
+当前版本已经包含一个零依赖本地后端，用于保存项目数据并提供 API。
 
-关键文件：
+例如：
 
-- `人物管理/人物索引.md`
-- `人物管理/主角档案/`
-- `人物管理/配角档案/`
-- `人物管理/反派档案/`
+```bash
+cd /Users/loong/workspace/novel/ai-novel-studio
+python3 server.py
+```
 
-### `世界观设定/`
+然后访问：
 
-用于维护地点、势力、文化、历史、力量体系等核心世界观资料。
+`http://127.0.0.1:8000`
 
-关键文件：
+如果 `8000` 端口被占用，可以直接换端口启动：
 
-- `世界观设定/地点索引.md`
-- `世界观设定/地理地图/地理地图与巨城架构.md`
-- `世界观设定/力量体系/神息力量体系总览.md`
-- `世界观设定/势力组织/组织总览（2170年）.md`
+```bash
+PORT=8010 python3 server.py
+```
 
-### `大纲管理/`
+## 真实模型接入
 
-用于管理主线大纲、历史大纲、连续性规则、伏笔追踪和临时规划。
+当前版本默认接入 DeepSeek 的 `OpenAI-compatible` Chat Completions 接口。
 
-关键文件：
+可配置环境变量：
 
-- `大纲管理/连续性规则.md`
-- `大纲管理/历史大纲/主线大纲/第一卷-出山.md`
-- `大纲管理/伏笔追踪/`
+- `AI_NOVEL_LLM_MODE`
+  - `auto`：有 `API_KEY + MODEL` 就走真实模型，否则回退 stub
+  - `stub`：强制只用规则模板
+- `DEEPSEEK_API_KEY`
+- `AI_NOVEL_API_KEY`
+- `AI_NOVEL_BASE_URL`
+  - 默认 `https://api.deepseek.com`
+- `AI_NOVEL_MODEL`
+  - 默认 `deepseek-chat`
+- `AI_NOVEL_TIMEOUT`
 
-### `章节写作/`
+示例：
 
-用于存放卷级章节目录、章节元数据和草稿内容。
+```bash
+export AI_NOVEL_LLM_MODE=auto
+export DEEPSEEK_API_KEY=your_key
+export AI_NOVEL_BASE_URL=https://api.deepseek.com
+export AI_NOVEL_MODEL=deepseek-chat
 
-当前已包含：
+python3 server.py
+```
 
-- 部分章节 `metadata.json`
-- 章节草稿示例
+如果模型调用失败，系统会自动回退到规则模板，并在生成记录里写入回退原因摘要。
 
-### `工具库/`
+## Prompt 配置
 
-用于存放各类 AI 写作 Prompt 模板，覆盖大纲生成、人物设计、情节创意、冲突分析、爽点优化等。
+“生成大纲 / 生成草稿”的提示词已从业务代码中抽离，默认配置文件在：
 
-示例文件：
+- `prompts/default_prompts.json`
 
-- `工具库/创作工具/工具_主线大纲生成.md`
-- `工具库/创作工具/工具_人物创作与弧光设计.md`
-- `工具库/分析工具/工具_剧情冲突分析.md`
+当前支持的 prompt 项：
 
-### `参考资源/`
+- `full_outline`
+- `chapter_outline`
+- `chapter_draft`
 
-用于沉淀灵感、研究资料和外部素材，不直接承担正式设定职责。
+每项都支持：
 
-## 推荐使用方式
+- `system`
+- `user`
+- `temperature`
 
-建议把这个仓库当成“小说项目知识库”来使用：
+如果你要替换为自己的提示词文件，可以通过环境变量覆盖：
 
-1. 先在 `世界观设定/` 和 `人物管理/` 中建立稳定设定。
-2. 在 `大纲管理/` 中推进卷纲、细纲和伏笔规划。
-3. 在 `章节写作/` 中产出草稿和章节元数据。
-4. 使用 `工具库/` 中的 Prompt 模板调用 AI 辅助创作。
-5. 每完成章节后，同步更新 `连续性规则.md`，避免人物、时间线和知识边界冲突。
+```bash
+export AI_NOVEL_PROMPTS_PATH=/absolute/path/to/your_prompts.json
+python3 server.py
+```
 
-## 已知缺口
+模板变量会由后端自动注入，当前可用字段包括：
 
-仓库内已有部分文档提到以下文件或脚本，但当前尚未存在：
+- `project_title`
+- `project_genre`
+- `project_hook`
+- `settings_theme`
+- `settings_world`
+- `settings_power_system`
+- `settings_factions`
+- `outline_premise`
+- `outline_volume_goal`
+- `characters_json`
+- `chapter_number`
+- `chapter_title`
+- `chapter_outline`
+- `chapter_foreshadow_json`
+- `chapter_plan_json`
 
-- `scripts/vectorize_content.py`
-- `project-knowledge-graph.json`
-- `.character_states.json`
+## 交互说明
 
-这说明当前仓库更像是“写作系统模板的内容层”，后续如果要做成真正的 AI 小说系统，还需要补：
+页面包含：
 
-- 内容索引与知识图谱
-- 向量化检索脚本
-- 章节状态管理
-- Prompt 编排流程
-- 可执行的 CLI / Web 服务入口
+- 小说列表
+- 小说工作台
+- 设定管理
+- 大纲管理
+- 章节工作区
+- 生成记录
 
-## 后续方向
+在章节工作区中，可以对第 1-3 章执行：
 
-这个仓库接下来可以沿两个方向演进：
+- 生成细纲
+- 生成草稿
+- 章节检查
+- 批准章节
 
-### 方向一：内容型仓库
+当第 1-3 章都被批准后，项目状态会自动推进为“前三章已完成”。
 
-继续把它打磨成高质量的小说创作知识库，重点优化目录规范、文档一致性和创作流程。
+当前数据存储位置：
 
-### 方向二：产品型仓库
+- `data/projects.json`
 
-在现有内容资产基础上，逐步增加：
+前端通过这些接口与后端交互：
 
-- 小说项目初始化器
-- 角色/设定检索
-- 大纲与章节生成工作流
-- 一致性检查
-- 多模型调用接口
+- `GET /api/projects`
+- `GET /api/health`
+- `GET /api/prompts`
+- `POST /api/projects`
+- `DELETE /api/projects/:id`
+- `PUT /api/prompts`
+- `PUT /api/projects/:id`
+- `POST /api/projects/:id/generate-full-outline`
+- `POST /api/projects/:id/chapters/:number/generate-outline`
+- `POST /api/projects/:id/chapters/:number/generate-draft`
+- `POST /api/projects/:id/chapters/:number/check`
+- `POST /api/projects/:id/chapters/:number/approve`
 
-## 当前分支说明
+## 文档
 
-- `main`：仅包含仓库初始化提交
-- `temp`：当前实际内容分支
+- [UI MVP 规格](./docs/ui-mvp-spec.md)
 
-如果后续要继续开发，建议先在 `temp` 分支整理内容，再决定是否合并到 `main`。
+DeepSeek 官方文档：
+
+- https://api-docs.deepseek.com/

@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Novel Studio MVP</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="eyebrow">AI Novel Studio</p>
+          <h1>多小说工作台</h1>
+          <p class="muted">最小验证目标：通过页面推进任意一本小说的前三章。</p>
+          <p id="llm-status" class="muted"></p>
+        </div>
+
+        <section class="panel create-panel">
+          <h2>新建小说</h2>
+          <label>
+            书名
+            <input id="new-title" type="text" placeholder="例如：赤潮学院" />
+          </label>
+          <label>
+            题材
+            <input id="new-genre" type="text" placeholder="例如：学院流 / 玄幻" />
+          </label>
+          <label>
+            卖点
+            <textarea
+              id="new-hook"
+              rows="3"
+              placeholder="一句话卖点，例如：落榜少年靠废墟图鉴改写学院秩序。"
+            ></textarea>
+          </label>
+          <button id="create-project" class="primary">创建项目</button>
+        </section>
+
+        <section class="panel">
+          <div class="section-header">
+            <h2>小说列表</h2>
+            <span id="project-count" class="badge"></span>
+          </div>
+          <div id="project-list" class="project-list"></div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <div id="app-banner" class="app-banner hidden"></div>
+        <header class="workspace-header">
+          <div>
+            <p id="project-status" class="eyebrow"></p>
+            <h2 id="project-title">请选择小说项目</h2>
+            <p id="project-subtitle" class="muted"></p>
+          </div>
+          <div class="header-actions">
+            <div class="actions">
+              <button id="delete-project" class="ghost">删除小说</button>
+            </div>
+            <div class="header-stats">
+            <div class="stat-card">
+              <span>下一步</span>
+              <strong id="project-next-action">-</strong>
+            </div>
+            <div class="stat-card">
+              <span>最后更新</span>
+              <strong id="project-updated-at">-</strong>
+            </div>
+            </div>
+          </div>
+        </header>
+
+        <nav class="tabs">
+          <button class="tab active" data-tab="overview">总览</button>
+          <button class="tab" data-tab="settings">设定</button>
+          <button class="tab" data-tab="outline">大纲</button>
+          <button class="tab" data-tab="library">资料库</button>
+          <button class="tab" data-tab="chapters">章节</button>
+          <button class="tab" data-tab="reading">阅读</button>
+          <button class="tab" data-tab="prompts">Prompts</button>
+          <button class="tab" data-tab="records">记录</button>
+        </nav>
+
+        <section id="tab-overview" class="tab-panel active"></section>
+        <section id="tab-settings" class="tab-panel"></section>
+        <section id="tab-outline" class="tab-panel"></section>
+        <section id="tab-library" class="tab-panel"></section>
+        <section id="tab-chapters" class="tab-panel"></section>
+        <section id="tab-reading" class="tab-panel"></section>
+        <section id="tab-prompts" class="tab-panel"></section>
+        <section id="tab-records" class="tab-panel"></section>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
