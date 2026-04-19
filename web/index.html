@@ -16,6 +16,11 @@
           <p id="llm-status" class="muted"></p>
         </div>
 
+        <section class="panel sidebar-tabs">
+          <button class="tab" data-tab="system-settings">系统设置</button>
+          <button class="tab" data-tab="author-space">作者空间</button>
+        </section>
+
         <section class="panel create-panel">
           <h2>新建小说</h2>
           <label>
@@ -73,6 +78,7 @@
 
         <nav class="tabs">
           <button class="tab active" data-tab="overview">总览</button>
+          <button class="tab" data-tab="ideation">构思</button>
           <button class="tab" data-tab="settings">设定</button>
           <button class="tab" data-tab="outline">大纲</button>
           <button class="tab" data-tab="library">资料库</button>
@@ -83,6 +89,9 @@
         </nav>
 
         <section id="tab-overview" class="tab-panel active"></section>
+        <section id="tab-system-settings" class="tab-panel"></section>
+        <section id="tab-author-space" class="tab-panel"></section>
+        <section id="tab-ideation" class="tab-panel"></section>
         <section id="tab-settings" class="tab-panel"></section>
         <section id="tab-outline" class="tab-panel"></section>
         <section id="tab-library" class="tab-panel"></section>

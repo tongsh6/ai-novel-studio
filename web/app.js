@@ -6,6 +6,11 @@ const state = {
   llmStatus: null,
   promptConfig: null,
   promptStatus: null,
+  systemSettings: null,
+  systemFeatures: [],
+  authorSpace: null,
+  authorFeaturesGlobal: [],
+  authorReferenceAssetsGlobal: [],
   pendingAction: "",
   pendingContext: null,
   bannerMessage: "",
@@ -13,6 +18,7 @@ const state = {
   countdownTimer: null,
   automationPollTimer: null,
   automationPollInFlight: false,
+  referenceDrafts: {},
 };
 
 const AUTOMATION_POLL_INTERVAL_MS = 5000;
@@ -26,6 +32,9 @@ const dom = {
   projectNextAction: document.querySelector("#project-next-action"),
   projectUpdatedAt: document.querySelector("#project-updated-at"),
   overview: document.querySelector("#tab-overview"),
+  systemSettings: document.querySelector("#tab-system-settings"),
+  authorSpace: document.querySelector("#tab-author-space"),
+  ideation: document.querySelector("#tab-ideation"),
   settings: document.querySelector("#tab-settings"),
   outline: document.querySelector("#tab-outline"),
   library: document.querySelector("#tab-library"),
@@ -44,13 +53,35 @@ const dom = {
 };
 
 async function apiFetch(path, options = {}) {
-  const response = await fetch(path, {
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
-    ...options,
-  });
+  const { timeoutMs = 0, ...fetchOptions } = options;
+  const controller = !fetchOptions.signal && timeoutMs > 0 && typeof AbortController !== "undefined"
+    ? new AbortController()
+    : null;
+  const timeoutId = controller
+    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    : null;
+
+  let response;
+  try {
+    response = await fetch(path, {
+      headers: {
+        "Content-Type": "application/json",
+        ...(fetchOptions.headers || {}),
+      },
+      ...fetchOptions,
+      signal: fetchOptions.signal || controller?.signal,
+    });
+  } catch (error) {
+    if (error?.name === "AbortError") {
+      const seconds = timeoutMs > 0 ? Math.ceil(timeoutMs / 1000) : 0;
+      throw new Error(seconds ? `请求超时（>${seconds} 秒）` : "请求已取消");
+    }
+    throw error;
+  } finally {
+    if (timeoutId) {
+      window.clearTimeout(timeoutId);
+    }
+  }
 
   if (!response.ok) {
     let message = `请求失败：${response.status}`;
@@ -78,6 +109,42 @@ function chapterByNumber(project, number) {
 
 function currentChapter(project) {
   return chapterByNumber(project, state.activeChapterNumber) || project.chapters[0];
+}
+
+function defaultReferenceDraft() {
+  return {
+    mode: "project_assisted_analysis",
+    role: "parallel",
+    sourceType: "local_file",
+    sourceTitle: "",
+    sourcePath: "",
+    sourceText: "",
+    sourceLabel: "",
+    sourceUrl: "",
+    notes: "",
+  };
+}
+
+function referenceDraftFor(projectId) {
+  if (!projectId) {
+    return defaultReferenceDraft();
+  }
+  if (!state.referenceDrafts[projectId]) {
+    state.referenceDrafts[projectId] = defaultReferenceDraft();
+  }
+  return state.referenceDrafts[projectId];
+}
+
+function captureReferenceDraft(projectId) {
+  const draft = referenceDraftFor(projectId);
+  draft.mode = document.querySelector("#reference-mode")?.value || draft.mode;
+  draft.role = document.querySelector("#reference-role")?.value || draft.role;
+  draft.sourceType = document.querySelector("#reference-source-type")?.value || draft.sourceType;
+  draft.sourceTitle = document.querySelector("#reference-title")?.value || "";
+  draft.sourceUrl = document.querySelector("#reference-source-url")?.value || "";
+  draft.notes = document.querySelector("#reference-notes")?.value || "";
+  state.referenceDrafts[projectId] = draft;
+  return draft;
 }
 
 function formatChapterStatus(status) {
@@ -151,6 +218,322 @@ function formatRunOptions(currentRun) {
       : `第 ${startVolume} 卷到第 ${endVolume} 卷`;
   const skipText = options.skipSystemPassedChapters === false ? "重跑系统通过章" : "跳过系统通过章";
   return `${volumeText} | ${skipText}`;
+}
+
+function kernelOf(project) {
+  return (
+    project?.kernel || {
+      space: null,
+      activeConversation: null,
+      formalObjects: [],
+      candidateObjects: [],
+      candidateChangeSets: [],
+      memories: [],
+      referenceAssets: [],
+      authorReferenceAssets: [],
+      capabilityFeatures: [],
+      authorCapabilityFeatures: [],
+      enabledAuthorCapabilityFeatures: [],
+      suggestedAuthorCapabilityFeatures: [],
+      versions: [],
+      summary: {
+        formalObjectCount: 0,
+        candidateChangeSetCount: 0,
+        memoryCount: 0,
+        versionCount: 0,
+        referenceAssetCount: 0,
+        authorReferenceAssetCount: 0,
+        featureCount: 0,
+        authorFeatureCount: 0,
+        enabledAuthorFeatureCount: 0,
+        suggestedAuthorFeatureCount: 0,
+      },
+    }
+  );
+}
+
+function formatKernelSpaceStatus(status) {
+  return {
+    ideation: "构思中",
+    structuring: "结构化中",
+    stabilizing: "稳定中",
+    writing_ready: "可进入写作",
+  }[status] || "未知";
+}
+
+function formatKernelObjectLabel(object) {
+  const typeMap = {
+    novel_metadata: "小说元信息",
+    worldbuilding: "世界设定",
+    character_relation: "角色关系",
+    story_direction: "故事方向",
+  };
+  const typeText = typeMap[object?.type] || object?.type || "对象";
+  const subtype = object?.subtype ? ` / ${object.subtype}` : "";
+  return `${typeText}${subtype}`;
+}
+
+function formatReferenceSourceType(sourceType) {
+  return {
+    local_file: "本地文件",
+    url: "全文网址",
+  }[sourceType] || sourceType || "未知来源";
+}
+
+function normalizedCompareText(value) {
+  return String(value || "").replaceAll(/\s+/g, " ").trim();
+}
+
+function sameReferenceObject(a, b) {
+  return (
+    normalizedCompareText(a?.title) === normalizedCompareText(b?.title) &&
+    normalizedCompareText(a?.type) === normalizedCompareText(b?.type) &&
+    normalizedCompareText(a?.subtype) === normalizedCompareText(b?.subtype) &&
+    normalizedCompareText(a?.content?.summary) === normalizedCompareText(b?.content?.summary)
+  );
+}
+
+function sameReferenceInsight(a, b) {
+  return normalizedCompareText(a?.summary) === normalizedCompareText(b?.summary);
+}
+
+function renderReferenceInsights(insights) {
+  const items = Array.isArray(insights) ? insights : [];
+  if (!items.length) {
+    return '<p class="muted" style="margin-top:8px;">还没有结构结论。</p>';
+  }
+  return items
+    .map(
+      (item) => `
+        <article class="record-card" style="margin-top:8px; padding:12px;">
+          <strong>${escapeHtml(item.title || "未命名结论")}</strong>
+          <div class="muted" style="margin-top:6px; line-height:1.6;">${escapeHtml(item.summary || "-")}</div>
+        </article>
+      `,
+    )
+    .join("");
+}
+
+function renderReferenceDraftInsights(draftInsights, finalInsights) {
+  const draftItems = Array.isArray(draftInsights) ? draftInsights : [];
+  if (!draftItems.length) {
+    return '<p class="muted" style="margin-top:8px;">还没有 AI 初步结构。</p>';
+  }
+  return draftItems
+    .map((item, index) => {
+      const finalItem = Array.isArray(finalInsights) ? finalInsights[index] : null;
+      const merged = finalItem ? sameReferenceInsight(item, finalItem) : false;
+      return `
+        <article class="record-card" style="margin-top:8px; padding:12px;">
+          <div class="row-between" style="gap:12px; align-items:flex-start;">
+            <span>
+              <strong>${escapeHtml(item.title || "未命名初步结论")}</strong>
+              ${
+                finalItem
+                  ? `<div class="muted" style="margin-top:6px;">对应标准块：${escapeHtml(finalItem.title || "-")}</div>`
+                  : ""
+              }
+            </span>
+            <span class="chip">${escapeHtml(merged ? "已并入最终结论" : "待人工对比")}</span>
+          </div>
+          ${
+            merged
+              ? '<div class="muted" style="margin-top:8px;">这一条的内容已经并入下方标准化结论，不再重复展开。</div>'
+              : `<div class="muted" style="margin-top:8px; line-height:1.6;">${escapeHtml(item.summary || "-")}</div>`
+          }
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderReferenceRawAnalysis(rawAnalysis) {
+  const content = rawAnalysis?.content || "";
+  if (!content) {
+    return '<p class="muted" style="margin-top:8px;">还没有原始处理结果。</p>';
+  }
+  if (rawAnalysis?.format === "json") {
+    try {
+      const parsed = JSON.parse(content);
+      if (parsed?.analysisMode === "full_text_chunked" || parsed?.analysisMode === "full_text_sampled") {
+        const chunks = Array.isArray(parsed.chunks) ? parsed.chunks : [];
+        const sampled = parsed?.analysisMode === "full_text_sampled";
+        const chunkRows = chunks.length
+          ? chunks
+              .map(
+                (chunk) => `
+                  <div class="record-card" style="margin-top:8px; padding:10px 12px;">
+                    <div class="row-between" style="gap:12px;">
+                      <strong>第 ${escapeHtml(String(chunk.index || "-"))} 段</strong>
+                      <span class="badge">${escapeHtml(`${chunk.start ?? 0}..${chunk.end ?? 0}`)}</span>
+                    </div>
+                  </div>
+                `,
+              )
+              .join("")
+          : '<p class="muted" style="margin-top:8px;">没有可显示的分块信息。</p>';
+        return `
+          <article class="record-card" style="margin-top:8px; padding:12px;">
+            <div class="row-between" style="gap:12px; align-items:flex-start;">
+              <span>
+                <strong>${sampled ? "全文抽样处理" : "全文分块处理"}</strong>
+                <div class="muted" style="margin-top:6px;">总字数：${escapeHtml(String(parsed.totalCharacters || 0))} | 原始分块数：${escapeHtml(String(parsed.chunkCount || chunks.length || 0))} | 实际分析块：${escapeHtml(String(parsed.analyzedChunkCount || chunks.length || 0))}</div>
+              </span>
+              <span class="chip">${sampled ? "超长文本已抽样" : "仅展示处理链路"}</span>
+            </div>
+          </article>
+          <div style="margin-top:12px;">
+            <strong>最终汇总原始输出</strong>
+            <article class="record-card" style="margin-top:8px; padding:12px;">
+              <pre style="white-space:pre-wrap; margin:0; max-height:520px; overflow:auto; line-height:1.7; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">${escapeHtml(parsed.aggregateRaw || "")}</pre>
+            </article>
+          </div>
+          <div style="margin-top:12px;">
+            <strong>分块执行记录</strong>
+            ${chunkRows}
+          </div>
+        `;
+      }
+    } catch {
+      // fallback to raw text block below
+    }
+  }
+  return `
+    <article class="record-card" style="margin-top:8px; padding:12px;">
+      <pre style="white-space:pre-wrap; margin:0; max-height:520px; overflow:auto; line-height:1.7; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;">${escapeHtml(content)}</pre>
+    </article>
+  `;
+}
+
+function renderReferenceReusableObjects(objects, objectMap, showStatus = true) {
+  const items = Array.isArray(objects) ? objects : [];
+  if (!items.length) {
+    return '<p class="muted" style="margin-top:8px;">还没有可复用对象。</p>';
+  }
+  return items
+    .map((item) => {
+      const linkedObject = objectMap.get(item.id || "");
+      const objectStatus = linkedObject?.status === "formal"
+        ? "已进入正式层"
+        : linkedObject?.status === "candidate"
+          ? "已进入候选区"
+          : "尚未挂接";
+      return `
+        <article class="record-card" style="margin-top:8px; padding:12px;">
+          <div class="row-between" style="gap:12px;">
+            <strong>${escapeHtml(item.title || "未命名对象")}</strong>
+            <span class="badge">${escapeHtml(formatKernelObjectLabel(item))}</span>
+          </div>
+          <div style="margin-top:6px; line-height:1.6;">${escapeHtml(item.content?.summary || "-")}</div>
+          ${
+            showStatus
+              ? `<div class="muted" style="margin-top:8px;">当前状态：${escapeHtml(objectStatus)}</div>`
+              : ""
+          }
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function renderReferenceDraftReusableObjects(draftObjects, finalObjects) {
+  const items = Array.isArray(draftObjects) ? draftObjects : [];
+  if (!items.length) {
+    return '<p class="muted" style="margin-top:8px;">还没有 AI 初步对象。</p>';
+  }
+  const finalItems = Array.isArray(finalObjects) ? finalObjects : [];
+  const allMerged = items.every((item) => finalItems.some((finalItem) => sameReferenceObject(item, finalItem)));
+  if (allMerged) {
+    return '<p class="muted" style="margin-top:8px;">AI 初步对象已全部并入下方最终对象，这里不再重复展开。</p>';
+  }
+  return renderReferenceReusableObjects(items, new Map(), false);
+}
+
+function renderReferenceProcessPanel(asset) {
+  if (!asset) {
+    return '<div class="empty" style="margin-top:12px;">还没有可查看的拆解过程。先提交一次参考作品拆解。</div>';
+  }
+  const draftAnalysis = asset.draftAnalysis || {};
+  const draftInsights = draftAnalysis.insights || [];
+  const draftReusableObjects = draftAnalysis.reusableObjects || [];
+  const insights = asset.insights || [];
+  const reusableObjects = asset.reusableObjects || [];
+  return `
+    <div class="row-between" style="gap:12px; align-items:flex-start; margin-top:12px;">
+      <span>
+        <strong>${escapeHtml(asset.sourceWork?.title || "未命名参考作品")}</strong>
+        <div class="muted" style="margin-top:6px;">来源：${escapeHtml(formatReferenceSourceType(asset.sourceWork?.sourceType))} | ${escapeHtml(asset.sourceWork?.sourceLabel || "-")}</div>
+      </span>
+      <span class="badge">${escapeHtml(asset.mode)}</span>
+    </div>
+    <div class="muted" style="margin-top:10px; line-height:1.7;">${escapeHtml(asset.summary || "-")}</div>
+
+    <div class="section-header" style="margin-top:16px;">
+      <h3>原始 AI 处理结果</h3>
+      <span class="badge">${escapeHtml(asset.rawAnalysis?.format || "text")}</span>
+    </div>
+    ${renderReferenceRawAnalysis(asset.rawAnalysis)}
+
+    <div class="section-header" style="margin-top:16px;">
+      <h3>AI 初步结构</h3>
+      <span class="badge">${escapeHtml(String(draftInsights.length))} / ${escapeHtml(String(draftReusableObjects.length))}</span>
+    </div>
+    <div class="muted" style="margin-top:8px;">${escapeHtml(draftAnalysis.summary || asset.summary || "-")}</div>
+    ${renderReferenceDraftInsights(draftInsights, insights)}
+
+    <div class="section-header" style="margin-top:12px;">
+      <h3>AI 初步对象</h3>
+      <span class="badge">${escapeHtml(String(draftReusableObjects.length))}</span>
+    </div>
+    ${renderReferenceDraftReusableObjects(draftReusableObjects, reusableObjects)}
+  `;
+}
+
+function renderReferenceResultPanel(asset, objectMap) {
+  if (!asset) {
+    return '<div class="empty" style="margin-top:12px;">还没有拆解结论。先完成一次参考作品拆解。</div>';
+  }
+  const reusableObjects = asset.reusableObjects || [];
+  const insights = asset.insights || [];
+  return `
+    <div class="row-between" style="gap:12px; align-items:flex-start; margin-top:12px;">
+      <span>
+        <strong>${escapeHtml(asset.sourceWork?.title || "未命名参考作品")}</strong>
+        <div class="muted" style="margin-top:6px;">这里展示的是结合当前标准框架后的最终结论，可直接拿来判断是否吸收。</div>
+      </span>
+      <span class="chip">最终结果</span>
+    </div>
+
+    <div class="section-header" style="margin-top:16px;">
+      <h3>结构化结论</h3>
+      <span class="badge">${escapeHtml(String(insights.length))}</span>
+    </div>
+    ${renderReferenceInsights(insights)}
+
+    <div class="section-header" style="margin-top:16px;">
+      <h3>可复用对象</h3>
+      <span class="badge">${escapeHtml(String(reusableObjects.length))}</span>
+    </div>
+    ${renderReferenceReusableObjects(reusableObjects, objectMap)}
+  `;
+}
+
+function renderReferenceAssetCard(asset, objectMap, compact = false) {
+  const reusableObjects = asset.reusableObjects || [];
+  const insights = asset.insights || [];
+  if (compact) {
+    return `
+      <article class="record-card" style="margin-top:12px;">
+        <div class="row-between" style="gap:12px;">
+          <strong>${escapeHtml(asset.sourceWork?.title || "未命名参考作品")}</strong>
+          <span class="chip">${escapeHtml(formatReferenceSourceType(asset.sourceWork?.sourceType))}</span>
+        </div>
+        <div class="muted" style="margin-top:6px;">${escapeHtml(asset.summary || "-")}</div>
+        <div class="muted" style="margin-top:8px;">结构结论 ${escapeHtml(String(insights.length))} 条 | 可复用对象 ${escapeHtml(String(reusableObjects.length))} 项</div>
+      </article>
+    `;
+  }
+  return renderReferenceResultPanel(asset, objectMap);
 }
 
 function escapeHtml(value) {
@@ -247,6 +630,80 @@ async function savePromptConfig(config) {
   render();
 }
 
+function defaultSystemSettings() {
+  return {
+    models: [],
+    taskRouting: {
+      free_ideation: { primaryModelId: "", fallbackModelId: "" },
+      reference_chunk_analysis: { primaryModelId: "", fallbackModelId: "" },
+      reference_aggregate_analysis: { primaryModelId: "", fallbackModelId: "" },
+      chapter_generation: { primaryModelId: "", fallbackModelId: "" },
+      quality_check: { primaryModelId: "", fallbackModelId: "" },
+      format_repair: { primaryModelId: "", fallbackModelId: "" },
+    },
+    execution: {
+      timeoutSeconds: 300,
+      retryCount: 1,
+      chunkSize: 12000,
+      chunkOverlap: 600,
+      aggregateGroupSize: 8,
+      enableFormatRepairFallback: true,
+    },
+  };
+}
+
+function defaultAuthorSpace() {
+  return {
+    profile: { penName: "", displayName: "", bio: "" },
+    contacts: { email: "", wechat: "", phone: "", other: "" },
+    publishing: { platforms: "", homepage: "", writingGoals: "", currentStage: "" },
+    styleNotes: {
+      styleTraits: "",
+      languagePreference: "",
+      pacePreference: "",
+      characterPreference: "",
+      worldPreference: "",
+      conflictPreference: "",
+      avoidance: "",
+      otherNotes: "",
+    },
+  };
+}
+
+async function refreshSystemSettings() {
+  const payload = await apiFetch("/api/system-settings");
+  state.systemSettings = payload.systemSettings || defaultSystemSettings();
+  state.systemFeatures = payload.systemFeatures || [];
+}
+
+async function saveSystemSettings(config) {
+  const payload = await apiFetch("/api/system-settings", {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+  state.systemSettings = payload.systemSettings || defaultSystemSettings();
+  state.systemFeatures = payload.systemFeatures || [];
+  render();
+}
+
+async function refreshAuthorSpace() {
+  const payload = await apiFetch("/api/author-space");
+  state.authorSpace = payload.authorSpace || defaultAuthorSpace();
+  state.authorFeaturesGlobal = payload.authorFeatures || [];
+  state.authorReferenceAssetsGlobal = payload.authorReferenceAssets || [];
+}
+
+async function saveAuthorSpace(config) {
+  const payload = await apiFetch("/api/author-space", {
+    method: "PUT",
+    body: JSON.stringify(config),
+  });
+  state.authorSpace = payload.authorSpace || defaultAuthorSpace();
+  state.authorFeaturesGlobal = payload.authorFeatures || [];
+  state.authorReferenceAssetsGlobal = payload.authorReferenceAssets || [];
+  render();
+}
+
 function isBusy(action = "", context = null) {
   if (state.pendingAction !== action) {
     return false;
@@ -258,10 +715,12 @@ function isBusy(action = "", context = null) {
   return Object.entries(context).every(([key, value]) => pendingContext[key] === value);
 }
 
-function setPending(action, context = null) {
+function setPending(action, context = null, options = {}) {
   state.pendingAction = action;
   state.pendingContext = context;
-  render();
+  if (options.render !== false) {
+    render();
+  }
 }
 
 function clearPending() {
@@ -281,6 +740,35 @@ function clearBanner() {
   }
   state.bannerMessage = "";
   render();
+}
+
+function projectReferenceAnalysis(project) {
+  return project?.referenceAnalysis || { runStatus: "idle", currentRun: null };
+}
+
+function hasActiveReferenceAnalysis(project) {
+  return projectReferenceAnalysis(project).runStatus === "running";
+}
+
+function formatReferenceAnalysisStatus(project) {
+  const analysis = projectReferenceAnalysis(project);
+  const currentRun = analysis.currentRun || {};
+  if (analysis.runStatus === "running") {
+    const analyzed = Number(currentRun.analyzedChunkCount || 0);
+    const completed = Number(currentRun.completedChunks || 0);
+    if (analyzed > 0) {
+      const phaseLabel = currentRun.phase === "aggregate" ? "汇总中" : "拆解中";
+      return `${phaseLabel} ${completed}/${analyzed}`;
+    }
+    return currentRun.message || "排队中";
+  }
+  if (analysis.runStatus === "completed") {
+    return "分析完成";
+  }
+  if (analysis.runStatus === "failed") {
+    return "分析失败";
+  }
+  return "待命";
 }
 
 function stopCountdownTimer() {
@@ -364,7 +852,7 @@ function syncCountdownButtons() {
   });
 }
 
-async function runAction(action, task, context = null) {
+async function runAction(action, task, context = null, options = {}) {
   if (state.pendingAction) {
     return;
   }
@@ -373,7 +861,7 @@ async function runAction(action, task, context = null) {
   if (shouldTrackCountdown) {
     state.countdown = state.llmStatus?.timeout || 300;
   }
-  setPending(action, context);
+  setPending(action, context, { render: options.renderOnStart !== false });
 
   if (shouldTrackCountdown) {
     stopCountdownTimer();
@@ -664,6 +1152,10 @@ function hasActiveAutomation(project) {
   return runStatus === "running" || runStatus === "paused";
 }
 
+function hasActiveBackgroundWork(project) {
+  return hasActiveAutomation(project) || hasActiveReferenceAnalysis(project);
+}
+
 async function pollAutomationStatus() {
   const project = getCurrentProject();
   if (!project || state.automationPollInFlight) {
@@ -677,9 +1169,7 @@ async function pollAutomationStatus() {
       return;
     }
     replaceProjectInState(latestProject);
-    renderHeader();
-    syncOverviewProjectDom(latestProject);
-    syncOutlineAutomationDom(latestProject);
+    render();
   } catch (error) {
     console.error("[Automation Poll]", error);
   } finally {
@@ -691,7 +1181,7 @@ async function pollAutomationStatus() {
 function syncAutomationPolling() {
   stopAutomationPolling();
   const project = getCurrentProject();
-  if (!project || !hasActiveAutomation(project)) {
+  if (!project || !hasActiveBackgroundWork(project)) {
     return;
   }
   state.automationPollTimer = setTimeout(() => {
@@ -705,6 +1195,9 @@ function render() {
   renderSidebar();
   renderHeader();
   renderOverview();
+  renderSystemSettings();
+  renderAuthorSpace();
+  renderIdeation();
   renderSettings();
   renderOutline();
   renderLibrary();
@@ -714,6 +1207,338 @@ function render() {
   renderRecords();
   bindDynamicEvents();
   syncAutomationPolling();
+}
+
+function systemTaskLabel(taskKey) {
+  return {
+    free_ideation: "自由构思",
+    reference_chunk_analysis: "拆书分块",
+    reference_aggregate_analysis: "拆书汇总",
+    chapter_generation: "章节生成",
+    quality_check: "检查校验",
+    format_repair: "格式修复",
+  }[taskKey] || taskKey;
+}
+
+function renderModelOptions(models, selectedValue) {
+  return ['<option value="">未设置</option>']
+    .concat(
+      (models || []).map(
+        (model) => `
+          <option value="${escapeAttr(model.id)}" ${model.id === selectedValue ? "selected" : ""}>
+            ${escapeHtml(model.name || model.id)}
+          </option>
+        `,
+      ),
+    )
+    .join("");
+}
+
+function renderSystemSettings() {
+  const config = state.systemSettings || defaultSystemSettings();
+  const models = config.models || [];
+  const systemFeatures = state.systemFeatures || [];
+  const taskRouting = config.taskRouting || {};
+
+  dom.systemSettings.innerHTML = `
+    <article class="editor-card">
+      <div class="section-header">
+        <div>
+          <h3>系统设置</h3>
+          <p class="muted">这里只保存全局模型配置和任务路由，不接管当前实际执行链路。</p>
+        </div>
+        <button class="primary" id="save-system-settings" ${state.pendingAction ? "disabled" : ""}>保存系统设置</button>
+      </div>
+    </article>
+
+    <div class="grid-2" style="margin-top:16px;">
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>系统级能力</h3>
+          <span class="badge">${escapeHtml(String(systemFeatures.length))}</span>
+        </div>
+        ${
+          systemFeatures.length
+            ? systemFeatures
+                .map(
+                  (feature) => `
+                    <article class="record-card" style="margin-top:12px;">
+                      <div class="row-between" style="align-items:flex-start; gap:12px;">
+                        <span>
+                          <strong>${escapeHtml(feature.name)}</strong>
+                          <div class="muted" style="margin-top:6px;">${escapeHtml(feature.description || "-")}</div>
+                        </span>
+                        <span class="chip">${escapeHtml(feature.status || "system_active")}</span>
+                      </div>
+                    </article>
+                  `,
+                )
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">还没有系统级能力。</p>'
+        }
+      </article>
+
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>执行参数</h3>
+          <span class="badge">全局</span>
+        </div>
+        <div class="grid-3" style="margin-top:12px;">
+          <label>超时（秒）
+            <input id="system-timeout-seconds" type="number" min="1" value="${escapeAttr(String(config.execution?.timeoutSeconds ?? 300))}" />
+          </label>
+          <label>重试次数
+            <input id="system-retry-count" type="number" min="0" value="${escapeAttr(String(config.execution?.retryCount ?? 1))}" />
+          </label>
+          <label>分块大小
+            <input id="system-chunk-size" type="number" min="1000" value="${escapeAttr(String(config.execution?.chunkSize ?? 12000))}" />
+          </label>
+          <label>分块重叠
+            <input id="system-chunk-overlap" type="number" min="0" value="${escapeAttr(String(config.execution?.chunkOverlap ?? 600))}" />
+          </label>
+          <label>汇总分组大小
+            <input id="system-aggregate-group-size" type="number" min="1" value="${escapeAttr(String(config.execution?.aggregateGroupSize ?? 8))}" />
+          </label>
+          <label class="overview-checkbox-field">
+            <input id="system-enable-format-repair-fallback" type="checkbox" ${(config.execution?.enableFormatRepairFallback ?? true) ? "checked" : ""} />
+            <span>开启格式修复兜底</span>
+          </label>
+        </div>
+      </article>
+    </div>
+
+    <article class="editor-card" style="margin-top:16px;">
+      <div class="section-header">
+        <h3>模型列表</h3>
+        <button class="secondary" id="add-system-model" ${state.pendingAction ? "disabled" : ""}>新增模型</button>
+      </div>
+      ${
+        models.length
+          ? models
+              .map(
+                (model, index) => `
+                  <article class="record-card" style="margin-top:12px;">
+                    <div class="grid-3">
+                      <label>模型名称
+                        <input data-system-model-field="${index}:name" value="${escapeAttr(model.name || "")}" placeholder="例如：deepseek-chat" />
+                      </label>
+                      <label>提供方
+                        <input data-system-model-field="${index}:provider" value="${escapeAttr(model.provider || "")}" placeholder="例如：deepseek" />
+                      </label>
+                      <label>配置标识
+                        <input data-system-model-field="${index}:apiKeyRef" value="${escapeAttr(model.apiKeyRef || "")}" placeholder="例如：DEEPSEEK_API_KEY" />
+                      </label>
+                    </div>
+                    <div class="grid-2" style="margin-top:12px;">
+                      <label>Base URL
+                        <input data-system-model-field="${index}:baseUrl" value="${escapeAttr(model.baseUrl || "")}" placeholder="例如：https://api.deepseek.com" />
+                      </label>
+                      <label>用途标签
+                        <input data-system-model-field="${index}:usageTags" value="${escapeAttr((model.usageTags || []).join(", "))}" placeholder="例如：自由构思, 拆书分块" />
+                      </label>
+                    </div>
+                    <div class="grid-2" style="margin-top:12px;">
+                      <label>备注
+                        <textarea data-system-model-field="${index}:notes" rows="2" placeholder="模型说明或限制">${escapeHtml(model.notes || "")}</textarea>
+                      </label>
+                      <div style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                        <label class="overview-checkbox-field">
+                          <input data-system-model-field="${index}:enabled" type="checkbox" ${model.enabled ? "checked" : ""} />
+                          <span>启用</span>
+                        </label>
+                        <button class="ghost" data-remove-system-model="${index}" ${state.pendingAction ? "disabled" : ""}>删除模型</button>
+                      </div>
+                    </div>
+                  </article>
+                `,
+              )
+              .join("")
+          : '<p class="muted" style="margin-top:12px;">还没有配置任何模型。</p>'
+      }
+    </article>
+
+    <article class="editor-card" style="margin-top:16px;">
+      <div class="section-header">
+        <h3>任务路由</h3>
+        <span class="badge">先只保存</span>
+      </div>
+      <div class="stack" style="margin-top:12px;">
+        ${Object.keys(defaultSystemSettings().taskRouting)
+          .map((taskKey) => {
+            const current = taskRouting[taskKey] || { primaryModelId: "", fallbackModelId: "" };
+            return `
+              <div class="grid-3" style="align-items:end; margin-top:12px;">
+                <div>
+                  <strong>${escapeHtml(systemTaskLabel(taskKey))}</strong>
+                  <div class="muted" style="margin-top:6px;">主模型 / 备用模型</div>
+                </div>
+                <label>主模型
+                  <select data-system-routing="${taskKey}:primaryModelId">${renderModelOptions(models, current.primaryModelId)}</select>
+                </label>
+                <label>备用模型
+                  <select data-system-routing="${taskKey}:fallbackModelId">${renderModelOptions(models, current.fallbackModelId)}</select>
+                </label>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    </article>
+  `;
+}
+
+function renderAuthorSpace() {
+  const config = state.authorSpace || defaultAuthorSpace();
+  const authorFeatures = state.authorFeaturesGlobal || [];
+  const authorAssets = state.authorReferenceAssetsGlobal || [];
+  dom.authorSpace.innerHTML = `
+    <article class="editor-card">
+      <div class="section-header">
+        <div>
+          <h3>作者空间</h3>
+          <p class="muted">这里只保存作者长期资料。联系方式只保存，不进入模型上下文。</p>
+        </div>
+        <button class="primary" id="save-author-space" ${state.pendingAction ? "disabled" : ""}>保存作者空间</button>
+      </div>
+    </article>
+
+    <div class="grid-2" style="margin-top:16px;">
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>作者身份</h3>
+          <span class="badge">基础</span>
+        </div>
+        <label>笔名
+          <input id="author-pen-name" value="${escapeAttr(config.profile?.penName || "")}" placeholder="例如：辰东" />
+        </label>
+        <label>显示名 / 备注名
+          <input id="author-display-name" value="${escapeAttr(config.profile?.displayName || "")}" placeholder="例如：主作者A" />
+        </label>
+        <label>作者简介
+          <textarea id="author-bio" rows="4" placeholder="作者长期简介">${escapeHtml(config.profile?.bio || "")}</textarea>
+        </label>
+      </article>
+
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>联系方式与平台</h3>
+          <span class="badge">仅保存</span>
+        </div>
+        <div class="grid-2">
+          <label>邮箱
+            <input id="author-email" value="${escapeAttr(config.contacts?.email || "")}" />
+          </label>
+          <label>微信
+            <input id="author-wechat" value="${escapeAttr(config.contacts?.wechat || "")}" />
+          </label>
+          <label>手机号
+            <input id="author-phone" value="${escapeAttr(config.contacts?.phone || "")}" />
+          </label>
+          <label>其他联系方式
+            <input id="author-contact-other" value="${escapeAttr(config.contacts?.other || "")}" />
+          </label>
+        </div>
+        <label style="margin-top:12px;">常用发布平台
+          <input id="author-platforms" value="${escapeAttr(config.publishing?.platforms || "")}" placeholder="例如：起点中文网, 微信读书" />
+        </label>
+        <label>主页或链接
+          <input id="author-homepage" value="${escapeAttr(config.publishing?.homepage || "")}" />
+        </label>
+        <label>写作目标
+          <textarea id="author-writing-goals" rows="3">${escapeHtml(config.publishing?.writingGoals || "")}</textarea>
+        </label>
+        <label>当前阶段说明
+          <textarea id="author-current-stage" rows="3">${escapeHtml(config.publishing?.currentStage || "")}</textarea>
+        </label>
+      </article>
+    </div>
+
+    <div class="grid-2" style="margin-top:16px;">
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>长期写作风格</h3>
+          <span class="badge">自由文本</span>
+        </div>
+        <label>风格特点
+          <textarea id="author-style-traits" rows="3">${escapeHtml(config.styleNotes?.styleTraits || "")}</textarea>
+        </label>
+        <label>语言偏好
+          <textarea id="author-language-preference" rows="3">${escapeHtml(config.styleNotes?.languagePreference || "")}</textarea>
+        </label>
+        <label>节奏偏好
+          <textarea id="author-pace-preference" rows="3">${escapeHtml(config.styleNotes?.pacePreference || "")}</textarea>
+        </label>
+        <label>人物塑造偏好
+          <textarea id="author-character-preference" rows="3">${escapeHtml(config.styleNotes?.characterPreference || "")}</textarea>
+        </label>
+        <label>世界观偏好
+          <textarea id="author-world-preference" rows="3">${escapeHtml(config.styleNotes?.worldPreference || "")}</textarea>
+        </label>
+        <label>冲突组织偏好
+          <textarea id="author-conflict-preference" rows="3">${escapeHtml(config.styleNotes?.conflictPreference || "")}</textarea>
+        </label>
+        <label>避讳表达
+          <textarea id="author-avoidance" rows="3">${escapeHtml(config.styleNotes?.avoidance || "")}</textarea>
+        </label>
+        <label>其他备注
+          <textarea id="author-other-notes" rows="3">${escapeHtml(config.styleNotes?.otherNotes || "")}</textarea>
+        </label>
+      </article>
+
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>作者层沉淀</h3>
+          <span class="badge">${escapeHtml(String(authorFeatures.length))} / ${escapeHtml(String(authorAssets.length))}</span>
+        </div>
+        <div class="section-header" style="margin-top:16px;">
+          <h3>作者特性库</h3>
+          <span class="badge">${escapeHtml(String(authorFeatures.length))}</span>
+        </div>
+        ${
+          authorFeatures.length
+            ? authorFeatures
+                .slice()
+                .reverse()
+                .slice(0, 8)
+                .map(
+                  (feature) => `
+                    <div class="row-between" style="margin-top:10px; align-items:flex-start;">
+                      <span>
+                        <strong>${escapeHtml(feature.name)}</strong>
+                        <div class="muted" style="margin-top:6px;">${escapeHtml(feature.description || "-")}</div>
+                      </span>
+                      <span class="chip">${escapeHtml(feature.status || "-")}</span>
+                    </div>
+                  `,
+                )
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">还没有沉淀作者特性。</p>'
+        }
+
+        <div class="section-header" style="margin-top:20px;">
+          <h3>作者通用参考资产</h3>
+          <span class="badge">${escapeHtml(String(authorAssets.length))}</span>
+        </div>
+        ${
+          authorAssets.length
+            ? authorAssets
+                .slice()
+                .reverse()
+                .slice(0, 6)
+                .map(
+                  (asset) => `
+                    <article class="record-card" style="margin-top:12px;">
+                      <strong>${escapeHtml(asset.sourceWork?.title || "未命名参考作品")}</strong>
+                      <div class="muted" style="margin-top:6px;">${escapeHtml(asset.summary || "-")}</div>
+                    </article>
+                  `,
+                )
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">还没有作者通用参考资产。</p>'
+        }
+      </article>
+    </div>
+  `;
 }
 
 function renderBanner() {
@@ -920,6 +1745,475 @@ function renderOverview() {
       </div>
     </div>
   `;
+}
+
+function renderIdeation() {
+  const project = getCurrentProject();
+  if (!project) {
+    dom.ideation.innerHTML = `<div class="empty">暂无项目</div>`;
+    return;
+  }
+
+  const kernel = kernelOf(project);
+  const allObjectsById = new Map(
+    [...(kernel.candidateObjects || []), ...(kernel.formalObjects || [])].map((object) => [object.id, object]),
+  );
+  const candidateObjectsById = new Map(
+    (kernel.candidateObjects || []).map((object) => [object.id, object]),
+  );
+  const formalObjects = kernel.formalObjects || [];
+  const candidateChangeSets = kernel.candidateChangeSets || [];
+  const memories = kernel.memories || [];
+  const versions = kernel.versions || [];
+  const referenceAssets = kernel.referenceAssets || [];
+  const authorReferenceAssets = kernel.authorReferenceAssets || [];
+  const features = kernel.capabilityFeatures || [];
+  const authorFeatures = kernel.authorCapabilityFeatures || [];
+  const enabledAuthorFeatures = kernel.enabledAuthorCapabilityFeatures || [];
+  const suggestedAuthorFeatures = kernel.suggestedAuthorCapabilityFeatures || [];
+  const summary = kernel.summary || {};
+  const messages = kernel.activeConversation?.messages || [];
+  const latestReferenceAsset = referenceAssets.length ? referenceAssets[referenceAssets.length - 1] : null;
+  const referenceDraft = referenceDraftFor(project.id);
+  const referenceAnalysis = projectReferenceAnalysis(project);
+  const referenceAnalysisRunning = hasActiveReferenceAnalysis(project);
+  const referenceStatus = formatReferenceAnalysisStatus(project);
+  const referenceRun = referenceAnalysis.currentRun || {};
+
+  dom.ideation.innerHTML = `
+    <div class="overview-grid">
+      <article class="info-card">
+        <span class="eyebrow">小说空间</span>
+        <strong>${escapeHtml(formatKernelSpaceStatus(kernel.space?.status))}</strong>
+        <p>${escapeHtml(kernel.space?.id || "-")}</p>
+      </article>
+      <article class="info-card">
+        <span class="eyebrow">已确认设定</span>
+        <strong>${escapeHtml(String(summary.formalObjectCount || 0))}</strong>
+        <p>已进入正式层的结构化对象数量。</p>
+      </article>
+      <article class="info-card">
+        <span class="eyebrow">待确认内容</span>
+        <strong>${escapeHtml(String(summary.candidateChangeSetCount || 0))}</strong>
+        <p>自由对话提炼出的待确认内容。</p>
+      </article>
+      <article class="info-card">
+        <span class="eyebrow">记忆 / 版本</span>
+        <strong>${escapeHtml(String(summary.memoryCount || 0))} / ${escapeHtml(String(summary.versionCount || 0))}</strong>
+        <p>确认后的记忆沉淀与版本快照。</p>
+      </article>
+      <article class="info-card">
+        <span class="eyebrow">拆书资产</span>
+        <strong>${escapeHtml(String(summary.referenceAssetCount || 0))} / ${escapeHtml(String(summary.authorReferenceAssetCount || 0))}</strong>
+        <p>当前小说 / 作者级参考资产数量。</p>
+      </article>
+    </div>
+
+    <article class="editor-card" style="margin-top:16px;">
+      <div class="section-header">
+        <div>
+          <h3>自由构思对话</h3>
+          <p class="muted">这里应该像和 agent 聊天。你直接说想法、感觉、参考书、犹豫点，我在后台持续提炼候选对象。</p>
+        </div>
+        <span class="badge">${escapeHtml(String(messages.length))} 条消息</span>
+      </div>
+      <div id="ideation-chat-log" style="display:flex; flex-direction:column; gap:12px; margin-top:12px; max-height:420px; overflow:auto; padding-right:4px;">
+        ${
+          messages.length
+            ? messages
+                .map(
+                  (message) => `
+                    <article class="record-card" style="margin-top:0; align-self:${message.role === "user" ? "flex-end" : "stretch"}; background:${message.role === "user" ? "rgba(91, 140, 255, 0.08)" : "rgba(255,255,255,0.03)"}; border-color:${message.role === "user" ? "rgba(91, 140, 255, 0.25)" : "rgba(255,255,255,0.08)"};">
+                      <div class="row-between" style="gap:12px;">
+                        <strong>${escapeHtml(message.role === "user" ? "你" : "构思助手")}</strong>
+                        <span class="badge">${escapeHtml(message.createdAt || "-")}</span>
+                      </div>
+                      <div style="white-space:pre-wrap; margin-top:10px; line-height:1.7;">${escapeHtml(message.content || "")}</div>
+                    </article>
+                  `,
+                )
+                .join("")
+            : '<div class="empty">还没有开始对话。直接输入一段模糊想法就行。</div>'
+        }
+      </div>
+      <div style="margin-top:16px;">
+        <label>
+          继续对话
+          <textarea id="ideation-chat-input" rows="4" placeholder="例如：我想写一个慢热的古代志怪悬疑，主角是会验尸的边缘小吏，整体气质偏冷，不想走爽文节奏。参考《大宋提刑官》的职业切口和一些志怪氛围，但不想做纯探案单元剧。"></textarea>
+        </label>
+        <div class="actions" style="margin-top:12px; justify-content:flex-end;">
+          <button class="primary" id="send-ideation-chat" ${state.pendingAction ? "disabled" : ""}>${isBusy("kernel-chat", { projectId: project.id }) ? "发送中..." : "发送"}</button>
+        </div>
+      </div>
+    </article>
+
+    <article class="editor-card" style="margin-top:16px;">
+      <div class="section-header">
+        <div>
+          <h3>参考作品拆解</h3>
+          <p class="muted">这是一个独立输入板块。先定义来源和拆解意图，再单独查看下面的过程与结果。</p>
+          <p class="muted">拆解输入主体应该是本地全文文件或可读取全文的网址。作品名只是可选标签。</p>
+          ${
+            referenceAnalysisRunning
+              ? `<p class="muted">${escapeHtml(referenceRun.message || "后台处理中...")}</p>`
+              : ""
+          }
+        </div>
+        <div style="display:flex; align-items:center; gap:10px;">
+          <span class="badge" id="reference-analyze-status">${escapeHtml(referenceStatus)}</span>
+          <button type="button" class="secondary" id="analyze-reference-asset" ${(state.pendingAction || referenceAnalysisRunning) ? "disabled" : ""}>${referenceAnalysisRunning ? "分析中..." : "分析参考作品"}</button>
+        </div>
+      </div>
+      <div class="grid-3" style="margin-top:12px;">
+        <label>模式
+          <select id="reference-mode">
+            <option value="project_assisted_analysis" ${referenceDraft.mode === "project_assisted_analysis" ? "selected" : ""}>开书辅助</option>
+            <option value="independent_analysis" ${referenceDraft.mode === "independent_analysis" ? "selected" : ""}>独立拆书</option>
+          </select>
+        </label>
+        <label>参考角色
+          <select id="reference-role">
+            <option value="parallel" ${referenceDraft.role === "parallel" ? "selected" : ""}>平行参考</option>
+            <option value="primary" ${referenceDraft.role === "primary" ? "selected" : ""}>主参考</option>
+            <option value="supporting" ${referenceDraft.role === "supporting" ? "selected" : ""}>辅助参考</option>
+          </select>
+        </label>
+        <label>来源类型
+          <select id="reference-source-type">
+            <option value="local_file" ${referenceDraft.sourceType === "local_file" ? "selected" : ""}>本地文件</option>
+            <option value="url" ${referenceDraft.sourceType === "url" ? "selected" : ""}>全文网址</option>
+          </select>
+        </label>
+      </div>
+      <div class="grid-2" style="margin-top:12px;">
+        <label>作品名（可选）
+          <input id="reference-title" value="${escapeAttr(referenceDraft.sourceTitle)}" placeholder="例如：遮天" />
+        </label>
+        <label>本地全文文件
+          <input id="reference-source-file" type="file" accept=".txt,.md,.markdown,.text" style="display:none;" />
+          <div style="display:flex; align-items:center; gap:12px; margin-top:6px; padding:14px 16px; border:1px solid rgba(196, 177, 150, 0.9); border-radius:18px; background:rgba(255,255,255,0.55);">
+            <button type="button" class="secondary" id="select-reference-file">选择文件</button>
+            <span class="muted">${escapeHtml(referenceDraft.sourceLabel || "未选择任何文件")}</span>
+          </div>
+        </label>
+      </div>
+      <label style="margin-top:12px;">全文网址
+        <input id="reference-source-url" value="${escapeAttr(referenceDraft.sourceUrl)}" placeholder="例如：https://example.com/full-novel" />
+      </label>
+      <label style="margin-top:12px;">拆解意图
+        <textarea id="reference-notes" rows="4" placeholder="例如：我想拆它的世界展开方式、势力升级、主角成长切口，但不要直接模仿表达风格。">${escapeHtml(referenceDraft.notes)}</textarea>
+      </label>
+    </article>
+
+    <div class="grid-2" style="margin-top:16px;">
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>拆解过程</h3>
+          <span class="badge">${escapeHtml(latestReferenceAsset ? (latestReferenceAsset.sourceWork?.title || "最近一次") : "未开始")}</span>
+        </div>
+        <p class="muted" style="margin-top:8px;">这里专门看本次拆解是怎么被 AI 处理的。默认只展开最近一次项目级拆解。</p>
+        ${renderReferenceProcessPanel(latestReferenceAsset)}
+      </article>
+
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>拆解结论</h3>
+          <span class="badge">${escapeHtml(latestReferenceAsset ? String((latestReferenceAsset.reusableObjects || []).length) : "0")}</span>
+        </div>
+        <p class="muted" style="margin-top:8px;">右侧只看最终可判断的结果，不再混原始处理过程。</p>
+        ${renderReferenceResultPanel(latestReferenceAsset, allObjectsById)}
+      </article>
+    </div>
+
+    <article class="editor-card" style="margin-top:16px;">
+      <div class="section-header">
+        <h3>待确认内容</h3>
+        <span class="badge">${escapeHtml(String(candidateChangeSets.length))} 组</span>
+      </div>
+      <p class="muted" style="margin-top:8px;">先看上面的拆解过程和拆解结论，再在这里决定哪些内容进入当前小说。</p>
+      ${
+        candidateChangeSets.length
+          ? candidateChangeSets
+              .slice()
+              .reverse()
+              .map((changeSet) => {
+                const items = (changeSet.objectIds || [])
+                  .map((objectId) => candidateObjectsById.get(objectId))
+                  .filter(Boolean);
+                return `
+                  <article class="record-card" style="margin-top:12px;">
+                    <div class="row-between">
+                      <strong>${escapeHtml(changeSet.title)}</strong>
+                      <span class="badge">${escapeHtml(changeSet.status)}</span>
+                    </div>
+                    <p class="muted">${escapeHtml(changeSet.notes || "本轮讨论提炼出的候选对象。")}</p>
+                    <div class="stack" style="margin-top:12px;">
+                      ${items
+                        .map(
+                          (object) => `
+                            <label class="row-between" style="align-items:flex-start; gap:12px;">
+                              <span style="display:flex; gap:10px; align-items:flex-start;">
+                                <input type="checkbox" data-candidate-object="${changeSet.id}" value="${escapeAttr(object.id)}" checked />
+                                <span>
+                                  <strong>${escapeHtml(object.title)}</strong>
+                                  <span class="muted">(${escapeHtml(formatKernelObjectLabel(object))})</span>
+                                  <div class="muted" style="margin-top:6px;">${escapeHtml(object.content?.summary || "-")}</div>
+                                </span>
+                              </span>
+                            </label>
+                          `,
+                        )
+                        .join("")}
+                    </div>
+                    <div class="grid-3" style="margin-top:12px;">
+                      <label>发布范围
+                        <select data-release-mode="${changeSet.id}">
+                          <option value="future_only">仅未来生效</option>
+                          <option value="from_volume">从某卷开始</option>
+                          <option value="from_chapter">从某章开始</option>
+                          <option value="global_redefine">全局重定义</option>
+                        </select>
+                      </label>
+                      <label>起始卷
+                        <input type="number" min="1" data-release-volume="${changeSet.id}" placeholder="可选" />
+                      </label>
+                      <label>起始章
+                        <input type="number" min="1" data-release-chapter="${changeSet.id}" placeholder="可选" />
+                      </label>
+                    </div>
+                    <div class="actions" style="margin-top:12px;">
+                      <button class="secondary" data-accept-change-set="${changeSet.id}" ${state.pendingAction ? "disabled" : ""}>确认勾选项</button>
+                    </div>
+                  </article>
+                `;
+              })
+              .join("")
+          : '<div class="empty" style="margin-top:12px;">还没有待确认内容。先输入一段自由构思，或先做一次作品拆解。</div>'
+      }
+    </article>
+
+    <div class="grid-2" style="margin-top:16px;">
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>参考资产库</h3>
+          <span class="badge">${escapeHtml(String(referenceAssets.length))} / ${escapeHtml(String(authorReferenceAssets.length))}</span>
+        </div>
+        <p class="muted" style="margin-top:8px;">这里存放已经沉淀下来的参考资产，不和本次拆解结果混在一起。</p>
+        <div class="section-header" style="margin-top:16px;">
+          <h3>本书参考资产</h3>
+          <span class="badge">${escapeHtml(String(referenceAssets.length))}</span>
+        </div>
+        ${
+          referenceAssets.length
+            ? referenceAssets
+                .slice()
+                .reverse()
+                .map((asset) => renderReferenceAssetCard(asset, allObjectsById, true))
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">这本书下还没有沉淀任何参考资产。</p>'
+        }
+
+        <div class="section-header" style="margin-top:20px;">
+          <h3>作者通用参考资产</h3>
+          <span class="badge">${escapeHtml(String(authorReferenceAssets.length))}</span>
+        </div>
+        ${
+          authorReferenceAssets.length
+            ? authorReferenceAssets
+                .slice()
+                .reverse()
+                .slice(0, 6)
+                .map((asset) => renderReferenceAssetCard(asset, allObjectsById, true))
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">还没有作者通用参考资产。</p>'
+        }
+      </article>
+
+      <article class="editor-card">
+        <div class="section-header">
+          <h3>已确认设定</h3>
+          <span class="badge">${escapeHtml(String(formalObjects.length))} 项</span>
+        </div>
+        ${
+          formalObjects.length
+            ? formalObjects
+                .slice()
+                .reverse()
+                .map(
+                  (object) => `
+                    <article class="record-card" style="margin-top:12px;">
+                      <div class="row-between">
+                        <strong>${escapeHtml(object.title)}</strong>
+                        <span class="badge">${escapeHtml(formatKernelObjectLabel(object))}</span>
+                      </div>
+                      <p>${escapeHtml(object.content?.summary || "-")}</p>
+                      <p class="muted">版本：${escapeHtml(object.versionRef || "-")} | 作用域：${escapeHtml(object.effectiveScope?.level || "-")}</p>
+                    </article>
+                  `,
+                )
+                .join("")
+            : '<div class="empty" style="margin-top:12px;">还没有已确认设定。确认后会进入这里。</div>'
+        }
+
+        <div class="section-header" style="margin-top:20px;">
+          <h3>记忆沉淀与版本</h3>
+          <span class="badge">${escapeHtml(String(memories.length))} / ${escapeHtml(String(versions.length))}</span>
+        </div>
+        ${
+          memories.length
+            ? memories
+                .slice()
+                .reverse()
+                .slice(0, 6)
+                .map(
+                  (memory) => `
+                    <div class="row-between" style="margin-top:10px; align-items:flex-start;">
+                      <span>${escapeHtml(memory.summary)}</span>
+                      <span class="chip">${escapeHtml(memory.type)}</span>
+                    </div>
+                  `,
+                )
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">还没有记忆沉淀。</p>'
+        }
+        ${
+          versions.length
+            ? `
+              <div class="stack" style="margin-top:12px;">
+                ${versions
+                  .slice()
+                  .reverse()
+                  .slice(0, 4)
+                  .map(
+                    (version) => `
+                      <div class="row-between">
+                        <span>${escapeHtml(version.summary || version.id)}</span>
+                        <span class="badge">${escapeHtml(version.id)}</span>
+                      </div>
+                    `,
+                  )
+                  .join("")}
+              </div>
+            `
+            : ""
+        }
+
+        <div class="section-header" style="margin-top:20px;">
+          <h3>本书试出的新特性</h3>
+          <span class="badge">${escapeHtml(String(features.length))} / ${escapeHtml(String(summary.authorFeatureCount || 0))}</span>
+        </div>
+        ${
+          features.length
+            ? features
+                .slice()
+                .reverse()
+                .map(
+                  (feature) => `
+                    <article class="record-card" style="margin-top:12px;">
+                      <div class="row-between" style="align-items:flex-start; gap:12px;">
+                        <span>
+                          <strong>${escapeHtml(feature.name)}</strong>
+                          <div class="muted" style="margin-top:6px;">${escapeHtml(feature.description || "-")}</div>
+                        </span>
+                        <span class="chip">${escapeHtml(feature.status)}</span>
+                      </div>
+                      <p class="muted" style="margin-top:10px;">类型：${escapeHtml(feature.featureType || "metadata_extension")}</p>
+                      ${
+                        feature.promotedFeatureId
+                          ? `<p class="muted">已提升到作者级：${escapeHtml(feature.promotedFeatureId)}</p>`
+                          : `<div class="actions" style="margin-top:12px;"><button class="secondary" data-promote-feature="${escapeAttr(feature.id)}" ${state.pendingAction ? "disabled" : ""}>提升到作者特性库</button></div>`
+                      }
+                    </article>
+                  `,
+                )
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">当前这本书还没有试出新的结构特性。</p>'
+        }
+
+        <div class="section-header" style="margin-top:20px;">
+          <h3>建议启用的作者特性</h3>
+          <span class="badge">${escapeHtml(String(summary.suggestedAuthorFeatureCount || 0))}</span>
+        </div>
+        ${
+          suggestedAuthorFeatures.length
+            ? suggestedAuthorFeatures
+                .slice()
+                .map(
+                  (feature) => `
+                    <article class="record-card" style="margin-top:12px;">
+                      <div class="row-between" style="align-items:flex-start; gap:12px;">
+                        <span>
+                          <strong>${escapeHtml(feature.name)}</strong>
+                          <div class="muted" style="margin-top:6px;">${escapeHtml(feature.description || "-")}</div>
+                        </span>
+                        <span class="chip">建议启用</span>
+                      </div>
+                      <div class="actions" style="margin-top:12px;">
+                        <button class="secondary" data-enable-author-feature="${escapeAttr(feature.id)}" ${state.pendingAction ? "disabled" : ""}>启用到当前小说</button>
+                      </div>
+                    </article>
+                  `,
+                )
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">当前没有匹配到建议启用的作者特性。</p>'
+        }
+
+        <div class="section-header" style="margin-top:20px;">
+          <h3>已继承的作者特性</h3>
+          <span class="badge">${escapeHtml(String(summary.enabledAuthorFeatureCount || 0))}</span>
+        </div>
+        ${
+          enabledAuthorFeatures.length
+            ? enabledAuthorFeatures
+                .slice()
+                .reverse()
+                .map(
+                  (feature) => `
+                    <div class="row-between" style="margin-top:10px; align-items:flex-start;">
+                      <span>
+                        <strong>${escapeHtml(feature.name)}</strong>
+                        <div class="muted" style="margin-top:6px;">${escapeHtml(feature.description || "-")}</div>
+                      </span>
+                      <span class="chip">${escapeHtml(feature.status)}</span>
+                    </div>
+                  `,
+                )
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">这本书还没有继承作者特性。</p>'
+        }
+
+        <div class="section-header" style="margin-top:20px;">
+          <h3>作者特性库</h3>
+          <span class="badge">${escapeHtml(String(authorFeatures.length))}</span>
+        </div>
+        ${
+          authorFeatures.length
+            ? authorFeatures
+                .slice()
+                .reverse()
+                .slice(0, 8)
+                .map(
+                  (feature) => `
+                    <div class="row-between" style="margin-top:10px; align-items:flex-start;">
+                      <span>
+                        <strong>${escapeHtml(feature.name)}</strong>
+                        <div class="muted" style="margin-top:6px;">${escapeHtml(feature.description || "-")}</div>
+                      </span>
+                      <span class="chip">${escapeHtml(feature.status)}</span>
+                    </div>
+                  `,
+                )
+                .join("")
+            : '<p class="muted" style="margin-top:12px;">还没有沉淀作者特性。</p>'
+        }
+      </article>
+    </div>
+  `;
+
+  const chatLog = document.querySelector("#ideation-chat-log");
+  if (chatLog) {
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
 }
 
 function renderSettings() {
@@ -1343,6 +2637,70 @@ function renderRecords() {
     .join("");
 }
 
+function captureSystemSettingsDraft() {
+  const current = structuredClone(state.systemSettings || defaultSystemSettings());
+  current.execution.timeoutSeconds = Number(document.querySelector("#system-timeout-seconds")?.value || current.execution.timeoutSeconds || 300);
+  current.execution.retryCount = Number(document.querySelector("#system-retry-count")?.value || current.execution.retryCount || 1);
+  current.execution.chunkSize = Number(document.querySelector("#system-chunk-size")?.value || current.execution.chunkSize || 12000);
+  current.execution.chunkOverlap = Number(document.querySelector("#system-chunk-overlap")?.value || current.execution.chunkOverlap || 600);
+  current.execution.aggregateGroupSize = Number(document.querySelector("#system-aggregate-group-size")?.value || current.execution.aggregateGroupSize || 8);
+  current.execution.enableFormatRepairFallback = Boolean(document.querySelector("#system-enable-format-repair-fallback")?.checked);
+
+  current.models = (current.models || []).map((model, index) => ({
+    ...model,
+    name: document.querySelector(`[data-system-model-field="${index}:name"]`)?.value?.trim() || "",
+    provider: document.querySelector(`[data-system-model-field="${index}:provider"]`)?.value?.trim() || "",
+    baseUrl: document.querySelector(`[data-system-model-field="${index}:baseUrl"]`)?.value?.trim() || "",
+    apiKeyRef: document.querySelector(`[data-system-model-field="${index}:apiKeyRef"]`)?.value?.trim() || "",
+    enabled: Boolean(document.querySelector(`[data-system-model-field="${index}:enabled"]`)?.checked),
+    usageTags: (document.querySelector(`[data-system-model-field="${index}:usageTags"]`)?.value || "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean),
+    notes: document.querySelector(`[data-system-model-field="${index}:notes"]`)?.value?.trim() || "",
+  }));
+
+  Object.keys(current.taskRouting || {}).forEach((taskKey) => {
+    current.taskRouting[taskKey] = {
+      primaryModelId: document.querySelector(`[data-system-routing="${taskKey}:primaryModelId"]`)?.value || "",
+      fallbackModelId: document.querySelector(`[data-system-routing="${taskKey}:fallbackModelId"]`)?.value || "",
+    };
+  });
+  return current;
+}
+
+function captureAuthorSpaceDraft() {
+  return {
+    profile: {
+      penName: document.querySelector("#author-pen-name")?.value?.trim() || "",
+      displayName: document.querySelector("#author-display-name")?.value?.trim() || "",
+      bio: document.querySelector("#author-bio")?.value?.trim() || "",
+    },
+    contacts: {
+      email: document.querySelector("#author-email")?.value?.trim() || "",
+      wechat: document.querySelector("#author-wechat")?.value?.trim() || "",
+      phone: document.querySelector("#author-phone")?.value?.trim() || "",
+      other: document.querySelector("#author-contact-other")?.value?.trim() || "",
+    },
+    publishing: {
+      platforms: document.querySelector("#author-platforms")?.value?.trim() || "",
+      homepage: document.querySelector("#author-homepage")?.value?.trim() || "",
+      writingGoals: document.querySelector("#author-writing-goals")?.value?.trim() || "",
+      currentStage: document.querySelector("#author-current-stage")?.value?.trim() || "",
+    },
+    styleNotes: {
+      styleTraits: document.querySelector("#author-style-traits")?.value?.trim() || "",
+      languagePreference: document.querySelector("#author-language-preference")?.value?.trim() || "",
+      pacePreference: document.querySelector("#author-pace-preference")?.value?.trim() || "",
+      characterPreference: document.querySelector("#author-character-preference")?.value?.trim() || "",
+      worldPreference: document.querySelector("#author-world-preference")?.value?.trim() || "",
+      conflictPreference: document.querySelector("#author-conflict-preference")?.value?.trim() || "",
+      avoidance: document.querySelector("#author-avoidance")?.value?.trim() || "",
+      otherNotes: document.querySelector("#author-other-notes")?.value?.trim() || "",
+    },
+  };
+}
+
 function renderPrompts() {
   if (!state.promptConfig) {
     dom.prompts.innerHTML = `<div class="empty">Prompt 配置加载中...</div>`;
@@ -1396,16 +2754,19 @@ function syncTabs() {
   document
     .querySelectorAll(".tab-panel")
     .forEach((panel) => panel.classList.toggle("active", panel.id === `tab-${state.activeTab}`));
+  const isGlobal = state.activeTab === "system-settings" || state.activeTab === "author-space";
+  document.querySelector(".workspace-header")?.classList.toggle("hidden", isGlobal);
+  document.querySelector(".workspace > .tabs")?.classList.toggle("hidden", isGlobal);
 }
 
 function bindStaticEvents() {
   dom.createProject.addEventListener("click", async () => {
     const title = dom.newTitle.value.trim();
-    const genre = dom.newGenre.value.trim();
-    const hook = dom.newHook.value.trim();
+    const genre = dom.newGenre.value.trim() || "待定题材";
+    const hook = dom.newHook.value.trim() || "待构思卖点";
 
-    if (!title || !genre || !hook) {
-      window.alert("请先填写书名、题材和一句话卖点。");
+    if (!title) {
+      window.alert("请先填写书名。题材和卖点可以先留空，后续在构思页继续推进。");
       return;
     }
 
@@ -1454,6 +2815,65 @@ function bindStaticEvents() {
 }
 
 function bindDynamicEvents() {
+  const saveSystemSettingsButton = document.querySelector("#save-system-settings");
+  if (saveSystemSettingsButton) {
+    saveSystemSettingsButton.addEventListener("click", async () => {
+      await runAction("save-system-settings", async () => {
+        try {
+          clearBanner();
+          await saveSystemSettings(captureSystemSettingsDraft());
+          showBanner("系统设置已保存。");
+        } catch (error) {
+          showBanner(error.message);
+        }
+      });
+    });
+  }
+
+  const addSystemModelButton = document.querySelector("#add-system-model");
+  if (addSystemModelButton) {
+    addSystemModelButton.addEventListener("click", () => {
+      const next = captureSystemSettingsDraft();
+      next.models.push({
+        id: `model-${Date.now()}`,
+        name: "",
+        provider: "",
+        baseUrl: "",
+        apiKeyRef: "",
+        enabled: true,
+        usageTags: [],
+        notes: "",
+      });
+      state.systemSettings = next;
+      render();
+    });
+  }
+
+  document.querySelectorAll("[data-remove-system-model]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const index = Number(button.dataset.removeSystemModel);
+      const next = captureSystemSettingsDraft();
+      next.models.splice(index, 1);
+      state.systemSettings = next;
+      render();
+    });
+  });
+
+  const saveAuthorSpaceButton = document.querySelector("#save-author-space");
+  if (saveAuthorSpaceButton) {
+    saveAuthorSpaceButton.addEventListener("click", async () => {
+      await runAction("save-author-space", async () => {
+        try {
+          clearBanner();
+          await saveAuthorSpace(captureAuthorSpaceDraft());
+          showBanner("作者空间已保存。");
+        } catch (error) {
+          showBanner(error.message);
+        }
+      });
+    });
+  }
+
   document.querySelectorAll("[data-project-id]").forEach((button) => {
     button.addEventListener("click", () => {
       state.selectedProjectId = button.dataset.projectId;
@@ -1858,8 +3278,246 @@ function bindDynamicEvents() {
           showBanner(error.message);
         }
       });
+      });
+  }
+
+  const sendIdeationChat = document.querySelector("#send-ideation-chat");
+  if (sendIdeationChat) {
+    const submitChat = async () => {
+      const project = getCurrentProject();
+      const input = document.querySelector("#ideation-chat-input");
+      const message = input?.value.trim() || "";
+      if (!project) {
+        return;
+      }
+      if (!message) {
+        window.alert("请先输入一段对话内容。");
+        return;
+      }
+      await runAction("kernel-chat", async () => {
+        try {
+          clearBanner();
+          await apiFetch(`/api/projects/${project.id}/kernel/chat`, {
+            method: "POST",
+            body: JSON.stringify({ message }),
+          });
+          if (input) {
+            input.value = "";
+          }
+          await refreshProject(project.id);
+          showBanner("已记录本轮对话，并更新候选对象。");
+        } catch (error) {
+          showBanner(error.message);
+        }
+      }, { projectId: project.id });
+    };
+
+    sendIdeationChat.addEventListener("click", submitChat);
+
+    const ideationInput = document.querySelector("#ideation-chat-input");
+    if (ideationInput) {
+      ideationInput.addEventListener("keydown", async (event) => {
+        if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+          event.preventDefault();
+          await submitChat();
+        }
+      });
+    }
+  }
+
+  const analyzeReferenceAsset = document.querySelector("#analyze-reference-asset");
+  const projectForDraft = getCurrentProject();
+  const currentProjectId = projectForDraft?.id || null;
+  [
+    "#reference-mode",
+    "#reference-role",
+    "#reference-source-type",
+    "#reference-title",
+    "#reference-source-url",
+    "#reference-notes",
+  ].forEach((selector) => {
+    const input = document.querySelector(selector);
+    if (!input || !currentProjectId) {
+      return;
+    }
+    input.addEventListener("input", () => {
+      captureReferenceDraft(currentProjectId);
+    });
+    input.addEventListener("change", () => {
+      captureReferenceDraft(currentProjectId);
+    });
+  });
+  const referenceFileInput = document.querySelector("#reference-source-file");
+  const selectReferenceFileButton = document.querySelector("#select-reference-file");
+  if (selectReferenceFileButton && referenceFileInput) {
+    selectReferenceFileButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      referenceFileInput.click();
     });
   }
+  if (referenceFileInput && currentProjectId) {
+    referenceFileInput.addEventListener("change", async (event) => {
+      const draft = referenceDraftFor(currentProjectId);
+      const file = event.target.files?.[0];
+      if (!file) {
+        draft.sourcePath = "";
+        draft.sourceText = "";
+        draft.sourceLabel = "";
+        state.referenceDrafts[currentProjectId] = draft;
+        render();
+        return;
+      }
+      draft.sourceLabel = file.name;
+      draft.sourcePath = "";
+      draft.sourceText = await file.text();
+      if (!draft.sourceTitle) {
+        draft.sourceTitle = file.name.replace(/\.[^.]+$/, "");
+      }
+      state.referenceDrafts[currentProjectId] = draft;
+      render();
+    });
+  }
+  if (analyzeReferenceAsset) {
+    analyzeReferenceAsset.addEventListener("click", async (event) => {
+      event.preventDefault();
+      const project = getCurrentProject();
+      const draft = project ? captureReferenceDraft(project.id) : defaultReferenceDraft();
+      const sourceType = draft.sourceType;
+      const sourceTitle = draft.sourceTitle.trim();
+      const sourcePath = draft.sourcePath.trim();
+      const sourceText = draft.sourceText || "";
+      const sourceLabel = draft.sourceLabel || "";
+      const sourceUrl = draft.sourceUrl.trim();
+      const notes = draft.notes.trim();
+      const mode = draft.mode;
+      const role = draft.role;
+      if (!project) {
+        return;
+      }
+      if (sourceType === "local_file" && !sourceText.trim()) {
+        window.alert("请先选择本地全文文件。");
+        return;
+      }
+      if (sourceType === "url" && !sourceUrl) {
+        window.alert("请先提供可读取全文的网址。");
+        return;
+      }
+      await runAction("reference-analyze", async () => {
+        try {
+          clearBanner();
+          const payload = await apiFetch(`/api/projects/${project.id}/kernel/reference-assets/analyze`, {
+            method: "POST",
+            body: JSON.stringify({
+              sourceType,
+              sourceTitle,
+              sourcePath,
+              sourceText,
+              sourceLabel,
+              sourceUrl,
+              notes,
+              mode,
+              role,
+            }),
+          });
+          if (payload.project) {
+            replaceProjectInState(payload.project);
+            render();
+          } else {
+            await refreshProject(project.id);
+          }
+          showBanner("已开始后台拆解，进度会自动刷新。");
+        } catch (error) {
+          showBanner(error.message);
+        }
+      }, { projectId: project.id, mode });
+    });
+  }
+
+  document.querySelectorAll("[data-promote-feature]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const project = getCurrentProject();
+      const featureId = button.dataset.promoteFeature;
+      if (!project || !featureId) {
+        return;
+      }
+      await runAction("feature-promote", async () => {
+        try {
+          clearBanner();
+          await apiFetch(`/api/projects/${project.id}/kernel/capability-features/${featureId}/promote`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          await refreshProject(project.id);
+          showBanner("已提升到作者特性库。");
+        } catch (error) {
+          showBanner(error.message);
+        }
+      }, { projectId: project.id, featureId });
+    });
+  });
+
+  document.querySelectorAll("[data-enable-author-feature]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const project = getCurrentProject();
+      const featureId = button.dataset.enableAuthorFeature;
+      if (!project || !featureId) {
+        return;
+      }
+      await runAction("author-feature-enable", async () => {
+        try {
+          clearBanner();
+          await apiFetch(`/api/projects/${project.id}/kernel/author-capability-features/${featureId}/enable`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          await refreshProject(project.id);
+          showBanner("已启用作者级能力到当前小说。");
+        } catch (error) {
+          showBanner(error.message);
+        }
+      }, { projectId: project.id, featureId });
+    });
+  });
+
+  document.querySelectorAll("[data-accept-change-set]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const project = getCurrentProject();
+      const changeSetId = button.dataset.acceptChangeSet;
+      if (!project || !changeSetId) {
+        return;
+      }
+      const objectIds = Array.from(
+        document.querySelectorAll(`[data-candidate-object="${changeSetId}"]:checked`),
+      ).map((input) => input.value);
+      if (!objectIds.length) {
+        window.alert("请至少勾选一个候选对象。");
+        return;
+      }
+      const releaseMode = document.querySelector(`[data-release-mode="${changeSetId}"]`)?.value || "future_only";
+      const volumeNumber = document.querySelector(`[data-release-volume="${changeSetId}"]`)?.value || "";
+      const chapterNumber = document.querySelector(`[data-release-chapter="${changeSetId}"]`)?.value || "";
+      await runAction("kernel-accept", async () => {
+        try {
+          clearBanner();
+          await apiFetch(`/api/projects/${project.id}/kernel/candidate-change-sets/${changeSetId}/accept`, {
+            method: "POST",
+            body: JSON.stringify({
+              objectIds,
+              releasePlan: {
+                mode: releaseMode,
+                volumeNumber: volumeNumber ? Number(volumeNumber) : null,
+                chapterNumber: chapterNumber ? Number(chapterNumber) : null,
+              },
+            }),
+          });
+          await refreshProject(project.id);
+          showBanner("已将勾选候选对象发布到正式层。");
+        } catch (error) {
+          showBanner(error.message);
+        }
+      }, { projectId: project.id, changeSetId });
+    });
+  });
 
   document.querySelectorAll("[data-chapter-select]").forEach((button) => {
     button.addEventListener("click", () => {
@@ -2043,6 +3701,8 @@ async function init() {
     state.llmStatus = health.llm || null;
     state.promptStatus = health.prompts || null;
     await refreshPrompts();
+    await refreshSystemSettings();
+    await refreshAuthorSpace();
     await refreshProjects();
   } catch (error) {
     showBanner(`初始化失败：${error.message}`);

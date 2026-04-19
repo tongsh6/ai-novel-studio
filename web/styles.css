@@ -87,6 +87,11 @@ textarea {
   display: none;
 }
 
+.workspace-header.hidden,
+.tabs.hidden {
+  display: none;
+}
+
 .brand,
 .panel,
 .workspace-header,
@@ -201,6 +206,17 @@ textarea {
   gap: 10px;
   margin-bottom: 18px;
   overflow-x: auto;
+}
+
+.sidebar-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sidebar-tabs .tab {
+  width: 100%;
+  text-align: center;
 }
 
 .tab {
