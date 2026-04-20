@@ -1,0 +1,225 @@
+PRAGMA foreign_keys = ON;
+
+CREATE TABLE IF NOT EXISTS works (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  subtitle TEXT NOT NULL DEFAULT '',
+  one_line_pitch TEXT NOT NULL DEFAULT '',
+  genre TEXT NOT NULL DEFAULT '',
+  subgenres_json TEXT NOT NULL DEFAULT '[]',
+  tags_json TEXT NOT NULL DEFAULT '[]',
+  target_platform TEXT NOT NULL DEFAULT '',
+  target_audience TEXT NOT NULL DEFAULT '',
+  target_word_count INTEGER,
+  planned_volume_count INTEGER,
+  update_frequency TEXT NOT NULL DEFAULT '',
+  commercial_positioning TEXT NOT NULL DEFAULT '',
+  core_differentiators_json TEXT NOT NULL DEFAULT '[]',
+  boundaries_json TEXT NOT NULL DEFAULT '[]',
+  core_theme TEXT NOT NULL DEFAULT '',
+  sub_themes_json TEXT NOT NULL DEFAULT '[]',
+  emotional_base_tone TEXT NOT NULL DEFAULT '',
+  desired_ending_emotion TEXT NOT NULL DEFAULT '',
+  start_state TEXT NOT NULL DEFAULT '',
+  end_state TEXT NOT NULL DEFAULT '',
+  inciting_incident TEXT NOT NULL DEFAULT '',
+  midpoint_shift TEXT NOT NULL DEFAULT '',
+  final_convergence TEXT NOT NULL DEFAULT '',
+  summary TEXT NOT NULL DEFAULT '',
+  stage TEXT NOT NULL DEFAULT 'IDEATION',
+  active_volume_id TEXT,
+  active_chapter_id TEXT,
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS characters (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  name TEXT NOT NULL,
+  gender TEXT NOT NULL DEFAULT '',
+  age INTEGER,
+  identity TEXT NOT NULL DEFAULT '',
+  role_type TEXT NOT NULL DEFAULT '',
+  appearance TEXT NOT NULL DEFAULT '',
+  public_persona TEXT NOT NULL DEFAULT '',
+  inner_core TEXT NOT NULL DEFAULT '',
+  core_desire TEXT NOT NULL DEFAULT '',
+  core_fear TEXT NOT NULL DEFAULT '',
+  surface_goal TEXT NOT NULL DEFAULT '',
+  deep_goal TEXT NOT NULL DEFAULT '',
+  initial_flaw TEXT NOT NULL DEFAULT '',
+  obsession TEXT NOT NULL DEFAULT '',
+  values_json TEXT NOT NULL DEFAULT '[]',
+  action_style TEXT NOT NULL DEFAULT '',
+  decision_style TEXT NOT NULL DEFAULT '',
+  emotion_triggers_json TEXT NOT NULL DEFAULT '[]',
+  bottom_line TEXT NOT NULL DEFAULT '',
+  taboos_json TEXT NOT NULL DEFAULT '[]',
+  growth_arc TEXT NOT NULL DEFAULT '',
+  power_growth_path TEXT NOT NULL DEFAULT '',
+  identity_secrets_json TEXT NOT NULL DEFAULT '[]',
+  breakdown_points_json TEXT NOT NULL DEFAULT '[]',
+  fate_question TEXT NOT NULL DEFAULT '',
+  first_appearance_chapter_id TEXT,
+  current_state TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'DRAFT',
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS outlines (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL UNIQUE,
+  one_sentence_premise TEXT NOT NULL DEFAULT '',
+  protagonist_need TEXT NOT NULL DEFAULT '',
+  why_impossible TEXT NOT NULL DEFAULT '',
+  cost_to_pay TEXT NOT NULL DEFAULT '',
+  main_opponent TEXT NOT NULL DEFAULT '',
+  core_conflict TEXT NOT NULL DEFAULT '',
+  main_goal TEXT NOT NULL DEFAULT '',
+  stage_goals_json TEXT NOT NULL DEFAULT '[]',
+  final_goal TEXT NOT NULL DEFAULT '',
+  story_start_point TEXT NOT NULL DEFAULT '',
+  inciting_incident TEXT NOT NULL DEFAULT '',
+  midpoint_shift TEXT NOT NULL DEFAULT '',
+  final_convergence TEXT NOT NULL DEFAULT '',
+  ending_direction TEXT NOT NULL DEFAULT '',
+  main_suspense TEXT NOT NULL DEFAULT '',
+  truth_reveal_order_json TEXT NOT NULL DEFAULT '[]',
+  story_engine TEXT NOT NULL DEFAULT '',
+  escalation_pattern TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'DRAFT',
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS volumes (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  order_no INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  theme TEXT NOT NULL DEFAULT '',
+  main_task TEXT NOT NULL DEFAULT '',
+  main_enemy TEXT NOT NULL DEFAULT '',
+  core_conflict TEXT NOT NULL DEFAULT '',
+  objective TEXT NOT NULL DEFAULT '',
+  entry_state TEXT NOT NULL DEFAULT '',
+  exit_state TEXT NOT NULL DEFAULT '',
+  climax TEXT NOT NULL DEFAULT '',
+  resolution_style TEXT NOT NULL DEFAULT '',
+  hook TEXT NOT NULL DEFAULT '',
+  related_location_ids_json TEXT NOT NULL DEFAULT '[]',
+  related_plotline_ids_json TEXT NOT NULL DEFAULT '[]',
+  involved_character_ids_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'BACKLOG',
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE,
+  UNIQUE (work_id, order_no)
+);
+
+CREATE TABLE IF NOT EXISTS chapters (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  volume_id TEXT NOT NULL,
+  order_no INTEGER NOT NULL,
+  title TEXT NOT NULL,
+  pov_character_id TEXT,
+  function TEXT NOT NULL DEFAULT '',
+  core_event TEXT NOT NULL DEFAULT '',
+  conflict TEXT NOT NULL DEFAULT '',
+  info_points_json TEXT NOT NULL DEFAULT '[]',
+  foreshadow_refs_json TEXT NOT NULL DEFAULT '[]',
+  character_progress TEXT NOT NULL DEFAULT '',
+  emotional_progress TEXT NOT NULL DEFAULT '',
+  worldbuilding_progress TEXT NOT NULL DEFAULT '',
+  ending_hook TEXT NOT NULL DEFAULT '',
+  target_word_count INTEGER,
+  is_explosive_chapter INTEGER NOT NULL DEFAULT 0,
+  summary TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'BACKLOG',
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE,
+  FOREIGN KEY (volume_id) REFERENCES volumes(id) ON DELETE CASCADE,
+  UNIQUE (volume_id, order_no)
+);
+
+CREATE TABLE IF NOT EXISTS drafts (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  chapter_id TEXT NOT NULL,
+  version_no INTEGER NOT NULL,
+  source_type TEXT NOT NULL DEFAULT 'draft',
+  text TEXT NOT NULL DEFAULT '',
+  word_count INTEGER NOT NULL DEFAULT 0,
+  summary TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'DRAFT',
+  created_by TEXT NOT NULL DEFAULT 'system',
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE,
+  FOREIGN KEY (chapter_id) REFERENCES chapters(id) ON DELETE CASCADE,
+  UNIQUE (chapter_id, version_no)
+);
+
+CREATE TABLE IF NOT EXISTS decision_logs (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  decision_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  decision TEXT NOT NULL DEFAULT '',
+  rationale TEXT NOT NULL DEFAULT '',
+  affected_object_refs_json TEXT NOT NULL DEFAULT '[]',
+  confirmed_by_user INTEGER NOT NULL DEFAULT 0,
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS continuity_states (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  scope_type TEXT NOT NULL,
+  scope_id TEXT NOT NULL,
+  state_type TEXT NOT NULL,
+  current_value_json TEXT NOT NULL DEFAULT '{}',
+  effective_from_event_id TEXT,
+  effective_to_event_id TEXT,
+  visibility_scope TEXT NOT NULL DEFAULT 'private',
+  status TEXT NOT NULL DEFAULT 'ACTIVE',
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE,
+  UNIQUE (work_id, scope_type, scope_id, state_type, effective_from_event_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_characters_work_id ON characters(work_id);
+CREATE INDEX IF NOT EXISTS idx_outlines_work_id ON outlines(work_id);
+CREATE INDEX IF NOT EXISTS idx_volumes_work_id_order_no ON volumes(work_id, order_no);
+CREATE INDEX IF NOT EXISTS idx_chapters_work_id ON chapters(work_id);
+CREATE INDEX IF NOT EXISTS idx_chapters_volume_id_order_no ON chapters(volume_id, order_no);
+CREATE INDEX IF NOT EXISTS idx_drafts_work_id ON drafts(work_id);
+CREATE INDEX IF NOT EXISTS idx_drafts_chapter_id_version_no ON drafts(chapter_id, version_no DESC);
+CREATE INDEX IF NOT EXISTS idx_decision_logs_work_id_created_at ON decision_logs(work_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_continuity_states_work_id ON continuity_states(work_id);
+CREATE INDEX IF NOT EXISTS idx_continuity_states_scope ON continuity_states(work_id, scope_type, scope_id);

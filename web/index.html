@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dialogue-Based Novel Workbench</title>
+    <link rel="stylesheet" href="/web/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="sidebar-top">
+          <p class="eyebrow">Dialogue-Based Novel Workbench</p>
+          <h1>对话式小说工作台</h1>
+          <p class="sidebar-copy">
+            围绕单部作品推进，从立项到底稿，再切换到阅读态做纯净审看。
+          </p>
+        </div>
+
+        <section class="panel create-panel">
+          <div class="panel-header">
+            <h2>新建作品</h2>
+          </div>
+          <label class="field">
+            <span>作品名</span>
+            <input id="create-title" type="text" placeholder="例如：霜港遗民" />
+          </label>
+          <label class="field">
+            <span>一句话卖点</span>
+            <textarea
+              id="create-pitch"
+              rows="4"
+              placeholder="例如：极夜海港的最后一名维修官，要把废弃港口变成幸存者之城。"
+            ></textarea>
+          </label>
+          <label class="field">
+            <span>题材</span>
+            <input id="create-genre" type="text" placeholder="例如：末世 / 经营" />
+          </label>
+          <button id="create-work" class="primary-button">创建立项底稿</button>
+        </section>
+
+        <section class="panel work-list-panel">
+          <div class="panel-header">
+            <h2>作品列表</h2>
+            <span id="work-count" class="pill">0</span>
+          </div>
+          <div id="work-list" class="work-list empty-state">还没有作品。</div>
+        </section>
+      </aside>
+
+      <main class="workspace">
+        <header class="workspace-header">
+          <div>
+            <p class="eyebrow">单工作台</p>
+            <h2 id="current-title">尚未选择作品</h2>
+            <p id="current-pitch" class="header-copy">先在左侧创建作品，再开始推进。</p>
+          </div>
+          <div class="header-actions">
+            <div id="health-badge" class="status-badge muted">连接中</div>
+            <button id="toggle-mode" class="secondary-button" disabled>切到阅读态</button>
+          </div>
+        </header>
+
+        <div id="banner" class="banner" hidden></div>
+
+        <section class="panel dialogue-panel">
+          <div class="panel-header">
+            <div>
+              <p class="eyebrow">对话入口</p>
+              <h3>直接说你想立项或推进什么</h3>
+            </div>
+            <span class="pill">本地消息流</span>
+          </div>
+          <div id="chat-log" class="chat-log">
+            <div class="empty-state">可以直接说“创建作品：标题｜一句话卖点｜题材”。</div>
+          </div>
+          <div id="chat-suggestions" class="chat-suggestions"></div>
+          <label class="field">
+            <span>说一句</span>
+            <textarea
+              id="chat-input"
+              rows="3"
+              placeholder="例如：创建作品：霜港遗民｜极夜海港的最后一名维修官，要把废弃港口变成幸存者之城。｜末世 / 经营"
+            ></textarea>
+          </label>
+          <div class="button-row">
+            <button id="send-chat" class="primary-button">发送</button>
+          </div>
+        </section>
+
+        <section id="empty-workspace" class="hero-empty">
+          <div class="hero-card">
+            <p class="eyebrow">V1 主链路</p>
+            <h3>灵感输入 -> 作品立项 -> 章节细纲 -> 正文草稿 -> 阅读模式</h3>
+            <p>
+              这个页面只围绕当前作品推进，不展开多页面后台，也不堆复杂表单。
+            </p>
+          </div>
+        </section>
+
+        <section id="workbench-view" class="view-grid" hidden>
+          <div class="column-stack">
+            <section class="panel stats-panel">
+              <div class="metric-card">
+                <span>当前阶段</span>
+                <strong id="metric-stage">-</strong>
+              </div>
+              <div class="metric-card">
+                <span>章节数</span>
+                <strong id="metric-chapters">0</strong>
+              </div>
+              <div class="metric-card">
+                <span>已出草稿</span>
+                <strong id="metric-drafted">0</strong>
+              </div>
+            </section>
+
+            <section class="panel chapter-list-panel">
+              <div class="panel-header">
+                <h3>章节工作区</h3>
+                <span class="pill" id="active-chapter-pill">未选中</span>
+              </div>
+              <div id="chapter-list" class="chapter-list"></div>
+            </section>
+
+            <section id="decision-panel" class="panel decision-panel">
+              <div class="panel-header">
+                <h3>最近决策</h3>
+              </div>
+              <div id="decision-list" class="decision-list"></div>
+            </section>
+          </div>
+
+          <div class="column-stack">
+            <section id="chapter-panel" class="panel chapter-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">当前章</p>
+                  <h3 id="chapter-title">-</h3>
+                </div>
+                <span id="chapter-status" class="status-badge">-</span>
+              </div>
+
+              <div class="detail-grid">
+                <div class="detail-block">
+                  <span class="detail-label">章节功能</span>
+                  <p id="chapter-function">-</p>
+                </div>
+                <div class="detail-block">
+                  <span class="detail-label">核心事件</span>
+                  <p id="chapter-event">-</p>
+                </div>
+                <div class="detail-block">
+                  <span class="detail-label">冲突</span>
+                  <p id="chapter-conflict">-</p>
+                </div>
+                <div class="detail-block">
+                  <span class="detail-label">章末钩子</span>
+                  <p id="chapter-hook">-</p>
+                </div>
+              </div>
+
+              <div class="stack-block">
+                <span class="detail-label">章节摘要</span>
+                <p id="chapter-summary" class="prose-block">-</p>
+              </div>
+
+              <div class="stack-block">
+                <span class="detail-label">信息点</span>
+                <ul id="chapter-info-points" class="bullet-list"></ul>
+              </div>
+
+              <div class="button-row">
+                <button id="generate-outline" class="secondary-button" disabled>生成细纲</button>
+                <button id="generate-draft" class="primary-button" disabled>生成草稿</button>
+              </div>
+            </section>
+
+            <section class="panel draft-panel">
+              <div class="panel-header">
+                <div>
+                  <p class="eyebrow">正文工作态</p>
+                  <h3>最新草稿</h3>
+                </div>
+                <span id="draft-meta" class="pill">暂无草稿</span>
+              </div>
+              <div id="draft-lineage" class="draft-lineage empty-state">还没有版本关系可展示。</div>
+              <pre id="draft-text" class="draft-text">还没有正文草稿。</pre>
+            </section>
+          </div>
+        </section>
+
+        <section id="reading-view" class="reading-view" hidden>
+          <div class="reading-sidebar panel">
+            <div class="panel-header">
+              <h3>阅读目录</h3>
+            </div>
+            <div id="reading-toc" class="reading-toc"></div>
+          </div>
+          <article class="reading-article panel">
+            <div class="panel-header">
+              <div>
+                <p class="eyebrow">阅读态</p>
+                <h3 id="reading-title">-</h3>
+              </div>
+              <span id="reading-version" class="pill">-</span>
+            </div>
+            <div id="reading-lineage" class="draft-lineage empty-state">还没有版本关系可展示。</div>
+            <pre id="reading-text" class="reading-text">还没有可阅读正文。</pre>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script src="/web/app.js"></script>
+  </body>
+</html>
