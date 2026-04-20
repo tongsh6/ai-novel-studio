@@ -60,7 +60,7 @@ PORT=8010 python3 server.py
 
 ## 真实模型接入
 
-当前版本默认接入 DeepSeek 的 `OpenAI-compatible` Chat Completions 接口。
+当前版本支持接入任意 `OpenAI-compatible` Chat Completions 接口，默认示例是 DeepSeek，也支持本地的 LM Studio。
 
 可配置环境变量：
 
@@ -68,11 +68,21 @@ PORT=8010 python3 server.py
   - `auto`：有 `API_KEY + MODEL` 就走真实模型，否则回退 stub
   - `stub`：强制只用规则模板
 - `DEEPSEEK_API_KEY`
+- `LMSTUDIO_API_KEY`
+  - 可选。LM Studio 本地接口通常不需要。
 - `AI_NOVEL_API_KEY`
 - `AI_NOVEL_BASE_URL`
   - 默认 `https://api.deepseek.com`
+  - LM Studio 常用值：`http://127.0.0.1:1234/v1`
 - `AI_NOVEL_MODEL`
   - 默认 `deepseek-chat`
+  - LM Studio 常用值：你在本地加载后的模型 ID
+- `LMSTUDIO_BASE_URL`
+  - 可选。设置后会优先按 LM Studio 处理。
+- `LMSTUDIO_MODEL`
+  - 可选。设置后会优先按 LM Studio 处理。
+- `AI_NOVEL_PROVIDER`
+  - 可选。例如 `lm-studio`
 - `AI_NOVEL_TIMEOUT`
 
 示例：
@@ -82,6 +92,16 @@ export AI_NOVEL_LLM_MODE=auto
 export DEEPSEEK_API_KEY=your_key
 export AI_NOVEL_BASE_URL=https://api.deepseek.com
 export AI_NOVEL_MODEL=deepseek-chat
+
+python3 server.py
+```
+
+LM Studio 示例：
+
+```bash
+export AI_NOVEL_LLM_MODE=auto
+export LMSTUDIO_BASE_URL=http://127.0.0.1:1234/v1
+export LMSTUDIO_MODEL=qwen2.5-14b-instruct
 
 python3 server.py
 ```

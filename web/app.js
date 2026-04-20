@@ -670,6 +670,19 @@ function defaultAuthorSpace() {
   };
 }
 
+function createLmStudioSystemModel() {
+  return {
+    id: `model-${Date.now()}`,
+    name: "",
+    provider: "lm-studio",
+    baseUrl: "http://127.0.0.1:1234/v1",
+    apiKeyRef: "LMSTUDIO_API_KEY",
+    enabled: true,
+    usageTags: [],
+    notes: "本地 LM Studio 的 OpenAI 兼容接口。默认地址是 http://127.0.0.1:1234/v1，通常可不填 API Key。",
+  };
+}
+
 async function refreshSystemSettings() {
   const payload = await apiFetch("/api/system-settings");
   state.systemSettings = payload.systemSettings || defaultSystemSettings();
@@ -1245,7 +1258,7 @@ function renderSystemSettings() {
       <div class="section-header">
         <div>
           <h3>系统设置</h3>
-          <p class="muted">这里只保存全局模型配置和任务路由，不接管当前实际执行链路。</p>
+          <p class="muted">这里保存全局模型配置和任务路由。当前实际执行链路支持通过 \`AI_NOVEL_*\` 或 \`LMSTUDIO_*\` 环境变量接入模型。</p>
         </div>
         <button class="primary" id="save-system-settings" ${state.pendingAction ? "disabled" : ""}>保存系统设置</button>
       </div>
@@ -1310,7 +1323,10 @@ function renderSystemSettings() {
     <article class="editor-card" style="margin-top:16px;">
       <div class="section-header">
         <h3>模型列表</h3>
-        <button class="secondary" id="add-system-model" ${state.pendingAction ? "disabled" : ""}>新增模型</button>
+        <div class="actions">
+          <button class="secondary" id="add-lmstudio-model" ${state.pendingAction ? "disabled" : ""}>添加 LM Studio</button>
+          <button class="secondary" id="add-system-model" ${state.pendingAction ? "disabled" : ""}>新增模型</button>
+        </div>
       </div>
       ${
         models.length
@@ -1323,15 +1339,15 @@ function renderSystemSettings() {
                         <input data-system-model-field="${index}:name" value="${escapeAttr(model.name || "")}" placeholder="例如：deepseek-chat" />
                       </label>
                       <label>提供方
-                        <input data-system-model-field="${index}:provider" value="${escapeAttr(model.provider || "")}" placeholder="例如：deepseek" />
+                        <input data-system-model-field="${index}:provider" value="${escapeAttr(model.provider || "")}" placeholder="例如：deepseek / lm-studio" />
                       </label>
                       <label>配置标识
-                        <input data-system-model-field="${index}:apiKeyRef" value="${escapeAttr(model.apiKeyRef || "")}" placeholder="例如：DEEPSEEK_API_KEY" />
+                        <input data-system-model-field="${index}:apiKeyRef" value="${escapeAttr(model.apiKeyRef || "")}" placeholder="例如：DEEPSEEK_API_KEY / LMSTUDIO_API_KEY" />
                       </label>
                     </div>
                     <div class="grid-2" style="margin-top:12px;">
                       <label>Base URL
-                        <input data-system-model-field="${index}:baseUrl" value="${escapeAttr(model.baseUrl || "")}" placeholder="例如：https://api.deepseek.com" />
+                        <input data-system-model-field="${index}:baseUrl" value="${escapeAttr(model.baseUrl || "")}" placeholder="例如：https://api.deepseek.com / http://127.0.0.1:1234/v1" />
                       </label>
                       <label>用途标签
                         <input data-system-model-field="${index}:usageTags" value="${escapeAttr((model.usageTags || []).join(", "))}" placeholder="例如：自由构思, 拆书分块" />
@@ -1821,17 +1837,55 @@ function renderIdeation() {
         ${
           messages.length
             ? messages
-                .map(
-                  (message) => `
+                .map((message) => {
+                  const meta = message.meta || {};
+                  const suggestions = Array.isArray(meta.suggestions) ? meta.suggestions : [];
+                  const gaps = Array.isArray(meta.gaps) ? meta.gaps : [];
+                  const isAssistant = message.role !== "user";
+                  const suggestionsBlock =
+                    isAssistant && suggestions.length
+                      ? `<div style="margin-top:12px;">
+                          <div class="eyebrow" style="margin-bottom:6px;">下一步建议</div>
+                          <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                            ${suggestions
+                              .map(
+                                (item) => `
+                                  <button class="secondary" type="button" data-ideation-suggestion="${escapeAttr(item.prompt || "")}" title="${escapeAttr(item.prompt || "")}" style="padding:6px 12px; font-size:12px;">${escapeHtml(item.title || "继续推进")}</button>
+                                `,
+                              )
+                              .join("")}
+                          </div>
+                        </div>`
+                      : "";
+                  const gapsBlock =
+                    isAssistant && gaps.length
+                      ? `<div style="margin-top:12px;">
+                          <div class="eyebrow" style="margin-bottom:6px;">缺口提醒</div>
+                          <ul style="margin:0; padding-left:18px; line-height:1.6;">
+                            ${gaps
+                              .map(
+                                (item) => `
+                                  <li><strong>${escapeHtml(item.title || "待补缺口")}</strong>${
+                                    item.detail ? `：${escapeHtml(item.detail)}` : ""
+                                  }</li>
+                                `,
+                              )
+                              .join("")}
+                          </ul>
+                        </div>`
+                      : "";
+                  return `
                     <article class="record-card" style="margin-top:0; align-self:${message.role === "user" ? "flex-end" : "stretch"}; background:${message.role === "user" ? "rgba(91, 140, 255, 0.08)" : "rgba(255,255,255,0.03)"}; border-color:${message.role === "user" ? "rgba(91, 140, 255, 0.25)" : "rgba(255,255,255,0.08)"};">
                       <div class="row-between" style="gap:12px;">
                         <strong>${escapeHtml(message.role === "user" ? "你" : "构思助手")}</strong>
                         <span class="badge">${escapeHtml(message.createdAt || "-")}</span>
                       </div>
                       <div style="white-space:pre-wrap; margin-top:10px; line-height:1.7;">${escapeHtml(message.content || "")}</div>
+                      ${suggestionsBlock}
+                      ${gapsBlock}
                     </article>
-                  `,
-                )
+                  `;
+                })
                 .join("")
             : '<div class="empty">还没有开始对话。直接输入一段模糊想法就行。</div>'
         }
@@ -1951,16 +2005,17 @@ function renderIdeation() {
                       ${items
                         .map(
                           (object) => `
-                            <label class="row-between" style="align-items:flex-start; gap:12px;">
-                              <span style="display:flex; gap:10px; align-items:flex-start;">
+                            <div class="row-between" style="align-items:flex-start; gap:12px;">
+                              <label style="display:flex; gap:10px; align-items:flex-start; flex:1;">
                                 <input type="checkbox" data-candidate-object="${changeSet.id}" value="${escapeAttr(object.id)}" checked />
                                 <span>
                                   <strong>${escapeHtml(object.title)}</strong>
                                   <span class="muted">(${escapeHtml(formatKernelObjectLabel(object))})</span>
                                   <div class="muted" style="margin-top:6px;">${escapeHtml(object.content?.summary || "-")}</div>
                                 </span>
-                              </span>
-                            </label>
+                              </label>
+                              <button type="button" class="secondary" data-discuss-object-title="${escapeAttr(object.title || "")}" data-discuss-object-label="${escapeAttr(formatKernelObjectLabel(object))}" style="padding:6px 12px; font-size:12px; white-space:nowrap;">讨论此对象</button>
+                            </div>
                           `,
                         )
                         .join("")}
@@ -2048,6 +2103,9 @@ function renderIdeation() {
                       </div>
                       <p>${escapeHtml(object.content?.summary || "-")}</p>
                       <p class="muted">版本：${escapeHtml(object.versionRef || "-")} | 作用域：${escapeHtml(object.effectiveScope?.level || "-")}</p>
+                      <div class="actions" style="margin-top:10px;">
+                        <button type="button" class="secondary" data-discuss-object-title="${escapeAttr(object.title || "")}" data-discuss-object-label="${escapeAttr(formatKernelObjectLabel(object))}" data-discuss-object-formal="1" style="padding:6px 12px; font-size:12px;">讨论此对象</button>
+                      </div>
                     </article>
                   `,
                 )
@@ -2849,6 +2907,16 @@ function bindDynamicEvents() {
     });
   }
 
+  const addLmStudioModelButton = document.querySelector("#add-lmstudio-model");
+  if (addLmStudioModelButton) {
+    addLmStudioModelButton.addEventListener("click", () => {
+      const next = captureSystemSettingsDraft();
+      next.models.push(createLmStudioSystemModel());
+      state.systemSettings = next;
+      render();
+    });
+  }
+
   document.querySelectorAll("[data-remove-system-model]").forEach((button) => {
     button.addEventListener("click", () => {
       const index = Number(button.dataset.removeSystemModel);
@@ -3324,6 +3392,35 @@ function bindDynamicEvents() {
       });
     }
   }
+
+  document.querySelectorAll("[data-ideation-suggestion]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const prompt = button.getAttribute("data-ideation-suggestion") || "";
+      const input = document.querySelector("#ideation-chat-input");
+      if (!input) {
+        return;
+      }
+      input.value = prompt;
+      input.focus();
+      input.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
+
+  document.querySelectorAll("[data-discuss-object-title]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const title = button.getAttribute("data-discuss-object-title") || "";
+      const label = button.getAttribute("data-discuss-object-label") || "";
+      const isFormal = button.getAttribute("data-discuss-object-formal") === "1";
+      const input = document.querySelector("#ideation-chat-input");
+      if (!input) {
+        return;
+      }
+      const scopeHint = isFormal ? "已确认" : "候选";
+      input.value = `我想专门聚焦讨论${scopeHint}对象「${title}」（${label}）：它的合理性如何？有没有更好的替代方案？还缺什么关键信息？`;
+      input.focus();
+      input.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  });
 
   const analyzeReferenceAsset = document.querySelector("#analyze-reference-asset");
   const projectForDraft = getCurrentProject();

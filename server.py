@@ -99,6 +99,11 @@ def split_keywords(*values: str) -> list[str]:
     return deduped[:8]
 
 
+def is_local_base_url(base_url: str) -> bool:
+    value = str(base_url or "").strip().lower()
+    return value.startswith("http://127.0.0.1") or value.startswith("http://localhost")
+
+
 def prompt_config_path() -> Path:
     configured_path = os.getenv("AI_NOVEL_PROMPTS_PATH", "").strip()
     if configured_path:
@@ -467,37 +472,54 @@ def render_prompt_config(prompt_name: str, context: dict) -> dict:
 def llm_settings() -> dict:
     api_key = (
         os.getenv("AI_NOVEL_API_KEY")
+        or os.getenv("LMSTUDIO_API_KEY")
         or os.getenv("DEEPSEEK_API_KEY")
         or os.getenv("OPENAI_API_KEY")
         or ""
     )
     base_url = (
         os.getenv("AI_NOVEL_BASE_URL")
+        or os.getenv("LMSTUDIO_BASE_URL")
         or os.getenv("DEEPSEEK_BASE_URL")
         or os.getenv("OPENAI_BASE_URL")
         or "https://api.deepseek.com"
     ).rstrip("/")
     model = (
         os.getenv("AI_NOVEL_MODEL")
+        or os.getenv("LMSTUDIO_MODEL")
         or os.getenv("DEEPSEEK_MODEL")
         or os.getenv("OPENAI_MODEL")
         or "deepseek-chat"
     )
+    provider = (os.getenv("AI_NOVEL_PROVIDER") or "").strip().lower()
+    if not provider:
+        if is_local_base_url(base_url):
+            provider = "lm-studio"
+        elif "deepseek" in base_url.lower():
+            provider = "deepseek-compatible"
+        elif os.getenv("OPENAI_BASE_URL") or os.getenv("OPENAI_MODEL") or os.getenv("OPENAI_API_KEY"):
+            provider = "openai-compatible"
+        else:
+            provider = "deepseek-compatible"
     mode = (os.getenv("AI_NOVEL_LLM_MODE") or "auto").strip().lower()
     timeout = int(os.getenv("AI_NOVEL_TIMEOUT", "300"))
-    configured = bool(api_key and model and mode != "stub")
+    supports_keyless_local = provider == "lm-studio" or is_local_base_url(base_url)
+    configured = bool(model and mode != "stub" and (api_key or supports_keyless_local))
 
     if mode == "stub":
         message = "已强制使用规则模板"
     elif configured:
-        message = f"真实模型已启用：{model}"
+        if supports_keyless_local and not api_key:
+            message = f"真实模型已启用：{model}（本地 {provider}，无需 API Key）"
+        else:
+            message = f"真实模型已启用：{model}（{provider}）"
     else:
         message = "未配置模型，当前使用规则模板"
 
     return {
         "mode": mode,
         "configured": configured,
-        "provider": "deepseek-compatible",
+        "provider": provider,
         "model": model,
         "baseUrl": base_url,
         "timeout": timeout,
@@ -777,6 +799,7 @@ def chat_completion(
     user_prompt: str,
     temperature: float = 0.7,
     timeout_seconds: int | None = None,
+    history: list[dict] | None = None,
 ) -> str:
     settings = llm_settings()
     if not settings["configured"]:
@@ -788,19 +811,24 @@ def chat_completion(
         or os.getenv("OPENAI_API_KEY")
         or ""
     )
+    messages: list[dict] = [{"role": "system", "content": system_prompt}]
+    if history:
+        for item in history:
+            role = str((item or {}).get("role") or "").strip()
+            content = str((item or {}).get("content") or "").strip()
+            if role in {"user", "assistant"} and content:
+                messages.append({"role": role, "content": content})
+    messages.append({"role": "user", "content": user_prompt})
     payload = {
         "model": settings["model"],
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_prompt},
-        ],
+        "messages": messages,
         "temperature": temperature,
     }
     request = urllib_request.Request(
         url=f"{settings['baseUrl']}/chat/completions",
         data=json.dumps(payload).encode("utf-8"),
         headers={
-            "Authorization": f"Bearer {api_key}",
+            **({"Authorization": f"Bearer {api_key}"} if api_key else {}),
             "Content-Type": "application/json",
         },
         method="POST",
@@ -1382,7 +1410,103 @@ def fallback_kernel_blueprints(project: dict, message: str) -> list[dict]:
     return objects[:4]
 
 
-def llm_kernel_blueprints(project: dict, message: str) -> list[dict]:
+def brief_story_object(obj: dict) -> dict:
+    content = obj.get("content") if isinstance(obj.get("content"), dict) else {}
+    return {
+        "id": obj.get("id"),
+        "type": obj.get("type"),
+        "subtype": obj.get("subtype"),
+        "title": truncate_text(obj.get("title") or "", 40),
+        "summary": truncate_text(content.get("summary") or "", 120),
+    }
+
+
+def brief_reference_asset(asset: dict) -> dict | None:
+    if not isinstance(asset, dict):
+        return None
+    source_work = asset.get("sourceWork") if isinstance(asset.get("sourceWork"), dict) else {}
+    insights = asset.get("insights") if isinstance(asset.get("insights"), list) else []
+    return {
+        "title": source_work.get("title") or "未命名参考作品",
+        "summary": truncate_text(asset.get("summary") or "", 200),
+        "insights": [
+            {
+                "title": truncate_text(item.get("title") or "", 40),
+                "summary": truncate_text(item.get("summary") or "", 120),
+            }
+            for item in insights[:5]
+            if isinstance(item, dict)
+        ],
+    }
+
+
+def build_ideation_context(
+    payload: dict,
+    space: dict,
+    conversation: dict | None,
+    *,
+    history_limit: int = 10,
+    formal_limit: int = 20,
+    candidate_limit: int = 20,
+) -> dict:
+    messages = (conversation or {}).get("messages") or []
+    history = []
+    for msg in messages[-history_limit:]:
+        role = str((msg or {}).get("role") or "").strip()
+        content = str((msg or {}).get("content") or "").strip()
+        if role in {"user", "assistant"} and content:
+            history.append({"role": role, "content": content})
+    objects = [o for o in payload["objects"] if o.get("spaceId") == space["id"]]
+    formal = [brief_story_object(o) for o in objects if o.get("status") == "formal"][-formal_limit:]
+    candidates = [brief_story_object(o) for o in objects if o.get("status") == "candidate"][-candidate_limit:]
+    project_refs = [
+        item
+        for item in payload["reference_assets"]
+        if (item.get("ownerScope") or {}).get("spaceId") == space["id"]
+    ]
+    project_refs.sort(key=lambda r: str(r.get("updatedAt") or r.get("createdAt") or ""), reverse=True)
+    latest_reference = brief_reference_asset(project_refs[0]) if project_refs else None
+    return {
+        "history": history,
+        "formal_objects": formal,
+        "candidate_objects": candidates,
+        "latest_reference": latest_reference,
+    }
+
+
+def format_context_summary(context: dict | None) -> str:
+    if not context:
+        return ""
+    lines: list[str] = []
+    formal = context.get("formal_objects") or []
+    if formal:
+        lines.append("已确认的正式对象（不要重复提炼）：")
+        for item in formal:
+            lines.append(
+                f"- [{item.get('type')}/{item.get('subtype')}] {item.get('title')}: {item.get('summary')}"
+            )
+    candidates = context.get("candidate_objects") or []
+    if candidates:
+        lines.append("当前已挂起的候选对象（不要重复提炼相同内容）：")
+        for item in candidates:
+            lines.append(
+                f"- [{item.get('type')}/{item.get('subtype')}] {item.get('title')}: {item.get('summary')}"
+            )
+    reference = context.get("latest_reference")
+    if reference:
+        lines.append(f"最近一次参考作品拆解：《{reference.get('title')}》")
+        if reference.get("summary"):
+            lines.append(f"拆解摘要：{reference['summary']}")
+        for insight in reference.get("insights") or []:
+            lines.append(f"- 拆解结论「{insight.get('title')}」：{insight.get('summary')}")
+    return "\n".join(lines)
+
+
+def llm_kernel_blueprints(
+    project: dict,
+    message: str,
+    context: dict | None = None,
+) -> list[dict]:
     system_prompt = (
         "你是小说构思结构化助手。请把用户的模糊构思提炼为少量结构化对象。"
         "输出必须是一个 JSON 对象，字段为 objects。"
@@ -1390,13 +1514,20 @@ def llm_kernel_blueprints(project: dict, message: str) -> list[dict]:
         "type 只允许 novel_metadata、worldbuilding、character_relation、story_direction。"
         "content 至少包含 summary，可选 tags、confidence。"
         "优先提炼小说元信息和世界观，不要输出 markdown。"
+        "如果本轮输入并未新增可沉淀信息，返回 objects: []。"
+        "不要重复已有的正式或候选对象，只输出真正新增或明确细化的内容。"
     )
+    context_block = format_context_summary(context)
     user_prompt = (
-        "请根据以下小说项目信息和本轮自由构思，提炼 3 到 6 个候选结构化对象。\n\n"
+        "请根据以下小说项目信息和本轮自由构思，提炼 0 到 6 个候选结构化对象。\n\n"
         f"项目标题：{project.get('title', '未命名')}\n"
         f"项目题材：{project.get('genre', '待补充')}\n"
         f"已有卖点：{project.get('hook', '待补充')}\n"
-        f"本轮自由构思：{message}\n\n"
+    )
+    if context_block:
+        user_prompt += f"\n{context_block}\n"
+    user_prompt += (
+        f"\n本轮自由构思：{message}\n\n"
         "输出格式示例：\n"
         "{\n"
         '  "objects": [\n'
@@ -1413,18 +1544,23 @@ def llm_kernel_blueprints(project: dict, message: str) -> list[dict]:
         "  ]\n"
         "}"
     )
-    raw = chat_completion(system_prompt, user_prompt, temperature=0.4)
+    history = (context or {}).get("history") if context else None
+    raw = chat_completion(system_prompt, user_prompt, temperature=0.4, history=history)
     payload = extract_json_block(raw)
     objects = payload.get("objects", [])
-    if not isinstance(objects, list) or not objects:
+    if not isinstance(objects, list):
         raise ValueError("kernel ideation response missing objects")
     return objects
 
 
-def extract_kernel_blueprints(project: dict, message: str) -> list[dict]:
+def extract_kernel_blueprints(
+    project: dict,
+    message: str,
+    context: dict | None = None,
+) -> list[dict]:
     try:
         if llm_settings().get("configured"):
-            return llm_kernel_blueprints(project, message)
+            return llm_kernel_blueprints(project, message, context=context)
     except Exception as exc:
         print(f"[kernel ideation] fallback to heuristic extraction: {exc}")
     return fallback_kernel_blueprints(project, message)
@@ -2496,7 +2632,7 @@ def add_local_capability_features(
     return created
 
 
-def fallback_chat_reply(project: dict, user_message: str, objects: list[dict]) -> str:
+def fallback_chat_reply(project: dict, user_message: str, objects: list[dict]) -> dict:
     lines = ["我先把这轮构思里的可沉淀部分挂成候选对象了。"]
     if objects:
         lines.append("这次我先抓到的重点是：")
@@ -2505,39 +2641,90 @@ def fallback_chat_reply(project: dict, user_message: str, objects: list[dict]) -
                 f"- {obj.get('title', '未命名对象')}：{truncate_text((obj.get('content') or {}).get('summary', ''), 60)}"
             )
     lines.append("你可以继续往下聊，不用先整理格式。")
+    suggestions: list[dict] = []
+    gaps: list[dict] = []
     if not any(keyword in user_message for keyword in ["主角", "角色", "人物"]):
-        lines.append("下一步我更想确认主角切口和人物驱动力。")
-    elif not any(keyword in user_message for keyword in ["世界", "规则", "设定", "力量"]):
-        lines.append("下一步可以把世界规则或核心设定再压实一点。")
-    else:
-        lines.append("如果你愿意，我可以继续往下推冲突方向和卷级发展。")
-    return "\n".join(lines)
+        suggestions.append({"title": "聚焦主角切口", "prompt": "帮我把主角的身份切口和核心驱动力再压实一点。"})
+        gaps.append({"title": "主角信息缺口", "detail": "尚未明确主角的身份、职业、核心驱动力。"})
+    if not any(keyword in user_message for keyword in ["世界", "规则", "设定", "力量"]):
+        suggestions.append({"title": "压实世界规则", "prompt": "帮我把世界观的核心规则和边界再梳理一下。"})
+        gaps.append({"title": "世界规则缺口", "detail": "核心设定、力量体系或世界运行规则尚未成形。"})
+    if not suggestions:
+        suggestions.append({"title": "推进冲突与卷级发展", "prompt": "继续往下推冲突方向和卷级发展节奏。"})
+    return {
+        "reply": "\n".join(lines),
+        "suggestions": suggestions[:3],
+        "gaps": gaps[:3],
+    }
 
 
-def llm_chat_reply(project: dict, user_message: str, objects: list[dict]) -> str:
+def llm_chat_reply(
+    project: dict,
+    user_message: str,
+    objects: list[dict],
+    context: dict | None = None,
+) -> dict:
     system_prompt = (
-        "你是小说构思共创助手。"
-        "现在请基于用户刚说的话，以及已经提炼出的候选对象，给出一段简洁、自然、继续推进式的中文回复。"
-        "要求像对话，不要输出 JSON，不要写 markdown 标题，不要太长。"
-        "回复应包含：你抓到的重点、你准备如何继续推进、以及一个最值得继续聊的问题。"
+        "你是小说构思共创助手，既是共创者也是拆解教练。"
+        "基于用户刚说的话、对话历史、小说空间里已有的正式/候选对象以及参考作品拆解，"
+        "主动往前推进构思：提出假设、指出缺口、给出替代方案。"
+        "不要重复已经确认过的设定，要真正往前推进。"
+        "\n\n输出必须是一个 JSON 对象，字段为 reply、suggestions、gaps，除此之外不要有其它内容、不要写 markdown。"
+        "\n- reply：给用户的自然语言回复，中文，控制在 200 字以内，不要写 markdown 标题。"
+        "包含：你抓到的重点、你准备如何继续推进、以及一个最值得继续聊的问题。"
+        "\n- suggestions：1 到 3 个「下一步可以聊什么」的建议，每项 {title, prompt}。"
+        "title 是短标签（≤ 12 字），prompt 是用户可以直接发送出去的那句话（中文，第一人称「我」）。"
+        "\n- gaps：0 到 3 个「当前构思里的缺口或矛盾」，每项 {title, detail}。"
+        "title 是短标签，detail 说明缺口或矛盾是什么、为什么要补。没有就返回空数组。"
     )
+    context_block = format_context_summary(context)
     user_prompt = (
         f"项目标题：{project.get('title', '未命名')}\n"
         f"项目题材：{project.get('genre', '待定题材')}\n"
-        f"用户本轮输入：{user_message}\n"
-        f"本轮已提炼出的候选对象：{json_text(objects[:4])}\n"
-        "请直接给出助手回复。"
     )
-    reply = chat_completion(system_prompt, user_prompt, temperature=0.7).strip()
-    if not reply:
+    if context_block:
+        user_prompt += f"\n{context_block}\n"
+    user_prompt += (
+        f"\n用户本轮输入：{user_message}\n"
+        f"本轮新提炼出的候选对象：{json_text(objects[:4])}\n"
+        "请直接给出 JSON 对象。"
+    )
+    history = (context or {}).get("history") if context else None
+    raw = chat_completion(system_prompt, user_prompt, temperature=0.7, history=history)
+    parsed = extract_json_block(raw)
+    reply_text = str(parsed.get("reply") or "").strip()
+    if not reply_text:
         raise ValueError("empty chat reply")
-    return reply
+    raw_suggestions = parsed.get("suggestions") if isinstance(parsed.get("suggestions"), list) else []
+    raw_gaps = parsed.get("gaps") if isinstance(parsed.get("gaps"), list) else []
+    suggestions = [
+        {
+            "title": truncate_text(str(item.get("title") or "继续推进"), 30),
+            "prompt": truncate_text(str(item.get("prompt") or "").strip(), 200),
+        }
+        for item in raw_suggestions
+        if isinstance(item, dict) and str(item.get("prompt") or "").strip()
+    ][:3]
+    gaps = [
+        {
+            "title": truncate_text(str(item.get("title") or "待补缺口"), 30),
+            "detail": truncate_text(str(item.get("detail") or "").strip(), 200),
+        }
+        for item in raw_gaps
+        if isinstance(item, dict) and str(item.get("detail") or "").strip()
+    ][:3]
+    return {"reply": reply_text, "suggestions": suggestions, "gaps": gaps}
 
 
-def generate_chat_reply(project: dict, user_message: str, objects: list[dict]) -> str:
+def generate_chat_reply(
+    project: dict,
+    user_message: str,
+    objects: list[dict],
+    context: dict | None = None,
+) -> dict:
     try:
         if llm_settings().get("configured"):
-            return llm_chat_reply(project, user_message, objects)
+            return llm_chat_reply(project, user_message, objects, context=context)
     except Exception as exc:
         print(f"[kernel chat] fallback to heuristic reply: {exc}")
     return fallback_chat_reply(project, user_message, objects)
@@ -3479,33 +3666,41 @@ def kernel_bundle_for_project(payload: dict, project_id: str) -> dict:
     return build_kernel_bundle(payload, project)
 
 
-def ideate_project_kernel(payload: dict, project_id: str, message: str) -> dict:
+def ideate_project_kernel(
+    payload: dict,
+    project_id: str,
+    message: str,
+    context: dict | None = None,
+) -> dict:
     project = find_project_in_payload(payload, project_id)
     ensure_project_space(payload, project)
     space = find_item(payload["spaces"], project["spaceId"], "space")
     conversation = ensure_active_conversation(payload, space)
     conversation_id = conversation["id"]
-    blueprints = extract_kernel_blueprints(project, message)
+    if context is None:
+        context = build_ideation_context(payload, space, conversation)
+    blueprints = extract_kernel_blueprints(project, message, context=context)
     objects = [
         story_object_from_blueprint(space["id"], conversation_id, blueprint)
         for blueprint in blueprints[:6]
     ]
-    payload["objects"].extend(objects)
-    change_set = normalize_candidate_change_set(
-        {
-            "id": f"ccs-{uuid.uuid4().hex[:8]}",
-            "spaceId": space["id"],
-            "title": f"构思候选 {now()}",
-            "origin": {
-                "conversationId": conversation_id,
-                "trigger": "ai_extracted",
-            },
-            "objectIds": [obj["id"] for obj in objects],
-            "notes": truncate_text(message, 180),
-        }
-    )
-    payload["candidate_change_sets"].append(change_set)
-    refresh_space_indexes(payload, space["id"])
+    if objects:
+        payload["objects"].extend(objects)
+        change_set = normalize_candidate_change_set(
+            {
+                "id": f"ccs-{uuid.uuid4().hex[:8]}",
+                "spaceId": space["id"],
+                "title": f"构思候选 {now()}",
+                "origin": {
+                    "conversationId": conversation_id,
+                    "trigger": "ai_extracted",
+                },
+                "objectIds": [obj["id"] for obj in objects],
+                "notes": truncate_text(message, 180),
+            }
+        )
+        payload["candidate_change_sets"].append(change_set)
+        refresh_space_indexes(payload, space["id"])
     project["updatedAt"] = now()
     return build_kernel_bundle(payload, project)
 
@@ -3515,8 +3710,9 @@ def chat_project_kernel(payload: dict, project_id: str, message: str) -> dict:
     ensure_project_space(payload, project)
     space = find_item(payload["spaces"], project["spaceId"], "space")
     conversation = ensure_active_conversation(payload, space)
+    context = build_ideation_context(payload, space, conversation)
     append_conversation_message(conversation, "user", message)
-    kernel = ideate_project_kernel(payload, project_id, message)
+    kernel = ideate_project_kernel(payload, project_id, message, context=context)
     candidate_objects = kernel.get("candidateObjects", [])
     latest_change_set = next(
         (
@@ -3531,14 +3727,16 @@ def chat_project_kernel(payload: dict, project_id: str, message: str) -> dict:
         object_id_set = set(latest_change_set.get("objectIds") or [])
         current_objects = [obj for obj in candidate_objects if obj.get("id") in object_id_set]
     add_local_capability_features(payload, space["id"], message, "conversation", conversation["id"])
-    reply = generate_chat_reply(project, message, current_objects)
+    reply_payload = generate_chat_reply(project, message, current_objects, context=context)
     append_conversation_message(
         conversation,
         "assistant",
-        reply,
+        reply_payload.get("reply") or "",
         {
             "changeSetId": latest_change_set.get("id") if latest_change_set else None,
             "candidateObjectIds": [obj.get("id") for obj in current_objects],
+            "suggestions": reply_payload.get("suggestions") or [],
+            "gaps": reply_payload.get("gaps") or [],
         },
     )
     project["updatedAt"] = now()
