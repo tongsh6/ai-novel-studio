@@ -128,14 +128,23 @@ button {
   margin-bottom: 14px;
 }
 
+.compact-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
 .field span,
+.compact-field span,
 .detail-label {
   font-size: 13px;
   color: var(--muted);
 }
 
 .field input,
-.field textarea {
+.field textarea,
+.compact-field input {
   width: 100%;
   border: 1px solid rgba(48, 35, 28, 0.16);
   border-radius: 16px;
@@ -145,9 +154,18 @@ button {
 }
 
 .field input:focus,
-.field textarea:focus {
+.field textarea:focus,
+.compact-field input:focus {
   outline: 2px solid rgba(175, 63, 47, 0.2);
   border-color: rgba(175, 63, 47, 0.44);
+}
+
+.chapter-jump-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  margin-bottom: 14px;
 }
 
 .primary-button,

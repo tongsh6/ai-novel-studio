@@ -1,0 +1,55 @@
+[
+  {
+    "name": "create_character_candidates",
+    "request": "你根据现在的剧情进行角色创建，我根据你提供的候选，进行确认",
+    "result": {
+      "intent": "CREATE_CHARACTER_CANDIDATES",
+      "parameters": {
+        "work_name": "天龙",
+        "plot_scope": "current_plot",
+        "generation_target": "new_character_candidates",
+        "candidate_count": null,
+        "role_type": "",
+        "selection_flow": "author_confirms_after_candidates",
+        "constraints": []
+      },
+      "missing_fields": ["candidate_count", "role_type"],
+      "confidence": 0.96,
+      "reply": "已识别为基于当前剧情生成角色候选的请求。"
+    }
+  },
+  {
+    "name": "refine_existing_character",
+    "request": "把主角的核心欲望和软肋补完整一点",
+    "result": {
+      "intent": "REFINE_EXISTING_CHARACTER",
+      "parameters": {
+        "work_name": "天龙",
+        "character_name": "主角",
+        "refine_dimensions": ["motivation", "weakness"],
+        "current_basis": "existing_main_character",
+        "constraints": []
+      },
+      "missing_fields": [],
+      "confidence": 0.95,
+      "reply": "已识别为对现有角色设定进行细化的请求。"
+    }
+  },
+  {
+    "name": "advance_plot",
+    "request": "接下来这段剧情怎么推进比较合理",
+    "result": {
+      "intent": "ADVANCE_PLOT",
+      "parameters": {
+        "work_name": "天龙",
+        "current_plot_scope": "current_plot",
+        "advance_goal": "reasonable_next_progression",
+        "target_position": "",
+        "constraints": []
+      },
+      "missing_fields": ["target_position"],
+      "confidence": 0.94,
+      "reply": "已识别为推进当前剧情的请求。"
+    }
+  }
+]

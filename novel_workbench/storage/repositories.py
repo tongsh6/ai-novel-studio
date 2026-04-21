@@ -358,6 +358,63 @@ class ContinuityStateRepository(SQLiteRepository):
         return [dict(row) for row in rows]
 
 
+class RelationRepository(SQLiteRepository):
+    spec = TableSpec(
+        table_name="relations",
+        columns=(
+            "id",
+            "work_id",
+            "character_a",
+            "character_b",
+            "relation_type",
+            "tension_source",
+            "hidden_hook",
+            "extensions_json",
+            "notes_json",
+            "created_at",
+            "updated_at",
+        ),
+        default_order_by="updated_at DESC, created_at DESC, id ASC",
+    )
+
+
+class SettingRepository(SQLiteRepository):
+    spec = TableSpec(
+        table_name="settings",
+        columns=(
+            "id",
+            "work_id",
+            "domain",
+            "content",
+            "related_plot_scope",
+            "extensions_json",
+            "notes_json",
+            "created_at",
+            "updated_at",
+        ),
+        default_order_by="updated_at DESC, created_at DESC, id ASC",
+    )
+
+
+class InteractionLogRepository(SQLiteRepository):
+    spec = TableSpec(
+        table_name="interaction_logs",
+        columns=(
+            "id",
+            "work_id",
+            "user_input",
+            "route_result_json",
+            "route_validation_json",
+            "execution_result_json",
+            "execution_validation_json",
+            "status",
+            "created_at",
+            "updated_at",
+        ),
+        default_order_by="created_at DESC, updated_at DESC, id ASC",
+    )
+
+
 class RepositoryBundle:
     """Convenience entry point for the V1 repositories."""
 
@@ -370,3 +427,6 @@ class RepositoryBundle:
         self.drafts = DraftRepository(conn)
         self.decision_logs = DecisionLogRepository(conn)
         self.continuity_states = ContinuityStateRepository(conn)
+        self.relations = RelationRepository(conn)
+        self.settings = SettingRepository(conn)
+        self.interaction_logs = InteractionLogRepository(conn)

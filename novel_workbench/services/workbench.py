@@ -3,13 +3,27 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 import uuid
 from typing import Any
 
+from novel_workbench.context_manager import ContextManager
+from novel_workbench.executors import (
+    AdvancePlotExecutor,
+    CreateCharacterCandidatesExecutor,
+    ExecutorRegistry,
+    FunctionExecutor,
+    RefineExistingCharacterExecutor,
+    SummarizeCurrentStateExecutor,
+    make_executor_result,
+)
+from novel_workbench.router import RouterService
+from novel_workbench.router.defaults import apply_router_defaults
 from novel_workbench.storage import RepositoryBundle
 from novel_workbench.services import llm_client, prompts
+from novel_workbench.validators import validate_executor_result, validate_router_result
 
 
 JsonDict = dict[str, Any]
@@ -34,12 +48,50 @@ def estimate_cn_word_count(text: str) -> int:
     return len(compact)
 
 
+_CN_NUMBERS = {
+    "一": 1,
+    "二": 2,
+    "三": 3,
+    "四": 4,
+    "五": 5,
+    "六": 6,
+    "七": 7,
+    "八": 8,
+    "九": 9,
+    "十": 10,
+}
+
+
+def _parse_chinese_chapter_number(text: str) -> int | None:
+    match = re.search(r"第([0-9]+)章", text)
+    if match:
+        return int(match.group(1))
+    match = re.search(r"第([一二三四五六七八九十]+)章", text)
+    if not match:
+        return None
+    raw = match.group(1)
+    if raw == "十":
+        return 10
+    if raw.startswith("十") and len(raw) == 2:
+        return 10 + _CN_NUMBERS.get(raw[1], 0)
+    if raw.endswith("十") and len(raw) == 2:
+        return _CN_NUMBERS.get(raw[0], 0) * 10
+    if len(raw) == 1:
+        return _CN_NUMBERS.get(raw)
+    if len(raw) == 2 and raw[0] in _CN_NUMBERS and raw[1] in _CN_NUMBERS:
+        return _CN_NUMBERS[raw[0]] * 10 + _CN_NUMBERS[raw[1]]
+    return None
+
+
 class WorkbenchService:
     """Minimal V1 service orchestration over the SQLite repositories."""
 
     def __init__(self, conn: sqlite3.Connection):
         self.conn = conn
         self.repos = RepositoryBundle(conn)
+        self.router = RouterService()
+        self.context_manager = ContextManager(conn)
+        self.executor_registry = self._build_executor_registry()
 
     def create_work_seed(
         self,
@@ -226,6 +278,184 @@ class WorkbenchService:
     def get_work(self, work_id: str) -> JsonDict:
         return self._require_work(work_id)
 
+    def set_active_chapter(self, *, work_id: str, chapter_id: str) -> JsonDict:
+        work = self._require_work(work_id)
+        chapter = self._require_chapter_for_work(work_id, chapter_id)
+        self.repos.works.save(
+            {
+                **work,
+                "active_chapter_id": chapter["id"],
+                "updated_at": now_ms(),
+            }
+        )
+        return self.open_workbench(work_id)
+
+    def ensure_chapter(
+        self,
+        *,
+        work_id: str,
+        order_no: int,
+        activate: bool = True,
+    ) -> JsonDict:
+        if order_no <= 0:
+            raise ValueError("order_no must be positive")
+
+        work = self._require_work(work_id)
+        chapters = self.repos.chapters.list_by_work(work_id)
+        existing = next((chapter for chapter in chapters if int(chapter["order_no"]) == order_no), None)
+        now = now_ms()
+        if existing is None:
+            volume_id = work.get("active_volume_id")
+            if not volume_id:
+                volumes = self.repos.volumes.list_by_work(work_id)
+                if not volumes:
+                    raise ValueError("active volume is required before creating chapters")
+                volume_id = volumes[0]["id"]
+
+            chapter = self.repos.chapters.save(
+                {
+                    "id": new_id("chapter"),
+                    "work_id": work_id,
+                    "volume_id": volume_id,
+                    "order_no": order_no,
+                    "title": f"第{order_no}章",
+                    "pov_character_id": None,
+                    "function": "待补章节定位",
+                    "core_event": "",
+                    "conflict": "",
+                    "info_points_json": json_text([], fallback=[]),
+                    "foreshadow_refs_json": json_text([], fallback=[]),
+                    "character_progress": "",
+                    "emotional_progress": "",
+                    "worldbuilding_progress": "",
+                    "ending_hook": "",
+                    "target_word_count": 3000,
+                    "is_explosive_chapter": 0,
+                    "summary": "",
+                    "status": "BACKLOG",
+                    "extensions_json": json_text(
+                        {
+                            "autoCreated": True,
+                            "autoCreatedReason": f"chapter_order_{order_no}",
+                        },
+                        fallback={},
+                    ),
+                    "notes_json": json_text({}, fallback={}),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            self._log_decision(
+                work_id=work_id,
+                decision_type="chapter_created",
+                title=f"创建章节：第{order_no}章",
+                decision=f"已自动创建第{order_no}章骨架。",
+                rationale="用户请求指向了尚不存在的目标章节，需要先创建最小章节对象以承接后续细纲或正文。",
+                affected_object_refs=[work_id, chapter["id"]],
+                confirmed_by_user=False,
+                extensions={
+                    "action": "ensure_chapter",
+                    "chapterId": chapter["id"],
+                    "orderNo": order_no,
+                },
+            )
+        else:
+            chapter = existing
+
+        if activate:
+            self.set_active_chapter(work_id=work_id, chapter_id=chapter["id"])
+        return chapter
+
+    def refine_character(
+        self,
+        *,
+        work_id: str,
+        name: str,
+        identity: str = "",
+        role_type: str = "PROTAGONIST",
+        core_desire: str = "",
+    ) -> JsonDict:
+        work = self._require_work(work_id)
+        name = name.strip()
+        if not name:
+            raise ValueError("character name is required")
+
+        existing_chars = self.repos.characters.list_by_work(work_id)
+        existing = next((c for c in existing_chars if c["name"] == name), None)
+        now = now_ms()
+
+        if existing:
+            character = self.repos.characters.save(
+                {
+                    **existing,
+                    "identity": identity.strip() or existing["identity"],
+                    "role_type": role_type.strip() or existing["role_type"],
+                    "core_desire": core_desire.strip() or existing["core_desire"],
+                    "updated_at": now,
+                }
+            )
+            decision_type = "character_updated"
+            title = f"更新角色设定：{name}"
+        else:
+            character_id = new_id("character")
+            character = self.repos.characters.save(
+                {
+                    "id": character_id,
+                    "work_id": work_id,
+                    "name": name,
+                    "gender": "",
+                    "age": None,
+                    "identity": identity.strip(),
+                    "role_type": role_type.strip(),
+                    "appearance": "",
+                    "public_persona": "",
+                    "inner_core": "",
+                    "core_desire": core_desire.strip(),
+                    "core_fear": "",
+                    "surface_goal": "",
+                    "deep_goal": "",
+                    "initial_flaw": "",
+                    "obsession": "",
+                    "values_json": json_text([], fallback=[]),
+                    "action_style": "",
+                    "decision_style": "",
+                    "emotion_triggers_json": json_text([], fallback=[]),
+                    "bottom_line": "",
+                    "taboos_json": json_text([], fallback=[]),
+                    "growth_arc": "",
+                    "power_growth_path": "",
+                    "identity_secrets_json": json_text([], fallback=[]),
+                    "breakdown_points_json": json_text([], fallback=[]),
+                    "fate_question": "",
+                    "first_appearance_chapter_id": None,
+                    "current_state": "",
+                    "status": "DRAFT",
+                    "extensions_json": json_text({}, fallback={}),
+                    "notes_json": json_text({}, fallback={}),
+                    "created_at": now,
+                    "updated_at": now,
+                }
+            )
+            decision_type = "character_created"
+            title = f"创建角色：{name}"
+
+        self._log_decision(
+            work_id=work_id,
+            decision_type=decision_type,
+            title=title,
+            decision=f"已记录角色设定：{name}（{identity}）",
+            rationale=f"记录核心角色设定，为后续细纲和草稿提供人物基础。",
+            affected_object_refs=[work_id, character["id"]],
+            confirmed_by_user=True,
+            extensions={
+                "action": "refine_character",
+                "characterId": character["id"],
+                "name": name,
+                "identity": identity,
+            },
+        )
+        return self.open_workbench(work_id)
+
     def generate_chapter_outline(
         self,
         *,
@@ -248,12 +478,10 @@ class WorkbenchService:
             instruction_text=instruction_text,
             rewrite_mode=rewrite_mode,
         )
-        try:
-            _llm_data = llm_client.chat_json(_outline_messages)
-        except Exception:
-            _llm_data = {}
+        print(f"--- Calling LLM: generate_chapter_outline for {chapter['title']} ---")
+        _llm_data = llm_client.chat_json(_outline_messages)
 
-        function = str(_llm_data.get("function") or chapter["function"] or "推进主线并建立首轮章节钩子")
+        function = str(_llm_data.get("function") or "推进主线并建立首轮章节钩子")
         core_event = str(_llm_data.get("core_event") or chapter["core_event"] or "主角被迫做出第一次关键行动")
         conflict = str(_llm_data.get("conflict") or chapter["conflict"] or "目标明确，但资源和信息都不足")
         summary = str(_llm_data.get("summary") or f"{work['title']}·{chapter['title']} 推进主线。")
@@ -361,12 +589,10 @@ class WorkbenchService:
             instruction_text=instruction_text,
             rewrite_mode=rewrite_mode,
         )
-        try:
-            draft_text = llm_client.chat(_draft_messages)
-            _gen_mode = "llm_generation"
-        except Exception:
-            draft_text = self._render_stub_draft(work, chapter, instruction_text=instruction_text, rewrite_mode=rewrite_mode)
-            _gen_mode = "local_stub"
+        print(f"--- Calling LLM: draft_chapter for {chapter['title']} ---")
+        draft_text = llm_client.chat(_draft_messages)
+        _gen_mode = "llm_generation"
+
         draft = self._save_draft_record(
             work_id=work_id,
             chapter_id=chapter_id,
@@ -414,14 +640,14 @@ class WorkbenchService:
                 f"修改要求：{instruction_text}。"
             )
             rationale = (
-                f"V1 需要支持章节级多版本正文草稿。执行模式：{rewrite_mode}。"
+                f"V1 需要支持章节级多版本正文草稿. 执行模式: {rewrite_mode}。"
                 f"用户修改要求：{instruction_text}。"
             )
         else:
             decision_type = "chapter_draft_created"
             decision_title = f"生成正文草稿：{chapter['title']} v{next_version}"
             decision_text = f"已生成 {chapter['title']} 的第 {next_version} 个正文草稿版本。"
-            rationale = f"V1 需要支持章节级多版本正文草稿。执行模式：{rewrite_mode}。"
+            rationale = f"V1 需要支持章节级多版本正文草稿. 执行模式: {rewrite_mode}。"
         self._log_decision(
             work_id=work_id,
             decision_type=decision_type,
@@ -464,12 +690,10 @@ class WorkbenchService:
             instruction_text=instruction_text or "基于上一版做结构与表达修订",
             revise_mode=revise_mode,
         )
-        try:
-            draft_text = llm_client.chat(_revise_messages)
-            _rev_mode = "llm_revision"
-        except Exception:
-            draft_text = self._render_stub_draft(work, chapter, instruction_text=instruction_text or "基于上一版做结构与表达修订", rewrite_mode=revise_mode, base_draft=latest_draft)
-            _rev_mode = "local_stub"
+        print(f"--- Calling LLM: revise_draft for {chapter['title']} ---")
+        draft_text = llm_client.chat(_revise_messages)
+        _rev_mode = "llm_revision"
+
         draft = self._save_draft_record(
             work_id=work_id,
             chapter_id=chapter_id,
@@ -521,9 +745,10 @@ class WorkbenchService:
             f"来源版本：v{latest_draft['version_no']}。"
             + (f" 用户修改要求：{instruction_text}。" if instruction_text else "")
         )
+        decision_type = "chapter_draft_revised"
         self._log_decision(
             work_id=work_id,
-            decision_type="chapter_draft_revised",
+            decision_type=decision_type,
             title=f"修订正文草稿：{chapter['title']} v{latest_draft['version_no']} -> v{next_version}",
             decision=decision_text,
             rationale=rationale,
@@ -604,6 +829,7 @@ class WorkbenchService:
         work = self._require_work(work_id)
         volumes = self.repos.volumes.list_by_work(work_id)
         chapters = self.repos.chapters.list_by_work(work_id)
+        characters = self.repos.characters.list_by_work(work_id)
         outline = self.repos.outlines.get_by_work(work_id)
         decisions = self.repos.decision_logs.list_by_work(work_id)
         latest_drafts = {
@@ -613,6 +839,7 @@ class WorkbenchService:
             "work": work,
             "outline": outline,
             "volumes": volumes,
+            "characters": characters,
             "chapters": [
                 {
                     **chapter,
@@ -622,6 +849,457 @@ class WorkbenchService:
             ],
             "recentDecisions": decisions[:10],
         }
+
+    def route_user_request(self, *, work_id: str | None = None, text: str) -> JsonDict:
+        return self._route_user_request(work_id=work_id, text=text, persist=False)
+
+    def _route_user_request(
+        self,
+        *,
+        work_id: str | None = None,
+        text: str,
+        persist: bool,
+    ) -> JsonDict:
+        router_context = self.context_manager.build_router_context(work_id=work_id, text=text)
+        raw_route_result = self.router.route(
+            text,
+            router_context=router_context,
+        )
+        route_result, autofilled_fields = apply_router_defaults(raw_route_result)
+        validation_result = validate_router_result(route_result)
+        validated_route_result = validation_result["validated_result"]
+
+        status = "READY_FOR_EXECUTION"
+        if not validation_result["is_valid"]:
+            status = "FAILED"
+        elif validated_route_result.get("missing_fields"):
+            status = "NEEDS_CLARIFICATION"
+
+        packet = {
+            "status": status,
+            "routeResult": validated_route_result,
+            "validationResult": validation_result,
+            "autofilledFields": autofilled_fields,
+        }
+        if persist and work_id:
+            interaction = self._save_interaction_log(
+                work_id=work_id,
+                user_input=text,
+                route_result=validated_route_result,
+                route_validation=validation_result,
+                status=status,
+            )
+            packet["interactionId"] = interaction["id"]
+        return packet
+
+    def execute_router_result(
+        self,
+        *,
+        work_id: str,
+        route_result: JsonDict,
+        interaction_id: str | None = None,
+        user_input: str = "",
+        persist: bool = False,
+    ) -> JsonDict:
+        validation_result = validate_router_result(route_result)
+        validated_route_result = validation_result["validated_result"]
+        status = "READY_FOR_EXECUTION"
+        if not validation_result["is_valid"]:
+            status = "FAILED"
+        elif validated_route_result.get("missing_fields"):
+            status = "NEEDS_CLARIFICATION"
+
+        packet: JsonDict = {
+            "status": status,
+            "routeResult": validated_route_result,
+            "validationResult": validation_result,
+        }
+        if status != "READY_FOR_EXECUTION":
+            if persist and interaction_id:
+                self._save_interaction_log(
+                    work_id=work_id,
+                    user_input=user_input,
+                    route_result=validated_route_result,
+                    route_validation=validation_result,
+                    status=status,
+                    interaction_id=interaction_id,
+                )
+                packet["interactionId"] = interaction_id
+            return packet
+
+        execution_context = self.context_manager.build_executor_context(
+            work_id=work_id,
+            intent=validated_route_result["intent"],
+            parameters=validated_route_result["parameters"],
+        )
+        execution_context["work_id"] = work_id
+        execution_context["text"] = user_input
+        execution_result = self.executor_registry.execute(
+            validated_route_result["intent"],
+            context=execution_context,
+            parameters=validated_route_result["parameters"],
+        )
+        execution_validation = validate_executor_result(
+            validated_route_result["intent"],
+            execution_result,
+        )
+        execution_status = "COMPLETED" if execution_validation["is_valid"] else "FAILED"
+        packet.update(
+            {
+                "status": execution_status,
+                "executionResult": execution_result,
+                "executionValidation": execution_validation,
+            }
+        )
+        if persist:
+            interaction = self._save_interaction_log(
+                work_id=work_id,
+                user_input=user_input,
+                route_result=validated_route_result,
+                route_validation=validation_result,
+                execution_result=execution_result,
+                execution_validation=execution_validation,
+                status=execution_status,
+                interaction_id=interaction_id,
+            )
+            packet["interactionId"] = interaction["id"]
+        return packet
+
+    def process_interaction(self, *, work_id: str, text: str) -> JsonDict:
+        route_packet = self._route_user_request(work_id=work_id, text=text, persist=True)
+        if route_packet["status"] != "READY_FOR_EXECUTION":
+            return route_packet
+        return self.execute_router_result(
+            work_id=work_id,
+            route_result=route_packet["routeResult"],
+            interaction_id=route_packet.get("interactionId"),
+            user_input=text,
+            persist=True,
+        )
+
+    def list_interactions(self, *, work_id: str) -> list[JsonDict]:
+        rows = self.repos.interaction_logs.list_by_work(work_id)
+        result: list[JsonDict] = []
+        for row in rows:
+            result.append(
+                {
+                    "id": row["id"],
+                    "workId": row["work_id"],
+                    "userInput": row["user_input"],
+                    "routeResult": self._parse_json_text(row["route_result_json"], default={}),
+                    "routeValidation": self._parse_json_text(row["route_validation_json"], default={}),
+                    "executionResult": self._parse_json_text(row["execution_result_json"], default={}),
+                    "executionValidation": self._parse_json_text(row["execution_validation_json"], default={}),
+                    "status": row["status"],
+                    "createdAt": row["created_at"],
+                    "updatedAt": row["updated_at"],
+                }
+            )
+        return result
+
+    def chat_intent(self, *, work_id: str | None = None, text: str) -> JsonDict:
+        route_packet = self.route_user_request(work_id=work_id, text=text)
+        route_result = route_packet["routeResult"]
+        if (
+            work_id
+            and route_packet["status"] == "READY_FOR_EXECUTION"
+            and route_result["intent"] in {
+                "CREATE_CHARACTER_CANDIDATES",
+                "REFINE_EXISTING_CHARACTER",
+                "ADVANCE_PLOT",
+                "SUMMARIZE_CURRENT_STATE",
+            }
+        ):
+            execution_packet = self.execute_router_result(
+                work_id=work_id,
+                route_result=route_result,
+                user_input=text,
+                persist=True,
+            )
+            return self._chat_payload_from_execution_packet(execution_packet)
+
+        legacy_result = self._legacy_chat_intent(work_id=work_id, text=text)
+
+        if legacy_result["intent"] == "UNKNOWN" and route_result["intent"] != "OTHER":
+            return {
+                "reply": route_result["reply"],
+                "intent": route_result["intent"],
+                "actionResult": None,
+                "routeResult": route_result,
+                "validationResult": route_packet["validationResult"],
+                "status": route_packet["status"],
+                "autofilledFields": route_packet["autofilledFields"],
+            }
+
+        return {
+            **legacy_result,
+            "routeResult": route_result,
+            "validationResult": route_packet["validationResult"],
+            "status": route_packet["status"],
+            "autofilledFields": route_packet["autofilledFields"],
+        }
+
+    def _chat_payload_from_execution_packet(self, packet: JsonDict) -> JsonDict:
+        route_result = packet.get("routeResult") or {}
+        execution_result = packet.get("executionResult") or {}
+        action_result = execution_result.get("actionResult")
+        reply = str(route_result.get("reply") or "收到。")
+        frontend_action_result = None
+
+        if isinstance(action_result, dict):
+            content = str(action_result.get("content") or "").strip()
+            if content:
+                reply = content
+            if isinstance(action_result.get("workbench"), dict):
+                frontend_action_result = action_result["workbench"]
+
+        return {
+            "reply": reply,
+            "intent": route_result.get("intent", "OTHER"),
+            "actionResult": frontend_action_result,
+            "routeResult": route_result,
+            "validationResult": packet.get("validationResult"),
+            "executionResult": execution_result,
+            "executionValidation": packet.get("executionValidation"),
+            "status": packet.get("status"),
+            "interactionId": packet.get("interactionId"),
+            "autofilledFields": packet.get("autofilledFields", []),
+        }
+
+    def _legacy_chat_intent(self, *, work_id: str | None = None, text: str) -> JsonDict:
+        router_context = self.context_manager.build_router_context(work_id=work_id, text=text)
+        work = router_context.get("work")
+        chapter = router_context.get("chapter")
+        characters = router_context.get("characters")
+
+        _intent_messages = prompts.build_intent_messages(
+            text, work=work, chapter=chapter, characters=characters
+        )
+        print(f"--- Calling LLM: chat_intent for: {text} ---")
+        
+        intent_data = {}
+        try:
+            intent_data = llm_client.chat_json(_intent_messages)
+            print(f"--- LLM JSON Response received ---")
+        except Exception as e:
+            print(f"--- LLM non-JSON response or error, falling back to plain text: {str(e)} ---")
+            # If JSON parsing fails, the model likely just replied with plain text (e.g. wrote the story)
+            try:
+                # We reuse the prompt but call regular chat to get the raw string
+                raw_reply = llm_client.chat(_intent_messages)
+                intent_data = {
+                    "reply": raw_reply,
+                    "intent": "UNKNOWN",
+                    "parameters": {}
+                }
+            except Exception as nested_e:
+                print(f"--- Critical LLM Error: {str(nested_e)} ---")
+                raise
+
+        # Normalizing keys
+        reply = intent_data.get("reply") or intent_data.get("content") or "收到。"
+        intent = str(intent_data.get("intent", "UNKNOWN")).upper()
+        params = intent_data.get("parameters") or {}
+        execution_context = {
+            "work_id": work_id,
+            "text": text,
+            "work": work,
+            "chapter": chapter,
+            "characters": characters,
+        }
+        execution_result = self.executor_registry.execute(
+            intent,
+            context=execution_context,
+            parameters=params,
+        )
+        action_result = execution_result.get("actionResult")
+        if execution_result.get("replyPrefix"):
+            reply = f"{execution_result['replyPrefix']}{reply}"
+        if execution_result.get("replyOverride"):
+            reply = execution_result["replyOverride"]
+
+        return {
+            "reply": reply,
+            "intent": intent,
+            "actionResult": action_result,
+            "executionResult": execution_result,
+        }
+
+    def _build_executor_registry(self) -> ExecutorRegistry:
+        registry = ExecutorRegistry()
+        registry.register(CreateCharacterCandidatesExecutor())
+        registry.register(RefineExistingCharacterExecutor(self.refine_character))
+        registry.register(AdvancePlotExecutor())
+        registry.register(SummarizeCurrentStateExecutor())
+        registry.register(FunctionExecutor("CREATE_WORK", self._execute_create_work))
+        registry.register(FunctionExecutor("REFINE_CHARACTER", self._execute_refine_character))
+        registry.register(FunctionExecutor("GENERATE_OUTLINE", self._execute_generate_outline))
+        registry.register(FunctionExecutor("GENERATE_DRAFT", self._execute_generate_draft))
+        registry.register(FunctionExecutor("ENTER_READ_MODE", self._execute_enter_read_mode))
+        return registry
+
+    def _execute_create_work(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
+        title = str(parameters.get("title") or "").strip()
+        pitch = str(parameters.get("oneLinePitch") or "").strip()
+        genre = str(parameters.get("genre") or "").strip()
+        if not (title and pitch and genre):
+            return make_executor_result(
+                handled=False,
+                status="NEEDS_PARAMETERS",
+                metadata={"missing": ["title", "oneLinePitch", "genre"]},
+            )
+        action_result = self.create_work_seed(
+            title=title,
+            one_line_pitch=pitch,
+            genre=genre,
+        )
+        return make_executor_result(
+            handled=True,
+            status="COMPLETED",
+            action_result=action_result,
+            reply_prefix=f"已为你创建立项：{title}。",
+        )
+
+    def _execute_refine_character(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
+        work_id = context.get("work_id")
+        name = str(parameters.get("name") or "").strip()
+        if not (work_id and name):
+            return make_executor_result(handled=False, status="NEEDS_PARAMETERS")
+        action_result = self.refine_character(
+            work_id=work_id,
+            name=name,
+            identity=str(parameters.get("identity") or "").strip(),
+            role_type=str(parameters.get("roleType") or "PROTAGONIST").strip() or "PROTAGONIST",
+            core_desire=str(parameters.get("coreDesire") or "").strip(),
+        )
+        return make_executor_result(
+            handled=True,
+            status="COMPLETED",
+            action_result=action_result,
+        )
+
+    def _save_interaction_log(
+        self,
+        *,
+        work_id: str,
+        user_input: str,
+        route_result: JsonDict,
+        route_validation: JsonDict,
+        status: str,
+        execution_result: JsonDict | None = None,
+        execution_validation: JsonDict | None = None,
+        interaction_id: str | None = None,
+    ) -> JsonDict:
+        now = now_ms()
+        existing = self.repos.interaction_logs.get(interaction_id) if interaction_id else None
+        created_at = existing["created_at"] if existing else now
+        return self.repos.interaction_logs.save(
+            {
+                "id": interaction_id or new_id("interaction"),
+                "work_id": work_id,
+                "user_input": user_input,
+                "route_result_json": json_text(route_result, fallback={}),
+                "route_validation_json": json_text(route_validation, fallback={}),
+                "execution_result_json": json_text(execution_result or {}, fallback={}),
+                "execution_validation_json": json_text(execution_validation or {}, fallback={}),
+                "status": status,
+                "created_at": created_at,
+                "updated_at": now,
+            }
+        )
+
+    def _parse_json_text(self, raw_json: str | None, *, default: Any) -> Any:
+        if not raw_json:
+            return default
+        try:
+            return json.loads(raw_json)
+        except json.JSONDecodeError:
+            return default
+
+    def _execute_generate_outline(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
+        work_id = context.get("work_id")
+        chapter = context.get("chapter")
+        if not (work_id and chapter):
+            return make_executor_result(handled=False, status="NEEDS_CONTEXT")
+        requested_order_no = _parse_chinese_chapter_number(str(context.get("text") or ""))
+        if requested_order_no and requested_order_no != int(chapter["order_no"]):
+            chapter = self.ensure_chapter(work_id=work_id, order_no=requested_order_no, activate=True)
+        action_result = self.generate_chapter_outline(
+            work_id=work_id,
+            chapter_id=chapter["id"],
+            instruction_text=str(parameters.get("instructionText") or "").strip(),
+        )
+        return make_executor_result(
+            handled=True,
+            status="COMPLETED",
+            action_result=action_result,
+            metadata={
+                "targetChapterId": chapter["id"],
+                "targetOrderNo": chapter["order_no"],
+            },
+        )
+
+    def _execute_generate_draft(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
+        work_id = context.get("work_id")
+        chapter = context.get("chapter")
+        if not (work_id and chapter):
+            return make_executor_result(handled=False, status="NEEDS_CONTEXT")
+        requested_order_no = _parse_chinese_chapter_number(str(context.get("text") or ""))
+        if requested_order_no and requested_order_no != int(chapter["order_no"]):
+            chapter = self.ensure_chapter(work_id=work_id, order_no=requested_order_no, activate=True)
+        instruction_text = str(parameters.get("instructionText") or "").strip()
+        auto_outlined = False
+        if chapter["status"] == "BACKLOG":
+            outline_result = self.generate_chapter_outline(
+                work_id=work_id,
+                chapter_id=chapter["id"],
+                instruction_text=instruction_text,
+            )
+            chapter = next(
+                (
+                    item
+                    for item in outline_result.get("chapters", [])
+                    if item.get("id") == chapter["id"]
+                ),
+                self._require_chapter_for_work(work_id, chapter["id"]),
+            )
+            auto_outlined = True
+        has_draft = self.repos.drafts.latest_for_chapter(chapter["id"]) is not None
+        if has_draft:
+            action_result = self.revise_draft(
+                work_id=work_id,
+                chapter_id=chapter["id"],
+                instruction_text=instruction_text,
+            )
+        else:
+            action_result = self.draft_chapter(
+                work_id=work_id,
+                chapter_id=chapter["id"],
+                instruction_text=instruction_text,
+            )
+        return make_executor_result(
+            handled=True,
+            status="COMPLETED",
+            action_result=action_result,
+            metadata={
+                "usedRevisionPath": has_draft,
+                "autoOutlined": auto_outlined,
+                "targetChapterId": chapter["id"],
+                "targetOrderNo": chapter["order_no"],
+            },
+        )
+
+    def _execute_enter_read_mode(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
+        del parameters
+        work_id = context.get("work_id")
+        if not work_id:
+            return make_executor_result(handled=False, status="NEEDS_CONTEXT")
+        action_result = self.enter_read_mode(work_id=work_id)
+        return make_executor_result(
+            handled=True,
+            status="COMPLETED",
+            action_result=action_result,
+        )
 
     def _log_decision(
         self,

@@ -116,10 +116,24 @@
               </div>
             </section>
 
+            <section class="panel character-list-panel">
+              <div class="panel-header">
+                <h3>主要角色</h3>
+              </div>
+              <div id="character-list" class="character-list empty-state">还没有核心角色。可以在对话框输入“创建角色：名字｜身份”。</div>
+            </section>
+
             <section class="panel chapter-list-panel">
               <div class="panel-header">
                 <h3>章节工作区</h3>
                 <span class="pill" id="active-chapter-pill">未选中</span>
+              </div>
+              <div class="chapter-jump-row">
+                <label class="compact-field">
+                  <span>跳转/创建章节</span>
+                  <input id="chapter-order-input" type="number" min="1" step="1" placeholder="例如 2" />
+                </label>
+                <button id="jump-chapter" class="secondary-button">前往章节</button>
               </div>
               <div id="chapter-list" class="chapter-list"></div>
             </section>

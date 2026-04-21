@@ -48,20 +48,79 @@ def make_handler(db_path: Path, static_dir: Path):
                             "dbPath": str(db_path),
                         }
                     )
+                
+                # Handle /api/chat (work-less chat)
+                if parts == ["api", "chat"] and method == "POST":
+                    return self._handle_chat()
+
+                # All other routes must start with /api/works
                 if parts[:2] != ["api", "works"]:
                     return self._send_error(HTTPStatus.NOT_FOUND, "route not found")
+                
+                # /api/works
                 if len(parts) == 2 and method == "GET":
                     return self._handle_list_works()
                 if len(parts) == 2 and method == "POST":
                     return self._handle_create_work()
+                
+                # /api/works/{id}
                 if len(parts) == 3 and method == "GET":
                     return self._handle_get_work(parts[2])
+                
+                # /api/works/{id}/chat
+                if len(parts) == 4 and parts[3] == "chat" and method == "POST":
+                    return self._handle_chat(parts[2])
+
+                # /api/works/{id}/route
+                if len(parts) == 4 and parts[3] == "route" and method == "POST":
+                    return self._handle_route(parts[2])
+
+                # /api/works/{id}/execute
+                if len(parts) == 4 and parts[3] == "execute" and method == "POST":
+                    return self._handle_execute(parts[2])
+
+                # /api/works/{id}/interactions
+                if len(parts) == 4 and parts[3] == "interactions" and method == "GET":
+                    return self._handle_list_interactions(parts[2])
+                if len(parts) == 4 and parts[3] == "interactions" and method == "POST":
+                    return self._handle_create_interaction(parts[2])
+
+                # /api/works/{id}/workbench
                 if len(parts) == 4 and parts[3] == "workbench" and method == "GET":
                     return self._handle_workbench(parts[2])
+                
+                # /api/works/{id}/reading
                 if len(parts) == 4 and parts[3] == "reading" and method == "GET":
                     return self._handle_reading(parts[2])
+                
+                # /api/works/{id}/characters/refine
+                if (
+                    len(parts) == 5
+                    and parts[3] == "characters"
+                    and parts[4] == "refine"
+                    and method == "POST"
+                ):
+                    return self._handle_refine_character(parts[2])
+
+                # /api/works/{id}/chapters/{id}
                 if len(parts) == 5 and parts[3] == "chapters" and method == "GET":
                     return self._handle_get_chapter(parts[2], parts[4])
+                if (
+                    len(parts) == 5
+                    and parts[3] == "chapters"
+                    and parts[4] == "select"
+                    and method == "POST"
+                ):
+                    return self._handle_select_chapter(parts[2])
+                if (
+                    len(parts) == 5
+                    and parts[3] == "chapters"
+                    and parts[4] == "ensure"
+                    and method == "POST"
+                ):
+                    return self._handle_ensure_chapter(parts[2])
+                
+                # /api/works/{id}/chapters/{id}/...
                 if (
                     len(parts) == 6
                     and parts[3] == "chapters"
@@ -83,6 +142,7 @@ def make_handler(db_path: Path, static_dir: Path):
                     and method == "POST"
                 ):
                     return self._handle_revise_draft(parts[2], parts[4])
+                
                 return self._send_error(HTTPStatus.NOT_FOUND, "route not found")
             except KeyError as exc:
                 return self._send_error(HTTPStatus.NOT_FOUND, str(exc))
@@ -109,10 +169,81 @@ def make_handler(db_path: Path, static_dir: Path):
                 )
                 self._send_json(snapshot, status=HTTPStatus.CREATED)
 
+        def _handle_chat(self, work_id: str | None = None) -> None:
+            payload = self._read_json_body()
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                self._send_json(
+                    service.chat_intent(
+                        work_id=work_id,
+                        text=str(payload.get("text", "")).strip(),
+                    )
+                )
+
+        def _handle_route(self, work_id: str) -> None:
+            payload = self._read_json_body()
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                self._send_json(
+                    service._route_user_request(
+                        work_id=work_id,
+                        text=str(payload.get("text", "")).strip(),
+                        persist=True,
+                    )
+                )
+
+        def _handle_execute(self, work_id: str) -> None:
+            payload = self._read_json_body()
+            route_result = payload.get("routeResult")
+            if not isinstance(route_result, dict):
+                raise ValueError("routeResult is required and must be an object")
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                self._send_json(
+                    service.execute_router_result(
+                        work_id=work_id,
+                        route_result=route_result,
+                        interaction_id=str(payload.get("interactionId", "")).strip() or None,
+                        user_input=str(payload.get("text", "")).strip(),
+                        persist=True,
+                    )
+                )
+
+        def _handle_list_interactions(self, work_id: str) -> None:
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                self._send_json({"interactions": service.list_interactions(work_id=work_id)})
+
+        def _handle_create_interaction(self, work_id: str) -> None:
+            payload = self._read_json_body()
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                self._send_json(
+                    service.process_interaction(
+                        work_id=work_id,
+                        text=str(payload.get("text", "")).strip(),
+                    ),
+                    status=HTTPStatus.CREATED,
+                )
+
         def _handle_get_work(self, work_id: str) -> None:
             with open_sqlite(db_path) as conn:
                 service = WorkbenchService(conn)
                 self._send_json({"work": service.get_work(work_id)})
+
+        def _handle_refine_character(self, work_id: str) -> None:
+            payload = self._read_json_body()
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                self._send_json(
+                    service.refine_character(
+                        work_id=work_id,
+                        name=str(payload.get("name", "")).strip(),
+                        identity=str(payload.get("identity", "")).strip(),
+                        role_type=str(payload.get("roleType", "PROTAGONIST")).strip(),
+                        core_desire=str(payload.get("coreDesire", "")).strip(),
+                    )
+                )
 
         def _handle_workbench(self, work_id: str) -> None:
             with open_sqlite(db_path) as conn:
@@ -128,6 +259,27 @@ def make_handler(db_path: Path, static_dir: Path):
             with open_sqlite(db_path) as conn:
                 service = WorkbenchService(conn)
                 self._send_json(service.get_chapter(work_id=work_id, chapter_id=chapter_id))
+
+        def _handle_select_chapter(self, work_id: str) -> None:
+            payload = self._read_json_body()
+            chapter_id = str(payload.get("chapterId", "")).strip()
+            if not chapter_id:
+                raise ValueError("chapterId is required")
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                snapshot = service.set_active_chapter(work_id=work_id, chapter_id=chapter_id)
+                self._send_json({"workbench": snapshot, "selectedChapterId": chapter_id})
+
+        def _handle_ensure_chapter(self, work_id: str) -> None:
+            payload = self._read_json_body()
+            order_no = int(payload.get("orderNo", 0) or 0)
+            if order_no <= 0:
+                raise ValueError("orderNo must be a positive integer")
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                chapter = service.ensure_chapter(work_id=work_id, order_no=order_no, activate=True)
+                snapshot = service.open_workbench(work_id)
+                self._send_json({"workbench": snapshot, "selectedChapterId": chapter["id"]})
 
         def _handle_generate_outline(self, work_id: str, chapter_id: str) -> None:
             payload = self._read_json_body(optional=True)

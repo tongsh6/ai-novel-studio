@@ -213,6 +213,48 @@ CREATE TABLE IF NOT EXISTS continuity_states (
   UNIQUE (work_id, scope_type, scope_id, state_type, effective_from_event_id)
 );
 
+CREATE TABLE IF NOT EXISTS relations (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  character_a TEXT NOT NULL DEFAULT '',
+  character_b TEXT NOT NULL DEFAULT '',
+  relation_type TEXT NOT NULL DEFAULT '',
+  tension_source TEXT NOT NULL DEFAULT '',
+  hidden_hook TEXT NOT NULL DEFAULT '',
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS settings (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  domain TEXT NOT NULL DEFAULT '',
+  content TEXT NOT NULL DEFAULT '',
+  related_plot_scope TEXT NOT NULL DEFAULT '',
+  extensions_json TEXT NOT NULL DEFAULT '{}',
+  notes_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS interaction_logs (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  user_input TEXT NOT NULL DEFAULT '',
+  route_result_json TEXT NOT NULL DEFAULT '{}',
+  route_validation_json TEXT NOT NULL DEFAULT '{}',
+  execution_result_json TEXT NOT NULL DEFAULT '{}',
+  execution_validation_json TEXT NOT NULL DEFAULT '{}',
+  status TEXT NOT NULL DEFAULT 'ROUTED',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
 CREATE INDEX IF NOT EXISTS idx_characters_work_id ON characters(work_id);
 CREATE INDEX IF NOT EXISTS idx_outlines_work_id ON outlines(work_id);
 CREATE INDEX IF NOT EXISTS idx_volumes_work_id_order_no ON volumes(work_id, order_no);
@@ -223,3 +265,6 @@ CREATE INDEX IF NOT EXISTS idx_drafts_chapter_id_version_no ON drafts(chapter_id
 CREATE INDEX IF NOT EXISTS idx_decision_logs_work_id_created_at ON decision_logs(work_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_continuity_states_work_id ON continuity_states(work_id);
 CREATE INDEX IF NOT EXISTS idx_continuity_states_scope ON continuity_states(work_id, scope_type, scope_id);
+CREATE INDEX IF NOT EXISTS idx_relations_work_id ON relations(work_id);
+CREATE INDEX IF NOT EXISTS idx_settings_work_id ON settings(work_id);
+CREATE INDEX IF NOT EXISTS idx_interaction_logs_work_id_created_at ON interaction_logs(work_id, created_at DESC);

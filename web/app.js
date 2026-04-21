@@ -34,7 +34,10 @@ const dom = {
   metricStage: document.querySelector("#metric-stage"),
   metricChapters: document.querySelector("#metric-chapters"),
   metricDrafted: document.querySelector("#metric-drafted"),
+  characterList: document.querySelector("#character-list"),
   activeChapterPill: document.querySelector("#active-chapter-pill"),
+  chapterOrderInput: document.querySelector("#chapter-order-input"),
+  jumpChapter: document.querySelector("#jump-chapter"),
   chapterList: document.querySelector("#chapter-list"),
   decisionList: document.querySelector("#decision-list"),
   decisionPanel: document.querySelector("#decision-panel"),
@@ -98,6 +101,7 @@ function setBusy(busy) {
   dom.generateOutline.disabled = busy || !state.selectedChapterId;
   dom.generateDraft.disabled = busy || !state.selectedChapterId;
   dom.toggleMode.disabled = busy || !state.selectedWorkId;
+  dom.jumpChapter.disabled = busy || !state.selectedWorkId;
   dom.sendChat.disabled = busy;
   if (busy) {
     dom.generateOutline.textContent = "生成中…";
@@ -380,6 +384,7 @@ function renderWorkbench() {
 
   const work = state.workbench.work;
   const chapters = state.workbench.chapters || [];
+  const characters = state.workbench.characters || [];
   const decisions = state.workbench.recentDecisions || [];
   const chapter = currentWorkbenchChapter();
 
@@ -390,6 +395,20 @@ function renderWorkbench() {
   dom.metricStage.textContent = stageLabel(work.stage);
   dom.metricChapters.textContent = String(chapters.length);
   dom.metricDrafted.textContent = String(chapters.filter((item) => item.status === "DRAFTED").length);
+
+  dom.characterList.className = characters.length ? "character-list" : "character-list empty-state";
+  dom.characterList.innerHTML = characters.length
+    ? characters
+        .map(
+          (char) => `
+            <div class="character-item">
+              <strong>${escapeHtml(char.name)}</strong>
+              <small>${escapeHtml(char.identity || "暂无身份")}</small>
+            </div>
+          `
+        )
+        .join("")
+    : "还没有核心角色。可以在对话框输入“创建角色：名字｜身份”。";
 
   dom.chapterList.innerHTML = chapters
     .map(
@@ -682,6 +701,34 @@ async function refreshWorkbench() {
   renderWorkbench();
 }
 
+async function selectChapter(chapterId) {
+  if (!state.selectedWorkId || !chapterId) return;
+  const payload = await apiFetch(`/api/works/${state.selectedWorkId}/chapters/select`, {
+    method: "POST",
+    body: JSON.stringify({ chapterId }),
+  });
+  state.workbench = payload.workbench;
+  state.selectedChapterId = payload.selectedChapterId || chapterId;
+  state.selectedDecisionId = null;
+  await refreshWorks();
+  renderWorkbench();
+}
+
+async function jumpToChapter(orderNo) {
+  if (!state.selectedWorkId) return;
+  const payload = await apiFetch(`/api/works/${state.selectedWorkId}/chapters/ensure`, {
+    method: "POST",
+    body: JSON.stringify({ orderNo }),
+  });
+  state.workbench = payload.workbench;
+  state.selectedChapterId =
+    payload.selectedChapterId || state.workbench.work.active_chapter_id || state.workbench.chapters[0]?.id || null;
+  state.selectedDecisionId = null;
+  state.mode = "workbench";
+  await refreshWorks();
+  renderWorkbench();
+}
+
 async function refreshReading() {
   if (!state.selectedWorkId) {
     state.reading = null;
@@ -705,9 +752,7 @@ async function guarded(action, successMessage, loadingMessage) {
   setBanner(loadingMessage || "");
   try {
     await action();
-    if (successMessage) {
-      setBanner(successMessage);
-    }
+    setBanner(successMessage || "");
   } catch (error) {
     setBanner(error.message || "请求失败", true);
   } finally {
@@ -747,6 +792,31 @@ function detectRefineIntent(text) {
     normalized.includes("更炸一点") ||
     normalized.includes("重写")
   );
+}
+
+function detectCharacterIntent(text) {
+  const normalized = normalizeIntent(text);
+  return (
+    normalized.includes("创建角色") ||
+    normalized.includes("添加角色") ||
+    normalized.includes("新建角色") ||
+    normalized.includes("设定角色")
+  );
+}
+
+function extractCharacterFields(text) {
+  const compact = String(text || "").trim();
+  if (!compact) return {};
+
+  const pipeMatch = compact.match(/(?:创建角色|添加角色|新建角色|设定角色)\s*[:：]?\s*([^｜|]+)(?:[｜|]([^｜|]+))?(?:[｜|]([^｜|]+))?/);
+  if (pipeMatch) {
+    return {
+      name: pipeMatch[1].trim(),
+      identity: pipeMatch[2] ? pipeMatch[2].trim() : "",
+      coreDesire: pipeMatch[3] ? pipeMatch[3].trim() : "",
+    };
+  }
+  return {};
 }
 
 function extractCreateWorkFields(text) {
@@ -816,258 +886,50 @@ function createDraftSummary(draft) {
 async function handleChatIntent(rawText) {
   const text = String(rawText || "").trim();
   if (!text) return;
+  console.log("User Input:", text);
   pushChatMessage("user", text);
   renderChat();
 
-  const chapter = currentWorkbenchChapter();
-  const normalized = normalizeIntent(text);
+  const url = state.selectedWorkId ? `/api/works/${state.selectedWorkId}/chat` : "/api/chat";
 
-  if (!state.selectedWorkId) {
-    const askedCreate = detectCreateIntent(text);
-    const draft = currentCreateDraft();
-    const extractedFields = extractCreateWorkFields(text);
-    if (normalized.includes("表单")) {
-      pushChatMessage("assistant", "左侧表单仍然可用。但如果你想直接对话立项，推荐使用：创建作品：标题｜一句话卖点｜题材");
-      renderChat();
-      return;
-    }
-    if (normalized.includes("格式") || normalized.includes("怎么立项")) {
-      pushChatMessage("assistant", "对话立项格式：创建作品：标题｜一句话卖点｜题材。示例：创建作品：霜港遗民｜极夜海港的最后一名维修官，要把废弃港口变成幸存者之城。｜末世 / 经营");
-      renderChat();
-      return;
-    }
+  await guarded(
+    async () => {
+      console.log("Calling API:", url);
+      const result = await apiFetch(url, {
+        method: "POST",
+        body: JSON.stringify({ text }),
+      });
 
-    if (askedCreate || draft.active || Object.keys(extractedFields).length > 0) {
-      const nextDraft = {
-        ...draft,
-        active: true,
-        ...extractedFields,
-      };
-      if (draft.awaitingField && !extractedFields[draft.awaitingField] && !askedCreate) {
-        nextDraft[draft.awaitingField] = text;
-      }
-      nextDraft.title = String(nextDraft.title || "").trim();
-      nextDraft.genre = String(nextDraft.genre || "").trim();
-      nextDraft.oneLinePitch = String(nextDraft.oneLinePitch || "").trim();
+      console.log("API Result:", result);
+      pushChatMessage("assistant", result.reply || "收到。");
 
-      const missing = missingCreateFields(nextDraft);
-      if (!missing.length) {
-        const createPayload = {
-          title: nextDraft.title,
-          genre: nextDraft.genre,
-          oneLinePitch: nextDraft.oneLinePitch,
-        };
-        await guarded(async () => {
-          const payload = await apiFetch("/api/works", {
-            method: "POST",
-            body: JSON.stringify(createPayload),
-          });
+      if (result.actionResult) {
+        console.log("Action Triggered:", result.intent);
+        if (result.intent === "CREATE_WORK") {
+          const payload = result.actionResult;
           state.chatByWorkId[payload.work.id] = state.chatByWorkId["__lobby__"] || [];
           delete state.chatByWorkId["__lobby__"];
-          clearCreateDraft("__lobby__");
           state.selectedWorkId = payload.work.id;
           state.selectedChapterId = payload.chapters[0]?.id || null;
           state.workbench = payload;
           state.mode = "workbench";
-          await refreshWorks();
-          renderWorkbench();
-        }, "已通过对话创建作品立项底稿。");
-        pushChatMessage("assistant", `作品《${createPayload.title}》已立项完成。接下来你可以直接说“给当前章生成细纲”。`);
-        renderChat();
-        return;
-      }
-
-      nextDraft.awaitingField = missing[0];
-      updateCreateDraft(nextDraft);
-      const summary = createDraftSummary(nextDraft);
-      pushChatMessage(
-        "assistant",
-        `${summary ? `我先记下这些：${summary}。` : ""}接下来请补${fieldLabel(missing[0])}。`
-      );
-      renderChat();
-      return;
-    }
-
-    if (normalized.includes("写一本") || normalized.includes("想写")) {
-      updateCreateDraft({ active: true, awaitingField: "title" });
-      pushChatMessage("assistant", "可以。先给这部作品一个标题，或者直接用《书名》告诉我。");
-      renderChat();
-      return;
-    }
-
-    pushChatMessage("assistant", "当前还没有作品。你可以直接说“创建作品：标题｜一句话卖点｜题材”，也可以先只告诉我标题、题材或一句话卖点，我会继续追问缺的部分。");
-    renderChat();
-    return;
-  }
-
-  const refineDraft = currentRefineDraft();
-  if (refineDraft.active && refineDraft.awaitingChoice) {
-    if (normalized.includes("算了") || normalized.includes("先不改") || normalized.includes("取消")) {
-      clearRefineDraft();
-      pushChatMessage("assistant", "这次修改要求先不执行。你可以继续推进当前章，或稍后再提新的调整要求。");
-      renderChat();
-      return;
-    }
-
-    if (normalized.includes("细纲") || normalized.includes("outline")) {
-      clearRefineDraft();
-      await guarded(async () => {
-        state.workbench = await apiFetch(
-          `/api/works/${state.selectedWorkId}/chapters/${chapter.id}/generate-outline`,
-          {
-            method: "POST",
-            body: JSON.stringify({
-              instructionText: refineDraft.instruction,
-              rewriteMode: "outline_first",
-            }),
+        } else if (result.intent === "ENTER_READ_MODE") {
+          state.reading = result.actionResult;
+          state.mode = "reading";
+        } else {
+          state.workbench = result.actionResult;
+          if (!state.selectedChapterId) {
+            state.selectedChapterId = state.workbench.work.active_chapter_id || state.workbench.chapters[0]?.id || null;
           }
-        );
-        await refreshWorks();
-      }, "已按澄清结果重新生成章节细纲。", "正在调用 AI 生成细纲，请稍候…");
-      pushChatMessage(
-        "assistant",
-        `已按“${refineDraft.instruction}”重生成 ${chapter.title} 的细纲。若你认可这个方向，再继续说“直接出草稿”。`
-      );
-      renderChat();
-      return;
-    }
-
-    if (normalized.includes("草稿") || normalized.includes("直接") || normalized.includes("重出")) {
-      clearRefineDraft();
-      const reviseExistingDraft = chapterHasDraft(chapter);
-      await guarded(async () => {
-        state.workbench = await requestDraftAction({
-          workId: state.selectedWorkId,
-          chapterId: chapter.id,
-          chapter,
-          instructionText: refineDraft.instruction,
-          rewriteMode: "draft_direct",
-          reviseMode: "revise_direct",
-        });
-        await refreshWorks();
-        if (state.mode === "reading") {
-          await refreshReading();
         }
-      }, reviseExistingDraft ? “已按澄清结果修订章节草稿。” : “已按澄清结果重生成章节草稿。”, “正在调用 AI 生成草稿，请稍候…”);
-      pushChatMessage(
-        “assistant”,
-        reviseExistingDraft
-          ? `已按”${refineDraft.instruction}”基于当前版本修订 ${chapter.title} 的草稿。切到阅读态可以直接审看。`
-          : `已按”${refineDraft.instruction}”为 ${chapter.title} 重出草稿。切到阅读态可以直接审看。`
-      );
-      renderChat();
-      return;
-    }
-
-    pushChatMessage("assistant", "我还在等你二选一：先改细纲，还是直接重出草稿？");
-    renderChat();
-    return;
-  }
-
-  if (normalized.includes("细纲") || normalized.includes("outline")) {
-    if (!chapter) {
-      pushChatMessage("assistant", "当前还没有可推进的章节。");
-      renderChat();
-      return;
-    }
-    await guarded(async () => {
-      state.workbench = await apiFetch(
-        `/api/works/${state.selectedWorkId}/chapters/${chapter.id}/generate-outline`,
-        {
-          method: “POST”,
-          body: JSON.stringify({}),
-        }
-      );
-      await refreshWorks();
-    }, “章节细纲已生成。”, “正在调用 AI 生成细纲，请稍候…”);
-    pushChatMessage(“assistant”, `已按你的要求为 ${chapter.title} 生成细纲。你现在可以继续说”直接出草稿”。`);
-    renderChat();
-    return;
-  }
-
-  if (normalized.includes("草稿") || normalized.includes("draft")) {
-    if (!chapter) {
-      pushChatMessage("assistant", "当前还没有可推进的章节。");
-      renderChat();
-      return;
-    }
-    const reviseExistingDraft = chapterHasDraft(chapter);
-    await guarded(async () => {
-      state.workbench = await requestDraftAction({
-        workId: state.selectedWorkId,
-        chapterId: chapter.id,
-        chapter,
-      });
-      await refreshWorks();
-      if (state.mode === "reading") {
-        await refreshReading();
+        await refreshWorks();
       }
-    }, reviseExistingDraft ? "章节草稿已修订。" : "章节草稿已生成。", "正在调用 AI 生成草稿，请稍候…");
-    pushChatMessage(
-      "assistant",
-      reviseExistingDraft
-        ? `已基于当前版本修订 ${chapter.title} 的草稿。你可以切到阅读态直接对比最新输出。`
-        : `已为 ${chapter.title} 生成最新草稿。你可以切到阅读态直接审看。`
-    );
-    renderChat();
-    return;
-  }
-
-  if (detectRefineIntent(text)) {
-    if (!chapter) {
-      pushChatMessage("assistant", "当前还没有可调整的章节。先选中一章，或先生成当前章内容。");
-      renderChat();
-      return;
-    }
-    updateRefineDraft({
-      active: true,
-      instruction: text,
-      awaitingChoice: true,
-    });
-    pushChatMessage(
-      "assistant",
-      `收到，你想把 ${chapter.title} 调成“${text}”。当前我还需要你确认执行路径：先改细纲，还是直接重出草稿？`
-    );
-    renderChat();
-    return;
-  }
-
-  if (normalized.includes("阅读")) {
-    state.mode = "reading";
-    await guarded(async () => {
-      await refreshReading();
-    });
-    pushChatMessage("assistant", "已切到阅读态。现在右侧展示的是纯净正文视图。");
-    renderChat();
-    return;
-  }
-
-  if (normalized.includes("返回") || normalized.includes("工作台")) {
-    state.mode = "workbench";
-    await guarded(async () => {
-      await refreshWorkbench();
-    });
-    pushChatMessage("assistant", "已回到工作台。你可以继续推进当前章。");
-    renderChat();
-    return;
-  }
-
-  if (normalized.includes("当前章") || normalized.includes("状态")) {
-    const statusText = chapter
-      ? `${chapter.title} 当前状态是 ${chapterStatusLabel(chapter.status)}。`
-      : "当前还没有可推进章节。";
-    pushChatMessage("assistant", `${statusText} 你可以继续说“给当前章生成细纲”或“直接出草稿”。`);
-    renderChat();
-    return;
-  }
-
-  const work = state.workbench?.work;
-  pushChatMessage(
-    "assistant",
-    work
-      ? `我已记住当前作品《${work.title}》。目前这层对话入口支持：生成细纲、生成或修订草稿、切阅读态、回工作台、查看当前章状态，以及先澄清再处理“改这一章”的请求。`
-      : "当前还没有选中作品。"
+    },
+    null,
+    "正在思考中…"
   );
+
+  console.log("Final State Chat Messages:", currentChatMessages());
   renderChat();
 }
 
@@ -1125,12 +987,44 @@ dom.workList.addEventListener("click", async (event) => {
   });
 });
 
-dom.chapterList.addEventListener("click", (event) => {
+dom.chapterList.addEventListener("click", async (event) => {
   const button = event.target.closest("[data-chapter-id]");
   if (!button) return;
-  state.selectedChapterId = button.dataset.chapterId;
-  state.selectedDecisionId = null;
-  renderWorkbench();
+  await guarded(async () => {
+    await selectChapter(button.dataset.chapterId);
+  });
+});
+
+dom.jumpChapter.addEventListener("click", async () => {
+  const orderNo = Number(dom.chapterOrderInput.value);
+  if (!Number.isFinite(orderNo) || orderNo <= 0) {
+    setBanner("请输入有效的章节号。", true);
+    return;
+  }
+  await guarded(
+    async () => {
+      await jumpToChapter(orderNo);
+      dom.chapterOrderInput.value = "";
+    },
+    `已定位到第${orderNo}章。`
+  );
+});
+
+dom.chapterOrderInput.addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  const orderNo = Number(dom.chapterOrderInput.value);
+  if (!Number.isFinite(orderNo) || orderNo <= 0) {
+    setBanner("请输入有效的章节号。", true);
+    return;
+  }
+  await guarded(
+    async () => {
+      await jumpToChapter(orderNo);
+      dom.chapterOrderInput.value = "";
+    },
+    `已定位到第${orderNo}章。`
+  );
 });
 
 dom.decisionList.addEventListener("click", (event) => {
