@@ -92,27 +92,23 @@ class MinimalExecutorsTest(unittest.TestCase):
         work = self.service.get_work(self.work_id)
         self.assertEqual(work["active_chapter_id"], chapter["id"])
 
-    def test_generate_draft_auto_creates_target_chapter(self) -> None:
-        chapter = self.snapshot["chapters"][0]
-        with patch.object(self.service, "generate_chapter_outline", return_value=self.service.open_workbench(self.work_id)), patch.object(
-            self.service,
-            "draft_chapter",
-            return_value=self.service.open_workbench(self.work_id),
-        ):
-            result = self.service._execute_generate_draft(
-                context={
-                    "work_id": self.work_id,
-                    "chapter": chapter,
-                    "text": "写第二章小说",
-                },
-                parameters={"instructionText": ""},
-            )
-        self.assertTrue(result["handled"])
-        self.assertEqual(result["status"], "COMPLETED")
-        self.assertEqual(result["metadata"]["targetOrderNo"], 2)
-        work = self.service.get_work(self.work_id)
-        target_chapter = self.service.get_chapter(work_id=self.work_id, chapter_id=work["active_chapter_id"])
-        self.assertEqual(target_chapter["chapter"]["order_no"], 2)
+    def test_process_interaction_returns_routed_for_other_intent(self) -> None:
+        route_result = {
+            "intent": "OTHER",
+            "parameters": {},
+            "missing_fields": [],
+            "confidence": 0.42,
+            "reply": "已识别为暂时无法稳定归类的请求。",
+        }
+        with patch.object(self.service.router, "route", return_value=route_result):
+            result = self.service.process_interaction(work_id=self.work_id, text="随便聊聊")
+        self.assertEqual(result["status"], "ROUTED")
+        self.assertNotIn("executionResult", result)
+
+    def test_chat_intent_requires_work_context(self) -> None:
+        result = self.service.chat_intent(work_id=None, text="总结一下")
+        self.assertEqual(result["status"], "NEEDS_WORKBENCH")
+        self.assertEqual(result["intent"], "OTHER")
 
 
 if __name__ == "__main__":

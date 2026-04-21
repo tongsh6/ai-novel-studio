@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sqlite3
 import time
 import uuid
@@ -14,13 +13,12 @@ from novel_workbench.executors import (
     AdvancePlotExecutor,
     CreateCharacterCandidatesExecutor,
     ExecutorRegistry,
-    FunctionExecutor,
     RefineExistingCharacterExecutor,
     SummarizeCurrentStateExecutor,
-    make_executor_result,
 )
 from novel_workbench.router import RouterService
 from novel_workbench.router.defaults import apply_router_defaults
+from novel_workbench.router.intents import OTHER
 from novel_workbench.storage import RepositoryBundle
 from novel_workbench.services import llm_client, prompts
 from novel_workbench.validators import validate_executor_result, validate_router_result
@@ -46,41 +44,6 @@ def json_text(value: Any, *, fallback: Any) -> str:
 def estimate_cn_word_count(text: str) -> int:
     compact = "".join(str(text or "").split())
     return len(compact)
-
-
-_CN_NUMBERS = {
-    "一": 1,
-    "二": 2,
-    "三": 3,
-    "四": 4,
-    "五": 5,
-    "六": 6,
-    "七": 7,
-    "八": 8,
-    "九": 9,
-    "十": 10,
-}
-
-
-def _parse_chinese_chapter_number(text: str) -> int | None:
-    match = re.search(r"第([0-9]+)章", text)
-    if match:
-        return int(match.group(1))
-    match = re.search(r"第([一二三四五六七八九十]+)章", text)
-    if not match:
-        return None
-    raw = match.group(1)
-    if raw == "十":
-        return 10
-    if raw.startswith("十") and len(raw) == 2:
-        return 10 + _CN_NUMBERS.get(raw[1], 0)
-    if raw.endswith("十") and len(raw) == 2:
-        return _CN_NUMBERS.get(raw[0], 0) * 10
-    if len(raw) == 1:
-        return _CN_NUMBERS.get(raw)
-    if len(raw) == 2 and raw[0] in _CN_NUMBERS and raw[1] in _CN_NUMBERS:
-        return _CN_NUMBERS[raw[0]] * 10 + _CN_NUMBERS[raw[1]]
-    return None
 
 
 class WorkbenchService:
@@ -872,6 +835,8 @@ class WorkbenchService:
         status = "READY_FOR_EXECUTION"
         if not validation_result["is_valid"]:
             status = "FAILED"
+        elif validated_route_result.get("intent") == OTHER:
+            status = "ROUTED"
         elif validated_route_result.get("missing_fields"):
             status = "NEEDS_CLARIFICATION"
 
@@ -906,6 +871,8 @@ class WorkbenchService:
         status = "READY_FOR_EXECUTION"
         if not validation_result["is_valid"]:
             status = "FAILED"
+        elif validated_route_result.get("intent") == OTHER:
+            status = "ROUTED"
         elif validated_route_result.get("missing_fields"):
             status = "NEEDS_CLARIFICATION"
 
@@ -998,48 +965,29 @@ class WorkbenchService:
         return result
 
     def chat_intent(self, *, work_id: str | None = None, text: str) -> JsonDict:
-        route_packet = self.route_user_request(work_id=work_id, text=text)
-        route_result = route_packet["routeResult"]
-        if (
-            work_id
-            and route_packet["status"] == "READY_FOR_EXECUTION"
-            and route_result["intent"] in {
-                "CREATE_CHARACTER_CANDIDATES",
-                "REFINE_EXISTING_CHARACTER",
-                "ADVANCE_PLOT",
-                "SUMMARIZE_CURRENT_STATE",
-            }
-        ):
-            execution_packet = self.execute_router_result(
-                work_id=work_id,
-                route_result=route_result,
-                user_input=text,
-                persist=True,
-            )
-            return self._chat_payload_from_execution_packet(execution_packet)
-
-        legacy_result = self._legacy_chat_intent(work_id=work_id, text=text)
-
-        if legacy_result["intent"] == "UNKNOWN" and route_result["intent"] != "OTHER":
+        if not work_id:
             return {
-                "reply": route_result["reply"],
-                "intent": route_result["intent"],
+                "reply": "请先通过“创建立项底稿”建立作品，再发起创作对话。",
+                "intent": OTHER,
                 "actionResult": None,
-                "routeResult": route_result,
-                "validationResult": route_packet["validationResult"],
-                "status": route_packet["status"],
-                "autofilledFields": route_packet["autofilledFields"],
+                "routeResult": {
+                    "intent": OTHER,
+                    "parameters": {},
+                    "missing_fields": [],
+                    "confidence": 1.0,
+                    "reply": "当前没有可供创作的作品上下文。",
+                },
+                "validationResult": None,
+                "executionResult": None,
+                "executionValidation": None,
+                "status": "NEEDS_WORKBENCH",
+                "interactionId": None,
+                "autofilledFields": [],
             }
+        packet = self.process_interaction(work_id=work_id, text=text)
+        return self._chat_payload_from_packet(packet)
 
-        return {
-            **legacy_result,
-            "routeResult": route_result,
-            "validationResult": route_packet["validationResult"],
-            "status": route_packet["status"],
-            "autofilledFields": route_packet["autofilledFields"],
-        }
-
-    def _chat_payload_from_execution_packet(self, packet: JsonDict) -> JsonDict:
+    def _chat_payload_from_packet(self, packet: JsonDict) -> JsonDict:
         route_result = packet.get("routeResult") or {}
         execution_result = packet.get("executionResult") or {}
         action_result = execution_result.get("actionResult")
@@ -1052,77 +1000,31 @@ class WorkbenchService:
                 reply = content
             if isinstance(action_result.get("workbench"), dict):
                 frontend_action_result = action_result["workbench"]
+            elif any(
+                key in action_result
+                for key in (
+                    "work",
+                    "outline",
+                    "volumes",
+                    "characters",
+                    "chapters",
+                    "recentDecisions",
+                    "readingProjection",
+                )
+            ):
+                frontend_action_result = action_result
 
         return {
             "reply": reply,
-            "intent": route_result.get("intent", "OTHER"),
+            "intent": route_result.get("intent", OTHER),
             "actionResult": frontend_action_result,
             "routeResult": route_result,
             "validationResult": packet.get("validationResult"),
-            "executionResult": execution_result,
+            "executionResult": execution_result or None,
             "executionValidation": packet.get("executionValidation"),
             "status": packet.get("status"),
             "interactionId": packet.get("interactionId"),
             "autofilledFields": packet.get("autofilledFields", []),
-        }
-
-    def _legacy_chat_intent(self, *, work_id: str | None = None, text: str) -> JsonDict:
-        router_context = self.context_manager.build_router_context(work_id=work_id, text=text)
-        work = router_context.get("work")
-        chapter = router_context.get("chapter")
-        characters = router_context.get("characters")
-
-        _intent_messages = prompts.build_intent_messages(
-            text, work=work, chapter=chapter, characters=characters
-        )
-        print(f"--- Calling LLM: chat_intent for: {text} ---")
-        
-        intent_data = {}
-        try:
-            intent_data = llm_client.chat_json(_intent_messages)
-            print(f"--- LLM JSON Response received ---")
-        except Exception as e:
-            print(f"--- LLM non-JSON response or error, falling back to plain text: {str(e)} ---")
-            # If JSON parsing fails, the model likely just replied with plain text (e.g. wrote the story)
-            try:
-                # We reuse the prompt but call regular chat to get the raw string
-                raw_reply = llm_client.chat(_intent_messages)
-                intent_data = {
-                    "reply": raw_reply,
-                    "intent": "UNKNOWN",
-                    "parameters": {}
-                }
-            except Exception as nested_e:
-                print(f"--- Critical LLM Error: {str(nested_e)} ---")
-                raise
-
-        # Normalizing keys
-        reply = intent_data.get("reply") or intent_data.get("content") or "收到。"
-        intent = str(intent_data.get("intent", "UNKNOWN")).upper()
-        params = intent_data.get("parameters") or {}
-        execution_context = {
-            "work_id": work_id,
-            "text": text,
-            "work": work,
-            "chapter": chapter,
-            "characters": characters,
-        }
-        execution_result = self.executor_registry.execute(
-            intent,
-            context=execution_context,
-            parameters=params,
-        )
-        action_result = execution_result.get("actionResult")
-        if execution_result.get("replyPrefix"):
-            reply = f"{execution_result['replyPrefix']}{reply}"
-        if execution_result.get("replyOverride"):
-            reply = execution_result["replyOverride"]
-
-        return {
-            "reply": reply,
-            "intent": intent,
-            "actionResult": action_result,
-            "executionResult": execution_result,
         }
 
     def _build_executor_registry(self) -> ExecutorRegistry:
@@ -1131,52 +1033,7 @@ class WorkbenchService:
         registry.register(RefineExistingCharacterExecutor(self.refine_character))
         registry.register(AdvancePlotExecutor())
         registry.register(SummarizeCurrentStateExecutor())
-        registry.register(FunctionExecutor("CREATE_WORK", self._execute_create_work))
-        registry.register(FunctionExecutor("REFINE_CHARACTER", self._execute_refine_character))
-        registry.register(FunctionExecutor("GENERATE_OUTLINE", self._execute_generate_outline))
-        registry.register(FunctionExecutor("GENERATE_DRAFT", self._execute_generate_draft))
-        registry.register(FunctionExecutor("ENTER_READ_MODE", self._execute_enter_read_mode))
         return registry
-
-    def _execute_create_work(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
-        title = str(parameters.get("title") or "").strip()
-        pitch = str(parameters.get("oneLinePitch") or "").strip()
-        genre = str(parameters.get("genre") or "").strip()
-        if not (title and pitch and genre):
-            return make_executor_result(
-                handled=False,
-                status="NEEDS_PARAMETERS",
-                metadata={"missing": ["title", "oneLinePitch", "genre"]},
-            )
-        action_result = self.create_work_seed(
-            title=title,
-            one_line_pitch=pitch,
-            genre=genre,
-        )
-        return make_executor_result(
-            handled=True,
-            status="COMPLETED",
-            action_result=action_result,
-            reply_prefix=f"已为你创建立项：{title}。",
-        )
-
-    def _execute_refine_character(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
-        work_id = context.get("work_id")
-        name = str(parameters.get("name") or "").strip()
-        if not (work_id and name):
-            return make_executor_result(handled=False, status="NEEDS_PARAMETERS")
-        action_result = self.refine_character(
-            work_id=work_id,
-            name=name,
-            identity=str(parameters.get("identity") or "").strip(),
-            role_type=str(parameters.get("roleType") or "PROTAGONIST").strip() or "PROTAGONIST",
-            core_desire=str(parameters.get("coreDesire") or "").strip(),
-        )
-        return make_executor_result(
-            handled=True,
-            status="COMPLETED",
-            action_result=action_result,
-        )
 
     def _save_interaction_log(
         self,
@@ -1215,91 +1072,6 @@ class WorkbenchService:
             return json.loads(raw_json)
         except json.JSONDecodeError:
             return default
-
-    def _execute_generate_outline(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
-        work_id = context.get("work_id")
-        chapter = context.get("chapter")
-        if not (work_id and chapter):
-            return make_executor_result(handled=False, status="NEEDS_CONTEXT")
-        requested_order_no = _parse_chinese_chapter_number(str(context.get("text") or ""))
-        if requested_order_no and requested_order_no != int(chapter["order_no"]):
-            chapter = self.ensure_chapter(work_id=work_id, order_no=requested_order_no, activate=True)
-        action_result = self.generate_chapter_outline(
-            work_id=work_id,
-            chapter_id=chapter["id"],
-            instruction_text=str(parameters.get("instructionText") or "").strip(),
-        )
-        return make_executor_result(
-            handled=True,
-            status="COMPLETED",
-            action_result=action_result,
-            metadata={
-                "targetChapterId": chapter["id"],
-                "targetOrderNo": chapter["order_no"],
-            },
-        )
-
-    def _execute_generate_draft(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
-        work_id = context.get("work_id")
-        chapter = context.get("chapter")
-        if not (work_id and chapter):
-            return make_executor_result(handled=False, status="NEEDS_CONTEXT")
-        requested_order_no = _parse_chinese_chapter_number(str(context.get("text") or ""))
-        if requested_order_no and requested_order_no != int(chapter["order_no"]):
-            chapter = self.ensure_chapter(work_id=work_id, order_no=requested_order_no, activate=True)
-        instruction_text = str(parameters.get("instructionText") or "").strip()
-        auto_outlined = False
-        if chapter["status"] == "BACKLOG":
-            outline_result = self.generate_chapter_outline(
-                work_id=work_id,
-                chapter_id=chapter["id"],
-                instruction_text=instruction_text,
-            )
-            chapter = next(
-                (
-                    item
-                    for item in outline_result.get("chapters", [])
-                    if item.get("id") == chapter["id"]
-                ),
-                self._require_chapter_for_work(work_id, chapter["id"]),
-            )
-            auto_outlined = True
-        has_draft = self.repos.drafts.latest_for_chapter(chapter["id"]) is not None
-        if has_draft:
-            action_result = self.revise_draft(
-                work_id=work_id,
-                chapter_id=chapter["id"],
-                instruction_text=instruction_text,
-            )
-        else:
-            action_result = self.draft_chapter(
-                work_id=work_id,
-                chapter_id=chapter["id"],
-                instruction_text=instruction_text,
-            )
-        return make_executor_result(
-            handled=True,
-            status="COMPLETED",
-            action_result=action_result,
-            metadata={
-                "usedRevisionPath": has_draft,
-                "autoOutlined": auto_outlined,
-                "targetChapterId": chapter["id"],
-                "targetOrderNo": chapter["order_no"],
-            },
-        )
-
-    def _execute_enter_read_mode(self, *, context: JsonDict, parameters: JsonDict) -> JsonDict:
-        del parameters
-        work_id = context.get("work_id")
-        if not work_id:
-            return make_executor_result(handled=False, status="NEEDS_CONTEXT")
-        action_result = self.enter_read_mode(work_id=work_id)
-        return make_executor_result(
-            handled=True,
-            status="COMPLETED",
-            action_result=action_result,
-        )
 
     def _log_decision(
         self,

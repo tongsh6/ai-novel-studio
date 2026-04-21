@@ -1,7 +1,7 @@
 """Executor contracts and registry for workbench actions."""
 
 from .advance_plot import AdvancePlotExecutor
-from .base import BaseExecutor, FunctionExecutor
+from .base import BaseExecutor
 from .create_character_candidates import CreateCharacterCandidatesExecutor
 from .refine_existing_character import RefineExistingCharacterExecutor
 from .registry import ExecutorRegistry
@@ -13,7 +13,6 @@ __all__ = [
     "BaseExecutor",
     "CreateCharacterCandidatesExecutor",
     "ExecutorRegistry",
-    "FunctionExecutor",
     "make_executor_result",
     "RefineExistingCharacterExecutor",
     "SummarizeCurrentStateExecutor",

@@ -8,8 +8,6 @@ const state = {
   reading: null,
   busy: false,
   chatByWorkId: {},
-  createDraftByScope: {},
-  refineDraftByScope: {},
 };
 
 const dom = {
@@ -192,60 +190,15 @@ function chatScopeKey() {
   return state.selectedWorkId || "__lobby__";
 }
 
-function currentCreateDraft() {
-  return (
-    state.createDraftByScope[chatScopeKey()] || {
-      active: false,
-      title: "",
-      oneLinePitch: "",
-      genre: "",
-      awaitingField: "",
-    }
-  );
-}
-
-function updateCreateDraft(patch) {
-  const scopeKey = chatScopeKey();
-  const current = currentCreateDraft();
-  state.createDraftByScope[scopeKey] = { ...current, ...patch };
-}
-
-function clearCreateDraft(scopeKey = chatScopeKey()) {
-  delete state.createDraftByScope[scopeKey];
-}
-
-function currentRefineDraft() {
-  return (
-    state.refineDraftByScope[chatScopeKey()] || {
-      active: false,
-      instruction: "",
-      awaitingChoice: false,
-    }
-  );
-}
-
-function updateRefineDraft(patch) {
-  const scopeKey = chatScopeKey();
-  const current = currentRefineDraft();
-  state.refineDraftByScope[scopeKey] = { ...current, ...patch };
-}
-
-function clearRefineDraft(scopeKey = chatScopeKey()) {
-  delete state.refineDraftByScope[scopeKey];
-}
-
 function ensureChatSeed() {
   const scopeKey = chatScopeKey();
   if (!state.chatByWorkId[scopeKey]) {
-    const chapter = currentWorkbenchChapter();
     state.chatByWorkId[scopeKey] = [
       {
         role: "assistant",
         text: state.selectedWorkId
-          ? chapter
-            ? `当前作品已就绪。你可以直接说“给当前章生成细纲”、“直接出草稿”或“切到阅读态”。我会优先围绕 ${chapter.title} 推进。`
-            : "当前作品已就绪。你可以直接说“给当前章生成细纲”、“直接出草稿”或“切到阅读态”。"
-          : "还没有作品。你可以直接说“创建作品：标题｜一句话卖点｜题材”，我会先帮你立项。",
+          ? "当前作品已就绪。你可以直接让系统总结当前状态、生成角色候选、细化角色，或推进剧情。"
+          : "还没有作品。先用左侧表单创建立项底稿，再开始创作对话。",
         createdAt: formatNow(),
       },
     ];
@@ -282,38 +235,13 @@ function formatTimestamp(value) {
 }
 
 function currentSuggestions() {
-  const chapter = currentWorkbenchChapter();
   if (!state.selectedWorkId) {
-    const draft = currentCreateDraft();
-    if (draft.active) {
-      const missing = missingCreateFields(draft);
-      if (missing[0] === "title") {
-        return ["标题：霜港遗民", "标题：《赤潮学院》", "查看立项格式"];
-      }
-      if (missing[0] === "genre") {
-        return ["题材：末世 / 经营", "题材：学院流 / 玄幻", "查看立项格式"];
-      }
-      return ["卖点：一句话概括冲突与钩子", "一句话：主角必须...", "查看立项格式"];
-    }
-    return ["查看立项格式", "创建作品：标题｜一句话卖点｜题材", "用表单创建"];
-  }
-  const refineDraft = currentRefineDraft();
-  if (refineDraft.active && refineDraft.awaitingChoice) {
-    return ["先改细纲", "直接重出草稿", "算了，先不改"];
+    return ["使用左侧表单创建作品", "创建后再开始对话", "先整理作品设想"];
   }
   if (state.mode === "reading") {
-    return ["返回工作台", "查看当前章", "生成草稿"];
+    return ["返回工作台", "总结当前作品状态", "推进接下来的剧情"];
   }
-  if (!chapter) {
-    return ["查看作品状态", "切到阅读态"];
-  }
-  if (chapter.status === "BACKLOG") {
-    return ["给当前章生成细纲", "查看当前章状态", "切到阅读态"];
-  }
-  if (chapter.status === "OUTLINED") {
-    return ["直接出草稿", "查看当前章状态", "切到阅读态"];
-  }
-  return ["查看当前章状态", "切到阅读态", "修订当前草稿"];
+  return ["总结当前作品状态", "给我两个核心角色备选", "把当前剧情往前推进"];
 }
 
 function renderChat() {
@@ -762,135 +690,20 @@ async function guarded(action, successMessage, loadingMessage) {
   }
 }
 
-function normalizeIntent(text) {
-  return String(text || "").trim().toLowerCase();
-}
-
-function detectCreateIntent(text) {
-  const normalized = normalizeIntent(text);
-  return (
-    normalized.includes("创建作品") ||
-    normalized.includes("新建作品") ||
-    normalized.includes("新建小说") ||
-    normalized.includes("作品立项") ||
-    normalized.startsWith("立项")
-  );
-}
-
-function detectRefineIntent(text) {
-  const normalized = normalizeIntent(text);
-  return (
-    normalized.includes("再狠一点") ||
-    normalized.includes("更狠") ||
-    normalized.includes("节奏快一点") ||
-    normalized.includes("节奏更快") ||
-    normalized.includes("重来一版") ||
-    normalized.includes("重出一版") ||
-    normalized.includes("改一下") ||
-    normalized.includes("调整一下") ||
-    normalized.includes("更紧一点") ||
-    normalized.includes("更炸一点") ||
-    normalized.includes("重写")
-  );
-}
-
-function detectCharacterIntent(text) {
-  const normalized = normalizeIntent(text);
-  return (
-    normalized.includes("创建角色") ||
-    normalized.includes("添加角色") ||
-    normalized.includes("新建角色") ||
-    normalized.includes("设定角色")
-  );
-}
-
-function extractCharacterFields(text) {
-  const compact = String(text || "").trim();
-  if (!compact) return {};
-
-  const pipeMatch = compact.match(/(?:创建角色|添加角色|新建角色|设定角色)\s*[:：]?\s*([^｜|]+)(?:[｜|]([^｜|]+))?(?:[｜|]([^｜|]+))?/);
-  if (pipeMatch) {
-    return {
-      name: pipeMatch[1].trim(),
-      identity: pipeMatch[2] ? pipeMatch[2].trim() : "",
-      coreDesire: pipeMatch[3] ? pipeMatch[3].trim() : "",
-    };
-  }
-  return {};
-}
-
-function extractCreateWorkFields(text) {
-  const compact = String(text || "").trim();
-  if (!compact) return {};
-
-  const pipeMatch = compact.match(/(?:创建作品|新建作品|新建小说|作品立项|立项)\s*[:：]?\s*([^｜|]+)[｜|]([^｜|]+)[｜|]([^｜|]+)/);
-  if (pipeMatch) {
-    const parsed = {
-      title: pipeMatch[1].trim(),
-      oneLinePitch: pipeMatch[2].trim(),
-      genre: pipeMatch[3].trim(),
-    };
-    if (
-      ["标题", "作品名", "一句话卖点", "题材"].includes(parsed.title) ||
-      ["标题", "作品名", "一句话卖点", "题材"].includes(parsed.oneLinePitch) ||
-      ["标题", "作品名", "一句话卖点", "题材"].includes(parsed.genre)
-    ) {
-      return {};
-    }
-    return parsed;
-  }
-
-  const titleLabelMatch = compact.match(/(?:标题|作品名|书名)[:：]\s*([^，。,；;\n]+)/);
-  const titleMatch = compact.match(/《([^》]+)》/) || compact.match(/[“"]([^"”]+)[”"]/);
-  const genreMatch = compact.match(/题材[:：]?\s*([^，。,；;\n]+)/);
-  const pitchMatch = compact.match(/(?:卖点|一句话卖点|一句话)[:：]?\s*(.+)$/);
-  const fields = {};
-  if (titleLabelMatch) {
-    fields.title = titleLabelMatch[1].trim();
-  } else if (titleMatch) {
-    fields.title = titleMatch[1].trim();
-  }
-  if (genreMatch) {
-    fields.genre = genreMatch[1].trim();
-  }
-  if (pitchMatch) {
-    fields.oneLinePitch = pitchMatch[1].trim();
-  }
-  return fields;
-}
-
-function missingCreateFields(draft) {
-  const missing = [];
-  if (!draft.title) missing.push("title");
-  if (!draft.genre) missing.push("genre");
-  if (!draft.oneLinePitch) missing.push("oneLinePitch");
-  return missing;
-}
-
-function fieldLabel(field) {
-  return {
-    title: "标题",
-    genre: "题材",
-    oneLinePitch: "一句话卖点",
-  }[field] || field;
-}
-
-function createDraftSummary(draft) {
-  const parts = [];
-  if (draft.title) parts.push(`标题《${draft.title}》`);
-  if (draft.genre) parts.push(`题材 ${draft.genre}`);
-  if (draft.oneLinePitch) parts.push(`卖点「${draft.oneLinePitch}」`);
-  return parts.join("，");
-}
-
 async function handleChatIntent(rawText) {
   const text = String(rawText || "").trim();
   if (!text) return;
+  if (!state.selectedWorkId) {
+    pushChatMessage("user", text);
+    pushChatMessage("assistant", "请先用左侧表单创建作品，再基于作品上下文发起创作对话。");
+    renderChat();
+    return;
+  }
   console.log("User Input:", text);
   pushChatMessage("user", text);
   renderChat();
 
-  const url = state.selectedWorkId ? `/api/works/${state.selectedWorkId}/chat` : "/api/chat";
+  const url = `/api/works/${state.selectedWorkId}/interactions`;
 
   await guarded(
     async () => {
@@ -905,22 +718,9 @@ async function handleChatIntent(rawText) {
 
       if (result.actionResult) {
         console.log("Action Triggered:", result.intent);
-        if (result.intent === "CREATE_WORK") {
-          const payload = result.actionResult;
-          state.chatByWorkId[payload.work.id] = state.chatByWorkId["__lobby__"] || [];
-          delete state.chatByWorkId["__lobby__"];
-          state.selectedWorkId = payload.work.id;
-          state.selectedChapterId = payload.chapters[0]?.id || null;
-          state.workbench = payload;
-          state.mode = "workbench";
-        } else if (result.intent === "ENTER_READ_MODE") {
-          state.reading = result.actionResult;
-          state.mode = "reading";
-        } else {
-          state.workbench = result.actionResult;
-          if (!state.selectedChapterId) {
-            state.selectedChapterId = state.workbench.work.active_chapter_id || state.workbench.chapters[0]?.id || null;
-          }
+        state.workbench = result.actionResult;
+        if (!state.selectedChapterId) {
+          state.selectedChapterId = state.workbench.work.active_chapter_id || state.workbench.chapters[0]?.id || null;
         }
         await refreshWorks();
       }

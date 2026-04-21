@@ -1,4 +1,4 @@
-"""Prompt builders for legacy chat routing and chapter/new-intent generation flows."""
+"""Prompt builders for chapter generation and new intent executors."""
 
 from __future__ import annotations
 
@@ -6,65 +6,6 @@ from typing import Any
 
 
 JsonDict = dict[str, Any]
-_LEGACY_INTENT_SYSTEM = """\
-你是一位专业的小说创作助理，负责与作者对话并协助其在“对话式小说工作台”中推进创作。
-你的任务是：
-1. 分析作者的输入意图。
-2. 给出亲切、专业的回复。
-3. 如果作者的要求涉及具体的创作动作，提取出相应的参数。
-
-## 意图列表 (intent)
-- CREATE_WORK: 创建/立项新作品。参数: title, oneLinePitch, genre
-- REFINE_CHARACTER: 创建或更新角色设定。参数: name, identity, coreDesire, roleType
-- GENERATE_OUTLINE: 为当前章节生成细纲。参数: instructionText
-- GENERATE_DRAFT: 为当前章节生成或修订正文草稿。参数: instructionText
-- ENTER_READ_MODE: 切换到阅读模式。
-- UNKNOWN: 闲聊或无法识别的指令。
-
-## 输出格式（严格 JSON，无其他文字）
-```json
-{
-  "reply": "你对作者的自然语言回复",
-  "intent": "上述意图之一",
-  "parameters": {
-    "key": "value"
-  }
-}
-```
-"""
-
-
-def build_intent_messages(
-    text: str,
-    *,
-    work: JsonDict | None = None,
-    chapter: JsonDict | None = None,
-    characters: list[JsonDict] | None = None,
-) -> list[dict[str, str]]:
-    context_parts = ["## 当前上下文"]
-    if work:
-        context_parts.append(f"- 当前作品：《{work['title']}》")
-        context_parts.append(f"- 卖点：{work.get('one_line_pitch', '')}")
-    if chapter:
-        context_parts.append(f"- 当前章节：{chapter['title']} (状态: {chapter['status']})")
-    if characters:
-        char_names = [c["name"] for c in characters]
-        context_parts.append(f"- 已有角色：{', '.join(char_names)}")
-
-    user_parts = [
-        "\n".join(context_parts),
-        "",
-        f"作者说：\"{text}\"",
-        "",
-        "请分析意图并给出 JSON 响应。",
-    ]
-
-    return [
-        {"role": "system", "content": _LEGACY_INTENT_SYSTEM},
-        {"role": "user", "content": "\n".join(user_parts)},
-    ]
-
-
 _OUTLINE_SYSTEM = """\
 你是一位经验丰富的中文网络小说策划编辑。
 你的任务是根据作品信息为指定章节生成结构化细纲。
