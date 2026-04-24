@@ -724,6 +724,10 @@ TurnResult v2 顶层 schema 已通过 ADR-0001（`adr/0001-turn-result-v2-schema
 
 Authority / budget / escalation 的最小枚举已通过 ADR-0003（`adr/0003-authority-budget-escalation.md`）冻结。`authority_scope` 必须保持结构化，至少包含 `capability_scope`、`write_scope`、`task_control_scope`、`budget_override_scope`；budget 至少覆盖 scope / dimension / threshold / guard decision；escalation 至少覆盖 type / reason / status / resolution。`write_scope` 继续使用 `read_only`、`propose_only`、`tentative_write`、`production_write`；重复失败默认归入 retry/checkpoint/failure policy，不直接作为 escalation reason。
 
+### D2-020 Volume / Arc 关系由 ADR-0004 冻结
+
+Volume / arc 关系已通过 ADR-0004（`adr/0004-volume-arc-relation.md`）冻结为 `volume -> arc -> chapter -> scene`。`volume` 是 canonical middle-structure parent 与 reading projection TOC 一级来源；`arc` 是 volume-local story-planning unit，不跨 volume。跨卷故事线通过 strategy artifact / motif / foreshadowing / secondary view 表达，不改变 canonical parent-child relation。
+
 ---
 
 ## 8. 演化策略

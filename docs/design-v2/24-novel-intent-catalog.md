@@ -290,6 +290,8 @@ intent 不是凭空存在的。
 
 ### 8.4 主要写入对象
 
+> ADR-0004 已冻结 `volume -> arc`：分卷族可写 volume 与其下 arc，不能创建跨 volume 的单一 arc。
+
 - volume
 - arc
 
@@ -323,6 +325,8 @@ intent 不是凭空存在的。
 - `SELECT_NEXT_CHAPTER_TARGET`
 
 ### 9.3 主要读取对象
+
+> ADR-0004 已冻结 chapter-family 至少读取所属 `volume`，若已有 `arc_id` 则必须读取对应 `arc`。
 
 - volume / arc
 - main_outline
