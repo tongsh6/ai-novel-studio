@@ -709,6 +709,14 @@ registry 不一定全都存数据库，但必须有可持久化语义。
 
 - registry 足以支撑 intent / slot / capability 的解释信息输出
 
+### 18.5 TurnResult 兼容性 tests
+
+验证：
+
+- 任意 capability 的 output schema 必须能映射进 ADR-0001 冻结的 TurnResult v2 顶层（`adr/0001-turn-result-v2-schema.md`）
+- 任意 intent / capability 的扩展属性必须使用 `domain_ext.` 前缀，否则 reject（与 ADR-0001 §对 Domain 影响 一致）
+- intent / capability / hook 的 `next_action` 输出必须落在 ADR-0001 + 待 ADR-0002 冻结的枚举集合内
+
 ---
 
 ## 19. 本文冻结的硬骨

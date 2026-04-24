@@ -716,6 +716,10 @@ Agent 可以独立生成场景或章节，但用户保留方向控制、采纳�
 
 项目、人物、世界观、章节、伏笔、网文运营等要素应按必须结构化、半结构化和文档层分级落位，避免把全部清单直接变成巨型 schema。
 
+### D2-018 TurnResult v2 顶层 schema 由 ADR-0001 冻结
+
+TurnResult v2 顶层 schema 已通过 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结为 14 必填 + 5 可选字段、5 条 canonical 路径、7 条跨字段约束。adoption 7 态由 ADR-0001 与 `30-contract-glossary.md` §3.2 共同作为唯一 canonical 权威；turn / task / artifact 状态枚举与 phase / status / next_action 完整集合留待 ADR-0002（`§29.7.1` 第 2 项）冻结，本 ADR 仅 `$ref` 占位。schema 根目录约定为 `docs/design-v2/schemas/`，所有 `$id` / `$ref` 相对此根解析。Domain 注入的扩展属性必须使用 `domain_ext.` 前缀，由契约测试 lint。
+
 ---
 
 ## 8. 演化策略

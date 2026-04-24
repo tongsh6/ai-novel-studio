@@ -48,6 +48,8 @@
 
 之上。
 
+> canonical result 顶层 schema 由 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结。Multi-Agent 场景下子 Agent 必须在 TurnResult `agent_id` 字段填自身 id，不得复用父 Agent 或 orchestrator 的 id。
+
 ### 2.2 子 Agent 只能是受控委派
 
 子 Agent 不应成为“偷偷开第二套系统”。
@@ -514,6 +516,8 @@ PLANNED
 - 收集子 Agent 结果
 - 做最终整合或上抛
 - 保持 canonical result 一致
+
+> 「保持 canonical result 一致」由 ADR-0001 落实：父 Agent 整合时输出的 TurnResult 必须满足 ADR-0001 §决策内容 4 的 7 条跨字段约束（含 phase × next_action 互斥、behavior_state.active 终态 → resolution_ref 必填等）。
 
 ### 13.2 父 Agent 不得做的事
 

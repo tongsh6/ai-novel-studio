@@ -363,3 +363,4 @@ UI 不应反向发明新的 runtime `NextAction`。
 6. behavior 分为 durable 与 instant
 7. intent / hook / capability / quality_gate / approval_policy / experience_rule / strategy_artifact 必须 namespace 化
 8. `feedback_patch`、`organization`、reading projection object family、quality / approval objects、experience objects、strategy artifact 都属于 Domain object set
+9. adoption 7 态（§3.2）由本文与 ADR-0001（`adr/0001-turn-result-v2-schema.md`）共同作为唯一 canonical 权威；ADR-0002 仅 `$ref` 引用，不重定义。Domain 注入的扩展属性必须使用 `domain_ext.` 前缀。
