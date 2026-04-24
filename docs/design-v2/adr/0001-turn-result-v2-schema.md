@@ -48,7 +48,7 @@ W1 不发明新语义，只把这些散落字段聚合为统一顶层 schema，�
 
 ### 方案 B：完整 JSON Schema draft-07 + 枚举占位
 
-写完整 JSON Schema；枚举值与 envelope 子结构用 `$ref` 占位，指向后续 ADR（ADR-0002 phase/status/next_action 枚举、ADR-0003 authority/budget、ADR-0005 behavior-specific UI hint、ADR-0006 card schema、独立 envelope ADR）。
+写完整 JSON Schema；枚举值与 envelope 子结构用 `$ref` 占位，指向配套 ADR（ADR-0002 phase/status/next_action 枚举、ADR-0003 authority/budget、ADR-0005 behavior-specific UI hint、ADR-0006 card schema、独立 envelope ADR）。
 
 - 优点：UI / Domain 拿到机器可校验的稳定接口；W1 自身不越界，不重复定义后续 ADR 的内容；契约测试可立即起步（schema 校验 + ref resolver 阶段性 mock）。
 - 缺点：需要后续 ADR 同步落地才能完整可用，但这是 §29.7.1 多 ADR 编排的正常代价。
@@ -85,7 +85,7 @@ W1 显式不冻结的范围：
 - phase / status / next_action 枚举值清单（→ ADR-0002）；
 - ValidationEnvelope / UsageEnvelope / TraceRef 内部 schema（→ 后续独立 ADR，编号待定）；
 - card type 全集（基础 taxonomy 由 `11 §6` 给出，扩展 schema → 后续 W4 `card / action 最小 schema` ADR）；
-- authority / budget / escalation 枚举（→ ADR-0003 / W5）；
+- authority / budget / escalation 枚举（已由 ADR-0003 / W5 冻结）；
 - behavior-specific UI hint 字段（→ ADR-0005 / W3）；
 - `render_mode`：由 `11-ux-contract.md §5` 定义为 Foundation→UI 的独立 contract 元素，其最终 schema 归属独立 ADR（候选：与 `assistant_message` / envelope ADR 合稿），不在本 ADR scope 内，故 TurnResult 顶层不包含此字段。
 
@@ -443,8 +443,8 @@ adapter 仅作为 v1 → v2 上线一次性 backfill 工具，不进入 v2 produ
 ### 依赖 ADR
 
 - ADR-0002（W2，turn / task / artifact 状态枚举 + phase / status / next_action 完整集合）：已冻结本 ADR 的 `phase` / `status` / `next_action` / `behavior_status` `$ref` 目标。注：adoption 7 态由本 ADR + `30 §3.2` 作为唯一 canonical 权威，ADR-0002 仅引用，不重定义。
-- ADR-0003（W5，authority / budget / escalation 枚举）：影响 `behavior_state.active` 的等待语义集合。
+- ADR-0003（W5，authority / budget / escalation 枚举）：已冻结 authority / budget / escalation 最小枚举，影响 `behavior_state.active` 的等待语义集合与预算/授权门禁投影。
 - ADR-0006（W4，card / action 最小 schema）：`ui_cards[]` items 的 `$ref` 指向。
 - ValidationEnvelope / UsageEnvelope / TraceRef / WarningEnvelope / ErrorEnvelope / AssistantMessage 各自独立 ADR：本 ADR 仅声明引用。
 
-ADR-0003 / 0006 与 envelope ADR 落地前，本 ADR 仍可作为 schema 骨架被消费；契约测试在引用解析阶段对未落地引用使用 mock resolver。
+ADR-0006 与 envelope ADR 落地前，本 ADR 仍可作为 schema 骨架被消费；契约测试在引用解析阶段对未落地引用使用 mock resolver。

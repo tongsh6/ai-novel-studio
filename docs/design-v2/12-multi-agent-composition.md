@@ -258,6 +258,8 @@ delegation 是：
 
 多 Agent 最大的风险之一是权限失控。
 
+> ADR-0003 已冻结 authority_scope 最小结构与子枚举；本节的继承规则必须按 ADR-0003 的 `capability_scope` / `write_scope` / `task_control_scope` / `budget_override_scope` 校验。
+
 ### 7.1 默认收缩原则
 
 子 Agent 默认只能获得父 Agent authority 的子集，不能自动放大。
@@ -298,6 +300,8 @@ delegation 是：
 ---
 
 ## 8. budget 继承规则
+
+> ADR-0003 已冻结 budget scope / dimension / threshold / guard decision 最小枚举；子 Agent budget 必须是父级预算的子集。
 
 ### 8.1 budget 也是收缩型资源
 

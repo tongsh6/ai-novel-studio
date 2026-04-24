@@ -796,7 +796,7 @@ Foundation 必须定义受控自动化，而不是无限自动化。
 - `tentative_write`
 - `production_write`
 
-具体枚举由 Security 文档细化，但“权限范围必须结构化表达”属于硬骨。
+完整 authority / budget / escalation 最小枚举由 ADR-0003（`adr/0003-authority-budget-escalation.md`）冻结；“权限范围必须结构化表达”属于硬骨。
 
 ### 17.2 budget scope
 
@@ -807,6 +807,8 @@ Foundation 必须定义受控自动化，而不是无限自动化。
 - per task
 - per workspace / project
 - periodic budget
+
+budget scope、dimension、threshold kind 与 guard decision 的最小枚举由 ADR-0003 冻结；具体阈值数值与动态预算算法仍不在本文冻结。
 
 ### 17.3 prompt injection 防护属于 Foundation
 
@@ -1107,8 +1109,8 @@ v2 的工作不是否定 v1，而是：
 
 1. ~~TurnResult v2 的完整 JSON schema~~（已由 ADR-0001 冻结，见 `adr/0001-turn-result-v2-schema.md`）
 2. ~~phase / status 的完整枚举表~~（已由 ADR-0002 冻结，见 `adr/0002-state-enums.md`）
-3. authority scope 的完整枚举（待 ADR-0003 冻结，见 `§29.7.1` 第 5 项）
-4. budget class 的完整计算规则（待 ADR-0003 冻结）
+3. ~~authority scope 的完整枚举~~（已由 ADR-0003 冻结，见 `adr/0003-authority-budget-escalation.md`）
+4. budget class 的完整计算规则（ADR-0003 已冻结最小枚举；具体阈值数值与动态预算算法仍后置）
 5. message envelope 的完整字段
 6. retention / retrieval / summary 算法
 7. compensation / rollback 的详细机制

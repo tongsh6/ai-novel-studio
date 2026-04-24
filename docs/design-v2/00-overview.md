@@ -720,6 +720,10 @@ Agent 可以独立生成场景或章节，但用户保留方向控制、采纳�
 
 TurnResult v2 顶层 schema 已通过 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结为 14 必填 + 5 可选字段、5 条 canonical 路径、7 条跨字段约束。adoption 7 态由 ADR-0001 与 `30-contract-glossary.md` §3.2 共同作为唯一 canonical 权威；turn / task / artifact 状态枚举、phase / status / next_action 完整集合与兼容表已由 ADR-0002（`adr/0002-state-enums.md`）冻结。schema 根目录约定为 `docs/design-v2/schemas/`，所有 `$id` / `$ref` 相对此根解析。Domain 注入的扩展属性必须使用 `domain_ext.` 前缀，由契约测试 lint。
 
+### D2-019 Authority / Budget / Escalation 最小枚举由 ADR-0003 冻结
+
+Authority / budget / escalation 的最小枚举已通过 ADR-0003（`adr/0003-authority-budget-escalation.md`）冻结。`authority_scope` 必须保持结构化，至少包含 `capability_scope`、`write_scope`、`task_control_scope`、`budget_override_scope`；budget 至少覆盖 scope / dimension / threshold / guard decision；escalation 至少覆盖 type / reason / status / resolution。`write_scope` 继续使用 `read_only`、`propose_only`、`tentative_write`、`production_write`；重复失败默认归入 retry/checkpoint/failure policy，不直接作为 escalation reason。
+
 ---
 
 ## 8. 演化策略
