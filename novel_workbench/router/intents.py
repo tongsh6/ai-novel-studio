@@ -6,22 +6,39 @@ from copy import deepcopy
 from typing import Any
 
 
+CREATE_WORK_SEED = "CREATE_WORK_SEED"
 CREATE_CHARACTER_CANDIDATES = "CREATE_CHARACTER_CANDIDATES"
 REFINE_EXISTING_CHARACTER = "REFINE_EXISTING_CHARACTER"
 ADVANCE_PLOT = "ADVANCE_PLOT"
 SUMMARIZE_CURRENT_STATE = "SUMMARIZE_CURRENT_STATE"
+GENERATE_CHAPTER_OUTLINE = "GENERATE_CHAPTER_OUTLINE"
+DRAFT_CHAPTER = "DRAFT_CHAPTER"
+REVISE_DRAFT = "REVISE_DRAFT"
+ENTER_READ_MODE = "ENTER_READ_MODE"
 OTHER = "OTHER"
 
 MINIMAL_INTENTS = (
+    CREATE_WORK_SEED,
     CREATE_CHARACTER_CANDIDATES,
     REFINE_EXISTING_CHARACTER,
     ADVANCE_PLOT,
     SUMMARIZE_CURRENT_STATE,
+    GENERATE_CHAPTER_OUTLINE,
+    DRAFT_CHAPTER,
+    REVISE_DRAFT,
+    ENTER_READ_MODE,
 )
 
 ALL_INTENTS = MINIMAL_INTENTS + (OTHER,)
 
 _PARAMETER_SLOTS: dict[str, dict[str, Any]] = {
+    CREATE_WORK_SEED: {
+        "title": "",
+        "one_line_pitch": "",
+        "genre": "",
+        "target_platform": "起点中文网",
+        "target_audience": "网文读者",
+    },
     CREATE_CHARACTER_CANDIDATES: {
         "work_name": "",
         "plot_scope": "",
@@ -49,6 +66,27 @@ _PARAMETER_SLOTS: dict[str, dict[str, Any]] = {
         "work_name": "",
         "summary_scope": "",
         "summary_focus": [],
+    },
+    GENERATE_CHAPTER_OUTLINE: {
+        "work_name": "",
+        "chapter_id": "",
+        "instruction_text": "",
+        "rewrite_mode": "default",
+    },
+    DRAFT_CHAPTER: {
+        "work_name": "",
+        "chapter_id": "",
+        "instruction_text": "",
+        "rewrite_mode": "default",
+    },
+    REVISE_DRAFT: {
+        "work_name": "",
+        "chapter_id": "",
+        "instruction_text": "",
+        "revise_mode": "revise_direct",
+    },
+    ENTER_READ_MODE: {
+        "work_name": "",
     },
     OTHER: {},
 }

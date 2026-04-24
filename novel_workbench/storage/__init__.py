@@ -3,6 +3,7 @@
 from .repositories import (
     ChapterRepository,
     CharacterRepository,
+    ClarificationStateRepository,
     ContinuityStateRepository,
     DecisionLogRepository,
     DraftRepository,
@@ -19,6 +20,7 @@ from .sqlite import connect_sqlite, initialize_database, open_sqlite
 __all__ = [
     "ChapterRepository",
     "CharacterRepository",
+    "ClarificationStateRepository",
     "ContinuityStateRepository",
     "DecisionLogRepository",
     "DraftRepository",

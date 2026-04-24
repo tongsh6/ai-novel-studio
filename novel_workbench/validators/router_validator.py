@@ -9,8 +9,13 @@ from novel_workbench.router.intents import (
     ADVANCE_PLOT,
     ALL_INTENTS,
     CREATE_CHARACTER_CANDIDATES,
+    CREATE_WORK_SEED,
+    DRAFT_CHAPTER,
+    ENTER_READ_MODE,
+    GENERATE_CHAPTER_OUTLINE,
     OTHER,
     REFINE_EXISTING_CHARACTER,
+    REVISE_DRAFT,
     SUMMARIZE_CURRENT_STATE,
 )
 from novel_workbench.router.schemas import default_reply_for_intent
@@ -27,17 +32,18 @@ _OVERREACH_PATTERNS = (
 )
 
 _REQUIRED_FIELDS: dict[str, tuple[str, ...]] = {
+    CREATE_WORK_SEED: ("title", "one_line_pitch", "genre"),
     CREATE_CHARACTER_CANDIDATES: ("work_name", "plot_scope", "generation_target"),
     REFINE_EXISTING_CHARACTER: ("work_name", "character_name", "refine_dimensions"),
     ADVANCE_PLOT: ("work_name", "current_plot_scope", "advance_goal"),
     SUMMARIZE_CURRENT_STATE: ("work_name", "summary_scope"),
+    GENERATE_CHAPTER_OUTLINE: ("work_name", "chapter_id"),
+    DRAFT_CHAPTER: ("work_name", "chapter_id"),
+    REVISE_DRAFT: ("work_name", "chapter_id"),
+    ENTER_READ_MODE: ("work_name",),
 }
 
-_MISSING_FIELD_EXPECTATIONS: dict[str, tuple[str, ...]] = {
-    CREATE_CHARACTER_CANDIDATES: ("candidate_count", "role_type"),
-    REFINE_EXISTING_CHARACTER: ("character_name", "refine_dimensions"),
-    ADVANCE_PLOT: ("target_position",),
-}
+_MISSING_FIELD_EXPECTATIONS: dict[str, tuple[str, ...]] = {}
 
 
 def _is_blank(value: Any) -> bool:

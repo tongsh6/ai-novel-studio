@@ -249,9 +249,27 @@ CREATE TABLE IF NOT EXISTS interaction_logs (
   route_validation_json TEXT NOT NULL DEFAULT '{}',
   execution_result_json TEXT NOT NULL DEFAULT '{}',
   execution_validation_json TEXT NOT NULL DEFAULT '{}',
+  slot_resolution_json TEXT NOT NULL DEFAULT '{}',
   status TEXT NOT NULL DEFAULT 'ROUTED',
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL,
+  FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS clarification_states (
+  id TEXT PRIMARY KEY,
+  work_id TEXT NOT NULL,
+  source_interaction_id TEXT NOT NULL,
+  intent TEXT NOT NULL DEFAULT '',
+  status TEXT NOT NULL DEFAULT 'OPEN',
+  required_fields_json TEXT NOT NULL DEFAULT '[]',
+  optional_fields_json TEXT NOT NULL DEFAULT '[]',
+  current_parameters_json TEXT NOT NULL DEFAULT '{}',
+  prompt_message_json TEXT NOT NULL DEFAULT '{}',
+  resolution_json TEXT NOT NULL DEFAULT '{}',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL,
+  closed_at INTEGER,
   FOREIGN KEY (work_id) REFERENCES works(id) ON DELETE CASCADE
 );
 
@@ -268,3 +286,5 @@ CREATE INDEX IF NOT EXISTS idx_continuity_states_scope ON continuity_states(work
 CREATE INDEX IF NOT EXISTS idx_relations_work_id ON relations(work_id);
 CREATE INDEX IF NOT EXISTS idx_settings_work_id ON settings(work_id);
 CREATE INDEX IF NOT EXISTS idx_interaction_logs_work_id_created_at ON interaction_logs(work_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clarification_states_work_id_status ON clarification_states(work_id, status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_clarification_states_source_interaction_id ON clarification_states(source_interaction_id);

@@ -29,7 +29,25 @@ def initialize_database(conn: sqlite3.Connection) -> None:
 
     schema_sql = SCHEMA_PATH.read_text(encoding="utf-8")
     conn.executescript(schema_sql)
+    _apply_lightweight_migrations(conn)
     conn.commit()
+
+
+def _apply_lightweight_migrations(conn: sqlite3.Connection) -> None:
+    """Add newly introduced columns to tables that may have been created by
+    older schema versions. Kept as a thin shim so local dev DBs don't need a
+    full migration pipeline."""
+
+    expected_columns = {
+        "interaction_logs": {
+            "slot_resolution_json": "TEXT NOT NULL DEFAULT '{}'",
+        },
+    }
+    for table, columns in expected_columns.items():
+        existing = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        for column, definition in columns.items():
+            if column not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
 
 @contextmanager

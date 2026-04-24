@@ -12,8 +12,13 @@ from novel_workbench.context_manager import ContextManager
 from novel_workbench.executors import (
     AdvancePlotExecutor,
     CreateCharacterCandidatesExecutor,
+    CreateWorkSeedExecutor,
+    DraftChapterExecutor,
+    EnterReadModeExecutor,
     ExecutorRegistry,
+    GenerateChapterOutlineExecutor,
     RefineExistingCharacterExecutor,
+    ReviseDraftExecutor,
     SummarizeCurrentStateExecutor,
 )
 from novel_workbench.router import RouterService
@@ -865,6 +870,7 @@ class WorkbenchService:
         interaction_id: str | None = None,
         user_input: str = "",
         persist: bool = False,
+        slot_resolution: JsonDict | None = None,
     ) -> JsonDict:
         validation_result = validate_router_result(route_result)
         validated_route_result = validation_result["validated_result"]
@@ -890,6 +896,7 @@ class WorkbenchService:
                     route_validation=validation_result,
                     status=status,
                     interaction_id=interaction_id,
+                    slot_resolution=slot_resolution,
                 )
                 packet["interactionId"] = interaction_id
             return packet
@@ -928,6 +935,7 @@ class WorkbenchService:
                 execution_validation=execution_validation,
                 status=execution_status,
                 interaction_id=interaction_id,
+                slot_resolution=slot_resolution,
             )
             packet["interactionId"] = interaction["id"]
         return packet
@@ -1029,10 +1037,15 @@ class WorkbenchService:
 
     def _build_executor_registry(self) -> ExecutorRegistry:
         registry = ExecutorRegistry()
+        registry.register(CreateWorkSeedExecutor(self.create_work_seed))
         registry.register(CreateCharacterCandidatesExecutor())
         registry.register(RefineExistingCharacterExecutor(self.refine_character))
         registry.register(AdvancePlotExecutor())
         registry.register(SummarizeCurrentStateExecutor())
+        registry.register(GenerateChapterOutlineExecutor(self.generate_chapter_outline))
+        registry.register(DraftChapterExecutor(self.draft_chapter))
+        registry.register(ReviseDraftExecutor(self.revise_draft))
+        registry.register(EnterReadModeExecutor(self.enter_read_mode))
         return registry
 
     def _save_interaction_log(
@@ -1046,10 +1059,15 @@ class WorkbenchService:
         execution_result: JsonDict | None = None,
         execution_validation: JsonDict | None = None,
         interaction_id: str | None = None,
+        slot_resolution: JsonDict | None = None,
     ) -> JsonDict:
         now = now_ms()
         existing = self.repos.interaction_logs.get(interaction_id) if interaction_id else None
         created_at = existing["created_at"] if existing else now
+        if slot_resolution is None and existing:
+            existing_slot_raw = existing.get("slot_resolution_json")
+            if existing_slot_raw:
+                slot_resolution = self._parse_json_text(existing_slot_raw, default={})
         return self.repos.interaction_logs.save(
             {
                 "id": interaction_id or new_id("interaction"),
@@ -1059,6 +1077,7 @@ class WorkbenchService:
                 "route_validation_json": json_text(route_validation, fallback={}),
                 "execution_result_json": json_text(execution_result or {}, fallback={}),
                 "execution_validation_json": json_text(execution_validation or {}, fallback={}),
+                "slot_resolution_json": json_text(slot_resolution or {}, fallback={}),
                 "status": status,
                 "created_at": created_at,
                 "updated_at": now,

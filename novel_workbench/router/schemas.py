@@ -7,8 +7,13 @@ from typing import Any, Mapping
 from .intents import (
     ADVANCE_PLOT,
     CREATE_CHARACTER_CANDIDATES,
+    CREATE_WORK_SEED,
+    DRAFT_CHAPTER,
+    ENTER_READ_MODE,
+    GENERATE_CHAPTER_OUTLINE,
     OTHER,
     REFINE_EXISTING_CHARACTER,
+    REVISE_DRAFT,
     SUMMARIZE_CURRENT_STATE,
     empty_parameters,
     normalize_intent,
@@ -39,10 +44,15 @@ def _clamp_confidence(value: Any) -> float:
 
 def default_reply_for_intent(intent: str) -> str:
     return {
+        CREATE_WORK_SEED: "已识别为创建新作品立项底稿的请求。",
         CREATE_CHARACTER_CANDIDATES: "已识别为基于当前剧情生成角色候选的请求。",
         REFINE_EXISTING_CHARACTER: "已识别为对现有角色设定进行细化的请求。",
         ADVANCE_PLOT: "已识别为推进当前剧情的请求。",
         SUMMARIZE_CURRENT_STATE: "已识别为总结当前作品状态的请求。",
+        GENERATE_CHAPTER_OUTLINE: "已识别为生成当前章节细纲的请求。",
+        DRAFT_CHAPTER: "已识别为基于细纲生成正文草稿的请求。",
+        REVISE_DRAFT: "已识别为基于当前草稿做修订的请求。",
+        ENTER_READ_MODE: "已识别为进入阅读模式的请求。",
         OTHER: "已识别为暂时无法稳定归类的请求。",
     }.get(intent, "已识别为暂时无法稳定归类的请求。")
 

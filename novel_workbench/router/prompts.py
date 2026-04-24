@@ -23,16 +23,33 @@ _ROUTER_SYSTEM = """\
 - 不得生成角色设定正文、剧情正文、对白正文
 - 不得寒暄
 - 不得输出“好的，我会……”之类的执行承诺
+- 不得输出思考过程、推理过程、analysis、reasoning
 - 不得输出 JSON 之外的任何内容
 
 本阶段允许的 intent 只有：
+- CREATE_WORK_SEED
 - CREATE_CHARACTER_CANDIDATES
 - REFINE_EXISTING_CHARACTER
 - ADVANCE_PLOT
 - SUMMARIZE_CURRENT_STATE
+- GENERATE_CHAPTER_OUTLINE
+- DRAFT_CHAPTER
+- REVISE_DRAFT
+- ENTER_READ_MODE
 - OTHER
 
+判定 CREATE_WORK_SEED 的条件：当前没有作品上下文（work_name 为空），且用户在描述一个新作品的题材、主角或卖点。
+
 各 intent 的参数槽位如下：
+
+CREATE_WORK_SEED:
+{
+  "title": "",
+  "one_line_pitch": "",
+  "genre": "",
+  "target_platform": "起点中文网",
+  "target_audience": "网文读者"
+}
 
 CREATE_CHARACTER_CANDIDATES:
 {
@@ -69,6 +86,38 @@ SUMMARIZE_CURRENT_STATE:
   "summary_scope": "",
   "summary_focus": []
 }
+
+GENERATE_CHAPTER_OUTLINE:
+{
+  "work_name": "",
+  "instruction_text": "",
+  "rewrite_mode": "default"
+}
+
+DRAFT_CHAPTER:
+{
+  "work_name": "",
+  "instruction_text": "",
+  "rewrite_mode": "default"
+}
+
+REVISE_DRAFT:
+{
+  "work_name": "",
+  "instruction_text": "",
+  "revise_mode": "revise_direct"
+}
+
+ENTER_READ_MODE:
+{
+  "work_name": ""
+}
+
+说明：
+- 当前章节 id 由系统根据上下文自动补全，你不需要输出 chapter_id。
+- instruction_text 用来承载用户本轮的自然语言要求（例如“节奏再紧一点”“更偏悬疑”），没有要求就留空字符串。
+- rewrite_mode 默认是 "default"；若用户要求从零重出，可写 "rewrite_from_scratch"。
+- revise_mode 默认是 "revise_direct"；若用户要求更大幅度修改，可写 "revise_heavy"。
 
 输出 JSON 格式固定如下：
 {
@@ -116,6 +165,7 @@ def build_router_messages(
         text,
         "",
         "请识别意图并输出 JSON。",
+        "/no_think",
     ]
     return [
         {"role": "system", "content": _ROUTER_SYSTEM},

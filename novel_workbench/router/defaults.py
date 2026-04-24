@@ -8,6 +8,10 @@ from typing import Any
 from .intents import (
     ADVANCE_PLOT,
     CREATE_CHARACTER_CANDIDATES,
+    CREATE_WORK_SEED,
+    DRAFT_CHAPTER,
+    GENERATE_CHAPTER_OUTLINE,
+    REVISE_DRAFT,
     SUMMARIZE_CURRENT_STATE,
 )
 
@@ -36,13 +40,21 @@ def apply_router_defaults(route_result: JsonDict) -> tuple[JsonDict, list[str]]:
             missing_fields.remove(field_name)
 
     intent = str(result.get("intent") or "").strip().upper()
-    if intent == CREATE_CHARACTER_CANDIDATES:
+    if intent == CREATE_WORK_SEED:
+        fill("target_platform", "起点中文网")
+        fill("target_audience", "网文读者")
+    elif intent == CREATE_CHARACTER_CANDIDATES:
         fill("plot_scope", "current_plot")
-        fill("candidate_count", 3)
     elif intent == ADVANCE_PLOT:
         fill("current_plot_scope", "current_plot")
     elif intent == SUMMARIZE_CURRENT_STATE:
         fill("summary_scope", "current_work")
+    elif intent == GENERATE_CHAPTER_OUTLINE:
+        fill("rewrite_mode", "default")
+    elif intent == DRAFT_CHAPTER:
+        fill("rewrite_mode", "default")
+    elif intent == REVISE_DRAFT:
+        fill("revise_mode", "revise_direct")
 
     result["parameters"] = parameters
     result["missing_fields"] = missing_fields

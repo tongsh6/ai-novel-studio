@@ -407,12 +407,64 @@ class InteractionLogRepository(SQLiteRepository):
             "route_validation_json",
             "execution_result_json",
             "execution_validation_json",
+            "slot_resolution_json",
             "status",
             "created_at",
             "updated_at",
         ),
         default_order_by="created_at DESC, updated_at DESC, id ASC",
     )
+
+
+class ClarificationStateRepository(SQLiteRepository):
+    spec = TableSpec(
+        table_name="clarification_states",
+        columns=(
+            "id",
+            "work_id",
+            "source_interaction_id",
+            "intent",
+            "status",
+            "required_fields_json",
+            "optional_fields_json",
+            "current_parameters_json",
+            "prompt_message_json",
+            "resolution_json",
+            "created_at",
+            "updated_at",
+            "closed_at",
+        ),
+        default_order_by="updated_at DESC, created_at DESC, id ASC",
+    )
+
+    def list_open_by_work(self, work_id: str) -> list[RowDict]:
+        query = (
+            "SELECT * FROM clarification_states "
+            "WHERE work_id = ? AND status = 'OPEN' "
+            "ORDER BY updated_at DESC, created_at DESC, id ASC"
+        )
+        rows = self.conn.execute(query, (work_id,)).fetchall()
+        return [dict(row) for row in rows]
+
+    def get_open_by_source_interaction(self, source_interaction_id: str) -> RowDict | None:
+        query = (
+            "SELECT * FROM clarification_states "
+            "WHERE source_interaction_id = ? AND status = 'OPEN' "
+            "ORDER BY updated_at DESC, created_at DESC, id ASC "
+            "LIMIT 1"
+        )
+        row = self.conn.execute(query, (source_interaction_id,)).fetchone()
+        return dict(row) if row else None
+
+    def get_latest_by_source_interaction(self, source_interaction_id: str) -> RowDict | None:
+        query = (
+            "SELECT * FROM clarification_states "
+            "WHERE source_interaction_id = ? "
+            "ORDER BY updated_at DESC, created_at DESC, id ASC "
+            "LIMIT 1"
+        )
+        row = self.conn.execute(query, (source_interaction_id,)).fetchone()
+        return dict(row) if row else None
 
 
 class RepositoryBundle:
@@ -430,3 +482,4 @@ class RepositoryBundle:
         self.relations = RelationRepository(conn)
         self.settings = SettingRepository(conn)
         self.interaction_logs = InteractionLogRepository(conn)
+        self.clarification_states = ClarificationStateRepository(conn)

@@ -218,6 +218,28 @@ def build_create_character_candidates_messages(
     *,
     parameters: JsonDict,
 ) -> list[dict[str, str]]:
+    try:
+        candidate_count = int(parameters.get("candidate_count") or 3)
+    except (TypeError, ValueError):
+        candidate_count = 3
+    candidate_count = max(2, min(5, candidate_count))
+    candidate_template: list[str] = []
+    for index in range(1, candidate_count + 1):
+        candidate_template.extend(
+            [
+                f"## 角色候选 {index}",
+                "- 姓名：",
+                "- 身份：",
+                "- 立场：",
+                "- 核心欲望：",
+                "- 性格关键词：",
+                "- 与当前剧情的连接点：",
+                "- 适合承担的功能位：",
+                "- 可用戏剧张力：",
+                "- 风险点：",
+                "",
+            ]
+        )
     system = """\
 你是小说创作执行器。
 当前任务是：基于当前剧情与约束，生成新的角色候选。
@@ -228,6 +250,8 @@ def build_create_character_candidates_messages(
 3. 每个候选必须有明确功能位
 4. 不要替作者拍板，只给候选与比较
 5. 请严格按指定格式输出
+6. 每个候选控制在 160-220 个中文字符内，宁可压缩，不要展开长篇背景
+7. 必须输出完整结构；如果空间有限，优先保留所有标题和综合建议
 """
     user = "\n".join(
         [
@@ -238,21 +262,12 @@ def build_create_character_candidates_messages(
             _render_executor_context_block(executor_context),
             "",
             "## 当前任务要求",
-            f"- 候选数量：{parameters.get('candidate_count')}",
+            f"- 候选数量：{candidate_count}",
             f"- 角色类型：{parameters.get('role_type')}",
             f"- 额外限制：{parameters.get('constraints')}",
             "",
             "请按如下结构输出：",
-            "## 角色候选 1",
-            "- 姓名：",
-            "- 身份：",
-            "- 立场：",
-            "- 核心欲望：",
-            "- 性格关键词：",
-            "- 与当前剧情的连接点：",
-            "- 适合承担的功能位：",
-            "- 可用戏剧张力：",
-            "- 风险点：",
+            *candidate_template,
             "",
             "## 综合建议",
             "- 最稳妥方案：",

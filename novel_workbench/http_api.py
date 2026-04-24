@@ -11,6 +11,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from novel_workbench import WorkbenchService, open_sqlite
+from novel_workbench.orchestrator import AgentOrchestrator
 
 
 def make_handler(db_path: Path, static_dir: Path):
@@ -52,6 +53,10 @@ def make_handler(db_path: Path, static_dir: Path):
                 # Handle /api/chat (work-less chat)
                 if parts == ["api", "chat"] and method == "POST":
                     return self._handle_chat()
+
+                # /api/interactions (workless orchestrator turn)
+                if parts == ["api", "interactions"] and method == "POST":
+                    return self._handle_create_workless_interaction()
 
                 # All other routes must start with /api/works
                 if parts[:2] != ["api", "works"]:
@@ -212,16 +217,44 @@ def make_handler(db_path: Path, static_dir: Path):
         def _handle_list_interactions(self, work_id: str) -> None:
             with open_sqlite(db_path) as conn:
                 service = WorkbenchService(conn)
-                self._send_json({"interactions": service.list_interactions(work_id=work_id)})
+                orchestrator = AgentOrchestrator(service)
+                self._send_json({"items": orchestrator.list_turns(work_id=work_id)})
+
+        def _handle_create_workless_interaction(self) -> None:
+            payload = self._read_json_body()
+            with open_sqlite(db_path) as conn:
+                service = WorkbenchService(conn)
+                orchestrator = AgentOrchestrator(service)
+                self._send_json(
+                    orchestrator.orchestrate_workless_turn(
+                        user_message=str(
+                            payload.get("user_message", payload.get("text", ""))
+                        ).strip(),
+                        client_context=payload.get("client_context")
+                        if isinstance(payload.get("client_context"), dict)
+                        else None,
+                    ),
+                    status=HTTPStatus.CREATED,
+                )
 
         def _handle_create_interaction(self, work_id: str) -> None:
             payload = self._read_json_body()
             with open_sqlite(db_path) as conn:
                 service = WorkbenchService(conn)
+                orchestrator = AgentOrchestrator(service)
                 self._send_json(
-                    service.process_interaction(
+                    orchestrator.orchestrate_turn(
                         work_id=work_id,
-                        text=str(payload.get("text", "")).strip(),
+                        user_message=str(
+                            payload.get("user_message", payload.get("text", ""))
+                        ).strip(),
+                        clarification_target_interaction_id=str(
+                            payload.get("clarification_target_interaction_id", "")
+                        ).strip()
+                        or None,
+                        client_context=payload.get("client_context")
+                        if isinstance(payload.get("client_context"), dict)
+                        else None,
                     ),
                     status=HTTPStatus.CREATED,
                 )

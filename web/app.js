@@ -8,7 +8,10 @@ const state = {
   reading: null,
   busy: false,
   chatByWorkId: {},
+  interactionsByWorkId: {},
 };
+
+const MAX_VISIBLE_CHAT_TURNS = 8;
 
 const dom = {
   workCount: document.querySelector("#work-count"),
@@ -211,7 +214,93 @@ function pushChatMessage(role, text) {
     role,
     text,
     createdAt: formatNow(),
+    meta: [],
   });
+}
+
+function buildTurnMeta(turn) {
+  const meta = [];
+  const inferred = turn.slot_resolution?.inferred_fields || [];
+  const autofilled = turn.slot_resolution?.autofilled_fields || [];
+  const remaining = turn.slot_resolution?.remaining_missing_fields || [];
+  const clarification = turn.clarification;
+
+  if (inferred.length) {
+    meta.push(`推断：${inferred.join("、")}`);
+  }
+  if (autofilled.length) {
+    meta.push(`默认：${autofilled.join("、")}`);
+  }
+  if (remaining.length) {
+    meta.push(`待补充：${remaining.join("、")}`);
+  }
+  if (clarification?.status === "OPEN") {
+    meta.push("澄清中");
+  } else if (clarification?.status === "RESOLVED") {
+    meta.push("澄清已补齐");
+  } else if (clarification?.status === "SUPERSEDED") {
+    meta.push("澄清已被新请求覆盖");
+  } else if (clarification?.status === "ABANDONED") {
+    meta.push("澄清已放弃");
+  }
+  return meta;
+}
+
+function hydrateChatFromInteractions(workId) {
+  const items = state.interactionsByWorkId[workId] || [];
+  if (!items.length) {
+    delete state.chatByWorkId[workId];
+    return;
+  }
+  const visibleItems = items.slice(0, MAX_VISIBLE_CHAT_TURNS);
+  const ordered = visibleItems.slice().reverse();
+  const hiddenCount = Math.max(0, items.length - visibleItems.length);
+  const messages = ordered.flatMap((turn) => {
+    const messages = [];
+    const userText = String(turn.user_message || "").trim();
+    if (userText) {
+      messages.push({
+        role: "user",
+        text: userText,
+        createdAt: formatTimestamp(turn.timestamps?.created_at),
+        meta: [],
+      });
+    }
+    const assistantText = String(turn.assistant_message?.content || "").trim();
+    if (assistantText) {
+      messages.push({
+        role: "assistant",
+        text: assistantText,
+        createdAt: formatTimestamp(turn.timestamps?.updated_at || turn.timestamps?.created_at),
+        meta: buildTurnMeta(turn),
+      });
+    }
+    return messages;
+  });
+  if (hiddenCount > 0) {
+    messages.unshift({
+      role: "assistant",
+      text: `已折叠 ${hiddenCount} 轮更早的对话记录。`,
+      createdAt: "",
+      meta: [],
+    });
+  }
+  state.chatByWorkId[workId] = messages;
+}
+
+function upsertInteractionTurn(turn) {
+  if (!state.selectedWorkId || !turn?.interaction_id) return;
+  const items = state.interactionsByWorkId[state.selectedWorkId]
+    ? [...state.interactionsByWorkId[state.selectedWorkId]]
+    : [];
+  const index = items.findIndex((item) => item.interaction_id === turn.interaction_id);
+  if (index >= 0) {
+    items[index] = turn;
+  } else {
+    items.unshift(turn);
+  }
+  state.interactionsByWorkId[state.selectedWorkId] = items;
+  hydrateChatFromInteractions(state.selectedWorkId);
 }
 
 function formatNow() {
@@ -256,6 +345,11 @@ function renderChat() {
             <span>${escapeHtml(message.createdAt)}</span>
           </div>
           <p class="chat-body">${escapeHtml(message.text)}</p>
+          ${
+            message.meta?.length
+              ? `<div class="chat-extra">${message.meta.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>`
+              : ""
+          }
         </article>
       `
     )
@@ -626,7 +720,17 @@ async function refreshWorkbench() {
   ) {
     state.selectedDecisionId = null;
   }
+  await refreshInteractions();
   renderWorkbench();
+}
+
+async function refreshInteractions() {
+  if (!state.selectedWorkId) {
+    return;
+  }
+  const payload = await apiFetch(`/api/works/${state.selectedWorkId}/interactions`);
+  state.interactionsByWorkId[state.selectedWorkId] = payload.items || [];
+  hydrateChatFromInteractions(state.selectedWorkId);
 }
 
 async function selectChapter(chapterId) {
@@ -693,36 +797,57 @@ async function guarded(action, successMessage, loadingMessage) {
 async function handleChatIntent(rawText) {
   const text = String(rawText || "").trim();
   if (!text) return;
-  if (!state.selectedWorkId) {
-    pushChatMessage("user", text);
-    pushChatMessage("assistant", "请先用左侧表单创建作品，再基于作品上下文发起创作对话。");
-    renderChat();
-    return;
-  }
   console.log("User Input:", text);
   pushChatMessage("user", text);
   renderChat();
 
-  const url = `/api/works/${state.selectedWorkId}/interactions`;
+  const isWorkless = !state.selectedWorkId;
+  const url = isWorkless
+    ? `/api/interactions`
+    : `/api/works/${state.selectedWorkId}/interactions`;
 
   await guarded(
     async () => {
       console.log("Calling API:", url);
       const result = await apiFetch(url, {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ user_message: text }),
       });
 
       console.log("API Result:", result);
-      pushChatMessage("assistant", result.reply || "收到。");
 
-      if (result.actionResult) {
-        console.log("Action Triggered:", result.intent);
-        state.workbench = result.actionResult;
-        if (!state.selectedChapterId) {
-          state.selectedChapterId = state.workbench.work.active_chapter_id || state.workbench.chapters[0]?.id || null;
+      const actionResult = result.execution_result?.action_result;
+      const newWorkId = actionResult?.workId;
+
+      if (isWorkless && newWorkId) {
+        if (state.chatByWorkId["__lobby__"]) {
+          state.chatByWorkId[newWorkId] = state.chatByWorkId["__lobby__"];
+          delete state.chatByWorkId["__lobby__"];
         }
+        state.selectedWorkId = newWorkId;
+        state.workbench = actionResult.workbench;
+        state.selectedChapterId =
+          state.workbench?.work?.active_chapter_id
+          || state.workbench?.chapters?.[0]?.id
+          || null;
+        state.mode = "workbench";
+        upsertInteractionTurn(result);
         await refreshWorks();
+      } else if (!isWorkless) {
+        upsertInteractionTurn(result);
+        if (actionResult?.workbench) {
+          console.log("Action Triggered:", result.route_result?.intent);
+          state.workbench = actionResult.workbench;
+          if (!state.selectedChapterId) {
+            state.selectedChapterId = state.workbench.work.active_chapter_id || state.workbench.chapters[0]?.id || null;
+          }
+          await refreshWorks();
+        }
+      } else {
+        const assistantText = result.assistant_message?.content;
+        if (assistantText) {
+          pushChatMessage("assistant", assistantText);
+        }
       }
     },
     null,

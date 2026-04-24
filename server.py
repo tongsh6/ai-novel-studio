@@ -14,7 +14,21 @@ DEFAULT_DB_PATH = ROOT / "data" / "workbench.sqlite3"
 DEFAULT_STATIC_DIR = ROOT / "web"
 
 
+def load_env() -> None:
+    env_path = ROOT / ".env"
+    if env_path.exists():
+        with open(env_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#"):
+                    continue
+                if "=" in line:
+                    key, value = line.split("=", 1)
+                    os.environ[key.strip()] = value.strip().strip('"').strip("'")
+
+
 def main() -> None:
+    load_env()
     host = os.getenv("HOST", "127.0.0.1").strip() or "127.0.0.1"
     port = int(os.getenv("PORT", "8000"))
     db_path = Path(os.getenv("NOVEL_WORKBENCH_DB", str(DEFAULT_DB_PATH))).expanduser()

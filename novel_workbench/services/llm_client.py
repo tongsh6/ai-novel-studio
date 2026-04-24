@@ -20,9 +20,24 @@ def chat(
     max_tokens: int | None = None,
 ) -> str:
     """Send a chat completion request and return the assistant message text."""
+    completion = chat_completion(
+        messages,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+    return str(completion.get("content") or "")
+
+
+def chat_completion(
+    messages: list[dict[str, str]],
+    *,
+    temperature: float = 0.8,
+    max_tokens: int | None = None,
+) -> dict[str, Any]:
+    """Send a chat completion request and return content plus finish metadata."""
     base_url = _env("AI_NOVEL_BASE_URL", "http://localhost:1234/v1").rstrip("/")
     api_key = _env("AI_NOVEL_API_KEY", "lm-studio")
-    model = _env("AI_NOVEL_MODEL", "local")
+    model = _env("AI_NOVEL_MODEL", "gpt-oss-120b")
     timeout = int(_env("AI_NOVEL_TIMEOUT", "300"))
 
     payload: dict[str, Any] = {
@@ -55,7 +70,15 @@ def chat(
         raise RuntimeError(f"LLM API unreachable: {exc.reason}") from exc
 
     try:
-        return result["choices"][0]["message"]["content"]
+        choice = result["choices"][0]
+        message = choice.get("message") or {}
+        return {
+            "content": message.get("content") or "",
+            "reasoning_content": message.get("reasoning_content") or "",
+            "finish_reason": choice.get("finish_reason"),
+            "model": result.get("model", model),
+            "usage": result.get("usage") or {},
+        }
     except (KeyError, IndexError) as exc:
         raise RuntimeError(f"unexpected LLM response shape: {result}") from exc
 
@@ -67,7 +90,15 @@ def chat_json(
     max_tokens: int | None = None,
 ) -> dict[str, Any]:
     """Like chat(), but parse the response as JSON. Strips markdown code fences if present."""
-    text = chat(messages, temperature=temperature, max_tokens=max_tokens)
+    completion = chat_completion(messages, temperature=temperature, max_tokens=max_tokens)
+    text = str(completion.get("content") or "").strip()
+    finish_reason = completion.get("finish_reason")
+    if not text:
+        if finish_reason == "length":
+            raise RuntimeError("LLM response was truncated before JSON content")
+        raise RuntimeError("LLM returned empty content")
+    if finish_reason == "length":
+        raise RuntimeError(f"LLM returned truncated JSON: {text[:300]}")
     text = text.strip()
     if text.startswith("```"):
         lines = text.splitlines()
