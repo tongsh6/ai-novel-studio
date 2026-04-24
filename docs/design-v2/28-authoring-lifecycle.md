@@ -128,6 +128,8 @@
 
 把作品从整书方向拆到卷、章、场。
 
+> ADR-0004 已冻结 planning 默认中层：先定位 `volume`，再在 volume 内用 `arc` 组织剧情推进。
+
 ### 5.2 主对象
 
 - main_outline

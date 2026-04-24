@@ -451,7 +451,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 
 ### Domain
 
-6. `volume / arc` 关系
+6. `volume / arc` 关系 ✅ 已由 ADR-0004 冻结（`adr/0004-volume-arc-relation.md`，Accepted 2026-04-24）
 7. 首批 UI 需要覆盖的具体 intent 最小集合
 8. 这些 intent 的最小 slot schema
 9. maintenance artifact / adoption review 最小 schema

@@ -222,6 +222,8 @@ v2 采用 additive-first。
 
 ### 4.4 volume / arc
 
+> ADR-0004 已冻结 `volume -> arc`：volume 是 canonical middle-structure parent，arc 是 volume-local story-planning unit。
+
 承载中观结构。
 
 适合结构化：

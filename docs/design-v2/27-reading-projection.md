@@ -92,6 +92,8 @@ recap 可以帮助阅读，但不应混成章正文的一部分。
 
 ### 5.1 可进入阅读投影的核心来源
 
+> ADR-0004 已冻结 reading projection 的中观结构前提：TOC 以 accepted volume ordering 为一级来源，arc 仅作为卷内分组 metadata / secondary view。
+
 至少包括：
 
 - accepted volume ordering
@@ -192,6 +194,8 @@ recap 可以帮助阅读，但不应混成章正文的一部分。
 用于表达阅读目录，而不是创作结构编辑对象。
 
 ### 8.2 来源
+
+> ADR-0004 已冻结 volume-first TOC 语义；arc ordering 不得覆盖 accepted chapter ordering。
 
 主要来自：
 
@@ -373,6 +377,8 @@ UI 至少要能区分：
 ## 14. 与结构对象的关系
 
 ### 14.1 chapter / volume 仍是源
+
+> ADR-0004 已冻结 `volume -> arc -> chapter -> scene` 的源对象关系；reading projection 不替代 volume / arc 源对象。
 
 阅读投影不替代 chapter / volume 对象本身。
 

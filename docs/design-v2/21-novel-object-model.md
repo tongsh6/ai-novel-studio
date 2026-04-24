@@ -228,11 +228,14 @@
 work
   -> worldbuilding
   -> main_outline
-  -> volume / arc
+  -> volume
+  -> arc
   -> chapter
   -> scene
   -> draft
 ```
+
+> ADR-0004 已冻结 `volume -> arc -> chapter -> scene` 为 canonical relation。这里的主链按缩进限制写成线性示意；实际父子关系为 work -> volume -> arc -> chapter -> scene -> draft（章级草稿可直属 chapter）。
 
 ### 6.2 `worldbuilding`
 
@@ -257,6 +260,8 @@ work
 - `arc` 更偏剧情弧 / 副本弧
 
 二者不要求每个项目都同时强依赖，但模型上都应留位置。
+
+ADR-0004 冻结二者关系：`volume` 是 canonical middle-structure parent，`arc` 是 volume-local story-planning unit；单个 `arc` 不跨 `volume`。
 
 ### 6.5 `chapter`
 
@@ -401,6 +406,8 @@ draft 是源文本对象，不等于最终阅读投影。
 - all style objects
 
 ### 10.2 volume / arc 级归属
+
+> ADR-0004 已冻结中观结构归属：`volume -> arc -> chapter`。`chapter` 必须有 `volume_id`，默认有 `arc_id`；早期 planning 可显式标记 `arc_unassigned`。
 
 归属于中观结构的对象：
 
@@ -788,7 +795,7 @@ long-run 本质上就是围绕这些对象推进。
 
 - worldbuilding
 - main_outline
-- volume / arc
+- volume / arc（ADR-0004：默认树为 volume -> arc -> chapter -> scene）
 - chapter
 - scene
 - character
@@ -863,7 +870,7 @@ long-run 本质上就是围绕这些对象推进。
 
 1. 小说层对象分为 4 组：主结构 / 资产 / 连续性 / 风格
 2. `work` 是小说层根对象
-3. 主结构链默认是 `work -> worldbuilding -> main_outline -> volume/arc -> chapter -> scene -> draft`
+3. 主结构链默认是 `work -> worldbuilding -> main_outline -> volume -> arc -> chapter -> scene -> draft`（ADR-0004；章级草稿可直属 chapter）
 4. 对象默认通过 ref 建立关系，而不是深层内嵌
 5. 连续性对象和风格对象与主结构对象分离
 6. anchor 是连续性与局部风格对象的重要机制
@@ -877,7 +884,7 @@ long-run 本质上就是围绕这些对象推进。
 以下只定边界，不定最终实现：
 
 1. 每个对象的最终字段全集
-2. volume 与 arc 的最终实现关系
+2. volume / arc 的完整字段 schema（关系已由 ADR-0004 冻结）
 3. relationship / item / ability 的最终精度
 4. summary 对象是单独表还是统一 summary 机制
 
