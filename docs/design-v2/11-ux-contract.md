@@ -675,7 +675,10 @@ UI 不应靠本地猜测按钮是否能点，必须由 contract 明确给出。
 | `RETRY_SYSTEM` | `retry` |
 | `RESUME_TASK` | `resume`, `cancel`, `branch` |
 | `ADOPT_ARTIFACTS` | `accept`, `edit_then_accept`, `discard` |
+| `CANCEL_TASK` | `cancel` |
 | `NO_FURTHER_ACTION` | none |
+
+ADR-0002 已冻结 canonical `NextAction` 集合与 `phase × next_action` 兼容表。UI 必须从该集合投影 `action_type`，不得把非 canonical `EXECUTE_DIRECTLY` 渲染为可操作项；执行许可由 phase + policy 决定。
 
 ---
 

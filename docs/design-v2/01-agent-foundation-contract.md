@@ -1106,7 +1106,7 @@ v2 的工作不是否定 v1，而是：
 以下内容在本文中只定边界，不定最终字段：
 
 1. ~~TurnResult v2 的完整 JSON schema~~（已由 ADR-0001 冻结，见 `adr/0001-turn-result-v2-schema.md`）
-2. phase / status 的完整枚举表（待 ADR-0002 冻结，见 `§29.7.1` 第 2 项）
+2. ~~phase / status 的完整枚举表~~（已由 ADR-0002 冻结，见 `adr/0002-state-enums.md`）
 3. authority scope 的完整枚举（待 ADR-0003 冻结，见 `§29.7.1` 第 5 项）
 4. budget class 的完整计算规则（待 ADR-0003 冻结）
 5. message envelope 的完整字段

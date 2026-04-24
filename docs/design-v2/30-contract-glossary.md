@@ -347,9 +347,10 @@ runtime `NextAction` 与 UI `actions` 不是同一层，但必须可映射。
 | `RETRY_SYSTEM` | `retry` |
 | `RESUME_TASK` | `resume`, `cancel`, `branch` |
 | `ADOPT_ARTIFACTS` | `accept`, `edit_then_accept`, `discard` |
+| `CANCEL_TASK` | `cancel` |
 | `NO_FURTHER_ACTION` | none |
 
-UI 不应反向发明新的 runtime `NextAction`。
+UI 不应反向发明新的 runtime `NextAction`。ADR-0002 已冻结 canonical `NextAction` 集合；`EXECUTE_DIRECTLY` 不是 canonical `NextAction`，执行许可由 phase + policy 决定。
 
 ---
 
@@ -364,3 +365,4 @@ UI 不应反向发明新的 runtime `NextAction`。
 7. intent / hook / capability / quality_gate / approval_policy / experience_rule / strategy_artifact 必须 namespace 化
 8. `feedback_patch`、`organization`、reading projection object family、quality / approval objects、experience objects、strategy artifact 都属于 Domain object set
 9. adoption 7 态（§3.2）由本文与 ADR-0001（`adr/0001-turn-result-v2-schema.md`）共同作为唯一 canonical 权威；ADR-0002 仅 `$ref` 引用，不重定义。Domain 注入的扩展属性必须使用 `domain_ext.` 前缀。
+10. `NextAction` canonical 集合由 ADR-0002 冻结为 8 个值：`ASK_USER`、`CONFIRM_BEFORE_EXECUTE`、`SHOW_RESULT`、`RETRY_SYSTEM`、`RESUME_TASK`、`ADOPT_ARTIFACTS`、`CANCEL_TASK`、`NO_FURTHER_ACTION`。
