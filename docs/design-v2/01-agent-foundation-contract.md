@@ -422,6 +422,8 @@ Foundation 必须定义统一的 interaction contract。
 - 是否已产生未采纳产物
 - 是否存在风险、错误、重试建议
 
+> 顶层 schema 已由 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结为 14 必填 + 5 可选字段、5 条 canonical 路径、7 条跨字段约束。本节仅描述职责边界；字段级 schema 与 `$ref` 占位以 ADR-0001 为权威。
+
 ### 9.3 NextAction 不是 UI 提示，而是运行语义
 
 `NextAction` 表示运行时下一步语义，例如：
@@ -1103,10 +1105,10 @@ v2 的工作不是否定 v1，而是：
 
 以下内容在本文中只定边界，不定最终字段：
 
-1. TurnResult v2 的完整 JSON schema
-2. phase / status 的完整枚举表
-3. authority scope 的完整枚举
-4. budget class 的完整计算规则
+1. ~~TurnResult v2 的完整 JSON schema~~（已由 ADR-0001 冻结，见 `adr/0001-turn-result-v2-schema.md`）
+2. phase / status 的完整枚举表（待 ADR-0002 冻结，见 `§29.7.1` 第 2 项）
+3. authority scope 的完整枚举（待 ADR-0003 冻结，见 `§29.7.1` 第 5 项）
+4. budget class 的完整计算规则（待 ADR-0003 冻结）
 5. message envelope 的完整字段
 6. retention / retrieval / summary 算法
 7. compensation / rollback 的详细机制
