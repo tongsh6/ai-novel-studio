@@ -156,12 +156,6 @@ Foundation -> Domain -> UI
     - parent-child budget / authority
     - artifact handoff
 
-13. `13-greenfield-implementation-notes.md`
-    - 从头实现时的模块落点建议
-    - 哪些旧代码可以参考
-    - 哪些旧实现不要继承
-    - 哪些 contract 必须先落测试再写代码
-
 ### Foundation 阶段完成标准
 
 必须同时满足：
@@ -177,7 +171,7 @@ Foundation -> Domain -> UI
 
 这一阶段回答“小说这个领域如何使用 Agent 基础能力”。
 
-### D-01 到 D-09 计划文档
+### D-01 到 D-14 计划文档
 
 1. `20-novel-domain-overview.md`
    - 小说领域整体边界
@@ -237,6 +231,26 @@ Foundation -> Domain -> UI
     - Foundation / Domain 共享字段名
     - revision / adoption / authority / namespace 规则
     - 跨文档漂移收口
+
+11. `31-novel-quality-gates.md`
+    - 小说领域质量门禁目录
+    - 连续性、人物、节奏、爽点、hook、战力、留存等 gate
+    - gate 与 validator / adoption / long-run 的关系
+
+12. `32-human-approval-policy.md`
+    - 作者确认策略
+    - 高风险 canon 变更与人工审批节点
+    - confirmation / adoption / checkpoint 的领域映射
+
+13. `33-experience-engine.md`
+    - 作者修改、采纳、否决、质量结果的经验沉淀
+    - experience evidence / artifact / rule
+    - 经验如何反哺上下文、风格与策略
+
+14. `34-novel-element-field-priority.md`
+    - 小说要素清单的结构化优先级
+    - 必须结构化 / 半结构化 / 文档层的落位规则
+    - 要素到 Domain object、quality gate、experience 的映射
 
 ### Domain 阶段完成标准
 
@@ -362,16 +376,14 @@ Foundation -> Domain -> UI
 3. `06-planning-and-long-run.md`
 4. `07-consistency-and-concurrency.md`
 5. `12-multi-agent-composition.md`
-6. `13-v1-to-v2-migration.md`
-7. 其余 Foundation 文档
-8. 全部 Domain 文档
-9. 全部 UI 文档
-10. `pencil` 原型
+6. 其余 Foundation 文档
+7. 全部 Domain 文档
+8. 全部 UI 文档
+9. `pencil` 原型
 
-之所以把 `memory`、`long-run`、`consistency`、`migration` 提前，是因为这几项决定了系统能不能真的支撑长期连载，而不是只在总纲里成立。
 之所以把 `memory`、`long-run`、`consistency` 提前，是因为这几项决定了系统能不能真的支撑长期连载，而不是只在总纲里成立。
 
-`greenfield implementation notes` 不是迁移计划，而是把设计如何落到全新代码结构的实现前备注单独整理。
+实现前备注或迁移策略不占用 Foundation 子系统编号；若后续需要单独成文，必须同步更新本文档清单与 `00-overview.md` §8.3。
 
 ---
 

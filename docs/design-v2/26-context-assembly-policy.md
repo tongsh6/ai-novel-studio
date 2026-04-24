@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 角色：`docs/design-v2/20-novel-domain-overview.md` 之后的上下文组装策略文档，并依赖 `docs/design-v2/05-memory-retention-and-retrieval.md`、`docs/design-v2/21-novel-object-model.md`、`docs/design-v2/22-continuity-model.md`、`docs/design-v2/23-style-and-author-intent.md`、`docs/design-v2/24-novel-intent-catalog.md`、`docs/design-v2/25-maintenance-hooks.md`。
+> 角色：`docs/design-v2/20-novel-domain-overview.md` 之后的上下文组装策略文档，并依赖 `docs/design-v2/05-memory-retention-and-retrieval.md`、`docs/design-v2/21-novel-object-model.md`、`docs/design-v2/22-continuity-model.md`、`docs/design-v2/23-style-and-author-intent.md`、`docs/design-v2/24-novel-intent-catalog.md`、`docs/design-v2/25-maintenance-hooks.md`、`docs/design-v2/31-novel-quality-gates.md`、`docs/design-v2/33-experience-engine.md`、`docs/design-v2/34-novel-element-field-priority.md`。
 >
 > 目标：定义 v2 中 Router、Executor、LongRunner、Validator、Reader 等不同消费者的上下文组装策略，明确上下文来源、优先级、预算约束、降级路径和排除规则。
 
@@ -155,6 +155,9 @@ Router、Executor、LongRunner、Reader 不应共享同一份“万能上下文�
 8. recent interaction summaries
 9. checkpoint summaries
 10. pending artifacts（受限）
+11. adopted experience rules
+12. strategy artifacts（受限）
+13. quality findings（受限）
 
 ### 5.1 work-level summary
 
@@ -203,6 +206,24 @@ Router、Executor、LongRunner、Reader 不应共享同一份“万能上下文�
 ### 5.8 checkpoint summaries
 
 长跑恢复和继续的重要来源。
+
+### 5.9 experience rules
+
+已采纳、可启用的经验规则。
+
+默认只允许 adopted `experience_rule` 进入执行上下文；`experience_evidence` 与 `experience_artifact` 只能在 review、debug 或 replay 中按需进入。
+
+### 5.10 strategy artifacts
+
+半结构化策略材料，例如网文留存策略、爽点模板、节奏模板。
+
+`strategy_artifact` 只能作为建议性上下文，不能覆盖 authoritative object，也不能被当成 canon。
+
+### 5.11 quality findings
+
+quality gate 产生的结构化结果。
+
+`quality_finding` 默认进入 Validator / LongRunner / Debug；Executor 只应读取与当前任务直接相关、未过期、且经过策略允许的摘要。
 
 ---
 
@@ -291,6 +312,9 @@ Executor 是最典型的内容消费者。
 - active style layer
 - local accepted text context
 - task / brief context
+- adopted experience rules（与当前 intent / scope 相关）
+- strategy artifacts（受限，建议性）
+- recent quality finding summaries（仅当前任务相关且未过期）
 
 ### 8.2 结构对象优先
 
@@ -338,6 +362,9 @@ LongRunner 不是“更大的 Executor”，它需要不同的上下文。
 - active continuity layer
 - active style layer
 - pending / accepted artifacts summary
+- relevant adopted experience rules
+- relevant strategy artifacts
+- recent quality finding summaries
 
 ### 9.2 checkpoint summary 优先
 
@@ -355,6 +382,10 @@ LongRunner 不是“更大的 Executor”，它需要不同的上下文。
 - 全量 interaction history
 - 所有 style sample 原文
 - 全书所有 draft 全文
+- raw experience evidence
+- draft experience artifacts
+- unrelated strategy artifacts
+- stale quality findings
 
 ### 9.4 unit window
 
@@ -381,11 +412,18 @@ Validator 不是创作者，因此上下文要求不同。
 - relevant continuity objects
 - relevant style constraints（必要时）
 - revision / authority / adoption metadata
+- relevant quality findings
+- adopted experience rules that affect validation
+- strategy artifacts only when validating strategy-sensitive gates
 
 ### 10.2 Validator 不应默认读取
 
 至少包括：
 
+- raw experience evidence
+- draft experience artifacts
+- unrelated strategy artifacts
+- stale quality findings
 - 无关大段原文
 - 大量历史对话
 
@@ -448,6 +486,9 @@ Reader 是最特殊的消费者。
 - tentative artifacts
 - open clarification / confirmation
 - raw maintenance artifacts
+- experience evidence / artifact
+- strategy artifacts
+- quality findings
 - raw provider traces
 
 ### 12.3 Reader 的目标
@@ -497,9 +538,11 @@ Reader 看成品，Debug 看运行。
 1. 当前结构目标
 2. 当前权威连续性对象
 3. 当前权威风格对象
-4. 相关 summaries
-5. 局部 accepted text excerpts
-6. 最近 interaction summaries
+4. relevant adopted experience rules
+5. relevant strategy artifacts
+6. 相关 summaries
+7. 局部 accepted text excerpts
+8. recent quality findings / 最近 interaction summaries
 
 ### 14.3 降级路径
 
@@ -584,6 +627,9 @@ accepted projection > recap summary
 
 - open tasks
 - pending adoption items
+- experience rules / artifacts / evidence
+- strategy artifacts
+- quality findings
 - debug traces
 
 ### 16.3 Router 默认排除项
@@ -854,6 +900,17 @@ UI 可以影响显示偏好，但不应直接决定：
 
 - resume 依赖 checkpoint summary 和权威对象，不依赖全量重灌
 
+### 26.5 experience / strategy / quality source tests
+
+验证：
+
+- draft experience artifact 不进入 Executor 常规上下文
+- adopted experience rule 可按 intent / scope 进入 Executor / LongRunner / Validator
+- strategy artifact 只作为建议性上下文，不能覆盖 authoritative object
+- quality finding 默认进入 Validator / LongRunner / Debug
+- quality finding 进入 Executor 时必须与当前任务相关、未过期且经过策略允许
+- Reader 默认排除 experience / strategy / quality finding
+
 ---
 
 ## 27. 本文冻结的硬骨
@@ -861,13 +918,16 @@ UI 可以影响显示偏好，但不应直接决定：
 本文正式冻结以下 context assembly 硬骨：
 
 1. 上下文组装必须按消费者分策略，而不是一份万能上下文包
-2. 默认组装顺序是：任务元信息 -> 结构对象 -> 连续性对象 -> 风格对象 -> summaries -> 原文片段 -> 近期运行态
+2. 默认组装顺序是：任务元信息 -> 结构对象 -> 连续性对象 -> 风格对象 -> relevant experience rules -> relevant strategy artifacts -> summaries -> 原文片段 -> recent quality findings / 近期运行态
 3. 对大多数执行消费者，默认优先级是 `structured objects > summaries > raw text excerpts`
 4. Router 只拿最小必要上下文
 5. LongRunner resume 优先依赖 checkpoint summary 和权威对象
-6. Reader 不应默认读取 tentative、debug、open-task 信息
+6. Reader 不应默认读取 tentative、debug、open-task、experience、strategy、quality finding 信息
 7. stale / superseded / invalidated 对象默认排除
 8. style_sample 原文通常不直接进入常规执行上下文，优先使用 derived cues
+9. `experience_artifact` 默认不进入执行上下文，只有 adopted `experience_rule` 可进入
+10. `strategy_artifact` 只能作为半结构化建议，不能覆盖 authoritative object
+11. `quality_finding` 默认只进 Validator / LongRunner / Debug；Executor 只接收与当前任务直接相关且未过期的摘要
 
 ---
 

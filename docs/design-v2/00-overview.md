@@ -700,6 +700,22 @@ Agent 可以独立生成场景或章节，但用户保留方向控制、采纳�
 
 先定义通用 Agent 硬骨，再定义小说领域硬骨。
 
+### D2-014 小说质量门禁必须领域化
+
+设定冲突、人物逻辑、节奏、爽点、hook、战力膨胀、网文留存等质量判断属于 Novel Domain，不应写进 Foundation。
+
+### D2-015 高风险 canon 变化必须保留作者确认
+
+作品定位、主角/反派重大设定、卷纲定稿、关键章节细纲、重大人物命运、大高潮和结局方向默认需要 confirmation 或 adoption。
+
+### D2-016 经验沉淀不能直接污染长期偏好
+
+作者修改、采纳、否决和质量门结果应先成为 experience artifact，经 review / adoption 后再形成可复用 experience rule。
+
+### D2-017 小说要素清单不是一次性表单
+
+项目、人物、世界观、章节、伏笔、网文运营等要素应按必须结构化、半结构化和文档层分级落位，避免把全部清单直接变成巨型 schema。
+
 ---
 
 ## 8. 演化策略
@@ -770,12 +786,17 @@ docs/design-v2/
   27-reading-projection.md
   28-authoring-lifecycle.md
   29-design-integrity-review.md
+  30-contract-glossary.md
+  31-novel-quality-gates.md
+  32-human-approval-policy.md
+  33-experience-engine.md
+  34-novel-element-field-priority.md
   adr/
     README.md
     0000-index.md
 ```
 
-注：文件 01-12 对应 §4 子系统 1-12；文件 21-28 对应 §5 模块 1-8；20-novel-domain-overview 为 Domain 层总览，29-design-integrity-review 为阶段性审查文档。
+注：文件 01-12 对应 §4 子系统 1-12；文件 21-28 对应 §5 模块 1-8；20-novel-domain-overview 为 Domain 层总览，29-design-integrity-review 为阶段性审查文档，31-34 是从小说主编与要素建模视角补充的质量、人工确认、经验沉淀和字段优先级策略。
 
 ### 8.4 治理纪律
 

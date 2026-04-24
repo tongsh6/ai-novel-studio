@@ -13,7 +13,7 @@
 默认规则：
 
 - 字段名使用 `snake_case`
-- enum value 使用 `UPPER_SNAKE_CASE`
+- enum value 必须由所属 enum family 明确声明命名风格；runtime state / action 默认使用 `UPPER_SNAKE_CASE`，authority scope 等权限能力枚举默认使用 `snake_case`
 - registry / catalog namespace 使用小写前缀加点号
 - 同一个语义只能有一个 canonical 名称
 
@@ -212,6 +212,58 @@ capability.<name>
 - `capability.summarize_chapter`
 - `capability.update_state_snapshot`
 
+### 7.4 quality gate namespace
+
+格式：
+
+```text
+quality_gate.<name>
+```
+
+示例：
+
+- `quality_gate.worldrule_conflict`
+- `quality_gate.character_logic`
+
+### 7.5 approval policy namespace
+
+格式：
+
+```text
+approval_policy.<name>
+```
+
+示例：
+
+- `approval_policy.high_risk_canon_change`
+- `approval_policy.long_run_budget_gate`
+
+### 7.6 experience rule namespace
+
+格式：
+
+```text
+experience_rule.<name>
+```
+
+示例：
+
+- `experience_rule.chapter_hook_preference`
+- `experience_rule.pacing_pattern`
+
+### 7.7 strategy artifact namespace
+
+格式：
+
+```text
+strategy_artifact.<type>
+```
+
+示例：
+
+- `strategy_artifact.web_serial_retention`
+- `strategy_artifact.payoff_pattern`
+
 ---
 
 ## 8. Domain Object Set
@@ -250,6 +302,37 @@ capability.<name>
 - `reading_projection_chapter`
 - `reader_recap`
 
+### 8.4 Quality / approval objects
+
+质量与人工审批对象至少包括：
+
+- `quality_gate`
+- `quality_finding`
+- `approval_policy`
+- `approval_record`
+
+`quality_gate` 是可注册的检查规则；`quality_finding` 是某次检查产生的结构化结果。`approval_policy` 是策略配置，`approval_record` 是用户或系统审批决策的审计记录。
+
+`human_approval_policy` 不作为 canonical object name；需要强调人类审批语义时使用 human-facing approval policy。
+
+### 8.5 Experience objects
+
+经验沉淀对象至少包括：
+
+- `experience_evidence`
+- `experience_artifact`
+- `experience_rule`
+
+`experience_evidence` 表示原始证据引用；`experience_artifact` 表示待审查经验草稿；`experience_rule` 表示已采纳、可进入后续上下文的经验规则。
+
+### 8.6 Strategy / semi-structured objects
+
+半结构化策略对象至少包括：
+
+- `strategy_artifact`
+
+`strategy_artifact` 可以影响 prompt、validator 或 quality gate，但不能覆盖 authoritative object，不能被当成 canon。
+
 ---
 
 ## 9. NextAction 与 UI Action 映射
@@ -276,7 +359,7 @@ UI 不应反向发明新的 runtime `NextAction`。
 2. mutation 使用 `base_revision`，artifact 使用 `revision_base`
 3. reading projection 使用 `source_revision_refs`
 4. long-run task 使用 `estimated_budget` / `consumed_budget`
-5. authority enum 使用 `snake_case`
+5. enum 命名风格由 enum family 显式声明；authority enum 使用 `snake_case`
 6. behavior 分为 durable 与 instant
-7. intent / hook / capability 必须 namespace 化
-8. `feedback_patch`、`organization`、reading projection object family 都属于 Domain object set
+7. intent / hook / capability / quality_gate / approval_policy / experience_rule / strategy_artifact 必须 namespace 化
+8. `feedback_patch`、`organization`、reading projection object family、quality / approval objects、experience objects、strategy artifact 都属于 Domain object set
