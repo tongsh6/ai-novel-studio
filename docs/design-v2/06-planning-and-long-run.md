@@ -209,6 +209,8 @@ long-run 不能只有 goal，没有 plan。
 
 ### 5.3 `estimated_budget`
 
+> ADR-0003 已冻结 budget dimension 最小集合；本节的 token / wall time / execution unit count / cost / write volume 分别映射到 `token` / `wall_time` / `execution_unit_count` / `cost` / `write_count`。
+
 `estimated_budget` 表示启动前或继续执行前的预算预估，至少要支持：
 
 - token
@@ -222,6 +224,8 @@ long-run 不能只有 goal，没有 plan。
 `consumed_budget` 表示任务实际消耗。任务必须持续累计消耗，而不是只有启动前预估。
 
 ### 5.5 `authority_scope`
+
+> ADR-0003 已冻结 authority_scope 最小结构与子枚举。
 
 任务必须继承或收缩启动它的 authority。
 
@@ -463,6 +467,8 @@ estimate 只是一种运行前预测。
 - `consumed_budget`
 
 ### 9.3 预算门
+
+> ADR-0003 已冻结 budget threshold kind 与 guard decision；本节只描述触发语义，不定义具体阈值数值。
 
 以下情形必须触发 confirmation 或 checkpoint：
 
@@ -1064,6 +1070,7 @@ long-run 至少需要持久化以下实体：
 9. branch 只能在显式边界发生，默认基于 checkpoint
 10. failure 至少分为 protocol / content / consistency 三类
 11. long-run turn 输出必须满足 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结的 TurnResult v2 顶层 schema：`task_id` 必填、`projection_refs[].source_revision_refs` 非空数组、turn phase 与 task phase 相容（详见 ADR-0001 §决策内容 4），且 task phase / status 映射遵守 ADR-0002。
+12. long-run task 的 authority / budget / escalation 最小枚举遵守 ADR-0003；budget 命中必须产生 consumed snapshot，并进入 confirmation / checkpoint / block / escalation 中的合法路径。
 
 ---
 

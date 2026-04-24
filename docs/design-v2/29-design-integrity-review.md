@@ -447,7 +447,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 2. turn / task / artifact / adoption 相关最小状态枚举 ✅ turn / task / artifact 状态枚举已由 ADR-0002 冻结（`adr/0002-state-enums.md`，Accepted 2026-04-24）；adoption 7 态由 ADR-0001 + 30 §3.2 唯一权威
 3. behavior-specific UI hint 最小 schema（待 ADR-0005）
 4. card / action 最小 schema（待 ADR-0006）
-5. authority / budget / escalation 最小枚举（待 ADR-0003）
+5. authority / budget / escalation 最小枚举 ✅ 已由 ADR-0003 冻结（`adr/0003-authority-budget-escalation.md`，Accepted 2026-04-24）
 
 ### Domain
 

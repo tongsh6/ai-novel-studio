@@ -119,6 +119,8 @@ authority 必须是结构化对象，而不是代码里的布尔判断。
 
 ### 4.1 authority 最小字段
 
+> ADR-0003 已冻结 `authority_scope` 最小结构与 `capability_scope` / `write_scope` / `task_control_scope` / `budget_override_scope` 枚举。
+
 至少包括：
 
 - `authority_id`
@@ -198,6 +200,8 @@ authority 不能是全局空泛能力。
 budget 也是结构化对象。
 
 ### 6.1 budget 最小字段
+
+> ADR-0003 已冻结 budget scope、dimension、threshold kind 与 guard decision 的最小枚举；具体阈值数值与动态预算算法仍后置。
 
 至少包括：
 
@@ -372,6 +376,8 @@ guard 不是布尔值。
 
 ### 10.3 结果
 
+> ADR-0003 已将 budget guard decision 冻结为 `allow`、`allow_with_warning`、`require_confirmation`、`checkpoint`、`block`、`require_escalation`。
+
 至少包括：
 
 - allow
@@ -489,6 +495,8 @@ prompt injection 防护属于 Foundation，不属于 Domain。
 当当前 authority 或 budget 不足，但存在合法提升路径时，系统必须显式进入 escalation。
 
 ### 14.1 escalation 最小字段
+
+> ADR-0003 已冻结 escalation type / reason / status / resolution 的最小枚举；repeated failure 默认归入 retry/checkpoint/failure policy，不直接作为 escalation reason。
 
 至少包括：
 
@@ -871,6 +879,7 @@ Domain 不得改写：
 6. child authority / budget 默认收缩
 7. budget 命中后不能静默继续
 8. security block 不等于 cancellation
+9. authority / budget / escalation 最小枚举由 ADR-0003 冻结
 
 ---
 
@@ -878,8 +887,8 @@ Domain 不得改写：
 
 以下只定边界，不定最终实现：
 
-1. authority scope 的最终枚举全集
-2. budget 默认阈值
+1. authority scope 的最终枚举全集（ADR-0003 已冻结最小集合；更细分全集后置）
+2. budget 默认阈值（ADR-0003 已冻结 threshold kind / guard decision；具体数值后置）
 3. override policy 的最终配置格式
 4. injection detection 的具体算法
 
@@ -893,4 +902,3 @@ security / budget 之后，Foundation 剩余核心文档主要还有：
 2. `13-greenfield-implementation-notes.md`
 
 如果继续按“先设计后 UI”的顺序，下一份最自然的是 `11-ux-contract.md`，先把 card、render mode、streaming/interruption 这些 UI 消费 contract 钉死，再进入 Domain 层。
-
