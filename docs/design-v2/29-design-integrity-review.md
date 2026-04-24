@@ -48,7 +48,7 @@
 本次审查覆盖以下主文档：
 
 - Foundation：`00-overview.md`、`01-agent-foundation-contract.md`、`02-turn-and-task-state-machines.md`、`03-conversation-behaviors.md`、`06-planning-and-long-run.md`、`07-consistency-and-concurrency.md`、`10-security-and-budget.md`、`11-ux-contract.md`、`12-multi-agent-composition.md`、`30-contract-glossary.md`
-- Domain：`20-novel-domain-overview.md`、`21-novel-object-model.md`、`22-continuity-model.md`、`23-style-and-author-intent.md`、`24-novel-intent-catalog.md`、`25-maintenance-hooks.md`、`26-context-assembly-policy.md`、`27-reading-projection.md`、`28-authoring-lifecycle.md`
+- Domain：`20-novel-domain-overview.md`、`21-novel-object-model.md`、`22-continuity-model.md`、`23-style-and-author-intent.md`、`24-novel-intent-catalog.md`、`25-maintenance-hooks.md`、`26-context-assembly-policy.md`、`27-reading-projection.md`、`28-authoring-lifecycle.md`、`31-novel-quality-gates.md`、`32-human-approval-policy.md`、`33-experience-engine.md`、`34-novel-element-field-priority.md`
 
 审查方式：
 
@@ -78,7 +78,7 @@
 
 ### 3.2 当前真正的问题类型
 
-当前缺口主要不是“方向打架”，而是以下三类：
+当前缺口主要不是“方向打架”，而是以下四类：
 
 1. **接口实例层还没完全钉死**
    - Foundation 已冻结边界，但若干可被 Domain/UI 直接消费的 schema 仍未定最终形状。
@@ -86,11 +86,13 @@
    - 不至于推翻主线，但会直接影响结构面板、adoption review、reading mode。
 3. **UI 前置冻结清单还没有被单独抽出**
    - 各文档分别写了“暂不冻结”，但还缺一份“哪些必须先冻结，哪些可以带着进入 UI” 的统一判断。
+4. **新增 Domain 主干已成型，但还没并入本审查的阻塞判断**
+   - quality gate、human approval、experience engine、字段优先级会影响 adoption、checkpoint、context assembly 与 UI card，需要纳入 UI 前冻结包。
 
 ### 3.3 风险判断
 
 - **低风险**：原则级分层、accepted/tentative 边界、maintenance 主链、生命周期主链
-- **中风险**：对象精度、intent slot、projection 刷新策略、feedback_patch 归并
+- **中风险**：对象精度、intent slot、projection 刷新策略、feedback_patch 归并、quality finding / approval / experience 的对象形状
 - **高风险**：Foundation 顶层 result / card / behavior hint / phase-status 等直接映射 UI 的 contract 未闭合
 
 ---
@@ -403,6 +405,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 4. card / action 最终 JSON schema 最小版
 5. authority / budget 最小可用枚举
 6. Domain intent family 到 registry / capability / hook 的最小映射面
+7. quality gate / approval policy / experience rule 到 Foundation validator / policy / card / context 的最小映射面
 
 ### 6.2 Domain 内部的高关注未决项
 
@@ -413,6 +416,10 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 3. maintenance artifact schema
 4. `feedback_patch` 归并策略
 5. projection object schema 与 refresh policy
+6. quality finding 最小 schema 与 gate-to-action 映射
+7. approval policy / approval record 最小 schema 与风险矩阵
+8. experience evidence / artifact / rule 最小 schema 与进入上下文的控制规则
+9. 必须结构化字段的最小对象落位表
 
 ### 6.3 UI 前必须先冻结的内容
 
@@ -425,6 +432,8 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 5. 阅读投影对象结构与刷新语义
 6. `volume / arc` 的中观结构关系
 7. maintenance adoption review 的对象形状
+8. quality finding / approval / experience 相关卡片扩展字段
+9. 结构面板首批对象字段优先级与渐进披露边界
 
 ---
 
@@ -448,6 +457,10 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 9. maintenance artifact / adoption review 最小 schema
 10. `reading_projection_root / toc / chapter / reader_recap` 最小字段集
 11. projection refresh 的最小状态与触发语义
+12. quality finding 最小 schema、默认 severity / action 枚举与 adoption / checkpoint 映射
+13. approval policy / approval record 最小 schema、risk_class 与 bypass policy 边界
+14. experience evidence / artifact / rule 最小 schema，以及 experience rule 进入 context assembly 的控制规则
+15. 首批结构面板对象的字段优先级与渐进披露规则
 
 ## 7.2 可以后置冻结（Non-blocking）
 
@@ -457,6 +470,9 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 4. aggregate summary 的最终格式
 5. lifecycle 文案和视觉阶段命名
 6. preview mode 的最终交互细节
+7. quality gate 的最终 validator 算法
+8. experience rule 的最终提炼算法
+9. 半结构化 strategy artifact 的最终类型全集
 
 原则：
 
@@ -473,8 +489,10 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 2. Domain 最小 intent + slot + capability/hook 映射
 3. `volume / arc` 关系与结构面板主层次
 4. maintenance artifact / adoption review schema
-5. reading projection object schema + refresh policy
-6. 再进入 UI 文档与 `pencil` 原型
+5. quality finding + approval policy + experience rule 的最小 schema 与卡片扩展字段
+6. reading projection object schema + refresh policy
+7. 首批结构面板字段优先级与渐进披露规则
+8. 再进入 UI 文档与 `pencil` 原型
 
 ---
 
@@ -484,7 +502,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 
 1. **Foundation 与 Domain 的方向没有打架，主链成立。**
 2. **当前最大问题不是原则冲突，而是 UI 可消费 contract 仍有若干实例层漏项。**
-3. **Domain 内部没有明显逻辑互斥，但若干对象关系、intent 细化、adoption 形状、projection 刷新策略必须先收口。**
+3. **Domain 内部没有明显逻辑互斥，但若干对象关系、intent 细化、adoption 形状、quality/approval/experience 形状、projection 刷新策略必须先收口。**
 4. **在补齐最小冻结清单后，可以安全进入 UI 设计；在此之前，不建议直接把 UI 做成完成态。**
 
 ---
@@ -494,7 +512,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 建议接下来不要直接展开完整 UI，而是先补一轮“UI 前冻结包”，至少包括：
 
 1. Foundation 最小可消费 schema 包
-2. Domain 最小 intent / slot / adoption / projection schema 包
+2. Domain 最小 intent / slot / adoption / quality / approval / experience / projection schema 包
 3. `volume / arc` 关系决议
 
 这轮补齐后，再进入 `ui-design/` 与 `pencil` 原型，整体风险最低。

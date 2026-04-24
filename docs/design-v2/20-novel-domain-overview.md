@@ -52,7 +52,7 @@ Novel Domain 解决的是：
 
 ## 3. Domain Layer 的职责
 
-小说层至少负责以下 8 类职责：
+小说层至少负责以下 12 类职责：
 
 1. 生命周期对象建模
 2. 时序连续性对象建模
@@ -62,6 +62,10 @@ Novel Domain 解决的是：
 6. 小说上下文组装策略
 7. 小说阅读投影
 8. 小说创作生命周期流程
+9. 小说质量门禁策略
+10. 人工审批策略
+11. 经验沉淀与反哺策略
+12. 小说要素字段优先级策略
 
 ### 3.1 生命周期对象建模
 
@@ -124,6 +128,34 @@ Novel Domain 解决的是：
 
 - 从立项到阅读，各阶段如何切换
 - 各阶段的主对象、主 intent、主风险是什么
+
+### 3.9 小说质量门禁策略
+
+回答：
+
+- 哪些产物需要设定、人物、节奏、爽点、hook、战力、留存等质量检查
+- 质量结果如何影响 warning、retry、confirmation、checkpoint 和 adoption
+
+### 3.10 人工审批策略
+
+回答：
+
+- 哪些 canon 变化必须保留作者确认
+- 哪些长跑、纲要、角色命运、结局方向需要 confirmation 或 adoption
+
+### 3.11 经验沉淀与反哺策略
+
+回答：
+
+- 作者修改、采纳、否决、质量结果如何变成可复用经验
+- 经验如何进入后续上下文，同时避免污染长期偏好
+
+### 3.12 小说要素字段优先级策略
+
+回答：
+
+- 哪些小说要素必须结构化，哪些适合半结构化，哪些保留在文档层
+- 要素如何落到 work、asset、continuity、style、artifact 和 document memory
 
 ---
 
@@ -674,11 +706,15 @@ execution complete
 6. `26-context-assembly-policy.md`
 7. `27-reading-projection.md`
 8. `28-authoring-lifecycle.md`
+9. `31-novel-quality-gates.md`
+10. `32-human-approval-policy.md`
+11. `33-experience-engine.md`
+12. `34-novel-element-field-priority.md`
 
 这个顺序是：
 
 ```text
-对象 -> 连续性 -> 风格 -> 动作 -> 维护 -> 上下文 -> 阅读 -> 生命周期
+对象 -> 连续性 -> 风格 -> 动作 -> 维护 -> 上下文 -> 阅读 -> 生命周期 -> 质量/审批/经验 -> 字段优先级
 ```
 
 先把对象和状态定住，再谈动作和 UI。
@@ -690,7 +726,7 @@ execution complete
 本文正式冻结以下 Domain 总纲硬骨：
 
 1. Novel Domain Layer 是建立在 Foundation 上的小说业务特化层
-2. 小说层至少负责：生命周期对象、连续性对象、风格对象、intent catalog、hooks、validators、上下文组装、阅读投影、生命周期流程
+2. 小说层至少负责：生命周期对象、连续性对象、风格对象、intent catalog、hooks、validators、上下文组装、阅读投影、生命周期流程、质量门禁、人工审批、经验沉淀、字段优先级
 3. 小说层内部按三大维度理解：生命周期 / 时序连续性 / 风格与作者意志
 4. 小说创作不是单步吐正文，而是从结构到文本到维护再到阅读投影的主链
 5. 小说层必须显式建模，不能只靠 prompt
@@ -706,6 +742,10 @@ execution complete
 2. 各对象之间的最终外键策略
 3. intent family 的最终全集
 4. 阅读投影的最终产物结构
+5. 质量门 validator 的最终算法
+6. approval policy 的完整 intent 映射表
+7. experience rule 的最终 schema
+8. 必须结构化对象的最终字段全集
 
 ---
 
