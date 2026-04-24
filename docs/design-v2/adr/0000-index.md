@@ -56,6 +56,7 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 | 编号 | 主题 | 状态 | 文件 |
 | --- | --- | --- | --- |
 | ADR-0001 | TurnResult v2 顶层 schema | Accepted (2026-04-24) | `0001-turn-result-v2-schema.md` |
+| ADR-0002 | Turn / Task / Artifact 状态枚举 | Accepted (2026-04-24) | `0002-state-enums.md` |
 
 ---
 

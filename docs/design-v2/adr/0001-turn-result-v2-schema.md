@@ -162,8 +162,8 @@ W1 显式不冻结的范围：
       "description": "完整枚举由 ADR-0002 冻结。语义见 02 §4.1 / §5.1。"
     },
     "status": {
-      "$ref": "foundation/enums/turn_status.json",
-      "description": "完整枚举由 ADR-0002 冻结。语义见 02 §4.2 / §5.2。"
+      "$ref": "foundation/enums/status.json",
+      "description": "完整枚举由 ADR-0002 冻结。语义见 02 §4.4 / §5.2；status family 为 turn / task / artifact projection 共用。"
     },
     "next_action": {
       "$ref": "foundation/enums/next_action.json",
@@ -362,12 +362,12 @@ UI / Domain / Multi-Agent 必须从下列固定路径读取，不得另起别名
 
 本 ADR 强制以下跨字段约束（契约测试覆盖项）：
 
-1. `errors[]` 非空 → `status` 不得为终态成功类值（如 02 §5.2 中的 `DONE`）；具体禁止集合由 ADR-0002 落地后联调。
-2. `behavior_state.active != null` → `next_action` 必须属于 ADR-0002 中标记为「等待用户」的子集；具体集合在 ADR-0002 一并冻结。
+1. `errors[]` 非空 → `status` 不得为终态成功类值（ADR-0002 已冻结当前禁止值为 `DONE`）。
+2. `behavior_state.active != null` → `next_action` 必须属于 ADR-0002 冻结的「等待用户」子集：`ASK_USER`、`CONFIRM_BEFORE_EXECUTE`、`ADOPT_ARTIFACTS`、`RESUME_TASK`、`CANCEL_TASK`。
 3. `adoption_state.pending[]` 任一项 `requires_adoption == true` → `next_action` 至少能映射到 `30 §9` 中 `ADOPT_ARTIFACTS` 行。当 pending adoption 与 active behavior 同时存在时，`next_action` 的选取优先级由 Orchestrator 策略决定，但必须在 audit 中记录选择理由。
 4. `task_id != null` → `phase`（turn phase）必须与 task 当前上下文相容（例：task 处于 `CHECKPOINT` 且触发 clarification 时，turn phase 取 `NEEDS_CLARIFICATION`；task `RUNNING` 且 turn 正在执行时，turn phase 取 `EXECUTING`）。turn phase ≠ task phase；二者各自集合分别定义在 02 §5.1 与 02 §8.1。
 5. 任一 `projection_refs[i].source_revision_refs` 必须为非空数组（即使单源场景也用列表，遵守 `30 §2.3` 约束）。
-6. `phase` 与 `next_action` 的组合不得违反 02 §11.2 列出的禁止组合表（如 `phase=COMPLETED` 不得搭配 `next_action=EXECUTE_DIRECTLY`，`phase=RUNNING` 不得搭配 `next_action=ASK_USER`）；具体禁止组合集由 ADR-0002 落地后以表格形式联调。
+6. `phase` 与 `next_action` 的组合不得违反 ADR-0002 §7 的 allowlist（如 `phase=COMPLETED` 不得搭配非 canonical `EXECUTE_DIRECTLY`，`phase=RUNNING` 不得搭配 `next_action=ASK_USER`）。
 7. `behavior_state.active != null` 且其 `status` 为 closed/resolved 类终态 → `resolution_ref` 不得为 null。
 
 ### 5. 版本与兼容
@@ -442,9 +442,9 @@ adapter 仅作为 v1 → v2 上线一次性 backfill 工具，不进入 v2 produ
 
 ### 依赖 ADR
 
-- ADR-0002（W2，turn / task / artifact 状态枚举 + phase / status / next_action 完整集合）：本 ADR 多个 `$ref` 占位指向。注：adoption 7 态由本 ADR + `30 §3.2` 作为唯一 canonical 权威，ADR-0002 仅引用，不重定义。
+- ADR-0002（W2，turn / task / artifact 状态枚举 + phase / status / next_action 完整集合）：已冻结本 ADR 的 `phase` / `status` / `next_action` / `behavior_status` `$ref` 目标。注：adoption 7 态由本 ADR + `30 §3.2` 作为唯一 canonical 权威，ADR-0002 仅引用，不重定义。
 - ADR-0003（W5，authority / budget / escalation 枚举）：影响 `behavior_state.active` 的等待语义集合。
 - ADR-0006（W4，card / action 最小 schema）：`ui_cards[]` items 的 `$ref` 指向。
 - ValidationEnvelope / UsageEnvelope / TraceRef / WarningEnvelope / ErrorEnvelope / AssistantMessage 各自独立 ADR：本 ADR 仅声明引用。
 
-ADR-0002 / 0003 / 0006 与 envelope ADR 落地前，本 ADR 仍可作为 schema 骨架被消费；契约测试在引用解析阶段使用 mock resolver。
+ADR-0003 / 0006 与 envelope ADR 落地前，本 ADR 仍可作为 schema 骨架被消费；契约测试在引用解析阶段对未落地引用使用 mock resolver。

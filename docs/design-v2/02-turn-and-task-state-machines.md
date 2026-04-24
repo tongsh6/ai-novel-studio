@@ -123,6 +123,8 @@ Foundation 层必须为以下对象定义状态机：
 
 ### 4.4 Foundation 推荐通用 status
 
+> ADR-0002 已将本 status family 冻结为 8 个 canonical 值，并约定 schema `$id` 为 `foundation/enums/status.json`。
+
 Foundation 推荐至少保留以下抽象 status：
 
 - `READY`
@@ -144,6 +146,8 @@ turn 是单轮交互的最小闭环。
 
 ### 5.1 turn phase
 
+> ADR-0002 已冻结本节 turn phase 集合。
+
 ```text
 RECEIVED
   -> ROUTED
@@ -157,6 +161,8 @@ RECEIVED
 ```
 
 ### 5.2 turn status 映射
+
+> ADR-0002 已冻结本节 phase → status 映射。
 
 推荐映射：
 
@@ -316,6 +322,8 @@ long-run task 是跨 turn 运行对象。
 
 ### 8.1 task phase
 
+> ADR-0002 已冻结本节 task phase 集合。
+
 ```text
 PLANNED
   -> ESTIMATED
@@ -332,6 +340,8 @@ PLANNED
 ```
 
 ### 8.2 task status 映射
+
+> ADR-0002 已冻结本节 task phase → status 映射。
 
 推荐映射：
 
@@ -478,6 +488,8 @@ artifact 与 adoption 必须分开看。
 
 ### 10.1 artifact adoption lifecycle
 
+> adoption 7 态的 canonical 权威为 `30-contract-glossary.md` §3.2 + ADR-0001；ADR-0002 仅冻结其到 Foundation status 的消费映射，不重定义 adoption 语义。
+
 ```text
 TENTATIVE
   -> ACCEPTED
@@ -492,7 +504,7 @@ TENTATIVE
 
 | artifact state | status |
 |---|---|
-| `TENTATIVE` | `PAUSED` or `READY` |
+| `TENTATIVE` | `PAUSED` |
 | `ACCEPTED` | `DONE` |
 | `EDITED_ACCEPTED` | `DONE` |
 | `DISCARDED` | `CANCELLED` |
@@ -502,7 +514,7 @@ TENTATIVE
 
 说明：
 
-- `TENTATIVE` 本身不是错误，只是尚未进入 authoritative state
+- `TENTATIVE` 本身不是错误，只是尚未进入 authoritative state；ADR-0002 将其收敛为 `PAUSED`，可采纳性由 `next_action=ADOPT_ARTIFACTS` 或 adoption card 表达，不再用 `READY` 表达
 - `INVALIDATED` 表示其前提或适用范围失效
 
 ### 10.3 合法迁移
@@ -537,10 +549,12 @@ INVALIDATED -> ARCHIVED
 
 ### 11.1 基本映射原则
 
+> ADR-0002 已冻结 canonical `next_action` 集合与兼容表。`CANCEL_TASK` 是 task context 的 canonical `next_action`；`EXECUTE_DIRECTLY` 不是 canonical `next_action`，执行许可由 phase + policy 决定。
+
 例如：
 
 - `NEEDS_CLARIFICATION` 通常对应 `ASK_USER`
-- `NEEDS_CONFIRMATION` 通常对应 `ASK_USER`
+- `NEEDS_CONFIRMATION` 通常对应 `CONFIRM_BEFORE_EXECUTE`
 - `CHECKPOINT` 通常对应 `RESUME_TASK`、`ADOPT_ARTIFACTS`、`CANCEL_TASK`
 - `FAILED` 通常对应 `RETRY_SYSTEM` 或 `NO_FURTHER_ACTION`
 
@@ -548,10 +562,10 @@ INVALIDATED -> ARCHIVED
 
 例如：
 
-- `phase = COMPLETED` 却给 `next_action = EXECUTE_DIRECTLY`
+- `phase = COMPLETED` 却给历史/非 canonical `next_action = EXECUTE_DIRECTLY`
 - `phase = RUNNING` 却给 `next_action = ASK_USER`
 
-这些都应视为 contract 违例。
+这些都应视为 contract 违例。ADR-0002 进一步规定：允许列是完整 allowlist，未列入允许集合的 `phase × next_action` 组合默认禁止。
 
 ---
 
@@ -751,6 +765,8 @@ UI 必须直接消费这些状态机，不自行发明平行状态。
 
 - phase 与 status 映射合法
 - next_action 不与状态矛盾
+- `next_action` 只允许 ADR-0002 冻结的 8 个 canonical 值
+- `phase × next_action` 组合符合 ADR-0002 allowlist
 
 ### 18.4 恢复路径测试
 
@@ -774,6 +790,7 @@ UI 必须直接消费这些状态机，不自行发明平行状态。
 6. `ACCEPTED` 不等于“这个 artifact 没历史了”，其来源与 superseded / invalidated 关系仍要保留
 7. `BRANCHED` 是 task 的正式终态之一
 8. `NEEDS_CLARIFICATION` 与 `NEEDS_CONFIRMATION` 都是 turn 的正式运行状态
+9. turn / task / artifact 状态枚举、status family、`next_action` 集合与兼容表由 ADR-0002 冻结
 
 ---
 
@@ -782,7 +799,7 @@ UI 必须直接消费这些状态机，不自行发明平行状态。
 以下只定语义，不定最终字段：
 
 1. 所有对象的完整 JSON schema
-2. status 枚举是否进一步细分
+2. status 枚举是否进一步细分（如需细分必须新 ADR；ADR-0002 已冻结当前 8 态 family）
 3. 是否需要为某些对象引入 sub-phase
 4. `AWAITING_PARENT_DECISION` 的 UI 命名
 

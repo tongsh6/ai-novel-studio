@@ -124,7 +124,7 @@ turn
   -> return canonical result
 ```
 
-> 「return canonical result」严格遵循 ADR-0001（`../adr/0001-turn-result-v2-schema.md`）冻结的 TurnResult v2 顶层 schema：long-run 关联的 turn 必须填 `task_id`，且 turn `phase` 与 task `phase` 的相容性受 ADR-0001 §决策内容 4 约束 4 约束（task RUNNING + 执行 → turn `phase=EXECUTING`；task CHECKPOINT + 触发 clarification → turn `phase=NEEDS_CLARIFICATION`，详见 02 §11.2）。
+> 「return canonical result」严格遵循 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结的 TurnResult v2 顶层 schema：long-run 关联的 turn 必须填 `task_id`，且 turn `phase` 与 task `phase` 的相容性受 ADR-0001 §决策内容 4 约束 4 约束。task phase / status 映射由 ADR-0002（`adr/0002-state-enums.md`）冻结；例如 task RUNNING + 执行 → turn `phase=EXECUTING`，task CHECKPOINT + 触发 clarification → turn `phase=NEEDS_CLARIFICATION`。
 
 ### 4.1 execution unit
 
@@ -1063,7 +1063,7 @@ long-run 至少需要持久化以下实体：
 8. resume 必须基于 checkpoint summary 和当前 authoritative state
 9. branch 只能在显式边界发生，默认基于 checkpoint
 10. failure 至少分为 protocol / content / consistency 三类
-11. long-run turn 输出必须满足 ADR-0001（`../adr/0001-turn-result-v2-schema.md`）冻结的 TurnResult v2 顶层 schema：`task_id` 必填、`projection_refs[].source_revision_refs` 非空数组、turn phase 与 task phase 相容（详见 ADR-0001 §决策内容 4）。
+11. long-run turn 输出必须满足 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结的 TurnResult v2 顶层 schema：`task_id` 必填、`projection_refs[].source_revision_refs` 非空数组、turn phase 与 task phase 相容（详见 ADR-0001 §决策内容 4），且 task phase / status 映射遵守 ADR-0002。
 
 ---
 
