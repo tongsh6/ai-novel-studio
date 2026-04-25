@@ -90,7 +90,7 @@ ADR-0001 已冻结 `TurnResult v2` 顶层 schema，但其中 `phase`、`status`�
 1. adoption 7 态本身：由 `30 §3.2` + ADR-0001 作为唯一 canonical 权威，本 ADR 仅 `$ref` 引用，不重定义。
 2. TurnResult 顶层 schema：已由 ADR-0001 冻结。
 3. authority / budget / escalation 枚举：已由 ADR-0003 冻结，不属于本 ADR 范围。
-4. behavior-specific UI hint：留待 ADR-0005。
+4. behavior-specific UI hint：已由 ADR-0005 冻结；本 ADR 仅提供 `behavior_status` 与 `next_action` 引用目标。
 5. card / action 最小 schema：留待 ADR-0006。
 6. assistant message / envelope / render mode schema：留待独立 ADR。
 7. UI 文案、颜色、图标或展示层状态标签。
@@ -366,7 +366,7 @@ stateDiagram-v2
 
 - ADR-0001（W1，TurnResult v2 顶层 schema）：本 ADR 闭合 ADR-0001 的 `phase` / `status` / `next_action` / `behavior_status` `$ref`。
 - ADR-0003（W5，authority / budget / escalation）：已冻结 W5 最小枚举；不属于本 ADR 范围。
-- ADR-0005（W3，behavior-specific UI hint）：不属于本 ADR 范围。
+- ADR-0005（W3，behavior-specific UI hint）：已冻结 behavior-specific UI hint 最小 schema；本 ADR 为其提供 `behavior_status` / `next_action` 枚举权威。
 - ADR-0006（W4，card / action schema）：不属于本 ADR 范围。
 
 ---

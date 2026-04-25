@@ -718,15 +718,47 @@ Agent 可以独立生成场景或章节，但用户保留方向控制、采纳�
 
 ### D2-018 TurnResult v2 顶层 schema 由 ADR-0001 冻结
 
-TurnResult v2 顶层 schema 已通过 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结为 14 必填 + 5 可选字段、5 条 canonical 路径、7 条跨字段约束。adoption 7 态由 ADR-0001 与 `30-contract-glossary.md` §3.2 共同作为唯一 canonical 权威；turn / task / artifact 状态枚举、phase / status / next_action 完整集合与兼容表已由 ADR-0002（`adr/0002-state-enums.md`）冻结。schema 根目录约定为 `docs/design-v2/schemas/`，所有 `$id` / `$ref` 相对此根解析。Domain 注入的扩展属性必须使用 `domain_ext.` 前缀，由契约测试 lint。
+TurnResult v2 顶层 schema 已通过 ADR-0001（`adr/0001-turn-result-v2-schema.md`）冻结为 14 必填 + 5 可选字段、5 条 canonical 路径、7 条跨字段约束。adoption 7 态由 ADR-0001 与 `30-contract-glossary.md` §3.2 共同作为唯一 canonical 权威。schema 根目录约定为 `docs/design-v2/schemas/`，所有 `$id` / `$ref` 相对此根解析。Domain 注入的扩展属性必须使用 `domain_ext.` 前缀，由契约测试 lint。
 
-### D2-019 Authority / Budget / Escalation 最小枚举由 ADR-0003 冻结
+### D2-019 Turn / Task / Artifact 状态枚举由 ADR-0002 冻结
+
+Turn / task / artifact 状态枚举、phase / status / next_action 完整集合与兼容表已由 ADR-0002（`adr/0002-state-enums.md`）冻结。ADR-0002 不重定义 adoption 7 态，只通过 `$ref` 引用 ADR-0001 与 `30-contract-glossary.md` §3.2 的 canonical adoption 状态；UI 与运行时不得自造 Foundation 未定义的下一步动作。
+
+### D2-020 Authority / Budget / Escalation 最小枚举由 ADR-0003 冻结
 
 Authority / budget / escalation 的最小枚举已通过 ADR-0003（`adr/0003-authority-budget-escalation.md`）冻结。`authority_scope` 必须保持结构化，至少包含 `capability_scope`、`write_scope`、`task_control_scope`、`budget_override_scope`；budget 至少覆盖 scope / dimension / threshold / guard decision；escalation 至少覆盖 type / reason / status / resolution。`write_scope` 继续使用 `read_only`、`propose_only`、`tentative_write`、`production_write`；重复失败默认归入 retry/checkpoint/failure policy，不直接作为 escalation reason。
 
-### D2-020 Volume / Arc 关系由 ADR-0004 冻结
+### D2-021 Volume / Arc 关系由 ADR-0004 冻结
 
 Volume / arc 关系已通过 ADR-0004（`adr/0004-volume-arc-relation.md`）冻结为 `volume -> arc -> chapter -> scene`。`volume` 是 canonical middle-structure parent 与 reading projection TOC 一级来源；`arc` 是 volume-local story-planning unit，不跨 volume。跨卷故事线通过 strategy artifact / motif / foreshadowing / secondary view 表达，不改变 canonical parent-child relation。
+
+### D2-022 Behavior-specific UI Hint 最小 schema 由 ADR-0005 冻结
+
+Behavior-specific UI hint 已通过 ADR-0005（`adr/0005-behavior-ui-hint.md`）冻结为 W3 payload contract。`behavior_state.active.ui_hint` 与 `behavior_state.history[].ui_hint` 是 TurnResult 内的可选挂载点；W3 只表达 clarification / confirmation / rejection / cancellation / correction 的用户可见语义材料与 affordance hint，不冻结 W4 card/action envelope。active confirmation 必须使用 `next_action=CONFIRM_BEFORE_EXECUTE`，active clarification 使用 `ASK_USER`。
+
+### D2-023 Card / Action 最小 schema 由 ADR-0006 冻结
+
+Card / action 最小 schema 已通过 ADR-0006（`adr/0006-card-action-schema.md`）冻结为 W4 envelope。card 公共字段共 10 个（9 必填 + 1 可选 `payload`），9 必填字段直接继承 `11-ux-contract.md` §6.1（`card_id` / `card_type` / `title` / `summary` / `status` / `actions` / `refs` / `priority` / `visibility`）；`payload` 为 Domain subtype 的稳定扩展点，Domain 扩展必须使用 `domain_ext.` 前缀。`ui_action` 结构化要求保持不变；`action_type` / `affordance_kind` / `next_action` 三者边界清晰、投影关系唯一，`next_action` 不得在 W4 发明新值。card.status 最小取值集合延后到 UI 设计阶段冻结，本 ADR 仅冻结字段位置。`style_hint` 最小集合不冻结具体视觉设计系统。
+
+### D2-024 Maintenance Artifact + Adoption Review 最小 schema 由 ADR-0007 冻结
+
+Maintenance artifact 与 adoption review card variant 最小 schema 已通过 ADR-0007（`adr/0007-maintenance-artifact-schema.md`）冻结。maintenance hook 产物以 `maintenance_artifact` 为 envelope 挂载到 `TurnResult.adoption_state.pending[]`，包含 `hook_name` / `target_scope_ref` / `proposed_change` / `adoption_status` / `validator_findings` / `confidence` / `provenance` 等字段；`adoption_status` 复用 ADR-0001 line 318 `artifact_adoption_entry.adoption_status`，与容器名 `TurnResult.adoption_state` 显式区分。adoption review card 作为 `card_type=adoption_review` 的 W4 payload variant，渲染待 adoption 的 maintenance artifact 列表与逐项 action（accept / reject / defer / open_detail）。低风险 hook 的 auto-adoption 只能在 Domain validator 全部 pass 且 `confidence` 达到 hook 注册阈值时发生，结果仍写入 `pending[]` 并以 `adoption_status=AUTO_ADOPTED` 标记，不绕过 adoption boundary。
+
+### D2-025 首批 UI intent 集合由 ADR-0008 冻结
+
+首批 UI 必须覆盖的具体 intent 最小集合已通过 ADR-0008（`adr/0008-first-batch-intents.md`）冻结，覆盖立项 / 世界观 / 主线 / 章节 / 场景五阶段、合计不超过 20 个 intent，单阶段 2–5 个；每个 intent 仅冻结 `intent_name`（namespace `intent.<NAME>`）、所属 family、所属 lifecycle stage、`risk_class`（复用 `32-human-approval-policy.md` §5）、`confirmation` 默认值、`long_run_fit`，不冻结 slot schema、capability 映射、approval_policy_id、prompt 与 UI 入口分组。人物族（`24-novel-intent-catalog.md` §13）显式不入首批，留扩展批次。`hook.<NAME>` 与 `intent.<NAME>` 不得使用同名条目。
+
+### D2-026 Reading Projection 对象最小字段集由 ADR-0009 冻结
+
+Reading projection 4 类对象（`reading_projection_root` / `toc` / `chapter` / `reader_recap`）最小字段集已通过 ADR-0009（`adr/0009-projection-object-schema.md`）冻结。所有对象必须使用 `source_revision_refs` 表达派生来源（`30-contract-glossary.md` §2.3）；`work_ref` 在 projection 对象中规范化为 `work_id`，`generated_at` 规范化为 `projected_at`。`reader_recap` 是阅读模式按需生成、轻量、面向读者视角的 recap，与 `chapter_summary`（22-continuity §10 维护链路 canonical 摘要）和 aggregate summaries（22-continuity §25 跨章节聚合）边界清晰：reader_recap 只读 accepted source、不参与维护链路、不进入 context assembly。
+
+### D2-027 首批 UI intent 的最小 slot schema 由 ADR-0010 冻结
+
+ADR-0008 首批 20 条 UI intent 的最小 slot schema 已通过 ADR-0010（`adr/0010-first-batch-intent-slot-schema.md`）冻结。每个 intent 的 `slot_schema_ref` 指向统一 envelope：`schema_id` / `intent_name` / `schema_version` / `slots` / `deferred_to_runtime`；每个 slot entry 至少包含 `slot_name` / `slot_type` / `description` / `requiredness` / `inferability` / `defaultability` / `allowed_values_ref` / `validation_rules_ref` / `scope_dependency`。本 ADR 只冻结 required slot 与 optional preference 的最小集合，并明确缺失 `required_to_execute` 且不可高置信推断、不可默认时才触发 clarification；capability mapping、prompt、UI layout、approval_policy_id 与完整 JSON Schema 文件仍 deferred。
+
+### D2-028 Reading Projection refresh 状态与触发语义由 ADR-0011 冻结
+
+Reading projection refresh 的四态语义、最小触发器与 stale 判定已通过 ADR-0011（`adr/0011-projection-refresh-state-triggers.md`）冻结。`reading_projection_root.status` 最小取值为 `FRESH` / `STALE` / `REBUILDING` / `FAILED`；accepted draft、chapter ordering、title update、reader recap source 变化和 `intent.REFRESH_READING_PROJECTION` 是最小 refresh trigger。stale 判定由系统基于 accepted source revisions 与 `source_revision_refs` 完成，UI 不得自行猜测；refresh 不新增 Foundation `next_action` / `card_type` / `action_type`，只复用 ADR-0002 与 ADR-0006 已冻结集合。自动刷新还是手动刷新的产品默认策略、后台调度算法、预算阈值、retry 次数与 preview UI 交互仍 deferred。
 
 ---
 

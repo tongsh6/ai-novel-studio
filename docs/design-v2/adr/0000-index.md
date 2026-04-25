@@ -59,6 +59,13 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 | ADR-0002 | Turn / Task / Artifact 状态枚举 | Accepted (2026-04-24) | `0002-state-enums.md` |
 | ADR-0003 | Authority / Budget / Escalation 最小枚举 | Accepted (2026-04-24) | `0003-authority-budget-escalation.md` |
 | ADR-0004 | Volume / Arc 关系 | Accepted (2026-04-24) | `0004-volume-arc-relation.md` |
+| ADR-0005 | Behavior-specific UI Hint 最小 schema | Accepted (2026-04-24) | `0005-behavior-ui-hint.md` |
+| ADR-0006 | Card / Action 最小 schema | Accepted (2026-04-25) | `0006-card-action-schema.md` |
+| ADR-0007 | Maintenance Artifact + Adoption Review 最小 schema | Accepted (2026-04-25) | `0007-maintenance-artifact-schema.md` |
+| ADR-0008 | 首批 UI intent 集合 | Accepted (2026-04-25) | `0008-first-batch-intents.md` |
+| ADR-0009 | Reading Projection 对象最小字段集 | Accepted (2026-04-25) | `0009-projection-object-schema.md` |
+| ADR-0010 | 首批 UI intent 的最小 slot schema | Accepted (2026-04-25) | `0010-first-batch-intent-slot-schema.md` |
+| ADR-0011 | Reading Projection refresh 状态与触发语义 | Accepted (2026-04-25) | `0011-projection-refresh-state-triggers.md` |
 
 ---
 

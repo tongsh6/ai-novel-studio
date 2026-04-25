@@ -86,7 +86,7 @@ W1 显式不冻结的范围：
 - ValidationEnvelope / UsageEnvelope / TraceRef 内部 schema（→ 后续独立 ADR，编号待定）；
 - card type 全集（基础 taxonomy 由 `11 §6` 给出，扩展 schema → 后续 W4 `card / action 最小 schema` ADR）；
 - authority / budget / escalation 枚举（已由 ADR-0003 / W5 冻结）；
-- behavior-specific UI hint 字段（→ ADR-0005 / W3）；
+- behavior-specific UI hint 字段（已由 ADR-0005 / W3 冻结）；
 - `render_mode`：由 `11-ux-contract.md §5` 定义为 Foundation→UI 的独立 contract 元素，其最终 schema 归属独立 ADR（候选：与 `assistant_message` / envelope ADR 合稿），不在本 ADR scope 内，故 TurnResult 顶层不包含此字段。
 
 ---
@@ -444,6 +444,7 @@ adapter 仅作为 v1 → v2 上线一次性 backfill 工具，不进入 v2 produ
 
 - ADR-0002（W2，turn / task / artifact 状态枚举 + phase / status / next_action 完整集合）：已冻结本 ADR 的 `phase` / `status` / `next_action` / `behavior_status` `$ref` 目标。注：adoption 7 态由本 ADR + `30 §3.2` 作为唯一 canonical 权威，ADR-0002 仅引用，不重定义。
 - ADR-0003（W5，authority / budget / escalation 枚举）：已冻结 authority / budget / escalation 最小枚举，影响 `behavior_state.active` 的等待语义集合与预算/授权门禁投影。
+- ADR-0005（W3，behavior-specific UI hint）：已冻结 `behavior_state.active.ui_hint` / `behavior_state.history[].ui_hint` 的最小 payload schema 与 W3/W4 边界。
 - ADR-0006（W4，card / action 最小 schema）：`ui_cards[]` items 的 `$ref` 指向。
 - ValidationEnvelope / UsageEnvelope / TraceRef / WarningEnvelope / ErrorEnvelope / AssistantMessage 各自独立 ADR：本 ADR 仅声明引用。
 
