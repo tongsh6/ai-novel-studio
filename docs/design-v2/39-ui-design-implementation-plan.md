@@ -10,7 +10,7 @@
 
 ## 1. 计划定位
 
-本文不是新增 UI contract，也不是替代 `40-ui-overview.md` 到 `47-ui-copy-guidelines.md`。
+本文不是新增 UI contract，也不是替代 `ui-design/40-ui-overview.md` 到 `ui-design/47-ui-copy-guidelines.md`。
 
 本文只回答 8 个问题：
 
@@ -107,10 +107,10 @@ UI 阶段必须遵守以下边界：
 
 完整算法、完整数据库字段、UI 文案和视觉细节仍可 deferred；但 UI 文档不得再自行改写这些 ADR 已冻结的字段、枚举和边界。
 
-1. `quality finding` 最小 UI 投影字段、默认 severity / action 与 adoption / checkpoint 映射：已由 ADR-0012 冻结，影响 `42-card-system.md`、`46-state-and-feedback.md`。
-2. `approval_policy` / `approval_record` 最小 UI 投影字段、`risk_class` 与 bypass policy 边界：已由 ADR-0013 冻结，影响 `42-card-system.md`、`45-guided-conversation-flows.md`、`46-state-and-feedback.md`。
-3. `experience_evidence` / `experience_artifact` / `experience_rule` 的 UI 呈现边界，以及进入 context assembly 的控制规则：已由 ADR-0014 冻结，影响 `43-structure-panel.md`、`46-state-and-feedback.md`。
-4. 首批结构面板对象的字段优先级与渐进披露规则：已由 ADR-0015 冻结，影响 `43-structure-panel.md` 与 `pencil` 原型结构面板画面。
+1. `quality finding` 最小 UI 投影字段、默认 severity / action 与 adoption / checkpoint 映射：已由 ADR-0012 冻结，影响 `ui-design/42-card-system.md`、`ui-design/46-state-and-feedback.md`。
+2. `approval_policy` / `approval_record` 最小 UI 投影字段、`risk_class` 与 bypass policy 边界：已由 ADR-0013 冻结，影响 `ui-design/42-card-system.md`、`ui-design/45-guided-conversation-flows.md`、`ui-design/46-state-and-feedback.md`。
+3. `experience_evidence` / `experience_artifact` / `experience_rule` 的 UI 呈现边界，以及进入 context assembly 的控制规则：已由 ADR-0014 冻结，影响 `ui-design/43-structure-panel.md`、`ui-design/46-state-and-feedback.md`。
+4. 首批结构面板对象的字段优先级与渐进披露规则：已由 ADR-0015 冻结，影响 `ui-design/43-structure-panel.md` 与 `pencil` 原型结构面板画面。
 
 这些输入的领域来源分别是：
 
@@ -137,15 +137,15 @@ UI 设计阶段按以下顺序执行：
 ```text
 39-ui-design-implementation-plan
   -> Pre-freeze: ADR-0012/0013/0014/0015 已完成
-  -> 40-ui-overview
-  -> 41-workbench-layout
-  -> 42-card-system
-  -> 43-structure-panel
-  -> 44-reading-mode
-  -> 45-guided-conversation-flows
-  -> 46-state-and-feedback
-  -> 47-ui-copy-guidelines
-  -> docs/ui-design/novel-studio-v2.pen
+  -> ui-design/40-ui-overview
+  -> ui-design/41-workbench-layout
+  -> ui-design/42-card-system
+  -> ui-design/43-structure-panel
+  -> ui-design/44-reading-mode
+  -> ui-design/45-guided-conversation-flows
+  -> ui-design/46-state-and-feedback
+  -> ui-design/47-ui-copy-guidelines
+  -> ui-design/novel-studio-v2.pen
 ```
 
 原则：
@@ -162,13 +162,13 @@ UI 设计阶段按以下顺序执行：
 
 Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / ADR-0013 / ADR-0014 / ADR-0015。
 
-进入 `42-card-system.md`、`43-structure-panel.md`、`45-guided-conversation-flows.md` 或 `46-state-and-feedback.md` 时，必须直接引用对应 ADR；如果 UI 文档或原型需要新增字段、状态、card type、action type 或对象语义，必须先回到 ADR 流程。
+进入 `ui-design/42-card-system.md`、`ui-design/43-structure-panel.md`、`ui-design/45-guided-conversation-flows.md` 或 `ui-design/46-state-and-feedback.md` 时，必须直接引用对应 ADR；如果 UI 文档或原型需要新增字段、状态、card type、action type 或对象语义，必须先回到 ADR 流程。
 
 ---
 
 ## 6. UI 文档交付计划
 
-### 6.1 `40-ui-overview.md`
+### 6.1 `ui-design/40-ui-overview.md`
 
 目标：定义 UI 总原则与边界。
 
@@ -186,7 +186,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 2. 明确引用 `README.md` §5 的 UI 阶段要求。
 3. 明确列出 UI 不得反向驱动的边界。
 
-### 6.2 `41-workbench-layout.md`
+### 6.2 `ui-design/41-workbench-layout.md`
 
 目标：定义主工作台布局。
 
@@ -214,7 +214,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 3. long-run、checkpoint、budget 必须有位置。
 4. debug / trace 不进入主消息。
 
-### 6.3 `42-card-system.md`
+### 6.3 `ui-design/42-card-system.md`
 
 目标：定义 UI 卡片体系。
 
@@ -230,7 +230,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 
 以上名称是 UI 场景名称，不是新的 `card_type`。
 
-`42-card-system.md` 必须使用 ADR-0006 §3 的 canonical `card_type`：
+`ui-design/42-card-system.md` 必须使用 ADR-0006 §3 的 canonical `card_type`：
 
 | UI 场景 | canonical `card_type` | payload / refs 来源 |
 | --- | --- | --- |
@@ -253,7 +253,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 4. 必须特别避免用 UI 自造的 `card.status` 替代 contract 状态。
 5. 若某个 UI 场景无法映射到 ADR-0006 canonical `card_type`，必须停止并走 README §6 的 ADR 流程，不能在 UI 文档中临时命名。
 
-### 6.4 `43-structure-panel.md`
+### 6.4 `ui-design/43-structure-panel.md`
 
 目标：定义隐藏结构能力如何逐步显示。
 
@@ -275,7 +275,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 4. 不把小说要素清单变成一次性大表单。
 5. `foreshadowing`、`timeline_event`、`state_snapshot`、`worldrule` 等子类型未冻结的部分只能作为 placeholder 或自由标签展示，不得由 UI 自造枚举。
 
-### 6.5 `44-reading-mode.md`
+### 6.5 `ui-design/44-reading-mode.md`
 
 目标：定义阅读模式。
 
@@ -295,7 +295,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 4. tentative preview 不得混入默认阅读模式。
 5. tentative preview 的入口必须引用明确 contract 来源；如果没有来源，只能在 `44` 中标为 deferred，不得画成完整交互。
 
-### 6.6 `45-guided-conversation-flows.md`
+### 6.6 `ui-design/45-guided-conversation-flows.md`
 
 目标：定义引导式对话流程。
 
@@ -313,7 +313,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 3. 缺必填 slot 时进入 clarification，不允许 UI 自行执行。
 4. 高风险或高预算路径必须进入 confirmation / checkpoint。
 
-### 6.7 `46-state-and-feedback.md`
+### 6.7 `ui-design/46-state-and-feedback.md`
 
 目标：定义状态与反馈。
 
@@ -338,7 +338,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 3. 长跑任务必须显示进度、预算、风险和 checkpoint 原因。
 4. 失败态必须区分 retry、correction、discard、ask user。
 
-### 6.8 `47-ui-copy-guidelines.md`
+### 6.8 `ui-design/47-ui-copy-guidelines.md`
 
 目标：定义 UI 文案规范。
 
@@ -366,7 +366,7 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 建议文件：
 
 ```text
-docs/ui-design/novel-studio-v2.pen
+docs/design-v2/ui-design/novel-studio-v2.pen
 ```
 
 如果后续拆分多个 `.pen` 文件，必须保留一个总装配文件作为入口。
@@ -442,7 +442,7 @@ docs/ui-design/novel-studio-v2.pen
 如果 Pencil MCP 或截图链路临时不可用，UI 阶段不得因此跳过原型语义验证。最低兜底方式是：
 
 1. 先用 Markdown ASCII layout 和状态表描述画面结构。
-2. 保留 `docs/ui-design/novel-studio-v2.pen` 作为最终 source of truth 的目标文件。
+2. 保留 `docs/design-v2/ui-design/novel-studio-v2.pen` 作为最终 source of truth 的目标文件。
 3. 在 Pencil 恢复后补齐 `.pen` frame，并按 §7.4 回链到文档章节。
 4. 兜底稿不能替代最终 `.pen` 交付，只能作为短期 unblock 产物。
 
@@ -454,15 +454,15 @@ docs/ui-design/novel-studio-v2.pen
 
 | UI 交付物 | 必须追溯到 |
 | --- | --- |
-| `40-ui-overview.md` | `00-overview.md`、`README.md`、`01-agent-foundation-contract.md` |
-| `41-workbench-layout.md` | `11-ux-contract.md`、`28-authoring-lifecycle.md`、ADR-0001 |
-| `42-card-system.md` | `11-ux-contract.md`、ADR-0001、ADR-0005、ADR-0006、ADR-0007 |
-| `43-structure-panel.md` | `21-novel-object-model.md`、`22-continuity-model.md`、`34-novel-element-field-priority.md` |
-| `44-reading-mode.md` | `27-reading-projection.md`、ADR-0009、ADR-0011 |
-| `45-guided-conversation-flows.md` | `24-novel-intent-catalog.md`、`28-authoring-lifecycle.md`、ADR-0008、ADR-0010 |
-| `46-state-and-feedback.md` | `02-turn-and-task-state-machines.md`、`03-conversation-behaviors.md`、ADR-0002、ADR-0003 |
-| `47-ui-copy-guidelines.md` | `03-conversation-behaviors.md`、`32-human-approval-policy.md`、`11-ux-contract.md` |
-| `novel-studio-v2.pen` | `40`-`47` 全部 UI 文档 |
+| `ui-design/40-ui-overview.md` | `00-overview.md`、`README.md`、`01-agent-foundation-contract.md` |
+| `ui-design/41-workbench-layout.md` | `11-ux-contract.md`、`28-authoring-lifecycle.md`、ADR-0001 |
+| `ui-design/42-card-system.md` | `11-ux-contract.md`、ADR-0001、ADR-0005、ADR-0006、ADR-0007 |
+| `ui-design/43-structure-panel.md` | `21-novel-object-model.md`、`22-continuity-model.md`、`34-novel-element-field-priority.md` |
+| `ui-design/44-reading-mode.md` | `27-reading-projection.md`、ADR-0009、ADR-0011 |
+| `ui-design/45-guided-conversation-flows.md` | `24-novel-intent-catalog.md`、`28-authoring-lifecycle.md`、ADR-0008、ADR-0010 |
+| `ui-design/46-state-and-feedback.md` | `02-turn-and-task-state-machines.md`、`03-conversation-behaviors.md`、ADR-0002、ADR-0003 |
+| `ui-design/47-ui-copy-guidelines.md` | `03-conversation-behaviors.md`、`32-human-approval-policy.md`、`11-ux-contract.md` |
+| `ui-design/novel-studio-v2.pen` | `40`-`47` 全部 UI 文档 |
 
 ---
 
@@ -477,7 +477,7 @@ UI 设计阶段只有同时满足以下条件，才算完成：
 4. 每个关键状态机都有 UI 投影说明。
 5. 每类关键卡片都有 contract 来源，且能映射到 ADR-0006 canonical `card_type`。
 6. 每个首批引导流程都能映射到 ADR-0008 intent 与 ADR-0010 slot。
-7. `docs/ui-design/novel-studio-v2.pen` 覆盖最小 8 个画面。
+7. `docs/design-v2/ui-design/novel-studio-v2.pen` 覆盖最小 8 个画面。
 8. 原型画面能按 §7.4 回链到对应文档章节。
 9. 不存在“文档里有状态，原型里没体现”的断层。
 10. 不存在“原型里有交互，Foundation / Domain 没定义语义”的越界。
@@ -486,12 +486,12 @@ UI 设计阶段只有同时满足以下条件，才算完成：
 
 ## 10. 推荐下一步
 
-下一步先补 §4.2 的 UI 前冻结小节，然后写 `40-ui-overview.md`。
+下一步写 `ui-design/40-ui-overview.md`。
 
 理由：
 
 1. `31` / `32` / `33` / `34` 当前已有 UI 投影描述，但还不足以作为 UI 阶段的冻结输入。
 2. 先补冻结小节，`42` / `43` / `45` / `46` 才不会在卡片、审批、经验、结构面板上反向发明语义。
-3. 完成冻结后，`40-ui-overview.md` 作为所有 UI 文档的共同原则来源，可以固定“对话优先、结构隐藏、阅读分离、UI 不反向驱动”的边界。
+3. 完成冻结后，`ui-design/40-ui-overview.md` 作为所有 UI 文档的共同原则来源，可以固定“对话优先、结构隐藏、阅读分离、UI 不反向驱动”的边界。
 
-完成 `40-ui-overview.md` 后，再进入 `41-workbench-layout.md` 和 `42-card-system.md`。这两份文档决定主工作台和卡片系统，是后续结构面板、阅读模式和引导流的基础。
+完成 `ui-design/40-ui-overview.md` 后，再进入 `ui-design/41-workbench-layout.md` 和 `ui-design/42-card-system.md`。这两份文档决定主工作台和卡片系统，是后续结构面板、阅读模式和引导流的基础。

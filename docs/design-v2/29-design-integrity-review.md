@@ -511,9 +511,9 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 
 建议接下来按 `39-ui-design-implementation-plan.md` 进入 UI 阶段：
 
-1. 先写 `40-ui-overview.md` 与 `41-workbench-layout.md`，确认 UI 只投影 contract。
-2. 再写 `42-card-system.md`，消费 ADR-0006 / 0007 / 0012 / 0013。
-3. 再写 `43-structure-panel.md`，消费 ADR-0014 / 0015。
+1. 先写 `ui-design/40-ui-overview.md` 与 `ui-design/41-workbench-layout.md`，确认 UI 只投影 contract。
+2. 再写 `ui-design/42-card-system.md`，消费 ADR-0006 / 0007 / 0012 / 0013。
+3. 再写 `ui-design/43-structure-panel.md`，消费 ADR-0014 / 0015。
 4. 最后推进 `44`-`47` 与 `pencil` 原型。
 
 UI 设计若发现新的运行语义需求，必须回到 ADR，而不是直接写进 UI 文档或原型。

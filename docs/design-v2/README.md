@@ -282,26 +282,34 @@ Foundation -> Domain -> UI
   - `40`-`47` 文档验收标准
   - `pencil` 原型交付与验证策略
 
+UI 阶段使用专用工作区：
+
+- `ui-design/README.md`
+  - `40`-`47` UI 文档
+  - `novel-studio-v2.pen` 原型 source file
+  - `exports/` 静态导出物
+  - `traceability/` 文档 ↔ 原型 ↔ ADR 追溯材料
+
 该文档不新增 UI contract，只负责把 Foundation / Domain / ADR 已冻结语义组织成 UI 阶段的执行计划，防止 UI 反向发明 intent、状态、card type 或对象语义。
 
 ### UI 文档
 
 建议采用以下编号：
 
-1. `40-ui-overview.md`
+1. `ui-design/40-ui-overview.md`
    - UI 核心原则
    - 默认主工作台
    - 结构面板默认隐藏
    - 阅读模式定位
 
-2. `41-workbench-layout.md`
+2. `ui-design/41-workbench-layout.md`
    - 主工作台布局
    - 对话流
    - 结果卡片流
    - 顶栏上下文
    - 右侧抽屉 / 底部面板策略
 
-3. `42-card-system.md`
+3. `ui-design/42-card-system.md`
    - clarification card
    - confirmation card
    - warning card
@@ -310,28 +318,28 @@ Foundation -> Domain -> UI
    - adoption card
    - long-run progress card
 
-4. `43-structure-panel.md`
+4. `ui-design/43-structure-panel.md`
    - 世界观 / 卷树 / 章节树 / 人物 / 伏笔 / 时间线 / 风格偏好 / 长跑任务
    - 查看与编辑的交互规则
 
-5. `44-reading-mode.md`
+5. `ui-design/44-reading-mode.md`
    - 阅读模式布局
    - 目录导航
    - 创作态跳转
    - 预览 tentative 的方式
 
-6. `45-guided-conversation-flows.md`
+6. `ui-design/45-guided-conversation-flows.md`
    - 立项引导
    - 新卷引导
    - 风格样本导入
    - 长跑启动前确认
 
-7. `46-state-and-feedback.md`
+7. `ui-design/46-state-and-feedback.md`
    - loading / streaming / paused / failed / resumed / completed
    - 错误反馈
    - 解释性反馈
 
-8. `47-ui-copy-guidelines.md`
+8. `ui-design/47-ui-copy-guidelines.md`
    - 对话内系统语气
    - 卡片标题与按钮文案
    - 风险提示文案
@@ -351,7 +359,7 @@ Foundation -> Domain -> UI
 
 建议文件：
 
-- `docs/ui-design/novel-studio-v2.pen`
+- `docs/design-v2/ui-design/novel-studio-v2.pen`
 
 如果拆分多文件，也要保留一个总装配文件。
 

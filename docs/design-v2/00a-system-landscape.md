@@ -15,6 +15,7 @@ flowchart TB
     subgraph UI["UI Layer  (40-47, 39 计划)"]
         direction LR
         U_PLAN[/"39 UI Implementation Plan<br/>📝 计划草案"/]
+        U_DIR[/"ui-design/<br/>📝 UI 工作区"/]
         U40["40 UI Overview<br/>⚪ 未启动"]
         U41["41 Workbench Layout<br/>⚪ 未启动"]
         U42["42 Card System<br/>⚪ 未启动"]
@@ -23,7 +24,7 @@ flowchart TB
         U45["45 Guided Flows<br/>⚪ 未启动"]
         U46["46 State & Feedback<br/>⚪ 未启动"]
         U47["47 Copy Guidelines<br/>⚪ 未启动"]
-        U_PEN[/"docs/ui-design/novel-studio-v2.pen<br/>⚪ 未启动"/]
+        U_PEN[/"ui-design/novel-studio-v2.pen<br/>⚪ 未启动"/]
     end
 
     subgraph Domain["Domain Layer  (20-34)"]
@@ -97,7 +98,7 @@ flowchart TB
     class F00,F01,F02,F03,F04,F05,F06,F07,F08,F09,F10,F11,F12 draft
     class D20,D21,D22,D23,D24,D25,D26,D27,D28,D29,D30,D31,D32,D33,D34 draft
     class U40,U41,U42,U43,U44,U45,U46,U47,U_PEN planned
-    class U_PLAN plan
+    class U_PLAN,U_DIR plan
 ```
 
 ---
@@ -122,8 +123,9 @@ flowchart TB
 | Domain 文档骨架 | ✅ 14/14 全部存在为草案 | 见 README §4.D-01 到 D-14 |
 | ADR 硬骨冻结 | ✅ 15/15 Accepted | 见 `adr/0000-index.md` |
 | 29 §7.1 UI 前阻塞项 | ✅ 15/15 已冻结 | ADR-0012 到 ADR-0015 已收口 quality_finding / approval / experience / 字段优先级 |
-| UI 文档（40-47） | ⚪ 0/8 未启动 | 待 39 计划生效后启动 |
-| Pencil 原型 | ⚪ 未启动 | 待 40-47 完成后启动 |
+| UI 工作区 | 📝 已规划 | `ui-design/README.md` |
+| UI 文档（40-47） | ⚪ 0/8 未启动 | 位于 `ui-design/`，待按 39 顺序启动 |
+| Pencil 原型 | ⚪ 未启动 | 目标文件 `ui-design/novel-studio-v2.pen` |
 
 ---
 
