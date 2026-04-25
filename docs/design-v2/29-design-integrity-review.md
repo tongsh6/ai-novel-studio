@@ -457,10 +457,10 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 9. maintenance artifact / adoption card payload 最小 schema ✅ 已由 ADR-0007 冻结（`adr/0007-maintenance-artifact-schema.md`，Accepted 2026-04-25）；canonical `card_type` 为 ADR-0006 已冻结的 `adoption_card`，不引入 `adoption_review` 等别名
 10. `reading_projection_root / toc / chapter / reader_recap` 最小字段集 ✅ 已由 ADR-0009 冻结（`adr/0009-projection-object-schema.md`，Accepted 2026-04-25）
 11. projection refresh 的最小状态与触发语义 ✅ 已由 ADR-0009 + ADR-0011 共同冻结（`adr/0009-projection-object-schema.md` / `adr/0011-projection-refresh-state-triggers.md`，Accepted 2026-04-25）；ADR-0009 冻结 `status` 字段位置与 `source_revision_refs` 挂载，ADR-0011 冻结 `FRESH` / `STALE` / `REBUILDING` / `FAILED` 四态、最小触发器与 stale 判定
-12. quality finding 最小 schema、默认 severity / action 枚举与 adoption / checkpoint 映射
-13. approval policy / approval record 最小 schema、risk_class 与 bypass policy 边界
-14. experience evidence / artifact / rule 最小 schema，以及 experience rule 进入 context assembly 的控制规则
-15. 首批结构面板对象的字段优先级与渐进披露规则
+12. quality finding 最小 schema、默认 severity / action 枚举与 adoption / checkpoint 映射 ✅ 已由 ADR-0012 冻结（`adr/0012-quality-finding-ui-projection.md`，Accepted 2026-04-25）
+13. approval policy / approval record 最小 schema、risk_class 与 bypass policy 边界 ✅ 已由 ADR-0013 冻结（`adr/0013-approval-policy-record-ui-projection.md`，Accepted 2026-04-25）
+14. experience evidence / artifact / rule 最小 schema，以及 experience rule 进入 context assembly 的控制规则 ✅ 已由 ADR-0014 冻结（`adr/0014-experience-ui-context-boundary.md`，Accepted 2026-04-25）
+15. 首批结构面板对象的字段优先级与渐进披露规则 ✅ 已由 ADR-0015 冻结（`adr/0015-structure-panel-field-priority.md`，Accepted 2026-04-25）
 
 ## 7.2 可以后置冻结（Non-blocking）
 
@@ -489,9 +489,9 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 2. Domain 最小 intent + slot + capability/hook 映射
 3. `volume / arc` 关系与结构面板主层次
 4. maintenance artifact / adoption card payload schema
-5. quality finding + approval policy + experience rule 的最小 schema 与卡片扩展字段
+5. quality finding + approval policy + experience rule 的最小 schema 与卡片扩展字段（已由 ADR-0012 / ADR-0013 / ADR-0014 冻结）
 6. reading projection object schema + refresh policy
-7. 首批结构面板字段优先级与渐进披露规则
+7. 首批结构面板字段优先级与渐进披露规则（已由 ADR-0015 冻结）
 8. 再进入 UI 文档与 `pencil` 原型
 
 ---
@@ -503,19 +503,20 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 1. **Foundation 与 Domain 的方向没有打架，主链成立。**
 2. **当前最大问题不是原则冲突，而是 UI 可消费 contract 仍有若干实例层漏项。**
 3. **Domain 内部没有明显逻辑互斥，但若干对象关系、intent 细化、adoption 形状、quality/approval/experience 形状、projection 刷新策略必须先收口。**
-4. **在补齐最小冻结清单后，可以安全进入 UI 设计；在此之前，不建议直接把 UI 做成完成态。**
+4. **UI 前最小冻结清单已由 ADR-0001 到 ADR-0015 收口；后续可以进入 UI 文档，但仍不应让 UI 反向发明 contract。**
 
 ---
 
 ## 10. 下一步
 
-建议接下来不要直接展开完整 UI，而是先补一轮“UI 前冻结包”，至少包括：
+建议接下来按 `39-ui-design-implementation-plan.md` 进入 UI 阶段：
 
-1. Foundation 最小可消费 schema 包
-2. Domain 最小 intent / slot / adoption / quality / approval / experience / projection schema 包
-3. `volume / arc` 关系决议
+1. 先写 `40-ui-overview.md` 与 `41-workbench-layout.md`，确认 UI 只投影 contract。
+2. 再写 `42-card-system.md`，消费 ADR-0006 / 0007 / 0012 / 0013。
+3. 再写 `43-structure-panel.md`，消费 ADR-0014 / 0015。
+4. 最后推进 `44`-`47` 与 `pencil` 原型。
 
-这轮补齐后，再进入 `ui-design/` 与 `pencil` 原型，整体风险最低。
+UI 设计若发现新的运行语义需求，必须回到 ADR，而不是直接写进 UI 文档或原型。
 
 ---
 

@@ -190,6 +190,8 @@ discarded / rejected artifacts 是负向经验来源。
 
 ## 7. 经验对象模型
 
+> ADR 冻结：本节三类 experience object 的最小字段、UI 呈现边界与进入 context assembly 的控制规则已由 `adr/0014-experience-ui-context-boundary.md` 冻结。
+
 经验层至少包括三类对象：
 
 1. `experience_evidence`
@@ -322,6 +324,8 @@ collect evidence
 ---
 
 ## 11. 经验进入上下文
+
+> ADR 冻结：experience rule 进入上下文的最小控制规则已由 `adr/0014-experience-ui-context-boundary.md` 冻结。
 
 experience_rule 可进入 Executor / LongRunner / Validator 上下文，但必须受 Context Assembly Policy 控制。
 

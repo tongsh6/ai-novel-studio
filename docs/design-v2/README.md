@@ -272,6 +272,18 @@ Foundation -> Domain -> UI
 - Foundation 与 Domain 的硬骨已经足够稳定。
 - canonical result、card protocol、state machine、long-run 行为已经冻结到可以投影为界面。
 
+### UI 执行入口
+
+进入具体 UI 文档前，先阅读并执行：
+
+- `39-ui-design-implementation-plan.md`
+  - UI 设计实施顺序
+  - UI 前输入冻结包
+  - `40`-`47` 文档验收标准
+  - `pencil` 原型交付与验证策略
+
+该文档不新增 UI contract，只负责把 Foundation / Domain / ADR 已冻结语义组织成 UI 阶段的执行计划，防止 UI 反向发明 intent、状态、card type 或对象语义。
+
 ### UI 文档
 
 建议采用以下编号：

@@ -407,6 +407,8 @@ resume
 
 ## 9. Quality Finding 最小模型
 
+> ADR 冻结：本节最小字段、`source_type`、`severity`、`action` 与 UI 投影映射已由 `adr/0012-quality-finding-ui-projection.md` 冻结。
+
 `quality_finding` 是一次 quality gate 运行后产生的结构化结果。
 
 最小字段：
