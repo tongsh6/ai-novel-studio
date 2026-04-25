@@ -203,6 +203,8 @@ ADR-0008 已冻结首批 UI 需要覆盖的 20 条 `intent.<NAME>`，但明确�
 4. 多个候选目标冲突且不能安全默认时，即使 slot 名义上可推断，也必须触发 clarification。
 5. clarification 的 `required_fields` / `optional_fields` 应直接引用 `slot_name`。
 
+补充说明：`required_to_execute` 只表示执行前必须获得稳定参数，不表示 UI 必须把该 slot 渲染成作者填写的表单字段。对于立项、新卷 / 新章规划等作者可能尚未想清楚答案的场景，UI 可以通过候选方向、对比方案、编辑建议或自然语言追问来收集 slot answer；最终仍必须把用户选择合并回本 ADR 定义的 slot 名称。
+
 ---
 
 ## 7. 首批 intent slot 表
@@ -268,6 +270,8 @@ ADR-0008 已冻结首批 UI 需要覆盖的 20 条 `intent.<NAME>`，但明确�
 | `force_refresh` | `optional_preference` | `not_inferable` | `defaultable` |
 
 运行时可以把推断值和默认值展示给用户确认，但不得把 optional preference 缺失误判为 blocking clarification。
+
+运行时也可以把系统生成的候选值展示给用户选择或修改；候选值在用户确认前只属于 draft slot / current parameters，不得视为已经执行或写入权威状态。
 
 ---
 

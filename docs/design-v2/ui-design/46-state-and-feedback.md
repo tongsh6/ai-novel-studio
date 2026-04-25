@@ -78,7 +78,7 @@
 | --- | --- | --- | --- |
 | Loading / Thinking | turn phase `RECEIVED` / `ROUTED` 或 status `WAITING_SYSTEM` | none / `dismiss`（只读提示） | 不得伪造 `RUNNING` task |
 | Streaming | turn phase `EXECUTING` + streaming event | none / `cancel`（若 task context 允许） | 不得把 partial text 当 accepted artifact |
-| Waiting User - Clarification | `behavior_state.active.type=clarification` + `next_action=ASK_USER` | `answer`, `dismiss` | 不得绕过 required slot 执行 |
+| Waiting User - Clarification | `behavior_state.active.type=clarification` + `next_action=ASK_USER` | `answer`, `revise`, `dismiss` | 不得绕过 required slot 执行；也不得把 clarification 简化为必填表单 |
 | Waiting User - Confirmation | `behavior_state.active.type=confirmation` + `next_action=CONFIRM_BEFORE_EXECUTE` | `confirm`, `reject`, `revise`, `dismiss` | 不得用 adoption 文案表达方向确认 |
 | Adoption Pending | `adoption_state.pending[]` + artifact lifecycle `TENTATIVE` | `accept`, `edit_then_accept`, `discard`, `branch` | 不得显示为 authoritative |
 | Checkpoint | task phase `CHECKPOINT` / status `PAUSED` | `resume`, `cancel`, `branch` | 不得在纯 `RUNNING` 中直接 branch |
@@ -90,3 +90,5 @@
 | Projection Stale | `reading_projection_root.status=STALE` | 触发 `intent.REFRESH_READING_PROJECTION` 的入口 | 不得让 UI 自己比较字段猜 stale |
 
 所有状态都必须有中文文案解释，不能只依赖颜色、图标或英文枚举。
+
+Clarification 等待态还必须解释“为什么需要这一步”，并在作者可能不知道答案时提供候选方向或编辑建议。例如：立项、新卷、新章规划不应只提示“请填写核心目标”，而应说明系统可基于上下文先给几种推进方向供作者选择。

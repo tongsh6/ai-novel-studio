@@ -290,6 +290,7 @@ clarification 必须可见地呈现为待回答状态。
 - required fields
 - optional fields（如有）
 - current known parameters
+- candidate answers / suggested directions（如适用）
 - answer action
 
 ### 8.2 默认 card 类型
@@ -305,6 +306,8 @@ clarification 必须可见地呈现为待回答状态。
 - “请补充一下信息”
 
 却不给出系统到底缺什么。
+
+也不允许把 clarification 默认降级成字段表单。`required fields` 是运行语义，不是 UI 控件要求；如果用户可能不知道答案，UI 应允许展示候选答案、建议方向、对比方案或“换一组”路径，再把用户选择合并回 slot answer。
 
 ---
 

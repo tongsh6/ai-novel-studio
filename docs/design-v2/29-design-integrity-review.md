@@ -95,6 +95,8 @@
 - **中风险**：对象精度、intent slot、projection 刷新策略、feedback_patch 归并、quality finding / approval / experience 的对象形状
 - **高风险**：Foundation 顶层 result / card / behavior hint / phase-status 等直接映射 UI 的 contract 未闭合
 
+补充：intent slot 冻结只解决“系统执行前需要哪些参数”，不应被 UI 误读为“作者必须填写哪些表单字段”。进入 UI 阶段后，立项、新卷 / 新章等 guided flow 必须采用探索式 clarification，避免把创作决策外包给作者填表。
+
 ---
 
 ## 4. Foundation -> Domain 接口完整性审查

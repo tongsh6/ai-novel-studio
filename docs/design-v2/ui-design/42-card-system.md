@@ -34,7 +34,7 @@ UI 场景中谈论的“确认卡”、“采纳卡”等，在系统底层必�
 
 | UI 场景概念 | 对应的 Canonical `card_type` | Payload / Refs 来源及用途 |
 | --- | --- | --- |
-| **Clarification Card** | `clarification_card` | 来源：ADR-0005 behavior hint, `refs.behavior_id`。<br/>用途：当意图槽位不足时，请求用户补充信息。 |
+| **Clarification Card** | `clarification_card` | 来源：ADR-0005 behavior hint, `refs.behavior_id`。<br/>用途：当意图槽位不足时，帮助用户补足信息；可表现为候选方向、对比方案、编辑建议或直接补充问题，不限于字段输入。 |
 | **Confirmation Card** | `confirmation_card` | 来源：ADR-0005 behavior hint, Approval policy。<br/>用途：高风险操作或方向性确认（非状态采纳）。 |
 | **Warning Card** | `warning_card` | 来源：Validation, quality finding, projection stale, policy warning。<br/>用途：非致命警告，需作者知晓或处理。 |
 | **Checkpoint Card** | `checkpoint_card` | 来源：Long-run task, checkpoint refs。<br/>用途：长跑任务被中断等待人工干预（预算、权限、分支决策）。 |
@@ -86,6 +86,33 @@ UI 场景中谈论的“确认卡”、“采纳卡”等，在系统底层必�
 | `NO_FURTHER_ACTION` | none, `dismiss`, `open_replay` |
 
 UI 不得把 `next_action`、`action_type` 和按钮中文文案混成同一个字段。
+
+### 4.2 Clarification Card 的非表单形态
+
+`clarification_card` 的底层语义是“等待用户补足 required slot”，但作者可见形态不应默认是表单。
+
+允许的内容形态：
+
+- 缺失项说明：系统还缺什么、为什么需要。
+- 已知信息：从上下文推断出的 current parameters。
+- 候选方向：系统根据上下文生成的 2-3 个选项。
+- 对比说明：不同选项会影响主线、人物、节奏、爽点或风险的方式。
+- 自由补充入口：作者可以直接说自己的偏好。
+
+允许的 action：
+
+| 作者可见动作 | canonical `action_type` | 说明 |
+| --- | --- | --- |
+| 选择这个方向 | `answer` | 把选择合并为 slot answer |
+| 换一组 | `revise` | 要求系统重新生成候选 |
+| 我补充一下 | `answer` | 自由文本补充 |
+| 暂不处理 | `dismiss` | 关闭当前只读提示或退出引导 |
+
+禁止：
+
+1. 因为 `required_to_execute` 就把所有 slot 机械渲染成输入框。
+2. 把候选值在确认前当作已执行参数。
+3. 用 UI 文案创造新的 `action_type`。
 
 ---
 
