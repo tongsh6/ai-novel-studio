@@ -284,7 +284,7 @@ confirmation 触发后，当前 turn 必须至少满足：
 
 - `phase = NEEDS_CONFIRMATION`
 - `status = WAITING_USER`
-- `next_action = ASK_USER`
+- `next_action = CONFIRM_BEFORE_EXECUTE`
 
 如附着在 task 上：
 
@@ -758,7 +758,7 @@ Domain 可以定义各 intent 在什么条件下触发哪些行为，但不能�
 - confirmation thresholds
 - rejection reason codes
 - correction templates
-- behavior-specific UI hints
+- behavior-specific UI hints（必须遵守 ADR-0005 的最小 schema 与 W3/W4 边界）
 
 ### 18.2 Domain 不得改写项
 
@@ -851,7 +851,8 @@ Domain 不得改写：
 1. reason code 枚举全集
 2. confirmation 阈值默认值
 3. correction resolution 的细分类
-4. behavior-specific UI hint 的最终 schema
+
+behavior-specific UI hint 的最小 schema 已由 ADR-0005 冻结；本文不再另行定义该 schema。
 
 ---
 

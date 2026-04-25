@@ -630,9 +630,9 @@ checkpoint 时的 tentative 不应自动进入阅读面。
 
 以下只定边界，不定最终实现：
 
-1. projection object 的最终字段 schema
+1. projection object 的最终字段 schema（最小字段集已由 ADR-0009 冻结）
 2. recap 的最终生成策略
-3. stale 自动刷新还是手动刷新的默认策略
+3. stale 自动刷新还是手动刷新的产品默认策略（refresh 四态与最小触发语义已由 ADR-0011 冻结）
 4. 未来预览模式的具体交互
 
 ---

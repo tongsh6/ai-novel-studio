@@ -99,7 +99,7 @@ ADR-0001 与 ADR-0002 已冻结 `TurnResult v2` 顶层 schema、state/status/nex
 1. TurnResult 顶层 schema：已由 ADR-0001 冻结。
 2. phase / status / next_action / behavior_status：已由 ADR-0002 冻结。
 3. adoption 7 态：由 `30 §3.2` + ADR-0001 作为唯一 canonical 权威。
-4. behavior-specific UI hint：留待 ADR-0005。
+4. behavior-specific UI hint：已由 ADR-0005 冻结；本 ADR 仅提供 authority / budget / escalation 对 UI hint 的上游语义输入。
 5. card / action schema：留待 ADR-0006。
 6. provider-specific pricing、token 估算算法、默认阈值数值、动态预算策略。
 7. full policy engine 与 retry algorithm。
@@ -396,7 +396,7 @@ ADR-0001 与 ADR-0002 已冻结 `TurnResult v2` 顶层 schema、state/status/nex
 
 - ADR-0001（W1，TurnResult v2 顶层 schema）：本 ADR 为其 authority / budget / escalation 相关引用提供 enum authority。
 - ADR-0002（W2，state/status/next_action 枚举）：本 ADR 不新增 `next_action`，但 budget guard / escalation 可被 UI 投影为 action/card。
-- ADR-0005（W3，behavior-specific UI hint）：不属于本 ADR 范围。
+- ADR-0005（W3，behavior-specific UI hint）：已冻结 behavior-specific UI hint 最小 schema；本 ADR 不新增 UI hint 字段。
 - ADR-0006（W4，card / action schema）：不属于本 ADR 范围。
 
 ---

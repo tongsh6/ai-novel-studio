@@ -149,9 +149,9 @@ Foundation 已有状态机原则，行为文档也定义了行为对 turn/task �
 
 结论：**这是 UI 前必须冻结项。**
 
-#### 4.2.3 behavior-specific UI hint 仍未闭合
+#### 4.2.3 behavior-specific UI hint 已闭合
 
-行为 contract 已冻结，但 behavior-specific UI hint 的最终 schema 仍未定。
+行为 contract 已冻结；behavior-specific UI hint 的最小 schema 已由 ADR-0005 冻结（`adr/0005-behavior-ui-hint.md`，Accepted 2026-04-24）。
 
 依据：
 
@@ -401,7 +401,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 
 1. TurnResult 顶层 schema
 2. phase / status / next_action 最小可用枚举
-3. behavior-specific UI hint schema
+3. behavior-specific UI hint schema ✅ 已由 ADR-0005 冻结
 4. card / action 最终 JSON schema 最小版
 5. authority / budget 最小可用枚举
 6. Domain intent family 到 registry / capability / hook 的最小映射面
@@ -445,18 +445,18 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 
 1. `TurnResult v2` 最小完整 schema ✅ 已由 ADR-0001 冻结（`adr/0001-turn-result-v2-schema.md`，Accepted 2026-04-24）
 2. turn / task / artifact / adoption 相关最小状态枚举 ✅ turn / task / artifact 状态枚举已由 ADR-0002 冻结（`adr/0002-state-enums.md`，Accepted 2026-04-24）；adoption 7 态由 ADR-0001 + 30 §3.2 唯一权威
-3. behavior-specific UI hint 最小 schema（待 ADR-0005）
-4. card / action 最小 schema（待 ADR-0006）
+3. behavior-specific UI hint 最小 schema ✅ 已由 ADR-0005 冻结（`adr/0005-behavior-ui-hint.md`，Accepted 2026-04-24）
+4. card / action 最小 schema ✅ 已由 ADR-0006 冻结（`adr/0006-card-action-schema.md`，Accepted 2026-04-25）
 5. authority / budget / escalation 最小枚举 ✅ 已由 ADR-0003 冻结（`adr/0003-authority-budget-escalation.md`，Accepted 2026-04-24）
 
 ### Domain
 
 6. `volume / arc` 关系 ✅ 已由 ADR-0004 冻结（`adr/0004-volume-arc-relation.md`，Accepted 2026-04-24）
-7. 首批 UI 需要覆盖的具体 intent 最小集合
-8. 这些 intent 的最小 slot schema
-9. maintenance artifact / adoption review 最小 schema
-10. `reading_projection_root / toc / chapter / reader_recap` 最小字段集
-11. projection refresh 的最小状态与触发语义
+7. 首批 UI 需要覆盖的具体 intent 最小集合 ✅ 已由 ADR-0008 冻结（`adr/0008-first-batch-intents.md`，Accepted 2026-04-25）；覆盖立项/世界观/主线/章节/场景五阶段、合计 ≤20 个 intent
+8. 这些 intent 的最小 slot schema ✅ 已由 ADR-0010 冻结（`adr/0010-first-batch-intent-slot-schema.md`，Accepted 2026-04-25）；覆盖 ADR-0008 首批 20 条 intent 的 required slots / optional preference slots，并沿用 04 §6 slot policy
+9. maintenance artifact / adoption review 最小 schema ✅ 已由 ADR-0007 冻结（`adr/0007-maintenance-artifact-schema.md`，Accepted 2026-04-25）
+10. `reading_projection_root / toc / chapter / reader_recap` 最小字段集 ✅ 已由 ADR-0009 冻结（`adr/0009-projection-object-schema.md`，Accepted 2026-04-25）
+11. projection refresh 的最小状态与触发语义 ✅ 已由 ADR-0009 + ADR-0011 共同冻结（`adr/0009-projection-object-schema.md` / `adr/0011-projection-refresh-state-triggers.md`，Accepted 2026-04-25）；ADR-0009 冻结 `status` 字段位置与 `source_revision_refs` 挂载，ADR-0011 冻结 `FRESH` / `STALE` / `REBUILDING` / `FAILED` 四态、最小触发器与 stale 判定
 12. quality finding 最小 schema、默认 severity / action 枚举与 adoption / checkpoint 映射
 13. approval policy / approval record 最小 schema、risk_class 与 bypass policy 边界
 14. experience evidence / artifact / rule 最小 schema，以及 experience rule 进入 context assembly 的控制规则
