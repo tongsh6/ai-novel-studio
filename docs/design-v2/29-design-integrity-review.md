@@ -431,7 +431,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 4. Domain 最小 intent + slot 形状
 5. 阅读投影对象结构与刷新语义
 6. `volume / arc` 的中观结构关系
-7. maintenance adoption review 的对象形状
+7. maintenance artifact + adoption card payload 的对象形状
 8. quality finding / approval / experience 相关卡片扩展字段
 9. 结构面板首批对象字段优先级与渐进披露边界
 
@@ -454,7 +454,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 6. `volume / arc` 关系 ✅ 已由 ADR-0004 冻结（`adr/0004-volume-arc-relation.md`，Accepted 2026-04-24）
 7. 首批 UI 需要覆盖的具体 intent 最小集合 ✅ 已由 ADR-0008 冻结（`adr/0008-first-batch-intents.md`，Accepted 2026-04-25）；覆盖立项/世界观/主线/章节/场景五阶段、合计 ≤20 个 intent
 8. 这些 intent 的最小 slot schema ✅ 已由 ADR-0010 冻结（`adr/0010-first-batch-intent-slot-schema.md`，Accepted 2026-04-25）；覆盖 ADR-0008 首批 20 条 intent 的 required slots / optional preference slots，并沿用 04 §6 slot policy
-9. maintenance artifact / adoption review 最小 schema ✅ 已由 ADR-0007 冻结（`adr/0007-maintenance-artifact-schema.md`，Accepted 2026-04-25）
+9. maintenance artifact / adoption card payload 最小 schema ✅ 已由 ADR-0007 冻结（`adr/0007-maintenance-artifact-schema.md`，Accepted 2026-04-25）；canonical `card_type` 为 ADR-0006 已冻结的 `adoption_card`，不引入 `adoption_review` 等别名
 10. `reading_projection_root / toc / chapter / reader_recap` 最小字段集 ✅ 已由 ADR-0009 冻结（`adr/0009-projection-object-schema.md`，Accepted 2026-04-25）
 11. projection refresh 的最小状态与触发语义 ✅ 已由 ADR-0009 + ADR-0011 共同冻结（`adr/0009-projection-object-schema.md` / `adr/0011-projection-refresh-state-triggers.md`，Accepted 2026-04-25）；ADR-0009 冻结 `status` 字段位置与 `source_revision_refs` 挂载，ADR-0011 冻结 `FRESH` / `STALE` / `REBUILDING` / `FAILED` 四态、最小触发器与 stale 判定
 12. quality finding 最小 schema、默认 severity / action 枚举与 adoption / checkpoint 映射
@@ -488,7 +488,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 1. Foundation 顶层 result / state / card / behavior hint 最小 schema
 2. Domain 最小 intent + slot + capability/hook 映射
 3. `volume / arc` 关系与结构面板主层次
-4. maintenance artifact / adoption review schema
+4. maintenance artifact / adoption card payload schema
 5. quality finding + approval policy + experience rule 的最小 schema 与卡片扩展字段
 6. reading projection object schema + refresh policy
 7. 首批结构面板字段优先级与渐进披露规则
@@ -560,7 +560,7 @@ reading projection 的原则已定，但 projection object 字段、recap 生成
 以下修正已在 2026-04-23 一次性完成，详情见 `adr/0000-index.md` §3：
 
 1. 一致性与并发升为 Layer 1 子系统 7（原无归属）。
-2. 演化治理降级为 §8.4 治理纪律（不再作为独立子系统）。
+2. 演化治理降级为 `00-overview.md §8.4` 治理纪律（不再作为独立子系统，不占用 01-12 子系统编号槽位）。
 3. Intent Registry 从 §4.3 移至 §4.4，与 Capability Registry 共处。
 4. Layer 2 §5.6 替换为上下文组装策略（对应文件 26），§5.8 替换为创作生命周期（对应文件 28）。
 5. `§8.3 文档组织建议` 改为以当前目录实际内容为准。

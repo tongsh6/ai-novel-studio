@@ -109,6 +109,10 @@ intent 不是凭空存在的。
 - 偏消费：
   - 阅读
 
+### 3.2 首批 UI intent 集合（ADR-0008）
+
+13 family 中被选为**首批 UI 必须暴露**的 intent 共 20 条，覆盖立项 / 规划 / 产出 / 维护 / 阅读与修订五阶段，由 ADR-0008（`adr/0008-first-batch-intents.md`）冻结。每个 family 内被选中条目的 namespace、family、lifecycle stage、`risk_class`、`default_requires_confirmation`、`long_run_fit` 默认值见 ADR-0008 §3。本目录文档保留全部 13 family 与各 family 的"代表性 intent"作为完整 catalog；扩展批次 intent 的最小 slot schema 由 ADR-0010 配合冻结。
+
 ---
 
 ## 4. Intent 目录组织原则
@@ -517,6 +521,10 @@ scene 是 long-run 默认自然单元之一。
 
 中高。  
 人物资产一旦变化，会反向影响 continuity。
+
+### 13.8 首批 UI 暴露范围
+
+人物族**未进入首批 UI intent 集合**，由 ADR-0008 §3.1 末段显式说明：人物资产需依赖世界观与主线先行建立后才具备充分上下文，首批建立期优先锚定立项 / 世界观 / 主线 / 风格四骨架。本族 4 条代表性 intent 留待扩展批次 ADR 增补。
 
 ---
 

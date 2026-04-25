@@ -272,7 +272,7 @@ recap 可以帮助阅读，但不应混成章正文的一部分。
 - `chapter_summary`：偏连续性 / memory / 工作流
 - `reader_recap`：偏阅读辅助 / 读者可见
 
-不能混为一谈。
+不能混为一谈。字段集合的边界由 ADR-0009 §4 显式分离：`reader_recap` 不得 inline `chapter_summary` 字段（如 `fidelity_level` / `revision_base`）；`recap_text` 不得直接复制 `chapter_summary` 原文。
 
 ---
 

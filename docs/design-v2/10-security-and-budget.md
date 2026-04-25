@@ -301,6 +301,8 @@ guard 是实际执行时的守门器。
 - injection_guard
 - provider_guard
 
+> `consistency_guard` 在本表中表达**运行时 guard 调用记录**（写路径上的实际拦截），与 `04 §8.2` `policy_type` 中同名值（注册侧 policy 类型）共享名称但分属运行态与注册表：本表项目由 `04 §8.2` 的 policy 实例化产生。
+
 ### 8.3 `decision`
 
 至少支持：

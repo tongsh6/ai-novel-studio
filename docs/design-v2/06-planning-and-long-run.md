@@ -568,6 +568,9 @@ tentative 用于保证：
 - `INVALIDATED`
 - `ARCHIVED`
 
+> 7 态由 `30 §3.2` + ADR-0001 唯一权威；合法转换见 `02 §lines 523-533`。
+> 与 task phase 的折叠映射（如 `TENTATIVE -> PAUSED` / `INVALIDATED -> ERROR`）见 `02 §lines 507-512`；artifact 7 态是 adoption 生命周期，不是 task 运行 phase，二者不得混用。
+
 ### 11.4 requires_adoption
 
 artifact 必须能通过 `requires_adoption` 表达自己是否需要 adoption gate。

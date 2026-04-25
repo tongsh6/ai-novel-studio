@@ -61,7 +61,7 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 | ADR-0004 | Volume / Arc 关系 | Accepted (2026-04-24) | `0004-volume-arc-relation.md` |
 | ADR-0005 | Behavior-specific UI Hint 最小 schema | Accepted (2026-04-24) | `0005-behavior-ui-hint.md` |
 | ADR-0006 | Card / Action 最小 schema | Accepted (2026-04-25) | `0006-card-action-schema.md` |
-| ADR-0007 | Maintenance Artifact + Adoption Review 最小 schema | Accepted (2026-04-25) | `0007-maintenance-artifact-schema.md` |
+| ADR-0007 | Maintenance Artifact + Adoption Card Payload 最小 schema | Accepted (2026-04-25) | `0007-maintenance-artifact-schema.md` |
 | ADR-0008 | 首批 UI intent 集合 | Accepted (2026-04-25) | `0008-first-batch-intents.md` |
 | ADR-0009 | Reading Projection 对象最小字段集 | Accepted (2026-04-25) | `0009-projection-object-schema.md` |
 | ADR-0010 | 首批 UI intent 的最小 slot schema | Accepted (2026-04-25) | `0010-first-batch-intent-slot-schema.md` |
@@ -74,7 +74,7 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 除 D2-001~D2-017 外，本轮设计完整性审查中还做出以下结构性修正，未来若被质疑应升格为独立 ADR：
 
 1. **一致性与并发升为独立子系统**：原 §4 未给 `07-consistency-and-concurrency.md` 安排子系统编号。本轮将其插入为 Layer 1 子系统 7，使子系统 1-12 与文件 01-12 严格对齐。
-2. **演化治理降级为过程纪律**：原 §4.10 演化治理作为独立子系统与文件层不匹配（文件 10 为 security-and-budget）。本轮将其下沉为 §8.4 治理纪律，承接 additive-first / schema version / ADR / contract tests / compatibility window 全部硬骨条目。
+2. **演化治理降级为过程纪律**：原 §4.10 演化治理作为独立子系统与文件层不匹配（文件 10 为 security-and-budget）。本轮将其下沉为 `00-overview.md §8.4` 治理纪律，承接 additive-first / schema version / ADR / contract tests / compatibility window 全部硬骨条目；演化治理不再占用 01-12 子系统编号槽位，遵循"想找子系统 N 就读文件 0N"导航不变量。
 3. **Intent Registry 归属收口**：原 §4.3 同时声明 Intent Registry 与 Slot Policy 为硬骨，但 Intent Registry 与 Capability Registry 共存于文件 04。本轮将 Intent Registry 移到 §4.4（能力与 Executor 层），使注册中心在一处集中管理。
 4. **Layer 2 模块对齐**：原 §5.6 长跑创作 / §5.8 结构面板在 Domain 文件层无独立文档。本轮替换为 §5.6 上下文组装策略（对应文件 26）与 §5.8 创作生命周期（对应文件 28），结构面板作为 UI 层关注点下沉到 Layer 3。
 5. **文档组织清单实事求是**：原 §8.3 文档组织建议包含若干与实际 `docs/design-v2/` 不一致的文件名。本轮改为以当前目录实际内容为准的清单。
@@ -91,3 +91,25 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 - 决策内容需要配合明确的迁移策略
 
 未达到这些触发条件时，条目继续留在本索引与 `00-overview.md` §7。
+
+---
+
+## 5. 已落盘 ADR 的触发依据
+
+§2.1 共计 11 条独立 ADR，对应 §4 触发条件如下：
+
+| ADR | 触发条件 | 主题 |
+| --- | --- | --- |
+| ADR-0001 | 详细论证 + 配合迁移策略 | TurnResult v2 顶层 schema 在 v1 之上的 breaking 收口 |
+| ADR-0002 | 详细论证 | turn / task / artifact 状态枚举的 canonical 收敛 |
+| ADR-0003 | 详细论证 + 迁移策略 | authority / budget / escalation 最小枚举 |
+| ADR-0004 | 详细论证 | volume / arc 关系的硬性方向 |
+| ADR-0005 | 详细论证 | behavior-specific UI hint 最小 schema |
+| ADR-0006 | 详细论证 | card / action 最小 schema |
+| ADR-0007 | 详细论证 + 迁移策略 | maintenance artifact + adoption card payload 最小 schema |
+| ADR-0008 | 详细论证 | 首批 UI intent 集合（共 20 条） |
+| ADR-0009 | 详细论证 + 阻塞项收口 | reading projection 4 对象最小字段集 |
+| ADR-0010 | 详细论证 + 阻塞项收口 | 首批 intent 的最小 slot schema |
+| ADR-0011 | 详细论证 + 配合 ADR-0009 分工 | reading projection refresh 状态与触发语义 |
+
+新增 ADR 必须同时更新本节与 §2.1。

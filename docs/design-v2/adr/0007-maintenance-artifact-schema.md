@@ -1,4 +1,4 @@
-# ADR-0007：Maintenance Artifact + Adoption Review 最小 schema
+# ADR-0007：Maintenance Artifact + Adoption Card Payload 最小 schema
 
 - 状态：Accepted (2026-04-25)
 - 日期：2026-04-25
@@ -228,7 +228,7 @@ TurnResult.ui_cards[]
 
 ### 必须回写的文档（不在本 ADR 内修改，列为后续工作）
 
-1. `00-overview.md` §7：新增 D2-023「maintenance artifact + adoption review 最小 schema 由 ADR-0007 冻结」条目。
+1. `00-overview.md` §7：新增 D2-023「maintenance artifact + adoption card payload 最小 schema 由 ADR-0007 冻结」条目。
 2. `30-contract-glossary.md` §10：新增第 14 条「`maintenance_artifact` 最小字段集合与 `adoption_card` payload 形状以 ADR-0007 为权威」。
 3. `adr/0000-index.md` §2.1：新增 ADR-0007 行。
 4. `29-design-integrity-review.md` §7.1 第 9 条：标注 ✅ 已由 ADR-0007 冻结。

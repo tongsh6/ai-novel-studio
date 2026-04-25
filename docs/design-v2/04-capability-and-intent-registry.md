@@ -270,6 +270,8 @@ slot 元数据必须独立于 Router prompt 存在。
 
 但它们应通过结构化字段表达，而不是硬编码在 Router 逻辑里。
 
+> 实例化拆分：ADR-0010 §3 把上述四级实例化为三个正交字段：`requiredness` ∈ {`required_to_execute`, `optional_preference`}、`inferability` ∈ {`not_inferable`, `inferable_with_high_confidence`}、`defaultability` ∈ {`no_default`, `defaultable`}。clarification 触发由三轴组合判定（见 ADR-0010 §6）：仅当 `requiredness=required_to_execute` 且 `inferability=not_inferable` 且 `defaultability=no_default` 时缺失才阻塞执行。
+
 ---
 
 ## 7. Capability Registry Contract
@@ -349,6 +351,8 @@ policy 是运行时 guard 和决策的注册项。
 - consistency_guard
 - retry_policy
 - retention_policy
+
+> `consistency_guard` 在本表中表达**注册侧的 policy 类型**（intent → guard 绑定），与 `10 §8.2` `guard_type` 中同名值（**运行时 guard 调用记录**）共享名称但分属注册表与运行态：本表项目存在于 policy registry，运行时实例化为 `10 §8.2` 的 guard event。
 
 ### 8.3 policy 的作用
 
