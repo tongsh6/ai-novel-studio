@@ -760,6 +760,22 @@ ADR-0008 首批 20 条 UI intent 的最小 slot schema 已通过 ADR-0010（`adr
 
 Reading projection refresh 的四态语义、最小触发器与 stale 判定已通过 ADR-0011（`adr/0011-projection-refresh-state-triggers.md`）冻结。`reading_projection_root.status` 最小取值为 `FRESH` / `STALE` / `REBUILDING` / `FAILED`；accepted draft、chapter ordering、title update、reader recap source 变化和 `intent.REFRESH_READING_PROJECTION` 是最小 refresh trigger。stale 判定由系统基于 accepted source revisions 与 `source_revision_refs` 完成，UI 不得自行猜测；refresh 不新增 Foundation `next_action` / `card_type` / `action_type`，只复用 ADR-0002 与 ADR-0006 已冻结集合。自动刷新还是手动刷新的产品默认策略、后台调度算法、预算阈值、retry 次数与 preview UI 交互仍 deferred。
 
+### D2-029 Quality Finding 最小 schema 与 UI 投影由 ADR-0012 冻结
+
+Quality finding 的最小字段、`source_type`、`severity`、`action` 以及 action 到 policy / runtime effect / common card 的映射已通过 ADR-0012（`adr/0012-quality-finding-ui-projection.md`）冻结。`quality_finding.action` 是 Domain policy decision，不是 runtime `NextAction`；UI 必须复用 ADR-0002 与 ADR-0006 已冻结集合。quality finding 不直接修改 artifact 或 authoritative object，只能作为 policy、adoption、checkpoint、UI card 和 Experience Engine 的输入。
+
+### D2-030 Approval Policy / Record 最小 schema 与 UI 投影由 ADR-0013 冻结
+
+Approval policy / approval record 的最小字段、`risk_class`、`default_behavior` 到 runtime `NextAction` 的映射、`approval_record.decision` 以及 bypass / override 边界已通过 ADR-0013（`adr/0013-approval-policy-record-ui-projection.md`）冻结。`default_behavior` 是 Domain policy decision，不等同于 runtime `NextAction`；authority / revision / security / hard consistency conflict 不得被 `quality_finding.can_override` 绕过。`auto_adoption_hint` 仍只是建议，不授权跳过 adoption boundary。
+
+### D2-031 Experience Objects UI 投影与上下文边界由 ADR-0014 冻结
+
+`experience_evidence` / `experience_artifact` / `experience_rule` 的最小字段、UI 只读/可操作边界，以及 experience rule 进入 context assembly 的控制规则已通过 ADR-0014（`adr/0014-experience-ui-context-boundary.md`）冻结。默认只有 active `experience_rule` 可进入上下文候选；evidence 与 artifact 不得默认进入 Executor prompt。经验不能直接写入 `writing_preferences`，必须经 evidence -> artifact -> review/adoption -> rule，再可选提议并入长期偏好。
+
+### D2-032 结构面板字段优先级与渐进披露由 ADR-0015 冻结
+
+首批结构面板对象、三层字段优先级、L1-L4 渐进披露、阶段化展示规则和 UI 不得自造 schema 的边界已通过 ADR-0015（`adr/0015-structure-panel-field-priority.md`）冻结。结构面板默认不是巨型表单；UI 不得新增 Domain object type、canonical 字段语义或绕过 adoption / approval 直接编辑 authoritative object。Reading projection TOC 一级 authority 仍是 `volume`，不得把 `arc` 提升为一级来源。
+
 ---
 
 ## 8. 演化策略

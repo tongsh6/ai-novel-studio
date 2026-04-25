@@ -66,6 +66,10 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 | ADR-0009 | Reading Projection 对象最小字段集 | Accepted (2026-04-25) | `0009-projection-object-schema.md` |
 | ADR-0010 | 首批 UI intent 的最小 slot schema | Accepted (2026-04-25) | `0010-first-batch-intent-slot-schema.md` |
 | ADR-0011 | Reading Projection refresh 状态与触发语义 | Accepted (2026-04-25) | `0011-projection-refresh-state-triggers.md` |
+| ADR-0012 | Quality Finding 最小 schema 与 UI 投影 | Accepted (2026-04-25) | `0012-quality-finding-ui-projection.md` |
+| ADR-0013 | Approval Policy / Record 最小 schema 与 UI 投影 | Accepted (2026-04-25) | `0013-approval-policy-record-ui-projection.md` |
+| ADR-0014 | Experience Objects UI 投影与上下文边界 | Accepted (2026-04-25) | `0014-experience-ui-context-boundary.md` |
+| ADR-0015 | 结构面板字段优先级与渐进披露 | Accepted (2026-04-25) | `0015-structure-panel-field-priority.md` |
 
 ---
 
@@ -96,7 +100,7 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 
 ## 5. 已落盘 ADR 的触发依据
 
-§2.1 共计 11 条独立 ADR，对应 §4 触发条件如下：
+§2.1 共计 15 条独立 ADR，对应 §4 触发条件如下：
 
 | ADR | 触发条件 | 主题 |
 | --- | --- | --- |
@@ -111,5 +115,9 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 | ADR-0009 | 详细论证 + 阻塞项收口 | reading projection 4 对象最小字段集 |
 | ADR-0010 | 详细论证 + 阻塞项收口 | 首批 intent 的最小 slot schema |
 | ADR-0011 | 详细论证 + 配合 ADR-0009 分工 | reading projection refresh 状态与触发语义 |
+| ADR-0012 | 阻塞项收口 + UI 前冻结 | quality finding 最小 schema 与 UI 投影 |
+| ADR-0013 | 阻塞项收口 + UI 前冻结 | approval policy / approval record 最小 schema 与 UI 投影 |
+| ADR-0014 | 阻塞项收口 + UI 前冻结 | experience objects UI 投影与 context assembly 边界 |
+| ADR-0015 | 阻塞项收口 + UI 前冻结 | 结构面板字段优先级与渐进披露 |
 
 新增 ADR 必须同时更新本节与 §2.1。

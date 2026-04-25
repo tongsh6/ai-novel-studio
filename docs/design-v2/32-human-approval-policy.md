@@ -104,6 +104,8 @@ adoption 关注“是否把这个产物写入 authoritative state”。
 
 ## 5. Approval Policy 最小模型
 
+> ADR 冻结：本节最小字段、`risk_class`、`default_behavior` 映射与 bypass 边界已由 `adr/0013-approval-policy-record-ui-projection.md` 冻结。
+
 每条 approval policy 至少包括：
 
 - `approval_policy_id`
@@ -372,6 +374,8 @@ Human Approval Policy 决定：
 ---
 
 ## 11. 审批记录
+
+> ADR 冻结：本节 `approval_record` 最小字段与 `decision` 枚举已由 `adr/0013-approval-policy-record-ui-projection.md` 冻结。
 
 每次人工审批都应形成 record。
 
