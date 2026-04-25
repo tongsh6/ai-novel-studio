@@ -44,6 +44,8 @@ docs/design-v2/ui-design/
   46-state-and-feedback.md
   47-ui-copy-guidelines.md
 
+  freeze-review.md
+
   novel-studio-v2.pen
 
   exports/
@@ -59,9 +61,10 @@ docs/design-v2/ui-design/
 说明：
 
 1. `40`-`47` 仍保留编号，表示它们属于 design-v2 第三阶段 UI 文档。
-2. `.pen` 文件与 UI 文档放在同一工作区，避免文档和原型分离。
-3. `exports/` 只放从 `.pen` 导出的阅读产物，不作为 source of truth。
-4. `traceability/` 用于记录 screen frame 与文档章节、ADR 来源的对应关系。
+2. `freeze-review.md` 记录冻结前评审状态、PNG 评审包和暂缓项。
+3. `.pen` 文件与 UI 文档放在同一工作区，避免文档和原型分离。
+4. `exports/` 只放从 `.pen` 导出的阅读产物，不作为 source of truth。
+5. `traceability/` 用于记录 screen frame 与文档章节、ADR 来源的对应关系。
 
 ---
 
