@@ -1,0 +1,44 @@
+{
+  "chapter": "ch03",
+  "status": "candidate",
+  "book": "放逐边地开拓录",
+  "based_on_contract": "books/exiled-frontier-lord/candidate/contracts/contract_ch03_v1.md",
+  "changes": {
+    "population_snapshot": {
+      "total_alive_estimate": 49,
+      "combat_capable": 14,
+      "injured_or_disabled": 7,
+      "women": 16,
+      "children": 9,
+      "critical_ill": 3
+    },
+    "resource_snapshot": {
+      "usable_wells": 1,
+      "usable_storehouse": "半座",
+      "usable_weapons": {
+        "spears": 11,
+        "short_blades": 19,
+        "bows": 5,
+        "arrows_under": 90
+      },
+      "temporary_firewood_days": 6
+    },
+    "local_power_nodes": [
+      "奥莎被识别为本地民生与底层组织节点",
+      "加雷斯开始协助莱恩建立守墙与点数体系"
+    ],
+    "new_rules_declared": [
+      "粮、水、火、药统一点数和分配",
+      "可站岗者轮班守墙，不上岗者次日无粮",
+      "可劳动者按修墙、看井、整理粮仓、捡柴巡路四组分工"
+    ],
+    "immediate_enforcement": {
+      "incident": "偷水事件",
+      "result": "莱恩当众立下第一条铁规矩，优先压制水资源失序"
+    },
+    "political_shift": {
+      "before": "本地人对新领主仅有冷漠和敌意",
+      "after": "仍不信任，但已开始被迫进入莱恩定义的秩序框架"
+    }
+  }
+}

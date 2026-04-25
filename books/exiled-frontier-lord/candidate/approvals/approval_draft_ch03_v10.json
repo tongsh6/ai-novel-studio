@@ -1,0 +1,15 @@
+{
+  "approval_id": "approval_draft_ch03_v10",
+  "type": "draft_promotion",
+  "book": "放逐边地开拓录",
+  "chapter": "ch03",
+  "decision": "rejected",
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_file": "books/exiled-frontier-lord/candidate/drafts/ch03_draft_v10.md",
+  "target_patch": "books/exiled-frontier-lord/candidate/patches/ch03_draft_v10_patch_v1.json",
+  "notes": "superseded by v11 after author requested clearer opening logic, character voice records, and causal scene progression"
+}

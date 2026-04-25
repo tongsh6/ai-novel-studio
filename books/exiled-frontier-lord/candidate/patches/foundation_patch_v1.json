@@ -1,0 +1,42 @@
+{
+  "patch_id": "foundation_patch_v1",
+  "book": "放逐边地开拓录",
+  "status": "candidate",
+  "scope": "foundation_pack",
+  "operations": [
+    {
+      "op": "replace",
+      "target": "books/exiled-frontier-lord/approved/current/canon/book_bible.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/book_bible_foundation_v1.md",
+      "reason": "promote approved book bible foundation"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_laine_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_laine_v1.md",
+      "reason": "promote protagonist profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/world/world_rules.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/worldrule_world_overview_v1.md",
+      "reason": "promote world overview"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/timeline/timeline_master_v1.json",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/timeline_book_foundation_v1.json",
+      "reason": "promote book stage timeline"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/foreshadowing/foreshadow_master_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/foreshadow_core_threads_v1.md",
+      "reason": "promote core foreshadowing pack"
+    }
+  ],
+  "notes": [
+    "supporting character files and supplementary worldrule files should also be promoted if author approves them",
+    "the book title is still a working title and can be renamed before approval"
+  ]
+}

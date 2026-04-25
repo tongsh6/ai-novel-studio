@@ -1,0 +1,15 @@
+{
+  "approval_id": "approval_draft_ch01_v14",
+  "type": "draft_promotion",
+  "book": "放逐边地开拓录",
+  "chapter": "ch01",
+  "decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_file": "books/exiled-frontier-lord/candidate/drafts/ch01_draft_v14.md",
+  "target_patch": "books/exiled-frontier-lord/candidate/patches/ch01_draft_v14_patch_v1.json",
+  "notes": "pending author review; v14 lightens tone and reframes chapter 01 as grabbing starter resources from a formal exile"
+}

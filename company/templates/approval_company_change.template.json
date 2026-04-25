@@ -1,0 +1,19 @@
+{
+  "approval_id": "approval_company_change_v1",
+  "type": "company_change",
+  "decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_files": [
+    "company/proposals/<file>"
+  ],
+  "target_company_files": [
+    "company/<file>"
+  ],
+  "approver": "author",
+  "decision_at": null,
+  "notes": ""
+}

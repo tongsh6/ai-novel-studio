@@ -1,0 +1,13 @@
+{
+  "approval_id": "approval_light_flow_action_reaction_opening_method_2026-04-25_v1",
+  "type": "company_method_promotion",
+  "decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_file": "company/proposals/research_light_flow_action_reaction_opening_method_2026-04-25_v1.md",
+  "target_area": "company/shared-methods",
+  "notes": "pending author review; company-level candidate method for lighter opening flow, action-reaction units, protagonist-centered first crisis, and non-guide goldfinger payoff"
+}

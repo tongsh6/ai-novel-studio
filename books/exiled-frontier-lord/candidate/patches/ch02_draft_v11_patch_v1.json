@@ -1,0 +1,17 @@
+{
+  "patch_id": "ch02_draft_v11_patch_v1",
+  "book": "放逐边地开拓录",
+  "chapter": "ch02",
+  "status": "candidate",
+  "scope": "draft_promotion",
+  "created_at": "2026-04-24",
+  "operations": [
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/drafts/ch02_draft_v11.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/drafts/ch02_draft_v11.md",
+      "reason": "promote chapter 02 v11 draft if author approves"
+    }
+  ],
+  "approval_required": "books/exiled-frontier-lord/candidate/approvals/approval_draft_ch02_v11.json"
+}

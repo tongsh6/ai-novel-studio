@@ -1,0 +1,22 @@
+{
+  "approval_id": "approval_opening_failure_cost_ui_rules_v1",
+  "type": "research_and_contract_promotion",
+  "book": "放逐边地开拓录",
+  "decision": "approved",
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_files": [
+    "books/exiled-frontier-lord/candidate/research/research_opening_failure_cost_ui_os_2026-04-24_v1.md",
+    "books/exiled-frontier-lord/candidate/bible/opening_character_cost_world_contract_v1.md",
+    "books/exiled-frontier-lord/candidate/contracts/contract_opening_failure_cost_ui_v1.md",
+    "books/exiled-frontier-lord/candidate/reviews/opening_v11_to_v12_revision_review_v1.md",
+    "books/exiled-frontier-lord/candidate/drafts/opening_v12_scene_plan_from_critique_v1.md"
+  ],
+  "target_area": "books/exiled-frontier-lord/approved/current/research",
+  "notes": "pending author review; contains opening failure/cost rules, Starfire Map UI limits, character cost boundaries, and world contract candidates; approved by author on 2026-04-25 as project-level experience/research. Does not promote chapter drafts or directly overwrite canon.",
+  "approved_at": "2026-04-25",
+  "approval_scope": "project_experience_research_only"
+}

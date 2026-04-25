@@ -1,0 +1,15 @@
+{
+  "approval_id": "approval_draft_ch03_v14",
+  "type": "draft_promotion",
+  "book": "放逐边地开拓录",
+  "chapter": "ch03",
+  "decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_file": "books/exiled-frontier-lord/candidate/drafts/ch03_draft_v14.md",
+  "target_patch": "books/exiled-frontier-lord/candidate/patches/ch03_draft_v14_patch_v1.json",
+  "notes": "pending author review; v14 turns sealed-well pressure into first survival rules and visible construction expectations"
+}

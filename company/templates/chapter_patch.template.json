@@ -1,0 +1,25 @@
+{
+  "patch_id": "ch00_patch_v1",
+  "book": "__BOOK_NAME__",
+  "chapter": "ch00",
+  "status": "candidate",
+  "based_on": {
+    "contract": "books/__BOOK_SLUG__/approved/current/contracts/contract_ch00_v1.md",
+    "approved_state_snapshot": [
+      "books/__BOOK_SLUG__/approved/current/canon/book_bible.md",
+      "books/__BOOK_SLUG__/approved/current/world/world_rules.md",
+      "books/__BOOK_SLUG__/approved/current/timeline/timeline_master_v1.json"
+    ],
+    "candidate_draft": "books/__BOOK_SLUG__/candidate/drafts/ch00_draft_v1.md"
+  },
+  "operations": [
+    {
+      "op": "upsert",
+      "target": "books/__BOOK_SLUG__/approved/current/drafts/ch00.md",
+      "from_candidate": "books/__BOOK_SLUG__/candidate/drafts/ch00_draft_v1.md",
+      "reason": "draft approved for formal entry"
+    }
+  ],
+  "risks": [],
+  "open_questions": []
+}

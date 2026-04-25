@@ -1,0 +1,47 @@
+{
+  "chapter": "ch02",
+  "status": "candidate",
+  "book": "放逐边地开拓录",
+  "based_on_contract": "books/exiled-frontier-lord/candidate/contracts/contract_ch02_v1.md",
+  "changes": {
+    "travel_state": {
+      "route": "主城 -> 裂星走廊 -> 碎星领",
+      "duration_days": 7,
+      "travel_conditions": [
+        "积雪压路",
+        "军道损坏",
+        "车轴开裂",
+        "驮马折损"
+      ]
+    },
+    "territory_first_impression": {
+      "main_keep_status": "残墙、塌塔、壕沟失修，主体防御体系接近失效",
+      "fire_tower_status": "火种塔倾斜且熄灭",
+      "settlement_status": "仍有人活动，但秩序极弱，生存条件恶劣"
+    },
+    "population_mood": {
+      "groups_seen": [
+        "旧老兵",
+        "苦工",
+        "流民",
+        "妇孺"
+      ],
+      "dominant_reaction": "冷漠、提防、饥饿、敌意"
+    },
+    "protagonist_actions": [
+      "抵达后优先确认井、水、粮仓、可住屋和墙口",
+      "要求粮车暂不卸载",
+      "建立“粮归碎星领，不归谁的手快”的第一层秩序边界"
+    ],
+    "gareth_role_advanced": [
+      "补充碎星领火种熄灭后的崩坏背景",
+      "识别路边死亡与尸铃的危险性质",
+      "作为边境经验来源开始发挥作用"
+    ],
+    "threats_revealed": [
+      "火种熄灭后的边地持续失序",
+      "未知杀戮痕迹与污染风险",
+      "领门前出现疑似与夜潮相关的尸铃记号"
+    ]
+  }
+}

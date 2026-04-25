@@ -1,0 +1,15 @@
+{
+  "approval_id": "approval_opening_pressure_and_hook_method_2026-04-23_v1",
+  "type": "company_shared_method",
+  "decision": "approved",
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "approved_at": "2026-04-24",
+  "approved_by": "author",
+  "source_candidate_file": "company/proposals/research_opening_pressure_and_hook_method_2026-04-23_v1.md",
+  "target_file": "company/shared-methods/opening_pressure_and_hook_method_2026-04-23_v1.md",
+  "notes": "formalizes the author's supplied opening-pressure methodology as a reusable company method."
+}

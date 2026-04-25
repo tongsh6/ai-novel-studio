@@ -1,0 +1,41 @@
+{
+  "chapter": "ch01",
+  "status": "candidate",
+  "book": "放逐边地开拓录",
+  "based_on_contract": "books/exiled-frontier-lord/candidate/contracts/contract_ch01_v1.md",
+  "changes": {
+    "protagonist_status": {
+      "from": "维兰德公爵次子，仍在主城权力体系内",
+      "to": "被册封为碎星领旁支领主并进入政治流放状态，退路同步被切断"
+    },
+    "time_lock": {
+      "current_deadline": "三天后北路封雪",
+      "meaning": "莱恩必须立即启程，否则碎星领剩余活口和赴任通道都会进一步恶化"
+    },
+    "family_cutoff": {
+      "removed_assets": [
+        "主城旁支宅邸",
+        "账册份额",
+        "侍从配额"
+      ],
+      "inheritance_trap": "若莱恩死亡或失控，碎星领可由家族代管"
+    },
+    "known_resources": {
+      "gold_coins": 170,
+      "winter_grain_carts": 4,
+      "pack_horses": 12,
+      "old_armored_soldiers": 20,
+      "senior_retainer": "加雷斯·霍恩"
+    },
+    "territory_snapshot": {
+      "territory": "碎星领",
+      "estimated_survivors": 44,
+      "threat_assessment": "火种熄灭、夜潮外扩、边地接近废死状态"
+    },
+    "foreshadowing_advanced": [
+      "母亲遗物黑银指核首次发热",
+      "家族在用体面册封包装政治切割",
+      "碎星领很可能不只是单纯废地"
+    ]
+  }
+}

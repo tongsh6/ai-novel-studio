@@ -1,0 +1,13 @@
+{
+  "approval_id": "approval_language_logic_causality_empathy_method_2026-04-25_v1",
+  "type": "company_method_promotion",
+  "decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_file": "company/proposals/research_language_logic_causality_empathy_method_2026-04-25_v1.md",
+  "target_area": "company/shared-methods",
+  "notes": "pending author review; candidate company-level method for language reference clarity, character distinctiveness, crisis causality, and sacrifice empathy"
+}

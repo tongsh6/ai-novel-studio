@@ -1,0 +1,20 @@
+{
+  "approval_id": "approval_opening_light_flow_personal_crisis_rules_v1",
+  "type": "research_and_contract_promotion",
+  "book": "放逐边地开拓录",
+  "decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_files": [
+    "books/exiled-frontier-lord/candidate/research/research_opening_light_flow_action_reaction_2026-04-25_v1.md",
+    "books/exiled-frontier-lord/candidate/bible/opening_v14_light_flow_personal_crisis_constraints_v1.md",
+    "books/exiled-frontier-lord/candidate/reviews/opening_v13_to_v14_light_flow_plot_redesign_review_v1.md",
+    "books/exiled-frontier-lord/candidate/research/research_market_opening_personal_crisis_light_tone_2026-04-25_v1.md",
+    "books/exiled-frontier-lord/candidate/contracts/contract_opening_light_flow_personal_crisis_v1.md"
+  ],
+  "target_area": "books/exiled-frontier-lord/approved/current/research",
+  "notes": "pending author review; candidate project-level experience for lighter flow, action-reaction prose, protagonist-centered opening crisis, and Starfire Map first payoff. Does not promote chapter drafts or overwrite canon."
+}

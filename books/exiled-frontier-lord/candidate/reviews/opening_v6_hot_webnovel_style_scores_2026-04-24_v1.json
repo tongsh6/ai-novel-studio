@@ -1,0 +1,66 @@
+{
+  "status": "candidate",
+  "date": "2026-04-24",
+  "score_scale": "0-10",
+  "review_object": [
+    "ch01_draft_v6",
+    "ch02_draft_v6",
+    "ch03_draft_v6"
+  ],
+  "overall_scores": {
+    "emotion_pull": 8.0,
+    "serial_hook": 8.2,
+    "commercial_readability": 7.3,
+    "style_texture": 6.5,
+    "panel_immersion": 5.5,
+    "language_variation": 6.2,
+    "supporting_character_voice": 6.8,
+    "natural_payoff": 6.6,
+    "farming_lord_genre_fit": 7.6,
+    "revision_priority": 8.5
+  },
+  "chapter_scores": {
+    "ch01_draft_v6": {
+      "emotion_pull": 8.5,
+      "commercial_readability": 7.8,
+      "style_texture": 7.0,
+      "panel_immersion": 6.8,
+      "language_variation": 6.7,
+      "supporting_character_voice": 6.7,
+      "natural_payoff": 7.4,
+      "main_issue": "反压小胜有效，但解释性总结偏密，末尾面板略像任务清单。"
+    },
+    "ch02_draft_v6": {
+      "emotion_pull": 8.2,
+      "commercial_readability": 7.4,
+      "style_texture": 6.7,
+      "panel_immersion": 5.8,
+      "language_variation": 6.3,
+      "supporting_character_voice": 7.0,
+      "natural_payoff": 6.8,
+      "main_issue": "死地画面强，但冻死林和井边面板提前给答案，削弱莱恩现场判断。"
+    },
+    "ch03_draft_v6": {
+      "emotion_pull": 8.0,
+      "commercial_readability": 6.9,
+      "style_texture": 6.0,
+      "panel_immersion": 4.8,
+      "language_variation": 5.8,
+      "supporting_character_voice": 6.7,
+      "natural_payoff": 5.8,
+      "main_issue": "事件闭环最强，但面板、条件、结算和目标提示最密，最像工程验收稿。"
+    }
+  },
+  "classification": {
+    "structural_completion": "pass",
+    "hot_webnovel_polish": "needs_revision",
+    "approved_ready": false
+  },
+  "top_revision_targets": [
+    "压缩 ch03 面板结算密度",
+    "减少解释性总结句",
+    "让配角对白更有私人经验和边地口气",
+    "把系统奖励改写成场景中的人和物先发生变化",
+    "增加烂中有生的建设期待物象"
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "status": "candidate/review",
+  "book": "exiled-frontier-lord",
+  "review_target": [
+    "books/exiled-frontier-lord/candidate/drafts/ch01_draft_v7.md",
+    "books/exiled-frontier-lord/candidate/drafts/ch02_draft_v7.md",
+    "books/exiled-frontier-lord/candidate/drafts/ch03_draft_v7.md"
+  ],
+  "review_focus": "inner_os_light_voice_without_breaking_hard_survival_tone",
+  "date": "2026-04-24",
+  "risks": [
+    {
+      "id": "R1",
+      "level": "must_fix",
+      "severity": 9,
+      "title": "在尸铃、井污染、梦行和孩子病弱处加入俏皮判断会破坏恐惧可信度",
+      "reader_break_point": "读者刚相信碎星领会吃人时，如果旁白转去调侃，会把诡异危机降格为怪谈梗。",
+      "affected_locations": [
+        "ch02_draft_v7.md:61",
+        "ch02_draft_v7.md:71",
+        "ch02_draft_v7.md:91",
+        "ch03_draft_v7.md:15",
+        "ch03_draft_v7.md:120"
+      ],
+      "mitigation": "这些位置只允许冷判断或身体反馈，不加入笑点。"
+    },
+    {
+      "id": "R2",
+      "level": "must_fix",
+      "severity": 8,
+      "title": "面板前后叠加长 OS 会让正文变成系统说明",
+      "reader_break_point": "读者刚扫完星火疆图，再读一段解释，会感觉作者在讲功能而不是人物在行动。",
+      "affected_locations": [
+        "ch01_draft_v7.md:77",
+        "ch02_draft_v7.md:52",
+        "ch03_draft_v7.md:126"
+      ],
+      "mitigation": "面板只接一行人味判断，随后立刻转动作。"
+    },
+    {
+      "id": "R3",
+      "level": "should_fix",
+      "severity": 7,
+      "title": "轻声音若集中在金句，会显得莱恩过于会说，过桥处仍有距离",
+      "reader_break_point": "读者会记住反击句，但在赶路、验收、分配任务时仍觉得莱恩像冷静审计官。",
+      "affected_locations": [
+        "ch01_draft_v7.md:73",
+        "ch02_draft_v7.md:19",
+        "ch03_draft_v7.md:52"
+      ],
+      "mitigation": "在盘账、坏工程验收、危机后余温处补少量短 OS。"
+    },
+    {
+      "id": "R4",
+      "level": "should_fix",
+      "severity": 6,
+      "title": "奥莎、布兰、罗维的态度变化可以再多一点生活化动作承接",
+      "reader_break_point": "零死亡结算很爽，但如果只有面板和总结，领民从不信到暂时听令的情绪温度还不够满。",
+      "affected_locations": [
+        "ch03_draft_v7.md:135",
+        "ch03_draft_v7.md:145",
+        "ch03_draft_v7.md:149"
+      ],
+      "mitigation": "补一两处动作，不写臣服：递水、避开井、重新拿工具、守火把。"
+    },
+    {
+      "id": "R5",
+      "level": "retain_with_care",
+      "severity": 5,
+      "title": "现有轻喜剧点有效，但不能继续同类叠加",
+      "reader_break_point": "如果连续出现反击金句，莱恩会从冷硬治理型主角滑向嘴强型主角。",
+      "affected_locations": [
+        "ch01_draft_v7.md:69",
+        "ch01_draft_v7.md:121",
+        "ch02_draft_v7.md:42",
+        "ch03_draft_v7.md:92"
+      ],
+      "mitigation": "保留现有强点，新增轻 OS 避开同一对话段。"
+    }
+  ],
+  "overall_recommendation": "light_touch_revision_only"
+}

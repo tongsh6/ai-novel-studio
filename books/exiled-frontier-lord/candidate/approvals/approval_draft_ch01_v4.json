@@ -1,0 +1,16 @@
+{
+  "approval_id": "approval_draft_ch01_v4",
+  "type": "draft_promotion",
+  "book": "放逐边地开拓录",
+  "chapter": "ch01",
+  "decision": "rejected",
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_file": "books/exiled-frontier-lord/candidate/drafts/ch01_draft_v4.md",
+  "target_patch": "books/exiled-frontier-lord/candidate/patches/ch01_draft_v4_patch_v1.json",
+  "notes": "superseded by v5 after author feedback on paragraph density, natural voice, clear goldfinger markers, and protagonist immersion",
+  "superseded_by": "books/exiled-frontier-lord/candidate/approvals/approval_draft_ch01_v5.json"
+}

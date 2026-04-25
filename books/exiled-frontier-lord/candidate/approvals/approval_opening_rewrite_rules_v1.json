@@ -1,0 +1,19 @@
+{
+  "approval_id": "approval_opening_rewrite_rules_v1",
+  "type": "research_and_method_promotion",
+  "book": "放逐边地开拓录",
+  "decision": "approved",
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "approved_at": "2026-04-24",
+  "approved_by": "author",
+  "source_candidate_files": [
+    "books/exiled-frontier-lord/candidate/research/research_opening_rewrite_rules_2026-04-23_v1.md",
+    "company/proposals/research_opening_pressure_and_hook_method_2026-04-23_v1.md"
+  ],
+  "target_patch": "books/exiled-frontier-lord/candidate/patches/opening_rewrite_rules_patch_v1.json",
+  "notes": "approved as part of fixing previous approval-chain issues and preserving learned methodology"
+}

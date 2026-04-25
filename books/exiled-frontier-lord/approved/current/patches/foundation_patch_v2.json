@@ -1,0 +1,122 @@
+{
+  "patch_id": "foundation_patch_v2",
+  "book": "放逐边地开拓录",
+  "status": "approved/current",
+  "scope": "foundation_pack_full",
+  "created_at": "2026-04-24",
+  "reason": "修复 foundation_patch_v1 覆盖范围不足的问题，将主角、核心配角、世界规则、势力表、时间线、伏笔和核心总纲一并纳入正式入库范围。",
+  "operations": [
+    {
+      "op": "replace",
+      "target": "books/exiled-frontier-lord/approved/current/canon/book_bible.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/book_bible_foundation_v1.md",
+      "reason": "promote approved book bible foundation"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_laine_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_laine_v1.md",
+      "reason": "promote protagonist profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_gareth_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_gareth_v1.md",
+      "reason": "promote core military cast profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_shia_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_shia_v1.md",
+      "reason": "promote core frontier/local cast profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_evelyn_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_evelyn_v1.md",
+      "reason": "promote core workshop/magic cast profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_eadric_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_eadric_v1.md",
+      "reason": "promote family pressure antagonist profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_maren_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_maren_v1.md",
+      "reason": "promote church/medical cast profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_tomas_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_tomas_v1.md",
+      "reason": "promote trade/intelligence cast profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_brann_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_brann_v1.md",
+      "reason": "promote workshop execution cast profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/character_ossa_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/character_ossa_v1.md",
+      "reason": "promote civilian legitimacy cast profile"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/characters/core_cast_matrix_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/core_cast_matrix_v1.md",
+      "reason": "promote cast function matrix"
+    },
+    {
+      "op": "replace",
+      "target": "books/exiled-frontier-lord/approved/current/world/world_rules.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/worldrule_world_overview_v1.md",
+      "reason": "promote world overview as formal world rules entry"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/world/worldrule_world_overview_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/worldrule_world_overview_v1.md",
+      "reason": "preserve detailed world overview"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/world/worldrule_magic_and_weird_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/worldrule_magic_and_weird_v1.md",
+      "reason": "promote magic and weird rules"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/world/worldrule_lordship_and_farming_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/worldrule_lordship_and_farming_v1.md",
+      "reason": "promote lordship and farming rules"
+    },
+    {
+      "op": "upsert",
+      "target": "books/exiled-frontier-lord/approved/current/world/worldrule_major_factions_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/worldrule_major_factions_v1.md",
+      "reason": "promote major faction rules"
+    },
+    {
+      "op": "replace",
+      "target": "books/exiled-frontier-lord/approved/current/timeline/timeline_master_v1.json",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/timeline_book_foundation_v1.json",
+      "reason": "promote book stage timeline"
+    },
+    {
+      "op": "replace",
+      "target": "books/exiled-frontier-lord/approved/current/foreshadowing/foreshadow_master_v1.md",
+      "from_candidate": "books/exiled-frontier-lord/candidate/bible/foreshadow_core_threads_v1.md",
+      "reason": "promote core foreshadowing pack"
+    }
+  ],
+  "notes": [
+    "v2 fixes v1 missing coverage for supporting characters and supplementary worldrule files.",
+    "book title remains a working title and may be renamed by future approved patch."
+  ]
+}

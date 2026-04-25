@@ -1,0 +1,41 @@
+{
+  "chapter": "ch01",
+  "status": "candidate",
+  "book": "放逐边地开拓录",
+  "based_on_contract": "books/exiled-frontier-lord/candidate/contracts/contract_ch01_v1.md",
+  "changes": {
+    "protagonist_status": {
+      "from": "维兰德公爵次子，仍在主城权力体系内",
+      "to": "以旁支领主名义被派往碎星领，实际进入政治流放状态"
+    },
+    "legal_status": {
+      "grant": "获得碎星领册封文书",
+      "conditions": [
+        "三年税免期",
+        "需恢复实际控制",
+        "需承担守土和边境回报义务"
+      ]
+    },
+    "family_relationships": {
+      "public_surface": "以继承试炼包装放逐",
+      "real_subtext": "家族对莱恩进行体面切割，并同步削减其主城退路"
+    },
+    "known_resources": {
+      "gold_coins": 170,
+      "winter_grain_carts": 4,
+      "pack_horses": 12,
+      "old_armored_soldiers": 20,
+      "senior_retainer": "加雷斯·霍恩"
+    },
+    "territory_snapshot": {
+      "territory": "碎星领",
+      "estimated_survivors": "不到五十",
+      "threat_assessment": "高危废弃边地，存在夜潮、火种熄灭、旧界碑异常等风险"
+    },
+    "foreshadowing_advanced": [
+      "母亲遗物在离开冬厅时出现微光",
+      "莱恩确认碎星领可能不只是废地",
+      "加雷斯对边境真实情况有更多隐情"
+    ]
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "status": "candidate",
+  "date": "2026-04-24",
+  "review_object": [
+    "books/exiled-frontier-lord/candidate/drafts/ch01_draft_v6.md",
+    "books/exiled-frontier-lord/candidate/drafts/ch02_draft_v6.md",
+    "books/exiled-frontier-lord/candidate/drafts/ch03_draft_v6.md"
+  ],
+  "scope": "hot_webnovel_readability_and_style_texture",
+  "overall_risk_level": "medium_high_before_finalization",
+  "highest_risks": [
+    {
+      "id": "R1",
+      "severity": "must_fix",
+      "title": "面板和奖励结算过密，打断沉浸",
+      "reader_break_point": "读者刚进入冻死林、井水污染、罗维梦行和第一夜胜利的紧张拍，马上被推荐路径、完成奖励、失败损失、掌控百分比、蓝图配方拉回任务界面。",
+      "evidence": [
+        {
+          "file": "ch02_draft_v6.md",
+          "lines": "28-32"
+        },
+        {
+          "file": "ch02_draft_v6.md",
+          "lines": "89-94"
+        },
+        {
+          "file": "ch03_draft_v6.md",
+          "lines": "18-24"
+        },
+        {
+          "file": "ch03_draft_v6.md",
+          "lines": "136-154"
+        },
+        {
+          "file": "ch03_draft_v6.md",
+          "lines": "170-181"
+        }
+      ],
+      "commercial_impact": "削弱主角判断魅力，让建设爽点从场景兑现滑向系统发奖，降低领主种田读者的代入。",
+      "recommendation": "活跃危机中只保留关键变量；胜利后先写人群反应、井水变化、火界稳定，再给短反馈；将蓝图配方延后到 ch04 拆解。"
+    },
+    {
+      "id": "R2",
+      "severity": "must_fix",
+      "title": "语言长期同温同硬，解释句和总结句偏多",
+      "reader_break_point": "强动作之后，文本频繁立刻解释这件事意味着什么，读者还没自己爽，作者已经替读者完成判断。",
+      "evidence": [
+        {
+          "file": "ch01_draft_v6.md",
+          "lines": "34, 50, 66, 70, 116"
+        },
+        {
+          "file": "ch02_draft_v6.md",
+          "lines": "51, 65"
+        },
+        {
+          "file": "ch03_draft_v6.md",
+          "lines": "156, 181-183"
+        }
+      ],
+      "commercial_impact": "读感容易从冷硬奇幻变成工程报告或章节验收说明，削弱文风质感。",
+      "recommendation": "保留少数最硬金句，其余解释改成动作、物件、身体反馈和旁人反应；减少整齐对仗式判断句。"
+    },
+    {
+      "id": "R3",
+      "severity": "must_fix",
+      "title": "爽点闭环成立但偏机械结算",
+      "reader_break_point": "ch03 胜利后收益一次性摊开，读者感受到的是完成任务和领取奖励，而不是死地被抢回第一寸的现场余味。",
+      "evidence": [
+        {
+          "file": "ch03_draft_v6.md",
+          "lines": "136-154"
+        },
+        {
+          "file": "ch03_draft_v6.md",
+          "lines": "181-183"
+        }
+      ],
+      "commercial_impact": "会降低自然爽感和沉浸度，尤其影响不喜欢重面板读者的留存。",
+      "recommendation": "把零死亡、净水、火界、骨铃材料先落到具体人物和场景，再让系统做确认，不要让系统抢走胜利第一感。"
+    },
+    {
+      "id": "R4",
+      "severity": "must_fix",
+      "title": "配角对白有功能但生命感不足",
+      "reader_break_point": "部分对白像是在给莱恩递质疑点，方便他展示治理答案，而不是角色从自身经验、恐惧和利益出发说话。",
+      "evidence": [
+        {
+          "file": "ch02_draft_v6.md",
+          "lines": "79-81, 112-120"
+        },
+        {
+          "file": "ch03_draft_v6.md",
+          "lines": "62-78"
+        }
+      ],
+      "commercial_impact": "班底容易变成领地功能模块，削弱长线追读中读者对群像的感情投资。",
+      "recommendation": "给奥莎、布兰、罗维各补一处带私人处境或边地经验的表达，并让他们各主动解决一个小问题。"
+    }
+  ],
+  "secondary_risks": [
+    {
+      "id": "S1",
+      "severity": "suggest_fix",
+      "title": "ch01 反压小胜略顺",
+      "reader_break_point": "议事录反压后公爵给旧库清废权较利落，缺少一点被主城反咬或旧库烂货成本。",
+      "recommendation": "增加账务官拖延、物资低质、艾德里克后手或残兵不稳等轻代价。"
+    },
+    {
+      "id": "S2",
+      "severity": "suggest_fix",
+      "title": "烂中有生的物象偏少",
+      "reader_break_point": "前三章压迫、冷、死、污染足够，但读者愿意建设这块地的生活期待还弱。",
+      "recommendation": "放大青豆、旧黑土、苔、草籽、热盐水等小物象，让碎星领显出可救价值。"
+    },
+    {
+      "id": "S3",
+      "severity": "suggest_fix",
+      "title": "章节结尾偏总结收束",
+      "reader_break_point": "ch03 末尾把收益列齐后再总结，钩子和余味被说明压住。",
+      "recommendation": "用画面结尾，如第一盆蓝白火没灭、断塔深处微亮、第一碗热盐水递出去。"
+    }
+  ],
+  "acceptable_controversies": [
+    "冷硬生存基调可以保留，这是本书差异化标签。",
+    "莱恩治理型、克制、重数字的主角定位可以保留，但需加入身体反馈和人味。",
+    "44 这个人口锚点可以保留，反复使用能强化人命重量。",
+    "面板可以保留为识别点，但需要从任务结算器降级为关键扫描工具。"
+  ],
+  "final_recommendation": "结构不必大拆，进入正式前建议至少做一轮面板降噪、解释句减硬、配角加活气和爽点场景化修订。"
+}

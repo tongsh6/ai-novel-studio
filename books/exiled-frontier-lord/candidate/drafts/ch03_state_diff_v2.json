@@ -1,0 +1,45 @@
+{
+  "chapter": "ch03",
+  "status": "candidate",
+  "book": "放逐边地开拓录",
+  "based_on_contract": "books/exiled-frontier-lord/candidate/contracts/contract_ch03_v1.md",
+  "changes": {
+    "population_snapshot": {
+      "total_alive_estimate": 44,
+      "combat_capable": 15,
+      "armored_veterans": 4,
+      "archers": 5,
+      "critical_sick_cases": 4
+    },
+    "resource_snapshot": {
+      "usable_wells": 1,
+      "daily_water_output_range": "6-10桶",
+      "grain_if_locked_down": "约18天",
+      "grain_if_riot_or_theft": "约7天",
+      "collapsed_wall_sections": 3,
+      "arrows_under": 100,
+      "firewood_days": 6
+    },
+    "local_power_nodes": [
+      "奥莎被确认为井口、民生与底层组织节点",
+      "加雷斯开始与莱恩共同点人、守墙、定班"
+    ],
+    "new_rules_declared": [
+      "粮、水、火、药统一点数，禁止私藏",
+      "可站岗者分三班守墙",
+      "可劳动者分组参与修墙、看井、清仓、捡柴巡路"
+    ],
+    "immediate_enforcement": {
+      "incident": "罗维抢水",
+      "result": "莱恩当众以刀钉桶，第一条水资源规则立即生效"
+    },
+    "political_shift": {
+      "before": "本地人把莱恩视为刚到的主城少爷",
+      "after": "本地人开始被迫承认他在分配、惩戒与守墙上的决定权"
+    },
+    "goldfinger_progress": {
+      "previous_state": "黑银指核仅出现一次发热异动",
+      "current_state": "星火疆图首次显形，标出井口、南仓、北墙危险缺口和墙外移动黑点"
+    }
+  }
+}

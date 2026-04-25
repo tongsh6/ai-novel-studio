@@ -1,0 +1,15 @@
+{
+  "approval_id": "approval_character_voice_scene_logic_2026-04-24_v1",
+  "type": "company_method_promotion",
+  "decision": "approved",
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_file": "company/proposals/research_character_voice_scene_logic_2026-04-24_v1.md",
+  "target_area": "company/shared-methods",
+  "notes": "pending author review; candidate company-level method for character voice differentiation and causal scene logic; approved by author on 2026-04-25 as company-level method.",
+  "approved_at": "2026-04-25",
+  "approval_scope": "company_method"
+}

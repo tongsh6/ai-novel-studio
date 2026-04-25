@@ -1,0 +1,19 @@
+{
+  "approval_id": "approval_opening_readable_style_rules_v1",
+  "type": "project_method_promotion",
+  "book": "放逐边地开拓录",
+  "decision": "approved",
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "source_candidate_files": [
+    "books/exiled-frontier-lord/candidate/research/research_opening_readable_style_from_release_that_witch_2026-04-24_v1.md",
+    "books/exiled-frontier-lord/candidate/contracts/contract_opening_readable_hot_webnovel_style_v1.md"
+  ],
+  "target_area": "books/exiled-frontier-lord/approved/current/research",
+  "notes": "pending author review; project-level readable hot-webnovel style supplement for opening chapters; approved by author on 2026-04-25 as project-level experience/research. Does not promote chapter drafts or directly overwrite canon.",
+  "approved_at": "2026-04-25",
+  "approval_scope": "project_experience_research_only"
+}

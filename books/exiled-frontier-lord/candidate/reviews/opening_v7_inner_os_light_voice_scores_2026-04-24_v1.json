@@ -1,0 +1,42 @@
+{
+  "status": "candidate/review",
+  "book": "exiled-frontier-lord",
+  "date": "2026-04-24",
+  "review_target": [
+    "books/exiled-frontier-lord/candidate/drafts/ch01_draft_v7.md",
+    "books/exiled-frontier-lord/candidate/drafts/ch02_draft_v7.md",
+    "books/exiled-frontier-lord/candidate/drafts/ch03_draft_v7.md"
+  ],
+  "scores": {
+    "emotional_pull": 8.6,
+    "hard_survival_tone_control": 8.8,
+    "reader_closeness": 7.7,
+    "natural_inner_os": 7.8,
+    "light_voice_fit": 8.0,
+    "commercial_serial_readability": 8.4,
+    "risk_of_overadding_humor": 7.5,
+    "revision_need": 3.0
+  },
+  "chapter_scores": {
+    "ch01": {
+      "emotional_pull": 8.5,
+      "reader_closeness": 7.8,
+      "light_voice_fit": 8.2,
+      "notes": "反压家族和抢旧库物资已经有锋利轻声音；只需在破烂变命的过桥处补少量 OS。"
+    },
+    "ch02": {
+      "emotional_pull": 8.3,
+      "reader_closeness": 7.5,
+      "light_voice_fit": 7.8,
+      "notes": "坏工程验收感成立，孩子、井、尸铃处必须保持冷硬；可在赶路和任务分配处增加短判断。"
+    },
+    "ch03": {
+      "emotional_pull": 8.9,
+      "reader_closeness": 7.9,
+      "light_voice_fit": 8.1,
+      "notes": "第一夜闭环强，莱恩承认自己怕和不擅战斗的段落最有亲近感；余温处可再加生活化承接。"
+    }
+  },
+  "score_scale": "0-10; higher is stronger except risk_of_overadding_humor and revision_need, where higher means more risk or more work",
+  "recommended_revision_scope": "add 3-5 short inner OS lines per chapter at most; no structural rewrite"
+}

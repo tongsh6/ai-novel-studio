@@ -1,0 +1,38 @@
+{
+  "chapter": "ch02",
+  "status": "candidate",
+  "book": "放逐边地开拓录",
+  "based_on_contract": "books/exiled-frontier-lord/candidate/contracts/contract_ch02_v1.md",
+  "changes": {
+    "travel_state": {
+      "route": "主城 -> 裂星走廊 -> 碎星领",
+      "duration_days": 7,
+      "confirmed_losses": [
+        "折损一匹驮马",
+        "为保粮车主动丢弃铁钉和灯油",
+        "时间被压到傍晚抵达"
+      ]
+    },
+    "territory_value_signal": {
+      "signs": [
+        "旧鱼桩仍在",
+        "黑土可耕",
+        "矿渣仍有金属亮星"
+      ],
+      "meaning": "碎星领不是纯废地，而是值得争夺的旧边境节点"
+    },
+    "territory_first_impression": {
+      "main_keep_status": "东墙残存，南墙半塌，西墙开口，整体接近失守",
+      "fire_tower_status": "火种塔熄灭且塔身残缺",
+      "settlement_status": "本地人极度饥饿且不信任外来领主"
+    },
+    "population_mood": {
+      "dominant_reaction": "盯粮、提防、敌意、麻木"
+    },
+    "threats_revealed": [
+      "裂星走廊存在不认身份的异常死亡",
+      "门洞外出现尸铃",
+      "墙外危险可能已经通过新脚印进入据点内部"
+    ]
+  }
+}
