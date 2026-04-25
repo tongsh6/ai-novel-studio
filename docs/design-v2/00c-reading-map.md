@@ -36,7 +36,7 @@
 
 ## 2. UI 设计师路径
 
-> 读完能开始写 `40-ui-overview.md` 并向 `pencil` 投放原型。
+> 读完能开始写 `ui-design/40-ui-overview.md` 并向 `pencil` 投放原型。
 
 | # | 文档 | 时间 | 读完能回答 |
 |---|---|---|---|

@@ -617,7 +617,7 @@ Router / Executor / LongRunner / Reader 各自消费的上下文形状不一样�
 
 - 阶段切换是渐变而非硬切。
 - 每个阶段影响默认卡片推荐、默认 hook 组合、默认长跑允许范围。
-- 结构面板作为 UI 层投影，不在 Domain 层独立建模；结构面板的设计规范在 Layer 3 UI 文档（`43-structure-panel.md`）中定义。
+- 结构面板作为 UI 层投影，不在 Domain 层独立建模；结构面板的设计规范在 Layer 3 UI 文档（`ui-design/43-structure-panel.md`）中定义。
 
 ---
 
