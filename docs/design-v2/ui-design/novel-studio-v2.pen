@@ -5,7 +5,7 @@
       "type": "frame",
       "id": "EJlER",
       "x": 0,
-      "y": -600,
+      "y": -757,
       "name": "组件基线",
       "width": 800,
       "fill": "$surface.primary",
@@ -181,6 +181,140 @@
               ]
             }
           ]
+        },
+        {
+          "type": "frame",
+          "id": "4KoYt",
+          "name": "switcherPopover",
+          "width": 240,
+          "fill": "$surface.primary",
+          "stroke": {
+            "thickness": 1,
+            "fill": "$border.subtle"
+          },
+          "layout": "vertical",
+          "gap": 4,
+          "padding": 8,
+          "children": [
+            {
+              "type": "frame",
+              "id": "HKpdF",
+              "name": "item1",
+              "width": "fill_container",
+              "fill": "$border.subtle",
+              "cornerRadius": "$rounded.sm",
+              "padding": [
+                8,
+                12
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "ZndJq",
+                  "fill": "$foreground.primary",
+                  "content": "最新的视界 (当前)",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "bold"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "BOIWm",
+              "name": "item2",
+              "width": "fill_container",
+              "cornerRadius": "$rounded.sm",
+              "padding": [
+                8,
+                12
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "t6OJY",
+                  "fill": "$foreground.primary",
+                  "content": "未命名新书",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "TiQsj",
+              "name": "item3",
+              "width": "fill_container",
+              "cornerRadius": "$rounded.sm",
+              "padding": [
+                8,
+                12
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "7f3aG",
+                  "fill": "$foreground.secondary",
+                  "content": "废稿：赛博剑仙",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "BJC9R",
+              "width": "fill_container",
+              "height": 1,
+              "fill": "$border.subtle"
+            },
+            {
+              "type": "frame",
+              "id": "SblFi",
+              "name": "a1",
+              "width": "fill_container",
+              "cornerRadius": "$rounded.sm",
+              "padding": [
+                8,
+                12
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "OWV3q",
+                  "fill": "$accent.primary",
+                  "content": "+ 新建立项...",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "2UZSE",
+              "name": "a2",
+              "width": "fill_container",
+              "cornerRadius": "$rounded.sm",
+              "padding": [
+                8,
+                12
+              ],
+              "children": [
+                {
+                  "type": "text",
+                  "id": "pECoa",
+                  "fill": "$foreground.secondary",
+                  "content": "管理全部作品",
+                  "fontFamily": "Inter",
+                  "fontSize": 13,
+                  "fontWeight": "normal"
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -226,7 +360,7 @@
                   "id": "KcvqZ",
                   "name": "titleText",
                   "fill": "$foreground.primary",
-                  "content": "作品：最后的视界",
+                  "content": "作品：最后的视界  [切换]",
                   "fontFamily": "Geist",
                   "fontSize": 20,
                   "fontWeight": "normal"
@@ -572,7 +706,7 @@
                   "id": "BjisV",
                   "name": "titleText",
                   "fill": "$foreground.primary",
-                  "content": "作品：最后的视界",
+                  "content": "作品：最后的视界  [切换]",
                   "fontFamily": "Geist",
                   "fontSize": 20,
                   "fontWeight": "normal"
@@ -1467,7 +1601,7 @@
                   "type": "text",
                   "id": "6e9Pj",
                   "fill": "$foreground.primary",
-                  "content": "最后的视界",
+                  "content": "最后的视界  [切换]",
                   "fontFamily": "Geist",
                   "fontSize": 20,
                   "fontWeight": "normal"
@@ -1671,7 +1805,7 @@
                   "id": "QyTTe",
                   "name": "titleText",
                   "fill": "$foreground.primary",
-                  "content": "作品：最后的视界",
+                  "content": "作品：最后的视界  [切换]",
                   "fontFamily": "Geist",
                   "fontSize": 20,
                   "fontWeight": "normal"
@@ -2154,7 +2288,7 @@
                   "id": "cx7Ao",
                   "name": "titleText",
                   "fill": "$foreground.primary",
-                  "content": "作品：未命名新书",
+                  "content": "作品：未命名新书  [切换]",
                   "fontFamily": "Geist",
                   "fontSize": 20,
                   "fontWeight": "normal"
@@ -2637,7 +2771,7 @@
                   "id": "sISrJ",
                   "name": "titleText",
                   "fill": "$foreground.primary",
-                  "content": "作品：最后的视界",
+                  "content": "作品：最后的视界  [切换]",
                   "fontFamily": "Geist",
                   "fontSize": 20,
                   "fontWeight": "normal"
@@ -3120,7 +3254,7 @@
                   "id": "lvCu5",
                   "name": "titleText",
                   "fill": "$foreground.primary",
-                  "content": "作品：最后的视界",
+                  "content": "作品：最后的视界  [切换]",
                   "fontFamily": "Geist",
                   "fontSize": 20,
                   "fontWeight": "normal"
@@ -3604,7 +3738,7 @@
                   "id": "cPdfY",
                   "name": "titleText",
                   "fill": "$foreground.primary",
-                  "content": "作品：最后的视界",
+                  "content": "作品：最后的视界  [切换]",
                   "fontFamily": "Geist",
                   "fontSize": 20,
                   "fontWeight": "normal"
