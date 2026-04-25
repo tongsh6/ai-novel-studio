@@ -311,7 +311,8 @@ Pre-freeze 已完成：§4.2 中 4 个阻塞输入已分别升格为 ADR-0012 / 
 1. 每条流程必须绑定 ADR-0008 的 intent。
 2. 每条流程的必填信息必须来自 ADR-0010 的 slot schema。
 3. 缺必填 slot 时进入 clarification，不允许 UI 自行执行。
-4. 高风险或高预算路径必须进入 confirmation / checkpoint。
+4. `required_to_execute` slot 是执行约束，不是作者表单；当作者不知道答案时，UI 必须通过候选方向、对比方案、编辑建议或自然语言追问来帮助收束，而不是要求作者直接填写专业字段。
+5. 高风险或高预算路径必须进入 confirmation / checkpoint。
 
 ### 6.7 `ui-design/46-state-and-feedback.md`
 

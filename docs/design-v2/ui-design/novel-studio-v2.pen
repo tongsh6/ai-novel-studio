@@ -5,7 +5,7 @@
       "type": "frame",
       "id": "EJlER",
       "x": 0,
-      "y": 0,
+      "y": -600,
       "name": "组件基线",
       "width": 800,
       "fill": "$surface.primary",
@@ -445,8 +445,8 @@
             {
               "type": "frame",
               "id": "3aZSY",
-              "name": "structurePanel",
-              "width": 400,
+              "name": "structureRailCollapsed",
+              "width": 168,
               "height": "fill_container",
               "fill": "$surface.primary",
               "stroke": {
@@ -456,8 +456,9 @@
                 "fill": "$border.subtle"
               },
               "layout": "vertical",
-              "gap": 32,
-              "padding": 32,
+              "gap": 20,
+              "padding": 16,
+              "alignItems": "center",
               "children": [
                 {
                   "type": "text",
@@ -465,50 +466,58 @@
                   "name": "spTitle",
                   "fill": "$foreground.secondary",
                   "content": "作品档案",
-                  "fontFamily": "Geist",
-                  "fontSize": 12,
+                  "textAlign": "center",
+                  "fontFamily": "Geist Mono",
+                  "fontSize": 11,
                   "fontWeight": "normal",
                   "letterSpacing": 1.5
                 },
                 {
                   "type": "frame",
                   "id": "cvWda",
-                  "name": "spItem1",
+                  "name": "railSummary",
                   "width": "fill_container",
                   "layout": "vertical",
-                  "gap": 8,
+                  "gap": 10,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
                       "id": "kJu03",
                       "name": "spItem1Title",
                       "fill": "$accent.primary",
-                      "content": "待采纳",
+                      "content": "待采纳 1",
+                      "textAlign": "center",
                       "fontFamily": "Geist",
-                      "fontSize": 10,
+                      "fontSize": 12,
                       "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
                       "id": "emIEE",
-                      "name": "spItem1Card",
+                      "name": "openArchiveEntry",
                       "width": "fill_container",
                       "stroke": {
                         "thickness": 1,
                         "fill": "$border.subtle"
                       },
                       "layout": "vertical",
-                      "gap": 8,
-                      "padding": 16,
+                      "gap": 6,
+                      "padding": 12,
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
                           "id": "xtF6P",
                           "name": "spItem1CardText",
                           "fill": "$foreground.primary",
-                          "content": "【伏笔】导师的怀表",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "打开档案\n风险 1 · 伏笔 2",
+                          "lineHeight": 1.5,
+                          "textAlign": "center",
                           "fontFamily": "Geist",
-                          "fontSize": 14,
+                          "fontSize": 12,
                           "fontWeight": "normal"
                         }
                       ]
@@ -524,10 +533,9 @@
     {
       "type": "frame",
       "id": "ATnmR",
-      "x": 0,
+      "x": 3080,
       "y": 0,
       "name": "43§5-structure-panel-expanded",
-      "enabled": false,
       "width": 1440,
       "height": 900,
       "fill": "$surface.primary",
@@ -1120,7 +1128,7 @@
                                       "id": "InYn3",
                                       "name": "spCard1Btn2Text",
                                       "fill": "$foreground.primary",
-                                      "content": "修改意图",
+                                      "content": "提出修改",
                                       "fontFamily": "Geist",
                                       "fontSize": 12,
                                       "fontWeight": "normal"
@@ -1245,7 +1253,7 @@
                                   "id": "MLUkk",
                                   "name": "spCard2Meta1",
                                   "fill": "$foreground.secondary",
-                                  "content": "Ref: Vol 1 / Ch 1",
+                                  "content": "来源：第一卷 / 第一章",
                                   "fontFamily": "Geist Mono",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -1255,7 +1263,7 @@
                                   "id": "xrMhs",
                                   "name": "spCard2Meta2",
                                   "fill": "$foreground.secondary",
-                                  "content": "Rev: 2",
+                                  "content": "修订：第 2 版",
                                   "fontFamily": "Geist Mono",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -1303,7 +1311,7 @@
                           "id": "S1DUt",
                           "name": "spActionsText",
                           "fill": "$foreground.primary",
-                          "content": "添加新伏笔",
+                          "content": "发起伏笔调整",
                           "fontFamily": "Geist",
                           "fontSize": 14,
                           "fontWeight": "normal"
@@ -1334,7 +1342,7 @@
     {
       "type": "frame",
       "id": "hEGz0",
-      "x": 0,
+      "x": 4620,
       "y": 0,
       "name": "44§3-reading-mode-stale",
       "width": 1440,
@@ -1624,8 +1632,8 @@
     {
       "type": "frame",
       "id": "feymL",
-      "x": 0,
-      "y": 0,
+      "x": 4620,
+      "y": 1000,
       "name": "46§6-checkpoint-feedback",
       "width": 1440,
       "height": 900,
@@ -1785,7 +1793,7 @@
                               "type": "text",
                               "id": "a7U7n",
                               "fill": "$accent.primary",
-                              "content": "长跑中断 (Checkpoint)",
+                              "content": "长跑暂停：需要处理",
                               "fontFamily": "Geist Mono",
                               "fontSize": 12,
                               "fontWeight": "bold"
@@ -1979,7 +1987,7 @@
                           "id": "tfu20",
                           "name": "inputPlaceholder",
                           "fill": "$foreground.secondary",
-                          "content": "请先处理上方的中断点 (Checkpoint)...",
+                          "content": "请先处理上方的暂停点...",
                           "fontFamily": "Geist",
                           "fontSize": 14,
                           "fontWeight": "normal"
@@ -2019,8 +2027,8 @@
             {
               "type": "frame",
               "id": "CmYpA",
-              "name": "spPanel",
-              "width": 400,
+              "name": "structureRailCollapsed",
+              "width": 168,
               "height": "fill_container",
               "fill": "$surface.primary",
               "stroke": {
@@ -2030,8 +2038,9 @@
                 "fill": "$border.subtle"
               },
               "layout": "vertical",
-              "gap": 32,
-              "padding": 32,
+              "gap": 20,
+              "padding": 16,
+              "alignItems": "center",
               "children": [
                 {
                   "type": "text",
@@ -2039,50 +2048,58 @@
                   "name": "spTitle",
                   "fill": "$foreground.secondary",
                   "content": "作品档案",
-                  "fontFamily": "Geist",
-                  "fontSize": 12,
+                  "textAlign": "center",
+                  "fontFamily": "Geist Mono",
+                  "fontSize": 11,
                   "fontWeight": "normal",
                   "letterSpacing": 1.5
                 },
                 {
                   "type": "frame",
                   "id": "z0Gl4",
-                  "name": "spItem1",
+                  "name": "railSummary",
                   "width": "fill_container",
                   "layout": "vertical",
-                  "gap": 8,
+                  "gap": 10,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
                       "id": "VmiYg",
                       "name": "spItem1Title",
                       "fill": "$accent.primary",
-                      "content": "待采纳",
+                      "content": "待处理 2",
+                      "textAlign": "center",
                       "fontFamily": "Geist",
-                      "fontSize": 10,
+                      "fontSize": 12,
                       "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
                       "id": "dsPyh",
-                      "name": "spItem1Card",
+                      "name": "openArchiveEntry",
                       "width": "fill_container",
                       "stroke": {
                         "thickness": 1,
                         "fill": "$border.subtle"
                       },
                       "layout": "vertical",
-                      "gap": 8,
-                      "padding": 16,
+                      "gap": 6,
+                      "padding": 12,
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
                           "id": "rBPBx",
                           "name": "spItem1CardText",
                           "fill": "$foreground.primary",
-                          "content": "【伏笔】导师的怀表",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "打开档案\n草稿 1 · 风险 1",
+                          "lineHeight": 1.5,
+                          "textAlign": "center",
                           "fontFamily": "Geist",
-                          "fontSize": 14,
+                          "fontSize": 12,
                           "fontWeight": "normal"
                         }
                       ]
@@ -2099,7 +2116,7 @@
       "type": "frame",
       "id": "6NI2I",
       "x": 0,
-      "y": 0,
+      "y": 1000,
       "name": "45§2-work-seed-guided-flow",
       "width": 1440,
       "height": 900,
@@ -2253,13 +2270,13 @@
                       "name": "msg2",
                       "descendants": {
                         "7I5rR": {
-                          "content": "太棒了！赛博朋克是个很好的方向。为了帮您更好地完成立项，我还需要了解几个核心设定。\n\n请在下方卡片中补充缺失的信息："
+                          "content": "太棒了！赛博朋克是个很好的方向。为了帮您更好地确定风格与受众，我构思了三个不同的侧重方向供您参考。您更倾向于哪一种？或者也可以直接告诉我您的独特想法。"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "XSr4R",
+                      "id": "SEdtx",
                       "name": "clarificationCard",
                       "width": 500,
                       "fill": "$surface.primary",
@@ -2269,167 +2286,133 @@
                         "fill": "$accent.primary"
                       },
                       "layout": "vertical",
-                      "gap": 20,
+                      "gap": 16,
                       "padding": 24,
                       "children": [
                         {
+                          "type": "text",
+                          "id": "yd8kn",
+                          "fill": "$accent.primary",
+                          "content": "? 推荐方向预演方案",
+                          "fontFamily": "Geist Mono",
+                          "fontSize": 12,
+                          "fontWeight": "bold"
+                        },
+                        {
                           "type": "frame",
-                          "id": "ES1Xi",
-                          "name": "header",
-                          "gap": 12,
-                          "alignItems": "center",
+                          "id": "WX19v",
+                          "name": "optA",
+                          "cornerRadius": "$rounded.sm",
+                          "stroke": {
+                            "thickness": 1,
+                            "fill": "$border.subtle"
+                          },
+                          "layout": "vertical",
+                          "gap": 8,
+                          "padding": 16,
                           "children": [
                             {
                               "type": "text",
-                              "id": "3nOcl",
-                              "fill": "$accent.primary",
-                              "content": "补充立项信息",
-                              "fontFamily": "Geist Mono",
-                              "fontSize": 12,
+                              "id": "dFSh6",
+                              "fill": "$foreground.primary",
+                              "content": "方向A：底层反抗的爽文体验",
+                              "fontFamily": "Geist",
+                              "fontSize": 14,
                               "fontWeight": "bold"
+                            },
+                            {
+                              "type": "text",
+                              "id": "lLEWH",
+                              "fill": "$foreground.secondary",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "卖点聚焦于草根逆袭与拳拳到肉的机械义体战斗，目标读者群体广。节奏极快。",
+                              "lineHeight": 1.5,
+                              "fontFamily": "Geist",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "cfVL9",
+                              "cornerRadius": "$rounded.sm",
+                              "stroke": {
+                                "thickness": 1,
+                                "fill": "$border.subtle"
+                              },
+                              "padding": [
+                                6,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "h0h0Q",
+                                  "fill": "$foreground.primary",
+                                  "content": "采纳方向A",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
                             }
                           ]
                         },
                         {
                           "type": "frame",
-                          "id": "JGr5z",
-                          "name": "formArea",
-                          "width": "fill_container",
+                          "id": "y1VBv",
+                          "name": "optB",
+                          "cornerRadius": "$rounded.sm",
+                          "stroke": {
+                            "thickness": 1,
+                            "fill": "$border.subtle"
+                          },
                           "layout": "vertical",
-                          "gap": 16,
+                          "gap": 8,
+                          "padding": 16,
                           "children": [
                             {
-                              "type": "frame",
-                              "id": "XyfaP",
-                              "name": "field1",
+                              "type": "text",
+                              "id": "p4iMs",
+                              "fill": "$foreground.primary",
+                              "content": "方向B：悬疑智斗与硬核极客",
+                              "fontFamily": "Geist",
+                              "fontSize": 14,
+                              "fontWeight": "bold"
+                            },
+                            {
+                              "type": "text",
+                              "id": "s2C3C",
+                              "fill": "$foreground.secondary",
+                              "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "layout": "vertical",
-                              "gap": 8,
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "O2hzM",
-                                  "fill": "$foreground.secondary",
-                                  "content": "题材 / 类型",
-                                  "fontFamily": "Geist",
-                                  "fontSize": 12,
-                                  "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "uCyeD",
-                                  "width": "fill_container",
-                                  "fill": "#F5F5F5",
-                                  "cornerRadius": "$rounded.sm",
-                                  "stroke": {
-                                    "thickness": 1,
-                                    "fill": "$border.subtle"
-                                  },
-                                  "padding": [
-                                    8,
-                                    12
-                                  ],
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "bpJJL",
-                                      "fill": "$foreground.primary",
-                                      "content": "赛博朋克",
-                                      "fontFamily": "Geist",
-                                      "fontSize": 14,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
-                                }
-                              ]
+                              "content": "卖点是财团背后的惊天阴谋、意识上传及潜行骇客操作，偏爱严密逻辑与反转。",
+                              "lineHeight": 1.5,
+                              "fontFamily": "Geist",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
-                              "id": "Fwz2f",
-                              "name": "field2",
-                              "width": "fill_container",
-                              "layout": "vertical",
-                              "gap": 8,
+                              "id": "tFtFp",
+                              "cornerRadius": "$rounded.sm",
+                              "stroke": {
+                                "thickness": 1,
+                                "fill": "$border.subtle"
+                              },
+                              "padding": [
+                                6,
+                                12
+                              ],
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "bvIR5",
-                                  "fill": "$accent.primary",
-                                  "content": "核心卖点 *必填*",
-                                  "fontFamily": "Geist",
+                                  "id": "gVDCS",
+                                  "fill": "$foreground.primary",
+                                  "content": "采纳方向B",
+                                  "fontFamily": "Inter",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "oBxC2",
-                                  "width": "fill_container",
-                                  "fill": "#FFFFFF",
-                                  "cornerRadius": "$rounded.sm",
-                                  "stroke": {
-                                    "thickness": 1,
-                                    "fill": "$accent.primary"
-                                  },
-                                  "padding": [
-                                    8,
-                                    12
-                                  ],
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "vQzpZ",
-                                      "fill": "#000000",
-                                      "content": "如：底层黑客觉醒，对抗巨型财阀...",
-                                      "fontFamily": "Geist",
-                                      "fontSize": 14,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
-                                }
-                              ]
-                            },
-                            {
-                              "type": "frame",
-                              "id": "SvpjL",
-                              "name": "field3",
-                              "width": "fill_container",
-                              "layout": "vertical",
-                              "gap": 8,
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "NPRcA",
-                                  "fill": "$accent.primary",
-                                  "content": "目标读者 *必填*",
-                                  "fontFamily": "Geist",
-                                  "fontSize": 12,
-                                  "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "UbhaX",
-                                  "width": "fill_container",
-                                  "fill": "#FFFFFF",
-                                  "cornerRadius": "$rounded.sm",
-                                  "stroke": {
-                                    "thickness": 1,
-                                    "fill": "$accent.primary"
-                                  },
-                                  "padding": [
-                                    8,
-                                    12
-                                  ],
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "Q48eG",
-                                      "fill": "#000000",
-                                      "content": "如：喜欢快节奏爽文、科幻悬疑的男性...",
-                                      "fontFamily": "Geist",
-                                      "fontSize": 14,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
                                 }
                               ]
                             }
@@ -2437,8 +2420,8 @@
                         },
                         {
                           "type": "frame",
-                          "id": "fH9fz",
-                          "name": "actions",
+                          "id": "50Ghn",
+                          "name": "acts",
                           "width": "fill_container",
                           "gap": 12,
                           "padding": [
@@ -2451,21 +2434,18 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "XfOJ5",
-                              "name": "btn",
-                              "fill": "$accent.primary",
-                              "cornerRadius": "$rounded.sm",
+                              "id": "hjfFQ",
                               "padding": [
-                                10,
+                                8,
                                 16
                               ],
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "X09B8",
-                                  "fill": "$surface.primary",
-                                  "content": "提交补充信息",
-                                  "fontFamily": "Geist",
+                                  "id": "AA3uE",
+                                  "fill": "$foreground.secondary",
+                                  "content": "我自己描述点子",
+                                  "fontFamily": "Inter",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
                                 }
@@ -2557,8 +2537,8 @@
             {
               "type": "frame",
               "id": "qARX4",
-              "name": "spPanel",
-              "width": 400,
+              "name": "structureRailCollapsed",
+              "width": 168,
               "height": "fill_container",
               "fill": "$surface.primary",
               "stroke": {
@@ -2568,8 +2548,9 @@
                 "fill": "$border.subtle"
               },
               "layout": "vertical",
-              "gap": 32,
-              "padding": 32,
+              "gap": 20,
+              "padding": 16,
+              "alignItems": "center",
               "children": [
                 {
                   "type": "text",
@@ -2577,27 +2558,33 @@
                   "name": "spTitle",
                   "fill": "$foreground.secondary",
                   "content": "作品档案",
-                  "fontFamily": "Geist",
-                  "fontSize": 12,
+                  "textAlign": "center",
+                  "fontFamily": "Geist Mono",
+                  "fontSize": 11,
                   "fontWeight": "normal",
                   "letterSpacing": 1.5
                 },
                 {
                   "type": "frame",
                   "id": "OY4u4",
-                  "name": "spItem1",
+                  "name": "railSummary",
                   "width": "fill_container",
                   "layout": "vertical",
-                  "gap": 8,
+                  "gap": 10,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
                       "id": "sY1mJ",
                       "name": "spItem1Title",
                       "fill": "$foreground.secondary",
-                      "content": "当前无待采纳产物",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "暂无待采纳\n打开档案",
+                      "lineHeight": 1.5,
+                      "textAlign": "center",
                       "fontFamily": "Geist",
-                      "fontSize": 10,
+                      "fontSize": 12,
                       "fontWeight": "normal"
                     }
                   ]
@@ -2612,7 +2599,7 @@
       "type": "frame",
       "id": "sEYft",
       "x": 1540,
-      "y": 0,
+      "y": 1000,
       "name": "45§3-new-volume-chapter-flow",
       "width": 1440,
       "height": 900,
@@ -2766,13 +2753,13 @@
                       "width": "fill_container",
                       "descendants": {
                         "7I5rR": {
-                          "content": "收到，立项第二卷【守卫的余烬】。\n承接第一卷结尾，主角获得了核心密码，开始新的长跑前，我们需要对本卷进行基础规划，您可以补充或由我发散："
+                          "content": "收到，开启第二卷《守卫的余烬》。承接第一卷结尾，主角破解了核心密码。根据这部分伏笔，我为您推演了本卷的核心目标方向，您倾向于往哪边推演呢？"
                         }
                       }
                     },
                     {
                       "type": "frame",
-                      "id": "kZnRx",
+                      "id": "Exls0",
                       "name": "clarificationCard",
                       "width": 500,
                       "fill": "$surface.primary",
@@ -2782,122 +2769,73 @@
                         "fill": "$accent.primary"
                       },
                       "layout": "vertical",
-                      "gap": 20,
+                      "gap": 16,
                       "padding": 24,
                       "children": [
                         {
+                          "type": "text",
+                          "id": "TZQhG",
+                          "fill": "$accent.primary",
+                          "content": "? 卷目标方向推演",
+                          "fontFamily": "Geist Mono",
+                          "fontSize": 12,
+                          "fontWeight": "bold"
+                        },
+                        {
                           "type": "frame",
-                          "id": "2ZVPI",
-                          "name": "header",
-                          "gap": 12,
-                          "alignItems": "center",
+                          "id": "RI8mG",
+                          "name": "voptA",
+                          "cornerRadius": "$rounded.sm",
+                          "stroke": {
+                            "thickness": 1,
+                            "fill": "$border.subtle"
+                          },
+                          "layout": "vertical",
+                          "gap": 8,
+                          "padding": 16,
                           "children": [
                             {
                               "type": "text",
-                              "id": "oh4CA",
-                              "fill": "$accent.primary",
-                              "content": "补充卷规划要素",
-                              "fontFamily": "Geist Mono",
-                              "fontSize": 12,
+                              "id": "5g0BM",
+                              "fill": "$foreground.primary",
+                              "content": "方向1：探索坐标，古代机械起源",
+                              "fontFamily": "Geist",
+                              "fontSize": 14,
                               "fontWeight": "bold"
-                            }
-                          ]
-                        },
-                        {
-                          "type": "frame",
-                          "id": "qRbDP",
-                          "name": "formArea",
-                          "width": "fill_container",
-                          "layout": "vertical",
-                          "gap": 16,
-                          "children": [
+                            },
                             {
-                              "type": "frame",
-                              "id": "8Qp0X",
-                              "name": "field1",
+                              "type": "text",
+                              "id": "xKrGd",
+                              "fill": "$foreground.secondary",
+                              "textGrowth": "fixed-width",
                               "width": "fill_container",
-                              "layout": "vertical",
-                              "gap": 8,
-                              "children": [
-                                {
-                                  "type": "text",
-                                  "id": "Bv9LC",
-                                  "fill": "$accent.primary",
-                                  "content": "本卷核心驱动目标 *",
-                                  "fontFamily": "Geist",
-                                  "fontSize": 12,
-                                  "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "HLuaH",
-                                  "width": "fill_container",
-                                  "fill": "#FFFFFF",
-                                  "cornerRadius": "$rounded.sm",
-                                  "stroke": {
-                                    "thickness": 1,
-                                    "fill": "$accent.primary"
-                                  },
-                                  "padding": [
-                                    8,
-                                    12
-                                  ],
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "3veKO",
-                                      "fill": "#000000",
-                                      "content": "如：破译密码，找到传说中的地下庇护所...",
-                                      "fontFamily": "Geist",
-                                      "fontSize": 14,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
-                                }
-                              ]
+                              "content": "根据密码解密的地图，进入未知遗迹区。本卷转为废土探索流，引出机械造物的历史。",
+                              "lineHeight": 1.5,
+                              "fontFamily": "Geist",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
                             },
                             {
                               "type": "frame",
-                              "id": "Sm65i",
-                              "name": "field2",
-                              "width": "fill_container",
-                              "layout": "vertical",
-                              "gap": 8,
+                              "id": "1iA1y",
+                              "cornerRadius": "$rounded.sm",
+                              "stroke": {
+                                "thickness": 1,
+                                "fill": "$border.subtle"
+                              },
+                              "padding": [
+                                6,
+                                12
+                              ],
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "nPIBv",
-                                  "fill": "$foreground.secondary",
-                                  "content": "将登场的关键新角色 / 势力",
-                                  "fontFamily": "Geist",
+                                  "id": "9nGyQ",
+                                  "fill": "$foreground.primary",
+                                  "content": "按此方向规划",
+                                  "fontFamily": "Inter",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
-                                },
-                                {
-                                  "type": "frame",
-                                  "id": "DYD5v",
-                                  "width": "fill_container",
-                                  "fill": "#F5F5F5",
-                                  "cornerRadius": "$rounded.sm",
-                                  "stroke": {
-                                    "thickness": 1,
-                                    "fill": "$border.subtle"
-                                  },
-                                  "padding": [
-                                    8,
-                                    12
-                                  ],
-                                  "children": [
-                                    {
-                                      "type": "text",
-                                      "id": "Usgqp",
-                                      "fill": "$foreground.secondary",
-                                      "content": "（可选）可提供方向，其余由我自主发散...",
-                                      "fontFamily": "Geist",
-                                      "fontSize": 14,
-                                      "fontWeight": "normal"
-                                    }
-                                  ]
                                 }
                               ]
                             }
@@ -2905,8 +2843,68 @@
                         },
                         {
                           "type": "frame",
-                          "id": "GunB5",
-                          "name": "actions",
+                          "id": "4hJ8t",
+                          "name": "voptB",
+                          "cornerRadius": "$rounded.sm",
+                          "stroke": {
+                            "thickness": 1,
+                            "fill": "$border.subtle"
+                          },
+                          "layout": "vertical",
+                          "gap": 8,
+                          "padding": 16,
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "f2KGj",
+                              "fill": "$foreground.primary",
+                              "content": "方向2：密码夺权，财团正面对抗",
+                              "fontFamily": "Geist",
+                              "fontSize": 14,
+                              "fontWeight": "bold"
+                            },
+                            {
+                              "type": "text",
+                              "id": "nO5gb",
+                              "fill": "$foreground.secondary",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "利用密码接管贫民窟防线设施。主基调变为据点经营与高科技战争，对抗三大财团渗透。",
+                              "lineHeight": 1.5,
+                              "fontFamily": "Geist",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            },
+                            {
+                              "type": "frame",
+                              "id": "z63Pz",
+                              "cornerRadius": "$rounded.sm",
+                              "stroke": {
+                                "thickness": 1,
+                                "fill": "$border.subtle"
+                              },
+                              "padding": [
+                                6,
+                                12
+                              ],
+                              "children": [
+                                {
+                                  "type": "text",
+                                  "id": "CZmkQ",
+                                  "fill": "$foreground.primary",
+                                  "content": "按此方向规划",
+                                  "fontFamily": "Inter",
+                                  "fontSize": 12,
+                                  "fontWeight": "normal"
+                                }
+                              ]
+                            }
+                          ]
+                        },
+                        {
+                          "type": "frame",
+                          "id": "hZzUi",
+                          "name": "vacts",
                           "width": "fill_container",
                           "gap": 12,
                           "padding": [
@@ -2919,21 +2917,18 @@
                           "children": [
                             {
                               "type": "frame",
-                              "id": "ibl68",
-                              "name": "btn",
-                              "fill": "$accent.primary",
-                              "cornerRadius": "$rounded.sm",
+                              "id": "Q2rVp",
                               "padding": [
-                                10,
+                                8,
                                 16
                               ],
                               "children": [
                                 {
                                   "type": "text",
-                                  "id": "4Su0w",
-                                  "fill": "$surface.primary",
-                                  "content": "生成本卷草纲",
-                                  "fontFamily": "Geist",
+                                  "id": "X7N8D",
+                                  "fill": "$foreground.secondary",
+                                  "content": "我自己描述点子",
+                                  "fontFamily": "Inter",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
                                 }
@@ -3025,8 +3020,8 @@
             {
               "type": "frame",
               "id": "pRQZo",
-              "name": "spPanel",
-              "width": 400,
+              "name": "structureRailCollapsed",
+              "width": 168,
               "height": "fill_container",
               "fill": "$surface.primary",
               "stroke": {
@@ -3036,8 +3031,9 @@
                 "fill": "$border.subtle"
               },
               "layout": "vertical",
-              "gap": 32,
-              "padding": 32,
+              "gap": 20,
+              "padding": 16,
+              "alignItems": "center",
               "children": [
                 {
                   "type": "text",
@@ -3045,27 +3041,33 @@
                   "name": "spTitle",
                   "fill": "$foreground.secondary",
                   "content": "作品档案",
-                  "fontFamily": "Geist",
-                  "fontSize": 12,
+                  "textAlign": "center",
+                  "fontFamily": "Geist Mono",
+                  "fontSize": 11,
                   "fontWeight": "normal",
                   "letterSpacing": 1.5
                 },
                 {
                   "type": "frame",
                   "id": "AjIDp",
-                  "name": "spItem1",
+                  "name": "railSummary",
                   "width": "fill_container",
                   "layout": "vertical",
-                  "gap": 8,
+                  "gap": 10,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
                       "id": "44Tcy",
                       "name": "spItem1Title",
                       "fill": "$foreground.secondary",
-                      "content": "当前无待采纳产物",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "暂无待采纳\n打开档案",
+                      "lineHeight": 1.5,
+                      "textAlign": "center",
                       "fontFamily": "Geist",
-                      "fontSize": 10,
+                      "fontSize": 12,
                       "fontWeight": "normal"
                     }
                   ]
@@ -3079,10 +3081,9 @@
     {
       "type": "frame",
       "id": "PZAVY",
-      "x": 3080,
+      "x": 1540,
       "y": 0,
       "name": "42§4-adoption-card-states",
-      "enabled": false,
       "width": 1440,
       "height": 900,
       "fill": "$surface.primary",
@@ -3268,7 +3269,7 @@
                               "id": "uM7K2",
                               "name": "adoptionTitle",
                               "fill": "$accent.primary",
-                              "content": "待采纳产物 (Tentative Adoption)",
+                              "content": "待采纳产物",
                               "fontFamily": "Geist Mono",
                               "fontSize": 12,
                               "fontWeight": "bold"
@@ -3321,7 +3322,7 @@
                             {
                               "type": "frame",
                               "id": "yZTpz",
-                              "name": "btnReject",
+                              "name": "btnDiscard",
                               "cornerRadius": "$rounded.sm",
                               "stroke": {
                                 "thickness": 1,
@@ -3336,7 +3337,7 @@
                                   "type": "text",
                                   "id": "LA8sK",
                                   "fill": "$foreground.secondary",
-                                  "content": "拒绝",
+                                  "content": "废弃候选",
                                   "fontFamily": "Geist",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -3346,7 +3347,7 @@
                             {
                               "type": "frame",
                               "id": "IRdvd",
-                              "name": "btnModify",
+                              "name": "btnRevise",
                               "cornerRadius": "$rounded.sm",
                               "stroke": {
                                 "thickness": 1,
@@ -3361,7 +3362,7 @@
                                   "type": "text",
                                   "id": "X96Xz",
                                   "fill": "$foreground.primary",
-                                  "content": "修改意图",
+                                  "content": "提出修改",
                                   "fontFamily": "Geist",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -3476,8 +3477,8 @@
             {
               "type": "frame",
               "id": "UOB5O",
-              "name": "structurePanel",
-              "width": 400,
+              "name": "structureRailCollapsed",
+              "width": 168,
               "height": "fill_container",
               "fill": "$surface.primary",
               "stroke": {
@@ -3487,8 +3488,9 @@
                 "fill": "$border.subtle"
               },
               "layout": "vertical",
-              "gap": 32,
-              "padding": 32,
+              "gap": 20,
+              "padding": 16,
+              "alignItems": "center",
               "children": [
                 {
                   "type": "text",
@@ -3496,50 +3498,58 @@
                   "name": "spTitle",
                   "fill": "$foreground.secondary",
                   "content": "作品档案",
-                  "fontFamily": "Geist",
-                  "fontSize": 12,
+                  "textAlign": "center",
+                  "fontFamily": "Geist Mono",
+                  "fontSize": 11,
                   "fontWeight": "normal",
                   "letterSpacing": 1.5
                 },
                 {
                   "type": "frame",
                   "id": "RtrHW",
-                  "name": "spItem1",
+                  "name": "railSummary",
                   "width": "fill_container",
                   "layout": "vertical",
-                  "gap": 8,
+                  "gap": 10,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
                       "id": "gi20J",
                       "name": "spItem1Title",
                       "fill": "$accent.primary",
-                      "content": "待采纳",
+                      "content": "待采纳 1",
+                      "textAlign": "center",
                       "fontFamily": "Geist",
-                      "fontSize": 10,
+                      "fontSize": 12,
                       "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
                       "id": "voYfA",
-                      "name": "spItem1Card",
+                      "name": "openArchiveEntry",
                       "width": "fill_container",
                       "stroke": {
                         "thickness": 1,
                         "fill": "$border.subtle"
                       },
                       "layout": "vertical",
-                      "gap": 8,
-                      "padding": 16,
+                      "gap": 6,
+                      "padding": 12,
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
                           "id": "cNNT6",
                           "name": "spItem1CardText",
                           "fill": "$foreground.primary",
-                          "content": "【伏笔】导师的怀表",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "打开档案\n风险 1 · 伏笔 2",
+                          "lineHeight": 1.5,
+                          "textAlign": "center",
                           "fontFamily": "Geist",
-                          "fontSize": 14,
+                          "fontSize": 12,
                           "fontWeight": "normal"
                         }
                       ]
@@ -3555,10 +3565,9 @@
     {
       "type": "frame",
       "id": "NJnuz",
-      "x": 4620,
-      "y": 0,
+      "x": 3080,
+      "y": 1000,
       "name": "45§4-long-run-confirmation",
-      "enabled": false,
       "width": 1440,
       "height": 900,
       "fill": "$surface.primary",
@@ -3694,7 +3703,7 @@
                     {
                       "type": "frame",
                       "id": "UPGOY",
-                      "name": "checkpointCard",
+                      "name": "confirmationCard",
                       "width": 500,
                       "fill": "$surface.primary",
                       "cornerRadius": "$rounded.sm",
@@ -3709,7 +3718,7 @@
                         {
                           "type": "frame",
                           "id": "tTDvV",
-                          "name": "cpHeader",
+                          "name": "confirmationHeader",
                           "gap": 12,
                           "alignItems": "center",
                           "children": [
@@ -3730,7 +3739,7 @@
                           "fill": "$foreground.primary",
                           "textGrowth": "fixed-width",
                           "width": "fill_container",
-                          "content": "目标：\n    基于既定卷纲大批量生成 10 章草稿。\n\n算力消耗估计：\n    高 (High)\n\n潜在偏离风险：\n    大批量连续生成可能出现后期角色行为走形的风险。",
+                          "content": "目标：\n    基于既定卷纲大批量生成 10 章草稿。\n\n算力消耗估计：\n    高\n\n潜在偏离风险：\n    大批量连续生成可能出现后期角色行为走形的风险。",
                           "lineHeight": 1.6,
                           "fontFamily": "Geist",
                           "fontSize": 14,
@@ -3769,7 +3778,9 @@
                               "type": "text",
                               "id": "rzGjA",
                               "fill": "$foreground.primary",
-                              "content": "- 容错范围：中度容忍 (如人物小习惯偏移会自动修补继续)\n- 人工干预点：在第 5 章处强制设置 Checkpoint，或者剧情严重偏离时暂停并等待您确认。",
+                              "textGrowth": "fixed-width",
+                              "width": "fill_container",
+                              "content": "- 容错范围：中度容忍（人物小习惯偏移会自动修补继续）\n- 人工干预点：第 5 章强制暂停确认；若剧情严重偏离，也会先暂停并等待你确认。",
                               "lineHeight": 1.5,
                               "fontFamily": "Geist",
                               "fontSize": 14,
@@ -3794,7 +3805,7 @@
                             {
                               "type": "frame",
                               "id": "mAOS6",
-                              "name": "btnCancel",
+                              "name": "btnReject",
                               "cornerRadius": "$rounded.sm",
                               "stroke": {
                                 "thickness": 1,
@@ -3809,7 +3820,7 @@
                                   "type": "text",
                                   "id": "73exn",
                                   "fill": "$foreground.secondary",
-                                  "content": "取消生成",
+                                  "content": "暂不继续",
                                   "fontFamily": "Geist",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -3819,7 +3830,7 @@
                             {
                               "type": "frame",
                               "id": "3PlSc",
-                              "name": "btnBranch",
+                              "name": "btnRevise",
                               "cornerRadius": "$rounded.sm",
                               "stroke": {
                                 "thickness": 1,
@@ -3834,7 +3845,7 @@
                                   "type": "text",
                                   "id": "js2Tp",
                                   "fill": "$foreground.primary",
-                                  "content": "调整策略或阈值",
+                                  "content": "调整策略",
                                   "fontFamily": "Geist",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -3844,7 +3855,7 @@
                             {
                               "type": "frame",
                               "id": "8B02o",
-                              "name": "btnResume",
+                              "name": "btnConfirm",
                               "fill": "$accent.primary",
                               "cornerRadius": "$rounded.sm",
                               "padding": [
@@ -3856,7 +3867,7 @@
                                   "type": "text",
                                   "id": "tMmfZ",
                                   "fill": "$surface.primary",
-                                  "content": "同意，启动长跑",
+                                  "content": "确认，启动长跑",
                                   "fontFamily": "Geist",
                                   "fontSize": 12,
                                   "fontWeight": "normal"
@@ -3951,8 +3962,8 @@
             {
               "type": "frame",
               "id": "CFDK2",
-              "name": "spPanel",
-              "width": 400,
+              "name": "structureRailCollapsed",
+              "width": 168,
               "height": "fill_container",
               "fill": "$surface.primary",
               "stroke": {
@@ -3962,8 +3973,9 @@
                 "fill": "$border.subtle"
               },
               "layout": "vertical",
-              "gap": 32,
-              "padding": 32,
+              "gap": 20,
+              "padding": 16,
+              "alignItems": "center",
               "children": [
                 {
                   "type": "text",
@@ -3971,50 +3983,58 @@
                   "name": "spTitle",
                   "fill": "$foreground.secondary",
                   "content": "作品档案",
-                  "fontFamily": "Geist",
-                  "fontSize": 12,
+                  "textAlign": "center",
+                  "fontFamily": "Geist Mono",
+                  "fontSize": 11,
                   "fontWeight": "normal",
                   "letterSpacing": 1.5
                 },
                 {
                   "type": "frame",
                   "id": "fJwGO",
-                  "name": "spItem1",
+                  "name": "railSummary",
                   "width": "fill_container",
                   "layout": "vertical",
-                  "gap": 8,
+                  "gap": 10,
+                  "alignItems": "center",
                   "children": [
                     {
                       "type": "text",
                       "id": "90S9b",
                       "name": "spItem1Title",
                       "fill": "$accent.primary",
-                      "content": "待采纳",
+                      "content": "待采纳 1",
+                      "textAlign": "center",
                       "fontFamily": "Geist",
-                      "fontSize": 10,
+                      "fontSize": 12,
                       "fontWeight": "normal"
                     },
                     {
                       "type": "frame",
                       "id": "SSuVj",
-                      "name": "spItem1Card",
+                      "name": "openArchiveEntry",
                       "width": "fill_container",
                       "stroke": {
                         "thickness": 1,
                         "fill": "$border.subtle"
                       },
                       "layout": "vertical",
-                      "gap": 8,
-                      "padding": 16,
+                      "gap": 6,
+                      "padding": 12,
+                      "alignItems": "center",
                       "children": [
                         {
                           "type": "text",
                           "id": "5j3fa",
                           "name": "spItem1CardText",
                           "fill": "$foreground.primary",
-                          "content": "【伏笔】导师的怀表",
+                          "textGrowth": "fixed-width",
+                          "width": "fill_container",
+                          "content": "打开档案\n风险 1 · 伏笔 2",
+                          "lineHeight": 1.5,
+                          "textAlign": "center",
                           "fontFamily": "Geist",
-                          "fontSize": 14,
+                          "fontSize": 12,
                           "fontWeight": "normal"
                         }
                       ]

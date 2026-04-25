@@ -182,7 +182,20 @@ UI 不得把以下状态只藏在 assistant message 中：
 
 卡片系统的完整规范在 `42-card-system.md` 中定义；本文只规定其地位。
 
-### 6.3 长跑透明
+### 6.3 引导不是表单
+
+当系统缺少执行所需 slot 时，UI 必须显式进入 clarification，但 clarification 不等于把 required slot 逐项做成输入框。
+
+尤其在立项、新卷、新章等创作决策场景中，作者经常只有模糊意图，尚未想清楚类型、卖点、读者、卷目标或章节冲突。此时 UI 应让 Agent 先提供候选方向、对比方案和编辑建议，再把作者的选择整理为 draft slot / current parameters，最后通过 Confirmation Card 收束。
+
+原则：
+
+1. required slot 是执行前必须稳定的参数，不是作者必须一开始知道的答案。
+2. Clarification Card 可以是候选方向卡、多方案对比卡或共同定位卡。
+3. UI 不得绕过 slot schema 执行，也不得把探索阶段的候选值直接写入 authoritative state。
+4. 作者明确知道答案时，可以直接口述或填写；作者不知道时，应由系统辅助归纳。
+
+### 6.4 长跑透明
 
 长跑任务必须在主工作台中有稳定位置，至少显示：
 
@@ -307,7 +320,7 @@ UI 阶段必须遵守：
 | `42-card-system.md` | 卡片只投影 ADR-0006 canonical card type，不新增基础语义 |
 | `43-structure-panel.md` | ADR-0015 渐进披露、不做巨型表单、不直写 authoritative state |
 | `44-reading-mode.md` | accepted projection only、projection 四态、tentative preview 显式化 |
-| `45-guided-conversation-flows.md` | intent / slot 来自 ADR-0008 / ADR-0010，缺 slot 走 clarification |
+| `45-guided-conversation-flows.md` | intent / slot 来自 ADR-0008 / ADR-0010，缺 slot 走 clarification；required slot 不等于作者表单 |
 | `46-state-and-feedback.md` | 状态必须来源于 TurnResult / task / artifact / adoption / projection，不只靠颜色表达 |
 | `47-ui-copy-guidelines.md` | 文案区分 confirmation 与 adoption、风险提示必须说明影响范围和可选动作 |
 

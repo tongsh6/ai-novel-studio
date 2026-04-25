@@ -201,6 +201,14 @@ clarification 回答的问题是：
 - `expiry_policy`
 - `resolution_ref`
 
+可选包括：
+
+- `candidate_answers`
+- `suggested_directions`
+- `comparison_summary`
+
+这些字段用于 UI 展示候选方向或编辑建议，不改变 clarification 的基础状态机语义。
+
 ### 5.5 clarification 的 effect
 
 clarification 触发后，当前 turn 必须至少满足：
@@ -233,6 +241,23 @@ clarification 触发后，当前 turn 必须至少满足：
 4. 决定进入执行、继续 clarification、或触发别的行为
 
 clarification answer 不应被当作普通新请求粗暴覆盖，除非系统明确判断它是新 intent。
+
+### 5.8 clarification 不是表单
+
+required slots 未满足时必须触发 clarification，但 clarification 的作者可见形态不应被固定为输入框表单。
+
+允许：
+
+- 展示系统根据上下文生成的候选答案。
+- 展示多个创作方向的利弊对比。
+- 让用户选择“更像 A / B / C”或“换一组”。
+- 允许用户用自然语言补充偏好，再由系统合并回 `current_parameters`。
+
+禁止：
+
+- 因为缺 required slot 就机械要求用户填写专业字段。
+- 在用户确认前把候选答案当作已执行参数。
+- 由 UI 自己绕过 behavior / next_action 判断生成输入流程。
 
 ---
 
@@ -732,6 +757,8 @@ UI 必须消费行为 contract，而不是自己猜系统在问什么。
 - “这个像 confirmation，所以给两个按钮”
 
 这些必须由 behavior type 和 next_action 驱动。
+
+其中 clarification 的 UI 可以是输入框、候选方向卡或多方案选择卡；具体形态由 behavior-specific UI hint 与 Domain slot policy 共同决定，不能由前端只看 `required_fields` 自行推断。
 
 ### 17.3 行为的 UI 基本动作
 

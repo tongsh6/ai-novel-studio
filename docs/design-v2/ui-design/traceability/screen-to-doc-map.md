@@ -12,8 +12,8 @@
 | `42§4-adoption-card-states` (PZAVY) | `ui-design/42-card-system.md` §4 | ADR-0006 / ADR-0007 / ADR-0012 / ADR-0013 | ✅ 已修订：采纳 / 废弃 / 修改文案对齐；已导出 PNG |
 | `43§5-structure-panel-expanded` (ATnmR) | `ui-design/43-structure-panel.md` §5 | ADR-0014 / ADR-0015 | ✅ 已修订：frame 已启用；已导出 PNG |
 | `44§3-reading-mode-stale` (hEGz0) | `ui-design/44-reading-mode.md` §3 | ADR-0009 / ADR-0011 | ✅ 已导出 PNG |
-| `45§2-work-seed-guided-flow` (6NI2I) | `ui-design/45-guided-conversation-flows.md` §2 | ADR-0008 / ADR-0010 | ✅ 已导出 PNG |
-| `45§3-new-volume-chapter-flow` (sEYft) | `ui-design/45-guided-conversation-flows.md` §3 | ADR-0008 / ADR-0010 | ✅ 已导出 PNG |
+| `45§2-work-seed-guided-flow` (6NI2I) | `ui-design/45-guided-conversation-flows.md` §4.1 | ADR-0008 / ADR-0010 | ✅ 已修订：探索式方向候选已体现；已导出 PNG |
+| `45§3-new-volume-chapter-flow` (sEYft) | `ui-design/45-guided-conversation-flows.md` §4.2 | ADR-0008 / ADR-0010 | ✅ 已修订：探索式推进方向候选已体现；已导出 PNG |
 | `45§4-long-run-confirmation` (NJnuz) | `ui-design/45-guided-conversation-flows.md` §4 | ADR-0003 / ADR-0006 | ✅ 已修订：confirmation card 语义对齐；已导出 PNG |
 | `46§6-checkpoint-feedback` (feymL) | `ui-design/46-state-and-feedback.md` §6 | ADR-0002 / ADR-0003 / ADR-0012 / ADR-0013 | ✅ 已修订：checkpoint 文案本地化；已导出 PNG |
 
