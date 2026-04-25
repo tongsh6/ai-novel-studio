@@ -689,10 +689,10 @@ maintenance 主要作用于连续性对象，而不是主结构对象本身。
 
 以下只定边界，不定最终实现：
 
-1. 各 maintenance artifact 的最终 schema
+1. ~~各 maintenance artifact 的最终 schema~~ ✅ 最小公共字段集合（`hook_name` / `revision_base` / `proposed_change` / `requires_adoption` / `adoption_status` / `risk_class` / `auto_adoption_hint`）已由 ADR-0007（`adr/0007-maintenance-artifact-schema.md`，Accepted 2026-04-25）冻结；`adoption_card` payload 形状同期冻结；各 hook 私有字段仍通过 `proposed_change.payload` 扩展。
 2. scene -> chapter 聚合的具体算法
 3. ambiguity threshold 的默认值
-4. 哪些低风险维护结果可自动 adoption 的最终策略
+4. 哪些低风险维护结果可自动 adoption 的最终策略（ADR-0007 已留 `auto_adoption_hint` 字段位置；策略由 W9 工单与 `32-human-approval-policy.md` §13.1 联合冻结）
 
 ---
 

@@ -78,6 +78,18 @@
 - 维护偏连续性
 - 阅读 / 修订偏成品回看与反向修正
 
+### 3.3 首批 UI intent 与生命周期阶段对齐（ADR-0008）
+
+各阶段"主 intent family"的首批 UI intent 集合由 ADR-0008（`adr/0008-first-batch-intents.md`）§3 冻结：
+
+- 建立期 5 条（§3.1）
+- 规划期 4 条（§3.2）
+- 产出期 5 条（§3.3）
+- 维护期 4 条（§3.4）
+- 阅读与修订期 2 条（§3.5）
+
+合计 20 条，覆盖 5 阶段全部主 family；每条 intent 的 `risk_class` / `default_requires_confirmation` / `long_run_fit` 默认值见 ADR-0008 §3 各表。slot schema 由 ADR-0010 进一步冻结。本文档各阶段 §X.3 列出的"主 intent family"在 UI 首批阶段以 ADR-0008 为唯一真值表。
+
 ---
 
 ## 4. 建立期

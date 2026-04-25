@@ -369,6 +369,14 @@ worldrule 一旦 superseded，不代表旧版本没有历史意义，因此不�
 - timeline_event：这一章里有哪些关键事件应进入时间线
 - state_snapshot：这一章之后系统认定的重要状态是什么
 
+### 10.5 与 reader_recap 的边界（ADR-0009）
+
+`chapter_summary` 与 `reader_recap`（`27-reading-projection.md` §10）不是同一个对象，二者字段集合由 ADR-0009 §4 显式分离：
+
+- `chapter_summary` 字段（`fidelity_level` / `revision_base` 等）不得被 inline 到 `reader_recap`。
+- `reader_recap` 可以把 `chapter_summary` 作为来源之一，但 `recap_text` 不得直接复制 `chapter_summary` 原文。
+- adoption 状态各自独立：`chapter_summary` 使用 §13.5 的 7 态；`reader_recap` 不参与维护链路，刷新由 ADR-0011 状态机管理。
+
 ---
 
 ## 11. 连续性对象之间的关系
@@ -470,13 +478,17 @@ worldrule 一旦 superseded，不代表旧版本没有历史意义，因此不�
 
 ### 13.5 chapter_summary
 
-建议至少支持：
+`chapter_summary` 是 adoption 7 态对象，状态集合必须严格使用 `30-contract-glossary.md §3.2` + ADR-0001 的 canonical 7 态：
 
 - `TENTATIVE`
 - `ACCEPTED`
 - `EDITED_ACCEPTED`
+- `DISCARDED`
 - `SUPERSEDED`
+- `INVALIDATED`
 - `ARCHIVED`
+
+> 取值集合不得改写或删减；`02 §lines 523-533` 已固化合法转换；`06 §11.3` 与 ADR-0007 §2 表对齐使用同一 7 态。
 
 ---
 
@@ -650,6 +662,8 @@ resume 不应依赖全量旧正文，而应优先依赖：
 
 - chapter：结构节点
 - chapter_summary：维护与 memory 对象
+
+`chapter_summary` 与 `reader_recap` 也不是同一个对象，字段边界由 ADR-0009 §4 显式分离（详见 §10.5）。
 
 ### 20.2 character 不等于 state_snapshot
 

@@ -166,12 +166,15 @@ Foundation 由 12 个子系统组成。它们是并列模块，但不是完全�
 4. Capability & Intent Registry
 5. Memory Model
 6. Planning & Orchestration
-7. Provider Abstraction
-8. Observability & Audit
-9. Security, Authority & Budget
-10. Evolution Governance
+7. Consistency & Concurrency
+8. Provider Abstraction
+9. Observability & Audit
+10. Security, Authority & Budget
 11. UX Contract
 12. Multi-Agent Composition
+
+> 子系统编号 1-12 与文件 `01-12` 严格对齐，详见 `adr/0000-index.md` §3 第 1-2 条。
+> Evolution Governance 已下沉为 `00-overview.md §8.4` 治理纪律，承接 additive-first / schema version / ADR / contract tests / compatibility window 全部硬骨；不再作为独立子系统，因此不占任何 01-12 子系统编号槽位。
 
 ### 6.2 顶层依赖方向
 
@@ -197,26 +200,30 @@ Turn & Task State Machines
   -> Planning & Orchestration
   -> UX Contract
   -> Observability & Audit
+  -> Consistency & Concurrency
 
 Memory Model
   -> Planning & Orchestration
   -> Observability & Audit
   -> Multi-Agent Composition
 
+Consistency & Concurrency
+  -> Planning & Orchestration
+  -> Turn & Task State Machines
+  -> Capability & Intent Registry
+
 Security, Authority & Budget
   -> Planning & Orchestration
   -> Capability & Intent Registry
   -> Multi-Agent Composition
-
-Evolution Governance
-  -> all subsystems
 ```
 
 约束：
 
-- `Evolution Governance` 对所有子系统生效，但不拥有运行时职责。
+- `Consistency & Concurrency` 守护 revision / scope / base_revision / mutation / conflict 五个 canonical 字段，是写路径必经子系统。
 - `UX Contract` 只能消费其他子系统定义出的状态与结果，不能反向定义状态机。
 - `Multi-Agent Composition` 只能建立在单 Agent contract 已成立的前提上。
+- 演化治理（additive-first / schema version / ADR / contract tests / compatibility window）作为 `00-overview.md §8.4` 跨子系统过程纪律生效，对所有子系统适用，但不拥有运行时职责，不占用 01-12 子系统编号槽位。
 
 ---
 

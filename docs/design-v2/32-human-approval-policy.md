@@ -462,6 +462,15 @@ UI 不应把高风险确认埋进普通 assistant message。
 
 覆盖也必须留下 audit record。
 
+### 13.1 与 maintenance auto-adoption 的对接（ADR-0007）
+
+ADR-0007 §2 在 `maintenance_artifact` 上保留了 `auto_adoption_hint` (boolean) 与 `risk_class` (LOW / MEDIUM / HIGH / CRITICAL) 字段，但显式不冻结自动 adoption 决策策略。该策略是 W9 工单与本文档联合冻结的范围：
+
+1. `auto_adoption_hint = true` 仅是产出方建议，不授权系统跳过 adoption boundary。
+2. 实际是否触发自动 adoption 由 `approval_policy.default_behavior`（§5）+ `bypass_policy`（§13）+ `risk_class` 三方组合决定。
+3. `risk_class = HIGH` / `CRITICAL` 的 maintenance artifact 即便 `auto_adoption_hint = true`，仍走人工 adoption；`risk_class = LOW` 才进入自动 adoption 候选范围。
+4. 自动 adoption 完成后 `adoption_status` 仍取 §3.2 7 态之一（`ACCEPTED` 或 `EDITED_ACCEPTED`），不引入 `AUTO_ADOPTED` 等非 canonical 值；audit record 通过 `approval_record.decision` 与 `bypass_policy` 命中标记区分自动 vs 人工路径。
+
 ---
 
 ## 14. 本文冻结的硬骨

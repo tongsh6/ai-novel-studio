@@ -286,6 +286,8 @@
 - `DISMISSED`
 - `EXPIRED`
 
+> 这套状态是 feedback_patch 的**运行态生命周期**（在线反馈补丁是否生效 / 已合入 / 已撤销 / 已过期），与 adoption 7 态（`30 §3.2`）不同抽象层：adoption 7 态描述 artifact 在 adoption boundary 上的采纳生命周期；feedback_patch 在采纳后才进入本节状态机。两套状态独立，不可互相替代。
+
 ---
 
 ## 9. 风格对象的分层优先级
