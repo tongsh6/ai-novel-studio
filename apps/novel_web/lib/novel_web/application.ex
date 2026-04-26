@@ -1,6 +1,4 @@
 defmodule NovelWeb.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
   @moduledoc false
 
   use Application
@@ -8,12 +6,10 @@ defmodule NovelWeb.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: NovelWeb.Worker.start_link(arg)
-      # {NovelWeb.Worker, arg}
+      {Phoenix.PubSub, name: NovelWeb.PubSub},
+      NovelWeb.Endpoint
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: NovelWeb.Supervisor]
     Supervisor.start_link(children, opts)
   end

@@ -9,12 +9,11 @@
 # move said applications out of the umbrella.
 import Config
 
-# Sample configuration:
-#
-#     config :logger, :default_handler,
-#       level: :info
-#
-#     config :logger, :default_formatter,
-#       format: "$date $time [$level] $metadata$message\n",
-#       metadata: [:user_id]
-#
+config :novel_web, NovelWeb.Endpoint,
+  url: [host: "localhost"],
+  http: [ip: {127, 0, 0, 1}, port: 4000],
+  adapter: Bandit.PhoenixAdapter,
+  server: true,
+  render_errors: [formats: [json: NovelWeb.ErrorJSON], layout: false]
+
+config :phoenix, :json_library, Jason
