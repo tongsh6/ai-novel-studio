@@ -11,11 +11,11 @@
 | # | 任务 | Status | 关联 commit | 备注 |
 |---|---|---|---|---|
 | T1 | 仓库结构初始化（apps×4 + frontend + tauri + experiments + tools + config） | done | `8be29f1` | 仅空目录骨架，未注入 `mix new` / `pnpm init` |
-| T2 | 工具链 setup（Homebrew 装 Elixir/Erlang/Rust，nvm 校验 Node） + 团队 onboarding 文档 | partial | — | Elixir 1.19.5 / OTP 28 / pnpm 10.33 / Node 24.14 已装；仅缺 Rust（T6 才用） |
+| T2 | 工具链 setup（Homebrew 装 Elixir/Erlang/Rust，nvm 校验 Node） + 团队 onboarding 文档 | done | — | Elixir 1.19.5 / OTP 28 / Rust 1.95 / cargo 1.95 / pnpm 10.33 / Node 24.14 全到位；onboarding 文档由 12-development.md §2.0 承担 |
 | T3 | Mix umbrella + 4 个 apps 的 `mix.exs` + `mix deps.get` 通过 | done | `cdf2267` | umbrella + novel_foundation/domain/persistence/web；mix compile + mix test 全通；.gitignore 修正 lib/ 通配误伤 |
 | T4 | Phoenix endpoint 骨架 + `mix phx.server` + `/health` 返回 200 | done | `142c062` | phoenix 1.8 + bandit 1.5；curl 实测 200 OK + `{"status":"ok"}` |
 | T5 | Frontend 骨架 + `pnpm dev` 启动 + hello world 页面 | done | `2941f9a` | Vite 8.0.10 / React 19.2 / TS 6.0.3；641ms 启动；Node 24 兼容验证通过 |
-| T6 | Tauri 骨架 + `pnpm tauri dev` 加载 frontend | todo | — | 依赖 T5 + Rust（`brew install rustup-init`） |
+| T6 | Tauri 骨架 + `pnpm tauri dev` 加载 frontend | done | `e32a2d6` | Tauri 2.10.3 + tauri-plugin-log；首次 cargo build 4m56s（387 编译单元）；窗口加载 vite 通过；目录布局走 ADR-0016（`frontend/src-tauri/`） |
 | T7 | `docs/design-v2/schemas/foundation/turn_result_v2.json`（按 ADR-0001 §1/§2） | done | `421929a` | 已落地主 schema + artifact_adoption_entry；其余 `$ref` 占位待 ADR-0002/0003/0005/0006 各自抽取 |
 | T8 | Schema codegen：`mix codegen.schemas` + `pnpm codegen:schemas` | todo | — | 依赖 T3 + T7（T7 已 done） |
 | T9 | GitHub Actions CI：`mix test` + `pnpm test` | done | `c099ddf` | .github/workflows/ci.yml；两个并行 job；本地 pnpm test ✅；远端运行结果待 push 后观察 |
@@ -30,6 +30,8 @@
 
 倒序，最新在上。
 
+- **2026-04-27** — T6 完成（commit `e32a2d6`，前置 ADR-0016 commit `58f5657`）：rustup-init via brew + stable rust 1.95（minimal profile）；frontend 加 @tauri-apps/api + @tauri-apps/cli；pnpm tauri init --ci 在 `frontend/src-tauri/` 生成模板；identifier 改 studio.ai-novel；首次 cargo build 拉 291 crates + 编译 387 单元 4m56s；target/debug/app 启动加载 vite，无 error/panic。~/.cargo/bin 未写入 ~/.zshrc（守 local-ai-policy §五），新 shell 需 source ~/.cargo/env。
+- **2026-04-27** — ADR-0016（commit `58f5657`）：实测后修订 spec，Tauri 工程目录从顶层 `tauri/` 改为 `frontend/src-tauri/`。理由：Tauri 2 默认布局零配置 + 社区文档/CI 模板均假设此布局。同步修订 12-development.md §1 + 0000-index.md §2.1/§5；删除顶层 tauri/.gitkeep；.gitignore 加 *.iml。
 - **2026-04-27** — T9 完成（commit `c099ddf`）：`.github/workflows/ci.yml` 两 job 并行（backend mix test / frontend vitest），erlef/setup-beam 1.19/OTP 28、pnpm/action-setup v4、actions/setup-node 24；frontend 配套 `pnpm add -D vitest` + smoke.test.ts dummy 测试。本地 `pnpm test` 1/1 通过；CI 远端首跑结果待 push 后 GitHub Actions 验证。
 - **2026-04-27** — T4 完成（commit `142c062`）：novel_web 引入 phoenix 1.8 / phoenix_pubsub 2.1 / jason 1.4 / bandit 1.5；endpoint + router + HealthController + ErrorJSON；application.ex sup tree 注入 PubSub + Endpoint；config 走 Bandit adapter on 127.0.0.1:4000。phx.server 启动后 curl /health 实测 200 OK，404 fallthrough 正常。
 - **2026-04-27** — T5 完成（commit `2941f9a`）：pnpm create vite frontend --template react-ts；实测版本 React 19.2.5 / Vite 8.0.10 / TS 6.0.3，已超 04-frontend.md 基线（模板默认升新）；pnpm dev 在 641ms 启动 http://localhost:5173/，Node 24.14 兼容验证通过——roadmap §2.0 关于 Node 24 的兼容性疑虑解除。Tailwind / Radix / Zod / TanStack Query / Zustand / phoenix npm 等 04-frontend.md §2.7 增量留待后续 T5 子项。
@@ -43,8 +45,8 @@
 
 ## 卡点 / TBD
 
-- **T2 残余**：仅 Rust 未装（`brew install rustup-init && rustup-init -y`），T6 启动前完成即可，不阻塞 T3-T5。
-- **Node 24 兼容性**：T5 已验证 Vite 8 + React 19 + TS 6 在 Node 24.14.1 下 OK；phoenix npm client 与 Tauri CLI 仍待验（在 T4 channel 接入 / T6 Tauri 启动时再确认）。
+- **Node 24 兼容性**：T5 验证 Vite 8 + React 19 + TS 6 通过；T6 验证 @tauri-apps/cli 2.10 通过。phoenix npm client 仍待验（在 T4+ Channel 接入时确认）。
+- **`~/.cargo/bin` 未在 PATH**：每次新 shell 需 `source ~/.cargo/env`，否则 `cargo` / `pnpm tauri *` 找不到。永久写入 ~/.zshrc 需用户授权（local-ai-policy §五）。
 - **路线图 §11 TBD**（团队成员、prompt 设计、provider 选择、pencil 介入时机）暂未影响 Week 1 推进，留到 kick-off 会议确认。
 
 ## 下次会话恢复指引
