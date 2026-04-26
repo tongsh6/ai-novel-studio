@@ -1,0 +1,186 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/turn_result_v2.json",
+  "title": "TurnResult",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "turn_id",
+    "phase",
+    "status",
+    "next_action",
+    "assistant_message",
+    "ui_cards",
+    "behavior_state",
+    "adoption_state",
+    "projection_refs",
+    "validation",
+    "usage",
+    "trace_ref",
+    "produced_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "description": "TurnResult schema 版本，semver。本 ADR 冻结的版本是 2.0.0。",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "turn_id": {
+      "type": "string",
+      "description": "本轮 turn 的稳定唯一 id，由 Orchestrator 生成。"
+    },
+    "task_id": {
+      "type": ["string", "null"],
+      "description": "若本 turn 关联 long-run task，则填该 task id；否则 null。"
+    },
+    "agent_id": {
+      "type": ["string", "null"],
+      "description": "产出本 turn 的 Agent id。Orchestrator 直接处理时填 orchestrator 的 agent_id；Multi-Agent 场景下子 Agent 必须填自身 id；纯系统内部 turn 可填系统保留 id 或 null。"
+    },
+    "parent_turn_id": {
+      "type": ["string", "null"],
+      "description": "若本 turn 是 child agent 在 parent turn 内的子轮，则填 parent turn id。"
+    },
+    "phase": {
+      "$ref": "foundation/enums/turn_phase.json",
+      "description": "完整枚举由 ADR-0002 冻结。语义见 02 §4.1 / §5.1。"
+    },
+    "status": {
+      "$ref": "foundation/enums/status.json",
+      "description": "完整枚举由 ADR-0002 冻结。语义见 02 §4.4 / §5.2；status family 为 turn / task / artifact projection 共用。"
+    },
+    "next_action": {
+      "$ref": "foundation/enums/next_action.json",
+      "description": "完整枚举由 ADR-0002 冻结。语义见 01 §9.3 / 02 §11；UI 映射见 30 §9。"
+    },
+    "assistant_message": {
+      "$ref": "foundation/assistant_message.json",
+      "description": "顶层主消息。canonical 名称为 assistant_message，不再使用 main_message / primary_message 等别名。结构见 11 §4.1，详细 schema 由后续 ADR 冻结。"
+    },
+    "ui_cards": {
+      "type": "array",
+      "description": "顶层结构化卡片列表，与 assistant_message 是两类并列顶层呈现对象（11 §4）。",
+      "items": {
+        "$ref": "foundation/ui_card.json"
+      }
+    },
+    "behavior_state": {
+      "type": "object",
+      "description": "本轮活跃 behavior 的快照。durable / instant 分类见 30 §6。",
+      "required": ["active", "history"],
+      "additionalProperties": false,
+      "properties": {
+        "active": {
+          "type": ["object", "null"],
+          "description": "当前未关闭的 durable behavior 状态；instant behavior 不出现在 active。",
+          "required": ["behavior_type", "behavior_id", "status"],
+          "additionalProperties": true,
+          "properties": {
+            "behavior_type": {
+              "type": "string",
+              "description": "durable behavior 名称。canonical 集见 30 §6.1：clarification / confirmation / correction / cancellation。"
+            },
+            "behavior_id": {
+              "type": "string",
+              "description": "本 behavior 实例 id。"
+            },
+            "status": {
+              "$ref": "foundation/enums/behavior_status.json",
+              "description": "完整枚举由 ADR-0002 冻结。"
+            },
+            "resolution_ref": {
+              "type": ["string", "null"],
+              "description": "behavior 已 resolve 时的 resolution 引用；durable 必须有，instant 不强制（30 §6）。"
+            }
+          }
+        },
+        "history": {
+          "type": "array",
+          "description": "本 turn 内已结束（含 instant 完成）的 behavior 摘要列表，按发生顺序。",
+          "items": {
+            "type": "object",
+            "required": ["behavior_type", "behavior_id", "status"],
+            "additionalProperties": true,
+            "properties": {
+              "behavior_type": { "type": "string" },
+              "behavior_id": { "type": "string" },
+              "status": { "$ref": "foundation/enums/behavior_status.json" },
+              "resolution_ref": { "type": ["string", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "adoption_state": {
+      "type": "object",
+      "description": "本轮新产生或状态变化的 artifact adoption 视图。adoption 7 态由 30 §3.2 冻结。",
+      "required": ["pending", "resolved"],
+      "additionalProperties": false,
+      "properties": {
+        "pending": {
+          "type": "array",
+          "description": "本 turn 产出且尚未达终态的 artifact 列表。",
+          "items": { "$ref": "foundation/artifact_adoption_entry.json" }
+        },
+        "resolved": {
+          "type": "array",
+          "description": "本 turn 内进入终态（ACCEPTED / EDITED_ACCEPTED / DISCARDED / SUPERSEDED / INVALIDATED / ARCHIVED）的 artifact 列表。",
+          "items": { "$ref": "foundation/artifact_adoption_entry.json" }
+        }
+      }
+    },
+    "projection_refs": {
+      "type": "array",
+      "description": "本 turn 影响到的派生投影引用。canonical 名称为 projection_refs（与 30 §2.3 source_revision_refs 对齐复数命名风格）。Domain 投影对象族定义在 30 §8.3。",
+      "items": {
+        "type": "object",
+        "required": ["projection_type", "projection_id", "source_revision_refs"],
+        "additionalProperties": true,
+        "properties": {
+          "projection_type": {
+            "type": "string",
+            "description": "投影类型；Domain 注册，例如 reading_projection_root / reading_projection_toc / reading_projection_chapter / reader_recap（30 §8.3）。"
+          },
+          "projection_id": { "type": "string" },
+          "source_revision_refs": {
+            "type": "array",
+            "description": "该投影所依赖的 accepted / authoritative source revisions（30 §2.3）。",
+            "items": { "type": "string" }
+          },
+          "refresh_status": {
+            "type": ["string", "null"],
+            "description": "投影刷新状态；具体枚举由 §29.7.1 第 11 项 ADR 冻结。"
+          }
+        }
+      }
+    },
+    "validation": {
+      "$ref": "foundation/validation_envelope.json",
+      "description": "ValidationEnvelope。详细 schema 由独立 ADR 冻结；本 ADR 仅声明字段引用与必填性。"
+    },
+    "usage": {
+      "$ref": "foundation/usage_envelope.json",
+      "description": "UsageEnvelope。token / 时间 / 成本 / 写入规模等度量；详细 schema 由独立 ADR 冻结。"
+    },
+    "trace_ref": {
+      "$ref": "foundation/trace_ref.json",
+      "description": "TraceRef。指向本 turn 的 trace；详细 schema 由独立 ADR 冻结。"
+    },
+    "warnings": {
+      "type": "array",
+      "description": "本 turn 产生的非阻塞警告。",
+      "items": { "$ref": "foundation/warning_envelope.json" }
+    },
+    "errors": {
+      "type": "array",
+      "description": "本 turn 产生的错误。errors 非空时 status 不得为终态成功类值（如 02 §5.2 中的 DONE），具体禁止集合由 ADR-0002 联调。",
+      "items": { "$ref": "foundation/error_envelope.json" }
+    },
+    "produced_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "本 TurnResult 生成时间，ISO 8601 / RFC 3339。"
+    }
+  }
+}
