@@ -1,0 +1,40 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/artifact_adoption_entry.json",
+  "title": "ArtifactAdoptionEntry",
+  "type": "object",
+  "required": ["artifact_id", "artifact_type", "adoption_status", "requires_adoption"],
+  "additionalProperties": true,
+  "properties": {
+    "artifact_id": { "type": "string" },
+    "artifact_type": {
+      "type": "string",
+      "description": "Foundation artifact 类型或 Domain 注册类型。"
+    },
+    "adoption_status": {
+      "type": "string",
+      "enum": [
+        "TENTATIVE",
+        "ACCEPTED",
+        "EDITED_ACCEPTED",
+        "DISCARDED",
+        "SUPERSEDED",
+        "INVALIDATED",
+        "ARCHIVED"
+      ],
+      "description": "由 30 §3.2 冻结的 7 态。本 ADR 直接内联，因为 30 §3.2 已是 canonical 唯一权威。"
+    },
+    "requires_adoption": {
+      "type": "boolean",
+      "description": "canonical 名称由 30 §3.1 冻结，不再使用 adoption_required。"
+    },
+    "revision_base": {
+      "type": ["string", "null"],
+      "description": "artifact 生成时依赖的源 revision（30 §2.2）。adoption 前必须与当前 target scope revision 比较。"
+    },
+    "supersedes_artifact_id": {
+      "type": ["string", "null"],
+      "description": "若 adoption_status = SUPERSEDED，指向取代它的 artifact id。"
+    }
+  }
+}
