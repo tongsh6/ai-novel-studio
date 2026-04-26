@@ -9,9 +9,9 @@
 ## 1. 总览
 
 ```yaml
-language:        Elixir 1.17+
-runtime:         Erlang/OTP 27+
-web:             Phoenix 1.7 (API only, no LiveView)
+language:        Elixir 1.19+
+runtime:         Erlang/OTP 28+
+web:             Phoenix 1.8 (API only, no LiveView)
 db_orm:          Ecto 3.x
 db_alpha:        SQLite via ecto_sqlite3
 db_beta:         PostgreSQL via postgrex / ecto_sql
@@ -20,7 +20,7 @@ revision_audit:  paper_trail (Hibernate Envers 等价)
 event_bus:       Phoenix.PubSub + Distributed Erlang
 long_run:        GenServer + GenStage + Task.Supervisor
 schema_validate: Ecto.Changeset + Dialyxir
-llm_client:      langchain_elixir + instructor_ex + 自封装 Provider Gateway
+llm_client:      langchain_elixir + instructor_lite + 自封装 Provider Gateway
 http_client:     Req
 testing:         ExUnit + Mox + StreamData
 observability:   opentelemetry-erlang + Phoenix.Telemetry
@@ -31,7 +31,7 @@ release:         Mix Release (单二进制)
 
 ## 2. 选型理由
 
-### 2.1 Elixir 1.17+
+### 2.1 Elixir 1.19+
 
 | 优势 | 对应本项目硬骨 |
 |---|---|
@@ -43,12 +43,12 @@ release:         Mix Release (单二进制)
 | Mix Release 单二进制 | 阶段 1 桌面应用部署轻 |
 | Hot code swap | 阶段 2 多作者期 0 downtime 升级（可选）|
 
-为什么 1.17+：
+为什么 1.19+：
 
-- Elixir 1.17（2024 Q2）引入 set-theoretic types 早期版本，schema 严格性会逐步改善
-- Erlang/OTP 27 正式稳定，BEAM JIT 性能提升
+- Elixir 1.17 引入 set-theoretic types 早期版本；1.19 继续增强类型检查与大型项目编译性能，更适合作为新项目基线
+- Erlang/OTP 28 是 Elixir 1.19 的推荐运行时基线，避免 Phase 0 后立刻遇到运行时升级阻塞
 
-### 2.2 Phoenix 1.7（API only）
+### 2.2 Phoenix 1.8（API only）
 
 | 优势 | 备注 |
 |---|---|
@@ -83,33 +83,51 @@ Phoenix 退化为 API server + WebSocket gateway。
 
 ### 2.4 paper_trail（revision audit）
 
+> 状态：✅ 基线（已实测，2026-04-26）。详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)。
+
 `paper_trail` 是 Elixir 生态的版本历史插件，对应 v2 [`../30-contract-glossary.md`](../30-contract-glossary.md) §2.3 `source_revision_refs` 的硬约束：
 
 - 每次写入自动创建 `versions` 表的 audit record
 - 包含 `event` (insert/update/delete) + `item_changes` (jsonb 增量) + `originator_id`
 - 提供 `PaperTrail.get_versions/1` 查询历史
 
-替代方案：
+实测要点（已写入 v2 contract 实现纪律）：
+
+- `Ecto.Multi` 强制失败时不会留下孤立 version（同事务边界）。
+- `versions.id` 是 BIGSERIAL，可直接写入 `source_revision_refs.source_revision_id`。
+- 自定义 atom 错误必须走 `repo.transaction(multi)`，**不要**走 `PaperTrail.Multi.commit/1`（后者假设 error 第三元为 `Ecto.Changeset`）。
+- `item_type` 仅存"末段模块名"（`Module |> Module.split() |> List.last()`），跨 boundary 同名 schema 时必须在 `meta` 里冗余 namespace。
+- SQLite 阶段必须固化 `pool_size: 1` + WAL，否则会触发 "database is locked"。
+
+替代方案（仅作为兜底，不再是评估项）：
 
 - 自实现 audit log（增加复杂度）
 - Ecto.Changeset.prepare_changes 钩子（要重复造轮子）
 
-### 2.5 langchain_elixir + instructor_ex
+### 2.5 langchain_elixir + instructor_lite
 
-`langchain_elixir` 是 Elixir 的 LangChain 等价物，覆盖：
+> 状态：✅ 基线（已实测，2026-04-26 含 `instructor_lite` 补评）。详见 [`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md)。
+>
+> 关键改动：原方案中的 `instructor_ex` 0.1.0 已被 `instructor_lite` 1.2 替换。两者都走 Ecto schema → JSON Schema 的派生路径，但 `instructor_lite` 输出更精简，`instructor_ex` 会额外注入 description / format / pattern 等元数据；本项目选择 `instructor_lite` 是因为它在 2025-2026 内有 5 次 1.x release，维护活跃度显著优于未再发布新版的 hex `instructor` 0.1.0。
 
-- ChatModel / Message 抽象
-- Function calling
-- Streaming
-- 主流 provider 适配（OpenAI / Anthropic / Azure / Bedrock / Ollama）
+**职责分层**（Phase 0 起强制，避免双源真相）：
 
-`instructor_ex` 是 Instructor 的 Elixir port，提供：
+| 层 | 工具 | 职责 |
+|---|---|---|
+| 结构化输出（intent slot / artifact / card payload / quality finding） | `instructor_lite` 1.2 | Ecto embedded_schema 作为 SSOT → 自动派生 JSON Schema（含 `Ecto.Enum` enum 约束）→ Ecto changeset 二次校验 → `Adapter` behaviour 化 provider 接入。spike 实测 normal 20/20，free_form/lure_extra 各 3/3，全部 100%。|
+| 多 Agent / 工具链编排（function calling、多步推理、工具选择） | `langchain` 0.8 | ChatModel / Message / LLMChain 抽象 + 主流 provider 适配；instructor_lite 不覆盖这部分。 |
+| 统一计量、错误归一、retry、circuit breaker、stub | 自封装 Provider Gateway（[`07-provider.md`](./07-provider.md)） | 包住前两者；**必须**吸收 langchain 的 `Req.TransportError` 漏网（spike 中 path A 该错误未被 `LangChainError` 捕获，落到 rescue 变 `:exception`）。|
 
-- Pydantic-style 结构化输出（JSON Schema → Ecto schema）
-- 自动 retry + validation
-- 本项目 ADR-0001 字段抽取的天然工具
+`langchain` 提供：ChatModel / Message 抽象、Function calling、Streaming、主流 provider 适配（OpenAI / Anthropic / Azure / Bedrock / Ollama）。
 
-详见 [`07-provider.md`](./07-provider.md)。
+`instructor_lite` 提供：Pydantic-style 结构化输出（Ecto schema → JSON Schema）、可选 retry + Ecto changeset 二次校验、`InstructorLite.Adapter` behaviour 让自定义 provider 不需要 fork。是 ADR-0001 字段抽取的天然工具。
+
+**禁止**：产品代码绕过 Provider Gateway 直接调用 langchain 或 instructor_lite；具体 contract 在 [`07-provider.md`](./07-provider.md)。
+
+**Ecto.Enum 落地纪律**（spike 实测后追加）：
+
+- LLM I/O embedded_schema 中受限字符串字段必须用 `field :foo, Ecto.Enum, values: [...]`，**不要**写 `field :foo, :string` + 注释里说明 enum——后者会让 instructor_lite 派生出"任意 string"，模型自由发挥时 ex_json_schema 才在 Gateway 入口拦下，绕一圈成 schema_mismatch。
+- `Ecto.Enum` cast 完是 atom；Provider Gateway 出口必须先 stringify 再交给 `ex_json_schema` 校验或下游消费，否则会被判 schema_mismatch。详见 [`09-schema-codegen.md`](./09-schema-codegen.md) §4.5。
 
 ---
 
@@ -215,34 +233,34 @@ Ecto schema 由自定义 mix task 从 JSON Schema codegen 生成。**禁止手�
 defp deps do
   [
     # Core
-    {:phoenix, "~> 1.7"},
+    {:phoenix, "~> 1.8"},
     {:phoenix_pubsub, "~> 2.1"},
     {:phoenix_live_dashboard, "~> 0.8", only: :dev},
     {:plug_cowboy, "~> 2.7"},
 
     # Persistence
-    {:ecto_sql, "~> 3.11"},
-    {:ecto_sqlite3, "~> 0.16"},      # Stage 1
-    {:postgrex, "~> 0.18"},          # Stage 2 (delayed via mix env)
+    {:ecto_sql, "~> 3.13"},
+    {:ecto_sqlite3, "~> 0.22"},      # Stage 1
+    {:postgrex, "~> 0.22"},          # Stage 2 (delayed via mix env)
     {:paper_trail, "~> 1.1"},
 
     # LLM
-    {:langchain, "~> 0.3"},          # langchain_elixir
-    {:instructor, "~> 0.1"},         # instructor_ex
+    {:langchain, "~> 0.8"},          # langchain_elixir, multi-agent / tool-call
+    {:instructor_lite, "~> 1.2"},    # 结构化输出主依赖，2026-04 spike 实测后从 instructor_ex / hex instructor 0.1.0 升级
     {:req, "~> 0.5"},                # HTTP client
 
     # Multi-Agent / OTP
-    {:gen_stage, "~> 1.2"},
+    {:gen_stage, "~> 1.3"},
     {:libcluster, "~> 3.4"},         # Stage 2 distributed
-    {:swarm, "~> 3.4"},              # process registry across nodes (optional)
+    {:horde, "~> 0.10"},             # process registry across nodes (optional)
 
     # Schema
     {:ex_json_schema, "~> 0.10"},    # JSON Schema runtime validate
 
     # Observability
-    {:opentelemetry, "~> 1.5"},
-    {:opentelemetry_exporter, "~> 1.7"},
-    {:opentelemetry_phoenix, "~> 1.2"},
+    {:opentelemetry, "~> 1.7"},
+    {:opentelemetry_exporter, "~> 1.10"},
+    {:opentelemetry_phoenix, "~> 2.0"},
     {:opentelemetry_ecto, "~> 1.2"},
     {:telemetry_metrics, "~> 1.0"},
     {:telemetry_metrics_prometheus, "~> 1.1"},
@@ -274,7 +292,7 @@ end
 | §4.5 记忆体系 | `novel_foundation/lib/foundation/memory/` | ecto + ets |
 | §4.6 规划编排 | `novel_foundation/lib/foundation/orchestrator/` | gen_stage + task |
 | §4.7 一致性 | `novel_persistence/lib/persistence/multi/` | ecto + paper_trail |
-| §4.8 Provider | [`07-provider.md`](./07-provider.md) | langchain + instructor |
+| §4.8 Provider | [`07-provider.md`](./07-provider.md) | langchain + instructor_lite |
 | §4.9 观测性 | [`10-observability.md`](./10-observability.md) | opentelemetry |
 | §4.10 安全/预算 | `novel_foundation/lib/foundation/{authority,budget}/` | - |
 | §4.11 UX 语义 | `novel_web/lib/novel_web/views/turn_result/` | - |

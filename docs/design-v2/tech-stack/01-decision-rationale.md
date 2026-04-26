@@ -48,7 +48,7 @@
 
 **来源**：用户回答"Multi-Agent 什么时候上 → 阶段 1 就是核心功能"。
 
-**对应 v2 文档**：[`../00-overview.md`](../00-overview.md) §4.12 + `../12-multi-agent-composition.md`（待写）。
+**对应 v2 文档**：[`../00-overview.md`](../00-overview.md) §4.12 + [`../12-multi-agent-composition.md`](../12-multi-agent-composition.md)。
 
 **含义**：
 

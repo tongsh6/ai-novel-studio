@@ -10,7 +10,7 @@
 
 ```yaml
 core_lib:        langchain_elixir
-struct_output:   instructor_ex
+struct_output:   instructor_lite
 http_client:     Req
 fallback_lib:    自实现 ProviderGateway（OpenAI 兼容协议直连）
 gateway_pattern: GenServer per provider + Registry + DynamicSupervisor
@@ -43,7 +43,7 @@ flowchart LR
     end
     
     LangChain[langchain_elixir]
-    Instructor[instructor_ex]
+    Instructor[instructor_lite]
     
     LLM_OAI[(OpenAI API)]
     LLM_Anthropic[(Anthropic API)]
@@ -258,7 +258,7 @@ end
 不同 provider 错误格式不一，必须标准化：
 
 ```elixir
-@type error_kind :: 
+@type error_kind ::
   :rate_limit
   | :quota_exceeded
   | :invalid_request
@@ -266,7 +266,10 @@ end
   | :content_filter
   | :provider_unavailable
   | :network
+  | :transport_error
   | :auth_failed
+  | :schema_mismatch
+  | :invalid_json
   | :unknown
 
 @spec normalize_error(any) :: %{kind: error_kind, message: String.t(), retry_after: nil | pos_integer()}
@@ -278,14 +281,51 @@ end
 def normalize_error(%LangChain.LangChainError{type: "context_length"}) do
   %{kind: :context_length, message: "context too long", retry_after: nil}
 end
+
+# Spike 实测必须覆盖：langchain 0.8.x 在底层连接失败时不会包成
+# %LangChain.LangChainError{}，而是把 %Req.TransportError{}（或
+# %Mint.TransportError{}）原样抛回到 with/rescue 链路。Provider Gateway
+# 必须在 langchain 之外再吸收一层，否则会把它当成 :unknown / :exception。
+def normalize_error(%Req.TransportError{reason: reason}) do
+  %{kind: :transport_error, message: "transport: #{inspect(reason)}", retry_after: nil}
+end
+
+def normalize_error(%Mint.TransportError{reason: reason}) do
+  %{kind: :transport_error, message: "transport: #{inspect(reason)}", retry_after: nil}
+end
+
+# Spike 第二个发现：结构化输出有两类校验失败需要分别归一——
+# (a) 模型返回的字符串不是合法 JSON         → :invalid_json
+# (b) JSON 合法但不满足 ex_json_schema      → :schema_mismatch
+# 这两种是可重试的（携带 retry_after = 0 即时重试），但调用层
+# 的 budget / quality finding 写入逻辑不一样，必须区分。
+def normalize_error({:invalid_json, raw}),
+  do: %{kind: :invalid_json, message: "non-json content: #{String.slice(raw, 0, 200)}", retry_after: 0}
+
+def normalize_error({:schema_mismatch, errors}),
+  do: %{kind: :schema_mismatch, message: "schema validate failed: #{inspect(errors)}", retry_after: 0}
 # ...
 ```
+
+### 7.1 强制 contract（实测后锁定）
+
+> 来源：[`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md) §5（2026-04-26 实测）。
+
+| 规则 | 原因 |
+|---|---|
+| 任何业务调用都必须经过 `Provider.Gateway`，不允许直接 `LangChain.*` / `Instructor.chat_completion/2` / `Req.post/2` 到 LLM 端点 | 否则 transport 错误会绕过归一化，badge 在 quality finding 里就只能落 `:unknown`/`:exception`。 |
+| `normalize_error/1` 必须覆盖 `%Req.TransportError{}` 与 `%Mint.TransportError{}` | langchain 0.8.4 在 ECONNREFUSED 时确认会落到这条；Phase 0 contract test 必须包含一条故意打到不可达端口的用例。 |
+| `normalize_error/1` 必须覆盖 `{:invalid_json, _}` 与 `{:schema_mismatch, _}` | 四条结构化输出路径（`langchain` / `instructor_lite` / 直连 Req / 历史 `instructor` 0.1）都会回落到这两条；schema_mismatch 是 quality finding 的输入。 |
+| Gateway 必须暴露 `usage_of/1` 把 `prompt_tokens / completion_tokens / total_tokens` 抽出来给 `Budget.Meter.consume/3` | spike 实测四路径都能拿到这三项；Ollama / OpenAI / Anthropic 字段一致。 |
+| contract test 必须 stub `Req.Test`，固定 4 类响应：成功 JSON、超时、status≠200、非 JSON 文本 | 没有 stub 就没办法在 CI 中复现 transport-error 路径。 |
 
 ---
 
 ## 8. Streaming
 
-LLM 流式响应通过 Phoenix Channel push：
+LLM 流式响应通过 Phoenix Channel push。Phase 0/1 的 streaming 只承载**文本增量、进度、checkpoint / explanation 事件**；结构化对象（intent slot、artifact payload、card payload、quality finding）默认走 non-streaming finalize，完成后一次性通过 `instructor_lite` / `ex_json_schema` 校验，再进入 tentative / adoption 流程。
+
+不把“流式结构化字段填充”作为一等能力的原因：v2 UX contract 要求 streaming 内容在完成前是 unstable preview，而 adoption / confirmation / result card 消费的是已校验的稳定对象。把未完成字段直接写入结构面板或表单会制造“半可信结构化状态”，反而破坏 Provider Gateway 的 schema_mismatch / invalid_json 归一化边界。
 
 ```elixir
 defmodule AINovelStudio.Foundation.Provider.Streaming do
@@ -312,7 +352,7 @@ defmodule AINovelStudio.Foundation.Provider.Streaming do
 end
 ```
 
-前端订阅 channel → 增量更新 UI。
+前端订阅 channel → 增量更新 UI。若未来产品明确要求“字段逐个实时落入结构面板”，必须走新的 Provider Gateway 子能力（直连 `Req` + SSE 增量解析，或重评 `langchain` / legacy `instructor` streaming 路径），并单独立 ADR；不得复用当前 structured output finalize 路径偷偷输出 partial fields。
 
 ---
 

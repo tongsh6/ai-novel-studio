@@ -154,7 +154,7 @@ flowchart TB
 | 数据库 | SQLite (Ecto.Adapters.SQLite3) | PostgreSQL (Ecto.Adapters.Postgres) | 0 | adapter 切换 + 跨方言能力差异（FTS / LISTEN-NOTIFY / JSON 操作）通过 `EventBus.Adapter` / `Search.Adapter`，详见 [`06-database.md`](./06-database.md) §2.2 |
 | Event Bus | Phoenix.PubSub 单节点 | Phoenix.PubSub 跨节点 | 0 | Distributed Erlang 节点发现（libcluster 配置）|
 | 认证 | Device key（Tauri Stronghold 取） | OAuth / SSO / JWT | 0 | **接口层** 0（统一 Bearer plug），但 token 校验、用户身份提取、刷新逻辑在 plug 内部不同实现；Stage 1 的 device key 没有过期、刷新、撤销概念，Stage 2 必须新增 |
-| Multi-Agent | 单节点 supervision | 跨节点 process registry | 0 | via 元组从 `{:via, Registry, ...}` 切到 `{:via, Swarm, ...}`（或 Horde），通过 helper 抽象后业务代码不感知 |
+| Multi-Agent | 单节点 supervision | 跨节点 process registry | 0 | via 元组从 `{:via, Registry, ...}` 切到 `{:via, Horde.Registry, ...}`，通过 helper 抽象后业务代码不感知 |
 | Observability | 本地 JSONL + stdout | OTLP → Tempo/Loki/Prometheus | 0 | exporter 配置切换 |
 | Provider Gateway | 本地 LLM + 远程 LLM | 同 | 0 | 同（API key 来源从 OS Keychain 切到 Vault）|
 

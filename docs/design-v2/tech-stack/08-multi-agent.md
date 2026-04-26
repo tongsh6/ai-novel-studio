@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 目的：把 [`../00-overview.md`](../00-overview.md) §4.12 + `../12-multi-agent-composition.md`（待写）的 Multi-Agent 硬骨逐条映射到 OTP 原语。本文是技术栈推荐能否成立的**最关键验证点**。
+> 目的：把 [`../00-overview.md`](../00-overview.md) §4.12 + [`../12-multi-agent-composition.md`](../12-multi-agent-composition.md) 的 Multi-Agent 硬骨逐条映射到 OTP 原语。本文是技术栈推荐能否成立的**最关键验证点**。
 
 ---
 
@@ -18,7 +18,7 @@
 | Crash isolation | `Process.link/1` + Supervisor restart | 子 crash 通过 link 通知父，supervisor 自动重启子 |
 | handoff 保留 agent_ref | Message envelope 必含 `from_agent: agent_ref` | 用 struct 强制 |
 | LongRunner 子 Agent → checkpoint 语义 | GenStage + `Task.Supervisor` | LongRunner 是独立 process，用 GenStage 做 backpressure |
-| Distributed Erlang 跨节点 | `:global` registry + `libcluster` | 阶段 2 自动跨节点发现 |
+| Distributed Erlang 跨节点 | Horde registry + `libcluster` | 阶段 2 自动跨节点发现 |
 
 ---
 
@@ -110,14 +110,14 @@ end
 
 ### 3.3 跨节点（阶段 2）
 
-阶段 2 用 `:global` 或 `Swarm`：
+阶段 2 用 Horde（比 Swarm 更活跃）：
 
 ```elixir
 # 阶段 1: 单节点
 {:via, Registry, {AINovelStudio.AgentRegistry, agent_ref.id}}
 
 # 阶段 2: 跨节点
-{:via, Swarm, agent_ref.id}
+{:via, Horde.Registry, {AINovelStudio.DistributedAgentRegistry, agent_ref.id}}
 ```
 
 **业务代码 0 改动**，只是 via 元组替换，可以用 helper 抽象。
@@ -583,7 +583,7 @@ end
 - [x] Crash isolation（DynamicSupervisor :one_for_one）
 - [x] handoff agent_ref（Handoff struct）
 - [x] LongRunner checkpoint 语义（GenStage producer）
-- [x] 跨节点（libcluster + Swarm）
+- [x] 跨节点（libcluster + Horde）
 
 **全部通过**。Elixir + OTP 是 §12 的本主场，技术栈推荐确认成立。
 

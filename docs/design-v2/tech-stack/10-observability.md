@@ -353,7 +353,7 @@ audit log 必须包含的事件：
 - 用 `interaction_id` 查询 trace
 - 复现时用 stub provider 返回历史响应（如果 `usage.frozen_raw_result` 已保存）
 
-详见 `../09-observability-and-audit.md`（待写）。
+详见 [`../09-observability-and-audit.md`](../09-observability-and-audit.md)。
 
 ---
 

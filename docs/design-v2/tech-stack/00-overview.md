@@ -47,9 +47,9 @@
 
 ```yaml
 # Backend (Elixir + Phoenix as API server, NOT LiveView)
-language:        Elixir 1.17+
-runtime:         Erlang/OTP 27+
-web:             Phoenix 1.7 (API only)
+language:        Elixir 1.19+
+runtime:         Erlang/OTP 28+
+web:             Phoenix 1.8 (API only)
 db_orm:          Ecto 3.x
 db_alpha:        SQLite (Ecto.Adapters.SQLite3)
 db_beta:         PostgreSQL (Ecto.Adapters.Postgres)
@@ -58,24 +58,24 @@ revision_audit:  paper_trail (Hibernate Envers 等价)
 event_bus:       Phoenix.PubSub (in-node) + Distributed Erlang (cross-node)
 long_run:        GenServer + GenStage + Task.Supervisor
 schema_validate: Ecto.Changeset + Dialyxir (static analysis)
-llm_client:      langchain_elixir + instructor_ex + 自封装 Provider Gateway
+llm_client:      langchain_elixir + instructor_lite + 自封装 Provider Gateway
 http_client:     Req
 testing:         ExUnit + Mox + StreamData (property-based)
 observability:   opentelemetry-erlang + Phoenix.Telemetry
 
 # Frontend (independent SPA, shared between Tauri shell and Web)
 language:        TypeScript 5.x
-framework:       React 18+
-build:           Vite
+framework:       React 19+
+build:           Vite 6+
 state:           TanStack Query + Zustand
-schema:          Zod (runtime validation, generated from JSON Schema)
-ws_client:       phoenix-js (Phoenix Channels client)
+schema:          Zod 4 (runtime validation, generated from JSON Schema)
+ws_client:       phoenix npm package (Phoenix Channels client)
 ui_kit:          Radix UI primitives + Tailwind CSS
 
 # Desktop shell (Stage 1 only)
 shell:           Tauri 2 (Rust webview, ~5MB)
 sidecar:         Mix Release (Elixir, ~30MB；含 ERTS)
-frontend_bundle: ~2-5MB（React + Radix + TanStack Query + phoenix-js + Lucide，gzip 后）
+frontend_bundle: ~2-5MB（React + Radix + TanStack Query + phoenix npm client + Lucide，gzip 后）
 total_pkg:       ~50-60MB 单安装包（压缩前；签名 / notarize 不显著影响体积）
                  # 与 Electron 同等功能 ~200MB+ 仍有 3-4 倍优势
 

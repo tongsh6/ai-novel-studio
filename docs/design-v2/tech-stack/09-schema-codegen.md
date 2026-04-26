@@ -10,12 +10,15 @@
 
 ```yaml
 ssot_path:       docs/design-v2/schemas/*.json
-backend_target:  apps/novel_persistence/lib/persistence/schemas/  (Ecto)
-frontend_target: frontend/src/generated/schemas/                  (Zod + TS)
+backend_target:  apps/novel_persistence/lib/persistence/schemas/         (Ecto, 持久化)
+llm_io_target:   apps/novel_provider/lib/provider/llm_schemas/           (Ecto embedded_schema, instructor_lite 结构化输出)
+frontend_target: frontend/src/generated/schemas/                         (Zod + TS)
 codegen_tool:    自定义 mix task + npm script
 schema_validator: ex_json_schema (Elixir) + ajv (Node)
 contract_test:   独立 mix test target，CI 必跑
 ```
+
+> 2026-04-26 实测后追加：除原有 Ecto persistence schema 外，所有进入 LLM 的结构化输出（intent slot / artifact / card payload / quality finding 等）也必须从 SSOT 派生为 `Ecto.Schema` 的 `embedded_schema`，给 `instructor_lite` 用。详见 §4.4。
 
 ---
 
@@ -224,6 +227,63 @@ defmodule AINovelStudio.Persistence.Schemas.TurnResult do
   end
 end
 ```
+
+### 4.4 LLM I/O 派生：JSON Schema → embedded_schema（instructor_lite 用）
+
+> 来源：[`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md) §7（2026-04-26 二跑实测后落地）。
+>
+> 历史背景：原方案是 `instructor_ex` 0.1.0；spike 二跑补评后切到 `instructor_lite` 1.2。两者都以 Ecto embedded schema 派生 JSON Schema，但 `instructor_lite` 的 `for_type/1` 输出更精简，`instructor_ex` 会额外加入 description / format / pattern 等提示元数据。本节仍然适用，但 Phase 0 的 reverse-check 必须以 `InstructorLite` 实际输出为准。
+
+`instructor_lite` 使用 `Ecto.Schema` 的 `embedded_schema` 作为 `response_model`，在底层自动派生 JSON Schema 并校验。如果 LLM I/O 与持久化共用一份 Ecto schema，会拽进 timestamps / 自增 ID / DB 字段，污染 LLM contract。所以两套 Ecto 输出必须分开：
+
+| 输出类型 | 目标目录 | 形态 | 用途 |
+|---|---|---|---|
+| 持久化 schema | `apps/novel_persistence/lib/persistence/schemas/` | `schema "table" do ... end`，含 `@primary_key` 与 `timestamps`，绑定表 | 写库、Repo 操作 |
+| LLM I/O schema | `apps/novel_provider/lib/provider/llm_schemas/` | `embedded_schema do ... end`，**无** PK、**无** timestamps，只表达 LLM 协议字段 | `instructor_lite` `response_model:`、Provider Gateway 出入参 |
+
+代码规则（Phase 0 起强制）：
+
+```elixir
+# AUTO-GENERATED from https://design-v2.local/schemas/intent_create_work_seed.json
+defmodule AINovelStudio.Provider.LLMSchemas.CreateWorkSeed do
+  use Ecto.Schema
+  use InstructorLite.Instruction  # provides @llm_doc + json_schema/0 + validate_changeset/2
+
+  @llm_doc """
+  代表一本小说的最小初始设定。
+  - genre: 必须是以下之一: 玄幻 / 都市 / 科幻 / 悬疑 / 其他。
+  """
+  @primary_key false
+  embedded_schema do
+    field :title, :string
+    field :genre, Ecto.Enum, values: [:"玄幻", :"都市", :"科幻", :"悬疑", :"其他"]
+    field :core_hook, :string
+    embeds_many :initial_characters, Character, primary_key: false do
+      field :name, :string
+      field :role, :string
+    end
+  end
+end
+```
+
+mix task 增量改动（`mix codegen.schemas`）：
+
+1. 默认输出 persistence schema（§4.1 / §4.2 已有）。
+2. 当 SSOT JSON Schema 文件名匹配 `intent_*.json` / `artifact_*.json` / `card_*.json` / `quality_finding_*.json`，**额外**输出一份 LLM I/O 的 `embedded_schema` 到 `apps/novel_provider/lib/provider/llm_schemas/`。
+3. 派生时：
+   - 跳过 `id / *_id (UUID) / timestamps` 等纯 DB 字段（在 SSOT 用 `"x-llm-io": false` 标注）。
+   - 把 nested object 用 `embeds_one`，array of object 用 `embeds_many`，并按 `embedded_schema` 模板生成内部 module。
+   - **JSON Schema `enum` 必须派生为 `Ecto.Enum, values: [...]`**，不能派生成 `:string`。spike 实测过，`field :foo, :string` 让 `instructor_lite` 派生出"任意 string"，模型自由发挥时 ex_json_schema 才在 Gateway 入口拦下，把可以前置约束的失败延迟成 schema_mismatch 事件。
+   - 顶部生成 `@llm_doc` 注释，内容来自 JSON Schema 的 `description` 与 `enum` 提示，因为 `instructor_lite` 会把它作为 system prompt 的一部分发送给模型。
+4. 一并生成 `mix codegen.schemas --reverse-check`：把 `embedded_schema` 经 `InstructorLite.JSONSchema.from_ecto_schema/1` 派生回 JSON Schema，再用 `ex_json_schema` 与 SSOT 做语义对齐 diff（属性集 / required / enum）。**任何漂移都阻塞 CI**。
+
+### 4.5 ex_json_schema 边界（实测后明确）
+
+不论 instructor_lite / langchain / 直连 Req 哪条路径返回，**Provider Gateway 入口必须再用 `ex_json_schema` 校验一次**：
+
+- `instructor_lite` 的 changeset 校验是字段级的，不强制 `additionalProperties: false`；ex_json_schema 才能拦住"多余字段"。
+- `langchain` / 直连 Req 拿到 string content，要先 `Jason.decode` 再 `ExJsonSchema.Validator.validate`，失败分别归一为 `:invalid_json` / `:schema_mismatch`（详见 [`07-provider.md`](./07-provider.md) §7.1）。
+- **`Ecto.Enum` cast 完是 atom**（包括非 ASCII 中文 atom，`instructor_lite` 1.2 与 `instructor` 0.1 在 `for_type/1` 中都把 `Keyword.keys(mappings)` 的 atom 直接放进派生出的 `enum:` 数组）。Provider Gateway 出口在交给 `ex_json_schema` 校验或下游消费前，必须先把 atom 字段 `Atom.to_string/1`，否则会被判 schema_mismatch（spike 二跑实测命中过 6 次）。本仓 spike 用 `defp stringify(value) when is_atom(value), do: Atom.to_string(value)` 在 `seed_to_map/1` 里集中处理。
 
 ---
 
