@@ -70,6 +70,7 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 | ADR-0013 | Approval Policy / Record 最小 schema 与 UI 投影 | Accepted (2026-04-25) | `0013-approval-policy-record-ui-projection.md` |
 | ADR-0014 | Experience Objects UI 投影与上下文边界 | Accepted (2026-04-25) | `0014-experience-ui-context-boundary.md` |
 | ADR-0015 | 结构面板字段优先级与渐进披露 | Accepted (2026-04-25) | `0015-structure-panel-field-priority.md` |
+| ADR-0016 | Tauri 工程目录约定（`frontend/src-tauri/`） | Accepted (2026-04-27) | `0016-tauri-directory-layout.md` |
 
 ---
 
@@ -119,5 +120,6 @@ v2 设计过程中已经形成共识的若干关键决策目前以精简条目�
 | ADR-0013 | 阻塞项收口 + UI 前冻结 | approval policy / approval record 最小 schema 与 UI 投影 |
 | ADR-0014 | 阻塞项收口 + UI 前冻结 | experience objects UI 投影与 context assembly 边界 |
 | ADR-0015 | 阻塞项收口 + UI 前冻结 | 结构面板字段优先级与渐进披露 |
+| ADR-0016 | 实测后修订 spec | Tauri 工程目录从 `tauri/` 改为 `frontend/src-tauri/` |
 
 新增 ADR 必须同时更新本节与 §2.1。
