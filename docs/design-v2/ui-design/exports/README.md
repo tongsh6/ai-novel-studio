@@ -22,3 +22,4 @@
 ## PDF 评审包
 
 PDF 批量导出当前在 Pencil MCP 中超时，暂未作为冻结交付物。评审以 `png/` 下 8 张单屏 PNG 为准。
+- `xIVE9.png` - `46§7-inline-interaction-states` 按钮交互后的流式UI反馈
