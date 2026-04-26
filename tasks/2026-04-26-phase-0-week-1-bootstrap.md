@@ -12,7 +12,7 @@
 |---|---|---|---|---|
 | T1 | 仓库结构初始化（apps×4 + frontend + tauri + experiments + tools + config） | done | `8be29f1` | 仅空目录骨架，未注入 `mix new` / `pnpm init` |
 | T2 | 工具链 setup（Homebrew 装 Elixir/Erlang/Rust，nvm 校验 Node） + 团队 onboarding 文档 | partial | — | Elixir 1.19.5 / OTP 28 / pnpm 10.33 / Node 24.14 已装；仅缺 Rust（T6 才用） |
-| T3 | Mix umbrella + 4 个 apps 的 `mix.exs` + `mix deps.get` 通过 | todo | — | 工具链已就绪，待用户授权动 apps/ 下骨架 |
+| T3 | Mix umbrella + 4 个 apps 的 `mix.exs` + `mix deps.get` 通过 | done | `cdf2267` | umbrella + novel_foundation/domain/persistence/web；mix compile + mix test 全通；.gitignore 修正 lib/ 通配误伤 |
 | T4 | Phoenix endpoint 骨架 + `mix phx.server` + `/health` 返回 200 | todo | — | 依赖 T3 |
 | T5 | Frontend 骨架 + `pnpm dev` 启动 + hello world 页面 | todo | — | 独立于 T3-T4，可并行 |
 | T6 | Tauri 骨架 + `pnpm tauri dev` 加载 frontend | todo | — | 依赖 T5 + Rust（`brew install rustup-init`） |
@@ -30,6 +30,8 @@
 
 倒序，最新在上。
 
+- **2026-04-27** — T3 完成（commit `cdf2267`）：mix new --umbrella 生成根级 mix.exs / .formatter.exs / config/config.exs；apps/ 下分别 mix new：novel_foundation / novel_persistence / novel_web 用 `--sup`（OTP supervised），novel_domain 用纯库模式。mix compile 4 app 全通，mix test 5 个 dummy/doctest 全通。
+- **2026-04-27** — .gitignore 修正：原 Python 段 `lib/` 通配会误伤 `apps/*/lib/` 业务源码与 `spikes/v2_verification/lib/`；改为根级锚定 `/lib/`，并删除 spikes 例外规则（已 redundant）。追加 Elixir/Mix 段（`/_build/` `/cover/` `/deps/` `/doc/` `erl_crash.dump` `*.ez` `*.beam`）。
 - **2026-04-27** — T7 完成：从 ADR-0001 §1/§2 抽取 `foundation/turn_result_v2.json` + `foundation/artifact_adoption_entry.json` 到 `docs/design-v2/schemas/`。其余 `$ref` 占位（enums / envelopes / assistant_message / ui_card）严格不在 T7 范围，由对应 ADR-0002/0003/0005/0006 等各自抽取。两份 schema 均通过 JSON 语法校验。
 - **2026-04-27** — 工具链诊断：Elixir 1.19.5 / Erlang OTP 28 / pnpm 10.33 / Node 24.14.1 / Homebrew 5.1.7 均已装；仅 Rust 未装。修正 T2 状态从 todo → partial，原"本机 Elixir/Erlang 未装"信息过时。
 - **2026-04-26 23:30** — 新建 `tasks/` 目录承载执行层（状态/卡点/决策日志），与 `docs/`（规划）+ `adr/`（决策）+ `.sisyphus/plans/`（一次性集中作战计划）分离。理由：会话切换时无损接力。
@@ -40,7 +42,6 @@
 
 - **T2 残余**：仅 Rust 未装（`brew install rustup-init && rustup-init -y`），T6 启动前完成即可，不阻塞 T3-T5。
 - **Node 版本不一致**：本机 Node 24.14.1 vs roadmap 目标 20.x。需在 T5 / T6 实际跑 Vite + phoenix npm client + Tauri CLI 时验证兼容；不兼容则团队走 `nvm install 20 && nvm use 20`（参考 `12-development.md §2.0`）。
-- **T3 待授权**：`mix new` 是不可逆的工程注入（每个 app 会生成 `lib/` `test/` `mix.exs` `.formatter.exs` 等约 ~30 个新文件），需用户明确授权后再启动。
 - **路线图 §11 TBD**（团队成员、prompt 设计、provider 选择、pencil 介入时机）暂未影响 Week 1 推进，留到 kick-off 会议确认。
 
 ## 下次会话恢复指引
