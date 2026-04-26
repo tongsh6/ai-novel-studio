@@ -4180,6 +4180,364 @@
           ]
         }
       ]
+    },
+    {
+      "type": "frame",
+      "id": "xIVE9",
+      "x": 0,
+      "y": 2000,
+      "name": "46§7-inline-interaction-states",
+      "width": 1440,
+      "height": 900,
+      "fill": "$surface.primary",
+      "layout": "vertical",
+      "children": [
+        {
+          "type": "frame",
+          "id": "xRD7X",
+          "name": "topBar",
+          "width": "fill_container",
+          "height": 64,
+          "stroke": {
+            "thickness": {
+              "bottom": 1
+            },
+            "fill": "$border.subtle"
+          },
+          "padding": [
+            0,
+            32
+          ],
+          "alignItems": "center",
+          "children": [
+            {
+              "type": "text",
+              "id": "V2tQz",
+              "content": "交互状态演示：点击按钮后的对话流反馈",
+              "fontFamily": "Geist",
+              "fontSize": 18,
+              "fontWeight": "normal"
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "TzVDQ",
+          "name": "content",
+          "width": "fill_container",
+          "height": "fill_container",
+          "gap": 64,
+          "padding": 64,
+          "children": [
+            {
+              "type": "frame",
+              "id": "fc0BS",
+              "name": "col1",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "W5t43",
+                  "fill": "$foreground.secondary",
+                  "content": "场景 1: 点击【采纳设定】后",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "bold"
+                },
+                {
+                  "type": "frame",
+                  "id": "14wTy",
+                  "name": "c1_card",
+                  "width": "fill_container",
+                  "fill": "#F3F4F6",
+                  "cornerRadius": "$rounded.sm",
+                  "gap": 12,
+                  "padding": 16,
+                  "alignItems": "center",
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "C6i15",
+                      "fill": "$foreground.secondary",
+                      "content": "✓ 已采纳：【伏笔】导师的怀表",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "text",
+                      "id": "k6X0X",
+                      "fill": "$foreground.secondary",
+                      "content": "已同步至右侧结构档案",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "OuH03",
+                  "name": "msg1",
+                  "width": "fill_container",
+                  "fill": "$surface.primary",
+                  "layout": "vertical",
+                  "padding": [
+                    16,
+                    24
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "N2Qut",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "设定已归档。既然怀表作为核心能源，主角接下来打算如何潜入遗迹的中心控制室？您可以直接构思，或者我提供潜入路线方案。",
+                      "lineHeight": 1.6,
+                      "fontFamily": "Geist",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "hEV31",
+              "name": "col2",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "KzauI",
+                  "fill": "$foreground.secondary",
+                  "content": "场景 2: 点击【我自己描述点子】后",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "bold"
+                },
+                {
+                  "type": "frame",
+                  "id": "FcMbd",
+                  "name": "c2_input",
+                  "width": "fill_container",
+                  "fill": "$surface.primary",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "#D1D5DB"
+                  },
+                  "layout": "vertical",
+                  "gap": 12,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "frame",
+                      "id": "XboK3",
+                      "name": "pillArea",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "FCmnX",
+                          "name": "pill",
+                          "fill": "#F3F4F6",
+                          "cornerRadius": "$rounded.sm",
+                          "padding": [
+                            6,
+                            10
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "YU46Y",
+                              "fill": "$foreground.secondary",
+                              "content": "↳ 补充卷目标",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "jvqTS",
+                      "fill": "$foreground.primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "我觉得开头不该在贫民窟，可以在一辆正在坠毁的高空列车上开始，以主角抢夺权限为切入点...|",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "UU2k5",
+                      "fill": "$accent.primary",
+                      "content": "↵ 发送消息",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "2IW8y",
+              "name": "col3",
+              "width": "fill_container",
+              "height": "fill_container",
+              "layout": "vertical",
+              "gap": 24,
+              "children": [
+                {
+                  "type": "text",
+                  "id": "kRoJo",
+                  "fill": "$foreground.secondary",
+                  "content": "场景 3: 点击【提出修改 / 调整策略】后",
+                  "fontFamily": "Inter",
+                  "fontSize": 14,
+                  "fontWeight": "bold"
+                },
+                {
+                  "type": "frame",
+                  "id": "jUux8",
+                  "name": "c3_msg",
+                  "width": "fill_container",
+                  "fill": "#F3F4F6",
+                  "layout": "vertical",
+                  "padding": [
+                    16,
+                    24
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "3jRvd",
+                      "fill": "$foreground.primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "太套路了，把方向A的环境设定改得更压抑一点，引入克苏鲁元素，不要传统的赛博废土流。",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "wlqyy",
+                  "name": "c3_resp",
+                  "width": "fill_container",
+                  "layout": "vertical",
+                  "padding": [
+                    16,
+                    24
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "328pX",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "明白。削弱传统废土元素，强化克苏鲁与赛博融合的压抑疯狂感。我重新推演了设定：",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "lnbO2",
+                  "name": "c3_card",
+                  "width": "fill_container",
+                  "fill": "$surface.primary",
+                  "cornerRadius": "$rounded.sm",
+                  "stroke": {
+                    "thickness": 1,
+                    "fill": "$accent.primary"
+                  },
+                  "layout": "vertical",
+                  "gap": 12,
+                  "padding": 16,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "Aer30",
+                      "fill": "$foreground.primary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "修订版方案：血肉飞升与超维神经网",
+                      "fontFamily": "Inter",
+                      "fontSize": 14,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "text",
+                      "id": "6GdQc",
+                      "fill": "$foreground.secondary",
+                      "textGrowth": "fixed-width",
+                      "width": "fill_container",
+                      "content": "底层抗争的对象不再是实体财团，而是不可名状的“神级代码”与异化机械。基调转为悬疑与灵异生存。",
+                      "lineHeight": 1.5,
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "B4zw4",
+                      "name": "btnArea",
+                      "width": "fill_container",
+                      "justifyContent": "end",
+                      "children": [
+                        {
+                          "type": "frame",
+                          "id": "ubklp",
+                          "fill": "$surface.primary",
+                          "cornerRadius": "$rounded.sm",
+                          "stroke": {
+                            "thickness": 1,
+                            "fill": "#D1D5DB"
+                          },
+                          "padding": [
+                            8,
+                            16
+                          ],
+                          "children": [
+                            {
+                              "type": "text",
+                              "id": "iej2z",
+                              "fill": "$foreground.primary",
+                              "content": "采纳新设定",
+                              "fontFamily": "Inter",
+                              "fontSize": 12,
+                              "fontWeight": "normal"
+                            }
+                          ]
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
     }
   ],
   "variables": {
