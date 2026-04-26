@@ -14,7 +14,7 @@
 | T2 | 工具链 setup（Homebrew 装 Elixir/Erlang/Rust，nvm 校验 Node） + 团队 onboarding 文档 | partial | — | Elixir 1.19.5 / OTP 28 / pnpm 10.33 / Node 24.14 已装；仅缺 Rust（T6 才用） |
 | T3 | Mix umbrella + 4 个 apps 的 `mix.exs` + `mix deps.get` 通过 | done | `cdf2267` | umbrella + novel_foundation/domain/persistence/web；mix compile + mix test 全通；.gitignore 修正 lib/ 通配误伤 |
 | T4 | Phoenix endpoint 骨架 + `mix phx.server` + `/health` 返回 200 | todo | — | 依赖 T3 |
-| T5 | Frontend 骨架 + `pnpm dev` 启动 + hello world 页面 | todo | — | 独立于 T3-T4，可并行 |
+| T5 | Frontend 骨架 + `pnpm dev` 启动 + hello world 页面 | done | `2941f9a` | Vite 8.0.10 / React 19.2 / TS 6.0.3；641ms 启动；Node 24 兼容验证通过 |
 | T6 | Tauri 骨架 + `pnpm tauri dev` 加载 frontend | todo | — | 依赖 T5 + Rust（`brew install rustup-init`） |
 | T7 | `docs/design-v2/schemas/foundation/turn_result_v2.json`（按 ADR-0001 §1/§2） | done | `421929a` | 已落地主 schema + artifact_adoption_entry；其余 `$ref` 占位待 ADR-0002/0003/0005/0006 各自抽取 |
 | T8 | Schema codegen：`mix codegen.schemas` + `pnpm codegen:schemas` | todo | — | 依赖 T3 + T7（T7 已 done） |
@@ -30,6 +30,7 @@
 
 倒序，最新在上。
 
+- **2026-04-27** — T5 完成（commit `2941f9a`）：pnpm create vite frontend --template react-ts；实测版本 React 19.2.5 / Vite 8.0.10 / TS 6.0.3，已超 04-frontend.md 基线（模板默认升新）；pnpm dev 在 641ms 启动 http://localhost:5173/，Node 24.14 兼容验证通过——roadmap §2.0 关于 Node 24 的兼容性疑虑解除。Tailwind / Radix / Zod / TanStack Query / Zustand / phoenix npm 等 04-frontend.md §2.7 增量留待后续 T5 子项。
 - **2026-04-27** — T3 完成（commit `cdf2267`）：mix new --umbrella 生成根级 mix.exs / .formatter.exs / config/config.exs；apps/ 下分别 mix new：novel_foundation / novel_persistence / novel_web 用 `--sup`（OTP supervised），novel_domain 用纯库模式。mix compile 4 app 全通，mix test 5 个 dummy/doctest 全通。
 - **2026-04-27** — .gitignore 修正：原 Python 段 `lib/` 通配会误伤 `apps/*/lib/` 业务源码与 `spikes/v2_verification/lib/`；改为根级锚定 `/lib/`，并删除 spikes 例外规则（已 redundant）。追加 Elixir/Mix 段（`/_build/` `/cover/` `/deps/` `/doc/` `erl_crash.dump` `*.ez` `*.beam`）。
 - **2026-04-27** — T7 完成：从 ADR-0001 §1/§2 抽取 `foundation/turn_result_v2.json` + `foundation/artifact_adoption_entry.json` 到 `docs/design-v2/schemas/`。其余 `$ref` 占位（enums / envelopes / assistant_message / ui_card）严格不在 T7 范围，由对应 ADR-0002/0003/0005/0006 等各自抽取。两份 schema 均通过 JSON 语法校验。
@@ -41,7 +42,7 @@
 ## 卡点 / TBD
 
 - **T2 残余**：仅 Rust 未装（`brew install rustup-init && rustup-init -y`），T6 启动前完成即可，不阻塞 T3-T5。
-- **Node 版本不一致**：本机 Node 24.14.1 vs roadmap 目标 20.x。需在 T5 / T6 实际跑 Vite + phoenix npm client + Tauri CLI 时验证兼容；不兼容则团队走 `nvm install 20 && nvm use 20`（参考 `12-development.md §2.0`）。
+- **Node 24 兼容性**：T5 已验证 Vite 8 + React 19 + TS 6 在 Node 24.14.1 下 OK；phoenix npm client 与 Tauri CLI 仍待验（在 T4 channel 接入 / T6 Tauri 启动时再确认）。
 - **路线图 §11 TBD**（团队成员、prompt 设计、provider 选择、pencil 介入时机）暂未影响 Week 1 推进，留到 kick-off 会议确认。
 
 ## 下次会话恢复指引
