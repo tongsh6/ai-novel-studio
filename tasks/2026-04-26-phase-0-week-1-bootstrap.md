@@ -17,7 +17,7 @@
 | T5 | Frontend 骨架 + `pnpm dev` 启动 + hello world 页面 | done | `2941f9a` | Vite 8.0.10 / React 19.2 / TS 6.0.3；641ms 启动；Node 24 兼容验证通过 |
 | T6 | Tauri 骨架 + `pnpm tauri dev` 加载 frontend | done | `e32a2d6` | Tauri 2.10.3 + tauri-plugin-log；首次 cargo build 4m56s（387 编译单元）；窗口加载 vite 通过；目录布局走 ADR-0016（`frontend/src-tauri/`） |
 | T7 | `docs/design-v2/schemas/foundation/turn_result_v2.json`（按 ADR-0001 §1/§2） | done | `421929a` | 已落地主 schema + artifact_adoption_entry；其余 `$ref` 占位待 ADR-0002/0003/0005/0006 各自抽取 |
-| T8 | Schema codegen：`mix codegen.schemas` + `pnpm codegen:schemas` | todo | — | 依赖 T3 + T7（T7 已 done） |
+| T8 | Schema codegen：`mix codegen.schemas` + `pnpm codegen:schemas` | done | `c42b938` | Plan A：Elixir 端手写 Ecto schema + 漂移检测；前端 json-schema-to-zod 真生成 + git diff 漂移检测；CI 双向校验 |
 | T9 | GitHub Actions CI：`mix test` + `pnpm test` | done | `c099ddf` | .github/workflows/ci.yml；两个并行 job；本地 pnpm test ✅；远端运行结果待 push 后观察 |
 
 完成标准（来自 `14-roadmap.md` §2.2）：
@@ -30,6 +30,7 @@
 
 倒序，最新在上。
 
+- **2026-04-27** — T8 完成（commit `c42b938`），方向选 Plan A（手写 Ecto + 漂移检测，对应文档讨论中 A/B/C 三方案的 A）。理由：(1) ADR-0001 已立 docs/design-v2/schemas/ 为 SSOT，方向不能反（排除 C）；(2) Phase 0 完成标准只要"两条 codegen 命令能跑通"，B 方案的真 codegen 工具是 Phase 1 的事；(3) 当前 schema 数量小（2 个），手写成本远低于自写 codegen 工具。Phase 1 接续条目见下方"Phase 1 接续"段落。
 - **2026-04-27** — T6 完成（commit `e32a2d6`，前置 ADR-0016 commit `58f5657`）：rustup-init via brew + stable rust 1.95（minimal profile）；frontend 加 @tauri-apps/api + @tauri-apps/cli；pnpm tauri init --ci 在 `frontend/src-tauri/` 生成模板；identifier 改 studio.ai-novel；首次 cargo build 拉 291 crates + 编译 387 单元 4m56s；target/debug/app 启动加载 vite，无 error/panic。~/.cargo/bin 未写入 ~/.zshrc（守 local-ai-policy §五），新 shell 需 source ~/.cargo/env。
 - **2026-04-27** — ADR-0016（commit `58f5657`）：实测后修订 spec，Tauri 工程目录从顶层 `tauri/` 改为 `frontend/src-tauri/`。理由：Tauri 2 默认布局零配置 + 社区文档/CI 模板均假设此布局。同步修订 12-development.md §1 + 0000-index.md §2.1/§5；删除顶层 tauri/.gitkeep；.gitignore 加 *.iml。
 - **2026-04-27** — T9 完成（commit `c099ddf`）：`.github/workflows/ci.yml` 两 job 并行（backend mix test / frontend vitest），erlef/setup-beam 1.19/OTP 28、pnpm/action-setup v4、actions/setup-node 24；frontend 配套 `pnpm add -D vitest` + smoke.test.ts dummy 测试。本地 `pnpm test` 1/1 通过；CI 远端首跑结果待 push 后 GitHub Actions 验证。
@@ -48,6 +49,14 @@
 - **Node 24 兼容性**：T5 验证 Vite 8 + React 19 + TS 6 通过；T6 验证 @tauri-apps/cli 2.10 通过。phoenix npm client 仍待验（在 T4+ Channel 接入时确认）。
 - **`~/.cargo/bin` 未在 PATH**：每次新 shell 需 `source ~/.cargo/env`，否则 `cargo` / `pnpm tauri *` 找不到。永久写入 ~/.zshrc 需用户授权（local-ai-policy §五）。
 - **路线图 §11 TBD**（团队成员、prompt 设计、provider 选择、pencil 介入时机）暂未影响 Week 1 推进，留到 kick-off 会议确认。
+
+## Phase 1 接续
+
+T8 落地的是 codegen 最小链路（Plan A），下面三件事是 Phase 1 启动后第一波要做的：
+
+1. **mix codegen.schemas 升级为真生成**：当 ADR-0002+ 把 `foundation/enums/*.json` / 各 envelope schema 落地后，schema 数量将快速增长（预计 10+）。届时把 Elixir 端从"手写 + 漂移检测"切换为"自写 Mix task 生成 typed_struct/Ecto code"。前置：等下游 ADR 落地至少 5 份新 schema。
+2. **互斥约束实现**：ADR-0001 §4 列了 7 条跨字段约束（如 `errors[]` 非空 → `status` 非终态成功；`behavior_state.active != null` → `next_action` 限定子集等）。当前未实现，需要在 orchestrator 层加 `Validators.TurnResult.validate_invariants/1`。前置：当 orchestrator 真的开始组装 TurnResult 时（Phase 1 第 4-5 周）。
+3. **前端 codegen 升级**：当 `$ref` 目标 schema 落地后，重跑 `pnpm codegen:schemas`，回退的 `z.any()` 会自然替换为真 zod schema。届时考虑加深 json-schema-to-zod 的 `--depth` 参数；以及把 `src/generated/` 设为 git-untracked + CI 在 build 阶段重新生成（避免 PR diff 噪声）。
 
 ## 下次会话恢复指引
 
