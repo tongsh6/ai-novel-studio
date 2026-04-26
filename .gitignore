@@ -51,6 +51,7 @@ yarn.lock
 # IDE
 .idea/
 .vscode/
+*.iml
 *.swp
 *.swo
 *~

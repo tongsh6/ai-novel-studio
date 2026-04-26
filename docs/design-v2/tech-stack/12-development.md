@@ -79,7 +79,7 @@ ai-novel-studio/
 │       ├── test/
 │       └── mix.exs
 │
-├── frontend/                            # 独立 React/TS SPA
+├── frontend/                            # 独立 React/TS SPA + Tauri shell
 │   ├── src/
 │   │   ├── api/
 │   │   ├── generated/                   # codegen 自 docs/design-v2/schemas/
@@ -88,18 +88,18 @@ ai-novel-studio/
 │   │   ├── hooks/
 │   │   ├── lib/
 │   │   └── routes/
+│   ├── src-tauri/                       # Tauri 2 shell（Rust glue），布局由 ADR-0016 锁定
+│   │   ├── src/
+│   │   ├── icons/
+│   │   ├── capabilities/
+│   │   ├── tauri.conf.json
+│   │   ├── Cargo.toml
+│   │   └── build.rs
 │   ├── public/
 │   ├── tests/
 │   ├── package.json
 │   ├── vite.config.ts
 │   └── tsconfig.json
-│
-├── tauri/                               # Tauri 2 shell
-│   ├── src/                             # Rust glue
-│   ├── icons/
-│   ├── tauri.conf.json
-│   ├── Cargo.toml
-│   └── binaries/                        # Mix Release sidecar 二进制
 │
 ├── experiments/                         # Python prompt 实验（隔离, 不进 production）
 │   ├── pyproject.toml
