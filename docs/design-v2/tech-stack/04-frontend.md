@@ -10,12 +10,12 @@
 
 ```yaml
 language:        TypeScript 5.x
-framework:       React 18+
-build:           Vite 5.x
+framework:       React 19+
+build:           Vite 6+
 state_server:    TanStack Query (server state)
 state_client:    Zustand (UI state)
-schema:          Zod (runtime + compile-time)
-ws_client:       phoenix-js (Phoenix Channels)
+schema:          Zod 4 (runtime + compile-time)
+ws_client:       phoenix npm package (Phoenix Channels)
 ui_primitives:   Radix UI (headless)
 styling:         Tailwind CSS 4
 icons:           Lucide
@@ -28,7 +28,7 @@ package:         pnpm (workspace)
 
 ## 2. 选型理由
 
-### 2.1 React 18+
+### 2.1 React 19+
 
 | 优势 | 备注 |
 |---|---|
@@ -51,7 +51,7 @@ package:         pnpm (workspace)
 - `Literal` + `discriminated union` 表达 ADR-0001 14+5 字段足够
 - 与 Zod 形成"编译期 + 运行时双重保证"
 
-### 2.3 Vite 5.x
+### 2.3 Vite 6+
 
 | 优势 | 备注 |
 |---|---|
@@ -71,7 +71,7 @@ package:         pnpm (workspace)
 - 不用 Redux：本项目 server state 主要走 TanStack Query，本地 UI state 用 Redux 太重
 - 不用 Jotai/Recoil：Zustand 更直接
 
-### 2.6 Zod
+### 2.6 Zod 4
 
 - 运行时校验 + TypeScript type 自动推断
 - ADR-0001 schema 的前端 SSOT
@@ -83,9 +83,9 @@ package:         pnpm (workspace)
 - Tailwind 提供 utility class
 - shadcn/ui 是 Radix + Tailwind 的预制组件集合，可作为起步参考
 
-### 2.8 phoenix-js
+### 2.8 Phoenix JS client（npm package `phoenix`）
 
-Phoenix Channels 官方 JS 客户端，提供：
+Phoenix Channels 官方 JS 客户端，npm 包名是 `phoenix`，提供：
 
 - 自动重连
 - Channel 抽象（topic + event + payload）
@@ -157,7 +157,7 @@ frontend/
 ├── tailwind.config.ts
 ├── src/
 │   ├── api/
-│   │   ├── client.ts                    # phoenix-js + fetch wrapper
+│   │   ├── client.ts                    # phoenix npm client + fetch wrapper
 │   │   ├── socket.ts                    # Phoenix Socket
 │   │   └── channels/
 │   │       ├── workspace.ts

@@ -30,7 +30,7 @@
 | 任务 | 交付物 |
 |---|---|
 | 仓库结构初始化 | Mix umbrella + 4 个 apps + frontend + tauri 目录都建立 |
-| 工具链 setup | `.tool-versions` + asdf install + 团队 onboarding 文档 |
+| 工具链 setup | Homebrew + nvm 路径校验 + 团队 onboarding 文档 |
 | Mix umbrella + 依赖 | `mix.exs` + 4 个 apps 的 `mix.exs` + `mix deps.get` 通过 |
 | Phoenix endpoint 骨架 | `mix phx.server` 能启动，访问 `/health` 返回 200 |
 | Frontend 骨架 | `pnpm dev` 能启动 Vite，访问 `localhost:5173` 显示 hello world |
@@ -41,7 +41,7 @@
 
 ### 2.2 完成标准
 
-- [ ] 团队任意成员 `git clone + asdf install + mix deps.get + pnpm install` 后能跑起来
+- [ ] 团队任意成员按 [`12-development.md`](./12-development.md) §2.0 完成工具链校验后，`git clone + mix deps.get + pnpm install` 能跑起来
 - [ ] `mix phx.server` + `pnpm dev` + `pnpm tauri dev` 三个终端都能启动
 - [ ] CI 跑通，`mix test` 至少有一个 dummy test 通过
 - [ ] `docs/design-v2/schemas/turn_result.json` reviewed 并 commit
@@ -66,9 +66,9 @@
 | Agent.Children.DynamicSupervisor | 单 author 下能动态 spawn 子 Agent（暂用 dummy GenServer 占位）|
 | Ecto Repo + 第一张表 | `mix ecto.create + mix ecto.migrate` 跑通；建一张 `workspaces` 表 |
 | Ecto schemas codegen 完整 | `turn_result.json` → `Persistence.Schemas.TurnResult` |
-| paper_trail 接入 | 第一张表 + revision audit 跑通 |
+| paper_trail 接入 | 第一张表 + revision audit 跑通；完成 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md) |
 | Phoenix Channels 雏形 | 一个 `WorkspaceChannel`，能 join + 收消息 |
-| Frontend Channel 客户端 | phoenix-js 能连上 channel + send 消息 |
+| Frontend Channel 客户端 | `phoenix` npm client 能连上 channel + send 消息 |
 | Frontend Zod schema 接入 | `TurnResultSchema.parse` 在前端能跑通 |
 
 ### 3.2 完成标准
@@ -76,6 +76,7 @@
 - [ ] 启动应用后 `Observer` 能看到完整 supervision tree
 - [ ] 创建一个 workspace，supervision tree 下出现对应 Workspace.Supervisor + Author.DynamicSupervisor
 - [ ] Ecto 写一条 turn_result 数据 + paper_trail 自动写 versions 表
+- [ ] `paper_trail` 技术验证结论已记录到 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)
 - [ ] 前端能连接 Phoenix Channel + 收到一条服务端 push
 - [ ] schema 一致性 CI 通过
 
@@ -91,6 +92,7 @@
 | Budget Meter 骨架 | GenServer 计量 + emit telemetry |
 | Provider Gateway 骨架 | OpenAI 兼容 provider（连 LM Studio）+ Stub provider |
 | Provider Gateway behaviour 定义 | `AINovelStudio.Foundation.Provider` behaviour |
+| Structured Output 验证 | ✅ 已完成（2026-04-26 二跑）：四路径全部 normal 20/20，决策 `instructor_lite` 主 + `langchain` 副 + 直连 Req fallback。详见 [`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md) §7 |
 | 第一个 capability | `cap.simple_complete`：调用 LLM 返回文本，无业务逻辑 |
 | Telemetry + OTel 接入 | OpenTelemetry-erlang + Phoenix.Telemetry，能在 stdout 看到 trace |
 | Audit log 骨架 | JSONL 写入功能 |
@@ -99,6 +101,7 @@
 ### 4.2 完成标准
 
 - [ ] 调用 `cap.simple_complete` 返回 LLM 响应
+- [ ] structured output 技术验证结论已记录，并同步更新 `03-backend.md` / `07-provider.md` 依赖说明
 - [ ] OTel trace 能看到完整 span 链路
 - [ ] Authority denied 时 capability 拒绝执行
 - [ ] Budget exceed 时触发 escalation（即使只是 log）
@@ -224,6 +227,7 @@
 - 具体团队成员安排（待团队确认）
 - 第一个 capability `CREATE_WORK_SEED` 的具体 prompt 设计（experiments/ 输出）
 - LLM provider 选择（LM Studio 本地 / OpenAI 远程，按预算决定）
+- [`verification/`](./verification/) 任务完成状态与是否需要 ADR
 - pencil 原型何时介入 Phase 0 （UI 卡片设计可能影响 frontend 骨架）
 
 以上 TBD 在 Phase 0 第 1 周的 kick-off 会议上确定。

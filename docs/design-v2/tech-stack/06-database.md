@@ -374,15 +374,36 @@ end
 
 ### 6.3 与 ADR-0001 source_revision_refs 的关系
 
-`paper_trail.versions.id` 可作为 `source_revision_refs` 中的 `source_revision_id`，但要严格映射：
+> 实测：`paper_trail.versions.id` 是单调递增的 BIGSERIAL/INTEGER，可直接写入 `source_revision_refs.source_revision_id (BIGINT)`。详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md) §6.2，实测脚本同时在 SQLite 与 PostgreSQL 各跑过 4 条 versions（insert / update / update / delete）。
 
 ```elixir
 %{
   source_object_type: "draft",
   source_object_id: draft.id,
-  source_revision_id: version.id    # paper_trail 的 version.id
+  source_revision_id: version.id    # paper_trail 的 version.id（BIGINT，单调递增）
 }
 ```
+
+### 6.4 关于 `item_id` 类型与 `:binary_id` 的开放项
+
+§6.1 示例中 `item_id` 写为 `:binary_id`；这只在 paper_trail 显式配置 `config :paper_trail, item_type: Ecto.UUID, originator_type: Ecto.UUID` 且 source schema 使用 binary_id PK 时成立。本仓 spike 验证的是默认 `item_type: :integer + 自增 PK` 组合（业务表 PK 也是 integer）。
+
+Phase 0 必须把这件事补完：
+
+1. 决定 v2 contract 的 ID 策略：业务表整体走 binary_id（UUID）还是 integer？
+2. 若选 binary_id，复跑一次 paper_trail spike 并显式配置 `item_type: Ecto.UUID`，验证：
+   - SQLite 下 UUID 字符串落 TEXT 字段后能否回查
+   - PostgreSQL 下能否复用原生 `uuid` 类型
+   - `versions.item_id` 索引选择性是否仍可接受
+3. 把验证结论落回到本节。
+
+在结论补全之前，**示例代码里的 `:binary_id` 仅表达意图，不是已实测约束**。
+
+### 6.5 SQLite 阶段的强约束（实测后追加）
+
+- `pool_size: 1`，否则会触发 "database is locked"。
+- `journal_mode: :wal`，避免长写阻塞读。
+- 写路径必须经统一 helper（封住 paper_trail 的 `repo.transaction(multi)` vs `PaperTrail.Multi.commit/1` 误用差异）。详见 [`03-backend.md`](./03-backend.md) §2.4。
 
 ---
 

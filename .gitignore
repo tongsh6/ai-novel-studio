@@ -11,6 +11,10 @@ downloads/
 eggs/
 .eggs/
 lib/
+!spikes/
+!spikes/**/
+!spikes/**/lib/
+!spikes/**/lib/**
 lib64/
 parts/
 sdist/
@@ -43,6 +47,10 @@ yarn.lock
 # Database
 *.sqlite3
 *.db
+*.db-shm
+*.db-wal
+*.sqlite3-shm
+*.sqlite3-wal
 
 # IDE
 .idea/

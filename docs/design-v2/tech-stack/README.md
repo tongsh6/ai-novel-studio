@@ -50,8 +50,8 @@ docs/design-v2/             docs/design-v2/tech-stack/
 
 | 文档 | 内容 |
 |---|---|
-| [`03-backend.md`](./03-backend.md) | Elixir 1.17 + Phoenix 1.7 + Ecto + langchain_elixir 后端栈 |
-| [`04-frontend.md`](./04-frontend.md) | React 18 + TypeScript + Vite + Zod 前端栈 |
+| [`03-backend.md`](./03-backend.md) | Elixir 1.19 + Phoenix 1.8 + Ecto + langchain_elixir 后端栈 |
+| [`04-frontend.md`](./04-frontend.md) | React 19 + TypeScript + Vite 6+ + Zod 4 前端栈 |
 | [`05-desktop.md`](./05-desktop.md) | Tauri 2 + Mix Release sidecar 桌面壳 |
 | [`06-database.md`](./06-database.md) | SQLite ↔ PostgreSQL 切换策略 + Ecto adapter |
 
@@ -73,6 +73,14 @@ docs/design-v2/             docs/design-v2/tech-stack/
 | [`13-risks.md`](./13-risks.md) | 已识别风险登记 + 缓解策略 |
 | [`14-roadmap.md`](./14-roadmap.md) | Phase 0 工作分解（第 1 周到第 1 个月）|
 
+### 技术验证任务
+
+| 文档 | 内容 |
+|---|---|
+| [`verification/README.md`](./verification/README.md) | Phase 0 前置技术验证任务索引 |
+| [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md) | `paper_trail` + Ecto 3.13 + SQLite/PostgreSQL 兼容性验证 |
+| [`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md) | `langchain_elixir` / `instructor_ex` / 直连 Req / `instructor_lite` 四路径选型验证（2026-04-26 通过：`instructor_lite` 1.2 主 + `langchain` 副 + 直连 Req fallback） |
+
 ---
 
 ## 3. 阅读顺序
@@ -93,8 +101,9 @@ docs/design-v2/             docs/design-v2/tech-stack/
 
 1. `14-roadmap.md` - 路线图
 2. `12-development.md` - 仓库结构
-3. `03`-`06` - 各层栈具体清单
-4. `07`-`10` - 关键子系统的技术实现
+3. `verification/README.md` - 前置技术验证任务
+4. `03`-`06` - 各层栈具体清单
+5. `07`-`10` - 关键子系统的技术实现
 
 ---
 
@@ -106,10 +115,10 @@ docs/design-v2/             docs/design-v2/tech-stack/
 |---|---|
 | [`../00-overview.md`](../00-overview.md) | `00-overview.md` 第 5 节、`01-decision-rationale.md` 第 2 节 |
 | [`../00e-architecture.md`](../00e-architecture.md) | `03-backend.md`、`05-desktop.md`、`11-deployment.md` |
-| `../01-agent-foundation-contract.md`（待写） | `08-multi-agent.md` |
+| [`../01-agent-foundation-contract.md`](../01-agent-foundation-contract.md) | `08-multi-agent.md` |
 | [`../adr/0001-turn-result-v2-schema.md`](../adr/) | `09-schema-codegen.md` |
 | [`../adr/0011-projection-refresh-state-triggers.md`](../adr/) | `08-multi-agent.md`、`10-observability.md` |
-| `../12-multi-agent-composition.md`（待写） | `08-multi-agent.md` 全文核心 |
+| [`../12-multi-agent-composition.md`](../12-multi-agent-composition.md) | `08-multi-agent.md` 全文核心 |
 
 ---
 
@@ -141,8 +150,8 @@ docs/design-v2/             docs/design-v2/tech-stack/
 
 技术栈决策属于**工程实施层**，不是 Foundation contract。允许：
 
-- 主版本号升级（如 Phoenix 1.7 → 1.8）：直接修改文档
-- 库替换（如 langchain_elixir → instructor_ex）：修改文档 + 通知团队
+- 主版本号升级（如 Phoenix 1.8 → 1.9）：直接修改文档
+- 库替换（如 instructor_ex → instructor_lite，参见 2026-04-26 spike）：修改文档 + 通知团队
 - 栈级替换（如 Elixir → 别的）：必须重新走 `01-decision-rationale.md` 的 4 个约束验证 + ADR
 
 ---

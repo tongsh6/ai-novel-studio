@@ -137,8 +137,8 @@ ai-novel-studio/
 目标版本：
 
 ```
-elixir 1.17.3
-erlang 27.1
+elixir 1.19.x
+erlang 28.x
 nodejs  20.x（与本机已安装的更高版本兼容；不强制降级，详见 §2.0）
 rust    1.83.0
 ```
@@ -167,7 +167,7 @@ nvm install 20 && nvm use 20
 brew install pnpm
 ```
 
-> **关于 Node 版本**：本机当前 Node 24.14.1 与文档目标 20.x 不一致。Phase 0 第 1 周必须验证 Vite 5 / phoenix-js / Tauri CLI 在 Node 24 下是否兼容；若兼容，本节升级目标到 24；若不兼容，团队成员通过 `nvm install 20 && nvm use 20` 切换。**禁止用 Homebrew 装 node 覆盖 nvm**。
+> **关于 Node 版本**：本机当前 Node 24.14.1 与文档目标 20.x 不一致。Phase 0 第 1 周必须验证 Vite 6+ / `phoenix` npm client / Tauri CLI 在 Node 24 下是否兼容；若兼容，本节升级目标到 24；若不兼容，团队成员通过 `nvm install 20 && nvm use 20` 切换。**禁止用 Homebrew 装 node 覆盖 nvm**。
 
 > **不推荐 asdf / mise**：与本机 Homebrew + nvm 双轨制冲突，会引入第三套版本管理。如果团队有跨机器统一需求，单独立 ADR 讨论。
 
@@ -430,8 +430,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
-          elixir-version: "1.17.3"
-          otp-version: "27.1"
+          elixir-version: "1.19.x"
+          otp-version: "28.x"
       - run: mix deps.get
       - run: mix compile --warnings-as-errors
       - run: mix format --check-formatted

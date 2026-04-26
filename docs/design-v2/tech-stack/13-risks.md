@@ -14,7 +14,7 @@
 | R-02 | Elixir 招人困难 | 高 | 高 | ⚠️ 部分缓解 |
 | R-03 | BEAM VM 启动延迟（用户感知） | 低 | 中 | ✅ Splash + 暖启动 |
 | R-04 | Schema 静态保证不及 sealed/record | 中 | 中 | ✅ 双端 codegen + 契约测试 |
-| R-05 | langchain_elixir 跟随主流 LLM 工具滞后 | 中 | 高 | ⚠️ 依赖社区 + 自实现兜底 |
+| R-05 | langchain_elixir 跟随主流 LLM 工具滞后 + transport 错误归一化漏网 | 中 | 高 | ⚠️ Provider Gateway 吸收 + 直连 Req fallback（2026-04-26 实测） |
 | R-06 | Tauri 2 生产案例较少 | 中 | 低 | ⚠️ 监控生态成熟度 |
 | R-07 | OTP 学习曲线超预期 | 高 | 中 | ⚠️ 培训 + 渐进引入 |
 | R-08 | 阶段 2 跨节点 process 路由热点 | 中 | 中 | ✅ Consistent hashing 设计 |
@@ -28,7 +28,7 @@
 
 ### 2.1 描述
 
-Python 生态有 DSPy / Instructor / PydanticAI / Marvin / Outlines / LiteLLM / Guidance 等成熟实验工具。Elixir 生态只有 langchain_elixir + instructor_ex + Bumblebee，跟随主流 LLM 工具通常滞后 3-6 个月。
+Python 生态有 DSPy / Instructor / PydanticAI / Marvin / Outlines / LiteLLM / Guidance 等成熟实验工具。Elixir 生态只有 langchain_elixir + instructor_lite + Bumblebee，跟随主流 LLM 工具通常滞后 3-6 个月。
 
 ### 2.2 影响
 
@@ -49,7 +49,7 @@ Python 生态有 DSPy / Instructor / PydanticAI / Marvin / Outlines / LiteLLM / 
 ### 2.4 监控
 
 - 每月 review 一次：是否有产品差异化功能因 Elixir 工具不足而无法实现
-- 跟踪 langchain_elixir / instructor_ex 主仓库 commit 频率
+- 跟踪 langchain_elixir / instructor_lite 主仓库 commit 频率
 - 追踪 Python 圈的关键新工具，每个工具评估"是否阻塞 Elixir 落地"
 
 ### 2.5 回退条件
@@ -204,6 +204,14 @@ Java sealed interface + Kotlin sealed class + Rust enum + TS+Zod 在编译期能
 ### 6.5 不需要栈级回退
 
 属于库级问题，不是栈级问题。最差情况是把 langchain_elixir 替换成自实现 Provider Gateway。
+
+### 6.6 2026-04-26 实测发现（追加）
+
+[`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md) 实测发现 langchain 0.8.4 的具体短板：
+
+- **transport 级错误未被 `LangChainError` 包装**：当底层是 `Req.TransportError` / `Mint.TransportError`（如 ECONNREFUSED、超时、TLS 失败）时，langchain 会在日志里打印 warning 然后把原异常抛回到调用方。如果 Provider Gateway 不主动拦截，这一类失败会落到 `:exception` / `:unknown`，无法触发上层 retry / circuit breaker 的对应分支。
+- **缓解（已落地）**：`Provider.Gateway.normalize_error/1` 必须显式 match `%Req.TransportError{}` 与 `%Mint.TransportError{}`，归一为 `:transport_error`。具体 contract 在 [`07-provider.md`](./07-provider.md) §7 与 §7.1，contract test 必须有一条故意打到不可达端口的用例。
+- **不影响 happy path**：spike 二跑实测 normal/free_form/lure_extra 三类输入下，langchain / instructor 0.1 / 直连 Req / instructor_lite 1.2 四路都是 100% schema 命中（n=20 normal 各路径），所以这条只是错误路径的归一化短板，不是稳定性短板。
 
 ---
 
@@ -374,12 +382,13 @@ Elixir Ecto schema + Frontend Zod schema 都从 JSON Schema codegen。如果 cod
 
 技术栈推荐了若干 Elixir 库，其中部分维护活性已下降：
 
-| 库 | 版本 | 最近活跃 | 风险点 |
-|---|---|---|---|
-| `swarm` | 3.4 | 2022 起几乎无 commit | 跨节点 process registry，阶段 2 关键路径 |
-| `paper_trail` | 1.1 | ~2 年未发版 | revision audit 关键路径（替代 Hibernate Envers）|
-| `ex_machina` | 2.7 | 维护趋缓 | 测试 fixture 工厂，非关键但渗透测试代码 |
-| `fuse` | 2.x | 维护稀疏 | circuit breaker（[`07-provider.md`](./07-provider.md) §9）|
+| 库 | 版本 | 最近活跃 | 风险点 | 实测状态 |
+|---|---|---|---|---|
+| `swarm`（已移出主依赖） | 3.4 | 2019 起无主版本更新 | 原跨节点 process registry 候选，已改用 Horde | — |
+| `paper_trail` | 1.1.2 | 2024-08-30 后无正式 release；2025-2026 主要是 bot / dependabot 活动 | revision audit 关键路径（替代 Hibernate Envers）| ✅ 当前栈通过（2026-04-26）：双库 8/8 断言全过，Multi rollback 不留孤立 version。风险从阻塞项降为监控项，但不能删除。详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)。 |
+| ~~`instructor` (instructor_ex)~~ → `instructor_lite` | ~~0.1.0~~ → 1.2.0 | 2025-06 起 5 次 1.x release（最新 2026-02-01），活跃维护；但维护者集中度高、生态较小 | 结构化输出主依赖（intent slot / artifact / card payload）| ✅ 通过（2026-04-26 二跑实测，含 `instructor_lite` 1.2 补评）：四路径全部 normal 20/20，决策切换为 D 主 + A 副 + C fallback，`instructor_ex` 0.1.0 退场。详见 [`verification/structured-output-library-choice.md`](./verification/structured-output-library-choice.md) §7。 |
+| `ex_machina` | 2.7 | 维护趋缓 | 测试 fixture 工厂，非关键但渗透测试代码 | — |
+| `fuse` | 2.x | 维护稀疏 | circuit breaker（[`07-provider.md`](./07-provider.md) §9）| — |
 
 ### 11a.2 影响
 
@@ -391,26 +400,44 @@ Elixir Ecto schema + Frontend Zod schema 都从 JSON Schema codegen。如果 cod
 
 ⚠️ **替代方案 + 抽象层**：
 
-- **`swarm` → `Horde`**：Horde 是当前社区主流的跨节点 process registry，活跃维护中。Phase 0 阶段 2 触发前评估替换
-- **`paper_trail` → 自封装 audit log**：用 `Ecto.Multi` + 独立 versions 表实现，不依赖第三方库；或评估 `ex_audit`
+- **默认采用 Horde**：Horde 是当前社区主流的跨节点 process registry，活跃维护中；不再把 Swarm 放入主依赖清单
+- **`paper_trail`**：当前栈已实测可用（详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)），但 upstream 维护活性仍弱；保留自封装 audit log fallback，Ecto / Elixir / OTP 升级时必须复跑 spike。
+- **`instructor_lite`**：业务代码经 `Provider.Gateway` 中转，不直接 `import` InstructorLite；切换到 langchain 结构化输出 / 直连 Req / 历史 `instructor` 0.1.0 的成本约 3-5 天（spike 已验证四条等价路径，函数签名差异在 Provider Gateway 内部消化）。维护者集中度高是可接受但必须监控的 bus-factor 风险；如上游停滞，优先 fork 小库或退回 Gateway 直连 Req。
+- **Streaming structured output**：`instructor_lite` 不把 streaming 作为一等目标。Phase 0/1 默认采用 non-streaming finalize 生成结构化对象，再用 Phoenix Channel 流式推送进度/文本；如果后续必须做“流式结构化字段填充”，改走 Provider Gateway 直连 Req + SSE 增量解析，或重新评估 `langchain`/legacy `instructor` streaming 路径。
 - **`ex_machina` → 自实现 fixture helpers**：测试工厂模式不复杂，自实现避免依赖
 - **`fuse` → 自实现 circuit breaker**：基于 ETS counter + GenServer，~100 行代码
 
 ### 11a.4 监控
 
-- 季度复查：每个关键依赖的最近 commit 时间 + 未解决 issue 数
+- 季度复查：每个关键依赖的最近 commit 时间 + 未解决 issue 数 + 维护者集中度（bus factor）
 - 关注 ElixirForum / Elixir Slack 是否有"X 库已死，迁到 Y"的社区共识
 - 跟踪 Hex.pm 的 weekly downloads 趋势（断崖式下降是死亡信号）
 
 ### 11a.5 回退条件
 
-任一关键依赖（`paper_trail` / `swarm`）出现以下情况，触发立项替换：
+任一关键依赖（`paper_trail` / `horde` / `instructor_lite`）出现以下情况，触发立项替换：
 
 - 公开 CVE 超过 30 天未修复
-- 与 Elixir 1.18+ / OTP 28+ 不兼容
+- 与 Elixir 1.19+ / OTP 28+ 不兼容
 - 出现明确的 fork 接管或社区迁移共识
+- `instructor_lite` 连续 2 个季度无维护响应，且项目出现 provider / schema 兼容性 bug
+- 产品需求要求 streaming structured output，且 Gateway 直连 Req + SSE fallback 无法满足
 
 不是栈级风险，是库级风险。
+
+### 11a.6 实测复跑入口
+
+每次 Elixir / Ecto / paper_trail / langchain / instructor_lite major 升级后，都应至少复跑一次：
+
+```bash
+cd spikes/v2_verification
+mix deps.update --all
+SPIKE_DB=sqlite   mix run -e 'V2Verification.Spike.PaperTrail.run(:sqlite)'
+SPIKE_DB=postgres mix run -e 'V2Verification.Spike.PaperTrail.run(:postgres)'
+SPIKE_DB=sqlite   mix run -e 'V2Verification.Spike.StructuredOutput.run()'
+```
+
+任何一条断言降级到 ⚠️ 或 ❌ 都要立 ADR。
 
 ---
 
