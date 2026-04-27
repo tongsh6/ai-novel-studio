@@ -16,7 +16,7 @@
 | T3 | Author.DynamicSupervisor（单 workspace 下动态启停 author session） | done | `cd93e0c` | `:one_for_one`；start_author/2 幂等；Author.Supervisor (rest_for_one) per-author |
 | T4 | Agent.Children.DynamicSupervisor（单 author 下 spawn 子 Agent，dummy GenServer 占位） | done | `cd93e0c` | `:one_for_one`（crash isolation 关键）；Agent.Dummy GenServer 占位；测试覆盖 crash isolation |
 | T5 | Ecto Repo + 第一张表（`mix ecto.create + mix ecto.migrate` 跑通；建 `workspaces` 表） | done | `e2e0f06` | ecto_sql 3.13 + postgrex 0.22；PG 复用本机 colima v2_spike_pg；workspaces (uuid PK + name unique)；DataCase + SQL Sandbox；测试 5 个全绿 |
-| T6 | Ecto schemas codegen 完整（`turn_result.json` → `Persistence.Schemas.TurnResult`） | todo | — | 在 T8 (Week 1) 手写漂移检测基础上升级；目标：能从 schema 真生成 |
+| T6 | Ecto schemas codegen 完整（`turn_result.json` → `Persistence.Schemas.TurnResult`） | done | `c42b938` (Week 1 T8) | roadmap §3.1 T6 的字面交付（turn_result.json → Persistence.Schemas.TurnResult）由 Week 1 T8 (Plan A: 手写 + 漂移检测) 提前满足；"真生成"升级条目已落到 Week 1 task §Phase 1 接续 |
 | T7 | paper_trail 接入（第一张表 + revision audit；完成 verification doc） | todo | — | `verification/paper-trail-ecto-compatibility.md` |
 | T8 | Phoenix Channels 雏形（`WorkspaceChannel` 能 join + 收消息） | todo | — | novel_web |
 | T9 | Frontend Channel 客户端（`phoenix` npm client 能连上 channel + send） | todo | — | frontend；roadmap §2.0 的 phoenix npm Node 24 兼容性顺带验证 |
@@ -33,6 +33,8 @@
 ## 决策日志
 
 倒序，最新在上。
+
+- **2026-04-27** — T6 标 done（指向 Week 1 T8 commit `c42b938`）。理由：roadmap §3.1 T6 的字面交付目标"`turn_result.json` → `Persistence.Schemas.TurnResult`"在 Week 1 T8 已经事实上落地（Plan A 手写 + 漂移检测）。当前 turn_result schema 已在 `apps/novel_persistence/lib/persistence/schemas/foundation/turn_result.ex`，drift check 在 CI 跑过。"自动 codegen 真生成"是 Phase 1 接续条目（`tasks/2026-04-26-phase-0-week-1-bootstrap.md` §Phase 1 接续 第 1 条），前置是下游 ADR 落地至少 5 份新 schema。Week 2 不重复劳动。
 
 - **2026-04-27** — T5 完成（commit `e2e0f06`）。关键决策：
   - **DB 选择**：直接走 PostgreSQL（复用本机 colima 上已有的 `v2_spike_pg` 容器，凭据 spike/spike@localhost:5432），不搭 SQLite/PG 双 adapter。06-database.md §2 规划的"阶段 1 SQLite → 阶段 2 PG"切换策略推迟到真有桌面端单机部署诉求时再实施（追加 ADR 决定）。理由：(1) 本机已有 PG 容器，0 基础设施新增成本；(2) Phase 0 只用一个 adapter 先把链路打通，避免 `Application.compile_env :db_type` 的双轨复杂度；(3) workspaces 表只用方言中立特性（uuid / unique index），将来加 SQLite 时无需重写。
