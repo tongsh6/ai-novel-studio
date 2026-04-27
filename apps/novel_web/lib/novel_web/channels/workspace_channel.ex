@@ -12,13 +12,15 @@ defmodule NovelWeb.WorkspaceChannel do
 
   @impl true
   @spec join(String.t(), map(), Phoenix.Socket.t()) :: {:ok, map(), Phoenix.Socket.t()}
-  def join("workspace:" <> _suffix, _payload, socket) do
+  def join("workspace:" <> suffix, _payload, socket) do
+    socket = assign(socket, :workspace_id, suffix)
     {:ok, %{joined: true}, socket}
   end
 
   @impl true
   def handle_in("user_message", %{"text" => text}, socket) do
-    turn_result = TurnService.handle_message(text)
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    turn_result = TurnService.handle_message(text, ws_id)
     broadcast!(socket, "turn_result", turn_result)
     {:reply, {:ok, %{received: true}}, socket}
   end
