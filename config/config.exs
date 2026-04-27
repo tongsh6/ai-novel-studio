@@ -14,7 +14,9 @@ config :novel_web, NovelWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: 4000],
   adapter: Bandit.PhoenixAdapter,
   server: true,
-  render_errors: [formats: [json: NovelWeb.ErrorJSON], layout: false]
+  pubsub_server: NovelWeb.PubSub,
+  render_errors: [formats: [json: NovelWeb.ErrorJSON], layout: false],
+  secret_key_base: "dev_only_64_byte_secret_replaceme_dev_only_64_byte_secret_replaceme"
 
 config :phoenix, :json_library, Jason
 
