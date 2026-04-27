@@ -1,4 +1,4 @@
-defmodule NovelAgent.Runtime.AgentProcess.Dummy do
+defmodule NovelAgent.Runtime.Agent.Dummy do
   @moduledoc """
   占位 Agent。Phase 0 Week 2 T4 用于打通 supervision 三层 + 验证 crash isolation。
   Phase 1 真 Agent.Writer / Reviewer / Planner 落地后此模块作废。

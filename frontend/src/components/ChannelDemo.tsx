@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 
 import { createSocket, joinWorkspace, ping } from "../lib/socket";
+import styles from "./ChannelDemo.module.css";
 
 type Status = "idle" | "connecting" | "joined" | "error";
 
@@ -45,18 +46,10 @@ export function ChannelDemo() {
   }, []);
 
   return (
-    <div
-      style={{
-        padding: "1rem",
-        border: "1px solid #ccc",
-        borderRadius: "0.5rem",
-        margin: "1rem 0",
-        fontFamily: "monospace",
-      }}
-    >
+    <div className={styles.container}>
       <h3>WorkspaceChannel demo (Phase 0 Week 2 T9)</h3>
       <div>status: {status}</div>
-      {errorMsg && <div style={{ color: "red" }}>error: {errorMsg}</div>}
+      {errorMsg && <div className={styles.error}>error: {errorMsg}</div>}
       {pongPayload && <div>pong: {pongPayload}</div>}
     </div>
   );

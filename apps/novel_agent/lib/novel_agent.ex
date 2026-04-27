@@ -7,7 +7,7 @@ defmodule NovelAgent do
   - `spawn_dummy_agent/3` —— 在已启动的 author 下 spawn dummy agent（Phase 1 替换为真 Agent）
   """
 
-  alias NovelAgent.Runtime.AgentProcess, as: Agent
+  alias NovelAgent.Runtime.Agent, as: Agent
   alias NovelAgent.Runtime.AuthorSession, as: Author
   alias NovelAgent.Runtime.WorkspaceSession, as: Workspace
 

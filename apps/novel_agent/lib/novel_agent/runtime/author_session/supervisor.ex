@@ -7,7 +7,7 @@ defmodule NovelAgent.Runtime.AuthorSession.Supervisor do
 
   use Supervisor
 
-  alias NovelAgent.Runtime.AgentProcess, as: Agent
+  alias NovelAgent.Runtime.Agent, as: Agent
   alias NovelAgent.Runtime.Registries
 
   def start_link({workspace_id, author_id}) do

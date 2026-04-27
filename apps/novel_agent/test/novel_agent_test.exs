@@ -1,7 +1,7 @@
 defmodule NovelAgentTest do
   use ExUnit.Case, async: false
 
-  alias NovelAgent.Runtime.AgentProcess, as: Agent
+  alias NovelAgent.Runtime.Agent, as: Agent
   alias NovelAgent.Runtime.AuthorSession, as: Author
   alias NovelAgent.Runtime.WorkspaceSession, as: Workspace
 

@@ -1,4 +1,4 @@
-defmodule NovelAgent.Runtime.AgentProcess do
+defmodule NovelAgent.Runtime.Agent do
   @moduledoc """
   Agent 子树查询入口。
   """
