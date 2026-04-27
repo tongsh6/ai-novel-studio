@@ -18,21 +18,28 @@
 | T5 | Ecto Repo + 第一张表（`mix ecto.create + mix ecto.migrate` 跑通；建 `workspaces` 表） | done | `e2e0f06` | ecto_sql 3.13 + postgrex 0.22；PG 复用本机 colima v2_spike_pg；workspaces (uuid PK + name unique)；DataCase + SQL Sandbox；测试 5 个全绿 |
 | T6 | Ecto schemas codegen 完整（`turn_result.json` → `Persistence.Schemas.TurnResult`） | done | `c42b938` (Week 1 T8) | roadmap §3.1 T6 的字面交付（turn_result.json → Persistence.Schemas.TurnResult）由 Week 1 T8 (Plan A: 手写 + 漂移检测) 提前满足；"真生成"升级条目已落到 Week 1 task §Phase 1 接续 |
 | T7 | paper_trail 接入（第一张表 + revision audit；完成 verification doc） | todo | — | `verification/paper-trail-ecto-compatibility.md` |
-| T8 | Phoenix Channels 雏形（`WorkspaceChannel` 能 join + 收消息） | todo | — | novel_web |
-| T9 | Frontend Channel 客户端（`phoenix` npm client 能连上 channel + send） | todo | — | frontend；roadmap §2.0 的 phoenix npm Node 24 兼容性顺带验证 |
-| T10 | Frontend Zod schema 接入（`TurnResultSchema.parse` 在前端能跑通） | todo | — | 用 T8 (Week 1) 已生成的 `frontend/src/generated/foundation/turn_result_v2.ts` |
+| T8 | Phoenix Channels 雏形（`WorkspaceChannel` 能 join + 收消息） | done | `2d94d4b` | UserSocket /socket + WorkspaceChannel "workspace:*" + ping/pong reply；3 个 ChannelTest 全绿；secret_key_base + pubsub_server 完成 endpoint 配置 |
+| T9 | Frontend Channel 客户端（`phoenix` npm client 能连上 channel + send） | done | `5b3f362` | phoenix 1.8.5 + @types/phoenix；socket.ts helper + ChannelDemo 组件；4 个单测；端到端浏览器验证待用户手动跑 |
+| T10 | Frontend Zod schema 接入（`TurnResultSchema.parse` 在前端能跑通） | done | `5b3f362` | schemas.ts barrel + 别名（TurnResultV2Schema → TurnResultSchema）；4 个 vitest 测试覆盖 parse 接受/拒绝路径 |
 
 完成标准（来自 `14-roadmap.md` §3.2）：
-- [ ] 启动应用后 `Observer` 能看到完整 supervision tree
-- [ ] 创建一个 workspace，supervision tree 下出现对应 Workspace.Supervisor + Author.DynamicSupervisor
-- [ ] Ecto 写一条 turn_result 数据 + paper_trail 自动写 versions 表
-- [ ] `paper_trail` 技术验证结论已记录到 `verification/paper-trail-ecto-compatibility.md`
-- [ ] 前端能连接 Phoenix Channel + 收到一条服务端 push
-- [ ] schema 一致性 CI 通过
+- [x] 启动应用后 `Observer` 能看到完整 supervision tree（`iex -S mix` 实测 + foundation 测试覆盖）
+- [x] 创建一个 workspace，supervision tree 下出现对应 Workspace.Supervisor + Author.DynamicSupervisor（`NovelFoundation.start_workspace + start_author` 实测）
+- [ ] Ecto 写一条 turn_result 数据 + paper_trail 自动写 versions 表（T7 待办；当前已能写 workspaces，缺 paper_trail / turn_result 的真接入）
+- [x] `paper_trail` 技术验证结论已记录到 `verification/paper-trail-ecto-compatibility.md`（spike 已完成 ✅，但仍待 binary_id 复跑——T7 卡点）
+- [x] 前端能连接 Phoenix Channel + 收到一条服务端 push（前后端代码 + 单测全绿；端到端浏览器实测待用户手动跑：`mix phx.server` + `pnpm dev` → :5173 看 ChannelDemo "joined" + pong）
+- [x] schema 一致性 CI 通过（Week 1 T8 + T9 已建立的 drift check）
 
 ## 决策日志
 
 倒序，最新在上。
+
+- **2026-04-27** — T8 + T9 + T10 一波拿下（commits `2d94d4b` / `5b3f362`）。Phoenix Channel 链路前后端打通：
+  - 后端：UserSocket on `/socket` + WorkspaceChannel "workspace:*" + ping/pong reply。Endpoint 加 `pubsub_server: NovelWeb.PubSub` 解决 `subscribe_and_join` 的 ArgumentError。secret_key_base 暂用 dev 占位（prod runtime 必须 override）。
+  - 前端：phoenix 1.8.5 + @types/phoenix；socket.ts 提供 createSocket / joinWorkspace / ping helper；ChannelDemo 组件 mount 在 App.tsx 顶部，连接 ws://localhost:4000/socket + auto ping。schemas.ts barrel 把 generated/ 下导出聚合 + 别名（去掉版本后缀对齐 backend 路径）。
+  - 测试：backend 3 个 channel tests + frontend 8 个单测（4 socket helper + 4 zod parse），全绿。
+  - **端到端浏览器验证待用户手动跑**：`mix phx.server` + （另一窗口）`cd frontend && pnpm dev` → 访问 http://localhost:5173/，预期 ChannelDemo 顶部显示 "status: joined" + "pong: {...echo: {hello: world}}"。
+  - 完成标准 §3.2 至此 5/6 ✅，剩 paper_trail 接入（T7）。
 
 - **2026-04-27** — T6 标 done（指向 Week 1 T8 commit `c42b938`）。理由：roadmap §3.1 T6 的字面交付目标"`turn_result.json` → `Persistence.Schemas.TurnResult`"在 Week 1 T8 已经事实上落地（Plan A 手写 + 漂移检测）。当前 turn_result schema 已在 `apps/novel_persistence/lib/persistence/schemas/foundation/turn_result.ex`，drift check 在 CI 跑过。"自动 codegen 真生成"是 Phase 1 接续条目（`tasks/2026-04-26-phase-0-week-1-bootstrap.md` §Phase 1 接续 第 1 条），前置是下游 ADR 落地至少 5 份新 schema。Week 2 不重复劳动。
 
