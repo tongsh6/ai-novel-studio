@@ -1,10 +1,10 @@
 defmodule NovelAgent do
   @moduledoc """
-  Agent 层公开 API。当前仅暴露 supervision 三层（workspace / author / agent）的启停。
+  Agent 层公开 API。暴露 supervision 三层（workspace / author / agent）的启停。
 
   - `start_workspace/1` —— 启动一个 workspace 子树（幂等）
   - `start_author/2` —— 在已启动的 workspace 下启一个 author session（幂等）
-  - `spawn_dummy_agent/3` —— 在已启动的 author 下 spawn dummy agent（Phase 1 替换为真 Agent）
+  - `spawn_agent/4` —— 在已启动的 author 下 spawn 指定类型的 Agent
   """
 
   alias NovelAgent.Runtime.Agent, as: Agent
@@ -27,10 +27,12 @@ defmodule NovelAgent do
   def stop_author(workspace_id, author_id),
     do: Author.DynamicSupervisor.stop_author(workspace_id, author_id)
 
-  @spec spawn_dummy_agent(String.t(), String.t(), String.t()) ::
+  @doc "Spawn 指定类型的 Agent（:writer | :reviewer | :planner）。"
+  @spec spawn_agent(String.t(), String.t(), String.t(), atom()) ::
           {:ok, pid()} | {:error, term()}
-  def spawn_dummy_agent(workspace_id, author_id, agent_id),
-    do: Agent.Children.DynamicSupervisor.spawn_dummy(workspace_id, author_id, agent_id)
+  def spawn_agent(workspace_id, author_id, agent_id, agent_type \\ :writer),
+    do:
+      Agent.Children.DynamicSupervisor.spawn_agent(workspace_id, author_id, agent_id, agent_type)
 
   @doc "查询 workspace 子树根 pid"
   @spec workspace_pid(String.t()) :: pid() | nil

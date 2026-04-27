@@ -32,18 +32,13 @@ defmodule NovelAgentTest do
       assert "author-1" in Author.list("ws-b")
     end
 
-    test "spawn_dummy_agent/3 起 dummy GenServer" do
+    test "spawn_agent/4 起 Writer Agent" do
       assert {:ok, _} = NovelAgent.start_workspace("ws-c")
       assert {:ok, _} = NovelAgent.start_author("ws-c", "author-1")
-      assert {:ok, agent_pid} = NovelAgent.spawn_dummy_agent("ws-c", "author-1", "writer-1")
+      assert {:ok, agent_pid} = NovelAgent.spawn_agent("ws-c", "author-1", "writer-1", :writer)
       assert is_pid(agent_pid)
       assert NovelAgent.agent_pid("ws-c", "author-1", "writer-1") == agent_pid
       assert "writer-1" in Agent.list("ws-c", "author-1")
-
-      state = GenServer.call(agent_pid, :state)
-      assert state.workspace_id == "ws-c"
-      assert state.author_id == "author-1"
-      assert state.agent_id == "writer-1"
     end
   end
 
@@ -52,12 +47,12 @@ defmodule NovelAgentTest do
       ws = "ws-crash"
       assert {:ok, _} = NovelAgent.start_workspace(ws)
       assert {:ok, _} = NovelAgent.start_author(ws, "a1")
-      assert {:ok, p1} = NovelAgent.spawn_dummy_agent(ws, "a1", "ag-1")
-      assert {:ok, p2} = NovelAgent.spawn_dummy_agent(ws, "a1", "ag-2")
+      assert {:ok, p1} = NovelAgent.spawn_agent(ws, "a1", "ag-1", :writer)
+      assert {:ok, p2} = NovelAgent.spawn_agent(ws, "a1", "ag-2", :writer)
 
       ref2 = Process.monitor(p2)
-      Process.flag(:trap_exit, true)
-      assert catch_exit(GenServer.call(p1, :crash))
+      Process.exit(p1, :kill)
+      Process.sleep(50)
 
       refute_receive {:DOWN, ^ref2, :process, ^p2, _}, 200
       assert Process.alive?(p2)

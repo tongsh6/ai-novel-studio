@@ -6,7 +6,7 @@ defmodule NovelAgent.Runtime.Agent.Children.DynamicSupervisor do
 
   use DynamicSupervisor
 
-  alias NovelAgent.Runtime.Agent, as: Agent
+  alias NovelAgent.Agent, as: AgentBehaviour
   alias NovelAgent.Runtime.Registries
 
   def start_link({workspace_id, author_id}) do
@@ -33,14 +33,15 @@ defmodule NovelAgent.Runtime.Agent.Children.DynamicSupervisor do
   end
 
   @doc """
-  当前阶段使用 dummy GenServer 占位（Phase 0 Week 2 T4）。
-  Phase 1 实现真 Agent.Writer / Reviewer / Planner / LongRunner 时替换。
+  Spawn 指定类型的 Agent。Phase 1 支持 :writer。
   """
-  @spec spawn_dummy(String.t(), String.t(), String.t()) :: {:ok, pid()} | {:error, term()}
-  def spawn_dummy(workspace_id, author_id, agent_id)
+  @spec spawn_agent(String.t(), String.t(), String.t(), atom()) :: {:ok, pid()} | {:error, term()}
+  def spawn_agent(workspace_id, author_id, agent_id, agent_type \\ :writer)
+
+  def spawn_agent(workspace_id, author_id, agent_id, :writer)
       when is_binary(workspace_id) and is_binary(author_id) and is_binary(agent_id) do
     parent = via(workspace_id, author_id)
-    spec = {Agent.Dummy, {workspace_id, author_id, agent_id}}
+    spec = {AgentBehaviour.Writer, {workspace_id, author_id, agent_id}}
 
     case DynamicSupervisor.start_child(parent, spec) do
       {:ok, pid} -> {:ok, pid}
