@@ -7,7 +7,19 @@ defmodule AiNovelStudio.MixProject do
       elixir: "~> 1.19",
       version: "0.1.0",
       start_permanent: Mix.env() == :prod,
+      aliases: aliases(),
       deps: deps()
+    ]
+  end
+
+  defp aliases do
+    [
+      check: [
+        "compile --warnings-as-errors",
+        "xref graph --format cycles --label compile-connected --fail-above 0",
+        "test",
+        "run scripts/arch_check.exs"
+      ]
     ]
   end
 

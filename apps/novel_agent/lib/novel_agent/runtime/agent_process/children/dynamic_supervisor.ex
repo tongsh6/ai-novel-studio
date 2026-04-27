@@ -1,4 +1,4 @@
-defmodule NovelFoundation.Agent.Children.DynamicSupervisor do
+defmodule NovelAgent.Runtime.AgentProcess.Children.DynamicSupervisor do
   @moduledoc """
   单 author 下子 Agent 的 supervisor。`:one_for_one` —— **关键**：crash isolation，
   一个 Agent crash 不影响其他 Agent（08-multi-agent.md §2.1）。
@@ -6,8 +6,8 @@ defmodule NovelFoundation.Agent.Children.DynamicSupervisor do
 
   use DynamicSupervisor
 
-  alias NovelFoundation.Agent
-  alias NovelFoundation.Registries
+  alias NovelAgent.Runtime.AgentProcess, as: Agent
+  alias NovelAgent.Runtime.Registries
 
   def start_link({workspace_id, author_id}) do
     DynamicSupervisor.start_link(__MODULE__, {workspace_id, author_id},

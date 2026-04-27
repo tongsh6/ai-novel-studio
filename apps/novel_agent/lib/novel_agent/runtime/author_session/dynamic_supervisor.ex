@@ -1,12 +1,12 @@
-defmodule NovelFoundation.Author.DynamicSupervisor do
+defmodule NovelAgent.Runtime.AuthorSession.DynamicSupervisor do
   @moduledoc """
   单 workspace 下的多 author session 根。`:one_for_one` —— 一个 author crash 不影响别的。
   """
 
   use DynamicSupervisor
 
-  alias NovelFoundation.Author
-  alias NovelFoundation.Registries
+  alias NovelAgent.Runtime.AuthorSession, as: Author
+  alias NovelAgent.Runtime.Registries
 
   def start_link(workspace_id) when is_binary(workspace_id) do
     DynamicSupervisor.start_link(__MODULE__, workspace_id, name: via(workspace_id))

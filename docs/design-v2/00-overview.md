@@ -107,34 +107,48 @@
 
 ## 3. 总体分层
 
-v2 架构分两层：
+v2 架构分三层：
 
 ```text
-Layer 2: Novel Domain Layer
-  小说生命周期、世界观、主线、分卷、章节、场景、正文、人物、伏笔、风格、阅读模式
+Layer 2: Novel Domain & Application Layer
+  小说领域模型 + 小说创作应用服务
+  对象建模、连续性、风格、intent catalog、context 组装、阅读投影、生命周期、质量门禁
 
-Layer 1: Agent Foundation Layer
+Layer 1: Agent Runtime Layer
+  业务无关的 Agent 运行时引擎
   交互协议、状态机、意图、能力、记忆、规划、Provider、观测、安全、治理、UX、多 Agent
+
+Layer 0: Shared Kernel
+  无业务语义的基础工具库
+  Result/Error、ID、Clock、Pagination、Validation、Telemetry
 ```
 
 依赖方向固定：
 
 ```text
-Novel Domain Layer -> Agent Foundation Layer
-Agent Foundation Layer -/-> Novel Domain Layer
+Layer 2 (Novel Domain & Application)
+    → Layer 1 (Agent Runtime)
+    → Layer 0 (Shared Kernel)
+
+Layer 1 (Agent Runtime)
+    → Layer 0 (Shared Kernel)
+
+Layer 1 -/-> Layer 2 (Agent Runtime 不知道什么是章节、伏笔、人物)
+Layer 0 -/-> Layer 1, Layer 2 (Shared Kernel 无任何业务概念)
 ```
 
 即：
 
-- 通用 Agent 层不知道什么是章节、伏笔、人物、卷。
+- Agent Runtime 不知道什么是章节、伏笔、人物、卷。
 - 小说层可以注册自己的 intent、object schema、post-hook、validator、context policy。
-- 通用层只处理“这是一个 Agent task / turn / capability / memory / checkpoint / budget / result”。
+- Agent Runtime 只处理”这是一个 Agent task / turn / capability / memory / checkpoint / budget / result”。
+- Shared Kernel 只提供纯函数工具，不包含任何领域概念或运行时进程。
 
 ---
 
-## 4. Layer 1：Agent Foundation Layer
+## 4. Layer 1：Agent Runtime Layer
 
-Layer 1 定义一个完整 Agent 应具备的基础形态。它是 v2 的第一优先级。
+Layer 1 定义一个业务无关的完整 Agent 运行时引擎。它是 v2 的第一优先级。
 
 ### 4.1 子系统 1：交互契约
 
@@ -425,9 +439,12 @@ V1 可以不实现完整多 Agent，但 Layer 1 contract 不能堵死这条路�
 
 ---
 
-## 5. Layer 2：Novel Domain Layer
+## 5. Layer 2：Novel Domain & Application Layer
 
-Layer 2 是小说业务特化层。它使用 Layer 1 的 Agent 能力，注册小说领域对象、intent、validator、context policy 和 post-hook。
+Layer 2 是小说业务特化层，分为两部分：
+
+- **Domain Models**：纯领域对象与规则（Work, Volume, Chapter, Continuity, Style 等），无副作用
+- **Application Services**：小说创作用例编排，使用 Layer 1 的 Agent 能力，注册小说领域对象、intent、validator、context policy 和 post-hook
 
 ### 5.1 模块 1：小说生命周期对象
 

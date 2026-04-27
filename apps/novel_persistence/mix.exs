@@ -28,7 +28,6 @@ defmodule NovelPersistence.MixProject do
     ]
   end
 
-  # Run "mix help compile.app" to learn about applications.
   def application do
     [
       extra_applications: [:logger],
@@ -36,9 +35,10 @@ defmodule NovelPersistence.MixProject do
     ]
   end
 
-  # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:novel_foundation, in_umbrella: true},
+      {:novel_domain, in_umbrella: true},
       {:ecto, "~> 3.13"},
       {:ecto_sql, "~> 3.13"},
       {:postgrex, "~> 0.22"},

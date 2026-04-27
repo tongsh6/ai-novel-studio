@@ -1,4 +1,4 @@
-defmodule NovelFoundation.Workspace.Supervisor do
+defmodule NovelAgent.Runtime.WorkspaceSession.Supervisor do
   @moduledoc """
   Per-workspace supervisor。`:rest_for_one` —— Memory.Service 重启时其下所有 Author/Agent 也重启
   （依赖关系，权威定义 08-multi-agent.md §2.1）。
@@ -8,8 +8,8 @@ defmodule NovelFoundation.Workspace.Supervisor do
 
   use Supervisor
 
-  alias NovelFoundation.Author
-  alias NovelFoundation.Registries
+  alias NovelAgent.Runtime.AuthorSession, as: Author
+  alias NovelAgent.Runtime.Registries
 
   def start_link(workspace_id) when is_binary(workspace_id) do
     Supervisor.start_link(__MODULE__, workspace_id, name: via(workspace_id))

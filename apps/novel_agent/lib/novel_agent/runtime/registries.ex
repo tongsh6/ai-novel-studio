@@ -1,4 +1,4 @@
-defmodule NovelFoundation.Registries do
+defmodule NovelAgent.Runtime.Registries do
   @moduledoc """
   集中声明 supervision tree 三层使用的 Registry name，避免散落。
 

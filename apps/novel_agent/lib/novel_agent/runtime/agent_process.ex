@@ -1,9 +1,9 @@
-defmodule NovelFoundation.Agent do
+defmodule NovelAgent.Runtime.AgentProcess do
   @moduledoc """
   Agent 子树查询入口。
   """
 
-  alias NovelFoundation.Registries
+  alias NovelAgent.Runtime.Registries
 
   @spec whereis(String.t(), String.t(), String.t()) :: pid() | nil
   def whereis(workspace_id, author_id, agent_id)

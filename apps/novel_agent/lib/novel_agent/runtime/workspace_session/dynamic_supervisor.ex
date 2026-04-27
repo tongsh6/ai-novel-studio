@@ -1,4 +1,4 @@
-defmodule NovelFoundation.Workspace.DynamicSupervisor do
+defmodule NovelAgent.Runtime.WorkspaceSession.DynamicSupervisor do
   @moduledoc """
   顶层多 workspace 根。`:one_for_one` —— 一个 workspace 崩了不影响别的。
 
@@ -7,7 +7,7 @@ defmodule NovelFoundation.Workspace.DynamicSupervisor do
 
   use DynamicSupervisor
 
-  alias NovelFoundation.Workspace
+  alias NovelAgent.Runtime.WorkspaceSession, as: Workspace
 
   def start_link(init_arg) do
     DynamicSupervisor.start_link(__MODULE__, init_arg, name: __MODULE__)
