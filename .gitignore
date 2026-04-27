@@ -66,6 +66,9 @@ yarn.lock
 .coverage
 htmlcov/
 
+# Audit log
+/log/
+
 # Temporary files
 *.tmp
 temp/
@@ -75,6 +78,7 @@ temp/
 /cover/
 /deps/
 /doc/
+/priv/plts/
 erl_crash.dump
 *.ez
 *.beam

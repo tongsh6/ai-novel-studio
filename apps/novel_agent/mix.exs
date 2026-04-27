@@ -24,7 +24,9 @@ defmodule NovelAgent.MixProject do
 
   defp deps do
     [
-      {:novel_foundation, in_umbrella: true}
+      {:novel_foundation, in_umbrella: true},
+      {:telemetry, "~> 1.3"},
+      {:jason, "~> 1.4"}
     ]
   end
 end

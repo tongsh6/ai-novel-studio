@@ -29,9 +29,14 @@ defmodule NovelAgent.Application do
 
   @impl true
   def start(_type, _args) do
+    ensure_log_dir()
+    NovelAgent.Telemetry.attach_all()
+
     children =
       Registries.child_specs() ++
         [
+          NovelAgent.AuthorityGate,
+          NovelAgent.BudgetMeter,
           Workspace.DynamicSupervisor
         ]
 
@@ -41,5 +46,9 @@ defmodule NovelAgent.Application do
       Logger.info("[NovelAgent] Application started")
       {:ok, pid}
     end
+  end
+
+  defp ensure_log_dir do
+    File.mkdir_p!("log")
   end
 end
