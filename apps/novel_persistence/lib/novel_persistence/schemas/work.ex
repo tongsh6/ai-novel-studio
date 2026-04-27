@@ -22,6 +22,7 @@ defmodule NovelPersistence.Schemas.Work do
     field(:target_reader, :string)
     field(:tone_preference, :string)
     field(:adopted_at, :utc_datetime_usec)
+    field(:revision, :integer, default: 1)
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -36,15 +37,18 @@ defmodule NovelPersistence.Schemas.Work do
       :core_selling_point,
       :target_reader,
       :tone_preference,
-      :adopted_at
+      :adopted_at,
+      :revision
     ])
+    |> optimistic_lock(:revision)
     |> validate_required([:title, :status])
     |> validate_inclusion(:status, @valid_statuses)
   end
 
-  @doc "Mark a tentative work as accepted."
+  @doc "Mark a tentative work as accepted. Includes optimistic_lock on revision."
   def adopt_changeset(work) do
     work
     |> change(status: "accepted", adopted_at: DateTime.utc_now())
+    |> optimistic_lock(:revision)
   end
 end
