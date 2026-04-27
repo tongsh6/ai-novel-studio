@@ -1,8 +1,80 @@
 defmodule NovelFoundationTest do
-  use ExUnit.Case
-  doctest NovelFoundation
+  use ExUnit.Case, async: false
 
-  test "greets the world" do
-    assert NovelFoundation.hello() == :world
+  alias NovelFoundation.Agent
+  alias NovelFoundation.Author
+  alias NovelFoundation.Workspace
+
+  setup do
+    on_exit(fn ->
+      for ws <- Workspace.list() do
+        NovelFoundation.stop_workspace(ws)
+      end
+    end)
+
+    :ok
+  end
+
+  describe "supervision tree 三层启停" do
+    test "start_workspace/1 幂等" do
+      assert {:ok, pid1} = NovelFoundation.start_workspace("ws-a")
+      assert is_pid(pid1)
+      assert {:ok, ^pid1} = NovelFoundation.start_workspace("ws-a")
+      assert NovelFoundation.workspace_pid("ws-a") == pid1
+      assert "ws-a" in Workspace.list()
+    end
+
+    test "start_author/2 必须先启 workspace" do
+      assert {:ok, _} = NovelFoundation.start_workspace("ws-b")
+      assert {:ok, pid} = NovelFoundation.start_author("ws-b", "author-1")
+      assert is_pid(pid)
+      assert NovelFoundation.author_pid("ws-b", "author-1") == pid
+      assert "author-1" in Author.list("ws-b")
+    end
+
+    test "spawn_dummy_agent/3 起 dummy GenServer" do
+      assert {:ok, _} = NovelFoundation.start_workspace("ws-c")
+      assert {:ok, _} = NovelFoundation.start_author("ws-c", "author-1")
+      assert {:ok, agent_pid} = NovelFoundation.spawn_dummy_agent("ws-c", "author-1", "writer-1")
+      assert is_pid(agent_pid)
+      assert NovelFoundation.agent_pid("ws-c", "author-1", "writer-1") == agent_pid
+      assert "writer-1" in Agent.list("ws-c", "author-1")
+
+      state = GenServer.call(agent_pid, :state)
+      assert state.workspace_id == "ws-c"
+      assert state.author_id == "author-1"
+      assert state.agent_id == "writer-1"
+    end
+  end
+
+  describe "crash isolation" do
+    test "Agent crash 不影响兄弟 Agent（Agent.Children.DynamicSupervisor :one_for_one）" do
+      ws = "ws-crash"
+      assert {:ok, _} = NovelFoundation.start_workspace(ws)
+      assert {:ok, _} = NovelFoundation.start_author(ws, "a1")
+      assert {:ok, p1} = NovelFoundation.spawn_dummy_agent(ws, "a1", "ag-1")
+      assert {:ok, p2} = NovelFoundation.spawn_dummy_agent(ws, "a1", "ag-2")
+
+      ref2 = Process.monitor(p2)
+      Process.flag(:trap_exit, true)
+      assert catch_exit(GenServer.call(p1, :crash))
+
+      refute_receive {:DOWN, ^ref2, :process, ^p2, _}, 200
+      assert Process.alive?(p2)
+    end
+
+    test "一个 workspace 崩了不影响别的 workspace（Workspace.DynamicSupervisor :one_for_one）" do
+      assert {:ok, _} = NovelFoundation.start_workspace("ws-1")
+      assert {:ok, p2} = NovelFoundation.start_workspace("ws-2")
+
+      ws1_pid = NovelFoundation.workspace_pid("ws-1")
+      Process.exit(ws1_pid, :kill)
+
+      # 等 supervisor 处理 :EXIT 完成。:one_for_one 下兄弟 (ws-2) 不受影响。
+      Process.sleep(100)
+
+      assert Process.alive?(p2)
+      assert NovelFoundation.workspace_pid("ws-2") == p2
+    end
   end
 end
