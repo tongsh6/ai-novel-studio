@@ -17,6 +17,8 @@
     "jsx": "react-jsx",
 
     /* Linting */
+    "forceConsistentCasingInFileNames": true,
+    "isolatedModules": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "erasableSyntaxOnly": true,

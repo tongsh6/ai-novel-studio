@@ -6,10 +6,12 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --noEmit",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
-    "codegen:schemas": "node scripts/codegen-schemas.mjs"
+    "codegen:schemas": "node scripts/codegen-schemas.mjs",
+    "check": "pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

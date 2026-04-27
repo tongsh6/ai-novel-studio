@@ -1,9 +1,9 @@
 import { Socket, Channel } from "phoenix";
 
 const DEFAULT_ENDPOINT: string =
-  (import.meta.env.VITE_WS_ENDPOINT as string | undefined) ??
-  "ws://localhost:4000/socket";
+  import.meta.env.VITE_WS_ENDPOINT ?? "ws://localhost:4000/socket";
 
+// TODO(Phase 1): params 收窄为具体业务类型
 export interface ConnectOptions {
   endpoint?: string;
   params?: Record<string, unknown>;
@@ -21,12 +21,16 @@ export function joinWorkspace(socket: Socket, topic = "workspace:lobby"): Channe
   return channel;
 }
 
+// TODO(Phase 1): echo 和 payload 收窄为具体协议类型
 export interface PingResult {
   event: "pong";
   echo: Record<string, unknown>;
 }
 
-export function ping(channel: Channel, payload: Record<string, unknown>): Promise<PingResult> {
+export function ping(
+  channel: Channel,
+  payload: Record<string, unknown>,
+): Promise<PingResult> {
   return new Promise((resolve, reject) => {
     channel
       .push("ping", payload)
