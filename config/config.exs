@@ -25,4 +25,15 @@ config :phoenix, :json_library, Jason
 config :novel_persistence,
   ecto_repos: [NovelPersistence.Repo]
 
+# paper_trail 必须在 import_config 之前配置（编译期取值，see RepoClient + Version schema）。
+# binary_id（uuid）模式：item_id / originator_id 都是 UUID。
+# 06-database.md §6.3 已记录此组合需要复跑 spike，本仓 T7 完成 binary_id 实测，
+# 结论同步到 verification/paper-trail-ecto-compatibility.md §6.3。
+config :paper_trail,
+  repo: NovelPersistence.Repo,
+  item_type: Ecto.UUID,
+  originator_type: Ecto.UUID,
+  timestamps_type: :utc_datetime_usec,
+  originator_relationship_options: [define_field: false]
+
 import_config "#{config_env()}.exs"

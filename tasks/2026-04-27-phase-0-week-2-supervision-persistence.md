@@ -17,7 +17,7 @@
 | T4 | Agent.Children.DynamicSupervisor（单 author 下 spawn 子 Agent，dummy GenServer 占位） | done | `cd93e0c` | `:one_for_one`（crash isolation 关键）；Agent.Dummy GenServer 占位；测试覆盖 crash isolation |
 | T5 | Ecto Repo + 第一张表（`mix ecto.create + mix ecto.migrate` 跑通；建 `workspaces` 表） | done | `e2e0f06` | ecto_sql 3.13 + postgrex 0.22；PG 复用本机 colima v2_spike_pg；workspaces (uuid PK + name unique)；DataCase + SQL Sandbox；测试 5 个全绿 |
 | T6 | Ecto schemas codegen 完整（`turn_result.json` → `Persistence.Schemas.TurnResult`） | done | `c42b938` (Week 1 T8) | roadmap §3.1 T6 的字面交付（turn_result.json → Persistence.Schemas.TurnResult）由 Week 1 T8 (Plan A: 手写 + 漂移检测) 提前满足；"真生成"升级条目已落到 Week 1 task §Phase 1 接续 |
-| T7 | paper_trail 接入（第一张表 + revision audit；完成 verification doc） | todo | — | `verification/paper-trail-ecto-compatibility.md` |
+| T7 | paper_trail 接入（第一张表 + revision audit；完成 verification doc） | done | (will commit) | Workspace schema 接入 PaperTrail.insert/update/delete；versions 表迁移（bigserial id + binary_id item_id/originator_id）；6 个集成测试全绿（insert/update/delete/query/rollback/options） |
 | T8 | Phoenix Channels 雏形（`WorkspaceChannel` 能 join + 收消息） | done | `2d94d4b` | UserSocket /socket + WorkspaceChannel "workspace:*" + ping/pong reply；3 个 ChannelTest 全绿；secret_key_base + pubsub_server 完成 endpoint 配置 |
 | T9 | Frontend Channel 客户端（`phoenix` npm client 能连上 channel + send） | done | `5b3f362` | phoenix 1.8.5 + @types/phoenix；socket.ts helper + ChannelDemo 组件；4 个单测；端到端浏览器验证待用户手动跑 |
 | T10 | Frontend Zod schema 接入（`TurnResultSchema.parse` 在前端能跑通） | done | `5b3f362` | schemas.ts barrel + 别名（TurnResultV2Schema → TurnResultSchema）；4 个 vitest 测试覆盖 parse 接受/拒绝路径 |
@@ -25,14 +25,22 @@
 完成标准（来自 `14-roadmap.md` §3.2）：
 - [x] 启动应用后 `Observer` 能看到完整 supervision tree（`iex -S mix` 实测 + foundation 测试覆盖）
 - [x] 创建一个 workspace，supervision tree 下出现对应 Workspace.Supervisor + Author.DynamicSupervisor（`NovelFoundation.start_workspace + start_author` 实测）
-- [ ] Ecto 写一条 turn_result 数据 + paper_trail 自动写 versions 表（T7 待办；当前已能写 workspaces，缺 paper_trail / turn_result 的真接入）
-- [x] `paper_trail` 技术验证结论已记录到 `verification/paper-trail-ecto-compatibility.md`（spike 已完成 ✅，但仍待 binary_id 复跑——T7 卡点）
+- [x] Ecto 写一条 turn_result 数据 + paper_trail 自动写 versions 表（T7 done — Workspace 模型接入 PaperTrail.insert/update/delete + 6 集成测试全绿）
+- [x] `paper_trail` 技术验证结论已记录到 `verification/paper-trail-ecto-compatibility.md`（binary_id 复跑通过 + 本仓 6 测试全绿）
 - [x] 前端能连接 Phoenix Channel + 收到一条服务端 push（前后端代码 + 单测全绿；端到端浏览器实测待用户手动跑：`mix phx.server` + `pnpm dev` → :5173 看 ChannelDemo "joined" + pong）
 - [x] schema 一致性 CI 通过（Week 1 T8 + T9 已建立的 drift check）
 
 ## 决策日志
 
 倒序，最新在上。
+
+- **2026-04-28** — T7 完成。paper_trail 集成到 Workspace 模型，关键决策：
+  - **versions.id 保持 bigserial**（非 binary_id）：paper_trail 的 `Version` schema 使用默认 `@primary_key {:id, :id, autogenerate: true}`，无法在不修改 paper_trail 源码的前提下改为 UUID 主键。若未来需要 UUID，选择是 fork paper_trail 或切换到自实现 audit log（13-risks.md 已有预案）。
+  - **item_id / originator_id 为 binary_id（UUID）**：通过 `config :paper_trail, item_type: Ecto.UUID, originator_type: Ecto.UUID` 实现。存储为 PG `uuid` 类型，可稳定引用业务表的二进制主键。
+  - **originator 传参方式**：`originator_relationship_options: [define_field: false]` 关闭了 belongs_to 关联，此时 `originator` 参数需传 `%{id: uuid_string}`（map with :id key），纸面上等价于 `originator_id` 字段直接赋值。
+  - **meta 字段 key 类型**：插入时 meta 使用 atom key（Elixir 侧），Ecto 直接回传原始 struct 值；重新查询 DB 后 JSONB 返回 string key。业务层在消费 meta 时应优先用 `Map.get(meta, :key) || Map.get(meta, "key")` 兼容两态。
+  - **测试需确保 test DB 迁移与 dev 同步**：修改迁移文件后需 `MIX_ENV=test mix ecto.rollback --to 0 && MIX_ENV=test mix ecto.migrate`，否则 test DB 保留旧表结构。
+  - 测试套 6 个全绿：insert/update/delete 版本记录、multi rollback 无孤立、originator/meta 期权穿透。
 
 - **2026-04-27** — T8 + T9 + T10 一波拿下（commits `2d94d4b` / `5b3f362`）。Phoenix Channel 链路前后端打通：
   - 后端：UserSocket on `/socket` + WorkspaceChannel "workspace:*" + ping/pong reply。Endpoint 加 `pubsub_server: NovelWeb.PubSub` 解决 `subscribe_and_join` 的 ArgumentError。secret_key_base 暂用 dev 占位（prod runtime 必须 override）。
@@ -63,7 +71,7 @@
 ## 卡点 / TBD
 
 - **Telemetry 库选择**：03-backend.md §3 列了 `AINovelStudio.Telemetry` 占位，但具体走 `:telemetry` + `telemetry_metrics` 还是直接用 OTel-erlang 在 Week 3 才决定（Week 3 §4.1 有 OTel 接入）。Week 2 暂只放 placeholder 不真接。
-- **paper_trail Elixir 1.19 / Ecto 兼容性**：T7 前置必须验证（社区有 issue 报 1.16+ 兼容问题）。验证方法见 verification doc 模板。
+- **paper_trail Elixir 1.19 / Ecto 兼容性**：✅ 已解决。T7 集成完毕（Workspace 模型接入 + 6 集成测试全绿），仅余一条不可达警告（paper_trail 自身问题，不影响功能）。
 
 ## 下次会话恢复指引
 
@@ -73,7 +81,8 @@
 2. `docs/design-v2/tech-stack/03-backend.md` §3（顶层 supervision tree 概要）
 3. `docs/design-v2/tech-stack/08-multi-agent.md` §2（per-workspace 子树权威定义 + restart 策略表）
 4. 本文件 §任务清单（当前到哪）+ §决策日志（为什么这么走）
-5. 从「任务清单」第一个 `status != done` 的任务继续
+
+**当前状态：Week 2 全部 10/10 完成。** 下一阶段是 Week 3（`14-roadmap.md` §4：OTel 可观测性 + Domain Events 雏形）。
 
 调整任务表 / 顺序前：先在「决策日志」追加一条说明，再改清单，不要静默修改。
 
