@@ -17,3 +17,10 @@ config :novel_web, NovelWeb.Endpoint,
   render_errors: [formats: [json: NovelWeb.ErrorJSON], layout: false]
 
 config :phoenix, :json_library, Jason
+
+# Ecto: novel_persistence Repo 注册 + 默认 migrations 路径。
+# 数据库连接细节按环境拆到 dev.exs / test.exs / runtime.exs。
+config :novel_persistence,
+  ecto_repos: [NovelPersistence.Repo]
+
+import_config "#{config_env()}.exs"

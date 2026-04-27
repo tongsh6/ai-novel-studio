@@ -1,19 +1,18 @@
 defmodule NovelPersistence.Application do
-  # See https://hexdocs.pm/elixir/Application.html
-  # for more information on OTP Applications
-  @moduledoc false
+  @moduledoc """
+  Persistence 层 OTP application：启动 NovelPersistence.Repo。
+
+  注：测试环境 (Mix.env() == :test) 仍启动 Repo —— Ecto SQL Sandbox 由测试侧 setup 接管。
+  """
 
   use Application
 
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: NovelPersistence.Worker.start_link(arg)
-      # {NovelPersistence.Worker, arg}
+      NovelPersistence.Repo
     ]
 
-    # See https://hexdocs.pm/elixir/Supervisor.html
-    # for other strategies and supported options
     opts = [strategy: :one_for_one, name: NovelPersistence.Supervisor]
     Supervisor.start_link(children, opts)
   end

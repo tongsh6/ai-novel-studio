@@ -10,8 +10,21 @@ defmodule NovelPersistence.MixProject do
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.19",
+      elixirc_paths: elixirc_paths(Mix.env()),
+      aliases: aliases(),
       start_permanent: Mix.env() == :prod,
       deps: deps()
+    ]
+  end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
+  defp aliases do
+    [
+      "ecto.setup": ["ecto.create", "ecto.migrate"],
+      "ecto.reset": ["ecto.drop", "ecto.setup"],
+      test: ["ecto.create --quiet", "ecto.migrate --quiet", "test"]
     ]
   end
 
@@ -27,6 +40,8 @@ defmodule NovelPersistence.MixProject do
   defp deps do
     [
       {:ecto, "~> 3.13"},
+      {:ecto_sql, "~> 3.13"},
+      {:postgrex, "~> 0.22"},
       {:jason, "~> 1.4"}
     ]
   end
