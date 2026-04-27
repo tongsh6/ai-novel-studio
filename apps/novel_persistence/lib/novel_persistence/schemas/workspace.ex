@@ -14,8 +14,8 @@ defmodule NovelPersistence.Schemas.Workspace do
   @foreign_key_type :binary_id
 
   schema "workspaces" do
-    field :name, :string
-    field :description, :string
+    field(:name, :string)
+    field(:description, :string)
 
     timestamps(type: :utc_datetime_usec)
   end

@@ -5,7 +5,10 @@ defmodule NovelPersistence.PaperTrailTest do
 
   describe "PaperTrail.insert/2" do
     test "creates model + version in one transaction" do
-      cs = Workspace.changeset(%Workspace{}, %{name: "pt_insert #{System.unique_integer([:positive])}"})
+      cs =
+        Workspace.changeset(%Workspace{}, %{
+          name: "pt_insert #{System.unique_integer([:positive])}"
+        })
 
       {:ok, %{model: ws, version: version}} = PaperTrail.insert(cs, origin: "test:insert")
 
@@ -17,7 +20,10 @@ defmodule NovelPersistence.PaperTrailTest do
     end
 
     test "version is queryable via get_versions" do
-      cs = Workspace.changeset(%Workspace{}, %{name: "pt_query #{System.unique_integer([:positive])}"})
+      cs =
+        Workspace.changeset(%Workspace{}, %{
+          name: "pt_query #{System.unique_integer([:positive])}"
+        })
 
       {:ok, %{model: ws}} = PaperTrail.insert(cs)
 
@@ -29,11 +35,17 @@ defmodule NovelPersistence.PaperTrailTest do
 
   describe "PaperTrail.update/2" do
     test "creates version with item_changes" do
-      cs = Workspace.changeset(%Workspace{}, %{name: "pt_before #{System.unique_integer([:positive])}"})
+      cs =
+        Workspace.changeset(%Workspace{}, %{
+          name: "pt_before #{System.unique_integer([:positive])}"
+        })
+
       {:ok, %{model: ws}} = PaperTrail.insert(cs)
 
       update_cs = Workspace.changeset(ws, %{name: "pt_after"})
-      {:ok, %{model: updated, version: version}} = PaperTrail.update(update_cs, origin: "test:update")
+
+      {:ok, %{model: updated, version: version}} =
+        PaperTrail.update(update_cs, origin: "test:update")
 
       assert updated.name == "pt_after"
       assert version.event == "update"
@@ -46,7 +58,11 @@ defmodule NovelPersistence.PaperTrailTest do
 
   describe "PaperTrail.delete/2" do
     test "creates delete version record" do
-      cs = Workspace.changeset(%Workspace{}, %{name: "pt_delete #{System.unique_integer([:positive])}"})
+      cs =
+        Workspace.changeset(%Workspace{}, %{
+          name: "pt_delete #{System.unique_integer([:positive])}"
+        })
+
       {:ok, %{model: ws}} = PaperTrail.insert(cs)
 
       {:ok, %{model: _deleted, version: version}} = PaperTrail.delete(ws, origin: "test:delete")
@@ -82,7 +98,9 @@ defmodule NovelPersistence.PaperTrailTest do
 
   describe "options passthrough" do
     test "originator_id, origin, and meta are persisted" do
-      cs = Workspace.changeset(%Workspace{}, %{name: "pt_meta #{System.unique_integer([:positive])}"})
+      cs =
+        Workspace.changeset(%Workspace{}, %{name: "pt_meta #{System.unique_integer([:positive])}"})
+
       originator_uuid = Ecto.UUID.generate()
 
       {:ok, %{version: version}} =

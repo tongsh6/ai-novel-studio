@@ -4,6 +4,7 @@ defmodule AiNovelStudio.MixProject do
   def project do
     [
       apps_path: "apps",
+      elixir: "~> 1.19",
       version: "0.1.0",
       start_permanent: Mix.env() == :prod,
       deps: deps()
@@ -16,6 +17,9 @@ defmodule AiNovelStudio.MixProject do
   #
   # Run "mix help deps" for examples and options.
   defp deps do
-    []
+    [
+      {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+    ]
   end
 end

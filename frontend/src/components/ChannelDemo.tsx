@@ -5,14 +5,13 @@ import { createSocket, joinWorkspace, ping } from "../lib/socket";
 type Status = "idle" | "connecting" | "joined" | "error";
 
 export function ChannelDemo() {
-  const [status, setStatus] = useState<Status>("idle");
+  const [status, setStatus] = useState<Status>("connecting");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [pongPayload, setPongPayload] = useState<string | null>(null);
 
   useEffect(() => {
     const socket = createSocket();
     socket.connect();
-    setStatus("connecting");
 
     const channel = joinWorkspace(socket);
     channel

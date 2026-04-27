@@ -33,6 +33,6 @@ defmodule NovelWeb.WorkspaceChannelTest do
       |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
     ref = push(socket, "ping", %{"hello" => "world"})
-    assert_reply ref, :ok, %{event: "pong", echo: %{"hello" => "world"}}
+    assert_reply(ref, :ok, %{event: "pong", echo: %{"hello" => "world"}})
   end
 end

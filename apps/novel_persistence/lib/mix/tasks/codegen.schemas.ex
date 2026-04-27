@@ -2,7 +2,7 @@ defmodule Mix.Tasks.Codegen.Schemas do
   @moduledoc """
   Phase 0 minimal codegen task — runs schema-drift check between
   `docs/design-v2/schemas/` (JSON SSOT, ADR-0001) and Ecto embedded_schema
-  mirrors under `Persistence.Schemas.*`.
+  mirrors under `NovelPersistence.Schemas.*`.
 
   Plan A from T8 (see tasks/2026-04-26-phase-0-week-1-bootstrap.md):
   no real generation; just verifies the manual mirror is in sync.
@@ -19,9 +19,9 @@ defmodule Mix.Tasks.Codegen.Schemas do
     Mix.Task.run("app.config")
     Application.ensure_all_started(:ecto)
 
-    case Persistence.SchemaDrift.check() do
+    case NovelPersistence.SchemaDrift.check() do
       :ok ->
-        mirrors = Persistence.SchemaDrift.mirrors() |> length()
+        mirrors = NovelPersistence.SchemaDrift.mirrors() |> length()
         Mix.shell().info("schema drift check: ok (#{mirrors} mirrors verified)")
 
       {:error, diffs} ->
