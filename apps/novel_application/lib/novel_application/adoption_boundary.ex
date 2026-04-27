@@ -28,10 +28,8 @@ defmodule NovelApplication.AdoptionBoundary do
       genre: Map.get(payload, "genre") || Map.get(payload, :genre),
       core_selling_point:
         Map.get(payload, "core_selling_point") || Map.get(payload, :core_selling_point),
-      target_reader:
-        Map.get(payload, "target_reader") || Map.get(payload, :target_reader),
-      tone_preference:
-        Map.get(payload, "tone_preference") || Map.get(payload, :tone_preference),
+      target_reader: Map.get(payload, "target_reader") || Map.get(payload, :target_reader),
+      tone_preference: Map.get(payload, "tone_preference") || Map.get(payload, :tone_preference),
       status: "tentative"
     }
   end
