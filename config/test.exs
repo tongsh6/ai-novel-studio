@@ -1,0 +1,19 @@
+import Config
+
+# 测试库：独立 schema/database 名，避免污染 dev。
+# Sandbox 模式由 Ecto.Adapters.SQL.Sandbox 接管，每个测试事务隔离。
+config :novel_persistence, NovelPersistence.Repo,
+  username: "spike",
+  password: "spike",
+  hostname: "localhost",
+  port: 5432,
+  database: "ai_novel_studio_test#{System.get_env("MIX_TEST_PARTITION")}",
+  pool: Ecto.Adapters.SQL.Sandbox,
+  pool_size: System.schedulers_online() * 2
+
+# 测试时 Phoenix endpoint 不监听端口，避免和 dev 冲突。
+config :novel_web, NovelWeb.Endpoint,
+  http: [ip: {127, 0, 0, 1}, port: 4002],
+  server: false
+
+config :logger, level: :warning
