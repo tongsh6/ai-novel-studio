@@ -38,6 +38,7 @@ defmodule NovelAgent.Application do
           NovelAgent.AuthorityGate,
           NovelAgent.BudgetMeter,
           NovelAgent.Memory.Store,
+          NovelAgent.LongRunner,
           Workspace.DynamicSupervisor
         ]
 
