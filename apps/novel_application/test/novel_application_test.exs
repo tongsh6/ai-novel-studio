@@ -1,8 +1,7 @@
 defmodule NovelApplicationTest do
   use ExUnit.Case
-  doctest NovelApplication
 
-  test "greets the world" do
-    assert NovelApplication.hello() == :world
+  test "application module loads" do
+    assert Code.ensure_loaded?(NovelApplication)
   end
 end

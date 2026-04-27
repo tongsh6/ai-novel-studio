@@ -1,0 +1,11 @@
+.container {
+  padding: 1rem;
+  border: 1px solid #ccc;
+  border-radius: 0.5rem;
+  margin: 1rem 0;
+  font-family: monospace;
+}
+
+.error {
+  color: red;
+}
