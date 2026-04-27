@@ -9,6 +9,11 @@
 # move said applications out of the umbrella.
 import Config
 
+# Dialyzer PLT 文件路径 — 放在 priv/plts/ 以便 CI 缓存
+config :dialyxir,
+  plt_local_path: "priv/plts",
+  plt_core_path: "priv/plts"
+
 config :novel_web, NovelWeb.Endpoint,
   url: [host: "localhost"],
   http: [ip: {127, 0, 0, 1}, port: 4000],
