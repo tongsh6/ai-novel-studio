@@ -1,8 +1,8 @@
-import { ChannelDemo } from './components/ChannelDemo'
+import { WorkspaceChat } from './components/WorkspaceChat'
 import './App.css'
 
 function App() {
-  return <ChannelDemo />
+  return <WorkspaceChat />
 }
 
 export default App

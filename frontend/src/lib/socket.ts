@@ -39,3 +39,30 @@ export function ping(
       .receive("timeout", () => reject(new Error("ping timeout")));
   });
 }
+
+export function sendMessage(
+  channel: Channel,
+  text: string,
+): Promise<{ received: boolean }> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("user_message", { text })
+      .receive("ok", (response) => resolve(response as { received: boolean }))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("send timeout")));
+  });
+}
+
+export function adopt(
+  channel: Channel,
+  artifactId: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("adopt", { artifact_id: artifactId, payload })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("adopt timeout")));
+  });
+}
