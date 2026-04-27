@@ -1,6 +1,8 @@
 import { Socket, Channel } from "phoenix";
 
-const DEFAULT_ENDPOINT = "ws://localhost:4000/socket";
+const DEFAULT_ENDPOINT: string =
+  (import.meta.env.VITE_WS_ENDPOINT as string | undefined) ??
+  "ws://localhost:4000/socket";
 
 export interface ConnectOptions {
   endpoint?: string;

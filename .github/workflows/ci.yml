@@ -58,6 +58,9 @@ jobs:
       - name: Credo
         run: mix credo --strict
 
+      - name: Architecture check
+        run: mix run scripts/arch_check.exs
+
       - run: mix test
 
   frontend:
@@ -93,3 +96,5 @@ jobs:
       - run: pnpm lint
 
       - run: pnpm test
+
+      - run: pnpm build
