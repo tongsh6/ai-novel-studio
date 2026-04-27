@@ -1,6 +1,10 @@
 defmodule NovelWeb.Endpoint do
   use Phoenix.Endpoint, otp_app: :novel_web
 
+  socket "/socket", NovelWeb.UserSocket,
+    websocket: true,
+    longpoll: false
+
   plug Plug.RequestId
   plug Plug.Telemetry, event_prefix: [:phoenix, :endpoint]
 
