@@ -1,4 +1,4 @@
-defmodule NovelFoundation.Author.Supervisor do
+defmodule NovelAgent.Runtime.AuthorSession.Supervisor do
   @moduledoc """
   Per-author supervisor。`:rest_for_one` —— Orchestrator 重启时其下子 Agent 也重启（依赖关系）。
 
@@ -7,8 +7,8 @@ defmodule NovelFoundation.Author.Supervisor do
 
   use Supervisor
 
-  alias NovelFoundation.Agent
-  alias NovelFoundation.Registries
+  alias NovelAgent.Runtime.AgentProcess, as: Agent
+  alias NovelAgent.Runtime.Registries
 
   def start_link({workspace_id, author_id}) do
     Supervisor.start_link(__MODULE__, {workspace_id, author_id},

@@ -16,7 +16,7 @@ v2 的总体目标分两段完成：
 
 先把以下内容全部设计清楚并文档化：
 
-- Agent Foundation Layer
+- Agent Runtime Layer
 - Novel Domain Layer
 - 演化治理
 - 迁移策略
@@ -61,7 +61,7 @@ v2 文档按三层组织：
 
 ```text
 docs/design-v2/
-  A. Foundation：通用 Agent 基础层
+  A. Agent Runtime：业务无关 Agent 运行时引擎（原 "Foundation"）
   B. Domain：小说业务层
   C. UI：界面层与交互层
 ```
@@ -69,20 +69,20 @@ docs/design-v2/
 顺序固定：
 
 ```text
-Foundation -> Domain -> UI
+Agent Runtime -> Domain -> UI
 ```
 
 禁止反向驱动：
 
-- 不允许因为某个 UI 想法去改写 Foundation 硬骨。
+- 不允许因为某个 UI 想法去改写 Agent Runtime 硬骨。
 - 不允许在 Domain contract 未定时先画完成态 UI。
 - UI 可以提出约束反馈，但只能作为新 ADR 输入，不能直接越过 contract。
 
 ---
 
-## 3. 第一阶段：Foundation 设计清单
+## 3. 第一阶段：Agent Runtime 设计清单
 
-这一阶段回答“一个完整的 Agent 到底要有哪些硬骨”。
+这一阶段回答”一个完整的 Agent 到底要有哪些硬骨”。
 
 ### F-00 已完成
 
@@ -91,7 +91,7 @@ Foundation -> Domain -> UI
 ### F-01 到 F-12 计划文档
 
 1. `01-agent-foundation-contract.md`
-   - Foundation 总边界
+   - Agent Runtime 总边界
    - 子系统依赖关系
    - Layer 1 对 Layer 2 的开放接口
 
@@ -156,7 +156,7 @@ Foundation -> Domain -> UI
     - parent-child budget / authority
     - artifact handoff
 
-### Foundation 阶段完成标准
+### Agent Runtime 阶段完成标准
 
 必须同时满足：
 
@@ -228,7 +228,7 @@ Foundation -> Domain -> UI
    - 建立期、推进期、连载期、修订期
 
 10. `30-contract-glossary.md`
-    - Foundation / Domain 共享字段名
+    - Agent Runtime / Domain 共享字段名
     - revision / adoption / authority / namespace 规则
     - 跨文档漂移收口
 
@@ -269,7 +269,7 @@ Foundation -> Domain -> UI
 
 前提：
 
-- Foundation 与 Domain 的硬骨已经足够稳定。
+- Agent Runtime 与 Domain 的硬骨已经足够稳定。
 - canonical result、card protocol、state machine、long-run 行为已经冻结到可以投影为界面。
 
 ### UI 执行入口
@@ -290,7 +290,7 @@ UI 阶段使用专用工作区：
   - `exports/` 静态导出物
   - `traceability/` 文档 ↔ 原型 ↔ ADR 追溯材料
 
-该文档不新增 UI contract，只负责把 Foundation / Domain / ADR 已冻结语义组织成 UI 阶段的执行计划，防止 UI 反向发明 intent、状态、card type 或对象语义。
+该文档不新增 UI contract，只负责把 Agent Runtime / Domain / ADR 已冻结语义组织成 UI 阶段的执行计划，防止 UI 反向发明 intent、状态、card type 或对象语义。
 
 ### UI 文档
 
@@ -370,7 +370,7 @@ UI 阶段使用专用工作区：
 1. 每份 UI 文档都有对应页面或组件原型。
 2. 所有关键状态机都有 UI 投影。
 3. 不存在“文档里有状态，原型里没体现”的断层。
-4. 不存在“原型里有交互，Foundation / Domain 没定义语义”的越界。
+4. 不存在“原型里有交互，Agent Runtime / Domain 没定义语义”的越界。
 
 ---
 
@@ -380,10 +380,10 @@ UI 阶段使用专用工作区：
 
 建议规则：
 
-- Foundation 硬骨：必须 ADR
+- Agent Runtime 硬骨：必须 ADR
 - Domain 核心对象与连续性机制：必须 ADR
 - UI 仅表现层微调：可不写 ADR
-- UI 若反向要求 contract 变更：必须先写 ADR 再改 Foundation / Domain 文档
+- UI 若反向要求 contract 变更：必须先写 ADR 再改 Agent Runtime / Domain 文档
 
 ---
 
@@ -396,14 +396,14 @@ UI 阶段使用专用工作区：
 3. `06-planning-and-long-run.md`
 4. `07-consistency-and-concurrency.md`
 5. `12-multi-agent-composition.md`
-6. 其余 Foundation 文档
+6. 其余 Agent Runtime 文档
 7. 全部 Domain 文档
 8. 全部 UI 文档
 9. `pencil` 原型
 
 之所以把 `memory`、`long-run`、`consistency` 提前，是因为这几项决定了系统能不能真的支撑长期连载，而不是只在总纲里成立。
 
-实现前备注或迁移策略不占用 Foundation 子系统编号；若后续需要单独成文，必须同步更新本文档清单与 `00-overview.md` §8.3。
+实现前备注或迁移策略不占用 Agent Runtime 子系统编号；若后续需要单独成文，必须同步更新本文档清单与 `00-overview.md` §8.3。
 
 ---
 
@@ -415,5 +415,5 @@ UI 阶段使用专用工作区：
 2. UI 设计必须有文档。
 3. UI 设计必须有 `pencil` 原型文件。
 4. 主工作台以对话为主，结构面板默认隐藏。
-5. 小说业务不能反向污染 Agent Foundation。
+5. 小说业务不能反向污染 Agent Runtime。
 6. 代码实现可以从头开始，现有仓库仅作为参考，不作为迁移目标。

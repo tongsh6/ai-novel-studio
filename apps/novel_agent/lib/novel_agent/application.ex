@@ -1,13 +1,13 @@
-defmodule NovelFoundation.Application do
+defmodule NovelAgent.Application do
   @moduledoc """
-  Foundation 层 OTP application。
+  Agent 层 OTP application。
 
   当前阶段（Phase 0 Week 2）supervision tree：
 
   ```
-  NovelFoundation.Supervisor (one_for_one)
-  ├── Registry × 5                          # NovelFoundation.Registries.child_specs/0
-  └── NovelFoundation.Workspace.DynamicSupervisor   # 顶层多 workspace 根
+  NovelAgent.Supervisor (one_for_one)
+  ├── Registry × 5                          # NovelAgent.Runtime.Registries.child_specs/0
+  └── NovelAgent.Runtime.WorkspaceSession.DynamicSupervisor   # 顶层多 workspace 根
       └── (per workspace) Workspace.Supervisor (rest_for_one)
           └── Author.DynamicSupervisor
               └── (per author) Author.Supervisor (rest_for_one)
@@ -16,7 +16,7 @@ defmodule NovelFoundation.Application do
   ```
 
   权威定义：`docs/design-v2/tech-stack/08-multi-agent.md` §2 / §2.1。
-  Foundation 层其他子树（Authority.Gate / Budget.Meter / Provider.Gateway / Capability.Registry /
+  Agent 层其他子树（Authority.Gate / Budget.Meter / Provider.Gateway / Capability.Registry /
   Memory.Service / Observability.Pipeline 等）按 `03-backend.md` §3 留待 Week 3+ 落地。
   """
 
@@ -24,8 +24,8 @@ defmodule NovelFoundation.Application do
 
   require Logger
 
-  alias NovelFoundation.Registries
-  alias NovelFoundation.Workspace
+  alias NovelAgent.Runtime.Registries
+  alias NovelAgent.Runtime.WorkspaceSession, as: Workspace
 
   @impl true
   def start(_type, _args) do
@@ -35,10 +35,10 @@ defmodule NovelFoundation.Application do
           Workspace.DynamicSupervisor
         ]
 
-    opts = [strategy: :one_for_one, name: NovelFoundation.Supervisor]
+    opts = [strategy: :one_for_one, name: NovelAgent.Supervisor]
 
     with {:ok, pid} <- Supervisor.start_link(children, opts) do
-      Logger.info("[NovelFoundation] Application started")
+      Logger.info("[NovelAgent] Application started")
       {:ok, pid}
     end
   end

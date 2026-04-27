@@ -1,48 +1,19 @@
 defmodule NovelFoundation do
   @moduledoc """
-  Foundation 层公开 API。当前仅暴露 supervision 三层（workspace / author / agent）的启停。
+  Shared Kernel —— 项目内所有 app 共享的基础能力。
 
-  - `start_workspace/1` —— 启动一个 workspace 子树（幂等）
-  - `start_author/2` —— 在已启动的 workspace 下启一个 author session（幂等）
-  - `spawn_dummy_agent/3` —— 在已启动的 author 下 spawn dummy agent（Phase 1 替换为真 Agent）
+  本 app 是无业务语义的纯工具库。不包含：
+  - OTP 进程（GenServer / Supervisor / Registry / DynamicSupervisor）
+  - 业务概念（Workspace / Author / Agent / Work / Chapter）
+  - 外部依赖（Ecto / Phoenix / Provider）
+
+  未来根据需要在此添加：
+  - `NovelFoundation.Result` —— Result/Error 类型与组合子
+  - `NovelFoundation.Error` —— 统一 Error struct
+  - `NovelFoundation.ID` —— ID 生成（UUID v7, prefix 规则）
+  - `NovelFoundation.Clock` —— 可注入时间源
+  - `NovelFoundation.Pagination` —— 分页参数与游标
+  - `NovelFoundation.Validation` —— 通用校验 helper
+  - `NovelFoundation.Telemetry` —— Telemetry 事件定义
   """
-
-  alias NovelFoundation.Agent
-  alias NovelFoundation.Author
-  alias NovelFoundation.Workspace
-
-  @spec start_workspace(String.t()) :: {:ok, pid()} | {:error, term()}
-  def start_workspace(workspace_id),
-    do: Workspace.DynamicSupervisor.start_workspace(workspace_id)
-
-  @spec stop_workspace(String.t()) :: :ok | {:error, :not_found}
-  def stop_workspace(workspace_id),
-    do: Workspace.DynamicSupervisor.stop_workspace(workspace_id)
-
-  @spec start_author(String.t(), String.t()) :: {:ok, pid()} | {:error, term()}
-  def start_author(workspace_id, author_id),
-    do: Author.DynamicSupervisor.start_author(workspace_id, author_id)
-
-  @spec stop_author(String.t(), String.t()) :: :ok | {:error, :not_found}
-  def stop_author(workspace_id, author_id),
-    do: Author.DynamicSupervisor.stop_author(workspace_id, author_id)
-
-  @spec spawn_dummy_agent(String.t(), String.t(), String.t()) ::
-          {:ok, pid()} | {:error, term()}
-  def spawn_dummy_agent(workspace_id, author_id, agent_id),
-    do: Agent.Children.DynamicSupervisor.spawn_dummy(workspace_id, author_id, agent_id)
-
-  @doc "查询 workspace 子树根 pid"
-  @spec workspace_pid(String.t()) :: pid() | nil
-  def workspace_pid(workspace_id), do: Workspace.whereis(workspace_id)
-
-  @doc "查询 author 子树根 pid"
-  @spec author_pid(String.t(), String.t()) :: pid() | nil
-  def author_pid(workspace_id, author_id),
-    do: Author.whereis(workspace_id, author_id)
-
-  @doc "查询单个 agent process pid"
-  @spec agent_pid(String.t(), String.t(), String.t()) :: pid() | nil
-  def agent_pid(workspace_id, author_id, agent_id),
-    do: Agent.whereis(workspace_id, author_id, agent_id)
 end

@@ -1,9 +1,9 @@
-defmodule NovelFoundation.Workspace do
+defmodule NovelAgent.Runtime.WorkspaceSession do
   @moduledoc """
   Workspace 子树查询入口。提供 `whereis/1` / `list/0`，封装 Registry 访问。
   """
 
-  alias NovelFoundation.Registries
+  alias NovelAgent.Runtime.Registries
 
   @doc """
   查找 workspace 对应 Workspace.Supervisor 的 pid，未启动返回 nil。

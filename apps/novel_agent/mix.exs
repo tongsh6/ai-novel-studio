@@ -1,9 +1,9 @@
-defmodule NovelWeb.MixProject do
+defmodule NovelAgent.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :novel_web,
+      app: :novel_agent,
       version: "0.1.0",
       build_path: "../../_build",
       config_path: "../../config/config.exs",
@@ -18,18 +18,13 @@ defmodule NovelWeb.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {NovelWeb.Application, []}
+      mod: {NovelAgent.Application, []}
     ]
   end
 
   defp deps do
     [
-      {:novel_application, in_umbrella: true},
-      {:novel_foundation, in_umbrella: true},
-      {:phoenix, "~> 1.8"},
-      {:phoenix_pubsub, "~> 2.1"},
-      {:jason, "~> 1.4"},
-      {:bandit, "~> 1.5"}
+      {:novel_foundation, in_umbrella: true}
     ]
   end
 end

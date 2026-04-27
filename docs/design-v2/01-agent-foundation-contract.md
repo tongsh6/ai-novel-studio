@@ -1,20 +1,20 @@
-# Agent Foundation Contract v2
+# Agent Runtime Contract v2
 
 > 状态：草案
 >
 > 角色：`docs/design-v2/00-overview.md` 的第一份展开文档。
 >
-> 目标：定义 Layer 1 `Agent Foundation Layer` 的正式 contract。本文回答的不是“小说怎么写”，而是“一个完整的 Agent 基础层必须提供什么语义、什么边界、什么开放接口，以及绝不能承担什么业务责任”。
+> 目标：定义 Layer 1 `Agent Runtime Layer` 的正式 contract。本文回答的不是”小说怎么写”，而是”一个完整的 Agent 运行时引擎必须提供什么语义、什么边界、什么开放接口，以及绝不能承担什么业务责任”。
 
 ---
 
 ## 1. 文档定位
 
-本文是 v2 的 Foundation 总契约。
+本文是 v2 的 Agent Runtime 总契约。
 
 它的作用有四个：
 
-1. 为后续 Foundation 文档提供总边界。
+1. 为后续 Agent Runtime 文档提供总边界。
 2. 为 Domain 层提供可依赖的稳定接口。
 3. 为 UI 层提供可投影的稳定语义。
 4. 为 v1 -> v2 的迁移提供判断标准。
@@ -32,11 +32,11 @@
 
 ---
 
-## 2. Foundation 的定义
+## 2. Agent Runtime 的定义
 
-`Agent Foundation Layer` 是一个业务无关的 Agent 基础设施层。
+`Agent Runtime Layer` 是一个业务无关的 Agent 运行时引擎。
 
-它不关心“章节”“伏笔”“人物”“卷”“正文”等小说术语。  
+它不关心”章节””伏笔””人物””卷””正文”等小说术语。  
 它只关心：
 
 - 一次 turn 如何进入、决策、执行、结束
@@ -45,13 +45,13 @@
 - 一个 structured object 如何读写、版本化、审计
 - 一个 Agent 如何被观测、受预算约束、接受中断、返回统一结果
 
-Foundation 解决的是“Agent 工程问题”，不是“小说业务问题”。
+Agent Runtime 解决的是”Agent 工程问题”，不是”小说业务问题”。
 
 ---
 
 ## 3. 设计目标
 
-Foundation 必须同时满足以下目标：
+Agent Runtime 必须同时满足以下目标：
 
 ### 3.1 统一交互语义
 
@@ -79,7 +79,7 @@ Foundation 必须同时满足以下目标：
 
 ### 3.3 统一副作用语义
 
-Foundation 必须明确：
+Agent Runtime 必须明确：
 
 - 什么算读
 - 什么算写
@@ -102,13 +102,13 @@ Foundation 必须明确：
 
 ### 3.5 保持业务无关
 
-Foundation 可以暴露 object store、intent registry、capability registry、hook 机制等抽象，但不能内置小说业务对象或小说业务判断。
+Agent Runtime 可以暴露 object store、intent registry、capability registry、hook 机制等抽象，但不能内置小说业务对象或小说业务判断。
 
 ---
 
 ## 4. 非目标
 
-Foundation 当前不负责：
+Agent Runtime 当前不负责：
 
 1. 小说对象定义
 2. 小说连续性规则
@@ -133,30 +133,30 @@ Layer 3: UI Layer
 Layer 2: Domain Layer
   novel objects / novel intents / domain validators / context policies / domain hooks
 
-Layer 1: Foundation Layer
+Layer 1: Agent Runtime Layer
   contracts / orchestration / state machines / capability / memory / provider / observability / security
 ```
 
 依赖规则：
 
 ```text
-UI -> Domain -> Foundation
-Foundation -/-> Domain
-Foundation -/-> UI
+UI -> Domain -> Agent Runtime
+Agent Runtime -/-> Domain
+Agent Runtime -/-> UI
 Domain -/-> UI
 ```
 
 含义：
 
-- UI 只能消费 Domain 和 Foundation 已定义好的语义，不能发明新的运行时状态。
-- Domain 只能注册 Foundation 提供的扩展点，不能改写 Foundation 的工作流语义。
-- Foundation 不得感知任何业务名词。
+- UI 只能消费 Domain 和 Agent Runtime 已定义好的语义，不能发明新的运行时状态。
+- Domain 只能注册 Agent Runtime 提供的扩展点，不能改写 Agent Runtime 的工作流语义。
+- Agent Runtime 不得感知任何业务名词。
 
 ---
 
-## 6. Foundation 的 12 个子系统
+## 6. Agent Runtime 的 12 个子系统
 
-Foundation 由 12 个子系统组成。它们是并列模块，但不是完全独立；依赖方向要固定。
+Agent Runtime 由 12 个子系统组成。它们是并列模块，但不是完全独立；依赖方向要固定。
 
 ### 6.1 子系统清单
 
@@ -229,7 +229,7 @@ Security, Authority & Budget
 
 ## 7. 顶层运行模型
 
-Foundation 定义的最小运行单元有 5 类：
+Agent Runtime 定义的最小运行单元有 5 类：
 
 1. `turn`
 2. `task`
@@ -308,7 +308,7 @@ user input
 
 `object mutation` 是对结构化对象的状态变更。
 
-Foundation 要求：
+Agent Runtime 要求：
 
 - mutation 必须可审计
 - mutation 必须可版本化
@@ -318,9 +318,9 @@ Foundation 要求：
 
 ---
 
-## 8. Foundation 的全局不变量
+## 8. Agent Runtime 的全局不变量
 
-以下规则适用于整个 Foundation。它们属于硬骨。
+以下规则适用于整个 Agent Runtime。它们属于硬骨。
 
 ### 8.1 单一 canonical result
 
@@ -336,9 +336,9 @@ Foundation 要求：
 单轮 turn 只能从 Orchestrator 进入。  
 任何 capability、task、clarification、confirmation、cancellation、correction，都不能绕开它直接写生产结果。
 
-### 8.3 Foundation 不创作业务内容
+### 8.3 Agent Runtime 不创作业务内容
 
-Foundation 可以组织、校验、记忆、预算、审计，但不能承担小说业务创作决策。
+Agent Runtime 可以组织、校验、记忆、预算、审计，但不能承担小说业务创作决策。
 
 ### 8.4 结构化写入必须可追溯
 
@@ -367,7 +367,7 @@ UI 可以选择如何呈现，但不能凭自己推断：
 - 某个 artifact 是否已 adopted
 - 某个 cancellation 是否真的生效
 
-这些必须由 Foundation contract 明确给出。
+这些必须由 Agent Runtime contract 明确给出。
 
 ### 8.8 Domain 只能扩展，不得改写
 
@@ -390,7 +390,7 @@ Domain 可以注册新的：
 
 ## 9. Interaction Contract 边界
 
-Foundation 必须定义统一的 interaction contract。
+Agent Runtime 必须定义统一的 interaction contract。
 
 至少包含：
 
@@ -415,7 +415,7 @@ Foundation 必须定义统一的 interaction contract。
 
 说明：
 
-- 这里的 `work_id` 只是 domain scope id 的一个示例，不应被 Foundation 写死为小说术语。
+- 这里的 `work_id` 只是 domain scope id 的一个示例，不应被 Agent Runtime 写死为小说术语。
 - `active_behavior_context` 用于承载 clarification / confirmation / correction 的续轮语义。
 
 ### 9.2 TurnResult 最小职责
@@ -448,7 +448,7 @@ UI 只能投影它，不能自造新的下一步类型。
 
 ## 10. State Machine Contract 边界
 
-Foundation 必须为以下对象定义正式状态机：
+Agent Runtime 必须为以下对象定义正式状态机：
 
 - turn
 - clarification
@@ -487,7 +487,7 @@ Foundation 必须为以下对象定义正式状态机：
 
 ## 11. Conversation Behavior Contract 边界
 
-Foundation 必须把以下行为看作第一等公民，而不是 prompt 里的话术：
+Agent Runtime 必须把以下行为看作第一等公民，而不是 prompt 里的话术：
 
 - clarification
 - confirmation
@@ -556,7 +556,7 @@ Foundation 必须把以下行为看作第一等公民，而不是 prompt 里的�
 
 ## 12. Capability & Intent Contract 边界
 
-Foundation 必须同时支持 `intent` 和 `capability`，但二者职责不同。
+Agent Runtime 必须同时支持 `intent` 和 `capability`，但二者职责不同。
 
 ### 12.1 intent
 
@@ -588,7 +588,7 @@ Foundation 必须同时支持 `intent` 和 `capability`，但二者职责不同�
 
 ### 12.4 Registry 是一等对象
 
-Foundation 必须把 registry 本身设计为可查询对象，而不是散落在代码里的常量。
+Agent Runtime 必须把 registry 本身设计为可查询对象，而不是散落在代码里的常量。
 
 至少包括：
 
@@ -603,11 +603,11 @@ Foundation 必须把 registry 本身设计为可查询对象，而不是散落�
 
 ## 13. Memory Contract 边界
 
-Foundation 只定义记忆机制，不定义具体业务对象内容。
+Agent Runtime 只定义记忆机制，不定义具体业务对象内容。
 
 ### 13.1 四类记忆
 
-Foundation 至少支持：
+Agent Runtime 至少支持：
 
 1. 情景记忆
 2. 语义记忆
@@ -616,7 +616,7 @@ Foundation 至少支持：
 
 ### 13.2 记忆系统必须支持冷热分层
 
-Foundation 必须允许：
+Agent Runtime 必须允许：
 
 - hot path retrieval
 - warm summary retrieval
@@ -633,7 +633,7 @@ Foundation 必须允许：
 
 ### 13.4 Memory 是服务，不是对象堆
 
-Foundation 需要定义：
+Agent Runtime 需要定义：
 
 - memory source taxonomy
 - retrieval policy hook
@@ -646,7 +646,7 @@ Foundation 需要定义：
 
 ## 14. Planning & Orchestration Contract 边界
 
-Foundation 的编排层必须覆盖两类运行：
+Agent Runtime 的编排层必须覆盖两类运行：
 
 1. 单 turn
 2. 跨 turn task
@@ -703,7 +703,7 @@ Orchestrator 可以：
 
 ## 15. Provider Contract 边界
 
-Foundation 必须把模型提供者视为可替换依赖。
+Agent Runtime 必须把模型提供者视为可替换依赖。
 
 ### 15.1 Provider 抽象职责
 
@@ -720,17 +720,17 @@ Foundation 必须把模型提供者视为可替换依赖。
 
 Domain 不应直接依赖具体 provider SDK。
 
-Domain 只能依赖 Foundation 暴露的统一模型能力接口。
+Domain 只能依赖 Agent Runtime 暴露的统一模型能力接口。
 
 ### 15.3 Stub 是一等实现
 
-为了测试和迁移，Foundation 必须允许 stub provider 成为正式实现，而不只是临时 mock。
+为了测试和迁移，Agent Runtime 必须允许 stub provider 成为正式实现，而不只是临时 mock。
 
 ---
 
 ## 16. Observability & Audit Contract 边界
 
-Foundation 必须定义可观测和审计的最低要求。
+Agent Runtime 必须定义可观测和审计的最低要求。
 
 ### 16.1 Trace
 
@@ -771,7 +771,7 @@ Foundation 必须定义可观测和审计的最低要求。
 
 ### 16.4 Explainability
 
-Foundation 不要求把所有推理链暴露给用户，但必须保留足够的结构化解释信息，支撑：
+Agent Runtime 不要求把所有推理链暴露给用户，但必须保留足够的结构化解释信息，支撑：
 
 - 为什么路由到这个 intent
 - 为什么需要 clarification
@@ -783,7 +783,7 @@ Foundation 不要求把所有推理链暴露给用户，但必须保留足够的
 
 ## 17. Security, Authority & Budget Contract 边界
 
-Foundation 必须定义受控自动化，而不是无限自动化。
+Agent Runtime 必须定义受控自动化，而不是无限自动化。
 
 ### 17.1 authority scope
 
@@ -817,7 +817,7 @@ Foundation 必须定义受控自动化，而不是无限自动化。
 
 budget scope、dimension、threshold kind 与 guard decision 的最小枚举由 ADR-0003 冻结；具体阈值数值与动态预算算法仍不在本文冻结。
 
-### 17.3 prompt injection 防护属于 Foundation
+### 17.3 prompt injection 防护属于 Agent Runtime
 
 因为这是通用 Agent 问题，不是小说领域问题。
 
@@ -832,11 +832,11 @@ budget scope、dimension、threshold kind 与 guard decision 的最小枚举由 
 
 ## 18. UX Contract 边界
 
-Foundation 不设计页面，但必须设计可被 UI 稳定投影的交互语义。
+Agent Runtime 不设计页面，但必须设计可被 UI 稳定投影的交互语义。
 
-### 18.1 Foundation 负责什么
+### 18.1 Agent Runtime 负责什么
 
-Foundation 负责定义：
+Agent Runtime 负责定义：
 
 - render modes
 - card types
@@ -858,13 +858,13 @@ UI 负责决定：
 ### 18.3 不允许 UI 自推状态
 
 例如 UI 不能通过“看到某个按钮还在 spinning”就断定任务是 `RUNNING`。  
-必须由 Foundation 输出显式运行状态。
+必须由 Agent Runtime 输出显式运行状态。
 
 ---
 
 ## 19. Multi-Agent Contract 边界
 
-Foundation 必须为未来多 Agent 保留合法组合方式。
+Agent Runtime 必须为未来多 Agent 保留合法组合方式。
 
 ### 19.1 多 Agent 不是特殊 case
 
@@ -895,9 +895,9 @@ Foundation 必须为未来多 Agent 保留合法组合方式。
 
 ---
 
-## 20. Foundation 对 Domain 的开放接口
+## 20. Agent Runtime 对 Domain 的开放接口
 
-Foundation 需要向 Domain 暴露一组稳定扩展点。
+Agent Runtime 需要向 Domain 暴露一组稳定扩展点。
 
 ### 20.1 可注册项
 
@@ -926,24 +926,24 @@ Domain 不得改写：
 
 ### 20.3 扩展原则
 
-Foundation 暴露的是“机制”而不是“实例”。
+Agent Runtime 暴露的是“机制”而不是“实例”。
 
 例如：
 
-- Foundation 暴露 `HookRegistry`
+- Agent Runtime 暴露 `HookRegistry`
 - Domain 注册“写完章后跑摘要 hook”
 
 而不是：
 
-- Foundation 直接内置“章节摘要”
+- Agent Runtime 直接内置“章节摘要”
 
 ---
 
-## 21. Foundation 对 UI 的开放接口
+## 21. Agent Runtime 对 UI 的开放接口
 
-UI 只能消费 Foundation 与 Domain 已定义好的 contract。
+UI 只能消费 Agent Runtime 与 Domain 已定义好的 contract。
 
-### 21.1 UI 可直接依赖的 Foundation 语义
+### 21.1 UI 可直接依赖的 Agent Runtime 语义
 
 - turn result
 - next action
@@ -961,7 +961,7 @@ UI 只能消费 Foundation 与 Domain 已定义好的 contract。
 - 原始 validator 细节
 - 存储层表结构
 
-### 21.3 Foundation 必须保证的 UI 稳定性
+### 21.3 Agent Runtime 必须保证的 UI 稳定性
 
 只要 major version 不变，UI 不应因为：
 
@@ -975,7 +975,7 @@ UI 只能消费 Foundation 与 Domain 已定义好的 contract。
 
 ## 22. 持久化与事件边界
 
-Foundation 不直接绑定某个数据库，但必须绑定持久化语义。
+Agent Runtime 不直接绑定某个数据库，但必须绑定持久化语义。
 
 ### 22.1 必须持久化的实体
 
@@ -992,7 +992,7 @@ Foundation 不直接绑定某个数据库，但必须绑定持久化语义。
 
 ### 22.2 建议事件化
 
-Foundation 更推荐“状态对象 + 事件日志”并存，而不是只保留最新快照。
+Agent Runtime 更推荐“状态对象 + 事件日志”并存，而不是只保留最新快照。
 
 原因：
 
@@ -1012,7 +1012,7 @@ Foundation 更推荐“状态对象 + 事件日志”并存，而不是只保留
 
 ## 23. 版本化与演化规则
 
-Foundation 的所有硬骨都必须可版本化。
+Agent Runtime 的所有硬骨都必须可版本化。
 
 ### 23.1 需要版本号的对象
 
@@ -1050,7 +1050,7 @@ add new field / object / enum
 
 ## 24. 契约测试要求
 
-Foundation 的 contract 不是文档装饰，必须能被测试。
+Agent Runtime 的 contract 不是文档装饰，必须能被测试。
 
 ### 24.1 必测类别
 
@@ -1064,15 +1064,15 @@ Foundation 的 contract 不是文档装饰，必须能被测试。
 - persistence traceability tests
 - version compatibility tests
 
-### 24.2 Domain 不能绕过 Foundation contract tests
+### 24.2 Domain 不能绕过 Agent Runtime contract tests
 
-任何 Domain 扩展只要使用了 Foundation 扩展点，就必须满足 Foundation 的基础契约测试。
+任何 Domain 扩展只要使用了 Agent Runtime 扩展点，就必须满足 Agent Runtime 的基础契约测试。
 
 ---
 
 ## 25. 与 v1 的关系
 
-v1 已有若干内容可直接视为 Foundation 雏形：
+v1 已有若干内容可直接视为 Agent Runtime 雏形：
 
 - AgentTurnResult
 - Orchestrator runtime
@@ -1093,18 +1093,18 @@ v2 的工作不是否定 v1，而是：
 
 ## 26. 本文冻结的硬骨
 
-本文正式冻结以下内容为 Foundation 硬骨：
+本文正式冻结以下内容为 Agent Runtime 硬骨：
 
-1. Foundation 是业务无关 Agent 基础层
-2. Foundation / Domain / UI 的依赖方向
-3. Foundation 的 12 子系统划分
+1. Agent Runtime 是业务无关 Agent 运行时引擎
+2. Agent Runtime / Domain / UI 的依赖方向
+3. Agent Runtime 的 12 子系统划分
 4. turn / task / capability invocation / artifact / object mutation 五类运行单元
 5. canonical result 唯一性
 6. Orchestrator 作为单 turn 唯一编排入口
 7. 显式状态迁移原则
 8. authority / budget / audit / trace 的基础地位
 9. intent 与 capability 的职责分离
-10. Foundation 通过 registry / policy / hook 等机制向 Domain 开放扩展点
+10. Agent Runtime 通过 registry / policy / hook 等机制向 Domain 开放扩展点
 11. UI 只能投影 contract，不能发明运行语义
 12. Multi-Agent 必须复用单 Agent contract，而不是另起协议
 

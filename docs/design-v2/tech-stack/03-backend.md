@@ -140,22 +140,22 @@ AINovelStudio.Application
 ├── AINovelStudio.Repo (Ecto)
 ├── Phoenix.PubSub
 ├── AINovelStudio.Telemetry
-├── AINovelStudio.Foundation.Application
-│   ├── Provider.Gateway.Supervisor              # 07
-│   ├── Memory.Service.Supervisor                # Foundation §5
-│   ├── Authority.Gate                           # Foundation §10
-│   ├── Budget.Meter                             # Foundation §10
-│   ├── Capability.Registry                      # Foundation §4
-│   ├── Hook.Registry                            # Foundation §4 / Domain §25
-│   └── Observability.Pipeline                   # 10
-├── AINovelStudio.Domain.Application
-│   ├── Intent.Registry                          # Domain §24
-│   ├── ContextAssembler.Supervisor              # Domain §26
-│   ├── Projection.Refresher                     # Domain §27 / ADR-0011
-│   └── Maintenance.Hooks                        # Domain §25
+├── AINovelStudio.Agent.Application
+│   ├── Provider.Gateway.Supervisor              # Layer 1 §8
+│   ├── Memory.Service.Supervisor                # Layer 1 §5
+│   ├── Authority.Gate                           # Layer 1 §10
+│   ├── Budget.Meter                             # Layer 1 §10
+│   ├── Capability.Registry                      # Layer 1 §4（机制）
+│   ├── Intent.Registry                          # Layer 1 §4（机制）
+│   ├── Hook.Registry                            # Layer 1 §4（机制）
+│   ├── Observability.Pipeline                   # Layer 1 §9
+│   └── Workspace.DynamicSupervisor              # 多 workspace 根
+│       └── (per workspace) → 见 08-multi-agent.md §2 完整子树
+├── AINovelStudio.Application.Application
+│   ├── ContextAssembler.Supervisor              # 小说上下文组装
+│   ├── Projection.Refresher                     # 阅读投影刷新
+│   └── Maintenance.Hooks                        # 小说维护钩子
 ├── AINovelStudioWeb.Endpoint (Phoenix)
-└── Workspace.DynamicSupervisor                  # 多 workspace 根
-    └── (per workspace) → 见 08-multi-agent.md §2 完整子树
 ```
 
 ---
@@ -166,10 +166,12 @@ AINovelStudio.Application
 
 ```
 apps/
-├── novel_foundation/   # Layer 1: 业务无关 Agent 基础
-├── novel_domain/       # Layer 2: 小说业务
-├── novel_web/          # Phoenix API + Channels
-└── novel_persistence/  # Ecto schemas + migrations
+├── novel_foundation/   # Layer 0: Shared Kernel（Result/Error/ID/Clock/Telemetry）
+├── novel_agent/        # Layer 1: Agent Runtime（Orchestrator/Router/Executor/Provider/Memory/Supervision）
+├── novel_domain/       # Layer 2a: Novel Domain Models（纯领域对象与规则）
+├── novel_application/  # Layer 2b: Application Services（小说创作用例编排）
+├── novel_persistence/  # Database Layer（Ecto Repo/Schema/Migration）
+└── novel_web/          # Phoenix API + Channels
 ```
 
 ---
