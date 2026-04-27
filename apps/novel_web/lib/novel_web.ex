@@ -1,18 +1,7 @@
 defmodule NovelWeb do
   @moduledoc """
-  Documentation for `NovelWeb`.
+  Web 层根模块。
+
+  Phoenix API + Channels（WebSocket）网关，无 LiveView。
   """
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> NovelWeb.hello()
-      :world
-
-  """
-  def hello do
-    :world
-  end
 end

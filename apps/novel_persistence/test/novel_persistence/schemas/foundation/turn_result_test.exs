@@ -1,7 +1,7 @@
-defmodule Persistence.Schemas.Foundation.TurnResultTest do
+defmodule NovelPersistence.Schemas.Foundation.TurnResultTest do
   use ExUnit.Case, async: true
 
-  alias Persistence.Schemas.Foundation.TurnResult
+  alias NovelPersistence.Schemas.Foundation.TurnResult
 
   @minimal_valid %{
     "schema_version" => "2.0.0",
@@ -36,7 +36,9 @@ defmodule Persistence.Schemas.Foundation.TurnResultTest do
     invalid = Map.put(@minimal_valid, "schema_version", "v2")
     cs = TurnResult.changeset(%TurnResult{}, invalid)
     refute cs.valid?
-    assert {:schema_version, {"has invalid format", _}} = List.keyfind(cs.errors, :schema_version, 0)
+
+    assert {:schema_version, {"has invalid format", _}} =
+             List.keyfind(cs.errors, :schema_version, 0)
   end
 
   test "adoption_state with one TENTATIVE pending entry" do

@@ -1,18 +1,7 @@
 defmodule NovelPersistence do
   @moduledoc """
-  Documentation for `NovelPersistence`.
+  Persistence 层根模块。
+
+  提供 Ecto Repo、schema 定义、migration 和 paper_trail 审计。
   """
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> NovelPersistence.hello()
-      :world
-
-  """
-  def hello do
-    :world
-  end
 end

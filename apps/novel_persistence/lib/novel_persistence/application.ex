@@ -7,6 +7,8 @@ defmodule NovelPersistence.Application do
 
   use Application
 
+  require Logger
+
   @impl true
   def start(_type, _args) do
     children = [
@@ -14,6 +16,10 @@ defmodule NovelPersistence.Application do
     ]
 
     opts = [strategy: :one_for_one, name: NovelPersistence.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      Logger.info("[NovelPersistence] Application started")
+      {:ok, pid}
+    end
   end
 end

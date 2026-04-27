@@ -6,7 +6,7 @@ defmodule NovelWeb.UserSocket do
 
   use Phoenix.Socket
 
-  channel "workspace:*", NovelWeb.WorkspaceChannel
+  channel("workspace:*", NovelWeb.WorkspaceChannel)
 
   @impl true
   def connect(_params, socket, _connect_info) do

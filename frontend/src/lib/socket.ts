@@ -29,7 +29,7 @@ export function ping(channel: Channel, payload: Record<string, unknown>): Promis
     channel
       .push("ping", payload)
       .receive("ok", (response) => resolve(response as PingResult))
-      .receive("error", (error) => reject(error))
+      .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("ping timeout")));
   });
 }

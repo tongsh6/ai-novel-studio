@@ -22,6 +22,8 @@ defmodule NovelFoundation.Application do
 
   use Application
 
+  require Logger
+
   alias NovelFoundation.Registries
   alias NovelFoundation.Workspace
 
@@ -34,6 +36,10 @@ defmodule NovelFoundation.Application do
         ]
 
     opts = [strategy: :one_for_one, name: NovelFoundation.Supervisor]
-    Supervisor.start_link(children, opts)
+
+    with {:ok, pid} <- Supervisor.start_link(children, opts) do
+      Logger.info("[NovelFoundation] Application started")
+      {:ok, pid}
+    end
   end
 end

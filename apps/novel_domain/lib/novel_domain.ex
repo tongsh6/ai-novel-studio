@@ -1,18 +1,8 @@
 defmodule NovelDomain do
   @moduledoc """
-  Documentation for `NovelDomain`.
+  Domain 层根模块。
+
+  小说业务逻辑（intent registry / context assembly / reading projection /
+  maintenance hooks 等）将在 Phase 1+ 落到此 app 内。
   """
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> NovelDomain.hello()
-      :world
-
-  """
-  def hello do
-    :world
-  end
 end

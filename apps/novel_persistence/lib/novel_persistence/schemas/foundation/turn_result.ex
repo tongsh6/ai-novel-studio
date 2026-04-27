@@ -1,4 +1,4 @@
-defmodule Persistence.Schemas.Foundation.TurnResult do
+defmodule NovelPersistence.Schemas.Foundation.TurnResult do
   @moduledoc """
   Mirrors `docs/design-v2/schemas/foundation/turn_result_v2.json` (ADR-0001 §1).
 
@@ -22,7 +22,7 @@ defmodule Persistence.Schemas.Foundation.TurnResult do
   use Ecto.Schema
   import Ecto.Changeset
 
-  alias Persistence.Schemas.Foundation.ArtifactAdoptionEntry
+  alias NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntry
 
   @schema_source "foundation/turn_result_v2.json"
   @required_fields [
@@ -51,38 +51,42 @@ defmodule Persistence.Schemas.Foundation.TurnResult do
 
   @primary_key false
   embedded_schema do
-    field :schema_version, :string
-    field :turn_id, :string
-    field :task_id, :string
-    field :agent_id, :string
-    field :parent_turn_id, :string
-    field :phase, :string
-    field :status, :string
-    field :next_action, :string
-    field :assistant_message, :map
-    field :ui_cards, {:array, :map}, default: []
-    field :behavior_state, :map
-    field :projection_refs, {:array, :map}, default: []
-    field :validation, :map
-    field :usage, :map
-    field :trace_ref, :map
-    field :warnings, {:array, :map}, default: []
-    field :errors, {:array, :map}, default: []
-    field :produced_at, :utc_datetime
+    field(:schema_version, :string)
+    field(:turn_id, :string)
+    field(:task_id, :string)
+    field(:agent_id, :string)
+    field(:parent_turn_id, :string)
+    field(:phase, :string)
+    field(:status, :string)
+    field(:next_action, :string)
+    field(:assistant_message, :map)
+    field(:ui_cards, {:array, :map}, default: [])
+    field(:behavior_state, :map)
+    field(:projection_refs, {:array, :map}, default: [])
+    field(:validation, :map)
+    field(:usage, :map)
+    field(:trace_ref, :map)
+    field(:warnings, {:array, :map}, default: [])
+    field(:errors, {:array, :map}, default: [])
+    field(:produced_at, :utc_datetime)
 
     embeds_one :adoption_state, AdoptionState, primary_key: false do
-      embeds_many :pending, ArtifactAdoptionEntry
-      embeds_many :resolved, ArtifactAdoptionEntry
+      embeds_many(:pending, ArtifactAdoptionEntry)
+      embeds_many(:resolved, ArtifactAdoptionEntry)
     end
   end
 
+  @spec schema_source() :: String.t()
   def schema_source, do: @schema_source
+  @spec required_fields() :: [atom()]
   def required_fields, do: @required_fields
+  @spec optional_fields() :: [atom()]
   def optional_fields, do: @optional_fields
 
   @cast_fields (@required_fields ++ @optional_fields) -- [:adoption_state]
   @cast_required @required_fields -- [:adoption_state]
 
+  @spec changeset(struct(), map()) :: Ecto.Changeset.t()
   def changeset(struct, attrs) do
     struct
     |> cast(attrs, @cast_fields)

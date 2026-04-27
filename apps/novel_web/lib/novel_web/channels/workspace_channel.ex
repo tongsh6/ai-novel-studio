@@ -9,11 +9,14 @@ defmodule NovelWeb.WorkspaceChannel do
   use Phoenix.Channel
 
   @impl true
+  @spec join(String.t(), map(), Phoenix.Socket.t()) :: {:ok, map(), Phoenix.Socket.t()}
   def join("workspace:" <> _suffix, _payload, socket) do
     {:ok, %{joined: true}, socket}
   end
 
   @impl true
+  @spec handle_in(String.t(), map(), Phoenix.Socket.t()) ::
+          {:reply, {:ok, map()}, Phoenix.Socket.t()}
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end
