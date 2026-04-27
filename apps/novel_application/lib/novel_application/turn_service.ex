@@ -5,29 +5,52 @@ defmodule NovelApplication.TurnService do
   Phase 0 Week 4：只支持 CREATE_WORK_SEED 一条链路。
   """
 
+  alias NovelAgent.Memory.Store, as: MemoryStore
   alias NovelAgent.Router
   alias NovelDomain.Work
   alias NovelFoundation.ID
+  alias NovelPersistence.MemoryLog
 
   @doc """
   处理用户文本输入，返回 TurnResult map。
+  workspace_id 用于 memory 记录的分区。
   """
-  @spec handle_message(String.t(), String.t()) :: map()
-  def handle_message(user_text, turn_id \\ nil) do
-    turn_id = turn_id || "turn_#{System.unique_integer([:positive])}"
+  @spec handle_message(String.t(), String.t(), String.t()) :: map()
+  def handle_message(user_text, workspace_id \\ "lobby", turn_id \\ nil) do
+    turn_id = turn_id || "turn_#{:os.system_time(:millisecond)}"
 
-    case Router.route(user_text) do
-      %{intent_name: :unknown} ->
-        build_turn_result(turn_id, "clarification", %{
-          text: "抱歉，我不太理解你的意图。请重新描述一下？"
-        })
+    turn_result =
+      case Router.route(user_text) do
+        %{intent_name: :unknown} ->
+          build_turn_result(turn_id, "clarification", %{
+            text: "抱歉，我不太理解你的意图。请重新描述一下？"
+          })
 
-      %{intent_name: :create_work_seed, needs_clarification: true} = result ->
-        build_create_work_clarification(turn_id, result)
+        %{intent_name: :create_work_seed, needs_clarification: true} = result ->
+          build_create_work_clarification(turn_id, result)
 
-      %{intent_name: :create_work_seed, needs_clarification: false} = result ->
-        build_create_work_tentative(turn_id, result)
-    end
+        %{intent_name: :create_work_seed, needs_clarification: false} = result ->
+          build_create_work_tentative(turn_id, result)
+      end
+
+    record_to_memory(workspace_id, turn_id, :user, user_text)
+    record_to_memory(workspace_id, turn_id, :assistant, turn_result.assistant_message.text)
+
+    turn_result
+  end
+
+  # ---- Memory ----
+
+  defp record_to_memory(workspace_id, turn_id, role, text) do
+    entry = %{
+      workspace_id: workspace_id,
+      turn_id: turn_id,
+      role: Atom.to_string(role),
+      content: %{text: text}
+    }
+
+    MemoryStore.record(entry)
+    MemoryLog.record(entry)
   end
 
   # ---- CREATE_WORK_SEED ----
