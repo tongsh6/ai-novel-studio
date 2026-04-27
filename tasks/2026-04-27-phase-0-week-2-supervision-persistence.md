@@ -15,7 +15,7 @@
 | T2 | Workspace.DynamicSupervisor（顶层多作者根，支持动态启停 workspace） | done | `cd93e0c` | `:one_for_one`；start_workspace/1 幂等；Workspace.Supervisor (rest_for_one) per-workspace |
 | T3 | Author.DynamicSupervisor（单 workspace 下动态启停 author session） | done | `cd93e0c` | `:one_for_one`；start_author/2 幂等；Author.Supervisor (rest_for_one) per-author |
 | T4 | Agent.Children.DynamicSupervisor（单 author 下 spawn 子 Agent，dummy GenServer 占位） | done | `cd93e0c` | `:one_for_one`（crash isolation 关键）；Agent.Dummy GenServer 占位；测试覆盖 crash isolation |
-| T5 | Ecto Repo + 第一张表（`mix ecto.create + mix ecto.migrate` 跑通；建 `workspaces` 表） | todo | — | novel_persistence 引入 ecto_sql + postgrex |
+| T5 | Ecto Repo + 第一张表（`mix ecto.create + mix ecto.migrate` 跑通；建 `workspaces` 表） | done | `e2e0f06` | ecto_sql 3.13 + postgrex 0.22；PG 复用本机 colima v2_spike_pg；workspaces (uuid PK + name unique)；DataCase + SQL Sandbox；测试 5 个全绿 |
 | T6 | Ecto schemas codegen 完整（`turn_result.json` → `Persistence.Schemas.TurnResult`） | todo | — | 在 T8 (Week 1) 手写漂移检测基础上升级；目标：能从 schema 真生成 |
 | T7 | paper_trail 接入（第一张表 + revision audit；完成 verification doc） | todo | — | `verification/paper-trail-ecto-compatibility.md` |
 | T8 | Phoenix Channels 雏形（`WorkspaceChannel` 能 join + 收消息） | todo | — | novel_web |
@@ -33,6 +33,13 @@
 ## 决策日志
 
 倒序，最新在上。
+
+- **2026-04-27** — T5 完成（commit `e2e0f06`）。关键决策：
+  - **DB 选择**：直接走 PostgreSQL（复用本机 colima 上已有的 `v2_spike_pg` 容器，凭据 spike/spike@localhost:5432），不搭 SQLite/PG 双 adapter。06-database.md §2 规划的"阶段 1 SQLite → 阶段 2 PG"切换策略推迟到真有桌面端单机部署诉求时再实施（追加 ADR 决定）。理由：(1) 本机已有 PG 容器，0 基础设施新增成本；(2) Phase 0 只用一个 adapter 先把链路打通，避免 `Application.compile_env :db_type` 的双轨复杂度；(3) workspaces 表只用方言中立特性（uuid / unique index），将来加 SQLite 时无需重写。
+  - **utc_datetime_usec 在 PG 里实际类型是 `timestamp without time zone`**：Ecto 默认行为，非 timestamptz。Phase 0 先这样，paper_trail（T7）接入时若 versions 表需要 timezone 一并回头审一次。
+  - **mix.exs aliases**：`test` alias 自动跑 `ecto.create --quiet + ecto.migrate --quiet`，CI / 本地新机器拉取后 `mix test` 直接绿。
+  - **DataCase**：每个测试独立 SQL Sandbox owner，async test 用独占连接，非 async 共享 owner。
+  - 测试套：1 doctest + 11 tests（schema_drift 1 + turn_result changeset 5 + workspace 5）。
 
 - **2026-04-27** — T1+T2+T3+T4 一波完成（commit `cd93e0c`）。合并理由：四项都是搭骨架，单独 commit 没有可观察边界；三层一起搭出来才能跑 iex / 测试验证 tree 完整。落地结构：
   - `NovelFoundation.Application` 启动 5 Registry（Workspace / AuthorDyn / Author / AgentChildrenDyn / Agent，全 `:unique`）+ `Workspace.DynamicSupervisor`
