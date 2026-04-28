@@ -12,6 +12,7 @@ defmodule NovelAgent.Agent.Writer do
   alias NovelAgent.Agent
   alias NovelAgent.Provider.Stub
   alias NovelAgent.Runtime.Registries
+  alias NovelFoundation.Enums.AgentType
 
   defstruct [:agent_id, :workspace_id, :author_id]
 
@@ -53,8 +54,8 @@ defmodule NovelAgent.Agent.Writer do
   # ---- Agent behaviour callbacks ----
 
   @impl Agent
-  def identity do
-    %{agent_id: "writer", agent_type: :writer, workspace_id: nil, author_id: nil}
+  def identity(server) do
+    GenServer.call(server, :identity)
   end
 
   @impl Agent
@@ -63,6 +64,18 @@ defmodule NovelAgent.Agent.Writer do
   end
 
   # ---- GenServer callbacks ----
+
+  @impl true
+  def handle_call(:identity, _from, state) do
+    identity = %{
+      agent_id: state.agent_id,
+      agent_type: AgentType.writer(),
+      workspace_id: state.workspace_id,
+      author_id: state.author_id
+    }
+
+    {:reply, identity, state}
+  end
 
   @impl true
   def handle_call({:handle_task, _task_id, payload}, _from, state) do

@@ -40,6 +40,19 @@ defmodule NovelAgentTest do
       assert NovelAgent.agent_pid("ws-c", "author-1", "writer-1") == agent_pid
       assert "writer-1" in Agent.list("ws-c", "author-1")
     end
+
+    test "Writer.identity/1 返回实例级身份元数据（不再是硬编码 nil）" do
+      assert {:ok, _} = NovelAgent.start_workspace("ws-id")
+      assert {:ok, _} = NovelAgent.start_author("ws-id", "author-x")
+      assert {:ok, pid} = NovelAgent.spawn_agent("ws-id", "author-x", "writer-id-1", :writer)
+
+      identity = NovelAgent.Agent.Writer.identity(pid)
+
+      assert identity.agent_id == "writer-id-1"
+      assert identity.agent_type == :writer
+      assert identity.workspace_id == "ws-id"
+      assert identity.author_id == "author-x"
+    end
   end
 
   describe "crash isolation" do
