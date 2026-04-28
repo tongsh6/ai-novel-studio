@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/adoption_status.json",
+  "title": "AdoptionStatus",
+  "description": "Artifact adoption 7 态。canonical 来源 30-contract-glossary §3.2 + ADR-0001。映射到 status family 见 ADR-0002 §5。",
+  "type": "string",
+  "enum": [
+    "TENTATIVE",
+    "ACCEPTED",
+    "EDITED_ACCEPTED",
+    "DISCARDED",
+    "SUPERSEDED",
+    "INVALIDATED",
+    "ARCHIVED"
+  ],
+  "x-adr": "ADR-0002",
+  "x-section": "§5 Artifact lifecycle state 与 status 映射",
+  "x-source": "docs/design-v2/30-contract-glossary.md §3.2"
+}

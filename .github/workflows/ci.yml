@@ -52,6 +52,12 @@ jobs:
       - name: Schema drift check
         run: mix codegen.schemas
 
+      - name: Enum codegen drift
+        run: mix codegen.enums --check
+
+      - name: Enum literal lint (ADR-0002)
+        run: mix run scripts/lint_enum_literals.exs
+
       - name: Format check
         run: mix format --check-formatted
 

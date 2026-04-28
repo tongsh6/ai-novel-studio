@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/status.json",
+  "title": "Status",
+  "description": "Foundation 通用 status family，turn / task / artifact projection 共用。冻结于 ADR-0002 §2。",
+  "type": "string",
+  "enum": [
+    "READY",
+    "WAITING_USER",
+    "WAITING_SYSTEM",
+    "RUNNING",
+    "PAUSED",
+    "DONE",
+    "ERROR",
+    "CANCELLED"
+  ],
+  "x-adr": "ADR-0002",
+  "x-section": "§2 Foundation 通用 status family",
+  "x-source": "docs/design-v2/adr/0002-state-enums.md"
+}
