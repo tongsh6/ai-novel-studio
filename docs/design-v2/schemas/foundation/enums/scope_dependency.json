@@ -1,0 +1,21 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/scope_dependency.json",
+  "title": "ScopeDependency",
+  "description": "Slot 作用域依赖枚举。描述 slot 所依赖的业务范围。冻结于 ADR-0010 §5。",
+  "type": "string",
+  "enum": [
+    "work",
+    "volume",
+    "arc",
+    "chapter",
+    "scene",
+    "draft",
+    "style",
+    "continuity",
+    "reading_projection",
+    "runtime"
+  ],
+  "x-adr": "ADR-0010",
+  "x-section": "§5 scope_dependency 最小集合"
+}

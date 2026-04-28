@@ -46,10 +46,10 @@ defmodule NovelApplication.TurnService do
         %{intent_name: :unknown} ->
           build_unknown_clarification(turn_id)
 
-        %{intent_name: :create_work_seed, needs_clarification: true} = result ->
+        %{needs_clarification: true} = result ->
           build_create_work_clarification(turn_id, result)
 
-        %{intent_name: :create_work_seed, needs_clarification: false} = result ->
+        %{needs_clarification: false} = result ->
           build_create_work_tentative(turn_id, result)
       end
 
@@ -142,7 +142,7 @@ defmodule NovelApplication.TurnService do
 
   defp build_create_work_clarification(turn_id, route_result) do
     missing = route_result.missing_required_slots
-    genre = route_result.extracted_slots[:genre] || "未指定"
+    genre = route_result.extracted_slots["genre"] || "未指定"
 
     build_turn_result(turn_id, %{
       phase: TurnPhase.needs_clarification(),
@@ -163,7 +163,7 @@ defmodule NovelApplication.TurnService do
 
   defp build_create_work_tentative(turn_id, route_result) do
     slots = route_result.extracted_slots
-    work = Work.new(ID.uuid(), "#{slots.genre}小说")
+    work = Work.new(ID.uuid(), "#{slots["genre"]}小说")
     artifact_id = ID.uuid()
 
     artifact = %{
@@ -173,9 +173,9 @@ defmodule NovelApplication.TurnService do
       requires_adoption: true,
       payload: %{
         title: work.title,
-        genre: slots.genre,
-        core_selling_point: slots.core_selling_point,
-        target_reader: slots.target_reader
+        genre: slots["genre"],
+        core_selling_point: slots["core_selling_point"],
+        target_reader: slots["target_reader"]
       }
     }
 
@@ -184,7 +184,7 @@ defmodule NovelApplication.TurnService do
       status: Status.done(),
       next_action: NextAction.adopt_artifacts(),
       assistant_text:
-        "已为你生成作品种子：「#{slots.genre}小说」\n核心卖点：#{slots.core_selling_point}\n目标读者：#{slots.target_reader}",
+        "已为你生成作品种子：「#{slots["genre"]}小说」\n核心卖点：#{slots["core_selling_point"]}\n目标读者：#{slots["target_reader"]}",
       pending_artifacts: [artifact],
       ui_cards: [adoption_card(slots, artifact_id)]
     })
@@ -196,7 +196,7 @@ defmodule NovelApplication.TurnService do
       priority: "high",
       visibility: "primary",
       title: "确认创建作品",
-      body: "即将创建「#{slots.genre}小说」",
+      body: "即将创建「#{slots["genre"]}小说」",
       artifact_refs: [artifact_id],
       actions: [
         %{
@@ -252,8 +252,9 @@ defmodule NovelApplication.TurnService do
     }
   end
 
-  defp slot_label(:core_selling_point), do: "- 这部小说的核心卖点是什么？"
-  defp slot_label(:target_reader), do: "- 目标读者群体是？"
-  defp slot_label(:tone_preference), do: "- 偏好什么语调风格？"
+  defp slot_label("core_selling_point"), do: "- 这部小说的核心卖点是什么？"
+  defp slot_label("target_reader"), do: "- 目标读者群体是？"
+  defp slot_label("tone_preference"), do: "- 偏好什么语调风格？"
+  defp slot_label("reference_works"), do: "- 有没有希望参考的作品？"
   defp slot_label(slot), do: "- #{slot}"
 end

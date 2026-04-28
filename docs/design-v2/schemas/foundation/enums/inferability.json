@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/inferability.json",
+  "title": "Inferability",
+  "description": "Slot 可推断性枚举。inferable_with_high_confidence 表示 Router 可从当前上下文稳定补足但必须保留推断来源。冻结于 ADR-0010 §3。",
+  "type": "string",
+  "enum": [
+    "not_inferable",
+    "inferable_with_high_confidence"
+  ],
+  "x-adr": "ADR-0010",
+  "x-section": "§3 slot entry 最小字段"
+}
