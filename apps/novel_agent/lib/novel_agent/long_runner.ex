@@ -1,12 +1,17 @@
 defmodule NovelAgent.LongRunner do
   @moduledoc """
-  LongRunner — 跨 turn 长跑任务运行时。
+  LongRunner — 跨 turn 长跑任务运行时 (ETS hot tier)。
 
   Phase 1：最小状态机（running / checkpoint / completed）。
-  持久化由 TurnService 同时写入 DB。
+  ADR-0002 §4：status / phase 使用 Foundation.Enums 枚举值。
+
+  持久化由 NovelPersistence.LongRunTaskLog 负责（warm tier）。
   """
 
   use GenServer
+
+  alias NovelFoundation.Enums.Status
+  alias NovelFoundation.Enums.TaskPhase
 
   # ---- Client API ----
 
@@ -15,9 +20,9 @@ defmodule NovelAgent.LongRunner do
   end
 
   @doc "创建一个 long-run task。"
-  @spec create(String.t(), String.t(), String.t()) :: map()
-  def create(task_id, task_type, goal) do
-    GenServer.call(__MODULE__, {:create, task_id, task_type, goal})
+  @spec create(String.t(), String.t(), String.t(), String.t()) :: map()
+  def create(workspace_id, task_id, task_type, goal) do
+    GenServer.call(__MODULE__, {:create, workspace_id, task_id, task_type, goal})
   end
 
   @doc "暂停任务到 checkpoint。"
@@ -44,7 +49,7 @@ defmodule NovelAgent.LongRunner do
     GenServer.call(__MODULE__, {:get, task_id})
   end
 
-  @doc "列出 workspace 下所有 active 任务。"
+  @doc "列出 workspace 下所有 active 任务（非终态）。"
   @spec list_active(String.t()) :: [map()]
   def list_active(workspace_id) do
     GenServer.call(__MODULE__, {:list_active, workspace_id})
@@ -66,12 +71,13 @@ defmodule NovelAgent.LongRunner do
   end
 
   @impl true
-  def handle_call({:create, task_id, task_type, goal}, _from, state) do
+  def handle_call({:create, workspace_id, task_id, task_type, goal}, _from, state) do
     task = %{
+      workspace_id: workspace_id,
       task_id: task_id,
       task_type: task_type,
-      status: "running",
-      phase: "running",
+      status: Status.running(),
+      phase: TaskPhase.running(),
       goal: goal,
       created_at: DateTime.utc_now()
     }
@@ -89,7 +95,11 @@ defmodule NovelAgent.LongRunner do
       task ->
         task =
           task
-          |> Map.merge(%{status: "checkpoint", phase: "checkpoint", checkpoint_data: data})
+          |> Map.merge(%{
+            status: Status.paused(),
+            phase: TaskPhase.checkpoint(),
+            checkpoint_data: data
+          })
 
         :ets.insert(state.tid, {task_id, task})
         {:reply, {:ok, task}, state}
@@ -103,7 +113,12 @@ defmodule NovelAgent.LongRunner do
         {:reply, {:error, :not_found}, state}
 
       task ->
-        task = Map.merge(task, %{status: "running", phase: "running"})
+        task =
+          Map.merge(task, %{
+            status: Status.waiting_system(),
+            phase: TaskPhase.resuming()
+          })
+
         :ets.insert(state.tid, {task_id, task})
         {:reply, {:ok, task}, state}
     end
@@ -118,8 +133,8 @@ defmodule NovelAgent.LongRunner do
       task ->
         task =
           Map.merge(task, %{
-            status: "completed",
-            phase: "completed",
+            status: Status.done(),
+            phase: TaskPhase.completed(),
             completed_at: DateTime.utc_now()
           })
 
@@ -134,13 +149,14 @@ defmodule NovelAgent.LongRunner do
   end
 
   @impl true
-  def handle_call({:list_active, _workspace_id}, _from, state) do
+  def handle_call({:list_active, workspace_id}, _from, state) do
+    terminal = [Status.done(), Status.cancelled(), Status.error()]
+
     tasks =
       state.tid
       |> :ets.tab2list()
-      |> Enum.filter(fn
-        {_id, %{status: s}} when s in ~w(running checkpoint) -> true
-        _ -> false
+      |> Enum.filter(fn {_id, task} ->
+        task[:workspace_id] == workspace_id and task[:status] not in terminal
       end)
       |> Enum.map(fn {_id, task} -> task end)
 
