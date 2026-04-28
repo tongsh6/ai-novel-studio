@@ -24,10 +24,16 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, %{received: true}}, socket}
   end
 
-  def handle_in("adopt", %{"artifact_id" => _artifact_id, "payload" => payload}, socket) do
+  def handle_in("adopt", %{"artifact_id" => artifact_id, "base_revision" => base_revision} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
 
-    case TurnService.handle_adopt(payload, ws_id) do
+    mutation_attrs = %{
+      actor_ref: Map.get(msg, "actor_ref", "user"),
+      target_scope: Map.get(msg, "target_scope", "work"),
+      target_object_ref: artifact_id
+    }
+
+    case TurnService.handle_adopt(artifact_id, base_revision, mutation_attrs, ws_id) do
       {:ok, turn_result} ->
         broadcast!(socket, "turn_result", turn_result)
         {:reply, {:ok, %{received: true}}, socket}
