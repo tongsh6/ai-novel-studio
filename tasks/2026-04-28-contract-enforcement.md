@@ -26,13 +26,14 @@
 | T11 | IntentRegistry slot envelope 升级 ADR-0010 | done | `3160892` | 5 枚举 SSOT (SlotType/Requiredness/Inferability/Defaultability/ScopeDependency)；SlotSchema 重构 9 字段 slot entry + 5 字段 envelope；blocking_slots/1；intent_name 统一为 "intent.<NAME>" 字符串；Router/TurnService 适配；lint 62 canonical values |
 | T12 | LongRunTask §5 补齐 17 字段 + workspace 隔离 | done | `8fae73c` | Migration 00007 加 17 列；schema 完整 24 字段；LongRunner 全枚举引用 + list_active workspace 过滤；新增 LongRunTaskLog warm tier 持久化模块 |
 | T13 | Mutation contract 落地 | done | `4120b01` | mutations 表 (10 字段) + MutationStatus 枚举 + MutationLog；AdoptionBoundary 两步写入 (create_tentative → accept with base_revision check)；TurnService/Channel 适配新协议 |
+| T14 | TurnResult errors[] 规则 + task context + ADR trace | done | `d4fea29` | Validator 加 ADR-0002 §7 规则 4 (errors[] → status ≠ DONE) + validation shape check + task context 检测；scripts/adr_trace.exs 双向校验；mix check/CI 接入 |
 
 ## 当前状态
 
 - `mix check` 全绿（exit 0），145 tests / 0 failures（umbrella 全测）
-- Contract Enforcement + 字段补齐 + Mutation 13 个 task 闭环（T1-T13）
-- 守护范围：**66 个 string canonical 值** + 6 atom（agent_type）+ phase × next_action 兼容矩阵
-- 本轮补齐：Memory Interaction T10 + IntentRegistry T11 + LongRunTask T12 + Mutation contract T13
+- **全部 14 个 task 闭环**（T1-T14），所有已知缺口已补齐
+- 守护范围：**66 个 string canonical 值** + 6 atom（agent_type）+ phase × next_action 兼容矩阵 + ADR traceability
+- 16 个 Foundation.Enums 模块 codegen + 7 个 migration + mutations 表
 
 ## 决策日志
 
@@ -86,9 +87,9 @@ Actually, the lint 62 count comes from: status (8) + turn_phase (5) + task_phase
 - ~~**Mutation contract 整体缺**~~ → T13（`4120b01`）
 - ~~**Memory Interaction 缺 6 必填字段**~~ → T10（2026-04-28 晚间批闭环）
 - ~~**IntentRegistry slot envelope 缺 7 字段**~~ → T11（`3160892`）
-- **TurnResult `errors[]` 非空时 status 不得为 DONE**（ADR-0002 §7 规则 4）— TurnService 当前不 emit errors，规则未在 Validator 实装。
-- **task context 兼容性**（`task:RUNNING` / `task:CHECKPOINT` 等）— Validator 当前只校验 turn context；LongRunner 输出 TurnResult 后再加。
-- **ADR ↔ 实装 traceability 索引未建**（策略文档 Phase B 第 7 项）— 每个冻结 ADR 加 `enforced_by` frontmatter + `scripts/adr_trace.exs` 双向校验。
+- ~~**TurnResult `errors[]` 非空时 status 不得为 DONE**~~ → T14（`d4fea29`）
+- ~~**task context 兼容性**~~ → T14（`d4fea29`）
+- ~~**ADR ↔ 实装 traceability 索引**~~ → T14（`d4fea29`，Phase 1 warn-only）
 
 **已闭环**（不再列入 TBD）：
 
@@ -101,6 +102,7 @@ Actually, the lint 62 count comes from: status (8) + turn_phase (5) + task_phase
 - ~~IntentRegistry slot envelope 缺 7 字段~~ → T11（`3160892`）
 - ~~LongRunTask schema 缺 18 字段 + workspace 隔离~~ → T12（`8fae73c`）
 - ~~Mutation contract 整体缺~~ → T13（`4120b01`）
+- ~~TurnResult errors[] 规则 + task context + ADR trace~~ → T14（`d4fea29`）
 
 ## 下次会话恢复指引
 
