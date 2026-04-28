@@ -24,13 +24,14 @@
 | T9 | AdoptionBoundary 改 Ecto.Multi 真实事务 | done | (pending) | Multi.run + `stale_error_field: :revision`；事务原子性测试；Work 乐观锁单元测试 |
 | T10 | Memory Interaction 补齐 §5.1 6 字段 + 3 枚举 | done | `400b3dd` | 新增 MemoryClass / RetentionTier / SourceType 枚举 SSOT + codegen；migration 00006 加 6 列；Interaction schema 全枚举引用；TurnService 传完整 12 字段 entry；lint 扩展至 56 canonical values |
 | T11 | IntentRegistry slot envelope 升级 ADR-0010 | done | `3160892` | 5 枚举 SSOT (SlotType/Requiredness/Inferability/Defaultability/ScopeDependency)；SlotSchema 重构 9 字段 slot entry + 5 字段 envelope；blocking_slots/1；intent_name 统一为 "intent.<NAME>" 字符串；Router/TurnService 适配；lint 62 canonical values |
+| T12 | LongRunTask §5 补齐 17 字段 + workspace 隔离 | done | `8fae73c` | Migration 00007 加 17 列；schema 完整 24 字段；LongRunner 全枚举引用 + list_active workspace 过滤；新增 LongRunTaskLog warm tier 持久化模块 |
 
 ## 当前状态
 
-- `mix check` 全绿（exit 0），143 tests / 0 failures（umbrella 全测）
-- Contract Enforcement 全部 11 个 task 闭环（T1-T11）
+- `mix check` 全绿（exit 0），144 tests / 0 failures（umbrella 全测）
+- Contract Enforcement + 字段补齐 12 个 task 闭环（T1-T12）
 - 守护范围：**62 个 string canonical 值** + 6 atom（agent_type）+ phase × next_action 兼容矩阵
-- Memory Interaction §5.1 12 字段补齐（T10）+ IntentRegistry ADR-0010 slot envelope 升级（T11）
+- 本轮补齐：Memory Interaction T10 + IntentRegistry T11 + LongRunTask T12
 
 ## 决策日志
 
@@ -60,6 +61,13 @@ Actually, the lint 62 count comes from: status (8) + turn_phase (5) + task_phase
 
   - **15 个 Foundation.Enums 模块**，lint 守护 62 个 string canonical values。
 
+- **2026-04-28（晚间批 T12）** — LongRunTask 补齐：
+  - **Migration 00007 加 17 列**：scope_ref / created_by / budgets / authority_scope / unit_refs / artifact_refs / warning_refs / failure_ref / resume_ref / branch_parent_ref 等。estimated_budget / consumed_budget 用 :map 类型存储结构化预算维度。
+  - **LongRunner workspace 隔离**：`list_active/1` 之前忽略参数返回全局 task。现在按 workspace_id 过滤，非终态 task 只返回本 workspace 的。
+  - **LongRunner 全枚举引用**：所有 status/phase 字面量替换为 `Status.running()` / `TaskPhase.checkpoint()` 等 Foundation.Enums 调用。新 task 默认创建为 RUNNING（而非 ready）。
+  - **create/4 加 workspace_id 参数**：breaking change，只有测试调用方受影响。
+  - **LongRunTaskLog**：新增 warm tier 持久化模块（novel_persistence），提供 create/update/checkpoint/complete/resume/get/list_active/recent。与 NovelAgent.LongRunner（ETS hot tier）分层：ETS 负责低延迟，DB 负责恢复。当前 TurnService 尚未集成，后续 PR 补齐调用。
+
 - **2026-04-28（上午批 T1-T5）** — 防漂移基线落地。关键决策：
   - **JSON SSOT 优先于代码生成器**：枚举先以 JSON Schema 形式落 `docs/design-v2/schemas/foundation/enums/`，代码是其次。这样 ADR 改动可直接编辑 JSON，codegen 自动跟。
   - **生成模块用 zero-arity function 而非 atom**：`NextAction.ask_user()` 返回 `"ASK_USER"` 字符串。理由：JSON ↔ Elixir 边界统一用字符串；macro / module attribute 在 pattern match 上不如函数灵活。
@@ -72,8 +80,8 @@ Actually, the lint 62 count comes from: status (8) + turn_phase (5) + task_phase
 
 按上一轮 review 优先级排，**本次未闭环**：
 
-- **LongRunTask schema 缺 18 字段**（`06-planning-and-long-run.md` §5）— `plan_ref` / `authority_scope` / `estimated_budget` / `consumed_budget` / `scope_ref` / `parent_turn_ref` 等。当前只有 7 字段。
-- **LongRunner GenServer 不写 DB**（`long_runner.ex` 注释承诺与实装脱节）。重启数据全丢。同时 `list_active/1` 忽略 workspace_id 是数据隔离漏洞。
+- ~~**LongRunTask schema 缺 18 字段**~~ → T12（`8fae73c`）
+- ~~**LongRunner GenServer workspace 隔离 + 字面量**~~ → T12（`8fae73c`）；LongRunTaskLog 已建，DB 持久化就绪
 - **Mutation contract 整体缺**（`07-consistency-and-concurrency.md` §4.4 / §7.1）— 没有 `mutations` 表，`AdoptionBoundary.accept(payload)` 接口签名不接 `base_revision`，stale_revision 在当前路径不可达；需要重新设计 accept 入口。
 - ~~**Memory Interaction 缺 6 必填字段**~~ → T10（2026-04-28 晚间批闭环）
 - ~~**IntentRegistry slot envelope 缺 7 字段**~~ → T11（`3160892`）
@@ -90,6 +98,7 @@ Actually, the lint 62 count comes from: status (8) + turn_phase (5) + task_phase
 - ~~phase × next_action 兼容矩阵无 contract test~~ → T7
 - ~~Memory Interaction 缺 6 字段~~ → T10（`400b3dd`）
 - ~~IntentRegistry slot envelope 缺 7 字段~~ → T11（`3160892`）
+- ~~LongRunTask schema 缺 18 字段 + workspace 隔离~~ → T12（`8fae73c`）
 
 ## 下次会话恢复指引
 
@@ -98,7 +107,7 @@ Actually, the lint 62 count comes from: status (8) + turn_phase (5) + task_phase
 3. 校验当前状态：`mix check`（应全绿，143 tests）；`mix codegen.enums --check`（应 in sync）；`mix run scripts/lint_enum_literals.exs`（应 clean）
 4. 选下一批：按工作量从小到大：
    - **Memory Interaction 字段补齐** ~~（已完成 T10）~~ + **IntentRegistry slot envelope 补齐** ~~（已完成 T11）~~
-   - **LongRunTask schema 18 字段** + **LongRunner workspace 隔离**（中等 — 涉及新 migration + GenServer 重构）
+   - **LongRunTask schema 18 字段** + **LongRunner workspace 隔离** ~~（已完成 T12）~~
    - **Mutation contract 落地**（最大 — 重新设计 AdoptionBoundary 入口签名）
 5. 新增枚举（如 `memory_class.json` / `slot_type.json` / `behavior_type.json`）流程：建 JSON SSOT → `mix codegen.enums` → 在用到的 schema 里替换字面量 → 跑 `mix check`。`x-form: atom` 用于 atom 派系。
 6. 新增 contract test（如 task phase 状态机）：参考 `phase_next_action_compat_test.exs` —— JSON SSOT + `for ... do test do ... end` data-driven。
