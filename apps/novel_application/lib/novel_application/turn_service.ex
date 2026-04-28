@@ -20,7 +20,10 @@ defmodule NovelApplication.TurnService do
 
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.BehaviorStatus
+  alias NovelFoundation.Enums.MemoryClass
   alias NovelFoundation.Enums.NextAction
+  alias NovelFoundation.Enums.RetentionTier
+  alias NovelFoundation.Enums.SourceType
   alias NovelFoundation.Enums.Status
   alias NovelFoundation.Enums.TurnPhase
   alias NovelFoundation.ID
@@ -102,7 +105,16 @@ defmodule NovelApplication.TurnService do
       workspace_id: workspace_id,
       turn_id: turn_id,
       role: Atom.to_string(role),
-      content: %{text: text}
+      content: %{text: text},
+      memory_class: MemoryClass.episodic(),
+      retention_tier: RetentionTier.hot(),
+      source_type: SourceType.turn(),
+      source_ref: turn_id,
+      scope_ref: workspace_id,
+      freshness_score: 1.0,
+      importance_score: 0.5,
+      replayable: true,
+      retrievable: true
     }
 
     MemoryStore.record(entry)
