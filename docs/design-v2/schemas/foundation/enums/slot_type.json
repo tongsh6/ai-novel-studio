@@ -1,0 +1,20 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/slot_type.json",
+  "title": "SlotType",
+  "description": "Intent slot 类型枚举。首批支持 9 种类型：text / enum_or_text / object_ref / object_ref_list / scope_ref / anchor_ref / range_ref / integer / boolean。冻结于 ADR-0010 §4。",
+  "type": "string",
+  "enum": [
+    "text",
+    "enum_or_text",
+    "object_ref",
+    "object_ref_list",
+    "scope_ref",
+    "anchor_ref",
+    "range_ref",
+    "integer",
+    "boolean"
+  ],
+  "x-adr": "ADR-0010",
+  "x-section": "§4 slot_type 最小集合"
+}

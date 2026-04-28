@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/defaultability.json",
+  "title": "Defaultability",
+  "description": "Slot 可默认性枚举。defaultable 表示 registry 可给默认值（默认值本身不在本 ADR 冻结）。冻结于 ADR-0010 §3。",
+  "type": "string",
+  "enum": [
+    "no_default",
+    "defaultable"
+  ],
+  "x-adr": "ADR-0010",
+  "x-section": "§3 slot entry 最小字段"
+}

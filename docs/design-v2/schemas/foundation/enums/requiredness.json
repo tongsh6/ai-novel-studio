@@ -1,0 +1,13 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/requiredness.json",
+  "title": "Requiredness",
+  "description": "Slot 必要性枚举。required_to_execute 缺失时必须阻止执行；optional_preference 不得单独触发 clarification。冻结于 ADR-0010 §3。",
+  "type": "string",
+  "enum": [
+    "required_to_execute",
+    "optional_preference"
+  ],
+  "x-adr": "ADR-0010",
+  "x-section": "§3 slot entry 最小字段"
+}
