@@ -32,25 +32,15 @@ novel_domain → novel_foundation
 
 ---
 
-## 编码约束
+## 编码规范
+
+维度化编码规范见 [docs/coding-standards/index.md](docs/coding-standards/index.md)。新增或调整规范维度只需修改该目录下的文件，无需修改本文件。|
 
 ### 开始前必须做
 
 1. 阅读目标 app 的 `mix.exs` 了解依赖关系
 2. 阅读同目录已有模块，了解现有代码风格
 3. 运行 `mix compile` 确认当前状态可编译
-
-### 不允许的操作
-
-- 创建 Common / Utils / Helpers 万能模块
-- 在 Controller / Channel 中写业务逻辑
-- 绕过 mix.exs 的 `in_umbrella` 依赖直接跨 app 引用模块
-- 为了通过编译删除已有校验或类型标注
-- 在 novel_foundation 中添加任何业务概念或 OTP 进程
-- 在 novel_domain 中引用 Ecto / Phoenix / GenServer
-- 新增 hex 依赖（除非任务明确要求）
-- 大范围格式化无关代码
-- 修改与本任务无关的文件
 
 ### 完成后必须做
 
@@ -60,12 +50,6 @@ novel_domain → novel_foundation
 4. `mix run scripts/arch_check.exs` — 架构边界正常
 5. 为新模块写测试
 6. 说明：修改了什么、为什么这样改、影响范围、验证方式
-
-### 命名规则
-
-- 模块名表达业务含义（避免 Manager / Handler / Processor 等模糊词）
-- 文件名与主模块名一致
-- 测试文件以 `_test.exs` 结尾，放在镜像的 `test/` 路径下
 
 ---
 
