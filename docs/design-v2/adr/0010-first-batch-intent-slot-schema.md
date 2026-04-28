@@ -337,3 +337,13 @@ slot schema 是 clarification 与 confirmation 的输入之一：
 1. 将本文 slot schema 编译成后续 `docs/design-v2/schemas/` 下的机器可读 JSON Schema。
 2. 在 UI 设计阶段按 `requiredness` / `inferability` / `defaultability` 投影 clarification 与表单引导。
 3. 若扩展 ADR-0008 首批 intent 集合，必须同步扩展本 ADR 的 slot 表。
+
+## enforced_by
+
+- `NovelAgent.IntentRegistry.SlotSchema` — 9 字段 slot entry + 5 字段 envelope + blocking_slots/1
+- `NovelFoundation.Enums.SlotType` — text / enum_or_text / object_ref 等 9 种 slot 类型
+- `NovelFoundation.Enums.Requiredness` — required_to_execute / optional_preference
+- `NovelFoundation.Enums.Inferability` — not_inferable / inferable_with_high_confidence
+- `NovelFoundation.Enums.Defaultability` — no_default / defaultable
+- `NovelFoundation.Enums.ScopeDependency` — work / volume / chapter 等 10 种 scope
+- `NovelAgent.Router` — blocking_slots 驱动 clarification 触发（ADR-0010 §6）

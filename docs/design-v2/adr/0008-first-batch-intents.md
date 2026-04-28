@@ -292,3 +292,7 @@ Oracle 评审已通过并覆盖：
 7. namespace 全部遵 30 §7.1 `intent.<NAME>` 格式；不与 `hook.` namespace 重叠。
 8. 回写清单覆盖 `00-overview.md` §7 / `30-contract-glossary.md` §10 / `0000-index.md` §2.1 / `29-design-integrity-review.md` §7.1 / `24-novel-intent-catalog.md` 与 `28-authoring-lifecycle.md` 标注。
 9. 集合扩展纪律覆盖新增 / 修改默认值 / 删除三种情况，均要求 ADR。
+
+## enforced_by
+
+- `NovelAgent.IntentRegistry` — 已注册 intent 的 slot schema（当前 CREATE_WORK_SEED，其余 19 个待注册）

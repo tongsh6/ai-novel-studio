@@ -307,3 +307,7 @@ reading_projection_chapter
 | `29-design-integrity-review.md` | §5.3.3（269-282 行） | aggregate summary deferred 状态 |
 | `29-design-integrity-review.md` | §5.3.9（363-377 行） | projection object schema 未收口，阅读模式 UI 前必须冻结 |
 | `29-design-integrity-review.md` | §7.1 第 10 条（458 行） | reading_projection_root / toc / chapter / reader_recap 最小字段集为阻塞项 |
+
+## enforced_by
+
+- （pending — Reading Projection 尚未实现）

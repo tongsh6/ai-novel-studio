@@ -226,3 +226,7 @@ UI 不得把高风险确认埋进普通 assistant message。卡片至少应展�
 1. 在 schema 文件中为 `approval_policy` 与 `approval_record` 建立 `$id`。
 2. 为 `bypass_policy` 补完整结构化 schema。
 3. 在 contract tests 中验证 high/critical 风险不被 auto-adoption 绕过。
+
+## enforced_by
+
+- （pending — approval policy / record 尚未实现）

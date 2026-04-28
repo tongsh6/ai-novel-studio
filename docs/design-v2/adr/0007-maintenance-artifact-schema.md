@@ -298,3 +298,11 @@ TurnResult.ui_cards[]
 5. 回写目标文档清单（§影响 + §后续工作）是否与当前文档结构一致。
 
 本 ADR 不需要 Oracle 评审；上述 5 项确认后已转为 Accepted。
+
+## enforced_by
+
+- `NovelApplication.AdoptionBoundary` — create_tentative + accept with base_revision check（两步写入）
+- `NovelPersistence.Schemas.Work` — Work schema with AdoptionStatus enum + optimistic_lock
+- `NovelFoundation.Enums.AdoptionStatus` — TENTATIVE / ACCEPTED / DISCARDED 等 7 态
+- `NovelPersistence.Schemas.Mutation` — mutation record（adoption 是 mutation 的一种）
+- `NovelPersistence.MutationLog` — mutation 持久化（create_applied / apply / block）

@@ -346,3 +346,7 @@ W4 消费 ADR-0005，但不重定义 behavior payload。
 7. 与 `30-contract-glossary.md` §9 NextAction→UI action 表一致。
 8. `payload` / `domain_ext.` 前缀为 Domain 预留稳定扩展点。
 9. 未引入新 Foundation 概念。
+
+## enforced_by
+
+- `NovelApplication.TurnService` — ui_cards 组装（adoption_card + card_type / priority / visibility / actions）

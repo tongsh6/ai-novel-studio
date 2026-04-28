@@ -159,3 +159,7 @@ ai-novel-studio/
 
 - 评审：本 ADR 仅涉及仓库布局，由 Tech Lead 自审 + 实测验证（T6 `pnpm tauri dev` 启动成功）即可 Accept，不需要 Foundation/Domain 评审。
 - 终止：T6 实施成功 + `12-development.md §1` 修订 commit + `0000-index.md` 表更新 commit，本 ADR 即闭环。
+
+## enforced_by
+
+- `frontend/src-tauri/` — Tauri 工程目录（src/lib.rs / src/main.rs / tauri.conf.json / Cargo.toml）

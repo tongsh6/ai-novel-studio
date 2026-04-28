@@ -195,3 +195,7 @@
 1. 在 schema 文件中为 `quality_finding` 建立 `$id`。
 2. 在 contract tests 中验证 `quality_finding.action` 不直接作为 `next_action` 输出。
 3. 在 UI 设计阶段细化 warning / failure / adoption card 的视觉呈现。
+
+## enforced_by
+
+- （pending — quality finding 尚未实现）

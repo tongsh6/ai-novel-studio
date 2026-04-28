@@ -215,3 +215,7 @@ context assembly 必须显式过滤 experience rules，不得默认注入大量 
 1. 在 schema 文件中为三类 experience object 建立 `$id`。
 2. 在 `26-context-assembly-policy.md` 回写 experience rule 过滤规则。
 3. 在 contract tests 中验证 evidence / artifact 不会默认进入 Executor prompt。
+
+## enforced_by
+
+- （pending — experience objects 尚未实现）

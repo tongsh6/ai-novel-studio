@@ -410,3 +410,8 @@ ADR-0001 与 ADR-0002 已冻结 `TurnResult v2` 顶层 schema、state/status/nex
 3. budget guard decision 与 ADR-0002 `next_action` 没有混用。
 4. repeated failure 没有被错误提升为 escalation reason。
 5. W3 / W4 / provider pricing / budget algorithm 范围没有被吞并。
+
+## enforced_by
+
+- `NovelAgent.AuthorityGate` — authority scope 检查 GenServer
+- `NovelAgent.BudgetMeter` — budget 计量 + telemetry GenServer

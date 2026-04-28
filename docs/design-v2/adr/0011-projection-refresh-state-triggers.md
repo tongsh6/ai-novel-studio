@@ -339,3 +339,7 @@ ADR-0009 冻结 projection object 字段位置；本 ADR 冻结 refresh 状态�
 2. 在 contract tests 中验证 accepted source 变化会产生 `projection_marked_stale`。
 3. 在 UI 设计阶段映射 stale warning、rebuilding progress、failed retry 的呈现方式。
 4. 若未来加入 preview mode object，需要新 ADR，不能复用默认 reading projection 四态表达 tentative preview。
+
+## enforced_by
+
+- （pending — projection refresh 尚未实现）
