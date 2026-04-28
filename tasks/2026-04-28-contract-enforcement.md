@@ -25,13 +25,14 @@
 | T10 | Memory Interaction 补齐 §5.1 6 字段 + 3 枚举 | done | `400b3dd` | 新增 MemoryClass / RetentionTier / SourceType 枚举 SSOT + codegen；migration 00006 加 6 列；Interaction schema 全枚举引用；TurnService 传完整 12 字段 entry；lint 扩展至 56 canonical values |
 | T11 | IntentRegistry slot envelope 升级 ADR-0010 | done | `3160892` | 5 枚举 SSOT (SlotType/Requiredness/Inferability/Defaultability/ScopeDependency)；SlotSchema 重构 9 字段 slot entry + 5 字段 envelope；blocking_slots/1；intent_name 统一为 "intent.<NAME>" 字符串；Router/TurnService 适配；lint 62 canonical values |
 | T12 | LongRunTask §5 补齐 17 字段 + workspace 隔离 | done | `8fae73c` | Migration 00007 加 17 列；schema 完整 24 字段；LongRunner 全枚举引用 + list_active workspace 过滤；新增 LongRunTaskLog warm tier 持久化模块 |
+| T13 | Mutation contract 落地 | done | `4120b01` | mutations 表 (10 字段) + MutationStatus 枚举 + MutationLog；AdoptionBoundary 两步写入 (create_tentative → accept with base_revision check)；TurnService/Channel 适配新协议 |
 
 ## 当前状态
 
-- `mix check` 全绿（exit 0），144 tests / 0 failures（umbrella 全测）
-- Contract Enforcement + 字段补齐 12 个 task 闭环（T1-T12）
-- 守护范围：**62 个 string canonical 值** + 6 atom（agent_type）+ phase × next_action 兼容矩阵
-- 本轮补齐：Memory Interaction T10 + IntentRegistry T11 + LongRunTask T12
+- `mix check` 全绿（exit 0），145 tests / 0 failures（umbrella 全测）
+- Contract Enforcement + 字段补齐 + Mutation 13 个 task 闭环（T1-T13）
+- 守护范围：**66 个 string canonical 值** + 6 atom（agent_type）+ phase × next_action 兼容矩阵
+- 本轮补齐：Memory Interaction T10 + IntentRegistry T11 + LongRunTask T12 + Mutation contract T13
 
 ## 决策日志
 
@@ -82,7 +83,7 @@ Actually, the lint 62 count comes from: status (8) + turn_phase (5) + task_phase
 
 - ~~**LongRunTask schema 缺 18 字段**~~ → T12（`8fae73c`）
 - ~~**LongRunner GenServer workspace 隔离 + 字面量**~~ → T12（`8fae73c`）；LongRunTaskLog 已建，DB 持久化就绪
-- **Mutation contract 整体缺**（`07-consistency-and-concurrency.md` §4.4 / §7.1）— 没有 `mutations` 表，`AdoptionBoundary.accept(payload)` 接口签名不接 `base_revision`，stale_revision 在当前路径不可达；需要重新设计 accept 入口。
+- ~~**Mutation contract 整体缺**~~ → T13（`4120b01`）
 - ~~**Memory Interaction 缺 6 必填字段**~~ → T10（2026-04-28 晚间批闭环）
 - ~~**IntentRegistry slot envelope 缺 7 字段**~~ → T11（`3160892`）
 - **TurnResult `errors[]` 非空时 status 不得为 DONE**（ADR-0002 §7 规则 4）— TurnService 当前不 emit errors，规则未在 Validator 实装。
@@ -99,6 +100,7 @@ Actually, the lint 62 count comes from: status (8) + turn_phase (5) + task_phase
 - ~~Memory Interaction 缺 6 字段~~ → T10（`400b3dd`）
 - ~~IntentRegistry slot envelope 缺 7 字段~~ → T11（`3160892`）
 - ~~LongRunTask schema 缺 18 字段 + workspace 隔离~~ → T12（`8fae73c`）
+- ~~Mutation contract 整体缺~~ → T13（`4120b01`）
 
 ## 下次会话恢复指引
 
