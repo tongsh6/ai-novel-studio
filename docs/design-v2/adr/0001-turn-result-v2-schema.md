@@ -449,3 +449,10 @@ adapter 仅作为 v1 → v2 上线一次性 backfill 工具，不进入 v2 produ
 - ValidationEnvelope / UsageEnvelope / TraceRef / WarningEnvelope / ErrorEnvelope / AssistantMessage 各自独立 ADR：本 ADR 仅声明引用。
 
 ADR-0006 与 envelope ADR 落地前，本 ADR 仍可作为 schema 骨架被消费；契约测试在引用解析阶段对未落地引用使用 mock resolver。
+
+## enforced_by
+
+- `NovelFoundation.TurnResultValidator` — TurnResult 14 字段 + 枚举 + phase/action 兼容出口校验
+- `NovelPersistence.Schemas.Foundation.TurnResult` — Ecto mirror of turn_result_v2.json
+- `docs/design-v2/schemas/foundation/turn_result_v2.json` — JSON Schema SSOT
+- `NovelApplication.TurnService` — TurnResult v2.0.0 组装 + validate! 出口调用

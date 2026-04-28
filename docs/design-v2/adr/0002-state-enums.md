@@ -379,3 +379,12 @@ stateDiagram-v2
 2. adoption 7 态没有被本 ADR 重定义。
 3. turn phase 与 task phase 没有混用。
 4. `phase × next_action` 兼容表足以支撑 ADR-0001 的约束 6。
+
+## enforced_by
+
+- `NovelFoundation.Enums` — 16 个枚举模块，全部从 `docs/design-v2/schemas/foundation/enums/*.json` codegen 生成
+- `scripts/lint_enum_literals.exs` — 66 个 string canonical values 的裸字面量禁止检查
+- `mix codegen.enums` — JSON SSOT → Elixir 枚举模块生成器，CI `--check` 检测漂移
+- `NovelFoundation.PhaseNextActionCompat` — phase × next_action 兼容矩阵（编译期读 JSON）
+- `NovelFoundation.TurnResultValidator` — ADR-0002 §7 规则 1-4 / §8 behavior 终态检查
+- `apps/novel_persistence/priv/repo/migrations/20260428000005_uppercase_status_enums.exs` — lowercase → UPPER_SNAKE_CASE 数据迁移

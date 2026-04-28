@@ -220,3 +220,7 @@ UI 阶段不得：
 1. 在 `43-structure-panel.md` 中把本 ADR 映射为具体信息架构。
 2. 在 `.pen` 原型中体现 L1-L4 渐进披露。
 3. 后续为必须结构化对象补完整字段 schema。
+
+## enforced_by
+
+- （pending — structure panel 尚未实现，属于 UI 层）

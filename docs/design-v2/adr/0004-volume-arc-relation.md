@@ -319,3 +319,7 @@ UI 可以提供跨卷视角（例如主题线 / 伏笔线 / 人物线），但�
 3. planning default unit 与 reading TOC authority 没有混用。
 4. W7 / W8 / W10 / W11 的依赖边界清楚。
 5. W6 没有吞并完整 object schema、projection schema 或 intent slot schema。
+
+## enforced_by
+
+- （pending — Domain layer 尚未实现 Volume / Arc 对象模型）

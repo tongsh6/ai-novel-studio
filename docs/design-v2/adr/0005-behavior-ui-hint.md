@@ -342,3 +342,9 @@ behavior_state.history[].ui_hint (optional, for replay)
 3. `next_action` / `behavior_status` 没有被 W3 重定义。
 4. 五类 behavior payload 的最小字段均有源文档依据。
 5. reason_code / correction taxonomy / visual style 均保持后置。
+
+## enforced_by
+
+- `NovelApplication.TurnService` — behavior_state.active 组装（behavior_type / behavior_id / status / missing_slots）
+- `NovelFoundation.Enums.BehaviorStatus` — OPEN / WAITING_USER / RESOLVED / CANCELLED / EXPIRED 枚举
+- `NovelFoundation.TurnResultValidator` — behavior_state 形状校验 + 终态不得留在 active

@@ -92,6 +92,8 @@ defmodule AdrTrace do
             |> String.split("\n")
             |> Enum.map(&String.trim(&1, " -"))
             |> Enum.reject(&(&1 == ""))
+            |> Enum.map(&clean_ref/1)
+            |> Enum.reject(&(&1 == ""))
 
           nil ->
             nil
@@ -99,25 +101,78 @@ defmodule AdrTrace do
     end
   end
 
+  # Strip backticks, leading list markers, and trailing descriptions.
+  # Returns empty string for pending/placeholder entries.
+  defp clean_ref(ref) do
+    if String.contains?(ref, "pending") or String.contains?(ref, "待实现") or
+         String.contains?(ref, "尚未实现") do
+      ""
+    else
+      extract_module_ref(ref)
+    end
+  end
+
+  defp extract_module_ref(ref) do
+    # Remove leading "- " or "* "
+    trimmed = String.replace(ref, ~r/^[-*]\s+/, "")
+
+    # Try backtick extraction first: `ModuleName` → ModuleName
+    case Regex.run(~r/`([^`]+)`/, trimmed) do
+      [_, module_name] ->
+        module_name
+
+      nil ->
+        # No backticks: take the first whitespace-delimited token
+        # that looks like a module/path (contains . or /)
+        trimmed
+        |> String.split(~r/\s+/, trim: true)
+        |> Enum.find("", fn token ->
+          String.contains?(token, ".") or String.contains?(token, "/")
+        end)
+    end
+  end
+
   # Check if a code reference exists. Refs can be:
   # - "apps/novel_foundation/lib/novel_foundation/enums/status.ex"
   # - "NovelFoundation.Enums.Status"
+  # - "frontend/src-tauri/" (directory)
   defp ref_exists?(ref) do
     cond do
-      String.starts_with?(ref, "apps/") ->
+      # Directory paths (e.g., frontend/src-tauri/)
+      String.ends_with?(ref, "/") ->
         File.exists?(ref)
 
-      String.contains?(ref, ".") ->
-        # Module name → convert to file path
-        module_path =
-          ref
-          |> String.replace(".", "/")
-          |> String.replace(~r/\/[^\/]+$/, fn segment ->
-            String.downcase(segment) <> ".ex"
-          end)
+      # File paths (e.g., apps/.../file.ex, docs/.../file.json)
+      String.starts_with?(ref, "apps/") or String.starts_with?(ref, "docs/") or
+        String.starts_with?(ref, "scripts/") or String.starts_with?(ref, "frontend/") ->
+        File.exists?(ref)
 
-        # Search in apps/*/lib
-        Path.wildcard("apps/*/lib/#{String.trim_leading(module_path, "/")}") != []
+      # Mix tasks (e.g., mix codegen.enums)
+      String.starts_with?(ref, "mix ") ->
+        true
+
+      # Module namespace without specific module (e.g., NovelFoundation.Enums)
+      # Check if the directory exists
+      String.match?(ref, ~r/^[A-Z][A-Za-z.]+\.[A-Z]/) ->
+        # Module name → snake_case file path
+        underscored = Macro.underscore(ref)
+        file_path = "apps/*/lib/#{underscored}.ex"
+
+        if Path.wildcard(file_path) != [] do
+          true
+        else
+          # Maybe it's a submodule defined inside parent module's file
+          # e.g., NovelAgent.IntentRegistry.SlotSchema is in intent_registry.ex
+          parent = ref |> String.split(".") |> Enum.drop(-1) |> Enum.join(".")
+          parent_path = "apps/*/lib/#{Macro.underscore(parent)}.ex"
+          Path.wildcard(parent_path) != []
+        end
+
+      # Module namespace (e.g., NovelFoundation.Enums — check directory for any .ex files)
+      String.match?(ref, ~r/^[A-Z][A-Za-z.]+$/) ->
+        underscored = Macro.underscore(ref)
+        dir_glob = "apps/*/lib/#{underscored}/*.ex"
+        Path.wildcard(dir_glob) != []
 
       true ->
         false
