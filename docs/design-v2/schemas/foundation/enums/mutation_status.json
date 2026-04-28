@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/mutation_status.json",
+  "title": "MutationStatus",
+  "description": "Mutation 生命周期状态枚举。Foundation 层定义 6 个阶段：PROPOSED / VALIDATING / BLOCKED / APPLIED / SUPERSEDED / CANCELLED。冻结于 07-consistency-and-concurrency.md §7.2。",
+  "type": "string",
+  "enum": [
+    "PROPOSED",
+    "VALIDATING",
+    "BLOCKED",
+    "APPLIED",
+    "SUPERSEDED",
+    "CANCELLED"
+  ],
+  "x-adr": "07-consistency-and-concurrency.md",
+  "x-section": "§7.2 mutation 的阶段"
+}

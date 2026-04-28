@@ -60,15 +60,21 @@ defmodule NovelApplication.TurnService do
   end
 
   @doc """
-  采纳一个 tentative artifact。成功时返回合法 TurnResult（phase=COMPLETED,
-  next_action=NO_FURTHER_ACTION，artifact 进入 adoption_state.resolved）。
+  采纳一个 tentative artifact。
+
+  接收 work_id + base_revision（前端从 TurnResult artifact payload 取），
+  调用 AdoptionBoundary.accept/3 做显式 revision 检查（07-consistency §8.1）。
+  成功时返回合法 TurnResult（phase=COMPLETED, next_action=NO_FURTHER_ACTION，
+  artifact 进入 adoption_state.resolved）。
   """
-  @spec handle_adopt(map(), String.t(), String.t() | nil) ::
+  @spec handle_adopt(String.t(), pos_integer(), map(), String.t(), String.t() | nil) ::
           {:ok, map()} | {:error, term()}
-  def handle_adopt(payload, workspace_id \\ "lobby", turn_id \\ nil) do
+  def handle_adopt(work_id, base_revision, mutation_attrs, workspace_id \\ "lobby", turn_id \\ nil) do
     turn_id = turn_id || "turn_#{:os.system_time(:millisecond)}"
 
-    case AdoptionBoundary.accept(payload) do
+    attrs = Map.merge(mutation_attrs, %{source_turn_ref: turn_id})
+
+    case AdoptionBoundary.accept(work_id, base_revision, attrs) do
       {:ok, work} ->
         artifact = %{
           artifact_id: work.id,
@@ -163,21 +169,50 @@ defmodule NovelApplication.TurnService do
 
   defp build_create_work_tentative(turn_id, route_result) do
     slots = route_result.extracted_slots
-    work = Work.new(ID.uuid(), "#{slots["genre"]}小说")
-    artifact_id = ID.uuid()
+    domain_work = Work.new(ID.uuid(), "#{slots["genre"]}小说")
 
-    artifact = %{
-      artifact_id: artifact_id,
-      artifact_type: "work",
-      adoption_status: AdoptionStatus.tentative(),
-      requires_adoption: true,
-      payload: %{
-        title: work.title,
-        genre: slots["genre"],
-        core_selling_point: slots["core_selling_point"],
-        target_reader: slots["target_reader"]
-      }
+    # Persist tentative work to DB — 07-consistency §4.4: tentative must have
+    # a revision before adoption can check base_revision.
+    payload = %{
+      "title" => domain_work.title,
+      "genre" => slots["genre"],
+      "core_selling_point" => slots["core_selling_point"],
+      "target_reader" => slots["target_reader"]
     }
+
+    artifact =
+      case AdoptionBoundary.create_tentative(payload) do
+        {:ok, work} ->
+          %{
+            artifact_id: work.id,
+            artifact_type: "work",
+            adoption_status: AdoptionStatus.tentative(),
+            requires_adoption: true,
+            payload: %{
+              title: work.title,
+              genre: work.genre,
+              core_selling_point: work.core_selling_point,
+              target_reader: work.target_reader,
+              revision: work.revision
+            }
+          }
+
+        {:error, _changeset} ->
+          # Fallback: return ephemeral artifact (DB insert failure shouldn't
+          # block the turn; adoption will fail gracefully)
+          %{
+            artifact_id: ID.uuid(),
+            artifact_type: "work",
+            adoption_status: AdoptionStatus.tentative(),
+            requires_adoption: true,
+            payload: %{
+              title: domain_work.title,
+              genre: slots["genre"],
+              core_selling_point: slots["core_selling_point"],
+              target_reader: slots["target_reader"]
+            }
+          }
+      end
 
     build_turn_result(turn_id, %{
       phase: TurnPhase.completed(),
@@ -186,7 +221,7 @@ defmodule NovelApplication.TurnService do
       assistant_text:
         "已为你生成作品种子：「#{slots["genre"]}小说」\n核心卖点：#{slots["core_selling_point"]}\n目标读者：#{slots["target_reader"]}",
       pending_artifacts: [artifact],
-      ui_cards: [adoption_card(slots, artifact_id)]
+      ui_cards: [adoption_card(slots, artifact.artifact_id)]
     })
   end
 

@@ -41,8 +41,8 @@ defmodule NovelApplication.TurnServiceTest do
     end
   end
 
-  describe "adoption boundary persistence" do
-    test "accept persists work to DB in a transaction" do
+  describe "adoption boundary: two-step write model (07-consistency §4.4)" do
+    test "create_tentative/1 persists work with revision, accept/3 adopts it" do
       payload = %{
         "title" => "玄幻小说",
         "genre" => "玄幻",
@@ -51,39 +51,72 @@ defmodule NovelApplication.TurnServiceTest do
         "tone_preference" => "热血"
       }
 
-      assert {:ok, work} = AdoptionBoundary.accept(payload)
-      assert work.status == AdoptionStatus.accepted()
+      # Step 1: create tentative
+      assert {:ok, work} = AdoptionBoundary.create_tentative(payload)
+      assert work.status == AdoptionStatus.tentative()
+      assert is_integer(work.revision) and work.revision > 0
       assert work.title == "玄幻小说"
-      assert work.genre == "玄幻"
+
+      # Step 2: accept with correct base_revision
+      mutation_attrs = %{
+        actor_ref: "test",
+        source_turn_ref: "turn-test-1",
+        target_scope: "work",
+        target_object_ref: work.id
+      }
+
+      assert {:ok, adopted} = AdoptionBoundary.accept(work.id, work.revision, mutation_attrs)
+      assert adopted.status == AdoptionStatus.accepted()
+
+      # Verify mutation was recorded
+      mutations = NovelPersistence.MutationLog.list_by_object(work.id)
+      assert length(mutations) == 1
+      assert hd(mutations).status == "APPLIED"
+      assert hd(mutations).mutation_type == "adoption"
     end
 
-    test "missing title returns changeset error (and rolls back any insert)" do
-      # title 是 required —— Multi 的 :create 步骤 changeset 失败，整个事务回滚
+    test "accept/3 with stale base_revision returns :stale_revision" do
+      payload = %{"title" => "测试作品", "genre" => "科幻"}
+
+      assert {:ok, work} = AdoptionBoundary.create_tentative(payload)
+
+      mutation_attrs = %{
+        actor_ref: "test",
+        source_turn_ref: "turn-test-2",
+        target_scope: "work",
+        target_object_ref: work.id
+      }
+
+      # Claim base_revision 5 but actual is 1 — stale
+      assert {:error, :stale_revision} =
+               AdoptionBoundary.accept(work.id, 5, mutation_attrs)
+    end
+
+    test "accept/3 with non-existent work_id returns :not_found" do
+      fake_id = "00000000-0000-0000-0000-000000000000"
+      mutation_attrs = %{
+        actor_ref: "test",
+        source_turn_ref: "turn-x",
+        target_scope: "work",
+        target_object_ref: fake_id
+      }
+
+      assert {:error, :not_found} =
+               AdoptionBoundary.accept(fake_id, 1, mutation_attrs)
+    end
+
+    test "missing title in create_tentative returns changeset error" do
       assert {:error, %Ecto.Changeset{} = changeset} =
-               AdoptionBoundary.accept(%{"genre" => "无标题"})
+               AdoptionBoundary.create_tentative(%{"genre" => "无标题"})
 
       assert {:title, _} = List.keyfind(changeset.errors, :title, 0)
-
-      # 没有任何 work 残留
-      assert NovelPersistence.Repo.aggregate(NovelPersistence.Schemas.Work, :count) == 0
-    end
-
-    test "stale_revision conflict surfaces as :stale_revision (atom error)" do
-      # 这个场景在 accept(payload) 入口下不会自然发生（insert 后立即 update，
-      # 中间无并发窗口）。这里直接验证错误传播路径——通过单元测试 Work
-      # 的 stale_error_field 行为已经在 NovelPersistence.Schemas.WorkTest 覆盖；
-      # AdoptionBoundary 的转换由代码 review 担保（{:error, :adopt, %Changeset{
-      # errors: [revision: _]}, _} → :stale_revision）。
-
-      # 仅作 happy path 的契约存在性检查：函数签名确实返回 :stale_revision atom。
-      # （真正的并发场景留待 mutation contract PR——届时 accept 会接受
-      # base_revision 参数并显式比对。）
-      assert is_function(&AdoptionBoundary.accept/1, 1)
+      assert Repo.aggregate(NovelPersistence.Schemas.Work, :count) == 0
     end
   end
 
-  describe "handle_adopt/3" do
+  describe "handle_adopt/5" do
     test "returns a valid TurnResult with the artifact in resolved" do
+      # First create a tentative work
       payload = %{
         "title" => "玄幻小说",
         "genre" => "玄幻",
@@ -91,7 +124,16 @@ defmodule NovelApplication.TurnServiceTest do
         "target_reader" => "成年男性"
       }
 
-      assert {:ok, turn_result} = TurnService.handle_adopt(payload, "ws-1")
+      assert {:ok, work} = AdoptionBoundary.create_tentative(payload)
+
+      mutation_attrs = %{
+        actor_ref: "user",
+        target_scope: "work",
+        target_object_ref: work.id
+      }
+
+      assert {:ok, turn_result} =
+               TurnService.handle_adopt(work.id, work.revision, mutation_attrs, "ws-1")
 
       assert turn_result.schema_version == "2.0.0"
       assert turn_result.phase == TurnPhase.completed()
