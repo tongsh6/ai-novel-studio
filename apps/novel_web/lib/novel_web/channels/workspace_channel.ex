@@ -7,7 +7,6 @@ defmodule NovelWeb.WorkspaceChannel do
 
   use Phoenix.Channel
 
-  alias NovelApplication.AdoptionBoundary
   alias NovelApplication.TurnService
 
   @impl true
@@ -26,17 +25,12 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   def handle_in("adopt", %{"artifact_id" => _artifact_id, "payload" => payload}, socket) do
-    case AdoptionBoundary.accept(payload) do
-      {:ok, work} ->
-        result = %{
-          event: "adopted",
-          artifact_id: work.id,
-          title: work.title,
-          status: work.status
-        }
+    ws_id = socket.assigns[:workspace_id] || "lobby"
 
-        broadcast!(socket, "turn_result", result)
-        {:reply, {:ok, result}, socket}
+    case TurnService.handle_adopt(payload, ws_id) do
+      {:ok, turn_result} ->
+        broadcast!(socket, "turn_result", turn_result)
+        {:reply, {:ok, %{received: true}}, socket}
 
       {:error, reason} ->
         {:reply, {:error, %{reason: inspect(reason)}}, socket}
