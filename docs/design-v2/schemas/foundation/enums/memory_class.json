@@ -1,0 +1,15 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/memory_class.json",
+  "title": "MemoryClass",
+  "description": "记忆分类枚举。Foundation 层定义四类记忆：episodic / semantic / procedural / meta。冻结于 05-memory-retention-and-retrieval.md §5.2。",
+  "type": "string",
+  "enum": [
+    "episodic",
+    "semantic",
+    "procedural",
+    "meta"
+  ],
+  "x-adr": "05-memory-retention-and-retrieval.md",
+  "x-section": "§5.2 memory_class"
+}

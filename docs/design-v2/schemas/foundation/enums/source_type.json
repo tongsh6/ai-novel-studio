@@ -1,0 +1,19 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/source_type.json",
+  "title": "SourceType",
+  "description": "记忆来源类型枚举。每条 memory entry 必须标记来源类型。冻结于 05-memory-retention-and-retrieval.md §5.3。",
+  "type": "string",
+  "enum": [
+    "turn",
+    "task_event",
+    "artifact",
+    "object_snapshot",
+    "object_summary",
+    "registry",
+    "audit_event",
+    "external_import"
+  ],
+  "x-adr": "05-memory-retention-and-retrieval.md",
+  "x-section": "§5.3 source_type"
+}

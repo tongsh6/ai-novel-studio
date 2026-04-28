@@ -1,0 +1,14 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/retention_tier.json",
+  "title": "RetentionTier",
+  "description": "记忆保留层级枚举。Foundation 层定义三层保留结构：hot / warm / cold。冻结于 05-memory-retention-and-retrieval.md §6。",
+  "type": "string",
+  "enum": [
+    "hot",
+    "warm",
+    "cold"
+  ],
+  "x-adr": "05-memory-retention-and-retrieval.md",
+  "x-section": "§6 三层保留结构"
+}

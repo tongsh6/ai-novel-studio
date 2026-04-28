@@ -20,7 +20,10 @@ defmodule LintEnumLiterals do
     "docs/design-v2/schemas/foundation/enums/task_phase.json",
     "docs/design-v2/schemas/foundation/enums/adoption_status.json",
     "docs/design-v2/schemas/foundation/enums/next_action.json",
-    "docs/design-v2/schemas/foundation/enums/behavior_status.json"
+    "docs/design-v2/schemas/foundation/enums/behavior_status.json",
+    "docs/design-v2/schemas/foundation/enums/memory_class.json",
+    "docs/design-v2/schemas/foundation/enums/retention_tier.json",
+    "docs/design-v2/schemas/foundation/enums/source_type.json"
   ]
 
   @exempt_paths [
