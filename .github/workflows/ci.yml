@@ -58,6 +58,9 @@ jobs:
       - name: Enum literal lint (ADR-0002)
         run: mix run scripts/lint_enum_literals.exs
 
+      - name: ADR traceability
+        run: mix run scripts/adr_trace.exs
+
       - name: Format check
         run: mix format --check-formatted
 

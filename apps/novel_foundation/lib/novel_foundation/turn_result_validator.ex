@@ -5,23 +5,20 @@ defmodule NovelFoundation.TurnResultValidator do
   TurnService 在出口处调用 `validate!/1`。任何不符合契约的 emit 立即 raise，
   防止字面量漂移悄悄进入下游 channel / 前端 / 持久化。
 
-  Phase 1 朴素实现：
+  ## 覆盖
   1. 14 个必填字段全部存在
   2. `phase` / `status` / `next_action` 在 Foundation.Enums 内
-  3. `behavior_state.{active,history}` 与 `adoption_state.{pending,resolved}`
-     的形状正确；active.behavior_status 与 entries 的 adoption_status 在枚举内
-  4. `schema_version` 形如 `^\\d+\\.\\d+\\.\\d+$`
-
-  暂不覆盖（留待后续 envelope ADR 落地）：
-  - validation / usage / trace_ref 内部结构
-  - errors[] 非空时 status 不得为成功终态（ADR-0002 §7 规则 4，TurnService 暂不 emit errors）
-  - task context 兼容性（当前 emit 路径都是 turn context；task context 由 LongRunner 输出后再加）
+  3. `behavior_state` / `adoption_state` 形状 + 枚举
+  4. `schema_version` semver
+  5. `validation.errors[]` 非空时 status != DONE (ADR-0002 §7 规则 4)
+  6. task context (`task_id` 存在) 时 phase 同时接受 TaskPhase 枚举
   """
 
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.BehaviorStatus
   alias NovelFoundation.Enums.NextAction
   alias NovelFoundation.Enums.Status
+  alias NovelFoundation.Enums.TaskPhase
   alias NovelFoundation.Enums.TurnPhase
   alias NovelFoundation.PhaseNextActionCompat
 
@@ -68,16 +65,88 @@ defmodule NovelFoundation.TurnResultValidator do
       []
       |> check_required(turn_result)
       |> check_schema_version(turn_result)
-      |> check_enum(:phase, turn_result, &TurnPhase.valid?/1)
+      |> check_phase(turn_result)
       |> check_enum(:status, turn_result, &Status.valid?/1)
       |> check_enum(:next_action, turn_result, &NextAction.valid?/1)
       |> check_behavior_state(turn_result)
       |> check_adoption_state(turn_result)
+      |> check_validation_envelope(turn_result)
+      |> check_errors_status_compat(turn_result)
       |> check_phase_next_action_compat(turn_result)
       |> check_behavior_active_compat(turn_result)
       |> Enum.reverse()
 
     if violations == [], do: :ok, else: {:error, violations}
+  end
+
+  # ---- phase (turn + task context) ----
+
+  defp check_phase(violations, tr) do
+    phase = Map.get(tr, :phase)
+
+    if is_binary(phase) do
+      valid? = TurnPhase.valid?(phase) or (task_context?(tr) and TaskPhase.valid?(phase))
+
+      if valid?,
+        do: violations,
+        else: ["phase=#{inspect(phase)} not in canonical set" | violations]
+    else
+      violations
+    end
+  end
+
+  # ---- task context detection ----
+
+  defp task_context?(tr) do
+    case Map.get(tr, :task_id) do
+      nil -> false
+      id when is_binary(id) and byte_size(id) > 0 -> true
+      _ -> false
+    end
+  end
+
+  # ---- errors[] / warnings[] (ADR-0002 §7) ----
+
+  defp check_validation_envelope(violations, tr) do
+    case Map.get(tr, :validation) do
+      nil ->
+        violations
+
+      v when is_map(v) ->
+        violations
+        |> check_validation_errors(v)
+        |> check_validation_warnings(v)
+
+      other ->
+        ["validation must be a map, got #{inspect(other)}" | violations]
+    end
+  end
+
+  defp check_validation_errors(violations, validation) do
+    case Map.get(validation, :errors) do
+      nil -> violations
+      errs when is_list(errs) -> violations
+      other -> ["validation.errors must be a list, got #{inspect(other)}" | violations]
+    end
+  end
+
+  defp check_validation_warnings(violations, validation) do
+    case Map.get(validation, :warnings) do
+      nil -> violations
+      warns when is_list(warns) -> violations
+      other -> ["validation.warnings must be a list, got #{inspect(other)}" | violations]
+    end
+  end
+
+  # ADR-0002 §7 rule 4: errors[] non-empty → status != DONE
+  defp check_errors_status_compat(violations, tr) do
+    errors = get_in(tr, [:validation, :errors])
+
+    if is_list(errors) and errors != [] and Map.get(tr, :status) == Status.done() do
+      ["errors[] non-empty but status=DONE — violates ADR-0002 §7 rule 4" | violations]
+    else
+      violations
+    end
   end
 
   # ---- checks ----

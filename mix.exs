@@ -20,7 +20,8 @@ defmodule AiNovelStudio.MixProject do
         "run scripts/lint_enum_literals.exs",
         "xref graph --format cycles --label compile-connected --fail-above 0",
         "test",
-        "run scripts/arch_check.exs"
+        "run scripts/arch_check.exs",
+        "run scripts/adr_trace.exs"
       ]
     ]
   end
