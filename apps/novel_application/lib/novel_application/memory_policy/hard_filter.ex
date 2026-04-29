@@ -11,7 +11,10 @@ defmodule NovelApplication.MemoryPolicy.HardFilter do
   """
 
   alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryScope
   alias NovelFoundation.Enums.MemoryStatus
+
+  @broad_scopes [MemoryScope.global(), MemoryScope.work()]
 
   @doc """
   将记忆列表分离为 `{iron_laws, candidates}`。
@@ -40,5 +43,10 @@ defmodule NovelApplication.MemoryPolicy.HardFilter do
   end
 
   defp scope_match?(_m, nil), do: true
+
+  defp scope_match?(%{scope: scope}, _task_scope)
+       when scope in @broad_scopes,
+       do: true
+
   defp scope_match?(m, scope), do: m.scope == scope
 end

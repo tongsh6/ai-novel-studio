@@ -430,3 +430,63 @@ MemoryListPage
 2. 从阶段 1A 开始：先建 4 个枚举 JSON SSOT
 3. 每完成一个阶段跑 `mix check` 确保不引入回归
 4. 第一批目标：阶段 1A-1E（后端完整链路）+ 阶段 1F 最简前端
+
+---
+
+## 11. 执行回写（2026-04-29）
+
+### 11.1 当前状态
+
+后端 Governed Memory 主链路已推进到阶段 1A-1E + 1G 的核心后端范围：
+
+| 阶段 | Status | 备注 |
+|------|--------|------|
+| 1A 枚举 + Domain struct | done | MemoryType / MemoryScope / MemoryStatus / MemorySourceType 已生成；MemoryItem / NarrativePosition 已实现 |
+| 1B 数据库 + Persistence | done | memory_items / memory_reference_logs 已落地；Schema 与 reference log 模块已实现 |
+| 1C MemoryService 管理 | done | CRUD / 查询 / 状态操作 / 权重 / 有效期 / recallable / 引用记录入口已实现 |
+| 1D MemoryRecallService 召回 | done | HardFilter / CandidateSearch / Reranker / DiversityFilter / TokenPacker / 引用日志回写已实现 |
+| 1E Web API | done | `/api/works/:work_id/memories` REST 端点已实现并补 controller 测试 |
+| 1F 前端记忆管理页 | todo | 尚未实施 |
+| 1G 集成 + 门禁 | partial | TurnService 已接入 recall；完整门禁已通过 |
+
+### 11.2 本次设计偏差修复
+
+- 单条 memory API 已改为 `work_id + memory_id` scoped，避免跨作品读取/变更。
+- `novel_web` 不再直接引用 `NovelPersistence.MemoryReferenceLog`，引用记录经 `NovelApplication.MemoryService` 暴露。
+- API `sort_by/sort_dir` 已白名单转换为 atom，避免 Ecto `field/2` 崩溃。
+- `update_weight` 保留 changeset error，不再把非法 weight 转成 MatchError。
+- DiversityFilter 去重现在真正丢弃相似项。
+- recall 候选现在限制为 `DRAFT / CONFIRMED / STABILIZED + recallable`，并提供有效期过滤入口。
+- Reference log 写入后会回写 `reference_count` 和 `last_referenced_at`。
+- locked/status 状态机按设计收紧：草稿不可锁定；锁定仅限 `CONFIRMED/STABILIZED`；废弃/归档自动清 `locked`。
+- `source_type` 未显式传权重/置信度时按设计默认值初始化。
+- `GLOBAL/WORK` scope 对下层任务可见，避免章节召回漏掉作品级铁律。
+- Recall API 兼容设计参数名，并返回 `hardRules/currentStates/relationships/plotFacts/foreshadowings/styleRules/packedContext/excludedMemories/referenceTrace`。
+
+### 11.3 验证结果
+
+已通过：
+
+```bash
+mix compile --warnings-as-errors
+mix test
+mix xref graph --format cycles --label compile-connected --fail-above 0
+mix run scripts/arch_check.exs
+```
+
+备注：`mix test` 期间仍可见 `NovelAgent.Runtime.Registries.AuthorDyn` 测试进程被 kill 的日志噪声，但测试结果为 0 failures。
+
+### 11.4 当前未完成 / TBD
+
+- 前端 MemoryListPage / MemoryDetailDrawer / MemoryCreateDialog 未实施。
+- 召回有效期匹配目前是 MVP 入口，复杂 NarrativePosition 匹配仍需随 Volume/Arc/Chapter 建模后完善。
+- `excludedMemories` 目前返回空列表，后续召回预览页面需要补齐“为何被排除”的 trace。
+- EAV / memory_conflicts / LLM 冲突裁决仍按原计划延后。
+- 工作区存在未跟踪目录 `apps/novel_agent/log/`，本次未处理。
+
+### 11.5 下次会话恢复指引
+
+1. 先看本节 11.1-11.4，确认后端 memory 主链路状态。
+2. 若继续后端：优先补 `excludedMemories` / 更完整 NarrativePosition 有效期匹配。
+3. 若继续产品闭环：从阶段 1F 开始实现前端记忆管理页与 API client。
+4. 修改后继续执行本文 11.3 的四条验证命令。

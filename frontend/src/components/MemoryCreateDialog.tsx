@@ -1,3 +1,5 @@
+// Design: N/A (memory management maintenance page — awaits design spec)
+// NOTE: 此组件为 Phase 0 快速验证产物，待 UI 设计阶段需重新对照原型实现
 import { useState } from "react";
 import { createMemory } from "../lib/memoryApi";
 import type { MemoryItem } from "../lib/memoryApi";
@@ -147,7 +149,9 @@ export function MemoryCreateDialog({ workId, onCreated, onClose }: Props) {
             取消
           </button>
           <button
-            onClick={handleSubmit}
+            onClick={() => {
+              void handleSubmit();
+            }}
             disabled={saving || !content.trim()}
             className={styles.btnPrimary}
           >

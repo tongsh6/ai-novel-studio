@@ -2,7 +2,7 @@ defmodule NovelAgent.LongRunner do
   @moduledoc """
   LongRunner — 跨 turn 长跑任务运行时 (ETS hot tier)。
 
-  Phase 1：最小状态机（running / checkpoint / completed）。
+  Phase 1：内存态 long-run task 状态机。
   ADR-0002 §4：status / phase 使用 Foundation.Enums 枚举值。
 
   持久化由 NovelPersistence.LongRunTaskLog 负责（warm tier）。
@@ -21,26 +21,59 @@ defmodule NovelAgent.LongRunner do
 
   @doc "创建一个 long-run task。"
   @spec create(String.t(), String.t(), String.t(), String.t()) :: map()
-  def create(workspace_id, task_id, task_type, goal) do
-    GenServer.call(__MODULE__, {:create, workspace_id, task_id, task_type, goal})
+  def create(workspace_id, task_id, task_type, goal),
+    do: create(workspace_id, task_id, task_type, goal, [])
+
+  @doc "创建一个 long-run task，可传 estimated_budget / consumed_budget 等初始字段。"
+  @spec create(String.t(), String.t(), String.t(), String.t(), keyword()) :: map()
+  def create(workspace_id, task_id, task_type, goal, opts) do
+    GenServer.call(__MODULE__, {:create, workspace_id, task_id, task_type, goal, opts})
+  end
+
+  @doc "确认一个 planned task。"
+  @spec confirm(String.t()) ::
+          {:ok, map()} | {:error, :not_found | :terminal | :invalid_transition}
+  def confirm(task_id) do
+    GenServer.call(__MODULE__, {:transition, task_id, :confirm, %{}})
+  end
+
+  @doc "启动一个 confirmed/resuming task。"
+  @spec start(String.t()) :: {:ok, map()} | {:error, :not_found | :terminal | :invalid_transition}
+  def start(task_id) do
+    GenServer.call(__MODULE__, {:transition, task_id, :start, %{}})
   end
 
   @doc "暂停任务到 checkpoint。"
-  @spec checkpoint(String.t(), map()) :: {:ok, map()} | {:error, :not_found}
+  @spec checkpoint(String.t(), map()) ::
+          {:ok, map()} | {:error, :not_found | :terminal | :invalid_transition}
   def checkpoint(task_id, data) when is_map(data) do
-    GenServer.call(__MODULE__, {:checkpoint, task_id, data})
+    GenServer.call(__MODULE__, {:transition, task_id, :checkpoint, %{checkpoint_data: data}})
   end
 
   @doc "从 checkpoint 恢复。"
-  @spec resume(String.t()) :: {:ok, map()} | {:error, :not_found}
+  @spec resume(String.t()) ::
+          {:ok, map()} | {:error, :not_found | :terminal | :invalid_transition}
   def resume(task_id) do
-    GenServer.call(__MODULE__, {:resume, task_id})
+    GenServer.call(__MODULE__, {:transition, task_id, :resume, %{}})
   end
 
   @doc "完成任务。"
-  @spec complete(String.t()) :: {:ok, map()} | {:error, :not_found}
+  @spec complete(String.t()) ::
+          {:ok, map()} | {:error, :not_found | :terminal | :invalid_transition}
   def complete(task_id) do
-    GenServer.call(__MODULE__, {:complete, task_id})
+    GenServer.call(__MODULE__, {:transition, task_id, :complete, %{}})
+  end
+
+  @doc "取消任务。"
+  @spec cancel(String.t(), String.t() | nil) :: {:ok, map()} | {:error, :not_found | :terminal}
+  def cancel(task_id, reason \\ nil) do
+    GenServer.call(__MODULE__, {:transition, task_id, :cancel, %{failure_ref: reason}})
+  end
+
+  @doc "标记任务失败。"
+  @spec fail(String.t(), String.t() | nil) :: {:ok, map()} | {:error, :not_found | :terminal}
+  def fail(task_id, failure_ref \\ nil) do
+    GenServer.call(__MODULE__, {:transition, task_id, :fail, %{failure_ref: failure_ref}})
   end
 
   @doc "获取任务状态。"
@@ -71,15 +104,28 @@ defmodule NovelAgent.LongRunner do
   end
 
   @impl true
-  def handle_call({:create, workspace_id, task_id, task_type, goal}, _from, state) do
+  def handle_call({:create, workspace_id, task_id, task_type, goal, opts}, _from, state) do
+    now = DateTime.utc_now()
+
     task = %{
       workspace_id: workspace_id,
       task_id: task_id,
       task_type: task_type,
-      status: Status.running(),
-      phase: TaskPhase.running(),
+      status: Status.ready(),
+      phase: TaskPhase.planned(),
       goal: goal,
-      created_at: DateTime.utc_now()
+      estimated_budget: Keyword.get(opts, :estimated_budget, %{}),
+      consumed_budget: Keyword.get(opts, :consumed_budget, %{}),
+      scope_ref: Keyword.get(opts, :scope_ref),
+      created_by: Keyword.get(opts, :created_by),
+      parent_turn_ref: Keyword.get(opts, :parent_turn_ref),
+      parent_task_ref: Keyword.get(opts, :parent_task_ref),
+      completed_unit_refs: [],
+      pending_artifact_refs: [],
+      accepted_artifact_refs: [],
+      warning_refs: [],
+      created_at: now,
+      updated_at: now
     }
 
     :ets.insert(state.tid, {task_id, task})
@@ -87,59 +133,20 @@ defmodule NovelAgent.LongRunner do
   end
 
   @impl true
-  def handle_call({:checkpoint, task_id, data}, _from, state) do
+  def handle_call({:transition, task_id, action, attrs}, _from, state) do
     case lookup(state.tid, task_id) do
       nil ->
         {:reply, {:error, :not_found}, state}
 
       task ->
-        task =
-          task
-          |> Map.merge(%{
-            status: Status.paused(),
-            phase: TaskPhase.checkpoint(),
-            checkpoint_data: data
-          })
+        case transition(task, action, attrs) do
+          {:ok, updated} ->
+            :ets.insert(state.tid, {task_id, updated})
+            {:reply, {:ok, updated}, state}
 
-        :ets.insert(state.tid, {task_id, task})
-        {:reply, {:ok, task}, state}
-    end
-  end
-
-  @impl true
-  def handle_call({:resume, task_id}, _from, state) do
-    case lookup(state.tid, task_id) do
-      nil ->
-        {:reply, {:error, :not_found}, state}
-
-      task ->
-        task =
-          Map.merge(task, %{
-            status: Status.waiting_system(),
-            phase: TaskPhase.resuming()
-          })
-
-        :ets.insert(state.tid, {task_id, task})
-        {:reply, {:ok, task}, state}
-    end
-  end
-
-  @impl true
-  def handle_call({:complete, task_id}, _from, state) do
-    case lookup(state.tid, task_id) do
-      nil ->
-        {:reply, {:error, :not_found}, state}
-
-      task ->
-        task =
-          Map.merge(task, %{
-            status: Status.done(),
-            phase: TaskPhase.completed(),
-            completed_at: DateTime.utc_now()
-          })
-
-        :ets.insert(state.tid, {task_id, task})
-        {:reply, {:ok, task}, state}
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
     end
   end
 
@@ -170,5 +177,72 @@ defmodule NovelAgent.LongRunner do
       [{^task_id, task}] -> task
       [] -> nil
     end
+  end
+
+  defp transition(task, action, attrs) do
+    cond do
+      terminal?(task) ->
+        {:error, :terminal}
+
+      valid_transition?(task.phase, action) ->
+        {:ok, apply_transition(task, action, attrs)}
+
+      true ->
+        {:error, :invalid_transition}
+    end
+  end
+
+  defp terminal?(%{phase: phase}),
+    do: phase in [TaskPhase.completed(), TaskPhase.cancelled(), TaskPhase.failed()]
+
+  defp valid_transition?(phase, :confirm),
+    do: phase in [TaskPhase.planned(), TaskPhase.estimated(), TaskPhase.confirmation_required()]
+
+  defp valid_transition?(phase, :start),
+    do: phase in [TaskPhase.confirmed(), TaskPhase.resuming()]
+
+  defp valid_transition?(phase, :checkpoint), do: phase == TaskPhase.running()
+  defp valid_transition?(phase, :resume), do: phase == TaskPhase.checkpoint()
+  defp valid_transition?(phase, :complete), do: phase == TaskPhase.running()
+  defp valid_transition?(_phase, action) when action in [:cancel, :fail], do: true
+  defp valid_transition?(_phase, _action), do: false
+
+  defp apply_transition(task, :confirm, attrs) do
+    merge_task(task, attrs, status: Status.ready(), phase: TaskPhase.confirmed())
+  end
+
+  defp apply_transition(task, :start, attrs) do
+    merge_task(task, attrs, status: Status.running(), phase: TaskPhase.running())
+  end
+
+  defp apply_transition(task, :checkpoint, attrs) do
+    merge_task(task, attrs, status: Status.paused(), phase: TaskPhase.checkpoint())
+  end
+
+  defp apply_transition(task, :resume, attrs) do
+    merge_task(task, attrs, status: Status.waiting_system(), phase: TaskPhase.resuming())
+  end
+
+  defp apply_transition(task, :complete, attrs) do
+    merge_task(task, attrs,
+      status: Status.done(),
+      phase: TaskPhase.completed(),
+      completed_at: DateTime.utc_now()
+    )
+  end
+
+  defp apply_transition(task, :cancel, attrs) do
+    merge_task(task, attrs, status: Status.cancelled(), phase: TaskPhase.cancelled())
+  end
+
+  defp apply_transition(task, :fail, attrs) do
+    merge_task(task, attrs, status: Status.error(), phase: TaskPhase.failed())
+  end
+
+  defp merge_task(task, attrs, transition_attrs) do
+    task
+    |> Map.merge(attrs)
+    |> Map.merge(Map.new(transition_attrs))
+    |> Map.put(:updated_at, DateTime.utc_now())
   end
 end

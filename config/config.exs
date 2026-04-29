@@ -16,7 +16,7 @@ config :dialyxir,
 
 config :novel_web, NovelWeb.Endpoint,
   url: [host: "localhost"],
-  http: [ip: {127, 0, 0, 1}, port: 4000],
+  http: [ip: {127, 0, 0, 1}, port: System.get_env("PHOENIX_PORT", "4657") |> String.to_integer()],
   adapter: Bandit.PhoenixAdapter,
   server: true,
   pubsub_server: NovelWeb.PubSub,

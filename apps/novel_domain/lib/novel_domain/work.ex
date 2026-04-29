@@ -37,7 +37,7 @@ defmodule NovelDomain.Work do
   """
   @spec update_status(t(), Types.work_status()) :: t()
   def update_status(%__MODULE__{} = work, status) do
-    %__MODULE__{work | status: status, updated_at: DateTime.utc_now()}
+    %__MODULE__{work | status: status, updated_at: next_updated_at(work)}
   end
 
   @doc """
@@ -45,6 +45,16 @@ defmodule NovelDomain.Work do
   """
   @spec update_title(t(), String.t()) :: t()
   def update_title(%__MODULE__{} = work, title) when is_binary(title) do
-    %__MODULE__{work | title: title, updated_at: DateTime.utc_now()}
+    %__MODULE__{work | title: title, updated_at: next_updated_at(work)}
+  end
+
+  defp next_updated_at(%__MODULE__{updated_at: updated_at}) do
+    now = DateTime.utc_now()
+
+    if DateTime.compare(now, updated_at) == :gt do
+      now
+    else
+      DateTime.add(updated_at, 1, :microsecond)
+    end
   end
 end

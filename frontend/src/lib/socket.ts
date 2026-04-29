@@ -1,7 +1,7 @@
 import { Socket, Channel } from "phoenix";
+import { wsBaseUrl } from "./env";
 
-const DEFAULT_ENDPOINT: string =
-  import.meta.env.VITE_WS_ENDPOINT ?? "ws://localhost:4000/socket";
+const DEFAULT_ENDPOINT: string = wsBaseUrl;
 
 // TODO(Phase 1): params 收窄为具体业务类型
 export interface ConnectOptions {
@@ -56,11 +56,12 @@ export function sendMessage(
 export function adopt(
   channel: Channel,
   artifactId: string,
+  baseRevision: number | undefined,
   payload: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("adopt", { artifact_id: artifactId, payload })
+      .push("adopt", { artifact_id: artifactId, base_revision: baseRevision, payload })
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("adopt timeout")));

@@ -53,6 +53,31 @@
   background: #333;
 }
 
+.statusDefault,
+.statusDraft {
+  background: #666;
+}
+
+.statusConfirmed {
+  background: #10b981;
+}
+
+.statusStabilized {
+  background: #3b82f6;
+}
+
+.statusConflicted {
+  background: #f59e0b;
+}
+
+.statusDeprecated {
+  background: #ef4444;
+}
+
+.statusArchived {
+  background: #6b7280;
+}
+
 .section {
   margin-bottom: 16px;
   padding-bottom: 16px;

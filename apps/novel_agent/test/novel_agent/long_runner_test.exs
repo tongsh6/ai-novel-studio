@@ -11,17 +11,40 @@ defmodule NovelAgent.LongRunnerTest do
 
       assert task.workspace_id == "ws-1"
       assert task.task_type == "continue_writing"
-      assert task.status == Status.running()
-      assert task.phase == TaskPhase.running()
+      assert task.status == Status.ready()
+      assert task.phase == TaskPhase.planned()
+      assert task.estimated_budget == %{}
+      assert task.consumed_budget == %{}
 
       fetched = LongRunner.get("task-1")
       assert fetched.task_id == "task-1"
     end
+
+    test "accepts canonical budget fields" do
+      task =
+        LongRunner.create("ws-budget", "task-budget", "batch_generate", "生成十章",
+          estimated_budget: %{"token" => 1000},
+          consumed_budget: %{"token" => 0},
+          parent_turn_ref: "turn-1"
+        )
+
+      assert task.estimated_budget == %{"token" => 1000}
+      assert task.consumed_budget == %{"token" => 0}
+      assert task.parent_turn_ref == "turn-1"
+    end
   end
 
-  describe "checkpoint/2 + resume/1" do
-    test "pauses and resumes a task with correct enum values" do
+  describe "confirm/1 + start/1 + checkpoint/2 + resume/1" do
+    test "follows planned -> confirmed -> running -> checkpoint -> resuming -> running" do
       LongRunner.create("ws-2", "task-2", "batch_generate", "批量生成场景")
+
+      assert {:ok, confirmed} = LongRunner.confirm("task-2")
+      assert confirmed.status == Status.ready()
+      assert confirmed.phase == TaskPhase.confirmed()
+
+      assert {:ok, running} = LongRunner.start("task-2")
+      assert running.status == Status.running()
+      assert running.phase == TaskPhase.running()
 
       assert {:ok, task} = LongRunner.checkpoint("task-2", %{progress: "3/10 scenes done"})
       assert task.status == Status.paused()
@@ -31,17 +54,57 @@ defmodule NovelAgent.LongRunnerTest do
       assert {:ok, resumed} = LongRunner.resume("task-2")
       assert resumed.status == Status.waiting_system()
       assert resumed.phase == TaskPhase.resuming()
+
+      assert {:ok, running_again} = LongRunner.start("task-2")
+      assert running_again.status == Status.running()
+      assert running_again.phase == TaskPhase.running()
+    end
+
+    test "rejects invalid transitions" do
+      LongRunner.create("ws-invalid", "task-invalid", "test", "invalid")
+
+      assert {:error, :invalid_transition} = LongRunner.checkpoint("task-invalid", %{})
+      assert {:error, :invalid_transition} = LongRunner.complete("task-invalid")
     end
   end
 
   describe "complete/1" do
     test "completes a task" do
       LongRunner.create("ws-3", "task-3", "test", "test task")
+      LongRunner.confirm("task-3")
+      LongRunner.start("task-3")
 
       assert {:ok, task} = LongRunner.complete("task-3")
       assert task.status == Status.done()
       assert task.phase == TaskPhase.completed()
       assert %DateTime{} = task.completed_at
+    end
+
+    test "terminal states are irreversible" do
+      LongRunner.create("ws-terminal", "task-terminal", "test", "terminal")
+      LongRunner.confirm("task-terminal")
+      LongRunner.start("task-terminal")
+      assert {:ok, _} = LongRunner.complete("task-terminal")
+
+      assert {:error, :terminal} = LongRunner.resume("task-terminal")
+      assert {:error, :terminal} = LongRunner.cancel("task-terminal")
+      assert {:error, :terminal} = LongRunner.fail("task-terminal")
+    end
+  end
+
+  describe "cancel/2 + fail/2" do
+    test "cancels and fails non-terminal tasks" do
+      LongRunner.create("ws-cancel", "task-cancel", "test", "cancel")
+      assert {:ok, cancelled} = LongRunner.cancel("task-cancel", "user_cancelled")
+      assert cancelled.status == Status.cancelled()
+      assert cancelled.phase == TaskPhase.cancelled()
+      assert cancelled.failure_ref == "user_cancelled"
+
+      LongRunner.create("ws-fail", "task-fail", "test", "fail")
+      assert {:ok, failed} = LongRunner.fail("task-fail", "provider_error")
+      assert failed.status == Status.error()
+      assert failed.phase == TaskPhase.failed()
+      assert failed.failure_ref == "provider_error"
     end
   end
 
@@ -53,8 +116,12 @@ defmodule NovelAgent.LongRunnerTest do
 
       LongRunner.create("ws-10", id_a, "test", "a")
       LongRunner.create("ws-10", id_b, "test", "b")
+      LongRunner.confirm(id_b)
+      LongRunner.start(id_b)
       LongRunner.checkpoint(id_b, %{})
       LongRunner.create("ws-10", id_c, "test", "c")
+      LongRunner.confirm(id_c)
+      LongRunner.start(id_c)
       LongRunner.complete(id_c)
 
       # Should find a, b but not c (completed is terminal)

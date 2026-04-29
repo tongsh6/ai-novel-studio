@@ -1,0 +1,142 @@
+.card {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  padding: 16px;
+  background-color: var(--surface-primary);
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.icon {
+  font-size: 14px;
+}
+
+.warningIcon {
+  font-size: 14px;
+  color: var(--accent);
+  font-weight: bold;
+}
+
+.title {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--foreground-primary);
+}
+
+.adoptionTitle {
+  font-family: var(--mono);
+  font-weight: bold;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+.body {
+  font-family: var(--sans);
+  font-size: 14px;
+  color: var(--foreground-secondary);
+  line-height: 1.6;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.actionsEnd {
+  display: flex;
+  gap: 12px;
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+
+/* Button variants */
+.btnPrimary, .btnSecondary, .btnDanger, .btnGhost {
+  padding: 10px 16px;
+  border-radius: var(--rounded-sm);
+  font-size: 12px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  font-family: var(--sans);
+}
+
+.btnPrimary {
+  background-color: var(--accent);
+  color: var(--surface-primary);
+}
+
+.btnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSecondary {
+  background-color: transparent;
+  color: var(--foreground-primary);
+  border-color: var(--border-subtle);
+}
+
+.btnSecondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnDanger {
+  background-color: #ef4444;
+  color: #ffffff;
+}
+
+.btnDanger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnGhost {
+  background-color: transparent;
+  color: var(--foreground-secondary);
+}
+
+.btnGhost:hover:not(:disabled) {
+  color: var(--foreground-primary);
+}
+
+.btnGhost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Card type specific overrides */
+.clarificationCard {
+  border-left: 3px solid #3b82f6;
+}
+
+.confirmationCard {
+  border-left: 3px solid var(--accent);
+}
+
+.warningCard {
+  background-color: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.adoptionCard {
+  padding: 24px;
+  border: 1px solid var(--accent);
+  max-width: 500px;
+}
+
+.progressCard {
+  border-style: dashed;
+}

@@ -24,8 +24,9 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, %{received: true}}, socket}
   end
 
-  def handle_in("adopt", %{"artifact_id" => artifact_id, "base_revision" => base_revision} = msg, socket) do
+  def handle_in("adopt", %{"artifact_id" => artifact_id} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
+    base_revision = parse_base_revision(Map.get(msg, "base_revision"))
 
     mutation_attrs = %{
       actor_ref: Map.get(msg, "actor_ref", "user"),
@@ -46,4 +47,15 @@ defmodule NovelWeb.WorkspaceChannel do
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end
+
+  defp parse_base_revision(value) when is_integer(value), do: value
+
+  defp parse_base_revision(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {revision, ""} -> revision
+      _ -> nil
+    end
+  end
+
+  defp parse_base_revision(_), do: nil
 end

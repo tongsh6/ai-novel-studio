@@ -118,6 +118,7 @@ defmodule NovelPersistence.Schemas.MemoryItem do
       :scope,
       :status,
       :source_type,
+      :version,
       :weight,
       :confidence,
       :source_confidence,

@@ -1,0 +1,33 @@
+/**
+ * 环境检测 — 区分 Tauri 桌面环境与浏览器环境
+ *
+ * 规则来源：docs/design-v2/tech-stack/05-desktop.md §5
+ * 引用：AGENTS.md § 桌面优先（Desktop-First）
+ *
+ * 端口配置：见 frontend/.env（VITE_API_ENDPOINT, VITE_WS_ENDPOINT）
+ * 以下硬编码仅作为 .env 缺失时的兜底，修改端口请改 .env
+ */
+
+export const isTauri: boolean =
+  typeof window !== "undefined" && "__TAURI__" in window;
+
+const DEFAULT_API_HOST = "http://localhost:4657";
+const DEFAULT_WS_HOST = "ws://localhost:4657/socket";
+
+/**
+ * API 基础 URL
+ * Tauri 桌面环境：sidecar Phoenix server
+ * 浏览器环境：由 VITE_API_ENDPOINT 环境变量注入
+ */
+export const apiBaseUrl: string = isTauri
+  ? (import.meta.env.VITE_API_ENDPOINT as string) || DEFAULT_API_HOST
+  : (import.meta.env.VITE_API_ENDPOINT as string) ?? "";
+
+/**
+ * WebSocket 基础 URL
+ * Tauri 桌面环境：sidecar Phoenix server
+ * 浏览器环境：由 VITE_WS_ENDPOINT 环境变量注入
+ */
+export const wsBaseUrl: string = isTauri
+  ? (import.meta.env.VITE_WS_ENDPOINT as string) || DEFAULT_WS_HOST
+  : (import.meta.env.VITE_WS_ENDPOINT as string) || DEFAULT_WS_HOST;

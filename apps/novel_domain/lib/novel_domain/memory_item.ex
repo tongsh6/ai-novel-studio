@@ -115,67 +115,88 @@ defmodule NovelDomain.MemoryItem do
   @doc "将记忆标记为 CONFIRMED。"
   @spec confirm(t()) :: t()
   def confirm(%__MODULE__{} = item) do
-    %__MODULE__{item | status: MemoryStatus.confirmed(), updated_at: DateTime.utc_now()}
+    %__MODULE__{item | status: MemoryStatus.confirmed(), updated_at: next_updated_at(item)}
   end
 
   @doc "将记忆标记为 STABILIZED。"
   @spec stabilize(t()) :: t()
   def stabilize(%__MODULE__{} = item) do
-    %__MODULE__{item | status: MemoryStatus.stabilized(), updated_at: DateTime.utc_now()}
+    %__MODULE__{item | status: MemoryStatus.stabilized(), updated_at: next_updated_at(item)}
   end
 
   @doc "锁定记忆（代表作者意志），AI 不能自动修改。"
   @spec lock(t()) :: t()
   def lock(%__MODULE__{} = item) do
-    %__MODULE__{item | locked: true, updated_at: DateTime.utc_now()}
+    %__MODULE__{item | locked: true, updated_at: next_updated_at(item)}
   end
 
   @doc "解锁记忆。"
   @spec unlock(t()) :: t()
   def unlock(%__MODULE__{} = item) do
-    %__MODULE__{item | locked: false, updated_at: DateTime.utc_now()}
+    %__MODULE__{item | locked: false, updated_at: next_updated_at(item)}
   end
 
   @doc "将记忆标记为 DEPRECATED 并设为不可召回。"
   @spec deprecate(t()) :: t()
   def deprecate(%__MODULE__{} = item) do
-    %__MODULE__{item | status: MemoryStatus.deprecated(), recallable: false, updated_at: DateTime.utc_now()}
+    %__MODULE__{
+      item
+      | status: MemoryStatus.deprecated(),
+        recallable: false,
+        updated_at: next_updated_at(item)
+    }
   end
 
   @doc "将记忆标记为 ARCHIVED 并设为不可召回。"
   @spec archive(t()) :: t()
   def archive(%__MODULE__{} = item) do
-    %__MODULE__{item | status: MemoryStatus.archived(), recallable: false, updated_at: DateTime.utc_now()}
+    %__MODULE__{
+      item
+      | status: MemoryStatus.archived(),
+        recallable: false,
+        updated_at: next_updated_at(item)
+    }
   end
 
   @doc "更新权重。weight 范围 0.0-1.0。"
   @spec update_weight(t(), float()) :: t()
   def update_weight(%__MODULE__{} = item, weight) when is_float(weight) do
-    %__MODULE__{item | weight: weight, updated_at: DateTime.utc_now()}
+    %__MODULE__{item | weight: weight, updated_at: next_updated_at(item)}
   end
 
   @doc "更新置信度。confidence 范围 0.0-1.0。"
   @spec update_confidence(t(), float()) :: t()
   def update_confidence(%__MODULE__{} = item, confidence) when is_float(confidence) do
-    %__MODULE__{item | confidence: confidence, updated_at: DateTime.utc_now()}
+    %__MODULE__{item | confidence: confidence, updated_at: next_updated_at(item)}
   end
 
   @doc "更新生效区间。"
-  @spec update_validity(t(), NarrativePosition.t() | nil, NarrativePosition.t() | nil, String.t() | nil) :: t()
+  @spec update_validity(
+          t(),
+          NarrativePosition.t() | nil,
+          NarrativePosition.t() | nil,
+          String.t() | nil
+        ) :: t()
   def update_validity(%__MODULE__{} = item, valid_from, valid_until, expire_condition \\ nil) do
-    %__MODULE__{item | valid_from: valid_from, valid_until: valid_until, expire_condition: expire_condition, updated_at: DateTime.utc_now()}
+    %__MODULE__{
+      item
+      | valid_from: valid_from,
+        valid_until: valid_until,
+        expire_condition: expire_condition,
+        updated_at: next_updated_at(item)
+    }
   end
 
   @doc "更新召回开关。"
   @spec update_recallable(t(), boolean()) :: t()
   def update_recallable(%__MODULE__{} = item, recallable) when is_boolean(recallable) do
-    %__MODULE__{item | recallable: recallable, updated_at: DateTime.utc_now()}
+    %__MODULE__{item | recallable: recallable, updated_at: next_updated_at(item)}
   end
 
   @doc "更新摘要。"
   @spec update_summary(t(), String.t() | nil) :: t()
   def update_summary(%__MODULE__{} = item, summary) do
-    %__MODULE__{item | summary: summary, updated_at: DateTime.utc_now()}
+    %__MODULE__{item | summary: summary, updated_at: next_updated_at(item)}
   end
 
   @doc "判断是否为铁律级记忆（weight >= 0.9, CONFIRMED/STABILIZED, locked 或 AUTHOR_CONFIRMED）。"
@@ -193,7 +214,23 @@ defmodule NovelDomain.MemoryItem do
   @doc "增加引用计数。"
   @spec increment_reference(t()) :: t()
   def increment_reference(%__MODULE__{} = item) do
+    now = next_updated_at(item)
+
+    %__MODULE__{
+      item
+      | reference_count: item.reference_count + 1,
+        last_referenced_at: now,
+        updated_at: now
+    }
+  end
+
+  defp next_updated_at(%__MODULE__{updated_at: updated_at}) do
     now = DateTime.utc_now()
-    %__MODULE__{item | reference_count: item.reference_count + 1, last_referenced_at: now, updated_at: now}
+
+    if DateTime.compare(now, updated_at) == :gt do
+      now
+    else
+      DateTime.add(updated_at, 1, :microsecond)
+    end
   end
 end

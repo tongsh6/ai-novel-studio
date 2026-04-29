@@ -20,8 +20,9 @@ defmodule NovelAgent.RouterTest do
 
       assert result.intent_name == "intent.CREATE_WORK_SEED"
       assert result.extracted_slots["genre"] == "武侠"
-      # core_selling_point and target_reader can't be extracted by Phase 0 heuristics
-      assert result.needs_clarification == true
+      assert result.extracted_slots["core_selling_point"] == "复仇"
+      assert result.extracted_slots["target_reader"] == "成年男性"
+      assert result.needs_clarification == false
     end
 
     test "matches 创建 keyword" do
