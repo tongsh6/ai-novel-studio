@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/memory_scope.json",
+  "title": "MemoryScope",
+  "description": "记忆作用范围枚举。定义记忆在哪个层级生效——从全局作者偏好到单次会话临时上下文。冻结于 05-memory-retention-and-retrieval.md §5。",
+  "type": "string",
+  "enum": [
+    "GLOBAL",
+    "WORK",
+    "VOLUME",
+    "ARC",
+    "CHAPTER",
+    "SESSION"
+  ],
+  "x-adr": "05-memory-retention-and-retrieval.md",
+  "x-section": "§5 记忆作用范围"
+}

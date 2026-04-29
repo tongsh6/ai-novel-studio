@@ -16,6 +16,7 @@ defmodule NovelApplication.TurnService do
   alias NovelAgent.Memory.Store, as: MemoryStore
   alias NovelAgent.Router
   alias NovelApplication.AdoptionBoundary
+  alias NovelApplication.MemoryRecallService
   alias NovelDomain.Work
 
   alias NovelFoundation.Enums.AdoptionStatus
@@ -36,21 +37,25 @@ defmodule NovelApplication.TurnService do
   @doc """
   处理用户文本输入，返回 TurnResult map。
   workspace_id 用于 memory 记录的分区。
+  work_id 可选，用于记忆召回（Governed Memory）。
   """
-  @spec handle_message(String.t(), String.t(), String.t()) :: map()
-  def handle_message(user_text, workspace_id \\ "lobby", turn_id \\ nil) do
+  @spec handle_message(String.t(), String.t(), String.t(), String.t() | nil) :: map()
+  def handle_message(user_text, workspace_id \\ "lobby", turn_id \\ nil, work_id \\ nil) do
     turn_id = turn_id || "turn_#{:os.system_time(:millisecond)}"
+
+    # 记忆召回：将治理层记忆注入上下文
+    memory_context = build_memory_context(work_id, user_text, turn_id)
 
     turn_result =
       case Router.route(user_text) do
         %{intent_name: :unknown} ->
-          build_unknown_clarification(turn_id)
+          build_unknown_clarification(turn_id, memory_context)
 
         %{needs_clarification: true} = result ->
-          build_create_work_clarification(turn_id, result)
+          build_create_work_clarification(turn_id, result, memory_context)
 
         %{needs_clarification: false} = result ->
-          build_create_work_tentative(turn_id, result)
+          build_create_work_tentative(turn_id, result, memory_context)
       end
 
     record_to_memory(workspace_id, turn_id, :user, user_text)
@@ -104,7 +109,26 @@ defmodule NovelApplication.TurnService do
     end
   end
 
-  # ---- Memory ----
+  # ---- Memory Recall (Governed Memory) ----
+
+  defp build_memory_context(nil, _user_text, _turn_id), do: nil
+
+  defp build_memory_context(work_id, user_text, turn_id) do
+    result = MemoryRecallService.recall(work_id,
+      query: user_text,
+      scene: "turn_#{turn_id}",
+      token_budget: 2000
+    )
+
+    %{
+      text: result.text,
+      iron_law_count: result.iron_law_count,
+      candidate_count: result.candidate_count,
+      estimated_tokens: result.estimated_tokens
+    }
+  end
+
+  # ---- Episodic Memory ----
 
   defp record_to_memory(workspace_id, turn_id, role, text) do
     entry = %{
@@ -129,7 +153,7 @@ defmodule NovelApplication.TurnService do
 
   # ---- Unknown intent ----
 
-  defp build_unknown_clarification(turn_id) do
+  defp build_unknown_clarification(turn_id, memory_context) do
     build_turn_result(turn_id, %{
       phase: TurnPhase.needs_clarification(),
       status: Status.waiting_user(),
@@ -140,13 +164,14 @@ defmodule NovelApplication.TurnService do
         behavior_id: "behavior_#{turn_id}",
         status: BehaviorStatus.waiting_user(),
         resolution_ref: nil
-      }
+      },
+      memory_context: memory_context
     })
   end
 
   # ---- CREATE_WORK_SEED ----
 
-  defp build_create_work_clarification(turn_id, route_result) do
+  defp build_create_work_clarification(turn_id, route_result, memory_context) do
     missing = route_result.missing_required_slots
     genre = route_result.extracted_slots["genre"] || "未指定"
 
@@ -163,11 +188,12 @@ defmodule NovelApplication.TurnService do
         status: BehaviorStatus.waiting_user(),
         resolution_ref: nil,
         missing_slots: missing
-      }
+      },
+      memory_context: memory_context
     })
   end
 
-  defp build_create_work_tentative(turn_id, route_result) do
+  defp build_create_work_tentative(turn_id, route_result, memory_context) do
     slots = route_result.extracted_slots
     domain_work = Work.new(ID.uuid(), "#{slots["genre"]}小说")
 
@@ -221,7 +247,8 @@ defmodule NovelApplication.TurnService do
       assistant_text:
         "已为你生成作品种子：「#{slots["genre"]}小说」\n核心卖点：#{slots["core_selling_point"]}\n目标读者：#{slots["target_reader"]}",
       pending_artifacts: [artifact],
-      ui_cards: [adoption_card(slots, artifact.artifact_id)]
+      ui_cards: [adoption_card(slots, artifact.artifact_id)],
+      memory_context: memory_context
     })
   end
 
@@ -269,7 +296,8 @@ defmodule NovelApplication.TurnService do
       validation: %{},
       usage: %{},
       trace_ref: %{},
-      produced_at: DateTime.utc_now() |> DateTime.to_iso8601()
+      produced_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+      memory_context: Map.get(fields, :memory_context)
     }
   end
 

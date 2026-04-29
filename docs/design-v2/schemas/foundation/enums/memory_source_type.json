@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/memory_source_type.json",
+  "title": "MemorySourceType",
+  "description": "记忆来源类型枚举。区分记忆的权威来源——作者确认高于文档导入高于 AI 推断。冻结于 05-memory-retention-and-retrieval.md §7。",
+  "type": "string",
+  "enum": [
+    "AUTHOR_CONFIRMED",
+    "AUTHOR_CREATED",
+    "AI_EXTRACTED",
+    "CHAPTER_EXTRACTED",
+    "WORK_SETTING_IMPORTED",
+    "SESSION_CONTEXT"
+  ],
+  "x-adr": "05-memory-retention-and-retrieval.md",
+  "x-section": "§7 source_type"
+}

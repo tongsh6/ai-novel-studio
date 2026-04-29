@@ -27,7 +27,11 @@ defmodule LintEnumLiterals do
     "docs/design-v2/schemas/foundation/enums/requiredness.json",
     "docs/design-v2/schemas/foundation/enums/inferability.json",
     "docs/design-v2/schemas/foundation/enums/defaultability.json",
-    "docs/design-v2/schemas/foundation/enums/mutation_status.json"
+    "docs/design-v2/schemas/foundation/enums/mutation_status.json",
+    "docs/design-v2/schemas/foundation/enums/memory_type.json",
+    "docs/design-v2/schemas/foundation/enums/memory_scope.json",
+    "docs/design-v2/schemas/foundation/enums/memory_status.json",
+    "docs/design-v2/schemas/foundation/enums/memory_source_type.json"
   ]
 
   @exempt_paths [

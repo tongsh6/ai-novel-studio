@@ -10,10 +10,9 @@ defmodule NovelFoundation.ID do
   def uuid do
     hex = :crypto.strong_rand_bytes(16) |> Base.encode16(case: :lower)
 
-    # 8-4-4-4-12 UUID 格式，version 4
     <<p1::binary-size(8), p2::binary-size(4), _v::binary-size(1), p3::binary-size(3),
-      p4::binary-size(1), p5::binary-size(3), p6::binary-size(12)>> = hex
+      _variant::binary-size(1), p4::binary-size(3), p5::binary-size(12)>> = hex
 
-    "#{p1}-#{p2}-4#{p3}-8#{p4}#{p5}-#{p6}"
+    "#{p1}-#{p2}-4#{p3}-8#{p4}-#{p5}"
   end
 end
