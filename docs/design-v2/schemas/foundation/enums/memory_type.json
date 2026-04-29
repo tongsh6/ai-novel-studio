@@ -1,0 +1,22 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/memory_type.json",
+  "title": "MemoryType",
+  "description": "记忆类型枚举。定义可治理的创作事实分类——区分铁律、事实、状态、灵感、约束等不同性质的记忆。冻结于 05-memory-retention-and-retrieval.md §4。",
+  "type": "string",
+  "enum": [
+    "WORLD_RULE",
+    "CHARACTER_PROFILE",
+    "CURRENT_STATE",
+    "RELATIONSHIP",
+    "PLOT_FACT",
+    "FORESHADOWING",
+    "STYLE_RULE",
+    "CONSTRAINT",
+    "AUTHOR_PREFERENCE",
+    "IDEA",
+    "DRAFT_CONTEXT"
+  ],
+  "x-adr": "05-memory-retention-and-retrieval.md",
+  "x-section": "§4 记忆类型体系"
+}

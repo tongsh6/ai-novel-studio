@@ -1,0 +1,17 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/memory_status.json",
+  "title": "MemoryStatus",
+  "description": "记忆状态枚举。定义记忆的生命周期状态——从草稿到确认、稳定、冲突、废弃、归档。注意：LOCKED 不是 status，使用独立 locked 字段表示。冻结于 05-memory-retention-and-retrieval.md §6。",
+  "type": "string",
+  "enum": [
+    "DRAFT",
+    "CONFIRMED",
+    "STABILIZED",
+    "CONFLICTED",
+    "DEPRECATED",
+    "ARCHIVED"
+  ],
+  "x-adr": "05-memory-retention-and-retrieval.md",
+  "x-section": "§6 记忆状态设计"
+}

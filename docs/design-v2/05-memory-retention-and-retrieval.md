@@ -1,949 +1,931 @@
-# Memory Retention And Retrieval Contract v2
+# Memory 系统契约 v3
 
 > 状态：草案
 >
 > 角色：`docs/design-v2/01-agent-foundation-contract.md` 的 Memory 子系统展开文档。
 >
-> 目标：定义 v2 的记忆 contract，解决长期连载下的上下文爆炸、历史归档、检索优先级、回放边界和保留策略问题。
+> 目标：定义 v2 的记忆 contract——不只是"更大的上下文"，而是一个可治理、可追踪、可失效、可冲突调解的创作事实系统。
 
 ---
 
-## 1. 文档定位
+## 1. 一句话定位
 
-本文回答 5 个问题：
+小说工作台的记忆系统不是"更大的上下文"，而是一个：
 
-1. Agent 到底有哪些类型的记忆
-2. 这些记忆如何分层保存
-3. retrieval 如何为“当前任务”服务
-4. replay 如何为“复盘过去”服务
-5. 长周期运行下，哪些数据该热存，哪些该降温，哪些该归档
+**可治理、可追踪、可失效、可冲突调解的创作事实系统。**
 
-本文不负责：
+它要解决的不是"让 AI 记住更多"，而是让 AI 清楚地区分：
 
-- 小说领域对象本身的字段设计
-- 具体 embedding 模型或向量库实现
-- summarization prompt 细节
-- continuity object 的业务语义
-
-本文只定义 Memory 子系统的 contract。
+1. 什么是铁律
+2. 什么是事实
+3. 什么是当前状态
+4. 什么只是灵感
+5. 什么已经过期
+6. 什么存在冲突
+7. 什么必须交给作者裁决
 
 ---
 
 ## 2. 设计目标
 
-### 2.1 支撑长周期
+### 2.1 核心目标
 
-Memory 必须能支撑：
+记忆系统需要支持对话式小说创作中的长期一致性，覆盖：
 
-- 长篇
-- 长期连载
-- 高回合对话
-- 多阶段创作
-- 长跑任务
+- 作者偏好、作品设定、世界观规则
+- 角色设定、当前状态、人物关系
+- 剧情事实、伏笔、写作风格、禁止事项
+- 当前章节上下文、临时灵感
+- 已确认设定、已失效历史事实
+- 冲突设定调解
 
-不能默认所有历史都常驻上下文窗口。
+### 2.2 非目标（MVP 明确不做）
 
-### 2.2 支撑连续性
+1. 不自动覆盖作者确认设定
+2. 不把所有对话都沉淀为长期记忆
+3. 不让引用次数直接决定记忆重要性
+4. 不在续写主链路里同步做重型冲突检测
+5. 不让 AI 擅自裁决核心设定冲突
+6. 不让临时脑洞污染作品级记忆
+7. 不第一版就做完整 EAV 冲突中心
 
-Memory 必须让系统在需要时能找回：
+### 2.3 支撑能力
 
-- 最近发生了什么
-- 当前有效状态是什么
-- 哪些旧事实仍然重要
-- 哪些旧对话已经可以降温
-
-### 2.3 支撑回放与审计
-
-Memory 不只是为了“给模型塞上下文”，还必须能支撑：
-
-- replay
-- debug
-- audit
-- migration
-- explainability
-
-### 2.4 支撑多视角消费
-
-不同消费者需要不同记忆：
-
-- Router 需要最小必要上下文
-- Executor 需要任务相关上下文
-- LongRunner 需要计划、进度、摘要和连续性上下文
-- Reader 需要阅读投影，不需要内部 trace
-- Debugger 需要 trace 和原始结果
-
-Memory 必须支持按消费者分层供给。
+Memory 必须能支撑：长周期、连续性、回放与审计、多视角消费（Router/Executor/LongRunner/Reader/Debugger）。
 
 ---
 
-## 3. Memory 的定义
+## 3. 核心原则
 
-在 v2 中，Memory 不是一个表，也不是“历史消息数组”。
+### 3.1 记忆不是上下文扩容
 
-Memory 是一套服务，至少包括：
+错误理解：记忆系统 = 把更多内容塞进 prompt。
+正确理解：记忆系统 = 对创作事实进行分层、治理、召回、失效、追踪、冲突调解。
 
-- memory source taxonomy
-- retention policy
-- retrieval policy
-- summarization policy
-- indexing policy
-- replay policy
-- archive policy
+### 3.2 referenceCount 与 weight 必须分离
 
-Memory 的基本职责是：
+- `referenceCount` = 被使用、命中、引用的次数
+- `weight` = 在生成、分析、续写、校验时的重要程度
 
-1. 保存
-2. 压缩
-3. 索引
-4. 检索
-5. 回放
-6. 归档
-7. 提供解释
+高频出现的信息不一定重要。低频出现的信息也可能是作品铁律。referenceCount 不能直接等于重要性，weight 不能完全由 referenceCount 自动决定。
 
----
+### 3.3 铁律不参与普通排序
 
-## 4. 四类记忆
+铁律级记忆不参与普通相关性排序，直接注入 Base Context。铁律的判定条件（详见 §12.1）：weight >= 0.90、status 为 CONFIRMED 或 STABILIZED、且 locked = true 或 source_type = AUTHOR_CONFIRMED。普通记忆才参与相关性排序。
 
-Foundation 层正式定义四类记忆。
+### 3.4 记忆必须有时间维度
 
-### 4.1 情景记忆
+剧情事实不是永恒的。支持 validFrom / validUntil / expireCondition / version。失效后转为历史事实，不删除。
 
-定义：记录“发生过哪些交互和运行事件”。
+### 3.5 locked 代表人类意志
 
-典型内容：
+- locked = true 表示作者明确确认或锁定
+- AI 不能自动修改、覆盖、废弃 locked 记忆
+- 与 locked 冲突的新记忆必须进入拦截或人工确认
 
-- user messages
-- assistant messages
-- turn results
-- clarification / confirmation / correction state
-- trace refs
-- task events
+### 3.6 LLM 不是最终裁判
 
-用途：
-
-- recent context
-- replay
-- debug
-- audit
-
-### 4.2 语义记忆
-
-定义：记录“系统当前或历史上认定为结构化事实的信息”。
-
-典型内容：
-
-- domain objects
-- object summaries
-- continuity objects
-- accepted artifacts
-- structured metadata
-
-用途：
-
-- task retrieval
-- consistency checks
-- structured context assembly
-
-### 4.3 程序记忆
-
-定义：记录“Agent 自己会什么、能做什么、当前规则是什么”。
-
-典型内容：
-
-- intent registry
-- capability registry
-- slot policy
-- hook registry
-- retention rules
-- budget classes
-
-用途：
-
-- runtime decisions
-- explainability
-- self-description
-
-### 4.4 元记忆
-
-定义：记录“长期稳定偏好和行为性约束”。
-
-典型内容：
-
-- user preferences
-- workspace preferences
-- domain-level stable preferences
-- personalization metadata
-
-用途：
-
-- 默认参数
--风格与交互偏好
-- 长期体验一致性
-
-元记忆不能混进短期对话历史里，也不能绑死在某个单一 artifact 上。
+LLM 可以辅助判断冲突，但最终裁决权属于作者。AI 只能建议。
 
 ---
 
-## 5. Memory Source Taxonomy
+## 4. 记忆类型体系 (MemoryType)
 
-Memory 必须把来源作为一等元数据，而不是靠表名暗示。
+> **本节属于 Governed Memory 层（创作事实治理层）。** 该层与 Episodic Log 层（交互日志层，§14-§20）的关系见 §15 两层架构总览。
 
-### 5.1 每条记忆至少要有的来源字段
+### 4.1 枚举定义
 
-至少包括：
+见 `docs/design-v2/schemas/foundation/enums/memory_type.json`。
 
-- `memory_id`
-- `memory_class`
-- `source_type`
-- `source_ref`
-- `scope_ref`
-- `created_at`
-- `updated_at`
-- `retention_tier`
-- `freshness_score`
-- `importance_score`
-- `replayable`
-- `retrievable`
+| 值 | 含义 |
+|----|------|
+| `WORLD_RULE` | 世界观规则 |
+| `CHARACTER_PROFILE` | 角色设定 |
+| `CURRENT_STATE` | 当前状态：伤病、位置、阵营、能力、心理状态 |
+| `RELATIONSHIP` | 人物关系 |
+| `PLOT_FACT` | 剧情事实 |
+| `FORESHADOWING` | 伏笔 |
+| `STYLE_RULE` | 写作风格 |
+| `CONSTRAINT` | 禁止事项 |
+| `AUTHOR_PREFERENCE` | 作者偏好 |
+| `IDEA` | 临时灵感 |
+| `DRAFT_CONTEXT` | 草稿上下文（当前章节/会话） |
 
-### 5.2 `memory_class`
+### 4.2 类型优先级
 
-枚举至少包括：
-
-- `episodic`
-- `semantic`
-- `procedural`
-- `meta`
-
-### 5.3 `source_type`
-
-可扩展，但至少支持：
-
-- turn
-- task_event
-- artifact
-- object_snapshot
-- object_summary
-- registry
-- audit_event
-- external_import
-
-### 5.4 `scope_ref`
-
-Memory 必须绑定作用域。  
-Foundation 不强制 scope 名称，但至少支持：
-
-- workspace
-- domain root object
-- task
-- actor
-
-不能让所有记忆堆在全局平面里。
+| 类型 | 召回优先级 | 治理优先级 | 说明 |
+|------|:---:|:---:|------|
+| CONSTRAINT | P0 | P0 | 禁止事项必须优先治理 |
+| WORLD_RULE | P0 | P0 | 世界观铁律必须强制召回 |
+| CHARACTER_PROFILE | P1 | P1 | 角色稳定设定影响续写质量 |
+| CURRENT_STATE | P1 | P1 | 当前状态直接影响章节续写 |
+| RELATIONSHIP | P1 | P1 | 人物关系影响对话与行为 |
+| PLOT_FACT | P1 | P2 | 已发生剧情事实需要参与续写 |
+| STYLE_RULE | P1 | P2 | 控制 AI 文风稳定性 |
+| FORESHADOWING | P2 | P3 | 伏笔回收需要专门治理 |
+| AUTHOR_PREFERENCE | P1 | P1 | 作者偏好影响生成方向 |
+| IDEA | P3 | P3 | 灵感默认不污染正式设定 |
+| DRAFT_CONTEXT | P0 | P2 | 当前会话/章节短期上下文 |
 
 ---
 
-## 6. 三层保留结构
+## 5. 记忆作用范围 (MemoryScope)
 
-Foundation 正式定义三层 retention tier：
+### 5.1 枚举定义
 
-1. hot
-2. warm
-3. cold
+见 `docs/design-v2/schemas/foundation/enums/memory_scope.json`。
 
-### 6.1 hot tier
+| 值 | 含义 |
+|----|------|
+| `GLOBAL` | 全局级：作者长期偏好或平台级规则 |
+| `WORK` | 作品级：整本小说生效 |
+| `VOLUME` | 卷级：当前卷生效 |
+| `ARC` | 篇章/情节线级 |
+| `CHAPTER` | 章节级 |
+| `SESSION` | 会话级：当前对话临时生效 |
 
-定义：用于当前运行路径的高频访问记忆。
+### 5.2 Scope 原则
 
-特征：
-
-- 低延迟
-- 小体量
-- 强相关
-- 高新鲜度
-
-典型内容：
-
-- 最近若干 turn
-- 当前未完成 behavior state
-- 当前 task state
-- 最近 accepted artifacts
-- 当前活跃对象摘要
-
-### 6.2 warm tier
-
-定义：经过压缩或摘要，仍需被高频 retrieval 的中期记忆。
-
-特征：
-
-- 可检索
-- 可作为 context assembly 的主要来源
-- 比 hot 更压缩
-- 比 cold 更常用
-
-典型内容：
-
-- chapter summaries
-- task summaries
-- aggregated interaction summaries
-- snapshot summaries
-- curated semantic extracts
-
-### 6.3 cold tier
-
-定义：长期归档，用于 audit、replay、深度回查和迁移。
-
-特征：
-
-- 默认不进日常 context
-- 必须可按需取回
-- 保真优先于低延迟
-
-典型内容：
-
-- old turn logs
-- raw provider outputs
-- old traces
-- historical task events
-- archived artifacts
-
-### 6.4 核心原则
-
-hot / warm / cold 是语义层，不绑定具体存储实现。
-
-例如：
-
-- 都存在 SQLite 中也可以
-- warm 用 summary table，cold 用 archive table 也可以
-- 未来换 PostgreSQL + object storage 也可以
-
-但 tier 语义不能变。
+不能简单固定为 `GLOBAL > WORK > VOLUME > ARC > CHAPTER > SESSION`，也不能反过来。正确方式：**任务类型 + 作用范围 + 权重 + 置信度 + 剧情位置 + 语义相关性 综合判断。**
 
 ---
 
-## 7. Retrieval 与 Replay 的分离
+## 6. 记忆状态设计 (MemoryStatus)
+
+### 6.1 枚举定义
+
+见 `docs/design-v2/schemas/foundation/enums/memory_status.json`。
+
+**LOCKED 不作为 status。locked 使用独立 Boolean 字段表示。**
+
+| 值 | 含义 |
+|----|------|
+| `DRAFT` | 草稿态，尚未确认 |
+| `CONFIRMED` | 已确认 |
+| `STABILIZED` | 多次使用后稳定沉淀 |
+| `CONFLICTED` | 存在冲突，需要作者确认 |
+| `DEPRECATED` | 已废弃，不参与普通召回 |
+| `ARCHIVED` | 已归档，作为历史事实保留 |
+
+### 6.2 状态与召回/修改权限
+
+| 状态 | 参与普通召回 | AI 可自动修改 | 说明 |
+|------|:---:|:---:|------|
+| DRAFT | 视情况 | 是 | 草稿态，低权威 |
+| CONFIRMED | 是 | 否 | 已确认设定 |
+| STABILIZED | 是 | 谨慎 | 多次使用后稳定 |
+| CONFLICTED | 否 | 否 | 暂停召回，等待处理 |
+| DEPRECATED | 否 | 否 | 已废弃 |
+| ARCHIVED | 否（除查历史） | 否 | 历史事实 |
+
+### 6.3 locked 字段
+
+- locked = true 表示作者锁定，AI 不允许自动修改、覆盖、废弃
+- locked 不是一种状态，而是一种权限约束
+- 与 locked 冲突的新记忆必须拦截或进入人工确认
+
+**locked 与 status 的合法组合：**
+
+| status | 允许 locked = true | 说明 |
+|--------|:---:|------|
+| DRAFT | 否 | 草稿态尚未确认，锁定无意义 |
+| CONFIRMED | **是** | 作者确认后可以锁定 |
+| STABILIZED | **是** | 稳定沉淀后可以锁定 |
+| CONFLICTED | 否 | 冲突态暂停召回，锁定无意义 |
+| DEPRECATED | 否 | 废弃时 locked 自动变 false |
+| ARCHIVED | 否 | 归档时 locked 自动变 false |
+
+**状态变更对 locked 的影响：**
+
+- CONFIRMED/STABILIZED → DEPRECATED：locked 自动变 false
+- CONFIRMED/STABILIZED → ARCHIVED：locked 自动变 false
+- CONFIRMED/STABILIZED → CONFLICTED：locked 保持，但 CONFLICTED 本身不参与召回
+- DRAFT → CONFIRMED：可以同时设置 locked = true
+
+---
+
+## 7. 来源类型 (MemorySourceType)
+
+### 7.1 枚举定义
+
+见 `docs/design-v2/schemas/foundation/enums/memory_source_type.json`。
+
+| 值 | 含义 |
+|----|------|
+| `AUTHOR_CONFIRMED` | 作者手动确认 |
+| `AUTHOR_CREATED` | 作者手动创建 |
+| `AI_EXTRACTED` | AI 自动抽取 |
+| `CHAPTER_EXTRACTED` | 章节内容抽取 |
+| `WORK_SETTING_IMPORTED` | 作品设定导入 |
+| `SESSION_CONTEXT` | 会话临时上下文 |
+
+### 7.2 来源与初始权重
+
+| 来源 | 初始 weight | 初始 confidence |
+|------|:---:|:---:|
+| AUTHOR_CONFIRMED（作者明确锁定） | 0.95-1.00 | 0.95-1.00 |
+| AUTHOR_CREATED（作者确认设定） | 0.80-0.95 | 0.85-0.95 |
+| WORK_SETTING_IMPORTED（作品设定导入） | 0.70-0.90 | 0.75-0.90 |
+| CHAPTER_EXTRACTED（章节事实抽取） | 0.50-0.75 | 0.50-0.75 |
+| AI_EXTRACTED（AI 自动推断） | 0.35-0.60 | 0.35-0.60 |
+| SESSION_CONTEXT（会话临时上下文） | 0.20-0.40 | 0.30-0.50 |
+
+---
+
+## 8. 核心字段设计 (MemoryItem)
+
+### 8.1 MemoryItem
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| id | UUID | 主键 |
+| work_id | UUID | 所属作品（NOT NULL） |
+| volume_id | UUID? | 所属卷 |
+| arc_id | UUID? | 所属篇章/情节线 |
+| chapter_id | UUID? | 所属章节 |
+| content | text | 原始记忆内容 |
+| summary | text? | 适合注入上下文的压缩摘要 |
+| type | MemoryType | 记忆类型 |
+| scope | MemoryScope | 作用范围 |
+| status | MemoryStatus | 当前状态 |
+| source_type | MemorySourceType | 来源类型 |
+| source_id | UUID? | 来源 ID |
+| reference_count | integer | 引用次数，默认 0 |
+| weight | decimal(5,4) | 权重 0.00-1.00，默认 0.5000 |
+| confidence | decimal(5,4) | 置信度 0.00-1.00，默认 0.5000 |
+| source_confidence | decimal(5,4) | 来源置信度，默认 0.5000 |
+| locked | boolean | 是否锁定，默认 false |
+| recallable | boolean | 是否允许自动召回，默认 true |
+| common_sense | boolean | 是否进入常识库/降噪池，默认 false |
+| valid_from | NarrativePosition? | 生效起点 |
+| valid_until | NarrativePosition? | 失效终点 |
+| expire_condition | text? | 失效条件描述 |
+| version | integer | 版本号，默认 1 |
+| tags | [string]? | 标签 |
+| last_referenced_at | datetime? | 最近一次引用时间 |
+| created_at | datetime | 创建时间 |
+| updated_at | datetime | 更新时间 |
+
+### 8.2 NarrativePosition
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| work_id | UUID | — |
+| volume_id | UUID? | — |
+| arc_id | UUID? | — |
+| chapter_id | UUID? | — |
+| scene_index | integer? | 章节内场景序号 |
+| narrative_layer | string? | 主线/倒叙/梦境/回忆/番外等 |
+| timeline_node_id | UUID? | 真实时间线节点（预留） |
+
+---
+
+## 9. 权重设计
+
+### 9.1 权重含义
+
+weight 表示这条记忆在生成、续写、分析、校验时应该被多大程度优先考虑。范围 0.00-1.00。
+
+| 权重范围 | 含义 | 示例 |
+|---|---|---|
+| 0.90-1.00 | 铁律级 | 世界没有魔法、禁止血脉设定 |
+| 0.70-0.89 | 强设定 | 主角性格底色、核心人物关系 |
+| 0.50-0.69 | 常规设定 | 外貌、习惯、当前阶段能力 |
+| 0.30-0.49 | 弱偏好 | 常用描写、局部风格倾向 |
+| 0.10-0.29 | 临时信息 | 一次性灵感、待确认想法 |
+| 0.00-0.09 | 噪音/废弃 | 已被推翻或不再采用 |
+
+### 9.2 权重初始化规则
+
+见 §7.2 来源与初始权重对照表。
+
+---
+
+## 10. referenceCount 设计
+
+### 10.1 referenceCount 的作用
+
+只表示使用频率。适合用于：判断记忆是否常用、临时灵感是否应沉淀、低置信度记忆是否需复核。
+
+不适合用于：直接决定重要性、覆盖 weight、决定上下文注入优先级、自动覆盖作者确认设定、自动推翻低频铁律。
+
+### 10.2 usageBoost
+
+referenceCount 可作为轻微调节因子：
+
+```
+usageBoost = min(log(1 + referenceCount) * 0.03, 0.10)
+```
+
+限制最大不超过 0.10，避免马太效应（越常引用→越易召回→越继续引用→少数高频信息垄断上下文）。
+
+### 10.3 高频低权重降噪
+
+当 `referenceCount > 50` 且 `weight < 0.60`，转入常识库/降噪池：usageBoost 不再增长，普通任务中不反复注入，仅在语义高度相关时召回。
+
+---
+
+## 11. 记忆有效期
+
+> **本节属于 Governed Memory 层。** 有效期是剧情位置驱动的"失效"（validFrom/validUntil），与 §19 交互日志层的时间/频率驱动的"降级"（hot→warm→cold）是不同维度——前者决定记忆是否仍然"为真"，后者决定日志是否"仍需热存"。
+
+### 11.1 为什么需要有效期
+
+剧情事实具有时效性。"主角右臂受伤"在第 16 章伤愈后不应继续参与普通召回，但仍保留为历史事实。
+
+### 11.2 有效期字段
+
+- `validFrom`：记忆生效起点
+- `validUntil`：记忆失效终点
+- `expireCondition`：失效条件描述
+- `version`：版本号
+
+### 11.3 记忆类型与有效期策略
+
+| 类型 | 需要有效期 | 说明 |
+|------|:---:|------|
+| WORLD_RULE | 通常不需要 | 世界观铁律长期有效 |
+| CONSTRAINT | 通常不需要 | 禁止事项长期有效 |
+| CHARACTER_PROFILE | 可能需要 | 性格底色长期有效，状态变化需版本 |
+| CURRENT_STATE | **必须** | 当前状态必须支持变化 |
+| RELATIONSHIP | 需要 | 人物关系会变化 |
+| PLOT_FACT | **强烈需要** | 剧情事实有明显时效性 |
+| FORESHADOWING | 需要 | 回收后转为已完成或归档 |
+| STYLE_RULE | 通常不需要 | 文风规则通常长期有效 |
+| AUTHOR_PREFERENCE | 通常不需要 | 作者偏好长期有效 |
+| IDEA | 需要 | 灵感不应长期污染上下文 |
+| DRAFT_CONTEXT | **必须** | 会话或章节结束后失效 |
+
+### 11.4 失效后处理
+
+失效不等于删除。失效前参与普通召回，失效后转为 ARCHIVED 或历史事实。历史事实仍可用于时间线回顾、剧情总结、伏笔回收、一致性审查。
+
+---
+
+## 12. 记忆召回流程
+
+本节是 retrieval 侧（§17.1）的完整实现流程，遵循 retrieval/replay 分离原则（§17.3）。终版采用三阶段过滤 + 重排 + 多样性检查 + Token 打包，不使用单一线性公式。
+
+### 12.1 第一阶段：Hard Filter（铁律直接注入）
+
+满足以下条件的记忆直接进入 Base Context：
+
+- weight >= 0.90
+- status IN (CONFIRMED, STABILIZED)
+- locked = true 或 source_type = AUTHOR_CONFIRMED
+- recallable = true
+- scope 与当前任务匹配
+- 当前剧情位置仍然有效
+
+Hard Filter 覆盖：世界观铁律、禁止事项、作者锁定设定、核心人物身份、核心关系边界。
+
+### 12.2 第二阶段：Candidate Search（候选召回）
+
+MVP 阶段不依赖向量库，使用：
+
+- 关键词匹配
+- 类型匹配
+- 实体匹配
+- 当前章节/情节线匹配
+- 作用范围匹配
+
+后续升级：Vector Search → Hybrid Search → Rerank Model → Entity-aware Retrieval。
+
+### 12.3 第三阶段：Rerank（重排序）
+
+仅对普通记忆（非铁律）：
+
+```
+Score = Relevance * 0.60 + Weight * 0.30 + Recency * 0.10 + usageBoost
+```
+
+其中 `usageBoost = min(log(1 + referenceCount) * 0.03, 0.10)`。
+
+可扩展项：ScopeProximity、EntityMatchBoost、TaskTypeBoost、CurrentStateBoost。
+
+### 12.4 第四阶段：Diversity Check（去重降噪）
+
+去除：语义重复内容、低权重高频废话、已进入常识库但无必要反复注入的信息、同一实体下重复表达的弱设定、已过期但不属于历史查询任务的事实。
+
+### 12.5 第五阶段：Token Budget Pack（上下文打包）
+
+最终上下文按区块组织：
+
+```
+【不可违背规则】
+- ...
+
+【当前状态】
+- ...
+
+【人物关系】
+- ...
+
+【剧情事实】
+- ...
+
+【伏笔】
+- ...
+
+【写作风格约束】
+- ...
+
+【作者偏好】
+- ...
+```
+
+### 12.6 第六阶段：Reference Log（异步引用日志）
+
+异步记录本次记忆引用日志到 `memory_reference_logs` 表，更新 `reference_count` 和 `last_referenced_at`。不在续写主链路同步写入。
+
+---
+
+## 13. 不同任务的召回策略
+
+### 13.1 续写章节
+
+当前章节上下文 > 当前情节线 > 角色当前状态 > 人物关系 > 剧情事实 > 作者风格偏好。作品铁律通过 Hard Filter 强制注入。
+
+### 13.2 检查世界观冲突
+
+作品铁律 > 世界观规则 > 禁止事项 > 剧情事实 > 当前章节文本。
+
+### 13.3 创建角色
+
+世界观规则 > 已有势力结构 > 已有人物关系 > 当前剧情需要 > 作者偏好。
+
+### 13.4 优化文风
+
+作者风格偏好 > 作品文风规则 > 当前章节语气 > 写作技巧 > 禁用表达。
+
+### 13.5 回收伏笔
+
+未回收伏笔 > 历史章节事实 > 相关人物动机 > 当前剧情位置 > 作品铁律。
+
+---
+
+## 14. 三层保留结构
+
+> **本节属于 Episodic Log 层（交互日志层）。** `interactions` 表使用 hot/warm/cold 三级保留，与 Governed Memory 层（`memory_items` 表，§4-§13）是互补关系。两层架构总览见 §15。
+
+Foundation 正式定义三层 retention tier。hot / warm / cold 是语义层，不绑定具体存储实现。
+
+### 14.1 hot tier
+
+当前运行路径的高频访问记忆。低延迟、小体量、强相关、高新鲜度。典型内容：最近若干 turn、活跃 behavior state、当前 task state、最近 accepted artifacts、当前活跃对象摘要。
+
+实现：ETS ordered_set（NovelAgent.Memory.Store）。
+
+### 14.2 warm tier
+
+经过压缩或摘要，仍需高频 retrieval 的中期记忆。可检索、可作为 context assembly 主要来源。典型内容：chapter summaries、task summaries、aggregated interaction summaries、snapshot summaries、curated semantic extracts。
+
+实现：PostgreSQL（NovelPersistence.MemoryLog）。
+
+### 14.3 cold tier
+
+长期归档，用于 audit、replay、深度回查和迁移。默认不进日常 context，必须可按需取回，保真优先于低延迟。典型内容：old turn logs、raw provider outputs、old traces、historical task events、archived artifacts。
+
+### 14.4 核心原则
+
+hot / warm / cold 是语义层，不绑定具体存储实现。但 tier 语义不能变。
+
+---
+
+## 15. 三层保留 vs 记忆治理：两层架构
+
+Memory 系统分为两个互补层面：
+
+| 层 | 职责 | 核心表 | 现有实现 |
+|----|------|--------|----------|
+| **Episodic Log**（交互日志层） | 记录"发生过什么"——回放、审计、trace | `interactions` | Memory.Store + MemoryLog |
+| **Governed Memory**（创作事实治理层） | 管理"什么是真的"——设定、规则、状态、冲突 | `memory_items` | 本次新增 |
+
+两层独立运作，互不替代：
+
+- `interactions` 记录每次 turn 的原始消息（回放 fidelity）
+- `memory_items` 管理可治理的创作事实（weight, locked, validity, version）
+- 两者通过 `source_type` / `source_id` 关联，但不强制外键
+
+---
+
+## 16. Memory Source Taxonomy（交互日志层）
+
+Memory 必须把来源作为一等元数据。本节适用于 `interactions` 表（episodic log）。
+
+### 16.1 每条 interaction 最小字段
+
+memory_id, memory_class, source_type, source_ref, scope_ref, created_at, updated_at, retention_tier, freshness_score, importance_score, replayable, retrievable。
+
+### 16.2 memory_class（交互日志层）
+
+枚举见 `docs/design-v2/schemas/foundation/enums/memory_class.json`：
+
+- `episodic` — 情景记忆：发生过哪些交互和运行事件
+- `semantic` — 语义记忆：系统认定为结构化事实的信息
+- `procedural` — 程序记忆：Agent 会什么、能做什么
+- `meta` — 元记忆：长期稳定偏好和行为性约束
+
+### 16.3 source_type（交互日志层）
+
+枚举见 `docs/design-v2/schemas/foundation/enums/source_type.json`：turn, task_event, artifact, object_snapshot, object_summary, registry, audit_event, external_import。
+
+注意：此 `source_type` 与 `memory_source_type`（§7，治理层）是两个独立枚举，服务不同表。
+
+---
+
+## 17. Retrieval 与 Replay 的分离
 
 这是 Memory contract 的核心硬骨。
 
-### 7.1 retrieval 的定义
+### 17.1 retrieval
 
-`retrieval` 用于回答：
+回答"为了当前任务，最值得带进来的上下文是什么？"。面向 relevance、freshness、importance、cost efficiency。允许返回 summary、excerpt、object snapshot、ranked refs。不要求保留历史原貌。
 
-**“为了当前任务，最值得带进来的上下文是什么？”**
+### 17.2 replay
 
-它面向的是：
+回答"当时到底发生了什么？"。面向 fidelity、chronology、traceability、reproducibility boundary。使用 frozen turn result、frozen trace、archived provider raw output、event log。不应为节省 token 而偷偷改写历史。
 
-- relevance
-- freshness
-- importance
-- cost efficiency
+### 17.3 强制分离规则
 
-retrieval 允许返回：
-
-- summary
-- excerpt
-- object snapshot
-- ranked refs
-
-retrieval 不要求保留历史原貌。
-
-### 7.2 replay 的定义
-
-`replay` 用于回答：
-
-**“当时到底发生了什么？”**
-
-它面向的是：
-
-- fidelity
-- chronology
-- traceability
-- reproducibility boundary
-
-replay 允许使用：
-
-- frozen turn result
-- frozen trace
-- archived provider raw output
-- event log
-
-replay 不应为了节省 token 而偷偷改写历史。
-
-### 7.3 强制分离规则
-
-以下规则是硬骨：
-
-1. `retrieval` 和 `replay` 不能共用同一个 API 语义。
-2. retrieval 可以优先返回 summary；replay 不能用 summary 冒充原始记录。
-3. replay 失败时必须明确说明缺失的是哪一层历史。
-4. retrieval 的排序因子和 replay 的时间顺序因子不能混用。
+1. retrieval 和 replay 不能共用同一个 API 语义
+2. retrieval 可优先返回 summary；replay 不能用 summary 冒充原始记录
+3. replay 失败时必须明确说明缺失的是哪一层历史
+4. retrieval 的排序因子和 replay 的时间顺序因子不能混用
 
 ---
 
-## 8. Memory 单位与索引单位
+## 18. Summarization Contract
 
-Memory 不应默认“整条 turn 就是唯一索引单位”。
+Summarization 不是"可选优化"，而是 Memory 的正式组成部分。
 
-### 8.1 最小 memory unit
+### 18.1 summary 的角色
 
-允许的基础单位至少包括：
+用于 warm tier 压缩、retrieval 加速、continuity recall、context assembly、long-run checkpoint handoff。
 
-- turn
-- task event
-- assistant message
-- artifact
-- object snapshot
-- summary block
-- excerpt chunk
+### 18.2 summary 最低要求
 
-### 8.2 索引单位与存储单位可以不同
+summary_id, summary_type, source_refs, scope_ref, generated_at, version, fidelity_level, summary_text, structured_facts/structured_refs。
 
-例如：
+### 18.3 fidelity level
 
-- 一整章正文作为存储单位
-- 按 scene 或 chunk 作为检索单位
+- `lossy`：retrieval 常用
+- `balanced`：continuity handoff 常用
+- `high_fidelity`：migration/audit 辅助
 
-这是允许且推荐的。
+### 18.4 summary 不能覆盖源记录
 
-### 8.3 索引必须带语义标签
-
-索引项至少要支持：
-
-- source ref
-- scope ref
-- time anchor
-- topic / type labels
-- revision ref
-- acceptance state
-
-否则后续无法做受控 retrieval。
+summary 是派生物，不是替代物。源记录进入 cold tier 后可降温，但不能因为有 summary 就删除所有源历史。
 
 ---
 
-## 9. Summarization Contract
+## 19. Retention Policy Contract
 
-Summarization 不是“可选优化”，而是 Memory 的正式组成部分。
+> **本节属于 Episodic Log 层。** 保留策略是时间/频率驱动的"降级"（hot→warm→cold），与 §11 Governed Memory 层的剧情位置驱动的"失效"（validFrom/validUntil）是不同维度。
 
-### 9.1 summary 的角色
+### 19.1 触发因子
 
-summary 用于：
+age, access frequency, current task relevance, importance score, accepted/tentative state, audit requirement, replay requirement, storage budget pressure。
 
-- warm tier 压缩
-- retrieval 加速
-- continuity recall
-- context assembly
-- long-run checkpoint handoff
+### 19.2 动作类型
 
-### 9.2 summary 的最低要求
+keep_hot, demote_to_warm, archive_to_cold, summarize_and_demote, compact_index, mark_replay_only, delete_if_allowed。
 
-每份 summary 至少要有：
+### 19.3 删除必须是显式策略
 
-- `summary_id`
-- `summary_type`
-- `source_refs`
-- `scope_ref`
-- `generated_at`
-- `version`
-- `fidelity_level`
-- `summary_text`
-- `structured_facts` 或 `structured_refs`
+默认不自动删。删除必须满足：policy 明确允许、不违反 audit requirement、不违反 replay guarantee、不违反 domain retention requirement。
 
-### 9.3 fidelity level
+### 19.4 tentative 数据的保留
 
-summary 必须显式标出保真级别，至少支持：
-
-- `lossy`
-- `balanced`
-- `high_fidelity`
-
-因为不同 summary 的用途不同：
-
-- retrieval 常可接受 `lossy`
-- continuity handoff 往往需要 `balanced`
-- migration / audit 辅助可能要求 `high_fidelity`
-
-### 9.4 summary 不能覆盖源记录
-
-summary 是派生物，不是替代物。
-
-源记录进入 cold tier 后可以降温，但不能因为有 summary 就删除所有源历史，除非 retention policy 明确允许且不影响审计要求。
+未采纳 tentative 可更快降温，但在 task 未终结前不能丢失。
 
 ---
 
-## 10. Retention Policy Contract
+## 20. 长跑任务的记忆要求
 
-Retention policy 决定记忆如何从 hot 降到 warm，再到 cold。
+### 20.1 checkpoint summary
 
-### 10.1 policy 触发因子
+每次 checkpoint 至少产出：progress summary、current state refs、pending artifacts refs、unresolved issues、next step context。
 
-至少应支持以下触发因子：
+### 20.2 resume 不依赖完整旧上下文
 
-- age
-- access frequency
-- current task relevance
-- importance score
-- accepted / tentative state
-- audit requirement
-- replay requirement
-- storage budget pressure
-
-### 10.2 retention 动作类型
-
-至少包括：
-
-- keep_hot
-- demote_to_warm
-- archive_to_cold
-- summarize_and_demote
-- compact_index
-- mark_replay_only
-- delete_if_allowed
-
-### 10.3 删除必须是显式策略
-
-Memory 默认不是“过期自动删”。
-
-删除必须满足：
-
-- policy 明确允许
-- 不违反 audit requirement
-- 不违反 replay guarantee
-- 不违反 domain retention requirement
-
-### 10.4 tentative 数据的保留
-
-tentative artifact 与 production artifact 必须可区分保留策略。
-
-默认原则：
-
-- 未采纳 tentative 可以更快降温
-- 但在 task 未终结前不能丢失
-- cancellation / failure 后的 tentative 清理要遵循 task policy
+默认依赖：task state、checkpoint summaries、active object refs、latest accepted artifacts、unresolved behavior states。
 
 ---
 
-## 11. Retrieval Policy Contract
+## 21. EAV 原子化设计（预留，P4+）
 
-retrieval 不是裸检索，而是受 policy 控制的上下文组装过程。
+### 21.1 为什么需要 EAV
 
-### 11.1 retrieval 请求最小结构
+冲突检测不能只靠文本。需要把记忆拆成 Entity-Attribute-Value 用于结构化比对。
 
-至少包括：
+### 21.2 第一阶段只覆盖高风险类型
 
-- `consumer_type`
-- `goal`
-- `scope_ref`
-- `time_horizon`
-- `budget`
-- `required_memory_classes`
-- `excluded_sources`
+优先：角色身份、角色生死状态、角色关系、世界观禁忌、当前身体状态、当前能力状态、当前阵营状态。
+暂不：性格细节、外貌细节、文风偏好、心理暗示、隐喻表达、普通场景描写。
 
-### 11.2 consumer_type
+### 21.3 MemoryAtom
 
-至少支持：
+| 字段 | 说明 |
+|------|------|
+| memory_id | 关联 MemoryItem |
+| entity_type | CHARACTER / WORLD / ORGANIZATION / ITEM / LOCATION |
+| entity_id / entity_name | 实体标识 |
+| attribute_key | 属性 Key |
+| attribute_value | 属性值 |
+| logical_key | `work_id:entity_type:entity_name:attribute_key` |
+| logical_hash | `hash(logical_key + normalized(value))` |
+| confidence | 原子置信度 |
+| valid_from / valid_until | 时效范围 |
 
-- router
-- executor
-- long_runner
-- validator
-- reader
-- debugger
-- migration_tool
-
-### 11.3 retrieval 输出最小结构
-
-至少包括：
-
-- ranked items
-- item type
-- relevance score
-- source refs
-- truncation notes
-- omitted classes
-- retrieval explanation summary
-
-### 11.4 retrieval 的排序因子
-
-至少允许综合：
-
-- relevance
-- recency
-- importance
-- authority
-- acceptance state
-- fidelity level
-- cost to include
-
-### 11.5 Retrieval 是“选择 + 解释”
-
-retrieval 不只是返回内容，还必须能解释：
-
-- 为什么选了这些
-- 为什么没选某类历史
-- 是否使用了 summary 代替源记录
+同一 logicalKey 下 logicalHash 不同 → 同一实体属性发生变化 → 进入冲突预检。
 
 ---
 
-## 12. Replay Policy Contract
+## 22. 冲突检测设计（预留，P5+）
 
-Replay 是单独的 memory service。
+### 22.1 总体流程
 
-### 12.1 replay 请求最小结构
+新记忆 → 抽取 EAV atoms → logicalKey 查询已有 atoms → 无匹配直接写入 → 匹配且值相同更新引用 → 匹配但值不同进入预检 → 旧记忆已过期允许版本演进 → 涉及 LOCKED/CONFIRMED 进入高风险处理 → 必要时 LLM 裁决 → 输出冲突结果 → 作者确认或归档。
 
-至少包括：
+### 22.2 冲突等级与处理策略
 
-- target ref
-- replay scope
-- fidelity requirement
-- include trace or not
-- include raw provider output or not
+| 等级 | 含义 |
+|------|------|
+| NONE | 无冲突 |
+| SOFT | 潜在冲突，需标记 |
+| HARD | 硬冲突，需拦截 |
 
-### 12.2 replay 输出最小结构
+| 策略 | 说明 |
+|------|------|
+| BLOCK | 拦截新记忆（与 locked 冲突时） |
+| FLAG | 标记为待处理 |
+| VERSION_DRIFT | 作为剧情演进，建立版本关系 |
+| MERGE | 合并两条记忆 |
+| IGNORE | 忽略新记忆 |
 
-至少包括：
+### 22.3 LLM 裁决触发条件
 
-- chronological event list
-- frozen result refs
-- missing data warnings
-- reconstruction notes
-
-### 12.3 replay fidelity
-
-至少支持：
-
-- `result_only`
-- `trace_level`
-- `raw_level`
-
-说明：
-
-- `result_only`：仅还原用户可见结果和主要状态。
-- `trace_level`：包含 route / validate / execute / persist 等链路。
-- `raw_level`：尽可能带原始 provider 输入输出和底层日志。
-
-### 12.4 replay 缺失必须显式
-
-如果某层历史已不可用，replay 必须明确报告：
-
-- 缺了什么
-- 为什么缺
-- 是否存在 summary 或替代引用
+只在以下情况调用：新记忆准备沉淀为 CONFIRMED/STABILIZED、涉及核心实体、与已有 logicalKey 发生 value 差异、可能影响 locked/高权重记忆、来源是 AI 自动推断、规则预检无法确定。
 
 ---
 
-## 13. Freshness 与 Importance
+## 23. MVP 落地范围
 
-Memory 不能只按“新近程度”工作。
+### 23.1 第一阶段：基础记忆治理（P0）
 
-### 13.1 freshness
+- memory_items 表 + CRUD
+- MemoryType / MemoryScope / MemoryStatus / MemorySourceType
+- referenceCount / weight / confidence / locked / recallable / validFrom-validUntil
+- confirm / lock / deprecate / archive 操作
+- 前端记忆管理页
 
-表示某条记忆对当前运行时是否足够新。
+### 23.2 第二阶段：记忆召回（P1）
 
-典型高 freshness：
+- Hard Filter + Candidate Search + Rerank + Diversity + Token Pack
+- MemoryRecallService + 召回 API
+- TurnService 集成 memory recall
 
-- 最近 turn
-- 当前 task 状态
-- 刚更新的对象
+### 23.3 第三阶段：召回解释与引用日志（P2）
 
-### 13.2 importance
+- memory_reference_logs 表
+- MemoryReferencedEvent 异步处理
+- 召回预览页面
 
-表示某条记忆是否长期关键。
+### 23.4 后续阶段（P3-P6）
 
-典型高 importance：
-
-- 核心规则
-- 已采纳的重要产物
-- 结构化摘要
-- 高价值决策
-
-### 13.3 freshness 与 importance 必须分离
-
-旧但关键的记忆应可：
-
-- freshness 低
-- importance 高
-
-这正是 warm tier 存在的理由。
+有效期与状态演进 → EAV 原子化 → 冲突检测 → LLM 裁决 → 冲突调解中心与记忆时间线。
 
 ---
 
-## 14. Context Window Budget Contract
+## 24. 数据库设计
 
-Memory 必须服从上下文预算，而不是相反。
+### 24.1 memory_items
 
-### 14.1 budget 维度
+```sql
+CREATE TABLE memory_items (
+    id UUID PRIMARY KEY,
+    work_id UUID NOT NULL,
 
-至少包括：
+    volume_id UUID NULL,
+    arc_id UUID NULL,
+    chapter_id UUID NULL,
 
-- token budget
-- retrieval count budget
-- latency budget
-- summary expansion budget
+    content TEXT NOT NULL,
+    summary TEXT NULL,
 
-### 14.2 budget 内的优先级
+    type VARCHAR(64) NOT NULL,
+    scope VARCHAR(64) NOT NULL,
+    status VARCHAR(64) NOT NULL DEFAULT 'DRAFT',
+    source_type VARCHAR(64) NOT NULL,
 
-预算不足时，默认优先顺序应为：
+    reference_count INT NOT NULL DEFAULT 0,
 
-1. 当前运行必要状态
-2. 高 importance 的结构化摘要
-3. 当前目标强相关内容
-4. 最近局部对话
-5. 低优先级背景
+    weight DECIMAL(5,4) NOT NULL DEFAULT 0.5000,
+    confidence DECIMAL(5,4) NOT NULL DEFAULT 0.5000,
+    source_confidence DECIMAL(5,4) NOT NULL DEFAULT 0.5000,
 
-### 14.3 Retrieval 必须允许降级
+    locked BOOLEAN NOT NULL DEFAULT FALSE,
+    recallable BOOLEAN NOT NULL DEFAULT TRUE,
+    common_sense BOOLEAN NOT NULL DEFAULT FALSE,
 
-例如：
+    valid_from JSONB NULL,
+    valid_until JSONB NULL,
+    expire_condition TEXT NULL,
 
-- 源记录降级为 summary
-- 多段历史压缩为一个 aggregate summary
-- 省略低 relevance 内容
+    version INT NOT NULL DEFAULT 1,
 
-但降级必须被记录到 retrieval explanation 中。
+    tags TEXT[] NULL,
 
----
+    source_id UUID NULL,
+    last_referenced_at TIMESTAMPTZ NULL,
 
-## 15. Long-Run Task 的记忆要求
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
+);
+```
 
-长跑任务对 Memory 有额外要求。
+索引：
 
-### 15.1 checkpoint summary
+```sql
+CREATE INDEX idx_memory_items_recall ON memory_items(work_id, status, type, scope, locked, recallable);
+CREATE INDEX idx_memory_items_weight ON memory_items(work_id, weight);
+CREATE INDEX idx_memory_items_source ON memory_items(work_id, source_type, source_id);
+```
 
-每次 checkpoint 至少需要产出：
+### 24.2 memory_reference_logs
 
-- progress summary
-- current state refs
-- pending artifacts refs
-- unresolved issues
-- next step context
+```sql
+CREATE TABLE memory_reference_logs (
+    id UUID PRIMARY KEY,
+    memory_id UUID NOT NULL,
+    work_id UUID NOT NULL,
+    task_id UUID NULL,
+    conversation_id UUID NULL,
+    reference_scene VARCHAR(64) NOT NULL,
+    reference_reason TEXT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+);
+```
 
-### 15.2 resume 不依赖完整旧上下文
+### 24.3 预留表（后续阶段）
 
-长跑续跑不能依赖把历史所有 turn 重新塞回模型。
-
-resume 默认应依赖：
-
-- task state
-- checkpoint summaries
-- active object refs
-- latest accepted artifacts
-- unresolved behavior states
-
-### 15.3 long-run 失败后的记忆保留
-
-任务失败后至少应保留：
-
-- last successful checkpoint
-- failed step trace summary
-- pending tentative artifacts
-- cancellation / failure reason
-
----
-
-## 16. 记忆与 Domain 的接口
-
-Memory 是 Foundation 服务，但 Domain 可以注册自己的策略。
-
-### 16.1 Domain 可注册项
-
-至少包括：
-
-- memory scopes
-- importance heuristics
-- summarization triggers
-- retrieval hints
-- retention exceptions
-
-### 16.2 Domain 不得改写项
-
-Domain 不得改写：
-
-- hot / warm / cold tier 语义
-- retrieval / replay 分离原则
-- replay fidelity 等级
-- retention 动作基本类型
-
-### 16.3 Domain 只能补规则，不能改服务职责
-
-例如 Domain 可以说：
-
-- “chapter summary 是 warm tier 主来源”
-- “worldrule importance 高”
-
-但不能说：
-
-- “以后 replay 也直接读 summary 就行”
+- `memory_embeddings`：向量独立存储（不塞进主表）
+- `memory_atoms`：EAV 原子化
+- `memory_conflicts`：冲突记录
 
 ---
 
-## 17. 记忆与 UI 的接口
+## 25. API 设计
 
-UI 不直接操作 Memory 内部实现，只消费其稳定产物。
+### 25.1 记忆管理 API（P0）
 
-### 17.1 UI 可见内容
+```
+POST   /api/works/:work_id/memories                  # 创建记忆
+GET    /api/works/:work_id/memories                  # 搜索记忆
+GET    /api/works/:work_id/memories/:memory_id        # 获取详情
+POST   /api/works/:work_id/memories/:memory_id/confirm   # 确认
+POST   /api/works/:work_id/memories/:memory_id/lock      # 锁定
+POST   /api/works/:work_id/memories/:memory_id/unlock    # 解锁
+POST   /api/works/:work_id/memories/:memory_id/deprecate # 废弃
+POST   /api/works/:work_id/memories/:memory_id/archive   # 归档
+PATCH  /api/works/:work_id/memories/:memory_id/weight    # 修改权重
+PATCH  /api/works/:work_id/memories/:memory_id/validity  # 修改有效期
+```
 
-UI 可以消费：
+### 25.2 召回 API（P1）
 
-- current context summary
-- retrieval explanation summary
-- replay result
-- archive availability hints
-- memory warnings
+```
+POST /api/works/:work_id/memories/recall
+```
 
-### 17.2 UI 不可见实现细节
+请求：taskType, userInput, volumeId, arcId, chapterId, sceneIndex, involvedCharacters, tokenBudget。
+响应：hardRules, currentStates, relationships, plotFacts, foreshadowings, styleRules, packedContext, excludedMemories, referenceTrace。
 
-UI 不应直接依赖：
+### 25.3 引用记录 API（P2）
 
-- vector index internals
-- embedding ids
-- raw ranking formulas
-- archive backend implementation
+```
+GET /api/works/:work_id/memories/:memory_id/references
+```
 
-### 17.3 UI 的使用原则
+### 25.4 冲突 API（P5，预留）
 
-UI 可以显示：
-
-- “已引用 3 条章节摘要，省略 12 条旧对话”
-- “当前回放不含 raw provider 输出”
-
-但不能自己决定检索结果排序。
-
----
-
-## 18. 记忆事件
-
-Memory 不只是状态，还应有显式事件。
-
-### 18.1 至少支持的 memory events
-
-- memory_created
-- memory_accessed
-- memory_summarized
-- memory_demoted
-- memory_archived
-- memory_compacted
-- memory_deleted
-- replay_requested
-- retrieval_requested
-
-### 18.2 事件用途
-
-这些事件用于：
-
-- observability
-- audit
-- migration
-- retention tuning
+```
+GET    /api/works/:work_id/memory-conflicts
+GET    /api/works/:work_id/memory-conflicts/:conflict_id
+POST   /api/works/:work_id/memory-conflicts/:conflict_id/resolve
+```
 
 ---
 
-## 19. 迁移与兼容
+## 26. 前端设计（概要）
 
-Memory contract 必须允许从 v1 的 interaction log 逐步升级。
+### 26.1 记忆管理页（P0）
 
-### 19.1 v1 可复用资产
+筛选：类型、作用范围、状态、权重区间、locked、recallable、commonSense、是否过期、来源类型、关键实体/标签。
 
-至少包括：
+操作：确认、锁定、解锁、废弃、归档、修改权重、修改有效期、设置可召回。
 
-- interaction logs
-- clarification states
-- turn results
-- object records
+### 26.2 当前任务召回预览（P2）
 
-### 19.2 v2 的新增要求
+第一版最重要的信任感页面。展示：本次注入哪些记忆、哪些是铁律、哪些因过期排除、哪些因 token 不够裁掉、最终注入给 AI 的上下文。
 
-需要逐步补上：
+### 26.3 冲突调解中心（P5+，预留）
 
-- retention tier
-- summary records
-- replay fidelity metadata
-- source taxonomy
-- retrieval explanation
-
-### 19.3 兼容策略
-
-允许一段时间内：
-
-- 旧记录没有 tier 字段
-- 旧记录没有 summary ref
-- 旧 replay 只有 result_only
-
-但新系统必须能识别这种兼容状态，而不是假装这些字段天然存在。
+左侧既有记忆、右侧新记忆、中间 AI 冲突理由、底部处理动作。
 
 ---
 
-## 20. 契约测试要求
+## 27. 异步事件设计
 
-Memory contract 至少要有以下测试。
-
-### 20.1 retention tests
-
-验证：
-
-- hot -> warm -> cold 的迁移规则
-- deletion guard
-- tentative retention rules
-
-### 20.2 retrieval tests
-
-验证：
-
-- 不同 consumer_type 的检索差异
-- budget 下的降级行为
-- explanation 输出
-
-### 20.3 replay tests
-
-验证：
-
-- result_only / trace_level / raw_level
-- 历史缺失时的显式告警
-- replay 与 retrieval 不混淆
-
-### 20.4 compatibility tests
-
-验证：
-
-- v1 记录可被读取
-- 缺失 tier / summary / fidelity 字段时的兼容行为
+| 事件 | 用途 | 优先级 |
+|------|------|:---:|
+| MemoryCreatedEvent | memory_id, work_id, source_type | P1 |
+| MemoryReferencedEvent | memory_id, work_id, task_id, reference_scene, reference_reason | P2 |
+| MemoryConflictDetectedEvent | conflict_id, work_id, old_memory_id, new_memory_id, conflict_level | P5 |
 
 ---
 
-## 21. 本文冻结的硬骨
+## 28. 最终规则清单
 
-本文正式冻结以下 Memory 硬骨：
-
-1. 四类记忆：episodic / semantic / procedural / meta
-2. 三层 retention tier：hot / warm / cold
-3. retrieval 与 replay 必须分离
-4. summary 是正式 Memory 产物，而不是临时文本
-5. retention policy、retrieval policy、replay policy 都是一等 contract
-6. memory source taxonomy 必须结构化
-7. freshness 与 importance 必须分离
-8. 长跑续跑依赖 checkpoint summary，不依赖完整旧上下文重灌
-9. Domain 可以注册 Memory 规则，但不能改写 tier 和 replay 语义
+1. referenceCount 只代表使用频率，不代表真理
+2. weight 代表重要性，但不能单独决定召回
+3. locked 代表人类意志，AI 不能自动覆盖
+4. CONFIRMED 高于 STABILIZED
+5. AUTHOR_CONFIRMED 高于 AI_EXTRACTED
+6. 铁律级记忆不参与普通排序，直接强制注入
+7. 普通记忆通过候选召回 + 重排进入上下文
+8. 向量检索只解决相关性，不解决冲突
+9. 剧情事实必须支持有效期
+10. 当前状态必须支持版本演进
+11. 失效记忆不删除，转为历史事实
+12. 冲突检测先 EAV，再规则预检，最后 LLM 裁决
+13. LLM 只做复杂冲突辅助裁决，不做最终设定裁判
+14. 作者拥有最终裁决权
+15. 引用日志必须异步写入
+16. 高频低权重记忆要降噪，不能反复占用上下文
+17. 低频高权重记忆不能因为少用而降权
+18. 临时灵感不能直接污染作品级设定
+19. 会话级记忆默认短期有效
+20. 作品级铁律默认长期有效
+21. 召回结果必须可解释
+22. 上下文打包必须结构化，而不是堆列表
+23. EAV 不要第一版就全量泛化
+24. 冲突中心不要早于召回预览
+25. 记忆系统的目标是治理创作事实，而不是堆上下文
 
 ---
 
-## 22. 本文暂不冻结的内容
+## 29. 本文冻结的硬骨
+
+1. 记忆系统 = 创作事实治理系统，不是上下文扩容
+2. MemoryType 11 种、MemoryScope 6 级、MemoryStatus 6 态（LOCKED 不作为 status）
+3. referenceCount 与 weight 分离；铁律不参与普通排序
+4. locked = 人类意志，AI 不可覆盖
+5. 剧情事实必须支持有效期（validFrom/validUntil/version）
+6. 召回六阶段流程：Hard Filter → Candidate Search → Rerank → Diversity → Token Pack → Reference Log
+7. 两层架构：Episodic Log（interactions）+ Governed Memory（memory_items），互补不替代
+8. 三层 retention tier（hot/warm/cold）+ retrieval/replay 分离 + summary 是正式产物
+9. 冲突检测分阶段：先 EAV → 规则预检 → LLM 裁决，作者最终裁决
+10. LLM 不做第一层判断，不做最终裁判
+
+---
+
+## 30. 本文暂不冻结的内容
 
 以下只定边界，不定最终实现：
 
-1. importance score 计算公式
-2. freshness score 计算公式
-3. embedding / vector store 方案
-4. summary 生成 prompt
-5. chunking 策略的最终参数
-6. archive backend 选型
+1. importance score / freshness score 精确计算公式
+2. embedding / vector store 方案
+3. summary 生成 prompt
+4. chunking 策略最终参数
+5. LLM 裁决 prompt 精确措辞
+6. EAV 抽取 prompt / 覆盖范围
+7. 冲突调解中心 UI 布局
+8. **Rerank Relevance 的精确计算**——MVP 阶段使用简化方案：关键词命中数 / 查询词总数，类型匹配 +0.15，scope 精确匹配 +0.10，实体名匹配 +0.20。后续升级为语义相似度
 
 ---
 
-## 23. 下一步
+## 31. 与现有实现的关系
 
-在 Memory contract 基础上，优先继续：
+| 现有模块 | 归属层 | 本文改动 |
+|----------|--------|----------|
+| NovelAgent.Memory.Store | Episodic Log (hot tier) | **不动** |
+| NovelPersistence.MemoryLog | Episodic Log (warm tier) | **不动** |
+| NovelPersistence.Schemas.Interaction | Episodic Log | **不动** |
+| NovelFoundation.Enums.MemoryClass | Episodic Log 枚举 | **不动** |
+| NovelFoundation.Enums.SourceType | Episodic Log 枚举 | **不动** |
+| — | Governed Memory | **新增** MemoryType/Scope/Status/SourceType 枚举 |
+| — | Governed Memory | **新增** MemoryItem domain struct + Ecto schema |
+| — | Governed Memory | **新增** MemoryService + MemoryRecallService |
+| — | Governed Memory | **新增** REST API + 前端页面 |
 
-1. `06-planning-and-long-run.md`
-2. `07-consistency-and-concurrency.md`
+---
 
-因为：
+## 32. 下一步
 
-- long-run 决定 checkpoint 与 tentative 的副作用边界
-- consistency 决定 Memory 引回来的状态如何安全写回系统
-
+1. 实现 4 个新枚举 codegen
+2. Migration + Persistence 层
+3. MemoryService CRUD
+4. MemoryRecallService
+5. Web API + 前端页面
