@@ -3,6 +3,7 @@ import Config
 # 测试库：独立 schema/database 名，避免污染 dev。
 # Sandbox 模式由 Ecto.Adapters.SQL.Sandbox 接管，每个测试事务隔离。
 config :novel_persistence, NovelPersistence.Repo,
+  adapter: Ecto.Adapters.Postgres,
   username: "spike",
   password: "spike",
   hostname: "localhost",
@@ -13,7 +14,9 @@ config :novel_persistence, NovelPersistence.Repo,
 
 # 测试时 Phoenix endpoint 不监听端口，避免和 dev 冲突。
 config :novel_web, NovelWeb.Endpoint,
-  http: [ip: {127, 0, 0, 1}, port: 4002],
+  http: [ip: {127, 0, 0, 1}, port: System.get_env("PHOENIX_TEST_PORT", "4658") |> String.to_integer()],
   server: false
 
 config :logger, level: :warning
+
+config :novel_application, sync_memory_reference_log: true

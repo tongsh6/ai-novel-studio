@@ -85,7 +85,24 @@ defmodule NovelAgent.Router do
     end)
   end
 
+  defp extract_slot(text, "core_selling_point") do
+    extract_after_label(text, "核心卖点")
+  end
+
+  defp extract_slot(text, "target_reader") do
+    extract_after_label(text, "目标读者")
+  end
+
   defp extract_slot(_text, _slot_name), do: nil
+
+  defp extract_after_label(text, label) do
+    pattern = ~r/#{label}(?:是|为|：|:)?([^，。；;\n]+)/u
+
+    case Regex.run(pattern, text) do
+      [_match, value] -> String.trim(value)
+      _ -> nil
+    end
+  end
 
   # Only slots that are required_to_execute AND not_inferable AND no_default
   # are "blocking" — if any are missing, clarification must trigger.

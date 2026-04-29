@@ -16,7 +16,6 @@ defmodule NovelPersistence.Repo.Migrations.UppercaseStatusEnums do
 
   def up do
     execute("UPDATE works SET status = UPPER(status) WHERE status IN ('tentative','accepted','discarded')")
-    execute("ALTER TABLE works ALTER COLUMN status SET DEFAULT 'TENTATIVE'")
 
     execute("""
     UPDATE long_run_tasks SET status = CASE status
@@ -37,13 +36,12 @@ defmodule NovelPersistence.Repo.Migrations.UppercaseStatusEnums do
       ELSE phase END
     """)
 
-    execute("ALTER TABLE long_run_tasks ALTER COLUMN status SET DEFAULT 'READY'")
-    execute("ALTER TABLE long_run_tasks ALTER COLUMN phase SET DEFAULT 'PLANNED'")
+    # ALTER COLUMN SET DEFAULT skipped for SQLite compatibility.
+    # Application layer enforces correct default values at insert time.
   end
 
   def down do
     execute("UPDATE works SET status = LOWER(status) WHERE status IN ('TENTATIVE','ACCEPTED','DISCARDED')")
-    execute("ALTER TABLE works ALTER COLUMN status SET DEFAULT 'tentative'")
 
     execute("""
     UPDATE long_run_tasks SET status = CASE status
@@ -63,8 +61,5 @@ defmodule NovelPersistence.Repo.Migrations.UppercaseStatusEnums do
       WHEN 'COMPLETED' THEN 'completed'
       ELSE phase END
     """)
-
-    execute("ALTER TABLE long_run_tasks ALTER COLUMN status SET DEFAULT 'running'")
-    execute("ALTER TABLE long_run_tasks ALTER COLUMN phase SET DEFAULT 'running'")
   end
 end

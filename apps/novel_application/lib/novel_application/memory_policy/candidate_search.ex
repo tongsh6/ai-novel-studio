@@ -6,6 +6,10 @@ defmodule NovelApplication.MemoryPolicy.CandidateSearch do
   每位候选返回 relevance 分数（0.0-1.0）。
   """
 
+  alias NovelFoundation.Enums.MemoryScope
+
+  @broad_scopes [MemoryScope.global(), MemoryScope.work()]
+
   @doc """
   对候选记忆列表打分，返回 `[{memory, score}]` 按分数降序排列。
 
@@ -31,7 +35,7 @@ defmodule NovelApplication.MemoryPolicy.CandidateSearch do
   defp score(m, keywords, prefer_types, scope) do
     keyword_score = keyword_score(m, keywords)
     type_bonus = if m.type in prefer_types, do: 0.1, else: 0.0
-    scope_bonus = if scope && m.scope == scope, do: 0.05, else: 0.0
+    scope_bonus = if scope && scope_match?(m, scope), do: 0.05, else: 0.0
     summary_bonus = summary_score(m, keywords)
 
     # 加权合成：关键词 0.5 + 摘要 0.3 + type bonus 0.1 + scope bonus 0.05
@@ -61,10 +65,34 @@ defmodule NovelApplication.MemoryPolicy.CandidateSearch do
     end
   end
 
-  @stop_words ["的", "了", "在", "是", "我", "有", "和", "就", "不", "人", "都", "一", "一个", "上", "也", "很", "到", "说", "要", "去", "你", "会"]
+  @stop_words [
+    "的",
+    "了",
+    "在",
+    "是",
+    "我",
+    "有",
+    "和",
+    "就",
+    "不",
+    "人",
+    "都",
+    "一",
+    "一个",
+    "上",
+    "也",
+    "很",
+    "到",
+    "说",
+    "要",
+    "去",
+    "你",
+    "会"
+  ]
 
   # 简单中文关键词提取：按常见分隔符切分，过滤短词和停用词
   defp extract_keywords(""), do: []
+
   defp extract_keywords(query) do
     query
     |> String.replace(~r/[，。！？、；：""''（）\s]+/, " ")
@@ -73,4 +101,10 @@ defmodule NovelApplication.MemoryPolicy.CandidateSearch do
     |> Enum.reject(&(&1 == "" or String.length(&1) < 2))
     |> Enum.reject(&(&1 in @stop_words))
   end
+
+  defp scope_match?(%{scope: memory_scope}, _task_scope)
+       when memory_scope in @broad_scopes,
+       do: true
+
+  defp scope_match?(m, scope), do: m.scope == scope
 end

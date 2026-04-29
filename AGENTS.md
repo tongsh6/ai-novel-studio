@@ -44,22 +44,69 @@ novel_domain → novel_foundation
 
 ### 完成后必须做
 
+**后端**：
 1. `mix compile --warnings-as-errors` — 零警告
 2. `mix test` — 全部通过
 3. `mix xref graph --format cycles --label compile-connected --fail-above 0` — 无循环
 4. `mix run scripts/arch_check.exs` — 架构边界正常
 5. 为新模块写测试
-6. 说明：修改了什么、为什么这样改、影响范围、验证方式
+
+**前端**：
+6. `cd frontend && pnpm typecheck && pnpm lint && pnpm test` — 零错误
+7. `bash scripts/frontend_audit.sh` — 依赖与技术栈合规
+8. `bash scripts/check_design_trace.sh` — 组件可追溯到设计文档
+
+**提交说明**：
+9. 说明：修改了什么、为什么这样改、影响范围、验证方式
 
 ---
 
 ## 前端约束
 
-- UI 组件放在 `frontend/src/components/`
-- Phoenix Channel/Socket 封装放在 `frontend/src/lib/`
-- 从 JSON Schema codegen 的 Zod schema 放在 `frontend/src/generated/`（不手编）
-- 不要在组件中使用内联 `style={{...}}`，使用 CSS Modules 或独立 CSS 文件
-- 环境相关 URL/配置通过 `import.meta.env.VITE_*` 环境变量注入，不硬编码
+### 桌面优先（Desktop-First）
+
+本项目是 **Tauri 2 桌面应用**，不是浏览器 Web 应用。阶段 2 才会切到 B/S。
+
+- **开发命令**：使用 `pnpm tauri dev` 启动，不是 `pnpm dev`。Tauri dev 会启动 Vite + 原生窗口。
+- **环境检测**：所有涉及 URL/端点的代码必须通过 `frontend/src/lib/env.ts` 的 `isTauri` 判断，不允许假设运行在浏览器。
+- **Tauri API 必须使用**：文件系统访问、系统通知、窗口管理必须使用 `@tauri-apps/api`，不允许使用浏览器 API 替代。
+- **禁止浏览器专用 API**：不允许直接使用 `window.location.*`、`document.title`、`navigator.*`（除非通过 `env.ts` 的平台抽象层）。
+- **Tauri 配置必须与 spec 一致**：`tauri.conf.json` 的窗口大小（1280×800）、identifier（`com.ai-novel-studio.app`）、CSP、sidecar 配置必须与 `docs/design-v2/tech-stack/05-desktop.md` 一致。
+- **CI 必须验证 Tauri 构建**：`pnpm tauri build` 必须成功。
+
+参考：`docs/design-v2/tech-stack/05-desktop.md`（Tauri 2 + Mix Release sidecar 完整方案）
+
+### UI 设计驱动（Design-Driven）
+
+UI 实现必须严格遵循 `docs/design-v2/ui-design/` 中的设计文档和 Pencil 原型。
+
+- **写 UI 代码前**：必须先查看对应的 Pencil 原型 screen frame（`docs/design-v2/ui-design/novel-studio-v2.pen`）和设计文档章节。
+- **组件必须可追溯**：每个组件文件头部必须有注释，标注对应的设计文档章节和原型 screen frame ID。格式：
+  ```
+  // Design: docs/design-v2/ui-design/42-card-system.md §3
+  // Prototype: novel-studio-v2.pen → 42§4-adoption-card-states (PZAVY)
+  ```
+- **卡片类型必须来自 ADR**：`card_type` 必须使用 ADR-0006 已冻结集合，不允许前端自行发明新卡片类型。
+- **文案必须集中管理**：所有用户可见文案必须放在 `frontend/src/lib/copy.ts`，不允许在组件中硬编码。参考 `docs/design-v2/ui-design/47-ui-copy-guidelines.md`。
+- **禁止内联样式**：不允许 `style={{...}}`，使用 Tailwind CSS 4 或 CSS Modules（优先 Tailwind）。
+- **设计 token 必须对齐**：颜色、间距、字体必须与 `docs/design-v2/ui-design/40-ui-overview.md` 中的设计 token 一致。
+
+### 前端技术栈（强制）
+
+以下技术栈由 `docs/design-v2/tech-stack/04-frontend.md` 锁定，不允许自行替换：
+
+| 类别 | 强制使用 | 禁止使用 |
+|------|---------|----------|
+| 样式 | Tailwind CSS 4 | styled-components, CSS-in-JS |
+| UI 原语 | Radix UI (headless) | 裸写 div/button 实现 Dialog/Tabs/Tooltip |
+| Server state | TanStack Query | 在 React state 中持有 server 数据拷贝 |
+| UI state | Zustand | Redux, Jotai |
+| 表单 | React Hook Form + Zod resolver | 裸写 form state |
+| 图标 | Lucide | 其他图标库 |
+| Schema | Zod 4 + codegen | 手写 TypeScript type |
+
+- **依赖检查**：`scripts/frontend_audit.sh` 会检查 `package.json` 是否包含所有强制依赖，作为 pre-commit hook 和 CI 门禁。
+- **禁止引入非 spec 库**：未经 ADR 流程，不允许安装 spec 之外的状态管理/样式/UI 库。
 
 ---
 

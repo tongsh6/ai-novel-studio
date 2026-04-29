@@ -41,7 +41,8 @@ defmodule NovelPersistence.MixProject do
       {:novel_domain, in_umbrella: true},
       {:ecto, "~> 3.13"},
       {:ecto_sql, "~> 3.13"},
-      {:postgrex, "~> 0.22"},
+      {:ecto_sqlite3, "~> 0.22"},
+      {:postgrex, "~> 0.22", only: [:test]},
       {:paper_trail, "~> 1.1"},
       {:jason, "~> 1.4"}
     ]

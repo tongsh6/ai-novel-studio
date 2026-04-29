@@ -1,0 +1,200 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  width: 500px;
+  height: 100%;
+  background-color: var(--surface-primary);
+  border-left: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+  font-family: var(--sans);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.titleGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.headerTitle {
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--foreground-primary);
+  letter-spacing: 1.5px;
+}
+
+.headerSub {
+  font-size: 10px;
+  color: var(--foreground-secondary);
+}
+
+.closeBtn {
+  background: none;
+  border: none;
+  font-size: 16px;
+  cursor: pointer;
+  color: var(--foreground-secondary);
+}
+
+.tabs {
+  display: flex;
+  gap: 24px;
+  padding: 16px 24px 0 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tabBtn {
+  background: none;
+  border: none;
+  padding: 0 0 16px 0;
+  font-size: 14px;
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+
+.tabActive {
+  color: var(--foreground-primary);
+  border-bottom-color: var(--foreground-primary);
+}
+
+.tabTextAccent {
+  color: var(--accent);
+}
+
+.content {
+  flex: 1;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  overflow-y: auto;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.secHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.secTitle {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--foreground-secondary);
+}
+
+.secTitleAccent {
+  font-size: 10px;
+  letter-spacing: 1.5px;
+  color: var(--accent);
+}
+
+.cardAccent {
+  padding: 16px;
+  border: 1px solid var(--accent);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 0;
+}
+
+.cardNormal {
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-radius: 0;
+}
+
+.cardLabel {
+  align-self: flex-start;
+  background-color: var(--accent);
+  color: var(--surface-primary);
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: var(--rounded-sm);
+}
+
+.cardLabelInverse {
+  align-self: flex-start;
+  background-color: var(--surface-inverse);
+  color: var(--surface-primary);
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: var(--rounded-sm);
+}
+
+.cardTitle {
+  font-size: 16px;
+  color: var(--foreground-primary);
+}
+
+.cardDesc {
+  font-size: 14px;
+  color: var(--foreground-secondary);
+  line-height: 1.5;
+}
+
+.cardActions, .cardMeta {
+  display: flex;
+  gap: 12px;
+  padding-top: 8px;
+}
+
+.btnPrimary, .btnSecondary, .btnGhost {
+  padding: 10px 16px;
+  border-radius: var(--rounded-sm);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--sans);
+  border: 1px solid transparent;
+}
+
+.btnPrimary {
+  background-color: var(--accent);
+  color: var(--surface-primary);
+}
+
+.btnSecondary {
+  background-color: transparent;
+  border-color: var(--border-subtle);
+  color: var(--foreground-primary);
+}
+
+.btnGhost {
+  background-color: transparent;
+  color: var(--foreground-secondary);
+  padding: 4px 8px;
+}
+
+.footerActions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 24px;
+  border-top: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.actionsHint {
+  font-size: 12px;
+  color: var(--foreground-secondary);
+  text-align: right;
+  width: 200px;
+}

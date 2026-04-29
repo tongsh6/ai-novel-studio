@@ -2,25 +2,26 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AI Novel Studio",
   "version": "0.1.0",
-  "identifier": "studio.ai-novel",
+  "identifier": "com.ai-novel-studio.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5173",
-    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:5768",
+    "beforeDevCommand": "bash $HOME/workspace/novel/ai-novel-studio/scripts/before-tauri-dev.sh",
     "beforeBuildCommand": "pnpm build"
   },
   "app": {
     "windows": [
       {
         "title": "AI Novel Studio",
-        "width": 800,
-        "height": 600,
+        "width": 1280,
+        "height": 800,
         "resizable": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "center": true
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:4657 ws://localhost:4657"
     }
   },
   "bundle": {

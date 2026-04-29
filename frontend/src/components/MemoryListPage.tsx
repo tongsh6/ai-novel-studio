@@ -1,3 +1,5 @@
+// Design: N/A (memory management maintenance page — awaits design spec)
+// NOTE: 此页面为 Phase 0 快速验证产物，待 UI 设计阶段需重新对照原型实现
 import { useEffect, useState, useCallback } from "react";
 import { listMemories } from "../lib/memoryApi";
 import type { MemoryItem, SearchParams } from "../lib/memoryApi";
@@ -65,7 +67,7 @@ export function MemoryListPage({ workId }: Props) {
   }, [workId, filterType, filterScope, filterStatus, filterKeyword, filterLocked]);
 
   useEffect(() => {
-    fetchMemories();
+    void Promise.resolve().then(fetchMemories);
   }, [fetchMemories]);
 
   const handleCreated = (item: MemoryItem) => {

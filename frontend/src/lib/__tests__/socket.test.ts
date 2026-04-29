@@ -7,9 +7,9 @@ import { createSocket, joinWorkspace } from "../socket";
 // 端到端步骤记录在 tasks 决策日志的 manual verification 段。
 
 describe("createSocket", () => {
-  it("默认 endpoint 为 ws://localhost:4000/socket", () => {
+  it("默认 endpoint 为同源 /socket", () => {
     const socket = createSocket();
-    expect(socket.endPointURL()).toContain("ws://localhost:4000/socket");
+    expect(socket.endPointURL()).toContain("/socket");
   });
 
   it("覆盖 endpoint", () => {

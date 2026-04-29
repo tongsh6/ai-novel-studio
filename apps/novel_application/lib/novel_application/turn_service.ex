@@ -14,7 +14,7 @@ defmodule NovelApplication.TurnService do
   """
 
   alias NovelAgent.Memory.Store, as: MemoryStore
-  alias NovelAgent.Router
+  alias NovelAgent.Orchestrator
   alias NovelApplication.AdoptionBoundary
   alias NovelApplication.MemoryRecallService
   alias NovelDomain.Work
@@ -41,13 +41,14 @@ defmodule NovelApplication.TurnService do
   """
   @spec handle_message(String.t(), String.t(), String.t(), String.t() | nil) :: map()
   def handle_message(user_text, workspace_id \\ "lobby", turn_id \\ nil, work_id \\ nil) do
-    turn_id = turn_id || "turn_#{:os.system_time(:millisecond)}"
+    turn = Orchestrator.start_turn(user_text, maybe_turn_id(turn_id))
+    turn_id = turn.turn_id
 
     # 记忆召回：将治理层记忆注入上下文
     memory_context = build_memory_context(work_id, user_text, turn_id)
 
     turn_result =
-      case Router.route(user_text) do
+      case turn.route_result do
         %{intent_name: :unknown} ->
           build_unknown_clarification(turn_id, memory_context)
 
@@ -67,15 +68,18 @@ defmodule NovelApplication.TurnService do
   @doc """
   采纳一个 tentative artifact。
 
-  接收 work_id + base_revision（前端从 TurnResult artifact payload 取），
+  接收 work_id + base_revision（前端从 TurnResult artifact.revision_base 取），
   调用 AdoptionBoundary.accept/3 做显式 revision 检查（07-consistency §8.1）。
   成功时返回合法 TurnResult（phase=COMPLETED, next_action=NO_FURTHER_ACTION，
   artifact 进入 adoption_state.resolved）。
   """
   @spec handle_adopt(String.t(), pos_integer(), map(), String.t(), String.t() | nil) ::
           {:ok, map()} | {:error, term()}
-  def handle_adopt(work_id, base_revision, mutation_attrs, workspace_id \\ "lobby", turn_id \\ nil) do
-    turn_id = turn_id || "turn_#{:os.system_time(:millisecond)}"
+  def handle_adopt(work_id, base_revision, mutation_attrs, workspace_id \\ "lobby", turn_id \\ nil)
+
+  def handle_adopt(work_id, base_revision, mutation_attrs, workspace_id, turn_id)
+      when is_integer(base_revision) and base_revision > 0 do
+    turn_id = turn_id || Orchestrator.allocate_turn_id()
 
     attrs = Map.merge(mutation_attrs, %{source_turn_ref: turn_id})
 
@@ -107,6 +111,10 @@ defmodule NovelApplication.TurnService do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  def handle_adopt(_work_id, _base_revision, _mutation_attrs, _workspace_id, _turn_id) do
+    {:error, :invalid_base_revision}
   end
 
   # ---- Memory Recall (Governed Memory) ----
@@ -214,12 +222,12 @@ defmodule NovelApplication.TurnService do
             artifact_type: "work",
             adoption_status: AdoptionStatus.tentative(),
             requires_adoption: true,
+            revision_base: Integer.to_string(work.revision),
             payload: %{
               title: work.title,
               genre: work.genre,
               core_selling_point: work.core_selling_point,
-              target_reader: work.target_reader,
-              revision: work.revision
+              target_reader: work.target_reader
             }
           }
 
@@ -300,6 +308,9 @@ defmodule NovelApplication.TurnService do
       memory_context: Map.get(fields, :memory_context)
     }
   end
+
+  defp maybe_turn_id(nil), do: []
+  defp maybe_turn_id(turn_id), do: [turn_id: turn_id]
 
   defp build_adoption_state(fields) do
     %{

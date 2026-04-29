@@ -28,13 +28,14 @@ defmodule NovelApplication.MemoryPolicy.DiversityFilter do
 
   # 基于内容关键词重叠去重，保留分数更高者
   defp deduplicate([]), do: []
+
   defp deduplicate([first | rest]) do
-    {kept, remaining} =
+    {kept, _similar} =
       Enum.split_with(rest, fn entry ->
         not similar?(first, entry)
       end)
 
-    [first | deduplicate(kept ++ remaining)]
+    [first | deduplicate(kept)]
   end
 
   defp similar?({m1, _}, {m2, _}) do

@@ -1,3 +1,5 @@
+// Design: N/A (memory management maintenance page — awaits design spec)
+// NOTE: 此组件为 Phase 0 快速验证产物，待 UI 设计阶段需重新对照原型实现
 import { useState } from "react";
 import type { MemoryItem } from "../lib/memoryApi";
 import {
@@ -30,13 +32,13 @@ const TYPE_LABELS: Record<string, string> = {
   DRAFT_CONTEXT: "草稿上下文",
 };
 
-const STATUS_COLORS: Record<string, string> = {
-  DRAFT: "#666",
-  CONFIRMED: "#10b981",
-  STABILIZED: "#3b82f6",
-  CONFLICTED: "#f59e0b",
-  DEPRECATED: "#ef4444",
-  ARCHIVED: "#6b7280",
+const STATUS_CLASS: Record<string, string> = {
+  DRAFT: styles.statusDraft,
+  CONFIRMED: styles.statusConfirmed,
+  STABILIZED: styles.statusStabilized,
+  CONFLICTED: styles.statusConflicted,
+  DEPRECATED: styles.statusDeprecated,
+  ARCHIVED: styles.statusArchived,
 };
 
 export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) {
@@ -62,7 +64,7 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
         </div>
 
         <div className={styles.badges}>
-          <span className={styles.badge} style={{ backgroundColor: STATUS_COLORS[item.status] || "#666" }}>
+          <span className={`${styles.badge} ${STATUS_CLASS[item.status] ?? styles.statusDefault}`}>
             {item.status}
           </span>
           <span className={styles.badge}>{TYPE_LABELS[item.type] ?? item.type}</span>
@@ -136,7 +138,9 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
             <button
               className={styles.btnConfirm}
               disabled={loading !== null}
-              onClick={() => action(confirmMemory)}
+              onClick={() => {
+                void action(confirmMemory);
+              }}
             >
               {loading === "confirmMemory" ? "..." : "确认"}
             </button>
@@ -145,7 +149,9 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
             <button
               className={styles.btnSecondary}
               disabled={loading !== null}
-              onClick={() => action(lockMemory)}
+              onClick={() => {
+                void action(lockMemory);
+              }}
             >
               {loading === "lockMemory" ? "..." : "锁定"}
             </button>
@@ -153,7 +159,9 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
             <button
               className={styles.btnSecondary}
               disabled={loading !== null}
-              onClick={() => action(unlockMemory)}
+              onClick={() => {
+                void action(unlockMemory);
+              }}
             >
               {loading === "unlockMemory" ? "..." : "解锁"}
             </button>
@@ -162,7 +170,9 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
             <button
               className={styles.btnSecondary}
               disabled={loading !== null || item.locked}
-              onClick={() => action(archiveMemory)}
+              onClick={() => {
+                void action(archiveMemory);
+              }}
             >
               {loading === "archiveMemory" ? "..." : "归档"}
             </button>
@@ -171,7 +181,9 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
             <button
               className={styles.btnDanger}
               disabled={loading !== null || item.locked}
-              onClick={() => action(deprecateMemory)}
+              onClick={() => {
+                void action(deprecateMemory);
+              }}
             >
               {loading === "deprecateMemory" ? "..." : "废弃"}
             </button>

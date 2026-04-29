@@ -117,4 +117,10 @@ jobs:
 
       - run: pnpm test
 
+      - name: Frontend audit (deps + Tauri config)
+        run: bash scripts/frontend_audit.sh --quick
+
+      - name: Design trace check
+        run: bash scripts/check_design_trace.sh
+
       - run: pnpm build

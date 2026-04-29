@@ -1,0 +1,175 @@
+.container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100vw;
+  background-color: var(--surface-primary);
+  font-family: var(--sans);
+}
+
+.staleBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 32px;
+  background-color: #FFF8E1;
+  flex-shrink: 0;
+}
+
+.bannerLeft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.bannerStatus {
+  color: var(--accent);
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.bannerDesc {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 14px;
+}
+
+.refreshBtn {
+  background-color: var(--surface-primary);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 6px 16px;
+  border-radius: var(--rounded-sm);
+  font-size: 12px;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 64px;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--border-subtle);
+  flex-shrink: 0;
+}
+
+.contextGroup {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.modeText {
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 1px;
+}
+
+.divider {
+  color: var(--border-subtle);
+  font-family: var(--mono);
+  font-size: 14px;
+}
+
+.titleText {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 20px;
+}
+
+.backBtn {
+  background-color: transparent;
+  color: var(--foreground-primary);
+  border: 1px solid var(--border-subtle);
+  padding: 8px 16px;
+  border-radius: var(--rounded-sm);
+  font-size: 14px;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+.mainArea {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.tocSidebar {
+  display: flex;
+  flex-direction: column;
+  width: 280px;
+  padding: 32px;
+  border-right: 1px solid var(--border-subtle);
+  gap: 24px;
+  flex-shrink: 0;
+  overflow-y: auto;
+}
+
+.tocTitle {
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 12px;
+  letter-spacing: 1.5px;
+}
+
+.tocList {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tocVolume {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: bold;
+}
+
+.tocChapter {
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.tocChapterActive {
+  color: var(--accent);
+  font-family: var(--sans);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.readingContentArea {
+  flex: 1;
+  padding: 64px;
+  display: flex;
+  justify-content: center;
+  overflow-y: auto;
+}
+
+.contentBlock {
+  display: flex;
+  flex-direction: column;
+  width: 700px;
+  gap: 32px;
+}
+
+.chapterTitle {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 32px;
+  font-weight: bold;
+  margin: 0;
+}
+
+.paragraph {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 18px;
+  line-height: 1.8;
+  text-indent: 2em;
+}

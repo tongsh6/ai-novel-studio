@@ -147,4 +147,29 @@ defmodule NovelApplication.TurnServiceTest do
       assert resolved.requires_adoption == false
     end
   end
+
+  describe "handle_message/4 artifact contract" do
+    test "tentative artifact exposes top-level revision_base instead of raw revision" do
+      result =
+        TurnService.handle_message(
+          "写一本玄幻小说，核心卖点是强者重生逆袭，目标读者是成年男性"
+        )
+
+      assert result.next_action == NextAction.adopt_artifacts()
+      assert [artifact] = result.adoption_state.pending
+      assert artifact.revision_base =~ ~r/^\d+$/
+      refute Map.has_key?(artifact.payload, :revision_base)
+      refute Map.has_key?(artifact.payload, :revision)
+    end
+  end
+
+  describe "handle_adopt/5 validation" do
+    test "returns invalid_base_revision for missing or invalid base revision" do
+      assert {:error, :invalid_base_revision} =
+               TurnService.handle_adopt("work-id", nil, %{}, "ws-1")
+
+      assert {:error, :invalid_base_revision} =
+               TurnService.handle_adopt("work-id", 0, %{}, "ws-1")
+    end
+  end
 end

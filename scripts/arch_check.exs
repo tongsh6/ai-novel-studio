@@ -19,10 +19,12 @@ defmodule ArchCheck do
 
   @domain_forbidden [
     # novel_domain 是纯领域模型，不能有副作用或基础设施依赖
+    ~r/use Application/,
     ~r/Ecto\./,
     ~r/Phoenix\./,
     ~r/Repo\./,
     ~r/GenServer/,
+    ~r/Supervisor\.start_link/,
     ~r/DynamicSupervisor/,
     ~r/Registry\./,
     ~r/HTTPoison|Req\.|Finch/,

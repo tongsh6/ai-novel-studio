@@ -1,7 +1,9 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
-  /** WebSocket endpoint，默认 ws://localhost:4000/socket */
+  /** HTTP API endpoint，未配置时使用同源 */
+  readonly VITE_API_ENDPOINT?: string;
+  /** WebSocket endpoint，未配置时使用同源 /socket */
   readonly VITE_WS_ENDPOINT?: string;
 }
 
