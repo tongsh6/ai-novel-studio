@@ -21,6 +21,7 @@ defmodule NovelApplication.AdoptionBoundary do
   alias NovelFoundation.Enums.MutationStatus
   alias NovelPersistence.MutationLog
   alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.Work
 
   @doc """
@@ -98,21 +99,113 @@ defmodule NovelApplication.AdoptionBoundary do
             authority_scope: Map.get(mutation_attrs, :authority_scope),
             requires_adoption: false
           })
-          |> case do
-            {:ok, _mutation} -> {:ok, discarded}
-            {:error, changeset} -> {:error, changeset}
-          end
+          |> then(&wrap_result(&1, discarded))
         end)
         |> Repo.transaction()
-        |> case do
-          {:ok, %{discard: work}} -> {:ok, work}
-          {:error, :mutation, reason, _changes} -> {:error, reason}
-          {:error, _step, reason, _changes} -> {:error, reason}
+        |> then(&unwrap_multi(&1))
+    end
+  end
+
+  # ---- Draft artifact operations ----
+
+  @doc """
+  创建 tentative draft artifact，写入 DB。
+
+  返回带 id + revision 的 draft struct。
+  """
+  @spec create_tentative_draft(map()) :: {:ok, Draft.t()} | {:error, Ecto.Changeset.t()}
+  def create_tentative_draft(attrs) when is_map(attrs) do
+    %Draft{}
+    |> Draft.changeset(build_draft_attrs(attrs))
+    |> Repo.insert()
+  end
+
+  @doc """
+  Accept 一个 tentative draft artifact。
+  """
+  @spec accept_draft(String.t(), pos_integer(), map()) ::
+          {:ok, Draft.t()}
+          | {:error, :not_found}
+          | {:error, :stale_revision}
+          | {:error, term()}
+  def accept_draft(draft_id, base_revision, mutation_attrs)
+      when is_integer(base_revision) and base_revision > 0 do
+    case Repo.get(Draft, draft_id) do
+      nil ->
+        {:error, :not_found}
+
+      draft ->
+        if draft.revision != base_revision do
+          record_rejected_mutation(mutation_attrs, draft)
+          {:error, :stale_revision}
+        else
+          adopt_draft_and_record(draft, mutation_attrs)
         end
     end
   end
 
+  @doc """
+  Discard 一个 tentative draft artifact。
+  """
+  @spec discard_draft(String.t(), map()) ::
+          {:ok, Draft.t()}
+          | {:error, :not_found}
+          | {:error, term()}
+  def discard_draft(draft_id, mutation_attrs) when is_map(mutation_attrs) do
+    case Repo.get(Draft, draft_id) do
+      nil ->
+        {:error, :not_found}
+
+      draft ->
+        Multi.new()
+        |> Multi.update(:discard, Draft.discard_changeset(draft))
+        |> Multi.run(:mutation, fn _repo, %{discard: discarded} ->
+          MutationLog.create_applied(%{
+            actor_ref: mutation_attrs.actor_ref,
+            source_turn_ref: mutation_attrs.source_turn_ref,
+            target_scope: "draft",
+            target_object_ref: mutation_attrs.target_object_ref,
+            base_revision: draft.revision,
+            mutation_type: "discard",
+            authority_scope: Map.get(mutation_attrs, :authority_scope),
+            requires_adoption: false
+          })
+          |> then(&wrap_result(&1, discarded))
+        end)
+        |> Repo.transaction()
+        |> then(&unwrap_multi(&1))
+    end
+  end
+
   # ---- private ----
+
+  defp wrap_result({:ok, _mutation}, value), do: {:ok, value}
+  defp wrap_result({:error, changeset}, _value), do: {:error, changeset}
+
+  defp unwrap_multi({:ok, %{discard: obj}}), do: {:ok, obj}
+  defp unwrap_multi({:ok, %{adopt: obj}}), do: {:ok, obj}
+  defp unwrap_multi({:error, :mutation, reason, _changes}), do: {:error, reason}
+  defp unwrap_multi({:error, _step, reason, _changes}), do: {:error, reason}
+
+  defp adopt_draft_and_record(draft, mutation_attrs) do
+    Multi.new()
+    |> Multi.update(:adopt, Draft.adopt_changeset(draft))
+    |> Multi.run(:mutation, fn _repo, %{adopt: adopted} ->
+      MutationLog.create_applied(%{
+        actor_ref: mutation_attrs.actor_ref,
+        source_turn_ref: mutation_attrs.source_turn_ref,
+        target_scope: "draft",
+        target_object_ref: mutation_attrs.target_object_ref,
+        base_revision: draft.revision,
+        mutation_type: "adoption",
+        authority_scope: Map.get(mutation_attrs, :authority_scope),
+        requires_adoption: false
+      })
+      |> then(&wrap_result(&1, adopted))
+    end)
+    |> Repo.transaction()
+    |> then(&unwrap_multi(&1))
+  end
 
   defp adopt_and_record(work, mutation_attrs) do
     Multi.new()
@@ -129,17 +222,10 @@ defmodule NovelApplication.AdoptionBoundary do
         authority_scope: Map.get(mutation_attrs, :authority_scope),
         requires_adoption: false
       })
-      |> case do
-        {:ok, _mutation} -> {:ok, adopted}
-        {:error, changeset} -> {:error, changeset}
-      end
+      |> then(&wrap_result(&1, adopted))
     end)
     |> Repo.transaction()
-    |> case do
-      {:ok, %{adopt: work}} -> {:ok, work}
-      {:error, :mutation, reason, _changes} -> {:error, reason}
-      {:error, _step, reason, _changes} -> {:error, reason}
-    end
+    |> then(&unwrap_multi(&1))
   end
 
   defp record_rejected_mutation(mutation_attrs, work) do
@@ -166,6 +252,15 @@ defmodule NovelApplication.AdoptionBoundary do
         Map.get(payload, "core_selling_point") || Map.get(payload, :core_selling_point),
       target_reader: Map.get(payload, "target_reader") || Map.get(payload, :target_reader),
       tone_preference: Map.get(payload, "tone_preference") || Map.get(payload, :tone_preference),
+      status: AdoptionStatus.tentative()
+    }
+  end
+
+  defp build_draft_attrs(attrs) do
+    %{
+      work_id: Map.get(attrs, "work_id") || Map.get(attrs, :work_id),
+      scene_id: Map.get(attrs, "scene_id") || Map.get(attrs, :scene_id),
+      content: Map.get(attrs, "content") || Map.get(attrs, :content),
       status: AdoptionStatus.tentative()
     }
   end

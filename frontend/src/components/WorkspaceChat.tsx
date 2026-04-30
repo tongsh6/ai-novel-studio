@@ -189,7 +189,7 @@ export function WorkspaceChat() {
     setLoading(true);
 
     try {
-      await sendMessage(channelRef.current, text);
+      await sendMessage(channelRef.current, text, context.workId);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -207,11 +207,20 @@ export function WorkspaceChat() {
         artifact.artifact_id,
         parseRevisionBase(artifact.revision_base),
         artifact.payload,
+        artifact.artifact_type,
       );
       const title =
         typeof artifact.payload.title === "string"
           ? artifact.payload.title
           : artifact.artifact_id;
+
+      // Update context when Work is adopted (persist work_id for subsequent messages)
+      if (artifact.artifact_type === "work" && typeof artifact.payload.title === "string") {
+        setContext({
+          workId: artifact.artifact_id,
+          workTitle: artifact.payload.title,
+        });
+      }
 
       setMessages((prev) => [
         ...prev,
