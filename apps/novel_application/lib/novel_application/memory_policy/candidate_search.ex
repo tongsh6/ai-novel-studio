@@ -98,8 +98,9 @@ defmodule NovelApplication.MemoryPolicy.CandidateSearch do
     |> String.replace(~r/[，。！？、；：""''（）\s]+/, " ")
     |> String.split(" ")
     |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == "" or String.length(&1) < 2))
-    |> Enum.reject(&(&1 in @stop_words))
+    |> Enum.reject(fn token ->
+      token == "" or String.length(token) < 2 or token in @stop_words
+    end)
   end
 
   defp scope_match?(%{scope: memory_scope}, _task_scope)

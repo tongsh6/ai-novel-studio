@@ -14,6 +14,9 @@ defmodule NovelWeb.Router do
   scope "/api", NovelWeb do
     pipe_through(:api)
 
+    get("/provider/health", ProviderController, :health)
+    post("/system/shutdown", SystemController, :shutdown)
+
     scope "/works/:work_id" do
       post("/memories", MemoryController, :create)
       get("/memories", MemoryController, :index)

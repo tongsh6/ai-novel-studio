@@ -19,4 +19,14 @@ config :novel_web, NovelWeb.Endpoint,
 
 config :logger, level: :warning
 
+# Provider Gateway — 测试环境默认 stub，单测可手动注入 adapter
+config :novel_agent, :provider,
+  default: :stub,
+  fallback: :stub
+
+config :novel_agent, NovelAgent.Provider.LMStudio,
+  endpoint: "http://localhost:1234/v1",
+  model: "local-model",
+  timeout: 5_000
+
 config :novel_application, sync_memory_reference_log: true

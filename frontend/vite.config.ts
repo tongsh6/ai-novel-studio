@@ -7,5 +7,16 @@ export default defineConfig({
   server: {
     port: Number(process.env.VITE_DEV_PORT) || 5768,
     strictPort: false,
+    proxy: {
+      "/api": {
+        target: process.env.VITE_API_ENDPOINT || "http://localhost:4657",
+        changeOrigin: true,
+      },
+      "/socket": {
+        target: (process.env.VITE_WS_ENDPOINT || "ws://localhost:4657").replace(/^ws/, "http"),
+        changeOrigin: true,
+        ws: true,
+      },
+    },
   },
 });

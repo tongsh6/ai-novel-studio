@@ -1,22 +1,23 @@
 defmodule NovelApplication.MemoryRecallServiceTest do
   use ExUnit.Case, async: false
 
-  alias NovelApplication.MemoryService
-  alias NovelApplication.MemoryPolicy.HardFilter
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.MemoryPolicy.CandidateSearch
-  alias NovelApplication.MemoryPolicy.Reranker
   alias NovelApplication.MemoryPolicy.DiversityFilter
+  alias NovelApplication.MemoryPolicy.HardFilter
+  alias NovelApplication.MemoryPolicy.Reranker
   alias NovelApplication.MemoryPolicy.TokenPacker
   alias NovelApplication.MemoryRecallService
-  alias NovelFoundation.Enums.MemoryType
+  alias NovelApplication.MemoryService
   alias NovelFoundation.Enums.MemoryScope
-  alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryStatus
+  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.ID
 
   setup do
-    Ecto.Adapters.SQL.Sandbox.checkout(NovelPersistence.Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(NovelPersistence.Repo, {:shared, self()})
+    Sandbox.checkout(NovelPersistence.Repo)
+    Sandbox.mode(NovelPersistence.Repo, {:shared, self()})
     work_id = ID.uuid()
     {:ok, work_id: work_id}
   end
@@ -92,7 +93,7 @@ defmodule NovelApplication.MemoryRecallServiceTest do
       {:ok, m2} = MemoryService.create(base_attrs(wid, %{content: "主角喜欢吃面"}))
 
       scored = CandidateSearch.search([m1, m2], query: "雪山 龙")
-      assert length(scored) >= 1
+      assert scored != []
       {top_m, top_score} = hd(scored)
       assert top_m.id == m1.id
       assert top_score > 0

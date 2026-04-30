@@ -1,16 +1,17 @@
 defmodule NovelApplication.MemoryServiceTest do
   use ExUnit.Case, async: false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.MemoryService
-  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.Enums.MemoryScope
-  alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryStatus
+  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.ID
   alias NovelPersistence.MutationLog
 
   setup do
-    Ecto.Adapters.SQL.Sandbox.checkout(NovelPersistence.Repo)
+    Sandbox.checkout(NovelPersistence.Repo)
     work_id = ID.uuid()
     {:ok, work_id: work_id}
   end
@@ -191,7 +192,7 @@ defmodule NovelApplication.MemoryServiceTest do
         )
 
       results = MemoryService.search(work_id: wid, keyword: "龙骑士")
-      assert length(results) >= 1
+      assert results != []
     end
   end
 

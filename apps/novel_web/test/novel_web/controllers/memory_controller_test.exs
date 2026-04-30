@@ -1,15 +1,16 @@
 defmodule NovelWeb.MemoryControllerTest do
   use NovelWeb.ConnCase, async: false
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.MemoryService
-  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.Enums.MemoryScope
   alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.ID
 
   setup do
-    Ecto.Adapters.SQL.Sandbox.checkout(NovelPersistence.Repo)
-    Ecto.Adapters.SQL.Sandbox.mode(NovelPersistence.Repo, {:shared, self()})
+    Sandbox.checkout(NovelPersistence.Repo)
+    Sandbox.mode(NovelPersistence.Repo, {:shared, self()})
     work_id = ID.uuid()
     {:ok, work_id: work_id}
   end

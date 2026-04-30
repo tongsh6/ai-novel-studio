@@ -1,6 +1,7 @@
 defmodule NovelAgentTest do
   use ExUnit.Case, async: false
 
+  alias NovelAgent.Agent.Writer
   alias NovelAgent.Runtime.Agent, as: Agent
   alias NovelAgent.Runtime.AuthorSession, as: Author
   alias NovelAgent.Runtime.WorkspaceSession, as: Workspace
@@ -46,7 +47,7 @@ defmodule NovelAgentTest do
       assert {:ok, _} = NovelAgent.start_author("ws-id", "author-x")
       assert {:ok, pid} = NovelAgent.spawn_agent("ws-id", "author-x", "writer-id-1", :writer)
 
-      identity = NovelAgent.Agent.Writer.identity(pid)
+      identity = Writer.identity(pid)
 
       assert identity.agent_id == "writer-id-1"
       assert identity.agent_type == :writer

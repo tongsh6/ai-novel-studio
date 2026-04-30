@@ -1,11 +1,12 @@
 defmodule NovelPersistence.MemoryReferenceLogTest do
   use NovelPersistence.DataCase, async: true
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelFoundation.ID
   alias NovelPersistence.MemoryReferenceLog
 
   setup do
-    Ecto.Adapters.SQL.Sandbox.checkout(NovelPersistence.Repo)
+    Sandbox.checkout(NovelPersistence.Repo)
     :ok
   end
 

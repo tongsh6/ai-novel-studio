@@ -13,8 +13,8 @@ describe("createSocket", () => {
   });
 
   it("覆盖 endpoint", () => {
-    const socket = createSocket({ endpoint: "ws://example.com/socket" });
-    expect(socket.endPointURL()).toContain("ws://example.com/socket");
+    const socket = createSocket({ endpoint: "wss://example.com/socket" });
+    expect(socket.endPointURL()).toContain("wss://example.com/socket");
   });
 });
 

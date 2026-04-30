@@ -96,7 +96,7 @@ defmodule Mix.Tasks.Codegen.Enums do
           {string_values, "String.t()", "is_binary(v)"}
 
         other ->
-          raise "unknown x-form #{inspect(other)} in #{source}; expected \"string\" or \"atom\""
+          raise ~s(unknown x-form #{inspect(other)} in #{source}; expected "string" or "atom")
       end
 
     accessors =

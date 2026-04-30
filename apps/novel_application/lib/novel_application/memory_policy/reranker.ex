@@ -35,16 +35,16 @@ defmodule NovelApplication.MemoryPolicy.Reranker do
     ref_time = m.last_referenced_at || m.updated_at || now
     days_ago = DateTime.diff(now, ref_time, :day)
 
-    cond do
-      days_ago <= 0 -> 1.0
-      days_ago <= 1 -> 0.9
-      days_ago <= 3 -> 0.7
-      days_ago <= 7 -> 0.5
-      days_ago <= 14 -> 0.3
-      days_ago <= 30 -> 0.1
-      true -> 0.05
-    end
+    recency_score(days_ago)
   end
+
+  defp recency_score(days_ago) when days_ago <= 0, do: 1.0
+  defp recency_score(days_ago) when days_ago <= 1, do: 0.9
+  defp recency_score(days_ago) when days_ago <= 3, do: 0.7
+  defp recency_score(days_ago) when days_ago <= 7, do: 0.5
+  defp recency_score(days_ago) when days_ago <= 14, do: 0.3
+  defp recency_score(days_ago) when days_ago <= 30, do: 0.1
+  defp recency_score(_days_ago), do: 0.05
 
   defp calc_usage_boost(ref_count) do
     boost = :math.log(1 + ref_count) * 0.03

@@ -1,8 +1,8 @@
 defmodule NovelWeb.MemoryController do
   use Phoenix.Controller, formats: [:json]
 
-  alias NovelApplication.MemoryService
   alias NovelApplication.MemoryRecallService
+  alias NovelApplication.MemoryService
 
   @doc "POST /api/works/:work_id/memories — 创建记忆"
   def create(conn, %{"work_id" => work_id} = params) do

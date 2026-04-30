@@ -176,8 +176,13 @@ defmodule NovelFoundation.TurnResultValidator do
 
   defp check_enum(violations, key, tr, validator) do
     case Map.get(tr, key) do
-      nil -> violations
-      v -> if validator.(v), do: violations, else: ["#{key}=#{inspect(v)} not in canonical set" | violations]
+      nil ->
+        violations
+
+      v ->
+        if validator.(v),
+          do: violations,
+          else: ["#{key}=#{inspect(v)} not in canonical set" | violations]
     end
   end
 
@@ -201,27 +206,34 @@ defmodule NovelFoundation.TurnResultValidator do
   defp check_active_behavior(violations, %{active: active}) when is_map(active) do
     violations
     |> require_keys(active, [:behavior_type, :behavior_id, :status], "behavior_state.active")
-    |> then(fn vs ->
-      case Map.get(active, :status) do
-        nil -> vs
-        s -> if BehaviorStatus.valid?(s), do: vs, else: ["behavior_state.active.status=#{inspect(s)} not in canonical set" | vs]
-      end
-    end)
-    |> then(fn vs ->
-      case Map.get(active, :status) do
-        s when s in ["RESOLVED", "CANCELLED", "EXPIRED"] ->
-          ["behavior_state.active.status=#{s} is terminal, must move to history (ADR-0002 §8)" | vs]
-
-        _ ->
-          vs
-      end
-    end)
+    |> validate_active_behavior_status(active)
+    |> reject_terminal_active_behavior(active)
   end
 
   defp check_active_behavior(violations, %{active: other}),
     do: ["behavior_state.active must be map or nil, got #{inspect(other)}" | violations]
 
   defp check_active_behavior(violations, _), do: violations
+
+  defp validate_active_behavior_status(violations, %{status: nil}), do: violations
+
+  defp validate_active_behavior_status(violations, %{status: status}) do
+    if BehaviorStatus.valid?(status) do
+      violations
+    else
+      ["behavior_state.active.status=#{inspect(status)} not in canonical set" | violations]
+    end
+  end
+
+  defp reject_terminal_active_behavior(violations, %{status: status})
+       when status in ["RESOLVED", "CANCELLED", "EXPIRED"] do
+    [
+      "behavior_state.active.status=#{status} is terminal, must move to history (ADR-0002 §8)"
+      | violations
+    ]
+  end
+
+  defp reject_terminal_active_behavior(violations, _active), do: violations
 
   defp check_adoption_state(violations, tr) do
     case Map.get(tr, :adoption_state) do
@@ -252,17 +264,30 @@ defmodule NovelFoundation.TurnResultValidator do
 
   defp check_artifact_entry(violations, entry, label) when is_map(entry) do
     violations
-    |> require_keys(entry, [:artifact_id, :artifact_type, :adoption_status, :requires_adoption], label)
-    |> then(fn vs ->
-      case Map.get(entry, :adoption_status) do
-        nil -> vs
-        s -> if AdoptionStatus.valid?(s), do: vs, else: ["#{label}.adoption_status=#{inspect(s)} not in canonical set" | vs]
-      end
-    end)
+    |> require_keys(
+      entry,
+      [:artifact_id, :artifact_type, :adoption_status, :requires_adoption],
+      label
+    )
+    |> validate_adoption_status(entry, label)
   end
 
   defp check_artifact_entry(violations, other, label),
     do: ["#{label} must be a map, got #{inspect(other)}" | violations]
+
+  defp validate_adoption_status(violations, entry, label) do
+    case Map.get(entry, :adoption_status) do
+      nil ->
+        violations
+
+      status ->
+        if AdoptionStatus.valid?(status) do
+          violations
+        else
+          ["#{label}.adoption_status=#{inspect(status)} not in canonical set" | violations]
+        end
+    end
+  end
 
   defp check_phase_next_action_compat(violations, tr) do
     phase = Map.get(tr, :phase)
@@ -270,9 +295,17 @@ defmodule NovelFoundation.TurnResultValidator do
 
     if is_binary(phase) and is_binary(action) do
       case PhaseNextActionCompat.allowed?(:turn, phase, action) do
-        true -> violations
-        :not_constrained -> violations
-        false -> ["next_action=#{inspect(action)} not allowed in turn phase=#{phase} (ADR-0002 §7)" | violations]
+        true ->
+          violations
+
+        :not_constrained ->
+          violations
+
+        false ->
+          [
+            "next_action=#{inspect(action)} not allowed in turn phase=#{phase} (ADR-0002 §7)"
+            | violations
+          ]
       end
     else
       violations
@@ -287,7 +320,10 @@ defmodule NovelFoundation.TurnResultValidator do
       if action in allowed do
         violations
       else
-        ["next_action=#{inspect(action)} not allowed while behavior_state.active is set (ADR-0002 §7 rule 3); allowed: #{inspect(allowed)}" | violations]
+        [
+          "next_action=#{inspect(action)} not allowed while behavior_state.active is set (ADR-0002 §7 rule 3); allowed: #{inspect(allowed)}"
+          | violations
+        ]
       end
     else
       _ -> violations

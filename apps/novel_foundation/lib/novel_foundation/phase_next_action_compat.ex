@@ -25,7 +25,7 @@ defmodule NovelFoundation.PhaseNextActionCompat do
   @matrix Map.fetch!(@raw, "matrix")
   @rules Map.fetch!(@raw, "rules")
 
-  @doc "返回原始矩阵（key 形如 \"turn:<phase>\" / \"task:<phase>\"）。"
+  @doc ~S(返回原始矩阵（key 形如 "turn:<phase>" / "task:<phase>"）。)
   @spec matrix() :: map()
   def matrix, do: @matrix
 

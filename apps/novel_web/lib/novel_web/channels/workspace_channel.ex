@@ -19,8 +19,13 @@ defmodule NovelWeb.WorkspaceChannel do
   @impl true
   def handle_in("user_message", %{"text" => text}, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
-    turn_result = TurnService.handle_message(text, ws_id)
-    broadcast!(socket, "turn_result", turn_result)
+
+    # LLM 调用耗时长（10-30s），先回复收到，异步广播结果
+    Task.start(fn ->
+      turn_result = TurnService.handle_message(text, ws_id)
+      NovelWeb.Endpoint.broadcast!("workspace:#{ws_id}", "turn_result", turn_result)
+    end)
+
     {:reply, {:ok, %{received: true}}, socket}
   end
 

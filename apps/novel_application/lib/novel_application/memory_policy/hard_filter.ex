@@ -10,8 +10,8 @@ defmodule NovelApplication.MemoryPolicy.HardFilter do
   - scope 与当前 scope 匹配（可选过滤）
   """
 
-  alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryScope
+  alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
 
   @broad_scopes [MemoryScope.global(), MemoryScope.work()]

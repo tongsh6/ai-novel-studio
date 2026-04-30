@@ -2,34 +2,34 @@ defmodule NovelAgent.Router do
   @moduledoc """
   Router — 识别 intent + 抽取 slots。
 
-  Phase 0 Week 4：基于关键词 + 简单正则。
-  Phase 1：LLM-based slot filling（当前仍为关键词版）。
-  Phase 1 ADR-0010：slot schema 升级为完整 envelope（9 字段 slot entry）。
+  两步都走 LLM（Provider Gateway）：
+  1. classify_intent — LLM 分类用户意图到已注册 intent
+  2. extract_slots  — LLM 根据 slot schema 从用户消息中抽取 slot 值
+
+  LLM 不可用时返回 :unknown（触发 clarification），不假装理解用户输入。
   """
+
+  require Logger
 
   alias NovelAgent.IntentRegistry
   alias NovelAgent.IntentRegistry.SlotSchema
+  alias NovelAgent.Provider.Gateway
   alias NovelAgent.Router.Result
-
-  @genre_keywords %{
-    "玄幻" => "玄幻",
-    "奇幻" => "奇幻",
-    "武侠" => "武侠",
-    "仙侠" => "仙侠",
-    "都市" => "都市",
-    "科幻" => "科幻",
-    "悬疑" => "悬疑",
-    "历史" => "历史",
-    "言情" => "言情",
-    "军事" => "军事",
-    "游戏" => "游戏",
-    "体育" => "体育"
-  }
 
   @doc "对用户输入文本做路由。返回 Router.Result struct。"
   @spec route(String.t()) :: Result.t()
   def route(text) when is_binary(text) do
-    intent_name = identify_intent(text)
+    do_route(text, Gateway)
+  end
+
+  @doc false
+  @spec route(String.t(), module()) :: Result.t()
+  def route(text, gateway_mod) when is_binary(text) do
+    do_route(text, gateway_mod)
+  end
+
+  defp do_route(text, gateway_mod) do
+    intent_name = classify_intent(text, gateway_mod)
 
     case IntentRegistry.get(intent_name) do
       nil ->
@@ -43,8 +43,9 @@ defmodule NovelAgent.Router do
         }
 
       schema ->
-        extracted = extract_slots(text, schema)
+        extracted = extract_slots(text, schema, gateway_mod)
         missing = missing_blocking(schema, extracted)
+        meta = IntentRegistry.meta(intent_name) || %{risk_class: "low", requires_confirmation: false}
 
         %Result{
           intent_name: schema.intent_name,
@@ -52,60 +53,64 @@ defmodule NovelAgent.Router do
           extracted_slots: extracted,
           missing_required_slots: missing,
           needs_clarification: missing != [],
-          deferred_to_runtime: schema.deferred_to_runtime
+          deferred_to_runtime: schema.deferred_to_runtime,
+          requires_confirmation: meta.requires_confirmation,
+          risk_class: meta.risk_class
         }
     end
   end
 
-  # ---- private ----
+  # ---- Step 1: Intent classification ----
 
-  defp identify_intent(text) do
-    if String.contains?(text, "建") or String.contains?(text, "创建") or
-         String.contains?(text, "写") or String.contains?(text, "创作") do
-      :create_work_seed
-    else
-      :unknown
+  defp classify_intent(text, gateway_mod) do
+    prompt = IntentRegistry.classification_prompt() <> "\n\n用户消息：#{text}"
+
+    case gateway_mod.complete(prompt) do
+      {:ok, result} ->
+        parsed = String.trim(result) |> String.replace(~r/["'`]/, "")
+
+        if String.starts_with?(parsed, "intent.") and IntentRegistry.get(parsed) != nil do
+          Logger.debug("[路由] LLM 分类为 #{parsed}")
+          parsed
+        else
+          Logger.debug("[路由] LLM 分类结果不可识别：#{inspect(parsed)}")
+          :unknown
+        end
+
+      {:error, error} ->
+        Logger.warning("[路由] LLM 不可用，无法分类意图：#{inspect(error)}")
+        :unknown
     end
   end
 
-  defp extract_slots(text, %SlotSchema{} = schema) do
-    Enum.reduce(schema.slots, %{}, fn slot_entry, acc ->
-      name = slot_entry.slot_name
+  # ---- Step 2: Slot extraction ----
 
-      case extract_slot(text, name) do
-        nil -> acc
-        value -> Map.put(acc, name, value)
-      end
-    end)
-  end
+  defp extract_slots(text, %SlotSchema{} = schema, gateway_mod) do
+    prompt = IntentRegistry.slot_extraction_prompt(schema.intent_name)
+    full_prompt = "#{prompt}\n\n用户消息：#{text}"
 
-  defp extract_slot(text, "genre") do
-    Enum.find_value(@genre_keywords, fn {keyword, genre} ->
-      if String.contains?(text, keyword), do: genre
-    end)
-  end
+    case gateway_mod.complete(full_prompt) do
+      {:ok, result} ->
+        case Jason.decode(String.trim(result)) do
+          {:ok, slots} when is_map(slots) ->
+            Logger.debug("[路由] LLM 抽取到 #{map_size(slots)} 个 slot")
+            stringify_keys(slots)
 
-  defp extract_slot(text, "core_selling_point") do
-    extract_after_label(text, "核心卖点")
-  end
+          {:error, _} ->
+            Logger.warning("[路由] LLM slot 抽取返回了无效 JSON")
+            %{}
+        end
 
-  defp extract_slot(text, "target_reader") do
-    extract_after_label(text, "目标读者")
-  end
-
-  defp extract_slot(_text, _slot_name), do: nil
-
-  defp extract_after_label(text, label) do
-    pattern = ~r/#{label}(?:是|为|：|:)?([^，。；;\n]+)/u
-
-    case Regex.run(pattern, text) do
-      [_match, value] -> String.trim(value)
-      _ -> nil
+      {:error, error} ->
+        Logger.warning("[路由] LLM 不可用，无法抽取 slot：#{inspect(error)}")
+        %{}
     end
   end
 
-  # Only slots that are required_to_execute AND not_inferable AND no_default
-  # are "blocking" — if any are missing, clarification must trigger.
+  defp stringify_keys(map) do
+    Map.new(map, fn {k, v} -> {to_string(k), to_string(v)} end)
+  end
+
   defp missing_blocking(%SlotSchema{} = schema, extracted) do
     schema
     |> SlotSchema.blocking_slots()
