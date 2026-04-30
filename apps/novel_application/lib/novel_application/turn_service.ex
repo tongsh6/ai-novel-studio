@@ -162,6 +162,8 @@ defmodule NovelApplication.TurnService do
   # ---- Unknown intent ----
 
   defp build_unknown_clarification(turn_id, memory_context) do
+    behavior_id = "behavior_#{turn_id}"
+
     build_turn_result(turn_id, %{
       phase: TurnPhase.needs_clarification(),
       status: Status.waiting_user(),
@@ -169,10 +171,16 @@ defmodule NovelApplication.TurnService do
       assistant_text: "抱歉，我不太理解你的意图。请重新描述一下？",
       behavior: %{
         behavior_type: "clarification",
-        behavior_id: "behavior_#{turn_id}",
+        behavior_id: behavior_id,
         status: BehaviorStatus.waiting_user(),
         resolution_ref: nil
       },
+      ui_cards: [
+        clarification_card(behavior_id,
+          title: "需要补充信息",
+          body: "请重新描述你的意图，我会尽力理解。"
+        )
+      ],
       memory_context: memory_context
     })
   end
@@ -182,6 +190,7 @@ defmodule NovelApplication.TurnService do
   defp build_create_work_clarification(turn_id, route_result, memory_context) do
     missing = route_result.missing_required_slots
     genre = route_result.extracted_slots["genre"] || "未指定"
+    behavior_id = "behavior_#{turn_id}"
 
     build_turn_result(turn_id, %{
       phase: TurnPhase.needs_clarification(),
@@ -192,11 +201,18 @@ defmodule NovelApplication.TurnService do
           (missing |> Enum.map_join("\n", &slot_label/1)),
       behavior: %{
         behavior_type: "clarification",
-        behavior_id: "behavior_#{turn_id}",
+        behavior_id: behavior_id,
         status: BehaviorStatus.waiting_user(),
         resolution_ref: nil,
         missing_slots: missing
       },
+      ui_cards: [
+        clarification_card(behavior_id,
+          title: "需要补充信息",
+          body: "好的，你想创建一部#{genre}小说。在开始之前，我还需要了解更多信息：\n" <>
+            (missing |> Enum.map_join("\n", &slot_label/1))
+        )
+      ],
       memory_context: memory_context
     })
   end
@@ -258,6 +274,26 @@ defmodule NovelApplication.TurnService do
       ui_cards: [adoption_card(slots, artifact.artifact_id)],
       memory_context: memory_context
     })
+  end
+
+  defp clarification_card(behavior_id, opts) do
+    %{
+      card_type: "clarification_card",
+      priority: "normal",
+      visibility: "primary",
+      title: Keyword.get(opts, :title, "需要补充信息"),
+      body: Keyword.get(opts, :body, ""),
+      actions: [
+        %{
+          action_id: "answer",
+          action_type: "answer",
+          label: "输入回答",
+          target_ref: behavior_id,
+          enabled: true,
+          style_hint: "primary"
+        }
+      ]
+    }
   end
 
   defp adoption_card(slots, artifact_id) do
