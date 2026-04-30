@@ -83,10 +83,11 @@ export function rejectAction(
 export function discardArtifact(
   channel: Channel,
   artifactId: string,
+  artifactType?: string,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("discard", { artifact_id: artifactId })
+      .push("discard", { artifact_id: artifactId, artifact_type: artifactType })
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("discard timeout")));
@@ -106,6 +107,27 @@ export function adopt(
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("adopt timeout")));
+  });
+}
+
+export function modifyDraft(
+  channel: Channel,
+  draftId: string,
+  baseRevision: number | undefined,
+  content: string,
+  instruction: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("modify_draft", {
+        draft_id: draftId,
+        base_revision: baseRevision,
+        content,
+        instruction,
+      })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("modify_draft timeout")));
   });
 }
 

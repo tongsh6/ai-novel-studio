@@ -64,10 +64,34 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
-  def handle_in("discard", %{"artifact_id" => artifact_id}, socket) do
+  def handle_in("discard", %{"artifact_id" => artifact_id} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
+    artifact_type = Map.get(msg, "artifact_type")
 
-    case TurnService.handle_discard(artifact_id, ws_id) do
+    result =
+      if artifact_type == "draft_text" do
+        TurnService.handle_discard_draft(artifact_id, ws_id)
+      else
+        TurnService.handle_discard(artifact_id, ws_id)
+      end
+
+    case result do
+      {:ok, turn_result} ->
+        broadcast!(socket, "turn_result", turn_result)
+        {:reply, {:ok, %{received: true}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
+  def handle_in("modify_draft", %{"draft_id" => draft_id} = msg, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    base_revision = parse_base_revision(Map.get(msg, "base_revision"))
+    content = Map.get(msg, "content", "")
+    instruction = Map.get(msg, "instruction", "")
+
+    case TurnService.handle_modify_draft(draft_id, base_revision, content, instruction, ws_id) do
       {:ok, turn_result} ->
         broadcast!(socket, "turn_result", turn_result)
         {:reply, {:ok, %{received: true}}, socket}
