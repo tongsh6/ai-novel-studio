@@ -55,4 +55,11 @@ defmodule NovelPersistence.Schemas.Work do
     |> change(status: AdoptionStatus.accepted(), adopted_at: DateTime.utc_now())
     |> optimistic_lock(:revision)
   end
+
+  @doc "Mark a tentative work as discarded."
+  def discard_changeset(work) do
+    work
+    |> change(status: AdoptionStatus.discarded())
+    |> optimistic_lock(:revision)
+  end
 end

@@ -133,6 +133,52 @@ defmodule NovelApplication.TurnService do
   end
 
   @doc """
+  丢弃一个 tentative artifact。
+
+  将 work 状态设为 DISCARDED，返回 TurnResult。
+  """
+  @spec handle_discard(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def handle_discard(work_id, workspace_id \\ "lobby") do
+    turn_id = Orchestrator.allocate_turn_id()
+
+    mutation_attrs = %{
+      actor_ref: "user",
+      source_turn_ref: turn_id,
+      target_scope: "work",
+      target_object_ref: work_id
+    }
+
+    case AdoptionBoundary.discard(work_id, mutation_attrs) do
+      {:ok, work} ->
+        artifact = %{
+          artifact_id: work.id,
+          artifact_type: "work",
+          adoption_status: AdoptionStatus.discarded(),
+          requires_adoption: false,
+          payload: %{title: work.title, genre: work.genre, status: work.status}
+        }
+
+        text = "已丢弃「#{work.title}」。"
+
+        turn_result =
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.completed(),
+            status: Status.done(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: text,
+            resolved_artifacts: [artifact]
+          })
+
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+
+        {:ok, TurnResultValidator.validate!(turn_result)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
   确认执行前等待的操作。behavior_id 对应 confirmation_card 中的 behavior。
 
   从 AuthorityGate 取回 pending confirmation 上下文，执行原 intent。
@@ -475,13 +521,23 @@ defmodule NovelApplication.TurnService do
       actions: [
         %{
           action_id: "accept",
+          action_type: "accept",
           label: "确认创建",
           target_ref: artifact_id,
           enabled: true,
           style_hint: "primary"
         },
         %{
+          action_id: "edit_then_accept",
+          action_type: "edit_then_accept",
+          label: "修改后采纳",
+          target_ref: artifact_id,
+          enabled: true,
+          style_hint: "secondary"
+        },
+        %{
           action_id: "discard",
+          action_type: "discard",
           label: "放弃",
           target_ref: artifact_id,
           enabled: true,

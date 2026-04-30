@@ -69,6 +69,49 @@ defmodule NovelApplication.AdoptionBoundary do
     end
   end
 
+  @doc """
+  Discard 一个 tentative artifact。
+
+  将 work 状态设为 DISCARDED，记录 CANCELLED mutation。
+  """
+  @spec discard(String.t(), map()) ::
+          {:ok, Work.t()}
+          | {:error, :not_found}
+          | {:error, term()}
+  def discard(work_id, mutation_attrs) when is_map(mutation_attrs) do
+    case Repo.get(Work, work_id) do
+      nil ->
+        {:error, :not_found}
+
+      work ->
+        Multi.new()
+        |> Multi.update(:discard, Work.discard_changeset(work))
+        |> Multi.run(:mutation, fn _repo, %{discard: discarded} ->
+          MutationLog.create_applied(%{
+            actor_ref: mutation_attrs.actor_ref,
+            source_turn_ref: mutation_attrs.source_turn_ref,
+            source_task_ref: Map.get(mutation_attrs, :source_task_ref),
+            target_scope: mutation_attrs.target_scope,
+            target_object_ref: mutation_attrs.target_object_ref,
+            base_revision: work.revision,
+            mutation_type: "discard",
+            authority_scope: Map.get(mutation_attrs, :authority_scope),
+            requires_adoption: false
+          })
+          |> case do
+            {:ok, _mutation} -> {:ok, discarded}
+            {:error, changeset} -> {:error, changeset}
+          end
+        end)
+        |> Repo.transaction()
+        |> case do
+          {:ok, %{discard: work}} -> {:ok, work}
+          {:error, :mutation, reason, _changes} -> {:error, reason}
+          {:error, _step, reason, _changes} -> {:error, reason}
+        end
+    end
+  end
+
   # ---- private ----
 
   defp adopt_and_record(work, mutation_attrs) do

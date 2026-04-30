@@ -102,6 +102,9 @@ export const CARD = {
   tentativeArtifact: {
     title: "待采纳",
     description: "AI 建议进行以下改动",
+    acceptLabel: "确认创建",
+    discardLabel: "放弃",
+    editThenAcceptLabel: "修改后采纳",
   },
   adoption: {
     title: "已采纳",
