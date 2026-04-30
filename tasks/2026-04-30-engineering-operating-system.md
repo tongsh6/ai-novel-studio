@@ -2,7 +2,7 @@
 
 - 启动日期：2026-04-30
 - 范围依据：`docs/engineering/architecture-operating-system.md`
-- 当前状态：Phase 1 done，Phase 2 已规划（VS-007/VS-008/VS-009）
+- 当前状态：Phase 1 done，Phase 2 done，Phase 3 done（VS-001~012 全部闭环）
 
 ## 范围
 
@@ -35,9 +35,12 @@
 | T11 | 追行 VS-005 | done | `ed9710f` | Accepted Artifact Marks Projection Stale |
 | T12 | Phase 2 项目态势分析 | done | — | 产出 Top 3 优先级 + VS-007/VS-008/VS-009 规划 |
 | T13 | 建立 VS-007/VS-008/VS-009 slice 文件 + DAG 更新 | done | — | 三个新 slice 已写入 tasks/slices/ |
-| T14 | 施工 VS-009 | todo | — | Governed Memory Recall Pipeline Close（有未提交代码基础） |
-| T15 | 施工 VS-008 | todo | — | Provider Gateway Real Adapter (Anthropic) |
-| T16 | 施工 VS-007 | todo | — | Intent Registry Expansion + Router LLM 升级 |
+| T14 | 施工 VS-009 | done | `c87d09c` | Governed Memory Recall Pipeline Close |
+| T15 | 施工 VS-008 | done | `c87d09c` | Provider Gateway Real Adapter (LM Studio) |
+| T16 | 施工 VS-007 | done | `c87d09c` | Intent Registry Expansion + Router LLM 升级 |
+| T17 | 施工 VS-010 | done | `7dbbb24` | Novel Domain Core Objects |
+| T18 | 施工 VS-011 | done | `a5bad12` | Real Provider Gateway (Anthropic API) |
+| T19 | 施工 VS-012 | done | `11d2055` | End-to-End Creative Turn Pipeline |
 
 ## 阶段规划
 
@@ -45,11 +48,12 @@
 |---|---|---|---|
 | Phase 0 | 固化蓝图与试行入口 | blueprint / vertical-slice / DAG / task | done |
 | Phase 1 | 用 2-3 个 slice 验证规则 | VS-001 / VS-006 / VS-002 完成记录 | done (3/3 done) |
-| Phase 2 | VS-007/VS-008/VS-009 承重扩张 | Intent Registry + Provider + Memory Recall 收束 | in_progress |
-| Phase 3 | 深模块图谱 | `docs/engineering/deep-modules.md` | todo |
-| Phase 4 | 正交切面治理 | `docs/engineering/cross-cutting-concerns.md` | todo |
-| Phase 5 | 适应度函数脚本化 | `scripts/check_*` 候选 | todo |
-| Phase 6 | 性能与时序压测 | budget / benchmark / checkpoint 策略 | todo |
+| Phase 2 | VS-007/VS-008/VS-009 承重扩张 | Intent Registry + Provider + Memory Recall 收束 | done |
+| Phase 3 | VS-010/VS-011/VS-012 功能竖切面 | Domain 核心对象 + Anthropic Provider + 端到端链路 | done |
+| Phase 4 | 深模块图谱 | `docs/engineering/deep-modules.md` | todo |
+| Phase 5 | 正交切面治理 | `docs/engineering/cross-cutting-concerns.md` | todo |
+| Phase 6 | 适应度函数脚本化 | `scripts/check_*` 候选 | todo |
+| Phase 7 | 性能与时序压测 | budget / benchmark / checkpoint 策略 | todo |
 
 ## 决策日志
 
@@ -59,7 +63,8 @@
 
 ## 卡点 / TBD
 
-- VS-001~VS-006 试行已完成，试行反馈记录在各 slice 文件中。核心发现：IntentRegistry 仅 1 个 intent、Router 为关键词实现、Provider 为 stub。
+- VS-001~VS-012 全部闭环，试行反馈记录在各 slice 文件中。
+- VS-012 自认缺口：modify_draft 未实现、ReadingMode 真内容未渲染、StructurePanel 真实数据未接入、arch_check 1 个预存违规。
 - 需要后续补 `docs/engineering/deep-modules.md`，把 TurnService、AdoptionBoundary、MemoryRecallService 等模块建成深模块图谱。
 
 ## 下次会话恢复指引
@@ -69,7 +74,5 @@
 1. `docs/engineering/architecture-operating-system.md`
 2. `tasks/2026-04-30-engineering-operating-system.md`
 3. `tasks/slices/DAG.md`
-4. 当前施工优先级：`VS-009`（收束未提交 memory 改动）→ `VS-008`（Provider Gateway）→ `VS-007`（Intent Registry）
-
-如果要开始实际代码工作，VS-009 有 26 个文件未提交改动（memory_policy + memory_service + memory_item），优先收束。
+4. 当前施工优先级：静态扫描 → VS-013（modify_draft 闭环）→ VS-014（ReadingMode 真内容投影）
 
