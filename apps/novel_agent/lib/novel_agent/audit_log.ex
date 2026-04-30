@@ -22,7 +22,7 @@ defmodule NovelAgent.AuditLog do
         :ok
 
       {:error, reason} ->
-        Logger.warning("[audit_log] write failed: #{inspect(reason)}")
+        Logger.warning("[审计日志] 写入失败：#{inspect(reason)}")
         :ok
     end
   end

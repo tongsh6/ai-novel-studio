@@ -1,10 +1,10 @@
 defmodule NovelPersistence.Schemas.MemoryItemTest do
   use NovelPersistence.DataCase, async: true
 
-  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.Enums.MemoryScope
-  alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryStatus
+  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.ID
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.MemoryItem

@@ -42,7 +42,7 @@ defmodule NovelAgent.Telemetry do
       metadata: metadata
     }
 
-    Logger.info("[telemetry] #{Jason.encode!(entry)}")
+    Logger.info("[遥测] #{Jason.encode!(entry)}")
     NovelAgent.AuditLog.append(entry)
   end
 end

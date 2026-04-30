@@ -12,7 +12,9 @@ defmodule NovelAgent.Router.Result do
     :extracted_slots,
     :missing_required_slots,
     :needs_clarification,
-    :deferred_to_runtime
+    :deferred_to_runtime,
+    requires_confirmation: false,
+    risk_class: "low"
   ]
 
   @type t :: %__MODULE__{
@@ -21,6 +23,8 @@ defmodule NovelAgent.Router.Result do
           extracted_slots: %{String.t() => String.t()},
           missing_required_slots: [String.t()],
           needs_clarification: boolean(),
-          deferred_to_runtime: [String.t()]
+          deferred_to_runtime: [String.t()],
+          requires_confirmation: boolean(),
+          risk_class: String.t()
         }
 end

@@ -45,7 +45,7 @@ defmodule NovelAgent.Application do
     opts = [strategy: :one_for_one, name: NovelAgent.Supervisor]
 
     with {:ok, pid} <- Supervisor.start_link(children, opts) do
-      Logger.info("[NovelAgent] Application started")
+      Logger.info("[NovelAgent] 应用已启动")
       {:ok, pid}
     end
   end

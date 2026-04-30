@@ -9,8 +9,8 @@ defmodule NovelDomain.MemoryItem do
   """
 
   alias NovelDomain.NarrativePosition
-  alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryStatus
 
   @default_weight 0.5
   @default_confidence 0.5

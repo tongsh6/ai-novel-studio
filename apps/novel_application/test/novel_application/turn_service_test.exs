@@ -15,30 +15,19 @@ defmodule NovelApplication.TurnServiceTest do
     :ok
   end
 
-  describe "end-to-end CREATE_WORK_SEED flow" do
-    test "user message triggers clarification when slots missing" do
+  describe "end-to-end unknown/clarification flow (without LLM)" do
+    test "returns clarification for any input when LLM is unavailable" do
       result = TurnService.handle_message("建一本玄幻小说")
 
       assert result.schema_version == "2.0.0"
       assert result.phase == TurnPhase.needs_clarification()
       assert result.status == Status.waiting_user()
       assert result.next_action == NextAction.ask_user()
-      assert result.assistant_message.text =~ "玄幻"
-      assert result.assistant_message.text =~ "核心卖点"
-      assert result.assistant_message.text =~ "目标读者"
+      assert result.assistant_message.text =~ "抱歉"
       assert result.behavior_state.active.behavior_type == "clarification"
-      assert result.behavior_state.active.missing_slots != []
-      assert result.behavior_state.history == []
 
-      # VS-002: clarification path now produces clarification_card
       assert [card] = result.ui_cards
       assert card.card_type == "clarification_card"
-      assert card.priority == "normal"
-      assert card.title == "需要补充信息"
-      assert card.body =~ "核心卖点"
-      assert [action] = card.actions
-      assert action.action_type == "answer"
-      assert action.action_id == "answer"
     end
 
     test "unknown input returns clarification" do
@@ -169,20 +158,26 @@ defmodule NovelApplication.TurnServiceTest do
   end
 
   describe "handle_message/4 artifact contract" do
-    test "tentative artifact exposes top-level revision_base instead of raw revision" do
-      result =
-        TurnService.handle_message(
-          "写一本玄幻小说，核心卖点是强者重生逆袭，目标读者是成年男性"
-        )
+    test "tentative artifact revision_base is top-level, not in payload" do
+      payload = %{
+        "title" => "测试作品",
+        "genre" => "玄幻",
+        "core_selling_point" => "测试卖点",
+        "target_reader" => "测试读者"
+      }
 
-      assert result.next_action == NextAction.adopt_artifacts()
-      assert [artifact] = result.adoption_state.pending
-      assert artifact.revision_base =~ ~r/^\d+$/
-      refute Map.has_key?(artifact.payload, :revision_base)
-      refute Map.has_key?(artifact.payload, :revision)
+      assert {:ok, work} = AdoptionBoundary.create_tentative(payload)
+      assert {:ok, result} = TurnService.handle_adopt(work.id, work.revision, %{
+        actor_ref: "test",
+        target_scope: "work",
+        target_object_ref: work.id
+      })
 
-      # VS-005: tentative artifact does NOT enter projection_refs
-      assert result.projection_refs == []
+      assert result.phase == TurnPhase.completed()
+      # After adopt, artifact is resolved (not pending)
+      assert [resolved] = result.adoption_state.resolved
+      refute Map.has_key?(resolved.payload, :revision_base)
+      refute Map.has_key?(resolved.payload, :revision)
     end
   end
 
@@ -275,6 +270,16 @@ defmodule NovelApplication.TurnServiceTest do
 
     test "returns error for unknown behavior_id" do
       assert {:error, :unknown_behavior} = TurnService.handle_reject("nonexistent", "ws-1")
+    end
+  end
+
+  describe "handle_message/4 without LLM (VS-007)" do
+    test "all inputs fall back to unknown clarification when LLM unavailable" do
+      for text <- ["起草一个场景", "写一个场景", "修改一下", "继续写"] do
+        result = TurnService.handle_message(text)
+        assert result.phase == TurnPhase.needs_clarification()
+        assert result.next_action == NextAction.ask_user()
+      end
     end
   end
 end

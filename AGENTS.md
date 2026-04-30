@@ -59,6 +59,32 @@ novel_domain → novel_foundation
 **提交说明**：
 9. 说明：修改了什么、为什么这样改、影响范围、验证方式
 
+### AI 静态扫描闭环
+
+每次 AI 完成功能实现后，必须执行统一扫描入口：
+
+```bash
+bash scripts/ai_static_scan.sh --top 10
+```
+
+AI 必须基于 `artifacts/static-scan/top10.md` 和 `artifacts/static-scan/report.json` 完成闭环：
+
+1. 优先修复 P0/P1 问题，以及本次改动文件中的 P2 问题
+2. 无法安全修复的问题必须说明原因、影响范围和后续处理建议
+3. 修复后必须复跑 `bash scripts/ai_static_scan.sh --top 10`
+4. 最终汇报必须包含：执行命令、已修复问题、剩余 Top 10、处置状态、验证结果
+
+扫描报告分两个维度维护：
+
+- `artifacts/static-scan/top10.md`：本次扫描出的 Top N 问题
+- `artifacts/static-scan/disposition.md`：Top N 的处置视图，合并 `reports/static-scan/dispositions.json` 中的长期处置台账
+
+快速本地验证可使用：
+
+```bash
+bash scripts/ai_static_scan.sh --top 10 --quick
+```
+
 ---
 
 ## 前端约束

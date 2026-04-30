@@ -1,3 +1,5 @@
+// Design: docs/design-v2/ui-design/43-structure-panel.md §5
+// Prototype: novel-studio-v2.pen → 43§5-structure-panel-expanded (ATnmR)
 import { useState } from "react";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
@@ -11,6 +13,12 @@ interface Props {
 }
 
 type TabType = "outline" | "character" | "foreshadowing" | "rule";
+
+function payloadText(value: unknown, fallback: string): string {
+  if (typeof value === "string" && value.trim()) return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return fallback;
+}
 
 export function StructurePanel({
   isOpen,
@@ -86,11 +94,11 @@ export function StructurePanel({
               <div key={artifact.artifact_id} className={styles.cardAccent}>
                 <div className={styles.cardLabel}>待采纳</div>
                 <div className={styles.cardTitle}>
-                  {String(artifact.payload.title || artifact.artifact_id)}
+                  {payloadText(artifact.payload.title, artifact.artifact_id)}
                 </div>
                 <div className={styles.cardDesc}>
                   {/* Prototype mock data structure assumption */}
-                  {String(artifact.payload.content || "这块表曾在十年前随导师一同消失。")}
+                  {payloadText(artifact.payload.content, "这块表曾在十年前随导师一同消失。")}
                 </div>
                 <div className={styles.cardActions}>
                   <button

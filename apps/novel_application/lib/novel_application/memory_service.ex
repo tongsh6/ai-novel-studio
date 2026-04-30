@@ -114,10 +114,7 @@ defmodule NovelApplication.MemoryService do
            |> validate_locked_status()
            |> Repo.insert() do
         {:ok, schema} ->
-          case record_applied_mutation(schema, "memory.create", 1, attrs) do
-            {:ok, _mutation} -> schema
-            {:error, reason} -> Repo.rollback(reason)
-          end
+          apply_mutation_or_rollback(schema, "memory.create", 1, attrs)
 
         {:error, changeset} ->
           Repo.rollback(changeset)
@@ -432,79 +429,64 @@ defmodule NovelApplication.MemoryService do
   end
 
   defp confirm_schema(schema) do
-    with :ok <- ensure_unlocked(schema),
-         {:ok, updated} <-
-           update_schema_with_mutation(schema, %{status: MemoryStatus.confirmed()}, "memory.confirm") do
-      {:ok, updated}
+    with :ok <- ensure_unlocked(schema) do
+      update_schema_with_mutation(schema, %{status: MemoryStatus.confirmed()}, "memory.confirm")
     end
   end
 
   defp lock_schema(schema) do
-    with :ok <- ensure_lockable(schema),
-         {:ok, updated} <-
-           update_schema_with_mutation(schema, %{locked: true}, "memory.lock") do
-      {:ok, updated}
+    with :ok <- ensure_lockable(schema) do
+      update_schema_with_mutation(schema, %{locked: true}, "memory.lock")
     end
   end
 
   defp unlock_schema(schema) do
-    with {:ok, updated} <-
-           update_schema_with_mutation(schema, %{locked: false}, "memory.unlock") do
-      {:ok, updated}
-    end
+    update_schema_with_mutation(schema, %{locked: false}, "memory.unlock")
   end
 
   defp deprecate_schema(schema) do
-    with :ok <- ensure_unlocked(schema),
-         {:ok, updated} <-
-           update_schema_with_mutation(
-             schema,
-             %{
-               status: MemoryStatus.deprecated(),
-               recallable: false
-             },
-             "memory.deprecate"
-           ) do
-      {:ok, updated}
+    with :ok <- ensure_unlocked(schema) do
+      update_schema_with_mutation(
+        schema,
+        %{
+          status: MemoryStatus.deprecated(),
+          recallable: false
+        },
+        "memory.deprecate"
+      )
     end
   end
 
   defp archive_schema(schema) do
-    with :ok <- ensure_unlocked(schema),
-         {:ok, updated} <-
-           update_schema_with_mutation(
-             schema,
-             %{
-               status: MemoryStatus.archived(),
-               recallable: false
-             },
-             "memory.archive"
-           ) do
-      {:ok, updated}
+    with :ok <- ensure_unlocked(schema) do
+      update_schema_with_mutation(
+        schema,
+        %{
+          status: MemoryStatus.archived(),
+          recallable: false
+        },
+        "memory.archive"
+      )
     end
   end
 
   defp update_weight_schema(schema, weight) do
-    with :ok <- ensure_unlocked(schema),
-         {:ok, updated} <-
-           update_schema_with_mutation(schema, %{weight: weight}, "memory.update_weight") do
-      {:ok, updated}
+    with :ok <- ensure_unlocked(schema) do
+      update_schema_with_mutation(schema, %{weight: weight}, "memory.update_weight")
     end
   end
 
   defp update_validity_schema(schema, valid_from, valid_until, expire_condition) do
-    with :ok <- ensure_unlocked(schema),
-         {:ok, updated} <-
-           update_schema_with_mutation(
-             schema,
-             %{
-               valid_from: valid_from,
-               valid_until: valid_until,
-               expire_condition: expire_condition
-             },
-             "memory.update_validity"
-           ) do
-      {:ok, updated}
+    with :ok <- ensure_unlocked(schema) do
+      update_schema_with_mutation(
+        schema,
+        %{
+          valid_from: valid_from,
+          valid_until: valid_until,
+          expire_condition: expire_condition
+        },
+        "memory.update_validity"
+      )
     end
   end
 
@@ -517,10 +499,7 @@ defmodule NovelApplication.MemoryService do
            |> SchemaItem.update_changeset(changes)
            |> Repo.update() do
         {:ok, updated} ->
-          case record_applied_mutation(updated, mutation_type, base_revision, audit_attrs) do
-            {:ok, _mutation} -> updated
-            {:error, reason} -> Repo.rollback(reason)
-          end
+          apply_mutation_or_rollback(updated, mutation_type, base_revision, audit_attrs)
 
         {:error, changeset} ->
           Repo.rollback(changeset)
@@ -532,10 +511,18 @@ defmodule NovelApplication.MemoryService do
     end
   end
 
+  defp apply_mutation_or_rollback(schema, mutation_type, base_revision, audit_attrs) do
+    case record_applied_mutation(schema, mutation_type, base_revision, audit_attrs) do
+      {:ok, _mutation} -> schema
+      {:error, reason} -> Repo.rollback(reason)
+    end
+  end
+
   defp record_applied_mutation(schema, mutation_type, base_revision, audit_attrs) do
     MutationLog.create_applied(%{
       actor_ref: audit_value(audit_attrs, :actor_ref, "system"),
-      source_turn_ref: audit_value(audit_attrs, :source_turn_ref) || Orchestrator.allocate_turn_id(),
+      source_turn_ref:
+        audit_value(audit_attrs, :source_turn_ref) || Orchestrator.allocate_turn_id(),
       source_task_ref: audit_value(audit_attrs, :source_task_ref),
       target_scope: audit_value(audit_attrs, :target_scope, "memory_item"),
       target_object_ref: schema.id,

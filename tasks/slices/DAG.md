@@ -1,6 +1,6 @@
 # 承重竖切面 DAG
 
-> 状态：试行
+> 状态：Phase 1 done，Phase 2 推进中
 >
 > 角色：记录当前 slice 之间的依赖关系，并把 DAG 转换成线性执行批次。
 
@@ -10,18 +10,32 @@
 
 ```mermaid
 flowchart TD
-  VS001["VS-001 TurnResult Contract Spine"]
-  VS002["VS-002 Clarification Card Loop"]
-  VS003["VS-003 Confirmation Before Execute Loop"]
-  VS004["VS-004 Tentative Artifact Adoption Boundary"]
-  VS005["VS-005 Accepted Artifact Marks Projection Stale"]
-  VS006["VS-006 Turn Memory Write-Through"]
+  subgraph Phase1["Phase 1 (done)"]
+    VS001["VS-001 TurnResult Contract Spine"]
+    VS002["VS-002 Clarification Card Loop"]
+    VS003["VS-003 Confirmation Before Execute Loop"]
+    VS004["VS-004 Tentative Artifact Adoption Boundary"]
+    VS005["VS-005 Accepted Artifact Marks Projection Stale"]
+    VS006["VS-006 Turn Memory Write-Through"]
+  end
+
+  subgraph Phase2["Phase 2 (todo)"]
+    VS007["VS-007 Intent Registry Expansion"]
+    VS008["VS-008 Provider Gateway Real Adapter"]
+    VS009["VS-009 Governed Memory Recall Pipeline Close"]
+  end
 
   VS001 --> VS002
   VS001 --> VS003
   VS001 --> VS004
   VS001 --> VS006
   VS004 --> VS005
+
+  VS001 --> VS008
+  VS001 --> VS007
+  VS008 --> VS007
+  VS001 --> VS009
+  VS006 --> VS009
 ```
 
 ---
@@ -30,17 +44,21 @@ flowchart TD
 
 | Batch | Slice | 目标 | 状态 |
 |---|---|---|---|
-| B1 | VS-001 | 固化 TurnResult 合同出口 | todo |
-| B2 | VS-006 | 固化 turn memory write-through | todo |
-| B3 | VS-002 | 固化 clarification card loop | todo |
-| B4 | VS-003 | 固化 confirmation before execute loop | todo |
-| B5 | VS-004 | 固化 tentative artifact adoption boundary | todo |
-| B6 | VS-005 | 固化 accepted artifact marks projection stale | todo |
+| B1 | VS-001 | 固化 TurnResult 合同出口 | done |
+| B2 | VS-006 | 固化 turn memory write-through | done |
+| B3 | VS-002 | 固化 clarification card loop | done |
+| B4 | VS-003 | 固化 confirmation before execute loop | done |
+| B5 | VS-004 | 固化 tentative artifact adoption boundary | done |
+| B6 | VS-005 | 固化 accepted artifact marks projection stale | done |
+| B7 | VS-009 | 收束 Governed Memory Recall Pipeline | done |
+| B8 | VS-008 | 实现真实 Provider Gateway (LM Studio) | done |
+| B9 | VS-007 | 注册第一批核心 intent + Router LLM 升级 | done |
 
 说明：
 
-- VS-006 与 VS-002/VS-003/VS-004 都依赖 VS-001，但执行上先做 VS-006，因为 memory write-through 已有代码基础，适合作为第二个试行 slice 验证规则。
-- VS-005 必须晚于 VS-004，因为 projection stale 依赖 accepted artifact 边界成立。
+- VS-008 与 VS-009 无相互依赖，可并行（B7/B8 顺序可互换）。
+- VS-007 必须排在 B8 之后：Router LLM 升级依赖 Provider Gateway 已就位。
+- VS-009 有未提交代码基础（26 files, +411/-180），收束优先级高于从零建设的 VS-008。
 
 ---
 
@@ -48,12 +66,15 @@ flowchart TD
 
 | Slice | Type | Depends on | Blocks | Contract focus |
 |---|---|---|---|---|
-| VS-001 | Turn Slice | — | VS-002, VS-003, VS-004, VS-006 | `turn_result_v2` |
+| VS-001 | Turn Slice | — | VS-002, VS-003, VS-004, VS-006, VS-008 | `turn_result_v2` |
 | VS-002 | Behavior Slice | VS-001 | — | clarification phase/status + card/action |
 | VS-003 | Behavior Slice | VS-001 | — | confirmation phase/status + authority |
 | VS-004 | Artifact Slice | VS-001 | VS-005 | adoption lifecycle |
 | VS-005 | Projection Slice | VS-004 | — | projection stale + `source_revision_refs` |
-| VS-006 | Memory Slice | VS-001 | — | memory write-through |
+| VS-006 | Memory Slice | VS-001 | VS-009 | memory write-through |
+| VS-007 | Turn Slice | VS-001, VS-008 | — | intent registry + Router LLM 升级 |
+| VS-008 | Turn Slice | VS-001 | VS-007 | Provider Gateway + Anthropic adapter |
+| VS-009 | Memory Slice | VS-001, VS-006 | — | governed memory recall pipeline 收束 |
 
 ---
 
@@ -66,7 +87,6 @@ flowchart TD
 - `batch`: 建议进入哪个线性批次
 - `contract focus`: 主要承重契约
 
-禁止用 DAG 节点表示横向技术任务，例如“建表”“写 API”“做 UI 页面”。
+禁止用 DAG 节点表示横向技术任务，例如"建表""写 API""做 UI 页面"。
 
 如果 DAG 出现环，说明任务边界切错，需要重新切 slice，而不是强行执行。
-

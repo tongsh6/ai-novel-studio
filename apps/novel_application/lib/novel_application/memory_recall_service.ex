@@ -13,12 +13,12 @@ defmodule NovelApplication.MemoryRecallService do
   完成后异步写入引用日志（§12.6）。
   """
 
-  alias NovelApplication.MemoryService
-  alias NovelApplication.MemoryPolicy.HardFilter
   alias NovelApplication.MemoryPolicy.CandidateSearch
-  alias NovelApplication.MemoryPolicy.Reranker
   alias NovelApplication.MemoryPolicy.DiversityFilter
+  alias NovelApplication.MemoryPolicy.HardFilter
+  alias NovelApplication.MemoryPolicy.Reranker
   alias NovelApplication.MemoryPolicy.TokenPacker
+  alias NovelApplication.MemoryService
   alias NovelFoundation.Enums.MemoryType
 
   @type recall_opt ::

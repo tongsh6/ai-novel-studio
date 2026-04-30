@@ -1,4 +1,5 @@
 // Design: N/A (memory management maintenance page — awaits design spec)
+// Prototype: N/A (Phase 0 memory management maintenance page has no frozen screen frame)
 // NOTE: 此组件为 Phase 0 快速验证产物，待 UI 设计阶段需重新对照原型实现
 import { useState } from "react";
 import { createMemory } from "../lib/memoryApi";

@@ -13,10 +13,10 @@ defmodule NovelPersistence.Schemas.MemoryItem do
 
   import Ecto.Changeset
 
-  alias NovelFoundation.Enums.MemoryType
   alias NovelFoundation.Enums.MemoryScope
-  alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryStatus
+  alias NovelFoundation.Enums.MemoryType
 
   @primary_key {:id, Ecto.UUID, autogenerate: false}
   @foreign_key_type Ecto.UUID
@@ -24,40 +24,40 @@ defmodule NovelPersistence.Schemas.MemoryItem do
   @required_fields [:id, :work_id, :content, :type, :scope, :source_type]
 
   schema "memory_items" do
-    field :work_id, Ecto.UUID
+    field(:work_id, Ecto.UUID)
 
-    field :volume_id, Ecto.UUID
-    field :arc_id, Ecto.UUID
-    field :chapter_id, Ecto.UUID
+    field(:volume_id, Ecto.UUID)
+    field(:arc_id, Ecto.UUID)
+    field(:chapter_id, Ecto.UUID)
 
-    field :content, :string
-    field :summary, :string
+    field(:content, :string)
+    field(:summary, :string)
 
-    field :type, :string, default: MemoryType.world_rule()
-    field :scope, :string, default: MemoryScope.work()
-    field :status, :string, default: MemoryStatus.draft()
-    field :source_type, :string
+    field(:type, :string, default: MemoryType.world_rule())
+    field(:scope, :string, default: MemoryScope.work())
+    field(:status, :string, default: MemoryStatus.draft())
+    field(:source_type, :string)
 
-    field :reference_count, :integer, default: 0
+    field(:reference_count, :integer, default: 0)
 
-    field :weight, :decimal, default: Decimal.new("0.5000")
-    field :confidence, :decimal, default: Decimal.new("0.5000")
-    field :source_confidence, :decimal, default: Decimal.new("0.5000")
+    field(:weight, :decimal, default: Decimal.new("0.5000"))
+    field(:confidence, :decimal, default: Decimal.new("0.5000"))
+    field(:source_confidence, :decimal, default: Decimal.new("0.5000"))
 
-    field :locked, :boolean, default: false
-    field :recallable, :boolean, default: true
-    field :common_sense, :boolean, default: false
+    field(:locked, :boolean, default: false)
+    field(:recallable, :boolean, default: true)
+    field(:common_sense, :boolean, default: false)
 
-    field :valid_from, :map
-    field :valid_until, :map
-    field :expire_condition, :string
+    field(:valid_from, :map)
+    field(:valid_until, :map)
+    field(:expire_condition, :string)
 
-    field :version, :integer, default: 1
+    field(:version, :integer, default: 1)
 
-    field :tags, {:array, :string}
+    field(:tags, {:array, :string})
 
-    field :source_id, Ecto.UUID
-    field :last_referenced_at, :utc_datetime_usec
+    field(:source_id, Ecto.UUID)
+    field(:last_referenced_at, :utc_datetime_usec)
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -101,7 +101,10 @@ defmodule NovelPersistence.Schemas.MemoryItem do
     |> validate_inclusion(:source_type, MemorySourceType.values())
     |> validate_number(:weight, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:confidence, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
-    |> validate_number(:source_confidence, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
+    |> validate_number(:source_confidence,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
+    )
     |> validate_number(:version, greater_than_or_equal_to: 1)
     |> unique_constraint(:id, name: "memory_items_pkey")
   end
@@ -138,7 +141,10 @@ defmodule NovelPersistence.Schemas.MemoryItem do
     |> validate_inclusion(:source_type, MemorySourceType.values())
     |> validate_number(:weight, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
     |> validate_number(:confidence, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
-    |> validate_number(:source_confidence, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
+    |> validate_number(:source_confidence,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
+    )
     |> validate_number(:version, greater_than_or_equal_to: 1)
   end
 end

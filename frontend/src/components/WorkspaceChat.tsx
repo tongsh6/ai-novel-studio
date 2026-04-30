@@ -70,10 +70,12 @@ export function WorkspaceChat() {
   const [inputText, setInputText] = useState("");
   const [loading, setLoading] = useState(false);
   const [isPanelOpen, setIsPanelOpen] = useState(false);
-  
+  const [llmConnected, setLlmConnected] = useState<boolean | null>(null);
+  const [llmModel, setLlmModel] = useState<string>("");
+
   // Connect to Zustand Global Store
-  const { 
-    socketConnected, 
+  const {
+    socketConnected,
     setSocketConnected,
     context,
     longRun,
@@ -84,6 +86,23 @@ export function WorkspaceChat() {
   const channelRef = useRef<Channel | null>(null);
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Check LLM connection status
+  useEffect(() => {
+    const checkLlm = async () => {
+      try {
+        const res = await fetch("/api/provider/health");
+        const data = await res.json() as { connected: boolean; model?: string; message?: string };
+        setLlmConnected(data.connected);
+        if (data.model) setLlmModel(data.model);
+      } catch {
+        setLlmConnected(false);
+      }
+    };
+    void checkLlm();
+    const interval = setInterval(checkLlm, 30_000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     const socket = createSocket();
@@ -100,10 +119,10 @@ export function WorkspaceChat() {
         setMessages([
           {
             role: "assistant",
-            text: "欢迎使用 AI Novel Studio！\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
+            text: "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
           },
         ]);
-        
+
         // Mock injecting initial context upon connection
         setContext({
           workTitle: "未定作品",
@@ -240,8 +259,19 @@ export function WorkspaceChat() {
           <span className={styles.budgetText}>
             {longRun.status === "running" ? `长跑中: ${longRun.budgetUsed}%` : "长跑状态: 待机"}
           </span>
+          <div
+            className={styles.riskBadge}
+            style={{
+              backgroundColor:
+                llmConnected === null ? 'var(--foreground-secondary)' :
+                llmConnected ? 'var(--accent)' : '#d94a4a'
+            }}
+            title={llmConnected ? `模型: ${llmModel}` : "请检查 LM Studio 是否已启动并加载模型"}
+          >
+            LLM: {llmConnected === null ? "检测中…" : llmConnected ? "已连接" : "未连接"}
+          </div>
           <div className={styles.riskBadge} style={{ backgroundColor: socketConnected ? 'var(--accent)' : 'var(--foreground-secondary)' }}>
-            连接状态: {socketConnected ? "已连接" : "离线"}
+            服务: {socketConnected ? "已连接" : "离线"}
           </div>
         </div>
       </div>

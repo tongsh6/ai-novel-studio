@@ -16,6 +16,7 @@ defmodule NovelApplication.TurnService do
   alias NovelAgent.AuthorityGate
   alias NovelAgent.Memory.Store, as: MemoryStore
   alias NovelAgent.Orchestrator
+  alias NovelAgent.Provider.Gateway, as: ProviderGateway
   alias NovelApplication.AdoptionBoundary
   alias NovelApplication.MemoryRecallService
   alias NovelDomain.Work
@@ -55,7 +56,7 @@ defmodule NovelApplication.TurnService do
           build_unknown_clarification(turn_id, memory_context)
 
         %{needs_clarification: true} = result ->
-          build_create_work_clarification(turn_id, result, memory_context)
+          build_clarification(turn_id, result, memory_context)
 
         %{needs_clarification: false} = result ->
           # VS-003: check if intent requires confirmation before execution
@@ -71,7 +72,7 @@ defmodule NovelApplication.TurnService do
               build_confirmation(turn_id, result, reason, memory_context)
 
             :allowed ->
-              build_create_work_tentative(turn_id, result, memory_context)
+              build_tentative_for(turn_id, result, memory_context)
           end
       end
 
@@ -202,7 +203,7 @@ defmodule NovelApplication.TurnService do
           needs_clarification: false
         }
 
-        turn_result = build_create_work_tentative(turn_id, result, nil)
+        turn_result = build_tentative_for(turn_id, result, nil)
         text = turn_result.assistant_message.text
 
         record_to_memory(workspace_id, turn_id, :assistant, text)
@@ -339,20 +340,39 @@ defmodule NovelApplication.TurnService do
     })
   end
 
-  # ---- CREATE_WORK_SEED ----
+  # ---- Intent routing ----
 
-  defp build_create_work_clarification(turn_id, route_result, memory_context) do
+  defp build_tentative_for(turn_id, result, memory_context) do
+    case normalize_intent(result.intent_name) do
+      :create_work_seed ->
+        build_create_work_tentative(turn_id, result, memory_context)
+
+      _ ->
+        build_draft_tentative(turn_id, result, memory_context)
+    end
+  end
+
+  defp normalize_intent("intent.CREATE_WORK_SEED"), do: :create_work_seed
+  defp normalize_intent("create_work_seed"), do: :create_work_seed
+  defp normalize_intent(:create_work_seed), do: :create_work_seed
+  defp normalize_intent(_other), do: :other
+
+  # ---- Generic clarification (any intent) ----
+
+  defp build_clarification(turn_id, route_result, memory_context) do
     missing = route_result.missing_required_slots
-    genre = route_result.extracted_slots["genre"] || "未指定"
+    intent_label = intent_display_name(route_result.intent_name)
+    slots = route_result.extracted_slots
     behavior_id = "behavior_#{turn_id}"
+
+    prefix = clarification_prefix(intent_label, slots)
+    body = "#{prefix}在开始之前，还需要了解：\n" <> (missing |> Enum.map_join("\n", &slot_label/1))
 
     build_turn_result(turn_id, %{
       phase: TurnPhase.needs_clarification(),
       status: Status.waiting_user(),
       next_action: NextAction.ask_user(),
-      assistant_text:
-        "好的，你想创建一部#{genre}小说。在开始之前，我还需要了解：\n" <>
-          (missing |> Enum.map_join("\n", &slot_label/1)),
+      assistant_text: body,
       behavior: %{
         behavior_type: "clarification",
         behavior_id: behavior_id,
@@ -363,13 +383,24 @@ defmodule NovelApplication.TurnService do
       ui_cards: [
         clarification_card(behavior_id,
           title: "需要补充信息",
-          body: "好的，你想创建一部#{genre}小说。在开始之前，我还需要了解更多信息：\n" <>
-            (missing |> Enum.map_join("\n", &slot_label/1))
+          body: body
         )
       ],
       memory_context: memory_context
     })
   end
+
+  defp intent_display_name("intent.DRAFT_SCENE"), do: "起草场景"
+  defp intent_display_name("intent.DRAFT_CHAPTER"), do: "起草章节"
+  defp intent_display_name("intent.REVISE_DRAFT"), do: "修改草稿"
+  defp intent_display_name("intent.CONTINUE_DRAFTING"), do: "续写"
+  defp intent_display_name(_other), do: "执行"
+
+  defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
+    do: "好的，你想创建一部#{genre}小说。"
+  defp clarification_prefix(intent_label, _slots), do: "你想#{intent_label}。"
+
+  # ---- CREATE_WORK_SEED ----
 
   defp build_create_work_tentative(turn_id, route_result, memory_context) do
     slots = route_result.extracted_slots
@@ -430,6 +461,91 @@ defmodule NovelApplication.TurnService do
     })
   end
 
+  # ---- Draft / Content Generation (VS-007) ----
+
+  defp build_draft_tentative(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    intent_name = route_result.intent_name
+    display = intent_display_name(intent_name)
+
+    # Build prompt from intent + extracted slots
+    prompt = build_generation_prompt(intent_name, slots)
+
+    # Call Provider Gateway to generate content
+    generated_text =
+      case ProviderGateway.complete(prompt) do
+        {:ok, content} -> content
+        {:error, _} -> "[生成失败：Provider 不可用]"
+      end
+
+    artifact_id = ID.uuid()
+    artifact = %{
+      artifact_id: artifact_id,
+      artifact_type: "draft_text",
+      adoption_status: AdoptionStatus.tentative(),
+      requires_adoption: true,
+      payload: %{
+        intent: intent_name,
+        content: generated_text,
+        slots: slots
+      }
+    }
+
+    build_turn_result(turn_id, %{
+      phase: TurnPhase.completed(),
+      status: Status.done(),
+      next_action: NextAction.adopt_artifacts(),
+      assistant_text: "已为你#{display}：\n\n#{generated_text}",
+      pending_artifacts: [artifact],
+      ui_cards: [adoption_card_for_draft(slots, artifact_id, display)],
+      memory_context: memory_context
+    })
+  end
+
+  defp build_generation_prompt(intent_name, slots) do
+    intent_label = intent_display_name(intent_name)
+    slot_desc = Enum.map_join(slots, "\n", fn {k, v} -> "  - #{k}: #{v}" end)
+
+    "你是一位小说创作助手。用户要求：#{intent_label}。\n参数：\n#{slot_desc}\n\n请生成内容。"
+  end
+
+  defp adoption_card_for_draft(_slots, artifact_id, display) do
+    %{
+      card_type: "adoption_card",
+      priority: "high",
+      visibility: "primary",
+      title: "#{display}结果",
+      body: "AI 已生成#{display}内容，请审核后决定采纳、修改或放弃。",
+      artifact_refs: [artifact_id],
+      actions: [
+        %{
+          action_id: "accept",
+          action_type: "accept",
+          label: "采纳",
+          target_ref: artifact_id,
+          enabled: true,
+          style_hint: "primary"
+        },
+        %{
+          action_id: "edit_then_accept",
+          action_type: "edit_then_accept",
+          label: "修改后采纳",
+          target_ref: artifact_id,
+          enabled: true,
+          style_hint: "secondary"
+        },
+        %{
+          action_id: "discard",
+          action_type: "discard",
+          label: "放弃",
+          target_ref: artifact_id,
+          enabled: true,
+          style_hint: "secondary"
+        }
+      ]
+    }
+  end
+
   # ---- Confirmation (VS-003) ----
 
   defp build_confirmation(turn_id, route_result, reason, memory_context) do
@@ -438,16 +554,16 @@ defmodule NovelApplication.TurnService do
       extracted_slots: route_result.extracted_slots
     })
 
-    slots = route_result.extracted_slots
-    genre = slots["genre"] || "未指定"
-    selling_point = slots["core_selling_point"] || "未指定"
+    _slots = route_result.extracted_slots
+    display = intent_display_name(route_result.intent_name)
+    title = "确认#{display}"
 
     build_turn_result(turn_id, %{
       phase: TurnPhase.needs_confirmation(),
       status: Status.waiting_user(),
       next_action: NextAction.confirm_before_execute(),
       assistant_text:
-        "即将创建「#{genre}小说」，核心卖点：#{selling_point}。\n\n#{reason}",
+        "即将#{display}。\n\n#{reason}",
       behavior: %{
         behavior_type: "confirmation",
         behavior_id: behavior_id,
@@ -457,8 +573,8 @@ defmodule NovelApplication.TurnService do
       },
       ui_cards: [
         confirmation_card(behavior_id,
-          title: "确认创建作品",
-          body: "即将创建「#{genre}小说」\n\n核心卖点：#{selling_point}\n\n#{reason}"
+          title: title,
+          body: "即将#{display}\n\n#{reason}"
         )
       ],
       memory_context: memory_context
@@ -606,5 +722,8 @@ defmodule NovelApplication.TurnService do
   defp slot_label("target_reader"), do: "- 目标读者群体是？"
   defp slot_label("tone_preference"), do: "- 偏好什么语调风格？"
   defp slot_label("reference_works"), do: "- 有没有希望参考的作品？"
+  defp slot_label("scene_boundary"), do: "- 场景的边界或剧情范围是什么？"
+  defp slot_label("revision_direction"), do: "- 你想往哪个方向修改？"
+  defp slot_label("continuation_range"), do: "- 你想从哪继续写？"
   defp slot_label(slot), do: "- #{slot}"
 end
