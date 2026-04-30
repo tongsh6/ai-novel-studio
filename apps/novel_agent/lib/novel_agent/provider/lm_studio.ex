@@ -24,6 +24,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
   require Logger
 
+  alias NovelAgent.Provider.Result
   alias NovelFoundation.UpstreamError
 
   defstruct [:endpoint, :model, :timeout]
@@ -56,7 +57,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
         if content && content != "" do
           Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
-          {:ok, content}
+          {:ok, Result.new(content)}
         else
           err = UpstreamError.new(:invalid_response, "响应内容为空", name())
           Logger.warning("[LMStudio] #{err.message}")

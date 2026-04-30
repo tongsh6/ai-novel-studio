@@ -80,7 +80,7 @@ defmodule NovelAgent.Agent.Writer do
   @impl true
   def handle_call({:handle_task, _task_id, payload}, _from, state) do
     prompt = Map.get(payload, "text") || Map.get(payload, :text, "")
-    {:ok, result} = Stub.complete(%Stub{}, "default", prompt)
-    {:reply, {:ok, %{text: result}}, state}
+    {:ok, %{content: content}} = Stub.complete(%Stub{}, "default", prompt)
+    {:reply, {:ok, %{text: content}}, state}
   end
 end

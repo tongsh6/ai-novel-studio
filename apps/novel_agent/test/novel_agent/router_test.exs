@@ -10,16 +10,18 @@ defmodule NovelAgent.RouterTest do
       cond do
         # Classification prompts
         String.contains?(prompt, "判断其意图") ->
-          classify(prompt)
+          wrap(classify(prompt))
 
         # Slot extraction prompts
         String.contains?(prompt, "提取以下 slot") ->
-          extract(prompt)
+          wrap(extract(prompt))
 
         true ->
-          {:ok, "{}"}
+          {:ok, %{content: "{}"}}
       end
     end
+
+    defp wrap({:ok, content}), do: {:ok, %{content: content}}
 
     defp classify(prompt) do
       cond do

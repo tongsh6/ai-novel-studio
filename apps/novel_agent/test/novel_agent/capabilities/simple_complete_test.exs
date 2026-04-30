@@ -7,8 +7,8 @@ defmodule NovelAgent.Capabilities.SimpleCompleteTest do
   test "returns provider response" do
     stub = %Stub{}
     assert {:ok, result} = SimpleComplete.execute(Stub, stub, "hello")
-    assert result =~ "[stub]"
-    assert result =~ "hello"
+    assert result.content =~ "[stub]"
+    assert result.content =~ "hello"
   end
 
   test "passes through provider errors" do

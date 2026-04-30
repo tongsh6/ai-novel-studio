@@ -1,14 +1,19 @@
 import Config
 
 # Provider Gateway — 开发环境
-# 默认使用 LM Studio 本地推理，不可用时降级为 stub
+# 默认使用 LM Studio 本地推理。LLM 不可用时直接报错，不做降级
 config :novel_agent, :provider,
-  default: :lmstudio,
-  fallback: :stub
+  default: :lmstudio
 
 config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: "http://localhost:1234/v1",
   model: "local-model",
+  timeout: 120_000
+
+# 可选：Anthropic Claude API（需设置 ANTHROPIC_API_KEY 环境变量）
+# 切换到云端 provider 时，只需修改 :provider → default: :anthropic
+config :novel_agent, NovelAgent.Provider.Anthropic,
+  model: "claude-sonnet-4-6",
   timeout: 120_000
 
 # Stage 1 桌面应用：SQLite 自包含数据库。

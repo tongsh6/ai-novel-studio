@@ -10,13 +10,15 @@ defmodule NovelAgent.Provider.Stub do
 
   @behaviour NovelAgent.Provider
 
+  alias NovelAgent.Provider.Result
+
   defstruct []
 
   @type t :: %__MODULE__{}
 
   @impl true
   def complete(_state, _model, prompt) do
-    {:ok, "[stub] echo: #{prompt}"}
+    {:ok, Result.new("[stub] echo: #{prompt}")}
   end
 
   @impl true

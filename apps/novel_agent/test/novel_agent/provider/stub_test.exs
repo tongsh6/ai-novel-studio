@@ -16,13 +16,13 @@ defmodule NovelAgent.Provider.StubTest do
   describe "complete/3" do
     test "returns echo response", %{stub: stub} do
       assert {:ok, result} = Stub.complete(stub, "test-model", "hello world")
-      assert result =~ "hello world"
-      assert result =~ "[stub]"
+      assert result.content =~ "hello world"
+      assert result.content =~ "[stub]"
     end
 
     test "works with empty prompt", %{stub: stub} do
       assert {:ok, result} = Stub.complete(stub, "any-model", "")
-      assert result =~ "[stub]"
+      assert result.content =~ "[stub]"
     end
   end
 

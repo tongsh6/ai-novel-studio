@@ -6,61 +6,53 @@ defmodule NovelAgent.Provider.Gateway do
   不直接依赖具体 adapter。Gateway 负责：
 
   1. 按配置选择 adapter
-  2. 调用失败时按降级策略切换（fallback to stub）
-  3. 统一 provider 调用方的 experience
+  2. 调用失败时直接返回错误——不做降级（产品不应在 LLM 不可用时冒充可用）
+  3. 将旧版 `{:ok, content_string}` 自动包装为 `{:ok, %Result{}}`
 
   ## 配置
 
       config :novel_agent, :provider,
-        default: :lmstudio,
-        fallback: :stub
+        default: :lmstudio
 
       config :novel_agent, NovelAgent.Provider.LMStudio,
         endpoint: "http://localhost:1234/v1",
-        model: "local-model",
-        timeout: 60_000
-
-  ## 成品阶段扩展
-
-  Gateway 从第一天就设计为多 provider 可注册。成品阶段用户通过 UI 配置
-  切换到 Anthropic / OpenAI 等云端 provider 时，只需：
-  1. 实现对应 adapter（遵循 `NovelAgent.Provider` behaviour）
-  2. 在 config 中注册
-  3. 用户通过 UI 选择（config 写入前端设置持久化）
+        model: "local-model"
   """
 
   require Logger
 
   alias NovelAgent.Provider
+  alias NovelAgent.Provider.Result
   alias NovelFoundation.UpstreamError
 
   @provider_modules %{
     stub: Provider.Stub,
-    lmstudio: Provider.LMStudio
+    lmstudio: Provider.LMStudio,
+    anthropic: Provider.Anthropic
   }
+
+  @type result :: {:ok, Result.t()} | {:error, map()}
 
   @doc """
   调用当前默认 provider 执行 complete。
 
-  返回 `{:ok, content}` 或 `{:error, %{type: ..., message: ...}}`。
+  返回 `{:ok, %Result{content: content, usage: usage}}`。
+  LLM 不可用时返回 `{:error, error}`——不做降级，让上层告知用户。
   """
-  @spec complete(String.t(), String.t()) :: {:ok, String.t()} | {:error, map()}
-  def complete(prompt, model \\ "local-model") do
+  @spec complete(String.t(), String.t()) :: result()
+  def complete(prompt, model \\ nil) do
     provider_name = default_provider()
 
-    case do_complete(provider_name, model, prompt) do
-      {:ok, _content} = ok ->
-        ok
+    case do_complete(provider_name, model || default_model(), prompt) do
+      {:ok, %Result{} = result} ->
+        {:ok, result}
+
+      {:ok, content} when is_binary(content) ->
+        {:ok, Result.new(content)}
 
       {:error, error} ->
         Logger.warning("[提供者网关] #{provider_name} 调用失败：#{error.message}")
-
-        if provider_name == fallback_provider() do
-          # 已经是降级 provider，不再递归
-          {:error, Map.from_struct(error)}
-        else
-          attempt_fallback(model, prompt, error)
-        end
+        {:error, Map.from_struct(error)}
     end
   end
 
@@ -90,27 +82,13 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
-  defp attempt_fallback(model, prompt, original_error) do
-    fallback = fallback_provider()
-    Logger.info("[提供者网关] 降级至 #{fallback}")
-
-    case do_complete(fallback, model, prompt) do
-      {:ok, content} ->
-        {:ok, content}
-
-      {:error, fb_error} ->
-        Logger.error("[提供者网关] 降级也失败了：#{fb_error.message}")
-        {:error, Map.from_struct(original_error)}
-    end
-  end
-
   defp default_provider do
     Application.get_env(:novel_agent, :provider, [])
     |> Keyword.get(:default, :stub)
   end
 
-  defp fallback_provider do
+  defp default_model do
     Application.get_env(:novel_agent, :provider, [])
-    |> Keyword.get(:fallback, :stub)
+    |> Keyword.get(:model, "local-model")
   end
 end

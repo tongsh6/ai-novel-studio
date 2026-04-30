@@ -9,7 +9,7 @@ defmodule NovelWeb.ProviderController do
     model = state.model
 
     case LMStudio.complete(state, model, "ping") do
-      {:ok, _content} ->
+      {:ok, _result} ->
         json(conn, %{
           connected: true,
           model: model,
