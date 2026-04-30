@@ -159,6 +159,12 @@ defmodule NovelApplication.TurnServiceTest do
       assert [resolved] = turn_result.adoption_state.resolved
       assert resolved.adoption_status == AdoptionStatus.accepted()
       assert resolved.requires_adoption == false
+
+      # VS-005: adoption marks projection as STALE
+      assert [proj_ref] = turn_result.projection_refs
+      assert proj_ref.projection_type == "reading_projection_root"
+      assert proj_ref.refresh_status == "STALE"
+      assert proj_ref.source_revision_refs != []
     end
   end
 
@@ -174,6 +180,9 @@ defmodule NovelApplication.TurnServiceTest do
       assert artifact.revision_base =~ ~r/^\d+$/
       refute Map.has_key?(artifact.payload, :revision_base)
       refute Map.has_key?(artifact.payload, :revision)
+
+      # VS-005: tentative artifact does NOT enter projection_refs
+      assert result.projection_refs == []
     end
   end
 
@@ -197,6 +206,10 @@ defmodule NovelApplication.TurnServiceTest do
       assert [resolved] = turn_result.adoption_state.resolved
       assert resolved.adoption_status == AdoptionStatus.discarded()
       assert resolved.artifact_id == work.id
+
+      # VS-005: discard also marks projection as STALE
+      assert [proj_ref] = turn_result.projection_refs
+      assert proj_ref.refresh_status == "STALE"
     end
 
     test "returns error for non-existent work" do

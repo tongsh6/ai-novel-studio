@@ -22,6 +22,7 @@ defmodule NovelApplication.TurnService do
 
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.BehaviorStatus
+  alias NovelFoundation.Enums.ProjectionRefreshStatus
   alias NovelFoundation.Enums.MemoryClass
   alias NovelFoundation.Enums.NextAction
   alias NovelFoundation.Enums.RetentionTier
@@ -116,7 +117,8 @@ defmodule NovelApplication.TurnService do
             status: Status.done(),
             next_action: NextAction.no_further_action(),
             assistant_text: text,
-            resolved_artifacts: [artifact]
+            resolved_artifacts: [artifact],
+            projection_refs: build_projection_refs(work)
           })
 
         record_to_memory(workspace_id, turn_id, :assistant, text)
@@ -166,7 +168,8 @@ defmodule NovelApplication.TurnService do
             status: Status.done(),
             next_action: NextAction.no_further_action(),
             assistant_text: text,
-            resolved_artifacts: [artifact]
+            resolved_artifacts: [artifact],
+            projection_refs: build_projection_refs(work)
           })
 
         record_to_memory(workspace_id, turn_id, :assistant, text)
@@ -547,6 +550,19 @@ defmodule NovelApplication.TurnService do
     }
   end
 
+  # ---- Projection (VS-005) ----
+
+  defp build_projection_refs(work) do
+    [
+      %{
+        projection_type: "reading_projection_root",
+        projection_id: "proj-#{work.id}",
+        source_revision_refs: ["rev-work-#{work.id}-r#{work.revision}"],
+        refresh_status: ProjectionRefreshStatus.stale()
+      }
+    ]
+  end
+
   # ---- TurnResult envelope (ADR-0001 §1) ----
 
   defp build_turn_result(turn_id, fields) do
@@ -560,7 +576,7 @@ defmodule NovelApplication.TurnService do
       ui_cards: Map.get(fields, :ui_cards, []),
       behavior_state: build_behavior_state(fields),
       adoption_state: build_adoption_state(fields),
-      projection_refs: [],
+      projection_refs: Map.get(fields, :projection_refs, []),
       validation: %{},
       usage: %{},
       trace_ref: %{},
