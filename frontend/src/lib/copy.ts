@@ -88,6 +88,8 @@ export const CARD = {
   confirmation: {
     title: "请确认",
     description: "请确认以下内容是否符合预期",
+    confirmLabel: "确认执行",
+    rejectLabel: "取消",
   },
   warning: {
     title: "注意",

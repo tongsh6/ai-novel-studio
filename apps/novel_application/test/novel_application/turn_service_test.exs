@@ -186,4 +186,54 @@ defmodule NovelApplication.TurnServiceTest do
                TurnService.handle_adopt("work-id", 0, %{}, "ws-1")
     end
   end
+
+  describe "handle_confirm/2 (VS-003)" do
+    test "confirms pending intent and executes it" do
+      behavior_id = NovelAgent.AuthorityGate.request_confirmation(%{
+        intent_name: "create_work_seed",
+        extracted_slots: %{
+          "genre" => "玄幻",
+          "core_selling_point" => "强者重生逆袭",
+          "target_reader" => "成年男性"
+        }
+      })
+
+      assert {:ok, turn_result} = TurnService.handle_confirm(behavior_id, "ws-cfm")
+
+      assert turn_result.phase == TurnPhase.completed()
+      assert turn_result.next_action == NextAction.adopt_artifacts()
+      assert turn_result.assistant_message.text =~ "种子"
+      assert turn_result.behavior_state.active == nil
+      assert [history_entry] = turn_result.behavior_state.history
+      assert history_entry.behavior_type == "confirmation"
+      assert history_entry.status == "RESOLVED"
+    end
+
+    test "returns error for unknown behavior_id" do
+      assert {:error, :unknown_behavior} = TurnService.handle_confirm("nonexistent", "ws-1")
+    end
+  end
+
+  describe "handle_reject/2 (VS-003)" do
+    test "rejects pending intent and returns cancelled" do
+      behavior_id = NovelAgent.AuthorityGate.request_confirmation(%{
+        intent_name: "create_work_seed",
+        extracted_slots: %{"genre" => "玄幻"}
+      })
+
+      assert {:ok, turn_result} = TurnService.handle_reject(behavior_id, "ws-rej")
+
+      assert turn_result.phase == TurnPhase.cancelled()
+      assert turn_result.status == Status.cancelled()
+      assert turn_result.next_action == NextAction.no_further_action()
+      assert turn_result.assistant_message.text =~ "取消"
+      assert [h] = turn_result.behavior_state.history
+      assert h.behavior_type == "confirmation"
+      assert h.status == "CANCELLED"
+    end
+
+    test "returns error for unknown behavior_id" do
+      assert {:error, :unknown_behavior} = TurnService.handle_reject("nonexistent", "ws-1")
+    end
+  end
 end

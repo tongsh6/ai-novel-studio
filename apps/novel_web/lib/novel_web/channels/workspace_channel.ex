@@ -44,6 +44,32 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  def handle_in("confirm", %{"behavior_id" => behavior_id}, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+
+    case TurnService.handle_confirm(behavior_id, ws_id) do
+      {:ok, turn_result} ->
+        broadcast!(socket, "turn_result", turn_result)
+        {:reply, {:ok, %{received: true}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
+  def handle_in("reject", %{"behavior_id" => behavior_id}, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+
+    case TurnService.handle_reject(behavior_id, ws_id) do
+      {:ok, turn_result} ->
+        broadcast!(socket, "turn_result", turn_result)
+        {:reply, {:ok, %{received: true}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end

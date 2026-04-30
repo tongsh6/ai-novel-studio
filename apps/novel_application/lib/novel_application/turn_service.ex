@@ -13,6 +13,7 @@ defmodule NovelApplication.TurnService do
   Foundation.Enums 的枚举字面量都会被运行时拦截。
   """
 
+  alias NovelAgent.AuthorityGate
   alias NovelAgent.Memory.Store, as: MemoryStore
   alias NovelAgent.Orchestrator
   alias NovelApplication.AdoptionBoundary
@@ -56,7 +57,21 @@ defmodule NovelApplication.TurnService do
           build_create_work_clarification(turn_id, result, memory_context)
 
         %{needs_clarification: false} = result ->
-          build_create_work_tentative(turn_id, result, memory_context)
+          # VS-003: check if intent requires confirmation before execution
+          intent_context = %{
+            intent_name: result.intent_name,
+            extracted_slots: result.extracted_slots,
+            requires_confirmation: Map.get(result, :requires_confirmation, false),
+            risk_class: Map.get(result, :risk_class, "low")
+          }
+
+          case AuthorityGate.authorize(result.intent_name, intent_context) do
+            {:confirm_required, reason} ->
+              build_confirmation(turn_id, result, reason, memory_context)
+
+            :allowed ->
+              build_create_work_tentative(turn_id, result, memory_context)
+          end
       end
 
     record_to_memory(workspace_id, turn_id, :user, user_text)
@@ -115,6 +130,96 @@ defmodule NovelApplication.TurnService do
 
   def handle_adopt(_work_id, _base_revision, _mutation_attrs, _workspace_id, _turn_id) do
     {:error, :invalid_base_revision}
+  end
+
+  @doc """
+  确认执行前等待的操作。behavior_id 对应 confirmation_card 中的 behavior。
+
+  从 AuthorityGate 取回 pending confirmation 上下文，执行原 intent。
+  """
+  @spec handle_confirm(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def handle_confirm(behavior_id, workspace_id \\ "lobby") do
+    case AuthorityGate.take_pending(behavior_id) do
+      nil ->
+        {:error, :unknown_behavior}
+
+      pending ->
+        turn_id = Orchestrator.allocate_turn_id()
+
+        # Re-execute the original intent with stored context
+        result = %{
+          intent_name: pending.intent_name,
+          extracted_slots: pending.extracted_slots,
+          needs_clarification: false
+        }
+
+        turn_result = build_create_work_tentative(turn_id, result, nil)
+        text = turn_result.assistant_message.text
+
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+
+        # Resolve the original behavior into history
+        turn_result = %{turn_result | behavior_state: %{
+          active: nil,
+          history: [
+            %{
+              behavior_type: "confirmation",
+              behavior_id: behavior_id,
+              status: BehaviorStatus.resolved(),
+              resolution_ref: "confirmed"
+            }
+          ]
+        }}
+
+        {:ok, TurnResultValidator.validate!(turn_result)}
+    end
+  end
+
+  @doc """
+  拒绝执行前等待的操作。返回 CANCELLED TurnResult。
+  """
+  @spec handle_reject(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def handle_reject(behavior_id, workspace_id \\ "lobby") do
+    case AuthorityGate.take_pending(behavior_id) do
+      nil ->
+        {:error, :unknown_behavior}
+
+      _pending ->
+        turn_id = Orchestrator.allocate_turn_id()
+        text = "已取消操作。"
+
+        turn_result =
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.cancelled(),
+            status: Status.cancelled(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: text,
+            behavior: nil,
+            ui_cards: [],
+            history_behavior: %{
+              behavior_type: "confirmation",
+              behavior_id: behavior_id,
+              status: BehaviorStatus.cancelled(),
+              resolution_ref: "rejected"
+            }
+          })
+
+        turn_result = %{turn_result | behavior_state: %{
+          active: nil,
+          history: [
+            %{
+              behavior_type: "confirmation",
+              behavior_id: behavior_id,
+              status: BehaviorStatus.cancelled(),
+              resolution_ref: "rejected"
+            }
+          ]
+        }}
+
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+
+        {:ok, TurnResultValidator.validate!(turn_result)}
+    end
   end
 
   # ---- Memory Recall (Governed Memory) ----
@@ -274,6 +379,69 @@ defmodule NovelApplication.TurnService do
       ui_cards: [adoption_card(slots, artifact.artifact_id)],
       memory_context: memory_context
     })
+  end
+
+  # ---- Confirmation (VS-003) ----
+
+  defp build_confirmation(turn_id, route_result, reason, memory_context) do
+    behavior_id = AuthorityGate.request_confirmation(%{
+      intent_name: route_result.intent_name,
+      extracted_slots: route_result.extracted_slots
+    })
+
+    slots = route_result.extracted_slots
+    genre = slots["genre"] || "未指定"
+    selling_point = slots["core_selling_point"] || "未指定"
+
+    build_turn_result(turn_id, %{
+      phase: TurnPhase.needs_confirmation(),
+      status: Status.waiting_user(),
+      next_action: NextAction.confirm_before_execute(),
+      assistant_text:
+        "即将创建「#{genre}小说」，核心卖点：#{selling_point}。\n\n#{reason}",
+      behavior: %{
+        behavior_type: "confirmation",
+        behavior_id: behavior_id,
+        status: BehaviorStatus.waiting_user(),
+        resolution_ref: nil,
+        pending_intent: route_result.intent_name
+      },
+      ui_cards: [
+        confirmation_card(behavior_id,
+          title: "确认创建作品",
+          body: "即将创建「#{genre}小说」\n\n核心卖点：#{selling_point}\n\n#{reason}"
+        )
+      ],
+      memory_context: memory_context
+    })
+  end
+
+  defp confirmation_card(behavior_id, opts) do
+    %{
+      card_type: "confirmation_card",
+      priority: "high",
+      visibility: "primary",
+      title: Keyword.get(opts, :title, "请确认"),
+      body: Keyword.get(opts, :body, ""),
+      actions: [
+        %{
+          action_id: "confirm",
+          action_type: "confirm",
+          label: "确认执行",
+          target_ref: behavior_id,
+          enabled: true,
+          style_hint: "primary"
+        },
+        %{
+          action_id: "reject",
+          action_type: "reject",
+          label: "取消",
+          target_ref: behavior_id,
+          enabled: true,
+          style_hint: "secondary"
+        }
+      ]
+    }
   end
 
   defp clarification_card(behavior_id, opts) do

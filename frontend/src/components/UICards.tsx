@@ -40,7 +40,7 @@ export function ConfirmationCard({ card, onAction }: Props) {
     <div className={`${styles.card} ${styles.confirmationCard}`}>
       <div className={styles.header}>
         <div className={styles.icon}>⚠️</div>
-        <div className={styles.title}>{card.title || "确认操作"}</div>
+        <div className={styles.title}>{card.title || CARD.confirmation.title}</div>
       </div>
       {card.body && <div className={styles.body}>{card.body}</div>}
       {card.actions && card.actions.length > 0 && (
