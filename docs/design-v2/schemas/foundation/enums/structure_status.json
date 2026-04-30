@@ -1,0 +1,16 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/enums/structure_status.json",
+  "title": "StructureStatus",
+  "description": "小说结构对象（Volume/Chapter/Scene）的状态。对应 21-novel-object-model.md §5 对象状态。",
+  "type": "string",
+  "enum": [
+    "PLANNED",
+    "DRAFTING",
+    "COMPLETED",
+    "ARCHIVED"
+  ],
+  "x-adr": "ADR-0002",
+  "x-section": "§5 结构对象状态",
+  "x-source": "docs/design-v2/21-novel-object-model.md §5"
+}
