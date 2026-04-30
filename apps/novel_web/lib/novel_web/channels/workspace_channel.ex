@@ -7,6 +7,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
   use Phoenix.Channel
 
+  alias NovelApplication.ReadingService
   alias NovelApplication.TurnService
 
   @impl true
@@ -193,6 +194,16 @@ defmodule NovelWeb.WorkspaceChannel do
     {:ok, turn_result} = TurnService.handle_retry(behavior_id, ws_id)
     broadcast!(socket, "turn_result", turn_result)
     {:reply, {:ok, %{received: true}}, socket}
+  end
+
+  def handle_in("get_toc", %{"work_id" => work_id}, socket) do
+    toc = ReadingService.build_toc(work_id)
+    {:reply, {:ok, toc}, socket}
+  end
+
+  def handle_in("get_chapter_content", %{"chapter_id" => chapter_id}, socket) do
+    content = ReadingService.build_chapter_content(chapter_id)
+    {:reply, {:ok, content}, socket}
   end
 
   def handle_in("ping", payload, socket) do

@@ -80,7 +80,8 @@ export function WorkspaceChat() {
     context,
     longRun,
     setContext,
-    setMode
+    setMode,
+    setChannel,
   } = useAppStore();
 
   const channelRef = useRef<Channel | null>(null);
@@ -111,6 +112,7 @@ export function WorkspaceChat() {
 
     const channel = joinWorkspace(socket);
     channelRef.current = channel;
+    setChannel(channel);
 
     channel
       .join()
@@ -157,7 +159,7 @@ export function WorkspaceChat() {
       channel.leave();
       socket.disconnect();
     };
-  }, [setSocketConnected, setContext]);
+  }, [setSocketConnected, setContext, setChannel]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import type { Channel } from "phoenix";
 
 export type WorkspaceMode = "workbench" | "reading";
 
@@ -51,6 +52,10 @@ interface AppState {
   pendingBuildAction: PendingBuildAction;
   setPendingBuildAction: (action: PendingBuildAction) => void;
 
+  // Channel reference (set by WorkspaceChat on connect)
+  channel: Channel | null;
+  setChannel: (ch: Channel | null) => void;
+
   // Connection
   socketConnected: boolean;
   setSocketConnected: (connected: boolean) => void;
@@ -92,6 +97,9 @@ export const useAppStore = create<AppState>((set) => ({
   setProjectionStatus: (status) => set({ projectionStatus: status }),
   pendingBuildAction: null,
   setPendingBuildAction: (action) => set({ pendingBuildAction: action }),
+
+  channel: null,
+  setChannel: (ch) => set({ channel: ch }),
 
   socketConnected: false,
   setSocketConnected: (connected) => set({ socketConnected: connected }),

@@ -209,3 +209,45 @@ export function retryAction(
       .receive("timeout", () => reject(new Error("retry timeout")));
   });
 }
+
+export interface TocVolume {
+  id: string;
+  title: string;
+  seq: number;
+  chapters: { id: string; title: string; seq: number }[];
+}
+
+export interface TocData {
+  volumes: TocVolume[];
+}
+
+export function getToc(
+  channel: Channel,
+  workId: string,
+): Promise<TocData> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_toc", { work_id: workId })
+      .receive("ok", (response) => resolve(response as TocData))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_toc timeout")));
+  });
+}
+
+export interface ChapterContent {
+  title: string;
+  scenes: { title: string; content: string }[];
+}
+
+export function getChapterContent(
+  channel: Channel,
+  chapterId: string,
+): Promise<ChapterContent> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_chapter_content", { chapter_id: chapterId })
+      .receive("ok", (response) => resolve(response as ChapterContent))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_chapter_content timeout")));
+  });
+}
