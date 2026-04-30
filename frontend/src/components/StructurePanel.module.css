@@ -198,3 +198,64 @@
   text-align: right;
   width: 200px;
 }
+
+/* L1 Overview */
+.overview {
+  display: flex;
+  gap: 24px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.overviewItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.overviewLabel {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--foreground-secondary);
+  letter-spacing: 0.5px;
+}
+
+.overviewValue {
+  font-size: 16px;
+  color: var(--foreground-primary);
+  font-weight: 600;
+}
+
+.overviewValueAccent {
+  font-size: 16px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Empty state */
+.emptySection {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 48px 24px;
+  gap: 12px;
+}
+
+.emptyIcon {
+  font-size: 32px;
+  margin-bottom: 8px;
+}
+
+.emptyTitle {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--foreground-primary);
+}
+
+.emptyDesc {
+  font-size: 14px;
+  color: var(--foreground-secondary);
+  line-height: 1.6;
+  max-width: 360px;
+}

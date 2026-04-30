@@ -140,3 +140,44 @@
 .progressCard {
   border-style: dashed;
 }
+
+.checkpointCard {
+  border-left: 3px solid #8b5cf6;
+}
+
+.resultCard {
+  border-left: 3px solid #22c55e;
+}
+
+.failureCard {
+  border-left: 3px solid #ef4444;
+  background-color: var(--accent-bg);
+}
+
+.escalationCard {
+  border-left: 3px solid #f59e0b;
+  background-color: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.defaultCard {
+  border-left: 3px solid var(--border-subtle);
+  opacity: 0.85;
+}
+
+/* Artifact list (checkpoint pending items) */
+.artifactList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.artifactTag {
+  font-size: 11px;
+  font-family: var(--mono);
+  padding: 2px 8px;
+  background: var(--surface-secondary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  color: var(--foreground-secondary);
+}
