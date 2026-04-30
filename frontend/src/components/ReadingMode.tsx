@@ -1,16 +1,14 @@
+// Design: docs/design-v2/ui-design/44-reading-mode.md §3
+// Prototype: novel-studio-v2.pen → 44§3-reading-mode-stale (hEGz0)
 import { useAppStore } from "../lib/store";
 import styles from "./ReadingMode.module.css";
 
 export function ReadingMode() {
-  const { setMode, context } = useAppStore();
-  
-  // For UI implementation proof-of-concept, we'll mock the projection status 
-  // as "STALE" to demonstrate the banner from `44-reading-mode.md`
-  const projectionStatus = "STALE"; 
+  const { setMode, context, projectionStatus } = useAppStore();
 
   return (
     <div className={styles.container}>
-      {/* 投影状态 Banner (Projection Status Banner) */}
+      {/* 投影状态 Banner — consumed from backend projection_refs (VS-005) */}
       {projectionStatus === "STALE" && (
         <div className={styles.staleBanner}>
           <div className={styles.bannerLeft}>
@@ -18,6 +16,23 @@ export function ReadingMode() {
             <span className={styles.bannerDesc}>底层设定已有变更，当前阅读的可能不是最新版本。</span>
           </div>
           <button className={styles.refreshBtn}>刷新投影</button>
+        </div>
+      )}
+      {projectionStatus === "REBUILDING" && (
+        <div className={styles.staleBanner}>
+          <div className={styles.bannerLeft}>
+            <span className={styles.bannerStatus}>投影状态：重建中</span>
+            <span className={styles.bannerDesc}>系统正在重新生成阅读视图，请稍候。</span>
+          </div>
+        </div>
+      )}
+      {projectionStatus === "FAILED" && (
+        <div className={styles.staleBanner}>
+          <div className={styles.bannerLeft}>
+            <span className={styles.bannerStatus}>投影状态：重建失败</span>
+            <span className={styles.bannerDesc}>阅读视图重建失败，请返回工作台重试。</span>
+          </div>
+          <button className={styles.refreshBtn}>重试</button>
         </div>
       )}
 

@@ -18,6 +18,8 @@ export interface LongRunState {
   checkpointReason: string | null;
 }
 
+export type ProjectionRefreshStatus = "FRESH" | "STALE" | "REBUILDING" | "FAILED" | null;
+
 export interface AgentFeedback {
   severity: "none" | "info" | "warning" | "error";
   activeCount: number;
@@ -40,6 +42,10 @@ interface AppState {
   // Risk / Quality Findings
   feedback: AgentFeedback;
   setFeedback: (feedback: Partial<AgentFeedback>) => void;
+
+  // Projection (VS-005)
+  projectionStatus: ProjectionRefreshStatus;
+  setProjectionStatus: (status: ProjectionRefreshStatus) => void;
 
   // Connection
   socketConnected: boolean;
@@ -77,6 +83,9 @@ export const useAppStore = create<AppState>((set) => ({
   },
   setFeedback: (fb) =>
     set((state) => ({ feedback: { ...state.feedback, ...fb } })),
+
+  projectionStatus: null,
+  setProjectionStatus: (status) => set({ projectionStatus: status }),
 
   socketConnected: false,
   setSocketConnected: (connected) => set({ socketConnected: connected }),

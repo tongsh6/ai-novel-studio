@@ -24,6 +24,7 @@ interface TurnResult {
     resolved: ArtifactEntry[];
   };
   behavior_state?: { active: Record<string, unknown> | null };
+  projection_refs?: { projection_type: string; projection_id: string; source_revision_refs: string[]; refresh_status?: string | null }[];
   produced_at: string;
 }
 
@@ -123,7 +124,14 @@ export function WorkspaceChat() {
       ]);
       setLoading(false);
 
-      // (Later: we should parse result.phase, status and update longRun/context store here)
+      // VS-005: propagate projection_refs to global store for ReadingMode
+      const projRefs = result.projection_refs;
+      if (projRefs && projRefs.length > 0) {
+        const status = projRefs[0].refresh_status;
+        if (status === "FRESH" || status === "STALE" || status === "REBUILDING" || status === "FAILED") {
+          useAppStore.getState().setProjectionStatus(status);
+        }
+      }
     });
 
     return () => {
