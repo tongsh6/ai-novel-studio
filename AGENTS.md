@@ -119,9 +119,61 @@ UI 实现必须严格遵循 `docs/design-v2/ui-design/` 中的设计文档和 Pe
 
 ---
 
+## 承重竖切面（试行）
+
+项目初期的目标是建立可持续发展的承重结构。功能开发默认按**承重竖切面**组织，而不是按 DB / API / UI / Agent 等横向层单独交付。
+
+承重竖切面规则见 [docs/engineering/vertical-slice.md](docs/engineering/vertical-slice.md)。执行层任务放在 [tasks/slices/](tasks/slices/)。
+
+### 开始编码前必须回答
+
+任何开发任务开始编码前，AI 必须先说明：
+
+1. **Contract**：本 slice 固化或消费哪个契约、schema、ADR、状态字段？
+2. **Invariant**：本 slice 保护哪个系统不变量？
+3. **Boundary**：本 slice 切穿哪些真实 app 边界？哪些 app 明确不应修改？
+4. **Consumer**：第一个真实消费者是谁？Channel、Frontend、Application test、Projection builder 或其他？
+5. **Proof**：用什么测试或命令证明链路和不变量成立？
+
+如果这 5 项答不上来，先补 slice 设计，不要编码。
+
+### 本项目默认承重主链
+
+```text
+Turn 输入
+→ intent / policy / capability 判定
+→ turn phase/status 状态推进
+→ application 编排
+→ agent / domain / persistence 边界调用
+→ TurnResult v2 输出
+→ ui_card / action / adoption / projection 消费
+→ memory / audit / replay 留痕
+```
+
+slice 可以只覆盖其中一段连续链路，但必须形成可执行闭环，并且至少有一个真实消费者。
+
+### 禁止任务形态
+
+- 只建表、schema、migration
+- 只写 controller/channel
+- 只搭 UI 壳
+- 只加 provider/repository/service 抽象
+- 只创建未来会用的模块
+- 只实现 happy path 但没有状态、契约、不变量测试
+
+每个新增模块、函数、字段、组件都必须能回答：
+
+- 属于哪个 slice？
+- 服务哪个 contract？
+- 保护哪个 invariant？
+- 被哪个 consumer 调用？
+
+---
+
 ## 项目文档
 
 - 设计文档：`docs/design-v2/`（权威，代码必须遵循）
 - ADR：`docs/design-v2/adr/`（已冻结的决策）
 - JSON Schema SSOT：`docs/design-v2/schemas/`
 - 技术栈：`docs/design-v2/tech-stack/`
+- 工程实践：`docs/engineering/`

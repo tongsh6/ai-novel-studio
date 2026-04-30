@@ -8,9 +8,13 @@
 |---|---|---|
 | 规划 | `docs/design-v2/README.md`、`docs/design-v2/tech-stack/14-roadmap.md` | "应该怎么走"——节奏、目标、完成标准 |
 | 决策 | `docs/design-v2/adr/` | 硬骨决策——一旦 Accepted 就稳定 |
+| 施工规则 | `docs/engineering/vertical-slice.md` | "如何组织开发任务"——承重竖切面试行规则 |
 | 执行 | `tasks/`（本目录） | "现在走到哪、为什么这么走"——状态、卡点、决策日志 |
+| 竖切面 | `tasks/slices/` | "当前在打实哪段承重链路"——slice 开工检查、任务清单、验证与试行反馈 |
 
 **纪律**：任何"目标 / 节奏 / 完成标准"信息只在规划层维护；本目录通过**引用**而不是复制锚定到规划层，避免漂移。
+
+涉及功能开发的任务优先落到 `tasks/slices/`。周期性进展、跨 slice 汇总、阶段恢复指引仍保留在 `tasks/` 顶层 task 文件中。
 
 ## 文件命名
 

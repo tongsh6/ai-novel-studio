@@ -68,6 +68,7 @@ htmlcov/
 
 # Audit log
 /log/
+apps/novel_agent/log/
 
 # Temporary files
 *.tmp
