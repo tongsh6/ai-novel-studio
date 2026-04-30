@@ -1,10 +1,41 @@
 // Design: docs/design-v2/ui-design/44-reading-mode.md §3
 // Prototype: novel-studio-v2.pen → 44§3-reading-mode-stale (hEGz0)
+import { useEffect, useState } from "react";
 import { useAppStore } from "../lib/store";
+import { getToc, getChapterContent } from "../lib/socket";
+import type { TocData, ChapterContent } from "../lib/socket";
 import styles from "./ReadingMode.module.css";
 
 export function ReadingMode() {
-  const { setMode, context, projectionStatus, setPendingBuildAction } = useAppStore();
+  const { setMode, context, projectionStatus, setPendingBuildAction, channel } = useAppStore();
+
+  const [toc, setToc] = useState<TocData | null>(null);
+  const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
+  const [chapterContent, setChapterContent] = useState<ChapterContent | null>(null);
+
+  const hasContent = toc && toc.volumes.length > 0;
+  const contentLoading = activeChapterId != null && chapterContent == null;
+
+  // Fetch TOC on mount when workId is set
+  useEffect(() => {
+    if (!channel || !context.workId) return;
+    getToc(channel, context.workId).then((data) => {
+      setToc(data);
+      // Auto-select first chapter of first volume
+      const firstChapter = data.volumes[0]?.chapters[0];
+      if (firstChapter) {
+        setActiveChapterId(firstChapter.id);
+      }
+    }).catch(() => setToc(null));
+  }, [channel, context.workId]);
+
+  // Fetch chapter content when active chapter changes
+  useEffect(() => {
+    if (!channel || !activeChapterId) return;
+    getChapterContent(channel, activeChapterId)
+      .then((data) => setChapterContent(data))
+      .catch(() => setChapterContent(null));
+  }, [channel, activeChapterId]);
 
   const handleRefreshProjection = () => {
     setPendingBuildAction("refresh_projection");
@@ -18,7 +49,7 @@ export function ReadingMode() {
 
   return (
     <div className={styles.container}>
-      {/* 投影状态 Banner — consumed from backend projection_refs (VS-005) */}
+      {/* Projection status banners (VS-005) */}
       {projectionStatus === "STALE" && (
         <div className={styles.staleBanner}>
           <div className={styles.bannerLeft}>
@@ -46,14 +77,14 @@ export function ReadingMode() {
         </div>
       )}
 
-      {/* 顶部栏 (Top Bar) */}
+      {/* Top bar */}
       <div className={styles.topBar}>
         <div className={styles.contextGroup}>
           <span className={styles.modeText}>阅读模式</span>
           <span className={styles.divider}>/</span>
           <span className={styles.titleText}>{context.workTitle || "未定作品"}  [切换]</span>
         </div>
-        <button 
+        <button
           className={styles.backBtn}
           onClick={() => setMode("workbench")}
         >
@@ -61,37 +92,67 @@ export function ReadingMode() {
         </button>
       </div>
 
-      {/* 主阅读区域 (Main Area) */}
+      {/* Main reading area */}
       <div className={styles.mainArea}>
-        
-        {/* 侧边目录 (TOC Sidebar) */}
+
+        {/* TOC sidebar */}
         <div className={styles.tocSidebar}>
           <div className={styles.tocTitle}>目录</div>
-          <div className={styles.tocList}>
-            <div className={styles.tocVolume}>第一卷：遗迹的呼唤</div>
-            <div className={styles.tocChapterActive}>第一章 迷雾深处</div>
-            <div className={styles.tocChapter}>第二章 守卫的苏醒</div>
-            <div className={styles.tocChapter}>第三章 导师的线索</div>
-          </div>
+          {!hasContent ? (
+            <div className={styles.tocEmpty}>
+              暂无已采纳的章节内容
+            </div>
+          ) : (
+            <div className={styles.tocList}>
+              {toc.volumes.map((vol) => (
+                <div key={vol.id}>
+                  <div className={styles.tocVolume}>{vol.title}</div>
+                  {vol.chapters.map((ch) => (
+                    <div
+                      key={ch.id}
+                      className={ch.id === activeChapterId ? styles.tocChapterActive : styles.tocChapter}
+                      onClick={() => setActiveChapterId(ch.id)}
+                    >
+                      {ch.title}
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+          )}
         </div>
 
-        {/* 内容展示区 (Reading Content Area) */}
+        {/* Reading content area */}
         <div className={styles.readingContentArea}>
-          <div className={styles.contentBlock}>
-            <h1 className={styles.chapterTitle}>第一章 迷雾深处</h1>
-            <div className={styles.paragraph}>
-              新历40年，初秋。
+          {contentLoading ? (
+            <div className={styles.contentBlock}>
+              <p>加载中…</p>
             </div>
-            <div className={styles.paragraph}>
-              灰色的浓雾像是有生命般，在黑石砌成的古老遗迹边缘翻滚。艾林收紧了破旧的防风斗篷，手指下意识地摩挲着口袋里那块冰冷的金属怀表——那是导师留给他的唯一信物。
+          ) : !chapterContent ? (
+            <div className={styles.contentBlock}>
+              {hasContent
+                ? "请从左侧目录选择一个章节。"
+                : "返回工作台，在对话中生成并采纳草稿后，即可在此阅读。"}
             </div>
-            <div className={styles.paragraph}>
-              “你确定是这里吗？”身后的佣兵同伴压低声音，语气中透着紧张。
+          ) : (
+            <div className={styles.contentBlock}>
+              <h1 className={styles.chapterTitle}>{chapterContent.title}</h1>
+              {chapterContent.scenes.map((scene, si) => (
+                <div key={si}>
+                  {scene.title && scene.title !== chapterContent.title && (
+                    <h3 className={styles.sceneTitle}>{scene.title}</h3>
+                  )}
+                  {scene.content ? (
+                    scene.content.split("\n").map((para, pi) => (
+                      para.trim() ? <div key={pi} className={styles.paragraph}>{para}</div> : <br key={pi} />
+                    ))
+                  ) : (
+                    <div className={styles.paragraph}>（该场景暂无已采纳正文）</div>
+                  )}
+                </div>
+              ))}
             </div>
-            <div className={styles.paragraph}>
-              艾林没有回头，只是凝视着雾气深处隐约可见的巨大机械轮廓。“探测仪的共鸣频率达到了最高值。如果十年前的记录没错，这里就是核心区。”
-            </div>
-          </div>
+          )}
         </div>
 
       </div>

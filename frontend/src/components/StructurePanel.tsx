@@ -1,7 +1,9 @@
 // Design: docs/design-v2/ui-design/43-structure-panel.md §5
 // Prototype: novel-studio-v2.pen → 43§5-structure-panel-expanded (ATnmR)
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAppStore } from "../lib/store";
+import { getToc } from "../lib/socket";
+import type { TocData } from "../lib/socket";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
@@ -29,8 +31,16 @@ export function StructurePanel({
   onAction,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("foreshadowing");
+  const [toc, setToc] = useState<TocData | null>(null);
   const context = useAppStore((s) => s.context);
   const longRun = useAppStore((s) => s.longRun);
+  const channel = useAppStore((s) => s.channel);
+
+  // Fetch TOC when panel opens and work exists
+  useEffect(() => {
+    if (!isOpen || !channel || !context.workId) return;
+    getToc(channel, context.workId).then((data) => setToc(data)).catch(() => setToc(null));
+  }, [isOpen, channel, context.workId]);
 
   if (!isOpen) return null;
 
@@ -145,24 +155,46 @@ export function StructurePanel({
 
         {/* Outline Tab */}
         {activeTab === "outline" && (
-          <div className={styles.emptySection}>
-            <div className={styles.emptyIcon}>📖</div>
-            <div className={styles.emptyTitle}>大纲与结构</div>
-            <div className={styles.emptyDesc}>
-              {hasWork
-                ? "在对话中说「生成章节大纲」或「规划分卷结构」，AI 会帮你整理作品的骨架。"
-                : "先在工作台创建作品，AI 会帮你搭建大纲和分卷结构。"}
-            </div>
-            <button
-              className={styles.btnPrimary}
-              onClick={() => {
-                onAction("init_intent");
-                onClose();
-              }}
-            >
-              开始规划
-            </button>
-          </div>
+          <>
+            {toc && toc.volumes.length > 0 ? (
+              <div className={styles.section}>
+                {toc.volumes.map((vol) => (
+                  <div key={vol.id} className={styles.section}>
+                    <div className={styles.secHeader}>
+                      <span className={styles.secTitle}>{vol.title}</span>
+                    </div>
+                    {vol.chapters.map((ch) => (
+                      <div key={ch.id} className={styles.cardItem}>
+                        <span className={styles.cardTitle}>{ch.title}</span>
+                      </div>
+                    ))}
+                    {vol.chapters.length === 0 && (
+                      <div className={styles.emptyDesc}>暂无章节</div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.emptySection}>
+                <div className={styles.emptyIcon}>📖</div>
+                <div className={styles.emptyTitle}>大纲与结构</div>
+                <div className={styles.emptyDesc}>
+                  {hasWork
+                    ? "在对话中说「生成章节大纲」或「规划分卷结构」，AI 会帮你整理作品的骨架。"
+                    : "先在工作台创建作品，AI 会帮你搭建大纲和分卷结构。"}
+                </div>
+                <button
+                  className={styles.btnPrimary}
+                  onClick={() => {
+                    onAction("init_intent");
+                    onClose();
+                  }}
+                >
+                  开始规划
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {/* Character Tab */}
