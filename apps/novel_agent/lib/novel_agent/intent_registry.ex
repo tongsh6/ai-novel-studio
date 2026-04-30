@@ -428,8 +428,7 @@ defmodule NovelAgent.IntentRegistry do
       schema ->
         slot_lines =
           Enum.map(schema.slots, fn s ->
-            req = if s.requiredness == Requiredness.required_to_execute(), do: "required", else: "optional"
-            "  - #{s.slot_name} (#{s.slot_type}, #{req}): #{s.description}"
+            "  - #{s.slot_name} (#{s.slot_type}, #{requiredness_label(s.requiredness)}): #{s.description}"
           end)
 
         """
@@ -441,5 +440,9 @@ defmodule NovelAgent.IntentRegistry do
         #{Enum.join(slot_lines, "\n")}
         """
     end
+  end
+
+  defp requiredness_label(requiredness) do
+    if requiredness == Requiredness.required_to_execute(), do: "required", else: "optional"
   end
 end
