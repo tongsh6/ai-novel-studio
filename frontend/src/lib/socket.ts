@@ -79,6 +79,19 @@ export function rejectAction(
   });
 }
 
+export function discardArtifact(
+  channel: Channel,
+  artifactId: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("discard", { artifact_id: artifactId })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("discard timeout")));
+  });
+}
+
 export function adopt(
   channel: Channel,
   artifactId: string,

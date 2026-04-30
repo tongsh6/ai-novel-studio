@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 
-import { createSocket, joinWorkspace, sendMessage, adopt, confirm, rejectAction } from "../lib/socket";
+import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, confirm, rejectAction } from "../lib/socket";
 import { ClarificationCard, ConfirmationCard, WarningCard, AdoptionCard, ProgressCard, DefaultCard } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
@@ -259,7 +259,7 @@ export function WorkspaceChat() {
                 <div className={styles.text}>{msg.text}</div>
 
                 {msg.turnResult?.ui_cards?.map((card, ci) => {
-                  const handleAction = (actionId: string, targetRef: string, actionType?: string) => {
+                  const handleAction = (_actionId: string, targetRef: string, actionType?: string) => {
                     if (actionType === "answer") {
                       const input = document.querySelector<HTMLInputElement>(`.${styles.inputBox}`);
                       input?.focus();
@@ -273,9 +273,21 @@ export function WorkspaceChat() {
                       void rejectAction(channelRef.current, targetRef);
                       return;
                     }
+                    if (actionType === "discard" && channelRef.current) {
+                      void discardArtifact(channelRef.current, targetRef);
+                      return;
+                    }
+                    if (actionType === "edit_then_accept") {
+                      const input = document.querySelector<HTMLInputElement>(`.${styles.inputBox}`);
+                      if (input) {
+                        input.value = "我想修改刚才的作品：";
+                        input.focus();
+                      }
+                      return;
+                    }
                     const pending = msg.turnResult?.adoption_state?.pending ?? [];
                     const artifact = pending.find((a) => a.artifact_id === targetRef);
-                    if (artifact && actionId === "accept") {
+                    if (artifact && actionType === "accept") {
                       void handleAdopt(artifact);
                     }
                   };

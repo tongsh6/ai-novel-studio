@@ -177,6 +177,34 @@ defmodule NovelApplication.TurnServiceTest do
     end
   end
 
+  describe "handle_discard/2 (VS-004)" do
+    test "discards a tentative artifact and returns resolved with DISCARDED" do
+      payload = %{
+        "title" => "要丢弃的作品",
+        "genre" => "科幻",
+        "core_selling_point" => "测试",
+        "target_reader" => "测试"
+      }
+
+      assert {:ok, work} = AdoptionBoundary.create_tentative(payload)
+
+      assert {:ok, turn_result} = TurnService.handle_discard(work.id, "ws-discard")
+
+      assert turn_result.phase == TurnPhase.completed()
+      assert turn_result.next_action == NextAction.no_further_action()
+      assert turn_result.assistant_message.text =~ "丢弃"
+
+      assert [resolved] = turn_result.adoption_state.resolved
+      assert resolved.adoption_status == AdoptionStatus.discarded()
+      assert resolved.artifact_id == work.id
+    end
+
+    test "returns error for non-existent work" do
+      assert {:error, :not_found} =
+               TurnService.handle_discard("00000000-0000-0000-0000-000000000000", "ws-1")
+    end
+  end
+
   describe "handle_adopt/5 validation" do
     test "returns invalid_base_revision for missing or invalid base revision" do
       assert {:error, :invalid_base_revision} =
