@@ -41,6 +41,38 @@ describe("TurnResultSchema", () => {
     expect(result.success).toBe(false);
   });
 
+  it("接受非空 ui_cards", () => {
+    const payload = {
+      ...minimalValid,
+      ui_cards: [
+        {
+          card_type: "clarification",
+          card_id: "card_001",
+          title: "需要补充信息",
+          body_markdown: "请提供更多细节",
+          actions: [],
+        },
+      ],
+    };
+    const result = TurnResultSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
+
+  it("接受非空 projection_refs", () => {
+    const payload = {
+      ...minimalValid,
+      projection_refs: [
+        {
+          projection_type: "reading_projection_root",
+          projection_id: "proj_001",
+          source_revision_refs: ["rev_1"],
+        },
+      ],
+    };
+    const result = TurnResultSchema.safeParse(payload);
+    expect(result.success).toBe(true);
+  });
+
   it("接受非空 adoption_state.pending", () => {
     const payload = {
       ...minimalValid,

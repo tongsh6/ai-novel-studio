@@ -176,5 +176,77 @@ defmodule NovelFoundation.TurnResultValidatorTest do
       tr = valid_turn_result()
       assert ^tr = TurnResultValidator.validate!(tr)
     end
+
+    test "rejects errors[] non-empty with status=DONE (ADR-0002 §7 rule 4)" do
+      tr =
+        valid_turn_result(%{
+          validation: %{errors: [%{code: "E001", message: "bad"}], warnings: []},
+          status: Status.done()
+        })
+
+      assert {:error, msgs} = TurnResultValidator.validate(tr)
+      assert Enum.any?(msgs, &String.contains?(&1, "rule 4"))
+    end
+  end
+
+  describe "phase × next_action compat matrix" do
+    test "NEEDS_CONFIRMATION allows CONFIRM_BEFORE_EXECUTE" do
+      tr =
+        valid_turn_result(%{
+          phase: TurnPhase.needs_confirmation(),
+          next_action: NextAction.confirm_before_execute(),
+          status: Status.waiting_user()
+        })
+
+      assert :ok = TurnResultValidator.validate(tr)
+    end
+
+    test "NEEDS_CONFIRMATION rejects non-CONFIRM_BEFORE_EXECUTE actions" do
+      tr =
+        valid_turn_result(%{
+          phase: TurnPhase.needs_confirmation(),
+          next_action: NextAction.show_result(),
+          status: Status.waiting_user()
+        })
+
+      assert {:error, msgs} = TurnResultValidator.validate(tr)
+      assert Enum.any?(msgs, &String.contains?(&1, "not allowed"))
+    end
+
+    test "FAILED allows RETRY_SYSTEM and NO_FURTHER_ACTION" do
+      tr_retry = valid_turn_result(%{phase: TurnPhase.failed(), next_action: NextAction.retry_system()})
+      tr_done = valid_turn_result(%{phase: TurnPhase.failed(), next_action: NextAction.no_further_action()})
+
+      assert :ok = TurnResultValidator.validate(tr_retry)
+      assert :ok = TurnResultValidator.validate(tr_done)
+    end
+
+    test "FAILED rejects SHOW_RESULT" do
+      tr = valid_turn_result(%{phase: TurnPhase.failed(), next_action: NextAction.show_result()})
+
+      assert {:error, msgs} = TurnResultValidator.validate(tr)
+      assert Enum.any?(msgs, &String.contains?(&1, "not allowed"))
+    end
+
+    test "CANCELLED only allows NO_FURTHER_ACTION" do
+      tr_ok = valid_turn_result(%{phase: TurnPhase.cancelled(), next_action: NextAction.no_further_action()})
+      tr_bad = valid_turn_result(%{phase: TurnPhase.cancelled(), next_action: NextAction.ask_user()})
+
+      assert :ok = TurnResultValidator.validate(tr_ok)
+      assert {:error, msgs} = TurnResultValidator.validate(tr_bad)
+      assert Enum.any?(msgs, &String.contains?(&1, "not allowed"))
+    end
+
+    test "READY_TO_EXECUTE only allows NO_FURTHER_ACTION" do
+      tr = valid_turn_result(%{phase: TurnPhase.ready_to_execute(), next_action: NextAction.no_further_action()})
+
+      assert :ok = TurnResultValidator.validate(tr)
+    end
+
+    test "EXECUTING only allows NO_FURTHER_ACTION" do
+      tr = valid_turn_result(%{phase: TurnPhase.executing(), next_action: NextAction.no_further_action()})
+
+      assert :ok = TurnResultValidator.validate(tr)
+    end
   end
 end
