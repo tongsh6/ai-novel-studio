@@ -29,7 +29,16 @@ defmodule NovelApplication.TurnServiceTest do
       assert result.behavior_state.active.behavior_type == "clarification"
       assert result.behavior_state.active.missing_slots != []
       assert result.behavior_state.history == []
-      assert result.ui_cards == []
+
+      # VS-002: clarification path now produces clarification_card
+      assert [card] = result.ui_cards
+      assert card.card_type == "clarification_card"
+      assert card.priority == "normal"
+      assert card.title == "需要补充信息"
+      assert card.body =~ "核心卖点"
+      assert [action] = card.actions
+      assert action.action_type == "answer"
+      assert action.action_id == "answer"
     end
 
     test "unknown input returns clarification" do
@@ -38,6 +47,11 @@ defmodule NovelApplication.TurnServiceTest do
       assert result.phase == TurnPhase.needs_clarification()
       assert result.next_action == NextAction.ask_user()
       assert result.assistant_message.text =~ "抱歉"
+
+      # VS-002: unknown clarification also produces clarification_card
+      assert [card] = result.ui_cards
+      assert card.card_type == "clarification_card"
+      assert card.body =~ "重新描述"
     end
   end
 

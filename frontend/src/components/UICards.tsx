@@ -1,9 +1,12 @@
+// Design: docs/design-v2/ui-design/42-card-system.md §3 (card component rendering)
+// Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
 import type { UICard } from "./WorkspaceChat";
+import { CARD } from "../lib/copy";
 import styles from "./UICards.module.css";
 
 interface Props {
   card: UICard;
-  onAction: (actionId: string, targetRef: string) => void;
+  onAction: (actionId: string, targetRef: string, actionType?: string) => void;
 }
 
 export function ClarificationCard({ card, onAction }: Props) {
@@ -11,7 +14,7 @@ export function ClarificationCard({ card, onAction }: Props) {
     <div className={`${styles.card} ${styles.clarificationCard}`}>
       <div className={styles.header}>
         <div className={styles.icon}>❓</div>
-        <div className={styles.title}>{card.title || "需要补充信息"}</div>
+        <div className={styles.title}>{card.title || CARD.clarification.title}</div>
       </div>
       {card.body && <div className={styles.body}>{card.body}</div>}
       {card.actions && card.actions.length > 0 && (
@@ -21,7 +24,7 @@ export function ClarificationCard({ card, onAction }: Props) {
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
               disabled={!action.enabled}
-              onClick={() => onAction(action.action_id, action.target_ref)}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
               {action.label}
             </button>
@@ -47,7 +50,7 @@ export function ConfirmationCard({ card, onAction }: Props) {
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
               disabled={!action.enabled}
-              onClick={() => onAction(action.action_id, action.target_ref)}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
               {action.label}
             </button>
@@ -73,7 +76,7 @@ export function WarningCard({ card, onAction }: Props) {
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
               disabled={!action.enabled}
-              onClick={() => onAction(action.action_id, action.target_ref)}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
               {action.label}
             </button>
@@ -98,7 +101,7 @@ export function AdoptionCard({ card, onAction }: Props) {
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
               disabled={!action.enabled}
-              onClick={() => onAction(action.action_id, action.target_ref)}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
               {action.label}
             </button>
@@ -124,7 +127,7 @@ export function ProgressCard({ card, onAction }: Props) {
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
               disabled={!action.enabled}
-              onClick={() => onAction(action.action_id, action.target_ref)}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
               {action.label}
             </button>
@@ -147,7 +150,7 @@ export function DefaultCard({ card, onAction }: Props) {
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
               disabled={!action.enabled}
-              onClick={() => onAction(action.action_id, action.target_ref)}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
               {action.label}
             </button>

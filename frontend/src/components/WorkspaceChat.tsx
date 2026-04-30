@@ -39,6 +39,7 @@ export interface UICard {
 
 export interface UIAction {
   action_id: string;
+  action_type?: string;
   label: string;
   target_ref: string;
   enabled: boolean;
@@ -258,7 +259,13 @@ export function WorkspaceChat() {
                 <div className={styles.text}>{msg.text}</div>
 
                 {msg.turnResult?.ui_cards?.map((card, ci) => {
-                  const handleAction = (actionId: string, targetRef: string) => {
+                  const handleAction = (actionId: string, targetRef: string, actionType?: string) => {
+                    if (actionType === "answer") {
+                      // Focus the input for the user to type their answer
+                      const input = document.querySelector<HTMLInputElement>(`.${styles.inputBox}`);
+                      input?.focus();
+                      return;
+                    }
                     const pending = msg.turnResult?.adoption_state?.pending ?? [];
                     const artifact = pending.find((a) => a.artifact_id === targetRef);
                     if (artifact && actionId === "accept") {
