@@ -66,8 +66,8 @@ defmodule NovelAgent.Router do
     prompt = IntentRegistry.classification_prompt() <> "\n\n用户消息：#{text}"
 
     case gateway_mod.complete(prompt) do
-      {:ok, result} ->
-        parsed = String.trim(result) |> String.replace(~r/["'`]/, "")
+      {:ok, %{content: content}} ->
+        parsed = String.trim(content) |> String.replace(~r/["'`]/, "")
 
         if String.starts_with?(parsed, "intent.") and IntentRegistry.get(parsed) != nil do
           Logger.debug("[路由] LLM 分类为 #{parsed}")
@@ -90,8 +90,8 @@ defmodule NovelAgent.Router do
     full_prompt = "#{prompt}\n\n用户消息：#{text}"
 
     case gateway_mod.complete(full_prompt) do
-      {:ok, result} ->
-        case Jason.decode(String.trim(result)) do
+      {:ok, %{content: content}} ->
+        case Jason.decode(String.trim(content)) do
           {:ok, slots} when is_map(slots) ->
             Logger.debug("[路由] LLM 抽取到 #{map_size(slots)} 个 slot")
             stringify_keys(slots)
