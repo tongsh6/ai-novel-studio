@@ -19,15 +19,15 @@
 - 零 token 费用，开发调试无成本顾虑
 - 本机推理无需网络，与桌面应用开发节奏一致
 
-Stub 保留为测试和降级实现。
+Stub 保留为测试实现（仅测试环境使用）。
 
 ## 2. 开工检查
 
 - Contract: `docs/design-v2/08-provider-abstraction.md` §3-§8；`apps/novel_agent/lib/novel_agent/provider.ex`（已有 behaviour：`complete/3` + `name/0`）
-- Invariant: Provider 调用必须返回统一 `{:ok, content} | {:error, reason}`；provider 必须可运行时切换（本地/云端），切换不改变 caller 行为；provider 不可用时系统可降级为 stub；provider error 必须标准化
+- Invariant: Provider 调用必须返回统一 `{:ok, content} | {:error, reason}`；provider 必须可运行时切换（本地/云端），切换不改变 caller 行为；provider 不可用时系统直接返回错误告知用户；provider error 必须标准化
 - Boundary: 涉及 `novel_agent`（LMStudio adapter + Ollama adapter + Provider Gateway）；不应让 `novel_application` 或 `novel_web` 直接调用 HTTP；不应在 Domain 层引入 provider 概念
 - Consumer: Router（LLM intent 分类）、Executor（内容生成）、LongRunner（长任务执行）；成品阶段由用户通过 UI 配置 provider
-- Proof: adapter 测试（含 bypass HTTP mock）、Provider Gateway 路由测试、config 切换测试、provider 不可用时降级测试
+- Proof: adapter 测试（含 bypass HTTP mock）、Provider Gateway 路由测试、config 切换测试
 
 ## 3. 涉及范围
 
@@ -48,10 +48,10 @@ Stub 保留为测试和降级实现。
 |---|---|---|---|
 | T1 | 添加 HTTP 客户端依赖（`req`） | done | 在 `apps/novel_agent/mix.exs` 添加 `{:req, "~> 0.5"}`，req 自带 Finch + Mint |
 | T2 | 实现 `NovelAgent.Provider.LMStudio` adapter | done | `apps/novel_agent/lib/novel_agent/provider/lm_studio.ex`：OpenAI 兼容 HTTP 调用 + 结构化 error 处理 |
-| T3 | 实现 Provider Gateway（provider 注册与运行时路由） | done | `apps/novel_agent/lib/novel_agent/provider/gateway.ex`：多 provider 注册表 + config 路由 + 降级 |
-| T4 | Provider 连接配置（LM Studio + Ollama 默认值） | done | `config/dev.exs`（默认 lmstudio + fallback stub）、`config/test.exs`（默认 stub） |
+| T3 | 实现 Provider Gateway（provider 注册与运行时路由） | done | `apps/novel_agent/lib/novel_agent/provider/gateway.ex`：多 provider 注册表 + config 路由 |
+| T4 | Provider 连接配置（LM Studio + Ollama 默认值） | done | `config/dev.exs`（默认 lmstudio）、`config/test.exs`（默认 stub） |
 | T5 | 标准化 UpstreamError（本地 + 云端统一） | done | `NovelFoundation.UpstreamError`：9 种 error type + retryable? + to_error_tuple；重命名避 arch check |
-| T6 | Stub 降级机制 | done | Gateway.complete/2 → 主 provider 失败 → 自动 fallback to stub；`config :novel_agent, :provider, default: ..., fallback: ...` |
+| T6 | Stub 测试适配 | done | `config :novel_agent, :provider, default: :stub`（仅测试环境）；Gateway 不对不可用的 provider 做降级 |
 
 ## 5. 验证
 

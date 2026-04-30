@@ -1,6 +1,6 @@
 # 承重竖切面 DAG
 
-> 状态：Phase 1 done，Phase 2 推进中
+> 状态：Phase 1 done，Phase 2 done，Phase 3 done
 >
 > 角色：记录当前 slice 之间的依赖关系，并把 DAG 转换成线性执行批次。
 
@@ -19,7 +19,7 @@ flowchart TD
     VS006["VS-006 Turn Memory Write-Through"]
   end
 
-  subgraph Phase2["Phase 2 (todo)"]
+  subgraph Phase2["Phase 2 (done)"]
     VS007["VS-007 Intent Registry Expansion"]
     VS008["VS-008 Provider Gateway Real Adapter"]
     VS009["VS-009 Governed Memory Recall Pipeline Close"]
@@ -36,6 +36,18 @@ flowchart TD
   VS008 --> VS007
   VS001 --> VS009
   VS006 --> VS009
+
+  subgraph Phase3["Phase 3 (done)"]
+    VS010["VS-010 Novel Domain Core Objects"]
+    VS011["VS-011 Real Provider Gateway (Anthropic)"]
+    VS012["VS-012 End-to-End Creative Turn Pipeline"]
+  end
+
+  VS001 --> VS010
+  VS001 --> VS011
+  VS010 --> VS012
+  VS011 --> VS012
+  VS008 --> VS011
 ```
 
 ---
@@ -53,12 +65,17 @@ flowchart TD
 | B7 | VS-009 | 收束 Governed Memory Recall Pipeline | done |
 | B8 | VS-008 | 实现真实 Provider Gateway (LM Studio) | done |
 | B9 | VS-007 | 注册第一批核心 intent + Router LLM 升级 | done |
+| B10 | VS-010 | 落地 Novel Domain 核心对象模型 | done |
+| B11 | VS-011 | 接入 Anthropic API 真实 Provider | done |
+| B12 | VS-012 | 端到端创作对话链路打通 | done |
 
 说明：
 
 - VS-008 与 VS-009 无相互依赖，可并行（B7/B8 顺序可互换）。
 - VS-007 必须排在 B8 之后：Router LLM 升级依赖 Provider Gateway 已就位。
 - VS-009 有未提交代码基础（26 files, +411/-180），收束优先级高于从零建设的 VS-008。
+- **Phase 3**：VS-010 与 VS-011 无相互依赖（VS-010 在 domain，VS-011 在 agent），可并行（B10/B11）。
+- VS-012 必须排在 B10+B11 之后：端到端链路依赖领域对象 + 真实 Provider 都就位。
 
 ---
 
@@ -75,6 +92,9 @@ flowchart TD
 | VS-007 | Turn Slice | VS-001, VS-008 | — | intent registry + Router LLM 升级 |
 | VS-008 | Turn Slice | VS-001 | VS-007 | Provider Gateway + Anthropic adapter |
 | VS-009 | Memory Slice | VS-001, VS-006 | — | governed memory recall pipeline 收束 |
+| VS-010 | Artifact Slice | VS-001 | VS-012 | novel domain 核心对象（Volume/Chapter/Scene/Draft/Character） |
+| VS-011 | Turn Slice | VS-001, VS-008 | VS-012 | Anthropic API adapter + Gateway 升级 |
+| VS-012 | Turn Slice | VS-010, VS-011 | — | WorkspaceChat → LLM → Draft Card → Adopt → ReadingMode 全链路 |
 
 ---
 

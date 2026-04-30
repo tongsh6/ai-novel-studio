@@ -93,15 +93,21 @@ VS-003-confirmation-before-execute-loop.md
 
 ---
 
-## 首批试行 slice
+## 全部 slice 索引
 
-| Slice | 类型 | 施工意图 |
-|---|---|---|
-| `VS-001-turn-result-contract-spine.md` | Turn Slice | 固化 TurnResult 合同出口 |
-| `VS-002-clarification-card-loop.md` | Behavior Slice | 固化缺 slot 到 clarification card 的等待闭环 |
-| `VS-003-confirmation-before-execute-loop.md` | Behavior Slice | 固化高风险执行前确认闭环 |
-| `VS-004-tentative-artifact-adoption-boundary.md` | Artifact Slice | 固化 tentative artifact 到 adoption 的权威边界 |
-| `VS-005-accepted-artifact-marks-projection-stale.md` | Projection Slice | 固化 accepted source 变化使 projection stale 的派生链路 |
-| `VS-006-turn-memory-write-through.md` | Memory Slice | 固化 turn 写入 hot/warm memory 的留痕路径 |
+| Slice | 类型 | 施工意图 | 状态 |
+|---|---|---|---|
+| `VS-001-turn-result-contract-spine.md` | Turn Slice | 固化 TurnResult 合同出口 | done |
+| `VS-002-clarification-card-loop.md` | Behavior Slice | 固化缺 slot 到 clarification card 的等待闭环 | done |
+| `VS-003-confirmation-before-execute-loop.md` | Behavior Slice | 固化高风险执行前确认闭环 | done |
+| `VS-004-tentative-artifact-adoption-boundary.md` | Artifact Slice | 固化 tentative artifact 到 adoption 的权威边界 | done |
+| `VS-005-accepted-artifact-marks-projection-stale.md` | Projection Slice | 固化 accepted source 变化使 projection stale 的派生链路 | done |
+| `VS-006-turn-memory-write-through.md` | Memory Slice | 固化 turn 写入 hot/warm memory 的留痕路径 | done |
+| `VS-007-intent-registry-expansion.md` | Turn Slice | 注册第一批核心 intent + Router LLM 升级 | done |
+| `VS-008-provider-gateway-real-adapter.md` | Turn Slice | 实现 LM Studio Provider adapter + Gateway 路由 | done |
+| `VS-009-governed-memory-recall-pipeline-close.md` | Memory Slice | 收束 Governed Memory Recall Pipeline | done |
+| `VS-010-novel-domain-core-objects.md` | Artifact Slice | 落地 Novel Domain 核心对象模型 | done |
+| `VS-011-real-provider-gateway.md` | Turn Slice | 接入 Anthropic API 真实 Provider | done |
+| `VS-012-end-to-end-creative-turn-pipeline.md` | Turn Slice | 端到端创作对话链路打通 | done |
 
 当前执行批次以 `DAG.md` 为准。README 中的表只做索引，不表达依赖顺序。
