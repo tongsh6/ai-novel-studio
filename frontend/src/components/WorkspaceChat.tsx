@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 
-import { createSocket, joinWorkspace, sendMessage, adopt } from "../lib/socket";
+import { createSocket, joinWorkspace, sendMessage, adopt, confirm, rejectAction } from "../lib/socket";
 import { ClarificationCard, ConfirmationCard, WarningCard, AdoptionCard, ProgressCard, DefaultCard } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
@@ -190,7 +190,7 @@ export function WorkspaceChat() {
     } else if (actionType === "revise" && artifactId) {
       void handleSend(`我想修改设定 ${artifactId}，我的想法是：`);
     } else {
-      console.log("Panel action triggered:", actionType, artifactId);
+      console.warn("Panel action ignored:", actionType, artifactId);
     }
   };
 
@@ -261,9 +261,16 @@ export function WorkspaceChat() {
                 {msg.turnResult?.ui_cards?.map((card, ci) => {
                   const handleAction = (actionId: string, targetRef: string, actionType?: string) => {
                     if (actionType === "answer") {
-                      // Focus the input for the user to type their answer
                       const input = document.querySelector<HTMLInputElement>(`.${styles.inputBox}`);
                       input?.focus();
+                      return;
+                    }
+                    if (actionType === "confirm" && channelRef.current) {
+                      void confirm(channelRef.current, targetRef);
+                      return;
+                    }
+                    if (actionType === "reject" && channelRef.current) {
+                      void rejectAction(channelRef.current, targetRef);
                       return;
                     }
                     const pending = msg.turnResult?.adoption_state?.pending ?? [];

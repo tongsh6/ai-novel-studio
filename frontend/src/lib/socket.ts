@@ -53,6 +53,32 @@ export function sendMessage(
   });
 }
 
+export function confirm(
+  channel: Channel,
+  behaviorId: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("confirm", { behavior_id: behaviorId })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("confirm timeout")));
+  });
+}
+
+export function rejectAction(
+  channel: Channel,
+  behaviorId: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("reject", { behavior_id: behaviorId })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("reject timeout")));
+  });
+}
+
 export function adopt(
   channel: Channel,
   artifactId: string,
