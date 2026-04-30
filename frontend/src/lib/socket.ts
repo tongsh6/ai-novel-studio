@@ -43,10 +43,11 @@ export function ping(
 export function sendMessage(
   channel: Channel,
   text: string,
+  workId?: string | null,
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
     channel
-      .push("user_message", { text })
+      .push("user_message", { text, work_id: workId })
       .receive("ok", (response) => resolve(response as { received: boolean }))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("send timeout")));
@@ -97,10 +98,11 @@ export function adopt(
   artifactId: string,
   baseRevision: number | undefined,
   payload: Record<string, unknown>,
+  artifactType?: string,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("adopt", { artifact_id: artifactId, base_revision: baseRevision, payload })
+      .push("adopt", { artifact_id: artifactId, base_revision: baseRevision, payload, artifact_type: artifactType })
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("adopt timeout")));

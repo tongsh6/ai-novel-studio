@@ -23,9 +23,9 @@ defmodule NovelApplication.TurnService do
 
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.BehaviorStatus
-  alias NovelFoundation.Enums.ProjectionRefreshStatus
   alias NovelFoundation.Enums.MemoryClass
   alias NovelFoundation.Enums.NextAction
+  alias NovelFoundation.Enums.ProjectionRefreshStatus
   alias NovelFoundation.Enums.RetentionTier
   alias NovelFoundation.Enums.SourceType
   alias NovelFoundation.Enums.Status
@@ -34,6 +34,12 @@ defmodule NovelApplication.TurnService do
   alias NovelFoundation.TurnResultValidator
 
   alias NovelPersistence.MemoryLog
+  alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.Scene
+  alias NovelPersistence.Schemas.Volume
+
+  import Ecto.Query, only: [from: 2]
 
   @schema_version "2.0.0"
 
@@ -83,18 +89,17 @@ defmodule NovelApplication.TurnService do
   end
 
   @doc """
-  采纳一个 tentative artifact。
-
-  接收 work_id + base_revision（前端从 TurnResult artifact.revision_base 取），
-  调用 AdoptionBoundary.accept/3 做显式 revision 检查（07-consistency §8.1）。
-  成功时返回合法 TurnResult（phase=COMPLETED, next_action=NO_FURTHER_ACTION，
-  artifact 进入 adoption_state.resolved）。
+  采纳一个 tentative artifact。根据 artifact_type 分派到 Work 或 Draft 采纳。
   """
-  @spec handle_adopt(String.t(), pos_integer(), map(), String.t(), String.t() | nil) ::
+  @spec handle_adopt(String.t(), pos_integer(), map(), String.t(), String.t() | nil, String.t() | nil) ::
           {:ok, map()} | {:error, term()}
-  def handle_adopt(work_id, base_revision, mutation_attrs, workspace_id \\ "lobby", turn_id \\ nil)
+  def handle_adopt(artifact_id, base_revision, mutation_attrs, workspace_id \\ "lobby", turn_id \\ nil, artifact_type \\ nil)
 
-  def handle_adopt(work_id, base_revision, mutation_attrs, workspace_id, turn_id)
+  def handle_adopt(artifact_id, base_revision, mutation_attrs, workspace_id, turn_id, "draft_text") do
+    handle_adopt_draft(artifact_id, base_revision, mutation_attrs, workspace_id, turn_id)
+  end
+
+  def handle_adopt(work_id, base_revision, mutation_attrs, workspace_id, turn_id, _artifact_type)
       when is_integer(base_revision) and base_revision > 0 do
     turn_id = turn_id || Orchestrator.allocate_turn_id()
 
@@ -131,8 +136,47 @@ defmodule NovelApplication.TurnService do
     end
   end
 
-  def handle_adopt(_work_id, _base_revision, _mutation_attrs, _workspace_id, _turn_id) do
+  def handle_adopt(_work_id, _base_revision, _mutation_attrs, _workspace_id, _turn_id, _artifact_type) do
     {:error, :invalid_base_revision}
+  end
+
+  # ---- Draft adoption ----
+
+  @spec handle_adopt_draft(String.t(), pos_integer(), map(), String.t(), String.t() | nil) ::
+          {:ok, map()} | {:error, term()}
+  defp handle_adopt_draft(draft_id, base_revision, mutation_attrs, workspace_id, turn_id)
+       when is_integer(base_revision) and base_revision > 0 do
+    turn_id = turn_id || Orchestrator.allocate_turn_id()
+    attrs = Map.merge(mutation_attrs, %{source_turn_ref: turn_id})
+
+    case AdoptionBoundary.accept_draft(draft_id, base_revision, attrs) do
+      {:ok, draft} ->
+        artifact = %{
+          artifact_id: draft.id,
+          artifact_type: "draft_text",
+          adoption_status: AdoptionStatus.accepted(),
+          requires_adoption: false,
+          payload: %{content: draft.content}
+        }
+
+        text = "已采纳草稿。"
+
+        turn_result =
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.completed(),
+            status: Status.done(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: text,
+            resolved_artifacts: [artifact],
+            projection_refs: build_draft_projection_refs(draft)
+          })
+
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+        {:ok, TurnResultValidator.validate!(turn_result)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @doc """
@@ -590,35 +634,62 @@ defmodule NovelApplication.TurnService do
     })
   end
 
-  # ---- Draft / Content Generation (VS-007) ----
+  # ---- Draft / Content Generation (VS-007 / VS-012) ----
 
   defp build_draft_tentative(turn_id, route_result, memory_context) do
     slots = route_result.extracted_slots
     intent_name = route_result.intent_name
     display = intent_display_name(intent_name)
 
-    # Build prompt from intent + extracted slots
     prompt = build_generation_prompt(intent_name, slots)
 
-    # Call Provider Gateway to generate content
     generated_text =
       case ProviderGateway.complete(prompt) do
-        {:ok, content} -> content
+        {:ok, %{content: content}} -> content
         {:error, _} -> "[生成失败：Provider 不可用]"
       end
 
-    artifact_id = ID.uuid()
-    artifact = %{
-      artifact_id: artifact_id,
-      artifact_type: "draft_text",
-      adoption_status: AdoptionStatus.tentative(),
-      requires_adoption: true,
-      payload: %{
-        intent: intent_name,
-        content: generated_text,
-        slots: slots
-      }
-    }
+    # Ensure structural context exists for Draft attachment
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+    scene_id = ensure_scene_context(work_id)
+
+    # Persist Draft via AdoptionBoundary
+    artifact =
+      case AdoptionBoundary.create_tentative_draft(%{
+             work_id: work_id,
+             scene_id: scene_id,
+             content: generated_text
+           }) do
+        {:ok, draft} ->
+          %{
+            artifact_id: draft.id,
+            artifact_type: "draft_text",
+            adoption_status: AdoptionStatus.tentative(),
+            requires_adoption: true,
+            revision_base: Integer.to_string(draft.revision),
+            payload: %{
+              intent: intent_name,
+              content: generated_text,
+              slots: slots,
+              work_id: work_id,
+              scene_id: scene_id
+            }
+          }
+
+        {:error, _changeset} ->
+          artifact_id = ID.uuid()
+          %{
+            artifact_id: artifact_id,
+            artifact_type: "draft_text",
+            adoption_status: AdoptionStatus.tentative(),
+            requires_adoption: true,
+            payload: %{
+              intent: intent_name,
+              content: generated_text,
+              slots: slots
+            }
+          }
+      end
 
     build_turn_result(turn_id, %{
       phase: TurnPhase.completed(),
@@ -626,9 +697,52 @@ defmodule NovelApplication.TurnService do
       next_action: NextAction.adopt_artifacts(),
       assistant_text: "已为你#{display}：\n\n#{generated_text}",
       pending_artifacts: [artifact],
-      ui_cards: [adoption_card_for_draft(slots, artifact_id, display)],
+      ui_cards: [adoption_card_for_draft(slots, artifact.artifact_id, display)],
       memory_context: memory_context
     })
+  end
+
+  defp memory_work_id(%{work_id: work_id}) when is_binary(work_id), do: work_id
+  defp memory_work_id(_), do: nil
+
+  # Auto-create default Volume → Chapter → Scene hierarchy if needed
+  defp ensure_scene_context(nil), do: nil
+  defp ensure_scene_context(work_id) do
+    case Repo.one(from s in Scene, where: s.work_id == ^work_id, limit: 1) do
+      %Scene{id: scene_id} -> scene_id
+      nil -> create_default_hierarchy(work_id)
+    end
+  end
+
+  defp create_default_hierarchy(work_id) do
+    vol_id = Ecto.UUID.generate()
+    ch_id = Ecto.UUID.generate()
+    sc_id = Ecto.UUID.generate()
+
+    %Volume{}
+    |> Volume.changeset(%{work_id: work_id, title: "第一卷", seq: 1, status: "PLANNED", id: vol_id})
+    |> Repo.insert!(on_conflict: :nothing)
+
+    %Chapter{}
+    |> Chapter.changeset(%{work_id: work_id, volume_id: vol_id, title: "第一章", seq: 1, status: "PLANNED", id: ch_id})
+    |> Repo.insert!(on_conflict: :nothing)
+
+    %Scene{}
+    |> Scene.changeset(%{work_id: work_id, chapter_id: ch_id, title: "第一场", seq: 1, status: "PLANNED", id: sc_id})
+    |> Repo.insert!(on_conflict: :nothing)
+
+    sc_id
+  end
+
+  defp build_draft_projection_refs(draft) do
+    [
+      %{
+        projection_type: "reading_projection_chapter",
+        projection_id: "proj-draft-#{draft.id}",
+        source_revision_refs: ["rev-draft-#{draft.id}-r#{draft.revision}"],
+        refresh_status: ProjectionRefreshStatus.stale()
+      }
+    ]
   end
 
   defp build_generation_prompt(intent_name, slots) do
