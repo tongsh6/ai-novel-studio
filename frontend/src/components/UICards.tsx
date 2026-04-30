@@ -138,6 +138,117 @@ export function ProgressCard({ card, onAction }: Props) {
   );
 }
 
+export function CheckpointCard({ card, onAction }: Props) {
+  return (
+    <div className={`${styles.card} ${styles.checkpointCard}`}>
+      <div className={styles.header}>
+        <div className={styles.icon}>⏸️</div>
+        <div className={styles.title}>{card.title || "检查点"}</div>
+      </div>
+      {card.body && <div className={styles.body}>{card.body}</div>}
+      {card.artifact_refs && card.artifact_refs.length > 0 && (
+        <div className={styles.artifactList}>
+          {card.artifact_refs.map((ref) => (
+            <span key={ref} className={styles.artifactTag}>{ref}</span>
+          ))}
+        </div>
+      )}
+      {card.actions && card.actions.length > 0 && (
+        <div className={styles.actions}>
+          {card.actions.map((action) => (
+            <button
+              key={action.action_id}
+              className={getButtonStyle(action.style_hint)}
+              disabled={!action.enabled}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function ResultCard({ card, onAction }: Props) {
+  return (
+    <div className={`${styles.card} ${styles.resultCard}`}>
+      <div className={styles.header}>
+        <div className={styles.icon}>✅</div>
+        <div className={styles.title}>{card.title || "执行完成"}</div>
+      </div>
+      {card.body && <div className={styles.body}>{card.body}</div>}
+      {card.actions && card.actions.length > 0 && (
+        <div className={styles.actionsEnd}>
+          {card.actions.map((action) => (
+            <button
+              key={action.action_id}
+              className={getButtonStyle(action.style_hint)}
+              disabled={!action.enabled}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function FailureCard({ card, onAction }: Props) {
+  return (
+    <div className={`${styles.card} ${styles.failureCard}`}>
+      <div className={styles.header}>
+        <div className={styles.icon}>❌</div>
+        <div className={styles.title}>{card.title || "执行失败"}</div>
+      </div>
+      {card.body && <div className={styles.body}>{card.body}</div>}
+      {card.actions && card.actions.length > 0 && (
+        <div className={styles.actions}>
+          {card.actions.map((action) => (
+            <button
+              key={action.action_id}
+              className={getButtonStyle(action.style_hint)}
+              disabled={!action.enabled}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function EscalationCard({ card, onAction }: Props) {
+  return (
+    <div className={`${styles.card} ${styles.escalationCard}`}>
+      <div className={styles.header}>
+        <div className={styles.icon}>🛑</div>
+        <div className={styles.title}>{card.title || "需要关注"}</div>
+      </div>
+      {card.body && <div className={styles.body}>{card.body}</div>}
+      {card.actions && card.actions.length > 0 && (
+        <div className={styles.actions}>
+          {card.actions.map((action) => (
+            <button
+              key={action.action_id}
+              className={getButtonStyle(action.style_hint)}
+              disabled={!action.enabled}
+              onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
+            >
+              {action.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DefaultCard({ card, onAction }: Props) {
   return (
     <div className={`${styles.card} ${styles.defaultCard}`}>

@@ -106,3 +106,82 @@ export function adopt(
       .receive("timeout", () => reject(new Error("adopt timeout")));
   });
 }
+
+export function revise(
+  channel: Channel,
+  behaviorId: string,
+  feedback?: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("revise", { behavior_id: behaviorId, feedback })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("revise timeout")));
+  });
+}
+
+export function dismissCard(
+  channel: Channel,
+  behaviorId: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("dismiss", { behavior_id: behaviorId })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("dismiss timeout")));
+  });
+}
+
+export function resumeCheckpoint(
+  channel: Channel,
+  behaviorId: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("resume", { behavior_id: behaviorId })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("resume timeout")));
+  });
+}
+
+export function cancelCheckpoint(
+  channel: Channel,
+  behaviorId: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("cancel", { behavior_id: behaviorId })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("cancel timeout")));
+  });
+}
+
+export function branchCheckpoint(
+  channel: Channel,
+  behaviorId: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("branch", { behavior_id: behaviorId })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("branch timeout")));
+  });
+}
+
+export function retryAction(
+  channel: Channel,
+  behaviorId: string,
+): Promise<Record<string, unknown>> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("retry", { behavior_id: behaviorId })
+      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("retry timeout")));
+  });
+}

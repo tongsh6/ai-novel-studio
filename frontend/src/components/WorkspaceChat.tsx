@@ -4,8 +4,8 @@
 import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 
-import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, confirm, rejectAction } from "../lib/socket";
-import { ClarificationCard, ConfirmationCard, WarningCard, AdoptionCard, ProgressCard, DefaultCard } from "./UICards";
+import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, confirm, rejectAction, revise, dismissCard, resumeCheckpoint, cancelCheckpoint, branchCheckpoint, retryAction } from "../lib/socket";
+import { ClarificationCard, ConfirmationCard, WarningCard, AdoptionCard, ProgressCard, CheckpointCard, ResultCard, FailureCard, EscalationCard, DefaultCard } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 
@@ -162,6 +162,23 @@ export function WorkspaceChat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  // Handle pending build actions from ReadingMode (refresh/retry projection)
+  useEffect(() => {
+    const action = useAppStore.getState().pendingBuildAction;
+    if (!action || !channelRef.current) return;
+
+    let text: string;
+    if (action === "refresh_projection") {
+      text = "请刷新阅读投影";
+    } else {
+      text = "请重试投影重建";
+    }
+
+    // Clear pending action and send
+    useAppStore.getState().setPendingBuildAction(null);
+    void sendMessage(channelRef.current, text).then(() => setLoading(true));
+  }, []);
 
   const handleSend = async (messageText: string = inputText) => {
     const text = messageText.trim();
@@ -323,6 +340,30 @@ export function WorkspaceChat() {
                       }
                       return;
                     }
+                    if (actionType === "revise" && channelRef.current) {
+                      void revise(channelRef.current, targetRef);
+                      return;
+                    }
+                    if (actionType === "dismiss" && channelRef.current) {
+                      void dismissCard(channelRef.current, targetRef);
+                      return;
+                    }
+                    if (actionType === "resume" && channelRef.current) {
+                      void resumeCheckpoint(channelRef.current, targetRef);
+                      return;
+                    }
+                    if (actionType === "cancel" && channelRef.current) {
+                      void cancelCheckpoint(channelRef.current, targetRef);
+                      return;
+                    }
+                    if (actionType === "branch" && channelRef.current) {
+                      void branchCheckpoint(channelRef.current, targetRef);
+                      return;
+                    }
+                    if (actionType === "retry" && channelRef.current) {
+                      void retryAction(channelRef.current, targetRef);
+                      return;
+                    }
                     const pending = msg.turnResult?.adoption_state?.pending ?? [];
                     const artifact = pending.find((a) => a.artifact_id === targetRef);
                     if (artifact && actionType === "accept") {
@@ -341,6 +382,14 @@ export function WorkspaceChat() {
                       return <AdoptionCard key={ci} card={card} onAction={handleAction} />;
                     case "progress_card":
                       return <ProgressCard key={ci} card={card} onAction={handleAction} />;
+                    case "checkpoint_card":
+                      return <CheckpointCard key={ci} card={card} onAction={handleAction} />;
+                    case "result_card":
+                      return <ResultCard key={ci} card={card} onAction={handleAction} />;
+                    case "failure_card":
+                      return <FailureCard key={ci} card={card} onAction={handleAction} />;
+                    case "escalation_card":
+                      return <EscalationCard key={ci} card={card} onAction={handleAction} />;
                     default:
                       return <DefaultCard key={ci} card={card} onAction={handleAction} />;
                   }

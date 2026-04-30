@@ -4,7 +4,17 @@ import { useAppStore } from "../lib/store";
 import styles from "./ReadingMode.module.css";
 
 export function ReadingMode() {
-  const { setMode, context, projectionStatus } = useAppStore();
+  const { setMode, context, projectionStatus, setPendingBuildAction } = useAppStore();
+
+  const handleRefreshProjection = () => {
+    setPendingBuildAction("refresh_projection");
+    setMode("workbench");
+  };
+
+  const handleRetryProjection = () => {
+    setPendingBuildAction("retry_projection");
+    setMode("workbench");
+  };
 
   return (
     <div className={styles.container}>
@@ -15,7 +25,7 @@ export function ReadingMode() {
             <span className={styles.bannerStatus}>投影状态：已过期</span>
             <span className={styles.bannerDesc}>底层设定已有变更，当前阅读的可能不是最新版本。</span>
           </div>
-          <button className={styles.refreshBtn}>刷新投影</button>
+          <button className={styles.refreshBtn} onClick={handleRefreshProjection}>刷新投影</button>
         </div>
       )}
       {projectionStatus === "REBUILDING" && (
@@ -32,7 +42,7 @@ export function ReadingMode() {
             <span className={styles.bannerStatus}>投影状态：重建失败</span>
             <span className={styles.bannerDesc}>阅读视图重建失败，请返回工作台重试。</span>
           </div>
-          <button className={styles.refreshBtn}>重试</button>
+          <button className={styles.refreshBtn} onClick={handleRetryProjection}>重试</button>
         </div>
       )}
 

@@ -20,6 +20,8 @@ export interface LongRunState {
 
 export type ProjectionRefreshStatus = "FRESH" | "STALE" | "REBUILDING" | "FAILED" | null;
 
+export type PendingBuildAction = "refresh_projection" | "retry_projection" | null;
+
 export interface AgentFeedback {
   severity: "none" | "info" | "warning" | "error";
   activeCount: number;
@@ -46,6 +48,8 @@ interface AppState {
   // Projection (VS-005)
   projectionStatus: ProjectionRefreshStatus;
   setProjectionStatus: (status: ProjectionRefreshStatus) => void;
+  pendingBuildAction: PendingBuildAction;
+  setPendingBuildAction: (action: PendingBuildAction) => void;
 
   // Connection
   socketConnected: boolean;
@@ -86,6 +90,8 @@ export const useAppStore = create<AppState>((set) => ({
 
   projectionStatus: null,
   setProjectionStatus: (status) => set({ projectionStatus: status }),
+  pendingBuildAction: null,
+  setPendingBuildAction: (action) => set({ pendingBuildAction: action }),
 
   socketConnected: false,
   setSocketConnected: (connected) => set({ socketConnected: connected }),

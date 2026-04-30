@@ -272,6 +272,135 @@ defmodule NovelApplication.TurnService do
     end
   end
 
+  # ---- Revise (VS-002/VS-003 variant) ----
+
+  @doc """
+  用户请求重新生成/换一组方向。
+
+  VS-002 §4.1.2 / VS-003 §4.2.2：clarification 和 confirmation 卡片的 revise action。
+  """
+  @spec handle_revise(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def handle_revise(behavior_id, workspace_id \\ "lobby") do
+    case AuthorityGate.take_pending(behavior_id) do
+      nil ->
+        {:error, :unknown_behavior}
+
+      _pending ->
+        turn_id = Orchestrator.allocate_turn_id()
+        text = "好的，请告诉我你希望调整的方向或补充的信息。"
+
+        turn_result =
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.needs_clarification(),
+            status: Status.waiting_user(),
+            next_action: NextAction.ask_user(),
+            assistant_text: text,
+            behavior: nil,
+            ui_cards: [
+              %{
+                card_type: "clarification_card",
+                priority: "normal",
+                visibility: "primary",
+                title: "需要更新信息",
+                body: text,
+                actions: [
+                  %{
+                    action_id: "answer",
+                    action_type: "answer",
+                    label: "输入反馈",
+                    target_ref: "input",
+                    enabled: true,
+                    style_hint: "primary"
+                  }
+                ]
+              }
+            ],
+            history_behavior: %{
+              behavior_type: "clarification",
+              behavior_id: behavior_id,
+              status: BehaviorStatus.cancelled(),
+              resolution_ref: "revised"
+            }
+          })
+
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+
+        {:ok, TurnResultValidator.validate!(turn_result)}
+    end
+  end
+
+  # ---- Dismiss (close card without further action) ----
+
+  @doc """
+  用户关闭卡片不做进一步操作。
+  """
+  @spec handle_dismiss(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def handle_dismiss(behavior_id, workspace_id \\ "lobby") do
+    case AuthorityGate.take_pending(behavior_id) do
+      nil ->
+        {:error, :unknown_behavior}
+
+      _pending ->
+        turn_id = Orchestrator.allocate_turn_id()
+        text = "已关闭。随时可以继续。"
+
+        turn_result =
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.completed(),
+            status: Status.done(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: text,
+            behavior: nil,
+            ui_cards: [],
+            history_behavior: %{
+              behavior_type: "clarification",
+              behavior_id: behavior_id,
+              status: BehaviorStatus.cancelled(),
+              resolution_ref: "dismissed"
+            }
+          })
+
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+
+        {:ok, TurnResultValidator.validate!(turn_result)}
+    end
+  end
+
+  # ---- Retry (VS-004 failure recovery) ----
+
+  @doc """
+  用户请求重试失败的操作。
+  重新触发上一个 turn 的 intent 执行。
+  """
+  @spec handle_retry(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def handle_retry(_behavior_id, workspace_id \\ "lobby") do
+    turn_id = Orchestrator.allocate_turn_id()
+    text = "正在重试..."
+
+    turn_result =
+      build_turn_result(turn_id, %{
+        phase: TurnPhase.executing(),
+        status: Status.running(),
+        next_action: NextAction.retry_system(),
+        assistant_text: text,
+        behavior: nil,
+        ui_cards: [
+          %{
+            card_type: "progress_card",
+            priority: "normal",
+            visibility: "primary",
+            title: "重试中",
+            body: "正在重新执行上次失败的操作...",
+            actions: []
+          }
+        ]
+      })
+
+    record_to_memory(workspace_id, turn_id, :assistant, text)
+
+    {:ok, TurnResultValidator.validate!(turn_result)}
+  end
+
   # ---- Memory Recall (Governed Memory) ----
 
   defp build_memory_context(nil, _user_text, _turn_id), do: nil
