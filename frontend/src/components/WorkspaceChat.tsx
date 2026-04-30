@@ -4,7 +4,7 @@
 import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 
-import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, confirm, rejectAction, revise, dismissCard, resumeCheckpoint, cancelCheckpoint, branchCheckpoint, retryAction } from "../lib/socket";
+import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, modifyDraft, confirm, rejectAction, revise, dismissCard, resumeCheckpoint, cancelCheckpoint, branchCheckpoint, retryAction } from "../lib/socket";
 import { ClarificationCard, ConfirmationCard, WarningCard, AdoptionCard, ProgressCard, CheckpointCard, ResultCard, FailureCard, EscalationCard, DefaultCard } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
@@ -338,14 +338,25 @@ export function WorkspaceChat() {
                       return;
                     }
                     if (actionType === "discard" && channelRef.current) {
-                      void discardArtifact(channelRef.current, targetRef);
+                      const pending = msg.turnResult?.adoption_state?.pending ?? [];
+                      const artifact = pending.find((a) => a.artifact_id === targetRef);
+                      void discardArtifact(channelRef.current, targetRef, artifact?.artifact_type);
                       return;
                     }
                     if (actionType === "edit_then_accept") {
-                      const input = document.querySelector<HTMLInputElement>(`.${styles.inputBox}`);
-                      if (input) {
-                        input.value = "我想修改刚才的作品：";
-                        input.focus();
+                      const pending = msg.turnResult?.adoption_state?.pending ?? [];
+                      const artifact = pending.find((a) => a.artifact_id === targetRef);
+                      if (artifact && channelRef.current) {
+                        const instruction = window.prompt("请输入修改意见：");
+                        if (instruction && instruction.trim()) {
+                          void modifyDraft(
+                            channelRef.current,
+                            artifact.artifact_id,
+                            artifact.revision_base as number | undefined,
+                            (artifact.payload?.content as string) ?? "",
+                            instruction.trim(),
+                          );
+                        }
                       }
                       return;
                     }

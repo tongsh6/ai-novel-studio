@@ -21,6 +21,8 @@ defmodule NovelApplication.TurnService do
   alias NovelApplication.MemoryRecallService
   alias NovelDomain.Work
 
+  require Logger
+
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.BehaviorStatus
   alias NovelFoundation.Enums.MemoryClass
@@ -169,6 +171,105 @@ defmodule NovelApplication.TurnService do
             assistant_text: text,
             resolved_artifacts: [artifact],
             projection_refs: build_draft_projection_refs(draft)
+          })
+
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+        {:ok, TurnResultValidator.validate!(turn_result)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  根据用户修改意见调用 LLM 重写 draft 内容，更新现有 draft（不创建新 draft）。
+  返回 adoption_card 让用户重新审核。
+  """
+  @spec handle_modify_draft(String.t(), pos_integer(), String.t(), String.t(), String.t(), String.t() | nil) ::
+          {:ok, map()} | {:error, term()}
+  def handle_modify_draft(draft_id, base_revision, current_content, instruction, workspace_id, turn_id \\ nil)
+       when is_integer(base_revision) and base_revision > 0 do
+    turn_id = turn_id || Orchestrator.allocate_turn_id()
+
+    prompt = """
+    原文：
+    #{current_content}
+
+    修改意见：
+    #{instruction}
+
+    请根据修改意见重写上文。只输出修改后的完整文本，不要输出任何其他内容。
+    """
+
+    case ProviderGateway.complete(prompt) do
+      {:ok, %{content: new_content}} ->
+        mutation_attrs = %{
+          actor_ref: "user",
+          source_turn_ref: turn_id,
+          target_scope: "draft",
+          target_object_ref: draft_id
+        }
+
+        case AdoptionBoundary.modify_draft(draft_id, base_revision, new_content, mutation_attrs) do
+          {:ok, draft} ->
+            artifact = %{
+              artifact_id: draft.id,
+              artifact_type: "draft_text",
+              adoption_status: AdoptionStatus.tentative(),
+              requires_adoption: true,
+              revision_base: draft.revision,
+              payload: %{content: draft.content}
+            }
+
+            text = "已根据修改意见重写草稿。"
+
+            turn_result =
+              build_turn_result(turn_id, %{
+                phase: TurnPhase.completed(),
+                status: Status.done(),
+                next_action: NextAction.no_further_action(),
+                assistant_text: text,
+                artifacts: [artifact],
+                ui_cards: [adoption_card_for_draft(%{}, draft.id, "修改")]
+              })
+
+            record_to_memory(workspace_id, turn_id, :assistant, text)
+            {:ok, TurnResultValidator.validate!(turn_result)}
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, reason} ->
+        Logger.warning("[TurnService] LLM 修改草稿失败：#{inspect(reason)}")
+        {:error, :llm_modify_failed}
+    end
+  end
+
+  @doc """
+  丢弃一个 tentative draft artifact。
+  """
+  @spec handle_discard_draft(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def handle_discard_draft(draft_id, workspace_id \\ "lobby") do
+    turn_id = Orchestrator.allocate_turn_id()
+
+    mutation_attrs = %{
+      actor_ref: "user",
+      source_turn_ref: turn_id,
+      target_scope: "draft",
+      target_object_ref: draft_id
+    }
+
+    case AdoptionBoundary.discard_draft(draft_id, mutation_attrs) do
+      {:ok, _draft} ->
+        text = "已放弃草稿。"
+
+        turn_result =
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.completed(),
+            status: Status.done(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: text
           })
 
         record_to_memory(workspace_id, turn_id, :assistant, text)

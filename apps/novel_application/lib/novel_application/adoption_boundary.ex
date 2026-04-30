@@ -177,13 +177,56 @@ defmodule NovelApplication.AdoptionBoundary do
     end
   end
 
+  @doc """
+  修改一个 tentative draft 的内容。每次修改生成新 revision。
+
+  使用 optimistic_lock(:revision) 保证并发安全——如果 draft 在读取后被其他
+  进程修改，revision 不匹配会导致更新失败（Ecto.StaleEntryError）。
+  """
+  @spec modify_draft(String.t(), pos_integer(), String.t(), map()) ::
+          {:ok, Draft.t()} | {:error, term()}
+  def modify_draft(draft_id, base_revision, new_content, mutation_attrs) do
+    case Repo.get(Draft, draft_id) do
+      nil -> {:error, :not_found}
+      draft -> modify_draft_multi(draft, draft_id, base_revision, new_content, mutation_attrs)
+    end
+  end
+
   # ---- private ----
+
+  defp modify_draft_multi(draft, draft_id, _base_revision, new_content, mutation_attrs)
+       when draft.status == "TENTATIVE" do
+    attrs = %{content: new_content}
+
+    Multi.new()
+    |> Multi.update(:modify, Draft.changeset(draft, attrs))
+    |> Multi.run(:mutation, fn _repo, %{modify: modified} ->
+      MutationLog.create_applied(%{
+        actor_ref: mutation_attrs.actor_ref,
+        source_turn_ref: mutation_attrs.source_turn_ref,
+        target_scope: "draft",
+        target_object_ref: draft_id,
+        base_revision: draft.revision,
+        mutation_type: "modify",
+        authority_scope: Map.get(mutation_attrs, :authority_scope),
+        requires_adoption: true
+      })
+      |> then(&wrap_result(&1, modified))
+    end)
+    |> Repo.transaction()
+    |> then(&unwrap_multi(&1))
+  end
+
+  defp modify_draft_multi(_draft, _draft_id, _base_revision, _new_content, _mutation_attrs) do
+    {:error, :not_tentative}
+  end
 
   defp wrap_result({:ok, _mutation}, value), do: {:ok, value}
   defp wrap_result({:error, changeset}, _value), do: {:error, changeset}
 
   defp unwrap_multi({:ok, %{discard: obj}}), do: {:ok, obj}
   defp unwrap_multi({:ok, %{adopt: obj}}), do: {:ok, obj}
+  defp unwrap_multi({:ok, %{modify: obj}}), do: {:ok, obj}
   defp unwrap_multi({:error, :mutation, reason, _changes}), do: {:error, reason}
   defp unwrap_multi({:error, _step, reason, _changes}), do: {:error, reason}
 
