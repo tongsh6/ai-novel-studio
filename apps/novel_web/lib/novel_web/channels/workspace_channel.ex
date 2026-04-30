@@ -88,6 +88,87 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  def handle_in("revise", %{"behavior_id" => behavior_id} = _msg, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+
+    case TurnService.handle_revise(behavior_id, ws_id) do
+      {:ok, turn_result} ->
+        broadcast!(socket, "turn_result", turn_result)
+        {:reply, {:ok, %{received: true}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
+  def handle_in("dismiss", %{"behavior_id" => behavior_id}, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+
+    case TurnService.handle_dismiss(behavior_id, ws_id) do
+      {:ok, turn_result} ->
+        broadcast!(socket, "turn_result", turn_result)
+        {:reply, {:ok, %{received: true}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
+  def handle_in("resume", %{"behavior_id" => _behavior_id}, socket) do
+    _ws_id = socket.assigns[:workspace_id] || "lobby"
+    text = "长跑任务恢复功能将在后续版本中提供。"
+
+    broadcast!(socket, "turn_result", %{
+      schema_version: "2.0.0",
+      assistant_message: %{text: text},
+      ui_cards: [],
+      phase: "completed",
+      status: "done",
+      next_action: "no_further_action"
+    })
+
+    {:reply, {:ok, %{received: true, note: "resume not yet available"}}, socket}
+  end
+
+  def handle_in("cancel", %{"behavior_id" => _behavior_id}, socket) do
+    _ws_id = socket.assigns[:workspace_id] || "lobby"
+    text = "长跑任务已取消。"
+
+    broadcast!(socket, "turn_result", %{
+      schema_version: "2.0.0",
+      assistant_message: %{text: text},
+      ui_cards: [],
+      phase: "cancelled",
+      status: "cancelled",
+      next_action: "no_further_action"
+    })
+
+    {:reply, {:ok, %{received: true}}, socket}
+  end
+
+  def handle_in("branch", %{"behavior_id" => _behavior_id}, socket) do
+    _ws_id = socket.assigns[:workspace_id] || "lobby"
+    text = "分支功能将在后续版本中提供。"
+
+    broadcast!(socket, "turn_result", %{
+      schema_version: "2.0.0",
+      assistant_message: %{text: text},
+      ui_cards: [],
+      phase: "completed",
+      status: "done",
+      next_action: "no_further_action"
+    })
+
+    {:reply, {:ok, %{received: true, note: "branch not yet available"}}, socket}
+  end
+
+  def handle_in("retry", %{"behavior_id" => behavior_id}, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    {:ok, turn_result} = TurnService.handle_retry(behavior_id, ws_id)
+    broadcast!(socket, "turn_result", turn_result)
+    {:reply, {:ok, %{received: true}}, socket}
+  end
+
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end
