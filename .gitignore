@@ -69,6 +69,7 @@ htmlcov/
 # Audit log
 /log/
 apps/novel_agent/log/
+/artifacts/static-scan/
 
 # Temporary files
 *.tmp

@@ -2,7 +2,7 @@
 
 - 启动日期：2026-04-30
 - 范围依据：`docs/engineering/architecture-operating-system.md`
-- 当前状态：doing
+- 当前状态：Phase 1 done，Phase 2 待启动
 
 ## 范围
 
@@ -28,15 +28,15 @@
 | T4 | 建立当前 slice DAG 与线性批次 | done | pending | `tasks/slices/DAG.md` |
 | T5 | 试行 VS-001 | done | `7536d03` | TurnResult Contract Spine |
 | T6 | 试行 VS-006 | done | pending | Turn Memory Write-Through |
-| T7 | 试行 VS-002 | todo | — | Clarification Card Loop |
-| T8 | 回收试行反馈，决定是否进入 Phase 2/3 | todo | — | 更新蓝图和 slice README |
+| T7 | 试行 VS-002 | done | `3e54be8` | Clarification Card Loop |
+| T8 | 回收试行反馈，决定是否进入 Phase 2/3 | done | — | 3 个 slice 试行反馈已记录在各 slice 文件中 |
 
 ## 阶段规划
 
 | Phase | 目标 | 产物 | 状态 |
 |---|---|---|---|
 | Phase 0 | 固化蓝图与试行入口 | blueprint / vertical-slice / DAG / task | done |
-| Phase 1 | 用 2-3 个 slice 验证规则 | VS-001 / VS-006 / VS-002 完成记录 | in_progress (2/3 done) |
+| Phase 1 | 用 2-3 个 slice 验证规则 | VS-001 / VS-006 / VS-002 完成记录 | done (3/3 done) |
 | Phase 2 | DAG 化任务系统 | slice front matter / DAG 检查候选 | todo |
 | Phase 3 | 深模块图谱 | `docs/engineering/deep-modules.md` | todo |
 | Phase 4 | 正交切面治理 | `docs/engineering/cross-cutting-concerns.md` | todo |
