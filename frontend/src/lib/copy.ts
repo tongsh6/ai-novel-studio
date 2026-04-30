@@ -97,7 +97,11 @@ export const CARD = {
   },
   checkpoint: {
     title: "检查点",
-    description: "长跑已暂停，请查看进度",
+    description: "长跑任务已暂停，请决定下一步",
+    resumeLabel: "继续执行",
+    cancelLabel: "取消任务",
+    branchLabel: "创建分支",
+    pendingArtifacts: "待处理产物",
   },
   tentativeArtifact: {
     title: "待采纳",
@@ -113,6 +117,20 @@ export const CARD = {
   longRunProgress: {
     title: "长跑进度",
     description: "AI 正在执行长时间任务",
+  },
+  result: {
+    title: "执行完成",
+    description: "操作已完成",
+  },
+  failure: {
+    title: "执行失败",
+    description: "操作未能完成",
+    retryLabel: "重试",
+    discardLabel: "放弃",
+  },
+  escalation: {
+    title: "需要关注",
+    description: "此操作需要你的特别关注",
   },
 } as const;
 
