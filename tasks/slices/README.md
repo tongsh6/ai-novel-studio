@@ -109,5 +109,6 @@ VS-003-confirmation-before-execute-loop.md
 | `VS-010-novel-domain-core-objects.md` | Artifact Slice | 落地 Novel Domain 核心对象模型 | done |
 | `VS-011-real-provider-gateway.md` | Turn Slice | 接入 Anthropic API 真实 Provider | done |
 | `VS-012-end-to-end-creative-turn-pipeline.md` | Turn Slice | 端到端创作对话链路打通 | done |
+| `VS-013-modify-draft-closed-loop.md` | Turn Slice | 修改草稿闭环 + discard bug 修复 | done |
 
 当前执行批次以 `DAG.md` 为准。README 中的表只做索引，不表达依赖顺序。
