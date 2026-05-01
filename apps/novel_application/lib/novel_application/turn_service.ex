@@ -641,6 +641,9 @@ defmodule NovelApplication.TurnService do
       :refine_work_positioning ->
         build_refine_work_positioning(turn_id, result, memory_context)
 
+      :scan_new_foreshadowing ->
+        build_scan_new_foreshadowing(turn_id, result, memory_context)
+
       _ ->
         build_draft_tentative(turn_id, result, memory_context)
     end
@@ -654,6 +657,7 @@ defmodule NovelApplication.TurnService do
   defp normalize_intent("intent.LOAD_STYLE_SAMPLE"), do: :load_style_sample
   defp normalize_intent("intent.CREATE_MAIN_OUTLINE"), do: :create_main_outline
   defp normalize_intent("intent.REFINE_WORK_POSITIONING"), do: :refine_work_positioning
+  defp normalize_intent("intent.SCAN_NEW_FORESHADOWING"), do: :scan_new_foreshadowing
   defp normalize_intent(_other), do: :other
 
   # ---- Generic clarification (any intent) ----
@@ -703,6 +707,7 @@ defmodule NovelApplication.TurnService do
   defp intent_display_name("intent.LOAD_STYLE_SAMPLE"), do: "导入风格样本"
   defp intent_display_name("intent.CREATE_MAIN_OUTLINE"), do: "创建主线大纲"
   defp intent_display_name("intent.REFINE_WORK_POSITIONING"), do: "优化作品定位"
+  defp intent_display_name("intent.SCAN_NEW_FORESHADOWING"), do: "扫描伏笔"
   defp intent_display_name(_other), do: "执行"
 
   defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
@@ -941,6 +946,10 @@ defmodule NovelApplication.TurnService do
 
     "你是一位资深小说编辑。请分析当前作品定位，从类型、核心卖点、目标读者、语调风格四个维度提出优化建议。" <>
       if(direction != "", do: "方向：#{direction}。", else: "")
+  end
+
+  defp build_generation_prompt("intent.SCAN_NEW_FORESHADOWING", _slots) do
+    "你是一位小说编辑。请阅读当前已采纳的草稿内容，识别其中的伏笔线索、未解之谜和可发展的剧情暗线，并标记类型和可能的回收方向。"
   end
 
   defp build_generation_prompt(intent_name, slots) do
@@ -1527,6 +1536,19 @@ defmodule NovelApplication.TurnService do
     end
   end
 
+  defp llm_generate_json_list(prompt) do
+    case ProviderGateway.complete(prompt) do
+      {:ok, %{content: content}} ->
+        case Jason.decode(content) do
+          {:ok, list} when is_list(list) -> list
+          _ -> []
+        end
+
+      {:error, _} ->
+        []
+    end
+  end
+
   defp build_work_context(nil), do: ""
 
   defp build_work_context(work_id) do
@@ -1554,6 +1576,66 @@ defmodule NovelApplication.TurnService do
         [] -> ""
         context_parts -> Enum.join(context_parts, "\n\n") <> "\n\n---\n\n"
       end
+    end
+  end
+
+  # ---- Scan Foreshadowing (VS-024) ----
+
+  defp build_scan_new_foreshadowing(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+
+    # Fetch all accepted drafts for this work
+    drafts =
+      from(d in NovelPersistence.Schemas.Draft,
+        where: d.work_id == ^work_id and d.status == "ACCEPTED",
+        order_by: [asc: d.inserted_at]
+      )
+      |> NovelPersistence.Repo.all()
+
+    if drafts == [] do
+      build_turn_result(turn_id, %{
+        phase: TurnPhase.completed(),
+        status: Status.done(),
+        next_action: NextAction.no_further_action(),
+        assistant_text: "暂无已采纳的草稿可供扫描。请先生成并采纳一些草稿。"
+      })
+    else
+      all_content = Enum.map_join(drafts, "\n\n---\n\n", & &1.content)
+
+      prompt = """
+      你是一位小说编辑。请阅读以下草稿内容，识别其中的伏笔线索、未解之谜和可发展的剧情暗线。
+
+      草稿内容：
+      #{all_content}
+
+      输出格式：返回 JSON 数组，每个元素包含 thread（伏笔描述）、type（类型：character/plot/world/mystery）和 payoff_hint（可能的回收方向）。
+      只输出 JSON 数组，不要输出任何其他内容。
+
+      示例：[{"thread": "导师留给主角的怀表似乎隐藏着秘密", "type": "mystery", "payoff_hint": "怀表可能是打开核心区的钥匙"}]
+      """
+
+      threads = llm_generate_json_list(prompt)
+
+      Enum.each(threads, fn t ->
+        MemoryService.create(%{
+          work_id: work_id,
+          content: Map.get(t, "thread", ""),
+          type: "FORESHADOWING",
+          scope: "WORK",
+          source_type: "AUTHOR_CREATED",
+          tags: [Map.get(t, "type", ""), Map.get(t, "payoff_hint", "")]
+        })
+      end)
+
+      thread_summary = Enum.map_join(threads, "、", & &1["thread"])
+
+      build_turn_result(turn_id, %{
+        phase: TurnPhase.completed(),
+        status: Status.done(),
+        next_action: NextAction.no_further_action(),
+        assistant_text: "发现 #{length(threads)} 条伏笔线索：#{thread_summary}"
+      })
     end
   end
 
