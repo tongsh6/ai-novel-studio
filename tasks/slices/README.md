@@ -111,5 +111,6 @@ VS-003-confirmation-before-execute-loop.md
 | `VS-012-end-to-end-creative-turn-pipeline.md` | Turn Slice | 端到端创作对话链路打通 | done |
 | `VS-013-modify-draft-closed-loop.md` | Turn Slice | 修改草稿闭环 + discard bug 修复 | done |
 | `VS-014-reading-mode-real-content-projection.md` | Projection Slice | ReadingMode 真内容投影 + StructurePanel 大纲真数据 | done |
+| `VS-015-create-character-candidates.md` | Turn Slice | CREATE_CHARACTER_CANDIDATES intent + 角色 tab 真实数据 | done |
 
 当前执行批次以 `DAG.md` 为准。README 中的表只做索引，不表达依赖顺序。

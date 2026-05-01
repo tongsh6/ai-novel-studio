@@ -344,6 +344,47 @@ defmodule NovelAgent.IntentRegistry do
           scope_dependency: ScopeDependency.runtime()
         }
       ]
+    },
+    "intent.CREATE_CHARACTER_CANDIDATES" => %SlotSchema{
+      intent_name: "intent.CREATE_CHARACTER_CANDIDATES",
+      schema_id: "slot_schema.CREATE_CHARACTER_CANDIDATES.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{
+          slot_name: "work_ref",
+          slot_type: SlotType.object_ref(),
+          description: "所属作品",
+          requiredness: Requiredness.required_to_execute(),
+          inferability: Inferability.inferable_with_high_confidence(),
+          defaultability: Defaultability.no_default(),
+          allowed_values_ref: nil,
+          validation_rules_ref: nil,
+          scope_dependency: ScopeDependency.work()
+        },
+        %{
+          slot_name: "character_direction",
+          slot_type: SlotType.text(),
+          description: "角色创作方向",
+          requiredness: Requiredness.optional_preference(),
+          inferability: Inferability.not_inferable(),
+          defaultability: Defaultability.no_default(),
+          allowed_values_ref: nil,
+          validation_rules_ref: nil,
+          scope_dependency: ScopeDependency.work()
+        },
+        %{
+          slot_name: "role_hint",
+          slot_type: SlotType.text(),
+          description: "角色类型参考",
+          requiredness: Requiredness.optional_preference(),
+          inferability: Inferability.not_inferable(),
+          defaultability: Defaultability.no_default(),
+          allowed_values_ref: nil,
+          validation_rules_ref: nil,
+          scope_dependency: ScopeDependency.work()
+        }
+      ]
     }
   }
 
@@ -362,7 +403,8 @@ defmodule NovelAgent.IntentRegistry do
     draft_scene: "intent.DRAFT_SCENE",
     draft_chapter: "intent.DRAFT_CHAPTER",
     revise_draft: "intent.REVISE_DRAFT",
-    continue_drafting: "intent.CONTINUE_DRAFTING"
+    continue_drafting: "intent.CONTINUE_DRAFTING",
+    create_character_candidates: "intent.CREATE_CHARACTER_CANDIDATES"
   }
 
   @spec get(atom()) :: SlotSchema.t() | nil
@@ -378,7 +420,8 @@ defmodule NovelAgent.IntentRegistry do
     "intent.DRAFT_SCENE" => %{risk_class: "MEDIUM", requires_confirmation: false},
     "intent.DRAFT_CHAPTER" => %{risk_class: "HIGH", requires_confirmation: true},
     "intent.REVISE_DRAFT" => %{risk_class: "MEDIUM", requires_confirmation: false},
-    "intent.CONTINUE_DRAFTING" => %{risk_class: "HIGH", requires_confirmation: true}
+    "intent.CONTINUE_DRAFTING" => %{risk_class: "HIGH", requires_confirmation: true},
+    "intent.CREATE_CHARACTER_CANDIDATES" => %{risk_class: "MEDIUM", requires_confirmation: false}
   }
 
   @doc "返回 intent 的风险等级和确认需求元数据（ADR-0008 §3）。"

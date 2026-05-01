@@ -21,6 +21,7 @@ defmodule NovelApplication.AdoptionBoundary do
   alias NovelFoundation.Enums.MutationStatus
   alias NovelPersistence.MutationLog
   alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Character
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.Work
 
@@ -192,6 +193,73 @@ defmodule NovelApplication.AdoptionBoundary do
     end
   end
 
+  # ---- Character ----
+
+  @doc "创建 tentative character artifact。"
+  @spec create_tentative_character(map()) :: {:ok, Character.t()} | {:error, Ecto.Changeset.t()}
+  def create_tentative_character(artifact_payload) when is_map(artifact_payload) do
+    %Character{}
+    |> Character.changeset(build_character_attrs(artifact_payload))
+    |> Repo.insert()
+  end
+
+  @doc "Accept 一个 tentative character。"
+  @spec accept_character(String.t(), map()) :: {:ok, Character.t()} | {:error, term()}
+  def accept_character(character_id, mutation_attrs) do
+    case Repo.get(Character, character_id) do
+      nil ->
+        {:error, :not_found}
+
+      character ->
+        Multi.new()
+        |> Multi.update(:character_adopt, Character.adopt_changeset(character))
+        |> Multi.run(:mutation, fn _repo, %{character_adopt: adopted} ->
+          MutationLog.create_applied(%{
+            actor_ref: mutation_attrs.actor_ref,
+            source_turn_ref: mutation_attrs.source_turn_ref,
+            target_scope: "character",
+            target_object_ref: character_id,
+            base_revision: 1,
+            mutation_type: "adopt",
+            authority_scope: Map.get(mutation_attrs, :authority_scope),
+            requires_adoption: false
+          })
+          |> then(&wrap_result(&1, adopted))
+        end)
+        |> Repo.transaction()
+        |> then(&unwrap_multi(&1))
+    end
+  end
+
+  @doc "Discard 一个 tentative character。"
+  @spec discard_character(String.t(), map()) ::
+          {:ok, Character.t()} | {:error, term()}
+  def discard_character(character_id, mutation_attrs) do
+    case Repo.get(Character, character_id) do
+      nil ->
+        {:error, :not_found}
+
+      character ->
+        Multi.new()
+        |> Multi.update(:character_discard, Character.discard_changeset(character))
+        |> Multi.run(:mutation, fn _repo, %{character_discard: discarded} ->
+          MutationLog.create_applied(%{
+            actor_ref: mutation_attrs.actor_ref,
+            source_turn_ref: mutation_attrs.source_turn_ref,
+            target_scope: "character",
+            target_object_ref: character_id,
+            base_revision: character.revision,
+            mutation_type: "discard",
+            authority_scope: Map.get(mutation_attrs, :authority_scope),
+            requires_adoption: false
+          })
+          |> then(&wrap_result(&1, discarded))
+        end)
+        |> Repo.transaction()
+        |> then(&unwrap_multi(&1))
+    end
+  end
+
   # ---- private ----
 
   defp modify_draft_multi(draft, draft_id, _base_revision, new_content, mutation_attrs)
@@ -227,6 +295,8 @@ defmodule NovelApplication.AdoptionBoundary do
   defp unwrap_multi({:ok, %{discard: obj}}), do: {:ok, obj}
   defp unwrap_multi({:ok, %{adopt: obj}}), do: {:ok, obj}
   defp unwrap_multi({:ok, %{modify: obj}}), do: {:ok, obj}
+  defp unwrap_multi({:ok, %{character_adopt: obj}}), do: {:ok, obj}
+  defp unwrap_multi({:ok, %{character_discard: obj}}), do: {:ok, obj}
   defp unwrap_multi({:error, :mutation, reason, _changes}), do: {:error, reason}
   defp unwrap_multi({:error, _step, reason, _changes}), do: {:error, reason}
 
@@ -304,6 +374,17 @@ defmodule NovelApplication.AdoptionBoundary do
       work_id: Map.get(attrs, "work_id") || Map.get(attrs, :work_id),
       scene_id: Map.get(attrs, "scene_id") || Map.get(attrs, :scene_id),
       content: Map.get(attrs, "content") || Map.get(attrs, :content),
+      status: AdoptionStatus.tentative()
+    }
+  end
+
+  defp build_character_attrs(payload) do
+    %{
+      work_id: Map.get(payload, "work_id") || Map.get(payload, :work_id),
+      name: Map.get(payload, "name") || Map.get(payload, :name, "未命名角色"),
+      aliases: Map.get(payload, "aliases") || Map.get(payload, :aliases, []),
+      role: Map.get(payload, "role") || Map.get(payload, :role),
+      summary: Map.get(payload, "summary") || Map.get(payload, :summary),
       status: AdoptionStatus.tentative()
     }
   end

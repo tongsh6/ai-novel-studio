@@ -101,6 +101,10 @@ defmodule NovelApplication.TurnService do
     handle_adopt_draft(artifact_id, base_revision, mutation_attrs, workspace_id, turn_id)
   end
 
+  def handle_adopt(character_id, _base_revision, mutation_attrs, workspace_id, turn_id, "character") do
+    handle_adopt_character(character_id, mutation_attrs, workspace_id, turn_id)
+  end
+
   def handle_adopt(work_id, base_revision, mutation_attrs, workspace_id, turn_id, _artifact_type)
       when is_integer(base_revision) and base_revision > 0 do
     turn_id = turn_id || Orchestrator.allocate_turn_id()
@@ -621,6 +625,9 @@ defmodule NovelApplication.TurnService do
       :create_work_seed ->
         build_create_work_tentative(turn_id, result, memory_context)
 
+      :create_character_candidates ->
+        build_create_character_candidates(turn_id, result, memory_context)
+
       _ ->
         build_draft_tentative(turn_id, result, memory_context)
     end
@@ -629,6 +636,7 @@ defmodule NovelApplication.TurnService do
   defp normalize_intent("intent.CREATE_WORK_SEED"), do: :create_work_seed
   defp normalize_intent("create_work_seed"), do: :create_work_seed
   defp normalize_intent(:create_work_seed), do: :create_work_seed
+  defp normalize_intent("intent.CREATE_CHARACTER_CANDIDATES"), do: :create_character_candidates
   defp normalize_intent(_other), do: :other
 
   # ---- Generic clarification (any intent) ----
@@ -1070,4 +1078,160 @@ defmodule NovelApplication.TurnService do
   defp slot_label("revision_direction"), do: "- 你想往哪个方向修改？"
   defp slot_label("continuation_range"), do: "- 你想从哪继续写？"
   defp slot_label(slot), do: "- #{slot}"
+
+  defp create_character_artifact(char, work_id) do
+    name = Map.get(char, "name", "未命名")
+    role = Map.get(char, "role", "")
+    summary = Map.get(char, "summary", "")
+    char_attrs = %{work_id: work_id, name: name, role: role, summary: summary}
+
+    case AdoptionBoundary.create_tentative_character(char_attrs) do
+      {:ok, character} ->
+        %{artifact_id: character.id, artifact_type: "character",
+          adoption_status: AdoptionStatus.tentative(), requires_adoption: true,
+          payload: %{name: name, role: role, summary: summary, work_id: work_id}}
+
+      {:error, _} ->
+        %{artifact_id: ID.uuid(), artifact_type: "character",
+          adoption_status: AdoptionStatus.tentative(), requires_adoption: true,
+          payload: %{name: name, role: role, summary: summary}}
+    end
+  end
+
+  # ---- Character Creation (VS-015) ----
+
+  defp build_create_character_candidates(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+    direction = Map.get(slots, "character_direction", "")
+    role_hint = Map.get(slots, "role_hint", "")
+
+    prompt = """
+    你是一位小说角色设计师。请根据作品设定，创建1-3个角色候选。
+    #{if direction != "", do: "创作方向：#{direction}", else: ""}
+    #{if role_hint != "", do: "角色类型参考：#{role_hint}", else: "请设计主要角色"}
+
+    输出格式：返回 JSON 数组，每个角色包含 name（姓名）、role（身份）、summary（简介，50-100字）。
+    只输出 JSON 数组，不要输出任何其他内容。
+
+    示例：[{"name": "主角名", "role": "主角/剑客", "summary": "简介文本..."}]
+    """
+
+    generated_text =
+      case ProviderGateway.complete(prompt) do
+        {:ok, %{content: content}} -> content
+        {:error, _} -> "[]"
+      end
+
+    characters =
+      case Jason.decode(generated_text) do
+        {:ok, list} when is_list(list) -> list
+        _ -> []
+      end
+
+    artifacts = Enum.map(characters, &create_character_artifact(&1, work_id))
+
+    names = Enum.map_join(artifacts, "、", & &1.payload.name)
+
+    build_turn_result(turn_id, %{
+      phase: TurnPhase.completed(),
+      status: Status.done(),
+      next_action: NextAction.adopt_artifacts(),
+      assistant_text: "已为你生成角色候选：#{names}",
+      pending_artifacts: artifacts,
+      ui_cards: [character_adoption_card(artifacts)]
+    })
+  end
+
+  defp character_adoption_card(artifacts) do
+    artifact_ids = Enum.map(artifacts, & &1.artifact_id)
+    names = Enum.map_join(artifacts, "、", & &1.payload.name)
+
+    %{
+      card_type: "adoption_card",
+      priority: "high",
+      visibility: "primary",
+      title: "角色候选：#{names}",
+      body: "AI 已生成以上角色，请逐一审核后决定采纳、修改或放弃。",
+      artifact_refs: artifact_ids,
+      actions: [
+        %{
+          action_id: "accept",
+          action_type: "accept",
+          label: "全部采纳",
+          target_ref: artifact_ids |> List.first() || "",
+          enabled: true,
+          style_hint: "primary"
+        }
+      ]
+    }
+  end
+
+  # ---- Character adoption ----
+
+  @spec handle_adopt_character(String.t(), map(), String.t(), String.t() | nil) ::
+          {:ok, map()} | {:error, term()}
+  defp handle_adopt_character(character_id, mutation_attrs, workspace_id, turn_id) do
+    turn_id = turn_id || Orchestrator.allocate_turn_id()
+    attrs = Map.merge(mutation_attrs, %{source_turn_ref: turn_id})
+
+    case AdoptionBoundary.accept_character(character_id, attrs) do
+      {:ok, character} ->
+        artifact = %{
+          artifact_id: character.id,
+          artifact_type: "character",
+          adoption_status: AdoptionStatus.accepted(),
+          requires_adoption: false,
+          payload: %{name: character.name, role: character.role, summary: character.summary}
+        }
+
+        text = "已采纳角色「#{character.name}」。"
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+
+        turn_result =
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.completed(),
+            status: Status.done(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: text,
+            resolved_artifacts: [artifact]
+          })
+
+        {:ok, TurnResultValidator.validate!(turn_result)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @spec handle_discard_character(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
+  def handle_discard_character(character_id, workspace_id \\ "lobby") do
+    turn_id = Orchestrator.allocate_turn_id()
+
+    mutation_attrs = %{
+      actor_ref: "user",
+      source_turn_ref: turn_id,
+      target_scope: "character",
+      target_object_ref: character_id
+    }
+
+    case AdoptionBoundary.discard_character(character_id, mutation_attrs) do
+      {:ok, _character} ->
+        text = "已放弃角色。"
+
+        turn_result =
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.completed(),
+            status: Status.done(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: text
+          })
+
+        record_to_memory(workspace_id, turn_id, :assistant, text)
+        {:ok, TurnResultValidator.validate!(turn_result)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 end
