@@ -1786,7 +1786,9 @@ defmodule NovelApplication.TurnService do
       })
     else
       _created =
-        Enum.map(plan, fn vol ->
+        plan
+        |> Enum.with_index(1)
+        |> Enum.map(fn {vol, idx} ->
           title = Map.get(vol, "volume_title", "未命名卷")
           chapter_titles = Map.get(vol, "chapter_titles", [])
 
@@ -1794,7 +1796,7 @@ defmodule NovelApplication.TurnService do
             NovelPersistence.Repo.insert(%NovelPersistence.Schemas.Volume{
               work_id: work_id,
               title: title,
-              seq: length(Enum.filter(plan, &(&1 != vol))) + 1,
+              seq: idx,
               status: "DRAFTING"
             })
 
