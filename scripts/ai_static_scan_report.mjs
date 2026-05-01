@@ -29,6 +29,7 @@ for (const finding of findings) {
   finding.is_new = baselineFingerprints.size > 0 ? !baselineFingerprints.has(finding.fingerprint) : null;
   finding.disposition = dispositionFor(finding, dispositions);
   finding.score = scoreFinding(finding);
+  finding.is_blocking = isBlockingFinding(finding);
 }
 
 findings.sort((left, right) => right.score - left.score || left.tool.localeCompare(right.tool));
@@ -52,6 +53,7 @@ const summary = {
     by_severity: countBy(findings, "severity"),
     by_category: countBy(findings, "category"),
     by_disposition: countBy(findings.map((finding) => finding.disposition), "status"),
+    blocking: findings.filter((finding) => finding.is_blocking).length,
   },
 };
 
@@ -79,7 +81,8 @@ if (writeBaseline) {
 }
 
 const hasRequiredFailures = runs.some((run) => run.status !== "0" && run.status !== "skipped");
-process.exit(hasRequiredFailures ? 1 : 0);
+const hasBlockingFindings = findings.some((finding) => finding.is_blocking);
+process.exit(hasRequiredFailures || hasBlockingFindings ? 1 : 0);
 
 function parseArgs(argv) {
   const parsed = {};
@@ -160,6 +163,20 @@ function dispositionFor(finding, dispositionsMap) {
     owner: stored.owner ?? "",
     updated_at: stored.updated_at ?? "",
   };
+}
+
+function isBlockingFinding(finding) {
+  const status = finding.disposition.status;
+
+  if (status === "false_positive") {
+    return finding.disposition.handling.trim() === "";
+  }
+
+  if (status === "accepted_risk" || status === "deferred") {
+    return finding.disposition.handling.trim() === "" || finding.disposition.recommendation.trim() === "";
+  }
+
+  return true;
 }
 
 function getTouchedFiles() {
@@ -588,6 +605,7 @@ function renderMarkdown(report) {
       const flags = [
         finding.is_new === true ? "new" : null,
         finding.is_touched ? "touched" : null,
+        finding.is_blocking ? "blocking" : null,
       ].filter(Boolean);
 
       lines.push(
@@ -603,7 +621,7 @@ function renderMarkdown(report) {
   lines.push(
     "",
     "## AI Action Rule",
-    "Fix P0/P1 findings first, then touched-file P2 findings. Re-run this script and report any remaining Top 10 item that cannot be safely fixed in this slice.",
+    "Fix P0/P1 findings first, then touched-file P2 findings. Re-run this script and report any remaining Top 10 item that cannot be safely fixed in this slice. CI fails while any finding is pending or lacks an accepted disposition.",
   );
 
   return `${lines.join("\n")}\n`;
