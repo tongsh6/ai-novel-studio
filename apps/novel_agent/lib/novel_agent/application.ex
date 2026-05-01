@@ -36,6 +36,7 @@ defmodule NovelAgent.Application do
       Registries.child_specs() ++
         [
           NovelAgent.AuthorityGate,
+          NovelAgent.ClarificationStore,
           NovelAgent.BudgetMeter,
           NovelAgent.Memory.Store,
           NovelAgent.LongRunner,

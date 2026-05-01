@@ -586,6 +586,14 @@ defmodule NovelAgent.IntentRegistry do
     end
   end
 
+  @doc "按 schema_id 查找 SlotSchema，用于已知 schema 无需 intent 分类的场景。"
+  @spec get_by_schema_id(String.t()) :: SlotSchema.t() | nil
+  def get_by_schema_id(schema_id) when is_binary(schema_id) do
+    Enum.find_value(@intents, fn {_name, schema} ->
+      if schema.schema_id == schema_id, do: schema
+    end)
+  end
+
   @intent_meta %{
     "intent.CREATE_WORK_SEED" => %{risk_class: "MEDIUM", requires_confirmation: false},
     "intent.DRAFT_SCENE" => %{risk_class: "MEDIUM", requires_confirmation: false},

@@ -9,7 +9,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
       config :novel_agent, NovelAgent.Provider.LMStudio,
         endpoint: "http://localhost:1234/v1",
-        model: "local-model",
+        model: "qwen/qwen3.6-35b-a3b",
         timeout: 60_000
 
   ## 开发阶段定位
@@ -37,6 +37,8 @@ defmodule NovelAgent.Provider.LMStudio do
 
   @impl true
   def complete(%__MODULE__{} = state, _model, prompt) when is_binary(prompt) do
+    start_time = System.monotonic_time(:millisecond)
+
     body = %{
       model: state.model,
       messages: [%{role: "user", content: prompt}],
@@ -54,6 +56,10 @@ defmodule NovelAgent.Provider.LMStudio do
          ) do
       {:ok, %{status: 200, body: resp_body}} ->
         content = get_in(resp_body, ["choices", Access.at(0), "message", "content"])
+        duration = System.monotonic_time(:millisecond) - start_time
+        usage = resp_body["usage"] || %{}
+
+        log_llm_call(url, state.model, body, 200, content, usage, duration)
 
         if content && content != "" do
           Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
@@ -64,7 +70,10 @@ defmodule NovelAgent.Provider.LMStudio do
           UpstreamError.to_error_tuple(err)
         end
 
-      {:ok, %{status: status, body: _body}} ->
+      {:ok, %{status: status, body: resp_body}} ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        log_llm_call(url, state.model, body, status, inspect(resp_body), %{}, duration)
+
         err =
           UpstreamError.new(
             :invalid_response,
@@ -76,6 +85,9 @@ defmodule NovelAgent.Provider.LMStudio do
         UpstreamError.to_error_tuple(err)
 
       {:error, %{reason: reason}} when reason in [:econnrefused, :nxdomain, :timeout] ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        log_llm_call(url, state.model, body, 0, Atom.to_string(reason), %{}, duration)
+
         type = if reason == :timeout, do: :timeout, else: :connection_refused
         msg = if reason == :timeout, do: "LM Studio 请求超时", else: "LM Studio 未启动"
         err = UpstreamError.new(type, msg, name())
@@ -83,12 +95,30 @@ defmodule NovelAgent.Provider.LMStudio do
         UpstreamError.to_error_tuple(err)
 
       {:error, other} ->
+        duration = System.monotonic_time(:millisecond) - start_time
+        log_llm_call(url, state.model, body, 0, inspect(other), %{}, duration)
+
         err =
           UpstreamError.new(:provider_internal, "请求失败：#{inspect(other)}", name())
 
         Logger.warning("[LMStudio] #{err.message}")
         UpstreamError.to_error_tuple(err)
     end
+  end
+
+  defp log_llm_call(url, model, req_body, status, resp_content, usage, duration) do
+    NovelAgent.LLMLog.append(%{
+      step: Process.get(:current_step, "unknown"),
+      provider: "lmstudio",
+      request: %{method: "POST", url: url, body: req_body},
+      response: %{
+        status: status,
+        body: resp_content,
+        model: model,
+        usage: usage,
+        duration_ms: duration
+      }
+    })
   end
 
   @impl true
@@ -101,7 +131,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
     %__MODULE__{
       endpoint: Keyword.get(config, :endpoint, "http://localhost:1234/v1"),
-      model: Keyword.get(config, :model, "local-model"),
+      model: Keyword.get(config, :model, "qwen/qwen3.6-35b-a3b"),
       timeout: Keyword.get(config, :timeout, 60_000)
     }
   end

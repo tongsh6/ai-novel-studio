@@ -74,6 +74,7 @@ export function WorkspaceChat() {
   const [llmModel, setLlmModel] = useState<string>("");
   const [modifyModal, setModifyModal] = useState<{ artifact: ArtifactEntry; action: () => void } | null>(null);
   const [modifyInstruction, setModifyInstruction] = useState("");
+  const [pendingAnswerBid, setPendingAnswerBid] = useState<string | null>(null);
 
   // Connect to Zustand Global Store
   const {
@@ -147,6 +148,14 @@ export function WorkspaceChat() {
       ]);
       setLoading(false);
 
+      // Auto-track pending clarification: next user message is treated as answer
+      const activeBehavior = result.behavior_state?.active;
+      if (activeBehavior?.behavior_type === "clarification") {
+        setPendingAnswerBid(activeBehavior.behavior_id as string);
+      } else {
+        setPendingAnswerBid(null);
+      }
+
       // VS-005: propagate projection_refs to global store for ReadingMode
       const projRefs = result.projection_refs;
       if (projRefs && projRefs.length > 0) {
@@ -192,8 +201,11 @@ export function WorkspaceChat() {
     if (messageText === inputText) setInputText("");
     setLoading(true);
 
+    const behaviorId = pendingAnswerBid;
+    setPendingAnswerBid(null);
+
     try {
-      await sendMessage(channelRef.current, text, context.workId);
+      await sendMessage(channelRef.current, text, context.workId, behaviorId);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -329,6 +341,7 @@ export function WorkspaceChat() {
                 {msg.turnResult?.ui_cards?.map((card, ci) => {
                   const handleAction = (_actionId: string, targetRef: string, actionType?: string) => {
                     if (actionType === "answer") {
+                      setPendingAnswerBid(targetRef);
                       const input = document.querySelector<HTMLInputElement>(`.${styles.inputBox}`);
                       input?.focus();
                       return;

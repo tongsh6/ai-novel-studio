@@ -44,10 +44,11 @@ export function sendMessage(
   channel: Channel,
   text: string,
   workId?: string | null,
+  behaviorId?: string | null,
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
     channel
-      .push("user_message", { text, work_id: workId })
+      .push("user_message", { text, work_id: workId, behavior_id: behaviorId })
       .receive("ok", (response) => resolve(response as { received: boolean }))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("send timeout")));

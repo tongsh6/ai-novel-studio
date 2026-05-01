@@ -16,7 +16,7 @@ defmodule NovelAgent.Provider.Gateway do
 
       config :novel_agent, NovelAgent.Provider.LMStudio,
         endpoint: "http://localhost:1234/v1",
-        model: "local-model"
+        model: "qwen/qwen3.6-35b-a3b"
   """
 
   require Logger
@@ -89,6 +89,6 @@ defmodule NovelAgent.Provider.Gateway do
 
   defp default_model do
     Application.get_env(:novel_agent, :provider, [])
-    |> Keyword.get(:model, "local-model")
+    |> Keyword.get(:model, "qwen/qwen3.6-35b-a3b")
   end
 end
