@@ -676,6 +676,7 @@ defmodule NovelApplication.TurnService do
   defp intent_display_name("intent.DRAFT_CHAPTER"), do: "起草章节"
   defp intent_display_name("intent.REVISE_DRAFT"), do: "修改草稿"
   defp intent_display_name("intent.CONTINUE_DRAFTING"), do: "续写"
+  defp intent_display_name("intent.GENERATE_CHAPTER_OUTLINE"), do: "生成章节大纲"
   defp intent_display_name(_other), do: "执行"
 
   defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
@@ -852,6 +853,14 @@ defmodule NovelApplication.TurnService do
         refresh_status: ProjectionRefreshStatus.stale()
       }
     ]
+  end
+
+  defp build_generation_prompt("intent.GENERATE_CHAPTER_OUTLINE", slots) do
+    direction = Map.get(slots, "outline_direction", "")
+
+    "你是一位小说创作助手。请为本章节生成详细大纲。" <>
+      if(direction != "", do: "大纲方向：#{direction}。", else: "") <>
+      "请包含：章节标题、3-5个关键情节点、场景划分建议。只输出大纲内容。"
   end
 
   defp build_generation_prompt(intent_name, slots) do
@@ -1139,32 +1148,44 @@ defmodule NovelApplication.TurnService do
       next_action: NextAction.adopt_artifacts(),
       assistant_text: "已为你生成角色候选：#{names}",
       pending_artifacts: artifacts,
-      ui_cards: [character_adoption_card(artifacts)]
+      ui_cards: character_adoption_cards(artifacts)
     })
   end
 
-  defp character_adoption_card(artifacts) do
-    artifact_ids = Enum.map(artifacts, & &1.artifact_id)
-    names = Enum.map_join(artifacts, "、", & &1.payload.name)
+  defp character_adoption_cards(artifacts) do
+    Enum.map(artifacts, fn artifact ->
+      name = artifact.payload.name
+      role = artifact.payload.role
+      summary = artifact.payload.summary
+      aid = artifact.artifact_id
 
-    %{
-      card_type: "adoption_card",
-      priority: "high",
-      visibility: "primary",
-      title: "角色候选：#{names}",
-      body: "AI 已生成以上角色，请逐一审核后决定采纳、修改或放弃。",
-      artifact_refs: artifact_ids,
-      actions: [
-        %{
-          action_id: "accept",
-          action_type: "accept",
-          label: "全部采纳",
-          target_ref: artifact_ids |> List.first() || "",
-          enabled: true,
-          style_hint: "primary"
-        }
-      ]
-    }
+      %{
+        card_type: "adoption_card",
+        priority: "high",
+        visibility: "primary",
+        title: "角色候选：#{name}",
+        body: "#{role && "身份：#{role}  "}#{summary && "简介：#{summary}"}",
+        artifact_refs: [aid],
+        actions: [
+          %{
+            action_id: "accept_#{aid}",
+            action_type: "accept",
+            label: "采纳「#{name}」",
+            target_ref: aid,
+            enabled: true,
+            style_hint: "primary"
+          },
+          %{
+            action_id: "discard_#{aid}",
+            action_type: "discard",
+            label: "放弃「#{name}」",
+            target_ref: aid,
+            enabled: true,
+            style_hint: "secondary"
+          }
+        ]
+      }
+    end)
   end
 
   # ---- Character adoption ----
