@@ -584,9 +584,9 @@ v3 主链必须保护以下不变量：
 
 ---
 
-## 10. 与后续文档的分工
+## 10. 与相关文档的分工
 
-| 后续文档 | 本文留下的问题 |
+| 相关文档 | 本文留下的问题 |
 |---|---|
 | `00c-state-and-contract-atlas.md` | 哪些状态机和 contract 需要索引 |
 | `00d-runtime-architecture.md` | 这些动态对象最终落在哪些运行时组件 |
@@ -607,15 +607,19 @@ v3 主链必须保护以下不变量：
 - `00a`：不同角色怎么读。
 - `00b`：一次 turn 如何动态流动。
 - `01`：用户、LLM、工作台三者关系。
+- `00d`：控制面、数据面、横切层的运行时视图。
+- `02`：DialogueFrame / MicroPlan 协议草案。
+- `03`：Capability Toolbox 协议草案。
+- `04`：Execution Orchestrator 协议草案。
 
 下一步建议写：
 
 ```text
-00d-runtime-architecture.md
+05-turn-behavior-and-state-model.md
 ```
 
 原因：
 
 - `00b` 已经定义动态主链。
-- `00d` 可以把动态对象落到控制面、数据面和横切层。
-- 之后再写 `02/03/04` 时，就能同时参考动态流和运行时组件边界。
+- `02/03/04` 已经把 Frame/Plan、Toolbox、Orchestrator 分别拆成 contract 草案。
+- `05` 需要把本文中的 clarification、confirmation、correction、cancellation 和 recovery 变成可持续的 behavior lifecycle。

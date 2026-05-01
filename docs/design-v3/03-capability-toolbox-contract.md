@@ -536,11 +536,10 @@ UI 可以展示工具结果摘要，但必须来自 TurnResult 或 trace 引用�
 
 ADR 前需要先完成：
 
-1. `04-execution-orchestrator.md`
-2. `05-turn-behavior-and-state-model.md`
-3. `06-memory-context-and-trace.md`
+1. `05-turn-behavior-and-state-model.md`
+2. `06-memory-context-and-trace.md`
 
-原因是 ToolRequest 的裁决、behavior 状态和 trace 存储需要互相校验。
+原因是 `04-execution-orchestrator.md` 已经承接 ToolRequest 的裁决边界，后续还需要 behavior 状态和 trace 存储与之互相校验。
 
 ---
 
@@ -551,14 +550,15 @@ ADR 前需要先完成：
 - DialogueFrame / MicroPlan 的协议草案。
 - Toolbox / ToolRequest / ToolResult 的协议草案。
 - 动态主链与运行时视图。
+- Execution Orchestrator 的协议草案。
 
 下一步建议写：
 
 ```text
-04-execution-orchestrator.md
+05-turn-behavior-and-state-model.md
 ```
 
 原因：
 
-- MicroPlan 和 Toolbox 都需要 Execution Orchestrator 做裁决。
-- `04` 应定义 OrchestratorDecision、门禁顺序、dispatch 边界、状态推进和 TurnResult 组装职责。
+- `04` 已经定义 OrchestratorDecision、门禁顺序、dispatch 边界、状态推进和 TurnResult 组装职责。
+- `05` 需要定义 clarification、confirmation、correction、cancellation、recovery 如何形成可持续 behavior lifecycle。

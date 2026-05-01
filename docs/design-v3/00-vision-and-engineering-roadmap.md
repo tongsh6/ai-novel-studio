@@ -312,9 +312,13 @@ v3 不允许“有一个想法就直接写代码”。
 | 5 | `02-dialogue-frame-and-micro-plan.md` | 把核心协议从 `01` 拆成 contract 草案 |
 | 6 | `03-capability-toolbox-contract.md` | 定义工具箱注册与调用边界 |
 | 7 | `04-execution-orchestrator.md` | 定义执行权和门禁 |
-| 8 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
+| 8 | `05-turn-behavior-and-state-model.md` | 定义 durable behavior 与 phase/status/next_action |
+| 9 | `06-memory-context-and-trace.md` | 定义上下文、trace、replay 的可回放边界 |
+| 10 | `07-workbench-ui-contract.md` | 定义 UI 如何消费 TurnResult 与行为动作 |
+| 11 | `00c-state-and-contract-atlas.md` | 汇总状态、contract、ADR 与 slice 索引 |
+| 12 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
 
-在第 8 步之前，不建议写代码实现计划。
+在第 12 步之前，不建议写代码实现计划。
 
 ---
 
@@ -323,7 +327,7 @@ v3 不允许“有一个想法就直接写代码”。
 以下内容已在 v3 探索中确认，可作为后续文档输入：
 
 1. v3 不继承 v2 文档编号。
-2. v3 从 v2 分支签出为 `v3` 分支。
+2. v3 从 v2 分支签出为 `idea/dialogue-based-novel-workbench/v3` 分支，远端为 `origin/idea/dialogue-based-novel-workbench/v3`。
 3. v3 采用 Dialogue-first / Agent-native 方向。
 4. 不再让 `Router` 这个名字暗示 turn 第一站。
 5. 顶层采用双层协作：Dialogue Planner + Execution Orchestrator。
@@ -344,7 +348,7 @@ v3 不允许“有一个想法就直接写代码”。
 | DialogueFrame 的字段全集与枚举 | `02-dialogue-frame-and-micro-plan.md` |
 | MicroPlan 与 ToolRequest 的关系 | `02-dialogue-frame-and-micro-plan.md` |
 | Capability Toolbox 是否统一 registry | `03-capability-toolbox-contract.md` |
-| Execution Orchestrator 是否属于 `novel_agent` 还是 `novel_application` | `04-execution-orchestrator.md` |
+| Execution Orchestrator 的 umbrella 模块归属如何冻结 | `04-execution-orchestrator.md` + slice DAG |
 | TurnResult v3 是否复用 v2 顶层字段 | v3 ADR |
 | v3 UI 是否直接展示 DialogueFrame trace | `07-workbench-ui-contract.md` |
 | v2 代码迁移是重构还是旁路新链路 | slice DAG 阶段 |
@@ -374,11 +378,13 @@ v3 下一步应继续完善设计体系，而不是进入代码实现。
 
 推荐顺序：
 
-1. 写 `00a-reading-map.md`，建立 v3 阅读路径。
-2. 写 `00b-end-to-end-dialogue-flow.md`，把 DialogueFrame / MicroPlan / Execution Orchestrator 主链画清。
-3. 写 `00d-runtime-architecture.md`，给出控制面、数据面、横切层。
-4. 写 `02-dialogue-frame-and-micro-plan.md`，开始 contract 草案。
-5. 写 `03-capability-toolbox-contract.md` 与 `04-execution-orchestrator.md`。
-6. 再创建 `tasks/slices/v3/DAG.md`。
+1. 已完成 `00a-reading-map.md`，建立 v3 阅读路径。
+2. 已完成 `00b-end-to-end-dialogue-flow.md`，把 DialogueFrame / MicroPlan / Execution Orchestrator 主链画清。
+3. 已完成 `00d-runtime-architecture.md`，给出控制面、数据面、横切层。
+4. 已完成 `02-dialogue-frame-and-micro-plan.md`，形成 frame / plan contract 草案。
+5. 已完成 `03-capability-toolbox-contract.md` 与 `04-execution-orchestrator.md`，形成工具箱与执行权草案。
+6. 下一步写 `05-turn-behavior-and-state-model.md`，收束 clarification / confirmation / correction / cancellation / recovery。
+7. 再写 `06-memory-context-and-trace.md`、`07-workbench-ui-contract.md`、`00c-state-and-contract-atlas.md`。
+8. 最后创建 `tasks/slices/v3/DAG.md`。
 
 只有当上述设计链路能支撑第一条承重垂直切面时，才进入 implementation plan。

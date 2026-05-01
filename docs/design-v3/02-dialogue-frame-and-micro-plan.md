@@ -556,13 +556,18 @@ ADR 前需要先完成：
 
 本文完成后，v3 已具备 frame / plan 的第一版 contract 草案。
 
+在当前 v3 设计链路中，本文已经由以下文档继续承接：
+
+- `03-capability-toolbox-contract.md`：定义 MicroPlan 如何引用工具与 ToolRequest。
+- `04-execution-orchestrator.md`：定义 MicroPlan 如何被裁决、降级、确认或执行。
+
 下一步建议写：
 
 ```text
-03-capability-toolbox-contract.md
+05-turn-behavior-and-state-model.md
 ```
 
 原因：
 
-- MicroPlan 的 `required_tools` 和 `proposed_actions` 需要 Toolbox registry 支撑。
-- Toolbox 定义清楚后，`04-execution-orchestrator.md` 才能准确描述如何审查和 dispatch ToolRequest。
+- `03/04` 已经分别补上 Toolbox 和 Orchestrator 边界。
+- `05` 需要把 MicroPlan 裁决后的 clarification、confirmation、correction、cancellation 和 recovery 变成稳定 behavior lifecycle。
