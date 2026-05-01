@@ -272,3 +272,37 @@ export function getCharacters(
       .receive("timeout", () => reject(new Error("get_characters timeout")));
   });
 }
+
+export interface MemoryItemData {
+  id: string;
+  content: string;
+  type: string;
+  tags: string[];
+  weight: number;
+}
+
+export function getForeshadowing(
+  channel: Channel,
+  workId: string,
+): Promise<MemoryItemData[]> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_foreshadowing", { work_id: workId })
+      .receive("ok", (response) => resolve(response as MemoryItemData[]))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_foreshadowing timeout")));
+  });
+}
+
+export function getRules(
+  channel: Channel,
+  workId: string,
+): Promise<MemoryItemData[]> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_rules", { work_id: workId })
+      .receive("ok", (response) => resolve(response as MemoryItemData[]))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_rules timeout")));
+  });
+}

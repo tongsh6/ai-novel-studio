@@ -2,8 +2,8 @@
 // Prototype: novel-studio-v2.pen → 43§5-structure-panel-expanded (ATnmR)
 import { useEffect, useState } from "react";
 import { useAppStore } from "../lib/store";
-import { getToc, getCharacters } from "../lib/socket";
-import type { TocData, CharacterData } from "../lib/socket";
+import { getToc, getCharacters, getForeshadowing, getRules } from "../lib/socket";
+import type { TocData, CharacterData, MemoryItemData } from "../lib/socket";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
@@ -33,15 +33,19 @@ export function StructurePanel({
   const [activeTab, setActiveTab] = useState<TabType>("foreshadowing");
   const [toc, setToc] = useState<TocData | null>(null);
   const [characters, setCharacters] = useState<CharacterData[]>([]);
+  const [foreshadowing, setForeshadowing] = useState<MemoryItemData[]>([]);
+  const [rules, setRules] = useState<MemoryItemData[]>([]);
   const context = useAppStore((s) => s.context);
   const longRun = useAppStore((s) => s.longRun);
   const channel = useAppStore((s) => s.channel);
 
-  // Fetch TOC and characters when panel opens and work exists
+  // Fetch all data when panel opens and work exists
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
     getToc(channel, context.workId).then((data) => setToc(data)).catch(() => setToc(null));
     getCharacters(channel, context.workId).then((data) => setCharacters(data)).catch(() => setCharacters([]));
+    getForeshadowing(channel, context.workId).then((data) => setForeshadowing(data)).catch(() => setForeshadowing([]));
+    getRules(channel, context.workId).then((data) => setRules(data)).catch(() => setRules([]));
   }, [isOpen, channel, context.workId]);
 
   if (!isOpen) return null;
@@ -111,7 +115,7 @@ export function StructurePanel({
         {/* Foreshadowing Tab */}
         {activeTab === "foreshadowing" && (
           <>
-            {pendingAdoptions.length > 0 ? (
+            {pendingAdoptions.length > 0 && (
               <div className={styles.section}>
                 <div className={styles.secHeader}>
                   <span className={styles.secTitleAccent}>待采纳内容</span>
@@ -126,29 +130,34 @@ export function StructurePanel({
                       {payloadText(artifact.payload.content, "等待审核中的内容")}
                     </div>
                     <div className={styles.cardActions}>
-                      <button
-                        className={styles.btnPrimary}
-                        onClick={() => onAdopt(artifact)}
-                      >
-                        采纳设定
-                      </button>
-                      <button
-                        className={styles.btnSecondary}
-                        onClick={() => onAction("revise", artifact.artifact_id)}
-                      >
-                        提出修改
-                      </button>
+                      <button className={styles.btnPrimary} onClick={() => onAdopt(artifact)}>采纳设定</button>
+                      <button className={styles.btnSecondary} onClick={() => onAction("revise", artifact.artifact_id)}>提出修改</button>
                     </div>
                   </div>
                 ))}
               </div>
-            ) : (
+            )}
+            {foreshadowing.length > 0 && (
+              <div className={styles.section}>
+                <div className={styles.secHeader}>
+                  <span className={styles.secTitle}>已确认设定</span>
+                </div>
+                {foreshadowing.map((item) => (
+                  <div key={item.id} className={styles.cardItem}>
+                    <div className={styles.cardTitle}>{item.content}</div>
+                    <div className={styles.cardDesc}>
+                      {item.type}{item.tags.length > 0 && ` · ${item.tags.join("、")}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            {pendingAdoptions.length === 0 && foreshadowing.length === 0 && (
               <div className={styles.emptySection}>
                 <div className={styles.emptyIcon}>📋</div>
                 <div className={styles.emptyTitle}>暂无伏笔设定</div>
                 <div className={styles.emptyDesc}>
-                  当 AI 在创作过程中识别出伏笔线索时，会在此处展示。
-                  你也可以在对话中直接说"埋一个伏笔"来主动设置。
+                  在对话中说"创建主线大纲"或"构建世界观"，AI 会生成设定内容。
                 </div>
               </div>
             )}
@@ -246,14 +255,28 @@ export function StructurePanel({
 
         {/* Rules Tab */}
         {activeTab === "rule" && (
-          <div className={styles.emptySection}>
-            <div className={styles.emptyIcon}>📐</div>
-            <div className={styles.emptyTitle}>经验规则</div>
-            <div className={styles.emptyDesc}>
-              系统会从你的采纳、修改和否决中学习你的偏好，形成写作规则。
-              随着使用深入，规则会在这里逐步积累。
-            </div>
-          </div>
+          <>
+            {rules.length > 0 ? (
+              <div className={styles.section}>
+                {rules.map((item) => (
+                  <div key={item.id} className={styles.cardItem}>
+                    <div className={styles.cardTitle}>{item.content}</div>
+                    <div className={styles.cardDesc}>
+                      {item.type}{item.tags.length > 0 && ` · ${item.tags.join("、")}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.emptySection}>
+                <div className={styles.emptyIcon}>📐</div>
+                <div className={styles.emptyTitle}>经验规则</div>
+                <div className={styles.emptyDesc}>
+                  在对话中说"导入风格样本"或"构建世界观"，AI 会生成写作规则和设定约束。
+                </div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

@@ -216,6 +216,16 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, characters}, socket}
   end
 
+  def handle_in("get_foreshadowing", %{"work_id" => work_id}, socket) do
+    items = ReadingService.build_foreshadowing(work_id)
+    {:reply, {:ok, items}, socket}
+  end
+
+  def handle_in("get_rules", %{"work_id" => work_id}, socket) do
+    items = ReadingService.build_rules(work_id)
+    {:reply, {:ok, items}, socket}
+  end
+
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end
