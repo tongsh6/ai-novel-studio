@@ -31,4 +31,16 @@ defmodule NovelPersistence.Schemas.Character do
     |> validate_required([:work_id, :name, :status])
     |> validate_inclusion(:status, AdoptionStatus.values())
   end
+
+  @doc "Mark a tentative character as accepted."
+  def adopt_changeset(character) do
+    character
+    |> change(status: AdoptionStatus.accepted())
+  end
+
+  @doc "Mark a tentative character as discarded."
+  def discard_changeset(character) do
+    character
+    |> change(status: AdoptionStatus.discarded())
+  end
 end

@@ -251,3 +251,24 @@ export function getChapterContent(
       .receive("timeout", () => reject(new Error("get_chapter_content timeout")));
   });
 }
+
+export interface CharacterData {
+  id: string;
+  name: string;
+  aliases: string[];
+  role: string | null;
+  summary: string | null;
+}
+
+export function getCharacters(
+  channel: Channel,
+  workId: string,
+): Promise<CharacterData[]> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_characters", { work_id: workId })
+      .receive("ok", (response) => resolve(response as CharacterData[]))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_characters timeout")));
+  });
+}

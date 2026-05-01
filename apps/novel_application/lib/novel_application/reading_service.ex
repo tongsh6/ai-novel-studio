@@ -9,6 +9,7 @@ defmodule NovelApplication.ReadingService do
 
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.Character
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
@@ -75,5 +76,18 @@ defmodule NovelApplication.ReadingService do
       end)
 
     %{title: chapter.title, scenes: scene_list}
+  end
+
+  @doc "返回作品的已采纳角色列表。"
+  @spec build_characters(String.t()) :: [map()]
+  def build_characters(work_id) when is_binary(work_id) do
+    from(c in Character,
+      where: c.work_id == ^work_id and c.status == "ACCEPTED",
+      order_by: [asc: c.inserted_at]
+    )
+    |> Repo.all()
+    |> Enum.map(fn c ->
+      %{id: c.id, name: c.name, aliases: c.aliases, role: c.role, summary: c.summary}
+    end)
   end
 end

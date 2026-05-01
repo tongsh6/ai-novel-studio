@@ -2,8 +2,8 @@
 // Prototype: novel-studio-v2.pen → 43§5-structure-panel-expanded (ATnmR)
 import { useEffect, useState } from "react";
 import { useAppStore } from "../lib/store";
-import { getToc } from "../lib/socket";
-import type { TocData } from "../lib/socket";
+import { getToc, getCharacters } from "../lib/socket";
+import type { TocData, CharacterData } from "../lib/socket";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
@@ -32,14 +32,16 @@ export function StructurePanel({
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("foreshadowing");
   const [toc, setToc] = useState<TocData | null>(null);
+  const [characters, setCharacters] = useState<CharacterData[]>([]);
   const context = useAppStore((s) => s.context);
   const longRun = useAppStore((s) => s.longRun);
   const channel = useAppStore((s) => s.channel);
 
-  // Fetch TOC when panel opens and work exists
+  // Fetch TOC and characters when panel opens and work exists
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
     getToc(channel, context.workId).then((data) => setToc(data)).catch(() => setToc(null));
+    getCharacters(channel, context.workId).then((data) => setCharacters(data)).catch(() => setCharacters([]));
   }, [isOpen, channel, context.workId]);
 
   if (!isOpen) return null;
@@ -199,24 +201,47 @@ export function StructurePanel({
 
         {/* Character Tab */}
         {activeTab === "character" && (
-          <div className={styles.emptySection}>
-            <div className={styles.emptyIcon}>👤</div>
-            <div className={styles.emptyTitle}>角色档案</div>
-            <div className={styles.emptyDesc}>
-              {hasWork
-                ? "在对话中说「创建角色」或「分析已有角色」，AI 会提取角色信息并建档。"
-                : "先在工作台创建作品，AI 会在创作过程中自动提取角色信息。"}
-            </div>
-            <button
-              className={styles.btnPrimary}
-              onClick={() => {
-                onAction("init_intent");
-                onClose();
-              }}
-            >
-              创建角色
-            </button>
-          </div>
+          <>
+            {characters.length > 0 ? (
+              <div className={styles.section}>
+                {characters.map((char) => (
+                  <div key={char.id} className={styles.cardItem}>
+                    <div className={styles.cardTitle}>
+                      {char.name}
+                      {char.role && <span className={styles.cardLabel}> — {char.role}</span>}
+                    </div>
+                    {char.summary && (
+                      <div className={styles.cardDesc}>{char.summary}</div>
+                    )}
+                    {char.aliases && char.aliases.length > 0 && (
+                      <div className={styles.cardDesc}>
+                        别名：{char.aliases.join("、")}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.emptySection}>
+                <div className={styles.emptyIcon}>👤</div>
+                <div className={styles.emptyTitle}>角色档案</div>
+                <div className={styles.emptyDesc}>
+                  {hasWork
+                    ? "在对话中说「创建角色」或「分析已有角色」，AI 会提取角色信息并建档。"
+                    : "先在工作台创建作品，AI 会在创作过程中自动提取角色信息。"}
+                </div>
+                <button
+                  className={styles.btnPrimary}
+                  onClick={() => {
+                    onAction("init_intent");
+                    onClose();
+                  }}
+                >
+                  创建角色
+                </button>
+              </div>
+            )}
+          </>
         )}
 
         {/* Rules Tab */}

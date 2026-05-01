@@ -70,10 +70,15 @@ defmodule NovelWeb.WorkspaceChannel do
     artifact_type = Map.get(msg, "artifact_type")
 
     result =
-      if artifact_type == "draft_text" do
-        TurnService.handle_discard_draft(artifact_id, ws_id)
-      else
-        TurnService.handle_discard(artifact_id, ws_id)
+      cond do
+        artifact_type == "draft_text" ->
+          TurnService.handle_discard_draft(artifact_id, ws_id)
+
+        artifact_type == "character" ->
+          TurnService.handle_discard_character(artifact_id, ws_id)
+
+        true ->
+          TurnService.handle_discard(artifact_id, ws_id)
       end
 
     case result do
@@ -204,6 +209,11 @@ defmodule NovelWeb.WorkspaceChannel do
   def handle_in("get_chapter_content", %{"chapter_id" => chapter_id}, socket) do
     content = ReadingService.build_chapter_content(chapter_id)
     {:reply, {:ok, content}, socket}
+  end
+
+  def handle_in("get_characters", %{"work_id" => work_id}, socket) do
+    characters = ReadingService.build_characters(work_id)
+    {:reply, {:ok, characters}, socket}
   end
 
   def handle_in("ping", payload, socket) do
