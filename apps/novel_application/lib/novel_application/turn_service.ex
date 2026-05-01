@@ -19,6 +19,7 @@ defmodule NovelApplication.TurnService do
   alias NovelAgent.Provider.Gateway, as: ProviderGateway
   alias NovelApplication.AdoptionBoundary
   alias NovelApplication.MemoryRecallService
+  alias NovelApplication.MemoryService
   alias NovelDomain.Work
 
   require Logger
@@ -628,6 +629,9 @@ defmodule NovelApplication.TurnService do
       :create_character_candidates ->
         build_create_character_candidates(turn_id, result, memory_context)
 
+      :define_worldbuilding ->
+        build_define_worldbuilding(turn_id, result, memory_context)
+
       _ ->
         build_draft_tentative(turn_id, result, memory_context)
     end
@@ -637,6 +641,7 @@ defmodule NovelApplication.TurnService do
   defp normalize_intent("create_work_seed"), do: :create_work_seed
   defp normalize_intent(:create_work_seed), do: :create_work_seed
   defp normalize_intent("intent.CREATE_CHARACTER_CANDIDATES"), do: :create_character_candidates
+  defp normalize_intent("intent.DEFINE_WORLDBUILDING"), do: :define_worldbuilding
   defp normalize_intent(_other), do: :other
 
   # ---- Generic clarification (any intent) ----
@@ -682,6 +687,7 @@ defmodule NovelApplication.TurnService do
   defp intent_display_name("intent.SUMMARIZE_CHAPTER"), do: "总结章节"
   defp intent_display_name("intent.UPDATE_STATE_SNAPSHOT"), do: "更新状态快照"
   defp intent_display_name("intent.REFRESH_READING_PROJECTION"), do: "刷新阅读投影"
+  defp intent_display_name("intent.DEFINE_WORLDBUILDING"), do: "构建世界观"
   defp intent_display_name(_other), do: "执行"
 
   defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
@@ -891,6 +897,14 @@ defmodule NovelApplication.TurnService do
     scope = Map.get(slots, "snapshot_scope", "剧情")
     "你是一位小说创作助手。请分析当前#{scope}状态，生成结构化状态快照。" <>
       "请输出 JSON 格式：{\"current_state\": \"...\", \"open_threads\": [...], \"key_changes\": [...]}"
+  end
+
+  defp build_generation_prompt("intent.DEFINE_WORLDBUILDING", slots) do
+    direction = Map.get(slots, "worldbuilding_direction", "")
+
+    "你是一位小说世界观设计师。请为作品构建详细的世界观设定。" <>
+      if(direction != "", do: "方向：#{direction}。", else: "") <>
+      "请包含：地理、历史、势力、魔法/科技体系、文化风俗等方面的核心设定。"
   end
 
   defp build_generation_prompt(intent_name, slots) do
@@ -1285,4 +1299,58 @@ defmodule NovelApplication.TurnService do
         {:error, reason}
     end
   end
+
+  # ---- Worldbuilding (VS-018) ----
+
+  defp build_define_worldbuilding(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+    direction = Map.get(slots, "worldbuilding_direction", "")
+
+    prompt = """
+    你是一位小说世界观设计师。请为作品构建世界观设定。
+    #{if direction != "", do: "方向：#{direction}。", else: ""}
+
+    输出格式：返回 JSON 数组，每个元素包含 fact（世界观事实，一句话描述）和 category（分类：geography/history/magic_system/technology/faction/culture/other）。
+    只输出 JSON 数组，不要输出任何其他内容。
+
+    示例：[{"fact": "这个世界有三块大陆，被无尽风暴分隔。", "category": "geography"}]
+    """
+
+    generated_text =
+      case ProviderGateway.complete(prompt) do
+        {:ok, %{content: content}} -> content
+        {:error, _} -> "[]"
+      end
+
+    facts =
+      case Jason.decode(generated_text) do
+        {:ok, list} when is_list(list) -> list
+        _ -> []
+      end
+
+    memory_items =
+      Enum.map(facts, fn fact ->
+        MemoryService.create(%{
+          work_id: work_id,
+          content: Map.get(fact, "fact", ""),
+          type: "WORLD_RULE",
+          scope: "WORK",
+          source_type: "AUTHOR_CREATED",
+          tags: [Map.get(fact, "category", "other")]
+        })
+      end)
+
+    fact_count = length(facts)
+    summary = Enum.map_join(facts, "、", & &1["fact"])
+
+    build_turn_result(turn_id, %{
+      phase: TurnPhase.completed(),
+      status: Status.done(),
+      next_action: NextAction.no_further_action(),
+      assistant_text: "已生成 #{fact_count} 条世界观设定：#{summary}",
+      memory_items: memory_items
+    })
+  end
+
 end
