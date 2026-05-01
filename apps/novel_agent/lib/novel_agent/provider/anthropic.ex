@@ -59,12 +59,17 @@ defmodule NovelAgent.Provider.Anthropic do
            connect_options: [timeout: state.timeout]
          ) do
       {:ok, %{status: 200, body: resp_body}} ->
-        handle_success(state, resp_body, start_time)
+        result = handle_success(state, resp_body, start_time)
+        log_llm_call(url, state.model, body, 200, resp_body, start_time)
+        result
 
-      {:ok, %{status: status, body: body}} ->
-        handle_http_error(status, body)
+      {:ok, %{status: status, body: resp_body}} ->
+        log_llm_call(url, state.model, body, status, resp_body, start_time)
+        handle_http_error(status, resp_body)
 
       {:error, %{reason: reason}} when reason in [:econnrefused, :nxdomain, :timeout] ->
+        log_llm_call(url, state.model, body, 0, Atom.to_string(reason), start_time)
+
         type = if reason == :timeout, do: :timeout, else: :connection_refused
         msg = if reason == :timeout, do: "Anthropic API 请求超时", else: "无法连接 Anthropic API"
         err = UpstreamError.new(type, msg, name())
@@ -72,10 +77,31 @@ defmodule NovelAgent.Provider.Anthropic do
         UpstreamError.to_error_tuple(err)
 
       {:error, other} ->
+        log_llm_call(url, state.model, body, 0, inspect(other), start_time)
+
         err = UpstreamError.new(:provider_internal, "请求失败：#{inspect(other)}", name())
         Logger.warning("[Anthropic] #{err.message}")
         UpstreamError.to_error_tuple(err)
     end
+  end
+
+  defp log_llm_call(url, model, req_body, status, resp_body, start_time) do
+    duration = System.monotonic_time(:millisecond) - start_time
+    content = if is_map(resp_body), do: Jason.encode!(resp_body), else: to_string(resp_body)
+    usage = if is_map(resp_body), do: Map.get(resp_body, "usage") || %{}, else: %{}
+
+    NovelAgent.LLMLog.append(%{
+      step: Process.get(:current_step, "unknown"),
+      provider: "anthropic",
+      request: %{method: "POST", url: url, body: req_body},
+      response: %{
+        status: status,
+        body: content,
+        model: model,
+        usage: usage,
+        duration_ms: duration
+      }
+    })
   end
 
   @impl true
