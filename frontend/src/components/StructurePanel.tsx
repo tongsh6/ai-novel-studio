@@ -2,8 +2,8 @@
 // Prototype: novel-studio-v2.pen → 43§5-structure-panel-expanded (ATnmR)
 import { useEffect, useState } from "react";
 import { useAppStore } from "../lib/store";
-import { getToc, getCharacters, getForeshadowing, getRules } from "../lib/socket";
-import type { TocData, CharacterData, MemoryItemData } from "../lib/socket";
+import { getToc, getCharacters, getForeshadowing, getRules, getWorkStats } from "../lib/socket";
+import type { TocData, CharacterData, MemoryItemData, WorkStats } from "../lib/socket";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
@@ -35,8 +35,8 @@ export function StructurePanel({
   const [characters, setCharacters] = useState<CharacterData[]>([]);
   const [foreshadowing, setForeshadowing] = useState<MemoryItemData[]>([]);
   const [rules, setRules] = useState<MemoryItemData[]>([]);
+  const [stats, setStats] = useState<WorkStats | null>(null);
   const context = useAppStore((s) => s.context);
-  const longRun = useAppStore((s) => s.longRun);
   const channel = useAppStore((s) => s.channel);
 
   // Fetch all data when panel opens and work exists
@@ -46,6 +46,7 @@ export function StructurePanel({
     getCharacters(channel, context.workId).then((data) => setCharacters(data)).catch(() => setCharacters([]));
     getForeshadowing(channel, context.workId).then((data) => setForeshadowing(data)).catch(() => setForeshadowing([]));
     getRules(channel, context.workId).then((data) => setRules(data)).catch(() => setRules([]));
+    getWorkStats(channel, context.workId).then((data) => setStats(data)).catch(() => setStats(null));
   }, [isOpen, channel, context.workId]);
 
   if (!isOpen) return null;
@@ -68,16 +69,30 @@ export function StructurePanel({
 
       {/* L1 Overview */}
       <div className={styles.overview}>
+        {stats && (
+          <>
+            <div className={styles.overviewItem}>
+              <span className={styles.overviewLabel}>卷</span>
+              <span className={styles.overviewValue}>{stats.volumes}</span>
+            </div>
+            <div className={styles.overviewItem}>
+              <span className={styles.overviewLabel}>草稿</span>
+              <span className={styles.overviewValue}>{stats.drafts_accepted}/{stats.drafts_total}</span>
+            </div>
+            <div className={styles.overviewItem}>
+              <span className={styles.overviewLabel}>角色</span>
+              <span className={styles.overviewValue}>{stats.characters}</span>
+            </div>
+            <div className={styles.overviewItem}>
+              <span className={styles.overviewLabel}>设定</span>
+              <span className={styles.overviewValue}>{stats.memory_items}</span>
+            </div>
+          </>
+        )}
         <div className={styles.overviewItem}>
           <span className={styles.overviewLabel}>待采纳</span>
           <span className={pendingAdoptions.length > 0 ? styles.overviewValueAccent : styles.overviewValue}>
             {pendingAdoptions.length}
-          </span>
-        </div>
-        <div className={styles.overviewItem}>
-          <span className={styles.overviewLabel}>长跑状态</span>
-          <span className={styles.overviewValue}>
-            {longRun.status === "idle" ? "空闲" : longRun.status === "running" ? "运行中" : longRun.status === "checkpoint" ? "已暂停" : "失败"}
           </span>
         </div>
       </div>

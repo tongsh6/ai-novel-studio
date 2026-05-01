@@ -226,6 +226,11 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, items}, socket}
   end
 
+  def handle_in("get_work_stats", %{"work_id" => work_id}, socket) do
+    stats = ReadingService.build_work_stats(work_id)
+    {:reply, {:ok, stats}, socket}
+  end
+
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end

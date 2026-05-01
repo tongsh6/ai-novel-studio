@@ -306,3 +306,24 @@ export function getRules(
       .receive("timeout", () => reject(new Error("get_rules timeout")));
   });
 }
+
+export interface WorkStats {
+  drafts_total: number;
+  drafts_accepted: number;
+  characters: number;
+  memory_items: number;
+  volumes: number;
+}
+
+export function getWorkStats(
+  channel: Channel,
+  workId: string,
+): Promise<WorkStats> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_work_stats", { work_id: workId })
+      .receive("ok", (response) => resolve(response as WorkStats))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_work_stats timeout")));
+  });
+}
