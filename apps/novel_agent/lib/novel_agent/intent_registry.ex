@@ -496,6 +496,16 @@ defmodule NovelAgent.IntentRegistry do
         %{slot_name: "style_text", slot_type: SlotType.text(), description: "风格样本文本或参考作品描述", requiredness: Requiredness.required_to_execute(), inferability: Inferability.not_inferable(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
       ]
     },
+    "intent.REFINE_WORK_POSITIONING" => %SlotSchema{
+      intent_name: "intent.REFINE_WORK_POSITIONING",
+      schema_id: "slot_schema.REFINE_WORK_POSITIONING.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()},
+        %{slot_name: "refine_direction", slot_type: SlotType.text(), description: "优化方向（如：更爽快的节奏、更细腻的情感）", requiredness: Requiredness.optional_preference(), inferability: Inferability.not_inferable(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
+      ]
+    },
     "intent.CREATE_MAIN_OUTLINE" => %SlotSchema{
       intent_name: "intent.CREATE_MAIN_OUTLINE",
       schema_id: "slot_schema.CREATE_MAIN_OUTLINE.v1",
@@ -533,7 +543,8 @@ defmodule NovelAgent.IntentRegistry do
     refresh_reading_projection: "intent.REFRESH_READING_PROJECTION",
     define_worldbuilding: "intent.DEFINE_WORLDBUILDING",
     load_style_sample: "intent.LOAD_STYLE_SAMPLE",
-    create_main_outline: "intent.CREATE_MAIN_OUTLINE"
+    create_main_outline: "intent.CREATE_MAIN_OUTLINE",
+    refine_work_positioning: "intent.REFINE_WORK_POSITIONING"
   }
 
   @spec get(atom()) :: SlotSchema.t() | nil
@@ -559,7 +570,8 @@ defmodule NovelAgent.IntentRegistry do
     "intent.REFRESH_READING_PROJECTION" => %{risk_class: "LOW", requires_confirmation: false},
     "intent.DEFINE_WORLDBUILDING" => %{risk_class: "HIGH", requires_confirmation: true},
     "intent.LOAD_STYLE_SAMPLE" => %{risk_class: "LOW", requires_confirmation: false},
-    "intent.CREATE_MAIN_OUTLINE" => %{risk_class: "HIGH", requires_confirmation: true}
+    "intent.CREATE_MAIN_OUTLINE" => %{risk_class: "HIGH", requires_confirmation: true},
+    "intent.REFINE_WORK_POSITIONING" => %{risk_class: "MEDIUM", requires_confirmation: false}
   }
 
   @doc "返回 intent 的风险等级和确认需求元数据（ADR-0008 §3）。"

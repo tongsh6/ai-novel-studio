@@ -638,6 +638,9 @@ defmodule NovelApplication.TurnService do
       :create_main_outline ->
         build_create_main_outline(turn_id, result, memory_context)
 
+      :refine_work_positioning ->
+        build_refine_work_positioning(turn_id, result, memory_context)
+
       _ ->
         build_draft_tentative(turn_id, result, memory_context)
     end
@@ -650,6 +653,7 @@ defmodule NovelApplication.TurnService do
   defp normalize_intent("intent.DEFINE_WORLDBUILDING"), do: :define_worldbuilding
   defp normalize_intent("intent.LOAD_STYLE_SAMPLE"), do: :load_style_sample
   defp normalize_intent("intent.CREATE_MAIN_OUTLINE"), do: :create_main_outline
+  defp normalize_intent("intent.REFINE_WORK_POSITIONING"), do: :refine_work_positioning
   defp normalize_intent(_other), do: :other
 
   # ---- Generic clarification (any intent) ----
@@ -698,6 +702,7 @@ defmodule NovelApplication.TurnService do
   defp intent_display_name("intent.DEFINE_WORLDBUILDING"), do: "构建世界观"
   defp intent_display_name("intent.LOAD_STYLE_SAMPLE"), do: "导入风格样本"
   defp intent_display_name("intent.CREATE_MAIN_OUTLINE"), do: "创建主线大纲"
+  defp intent_display_name("intent.REFINE_WORK_POSITIONING"), do: "优化作品定位"
   defp intent_display_name(_other), do: "执行"
 
   defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
@@ -927,6 +932,13 @@ defmodule NovelApplication.TurnService do
     "你是一位小说规划师。请为作品创建详细的主线剧情大纲。" <>
       if(direction != "", do: "方向：#{direction}。", else: "") <>
       "请包含：开篇设定、核心冲突、主要转折点、高潮设计和结局走向。"
+  end
+
+  defp build_generation_prompt("intent.REFINE_WORK_POSITIONING", slots) do
+    direction = Map.get(slots, "refine_direction", "")
+
+    "你是一位资深小说编辑。请分析当前作品定位，从类型、核心卖点、目标读者、语调风格四个维度提出优化建议。" <>
+      if(direction != "", do: "方向：#{direction}。", else: "")
   end
 
   defp build_generation_prompt(intent_name, slots) do
@@ -1447,6 +1459,64 @@ defmodule NovelApplication.TurnService do
       next_action: NextAction.no_further_action(),
       assistant_text: "已生成 #{length(beats)} 个主线剧情节拍：#{summary}"
     })
+  end
+
+  # ---- Work Positioning (VS-021) ----
+
+  defp build_refine_work_positioning(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+    direction = Map.get(slots, "refine_direction", "")
+
+    # Read current work state
+    work = NovelPersistence.Repo.get(NovelPersistence.Schemas.Work, work_id)
+
+    current = %{
+      title: work && work.title,
+      genre: work && work.genre,
+      core_selling_point: work && work.core_selling_point,
+      target_reader: work && work.target_reader,
+      tone_preference: work && work.tone_preference
+    }
+
+    prompt = """
+    你是一位资深小说编辑。请分析当前作品定位并提出优化建议。
+    当前设定：#{Jason.encode!(current)}
+    #{if direction != "", do: "优化方向：#{direction}", else: ""}
+
+    请输出 JSON：{"genre": "建议类型", "core_selling_point": "核心卖点", "target_reader": "目标读者", "tone_preference": "语调风格", "reason": "优化理由（一句话）"}
+    只输出 JSON，不要输出任何其他内容。
+    """
+
+    suggestion = llm_generate_json(prompt)
+
+    reason = Map.get(suggestion, "reason", "优化作品定位")
+
+    build_turn_result(turn_id, %{
+      phase: TurnPhase.completed(),
+      status: Status.done(),
+      next_action: NextAction.no_further_action(),
+      assistant_text: "作品定位优化建议：#{reason}",
+      suggested_updates: %{
+        genre: Map.get(suggestion, "genre"),
+        core_selling_point: Map.get(suggestion, "core_selling_point"),
+        target_reader: Map.get(suggestion, "target_reader"),
+        tone_preference: Map.get(suggestion, "tone_preference")
+      }
+    })
+  end
+
+  defp llm_generate_json(prompt) do
+    case ProviderGateway.complete(prompt) do
+      {:ok, %{content: content}} ->
+        case Jason.decode(content) do
+          {:ok, map} when is_map(map) -> map
+          _ -> %{}
+        end
+
+      {:error, _} ->
+        %{}
+    end
   end
 
 end
