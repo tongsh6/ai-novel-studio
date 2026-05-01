@@ -426,6 +426,55 @@ defmodule NovelAgent.IntentRegistry do
           scope_dependency: ScopeDependency.work()
         }
       ]
+    },
+    "intent.GENERATE_VOLUME_OUTLINE" => %SlotSchema{
+      intent_name: "intent.GENERATE_VOLUME_OUTLINE",
+      schema_id: "slot_schema.GENERATE_VOLUME_OUTLINE.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()},
+        %{slot_name: "outline_direction", slot_type: SlotType.text(), description: "大纲方向", requiredness: Requiredness.optional_preference(), inferability: Inferability.not_inferable(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
+      ]
+    },
+    "intent.GENERATE_SCENE_OUTLINE" => %SlotSchema{
+      intent_name: "intent.GENERATE_SCENE_OUTLINE",
+      schema_id: "slot_schema.GENERATE_SCENE_OUTLINE.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()},
+        %{slot_name: "scene_direction", slot_type: SlotType.text(), description: "场景方向", requiredness: Requiredness.optional_preference(), inferability: Inferability.not_inferable(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
+      ]
+    },
+    "intent.SUMMARIZE_CHAPTER" => %SlotSchema{
+      intent_name: "intent.SUMMARIZE_CHAPTER",
+      schema_id: "slot_schema.SUMMARIZE_CHAPTER.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()},
+        %{slot_name: "chapter_ref", slot_type: SlotType.object_ref(), description: "目标章节", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
+      ]
+    },
+    "intent.UPDATE_STATE_SNAPSHOT" => %SlotSchema{
+      intent_name: "intent.UPDATE_STATE_SNAPSHOT",
+      schema_id: "slot_schema.UPDATE_STATE_SNAPSHOT.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()},
+        %{slot_name: "snapshot_scope", slot_type: SlotType.text(), description: "快照范围（角色/世界/剧情）", requiredness: Requiredness.optional_preference(), inferability: Inferability.not_inferable(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
+      ]
+    },
+    "intent.REFRESH_READING_PROJECTION" => %SlotSchema{
+      intent_name: "intent.REFRESH_READING_PROJECTION",
+      schema_id: "slot_schema.REFRESH_READING_PROJECTION.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
+      ]
     }
   }
 
@@ -446,7 +495,12 @@ defmodule NovelAgent.IntentRegistry do
     revise_draft: "intent.REVISE_DRAFT",
     continue_drafting: "intent.CONTINUE_DRAFTING",
     create_character_candidates: "intent.CREATE_CHARACTER_CANDIDATES",
-    generate_chapter_outline: "intent.GENERATE_CHAPTER_OUTLINE"
+    generate_chapter_outline: "intent.GENERATE_CHAPTER_OUTLINE",
+    generate_volume_outline: "intent.GENERATE_VOLUME_OUTLINE",
+    generate_scene_outline: "intent.GENERATE_SCENE_OUTLINE",
+    summarize_chapter: "intent.SUMMARIZE_CHAPTER",
+    update_state_snapshot: "intent.UPDATE_STATE_SNAPSHOT",
+    refresh_reading_projection: "intent.REFRESH_READING_PROJECTION"
   }
 
   @spec get(atom()) :: SlotSchema.t() | nil
@@ -464,7 +518,12 @@ defmodule NovelAgent.IntentRegistry do
     "intent.REVISE_DRAFT" => %{risk_class: "MEDIUM", requires_confirmation: false},
     "intent.CONTINUE_DRAFTING" => %{risk_class: "HIGH", requires_confirmation: true},
     "intent.CREATE_CHARACTER_CANDIDATES" => %{risk_class: "MEDIUM", requires_confirmation: false},
-    "intent.GENERATE_CHAPTER_OUTLINE" => %{risk_class: "MEDIUM", requires_confirmation: false}
+    "intent.GENERATE_CHAPTER_OUTLINE" => %{risk_class: "MEDIUM", requires_confirmation: false},
+    "intent.GENERATE_VOLUME_OUTLINE" => %{risk_class: "MEDIUM", requires_confirmation: false},
+    "intent.GENERATE_SCENE_OUTLINE" => %{risk_class: "MEDIUM", requires_confirmation: false},
+    "intent.SUMMARIZE_CHAPTER" => %{risk_class: "MEDIUM", requires_confirmation: false},
+    "intent.UPDATE_STATE_SNAPSHOT" => %{risk_class: "MEDIUM", requires_confirmation: false},
+    "intent.REFRESH_READING_PROJECTION" => %{risk_class: "LOW", requires_confirmation: false}
   }
 
   @doc "返回 intent 的风险等级和确认需求元数据（ADR-0008 §3）。"
