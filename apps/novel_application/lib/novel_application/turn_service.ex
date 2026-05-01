@@ -776,8 +776,10 @@ defmodule NovelApplication.TurnService do
     slots = route_result.extracted_slots
     intent_name = route_result.intent_name
     display = intent_display_name(intent_name)
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
 
-    prompt = build_generation_prompt(intent_name, slots)
+    context = build_work_context(work_id)
+    prompt = context <> build_generation_prompt(intent_name, slots)
 
     generated_text =
       case ProviderGateway.complete(prompt) do
@@ -1516,6 +1518,36 @@ defmodule NovelApplication.TurnService do
 
       {:error, _} ->
         %{}
+    end
+  end
+
+  defp build_work_context(nil), do: ""
+
+  defp build_work_context(work_id) do
+    items =
+      from(m in NovelPersistence.Schemas.MemoryItem,
+        where: m.work_id == ^work_id,
+        order_by: [desc: m.weight]
+      )
+      |> NovelPersistence.Repo.all()
+
+    if items == [] do
+      ""
+    else
+      chars = Enum.filter(items, &(&1.type == "CHARACTER_PROFILE"))
+      rules = Enum.filter(items, &(&1.type in ["STYLE_RULE", "WORLD_RULE", "CONSTRAINT"]))
+      facts = Enum.filter(items, &(&1.type in ["PLOT_FACT", "FORESHADOWING"]))
+
+      parts = [
+        if(chars != [], do: "【角色设定】\n" <> Enum.map_join(chars, "\n", & &1.content)),
+        if(rules != [], do: "【世界观与风格规则】\n" <> Enum.map_join(rules, "\n", & &1.content)),
+        if(facts != [], do: "【剧情事实】\n" <> Enum.map_join(facts, "\n", & &1.content))
+      ]
+
+      case Enum.filter(parts, &(&1 != nil)) do
+        [] -> ""
+        context_parts -> Enum.join(context_parts, "\n\n") <> "\n\n---\n\n"
+      end
     end
   end
 
