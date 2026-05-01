@@ -677,6 +677,11 @@ defmodule NovelApplication.TurnService do
   defp intent_display_name("intent.REVISE_DRAFT"), do: "修改草稿"
   defp intent_display_name("intent.CONTINUE_DRAFTING"), do: "续写"
   defp intent_display_name("intent.GENERATE_CHAPTER_OUTLINE"), do: "生成章节大纲"
+  defp intent_display_name("intent.GENERATE_VOLUME_OUTLINE"), do: "生成分卷大纲"
+  defp intent_display_name("intent.GENERATE_SCENE_OUTLINE"), do: "生成场景大纲"
+  defp intent_display_name("intent.SUMMARIZE_CHAPTER"), do: "总结章节"
+  defp intent_display_name("intent.UPDATE_STATE_SNAPSHOT"), do: "更新状态快照"
+  defp intent_display_name("intent.REFRESH_READING_PROJECTION"), do: "刷新阅读投影"
   defp intent_display_name(_other), do: "执行"
 
   defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
@@ -861,6 +866,31 @@ defmodule NovelApplication.TurnService do
     "你是一位小说创作助手。请为本章节生成详细大纲。" <>
       if(direction != "", do: "大纲方向：#{direction}。", else: "") <>
       "请包含：章节标题、3-5个关键情节点、场景划分建议。只输出大纲内容。"
+  end
+
+  defp build_generation_prompt("intent.GENERATE_VOLUME_OUTLINE", slots) do
+    direction = Map.get(slots, "outline_direction", "")
+    "你是一位小说创作助手。请为这卷生成分卷大纲。" <>
+      if(direction != "", do: "方向：#{direction}。", else: "") <>
+      "请包含：卷标题、章节划分建议（3-5章）、每章核心情节概要。"
+  end
+
+  defp build_generation_prompt("intent.GENERATE_SCENE_OUTLINE", slots) do
+    direction = Map.get(slots, "scene_direction", "")
+    "你是一位小说创作助手。请为这场戏生成场景大纲。" <>
+      if(direction != "", do: "方向：#{direction}。", else: "") <>
+      "请包含：场景目的、情绪变化、核心冲突、关键动作/对话节点。"
+  end
+
+  defp build_generation_prompt("intent.SUMMARIZE_CHAPTER", _slots) do
+    "你是一位小说编辑。请阅读本章内容，生成章节摘要。" <>
+      "请包含：核心事件、人物发展、伏笔线索。只输出摘要文本，不要输出任何其他内容。"
+  end
+
+  defp build_generation_prompt("intent.UPDATE_STATE_SNAPSHOT", slots) do
+    scope = Map.get(slots, "snapshot_scope", "剧情")
+    "你是一位小说创作助手。请分析当前#{scope}状态，生成结构化状态快照。" <>
+      "请输出 JSON 格式：{\"current_state\": \"...\", \"open_threads\": [...], \"key_changes\": [...]}"
   end
 
   defp build_generation_prompt(intent_name, slots) do
