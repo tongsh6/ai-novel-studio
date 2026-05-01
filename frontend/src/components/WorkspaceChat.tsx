@@ -72,6 +72,8 @@ export function WorkspaceChat() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [llmConnected, setLlmConnected] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState<string>("");
+  const [modifyModal, setModifyModal] = useState<{ artifact: ArtifactEntry; action: () => void } | null>(null);
+  const [modifyInstruction, setModifyInstruction] = useState("");
 
   // Connect to Zustand Global Store
   const {
@@ -349,16 +351,22 @@ export function WorkspaceChat() {
                       const pending = msg.turnResult?.adoption_state?.pending ?? [];
                       const artifact = pending.find((a) => a.artifact_id === targetRef);
                       if (artifact && channelRef.current) {
-                        const instruction = window.prompt("请输入修改意见：");
-                        if (instruction && instruction.trim()) {
-                          void modifyDraft(
-                            channelRef.current,
-                            artifact.artifact_id,
-                            artifact.revision_base as number | undefined,
-                            (artifact.payload?.content as string) ?? "",
-                            instruction.trim(),
-                          );
-                        }
+                        setModifyInstruction("");
+                        setModifyModal({
+                          artifact,
+                          action: () => {
+                            if (modifyInstruction.trim() && channelRef.current) {
+                              void modifyDraft(
+                                channelRef.current,
+                                artifact.artifact_id,
+                                artifact.revision_base as number | undefined,
+                                (artifact.payload?.content as string) ?? "",
+                                modifyInstruction.trim(),
+                              );
+                            }
+                            setModifyModal(null);
+                          },
+                        });
                       }
                       return;
                     }
@@ -481,6 +489,27 @@ export function WorkspaceChat() {
         )}
 
       </div>
+
+      {/* Modify Draft Modal */}
+      {modifyModal && (
+        <div className={styles.modalOverlay} onClick={() => setModifyModal(null)}>
+          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
+            <h3>修改草稿</h3>
+            <textarea
+              className={styles.modalTextarea}
+              value={modifyInstruction}
+              onChange={(e) => setModifyInstruction(e.target.value)}
+              placeholder="请输入修改意见，例如：把主角的性格改得更果断一些..."
+              rows={4}
+              autoFocus
+            />
+            <div className={styles.modalActions}>
+              <button className={styles.btnSecondary} onClick={() => setModifyModal(null)}>取消</button>
+              <button className={styles.btnPrimary} onClick={() => modifyModal.action()}>提交修改</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
