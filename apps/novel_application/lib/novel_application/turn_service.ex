@@ -251,11 +251,7 @@ defmodule NovelApplication.TurnService do
     end
   end
 
-  @doc """
-  丢弃一个 tentative draft artifact。
-  """
-  @spec handle_discard_draft(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_discard_draft(draft_id, workspace_id \\ "lobby") do
+  defp do_handle_discard_draft(draft_id, workspace_id) do
     turn_id = Orchestrator.allocate_turn_id()
 
     mutation_attrs = %{
@@ -286,12 +282,21 @@ defmodule NovelApplication.TurnService do
   end
 
   @doc """
-  丢弃一个 tentative artifact。
-
-  将 work 状态设为 DISCARDED，返回 TurnResult。
+  丢弃一个 tentative artifact。根据 artifact_type 分派到对应的处理函数。
   """
-  @spec handle_discard(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_discard(work_id, workspace_id \\ "lobby") do
+  @spec handle_discard(String.t(), String.t(), String.t() | nil) :: {:ok, map()} | {:error, term()}
+  def handle_discard(artifact_id, workspace_id \\ "lobby", artifact_type \\ nil)
+
+  def handle_discard(artifact_id, workspace_id, "draft_text"),
+    do: do_handle_discard_draft(artifact_id, workspace_id)
+
+  def handle_discard(artifact_id, workspace_id, "character"),
+    do: do_handle_discard_character(artifact_id, workspace_id)
+
+  def handle_discard(artifact_id, workspace_id, _artifact_type),
+    do: do_handle_discard_work(artifact_id, workspace_id)
+
+  defp do_handle_discard_work(work_id, workspace_id) do
     turn_id = Orchestrator.allocate_turn_id()
 
     mutation_attrs = %{
@@ -338,7 +343,7 @@ defmodule NovelApplication.TurnService do
   从 AuthorityGate 取回 pending confirmation 上下文，执行原 intent。
   """
   @spec handle_confirm(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_confirm(behavior_id, workspace_id \\ "lobby") do
+  def handle_confirm(behavior_id, workspace_id) do
     case AuthorityGate.take_pending(behavior_id) do
       nil ->
         {:error, :unknown_behavior}
@@ -379,7 +384,7 @@ defmodule NovelApplication.TurnService do
   拒绝执行前等待的操作。返回 CANCELLED TurnResult。
   """
   @spec handle_reject(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_reject(behavior_id, workspace_id \\ "lobby") do
+  def handle_reject(behavior_id, workspace_id) do
     case AuthorityGate.take_pending(behavior_id) do
       nil ->
         {:error, :unknown_behavior}
@@ -430,7 +435,7 @@ defmodule NovelApplication.TurnService do
   VS-002 §4.1.2 / VS-003 §4.2.2：clarification 和 confirmation 卡片的 revise action。
   """
   @spec handle_revise(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_revise(behavior_id, workspace_id \\ "lobby") do
+  def handle_revise(behavior_id, workspace_id) do
     case AuthorityGate.take_pending(behavior_id) do
       nil ->
         {:error, :unknown_behavior}
@@ -485,7 +490,7 @@ defmodule NovelApplication.TurnService do
   用户关闭卡片不做进一步操作。
   """
   @spec handle_dismiss(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_dismiss(behavior_id, workspace_id \\ "lobby") do
+  def handle_dismiss(behavior_id, workspace_id) do
     case AuthorityGate.take_pending(behavior_id) do
       nil ->
         {:error, :unknown_behavior}
@@ -523,7 +528,7 @@ defmodule NovelApplication.TurnService do
   重新触发上一个 turn 的 intent 执行。
   """
   @spec handle_retry(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_retry(_behavior_id, workspace_id \\ "lobby") do
+  def handle_retry(_behavior_id, workspace_id) do
     turn_id = Orchestrator.allocate_turn_id()
     text = "正在重试..."
 
@@ -1325,8 +1330,7 @@ defmodule NovelApplication.TurnService do
     end
   end
 
-  @spec handle_discard_character(String.t(), String.t()) :: {:ok, map()} | {:error, term()}
-  def handle_discard_character(character_id, workspace_id \\ "lobby") do
+  defp do_handle_discard_character(character_id, workspace_id) do
     turn_id = Orchestrator.allocate_turn_id()
 
     mutation_attrs = %{
