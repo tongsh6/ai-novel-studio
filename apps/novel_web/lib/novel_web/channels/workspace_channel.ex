@@ -69,19 +69,7 @@ defmodule NovelWeb.WorkspaceChannel do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     artifact_type = Map.get(msg, "artifact_type")
 
-    result =
-      cond do
-        artifact_type == "draft_text" ->
-          TurnService.handle_discard_draft(artifact_id, ws_id)
-
-        artifact_type == "character" ->
-          TurnService.handle_discard_character(artifact_id, ws_id)
-
-        true ->
-          TurnService.handle_discard(artifact_id, ws_id)
-      end
-
-    case result do
+    case TurnService.handle_discard(artifact_id, ws_id, artifact_type) do
       {:ok, turn_result} ->
         broadcast!(socket, "turn_result", turn_result)
         {:reply, {:ok, %{received: true}}, socket}
