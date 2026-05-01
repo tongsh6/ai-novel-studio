@@ -22,12 +22,21 @@ defmodule NovelAgent.LLMLog do
   """
   @spec append(map()) :: :ok
   def append(%{request: _req, response: _resp} = entry) do
+    # 跳过健康检查探针，避免污染业务日志
+    if health_check?(entry) do
+      :ok
+    else
+      do_append(entry)
+    end
+  end
+
+  defp do_append(entry) do
     dir = Application.get_env(:novel_agent, :llm_log_dir, @default_dir)
     date = Date.utc_today() |> Date.to_iso8601()
     path = Path.join(dir, "#{date}.jsonl")
 
     record = %{
-      ts: System.system_time(:millisecond) |> format_ts(),
+      ts: DateTime.utc_now() |> DateTime.to_iso8601(),
       turn_id: Process.get(:current_turn_id) || "unknown",
       step: Map.get(entry, :step, "unknown"),
       provider: Map.get(entry, :provider, "unknown"),
@@ -39,15 +48,18 @@ defmodule NovelAgent.LLMLog do
 
     File.mkdir_p!(dir)
 
-    case File.write(path, json <> "\n", [:append, :utf8]) do
+    case File.write(path, json <> "\n", [:append]) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("[LLMLog] 写入失败: #{inspect(reason)}")
     end
   end
 
-  defp format_ts(ms) do
-    {:ok, dt} = DateTime.from_unix(div(ms, 1000), :millisecond)
-    DateTime.to_iso8601(dt)
+  defp health_check?(entry) do
+    case get_in(entry.request, [:body, "messages"]) do
+      [%{"content" => content} | _] when byte_size(content) < 10 ->
+        String.trim(content) == "ping"
+      _ -> false
+    end
   end
 
   defp sanitize_request(req) do

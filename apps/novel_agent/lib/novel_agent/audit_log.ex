@@ -17,7 +17,7 @@ defmodule NovelAgent.AuditLog do
   def append(entry) when is_map(entry) do
     path = log_path()
 
-    case File.write(path, Jason.encode!(entry) <> "\n", [:append, :utf8]) do
+    case File.write(path, Jason.encode!(entry) <> "\n", [:append]) do
       :ok ->
         :ok
 
