@@ -641,6 +641,8 @@ defmodule NovelApplication.TurnService do
     do: build_scan_new_foreshadowing(turn_id, result, mc)
   defp dispatch_build(:scan_foreshadowing_resolution, turn_id, result, mc),
     do: build_scan_foreshadowing_resolution(turn_id, result, mc)
+  defp dispatch_build(:split_into_volumes, turn_id, result, mc),
+    do: build_split_into_volumes(turn_id, result, mc)
   defp dispatch_build(_, turn_id, result, mc),
     do: build_draft_tentative(turn_id, result, mc)
 
@@ -654,6 +656,7 @@ defmodule NovelApplication.TurnService do
   defp normalize_intent("intent.REFINE_WORK_POSITIONING"), do: :refine_work_positioning
   defp normalize_intent("intent.SCAN_NEW_FORESHADOWING"), do: :scan_new_foreshadowing
   defp normalize_intent("intent.SCAN_FORESHADOWING_RESOLUTION"), do: :scan_foreshadowing_resolution
+  defp normalize_intent("intent.SPLIT_INTO_VOLUMES"), do: :split_into_volumes
   defp normalize_intent(_other), do: :other
 
   # ---- Generic clarification (any intent) ----
@@ -705,6 +708,7 @@ defmodule NovelApplication.TurnService do
   defp intent_display_name("intent.REFINE_WORK_POSITIONING"), do: "优化作品定位"
   defp intent_display_name("intent.SCAN_NEW_FORESHADOWING"), do: "扫描伏笔"
   defp intent_display_name("intent.SCAN_FORESHADOWING_RESOLUTION"), do: "检查伏笔回收"
+  defp intent_display_name("intent.SPLIT_INTO_VOLUMES"), do: "拆分卷结构"
   defp intent_display_name(_other), do: "执行"
 
   defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
@@ -951,6 +955,10 @@ defmodule NovelApplication.TurnService do
 
   defp build_generation_prompt("intent.SCAN_FORESHADOWING_RESOLUTION", _slots) do
     "你是一位小说编辑。请检查已有伏笔线索是否在草稿中得到回收或发展，输出每条伏笔的状态（resolved/developed/unresolved）。"
+  end
+
+  defp build_generation_prompt("intent.SPLIT_INTO_VOLUMES", _slots) do
+    "你是一位小说结构编辑。请分析作品内容，建议合理的小说分卷方案，每卷包含3-5章的章标题。"
   end
 
   defp build_generation_prompt(intent_name, slots) do
@@ -1550,6 +1558,21 @@ defmodule NovelApplication.TurnService do
     end
   end
 
+  defp create_chapters(work_id, volume, chapter_titles) do
+    Enum.map(chapter_titles, fn ch_title ->
+      {:ok, chapter} =
+        NovelPersistence.Repo.insert(%NovelPersistence.Schemas.Chapter{
+          work_id: work_id,
+          volume_id: volume.id,
+          title: ch_title,
+          seq: Enum.find_index(chapter_titles, &(&1 == ch_title)) + 1,
+          status: "DRAFTING"
+        })
+
+      chapter
+    end)
+  end
+
   defp build_work_context(nil), do: ""
 
   defp build_work_context(work_id) do
@@ -1713,6 +1736,80 @@ defmodule NovelApplication.TurnService do
       next_action: NextAction.no_further_action(),
       assistant_text: summary
     })
+  end
+
+  # ---- Split into Volumes (VS-027) ----
+
+  defp build_split_into_volumes(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+    direction = Map.get(slots, "split_direction", "")
+
+    # Read all accepted drafts for context
+    drafts =
+      from(d in NovelPersistence.Schemas.Draft,
+        where: d.work_id == ^work_id and d.status == "ACCEPTED",
+        order_by: [asc: d.inserted_at]
+      )
+      |> NovelPersistence.Repo.all()
+
+    draft_summary =
+      if drafts != [] do
+        "已采纳草稿数：#{length(drafts)}篇。内容摘要：\n" <>
+        Enum.map_join(Enum.take(drafts, 5), "\n", fn d ->
+          String.slice(d.content, 0, 200) <> "..."
+        end)
+      else
+        "暂无已采纳草稿。"
+      end
+
+    context = build_work_context(work_id)
+
+    prompt = """
+    #{context}你是一位小说结构编辑。请分析作品内容，建议分卷方案。
+    #{draft_summary}
+    #{if direction != "", do: "拆分方向：#{direction}", else: ""}
+
+    输出格式：返回 JSON 数组，每个元素包含 volume_title（卷标题）、chapter_titles（该卷的章标题列表，3-5章）。
+    只输出 JSON 数组，不要输出任何其他内容。
+
+    示例：[{"volume_title": "第一卷：启程", "chapter_titles": ["第一章：出发", "第二章：相遇"]}]
+    """
+
+    plan = llm_generate_json_list(prompt)
+
+    if plan == [] do
+      build_turn_result(turn_id, %{
+        phase: TurnPhase.completed(), status: Status.done(),
+        next_action: NextAction.no_further_action(),
+        assistant_text: "暂无法生成分卷方案。请先确保有足够的已采纳草稿。"
+      })
+    else
+      _created =
+        Enum.map(plan, fn vol ->
+          title = Map.get(vol, "volume_title", "未命名卷")
+          chapter_titles = Map.get(vol, "chapter_titles", [])
+
+          {:ok, volume} =
+            NovelPersistence.Repo.insert(%NovelPersistence.Schemas.Volume{
+              work_id: work_id,
+              title: title,
+              seq: length(Enum.filter(plan, &(&1 != vol))) + 1,
+              status: "DRAFTING"
+            })
+
+          chapters = create_chapters(work_id, volume, chapter_titles)
+          %{volume: volume, chapters: chapters}
+        end)
+
+      vol_summary = Enum.map_join(plan, "、", & &1["volume_title"])
+
+      build_turn_result(turn_id, %{
+        phase: TurnPhase.completed(), status: Status.done(),
+        next_action: NextAction.no_further_action(),
+        assistant_text: "已生成分卷方案：#{vol_summary}，共 #{length(plan)} 卷。请在大纲面板查看。"
+      })
+    end
   end
 
 end
