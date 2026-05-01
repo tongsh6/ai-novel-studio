@@ -622,32 +622,27 @@ defmodule NovelApplication.TurnService do
   # ---- Intent routing ----
 
   defp build_tentative_for(turn_id, result, memory_context) do
-    case normalize_intent(result.intent_name) do
-      :create_work_seed ->
-        build_create_work_tentative(turn_id, result, memory_context)
-
-      :create_character_candidates ->
-        build_create_character_candidates(turn_id, result, memory_context)
-
-      :define_worldbuilding ->
-        build_define_worldbuilding(turn_id, result, memory_context)
-
-      :load_style_sample ->
-        build_load_style_sample(turn_id, result, memory_context)
-
-      :create_main_outline ->
-        build_create_main_outline(turn_id, result, memory_context)
-
-      :refine_work_positioning ->
-        build_refine_work_positioning(turn_id, result, memory_context)
-
-      :scan_new_foreshadowing ->
-        build_scan_new_foreshadowing(turn_id, result, memory_context)
-
-      _ ->
-        build_draft_tentative(turn_id, result, memory_context)
-    end
+    dispatch_build(normalize_intent(result.intent_name), turn_id, result, memory_context)
   end
+
+  defp dispatch_build(:create_work_seed, turn_id, result, mc),
+    do: build_create_work_tentative(turn_id, result, mc)
+  defp dispatch_build(:create_character_candidates, turn_id, result, mc),
+    do: build_create_character_candidates(turn_id, result, mc)
+  defp dispatch_build(:define_worldbuilding, turn_id, result, mc),
+    do: build_define_worldbuilding(turn_id, result, mc)
+  defp dispatch_build(:load_style_sample, turn_id, result, mc),
+    do: build_load_style_sample(turn_id, result, mc)
+  defp dispatch_build(:create_main_outline, turn_id, result, mc),
+    do: build_create_main_outline(turn_id, result, mc)
+  defp dispatch_build(:refine_work_positioning, turn_id, result, mc),
+    do: build_refine_work_positioning(turn_id, result, mc)
+  defp dispatch_build(:scan_new_foreshadowing, turn_id, result, mc),
+    do: build_scan_new_foreshadowing(turn_id, result, mc)
+  defp dispatch_build(:scan_foreshadowing_resolution, turn_id, result, mc),
+    do: build_scan_foreshadowing_resolution(turn_id, result, mc)
+  defp dispatch_build(_, turn_id, result, mc),
+    do: build_draft_tentative(turn_id, result, mc)
 
   defp normalize_intent("intent.CREATE_WORK_SEED"), do: :create_work_seed
   defp normalize_intent("create_work_seed"), do: :create_work_seed
@@ -658,6 +653,7 @@ defmodule NovelApplication.TurnService do
   defp normalize_intent("intent.CREATE_MAIN_OUTLINE"), do: :create_main_outline
   defp normalize_intent("intent.REFINE_WORK_POSITIONING"), do: :refine_work_positioning
   defp normalize_intent("intent.SCAN_NEW_FORESHADOWING"), do: :scan_new_foreshadowing
+  defp normalize_intent("intent.SCAN_FORESHADOWING_RESOLUTION"), do: :scan_foreshadowing_resolution
   defp normalize_intent(_other), do: :other
 
   # ---- Generic clarification (any intent) ----
@@ -708,6 +704,7 @@ defmodule NovelApplication.TurnService do
   defp intent_display_name("intent.CREATE_MAIN_OUTLINE"), do: "创建主线大纲"
   defp intent_display_name("intent.REFINE_WORK_POSITIONING"), do: "优化作品定位"
   defp intent_display_name("intent.SCAN_NEW_FORESHADOWING"), do: "扫描伏笔"
+  defp intent_display_name("intent.SCAN_FORESHADOWING_RESOLUTION"), do: "检查伏笔回收"
   defp intent_display_name(_other), do: "执行"
 
   defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
@@ -950,6 +947,10 @@ defmodule NovelApplication.TurnService do
 
   defp build_generation_prompt("intent.SCAN_NEW_FORESHADOWING", _slots) do
     "你是一位小说编辑。请阅读当前已采纳的草稿内容，识别其中的伏笔线索、未解之谜和可发展的剧情暗线，并标记类型和可能的回收方向。"
+  end
+
+  defp build_generation_prompt("intent.SCAN_FORESHADOWING_RESOLUTION", _slots) do
+    "你是一位小说编辑。请检查已有伏笔线索是否在草稿中得到回收或发展，输出每条伏笔的状态（resolved/developed/unresolved）。"
   end
 
   defp build_generation_prompt(intent_name, slots) do
@@ -1637,6 +1638,81 @@ defmodule NovelApplication.TurnService do
         assistant_text: "发现 #{length(threads)} 条伏笔线索：#{thread_summary}"
       })
     end
+  end
+
+  # ---- Foreshadowing Resolution (VS-025) ----
+
+  defp build_scan_foreshadowing_resolution(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+
+    # Fetch unresolved foreshadowing items
+    threads =
+      from(m in NovelPersistence.Schemas.MemoryItem,
+        where: m.work_id == ^work_id and m.type == "FORESHADOWING",
+        order_by: [desc: m.inserted_at]
+      )
+      |> NovelPersistence.Repo.all()
+
+    if threads == [] do
+      build_turn_result(turn_id, %{
+        phase: TurnPhase.completed(), status: Status.done(),
+        next_action: NextAction.no_further_action(),
+        assistant_text: "暂无伏笔线索可供检查。请先用「扫描伏笔」识别草稿中的伏笔。"
+      })
+    else
+      do_scan_resolution(turn_id, work_id, threads)
+    end
+  end
+
+  defp do_scan_resolution(turn_id, work_id, threads) do
+    drafts =
+      from(d in NovelPersistence.Schemas.Draft,
+        where: d.work_id == ^work_id and d.status == "ACCEPTED",
+        order_by: [asc: d.inserted_at]
+      )
+      |> NovelPersistence.Repo.all()
+
+    draft_text = Enum.map_join(drafts, "\n\n---\n\n", & &1.content)
+    thread_list = Enum.map_join(threads, "\n", fn t -> "  - [ID:#{t.id}] #{t.content}" end)
+
+    prompt = """
+    你是一位小说编辑。请检查以下伏笔线索是否在草稿中得到了回收或发展。
+
+    伏笔线索：
+    #{thread_list}
+
+    草稿内容：
+    #{draft_text}
+
+    输出格式：返回 JSON 数组，每个元素包含 thread_id（伏笔 ID）、status（resolved/developed/unresolved）和 note（简要说明）。
+    只输出 JSON 数组，不要输出任何其他内容。
+    """
+
+    results = llm_generate_json_list(prompt)
+    {resolved, others} = Enum.split_with(results, &(&1["status"] == "resolved"))
+
+    Enum.each(resolved, fn r ->
+      id = Map.get(r, "thread_id", "")
+      note = Map.get(r, "note", "")
+      if id != "" do
+        MemoryService.create(%{
+          work_id: work_id, content: "伏笔已回收：#{note}",
+          type: "PLOT_FACT", scope: "WORK",
+          source_type: "AUTHOR_CREATED", tags: ["resolution", id]
+        })
+      end
+    end)
+
+    summary =
+      "检查 #{length(threads)} 条伏笔：" <>
+      "#{length(resolved)} 条已回收、#{length(others)} 条仍在发展中。"
+
+    build_turn_result(turn_id, %{
+      phase: TurnPhase.completed(), status: Status.done(),
+      next_action: NextAction.no_further_action(),
+      assistant_text: summary
+    })
   end
 
 end
