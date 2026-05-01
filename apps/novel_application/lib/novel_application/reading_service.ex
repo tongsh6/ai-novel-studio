@@ -121,4 +121,34 @@ defmodule NovelApplication.ReadingService do
       %{id: m.id, content: m.content, type: m.type, tags: m.tags, weight: m.weight}
     end)
   end
+
+  @doc "返回作品统计概览。"
+  @spec build_work_stats(String.t()) :: map()
+  def build_work_stats(work_id) when is_binary(work_id) do
+    draft_count =
+      from(d in Draft, where: d.work_id == ^work_id, select: count(d.id)) |> Repo.aggregate(:count)
+
+    accepted_drafts =
+      from(d in Draft, where: d.work_id == ^work_id and d.status == "ACCEPTED", select: count(d.id))
+      |> Repo.aggregate(:count)
+
+    character_count =
+      from(c in Character, where: c.work_id == ^work_id and c.status == "ACCEPTED", select: count(c.id))
+      |> Repo.aggregate(:count)
+
+    memory_count =
+      from(m in MemoryItem, where: m.work_id == ^work_id, select: count(m.id)) |> Repo.aggregate(:count)
+
+    volume_count =
+      from(v in Volume, where: v.work_id == ^work_id and v.status != "ARCHIVED", select: count(v.id))
+      |> Repo.aggregate(:count)
+
+    %{
+      drafts_total: draft_count,
+      drafts_accepted: accepted_drafts,
+      characters: character_count,
+      memory_items: memory_count,
+      volumes: volume_count
+    }
+  end
 end
