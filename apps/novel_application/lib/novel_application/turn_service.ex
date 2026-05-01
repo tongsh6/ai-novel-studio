@@ -1558,18 +1558,37 @@ defmodule NovelApplication.TurnService do
     end
   end
 
-  defp create_chapters(work_id, volume, chapter_titles) do
-    Enum.map(chapter_titles, fn ch_title ->
-      {:ok, chapter} =
-        NovelPersistence.Repo.insert(%NovelPersistence.Schemas.Chapter{
-          work_id: work_id,
-          volume_id: volume.id,
-          title: ch_title,
-          seq: Enum.find_index(chapter_titles, &(&1 == ch_title)) + 1,
-          status: "DRAFTING"
-        })
+  defp build_volume_multi(plan, work_id) do
+    plan
+    |> Enum.with_index(1)
+    |> Enum.reduce({Ecto.Multi.new(), []}, fn {vol, idx}, {multi, acc} ->
+      vol_id = ID.uuid()
+      title = Map.get(vol, "volume_title", "未命名卷")
+      chapter_titles = Map.get(vol, "chapter_titles", [])
 
-      chapter
+      multi =
+        multi
+        |> Ecto.Multi.insert(:"volume_#{idx}", %NovelPersistence.Schemas.Volume{
+          id: vol_id, work_id: work_id, title: title, seq: idx, status: "DRAFTING"
+        })
+        |> then(&add_chapters_to_multi(&1, idx, work_id, vol_id, chapter_titles))
+
+      {multi, [{title, chapter_titles} | acc]}
+    end)
+  end
+
+  defp volume_summary_text(titles) do
+    Enum.map_join(Enum.reverse(titles), "、", fn {t, _} -> t end)
+  end
+
+  defp add_chapters_to_multi(multi, vol_idx, work_id, vol_id, chapter_titles) do
+    chapter_titles
+    |> Enum.with_index(1)
+    |> Enum.reduce(multi, fn {ch_title, ci}, m ->
+      Ecto.Multi.insert(m, :"chapter_#{vol_idx}_#{ci}", %NovelPersistence.Schemas.Chapter{
+        id: ID.uuid(), work_id: work_id, volume_id: vol_id,
+        title: ch_title, seq: ci, status: "DRAFTING"
+      })
     end)
   end
 
@@ -1785,32 +1804,25 @@ defmodule NovelApplication.TurnService do
         assistant_text: "暂无法生成分卷方案。请先确保有足够的已采纳草稿。"
       })
     else
-      _created =
-        plan
-        |> Enum.with_index(1)
-        |> Enum.map(fn {vol, idx} ->
-          title = Map.get(vol, "volume_title", "未命名卷")
-          chapter_titles = Map.get(vol, "chapter_titles", [])
+      {multi, titles} = build_volume_multi(plan, work_id)
 
-          {:ok, volume} =
-            NovelPersistence.Repo.insert(%NovelPersistence.Schemas.Volume{
-              work_id: work_id,
-              title: title,
-              seq: idx,
-              status: "DRAFTING"
-            })
+      case NovelPersistence.Repo.transaction(multi) do
+        {:ok, _changes} ->
+          vol_summary = volume_summary_text(titles)
 
-          chapters = create_chapters(work_id, volume, chapter_titles)
-          %{volume: volume, chapters: chapters}
-        end)
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.completed(), status: Status.done(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: "已生成分卷方案：#{vol_summary}，共 #{length(plan)} 卷。请在大纲面板查看。"
+          })
 
-      vol_summary = Enum.map_join(plan, "、", & &1["volume_title"])
-
-      build_turn_result(turn_id, %{
-        phase: TurnPhase.completed(), status: Status.done(),
-        next_action: NextAction.no_further_action(),
-        assistant_text: "已生成分卷方案：#{vol_summary}，共 #{length(plan)} 卷。请在大纲面板查看。"
-      })
+        {:error, _step, _reason, _changes} ->
+          build_turn_result(turn_id, %{
+            phase: TurnPhase.completed(), status: Status.done(),
+            next_action: NextAction.no_further_action(),
+            assistant_text: "分卷方案生成成功但写入数据库时出错，请重试。"
+          })
+      end
     end
   end
 
