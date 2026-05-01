@@ -29,7 +29,7 @@ v2 的价值在于验证了很多底层工程骨架：
 - slot schema 与 intent registry
 - provider gateway
 - memory / trace 初步能力
-- 承重竖切面执行纪律
+- 承重垂直切面（Vertical Slice）执行纪律
 
 但 v2 的默认交互心智仍然偏 `Router-first`：
 
@@ -56,7 +56,7 @@ v3 的目标不是“更会聊天”，而是建立一个可以长期演化的�
 | 工具 | Workbench 是工具箱，不是用户前台流程 |
 | 产物 | 写入默认 tentative，经 adoption / confirmation / policy 放行 |
 | 审计 | DialogueFrame / MicroPlan / ToolResult / DecisionTrace 可回放 |
-| 迭代 | 先设计体系，再 ADR，再承重竖切面，再实现 |
+| 迭代 | 先设计体系，再 ADR，再承重垂直切面，再实现 |
 
 一句话版本：
 
@@ -135,7 +135,7 @@ v3 按 6 个阶段推进。每个阶段都有明确产物，不能跳过。
 
 ### 3.4 Stage 3：Slice Planning
 
-目标：把 v3 切成承重竖切面 DAG。
+目标：把 v3 切成承重垂直切面 DAG。
 
 每条 slice 必须回答：
 
@@ -255,7 +255,7 @@ v3 从 v2 分支签出，但不继承 v2 的目标拓扑。
 | Provider Gateway | 保留 provider 抽象方向 |
 | Adoption Boundary | 保留 tentative-first 与生产写入门禁方向 |
 | Memory / Trace | 升级为 v3 主链一等对象 |
-| 承重竖切面方法 | 完整保留 |
+| 承重垂直切面方法 | 完整保留 |
 
 ### 5.2 v2 不继承约束
 
@@ -278,7 +278,7 @@ v3 不允许“有一个想法就直接写代码”。
 1. 该方向至少有一份 design-v3 文档说明背景、目标、边界。
 2. 若涉及核心 contract，必须有 ADR 草案或 Accepted ADR。
 3. 若涉及状态字段、schema、行为对象，必须说明生命周期和消费者。
-4. 若涉及代码，必须切成承重竖切面。
+4. 若涉及代码，必须切成承重垂直切面。
 5. 每条 slice 必须回答 Contract / Invariant / Boundary / Consumer / Proof。
 6. 不允许只因“当前实现方便”而违背 v3 顶层愿景。
 
@@ -312,7 +312,7 @@ v3 不允许“有一个想法就直接写代码”。
 | 5 | `02-dialogue-frame-and-micro-plan.md` | 把核心协议从 `01` 拆成 contract 草案 |
 | 6 | `03-capability-toolbox-contract.md` | 定义工具箱注册与调用边界 |
 | 7 | `04-execution-orchestrator.md` | 定义执行权和门禁 |
-| 8 | `tasks/slices/v3/DAG.md` | 准备进入承重竖切面规划 |
+| 8 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
 
 在第 8 步之前，不建议写代码实现计划。
 
@@ -331,7 +331,7 @@ v3 不允许“有一个想法就直接写代码”。
 7. DialogueFrame 按需升级 MicroPlan。
 8. Planner 可以提出行动建议，但不能批准自己的执行。
 9. Workbench 是工具箱，不是作者前台流程。
-10. 设计体系和承重竖切面 DAG 先于代码实现。
+10. 设计体系和承重垂直切面 DAG 先于代码实现。
 
 ---
 
@@ -364,7 +364,7 @@ v3 禁止以下推进方式：
 7. 用“之后再抽象”绕过 capability toolbox 设计。
 8. 在没有 slice Contract / Invariant / Boundary / Consumer / Proof 的情况下写实现计划。
 9. 把 v2 当前代码结构当成 v3 不可变约束。
-10. 把 v3 顶层设计做成一次性大爆炸重写，而不是承重竖切面。
+10. 把 v3 顶层设计做成一次性大爆炸重写，而不是承重垂直切面。
 
 ---
 
@@ -381,4 +381,4 @@ v3 下一步应继续完善设计体系，而不是进入代码实现。
 5. 写 `03-capability-toolbox-contract.md` 与 `04-execution-orchestrator.md`。
 6. 再创建 `tasks/slices/v3/DAG.md`。
 
-只有当上述设计链路能支撑第一条承重竖切面时，才进入 implementation plan。
+只有当上述设计链路能支撑第一条承重垂直切面时，才进入 implementation plan。

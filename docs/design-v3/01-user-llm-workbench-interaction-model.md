@@ -591,11 +591,11 @@ docs/design-v3/
 |---|---|
 | 分支 | 从 v2 签出 `v3` 分支进行大改 |
 | 文档 | `docs/design-v3/` 独立成套，不在 v2 文档内打补丁 |
-| 代码 | 后续 plan 阶段再拆竖切面，不在本文直接实现 |
+| 代码 | 后续 plan 阶段再拆承重垂直切面，不在本文直接实现 |
 | 命名 | 不再以 `Router` 命名顶层模块；引入 `DialoguePlanner`, `ExecutionOrchestrator`, `DialogueFrame`, `MicroPlan` |
 | 旧实现 | 作为 v2 原型和对照，不作为 v3 兼容约束 |
 | ADR | 本文之后再冻结 v3 ADR |
 
 本文不是“给现有 Router 加自然语言追问”的设计。
 
-本文是 v3 架构重画：先定义最终愿景，再在后续 implementation plan 中拆可执行竖切面。
+本文是 v3 架构重画：先定义最终愿景，再在后续 implementation plan 中拆可执行承重垂直切面。
