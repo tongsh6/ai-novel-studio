@@ -475,6 +475,16 @@ defmodule NovelAgent.IntentRegistry do
       slots: [
         %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
       ]
+    },
+    "intent.DEFINE_WORLDBUILDING" => %SlotSchema{
+      intent_name: "intent.DEFINE_WORLDBUILDING",
+      schema_id: "slot_schema.DEFINE_WORLDBUILDING.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()},
+        %{slot_name: "worldbuilding_direction", slot_type: SlotType.text(), description: "世界观方向（如：修仙体系、赛博朋克世界、剑与魔法）", requiredness: Requiredness.optional_preference(), inferability: Inferability.not_inferable(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
+      ]
     }
   }
 
@@ -500,7 +510,8 @@ defmodule NovelAgent.IntentRegistry do
     generate_scene_outline: "intent.GENERATE_SCENE_OUTLINE",
     summarize_chapter: "intent.SUMMARIZE_CHAPTER",
     update_state_snapshot: "intent.UPDATE_STATE_SNAPSHOT",
-    refresh_reading_projection: "intent.REFRESH_READING_PROJECTION"
+    refresh_reading_projection: "intent.REFRESH_READING_PROJECTION",
+    define_worldbuilding: "intent.DEFINE_WORLDBUILDING"
   }
 
   @spec get(atom()) :: SlotSchema.t() | nil
@@ -523,7 +534,8 @@ defmodule NovelAgent.IntentRegistry do
     "intent.GENERATE_SCENE_OUTLINE" => %{risk_class: "MEDIUM", requires_confirmation: false},
     "intent.SUMMARIZE_CHAPTER" => %{risk_class: "MEDIUM", requires_confirmation: false},
     "intent.UPDATE_STATE_SNAPSHOT" => %{risk_class: "MEDIUM", requires_confirmation: false},
-    "intent.REFRESH_READING_PROJECTION" => %{risk_class: "LOW", requires_confirmation: false}
+    "intent.REFRESH_READING_PROJECTION" => %{risk_class: "LOW", requires_confirmation: false},
+    "intent.DEFINE_WORLDBUILDING" => %{risk_class: "HIGH", requires_confirmation: true}
   }
 
   @doc "返回 intent 的风险等级和确认需求元数据（ADR-0008 §3）。"
