@@ -1195,8 +1195,10 @@ defmodule NovelApplication.TurnService do
     direction = Map.get(slots, "character_direction", "")
     role_hint = Map.get(slots, "role_hint", "")
 
+    context = build_work_context(work_id)
+
     prompt = """
-    你是一位小说角色设计师。请根据作品设定，创建1-3个角色候选。
+    #{context}你是一位小说角色设计师。请根据作品设定，创建1-3个角色候选。
     #{if direction != "", do: "创作方向：#{direction}", else: ""}
     #{if role_hint != "", do: "角色类型参考：#{role_hint}", else: "请设计主要角色"}
 
@@ -1343,8 +1345,10 @@ defmodule NovelApplication.TurnService do
     work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
     direction = Map.get(slots, "worldbuilding_direction", "")
 
+    context = build_work_context(work_id)
+
     prompt = """
-    你是一位小说世界观设计师。请为作品构建世界观设定。
+    #{context}你是一位小说世界观设计师。请为作品构建世界观设定。
     #{if direction != "", do: "方向：#{direction}。", else: ""}
 
     输出格式：返回 JSON 数组，每个元素包含 fact（世界观事实，一句话描述）和 category（分类：geography/history/magic_system/technology/faction/culture/other）。
@@ -1420,8 +1424,10 @@ defmodule NovelApplication.TurnService do
     work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
     direction = Map.get(slots, "outline_direction", "")
 
+    context = build_work_context(work_id)
+
     prompt = """
-    你是一位小说规划师。请为作品创建主线剧情大纲。
+    #{context}你是一位小说规划师。请为作品创建主线剧情大纲。
     #{if direction != "", do: "方向：#{direction}。", else: ""}
 
     输出格式：返回 JSON 数组，每个元素包含 beat（剧情节拍）、phase（所属阶段：opening/rising/climax/falling/resolution）和 arc_label（对应卷或篇章名）。
