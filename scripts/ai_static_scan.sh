@@ -18,7 +18,7 @@ set -uo pipefail
 TOP=10
 QUICK=false
 WRITE_BASELINE=false
-BASELINE="artifacts/static-scan/baseline.json"
+BASELINE="reports/static-scan/baseline.json"
 DISPOSITIONS="reports/static-scan/dispositions.json"
 
 while [[ $# -gt 0 ]]; do

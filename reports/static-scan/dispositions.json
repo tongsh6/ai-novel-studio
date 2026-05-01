@@ -1,0 +1,27 @@
+{
+  "arch-check|arch-check|||Umbrella architecture boundary check failed": {
+    "status": "deferred",
+    "planned_fix": "VS-012",
+    "reason": "Pre-existing: provider_controller.ex 直接引用 NovelAgent.Provider.LMStudio，非 VS-010 引入。计划在 VS-012 通过 Application 层封装修复。"
+  },
+  "credo|Credo.Check.Refactor.Nesting|apps/novel_agent/lib/novel_agent/intent_registry.ex|431|Nesting": {
+    "status": "deferred",
+    "planned_fix": "VS-012",
+    "reason": "VS-007 引入。需将 slot 行格式化逻辑抽取为私有函数。VS-012 修改 Router 时一并处理。"
+  },
+  "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_agent/test/novel_agent/router_test.exs|24|CyclomaticComplexity": {
+    "status": "deferred",
+    "planned_fix": "VS-012",
+    "reason": "VS-007 引入。测试函数需拆分为多个 describe + test。VS-012 扩展路由测试时一并重构。"
+  },
+  "credo|Credo.Check.Refactor.CyclomaticComplexity|apps/novel_agent/test/novel_agent/router_test.exs|39|CyclomaticComplexity": {
+    "status": "deferred",
+    "planned_fix": "VS-012",
+    "reason": "同 #3，VS-012 一并处理。"
+  },
+  "credo|Credo.Check.Refactor.Nesting|apps/novel_application/lib/novel_application/adoption_boundary.ex|101|Nesting": {
+    "status": "deferred",
+    "planned_fix": "VS-012",
+    "reason": "VS-004 引入。需将 discard mutation 组装逻辑抽取为私有函数。VS-012 消费 AdoptionBoundary 时一并处理。"
+  }
+}
