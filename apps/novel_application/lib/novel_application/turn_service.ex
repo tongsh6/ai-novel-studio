@@ -632,6 +632,12 @@ defmodule NovelApplication.TurnService do
       :define_worldbuilding ->
         build_define_worldbuilding(turn_id, result, memory_context)
 
+      :load_style_sample ->
+        build_load_style_sample(turn_id, result, memory_context)
+
+      :create_main_outline ->
+        build_create_main_outline(turn_id, result, memory_context)
+
       _ ->
         build_draft_tentative(turn_id, result, memory_context)
     end
@@ -642,6 +648,8 @@ defmodule NovelApplication.TurnService do
   defp normalize_intent(:create_work_seed), do: :create_work_seed
   defp normalize_intent("intent.CREATE_CHARACTER_CANDIDATES"), do: :create_character_candidates
   defp normalize_intent("intent.DEFINE_WORLDBUILDING"), do: :define_worldbuilding
+  defp normalize_intent("intent.LOAD_STYLE_SAMPLE"), do: :load_style_sample
+  defp normalize_intent("intent.CREATE_MAIN_OUTLINE"), do: :create_main_outline
   defp normalize_intent(_other), do: :other
 
   # ---- Generic clarification (any intent) ----
@@ -688,6 +696,8 @@ defmodule NovelApplication.TurnService do
   defp intent_display_name("intent.UPDATE_STATE_SNAPSHOT"), do: "更新状态快照"
   defp intent_display_name("intent.REFRESH_READING_PROJECTION"), do: "刷新阅读投影"
   defp intent_display_name("intent.DEFINE_WORLDBUILDING"), do: "构建世界观"
+  defp intent_display_name("intent.LOAD_STYLE_SAMPLE"), do: "导入风格样本"
+  defp intent_display_name("intent.CREATE_MAIN_OUTLINE"), do: "创建主线大纲"
   defp intent_display_name(_other), do: "执行"
 
   defp clarification_prefix(_intent_label, %{"genre" => genre}) when is_binary(genre) and genre != "",
@@ -905,6 +915,18 @@ defmodule NovelApplication.TurnService do
     "你是一位小说世界观设计师。请为作品构建详细的世界观设定。" <>
       if(direction != "", do: "方向：#{direction}。", else: "") <>
       "请包含：地理、历史、势力、魔法/科技体系、文化风俗等方面的核心设定。"
+  end
+
+  defp build_generation_prompt("intent.LOAD_STYLE_SAMPLE", _slots) do
+    "用户将提供风格样本文本或参考作品描述。请确认已接收风格样本，并简要总结你理解的风格要点。"
+  end
+
+  defp build_generation_prompt("intent.CREATE_MAIN_OUTLINE", slots) do
+    direction = Map.get(slots, "outline_direction", "")
+
+    "你是一位小说规划师。请为作品创建详细的主线剧情大纲。" <>
+      if(direction != "", do: "方向：#{direction}。", else: "") <>
+      "请包含：开篇设定、核心冲突、主要转折点、高潮设计和结局走向。"
   end
 
   defp build_generation_prompt(intent_name, slots) do
@@ -1350,6 +1372,80 @@ defmodule NovelApplication.TurnService do
       next_action: NextAction.no_further_action(),
       assistant_text: "已生成 #{fact_count} 条世界观设定：#{summary}",
       memory_items: memory_items
+    })
+  end
+
+  # ---- Style Sample (VS-019) ----
+
+  defp build_load_style_sample(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+    style_text = Map.get(slots, "style_text", "")
+
+    MemoryService.create(%{
+      work_id: work_id,
+      content: style_text,
+      type: "STYLE_RULE",
+      scope: "WORK",
+      source_type: "AUTHOR_CREATED",
+      tags: ["style_sample"]
+    })
+
+    build_turn_result(turn_id, %{
+      phase: TurnPhase.completed(),
+      status: Status.done(),
+      next_action: NextAction.no_further_action(),
+      assistant_text: "已保存风格样本。后续创作将参考此风格。"
+    })
+  end
+
+  # ---- Main Outline (VS-019) ----
+
+  defp build_create_main_outline(turn_id, route_result, memory_context) do
+    slots = route_result.extracted_slots
+    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
+    direction = Map.get(slots, "outline_direction", "")
+
+    prompt = """
+    你是一位小说规划师。请为作品创建主线剧情大纲。
+    #{if direction != "", do: "方向：#{direction}。", else: ""}
+
+    输出格式：返回 JSON 数组，每个元素包含 beat（剧情节拍）、phase（所属阶段：opening/rising/climax/falling/resolution）和 arc_label（对应卷或篇章名）。
+    只输出 JSON 数组，不要输出任何其他内容。
+
+    示例：[{"beat": "主角在废墟中发现古代遗物", "phase": "opening", "arc_label": "第一卷"}]
+    """
+
+    generated_text =
+      case ProviderGateway.complete(prompt) do
+        {:ok, %{content: content}} -> content
+        {:error, _} -> "[]"
+      end
+
+    beats =
+      case Jason.decode(generated_text) do
+        {:ok, list} when is_list(list) -> list
+        _ -> []
+      end
+
+    Enum.each(beats, fn beat ->
+      MemoryService.create(%{
+        work_id: work_id,
+        content: Map.get(beat, "beat", ""),
+        type: "PLOT_FACT",
+        scope: "WORK",
+        source_type: "AUTHOR_CREATED",
+        tags: [Map.get(beat, "phase", ""), Map.get(beat, "arc_label", "")]
+      })
+    end)
+
+    summary = Enum.map_join(beats, "、", & &1["beat"])
+
+    build_turn_result(turn_id, %{
+      phase: TurnPhase.completed(),
+      status: Status.done(),
+      next_action: NextAction.no_further_action(),
+      assistant_text: "已生成 #{length(beats)} 个主线剧情节拍：#{summary}"
     })
   end
 
