@@ -515,6 +515,15 @@ defmodule NovelAgent.IntentRegistry do
         %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
       ]
     },
+    "intent.SCAN_FORESHADOWING_RESOLUTION" => %SlotSchema{
+      intent_name: "intent.SCAN_FORESHADOWING_RESOLUTION",
+      schema_id: "slot_schema.SCAN_FORESHADOWING_RESOLUTION.v1",
+      schema_version: 1,
+      deferred_to_runtime: @default_deferred,
+      slots: [
+        %{slot_name: "work_ref", slot_type: SlotType.object_ref(), description: "所属作品", requiredness: Requiredness.required_to_execute(), inferability: Inferability.inferable_with_high_confidence(), defaultability: Defaultability.no_default(), allowed_values_ref: nil, validation_rules_ref: nil, scope_dependency: ScopeDependency.work()}
+      ]
+    },
     "intent.CREATE_MAIN_OUTLINE" => %SlotSchema{
       intent_name: "intent.CREATE_MAIN_OUTLINE",
       schema_id: "slot_schema.CREATE_MAIN_OUTLINE.v1",
@@ -554,7 +563,8 @@ defmodule NovelAgent.IntentRegistry do
     load_style_sample: "intent.LOAD_STYLE_SAMPLE",
     create_main_outline: "intent.CREATE_MAIN_OUTLINE",
     refine_work_positioning: "intent.REFINE_WORK_POSITIONING",
-    scan_new_foreshadowing: "intent.SCAN_NEW_FORESHADOWING"
+    scan_new_foreshadowing: "intent.SCAN_NEW_FORESHADOWING",
+    scan_foreshadowing_resolution: "intent.SCAN_FORESHADOWING_RESOLUTION"
   }
 
   @spec get(atom()) :: SlotSchema.t() | nil
@@ -582,7 +592,8 @@ defmodule NovelAgent.IntentRegistry do
     "intent.LOAD_STYLE_SAMPLE" => %{risk_class: "LOW", requires_confirmation: false},
     "intent.CREATE_MAIN_OUTLINE" => %{risk_class: "HIGH", requires_confirmation: true},
     "intent.REFINE_WORK_POSITIONING" => %{risk_class: "MEDIUM", requires_confirmation: false},
-    "intent.SCAN_NEW_FORESHADOWING" => %{risk_class: "MEDIUM", requires_confirmation: false}
+    "intent.SCAN_NEW_FORESHADOWING" => %{risk_class: "MEDIUM", requires_confirmation: false},
+    "intent.SCAN_FORESHADOWING_RESOLUTION" => %{risk_class: "HIGH", requires_confirmation: true}
   }
 
   @doc "返回 intent 的风险等级和确认需求元数据（ADR-0008 §3）。"
