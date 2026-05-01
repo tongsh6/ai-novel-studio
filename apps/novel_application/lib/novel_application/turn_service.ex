@@ -18,6 +18,7 @@ defmodule NovelApplication.TurnService do
   alias NovelAgent.Orchestrator
   alias NovelAgent.Provider.Gateway, as: ProviderGateway
   alias NovelApplication.AdoptionBoundary
+  alias NovelApplication.IntentHandlers.Scan, as: ScanHandlers
   alias NovelApplication.MemoryRecallService
   alias NovelApplication.MemoryService
   alias NovelDomain.Work
@@ -643,9 +644,9 @@ defmodule NovelApplication.TurnService do
   defp dispatch_build(:refine_work_positioning, turn_id, result, mc),
     do: build_refine_work_positioning(turn_id, result, mc)
   defp dispatch_build(:scan_new_foreshadowing, turn_id, result, mc),
-    do: build_scan_new_foreshadowing(turn_id, result, mc)
+    do: ScanHandlers.build_new_foreshadowing(turn_id, result, mc, &build_turn_result/2)
   defp dispatch_build(:scan_foreshadowing_resolution, turn_id, result, mc),
-    do: build_scan_foreshadowing_resolution(turn_id, result, mc)
+    do: ScanHandlers.build_foreshadowing_resolution(turn_id, result, mc, &build_turn_result/2)
   defp dispatch_build(:split_into_volumes, turn_id, result, mc),
     do: build_split_into_volumes(turn_id, result, mc)
   defp dispatch_build(_, turn_id, result, mc),
@@ -954,12 +955,8 @@ defmodule NovelApplication.TurnService do
       if(direction != "", do: "方向：#{direction}。", else: "")
   end
 
-  defp build_generation_prompt("intent.SCAN_NEW_FORESHADOWING", _slots) do
-    "你是一位小说编辑。请阅读当前已采纳的草稿内容，识别其中的伏笔线索、未解之谜和可发展的剧情暗线，并标记类型和可能的回收方向。"
-  end
-
-  defp build_generation_prompt("intent.SCAN_FORESHADOWING_RESOLUTION", _slots) do
-    "你是一位小说编辑。请检查已有伏笔线索是否在草稿中得到回收或发展，输出每条伏笔的状态（resolved/developed/unresolved）。"
+  defp build_generation_prompt(name, slots) when name in ["intent.SCAN_NEW_FORESHADOWING", "intent.SCAN_FORESHADOWING_RESOLUTION"] do
+    ScanHandlers.generation_prompt(name, slots)
   end
 
   defp build_generation_prompt("intent.SPLIT_INTO_VOLUMES", _slots) do
@@ -1624,141 +1621,6 @@ defmodule NovelApplication.TurnService do
         context_parts -> Enum.join(context_parts, "\n\n") <> "\n\n---\n\n"
       end
     end
-  end
-
-  # ---- Scan Foreshadowing (VS-024) ----
-
-  defp build_scan_new_foreshadowing(turn_id, route_result, memory_context) do
-    slots = route_result.extracted_slots
-    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
-
-    # Fetch all accepted drafts for this work
-    drafts =
-      from(d in NovelPersistence.Schemas.Draft,
-        where: d.work_id == ^work_id and d.status == "ACCEPTED",
-        order_by: [asc: d.inserted_at]
-      )
-      |> NovelPersistence.Repo.all()
-
-    if drafts == [] do
-      build_turn_result(turn_id, %{
-        phase: TurnPhase.completed(),
-        status: Status.done(),
-        next_action: NextAction.no_further_action(),
-        assistant_text: "暂无已采纳的草稿可供扫描。请先生成并采纳一些草稿。"
-      })
-    else
-      all_content = Enum.map_join(drafts, "\n\n---\n\n", & &1.content)
-
-      prompt = """
-      你是一位小说编辑。请阅读以下草稿内容，识别其中的伏笔线索、未解之谜和可发展的剧情暗线。
-
-      草稿内容：
-      #{all_content}
-
-      输出格式：返回 JSON 数组，每个元素包含 thread（伏笔描述）、type（类型：character/plot/world/mystery）和 payoff_hint（可能的回收方向）。
-      只输出 JSON 数组，不要输出任何其他内容。
-
-      示例：[{"thread": "导师留给主角的怀表似乎隐藏着秘密", "type": "mystery", "payoff_hint": "怀表可能是打开核心区的钥匙"}]
-      """
-
-      threads = llm_generate_json_list(prompt)
-
-      Enum.each(threads, fn t ->
-        MemoryService.create(%{
-          work_id: work_id,
-          content: Map.get(t, "thread", ""),
-          type: "FORESHADOWING",
-          scope: "WORK",
-          source_type: "AUTHOR_CREATED",
-          tags: [Map.get(t, "type", ""), Map.get(t, "payoff_hint", "")]
-        })
-      end)
-
-      thread_summary = Enum.map_join(threads, "、", & &1["thread"])
-
-      build_turn_result(turn_id, %{
-        phase: TurnPhase.completed(),
-        status: Status.done(),
-        next_action: NextAction.no_further_action(),
-        assistant_text: "发现 #{length(threads)} 条伏笔线索：#{thread_summary}"
-      })
-    end
-  end
-
-  # ---- Foreshadowing Resolution (VS-025) ----
-
-  defp build_scan_foreshadowing_resolution(turn_id, route_result, memory_context) do
-    slots = route_result.extracted_slots
-    work_id = Map.get(slots, "work_id") || memory_work_id(memory_context)
-
-    # Fetch unresolved foreshadowing items
-    threads =
-      from(m in NovelPersistence.Schemas.MemoryItem,
-        where: m.work_id == ^work_id and m.type == "FORESHADOWING",
-        order_by: [desc: m.inserted_at]
-      )
-      |> NovelPersistence.Repo.all()
-
-    if threads == [] do
-      build_turn_result(turn_id, %{
-        phase: TurnPhase.completed(), status: Status.done(),
-        next_action: NextAction.no_further_action(),
-        assistant_text: "暂无伏笔线索可供检查。请先用「扫描伏笔」识别草稿中的伏笔。"
-      })
-    else
-      do_scan_resolution(turn_id, work_id, threads)
-    end
-  end
-
-  defp do_scan_resolution(turn_id, work_id, threads) do
-    drafts =
-      from(d in NovelPersistence.Schemas.Draft,
-        where: d.work_id == ^work_id and d.status == "ACCEPTED",
-        order_by: [asc: d.inserted_at]
-      )
-      |> NovelPersistence.Repo.all()
-
-    draft_text = Enum.map_join(drafts, "\n\n---\n\n", & &1.content)
-    thread_list = Enum.map_join(threads, "\n", fn t -> "  - [ID:#{t.id}] #{t.content}" end)
-
-    prompt = """
-    你是一位小说编辑。请检查以下伏笔线索是否在草稿中得到了回收或发展。
-
-    伏笔线索：
-    #{thread_list}
-
-    草稿内容：
-    #{draft_text}
-
-    输出格式：返回 JSON 数组，每个元素包含 thread_id（伏笔 ID）、status（resolved/developed/unresolved）和 note（简要说明）。
-    只输出 JSON 数组，不要输出任何其他内容。
-    """
-
-    results = llm_generate_json_list(prompt)
-    {resolved, others} = Enum.split_with(results, &(&1["status"] == "resolved"))
-
-    Enum.each(resolved, fn r ->
-      id = Map.get(r, "thread_id", "")
-      note = Map.get(r, "note", "")
-      if id != "" do
-        MemoryService.create(%{
-          work_id: work_id, content: "伏笔已回收：#{note}",
-          type: "PLOT_FACT", scope: "WORK",
-          source_type: "AUTHOR_CREATED", tags: ["resolution", id]
-        })
-      end
-    end)
-
-    summary =
-      "检查 #{length(threads)} 条伏笔：" <>
-      "#{length(resolved)} 条已回收、#{length(others)} 条仍在发展中。"
-
-    build_turn_result(turn_id, %{
-      phase: TurnPhase.completed(), status: Status.done(),
-      next_action: NextAction.no_further_action(),
-      assistant_text: summary
-    })
   end
 
   # ---- Split into Volumes (VS-027) ----
