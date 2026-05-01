@@ -19,6 +19,11 @@ defmodule NovelApplication.TurnService do
   alias NovelAgent.Provider.Gateway, as: ProviderGateway
   alias NovelApplication.AdoptionBoundary
   alias NovelApplication.IntentHandlers.Scan, as: ScanHandlers
+  alias NovelAgent.ClarificationStore
+  alias NovelAgent.IntentRegistry, as: IntentRegistry
+  alias NovelAgent.IntentRegistry.SlotSchema
+  alias NovelAgent.Router
+  alias NovelAgent.Router.Result
   alias NovelApplication.MemoryRecallService
   alias NovelApplication.MemoryService
   alias NovelDomain.Work
@@ -51,43 +56,28 @@ defmodule NovelApplication.TurnService do
   处理用户文本输入，返回 TurnResult map。
   workspace_id 用于 memory 记录的分区。
   work_id 可选，用于记忆召回（Governed Memory）。
+  opts:
+    - behavior_id: 如果用户是在回答上一轮 clarification，携带 behavior_id 会触发 slot 累积
   """
-  @spec handle_message(String.t(), String.t(), String.t(), String.t() | nil) :: map()
-  def handle_message(user_text, workspace_id \\ "lobby", turn_id \\ nil, work_id \\ nil) do
-    turn = Orchestrator.start_turn(user_text, maybe_turn_id(turn_id))
-    turn_id = turn.turn_id
+  @spec handle_message(String.t(), String.t(), String.t(), String.t() | nil, keyword()) :: map()
+  def handle_message(user_text, workspace_id \\ "lobby", turn_id \\ nil, work_id \\ nil, opts \\ []) do
+    behavior_id = Keyword.get(opts, :behavior_id)
 
-    # 记忆召回：将治理层记忆注入上下文
-    memory_context = build_memory_context(work_id, user_text, turn_id)
-
-    turn_result =
-      case turn.route_result do
-        %{intent_name: :unknown} ->
-          build_unknown_clarification(turn_id, memory_context)
-
-        %{needs_clarification: true} = result ->
-          build_clarification(turn_id, result, memory_context)
-
-        %{needs_clarification: false} = result ->
-          # VS-003: check if intent requires confirmation before execution
-          intent_context = %{
-            intent_name: result.intent_name,
-            extracted_slots: result.extracted_slots,
-            requires_confirmation: Map.get(result, :requires_confirmation, false),
-            risk_class: Map.get(result, :risk_class, "low")
-          }
-
-          case AuthorityGate.authorize(result.intent_name, intent_context) do
-            {:confirm_required, reason} ->
-              build_confirmation(turn_id, result, reason, memory_context)
-
-            :allowed ->
-              build_tentative_for(turn_id, result, memory_context)
-          end
+    {turn_result, actual_turn_id} =
+      if behavior_id && ClarificationStore.peek_pending(behavior_id) do
+        pending = ClarificationStore.peek_pending(behavior_id)
+        tid = Orchestrator.allocate_turn_id()
+        mc = build_memory_context(work_id, user_text, tid)
+        {process_clarification_answer(user_text, workspace_id, pending, tid, mc), tid}
+      else
+        process_regular_turn(user_text, workspace_id, turn_id, work_id)
       end
 
-    record_to_memory(workspace_id, turn_id, :user, user_text)
-    record_to_memory(workspace_id, turn_id, :assistant, turn_result.assistant_message.text)
+    record_to_memory(workspace_id, actual_turn_id, :user, user_text)
+    record_to_memory(workspace_id, actual_turn_id, :assistant, turn_result.assistant_message.text)
+
+    Process.delete(:current_turn_id)
+    Process.delete(:current_step)
 
     TurnResultValidator.validate!(turn_result)
   end
@@ -207,6 +197,7 @@ defmodule NovelApplication.TurnService do
     请根据修改意见重写上文。只输出修改后的完整文本，不要输出任何其他内容。
     """
 
+    Process.put(:current_step, "generate")
     case ProviderGateway.complete(prompt) do
       {:ok, %{content: new_content}} ->
         mutation_attrs = %{
@@ -442,6 +433,7 @@ defmodule NovelApplication.TurnService do
         {:error, :unknown_behavior}
 
       _pending ->
+        ClarificationStore.take_pending(behavior_id)
         turn_id = Orchestrator.allocate_turn_id()
         text = "好的，请告诉我你希望调整的方向或补充的信息。"
 
@@ -497,6 +489,7 @@ defmodule NovelApplication.TurnService do
         {:error, :unknown_behavior}
 
       _pending ->
+        ClarificationStore.take_pending(behavior_id)
         turn_id = Orchestrator.allocate_turn_id()
         text = "已关闭。随时可以继续。"
 
@@ -597,6 +590,162 @@ defmodule NovelApplication.TurnService do
 
     MemoryStore.record(entry)
     MemoryLog.record(entry)
+  end
+
+  # ---- Regular turn (existing flow, with clarification persist + supersede) ----
+
+  defp process_regular_turn(user_text, workspace_id, turn_id, work_id) do
+    # Supersede stale pending clarification for this workspace
+    case ClarificationStore.find_by_workspace(workspace_id) do
+      nil -> :ok
+      old_bid -> ClarificationStore.take_pending(old_bid)
+    end
+
+    turn = Orchestrator.start_turn(user_text, maybe_turn_id(turn_id))
+    actual_turn_id = turn.turn_id
+    Process.put(:current_turn_id, actual_turn_id)
+    memory_context = build_memory_context(work_id, user_text, actual_turn_id)
+
+    turn_result =
+      case turn.route_result do
+        %{intent_name: :unknown} ->
+          tr = build_unknown_clarification(actual_turn_id, memory_context)
+          ClarificationStore.put_pending(%{
+            behavior_id: "behavior_#{actual_turn_id}",
+            workspace_id: workspace_id,
+            intent_name: nil,
+            schema_id: nil,
+            accumulated_slots: %{},
+            missing_slots: [],
+            source_turn_ref: actual_turn_id
+          })
+          tr
+
+        %{needs_clarification: true} = result ->
+          tr = build_clarification(actual_turn_id, result, memory_context)
+          ClarificationStore.put_pending(%{
+            behavior_id: "behavior_#{actual_turn_id}",
+            workspace_id: workspace_id,
+            intent_name: result.intent_name,
+            schema_id: result.schema_id,
+            accumulated_slots: result.extracted_slots,
+            missing_slots: result.missing_required_slots,
+            source_turn_ref: actual_turn_id
+          })
+          tr
+
+        %{needs_clarification: false} = result ->
+          intent_context = %{
+            intent_name: result.intent_name,
+            extracted_slots: result.extracted_slots,
+            requires_confirmation: Map.get(result, :requires_confirmation, false),
+            risk_class: Map.get(result, :risk_class, "low")
+          }
+
+          case AuthorityGate.authorize(result.intent_name, intent_context) do
+            {:confirm_required, reason} ->
+              build_confirmation(actual_turn_id, result, reason, memory_context)
+
+            :allowed ->
+              build_tentative_for(actual_turn_id, result, memory_context)
+          end
+      end
+
+    {turn_result, actual_turn_id}
+  end
+
+  # ---- Clarification answer — slot accumulation across turns ----
+
+  defp process_clarification_answer(user_text, workspace_id, pending, turn_id, memory_context) do
+    Process.put(:current_turn_id, turn_id)
+    new_slots = Router.extract_for_schema(user_text, pending.schema_id)
+    merged = Map.merge(pending.accumulated_slots || %{}, new_slots)
+    schema = pending.schema_id && IntentRegistry.get_by_schema_id(pending.schema_id)
+
+    if schema do
+      recalculated_missing =
+        schema
+        |> SlotSchema.blocking_slots()
+        |> Enum.reject(&Map.has_key?(merged, &1))
+
+      if recalculated_missing == [] do
+        # All blocking slots filled — execute the intent
+        ClarificationStore.take_pending(pending.behavior_id)
+
+        meta =
+          (pending.intent_name && IntentRegistry.meta(pending.intent_name)) || %{
+            risk_class: "low",
+            requires_confirmation: false
+          }
+
+        result = %Result{
+          intent_name: pending.intent_name,
+          schema_id: pending.schema_id,
+          extracted_slots: merged,
+          missing_required_slots: [],
+          needs_clarification: false,
+          deferred_to_runtime: schema.deferred_to_runtime,
+          requires_confirmation: meta.requires_confirmation,
+          risk_class: meta.risk_class
+        }
+
+        tr = build_tentative_for(turn_id, result, memory_context)
+
+        %{
+          tr
+          | behavior_state: %{
+              active: nil,
+              history: [
+                %{
+                  behavior_type: "clarification",
+                  behavior_id: pending.behavior_id,
+                  status: BehaviorStatus.resolved(),
+                  resolution_ref: "answered"
+                }
+              ]
+            }
+        }
+      else
+        # Still missing slots — update accumulated state
+        ClarificationStore.put_pending(%{
+          behavior_id: pending.behavior_id,
+          workspace_id: workspace_id,
+          intent_name: pending.intent_name,
+          schema_id: pending.schema_id,
+          accumulated_slots: merged,
+          missing_slots: recalculated_missing,
+          source_turn_ref: pending.source_turn_ref
+        })
+
+        intent_label = intent_display_name(pending.intent_name || "")
+        prefix = clarification_prefix(intent_label, merged)
+        body = "#{prefix}还需要了解：\n" <> (recalculated_missing |> Enum.map_join("\n", &slot_label/1))
+
+        build_turn_result(turn_id, %{
+          phase: TurnPhase.needs_clarification(),
+          status: Status.waiting_user(),
+          next_action: NextAction.ask_user(),
+          assistant_text: body,
+          behavior: %{
+            behavior_type: "clarification",
+            behavior_id: pending.behavior_id,
+            status: BehaviorStatus.waiting_user(),
+            resolution_ref: nil,
+            missing_slots: recalculated_missing
+          },
+          ui_cards: [
+            clarification_card(pending.behavior_id,
+              title: "需要补充信息",
+              body: body
+            )
+          ],
+          memory_context: memory_context
+        })
+      end
+    else
+      ClarificationStore.take_pending(pending.behavior_id)
+      build_unknown_clarification(turn_id, memory_context)
+    end
   end
 
   # ---- Unknown intent ----
@@ -794,7 +943,8 @@ defmodule NovelApplication.TurnService do
     prompt = context <> build_generation_prompt(intent_name, slots)
 
     generated_text =
-      case ProviderGateway.complete(prompt) do
+      Process.put(:current_step, "generate")
+    case ProviderGateway.complete(prompt) do
         {:ok, %{content: content}} -> content
         {:error, _} -> "[生成失败：Provider 不可用]"
       end
@@ -1229,7 +1379,8 @@ defmodule NovelApplication.TurnService do
     """
 
     generated_text =
-      case ProviderGateway.complete(prompt) do
+      Process.put(:current_step, "generate")
+    case ProviderGateway.complete(prompt) do
         {:ok, %{content: content}} -> content
         {:error, _} -> "[]"
       end
@@ -1377,7 +1528,8 @@ defmodule NovelApplication.TurnService do
     """
 
     generated_text =
-      case ProviderGateway.complete(prompt) do
+      Process.put(:current_step, "generate")
+    case ProviderGateway.complete(prompt) do
         {:ok, %{content: content}} -> content
         {:error, _} -> "[]"
       end
@@ -1456,7 +1608,8 @@ defmodule NovelApplication.TurnService do
     """
 
     generated_text =
-      case ProviderGateway.complete(prompt) do
+      Process.put(:current_step, "generate")
+    case ProviderGateway.complete(prompt) do
         {:ok, %{content: content}} -> content
         {:error, _} -> "[]"
       end
@@ -1534,6 +1687,7 @@ defmodule NovelApplication.TurnService do
   end
 
   defp llm_generate_json(prompt) do
+    Process.put(:current_step, "generate")
     case ProviderGateway.complete(prompt) do
       {:ok, %{content: content}} ->
         case Jason.decode(content) do
@@ -1547,6 +1701,7 @@ defmodule NovelApplication.TurnService do
   end
 
   defp llm_generate_json_list(prompt) do
+    Process.put(:current_step, "generate")
     case ProviderGateway.complete(prompt) do
       {:ok, %{content: content}} ->
         case Jason.decode(content) do

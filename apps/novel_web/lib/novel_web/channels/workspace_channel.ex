@@ -21,10 +21,12 @@ defmodule NovelWeb.WorkspaceChannel do
   def handle_in("user_message", %{"text" => text} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     work_id = Map.get(msg, "work_id")
+    behavior_id = Map.get(msg, "behavior_id")
 
     # LLM 调用耗时长（10-30s），先回复收到，异步广播结果
     Task.start(fn ->
-      turn_result = TurnService.handle_message(text, ws_id, nil, work_id)
+      opts = if behavior_id, do: [behavior_id: behavior_id], else: []
+      turn_result = TurnService.handle_message(text, ws_id, nil, work_id, opts)
       NovelWeb.Endpoint.broadcast!("workspace:#{ws_id}", "turn_result", turn_result)
     end)
 

@@ -28,6 +28,18 @@ defmodule NovelAgent.Router do
     do_route(text, gateway_mod)
   end
 
+  @doc """
+  在已知 schema 的前提下从用户文本提取 slot（跳过 intent 分类）。
+  用于澄清回答处理：我们已知道 intent，只需从新消息中补充 slot 值。
+  """
+  @spec extract_for_schema(String.t(), String.t(), module()) :: %{String.t() => String.t()}
+  def extract_for_schema(text, schema_id, gateway_mod \\ Gateway) when is_binary(text) do
+    case IntentRegistry.get_by_schema_id(schema_id) do
+      nil -> %{}
+      schema -> extract_slots(text, schema, gateway_mod)
+    end
+  end
+
   defp do_route(text, gateway_mod) do
     intent_name = classify_intent(text, gateway_mod)
 
@@ -64,6 +76,7 @@ defmodule NovelAgent.Router do
 
   defp classify_intent(text, gateway_mod) do
     prompt = IntentRegistry.classification_prompt() <> "\n\n用户消息：#{text}"
+    Process.put(:current_step, "intent_classify")
 
     case gateway_mod.complete(prompt) do
       {:ok, %{content: content}} ->
@@ -88,6 +101,7 @@ defmodule NovelAgent.Router do
   defp extract_slots(text, %SlotSchema{} = schema, gateway_mod) do
     prompt = IntentRegistry.slot_extraction_prompt(schema.intent_name)
     full_prompt = "#{prompt}\n\n用户消息：#{text}"
+    Process.put(:current_step, "slot_extract")
 
     case gateway_mod.complete(full_prompt) do
       {:ok, %{content: content}} ->

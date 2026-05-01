@@ -154,6 +154,23 @@ defmodule NovelAgent.RouterTest do
     end
   end
 
+  describe "extract_for_schema/3 with mock gateway" do
+    test "extracts slots for a known schema without intent classification" do
+      slots = Router.extract_for_schema(
+        "核心卖点复仇 目标读者成年男性",
+        "slot_schema.CREATE_WORK_SEED.v1",
+        MockGateway
+      )
+
+      assert is_map(slots)
+    end
+
+    test "returns empty map for unknown schema_id" do
+      slots = Router.extract_for_schema("some text", "nonexistent_v99", MockGateway)
+      assert slots == %{}
+    end
+  end
+
   describe "route/1 with real gateway (returns :unknown without LLM)" do
     test "returns unknown when stub is the active provider" do
       result = Router.route("建一本玄幻小说")
