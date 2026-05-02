@@ -19,7 +19,7 @@
 > - 不重新定义 Capability Toolbox registry 字段全集
 > - phase/status/next_action 兼容表由 `05-turn-behavior-and-state-model.md` 收束
 > - DecisionTrace 存储语义由 `06-memory-context-and-trace.md` 收束
-> - 不冻结 Workbench UI 展示方式，留给 `07-workbench-ui-contract.md`
+> - Workbench UI 消费契约由 `07-workbench-ui-contract.md` 收束；视觉呈现仍不在本文冻结
 > - 不直接决定具体 umbrella app 模块归属，归属需要由后续承重垂直切面和 ADR 证明
 
 ---
@@ -969,10 +969,9 @@ v3 禁止以下设计和实现方向：
 
 ADR 前还需要完成：
 
-1. `07-workbench-ui-contract.md`
-2. `00c-state-and-contract-atlas.md`
+1. `00c-state-and-contract-atlas.md`
 
-原因是 `05-turn-behavior-and-state-model.md` 已经承接 BehaviorState，`06-memory-context-and-trace.md` 已经承接 DecisionTrace，后续还需要 TurnResult UI 消费和全局 contract 索引互相校验。
+原因是 `05-turn-behavior-and-state-model.md` 已经承接 BehaviorState，`06-memory-context-and-trace.md` 已经承接 DecisionTrace，`07-workbench-ui-contract.md` 已经承接 TurnResult UI 消费，后续还需要全局 contract 索引互相校验。
 
 ---
 
@@ -987,11 +986,12 @@ ADR 前还需要完成：
 - `04`：Execution Orchestrator 执行裁决边界。
 - `05`：Turn Behavior 与状态模型草案。
 - `06`：Memory、Context、Trace 与 Replay 草案。
+- `07`：Workbench UI 消费契约草案。
 
 下一步建议写：
 
 ```text
-07-workbench-ui-contract.md
+00c-state-and-contract-atlas.md
 ```
 
 原因：
@@ -999,6 +999,7 @@ ADR 前还需要完成：
 - `04` 已经定义 Orchestrator 如何要求 clarification、confirmation、cancellation 和 recovery。
 - `05` 已经把这些行为变成可持续的 phase/status/next_action 与 behavior lifecycle。
 - `06` 已经证明 OrchestratorDecision、BehaviorState、ToolResult 和 TurnResult 都可以进入 DecisionTrace 并被 replay。
-- `07` 需要定义 UI 如何消费 Orchestrator 输出，而不是绕过 Orchestrator 直接推进状态。
+- `07` 已经定义 UI 如何消费 Orchestrator 输出，而不是绕过 Orchestrator 直接推进状态。
+- `00c` 需要汇总 OrchestratorDecision、BehaviorState、TurnResult 和 UI action 的 contract 索引。
 
-在 `07` 之前，不建议创建 implementation plan。
+在 `00c` 之前，不建议创建 implementation plan。

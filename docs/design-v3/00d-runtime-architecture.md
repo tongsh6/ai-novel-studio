@@ -413,11 +413,12 @@ v3 的 replay 不要求重新调用 LLM。默认重放应优先使用已记录�
 - `04`：Execution Orchestrator 协议草案。
 - `05`：Turn Behavior 与状态模型草案。
 - `06`：Memory、Context、Trace 与 Replay 草案。
+- `07`：Workbench UI 消费契约草案。
 
 下一步建议写：
 
 ```text
-07-workbench-ui-contract.md
+00c-state-and-contract-atlas.md
 ```
 
 原因：
@@ -425,4 +426,5 @@ v3 的 replay 不要求重新调用 LLM。默认重放应优先使用已记录�
 - `00b` 已经说明 frame / plan 在动态主链中的位置。
 - `00d` 已经说明 frame / plan 在运行时视图中的位置。
 - `02/03/04/05/06` 已经把 Frame/Plan、Toolbox、Orchestrator、BehaviorState、context/trace/replay 推进为 contract 草案。
-- `07` 需要把运行时输出转成 UI 可消费的 TurnResult、cards、actions、trace summary 和 projection hints。
+- `07` 已经把运行时输出转成 UI 可消费的 TurnResult、cards、actions、trace summary 和 projection hints。
+- `00c` 需要把这些运行时对象、状态字段和 ADR 候选统一索引，作为 slice DAG 前置材料。

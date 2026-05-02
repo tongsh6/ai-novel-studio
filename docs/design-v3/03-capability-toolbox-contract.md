@@ -536,10 +536,9 @@ UI 可以展示工具结果摘要，但必须来自 TurnResult 或 trace 引用�
 
 ADR 前需要先完成：
 
-1. `07-workbench-ui-contract.md`
-2. `00c-state-and-contract-atlas.md`
+1. `00c-state-and-contract-atlas.md`
 
-原因是 `04-execution-orchestrator.md` 已经承接 ToolRequest 的裁决边界，`05-turn-behavior-and-state-model.md` 已经承接 behavior 状态，`06-memory-context-and-trace.md` 已经承接 trace/replay，后续还需要 UI 消费和全局 contract 索引互相校验。
+原因是 `04-execution-orchestrator.md` 已经承接 ToolRequest 的裁决边界，`05-turn-behavior-and-state-model.md` 已经承接 behavior 状态，`06-memory-context-and-trace.md` 已经承接 trace/replay，`07-workbench-ui-contract.md` 已经承接 UI 消费，后续还需要全局 contract 索引互相校验。
 
 ---
 
@@ -553,11 +552,12 @@ ADR 前需要先完成：
 - Execution Orchestrator 的协议草案。
 - Turn Behavior 与状态模型草案。
 - Memory、Context、Trace 与 Replay 草案。
+- Workbench UI 消费契约草案。
 
 下一步建议写：
 
 ```text
-07-workbench-ui-contract.md
+00c-state-and-contract-atlas.md
 ```
 
 原因：
@@ -565,4 +565,5 @@ ADR 前需要先完成：
 - `04` 已经定义 OrchestratorDecision、门禁顺序、dispatch 边界、状态推进和 TurnResult 组装职责。
 - `05` 已经定义 clarification、confirmation、correction、cancellation、recovery 如何形成可持续 behavior lifecycle。
 - `06` 已经定义 ToolRequest / ToolResult / BehaviorState 如何进入 trace 与 replay。
-- `07` 需要定义 UI 如何展示工具结果摘要、trace 摘要和可用动作，但不直接调用工具。
+- `07` 已经定义 UI 如何展示工具结果摘要、trace 摘要和可用动作，但不直接调用工具。
+- `00c` 需要把 toolbox contract 与其他状态、ADR 候选、slice 入口建立索引关系。

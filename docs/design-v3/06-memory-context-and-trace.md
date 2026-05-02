@@ -18,7 +18,7 @@
 > 本文不做：
 >
 > - 不定义数据库表、migration 或索引细节
-> - 不定义前端 trace 面板，留给 `07-workbench-ui-contract.md`
+> - trace summary 的 UI 消费契约由 `07-workbench-ui-contract.md` 收束；前端面板视觉仍不在本文冻结
 > - 不定义全局 contract 索引，留给 `00c-state-and-contract-atlas.md`
 > - 不定义具体 embedding、向量检索或 provider 实现
 > - 不要求 replay 重新调用 LLM
@@ -833,10 +833,9 @@ v3 禁止以下设计和实现方向：
 
 ADR 前还需要完成：
 
-1. `07-workbench-ui-contract.md`
-2. `00c-state-and-contract-atlas.md`
+1. `00c-state-and-contract-atlas.md`
 
-原因是 trace 摘要如何给 UI 消费，以及 memory/context/trace 如何进入全局 contract 索引，需要互相校验。
+原因是 `07-workbench-ui-contract.md` 已经承接 trace 摘要如何给 UI 消费，后续还需要 memory/context/trace 如何进入全局 contract 索引。
 
 ---
 
@@ -849,17 +848,18 @@ ADR 前还需要完成：
 - `04`：Execution Orchestrator 执行裁决边界。
 - `05`：Turn Behavior 与 phase/status/next_action 草案。
 - `06`：Memory、Context、Trace 与 Replay 草案。
+- `07`：Workbench UI 消费契约草案。
 
 下一步建议写：
 
 ```text
-07-workbench-ui-contract.md
+00c-state-and-contract-atlas.md
 ```
 
 原因：
 
 - `02` 到 `06` 已经定义系统内部如何理解、建议、裁决、等待、记录和回放。
-- `07` 需要定义 Workbench UI 如何消费 TurnResult、BehaviorState、available actions、trace summary 和 projection hints。
-- 没有 `07`，第一条承重垂直切面仍无法证明作者前台体验不会倒退成表单式工作台。
+- `07` 已经定义 Workbench UI 如何消费 TurnResult、BehaviorState、available actions、trace summary 和 projection hints。
+- `00c` 需要把 memory/context/trace 与其他 contract、ADR 候选、slice 入口统一索引。
 
-在 `07` 之前，不建议创建 implementation plan。
+在 `00c` 之前，不建议创建 implementation plan。

@@ -550,10 +550,9 @@ DialogueFrame 与 MicroPlan 不直接替代 TurnResult。
 
 ADR 前还需要完成：
 
-1. `07-workbench-ui-contract.md`
-2. `00c-state-and-contract-atlas.md`
+1. `00c-state-and-contract-atlas.md`
 
-原因是 `06-memory-context-and-trace.md` 已经承接 trace / replay，后续还需要 UI 消费和全局 contract 索引互相校验。
+原因是 `06-memory-context-and-trace.md` 已经承接 trace / replay，`07-workbench-ui-contract.md` 已经承接 UI 消费，后续还需要全局 contract 索引互相校验。
 
 ---
 
@@ -567,14 +566,15 @@ ADR 前还需要完成：
 - `04-execution-orchestrator.md`：定义 MicroPlan 如何被裁决、降级、确认或执行。
 - `05-turn-behavior-and-state-model.md`：定义 MicroPlan 裁决后如何形成 durable behavior。
 - `06-memory-context-and-trace.md`：定义 frame / plan / decision / behavior 如何进入 trace 与 replay。
+- `07-workbench-ui-contract.md`：定义 UI 如何消费 frame / trace 的摘要引用。
 
 下一步建议写：
 
 ```text
-07-workbench-ui-contract.md
+00c-state-and-contract-atlas.md
 ```
 
 原因：
 
-- `03/04/05/06` 已经分别补上 Toolbox、Orchestrator、BehaviorState 和 trace/replay 边界。
-- `07` 需要定义 UI 如何消费 TurnResult 中对 frame / trace 的引用，而不是直接读取内部对象。
+- `03/04/05/06/07` 已经分别补上 Toolbox、Orchestrator、BehaviorState、trace/replay 和 UI 消费边界。
+- `00c` 需要把 DialogueFrame / MicroPlan 与其他状态、contract、ADR 候选放到同一张索引图中。

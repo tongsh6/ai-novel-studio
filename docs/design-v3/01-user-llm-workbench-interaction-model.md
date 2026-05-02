@@ -562,7 +562,11 @@ UserInput
 
 ```text
 docs/design-v3/
-  00-vision-and-architecture-principles.md
+  00-vision-and-engineering-roadmap.md
+  00a-reading-map.md
+  00b-end-to-end-dialogue-flow.md
+  00c-state-and-contract-atlas.md
+  00d-runtime-architecture.md
   01-user-llm-workbench-interaction-model.md
   02-dialogue-frame-and-micro-plan.md
   03-capability-toolbox-contract.md
@@ -573,17 +577,21 @@ docs/design-v3/
   adr/
 ```
 
-本文是 `01`，负责确立交互模型和目标拓扑。后续可以拆出：
+本文是 `01`，负责确立交互模型和目标拓扑。当前已拆出或后续需要补齐：
 
 | 后续文档 / ADR | 主题 |
 |---|---|
-| `00-vision-and-architecture-principles.md` | v3 总原则 |
+| `00-vision-and-engineering-roadmap.md` | v3 愿景、阶段门槛和工程推进方式 |
+| `00a-reading-map.md` | 按角色阅读入口 |
+| `00b-end-to-end-dialogue-flow.md` | 一次 turn 的动态主链 |
+| `00c-state-and-contract-atlas.md` | 状态、contract、ADR 候选和 slice 入口索引 |
+| `00d-runtime-architecture.md` | 控制面、数据面、横切层运行时架构 |
 | `02-dialogue-frame-and-micro-plan.md` | DialogueFrame / MicroPlan schema 与状态 |
 | `03-capability-toolbox-contract.md` | capability/tool contract 与 registry |
 | `04-execution-orchestrator.md` | Execution Orchestrator 边界、状态机、门禁 |
 | `05-turn-behavior-and-state-model.md` | clarification / confirmation / correction 等行为 |
 | `06-memory-context-and-trace.md` | context assembly、memory、decision trace、replay |
-| `07-workbench-ui-contract.md` | 前端如何消费 TurnResult、ui_cards、DialogueFrame trace |
+| `07-workbench-ui-contract.md` | 前端如何消费 TurnResult、ui_cards、available actions、trace summary |
 
 迁移策略：
 
