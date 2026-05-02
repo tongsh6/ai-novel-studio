@@ -614,11 +614,12 @@ v3 主链必须保护以下不变量：
 - `05`：Turn Behavior 与状态模型草案。
 - `06`：Memory、Context、Trace 与 Replay 草案。
 - `07`：Workbench UI 消费契约草案。
+- `00c`：状态、contract、ADR 候选和 slice 入口总索引。
 
 下一步建议写：
 
 ```text
-00c-state-and-contract-atlas.md
+docs/design-v3/adr/README.md
 ```
 
 原因：
@@ -626,4 +627,5 @@ v3 主链必须保护以下不变量：
 - `00b` 已经定义动态主链。
 - `02/03/04/05/06` 已经把 Frame/Plan、Toolbox、Orchestrator、BehaviorState 和 trace/replay 分别拆成 contract 草案。
 - `07` 已经定义 UI 如何消费本文中的 assistant_message、cards、behavior_state、trace summary 与 available actions。
-- `00c` 需要把这些状态、contract、ADR 候选和第一批 slice 入口汇总成索引。
+- `00c` 已经把这些状态、contract、ADR 候选和第一批 slice 入口汇总成索引。
+- 下一步需要定义 v3 ADR 的编号、状态和首批 Proposed ADR 顺序。

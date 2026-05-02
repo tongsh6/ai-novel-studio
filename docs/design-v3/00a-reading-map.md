@@ -14,10 +14,10 @@
 |---|---|---:|---|
 | 完全没看过，10 分钟先了解 | §1 | 10 min | 讲清 v3 为什么存在、和 v2 根本差异是什么 |
 | 产品 / 作者 / 方向评估 | §2 | 50 min | 判断 v3 是否对齐“LLM 创作伙伴”愿景 |
-| 架构 / Agent 工程师 | §3 | 125 min | 理解 v3 主链、边界和后续 contract 顺序 |
+| 架构 / Agent 工程师 | §3 | 135 min | 理解 v3 主链、边界和后续 contract 顺序 |
 | UI / Workbench 设计 | §4 | 80 min | 理解为什么 UI 不应再呈现表单式补槽 |
-| 维护者 / 决策冻结 | §5 | 90 min | 判断哪些内容只是草案，哪些应升级 ADR |
-| 垂直切面规划者 | §6 | 115 min | 知道何时允许切承重垂直切面，怎么切 |
+| 维护者 / 决策冻结 | §5 | 105 min | 判断哪些内容只是草案，哪些应升级 ADR |
+| 垂直切面规划者 | §6 | 125 min | 知道何时允许切承重垂直切面，怎么切 |
 
 不在以上身份中：先读 §1，再按最接近的角色跳读。
 
@@ -83,7 +83,8 @@ Execution Orchestrator 保留执行硬门禁。
 | 8 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 设计 durable behavior 与 phase/status |
 | 9 | `06-memory-context-and-trace.md` | 草案，已存在 | 设计 context、trace、replay |
 | 10 | `07-workbench-ui-contract.md` | 草案，已存在 | 设计 UI 消费 TurnResult 和 trace 摘要 |
-| 11 | `00c-state-and-contract-atlas.md` | 计划中 | 汇总状态、contract、ADR 和 slice 入口 |
+| 11 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 汇总状态、contract、ADR 和 slice 入口 |
+| 12 | `adr/README.md` | 计划中 | 定义 v3 ADR 编号、状态、模板和首批顺序 |
 
 工程师读完当前必读后，应该能回答：
 
@@ -129,7 +130,8 @@ UI 侧当前结论：
 | 5 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 15 min | 哪些行为状态要冻结 |
 | 6 | `06-memory-context-and-trace.md` | 草案，已存在 | 15 min | 哪些 trace / replay 语义要冻结 |
 | 7 | `07-workbench-ui-contract.md` | 草案，已存在 | 15 min | 哪些 UI 消费边界要冻结 |
-| 8 | `adr/` | 计划中 | 按需 | 哪些决策已经 Accepted |
+| 8 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 15 min | 哪些 contract 应优先升级 ADR |
+| 9 | `adr/README.md` | 计划中 | 按需 | v3 ADR 如何编号、评审和冻结 |
 
 维护者判断规则：
 
@@ -155,8 +157,9 @@ UI 侧当前结论：
 | 7 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 15 min | 等待态、确认态、取消态如何闭环 |
 | 8 | `06-memory-context-and-trace.md` | 草案，已存在 | 15 min | trace / replay 如何证明闭环 |
 | 9 | `07-workbench-ui-contract.md` | 草案，已存在 | 15 min | UI 消费如何证明前台体验闭环 |
-| 10 | `00c-state-and-contract-atlas.md` | 计划中 | 10 min | 状态、contract、ADR、slice 如何索引 |
-| 11 | `tasks/slices/v3/DAG.md` | 计划中 | 10 min | slice 之间如何排序 |
+| 10 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 10 min | 状态、contract、ADR、slice 如何索引 |
+| 11 | `adr/README.md` | 计划中 | 10 min | 哪些 ADR 先冻结，哪些只是 backlog |
+| 12 | `tasks/slices/v3/DAG.md` | 计划中 | 10 min | slice 之间如何排序 |
 
 每条 v3 slice 必须回答：
 
@@ -168,7 +171,7 @@ UI 侧当前结论：
 | Consumer | 第一个真实消费者是谁 |
 | Proof | 用什么测试或命令证明链路成立 |
 
-v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `05` / `06` / `07` 的状态与 contract 索引前贸然切。
+v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `05` / `06` / `07` 的状态与 contract 索引，并且 v3 ADR 目录与首批 Proposed ADR 顺序明确前贸然切。
 
 ---
 
@@ -180,7 +183,7 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 | `00a-reading-map.md` | 草案，本文 | 按角色阅读入口 |
 | `01-user-llm-workbench-interaction-model.md` | 草案，已存在 | v3 交互模型与推荐方案 |
 | `00b-end-to-end-dialogue-flow.md` | 草案，已存在 | v3 动态主链 |
-| `00c-state-and-contract-atlas.md` | 计划中 | 状态与 contract 索引 |
+| `00c-state-and-contract-atlas.md` | 草案，已存在 | 状态与 contract 索引 |
 | `00d-runtime-architecture.md` | 草案，已存在 | 运行时架构图 |
 | `02-dialogue-frame-and-micro-plan.md` | 草案，已存在 | 核心协议草案 |
 | `03-capability-toolbox-contract.md` | 草案，已存在 | 工具箱 contract |
@@ -188,6 +191,8 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 对话行为状态 |
 | `06-memory-context-and-trace.md` | 草案，已存在 | 记忆、上下文与回放 |
 | `07-workbench-ui-contract.md` | 草案，已存在 | UI 消费契约 |
+| `adr/README.md` | 计划中 | ADR 编号、状态、模板 |
+| `tasks/slices/v3/DAG.md` | 计划中 | 垂直切面排序 |
 
 ---
 
@@ -211,7 +216,7 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 如果你现在要继续完善 v3 设计体系，下一篇应该写：
 
 ```text
-00c-state-and-contract-atlas.md
+docs/design-v3/adr/README.md
 ```
 
 原因：
@@ -220,4 +225,5 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 - `00a` 已经定义阅读路径。
 - `01` 已经定义交互模型。
 - `00b` / `00d` / `02` / `03` / `04` / `05` / `06` / `07` 已经形成主链、运行时、Frame/Plan、Toolbox、执行权、行为状态、trace/replay 和 UI 消费草案。
-- 下一步需要把状态、contract、ADR 候选和第一批 slice 入口放到同一张索引图里。
+- `00c` 已经把状态、contract、ADR 候选和第一批 slice 入口放到同一张索引图里。
+- 下一步需要定义 v3 ADR 的编号、状态、模板和首批 Proposed ADR 顺序，避免在 slice DAG 前把草案误当冻结决策。

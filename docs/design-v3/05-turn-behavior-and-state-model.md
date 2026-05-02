@@ -1016,11 +1016,11 @@ v3 禁止以下设计和实现方向：
 | Cancellation Semantics v3 | cancellation 与 pending action / tool result / adopted state 的关系 |
 | Recovery Behavior v3 | failed_recoverable、retry、narrow scope、terminal failure |
 
-ADR 前还需要完成：
+ADR 前置材料已经具备：
 
 1. `00c-state-and-contract-atlas.md`
 
-原因是 `06-memory-context-and-trace.md` 已经承接 trace/replay，`07-workbench-ui-contract.md` 已经承接 UI 消费动作，后续还需要全局 contract 索引互相校验。
+原因是 `06-memory-context-and-trace.md` 已经承接 trace/replay，`07-workbench-ui-contract.md` 已经承接 UI 消费动作，`00c-state-and-contract-atlas.md` 已经完成全局 contract 索引和 ADR backlog 汇总。
 
 ---
 
@@ -1034,11 +1034,12 @@ ADR 前还需要完成：
 - `05`：Turn Behavior 与 phase/status/next_action 草案。
 - `06`：Memory、Context、Trace 与 Replay 草案。
 - `07`：Workbench UI 消费契约草案。
+- `00c`：状态、contract、ADR 候选和 slice 入口总索引。
 
 下一步建议写：
 
 ```text
-00c-state-and-contract-atlas.md
+docs/design-v3/adr/README.md
 ```
 
 原因：
@@ -1046,6 +1047,7 @@ ADR 前还需要完成：
 - `05` 已经定义哪些行为必须 durable。
 - `06` 已经定义 DialogueContext、DecisionTrace、BehaviorTrace 和 replay 如何支撑这些行为。
 - `07` 已经定义 UI 如何消费这些行为状态与 trace 摘要，而不是直接修改 BehaviorState。
-- `00c` 需要把 phase/status/next_action、BehaviorState、UI action 和 ADR 候选放入同一张索引。
+- `00c` 已经把 phase/status/next_action、BehaviorState、UI action 和 ADR 候选放入同一张索引。
+- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 
-在 `00c` 之前，不建议创建 implementation plan。
+在 v3 ADR 目录和首批 Proposed ADR 顺序明确之前，不建议创建 implementation plan。

@@ -831,11 +831,11 @@ v3 禁止以下设计和实现方向：
 | Replay v3 | replay 等级、默认不调用 LLM、差异报告 |
 | Trace Redaction v3 | author / developer / audit / replay 可见性 |
 
-ADR 前还需要完成：
+ADR 前置材料已经具备：
 
 1. `00c-state-and-contract-atlas.md`
 
-原因是 `07-workbench-ui-contract.md` 已经承接 trace 摘要如何给 UI 消费，后续还需要 memory/context/trace 如何进入全局 contract 索引。
+原因是 `07-workbench-ui-contract.md` 已经承接 trace 摘要如何给 UI 消费，`00c-state-and-contract-atlas.md` 已经完成 memory/context/trace 进入全局 contract 索引和 ADR backlog 的汇总。
 
 ---
 
@@ -849,17 +849,19 @@ ADR 前还需要完成：
 - `05`：Turn Behavior 与 phase/status/next_action 草案。
 - `06`：Memory、Context、Trace 与 Replay 草案。
 - `07`：Workbench UI 消费契约草案。
+- `00c`：状态、contract、ADR 候选和 slice 入口总索引。
 
 下一步建议写：
 
 ```text
-00c-state-and-contract-atlas.md
+docs/design-v3/adr/README.md
 ```
 
 原因：
 
 - `02` 到 `06` 已经定义系统内部如何理解、建议、裁决、等待、记录和回放。
 - `07` 已经定义 Workbench UI 如何消费 TurnResult、BehaviorState、available actions、trace summary 和 projection hints。
-- `00c` 需要把 memory/context/trace 与其他 contract、ADR 候选、slice 入口统一索引。
+- `00c` 已经把 memory/context/trace 与其他 contract、ADR 候选、slice 入口统一索引。
+- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 
-在 `00c` 之前，不建议创建 implementation plan。
+在 v3 ADR 目录和首批 Proposed ADR 顺序明确之前，不建议创建 implementation plan。

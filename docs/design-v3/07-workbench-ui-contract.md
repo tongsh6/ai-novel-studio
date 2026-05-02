@@ -671,11 +671,11 @@ v3 禁止以下 UI 设计和实现方向：
 | Streaming UI Contract v3 | draft 与 final TurnResult 分界 |
 | Projection Hint UI v3 | projection refresh 与写入边界 |
 
-ADR 前还需要完成：
+ADR 前置材料已经具备：
 
 1. `00c-state-and-contract-atlas.md`
 
-原因是 UI contract 已经把 v3 主链输出对象串到作者前台，后续需要用 atlas 汇总 contract、状态、ADR 与 slice 入口。
+原因是 UI contract 已经把 v3 主链输出对象串到作者前台，`00c-state-and-contract-atlas.md` 已经汇总 contract、状态、ADR 与 slice 入口。
 
 ---
 
@@ -689,17 +689,18 @@ ADR 前还需要完成：
 - `05`：Turn Behavior 与 phase/status/next_action 草案。
 - `06`：Memory、Context、Trace 与 Replay 草案。
 - `07`：Workbench UI 消费契约草案。
+- `00c`：状态、contract、ADR 候选和 slice 入口总索引。
 
 下一步建议写：
 
 ```text
-00c-state-and-contract-atlas.md
+docs/design-v3/adr/README.md
 ```
 
 原因：
 
 - `02` 到 `07` 已经分别定义核心对象、执行边界、行为状态、trace/replay 和 UI 消费。
-- `00c` 需要把这些 contract、状态对象、ADR 候选和未来 slice 入口汇总成索引图。
-- 没有 `00c`，后续进入承重垂直切面时容易遗漏 contract 或误把草案当冻结 schema。
+- `00c` 已经把这些 contract、状态对象、ADR 候选和未来 slice 入口汇总成索引图。
+- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 
-在 `00c` 之前，不建议创建 implementation plan。
+在 v3 ADR 目录和首批 Proposed ADR 顺序明确之前，不建议创建 implementation plan。

@@ -300,7 +300,7 @@ v3 不允许“有一个想法就直接写代码”。
 
 ## 7. v3 首批设计里程碑
 
-当前阶段仍处于 Stage 1：Direction / Architecture。
+当前阶段已经形成 Stage 1：Direction / Architecture 的主文档链路，下一步准备进入 Stage 2：Contract / ADR。
 
 建议首批里程碑：
 
@@ -317,9 +317,10 @@ v3 不允许“有一个想法就直接写代码”。
 | 9 | `06-memory-context-and-trace.md` | 定义上下文、trace、replay 的可回放边界 |
 | 10 | `07-workbench-ui-contract.md` | 定义 UI 如何消费 TurnResult 与行为动作 |
 | 11 | `00c-state-and-contract-atlas.md` | 汇总状态、contract、ADR 与 slice 索引 |
-| 12 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
+| 12 | `docs/design-v3/adr/README.md` | 定义 v3 ADR 编号、状态、模板和首批顺序 |
+| 13 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
 
-在第 12 步之前，不建议写代码实现计划。
+在第 13 步之前，不建议写代码实现计划。
 
 ---
 
@@ -340,6 +341,7 @@ v3 不允许“有一个想法就直接写代码”。
 11. 不是所有探索都打开 durable clarification，只有阻塞下一步安全推进时才进入 BehaviorState。
 12. Replay 默认不重新调用 LLM，优先基于结构化 trace 和版本引用解释系统决策。
 13. Workbench UI 只消费 TurnResult、available actions、trace summary 和 projection hints，不直接写 BehaviorState 或调用工具。
+14. `00c-state-and-contract-atlas.md` 作为 v3 状态、contract、ADR 候选和垂直切面入口总索引；垂直切面 DAG 之前应先建立 v3 ADR 目录与首批 Proposed ADR 顺序。
 
 ---
 
@@ -357,6 +359,7 @@ v3 不允许“有一个想法就直接写代码”。
 | MemoryItem / DialogueContext / DecisionTrace 字段全集 | `06-memory-context-and-trace.md` + v3 ADR |
 | TurnResult v3 是否复用 v2 顶层字段 | v3 ADR |
 | UI card/action/trace summary 字段全集 | `07-workbench-ui-contract.md` + v3 ADR |
+| v3 ADR 编号、状态、模板和首批顺序 | `docs/design-v3/adr/README.md` |
 | v2 代码迁移是重构还是旁路新链路 | slice DAG 阶段 |
 
 ---
@@ -392,7 +395,9 @@ v3 下一步应继续完善设计体系，而不是进入代码实现。
 6. 已完成 `05-turn-behavior-and-state-model.md`，收束 clarification / confirmation / correction / cancellation / recovery。
 7. 已完成 `06-memory-context-and-trace.md`，定义 context、trace、replay。
 8. 已完成 `07-workbench-ui-contract.md`，定义 UI 如何消费 v3 输出。
-9. 下一步写 `00c-state-and-contract-atlas.md`，汇总状态、contract、ADR 候选和 slice 入口。
-10. 最后创建 `tasks/slices/v3/DAG.md`。
+9. 已完成 `00c-state-and-contract-atlas.md`，汇总状态、contract、ADR 候选和 slice 入口。
+10. 下一步写 `docs/design-v3/adr/README.md`，定义 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+11. 再写首批 Proposed ADR。
+12. 最后创建 `tasks/slices/v3/DAG.md`。
 
 只有当上述设计链路能支撑第一条承重垂直切面时，才进入 implementation plan。

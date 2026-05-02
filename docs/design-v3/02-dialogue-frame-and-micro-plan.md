@@ -548,11 +548,11 @@ DialogueFrame 与 MicroPlan 不直接替代 TurnResult。
 2. `04-execution-orchestrator.md`
 3. `05-turn-behavior-and-state-model.md`
 
-ADR 前还需要完成：
+ADR 前置材料已经具备：
 
 1. `00c-state-and-contract-atlas.md`
 
-原因是 `06-memory-context-and-trace.md` 已经承接 trace / replay，`07-workbench-ui-contract.md` 已经承接 UI 消费，后续还需要全局 contract 索引互相校验。
+原因是 `06-memory-context-and-trace.md` 已经承接 trace / replay，`07-workbench-ui-contract.md` 已经承接 UI 消费，`00c-state-and-contract-atlas.md` 已经完成全局 contract 索引和 ADR backlog 汇总。
 
 ---
 
@@ -567,14 +567,16 @@ ADR 前还需要完成：
 - `05-turn-behavior-and-state-model.md`：定义 MicroPlan 裁决后如何形成 durable behavior。
 - `06-memory-context-and-trace.md`：定义 frame / plan / decision / behavior 如何进入 trace 与 replay。
 - `07-workbench-ui-contract.md`：定义 UI 如何消费 frame / trace 的摘要引用。
+- `00c-state-and-contract-atlas.md`：定义 DialogueFrame / MicroPlan 在全局 contract 与 ADR backlog 中的位置。
 
 下一步建议写：
 
 ```text
-00c-state-and-contract-atlas.md
+docs/design-v3/adr/README.md
 ```
 
 原因：
 
 - `03/04/05/06/07` 已经分别补上 Toolbox、Orchestrator、BehaviorState、trace/replay 和 UI 消费边界。
-- `00c` 需要把 DialogueFrame / MicroPlan 与其他状态、contract、ADR 候选放到同一张索引图中。
+- `00c` 已经把 DialogueFrame / MicroPlan 与其他状态、contract、ADR 候选放到同一张索引图中。
+- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
