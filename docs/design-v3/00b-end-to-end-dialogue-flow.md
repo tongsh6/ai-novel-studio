@@ -157,7 +157,7 @@ Dialogue Planner 不应面对全量数据库，也不应凭空聊天。它接收
 | registry 摘要 | 知道系统会什么，但不暴露全部内部细节 |
 | policy hints | 知道哪些动作可能高风险或需要确认 |
 
-上下文组装必须可 trace。后续 `06-memory-context-and-trace.md` 负责定义细节。
+上下文组装必须可 trace。`06-memory-context-and-trace.md` 负责定义细节。
 
 ### 4.3 Step 3：Dialogue Planner 生成 DialogueFrame
 
@@ -611,15 +611,17 @@ v3 主链必须保护以下不变量：
 - `02`：DialogueFrame / MicroPlan 协议草案。
 - `03`：Capability Toolbox 协议草案。
 - `04`：Execution Orchestrator 协议草案。
+- `05`：Turn Behavior 与状态模型草案。
+- `06`：Memory、Context、Trace 与 Replay 草案。
 
 下一步建议写：
 
 ```text
-06-memory-context-and-trace.md
+07-workbench-ui-contract.md
 ```
 
 原因：
 
 - `00b` 已经定义动态主链。
-- `02/03/04/05` 已经把 Frame/Plan、Toolbox、Orchestrator 和 BehaviorState 分别拆成 contract 草案。
-- `06` 需要把本文中的 DialogueFrame、MicroPlan、OrchestratorDecision、BehaviorState 和 TurnResult 串进 trace / replay。
+- `02/03/04/05/06` 已经把 Frame/Plan、Toolbox、Orchestrator、BehaviorState 和 trace/replay 分别拆成 contract 草案。
+- `07` 需要定义 UI 如何消费本文中的 assistant_message、cards、behavior_state、trace summary 与 available actions。

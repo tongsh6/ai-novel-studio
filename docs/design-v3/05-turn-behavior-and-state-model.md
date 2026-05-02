@@ -18,7 +18,7 @@
 >
 > - 不重新定义 DialogueFrame / MicroPlan 字段全集
 > - 不重新定义 OrchestratorDecision 字段全集
-> - 不定义 trace 存储结构，留给 `06-memory-context-and-trace.md`
+> - trace 存储语义由 `06-memory-context-and-trace.md` 收束
 > - 不定义 Workbench UI 组件形态，留给 `07-workbench-ui-contract.md`
 > - 不定义数据库 schema、migration 或具体代码模块
 
@@ -911,7 +911,7 @@ available_actions = [retry_action, narrow_scope, continue_dialogue]
 - 它最终如何 resolved / cancelled / failed / superseded。
 - TurnResult 如何展示它。
 
-这部分由 `06-memory-context-and-trace.md` 继续收束。
+这部分由 `06-memory-context-and-trace.md` 承接。
 
 ---
 
@@ -1018,11 +1018,10 @@ v3 禁止以下设计和实现方向：
 
 ADR 前还需要完成：
 
-1. `06-memory-context-and-trace.md`
-2. `07-workbench-ui-contract.md`
-3. `00c-state-and-contract-atlas.md`
+1. `07-workbench-ui-contract.md`
+2. `00c-state-and-contract-atlas.md`
 
-原因是 BehaviorState 需要和 trace/replay、UI 消费动作、全局 contract 索引互相校验。
+原因是 `06-memory-context-and-trace.md` 已经承接 trace/replay，后续还需要 UI 消费动作和全局 contract 索引互相校验。
 
 ---
 
@@ -1034,17 +1033,18 @@ ADR 前还需要完成：
 - `03`：Capability Toolbox 协议草案。
 - `04`：Execution Orchestrator 执行裁决边界。
 - `05`：Turn Behavior 与 phase/status/next_action 草案。
+- `06`：Memory、Context、Trace 与 Replay 草案。
 
 下一步建议写：
 
 ```text
-06-memory-context-and-trace.md
+07-workbench-ui-contract.md
 ```
 
 原因：
 
 - `05` 已经定义哪些行为必须 durable。
-- `06` 需要定义 DialogueContext、DecisionTrace、BehaviorTrace 和 replay 如何支撑这些行为。
-- 没有 `06`，第一条承重垂直切面仍无法证明“为什么执行、为什么等待、为什么取消、为什么恢复”可以被回放。
+- `06` 已经定义 DialogueContext、DecisionTrace、BehaviorTrace 和 replay 如何支撑这些行为。
+- `07` 需要定义 UI 如何消费这些行为状态与 trace 摘要，而不是直接修改 BehaviorState。
 
-在 `06` 之前，不建议创建 implementation plan。
+在 `07` 之前，不建议创建 implementation plan。

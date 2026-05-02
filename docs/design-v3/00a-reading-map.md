@@ -14,10 +14,10 @@
 |---|---|---:|---|
 | 完全没看过，10 分钟先了解 | §1 | 10 min | 讲清 v3 为什么存在、和 v2 根本差异是什么 |
 | 产品 / 作者 / 方向评估 | §2 | 40 min | 判断 v3 是否对齐“LLM 创作伙伴”愿景 |
-| 架构 / Agent 工程师 | §3 | 95 min | 理解 v3 主链、边界和后续 contract 顺序 |
-| UI / Workbench 设计 | §4 | 45 min | 理解为什么 UI 不应再呈现表单式补槽 |
-| 维护者 / 决策冻结 | §5 | 60 min | 判断哪些内容只是草案，哪些应升级 ADR |
-| 垂直切面规划者 | §6 | 85 min | 知道何时允许切承重垂直切面，怎么切 |
+| 架构 / Agent 工程师 | §3 | 110 min | 理解 v3 主链、边界和后续 contract 顺序 |
+| UI / Workbench 设计 | §4 | 60 min | 理解为什么 UI 不应再呈现表单式补槽 |
+| 维护者 / 决策冻结 | §5 | 75 min | 判断哪些内容只是草案，哪些应升级 ADR |
+| 垂直切面规划者 | §6 | 100 min | 知道何时允许切承重垂直切面，怎么切 |
 
 不在以上身份中：先读 §1，再按最接近的角色跳读。
 
@@ -81,7 +81,8 @@ Execution Orchestrator 保留执行硬门禁。
 | 6 | `03-capability-toolbox-contract.md` | 草案，已存在 | 设计工具 / capability registry |
 | 7 | `04-execution-orchestrator.md` | 草案，已存在 | 设计执行权、状态机、门禁 |
 | 8 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 设计 durable behavior 与 phase/status |
-| 9 | `06-memory-context-and-trace.md` | 计划中 | 设计 context、trace、replay |
+| 9 | `06-memory-context-and-trace.md` | 草案，已存在 | 设计 context、trace、replay |
+| 10 | `07-workbench-ui-contract.md` | 计划中 | 设计 UI 消费 TurnResult 和 trace 摘要 |
 
 工程师读完当前必读后，应该能回答：
 
@@ -102,7 +103,8 @@ Execution Orchestrator 保留执行硬门禁。
 | 2 | `00-vision-and-engineering-roadmap.md` §2 / §10 | 草案，已存在 | 10 min | v3 UI 相关反模式有哪些 |
 | 3 | `00b-end-to-end-dialogue-flow.md` | 草案，已存在 | 10 min | UI 会看到哪些 turn 状态和消息 |
 | 4 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 15 min | UI 为什么只能消费 BehaviorState / NextAction |
-| 5 | `07-workbench-ui-contract.md` | 计划中 | 20 min | UI 消费 TurnResult、ui_cards、trace 的规则 |
+| 5 | `06-memory-context-and-trace.md` | 草案，已存在 | 15 min | UI 为什么只能消费 trace 摘要而不是内部日志 |
+| 6 | `07-workbench-ui-contract.md` | 计划中 | 20 min | UI 消费 TurnResult、ui_cards、trace 的规则 |
 
 UI 侧当前结论：
 
@@ -124,7 +126,8 @@ UI 侧当前结论：
 | 3 | `02-dialogue-frame-and-micro-plan.md` | 草案，已存在 | 15 min | 哪些字段要冻结 |
 | 4 | `04-execution-orchestrator.md` | 草案，已存在 | 15 min | 哪些执行边界要冻结 |
 | 5 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 15 min | 哪些行为状态要冻结 |
-| 6 | `adr/` | 计划中 | 按需 | 哪些决策已经 Accepted |
+| 6 | `06-memory-context-and-trace.md` | 草案，已存在 | 15 min | 哪些 trace / replay 语义要冻结 |
+| 7 | `adr/` | 计划中 | 按需 | 哪些决策已经 Accepted |
 
 维护者判断规则：
 
@@ -148,7 +151,7 @@ UI 侧当前结论：
 | 5 | `03-capability-toolbox-contract.md` | 草案，已存在 | 15 min | 工具调用边界如何进入 slice |
 | 6 | `04-execution-orchestrator.md` | 草案，已存在 | 15 min | 执行权和门禁如何进入 slice |
 | 7 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 15 min | 等待态、确认态、取消态如何闭环 |
-| 8 | `06-memory-context-and-trace.md` | 计划中 | 15 min | trace / replay 如何证明闭环 |
+| 8 | `06-memory-context-and-trace.md` | 草案，已存在 | 15 min | trace / replay 如何证明闭环 |
 | 9 | `tasks/slices/v3/DAG.md` | 计划中 | 10 min | slice 之间如何排序 |
 
 每条 v3 slice 必须回答：
@@ -161,7 +164,7 @@ UI 侧当前结论：
 | Consumer | 第一个真实消费者是谁 |
 | Proof | 用什么测试或命令证明链路成立 |
 
-v3 第一批 slice 不应在 `00b` / `00d` / `02` / `03` / `04` / `05` 形成闭环，并由 `06` / `07` / `00c` 校验 trace、UI 消费和 contract 索引前贸然切。
+v3 第一批 slice 不应在 `00b` / `00d` / `02` / `03` / `04` / `05` / `06` 形成闭环，并由 `07` / `00c` 校验 UI 消费和 contract 索引前贸然切。
 
 ---
 
@@ -179,7 +182,7 @@ v3 第一批 slice 不应在 `00b` / `00d` / `02` / `03` / `04` / `05` 形成闭
 | `03-capability-toolbox-contract.md` | 草案，已存在 | 工具箱 contract |
 | `04-execution-orchestrator.md` | 草案，已存在 | 执行层边界 |
 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 对话行为状态 |
-| `06-memory-context-and-trace.md` | 计划中 | 记忆、上下文与回放 |
+| `06-memory-context-and-trace.md` | 草案，已存在 | 记忆、上下文与回放 |
 | `07-workbench-ui-contract.md` | 计划中 | UI 消费契约 |
 
 ---
@@ -204,7 +207,7 @@ v3 第一批 slice 不应在 `00b` / `00d` / `02` / `03` / `04` / `05` 形成闭
 如果你现在要继续完善 v3 设计体系，下一篇应该写：
 
 ```text
-06-memory-context-and-trace.md
+07-workbench-ui-contract.md
 ```
 
 原因：
@@ -212,5 +215,5 @@ v3 第一批 slice 不应在 `00b` / `00d` / `02` / `03` / `04` / `05` 形成闭
 - `00` 已经定义推进方式。
 - `00a` 已经定义阅读路径。
 - `01` 已经定义交互模型。
-- `00b` / `00d` / `02` / `03` / `04` / `05` 已经形成主链、运行时、Frame/Plan、Toolbox、执行权和行为状态草案。
-- 下一步需要定义 DialogueContext、DecisionTrace、BehaviorTrace 与 replay，证明行为状态和执行裁决可回放。
+- `00b` / `00d` / `02` / `03` / `04` / `05` / `06` 已经形成主链、运行时、Frame/Plan、Toolbox、执行权、行为状态和 trace/replay 草案。
+- 下一步需要定义 Workbench UI 如何消费 TurnResult、BehaviorState、available actions、trace summary 和 projection hints。

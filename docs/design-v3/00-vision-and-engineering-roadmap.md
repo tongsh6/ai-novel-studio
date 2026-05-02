@@ -337,6 +337,7 @@ v3 不允许“有一个想法就直接写代码”。
 9. Workbench 是工具箱，不是作者前台流程。
 10. 设计体系和承重垂直切面 DAG 先于代码实现。
 11. 不是所有探索都打开 durable clarification，只有阻塞下一步安全推进时才进入 BehaviorState。
+12. Replay 默认不重新调用 LLM，优先基于结构化 trace 和版本引用解释系统决策。
 
 ---
 
@@ -351,6 +352,7 @@ v3 不允许“有一个想法就直接写代码”。
 | Capability Toolbox 是否统一 registry | `03-capability-toolbox-contract.md` |
 | Execution Orchestrator 的 umbrella 模块归属如何冻结 | `04-execution-orchestrator.md` + slice DAG |
 | TurnPhase / TurnStatus / NextAction 是否复用 v2 顶层字段 | `05-turn-behavior-and-state-model.md` + v3 ADR |
+| MemoryItem / DialogueContext / DecisionTrace 字段全集 | `06-memory-context-and-trace.md` + v3 ADR |
 | TurnResult v3 是否复用 v2 顶层字段 | v3 ADR |
 | v3 UI 是否直接展示 DialogueFrame trace | `07-workbench-ui-contract.md` |
 | v2 代码迁移是重构还是旁路新链路 | slice DAG 阶段 |
@@ -386,8 +388,9 @@ v3 下一步应继续完善设计体系，而不是进入代码实现。
 4. 已完成 `02-dialogue-frame-and-micro-plan.md`，形成 frame / plan contract 草案。
 5. 已完成 `03-capability-toolbox-contract.md` 与 `04-execution-orchestrator.md`，形成工具箱与执行权草案。
 6. 已完成 `05-turn-behavior-and-state-model.md`，收束 clarification / confirmation / correction / cancellation / recovery。
-7. 下一步写 `06-memory-context-and-trace.md`，定义 context、trace、replay。
-8. 再写 `07-workbench-ui-contract.md`、`00c-state-and-contract-atlas.md`。
-9. 最后创建 `tasks/slices/v3/DAG.md`。
+7. 已完成 `06-memory-context-and-trace.md`，定义 context、trace、replay。
+8. 下一步写 `07-workbench-ui-contract.md`，定义 UI 如何消费 v3 输出。
+9. 再写 `00c-state-and-contract-atlas.md`。
+10. 最后创建 `tasks/slices/v3/DAG.md`。
 
 只有当上述设计链路能支撑第一条承重垂直切面时，才进入 implementation plan。

@@ -310,7 +310,7 @@ stateDiagram-v2
 
 允许二次 frame：
 
-工具返回后，Planner 可以基于 ToolResult 生成“final frame”或更新 `author_visible_message`。该对象是否作为独立 DialogueFrame 记录，后续由 `06-memory-context-and-trace.md` 与 ADR 决定。
+工具返回后，Planner 可以基于 ToolResult 生成“final frame”或更新 `author_visible_message`。该对象是否作为独立 DialogueFrame 记录，由 `06-memory-context-and-trace.md` 给出 trace 语义，并由后续 ADR 冻结。
 
 ---
 
@@ -550,10 +550,10 @@ DialogueFrame 与 MicroPlan 不直接替代 TurnResult。
 
 ADR 前还需要完成：
 
-1. `06-memory-context-and-trace.md`
+1. `07-workbench-ui-contract.md`
 2. `00c-state-and-contract-atlas.md`
 
-原因是 MicroPlan 动作类型、OrchestratorDecision、behavior lifecycle 和 trace / replay 需要互相校验。
+原因是 `06-memory-context-and-trace.md` 已经承接 trace / replay，后续还需要 UI 消费和全局 contract 索引互相校验。
 
 ---
 
@@ -566,14 +566,15 @@ ADR 前还需要完成：
 - `03-capability-toolbox-contract.md`：定义 MicroPlan 如何引用工具与 ToolRequest。
 - `04-execution-orchestrator.md`：定义 MicroPlan 如何被裁决、降级、确认或执行。
 - `05-turn-behavior-and-state-model.md`：定义 MicroPlan 裁决后如何形成 durable behavior。
+- `06-memory-context-and-trace.md`：定义 frame / plan / decision / behavior 如何进入 trace 与 replay。
 
 下一步建议写：
 
 ```text
-06-memory-context-and-trace.md
+07-workbench-ui-contract.md
 ```
 
 原因：
 
-- `03/04/05` 已经分别补上 Toolbox、Orchestrator 和 BehaviorState 边界。
-- `06` 需要定义 frame / plan / decision / behavior 如何进入 trace 与 replay。
+- `03/04/05/06` 已经分别补上 Toolbox、Orchestrator、BehaviorState 和 trace/replay 边界。
+- `07` 需要定义 UI 如何消费 TurnResult 中对 frame / trace 的引用，而不是直接读取内部对象。
