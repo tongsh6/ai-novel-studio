@@ -563,7 +563,7 @@ Execution Orchestrator 必须：
 | `cancellation` | true | 关闭 behavior / task | `CANCELLED` 或 behavior history closed |
 | `rejection_candidate` | true | policy check | `FAILED` 或 rejection behavior / message |
 
-矩阵只是动态流参考。具体 phase/status/next_action 兼容表后续由 `05-turn-behavior-and-state-model.md` 与 ADR 冻结。
+矩阵只是动态流参考。具体 phase/status/next_action 兼容表由 `05-turn-behavior-and-state-model.md` 承接，最终由 ADR 冻结。
 
 ---
 
@@ -615,11 +615,11 @@ v3 主链必须保护以下不变量：
 下一步建议写：
 
 ```text
-05-turn-behavior-and-state-model.md
+06-memory-context-and-trace.md
 ```
 
 原因：
 
 - `00b` 已经定义动态主链。
-- `02/03/04` 已经把 Frame/Plan、Toolbox、Orchestrator 分别拆成 contract 草案。
-- `05` 需要把本文中的 clarification、confirmation、correction、cancellation 和 recovery 变成可持续的 behavior lifecycle。
+- `02/03/04/05` 已经把 Frame/Plan、Toolbox、Orchestrator 和 BehaviorState 分别拆成 contract 草案。
+- `06` 需要把本文中的 DialogueFrame、MicroPlan、OrchestratorDecision、BehaviorState 和 TurnResult 串进 trace / replay。

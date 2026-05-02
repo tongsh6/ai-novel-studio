@@ -12,7 +12,7 @@
 > 不负责范围：
 > - 不定义 Toolbox / Capability 注册格式，留给 `03-capability-toolbox-contract.md`
 > - 不定义 Execution Orchestrator API，留给 `04-execution-orchestrator.md`
-> - 不定义 phase/status/next_action 最终兼容表，留给 `05-turn-behavior-and-state-model.md`
+> - 不定义 phase/status/next_action 最终兼容表，由 `05-turn-behavior-and-state-model.md` 收束
 > - 不定义持久化 schema，留给后续承重垂直切面规划
 
 ---
@@ -542,13 +542,18 @@ DialogueFrame 与 MicroPlan 不直接替代 TurnResult。
 | DialogueFrame / TurnResult Trace Link | TurnResult 如何引用 frame / trace |
 | Planner Authority Boundary | Planner 不能批准执行的硬约束 |
 
-ADR 前需要先完成：
+本文已经由以下文档继续承接：
 
 1. `03-capability-toolbox-contract.md`
 2. `04-execution-orchestrator.md`
 3. `05-turn-behavior-and-state-model.md`
 
-原因是 MicroPlan 动作类型、OrchestratorDecision 和 behavior lifecycle 需要互相校验。
+ADR 前还需要完成：
+
+1. `06-memory-context-and-trace.md`
+2. `00c-state-and-contract-atlas.md`
+
+原因是 MicroPlan 动作类型、OrchestratorDecision、behavior lifecycle 和 trace / replay 需要互相校验。
 
 ---
 
@@ -560,14 +565,15 @@ ADR 前需要先完成：
 
 - `03-capability-toolbox-contract.md`：定义 MicroPlan 如何引用工具与 ToolRequest。
 - `04-execution-orchestrator.md`：定义 MicroPlan 如何被裁决、降级、确认或执行。
+- `05-turn-behavior-and-state-model.md`：定义 MicroPlan 裁决后如何形成 durable behavior。
 
 下一步建议写：
 
 ```text
-05-turn-behavior-and-state-model.md
+06-memory-context-and-trace.md
 ```
 
 原因：
 
-- `03/04` 已经分别补上 Toolbox 和 Orchestrator 边界。
-- `05` 需要把 MicroPlan 裁决后的 clarification、confirmation、correction、cancellation 和 recovery 变成稳定 behavior lifecycle。
+- `03/04/05` 已经分别补上 Toolbox、Orchestrator 和 BehaviorState 边界。
+- `06` 需要定义 frame / plan / decision / behavior 如何进入 trace 与 replay。

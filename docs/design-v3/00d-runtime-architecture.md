@@ -411,16 +411,17 @@ v3 的 replay 不要求重新调用 LLM。默认重放应优先使用已记录�
 - `02`：DialogueFrame / MicroPlan 协议草案。
 - `03`：Capability Toolbox 协议草案。
 - `04`：Execution Orchestrator 协议草案。
+- `05`：Turn Behavior 与状态模型草案。
 
 下一步建议写：
 
 ```text
-05-turn-behavior-and-state-model.md
+06-memory-context-and-trace.md
 ```
 
 原因：
 
 - `00b` 已经说明 frame / plan 在动态主链中的位置。
 - `00d` 已经说明 frame / plan 在运行时视图中的位置。
-- `02/03/04` 已经把 Frame/Plan、Toolbox、Orchestrator 推进为 contract 草案。
-- `05` 需要把运行时中的 durable behavior 与 phase/status/next_action 对齐。
+- `02/03/04/05` 已经把 Frame/Plan、Toolbox、Orchestrator、BehaviorState 推进为 contract 草案。
+- `06` 需要把运行时中的 context、trace、replay 与这些对象对齐。

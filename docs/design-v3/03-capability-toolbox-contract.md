@@ -11,7 +11,7 @@
 >
 > 不负责范围：
 > - 不定义 Execution Orchestrator 的完整 API，留给 `04-execution-orchestrator.md`
-> - 不定义 phase/status/next_action，留给 `05-turn-behavior-and-state-model.md`
+> - 不定义 phase/status/next_action，由 `05-turn-behavior-and-state-model.md` 收束
 > - 不定义 memory/context 细节，留给 `06-memory-context-and-trace.md`
 > - 不定义具体工具实现代码或 umbrella app 归属，留给承重垂直切面规划
 
@@ -536,10 +536,9 @@ UI 可以展示工具结果摘要，但必须来自 TurnResult 或 trace 引用�
 
 ADR 前需要先完成：
 
-1. `05-turn-behavior-and-state-model.md`
-2. `06-memory-context-and-trace.md`
+1. `06-memory-context-and-trace.md`
 
-原因是 `04-execution-orchestrator.md` 已经承接 ToolRequest 的裁决边界，后续还需要 behavior 状态和 trace 存储与之互相校验。
+原因是 `04-execution-orchestrator.md` 已经承接 ToolRequest 的裁决边界，`05-turn-behavior-and-state-model.md` 已经承接 behavior 状态，后续还需要 trace 存储与之互相校验。
 
 ---
 
@@ -551,14 +550,16 @@ ADR 前需要先完成：
 - Toolbox / ToolRequest / ToolResult 的协议草案。
 - 动态主链与运行时视图。
 - Execution Orchestrator 的协议草案。
+- Turn Behavior 与状态模型草案。
 
 下一步建议写：
 
 ```text
-05-turn-behavior-and-state-model.md
+06-memory-context-and-trace.md
 ```
 
 原因：
 
 - `04` 已经定义 OrchestratorDecision、门禁顺序、dispatch 边界、状态推进和 TurnResult 组装职责。
-- `05` 需要定义 clarification、confirmation、correction、cancellation、recovery 如何形成可持续 behavior lifecycle。
+- `05` 已经定义 clarification、confirmation、correction、cancellation、recovery 如何形成可持续 behavior lifecycle。
+- `06` 需要定义 ToolRequest / ToolResult / BehaviorState 如何进入 trace 与 replay。
