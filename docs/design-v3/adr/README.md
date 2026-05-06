@@ -238,13 +238,13 @@ ADR-0003-planner-authority-boundary.md
 
 ### 8.1 Batch A：主链与执行权
 
-| 编号 | 文件 | 主题 | 来源 | 阻塞内容 |
-|---|---|---|---|---|
-| ADR-0001 | `ADR-0001-dialogue-frame-v3.md` | DialogueFrame v3 Schema | `02`, `00c` | 所有 turn slice |
-| ADR-0002 | `ADR-0002-micro-plan-v3.md` | MicroPlan v3 Schema | `02`, `04`, `00c` | tool / behavior / confirmation slice |
-| ADR-0003 | `ADR-0003-planner-authority-boundary.md` | Planner Authority Boundary | `02`, `04`, `00c` | 所有执行 slice |
-| ADR-0004 | `ADR-0004-orchestrator-decision-v3.md` | OrchestratorDecision v3 | `04`, `00c` | ToolRequest / TurnResult / trace slice |
-| ADR-0005 | `ADR-0005-execution-gate-order-v3.md` | Execution Gate Order v3 | `04`, `00c` | 高风险动作和 adoption slice |
+| 编号 | 文件 | 状态 | 主题 | 来源 | 阻塞内容 |
+|---|---|---|---|---|---|
+| ADR-0001 | `ADR-0001-dialogue-frame-v3.md` | Proposed | DialogueFrame v3 语义与最小 contract | `02`, `00c` | 所有 turn slice |
+| ADR-0002 | `ADR-0002-micro-plan-v3.md` | Planned | MicroPlan v3 Schema | `02`, `04`, `00c` | tool / behavior / confirmation slice |
+| ADR-0003 | `ADR-0003-planner-authority-boundary.md` | Planned | Planner Authority Boundary | `02`, `04`, `00c` | 所有执行 slice |
+| ADR-0004 | `ADR-0004-orchestrator-decision-v3.md` | Planned | OrchestratorDecision v3 | `04`, `00c` | ToolRequest / TurnResult / trace slice |
+| ADR-0005 | `ADR-0005-execution-gate-order-v3.md` | Planned | Execution Gate Order v3 | `04`, `00c` | 高风险动作和 adoption slice |
 
 ### 8.2 Batch B：状态、行为与写入边界
 
@@ -273,9 +273,9 @@ ADR-0003-planner-authority-boundary.md
 
 建议先写 Batch A 的前 3 条 Proposed ADR：
 
-1. `ADR-0001-dialogue-frame-v3.md`
-2. `ADR-0002-micro-plan-v3.md`
-3. `ADR-0003-planner-authority-boundary.md`
+1. 已完成 `ADR-0001-dialogue-frame-v3.md`。
+2. 下一步写 `ADR-0002-micro-plan-v3.md`。
+3. 再写 `ADR-0003-planner-authority-boundary.md`。
 
 原因：
 
@@ -320,11 +320,11 @@ Accepted ADR 可以仍然保留 Deferred 问题，但这些问题不能影响当
 本文完成后，下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
+docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 ```
 
 原因：
 
-- `00c` 已经把 DialogueFrame 放在主链对象索引、contract registry、全局不变量和 Batch A ADR backlog 的第一位。
-- 每个 turn 必有 DialogueFrame 是 v3 脱离 Router-first 的第一承重决策。
-- 后续 `MicroPlan`、`OrchestratorDecision`、trace、TurnResult 都需要引用它。
+- `ADR-0001` 已经把每 turn 必有 DialogueFrame 升级为 Proposed 决策。
+- 下一步需要冻结 Planner 到 Execution Orchestrator 之间的行动建议协议。
+- `MicroPlan` 是连接 DialogueFrame 与执行权边界的第二承重点。

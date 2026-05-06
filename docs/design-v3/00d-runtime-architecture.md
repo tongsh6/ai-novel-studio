@@ -419,7 +419,7 @@ v3 的 replay 不要求重新调用 LLM。默认重放应优先使用已记录�
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
+docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 ```
 
 原因：
@@ -430,4 +430,5 @@ docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 - `07` 已经把运行时输出转成 UI 可消费的 TurnResult、cards、actions、trace summary 和 projection hints。
 - `00c` 已经把这些运行时对象、状态字段和 ADR 候选统一索引，作为 ADR 与 slice DAG 前置材料。
 - `adr/README.md` 已经建立 v3 ADR 目录与首批 Proposed ADR 顺序。
-- 下一步需要写 `ADR-0001-dialogue-frame-v3.md`，冻结运行时控制面里的 DialogueFrame 认知锚点。
+- `ADR-0001` 已经将运行时控制面里的 DialogueFrame 认知锚点升级为 Proposed 决策。
+- 下一步需要写 `ADR-0002-micro-plan-v3.md`，冻结 Planner 到 Execution Orchestrator 的行动建议协议。

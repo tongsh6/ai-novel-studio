@@ -992,7 +992,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
+docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 ```
 
 原因：
@@ -1003,6 +1003,7 @@ docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 - `07` 已经定义 UI 如何消费 Orchestrator 输出，而不是绕过 Orchestrator 直接推进状态。
 - `00c` 已经汇总 OrchestratorDecision、BehaviorState、TurnResult 和 UI action 的 contract 索引。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
-- 下一步需要写 `ADR-0001-dialogue-frame-v3.md`，先冻结 Orchestrator 裁决所依赖的 frame 语义。
+- `ADR-0001` 已经将 Orchestrator 裁决所依赖的 frame 语义升级为 Proposed 决策。
+- 下一步需要写 `ADR-0002-micro-plan-v3.md`，冻结 Orchestrator 将要审查的计划输入。
 
 在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。

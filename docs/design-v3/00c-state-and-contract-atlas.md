@@ -348,13 +348,13 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 
 第一批 ADR 应先冻结会影响所有 slice 的主链对象。
 
-| ADR 候选 | 来源 | 为什么优先 | 阻塞内容 |
-|---|---|---|---|
-| DialogueFrame v3 Schema | `02` | 每 turn 必有，是 trace 和 replay 的根 | 所有 turn slice |
-| MicroPlan v3 Schema | `02`, `04` | Planner 到 Orchestrator 的协议必须稳定 | tool / behavior / confirmation slice |
-| Planner Authority Boundary | `02`, `04` | 防止 Planner 批准自己的执行 | 所有执行 slice |
-| OrchestratorDecision v3 | `04` | 执行裁决要能解释和测试 | ToolRequest / TurnResult / trace slice |
-| Execution Gate Order v3 | `04` | 权限、预算、policy 顺序必须稳定 | 高风险动作和 adoption slice |
+| ADR 候选 | 状态 | 来源 | 为什么优先 | 阻塞内容 |
+|---|---|---|---|---|
+| DialogueFrame v3 Schema | Proposed：`adr/ADR-0001-dialogue-frame-v3.md` | `02` | 每 turn 必有，是 trace 和 replay 的根 | 所有 turn slice |
+| MicroPlan v3 Schema | Planned | `02`, `04` | Planner 到 Orchestrator 的协议必须稳定 | tool / behavior / confirmation slice |
+| Planner Authority Boundary | Planned | `02`, `04` | 防止 Planner 批准自己的执行 | 所有执行 slice |
+| OrchestratorDecision v3 | Planned | `04` | 执行裁决要能解释和测试 | ToolRequest / TurnResult / trace slice |
+| Execution Gate Order v3 | Planned | `04` | 权限、预算、policy 顺序必须稳定 | 高风险动作和 adoption slice |
 
 ### 8.2 Batch B：状态、行为与写入边界
 
@@ -601,10 +601,11 @@ v3 需要区分“谁说了算”。
 - Workbench UI 消费契约草案。
 - 状态、contract、ADR 候选、slice 入口总索引。
 - v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- `ADR-0001-dialogue-frame-v3.md` Proposed 决策。
 
 后续仍需补齐：
 
-- 首批 Proposed ADR。
+- Batch A 后续 Proposed ADR。
 - Accepted ADR。
 - JSON Schema 或代码级 contract。
 - 垂直切面 DAG。
@@ -617,14 +618,15 @@ v3 需要区分“谁说了算”。
 本文完成后，下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
+docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 ```
 
 原因：
 
 - `00c` 已经把 contract 和 ADR 候选汇总成 backlog。
 - `docs/design-v3/adr/README.md` 已经定义 v3 ADR 的编号、状态、模板和第一批 Proposed ADR 的排序规则。
-- 下一步需要先冻结 v3 主链的第一承重点：每个 turn 必有 `DialogueFrame`。
-- 这能保证后续 `MicroPlan`、`OrchestratorDecision`、trace、TurnResult 和垂直切面都引用同一个认知锚点。
+- `ADR-0001` 已经先把 v3 主链的第一承重点升级为 Proposed：每个 turn 必有 `DialogueFrame`。
+- 下一步需要冻结 Planner 到 Execution Orchestrator 之间的行动建议协议：`MicroPlan`。
+- 这能保证后续 `OrchestratorDecision`、ToolRequest、BehaviorState、trace、TurnResult 和垂直切面都有稳定计划输入。
 
 `tasks/slices/v3/DAG.md` 应该在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审后创建。
