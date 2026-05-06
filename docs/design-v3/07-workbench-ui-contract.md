@@ -694,13 +694,14 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/README.md
+docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 ```
 
 原因：
 
 - `02` 到 `07` 已经分别定义核心对象、执行边界、行为状态、trace/replay 和 UI 消费。
 - `00c` 已经把这些 contract、状态对象、ADR 候选和未来 slice 入口汇总成索引图。
-- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- 下一步需要写 `ADR-0001-dialogue-frame-v3.md`，先冻结 UI 可引用的 frame 语义来源。
 
-在 v3 ADR 目录和首批 Proposed ADR 顺序明确之前，不建议创建 implementation plan。
+在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。

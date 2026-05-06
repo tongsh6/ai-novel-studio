@@ -1039,7 +1039,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/README.md
+docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 ```
 
 原因：
@@ -1048,6 +1048,7 @@ docs/design-v3/adr/README.md
 - `06` 已经定义 DialogueContext、DecisionTrace、BehaviorTrace 和 replay 如何支撑这些行为。
 - `07` 已经定义 UI 如何消费这些行为状态与 trace 摘要，而不是直接修改 BehaviorState。
 - `00c` 已经把 phase/status/next_action、BehaviorState、UI action 和 ADR 候选放入同一张索引。
-- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- 下一步需要写 `ADR-0001-dialogue-frame-v3.md`，先冻结状态模型上游的每 turn 认知锚点。
 
-在 v3 ADR 目录和首批 Proposed ADR 顺序明确之前，不建议创建 implementation plan。
+在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。

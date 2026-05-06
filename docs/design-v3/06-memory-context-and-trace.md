@@ -854,7 +854,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/README.md
+docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 ```
 
 原因：
@@ -862,6 +862,7 @@ docs/design-v3/adr/README.md
 - `02` 到 `06` 已经定义系统内部如何理解、建议、裁决、等待、记录和回放。
 - `07` 已经定义 Workbench UI 如何消费 TurnResult、BehaviorState、available actions、trace summary 和 projection hints。
 - `00c` 已经把 memory/context/trace 与其他 contract、ADR 候选、slice 入口统一索引。
-- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- 下一步需要写 `ADR-0001-dialogue-frame-v3.md`，先冻结 trace/replay 需要引用的 frame 语义。
 
-在 v3 ADR 目录和首批 Proposed ADR 顺序明确之前，不建议创建 implementation plan。
+在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。

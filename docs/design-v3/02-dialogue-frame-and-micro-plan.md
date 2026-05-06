@@ -572,11 +572,12 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/README.md
+docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 ```
 
 原因：
 
 - `03/04/05/06/07` 已经分别补上 Toolbox、Orchestrator、BehaviorState、trace/replay 和 UI 消费边界。
 - `00c` 已经把 DialogueFrame / MicroPlan 与其他状态、contract、ADR 候选放到同一张索引图中。
-- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- 下一步需要写 `ADR-0001-dialogue-frame-v3.md`，先冻结 DialogueFrame，再继续冻结 MicroPlan。

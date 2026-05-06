@@ -600,10 +600,11 @@ v3 需要区分“谁说了算”。
 - Memory / Context / Trace / Replay 草案。
 - Workbench UI 消费契约草案。
 - 状态、contract、ADR 候选、slice 入口总索引。
+- v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 
-还没有具备：
+后续仍需补齐：
 
-- v3 ADR 编号和状态规则文件。
+- 首批 Proposed ADR。
 - Accepted ADR。
 - JSON Schema 或代码级 contract。
 - 垂直切面 DAG。
@@ -616,13 +617,14 @@ v3 需要区分“谁说了算”。
 本文完成后，下一步建议写：
 
 ```text
-docs/design-v3/adr/README.md
+docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 ```
 
 原因：
 
 - `00c` 已经把 contract 和 ADR 候选汇总成 backlog。
-- 在创建 `tasks/slices/v3/DAG.md` 之前，需要先定义 v3 ADR 的编号、状态、模板和第一批 Proposed ADR 的排序规则。
-- 这能保证后续垂直切面消费的是可评审、可引用、可冻结的决策，而不是散落在草案中的口头约定。
+- `docs/design-v3/adr/README.md` 已经定义 v3 ADR 的编号、状态、模板和第一批 Proposed ADR 的排序规则。
+- 下一步需要先冻结 v3 主链的第一承重点：每个 turn 必有 `DialogueFrame`。
+- 这能保证后续 `MicroPlan`、`OrchestratorDecision`、trace、TurnResult 和垂直切面都引用同一个认知锚点。
 
-`tasks/slices/v3/DAG.md` 应该在 v3 ADR 目录和首批 ADR 草案之后创建。
+`tasks/slices/v3/DAG.md` 应该在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审后创建。

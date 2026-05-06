@@ -992,7 +992,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/README.md
+docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 ```
 
 原因：
@@ -1002,6 +1002,7 @@ docs/design-v3/adr/README.md
 - `06` 已经证明 OrchestratorDecision、BehaviorState、ToolResult 和 TurnResult 都可以进入 DecisionTrace 并被 replay。
 - `07` 已经定义 UI 如何消费 Orchestrator 输出，而不是绕过 Orchestrator 直接推进状态。
 - `00c` 已经汇总 OrchestratorDecision、BehaviorState、TurnResult 和 UI action 的 contract 索引。
-- 下一步需要建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
+- 下一步需要写 `ADR-0001-dialogue-frame-v3.md`，先冻结 Orchestrator 裁决所依赖的 frame 语义。
 
-在 v3 ADR 目录和首批 Proposed ADR 顺序明确之前，不建议创建 implementation plan。
+在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。

@@ -619,7 +619,7 @@ v3 主链必须保护以下不变量：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/README.md
+docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md
 ```
 
 原因：
@@ -628,4 +628,5 @@ docs/design-v3/adr/README.md
 - `02/03/04/05/06` 已经把 Frame/Plan、Toolbox、Orchestrator、BehaviorState 和 trace/replay 分别拆成 contract 草案。
 - `07` 已经定义 UI 如何消费本文中的 assistant_message、cards、behavior_state、trace summary 与 available actions。
 - `00c` 已经把这些状态、contract、ADR 候选和第一批 slice 入口汇总成索引。
-- 下一步需要定义 v3 ADR 的编号、状态和首批 Proposed ADR 顺序。
+- `adr/README.md` 已经定义 v3 ADR 的编号、状态和首批 Proposed ADR 顺序。
+- 下一步需要写 `ADR-0001-dialogue-frame-v3.md`，冻结本文主链中“每 turn 必有 DialogueFrame”的认知锚点。
