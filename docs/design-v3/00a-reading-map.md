@@ -14,10 +14,10 @@
 |---|---|---:|---|
 | 完全没看过，10 分钟先了解 | §1 | 10 min | 讲清 v3 为什么存在、和 v2 根本差异是什么 |
 | 产品 / 作者 / 方向评估 | §2 | 50 min | 判断 v3 是否对齐“LLM 创作伙伴”愿景 |
-| 架构 / Agent 工程师 | §3 | 155 min | 理解 v3 主链、边界和后续 contract 顺序 |
+| 架构 / Agent 工程师 | §3 | 165 min | 理解 v3 主链、边界和后续 contract 顺序 |
 | UI / Workbench 设计 | §4 | 80 min | 理解为什么 UI 不应再呈现表单式补槽 |
-| 维护者 / 决策冻结 | §5 | 125 min | 判断哪些内容只是草案，哪些应升级 ADR |
-| 垂直切面规划者 | §6 | 145 min | 知道何时允许切承重垂直切面，怎么切 |
+| 维护者 / 决策冻结 | §5 | 135 min | 判断哪些内容只是草案，哪些应升级 ADR |
+| 垂直切面规划者 | §6 | 155 min | 知道何时允许切承重垂直切面，怎么切 |
 
 不在以上身份中：先读 §1，再按最接近的角色跳读。
 
@@ -86,7 +86,8 @@ Execution Orchestrator 保留执行硬门禁。
 | 11 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 汇总状态、contract、ADR 和 slice 入口 |
 | 12 | `adr/README.md` | 草案，已存在 | 定义 v3 ADR 编号、状态、模板和首批顺序 |
 | 13 | `adr/ADR-0001-dialogue-frame-v3.md` | Proposed，已存在 | 提出每 turn 必有的认知锚点决策 |
-| 14 | `adr/ADR-0002-micro-plan-v3.md` | 计划中 | 冻结 Planner 到执行层的行动建议协议 |
+| 14 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 提出 Planner 到执行层的行动建议协议 |
+| 15 | `adr/ADR-0003-planner-authority-boundary.md` | 计划中 | 冻结 Planner 不能批准执行的权限边界 |
 
 工程师读完当前必读后，应该能回答：
 
@@ -135,7 +136,8 @@ UI 侧当前结论：
 | 8 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 15 min | 哪些 contract 应优先升级 ADR |
 | 9 | `adr/README.md` | 草案，已存在 | 按需 | v3 ADR 如何编号、评审和冻结 |
 | 10 | `adr/ADR-0001-dialogue-frame-v3.md` | Proposed，已存在 | 按需 | DialogueFrame 的决策范围和替代方案 |
-| 11 | `adr/ADR-0002-micro-plan-v3.md` | 计划中 | 按需 | MicroPlan 的冻结范围和替代方案 |
+| 11 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 按需 | MicroPlan 的冻结范围和替代方案 |
+| 12 | `adr/ADR-0003-planner-authority-boundary.md` | 计划中 | 按需 | Planner 权限边界的冻结范围 |
 
 维护者判断规则：
 
@@ -164,8 +166,9 @@ UI 侧当前结论：
 | 10 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 10 min | 状态、contract、ADR、slice 如何索引 |
 | 11 | `adr/README.md` | 草案，已存在 | 10 min | 哪些 ADR 先冻结，哪些只是 backlog |
 | 12 | `adr/ADR-0001-dialogue-frame-v3.md` | Proposed，已存在 | 10 min | 第一条 ADR 如何约束每 turn 必有 frame |
-| 13 | `adr/ADR-0002-micro-plan-v3.md` | 计划中 | 10 min | MicroPlan 如何连接 frame 与执行权 |
-| 14 | `tasks/slices/v3/DAG.md` | 计划中 | 10 min | slice 之间如何排序 |
+| 13 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 10 min | MicroPlan 如何连接 frame 与执行权 |
+| 14 | `adr/ADR-0003-planner-authority-boundary.md` | 计划中 | 10 min | Planner 不能批准执行如何成为硬边界 |
+| 15 | `tasks/slices/v3/DAG.md` | 计划中 | 10 min | slice 之间如何排序 |
 
 每条 v3 slice 必须回答：
 
@@ -199,7 +202,8 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 | `07-workbench-ui-contract.md` | 草案，已存在 | UI 消费契约 |
 | `adr/README.md` | 草案，已存在 | ADR 编号、状态、模板 |
 | `adr/ADR-0001-dialogue-frame-v3.md` | Proposed，已存在 | DialogueFrame v3 决策 |
-| `adr/ADR-0002-micro-plan-v3.md` | 计划中 | MicroPlan v3 决策 |
+| `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | MicroPlan v3 决策 |
+| `adr/ADR-0003-planner-authority-boundary.md` | 计划中 | Planner 权限边界决策 |
 | `tasks/slices/v3/DAG.md` | 计划中 | 垂直切面排序 |
 
 ---
@@ -224,7 +228,7 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 如果你现在要继续完善 v3 设计体系，下一篇应该写：
 
 ```text
-docs/design-v3/adr/ADR-0002-micro-plan-v3.md
+docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 ```
 
 原因：
@@ -236,4 +240,5 @@ docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 - `00c` 已经把状态、contract、ADR 候选和第一批 slice 入口放到同一张索引图里。
 - `adr/README.md` 已经定义 v3 ADR 的编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经把每 turn 必有 DialogueFrame 升级为 Proposed 决策。
-- 下一步需要写 `ADR-0002-micro-plan-v3.md`，冻结 Planner 到执行层的行动建议协议。
+- `ADR-0002` 已经把 MicroPlan 升级为 Proposed 决策。
+- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结 Planner 不能批准执行的权限边界。

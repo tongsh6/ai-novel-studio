@@ -343,7 +343,7 @@ stateDiagram-v2
 MicroPlan 可以包含：
 
 - `proposed_actions`
-- `required_tools`
+- `required_capabilities`
 - `state_changes_requested`
 - `confirmation_policy`
 - `stop_after_next_action`
@@ -390,7 +390,7 @@ Toolbox 是能力注册和执行边界。
 Execution Orchestrator 是调用批准边界。
 
 ```text
-MicroPlan.required_tools
+MicroPlan.required_capabilities
 → Orchestrator gate
 → ToolRequest
 → Capability Toolbox dispatch
@@ -406,7 +406,7 @@ Planner、UI、工具自身都不能直接生成可执行 ToolRequest。
 Planner 可以说：
 
 ```text
-required_tools = ["slot_validator", "concept_expander"]
+required_capabilities = ["slot_validator", "concept_expander"]
 ```
 
 但只有 Orchestrator 可以形成：
@@ -706,7 +706,7 @@ MicroPlan：
 
 ```text
 proposed_actions = [generate_candidate_directions]
-required_tools = [concept_expander]
+required_capabilities = [concept_expander]
 stop_after_next_action = true
 ```
 
@@ -992,7 +992,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0002-micro-plan-v3.md
+docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 ```
 
 原因：
@@ -1004,6 +1004,6 @@ docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 - `00c` 已经汇总 OrchestratorDecision、BehaviorState、TurnResult 和 UI action 的 contract 索引。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经将 Orchestrator 裁决所依赖的 frame 语义升级为 Proposed 决策。
-- 下一步需要写 `ADR-0002-micro-plan-v3.md`，冻结 Orchestrator 将要审查的计划输入。
+- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结 Orchestrator 审查 Planner 建议时依赖的权限边界。
 
 在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。

@@ -211,7 +211,7 @@ MicroPlan 是 Planner 在本轮需要行动时提交给 Execution Orchestrator �
 | `plan_goal` | 是 | 本轮行动目标 |
 | `proposed_actions` | 是 | Planner 建议动作列表 |
 | `state_changes_requested` | 是 | 请求更新的状态，默认为空 list |
-| `required_tools` | 是 | 建议使用的工具或 capability 名称 |
+| `required_capabilities` | 是 | 建议使用的 capability、capability class 或工具能力名称 |
 | `risk_hint` | 否 | Planner 对风险、预算、写入的提示 |
 | `requires_confirmation_hint` | 否 | Planner 是否认为需要确认 |
 | `stop_after_next_action` | 是 | 默认 true，只建议放行下一步 |
@@ -222,7 +222,7 @@ MicroPlan 是 Planner 在本轮需要行动时提交给 Execution Orchestrator �
 
 1. `proposed_actions` 是建议，不是执行事实。
 2. `state_changes_requested` 必须由 Execution Orchestrator 批准后才生效。
-3. `required_tools` 必须指向 Toolbox 中已知工具或 capability。
+3. `required_capabilities` 必须指向 Toolbox 中已知 capability、capability class 或工具能力名称。
 4. `stop_after_next_action` 默认 true，防止 MicroPlan 变成长计划。
 
 ### 3.4 proposed_actions 候选动作类型
@@ -254,34 +254,23 @@ MicroPlan 是 Planner 在本轮需要行动时提交给 Execution Orchestrator �
 ```mermaid
 stateDiagram-v2
     [*] --> Proposed
-    Proposed --> UnderReview: submitted to Execution Orchestrator
-    UnderReview --> Allowed: allow_next_action
-    UnderReview --> Downgraded: downgrade_to_dialogue
-    UnderReview --> ConfirmationRequired: require_confirmation
-    UnderReview --> ClarificationRequired: require_clarification
-    UnderReview --> Rejected: reject
-    Allowed --> ToolRequested
-    ToolRequested --> ToolReturned
-    ToolReturned --> Completed
-    Downgraded --> Completed
-    ConfirmationRequired --> Completed
-    ClarificationRequired --> Completed
-    Rejected --> Completed
-    Completed --> [*]
+    Proposed --> Validated: envelope ok
+    Proposed --> Invalid: envelope invalid
+    Validated --> UnderReview: submitted to Execution Orchestrator
+    UnderReview --> Closed: OrchestratorDecision emitted
+    Invalid --> Closed: recovery TurnResult
+    Closed --> [*]
 ```
 
 生命周期说明：
 
 - `Proposed`：Planner 生成，但未提交审查。
+- `Validated`：plan envelope 和 frame 引用合法。
 - `UnderReview`：Execution Orchestrator 正在审查。
-- `Allowed`：只允许下一步安全动作。
-- `Downgraded`：不允许执行，改为继续对话。
-- `ConfirmationRequired`：必须先让作者确认。
-- `ClarificationRequired`：必须进入 durable clarification。
-- `Rejected`：请求不应执行。
-- `ToolRequested`：已由 Orchestrator 形成 ToolRequest。
-- `ToolReturned`：工具返回 ToolResult。
-- `Completed`：本轮 MicroPlan 已闭合。
+- `Invalid`：plan 结构非法或包含越权语义。
+- `Closed`：本轮 plan 已被裁决或恢复性关闭。
+
+ADR-0002 对本文早期草案做了收缩：`allow_next_action`、`downgrade_to_dialogue`、`require_confirmation`、`require_clarification`、`reject`、`ToolRequest`、`ToolResult` 都是 OrchestratorDecision 及下游 trace 的语义，不再作为 MicroPlan 自身生命周期状态。
 
 ---
 
@@ -336,7 +325,7 @@ stateDiagram-v2
 1. 必填字段存在。
 2. `frame_ref` 指向合法 DialogueFrame。
 3. `proposed_actions` 非空。
-4. `required_tools` 中的工具存在于 Toolbox registry 草案。
+4. `required_capabilities` 中的 capability 或工具能力存在于 Toolbox registry 草案。
 5. `state_changes_requested` 不能直接声明已完成。
 6. `stop_after_next_action` 默认 true。
 7. 若包含写入或长跑动作，必须携带 `risk_hint` 或由 Orchestrator 补充风险判断。
@@ -409,7 +398,7 @@ MicroPlan：
 {
   "plan_goal": "generate_candidate_work_seed_directions",
   "proposed_actions": ["generate_candidates"],
-  "required_tools": ["CandidateDirectionGenerator"],
+  "required_capabilities": ["capability.CandidateDirectionGenerator"],
   "state_changes_requested": [
     {"type": "record_intent_hypothesis", "intent": "intent.CREATE_WORK_SEED"}
   ],
@@ -447,7 +436,7 @@ MicroPlan：
 {
   "plan_goal": "validate_and_create_tentative_work_seed",
   "proposed_actions": ["validate_slots", "create_tentative_artifact"],
-  "required_tools": ["SlotValidator", "AuthorityChecker", "AdoptionBoundary"],
+  "required_capabilities": ["capability.SlotValidator", "capability.AuthorityChecker", "capability.AdoptionBoundary"],
   "state_changes_requested": [],
   "risk_hint": "writes_tentative_artifact",
   "requires_confirmation_hint": false,
@@ -572,7 +561,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0002-micro-plan-v3.md
+docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 ```
 
 原因：
@@ -581,4 +570,4 @@ docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 - `00c` 已经把 DialogueFrame / MicroPlan 与其他状态、contract、ADR 候选放到同一张索引图中。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经先将 DialogueFrame 语义和最小 contract 升级为 Proposed 决策。
-- 下一步需要写 `ADR-0002-micro-plan-v3.md`，继续冻结 MicroPlan。
+- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，把 Planner 不能批准执行升级为明确权限边界。

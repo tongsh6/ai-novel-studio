@@ -319,10 +319,11 @@ v3 不允许“有一个想法就直接写代码”。
 | 11 | `00c-state-and-contract-atlas.md` | 汇总状态、contract、ADR 与 slice 索引 |
 | 12 | `docs/design-v3/adr/README.md` | 定义 v3 ADR 编号、状态、模板和首批顺序 |
 | 13 | `docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md` | 提出每 turn 必有的认知锚点决策 |
-| 14 | `docs/design-v3/adr/ADR-0002-micro-plan-v3.md` | 冻结 Planner 到执行层的行动建议协议 |
-| 15 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
+| 14 | `docs/design-v3/adr/ADR-0002-micro-plan-v3.md` | 提出 Planner 到执行层的行动建议协议决策 |
+| 15 | `docs/design-v3/adr/ADR-0003-planner-authority-boundary.md` | 冻结 Planner 不能批准执行的权限边界 |
+| 16 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
 
-在第 15 步之前，不建议写代码实现计划。
+在第 16 步之前，不建议写代码实现计划。
 
 ---
 
@@ -346,6 +347,7 @@ v3 不允许“有一个想法就直接写代码”。
 14. `00c-state-and-contract-atlas.md` 作为 v3 状态、contract、ADR 候选和垂直切面入口总索引；垂直切面 DAG 之前应先建立 v3 ADR 目录与首批 Proposed ADR 顺序。
 15. v3 ADR 目录采用独立编号、Proposed / Accepted / Superseded / Deferred 状态，并要求 ADR 回连 `00c` 的 contract、invariant 和 slice 入口。
 16. `ADR-0001-dialogue-frame-v3.md` 已将每 turn 必有 DialogueFrame 升级为 Proposed 决策。
+17. `ADR-0002-micro-plan-v3.md` 已将 MicroPlan 作为下一步行动建议 envelope 升级为 Proposed 决策。
 
 ---
 
@@ -363,7 +365,7 @@ v3 不允许“有一个想法就直接写代码”。
 | MemoryItem / DialogueContext / DecisionTrace 字段全集 | `06-memory-context-and-trace.md` + v3 ADR |
 | TurnResult v3 是否复用 v2 顶层字段 | v3 ADR |
 | UI card/action/trace summary 字段全集 | `07-workbench-ui-contract.md` + v3 ADR |
-| MicroPlan v3 第二条 ADR 的冻结范围 | `docs/design-v3/adr/ADR-0002-micro-plan-v3.md` |
+| Planner Authority Boundary 的冻结范围 | `docs/design-v3/adr/ADR-0003-planner-authority-boundary.md` |
 | v2 代码迁移是重构还是旁路新链路 | slice DAG 阶段 |
 
 ---
@@ -402,8 +404,9 @@ v3 下一步应继续完善设计体系，而不是进入代码实现。
 9. 已完成 `00c-state-and-contract-atlas.md`，汇总状态、contract、ADR 候选和 slice 入口。
 10. 已完成 `docs/design-v3/adr/README.md`，定义 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 11. 已完成 `docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md`，将 DialogueFrame 升级为 Proposed 决策。
-12. 下一步写 `docs/design-v3/adr/ADR-0002-micro-plan-v3.md`。
-13. 再写 `ADR-0003-planner-authority-boundary.md`。
-14. 最后创建 `tasks/slices/v3/DAG.md`。
+12. 已完成 `docs/design-v3/adr/ADR-0002-micro-plan-v3.md`，将 MicroPlan 升级为 Proposed 决策。
+13. 下一步写 `docs/design-v3/adr/ADR-0003-planner-authority-boundary.md`。
+14. 再写 `ADR-0004-orchestrator-decision-v3.md`。
+15. 最后创建 `tasks/slices/v3/DAG.md`。
 
 只有当上述设计链路能支撑第一条承重垂直切面时，才进入 implementation plan。

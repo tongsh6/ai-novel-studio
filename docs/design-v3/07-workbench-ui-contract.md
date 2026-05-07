@@ -694,7 +694,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0002-micro-plan-v3.md
+docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 ```
 
 原因：
@@ -703,6 +703,6 @@ docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 - `00c` 已经把这些 contract、状态对象、ADR 候选和未来 slice 入口汇总成索引图。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经将 UI 可引用的 frame 语义来源升级为 Proposed 决策。
-- 下一步需要写 `ADR-0002-micro-plan-v3.md`，冻结 UI action 上游的计划建议语义。
+- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结 UI action 上游 Planner 只有建议权、没有执行批准权。
 
 在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。

@@ -238,13 +238,13 @@ ToolResult 不是：
 
 ## 6. Toolbox 与 MicroPlan 的关系
 
-MicroPlan 通过 `required_tools` 和 `proposed_actions` 引用 Toolbox。
+MicroPlan 通过 `required_capabilities` 和 `proposed_actions` 引用 Toolbox。
 
 约束：
 
 | 规则 | 说明 |
 |---|---|
-| `required_tools` 必须存在 | Planner 不能引用未注册工具 |
+| `required_capabilities` 必须存在 | Planner 不能引用未注册 capability 或工具能力 |
 | action 与 tool layer 必须兼容 | 例如 `validate_slots` 应指向 policy 工具 |
 | 写入工具需要 authority | 任何 `write_scopes` 非空工具必须经过权限门禁 |
 | 创作工具输出不直接写入 | 创作结果默认 candidate 或 tentative |
@@ -257,7 +257,7 @@ MicroPlan 示例：
 {
   "plan_goal": "validate_and_create_tentative_work_seed",
   "proposed_actions": ["validate_slots", "create_tentative_artifact"],
-  "required_tools": ["tool.SlotValidator", "tool.AuthorityChecker", "tool.AdoptionBoundary"],
+  "required_capabilities": ["capability.SlotValidator", "capability.AuthorityChecker", "capability.AdoptionBoundary"],
   "stop_after_next_action": true
 }
 ```
@@ -558,7 +558,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0002-micro-plan-v3.md
+docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 ```
 
 原因：
@@ -570,4 +570,4 @@ docs/design-v3/adr/ADR-0002-micro-plan-v3.md
 - `00c` 已经把 toolbox contract 与其他状态、ADR 候选、slice 入口建立索引关系。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经将工具调用之前的每 turn 认知锚点升级为 Proposed 决策。
-- 下一步需要写 `ADR-0002-micro-plan-v3.md`，冻结 Planner 如何建议工具与状态推进。
+- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结 Planner 对工具与状态推进只有建议权、没有执行批准权。
