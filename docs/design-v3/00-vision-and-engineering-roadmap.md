@@ -321,9 +321,11 @@ v3 不允许“有一个想法就直接写代码”。
 | 13 | `docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md` | 提出每 turn 必有的认知锚点决策 |
 | 14 | `docs/design-v3/adr/ADR-0002-micro-plan-v3.md` | 提出 Planner 到执行层的行动建议协议决策 |
 | 15 | `docs/design-v3/adr/ADR-0003-planner-authority-boundary.md` | 提出 Planner 不能批准执行的权限边界 |
-| 16 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
+| 16 | `docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md` | 冻结 OrchestratorDecision 的裁决表达 |
+| 17 | `docs/design-v3/adr/ADR-0005-execution-gate-order-v3.md` | 冻结执行门禁顺序 |
+| 18 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
 
-在第 16 步之前，不建议写代码实现计划。
+在第 18 步之前，不建议写代码实现计划。
 
 ---
 

@@ -108,6 +108,7 @@ ADR-0001-dialogue-frame-v3.md
 ADR-0002-micro-plan-v3.md
 ADR-0003-planner-authority-boundary.md
 ADR-0004-orchestrator-decision-v3.md
+ADR-0005-execution-gate-order-v3.md
 ```
 
 ---
@@ -285,7 +286,7 @@ ADR-0004-orchestrator-decision-v3.md
 - `Planner Authority Boundary` 先于所有执行类 slice，否则容易把 Planner 写成新的执行器。
 - 下一步应写 `ADR-0004-orchestrator-decision-v3.md`，让执行裁决本身具备稳定 contract。
 
-这 3 条可以先保持 Proposed。它们进入 Accepted 之前，不创建 implementation plan。
+这 3 条是主链与执行权的基础，可以先保持 Proposed。implementation plan 仍需等 ADR-0004 / ADR-0005 进入 Proposed、相关评审完成，并由 `tasks/slices/v3/DAG.md` 明确首批垂直切面后再创建。
 
 ---
 

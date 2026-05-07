@@ -388,6 +388,7 @@ docs/design-v3/adr/
   ADR-0002-micro-plan-v3.md
   ADR-0003-planner-authority-boundary.md
   ADR-0004-orchestrator-decision-v3.md
+  ADR-0005-execution-gate-order-v3.md
 ```
 
 ADR 状态建议先使用：

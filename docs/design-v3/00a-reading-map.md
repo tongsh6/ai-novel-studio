@@ -4,7 +4,7 @@
 >
 > 角色：v3 设计体系的阅读入口。本文按角色给出阅读路径、时间预算、读完能回答的问题，并标明当前已存在文档与计划中文档。
 >
-> 用法：先在 §0 选定身份，再按对应路径阅读。当前 v3 仍处于 Stage 1（Direction / Architecture），部分文档处于计划状态；计划中文档用于说明后续阅读顺序，不代表内容已经冻结。
+> 用法：先在 §0 选定身份，再按对应路径阅读。当前 v3 已完成 Stage 1（Direction / Architecture）的主链文档，正在推进 Stage 2（Contract / ADR）；计划中文档用于说明后续阅读顺序，不代表内容已经冻结。
 
 ---
 
@@ -14,10 +14,10 @@
 |---|---|---:|---|
 | 完全没看过，10 分钟先了解 | §1 | 10 min | 讲清 v3 为什么存在、和 v2 根本差异是什么 |
 | 产品 / 作者 / 方向评估 | §2 | 50 min | 判断 v3 是否对齐“LLM 创作伙伴”愿景 |
-| 架构 / Agent 工程师 | §3 | 175 min | 理解 v3 主链、边界和后续 contract 顺序 |
+| 架构 / Agent 工程师 | §3 | 185 min | 理解 v3 主链、边界和后续 contract 顺序 |
 | UI / Workbench 设计 | §4 | 80 min | 理解为什么 UI 不应再呈现表单式补槽 |
-| 维护者 / 决策冻结 | §5 | 145 min | 判断哪些内容只是草案，哪些应升级 ADR |
-| 垂直切面规划者 | §6 | 165 min | 知道何时允许切承重垂直切面，怎么切 |
+| 维护者 / 决策冻结 | §5 | 155 min | 判断哪些内容只是草案，哪些应升级 ADR |
+| 垂直切面规划者 | §6 | 175 min | 知道何时允许切承重垂直切面，怎么切 |
 
 不在以上身份中：先读 §1，再按最接近的角色跳读。
 
@@ -89,6 +89,7 @@ Execution Orchestrator 保留执行硬门禁。
 | 14 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 提出 Planner 到执行层的行动建议协议 |
 | 15 | `adr/ADR-0003-planner-authority-boundary.md` | Proposed，已存在 | 提出 Planner 不能批准执行的权限边界 |
 | 16 | `adr/ADR-0004-orchestrator-decision-v3.md` | 计划中 | 冻结 OrchestratorDecision 的裁决表达 |
+| 17 | `adr/ADR-0005-execution-gate-order-v3.md` | 计划中 | 冻结执行门禁顺序 |
 
 工程师读完当前必读后，应该能回答：
 
@@ -140,6 +141,7 @@ UI 侧当前结论：
 | 11 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 按需 | MicroPlan 的冻结范围和替代方案 |
 | 12 | `adr/ADR-0003-planner-authority-boundary.md` | Proposed，已存在 | 按需 | Planner 权限边界的冻结范围 |
 | 13 | `adr/ADR-0004-orchestrator-decision-v3.md` | 计划中 | 按需 | OrchestratorDecision 的冻结范围 |
+| 14 | `adr/ADR-0005-execution-gate-order-v3.md` | 计划中 | 按需 | Execution Gate Order 的冻结范围 |
 
 维护者判断规则：
 
@@ -171,7 +173,8 @@ UI 侧当前结论：
 | 13 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 10 min | MicroPlan 如何连接 frame 与执行权 |
 | 14 | `adr/ADR-0003-planner-authority-boundary.md` | Proposed，已存在 | 10 min | Planner 不能批准执行如何成为硬边界 |
 | 15 | `adr/ADR-0004-orchestrator-decision-v3.md` | 计划中 | 10 min | OrchestratorDecision 如何承接执行权 |
-| 16 | `tasks/slices/v3/DAG.md` | 计划中 | 10 min | slice 之间如何排序 |
+| 16 | `adr/ADR-0005-execution-gate-order-v3.md` | 计划中 | 10 min | 执行门禁顺序如何保护权限、预算和写入 |
+| 17 | `tasks/slices/v3/DAG.md` | 计划中 | 10 min | slice 之间如何排序 |
 
 每条 v3 slice 必须回答：
 
@@ -208,6 +211,7 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | MicroPlan v3 决策 |
 | `adr/ADR-0003-planner-authority-boundary.md` | Proposed，已存在 | Planner 权限边界决策 |
 | `adr/ADR-0004-orchestrator-decision-v3.md` | 计划中 | OrchestratorDecision v3 决策 |
+| `adr/ADR-0005-execution-gate-order-v3.md` | 计划中 | Execution Gate Order v3 决策 |
 | `tasks/slices/v3/DAG.md` | 计划中 | 垂直切面排序 |
 
 ---
