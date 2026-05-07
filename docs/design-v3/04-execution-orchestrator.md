@@ -992,7 +992,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
+docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 ```
 
 原因：
@@ -1004,6 +1004,7 @@ docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 - `00c` 已经汇总 OrchestratorDecision、BehaviorState、TurnResult 和 UI action 的 contract 索引。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经将 Orchestrator 裁决所依赖的 frame 语义升级为 Proposed 决策。
-- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结 Orchestrator 审查 Planner 建议时依赖的权限边界。
+- `ADR-0003` 已经提出 Orchestrator 审查 Planner 建议时依赖的权限边界。
+- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结 OrchestratorDecision 的最小 contract。
 
-在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。
+在 Batch A 的 OrchestratorDecision 与 gate order 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。

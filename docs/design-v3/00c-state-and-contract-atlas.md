@@ -352,7 +352,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 |---|---|---|---|---|
 | DialogueFrame v3 Schema | Proposed：`adr/ADR-0001-dialogue-frame-v3.md` | `02` | 每 turn 必有，是 trace 和 replay 的根 | 所有 turn slice |
 | MicroPlan v3 语义与最小 Contract | Proposed：`adr/ADR-0002-micro-plan-v3.md` | `02`, `04` | Planner 到 Orchestrator 的协议必须稳定 | tool / behavior / confirmation slice |
-| Planner Authority Boundary | Planned | `02`, `04` | 防止 Planner 批准自己的执行 | 所有执行 slice |
+| Planner Authority Boundary | Proposed：`adr/ADR-0003-planner-authority-boundary.md` | `02`, `04` | 防止 Planner 批准自己的执行 | 所有执行 slice |
 | OrchestratorDecision v3 | Planned | `04` | 执行裁决要能解释和测试 | ToolRequest / TurnResult / trace slice |
 | Execution Gate Order v3 | Planned | `04` | 权限、预算、policy 顺序必须稳定 | 高风险动作和 adoption slice |
 
@@ -387,6 +387,7 @@ docs/design-v3/adr/
   ADR-0001-dialogue-frame-v3.md
   ADR-0002-micro-plan-v3.md
   ADR-0003-planner-authority-boundary.md
+  ADR-0004-orchestrator-decision-v3.md
 ```
 
 ADR 状态建议先使用：
@@ -603,10 +604,11 @@ v3 需要区分“谁说了算”。
 - v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001-dialogue-frame-v3.md` Proposed 决策。
 - `ADR-0002-micro-plan-v3.md` Proposed 决策。
+- `ADR-0003-planner-authority-boundary.md` Proposed 决策。
 
 后续仍需补齐：
 
-- Batch A 后续 Proposed ADR，尤其是 Planner Authority Boundary。
+- Batch A 后续 Proposed ADR，尤其是 OrchestratorDecision 和 Execution Gate Order。
 - Accepted ADR。
 - JSON Schema 或代码级 contract。
 - 垂直切面 DAG。
@@ -619,7 +621,7 @@ v3 需要区分“谁说了算”。
 本文完成后，下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
+docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 ```
 
 原因：
@@ -628,6 +630,7 @@ docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 - `docs/design-v3/adr/README.md` 已经定义 v3 ADR 的编号、状态、模板和第一批 Proposed ADR 的排序规则。
 - `ADR-0001` 已经先把 v3 主链的第一承重点升级为 Proposed：每个 turn 必有 `DialogueFrame`。
 - `ADR-0002` 已经把第二承重点升级为 Proposed：`MicroPlan` 是 Planner 到 Execution Orchestrator 的行动建议 envelope。
-- 下一步需要冻结 Planner 权限边界，防止后续实现把 plan 建议误写成执行批准。
+- `ADR-0003` 已经把第三承重点升级为 Proposed：Planner 只有建议权，没有执行批准权。
+- 下一步需要冻结 OrchestratorDecision，承接 PlannerOutput 与 MicroPlan 后的执行裁决表达。
 
-`tasks/slices/v3/DAG.md` 应该在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审后创建。
+`tasks/slices/v3/DAG.md` 应该在 Batch A 继续补齐 OrchestratorDecision 与 gate order，并完成评审后创建。

@@ -282,7 +282,7 @@ ADR-0002 对本文早期草案做了收缩：`allow_next_action`、`downgrade_to
 一个 turn 必有一个 primary DialogueFrame。
 一个 DialogueFrame 可以没有 MicroPlan。
 一个 DialogueFrame 最多有一个 primary MicroPlan。
-一个 MicroPlan 可以产生一个或多个 ToolRequest，但默认只放行第一个安全动作。
+一个 MicroPlan 被 Orchestrator 裁决后，可以关联一个或多个 ToolRequest；默认只放行第一个安全动作。
 ```
 
 关系约束：
@@ -561,7 +561,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
+docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 ```
 
 原因：
@@ -570,4 +570,5 @@ docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 - `00c` 已经把 DialogueFrame / MicroPlan 与其他状态、contract、ADR 候选放到同一张索引图中。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经先将 DialogueFrame 语义和最小 contract 升级为 Proposed 决策。
-- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，把 Planner 不能批准执行升级为明确权限边界。
+- `ADR-0003` 已经把 Planner 不能批准执行升级为 Proposed 权限边界。
+- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结 Orchestrator 如何表达裁决结果。

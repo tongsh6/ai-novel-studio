@@ -299,7 +299,8 @@ v3 不继承 v2 Router-first 拓扑。
 ## 后续工作
 
 1. `ADR-0002-micro-plan-v3.md` 已提出 MicroPlan 与 DialogueFrame 的引用关系和建议权边界。
-2. 写 `ADR-0003-planner-authority-boundary.md`，冻结 Planner 不能批准执行。
+2. `ADR-0003-planner-authority-boundary.md` 已提出 Planner 不能批准执行的权限边界。
+3. 写 `ADR-0004-orchestrator-decision-v3.md`，冻结 OrchestratorDecision 如何承接 frame / plan。
 3. 后续 schema 草案再冻结 `DialogueFrame` 字段全集和 `frame_type` 枚举。
 4. 在 `tasks/slices/v3/DAG.md` 中安排 VS-00。
 5. 实现前补 contract test：每个 turn 必有 frame，reply-only 也可回放。

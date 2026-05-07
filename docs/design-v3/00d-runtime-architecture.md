@@ -419,7 +419,7 @@ v3 的 replay 不要求重新调用 LLM。默认重放应优先使用已记录�
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
+docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 ```
 
 原因：
@@ -431,4 +431,5 @@ docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 - `00c` 已经把这些运行时对象、状态字段和 ADR 候选统一索引，作为 ADR 与 slice DAG 前置材料。
 - `adr/README.md` 已经建立 v3 ADR 目录与首批 Proposed ADR 顺序。
 - `ADR-0001` 已经将运行时控制面里的 DialogueFrame 认知锚点升级为 Proposed 决策。
-- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结 Planner 与 Execution Orchestrator 之间的权限边界。
+- `ADR-0003` 已经提出 Planner 与 Execution Orchestrator 之间的权限边界。
+- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结运行时中 OrchestratorDecision 的裁决表达。

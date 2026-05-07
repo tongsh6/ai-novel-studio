@@ -558,7 +558,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
+docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 ```
 
 原因：
@@ -570,4 +570,5 @@ docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 - `00c` 已经把 toolbox contract 与其他状态、ADR 候选、slice 入口建立索引关系。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经将工具调用之前的每 turn 认知锚点升级为 Proposed 决策。
-- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结 Planner 对工具与状态推进只有建议权、没有执行批准权。
+- `ADR-0003` 已经提出 Planner 对工具与状态推进只有建议权、没有执行批准权。
+- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结 ToolRequest 上游的 OrchestratorDecision 表达。

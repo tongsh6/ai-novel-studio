@@ -619,7 +619,7 @@ v3 主链必须保护以下不变量：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
+docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 ```
 
 原因：
@@ -630,4 +630,5 @@ docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 - `00c` 已经把这些状态、contract、ADR 候选和第一批 slice 入口汇总成索引。
 - `adr/README.md` 已经定义 v3 ADR 的编号、状态和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经将本文主链中“每 turn 必有 DialogueFrame”的认知锚点升级为 Proposed 决策。
-- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结本文主链中 Planner 不能批准执行的权限边界。
+- `ADR-0003` 已经提出本文主链中 Planner 不能批准执行的权限边界。
+- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结本文主链中执行裁决如何表达。

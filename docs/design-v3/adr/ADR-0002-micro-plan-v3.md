@@ -363,7 +363,7 @@ v3 不继承 v2 Router-first 拓扑，也不把 v2 intent routing 结果直接�
 
 ## 后续工作
 
-1. 写 `ADR-0003-planner-authority-boundary.md`，冻结 Planner 不能批准执行的硬边界。
+1. `ADR-0003-planner-authority-boundary.md` 已提出 Planner 不能批准执行的硬边界。
 2. 写 `ADR-0004-orchestrator-decision-v3.md`，冻结 OrchestratorDecision 如何引用和裁决 MicroPlan。
 3. 写 `ADR-0005-execution-gate-order-v3.md`，冻结 gate 顺序如何审查 plan。
 4. 后续 schema 草案再冻结 `MicroPlan` 字段全集和 action 枚举。

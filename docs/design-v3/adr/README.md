@@ -107,6 +107,7 @@ ADR-NNNN-<slug>.md
 ADR-0001-dialogue-frame-v3.md
 ADR-0002-micro-plan-v3.md
 ADR-0003-planner-authority-boundary.md
+ADR-0004-orchestrator-decision-v3.md
 ```
 
 ---
@@ -242,7 +243,7 @@ ADR-0003-planner-authority-boundary.md
 |---|---|---|---|---|---|
 | ADR-0001 | `ADR-0001-dialogue-frame-v3.md` | Proposed | DialogueFrame v3 语义与最小 contract | `02`, `00c` | 所有 turn slice |
 | ADR-0002 | `ADR-0002-micro-plan-v3.md` | Proposed | MicroPlan v3 语义与最小 contract | `02`, `04`, `00c` | tool / behavior / confirmation slice |
-| ADR-0003 | `ADR-0003-planner-authority-boundary.md` | Planned | Planner Authority Boundary | `02`, `04`, `00c` | 所有执行 slice |
+| ADR-0003 | `ADR-0003-planner-authority-boundary.md` | Proposed | Planner Authority Boundary | `02`, `04`, `00c` | 所有执行 slice |
 | ADR-0004 | `ADR-0004-orchestrator-decision-v3.md` | Planned | OrchestratorDecision v3 | `04`, `00c` | ToolRequest / TurnResult / trace slice |
 | ADR-0005 | `ADR-0005-execution-gate-order-v3.md` | Planned | Execution Gate Order v3 | `04`, `00c` | 高风险动作和 adoption slice |
 
@@ -275,13 +276,14 @@ ADR-0003-planner-authority-boundary.md
 
 1. 已完成 `ADR-0001-dialogue-frame-v3.md`。
 2. 已完成 `ADR-0002-micro-plan-v3.md`。
-3. 下一步写 `ADR-0003-planner-authority-boundary.md`。
+3. 已完成 `ADR-0003-planner-authority-boundary.md`。
 
 原因：
 
 - `DialogueFrame` 决定每个 turn 的认知锚点。
 - `MicroPlan` 决定 Planner 到 Orchestrator 的协议。
 - `Planner Authority Boundary` 先于所有执行类 slice，否则容易把 Planner 写成新的执行器。
+- 下一步应写 `ADR-0004-orchestrator-decision-v3.md`，让执行裁决本身具备稳定 contract。
 
 这 3 条可以先保持 Proposed。它们进入 Accepted 之前，不创建 implementation plan。
 
@@ -320,12 +322,13 @@ Accepted ADR 可以仍然保留 Deferred 问题，但这些问题不能影响当
 本文完成后，下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
+docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 ```
 
 原因：
 
 - `ADR-0001` 已经把每 turn 必有 DialogueFrame 升级为 Proposed 决策。
 - `ADR-0002` 已经把 MicroPlan 升级为 Proposed 决策，明确它只是下一步行动建议 envelope。
-- 下一步需要冻结 Planner 不能批准执行的权限边界。
-- `Planner Authority Boundary` 是连接 MicroPlan 与 OrchestratorDecision 之前的第三承重点。
+- `ADR-0003` 已经把 Planner 权限边界升级为 Proposed 决策，明确它只有建议权、没有执行批准权。
+- 下一步需要冻结 OrchestratorDecision 的最小 contract。
+- `OrchestratorDecision` 是连接 Planner 建议、执行门禁、ToolRequest、BehaviorState、TurnResult 与 trace 的第四承重点。

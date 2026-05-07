@@ -854,7 +854,7 @@ ADR 前置材料已经具备：
 下一步建议写：
 
 ```text
-docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
+docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 ```
 
 原因：
@@ -864,6 +864,7 @@ docs/design-v3/adr/ADR-0003-planner-authority-boundary.md
 - `00c` 已经把 memory/context/trace 与其他 contract、ADR 候选、slice 入口统一索引。
 - `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
 - `ADR-0001` 已经将 trace/replay 需要引用的 frame 语义升级为 Proposed 决策。
-- 下一步需要写 `ADR-0003-planner-authority-boundary.md`，冻结 trace/replay 需要证明的 Planner 权限边界。
+- `ADR-0003` 已经提出 trace/replay 需要证明的 Planner 权限边界。
+- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结 trace/replay 需要引用的裁决节点。
 
-在 Batch A 前 3 条 ADR 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。
+在 Batch A 的 OrchestratorDecision 与 gate order 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。
