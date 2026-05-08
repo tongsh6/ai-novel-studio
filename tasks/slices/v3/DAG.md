@@ -1,8 +1,8 @@
 # v3 承重竖切面 DAG
 
-> 状态：docs-ready（2026-05-08）
+> 状态：VS-00 ~ VS-06 done, VS-07 ~ VS-08 docs-ready（2026-05-09）
 >
-> 角色：把 `docs/design-v3/00c-state-and-contract-atlas.md` §9 的候选入口排序为 v3 首批承重竖切面 DAG，并记录 VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的文档就绪状态。本文不是 implementation plan，不授权代码实现；进入实现前仍需用户明确批准 implementation plan 或代码工作。
+> 角色：把 `docs/design-v3/00c-state-and-contract-atlas.md` §9 的候选入口排序为 v3 承重竖切面 DAG。B1-B10 已完成实现；B11-B12 为当前阶段的集成工作。
 
 ---
 
@@ -50,6 +50,14 @@ flowchart TD
     VS06["VS-06 Trace Summary and Replay Explanation"]
   end
 
+  subgraph Batch11["Batch 11: Frontend Integration"]
+    VS07["VS-07 Frontend Workbench UI Consumer"]
+  end
+
+  subgraph Batch12["Batch 12: E2E Validation"]
+    VS08["VS-08 End-to-End Integration Tests"]
+  end
+
   VS00 --> VS00A
   VS00A --> VS00B
   VS00B --> VS01
@@ -64,6 +72,11 @@ flowchart TD
   VS02A --> VS06
   VS03 --> VS06
   VS04 --> VS06
+  VS05 --> VS07
+  VS06 --> VS07
+  VS05 --> VS08
+  VS06 --> VS08
+  VS07 --> VS08
 ```
 
 ---
@@ -72,16 +85,18 @@ flowchart TD
 
 | Batch | Slice | 目标 | 状态 |
 |---|---|---|---|
-| B1 | VS-00 | 固化 reply-only 的 DialogueFrame / TurnResult / Trace 最小主链 | docs-ready |
-| B2 | VS-00A | 固化模糊创作想法先自然展开，而不是自动表单化 | docs-ready |
-| B3 | VS-00B | 固化 AI 回应必须被当前小说上下文约束，缺上下文时不编造 | docs-ready |
-| B4 | VS-01 | 固化 MicroPlan 只是建议，OrchestratorDecision / gate order 才能裁决 | docs-ready |
-| B5 | VS-02 | 固化 ToolRequest / ToolResult / ToolTrace provenance 闭环 | docs-ready |
-| B6 | VS-02A | 固化 AI 可产出小说草稿，但默认只是待采纳材料 | docs-ready |
-| B7 | VS-03 | 固化 clarification / confirmation durable behavior 生命周期 | docs-ready |
-| B8 | VS-04 | 固化 candidate selection 不等于 adoption，production write 有边界 | docs-ready |
-| B9 | VS-05 | 固化 UI 只能提交 AvailableAction，stale / invented action 重新校验 | docs-ready |
-| B10 | VS-06 | 固化 trace summary 脱敏与 replay explanation | docs-ready |
+| B1 | VS-00 | 固化 reply-only 的 DialogueFrame / TurnResult / Trace 最小主链 | **done** |
+| B2 | VS-00A | 固化模糊创作想法先自然展开，而不是自动表单化 | **done** |
+| B3 | VS-00B | 固化 AI 回应必须被当前小说上下文约束，缺上下文时不编造 | **done** |
+| B4 | VS-01 | 固化 MicroPlan 只是建议，OrchestratorDecision / gate order 才能裁决 | **done** |
+| B5 | VS-02 | 固化 ToolRequest / ToolResult / ToolTrace provenance 闭环 | **done** |
+| B6 | VS-02A | 固化 AI 可产出小说草稿，但默认只是待采纳材料 | **done** |
+| B7 | VS-03 | 固化 clarification / confirmation durable behavior 生命周期 | **done** |
+| B8 | VS-04 | 固化 candidate selection 不等于 adoption，production write 有边界 | **done** |
+| B9 | VS-05 | 固化 UI 只能提交 AvailableAction，stale / invented action 重新校验 | **done** |
+| B10 | VS-06 | 固化 trace summary 脱敏与 replay explanation | **done** |
+| B11 | VS-07 | 前端 Workbench 消费 v3 Channel，证明端到端 UI 闭环 | **done** |
+| B12 | VS-08 | 端到端集成测试，真实 provider + 真实 persistence 全链路 | **done** |
 
 说明：
 
@@ -98,16 +113,18 @@ flowchart TD
 
 | Slice | Type | Planning depends on | Implementation blockers | Blocks | Contract focus |
 |---|---|---|---|---|---|
-| VS-00 | Turn Slice | ADR-0001 | closed for docs；code 仍需用户批准 | VS-00A, VS-06 | `DialogueFrame` / `TurnResult` / `DecisionTrace` |
-| VS-00A | Experience Slice | VS-00, ADR-0001, ADR-0015 | closed for docs；code 仍需用户批准 | VS-00B, VS-01, VS-05, VS-06 | `DialogueFrame.frame_type=exploration` / `CandidateDirectionSet` / `TurnResult` |
-| VS-00B | Context Slice | VS-00A, ADR-0001, ADR-0013 | closed for docs；code 仍需用户批准 | VS-01, VS-05, VS-06 | `DialogueContext` / `ContextSourceRef` / `DecisionTrace.context_refs` |
-| VS-01 | Turn Slice | VS-00B, ADR-0002, ADR-0003, ADR-0004, ADR-0005 | closed for docs；code 仍需用户批准 | VS-02, VS-03, VS-04, VS-05, VS-06 | `MicroPlan` / `OrchestratorDecision` / `Execution Gate Order` |
-| VS-02 | Turn Slice | VS-01, ADR-0011, ADR-0012, ADR-0013 | closed for docs；code 仍需用户批准 | VS-02A, VS-04, VS-06 | `CapabilityRegistryEntry` / `ToolRequest` / `ToolResult` / `ToolTrace` / `DecisionTrace` |
-| VS-02A | Artifact Slice | VS-00B, VS-01, VS-02, ADR-0010 | closed for docs；code 仍需用户批准 | VS-04, VS-05, VS-06 | `TentativeArtifactSet` / creative `ToolResult` / `TurnResult` / `DecisionTrace` |
-| VS-03 | Behavior Slice | VS-01, ADR-0006, ADR-0007, ADR-0008, ADR-0009 | closed for docs；code 仍需用户批准 | VS-04, VS-05, VS-06 | `BehaviorState` / `TurnPhase` / `TurnStatus` / `AvailableAction` / `ConfirmationBinding` |
-| VS-04 | Artifact Slice | VS-02A, VS-03, ADR-0010, ADR-0016 | closed for docs；code 仍需用户批准 | VS-05, VS-06 | `CandidateSet` / `AuthorActionInput` / `AdoptionBoundary` / `ProjectionHint` |
-| VS-05 | UI Contract Slice | VS-03, VS-04, ADR-0014, ADR-0015 | closed for docs；code 仍需用户批准 | — | `TurnResultViewModel` / `AvailableAction` / `AuthorActionInput` / `TraceSummaryView` |
-| VS-06 | Memory Slice | VS-02, VS-02A, VS-03, VS-04, VS-05, ADR-0013, ADR-0014, ADR-0017 | closed for docs；code 仍需用户批准 | — | `DecisionTrace` / `TraceSummaryView` / `ReplayReport` |
+| VS-00 | Turn Slice | ADR-0001 | done | VS-00A, VS-06 | `DialogueFrame` / `TurnResult` / `DecisionTrace` |
+| VS-00A | Experience Slice | VS-00, ADR-0001, ADR-0015 | done | VS-00B, VS-01, VS-05, VS-06 | `DialogueFrame.frame_type=exploration` / `CandidateDirectionSet` / `TurnResult` |
+| VS-00B | Context Slice | VS-00A, ADR-0001, ADR-0013 | done | VS-01, VS-05, VS-06 | `DialogueContext` / `ContextSourceRef` / `DecisionTrace.context_refs` |
+| VS-01 | Turn Slice | VS-00B, ADR-0002, ADR-0003, ADR-0004, ADR-0005 | done | VS-02, VS-03, VS-04, VS-05, VS-06 | `MicroPlan` / `OrchestratorDecision` / `Execution Gate Order` |
+| VS-02 | Turn Slice | VS-01, ADR-0011, ADR-0012, ADR-0013 | done | VS-02A, VS-04, VS-06 | `CapabilityRegistryEntry` / `ToolRequest` / `ToolResult` / `ToolTrace` / `DecisionTrace` |
+| VS-02A | Artifact Slice | VS-00B, VS-01, VS-02, ADR-0010 | done | VS-04, VS-05, VS-06 | `TentativeArtifactSet` / creative `ToolResult` / `TurnResult` / `DecisionTrace` |
+| VS-03 | Behavior Slice | VS-01, ADR-0006, ADR-0007, ADR-0008, ADR-0009 | done | VS-04, VS-05, VS-06 | `BehaviorState` / `TurnPhase` / `TurnStatus` / `AvailableAction` / `ConfirmationBinding` |
+| VS-04 | Artifact Slice | VS-02A, VS-03, ADR-0010, ADR-0016 | done | VS-05, VS-06 | `CandidateSet` / `AuthorActionInput` / `AdoptionBoundary` / `ProjectionHint` |
+| VS-05 | UI Contract Slice | VS-03, VS-04, ADR-0014, ADR-0015 | done | VS-07, VS-08 | `TurnResultViewModel` / `AvailableAction` / `AuthorActionInput` / `TraceSummaryView` |
+| VS-06 | Memory Slice | VS-02, VS-02A, VS-03, VS-04, VS-05, ADR-0013, ADR-0014, ADR-0017 | done | VS-07, VS-08 | `DecisionTrace` / `TraceSummaryView` / `ReplayReport` |
+| VS-07 | Integration Slice | VS-05 (done), VS-06 (done), Tauri 2 + React 19 + TypeScript 6 | 前端 Channel 连接与 Tauri dev 可运行 | VS-08 | `TurnResult` JSON / AvailableAction / Phoenix Channel WebSocket / Tauri Workbench UI |
+| VS-08 | Validation Slice | VS-07 (done), real LM Studio, real SQLite3 | done | — | full umbrella chain: web → application → agent → domain → persistence |
 
 ---
 
@@ -232,6 +249,32 @@ Slice 文件：`tasks/slices/v3/VS-06-trace-summary-replay-explanation.md`
 | Boundary | 切过 trace store/read model / replay / API redaction / developer report；不暴露 raw prompt 给作者主流程；不让 replay 修改 production state |
 | Consumer | Replay console、UI trace summary 或 audit test |
 | Proof | 同一个 turn 可生成 author-safe summary 和 developer ReplayReport，replay 不调用 provider |
+
+---
+
+### VS-07：前端 Workbench 消费 v3 Channel
+
+Slice 文件：`tasks/slices/v3/VS-07-frontend-workbench-ui-consumer.md`
+
+| 问题 | 回答 |
+|---|---|
+| Contract | `TurnResult`、`AvailableAction`、`AuthorActionInput`、`BehaviorState`、`candidate_directions`、`orchestrator_decision`、`tool_result`、`tentative_artifacts` |
+| Invariant | `00c` §7 #9、#10、#13、#15：TurnResult canonical；UI 只提交 available actions；trace 脱敏；projection hints 只刷新 |
+| Boundary | `novel_web` Channel ↔ Tauri/React frontend（WebSocket JSON）；前端不碰 application/agent/domain 内部，不直接写 DB |
+| Consumer | Tauri Workbench 视图 — MessageList + MessageInput + ActionPanel + CandidateCards + StatusBar |
+| Proof | user_message → turn_result roundtrip；author_action reply；invented/stale 拒绝；exploration 无表单；candidate cards 显示 |
+
+### VS-08：端到端集成测试
+
+Slice 文件：`tasks/slices/v3/VS-08-end-to-end-integration-tests.md`
+
+| 问题 | 回答 |
+|---|---|
+| Contract | 全部 10 个 contract pack 的集成行为；真实 LM Studio + SQLite3 |
+| Invariant | `00c` §7 #1、#2、#3、#5、#6、#9、#14、#15 — 8 条可在集成测试中直接断言 |
+| Boundary | 切穿全部 5 个 umbrella app：web ChannelTest → application Gateway（真实 LM Studio）→ agent HTTP → domain validate → persistence SQLite3 |
+| Consumer | CI pipeline（`mix test --include integration`）；测试文件 `apps/novel_web/test/integration/` |
+| Proof | 11 个 E2E 场景：reply-only / exploration / context / downgrade / confirmation / tool dispatch / creative artifact / action validation / replay / persistence / error recovery |
 
 ---
 
