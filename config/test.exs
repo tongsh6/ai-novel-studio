@@ -22,9 +22,8 @@ config :logger, level: :warning
 config :novel_agent, :provider,
   default: :stub
 
+# LM Studio 测试超时设短（探活不应阻塞）。model 继承 config.exs 的环境变量配置。
 config :novel_agent, NovelAgent.Provider.LMStudio,
-  endpoint: "http://localhost:1234/v1",
-  model: "local-model",
   timeout: 5_000
 
 config :novel_application, sync_memory_reference_log: true

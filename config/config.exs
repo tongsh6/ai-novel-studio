@@ -9,6 +9,22 @@
 # move said applications out of the umbrella.
 import Config
 
+# ── Provider 通用配置 ──────────────────────────
+# 各环境可通过 import_config "#{config_env()}.exs" 覆盖。
+
+config :novel_agent, :provider,
+  default: :lmstudio
+
+config :novel_agent, NovelAgent.Provider.LMStudio,
+  endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
+  model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.5-122b-a10b"),
+  timeout: 60_000
+
+config :novel_agent, NovelAgent.Provider.Anthropic,
+  api_key: System.get_env("NOVEL_ANTHROPIC_API_KEY"),
+  model: System.get_env("NOVEL_ANTHROPIC_MODEL", "claude-sonnet-4-6"),
+  timeout: 120_000
+
 # LLM 调用日志目录 — 统一到项目根目录，避免各 umbrella app 因 CWD 不同而产生散落 log/ 目录。
 # 可通过环境变量 LLM_LOG_DIR 覆盖。
 llm_log_dir = System.get_env("LLM_LOG_DIR", Path.expand("../log/llm-calls", __DIR__) |> Path.absname())

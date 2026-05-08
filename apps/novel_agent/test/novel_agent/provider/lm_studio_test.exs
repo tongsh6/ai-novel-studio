@@ -24,7 +24,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert %LMStudio{} = state
       assert state.endpoint =~ "localhost"
       assert state.endpoint =~ "/v1"
-      assert state.model =~ "model"
+      assert is_binary(state.model) and byte_size(state.model) > 0
       assert is_integer(state.timeout) and state.timeout > 0
     end
   end
