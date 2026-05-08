@@ -14,15 +14,17 @@ defmodule NovelAgent.Provider.LMStudio do
   alias NovelAgent.Provider.Result
   alias NovelFoundation.UpstreamError
 
-  defstruct [:endpoint, :model, :timeout, :http_fn]
+  defstruct [:endpoint, :model, :timeout, :http_fn, :log_fn]
 
   @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
+  @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
 
   @type t :: %__MODULE__{
           endpoint: String.t(),
           model: String.t(),
           timeout: pos_integer(),
-          http_fn: http_fn()
+          http_fn: http_fn(),
+          log_fn: log_fn()
         }
 
   @impl true
@@ -45,7 +47,7 @@ defmodule NovelAgent.Provider.LMStudio do
           handle_error(reason, message, start_time)
       end
 
-    NovelAgent.LLMLog.record(name(), url, body, result, start_time)
+    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
     strip_attrs(result)
   end
 
@@ -106,7 +108,8 @@ defmodule NovelAgent.Provider.LMStudio do
       endpoint: Keyword.get(config, :endpoint, "http://localhost:1234/v1"),
       model: Keyword.get(config, :model, "qwen/qwen3.6-35b-a3b"),
       timeout: Keyword.get(config, :timeout, 60_000),
-      http_fn: Keyword.get(config, :http_fn, &HTTP.post/3)
+      http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
+      log_fn: Keyword.get(config, :log_fn, &NovelAgent.LLMLog.record/5)
     }
   end
 end

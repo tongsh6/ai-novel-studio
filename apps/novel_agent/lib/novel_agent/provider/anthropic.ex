@@ -23,15 +23,17 @@ defmodule NovelAgent.Provider.Anthropic do
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
 
-  defstruct [:api_key, :model, :timeout, :http_fn]
+  defstruct [:api_key, :model, :timeout, :http_fn, :log_fn]
 
   @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
+  @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
 
   @type t :: %__MODULE__{
           api_key: String.t(),
           model: String.t(),
           timeout: pos_integer(),
-          http_fn: http_fn()
+          http_fn: http_fn(),
+          log_fn: log_fn()
         }
 
   @api_base "https://api.anthropic.com/v1"
@@ -59,7 +61,7 @@ defmodule NovelAgent.Provider.Anthropic do
           handle_connection_error(reason, message, start_time)
       end
 
-    NovelAgent.LLMLog.record(name(), url, body, result, start_time)
+    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
     strip_attrs(result)
   end
 
@@ -131,7 +133,8 @@ defmodule NovelAgent.Provider.Anthropic do
       api_key: Keyword.get(config, :api_key) || System.get_env("ANTHROPIC_API_KEY"),
       model: Keyword.get(config, :model, "claude-sonnet-4-6"),
       timeout: Keyword.get(config, :timeout, 120_000),
-      http_fn: Keyword.get(config, :http_fn, &HTTP.post/3)
+      http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
+      log_fn: Keyword.get(config, :log_fn, &NovelAgent.LLMLog.record/5)
     }
   end
 end
