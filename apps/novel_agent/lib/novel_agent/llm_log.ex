@@ -87,54 +87,17 @@ defmodule NovelAgent.LLMLog do
   end
 
   defp sanitize_request(req) do
-    body = Map.get(req, :body, %{})
-
-    sanitized_body =
-      if is_map(body) do
-        case Map.get(body, "messages") do
-          messages when is_list(messages) ->
-            Map.put(body, "messages", Enum.map(messages, &truncate_message/1))
-
-          _ ->
-            body
-        end
-      else
-        body
-      end
-
     %{
       method: Map.get(req, :method, "POST"),
       url: Map.get(req, :url, ""),
-      body: sanitized_body
+      body: Map.get(req, :body, %{})
     }
   end
 
-  defp truncate_message(%{"role" => _role, "content" => content} = msg) do
-    truncated =
-      if byte_size(content) > 2000 do
-        String.slice(content, 0, 2000) <> "...[截断 #{byte_size(content)} 字节]"
-      else
-        content
-      end
-
-    %{msg | "content" => truncated}
-  end
-
-  defp truncate_message(msg), do: msg
-
   defp sanitize_response(resp) do
-    body_raw = Map.get(resp, :body, "")
-
-    body =
-      if is_binary(body_raw) and byte_size(body_raw) > 5000 do
-        String.slice(body_raw, 0, 5000) <> "...[截断 #{byte_size(body_raw)} 字节]"
-      else
-        body_raw
-      end
-
     %{
       status: Map.get(resp, :status, 0),
-      body: body,
+      body: Map.get(resp, :body, ""),
       model: Map.get(resp, :model, ""),
       usage: Map.get(resp, :usage, %{}),
       duration_ms: Map.get(resp, :duration_ms, 0)

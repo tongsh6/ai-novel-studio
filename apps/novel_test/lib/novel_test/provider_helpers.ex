@@ -16,7 +16,7 @@ defmodule NovelTest.ProviderHelpers do
   """
   @spec lmstudio_complete_fn(String.t(), String.t(), pos_integer()) :: function()
   def lmstudio_complete_fn(endpoint \\ "http://localhost:1234/v1",
-                           model \\ "openai/gpt-oss-120b",
+                           model \\ "qwen/qwen3.5-122b-a10b",
                            timeout \\ 60_000) do
     fn prompt ->
       state = %LMStudio{endpoint: endpoint, model: model, timeout: timeout,
