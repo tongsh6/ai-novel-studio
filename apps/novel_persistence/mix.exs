@@ -42,7 +42,6 @@ defmodule NovelPersistence.MixProject do
       {:ecto, "~> 3.13"},
       {:ecto_sql, "~> 3.13"},
       {:ecto_sqlite3, "~> 0.22"},
-      {:postgrex, "~> 0.22", only: [:test]},
       {:paper_trail, "~> 1.1"},
       {:jason, "~> 1.4"}
     ]
