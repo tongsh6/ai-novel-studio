@@ -10,6 +10,7 @@ defmodule NovelApplication.MixProject do
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.19",
+      test_coverage: [tool: ExCoveralls],
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -28,7 +29,8 @@ defmodule NovelApplication.MixProject do
       {:novel_domain, in_umbrella: true},
       {:novel_agent, in_umbrella: true},
       {:novel_persistence, in_umbrella: true},
-      {:novel_test, in_umbrella: true, only: :test}
+      {:novel_test, in_umbrella: true, only: :test},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
 end

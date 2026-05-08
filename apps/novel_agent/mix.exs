@@ -10,6 +10,7 @@ defmodule NovelAgent.MixProject do
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.19",
+      test_coverage: [tool: ExCoveralls],
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -27,7 +28,8 @@ defmodule NovelAgent.MixProject do
       {:novel_foundation, in_umbrella: true},
       {:telemetry, "~> 1.3"},
       {:jason, "~> 1.4"},
-      {:req, "~> 0.5"}
+      {:req, "~> 0.5"},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
 end

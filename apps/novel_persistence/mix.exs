@@ -10,6 +10,7 @@ defmodule NovelPersistence.MixProject do
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.19",
+      test_coverage: [tool: ExCoveralls],
       elixirc_paths: elixirc_paths(Mix.env()),
       aliases: aliases(),
       start_permanent: Mix.env() == :prod,
@@ -43,7 +44,8 @@ defmodule NovelPersistence.MixProject do
       {:ecto_sql, "~> 3.13"},
       {:ecto_sqlite3, "~> 0.22"},
       {:paper_trail, "~> 1.1"},
-      {:jason, "~> 1.4"}
+      {:jason, "~> 1.4"},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
 end

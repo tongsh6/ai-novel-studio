@@ -10,6 +10,7 @@ defmodule NovelWeb.MixProject do
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.19",
+      test_coverage: [tool: ExCoveralls],
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps()
@@ -35,7 +36,8 @@ defmodule NovelWeb.MixProject do
       {:phoenix_pubsub, "~> 2.1"},
       {:jason, "~> 1.4"},
       {:bandit, "~> 1.11"},
-      {:novel_test, in_umbrella: true, only: :test}
+      {:novel_test, in_umbrella: true, only: :test},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
 end

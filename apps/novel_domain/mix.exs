@@ -10,6 +10,7 @@ defmodule NovelDomain.MixProject do
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.19",
+      test_coverage: [tool: ExCoveralls],
       start_permanent: Mix.env() == :prod,
       deps: deps()
     ]
@@ -23,7 +24,8 @@ defmodule NovelDomain.MixProject do
 
   defp deps do
     [
-      {:novel_foundation, in_umbrella: true}
+      {:novel_foundation, in_umbrella: true},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
 end

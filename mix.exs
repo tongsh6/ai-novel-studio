@@ -6,6 +6,7 @@ defmodule AiNovelStudio.MixProject do
       apps_path: "apps",
       elixir: "~> 1.19",
       version: "0.1.0",
+      test_coverage: [tool: ExCoveralls],
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
       deps: deps()
@@ -36,7 +37,8 @@ defmodule AiNovelStudio.MixProject do
       {:dialyxir, "~> 1.4", only: [:dev, :test], runtime: false},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:sobelow, "~> 0.14.1", only: [:dev, :test], runtime: false},
-      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false}
+      {:mix_audit, "~> 2.1", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
 end
