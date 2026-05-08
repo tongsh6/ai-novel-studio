@@ -2,7 +2,7 @@
 
 > 状态：草案（2026-05-06）
 >
-> 角色：定义 v3 ADR 的编号、状态、模板、评审门槛和首批 Proposed ADR 顺序。本文是 `00c-state-and-contract-atlas.md` 之后、`tasks/slices/v3/DAG.md` 之前的决策治理入口；它不冻结任何具体 schema，也不授权代码实现。
+> 角色：定义 v3 ADR 的编号、状态、模板、评审门槛和首批 ADR 顺序。本文是 `00c-state-and-contract-atlas.md` 之后、`tasks/slices/v3/DAG.md` 之前的决策治理入口；它不冻结任何具体 schema，也不授权代码实现。
 
 ---
 
@@ -26,9 +26,9 @@ ADR 不是设计备忘录，也不是实现计划。
 | `notes/` | 讨论材料、对照分析、后续输入 | 否 | 否 |
 | `00-07` | 方向、架构、contract 草案 | 否 | 否 |
 | `00c` | contract / 状态 / ADR / slice atlas | 否 | 否 |
-| `adr/*.md` Proposed | 决策草案，等待评审 | 否 | 否 |
-| `adr/*.md` Accepted | 已冻结决策 | 是 | 仍需 slice |
-| `tasks/slices/v3/DAG.md` | 实现切面排序 | 否 | 可进入 implementation plan |
+| `adr/*.md` Proposed | 决策草案，等待评审 | 否 | 仅可作为 DAG planning input |
+| `adr/*.md` Accepted | 已冻结决策 | 是 | 可作为 implementation plan / code 输入，仍需 slice |
+| `tasks/slices/v3/DAG.md` | 承重切面排序和依赖图 | 否 | 否；仍需 slice 文件和 Accepted ADR |
 
 核心原则：
 
@@ -117,7 +117,7 @@ ADR-0005-execution-gate-order-v3.md
 
 | 状态 | 含义 | 是否冻结 | 是否可被 slice 消费 |
 |---|---|---:|---:|
-| Proposed | 已成文，等待评审 | 否 | 否 |
+| Proposed | 已成文，等待评审 | 否 | 仅 DAG planning |
 | Accepted | 已接受，为当前有效决策 | 是 | 是 |
 | Superseded | 已被新 ADR 替代 | 否 | 否 |
 | Deferred | 暂缓，等待实现反馈或更多探索 | 否 | 否 |
@@ -125,8 +125,8 @@ ADR-0005-execution-gate-order-v3.md
 状态规则：
 
 1. 新 ADR 默认是 Proposed。
-2. Proposed 只能进入评审，不进入实现。
-3. Accepted 才能作为 `tasks/slices/v3/DAG.md` 的稳定输入。
+2. Proposed 可以作为 `tasks/slices/v3/DAG.md` 的 planning input，用来排序 slice 和暴露 blockers；不授权 implementation plan 或代码实现。
+3. Accepted 才能作为 implementation plan / code 的稳定输入。
 4. Superseded 必须写明替代 ADR 编号。
 5. Deferred 必须写明暂缓原因和重新触发条件。
 6. ADR 历史不删除，只改状态并追加说明。
@@ -242,51 +242,66 @@ ADR-0005-execution-gate-order-v3.md
 
 | 编号 | 文件 | 状态 | 主题 | 来源 | 阻塞内容 |
 |---|---|---|---|---|---|
-| ADR-0001 | `ADR-0001-dialogue-frame-v3.md` | Proposed | DialogueFrame v3 语义与最小 contract | `02`, `00c` | 所有 turn slice |
-| ADR-0002 | `ADR-0002-micro-plan-v3.md` | Proposed | MicroPlan v3 语义与最小 contract | `02`, `04`, `00c` | tool / behavior / confirmation slice |
-| ADR-0003 | `ADR-0003-planner-authority-boundary.md` | Proposed | Planner Authority Boundary | `02`, `04`, `00c` | 所有执行 slice |
-| ADR-0004 | `ADR-0004-orchestrator-decision-v3.md` | Planned | OrchestratorDecision v3 | `04`, `00c` | ToolRequest / TurnResult / trace slice |
-| ADR-0005 | `ADR-0005-execution-gate-order-v3.md` | Planned | Execution Gate Order v3 | `04`, `00c` | 高风险动作和 adoption slice |
+| ADR-0001 | `ADR-0001-dialogue-frame-v3.md` | Accepted | DialogueFrame v3 语义与 VS-00 最小 contract | `02`, `00c`, `contracts/VS-00-reply-only-contract-pack.md` | 所有 turn slice |
+| ADR-0002 | `ADR-0002-micro-plan-v3.md` | Accepted | MicroPlan v3 语义与 VS-01 最小 contract | `02`, `04`, `00c`, `contracts/VS-01-execution-authority-contract-pack.md` | tool / behavior / confirmation slice |
+| ADR-0003 | `ADR-0003-planner-authority-boundary.md` | Accepted | Planner Authority Boundary | `02`, `04`, `00c`, `contracts/VS-01-execution-authority-contract-pack.md` | 所有执行 slice |
+| ADR-0004 | `ADR-0004-orchestrator-decision-v3.md` | Accepted | OrchestratorDecision v3 与 VS-01 最小裁决 subset | `04`, `00c`, `contracts/VS-01-execution-authority-contract-pack.md` | ToolRequest / TurnResult / trace slice |
+| ADR-0005 | `ADR-0005-execution-gate-order-v3.md` | Accepted | Execution Gate Order v3 与 VS-01 gate subset | `04`, `00c`, `contracts/VS-01-execution-authority-contract-pack.md` | 高风险动作和 adoption slice |
 
 ### 8.2 Batch B：状态、行为与写入边界
 
-| 编号 | 文件 | 主题 | 来源 | 阻塞内容 |
-|---|---|---|---|---|
-| ADR-0006 | `ADR-0006-turn-phase-status-v3.md` | TurnPhase / TurnStatus v3 | `05`, `00c` | UI action / behavior slice |
-| ADR-0007 | `ADR-0007-next-action-available-action-v3.md` | NextAction / AvailableAction v3 | `05`, `07`, `00c` | UI roundtrip slice |
-| ADR-0008 | `ADR-0008-behavior-state-v3.md` | BehaviorState v3 | `05`, `00c` | clarification / confirmation slice |
-| ADR-0009 | `ADR-0009-confirmation-binding-v3.md` | Confirmation Binding v3 | `04`, `05`, `07`, `00c` | confirmation execution slice |
-| ADR-0010 | `ADR-0010-state-adoption-boundary-v3.md` | State Adoption Boundary v3 | `03`, `04`, `05`, `00c` | candidate adoption slice |
+| 编号 | 文件 | 状态 | 主题 | 来源 | 阻塞内容 |
+|---|---|---|---|---|---|
+| ADR-0006 | `ADR-0006-turn-phase-status-v3.md` | Accepted | TurnPhase / TurnStatus v3 | `05`, `00c`, `contracts/VS-03-behavior-lifecycle-contract-pack.md` | UI action / behavior slice |
+| ADR-0007 | `ADR-0007-next-action-available-action-v3.md` | Accepted | NextAction / AvailableAction v3 | `05`, `07`, `00c`, `contracts/VS-03-behavior-lifecycle-contract-pack.md` | UI roundtrip slice |
+| ADR-0008 | `ADR-0008-behavior-state-v3.md` | Accepted | BehaviorState v3 | `05`, `06`, `00c`, `contracts/VS-03-behavior-lifecycle-contract-pack.md` | clarification / confirmation slice |
+| ADR-0009 | `ADR-0009-confirmation-binding-v3.md` | Accepted | Confirmation Binding v3 | `04`, `05`, `07`, `00c`, `contracts/VS-03-behavior-lifecycle-contract-pack.md` | confirmation execution slice |
+| ADR-0010 | `ADR-0010-state-adoption-boundary-v3.md` | Accepted | State Adoption Boundary v3 | `03`, `04`, `05`, `07`, `00c`, `contracts/VS-04-adoption-boundary-contract-pack.md` | candidate adoption slice |
 
 ### 8.3 Batch C：工具、trace、UI 消费
 
-| 编号 | 文件 | 主题 | 来源 | 阻塞内容 |
-|---|---|---|---|---|
-| ADR-0011 | `ADR-0011-toolbox-registry-v3.md` | Toolbox Registry v3 | `03`, `00c` | capability invocation slice |
-| ADR-0012 | `ADR-0012-tool-request-result-v3.md` | ToolRequest / ToolResult v3 | `03`, `04`, `06`, `00c` | tool trace slice |
-| ADR-0013 | `ADR-0013-decision-trace-v3.md` | DecisionTrace v3 | `06`, `00c` | replay / audit slice |
-| ADR-0014 | `ADR-0014-trace-redaction-v3.md` | Trace Redaction v3 | `06`, `07`, `00c` | UI trace summary slice |
-| ADR-0015 | `ADR-0015-turn-result-view-model-v3.md` | TurnResultViewModel v3 | `07`, `00c` | Workbench UI slice |
-| ADR-0016 | `ADR-0016-projection-hint-ui-v3.md` | Projection Hint UI v3 | `07`, `00c` | projection refresh slice |
+| 编号 | 文件 | 状态 | 主题 | 来源 | 阻塞内容 |
+|---|---|---|---|---|---|
+| ADR-0011 | `ADR-0011-toolbox-registry-v3.md` | Accepted | Toolbox Registry v3 | `03`, `00c`, `contracts/VS-02-tool-provenance-contract-pack.md` | capability invocation slice |
+| ADR-0012 | `ADR-0012-tool-request-result-v3.md` | Accepted | ToolRequest / ToolResult v3 | `03`, `04`, `06`, `00c`, `contracts/VS-02-tool-provenance-contract-pack.md` | tool trace slice |
+| ADR-0013 | `ADR-0013-decision-trace-v3.md` | Accepted | DecisionTrace v3 | `06`, `00c`, `contracts/VS-02-tool-provenance-contract-pack.md` | replay / audit slice |
+| ADR-0014 | `ADR-0014-trace-redaction-v3.md` | Accepted | Trace Redaction v3 | `06`, `07`, `00c`, `contracts/VS-05-ui-roundtrip-contract-pack.md` | UI trace summary slice |
+| ADR-0015 | `ADR-0015-turn-result-view-model-v3.md` | Accepted | TurnResultViewModel v3 | `07`, `00c`, `contracts/VS-05-ui-roundtrip-contract-pack.md` | Workbench UI slice |
+| ADR-0016 | `ADR-0016-projection-hint-ui-v3.md` | Accepted | Projection Hint UI v3 | `07`, `00c`, `contracts/VS-04-adoption-boundary-contract-pack.md` | projection refresh slice |
+| ADR-0017 | `ADR-0017-replay-report-v3.md` | Accepted | ReplayReport v3 | `06`, `00c`, `contracts/VS-06-replay-surface-contract-pack.md` | replay explanation slice |
 
 ---
 
 ## 9. 首批写作建议
 
-建议先写 Batch A 的前 3 条 Proposed ADR：
+建议先写并接受 Batch A 的前 5 条 ADR：
 
-1. 已完成 `ADR-0001-dialogue-frame-v3.md`。
-2. 已完成 `ADR-0002-micro-plan-v3.md`。
-3. 已完成 `ADR-0003-planner-authority-boundary.md`。
+1. 已完成并接受 `ADR-0001-dialogue-frame-v3.md`。
+2. 已完成并接受 `ADR-0002-micro-plan-v3.md`。
+3. 已完成并接受 `ADR-0003-planner-authority-boundary.md`。
+4. 已完成并接受 `ADR-0004-orchestrator-decision-v3.md`。
+5. 已完成并接受 `ADR-0005-execution-gate-order-v3.md`。
 
 原因：
 
 - `DialogueFrame` 决定每个 turn 的认知锚点。
 - `MicroPlan` 决定 Planner 到 Orchestrator 的协议。
 - `Planner Authority Boundary` 先于所有执行类 slice，否则容易把 Planner 写成新的执行器。
-- 下一步应写 `ADR-0004-orchestrator-decision-v3.md`，让执行裁决本身具备稳定 contract。
+- `OrchestratorDecision` 让执行裁决本身具备稳定 contract。
+- `Execution Gate Order` 提出 gate 顺序如何落实 decision。
+- `tasks/slices/v3/DAG.md` 已创建，开始把首批承重垂直切面排成可执行 DAG。
 
-这 3 条是主链与执行权的基础，可以先保持 Proposed。implementation plan 仍需等 ADR-0004 / ADR-0005 进入 Proposed、相关评审完成，并由 `tasks/slices/v3/DAG.md` 明确首批垂直切面后再创建。
+这 5 条是主链与执行权的基础。ADR-0001 可作为 VS-00 稳定输入；ADR-0002 至 ADR-0005 可作为 VS-01 稳定输入。
+
+随后已完成并接受 `ADR-0011-toolbox-registry-v3.md`、`ADR-0012-tool-request-result-v3.md`、`ADR-0013-decision-trace-v3.md`，作为 VS-02 的稳定设计输入。implementation plan / code 仍需具体 slice 文件、proof 和用户明确批准。
+
+同时已完成并接受 `ADR-0006-turn-phase-status-v3.md`、`ADR-0007-next-action-available-action-v3.md`、`ADR-0008-behavior-state-v3.md`、`ADR-0009-confirmation-binding-v3.md`，作为 VS-03 的稳定设计输入。
+
+随后已完成并接受 `ADR-0010-state-adoption-boundary-v3.md`、`ADR-0016-projection-hint-ui-v3.md`，作为 VS-04 的稳定设计输入。
+
+随后已完成并接受 `ADR-0014-trace-redaction-v3.md`、`ADR-0015-turn-result-view-model-v3.md`，作为 VS-05 的稳定设计输入。
+
+最后已完成并接受 `ADR-0017-replay-report-v3.md`，作为 VS-06 的稳定设计输入。
 
 ---
 
@@ -320,16 +335,24 @@ Accepted ADR 可以仍然保留 Deferred 问题，但这些问题不能影响当
 
 ## 12. 下一步
 
-本文完成后，下一步建议写：
+本文完成后，当前阶段结论：
 
 ```text
-docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
 ```
 
 原因：
 
-- `ADR-0001` 已经把每 turn 必有 DialogueFrame 升级为 Proposed 决策。
-- `ADR-0002` 已经把 MicroPlan 升级为 Proposed 决策，明确它只是下一步行动建议 envelope。
-- `ADR-0003` 已经把 Planner 权限边界升级为 Proposed 决策，明确它只有建议权、没有执行批准权。
-- 下一步需要冻结 OrchestratorDecision 的最小 contract。
-- `OrchestratorDecision` 是连接 Planner 建议、执行门禁、ToolRequest、BehaviorState、TurnResult 与 trace 的第四承重点。
+- `ADR-0001` 已经把每 turn 必有 DialogueFrame 升级为 Accepted 决策。
+- `ADR-0002` 已经把 MicroPlan 升级为 Accepted 决策，明确它只是下一步行动建议 envelope。
+- `ADR-0003` 已经把 Planner 权限边界升级为 Accepted 决策，明确它只有建议权、没有执行批准权。
+- `ADR-0004` 已经把 OrchestratorDecision 升级为 Accepted 决策。
+- `ADR-0005` 已经把 Execution Gate Order 升级为 Accepted 决策。
+- `ADR-0006` 至 `ADR-0009` 已经把 phase/status、available action、BehaviorState 和 confirmation binding 升级为 Accepted 决策。
+- `ADR-0010` 已经把 candidate selection 与 adoption boundary 升级为 Accepted 决策。
+- `ADR-0011`、`ADR-0012`、`ADR-0013` 已经把工具 registry、ToolRequest / ToolResult 和 VS-02 trace 最小语义升级为 Accepted 决策。
+- `ADR-0014`、`ADR-0015` 已经把 author-visible trace redaction 和 TurnResultViewModel 升级为 Accepted 决策。
+- `ADR-0016` 已经把 ProjectionHint UI 写入边界升级为 Accepted 决策。
+- `ADR-0017` 已经把 ReplayCase / ReplayReport 和 no-provider replay 升级为 Accepted 决策。
+- VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 具体 slice 文件已经创建，文档 blocker 已关闭。
+- 下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。

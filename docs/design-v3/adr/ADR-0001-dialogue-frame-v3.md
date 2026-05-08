@@ -1,16 +1,19 @@
 # ADR-0001：DialogueFrame v3 语义与最小 Contract
 
-- 状态：Proposed
+- 状态：Accepted
 - 日期：2026-05-06
 - 来源文档：
   - `../00b-end-to-end-dialogue-flow.md` §1-3
   - `../00c-state-and-contract-atlas.md` §4 / §6 / §7 / §8 / §9
   - `../02-dialogue-frame-and-micro-plan.md` §1-2 / §4-5 / §7-9
+  - `../contracts/VS-00-reply-only-contract-pack.md`
 - 影响范围：Dialogue / Trace / TurnResult / UI / Umbrella / Slice
-- 相关不变量：`00c` §7 #1、#2、#8、#9
-- 首个证明 slice：`00c` §9.1 VS-00 Reply-only DialogueFrame + TurnResult + Trace
+- 相关不变量：`00c` §7 #1、#2、#8、#9、#14
+- 首个证明 slice：`tasks/slices/v3/VS-00-reply-only-dialogue-frame-turn-result-trace.md`
 - 取代：无
 - 取代者：无
+
+> Accepted 范围：冻结每个 turn 必有 primary `DialogueFrame` 的语义、reply-only 也必须可追踪/可回放的规则，以及 VS-00 所需最小字段语义。本文不授权代码实现；代码实现仍需用户明确开始。
 
 ---
 
@@ -300,7 +303,8 @@ v3 不继承 v2 Router-first 拓扑。
 
 1. `ADR-0002-micro-plan-v3.md` 已提出 MicroPlan 与 DialogueFrame 的引用关系和建议权边界。
 2. `ADR-0003-planner-authority-boundary.md` 已提出 Planner 不能批准执行的权限边界。
-3. 写 `ADR-0004-orchestrator-decision-v3.md`，冻结 OrchestratorDecision 如何承接 frame / plan。
-3. 后续 schema 草案再冻结 `DialogueFrame` 字段全集和 `frame_type` 枚举。
-4. 在 `tasks/slices/v3/DAG.md` 中安排 VS-00。
-5. 实现前补 contract test：每个 turn 必有 frame，reply-only 也可回放。
+3. `ADR-0004-orchestrator-decision-v3.md` 已提出 OrchestratorDecision 如何承接 frame / plan。
+4. `../contracts/VS-00-reply-only-contract-pack.md` 已补齐 VS-00 所需的 `DialogueFrame` 最小 schema、reply-only trace policy、TurnResult truthfulness 和 proof 草案。
+5. `tasks/slices/v3/VS-00-reply-only-dialogue-frame-turn-result-trace.md` 已关闭 VS-00 文档 blocker。
+6. 后续全量 schema 草案再冻结 `DialogueFrame` 字段全集和完整 `frame_type` 枚举。
+7. 用户明确批准进入代码后，再为 VS-00 创建 implementation plan / contract test：每个 turn 必有 frame，reply-only 也可回放。

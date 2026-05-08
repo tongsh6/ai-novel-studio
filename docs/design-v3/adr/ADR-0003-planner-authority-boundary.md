@@ -1,19 +1,22 @@
 # ADR-0003：Planner Authority Boundary
 
-- 状态：Proposed
+- 状态：Accepted
 - 日期：2026-05-07
 - 来源文档：
   - `../00b-end-to-end-dialogue-flow.md` §3-5
   - `../00c-state-and-contract-atlas.md` §4 / §6 / §7 / §8 / §9 / §10 / §11
   - `../02-dialogue-frame-and-micro-plan.md` §1 / §2 / §3 / §5 / §8 / §9
   - `../04-execution-orchestrator.md` §1-9
+  - `../contracts/VS-01-execution-authority-contract-pack.md`
   - `ADR-0001-dialogue-frame-v3.md`
   - `ADR-0002-micro-plan-v3.md`
 - 影响范围：Dialogue / Execution / Toolbox / Behavior / Trace / UI / Umbrella / Slice
 - 相关不变量：`00c` §7 #2、#3、#4、#5、#6、#7、#9、#10、#12
-- 首个证明 slice：`00c` §9.2 VS-01 MicroPlan 被 Orchestrator 降级或要求确认
+- 首个证明 slice：`tasks/slices/v3/VS-01-micro-plan-downgrade-confirmation.md`
 - 取代：无
 - 取代者：无
+
+> Accepted 范围：冻结 Planner 只有理解、建议、解释和草案输出权，不能批准执行、派发工具、采纳状态、打开/关闭 durable behavior 或生成 UI 可提交动作。本文不授权代码实现；代码实现仍需用户明确开始。
 
 ---
 
@@ -348,8 +351,9 @@ v3 不继承 v2 Router-first 执行拓扑。
 
 ## 后续工作
 
-1. 写 `ADR-0004-orchestrator-decision-v3.md`，冻结 OrchestratorDecision 如何表达裁决结果。
-2. 写 `ADR-0005-execution-gate-order-v3.md`，冻结 gate 顺序如何落实 Planner 权限边界。
-3. 后续 schema 草案中补 `PlannerOutput Boundary` 的 validation error code。
-4. 在 `tasks/slices/v3/DAG.md` 中安排 VS-01。
-5. 实现前补 contract test：Planner 越权语义被拒绝，Planner 建议和 Orchestrator 裁决差异进入 trace。
+1. `ADR-0004-orchestrator-decision-v3.md` 已提出 OrchestratorDecision 如何表达裁决结果。
+2. `ADR-0005-execution-gate-order-v3.md` 已提出 gate 顺序如何落实 Planner 权限边界。
+3. `../contracts/VS-01-execution-authority-contract-pack.md` 已补齐 VS-01 所需的 PlannerOutput Boundary validation surface 和 proof 草案。
+4. `tasks/slices/v3/VS-01-micro-plan-downgrade-confirmation.md` 已关闭 VS-01 文档 blocker。
+5. 后续 schema 草案中补 `PlannerOutput Boundary` 的完整 validation error code。
+6. 用户明确批准进入代码后，再为 VS-01 创建 implementation plan / contract test：Planner 越权语义被拒绝，Planner 建议和 Orchestrator 裁决差异进入 trace。
