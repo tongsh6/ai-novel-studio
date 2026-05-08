@@ -1,8 +1,9 @@
 defmodule NovelApplication.TurnResultBuilder do
   @moduledoc """
-  从 DialogueFrame 构建 v3 TurnResult。VS-02 扩展：包含工具调用结果。
+  从 DialogueFrame 构建 v3 TurnResult。VS-03 扩展 phase/status/available_actions。
   """
 
+  alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateDirection
   alias NovelDomain.DialogueFrame
   alias NovelDomain.OrchestratorDecision
@@ -11,10 +12,11 @@ defmodule NovelApplication.TurnResultBuilder do
 
   @spec build(
     DialogueFrame.t(), map(), [CandidateDirection.t()],
-    OrchestratorDecision.t() | nil, ToolResult.t() | nil, TentativeArtifactSet.t() | nil
+    OrchestratorDecision.t() | nil, ToolResult.t() | nil,
+    TentativeArtifactSet.t() | nil, BehaviorState.t() | nil
   ) :: map()
   def build(%DialogueFrame{} = frame, trace_summary, candidates \\ [],
-            decision \\ nil, tool_result \\ nil, artifact_set \\ nil) do
+            decision \\ nil, tool_result \\ nil, artifact_set \\ nil, behavior \\ nil) do
     result = %{
       schema_version: "3.0-draft",
       turn_id: frame.turn_id,
@@ -25,9 +27,9 @@ defmodule NovelApplication.TurnResultBuilder do
         dialogue_goal: frame.dialogue_goal.summary
       },
       trace_summary: trace_summary,
-      phase: "completed",
-      status: "done",
-      available_actions: [],
+      phase: build_phase(behavior),
+      status: build_status(behavior, decision),
+      available_actions: build_available_actions(behavior),
       truthfulness: build_truthfulness(frame, decision, tool_result)
     }
 
@@ -36,114 +38,108 @@ defmodule NovelApplication.TurnResultBuilder do
     |> maybe_add_decision(decision)
     |> maybe_add_tool_result(tool_result)
     |> maybe_add_artifacts(artifact_set)
+    |> maybe_add_behavior(behavior)
   end
 
+  # ── phase / status ────────────────────────────
+
+  defp build_phase(nil), do: "completed"
+  defp build_phase(%BehaviorState{lifecycle_status: :open}), do: "awaiting_author"
+  defp build_phase(%BehaviorState{lifecycle_status: :awaiting_author}), do: "awaiting_author"
+  defp build_phase(%BehaviorState{lifecycle_status: :resolving}), do: "completed"
+  defp build_phase(%BehaviorState{lifecycle_status: :resolved}), do: "completed"
+  defp build_phase(%BehaviorState{lifecycle_status: :cancelled}), do: "cancelled"
+  defp build_phase(%BehaviorState{lifecycle_status: :failed}), do: "failed"
+  defp build_phase(_), do: "completed"
+
+  defp build_status(nil, _decision), do: "conversational"
+  defp build_status(%BehaviorState{behavior_type: :clarification, lifecycle_status: s}, _)
+       when s in [:open, :awaiting_author], do: "needs_clarification"
+  defp build_status(%BehaviorState{behavior_type: :confirmation, lifecycle_status: s}, _)
+       when s in [:open, :awaiting_author], do: "needs_confirmation"
+  defp build_status(%BehaviorState{lifecycle_status: :cancelled}, _), do: "cancelled"
+  defp build_status(_, _), do: "conversational"
+
+  # ── available actions ─────────────────────────
+
+  defp build_available_actions(nil), do: []
+  defp build_available_actions(%BehaviorState{} = b) do
+    b.available_actions
+  end
+
+  # ── truthfulness ──────────────────────────────
+
   defp build_truthfulness(_frame, nil, nil) do
-    %{
-      tool_called: false,
-      tool_dispatched: false,
-      artifact_adopted: false,
-      production_write_performed: false,
-      durable_behavior_opened: false
-    }
+    %{tool_called: false, artifact_adopted: false,
+      production_write_performed: false, durable_behavior_opened: false}
   end
 
   defp build_truthfulness(_frame, nil, %ToolResult{} = tr) do
-    %{
-      tool_called: true,
-      tool_dispatched: true,
-      tool_status: tr.status,
-      tool_name: tr.tool_name,
-      artifact_adopted: false,
-      production_write_performed: false,
-      durable_behavior_opened: false
-    }
+    %{tool_called: true, tool_status: tr.status, tool_name: tr.tool_name,
+      artifact_adopted: false, production_write_performed: false, durable_behavior_opened: false}
   end
 
   defp build_truthfulness(_frame, %OrchestratorDecision{} = decision, nil) do
     blocked = OrchestratorDecision.blocks_execution?(decision)
-
-    %{
-      tool_called: false,
-      tool_dispatched: false,
-      artifact_adopted: false,
-      production_write_performed: false,
-      durable_behavior_opened: false,
-      execution_blocked: blocked,
-      decision_type: decision.decision_type,
-      first_blocking_gate: decision.first_blocking_gate,
-      reason_codes: decision.reason_codes
-    }
+    %{tool_called: false, artifact_adopted: false, production_write_performed: false,
+      durable_behavior_opened: blocked and decision.decision_type in [:require_clarification, :require_confirmation],
+      execution_blocked: blocked, decision_type: decision.decision_type,
+      first_blocking_gate: decision.first_blocking_gate, reason_codes: decision.reason_codes}
   end
 
-  defp build_truthfulness(_frame, %OrchestratorDecision{} = decision, %ToolResult{} = tr) do
-    %{
-      tool_called: true,
-      tool_dispatched: true,
-      tool_status: tr.status,
-      tool_name: tr.tool_name,
-      artifact_adopted: false,
-      production_write_performed: false,
-      durable_behavior_opened: false,
-      decision_type: decision.decision_type,
-      first_blocking_gate: decision.first_blocking_gate,
-      reason_codes: decision.reason_codes
-    }
+  defp build_truthfulness(_frame, %OrchestratorDecision{} = d, %ToolResult{} = tr) do
+    %{tool_called: true, tool_status: tr.status, tool_name: tr.tool_name,
+      artifact_adopted: false, production_write_performed: false, durable_behavior_opened: false,
+      decision_type: d.decision_type, first_blocking_gate: d.first_blocking_gate,
+      reason_codes: d.reason_codes}
   end
 
-  defp maybe_add_candidates(result, []), do: result
-  defp maybe_add_candidates(result, candidates) do
-    Map.put(result, :candidate_directions, format_candidates(candidates))
+  # ── optional sections ─────────────────────────
+
+  defp maybe_add_candidates(r, []), do: r
+  defp maybe_add_candidates(r, c), do: Map.put(r, :candidate_directions, format_candidates(c))
+
+  defp maybe_add_decision(r, nil), do: r
+  defp maybe_add_decision(r, d) do
+    Map.put(r, :orchestrator_decision, %{
+      decision_id: d.decision_id, decision_type: d.decision_type,
+      decision_status: d.decision_status, first_blocking_gate: d.first_blocking_gate,
+      required_author_action: d.required_author_action})
   end
 
-  defp maybe_add_decision(result, nil), do: result
-  defp maybe_add_decision(result, decision) do
-    Map.put(result, :orchestrator_decision, %{
-      decision_id: decision.decision_id,
-      decision_type: decision.decision_type,
-      decision_status: decision.decision_status,
-      first_blocking_gate: decision.first_blocking_gate,
-      required_author_action: decision.required_author_action
-    })
+  defp maybe_add_tool_result(r, nil), do: r
+  defp maybe_add_tool_result(r, tr) do
+    Map.put(r, :tool_result, %{
+      tool_result_id: tr.tool_result_id, tool_name: tr.tool_name,
+      status: tr.status, output: tr.output, errors: tr.errors,
+      state_delta: tr.state_delta})
   end
 
-  defp maybe_add_tool_result(result, nil), do: result
-  defp maybe_add_tool_result(result, %ToolResult{} = tr) do
-    Map.put(result, :tool_result, %{
-      tool_result_id: tr.tool_result_id,
-      tool_name: tr.tool_name,
-      status: tr.status,
-      output: tr.output,
-      errors: tr.errors,
-      state_delta: tr.state_delta
-    })
+  defp maybe_add_artifacts(r, nil), do: r
+  defp maybe_add_artifacts(r, as) do
+    Map.put(r, :tentative_artifacts, %{
+      artifact_set_id: as.artifact_set_id, artifact_type: as.artifact_type,
+      items: as.items, adoption_status: as.adoption_status,
+      source_tool_result_ref: as.source_tool_result_ref})
   end
 
-  defp maybe_add_artifacts(result, nil), do: result
-  defp maybe_add_artifacts(result, %TentativeArtifactSet{} = artifact_set) do
-    Map.put(result, :tentative_artifacts, %{
-      artifact_set_id: artifact_set.artifact_set_id,
-      artifact_type: artifact_set.artifact_type,
-      items: artifact_set.items,
-      adoption_status: artifact_set.adoption_status,
-      source_tool_result_ref: artifact_set.source_tool_result_ref
-    })
+  defp maybe_add_behavior(r, nil), do: r
+  defp maybe_add_behavior(r, b) do
+    Map.put(r, :behavior_state, %{
+      behavior_id: b.behavior_id, behavior_type: b.behavior_type,
+      lifecycle_status: b.lifecycle_status, required_next_action: b.required_next_action,
+      prompt_contract: b.prompt_contract, available_actions: b.available_actions})
   end
 
   @doc "从 creative ToolResult 构建 TentativeArtifactSet。"
-  @spec build_artifact_set(ToolResult.t(), String.t()) :: TentativeArtifactSet.t()
   def build_artifact_set(%ToolResult{} = tool_result, turn_ref) do
     artifact_type = to_artifact_type(tool_result.output[:artifact_type])
     items = tool_result.output[:items] || []
-
     %TentativeArtifactSet{
       artifact_set_id: "as_#{System.unique_integer([:positive, :monotonic])}",
-      artifact_type: artifact_type,
-      items: items,
-      source_turn_ref: turn_ref,
-      source_tool_result_ref: tool_result.tool_result_id,
-      adoption_status: :tentative
-    }
+      artifact_type: artifact_type, items: items,
+      source_turn_ref: turn_ref, source_tool_result_ref: tool_result.tool_result_id,
+      adoption_status: :tentative}
   end
 
   defp to_artifact_type("character_seed"), do: :character_seed

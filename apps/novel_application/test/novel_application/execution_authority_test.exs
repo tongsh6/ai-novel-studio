@@ -162,7 +162,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: nil, write_intent: :none, risk_hint: :low}
       ])
 
-      decision = ExecutionOrchestrator.decide(frame, plan)
+      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
       assert decision.decision_type == :downgrade_to_dialogue
       assert decision.first_blocking_gate == "action_scope"
@@ -176,7 +176,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: nil, write_intent: :tentative, risk_hint: :high}
       ])
 
-      decision = ExecutionOrchestrator.decide(frame, plan)
+      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
       assert decision.decision_type == :require_confirmation
       assert OrchestratorDecision.blocks_execution?(decision)
@@ -186,7 +186,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
       frame = build_frame(frame_id: "f-real-2")
       plan = build_plan(frame_ref: "f-wrong-2")
 
-      decision = ExecutionOrchestrator.decide(frame, plan)
+      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
       assert decision.decision_type == :fail_with_recovery
       assert decision.first_blocking_gate == "planner_boundary"
@@ -199,7 +199,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: nil, write_intent: :production_candidate, risk_hint: :medium}
       ])
 
-      decision = ExecutionOrchestrator.decide(frame, plan)
+      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
       assert decision.decision_type in [:require_confirmation, :downgrade_to_dialogue]
       assert OrchestratorDecision.blocks_execution?(decision)
@@ -212,7 +212,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: nil, write_intent: :tentative, risk_hint: :high}
       ])
 
-      decision = ExecutionOrchestrator.decide(frame, plan)
+      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
       constraints = OrchestratorDecision.truthfulness_constraints(decision)
 
       assert "no_action_executed" in constraints
@@ -225,7 +225,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: nil, write_intent: :tentative, risk_hint: :high}
       ])
 
-      decision = ExecutionOrchestrator.decide(frame, plan)
+      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
       assert decision.decision_id != nil
       assert decision.turn_id == "t-test"
@@ -243,7 +243,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: nil, write_intent: :tentative, risk_hint: :high}
       ])
 
-      decision = ExecutionOrchestrator.decide(frame, plan)
+      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
       assert decision.rejected_actions != []
       assert hd(decision.rejected_actions).action_id == "a1"
