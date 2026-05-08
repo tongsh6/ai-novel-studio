@@ -208,7 +208,7 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 | 创作伙伴体验是否需要独立 ADR | 已由 VS-00A/VS-00B 证明 | 无需独立 ADR |
 | 真实 LLM 集成测试策略 | 已解决 | VS-08 集成测试（stub + real LLM） |
 | **集成测试脚本质量** | **待改进** | **VS-08 集成测试三轮修复均只改了测试文件本身，未暴露业务代码 bug。需补充：注入已知业务 bug 验证测试捕获能力的反向验证脚本，以及业务代码 mutation testing** |
-| **上下文路径无集成测试覆盖** | **待补充** | **real_llm 日志分析发现：全部 10 条真实 LLM 调用 prompt 中上下文均为空。测试传入 context_fetcher: nil → 默认空 fetcher。DialogueGateway → ContextAssembler → Planner 的上下文注入链路从未被真实 LLM 集成测试验证。** |
+| **上下文路径无集成测试覆盖** | **已补充** | **新增 "context injection reaches LLM prompt" 测试。fetcher 注入非空上下文 → ContextAssembler → Planner → LLM prompt 包含上下文。日志验证：turn_* 中 prompt 显示作品快照/对话摘要/记忆已注入。** |
 
 ---
 

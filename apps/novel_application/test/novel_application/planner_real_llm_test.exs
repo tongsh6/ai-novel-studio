@@ -173,6 +173,27 @@ defmodule NovelApplication.PlannerRealLLMTest do
       assert byte_size(message) > 0
       refute String.starts_with?(String.trim(message), "{")
     end
+
+    test "context injection reaches LLM prompt", %{complete_fn: complete_fn} do
+      fetcher = fn _ws_id ->
+        {:ok,
+         %{title: "赛博朋克世界观", genre: "科幻"},
+         "用户持续探索赛博朋克主题，偏好科技与人性的冲突",
+         "用户擅长快速回复，对设定有主见",
+         nil}
+      end
+
+      input = %{text: "我想深化义体改造的设定", workspace_id: "ws-real-context"}
+
+      {:ok, turn_result, _trace, _candidates, context} =
+        DialogueGateway.handle_input(input, fetcher, complete_fn)
+
+      assert turn_result.assistant_message.text != ""
+      assert context.workspace_id == "ws-real-context"
+      assert context.current_work_snapshot != nil
+      assert context.conversation_summary != nil
+      assert context.memory_summary != nil
+    end
   end
 
   # ── Error recovery ───────────────────────────────
