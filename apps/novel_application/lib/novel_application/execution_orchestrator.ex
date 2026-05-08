@@ -1,8 +1,6 @@
 defmodule NovelApplication.ExecutionOrchestrator do
   @moduledoc """
-  v3 Execution Orchestrator — 执行权唯一门禁。
-
-  VS-03 扩展：当需要 clarification/confirmation 时创建 BehaviorState。
+  v3 Execution Orchestrator — 执行权唯一门禁。Planner 不能批准自己的 MicroPlan。
   """
 
   alias NovelApplication.CapabilityRegistry

@@ -51,4 +51,36 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert {:error, _} = ActionValidator.validate(input, nil)
     end
   end
+
+  describe "DialogueGateway handle_action" do
+    alias NovelApplication.DialogueGateway
+
+    test "valid action passes through gateway" do
+      input = %AuthorActionInput{
+        input_id: "in-gw", source_turn_ref: "turn-1",
+        action_id: "act-confirm", action_type: "confirm_before_execute"}
+
+      assert {:ok, result} = DialogueGateway.handle_action(input, @valid_source)
+      assert result.action_id == "act-confirm"
+      assert result.status == "accepted"
+    end
+
+    test "invented action rejected by gateway" do
+      input = %AuthorActionInput{
+        input_id: "in-gw-fake", source_turn_ref: "turn-1",
+        action_id: "act-fake", action_type: "nonexistent"}
+
+      assert {:error, reason} = DialogueGateway.handle_action(input, @valid_source)
+      assert String.contains?(reason, "invented")
+    end
+
+    test "stale action rejected by gateway" do
+      input = %AuthorActionInput{
+        input_id: "in-gw-stale", source_turn_ref: "turn-old",
+        action_id: "act-confirm", action_type: "confirm_before_execute"}
+
+      assert {:error, reason} = DialogueGateway.handle_action(input, @valid_source)
+      assert String.contains?(reason, "stale")
+    end
+  end
 end

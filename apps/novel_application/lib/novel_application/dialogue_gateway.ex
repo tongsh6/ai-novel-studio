@@ -1,8 +1,9 @@
 defmodule NovelApplication.DialogueGateway do
   @moduledoc """
-  v3 对话入口。VS-03 扩展：behavior lifecycle + action roundtrip。
+  v3 对话入口。完整主链：AuthorInput → Frame → Plan → Decision → Action/Tool/Behavior → TurnResult。
   """
 
+  alias NovelApplication.ActionValidator
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
@@ -10,6 +11,7 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelApplication.Toolbox
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
+  alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueFrame
   alias NovelDomain.ToolRequest
 
@@ -38,6 +40,21 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   def handle_input(_, _fetcher), do: {:error, "text is required"}
+
+  # ── action ingestion (VS-05) ──────────────────
+
+  @doc "处理作者动作输入（choose_candidate, confirm, reject 等）。"
+  @spec handle_action(map(), map()) :: {:ok, map()} | {:error, String.t()}
+  def handle_action(%AuthorActionInput{} = action_input, source_turn_result) do
+    case ActionValidator.validate(action_input, source_turn_result) do
+      :ok ->
+        {:ok, %{action_id: action_input.action_id, action_type: action_input.action_type,
+                status: "accepted", idempotency_key: action_input.idempotency_key}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   # ── reply-only ────────────────────────────────
 
