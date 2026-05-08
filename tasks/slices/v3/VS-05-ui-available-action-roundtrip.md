@@ -1,0 +1,111 @@
+# VS-05 UI AvailableAction Roundtrip
+
+- 状态：docs-ready
+- 类型：UI Contract Slice
+- 启动日期：2026-05-07
+- 所属 DAG：`tasks/slices/v3/DAG.md` B6
+
+> 本文件是 VS-05 的具体 slice 入口，不是 implementation plan，不授权代码实现。当前文档 blocker 已关闭；进入代码实现仍需用户明确批准。
+
+---
+
+## 1. 用户 / 系统目标
+
+打实 v3 UI 主出口：Workbench UI 只消费 TurnResultViewModel，只提交自由文本或 AvailableAction。系统必须拒绝 stale、invented 或 disabled action，并返回新的 TurnResultViewModel，而不是让 UI 直接修改 behavior、tool、adoption 或 projection 状态。
+
+本 slice 证明 UI 是作者动作收集者，不是第二个 Orchestrator。
+
+---
+
+## 2. 开工检查
+
+- Contract: `TurnResultViewModel`、`AvailableAction`、`AuthorActionInput`、`TraceSummaryView`、`ProjectionHint`
+- Invariant: `00c` §7 #9、#10、#13、#15：UI 只消费 TurnResult；UI 只能提交 available actions；trace summary 脱敏；projection hints 只触发刷新
+- Boundary: 切过 web API boundary / frontend contract / application action ingestion / trace redaction；不让 frontend 直接调用 toolbox、写 BehaviorState 或写 adopted state
+- Consumer: Workbench UI smoke test 或 API contract test
+- Proof: invented / stale / disabled action 被拒绝，合法 action 回到主链并产生新 TurnResultViewModel
+
+---
+
+## 3. Planning Depends On
+
+| 输入 | 当前状态 | VS-05 使用方式 |
+|---|---|---|
+| `tasks/slices/v3/VS-03-clarification-confirmation-behavior-lifecycle.md` | docs-ready | 提供 AvailableAction / BehaviorState action 起点 |
+| `tasks/slices/v3/VS-04-candidate-selection-adoption-boundary.md` | docs-ready | 提供 candidate / projection hint 起点 |
+| `docs/design-v3/adr/ADR-0014-trace-redaction-v3.md` | Accepted | 固化 author-visible trace summary redaction |
+| `docs/design-v3/adr/ADR-0015-turn-result-view-model-v3.md` | Accepted | 固化 TurnResultViewModel 和 UI action roundtrip |
+| `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md` | Draft contract pack | 关闭 VS-05 view model / action / redaction / proof 文档 blocker |
+
+---
+
+## 4. Implementation Blockers
+
+| Blocker | 状态 | 关闭依据 |
+|---|---|---|
+| ADR-0014 / ADR-0015 Accepted | closed | 两条 ADR 已标记 Accepted |
+| TurnResultViewModel 最小 schema 明确 | closed | `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md` §2 |
+| AvailableAction roundtrip validation 明确 | closed | `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md` §3 |
+| UI card type subset 明确 | closed | `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md` §4 |
+| TraceSummaryView redaction policy 明确 | closed | `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md` §5 |
+| UI proof 明确 | closed | `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md` §6 |
+
+当前没有声明 implementation 例外。代码实现仍需用户明确批准。
+
+---
+
+## 5. 涉及范围
+
+| App / Area | 是否涉及 | 说明 |
+|---|---|---|
+| novel_foundation | yes | 可承接通用 enum、id、Result/Error、validation helper |
+| novel_domain | no | VS-05 不新增领域规则 |
+| novel_agent | no | UI action 不进入 agent |
+| novel_application | yes | 负责 TurnResultViewModel assembly、action validation、trace redaction coordination |
+| novel_persistence | no | VS-05 不要求新增 Repo、DB schema 或 migration |
+| novel_web | yes | 负责 API boundary serialization；不运行 business decision |
+| frontend | yes | 作为 TurnResultViewModel 消费者和 AuthorActionInput 提交者；不写系统事实 |
+| docs/design-v3 | yes | 本 slice 消费 ADR-0014、ADR-0015 和 VS-05 contract pack |
+
+---
+
+## 6. 任务清单
+
+| # | 任务 | Status | 备注 |
+|---|---|---|---|
+| T1 | 评审 ADR-0014 是否满足 trace redaction 输入门槛 | done | ADR-0014 已进入 Accepted |
+| T2 | 评审 ADR-0015 是否满足 TurnResultViewModel 输入门槛 | done | ADR-0015 已进入 Accepted |
+| T3 | 补 VS-05 contract pack | done | `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md` |
+
+---
+
+## 7. 验证
+
+设计阶段验证：
+
+- [ ] `rg -n "ADR-0014.*Pro""posed|ADR-0015.*Pro""posed|TurnResultViewModel.*Pro""posed|TraceSummaryView.*Pro""posed|VS-05.*plan""ned" docs/design-v3 tasks/slices/v3`
+- [ ] `rg -n "TO""DO|TB""D|占位""符|下一步需要冻""结|仍未进入 Pro""posed" docs/design-v3 tasks/slices/v3`
+- [ ] `git diff --check`
+
+实现阶段验证入口：
+
+- [ ] `cd frontend && pnpm typecheck && pnpm lint && pnpm test`
+- [ ] `bash scripts/frontend_audit.sh`
+- [ ] `bash scripts/check_design_trace.sh`
+- [ ] `bash scripts/ai_static_scan.sh --top 10`
+
+---
+
+## 8. 决策日志
+
+- 2026-05-07 — 从 `tasks/slices/v3/DAG.md` B6 建立 VS-05 文件。当前只授权 slice 设计和评审，不进入 implementation plan / code。
+- 2026-05-07 — 新增 `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md`，关闭 VS-05 文档 blocker，并将 ADR-0014、ADR-0015 标记为 Accepted。仍不授权代码实现。
+
+---
+
+## 9. 试行反馈
+
+- VS-05 的关键不是做页面，而是证明 UI roundtrip 不会绕过 TurnResult 和 Orchestrator。
+- VS-05 刻意不冻结 replay developer report；否则会把 VS-06 的 replay surface 提前拉进来。
+
+---
