@@ -20,7 +20,7 @@ defmodule NovelTest.ProviderHelpers do
                            timeout \\ 60_000) do
     fn prompt ->
       state = %LMStudio{endpoint: endpoint, model: model, timeout: timeout,
-                        log_fn: &NovelAgent.LLMLog.record/5, json_mode: true}
+                        log_fn: &NovelAgent.LLMLog.record/5}
 
       case LMStudio.complete(state, nil, prompt, %InferenceParams{}) do
         {:ok, %Result{content: content}} -> {:ok, %{content: content}}

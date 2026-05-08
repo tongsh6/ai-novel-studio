@@ -115,7 +115,7 @@ defmodule NovelAgent.Provider.LMStudio do
       timeout: Keyword.get(config, :timeout, 60_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
       log_fn: Keyword.get(config, :log_fn, &NovelAgent.LLMLog.record/5),
-      json_mode: Keyword.get(config, :json_mode, true)
+      json_mode: Keyword.get(config, :json_mode, false)
     }
   end
 end
