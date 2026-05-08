@@ -1,6 +1,7 @@
 defmodule NovelAgent.Provider.StubTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Stub
 
   setup do
@@ -13,22 +14,22 @@ defmodule NovelAgent.Provider.StubTest do
     end
   end
 
-  describe "complete/3" do
+  describe "complete/4" do
     test "returns echo response", %{stub: stub} do
-      assert {:ok, result} = Stub.complete(stub, "test-model", "hello world")
+      assert {:ok, result} = Stub.complete(stub, "test-model", "hello world", %InferenceParams{})
       assert result.content =~ "hello world"
       assert result.content =~ "[stub]"
     end
 
     test "works with empty prompt", %{stub: stub} do
-      assert {:ok, result} = Stub.complete(stub, "any-model", "")
+      assert {:ok, result} = Stub.complete(stub, "any-model", "", %InferenceParams{})
       assert result.content =~ "[stub]"
     end
   end
 
   describe "behaviour conformance" do
     test "exports required callbacks" do
-      assert function_exported?(Stub, :complete, 3)
+      assert function_exported?(Stub, :complete, 4)
       assert function_exported?(Stub, :name, 0)
     end
   end

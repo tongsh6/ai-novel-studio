@@ -2,6 +2,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.Provider.Anthropic
+  alias NovelAgent.Provider.InferenceParams
 
   describe "name/0" do
     test "returns anthropic identifier" do
@@ -17,19 +18,35 @@ defmodule NovelAgent.Provider.AnthropicTest do
     end
   end
 
-  describe "complete/3" do
-    test "reports error when api key is missing" do
-      state = %Anthropic{api_key: nil, model: "claude-sonnet-4-6", timeout: 5000}
-      result = Anthropic.complete(state, "claude-sonnet-4-6", "hello")
-      assert {:error, error} = result
-      assert is_map(error)
-      assert error.type in [:connection_refused, :auth, :timeout, :provider_internal]
+  describe "complete/4" do
+    test "returns auth error on 401" do
+      mock = fn _url, _body, _opts -> {:error, :http_error, 401, "Unauthorized"} end
+      state = %Anthropic{api_key: nil, model: "c", timeout: 100, http_fn: mock}
+
+      assert {:error, error} = Anthropic.complete(state, nil, "prompt", %InferenceParams{})
+      assert error.type == :auth
+    end
+
+    test "returns connection_refused" do
+      mock = fn _url, _body, _opts -> {:error, :connection_refused, 0, "拒绝"} end
+      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock}
+
+      assert {:error, error} = Anthropic.complete(state, nil, "prompt", %InferenceParams{})
+      assert error.type == :connection_refused
+    end
+
+    test "returns timeout" do
+      mock = fn _url, _body, _opts -> {:error, :timeout, 0, "超时"} end
+      state = %Anthropic{api_key: "k", model: "c", timeout: 100, http_fn: mock}
+
+      assert {:error, error} = Anthropic.complete(state, nil, "prompt", %InferenceParams{})
+      assert error.type == :timeout
     end
   end
 
   describe "behaviour conformance" do
     test "exports required callbacks" do
-      assert function_exported?(Anthropic, :complete, 3)
+      assert function_exported?(Anthropic, :complete, 4)
       assert function_exported?(Anthropic, :name, 0)
       assert function_exported?(Anthropic, :from_config, 0)
     end

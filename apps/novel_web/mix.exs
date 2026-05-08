@@ -34,7 +34,8 @@ defmodule NovelWeb.MixProject do
       {:phoenix, "~> 1.8"},
       {:phoenix_pubsub, "~> 2.1"},
       {:jason, "~> 1.4"},
-      {:bandit, "~> 1.11"}
+      {:bandit, "~> 1.11"},
+      {:novel_test, in_umbrella: true, only: :test}
     ]
   end
 end

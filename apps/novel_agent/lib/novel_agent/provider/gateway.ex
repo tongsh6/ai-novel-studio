@@ -22,6 +22,7 @@ defmodule NovelAgent.Provider.Gateway do
   require Logger
 
   alias NovelAgent.Provider
+  alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelFoundation.UpstreamError
 
@@ -36,14 +37,15 @@ defmodule NovelAgent.Provider.Gateway do
   @doc """
   调用当前默认 provider 执行 complete。
 
+  可传入 InferenceParams 覆盖默认推理参数（temperature / max_tokens 等）。
   返回 `{:ok, %Result{content: content, usage: usage}}`。
   LLM 不可用时返回 `{:error, error}`——不做降级，让上层告知用户。
   """
-  @spec complete(String.t(), String.t()) :: result()
-  def complete(prompt, model \\ nil) do
+  @spec complete(String.t(), String.t() | nil, InferenceParams.t()) :: result()
+  def complete(prompt, model \\ nil, params \\ %InferenceParams{}) do
     provider_name = default_provider()
 
-    case do_complete(provider_name, model || default_model(), prompt) do
+    case do_complete(provider_name, model || default_model(), prompt, params) do
       {:ok, %Result{} = result} ->
         {:ok, result}
 
@@ -62,11 +64,11 @@ defmodule NovelAgent.Provider.Gateway do
 
   # ---- private ----
 
-  defp do_complete(provider_name, model, prompt) do
+  defp do_complete(provider_name, model, prompt, params) do
     case Map.fetch(@provider_modules, provider_name) do
       {:ok, module} ->
         state = build_state(module)
-        module.complete(state, model, prompt)
+        module.complete(state, model, prompt, params)
 
       :error ->
         err = UpstreamError.new(:provider_internal, "unknown provider: #{provider_name}", "gateway")

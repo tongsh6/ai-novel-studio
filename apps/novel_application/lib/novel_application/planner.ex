@@ -22,7 +22,11 @@ defmodule NovelApplication.Planner do
     turn_id = allocate_turn_id()
     frame_id = allocate_frame_id()
 
-    case call_provider(text, context, complete_fn) do
+    result = with_turn_context(turn_id, "form_frame", fn ->
+      call_provider(text, context, complete_fn)
+    end)
+
+    case result do
       {:ok, parsed} ->
         frame = build_frame(parsed, turn_id, frame_id, ws_id, context)
 
@@ -53,7 +57,7 @@ defmodule NovelApplication.Planner do
 
     prompt = build_plan_prompt(frame, author_input)
 
-    case complete_fn.(prompt) do
+    case with_turn_context(frame.turn_id, "form_micro_plan", fn -> complete_fn.(prompt) end) do
       {:ok, %{content: content}} ->
         case Jason.decode(String.trim(content)) do
           {:ok, parsed} when is_map(parsed) ->
@@ -255,6 +259,15 @@ defmodule NovelApplication.Planner do
 
   defp allocate_turn_id, do: "turn_#{System.unique_integer([:positive, :monotonic])}"
   defp allocate_frame_id, do: "frame_#{System.unique_integer([:positive, :monotonic])}"
+
+  defp with_turn_context(turn_id, step, fun) do
+    Process.put(:current_turn_id, turn_id)
+    Process.put(:current_step, step)
+    fun.()
+  after
+    Process.delete(:current_turn_id)
+    Process.delete(:current_step)
+  end
 
   defp to_frame_type("creative_exploration"), do: :creative_exploration
   defp to_frame_type("question_answer"), do: :question_answer

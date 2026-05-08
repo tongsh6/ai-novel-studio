@@ -9,10 +9,9 @@ defmodule NovelApplication.PlannerRealLLMTest do
   默认排除此测试。
   """
 
-  alias NovelAgent.Provider.LMStudio
-  alias NovelAgent.Provider.Result
   alias NovelApplication.DialogueGateway
   alias NovelApplication.Planner
+  alias NovelTest.ProviderHelpers
 
   @provider_name :lmstudio
   @moduletag :real_llm
@@ -22,7 +21,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "form_frame with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, complete_fn: &direct_lmstudio_complete/1}
+      {:ok, complete_fn: ProviderHelpers.lmstudio_complete_fn()}
     end
 
     test "casual reply produces valid DialogueFrame", %{complete_fn: complete_fn} do
@@ -84,7 +83,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "form_micro_plan with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, complete_fn: &direct_lmstudio_complete/1}
+      {:ok, complete_fn: ProviderHelpers.lmstudio_complete_fn()}
     end
 
     test "produces valid MicroPlan from real LLM", %{complete_fn: complete_fn} do
@@ -139,7 +138,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "full pipeline with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, complete_fn: &direct_lmstudio_complete/1}
+      {:ok, complete_fn: ProviderHelpers.lmstudio_complete_fn()}
     end
 
     test "handle_input reply-only path", %{complete_fn: complete_fn} do
@@ -186,7 +185,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "provider error recovery" do
     setup do
       skip_unless_provider!()
-      {:ok, complete_fn: &direct_lmstudio_complete/1}
+      {:ok, complete_fn: ProviderHelpers.lmstudio_complete_fn()}
     end
 
     test "Planner falls back when provider returns garbage" do
@@ -231,38 +230,10 @@ defmodule NovelApplication.PlannerRealLLMTest do
     }
   end
 
-  # Direct LM Studio call — avoids Application env manipulation
-  defp direct_lmstudio_complete(prompt) do
-    state = %LMStudio{
-      endpoint: "http://localhost:1234/v1",
-      model: "openai/gpt-oss-120b",
-      timeout: 60_000
-    }
-
-    case LMStudio.complete(state, nil, prompt) do
-      {:ok, %Result{content: content}} -> {:ok, %{content: content}}
-      {:error, error} when is_map(error) -> {:error, error}
-      {:error, reason} -> {:error, %{message: inspect(reason)}}
-    end
-  end
-
   defp skip_unless_provider! do
-    unless provider_available?() do
+    unless ProviderHelpers.lmstudio_available?() do
       IO.puts("  ⏭  Skipping: LM Studio (openai/gpt-oss-120b) 未启动")
       IO.puts("     启动 LM Studio 后运行: mix test --include real_llm")
-    end
-  end
-
-  defp provider_available? do
-    state = %LMStudio{
-      endpoint: "http://localhost:1234/v1",
-      model: "openai/gpt-oss-120b",
-      timeout: 5_000
-    }
-
-    case LMStudio.complete(state, nil, "ping") do
-      {:ok, %Result{content: content}} when is_binary(content) and byte_size(content) > 0 -> true
-      _ -> false
     end
   end
 end

@@ -189,9 +189,10 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 |------|------|------|
 | v2→v3 代码迁移策略（旁路 vs 重构） | 已解决 | **彻底重构完成（v3 分支）** |
 | JSON Schema / 代码级 contract 如何生成 | 待定 | contract packs 手工维护中 |
-| trace store / replay report 是否持久化 | VS-06 已实现 stub | 待 real persistence 阶段落地 |
+| trace store / replay report 是否持久化 | 已解决 | SQLite3 decision_traces 表 + TraceRepository |
 | 创作伙伴体验是否需要独立 ADR | 已由 VS-00A/VS-00B 证明 | 无需独立 ADR |
-| 真实 LLM 集成测试策略 | 当前工作 | 见 §4 进行中事项 |
+| 真实 LLM 集成测试策略 | 已解决 | VS-08 集成测试（stub + real LLM） |
+| **集成测试脚本质量** | **待改进** | **VS-08 集成测试三轮修复均只改了测试文件本身，未暴露业务代码 bug。需补充：注入已知业务 bug 验证测试捕获能力的反向验证脚本，以及业务代码 mutation testing** |
 
 ---
 

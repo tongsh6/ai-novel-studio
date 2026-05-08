@@ -7,9 +7,37 @@ defmodule NovelAgent.LLMLog do
 
   require Logger
 
-  @default_dir "log/llm-calls"
+  @default_dir Path.expand("log/llm-calls", File.cwd!())
 
-  @doc "追加一条 LLM 调用记录。"
+  alias NovelAgent.Provider.Result
+
+  @doc """
+  记录一次 LLM 调用。各 adapter 在 complete/4 返回前调用。
+
+  从 result tuple 中提取 status / usage / duration / resp_body，统一构建日志条目。
+  """
+  @spec record(String.t(), String.t(), map(), term(), integer()) :: :ok
+  def record(provider, url, req_body, result, start_time) do
+    {status, usage, duration, resp_body} = extract_attrs(result, start_time)
+
+    append(%{
+      step: Process.get(:current_step, "unknown"),
+      provider: provider,
+      request: %{method: "POST", url: url, body: req_body},
+      response: %{status: status, body: resp_body, model: provider, usage: usage, duration_ms: duration}
+    })
+  end
+
+  defp extract_attrs({:ok, %Result{}, %{status: 200} = attrs}, _start_time) do
+    {attrs.status, attrs.usage, attrs.duration, Map.get(attrs, :resp_body, "")}
+  end
+
+  defp extract_attrs({:error, _error_tuple, attrs}, start_time) do
+    duration = attrs[:duration] || System.monotonic_time(:millisecond) - start_time
+    {attrs[:status] || 0, attrs[:usage] || %{}, duration, Map.get(attrs, :resp_body, "")}
+  end
+
+  @doc "追加一条 LLM 调用记录。仅 Provider 内部使用，外部通过 record/5 调用。"
   @spec append(map()) :: :ok
   def append(%{request: _req, response: _resp} = entry) do
     if health_check?(entry) do

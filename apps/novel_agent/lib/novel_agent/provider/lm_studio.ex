@@ -14,27 +14,30 @@ defmodule NovelAgent.Provider.LMStudio do
   alias NovelAgent.Provider.Result
   alias NovelFoundation.UpstreamError
 
-  defstruct [:endpoint, :model, :timeout]
+  defstruct [:endpoint, :model, :timeout, :http_fn]
+
+  @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
 
   @type t :: %__MODULE__{
           endpoint: String.t(),
           model: String.t(),
-          timeout: pos_integer()
+          timeout: pos_integer(),
+          http_fn: http_fn()
         }
 
   @impl true
-  def complete(%__MODULE__{} = state, _model, prompt) when is_binary(prompt) do
+  def complete(%__MODULE__{} = state, _model, prompt, params) when is_binary(prompt) do
     start_time = System.monotonic_time(:millisecond)
-    body = %{
+    body = HTTP.apply_params(%{
       model: state.model,
-      messages: [%{role: "user", content: prompt}],
-      temperature: 0.7,
-      max_tokens: -1
-    }
+      messages: [%{role: "user", content: prompt}]
+    }, params)
     url = Path.join(state.endpoint, "chat/completions")
 
+    post = state.http_fn || &HTTP.post/3
+
     result =
-      case HTTP.post(url, body, receive_timeout: state.timeout) do
+      case post.(url, body, receive_timeout: state.timeout) do
         {:ok, 200, resp_body} ->
           handle_success(resp_body, start_time)
 
@@ -42,7 +45,7 @@ defmodule NovelAgent.Provider.LMStudio do
           handle_error(reason, message, start_time)
       end
 
-    log_call(url, body, result, start_time)
+    NovelAgent.LLMLog.record(name(), url, body, result, start_time)
     strip_attrs(result)
   end
 
@@ -55,11 +58,11 @@ defmodule NovelAgent.Provider.LMStudio do
 
     if content && content != "" do
       Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
-      {:ok, Result.new(content), %{status: 200, usage: usage, duration: duration}}
+      {:ok, Result.new(content), %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}}
     else
       err = UpstreamError.new(:invalid_response, "响应内容为空", name())
       Logger.warning("[LMStudio] #{err.message}")
-      attrs = %{status: 200, usage: usage, duration: duration}
+      attrs = %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}
       {:error, UpstreamError.to_error_tuple(err), attrs}
     end
   end
@@ -68,45 +71,28 @@ defmodule NovelAgent.Provider.LMStudio do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:connection_refused, "LM Studio 未启动", name())
     Logger.warning("[LMStudio] #{err.message}")
-    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
+    {:error, UpstreamError.to_error_tuple(err),
+     %{status: 0, usage: %{}, duration: duration, resp_body: "connection_refused"}}
   end
 
   defp handle_error(:timeout, _msg, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:timeout, "LM Studio 请求超时", name())
     Logger.warning("[LMStudio] #{err.message}")
-    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
+    {:error, UpstreamError.to_error_tuple(err),
+     %{status: 0, usage: %{}, duration: duration, resp_body: "timeout"}}
   end
 
   defp handle_error(_reason, message, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:provider_internal, message, name())
     Logger.warning("[LMStudio] #{err.message}")
-    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
+    {:error, UpstreamError.to_error_tuple(err),
+     %{status: 0, usage: %{}, duration: duration, resp_body: message}}
   end
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
-
-  # ── logging ──────────────────────────────────
-
-  defp log_call(url, body, {:ok, %Result{}, %{status: 200} = attrs}, _start_time) do
-    write_log(url, body, attrs.status, attrs.usage, attrs.duration)
-  end
-
-  defp log_call(url, body, {:error, _error_tuple, attrs}, start_time) do
-    duration = attrs[:duration] || System.monotonic_time(:millisecond) - start_time
-    write_log(url, body, attrs[:status] || 0, attrs[:usage] || %{}, duration)
-  end
-
-  defp write_log(url, req_body, status, usage, duration) do
-    NovelAgent.LLMLog.append(%{
-      step: Process.get(:current_step, "unknown"),
-      provider: "lmstudio",
-      request: %{method: "POST", url: url, body: req_body},
-      response: %{status: status, body: "lmstudio", model: "lmstudio", usage: usage, duration_ms: duration}
-    })
-  end
 
   @impl true
   def name, do: "lmstudio"
@@ -119,7 +105,8 @@ defmodule NovelAgent.Provider.LMStudio do
     %__MODULE__{
       endpoint: Keyword.get(config, :endpoint, "http://localhost:1234/v1"),
       model: Keyword.get(config, :model, "qwen/qwen3.6-35b-a3b"),
-      timeout: Keyword.get(config, :timeout, 60_000)
+      timeout: Keyword.get(config, :timeout, 60_000),
+      http_fn: Keyword.get(config, :http_fn, &HTTP.post/3)
     }
   end
 end

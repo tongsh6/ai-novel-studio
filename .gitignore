@@ -66,9 +66,9 @@ yarn.lock
 .coverage
 htmlcov/
 
-# Audit log
+# Logs (runtime output)
 /log/
-apps/novel_agent/log/
+apps/*/log/
 /artifacts/static-scan/
 
 # Temporary files

@@ -27,7 +27,8 @@ defmodule NovelApplication.MixProject do
       {:novel_foundation, in_umbrella: true},
       {:novel_domain, in_umbrella: true},
       {:novel_agent, in_umbrella: true},
-      {:novel_persistence, in_umbrella: true}
+      {:novel_persistence, in_umbrella: true},
+      {:novel_test, in_umbrella: true, only: :test}
     ]
   end
 end

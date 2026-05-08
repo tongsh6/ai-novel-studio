@@ -23,26 +23,32 @@ defmodule NovelAgent.Provider.Anthropic do
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
 
-  defstruct [:api_key, :model, :timeout]
+  defstruct [:api_key, :model, :timeout, :http_fn]
+
+  @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
 
   @type t :: %__MODULE__{
           api_key: String.t(),
           model: String.t(),
-          timeout: pos_integer()
+          timeout: pos_integer(),
+          http_fn: http_fn()
         }
 
   @api_base "https://api.anthropic.com/v1"
   @api_version "2023-06-01"
 
   @impl true
-  def complete(%__MODULE__{} = state, _model, prompt) when is_binary(prompt) do
+  def complete(%__MODULE__{} = state, _model, prompt, params) when is_binary(prompt) do
     start_time = System.monotonic_time(:millisecond)
     body = %{model: state.model, max_tokens: 4096, messages: [%{role: "user", content: prompt}]}
+    body = HTTP.apply_params(body, params)
     url = Path.join(@api_base, "messages")
     headers = [{"x-api-key", state.api_key}, {"anthropic-version", @api_version}]
 
+    post = state.http_fn || &HTTP.post/3
+
     result =
-      case HTTP.post(url, body, headers: headers, receive_timeout: state.timeout) do
+      case post.(url, body, headers: headers, receive_timeout: state.timeout) do
         {:ok, 200, resp_body} ->
           handle_success(state, resp_body, start_time)
 
@@ -53,7 +59,7 @@ defmodule NovelAgent.Provider.Anthropic do
           handle_connection_error(reason, message, start_time)
       end
 
-    log_call(url, body, result, start_time)
+    NovelAgent.LLMLog.record(name(), url, body, result, start_time)
     strip_attrs(result)
   end
 
@@ -75,7 +81,8 @@ defmodule NovelAgent.Provider.Anthropic do
 
     Logger.debug("[Anthropic] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens")
 
-    {:ok, Result.new(content, usage), %{status: 200, usage: usage, duration: latency}}
+    {:ok, Result.new(content, usage),
+     %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
   end
 
   defp handle_http_error(status, message, start_time) do
@@ -84,48 +91,32 @@ defmodule NovelAgent.Provider.Anthropic do
     type = if status in [401, 403], do: :auth, else: :invalid_response
     err = UpstreamError.new(type, "Anthropic API: #{message}", name())
     Logger.warning("[Anthropic] #{err.message}")
-    {:error, UpstreamError.to_error_tuple(err), %{status: status, usage: %{}, duration: duration}}
+    {:error, UpstreamError.to_error_tuple(err),
+     %{status: status, usage: %{}, duration: duration, resp_body: message}}
   end
 
   defp handle_connection_error(:connection_refused, _msg, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:connection_refused, "无法连接 Anthropic API", name())
     Logger.warning("[Anthropic] #{err.message}")
-    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
+    {:error, UpstreamError.to_error_tuple(err),
+     %{status: 0, usage: %{}, duration: duration, resp_body: "connection_refused"}}
   end
 
   defp handle_connection_error(:timeout, _msg, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:timeout, "Anthropic API 请求超时", name())
     Logger.warning("[Anthropic] #{err.message}")
-    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
+    {:error, UpstreamError.to_error_tuple(err),
+     %{status: 0, usage: %{}, duration: duration, resp_body: "timeout"}}
   end
 
   defp handle_connection_error(_reason, message, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:provider_internal, message, name())
     Logger.warning("[Anthropic] #{err.message}")
-    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
-  end
-
-  # ── logging ──────────────────────────────────
-
-  defp log_call(_url, _body, {:ok, %Result{}, %{status: 200} = attrs}, _start_time) do
-    write_log(attrs.status, attrs.usage, attrs.duration)
-  end
-
-  defp log_call(_url, _body, {:error, _error_tuple, attrs}, start_time) do
-    duration = attrs[:duration] || System.monotonic_time(:millisecond) - start_time
-    write_log(attrs[:status] || 0, attrs[:usage] || %{}, duration)
-  end
-
-  defp write_log(status, usage, duration) do
-    NovelAgent.LLMLog.append(%{
-      step: Process.get(:current_step, "unknown"),
-      provider: "anthropic",
-      request: %{method: "POST", url: "api.anthropic.com", body: "anthropic"},
-      response: %{status: status, body: "anthropic", model: "anthropic", usage: usage, duration_ms: duration}
-    })
+    {:error, UpstreamError.to_error_tuple(err),
+     %{status: 0, usage: %{}, duration: duration, resp_body: message}}
   end
 
   @impl true
@@ -139,7 +130,8 @@ defmodule NovelAgent.Provider.Anthropic do
     %__MODULE__{
       api_key: Keyword.get(config, :api_key) || System.get_env("ANTHROPIC_API_KEY"),
       model: Keyword.get(config, :model, "claude-sonnet-4-6"),
-      timeout: Keyword.get(config, :timeout, 120_000)
+      timeout: Keyword.get(config, :timeout, 120_000),
+      http_fn: Keyword.get(config, :http_fn, &HTTP.post/3)
     }
   end
 end

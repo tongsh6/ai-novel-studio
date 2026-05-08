@@ -17,7 +17,7 @@ defmodule NovelAgent.Provider.Stub do
   @type t :: %__MODULE__{}
 
   @impl true
-  def complete(_state, _model, prompt) do
+  def complete(_state, _model, prompt, _params) do
     {:ok, Result.new("[stub] echo: #{prompt}")}
   end
 
