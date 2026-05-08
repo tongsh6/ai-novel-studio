@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-09（v3 全部 10 slices 闭环，进入 real LLM / real persistence / frontend 阶段）
+> 最后更新：2026-05-09（v3 质量夯实：LLM 日志反向分析 → 6 项修复 + InferenceParams + 双 umbrella app + injectable HTTP）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 
@@ -88,7 +88,18 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 | VS-05 | UI Action Roundtrip | `f7ba5c2` | 只能提交 available actions；stale/invented 被拒 |
 | VS-06 | Replay Surface | `f7ba5c2` | trace summary 脱敏；replay 不调 provider |
 
-**汇总**：10 slices done，319 tests，0 failures，compile --warnings-as-errors clean，0 cycles，13/13 static scan passed。
+| QP-01 | 质量夯实：LLM 日志反向分析 → 6 项修复 | `HEAD` | 341 tests, 0 failures |
+| | — 统一 log/llm-calls 路径（`__DIR__` 推导） | | `.gitignore` apps/*/log/ |
+| | — Provider 日志记录真实 req/resp body | | Anthropic/LMStudio write_log 重构 |
+| | — Planner 设置 turn_id/step 进程上下文 | | `with_turn_context/3` |
+| | — InferenceParams 通用推理参数（移除 max_tokens: -1） | | `provider/inference_params.ex` |
+| | — Provider 健康检查改为 HTTP GET /v1/models | | `HTTP.get/2` |
+| | — Provider HTTP 可注入（消除测试网络依赖） | | struct `:http_fn` 字段 + mock 测试 |
+| | — 日志记录提取到 LLMLog.record/5（消除 adapter 重复） | | |
+| | — 新建 novel_common + novel_test umbrella apps | | 共享测试 helper |
+| | — Provider 单元测试全量 mock（不再产生 LLM 调用日志） | | |
+
+**汇总**：10 slices + 1 quality pass done，341 tests，0 failures，compile --warnings-as-errors clean，0 cycles，arch green。
 
 ---
 
@@ -126,10 +137,11 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 
 | 事项 | 当前状态 | 阻塞点 | 下一步 |
 |------|----------|--------|--------|
-| 真实 LLM 集成 | 待开始 | — | Planner injection point + 集成测试 |
-| 真实持久化 | 待开始 | 依赖 LLM 集成完成 | ContextAssembler + TraceWriter → SQLite3 |
-| 前端 Workbench | 待开始 | 依赖 LLM 集成 + 持久化 | Tauri 消费 v3 Channel |
-| 端到端集成测试 | 待开始 | 依赖前 3 项完成 | 全链路 + 真实 provider |
+| 真实 LLM 集成 | ✅ 已完成 | — | Planner → Gateway → LM Studio / Anthropic 已调通 |
+| 真实持久化 | ✅ 已完成 | — | ContextAssembler + TraceWriter → SQLite3 已验证 |
+| 前端 Workbench | ✅ 已完成 | — | Tauri 消费 v3 Channel 已验证 |
+| 端到端集成测试 | ✅ 已完成 | — | VS-08 全链路 + stub/real LLM 已验证 |
+| Provider 日志质量 | ✅ 已完成 | — | QP-01 6 项修复全部落地 |
 
 ---
 
@@ -155,10 +167,11 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 
 | 优先级 | 事项 | 原因 | 验收标准 |
 |--------|------|------|----------|
-| 1 | 真实 LLM 集成 | Planner 目前走 stub fallback，需接入真实 provider | 真实 LLM → DialogueFrame 解析成功 |
-| 2 | 真实持久化 | ContextAssembler / TraceWriter 目前是 in-memory stub | 真实 SQLite3 读写验证通过 |
-| 3 | 前端 Workbench | v3 Channel 尚无前端消费者 | Tauri 端到端对话轮次可用 |
-| 4 | 端到端集成测试 | 全链路尚无用真实 provider 的集成测试 | 全链路 + 真实 provider 测试通过 |
+| 1 | ✅ 真实 LLM 集成 | 已完成 | LM Studio + Anthropic 双 Provider 调通 |
+| 2 | ✅ 真实持久化 | 已完成 | SQLite3 读写验证通过 |
+| 3 | ✅ 前端 Workbench | 已完成 | Tauri 端到端对话轮次可用 |
+| 4 | ✅ 端到端集成测试 | 已完成 | VS-08 全链路通过 |
+| 5 | Provider 日志质量 | 已完成 | QP-01 6 项修复，日志可追溯、无污染 |
 
 ---
 
@@ -174,7 +187,9 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 | v3 Slice 文件 | `tasks/slices/v3/VS-*.md` | 具体定义（全部 done） |
 | v2 完成状态 | `tasks/slices/DAG.md` | 18 slices done |
 | v2 实现证据 | `tasks/slices/VS-012-*.md` | 370 tests, Tauri build ✅ |
-| v3 实现证据 | `apps/*/test/` | 319 tests, 0 failures |
+| v3 实现证据 | `apps/*/test/` | 341 tests, 0 failures (8 apps) |
+| novel_common | `apps/novel_common/` | 底层共享 app，依赖 novel_foundation |
+| novel_test | `apps/novel_test/` | 跨 app 测试共享，依赖 novel_agent |
 | 工程护栏 | `docs/engineering/v3-architecture.md` | app 边界、复用规则 |
 | 质量门禁 | `docs/engineering/v3-quality-gates.md` | 工程/slice/小说门禁 |
 | 静态扫描 | `artifacts/static-scan/` | 最新 2026-05-09（13/13 PASS） |
