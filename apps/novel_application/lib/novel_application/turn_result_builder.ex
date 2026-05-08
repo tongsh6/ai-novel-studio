@@ -6,12 +6,15 @@ defmodule NovelApplication.TurnResultBuilder do
   alias NovelDomain.CandidateDirection
   alias NovelDomain.DialogueFrame
   alias NovelDomain.OrchestratorDecision
+  alias NovelDomain.TentativeArtifactSet
   alias NovelDomain.ToolResult
 
   @spec build(
-    DialogueFrame.t(), map(), [CandidateDirection.t()], OrchestratorDecision.t() | nil, ToolResult.t() | nil
+    DialogueFrame.t(), map(), [CandidateDirection.t()],
+    OrchestratorDecision.t() | nil, ToolResult.t() | nil, TentativeArtifactSet.t() | nil
   ) :: map()
-  def build(%DialogueFrame{} = frame, trace_summary, candidates \\ [], decision \\ nil, tool_result \\ nil) do
+  def build(%DialogueFrame{} = frame, trace_summary, candidates \\ [],
+            decision \\ nil, tool_result \\ nil, artifact_set \\ nil) do
     result = %{
       schema_version: "3.0-draft",
       turn_id: frame.turn_id,
@@ -32,6 +35,7 @@ defmodule NovelApplication.TurnResultBuilder do
     |> maybe_add_candidates(candidates)
     |> maybe_add_decision(decision)
     |> maybe_add_tool_result(tool_result)
+    |> maybe_add_artifacts(artifact_set)
   end
 
   defp build_truthfulness(_frame, nil, nil) do
@@ -114,6 +118,40 @@ defmodule NovelApplication.TurnResultBuilder do
       state_delta: tr.state_delta
     })
   end
+
+  defp maybe_add_artifacts(result, nil), do: result
+  defp maybe_add_artifacts(result, %TentativeArtifactSet{} = artifact_set) do
+    Map.put(result, :tentative_artifacts, %{
+      artifact_set_id: artifact_set.artifact_set_id,
+      artifact_type: artifact_set.artifact_type,
+      items: artifact_set.items,
+      adoption_status: artifact_set.adoption_status,
+      source_tool_result_ref: artifact_set.source_tool_result_ref
+    })
+  end
+
+  @doc "从 creative ToolResult 构建 TentativeArtifactSet。"
+  @spec build_artifact_set(ToolResult.t(), String.t()) :: TentativeArtifactSet.t()
+  def build_artifact_set(%ToolResult{} = tool_result, turn_ref) do
+    artifact_type = to_artifact_type(tool_result.output[:artifact_type])
+    items = tool_result.output[:items] || []
+
+    %TentativeArtifactSet{
+      artifact_set_id: "as_#{System.unique_integer([:positive, :monotonic])}",
+      artifact_type: artifact_type,
+      items: items,
+      source_turn_ref: turn_ref,
+      source_tool_result_ref: tool_result.tool_result_id,
+      adoption_status: :tentative
+    }
+  end
+
+  defp to_artifact_type("character_seed"), do: :character_seed
+  defp to_artifact_type("plot_direction"), do: :plot_direction
+  defp to_artifact_type("outline_draft"), do: :outline_draft
+  defp to_artifact_type("scene_draft"), do: :scene_draft
+  defp to_artifact_type("prose_fragment"), do: :prose_fragment
+  defp to_artifact_type(_), do: :prose_fragment
 
   defp format_candidates(candidates) do
     Enum.map(candidates, fn c ->

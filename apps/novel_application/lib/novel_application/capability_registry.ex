@@ -56,6 +56,21 @@ defmodule NovelApplication.CapabilityRegistry do
         supports_retry: false,
         supports_cancellation: false
       },
+      "creative_generation" => %CapabilityRegistryEntry{
+        tool_name: "creative_generation",
+        tool_version: "1.0.0",
+        tool_layer: :creative,
+        input_contract_ref: "creative_generation_input_v1",
+        output_contract_ref: "creative_generation_output_v1",
+        read_scopes: ["author_text", "context_snapshot", "conversation_summary"],
+        write_scopes: [],
+        risk_class: :medium,
+        status: :active,
+        trace_level: :standard,
+        provider_dependency: :llm_provider,
+        supports_retry: false,
+        supports_cancellation: false
+      },
       "disabled_tool" => %CapabilityRegistryEntry{
         tool_name: "disabled_tool",
         tool_version: "1.0.0",

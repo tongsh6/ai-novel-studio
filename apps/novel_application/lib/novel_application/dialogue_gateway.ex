@@ -101,11 +101,19 @@ defmodule NovelApplication.DialogueGateway do
 
     result = Toolbox.execute(req)
 
+    artifact_set =
+      if creative_tool?(tool_name) and result.status == :succeeded do
+        TurnResultBuilder.build_artifact_set(result, frame.turn_id)
+      end
+
     {trace, trace_summary} =
       TraceWriter.record_with_tool(frame, plan, decision, req, result, %{turn_id: frame.turn_id}, context)
 
-    turn_result = TurnResultBuilder.build(frame, trace_summary, candidates, decision, result)
+    turn_result = TurnResultBuilder.build(frame, trace_summary, candidates, decision, result, artifact_set)
 
     {:ok, turn_result, trace, candidates, context}
   end
+
+  defp creative_tool?("creative_generation"), do: true
+  defp creative_tool?(_), do: false
 end
