@@ -8,4 +8,5 @@
 |---|---|
 | `architecture-operating-system.md` | 工程操作系统蓝图：原则、DAG、深模块、性能、前沿建模与阶段规划 |
 | `vertical-slice.md` | 承重竖切面试行规则 |
-
+| `v3-architecture.md` | v3 技术架构护栏：把最终愿景、v3 主链、umbrella 边界和 v2 复用边界落成实现前规则 |
+| `v3-quality-gates.md` | v3 质量门禁护栏：收口工程门禁、slice 门禁、小说质量门禁和 trace / replay 证明 |
