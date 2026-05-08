@@ -2,7 +2,8 @@ defmodule NovelTest.ProviderHelpers do
   @moduledoc """
   跨 umbrella app 共享的 Provider 测试辅助函数。
 
-  避免 novel_application 和 novel_web 的 test/support 重复代码。
+  模型通过环境变量 LLM_TEST_MODEL 控制，默认 qwen/qwen3.5-122b-a10b。
+  端点通过 LLM_TEST_ENDPOINT 控制，默认 http://localhost:1234/v1。
   """
 
   alias NovelAgent.Provider.HTTP
@@ -10,13 +11,15 @@ defmodule NovelTest.ProviderHelpers do
   alias NovelAgent.Provider.LMStudio
   alias NovelAgent.Provider.Result
 
+  @default_endpoint "http://localhost:1234/v1"
+  @default_model "qwen/qwen3.5-122b-a10b"
+
   @doc """
   创建 LM Studio 的 complete_fn，供 Planner 等模块注入使用。
-  直接调用 adapter，不修改全局 Application env。
   """
   @spec lmstudio_complete_fn(String.t(), String.t(), pos_integer()) :: function()
-  def lmstudio_complete_fn(endpoint \\ "http://localhost:1234/v1",
-                           model \\ "qwen/qwen3.5-122b-a10b",
+  def lmstudio_complete_fn(endpoint \\ default_endpoint(),
+                           model \\ default_model(),
                            timeout \\ 60_000) do
     fn prompt ->
       state = %LMStudio{endpoint: endpoint, model: model, timeout: timeout,
@@ -30,11 +33,17 @@ defmodule NovelTest.ProviderHelpers do
     end
   end
 
+  @doc "返回当前配置的测试端点。"
+  def default_endpoint, do: System.get_env("LLM_TEST_ENDPOINT", @default_endpoint)
+
+  @doc "返回当前配置的测试模型名。"
+  def default_model, do: System.get_env("LLM_TEST_MODEL", @default_model)
+
   @doc """
   检查 LM Studio 是否可用。使用 GET /v1/models 轻量探测，不发起推理。
   """
   @spec lmstudio_available?(String.t(), pos_integer()) :: boolean()
-  def lmstudio_available?(endpoint \\ "http://localhost:1234/v1",
+  def lmstudio_available?(endpoint \\ default_endpoint(),
                           timeout \\ 5_000) do
     url = Path.join(endpoint, "models")
 

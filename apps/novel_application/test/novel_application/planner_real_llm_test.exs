@@ -227,7 +227,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
 
   defp skip_unless_provider! do
     unless ProviderHelpers.lmstudio_available?() do
-      IO.puts("  ⏭  Skipping: LM Studio (qwen3.5-122b) 未启动")
+      IO.puts("  ⏭  Skipping: LM Studio (#{ProviderHelpers.default_model()}) 未启动")
       IO.puts("     启动 LM Studio 后运行: mix test --include real_llm")
     end
   end
