@@ -73,8 +73,8 @@ v3 contract 使用以下成熟度标记。
 |---|---|---|---:|
 | C0 | Concept | 只有概念和用途 | 否 |
 | C1 | Draft Contract | 有候选字段、生命周期、不变量和消费者 | 否 |
-| C2 | ADR Proposed | 已进入 ADR 草案，有替代方案和决策理由 | 否 |
-| C3 | ADR Accepted / Schema Draft | 决策已冻结，schema 或测试约束明确 | 可作为 slice 输入 |
+| C2 | ADR Proposed | 已进入 ADR 草案，有替代方案和决策理由 | 否；只可作为 DAG planning input |
+| C3 | ADR Accepted / Schema Draft | 决策已冻结，schema 或测试约束明确 | 可作为 implementation slice 输入 |
 | C4 | Slice Proven | 已被垂直切面实现和验证 | 是 |
 
 当前 `02-07` 大多处于 C1。`00c` 的责任是把 C1 对象整理成 C2 的入口。
@@ -166,6 +166,7 @@ flowchart TB
 | `CapabilityRegistryEntry` | `03` | Toolbox registry | Planner / Orchestrator / trace | disabled/deprecated 工具不能被正常引用 | Toolbox Registry v3 |
 | `ToolRequest` | `03`, `04` | Execution Orchestrator | Toolbox / Trace | 工具调用必须有 provenance | ToolRequest v3 |
 | `ToolResult` | `03`, `04`, `06` | Toolbox | Orchestrator / Planner / Trace | ToolResult 不直接等于生产事实 | ToolResult v3 |
+| `TentativeArtifactSet` | `03`, `04`, VS-02A contract pack | Toolbox / Application | TurnResult / candidate card / Trace | AI 产物默认待采纳，不直接成为作品事实 | State Adoption Boundary v3 |
 | `OrchestratorDecision` | `04` | Execution Orchestrator | Behavior / TurnResult / Trace | 执行权不属于 Planner | OrchestratorDecision v3 |
 | `TurnPhase` / `TurnStatus` | `05` | Application / Orchestrator | UI / tests / replay | phase/status 必须兼容 behavior lifecycle | TurnPhase / TurnStatus v3 |
 | `NextAction` | `05`, `07` | Orchestrator / TurnResult Builder | UI / ActionInput | UI 只能提交系统给出的 action | NextAction / AvailableAction v3 |
@@ -271,6 +272,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | `CapabilityRegistryEntry` | `03` | Planner / Orchestrator | 工具能力可发现、可禁用、可版本化 |
 | `ToolRequest` | `03`, `04` | Toolbox | 每次工具调用有 provenance 和 idempotency |
 | `ToolResult` | `03` | Orchestrator / Planner | 工具结果不会绕过 TurnResult 和 trace |
+| `TentativeArtifactSet` | VS-02A contract pack | TurnResult / Workbench candidate card | AI 生成内容是草稿或候选，不是正式作品事实 |
 | `write_scope` | `03`, `04` | Orchestrator | 写入风险被 gate 拦截 |
 | `budget_profile` | `03`, `04` | Orchestrator | 长跑或高成本动作不会悄悄执行 |
 
@@ -327,7 +329,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | 3 | Execution Orchestrator 是执行权唯一门禁 | `04` | 未经 decision 的 ToolRequest 不 dispatch |
 | 4 | 默认只放行下一步安全动作 | `02`, `04`, `05` | multi-step plan 被 downgrade 或切断 |
 | 5 | 工具调用必须有 `ToolRequest` / `ToolResult` / trace | `03`, `06` | tool trace completeness test |
-| 6 | 写入默认 tentative，不直接 production write | `03`, `04`, `05` | adoption boundary test |
+| 6 | 写入默认 tentative，不直接 production write | `03`, `04`, `05`, VS-02A contract pack | adoption boundary test / artifact contract test |
 | 7 | durable behavior 必须 open / close / resolution | `05`, `06` | behavior lifecycle trace test |
 | 8 | 缺 slot 不自动等于 UI 字段表单 | `01`, `05`, `07` | clarification rendering contract test |
 | 9 | `TurnResult` 是 UI 与外部入口 canonical 输出 | `00b`, `04`, `07` | UI 不读取内部 frame / trace schema |
@@ -350,32 +352,33 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 
 | ADR 候选 | 状态 | 来源 | 为什么优先 | 阻塞内容 |
 |---|---|---|---|---|
-| DialogueFrame v3 Schema | Proposed：`adr/ADR-0001-dialogue-frame-v3.md` | `02` | 每 turn 必有，是 trace 和 replay 的根 | 所有 turn slice |
-| MicroPlan v3 语义与最小 Contract | Proposed：`adr/ADR-0002-micro-plan-v3.md` | `02`, `04` | Planner 到 Orchestrator 的协议必须稳定 | tool / behavior / confirmation slice |
-| Planner Authority Boundary | Proposed：`adr/ADR-0003-planner-authority-boundary.md` | `02`, `04` | 防止 Planner 批准自己的执行 | 所有执行 slice |
-| OrchestratorDecision v3 | Planned | `04` | 执行裁决要能解释和测试 | ToolRequest / TurnResult / trace slice |
-| Execution Gate Order v3 | Planned | `04` | 权限、预算、policy 顺序必须稳定 | 高风险动作和 adoption slice |
+| DialogueFrame v3 Schema | Accepted：`adr/ADR-0001-dialogue-frame-v3.md`；VS-00 contract pack：`contracts/VS-00-reply-only-contract-pack.md` | `02` | 每 turn 必有，是 trace 和 replay 的根 | 所有 turn slice |
+| MicroPlan v3 语义与最小 Contract | Accepted：`adr/ADR-0002-micro-plan-v3.md`；VS-01 contract pack：`contracts/VS-01-execution-authority-contract-pack.md` | `02`, `04` | Planner 到 Orchestrator 的协议必须稳定 | tool / behavior / confirmation slice |
+| Planner Authority Boundary | Accepted：`adr/ADR-0003-planner-authority-boundary.md`；VS-01 contract pack：`contracts/VS-01-execution-authority-contract-pack.md` | `02`, `04` | 防止 Planner 批准自己的执行 | 所有执行 slice |
+| OrchestratorDecision v3 | Accepted：`adr/ADR-0004-orchestrator-decision-v3.md`；VS-01 contract pack：`contracts/VS-01-execution-authority-contract-pack.md` | `04` | 执行裁决要能解释和测试 | ToolRequest / TurnResult / trace slice |
+| Execution Gate Order v3 | Accepted：`adr/ADR-0005-execution-gate-order-v3.md`；VS-01 contract pack：`contracts/VS-01-execution-authority-contract-pack.md` | `04` | 权限、预算、policy 顺序必须稳定 | 高风险动作和 adoption slice |
 
 ### 8.2 Batch B：状态、行为与写入边界
 
-| ADR 候选 | 来源 | 为什么优先 | 阻塞内容 |
-|---|---|---|---|
-| TurnPhase / TurnStatus v3 | `05` | UI 和 replay 都要消费 | UI action / behavior slice |
-| NextAction / AvailableAction v3 | `05`, `07` | 前后端动作回传必须稳定 | UI roundtrip slice |
-| BehaviorState v3 | `05` | durable 等待态是跨 turn 核心 | clarification / confirmation slice |
-| Confirmation Binding v3 | `04`, `05`, `07` | confirmation 不能只是前端 modal | confirmation execution slice |
-| State Adoption Boundary v3 | `03`, `04`, `05` | ToolResult 到生产事实的门禁 | candidate adoption slice |
+| ADR 候选 | 状态 | 来源 | 为什么优先 | 阻塞内容 |
+|---|---|---|---|---|
+| TurnPhase / TurnStatus v3 | Accepted：`adr/ADR-0006-turn-phase-status-v3.md`；VS-03 contract pack：`contracts/VS-03-behavior-lifecycle-contract-pack.md` | `05` | UI 和 replay 都要消费 | UI action / behavior slice |
+| NextAction / AvailableAction v3 | Accepted：`adr/ADR-0007-next-action-available-action-v3.md`；VS-03 contract pack：`contracts/VS-03-behavior-lifecycle-contract-pack.md` | `05`, `07` | 前后端动作回传必须稳定 | UI roundtrip slice |
+| BehaviorState v3 | Accepted：`adr/ADR-0008-behavior-state-v3.md`；VS-03 contract pack：`contracts/VS-03-behavior-lifecycle-contract-pack.md` | `05` | durable 等待态是跨 turn 核心 | clarification / confirmation slice |
+| Confirmation Binding v3 | Accepted：`adr/ADR-0009-confirmation-binding-v3.md`；VS-03 contract pack：`contracts/VS-03-behavior-lifecycle-contract-pack.md` | `04`, `05`, `07` | confirmation 不能只是前端 modal | confirmation execution slice |
+| State Adoption Boundary v3 | Accepted：`adr/ADR-0010-state-adoption-boundary-v3.md`；VS-04 contract pack：`contracts/VS-04-adoption-boundary-contract-pack.md` | `03`, `04`, `05`, `07` | ToolResult 到生产事实的门禁 | candidate adoption slice |
 
 ### 8.3 Batch C：工具、trace、UI 消费
 
-| ADR 候选 | 来源 | 为什么优先 | 阻塞内容 |
-|---|---|---|---|
-| Toolbox Registry v3 | `03` | tool 可发现、可禁用、可版本化 | capability invocation slice |
-| ToolRequest / ToolResult v3 | `03`, `04`, `06` | 工具调用必须可回放 | tool trace slice |
-| DecisionTrace v3 | `06` | 所有执行和不执行都要解释 | replay / audit slice |
-| Trace Redaction v3 | `06`, `07` | UI 不能展示内部敏感 trace | UI trace summary slice |
-| TurnResultViewModel v3 | `07` | UI 主消费 envelope 要稳定 | Workbench UI slice |
-| Projection Hint UI v3 | `07` | refresh 和 write 边界要分清 | projection refresh slice |
+| ADR 候选 | 状态 | 来源 | 为什么优先 | 阻塞内容 |
+|---|---|---|---|---|
+| Toolbox Registry v3 | Accepted：`adr/ADR-0011-toolbox-registry-v3.md`；VS-02 contract pack：`contracts/VS-02-tool-provenance-contract-pack.md` | `03` | tool 可发现、可禁用、可版本化 | capability invocation slice |
+| ToolRequest / ToolResult v3 | Accepted：`adr/ADR-0012-tool-request-result-v3.md`；VS-02 contract pack：`contracts/VS-02-tool-provenance-contract-pack.md` | `03`, `04`, `06` | 工具调用必须可回放 | tool trace slice |
+| DecisionTrace v3 | Accepted：`adr/ADR-0013-decision-trace-v3.md`；VS-02 contract pack：`contracts/VS-02-tool-provenance-contract-pack.md` | `06` | 所有执行和不执行都要解释 | replay / audit slice |
+| Trace Redaction v3 | Accepted：`adr/ADR-0014-trace-redaction-v3.md`；VS-05 contract pack：`contracts/VS-05-ui-roundtrip-contract-pack.md` | `06`, `07` | UI 不能展示内部敏感 trace | UI trace summary slice |
+| TurnResultViewModel v3 | Accepted：`adr/ADR-0015-turn-result-view-model-v3.md`；VS-05 contract pack：`contracts/VS-05-ui-roundtrip-contract-pack.md` | `07` | UI 主消费 envelope 要稳定 | Workbench UI slice |
+| Projection Hint UI v3 | Accepted：`adr/ADR-0016-projection-hint-ui-v3.md`；VS-04 contract pack：`contracts/VS-04-adoption-boundary-contract-pack.md` | `07` | refresh 和 write 边界要分清 | projection refresh slice |
+| ReplayReport v3 | Accepted：`adr/ADR-0017-replay-report-v3.md`；VS-06 contract pack：`contracts/VS-06-replay-surface-contract-pack.md` | `06` | replay 默认不调用 provider | replay explanation slice |
 
 ### 8.4 ADR 编号与状态建议
 
@@ -418,7 +421,31 @@ ADR 状态建议先使用：
 
 价值：这是最小主链，不引入工具和写入，适合证明 v3 不再 Router-first。
 
-### 9.2 VS-01：MicroPlan 被 Orchestrator 降级或要求确认
+### 9.2 VS-00A：模糊创作想法的自然探索闭环
+
+| 问题 | 回答 |
+|---|---|
+| Contract | `AuthorInput`、`DialogueContext`、`DialogueFrame.frame_type=exploration`、`ExplorationPolicy`、`CandidateDirectionSet`、`TurnResult`、`DecisionTrace` |
+| Invariant | 每 turn 必有 frame；缺 slot 不自动等于 UI 表单；TurnResult 是 canonical 输出；reply / exploration 也必须可回放 |
+| Boundary | 切过 web / application / agent planner draft / TurnResult / trace；不碰 tool dispatch、durable behavior、production write 或 adoption |
+| Consumer | Application contract test 或 Channel response |
+| Proof | 输入“我想写一个赛博修仙，但还没想好”，输出自然探索回应和 2-3 个候选方向；不得打开机械字段表单 |
+
+价值：证明 v3 第一体验是 AI 陪作者展开想法，而不是工作台要求作者补字段。
+
+### 9.3 VS-00B：带着当前小说上下文回应
+
+| 问题 | 回答 |
+|---|---|
+| Contract | `DialogueContext`、`CurrentWorkSnapshot`、`MemoryContextSummary`、`ContextSourceRef`、`DialogueFrame`、`TurnResult`、`DecisionTrace.context_refs` |
+| Invariant | Planner 不直接读全量数据库；上下文组装可 trace；缺上下文时不编造作品事实 |
+| Boundary | 切过 application context assembly / persistence read model 或测试 stub / agent planner input / TurnResult / trace；不让 agent 直接访问 Repo；不写 production state |
+| Consumer | Application context assembly test 或 planner contract test |
+| Proof | 同一句“把主角动机改得更狠一点”，有当前作品上下文时引用真实设定；无上下文时诚实说明缺上下文 |
+
+价值：证明 v3 是小说工作台，不只是可追踪聊天器。
+
+### 9.4 VS-01：MicroPlan 被 Orchestrator 降级或要求确认
 
 | 问题 | 回答 |
 |---|---|
@@ -430,19 +457,31 @@ ADR 状态建议先使用：
 
 价值：这是执行权结构的第一条承重证明。
 
-### 9.3 VS-02：ToolRequest / ToolResult / ToolTrace 闭环
+### 9.5 VS-02：ToolRequest / ToolResult / ToolTrace 闭环
 
 | 问题 | 回答 |
 |---|---|
-| Contract | `CapabilityRegistryEntry`、`ToolRequest`、`ToolResult`、`ToolTrace` |
-| Invariant | 工具不能被 UI 或 Planner 直接调用；每次工具调用都有 trace |
-| Boundary | 切过 agent runtime/toolbox/trace 边界；不写 domain production state |
+| Contract | `CapabilityRegistryEntry`、`ToolRequest`、`ToolResult`、`ToolTrace`、`DecisionTrace` |
+| Invariant | 未经 decision 的 ToolRequest 不 dispatch；每次工具调用都有 trace；ToolResult 不直接等于 production fact；replay 默认不调用 provider |
+| Boundary | 切过 application approving decision / agent toolbox runtime / trace coordination；不写 domain production state；不让 web 或 frontend 直接调用 toolbox |
 | Consumer | Replay / audit test |
-| Proof | 一个 read-only 或 validation tool 调用能被完整 replay |
+| Proof | 一个 read-only 或 validation tool 调用能从 decision 到 request/result/trace 完整 replay |
 
 价值：证明 toolbox 是后台能力层，不是 UI 工具按钮集合。
 
-### 9.4 VS-03：Clarification / Confirmation Behavior 生命周期
+### 9.6 VS-02A：AI 创作草稿与待采纳产物
+
+| 问题 | 回答 |
+|---|---|
+| Contract | `DialogueContext`、`MicroPlan`、`ToolRequest`、`ToolResult`、`TentativeArtifactSet`、`TurnResult`、`DecisionTrace` |
+| Invariant | Orchestrator 是唯一门禁；工具调用有 trace；AI 产物默认 tentative；candidate selection 不等于 adoption；replay 默认不调用 provider |
+| Boundary | 切过 application decision / agent creative tool runtime / TurnResult / trace；不写 production state；不让 ToolResult 直接变成 adopted state |
+| Consumer | Application artifact contract test 或 Workbench candidate card |
+| Proof | 生成角色设定或章节片段时只产生待采纳草稿；TurnResult 明确这是草案；未经过选择和 adoption 不写入权威作品事实 |
+
+价值：证明 v3 不只是能聊天和解释，而是能真正产出小说创作材料；同时保护作者的正式作品不被 AI 自动改写。
+
+### 9.7 VS-03：Clarification / Confirmation Behavior 生命周期
 
 | 问题 | 回答 |
 |---|---|
@@ -454,19 +493,19 @@ ADR 状态建议先使用：
 
 价值：证明等待态不是一次性前端状态，而是可审计主链状态。
 
-### 9.5 VS-04：Candidate selection 与 adoption 边界
+### 9.8 VS-04：Candidate selection 与 adoption 边界
 
 | 问题 | 回答 |
 |---|---|
-| Contract | `ui_card.candidate_set`、`AuthorActionInput`、`AdoptionBoundary`、`ProjectionHint` |
-| Invariant | candidate selection 不等于 adoption；projection hint 不授权写入 |
-| Boundary | 切过 UI action/application/adoption/projection read model；不直接写 production |
+| Contract | `CandidateSet`、`AuthorActionInput.choose_candidate`、`AvailableAction`、`AdoptionDecision`、`AdoptionBoundary`、`ProjectionHint`、`DecisionTrace`、`StateTrace` |
+| Invariant | candidate selection 不等于 adoption；ToolResult 不直接等于 adopted state；projection hint 不授权写入 |
+| Boundary | 切过 UI action / application adoption boundary / domain pure validation / projection read model / trace；不让 frontend 直接写 production；不让 agent ToolResult 直接变 canon |
 | Consumer | Workbench candidate card / projection refresh test |
-| Proof | 选择候选后只产生下一步 action 或 tentative state，未授权不写生产事实 |
+| Proof | 选择候选后只产生 adoption evaluation、confirmation 或 adopted state trace，未授权不写生产事实 |
 
 价值：保护“LLM 创作伙伴给方向”与“系统正式采纳事实”的边界。
 
-### 9.6 VS-05：UI AvailableAction roundtrip
+### 9.9 VS-05：UI AvailableAction roundtrip
 
 | 问题 | 回答 |
 |---|---|
@@ -478,7 +517,7 @@ ADR 状态建议先使用：
 
 价值：证明 UI 是 contract consumer，不是状态机发明者。
 
-### 9.7 VS-06：Trace summary 与 replay explanation
+### 9.10 VS-06：Trace summary 与 replay explanation
 
 | 问题 | 回答 |
 |---|---|
@@ -602,36 +641,58 @@ v3 需要区分“谁说了算”。
 - Memory / Context / Trace / Replay 草案。
 - Workbench UI 消费契约草案。
 - 状态、contract、ADR 候选、slice 入口总索引。
-- v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
-- `ADR-0001-dialogue-frame-v3.md` Proposed 决策。
-- `ADR-0002-micro-plan-v3.md` Proposed 决策。
-- `ADR-0003-planner-authority-boundary.md` Proposed 决策。
+- v3 ADR 编号、状态、模板和首批承重 ADR 顺序。
+- `ADR-0001-dialogue-frame-v3.md` Accepted 决策。
+- `ADR-0002-micro-plan-v3.md` Accepted 决策。
+- `ADR-0003-planner-authority-boundary.md` Accepted 决策。
+- `ADR-0004-orchestrator-decision-v3.md` Accepted 决策。
+- `ADR-0005-execution-gate-order-v3.md` Accepted 决策。
+- `ADR-0006-turn-phase-status-v3.md` Accepted 决策。
+- `ADR-0007-next-action-available-action-v3.md` Accepted 决策。
+- `ADR-0008-behavior-state-v3.md` Accepted 决策。
+- `ADR-0009-confirmation-binding-v3.md` Accepted 决策。
+- `ADR-0010-state-adoption-boundary-v3.md` Accepted 决策。
+- `ADR-0011-toolbox-registry-v3.md` Accepted 决策。
+- `ADR-0012-tool-request-result-v3.md` Accepted 决策。
+- `ADR-0013-decision-trace-v3.md` Accepted 决策。
+- `ADR-0014-trace-redaction-v3.md` Accepted 决策。
+- `ADR-0015-turn-result-view-model-v3.md` Accepted 决策。
+- `ADR-0016-projection-hint-ui-v3.md` Accepted 决策。
+- `ADR-0017-replay-report-v3.md` Accepted 决策。
 
 后续仍需补齐：
 
-- Batch A 后续 Proposed ADR，尤其是 OrchestratorDecision 和 Execution Gate Order。
-- Accepted ADR。
 - JSON Schema 或代码级 contract。
-- 垂直切面 DAG。
+- 垂直切面 DAG：`tasks/slices/v3/DAG.md` 已创建，并已补入 VS-00A / VS-00B 创作伙伴体验切面和 VS-02A 创作草稿切面，整体推进到 VS-06 docs-ready。
 - implementation plan。
 
 ---
 
 ## 16. 下一步
 
-本文完成后，下一步建议写：
+本文完成后，当前阶段结论：
 
 ```text
-docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
 ```
 
 原因：
 
 - `00c` 已经把 contract 和 ADR 候选汇总成 backlog。
-- `docs/design-v3/adr/README.md` 已经定义 v3 ADR 的编号、状态、模板和第一批 Proposed ADR 的排序规则。
-- `ADR-0001` 已经先把 v3 主链的第一承重点升级为 Proposed：每个 turn 必有 `DialogueFrame`。
-- `ADR-0002` 已经把第二承重点升级为 Proposed：`MicroPlan` 是 Planner 到 Execution Orchestrator 的行动建议 envelope。
-- `ADR-0003` 已经把第三承重点升级为 Proposed：Planner 只有建议权，没有执行批准权。
-- 下一步需要冻结 OrchestratorDecision，承接 PlannerOutput 与 MicroPlan 后的执行裁决表达。
+- `docs/design-v3/adr/README.md` 已经定义 v3 ADR 的编号、状态、模板和第一批 ADR 的排序规则。
+- `ADR-0001` 已经先把 v3 主链的第一承重点升级为 Accepted：每个 turn 必有 `DialogueFrame`。
+- `ADR-0002` 已经把第二承重点升级为 Accepted：`MicroPlan` 是 Planner 到 Execution Orchestrator 的行动建议 envelope。
+- `ADR-0003` 已经把第三承重点升级为 Accepted：Planner 只有建议权，没有执行批准权。
+- `ADR-0004` 已经把 OrchestratorDecision 的最小裁决表达升级为 Accepted。
+- `ADR-0005` 已经把 Execution Gate Order 升级为 Accepted，承接 OrchestratorDecision 形成前的 gate 顺序。
+- `ADR-0006` 至 `ADR-0009` 已经把 phase/status、AvailableAction、BehaviorState 和 confirmation binding 升级为 Accepted。
+- `ADR-0010` 已经把 candidate selection 与 adoption boundary 升级为 Accepted。
+- `ADR-0011` 至 `ADR-0013` 已经把 Toolbox Registry、ToolRequest / ToolResult 和 DecisionTrace 最小语义升级为 Accepted。
+- `ADR-0014` 和 `ADR-0015` 已经把 TraceSummaryView redaction 与 TurnResultViewModel 升级为 Accepted。
+- `ADR-0016` 已经把 ProjectionHint UI 写入边界升级为 Accepted。
+- `ADR-0017` 已经把 ReplayCase / ReplayReport 与 no-provider replay 升级为 Accepted。
+- `VS-00A` 已经补入“模糊创作想法先自然展开”的体验证明，避免首批实现只证明安全执行。
+- `VS-00B` 已经补入“带着当前小说上下文回应”的工作台证明，避免 v3 变成泛聊系统。
+- `VS-02A` 已经补入“AI 生成小说草稿但默认待采纳”的产物证明，避免 v3 只证明能聊和能调用工具，却没有证明能产出创作材料。
 
-`tasks/slices/v3/DAG.md` 应该在 Batch A 继续补齐 OrchestratorDecision 与 gate order，并完成评审后创建。
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）文档 blocker 已关闭。下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。

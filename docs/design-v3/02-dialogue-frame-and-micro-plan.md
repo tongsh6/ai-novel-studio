@@ -558,17 +558,20 @@ ADR 前置材料已经具备：
 - `07-workbench-ui-contract.md`：定义 UI 如何消费 frame / trace 的摘要引用。
 - `00c-state-and-contract-atlas.md`：定义 DialogueFrame / MicroPlan 在全局 contract 与 ADR backlog 中的位置。
 
-下一步建议写：
+当前阶段结论：
 
 ```text
-docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
 ```
 
 原因：
 
 - `03/04/05/06/07` 已经分别补上 Toolbox、Orchestrator、BehaviorState、trace/replay 和 UI 消费边界。
 - `00c` 已经把 DialogueFrame / MicroPlan 与其他状态、contract、ADR 候选放到同一张索引图中。
-- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
-- `ADR-0001` 已经先将 DialogueFrame 语义和最小 contract 升级为 Proposed 决策。
-- `ADR-0003` 已经把 Planner 不能批准执行升级为 Proposed 权限边界。
-- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结 Orchestrator 如何表达裁决结果。
+- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 ADR 顺序。
+- `ADR-0001` 已经先将 DialogueFrame 语义和 VS-00 最小 contract 升级为 Accepted 决策。
+- `ADR-0003` 已经把 Planner 不能批准执行升级为 Accepted 权限边界。
+- `ADR-0004` 已经把 OrchestratorDecision 升级为 Accepted 决策，冻结 Orchestrator 如何表达裁决结果。
+- `ADR-0005` 已经提出 gate 顺序如何审查 plan。
+- `tasks/slices/v3/DAG.md` 已经安排 VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 等首批承重切面。
+- VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 的文档 blocker 已关闭；下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。

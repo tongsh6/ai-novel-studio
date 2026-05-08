@@ -851,10 +851,10 @@ ADR 前置材料已经具备：
 - `07`：Workbench UI 消费契约草案。
 - `00c`：状态、contract、ADR 候选和 slice 入口总索引。
 
-下一步建议写：
+当前阶段结论：
 
 ```text
-docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
 ```
 
 原因：
@@ -862,9 +862,12 @@ docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 - `02` 到 `06` 已经定义系统内部如何理解、建议、裁决、等待、记录和回放。
 - `07` 已经定义 Workbench UI 如何消费 TurnResult、BehaviorState、available actions、trace summary 和 projection hints。
 - `00c` 已经把 memory/context/trace 与其他 contract、ADR 候选、slice 入口统一索引。
-- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
-- `ADR-0001` 已经将 trace/replay 需要引用的 frame 语义升级为 Proposed 决策。
+- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 ADR 顺序。
+- `ADR-0001` 已经将 trace/replay 需要引用的 frame 语义升级为 Accepted 决策。
 - `ADR-0003` 已经提出 trace/replay 需要证明的 Planner 权限边界。
-- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结 trace/replay 需要引用的裁决节点。
+- `ADR-0004` 已经提出 trace/replay 需要引用的裁决节点。
+- `ADR-0005` 已经提出 trace/replay 需要记录的 gate 顺序。
+- `tasks/slices/v3/DAG.md` 已经安排 trace / replay proof 在首批 slice 中的位置。
+- VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 的文档 blocker 已关闭；下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。
 
-在 Batch A 的 OrchestratorDecision 与 gate order 至少进入 Proposed 并完成评审之前，不建议创建 implementation plan。
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的具体 slice 文件、contract pack 和核心 ADR 已齐备；下一步必须由用户明确批准后，才可创建 implementation plan 或进入代码实现。

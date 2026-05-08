@@ -14,10 +14,10 @@
 |---|---|---:|---|
 | 完全没看过，10 分钟先了解 | §1 | 10 min | 讲清 v3 为什么存在、和 v2 根本差异是什么 |
 | 产品 / 作者 / 方向评估 | §2 | 50 min | 判断 v3 是否对齐“LLM 创作伙伴”愿景 |
-| 架构 / Agent 工程师 | §3 | 185 min | 理解 v3 主链、边界和后续 contract 顺序 |
+| 架构 / Agent 工程师 | §3 | 215 min | 理解 v3 主链、边界、工程护栏和后续 contract 顺序 |
 | UI / Workbench 设计 | §4 | 80 min | 理解为什么 UI 不应再呈现表单式补槽 |
 | 维护者 / 决策冻结 | §5 | 155 min | 判断哪些内容只是草案，哪些应升级 ADR |
-| 垂直切面规划者 | §6 | 175 min | 知道何时允许切承重垂直切面，怎么切 |
+| 垂直切面规划者 | §6 | 205 min | 知道何时允许切承重垂直切面，怎么切，怎么验收 |
 
 不在以上身份中：先读 §1，再按最接近的角色跳读。
 
@@ -85,11 +85,13 @@ Execution Orchestrator 保留执行硬门禁。
 | 10 | `07-workbench-ui-contract.md` | 草案，已存在 | 设计 UI 消费 TurnResult 和 trace 摘要 |
 | 11 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 汇总状态、contract、ADR 和 slice 入口 |
 | 12 | `adr/README.md` | 草案，已存在 | 定义 v3 ADR 编号、状态、模板和首批顺序 |
-| 13 | `adr/ADR-0001-dialogue-frame-v3.md` | Proposed，已存在 | 提出每 turn 必有的认知锚点决策 |
-| 14 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 提出 Planner 到执行层的行动建议协议 |
-| 15 | `adr/ADR-0003-planner-authority-boundary.md` | Proposed，已存在 | 提出 Planner 不能批准执行的权限边界 |
-| 16 | `adr/ADR-0004-orchestrator-decision-v3.md` | 计划中 | 冻结 OrchestratorDecision 的裁决表达 |
-| 17 | `adr/ADR-0005-execution-gate-order-v3.md` | 计划中 | 冻结执行门禁顺序 |
+| 13 | `adr/ADR-0001-dialogue-frame-v3.md` | Accepted，已存在 | 冻结每 turn 必有的认知锚点决策 |
+| 14 | `adr/ADR-0002-micro-plan-v3.md` | Accepted，已存在 | 冻结 Planner 到执行层的行动建议协议 |
+| 15 | `adr/ADR-0003-planner-authority-boundary.md` | Accepted，已存在 | 冻结 Planner 不能批准执行的权限边界 |
+| 16 | `adr/ADR-0004-orchestrator-decision-v3.md` | Accepted，已存在 | 冻结 OrchestratorDecision 的裁决表达 |
+| 17 | `adr/ADR-0005-execution-gate-order-v3.md` | Accepted，已存在 | 冻结执行门禁顺序 |
+| 18 | `../engineering/v3-architecture.md` | 试行护栏，已存在 | 进入实现计划前确认 app 边界、主链落位和 v2 复用边界 |
+| 19 | `../engineering/v3-quality-gates.md` | 试行护栏，已存在 | 进入实现计划前确认工程门禁、slice 门禁和小说质量门禁 |
 
 工程师读完当前必读后，应该能回答：
 
@@ -97,6 +99,7 @@ Execution Orchestrator 保留执行硬门禁。
 2. 为什么每个 turn 必须有 DialogueFrame。
 3. 为什么 Planner 不能批准自己的 MicroPlan。
 4. 为什么实现前要先有 ADR / contract / 承重垂直切面 DAG。
+5. 哪些 v2 设计可以复用，哪些不能作为 v3 捷径。
 
 ---
 
@@ -137,11 +140,11 @@ UI 侧当前结论：
 | 7 | `07-workbench-ui-contract.md` | 草案，已存在 | 15 min | 哪些 UI 消费边界要冻结 |
 | 8 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 15 min | 哪些 contract 应优先升级 ADR |
 | 9 | `adr/README.md` | 草案，已存在 | 按需 | v3 ADR 如何编号、评审和冻结 |
-| 10 | `adr/ADR-0001-dialogue-frame-v3.md` | Proposed，已存在 | 按需 | DialogueFrame 的决策范围和替代方案 |
-| 11 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 按需 | MicroPlan 的冻结范围和替代方案 |
-| 12 | `adr/ADR-0003-planner-authority-boundary.md` | Proposed，已存在 | 按需 | Planner 权限边界的冻结范围 |
-| 13 | `adr/ADR-0004-orchestrator-decision-v3.md` | 计划中 | 按需 | OrchestratorDecision 的冻结范围 |
-| 14 | `adr/ADR-0005-execution-gate-order-v3.md` | 计划中 | 按需 | Execution Gate Order 的冻结范围 |
+| 10 | `adr/ADR-0001-dialogue-frame-v3.md` | Accepted，已存在 | 按需 | DialogueFrame 的决策范围和替代方案 |
+| 11 | `adr/ADR-0002-micro-plan-v3.md` | Accepted，已存在 | 按需 | MicroPlan 的冻结范围和替代方案 |
+| 12 | `adr/ADR-0003-planner-authority-boundary.md` | Accepted，已存在 | 按需 | Planner 权限边界的冻结范围 |
+| 13 | `adr/ADR-0004-orchestrator-decision-v3.md` | Accepted，已存在 | 按需 | OrchestratorDecision 的冻结范围 |
+| 14 | `adr/ADR-0005-execution-gate-order-v3.md` | Accepted，已存在 | 按需 | Execution Gate Order 的冻结范围 |
 
 维护者判断规则：
 
@@ -169,12 +172,14 @@ UI 侧当前结论：
 | 9 | `07-workbench-ui-contract.md` | 草案，已存在 | 15 min | UI 消费如何证明前台体验闭环 |
 | 10 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 10 min | 状态、contract、ADR、slice 如何索引 |
 | 11 | `adr/README.md` | 草案，已存在 | 10 min | 哪些 ADR 先冻结，哪些只是 backlog |
-| 12 | `adr/ADR-0001-dialogue-frame-v3.md` | Proposed，已存在 | 10 min | 第一条 ADR 如何约束每 turn 必有 frame |
-| 13 | `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | 10 min | MicroPlan 如何连接 frame 与执行权 |
-| 14 | `adr/ADR-0003-planner-authority-boundary.md` | Proposed，已存在 | 10 min | Planner 不能批准执行如何成为硬边界 |
-| 15 | `adr/ADR-0004-orchestrator-decision-v3.md` | 计划中 | 10 min | OrchestratorDecision 如何承接执行权 |
-| 16 | `adr/ADR-0005-execution-gate-order-v3.md` | 计划中 | 10 min | 执行门禁顺序如何保护权限、预算和写入 |
-| 17 | `tasks/slices/v3/DAG.md` | 计划中 | 10 min | slice 之间如何排序 |
+| 12 | `adr/ADR-0001-dialogue-frame-v3.md` | Accepted，已存在 | 10 min | 第一条 ADR 如何约束每 turn 必有 frame |
+| 13 | `adr/ADR-0002-micro-plan-v3.md` | Accepted，已存在 | 10 min | MicroPlan 如何连接 frame 与执行权 |
+| 14 | `adr/ADR-0003-planner-authority-boundary.md` | Accepted，已存在 | 10 min | Planner 不能批准执行如何成为硬边界 |
+| 15 | `adr/ADR-0004-orchestrator-decision-v3.md` | Accepted，已存在 | 10 min | OrchestratorDecision 如何承接执行权 |
+| 16 | `adr/ADR-0005-execution-gate-order-v3.md` | Accepted，已存在 | 10 min | 执行门禁顺序如何保护权限、预算和写入 |
+| 17 | `tasks/slices/v3/DAG.md` | docs-ready，已存在 | 10 min | VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A） 如何排序、依赖和阻塞 |
+| 18 | `../engineering/v3-architecture.md` | 试行护栏，已存在 | 15 min | v3 实现计划必须遵守哪些 app 边界和复用边界 |
+| 19 | `../engineering/v3-quality-gates.md` | 试行护栏，已存在 | 15 min | 每个 slice 需要哪些工程证明、语义证明和扫描闭环 |
 
 每条 v3 slice 必须回答：
 
@@ -186,7 +191,9 @@ UI 侧当前结论：
 | Consumer | 第一个真实消费者是谁 |
 | Proof | 用什么测试或命令证明链路成立 |
 
-v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `05` / `06` / `07` 的状态与 contract 索引、v3 ADR 目录明确、且 Batch A 的 OrchestratorDecision / gate order 仍未进入 Proposed 时贸然切。
+v3 第一批 slice 已在 `tasks/slices/v3/DAG.md` 排序，并已为 VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）创建具体 slice 文件、contract pack 和 Accepted ADR 输入。implementation plan / code 仍需用户明确批准。
+
+进入任意 implementation plan 前，必须先读 `docs/engineering/v3-architecture.md` 和 `docs/engineering/v3-quality-gates.md`。这两篇负责把已有工程规则、v2 可复用设计和 v3 主链约束合并成实现前护栏。
 
 ---
 
@@ -207,12 +214,15 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 | `06-memory-context-and-trace.md` | 草案，已存在 | 记忆、上下文与回放 |
 | `07-workbench-ui-contract.md` | 草案，已存在 | UI 消费契约 |
 | `adr/README.md` | 草案，已存在 | ADR 编号、状态、模板 |
-| `adr/ADR-0001-dialogue-frame-v3.md` | Proposed，已存在 | DialogueFrame v3 决策 |
-| `adr/ADR-0002-micro-plan-v3.md` | Proposed，已存在 | MicroPlan v3 决策 |
-| `adr/ADR-0003-planner-authority-boundary.md` | Proposed，已存在 | Planner 权限边界决策 |
-| `adr/ADR-0004-orchestrator-decision-v3.md` | 计划中 | OrchestratorDecision v3 决策 |
-| `adr/ADR-0005-execution-gate-order-v3.md` | 计划中 | Execution Gate Order v3 决策 |
-| `tasks/slices/v3/DAG.md` | 计划中 | 垂直切面排序 |
+| `adr/ADR-0001-dialogue-frame-v3.md` | Accepted，已存在 | DialogueFrame v3 决策 |
+| `adr/ADR-0002-micro-plan-v3.md` | Accepted，已存在 | MicroPlan v3 决策 |
+| `adr/ADR-0003-planner-authority-boundary.md` | Accepted，已存在 | Planner 权限边界决策 |
+| `adr/ADR-0004-orchestrator-decision-v3.md` | Accepted，已存在 | OrchestratorDecision v3 决策 |
+| `adr/ADR-0005-execution-gate-order-v3.md` | Accepted，已存在 | Execution Gate Order v3 决策 |
+| `adr/ADR-0006` 至 `adr/ADR-0017` | Accepted，已存在 | behavior、tool、adoption、UI、replay 决策 |
+| `tasks/slices/v3/DAG.md` | docs-ready，已存在 | VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A） 垂直切面排序 |
+| `../engineering/v3-architecture.md` | 试行护栏，已存在 | v3 技术架构、app 边界、深模块和 v2 复用边界 |
+| `../engineering/v3-quality-gates.md` | 试行护栏，已存在 | v3 工程门禁、slice 门禁、小说质量门禁和验证模板 |
 
 ---
 
@@ -233,10 +243,10 @@ v3 第一批 slice 不应在 `00c` 汇总 `00b` / `00d` / `02` / `03` / `04` / `
 
 ## 9. 下一步阅读建议
 
-如果你现在要继续完善 v3 设计体系，下一篇应该写：
+如果你现在要继续推进 v3，当前文档阶段结论是：
 
 ```text
-docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
 ```
 
 原因：
@@ -246,8 +256,13 @@ docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 - `01` 已经定义交互模型。
 - `00b` / `00d` / `02` / `03` / `04` / `05` / `06` / `07` 已经形成主链、运行时、Frame/Plan、Toolbox、执行权、行为状态、trace/replay 和 UI 消费草案。
 - `00c` 已经把状态、contract、ADR 候选和第一批 slice 入口放到同一张索引图里。
-- `adr/README.md` 已经定义 v3 ADR 的编号、状态、模板和首批 Proposed ADR 顺序。
-- `ADR-0001` 已经把每 turn 必有 DialogueFrame 升级为 Proposed 决策。
-- `ADR-0002` 已经把 MicroPlan 升级为 Proposed 决策。
-- `ADR-0003` 已经把 Planner 权限边界升级为 Proposed 决策。
-- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结 OrchestratorDecision 如何表达裁决结果。
+- `adr/README.md` 已经定义 v3 ADR 的编号、状态、模板和首批 ADR 顺序。
+- `ADR-0001` 已经把每 turn 必有 DialogueFrame 升级为 Accepted 决策。
+- `ADR-0002` 已经把 MicroPlan 升级为 Accepted 决策。
+- `ADR-0003` 已经把 Planner 权限边界升级为 Accepted 决策。
+- `ADR-0004` 已经把 OrchestratorDecision 升级为 Accepted 决策。
+- `ADR-0005` 已经把 Execution Gate Order 升级为 Accepted 决策。
+- `tasks/slices/v3/DAG.md` 已经把首批承重垂直切面排序，并关闭 VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的文档 blocker。
+- VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 具体 slice 文件已经创建，文档 blocker 已关闭。
+- `docs/engineering/v3-architecture.md` 和 `docs/engineering/v3-quality-gates.md` 已经把 v3 实现前的架构护栏、质量门禁和 v2 复用边界收口。
+- 下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。

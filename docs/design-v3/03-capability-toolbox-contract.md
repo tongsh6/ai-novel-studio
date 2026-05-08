@@ -555,10 +555,10 @@ ADR 前置材料已经具备：
 - Workbench UI 消费契约草案。
 - 状态、contract、ADR 候选和 slice 入口总索引。
 
-下一步建议写：
+当前阶段结论：
 
 ```text
-docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
 ```
 
 原因：
@@ -568,7 +568,10 @@ docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md
 - `06` 已经定义 ToolRequest / ToolResult / BehaviorState 如何进入 trace 与 replay。
 - `07` 已经定义 UI 如何展示工具结果摘要、trace 摘要和可用动作，但不直接调用工具。
 - `00c` 已经把 toolbox contract 与其他状态、ADR 候选、slice 入口建立索引关系。
-- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
-- `ADR-0001` 已经将工具调用之前的每 turn 认知锚点升级为 Proposed 决策。
+- `adr/README.md` 已经建立 v3 ADR 编号、状态、模板和首批 ADR 顺序。
+- `ADR-0001` 已经将工具调用之前的每 turn 认知锚点升级为 Accepted 决策。
 - `ADR-0003` 已经提出 Planner 对工具与状态推进只有建议权、没有执行批准权。
-- 下一步需要写 `ADR-0004-orchestrator-decision-v3.md`，冻结 ToolRequest 上游的 OrchestratorDecision 表达。
+- `ADR-0004` 已经提出 ToolRequest 上游的 OrchestratorDecision 表达。
+- `ADR-0005` 已经提出工具派发前的 gate 顺序。
+- `tasks/slices/v3/DAG.md` 已经安排 ToolRequest / ToolResult 闭环在 decision 和 gate 之后。
+- VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 的文档 blocker 已关闭；下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。

@@ -321,9 +321,9 @@ v3 不允许“有一个想法就直接写代码”。
 | 13 | `docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md` | 提出每 turn 必有的认知锚点决策 |
 | 14 | `docs/design-v3/adr/ADR-0002-micro-plan-v3.md` | 提出 Planner 到执行层的行动建议协议决策 |
 | 15 | `docs/design-v3/adr/ADR-0003-planner-authority-boundary.md` | 提出 Planner 不能批准执行的权限边界 |
-| 16 | `docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md` | 冻结 OrchestratorDecision 的裁决表达 |
-| 17 | `docs/design-v3/adr/ADR-0005-execution-gate-order-v3.md` | 冻结执行门禁顺序 |
-| 18 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划 |
+| 16 | `docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md` | 提出 OrchestratorDecision 的裁决表达 |
+| 17 | `docs/design-v3/adr/ADR-0005-execution-gate-order-v3.md` | 提出执行门禁顺序 |
+| 18 | `tasks/slices/v3/DAG.md` | 准备进入承重垂直切面规划（已创建，待评审） |
 
 在第 18 步之前，不建议写代码实现计划。
 
@@ -346,11 +346,19 @@ v3 不允许“有一个想法就直接写代码”。
 11. 不是所有探索都打开 durable clarification，只有阻塞下一步安全推进时才进入 BehaviorState。
 12. Replay 默认不重新调用 LLM，优先基于结构化 trace 和版本引用解释系统决策。
 13. Workbench UI 只消费 TurnResult、available actions、trace summary 和 projection hints，不直接写 BehaviorState 或调用工具。
-14. `00c-state-and-contract-atlas.md` 作为 v3 状态、contract、ADR 候选和垂直切面入口总索引；垂直切面 DAG 之前应先建立 v3 ADR 目录与首批 Proposed ADR 顺序。
+14. `00c-state-and-contract-atlas.md` 作为 v3 状态、contract、ADR 候选和垂直切面入口总索引；垂直切面 DAG 之前应先建立 v3 ADR 目录与首批 ADR 顺序。
 15. v3 ADR 目录采用独立编号、Proposed / Accepted / Superseded / Deferred 状态，并要求 ADR 回连 `00c` 的 contract、invariant 和 slice 入口。
-16. `ADR-0001-dialogue-frame-v3.md` 已将每 turn 必有 DialogueFrame 升级为 Proposed 决策。
-17. `ADR-0002-micro-plan-v3.md` 已将 MicroPlan 作为下一步行动建议 envelope 升级为 Proposed 决策。
-18. `ADR-0003-planner-authority-boundary.md` 已将 Planner 只有建议权、没有执行批准权升级为 Proposed 决策。
+16. `ADR-0001-dialogue-frame-v3.md` 已将每 turn 必有 DialogueFrame 升级为 Accepted 决策。
+17. `ADR-0002-micro-plan-v3.md` 已将 MicroPlan 作为下一步行动建议 envelope 升级为 Accepted 决策。
+18. `ADR-0003-planner-authority-boundary.md` 已将 Planner 只有建议权、没有执行批准权升级为 Accepted 决策。
+19. `ADR-0004-orchestrator-decision-v3.md` 已将 OrchestratorDecision 作为执行裁决 envelope 升级为 Accepted 决策。
+20. `ADR-0005-execution-gate-order-v3.md` 已将 Execution Gate Order 升级为 Accepted 决策。
+21. `ADR-0006` 至 `ADR-0009` 已将 phase/status、AvailableAction、BehaviorState 与 ConfirmationBinding 升级为 Accepted 决策。
+22. `ADR-0010` 已将 State Adoption Boundary 升级为 Accepted 决策。
+23. `ADR-0011` 至 `ADR-0013` 已将 Toolbox Registry、ToolRequest / ToolResult 与 DecisionTrace 升级为 Accepted 决策。
+24. `ADR-0014` 至 `ADR-0015` 已将 Trace Redaction 与 TurnResultViewModel 升级为 Accepted 决策。
+25. `ADR-0016` 至 `ADR-0017` 已将 ProjectionHint 与 ReplayReport 升级为 Accepted 决策。
+26. 首批 v3 slice 需要同时证明“系统不会乱执行”和“AI 像创作伙伴”：VS-00A 证明模糊创作想法先自然展开，VS-00B 证明 AI 带着当前小说上下文回应。
 
 ---
 
@@ -360,16 +368,11 @@ v3 不允许“有一个想法就直接写代码”。
 
 | 问题 | 建议归属 |
 |---|---|
-| DialogueFrame 的字段全集与枚举 | `02-dialogue-frame-and-micro-plan.md` |
-| MicroPlan 与 ToolRequest 的关系 | `02-dialogue-frame-and-micro-plan.md` |
-| Capability Toolbox 是否统一 registry | `03-capability-toolbox-contract.md` |
-| Execution Orchestrator 的 umbrella 模块归属如何冻结 | `04-execution-orchestrator.md` + slice DAG |
-| TurnPhase / TurnStatus / NextAction 是否复用 v2 顶层字段 | `05-turn-behavior-and-state-model.md` + v3 ADR |
-| MemoryItem / DialogueContext / DecisionTrace 字段全集 | `06-memory-context-and-trace.md` + v3 ADR |
-| TurnResult v3 是否复用 v2 顶层字段 | v3 ADR |
-| UI card/action/trace summary 字段全集 | `07-workbench-ui-contract.md` + v3 ADR |
-| OrchestratorDecision v3 的冻结范围 | `docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md` |
-| v2 代码迁移是重构还是旁路新链路 | slice DAG 阶段 |
+| JSON Schema 或代码级 contract 如何从 contract pack 生成 | implementation plan 前置工作 |
+| v2 代码迁移是重构还是旁路新链路 | implementation plan 阶段 |
+| 具体 umbrella 模块归属与测试切入点 | 每个 slice 的 implementation plan |
+| trace store / replay report 是否持久化 | VS-06 implementation plan 或后续 persistence ADR |
+| 创作伙伴体验是否需要独立 ADR | 先由 VS-00A / VS-00B 证明；若后续多个 slice 复用，再升级为 ADR |
 
 ---
 
@@ -405,12 +408,14 @@ v3 下一步应继续完善设计体系，而不是进入代码实现。
 7. 已完成 `06-memory-context-and-trace.md`，定义 context、trace、replay。
 8. 已完成 `07-workbench-ui-contract.md`，定义 UI 如何消费 v3 输出。
 9. 已完成 `00c-state-and-contract-atlas.md`，汇总状态、contract、ADR 候选和 slice 入口。
-10. 已完成 `docs/design-v3/adr/README.md`，定义 v3 ADR 编号、状态、模板和首批 Proposed ADR 顺序。
-11. 已完成 `docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md`，将 DialogueFrame 升级为 Proposed 决策。
-12. 已完成 `docs/design-v3/adr/ADR-0002-micro-plan-v3.md`，将 MicroPlan 升级为 Proposed 决策。
-13. 已完成 `docs/design-v3/adr/ADR-0003-planner-authority-boundary.md`，将 Planner 权限边界升级为 Proposed 决策。
-14. 下一步写 `docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md`。
-15. 再写 `ADR-0005-execution-gate-order-v3.md`。
-16. 最后创建 `tasks/slices/v3/DAG.md`。
+10. 已完成 `docs/design-v3/adr/README.md`，定义 v3 ADR 编号、状态、模板和首批 ADR 顺序。
+11. 已完成 `docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md`，将 DialogueFrame 升级为 Accepted 决策。
+12. 已完成 `docs/design-v3/adr/ADR-0002-micro-plan-v3.md`，将 MicroPlan 升级为 Accepted 决策。
+13. 已完成 `docs/design-v3/adr/ADR-0003-planner-authority-boundary.md`，将 Planner 权限边界升级为 Accepted 决策。
+14. 已完成 `docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md`，将执行裁决表达升级为 Accepted 决策。
+15. 已完成 `ADR-0005-execution-gate-order-v3.md`，将执行门禁顺序升级为 Accepted 决策。
+16. 已创建 `tasks/slices/v3/DAG.md`、VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 slice 文件和对应 contract pack，VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 文档 blocker 已关闭。
+17. 已完成 `docs/engineering/v3-architecture.md` 和 `docs/engineering/v3-quality-gates.md`，把 v3 技术架构、质量门禁和 v2 复用边界收口为实现前护栏。
+18. 当前文档阶段已经具备进入 implementation plan 评审的输入；只有用户明确批准后，才可创建 implementation plan 或进入代码实现。
 
-只有当上述设计链路能支撑第一条承重垂直切面时，才进入 implementation plan。
+只有用户明确批准后，才进入 implementation plan 或代码实现。
