@@ -1,6 +1,6 @@
 defmodule NovelApplication.TraceWriter do
   @moduledoc """
-  v3 trace 写入。VS-01 扩展：记录 gate trace 和 OrchestratorDecision trace。
+  v3 trace 写入。VS-02 扩展：记录 ToolTrace。
   """
 
   alias NovelDomain.ContextSourceRef
@@ -9,6 +9,8 @@ defmodule NovelApplication.TraceWriter do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
+  alias NovelDomain.ToolRequest
+  alias NovelDomain.ToolResult
 
   @doc "Record reply-only/exploration trace."
   @spec record(DialogueFrame.t(), map(), DialogueContext.t() | nil) :: {DecisionTrace.t(), map()}
@@ -43,10 +45,7 @@ defmodule NovelApplication.TraceWriter do
   @spec record_with_decision(
     DialogueFrame.t(), MicroPlan.t(), OrchestratorDecision.t(), map(), DialogueContext.t() | nil
   ) :: {DecisionTrace.t(), map()}
-  def record_with_decision(
-    %DialogueFrame{} = frame, %MicroPlan{} = plan, %OrchestratorDecision{} = decision,
-    turn_result, context
-  ) do
+  def record_with_decision(%DialogueFrame{} = frame, %MicroPlan{} = plan, %OrchestratorDecision{} = decision, turn_result, context) do
     trace_id = allocate_trace_id()
     context_refs = if context, do: context.context_refs, else: []
 
@@ -72,15 +71,62 @@ defmodule NovelApplication.TraceWriter do
     }
 
     summary = %{
-      trace_ref: trace_id,
-      decision_type: trace.decision_type,
-      frame_type: frame.frame_type,
-      dialogue_goal: frame.dialogue_goal.summary,
-      plan_goal: plan.plan_goal.summary,
-      plan_actions: length(plan.proposed_actions),
+      trace_ref: trace_id, decision_type: trace.decision_type,
+      frame_type: frame.frame_type, dialogue_goal: frame.dialogue_goal.summary,
+      plan_goal: plan.plan_goal.summary, plan_actions: length(plan.proposed_actions),
       orchestrator_decision: decision.decision_type,
       first_blocking_gate: decision.first_blocking_gate,
       reason_codes: decision.reason_codes,
+      context_refs: format_context_refs(context_refs)
+    }
+
+    {trace, summary}
+  end
+
+  @doc "Record trace with tool execution (VS-02)."
+  @spec record_with_tool(
+    DialogueFrame.t(), MicroPlan.t(), OrchestratorDecision.t(),
+    ToolRequest.t(), ToolResult.t(), map(), DialogueContext.t() | nil
+  ) :: {DecisionTrace.t(), map()}
+  def record_with_tool(
+    %DialogueFrame{} = frame, %MicroPlan{} = _plan, %OrchestratorDecision{} = decision,
+    %ToolRequest{} = req, %ToolResult{} = result, turn_result, context
+  ) do
+    trace_id = allocate_trace_id()
+    context_refs = if context, do: context.context_refs, else: []
+
+    trace = %DecisionTrace{
+      trace_id: trace_id, turn_id: frame.turn_id, frame_ref: frame.frame_id,
+      decision_type: :tool_dispatched,
+      no_tool_reason: "tool_was_dispatched",
+      no_behavior_reason: "tool_execution_completed",
+      no_write_reason: "tool_result_not_adoption_awaiting_adoption_boundary",
+      turn_result_ref: turn_result[:turn_id] || frame.turn_id,
+      replay_policy: %{use_recorded_frame: true, recall_provider: false},
+      redaction_level: :author_safe,
+      event_order: [
+        :author_input_received,
+        :dialogue_frame_validated,
+        :micro_plan_generated,
+        :orchestrator_decision_allow_tool,
+        :tool_request_constructed,
+        :tool_dispatched,
+        :tool_result_received,
+        :tool_trace_recorded,
+        :turn_result_emitted
+      ]
+    }
+
+    summary = %{
+      trace_ref: trace_id,
+      decision_type: :tool_dispatched,
+      tool_name: req.tool_name,
+      tool_version: req.tool_version,
+      tool_status: result.status,
+      tool_request_id: req.tool_request_id,
+      tool_result_id: result.tool_result_id,
+      decision_ref: decision.decision_id,
+      adoption_status: "not_adopted",
       context_refs: format_context_refs(context_refs)
     }
 
@@ -102,25 +148,21 @@ defmodule NovelApplication.TraceWriter do
       replay_policy: %{use_recorded_frame: true, recall_provider: false},
       redaction_level: :author_safe,
       event_order: [
-        :author_input_received,
-        :dialogue_context_attached,
-        :dialogue_frame_validated,
-        :micro_plan_generation_failed,
-        :recovery_fallback,
-        :turn_result_emitted
+        :author_input_received, :dialogue_frame_validated,
+        :micro_plan_generation_failed, :recovery_fallback, :turn_result_emitted
       ]
     }
 
     summary = %{
-      trace_ref: trace_id,
-      decision_type: :fail_with_recovery,
-      frame_type: frame.frame_type,
-      dialogue_goal: frame.dialogue_goal.summary,
+      trace_ref: trace_id, decision_type: :fail_with_recovery,
+      frame_type: frame.frame_type, dialogue_goal: frame.dialogue_goal.summary,
       recovery: "plan generation failed, reverted to reply_only"
     }
 
     {trace, summary}
   end
+
+  # ── helpers ───────────────────────────────────
 
   defp decision_type(:creative_exploration), do: :exploration
   defp decision_type(_), do: :reply_only
@@ -130,26 +172,18 @@ defmodule NovelApplication.TraceWriter do
   defp decision_type_for(:require_clarification), do: :clarification_required
   defp decision_type_for(:reject), do: :rejected
   defp decision_type_for(:fail_with_recovery), do: :recovery
+  defp decision_type_for(:allow_tool), do: :tool_allowed
 
-  defp no_behavior_reason(:creative_exploration),
-    do: "exploration stays conversational"
-  defp no_behavior_reason(_),
-    do: "reply-only turn does not open durable behavior"
+  defp no_behavior_reason(:creative_exploration), do: "exploration stays conversational"
+  defp no_behavior_reason(_), do: "reply-only turn does not open durable behavior"
 
   defp build_event_order(context) do
-    base = [
-      :author_input_received,
-      :dialogue_context_attached,
-      :dialogue_frame_validated,
-      :decision_recorded,
-      :turn_result_emitted
-    ]
-
+    base = [:author_input_received, :dialogue_context_attached, :dialogue_frame_validated,
+            :decision_recorded, :turn_result_emitted]
     if context && DialogueContext.has_context?(context) do
       base
     else
-      List.delete(base, :dialogue_context_attached)
-      |> List.insert_at(1, :dialogue_context_empty)
+      List.delete(base, :dialogue_context_attached) |> List.insert_at(1, :dialogue_context_empty)
     end
   end
 
@@ -158,7 +192,6 @@ defmodule NovelApplication.TraceWriter do
       %{context_ref: ref.context_ref, source_type: ref.source_type}
     end)
   end
-
   defp format_context_refs(_), do: []
 
   defp allocate_trace_id, do: "trace_#{System.unique_integer([:positive, :monotonic])}"

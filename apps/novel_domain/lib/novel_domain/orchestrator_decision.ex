@@ -6,7 +6,7 @@ defmodule NovelDomain.OrchestratorDecision do
   """
 
   @type decision_type :: :downgrade_to_dialogue | :require_confirmation |
-                         :require_clarification | :reject | :fail_with_recovery
+                         :require_clarification | :reject | :fail_with_recovery | :allow_tool
   @type decision_status :: :decided | :failed | :emitted
 
   @type action_ref :: %{
@@ -81,6 +81,9 @@ defmodule NovelDomain.OrchestratorDecision do
 
       :fail_with_recovery ->
         ["no_action_executed", "system_recovery_needed"]
+
+      :allow_tool ->
+        ["tool_dispatched", "result_not_adoption"]
 
       _ ->
         []
