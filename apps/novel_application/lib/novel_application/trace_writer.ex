@@ -179,7 +179,7 @@ defmodule NovelApplication.TraceWriter do
 
   defp build_event_order(context) do
     base = [:author_input_received, :dialogue_context_attached, :dialogue_frame_validated,
-            :decision_recorded, :turn_result_emitted]
+            :reply_only_decision_recorded, :turn_result_emitted]
     if context && DialogueContext.has_context?(context) do
       base
     else

@@ -69,17 +69,29 @@ defmodule NovelDomain.DialogueFrame do
       {:frame_id, frame.frame_id},
       {:turn_id, frame.turn_id},
       {:workspace_id, frame.workspace_id},
-      {:frame_type, frame.frame_type},
-      {:author_visible_draft, frame.author_visible_draft}
+      {:frame_type, frame.frame_type}
     ]
 
-    Enum.reduce(required, errors, fn {field, value}, acc ->
-      if is_nil(value) || value == "" do
-        ["#{field} is required" | acc]
-      else
-        acc
-      end
-    end)
+    errors =
+      Enum.reduce(required, errors, fn {field, value}, acc ->
+        if is_nil(value) || value == "" do
+          ["#{field} is required" | acc]
+        else
+          acc
+        end
+      end)
+
+    draft = frame.author_visible_draft
+    cond do
+      is_nil(draft) ->
+        ["author_visible_draft is required" | errors]
+      not is_map(draft) ->
+        ["author_visible_draft must be a map" | errors]
+      is_nil(draft[:message]) || draft[:message] == "" ->
+        ["author_visible_draft.message is required" | errors]
+      true ->
+        errors
+    end
   end
 
   defp check_frame_type(errors, frame) do

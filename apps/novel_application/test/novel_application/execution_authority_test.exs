@@ -10,7 +10,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
 
   # Test helpers — build realistic test structs
 
-  defp build_frame(attrs \\ []) do
+  defp build_frame(attrs) do
     struct!(DialogueFrame, Keyword.merge([
       schema_version: "3.0-draft",
       frame_id: "f-test",

@@ -1,21 +1,34 @@
 defmodule NovelDomain.ReplayReport do
   @moduledoc """
   结构化回放报告。默认不重新调用 LLM——只基于 trace 和 contract refs 解释系统决策。
+
+  字段规格见 docs/design-v3/contracts/VS-06-replay-surface-contract-pack.md §4。
   """
 
+  @type result_status :: :complete | :partial | :invalid_trace
+  @type redaction_profile :: :author_safe | :developer_summary
+
   @type t :: %__MODULE__{
-    replay_case_id: String.t(), trace_ref: String.t(),
-    turn_id: String.t(), replay_level: :structural,
-    contract_versions: map(), registry_snapshots: [map()],
-    decision_explanation: map(), tool_chain: [map()],
-    behavior_lifecycle: [map()], state_changes: [map()],
-    provider_calls_avoided: boolean(), generated_at: String.t()
+    replay_report_id: String.t(),
+    replay_case_ref: String.t(),
+    trace_ref: String.t(),
+    replay_level: :structural,
+    chain_summary: [map()],
+    decision_explanations: [map()],
+    state_explanations: [map()],
+    missing_trace_refs: [String.t()],
+    redaction_profile: redaction_profile(),
+    provider_called: boolean(),
+    result_status: result_status(),
+    generated_at: String.t()
   }
 
-  @enforce_keys [:replay_case_id, :trace_ref, :turn_id, :replay_level]
-  defstruct [:replay_case_id, :trace_ref, :turn_id, :replay_level,
-    contract_versions: %{}, registry_snapshots: [],
-    decision_explanation: %{}, tool_chain: [],
-    behavior_lifecycle: [], state_changes: [],
-    provider_calls_avoided: true, generated_at: nil]
+  @enforce_keys [:replay_report_id, :replay_case_ref, :trace_ref, :replay_level,
+                 :redaction_profile, :provider_called, :result_status]
+  defstruct [
+    :replay_report_id, :replay_case_ref, :trace_ref, :replay_level,
+    :redaction_profile, :provider_called, :result_status,
+    chain_summary: [], decision_explanations: [], state_explanations: [],
+    missing_trace_refs: [], generated_at: nil
+  ]
 end

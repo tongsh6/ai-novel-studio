@@ -6,7 +6,6 @@ defmodule NovelApplication.CreativeArtifactTest do
   alias NovelApplication.TurnResultBuilder
   alias NovelDomain.TentativeArtifactSet
   alias NovelDomain.ToolRequest
-  alias NovelDomain.ToolResult
 
   # ── Registry ──────────────────────────────────
 
