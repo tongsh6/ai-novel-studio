@@ -7,7 +7,7 @@ config :novel_agent, :provider,
 
 config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: "http://localhost:1234/v1",
-  model: "qwen/qwen3.6-35b-a3b",
+  model: "openai/gpt-oss-120b",
   timeout: 120_000
 
 # 可选：Anthropic Claude API（需设置 ANTHROPIC_API_KEY 环境变量）

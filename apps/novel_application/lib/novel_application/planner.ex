@@ -10,15 +10,19 @@ defmodule NovelApplication.Planner do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
 
+  @type complete_fn :: (String.t() -> {:ok, map()} | {:error, term()})
+
   @doc """
   根据 AuthorInput 和 DialogueContext 形成 DialogueFrame 和候选方向。
+
+  `complete_fn` 可注入，默认走 Gateway.complete/1。
   """
-  @spec form_frame(map(), DialogueContext.t() | nil) :: {DialogueFrame.t(), [CandidateDirection.t()]}
-  def form_frame(%{text: text, workspace_id: ws_id} = _input, context \\ nil) do
+  @spec form_frame(map(), DialogueContext.t() | nil, complete_fn()) :: {DialogueFrame.t(), [CandidateDirection.t()]}
+  def form_frame(%{text: text, workspace_id: ws_id} = _input, context \\ nil, complete_fn \\ &Gateway.complete/1) do
     turn_id = allocate_turn_id()
     frame_id = allocate_frame_id()
 
-    case call_provider(text, context) do
+    case call_provider(text, context, complete_fn) do
       {:ok, parsed} ->
         frame = build_frame(parsed, turn_id, frame_id, ws_id, context)
 
@@ -40,14 +44,16 @@ defmodule NovelApplication.Planner do
   基于 DialogueFrame 生成 MicroPlan（行动建议）。
 
   VS-01：Planner 只能建议，不能批准。Orchestrator 裁决所有执行。
+
+  `complete_fn` 可注入，默认走 Gateway.complete/1。
   """
-  @spec form_micro_plan(DialogueFrame.t(), map()) :: {:ok, MicroPlan.t()} | {:error, term()}
-  def form_micro_plan(%DialogueFrame{} = frame, author_input) do
+  @spec form_micro_plan(DialogueFrame.t(), map(), complete_fn()) :: {:ok, MicroPlan.t()} | {:error, term()}
+  def form_micro_plan(%DialogueFrame{} = frame, author_input, complete_fn \\ &Gateway.complete/1) do
     plan_id = "plan_#{System.unique_integer([:positive, :monotonic])}"
 
     prompt = build_plan_prompt(frame, author_input)
 
-    case Gateway.complete(prompt) do
+    case complete_fn.(prompt) do
       {:ok, %{content: content}} ->
         case Jason.decode(String.trim(content)) do
           {:ok, parsed} when is_map(parsed) ->
@@ -134,10 +140,10 @@ defmodule NovelApplication.Planner do
 
   # ── shared helpers (from VS-00) ──
 
-  defp call_provider(text, context) do
+  defp call_provider(text, context, complete_fn) do
     prompt = build_prompt(text, context)
 
-    case Gateway.complete(prompt) do
+    case complete_fn.(prompt) do
       {:ok, %{content: content}} -> parse_json(content)
       {:error, reason} -> {:error, reason}
     end
@@ -164,10 +170,16 @@ defmodule NovelApplication.Planner do
       "no_tool_reason": "no_tool_needed" | "exploratory_only" | "insufficient_execution_target" | "user_requested_discussion",
       "execution_readiness": "not_applicable",
       "assistant_message": "自然语言回应（中文）",
-      "candidate_directions": [],
+      "candidate_directions": [{"title": "方向标题", "pitch": "一句话吸引力描述", "tone_tags": ["悬疑", "温柔"]}],
       "context_used": true or false,
       "uncertainty": []
     }
+
+    ## 规则
+    - frame_type == "creative_exploration" 时，candidate_directions 必须包含 2-3 个方向对象
+    - frame_type != "creative_exploration" 时，candidate_directions 为空数组
+    - 不要输出纯字符串数组，每个方向必须是带 title/pitch/tone_tags 的对象
+    - assistant_message 必须用中文，不要输出 JSON 代码块
 
     用户消息：#{text}
     """
@@ -209,13 +221,20 @@ defmodule NovelApplication.Planner do
   end
 
   defp build_candidates(parsed, frame_id) do
-    parsed |> Map.get("candidate_directions", []) |> Enum.map(fn c ->
-      %CandidateDirection{
-        direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
-        title: Map.get(c, "title", ""), pitch: Map.get(c, "pitch", ""),
-        tone_tags: Map.get(c, "tone_tags", []), source_frame_ref: frame_id,
-        adoption_status: :not_adopted
-      }
+    parsed |> Map.get("candidate_directions", []) |> Enum.map(fn
+      c when is_map(c) ->
+        %CandidateDirection{
+          direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+          title: Map.get(c, "title", ""), pitch: Map.get(c, "pitch", ""),
+          tone_tags: Map.get(c, "tone_tags", []), source_frame_ref: frame_id,
+          adoption_status: :not_adopted
+        }
+      c when is_binary(c) ->
+        %CandidateDirection{
+          direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+          title: c, pitch: c, tone_tags: [], source_frame_ref: frame_id,
+          adoption_status: :not_adopted
+        }
     end)
   end
 

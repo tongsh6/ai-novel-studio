@@ -3,6 +3,9 @@ defmodule NovelApplication.DialogueGateway do
   v3 对话入口。完整主链：AuthorInput → Frame → Plan → Decision → Action/Tool/Behavior → TurnResult。
   """
 
+  require Logger
+
+  alias NovelAgent.Provider.Gateway
   alias NovelApplication.ActionValidator
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.ContextAssembler
@@ -15,31 +18,71 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.ToolRequest
 
-  @doc "处理作者文本输入。"
-  @spec handle_input(map(), (String.t() -> tuple())) :: {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(input, context_fetcher \\ nil)
+  @doc "处理作者文本输入。可注入 complete_fn / trace_persister 用于测试和生产。"
+  @spec handle_input(map(), (String.t() -> tuple()), function(), function()) ::
+          {:ok, map(), any(), list(), any()} | {:error, term()}
+  def handle_input(input, context_fetcher \\ nil, complete_fn \\ nil, trace_persister \\ nil)
 
-  def handle_input(%{text: text} = input, context_fetcher) when is_binary(text) and byte_size(text) > 0 do
+  def handle_input(%{text: text} = input, context_fetcher, complete_fn, trace_persister)
+      when is_binary(text) and byte_size(text) > 0 do
     ws_id = Map.get(input, :workspace_id, "default")
     generate_plan = Map.get(input, :generate_micro_plan, false)
 
     fetcher = context_fetcher || fn _ -> {:ok, nil, nil, nil, nil} end
     context = ContextAssembler.assemble(ws_id, fetcher)
-    {frame, candidates} = Planner.form_frame(%{text: text, workspace_id: ws_id}, context)
+    frame_input = %{text: text, workspace_id: ws_id}
+    frame_fn = complete_fn || &Gateway.complete/1
+    {frame, candidates} = Planner.form_frame(frame_input, context, frame_fn)
 
     case DialogueFrame.validate(frame) do
       :ok ->
-        if generate_plan do
-          handle_with_plan(frame, candidates, context, input)
-        else
-          handle_reply_only(frame, candidates, context)
-        end
+        result =
+          if generate_plan do
+            handle_with_plan(frame, candidates, context, input, complete_fn)
+          else
+            handle_reply_only(frame, candidates, context)
+          end
+
+        maybe_persist_trace(result, ws_id, trace_persister)
+        result
       {:error, reasons} ->
         {:error, "frame validation failed: #{Enum.join(reasons, "; ")}"}
     end
   end
 
-  def handle_input(_, _fetcher), do: {:error, "text is required"}
+  def handle_input(_, _fetcher, _complete_fn, _trace_persister), do: {:error, "text is required"}
+
+  # ── trace persistence ─────────────────────────
+
+  defp maybe_persist_trace({:ok, _turn_result, _trace, _candidates, _context}, _ws_id, nil), do: :ok
+  defp maybe_persist_trace({:ok, _turn_result, trace, _candidates, _context}, ws_id, persister) do
+    with attrs <- trace_to_attrs(trace, ws_id),
+         :ok <- persister.(ws_id, attrs) do
+      :ok
+    else
+      {:error, reason} ->
+        Logger.warning("[DialogueGateway] trace persistence failed: #{inspect(reason)}")
+        :ok
+    end
+  end
+  defp maybe_persist_trace(_, _ws_id, _persister), do: :ok
+
+  defp trace_to_attrs(trace, ws_id) do
+    %{
+      workspace_id: ws_id,
+      trace_id: trace.trace_id,
+      turn_id: trace.turn_id,
+      frame_ref: trace.frame_ref,
+      decision_type: to_string(trace.decision_type),
+      no_tool_reason: trace.no_tool_reason,
+      no_behavior_reason: trace.no_behavior_reason,
+      no_write_reason: trace.no_write_reason,
+      turn_result_ref: trace.turn_result_ref,
+      replay_policy: trace.replay_policy,
+      redaction_level: to_string(trace.redaction_level),
+      event_order: Enum.map(trace.event_order, &to_string/1)
+    }
+  end
 
   # ── action ingestion (VS-05) ──────────────────
 
@@ -66,8 +109,9 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── plan + decision + behavior ────────────────
 
-  defp handle_with_plan(frame, candidates, context, author_input) do
-    case Planner.form_micro_plan(frame, author_input) do
+  defp handle_with_plan(frame, candidates, context, author_input, complete_fn) do
+    complete = complete_fn || &Gateway.complete/1
+    case Planner.form_micro_plan(frame, author_input, complete) do
       {:ok, plan} ->
         {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
