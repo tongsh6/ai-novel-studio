@@ -1,20 +1,16 @@
-defmodule NovelAgent.LLMLog do
+defmodule NovelCommon.LLMLog do
   @moduledoc """
-  LLM HTTP 调用日志 — JSONL 按天记录。
+  LLM HTTP 调用日志 — JSONL 按天记录，行首带时间戳。
 
-  每次 Provider 调用追加一行到 `log/llm-calls/YYYY-MM-DD.jsonl`。
+  每次 Provider 调用追加一行 `[ts] {...}` 到 `log/llm-calls/YYYY-MM-DD.jsonl`。
   """
 
   require Logger
 
   @default_dir Path.expand("log/llm-calls", File.cwd!())
 
-  alias NovelAgent.Provider.Result
-
   @doc """
   记录一次 LLM 调用。各 adapter 在 complete/4 返回前调用。
-
-  从 result tuple 中提取 status / usage / duration / resp_body，统一构建日志条目。
   """
   @spec record(String.t(), String.t(), map(), term(), integer()) :: :ok
   def record(provider, url, req_body, result, start_time) do
@@ -28,7 +24,7 @@ defmodule NovelAgent.LLMLog do
     })
   end
 
-  defp extract_attrs({:ok, %Result{}, %{status: 200} = attrs}, _start_time) do
+  defp extract_attrs({:ok, _ok_result, %{status: 200} = attrs}, _start_time) do
     {attrs.status, attrs.usage, attrs.duration, Map.get(attrs, :resp_body, "")}
   end
 
@@ -37,8 +33,7 @@ defmodule NovelAgent.LLMLog do
     {attrs[:status] || 0, attrs[:usage] || %{}, duration, Map.get(attrs, :resp_body, "")}
   end
 
-  @doc "追加一条 LLM 调用记录。仅 Provider 内部使用，外部通过 record/5 调用。"
-  @spec append(map()) :: :ok
+  @doc false
   def append(%{request: _req, response: _resp} = entry) do
     if health_check?(entry) do
       :ok
@@ -52,8 +47,10 @@ defmodule NovelAgent.LLMLog do
     date = Date.utc_today() |> Date.to_iso8601()
     path = Path.join(dir, "#{date}.jsonl")
 
+    ts = DateTime.utc_now() |> DateTime.to_iso8601()
+
     record = %{
-      ts: DateTime.utc_now() |> DateTime.to_iso8601(),
+      ts: ts,
       turn_id: Process.get(:current_turn_id) || "unknown",
       step: Map.get(entry, :step, "unknown"),
       provider: Map.get(entry, :provider, "unknown"),
@@ -62,9 +59,10 @@ defmodule NovelAgent.LLMLog do
     }
 
     json = Jason.encode!(record)
+    line = "[#{ts}] #{json}\n"
     File.mkdir_p!(dir)
 
-    case File.write(path, json <> "\n", [:append]) do
+    case File.write(path, line, [:append]) do
       :ok -> :ok
       {:error, reason} -> Logger.warning("[LLMLog] 写入失败: #{inspect(reason)}")
     end

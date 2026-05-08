@@ -134,7 +134,7 @@ defmodule NovelAgent.Provider.Anthropic do
       model: Keyword.get(config, :model, "claude-sonnet-4-6"),
       timeout: Keyword.get(config, :timeout, 120_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
-      log_fn: Keyword.get(config, :log_fn, &NovelAgent.LLMLog.record/5)
+      log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5)
     }
   end
 end
