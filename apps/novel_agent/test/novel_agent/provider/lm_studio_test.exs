@@ -37,6 +37,8 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert Map.has_key?(state, :model)
       assert Map.has_key?(state, :timeout)
       assert Map.has_key?(state, :http_fn)
+      assert Map.has_key?(state, :log_fn)
+      assert Map.has_key?(state, :json_mode)
     end
 
     test "http_fn and log_fn default to nil when not set" do

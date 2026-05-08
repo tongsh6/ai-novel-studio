@@ -19,7 +19,8 @@ defmodule NovelTest.ProviderHelpers do
                            model \\ "openai/gpt-oss-120b",
                            timeout \\ 60_000) do
     fn prompt ->
-      state = %LMStudio{endpoint: endpoint, model: model, timeout: timeout}
+      state = %LMStudio{endpoint: endpoint, model: model, timeout: timeout,
+                        log_fn: &NovelAgent.LLMLog.record/5, json_mode: true}
 
       case LMStudio.complete(state, nil, prompt, %InferenceParams{}) do
         {:ok, %Result{content: content}} -> {:ok, %{content: content}}

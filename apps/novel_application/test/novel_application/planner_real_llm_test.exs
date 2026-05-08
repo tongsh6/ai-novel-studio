@@ -108,27 +108,22 @@ defmodule NovelApplication.PlannerRealLLMTest do
     test "MicroPlan does not contain execution authority", %{complete_fn: complete_fn} do
       frame = build_exploration_frame()
 
-      case Planner.form_micro_plan(frame, %{text: "帮我写大纲"}, complete_fn) do
-        {:ok, plan} -> assert :ok = plan.__struct__.check_forbidden(plan)
-        {:error, _} -> :ok
-      end
+      assert {:ok, plan} = Planner.form_micro_plan(frame, %{text: "帮我写大纲"}, complete_fn)
+      assert :ok = plan.__struct__.check_forbidden(plan)
     end
 
     test "plan actions are suggestions only", %{complete_fn: complete_fn} do
       frame = build_exploration_frame()
 
-      case Planner.form_micro_plan(frame, %{text: "我想写角色设定"}, complete_fn) do
-        {:ok, plan} ->
-          for action <- plan.proposed_actions do
-            assert action.action_id != nil
-            assert action.action_type in [
-              :candidate_generation, :tentative_artifact, :state_change_request,
-              :clarification_request, :confirmation_request, :capability_invocation
-            ]
-            assert action.write_intent in [:none, :tentative, :production_candidate]
-            assert action.risk_hint in [:low, :medium, :high]
-          end
-        {:error, _} -> :ok
+      assert {:ok, plan} = Planner.form_micro_plan(frame, %{text: "我想写角色设定"}, complete_fn)
+      for action <- plan.proposed_actions do
+        assert action.action_id != nil
+        assert action.action_type in [
+          :candidate_generation, :tentative_artifact, :state_change_request,
+          :clarification_request, :confirmation_request, :capability_invocation
+        ]
+        assert action.write_intent in [:none, :tentative, :production_candidate]
+        assert action.risk_hint in [:low, :medium, :high]
       end
     end
   end
@@ -215,8 +210,8 @@ defmodule NovelApplication.PlannerRealLLMTest do
   defp build_exploration_frame do
     %NovelDomain.DialogueFrame{
       schema_version: "3.0-draft",
-      frame_id: "f-real-#{System.unique_integer([:positive, :monotonic])}",
-      turn_id: "t-real-#{System.unique_integer([:positive, :monotonic])}",
+      frame_id: "frame_#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: "turn_#{System.unique_integer([:positive, :monotonic])}",
       workspace_id: "ws-real",
       primary: true,
       frame_type: :creative_exploration,

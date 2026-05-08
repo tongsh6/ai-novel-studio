@@ -14,7 +14,7 @@ defmodule NovelAgent.Provider.LMStudio do
   alias NovelAgent.Provider.Result
   alias NovelFoundation.UpstreamError
 
-  defstruct [:endpoint, :model, :timeout, :http_fn, :log_fn]
+  defstruct [:endpoint, :model, :timeout, :http_fn, :log_fn, :json_mode]
 
   @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
   @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
@@ -24,7 +24,8 @@ defmodule NovelAgent.Provider.LMStudio do
           model: String.t(),
           timeout: pos_integer(),
           http_fn: http_fn(),
-          log_fn: log_fn()
+          log_fn: log_fn(),
+          json_mode: boolean()
         }
 
   @impl true
@@ -34,6 +35,7 @@ defmodule NovelAgent.Provider.LMStudio do
       model: state.model,
       messages: [%{role: "user", content: prompt}]
     }, params)
+    |> maybe_json_mode(state.json_mode)
     url = Path.join(state.endpoint, "chat/completions")
 
     post = state.http_fn || &HTTP.post/3
@@ -96,6 +98,9 @@ defmodule NovelAgent.Provider.LMStudio do
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
 
+  defp maybe_json_mode(body, true), do: Map.put(body, :response_format, %{type: "json_object"})
+  defp maybe_json_mode(body, _), do: body
+
   @impl true
   def name, do: "lmstudio"
 
@@ -109,7 +114,8 @@ defmodule NovelAgent.Provider.LMStudio do
       model: Keyword.get(config, :model, "qwen/qwen3.6-35b-a3b"),
       timeout: Keyword.get(config, :timeout, 60_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
-      log_fn: Keyword.get(config, :log_fn, &NovelAgent.LLMLog.record/5)
+      log_fn: Keyword.get(config, :log_fn, &NovelAgent.LLMLog.record/5),
+      json_mode: Keyword.get(config, :json_mode, true)
     }
   end
 end

@@ -59,13 +59,20 @@ defmodule NovelApplication.Planner do
 
     case with_turn_context(frame.turn_id, "form_micro_plan", fn -> complete_fn.(prompt) end) do
       {:ok, %{content: content}} ->
-        case Jason.decode(String.trim(content)) do
-          {:ok, parsed} when is_map(parsed) ->
+        case parse_json(content) do
+          {:ok, parsed} ->
             plan = build_micro_plan(parsed, plan_id, frame)
             {:ok, plan}
 
           {:error, _} ->
-            {:error, :json_parse_failed}
+            case parse_json_retry(content, prompt, complete_fn) do
+              {:ok, parsed} ->
+                plan = build_micro_plan(parsed, plan_id, frame)
+                {:ok, plan}
+
+              {:error, _} ->
+                {:error, :json_parse_failed}
+            end
         end
 
       {:error, reason} ->
@@ -148,8 +155,14 @@ defmodule NovelApplication.Planner do
     prompt = build_prompt(text, context)
 
     case complete_fn.(prompt) do
-      {:ok, %{content: content}} -> parse_json(content)
-      {:error, reason} -> {:error, reason}
+      {:ok, %{content: content}} ->
+        case parse_json(content) do
+          {:ok, parsed} -> {:ok, parsed}
+          {:error, _} -> parse_json_retry(content, prompt, complete_fn)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -189,11 +202,90 @@ defmodule NovelApplication.Planner do
     """
   end
 
+  # ── JSON parsing with extraction + retry ──────
+
   defp parse_json(content) do
-    case Jason.decode(String.trim(content)) do
+    content
+    |> extract_json()
+    |> then(&Jason.decode(&1))
+    |> case do
       {:ok, parsed} when is_map(parsed) -> {:ok, parsed}
       {:error, _} = error -> error
     end
+  end
+
+  defp parse_json_retry(failed_content, original_prompt, complete_fn) do
+    correction = build_correction_prompt(original_prompt, failed_content)
+
+    case complete_fn.(correction) do
+      {:ok, %{content: retry_content}} -> parse_json(retry_content)
+      {:error, _} = error -> error
+    end
+  end
+
+  defp extract_json(content) do
+    content
+    |> strip_code_fence()
+    |> find_brace_substring()
+  end
+
+  defp strip_code_fence(content) do
+    trimmed = String.trim(content)
+
+    cond do
+      String.starts_with?(trimmed, "```json") ->
+        trimmed |> String.replace_prefix("```json", "") |> String.replace_suffix("```", "") |> String.trim()
+
+      String.starts_with?(trimmed, "```") ->
+        trimmed |> String.replace_prefix("```", "") |> String.replace_suffix("```", "") |> String.trim()
+
+      true ->
+        trimmed
+    end
+  end
+
+  defp find_brace_substring(content) do
+    case {first_open(content), last_close(content)} do
+      {start_pos, end_pos} when not is_nil(start_pos) and not is_nil(end_pos) and start_pos < end_pos ->
+        String.slice(content, start_pos..end_pos)
+
+      _ ->
+        content
+    end
+  end
+
+  defp first_open(s) do
+    case String.split(s, "{", parts: 2) do
+      [before, _] -> byte_size(before)
+      [_] -> nil
+    end
+  end
+
+  defp last_close(s) do
+    s
+    |> String.reverse()
+    |> String.split("}", parts: 2)
+    |> case do
+      [before, _] -> byte_size(s) - byte_size(before) - 1
+      [_] -> nil
+    end
+  end
+
+  defp build_correction_prompt(original, failed_output) do
+    """
+    你的上一次响应不是有效的 JSON。请严格按照 JSON 格式重试。
+
+    ## 你的上一次响应（截取前 500 字符）
+    #{String.slice(failed_output, 0, 500)}
+
+    ## 修正要求
+    - 只输出原始要求的 JSON 对象
+    - 不要包含任何前缀标记、代码块、或解释文本
+    - 直接以 `{` 开始，`}` 结束
+
+    ## 原始要求
+    #{original}
+    """
   end
 
   defp build_frame(parsed, turn_id, frame_id, ws_id, context) do
