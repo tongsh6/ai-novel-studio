@@ -35,4 +35,42 @@ defmodule NovelWeb.WorkspaceChannelTest do
     ref = push(socket, "ping", %{"hello" => "world"})
     assert_reply(ref, :ok, %{event: "pong", echo: %{"hello" => "world"}})
   end
+
+  test "user_message returns received acknowledgement" do
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+    ref = push(socket, "user_message", %{"text" => "hello"})
+    assert_reply(ref, :ok, %{received: true})
+  end
+
+  test "user_message broadcasts turn_result" do
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+    push(socket, "user_message", %{"text" => "聊聊创作方向"})
+    assert_broadcast("turn_result", %{phase: "completed"})
+  end
+
+  test "author_action with invented action returns error" do
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+    ref = push(socket, "author_action", %{
+      "action" => %{
+        "source_turn_ref" => "turn-1",
+        "action_id" => "act-fake",
+        "action_type" => "nonexistent_action"
+      }
+    })
+
+    assert_reply(ref, :error, %{reason: reason})
+    assert String.contains?(reason, "invented")
+  end
 end

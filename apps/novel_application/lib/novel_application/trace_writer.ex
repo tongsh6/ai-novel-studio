@@ -1,6 +1,6 @@
 defmodule NovelApplication.TraceWriter do
   @moduledoc """
-  v3 trace 写入。VS-02 扩展：记录 ToolTrace。
+  v3 trace 写入。覆盖 reply_only、decision、tool、recovery 全部 trace 类型。
   """
 
   alias NovelDomain.ContextSourceRef

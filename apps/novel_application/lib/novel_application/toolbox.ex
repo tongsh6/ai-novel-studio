@@ -2,7 +2,7 @@ defmodule NovelApplication.Toolbox do
   @moduledoc """
   工具执行运行时。接收已批准的 ToolRequest，执行工具，返回 ToolResult。
 
-  VS-02 只实现一个 read-only text_analysis 工具用于证明 provenance。
+  工具执行运行时。接收已批准的 ToolRequest，执行工具，返回 ToolResult。
   不与 production state 交互。
   """
 

@@ -1,11 +1,12 @@
 defmodule NovelWeb.WorkspaceChannel do
   @moduledoc """
   Workspace Channel — v3 对话主通道。
-
-  VS-00 只支持 user_message（reply-only）。后续 slice 逐步恢复 adopt/confirm/discard 等操作。
+  支持 user_message、author_action、ping。后续 slice 扩展更多消息类型。
   """
 
   use Phoenix.Channel
+
+  alias NovelDomain.AuthorActionInput
 
   @impl true
   def join("workspace:" <> suffix, _payload, socket) do
@@ -14,10 +15,13 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   @impl true
-  def handle_in("user_message", %{"text" => text} = _msg, socket) do
+  def handle_in("user_message", %{"text" => text} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
+    generate_plan = Map.get(msg, "generate_micro_plan", false)
 
-    case NovelApplication.DialogueGateway.handle_input(%{text: text, workspace_id: ws_id}) do
+    input = %{text: text, workspace_id: ws_id, generate_micro_plan: generate_plan}
+
+    case NovelApplication.DialogueGateway.handle_input(input) do
       {:ok, turn_result, _trace, _candidates, _context} ->
         broadcast!(socket, "turn_result", turn_result)
         {:reply, {:ok, %{received: true}}, socket}
@@ -25,6 +29,32 @@ defmodule NovelWeb.WorkspaceChannel do
       {:error, reason} ->
         broadcast!(socket, "turn_result", fallback_turn_result(inspect(reason)))
         {:reply, {:ok, %{received: true, note: "fallback"}}, socket}
+    end
+  end
+
+  @impl true
+  def handle_in("author_action", %{"action" => action_params}, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    source_turn_result = action_params["source_turn_result"] || %{turn_id: action_params["source_turn_ref"]}
+
+    action_input = %AuthorActionInput{
+      input_id: "in_#{System.unique_integer([:positive, :monotonic])}",
+      source_turn_ref: action_params["source_turn_ref"] || ws_id,
+      action_id: action_params["action_id"],
+      action_type: action_params["action_type"],
+      behavior_ref: action_params["behavior_ref"],
+      candidate_set_ref: action_params["candidate_set_ref"],
+      candidate_ref: action_params["candidate_ref"],
+      idempotency_key: action_params["idempotency_key"]
+    }
+
+    case NovelApplication.DialogueGateway.handle_action(action_input, source_turn_result) do
+      {:ok, result} ->
+        broadcast!(socket, "action_result", result)
+        {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason}}, socket}
     end
   end
 

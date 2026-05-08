@@ -1,8 +1,7 @@
 defmodule NovelApplication.Planner do
   @moduledoc """
   v3 Dialogue Planner — 调用 LLM 形成 DialogueFrame 和 MicroPlan。
-
-  VS-01 扩展：可按需生成 MicroPlan 行动建议（仅建议，不含执行批准）。
+  MicroPlan 只是建议，不含执行批准语义。
   """
 
   alias NovelAgent.Provider.Gateway

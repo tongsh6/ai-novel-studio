@@ -1,6 +1,6 @@
 defmodule NovelDomain.DialogueFrame do
   @moduledoc """
-  v3 每 turn 必有的认知帧。VS-00 只覆盖 reply-only 子集。
+  v3 每 turn 必有的认知帧。覆盖 reply-only、exploration、tool_dispatch 全场景。
 
   字段规格见 docs/design-v3/contracts/VS-00-reply-only-contract-pack.md §2。
   """
@@ -46,7 +46,7 @@ defmodule NovelDomain.DialogueFrame do
   @allowed_execution_readiness [:not_applicable, :not_ready]
 
   @doc """
-  Validate a reply-only DialogueFrame. Returns :ok or {:error, [reasons]}.
+  Validate a DialogueFrame. Returns :ok or {:error, [reasons]}.
   """
   @spec validate(t()) :: :ok | {:error, [String.t()]}
   def validate(%__MODULE__{} = frame) do
@@ -95,8 +95,8 @@ defmodule NovelDomain.DialogueFrame do
     cond do
       is_nil(tn) || not is_map(tn) ->
         ["tool_need is required" | errors]
-      tn[:needs_tool] != false ->
-        ["VS-00 requires tool_need.needs_tool to be false" | errors]
+      is_boolean(tn[:needs_tool]) == false ->
+        ["tool_need.needs_tool must be a boolean" | errors]
       tn[:reason_code] not in @allowed_reason_codes ->
         ["invalid tool_need.reason_code: #{inspect(tn[:reason_code])}" | errors]
       true ->

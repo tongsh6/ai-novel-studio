@@ -1,6 +1,6 @@
 defmodule NovelDomain.DecisionTrace do
   @moduledoc """
-  v3 决策追溯。VS-00 只记录 reply-only 决策。
+  v3 决策追溯。覆盖 reply_only、exploration、tool_dispatched、downgrade、confirmation 等全部决策类型。
 
   字段规格见 docs/design-v3/contracts/VS-00-reply-only-contract-pack.md §3。
   """
@@ -9,7 +9,7 @@ defmodule NovelDomain.DecisionTrace do
     trace_id: String.t(),
     turn_id: String.t(),
     frame_ref: String.t(),
-    decision_type: :reply_only,
+    decision_type: atom(),
     no_tool_reason: String.t(),
     no_behavior_reason: String.t(),
     no_write_reason: String.t(),

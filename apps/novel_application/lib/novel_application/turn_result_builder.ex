@@ -1,6 +1,6 @@
 defmodule NovelApplication.TurnResultBuilder do
   @moduledoc """
-  从 DialogueFrame 构建 v3 TurnResult。VS-03 扩展 phase/status/available_actions。
+  从 DialogueFrame 构建 v3 TurnResult。覆盖 reply_only、exploration、tool、artifact、behavior 全场景。
   """
 
   alias NovelDomain.BehaviorState
