@@ -165,3 +165,37 @@ export const MEMORY = {
   weightLabel: "权重",
   validityLabel: "有效范围",
 } as const;
+
+// ============================================================
+// v3 Workbench (VS-07)
+// ============================================================
+
+export const WORKBENCH_V3 = {
+  welcomeMessage:
+    "欢迎使用 AI Novel Studio v3！\n\n" +
+    "这是一款对话式小说创作工具。你可以：\n" +
+    "• 聊聊创作方向，我会帮你探索\n" +
+    "• 让我帮你生成角色设定、剧情草案\n" +
+    "• 需要确认的重要操作我会明确提示\n\n" +
+    "输入你的想法，开始创作吧！",
+  inputPlaceholder: "输入你的想法...（例如：我想写一部赛博修仙小说）",
+  sendButton: "发送",
+  thinking: "AI 思考中...",
+  connectionOffline: "服务离线",
+  connectionOnline: "已连接",
+  llmChecking: "检测中…",
+  llmConnected: "LLM 已连接",
+  llmDisconnected: "LLM 未连接",
+  phaseCompleted: "已完成",
+  phaseAwaiting: "等待你的操作",
+  statusConversational: "对话中",
+  statusNeedsClarification: "需要补充信息",
+  statusNeedsConfirmation: "需要确认",
+  actionConfirm: "确认",
+  actionReject: "拒绝",
+  actionCancel: "取消",
+  actionContinue: "继续对话",
+  candidateTitle: "候选方向",
+  errorSendFailed: "发送失败，请重试。",
+  errorActionFailed: "操作失败，请重试。",
+} as const;
