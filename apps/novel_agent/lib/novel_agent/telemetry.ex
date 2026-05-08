@@ -43,6 +43,5 @@ defmodule NovelAgent.Telemetry do
     }
 
     Logger.info("[遥测] #{Jason.encode!(entry)}")
-    NovelAgent.AuditLog.append(entry)
   end
 end

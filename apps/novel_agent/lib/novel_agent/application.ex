@@ -1,52 +1,24 @@
 defmodule NovelAgent.Application do
   @moduledoc """
-  Agent 层 OTP application。
-
-  当前阶段（Phase 0 Week 2）supervision tree：
-
-  ```
-  NovelAgent.Supervisor (one_for_one)
-  ├── Registry × 5                          # NovelAgent.Runtime.Registries.child_specs/0
-  └── NovelAgent.Runtime.WorkspaceSession.DynamicSupervisor   # 顶层多 workspace 根
-      └── (per workspace) Workspace.Supervisor (rest_for_one)
-          └── Author.DynamicSupervisor
-              └── (per author) Author.Supervisor (rest_for_one)
-                  └── Agent.Children.DynamicSupervisor (one_for_one, crash isolation)
-                      └── (per agent) Agent.Dummy (Phase 1 替换为真 Agent)
-  ```
-
-  权威定义：`docs/design-v2/tech-stack/08-multi-agent.md` §2 / §2.1。
-  Agent 层其他子树（Authority.Gate / Budget.Meter / Provider.Gateway / Capability.Registry /
-  Memory.Service / Observability.Pipeline 等）按 `03-backend.md` §3 留待 Week 3+ 落地。
+  Agent 层 OTP application。v3 VS-00 阶段只保留遥测。
+  监督树在后续 slice（VS-02 Toolbox）中重建。
   """
 
   use Application
 
   require Logger
 
-  alias NovelAgent.Runtime.Registries
-  alias NovelAgent.Runtime.WorkspaceSession, as: Workspace
-
   @impl true
   def start(_type, _args) do
     ensure_log_dir()
     NovelAgent.Telemetry.attach_all()
 
-    children =
-      Registries.child_specs() ++
-        [
-          NovelAgent.AuthorityGate,
-          NovelAgent.ClarificationStore,
-          NovelAgent.BudgetMeter,
-          NovelAgent.Memory.Store,
-          NovelAgent.LongRunner,
-          Workspace.DynamicSupervisor
-        ]
+    children = []
 
     opts = [strategy: :one_for_one, name: NovelAgent.Supervisor]
 
     with {:ok, pid} <- Supervisor.start_link(children, opts) do
-      Logger.info("[NovelAgent] 应用已启动")
+      Logger.info("[NovelAgent] v3 application started (minimal)")
       {:ok, pid}
     end
   end

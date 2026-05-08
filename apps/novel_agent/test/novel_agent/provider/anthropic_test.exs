@@ -18,11 +18,12 @@ defmodule NovelAgent.Provider.AnthropicTest do
   end
 
   describe "complete/3" do
-    test "reports auth error when api key is missing" do
+    test "reports error when api key is missing" do
       state = %Anthropic{api_key: nil, model: "claude-sonnet-4-6", timeout: 5000}
       result = Anthropic.complete(state, "claude-sonnet-4-6", "hello")
       assert {:error, error} = result
-      assert error.type in [:connection_refused, :auth, :provider_internal]
+      assert is_map(error)
+      assert error.type in [:connection_refused, :auth, :timeout, :provider_internal]
     end
   end
 

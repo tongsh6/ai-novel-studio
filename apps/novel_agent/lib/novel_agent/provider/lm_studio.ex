@@ -3,27 +3,14 @@ defmodule NovelAgent.Provider.LMStudio do
   LM Studio 本地推理 Provider adapter。
 
   LM Studio 暴露 OpenAI 兼容的 HTTP API（默认 `http://localhost:1234/v1`）。
-  本 adapter 通过标准 HTTP POST 调用 `/v1/chat/completions`，不引入供应商特定 SDK。
-
-  ## 配置
-
-      config :novel_agent, NovelAgent.Provider.LMStudio,
-        endpoint: "http://localhost:1234/v1",
-        model: "qwen/qwen3.6-35b-a3b",
-        timeout: 60_000
-
-  ## 开发阶段定位
-
-  开发阶段使用 LM Studio / Ollama 等本地模型的三重理由：
-  1. 本地模型能力有限，能充分暴露 prompt 质量、slot 提取、error handling 等问题
-  2. 零 token 费用
-  3. 本机推理无需网络
+  本 adapter 通过共享的 `Provider.HTTP` 模块发送请求。
   """
 
   @behaviour NovelAgent.Provider
 
   require Logger
 
+  alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.Result
   alias NovelFoundation.UpstreamError
 
@@ -38,86 +25,86 @@ defmodule NovelAgent.Provider.LMStudio do
   @impl true
   def complete(%__MODULE__{} = state, _model, prompt) when is_binary(prompt) do
     start_time = System.monotonic_time(:millisecond)
-
     body = %{
       model: state.model,
       messages: [%{role: "user", content: prompt}],
       temperature: 0.7,
       max_tokens: -1
     }
-
     url = Path.join(state.endpoint, "chat/completions")
 
-    case Req.post(url,
-           json: body,
-           retry: false,
-           receive_timeout: state.timeout,
-           connect_options: [timeout: state.timeout]
-         ) do
-      {:ok, %{status: 200, body: resp_body}} ->
-        content = get_in(resp_body, ["choices", Access.at(0), "message", "content"])
-        duration = System.monotonic_time(:millisecond) - start_time
-        usage = resp_body["usage"] || %{}
+    result =
+      case HTTP.post(url, body, receive_timeout: state.timeout) do
+        {:ok, 200, resp_body} ->
+          handle_success(resp_body, start_time)
 
-        log_llm_call(url, state.model, body, 200, content, usage, duration)
+        {:error, reason, _status, message} ->
+          handle_error(reason, message, start_time)
+      end
 
-        if content && content != "" do
-          Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
-          {:ok, Result.new(content)}
-        else
-          err = UpstreamError.new(:invalid_response, "响应内容为空", name())
-          Logger.warning("[LMStudio] #{err.message}")
-          UpstreamError.to_error_tuple(err)
-        end
+    log_call(url, body, result, start_time)
+    strip_attrs(result)
+  end
 
-      {:ok, %{status: status, body: resp_body}} ->
-        duration = System.monotonic_time(:millisecond) - start_time
-        log_llm_call(url, state.model, body, status, inspect(resp_body), %{}, duration)
+  # ── response handlers ────────────────────────
 
-        err =
-          UpstreamError.new(
-            :invalid_response,
-            "HTTP #{status} 错误",
-            name()
-          )
+  defp handle_success(resp_body, start_time) do
+    content = get_in(resp_body, ["choices", Access.at(0), "message", "content"])
+    duration = System.monotonic_time(:millisecond) - start_time
+    usage = resp_body["usage"] || %{}
 
-        Logger.warning("[LMStudio] #{err.message}")
-        UpstreamError.to_error_tuple(err)
-
-      {:error, %{reason: reason}} when reason in [:econnrefused, :nxdomain, :timeout] ->
-        duration = System.monotonic_time(:millisecond) - start_time
-        log_llm_call(url, state.model, body, 0, Atom.to_string(reason), %{}, duration)
-
-        type = if reason == :timeout, do: :timeout, else: :connection_refused
-        msg = if reason == :timeout, do: "LM Studio 请求超时", else: "LM Studio 未启动"
-        err = UpstreamError.new(type, msg, name())
-        Logger.warning("[LMStudio] #{err.message}")
-        UpstreamError.to_error_tuple(err)
-
-      {:error, other} ->
-        duration = System.monotonic_time(:millisecond) - start_time
-        log_llm_call(url, state.model, body, 0, inspect(other), %{}, duration)
-
-        err =
-          UpstreamError.new(:provider_internal, "请求失败：#{inspect(other)}", name())
-
-        Logger.warning("[LMStudio] #{err.message}")
-        UpstreamError.to_error_tuple(err)
+    if content && content != "" do
+      Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
+      {:ok, Result.new(content), %{status: 200, usage: usage, duration: duration}}
+    else
+      err = UpstreamError.new(:invalid_response, "响应内容为空", name())
+      Logger.warning("[LMStudio] #{err.message}")
+      attrs = %{status: 200, usage: usage, duration: duration}
+      {:error, UpstreamError.to_error_tuple(err), attrs}
     end
   end
 
-  defp log_llm_call(url, model, req_body, status, resp_content, usage, duration) do
+  defp handle_error(:connection_refused, _msg, start_time) do
+    duration = System.monotonic_time(:millisecond) - start_time
+    err = UpstreamError.new(:connection_refused, "LM Studio 未启动", name())
+    Logger.warning("[LMStudio] #{err.message}")
+    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
+  end
+
+  defp handle_error(:timeout, _msg, start_time) do
+    duration = System.monotonic_time(:millisecond) - start_time
+    err = UpstreamError.new(:timeout, "LM Studio 请求超时", name())
+    Logger.warning("[LMStudio] #{err.message}")
+    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
+  end
+
+  defp handle_error(_reason, message, start_time) do
+    duration = System.monotonic_time(:millisecond) - start_time
+    err = UpstreamError.new(:provider_internal, message, name())
+    Logger.warning("[LMStudio] #{err.message}")
+    {:error, UpstreamError.to_error_tuple(err), %{status: 0, usage: %{}, duration: duration}}
+  end
+
+  defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
+  defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}
+
+  # ── logging ──────────────────────────────────
+
+  defp log_call(url, body, {:ok, %Result{}, %{status: 200} = attrs}, _start_time) do
+    write_log(url, body, attrs.status, attrs.usage, attrs.duration)
+  end
+
+  defp log_call(url, body, {:error, _error_tuple, attrs}, start_time) do
+    duration = attrs[:duration] || System.monotonic_time(:millisecond) - start_time
+    write_log(url, body, attrs[:status] || 0, attrs[:usage] || %{}, duration)
+  end
+
+  defp write_log(url, req_body, status, usage, duration) do
     NovelAgent.LLMLog.append(%{
       step: Process.get(:current_step, "unknown"),
       provider: "lmstudio",
       request: %{method: "POST", url: url, body: req_body},
-      response: %{
-        status: status,
-        body: resp_content,
-        model: model,
-        usage: usage,
-        duration_ms: duration
-      }
+      response: %{status: status, body: "lmstudio", model: "lmstudio", usage: usage, duration_ms: duration}
     })
   end
 

@@ -2,27 +2,16 @@ defmodule NovelAgent.LLMLog do
   @moduledoc """
   LLM HTTP 调用日志 — JSONL 按天记录。
 
-  每次 HTTP 调用追加一行到 `log/llm-calls/YYYY-MM-DD.jsonl`。
+  每次 Provider 调用追加一行到 `log/llm-calls/YYYY-MM-DD.jsonl`。
   """
 
   require Logger
 
   @default_dir "log/llm-calls"
 
-  @doc """
-  追加一条 LLM HTTP 调用记录。
-
-  ## 字段
-
-  - `turn_id` — 当前 turn 标识（从进程字典读取）
-  - `step` — 调用阶段：intent_classify | slot_extract | generate
-  - `provider` — provider 名称
-  - `request` — HTTP 请求信息 (method, url, body)
-  - `response` — HTTP 响应信息 (status, body, model, usage, duration_ms)
-  """
+  @doc "追加一条 LLM 调用记录。"
   @spec append(map()) :: :ok
   def append(%{request: _req, response: _resp} = entry) do
-    # 跳过健康检查探针，避免污染业务日志
     if health_check?(entry) do
       :ok
     else
@@ -45,7 +34,6 @@ defmodule NovelAgent.LLMLog do
     }
 
     json = Jason.encode!(record)
-
     File.mkdir_p!(dir)
 
     case File.write(path, json <> "\n", [:append]) do
@@ -55,22 +43,35 @@ defmodule NovelAgent.LLMLog do
   end
 
   defp health_check?(entry) do
-    case get_in(entry.request, [:body, "messages"]) do
-      [%{"content" => content} | _] when byte_size(content) < 10 ->
-        String.trim(content) == "ping"
-      _ -> false
+    body = Map.get(entry.request, :body, %{})
+
+    if is_map(body) do
+      case Map.get(body, "messages") do
+        [%{"content" => content} | _] when byte_size(content) < 10 ->
+          String.trim(content) == "ping"
+
+        _ ->
+          false
+      end
+    else
+      false
     end
   end
 
   defp sanitize_request(req) do
     body = Map.get(req, :body, %{})
-    # 截断长 prompt 避免日志膨胀
+
     sanitized_body =
-      case body["messages"] do
-        messages when is_list(messages) ->
-          Map.put(body, "messages", Enum.map(messages, &truncate_message/1))
-        _ ->
-          body
+      if is_map(body) do
+        case Map.get(body, "messages") do
+          messages when is_list(messages) ->
+            Map.put(body, "messages", Enum.map(messages, &truncate_message/1))
+
+          _ ->
+            body
+        end
+      else
+        body
       end
 
     %{
@@ -90,11 +91,12 @@ defmodule NovelAgent.LLMLog do
 
     %{msg | "content" => truncated}
   end
+
   defp truncate_message(msg), do: msg
 
   defp sanitize_response(resp) do
     body_raw = Map.get(resp, :body, "")
-    # 响应内容截断到 5000 字节
+
     body =
       if is_binary(body_raw) and byte_size(body_raw) > 5000 do
         String.slice(body_raw, 0, 5000) <> "...[截断 #{byte_size(body_raw)} 字节]"
