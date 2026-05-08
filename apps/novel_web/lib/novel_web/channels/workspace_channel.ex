@@ -1,12 +1,15 @@
 defmodule NovelWeb.WorkspaceChannel do
   @moduledoc """
   Workspace Channel — v3 对话主通道。
-  支持 user_message、author_action、ping。后续 slice 扩展更多消息类型。
+
+  负责将 user_message / author_action 路由到 NovelApplication 主链，
+  并注入真实 persistence 回调（context_fetcher + trace_persister）。
   """
 
   use Phoenix.Channel
 
   alias NovelDomain.AuthorActionInput
+  alias NovelPersistence.WorkspaceContext
 
   @impl true
   def join("workspace:" <> suffix, _payload, socket) do
@@ -21,7 +24,10 @@ defmodule NovelWeb.WorkspaceChannel do
 
     input = %{text: text, workspace_id: ws_id, generate_micro_plan: generate_plan}
 
-    case NovelApplication.DialogueGateway.handle_input(input) do
+    fetcher = if inject_persistence?(), do: WorkspaceContext.context_fetcher(), else: nil
+    persister = if inject_persistence?(), do: WorkspaceContext.trace_persister(), else: nil
+
+    case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister) do
       {:ok, turn_result, _trace, _candidates, _context} ->
         broadcast!(socket, "turn_result", turn_result)
         {:reply, {:ok, %{received: true}}, socket}
@@ -60,6 +66,11 @@ defmodule NovelWeb.WorkspaceChannel do
 
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
+  end
+
+  defp inject_persistence? do
+    Application.get_env(:novel_web, :persistence, [])
+    |> Keyword.get(:inject_real_persistence, false)
   end
 
   defp fallback_turn_result(reason) do
