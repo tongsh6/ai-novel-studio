@@ -1,5 +1,5 @@
 defmodule NovelPersistence.Schemas.WorkTest do
-  use NovelPersistence.DataCase, async: true
+  use NovelPersistence.DataCase, async: false
 
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.Repo
