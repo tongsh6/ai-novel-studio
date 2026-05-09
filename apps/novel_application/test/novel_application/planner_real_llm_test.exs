@@ -14,7 +14,6 @@ defmodule NovelApplication.PlannerRealLLMTest do
   alias NovelApplication.ReplayService
   alias NovelTest.ProviderHelpers
 
-  @provider_name :lmstudio
   @moduletag :real_llm
 
   # ── Frame parsing ────────────────────────────────

@@ -7,12 +7,13 @@ defmodule NovelCommon.LLMLog do
 
   require Logger
 
-  # 从源文件向上查找 mix.exs 定位项目根，不依赖文件所在层级
+  # 从源文件向上查找 mix.exs 定位项目根。有停止条件，不会无限循环
   @project_root_dir (
     __DIR__
     |> Stream.iterate(&Path.dirname/1)
+    |> Stream.take_while(&(&1 != "/"))
     |> Enum.find(&File.exists?(Path.join(&1, "mix.exs")))
-  )
+  ) || raise("Cannot find project root (mix.exs) from #{__DIR__}")
 
   @doc """
   记录一次 LLM 调用。各 adapter 在 complete/4 返回前调用。
@@ -29,8 +30,14 @@ defmodule NovelCommon.LLMLog do
     })
   end
 
-  defp extract_attrs({:ok, _ok_result, %{status: 200} = attrs}, _start_time) do
-    {attrs.status, attrs.usage, attrs.duration, Map.get(attrs, :resp_body, "")}
+  defp extract_attrs({:ok, _ok_result, %{status: status} = attrs}, _start_time)
+       when status in 200..299 do
+    {status, attrs.usage, attrs.duration, Map.get(attrs, :resp_body, "")}
+  end
+
+  defp extract_attrs({:ok, _ok_result, attrs}, _start_time) do
+    {Map.get(attrs, :status, 0), Map.get(attrs, :usage, %{}),
+     Map.get(attrs, :duration, 0), Map.get(attrs, :resp_body, "")}
   end
 
   defp extract_attrs({:error, _error_tuple, attrs}, start_time) do
@@ -63,13 +70,18 @@ defmodule NovelCommon.LLMLog do
       response: sanitize_response(entry.response)
     }
 
-    json = Jason.encode!(record)
-    line = "[#{ts}] #{json}\n"
-    File.mkdir_p!(dir)
+    case Jason.encode(record) do
+      {:ok, json} ->
+        line = "[#{ts}] #{json}\n"
+        File.mkdir_p!(dir)
 
-    case File.write(path, line, [:append]) do
-      :ok -> :ok
-      {:error, reason} -> Logger.warning("[LLMLog] 写入失败: #{inspect(reason)}")
+        case File.write(path, line, [:append]) do
+          :ok -> :ok
+          {:error, reason} -> Logger.warning("[LLMLog] 写入失败: #{inspect(reason)}")
+        end
+
+      {:error, reason} ->
+        Logger.warning("[LLMLog] JSON 编码失败: #{inspect(reason)}")
     end
   end
 

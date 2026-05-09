@@ -42,7 +42,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
     result =
       case post.(url, body, receive_timeout: state.timeout) do
-        {:ok, 200, resp_body} ->
+        {:ok, status, resp_body} when status in 200..299 ->
           handle_success(resp_body, start_time)
 
         {:error, reason, _status, message} ->

@@ -51,7 +51,7 @@ defmodule NovelAgent.Provider.Anthropic do
 
     result =
       case post.(url, body, headers: headers, receive_timeout: state.timeout) do
-        {:ok, 200, resp_body} ->
+        {:ok, status, resp_body} when status in 200..299 ->
           handle_success(state, resp_body, start_time)
 
         {:error, :http_error, status, message} ->
