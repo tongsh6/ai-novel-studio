@@ -30,7 +30,6 @@ defmodule NovelWeb.MixProject do
   defp deps do
     [
       {:novel_application, in_umbrella: true},
-      {:novel_persistence, in_umbrella: true, only: :test},
       {:novel_foundation, in_umbrella: true},
       {:phoenix, "~> 1.8.6"},
       {:phoenix_pubsub, "~> 2.1"},

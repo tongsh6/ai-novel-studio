@@ -7,6 +7,13 @@ defmodule NovelCommon.LLMLog do
 
   require Logger
 
+  # 从源文件向上查找 mix.exs 定位项目根，不依赖文件所在层级
+  @project_root_dir (
+    __DIR__
+    |> Stream.iterate(&Path.dirname/1)
+    |> Enum.find(&File.exists?(Path.join(&1, "mix.exs")))
+  )
+
   @doc """
   记录一次 LLM 调用。各 adapter 在 complete/4 返回前调用。
   """
@@ -65,9 +72,6 @@ defmodule NovelCommon.LLMLog do
       {:error, reason} -> Logger.warning("[LLMLog] 写入失败: #{inspect(reason)}")
     end
   end
-
-  # 从源文件位置推导项目根目录：apps/novel_common/lib/novel_common/ → 上 4 级
-  @project_root_dir __DIR__ |> Path.split() |> Enum.drop(-4) |> Path.join()
 
   defp default_log_dir, do: Path.join(@project_root_dir, "log/llm-calls")
 

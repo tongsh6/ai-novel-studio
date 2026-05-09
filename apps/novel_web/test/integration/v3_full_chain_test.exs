@@ -12,11 +12,8 @@ defmodule NovelWeb.V3FullChainTest do
   真实 LLM 测试单独一组，验证 LLM 输出可解析。
   """
 
-  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.DialogueGateway
   alias NovelApplication.ReplayService
-  alias NovelPersistence.Repo
-  alias NovelPersistence.TraceRepository
   alias NovelWeb.Test.IntegrationHelpers
 
   @moduletag :integration
@@ -340,7 +337,7 @@ defmodule NovelWeb.V3FullChainTest do
           %{text: "持久化测试", workspace_id: ws_id},
           nil, complete_fn, IntegrationHelpers.trace_persister())
 
-      traces = TraceRepository.list_by_turn(trace.turn_id)
+      traces = IntegrationHelpers.list_traces_by_turn(trace.turn_id)
       assert traces != []
       db_trace = hd(traces)
       assert db_trace.workspace_id == ws_id
@@ -365,7 +362,7 @@ defmodule NovelWeb.V3FullChainTest do
   end
 
   setup do
-    :ok = Sandbox.checkout(Repo)
+    :ok = IntegrationHelpers.sandbox_checkout()
     :ok
   end
 
@@ -416,7 +413,7 @@ defmodule NovelWeb.V3FullChainTest do
           %{text: "持久化测试", workspace_id: ws_id},
           nil, complete_fn, IntegrationHelpers.trace_persister())
 
-      traces = TraceRepository.list_by_turn(trace.turn_id)
+      traces = IntegrationHelpers.list_traces_by_turn(trace.turn_id)
       assert traces != []
       assert hd(traces).workspace_id == ws_id
     end
