@@ -25,15 +25,6 @@ config :novel_agent, NovelAgent.Provider.Anthropic,
   model: System.get_env("NOVEL_ANTHROPIC_MODEL", "claude-sonnet-4-6"),
   timeout: 120_000
 
-# LLM 调用日志目录 — 统一到项目根目录，避免各 umbrella app 因 CWD 不同而产生散落 log/ 目录。
-# 可通过环境变量 LLM_LOG_DIR 覆盖。
-llm_log_dir = System.get_env("LLM_LOG_DIR", Path.expand("../log/llm-calls", __DIR__) |> Path.absname())
-config :novel_common, :llm_log_dir, llm_log_dir
-
-# Dialyzer PLT 文件路径 — 放在 priv/plts/ 以便 CI 缓存
-config :dialyxir,
-  plt_local_path: "priv/plts",
-  plt_core_path: "priv/plts"
 
 config :novel_web, NovelWeb.Endpoint,
   url: [host: "localhost"],

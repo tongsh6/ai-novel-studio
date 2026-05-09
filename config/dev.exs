@@ -1,5 +1,14 @@
 import Config
 
+# LLM 调用日志目录 — 可通过环境变量 LLM_LOG_DIR 覆盖
+dev_log_dir = System.get_env("LLM_LOG_DIR", Path.expand("../log/llm-calls/dev", __DIR__) |> Path.absname())
+config :novel_common, :llm_log_dir, dev_log_dir
+
+# Dialyzer PLT 文件路径 — 放在 priv/plts/ 以便 CI 缓存
+config :dialyxir,
+  plt_local_path: "priv/plts",
+  plt_core_path: "priv/plts"
+
 # Provider Gateway — 开发环境
 # 默认使用 LM Studio 本地推理。LLM 不可用时直接报错，不做降级
 config :novel_agent, :provider,

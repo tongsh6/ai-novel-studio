@@ -1,5 +1,10 @@
 import Config
 
+# Dialyzer PLT 文件路径 — 放在 priv/plts/ 以便 CI 缓存
+config :dialyxir,
+  plt_local_path: "priv/plts",
+  plt_core_path: "priv/plts"
+
 # 测试库：SQLite3（阶段 1 桌面单机，业务代码 0 改动即可切 PG）。
 # Sandbox 模式由 Ecto.Adapters.SQL.Sandbox 接管，每个测试事务隔离。
 # 独立 database 名避免污染 dev。
