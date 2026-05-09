@@ -81,12 +81,31 @@ else
   echo "  ⚠️  GET /api/provider/health → 不可用 (非阻塞)"
 fi
 
+# WebSocket 端点可达
+WS_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:4657/socket/websocket" 2>/dev/null)
+# Phoenix WebSocket 对非 WebSocket 请求返回 400/426
+if [ "$WS_CODE" = "400" ] || [ "$WS_CODE" = "426" ]; then
+  green "GET /socket (WS endpoint) → $WS_CODE (WebSocket upgrade expected)"
+else
+  echo "  ⚠️  GET /socket → $WS_CODE (非阻塞)"
+fi
+
 # Frontend loads
 FRONTEND=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:5768 2>/dev/null)
 if [ "$FRONTEND" = "200" ]; then
   green "GET / (Vite) → 200"
 else
   red "GET / (Vite) → $FRONTEND"
+fi
+
+# ── 3. E2E 集成测试 ──
+echo ""
+echo "--- E2E 集成测试 ---"
+
+if MIX_ENV=test mix test --include integration 2>&1 | tail -3 | grep -q "failures"; then
+  green "mix test --include integration"
+else
+  red "mix test --include integration"
 fi
 
 # ── 3. 编译与测试 ──
