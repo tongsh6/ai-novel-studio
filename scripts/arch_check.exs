@@ -92,7 +92,37 @@ defmodule ArchCheck do
     cycle_errors =
       if cycle_status != 0, do: ["CYCLE DETECTED:\n#{cycle_output}"], else: []
 
-    errors = errors ++ cycle_errors
+    # ── novel_e2e 边界检查 ──
+    # E2E 只允许引用 novel_web 模块和 novel_application 的公开入口（DialogueGateway, ReplayService）
+    e2e_forbidden = [
+      ~r/NovelPersistence\./,
+      ~r/NovelAgent\./,
+      ~r/NovelApplication\.(?!DialogueGateway\b|ReplayService\b)/,
+      ~r/Ecto\.Adapters\.SQL\.Sandbox/,
+    ]
+
+    e2e_errors =
+      if File.dir?("apps/novel_e2e") do
+        e2e_files =
+          Path.wildcard("apps/novel_e2e/lib/**/*.ex") ++
+            Path.wildcard("apps/novel_e2e/test/**/*.exs")
+
+        Enum.flat_map(e2e_files, fn file ->
+          content = File.read!(file)
+
+          Enum.flat_map(e2e_forbidden, fn rule ->
+            if Regex.match?(rule, content) do
+              ["[novel_e2e] #{file}: 禁止直接引用 #{inspect(rule)}"]
+            else
+              []
+            end
+          end)
+        end)
+      else
+        []
+      end
+
+    errors = errors ++ cycle_errors ++ e2e_errors
 
     if errors == [] do
       IO.puts("✅ 架构检查通过")

@@ -28,7 +28,19 @@ novel_domain → novel_foundation
 | novel_agent | Agent 运行时、Provider Gateway、监督树、Registry | 引用 NovelDomain / NovelApplication |
 | novel_application | 用例编排、上下文组装、Prompt 构建、领域注册 | 引用 NovelWeb |
 | novel_persistence | Ecto Repo、DB Schema、Migration、Repository | 引用 NovelWeb / NovelApplication / NovelAgent |
-| novel_web | HTTP Router、Controller、Channel、JSON 序列化 | 直接调用 Repo、直接写 Ecto.Query |
+| novel_web | HTTP Router、Controller、Channel、JSON 序列化 | 直接调用 Repo、直接写 Ecto.Query、直接引用 novel_persistence |
+| novel_common | 纯函数通用工具，不持有业务状态 | 引用 novel_foundation 以外的模块 |
+| novel_test | 跨 app 测试共享 helper | 生产代码依赖它 |
+| novel_e2e | 端到端集成测试，只依赖 novel_web | 直接引用 NovelPersistence / NovelAgent / NovelApplication 内部模块 |
+
+### E2E 边界规则（novel_e2e）
+
+novel_e2e 只依赖 novel_web（顶层入口）。测试从 Channel 或 DialogueGateway 入口进入，不直接引用 downstream app 的内部模块。
+
+- **允许**：`NovelApplication.DialogueGateway`、`NovelApplication.ReplayService`（公开入口）
+- **禁止**：`NovelPersistence.*`、`NovelAgent.*`、`NovelApplication.Planner/ExecutionOrchestrator/ContextAssembler/...`（内部模块）
+
+检查机制：`mix run scripts/arch_check.exs` 自动扫描 novel_e2e 源码。
 
 ---
 

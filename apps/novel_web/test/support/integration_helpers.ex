@@ -13,16 +13,4 @@ defmodule NovelWeb.Test.IntegrationHelpers do
   defdelegate lmstudio_available?(endpoint \\ "http://localhost:1234/v1",
                                   timeout \\ 5_000),
     to: NovelTest.ProviderHelpers
-
-  @doc "创建 trace persister 回调。"
-  defdelegate trace_persister,
-    to: NovelTest.ProviderHelpers
-
-  @doc "Ecto Sandbox checkout。"
-  defdelegate sandbox_checkout,
-    to: NovelTest.ProviderHelpers
-
-  @doc "按 turn_id 查询 traces。"
-  defdelegate list_traces_by_turn(turn_id),
-    to: NovelTest.ProviderHelpers
 end

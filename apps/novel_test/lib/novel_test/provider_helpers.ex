@@ -53,26 +53,4 @@ defmodule NovelTest.ProviderHelpers do
     end
   end
 
-  # ── persistence helpers ──────────────────────
-
-  alias NovelPersistence.Repo
-  alias NovelPersistence.TraceRepository
-
-  @doc "Ecto Sandbox checkout，供集成测试使用。"
-  def sandbox_checkout, do: :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
-
-  @doc "按 turn_id 查询 traces。"
-  def list_traces_by_turn(turn_id), do: TraceRepository.list_by_turn(turn_id)
-
-  @doc "创建 trace persister 回调，供 DialogueGateway 注入。"
-  def trace_persister do
-    fn ws_id, attrs ->
-      attrs = Map.put(attrs, :workspace_id, ws_id)
-
-      case TraceRepository.insert(attrs) do
-        {:ok, _record} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
-    end
-  end
 end

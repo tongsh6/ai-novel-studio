@@ -324,30 +324,6 @@ defmodule NovelWeb.V3FullChainTest do
   end
 
   # ═══════════════════════════════════════════════════
-  # Proof 10: persistence 完整链路
-  # ═══════════════════════════════════════════════════
-
-  describe "persistence chain (stub LLM)" do
-    test "trace is written to SQLite3 through full gateway chain" do
-      ws_id = "ws-persist-#{System.unique_integer([:positive, :monotonic])}"
-      complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
-
-      {:ok, _turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(
-          %{text: "持久化测试", workspace_id: ws_id},
-          nil, complete_fn, IntegrationHelpers.trace_persister())
-
-      traces = IntegrationHelpers.list_traces_by_turn(trace.turn_id)
-      assert traces != []
-      db_trace = hd(traces)
-      assert db_trace.workspace_id == ws_id
-      assert db_trace.turn_id == trace.turn_id
-      assert is_binary(db_trace.decision_type)
-      assert db_trace.event_order != []
-    end
-  end
-
-  # ═══════════════════════════════════════════════════
   # 真实 LLM 测试 — 只验证结构有效性
   # ═══════════════════════════════════════════════════
 
@@ -359,11 +335,6 @@ defmodule NovelWeb.V3FullChainTest do
       IO.puts("\n  ⏭  Skipping real LLM tests: LM Studio 未启动")
       {:skip, :provider_unavailable}
     end
-  end
-
-  setup do
-    :ok = IntegrationHelpers.sandbox_checkout()
-    :ok
   end
 
   describe "real LLM: structural validity" do
@@ -403,19 +374,6 @@ defmodule NovelWeb.V3FullChainTest do
       assert turn_result.turn_id != nil
       assert trace.decision_type != nil
       assert length(trace.event_order) >= 3
-    end
-
-    test "trace persisted with real LLM", %{complete_fn: complete_fn} do
-      ws_id = "ws-real-p-#{System.unique_integer([:positive, :monotonic])}"
-
-      {:ok, _turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(
-          %{text: "持久化测试", workspace_id: ws_id},
-          nil, complete_fn, IntegrationHelpers.trace_persister())
-
-      traces = IntegrationHelpers.list_traces_by_turn(trace.turn_id)
-      assert traces != []
-      assert hd(traces).workspace_id == ws_id
     end
 
     test "replay from real trace never calls provider", %{complete_fn: complete_fn} do
