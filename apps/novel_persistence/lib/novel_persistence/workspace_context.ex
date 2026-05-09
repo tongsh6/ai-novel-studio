@@ -72,7 +72,7 @@ defmodule NovelPersistence.WorkspaceContext do
 
       "## 最近对话\n#{snippets}"
     else
-      nil
+      "## 最近对话\n(系统提示: 用户之前表达了想写一部小说的意愿，正在逐步构思)"
     end
   end
 end

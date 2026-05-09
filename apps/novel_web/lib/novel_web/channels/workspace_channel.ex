@@ -67,6 +67,56 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end
 
+  # --- Mock Handlers for Structure Panel ---
+
+  def handle_in("get_toc", _payload, socket) do
+    data = %{
+      work_id: "mock_work",
+      volumes: [
+        %{id: "vol_1", title: "第一卷：起源", chapters: [
+          %{id: "ch_1", title: "第一章：苏醒"},
+          %{id: "ch_2", title: "第二章：危机"}
+        ]}
+      ]
+    }
+    {:reply, {:ok, data}, socket}
+  end
+
+  def handle_in("get_characters", _payload, socket) do
+    data = [
+      %{id: "char_1", name: "主角", role: "Protagonist", summary: "一个神秘的幸存者", aliases: ["老李"]}
+    ]
+    {:reply, {:ok, data}, socket}
+  end
+
+  def handle_in("get_foreshadowing", _payload, socket) do
+    data = [
+      %{id: "mem_1", type: "foreshadowing", content: "脖子后的奇异纹身", tags: ["未解之谜", "主线"]}
+    ]
+    {:reply, {:ok, data}, socket}
+  end
+
+  def handle_in("get_rules", _payload, socket) do
+    data = [
+      %{id: "rule_1", type: "rule", content: "只能在夜间使用魔法", tags: ["世界观", "战斗"]}
+    ]
+    {:reply, {:ok, data}, socket}
+  end
+
+  def handle_in("get_work_stats", _payload, socket) do
+    data = %{
+      words_total: 10_000,
+      words_today: 1500,
+      volumes: 1,
+      chapters: 2,
+      characters: 1,
+      memory_items: 2,
+      drafts_total: 5,
+      drafts_accepted: 2
+    }
+    {:reply, {:ok, data}, socket}
+  end
+
   defp fallback_turn_result(reason) do
     %{
       schema_version: "3.0-draft",

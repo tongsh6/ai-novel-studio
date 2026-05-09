@@ -27,6 +27,8 @@ config :novel_persistence, NovelPersistence.Repo,
   show_sensitive_data_on_connection_error: true,
   stacktrace: true
 
+config :novel_web, :persistence, inject_real_persistence: true
+
 config :novel_web, NovelWeb.Endpoint,
   http: [ip: {127, 0, 0, 1}, port: System.get_env("PHOENIX_PORT", "4657") |> String.to_integer()],
   debug_errors: true,
