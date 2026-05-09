@@ -43,6 +43,8 @@ export function WorkbenchV3() {
   const [availableActions, setAvailableActions] = useState<V3AvailableAction[]>([]);
   const [candidates, setCandidates] = useState<V3CandidateDirection[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string>("");
+  const [currentPhase, setCurrentPhase] = useState<string>("");
+  const [currentStatus, setCurrentStatus] = useState<string>("");
 
   const channelRef = useRef<Channel | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -95,6 +97,8 @@ export function WorkbenchV3() {
         },
       ]);
       setCurrentTurnId(result.turn_id ?? "");
+      setCurrentPhase(result.phase ?? "");
+      setCurrentStatus(result.status ?? "");
       setAvailableActions(result.available_actions ?? []);
       setCandidates(result.candidate_directions ?? []);
       setLoading(false);
@@ -188,9 +192,12 @@ export function WorkbenchV3() {
       {/* StatusBar */}
       <div className={styles.statusBar}>
         <div className={styles.statusLeft}>
-          <span className={styles.title}>
-            {loading ? WORKBENCH_V3.thinking : "AI Novel Studio v3"}
-          </span>
+          <span className={styles.title}>AI Novel Studio v3</span>
+          {currentPhase && (
+            <span className={styles.badge}>
+              {currentPhase}{currentStatus && ` · ${currentStatus}`}
+            </span>
+          )}
         </div>
         <div className={styles.statusRight}>
           <span
