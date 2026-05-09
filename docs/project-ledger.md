@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-09（v3 架构夯实：novel_e2e 新建 + 依赖方向清理 + 测试高内聚 + 3 轮 review 通过）
+> 最后更新：2026-05-09（UI Walkthrough 100% 通过，自动化走查与静态代码检查全绿，3 轮重构 Review 闭环）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 
@@ -12,7 +12,7 @@
 
 v3 设计体系（Stage 0-3）已完成。17 个 ADR 全部 Accepted。10 个 contract pack + 10 个 slice 定义全部 docs-ready。
 
-v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06），319 tests，0 failures，13/13 静态扫描通过。
+v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06），341 tests，0 failures，13/13 静态扫描通过。
 
 **当前批次目标**：按顺序推进 4 个集成方向——
 
@@ -20,6 +20,7 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 2. 真实持久化（ContextAssembler + TraceWriter → SQLite3）
 3. 前端 Workbench（Tauri 消费 v3 Channel）
 4. 端到端集成测试（全链路 + 真实 provider）
+5. 自动化 UI 走查（Playwright E2E 体验闭环）
 
 ---
 
@@ -100,8 +101,14 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 | | — 新增 novel_common + novel_test + novel_e2e | | 3 个 umbrella app |
 | | — novel_web → novel_persistence 依赖彻底移除 | | e2e 隔层 |
 | | — VS-08 修复 + Phoenix CVE + static scan 清空 | | 工程门禁全绿 |
+| QP-02 | 自动化 UI 走查与 3 轮重构闭环 | `HEAD` | 100% Walkthrough Pass |
+| | — 前端 WorkspaceChat Socket 与 UI 状态同步优化 | | 消除重连风暴 |
+| | — Provider 健康检查健壮性修复 | | 防御未配置场景 |
+| | — CandidateCard 与 AdoptionCard 结构化 UI 渲染 | | 消除纯文本回复 |
+| | — `requires_adoption` 字段补齐及 E2E 测试断言强化 | | 严格对齐 ADR 契约 |
+| | — 解决类型检查告警（Credo / Typecheck） | | `length > 0` 替换 |
 
-**汇总**：10 slices + QP-01 done，342 tests + 9 e2e，0 failures，0 cycles，13/13 scan，arch green。
+**汇总**：10 slices + QP-01/QP-02 done，341 tests + 9 e2e，0 failures，0 cycles，13/13 scan，100% Playwright Walkthrough。
 
 ---
 
