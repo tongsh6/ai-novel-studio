@@ -2,7 +2,7 @@
   "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
   "productName": "AI Novel Studio",
   "version": "0.1.0",
-  "identifier": "com.ai-novel-studio.desktop",
+  "identifier": "com.ai-novel-studio.app",
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://localhost:5768",

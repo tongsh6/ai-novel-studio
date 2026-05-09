@@ -1,4 +1,5 @@
 // Design: tasks/slices/v3/VS-07-frontend-workbench-ui-consumer.md §6
+// Prototype: docs/design-v2/ui-design/novel-studio-v2.pen → workbench-v3
 // Contract: docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md
 //
 // v3 Workbench — 最小可用 UI：

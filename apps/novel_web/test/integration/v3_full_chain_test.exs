@@ -12,6 +12,7 @@ defmodule NovelWeb.V3FullChainTest do
   真实 LLM 测试单独一组，验证 LLM 输出可解析。
   """
 
+  alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.DialogueGateway
   alias NovelApplication.ReplayService
   alias NovelPersistence.Repo
@@ -98,13 +99,19 @@ defmodule NovelWeb.V3FullChainTest do
   @broken_plan_json "this is not valid json {{{"
 
   defp sequenced_complete_fn(frame_response, plan_response) do
-    # Agent 持有响应序列。第一次 pop 返回 frame_response，第二次 pop 返回 plan_response
+    # Agent 持有响应序列。按序 pop，耗尽后返回 :exhausted
     {:ok, agent} = Agent.start_link(fn -> [frame_response, plan_response] end)
+    fn prompt -> pop_or_exhaust(agent, prompt) end
+  end
 
-    fn _prompt ->
-      [next | rest] = Agent.get(agent, & &1)
-      Agent.update(agent, fn _ -> rest end)
-      {:ok, %{content: next}}
+  defp pop_or_exhaust(agent, _prompt) do
+    case Agent.get(agent, & &1) do
+      [next | rest] ->
+        Agent.update(agent, fn _ -> rest end)
+        {:ok, %{content: next}}
+
+      [] ->
+        {:error, :exhausted}
     end
   end
 
@@ -358,7 +365,7 @@ defmodule NovelWeb.V3FullChainTest do
   end
 
   setup do
-    :ok = Ecto.Adapters.SQL.Sandbox.checkout(Repo)
+    :ok = Sandbox.checkout(Repo)
     :ok
   end
 

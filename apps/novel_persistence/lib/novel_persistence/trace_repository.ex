@@ -12,7 +12,7 @@ defmodule NovelPersistence.TraceRepository do
   alias NovelPersistence.Schemas.DecisionTraceRecord
 
   @doc "Insert a DecisionTrace record. Returns {:ok, record} or {:error, changeset}."
-  @spec insert(map()) :: {:ok, %DecisionTraceRecord{}} | {:error, Ecto.Changeset.t()}
+  @spec insert(map()) :: {:ok, struct()} | {:error, Ecto.Changeset.t()}
   def insert(attrs) when is_map(attrs) do
     %DecisionTraceRecord{}
     |> DecisionTraceRecord.changeset(attrs)
@@ -20,7 +20,7 @@ defmodule NovelPersistence.TraceRepository do
   end
 
   @doc "List traces for a workspace, newest first."
-  @spec list_by_workspace(String.t(), pos_integer()) :: [%DecisionTraceRecord{}]
+  @spec list_by_workspace(String.t(), pos_integer()) :: [struct()]
   def list_by_workspace(workspace_id, limit \\ 50) do
     from(t in DecisionTraceRecord,
       where: t.workspace_id == ^workspace_id,
@@ -31,13 +31,13 @@ defmodule NovelPersistence.TraceRepository do
   end
 
   @doc "Get a trace by its trace_id."
-  @spec get_by_trace_id(String.t()) :: %DecisionTraceRecord{} | nil
+  @spec get_by_trace_id(String.t()) :: struct() | nil
   def get_by_trace_id(trace_id) do
     Repo.get_by(DecisionTraceRecord, trace_id: trace_id)
   end
 
   @doc "List traces for a specific turn."
-  @spec list_by_turn(String.t()) :: [%DecisionTraceRecord{}]
+  @spec list_by_turn(String.t()) :: [struct()]
   def list_by_turn(turn_id) do
     from(t in DecisionTraceRecord, where: t.turn_id == ^turn_id)
     |> Repo.all()

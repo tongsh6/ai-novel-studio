@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-09（v3 质量夯实：LLM 日志反向分析 → 6 项修复 + InferenceParams + 双 umbrella app + injectable HTTP）
+> 最后更新：2026-05-09（v3 工程门禁闭环：VS-08 修复 + Phoenix CVE + static scan 清空 + Tauri 对齐）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 
@@ -170,8 +170,9 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 | 1 | ✅ 真实 LLM 集成 | 已完成 | LM Studio + Anthropic 双 Provider 调通 |
 | 2 | ✅ 真实持久化 | 已完成 | SQLite3 读写验证通过 |
 | 3 | ✅ 前端 Workbench | 已完成 | Tauri 端到端对话轮次可用 |
-| 4 | ✅ 端到端集成测试 | 已完成 | VS-08 全链路通过 |
-| 5 | Provider 日志质量 | 已完成 | QP-01 6 项修复，日志可追溯、无污染 |
+| 4 | ✅ 端到端集成测试 | 已完成 | VS-08 全链路 31 tests, 0 failures |
+| 5 | ✅ Provider 日志质量 | 已完成 | QP-01 6 项修复 + ABCD 解析管线 |
+| 6 | ✅ 工程门禁 | 已完成 | static scan 13/13 PASS, deps.audit clean, Tauri identifier 对齐 |
 
 ---
 

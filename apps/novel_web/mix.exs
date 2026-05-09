@@ -32,7 +32,7 @@ defmodule NovelWeb.MixProject do
       {:novel_application, in_umbrella: true},
       {:novel_persistence, in_umbrella: true},
       {:novel_foundation, in_umbrella: true},
-      {:phoenix, "~> 1.8"},
+      {:phoenix, "~> 1.8.6"},
       {:phoenix_pubsub, "~> 2.1"},
       {:jason, "~> 1.4"},
       {:bandit, "~> 1.11"},

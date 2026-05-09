@@ -59,21 +59,7 @@ defmodule NovelApplication.Planner do
 
     case with_turn_context(frame.turn_id, "form_micro_plan", fn -> complete_fn.(prompt) end) do
       {:ok, %{content: content}} ->
-        case parse_json(content) do
-          {:ok, parsed} ->
-            plan = build_micro_plan(parsed, plan_id, frame)
-            {:ok, plan}
-
-          {:error, _} ->
-            case parse_json_retry(content, prompt, complete_fn) do
-              {:ok, parsed} ->
-                plan = build_micro_plan(parsed, plan_id, frame)
-                {:ok, plan}
-
-              {:error, _} ->
-                {:error, :json_parse_failed}
-            end
-        end
+        content |> parse_json() |> build_plan_or_retry(content, prompt, complete_fn, plan_id, frame)
 
       {:error, reason} ->
         {:error, reason}
@@ -268,6 +254,22 @@ defmodule NovelApplication.Planner do
     |> case do
       [before, _] -> byte_size(s) - byte_size(before) - 1
       [_] -> nil
+    end
+  end
+
+  defp build_plan_or_retry({:ok, parsed}, _content, _prompt, _complete_fn, plan_id, frame) do
+    plan = build_micro_plan(parsed, plan_id, frame)
+    {:ok, plan}
+  end
+
+  defp build_plan_or_retry({:error, _}, content, prompt, complete_fn, plan_id, frame) do
+    case parse_json_retry(content, prompt, complete_fn) do
+      {:ok, parsed} ->
+        plan = build_micro_plan(parsed, plan_id, frame)
+        {:ok, plan}
+
+      {:error, _} ->
+        {:error, :json_parse_failed}
     end
   end
 
