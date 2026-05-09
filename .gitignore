@@ -84,3 +84,4 @@ temp/
 erl_crash.dump
 *.ez
 *.beam
+.playwright-mcp/
