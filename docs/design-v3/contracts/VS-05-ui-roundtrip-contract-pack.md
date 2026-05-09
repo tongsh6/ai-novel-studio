@@ -50,6 +50,7 @@ TurnResultViewModel 是 Workbench UI 的主消费 envelope。
 2. TurnResultViewModel 可以引用 trace / behavior / tool / projection，但不暴露 raw internal objects 作为主数据源。
 3. `assistant_message` 不能宣称 trace 中未发生的动作。
 4. `available_actions` 为空时，UI 只能提交自由文本或刷新。
+5. 服务端必须保留或可取回当前可执行 TurnResultViewModel；AuthorActionInput 只能回传 action 引用，不能用客户端回传的完整 TurnResultViewModel 作为授权依据。
 
 ---
 
@@ -74,6 +75,7 @@ AuthorActionInput validation:
 
 | Validation | Failure outcome |
 |---|---|
+| server-side source TurnResultViewModel exists or is rebasable | missing / stale source TurnResult |
 | `source_turn_ref` still current or rebasable | stale action TurnResult |
 | `action_id` exists in source TurnResult | invented action rejection |
 | `action_type` matches stored action | validation failure |
@@ -140,6 +142,7 @@ Author-visible summary must not include:
 | stale action rejected | old source_turn_ref cannot mutate current state |
 | disabled action rejected | disabled action returns explanation only |
 | valid action re-enters main chain | accepted action produces a new TurnResultViewModel |
+| server source of truth | forged client `source_turn_result` cannot authorize an action absent from server-held source TurnResultViewModel |
 | trace summary redacted | author view excludes prompt / hidden policy / sensitive memory |
 | projection hint refresh only | UI refresh action cannot write state |
 | message truthfulness | assistant_message matches trace and adopted state facts |

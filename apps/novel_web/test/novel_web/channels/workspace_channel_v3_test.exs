@@ -8,6 +8,18 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
   @endpoint NovelWeb.Endpoint
 
+  @server_turn_result %{
+    turn_id: "turn-action-1",
+    available_actions: [
+      %{
+        action_id: "act-confirm",
+        action_type: "confirm_before_execute",
+        enabled: true,
+        idempotency_key: "ik-confirm"
+      }
+    ]
+  }
+
   # ── VS-07 Proof: user_message → turn_result roundtrip ──
 
   describe "user_message roundtrip" do
@@ -99,22 +111,80 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
   # ── VS-07 Proof: author_action roundtrip ──
 
   describe "author_action roundtrip" do
+    test "valid action is checked against server-held turn_result" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @server_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-action-1",
+                     "action_id" => "act-confirm",
+                     "action_type" => "confirm_before_execute",
+                     "idempotency_key" => "ik-confirm"
+                   }
+                 },
+                 socket
+               )
+    end
+
+    test "client-provided source_turn_result cannot authorize invented action" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @server_turn_result)
+
+      assert {:reply, {:error, %{reason: reason}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-action-1",
+                     "action_id" => "act-forged",
+                     "action_type" => "confirm_before_execute",
+                     "source_turn_result" => %{
+                       "turn_id" => "turn-action-1",
+                       "available_actions" => [
+                         %{
+                           "action_id" => "act-forged",
+                           "action_type" => "confirm_before_execute",
+                           "enabled" => true
+                         }
+                       ]
+                     }
+                   }
+                 },
+                 socket
+               )
+
+      assert String.contains?(reason, "invented")
+    end
+
     test "invented action returns error" do
       {:ok, _, socket} =
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-      ref = push(socket, "author_action", %{
-        "action" => %{
-          "source_turn_ref" => "turn-unknown",
-          "action_id" => "act-fake",
-          "action_type" => "nonexistent"
-        }
-      })
+      ref =
+        push(socket, "author_action", %{
+          "action" => %{
+            "source_turn_ref" => "turn-unknown",
+            "action_id" => "act-fake",
+            "action_type" => "nonexistent"
+          }
+        })
 
       assert_reply(ref, :error, %{reason: reason})
-      assert String.contains?(reason, "invented")
+      assert String.contains?(reason, "source_turn_result not available")
     end
 
     test "action with required fields is processed (not silently dropped)" do
@@ -123,15 +193,16 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-      ref = push(socket, "author_action", %{
-        "action" => %{
-          "source_turn_ref" => "lobby",
-          "action_id" => "act-test",
-          "action_type" => "confirm_before_execute",
-          "behavior_ref" => "bh-test",
-          "idempotency_key" => "ik-test"
-        }
-      })
+      ref =
+        push(socket, "author_action", %{
+          "action" => %{
+            "source_turn_ref" => "lobby",
+            "action_id" => "act-test",
+            "action_type" => "confirm_before_execute",
+            "behavior_ref" => "bh-test",
+            "idempotency_key" => "ik-test"
+          }
+        })
 
       # Channel must respond — must not timeout or silently drop the message
       assert_reply(ref, _status, _payload)
@@ -143,16 +214,19 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-      ref = push(socket, "author_action", %{
-        "action" => %{
-          "source_turn_ref" => "turn-from-2-hours-ago",
-          "action_id" => "act-1",
-          "action_type" => "confirm_before_execute"
-        }
-      })
+      ref =
+        push(socket, "author_action", %{
+          "action" => %{
+            "source_turn_ref" => "turn-from-2-hours-ago",
+            "action_id" => "act-1",
+            "action_type" => "confirm_before_execute"
+          }
+        })
 
       assert_reply(ref, :error, %{reason: reason})
-      assert String.contains?(reason, "stale") or String.contains?(reason, "invented")
+
+      assert String.contains?(reason, "stale") or
+               String.contains?(reason, "source_turn_result not available")
     end
   end
 
@@ -168,5 +242,11 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       ref = push(socket, "ping", %{"hello" => "world"})
       assert_reply(ref, :ok, %{event: "pong", echo: %{"hello" => "world"}})
     end
+  end
+
+  defp assign_server_turn(socket, %{turn_id: turn_id} = turn_result) do
+    socket
+    |> Phoenix.Socket.assign(:current_turn_id, turn_id)
+    |> Phoenix.Socket.assign(:turn_results_by_id, %{turn_id => turn_result})
   end
 end

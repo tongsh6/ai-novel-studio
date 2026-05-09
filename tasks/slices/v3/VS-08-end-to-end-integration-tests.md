@@ -70,6 +70,8 @@ novel_web (Phoenix.ChannelTest)
 | 9 | replay E2E | 从任意 trace 构建 ReplayReport | `report.provider_called == false`, `report.result_status in [:complete, :partial]` |
 | 10 | persistence E2E | 任意 turn 后查询 DB | `TraceRepository.list_by_turn(turn_id) != []`, trace 字段完整 |
 | 11 | error recovery E2E | 传入 `broken_fn` → 返回 garbage JSON | `fallback_frame.author_visible_draft.message != ""`, `trace.decision_type == :fail_with_recovery` 或 `:reply_only` |
+| 12 | real loop E2E | 同一 workspace 连续两轮，第一轮通过真实 `interaction_recorder` 写入，第二轮通过真实 `context_fetcher` 读取 | 第二轮 `DialogueContext.conversation_summary` 和 Planner prompt 包含第一轮 user / assistant 交互 |
+| 13 | action source E2E | `turn_result` 由服务端保存；客户端只提交 `source_turn_ref` + `action_id` | 合法 action 通过；伪造客户端 `source_turn_result` 不能授权 invented action |
 
 ## 6. 测试配置要求
 
@@ -77,12 +79,13 @@ novel_web (Phoenix.ChannelTest)
 - SQLite3 测试数据库（Sandbox pool，WAL mode）
 - Persistence 注入方式：
   - 不通过全局 `config :novel_web, :persistence`（会污染其他并发测试）
-  - 在集成测试的 `setup` 中手动创建回调并传入 `DialogueGateway.handle_input/4`：
+  - 在集成测试的 `setup` 中手动创建回调并传入 `DialogueGateway.handle_input/5`：
     ```elixir
     fetcher = NovelPersistence.WorkspaceContext.context_fetcher()
     persister = NovelPersistence.WorkspaceContext.trace_persister()
+    recorder = NovelPersistence.WorkspaceContext.interaction_recorder()
     {:ok, turn_result, trace, _candidates, _context} =
-      DialogueGateway.handle_input(input, fetcher, real_complete_fn, persister)
+      DialogueGateway.handle_input(input, fetcher, real_complete_fn, persister, recorder)
     ```
 - `real_complete_fn` 使用 `NovelApplication.Test.ProviderHelpers.lmstudio_complete_fn/0`
 - 集成测试文件：`apps/novel_web/test/integration/v3_full_chain_test.exs`
@@ -104,6 +107,8 @@ integration-test:
 
 注意：CI 中 LM Studio 可能不可用（需 GPU）。退而求其次：在 CI 中使用 stub provider 验证 persistence 集成，标注 `provider_called: false` 的 replay 测试可通过。
 
+即使使用 stub provider，VS-08 仍必须保留 real-loop proof：至少一条测试要穿过真实 SQLite3 persistence 回调，证明 write-after-turn / read-before-next-turn 成立。stub 只能替代 LLM 内容生成，不能替代 persistence 闭环。
+
 ## 8. 不覆盖
 
 - 性能 / 负载测试
@@ -113,3 +118,5 @@ integration-test:
 - 前端 UI 自动化（VS-07 的范围）
 - OTP 监督树故障恢复
 - 真实 HTTP endpoint（仅用 Phoenix.ChannelTest，不启动 Bandit）
+
+> 已知限制跟进项见 [VS-05 §10](VS-05-ui-available-action-roundtrip.md) — FU-1（socket 重连后 turn_result 丢失）与本 slice 的 persistence 回读方案直接相关；FU-2/FU-3 属 VS-05 自身范围。

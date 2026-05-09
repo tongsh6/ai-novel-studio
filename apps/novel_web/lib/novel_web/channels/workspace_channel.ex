@@ -3,7 +3,7 @@ defmodule NovelWeb.WorkspaceChannel do
   Workspace Channel — v3 对话主通道。
 
   负责将 user_message / author_action 路由到 NovelApplication 主链，
-  并注入真实 persistence 回调（context_fetcher + trace_persister）。
+  并注入真实 persistence 回调（context_fetcher + trace_persister + interaction_recorder）。
   """
 
   use Phoenix.Channel
@@ -12,7 +12,12 @@ defmodule NovelWeb.WorkspaceChannel do
 
   @impl true
   def join("workspace:" <> suffix, _payload, socket) do
-    socket = assign(socket, :workspace_id, suffix)
+    socket =
+      socket
+      |> assign(:workspace_id, suffix)
+      |> assign(:turn_results_by_id, %{})
+      |> assign(:current_turn_id, nil)
+
     {:ok, %{joined: true}, socket}
   end
 
@@ -30,6 +35,7 @@ defmodule NovelWeb.WorkspaceChannel do
     case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister, recorder) do
       {:ok, turn_result, _trace, _candidates, _context} ->
         broadcast!(socket, "turn_result", turn_result)
+        socket = remember_turn_result(socket, turn_result)
         {:reply, {:ok, %{received: true}}, socket}
 
       {:error, reason} ->
@@ -41,13 +47,13 @@ defmodule NovelWeb.WorkspaceChannel do
   @impl true
   def handle_in("author_action", %{"action" => action_params}, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
+    source_turn_ref = action_params["source_turn_ref"] || ws_id
 
-    source_turn_result =
-      action_params["source_turn_result"] || %{turn_id: action_params["source_turn_ref"]}
+    source_turn_result = source_turn_result(socket, source_turn_ref)
 
     action_input = %AuthorActionInput{
       input_id: "in_#{System.unique_integer([:positive, :monotonic])}",
-      source_turn_ref: action_params["source_turn_ref"] || ws_id,
+      source_turn_ref: source_turn_ref,
       action_id: action_params["action_id"],
       action_type: action_params["action_type"],
       behavior_ref: action_params["behavior_ref"],
@@ -127,6 +133,33 @@ defmodule NovelWeb.WorkspaceChannel do
     }
 
     {:reply, {:ok, data}, socket}
+  end
+
+  defp remember_turn_result(socket, %{turn_id: turn_id} = turn_result) when is_binary(turn_id) do
+    turn_results = Map.put(socket.assigns[:turn_results_by_id] || %{}, turn_id, turn_result)
+
+    socket
+    |> assign(:turn_results_by_id, turn_results)
+    |> assign(:current_turn_id, turn_id)
+  end
+
+  defp remember_turn_result(socket, _turn_result), do: socket
+
+  defp source_turn_result(socket, source_turn_ref) do
+    current_turn_id = socket.assigns[:current_turn_id]
+
+    cond do
+      is_nil(current_turn_id) ->
+        nil
+
+      source_turn_ref != current_turn_id ->
+        %{turn_id: current_turn_id, available_actions: []}
+
+      true ->
+        socket.assigns
+        |> Map.get(:turn_results_by_id, %{})
+        |> Map.get(source_turn_ref)
+    end
   end
 
   defp fallback_turn_result(reason) do

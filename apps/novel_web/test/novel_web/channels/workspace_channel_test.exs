@@ -56,21 +56,22 @@ defmodule NovelWeb.WorkspaceChannelTest do
     assert_broadcast("turn_result", %{phase: "completed"})
   end
 
-  test "author_action with invented action returns error" do
+  test "author_action without server source turn_result returns error" do
     {:ok, _, socket} =
       UserSocket
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-    ref = push(socket, "author_action", %{
-      "action" => %{
-        "source_turn_ref" => "turn-1",
-        "action_id" => "act-fake",
-        "action_type" => "nonexistent_action"
-      }
-    })
+    ref =
+      push(socket, "author_action", %{
+        "action" => %{
+          "source_turn_ref" => "turn-1",
+          "action_id" => "act-fake",
+          "action_type" => "nonexistent_action"
+        }
+      })
 
     assert_reply(ref, :error, %{reason: reason})
-    assert String.contains?(reason, "invented")
+    assert String.contains?(reason, "source_turn_result not available")
   end
 end

@@ -23,7 +23,7 @@
 - Invariant: `00c` §7 #9、#10、#13、#15：UI 只消费 TurnResult；UI 只能提交 available actions；trace summary 脱敏；projection hints 只触发刷新
 - Boundary: 切过 web API boundary / frontend contract / application action ingestion / trace redaction；不让 frontend 直接调用 toolbox、写 BehaviorState 或写 adopted state
 - Consumer: Workbench UI smoke test 或 API contract test
-- Proof: invented / stale / disabled action 被拒绝，合法 action 回到主链并产生新 TurnResultViewModel
+- Proof: invented / stale / disabled action 被拒绝；合法 action 只凭 action 引用回到主链，并由服务端取回 source TurnResultViewModel 后产生新 TurnResultViewModel
 
 ---
 
@@ -106,6 +106,46 @@
 ## 9. 试行反馈
 
 - VS-05 的关键不是做页面，而是证明 UI roundtrip 不会绕过 TurnResult 和 Orchestrator。
+- VS-05 的验收必须证明客户端伪造的 `source_turn_result` 不能授权 action；服务端必须使用自己保存或可回读的 TurnResultViewModel 作为校验来源。
 - VS-05 刻意不冻结 replay developer report；否则会把 VS-06 的 replay surface 提前拉进来。
+
+---
+
+## 10. 已知限制 & 跟进项
+
+以下问题在 2026-05-09 code review 中发现，当前阶段（Phase 0，single-turn focus）不阻塞合入，记录在此供后续迭代跟踪。
+
+| # | 问题 | 影响范围 | 当前缓解 | 建议触发条件 | 建议处理 slice |
+|---|---|---|---|---|---|
+| FU-1 | `turn_results_by_id` 存在 socket assigns，WebSocket 断线重连后丢失 | 重连后 `author_action` 拿不到 source turn result，action 被拒绝 | Phase 0 为单轮对话，重连场景低概率；reconnect 后用户重发 `user_message` 即可恢复 | 需要支持多轮 action 链跨重连时触发 | VS-08（从 persistence 回读 turn result）|
+| FU-2 | `remember_turn_result` 只在 `user_message` 路径调用，`author_action` 产生的 turn result 不会被记入 assigns | action 处理后无法再接第二个 action（如 confirm → 再次 confirm） | 当前 action 模型为单次确认，不需要 action chaining | 产品需要 `confirm → revise → confirm` 链时触发 | VS-05（扩展 action roundtrip 为多跳）|
+| FU-3 | `source_turn_result/2` stale 分支返回的 stub 只有 `turn_id` + `available_actions: []`，不是完整 TurnResultViewModel | 如果 `DialogueGateway` 对 stale stub 做 pattern match 期望更多字段，可能 crash | 当前 `ActionValidator` 校验 available_actions 为空的 action 时直接 reject，不会走到深层 match | 下游新增对 stale result 的结构化消费时触发 | VS-05（stale stub schema 完善）|
+
+### FU-1 详细说明
+
+```
+当前：turn_results_by_id 是 socket assign，WebSocket 断线即丢失
+目标：跨重连仍可验证 action 来源
+方案：DialogueGateway 加 source_turn_loader 回调（类似 context_fetcher / trace_persister）
+      服务端优先从内存取，miss 时 fallback 到 persistence
+```
+
+### FU-2 详细说明
+
+```
+当前：handle_in("user_message") → remember_turn_result，handle_in("author_action") → 不记
+风险：action 产生新 turn_result 后，客户端无法基于新 result 再次提交 action
+方案：在 author_action 的 {:ok, turn_result} 分支也调用 remember_turn_result
+      同时更新 current_turn_id，使 action 链可前进
+```
+
+### FU-3 详细说明
+
+```
+当前：source_turn_result(socket, ref) when ref != current_turn_id
+      → %{turn_id: current_turn_id, available_actions: []}
+风险：下游若 pattern match %TurnResultViewModel{} 或访问 phase/schema_version 等字段会失败
+方案：返回 {:error, :stale_turn} 原子，或构造完整的 fallback TurnResultViewModel
+```
 
 ---
