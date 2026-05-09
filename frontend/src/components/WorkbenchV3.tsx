@@ -188,7 +188,9 @@ export function WorkbenchV3() {
       {/* StatusBar */}
       <div className={styles.statusBar}>
         <div className={styles.statusLeft}>
-          <span className={styles.title}>AI Novel Studio v3</span>
+          <span className={styles.title}>
+            {loading ? WORKBENCH_V3.thinking : "AI Novel Studio v3"}
+          </span>
         </div>
         <div className={styles.statusRight}>
           <span
