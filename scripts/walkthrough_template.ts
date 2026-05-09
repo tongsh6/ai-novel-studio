@@ -24,7 +24,7 @@ let failed = 0;
 
 function check(name: string, ok: boolean, detail?: string) {
   if (ok) {
-    console.log(`  ✅ ${name}`);
+    console.log(`  ✅ ${name}${detail ? ` — ${detail}` : ""}`);
     passed++;
   } else {
     console.log(`  ❌ ${name}${detail ? ` — ${detail}` : ""}`);
@@ -36,34 +36,48 @@ function check(name: string, ok: boolean, detail?: string) {
 async function sendMessage(
   page: Page,
   name: string,
-  text: string,
+  text: string
 ): Promise<void> {
   console.log(`\n[${name}] 输入: ${text}`);
   const t0 = Date.now();
+
+  // 获取当前的最后一条回复内容（作为差异对比基准）
+  const prevLastReply = await page.evaluate(() => {
+    const msgs = document.querySelectorAll('[data-role="assistant"]');
+    return msgs[msgs.length - 1]?.textContent || "";
+  });
 
   // 清空并输入
   const input = page.locator("input, textarea").first();
   await input.fill(text);
   await page.locator("button").filter({ hasText: "发送" }).click();
 
-  // 等待新消息出现（至少 3 条：welcome + user + assistant）
+  // 等待新消息出现（需要满足：1. 思考中状态消失；2. 最后一条消息内容发生变化）
   try {
     await page.waitForFunction(
-      () =>
-        document.querySelectorAll('[class*="message"], [class*="assistant"]')
-          .length >= 3,
+      (prev) => {
+        const asstMsgs = document.querySelectorAll('[data-role="assistant"]');
+        const last = asstMsgs[asstMsgs.length - 1];
+        if (!last) return false;
+        
+        const isThinking = last.getAttribute('data-status') === 'thinking';
+        const currentText = last.textContent || "";
+        
+        // 判定成功：不再处于思考中，且内容与上一轮不同，且内容不为空
+        return !isThinking && currentText !== prev && currentText.length > 5;
+      },
       { timeout: LLM_TIMEOUT },
+      prevLastReply
     );
     const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
     console.log(`  ⏱  ${elapsed}s`);
 
-    // 提取最新 AI 回复的前 120 字符
+    // 提取最新 AI 回复
     const reply = await page.evaluate(() => {
-      const msgs = document.querySelectorAll(
-        '[class*="assistant"], [class*="message"]',
-      );
+      const msgs = Array.from(document.querySelectorAll('[data-role="assistant"]'));
       const last = msgs[msgs.length - 1];
-      return last?.textContent?.trim().slice(0, 120) ?? "";
+      const textEl = last?.querySelector('[class*="text"]');
+      return textEl?.textContent?.trim().slice(0, 120) ?? "";
     });
     console.log(`  💬 ${reply || "(空)"}`);
 
@@ -74,6 +88,11 @@ async function sendMessage(
     });
     check(name, reply.length > 5, `${reply.slice(0, 50)}`);
   } catch {
+    // 失败时截图便于分析
+    await page.screenshot({
+      path: `${SCREENSHOT_DIR}/${name}-timeout.png`,
+      fullPage: true,
+    });
     check(name, false, "AI 回复超时");
   }
 }
@@ -89,11 +108,11 @@ async function sendMessage(
   const title = await page.title();
   check("页面标题", title === "AI Novel Studio", title);
 
-  // WebSocket 连接验证
+  // WebSocket 连接验证 (寻找 data-status="ok")
   try {
     await page.waitForFunction(
       () => document.querySelector('[data-status="ok"]') !== null,
-      { timeout: 10_000 },
+      { timeout: 15_000 },
     );
     check("WebSocket 已连接", true);
   } catch {
@@ -101,7 +120,7 @@ async function sendMessage(
   }
 
   // ============================================================
-  // 走查路线（自定义以下步骤）
+  // 走查路线
   // ============================================================
 
   await sendMessage(page, "step-01", "你好，我想开始写小说");

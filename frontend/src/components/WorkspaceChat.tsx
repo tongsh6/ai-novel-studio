@@ -19,6 +19,7 @@ interface TurnResult {
   next_action: string;
   assistant_message: { text: string };
   ui_cards?: UICard[];
+  candidate_directions?: CandidateDirection[];
   adoption_state?: {
     pending: ArtifactEntry[];
     resolved: ArtifactEntry[];
@@ -26,6 +27,13 @@ interface TurnResult {
   behavior_state?: { active: Record<string, unknown> | null };
   projection_refs?: { projection_type: string; projection_id: string; source_revision_refs: string[]; refresh_status?: string | null }[];
   produced_at: string;
+}
+
+export interface CandidateDirection {
+  direction_id: string;
+  title: string;
+  pitch: string;
+  tone_tags: string[];
 }
 
 export interface UICard {
@@ -76,16 +84,14 @@ export function WorkspaceChat() {
   const [modifyInstruction, setModifyInstruction] = useState("");
   const [pendingAnswerBid, setPendingAnswerBid] = useState<string | null>(null);
 
-  // Connect to Zustand Global Store
-  const {
-    socketConnected,
-    setSocketConnected,
-    context,
-    longRun,
-    setContext,
-    setMode,
-    setChannel,
-  } = useAppStore();
+  // Connect to Zustand Global Store with selectors for stability
+  const socketConnected = useAppStore(state => state.socketConnected);
+  const setSocketConnected = useAppStore(state => state.setSocketConnected);
+  const context = useAppStore(state => state.context);
+  const longRun = useAppStore(state => state.longRun);
+  const setContext = useAppStore(state => state.setContext);
+  const setChannel = useAppStore(state => state.setChannel);
+  const setMode = useAppStore(state => state.setMode);
 
   const channelRef = useRef<Channel | null>(null);
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
@@ -109,6 +115,9 @@ export function WorkspaceChat() {
   }, []);
 
   useEffect(() => {
+    // Only connect once
+    if (socketRef.current) return;
+
     const socket = createSocket();
     socket.connect();
     socketRef.current = socket;
@@ -121,15 +130,20 @@ export function WorkspaceChat() {
       .join()
       .receive("ok", () => {
         setSocketConnected(true);
-        setMessages([
-          {
-            role: "assistant",
-            text: "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
-          },
-        ]);
+        setMessages((prev) => {
+          // Avoid duplicate welcome messages if effect re-runs
+          if (prev.length > 0) return prev;
+          return [
+            {
+              role: "assistant",
+              text: "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
+            },
+          ];
+        });
 
         // Mock injecting initial context upon connection
         setContext({
+          workId: "mock_work_123",
           workTitle: "未定作品",
           volumeTitle: "未定卷"
         });
@@ -167,14 +181,26 @@ export function WorkspaceChat() {
     });
 
     return () => {
-      channel.leave();
-      socket.disconnect();
+      // In a real app we might want to keep the socket alive between mounts
+      // but for this umbrella structure we follow the mount lifecycle.
+      if (channelRef.current) {
+        channelRef.current.leave();
+        channelRef.current = null;
+      }
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+        socketRef.current = null;
+      }
+      setSocketConnected(false);
+      setChannel(null);
     };
   }, [setSocketConnected, setContext, setChannel]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  }, [messages, loading]);
+
+  // ... (rest of the component)
 
   // Handle pending build actions from ReadingMode (refresh/retry projection)
   useEffect(() => {
@@ -303,6 +329,7 @@ export function WorkspaceChat() {
           </span>
           <div
             className={styles.riskBadge}
+            data-status={llmConnected === true ? "ok" : "warn"}
             style={{
               backgroundColor:
                 llmConnected === null ? 'var(--foreground-secondary)' :
@@ -312,7 +339,11 @@ export function WorkspaceChat() {
           >
             LLM: {llmConnected === null ? "检测中…" : llmConnected ? "已连接" : "未连接"}
           </div>
-          <div className={styles.riskBadge} style={{ backgroundColor: socketConnected ? 'var(--accent)' : 'var(--foreground-secondary)' }}>
+          <div 
+            className={styles.riskBadge}
+            data-status={socketConnected ? "ok" : "error"}
+            style={{ backgroundColor: socketConnected ? 'var(--accent)' : 'var(--foreground-secondary)' }}
+          >
             服务: {socketConnected ? "已连接" : "离线"}
           </div>
         </div>
@@ -329,6 +360,7 @@ export function WorkspaceChat() {
             {messages.map((msg, i) => (
               <div
                 key={i}
+                data-role={msg.role}
                 className={
                   msg.role === "user" ? styles.userMsg : styles.assistantMsg
                 }
@@ -437,10 +469,36 @@ export function WorkspaceChat() {
                       return <DefaultCard key={ci} card={card} onAction={handleAction} />;
                   }
                 })}
+
+                {msg.turnResult?.candidate_directions && msg.turnResult.candidate_directions.length > 0 && (
+                  <div className={styles.candidatePanel}>
+                    <div className={styles.candidateHeader}>候选创作方向</div>
+                    <div className={styles.candidateList}>
+                      {msg.turnResult.candidate_directions.map((c) => (
+                        <div key={c.direction_id} className={styles.candidateCard}>
+                          <div className={styles.candidateTitle}>{c.title}</div>
+                          <div className={styles.candidatePitch}>{c.pitch}</div>
+                          {c.tone_tags && c.tone_tags.length > 0 && (
+                            <div className={styles.candidateTags}>
+                              {c.tone_tags.map((t) => (
+                                <span key={t} className={styles.tag}>{t}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ))}
 
-            {loading && <div className={styles.loading}>AI 思考中...</div>}
+            {loading && (
+              <div className={styles.assistantMsg} data-status="thinking" data-role="assistant">
+                <div className={styles.role}>AI</div>
+                <div className={styles.text}>思考中...</div>
+              </div>
+            )}
             <div ref={messagesEndRef} />
           </div>
 

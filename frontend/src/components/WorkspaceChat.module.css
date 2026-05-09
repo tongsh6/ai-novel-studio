@@ -343,3 +343,59 @@
   cursor: pointer;
   font-size: 14px;
 }
+
+/* ── CandidateCards ─────────────────────────────── */
+
+.candidatePanel {
+  margin-top: 12px;
+  background: var(--background-secondary);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.candidateHeader {
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--foreground-secondary);
+}
+
+.candidateList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.candidateCard {
+  padding: 12px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--background-primary);
+}
+
+.candidateTitle {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.candidatePitch {
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--foreground-secondary);
+}
+
+.candidateTags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 8px;
+}
+
+.tag {
+  font-size: 11px;
+  background: var(--background-secondary);
+  color: var(--foreground-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+}

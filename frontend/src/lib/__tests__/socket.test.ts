@@ -53,13 +53,13 @@ describe("sendMessage", () => {
   it("pushes user_message with text", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined });
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined, behavior_id: undefined, generate_micro_plan: true }, 60000);
   });
 
   it("passes work_id when provided", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好", "work-123");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123" });
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123", behavior_id: undefined, generate_micro_plan: true }, 60000);
   });
 });
 
@@ -69,7 +69,7 @@ describe("adopt", () => {
     adopt(ch, "artifact-1", 3, { title: "test" }, "draft_text");
     expect(ch.push).toHaveBeenCalledWith("adopt", {
       artifact_id: "artifact-1", base_revision: 3, payload: { title: "test" }, artifact_type: "draft_text",
-    });
+    }, 60000);
   });
 });
 
@@ -79,7 +79,7 @@ describe("discardArtifact", () => {
     discardArtifact(ch, "artifact-2", "draft_text");
     expect(ch.push).toHaveBeenCalledWith("discard", {
       artifact_id: "artifact-2", artifact_type: "draft_text",
-    });
+    }, 60000);
   });
 
   it("omits artifact_type when not provided", () => {
@@ -87,7 +87,7 @@ describe("discardArtifact", () => {
     discardArtifact(ch, "artifact-3");
     expect(ch.push).toHaveBeenCalledWith("discard", {
       artifact_id: "artifact-3", artifact_type: undefined,
-    });
+    }, 60000);
   });
 });
 
@@ -97,7 +97,7 @@ describe("modifyDraft", () => {
     modifyDraft(ch, "draft-1", 5, "原文内容", "改得更激烈一些");
     expect(ch.push).toHaveBeenCalledWith("modify_draft", {
       draft_id: "draft-1", base_revision: 5, content: "原文内容", instruction: "改得更激烈一些",
-    });
+    }, 60000);
   });
 });
 

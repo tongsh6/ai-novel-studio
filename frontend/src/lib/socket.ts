@@ -48,7 +48,12 @@ export function sendMessage(
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
     channel
-      .push("user_message", { text, work_id: workId, behavior_id: behaviorId })
+      .push("user_message", { 
+        text, 
+        work_id: workId, 
+        behavior_id: behaviorId,
+        generate_micro_plan: true // REQUIRED for v3 to trigger tools and structural changes
+      }, 60000)
       .receive("ok", (response) => resolve(response as { received: boolean }))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("send timeout")));
@@ -61,7 +66,7 @@ export function confirm(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("confirm", { behavior_id: behaviorId })
+      .push("confirm", { behavior_id: behaviorId }, 60000)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("confirm timeout")));
@@ -74,7 +79,7 @@ export function rejectAction(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("reject", { behavior_id: behaviorId })
+      .push("reject", { behavior_id: behaviorId }, 60000)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("reject timeout")));
@@ -88,7 +93,7 @@ export function discardArtifact(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("discard", { artifact_id: artifactId, artifact_type: artifactType })
+      .push("discard", { artifact_id: artifactId, artifact_type: artifactType }, 60000)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("discard timeout")));
@@ -104,7 +109,7 @@ export function adopt(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("adopt", { artifact_id: artifactId, base_revision: baseRevision, payload, artifact_type: artifactType })
+      .push("adopt", { artifact_id: artifactId, base_revision: baseRevision, payload, artifact_type: artifactType }, 60000)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("adopt timeout")));
@@ -125,7 +130,7 @@ export function modifyDraft(
         base_revision: baseRevision,
         content,
         instruction,
-      })
+      }, 60000)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("modify_draft timeout")));
@@ -139,7 +144,7 @@ export function revise(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("revise", { behavior_id: behaviorId, feedback })
+      .push("revise", { behavior_id: behaviorId, feedback }, 60000)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("revise timeout")));
