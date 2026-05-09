@@ -8,8 +8,8 @@ defmodule NovelE2E.V3FullChainTest do
     AuthorInput → Planner → DialogueFrame → MicroPlan → GateOrder
     → OrchestratorDecision → BehaviorState / Toolbox → TurnResult
 
-  使用 stub complete_fn 注入精确的 LLM 响应来触发每条代码路径。
-  真实 LLM 测试单独一组，验证 LLM 输出可解析。
+  使用 stub complete_fn 注入精确的 LLM 响应来触发每条业务路径。
+  真实 LLM 解析验证在 novel_application/planner_real_llm_test.exs 中。
   """
 
   alias NovelApplication.DialogueGateway
