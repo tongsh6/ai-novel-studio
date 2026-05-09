@@ -1,5 +1,5 @@
 defmodule NovelAgent.Provider.GatewayTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Gateway
 
@@ -26,6 +26,22 @@ defmodule NovelAgent.Provider.GatewayTest do
 
     test "completes without error" do
       assert {:ok, _} = Gateway.complete("should use stub in test env")
+    end
+  end
+
+  describe "complete error handling" do
+    test "returns error map for unknown providers" do
+      # Temporarily override provider config to trigger unknown provider path.
+      # Restore after test to not affect other tests.
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :nonexistent)
+
+      result = Gateway.complete("test")
+      assert {:error, error} = result
+      assert is_map(error)
+      assert error.type == :provider_internal
+
+      Application.put_env(:novel_agent, :provider, old)
     end
   end
 end
