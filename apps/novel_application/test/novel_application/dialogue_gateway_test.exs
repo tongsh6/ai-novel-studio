@@ -183,7 +183,10 @@ defmodule NovelApplication.DialogueGatewayTest do
       {:ok, _turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "trace test", workspace_id: ws_id},
-          nil, complete_fn, persister)
+          nil,
+          complete_fn,
+          persister
+        )
 
       captured = Agent.get(agent, & &1) |> Enum.reverse()
       assert length(captured) == 1
@@ -194,6 +197,39 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert captured_attrs[:turn_id] == trace.turn_id
       assert captured_attrs[:decision_type] != nil
       assert captured_attrs[:event_order] != nil
+    end
+  end
+
+  describe "interaction recorder callback" do
+    test "records user and assistant messages after successful handle_input" do
+      complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
+
+      {:ok, agent} = Agent.start_link(fn -> [] end)
+      ws_id = "ws-memory-#{System.unique_integer([:positive, :monotonic])}"
+
+      recorder = fn ws_id_arg, entries ->
+        Agent.update(agent, &[{ws_id_arg, entries} | &1])
+        :ok
+      end
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "记住这轮", workspace_id: ws_id},
+          nil,
+          complete_fn,
+          nil,
+          recorder
+        )
+
+      captured = Agent.get(agent, & &1) |> Enum.reverse()
+      assert length(captured) == 1
+      [{captured_ws_id, entries}] = captured
+
+      assert captured_ws_id == ws_id
+      assert Enum.map(entries, & &1.role) == ["user", "assistant"]
+      assert Enum.map(entries, & &1.turn_id) == [turn_result.turn_id, turn_result.turn_id]
+      assert Enum.at(entries, 0).content.text == "记住这轮"
+      assert Enum.at(entries, 1).content.text == "收到你的消息。"
     end
   end
 end

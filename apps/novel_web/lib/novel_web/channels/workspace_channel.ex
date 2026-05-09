@@ -25,8 +25,9 @@ defmodule NovelWeb.WorkspaceChannel do
 
     fetcher = NovelApplication.persistence_fetcher()
     persister = NovelApplication.persistence_tracer()
+    recorder = NovelApplication.persistence_interaction_recorder()
 
-    case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister) do
+    case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister, recorder) do
       {:ok, turn_result, _trace, _candidates, _context} ->
         broadcast!(socket, "turn_result", turn_result)
         {:reply, {:ok, %{received: true}}, socket}
@@ -40,7 +41,9 @@ defmodule NovelWeb.WorkspaceChannel do
   @impl true
   def handle_in("author_action", %{"action" => action_params}, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
-    source_turn_result = action_params["source_turn_result"] || %{turn_id: action_params["source_turn_ref"]}
+
+    source_turn_result =
+      action_params["source_turn_result"] || %{turn_id: action_params["source_turn_ref"]}
 
     action_input = %AuthorActionInput{
       input_id: "in_#{System.unique_integer([:positive, :monotonic])}",
@@ -73,12 +76,17 @@ defmodule NovelWeb.WorkspaceChannel do
     data = %{
       work_id: "mock_work",
       volumes: [
-        %{id: "vol_1", title: "第一卷：起源", chapters: [
-          %{id: "ch_1", title: "第一章：苏醒"},
-          %{id: "ch_2", title: "第二章：危机"}
-        ]}
+        %{
+          id: "vol_1",
+          title: "第一卷：起源",
+          chapters: [
+            %{id: "ch_1", title: "第一章：苏醒"},
+            %{id: "ch_2", title: "第二章：危机"}
+          ]
+        }
       ]
     }
+
     {:reply, {:ok, data}, socket}
   end
 
@@ -86,6 +94,7 @@ defmodule NovelWeb.WorkspaceChannel do
     data = [
       %{id: "char_1", name: "主角", role: "Protagonist", summary: "一个神秘的幸存者", aliases: ["老李"]}
     ]
+
     {:reply, {:ok, data}, socket}
   end
 
@@ -93,6 +102,7 @@ defmodule NovelWeb.WorkspaceChannel do
     data = [
       %{id: "mem_1", type: "foreshadowing", content: "脖子后的奇异纹身", tags: ["未解之谜", "主线"]}
     ]
+
     {:reply, {:ok, data}, socket}
   end
 
@@ -100,6 +110,7 @@ defmodule NovelWeb.WorkspaceChannel do
     data = [
       %{id: "rule_1", type: "rule", content: "只能在夜间使用魔法", tags: ["世界观", "战斗"]}
     ]
+
     {:reply, {:ok, data}, socket}
   end
 
@@ -114,6 +125,7 @@ defmodule NovelWeb.WorkspaceChannel do
       drafts_total: 5,
       drafts_accepted: 2
     }
+
     {:reply, {:ok, data}, socket}
   end
 

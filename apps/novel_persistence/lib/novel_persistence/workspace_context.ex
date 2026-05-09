@@ -8,6 +8,7 @@ defmodule NovelPersistence.WorkspaceContext do
 
   import Ecto.Query, only: [from: 2]
 
+  alias NovelPersistence.MemoryLog
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.Schemas.Workspace
@@ -42,6 +43,19 @@ defmodule NovelPersistence.WorkspaceContext do
     end
   end
 
+  @doc """
+  构建 interaction recorder 回调。该回调将一轮对话中的 user / assistant
+  消息写入 episodic memory，用于后续 turn 的 conversation_summary。
+  """
+  @spec interaction_recorder() :: function()
+  def interaction_recorder do
+    fn workspace_id, entries ->
+      entries
+      |> Enum.map(&Map.put(&1, :workspace_id, workspace_id))
+      |> Enum.reduce_while(:ok, &persist_interaction/2)
+    end
+  end
+
   # ── private fetchers ─────────────────────────────
 
   defp fetch_workspace_info(workspace_id) do
@@ -68,11 +82,20 @@ defmodule NovelPersistence.WorkspaceContext do
       snippets =
         interactions
         |> Enum.reverse()
-        |> Enum.map_join("\n", fn i -> "#{i.role}: #{Map.get(i.content, "text", "") || ""}" end)
+        |> Enum.map_join("\n", fn i -> "#{i.role}: #{interaction_text(i)}" end)
 
-      "## 最近对话\n#{snippets}"
-    else
-      "## 最近对话\n(系统提示: 用户之前表达了想写一部小说的意愿，正在逐步构思)"
+      snippets
+    end
+  end
+
+  defp interaction_text(%Interaction{content: content}) when is_map(content) do
+    Map.get(content, "text") || Map.get(content, :text) || ""
+  end
+
+  defp persist_interaction(attrs, :ok) do
+    case MemoryLog.record(attrs) do
+      {:ok, _interaction} -> {:cont, :ok}
+      {:error, reason} -> {:halt, {:error, reason}}
     end
   end
 end

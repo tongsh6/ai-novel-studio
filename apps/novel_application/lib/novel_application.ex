@@ -35,6 +35,13 @@ defmodule NovelApplication do
     if inject_persistence?(), do: NovelPersistence.WorkspaceContext.trace_persister()
   end
 
+  @doc """
+  返回 interaction recorder 用于注入 DialogueGateway。启用真实持久化时写入 episodic memory。
+  """
+  def persistence_interaction_recorder do
+    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.interaction_recorder()
+  end
+
   defp inject_persistence? do
     Application.get_env(:novel_web, :persistence, [])
     |> Keyword.get(:inject_real_persistence, false)
