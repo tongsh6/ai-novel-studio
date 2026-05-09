@@ -15,8 +15,8 @@ defmodule NovelApplication do
   def provider_health do
     provider = Application.get_env(:novel_agent, :provider)[:default] || :unknown
 
-    case Gateway.complete("ping") do
-      {:ok, _result} -> {:ok, provider}
+    case Gateway.health_check() do
+      :ok -> {:ok, provider}
       {:error, error} -> {:error, error}
     end
   end

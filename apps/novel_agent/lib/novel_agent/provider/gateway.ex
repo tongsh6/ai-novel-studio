@@ -58,6 +58,24 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
+  @doc """
+  当前 provider 的轻量健康检查——不发送 LLM 请求，不消耗 token。
+  各 adapter 自行实现：LM Studio 查 /v1/models，Anthropic 检查 API key。
+  """
+  @spec health_check() :: :ok | {:error, map()}
+  def health_check do
+    provider_name = default_provider()
+
+    case Map.fetch(@provider_modules, provider_name) do
+      {:ok, module} ->
+        state = build_state(module)
+        module.health_check(state)
+
+      :error ->
+        {:error, %{message: "unknown provider: #{provider_name}"}}
+    end
+  end
+
   @doc "返回当前已注册的 provider 列表。"
   @spec registered_providers() :: [atom()]
   def registered_providers, do: Map.keys(@provider_modules)

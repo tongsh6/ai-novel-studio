@@ -23,4 +23,7 @@ defmodule NovelAgent.Provider.Stub do
 
   @impl true
   def name, do: "stub"
+
+  @impl true
+  def health_check(_state), do: :ok
 end

@@ -127,6 +127,21 @@ defmodule NovelAgent.Provider.LMStudio do
   @impl true
   def name, do: "lmstudio"
 
+  @impl true
+  def health_check(%__MODULE__{endpoint: endpoint, timeout: timeout})
+      when is_binary(endpoint) and endpoint != "" do
+    url = Path.join(endpoint, "models")
+    post = &HTTP.post/3
+
+    case post.(url, %{}, receive_timeout: timeout || 5_000) do
+      {:ok, status, _body} when status in 200..299 -> :ok
+      {:error, reason, _status, msg} -> {:error, %{message: msg, reason: reason}}
+    end
+  end
+
+  def health_check(%__MODULE__{}),
+    do: {:error, %{message: "LM Studio endpoint 未配置", type: :config_error}}
+
   @doc "从应用配置构建 state struct。"
   @spec from_config() :: t()
   def from_config do

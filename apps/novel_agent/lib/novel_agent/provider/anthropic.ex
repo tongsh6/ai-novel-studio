@@ -124,6 +124,10 @@ defmodule NovelAgent.Provider.Anthropic do
   @impl true
   def name, do: "anthropic"
 
+  @impl true
+  def health_check(%__MODULE__{api_key: key}) when is_binary(key) and key != "", do: :ok
+  def health_check(%__MODULE__{}), do: {:error, %{message: "Anthropic API key 未配置", type: :unauthorized}}
+
   @doc "从应用配置构建 state struct。支持环境变量 ANTHROPIC_API_KEY。"
   @spec from_config() :: t()
   def from_config do

@@ -22,6 +22,15 @@ defmodule NovelAgent.Provider do
   @callback complete(state :: term(), model :: model(), prompt :: prompt(), params :: InferenceParams.t()) :: result()
 
   @doc """
+  轻量健康检查——不调用 LLM，不消耗 token。
+
+  LM Studio: GET /v1/models
+  Anthropic: 仅检查 API key 是否配置
+  Stub: 始终 :ok
+  """
+  @callback health_check(state :: term()) :: :ok | {:error, term()}
+
+  @doc """
   返回 provider 名称（用于日志和 audit）。
   """
   @callback name() :: String.t()
