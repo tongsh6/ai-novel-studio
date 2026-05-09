@@ -1,4 +1,4 @@
-defmodule NovelWeb.V3FullChainTest do
+defmodule NovelE2E.V3FullChainTest do
   use ExUnit.Case, async: false
 
   @moduledoc """
@@ -14,7 +14,7 @@ defmodule NovelWeb.V3FullChainTest do
 
   alias NovelApplication.DialogueGateway
   alias NovelApplication.ReplayService
-  alias NovelWeb.Test.IntegrationHelpers
+  alias NovelTest.ProviderHelpers
 
   @moduletag :integration
 
@@ -328,8 +328,8 @@ defmodule NovelWeb.V3FullChainTest do
   # ═══════════════════════════════════════════════════
 
   setup_all do
-    if IntegrationHelpers.lmstudio_available?() do
-      complete_fn = IntegrationHelpers.lmstudio_complete_fn()
+    if ProviderHelpers.lmstudio_available?() do
+      complete_fn = ProviderHelpers.lmstudio_complete_fn()
       {:ok, complete_fn: complete_fn}
     else
       IO.puts("\n  ⏭  Skipping real LLM tests: LM Studio 未启动")
