@@ -24,7 +24,7 @@ defmodule NovelApplication.ReplayServiceTest do
       assert report.replay_level == :structural
       assert report.provider_called == false
       assert report.result_status == :complete
-      assert report.decision_explanations != []
+      assert [_ | _] = report.decision_explanations
       assert hd(report.decision_explanations).decision_type == :reply_only
       assert length(report.chain_summary) >= 2
     end

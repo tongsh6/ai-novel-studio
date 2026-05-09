@@ -233,7 +233,7 @@ defmodule NovelApplication.ExecutionAuthorityTest do
       assert decision.plan_ref == "p-test"
       assert decision.decision_status == :decided
       assert decision.first_blocking_gate != nil
-      assert decision.reason_codes != []
+      assert [_ | _] = decision.reason_codes
     end
 
     test "rejected_actions contains all proposed actions when blocked" do

@@ -110,7 +110,7 @@ defmodule NovelApplication.BehaviorLifecycleTest do
 
       {_decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
-      assert behavior.required_next_action != nil
+      assert behavior.required_next_action != ""
       assert behavior.required_next_action == "confirm_before_execute"
     end
   end

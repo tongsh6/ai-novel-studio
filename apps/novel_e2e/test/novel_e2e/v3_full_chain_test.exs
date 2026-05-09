@@ -275,10 +275,14 @@ defmodule NovelE2E.V3FullChainTest do
       assert tool_result.tool_name == "creative_generation"
 
       # TentativeArtifactSet 存在
-      artifacts = turn_result.tentative_artifacts
-      assert artifacts != nil
-      assert artifacts.adoption_status == :tentative
-      assert length(artifacts.items) == 3
+      adoption_state = turn_result.adoption_state
+      assert adoption_state != nil
+      assert length(adoption_state.pending) == 1
+
+      pending_artifact = hd(adoption_state.pending)
+      assert pending_artifact.adoption_status == :tentative
+      assert pending_artifact.requires_adoption == true
+      assert length(pending_artifact.payload.items) == 3
     end
   end
 

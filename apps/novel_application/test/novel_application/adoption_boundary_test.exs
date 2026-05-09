@@ -72,7 +72,7 @@ defmodule NovelApplication.AdoptionBoundaryTest do
 
       decision = AdoptionBoundary.evaluate(set, chosen)
 
-      assert decision.reason_codes != []
+      assert [_ | _] = decision.reason_codes
       assert "candidate_adopted_as_tentative" in decision.reason_codes
     end
 
