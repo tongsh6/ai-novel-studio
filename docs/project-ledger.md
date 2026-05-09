@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-09（UI Walkthrough 100% 通过，自动化走查与静态代码检查全绿，3 轮重构 Review 闭环）
+> 最后更新：2026-05-09（Stage 5 闭环：Stage 启动脚本 + Provider 健康检查轻量化 + 跨轮对话记忆）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 
@@ -8,7 +8,7 @@
 
 ## 1. 当前阶段目标
 
-**Stage 5（Real Integration）— v3 主链代码完成，正在接入真实 provider、真实持久化和前端 Workbench。**
+**Stage 5（Real Integration）— v3 主链代码完成，真实 provider + 真实持久化 + 前端 Workbench 已打通，Stage 启动脚本 + 跨轮对话记忆已落地。**
 
 v3 设计体系（Stage 0-3）已完成。17 个 ADR 全部 Accepted。10 个 contract pack + 10 个 slice 定义全部 docs-ready。
 
@@ -108,7 +108,14 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 | | — `requires_adoption` 字段补齐及 E2E 测试断言强化 | | 严格对齐 ADR 契约 |
 | | — 解决类型检查告警（Credo / Typecheck） | | `length > 0` 替换 |
 
-**汇总**：10 slices + QP-01/QP-02 done，341 tests + 9 e2e，0 failures，0 cycles，13/13 scan，100% Playwright Walkthrough。
+| QP-03 | Stage 启动脚本 + Provider 健康检查轻量化 + 跨轮记忆 | `HEAD` | 353 tests, 0 failures |
+| | — Stage 启动脚本（`scripts/stage.sh`）：MIX_ENV=prod + Tauri 桌面优先 | | 可独立运行的 stage 环境 |
+| | — Provider 健康检查轻量化：新增 `health_check/1` callback | | LM Studio: GET /v1/models，Anthropic: key check |
+| | — 跨轮对话记忆：`interaction_recorder` → `MemoryLog` → `context_fetcher` | | 写入→读取→注入闭环 |
+| | — dev/stage LLM 日志目录分离：`log/llm-calls/dev/` + `log/llm-calls/stage/` | | 环境隔离 |
+| | — dialyxir 配置从 config.exs 移至 dev.exs + test.exs | | MIX_ENV=prod 可用 |
+
+**汇总**：10 slices + QP-01/QP-02/QP-03 done，353 tests + 9 e2e，0 failures，0 cycles，13/13 scan，100% Playwright Walkthrough。
 
 ---
 
@@ -146,11 +153,7 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 
 | 事项 | 当前状态 | 阻塞点 | 下一步 |
 |------|----------|--------|--------|
-| 真实 LLM 集成 | ✅ 已完成 | — | Planner → Gateway → LM Studio / Anthropic 已调通 |
-| 真实持久化 | ✅ 已完成 | — | ContextAssembler + TraceWriter → SQLite3 已验证 |
-| 前端 Workbench | ✅ 已完成 | — | Tauri 消费 v3 Channel 已验证 |
-| 端到端集成测试 | ✅ 已完成 | — | VS-08 全链路 + stub/real LLM 已验证 |
-| Provider 日志质量 | ✅ 已完成 | — | QP-01 6 项修复全部落地 |
+| — | 全部完成 | — | Stage 5 集成批次已闭环 |
 
 ---
 
@@ -176,14 +179,10 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 
 | 优先级 | 事项 | 原因 | 验收标准 |
 |--------|------|------|----------|
-| 1 | ✅ 真实 LLM 集成 | 已完成 | LM Studio + Anthropic 双 Provider 调通 |
-| 2 | ✅ 真实持久化 | 已完成 | SQLite3 读写验证通过 |
-| 3 | ✅ 前端 Workbench | 已完成 | Tauri 端到端对话轮次可用 |
-| 4 | ✅ 端到端集成测试 | 已完成 | VS-08 全链路 31 tests, 0 failures |
-| 5 | ✅ Provider 日志质量 | 已完成 | QP-01 6 项修复 + ABCD 解析管线 + LLMLog common 化 |
-| 6 | ✅ 工程门禁 | 已完成 | static scan 13/13, deps.audit clean, Tauri 对齐 |
-| 7 | ✅ 架构夯实 | 已完成 | novel_e2e 新建，依赖方向清理，测试高内聚，3 轮 review |
-| 6 | ✅ 工程门禁 | 已完成 | static scan 13/13 PASS, deps.audit clean, Tauri identifier 对齐 |
+| 1 | ✅ Stage 启动脚本 | 已完成 | `scripts/stage.sh` 一键启动，MIX_ENV=prod，桌面优先 |
+| 2 | ✅ Provider 健康检查轻量化 | 已完成 | `health_check/1` callback 替代 `complete("ping")` |
+| 3 | ✅ 跨轮对话记忆 | 已完成 | interaction_recorder → MemoryLog → context_fetcher 闭环 |
+| 4 | ✅ LLM 日志环境隔离 | 已完成 | dev/stage 日志分目录 |
 
 ---
 
@@ -207,6 +206,8 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 | 工程护栏 | `docs/engineering/v3-architecture.md` | app 边界、复用规则 |
 | 质量门禁 | `docs/engineering/v3-quality-gates.md` | 工程/slice/小说门禁 |
 | 静态扫描 | `artifacts/static-scan/` | 最新 2026-05-09（13/13 PASS） |
+| Stage 启动 | `scripts/stage.sh` | 一键启动，MIX_ENV=prod + Tauri 桌面优先 |
+| 跨轮记忆测试 | `apps/novel_persistence/test/novel_persistence/workspace_context_test.exs` | recorder→fetcher roundtrip 集成测试 |
 | AGENTS.md | `AGENTS.md` | 编码行为约束 |
 | 编码规范 | `docs/coding-standards/` | 维度化规范 |
 
