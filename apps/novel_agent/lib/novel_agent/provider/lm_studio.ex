@@ -1,9 +1,6 @@
 defmodule NovelAgent.Provider.LMStudio do
   @moduledoc """
-  LM Studio 本地推理 Provider adapter。
-
-  LM Studio 暴露 OpenAI 兼容的 HTTP API（默认 `http://localhost:1234/v1`）。
-  本 adapter 通过共享的 `Provider.HTTP` 模块发送请求。
+  LM Studio Adapter — 用于本地测试和轻量推理。
   """
 
   @behaviour NovelAgent.Provider
@@ -16,7 +13,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
   defstruct [:endpoint, :model, :timeout, :http_fn, :log_fn, :json_mode]
 
-  @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
+  @type http_fn :: (String.t(), map(), keyword() -> {:ok, integer(), map()} | {:error, atom()})
   @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
 
   @type t :: %__MODULE__{
@@ -29,16 +26,22 @@ defmodule NovelAgent.Provider.LMStudio do
         }
 
   @impl true
-  def complete(%__MODULE__{} = state, _model, prompt, params) when is_binary(prompt) do
+  def complete(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params)
+      when is_binary(prompt) and not is_nil(endpoint) do
     start_time = System.monotonic_time(:millisecond)
-    body = HTTP.apply_params(%{
-      model: state.model,
-      messages: [%{role: "user", content: prompt}]
-    }, params)
-    |> maybe_json_mode(state.json_mode)
-    url = Path.join(state.endpoint, "chat/completions")
 
-    post = state.http_fn || &HTTP.post/3
+    body =
+      HTTP.apply_params(
+        %{
+          model: state.model,
+          messages: [%{role: "user", content: prompt}]
+        },
+        params
+      )
+      |> maybe_json_mode(state.json_mode)
+
+    url = Path.join(endpoint, "chat/completions")
+    post = state.http_fn || (&HTTP.post/3)
 
     result =
       case post.(url, body, receive_timeout: state.timeout) do
@@ -49,8 +52,12 @@ defmodule NovelAgent.Provider.LMStudio do
           handle_error(reason, message, start_time)
       end
 
-    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
-    strip_attrs(result)
+    log_and_return(result, state, url, body, start_time, prompt)
+  end
+
+  def complete(%__MODULE__{} = _state, _model, _prompt, _params) do
+    err = UpstreamError.new(:provider_internal, "LM Studio endpoint not configured", name())
+    {:error, %{type: err.type, message: err.message, provider: err.provider, retryable: err.retryable}}
   end
 
   # ── response handlers ────────────────────────
@@ -62,11 +69,19 @@ defmodule NovelAgent.Provider.LMStudio do
 
     if content && content != "" do
       Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
-      {:ok, Result.new(content), %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}}
+      {:ok, Result.new(content),
+       %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}}
     else
       err = UpstreamError.new(:invalid_response, "响应内容为空", name())
       Logger.warning("[LMStudio] #{err.message}")
-      attrs = %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}
+
+      attrs = %{
+        status: 200,
+        usage: usage,
+        duration: duration,
+        resp_body: Jason.encode!(resp_body)
+      }
+
       {:error, UpstreamError.to_error_tuple(err), attrs}
     end
   end
@@ -75,6 +90,7 @@ defmodule NovelAgent.Provider.LMStudio do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:connection_refused, "LM Studio 未启动", name())
     Logger.warning("[LMStudio] #{err.message}")
+
     {:error, UpstreamError.to_error_tuple(err),
      %{status: 0, usage: %{}, duration: duration, resp_body: "connection_refused"}}
   end
@@ -83,6 +99,7 @@ defmodule NovelAgent.Provider.LMStudio do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:timeout, "LM Studio 请求超时", name())
     Logger.warning("[LMStudio] #{err.message}")
+
     {:error, UpstreamError.to_error_tuple(err),
      %{status: 0, usage: %{}, duration: duration, resp_body: "timeout"}}
   end
@@ -91,8 +108,14 @@ defmodule NovelAgent.Provider.LMStudio do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:provider_internal, message, name())
     Logger.warning("[LMStudio] #{err.message}")
+
     {:error, UpstreamError.to_error_tuple(err),
      %{status: 0, usage: %{}, duration: duration, resp_body: message}}
+  end
+
+  defp log_and_return(result, state, url, body, start_time, _prompt) do
+    if log = state.log_fn, do: log.(name(), url, body, result, start_time)
+    strip_attrs(result)
   end
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}

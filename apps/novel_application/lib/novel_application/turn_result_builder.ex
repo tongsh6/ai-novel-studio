@@ -22,6 +22,7 @@ defmodule NovelApplication.TurnResultBuilder do
       turn_id: frame.turn_id,
       frame_ref: frame.frame_id,
       assistant_message: %{text: frame.author_visible_draft.message},
+      ui_cards: [],
       frame_summary: %{
         frame_type: frame.frame_type,
         dialogue_goal: frame.dialogue_goal.summary
@@ -117,10 +118,35 @@ defmodule NovelApplication.TurnResultBuilder do
 
   defp maybe_add_artifacts(r, nil), do: r
   defp maybe_add_artifacts(r, as) do
-    Map.put(r, :tentative_artifacts, %{
-      artifact_set_id: as.artifact_set_id, artifact_type: as.artifact_type,
-      items: as.items, adoption_status: as.adoption_status,
-      source_tool_result_ref: as.source_tool_result_ref})
+    adoption_state = %{
+      pending: [%{
+        artifact_id: as.artifact_set_id,
+        artifact_type: as.artifact_type,
+        requires_adoption: true,
+        payload: %{items: as.items},
+        adoption_status: as.adoption_status,
+        source_tool_result_ref: as.source_tool_result_ref
+      }],
+      resolved: []
+    }
+
+    adoption_card = %{
+      card_type: "adoption_card",
+      priority: "high",
+      visibility: "always",
+      title: "待确认的新设定",
+      body: "AI 生成了新的创作设定，请审核是否采纳。",
+      artifact_refs: [as.artifact_set_id],
+      actions: [
+        %{action_id: "a_accept", action_type: "accept", label: "采纳", target_ref: as.artifact_set_id, enabled: true, style_hint: "primary"},
+        %{action_id: "a_discard", action_type: "discard", label: "放弃", target_ref: as.artifact_set_id, enabled: true, style_hint: "secondary"},
+        %{action_id: "a_edit", action_type: "edit_then_accept", label: "修改", target_ref: as.artifact_set_id, enabled: true, style_hint: "secondary"}
+      ]
+    }
+
+    r
+    |> Map.put(:adoption_state, adoption_state)
+    |> Map.update(:ui_cards, [adoption_card], fn cards -> cards ++ [adoption_card] end)
   end
 
   defp maybe_add_behavior(r, nil), do: r

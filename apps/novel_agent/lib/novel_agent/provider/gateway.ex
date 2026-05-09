@@ -54,7 +54,7 @@ defmodule NovelAgent.Provider.Gateway do
 
       {:error, error} ->
         Logger.warning("[提供者网关] #{provider_name} 调用失败：#{get_in(error, [:message]) || inspect(error)}")
-        {:error, if(is_map(error), do: error, else: Map.from_struct(error))}
+        {:error, if(is_map(error), do: error, else: %{message: inspect(error)})}
     end
   end
 
