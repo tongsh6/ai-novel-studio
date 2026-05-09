@@ -1,16 +1,13 @@
-defmodule NovelE2E.PersistenceIntegrationTest do
+defmodule NovelApplication.TracePersisterContractTest do
   use ExUnit.Case, async: false
 
   @moduledoc """
-  E2E 集成测试：验证端到端链路中的 trace 回调契约。
+  验证 DialogueGateway.handle_input 正确调用注入的 trace_persister 回调。
 
-  只使用 novel_web 入口（DialogueGateway），不直接引用 persistence 模块。
-  Trace 写入验证通过 Agent 捕获回调参数实现。
+  通过 Agent 捕获回调参数，不直接引用 persistence 模块。
   """
 
   alias NovelApplication.DialogueGateway
-
-  @moduletag :integration
 
   @frame_json """
   {
