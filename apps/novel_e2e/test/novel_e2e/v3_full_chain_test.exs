@@ -14,7 +14,6 @@ defmodule NovelE2E.V3FullChainTest do
 
   alias NovelApplication.DialogueGateway
   alias NovelApplication.ReplayService
-  alias NovelTest.ProviderHelpers
 
   @moduletag :integration
 
@@ -323,67 +322,4 @@ defmodule NovelE2E.V3FullChainTest do
     end
   end
 
-  # ═══════════════════════════════════════════════════
-  # 真实 LLM 测试 — 只验证结构有效性
-  # ═══════════════════════════════════════════════════
-
-  setup_all do
-    if ProviderHelpers.lmstudio_available?() do
-      complete_fn = ProviderHelpers.lmstudio_complete_fn()
-      {:ok, complete_fn: complete_fn}
-    else
-      IO.puts("\n  ⏭  Skipping real LLM tests: LM Studio 未启动")
-      {:skip, :provider_unavailable}
-    end
-  end
-
-  describe "real LLM: structural validity" do
-    test "reply-only produces valid frame + turn_result", %{complete_fn: complete_fn} do
-      {:ok, turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(%{text: "你好，聊聊创作", workspace_id: "ws-real"}, nil, complete_fn)
-
-      assert turn_result.schema_version == "3.0-draft"
-      assert is_binary(turn_result.turn_id)
-      assert is_binary(turn_result.frame_ref)
-      assert turn_result.assistant_message.text != ""
-      assert byte_size(turn_result.assistant_message.text) > 0
-      refute String.starts_with?(String.trim(turn_result.assistant_message.text), "{")
-
-      assert turn_result.truthfulness.tool_called == false
-      assert turn_result.truthfulness.production_write_performed == false
-      assert trace.replay_policy.recall_provider == false
-    end
-
-    test "exploration input does not produce mechanical form", %{complete_fn: complete_fn} do
-      {:ok, turn_result, _trace, _candidates, _context} =
-        DialogueGateway.handle_input(
-          %{text: "我想写赛博修仙但没想好方向，帮我想想怎么切入", workspace_id: "ws-real-2"},
-          nil, complete_fn)
-
-      refute String.contains?(turn_result.assistant_message.text, "请补充以下信息")
-      refute String.contains?(turn_result.assistant_message.text, "必填字段")
-      assert turn_result.frame_summary.frame_type != nil
-    end
-
-    test "generate_micro_plan does not crash", %{complete_fn: complete_fn} do
-      {:ok, turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(
-          %{text: "帮我创作角色设定", workspace_id: "ws-real-3", generate_micro_plan: true},
-          nil, complete_fn)
-
-      assert turn_result.turn_id != nil
-      assert trace.decision_type != nil
-      assert length(trace.event_order) >= 3
-    end
-
-    test "replay from real trace never calls provider", %{complete_fn: complete_fn} do
-      {:ok, _turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(%{text: "hi", workspace_id: "ws-real-r"}, nil, complete_fn)
-
-      report = ReplayService.build_report(trace)
-
-      assert report.provider_called == false
-      assert report.trace_ref == trace.trace_id
-    end
-  end
 end

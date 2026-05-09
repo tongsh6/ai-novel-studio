@@ -11,6 +11,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
 
   alias NovelApplication.DialogueGateway
   alias NovelApplication.Planner
+  alias NovelApplication.ReplayService
   alias NovelTest.ProviderHelpers
 
   @provider_name :lmstudio
@@ -193,6 +194,16 @@ defmodule NovelApplication.PlannerRealLLMTest do
       assert context.current_work_snapshot != nil
       assert context.conversation_summary != nil
       assert context.memory_summary != nil
+    end
+
+    test "replay from real trace never calls provider", %{complete_fn: complete_fn} do
+      {:ok, _turn_result, trace, _candidates, _context} =
+        DialogueGateway.handle_input(%{text: "hi", workspace_id: "ws-real-r"}, nil, complete_fn)
+
+      report = ReplayService.build_report(trace)
+
+      assert report.provider_called == false
+      assert report.trace_ref == trace.trace_id
     end
   end
 
