@@ -9,7 +9,6 @@ defmodule NovelWeb.WorkspaceChannel do
   use Phoenix.Channel
 
   alias NovelDomain.AuthorActionInput
-  alias NovelPersistence.WorkspaceContext
 
   @impl true
   def join("workspace:" <> suffix, _payload, socket) do
@@ -24,8 +23,8 @@ defmodule NovelWeb.WorkspaceChannel do
 
     input = %{text: text, workspace_id: ws_id, generate_micro_plan: generate_plan}
 
-    fetcher = if inject_persistence?(), do: WorkspaceContext.context_fetcher(), else: nil
-    persister = if inject_persistence?(), do: WorkspaceContext.trace_persister(), else: nil
+    fetcher = NovelApplication.persistence_fetcher()
+    persister = NovelApplication.persistence_tracer()
 
     case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister) do
       {:ok, turn_result, _trace, _candidates, _context} ->
@@ -66,11 +65,6 @@ defmodule NovelWeb.WorkspaceChannel do
 
   def handle_in("ping", payload, socket) do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
-  end
-
-  defp inject_persistence? do
-    Application.get_env(:novel_web, :persistence, [])
-    |> Keyword.get(:inject_real_persistence, false)
   end
 
   defp fallback_turn_result(reason) do

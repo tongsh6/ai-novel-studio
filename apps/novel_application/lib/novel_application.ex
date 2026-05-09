@@ -20,4 +20,23 @@ defmodule NovelApplication do
       {:error, error} -> {:error, error}
     end
   end
+
+  @doc """
+  返回 context_fetcher 用于注入 DialogueGateway。启用真实持久化时返回 DB fetcher。
+  """
+  def persistence_fetcher do
+    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.context_fetcher()
+  end
+
+  @doc """
+  返回 trace_persister 用于注入 DialogueGateway。启用真实持久化时返回 DB persister。
+  """
+  def persistence_tracer do
+    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.trace_persister()
+  end
+
+  defp inject_persistence? do
+    Application.get_env(:novel_web, :persistence, [])
+    |> Keyword.get(:inject_real_persistence, false)
+  end
 end
