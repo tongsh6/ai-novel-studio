@@ -34,6 +34,7 @@ v3 设计体系已闭环，目前处于特性增强期：
 | Slice | 名称 | 提交 | 核心验证 |
 |-------|------|------|----------|
 | VS-00 ~ VS-06 | 10 个承重竖切面 | `f7ba5c2` | 前后端主链闭环 |
+| VS-00A | Creative Exploration Loop | `HEAD` | 模糊输入产生 2-3 候选方向且无机械表单；trace 标记为 exploration |
 | VS-07 | Intent Registry Expansion | `HEAD` | 扩展世界观/人物/大纲/正文 4 类核心创作意图 |
 | VS-06+ | v3 TaskRunner Rebuild | `HEAD` | 支持 SQLite 状态同步与 RESUMING 恢复流 |
 | QP-01 ~ QP-03 | 基础设施与启动脚本 | `HEAD` | Stage 环境与跨轮记忆闭环 |
