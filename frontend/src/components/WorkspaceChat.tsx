@@ -5,7 +5,19 @@ import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 
 import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, modifyDraft, confirm, rejectAction, revise, dismissCard, resumeCheckpoint, cancelCheckpoint, branchCheckpoint, retryAction } from "../lib/socket";
-import { ClarificationCard, ConfirmationCard, WarningCard, AdoptionCard, ProgressCard, CheckpointCard, ResultCard, FailureCard, EscalationCard, DefaultCard } from "./UICards";
+import {
+  ClarificationCard,
+  ConfirmationCard,
+  WarningCard,
+  AdoptionCard,
+  ProgressCard,
+  CheckpointCard,
+  ResultCard,
+  FailureCard,
+  EscalationCard,
+  DefaultCard,
+  type UICardData,
+} from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 
@@ -18,7 +30,7 @@ interface TurnResult {
   status: string;
   next_action: string;
   assistant_message: { text: string };
-  ui_cards?: UICard[];
+  ui_cards?: UICardData[];
   candidate_directions?: CandidateDirection[];
   adoption_state?: {
     pending: ArtifactEntry[];
@@ -34,25 +46,6 @@ export interface CandidateDirection {
   title: string;
   pitch: string;
   tone_tags: string[];
-}
-
-export interface UICard {
-  card_type: string;
-  priority?: string;
-  visibility?: string;
-  title?: string;
-  body?: string;
-  artifact_refs?: string[];
-  actions?: UIAction[];
-}
-
-export interface UIAction {
-  action_id: string;
-  action_type?: string;
-  label: string;
-  target_ref: string;
-  enabled: boolean;
-  style_hint?: string;
 }
 
 export interface ArtifactEntry {

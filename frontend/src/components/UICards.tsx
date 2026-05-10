@@ -1,11 +1,30 @@
 // Design: docs/design-v2/ui-design/42-card-system.md §3 (card component rendering)
 // Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
-import type { UICard } from "./WorkspaceChat";
 import { CARD } from "../lib/copy";
 import styles from "./UICards.module.css";
 
+// Basic interface for UI cards, shared across v2 and v3 implementations
+export interface UICardData {
+  card_type: string;
+  priority?: string;
+  visibility?: string;
+  title?: string;
+  body?: string;
+  artifact_refs?: string[];
+  actions?: UIActionData[];
+}
+
+export interface UIActionData {
+  action_id: string;
+  action_type?: string;
+  label: string;
+  target_ref: string;
+  enabled: boolean;
+  style_hint?: string;
+}
+
 interface Props {
-  card: UICard;
+  card: UICardData;
   onAction: (actionId: string, targetRef: string, actionType?: string) => void;
 }
 
