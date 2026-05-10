@@ -340,10 +340,8 @@ slot schema 是 clarification 与 confirmation 的输入之一：
 
 ## enforced_by
 
-- `NovelAgent.IntentRegistry.SlotSchema` — 9 字段 slot entry + 5 字段 envelope + blocking_slots/1
 - `NovelFoundation.Enums.SlotType` — text / enum_or_text / object_ref 等 9 种 slot 类型
 - `NovelFoundation.Enums.Requiredness` — required_to_execute / optional_preference
 - `NovelFoundation.Enums.Inferability` — not_inferable / inferable_with_high_confidence
 - `NovelFoundation.Enums.Defaultability` — no_default / defaultable
 - `NovelFoundation.Enums.ScopeDependency` — work / volume / chapter 等 10 种 scope
-- `NovelAgent.Router` — blocking_slots 驱动 clarification 触发（ADR-0010 §6）

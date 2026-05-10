@@ -17,14 +17,20 @@ defmodule NovelApplication.Planner do
 
   `complete_fn` 可注入，默认走 Gateway.complete/1。
   """
-  @spec form_frame(map(), DialogueContext.t() | nil, complete_fn()) :: {DialogueFrame.t(), [CandidateDirection.t()]}
-  def form_frame(%{text: text, workspace_id: ws_id} = _input, context \\ nil, complete_fn \\ &Gateway.complete/1) do
+  @spec form_frame(map(), DialogueContext.t() | nil, complete_fn()) ::
+          {DialogueFrame.t(), [CandidateDirection.t()]}
+  def form_frame(
+        %{text: text, workspace_id: ws_id} = _input,
+        context \\ nil,
+        complete_fn \\ &Gateway.complete/1
+      ) do
     turn_id = allocate_turn_id()
     frame_id = allocate_frame_id()
 
-    result = with_turn_context(turn_id, "form_frame", fn ->
-      call_provider(text, context, complete_fn)
-    end)
+    result =
+      with_turn_context(turn_id, "form_frame", fn ->
+        call_provider(text, context, complete_fn)
+      end)
 
     case result do
       {:ok, parsed} ->
@@ -51,7 +57,8 @@ defmodule NovelApplication.Planner do
 
   `complete_fn` 可注入，默认走 Gateway.complete/1。
   """
-  @spec form_micro_plan(DialogueFrame.t(), map(), complete_fn()) :: {:ok, MicroPlan.t()} | {:error, term()}
+  @spec form_micro_plan(DialogueFrame.t(), map(), complete_fn()) ::
+          {:ok, MicroPlan.t()} | {:error, term()}
   def form_micro_plan(%DialogueFrame{} = frame, author_input, complete_fn \\ &Gateway.complete/1) do
     plan_id = "plan_#{System.unique_integer([:positive, :monotonic])}"
 
@@ -59,7 +66,9 @@ defmodule NovelApplication.Planner do
 
     case with_turn_context(frame.turn_id, "form_micro_plan", fn -> complete_fn.(prompt) end) do
       {:ok, %{content: content}} ->
-        content |> parse_json() |> build_plan_or_retry(content, prompt, complete_fn, plan_id, frame)
+        content
+        |> parse_json()
+        |> build_plan_or_retry(content, prompt, complete_fn, plan_id, frame)
 
       {:error, reason} ->
         {:error, reason}
@@ -110,7 +119,8 @@ defmodule NovelApplication.Planner do
       |> Map.get("proposed_actions", [])
       |> Enum.map(fn a ->
         %{
-          action_id: Map.get(a, "action_id", "act-#{System.unique_integer([:positive, :monotonic])}"),
+          action_id:
+            Map.get(a, "action_id", "act-#{System.unique_integer([:positive, :monotonic])}"),
           action_type: to_action_type(Map.get(a, "action_type", "clarification_request")),
           summary: Map.get(a, "summary", ""),
           target_ref: Map.get(a, "target_ref"),
@@ -220,10 +230,16 @@ defmodule NovelApplication.Planner do
 
     cond do
       String.starts_with?(trimmed, "```json") ->
-        trimmed |> String.replace_prefix("```json", "") |> String.replace_suffix("```", "") |> String.trim()
+        trimmed
+        |> String.replace_prefix("```json", "")
+        |> String.replace_suffix("```", "")
+        |> String.trim()
 
       String.starts_with?(trimmed, "```") ->
-        trimmed |> String.replace_prefix("```", "") |> String.replace_suffix("```", "") |> String.trim()
+        trimmed
+        |> String.replace_prefix("```", "")
+        |> String.replace_suffix("```", "")
+        |> String.trim()
 
       true ->
         trimmed
@@ -232,7 +248,8 @@ defmodule NovelApplication.Planner do
 
   defp find_brace_substring(content) do
     case {first_open(content), last_close(content)} do
-      {start_pos, end_pos} when not is_nil(start_pos) and not is_nil(end_pos) and start_pos < end_pos ->
+      {start_pos, end_pos}
+      when not is_nil(start_pos) and not is_nil(end_pos) and start_pos < end_pos ->
         String.slice(content, start_pos..end_pos)
 
       _ ->
@@ -319,18 +336,26 @@ defmodule NovelApplication.Planner do
   end
 
   defp build_candidates(parsed, frame_id) do
-    parsed |> Map.get("candidate_directions", []) |> Enum.map(fn
+    parsed
+    |> Map.get("candidate_directions", [])
+    |> Enum.map(fn
       c when is_map(c) ->
         %CandidateDirection{
           direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
-          title: Map.get(c, "title", ""), pitch: Map.get(c, "pitch", ""),
-          tone_tags: Map.get(c, "tone_tags", []), source_frame_ref: frame_id,
+          title: Map.get(c, "title", ""),
+          pitch: Map.get(c, "pitch", ""),
+          tone_tags: Map.get(c, "tone_tags", []),
+          source_frame_ref: frame_id,
           adoption_status: :not_adopted
         }
+
       c when is_binary(c) ->
         %CandidateDirection{
           direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
-          title: c, pitch: c, tone_tags: [], source_frame_ref: frame_id,
+          title: c,
+          pitch: c,
+          tone_tags: [],
+          source_frame_ref: frame_id,
           adoption_status: :not_adopted
         }
     end)
@@ -340,14 +365,22 @@ defmodule NovelApplication.Planner do
     context_ref = context && context.workspace_id && "context:#{context.workspace_id}"
 
     %DialogueFrame{
-      schema_version: "3.0-draft", frame_id: frame_id, turn_id: turn_id, workspace_id: ws_id,
-      primary: true, frame_type: :casual_reply,
-      source_refs: %{author_input_ref: "author_input:#{turn_id}", dialogue_context_ref: context_ref},
+      schema_version: "3.0-draft",
+      frame_id: frame_id,
+      turn_id: turn_id,
+      workspace_id: ws_id,
+      primary: true,
+      frame_type: :casual_reply,
+      source_refs: %{
+        author_input_ref: "author_input:#{turn_id}",
+        dialogue_context_ref: context_ref
+      },
       dialogue_goal: %{summary: "用户发来消息"},
       tool_need: %{needs_tool: false, reason_code: :no_tool_needed},
       execution_readiness: :not_applicable,
       author_visible_draft: %{message: "抱歉，我现在无法连接到创作引擎。请稍后再试。"},
-      evidence_summary: %{fallback: true, context_used: context != nil}, uncertainty: []
+      evidence_summary: %{fallback: true, context_used: context != nil},
+      uncertainty: []
     }
   end
 

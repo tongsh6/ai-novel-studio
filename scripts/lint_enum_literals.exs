@@ -53,7 +53,6 @@ defmodule LintEnumLiterals do
 
     if violations == [] do
       IO.puts("✅ enum literal lint: clean (#{length(forbidden)} canonical values guarded)")
-      System.halt(0)
     else
       IO.puts("❌ enum literal lint: #{length(violations)} violation(s)")
       IO.puts("Use NovelFoundation.Enums.<Module>.<value>() instead of bare strings.")

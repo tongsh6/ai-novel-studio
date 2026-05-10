@@ -111,6 +111,15 @@ defmodule NovelE2E.V3FullChainTest do
     end
   end
 
+  defp capturing_complete_fn(response) do
+    test_pid = self()
+
+    fn prompt ->
+      send(test_pid, {:prompt, prompt})
+      {:ok, %{content: response}}
+    end
+  end
+
   # ═══════════════════════════════════════════════════
   # Proof 1: reply-only 主链
   # ═══════════════════════════════════════════════════
@@ -130,6 +139,24 @@ defmodule NovelE2E.V3FullChainTest do
       assert trace.decision_type == :reply_only
       assert :reply_only_decision_recorded in trace.event_order
       assert :turn_result_emitted in trace.event_order
+    end
+
+    test "context injection actually reaches the LLM prompt" do
+      fetcher = fn _ws_id ->
+        {:ok, %{title: "赛博世界"}, "对话摘要", "记忆摘要", nil}
+      end
+
+      # 注入支持 prompt 捕获的 stub
+      complete_fn = capturing_complete_fn(@frame_json)
+
+      {:ok, _turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(%{text: "你好", workspace_id: "ws-c1"}, fetcher, complete_fn)
+
+      # 关键断言：验证 Prompt 包含上下文内容
+      assert_receive {:prompt, prompt}
+      assert String.contains?(prompt, "赛博世界")
+      assert String.contains?(prompt, "对话摘要")
+      assert String.contains?(prompt, "记忆摘要")
     end
 
     test "replay from reply-only trace never calls provider" do
