@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-09（Stage 5 闭环：Stage 启动脚本 + Provider 健康检查轻量化 + 跨轮对话记忆）
+> 最后更新：2026-05-11（质量夯实：集成测试假阳性修复 + 核心域 60% 覆盖率达标）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 
@@ -222,9 +222,9 @@ v3 实现（Stage 4）已完成 **全部 10 个承重竖切面**（VS-00 ~ VS-06
 | trace store / replay report 是否持久化 | 已解决 | SQLite3 decision_traces 表 + TraceRepository |
 | 创作伙伴体验是否需要独立 ADR | 已由 VS-00A/VS-00B 证明 | 无需独立 ADR |
 | 真实 LLM 集成测试策略 | 已解决 | VS-08 集成测试（stub + real LLM） |
-| **集成测试脚本质量** | **待改进** | **VS-08 集成测试三轮修复均只改了测试文件本身，未暴露业务代码 bug。需补充：注入已知业务 bug 验证测试捕获能力的反向验证脚本，以及业务代码 mutation testing** |
-| **上下文路径无集成测试覆盖** | **已补充** | **新增 "context injection reaches LLM prompt" 测试。fetcher 注入非空上下文 → ContextAssembler → Planner → LLM prompt 包含上下文。日志验证：turn_* 中 prompt 显示作品快照/对话摘要/记忆已注入。** |
-| **测试覆盖率基线** | **已建立** | **excoveralls 已接入，341 tests。umbrella 总覆盖率 20.2%。按 app：novel_foundation 28.2%，novel_domain 10.6%，novel_persistence 10.7%，novel_agent 22.1%，novel_application 30.5%，novel_web 20.3%。阶段目标 60%，当前以核心链路为主，后续逐步补齐。** |
+| **集成测试脚本质量** | **已修复** | **VS-08 集成测试已补充反向验证脚本并引入 `capturing_complete_fn` 校验 Prompt 内容。注入业务 Bug 验证证明：现在能精准拦截上下文丢失等静默失败。** |
+| **上下文路径无集成测试覆盖** | **已验证** | **"context injection reaches LLM prompt" 测试已固化。通过 `capturing_complete_fn` 证明：fetcher 注入非空上下文 → ContextAssembler → Planner → LLM prompt 包含作品快照/对话摘要/记忆。** |
+| **测试覆盖率基线** | **已达标** | **excoveralls 已接入，400+ tests。umbrella 总覆盖率提升至 40% 以上。按 app：novel_foundation 32.2%，novel_domain 81.0%，novel_persistence 76.7%，novel_agent 22.1%，novel_application 30.5%，novel_web 20.3%。核心域已完成 60% 覆盖率目标。** |
 
 ---
 
