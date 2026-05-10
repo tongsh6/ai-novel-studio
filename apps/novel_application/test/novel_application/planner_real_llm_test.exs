@@ -35,7 +35,14 @@ defmodule NovelApplication.PlannerRealLLMTest do
       assert frame.schema_version == "3.0-draft"
       assert frame.frame_id != nil
       assert frame.turn_id != nil
-      assert frame.frame_type in [:casual_reply, :creative_exploration, :question_answer, :meta_discussion]
+
+      assert frame.frame_type in [
+               :casual_reply,
+               :creative_exploration,
+               :question_answer,
+               :meta_discussion
+             ]
+
       assert frame.dialogue_goal.summary != ""
       assert frame.author_visible_draft.message != ""
       assert is_boolean(frame.tool_need.needs_tool)
@@ -54,6 +61,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
 
       if frame.frame_type == :creative_exploration do
         assert candidates != []
+
         for c <- candidates do
           assert c.title != ""
           assert c.pitch != ""
@@ -116,12 +124,19 @@ defmodule NovelApplication.PlannerRealLLMTest do
       frame = build_exploration_frame()
 
       assert {:ok, plan} = Planner.form_micro_plan(frame, %{text: "我想写角色设定"}, complete_fn)
+
       for action <- plan.proposed_actions do
         assert action.action_id != nil
+
         assert action.action_type in [
-          :candidate_generation, :tentative_artifact, :state_change_request,
-          :clarification_request, :confirmation_request, :capability_invocation
-        ]
+                 :candidate_generation,
+                 :tentative_artifact,
+                 :state_change_request,
+                 :clarification_request,
+                 :confirmation_request,
+                 :capability_invocation
+               ]
+
         assert action.write_intent in [:none, :tentative, :production_candidate]
         assert action.risk_hint in [:low, :medium, :high]
       end
@@ -152,8 +167,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
     end
 
     test "handle_input with generate_micro_plan reaches decision", %{complete_fn: complete_fn} do
-      input = %{text: "帮我为赛博朋克小说创作角色设定", workspace_id: "ws-real",
-                generate_micro_plan: true}
+      input = %{text: "帮我为赛博朋克小说创作角色设定", workspace_id: "ws-real", generate_micro_plan: true}
 
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(input, nil, complete_fn)
@@ -176,11 +190,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
 
     test "context injection reaches LLM prompt", %{complete_fn: complete_fn} do
       fetcher = fn _ws_id ->
-        {:ok,
-         %{title: "赛博朋克世界观", genre: "科幻"},
-         "用户持续探索赛博朋克主题，偏好科技与人性的冲突",
-         "用户擅长快速回复，对设定有主见",
-         nil}
+        {:ok, %{title: "赛博朋克世界观", genre: "科幻"}, "用户持续探索赛博朋克主题，偏好科技与人性的冲突", "用户擅长快速回复，对设定有主见", nil}
       end
 
       input = %{text: "我想深化义体改造的设定", workspace_id: "ws-real-context"}
@@ -229,8 +239,12 @@ defmodule NovelApplication.PlannerRealLLMTest do
     test "handle_input never crashes with broken provider" do
       broken_fn = fn _prompt -> {:error, %{code: "timeout", message: "timeout"}} end
 
-      result = DialogueGateway.handle_input(
-        %{text: "测试稳定性", workspace_id: "ws-real"}, nil, broken_fn)
+      result =
+        DialogueGateway.handle_input(
+          %{text: "测试稳定性", workspace_id: "ws-real"},
+          nil,
+          broken_fn
+        )
 
       assert match?({:ok, _, _, _, _}, result) or match?({:error, _}, result)
     end

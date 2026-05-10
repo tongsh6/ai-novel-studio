@@ -27,28 +27,45 @@ defmodule NovelApplication.ActionValidator do
   end
 
   defp check_not_stale(_input, nil), do: {:error, "source_turn_result not available"}
+
   defp check_not_stale(input, source) do
     if input.source_turn_ref == source[:turn_id] do
       :ok
     else
-      {:error, "stale action: source_turn_ref #{input.source_turn_ref} != current #{source[:turn_id]}"}
+      {:error,
+       "stale action: source_turn_ref #{input.source_turn_ref} != current #{source[:turn_id]}"}
     end
   end
 
-  defp check_action_in_available(_input, nil), do: {:error, "no available actions to validate against"}
+  defp check_action_in_available(_input, nil),
+    do: {:error, "no available actions to validate against"}
+
   defp check_action_in_available(input, source) do
     actions = source[:available_actions] || []
-    match = Enum.find(actions, &(&1[:action_type] == input.action_type && &1[:action_id] == input.action_id))
+
+    match =
+      Enum.find(
+        actions,
+        &(&1[:action_type] == input.action_type && &1[:action_id] == input.action_id)
+      )
+
     if match do
       :ok
     else
-      {:error, "invented action: #{input.action_type}:#{input.action_id} not in available actions"}
+      {:error,
+       "invented action: #{input.action_type}:#{input.action_id} not in available actions"}
     end
   end
 
   defp check_not_disabled(input, source) do
     actions = source[:available_actions] || []
-    match = Enum.find(actions, &(&1[:action_type] == input.action_type && &1[:action_id] == input.action_id))
+
+    match =
+      Enum.find(
+        actions,
+        &(&1[:action_type] == input.action_type && &1[:action_id] == input.action_id)
+      )
+
     if match && match[:enabled] == false do
       {:error, "disabled action: #{match[:disabled_reason] || "action is not available"}"}
     else

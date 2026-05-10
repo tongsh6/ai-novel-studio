@@ -53,7 +53,10 @@ defmodule NovelAgent.Provider.Gateway do
         {:ok, Result.new(content)}
 
       {:error, error} ->
-        Logger.warning("[提供者网关] #{provider_name} 调用失败：#{get_in(error, [:message]) || inspect(error)}")
+        Logger.warning(
+          "[提供者网关] #{provider_name} 调用失败：#{get_in(error, [:message]) || inspect(error)}"
+        )
+
         {:error, if(is_map(error), do: error, else: %{message: inspect(error)})}
     end
   end
@@ -89,7 +92,9 @@ defmodule NovelAgent.Provider.Gateway do
         module.complete(state, model, prompt, params)
 
       :error ->
-        err = UpstreamError.new(:provider_internal, "unknown provider: #{provider_name}", "gateway")
+        err =
+          UpstreamError.new(:provider_internal, "unknown provider: #{provider_name}", "gateway")
+
         UpstreamError.to_error_tuple(err)
     end
   end

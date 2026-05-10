@@ -51,7 +51,14 @@ defmodule NovelAgent.Provider.LMStudioTest do
   describe "complete/4 error handling" do
     test "returns connection_refused" do
       mock = fn _url, _body, _opts -> {:error, :connection_refused, 0, "拒绝"} end
-      state = %LMStudio{endpoint: "http://localhost/v1", model: "t", timeout: 100, http_fn: mock, log_fn: nil}
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
 
       assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
       assert error_map.type == :connection_refused
@@ -59,7 +66,14 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
     test "returns timeout" do
       mock = fn _url, _body, _opts -> {:error, :timeout, 0, "超时"} end
-      state = %LMStudio{endpoint: "http://localhost/v1", model: "t", timeout: 100, http_fn: mock, log_fn: nil}
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
 
       assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
       assert error_map.type == :timeout
@@ -67,7 +81,14 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
     test "returns provider_internal for unknown errors" do
       mock = fn _url, _body, _opts -> {:error, :unknown, 0, "异常"} end
-      state = %LMStudio{endpoint: "http://localhost/v1", model: "t", timeout: 100, http_fn: mock, log_fn: nil}
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
 
       assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
       assert error_map.type == :provider_internal

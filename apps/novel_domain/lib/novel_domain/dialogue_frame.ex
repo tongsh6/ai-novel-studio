@@ -6,24 +6,28 @@ defmodule NovelDomain.DialogueFrame do
   """
 
   @type frame_type :: :casual_reply | :creative_exploration | :question_answer | :meta_discussion
-  @type reason_code :: :no_tool_needed | :exploratory_only | :insufficient_execution_target | :user_requested_discussion
+  @type reason_code ::
+          :no_tool_needed
+          | :exploratory_only
+          | :insufficient_execution_target
+          | :user_requested_discussion
   @type execution_readiness :: :not_applicable | :not_ready
 
   @type t :: %__MODULE__{
-    schema_version: String.t(),
-    frame_id: String.t(),
-    turn_id: String.t(),
-    workspace_id: String.t(),
-    primary: boolean(),
-    frame_type: frame_type(),
-    source_refs: %{author_input_ref: String.t(), dialogue_context_ref: String.t() | nil},
-    dialogue_goal: %{summary: String.t()},
-    tool_need: %{needs_tool: boolean(), reason_code: reason_code()},
-    execution_readiness: execution_readiness(),
-    author_visible_draft: %{message: String.t()},
-    evidence_summary: map(),
-    uncertainty: [map()]
-  }
+          schema_version: String.t(),
+          frame_id: String.t(),
+          turn_id: String.t(),
+          workspace_id: String.t(),
+          primary: boolean(),
+          frame_type: frame_type(),
+          source_refs: %{author_input_ref: String.t(), dialogue_context_ref: String.t() | nil},
+          dialogue_goal: %{summary: String.t()},
+          tool_need: %{needs_tool: boolean(), reason_code: reason_code()},
+          execution_readiness: execution_readiness(),
+          author_visible_draft: %{message: String.t()},
+          evidence_summary: map(),
+          uncertainty: [map()]
+        }
 
   defstruct [
     :schema_version,
@@ -42,7 +46,12 @@ defmodule NovelDomain.DialogueFrame do
   ]
 
   @allowed_frame_types [:casual_reply, :creative_exploration, :question_answer, :meta_discussion]
-  @allowed_reason_codes [:no_tool_needed, :exploratory_only, :insufficient_execution_target, :user_requested_discussion]
+  @allowed_reason_codes [
+    :no_tool_needed,
+    :exploratory_only,
+    :insufficient_execution_target,
+    :user_requested_discussion
+  ]
   @allowed_execution_readiness [:not_applicable, :not_ready]
 
   @doc """
@@ -82,13 +91,17 @@ defmodule NovelDomain.DialogueFrame do
       end)
 
     draft = frame.author_visible_draft
+
     cond do
       is_nil(draft) ->
         ["author_visible_draft is required" | errors]
+
       not is_map(draft) ->
         ["author_visible_draft must be a map" | errors]
+
       is_nil(draft[:message]) || draft[:message] == "" ->
         ["author_visible_draft.message is required" | errors]
+
       true ->
         errors
     end
@@ -104,13 +117,17 @@ defmodule NovelDomain.DialogueFrame do
 
   defp check_tool_need(errors, frame) do
     tn = frame.tool_need
+
     cond do
       is_nil(tn) || not is_map(tn) ->
         ["tool_need is required" | errors]
+
       is_boolean(tn[:needs_tool]) == false ->
         ["tool_need.needs_tool must be a boolean" | errors]
+
       tn[:reason_code] not in @allowed_reason_codes ->
         ["invalid tool_need.reason_code: #{inspect(tn[:reason_code])}" | errors]
+
       true ->
         errors
     end

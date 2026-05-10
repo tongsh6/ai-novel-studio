@@ -11,14 +11,33 @@ defmodule NovelApplication.AdoptionBoundaryTest do
       turn_id: "t-test",
       candidate_type: :direction,
       candidates: [
-        %{candidate_id: "c-1", summary: "方向A", content_ref: "ref-a",
-          origin_ref: "tool:creative_gen", risk_hint: :low, adoption_target_ref: "char_1"},
-        %{candidate_id: "c-2", summary: "方向B", content_ref: "ref-b",
-          origin_ref: "tool:creative_gen", risk_hint: :high, adoption_target_ref: "char_2"},
-        %{candidate_id: "c-3", summary: "方向C", content_ref: "ref-c",
-          origin_ref: "tool:creative_gen", risk_hint: :medium, adoption_target_ref: "char_3"}
+        %{
+          candidate_id: "c-1",
+          summary: "方向A",
+          content_ref: "ref-a",
+          origin_ref: "tool:creative_gen",
+          risk_hint: :low,
+          adoption_target_ref: "char_1"
+        },
+        %{
+          candidate_id: "c-2",
+          summary: "方向B",
+          content_ref: "ref-b",
+          origin_ref: "tool:creative_gen",
+          risk_hint: :high,
+          adoption_target_ref: "char_2"
+        },
+        %{
+          candidate_id: "c-3",
+          summary: "方向C",
+          content_ref: "ref-c",
+          origin_ref: "tool:creative_gen",
+          risk_hint: :medium,
+          adoption_target_ref: "char_3"
+        }
       ]
     ]
+
     struct!(CandidateSet, Keyword.merge(defaults, attrs))
   end
 

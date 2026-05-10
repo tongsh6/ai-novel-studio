@@ -29,7 +29,8 @@ defmodule NovelPersistence.LongRunTaskLog do
   end
 
   @doc "Mark task as checkpoint in DB."
-  @spec checkpoint(LongRunTask.t(), map()) :: {:ok, LongRunTask.t()} | {:error, Ecto.Changeset.t()}
+  @spec checkpoint(LongRunTask.t(), map()) ::
+          {:ok, LongRunTask.t()} | {:error, Ecto.Changeset.t()}
   def checkpoint(%LongRunTask{} = task, data) do
     task
     |> LongRunTask.checkpoint_changeset(data)

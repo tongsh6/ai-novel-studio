@@ -29,7 +29,9 @@ defmodule NovelApplication.CapabilityRegistry do
   @spec grants_valid?(String.t(), [String.t()], [String.t()]) :: boolean()
   def grants_valid?(tool_name, read_grants, write_grants) do
     case get(tool_name) do
-      nil -> false
+      nil ->
+        false
+
       entry ->
         read_ok = Enum.all?(read_grants, &(&1 in entry.read_scopes))
         write_ok = Enum.all?(write_grants, &(&1 in entry.write_scopes))

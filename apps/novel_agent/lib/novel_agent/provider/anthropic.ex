@@ -47,7 +47,7 @@ defmodule NovelAgent.Provider.Anthropic do
     url = Path.join(@api_base, "messages")
     headers = [{"x-api-key", state.api_key}, {"anthropic-version", @api_version}]
 
-    post = state.http_fn || &HTTP.post/3
+    post = state.http_fn || (&HTTP.post/3)
 
     result =
       case post.(url, body, headers: headers, receive_timeout: state.timeout) do
@@ -81,7 +81,9 @@ defmodule NovelAgent.Provider.Anthropic do
       latency_ms: latency
     }
 
-    Logger.debug("[Anthropic] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens")
+    Logger.debug(
+      "[Anthropic] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens"
+    )
 
     {:ok, Result.new(content, usage),
      %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
@@ -93,6 +95,7 @@ defmodule NovelAgent.Provider.Anthropic do
     type = if status in [401, 403], do: :auth, else: :invalid_response
     err = UpstreamError.new(type, "Anthropic API: #{message}", name())
     Logger.warning("[Anthropic] #{err.message}")
+
     {:error, UpstreamError.to_error_tuple(err),
      %{status: status, usage: %{}, duration: duration, resp_body: message}}
   end
@@ -101,6 +104,7 @@ defmodule NovelAgent.Provider.Anthropic do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:connection_refused, "无法连接 Anthropic API", name())
     Logger.warning("[Anthropic] #{err.message}")
+
     {:error, UpstreamError.to_error_tuple(err),
      %{status: 0, usage: %{}, duration: duration, resp_body: "connection_refused"}}
   end
@@ -109,6 +113,7 @@ defmodule NovelAgent.Provider.Anthropic do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:timeout, "Anthropic API 请求超时", name())
     Logger.warning("[Anthropic] #{err.message}")
+
     {:error, UpstreamError.to_error_tuple(err),
      %{status: 0, usage: %{}, duration: duration, resp_body: "timeout"}}
   end
@@ -117,6 +122,7 @@ defmodule NovelAgent.Provider.Anthropic do
     duration = System.monotonic_time(:millisecond) - start_time
     err = UpstreamError.new(:provider_internal, message, name())
     Logger.warning("[Anthropic] #{err.message}")
+
     {:error, UpstreamError.to_error_tuple(err),
      %{status: 0, usage: %{}, duration: duration, resp_body: message}}
   end
@@ -126,7 +132,9 @@ defmodule NovelAgent.Provider.Anthropic do
 
   @impl true
   def health_check(%__MODULE__{api_key: key}) when is_binary(key) and key != "", do: :ok
-  def health_check(%__MODULE__{}), do: {:error, %{message: "Anthropic API key 未配置", type: :unauthorized}}
+
+  def health_check(%__MODULE__{}),
+    do: {:error, %{message: "Anthropic API key 未配置", type: :unauthorized}}
 
   @doc "从应用配置构建 state struct。支持环境变量 ANTHROPIC_API_KEY。"
   @spec from_config() :: t()

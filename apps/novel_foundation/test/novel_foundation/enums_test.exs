@@ -10,7 +10,8 @@ defmodule NovelFoundation.EnumsTest do
 
   describe "ADR-0002 canonical sets" do
     test "Status family has the 8 fixed values from §2" do
-      assert Status.values() == ~w(READY WAITING_USER WAITING_SYSTEM RUNNING PAUSED DONE ERROR CANCELLED)
+      assert Status.values() ==
+               ~w(READY WAITING_USER WAITING_SYSTEM RUNNING PAUSED DONE ERROR CANCELLED)
     end
 
     test "TurnPhase has the 9 fixed values from §3" do
@@ -26,7 +27,8 @@ defmodule NovelFoundation.EnumsTest do
     end
 
     test "AdoptionStatus has the 7 lifecycle values from 30 §3.2" do
-      assert AdoptionStatus.values() == ~w(TENTATIVE ACCEPTED EDITED_ACCEPTED DISCARDED SUPERSEDED INVALIDATED ARCHIVED)
+      assert AdoptionStatus.values() ==
+               ~w(TENTATIVE ACCEPTED EDITED_ACCEPTED DISCARDED SUPERSEDED INVALIDATED ARCHIVED)
     end
 
     test "NextAction has the 8 canonical values from §6 (no EXECUTE_DIRECTLY)" do

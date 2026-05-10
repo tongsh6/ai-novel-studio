@@ -65,7 +65,13 @@ defmodule NovelPersistence.Schemas.Interaction do
     |> validate_inclusion(:memory_class, MemoryClass.values())
     |> validate_inclusion(:retention_tier, RetentionTier.values())
     |> validate_inclusion(:source_type, SourceType.values())
-    |> validate_number(:freshness_score, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
-    |> validate_number(:importance_score, greater_than_or_equal_to: 0.0, less_than_or_equal_to: 1.0)
+    |> validate_number(:freshness_score,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
+    )
+    |> validate_number(:importance_score,
+      greater_than_or_equal_to: 0.0,
+      less_than_or_equal_to: 1.0
+    )
   end
 end

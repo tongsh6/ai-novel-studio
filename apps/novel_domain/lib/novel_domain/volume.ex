@@ -34,7 +34,16 @@ defmodule NovelDomain.Volume do
       when is_binary(id) and is_binary(work_ref) and is_binary(title) and is_integer(seq) and
              seq > 0 do
     now = DateTime.utc_now()
-    %__MODULE__{id: id, work_ref: work_ref, title: title, seq: seq, status: :planned, created_at: now, updated_at: now}
+
+    %__MODULE__{
+      id: id,
+      work_ref: work_ref,
+      title: title,
+      seq: seq,
+      status: :planned,
+      created_at: now,
+      updated_at: now
+    }
   end
 
   @doc "变更 Volume 状态。"
@@ -57,6 +66,9 @@ defmodule NovelDomain.Volume do
 
   defp next_updated_at(%__MODULE__{updated_at: updated_at}) do
     now = DateTime.utc_now()
-    if DateTime.compare(now, updated_at) == :gt, do: now, else: DateTime.add(updated_at, 1, :microsecond)
+
+    if DateTime.compare(now, updated_at) == :gt,
+      do: now,
+      else: DateTime.add(updated_at, 1, :microsecond)
   end
 end

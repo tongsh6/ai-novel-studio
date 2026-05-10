@@ -19,7 +19,9 @@ defmodule NovelApplication.TraceWriter do
     context_refs = if context, do: context.context_refs, else: []
 
     trace = %DecisionTrace{
-      trace_id: trace_id, turn_id: frame.turn_id, frame_ref: frame.frame_id,
+      trace_id: trace_id,
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
       decision_type: decision_type(frame.frame_type),
       no_tool_reason: to_string(frame.tool_need.reason_code),
       no_behavior_reason: no_behavior_reason(frame.frame_type),
@@ -31,8 +33,10 @@ defmodule NovelApplication.TraceWriter do
     }
 
     summary = %{
-      trace_ref: trace_id, decision_type: trace.decision_type,
-      frame_type: frame.frame_type, dialogue_goal: frame.dialogue_goal.summary,
+      trace_ref: trace_id,
+      decision_type: trace.decision_type,
+      frame_type: frame.frame_type,
+      dialogue_goal: frame.dialogue_goal.summary,
       no_tool_reason: trace.no_tool_reason,
       context_refs: format_context_refs(context_refs),
       has_context: context != nil and DialogueContext.has_context?(context)
@@ -43,14 +47,26 @@ defmodule NovelApplication.TraceWriter do
 
   @doc "Record trace with OrchestratorDecision and gate results."
   @spec record_with_decision(
-    DialogueFrame.t(), MicroPlan.t(), OrchestratorDecision.t(), map(), DialogueContext.t() | nil
-  ) :: {DecisionTrace.t(), map()}
-  def record_with_decision(%DialogueFrame{} = frame, %MicroPlan{} = plan, %OrchestratorDecision{} = decision, turn_result, context) do
+          DialogueFrame.t(),
+          MicroPlan.t(),
+          OrchestratorDecision.t(),
+          map(),
+          DialogueContext.t() | nil
+        ) :: {DecisionTrace.t(), map()}
+  def record_with_decision(
+        %DialogueFrame{} = frame,
+        %MicroPlan{} = plan,
+        %OrchestratorDecision{} = decision,
+        turn_result,
+        context
+      ) do
     trace_id = allocate_trace_id()
     context_refs = if context, do: context.context_refs, else: []
 
     trace = %DecisionTrace{
-      trace_id: trace_id, turn_id: frame.turn_id, frame_ref: frame.frame_id,
+      trace_id: trace_id,
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
       decision_type: decision_type_for(decision.decision_type),
       no_tool_reason: "micro_plan_evaluated_by_orchestrator",
       no_behavior_reason: no_behavior_reason(frame.frame_type),
@@ -71,9 +87,12 @@ defmodule NovelApplication.TraceWriter do
     }
 
     summary = %{
-      trace_ref: trace_id, decision_type: trace.decision_type,
-      frame_type: frame.frame_type, dialogue_goal: frame.dialogue_goal.summary,
-      plan_goal: plan.plan_goal.summary, plan_actions: length(plan.proposed_actions),
+      trace_ref: trace_id,
+      decision_type: trace.decision_type,
+      frame_type: frame.frame_type,
+      dialogue_goal: frame.dialogue_goal.summary,
+      plan_goal: plan.plan_goal.summary,
+      plan_actions: length(plan.proposed_actions),
       orchestrator_decision: decision.decision_type,
       first_blocking_gate: decision.first_blocking_gate,
       reason_codes: decision.reason_codes,
@@ -85,18 +104,30 @@ defmodule NovelApplication.TraceWriter do
 
   @doc "Record trace with tool execution (VS-02)."
   @spec record_with_tool(
-    DialogueFrame.t(), MicroPlan.t(), OrchestratorDecision.t(),
-    ToolRequest.t(), ToolResult.t(), map(), DialogueContext.t() | nil
-  ) :: {DecisionTrace.t(), map()}
+          DialogueFrame.t(),
+          MicroPlan.t(),
+          OrchestratorDecision.t(),
+          ToolRequest.t(),
+          ToolResult.t(),
+          map(),
+          DialogueContext.t() | nil
+        ) :: {DecisionTrace.t(), map()}
   def record_with_tool(
-    %DialogueFrame{} = frame, %MicroPlan{} = _plan, %OrchestratorDecision{} = decision,
-    %ToolRequest{} = req, %ToolResult{} = result, turn_result, context
-  ) do
+        %DialogueFrame{} = frame,
+        %MicroPlan{} = _plan,
+        %OrchestratorDecision{} = decision,
+        %ToolRequest{} = req,
+        %ToolResult{} = result,
+        turn_result,
+        context
+      ) do
     trace_id = allocate_trace_id()
     context_refs = if context, do: context.context_refs, else: []
 
     trace = %DecisionTrace{
-      trace_id: trace_id, turn_id: frame.turn_id, frame_ref: frame.frame_id,
+      trace_id: trace_id,
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
       decision_type: :tool_dispatched,
       no_tool_reason: "tool_was_dispatched",
       no_behavior_reason: "tool_execution_completed",
@@ -134,12 +165,15 @@ defmodule NovelApplication.TraceWriter do
   end
 
   @doc "Record recovery trace when plan generation fails."
-  @spec record_recovery(DialogueFrame.t(), map(), DialogueContext.t() | nil) :: {DecisionTrace.t(), map()}
+  @spec record_recovery(DialogueFrame.t(), map(), DialogueContext.t() | nil) ::
+          {DecisionTrace.t(), map()}
   def record_recovery(%DialogueFrame{} = frame, turn_result, _context) do
     trace_id = allocate_trace_id()
 
     trace = %DecisionTrace{
-      trace_id: trace_id, turn_id: frame.turn_id, frame_ref: frame.frame_id,
+      trace_id: trace_id,
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
       decision_type: :fail_with_recovery,
       no_tool_reason: "micro_plan_generation_failed",
       no_behavior_reason: "recovery mode: reverted to reply-only",
@@ -148,14 +182,19 @@ defmodule NovelApplication.TraceWriter do
       replay_policy: %{use_recorded_frame: true, recall_provider: false},
       redaction_level: :author_safe,
       event_order: [
-        :author_input_received, :dialogue_frame_validated,
-        :micro_plan_generation_failed, :recovery_fallback, :turn_result_emitted
+        :author_input_received,
+        :dialogue_frame_validated,
+        :micro_plan_generation_failed,
+        :recovery_fallback,
+        :turn_result_emitted
       ]
     }
 
     summary = %{
-      trace_ref: trace_id, decision_type: :fail_with_recovery,
-      frame_type: frame.frame_type, dialogue_goal: frame.dialogue_goal.summary,
+      trace_ref: trace_id,
+      decision_type: :fail_with_recovery,
+      frame_type: frame.frame_type,
+      dialogue_goal: frame.dialogue_goal.summary,
       recovery: "plan generation failed, reverted to reply_only"
     }
 
@@ -178,8 +217,14 @@ defmodule NovelApplication.TraceWriter do
   defp no_behavior_reason(_), do: "reply-only turn does not open durable behavior"
 
   defp build_event_order(context) do
-    base = [:author_input_received, :dialogue_context_attached, :dialogue_frame_validated,
-            :reply_only_decision_recorded, :turn_result_emitted]
+    base = [
+      :author_input_received,
+      :dialogue_context_attached,
+      :dialogue_frame_validated,
+      :reply_only_decision_recorded,
+      :turn_result_emitted
+    ]
+
     if context && DialogueContext.has_context?(context) do
       base
     else
@@ -192,6 +237,7 @@ defmodule NovelApplication.TraceWriter do
       %{context_ref: ref.context_ref, source_type: ref.source_type}
     end)
   end
+
   defp format_context_refs(_), do: []
 
   defp allocate_trace_id, do: "trace_#{System.unique_integer([:positive, :monotonic])}"

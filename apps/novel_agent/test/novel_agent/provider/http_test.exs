@@ -27,7 +27,7 @@ defmodule NovelAgent.Provider.HTTPTest do
   describe "get/2 error handling" do
     test "returns connection_refused for unreachable host" do
       assert {:error, :connection_refused, 0, _} =
-        HTTP.get("http://127.0.0.1:19999/v1/models", receive_timeout: 100)
+               HTTP.get("http://127.0.0.1:19999/v1/models", receive_timeout: 100)
     end
 
     test "returns timeout for non-routable address" do

@@ -31,8 +31,28 @@ defmodule NovelPersistence.Schemas.SceneTest do
     test "finds scenes by chapter_id" do
       cid = Ecto.UUID.generate()
       wid = Ecto.UUID.generate()
-      {:ok, _} = %Scene{} |> Scene.changeset(%{work_id: wid, chapter_id: cid, title: "S1", seq: 1, status: "PLANNED"}) |> Repo.insert()
-      {:ok, _} = %Scene{} |> Scene.changeset(%{work_id: wid, chapter_id: cid, title: "S2", seq: 2, status: "PLANNED"}) |> Repo.insert()
+
+      {:ok, _} =
+        %Scene{}
+        |> Scene.changeset(%{
+          work_id: wid,
+          chapter_id: cid,
+          title: "S1",
+          seq: 1,
+          status: "PLANNED"
+        })
+        |> Repo.insert()
+
+      {:ok, _} =
+        %Scene{}
+        |> Scene.changeset(%{
+          work_id: wid,
+          chapter_id: cid,
+          title: "S2",
+          seq: 2,
+          status: "PLANNED"
+        })
+        |> Repo.insert()
 
       count = Repo.aggregate(from(s in Scene, where: s.chapter_id == ^cid), :count)
       assert count == 2

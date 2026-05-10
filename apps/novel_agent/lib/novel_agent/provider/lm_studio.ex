@@ -57,7 +57,9 @@ defmodule NovelAgent.Provider.LMStudio do
 
   def complete(%__MODULE__{} = _state, _model, _prompt, _params) do
     err = UpstreamError.new(:provider_internal, "LM Studio endpoint not configured", name())
-    {:error, %{type: err.type, message: err.message, provider: err.provider, retryable: err.retryable}}
+
+    {:error,
+     %{type: err.type, message: err.message, provider: err.provider, retryable: err.retryable}}
   end
 
   # ── response handlers ────────────────────────
@@ -69,6 +71,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
     if content && content != "" do
       Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
+
       {:ok, Result.new(content),
        %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}}
     else

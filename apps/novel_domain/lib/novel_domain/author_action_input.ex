@@ -4,15 +4,27 @@ defmodule NovelDomain.AuthorActionInput do
   """
 
   @type t :: %__MODULE__{
-    input_id: String.t(), source_turn_ref: String.t(),
-    action_id: String.t(), action_type: String.t(),
-    candidate_set_ref: String.t() | nil, candidate_ref: String.t() | nil,
-    behavior_ref: String.t() | nil, payload: map(),
-    idempotency_key: String.t()
-  }
+          input_id: String.t(),
+          source_turn_ref: String.t(),
+          action_id: String.t(),
+          action_type: String.t(),
+          candidate_set_ref: String.t() | nil,
+          candidate_ref: String.t() | nil,
+          behavior_ref: String.t() | nil,
+          payload: map(),
+          idempotency_key: String.t()
+        }
 
   @enforce_keys [:input_id, :source_turn_ref, :action_id, :action_type]
-  defstruct [:input_id, :source_turn_ref, :action_id, :action_type,
-    candidate_set_ref: nil, candidate_ref: nil,
-    behavior_ref: nil, payload: %{}, idempotency_key: nil]
+  defstruct [
+    :input_id,
+    :source_turn_ref,
+    :action_id,
+    :action_type,
+    candidate_set_ref: nil,
+    candidate_ref: nil,
+    behavior_ref: nil,
+    payload: %{},
+    idempotency_key: nil
+  ]
 end

@@ -8,12 +8,12 @@ defmodule NovelDomain.ContextSourceRef do
   @type source_type :: :current_work | :conversation | :memory | :behavior | :policy
 
   @type t :: %__MODULE__{
-    context_ref: String.t(),
-    source_type: source_type(),
-    source_id: String.t() | nil,
-    summary: String.t(),
-    redaction_level: :author_safe | :developer
-  }
+          context_ref: String.t(),
+          source_type: source_type(),
+          source_id: String.t() | nil,
+          summary: String.t(),
+          redaction_level: :author_safe | :developer
+        }
 
   @enforce_keys [:context_ref, :source_type, :summary]
   defstruct [

@@ -9,19 +9,19 @@ defmodule NovelDomain.ToolResult do
   @type result_status :: :succeeded | :failed | :partial | :cancelled
 
   @type t :: %__MODULE__{
-    tool_result_id: String.t(),
-    tool_request_ref: String.t(),
-    tool_name: String.t(),
-    status: result_status(),
-    output: map() | nil,
-    state_delta: [map()],
-    artifact_refs: [String.t()],
-    errors: [map()],
-    warnings: [map()],
-    usage: map(),
-    trace_refs: [String.t()],
-    completed_at: DateTime.t()
-  }
+          tool_result_id: String.t(),
+          tool_request_ref: String.t(),
+          tool_name: String.t(),
+          status: result_status(),
+          output: map() | nil,
+          state_delta: [map()],
+          artifact_refs: [String.t()],
+          errors: [map()],
+          warnings: [map()],
+          usage: map(),
+          trace_refs: [String.t()],
+          completed_at: DateTime.t()
+        }
 
   @enforce_keys [:tool_result_id, :tool_request_ref, :tool_name, :status]
   defstruct [

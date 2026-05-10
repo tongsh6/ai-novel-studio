@@ -44,9 +44,16 @@ defmodule NovelDomain.Draft do
       when is_binary(id) and is_binary(work_ref) and is_binary(scene_ref) and
              is_binary(content) do
     now = DateTime.utc_now()
+
     %__MODULE__{
-      id: id, work_ref: work_ref, scene_ref: scene_ref, content: content,
-      status: :tentative, revision: 1, created_at: now, updated_at: now
+      id: id,
+      work_ref: work_ref,
+      scene_ref: scene_ref,
+      content: content,
+      status: :tentative,
+      revision: 1,
+      created_at: now,
+      updated_at: now
     }
   end
 
@@ -69,11 +76,19 @@ defmodule NovelDomain.Draft do
   @doc "更新正文内容，递增 revision。"
   @spec update_content(t(), String.t()) :: t()
   def update_content(%__MODULE__{} = draft, content) when is_binary(content) do
-    %__MODULE__{draft | content: content, revision: draft.revision + 1, updated_at: next_updated_at(draft)}
+    %__MODULE__{
+      draft
+      | content: content,
+        revision: draft.revision + 1,
+        updated_at: next_updated_at(draft)
+    }
   end
 
   defp next_updated_at(%__MODULE__{updated_at: updated_at}) do
     now = DateTime.utc_now()
-    if DateTime.compare(now, updated_at) == :gt, do: now, else: DateTime.add(updated_at, 1, :microsecond)
+
+    if DateTime.compare(now, updated_at) == :gt,
+      do: now,
+      else: DateTime.add(updated_at, 1, :microsecond)
   end
 end

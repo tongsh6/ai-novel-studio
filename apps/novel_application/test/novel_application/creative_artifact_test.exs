@@ -84,9 +84,12 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     test "tentative? returns true by default" do
       artifact_set = %TentativeArtifactSet{
-        artifact_set_id: "as-1", artifact_type: :character_seed,
-        source_turn_ref: "t-1", source_tool_result_ref: "tr-1"
+        artifact_set_id: "as-1",
+        artifact_type: :character_seed,
+        source_turn_ref: "t-1",
+        source_tool_result_ref: "tr-1"
       }
+
       assert TentativeArtifactSet.tentative?(artifact_set)
     end
 
@@ -113,9 +116,12 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     test "artifacts default to tentative, not adopted" do
       artifact_set = %TentativeArtifactSet{
-        artifact_set_id: "as-inv", artifact_type: :scene_draft,
-        source_turn_ref: "t-inv", source_tool_result_ref: "tr-inv"
+        artifact_set_id: "as-inv",
+        artifact_type: :scene_draft,
+        source_turn_ref: "t-inv",
+        source_tool_result_ref: "tr-inv"
       }
+
       assert artifact_set.adoption_status == :tentative
       refute artifact_set.adoption_status == :adopted
     end
@@ -132,8 +138,11 @@ defmodule NovelApplication.CreativeArtifactTest do
   defp build_creative_request(direction) do
     %ToolRequest{
       tool_request_id: "tq-creative-#{System.unique_integer([:positive, :monotonic])}",
-      turn_id: "t-creative", frame_ref: "f-creative", decision_ref: "d-creative",
-      tool_name: "creative_generation", tool_version: "1.0.0",
+      turn_id: "t-creative",
+      frame_ref: "f-creative",
+      decision_ref: "d-creative",
+      tool_name: "creative_generation",
+      tool_version: "1.0.0",
       input: %{"direction" => direction, "context_text" => "赛博修仙世界观"},
       read_scope_grants: ["author_text", "context_snapshot"],
       write_scope_grants: [],

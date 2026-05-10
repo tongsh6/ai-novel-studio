@@ -85,10 +85,17 @@ defmodule NovelApplication.ToolProvenanceTest do
 
     test "rejects unknown tool" do
       req = %ToolRequest{
-        tool_request_id: "tq-unknown", turn_id: "t", frame_ref: "f",
-        decision_ref: "d", tool_name: "nonexistent", tool_version: "1",
-        input: %{}, read_scope_grants: [], write_scope_grants: [],
-        idempotency_key: "idem", created_at: DateTime.utc_now()
+        tool_request_id: "tq-unknown",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_ref: "d",
+        tool_name: "nonexistent",
+        tool_version: "1",
+        input: %{},
+        read_scope_grants: [],
+        write_scope_grants: [],
+        idempotency_key: "idem",
+        created_at: DateTime.utc_now()
       }
 
       result = Toolbox.execute(req)
@@ -98,10 +105,17 @@ defmodule NovelApplication.ToolProvenanceTest do
 
     test "rejects disabled tool" do
       req = %ToolRequest{
-        tool_request_id: "tq-disabled", turn_id: "t", frame_ref: "f",
-        decision_ref: "d", tool_name: "disabled_tool", tool_version: "1",
-        input: %{}, read_scope_grants: [], write_scope_grants: [],
-        idempotency_key: "idem", created_at: DateTime.utc_now()
+        tool_request_id: "tq-disabled",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_ref: "d",
+        tool_name: "disabled_tool",
+        tool_version: "1",
+        input: %{},
+        read_scope_grants: [],
+        write_scope_grants: [],
+        idempotency_key: "idem",
+        created_at: DateTime.utc_now()
       }
 
       result = Toolbox.execute(req)
@@ -111,10 +125,17 @@ defmodule NovelApplication.ToolProvenanceTest do
 
     test "rejects grant scope violation" do
       req = %ToolRequest{
-        tool_request_id: "tq-scope", turn_id: "t", frame_ref: "f",
-        decision_ref: "d", tool_name: "text_analysis", tool_version: "1",
-        input: %{}, read_scope_grants: ["admin_access"], write_scope_grants: [],
-        idempotency_key: "idem", created_at: DateTime.utc_now()
+        tool_request_id: "tq-scope",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_ref: "d",
+        tool_name: "text_analysis",
+        tool_version: "1",
+        input: %{},
+        read_scope_grants: ["admin_access"],
+        write_scope_grants: [],
+        idempotency_key: "idem",
+        created_at: DateTime.utc_now()
       }
 
       result = Toolbox.execute(req)
@@ -124,10 +145,17 @@ defmodule NovelApplication.ToolProvenanceTest do
 
     test "ToolResult not adoption — result has no production fact" do
       req = %ToolRequest{
-        tool_request_id: "tq-adopt", turn_id: "t", frame_ref: "f",
-        decision_ref: "d", tool_name: "text_analysis", tool_version: "1",
-        input: %{"text" => "test content"}, read_scope_grants: ["author_text"],
-        write_scope_grants: [], idempotency_key: "idem", created_at: DateTime.utc_now()
+        tool_request_id: "tq-adopt",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_ref: "d",
+        tool_name: "text_analysis",
+        tool_version: "1",
+        input: %{"text" => "test content"},
+        read_scope_grants: ["author_text"],
+        write_scope_grants: [],
+        idempotency_key: "idem",
+        created_at: DateTime.utc_now()
       }
 
       result = Toolbox.execute(req)
@@ -146,17 +174,27 @@ defmodule NovelApplication.ToolProvenanceTest do
     test "ToolRequest must have decision_ref" do
       # ToolRequest struct requires decision_ref in @enforce_keys
       assert_raise ArgumentError, fn ->
-        struct!(ToolRequest, tool_request_id: "x", turn_id: "x", frame_ref: "x",
-                tool_name: "x", tool_version: "1")
+        struct!(ToolRequest,
+          tool_request_id: "x",
+          turn_id: "x",
+          frame_ref: "x",
+          tool_name: "x",
+          tool_version: "1"
+        )
       end
     end
 
     test "decision_ref links request to orchestrator decision" do
       decision_id = "decision-123"
+
       req = %ToolRequest{
-        tool_request_id: "tq-link", turn_id: "t", frame_ref: "f",
-        decision_ref: decision_id, tool_name: "text_analysis",
-        tool_version: "1.0.0", idempotency_key: "idem",
+        tool_request_id: "tq-link",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_ref: decision_id,
+        tool_name: "text_analysis",
+        tool_version: "1.0.0",
+        idempotency_key: "idem",
         created_at: DateTime.utc_now()
       }
 
@@ -169,8 +207,11 @@ defmodule NovelApplication.ToolProvenanceTest do
   describe "OrchestratorDecision allow_tool" do
     test "allow_tool decision has no blocking gate" do
       decision = %OrchestratorDecision{
-        decision_id: "d-allow", turn_id: "t", frame_ref: "f",
-        decision_type: :allow_tool, decision_status: :decided,
+        decision_id: "d-allow",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_type: :allow_tool,
+        decision_status: :decided,
         reason_codes: ["gates_passed", "tool:text_analysis"]
       }
 
@@ -180,8 +221,11 @@ defmodule NovelApplication.ToolProvenanceTest do
 
     test "truthfulness_constraints for allow_tool include result_not_adoption" do
       decision = %OrchestratorDecision{
-        decision_id: "d", turn_id: "t", frame_ref: "f",
-        decision_type: :allow_tool, decision_status: :decided,
+        decision_id: "d",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_type: :allow_tool,
+        decision_status: :decided,
         reason_codes: []
       }
 

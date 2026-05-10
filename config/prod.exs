@@ -4,7 +4,9 @@ import Config
 # 本地 stage 用 SQLite，部署时通过 DATABASE_URL 切换 PostgreSQL。
 
 # LLM 调用日志目录 — 可通过环境变量 LLM_LOG_DIR 覆盖
-stage_log_dir = System.get_env("LLM_LOG_DIR", Path.expand("../log/llm-calls/stage", __DIR__) |> Path.absname())
+stage_log_dir =
+  System.get_env("LLM_LOG_DIR", Path.expand("../log/llm-calls/stage", __DIR__) |> Path.absname())
+
 config :novel_common, :llm_log_dir, stage_log_dir
 
 config :logger, level: :info
@@ -31,7 +33,9 @@ if db_url = System.get_env("DATABASE_URL") do
     show_sensitive_data_on_connection_error: false,
     stacktrace: false
 else
-  db_path = System.get_env("STAGE_DB_PATH", Path.join(File.cwd!(), "priv/ai_novel_studio_stage.db"))
+  db_path =
+    System.get_env("STAGE_DB_PATH", Path.join(File.cwd!(), "priv/ai_novel_studio_stage.db"))
+
   config :novel_persistence, NovelPersistence.Repo,
     adapter: Ecto.Adapters.SQLite3,
     database: db_path,

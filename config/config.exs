@@ -12,8 +12,7 @@ import Config
 # ── Provider 通用配置 ──────────────────────────
 # 各环境可通过 import_config "#{config_env()}.exs" 覆盖。
 
-config :novel_agent, :provider,
-  default: :lmstudio
+config :novel_agent, :provider, default: :lmstudio
 
 config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
@@ -24,7 +23,6 @@ config :novel_agent, NovelAgent.Provider.Anthropic,
   api_key: System.get_env("NOVEL_ANTHROPIC_API_KEY"),
   model: System.get_env("NOVEL_ANTHROPIC_MODEL", "claude-sonnet-4-6"),
   timeout: 120_000
-
 
 config :novel_web, NovelWeb.Endpoint,
   url: [host: "localhost"],

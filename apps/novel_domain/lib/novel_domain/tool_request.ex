@@ -7,20 +7,20 @@ defmodule NovelDomain.ToolRequest do
   """
 
   @type t :: %__MODULE__{
-    tool_request_id: String.t(),
-    turn_id: String.t(),
-    frame_ref: String.t(),
-    plan_ref: String.t() | nil,
-    decision_ref: String.t(),
-    tool_name: String.t(),
-    tool_version: String.t(),
-    input: map(),
-    read_scope_grants: [String.t()],
-    write_scope_grants: [String.t()],
-    idempotency_key: String.t(),
-    trace_policy: map(),
-    created_at: DateTime.t()
-  }
+          tool_request_id: String.t(),
+          turn_id: String.t(),
+          frame_ref: String.t(),
+          plan_ref: String.t() | nil,
+          decision_ref: String.t(),
+          tool_name: String.t(),
+          tool_version: String.t(),
+          input: map(),
+          read_scope_grants: [String.t()],
+          write_scope_grants: [String.t()],
+          idempotency_key: String.t(),
+          trace_policy: map(),
+          created_at: DateTime.t()
+        }
 
   @enforce_keys [:tool_request_id, :turn_id, :frame_ref, :decision_ref, :tool_name, :tool_version]
   defstruct [

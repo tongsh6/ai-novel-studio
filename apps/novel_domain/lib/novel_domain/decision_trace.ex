@@ -6,18 +6,18 @@ defmodule NovelDomain.DecisionTrace do
   """
 
   @type t :: %__MODULE__{
-    trace_id: String.t(),
-    turn_id: String.t(),
-    frame_ref: String.t(),
-    decision_type: atom(),
-    no_tool_reason: String.t(),
-    no_behavior_reason: String.t(),
-    no_write_reason: String.t(),
-    turn_result_ref: String.t(),
-    replay_policy: %{use_recorded_frame: boolean(), recall_provider: boolean()},
-    redaction_level: :author_safe | :developer,
-    event_order: [atom()]
-  }
+          trace_id: String.t(),
+          turn_id: String.t(),
+          frame_ref: String.t(),
+          decision_type: atom(),
+          no_tool_reason: String.t(),
+          no_behavior_reason: String.t(),
+          no_write_reason: String.t(),
+          turn_result_ref: String.t(),
+          replay_policy: %{use_recorded_frame: boolean(), recall_provider: boolean()},
+          redaction_level: :author_safe | :developer,
+          event_order: [atom()]
+        }
 
   defstruct [
     :trace_id,

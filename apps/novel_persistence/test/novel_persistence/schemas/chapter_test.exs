@@ -32,8 +32,28 @@ defmodule NovelPersistence.Schemas.ChapterTest do
     test "finds chapters by volume_id" do
       vid = Ecto.UUID.generate()
       wid = Ecto.UUID.generate()
-      {:ok, _} = %Chapter{} |> Chapter.changeset(%{work_id: wid, volume_id: vid, title: "C1", seq: 1, status: "PLANNED"}) |> Repo.insert()
-      {:ok, _} = %Chapter{} |> Chapter.changeset(%{work_id: wid, volume_id: vid, title: "C2", seq: 2, status: "PLANNED"}) |> Repo.insert()
+
+      {:ok, _} =
+        %Chapter{}
+        |> Chapter.changeset(%{
+          work_id: wid,
+          volume_id: vid,
+          title: "C1",
+          seq: 1,
+          status: "PLANNED"
+        })
+        |> Repo.insert()
+
+      {:ok, _} =
+        %Chapter{}
+        |> Chapter.changeset(%{
+          work_id: wid,
+          volume_id: vid,
+          title: "C2",
+          seq: 2,
+          status: "PLANNED"
+        })
+        |> Repo.insert()
 
       count = Repo.aggregate(from(c in Chapter, where: c.volume_id == ^vid), :count)
       assert count == 2

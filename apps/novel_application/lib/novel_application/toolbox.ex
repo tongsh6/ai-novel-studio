@@ -41,13 +41,19 @@ defmodule NovelApplication.Toolbox do
           completed_at: now
         }
 
-      not CapabilityRegistry.grants_valid?(req.tool_name, req.read_scope_grants, req.write_scope_grants) ->
+      not CapabilityRegistry.grants_valid?(
+        req.tool_name,
+        req.read_scope_grants,
+        req.write_scope_grants
+      ) ->
         %ToolResult{
           tool_result_id: result_id,
           tool_request_ref: req.tool_request_id,
           tool_name: req.tool_name,
           status: :failed,
-          errors: [%{code: "grant_scope_violation", message: "requested grants exceed registry scopes"}],
+          errors: [
+            %{code: "grant_scope_violation", message: "requested grants exceed registry scopes"}
+          ],
           completed_at: now
         }
 
@@ -63,7 +69,8 @@ defmodule NovelApplication.Toolbox do
     analysis = %{
       word_count: count_words(text),
       estimated_reading_time_minutes: estimate_reading_time(text),
-      genre_match: genre != "" and String.contains?(String.downcase(text), String.downcase(genre)),
+      genre_match:
+        genre != "" and String.contains?(String.downcase(text), String.downcase(genre)),
       tone_suggestion: suggest_tone(text)
     }
 
@@ -115,32 +122,53 @@ defmodule NovelApplication.Toolbox do
 
   defp generate_creative_items("character_seed", _context) do
     [
-      %{item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "主角草案A", body: "底层出身，被系统低估但拥有隐藏天赋的角色。",
-        rationale: "适合赛博修仙的平民视角"},
-      %{item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "主角草案B", body: "中层执行者，在体制内发现黑暗真相。",
-        rationale: "适合揭发公司和体制冲突的故事线"},
-      %{item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "主角草案C", body: "外来闯入者，带着外部视角颠覆现有秩序。",
-        rationale: "适合挑战修仙垄断的反叛者叙事"}
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "主角草案A",
+        body: "底层出身，被系统低估但拥有隐藏天赋的角色。",
+        rationale: "适合赛博修仙的平民视角"
+      },
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "主角草案B",
+        body: "中层执行者，在体制内发现黑暗真相。",
+        rationale: "适合揭发公司和体制冲突的故事线"
+      },
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "主角草案C",
+        body: "外来闯入者，带着外部视角颠覆现有秩序。",
+        rationale: "适合挑战修仙垄断的反叛者叙事"
+      }
     ]
   end
 
   defp generate_creative_items("plot_direction", _context) do
     [
-      %{item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "复仇主线", body: "主角发现灵气垄断背后的真相，踏上推翻体系的道路。",
-        rationale: nil},
-      %{item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "生存主线", body: "主角在霓虹地牢中觉醒能力，先活下去，再图改变。",
-        rationale: nil}
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "复仇主线",
+        body: "主角发现灵气垄断背后的真相，踏上推翻体系的道路。",
+        rationale: nil
+      },
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "生存主线",
+        body: "主角在霓虹地牢中觉醒能力，先活下去，再图改变。",
+        rationale: nil
+      }
     ]
   end
 
   defp generate_creative_items(_, _context) do
-    [%{item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-       title: "创作草稿", body: "AI 生成的内容草案。", rationale: nil}]
+    [
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "创作草稿",
+        body: "AI 生成的内容草案。",
+        rationale: nil
+      }
+    ]
   end
 
   defp count_words(text), do: text |> String.split(~r/\s+/, trim: true) |> length()

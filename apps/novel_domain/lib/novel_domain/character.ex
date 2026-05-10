@@ -37,7 +37,16 @@ defmodule NovelDomain.Character do
   def new(id, work_ref, name)
       when is_binary(id) and is_binary(work_ref) and is_binary(name) do
     now = DateTime.utc_now()
-    %__MODULE__{id: id, work_ref: work_ref, name: name, aliases: [], status: :draft, created_at: now, updated_at: now}
+
+    %__MODULE__{
+      id: id,
+      work_ref: work_ref,
+      name: name,
+      aliases: [],
+      status: :draft,
+      created_at: now,
+      updated_at: now
+    }
   end
 
   @doc "更新人物名称。"
@@ -72,6 +81,9 @@ defmodule NovelDomain.Character do
 
   defp next_updated_at(%__MODULE__{updated_at: updated_at}) do
     now = DateTime.utc_now()
-    if DateTime.compare(now, updated_at) == :gt, do: now, else: DateTime.add(updated_at, 1, :microsecond)
+
+    if DateTime.compare(now, updated_at) == :gt,
+      do: now,
+      else: DateTime.add(updated_at, 1, :microsecond)
   end
 end

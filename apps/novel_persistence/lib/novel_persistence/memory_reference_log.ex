@@ -80,9 +80,16 @@ defmodule NovelPersistence.MemoryReferenceLog do
     from(ml in "memory_reference_logs",
       where: ml.memory_id == ^to_bin(memory_id),
       order_by: [desc: ml.inserted_at],
-      select: %{id: ml.id, memory_id: ml.memory_id, work_id: ml.work_id, task_id: ml.task_id,
-                conversation_id: ml.conversation_id, reference_scene: ml.reference_scene,
-                reference_reason: ml.reference_reason, inserted_at: ml.inserted_at}
+      select: %{
+        id: ml.id,
+        memory_id: ml.memory_id,
+        work_id: ml.work_id,
+        task_id: ml.task_id,
+        conversation_id: ml.conversation_id,
+        reference_scene: ml.reference_scene,
+        reference_reason: ml.reference_reason,
+        inserted_at: ml.inserted_at
+      }
     )
     |> Repo.all()
   end
@@ -95,14 +102,20 @@ defmodule NovelPersistence.MemoryReferenceLog do
     from(ml in "memory_reference_logs",
       where: ml.work_id == ^to_bin(work_id) and ml.reference_scene == ^reference_scene,
       order_by: [desc: ml.inserted_at],
-      select: %{id: ml.id, memory_id: ml.memory_id, work_id: ml.work_id, task_id: ml.task_id,
-                conversation_id: ml.conversation_id, reference_scene: ml.reference_scene,
-                reference_reason: ml.reference_reason, inserted_at: ml.inserted_at}
+      select: %{
+        id: ml.id,
+        memory_id: ml.memory_id,
+        work_id: ml.work_id,
+        task_id: ml.task_id,
+        conversation_id: ml.conversation_id,
+        reference_scene: ml.reference_scene,
+        reference_reason: ml.reference_reason,
+        inserted_at: ml.inserted_at
+      }
     )
     |> Repo.all()
   end
 
   defp to_bin(nil), do: nil
   defp to_bin(uuid) when is_binary(uuid), do: Ecto.UUID.dump!(uuid)
-
 end

@@ -214,8 +214,14 @@ defmodule NovelFoundation.TurnResultValidatorTest do
     end
 
     test "FAILED allows RETRY_SYSTEM and NO_FURTHER_ACTION" do
-      tr_retry = valid_turn_result(%{phase: TurnPhase.failed(), next_action: NextAction.retry_system()})
-      tr_done = valid_turn_result(%{phase: TurnPhase.failed(), next_action: NextAction.no_further_action()})
+      tr_retry =
+        valid_turn_result(%{phase: TurnPhase.failed(), next_action: NextAction.retry_system()})
+
+      tr_done =
+        valid_turn_result(%{
+          phase: TurnPhase.failed(),
+          next_action: NextAction.no_further_action()
+        })
 
       assert :ok = TurnResultValidator.validate(tr_retry)
       assert :ok = TurnResultValidator.validate(tr_done)
@@ -229,8 +235,14 @@ defmodule NovelFoundation.TurnResultValidatorTest do
     end
 
     test "CANCELLED only allows NO_FURTHER_ACTION" do
-      tr_ok = valid_turn_result(%{phase: TurnPhase.cancelled(), next_action: NextAction.no_further_action()})
-      tr_bad = valid_turn_result(%{phase: TurnPhase.cancelled(), next_action: NextAction.ask_user()})
+      tr_ok =
+        valid_turn_result(%{
+          phase: TurnPhase.cancelled(),
+          next_action: NextAction.no_further_action()
+        })
+
+      tr_bad =
+        valid_turn_result(%{phase: TurnPhase.cancelled(), next_action: NextAction.ask_user()})
 
       assert :ok = TurnResultValidator.validate(tr_ok)
       assert {:error, msgs} = TurnResultValidator.validate(tr_bad)
@@ -238,13 +250,21 @@ defmodule NovelFoundation.TurnResultValidatorTest do
     end
 
     test "READY_TO_EXECUTE only allows NO_FURTHER_ACTION" do
-      tr = valid_turn_result(%{phase: TurnPhase.ready_to_execute(), next_action: NextAction.no_further_action()})
+      tr =
+        valid_turn_result(%{
+          phase: TurnPhase.ready_to_execute(),
+          next_action: NextAction.no_further_action()
+        })
 
       assert :ok = TurnResultValidator.validate(tr)
     end
 
     test "EXECUTING only allows NO_FURTHER_ACTION" do
-      tr = valid_turn_result(%{phase: TurnPhase.executing(), next_action: NextAction.no_further_action()})
+      tr =
+        valid_turn_result(%{
+          phase: TurnPhase.executing(),
+          next_action: NextAction.no_further_action()
+        })
 
       assert :ok = TurnResultValidator.validate(tr)
     end

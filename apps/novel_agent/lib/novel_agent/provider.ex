@@ -19,7 +19,12 @@ defmodule NovelAgent.Provider do
 
   params 为跨 provider 通用的推理参数，各 adapter 负责映射为自身 API 字段。
   """
-  @callback complete(state :: term(), model :: model(), prompt :: prompt(), params :: InferenceParams.t()) :: result()
+  @callback complete(
+              state :: term(),
+              model :: model(),
+              prompt :: prompt(),
+              params :: InferenceParams.t()
+            ) :: result()
 
   @doc """
   轻量健康检查——不调用 LLM，不消耗 token。

@@ -31,6 +31,7 @@ defmodule NovelApplication.GateOrder do
   end
 
   defp run_gates([], _plan, results), do: {:pass, Enum.reverse(results)}
+
   defp run_gates([{name, gate} | rest], plan, results) do
     case gate.(plan) do
       :pass ->
@@ -61,7 +62,8 @@ defmodule NovelApplication.GateOrder do
   # Gate 3: Action scope — multi-step plans downgraded
   defp gate_action_scope(plan) do
     if MicroPlan.multi_step?(plan) do
-      {:block, "multi-step plan requires downgrade: #{length(plan.proposed_actions)} actions proposed"}
+      {:block,
+       "multi-step plan requires downgrade: #{length(plan.proposed_actions)} actions proposed"}
     else
       :pass
     end

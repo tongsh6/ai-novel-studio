@@ -8,14 +8,14 @@ defmodule NovelDomain.DialogueContext do
   alias NovelDomain.ContextSourceRef
 
   @type t :: %__MODULE__{
-    workspace_id: String.t(),
-    current_work_snapshot: map() | nil,
-    conversation_summary: String.t() | nil,
-    memory_summary: String.t() | nil,
-    open_behavior_summary: String.t() | nil,
-    context_refs: [ContextSourceRef.t()],
-    assembled_at: String.t()
-  }
+          workspace_id: String.t(),
+          current_work_snapshot: map() | nil,
+          conversation_summary: String.t() | nil,
+          memory_summary: String.t() | nil,
+          open_behavior_summary: String.t() | nil,
+          context_refs: [ContextSourceRef.t()],
+          assembled_at: String.t()
+        }
 
   defstruct [
     :workspace_id,
@@ -37,8 +37,11 @@ defmodule NovelDomain.DialogueContext do
     parts =
       if ctx.current_work_snapshot do
         ws = ctx.current_work_snapshot
-        snap = "## 当前作品上下文\n" <>
-          Enum.map_join(ws, "\n", fn {k, v} -> "- #{k}: #{v}" end)
+
+        snap =
+          "## 当前作品上下文\n" <>
+            Enum.map_join(ws, "\n", fn {k, v} -> "- #{k}: #{v}" end)
+
         [snap | parts]
       else
         ["## 当前作品上下文\n（无——这是新对话或尚未创建作品）" | parts]

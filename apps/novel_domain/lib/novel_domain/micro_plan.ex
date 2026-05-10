@@ -6,41 +6,46 @@ defmodule NovelDomain.MicroPlan do
   规格见 docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md §2。
   """
 
-  @type action_type :: :candidate_generation | :tentative_artifact | :state_change_request |
-                       :clarification_request | :confirmation_request | :capability_invocation
+  @type action_type ::
+          :candidate_generation
+          | :tentative_artifact
+          | :state_change_request
+          | :clarification_request
+          | :confirmation_request
+          | :capability_invocation
   @type write_intent :: :none | :tentative | :production_candidate
   @type risk_hint :: :low | :medium | :high
 
   @type proposed_action :: %{
-    action_id: String.t(),
-    action_type: action_type(),
-    summary: String.t(),
-    target_ref: String.t() | nil,
-    write_intent: write_intent(),
-    risk_hint: risk_hint()
-  }
+          action_id: String.t(),
+          action_type: action_type(),
+          summary: String.t(),
+          target_ref: String.t() | nil,
+          write_intent: write_intent(),
+          risk_hint: risk_hint()
+        }
 
   @type state_change :: %{
-    target: String.t(),
-    change: String.t(),
-    write_intent: write_intent()
-  }
+          target: String.t(),
+          change: String.t(),
+          write_intent: write_intent()
+        }
 
   @type t :: %__MODULE__{
-    schema_version: String.t(),
-    plan_id: String.t(),
-    turn_id: String.t(),
-    frame_ref: String.t(),
-    primary: boolean(),
-    plan_goal: %{summary: String.t()},
-    proposed_actions: [proposed_action()],
-    state_changes_requested: [state_change()],
-    required_capabilities: [String.t()],
-    risk_hint: risk_hint(),
-    requires_confirmation_hint: boolean(),
-    stop_after_next_action: boolean(),
-    fallback_strategy: %{downgrade_message: String.t()}
-  }
+          schema_version: String.t(),
+          plan_id: String.t(),
+          turn_id: String.t(),
+          frame_ref: String.t(),
+          primary: boolean(),
+          plan_goal: %{summary: String.t()},
+          proposed_actions: [proposed_action()],
+          state_changes_requested: [state_change()],
+          required_capabilities: [String.t()],
+          risk_hint: risk_hint(),
+          requires_confirmation_hint: boolean(),
+          stop_after_next_action: boolean(),
+          fallback_strategy: %{downgrade_message: String.t()}
+        }
 
   @enforce_keys [:plan_id, :turn_id, :frame_ref, :plan_goal, :risk_hint]
   defstruct [

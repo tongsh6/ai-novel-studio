@@ -12,21 +12,21 @@ defmodule NovelDomain.CapabilityRegistryEntry do
   @type provider_dep :: :none | :llm_provider | :external_system
 
   @type t :: %__MODULE__{
-    tool_name: String.t(),
-    tool_version: String.t(),
-    tool_layer: tool_layer(),
-    input_contract_ref: String.t(),
-    output_contract_ref: String.t(),
-    read_scopes: [String.t()],
-    write_scopes: [String.t()],
-    risk_class: risk_class(),
-    status: tool_status(),
-    trace_level: trace_level(),
-    provider_dependency: provider_dep(),
-    supports_retry: boolean(),
-    supports_cancellation: boolean(),
-    budget_profile_ref: String.t() | nil
-  }
+          tool_name: String.t(),
+          tool_version: String.t(),
+          tool_layer: tool_layer(),
+          input_contract_ref: String.t(),
+          output_contract_ref: String.t(),
+          read_scopes: [String.t()],
+          write_scopes: [String.t()],
+          risk_class: risk_class(),
+          status: tool_status(),
+          trace_level: trace_level(),
+          provider_dependency: provider_dep(),
+          supports_retry: boolean(),
+          supports_cancellation: boolean(),
+          budget_profile_ref: String.t() | nil
+        }
 
   @enforce_keys [:tool_name, :tool_version, :tool_layer, :risk_class, :status]
   defstruct [

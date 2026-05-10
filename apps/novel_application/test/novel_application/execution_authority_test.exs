@@ -11,20 +11,26 @@ defmodule NovelApplication.ExecutionAuthorityTest do
   # Test helpers — build realistic test structs
 
   defp build_frame(attrs) do
-    struct!(DialogueFrame, Keyword.merge([
-      schema_version: "3.0-draft",
-      frame_id: "f-test",
-      turn_id: "t-test",
-      workspace_id: "ws-test",
-      primary: true,
-      frame_type: :casual_reply,
-      source_refs: %{author_input_ref: "a-test", dialogue_context_ref: nil},
-      dialogue_goal: %{summary: "测试意图"},
-      tool_need: %{needs_tool: true, reason_code: :insufficient_execution_target},
-      execution_readiness: :not_ready,
-      author_visible_draft: %{message: "test"},
-      uncertainty: []
-    ], attrs))
+    struct!(
+      DialogueFrame,
+      Keyword.merge(
+        [
+          schema_version: "3.0-draft",
+          frame_id: "f-test",
+          turn_id: "t-test",
+          workspace_id: "ws-test",
+          primary: true,
+          frame_type: :casual_reply,
+          source_refs: %{author_input_ref: "a-test", dialogue_context_ref: nil},
+          dialogue_goal: %{summary: "测试意图"},
+          tool_need: %{needs_tool: true, reason_code: :insufficient_execution_target},
+          execution_readiness: :not_ready,
+          author_visible_draft: %{message: "test"},
+          uncertainty: []
+        ],
+        attrs
+      )
+    )
   end
 
   defp build_plan(attrs \\ []) do
@@ -36,13 +42,20 @@ defmodule NovelApplication.ExecutionAuthorityTest do
       risk_hint: :low,
       requires_confirmation_hint: false,
       proposed_actions: [
-        %{action_id: "act-1", action_type: :clarification_request, summary: "澄清需求",
-          target_ref: nil, write_intent: :none, risk_hint: :low}
+        %{
+          action_id: "act-1",
+          action_type: :clarification_request,
+          summary: "澄清需求",
+          target_ref: nil,
+          write_intent: :none,
+          risk_hint: :low
+        }
       ],
       state_changes_requested: [],
       required_capabilities: [],
       fallback_strategy: %{downgrade_message: "先聊聊方向"}
     ]
+
     struct!(MicroPlan, Keyword.merge(defaults, attrs))
   end
 
@@ -84,10 +97,19 @@ defmodule NovelApplication.ExecutionAuthorityTest do
     end
 
     test "rejects 'production_write_allowed' in action summary" do
-      plan = build_plan(proposed_actions: [
-        %{action_id: "a", action_type: :tentative_artifact, summary: "production_write_allowed",
-          target_ref: nil, write_intent: :production_candidate, risk_hint: :high}
-      ])
+      plan =
+        build_plan(
+          proposed_actions: [
+            %{
+              action_id: "a",
+              action_type: :tentative_artifact,
+              summary: "production_write_allowed",
+              target_ref: nil,
+              write_intent: :production_candidate,
+              risk_hint: :high
+            }
+          ]
+        )
 
       assert {:error, terms} = MicroPlan.check_forbidden(plan)
       assert "production_write_allowed" in terms
@@ -103,32 +125,67 @@ defmodule NovelApplication.ExecutionAuthorityTest do
 
   describe "GateOrder" do
     test "multi-step plan blocked by action_scope gate" do
-      plan = build_plan(proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "动作1",
-          target_ref: nil, write_intent: :tentative, risk_hint: :low},
-        %{action_id: "a2", action_type: :state_change_request, summary: "动作2",
-          target_ref: nil, write_intent: :none, risk_hint: :low}
-      ])
+      plan =
+        build_plan(
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "动作1",
+              target_ref: nil,
+              write_intent: :tentative,
+              risk_hint: :low
+            },
+            %{
+              action_id: "a2",
+              action_type: :state_change_request,
+              summary: "动作2",
+              target_ref: nil,
+              write_intent: :none,
+              risk_hint: :low
+            }
+          ]
+        )
 
       assert MicroPlan.multi_step?(plan)
       assert {:block, :action_scope, _, _} = GateOrder.evaluate(plan)
     end
 
     test "high-risk plan blocked by authority gate" do
-      plan = build_plan(risk_hint: :high, proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "危险操作",
-          target_ref: nil, write_intent: :tentative, risk_hint: :high}
-      ])
+      plan =
+        build_plan(
+          risk_hint: :high,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "危险操作",
+              target_ref: nil,
+              write_intent: :tentative,
+              risk_hint: :high
+            }
+          ]
+        )
 
       assert MicroPlan.high_risk?(plan)
       assert {:block, :authority, _, _} = GateOrder.evaluate(plan)
     end
 
     test "production_candidate blocked by write_boundary gate" do
-      plan = build_plan(risk_hint: :low, proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "写生产数据",
-          target_ref: nil, write_intent: :production_candidate, risk_hint: :medium}
-      ])
+      plan =
+        build_plan(
+          risk_hint: :low,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "写生产数据",
+              target_ref: nil,
+              write_intent: :production_candidate,
+              risk_hint: :medium
+            }
+          ]
+        )
 
       assert MicroPlan.production_candidate_count(plan) > 0
       assert {:block, :write_boundary, _, _} = GateOrder.evaluate(plan)
@@ -141,10 +198,20 @@ defmodule NovelApplication.ExecutionAuthorityTest do
     end
 
     test "low-risk single-step plan passes gates" do
-      plan = build_plan(risk_hint: :low, proposed_actions: [
-        %{action_id: "a1", action_type: :clarification_request, summary: "澄清",
-          target_ref: nil, write_intent: :none, risk_hint: :low}
-      ])
+      plan =
+        build_plan(
+          risk_hint: :low,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :clarification_request,
+              summary: "澄清",
+              target_ref: nil,
+              write_intent: :none,
+              risk_hint: :low
+            }
+          ]
+        )
 
       assert {:pass, _results} = GateOrder.evaluate(plan)
     end
@@ -155,12 +222,29 @@ defmodule NovelApplication.ExecutionAuthorityTest do
   describe "ExecutionOrchestrator" do
     test "multi-step plan → downgrade_to_dialogue" do
       frame = build_frame(frame_id: "f-dg")
-      plan = build_plan(frame_ref: "f-dg", proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "动作1",
-          target_ref: nil, write_intent: :tentative, risk_hint: :low},
-        %{action_id: "a2", action_type: :state_change_request, summary: "动作2",
-          target_ref: nil, write_intent: :none, risk_hint: :low}
-      ])
+
+      plan =
+        build_plan(
+          frame_ref: "f-dg",
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "动作1",
+              target_ref: nil,
+              write_intent: :tentative,
+              risk_hint: :low
+            },
+            %{
+              action_id: "a2",
+              action_type: :state_change_request,
+              summary: "动作2",
+              target_ref: nil,
+              write_intent: :none,
+              risk_hint: :low
+            }
+          ]
+        )
 
       {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
@@ -171,10 +255,22 @@ defmodule NovelApplication.ExecutionAuthorityTest do
 
     test "high-risk plan → require_confirmation" do
       frame = build_frame(frame_id: "f-hr")
-      plan = build_plan(frame_ref: "f-hr", risk_hint: :high, proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "危险",
-          target_ref: nil, write_intent: :tentative, risk_hint: :high}
-      ])
+
+      plan =
+        build_plan(
+          frame_ref: "f-hr",
+          risk_hint: :high,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "危险",
+              target_ref: nil,
+              write_intent: :tentative,
+              risk_hint: :high
+            }
+          ]
+        )
 
       {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
@@ -194,10 +290,22 @@ defmodule NovelApplication.ExecutionAuthorityTest do
 
     test "production_candidate write → require_confirmation" do
       frame = build_frame(frame_id: "f-prod")
-      plan = build_plan(frame_ref: "f-prod", risk_hint: :low, proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "写生产",
-          target_ref: nil, write_intent: :production_candidate, risk_hint: :medium}
-      ])
+
+      plan =
+        build_plan(
+          frame_ref: "f-prod",
+          risk_hint: :low,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "写生产",
+              target_ref: nil,
+              write_intent: :production_candidate,
+              risk_hint: :medium
+            }
+          ]
+        )
 
       {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
@@ -207,10 +315,22 @@ defmodule NovelApplication.ExecutionAuthorityTest do
 
     test "truthfulness constraints prevent claiming execution" do
       frame = build_frame(frame_id: "f-true")
-      plan = build_plan(frame_ref: "f-true", risk_hint: :high, proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "写",
-          target_ref: nil, write_intent: :tentative, risk_hint: :high}
-      ])
+
+      plan =
+        build_plan(
+          frame_ref: "f-true",
+          risk_hint: :high,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "写",
+              target_ref: nil,
+              write_intent: :tentative,
+              risk_hint: :high
+            }
+          ]
+        )
 
       {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
       constraints = OrchestratorDecision.truthfulness_constraints(decision)
@@ -220,10 +340,22 @@ defmodule NovelApplication.ExecutionAuthorityTest do
 
     test "decision trace records all required fields" do
       frame = build_frame(frame_id: "f-trace")
-      plan = build_plan(frame_ref: "f-trace", risk_hint: :high, proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "测试",
-          target_ref: nil, write_intent: :tentative, risk_hint: :high}
-      ])
+
+      plan =
+        build_plan(
+          frame_ref: "f-trace",
+          risk_hint: :high,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "测试",
+              target_ref: nil,
+              write_intent: :tentative,
+              risk_hint: :high
+            }
+          ]
+        )
 
       {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
@@ -238,10 +370,22 @@ defmodule NovelApplication.ExecutionAuthorityTest do
 
     test "rejected_actions contains all proposed actions when blocked" do
       frame = build_frame(frame_id: "f-rej")
-      plan = build_plan(frame_ref: "f-rej", risk_hint: :high, proposed_actions: [
-        %{action_id: "a1", action_type: :tentative_artifact, summary: "X",
-          target_ref: nil, write_intent: :tentative, risk_hint: :high}
-      ])
+
+      plan =
+        build_plan(
+          frame_ref: "f-rej",
+          risk_hint: :high,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :tentative_artifact,
+              summary: "X",
+              target_ref: nil,
+              write_intent: :tentative,
+              risk_hint: :high
+            }
+          ]
+        )
 
       {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 

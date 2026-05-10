@@ -29,6 +29,7 @@ defmodule NovelDomain.NarrativePositionTest do
       scene_index: 2,
       narrative_layer: "flashback"
     }
+
     assert pos.work_id == "w1"
     assert pos.volume_id == "v1"
     assert pos.chapter_id == "c3"

@@ -103,7 +103,7 @@ defmodule NovelApplication.ContextGroundingTest do
       refute DialogueContext.has_context?(context)
       # Trace summary should indicate no context
       assert trace_summary_has_no_context(trace) or
-             event_order_indicates_empty_context(trace)
+               event_order_indicates_empty_context(trace)
     end
 
     test "without context, TurnResult does not fabricate work facts" do

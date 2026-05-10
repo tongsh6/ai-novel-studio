@@ -5,34 +5,46 @@ defmodule NovelDomain.OrchestratorDecision do
   规格见 docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md §5。
   """
 
-  @type decision_type :: :downgrade_to_dialogue | :require_confirmation |
-                         :require_clarification | :reject | :fail_with_recovery | :allow_tool
+  @type decision_type ::
+          :downgrade_to_dialogue
+          | :require_confirmation
+          | :require_clarification
+          | :reject
+          | :fail_with_recovery
+          | :allow_tool
   @type decision_status :: :decided | :failed | :emitted
 
   @type action_ref :: %{
-    action_id: String.t(),
-    action_type: atom(),
-    summary: String.t()
-  }
+          action_id: String.t(),
+          action_type: atom(),
+          summary: String.t()
+        }
 
   @type t :: %__MODULE__{
-    decision_id: String.t(),
-    turn_id: String.t(),
-    frame_ref: String.t(),
-    plan_ref: String.t() | nil,
-    decision_type: decision_type(),
-    decision_status: decision_status(),
-    approved_actions: [action_ref()],
-    rejected_actions: [action_ref()],
-    downgraded_actions: [action_ref()],
-    required_author_action: map() | nil,
-    first_blocking_gate: String.t() | nil,
-    reason_codes: [String.t()],
-    turn_result_policy: %{truthfulness_constraints: [String.t()]},
-    decision_trace_ref: String.t()
-  }
+          decision_id: String.t(),
+          turn_id: String.t(),
+          frame_ref: String.t(),
+          plan_ref: String.t() | nil,
+          decision_type: decision_type(),
+          decision_status: decision_status(),
+          approved_actions: [action_ref()],
+          rejected_actions: [action_ref()],
+          downgraded_actions: [action_ref()],
+          required_author_action: map() | nil,
+          first_blocking_gate: String.t() | nil,
+          reason_codes: [String.t()],
+          turn_result_policy: %{truthfulness_constraints: [String.t()]},
+          decision_trace_ref: String.t()
+        }
 
-  @enforce_keys [:decision_id, :turn_id, :frame_ref, :decision_type, :decision_status, :reason_codes]
+  @enforce_keys [
+    :decision_id,
+    :turn_id,
+    :frame_ref,
+    :decision_type,
+    :decision_status,
+    :reason_codes
+  ]
   defstruct [
     :decision_id,
     :turn_id,

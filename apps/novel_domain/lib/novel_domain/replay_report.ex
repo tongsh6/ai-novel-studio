@@ -9,26 +9,41 @@ defmodule NovelDomain.ReplayReport do
   @type redaction_profile :: :author_safe | :developer_summary
 
   @type t :: %__MODULE__{
-    replay_report_id: String.t(),
-    replay_case_ref: String.t(),
-    trace_ref: String.t(),
-    replay_level: :structural,
-    chain_summary: [map()],
-    decision_explanations: [map()],
-    state_explanations: [map()],
-    missing_trace_refs: [String.t()],
-    redaction_profile: redaction_profile(),
-    provider_called: boolean(),
-    result_status: result_status(),
-    generated_at: String.t()
-  }
+          replay_report_id: String.t(),
+          replay_case_ref: String.t(),
+          trace_ref: String.t(),
+          replay_level: :structural,
+          chain_summary: [map()],
+          decision_explanations: [map()],
+          state_explanations: [map()],
+          missing_trace_refs: [String.t()],
+          redaction_profile: redaction_profile(),
+          provider_called: boolean(),
+          result_status: result_status(),
+          generated_at: String.t()
+        }
 
-  @enforce_keys [:replay_report_id, :replay_case_ref, :trace_ref, :replay_level,
-                 :redaction_profile, :provider_called, :result_status]
+  @enforce_keys [
+    :replay_report_id,
+    :replay_case_ref,
+    :trace_ref,
+    :replay_level,
+    :redaction_profile,
+    :provider_called,
+    :result_status
+  ]
   defstruct [
-    :replay_report_id, :replay_case_ref, :trace_ref, :replay_level,
-    :redaction_profile, :provider_called, :result_status,
-    chain_summary: [], decision_explanations: [], state_explanations: [],
-    missing_trace_refs: [], generated_at: nil
+    :replay_report_id,
+    :replay_case_ref,
+    :trace_ref,
+    :replay_level,
+    :redaction_profile,
+    :provider_called,
+    :result_status,
+    chain_summary: [],
+    decision_explanations: [],
+    state_explanations: [],
+    missing_trace_refs: [],
+    generated_at: nil
   ]
 end

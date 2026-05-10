@@ -25,7 +25,8 @@ defmodule NovelApplication.PlannerBoundary do
     if plan.frame_ref == frame.frame_id do
       :ok
     else
-      {:error, "MicroPlan frame_ref (#{plan.frame_ref}) does not match DialogueFrame (#{frame.frame_id})"}
+      {:error,
+       "MicroPlan frame_ref (#{plan.frame_ref}) does not match DialogueFrame (#{frame.frame_id})"}
     end
   end
 

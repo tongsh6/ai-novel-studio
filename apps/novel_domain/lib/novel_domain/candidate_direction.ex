@@ -6,13 +6,13 @@ defmodule NovelDomain.CandidateDirection do
   """
 
   @type t :: %__MODULE__{
-    direction_id: String.t(),
-    title: String.t(),
-    pitch: String.t(),
-    tone_tags: [String.t()],
-    source_frame_ref: String.t(),
-    adoption_status: :not_adopted
-  }
+          direction_id: String.t(),
+          title: String.t(),
+          pitch: String.t(),
+          tone_tags: [String.t()],
+          source_frame_ref: String.t(),
+          adoption_status: :not_adopted
+        }
 
   @enforce_keys [:direction_id, :title, :pitch, :source_frame_ref]
   defstruct [
