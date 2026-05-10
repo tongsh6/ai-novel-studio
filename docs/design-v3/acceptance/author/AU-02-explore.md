@@ -19,7 +19,30 @@
 
 ---
 
-## 2. 验收场景
+## 2. 不变量
+
+| 编号 | 不变量 (`00c` §7) | 本验收如何验证 |
+|------|-------------------|---------------|
+| #1 | 每 turn 必有 frame | A1 — exploration 也是 DialogueFrame |
+| #8 | 缺 slot 不自动等于表单 | A2 — 不产生 slot form / durable clarification |
+| #9 | TurnResult 是 canonical 输出 | B2 — 候选方向不声称已采纳 |
+
+---
+
+## 3. 契约引用
+
+| 契约 | 用途 |
+|------|------|
+| ADR-0001 | DialogueFrame 必须支持 exploration frame_type |
+| ADR-0015 | 前台只消费 TurnResult / view model |
+| VS-00A Contract Pack §2 | Exploration Turn 最小语义 |
+| VS-00A Contract Pack §3 | CandidateDirectionSet 规则 |
+| VS-00A Contract Pack §4 | 缺信息不自动表单化 |
+| VS-00A Contract Pack §5-6 | TurnResult truthfulness + Proof |
+
+---
+
+## 4. 验收场景
 
 ### 场景组 A：自然探索
 
@@ -85,7 +108,7 @@ AI: 这个方向可以有几种味道：公司垄断灵气、宗门搬进霓虹�
 - [ ] 有风格标签（`tone_tags`）帮助作者判断
 - [ ] 候选方向在 TurnResult 中以 `candidate_directions` 呈现
 
-**测试**：当前 stub provider 返回空 candidates，real LLM 才会产生候选方向。断言 `Enum.all?(candidates, & &1.adoption_status == :not_adopted)` ✅
+**测试**：当前 stub provider 返回空 candidates，real LLM 才会产生候选方向。stub 路径下断言 `Enum.all?(candidates, & &1.adoption_status == :not_adopted)` ✅（空列表 trivially true）。完整场景需 real LLM 验证。
 
 ---
 
@@ -131,7 +154,7 @@ AI: 基于这个方向的进一步展开...
 
 ---
 
-## 3. 场景覆盖状态
+## 5. 场景覆盖状态
 
 | 场景 | 做什么 | 状态 |
 |------|--------|------|
@@ -146,7 +169,7 @@ AI: 基于这个方向的进一步展开...
 
 ---
 
-## 4. 缺口
+## 6. 缺口
 
 | 缺口 | 影响 | 建议处理 |
 |------|------|---------|
@@ -155,7 +178,13 @@ AI: 基于这个方向的进一步展开...
 
 ---
 
-## 5. 验收命令
+## 7. 已知限制
+
+当前探索测试使用 stub provider（返回固定文本"收到你的消息。"），无法验证"AI 自然展开创作方向"和"候选方向生成"的完整体验。stub 路径只能验证"不弹出表单"和"不声称采纳"等防御性规则。完整场景（A1 的创作对话、B1 的候选方向卡片）需 real LLM → VS-08 端到端集成时覆盖。
+
+---
+
+## 8. 验收命令
 
 ```bash
 mix test apps/novel_application/test/novel_application/dialogue_gateway_test.exs

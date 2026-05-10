@@ -19,7 +19,30 @@
 
 ---
 
-## 2. 验收场景
+## 2. 不变量
+
+| 编号 | 不变量 (`00c` §7) | 本验收如何验证 |
+|------|-------------------|---------------|
+| #1 | 每 turn 必有 frame | A1 — grounded turn 也必须有 primary frame |
+| #8 | 缺 slot 不自动等于表单 | B1 — 无上下文时诚实，不编造 |
+| #13 | trace summary 脱敏 | C1 — context_ref 来源可追溯，不入作者可见区 |
+
+---
+
+## 3. 契约引用
+
+| 契约 | 用途 |
+|------|------|
+| ADR-0001 | DialogueFrame 必须支持 context ref 绑定 |
+| ADR-0013 | trace 脱敏与上下文引用 |
+| VS-00B Contract Pack §2 | DialogueContext 最小来源集合 |
+| VS-00B Contract Pack §3 | Context Refs 与 Trace 绑定 |
+| VS-00B Contract Pack §4 | 无上下文时不编造事实 |
+| VS-00B Contract Pack §5 | Proof 草案（5 条） |
+
+---
+
+## 4. 验收场景
 
 ### 场景组 A：有上下文时
 
@@ -56,9 +79,9 @@ AI: "林烬找妹妹的动机可以从'亲情'升级为'赎罪'——
 
 **验证点**：
 - [ ] 回应包含正确的章节位置信息
-- [ ] 回应不包含作品中不存在的事実
+- [ ] 回应不包含作品中不存在的事实
 
-**测试**：`context_grounding_test.exs` — `"with context, frame records dialogue_context_ref"` ✅
+**测试**：`context_grounding_test.exs` — `"with context, frame records dialogue_context_ref"` ✅（验证 frame 绑定 context_ref，但未验证回应文本具体包含章节位置——完整验证需 real LLM）
 
 ---
 
@@ -123,7 +146,7 @@ AI: "林烬找妹妹的动机可以从'亲情'升级为'赎罪'——
 
 ---
 
-## 3. 场景覆盖状态
+## 5. 场景覆盖状态
 
 | 场景 | 做什么 | 状态 |
 |------|--------|------|
@@ -138,14 +161,22 @@ AI: "林烬找妹妹的动机可以从'亲情'升级为'赎罪'——
 
 ---
 
-## 4. 验收命令
+## 6. 缺口
+
+| 缺口 | 影响 | 建议处理 |
+|------|------|---------|
+| GAP-01 — 部分上下文场景 | 当上下文有主角信息但无章节信息时，AI 回答位置问题的行为未验证 | 新增 partial context 测试：fetcher 返回部分字段 → 验证 AI 只基于已有信息回答 |
+
+---
+
+## 7. 已知限制
+
+当前上下文由 stub fetcher 提供，真实作品快照（从 persistence 读取当前小说数据）待 VS-08 端到端集成时接入。本验收证明的是"有上下文时 AI 会用、无上下文时 AI 不编造"这个行为契约，不依赖真实数据。
+
+---
+
+## 8. 验收命令
 
 ```bash
 mix test apps/novel_application/test/novel_application/context_grounding_test.exs
 ```
-
----
-
-## 5. 已知限制
-
-当前上下文由 stub fetcher 提供，真实作品快照（从 persistence 读取当前小说数据）待 VS-08 端到端集成时接入。本验收证明的是"有上下文时 AI 会用、无上下文时 AI 不编造"这个行为契约，不依赖真实数据。
