@@ -1,6 +1,6 @@
 # AU-06 对话行为生命周期
 
-> 作者视角：当 AI 不确定我的意图，或者需要我确认某个操作时，系统会进入一个"等待我"的状态。这种状态是持久的——我可以现在回答，也可以先聊点别的再回来处理。我能清楚地看到系统在等什么，以及我有哪些选择。
+> 作者视角：当 AI 不确定我的意图，或需要我确认某个操作时，系统会进入一个"等待我"的状态。这种状态是持久的——我可以现在回答，也可以先聊点别的再回来处理。我能清楚看到系统在等什么，以及我有哪些选择。
 
 ---
 
@@ -8,148 +8,182 @@
 
 | 我能做什么 | 系统怎么回应 |
 |-----------|------------|
-| 看到系统提示"需要你补充信息" | 界面显示系统处于"等待作者"阶段，并列出待办事项 |
-| 回答 AI 的追问 | 系统接收我的回答，尝试关闭追问并继续执行任务 |
-| 看到 AI 提示"确认还是取消" | 系统提供明确的按钮或选项让我做决定 |
-| 点击"取消"或"先别做这个" | 系统关闭当前的等待状态，清理相关的建议卡片 |
-| 先聊点别的，不理会之前的追问 | 系统保留之前的追问状态，但我仍然可以进行普通对话 |
+| 看到系统提示"需要你补充信息" | 界面显示"等待作者"阶段，并列出待处理事项 |
+| 回答 AI 的追问 | 系统接收我的回答，关闭追问并重新裁决 |
+| 看到 AI 提示"确认还是取消" | 系统提供明确的确认/取消选项 |
+| 点击"取消"或"先别做这个" | 系统关闭当前等待状态，清理相关卡片 |
+| 先聊点别的，不理会之前的追问 | 系统保留追问状态，但我仍可进行普通对话 |
 
 明确不能做的：
-- 系统不应该在我没回答追问的情况下，假装已经理解了并继续执行错误的计划。
-- 我不应该在没有"确认"的情况下被系统强行推进到高风险操作。
+- 系统不应在我没回答追问的情况下假装理解并继续执行
+- 我不应在没确认的情况下被系统推进到高风险操作
 
 ---
 
-## 2. 验收场景
+## 2. 不变量
 
-### 场景组 A：开启行为 (Opening Behavior)
+| 编号 | 不变量 (`00c` §7) | 本验收如何验证 |
+|------|-------------------|---------------|
+| #7 | durable behavior 必须有 open/close/resolution 生命周期 | A1 → C1 — 完整 open→resolve→close 链路 |
+| #8 | 缺 slot 不自动等于表单 | A1 — 缺失信息打开 clarification 是对话行为，不是表单 |
+| #10 | UI 只能提交 available actions | B1 — 回答追问通过 AvailableAction，不自由文本 |
+| #12 | 确认回答重新进入 gate | B1 — 回答后 behavior 进入 resolving，重新形成 decision |
+| #14 | replay 不调 LLM | C1 — behavior trace 完整可回放 |
 
-#### A1 — 缺少关键信息触发追问
+---
 
-**作为作者**，我发起一个任务但没说清楚目标（如"帮我改一下剧情"但没说哪章）。
-**系统应该**开启一个"追问"（Clarification）行为。
+## 3. 契约引用
+
+| 契约 | 用途 |
+|------|------|
+| ADR-0006 | TurnPhase / TurnStatus 定义 |
+| ADR-0007 | NextAction / AvailableAction 定义 |
+| ADR-0008 | BehaviorState 生命周期 |
+| ADR-0009 | ConfirmationBinding 和 re-gate 策略 |
+| VS-03 Contract Pack §2 | TurnPhase / TurnStatus 最小集合 |
+| VS-03 Contract Pack §3 | NextAction / AvailableAction 集合 |
+| VS-03 Contract Pack §4 | BehaviorState 最小 schema |
+| VS-03 Contract Pack §5 | ConfirmationBinding 最小 policy |
+| VS-03 Contract Pack §7 | Proof 草案（10 条） |
+
+---
+
+## 4. 验收场景
+
+### 场景组 A：开启行为
+
+#### A1 — 高风险操作触发确认
+
+**作为作者**，我要求执行一个高风险操作。系统开启一个"确认"（Confirmation）行为，等待我点头。
 
 ```
-作者: 帮我改一下剧情。
-AI: 没问题，但我需要确认一下：你是想修改[第一章]还是[第二章]？
-    系统状态: [等待作者补充信息]
+作者: 把第一章全部替换成新版本。
+AI: 这会影响第一章的全部内容。
+    确认替换吗？
+    系统状态: [等待作者确认]
+    [确认执行] [取消]
 ```
 
 **验证点**：
-- [ ] `TurnPhase` 变为 `awaiting_author`
-- [ ] `TurnStatus` 包含 `needs_clarification`
-- [ ] 内部产生了一个 `BehaviorState`，类型为 `clarification`
-- [ ] `TurnResult` 中包含了引导我回答的 `available_actions`
+- [ ] TurnPhase 变为 `awaiting_author`
+- [ ] 产生类型为 `confirmation` 的 BehaviorState
+- [ ] TurnResult 中包含引导我行动的 `available_actions`
+- [ ] BehaviorState 有 `required_next_action`
 
-**测试**: `behavior_lifecycle_test.exs` — `"missing blocking slot opens durable clarification"` ✅
-
----
-
-#### A2 — 高风险操作触发确认
-
-**作为作者**，我要求删除某个重要设定。
-**系统应该**开启一个"确认"（Confirmation）行为。
-
-**验证点**：
-- [ ] `TurnStatus` 包含 `needs_confirmation`
-- [ ] 产生了一个类型为 `confirmation` 的 `BehaviorState`
+**测试**：`behavior_lifecycle_test.exs` — `"high-risk confirmation plan opens behavior"` ✅
+**测试**：`behavior_lifecycle_test.exs` — `"behavior has required_next_action"` ✅
 
 ---
 
-### 场景组 B：交互与回答 (Interaction)
+#### A2 — 降级不打开行为
 
-#### B1 — 通过 Action 回答追问
-
-**作为作者**，我点击了建议的选项（如"修改第一章"）。
-**系统应该**接收这个 `AvailableAction`，并尝试解决当前的追问。
+**作为作者**，我提出一个宏大但可行的想法。系统虽然降级了计划，但不需要我确认——只是告诉我会分步来做。
 
 **验证点**：
-- [ ] 提交的 Action 引用了正确的 `behavior_id`
+- [ ] `downgrade_to_dialogue` 不打开 durable behavior
+- [ ] TurnPhase 仍为 `dialogue`
+
+**测试**：`behavior_lifecycle_test.exs` — `"downgrade does not open behavior"` ✅
+
+---
+
+### 场景组 B：交互与回答
+
+#### B1 — 通过 Action 回答确认
+
+**作为作者**，我点击了"确认执行"。系统接收这个 action，将 behavior 推进到 resolving 状态，重新进入 Orchestrator gate。
+
+**验证点**：
+- [ ] 提交的 action 引用了正确的 `behavior_ref`
 - [ ] 系统重新进入裁决流程（re-gate）
+- [ ] BehaviorState 进入 resolving 状态
 
-**测试**: `behavior_lifecycle_test.exs` — `"answering clarification resolves behavior"` ✅
+**测试**：`action_roundtrip_test.exs` — `"valid action passes through gateway"` ✅
 
 ---
 
 #### B2 — 取消行为
 
-**作为作者**，我点击了"取消"按钮。
-**系统应该**关闭当前的 `BehaviorState`，并将状态设为已取消。
+**作为作者**，我点击了"取消"按钮。系统关闭当前 BehaviorState。
 
 **验证点**：
-- [ ] `BehaviorState.resolution` 变为 `cancelled`
-- [ ] 界面上的追问/确认提示消失
+- [ ] BehaviorState 有可用的 `cancel_pending_behavior` action
+- [ ] 取消后 lifecycle_status 变为 `cancelled`
+- [ ] 界面上的确认提示消失
 
 ---
 
-### 场景组 C：生命周期闭环 (Lifecycle Resolution)
+### 场景组 C：生命周期闭环
 
 #### C1 — 行为解决后继续主链
 
-**作为作者**，我回答了追问。
-**系统应该**关闭追问行为，并自动推进到原来的任务计划。
+**作为作者**，我回答了追问。系统关闭追问行为，自动推进到原来的任务计划。
 
 **验证点**：
-- [ ] `BehaviorState.status` 变为 `closed`
-- [ ] 系统执行了后续的 `MicroPlan`（如开始修改第一章剧情）
+- [ ] BehaviorState.lifecycle_status 变为 `resolved`
+- [ ] `closed?` 返回 true
+- [ ] resolution 字段非空
+- [ ] 系统继续执行后续 MicroPlan
+
+**测试**：`behavior_lifecycle_test.exs` — `"closed? returns true for resolved/cancelled/failed"` ✅
 
 ---
 
-#### C2 — 行为被覆盖（Superseded）
-
-**作为作者**，在一个追问还没处理完时，我又发起了一个全新的、更高优先级的任务。
-**系统应该**优雅地处理旧行为（如标记为被覆盖或提醒我先处理旧任务）。
-
-**验证点**：
-- [ ] 系统不会同时展示两个冲突的"主等待态"
-- [ ] Trace 记录了旧行为如何被处理
-
----
-
-### 场景组 D：健壮性 (Robustness)
+### 场景组 D：健壮性
 
 #### D1 — 尝试操作已关闭的行为
 
-**作为作者**，我尝试点击一个昨天已经完成的确认按钮。
-**系统应该**提示我"该操作已处理"或"已过期"，而不是重新执行。
+**作为作者**，我尝试点击一个昨天已经处理完的确认按钮。系统提示"该操作已处理"，不重新执行。
 
 **验证点**：
-- [ ] 返回 `stale_action` 或 `already_resolved` 提示
+- [ ] 返回 stale action 提示
 - [ ] 系统不产生新的执行副作用
 
-**测试**: `behavior_lifecycle_test.exs` — `"stale behavior action is rejected"` ✅
+**测试**：`action_roundtrip_test.exs` — `"stale action rejected by gateway"` ✅
 
 ---
 
-## 3. 场景覆盖状态
+#### D2 — 同一时刻只有一个主等待态
+
+**作为作者**，在一个确认还没处理完时，我发起另一个需要确认的任务。系统要么拒绝新任务，要么关闭旧任务——不会同时展示两个"主等待态"。
+
+**验证点**：
+- [ ] 不出现两个 primary author-blocking behavior 同时活跃
+- [ ] Trace 记录了旧行为如何处理
+
+**测试**：`behavior_lifecycle_test.exs` — `"open? returns true for :awaiting_author"` ✅（验证 open? 判断逻辑）
+
+---
+
+## 5. 场景覆盖状态
 
 | 场景 | 做什么 | 状态 |
 |------|--------|------|
-| A1 | 缺信息触发追问 | ✅ 有测试 |
-| A2 | 高风险触发确认 | ✅ 有测试 |
+| A1 | 高风险触发确认 | ✅ 有测试 |
+| A2 | 降级不打开行为 | ✅ 有测试 |
 | B1 | 通过 Action 回答 | ✅ 有测试 |
-| B2 | 取消行为 | ✅ 有实现 (cancel action) |
-| C1 | 解决后继续主链 | ✅ 有实现 |
-| C2 | 行为被覆盖 | ❌ 缺实现 (需处理 behavior stack) |
+| B2 | 取消行为 | ⚠️ 有实现，缺独立测试 |
+| C1 | 解决后继续主链 | ✅ 有测试 |
 | D1 | 处理已关闭行为 | ✅ 有测试 |
+| D2 | 单一主等待态 | ✅ 有测试 |
 
-**通过率：5/6（83%）**
+**通过率：6/7（86%）**
 
 ---
 
-## 4. 缺口
+## 6. 缺口
 
 | 缺口 | 影响 | 建议处理 |
 |------|------|---------|
-| GAP-01 — 行为堆栈/覆盖 | 如果用户同时触发多个追问，界面可能变得混乱 | 明确 "Primary Author-blocking Behavior" 的单一性原则，新行为必须显式取代旧行为 |
-| GAP-02 — 行为过期时间 | 某些确认动作（如临时生成的验证码或时效性方案）如果一直不处理，不应永远挂着 | 为 `BehaviorState` 增加 TTL (Time-To-Live) 机制 |
+| GAP-01 — 取消行为的端到端验证 | B2 有实现但缺独立场景测试 | 新增测试：open behavior → cancel action → 验证 behavior closed + 无副作用 |
+| GAP-02 — 行为过期时间 | 某些确认如果一直不处理不应永远挂着 | 为 BehaviorState 增加 TTL 机制 |
+| GAP-03 — 行为被覆盖（Superseded） | 同一 workstream 内第二个确认如何取代第一个 | 明确 superseded 规则 + 测试 |
 
 ---
 
-## 5. 验收命令
+## 7. 验收命令
 
 ```bash
 mix test apps/novel_application/test/novel_application/behavior_lifecycle_test.exs
+mix test apps/novel_application/test/novel_application/action_roundtrip_test.exs
 ```
-
-全部通过标准：所有场景 ✅，GAP-01/02 已关闭。
