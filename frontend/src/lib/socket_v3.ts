@@ -14,7 +14,12 @@ export interface V3TurnResult {
   turn_id: string;
   frame_ref: string;
   assistant_message: { text: string };
-  frame_summary: { frame_type: string; dialogue_goal: string };
+  frame_summary: {
+    frame_type: string;
+    dialogue_goal: string;
+    uncertainty?: string[];
+    context_used?: boolean;
+  };
   trace_summary: Record<string, unknown>;
   phase: string;
   status: string;
@@ -23,8 +28,43 @@ export interface V3TurnResult {
   candidate_directions?: V3CandidateDirection[];
   orchestrator_decision?: Record<string, unknown>;
   tool_result?: Record<string, unknown>;
-  tentative_artifacts?: Record<string, unknown>;
+  adoption_state?: {
+    pending: V3ArtifactEntry[];
+    resolved: V3ArtifactEntry[];
+  };
+  ui_cards?: V3UICard[];
   behavior_state?: Record<string, unknown>;
+}
+
+export interface V3UICard {
+  card_type: string;
+  priority?: string;
+  visibility?: string;
+  title?: string;
+  body?: string;
+  artifact_refs?: string[];
+  actions?: V3UIAction[];
+}
+
+export interface V3UIAction {
+  action_id: string;
+  action_type?: string;
+  label: string;
+  target_ref: string;
+  enabled: boolean;
+  style_hint?: string;
+}
+
+export interface V3ArtifactEntry {
+  artifact_id: string;
+  artifact_type: string;
+  adoption_status: string;
+  requires_adoption: boolean;
+  revision_base?: string | null;
+  payload: {
+    title?: unknown;
+    [key: string]: unknown;
+  };
 }
 
 export interface V3AvailableAction {

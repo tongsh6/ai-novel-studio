@@ -19,8 +19,21 @@ import {
   type V3AvailableAction,
   type V3AuthorActionPayload,
   type V3CandidateDirection,
+  type V3UICard,
 } from "../lib/socket_v3";
 import { WORKBENCH_V3 } from "../lib/copy";
+import {
+  ClarificationCard,
+  ConfirmationCard,
+  WarningCard,
+  AdoptionCard,
+  ProgressCard,
+  CheckpointCard,
+  ResultCard,
+  FailureCard,
+  EscalationCard,
+  DefaultCard,
+} from "./UICards";
 import styles from "./WorkbenchV3.module.css";
 
 // ── Types ─────────────────────────────────────────
@@ -40,11 +53,14 @@ export function WorkbenchV3() {
   const [connected, setConnected] = useState(false);
   const [llmStatus, setLlmStatus] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState("");
-  const [availableActions, setAvailableActions] = useState<V3AvailableAction[]>([]);
+  const [availableActions, setAvailableActions] = useState<V3AvailableAction[]>(
+    [],
+  );
   const [candidates, setCandidates] = useState<V3CandidateDirection[]>([]);
   const [currentTurnId, setCurrentTurnId] = useState<string>("");
   const [currentPhase, setCurrentPhase] = useState<string>("");
   const [currentStatus, setCurrentStatus] = useState<string>("");
+  const [showInsights, setShowInsights] = useState(false);
 
   const channelRef = useRef<Channel | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -80,9 +96,7 @@ export function WorkbenchV3() {
       .join()
       .receive("ok", () => {
         setConnected(true);
-        setMessages([
-          { role: "assistant", text: WORKBENCH_V3.welcomeMessage },
-        ]);
+        setMessages([{ role: "assistant", text: WORKBENCH_V3.welcomeMessage }]);
       })
       .receive("error", () => setConnected(false))
       .receive("timeout", () => setConnected(false));
@@ -185,6 +199,57 @@ export function WorkbenchV3() {
     }
   };
 
+  // ── Render Card ─────────────────────────────────
+
+  const renderCard = (card: V3UICard, i: number) => {
+    const handleCardAction = (
+      _actionId: string,
+      targetRef: string,
+      actionType?: string,
+    ) => {
+      // Find matching available action or build a generic one
+      const action = availableActions.find(
+        (a) => a.action_id === _actionId || a.target_ref === targetRef,
+      );
+      if (action) {
+        void handleAction(action);
+      } else {
+        // Fallback for generic actions
+        void handleAction({
+          action_id: _actionId,
+          action_type: actionType || "unknown",
+          target_ref: targetRef,
+          enabled: true,
+        });
+      }
+    };
+
+    const props = { card: card as any, onAction: handleCardAction };
+
+    switch (card.card_type) {
+      case "clarification_card":
+        return <ClarificationCard key={i} {...props} />;
+      case "confirmation_card":
+        return <ConfirmationCard key={i} {...props} />;
+      case "warning_card":
+        return <WarningCard key={i} {...props} />;
+      case "adoption_card":
+        return <AdoptionCard key={i} {...props} />;
+      case "progress_card":
+        return <ProgressCard key={i} {...props} />;
+      case "checkpoint_card":
+        return <CheckpointCard key={i} {...props} />;
+      case "result_card":
+        return <ResultCard key={i} {...props} />;
+      case "failure_card":
+        return <FailureCard key={i} {...props} />;
+      case "escalation_card":
+        return <EscalationCard key={i} {...props} />;
+      default:
+        return <DefaultCard key={i} {...props} />;
+    }
+  };
+
   // ── Render ──────────────────────────────────────
 
   return (
@@ -195,9 +260,17 @@ export function WorkbenchV3() {
           <span className={styles.title}>AI Novel Studio v3</span>
           {currentPhase && (
             <span className={styles.badge}>
-              {currentPhase}{currentStatus && ` · ${currentStatus}`}
+              {currentPhase}
+              {currentStatus && ` · ${currentStatus}`}
             </span>
           )}
+          <button
+            className={styles.insightToggle}
+            onClick={() => setShowInsights(!showInsights)}
+            title="查看 AI 内部认知状态"
+          >
+            {showInsights ? "隐藏认知" : "查看认知"}
+          </button>
         </div>
         <div className={styles.statusRight}>
           <span
@@ -234,6 +307,39 @@ export function WorkbenchV3() {
               {msg.role === "user" ? "你" : "AI"}
             </span>
             <div className={styles.text}>{msg.text}</div>
+
+            {/* Cards */}
+            {msg.turnResult?.ui_cards?.map((card, ci) => renderCard(card, ci))}
+
+            {/* Insights */}
+            {showInsights && msg.turnResult?.frame_summary && (
+              <div className={styles.insights}>
+                <div className={styles.insightHeader}>
+                  认知洞察 (Frame Insight)
+                </div>
+                <div className={styles.insightRow}>
+                  <span className={styles.insightLabel}>当前目标:</span>
+                  <span className={styles.insightValue}>
+                    {msg.turnResult.frame_summary.dialogue_goal}
+                  </span>
+                </div>
+                <div className={styles.insightRow}>
+                  <span className={styles.insightLabel}>认知类型:</span>
+                  <span className={styles.insightValue}>
+                    {msg.turnResult.frame_summary.frame_type}
+                  </span>
+                </div>
+                {msg.turnResult.frame_summary.uncertainty &&
+                  msg.turnResult.frame_summary.uncertainty.length > 0 && (
+                    <div className={styles.insightRow}>
+                      <span className={styles.insightLabel}>不确定性:</span>
+                      <span className={styles.insightValue}>
+                        {msg.turnResult.frame_summary.uncertainty.join(", ")}
+                      </span>
+                    </div>
+                  )}
+              </div>
+            )}
 
             {/* Phase / Status indicator */}
             {msg.turnResult && (

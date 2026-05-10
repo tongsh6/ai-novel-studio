@@ -30,6 +30,22 @@
   gap: 12px;
 }
 
+.insightToggle {
+  font-size: 10px;
+  padding: 2px 6px;
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.insightToggle:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
 .title {
   font-weight: 600;
   font-size: 14px;
@@ -93,6 +109,37 @@
   align-self: flex-start;
   background: var(--background-secondary);
   border: 1px solid var(--border-primary);
+}
+
+.insights {
+  margin-top: 10px;
+  padding: 8px;
+  background: var(--background-primary);
+  border-radius: 6px;
+  border-left: 3px solid var(--accent);
+  font-size: 12px;
+}
+
+.insightHeader {
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.insightRow {
+  display: flex;
+  margin-bottom: 2px;
+}
+
+.insightLabel {
+  opacity: 0.6;
+  width: 60px;
+  flex-shrink: 0;
+}
+
+.insightValue {
+  font-weight: 500;
 }
 
 .role {
