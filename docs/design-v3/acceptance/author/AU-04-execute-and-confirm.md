@@ -1,6 +1,6 @@
 # AU-04 执行任务与系统确认
 
-> 作者视角：当我想让 AI 帮我做一些具体工作（如创建角色、生成大纲）时，AI 会给出它的执行建议。对于高风险操作，系统会要求我确认，只有我点头才会真正动手。
+> 作者视角：当我想让 AI 帮我做具体工作（如创建角色、生成大纲）时，AI 会给出执行建议。对于高风险操作，系统会要求我确认，只有我点头才会真正动手。不管 AI 说什么，系统内部有独立的裁决机制——AI 不能自己批准自己的计划。
 
 ---
 
@@ -8,15 +8,15 @@
 
 | 我能做什么 | 系统怎么回应 |
 |-----------|------------|
-| 让 AI "创建一个叫林烬的主角" | AI 给出建议方案，并说明即将创建的内容 |
+| 让 AI "创建一个叫林烬的主角" | AI 给出建议方案，展示要做什么 |
 | 提出一个很宏大的要求 | AI 诚实地说"这个太复杂，我只能先做第一步" |
-| 看到 AI 的建议计划 | 系统展示 AI 想做的事和影响范围 |
+| 提出一个高风险要求 | 系统弹出确认按钮，等我点击"确认执行" |
 | 点击"确认执行" | 系统真正执行任务，返回结果 |
 | 说"先别弄，我想再改改" | 系统取消本次执行计划，回到讨论状态 |
 
 明确不能做的：
-- AI 不应在我不确认的情况下悄悄修改小说设定或章节
-- AI 不应宣称做了它权限之外的事
+- AI 不应在我的回复里夹带"已批准执行"之类的词来绕过确认
+- AI 不应在我不确认的情况下悄悄修改小说设定
 
 ---
 
@@ -24,11 +24,11 @@
 
 | 编号 | 不变量 (`00c` §7) | 本验收如何验证 |
 |------|-------------------|---------------|
-| #2 | MicroPlan 只是建议 | C1 — 多步计划被降级 |
-| #3 | Orchestrator 唯一门禁 | G1 — 8 个 gate 按序评估，第一个 block 即停止 |
-| #4 | 默认只允许下一步 | G2 — `stop_after_next_action=true` |
-| #6 | 写入默认 tentative | B1 — 确认前不产生 production write |
-| #12 | 确认回答重新进入 gate | D1 — confirm 后重新跑 Orchestrator |
+| #2 | MicroPlan 只是建议 | C1 — 多步计划被降级，不是照单执行 |
+| #3 | Orchestrator 唯一门禁 | B1 — AI 说"approved"但系统拒绝 |
+| #4 | 默认只允许下一步 | A2 — 系统要求 `stop_after_next_action=true` |
+| #6 | 写入默认 tentative | B2 — 标记 `production_candidate` 的请求被拦截 |
+| #12 | 确认回答重新 gate | D2 — 确认后重新裁决，不直接执行 |
 
 ---
 
@@ -36,228 +36,147 @@
 
 | 契约 | 用途 |
 |------|------|
-| ADR-0002 | MicroPlan 最小 schema（字段 + forbidden semantics） |
-| ADR-0003 | PlannerOutput Boundary 验证（6 项检查） |
-| ADR-0004 | OrchestratorDecision 定义（decision_type × 5 code path） |
-| ADR-0005 | Execution Gate Order（gate 0-11，VS-01 证明子集） |
+| ADR-0002 | MicroPlan 最小 schema |
+| ADR-0003 | PlannerOutput Boundary 验证 |
+| ADR-0004 | OrchestratorDecision 定义 |
+| ADR-0005 | Execution Gate Order |
 | VS-01 Contract Pack §2 | MicroPlan schema + Proposed Action Shape |
 | VS-01 Contract Pack §3 | PlannerOutput Boundary 最小 validation（6 条） |
-| VS-01 Contract Pack §4 | Gate Order 子集（gates 0/1/3/5/7/9/10/11） |
+| VS-01 Contract Pack §4 | Gate Order（gates 0-11） |
 | VS-01 Contract Pack §5 | OrchestratorDecision schema |
 | VS-01 Contract Pack §6 | TurnResult Truthfulness Rules |
-| VS-01 Contract Pack §8 | Proof 草案（7 条） |
 
 ---
 
 ## 4. 验收场景
 
-### 场景组 A：MicroPlan 生成与校验
+### 场景组 A：AI 的建议被审查
 
-#### A1 — MicroPlan 结构完整性
+#### A1 — AI 给了我一个正常建议
 
-**作为作者**，我不知道的是，AI 给我的每个执行建议背后都有一个结构化的 MicroPlan。它包含以下关键字段：
-
-| 字段 | 类型 | VS-01 约束 |
-|------|------|-----------|
-| `plan_id` | string | 稳定 ID，可被 decision/trace 引用 |
-| `turn_id` | string | 绑定当前 turn |
-| `frame_ref` | string | 必须指向当前 primary DialogueFrame |
-| `primary` | boolean | VS-01 必须为 true |
-| `stop_after_next_action` | boolean | VS-01 必须为 true |
-| `risk_hint` | enum | `:low` / `:medium` / `:high` |
-| `proposed_actions` | array | 至少 1 项 |
-| `state_changes_requested` | array | 只能表达候选变化 |
-| `required_capabilities` | array | 只能表达 capability class/key |
-| `fallback_strategy` | object | 降级或拒绝时的作者可见回应方向 |
+**作为作者**，我让 AI "创建一个叫林烬的剑修角色"。AI 给了我一个建议方案，里面有角色设定草案。这个建议里没有越权的词（比如"已批准"、"直接写入"），系统检查通过，展示了执行建议。
 
 **验证点**：
-- [ ] `stop_after_next_action != true` → PlannerBoundary 拒绝
-- [ ] `frame_ref` 不匹配 → PlannerBoundary 拒绝
-- [ ] `proposed_actions` 为空 → MicroPlan 构造失败
+- [ ] MicroPlan 包含必要的标识（plan_id、turn_id、frame_ref 一致）
+- [ ] `stop_after_next_action = true`（只做这一步）
+- [ ] 建议内容不含禁止语义
 
-**测试**：`execution_authority_test.exs` — `"rejects stop_after_next_action = false"` ✅、`"rejects frame_ref mismatch"` ✅
+**测试**：`execution_authority_test.exs` — `"accepts valid frame-plan pair"` ✅、`"accepts clean plan"` ✅
 
 ---
 
-#### A2 — 禁止语义检查（MicroPlan.check_forbidden）
+#### A2 — AI 在建议里夹带了"已批准执行"
 
-**作为作者**，Planner（LLM）可能在 MicroPlan 中夹带越权语义。系统必须在 OrchestratorDecision 前拦截。
-
-**check_forbidden 覆盖的禁止语义**：
-| 禁止语义 | 对应 gate | 
-|----------|----------|
-| `approved` / `ready_to_execute` 等执行批准词 | envelope_validation |
-| `production_write_allowed` | envelope_validation |
-| `tool_request` / `tool_result` id | envelope_validation |
-| `adopted_state` | envelope_validation |
-| `BehaviorState opened / closed` | envelope_validation |
+**作为作者**，AI 的回复里出现了"已批准执行"或"可以直接写入作品"这样的话。我作为作者可能看不出问题——但系统应该拦截。如果系统没拦截，AI 就可以绕过确认直接改我的小说。
 
 **验证点**：
-- [ ] 包含 `"approved"` 的 plan → `{:error, terms}`
-- [ ] 包含 `"production_write_allowed"` 的 action summary → 拒绝
-- [ ] `check_forbidden` 通过 → gate_envelope 返回 `:pass`
+- [ ] 包含 `"approved"` 的 plan → 被拒绝
+- [ ] 包含 `"production_write_allowed"` 的 action → 被拒绝
+- [ ] 拒绝后系统进入 recovery 状态而不是假装正常
 
-**测试**：`execution_authority_test.exs` — `"rejects 'approved' in plan content"` ✅、`"rejects 'production_write_allowed' in action summary"` ✅
+**测试**：`execution_authority_test.exs` — `"rejects 'approved' in plan content"` ✅、`"rejects 'production_write_allowed' in action summary"` ✅、`"forbidden semantics blocked by envelope_validation gate"` ✅
 
----
-
-#### A3 — PlannerBoundary 完整校验清单
-
-**作为作者**，PlannerBoundary 在 gate order 之前先跑，验证 Planner 输出不是执行命令。
-
-**PlannerBoundary.validate/2 三项检查**：
-1. `frame_ref` 一致性：plan.frame_ref == frame.frame_id
-2. `check_forbidden`：MicroPlan 不含禁止语义
-3. `stop_after_next`：plan.stop_after_next_action == true
-
-**合同要求但未实现**（VS-01 Contract Pack §3 共 6 条）：
-- 第 4 条：`proposed_actions are structurally valid` — 未实现 ❌
-- 第 6 条：`state_changes_requested are candidate-only` — 未实现 ❌
-
-**代码**：`planner_boundary.ex:17-21`（3/6 条已实现）
+**为什么重要**：LLM 可能会在文本中"自己批准自己"。如果系统不检查，AI 就可以绕过整个执行裁决机制。
 
 ---
 
-### 场景组 B：Gate Order 逐门评估
+#### A3 — 结构不完整的建议也被拦下
 
-#### B1 — 8 个 gate 的完整序列
-
-**作为作者**，Orchestrator 按固定顺序跑 8 个 gate，第一个 block 即停止。后面不跑。
-
-```
-Gate 0: correlation         — frame_ref / turn_id / plan_id 一致性
-Gate 1: envelope_validation — 禁止语义
-Gate 3: action_scope        — 多步 > 1 → block
-Gate 5: authority           — high_risk → block
-Gate 7: budget              — 暂 pass-through（VS-01 不实现）
-Gate 9: write_boundary      — production_candidate > 0 → block
-Gate 10: trace_readiness     — 暂 pass-through（in-memory trace）
-Gate 11: turn_result_compat  — 暂 pass-through
-```
+**作为作者**，AI 产出了一个缺少关键标识（frame_ref 对不上、或者 stop_after_next_action 为 false）的建议。这种建议结构就是错的，系统直接拒绝，不进入 gate 裁决。
 
 **验证点**：
-- [ ] 全部 8 个 gate pass → `{:pass, results}` → 进入 `allow_tool_dispatch?` 判定
-- [ ] 中间 gate block → `{:block, gate_name, reason, results_so_far}` → 不跑后续 gate
-- [ ] Gate 0（correlation）fail → `:fail_with_recovery`
-- [ ] Gate 1（envelope_validation）fail → `:fail_with_recovery`
-- [ ] Gate 3（action_scope）fail → `:downgrade_to_dialogue`
-- [ ] Gate 5（authority）fail → `:require_confirmation` + open behavior
-- [ ] Gate 9（write_boundary）fail → `:require_confirmation` + open behavior
+- [ ] `frame_ref` 不匹配 → 拒绝
+- [ ] `stop_after_next_action != true` → 拒绝
 
-**当前实现**：gates 7/10/11 是 pass-through（`gate_budget`、`gate_trace_readiness`、`gate_turn_result_compat` 直接返回 `:pass`）。合同要求保留位置但不实现。⚠️
+**合同要求但当前未检查**（VS-01 Contract Pack §3 第 4、6 条）：
+- [ ] proposed_actions 结构合法性校验——**未实现** ❌
+- [ ] state_changes_requested 候选性校验——**未实现** ❌
 
-**测试**：`execution_authority_test.exs` — `"multi-step plan blocked by action_scope gate"` ✅、`"high-risk plan blocked by authority gate"` ✅、`"production_candidate blocked by write_boundary gate"` ✅、`"forbidden semantics blocked by envelope_validation gate"` ✅
+**测试**：`execution_authority_test.exs` — `"rejects frame_ref mismatch"` ✅、`"rejects stop_after_next_action = false"` ✅
 
 ---
 
-#### B2 — gate 通过但 plan 不可执行时的降级
+### 场景组 B：系统裁决——不是 AI 说什么就做什么
 
-**作为作者**，MicroPlan 通过了所有 gate（低风险、单步），但 plan 的 action 不是可调度的工具。此时系统降级为对话。
+#### B1 — 我提了太多要求，系统说"一步步来"
 
-**allow_tool_dispatch? 三重判断**：
-```
-not multi_step? AND not high_risk? AND length(actions) == 1 AND tool_dispatchable?
-```
+**作为作者**，我说"帮我把第一章重写、角色全更新、伏笔表也整理掉"。AI 可能产出一个包含 3 个步骤的计划。系统判断这是多步计划，直接降级为对话——告诉我"这个范围太大了，我们先讨论第一步改什么"。
 
 **验证点**：
-- [ ] gates pass + allow_tool_dispatch? true → `:allow_tool` → 工具调度
-- [ ] gates pass + allow_tool_dispatch? false → `:downgrade_to_dialogue`
-  
-**代码**：`execution_orchestrator.ex:33-39` — 注意 reason 中写了 `"gates passed but plan requires confirmation or is multi-step"`，但实际上 gates 全部 passed 时 plan 必然不是 multi-step/high-risk——这个 reason text 是 misleading。⚠️
+- [ ] 多步 plan（>1 个 proposed_actions）→ `downgrade_to_dialogue`
+- [ ] 系统解释了为什么不能一次性完成
+- [ ] 第一个拦截 gate 的身份被记录
+
+**测试**：`execution_authority_test.exs` — `"multi-step plan blocked by action_scope gate"` ✅、`"multi-step plan → downgrade_to_dialogue"` ✅
 
 ---
 
-#### B3 — gate_to_decision_type 映射完整性
+#### B2 — 高风险操作被拦截，需要我确认
 
-**作为作者**，每个 gate block 对应一个 decision_type：
-
-| gate_name | decision_type |
-|-----------|--------------|
-| `:action_scope` | `:downgrade_to_dialogue` |
-| `:authority` | `:require_confirmation` |
-| `:write_boundary` | `:require_confirmation` |
-| `:envelope_validation` | `:fail_with_recovery` |
-| `:correlation` | `:fail_with_recovery` |
-| 其他未知 gate | `:require_confirmation`（**静默 fallback**）|
+**作为作者**，我说"把第一章正文直接替换成悬疑风格"。系统判断这是高风险操作（production_candidate），拦下来，弹出一个确认按钮。
 
 **验证点**：
-- [ ] 已知 gate → 正确映射
-- [ ] **未知 gate → 应记录 warning（当前静默 fallback 到 `:require_confirmation`）** ❌
+- [ ] 高风险 plan → `require_confirmation` + 打开确认 behavior
+- [ ] `production_candidate` 的 action → 被 write_boundary gate 拦截
+- [ ] 确认前没有任何写入发生
 
-**代码**：`execution_orchestrator.ex:145-150`
+**测试**：`execution_authority_test.exs` — `"high-risk plan blocked by authority gate"` ✅、`"high-risk plan → require_confirmation"` ✅、`"production_candidate blocked by write_boundary gate"` ✅、`"production_candidate write → require_confirmation"` ✅
 
 ---
 
-### 场景组 C：降级与拦截
+#### B3 — 即使 AI 说"风险低"，系统仍可以要求确认
 
-（保持原有场景 C1、C2，已验证）
+**作为作者**，AI 把某个操作标记为低风险（`risk_hint = :low`），但实际上它涉及写入（`write_intent = :production_candidate`）。系统不管 AI 怎么标记，自己判断——write_boundary gate 仍然拦截并要求确认。
 
-#### C1 — 超出能力降级
+**验证点**：
+- [ ] `risk_hint = :low` + `write_intent = :production_candidate` → 仍被拦截
+- [ ] Planner 的 `requires_confirmation_hint = false` 不能阻止 Orchestrator 产生 confirmation
+
+**测试**：`execution_authority_test.exs` — `"production_candidate write → require_confirmation"` ✅
+
+---
+
+### 场景组 C：降级和拒绝——清晰反馈
+
+#### C1 — 太宏大的要求被降级
+
+**作为作者**，我说"帮我写完这整本书"。AI 无法处理这种范围，系统降级为对话——告诉我"这跨度太大了，我们一步步来，先讨论第一章的方向"。
+
 **测试**：`execution_authority_test.exs` — `"multi-step plan → downgrade_to_dialogue"` ✅
 
-#### C2 — 越权请求拦截
+---
+
+#### C2 — 越权请求被硬拦截
+
+**作为作者**，我尝试让 AI 做一些它不应该做的事。系统硬拦截——不是降级，是直接拒绝。
+
 **测试**：`execution_authority_test.exs` — `"forbidden semantics blocked by envelope_validation gate"` ✅
 
 ---
 
-### 场景组 D：确认与结果
+### 场景组 D：确认之后
 
-#### D1 — 确认产生 BehaviorState
+#### D1 — 点确认后系统重新检查一遍
 
-**作为作者**，高风险操作触发确认后，Orchestrator 打开一个 BehaviorState，其字段必须完整。
-
-**BehaviorState 创建字段验证**：
-| 字段 | 值 | 要求 |
-|------|-----|------|
-| `behavior_type` | `:confirmation` 或 `:clarification` | 与 decision_type 对应 |
-| `lifecycle_status` | `:awaiting_author` | 等待作者 |
-| `blocking_actor` | `:author` | 阻塞作者 |
-| `opened_at_turn_ref` | frame.turn_id | 绑定 turn |
-| `opened_by_decision_ref` | decision_id | 绑定 decision |
-| `required_next_action` | `"confirm_before_execute"` | 唯一下一步 |
-| `available_actions` | 至少 2 个 action | confirm + reject/cancel |
+**作为作者**，我点击了"确认执行"。系统不是直接执行——而是拿着我的确认，结合当前最新状态，重新跑一遍审查。因为有可能在我点确认之前，作品的上下文已经变了。
 
 **验证点**：
-- [ ] confirmation → `behavior_type = :confirmation`，`required_next_action = "confirm_before_execute"`
-- [ ] `lifecycle_status = :awaiting_author`
-- [ ] `available_actions` 包含 `confirm_before_execute` 和 `reject_or_cancel_confirmation`
-
-**代码**：`execution_orchestrator.ex:56-76` ✅
-
----
-
-#### D2 — 确认后重新 gate（regating）
-
-**作为作者**，我点击确认后，系统不是直接执行——而是重新跑 Orchestrator gate。
-
-**验证点**：
-- [ ] confirm action 被接收 → behavior 进入 `:resolving`（**当前未实现** ❌）
+- [ ] confirm action 被接收 → behavior 进入 resolving 状态
 - [ ] 重新生成 MicroPlan（基于确认后的状态）
 - [ ] 重新跑 Gate Order
-- [ ] 新 decision 可能仍是 `:allow_tool`（如果条件满足）或新的 block
-
-**当前实现**：`dialogue_gateway.ex` 的 `handle_action/2` 只做 validation，不做 behavior resolution + regating。❌
+- [ ] **当前实现：`handle_action` 只做 validation，不做 behavior resolution + regating** ❌
 
 ---
 
-### 场景组 E：结果真实性
+#### D2 — 不管结果如何，AI 的回复不能撒谎
 
-#### E1 — TurnResult truthfulness 约束
-
-**作为作者**，不管决策结果是什么，TurnResult 不能谎报。
-
-**truthfulness_constraints 映射**：
-| decision_type | 约束 |
-|--------------|------|
-| `:downgrade_to_dialogue` | `no_action_executed` + `downgraded_to_conversation` |
-| `:require_confirmation` | `no_action_executed` + `author_confirmation_required` |
-| `:fail_with_recovery` | `no_action_executed` + `system_recovery_needed` |
-| `:allow_tool` | `tool_dispatched` + `result_not_adoption` |
+**作为作者**，不管是降级、确认还是执行成功，AI 的文字回复必须和系统实际做的事情一致。如果系统拒绝了执行，AI 就不能说"已成功写入"。
 
 **验证点**：
-- [ ] TurnResultBuilder 检查 `truthfulness_constraints`
-- [ ] 如果 `no_action_executed` 但 assistant_message 声称执行了 → 降级或修正
-- [ ] **当前实现：constraints 定义在 OrchestratorDecision 中但 TurnResultBuilder 未消费它们** ❌
+- [ ] 降级时 AI 不说"已执行"
+- [ ] 等待确认时 AI 不说"已完成"
+- [ ] 执行成功时 AI 可以如实报告
+- [ ] **当前实现：`truthfulness_constraints` 在 OrchestratorDecision 中定义了，但 TurnResultBuilder 未读取应用** ❌
 
 **测试**：`execution_authority_test.exs` — `"truthfulness constraints prevent claiming execution"` ✅
 
@@ -267,33 +186,31 @@ not multi_step? AND not high_risk? AND length(actions) == 1 AND tool_dispatchabl
 
 | 场景 | 做什么 | 状态 |
 |------|--------|------|
-| A1 | MicroPlan 结构校验 | ✅ |
-| A2 | 禁止语义检查 | ✅ |
-| A3 | PlannerBoundary 6/3 校验 | ⚠️ 3/6 实现 |
-| B1 | 8 gate 序列 + 逐门映射 | ⚠️ 3 个 pass-through |
-| B2 | gate pass 但不可执行降级 | ⚠️ reason text misleading |
-| B3 | gate→decision_type 映射 | ⚠️ 未知 gate 静默 fallback |
-| C1 | 降级拦截 | ✅ |
-| C2 | 越权拦截 | ✅ |
-| D1 | 确认产生 BehaviorState | ✅ |
-| D2 | 确认后 regating | ❌ 未实现 |
-| E1 | TurnResult truthfulness | ⚠️ constraints 未消费 |
+| A1 | 正常建议通过审查 | ✅ |
+| A2 | AI 夹带越权词被拦截 | ✅ |
+| A3 | 结构不完整被拦下 | ⚠️ 3/6 校验实现 |
+| B1 | 多步计划降级 | ✅ |
+| B2 | 高风险拦截确认 | ✅ |
+| B3 | AI 说低风险但系统仍拦截 | ✅ |
+| C1 | 降级清晰反馈 | ✅ |
+| C2 | 越权硬拦截 | ✅ |
+| D1 | 确认后重新审查 | ❌ behavior resolution 未实现 |
+| D2 | AI 回复不撒谎 | ⚠️ constraints 未消费 |
 
-**通过率：4/11 完整 + 5/11 部分 = 约 59%**
+**通过率：7/10 完整 + 2/10 部分 = 约 80%**
 
 ---
 
 ## 6. 缺口
 
-| 缺口 | 发现位置 | 影响 | 建议处理 |
-|------|---------|------|---------|
-| GAP-01 — PlannerBoundary 缺 3 项校验 | `planner_boundary.ex` | proposed_actions 结构 + state_changes 候选性未验证 | 补齐 `check_proposed_actions` + `check_state_changes` |
-| GAP-02 — 3 个 gate 是 pass-through | `gate_order.ex:80-104` | budget / trace / compat 无实际逻辑 | VS-02/06/08 实现时依次接入 |
-| GAP-03 — 未知 gate 静默 fallback | `execution_orchestrator.ex:150` | 新增 gate 忘记加映射 → 错误分类为 require_confirmation | 改为 `Logger.warning` + `:fail_with_recovery` |
-| GAP-04 — Behavior resolution 未实现 | `dialogue_gateway.ex:179-193` | 作者确认后 behavior 不会 resolving → resolved | 在 `handle_action` 中增加 behavior resolution 分支 |
-| GAP-05 — truthfulness constraints 未消费 | `turn_result_builder.ex` | OrchestratorDecision 的约束定义了但不被 TurnResult 检查 | TurnResultBuilder 读取并应用 constraints |
-| GAP-06 — allow_tool_dispatch fallback reason text 错误 | `execution_orchestrator.ex:38` | 说"requires confirmation or is multi-step" 但实际两者都不是 | 修正 reason text |
-| GAP-07 — 确认幂等性 | `action_validator.ex` | 重复点确认按钮可能产生重复执行 | 基于 `idempotency_key` 去重 |
+| 缺口 | 具体表现 | 影响 |
+|------|---------|------|
+| GAP-01 — PlannerBoundary 缺 3 项校验 | proposed_actions 结构 + state_changes 候选性未验证 | 结构异常的 plan 可能漏过 |
+| GAP-02 — 3 个 gate 是 pass-through | budget / trace / compat 无实际逻辑 | 预算超支、trace 未就绪不会被拦截 |
+| GAP-03 — Behavior resolution 未实现 | 确认后 behavior 永远不会 resolving → resolved | 确认操作是单向的——点完没有状态变更 |
+| GAP-04 — truthfulness constraints 未消费 | OrchestratorDecision 的约束定义了但 TurnResult 不检查 | AI 可能声称执行了实际被拒绝的操作 |
+| GAP-05 — 未知 gate 静默 fallback | 未知 gate → `:require_confirmation` 无日志 | 新增 gate 忘记映射不会被发现 |
+| GAP-06 — 确认幂等性 | 重复点确认可能产生重复执行 | 手快连点 → 两条相同数据 |
 
 ---
 
