@@ -56,7 +56,14 @@
 - [ ] 显示模型名（如 `deepseek-chat`、`gpt-4o`）
 - [ ] 显示连接状态（已连接 / 未连接 / 检测中…）
 
-**当前代码**：`WorkspaceChat.tsx` 状态栏通过 `/api/provider/health` 轮询展示 `llmModel` 和连接状态 ✅
+**当前代码**：`WorkspaceChat.tsx:101-115` 30s 轮询 `/api/provider/health` → 更新 `llmConnected` 和 `llmModel` state ✅
+
+**状态转换**：
+```
+初始: "检测中…"（llmConnected = null）
+成功: "已连接 · deepseek-chat"（绿色） 
+失败: "未连接 · 请检查 LM Studio 是否已启动"（红色）
+```
 
 ---
 

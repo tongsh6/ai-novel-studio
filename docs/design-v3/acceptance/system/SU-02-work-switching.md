@@ -12,6 +12,7 @@
 | 切换到另一个作品 | 对话区切换到新作品的上下文，之前的消息不丢 |
 | 创建新作品 | 给新作品起名，系统初始化空的工作区 |
 | 重新打开软件时回到上次的作品 | 自动恢复上次打开的 workspace |
+| 快速开始一个新作品，先不取名 | 显示"未命名作品"，不影响创作 |
 
 ---
 
@@ -234,6 +235,14 @@
 | `setContext` | `store.ts` | 更新作品上下文 |
 | Channel topic | `workspace_channel.ex:14` | `"workspace:" <> suffix`，已支持按 workspace 隔离 |
 | `socket_v3.ts` `connectV3(workspaceId)` | 支持传入 workspaceId |
+| `WorkspaceContext.context_fetcher/0` | 按 workspace_id 从 DB 读取上下文 |
+
+**切换作品时的完整数据流**（当前实现 vs 目标）：
+```
+当前: context.workId = "mock_work_123"（写死）→ Channel 固定 join "workspace:lobby"
+目标: 作品列表 API → 用户选择 → store.setContext(workId, workTitle) 
+     → Channel leave 旧 topic → join "workspace:{workId}" → 消息列表刷新
+```
 
 ---
 
