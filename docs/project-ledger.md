@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-11（质量夯实 + v3 特性扩展：UI 认知洞察 + 核心意图扩展 + 长跑生命周期重建）
+> 最后更新：2026-05-11（质量加固：TaskRunner 重构 + 前端 UI 类型安全与解耦）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 
@@ -14,8 +14,8 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **QP-01 到 QP-03：已交付（日志/模型配置/UI 走查/跨轮记忆）**
 - **VS-00 到 VS-06：已交付（10 个核心切面，涵盖前后端端到端）**
 - **VS-07（Intent Expansion）：已交付（完成 CapabilityRegistry 创意类意图扩展）**
-- **VS-06 后续（Task Lifecycle）：已交付（重建 TaskRunner，支持 SQLite 任务持久化与恢复）**
-- **QP-Workbench（UI Enhancement）：已交付（实现 Frame Insight 认知洞察可视化 + v3 全卡片支持）**
+- **VS-06 后续（Task Lifecycle）：已交付（重建 TaskRunner，支持 SQLite 持久化，已通过 3 轮 Review 加固）**
+- **QP-Workbench（UI Enhancement）：已交付（实现 Frame Insight 认知洞察可视化，已完成 UI 组件解耦与类型加固）**
 
 ---
 
