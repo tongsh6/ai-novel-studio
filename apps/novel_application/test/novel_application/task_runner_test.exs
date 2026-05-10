@@ -3,8 +3,8 @@ defmodule NovelApplication.TaskRunnerTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.TaskRunner
-  alias NovelPersistence.Repo
   alias NovelPersistence.LongRunTaskLog
+  alias NovelPersistence.Repo
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -22,7 +22,7 @@ defmodule NovelApplication.TaskRunnerTest do
   test "start and run through lifecycle" do
     {:ok, task} = TaskRunner.start(@valid_attrs)
     assert task.id != nil
-    
+
     # Wait for the async tasks to finish
     Process.sleep(500)
 
@@ -35,7 +35,7 @@ defmodule NovelApplication.TaskRunnerTest do
   test "resume a task" do
     {:ok, task} = LongRunTaskLog.create(@valid_attrs)
     {:ok, checkpointed} = LongRunTaskLog.checkpoint(task, %{"resume_from" => 1})
-    
+
     {:ok, resumed} = TaskRunner.resume(checkpointed.id)
     assert resumed.phase == "RESUMING"
 
