@@ -15,7 +15,27 @@
 
 ---
 
-## 2. 验收场景
+## 2. 不变量
+
+| 编号 | 不变量 | 本验收如何验证 |
+|------|--------|---------------|
+| SU-I1 | 每个作品的数据隔离——切换作品不串数据 | B3 — pending 请求隔离，消息不串 |
+| SU-I2 | 作品列表持久化——重启不丢 | C2、D1 — 重启后恢复 |
+| SU-I3 | 未命名作品可辨识 | C3 — 占位名 + 创建时间区分 |
+
+---
+
+## 3. 契约引用
+
+| 契约 | 用途 |
+|------|------|
+| `store.ts` `SystemContext` | 当前作品上下文（workId, workTitle 等） |
+| `workspace_channel.ex:14` | Channel topic 格式 `"workspace:" <> suffix` |
+| `socket_v3.ts` `connectV3(workspaceId)` | WebSocket 连接支持 workspace 参数 |
+
+---
+
+## 4. 验收场景
 
 ### 场景组 A：查看和识别
 
@@ -176,7 +196,7 @@
 
 ---
 
-## 3. 场景覆盖状态
+## 5. 场景覆盖状态
 
 | 场景 | 做什么 | 状态 |
 |------|--------|------|
@@ -194,7 +214,7 @@
 
 ---
 
-## 4. 缺口
+## 6. 缺口
 
 | 缺口 | 影响 | 建议处理 |
 |------|------|---------|
@@ -206,7 +226,7 @@
 
 ---
 
-## 5. 现有基础设施
+## 7. 现有基础设施
 
 | 基础设施 | 位置 | 用途 |
 |---------|------|------|
@@ -214,3 +234,14 @@
 | `setContext` | `store.ts` | 更新作品上下文 |
 | Channel topic | `workspace_channel.ex:14` | `"workspace:" <> suffix`，已支持按 workspace 隔离 |
 | `socket_v3.ts` `connectV3(workspaceId)` | 支持传入 workspaceId |
+
+---
+
+## 8. 验收命令
+
+```bash
+# 当前仅后端 Channel topic 隔离有测试
+mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
+
+# 前端作品列表/切换逻辑尚无自动化测试——需 VS-07 前端验收时覆盖
+```

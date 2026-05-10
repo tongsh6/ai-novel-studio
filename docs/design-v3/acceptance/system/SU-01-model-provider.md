@@ -17,7 +17,28 @@
 
 ---
 
-## 2. 验收场景
+## 2. 不变量
+
+| 编号 | 不变量 | 本验收如何验证 |
+|------|--------|---------------|
+| SU-I1 | 连接状态必须准确反映后端真实状态 | A1、A2 — 轮询 /api/provider/health → UI 同步 |
+| SU-I2 | API Key 和端点配置安全存储 | B2、C3 — 不落 .env，不在 git 中 |
+| SU-I3 | 切换供应商不丢失已有对话 | C2 — 历史消息完整保留 |
+
+---
+
+## 3. 契约引用
+
+| 契约 | 用途 |
+|------|------|
+| `frontend/.env` | 服务端点默认值（VITE_API_ENDPOINT, VITE_WS_ENDPOINT） |
+| `frontend/src/lib/env.ts` | 环境检测 + 端点配置 |
+| `GET /api/provider/health` | 后端 LLM 健康检查端点 |
+| `NovelApplication.provider_health/0` | 返回当前 provider name 和连接状态 |
+
+---
+
+## 4. 验收场景
 
 ### 场景组 A：查看当前供应商
 
@@ -168,7 +189,7 @@
 
 ---
 
-## 3. 场景覆盖状态
+## 5. 场景覆盖状态
 
 | 场景 | 做什么 | 状态 |
 |------|--------|------|
@@ -186,7 +207,7 @@
 
 ---
 
-## 4. 缺口
+## 6. 缺口
 
 | 缺口 | 影响 | 建议前置条件 |
 |------|------|------------|
@@ -197,7 +218,7 @@
 
 ---
 
-## 5. 现有基础设施
+## 7. 现有基础设施
 
 当前可以复用的：
 
@@ -207,3 +228,14 @@
 | `NovelApplication.provider_health/0` | `novel_application.ex` | 返回当前 provider name |
 | LLM 状态轮询 | `WorkspaceChat.tsx:101-115` | 已有 30s 轮询骨架 |
 | `wsBaseUrl` / `apiBaseUrl` | `frontend/src/lib/env.ts` | 端点配置入口 |
+
+---
+
+## 8. 验收命令
+
+```bash
+# 当前仅验证后端健康检查端点
+curl http://localhost:4657/api/provider/health
+
+# 前端 UI 切换逻辑尚无自动化测试——需 VS-07 前端验收时覆盖
+```
