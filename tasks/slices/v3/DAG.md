@@ -1,8 +1,8 @@
 # v3 承重竖切面 DAG
 
-> 状态：VS-00 ~ VS-08 done；VS-09 docs-ready（2026-05-11）
+> 状态：VS-00 ~ VS-08 done；VS-09 done（最小核心，剩余高级场景待续）；VS-10 docs-ready（2026-05-11）
 >
-> 角色：把 `docs/design-v3/00c-state-and-contract-atlas.md` §9 的候选入口排序为 v3 承重竖切面 DAG。B1-B12 已完成实现；B13（VS-09 work management）为当前阶段的下一站。
+> 角色：把 `docs/design-v3/00c-state-and-contract-atlas.md` §9 的候选入口排序为 v3 承重竖切面 DAG。B1-B13 已闭环；B14（VS-10 Observability Spine，横切层）为当前阶段的下一站。
 
 ---
 
@@ -97,7 +97,8 @@ flowchart TD
 | B10 | VS-06 | 固化 trace summary 脱敏与 replay explanation | **done** |
 | B11 | VS-07 | 前端 Workbench 消费 v3 Channel，证明端到端 UI 闭环 | **done** |
 | B12 | VS-08 | 端到端集成测试，真实 provider + 真实 persistence 全链路 | **done** |
-| B13 | VS-09 | Work Management Closed Loop（消除 mock_work_123，落地 SU-02 核心 7 场景）| **docs-ready** |
+| B13 | VS-09 | Work Management Closed Loop（消除 mock_work_123，落地 SU-02 核心 7 场景）| **done**（最小核心）|
+| B14 | VS-10 | Observability Spine（业务日志体系骨架 + ADR-0018 schema 冻结）| **docs-ready** |
 
 说明：
 
