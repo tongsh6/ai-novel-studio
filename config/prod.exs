@@ -9,6 +9,15 @@ stage_log_dir =
 
 config :novel_common, :llm_log_dir, stage_log_dir
 
+# 业务日志 JSONL — 生产/预发布环境写入 log/app/stage/
+config :novel_common,
+  log_jsonl_enabled: true,
+  log_jsonl_dir:
+    System.get_env(
+      "APP_LOG_DIR",
+      Path.expand("../log/app/stage", __DIR__) |> Path.absname()
+    )
+
 config :logger, level: :info
 
 # Provider Gateway — 生产/预发布环境

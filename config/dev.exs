@@ -6,6 +6,15 @@ dev_log_dir =
 
 config :novel_common, :llm_log_dir, dev_log_dir
 
+# 业务日志 JSONL — 开发环境写入 log/app/dev/
+config :novel_common,
+  log_jsonl_enabled: true,
+  log_jsonl_dir:
+    System.get_env(
+      "APP_LOG_DIR",
+      Path.expand("../log/app/dev", __DIR__) |> Path.absname()
+    )
+
 # Dialyzer PLT 文件路径 — 放在 priv/plts/ 以便 CI 缓存
 config :dialyxir,
   plt_local_path: "priv/plts",

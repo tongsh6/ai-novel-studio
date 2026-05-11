@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-11（Milestone: VS-00A 深度创意探索正式闭环 + 决策透明度优化；当日二次校准 §1.1 / §8 / §8.1 / §9）
+> 最后更新：2026-05-12（Milestone: VS-10 Observability Spine 落地 + ADR-0018）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -19,18 +19,20 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **VS-00A Deepening（Exploration Loop）：已交付（实现从自然对话到工具调用建议的闭环，已通过 9 轮 Review 加固）**
 - **VS-06 后续（Task Lifecycle）：已交付（重建 TaskRunner，支持 SQLite 持久化，已通过 3 轮 Review 加固）**
 - **QP-Workbench（UI Enhancement）：已交付（实现 Frame Insight 认知洞察可视化，已完成 UI 组件解耦与类型加固）**
+- **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
 ### 1.1 Stage 5 真实进度（基于 acceptance 与 walkthrough 对账）
 
 | 维度 | 实测覆盖率 / 状态 | 证据 |
 |------|---|---|
-| 后端主链单元 + 集成测试 | 394 unit + 10 e2e（integration），0 failure | `mix test` / `mix test --include integration`（含 VS-09 work_repo + work_service 15 新测）|
+| 后端主链单元 + 集成测试 | 405 unit + 10 e2e（integration），0 failure | `mix test` / `mix test --include integration`（含 VS-09 15 + VS-10 11 新测）|
 | AI 静态扫描 | 12 PASS / 0 finding | `artifacts/static-scan/top10.md`（2026-05-11）|
 | AU-01..AU-10 作者验收 | 67%–100%（核心已实现，多处缺降级 / 边缘语义测试）| `docs/design-v3/acceptance/README.md` |
 | SU-01 系统-供应商管理 | 22%（仅状态轮询，无切换/Key/测试 UI）| `docs/design-v3/acceptance/system/SU-01-model-provider.md` |
 | SU-02 系统-作品切换 | 22%（VS-09 落地后端 CRUD + Channel 透传 + 前端去 mock；剩余高级场景待续）| `apps/novel_web/lib/novel_web/controllers/works_controller.ex`、`apps/novel_application/lib/novel_application/work_service.ex`、`frontend/src/lib/works.ts` |
 | SU-03 模型起名 | 0%（未实现）| `docs/design-v3/acceptance/system/SU-03-model-nickname.md` |
 | 真人走查（最近一次 2026-05-09）| 3 轮对话走通；5 个观感问题（P1×2 / P2×3）| `walkthroughs/2026-05-09/REPORT.md` |
+| 业务日志体系 | **新落地（VS-10）**：LogContext/LogEmit + 11 模块结构化日志 + 自然语言 msg（atom→中文） + Console 精简 / JSONL 完整双通道 + 环境目录分离 + 三源回溯工具 + 操作手册 | ADR-0018；`apps/novel_common/lib/novel_common/log_{context,emit}.ex`；`scripts/grep_turn.sh` |
 | 真实 LLM 自动测试 | 默认排除（`:real_llm` tag），无定期 CI 跑 | `apps/novel_application/test/.../planner_real_llm_test.exs` |
 
 ---
@@ -55,6 +57,7 @@ v3 设计体系已闭环，目前处于特性增强期：
 | VS-06+ | v3 TaskRunner Rebuild | `cbe2f82` / `6be395b` | 支持 SQLite 状态同步与 RESUMING 恢复流。**注**：前端长跑状态条不订阅 task_state，walkthrough 中"待机"全程不变（GAP-WT-03）|
 | QP-01 ~ QP-03 | 基础设施与启动脚本 | `c1aa8d5` 及更早 | Stage 环境与跨轮记忆闭环 |
 | QP-UI | Workbench V3 认知洞察可视化 | `53e2233` / `b6a69aa` | 支持 Frame Insight 切换与全量 v3 UI Card 渲染。**注**：candidate_directions 字段后端已产，前端尚未渲染（GAP-WT-01）|
+| VS-10 | Observability Spine | `HEAD` | ADR-0018 schema 冻结 + LogContext/LogEmit + 结构化日志（11 模块）+ 自然语言 msg（atom→中文映射 + 值翻译）+ Console 精简输出 + 环境目录分离（dev/stage）+ 三源回溯工具 + 操作手册 + 3 轮 review 闭环。405 tests / 0 failures / 7 CreDo false-pos（自定义 metadata key）|
 
 **汇总**：基础设施 + 核心创作能力 + 观测性看板全部 done，**379 unit + 10 e2e tests，0 failures**（2026-05-11 复核）。
 
@@ -103,6 +106,7 @@ v3 设计体系已闭环，目前处于特性增强期：
 
 | Slice | 状态 | 真实缺口 |
 |-------|------|----------|
+| VS-10 Observability Spine | **已落地（2026-05-12）** | 7 个 CreDo false-positive（自定义 metadata key）已接受；novel_agent ~13 处自由文案 Logger（provider 层，属 LLMLog 范围，非本 slice 引入）|
 | VS-09 Work Management | **核心已落地（2026-05-11）**，剩余高级场景待续 | 切换 UI / cross-work e2e / pending 隔离 / 不可用降级 |
 | 体验加固 P1 修复 | 候选契约测试 + task_state 订阅就绪已落地；候选真生成 / TaskRunner 接 Toolbox 待续 | GAP-WT-01 后端 / GAP-WT-03 后端 |
 | Toolbox 创作 dispatcher 真实 LLM 接入 | 待规划 | VS-07 收尾后续，4 个 dispatcher 仍返回 demo items |
