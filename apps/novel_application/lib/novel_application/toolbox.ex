@@ -109,6 +109,22 @@ defmodule NovelApplication.Toolbox do
     }
   end
 
+  defp dispatch(%ToolRequest{tool_name: "world_building"} = req, result_id, now) do
+    creative_dispatch(req, result_id, now, "world_setting")
+  end
+
+  defp dispatch(%ToolRequest{tool_name: "character_design"} = req, result_id, now) do
+    creative_dispatch(req, result_id, now, "character_seed")
+  end
+
+  defp dispatch(%ToolRequest{tool_name: "plot_outline"} = req, result_id, now) do
+    creative_dispatch(req, result_id, now, "outline_draft")
+  end
+
+  defp dispatch(%ToolRequest{tool_name: "prose_writing"} = req, result_id, now) do
+    creative_dispatch(req, result_id, now, "prose_fragment")
+  end
+
   defp dispatch(_req, result_id, now) do
     %ToolResult{
       tool_result_id: result_id,
@@ -116,6 +132,27 @@ defmodule NovelApplication.Toolbox do
       tool_name: "unknown",
       status: :failed,
       errors: [%{code: "no_handler", message: "no dispatch handler for this tool"}],
+      completed_at: now
+    }
+  end
+
+  defp creative_dispatch(%ToolRequest{} = req, result_id, now, direction) do
+    context_text = Map.get(req.input, "context_text", "")
+    items = generate_creative_items(direction, context_text)
+    artifact_type = String.to_atom(direction)
+
+    %ToolResult{
+      tool_result_id: result_id,
+      tool_request_ref: req.tool_request_id,
+      tool_name: req.tool_name,
+      status: :succeeded,
+      output: %{artifact_type: artifact_type, item_count: length(items), items: items},
+      state_delta: [
+        %{type: :tentative_artifact, key: req.tool_name, artifact_type: artifact_type}
+      ],
+      artifact_refs: Enum.map(items, & &1.item_id),
+      usage: %{duration_ms: 0, tool: req.tool_name, version: "1.0.0"},
+      trace_refs: ["tool_trace:#{result_id}"],
       completed_at: now
     }
   end
@@ -155,6 +192,39 @@ defmodule NovelApplication.Toolbox do
         item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
         title: "生存主线",
         body: "主角在霓虹地牢中觉醒能力，先活下去，再图改变。",
+        rationale: nil
+      }
+    ]
+  end
+
+  defp generate_creative_items("world_setting", _context) do
+    [
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "赛博公司垄断流",
+        body: "顶级大厂垄断了灵气带宽，底层散修只能用二手的“延迟灵气”。",
+        rationale: "契合社会批判主题"
+      }
+    ]
+  end
+
+  defp generate_creative_items("outline_draft", _context) do
+    [
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "第一卷：霓虹下的叹息",
+        body: "描述主角在底层生活的艰辛，以及意外接触到核心灵气模块的过程。",
+        rationale: nil
+      }
+    ]
+  end
+
+  defp generate_creative_items("prose_fragment", _context) do
+    [
+      %{
+        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
+        title: "开场描写",
+        body: "霓虹灯闪烁在积水的街面，灵气泵的轰鸣声像垂死者的喘息。",
         rationale: nil
       }
     ]
