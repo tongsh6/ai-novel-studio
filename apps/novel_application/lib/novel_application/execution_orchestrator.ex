@@ -193,6 +193,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
   defp gate_to_decision_type(:action_scope), do: :downgrade_to_dialogue
   defp gate_to_decision_type(:authority), do: :require_confirmation
   defp gate_to_decision_type(:write_boundary), do: :require_confirmation
+  defp gate_to_decision_type(:policy), do: :reject
   defp gate_to_decision_type(:envelope_validation), do: :fail_with_recovery
   defp gate_to_decision_type(:correlation), do: :fail_with_recovery
   defp gate_to_decision_type(_), do: :require_confirmation

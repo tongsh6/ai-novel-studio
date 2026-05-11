@@ -72,7 +72,9 @@ defmodule NovelApplication.GateOrder do
   # Gate 5: Authority — high-risk requires confirmation
   defp gate_authority(plan) do
     if MicroPlan.high_risk?(plan) do
-      {:block, "high-risk plan requires confirmation"}
+      action_summaries = Enum.map_join(plan.proposed_actions, "；", & &1.summary)
+
+      {:block, "检测到高风险行动，需作者确认：#{action_summaries}"}
     else
       :pass
     end

@@ -5,6 +5,7 @@ defmodule NovelApplication.Planner do
   """
 
   alias NovelAgent.Provider.Gateway
+  alias NovelApplication.CapabilityRegistry
   alias NovelDomain.CandidateDirection
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
@@ -76,6 +77,8 @@ defmodule NovelApplication.Planner do
   end
 
   defp build_plan_prompt(frame, author_input) do
+    tools = CapabilityRegistry.list()
+
     """
     你是一个小说创作 AI 的规划器。基于已形成的对话认知帧，提出下一步行动建议。
 
@@ -83,6 +86,9 @@ defmodule NovelApplication.Planner do
     - frame_type: #{frame.frame_type}
     - dialogue_goal: #{frame.dialogue_goal.summary}
     - tool_need: #{inspect(frame.tool_need)}
+
+    ## 当前开放的创作能力 (Capabilities)
+    #{Enum.join(tools, ", ")}
 
     ## 用户输入
     #{author_input.text}
@@ -97,7 +103,7 @@ defmodule NovelApplication.Planner do
           "action_id": "act-1",
           "action_type": "candidate_generation" | "tentative_artifact" | "state_change_request" | "clarification_request" | "confirmation_request" | "capability_invocation",
           "summary": "人类可读的动作描述",
-          "target_ref": null,
+          "target_ref": "能力名称 (如 world_building)",
           "write_intent": "none" | "tentative" | "production_candidate",
           "risk_hint": "low" | "medium" | "high"
         }
@@ -110,6 +116,7 @@ defmodule NovelApplication.Planner do
     ## 重要
     - 不要包含 "approved", "ready_to_execute", "execution_approved" 等批准语义
     - proposed_actions 中的每个 action 都只是建议，不是已授权执行
+    - 如果涉及调用特定能力，`target_ref` 必须指向上面开放能力列表中的一个（如 `world_building`, `character_design` 等）
     """
   end
 
@@ -292,7 +299,7 @@ defmodule NovelApplication.Planner do
 
   defp build_correction_prompt(original, failed_output) do
     """
-    你的上一次响应不是有效的 JSON。请严格按照 JSON 格式重试。
+    你的上一次响应不是有效的 JSON。请严格按照 JSON格式重试。
 
     ## 你的上一次响应（截取前 500 字符）
     #{String.slice(failed_output, 0, 500)}
@@ -412,7 +419,7 @@ defmodule NovelApplication.Planner do
   defp to_action_type("clarification_request"), do: :clarification_request
   defp to_action_type("confirmation_request"), do: :confirmation_request
   defp to_action_type("capability_invocation"), do: :capability_invocation
-  defp to_action_type(_), do: :clarification_request
+  defp to_action_type(_), do: :candidate_generation
 
   defp to_write_intent("tentative"), do: :tentative
   defp to_write_intent("production_candidate"), do: :production_candidate
