@@ -1,0 +1,24 @@
+{
+  "approval_id": "approval_foundation_pack_v1",
+  "project": "godsbone-covenant-blackthorn-throne",
+  "book": "神骸圣约：黑棘王座",
+  "type": "foundation_pack",
+  "status": "pending_author_review",
+  "decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "candidate_files": [
+    "candidate/bible/book_bible_foundation_v1.md",
+    "candidate/bible/worldrule_soul_entropy_v1.md",
+    "candidate/bible/worldrule_factions_and_powers_v1.md",
+    "candidate/bible/character_core_cast_v1.md",
+    "candidate/bible/timeline_six_volume_master_v1.json",
+    "candidate/bible/foreshadow_master_v1.md"
+  ],
+  "patch_file": "candidate/patches/patch_foundation_pack_v1.json",
+  "review_file": "candidate/reviews/main_agent_foundation_audit_v1.md",
+  "notes": "作者审批 approved 后，主 agent 才能将基础 Bible 包推进 approved/current。"
+}

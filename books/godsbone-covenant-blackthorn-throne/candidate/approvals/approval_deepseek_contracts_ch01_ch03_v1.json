@@ -1,0 +1,22 @@
+{
+  "approval_id": "approval_deepseek_contracts_ch01_ch03_v1",
+  "project": "godsbone-covenant-blackthorn-throne",
+  "book": "神骸圣约：黑棘王座",
+  "type": "chapter_contract_pack",
+  "status": "pending_author_review",
+  "decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "candidate_files": [
+    "candidate/contracts/contract_vol1_master_v1.md",
+    "candidate/contracts/story_overview_for_deepseek_v1.md",
+    "candidate/contracts/contract_ch01_v1.md",
+    "candidate/contracts/contract_ch02_v1.md",
+    "candidate/contracts/contract_ch03_v1.md"
+  ],
+  "patch_file": "candidate/patches/patch_deepseek_contracts_ch01_ch03_v1.json",
+  "notes": "作者审批 approved 后，主 agent 才能将 DeepSeek 详细合同包推进 approved/current/contracts。当前版本已补入本章写法策略，可直接作为外部正文模型写作合同。"
+}

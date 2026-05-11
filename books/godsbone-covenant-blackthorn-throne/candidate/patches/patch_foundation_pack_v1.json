@@ -1,0 +1,58 @@
+{
+  "patch_id": "patch_foundation_pack_v1",
+  "project": "godsbone-covenant-blackthorn-throne",
+  "book": "神骸圣约：黑棘王座",
+  "status": "candidate",
+  "type": "foundation_pack",
+  "requires_approval": "candidate/approvals/approval_foundation_pack_v1.json",
+  "summary": "批准后，将新书基础 Bible、世界规则、人物、时间线和伏笔表同步进入 approved/current 正式真相层。",
+  "operations": [
+    {
+      "op": "upsert_from_candidate",
+      "from": "candidate/bible/book_bible_foundation_v1.md",
+      "to": "approved/current/canon/book_bible.md"
+    },
+    {
+      "op": "upsert_from_candidate",
+      "from": "candidate/bible/worldrule_soul_entropy_v1.md",
+      "to": "approved/current/world/worldrule_soul_entropy_v1.md"
+    },
+    {
+      "op": "upsert_from_candidate",
+      "from": "candidate/bible/worldrule_factions_and_powers_v1.md",
+      "to": "approved/current/world/worldrule_factions_and_powers_v1.md"
+    },
+    {
+      "op": "upsert_from_candidate",
+      "from": "candidate/bible/character_core_cast_v1.md",
+      "to": "approved/current/characters/character_core_cast_v1.md"
+    },
+    {
+      "op": "upsert_from_candidate",
+      "from": "candidate/bible/timeline_six_volume_master_v1.json",
+      "to": "approved/current/timeline/timeline_master_v1.json"
+    },
+    {
+      "op": "upsert_from_candidate",
+      "from": "candidate/bible/foreshadow_master_v1.md",
+      "to": "approved/current/foreshadowing/foreshadow_master_v1.md"
+    },
+    {
+      "op": "update_index",
+      "to": "approved/current/indexes/book_index.md",
+      "note": "登记基础 Bible、世界规则、人物、时间线和伏笔表已入库。"
+    },
+    {
+      "op": "append_log",
+      "to": "approved/current/logs/change_log.md",
+      "note": "基础 Bible 包经作者审批后入库。"
+    }
+  ],
+  "approval_decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "notes": "未经作者明确审批，不执行本 patch。"
+}

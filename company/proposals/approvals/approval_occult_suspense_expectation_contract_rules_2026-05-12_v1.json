@@ -1,0 +1,9 @@
+{
+  "status": "pending_author_review",
+  "date": "2026-05-12",
+  "scope": "company/shared-methods",
+  "candidate": "company/proposals/research_occult_suspense_expectation_contract_rules_2026-05-12_v1.md",
+  "patch": "company/proposals/occult_suspense_expectation_contract_rules_patch_2026-05-12_v1.json",
+  "decision": null,
+  "note": "该候选用于把诡秘悬疑式悬念前置、期待吊钩、证据阶梯、信息差和结尾反钩沉淀为公司级合同写法规则。未经作者审批，不写入 company 正式方法库。"
+}

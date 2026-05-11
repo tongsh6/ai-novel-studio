@@ -1,0 +1,33 @@
+{
+  "patch_id": "patch_research_pack_v1",
+  "project": "godsbone-covenant-blackthorn-throne",
+  "book": "神骸圣约：黑棘王座",
+  "status": "candidate",
+  "type": "research_pack",
+  "requires_approval": "candidate/approvals/approval_research_pack_v1.json",
+  "summary": "批准后，将市场定位与魂熵世界逻辑研究同步进入 approved/current/research，作为本书长期写作依据。",
+  "operations": [
+    {
+      "op": "upsert_from_candidate",
+      "from": "candidate/research/research_market_positioning_2026-05-11_v1.md",
+      "to": "approved/current/research/research_market_positioning_2026-05-11_v1.md"
+    },
+    {
+      "op": "upsert_from_candidate",
+      "from": "candidate/research/research_soul_entropy_world_logic_2026-05-11_v1.md",
+      "to": "approved/current/research/research_soul_entropy_world_logic_2026-05-11_v1.md"
+    },
+    {
+      "op": "append_log",
+      "to": "approved/current/logs/change_log.md",
+      "note": "新书研究包经作者审批后入库。"
+    }
+  ],
+  "approval_decision": null,
+  "allowed_decisions": [
+    "approved",
+    "rejected",
+    "partial"
+  ],
+  "notes": "未经作者明确审批，不执行本 patch。"
+}
