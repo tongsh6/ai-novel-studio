@@ -61,9 +61,15 @@ defmodule NovelCommon.LLMLog do
 
     ts = DateTime.utc_now() |> DateTime.to_iso8601()
 
+    turn_id =
+      case Keyword.fetch(Logger.metadata(), :turn_id) do
+        {:ok, val} -> val
+        :error -> Process.get(:current_turn_id) || "unknown"
+      end
+
     record = %{
       ts: ts,
-      turn_id: Process.get(:current_turn_id) || "unknown",
+      turn_id: turn_id,
       step: Map.get(entry, :step, "unknown"),
       provider: Map.get(entry, :provider, "unknown"),
       request: sanitize_request(entry.request),
