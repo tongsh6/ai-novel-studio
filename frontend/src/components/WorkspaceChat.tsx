@@ -6,6 +6,14 @@ import type { Channel } from "phoenix";
 
 import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, modifyDraft, confirm, rejectAction, revise, dismissCard, resumeCheckpoint, cancelCheckpoint, branchCheckpoint, retryAction } from "../lib/socket";
 import {
+  listWorks,
+  createWork,
+  pickInitialWorkId,
+  getLastOpenedWorkId,
+  setLastOpenedWorkId,
+  type WorkDto,
+} from "../lib/works";
+import {
   ClarificationCard,
   ConfirmationCard,
   WarningCard,
@@ -107,75 +115,108 @@ export function WorkspaceChat() {
     return () => clearInterval(interval);
   }, []);
 
+  // Lift the turn_result handler so the effect below stays focused on connection setup.
+  function handleTurnResult(result: TurnResult) {
+    setMessages((prev) => [
+      ...prev,
+      {
+        role: "assistant",
+        text: result.assistant_message?.text ?? "",
+        turnResult: result,
+      },
+    ]);
+    setLoading(false);
+
+    // Auto-track pending clarification: next user message is treated as answer
+    const activeBehavior = result.behavior_state?.active;
+    if (activeBehavior?.behavior_type === "clarification") {
+      setPendingAnswerBid(activeBehavior.behavior_id as string);
+    } else {
+      setPendingAnswerBid(null);
+    }
+
+    // VS-005: propagate projection_refs to global store for ReadingMode
+    const projRefs = result.projection_refs;
+    if (projRefs && projRefs.length > 0) {
+      const status = projRefs[0].refresh_status;
+      if (status === "FRESH" || status === "STALE" || status === "REBUILDING" || status === "FAILED") {
+        useAppStore.getState().setProjectionStatus(status);
+      }
+    }
+  }
+
   useEffect(() => {
     // Only connect once
     if (socketRef.current) return;
 
-    const socket = createSocket();
-    socket.connect();
-    socketRef.current = socket;
+    let cancelled = false;
 
-    const channel = joinWorkspace(socket);
-    channelRef.current = channel;
-    setChannel(channel);
-
-    channel
-      .join()
-      .receive("ok", () => {
-        setSocketConnected(true);
-        setMessages((prev) => {
-          // Avoid duplicate welcome messages if effect re-runs
-          if (prev.length > 0) return prev;
-          return [
-            {
-              role: "assistant",
-              text: "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
-            },
-          ];
-        });
-
-        // Mock injecting initial context upon connection
-        setContext({
-          workId: "mock_work_123",
-          workTitle: "未定作品",
-          volumeTitle: "未定卷"
-        });
-      })
-      .receive("error", () => setSocketConnected(false))
-      .receive("timeout", () => setSocketConnected(false));
-
-    channel.on("turn_result", (result: TurnResult) => {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: result.assistant_message?.text ?? "",
-          turnResult: result,
-        },
-      ]);
-      setLoading(false);
-
-      // Auto-track pending clarification: next user message is treated as answer
-      const activeBehavior = result.behavior_state?.active;
-      if (activeBehavior?.behavior_type === "clarification") {
-        setPendingAnswerBid(activeBehavior.behavior_id as string);
-      } else {
-        setPendingAnswerBid(null);
-      }
-
-      // VS-005: propagate projection_refs to global store for ReadingMode
-      const projRefs = result.projection_refs;
-      if (projRefs && projRefs.length > 0) {
-        const status = projRefs[0].refresh_status;
-        if (status === "FRESH" || status === "STALE" || status === "REBUILDING" || status === "FAILED") {
-          useAppStore.getState().setProjectionStatus(status);
+    void (async () => {
+      // VS-09 work-management: resolve which work to open BEFORE joining
+      // the channel, so backend can scope state to it via socket.assigns.
+      let work: WorkDto | null;
+      try {
+        const works = await listWorks();
+        const initialId = pickInitialWorkId(works, getLastOpenedWorkId());
+        if (initialId) {
+          work = works.find((w) => w.id === initialId) ?? null;
+        } else {
+          // No works yet — bootstrap a placeholder so the user lands in a
+          // valid context. They can rename it later via the work-management
+          // UI (next slice).
+          work = await createWork({ title: "未命名作品" });
         }
+      } catch {
+        // Backend unreachable — fall back to ephemeral work_id so UI still
+        // renders. The badge will surface llm-disconnected separately.
+        work = null;
       }
-    });
+      if (cancelled) return;
+
+      const workId = work?.id ?? "lobby";
+      const workTitle = work?.title ?? "未连接";
+      setLastOpenedWorkId(workId);
+
+      const socket = createSocket();
+      socket.connect();
+      socketRef.current = socket;
+
+      const channel = joinWorkspace(socket, `workspace:${workId}`, {
+        work_id: workId,
+      });
+      channelRef.current = channel;
+      setChannel(channel);
+
+      channel
+        .join()
+        .receive("ok", () => {
+          setSocketConnected(true);
+          setMessages((prev) => {
+            // Avoid duplicate welcome messages if effect re-runs
+            if (prev.length > 0) return prev;
+            return [
+              {
+                role: "assistant",
+                text: "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
+              },
+            ];
+          });
+
+          // VS-09: real work context, no longer mock_work_123
+          setContext({
+            workId,
+            workTitle,
+            volumeTitle: "未定卷",
+          });
+        })
+        .receive("error", () => setSocketConnected(false))
+        .receive("timeout", () => setSocketConnected(false));
+
+      channel.on("turn_result", handleTurnResult);
+    })();
 
     return () => {
-      // In a real app we might want to keep the socket alive between mounts
-      // but for this umbrella structure we follow the mount lifecycle.
+      cancelled = true;
       if (channelRef.current) {
         channelRef.current.leave();
         channelRef.current = null;
@@ -187,7 +228,11 @@ export function WorkspaceChat() {
       setSocketConnected(false);
       setChannel(null);
     };
-  }, [setSocketConnected, setContext, setChannel]);
+
+    // handleTurnResult is intentionally excluded — defined inside the
+    // component but stable for the lifetime of this effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

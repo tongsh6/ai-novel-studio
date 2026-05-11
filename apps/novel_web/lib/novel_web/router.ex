@@ -16,5 +16,9 @@ defmodule NovelWeb.Router do
 
     get("/provider/health", ProviderController, :health)
     post("/system/shutdown", SystemController, :shutdown)
+
+    get("/works", WorksController, :index)
+    post("/works", WorksController, :create)
+    get("/works/:id", WorksController, :show)
   end
 end

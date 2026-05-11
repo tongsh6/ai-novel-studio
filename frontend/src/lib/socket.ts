@@ -16,8 +16,12 @@ export function createSocket(opts: ConnectOptions = {}): Socket {
   return socket;
 }
 
-export function joinWorkspace(socket: Socket, topic = "workspace:lobby"): Channel {
-  const channel = socket.channel(topic, {});
+export function joinWorkspace(
+  socket: Socket,
+  topic = "workspace:lobby",
+  params: Record<string, unknown> = {},
+): Channel {
+  const channel = socket.channel(topic, params);
   return channel;
 }
 

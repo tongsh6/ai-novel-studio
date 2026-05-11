@@ -23,7 +23,10 @@ defmodule NovelWeb.WorkspaceChannelTest do
       |> socket("user_id", %{})
       |> subscribe_and_join(WorkspaceChannel, "workspace:01HJX-test")
 
-    assert reply == %{joined: true}
+    # VS-09: join now reports the work_id resolved from payload (or, by
+    # default, the workspace id). Old clients still see {joined: true} +.
+    assert reply.joined == true
+    assert reply.work_id == "01HJX-test"
   end
 
   test "ping -> pong" do

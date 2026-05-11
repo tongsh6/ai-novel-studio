@@ -11,22 +11,44 @@ defmodule NovelWeb.WorkspaceChannel do
   alias NovelDomain.AuthorActionInput
 
   @impl true
-  def join("workspace:" <> suffix, _payload, socket) do
+  def join("workspace:" <> suffix, payload, socket) do
+    work_id = (is_map(payload) && Map.get(payload, "work_id")) || suffix
+
     socket =
       socket
       |> assign(:workspace_id, suffix)
+      |> assign(:work_id, work_id)
       |> assign(:turn_results_by_id, %{})
       |> assign(:current_turn_id, nil)
 
-    {:ok, %{joined: true}, socket}
+    # Best-effort touch so the most-recently-opened work surfaces first in
+    # GET /api/works (VS-09). Missing work_id is fine — pre-VS-09 clients
+    # still pass workspace id only. Failures (DB unavailable, sandbox not
+    # checked out, work_id is a non-uuid placeholder) must NOT abort join.
+    _ =
+      try do
+        NovelApplication.WorkService.mark_opened(work_id)
+      rescue
+        _ -> :skipped
+      catch
+        _, _ -> :skipped
+      end
+
+    {:ok, %{joined: true, work_id: work_id}, socket}
   end
 
   @impl true
   def handle_in("user_message", %{"text" => text} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
+    work_id = socket.assigns[:work_id] || ws_id
     generate_plan = Map.get(msg, "generate_micro_plan", false)
 
-    input = %{text: text, workspace_id: ws_id, generate_micro_plan: generate_plan}
+    input = %{
+      text: text,
+      workspace_id: ws_id,
+      work_id: work_id,
+      generate_micro_plan: generate_plan
+    }
 
     fetcher = NovelApplication.persistence_fetcher()
     persister = NovelApplication.persistence_tracer()
