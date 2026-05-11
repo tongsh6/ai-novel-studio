@@ -176,6 +176,35 @@ export function onActionResult(
   });
 }
 
+// ── task_state ────────────────────────────────────
+// Subscribe long-running task lifecycle events broadcast by the backend
+// (see apps/novel_application/lib/novel_application/task_runner.ex).
+//
+// The backend currently only emits these once a tool gets dispatched through
+// `TaskRunner` — at the time of the 2026-05-09 walkthrough no v3 tool is wired
+// to TaskRunner yet, so the indicator stays idle (see ledger GAP-WT-03).
+// The subscription is wired here so the front-end is ready as soon as the
+// backend starts broadcasting.
+
+export interface V3TaskState {
+  task_id: string;
+  task_type?: string;
+  phase: string;        // PLANNED | RUNNING | CHECKPOINT | RESUMING | COMPLETED | CANCELLED | FAILED
+  status: string;       // READY | RUNNING | DONE | ERROR | CANCELLED ...
+  progress?: number;    // 0..100
+  step?: string;
+  updated_at?: string;
+}
+
+export function onTaskState(
+  channel: Channel,
+  callback: (state: V3TaskState) => void,
+): void {
+  channel.on("task_state", (payload: V3TaskState) => {
+    callback(payload);
+  });
+}
+
 // ── Ping ──────────────────────────────────────────
 
 export function ping(

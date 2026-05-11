@@ -15,11 +15,13 @@ import {
   sendAuthorAction,
   onTurnResult,
   onActionResult,
+  onTaskState,
   type V3TurnResult,
   type V3AvailableAction,
   type V3AuthorActionPayload,
   type V3CandidateDirection,
   type V3UICard,
+  type V3TaskState,
 } from "../lib/socket_v3";
 import { WORKBENCH_V3 } from "../lib/copy";
 import {
@@ -60,6 +62,7 @@ export function WorkbenchV3() {
   const [currentTurnId, setCurrentTurnId] = useState<string>("");
   const [currentPhase, setCurrentPhase] = useState<string>("");
   const [currentStatus, setCurrentStatus] = useState<string>("");
+  const [taskState, setTaskState] = useState<V3TaskState | null>(null);
   const [showInsights, setShowInsights] = useState(false);
 
   const channelRef = useRef<Channel | null>(null);
@@ -122,6 +125,10 @@ export function WorkbenchV3() {
       if (result.action_status === "accepted") {
         setAvailableActions([]);
       }
+    });
+
+    onTaskState(channel, (state) => {
+      setTaskState(state);
     });
 
     return () => {
@@ -274,6 +281,18 @@ export function WorkbenchV3() {
           </button>
         </div>
         <div className={styles.statusRight}>
+          {taskState && (
+            <span
+              className={styles.badge}
+              data-status={taskBadgeStatus(taskState.phase)}
+              title={taskBadgeTitle(taskState)}
+            >
+              长跑: {taskState.phase}
+              {typeof taskState.progress === "number"
+                ? ` · ${taskState.progress}%`
+                : ""}
+            </span>
+          )}
           <span
             className={styles.badge}
             data-status={llmStatus === true ? "ok" : "warn"}
@@ -440,4 +459,34 @@ export function WorkbenchV3() {
       </div>
     </div>
   );
+}
+
+// ── Task state badge helpers ────────────────────────
+// Maps backend `task.phase` (PLANNED / RUNNING / CHECKPOINT / RESUMING /
+// COMPLETED / CANCELLED / FAILED) to badge color class. Keeps the UI honest
+// about whether a long-running task is in flight, parked, or done.
+
+function taskBadgeStatus(phase: string): "ok" | "warn" | "error" | "info" {
+  switch (phase) {
+    case "COMPLETED":
+      return "ok";
+    case "RUNNING":
+    case "RESUMING":
+    case "CHECKPOINT":
+      return "info";
+    case "FAILED":
+      return "error";
+    case "CANCELLED":
+      return "warn";
+    default:
+      return "warn";
+  }
+}
+
+function taskBadgeTitle(state: V3TaskState): string {
+  const parts = [`task=${state.task_id}`];
+  if (state.task_type) parts.push(`type=${state.task_type}`);
+  if (state.step) parts.push(`step=${state.step}`);
+  if (state.status) parts.push(`status=${state.status}`);
+  return parts.join(" · ");
 }
