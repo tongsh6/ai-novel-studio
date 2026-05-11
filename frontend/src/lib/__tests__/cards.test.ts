@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { UICard, UIAction } from "../../components/WorkspaceChat";
+import type {
+  UICardData as UICard,
+  UIActionData as UIAction,
+} from "../../components/UICards";
 
 describe("card type contracts", () => {
   it("clarification_card with answer action satisfies UICard", () => {

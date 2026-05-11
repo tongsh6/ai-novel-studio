@@ -33,7 +33,6 @@ import {
   FailureCard,
   EscalationCard,
   DefaultCard,
-  type UICardData,
 } from "./UICards";
 import styles from "./WorkbenchV3.module.css";
 
@@ -226,7 +225,7 @@ export function WorkbenchV3() {
     };
 
     // Mapping V3UICard to the Props expected by UICards (which uses the same shape)
-    const props = { card: card as UICardData, onAction: handleCardAction };
+    const props = { card, onAction: handleCardAction };
 
     switch (card.card_type) {
       case "clarification_card":
