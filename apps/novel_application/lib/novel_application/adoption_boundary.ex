@@ -5,6 +5,8 @@ defmodule NovelApplication.AdoptionBoundary do
   VS-04 不写 production state，但证明选择→评估→采纳决策的完整链路。
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.CandidateSet
   alias NovelDomain.ToolResult
@@ -18,7 +20,11 @@ defmodule NovelApplication.AdoptionBoundary do
     candidate_id = chosen_candidate[:candidate_id] || chosen_candidate["candidate_id"]
     candidate = find_candidate(candidate_set, candidate_id)
 
-    cond do
+    t0 = System.monotonic_time(:millisecond)
+    LogEmit.emit(:adoption, :evaluate, :start, %{candidate_set_id: candidate_set.candidate_set_id})
+
+    decision =
+      cond do
       is_nil(candidate) ->
         %AdoptionDecision{
           adoption_decision_id: decision_id,
@@ -65,7 +71,24 @@ defmodule NovelApplication.AdoptionBoundary do
           decision_trace_ref: "decision_trace:#{decision_id}"
         }
     end
+
+    duration = System.monotonic_time(:millisecond) - t0
+
+    LogEmit.emit(:adoption, :evaluate, :done, %{
+      decision_type: decision.decision_type,
+      reason_codes: decision.reason_codes,
+      duration_ms: duration,
+      outcome: outcome_for_decision(decision.decision_type)
+    })
+
+    decision
   end
+
+  defp outcome_for_decision(:adopt_tentative), do: "ok"
+  defp outcome_for_decision(:require_confirmation), do: "skipped"
+  defp outcome_for_decision(:reject), do: "skipped"
+  defp outcome_for_decision(:fail_with_recovery), do: "error"
+  defp outcome_for_decision(_), do: "ok"
 
   defp find_candidate(_set, nil), do: nil
 

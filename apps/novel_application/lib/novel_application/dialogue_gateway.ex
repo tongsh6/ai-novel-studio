@@ -4,6 +4,7 @@ defmodule NovelApplication.DialogueGateway do
   """
 
   require Logger
+  require NovelCommon.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider.Gateway
   alias NovelApplication.ActionValidator
@@ -14,6 +15,7 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelApplication.Toolbox
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
+  alias NovelCommon.LogContext
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueFrame
   alias NovelDomain.ToolRequest
@@ -44,27 +46,56 @@ defmodule NovelApplication.DialogueGateway do
       )
       when is_binary(text) and byte_size(text) > 0 do
     ws_id = Map.get(input, :workspace_id, "default")
+    work_id = Map.get(input, :work_id) || ws_id
     generate_plan = Map.get(input, :generate_micro_plan, false)
+
+    t0 = System.monotonic_time(:millisecond)
+    LogContext.put_turn(ws_id, work_id)
+    LogEmit.emit(:dialogue_gateway, :handle_input, :start, %{workspace_id: ws_id, work_id: work_id})
 
     context = ContextAssembler.assemble(ws_id, context_fetcher_or_default(context_fetcher))
     frame_input = %{text: text, workspace_id: ws_id}
     frame_fn = complete_fn || (&Gateway.complete/1)
     {frame, candidates} = Planner.form_frame(frame_input, context, frame_fn)
 
+    # Update metadata now that Planner has generated turn_id / frame_id
+    Logger.metadata(turn_id: frame.turn_id)
+    LogContext.put_frame(frame.frame_id)
+
     case DialogueFrame.validate(frame) do
       :ok ->
         result = handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn)
         persist_turn_side_effects(result, ws_id, text, trace_persister, memory_recorder)
 
+        duration = System.monotonic_time(:millisecond) - t0
+        LogEmit.emit(:dialogue_gateway, :handle_input, :done, %{
+          turn_id: frame.turn_id,
+          frame_type: frame.frame_type,
+          duration_ms: duration
+        })
+
         result
 
       {:error, reasons} ->
+        duration = System.monotonic_time(:millisecond) - t0
+        LogEmit.emit(:dialogue_gateway, :handle_input, :error, %{
+          duration_ms: duration,
+          reason_code: :frame_validation_failed,
+          outcome_detail: Enum.join(reasons, "; ")
+        })
+
         {:error, "frame validation failed: #{Enum.join(reasons, "; ")}"}
     end
   end
 
-  def handle_input(_, _fetcher, _complete_fn, _trace_persister, _memory_recorder),
-    do: {:error, "text is required"}
+  def handle_input(_, _fetcher, _complete_fn, _trace_persister, _memory_recorder) do
+    LogEmit.emit(:dialogue_gateway, :handle_input, :error, %{
+      reason_code: :empty_text,
+      outcome_detail: "text is required"
+    })
+
+    {:error, "text is required"}
+  end
 
   defp context_fetcher_or_default(nil),
     do: NovelApplication.persistence_fetcher() || (&empty_context/1)
@@ -101,7 +132,10 @@ defmodule NovelApplication.DialogueGateway do
       :ok
     else
       {:error, reason} ->
-        Logger.warning("[DialogueGateway] trace persistence failed: #{inspect(reason)}")
+        LogEmit.emit(:dialogue_gateway, :persist_trace, :error, %{
+          reason_code: :persistence_failed,
+          outcome_detail: changeset_error_summary(reason)
+        })
         :ok
     end
   end
@@ -122,7 +156,10 @@ defmodule NovelApplication.DialogueGateway do
         :ok
 
       {:error, reason} ->
-        Logger.warning("[DialogueGateway] interaction persistence failed: #{inspect(reason)}")
+        LogEmit.emit(:dialogue_gateway, :persist_interaction, :error, %{
+          reason_code: :persistence_failed,
+          outcome_detail: changeset_error_summary(reason)
+        })
         :ok
     end
   end
@@ -296,4 +333,10 @@ defmodule NovelApplication.DialogueGateway do
 
   defp creative_tool?("creative_generation"), do: true
   defp creative_tool?(_), do: false
+
+  defp changeset_error_summary(%Ecto.Changeset{errors: errors}) when errors != [] do
+    errors |> Enum.map_join("; ", fn {field, {msg, _}} -> "#{field}: #{msg}" end)
+  end
+
+  defp changeset_error_summary(other), do: inspect(other)
 end

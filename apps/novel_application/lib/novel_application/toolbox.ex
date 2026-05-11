@@ -6,7 +6,10 @@ defmodule NovelApplication.Toolbox do
   不与 production state 交互。
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelApplication.CapabilityRegistry
+  alias NovelCommon.LogContext
   alias NovelDomain.ToolRequest
   alias NovelDomain.ToolResult
 
@@ -20,46 +23,71 @@ defmodule NovelApplication.Toolbox do
     result_id = "tr_#{System.unique_integer([:positive, :monotonic])}"
     now = DateTime.utc_now()
 
-    cond do
-      is_nil(CapabilityRegistry.get(req.tool_name)) ->
-        %ToolResult{
-          tool_result_id: result_id,
-          tool_request_ref: req.tool_request_id,
-          tool_name: req.tool_name,
-          status: :failed,
-          errors: [%{code: "unknown_tool", message: "tool not found in registry"}],
-          completed_at: now
-        }
+    t0 = System.monotonic_time(:millisecond)
+    LogContext.put_tool_request(req.tool_request_id)
+    LogEmit.emit(:toolbox, :execute, :start, %{tool_name: req.tool_name, tool_request_id: req.tool_request_id})
 
-      not CapabilityRegistry.dispatchable?(req.tool_name) ->
-        %ToolResult{
-          tool_result_id: result_id,
-          tool_request_ref: req.tool_request_id,
-          tool_name: req.tool_name,
-          status: :failed,
-          errors: [%{code: "tool_not_dispatchable", message: "tool is disabled or deprecated"}],
-          completed_at: now
-        }
+    result =
+      cond do
+        is_nil(CapabilityRegistry.get(req.tool_name)) ->
+          %ToolResult{
+            tool_result_id: result_id,
+            tool_request_ref: req.tool_request_id,
+            tool_name: req.tool_name,
+            status: :failed,
+            errors: [%{code: "unknown_tool", message: "tool not found in registry"}],
+            completed_at: now
+          }
 
-      not CapabilityRegistry.grants_valid?(
-        req.tool_name,
-        req.read_scope_grants,
-        req.write_scope_grants
-      ) ->
-        %ToolResult{
-          tool_result_id: result_id,
-          tool_request_ref: req.tool_request_id,
-          tool_name: req.tool_name,
-          status: :failed,
-          errors: [
-            %{code: "grant_scope_violation", message: "requested grants exceed registry scopes"}
-          ],
-          completed_at: now
-        }
+        not CapabilityRegistry.dispatchable?(req.tool_name) ->
+          %ToolResult{
+            tool_result_id: result_id,
+            tool_request_ref: req.tool_request_id,
+            tool_name: req.tool_name,
+            status: :failed,
+            errors: [%{code: "tool_not_dispatchable", message: "tool is disabled or deprecated"}],
+            completed_at: now
+          }
 
-      true ->
-        dispatch(req, result_id, now)
+        not CapabilityRegistry.grants_valid?(
+          req.tool_name,
+          req.read_scope_grants,
+          req.write_scope_grants
+        ) ->
+          %ToolResult{
+            tool_result_id: result_id,
+            tool_request_ref: req.tool_request_id,
+            tool_name: req.tool_name,
+            status: :failed,
+            errors: [
+              %{code: "grant_scope_violation", message: "requested grants exceed registry scopes"}
+            ],
+            completed_at: now
+          }
+
+        true ->
+          dispatch(req, result_id, now)
+      end
+
+    duration = System.monotonic_time(:millisecond) - t0
+
+    if result.status == :succeeded do
+      LogEmit.emit(:toolbox, :execute, :done, %{
+        tool_name: req.tool_name,
+        tool_outcome: :succeeded,
+        duration_ms: duration
+      })
+    else
+      error_code = (result.errors |> hd()).code
+      LogEmit.emit(:toolbox, :execute, :error, %{
+        tool_name: req.tool_name,
+        tool_outcome: result.status,
+        reason_code: error_code,
+        duration_ms: duration
+      })
     end
+
+    result
   end
 
   defp dispatch(%ToolRequest{tool_name: "text_analysis"} = req, result_id, now) do

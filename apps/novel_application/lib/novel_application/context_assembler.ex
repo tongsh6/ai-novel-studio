@@ -6,6 +6,8 @@ defmodule NovelApplication.ContextAssembler do
   Planner 只接收已组装好的 DialogueContext，不直接访问 Repo。
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelDomain.ContextSourceRef
   alias NovelDomain.DialogueContext
 
@@ -18,9 +20,19 @@ defmodule NovelApplication.ContextAssembler do
   @type fetcher_return :: {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil}
   @spec assemble(String.t(), (String.t() -> fetcher_return())) :: DialogueContext.t()
   def assemble(workspace_id, fetcher \\ &default_fetch/1) do
+    t0 = System.monotonic_time(:millisecond)
+    LogEmit.emit(:context, :assemble, :start, %{})
+
     {:ok, snapshot, conv_summary, mem_summary, behavior_summary} = fetcher.(workspace_id)
 
     refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary)
+
+    duration = System.monotonic_time(:millisecond) - t0
+    LogEmit.emit(:context, :assemble, :done, %{
+      context_refs_count: length(refs),
+      has_snapshot: snapshot != nil,
+      duration_ms: duration
+    })
 
     %DialogueContext{
       workspace_id: workspace_id,

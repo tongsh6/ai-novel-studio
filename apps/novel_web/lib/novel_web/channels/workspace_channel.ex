@@ -8,11 +8,16 @@ defmodule NovelWeb.WorkspaceChannel do
 
   use Phoenix.Channel
 
+  require NovelCommon.LogEmit, as: LogEmit
+
+  alias NovelCommon.LogContext
   alias NovelDomain.AuthorActionInput
 
   @impl true
   def join("workspace:" <> suffix, payload, socket) do
     work_id = (is_map(payload) && Map.get(payload, "work_id")) || suffix
+
+    LogContext.put_turn(suffix, work_id)
 
     socket =
       socket
@@ -34,6 +39,8 @@ defmodule NovelWeb.WorkspaceChannel do
         _, _ -> :skipped
       end
 
+    LogEmit.emit(:channel, :join, :done, %{workspace_id: suffix, work_id: work_id})
+
     {:ok, %{joined: true, work_id: work_id}, socket}
   end
 
@@ -50,18 +57,32 @@ defmodule NovelWeb.WorkspaceChannel do
       generate_micro_plan: generate_plan
     }
 
+    t0 = System.monotonic_time(:millisecond)
+    LogEmit.emit(:channel, :user_message, :start, %{workspace_id: ws_id, work_id: work_id, text_len: byte_size(text)})
+
     fetcher = NovelApplication.persistence_fetcher()
     persister = NovelApplication.persistence_tracer()
     recorder = NovelApplication.persistence_interaction_recorder()
 
-    case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister, recorder) do
-      {:ok, turn_result, _trace, _candidates, _context} ->
-        broadcast!(socket, "turn_result", turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        {:reply, {:ok, %{received: true}}, socket}
+    result =
+      case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister, recorder) do
+        {:ok, turn_result, _trace, _candidates, _context} ->
+          broadcast!(socket, "turn_result", turn_result)
+          socket = remember_turn_result(socket, turn_result)
+          {:ok, socket}
 
-      {:error, reason} ->
-        broadcast!(socket, "turn_result", fallback_turn_result(inspect(reason)))
+        {:error, reason} ->
+          broadcast!(socket, "turn_result", fallback_turn_result(inspect(reason)))
+          {:error, reason, socket}
+      end
+
+    duration = System.monotonic_time(:millisecond) - t0
+    case result do
+      {:ok, socket} ->
+        LogEmit.emit(:channel, :user_message, :done, %{duration_ms: duration})
+        {:reply, {:ok, %{received: true}}, socket}
+      {:error, reason, socket} ->
+        LogEmit.emit(:channel, :user_message, :error, %{duration_ms: duration, reason_code: reason})
         {:reply, {:ok, %{received: true, note: "fallback"}}, socket}
     end
   end

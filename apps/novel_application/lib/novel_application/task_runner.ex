@@ -5,8 +5,9 @@ defmodule NovelApplication.TaskRunner do
   依托 Persistence.LongRunTaskLog 实现 SQLite 状态保存与恢复。
   """
 
-  require Logger
+  require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelCommon.LogContext
   alias NovelFoundation.Enums.Status
   alias NovelFoundation.Enums.TaskPhase
   alias NovelPersistence.LongRunTaskLog
@@ -14,9 +15,14 @@ defmodule NovelApplication.TaskRunner do
   @doc "启动一个新任务。"
   def start(attrs) do
     with {:ok, task} <- LongRunTaskLog.create(attrs) do
-      Logger.info("[TaskRunner] Started task #{task.id} (#{task.task_type})")
-      # 模拟异步执行
-      Task.start(fn -> perform_execution(task.id) end)
+      LogEmit.emit(:task_runner, :start, :done, %{task_id: task.id, task_type: task.task_type})
+
+      meta_snapshot = LogContext.snapshot()
+      Task.start(fn ->
+        LogContext.restore(meta_snapshot)
+        perform_execution(task.id)
+      end)
+
       {:ok, task}
     end
   end
@@ -25,12 +31,22 @@ defmodule NovelApplication.TaskRunner do
   def resume(task_id) do
     with %{} = task <- LongRunTaskLog.get(task_id),
          {:ok, resumed} <- LongRunTaskLog.resume(task) do
-      Logger.info("[TaskRunner] Resumed task #{task_id}")
-      Task.start(fn -> perform_execution(task_id) end)
+      LogEmit.emit(:task_runner, :resume, :done, %{task_id: task_id})
+
+      meta_snapshot = LogContext.snapshot()
+      Task.start(fn ->
+        LogContext.restore(meta_snapshot)
+        perform_execution(task_id)
+      end)
+
       {:ok, resumed}
     else
-      nil -> {:error, :not_found}
-      error -> error
+      nil ->
+        LogEmit.emit(:task_runner, :resume, :error, %{reason_code: :not_found})
+        {:error, :not_found}
+      error ->
+        LogEmit.emit(:task_runner, :resume, :error, %{reason_code: :persistence_error})
+        error
     end
   end
 
@@ -42,26 +58,24 @@ defmodule NovelApplication.TaskRunner do
         :ok
 
       task ->
-        # 1. 进入运行态
+        LogEmit.emit(:task_runner, :execute, :start, %{task_id: id})
+
         {:ok, task} =
           LongRunTaskLog.update(task, %{status: Status.running(), phase: TaskPhase.running()})
 
-        # 2. 模拟工作周期 (Checkpoint 1)
         Process.sleep(100)
 
         {:ok, task} =
           LongRunTaskLog.checkpoint(task, %{"progress" => 50, "step" => "world_gen"})
 
-        # 3. 模拟继续工作 (模拟外部恢复或自动恢复)
         Process.sleep(100)
 
         {:ok, task} =
           LongRunTaskLog.update(task, %{status: Status.running(), phase: TaskPhase.running()})
 
-        # 4. 完成
         Process.sleep(100)
         {:ok, _task} = LongRunTaskLog.complete(task)
-        Logger.info("[TaskRunner] Completed task #{id}")
+        LogEmit.emit(:task_runner, :execute, :done, %{task_id: id})
     end
   end
 end

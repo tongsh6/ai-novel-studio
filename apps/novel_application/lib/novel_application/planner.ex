@@ -4,6 +4,8 @@ defmodule NovelApplication.Planner do
   MicroPlan 只是建议，不含执行批准语义。
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelAgent.Provider.Gateway
   alias NovelApplication.CapabilityRegistry
   alias NovelDomain.CandidateDirection
@@ -28,6 +30,9 @@ defmodule NovelApplication.Planner do
     turn_id = allocate_turn_id()
     frame_id = allocate_frame_id()
 
+    t0 = System.monotonic_time(:millisecond)
+    LogEmit.emit(:planner, :form_frame, :start, %{})
+
     result =
       with_turn_context(turn_id, "form_frame", fn ->
         call_provider(text, context, complete_fn)
@@ -35,6 +40,8 @@ defmodule NovelApplication.Planner do
 
     case result do
       {:ok, parsed} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
         frame = build_frame(parsed, turn_id, frame_id, ws_id, context)
 
         candidates =
@@ -44,9 +51,17 @@ defmodule NovelApplication.Planner do
             []
           end
 
+        LogEmit.emit(:planner, :form_frame, :done, %{
+          frame_type: frame.frame_type,
+          candidate_count: length(candidates),
+          duration_ms: duration
+        })
+
         {frame, candidates}
 
       {:error, _reason} ->
+        duration = System.monotonic_time(:millisecond) - t0
+        LogEmit.emit(:planner, :form_frame, :error, %{duration_ms: duration, reason_code: :provider_error})
         {fallback_frame(turn_id, frame_id, ws_id, context), []}
     end
   end
@@ -62,18 +77,32 @@ defmodule NovelApplication.Planner do
           {:ok, MicroPlan.t()} | {:error, term()}
   def form_micro_plan(%DialogueFrame{} = frame, author_input, complete_fn \\ &Gateway.complete/1) do
     plan_id = "plan_#{System.unique_integer([:positive, :monotonic])}"
+    t0 = System.monotonic_time(:millisecond)
+    LogEmit.emit(:planner, :form_micro_plan, :start, %{})
 
     prompt = build_plan_prompt(frame, author_input)
 
-    case with_turn_context(frame.turn_id, "form_micro_plan", fn -> complete_fn.(prompt) end) do
-      {:ok, %{content: content}} ->
-        content
-        |> parse_json()
-        |> build_plan_or_retry(content, prompt, complete_fn, plan_id, frame)
+    res =
+      case with_turn_context(frame.turn_id, "form_micro_plan", fn -> complete_fn.(prompt) end) do
+        {:ok, %{content: content}} ->
+          content
+          |> parse_json()
+          |> build_plan_or_retry(content, prompt, complete_fn, plan_id, frame)
 
+        {:error, reason} ->
+          {:error, reason}
+      end
+
+    duration = System.monotonic_time(:millisecond) - t0
+
+    case res do
+      {:ok, _plan} ->
+        LogEmit.emit(:planner, :form_micro_plan, :done, %{duration_ms: duration})
       {:error, reason} ->
-        {:error, reason}
+        LogEmit.emit(:planner, :form_micro_plan, :error, %{duration_ms: duration, reason_code: reason})
     end
+
+    res
   end
 
   defp build_plan_prompt(frame, author_input) do

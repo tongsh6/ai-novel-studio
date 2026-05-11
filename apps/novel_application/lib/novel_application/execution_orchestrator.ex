@@ -3,9 +3,12 @@ defmodule NovelApplication.ExecutionOrchestrator do
   v3 Execution Orchestrator — 执行权唯一门禁。Planner 不能批准自己的 MicroPlan。
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.GateOrder
   alias NovelApplication.PlannerBoundary
+  alias NovelCommon.LogContext
   alias NovelDomain.BehaviorState
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
@@ -16,6 +19,8 @@ defmodule NovelApplication.ExecutionOrchestrator do
           {OrchestratorDecision.t(), BehaviorState.t() | nil}
   def decide(%DialogueFrame{} = frame, %MicroPlan{} = plan) do
     decision_id = "decision_#{System.unique_integer([:positive, :monotonic])}"
+    t0 = System.monotonic_time(:millisecond)
+    LogEmit.emit(:orchestrator, :decide, :start, %{})
 
     {decision, behavior} =
       case PlannerBoundary.validate(frame, plan) do
@@ -32,6 +37,16 @@ defmodule NovelApplication.ExecutionOrchestrator do
         :ok ->
           decision_from_gate_result(GateOrder.evaluate(plan), decision_id, frame, plan)
       end
+
+    LogContext.put_decision(decision_id)
+
+    duration = System.monotonic_time(:millisecond) - t0
+    LogEmit.emit(:orchestrator, :decide, :done, %{
+      decision_type: decision.decision_type,
+      decision_id: decision_id,
+      has_behavior: behavior != nil,
+      duration_ms: duration
+    })
 
     {decision, behavior}
   end
