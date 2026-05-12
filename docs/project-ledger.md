@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-12（Milestone: VS-10 Observability Spine 验证闭环 + P1 体验缺口补齐）
+> 最后更新：2026-05-13（Milestone: 场景化验收对账 SU-01~03 + AU-01~08）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -27,10 +27,9 @@ v3 设计体系已闭环，目前处于特性增强期：
 |------|---|---|
 | 后端主链单元 + 集成测试 | `mix test`：412 tests / 0 failures；`mix test --include integration`：422 tests / 0 failures（含 novel_e2e 10 条）| 2026-05-12 本地复核；`:real_llm` 默认排除 |
 | AI 静态扫描 | 13 PASS / 0 finding / 0 pending disposition | `artifacts/static-scan/top10.md`（2026-05-12）|
-| AU-01..AU-10 作者验收 | 67%–100%（核心已实现，多处缺降级 / 边缘语义测试）| `docs/design-v3/acceptance/README.md` |
-| SU-01 系统-供应商管理 | 22%（仅状态轮询，无切换/Key/测试 UI）| `docs/design-v3/acceptance/system/SU-01-model-provider.md` |
-| SU-02 系统-作品切换 | 22%（VS-09 落地后端 CRUD + Channel 透传 + 前端去 mock；剩余高级场景待续）| `apps/novel_web/lib/novel_web/controllers/works_controller.ex`、`apps/novel_application/lib/novel_application/work_service.ex`、`frontend/src/lib/works.ts` |
-| SU-03 模型起名 | 0%（未实现）| `docs/design-v3/acceptance/system/SU-03-model-nickname.md` |
+| SU-01..SU-03 系统验收 | 已按完整用户场景重算：SU-01 `0/10` 已验收、SU-02 `0/10` 完整端到端验收、SU-03 `0/6` 已验收；均有局部基础设施但未闭环 | `docs/design-v3/acceptance/README.md`；`docs/design-v3/acceptance/system/` |
+| AU-01..AU-08 作者验收 | 已按完整前后端用户场景重算：均为 `0/N` 完整真实前后端验收；局部证据不能再等同“已验收” | `docs/design-v3/acceptance/README.md`；`docs/design-v3/acceptance/author/AU-01-chat.md`..`AU-08-reading-mode.md` |
+| AU-09..AU-10 作者验收 | **待重算**；仍保留旧“部分实现 / 已实现”口径，不能作为真实验收结论 | `docs/design-v3/acceptance/README.md` |
 | 真人走查（最近一次 2026-05-09）| 3 轮对话走通；5 个观感问题（P1×2 / P2×3）| `walkthroughs/2026-05-09/REPORT.md` |
 | 业务日志体系 | **新落地（VS-10）**：LogContext/LogEmit + 11 模块结构化日志 + 自然语言 msg（atom→中文） + Console 精简 / JSONL 完整双通道 + 环境目录分离 + 三源回溯工具 + 操作手册 | ADR-0018；`apps/novel_common/lib/novel_common/log_{context,emit}.ex`；`scripts/grep_turn.sh` |
 | 真实 LLM 自动测试 | 本地 LM Studio 手动 `--include real_llm`：13 tests / 0 failures；仍默认排除且无定期 CI 跑 | `apps/novel_application/test/.../planner_real_llm_test.exs` |
@@ -94,15 +93,30 @@ v3 设计体系已闭环，目前处于特性增强期：
 | GAP-WT-04 | 纯文本回复，frame_type/exploration/candidate 在 UI 上无视觉区分 | P2 | UICards 类别集合已就位，但 DialogueFrame.frame_type 未驱动样式 | 体验加固（次轮）|
 | GAP-WT-05 | 多轮回复彼此独立，上下文感缺失 | P2 | DialogueContext 已产，前端不展示前文引用 | 体验加固（次轮）|
 
-#### Acceptance P0 缺口（5 项，来自 acceptance/README §缺口总览）
+#### 场景化验收对账（2026-05-13）
 
-| ID | 缺口 | 类型 | 关联文档 |
-|----|------|------|----------|
-| GAP-AC-P0-1 | LLM 不可用降级测试 | 缺测试 | AU-01 GAP-01 |
-| GAP-AC-P0-2 | LLM 乱码降级测试 | 缺测试 | AU-01 GAP-02 |
-| GAP-AC-P0-3 | 确认幂等性测试 | 缺测试 | AU-04 GAP-01 |
-| GAP-AC-P0-4 | 供应商 UI 全套（切换 / Key / 端点 / 测试连接）| 缺实现 | SU-01 GAP-01..04 |
-| GAP-AC-P0-5 | 作品 CRUD 全套（列表 / 创建 / 切换 / 持久化 / pending 隔离）| **部分修复（VS-09）**：list/create/get + Channel work_id 透传 + 前端去 mock 已落地（394 tests pass）；剩余 cross-work 隔离 e2e、切换 UI、pending 请求隔离待补 | SU-02 GAP-01..05 |
+> 本轮目标不是实现代码，而是把验收 case 从“API/组件存在”改为“真实作者使用场景”。结论：SU-01~03、AU-01~08 已重算；AU-09~10 待下一会话继续逐个过。
+
+| 范围 | 当前状态 | 主要缺口 | 证据 |
+|----|----|----|----|
+| 场景化验收总入口 | 已新增 | 仍需把 AU-09/AU-10 纳入重算，并在后续实现前按蓝图选承重 slice | `docs/design-v3/acceptance/SCENARIO-BLUEPRINT.md` |
+| SU-01 模型供应商 | `0/10` 已验收；`2/10` 有基础设施 | provider health 基础具备；缺 model 列表、运行时切换、Key/endpoint 配置、测试连接 UI 和错误恢复 | `docs/design-v3/acceptance/system/SU-01-model-provider.md` |
+| SU-02 作品切换 | `0/10` 完整端到端验收；`5/10` 部分/基础设施 | 后端 Work CRUD、Channel work_id 透传、启动去 mock 已推进；缺运行时切换 UI、rejoin、pending 隔离、跨作品隔离验收 | `docs/design-v3/acceptance/system/SU-02-work-switching.md` |
+| SU-03 AI 显示名 | `0/6` 已验收；`1/6` 仅硬编码默认值 | 缺设置入口、持久化、按作品隔离、仅 UI 展示边界 | `docs/design-v3/acceptance/system/SU-03-model-nickname.md` |
+| AU-01/AU-02 自然对话与探索 | AU-01 `0/13`；AU-02 `0/12` 完整前后端验收 | 真实工作台 walkthrough 不足；普通聊天/探索默认 MicroPlan 风险；候选操作和采纳桥接未闭环 | `docs/design-v3/acceptance/author/AU-01-chat.md`；`AU-02-explore.md` |
+| AU-03 上下文与会话 | `0/20` 完整前后端验收；`5/20` 有局部证据 | 缺作品内 N 次会话、会话列表/搜索/归档/只读重入；最新作品背景未作为 context SSOT | `docs/design-v3/acceptance/author/AU-03-context.md` |
+| AU-04/AU-06 执行确认与行为生命周期 | AU-04 `0/18`；AU-06 `0/17` 完整真实前后端验收 | 后端门禁较强；真实入口仍有 confirm/reject vs `author_action` 偏差；behavior_state 消费、resolution/history、幂等、TTL、ConfirmationBinding 未闭环 | `docs/design-v3/acceptance/author/AU-04-execute-and-confirm.md`；`AU-06-behavior-lifecycle.md` |
+| AU-05/AU-08 采纳到阅读投影 | AU-05 `0/18`；AU-08 `0/16` 完整真实前后端验收 | 前端 adopt/discard/modify helper 与 Channel handler 不匹配；AdoptionBoundary 未接主流程；TOC 仍 mock，章节读取缺 handler，ProjectionHint 未转 `projection_refs` | `docs/design-v3/acceptance/author/AU-05-artifact-adoption.md`；`AU-08-reading-mode.md` |
+| AU-07 溯源回放 | `0/16` 完整真实前后端验收；`8/16` 有局部证据 | Replay no-provider 已测；缺 why UI、redaction、author/developer 双视图、Tool/Behavior/StateTrace 聚合 | `docs/design-v3/acceptance/author/AU-07-trace-and-replay.md` |
+| AU-09/AU-10 | 待重算 | 旧文档仍可能把“已有实现/组件”误写成“已验收” | `docs/design-v3/acceptance/README.md` |
+
+#### 下一会话交接（从这里继续）
+
+1. 先读取 `docs/project-ledger.md`、`docs/design-v3/acceptance/SCENARIO-BLUEPRINT.md`、`docs/design-v3/acceptance/README.md`。
+2. 从 `docs/design-v3/acceptance/author/AU-09-story-memory.md` 开始逐个过场景，不要跳到实现。
+3. 继续沿用本轮口径：完整前后端用户场景优先；代码/组件/API 存在只能算局部证据；mock、helper 测试、文档描述不能算已验收。
+4. AU-09 重点核查故事设定/记忆是否真实进入主链 context、可管理、可召回、可溯源，并与 AU-03 的“作品内会话 + 最新作品背景”对齐。
+5. AU-10 重点核查真实工作台 UI：卡片、候选、action、task_state、trace、projection、错误态、Tauri 桌面约束和 Playwright/真人走查。
 
 #### 进行中的承重切片（修正前 §1 的"全 done"假象）
 
