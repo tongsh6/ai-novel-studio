@@ -1,8 +1,10 @@
 # v3 验收场景全景
 
-> 最后更新：2026-05-10
+> 最后更新：2026-05-13
 >
-> 本目录包含 AI Novel Studio v3 的完整验收场景文档。按两种用户视角组织：**系统用户**（自然人，配置和运行软件）和**作者用户**（核心用户，用 AI 写小说）。
+> 本目录包含 AI Novel Studio v3 的验收场景文档。按两种用户视角组织：**系统用户**（自然人，配置和运行软件）和**作者用户**（核心用户，用 AI 写小说）。
+>
+> 重要：本目录的早期 AU/SU 覆盖率是“文档内场景覆盖率”，不等同于完整产品验收。后续完善以 [场景化验收蓝图](SCENARIO-BLUEPRINT.md) 为总入口，先按完整功能蓝图列场景，再用代码、测试、走查和报告对账。
 
 ---
 
@@ -24,28 +26,35 @@
 
 ## 文档索引
 
+### 场景化验收总入口
+
+| 文档 | 作用 | 当前状态 |
+|------|------|----------|
+| [SCENARIO-BLUEPRINT](SCENARIO-BLUEPRINT.md) | 从完整功能蓝图出发，识别跨 AU/SU 的主流程场景和缺口 | 新增，作为后续重算覆盖率和补 case 的入口 |
+| [E2E-01](e2e/E2E-01-full-chain.md) | 用真实 LLM / SQLite / Channel 证明主链端到端路径 | 11/13 完整 + 2/13 部分 |
+
 ### 系统用户验收（3 文档）
 
 | 文档 | 能力 | 场景 | 覆盖率 | 状态 |
 |------|------|------|--------|------|
-| [SU-01](system/SU-01-model-provider.md) | 切换模型供应商 | 9 | 22% | 基础实现 |
-| [SU-02](system/SU-02-work-switching.md) | 切换作品 | 9 | 11% | 基础实现 |
-| [SU-03](system/SU-03-model-nickname.md) | 给模型起名 | 3 | 0% | 未实现 |
+| [SU-01](system/SU-01-model-provider.md) | 切换模型供应商 | 10 | 0/10 已验收；2/10 有基础设施 | health 基础具备，切换/配置未实现 |
+| [SU-02](system/SU-02-work-switching.md) | 切换作品 | 10 | 0/10 完整端到端验收；5/10 部分/基础设施 | VS-09 CRUD/启动接入已推进，切换闭环未验收 |
+| [SU-03](system/SU-03-model-nickname.md) | 给模型起名 | 6 | 0/6 已验收；1/6 仅硬编码默认值 | 未实现，P2 体验增强 |
 
 ### 作者用户验收（10 文档）
 
 | 文档 | 能力 | 场景 | 覆盖率 | 状态 |
 |------|------|------|--------|------|
-| [AU-01](author/AU-01-chat.md) | 与 AI 聊创作 | 10 | 80% | 核心已实现 |
-| [AU-02](author/AU-02-explore.md) | 探索创作方向 | 6 | 67% | 核心已实现 |
-| [AU-03](author/AU-03-context.md) | AI 了解我的作品 | 6 | 100% | 已实现 |
-| [AU-04](author/AU-04-execute-and-confirm.md) | 执行任务与确认 | 7 | 86% | 核心已实现 |
-| [AU-05](author/AU-05-artifact-adoption.md) | 采纳创作产物 | 5 | 100% | 已实现 |
-| [AU-06](author/AU-06-behavior-lifecycle.md) | 行为生命周期 | 7 | 86% | 核心已实现 |
-| [AU-07](author/AU-07-trace-and-replay.md) | 决策溯源透明度 | 5 | 80% | 核心已实现 |
-| [AU-08](author/AU-08-reading-mode.md) | 阅读我的作品 | 7 | 100% | 已实现 |
-| [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 7 | 100% | 已实现 |
-| [AU-10](author/AU-10-workbench-ui.md) | 工作台实时交互 | 9 | 100% | 已实现 |
+| [AU-01](author/AU-01-chat.md) | 与 AI 聊创作 | 13 | 0/13 完整前后端验收；9/13 有局部证据 | 后端/Channel 主链较强，真实工作台验收不足 |
+| [AU-02](author/AU-02-explore.md) | 探索创作方向 | 12 | 0/12 完整前后端验收；6/12 有局部证据 | 候选生成已补，候选操作/采纳桥接未闭环 |
+| [AU-03](author/AU-03-context.md) | AI 了解我的作品 | 20 | 0/20 完整前后端验收；5/20 有局部证据 | 缺作品内会话模型与最新作品背景闭环 |
+| [AU-04](author/AU-04-execute-and-confirm.md) | 执行任务与确认 | 18 | 0/18 完整真实前后端验收；11/18 有局部证据 | 后端门禁较强，真实确认卡/author_action/幂等闭环不足 |
+| [AU-05](author/AU-05-artifact-adoption.md) | 采纳创作产物 | 18 | 0/18 完整真实前后端验收；10/18 有局部证据 | 产物默认草稿已测，真实采纳入口/StateTrace/阅读投影未闭环 |
+| [AU-06](author/AU-06-behavior-lifecycle.md) | 行为生命周期 | 17 | 0/17 完整真实前后端验收；6/17 有局部证据 | 打开行为已部分实现，resolution/history/TTL/replay 未闭环 |
+| [AU-07](author/AU-07-trace-and-replay.md) | 决策溯源透明度 | 16 | 0/16 完整真实前后端验收；8/16 有局部证据 | Replay no-provider 已测，真实 why UI/redaction/多 trace 回放未闭环 |
+| [AU-08](author/AU-08-reading-mode.md) | 阅读我的作品 | 16 | 0/16 完整真实前后端验收；7/16 有局部证据 | 阅读壳已实现，TOC mock/章节 handler/真实投影链路未闭环 |
+| [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 9 | 待重算 | 部分实现，记忆召回主链未闭环 |
+| [AU-10](author/AU-10-workbench-ui.md) | 工作台实时交互 | 9 | 待重算 | 已实现多处 UI，缺 Playwright/真人复验 |
 
 ---
 
@@ -89,10 +98,11 @@ mix test apps/novel_web/test/novel_web/channels/
 | `context_grounding_test.exs` | AU-03 | 12 |
 | `execution_authority_test.exs` | AU-04 | 18 |
 | `adoption_boundary_test.exs` | AU-05 | 9 |
-| `creative_artifact_test.exs` | AU-05 | 12 |
+| `creative_artifact_test.exs` | AU-04, AU-05, AU-10 | 12 |
 | `behavior_lifecycle_test.exs` | AU-06 | 8 |
-| `action_roundtrip_test.exs` | AU-06, AU-07 | 8 |
+| `action_roundtrip_test.exs` | AU-04, AU-06, AU-07 | 8 |
 | `replay_service_test.exs` | AU-07 | 6 |
+| `trace_repository_test.exs` | AU-07 | 6 |
 | `workspace_channel_v3_test.exs` | AU-01, AU-04, SU-02 | 12 |
 
 **总计：98 个测试，0 个失败，13 个被排除（需 real LLM / integration）**
@@ -103,26 +113,41 @@ mix test apps/novel_web/test/novel_web/channels/
 
 | 缺口 | 关联文档 | 类型 | 优先级 |
 |------|---------|------|--------|
-| LLM 不可用降级测试 | AU-01 GAP-01 | 缺测试 | P0 |
-| LLM 乱码降级测试 | AU-01 GAP-02 | 缺测试 | P0 |
-| 持续追问多轮测试 | AU-02 GAP-01 | 缺测试 | P1 |
-| 探索阶段不强制 action | AU-02 GAP-02 | 缺测试 | P1 |
-| 部分上下文场景 | AU-03 GAP-01 | 缺测试 | P1 |
-| 确认幂等性测试 | AU-04 GAP-01 | 缺测试 | P0 |
-| 确认过期处理 | AU-04 GAP-02 | 缺测试 | P1 |
-| 高风险候选二次确认 | AU-05 GAP-01 | 缺测试 | P1 |
-| ProjectionHint 验证 | AU-05 GAP-02 | 缺测试 | P1 |
-| 取消行为端到端 | AU-06 GAP-01 | 缺测试 | P1 |
-| 行为过期 TTL | AU-06 GAP-02 | 缺设计 | P2 |
-| 行为覆盖 Superseded | AU-06 GAP-03 | 缺设计 | P2 |
-| reason_code 人类可读 | AU-07 GAP-01 | 缺实现 | P2 |
-| 可视化溯源 | AU-07 GAP-02 | 缺前端 | P2 |
-| 脱敏专用测试 | AU-07 GAP-03 | 缺测试 | P1 |
-| 供应商 UI 全套 | SU-01 GAP-01~04 | 缺实现 | P0 |
-| 作品 CRUD 全套 | SU-02 GAP-01~05 | 缺实现 | P0 |
-| 显示名存储 | SU-03 GAP-01~02 | 缺实现 | P2 |
+| 普通聊天真实工作台验收 | AU-01 AU01-GAP-01 | 补验收 | P0 |
+| 普通聊天误触发 MicroPlan 风险 | AU-01 AU01-GAP-02 | 修正/补验收 | P0 |
+| 聊天异常与降级 UI 体验 | AU-01 AU01-GAP-03~05 | 补集成/补验收 | P1 |
+| 候选卡点选继续探索 | AU-02 AU02-GAP-01 | 补实现/补验收 | P0 |
+| 候选采纳桥接 adoption boundary | AU-02 AU02-GAP-02 | 补集成 | P0/P1 |
+| 探索阶段真实入口与多轮体验 | AU-02 AU02-GAP-03~07 | 修正/补验收 | P0/P1 |
+| 作品内会话模型与管理 | AU-03 AU03-GAP-01~03 | 新增/补集成 | P0 |
+| 最新作品背景接入 context | AU-03 AU03-GAP-04 | 修正/补集成 | P0 |
+| 记忆/行为/来源摘要上下文 | AU-03 AU03-GAP-05~10 | 补集成/补验收 | P1/P2 |
+| 真实入口确认动作接入 `author_action` | AU-04 AU04-GAP-01~02 | 修设计偏差/补集成 | P0 |
+| 确认幂等、Binding、取消 lifecycle | AU-04 AU04-GAP-03~06 | 补实现/补测试/补验收 | P0 |
+| 确认后任务反馈、真值文案、失败恢复 | AU-04 AU04-GAP-07~09 | 补集成/补测试/补验收 | P1 |
+| 真实采纳入口与 AdoptionBoundary 主流程 | AU-05 AU05-GAP-01~02 | 补实现/补集成 | P0 |
+| StateTrace、持久化待处理箱、selection/adoption 桥接 | AU-05 AU05-GAP-03~05 | 补实现/补集成/补验收 | P0 |
+| freshness/conflict/cross-work 与高风险确认 | AU-05 AU05-GAP-06~07 | 补实现/补测试/补集成 | P0 |
+| ProjectionHint、修改/放弃、truthfulness、真实档案/阅读 | AU-05 AU05-GAP-08~11 | 补集成/补测试/补验收 | P1 |
+| 真实入口 behavior_state / available_actions 消费 | AU-06 AU06-GAP-01~02 | 修正/补集成/补验收 | P0 |
+| behavior resolution/history 与 ConfirmationBinding | AU-06 AU06-GAP-03~05 | 补实现/补集成/补测试 | P0 |
+| 单活跃、幂等、跨作品/会话隔离 | AU-06 AU06-GAP-06/AU06-GAP-08~09 | 补实现/补测试/补验收 | P0 |
+| TTL、BehaviorTrace/replay、clarification 主链 | AU-06 AU06-GAP-07/AU06-GAP-10~11 | 补实现/状态核查/补验收 | P1 |
+| 工作台 why 入口与中文解释 | AU-07 AU07-GAP-01~02 | 补实现/文案同步/补验收 | P1 |
+| trace redaction 与 author/developer 双视图 | AU-07 AU07-GAP-03~04 | 补实现/补测试/补集成 | P0/P1 |
+| Replay 六问与 Tool/Behavior/StateTrace 聚合 | AU-07 AU07-GAP-05~08 | 补实现/补集成/补测试 | P0/P1 |
+| trace 查询 API/UI 与 work/session 隔离 | AU-07 AU07-GAP-09~10 | 补集成/修设计偏差/补验收 | P1 |
+| 阅读模式真实 TOC/章节读取 | AU-08 AU08-GAP-01~02 | 补实现/补集成/补验收 | P0 |
+| 采纳到阅读投影与 ProjectionHint adapter | AU-08 AU08-GAP-03~04 | 补集成/修正/补测试 | P0 |
+| projection refresh no-write 与跨作品隔离 | AU-08 AU08-GAP-05~06 | 补实现/补测试/补验收 | P0 |
+| 阅读模式错误态与 UI 自动化 | AU-08 AU08-GAP-07~09 | 补实现/补验收/文案同步 | P1/P2 |
+| 供应商 health/model/error 补齐 | SU-01 SU01-GAP-01~03 | 补实现/补测试 | P0/P1 |
+| 供应商运行时切换与安全配置 | SU-01 SU01-GAP-04~07 | 补设计/补实现/补集成 | P0 |
+| 作品切换主闭环与隔离 | SU-02 SU02-GAP-01~04 | 补集成/补验收 | P0 |
+| 作品管理 UI 与恢复策略 | SU-02 SU02-GAP-05~09 | 补实现/修设计偏差 | P1/P2 |
+| AI 显示名设置与隔离 | SU-03 SU03-GAP-01~05 | 补实现/补验收 | P2 |
 
-**总缺口：18 个 | P0: 5 | P1: 9 | P2: 4**
+**总缺口：持续重算中。当前 SU-01~03、AU-01~08 已按场景化口径重算；AU-09~10 仍需逐个复核后再给汇总数字。**
 
 ---
 

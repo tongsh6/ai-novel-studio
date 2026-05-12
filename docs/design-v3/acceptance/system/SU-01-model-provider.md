@@ -1,248 +1,243 @@
 # SU-01 切换模型供应商
 
-> 系统用户视角：我可以选择用哪个大模型来驱动 AI 创作助手，切换 DeepSeek、GPT、Anthropic 或本地 LM Studio，配置各自的 API Key 和端点，并确认连接是否正常。
+> 系统用户视角：我可以选择用哪个大模型来驱动 AI 创作助手，切换 Anthropic / 本地 LM Studio / 测试 Stub 等供应商，配置各自的 API Key、模型和端点，并确认连接是否正常。
+>
+> 场景化验收口径：本文按完整功能蓝图验收“模型供应商管理”，不把已有健康检查误判为完整供应商切换。
 
 ---
 
 ## 1. 我能做什么
 
 | 我能做什么 | 系统怎么回应 |
-|-----------|------------|
-| 看当前用的是哪个模型 | 界面显示供应商名 + 模型名 + 连接状态 |
-| 切换到另一个供应商 | 切换后新的供应商生效，下一轮对话用新模型 |
-| 配置 API Key | 输入 Key 后保存，不会被明文展示 |
-| 配置服务端点 | 填入自建或本地服务的地址 |
-| 测试连接 | 点击测试后看到成功或失败的反馈 |
-| 切换后已存在的对话不受影响 | 历史消息保留，只是后续回复风格可能不同 |
+|---|---|
+| 看当前 LLM 是否可用 | 状态栏显示检测中 / 已连接 / 未连接 |
+| 看当前供应商和模型 | 显示 provider 名称、模型名和连接状态 |
+| 切换到另一个供应商 | 下一轮对话使用新供应商，历史消息不丢 |
+| 配置 API Key | Key 安全保存，不明文进入项目仓库 |
+| 配置模型和端点 | 每个供应商可以独立设置 endpoint / model |
+| 测试连接 | 点击后立即得到成功/失败反馈 |
+| 本地使用 LM Studio | 默认指向 `http://localhost:1234/v1`，未启动时提示明确 |
+
+明确不覆盖：
+
+- 不覆盖云端供应商计费、额度、模型权限管理。
+- 不覆盖团队共享配置。
+- 不要求当前阶段支持所有商业供应商，但必须把“当前只支持配置默认 provider”表达清楚。
 
 ---
 
 ## 2. 不变量
 
 | 编号 | 不变量 | 本验收如何验证 |
-|------|--------|---------------|
-| SU-I1 | 连接状态必须准确反映后端真实状态 | A1、A2 — 轮询 /api/provider/health → UI 同步 |
-| SU-I2 | API Key 和端点配置安全存储 | B2、C3 — 不落 .env，不在 git 中 |
-| SU-I3 | 切换供应商不丢失已有对话 | C2 — 历史消息完整保留 |
+|---|---|---|
+| SU-I1 | 连接状态必须来自后端真实 health check | SC-SU01-A1/A2：UI 轮询 `/api/provider/health`，后端走 `NovelApplication.provider_health/0` |
+| SU-I2 | provider 选择必须经 application / agent gateway，不由 UI 直接调用 provider | SC-SU01-B1/C1：前端只提交配置或选择，实际调用仍走 Gateway |
+| SU-I3 | API Key / endpoint 不应写入 git 管理的项目文件 | SC-SU01-B2/B3：配置应进入 Tauri app data / OS keychain / 后端安全配置 |
+| SU-I4 | 切换供应商不破坏已有对话和作品上下文 | SC-SU01-C2：历史消息保留，新 turn 使用新 provider |
 
 ---
 
-## 3. 契约引用
+## 3. 证据与契约
 
-| 契约 | 用途 |
-|------|------|
-| `frontend/.env` | 服务端点默认值（VITE_API_ENDPOINT, VITE_WS_ENDPOINT） |
-| `frontend/src/lib/env.ts` | 环境检测 + 端点配置 |
-| `GET /api/provider/health` | 后端 LLM 健康检查端点 |
-| `NovelApplication.provider_health/0` | 返回当前 provider name 和连接状态 |
-
----
-
-## 4. 验收场景
-
-### 场景组 A：查看当前供应商
-
-#### A1 — 启动后看到当前模型信息
-
-**作为系统用户**，我启动应用后，在状态栏或设置区看到当前使用的模型供应商和模型名。
-
-```
-状态栏: "LLM: 已连接 · deepseek-chat"
-或:     "LLM: 未连接 · 请检查配置"
-```
-
-**验证点**：
-- [ ] 显示供应商名（如 DeepSeek / GPT / Anthropic / LM Studio）
-- [ ] 显示模型名（如 `deepseek-chat`、`gpt-4o`）
-- [ ] 显示连接状态（已连接 / 未连接 / 检测中…）
-
-**当前代码**：`WorkspaceChat.tsx:101-115` 30s 轮询 `/api/provider/health` → 更新 `llmConnected` 和 `llmModel` state ✅
-
-**状态转换**：
-```
-初始: "检测中…"（llmConnected = null）
-成功: "已连接 · deepseek-chat"（绿色） 
-失败: "未连接 · 请检查 LM Studio 是否已启动"（红色）
-```
+| 证据 / 契约 | 当前事实 | 影响 |
+|---|---|---|
+| `apps/novel_web/lib/novel_web/controllers/provider_controller.ex` | `GET /api/provider/health` 返回 `connected/provider/message/detail` | 有后端 health 入口，但不返回 model |
+| `apps/novel_application/lib/novel_application.ex` | `provider_health/0` 读取 `Application.get_env(:novel_agent, :provider)[:default]` 并调用 Gateway | provider 当前是启动配置，不是运行时用户选择 |
+| `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 `stub/lmstudio/anthropic`，支持 `registered_providers/0` 和 `health_check/0` | 后端已有可复用 registry，但没有配置 API |
+| `frontend/src/components/WorkbenchV3.tsx` | 轮询 `/api/provider/health`；若无 model，显示 fallback “LM Studio” | UI 有状态展示，但 provider/model 信息不完整 |
+| `frontend/src/components/WorkspaceChat.tsx` | 轮询 health；title 可显示 `llmModel`，但 health 不返回 model | 旧 UI 状态也不完整 |
+| `apps/novel_web/test/novel_web/controllers/provider_controller_test.exs` | 只测 stub provider connected happy path | 缺 disconnected / model / provider 列表 / 配置变更测试 |
+| `config/*.exs` | 通过 env/config 设置默认 provider、endpoint、model | 支持本地 LM Studio 配置，但不是用户可视化管理 |
 
 ---
 
-#### A2 — 连接断开时看到明确提示
+## 4. 场景化验收 Case
 
-**作为系统用户**，当 LLM 服务不可用时，我看到状态变为红色警告，而不是静默失败或 crash。
+### 场景组 A：查看当前供应商状态
 
-```
-状态栏: "LLM: 未连接 · 请检查 LM Studio 是否已启动"
-```
+#### SC-SU01-A1 — 启动后看到 LLM 连接状态
 
-**验证点**：
-- [ ] 断开后 30 秒内状态变为"未连接"（不是一直显示旧状态）
-- [ ] 提示信息指明可能原因（如 "请检查 LM Studio 是否已启动"）
-- [ ] 输入框仍可用（可以先写消息，等恢复后发送）
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我启动应用后，能知道 LLM 当前是否可用 |
+| 前置条件 | Phoenix / Tauri app 已启动 |
+| 触发 | 打开工作台 |
+| 期望结果 | 状态栏先显示检测中，随后显示已连接或未连接 |
+| 不变量 | SU-I1 |
+| 边界 | frontend → `/api/provider/health` → NovelWeb → NovelApplication → NovelAgent Gateway |
+| 真实消费者 | WorkbenchV3 / WorkspaceChat 状态栏 |
+| 当前证据 | 前端 30s 轮询；ProviderControllerTest 覆盖 connected happy path |
+| 当前状态 | 已实现未完整验收 |
+| 当前缺口 | 无 UI 自动化；断开状态无测试；health 不返回 model |
+| 优先级 | P1 |
 
-**当前代码**：`WorkspaceChat.tsx` 30s 轮询 + `WorkbenchV3.tsx` 轮询 ✅
+#### SC-SU01-A2 — 看到当前 provider 和模型名
 
----
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我能看到当前使用的是 LM Studio、Anthropic 或 Stub，以及具体模型 |
+| 触发 | health check 成功 |
+| 期望结果 | UI 显示 provider + model，例如 `LM Studio · openai/gpt-oss-120b` |
+| 当前证据 | 后端返回 `provider`，前端尝试读取 `model` |
+| 当前状态 | 部分实现 |
+| 当前缺口 | ProviderController 不返回 model；WorkbenchV3 只 fallback 为 “LM Studio”；WorkspaceChat badge 只显示“已连接/未连接” |
+| 缺口类型 | 补实现 + 补测试 |
+| 优先级 | P1 |
 
-### 场景组 B：切换供应商
+#### SC-SU01-A3 — LM Studio 未启动时提示明确
 
-#### B1 — 选择不同的供应商
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我本地使用 LM Studio，忘记启动时能看到明确提示 |
+| 前置条件 | 默认 provider 为 lmstudio，LM Studio 未启动 |
+| 期望结果 | health 返回 `connected=false`，UI 显示未连接和可理解原因 |
+| 当前证据 | LMStudio adapter 有 connection refused/timeout 错误；ProviderController 透出 `message/detail` |
+| 当前状态 | 已实现未验收 |
+| 当前缺口 | 缺 controller disconnected 测试；缺 UI 文案断言；错误消息可能仍偏技术化 |
+| 优先级 | P0 |
 
-**作为系统用户**，我打开设置，从可用供应商列表中选择一个不同的供应商。
+### 场景组 B：配置供应商
 
-```
-设置面板:
-  供应商: [DeepSeek ▼]
-          ├─ DeepSeek
-          ├─ OpenAI (GPT)
-          ├─ Anthropic (Claude)
-          └─ LM Studio (本地)
-```
+#### SC-SU01-B1 — 选择不同 provider
 
-**验证点**：
-- [ ] 下拉列表包含所有可用供应商
-- [ ] 选中后高亮当前供应商
-- [ ] 切换后自动加载该供应商的已保存配置（Key、端点、默认模型）
-- [ ] 如果新供应商从未配置过，显示"请配置 API Key"
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我可以在设置中从 LM Studio 切换到 Anthropic 或 Stub |
+| 期望结果 | provider 列表来自后端 registry；切换后 health 和下一轮对话使用新 provider |
+| 当前证据 | Gateway 有 `registered_providers/0`，但没有 Web/API 暴露；前端无设置 UI |
+| 当前状态 | 未实现 |
+| 缺口类型 | 补实现 |
+| 优先级 | P0 |
 
-**当前代码**：❌ 无切换 UI。仅通过 `/api/provider/health` 后端返回 provider 名。
+#### SC-SU01-B2 — 配置 API Key
 
----
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我能给 Anthropic 等云端 provider 配置 Key |
+| 期望结果 | Key 默认隐藏，可测试连接，保存后不进入 git 管理目录 |
+| 当前证据 | Anthropic adapter 从 config/env 读取 api_key；无运行时配置 UI |
+| 当前状态 | 未实现 |
+| 缺口类型 | 补设计 + 补实现 |
+| 优先级 | P0 |
 
-#### B2 — 配置 API Key
+#### SC-SU01-B3 — 配置 endpoint / model
 
-**作为系统用户**，我切换到 DeepSeek 后，需要填入 API Key。
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我可以把 LM Studio endpoint 指向本地 `localhost:1234/v1` 或自定义端点 |
+| 期望结果 | 每个 provider 有独立 endpoint/model，非法 URL 有校验 |
+| 当前证据 | `config/config.exs` / `dev.exs` 支持环境变量和默认值 |
+| 当前状态 | 部分实现 |
+| 缺口类型 | 补实现 |
+| 优先级 | P1 |
 
-```
-设置面板:
-  供应商: DeepSeek
-  API Key: [••••••••••••••••]  [显示/隐藏]  [测试连接]
-  端点:    https://api.deepseek.com/v1
-  默认模型: deepseek-chat
-```
+#### SC-SU01-B4 — 手动测试连接
 
-**验证点**：
-- [ ] API Key 输入框默认隐藏字符（password 类型）
-- [ ] 可以切换显示/隐藏
-- [ ] Key 保存后本地加密存储（不在 .env 明文，不在 git 中）
-- [ ] Key 为空时"测试连接"按钮不可用
-
-**当前代码**：❌ 无配置 UI。端点通过 `frontend/.env` 的 `VITE_API_ENDPOINT` 硬编码。
-
----
-
-#### B3 — 配置自定义端点
-
-**作为系统用户**，我用的是自建 API 网关或本地 LM Studio，需要填入自己的端点地址。
-
-```
-设置面板:
-  端点: [http://localhost:1234/v1        ]
-```
-
-**验证点**：
-- [ ] 每个供应商可以独立配置端点
-- [ ] 默认填入该供应商的官方端点
-- [ ] 填入非法 URL 时给出校验提示
-- [ ] LM Studio 默认填入 `http://localhost:1234/v1`
-
-**当前代码**：❌ 端点通过 `frontend/.env` 统一配置，不支持按供应商独立配置。
-
----
-
-#### B4 — 测试连接
-
-**作为系统用户**，配置完 API Key 后，我点击"测试连接"确认能通。
-
-**验证点**：
-- [ ] 点击后显示"检测中…"
-- [ ] 成功后显示"连接成功 · deepseek-chat"，状态变绿
-- [ ] 失败后显示错误原因（"连接超时" / "API Key 无效" / "服务不可用"）
-- [ ] 测试失败时已有配置保留不丢失
-
-**当前代码**：❌ 无测试连接按钮。连接状态通过 30s 轮询自动检测。
-
----
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我改完 Key 或 endpoint 后，点击按钮立即知道能不能用 |
+| 期望结果 | 显示检测中；成功显示 provider/model；失败保留配置并显示原因 |
+| 当前证据 | `/api/provider/health` 可复用为只读探活 |
+| 当前状态 | 未实现 |
+| 缺口类型 | 补实现 + 补 UI 自动化 |
+| 优先级 | P1 |
 
 ### 场景组 C：切换后的行为
 
-#### C1 — 切换供应商后下一轮对话使用新模型
+#### SC-SU01-C1 — 切换后下一轮对话用新 provider
 
-**作为系统用户**，我从 DeepSeek 切换到 GPT，然后发送消息。这一轮 AI 的回复应该来自 GPT。
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我切换 provider 后，新发送的一轮消息用新模型回复 |
+| 期望结果 | Gateway 用新 provider 发起 complete；trace/log 可看出 provider |
+| 当前证据 | Gateway 从 application env 读默认 provider；无运行时切换状态 |
+| 当前状态 | 未实现 |
+| 缺口类型 | 补集成 |
+| 优先级 | P0 |
 
-**验证点**：
-- [ ] 后端使用新供应商的 client 发起 LLM 请求
-- [ ] 状态栏显示新的模型名
+#### SC-SU01-C2 — 切换 provider 不丢对话
 
----
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我切换模型后，当前作品和历史消息仍保留 |
+| 期望结果 | 历史 TurnResult 不丢；新 turn 可标记 provider/model |
+| 当前证据 | 无 provider 切换 UI，也无消息 provider 标记 |
+| 当前状态 | 未实现 |
+| 缺口类型 | 补验收 |
+| 优先级 | P1 |
 
-#### C2 — 切换供应商不影响已有对话
+#### SC-SU01-C3 — 配置安全存储
 
-**作为系统用户**，我和 AI 聊了 10 轮 DeepSeek 驱动的对话，然后切换到 GPT。之前的 10 轮消息仍然在聊天记录中。
-
-**验证点**：
-- [ ] 历史消息完整保留
-- [ ] 切换后新消息带有标记（可选：显示"GPT-4o"在消息旁）
-
----
-
-#### C3 — 配置文件独立于项目
-
-**作为系统用户**，我的 API Key 和供应商偏好保存在系统级配置中，不会随着项目文件被 git 提交或分享给他人。
-
-**验证点**：
-- [ ] 配置文件不在项目目录内（在 Tauri app data 目录）
-- [ ] `.gitignore` 排除了配置目录
+| 字段 | 内容 |
+|---|---|
+| 用户视角 | 我的 API Key 和 provider 偏好不会被提交到项目仓库 |
+| 期望结果 | 配置落在 Tauri app data / OS keychain / 明确的安全后端位置 |
+| 当前证据 | 当前依赖 env/config；没有运行时配置存储 |
+| 当前状态 | 未实现 |
+| 缺口类型 | 补设计 |
+| 优先级 | P0 |
 
 ---
 
 ## 5. 场景覆盖状态
 
-| 场景 | 做什么 | 状态 |
-|------|--------|------|
-| A1 | 查看当前模型和连接状态 | ✅ 有实现 |
-| A2 | 连接断开有明确提示 | ✅ 有实现 |
-| B1 | 选择供应商 | ❌ 无实现 |
-| B2 | 配置 API Key | ❌ 无实现 |
-| B3 | 配置自定义端点 | ❌ 无实现 |
-| B4 | 测试连接 | ❌ 无实现 |
-| C1 | 切换后新对话用新模型 | ❌ 无实现 |
-| C2 | 切换不影响已有对话 | ❌ 无实现 |
-| C3 | 配置文件安全存储 | ❌ 无实现 |
+| 场景 | 做什么 | 状态 | 证据 | 缺口类型 |
+|---|---|---|---|---|
+| SC-SU01-A1 | 启动后看到 LLM 连接状态 | 已实现未完整验收 | ProviderController + 前端轮询 + happy-path test | 补测试/补验收 |
+| SC-SU01-A2 | 看到 provider 和模型名 | 部分实现 | health 返回 provider，但不返回 model | 补实现 |
+| SC-SU01-A3 | LM Studio 未启动提示明确 | 已实现未验收 | adapter/provider health 错误路径 | 补测试 |
+| SC-SU01-B1 | 选择不同 provider | 未实现 | Gateway registry 未暴露到 UI | 补实现 |
+| SC-SU01-B2 | 配置 API Key | 未实现 | 仅 env/config | 补设计/补实现 |
+| SC-SU01-B3 | 配置 endpoint/model | 部分实现 | env/config 支持，UI 不支持 | 补实现 |
+| SC-SU01-B4 | 手动测试连接 | 未实现 | 可复用 health endpoint | 补实现 |
+| SC-SU01-C1 | 切换后下一轮用新 provider | 未实现 | Gateway 只读启动配置 | 补集成 |
+| SC-SU01-C2 | 切换不丢对话 | 未实现 | 无切换入口 | 补验收 |
+| SC-SU01-C3 | 配置安全存储 | 未实现 | 无运行时配置存储 | 补设计 |
 
-**通过率：2/9（22%）** — 当前仅实现了状态展示，供应商切换的完整链路待建。
+**场景化覆盖判断：0/10 已验收，2/10 部分具备基础设施。**
 
----
-
-## 6. 缺口
-
-| 缺口 | 影响 | 建议前置条件 |
-|------|------|------------|
-| GAP-01 — 供应商选择 UI | 用户只能用 `.env` 配置的单一供应商 | 需后端支持多供应商 router |
-| GAP-02 — API Key 安全管理 | 当前无 Key 配置入口，依赖 LM Studio 本地免 Key | 需 Tauri app data 存储 + 加密方案 |
-| GAP-03 — 端点按供应商配置 | 切换供应商时端点也必须手动改 `.env` | 与 GAP-01 一起解决 |
-| GAP-04 — 测试连接按钮 | 用户配完 Key 无法即时验证是否通 | 复用现有 `/api/provider/health` 逻辑 |
+解释：A1/A3 有实现基础，但缺断开路径和 UI 自动化；A2 发现了 model 字段断裂。供应商切换作为完整功能尚未开始。
 
 ---
 
-## 7. 现有基础设施
+## 6. 缺口台账
 
-当前可以复用的：
+| ID | 缺口 | 影响 | 建议处理 | 优先级 |
+|---|---|---|---|---|
+| SU01-GAP-01 | health 响应不返回 model | UI 无法准确展示当前模型 | ProviderController 返回 provider + model；补 controller/UI 测试 | P1 |
+| SU01-GAP-02 | disconnected health 无测试 | LM Studio 未启动路径可能回归 | ProviderControllerTest 增加 error path；mock Gateway 或 application callback | P0 |
+| SU01-GAP-03 | provider registry 未暴露 | UI 无法列出可选供应商 | 新增 application/web 只读 provider list API | P1 |
+| SU01-GAP-04 | 运行时 provider 选择缺失 | 用户只能改 env 重启 | 设计 provider config store 与 Gateway runtime selection | P0 |
+| SU01-GAP-05 | API Key 安全存储缺设计 | 云端 provider 无法产品化 | 先做 ADR/设计：Tauri app data vs keychain vs 后端 secret | P0 |
+| SU01-GAP-06 | endpoint/model UI 缺失 | 本地 LM Studio 配置不友好 | 设置面板支持 endpoint/model；非法 URL 校验 | P1 |
+| SU01-GAP-07 | 切换后 trace/log 不标 provider | 难以验收是否真的切换 | 在 provider call trace/log 中记录 provider/model | P1 |
 
-| 基础设施 | 位置 | 用途 |
-|---------|------|------|
-| `/api/provider/health` | `provider_controller.ex` | 测试连接可复用此端点 |
-| `NovelApplication.provider_health/0` | `novel_application.ex` | 返回当前 provider name |
-| LLM 状态轮询 | `WorkspaceChat.tsx:101-115` | 已有 30s 轮询骨架 |
-| `wsBaseUrl` / `apiBaseUrl` | `frontend/src/lib/env.ts` | 端点配置入口 |
+---
+
+## 7. 最小下一步验收计划
+
+| 步骤 | 目标 | 产物 | 验收方式 |
+|---:|---|---|---|
+| 1 | 修正 A2 基础断裂 | `/api/provider/health` 返回 `provider` + `model` | Controller test 断言字段 |
+| 2 | 补 A3 降级证明 | disconnected/timeout health test | 模拟 Gateway error，断言 author-safe message |
+| 3 | 暴露 provider registry | `GET /api/provider/options` 或等价 application API | 返回 `stub/lmstudio/anthropic` 不含 secret |
+| 4 | 设计配置存储 | 小 ADR 或 design note | 明确 Key/endpoint/model 存储边界 |
+| 5 | 再做切换 UI | 设置面板 + 手动 test connection | Playwright/Tauri walkthrough |
 
 ---
 
 ## 8. 验收命令
 
 ```bash
-# 当前仅验证后端健康检查端点
+# 当前可验证：health endpoint happy path
+mix test apps/novel_web/test/novel_web/controllers/provider_controller_test.exs
+
+# 本地手动验证：需 Phoenix/Tauri 服务运行
 curl http://localhost:4657/api/provider/health
 
-# 前端 UI 切换逻辑尚无自动化测试——需 VS-07 前端验收时覆盖
+# 当前不可自动验收：
+# - provider 运行时切换
+# - API Key 保存
+# - endpoint/model 设置
+# - 切换后下一轮真实使用新 provider
 ```

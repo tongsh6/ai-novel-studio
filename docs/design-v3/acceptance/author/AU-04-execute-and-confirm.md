@@ -1,222 +1,371 @@
 # AU-04 执行任务与系统确认
 
-> 作者视角：当我想让 AI 帮我做具体工作（如创建角色、生成大纲）时，AI 会给出执行建议。对于高风险操作，系统会要求我确认，只有我点头才会真正动手。不管 AI 说什么，系统内部有独立的裁决机制——AI 不能自己批准自己的计划。
+> 作者视角：当我让 AI 做具体工作时，AI 可以提出执行建议，但不能自己批准执行。系统必须把高风险、写入、长任务和生产事实变更拦在确认边界前；我确认后也不是直接执行，而是绑定原确认对象、重新审查当前状态，再决定是否执行。
+
+> 2026-05-13 场景化对账结论：后端 Orchestrator / Gate / ActionValidator 已覆盖较多执行权不变量，Channel 也已有 `author_action` 局部闭环；但真实前端入口 `App.tsx -> WorkspaceChat` 仍调用旧 `confirm` / `reject` 事件，且主要渲染 `ui_cards` 而不是 `available_actions`。因此 AU-04 不能再按“86% 核心已实现”判断，应改为“后端门禁较强，真实工作台确认闭环不足”。
 
 ---
 
 ## 1. 我能做什么
 
 | 我能做什么 | 系统怎么回应 |
-|-----------|------------|
-| 让 AI "创建一个叫林烬的主角" | AI 给出建议方案，展示要做什么 |
-| 提出一个很宏大的要求 | AI 诚实地说"这个太复杂，我只能先做第一步" |
-| 提出一个高风险要求 | 系统弹出确认按钮，等我点击"确认执行" |
-| 点击"确认执行" | 系统真正执行任务，返回结果 |
-| 说"先别弄，我想再改改" | 系统取消本次执行计划，回到讨论状态 |
+|---|---|
+| 让 AI 创建角色、生成大纲、整理设定 | AI 给出建议或执行结果，系统说明是否需要确认 |
+| 要求直接替换正文、写入作品事实、执行高风险操作 | 系统显示确认对象、影响范围、确认/取消动作；确认前不写入生产事实 |
+| 点击确认执行 | 系统绑定本次确认对象，重新 gate，再执行或说明仍被拦截 |
+| 重复点击确认 | 系统按同一个幂等键处理，不能重复执行同一动作 |
+| 点取消或拒绝 | 系统关闭该 pending 行为，回到自然讨论，不产生半执行状态 |
+| 过一段时间再点旧确认 | 系统识别 stale / expired action，要求重新确认或重新生成计划 |
+| 继续普通聊天 | 系统不因为历史 pending action 误执行最近任务 |
 
 明确不能做的：
-- AI 不应在我的回复里夹带"已批准执行"之类的词来绕过确认
-- AI 不应在我不确认的情况下悄悄修改小说设定
+
+- AI 不能在回复里夹带“approved / ready_to_execute / production_write_allowed”绕过系统门禁。
+- UI 不能直接调用工具或写生产状态，只能提交系统给出的 `AvailableAction` / `AuthorActionInput`。
+- 点击确认不能等同于“无条件执行”；确认后必须重新审查权限、范围、预算、写入边界和当前作品状态。
+- 旧会话、旧作品、旧 turn 的确认按钮不能确认当前作品里的新动作。
 
 ---
 
 ## 2. 不变量
 
-| 编号 | 不变量 (`00c` §7) | 本验收如何验证 |
-|------|-------------------|---------------|
-| #2 | MicroPlan 只是建议 | C1 — 多步计划被降级，不是照单执行 |
-| #3 | Orchestrator 唯一门禁 | B1 — AI 说"approved"但系统拒绝 |
-| #4 | 默认只允许下一步 | A2 — 系统要求 `stop_after_next_action=true` |
-| #6 | 写入默认 tentative | B2 — 标记 `production_candidate` 的请求被拦截 |
-| #12 | 确认回答重新 gate | D2 — 确认后重新裁决，不直接执行 |
+| 编号 | 不变量 | 本验收如何验证 |
+|---|---|---|
+| AU04-I1 | MicroPlan 只是建议，不是授权 | SC-AU04-A1/A3/C2 |
+| AU04-I2 | Orchestrator 是唯一执行门禁 | SC-AU04-C1/C2/C3 |
+| AU04-I3 | 默认只允许下一步 | SC-AU04-A3 |
+| AU04-I4 | 高风险、生产写入、采纳前写入必须确认 | SC-AU04-A1/B1 |
+| AU04-I5 | UI 只能提交服务端给出的 action | SC-AU04-B2/C1 |
+| AU04-I6 | confirmation answer 必须绑定 open confirmation 并重新 gate | SC-AU04-B2/B5/B6 |
+| AU04-I7 | 重复、过期、跨 turn action 不得重复执行 | SC-AU04-B4/B5 |
+| AU04-I8 | TurnResult 不能声称未发生的执行事实 | SC-AU04-D3 |
+| AU04-I9 | 执行结果默认是 tentative / pending adoption，不直接成为生产事实 | SC-AU04-D2 |
 
 ---
 
 ## 3. 契约引用
 
-| 契约 | 用途 |
-|------|------|
-| ADR-0002 | MicroPlan 最小 schema |
-| ADR-0003 | PlannerOutput Boundary 验证 |
-| ADR-0004 | OrchestratorDecision 定义 |
-| ADR-0005 | Execution Gate Order |
-| VS-01 Contract Pack §2 | MicroPlan schema + Proposed Action Shape |
-| VS-01 Contract Pack §3 | PlannerOutput Boundary 最小 validation（6 条） |
-| VS-01 Contract Pack §4 | Gate Order（gates 0-11） |
-| VS-01 Contract Pack §5 | OrchestratorDecision schema |
-| VS-01 Contract Pack §6 | TurnResult Truthfulness Rules |
+| 契约 / 代码 | 用途 |
+|---|---|
+| `docs/design-v3/04-execution-orchestrator.md` | 执行门禁、confirmation、re-gate、cancellation 的设计来源 |
+| `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md` | MicroPlan / OrchestratorDecision / truthfulness 规则 |
+| `docs/design-v3/contracts/VS-03-behavior-lifecycle-contract-pack.md` | BehaviorState、AvailableAction、ConfirmationBinding 最小契约 |
+| `docs/design-v3/adr/ADR-0005-execution-gate-order-v3.md` | gate 顺序和 confirmation answer 必须重新 gate |
+| `docs/design-v3/adr/ADR-0007-next-action-available-action-v3.md` | `confirm_before_execute` 等 author action 集合 |
+| `docs/design-v3/adr/ADR-0009-confirmation-binding-v3.md` | confirmation 绑定对象、状态快照和重新 gate |
+| `apps/novel_application/lib/novel_application/execution_orchestrator.ex` | 后端门禁与 BehaviorState 打开 |
+| `apps/novel_application/lib/novel_application/action_validator.ex` | 拒绝 stale / invented / disabled action |
+| `apps/novel_application/lib/novel_application/dialogue_gateway.ex` | `handle_action/3` 执行确认后的 re-gate / tool dispatch |
+| `apps/novel_web/lib/novel_web/channels/workspace_channel.ex` | `author_action` Channel 入口 |
+| `frontend/src/components/WorkspaceChat.tsx` | 当前真实 App 入口使用的工作台 |
+| `frontend/src/components/WorkbenchV3.tsx` + `frontend/src/lib/socket_v3.ts` | 已存在但当前 App 未接入的 v3 action roundtrip 前端实现 |
 
 ---
 
 ## 4. 验收场景
 
-### 场景组 A：AI 的建议被审查
+### 场景组 A：作者提出要执行的任务
 
-#### A1 — AI 给了我一个正常建议
+#### SC-AU04-A1 — 高风险写入先要求确认
 
-**作为作者**，我让 AI "创建一个叫林烬的剑修角色"。AI 给了我一个建议方案，里面有角色设定草案。这个建议里没有越权的词（比如"已批准"、"直接写入"），系统检查通过，展示了执行建议。
+**用户视角**：作者在真实工作台输入“把第一章正文直接替换成悬疑风格”。
 
-**验证点**：
-- [ ] MicroPlan 包含必要的标识（plan_id、turn_id、frame_ref 一致）
-- [ ] `stop_after_next_action = true`（只做这一步）
-- [ ] 建议内容不含禁止语义
+| 字段 | 内容 |
+|---|---|
+| 前置条件 | 已连接 LM Studio 或 stub provider；已打开某个作品 |
+| 触发 | 输入高风险写入请求 |
+| 期望结果 | AI 不直接声称已替换；系统进入 `needs_confirmation`；作者看到确认对象和影响范围 |
+| 当前证据 | `execution_authority_test.exs` 覆盖 high-risk / production_candidate -> `require_confirmation`；`v3_full_chain_test.exs` 覆盖 stub confirmation chain |
+| 当前状态 | 已测试，未完整真实入口验收 |
+| 当前缺口 | `WorkspaceChat` 未稳定渲染来自 `available_actions` 的确认动作，确认卡片也未被证明在真实入口可点击 |
+| 优先级 | P0 |
 
-**测试**：`execution_authority_test.exs` — `"accepts valid frame-plan pair"` ✅、`"accepts clean plan"` ✅
+#### SC-AU04-A2 — 低风险单步工具可以执行，但结果仍是草稿
 
----
+**用户视角**：作者说“帮我生成一个主角设定草案”。
 
-#### A2 — AI 在建议里夹带了"已批准执行"
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 单步低风险工具通过 gate，返回执行结果；如果产出创作内容，应进入待采纳草稿，不直接写成作品事实 |
+| 当前证据 | `ExecutionOrchestrator.allow_tool`、`DialogueGateway.execute_tool`、`TurnResultBuilder.build_artifact_set/2`；`workspace_channel_v3_test.exs` 覆盖 task_state RUNNING/COMPLETED |
+| 当前状态 | 后端/Channel 局部已测试，真实工作台未验收 |
+| 当前缺口 | `WorkspaceChat` 未订阅 `task_state`，结果状态和 pending adoption 在真实入口的完整体验未验收 |
+| 优先级 | P1 |
 
-**作为作者**，AI 的回复里出现了"已批准执行"或"可以直接写入作品"这样的话。我作为作者可能看不出问题——但系统应该拦截。如果系统没拦截，AI 就可以绕过确认直接改我的小说。
+#### SC-AU04-A3 — 过大请求被降级为讨论
 
-**验证点**：
-- [ ] 包含 `"approved"` 的 plan → 被拒绝
-- [ ] 包含 `"production_write_allowed"` 的 action → 被拒绝
-- [ ] 拒绝后系统进入 recovery 状态而不是假装正常
+**用户视角**：作者说“把整本书写完，顺便更新所有角色和伏笔”。
 
-**测试**：`execution_authority_test.exs` — `"rejects 'approved' in plan content"` ✅、`"rejects 'production_write_allowed' in action summary"` ✅、`"forbidden semantics blocked by envelope_validation gate"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统不执行多步大任务，而是说明范围过大，建议先确定下一步 |
+| 当前证据 | `execution_authority_test.exs` 覆盖 multi-step plan -> `downgrade_to_dialogue` |
+| 当前状态 | 后端已测试，真实工作台文案/体验未验收 |
+| 当前缺口 | 需要验证 TurnResult 文案不会机械化，也不会显示误导性的执行按钮 |
+| 优先级 | P1 |
 
-**为什么重要**：LLM 可能会在文本中"自己批准自己"。如果系统不检查，AI 就可以绕过整个执行裁决机制。
+#### SC-AU04-A4 — 普通创作聊天不应误触发确认
 
----
+**用户视角**：作者只是讨论“这个角色的动机可以怎么写？”。
 
-#### A3 — 结构不完整的建议也被拦下
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统自然回复，不打开 confirmation，不显示执行卡 |
+| 当前证据 | AU-01 已发现 `WorkspaceChat` 的 `sendMessage` 默认 `generate_micro_plan: true` |
+| 当前状态 | 存在设计偏差风险 |
+| 当前缺口 | 与 AU-01/AU-02 共享：真实入口可能把普通聊天推入计划/执行路径 |
+| 优先级 | P0 |
 
-**作为作者**，AI 产出了一个缺少关键标识（frame_ref 对不上、或者 stop_after_next_action 为 false）的建议。这种建议结构就是错的，系统直接拒绝，不进入 gate 裁决。
+### 场景组 B：确认卡片与作者动作
 
-**验证点**：
-- [ ] `frame_ref` 不匹配 → 拒绝
-- [ ] `stop_after_next_action != true` → 拒绝
+#### SC-AU04-B1 — 确认卡片内容完整
 
-**合同要求但当前未检查**（VS-01 Contract Pack §3 第 4、6 条）：
-- [ ] proposed_actions 结构合法性校验——**未实现** ❌
-- [ ] state_changes_requested 候选性校验——**未实现** ❌
+**用户视角**：系统要求确认时，作者能看懂“要确认什么、影响哪里、确认后会发生什么、如何取消”。
 
-**测试**：`execution_authority_test.exs` — `"rejects frame_ref mismatch"` ✅、`"rejects stop_after_next_action = false"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | UI 展示 confirmation card 或等价 action panel；包含 target、影响范围、确认、取消 |
+| 当前证据 | `BehaviorState` 有 `prompt_contract` / `available_actions`；`TurnResultBuilder.maybe_add_behavior/2` 输出 behavior_state |
+| 当前状态 | 部分实现 |
+| 当前缺口 | `TurnResultBuilder` 未生成 `confirmation_card`；真实入口 `WorkspaceChat` 不渲染 `available_actions` 面板 |
+| 优先级 | P0 |
 
----
+#### SC-AU04-B2 — 点击确认必须走 `author_action`
 
-### 场景组 B：系统裁决——不是 AI 说什么就做什么
+**用户视角**：作者点击“确认执行”。
 
-#### B1 — 我提了太多要求，系统说"一步步来"
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 前端提交 `author_action`，包含 `source_turn_ref`、`action_id`、`action_type`、`behavior_ref`、`idempotency_key` |
+| 当前证据 | `socket_v3.ts.sendAuthorAction` 和 `WorkbenchV3.handleAction` 已按 v3 方式提交；`WorkspaceChannel.handle_in("author_action")` 已实现 |
+| 当前状态 | 备用前端已实现，真实 App 入口未接入 |
+| 当前缺口 | `App.tsx` 当前渲染 `WorkspaceChat`；`WorkspaceChat` 的确认按钮调用旧 `confirm` 事件，但 `WorkspaceChannel` 未实现 `handle_in("confirm")` |
+| 优先级 | P0 |
 
-**作为作者**，我说"帮我把第一章重写、角色全更新、伏笔表也整理掉"。AI 可能产出一个包含 3 个步骤的计划。系统判断这是多步计划，直接降级为对话——告诉我"这个范围太大了，我们先讨论第一步改什么"。
+#### SC-AU04-B3 — 点击取消关闭本次等待态
 
-**验证点**：
-- [ ] 多步 plan（>1 个 proposed_actions）→ `downgrade_to_dialogue`
-- [ ] 系统解释了为什么不能一次性完成
-- [ ] 第一个拦截 gate 的身份被记录
+**用户视角**：作者看到确认后点击“取消/先不弄”。
 
-**测试**：`execution_authority_test.exs` — `"multi-step plan blocked by action_scope gate"` ✅、`"multi-step plan → downgrade_to_dialogue"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 只取消该 pending confirmation；不会执行工具；输入框恢复自然对话 |
+| 当前证据 | `BehaviorState` / `AvailableAction` 设计包含 `reject_or_cancel_confirmation`、`cancel_pending_behavior`；`ActionValidator` 能验证 cancel 类 action |
+| 当前状态 | 局部 action validation 已测试，关闭 lifecycle 未闭环 |
+| 当前缺口 | 缺 behavior resolved/cancelled 状态更新、trace、UI 关闭验证 |
+| 优先级 | P0 |
 
----
+#### SC-AU04-B4 — 重复点击确认不重复执行
 
-#### B2 — 高风险操作被拦截，需要我确认
+**用户视角**：作者因为网络卡顿连续点击两次“确认执行”。
 
-**作为作者**，我说"把第一章正文直接替换成悬疑风格"。系统判断这是高风险操作（production_candidate），拦下来，弹出一个确认按钮。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 同一 `idempotency_key` 只产生一次执行或返回同一结果 |
+| 当前证据 | action envelope 中有 `idempotency_key`；测试使用该字段 |
+| 当前状态 | 未实现完整幂等 |
+| 当前缺口 | 未看到持久化或进程内 idempotency ledger；`DialogueGateway.handle_action/3` 可能对重复确认重新走 dispatch |
+| 优先级 | P0 |
 
-**验证点**：
-- [ ] 高风险 plan → `require_confirmation` + 打开确认 behavior
-- [ ] `production_candidate` 的 action → 被 write_boundary gate 拦截
-- [ ] 确认前没有任何写入发生
+#### SC-AU04-B5 — 旧 turn / 旧作品的确认被拒绝
 
-**测试**：`execution_authority_test.exs` — `"high-risk plan blocked by authority gate"` ✅、`"high-risk plan → require_confirmation"` ✅、`"production_candidate blocked by write_boundary gate"` ✅、`"production_candidate write → require_confirmation"` ✅
+**用户视角**：作者回到历史对话或切换作品后，点了旧确认按钮。
 
----
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统拒绝 stale action，要求重新生成计划或重新确认当前作品状态 |
+| 当前证据 | `ActionValidator.check_not_stale/2`、`workspace_channel_v3_test.exs` stale source_turn_ref rejected |
+| 当前状态 | 当前 Channel 内局部已测试 |
+| 当前缺口 | 只和 `current_turn_id` 对比，缺跨作品、历史会话、TTL、持久化 ConfirmationBinding 验证 |
+| 优先级 | P0 |
 
-#### B3 — 即使 AI 说"风险低"，系统仍可以要求确认
+#### SC-AU04-B6 — 确认前上下文变化后必须重新 gate
 
-**作为作者**，AI 把某个操作标记为低风险（`risk_hint = :low`），但实际上它涉及写入（`write_intent = :production_candidate`）。系统不管 AI 怎么标记，自己判断——write_boundary gate 仍然拦截并要求确认。
+**用户视角**：作者看到确认后，又修改了作品设定或切换了上下文，再点击确认。
 
-**验证点**：
-- [ ] `risk_hint = :low` + `write_intent = :production_candidate` → 仍被拦截
-- [ ] Planner 的 `requires_confirmation_hint = false` 不能阻止 Orchestrator 产生 confirmation
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统基于最新作品背景和状态快照重新 gate；若目标已变化，要求重新确认 |
+| 当前证据 | `ADR-0009` 与 VS-03 contract 要求 `rebased_state_snapshot_ref` 和 gate_result_refs |
+| 当前状态 | 设计已冻结，实现不完整 |
+| 当前缺口 | `DialogueGateway.frame_from_turn_result/1` 用 source turn 恢复 frame，未看到最新上下文 snapshot rebasing |
+| 优先级 | P0 |
 
-**测试**：`execution_authority_test.exs` — `"production_candidate write → require_confirmation"` ✅
+### 场景组 C：执行权安全边界
 
----
+#### SC-AU04-C1 — UI 不能提交发明出来的 action
 
-### 场景组 C：降级和拒绝——清晰反馈
+**用户视角**：前端或恶意客户端提交一个 TurnResult 里没有的 action。
 
-#### C1 — 太宏大的要求被降级
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 后端拒绝 invented action |
+| 当前证据 | `action_roundtrip_test.exs`、`workspace_channel_v3_test.exs` 覆盖 invented action rejected |
+| 当前状态 | 后端/Channel 已测试 |
+| 当前缺口 | 需要加入真实 UI 回归，确保前端只从服务端 action 渲染按钮 |
+| 优先级 | P1 |
 
-**作为作者**，我说"帮我写完这整本书"。AI 无法处理这种范围，系统降级为对话——告诉我"这跨度太大了，我们一步步来，先讨论第一章的方向"。
+#### SC-AU04-C2 — AI 夹带批准语义被系统拦截
 
-**测试**：`execution_authority_test.exs` — `"multi-step plan → downgrade_to_dialogue"` ✅
+**用户视角**：AI 文本里出现“已批准执行”“可以直接写入作品”等越权表达。
 
----
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统以 envelope_validation / forbidden semantics 拦截 |
+| 当前证据 | `execution_authority_test.exs` 覆盖 `approved`、`production_write_allowed` |
+| 当前状态 | 后端已测试 |
+| 当前缺口 | 缺真实 LLM 样本和 UI 友好恢复文案验收 |
+| 优先级 | P1 |
 
-#### C2 — 越权请求被硬拦截
+#### SC-AU04-C3 — Planner 风险提示不具备授权力
 
-**作为作者**，我尝试让 AI 做一些它不应该做的事。系统硬拦截——不是降级，是直接拒绝。
+**用户视角**：AI 把写入动作标成低风险或不需要确认。
 
-**测试**：`execution_authority_test.exs` — `"forbidden semantics blocked by envelope_validation gate"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | Orchestrator 根据 write boundary / authority 自行裁决，必要时仍要求确认 |
+| 当前证据 | `execution_authority_test.exs` 覆盖 production_candidate -> require_confirmation |
+| 当前状态 | 后端已测试 |
+| 当前缺口 | 缺真实 LLM 输出下的端到端验收 |
+| 优先级 | P1 |
 
----
+### 场景组 D：确认后的执行反馈
 
-### 场景组 D：确认之后
+#### SC-AU04-D1 — 确认后有任务状态反馈
 
-#### D1 — 点确认后系统重新检查一遍
+**用户视角**：作者确认后能看到系统正在执行、完成或失败。
 
-**作为作者**，我点击了"确认执行"。系统不是直接执行——而是拿着我的确认，结合当前最新状态，重新跑一遍审查。因为有可能在我点确认之前，作品的上下文已经变了。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | UI 接收并展示 RUNNING / COMPLETED / FAILED 等状态 |
+| 当前证据 | `DialogueGateway.task_state_events/2`、`workspace_channel_v3_test.exs` 覆盖 RUNNING/COMPLETED broadcast；`socket_v3.ts.onTaskState` 可订阅 |
+| 当前状态 | 后端/备用前端局部实现 |
+| 当前缺口 | 真实入口 `WorkspaceChat` 未订阅 `task_state`；没有 Playwright/人工 walkthrough 证明 |
+| 优先级 | P1 |
 
-**验证点**：
-- [ ] confirm action 被接收 → behavior 进入 resolving 状态
-- [ ] 重新生成 MicroPlan（基于确认后的状态）
-- [ ] 重新跑 Gate Order
-- [ ] **当前实现：`handle_action` 只做 validation，不做 behavior resolution + regating** ❌
+#### SC-AU04-D2 — 执行产物默认进入待采纳，不直接写作品事实
 
----
+**用户视角**：系统生成角色设定后，作者看到“待采纳”的草稿卡，而不是作品档案立刻被改。
 
-#### D2 — 不管结果如何，AI 的回复不能撒谎
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | `adoption_state.pending` 有草稿；`production_write_performed=false` |
+| 当前证据 | `TurnResultBuilder.build_artifact_set/2`、`build_truthfulness/3`；E2E 覆盖 pending artifact |
+| 当前状态 | 后端已测试，真实入口体验未完整验收 |
+| 当前缺口 | 与 AU-05/AU-08 联动：采纳到作品事实和阅读投影仍需单独验收 |
+| 优先级 | P1 |
 
-**作为作者**，不管是降级、确认还是执行成功，AI 的文字回复必须和系统实际做的事情一致。如果系统拒绝了执行，AI 就不能说"已成功写入"。
+#### SC-AU04-D3 — AI 回复不能撒谎
 
-**验证点**：
-- [ ] 降级时 AI 不说"已执行"
-- [ ] 等待确认时 AI 不说"已完成"
-- [ ] 执行成功时 AI 可以如实报告
-- [ ] **当前实现：`truthfulness_constraints` 在 OrchestratorDecision 中定义了，但 TurnResultBuilder 未读取应用** ❌
+**用户视角**：如果系统只是要求确认、降级或拒绝，AI 不能说“已执行完成”。
 
-**测试**：`execution_authority_test.exs` — `"truthfulness constraints prevent claiming execution"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | TurnResult truthfulness 与实际 execution/tool/adoption 状态一致 |
+| 当前证据 | `TurnResultBuilder.build_truthfulness/3`、`execution_authority_test.exs` truthfulness constraints |
+| 当前状态 | 局部已实现 |
+| 当前缺口 | 未看到对 assistant_message 文本本身的强约束测试；真实 LLM 可能仍生成误导文案 |
+| 优先级 | P1 |
+
+### 场景组 E：追溯与恢复
+
+#### SC-AU04-E1 — 确认行为可追溯
+
+**用户视角**：作者或开发者能回看某次为什么要求确认、确认了什么、最终是否执行。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | trace 包含 decision、behavior、author action、gate result、tool result |
+| 当前证据 | `TraceWriter.record_with_decision/5`、`TraceWriter.record_with_tool/7`；设计文档要求 ConfirmationBinding trace |
+| 当前状态 | 决策/工具 trace 局部存在，confirmation binding trace 不完整 |
+| 当前缺口 | 缺 BehaviorTrace / ConfirmationBinding / idempotency trace 端到端验收 |
+| 优先级 | P1 |
+
+#### SC-AU04-E2 — 执行失败后能恢复
+
+**用户视角**：确认后工具失败、LLM 超时或系统异常，作者能看到失败原因和下一步选择。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | UI 展示失败/重试/缩小范围/继续对话；不产生半写入 |
+| 当前证据 | 设计有 `fail_with_recovery`、`retry_action`；`Toolbox.execute` 能返回失败状态 |
+| 当前状态 | 不确定 |
+| 当前缺口 | 缺真实确认后工具失败的 Channel + UI 验收 |
+| 优先级 | P1 |
 
 ---
 
 ## 5. 场景覆盖状态
 
-| 场景 | 做什么 | 状态 |
-|------|--------|------|
-| A1 | 正常建议通过审查 | ✅ |
-| A2 | AI 夹带越权词被拦截 | ✅ |
-| A3 | 结构不完整被拦下 | ⚠️ 3/6 校验实现 |
-| B1 | 多步计划降级 | ✅ |
-| B2 | 高风险拦截确认 | ✅ |
-| B3 | AI 说低风险但系统仍拦截 | ✅ |
-| C1 | 降级清晰反馈 | ✅ |
-| C2 | 越权硬拦截 | ✅ |
-| D1 | 确认后重新审查 | ❌ behavior resolution 未实现 |
-| D2 | AI 回复不撒谎 | ⚠️ constraints 未消费 |
+| 场景 | 做什么 | 当前状态 | 是否闭环 |
+|---|---|---|---|
+| SC-AU04-A1 | 高风险写入先确认 | 已测试 | 否，真实 UI 入口未闭环 |
+| SC-AU04-A2 | 低风险单步执行并产出草稿 | 已测试 | 否，真实 UI/task/adoption 体验未验收 |
+| SC-AU04-A3 | 过大请求降级 | 已测试 | 否，真实 UI 文案未验收 |
+| SC-AU04-A4 | 普通聊天不误触发确认 | 存在风险 | 否 |
+| SC-AU04-B1 | 确认卡内容完整 | 部分实现 | 否 |
+| SC-AU04-B2 | 点击确认走 `author_action` | 部分实现 | 否，真实入口仍用旧事件 |
+| SC-AU04-B3 | 点击取消关闭等待态 | 部分实现 | 否 |
+| SC-AU04-B4 | 重复确认幂等 | 未实现/未验证 | 否 |
+| SC-AU04-B5 | stale confirmation 拒绝 | 已测试 | 否，缺跨作品/TTL/持久化 binding |
+| SC-AU04-B6 | 确认前上下文变化后重新 gate | 已设计 | 否 |
+| SC-AU04-C1 | invented action 拒绝 | 已测试 | 局部闭环 |
+| SC-AU04-C2 | AI 自批准语义拦截 | 已测试 | 局部闭环 |
+| SC-AU04-C3 | Planner hint 不授权 | 已测试 | 局部闭环 |
+| SC-AU04-D1 | 确认后任务状态反馈 | 部分实现 | 否 |
+| SC-AU04-D2 | 产物进入待采纳 | 已测试 | 否，真实入口/后续采纳未完整验收 |
+| SC-AU04-D3 | AI 回复不撒谎 | 部分实现 | 否 |
+| SC-AU04-E1 | 确认行为可追溯 | 部分实现 | 否 |
+| SC-AU04-E2 | 执行失败后恢复 | 不确定 | 否 |
 
-**通过率：7/10 完整 + 2/10 部分 = 约 80%**
+**结论：18 个场景；0/18 完整真实前后端验收；11/18 有后端或备用前端局部证据；7/18 属于真实入口、幂等、lifecycle、trace 或异常恢复缺口。**
 
 ---
 
 ## 6. 缺口
 
-| 缺口 | 具体表现 | 影响 |
-|------|---------|------|
-| GAP-01 — PlannerBoundary 缺 3 项校验 | proposed_actions 结构 + state_changes 候选性未验证 | 结构异常的 plan 可能漏过 |
-| GAP-02 — 3 个 gate 是 pass-through | budget / trace / compat 无实际逻辑 | 预算超支、trace 未就绪不会被拦截 |
-| GAP-03 — Behavior resolution 未实现 | 确认后 behavior 永远不会 resolving → resolved | 确认操作是单向的——点完没有状态变更 |
-| GAP-04 — truthfulness constraints 未消费 | OrchestratorDecision 的约束定义了但 TurnResult 不检查 | AI 可能声称执行了实际被拒绝的操作 |
-| GAP-05 — 未知 gate 静默 fallback | 未知 gate → `:require_confirmation` 无日志 | 新增 gate 忘记映射不会被发现 |
-| GAP-06 — 确认幂等性 | 重复点确认可能产生重复执行 | 手快连点 → 两条相同数据 |
+| 缺口 | 具体表现 | 类型 | 优先级 |
+|---|---|---|---|
+| AU04-GAP-01 — 真实入口确认动作未接入 `author_action` | `WorkspaceChat` 调旧 `confirm` / `reject`，后端 Channel 实现的是 `author_action` | 修设计偏差/补集成 | P0 |
+| AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | `TurnResultBuilder` 输出 behavior_state/available_actions，但未生成 `confirmation_card`；`WorkspaceChat` 不渲染 available action panel | 补实现/补验收 | P0 |
+| AU04-GAP-03 — 确认幂等未闭环 | 有 `idempotency_key` 字段，但缺 ledger 和重复确认测试 | 补实现/补测试 | P0 |
+| AU04-GAP-04 — ConfirmationBinding 未完整实现 | 缺 `behavior_ref` + `target_ref` + rebased snapshot + gate result 的持久绑定 | 补实现/补集成 | P0 |
+| AU04-GAP-05 — 取消/拒绝 lifecycle 未闭环 | cancel/reject 可被 validation，但未证明 behavior 关闭、trace 写入、UI 恢复 | 补集成/补验收 | P0 |
+| AU04-GAP-06 — 过期/跨作品/历史确认验证不足 | 只覆盖 current turn stale，缺 TTL、跨作品、历史会话只读态 | 补实现/补验收 | P0/P1 |
+| AU04-GAP-07 — task_state 真实入口未展示 | Channel 可广播，`socket_v3.ts` 可订阅，但当前 `WorkspaceChat` 未订阅 | 补集成 | P1 |
+| AU04-GAP-08 — assistant_message 文本真值约束不足 | truthfulness map 存在，但缺 LLM 文案不撒谎测试 | 补测试 | P1 |
+| AU04-GAP-09 — 确认后失败恢复缺场景 | 缺工具失败、LLM 超时、恢复 action 的 UI/Channel 验收 | 补验收 | P1 |
 
 ---
 
-## 7. 验收命令
+## 7. 已知基础设施
+
+| 基础设施 | 当前价值 | 不应误判 |
+|---|---|---|
+| `ExecutionOrchestrator.decide/2` | 已能根据 GateOrder 产生 allow/downgrade/confirm/recovery | 不等于真实 UI 确认闭环 |
+| `ActionValidator.validate/2` | 能拒绝 missing/stale/invented/disabled action | 不等于幂等、TTL、跨作品安全完成 |
+| `DialogueGateway.handle_action/3` | `confirm_before_execute` 可 re-gate 并在 allow_tool 时 dispatch | 不等于 ConfirmationBinding 完整实现 |
+| `WorkspaceChannel.handle_in("author_action")` | Channel 层 action roundtrip 已有测试 | 不等于当前 App 入口已经使用 |
+| `WorkbenchV3` + `socket_v3.ts` | 有更接近 v3 的前端 action 实现 | 当前 `App.tsx` 未接入它，真实入口仍是 `WorkspaceChat` |
+| `workspace_channel_v3_test.exs` | 覆盖 task_state、stale/invented action 等局部链路 | 不等于 Playwright/真人工作台验收 |
+
+---
+
+## 8. 验收命令
+
+这些命令只能证明后端/Channel 局部能力，不能证明 AU-04 完整通过：
 
 ```bash
 mix test apps/novel_application/test/novel_application/execution_authority_test.exs
 mix test apps/novel_application/test/novel_application/action_roundtrip_test.exs
+mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
+```
+
+完整 AU-04 验收还需要补充：
+
+```text
+1. 真实工作台 walkthrough：高风险请求 -> 确认卡/动作可见 -> 点击确认 -> task_state -> 结果/待采纳。
+2. 重复点击确认：同一 idempotency_key 只执行一次。
+3. stale / expired / cross-work confirmation：旧动作不能确认当前作品任务。
+4. cancel/reject：关闭 pending confirmation，trace 可回放，UI 恢复自然对话。
+5. failure recovery：确认后工具失败时，UI 显示可恢复路径且无半写入。
 ```

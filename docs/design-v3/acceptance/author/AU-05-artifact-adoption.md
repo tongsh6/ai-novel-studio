@@ -1,190 +1,375 @@
 # AU-05 采纳创作产物
 
-> 作者视角：AI 生成的所有内容（角色设定、剧情大纲、章节片段）默认都是"草稿"。它们以卡片形式展示给我挑选。只有我明确点击"采用"后，这些内容才会正式成为我小说的一部分。
+> 作者视角：AI 生成的角色设定、剧情方向、大纲、章节片段默认都是草稿或候选，不能自动成为作品事实。只有我明确采纳，并且系统通过 adoption boundary 后，它们才进入作品档案、阅读投影或后续上下文。
+
+> 2026-05-13 场景化对账结论：创作产物默认 tentative、AdoptionBoundary 纯规则、前端待采纳展示都有局部证据；但真实工作台采纳入口未接入当前后端 Channel，`AdoptionBoundary.evaluate/3` 未接到 `author_action` / `adopt` 主流程，StateTrace / production write / projection refresh 仍未闭环。因此 AU-05 不能再按“100% 已实现”判断。
 
 ---
 
 ## 1. 我能做什么
 
 | 我能做什么 | 系统怎么回应 |
-|-----------|------------|
-| 让 AI "帮我想几个反派组织" | AI 给出候选方案，标注为"草稿" |
-| 浏览不同方案 | 方案作为讨论材料展示，不会自动写入作品 |
-| 选中一个方案 | 系统告诉我选中了什么，提示是否"确认采用" |
-| 点击"采用" | 系统正式写入作品设定，刷新相关视图 |
-| 对所有方案都不满意 | 不理会卡片，或让 AI 换一批 |
-| 方案过期了还点采用 | 系统提示"已过期"，不执行 |
+|---|---|
+| 让 AI 生成角色、组织、剧情方向、大纲或正文片段 | 以待采纳草稿或候选卡展示，不自动写入作品事实 |
+| 浏览多个草稿 | 能看标题、摘要、内容、来源和适用范围 |
+| 点选某个候选继续讨论 | 只表示 selection，不等于 adoption |
+| 明确采纳某个草稿 | 系统评估 freshness、目标、冲突、权限、确认策略和 trace readiness |
+| 修改后再采纳 | 系统保留原草稿来源，写入修改后的 accepted 版本 |
+| 放弃草稿 | 草稿进入 discarded/resolved，不影响作品事实 |
+| 切到阅读模式 | 只能看到已采纳内容；未采纳草稿不进入目录或正文 |
+| 采纳后阅读投影过期 | 系统提示投影 stale / refresh，而不是让 UI 自己写状态 |
 
 明确不能做的：
-- AI 不能自动把草稿写入正式章节或设定集
-- 我不应在没点"采用"的情况下看到这些内容出现在阅读视图中
+
+- 工具执行成功不等于采纳成功。
+- 候选卡被点选不等于作品设定已更新。
+- `adoption_state.pending` 里的内容不能出现在阅读模式正文或作品 canon。
+- 前端不能通过 `adopt` 事件直接写作品事实，必须走后端 adoption boundary。
+- 过期、跨作品、冲突或高风险草稿不能静默采纳。
 
 ---
 
 ## 2. 不变量
 
-| 编号 | 不变量 (`00c` §7) | 本验收如何验证 |
-|------|-------------------|---------------|
-| #6 | 写入默认 tentative | A1 — 生成物默认标记为草稿 |
-| #11 | candidate selection ≠ adoption | B1 — 选中不等于采纳 |
-| #12 | 确认后重新 gate | C1 — 高风险采纳需要二次确认 |
-| #15 | projection hints 只触发刷新 | C2 — 采纳后触发投影刷新，不授权写入 |
+| 编号 | 不变量 | 本验收如何验证 |
+|---|---|---|
+| AU05-I1 | AI 产物默认 tentative，不是 production fact | SC-AU05-A1/A2 |
+| AU05-I2 | ToolResult 不等于 adopted state | SC-AU05-A2/D3 |
+| AU05-I3 | candidate selection 不等于 adoption | SC-AU05-B1 |
+| AU05-I4 | adoption 只能由系统边界裁决 | SC-AU05-C1/C2/C3 |
+| AU05-I5 | 高风险/覆盖/production adoption 必须确认并重新 gate | SC-AU05-C4 |
+| AU05-I6 | production write 必须有 StateTrace / DecisionTrace | SC-AU05-D1/E1 |
+| AU05-I7 | ProjectionHint 只触发刷新，不授权 UI 写入 | SC-AU05-D2 |
+| AU05-I8 | stale / conflict / cross-work adoption 不得写入 | SC-AU05-C3/C4/C5 |
+| AU05-I9 | TurnResult 文案不得把 pending 说成 adopted | SC-AU05-E2 |
 
 ---
 
 ## 3. 契约引用
 
-| 契约 | 用途 |
-|------|------|
-| ADR-0010 | AdoptionBoundary + AdoptionDecision 定义 |
-| ADR-0016 | ProjectionHint 最小 schema |
-| VS-02A Contract Pack | TentativeArtifactSet 规则 |
-| VS-04 Contract Pack §2 | CandidateSet 最小 schema |
-| VS-04 Contract Pack §4 | AdoptionBoundary 最小 policy（7 项 gate fact） |
-| VS-04 Contract Pack §5 | ProjectionHint 规则 |
-| VS-04 Contract Pack §7 | Proof 草案 |
+| 契约 / 代码 | 用途 |
+|---|---|
+| `docs/design-v3/contracts/VS-04-adoption-boundary-contract-pack.md` | CandidateSet、AuthorActionInput choose_candidate、AdoptionDecision、ProjectionHint 规则 |
+| `docs/design-v3/adr/ADR-0010-state-adoption-boundary-v3.md` | selection / ToolResult / adopted state 分层决策 |
+| `docs/design-v3/adr/ADR-0016-projection-hint-v3.md` | ProjectionHint 与阅读投影刷新边界 |
+| `apps/novel_application/lib/novel_application/adoption_boundary.ex` | 当前采纳评估纯规则 |
+| `apps/novel_application/lib/novel_application/turn_result_builder.ex` | creative ToolResult -> `adoption_state.pending` 与 `adoption_card` |
+| `apps/novel_application/test/novel_application/adoption_boundary_test.exs` | 低风险/高风险/未知候选/stability/projection hint 局部测试 |
+| `apps/novel_application/test/novel_application/creative_artifact_test.exs` | creative tool、TentativeArtifactSet、task_state 局部测试 |
+| `frontend/src/components/WorkspaceChat.tsx` | 当前真实工作台展示 pending adoption 与调用采纳动作 |
+| `frontend/src/components/StructurePanel.tsx` | 作品档案面板展示待采纳内容 |
+| `frontend/src/components/ReadingMode.tsx` | 阅读模式读取 projection status 并触发刷新请求 |
+| `apps/novel_web/lib/novel_web/channels/workspace_channel.ex` | 当前 Channel 缺 `adopt` / `discard` / `modify_draft` handler 的关键证据 |
 
 ---
 
 ## 4. 验收场景
 
-### 场景组 A：生成的都是草稿
+### 场景组 A：AI 产物默认只是草稿
 
-#### A1 — AI 设计了一个反派组织，标注为"待审核"
+#### SC-AU05-A1 — 生成角色设定后显示为待采纳
 
-**作为作者**，我让 AI "设计一个反派组织"。AI 回复了三个候选方案，每个都有名称和简介。回复末尾标注了"这些内容尚未加入你的作品设定"。我在阅读模式里看不到这些内容——只有当我采纳后才会出现。
+**用户视角**：作者说“帮我生成三个主角设定方向”。
 
-**验证点**：
-- [ ] 生成的内容标记为 `tentative` 或草稿状态
-- [ ] 回复中明确告知"尚未加入作品"
-- [ ] 未采纳的内容不出现在阅读模式的 TOC 中
+| 字段 | 内容 |
+|---|---|
+| 前置条件 | 已打开某个作品；模型或 stub 可用 |
+| 触发 | 输入创作产物请求 |
+| 期望结果 | 工作台出现待采纳草稿卡；草稿有标题、正文/摘要、来源；不进入已确认设定 |
+| 当前证据 | `creative_artifact_test.exs` 覆盖 `TentativeArtifactSet`、`adoption_status: :tentative`；`TurnResultBuilder.maybe_add_artifacts/2` 生成 `adoption_state.pending` 和 `adoption_card` |
+| 当前状态 | 已测试/部分实现 |
+| 当前缺口 | 未有真实工作台 walkthrough 证明卡片在 `WorkspaceChat` 中完整可见、可审核 |
+| 优先级 | P0 |
 
-**测试**：`creative_artifact_test.exs` — `"result has tentative_artifact in state_delta"` ✅
+#### SC-AU05-A2 — 工具成功不自动写作品事实
 
----
+**用户视角**：AI 成功生成章节片段，作者还没采纳。
 
-#### A2 — AI 生成了章节片段，但没有自动写入
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | `truthfulness.production_write_performed=false`；阅读模式目录/正文不显示该片段 |
+| 当前证据 | `creative_generation` capability `write_scopes == []`；`creative_artifact_test.exs` 覆盖 creative tool 无 write scope；E2E 覆盖 pending artifact |
+| 当前状态 | 后端局部已测试 |
+| 当前缺口 | 阅读模式当前数据来自 `get_toc` / `get_chapter_content` mock handler，未和 adoption state 真实隔离验收 |
+| 优先级 | P0 |
 
-**作为作者**，AI 帮我写了一段第一章的开头。这段文字以卡片形式展示给我，我可以看、可以修改、可以决定要不要。但它不会自动出现在我的作品里——必须我明确说"采用"。
+#### SC-AU05-A3 — 草稿在作品档案有待处理入口
 
-**验证点**：
-- [ ] 创作类工具（creative_generation）没有 write_scopes——不能直接写入
-- [ ] 产出在 `TentativeArtifactSet` 中，`adoption_status = :tentative`
+**用户视角**：作者打开作品档案，能看到所有待采纳草稿。
 
-**测试**：`creative_artifact_test.exs` — `"creative tool has no write_scopes — cannot produce production fact"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 作品档案显示待采纳数量和待采纳列表；可进入审核动作 |
+| 当前证据 | `WorkspaceChat` 汇总 `adoption_state.pending`；`StructurePanel` 展示 `pendingAdoptions` 并显示“采纳设定” |
+| 当前状态 | 前端部分实现 |
+| 当前缺口 | 缺后端真实采纳 handler 和端到端 UI 验收；当前列表只来自本次前端消息内存，不是持久化待处理箱 |
+| 优先级 | P0 |
 
----
+### 场景组 B：选择、修改、放弃与采纳分开
 
-### 场景组 B：选择与采纳是两个步骤
+#### SC-AU05-B1 — 点选候选只是继续探索，不是采纳
 
-#### B1 — 我先选，再决定是否采纳
+**用户视角**：作者在候选方向卡里点了一个方向，想沿着它继续聊。
 
-**作为作者**，AI 给了我三个反派组织方案。我选了"灵源重工"这个，系统记录了我的偏好，但此时它还不是正式设定——我的作品档案里不会出现"灵源重工"。系统提示我"确认采用？"——这是一个独立的第二步。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统记录 selection intent 或继续对话；不产生 adopted state，不刷新阅读投影 |
+| 当前证据 | `ADR-0010` 明确 selection != adoption；`adoption_boundary_test.exs` 覆盖高风险 selection 不 adopted |
+| 当前状态 | 规则已测试，UI 未实现 |
+| 当前缺口 | AU-02 已记录候选卡当前主要展示，不支持点选继续/采纳桥接 |
+| 优先级 | P0 |
 
-**验证点**：
-- [ ] 选择（choose_candidate）只记录偏好，不产生 adoption
-- [ ] 采纳（adopt）是独立操作，需要经过 AdoptionBoundary 评估
+#### SC-AU05-B2 — 点击“采纳”必须走后端 adoption boundary
 
-**测试**：`adoption_boundary_test.exs` — `"selection != adoption by default"` ✅
+**用户视角**：作者点击某个草稿卡的“采纳”。
 
----
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 前端提交可验证的 author action / adoption action；后端执行 target、source、freshness、conflict、trace gate |
+| 当前证据 | `WorkspaceChat.handleAdopt/1` 调用 `socket.adopt`；`socket.test.ts` 只验证会 push `adopt` 事件 |
+| 当前状态 | 前端 helper 已有，后端入口未接 |
+| 当前缺口 | `WorkspaceChannel` 没有 `handle_in("adopt")`；`AdoptionBoundary.evaluate/3` 没有被 Channel/DialogueGateway 调用 |
+| 优先级 | P0 |
 
-#### B2 — 正式采纳后，作品设定更新
+#### SC-AU05-B3 — 修改后再采纳
 
-**作为作者**，我点击"采用"确认了"灵源重工"。系统正式将其写入作品设定。现在我在作品档案面板里能看到它，阅读模式里相关内容也会更新。
+**用户视角**：作者觉得草稿方向对，但要求“把主角性格改得更果断”后再采纳。
 
-**验证点**：
-- [ ] 采纳后产生 `AdoptionDecision`
-- [ ] `adoption_status` 从 `tentative` 变为 `adopted`
-- [ ] Trace 记录了从生成→选择→采纳的完整链路
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统生成 edited draft，保留原草稿来源和 revision_base，再进入 adoption boundary |
+| 当前证据 | `WorkspaceChat` 有修改弹窗；`socket.modifyDraft` helper 会 push `modify_draft` |
+| 当前状态 | 前端壳存在 |
+| 当前缺口 | `WorkspaceChannel` 没有 `handle_in("modify_draft")`；缺 edited adoption 状态和 revision 测试 |
+| 优先级 | P1 |
 
-**测试**：`adoption_boundary_test.exs` — `"low-risk candidate is adopted as tentative"` ✅
+#### SC-AU05-B4 — 放弃草稿
 
----
+**用户视角**：作者对草稿不满意，点击放弃。
 
-### 场景组 C：安全边界
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 草稿进入 discarded/resolved，不再出现在待采纳列表；不影响作品事实 |
+| 当前证据 | `socket.discardArtifact` helper 存在；domain/persistence 层有 draft discard 相关测试 |
+| 当前状态 | 局部实现 |
+| 当前缺口 | `WorkspaceChannel` 没有 `handle_in("discard")`；`TurnResult.adoption_state.resolved` 没有真实更新链路 |
+| 优先级 | P1 |
 
-#### C1 — 高风险方案需要二次确认
+### 场景组 C：采纳边界安全
 
-**作为作者**，我选了一个会大范围修改作品设定的方案。系统没有直接执行，而是再次弹出确认提示——告诉我具体会改动什么、影响多大，让我再确认一次。
+#### SC-AU05-C1 — 低风险草稿可采纳，但必须留下 decision
 
-**验证点**：
-- [ ] 高风险候选（`risk_hint = :high`）→ AdoptionDecision 为 `require_confirmation`
-- [ ] 确认后才真正执行 adoption
+**用户视角**：作者采纳低风险角色设定。
 
-**测试**：`adoption_boundary_test.exs` — `"high-risk candidate requires confirmation"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 后端返回 `AdoptionDecision.adopt_tentative` 或等价 accepted 结果；包含 reason_codes、decision_trace_ref、state_trace_ref |
+| 当前证据 | `adoption_boundary_test.exs` 覆盖 low-risk candidate -> `:adopt_tentative`；`AdoptionBoundary` 构造 `state_trace_ref` 字符串 |
+| 当前状态 | 纯规则已测试 |
+| 当前缺口 | `state_trace_ref` / `adopted_state_ref` 仍是字符串模式，不是真实 DB/trace 记录 |
+| 优先级 | P0 |
 
----
+#### SC-AU05-C2 — 高风险采纳要求二次确认
 
-#### C2 — 采纳后相关视图提示刷新
+**用户视角**：作者采纳一个会大幅改世界观的方案。
 
-**作为作者**，我采纳了一个新角色后，阅读模式那边如果有相关内容，会提示"投影状态：已过期"——因为新角色的加入影响了之前的视图。我需要点"刷新投影"才能看到最新版本。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | adoption boundary 返回 `require_confirmation`，并接入 AU-04 确认 lifecycle |
+| 当前证据 | `adoption_boundary_test.exs` 覆盖 high-risk candidate requires confirmation |
+| 当前状态 | 纯规则已测试 |
+| 当前缺口 | 未接 AU-04 `author_action` / ConfirmationBinding / re-gate 主流程 |
+| 优先级 | P0 |
 
-**验证点**：
-- [ ] adoption 后产生 ProjectionHint
-- [ ] ProjectionHint 触发视图刷新提示（STALE）
-- [ ] ProjectionHint 不授权前端写入
+#### SC-AU05-C3 — stale 草稿不能采纳
 
-**测试**：`adoption_boundary_test.exs` — `"projection hint appears only on adoption"` ✅
+**用户视角**：作者几天后点了旧草稿采纳，这期间作品背景已经变化。
 
----
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统识别 stale source/action/state snapshot，要求重新生成或重新确认 |
+| 当前证据 | `adoption_boundary_test.exs` 只覆盖 unknown candidate_id -> fail_with_recovery |
+| 当前状态 | 局部测试，不是真 freshness |
+| 当前缺口 | 未实现 source turn / state snapshot / context version freshness check |
+| 优先级 | P0 |
 
-#### C3 — 一个过期的方案，点了采用也不执行
+#### SC-AU05-C4 — 冲突采纳进入恢复或修订
 
-**作为作者**，AI 三天前给我生成了一个角色方案，我一直没处理。这期间作品的剧情已经推进了，那个方案的前提条件已经变了。我今天才点"采用"，系统应该告诉我"这个方案已过期，建议重新生成"。
+**用户视角**：作者采纳的新设定和已有 canon 冲突，例如角色年龄不一致。
 
-**验证点**：
-- [ ] 过期的 candidate → `AdoptionDecision.decision_type = :fail_with_recovery`
-- [ ] 不产生 production write
-- [ ] **当前实现：candidate_not_found 分支有 `fail_with_recovery`，但 freshness check（上下文版本比对）未实现** ❌
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统提示冲突，允许修订、覆盖确认或放弃；不能静默覆盖 |
+| 当前证据 | VS-04 contract 要求 conflict check |
+| 当前状态 | 未实现/未验收 |
+| 当前缺口 | `AdoptionBoundary.evaluate/3` 未检查目标当前 canon 或 revision |
+| 优先级 | P1 |
 
-**测试**：`adoption_boundary_test.exs` — `"stale candidate_id fails"` ✅
+#### SC-AU05-C5 — 跨作品草稿不能采纳到当前作品
 
----
+**用户视角**：作者切换作品后，尝试采纳上一个作品里的草稿。
 
-#### C4 — 系统不谎报采纳状态
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统拒绝跨 work adoption；草稿、state trace、projection 都归属原作品 |
+| 当前证据 | SU-02/AU-03 已记录 work_id 隔离仍未完整验收 |
+| 当前状态 | 未实现/未验收 |
+| 当前缺口 | pending adoption 只存在前端消息内存；缺 work-scoped adoption store 和 cross-work 验收 |
+| 优先级 | P0 |
 
-**作为作者**，AI 回复说"已成功将灵源重工加入作品设定"。这句话必须是真的——系统内部记录中 `adoption_status` 必须是 `adopted`。如果不是，AI 就是在撒谎。
+### 场景组 D：采纳后的作品事实与阅读投影
 
-**验证点**：
-- [ ] TurnResult 的 truthfulness 中 `artifact_adopted` 仅在真正采纳后为 true
-- [ ] 草稿状态下 TurnResult 不能声称"已写入作品"
+#### SC-AU05-D1 — 采纳后作品档案出现已确认设定
 
-**测试**：`adoption_boundary_test.exs` — `"selection != adoption by default"` ✅
+**用户视角**：作者采纳角色设定后，打开作品档案能看到该角色/设定从待采纳移到已确认。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 已确认设定来自后端持久化事实，不是前端临时文案 |
+| 当前证据 | `StructurePanel` 有“已确认设定”区域，但数据来自 `get_foreshadowing` / `get_characters` mock handler |
+| 当前状态 | UI 壳存在，真实数据未接 |
+| 当前缺口 | 缺 adopted state repository、StateTrace、档案查询闭环 |
+| 优先级 | P0 |
+
+#### SC-AU05-D2 — 采纳后阅读投影提示 stale / refresh
+
+**用户视角**：作者采纳章节片段或设定后，切到阅读模式看到投影过期提示，并可刷新。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 后端 TurnResult 带 `projection_refs.refresh_status=STALE` 或等价 ProjectionHint；ReadingMode 显示刷新入口 |
+| 当前证据 | `ReadingMode` 能展示 `projectionStatus === "STALE"`；`WorkspaceChat` 会读取 `projection_refs` 更新 store；`AdoptionBoundary` 会返回 `projection_hints` |
+| 当前状态 | 两端局部存在，未集成 |
+| 当前缺口 | `TurnResultBuilder` 未把 adoption projection_hints 转成 `projection_refs`；`AdoptionBoundary` projection_ref 仍硬编码 `"character_list"` |
+| 优先级 | P1 |
+
+#### SC-AU05-D3 — 未采纳草稿不进入阅读模式
+
+**用户视角**：作者生成章节片段但不采纳，切到阅读模式。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 阅读模式明确显示“暂无已采纳内容”或旧版本，不显示 pending 草稿 |
+| 当前证据 | `ReadingMode` 有空态文案；creative tool 无 write scope |
+| 当前状态 | 局部实现 |
+| 当前缺口 | `get_toc` / `get_chapter_content` 当前是 mock handler，未基于 accepted source revisions 验证 |
+| 优先级 | P1 |
+
+### 场景组 E：追溯、真值与恢复
+
+#### SC-AU05-E1 — 采纳可回放
+
+**用户视角**：作者或开发者能回看“这个设定为什么进入作品、来自哪个草稿、谁点了采纳、当时是否有冲突”。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | DecisionTrace + StateTrace + source refs 可回放 |
+| 当前证据 | VS-04 contract 要求 StateTrace / DecisionTrace；`AdoptionBoundary` 生成字符串 ref |
+| 当前状态 | 未闭环 |
+| 当前缺口 | 缺真实 StateTrace 写入、ReplayService adoption 解释、前端 trace 入口 |
+| 优先级 | P1 |
+
+#### SC-AU05-E2 — AI 不谎报采纳状态
+
+**用户视角**：系统说“已采纳”时，这件事必须真的发生；只是 pending 时不能说已写入作品。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | `truthfulness.artifact_adopted` 和 assistant_message 与真实 adoption decision 一致 |
+| 当前证据 | `TurnResultBuilder.build_truthfulness/3` 默认 tool result `artifact_adopted=false`；`tool_provenance_test.exs` 覆盖 ToolResult not adoption |
+| 当前状态 | 局部已测试 |
+| 当前缺口 | 缺 adoption 成功/失败后的 TurnResult truthfulness 与 LLM 文案测试 |
+| 优先级 | P1 |
+
+#### SC-AU05-E3 — 采纳失败有恢复路径
+
+**用户视角**：采纳失败时，作者知道是过期、冲突、权限、目标不清还是系统错误，并知道下一步能做什么。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 返回可理解失败原因和 retry / revise / regenerate / cancel 动作 |
+| 当前证据 | `AdoptionBoundary` unknown candidate 返回 `fail_with_recovery` reason_codes |
+| 当前状态 | 局部规则存在 |
+| 当前缺口 | 缺 Channel/TurnResult/UI 恢复卡与真实 walkthrough |
+| 优先级 | P1 |
 
 ---
 
 ## 5. 场景覆盖状态
 
-| 场景 | 做什么 | 状态 |
-|------|--------|------|
-| A1 | 生成标注为草稿 | ✅ |
-| A2 | 不自动写入 | ✅ |
-| B1 | 选择和采纳分开 | ✅ |
-| B2 | 采纳后设定更新 | ✅ |
-| C1 | 高风险二次确认 | ✅ |
-| C2 | 采纳后提示刷新 | ✅ |
-| C3 | 过期方案拒绝 | ⚠️ freshness check 未实现 |
-| C4 | 不谎报状态 | ✅ |
+| 场景 | 做什么 | 当前状态 | 是否闭环 |
+|---|---|---|---|
+| SC-AU05-A1 | 生成待采纳草稿卡 | 已测试/部分实现 | 否，缺真实工作台验收 |
+| SC-AU05-A2 | 工具成功不写作品事实 | 已测试 | 否，缺阅读模式隔离验收 |
+| SC-AU05-A3 | 作品档案待采纳入口 | 部分实现 | 否 |
+| SC-AU05-B1 | selection 不等于 adoption | 已测试 | 否，UI selection 未实现 |
+| SC-AU05-B2 | 点击采纳走后端边界 | 未接入 | 否 |
+| SC-AU05-B3 | 修改后再采纳 | 前端壳存在 | 否 |
+| SC-AU05-B4 | 放弃草稿 | 局部实现 | 否 |
+| SC-AU05-C1 | 低风险采纳有 decision/trace | 已测试 | 否，trace 是字符串 ref |
+| SC-AU05-C2 | 高风险采纳要求确认 | 已测试 | 否，未接 AU-04 lifecycle |
+| SC-AU05-C3 | stale 草稿拒绝 | 部分测试 | 否 |
+| SC-AU05-C4 | 冲突采纳恢复 | 已设计 | 否 |
+| SC-AU05-C5 | 跨作品采纳隔离 | 未实现/未验收 | 否 |
+| SC-AU05-D1 | 采纳后作品档案更新 | UI 壳存在 | 否 |
+| SC-AU05-D2 | 采纳后阅读投影刷新 | 部分实现 | 否 |
+| SC-AU05-D3 | 未采纳不进阅读模式 | 局部实现 | 否 |
+| SC-AU05-E1 | 采纳可回放 | 已设计/部分 ref | 否 |
+| SC-AU05-E2 | AI 不谎报采纳 | 局部已测试 | 否 |
+| SC-AU05-E3 | 采纳失败恢复 | 局部规则存在 | 否 |
 
-**通过率：7/8 完整 + 1/8 部分 = 约 94%**
+**结论：18 个场景；0/18 完整真实前后端验收；10/18 有 domain/application/frontend 局部证据；8/18 的关键缺口集中在真实采纳入口、StateTrace、持久化作品事实、阅读投影和跨作品/freshness 安全。**
 
 ---
 
 ## 6. 缺口
 
-| 缺口 | 具体表现 | 影响 |
-|------|---------|------|
-| GAP-01 — freshness check 未实现 | `AdoptionBoundary.evaluate` 不比对上下文版本 | 基于过时上下文生成的候选可能被错误采纳 |
-| GAP-02 — 采纳后 StateTrace 未实际写入 | `adopted_state_ref` 是字符串模式不是真实 DB 记录 | 回放时无法追溯采纳对作品状态的实际变更 |
-| GAP-03 — Production write 无 StateTrace | 采纳操作不产生 production state trace | 历史审计缺失——无法知道"什么时候因为什么把什么写入了作品" |
-| GAP-04 — ProjectionHint 的 projection_ref 硬编码 | 始终返回 `"character_list"` | 不同采纳类型（角色/大纲/章节）的投影刷新不正确 |
+| 缺口 | 具体表现 | 类型 | 优先级 |
+|---|---|---|---|
+| AU05-GAP-01 — 真实采纳入口未接后端 | `WorkspaceChat` push `adopt`，但 `WorkspaceChannel` 无 `handle_in("adopt")` | 补集成/补实现 | P0 |
+| AU05-GAP-02 — AdoptionBoundary 未进入主流程 | `AdoptionBoundary.evaluate/3` 只有纯规则测试，未被 Channel/DialogueGateway/author_action 调用 | 补集成 | P0 |
+| AU05-GAP-03 — StateTrace / adopted_state_ref 未真实写入 | 当前是字符串 ref，不是持久化 state trace 或作品事实 | 补实现/补验收 | P0 |
+| AU05-GAP-04 — pending adoption 不是持久化待处理箱 | `WorkspaceChat` 从消息内存聚合 pending，切作品/重启/历史会话后不可恢复 | 补实现/补集成 | P0 |
+| AU05-GAP-05 — selection/action/adoption 桥接缺失 | 候选卡展示、选择、采纳边界没有完整 author action 链路 | 补实现/补集成 | P0 |
+| AU05-GAP-06 — freshness / conflict / cross-work 检查不足 | stale 测试只是 unknown id；缺 context version、revision、work_id 隔离 | 补实现/补测试 | P0 |
+| AU05-GAP-07 — 高风险采纳未接 confirmation lifecycle | 高风险 rule 返回 `require_confirmation`，但未接 AU-04 re-gate | 补集成 | P0 |
+| AU05-GAP-08 — ProjectionHint 未接 ReadingMode | `projection_hints` 未转 `projection_refs`，projection_ref 硬编码 | 补集成/修正 | P1 |
+| AU05-GAP-09 — 修改/放弃链路缺后端 | `modify_draft` / `discard` 前端 helper 有，Channel handler 缺失 | 补实现 | P1 |
+| AU05-GAP-10 — adoption truthfulness 缺成功/失败文案测试 | 只验证 ToolResult not adoption，缺 adopted/rejected 后文案约束 | 补测试 | P1 |
+| AU05-GAP-11 — 作品档案/阅读模式仍有 mock handler | `get_toc`、`get_characters` 等返回 mock，不代表采纳后真实作品可见 | 补集成/补验收 | P1 |
 
 ---
 
-## 7. 验收命令
+## 7. 已知基础设施
+
+| 基础设施 | 当前价值 | 不应误判 |
+|---|---|---|
+| `creative_generation` + `TentativeArtifactSet` | 能证明 AI 产物默认 tentative | 不等于可采纳进作品 |
+| `TurnResultBuilder.maybe_add_artifacts/2` | 能输出 `adoption_state.pending` 和 `adoption_card` | 不等于点击采纳会成功 |
+| `AdoptionBoundary.evaluate/3` | 能表达低风险采纳、高风险确认、未知候选恢复 | 不等于已写入作品事实 |
+| `WorkspaceChat.handleAdopt/1` | 前端有采纳按钮和 helper | 后端没有对应 `adopt` handler |
+| `StructurePanel` | 能展示待采纳列表 | 列表来自当前消息内存，不是持久化工作箱 |
+| `ReadingMode` projection banner | 能显示 stale/rebuilding/failed 状态 | 缺 adoption -> projection_refs -> banner 的后端链路 |
+
+---
+
+## 8. 验收命令
+
+这些命令只能证明局部规则和产物生成，不能证明 AU-05 完整通过：
 
 ```bash
 mix test apps/novel_application/test/novel_application/adoption_boundary_test.exs
 mix test apps/novel_application/test/novel_application/creative_artifact_test.exs
+cd frontend && pnpm test -- src/lib/__tests__/socket.test.ts src/lib/__tests__/schemas.test.ts
+```
+
+完整 AU-05 验收还需要补充：
+
+```text
+1. 真实工作台：生成草稿 -> 待采纳卡可见 -> 点击采纳 -> 后端 AdoptionBoundary -> action_result/turn_result。
+2. 采纳后作品档案：pending 移除，已确认设定/角色/章节出现，且来自持久化事实。
+3. 采纳到阅读投影：accepted source 改变 -> projection_refs STALE -> ReadingMode 提示刷新 -> 刷新后可读。
+4. stale/conflict/cross-work：旧草稿、冲突草稿、跨作品草稿不能写入当前作品。
+5. modify/discard：修改后采纳和放弃都有 resolved adoption state 与 trace。
+6. replay/truthfulness：回放能解释来源、作者动作、decision、state trace 和 projection hint。
 ```

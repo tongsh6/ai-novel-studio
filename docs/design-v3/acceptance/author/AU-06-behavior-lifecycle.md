@@ -1,206 +1,361 @@
 # AU-06 对话行为生命周期
 
-> 作者视角：当 AI 需要我确认或补充信息时，系统进入"等待作者"状态。我能看到它为什么等我、我有哪些选择。我操作后这个状态会正常关闭——不是永远挂着。
+> 作者视角：当 AI 需要我确认、补充信息、取消等待或处理失败时，系统会进入一个明确的“等待作者”状态。我能看到它为什么等我、等哪个对象、我有哪些动作；我操作后，这个状态必须关闭、转入历史，并可回放，而不是永远挂在当前对话里。
+
+> 2026-05-13 场景化对账结论：`BehaviorState` struct、Orchestrator 打开 confirmation、ActionValidator 拒绝 stale/invented action 已有局部证据；但真实工作台入口未可靠消费 behavior_state，确认/取消/澄清后的 resolution/history/trace/TTL/单活跃行为都未闭环。AU-06 不能再按“86% 核心已实现”判断，应视为“打开行为已部分实现，完整 lifecycle 未完成”。
 
 ---
 
 ## 1. 我能做什么
 
 | 我能做什么 | 系统怎么回应 |
-|-----------|------------|
-| 看到系统提示"需要你确认" | 界面显示"等待作者" + 确认/取消按钮 |
-| 点击"确认执行" | 系统接收我的决定，关闭等待，重新评估 |
-| 点击"取消" | 系统关闭等待，不产生任何副作用 |
-| 想先聊点别的，暂时不理确认 | 确认提示还在，但不妨碍我正常聊天 |
-| 回看几天前的对话 | 能看到当时 AI 让我确认了什么事情，我点了什么 |
-| 点一个已经处理过的旧按钮 | 系统提示"已处理"，不会重新执行 |
+|---|---|
+| 看到“需要确认/需要补充”的状态 | 清楚展示等待原因、目标对象、影响范围和可用动作 |
+| 点击确认 | 系统绑定该 open behavior，进入 resolving，重新 gate 后关闭或产生新的等待 |
+| 点击取消/拒绝 | 系统关闭该 behavior，记录取消原因，不产生写入副作用 |
+| 回答澄清问题 | 系统把回答绑定到原 clarification，重新评估，而不是当普通聊天丢掉 |
+| 暂时不处理，继续聊天 | 系统明确保留或取消等待态，不误执行 pending action |
+| 过很久再点旧按钮 | 系统识别 stale/expired，不执行过期动作 |
+| 回看历史会话 | 能看到当时打开了什么 behavior、我做了什么、最终如何关闭 |
 
 明确不能做的：
-- 我不确认时 AI 不能自己往下走
-- 同一个地方不能同时弹出两个确认让我选
-- 两周前的确认按钮今天点了不应该还有效
+
+- UI 不能自己打开、关闭或修改 `BehaviorState`。
+- Planner / LLM 不能直接创建 resolved/cancelled 行为事实。
+- 同一 workstream 不能同时有多个 primary author-blocking behavior。
+- `completed` 不能掩盖仍然 open 的 confirmation / clarification。
+- 旧作品、旧会话、旧 turn 的 action 不能关闭当前作品的新 behavior。
 
 ---
 
 ## 2. 不变量
 
-| 编号 | 不变量 (`00c` §7) | 本验收如何验证 |
-|------|-------------------|---------------|
-| #7 | durable behavior 必须有 open/close/resolution | C1 — 从打开到关闭的完整过程可追踪 |
-| #8 | 缺 slot 不自动等于表单 | A2 — 降级不打开 behavior |
-| #10 | UI 只能提交 available actions | D1 — 点已关闭的按钮被拒绝 |
-| #12 | 确认后重新 gate | C2 — 点了确认不等于直接执行 |
-| #14 | replay 不调 LLM | E1 — 历史确认可回溯 |
+| 编号 | 不变量 | 本验收如何验证 |
+|---|---|---|
+| AU06-I1 | Durable behavior 必须有 open/resolving/resolved/cancelled/failed/superseded 生命周期 | SC-AU06-C1/C2 |
+| AU06-I2 | `awaiting_author` 必须有 active BehaviorState 和 author-facing action | SC-AU06-A1/A4 |
+| AU06-I3 | 普通探索不自动打开 clarification / confirmation | SC-AU06-A3 |
+| AU06-I4 | UI 只能提交服务端给出的 available action | SC-AU06-B1/B5 |
+| AU06-I5 | confirmation answer 必须绑定 open confirmation 并重新 gate | SC-AU06-B1/C2 |
+| AU06-I6 | cancel/reject 必须关闭具体 behavior 且无写入副作用 | SC-AU06-B2 |
+| AU06-I7 | 同一 workstream 只能有一个 primary author-blocking behavior | SC-AU06-C3 |
+| AU06-I8 | stale/expired/duplicate action 不能产生新执行 | SC-AU06-B5/C5 |
+| AU06-I9 | Behavior lifecycle 必须可 trace/replay，且 replay 不调 LLM | SC-AU06-D1 |
 
 ---
 
 ## 3. 契约引用
 
-| 契约 | 用途 |
-|------|------|
-| ADR-0006 | TurnPhase / TurnStatus 定义 |
-| ADR-0007 | NextAction / AvailableAction 定义 |
-| ADR-0008 | BehaviorState 生命周期 |
-| ADR-0009 | ConfirmationBinding 和 re-gate 策略 |
-| VS-03 Contract Pack §2 | TurnPhase / TurnStatus 最小集合 |
-| VS-03 Contract Pack §3 | AvailableAction 集合 |
-| VS-03 Contract Pack §4 | BehaviorState 最小 schema |
-| VS-03 Contract Pack §5 | ConfirmationBinding 最小 policy |
-| VS-03 Contract Pack §7 | Proof 草案 |
+| 契约 / 代码 | 用途 |
+|---|---|
+| `docs/design-v3/contracts/VS-03-behavior-lifecycle-contract-pack.md` | BehaviorState、AvailableAction、ConfirmationBinding、Proof 总入口 |
+| `docs/design-v3/adr/ADR-0006-turn-phase-status-v3.md` | TurnPhase / TurnStatus 与 active behavior 关系 |
+| `docs/design-v3/adr/ADR-0007-next-action-available-action-v3.md` | `confirm_before_execute`、`cancel_pending_behavior` 等动作集合 |
+| `docs/design-v3/adr/ADR-0008-behavior-state-v3.md` | BehaviorState 作为 durable waiting state |
+| `docs/design-v3/adr/ADR-0009-confirmation-binding-v3.md` | confirmation answer 绑定与 re-gate |
+| `apps/novel_domain/lib/novel_domain/behavior_state.ex` | BehaviorState struct 与 open/closed predicate |
+| `apps/novel_application/lib/novel_application/execution_orchestrator.ex` | 打开 confirmation behavior 与生成 available_actions |
+| `apps/novel_application/lib/novel_application/action_validator.ex` | stale / invented / disabled action 验证 |
+| `apps/novel_application/lib/novel_application/dialogue_gateway.ex` | `confirm_before_execute` re-gate / tool dispatch 局部路径 |
+| `apps/novel_application/test/novel_application/behavior_lifecycle_test.exs` | BehaviorState open/closed predicate 和 Orchestrator open 行为测试 |
+| `apps/novel_application/test/novel_application/action_roundtrip_test.exs` | action validation / gateway 局部测试 |
+| `frontend/src/components/WorkspaceChat.tsx` | 当前真实工作台对 behavior_state 的消费入口 |
+| `frontend/src/components/WorkbenchV3.tsx` | 备用 v3 action panel，不是当前 App 入口 |
 
 ---
 
 ## 4. 验收场景
 
-### 场景组 A：看到等待状态
+### 场景组 A：等待态可见且语义正确
 
-#### A1 — 确认弹窗内容完整
+#### SC-AU06-A1 — 高风险操作打开 confirmation behavior
 
-**作为作者**，AI 让我确认一个操作。我看到"等待作者确认"的提示，清楚知道 AI 要我确认什么（比如"确认替换第一章正文"），以及会有什么影响。我面前有两个按钮：确认执行、拒绝。
+**用户视角**：作者要求“直接替换第一章正文”。
 
-**验证点**：
-- [ ] 提示文字说明了在等什么（`prompt_contract.question`）
-- [ ] 给出了约束说明（风险、权限限制）
-- [ ] 给出了可用的操作按钮（至少 confirm + reject/cancel）
+| 字段 | 内容 |
+|---|---|
+| 前置条件 | 已打开作品，模型或 stub 可用 |
+| 触发 | 输入高风险/写入类请求 |
+| 期望结果 | TurnResult 进入 `awaiting_author / needs_confirmation`；active behavior 指向确认对象；可见确认/取消动作 |
+| 当前证据 | `behavior_lifecycle_test.exs` 覆盖 high-risk confirmation plan opens behavior；`v3_full_chain_test.exs` 覆盖 confirmation chain |
+| 当前状态 | 后端局部已测试 |
+| 当前缺口 | 真实入口 `WorkspaceChat` 不渲染 `available_actions` 面板；`TurnResultBuilder` 未生成 confirmation_card |
+| 优先级 | P0 |
 
-**测试**：`behavior_lifecycle_test.exs` — `"high-risk confirmation plan opens behavior"` ✅、`"behavior has required_next_action"` ✅
+#### SC-AU06-A2 — 缺关键补充信息时打开 clarification behavior
 
----
+**用户视角**：作者说“帮我改一下那个角色”，但系统不知道“哪个角色”。
 
-#### A2 — 普通讨论不触发确认
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统打开 clarification，要求作者补充 target，而不是硬猜或直接表单化 |
+| 当前证据 | VS-03 contract 定义 clarification；`BehaviorState` 支持 `:clarification` |
+| 当前状态 | 设计存在，当前实现不确定/不足 |
+| 当前缺口 | 当前 `ExecutionOrchestrator` 主要打开 confirmation；未看到 blocking clarification 主链测试 |
+| 优先级 | P1 |
 
-**作为作者**，我和 AI 正常讨论剧情方向——不涉及具体写入操作。系统不会无缘无故进入"等待确认"状态。我的输入框一直是可用的。
+#### SC-AU06-A3 — 普通创作讨论不打开 waiting behavior
 
-**验证点**：
-- [ ] 降级/对话阶段不打开 durable behavior
-- [ ] TurnPhase 为 `dialogue`（不是 `awaiting_author`）
+**用户视角**：作者只是讨论“这个角色动机可以怎么写？”。
 
-**测试**：`behavior_lifecycle_test.exs` — `"downgrade does not open behavior"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统自然对话，不进入 awaiting_author，不显示确认/澄清卡 |
+| 当前证据 | `behavior_lifecycle_test.exs` 覆盖 downgrade does not open behavior |
+| 当前状态 | 局部已测试 |
+| 当前缺口 | AU-01 已发现真实入口默认 `generate_micro_plan: true`，普通聊天可能误入计划/行为路径 |
+| 优先级 | P0 |
 
----
+#### SC-AU06-A4 — 真实工作台能识别 active behavior
 
-### 场景组 B：我能做什么操作
+**用户视角**：作者看到工作台顶部/卡片/按钮明确显示“正在等待你确认/补充”。
 
-#### B1 — 点确认，系统处理我的决定
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | `WorkspaceChat` 能从 TurnResult 识别 active behavior，并渲染可用动作 |
+| 当前证据 | `WorkspaceChat` 读取 `result.behavior_state?.active`；`TurnResultBuilder.maybe_add_behavior/2` 当前输出扁平 `behavior_state` |
+| 当前状态 | 存在契约不匹配风险 |
+| 当前缺口 | 前端期望 `{active: ...}`，后端 v3 输出 `{behavior_id, behavior_type, lifecycle_status...}`；真实入口可能识别不到 pending behavior |
+| 优先级 | P0 |
 
-**作为作者**，我点了"确认执行"。确认提示消失，系统开始处理。我不用再点第二次。
+### 场景组 B：作者动作能正确关闭或推进等待态
 
-**验证点**：
-- [ ] 提交的 action 引用了正确的 `behavior_ref`
-- [ ] behavior 从"等我"变为"正在处理"
-- [ ] 系统重新评估确认后的状态
+#### SC-AU06-B1 — 点击确认绑定 open confirmation
 
-**测试**：`action_roundtrip_test.exs` — `"valid action passes through gateway"` ✅
+**用户视角**：作者点击“确认执行”。
 
-**当前实现问题**：确认后 behavior 不会进入 resolving 状态——永远停在 awaiting_author。❌
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | action 包含 `source_turn_ref`、`action_id`、`action_type`、`behavior_ref`、`target_ref`、`idempotency_key`；系统验证并进入 resolving |
+| 当前证据 | `ActionValidator` 能检查 action 来自 server-held TurnResult；`DialogueGateway.handle_action/3` 对 `confirm_before_execute` 做 re-gate |
+| 当前状态 | 部分实现 |
+| 当前缺口 | `ActionValidator` 只匹配 action_id/type，不校验 `behavior_ref`/`target_ref`/idempotency 与 available action 一致；也不更新 behavior lifecycle |
+| 优先级 | P0 |
 
----
+#### SC-AU06-B2 — 点击取消/拒绝关闭 behavior
 
-#### B2 — 点取消，确认消失且不影响作品
+**用户视角**：作者点击“取消”或“拒绝”。
 
-**作为作者**，我点了"取消"。确认提示消失，我回到正常对话。之前 AI 建议的操作没有留下任何痕迹。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | behavior 进入 `cancelled` 或 `resolved(rejected)`；写入 resolution、closed_at_turn_ref、trace_ref；不执行工具或生产写入 |
+| 当前证据 | Orchestrator 生成 `reject_or_cancel_confirmation` / `cancel_pending_behavior`；ActionValidator 可接受 cancel 类 action |
+| 当前状态 | 验证存在，关闭缺失 |
+| 当前缺口 | `DialogueGateway.handle_action/3` 对非 confirm action 只返回 accepted ack，不关闭 behavior、不广播新的 TurnResult |
+| 优先级 | P0 |
 
-**验证点**：
-- [ ] behavior 有 `cancel_pending_behavior` action
-- [ ] 取消后 lifecycle 变为 cancelled
-- [ ] 取消不产生 production write
+#### SC-AU06-B3 — 回答澄清后重新评估
 
----
+**用户视角**：作者回答“我说的是女主林烬”。
 
-#### B3 — 点了已过期的确认按钮
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 回答绑定原 clarification，behavior 进入 resolving，重新形成 frame/plan/decision |
+| 当前证据 | VS-03 contract 定义 `answer_clarification` |
+| 当前状态 | 未实现/未验收 |
+| 当前缺口 | `WorkspaceChat` 有 `pendingAnswerBid` 逻辑，但后端 `user_message` 没有处理 `behavior_id`，也没有 clarification resolution |
+| 优先级 | P1 |
 
-**作为作者**，我翻到两天前的一个确认提示，点了"确认执行"。系统提示我这个操作已经过期了——因为在那之后作品的上下文已经变了。不会基于过时的状态执行操作。
+#### SC-AU06-B4 — 等待期间继续聊天不误执行
 
-**验证点**：
-- [ ] 返回 stale action 提示
-- [ ] 不产生新的执行副作用
+**用户视角**：作者暂时不处理确认，继续问“如果不替换正文，还有什么方案？”。
 
-**测试**：`action_roundtrip_test.exs` — `"stale action rejected by gateway"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统明确保留、取消或 supersede 当前 behavior；不会把普通消息当确认 |
+| 当前证据 | ADR-0005/VS-03 要求先处理 open behavior compatibility |
+| 当前状态 | 未实现/未验收 |
+| 当前缺口 | 当前 Channel 只按 current_turn 存 action；没有 open behavior ledger 或 compatibility gate |
+| 优先级 | P0 |
 
----
+#### SC-AU06-B5 — 旧按钮、伪造按钮、禁用按钮被拒绝
 
-### 场景组 C：完整的使用体验
+**用户视角**：作者或客户端提交旧 turn / 发明出来 / disabled 的 action。
 
-#### C1 — 一次完整的确认过程
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统拒绝，不关闭当前 behavior，不执行工具 |
+| 当前证据 | `action_roundtrip_test.exs`、`workspace_channel_v3_test.exs` 覆盖 stale/invented/disabled/source missing |
+| 当前状态 | 局部已测试 |
+| 当前缺口 | 只基于当前 socket 的 `current_turn_id` 和 `available_actions`；缺 TTL、跨作品、历史会话、持久化 behavior 校验 |
+| 优先级 | P0 |
 
-**作为作者**，我要 AI "替换第一章正文"。系统弹出了确认提示（告诉我影响范围）。我看了下，点确认。系统重新评估后执行了替换。几天后我回看这轮对话，能看到：什么时候 AI 让我确认的、我什么时候点的确认、确认后系统做了什么。
+### 场景组 C：生命周期完整性
 
-**验证点**：
-- [ ] behavior 创建时记录 `opened_at_turn_ref`（什么时候打开的）
-- [ ] behavior 关闭时记录 `closed_at_turn_ref` + `resolution`（什么时候关的、结果是什么）
-- [ ] **当前实现：`opened_at_turn_ref` 有记录，但 `closed_at_turn_ref` 和 `resolution` 永远为空——因为 resolution 路径未实现** ❌
+#### SC-AU06-C1 — open 到 resolved/cancelled 进入 history
 
----
+**用户视角**：作者确认或取消后，等待状态从当前 UI 消失，历史里能看到处理结果。
 
-#### C2 — 点了确认不是直接执行，系统会重新审查
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | active behavior 关闭；history 追加 resolved/cancelled 项；closed_at_turn_ref 和 resolution 非空 |
+| 当前证据 | `BehaviorState` struct 有 resolution / closed_at_turn_ref；Foundation v2 validator 要求 terminal active 只能进 history |
+| 当前状态 | 设计/字段存在，v3 主链未闭环 |
+| 当前缺口 | `TurnResultBuilder.maybe_add_behavior/2` 不输出 active/history envelope；没有 resolution builder |
+| 优先级 | P0 |
 
-**作为作者**，我点了确认后，系统并没有直接执行。因为它发现在我刚点确认之前，作品的上下文已经发生了变化（比如角色设定被修改了）。系统重新审查后发现需要再次确认。这很合理——确认那一刻的状态才是系统执行的基础。
+#### SC-AU06-C2 — 确认后重新 gate，不直接执行
 
-**验证点**：
-- [ ] confirm action 后 → behavior resolving → re-gate
-- [ ] re-gate 可能产生新的 decision（包括再次 require_confirmation）
-- [ ] **当前实现：re-gate 未实现** ❌
+**用户视角**：作者确认后，系统发现上下文变了，于是要求重新确认或降级。
 
----
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | ConfirmationBinding 绑定 open behavior 和 target；基于最新 state snapshot 重新 gate |
+| 当前证据 | `DialogueGateway.handle_action/3` 有 re-gate 局部路径；ADR-0009 已 Accepted |
+| 当前状态 | 部分实现 |
+| 当前缺口 | 未实现 ConfirmationBinding、rebased_state_snapshot_ref、gate_result_refs；re-gate 使用 source turn 恢复 frame，不读取最新上下文 |
+| 优先级 | P0 |
 
-### 场景组 D：不会卡住
+#### SC-AU06-C3 — 同一 workstream 只有一个 primary author-blocking behavior
 
-#### D1 — 同一时间只有一个确认在等我
+**用户视角**：一个确认未处理时，又触发另一个确认。
 
-**作为作者**，在一个确认还没处理完的时候，我又发起了一个需要确认的操作。系统要么告诉我"先处理上一个确认"，要么自动关闭上一个确认用新的替代——不会出现两个确认弹窗叠在一起的情况。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统拒绝新 behavior、关闭旧 behavior 或 supersede，并留下 trace |
+| 当前证据 | VS-03 contract 和 ADR-0008 要求 single active behavior |
+| 当前状态 | 未实现/未验收 |
+| 当前缺口 | 当前 `ExecutionOrchestrator.open_behavior/5` 不检查已有 open behavior |
+| 优先级 | P0 |
 
-**验证点**：
-- [ ] 同一 workspace 内 active behavior <= 1
-- [ ] 新 behavior 打开时旧 behavior 被 superseded 或新 behavior 被拒绝
-- [ ] **当前实现：无检查——可以同时打开多个 behavior** ❌
+#### SC-AU06-C4 — TTL / expires_at 控制过期等待
 
----
+**用户视角**：两天前的确认按钮现在被点击。
 
-#### D2 — 挂了两小时的确认不会永远挂着
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | action 显示 disabled/expired 或后端拒绝，要求重新生成计划 |
+| 当前证据 | VS-03 contract 允许 `expires_at`；ActionValidator 可拒绝 stale current_turn |
+| 当前状态 | 部分测试，不是真 TTL |
+| 当前缺口 | available_actions 没有 `expires_at`；无时间/TTL 判断 |
+| 优先级 | P1 |
 
-**作为作者**，我有一个确认提示挂了两个小时没处理。系统至少标注它为"可能已过期"，而不是假装和刚弹出来时一样有效。
+#### SC-AU06-C5 — 重复动作幂等
 
-**验证点**：
-- [ ] `opened_at_turn_ref` 可计算存活时间
-- [ ] 超时后 action 不应仍显示为有效
-- [ ] **当前实现：无 TTL 逻辑** ❌
+**用户视角**：作者双击确认或网络重试同一 action。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 同一 `idempotency_key` 只产生一次 resolution/execution |
+| 当前证据 | action envelope 含 `idempotency_key` |
+| 当前状态 | 未实现/未验证 |
+| 当前缺口 | 缺 idempotency ledger；`DialogueGateway.handle_action/3` 没有重复动作去重 |
+| 优先级 | P0 |
+
+### 场景组 D：追溯、回放与跨边界安全
+
+#### SC-AU06-D1 — 行为生命周期可回放且不调 LLM
+
+**用户视角**：作者回看历史会话，能看到当时等待了什么、自己点了什么、最终结果是什么。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | ReplayService 从 trace/history 还原，不调用 LLM |
+| 当前证据 | AU-07 有 replay 局部测试；VS-03 要求 behavior trace replay |
+| 当前状态 | 不确定/未闭环 |
+| 当前缺口 | 缺 BehaviorTrace open/resolving/closed 事件和 history 持久化 |
+| 优先级 | P1 |
+
+#### SC-AU06-D2 — 跨作品/跨会话 action 不能关闭当前 behavior
+
+**用户视角**：作者切换作品或打开历史会话后，点旧确认/取消按钮。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 系统验证 work_id/session_id/source_turn_ref，不影响当前作品的 open behavior |
+| 当前证据 | SU-02/AU-03 已记录 work/session 隔离缺口 |
+| 当前状态 | 未实现/未验收 |
+| 当前缺口 | behavior 没有持久化 work/session ledger；Channel 只看 socket current_turn |
+| 优先级 | P0 |
+
+#### SC-AU06-D3 — 前端不能本地修改 lifecycle
+
+**用户视角**：UI 显示等待态和按钮，但所有状态变化来自后端 TurnResult。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 前端只提交 action；不本地把 awaiting_author 改成 resolved |
+| 当前证据 | `WorkbenchV3` 使用 `sendAuthorAction`；`WorkspaceChat` 主要通过收到 TurnResult 更新消息 |
+| 当前状态 | 部分符合 |
+| 当前缺口 | `WorkspaceChat` 当前对 confirm/reject 调旧事件且没有接收关闭后 TurnResult，真实 lifecycle 展示不完整 |
+| 优先级 | P1 |
 
 ---
 
 ## 5. 场景覆盖状态
 
-| 场景 | 做什么 | 状态 |
-|------|--------|------|
-| A1 | 确认弹窗内容完整 | ✅ |
-| A2 | 普通讨论不触发确认 | ✅ |
-| B1 | 点确认系统处理 | ⚠️ resolution 未实现 |
-| B2 | 点取消无副作用 | ⚠️ 有实现缺测试 |
-| B3 | 点过期按钮被拒 | ✅ |
-| C1 | 完整确认过程可回溯 | ❌ close/resolution 未记录 |
-| C2 | 确认后重新审查 | ❌ re-gate 未实现 |
-| D1 | 同一时间只有一个确认 | ❌ 无检查 |
-| D2 | 挂两小时不会永远挂着 | ❌ 无 TTL |
+| 场景 | 做什么 | 当前状态 | 是否闭环 |
+|---|---|---|---|
+| SC-AU06-A1 | 高风险打开 confirmation | 已测试 | 否，真实 UI 未闭环 |
+| SC-AU06-A2 | 缺信息打开 clarification | 已设计/不确定 | 否 |
+| SC-AU06-A3 | 普通讨论不打开等待态 | 局部已测试 | 否 |
+| SC-AU06-A4 | 真实工作台识别 active behavior | 存在契约偏差 | 否 |
+| SC-AU06-B1 | 点击确认绑定 open behavior | 部分实现 | 否 |
+| SC-AU06-B2 | 取消/拒绝关闭 behavior | 验证存在，关闭缺失 | 否 |
+| SC-AU06-B3 | 回答澄清后重新评估 | 未实现/未验收 | 否 |
+| SC-AU06-B4 | 等待期间继续聊天不误执行 | 未实现/未验收 | 否 |
+| SC-AU06-B5 | stale/invented/disabled action 拒绝 | 局部已测试 | 否，缺 TTL/跨作品/持久化 |
+| SC-AU06-C1 | open 到 closed 进入 history | 字段存在 | 否 |
+| SC-AU06-C2 | 确认后重新 gate | 部分实现 | 否 |
+| SC-AU06-C3 | 单一活跃 behavior | 已设计 | 否 |
+| SC-AU06-C4 | TTL / expires_at | 已设计 | 否 |
+| SC-AU06-C5 | 重复动作幂等 | 字段存在 | 否 |
+| SC-AU06-D1 | lifecycle 可回放 | 不确定/未闭环 | 否 |
+| SC-AU06-D2 | 跨作品/跨会话隔离 | 未实现/未验收 | 否 |
+| SC-AU06-D3 | 前端不本地改 lifecycle | 部分符合 | 否 |
 
-**通过率：3/9 完整 + 2/9 部分 = 约 44%**
+**结论：17 个场景；0/17 完整真实前后端验收；6/17 有 domain/application/channel/front-end 局部证据；11/17 的关键缺口集中在真实 UI 消费、resolution/history、ConfirmationBinding、TTL、幂等、单活跃 behavior 和 replay。**
 
 ---
 
 ## 6. 缺口
 
-| 缺口 | 具体表现 | 影响 |
-|------|---------|------|
-| GAP-01 — Behavior resolution 未实现 | `handle_action` 不修改 behavior status | 确认后 behavior 永不 close——永远是 awaiting_author |
-| GAP-02 — 状态转换无 guard | 任何代码可直接改 lifecycle_status | 可能出现 `cancelled → awaiting_author` 回退 |
-| GAP-03 — 单一活跃 behavior 未强制 | 打开新 behavior 前不检查已有活跃者 | 可能同时出现两个确认弹窗 |
-| GAP-04 — TTL 未实现 | 无过期机制 | 确认可以永远挂着 |
-| GAP-05 — trace_ref 未填写 | behavior 创建后 trace_ref 为空 | 回放时无法追溯 behavior 的打开和关闭 |
-| GAP-06 — ConfirmationBinding 未使用 | ADR-0009 的设计不存在于代码中 | 确认绑定(防止绑定错误 target)的保障缺失 |
+| 缺口 | 具体表现 | 类型 | 优先级 |
+|---|---|---|---|
+| AU06-GAP-01 — 真实入口 behavior_state 契约不匹配 | `WorkspaceChat` 读 `behavior_state.active`，后端 v3 输出扁平 behavior_state | 修正/补集成 | P0 |
+| AU06-GAP-02 — 真实入口不渲染 available_actions | `WorkspaceChat` 不显示 v3 action panel；确认卡也未生成 | 补实现/补验收 | P0 |
+| AU06-GAP-03 — cancel/reject/clarification resolution 未实现 | 非 confirm action 只 ack，不关闭 behavior；`behavior_id` 随 user_message 发送后后端不处理 | 补实现/补集成 | P0 |
+| AU06-GAP-04 — open -> resolving -> resolved/history 未闭环 | 无 resolution builder、closed_at_turn_ref、history 输出和持久化 | 补实现/补测试 | P0 |
+| AU06-GAP-05 — ConfirmationBinding 未完整实现 | 未绑定 behavior_ref/target_ref/state snapshot/gate result | 补实现/补集成 | P0 |
+| AU06-GAP-06 — 单一活跃 behavior 未强制 | 打开新 behavior 前不检查已有 open behavior | 补实现/补测试 | P0 |
+| AU06-GAP-07 — TTL / expires_at 缺失 | available_actions 无 expires_at，无时间过期判断 | 补实现/补测试 | P1 |
+| AU06-GAP-08 — 幂等 ledger 缺失 | `idempotency_key` 有字段但不去重 | 补实现/补测试 | P0 |
+| AU06-GAP-09 — behavior/action 跨作品和跨会话隔离不足 | 只看 current_turn；缺 work/session scoped behavior ledger | 补集成/补验收 | P0 |
+| AU06-GAP-10 — BehaviorTrace / replay 缺失 | open/resolving/closed 事件不可完整回放 | 补集成/补验收 | P1 |
+| AU06-GAP-11 — blocking clarification 主链不明确 | 设计有 clarification，当前测试主要覆盖 confirmation | 状态核查/补实现 | P1 |
 
 ---
 
-## 7. 验收命令
+## 7. 已知基础设施
+
+| 基础设施 | 当前价值 | 不应误判 |
+|---|---|---|
+| `BehaviorState` struct | 字段覆盖 lifecycle 设计 | 不是状态机，没有 transition guard |
+| `BehaviorState.open?/closed?` | 能判断 open/closed 终态 | 不会自动关闭或写 history |
+| `ExecutionOrchestrator.open_behavior/5` | 能打开 confirmation 并生成 actions | 不检查已有 open behavior、TTL、trace_ref |
+| `ActionValidator` | 拒绝 stale/invented/disabled action | 不验证 behavior_ref/target_ref/idempotency 绑定 |
+| `DialogueGateway.handle_action/3` | confirm 有 re-gate / dispatch 局部路径 | cancel/reject/clarification resolution 未实现 |
+| `WorkbenchV3` | 有 v3 action panel 原型实现 | 当前 App 入口仍是 `WorkspaceChat` |
+
+---
+
+## 8. 验收命令
+
+这些命令只能证明局部 behavior/action 能力，不能证明 AU-06 完整通过：
 
 ```bash
 mix test apps/novel_application/test/novel_application/behavior_lifecycle_test.exs
 mix test apps/novel_application/test/novel_application/action_roundtrip_test.exs
+mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
+```
+
+完整 AU-06 验收还需要补充：
+
+```text
+1. 真实工作台：高风险请求 -> active behavior 可见 -> confirm/cancel 按钮来自 available_actions。
+2. cancel/reject：关闭 behavior，TurnResult history 增加 resolved/cancelled 项，无工具/写入。
+3. clarification：缺 target -> clarification open；作者回答 -> resolving -> re-gate。
+4. pending 期间继续聊天：明确 retain / cancel / supersede，不误执行。
+5. TTL/幂等/跨作品：expired、duplicate、cross-work action 不产生执行。
+6. replay：open/resolving/closed 全链路可回放且不调 LLM。
 ```

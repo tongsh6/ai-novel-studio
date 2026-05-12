@@ -1,208 +1,343 @@
 # AU-07 系统透明度与决策溯源
 
-> 作者视角：我想知道 AI 为什么会给我这个建议。系统应该能告诉我它参考了我小说里的哪些设定、是否调用了工具、以及在做决定时是如何考虑的。几天后回看旧对话，即使 AI 不在线，解释也还在。
+> 作者视角：我想知道 AI 为什么这样回复、为什么没有执行、为什么要求确认、参考了哪些作品上下文，以及几天后回看时还能不能解释当时发生了什么。解释必须是作者能理解的安全摘要，而不是 raw prompt、debug dump 或英文错误码。
+
+> 2026-05-13 场景化对账结论：`DecisionTrace`、`TraceWriter`、`TraceRepository` 和 `ReplayService.build_report/1` 已有局部证据，能证明“结构化 replay 不调 provider”；但真实工作台没有“为什么？”入口，没有 trace 查询 API / author-safe summary UI，ReplayReport 主要基于 DecisionTrace，尚未接入完整 ToolTrace / BehaviorTrace / StateTrace，也没有 author-safe 与 developer summary 的真正隔离。因此 AU-07 不能再按“80% 核心已实现”判断。
 
 ---
 
 ## 1. 我能做什么
 
 | 我能做什么 | 系统怎么回应 |
-|-----------|------------|
-| 点击消息旁的"为什么？" | 系统展示本轮决策摘要——为什么不调工具、为什么拒了 |
-| 查看 AI 参考了哪些内容 | 看到引用了哪些设定、对话、记忆 |
-| 了解操作为什么没执行 | 系统解释是被什么 gate 拦截的 |
-| 查看 AI 调用了什么工具 | 看到工具名、版本、执行结果 |
-| 翻看一周前的对话解释 | 解释是持久化的，不依赖实时 AI |
-| AI 给我的解释是通俗的 | 不是技术错误码，是我能看懂的中文 |
+|---|---|
+| 点开某轮消息的“为什么？” | 看到作者可读的解释摘要：为什么回复、为什么不执行、为什么要求确认 |
+| 查看 AI 参考了哪些内容 | 看到作品背景、当前会话、记忆、已确认设定等来源摘要 |
+| 查看为什么被拒绝或降级 | 看到被哪个 gate 拦截，以及中文解释 |
+| 查看工具调用过程 | 看到工具名、版本、状态、结果摘要和是否待采纳 |
+| 查看采纳/确认/取消原因 | 看到行为状态和作品事实为什么改变或没改变 |
+| 离线回看旧会话 | 基于保存的 trace/replay，不重新调用 LLM |
+| 切换开发者视图 | 看到更详细的结构化报告，但仍不暴露不应展示的敏感内容 |
 
 明确不能做的：
-- 系统不应向我展示原始 LLM 提示词（Raw Prompts）
-- 我不应看到涉及系统安全或他人隐私的信息
+
+- 作者可见区不能展示 raw prompt、hidden policy、provider 原始日志、未脱敏工具输入输出。
+- Replay 不能默认重新调用 LLM 或用当前上下文替代历史快照。
+- `trace_summary` 不能补写 trace 中不存在的解释。
+- developer report 不能作为普通作者 UI 主数据源。
+- 缺失 trace 时不能谎称解释完整。
 
 ---
 
 ## 2. 不变量
 
-| 编号 | 不变量 (`00c` §7) | 本验收如何验证 |
-|------|-------------------|---------------|
-| #5 | 工具调用有 trace | B1 — 工具调用的 trace 可查 |
-| #9 | TurnResult 是 canonical 输出 | A1 — trace summary 源自真实 trace |
-| #13 | trace summary 脱敏 | C1 — 敏感字段不在作者可见区 |
-| #14 | replay 不重新调用 LLM | D1 — 离线查看解释不调 AI |
+| 编号 | 不变量 | 本验收如何验证 |
+|---|---|---|
+| AU07-I1 | 每个可解释 turn 必须有 DecisionTrace 或明确缺失原因 | SC-AU07-A1/C2 |
+| AU07-I2 | ToolRequest / ToolResult 必须可追溯 | SC-AU07-A3/D1 |
+| AU07-I3 | Behavior open/close 必须可追溯 | SC-AU07-D2 |
+| AU07-I4 | State/adoption/projection 变化必须可追溯 | SC-AU07-D3 |
+| AU07-I5 | author-safe summary 必须脱敏 | SC-AU07-B1 |
+| AU07-I6 | author-safe 和 developer summary 必须隔离 | SC-AU07-B2 |
+| AU07-I7 | replay 默认不调用 provider | SC-AU07-C1 |
+| AU07-I8 | replay 必须诚实标注 partial / invalid_trace | SC-AU07-C2 |
+| AU07-I9 | 前端只能消费 redacted summary，不直接展示 raw trace | SC-AU07-E1 |
 
 ---
 
 ## 3. 契约引用
 
-| 契约 | 用途 |
-|------|------|
-| ADR-0013 | trace 脱敏与上下文引用 |
-| ADR-0014 | TraceSummaryView redaction 规则 |
-| ADR-0017 | ReplayCase / ReplayReport 定义 |
-| VS-06 Contract Pack §2 | TraceSummaryView 字段 |
-| VS-06 Contract Pack §4 | ReplayReport schema |
-| VS-06 Contract Pack §5 | Required Replay Questions（6 个问题） |
-| VS-06 Contract Pack §6 | Proof 草案 |
+| 契约 / 代码 | 用途 |
+|---|---|
+| `docs/design-v3/contracts/VS-06-replay-surface-contract-pack.md` | TraceSummaryView、ReplayCase、ReplayReport、6 个必答问题 |
+| `docs/design-v3/adr/ADR-0014-trace-redaction-v3.md` | author-safe TraceSummaryView redaction 决策 |
+| `docs/design-v3/adr/ADR-0017-replay-report-v3.md` | ReplayReport 和 no-provider replay 决策 |
+| `docs/design-v3/06-memory-context-and-trace.md` | ContextTrace / DecisionTrace / ToolTrace / BehaviorTrace / StateTrace 完整设计 |
+| `apps/novel_application/lib/novel_application/trace_writer.ex` | 当前 trace summary 和 DecisionTrace 生成 |
+| `apps/novel_application/lib/novel_application/replay_service.ex` | 当前结构化 ReplayReport 生成 |
+| `apps/novel_persistence/lib/novel_persistence/trace_repository.ex` | DecisionTrace 持久化、按 workspace/turn 查询 |
+| `apps/novel_application/test/novel_application/replay_service_test.exs` | Replay no-provider、partial trace 局部测试 |
+| `apps/novel_persistence/test/novel_persistence/trace_repository_test.exs` | trace 持久化局部测试 |
+| `frontend/src/components/WorkspaceChat.tsx` | 当前真实工作台，目前未渲染 trace summary / why 入口 |
 
 ---
 
 ## 4. 验收场景
 
-### 场景组 A：每轮对话的可解释性
+### 场景组 A：作者能理解本轮为什么这样做
 
-#### A1 — 纯聊天时能看到为什么不调工具
+#### SC-AU07-A1 — 纯聊天能解释为什么不调工具
 
-**作为作者**，我和 AI 聊了聊故事方向，AI 没有调用任何工具。我点开"为什么？"，看到解释："本轮只需要自然语言回应，不需要工具"。这是我能看懂的中文，不是一串技术错误码。
+**用户视角**：作者问一个创作讨论问题，AI 只是自然回复。作者点“为什么？”。
 
-**验证点**：
-- [ ] trace summary 包含决策原因（`no_tool_reason`）
-- [ ] 原因是人类可读的（如 `"no_tool_needed"` → "不需要工具"）
-- [ ] trace 记录完整的事件顺序（5 个事件）
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 显示“本轮只需要自然语言回应，不需要工具/写入/等待作者”的中文解释 |
+| 当前证据 | `dialogue_gateway_test.exs` 覆盖 DecisionTrace no-tool/no-behavior/no-write；`TraceWriter.record/3` 生成 `trace_summary` |
+| 当前状态 | 后端局部已测试 |
+| 当前缺口 | 无前端 why 入口；reason code 仍偏机器字段，缺中文映射 |
+| 优先级 | P1 |
 
-**测试**：`dialogue_gateway_test.exs` — `"DecisionTrace records no-tool, no-behavior, no-write reasons"` ✅
+#### SC-AU07-A2 — 被拒绝/降级时能解释 gate
 
----
+**用户视角**：作者要求“把整本书重写完”，系统降级或拒绝。作者点“为什么？”。
 
-#### A2 — AI 的建议被拒绝时能看到原因
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 解释 first blocking gate、原因、系统建议的下一步 |
+| 当前证据 | `TraceWriter.record_with_decision/5` 写入 `first_blocking_gate`、`reason_codes`、`plan_actions` |
+| 当前状态 | 后端局部实现 |
+| 当前缺口 | gate/reason 仍是英文 atom/string；无 author-safe 文案表和 UI 展示 |
+| 优先级 | P1 |
 
-**作为作者**，我让 AI "把整本书重写一遍"。AI 拒绝了我。我点开"为什么？"，看到解释："计划范围过广，建议降级为对话讨论"。还告诉我被哪个检查拦截了（action_scope gate）。
+#### SC-AU07-A3 — 工具调用过程可查
 
-**验证点**：
-- [ ] trace summary 包含 `orchestrator_decision` 和 `first_blocking_gate`
-- [ ] gate 名有对应的中文解释（如 `action_scope` → "计划范围"）
+**用户视角**：AI 生成角色草稿后，作者想知道它调用了什么工具。
 
-**当前实现**：`first_blocking_gate` 被记录在 summary 中 ✅。但 gate 名是英文 atom（如 `action_scope`），缺少作者友好的中文映射 ❌。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 显示工具名、版本、状态、结果摘要、产物仍待采纳 |
+| 当前证据 | `TraceWriter.record_with_tool/7` 写 tool_name/version/status/request/result id；`replay_service_test.exs` 覆盖 tool_dispatched trace |
+| 当前状态 | 局部实现 |
+| 当前缺口 | 只有 DecisionTrace 摘要；未持久化完整 ToolTrace / registry snapshot / redacted tool I/O |
+| 优先级 | P1 |
 
----
+#### SC-AU07-A4 — 上下文引用来源可见
 
-#### A3 — AI 调用了工具时能看到完整过程
+**用户视角**：AI 提到“林烬的亲情线”，作者想知道依据来自哪里。
 
-**作为作者**，AI 帮我创建了一个角色。我点开详情，看到：AI 调用了"角色创建工具"，输入了名字和类型，执行成功，产生了一个草稿——目前还未采纳。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | author-safe 显示当前作品、会话、记忆、确认设定等来源摘要；无上下文时诚实标注 |
+| 当前证据 | `TraceWriter.record/3` 支持 `context_refs` 和 `has_context`；`context_grounding_test.exs` 有 context refs 局部测试 |
+| 当前状态 | 局部实现 |
+| 当前缺口 | AU-03 已记录 context refs summary 仍占位；缺真实 UI 来源列表 |
+| 优先级 | P1 |
 
-**验证点**：
-- [ ] trace summary 包含 tool_name、tool_version、tool_status
-- [ ] 标注 `adoption_status = "not_adopted"`（不谎报采纳）
-- [ ] 事件顺序包含从 tool_request → tool_result 的完整链路
+### 场景组 B：脱敏与双视图
 
-**测试**：`tool_provenance_test.exs` — `"executes valid tool request and returns ToolResult"` ✅
+#### SC-AU07-B1 — 作者视图不暴露内部秘密
 
----
+**用户视角**：作者打开解释面板。
 
-### 场景组 B：上下文溯源
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 不展示 raw prompt、hidden policy、provider raw logs、敏感 memory、未脱敏 tool I/O |
+| 当前证据 | `DecisionTrace.redaction_level` 字段、ADR-0014 redaction 决策 |
+| 当前状态 | 字段/设计存在 |
+| 当前缺口 | 缺 redaction engine 和测试；当前 summary 由 TraceWriter 直接拼 map，没有敏感字段扫描 |
+| 优先级 | P0 |
 
-#### B1 — 看到 AI 引用了什么
+#### SC-AU07-B2 — author-safe 与 developer summary 隔离
 
-**作为作者**，AI 说"林烬应该从亲情线切入"。我想知道它是基于我说的、还是作品设定、还是我确认过的伏笔。我点开详情，看到它参考了：作品《灵源纪元》的当前设定、上一轮的对话内容。
+**用户视角**：普通作者看简洁解释；开发者/审计视图可看结构化细节。
 
-**验证点**：
-- [ ] `context_refs` 列出所有引用来源（source_type + context_ref）
-- [ ] 空上下文时标注无引用（`has_context: false`）
-- [ ] 来源类型包括 current_work / conversation / memory / behavior
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 两种视图有明确权限和字段差异；developer report 不进入普通 UI |
+| 当前证据 | VS-06 区分 `author_safe` / `developer_summary`；`ReplayReport.redaction_profile` 有枚举 |
+| 当前状态 | 结构字段存在 |
+| 当前缺口 | `ReplayService.build_report/1` 固定 `redaction_profile: :author_safe`，没有双视图生成/权限边界 |
+| 优先级 | P1 |
 
-**测试**：`context_grounding_test.exs` — `"with context, trace records context_refs"` ✅
+#### SC-AU07-B3 — 解释使用中文业务语言
 
----
+**用户视角**：作者不应看到 `action_scope`、`tool_result_not_adoption` 这种内部码作为主要解释。
 
-### 场景组 C：脱敏边界
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | reason_code 有中文业务文案，同时可保留开发者 code |
+| 当前证据 | 当前 trace summary 包含 reason_codes / no_*_reason |
+| 当前状态 | 未实现/未验收 |
+| 当前缺口 | 缺 reason code -> author copy 映射；也未集中进 `copy.ts` |
+| 优先级 | P1 |
 
-#### C1 — 我看不到系统的内部秘密
+### 场景组 C：离线回放与完整性
 
-**作为作者**，我在决策详情里翻看。我不应该看到：AI 的原始提示词、系统内部策略、其他作者的数据、代码堆栈。如果一条记忆被标记为"敏感"，它的正文不应该出现在我能看到的摘要里。
+#### SC-AU07-C1 — 离线回放不调 LLM
 
-**验证点**：
-- [ ] author-safe summary 不含 raw prompt
-- [ ] author-safe summary 不含 hidden policy
-- [ ] `redaction_level = :author_safe` 的 summary 与 developer 视图隔离
-- [ ] **当前实现：有 `redaction_level` 字段但同一份报告既用作 author 又用作 developer 视图——未做内容隔离** ❌
+**用户视角**：作者或开发者离线查看旧 turn 的解释。
 
----
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | ReplayReport 基于保存 trace 生成，`provider_called=false` |
+| 当前证据 | `ReplayService.build_report/1` 固定 provider_called false；`replay_service_test.exs` 覆盖 does not call provider |
+| 当前状态 | 局部已测试 |
+| 当前缺口 | 缺从持久化 trace 查询到 replay report 的 API/UI 闭环 |
+| 优先级 | P1 |
 
-### 场景组 D：离线回放
+#### SC-AU07-C2 — 不完整 trace 诚实标注 partial
 
-#### D1 — 断网状态下翻看旧对话的解释
+**用户视角**：旧对话 trace 缺失时，系统明确告诉作者解释不完整。
 
-**作为作者**，我去年的今天写的对话，现在回看——AI 服务当时可能已经不在线了。但我仍然能看到当时的决策解释：为什么那个建议被拒了、AI 当时参考了什么。这些解释是从当时保存的 trace 里重建的，不需要重新调用 AI。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | `missing_trace_refs` 非空，`result_status=partial/invalid_trace`，UI 不显示“完整解释” |
+| 当前证据 | `replay_service_test.exs` 覆盖 missing turn_result_ref -> partial |
+| 当前状态 | 后端局部已测试 |
+| 当前缺口 | 只检查 `turn_result_ref`；未检查 ToolTrace/BehaviorTrace/StateTrace 等关键 refs |
+| 优先级 | P1 |
 
-**验证点**：
-- [ ] ReplayReport 从持久化的 DecisionTrace 重建
-- [ ] `provider_called = false`——重建不调 LLM
-- [ ] 完整 trace → `result_status = :complete`
+#### SC-AU07-C3 — ReplayReport 回答 VS-06 六个问题
 
-**测试**：`replay_service_test.exs` — `"replay report does not call provider"` ✅、`"builds replay report from reply-only trace"` ✅
+**用户视角**：开发者用 replay 解释“为什么这样做/没做、工具、采纳、行为、UI 卡片”。
 
----
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 至少回答 VS-06 §5 的 6 个问题 |
+| 当前证据 | VS-06 contract 已冻结要求；`ReplayService` 有 chain/decision/state 三类字段 |
+| 当前状态 | 部分实现 |
+| 当前缺口 | `build_state_explanations/1` 硬编码；缺 plan vs decision、ToolTrace、BehaviorTrace、StateTrace、TurnResultViewModel 解释 |
+| 优先级 | P1 |
 
-#### D2 — 不完整的 trace 诚实标注
+### 场景组 D：跨 trace 类型的完整链路
 
-**作为作者**，我的一个旧对话因为某种原因 trace 数据不完整（缺少 turn_result_ref）。我回看时系统标注为"部分可解释"，而不是假装一切正常。它明确告诉我"缺少 turn_result_ref——部分信息不可用"。
+#### SC-AU07-D1 — ToolTrace 进入 replay
 
-**验证点**：
-- [ ] 缺失关键 ref → `result_status = :partial`
-- [ ] `missing_trace_refs` 列出缺失项
-- [ ] 不声称 `complete`
+**用户视角**：回看工具调用时能知道工具版本和结果。
 
-**测试**：`replay_service_test.exs` — `"missing_turn_result_ref detected as partial"` ✅
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | Replay chain 包含 ToolRequest / ToolResult / registry snapshot |
+| 当前证据 | `TraceWriter.record_with_tool/7` 把工具信息放进 summary |
+| 当前状态 | 摘要级局部实现 |
+| 当前缺口 | 没有独立 ToolTrace 持久化和 ReplayService 聚合 |
+| 优先级 | P1 |
 
----
+#### SC-AU07-D2 — BehaviorTrace 进入 replay
 
-#### D3 — 回放能回答"策划建议和最终决定有什么差异"
+**用户视角**：回看一次确认/取消时，能看到行为如何打开和关闭。
 
-**作为作者**，AI 最初建议了一个 3 步计划，但最终系统只执行了第 1 步。我回看时，能看到：AI 建议了什么、系统裁决了什么（降级/拒绝/确认）、以及为什么。
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | Replay chain 包含 behavior open/resolving/closed/resolution |
+| 当前证据 | AU-06 已确认 BehaviorState 打开局部实现 |
+| 当前状态 | 未闭环 |
+| 当前缺口 | AU-06 记录 resolution/history/BehaviorTrace 未实现；ReplayService 只处理 DecisionTrace |
+| 优先级 | P0 |
 
-**验证点**：
-- [ ] ReplayReport 的 `decision_explanations` 包含 plan vs decision 的差异
-- [ ] 包含 `plan_actions`（AI 建议的步骤数）vs `orchestrator_decision`（系统的裁决）
-- [ ] **当前实现：`build_decision_explanations` 只输出 decision 信息，plan 信息仅在 `record_with_decision` 的 summary 中有 `plan_actions` 计数** ⚠️
+#### SC-AU07-D3 — StateTrace / adoption / projection 进入 replay
 
-**测试**：`replay_service_test.exs` — `"builds replay report from tool_dispatched trace"` ✅
+**用户视角**：回看某个设定为什么进入作品、阅读投影为什么过期。
 
----
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | Replay chain 解释 adoption decision、state trace、projection hint |
+| 当前证据 | AU-05 已确认 AdoptionBoundary 纯规则和 projection hint 局部存在 |
+| 当前状态 | 未闭环 |
+| 当前缺口 | StateTrace 未真实写入；ReplayService `state_explanations` 硬编码 |
+| 优先级 | P0 |
 
-#### D4 — 回放能回答"工具结果为什么没直接变成作品内容"
+### 场景组 E：真实入口和持久化访问
 
-**作为作者**，AI 用工具生成了一个角色，但我当时没采纳。回看时我想知道：是我不满意所以没采纳，还是系统拦截了？
+#### SC-AU07-E1 — 工作台有“为什么？”入口
 
-**验证点**：
-- [ ] `state_explanations` 解释 adoption boundary 的决策
-- [ ] 标注 `adoption_status = "not_adopted"` 以及原因
-- [ ] **当前实现：`build_state_explanations` 硬编码返回 `"no production write in this turn"`——不区分不同情况** ❌
+**用户视角**：作者在消息旁边点击解释入口。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | 前端展示 author-safe trace summary 或解释面板 |
+| 当前证据 | `TurnResult` 有 `trace_summary` 字段；`socket_v3.ts` 类型包含 trace_summary |
+| 当前状态 | 类型存在，UI 未实现 |
+| 当前缺口 | `WorkspaceChat` / `WorkbenchV3` 未渲染 trace_summary，也没有“为什么？”按钮 |
+| 优先级 | P1 |
+
+#### SC-AU07-E2 — 可从持久化 trace 查询旧 turn
+
+**用户视角**：几天后回看旧会话仍能解释。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | trace 按 work/session/turn 持久化，可查询并生成 replay report |
+| 当前证据 | `TraceRepository` 支持 insert/list_by_workspace/list_by_turn/get_by_trace_id；`DialogueGateway` 会调用 trace persister |
+| 当前状态 | persistence 局部实现 |
+| 当前缺口 | 缺 Web API / Channel 事件 / UI 入口把历史 trace 转成作者可见解释 |
+| 优先级 | P1 |
+
+#### SC-AU07-E3 — 跨作品和历史会话 trace 隔离
+
+**用户视角**：作者切换作品或打开历史会话，只能看到该作品/会话的解释。
+
+| 字段 | 内容 |
+|---|---|
+| 期望结果 | trace 查询按 work_id / session_id / turn_id 隔离 |
+| 当前证据 | TraceRepository 以 workspace_id 索引；SU-02/AU-03 已记录 work/session 语义仍在迁移 |
+| 当前状态 | 部分实现/存在语义风险 |
+| 当前缺口 | trace schema 用 workspace_id；当前作品 work_id、旧 workspace_id、未来 session_id 关系未统一 |
+| 优先级 | P1 |
 
 ---
 
 ## 5. 场景覆盖状态
 
-| 场景 | 做什么 | 状态 |
-|------|--------|------|
-| A1 | 纯聊天时能看到不调工具原因 | ✅ |
-| A2 | 被拒时能看到被什么 gate 拦了 | ⚠️ gate 名无中文映射 |
-| A3 | 工具调用完整过程可查 | ✅ |
-| B1 | 看到 AI 引用了什么 | ✅ |
-| C1 | 看不到系统秘密 | ❌ 无内容隔离 |
-| D1 | 断网查看旧对话解释 | ✅ |
-| D2 | 不完整 trace 诚实标注 | ✅ |
-| D3 | 建议和决定差异可见 | ⚠️ plan vs decision 信息不完整 |
-| D4 | 工具结果为什么没采纳 | ❌ state_explanations 硬编码 |
+| 场景 | 做什么 | 当前状态 | 是否闭环 |
+|---|---|---|---|
+| SC-AU07-A1 | 解释纯聊天为什么不调工具 | 局部已测试 | 否，缺 UI/中文文案 |
+| SC-AU07-A2 | 解释被拒/降级 gate | 局部实现 | 否 |
+| SC-AU07-A3 | 工具调用过程可查 | 局部实现 | 否，缺 ToolTrace |
+| SC-AU07-A4 | 上下文引用来源可见 | 局部实现 | 否 |
+| SC-AU07-B1 | author-safe 不泄露秘密 | 字段/设计存在 | 否 |
+| SC-AU07-B2 | author/developer 双视图隔离 | 字段存在 | 否 |
+| SC-AU07-B3 | 中文业务解释 | 未实现/未验收 | 否 |
+| SC-AU07-C1 | 离线 replay 不调 LLM | 已测试 | 否，缺 API/UI 闭环 |
+| SC-AU07-C2 | 不完整 trace 标 partial | 已测试 | 否，检查面不足 |
+| SC-AU07-C3 | 回答 VS-06 六个问题 | 部分实现 | 否 |
+| SC-AU07-D1 | ToolTrace 进入 replay | 摘要级局部实现 | 否 |
+| SC-AU07-D2 | BehaviorTrace 进入 replay | 未闭环 | 否 |
+| SC-AU07-D3 | StateTrace/adoption/projection 进入 replay | 未闭环 | 否 |
+| SC-AU07-E1 | 工作台 why 入口 | 类型存在 | 否 |
+| SC-AU07-E2 | 持久化 trace 查询旧 turn | persistence 局部实现 | 否 |
+| SC-AU07-E3 | 跨作品/历史会话 trace 隔离 | 部分实现/语义风险 | 否 |
 
-**通过率：5/9 完整 + 2/9 部分 = 约 67%**
+**结论：16 个场景；0/16 完整真实前后端验收；8/16 有 application/persistence 局部证据；8/16 的关键缺口集中在真实 UI 入口、redaction、双视图、Tool/Behavior/StateTrace、Replay 六问和 work/session 隔离。**
 
 ---
 
 ## 6. 缺口
 
-| 缺口 | 具体表现 | 影响 |
-|------|---------|------|
-| GAP-01 — 作者友好的文案映射 | gate 名（`action_scope`）、reason_code 为英文 atom | 作者看不懂"为什么被拒" |
-| GAP-02 — 脱敏内容隔离 | author_safe 和 developer 视图用同一份数据 | 敏感信息可能泄露给作者 |
-| GAP-03 — state_explanations 硬编码 | 不区分"作者没采纳"和"系统拦截了" | 回放无法解释 adoption boundary 的真实决策 |
-| GAP-04 — ReplayReport 不回答全部 6 个问题 | VS-06 §5 要求回答 6 个问题，当前只覆盖 3 个 | 回放的完整性不够 |
-| GAP-05 — ToolTrace/BehaviorTrace 未接入 Replay | ReplayService 只处理 DecisionTrace | 工具调用和行为生命周期的回放缺失 |
-| GAP-06 — developer summary 与 author-safe 无隔离层 | 同一份 report 用于两个视图 | 开发者视图可暴露比作者视图更多的信息，但目前无差异 |
+| 缺口 | 具体表现 | 类型 | 优先级 |
+|---|---|---|---|
+| AU07-GAP-01 — 真实工作台无“为什么？”入口 | `WorkspaceChat` / `WorkbenchV3` 未渲染 trace_summary | 补实现/补验收 | P1 |
+| AU07-GAP-02 — reason/gate 缺作者友好中文映射 | `action_scope`、`tool_result_not_adoption` 等直接暴露会难懂 | 补实现/文案同步 | P1 |
+| AU07-GAP-03 — redaction engine 缺失 | 有 redaction_level 字段，但无内容脱敏扫描/策略执行测试 | 补实现/补测试 | P0 |
+| AU07-GAP-04 — author-safe / developer summary 未隔离 | `ReplayService` 固定 author_safe，无 developer path 和权限边界 | 补实现/补集成 | P1 |
+| AU07-GAP-05 — ReplayReport 不能回答 VS-06 六问 | plan vs decision、ToolTrace、BehaviorTrace、StateTrace、TurnResultViewModel 解释不足 | 补实现/补测试 | P1 |
+| AU07-GAP-06 — ToolTrace 未独立持久化/聚合 | 工具信息在 DecisionTrace summary 中，缺 registry snapshot 和 replay refs | 补集成 | P1 |
+| AU07-GAP-07 — BehaviorTrace 未接入 replay | AU-06 lifecycle 未闭环，ReplayService 也不处理 behavior refs | 补集成 | P0 |
+| AU07-GAP-08 — StateTrace/adoption/projection replay 缺失 | `state_explanations` 硬编码 no production write | 补实现/补集成 | P0 |
+| AU07-GAP-09 — trace 查询 API/UI 缺失 | TraceRepository 存在，但没有作者查看旧 turn 解释的入口 | 补集成/补验收 | P1 |
+| AU07-GAP-10 — work/session trace 隔离语义不清 | trace 使用 workspace_id，当前产品正在迁移 work/session 模型 | 修设计偏差/补验收 | P1 |
 
 ---
 
-## 7. 验收命令
+## 7. 已知基础设施
+
+| 基础设施 | 当前价值 | 不应误判 |
+|---|---|---|
+| `TraceWriter.record*` | 能生成 reply/decision/tool/recovery 的 DecisionTrace 摘要 | 不等于完整 ToolTrace/BehaviorTrace/StateTrace |
+| `ReplayService.build_report/1` | 能结构化 replay 且不调 provider | 不等于作者 UI 可见解释 |
+| `TraceRepository` | 能持久化和查询 DecisionTrace record | 不等于有 trace API / history UI |
+| `redaction_level` / `redaction_profile` 字段 | 为双视图留下结构 | 不等于脱敏策略已执行 |
+| `trace_summary` 字段 | TurnResult 可携带解释摘要 | 当前前端未渲染 |
+
+---
+
+## 8. 验收命令
+
+这些命令只能证明局部 trace/replay 能力，不能证明 AU-07 完整通过：
 
 ```bash
 mix test apps/novel_application/test/novel_application/replay_service_test.exs
 mix test apps/novel_application/test/novel_application/context_grounding_test.exs
+mix test apps/novel_persistence/test/novel_persistence/trace_repository_test.exs
+```
+
+完整 AU-07 验收还需要补充：
+
+```text
+1. 工作台 why walkthrough：每条 assistant 消息可打开 author-safe 解释。
+2. Redaction 测试：raw prompt / hidden policy / sensitive memory / raw tool I/O 不进入作者视图。
+3. Developer report：同一 trace 可生成 developer summary，且权限隔离。
+4. Replay 六问：reply-only、confirmation、tool、adoption、behavior、UI action 都能解释。
+5. Trace API/UI：从持久化 trace 查询旧 turn，离线生成 replay，不调 provider。
+6. Work/session 隔离：只能查看当前作品/会话授权范围内的 trace。
 ```
