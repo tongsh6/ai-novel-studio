@@ -109,14 +109,13 @@ defmodule NovelApplication.Planner do
     tools = CapabilityRegistry.list()
 
     """
-    你是一个小说创作 AI 的规划器。基于已形成的对话认知帧，提出下一步行动建议。
+    你是一个小说创作 AI 的规划器。基于已形成的对话认知帧，提出下一步工具调用建议。
 
     ## 对话认知帧
     - frame_type: #{frame.frame_type}
     - dialogue_goal: #{frame.dialogue_goal.summary}
-    - tool_need: #{inspect(frame.tool_need)}
 
-    ## 当前开放的创作能力 (Capabilities)
+    ## 当前开放的创作工具 (Capabilities)
     #{Enum.join(tools, ", ")}
 
     ## 用户输入
@@ -124,28 +123,28 @@ defmodule NovelApplication.Planner do
 
     ## 输出格式（严格 JSON）
     {
-      "plan_goal_summary": "你建议推进什么",
+      "plan_goal_summary": "建议调用哪个工具来推进创作",
       "risk_hint": "low" | "medium" | "high",
-      "requires_confirmation_hint": true or false,
       "proposed_actions": [
         {
           "action_id": "act-1",
-          "action_type": "candidate_generation" | "tentative_artifact" | "state_change_request" | "clarification_request" | "confirmation_request" | "capability_invocation",
+          "action_type": "capability_invocation",
           "summary": "人类可读的动作描述",
-          "target_ref": "能力名称 (如 world_building)",
-          "write_intent": "none" | "tentative" | "production_candidate",
+          "target_ref": "工具名称 (如 world_building, character_design, plot_outline, prose_writing)",
+          "write_intent": "none" | "tentative",
           "risk_hint": "low" | "medium" | "high"
         }
       ],
-      "state_changes_requested": [],
-      "required_capabilities": [],
+      "required_capabilities": ["world_building"],
       "fallback_message": "如果无法执行，降级为对话时告诉作者什么"
     }
 
     ## 重要
+    - proposed_actions 只能包含 capability_invocation 类型的动作
+    - 每个 action 的 target_ref 必须指向上面开放工具列表中的一个
     - 不要包含 "approved", "ready_to_execute", "execution_approved" 等批准语义
-    - proposed_actions 中的每个 action 都只是建议，不是已授权执行
-    - 如果涉及调用特定能力，`target_ref` 必须指向上面开放能力列表中的一个（如 `world_building`, `character_design` 等）
+    - 只需要 1 个 action，不要建议多个
+    - risk_hint 默认用 "low"
     """
   end
 
@@ -179,6 +178,51 @@ defmodule NovelApplication.Planner do
         downgrade_message: Map.get(parsed, "fallback_message", "这个请求范围比较大，我们先聚焦一个方向。")
       }
     }
+  end
+
+  @doc """
+  将 ToolResult 综合为自然语言 assistant_message。
+  「Planner 负责把工具结果综合成自然语言回应」— 00b §2 主链。
+  """
+  @spec narrate_tool_result(map(), complete_fn()) :: String.t()
+  def narrate_tool_result(tool_result, complete_fn \\ &Gateway.complete/1) do
+    prompt = tool_narration_prompt(tool_result)
+
+    case complete_fn.(prompt) do
+      {:ok, %{content: content}} ->
+        String.trim(content)
+
+      {:error, _} ->
+        "工具执行完成。"
+    end
+  end
+
+  defp tool_narration_prompt(tool_result) do
+    output_summary =
+      case tool_result.output do
+        %{item_count: n, items: items} when n > 0 ->
+          titles = items |> Enum.map_join("、", & &1.title)
+          "生成了 #{n} 个创作内容：#{titles}"
+
+        %{artifact_type: type, item_count: n} ->
+          "生成了 #{n} 个 #{type}"
+
+        other ->
+          inspect(other)
+      end
+
+    """
+    你是一个小说创作 AI。下面是你完成一个创作工具调用后的结果。
+
+    ## 工具执行结果
+    - 工具: #{tool_result.tool_name}
+    - 状态: #{tool_result.status}
+    - 输出摘要: #{output_summary}
+
+    ## 要求
+    请用 1-2 句自然中文告诉作者你完成了什么、产出了什么，并引导作者下一步可以做什么（查看、采纳、修改等）。
+    不要用 markdown，不要重复工具名。
+    """
   end
 
   # ── shared helpers (from VS-00) ──
@@ -347,7 +391,7 @@ defmodule NovelApplication.Planner do
     context_ref = context && context.workspace_id && "context:#{context.workspace_id}"
 
     tool_need = %{
-      needs_tool: Map.get(parsed, "needs_tool", false) == false,
+      needs_tool: Map.get(parsed, "needs_tool", false),
       reason_code: to_reason_code(Map.get(parsed, "no_tool_reason", "no_tool_needed"))
     }
 
@@ -442,13 +486,8 @@ defmodule NovelApplication.Planner do
   defp to_reason_code("user_requested_discussion"), do: :user_requested_discussion
   defp to_reason_code(_), do: :no_tool_needed
 
-  defp to_action_type("candidate_generation"), do: :candidate_generation
-  defp to_action_type("tentative_artifact"), do: :tentative_artifact
-  defp to_action_type("state_change_request"), do: :state_change_request
-  defp to_action_type("clarification_request"), do: :clarification_request
-  defp to_action_type("confirmation_request"), do: :confirmation_request
   defp to_action_type("capability_invocation"), do: :capability_invocation
-  defp to_action_type(_), do: :candidate_generation
+  defp to_action_type(_), do: :capability_invocation
 
   defp to_write_intent("tentative"), do: :tentative
   defp to_write_intent("production_candidate"), do: :production_candidate

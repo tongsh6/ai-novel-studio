@@ -110,6 +110,12 @@ defmodule NovelWeb.WorkspaceChannel do
         broadcast!(socket, "action_result", result)
         {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
 
+      {:ok, result, turn_result} ->
+        # Confirmation re-gate dispatched a tool — broadcast both ack + new turn
+        broadcast!(socket, "action_result", result)
+        broadcast!(socket, "turn_result", turn_result)
+        {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
+
       {:error, reason} ->
         {:reply, {:error, %{reason: reason}}, socket}
     end

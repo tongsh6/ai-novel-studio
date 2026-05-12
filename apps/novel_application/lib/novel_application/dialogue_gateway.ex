@@ -104,11 +104,13 @@ defmodule NovelApplication.DialogueGateway do
 
   defp empty_context(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
-  defp handle_valid_frame(true, frame, candidates, context, input, complete_fn),
-    do: handle_with_plan(frame, candidates, context, input, complete_fn)
-
-  defp handle_valid_frame(false, frame, candidates, context, _input, _complete_fn),
-    do: handle_reply_only(frame, candidates, context)
+  defp handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn) do
+    if needs_micro_plan?(frame, generate_plan) do
+      handle_with_plan(frame, candidates, context, input, complete_fn)
+    else
+      handle_reply_only(frame, candidates, context)
+    end
+  end
 
   defp persist_turn_side_effects(result, ws_id, text, trace_persister, memory_recorder) do
     maybe_persist_trace(result, ws_id, trace_persister || NovelApplication.persistence_tracer())
@@ -211,9 +213,35 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── action ingestion (VS-05) ──────────────────
 
-  @doc "处理作者动作输入（choose_candidate, confirm, reject 等）。"
-  @spec handle_action(map(), map()) :: {:ok, map()} | {:error, String.t()}
-  def handle_action(%AuthorActionInput{} = action_input, source_turn_result) do
+  @doc """
+  处理作者动作输入。confirm_before_execute 触发 re-gate → tool dispatch
+  （ADR-0009 + 05-turn-behavior §18 不变量 #5）；其他动作走 validator。
+  """
+  @spec handle_action(AuthorActionInput.t(), map(), function() | nil) ::
+          {:ok, map()} | {:ok, map(), map()} | {:error, String.t()}
+  def handle_action(action_input, source_turn_result, complete_fn \\ nil)
+
+  def handle_action(
+        %AuthorActionInput{action_type: "confirm_before_execute"} = action_input,
+        source_turn_result,
+        complete_fn
+      ) do
+    case ActionValidator.validate(action_input, source_turn_result) do
+      {:error, reason} ->
+        {:error, reason}
+
+      :ok ->
+        plan = source_turn_result[:plan]
+
+        if is_nil(plan) do
+          {:error, "confirmation without stored plan — cannot re-gate"}
+        else
+          handle_confirmation_dispatch(action_input, source_turn_result, plan, complete_fn)
+        end
+    end
+  end
+
+  def handle_action(%AuthorActionInput{} = action_input, source_turn_result, _complete_fn) do
     case ActionValidator.validate(action_input, source_turn_result) do
       :ok ->
         {:ok,
@@ -229,6 +257,92 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
+  # ── confirmation re-gate (Strategy 1 / ADR-0009) ─
+
+  defp handle_confirmation_dispatch(action_input, source_turn_result, plan, complete_fn) do
+    complete = complete_fn || (&Gateway.complete/1)
+    frame = frame_from_turn_result(source_turn_result)
+    {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
+
+    ack = %{
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      status: "accepted",
+      idempotency_key: action_input.idempotency_key
+    }
+
+    if decision.decision_type == :allow_tool do
+      {turn_result, trace} = execute_tool(frame, plan, decision, complete, "_confirmed")
+      maybe_persist_trace({:ok, turn_result, trace, [], nil}, frame.workspace_id, NovelApplication.persistence_tracer())
+      {:ok, ack, turn_result}
+    else
+      {:ok, Map.put(ack, :status, "confirmed_but_blocked")}
+    end
+  end
+
+  # ── shared tool executor (Strategies 1 + 4) ─────
+
+  defp execute_tool(frame, plan, decision, complete_fn, idem_suffix \\ "") do
+    action = hd(plan.proposed_actions)
+    tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"
+    entry = CapabilityRegistry.get(tool_name)
+
+    req = %ToolRequest{
+      tool_request_id: "tq_#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
+      decision_ref: decision.decision_id,
+      tool_name: tool_name,
+      tool_version: (entry && entry.tool_version) || "unknown",
+      input: %{"text" => frame.author_visible_draft.message, "direction" => tool_name},
+      read_scope_grants: (entry && entry.read_scopes) || [],
+      write_scope_grants: [],
+      idempotency_key: "idem_#{frame.turn_id}_#{tool_name}#{idem_suffix}",
+      trace_policy: %{level: "standard"},
+      created_at: DateTime.utc_now()
+    }
+
+    result = Toolbox.execute(req)
+
+    artifact_set =
+      if creative_tool?(tool_name) and result.status == :succeeded do
+        TurnResultBuilder.build_artifact_set(result, frame.turn_id)
+      end
+
+    {trace, trace_summary} =
+      TraceWriter.record_with_tool(
+        frame, plan, decision, req, result,
+        %{turn_id: frame.turn_id}, nil
+      )
+
+    narrated = Planner.narrate_tool_result(result, complete_fn)
+
+    turn_result =
+      TurnResultBuilder.build(frame, trace_summary, [], decision, result, artifact_set)
+      |> Map.put(:assistant_message, %{text: narrated})
+
+    {turn_result, trace}
+  end
+
+  defp frame_from_turn_result(tr) do
+    %DialogueFrame{
+      schema_version: "3.0-draft",
+      frame_id: Map.get(tr, :frame_ref, "recovered_frame"),
+      turn_id: Map.get(tr, :turn_id, "recovered_turn"),
+      workspace_id: Map.get(tr, :workspace_id, "recovered"),
+      primary: true,
+      frame_type: :confirmation_answer,
+      source_refs: %{},
+      dialogue_goal: %{summary: "作者确认执行"},
+      tool_need: %{needs_tool: true, reason_code: :no_tool_needed},
+      execution_readiness: :ready,
+      author_visible_draft: %{message: "确认执行"},
+      evidence_summary: %{},
+      uncertainty: []
+    }
+  end
+
   # ── reply-only ────────────────────────────────
 
   defp handle_reply_only(frame, candidates, context) do
@@ -239,6 +353,12 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── plan + decision + behavior ────────────────
 
+  # Strategy 3: use frame.tool_need.needs_tool as the primary gate;
+  # generate_plan param acts as override (author says "帮我规划一下").
+  defp needs_micro_plan?(frame, generate_plan) do
+    generate_plan || frame.tool_need.needs_tool
+  end
+
   defp handle_with_plan(frame, candidates, context, author_input, complete_fn) do
     complete = complete_fn || (&Gateway.complete/1)
 
@@ -248,7 +368,7 @@ defmodule NovelApplication.DialogueGateway do
 
         cond do
           decision.decision_type == :allow_tool ->
-            handle_tool_dispatch(frame, plan, decision, candidates, context, author_input)
+            handle_tool_dispatch(frame, plan, decision, candidates, context)
 
           behavior != nil ->
             handle_behavior_open(frame, plan, decision, behavior, candidates, context)
@@ -280,58 +400,25 @@ defmodule NovelApplication.DialogueGateway do
 
     turn_result =
       TurnResultBuilder.build(frame, trace_summary, candidates, decision, nil, nil, behavior)
+      |> Map.put(:plan, plan)
+      |> Map.put(:workspace_id, frame.workspace_id)
 
     {:ok, turn_result, trace, candidates, context}
   end
 
   # ── tool dispatch ─────────────────────────────
 
-  defp handle_tool_dispatch(frame, plan, decision, candidates, context, author_input) do
-    action = hd(plan.proposed_actions)
-    tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"
-    entry = CapabilityRegistry.get(tool_name)
-
-    req = %ToolRequest{
-      tool_request_id: "tq_#{System.unique_integer([:positive, :monotonic])}",
-      turn_id: frame.turn_id,
-      frame_ref: frame.frame_id,
-      plan_ref: plan.plan_id,
-      decision_ref: decision.decision_id,
-      tool_name: tool_name,
-      tool_version: (entry && entry.tool_version) || "unknown",
-      input: %{"text" => author_input.text, "genre" => "unknown"},
-      read_scope_grants: (entry && entry.read_scopes) || [],
-      write_scope_grants: [],
-      idempotency_key: "idem_#{frame.turn_id}_#{tool_name}",
-      trace_policy: %{level: "standard"},
-      created_at: DateTime.utc_now()
-    }
-
-    result = Toolbox.execute(req)
-
-    artifact_set =
-      if creative_tool?(tool_name) and result.status == :succeeded do
-        TurnResultBuilder.build_artifact_set(result, frame.turn_id)
-      end
-
-    {trace, trace_summary} =
-      TraceWriter.record_with_tool(
-        frame,
-        plan,
-        decision,
-        req,
-        result,
-        %{turn_id: frame.turn_id},
-        context
-      )
-
-    turn_result =
-      TurnResultBuilder.build(frame, trace_summary, candidates, decision, result, artifact_set)
+  defp handle_tool_dispatch(frame, plan, decision, candidates, context) do
+    {turn_result, trace} = execute_tool(frame, plan, decision, &Gateway.complete/1)
 
     {:ok, turn_result, trace, candidates, context}
   end
 
   defp creative_tool?("creative_generation"), do: true
+  defp creative_tool?("world_building"), do: true
+  defp creative_tool?("character_design"), do: true
+  defp creative_tool?("plot_outline"), do: true
+  defp creative_tool?("prose_writing"), do: true
   defp creative_tool?(_), do: false
 
   defp changeset_error_summary(%Ecto.Changeset{errors: errors}) when errors != [] do
