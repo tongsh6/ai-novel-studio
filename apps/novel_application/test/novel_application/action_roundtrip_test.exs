@@ -3,6 +3,7 @@ defmodule NovelApplication.ActionRoundtripTest do
 
   alias NovelApplication.ActionValidator
   alias NovelDomain.AuthorActionInput
+  alias NovelDomain.MicroPlan
 
   @valid_source %{
     turn_id: "turn-1",
@@ -85,7 +86,20 @@ defmodule NovelApplication.ActionRoundtripTest do
   describe "DialogueGateway handle_action" do
     alias NovelApplication.DialogueGateway
 
-    test "valid action passes through gateway" do
+    @source_with_plan Map.put(@valid_source, :plan, %NovelDomain.MicroPlan{
+      plan_id: "plan-1",
+      turn_id: "turn-1",
+      frame_ref: "frame-1",
+      plan_goal: %{summary: "test"},
+      risk_hint: :low,
+      requires_confirmation_hint: false,
+      proposed_actions: [%{action_type: :capability_invocation, target_ref: "text_analysis"}],
+      state_changes_requested: [],
+      required_capabilities: [],
+      fallback_strategy: %{downgrade_message: "fallback"}
+    })
+
+    test "confirm_before_execute requires stored plan in source" do
       input = %AuthorActionInput{
         input_id: "in-gw",
         source_turn_ref: "turn-1",
@@ -93,9 +107,19 @@ defmodule NovelApplication.ActionRoundtripTest do
         action_type: "confirm_before_execute"
       }
 
-      assert {:ok, result} = DialogueGateway.handle_action(input, @valid_source)
-      assert result.action_id == "act-confirm"
-      assert result.status == "accepted"
+      assert {:error, reason} = DialogueGateway.handle_action(input, @valid_source)
+      assert String.contains?(reason, "without stored plan")
+    end
+
+    test "confirm_before_execute with plan re-gates" do
+      input = %AuthorActionInput{
+        input_id: "in-gw-plan",
+        source_turn_ref: "turn-1",
+        action_id: "act-confirm",
+        action_type: "confirm_before_execute"
+      }
+
+      assert {:ok, _ack} = DialogueGateway.handle_action(input, @source_with_plan)
     end
 
     test "invented action rejected by gateway" do

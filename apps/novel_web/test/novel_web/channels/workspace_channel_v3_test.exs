@@ -16,8 +16,25 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
         action_type: "confirm_before_execute",
         enabled: true,
         idempotency_key: "ik-confirm"
+      },
+      %{
+        action_id: "act-cancel",
+        action_type: "cancel_pending_behavior",
+        enabled: true
       }
-    ]
+    ],
+    plan: %NovelDomain.MicroPlan{
+      plan_id: "plan-chan-1",
+      turn_id: "turn-action-1",
+      frame_ref: "frame-chan-1",
+      plan_goal: %{summary: "channel test plan"},
+      risk_hint: :low,
+      requires_confirmation_hint: false,
+      proposed_actions: [%{action_type: :capability_invocation, target_ref: "text_analysis"}],
+      state_changes_requested: [],
+      required_capabilities: [],
+      fallback_strategy: %{downgrade_message: "fallback"}
+    }
   }
 
   # ── VS-07 Proof: user_message → turn_result roundtrip ──
@@ -125,9 +142,9 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                  %{
                    "action" => %{
                      "source_turn_ref" => "turn-action-1",
-                     "action_id" => "act-confirm",
-                     "action_type" => "confirm_before_execute",
-                     "idempotency_key" => "ik-confirm"
+                     "action_id" => "act-cancel",
+                     "action_type" => "cancel_pending_behavior",
+                     "idempotency_key" => "ik-cancel"
                    }
                  },
                  socket
