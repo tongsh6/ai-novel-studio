@@ -58,7 +58,12 @@ defmodule NovelWeb.WorkspaceChannel do
     }
 
     t0 = System.monotonic_time(:millisecond)
-    LogEmit.emit(:channel, :user_message, :start, %{workspace_id: ws_id, work_id: work_id, text_len: byte_size(text)})
+
+    LogEmit.emit(:channel, :user_message, :start, %{
+      workspace_id: ws_id,
+      work_id: work_id,
+      text_len: byte_size(text)
+    })
 
     fetcher = NovelApplication.persistence_fetcher()
     persister = NovelApplication.persistence_tracer()
@@ -77,12 +82,18 @@ defmodule NovelWeb.WorkspaceChannel do
       end
 
     duration = System.monotonic_time(:millisecond) - t0
+
     case result do
       {:ok, socket} ->
         LogEmit.emit(:channel, :user_message, :done, %{duration_ms: duration})
         {:reply, {:ok, %{received: true}}, socket}
+
       {:error, reason, socket} ->
-        LogEmit.emit(:channel, :user_message, :error, %{duration_ms: duration, reason_code: reason})
+        LogEmit.emit(:channel, :user_message, :error, %{
+          duration_ms: duration,
+          reason_code: reason
+        })
+
         {:reply, {:ok, %{received: true, note: "fallback"}}, socket}
     end
   end
@@ -113,6 +124,7 @@ defmodule NovelWeb.WorkspaceChannel do
       {:ok, result, turn_result} ->
         # Confirmation re-gate dispatched a tool — broadcast both ack + new turn
         broadcast!(socket, "action_result", result)
+        broadcast_task_state_events(socket, turn_result)
         broadcast!(socket, "turn_result", turn_result)
         {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
 
@@ -193,6 +205,12 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp remember_turn_result(socket, _turn_result), do: socket
+
+  defp broadcast_task_state_events(socket, %{task_state_events: events}) when is_list(events) do
+    Enum.each(events, &broadcast!(socket, "task_state", &1))
+  end
+
+  defp broadcast_task_state_events(_socket, _turn_result), do: :ok
 
   defp source_turn_result(socket, source_turn_ref) do
     current_turn_id = socket.assigns[:current_turn_id]

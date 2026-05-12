@@ -42,7 +42,7 @@ defmodule NovelApplication.Planner do
       {:ok, parsed} ->
         duration = System.monotonic_time(:millisecond) - t0
 
-        frame = build_frame(parsed, turn_id, frame_id, ws_id, context)
+        frame = build_frame(parsed, text, turn_id, frame_id, ws_id, context)
 
         candidates =
           if frame.frame_type == :creative_exploration do
@@ -61,7 +61,12 @@ defmodule NovelApplication.Planner do
 
       {:error, _reason} ->
         duration = System.monotonic_time(:millisecond) - t0
-        LogEmit.emit(:planner, :form_frame, :error, %{duration_ms: duration, reason_code: :provider_error})
+
+        LogEmit.emit(:planner, :form_frame, :error, %{
+          duration_ms: duration,
+          reason_code: :provider_error
+        })
+
         {fallback_frame(turn_id, frame_id, ws_id, context), []}
     end
   end
@@ -98,8 +103,12 @@ defmodule NovelApplication.Planner do
     case res do
       {:ok, _plan} ->
         LogEmit.emit(:planner, :form_micro_plan, :done, %{duration_ms: duration})
+
       {:error, reason} ->
-        LogEmit.emit(:planner, :form_micro_plan, :error, %{duration_ms: duration, reason_code: reason})
+        LogEmit.emit(:planner, :form_micro_plan, :error, %{
+          duration_ms: duration,
+          reason_code: reason
+        })
     end
 
     res
@@ -387,7 +396,7 @@ defmodule NovelApplication.Planner do
     """
   end
 
-  defp build_frame(parsed, turn_id, frame_id, ws_id, context) do
+  defp build_frame(parsed, text, turn_id, frame_id, ws_id, context) do
     context_ref = context && context.workspace_id && "context:#{context.workspace_id}"
 
     tool_need = %{
@@ -401,7 +410,7 @@ defmodule NovelApplication.Planner do
       turn_id: turn_id,
       workspace_id: ws_id,
       primary: true,
-      frame_type: to_frame_type(Map.get(parsed, "frame_type", "casual_reply")),
+      frame_type: normalized_frame_type(parsed, text),
       source_refs: %{
         author_input_ref: "author_input:#{turn_id}",
         dialogue_context_ref: context_ref
@@ -416,29 +425,79 @@ defmodule NovelApplication.Planner do
   end
 
   defp build_candidates(parsed, frame_id) do
-    parsed
-    |> Map.get("candidate_directions", [])
-    |> Enum.map(fn
-      c when is_map(c) ->
-        %CandidateDirection{
-          direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
-          title: Map.get(c, "title", ""),
-          pitch: Map.get(c, "pitch", ""),
-          tone_tags: Map.get(c, "tone_tags", []),
-          source_frame_ref: frame_id,
-          adoption_status: :not_adopted
-        }
+    candidates =
+      parsed
+      |> candidate_direction_inputs()
+      |> Enum.map(fn
+        c when is_map(c) ->
+          %CandidateDirection{
+            direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+            title: c |> Map.get("title", "") |> to_string() |> String.trim(),
+            pitch: c |> Map.get("pitch", "") |> to_string() |> String.trim(),
+            tone_tags: Map.get(c, "tone_tags", []),
+            source_frame_ref: frame_id,
+            adoption_status: :not_adopted
+          }
 
-      c when is_binary(c) ->
-        %CandidateDirection{
-          direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
-          title: c,
-          pitch: c,
-          tone_tags: [],
-          source_frame_ref: frame_id,
-          adoption_status: :not_adopted
-        }
-    end)
+        c when is_binary(c) ->
+          text = String.trim(c)
+
+          %CandidateDirection{
+            direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+            title: text,
+            pitch: text,
+            tone_tags: [],
+            source_frame_ref: frame_id,
+            adoption_status: :not_adopted
+          }
+      end)
+      |> Enum.filter(&valid_candidate?/1)
+
+    if candidates == [] do
+      fallback_candidates(frame_id)
+    else
+      candidates
+    end
+  end
+
+  defp candidate_direction_inputs(parsed) do
+    case Map.get(parsed, "candidate_directions", []) do
+      candidates when is_list(candidates) -> candidates
+      _invalid -> []
+    end
+  end
+
+  defp valid_candidate?(%CandidateDirection{title: title, pitch: pitch}) do
+    title != "" and pitch != ""
+  end
+
+  defp fallback_candidates(frame_id) do
+    [
+      %CandidateDirection{
+        direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+        title: "矛盾切入",
+        pitch: "先抓住作品里最有冲突感的设定，让主角从压力中心进入故事。",
+        tone_tags: ["冲突", "推进"],
+        source_frame_ref: frame_id,
+        adoption_status: :not_adopted
+      },
+      %CandidateDirection{
+        direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+        title: "人物切入",
+        pitch: "从一个有强烈欲望或困境的角色出发，用他的选择带出世界观。",
+        tone_tags: ["角色", "共情"],
+        source_frame_ref: frame_id,
+        adoption_status: :not_adopted
+      },
+      %CandidateDirection{
+        direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+        title: "世界规则切入",
+        pitch: "先定义一个反常但有吸引力的世界规则，再让剧情围绕它展开。",
+        tone_tags: ["世界观", "设定"],
+        source_frame_ref: frame_id,
+        adoption_status: :not_adopted
+      }
+    ]
   end
 
   defp fallback_frame(turn_id, frame_id, ws_id, context) do
@@ -480,6 +539,26 @@ defmodule NovelApplication.Planner do
   defp to_frame_type("question_answer"), do: :question_answer
   defp to_frame_type("meta_discussion"), do: :meta_discussion
   defp to_frame_type(_), do: :casual_reply
+
+  defp normalized_frame_type(parsed, text) do
+    raw_type = to_frame_type(Map.get(parsed, "frame_type", "casual_reply"))
+
+    if raw_type == :casual_reply and exploratory_author_input?(text) do
+      :creative_exploration
+    else
+      raw_type
+    end
+  end
+
+  defp exploratory_author_input?(text) when is_binary(text) do
+    markers = ["没想好", "方向", "切入", "想想", "怎么写", "怎么展开", "几个方案", "几种"]
+    creative_terms = ["小说", "故事", "赛博", "修仙", "角色", "世界观", "大纲", "剧情", "主角"]
+
+    Enum.any?(markers, &String.contains?(text, &1)) and
+      Enum.any?(creative_terms, &String.contains?(text, &1))
+  end
+
+  defp exploratory_author_input?(_text), do: false
 
   defp to_reason_code("exploratory_only"), do: :exploratory_only
   defp to_reason_code("insufficient_execution_target"), do: :insufficient_execution_target

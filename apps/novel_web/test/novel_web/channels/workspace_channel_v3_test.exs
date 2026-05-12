@@ -10,6 +10,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
   @server_turn_result %{
     turn_id: "turn-action-1",
+    frame_ref: "frame-chan-1",
     available_actions: [
       %{
         action_id: "act-confirm",
@@ -35,6 +36,23 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       required_capabilities: [],
       fallback_strategy: %{downgrade_message: "fallback"}
     }
+  }
+
+  @creative_turn_result %{
+    @server_turn_result
+    | plan: %NovelDomain.MicroPlan{
+        @server_turn_result.plan
+        | proposed_actions: [
+            %{
+              action_id: "act-creative",
+              action_type: :capability_invocation,
+              summary: "生成角色设定",
+              target_ref: "creative_generation",
+              write_intent: :tentative,
+              risk_hint: :low
+            }
+          ]
+      }
   }
 
   # ── VS-07 Proof: user_message → turn_result roundtrip ──
@@ -223,6 +241,32 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
       # Channel must respond — must not timeout or silently drop the message
       assert_reply(ref, _status, _payload)
+    end
+
+    test "confirmation dispatch broadcasts task_state events for creative tool" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @creative_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-action-1",
+                     "action_id" => "act-confirm",
+                     "action_type" => "confirm_before_execute",
+                     "idempotency_key" => "ik-confirm"
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("task_state", %{phase: "RUNNING", task_type: "creative_generation"})
+      assert_broadcast("task_state", %{phase: "COMPLETED", status: "DONE"})
     end
 
     test "stale source_turn_ref rejected" do

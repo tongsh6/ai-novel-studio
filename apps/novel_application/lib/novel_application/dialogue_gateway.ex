@@ -51,7 +51,11 @@ defmodule NovelApplication.DialogueGateway do
 
     t0 = System.monotonic_time(:millisecond)
     LogContext.put_turn(ws_id, work_id)
-    LogEmit.emit(:dialogue_gateway, :handle_input, :start, %{workspace_id: ws_id, work_id: work_id})
+
+    LogEmit.emit(:dialogue_gateway, :handle_input, :start, %{
+      workspace_id: ws_id,
+      work_id: work_id
+    })
 
     context = ContextAssembler.assemble(ws_id, context_fetcher_or_default(context_fetcher))
     frame_input = %{text: text, workspace_id: ws_id}
@@ -68,6 +72,7 @@ defmodule NovelApplication.DialogueGateway do
         persist_turn_side_effects(result, ws_id, text, trace_persister, memory_recorder)
 
         duration = System.monotonic_time(:millisecond) - t0
+
         LogEmit.emit(:dialogue_gateway, :handle_input, :done, %{
           turn_id: frame.turn_id,
           frame_type: frame.frame_type,
@@ -78,6 +83,7 @@ defmodule NovelApplication.DialogueGateway do
 
       {:error, reasons} ->
         duration = System.monotonic_time(:millisecond) - t0
+
         LogEmit.emit(:dialogue_gateway, :handle_input, :error, %{
           duration_ms: duration,
           reason_code: :frame_validation_failed,
@@ -138,6 +144,7 @@ defmodule NovelApplication.DialogueGateway do
           reason_code: :persistence_failed,
           outcome_detail: changeset_error_summary(reason)
         })
+
         :ok
     end
   end
@@ -162,6 +169,7 @@ defmodule NovelApplication.DialogueGateway do
           reason_code: :persistence_failed,
           outcome_detail: changeset_error_summary(reason)
         })
+
         :ok
     end
   end
@@ -273,7 +281,13 @@ defmodule NovelApplication.DialogueGateway do
 
     if decision.decision_type == :allow_tool do
       {turn_result, trace} = execute_tool(frame, plan, decision, complete, "_confirmed")
-      maybe_persist_trace({:ok, turn_result, trace, [], nil}, frame.workspace_id, NovelApplication.persistence_tracer())
+
+      maybe_persist_trace(
+        {:ok, turn_result, trace, [], nil},
+        frame.workspace_id,
+        NovelApplication.persistence_tracer()
+      )
+
       {:ok, ack, turn_result}
     else
       {:ok, Map.put(ack, :status, "confirmed_but_blocked")}
@@ -295,7 +309,7 @@ defmodule NovelApplication.DialogueGateway do
       decision_ref: decision.decision_id,
       tool_name: tool_name,
       tool_version: (entry && entry.tool_version) || "unknown",
-      input: %{"text" => frame.author_visible_draft.message, "direction" => tool_name},
+      input: tool_input(frame, tool_name, action),
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
       idempotency_key: "idem_#{frame.turn_id}_#{tool_name}#{idem_suffix}",
@@ -312,8 +326,13 @@ defmodule NovelApplication.DialogueGateway do
 
     {trace, trace_summary} =
       TraceWriter.record_with_tool(
-        frame, plan, decision, req, result,
-        %{turn_id: frame.turn_id}, nil
+        frame,
+        plan,
+        decision,
+        req,
+        result,
+        %{turn_id: frame.turn_id},
+        nil
       )
 
     narrated = Planner.narrate_tool_result(result, complete_fn)
@@ -321,8 +340,55 @@ defmodule NovelApplication.DialogueGateway do
     turn_result =
       TurnResultBuilder.build(frame, trace_summary, [], decision, result, artifact_set)
       |> Map.put(:assistant_message, %{text: narrated})
+      |> maybe_put_task_state_events(req, result)
 
     {turn_result, trace}
+  end
+
+  defp maybe_put_task_state_events(turn_result, req, result) do
+    if creative_tool?(req.tool_name) do
+      Map.put(turn_result, :task_state_events, task_state_events(req, result))
+    else
+      turn_result
+    end
+  end
+
+  defp task_state_events(req, result) do
+    task_id = "task_#{req.tool_request_id}"
+
+    [
+      %{
+        task_id: task_id,
+        task_type: req.tool_name,
+        phase: "RUNNING",
+        status: "RUNNING",
+        progress: 0,
+        step: "tool_dispatch"
+      },
+      task_done_event(task_id, req.tool_name, result)
+    ]
+  end
+
+  defp task_done_event(task_id, tool_name, %{status: :succeeded}) do
+    %{
+      task_id: task_id,
+      task_type: tool_name,
+      phase: "COMPLETED",
+      status: "DONE",
+      progress: 100,
+      step: "tool_dispatch"
+    }
+  end
+
+  defp task_done_event(task_id, tool_name, _result) do
+    %{
+      task_id: task_id,
+      task_type: tool_name,
+      phase: "FAILED",
+      status: "ERROR",
+      progress: 100,
+      step: "tool_dispatch"
+    }
   end
 
   defp frame_from_turn_result(tr) do
@@ -341,6 +407,33 @@ defmodule NovelApplication.DialogueGateway do
       evidence_summary: %{},
       uncertainty: []
     }
+  end
+
+  defp tool_input(frame, "creative_generation", action) do
+    %{
+      "text" => frame.author_visible_draft.message,
+      "direction" => creative_direction(frame, action)
+    }
+  end
+
+  defp tool_input(frame, tool_name, _action) do
+    %{"text" => frame.author_visible_draft.message, "direction" => tool_name}
+  end
+
+  defp creative_direction(frame, action) do
+    text = "#{Map.get(action, :summary, "")} #{frame.author_visible_draft.message}"
+
+    cond do
+      contains_any?(text, ["角色", "人物", "主角", "反派"]) -> "character_seed"
+      contains_any?(text, ["剧情", "情节", "走向", "主线", "方向"]) -> "plot_direction"
+      contains_any?(text, ["大纲", "章节", "卷纲"]) -> "outline_draft"
+      contains_any?(text, ["正文", "片段", "描写", "开场"]) -> "prose_fragment"
+      true -> "character_seed"
+    end
+  end
+
+  defp contains_any?(text, terms) do
+    Enum.any?(terms, &String.contains?(text, &1))
   end
 
   # ── reply-only ────────────────────────────────

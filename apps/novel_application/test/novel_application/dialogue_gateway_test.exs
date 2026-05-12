@@ -104,9 +104,28 @@ defmodule NovelApplication.DialogueGatewayTest do
     end
 
     test "candidate directions are marked not_adopted" do
-      # When using real LLM with exploration frame, candidates are present.
-      # Test with direct frame construction to verify contract regardless of provider.
-      candidates = []
+      provider_reply = """
+      {
+        "frame_type": "creative_exploration",
+        "dialogue_goal_summary": "探索故事方向",
+        "needs_tool": false,
+        "no_tool_reason": "exploratory_only",
+        "execution_readiness": "not_applicable",
+        "assistant_message": "可以从悬疑、成长和冒险三个方向展开。",
+        "candidate_directions": [
+          {"title": "悬疑切入", "pitch": "从一个未解谜团开场。", "tone_tags": ["悬疑"]},
+          {"title": "成长切入", "pitch": "从主角的错误选择开始。", "tone_tags": ["成长"]}
+        ],
+        "context_used": false,
+        "uncertainty": []
+      }
+      """
+
+      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+
+      {:ok, _turn_result, _trace, candidates, _context} =
+        DialogueGateway.handle_input(%{text: "帮我想几个故事方向", workspace_id: "ws-1"}, nil, complete_fn)
+
       assert Enum.all?(candidates, &(Map.get(&1, :adoption_status, :not_adopted) == :not_adopted))
     end
 
@@ -121,6 +140,92 @@ defmodule NovelApplication.DialogueGatewayTest do
       # A natural exploration response reads like a conversation
       refute String.contains?(message, "请补充以下信息")
       refute String.contains?(message, "必填字段")
+    end
+
+    test "fuzzy exploration is normalized when provider returns casual reply with no candidates" do
+      provider_reply = """
+      {
+        "frame_type": "casual_reply",
+        "dialogue_goal_summary": "帮作者探索赛博修仙切入方向",
+        "needs_tool": false,
+        "no_tool_reason": "user_requested_discussion",
+        "execution_readiness": "not_applicable",
+        "assistant_message": "这个题材可以从公司垄断灵气、算法飞升、底层散修反抗几个方向切入。你更想写压抑一点还是热血一点？",
+        "candidate_directions": [],
+        "context_used": false,
+        "uncertainty": []
+      }
+      """
+
+      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+      input = %{text: "我想写赛博修仙，但还没想好方向。帮我想想怎么切入。", workspace_id: "ws-1"}
+
+      {:ok, turn_result, trace, candidates, _context} =
+        DialogueGateway.handle_input(input, nil, complete_fn)
+
+      assert turn_result.frame_summary.frame_type == :creative_exploration
+      assert trace.decision_type == :exploration
+      assert length(candidates) >= 2
+      assert length(turn_result.candidate_directions) >= 2
+      assert Enum.all?(candidates, &(&1.adoption_status == :not_adopted))
+    end
+
+    test "creative exploration with missing candidates receives fallback candidates" do
+      provider_reply = """
+      {
+        "frame_type": "creative_exploration",
+        "dialogue_goal_summary": "探索赛博修仙方向",
+        "needs_tool": false,
+        "no_tool_reason": "exploratory_only",
+        "execution_readiness": "not_applicable",
+        "assistant_message": "可以先比较公司垄断灵气、算法飞升、黑客修真三个方向。",
+        "candidate_directions": [],
+        "context_used": false,
+        "uncertainty": []
+      }
+      """
+
+      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+
+      {:ok, turn_result, _trace, candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "赛博修仙怎么切入？帮我想几个方向。", workspace_id: "ws-1"},
+          nil,
+          complete_fn
+        )
+
+      assert turn_result.frame_summary.frame_type == :creative_exploration
+      assert length(candidates) >= 2
+      assert Enum.all?(candidates, &(&1.title != "" and &1.pitch != ""))
+    end
+
+    test "malformed candidate directions are ignored and replaced by fallback candidates" do
+      provider_reply = """
+      {
+        "frame_type": "creative_exploration",
+        "dialogue_goal_summary": "探索赛博修仙方向",
+        "needs_tool": false,
+        "no_tool_reason": "exploratory_only",
+        "execution_readiness": "not_applicable",
+        "assistant_message": "可以从几个方向试试。",
+        "candidate_directions": {"title": "", "pitch": ""},
+        "context_used": false,
+        "uncertainty": []
+      }
+      """
+
+      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+
+      {:ok, turn_result, _trace, candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "赛博修仙怎么切入？帮我想几个方向。", workspace_id: "ws-1"},
+          nil,
+          complete_fn
+        )
+
+      assert turn_result.frame_summary.frame_type == :creative_exploration
+      assert length(candidates) >= 2
+      assert Enum.all?(turn_result.candidate_directions, &(&1.title != "" and &1.pitch != ""))
     end
   end
 

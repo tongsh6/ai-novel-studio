@@ -2,6 +2,7 @@ defmodule NovelApplication.CreativeArtifactTest do
   use ExUnit.Case, async: true
 
   alias NovelApplication.CapabilityRegistry
+  alias NovelApplication.DialogueGateway
   alias NovelApplication.Toolbox
   alias NovelApplication.TurnResultBuilder
   alias NovelDomain.TentativeArtifactSet
@@ -135,6 +136,82 @@ defmodule NovelApplication.CreativeArtifactTest do
     end
   end
 
+  describe "sync creative tool task_state events" do
+    @frame_json """
+    {
+      "frame_type": "casual_reply",
+      "dialogue_goal_summary": "用户要求创作角色",
+      "needs_tool": false,
+      "no_tool_reason": "no_tool_needed",
+      "execution_readiness": "not_applicable",
+      "assistant_message": "收到。",
+      "candidate_directions": [],
+      "context_used": false,
+      "uncertainty": []
+    }
+    """
+
+    @creative_plan_json """
+    {
+      "plan_goal_summary": "生成角色设定",
+      "risk_hint": "low",
+      "requires_confirmation_hint": false,
+      "proposed_actions": [
+        {"action_id": "a1", "action_type": "capability_invocation", "summary": "创作角色", "target_ref": "creative_generation", "write_intent": "tentative", "risk_hint": "low"}
+      ],
+      "state_changes_requested": [],
+      "required_capabilities": [],
+      "fallback_message": "无法生成角色"
+    }
+    """
+
+    test "creative tool turn_result carries task_state lifecycle events" do
+      complete_fn = sequenced_complete_fn([@frame_json, @creative_plan_json, "已经生成角色草案。"])
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "生成角色设定", workspace_id: "ws-task-state", generate_micro_plan: true},
+          nil,
+          complete_fn
+        )
+
+      phases = Enum.map(turn_result.task_state_events, & &1.phase)
+      assert phases == ["RUNNING", "COMPLETED"]
+
+      assert Enum.all?(turn_result.task_state_events, fn event ->
+               event.task_id != nil and event.task_type == "creative_generation"
+             end)
+    end
+
+    test "generic creative_generation keeps plot direction requests as plot artifacts" do
+      plan_json = """
+      {
+        "plan_goal_summary": "生成剧情方向",
+        "risk_hint": "low",
+        "requires_confirmation_hint": false,
+        "proposed_actions": [
+          {"action_id": "a1", "action_type": "capability_invocation", "summary": "生成剧情方向", "target_ref": "creative_generation", "write_intent": "tentative", "risk_hint": "low"}
+        ],
+        "state_changes_requested": [],
+        "required_capabilities": [],
+        "fallback_message": "无法生成剧情方向"
+      }
+      """
+
+      complete_fn = sequenced_complete_fn([@frame_json, plan_json, "已经生成剧情方向。"])
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "生成剧情方向", workspace_id: "ws-task-state", generate_micro_plan: true},
+          nil,
+          complete_fn
+        )
+
+      assert turn_result.tool_result.output.artifact_type == "plot_direction"
+      assert [%{artifact_type: :plot_direction}] = turn_result.adoption_state.pending
+    end
+  end
+
   defp build_creative_request(direction) do
     %ToolRequest{
       tool_request_id: "tq-creative-#{System.unique_integer([:positive, :monotonic])}",
@@ -149,5 +226,20 @@ defmodule NovelApplication.CreativeArtifactTest do
       idempotency_key: "idem-creative",
       created_at: DateTime.utc_now()
     }
+  end
+
+  defp sequenced_complete_fn(responses) do
+    {:ok, agent} = Agent.start_link(fn -> responses end)
+
+    fn _prompt ->
+      {:ok, %{content: next_response(agent)}}
+    end
+  end
+
+  defp next_response(agent) do
+    Agent.get_and_update(agent, fn
+      [next | rest] -> {next, rest}
+      [] -> {"工具执行完成。", []}
+    end)
   end
 end
