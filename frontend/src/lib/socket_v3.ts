@@ -177,14 +177,12 @@ export function onActionResult(
 }
 
 // ── task_state ────────────────────────────────────
-// Subscribe long-running task lifecycle events broadcast by the backend
-// (see apps/novel_application/lib/novel_application/task_runner.ex).
+// Subscribe task lifecycle events broadcast by the backend. Long-running tasks
+// are owned by TaskRunner, while the current synchronous creative tool path can
+// emit a compact RUNNING/COMPLETED lifecycle for immediate UI feedback.
 //
-// The backend currently only emits these once a tool gets dispatched through
-// `TaskRunner` — at the time of the 2026-05-09 walkthrough no v3 tool is wired
-// to TaskRunner yet, so the indicator stays idle (see ledger GAP-WT-03).
-// The subscription is wired here so the front-end is ready as soon as the
-// backend starts broadcasting.
+// Full TaskRunner/LongRunTaskLog streaming is still tracked separately in the
+// project ledger; this subscription should accept both sources.
 
 export interface V3TaskState {
   task_id: string;

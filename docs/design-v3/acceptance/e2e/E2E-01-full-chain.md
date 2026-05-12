@@ -247,21 +247,21 @@ novel_web (Phoenix.ChannelTest)
 
 | 场景 | 内容 | 测试文件 | 状态 |
 |------|------|---------|------|
-| E1 | 基础对话 | `v3_full_chain_test.exs` | ❌ 待建 |
-| E2 | 探索方向 | 同上 | ❌ 待建 |
-| E3 | 上下文感知 | 同上 | ❌ 待建 |
-| E4 | 执行降级 | 同上 | ❌ 待建 |
-| E5 | 高风险确认 | 同上 | ❌ 待建 |
-| E6 | 工具调度 | 同上 | ❌ 待建 |
-| E7 | 创作产出 | 同上 | ❌ 待建 |
-| E8 | Action 校验 | 同上 | ❌ 待建 |
-| E9 | 回放审计 | 同上 | ❌ 待建 |
-| E10 | 持久化闭环 | 同上 | ❌ 待建 |
-| E11 | 错误恢复 | 同上 | ❌ 待建 |
-| E12 | 真实两轮回路 | `dialogue_gateway_real_loop_test.exs` | ⚠️ 已写，tag 为 :integration |
+| E1 | 基础对话 | `apps/novel_e2e/test/novel_e2e/v3_full_chain_test.exs` | ✅ stub integration |
+| E2 | 探索方向 | `planner_real_llm_test.exs` / `dialogue_gateway_test.exs` / `creative_exploration_loop_test.exs` | ✅ application + real LLM 层已测；Channel+真人走查复验仍需补 |
+| E3 | 上下文感知 | `v3_full_chain_test.exs` / `dialogue_gateway_real_loop_test.exs` | ✅ prompt 注入 + SQLite real-loop |
+| E4 | 执行降级 | `v3_full_chain_test.exs` | ✅ stub integration |
+| E5 | 高风险确认 | `v3_full_chain_test.exs` | ✅ stub integration |
+| E6 | 工具调度 | `v3_full_chain_test.exs` | ✅ stub integration |
+| E7 | 创作产出 | `v3_full_chain_test.exs` | ✅ stub integration（2026-05-12 修复 generic creative_generation 默认方向） |
+| E8 | Action 校验 | `workspace_channel_v3_test.exs` | ✅ Channel 层 |
+| E9 | 回放审计 | `v3_full_chain_test.exs` | ✅ stub integration |
+| E10 | 持久化闭环 | `dialogue_gateway_real_loop_test.exs` | ⚠️ interaction real-loop 已测，trace repository 查询场景仍需补 |
+| E11 | 错误恢复 | `v3_full_chain_test.exs` | ✅ stub integration |
+| E12 | 真实两轮回路 | `dialogue_gateway_real_loop_test.exs` | ✅ integration |
 | E13 | Action 来源校验 | `workspace_channel_v3_test.exs` | ✅ Channel 层已测试 |
 
-**通过率：1/13 完整 + 1/13 部分 = 约 12%**。E2E 集成测试是下一阶段的主要建设工作。
+**通过率：11/13 完整 + 2/13 部分**。`mix test --include integration` 在 2026-05-12 本地复核为 422 tests / 0 failures（`:real_llm` 仍默认排除）。
 
 ---
 
@@ -282,11 +282,14 @@ Tag: @moduletag :integration
 ## 6. 验收命令
 
 ```bash
-# E2E 集成测试（需 LM Studio 运行中 + SQLite3）
-mix test --include integration apps/novel_web/test/integration/v3_full_chain_test.exs
+# E2E 集成测试（stub LLM + SQLite3 sandbox）
+mix test --include integration apps/novel_e2e/test/novel_e2e/v3_full_chain_test.exs
 
 # 仅 real loop 测试
 mix test --include integration apps/novel_application/test/novel_application/dialogue_gateway_real_loop_test.exs
+
+# 真实 LLM Planner / Gateway 解析测试（需 LM Studio）
+mix test --include real_llm apps/novel_application/test/novel_application/planner_real_llm_test.exs
 
 # Action 来源校验（不依赖 LM Studio）
 mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs

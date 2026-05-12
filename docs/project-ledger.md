@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-12（Milestone: VS-10 Observability Spine 落地 + ADR-0018）
+> 最后更新：2026-05-12（Milestone: VS-10 Observability Spine 验证闭环 + P1 体验缺口补齐）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -25,15 +25,15 @@ v3 设计体系已闭环，目前处于特性增强期：
 
 | 维度 | 实测覆盖率 / 状态 | 证据 |
 |------|---|---|
-| 后端主链单元 + 集成测试 | 405 unit + 10 e2e（integration），0 failure | `mix test` / `mix test --include integration`（含 VS-09 15 + VS-10 11 新测）|
-| AI 静态扫描 | 12 PASS / 0 finding | `artifacts/static-scan/top10.md`（2026-05-11）|
+| 后端主链单元 + 集成测试 | `mix test`：412 tests / 0 failures；`mix test --include integration`：422 tests / 0 failures（含 novel_e2e 10 条）| 2026-05-12 本地复核；`:real_llm` 默认排除 |
+| AI 静态扫描 | 13 PASS / 0 finding / 0 pending disposition | `artifacts/static-scan/top10.md`（2026-05-12）|
 | AU-01..AU-10 作者验收 | 67%–100%（核心已实现，多处缺降级 / 边缘语义测试）| `docs/design-v3/acceptance/README.md` |
 | SU-01 系统-供应商管理 | 22%（仅状态轮询，无切换/Key/测试 UI）| `docs/design-v3/acceptance/system/SU-01-model-provider.md` |
 | SU-02 系统-作品切换 | 22%（VS-09 落地后端 CRUD + Channel 透传 + 前端去 mock；剩余高级场景待续）| `apps/novel_web/lib/novel_web/controllers/works_controller.ex`、`apps/novel_application/lib/novel_application/work_service.ex`、`frontend/src/lib/works.ts` |
 | SU-03 模型起名 | 0%（未实现）| `docs/design-v3/acceptance/system/SU-03-model-nickname.md` |
 | 真人走查（最近一次 2026-05-09）| 3 轮对话走通；5 个观感问题（P1×2 / P2×3）| `walkthroughs/2026-05-09/REPORT.md` |
 | 业务日志体系 | **新落地（VS-10）**：LogContext/LogEmit + 11 模块结构化日志 + 自然语言 msg（atom→中文） + Console 精简 / JSONL 完整双通道 + 环境目录分离 + 三源回溯工具 + 操作手册 | ADR-0018；`apps/novel_common/lib/novel_common/log_{context,emit}.ex`；`scripts/grep_turn.sh` |
-| 真实 LLM 自动测试 | 默认排除（`:real_llm` tag），无定期 CI 跑 | `apps/novel_application/test/.../planner_real_llm_test.exs` |
+| 真实 LLM 自动测试 | 本地 LM Studio 手动 `--include real_llm`：13 tests / 0 failures；仍默认排除且无定期 CI 跑 | `apps/novel_application/test/.../planner_real_llm_test.exs` |
 
 ---
 
@@ -54,12 +54,12 @@ v3 设计体系已闭环，目前处于特性增强期：
 | VS-00 ~ VS-06 | 10 个承重竖切面 | `f7ba5c2` | 前后端主链闭环 |
 | VS-00A | Deep Creative Exploration | `316b018` | 模糊输入→自然探索；用户决策→MicroPlan 触发 Capability 建议；trace 标记为 exploration |
 | VS-07 | Intent Registry Expansion | `0ef9058`（Toolbox dispatcher 收尾）| 扩展世界观/人物/大纲/正文 4 类核心创作意图。**注**：dispatcher 当前返回 demo 占位文案，未真实接 LLM 生产 |
-| VS-06+ | v3 TaskRunner Rebuild | `cbe2f82` / `6be395b` | 支持 SQLite 状态同步与 RESUMING 恢复流。**注**：前端长跑状态条不订阅 task_state，walkthrough 中"待机"全程不变（GAP-WT-03）|
+| VS-06+ | v3 TaskRunner Rebuild | `cbe2f82` / `6be395b` | 支持 SQLite 状态同步与 RESUMING 恢复流。**注**：前端已订阅 task_state；2026-05-12 已补齐同步 Toolbox 创作工具的 task_state RUNNING/COMPLETED 广播（GAP-WT-03 最小闭环）。完整异步 TaskRunner 接入仍是后续增强 |
 | QP-01 ~ QP-03 | 基础设施与启动脚本 | `c1aa8d5` 及更早 | Stage 环境与跨轮记忆闭环 |
-| QP-UI | Workbench V3 认知洞察可视化 | `53e2233` / `b6a69aa` | 支持 Frame Insight 切换与全量 v3 UI Card 渲染。**注**：candidate_directions 字段后端已产，前端尚未渲染（GAP-WT-01）|
-| VS-10 | Observability Spine | `HEAD` | ADR-0018 schema 冻结 + LogContext/LogEmit + 结构化日志（11 模块）+ 自然语言 msg（atom→中文映射 + 值翻译）+ Console 精简输出 + 环境目录分离（dev/stage）+ 三源回溯工具 + 操作手册 + 3 轮 review 闭环。405 tests / 0 failures / 7 CreDo false-pos（自定义 metadata key）|
+| QP-UI | Workbench V3 认知洞察可视化 | `53e2233` / `b6a69aa` | 支持 Frame Insight 切换与全量 v3 UI Card 渲染。**注**：candidate_directions 前端渲染契约已加测试；2026-05-12 已补齐 Planner 对模糊创作输入的 creative_exploration 归一化与候选 fallback（GAP-WT-01 后端闭环）|
+| VS-10 | Observability Spine | `HEAD` | ADR-0018 schema 冻结 + LogContext/LogEmit + 结构化日志（11 模块）+ 自然语言 msg（atom→中文映射 + 值翻译）+ Console 精简输出 + 环境目录分离（dev/stage）+ 三源回溯工具 + 操作手册 + Logger metadata 配置闭环。`bash scripts/ai_static_scan.sh --top 10`：13 PASS / 0 finding|
 
-**汇总**：基础设施 + 核心创作能力 + 观测性看板全部 done，**379 unit + 10 e2e tests，0 failures**（2026-05-11 复核）。
+**汇总**：基础设施 + 核心创作能力 + 观测性看板全部 done，**412 default tests + 10 e2e integration tests，0 failures**（2026-05-12 复核）。
 
 ---
 
@@ -73,9 +73,11 @@ v3 设计体系已闭环，目前处于特性增强期：
 | 集成测试脚本质量 | 已修复 | `capturing_complete_fn` 校验 Prompt 内容 | `apps/novel_application/test/.../planner_*` |
 | 测试覆盖率基线 | 已达标 | 核心域 Domain 81.0% / Persistence 76.7% > 60% | 历史覆盖率报告（请执行 `bash scripts/check_coverage.sh` 复核）|
 | 长跑任务状态一致性（后端）| 已验证（后端）| TaskRunner + LongRunTaskLog 通过单测 | `apps/novel_application/test/.../task_runner_test.exs` |
-| 长跑任务状态指示（前端）| **未闭环** | 前端不订阅 task_state，walkthrough 中"长跑状态: 待机"全程不变 | `walkthroughs/2026-05-09/REPORT.md` P1 #3 |
+| 长跑任务状态指示（前后端集成）| **最小闭环已补齐** | 同步 Toolbox 创作工具已通过 turn_result 携带 `task_state_events`，WorkspaceChannel 独立广播 `task_state` RUNNING/COMPLETED；完整异步 TaskRunner / LongRunTaskLog 订阅仍待后续 | `apps/novel_application/test/.../creative_artifact_test.exs`；`apps/novel_web/test/.../workspace_channel_v3_test.exs` |
 | 创作认知透明度 | 已提升 | 支持"查看认知"+ Orchestrator 决策含风险摘要 | `WorkbenchV3.tsx` Frame Insight 面板 |
 | 真实 LLM 测试在 CI 中跑 | **未解决** | `:real_llm` 默认排除，无定期跑 + 无报告留痕 | `apps/novel_application/test/.../planner_real_llm_test.exs` |
+| 前端桌面持久化 API 合规 | **未解决（非本次引入）** | `frontend_audit` 持续 warning：`frontend/src/lib/works.ts` 直接使用 `window.localStorage` 保存 last-opened work；当前不阻塞 CI，但与 Desktop-First 约束存在张力。需决定迁移到 Tauri storage / 后端用户偏好 / env 抽象后再改 | `frontend/src/lib/works.ts`；`scripts/frontend_audit.sh` |
+| 本地 Tauri DMG 打包 | **需核查（非本次引入）** | `frontend_audit` 中 Vite/Rust release app 构建成功，但 macOS DMG bundle 脚本在本机返回 warning；脚本标注 CI 必需、dev 可选。当前无法确认是本机签名/打包环境问题还是发布链路缺口 | `bash scripts/frontend_audit.sh`；`frontend/src-tauri/target/release/bundle/dmg/bundle_dmg.sh` |
 
 ### 8.1 已落地但未闭环的真实缺口（来自 walkthrough 与 acceptance）
 
@@ -86,9 +88,9 @@ v3 设计体系已闭环，目前处于特性增强期：
 
 | ID | 问题 | 优先级 | 证据 / 当前状态 | 责任切片 |
 |----|------|--------|-----------------|----------|
-| GAP-WT-01 | Candidate cards 不渲染：AI 回复"提供几个创作方向"但 UI 无候选卡片 | P1 | 前端 `WorkbenchV3.tsx:371-395` 已有渲染逻辑、后端 `turn_result_builder.ex:141 / format_candidates` 已产字段；走查时为空的根因更可能是 LLM 未按 schema 输出 `candidate_directions`（frame_type 误判 / JSON 缺字段）。已加前端契约测试 `turn_result_candidates.test.ts` 守住端到端形状；后续需补 Planner real-LLM 测试覆盖 frame_type=creative_exploration 的真实候选生成 | 体验加固（后端） |
+| GAP-WT-01 | Candidate cards 不渲染：AI 回复"提供几个创作方向"但 UI 无候选卡片 | P1 | **已补齐后端最小闭环**：前端 `WorkbenchV3.tsx:371-395` 已有渲染逻辑，后端 `Planner` 对模糊创作输入归一化为 `creative_exploration`，当真实 LLM 缺失 `candidate_directions` 时生成 3 个 not_adopted fallback 候选；已加 DialogueGateway 单测与 LM Studio real_llm 复核（13 tests / 0 failures）。剩余：真人走查复验 UI 观感 | 体验加固（后端） |
 | GAP-WT-02 | 作品档案右侧"打开档案/查看详情"无内容 | P2 | VS-09 已落地后端 CRUD + 前端 list/create + Channel work_id 透传；档案 UI 详情面板仍未接入 | 体验加固（次轮） |
-| GAP-WT-03 | 长跑状态指示全程显示"待机"不变 | P1 | 前端原本未订阅 task_state（已修：`socket_v3.ts onTaskState` + `WorkbenchV3.tsx` 状态条徽标 + `task_state.test.ts`）。**真实根因转移**：v3 工具调用走 Toolbox 同步路径，没有任何 v3 工具被路由到 `TaskRunner`，因此后端从未广播 task_state。下一步：把 creative_dispatch 工具走 TaskRunner，并在 WorkspaceChannel 订阅 LongRunTaskLog 变更后 broadcast | 后端集成（TaskRunner ↔ Toolbox）|
+| GAP-WT-03 | 长跑状态指示全程显示"待机"不变 | P1 | **同步创作工具最小闭环已补齐**：前端已订阅 task_state；`DialogueGateway` 对 creative Toolbox 调用附加 RUNNING/COMPLETED `task_state_events`，`WorkspaceChannel` 广播独立 `task_state` 事件。剩余：真正长耗时工具仍未接 TaskRunner / LongRunTaskLog 实时订阅 | 后端集成（TaskRunner ↔ Toolbox，后续增强）|
 | GAP-WT-04 | 纯文本回复，frame_type/exploration/candidate 在 UI 上无视觉区分 | P2 | UICards 类别集合已就位，但 DialogueFrame.frame_type 未驱动样式 | 体验加固（次轮）|
 | GAP-WT-05 | 多轮回复彼此独立，上下文感缺失 | P2 | DialogueContext 已产，前端不展示前文引用 | 体验加固（次轮）|
 
@@ -106,9 +108,9 @@ v3 设计体系已闭环，目前处于特性增强期：
 
 | Slice | 状态 | 真实缺口 |
 |-------|------|----------|
-| VS-10 Observability Spine | **已落地（2026-05-12）** | 7 个 CreDo false-positive（自定义 metadata key）已接受；novel_agent ~13 处自由文案 Logger（provider 层，属 LLMLog 范围，非本 slice 引入）|
+| VS-10 Observability Spine | **已落地并验证闭环（2026-05-12）** | Logger metadata key 已纳入配置；`mix credo suggest --strict --format json` 0 issues；AI 静态扫描 13 PASS / 0 finding。novel_agent provider 层自由文案 Logger 属 LLMLog 范围，非本 slice 引入 |
 | VS-09 Work Management | **核心已落地（2026-05-11）**，剩余高级场景待续 | 切换 UI / cross-work e2e / pending 隔离 / 不可用降级 |
-| 体验加固 P1 修复 | 候选契约测试 + task_state 订阅就绪已落地；候选真生成 / TaskRunner 接 Toolbox 待续 | GAP-WT-01 后端 / GAP-WT-03 后端 |
+| 体验加固 P1 修复 | **GAP-WT-01 后端闭环 + GAP-WT-03 同步工具最小闭环已落地（2026-05-12）** | 已完成 3 轮复审：契约/架构、测试语义、文档/质量体系。复审中补齐畸形候选 fallback、真实 not_adopted 测试、creative_generation 类型推断、过期注释清理；非本次引入的 localStorage / DMG warning 已登记。剩余为真人走查复验、完整异步 TaskRunner/LongRunTaskLog 接入、真实长任务进度细分 |
 | Toolbox 创作 dispatcher 真实 LLM 接入 | 待规划 | VS-07 收尾后续，4 个 dispatcher 仍返回 demo items |
 
 ---
