@@ -3,7 +3,6 @@ defmodule NovelApplication.ActionRoundtripTest do
 
   alias NovelApplication.ActionValidator
   alias NovelDomain.AuthorActionInput
-  alias NovelDomain.MicroPlan
 
   @valid_source %{
     turn_id: "turn-1",

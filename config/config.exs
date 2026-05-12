@@ -9,6 +9,28 @@
 # move said applications out of the umbrella.
 import Config
 
+config :logger,
+  metadata: [
+    workspace_id: nil,
+    work_id: nil,
+    turn_id: nil,
+    frame_id: nil,
+    behavior_id: nil,
+    decision_id: nil,
+    tool_request_id: nil
+  ]
+
+config :logger, :default_formatter,
+  metadata: [
+    :workspace_id,
+    :work_id,
+    :turn_id,
+    :frame_id,
+    :behavior_id,
+    :decision_id,
+    :tool_request_id
+  ]
+
 # ── Provider 通用配置 ──────────────────────────
 # 各环境可通过 import_config "#{config_env()}.exs" 覆盖。
 
