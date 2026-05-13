@@ -1,5 +1,6 @@
 defmodule NovelCommon.LogContext do
   require Logger
+
   @moduledoc """
   Logger metadata injection & cross-process transfer protocol.
 
@@ -14,18 +15,19 @@ defmodule NovelCommon.LogContext do
   produces a turn_id).  Called once at the top of `DialogueGateway.handle_input`
   and again at `WorkspaceChannel.handle_in("user_message", …)`.
 
-  After Planner returns, `Logger.metadata(turn_id: frame.turn_id)` is called
-  directly by the gateway.
+  The gateway should pass an already allocated `turn_id` so every downstream
+  business log line can share the same correlation key from the first event.
   """
-  @spec put_turn(String.t(), String.t() | nil) :: :ok
-  def put_turn(workspace_id, work_id \\ nil) do
+  @spec put_turn(String.t(), String.t() | nil, String.t() | nil) :: :ok
+  def put_turn(workspace_id, work_id \\ nil, turn_id \\ nil) do
     Logger.metadata(workspace_id: workspace_id)
     if work_id, do: Logger.metadata(work_id: work_id)
 
     # Clear previous turn's local keys so the new turn starts with a
-    # clean correlation slate.  workspace_id + work_id persist.
+    # clean correlation slate. workspace_id + work_id persist; turn_id is set
+    # when the gateway has already allocated one.
     Logger.metadata(
-      turn_id: nil,
+      turn_id: turn_id,
       frame_id: nil,
       behavior_id: nil,
       decision_id: nil,
@@ -44,6 +46,7 @@ defmodule NovelCommon.LogContext do
   @doc "Set `behavior_id` after a durable BehaviorState is opened."
   @spec put_behavior(String.t() | nil) :: :ok
   def put_behavior(nil), do: :ok
+
   def put_behavior(behavior_id) do
     Logger.metadata(behavior_id: behavior_id)
   end

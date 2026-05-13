@@ -18,6 +18,15 @@ defmodule NovelCommon.LogContextTest do
       assert Keyword.fetch!(meta, :work_id) == "work-1"
     end
 
+    test "sets turn_id when the gateway has already allocated one" do
+      :ok = LogContext.put_turn("ws-1", "work-1", "turn-1")
+
+      meta = Logger.metadata()
+      assert Keyword.fetch!(meta, :workspace_id) == "ws-1"
+      assert Keyword.fetch!(meta, :work_id) == "work-1"
+      assert Keyword.fetch!(meta, :turn_id) == "turn-1"
+    end
+
     test "does not set work_id when nil" do
       :ok = LogContext.put_turn("ws-2")
 
@@ -124,6 +133,7 @@ defmodule NovelCommon.LogContextTest do
       snap = LogContext.snapshot()
 
       parent = self()
+
       ref =
         spawn(fn ->
           LogContext.restore(snap)

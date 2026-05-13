@@ -49,11 +49,15 @@ defmodule NovelWeb.WorkspaceChannel do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     work_id = socket.assigns[:work_id] || ws_id
     generate_plan = Map.get(msg, "generate_micro_plan", false)
+    turn_id = Map.get(msg, "turn_id") || "turn_#{System.unique_integer([:positive, :monotonic])}"
+
+    LogContext.put_turn(ws_id, work_id, turn_id)
 
     input = %{
       text: text,
       workspace_id: ws_id,
       work_id: work_id,
+      turn_id: turn_id,
       generate_micro_plan: generate_plan
     }
 

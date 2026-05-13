@@ -3,7 +3,6 @@ defmodule NovelApplication.DialogueGateway do
   v3 对话入口。完整主链：AuthorInput → Frame → Plan → Decision → Action/Tool/Behavior → TurnResult。
   """
 
-  require Logger
   require NovelCommon.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider.Gateway
@@ -48,9 +47,10 @@ defmodule NovelApplication.DialogueGateway do
     ws_id = Map.get(input, :workspace_id, "default")
     work_id = Map.get(input, :work_id) || ws_id
     generate_plan = Map.get(input, :generate_micro_plan, false)
+    turn_id = Map.get(input, :turn_id) || Map.get(input, "turn_id") || allocate_turn_id()
 
     t0 = System.monotonic_time(:millisecond)
-    LogContext.put_turn(ws_id, work_id)
+    LogContext.put_turn(ws_id, work_id, turn_id)
 
     LogEmit.emit(:dialogue_gateway, :handle_input, :start, %{
       workspace_id: ws_id,
@@ -58,12 +58,11 @@ defmodule NovelApplication.DialogueGateway do
     })
 
     context = ContextAssembler.assemble(ws_id, context_fetcher_or_default(context_fetcher))
-    frame_input = %{text: text, workspace_id: ws_id}
+    frame_input = %{text: text, workspace_id: ws_id, turn_id: turn_id}
     frame_fn = complete_fn || (&Gateway.complete/1)
     {frame, candidates} = Planner.form_frame(frame_input, context, frame_fn)
 
-    # Update metadata now that Planner has generated turn_id / frame_id
-    Logger.metadata(turn_id: frame.turn_id)
+    # Update metadata now that Planner has generated frame_id.
     LogContext.put_frame(frame.frame_id)
 
     case DialogueFrame.validate(frame) do
@@ -109,6 +108,8 @@ defmodule NovelApplication.DialogueGateway do
   defp context_fetcher_or_default(fetcher), do: fetcher
 
   defp empty_context(_workspace_id), do: {:ok, nil, nil, nil, nil}
+
+  defp allocate_turn_id, do: "turn_#{System.unique_integer([:positive, :monotonic])}"
 
   defp handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn) do
     if needs_micro_plan?(frame, generate_plan) do

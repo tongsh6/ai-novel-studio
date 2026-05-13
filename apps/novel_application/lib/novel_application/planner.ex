@@ -23,12 +23,13 @@ defmodule NovelApplication.Planner do
   @spec form_frame(map(), DialogueContext.t() | nil, complete_fn()) ::
           {DialogueFrame.t(), [CandidateDirection.t()]}
   def form_frame(
-        %{text: text, workspace_id: ws_id} = _input,
+        %{text: text, workspace_id: ws_id} = input,
         context \\ nil,
         complete_fn \\ &Gateway.complete/1
       ) do
-    turn_id = allocate_turn_id()
-    frame_id = allocate_frame_id()
+    turn_id = Map.get(input, :turn_id) || allocate_turn_id()
+    frame_id = Map.get(input, :frame_id) || allocate_frame_id()
+    Logger.metadata(turn_id: turn_id, frame_id: frame_id)
 
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:planner, :form_frame, :start, %{})
