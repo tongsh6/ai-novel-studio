@@ -3,7 +3,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Channel, Push } from "phoenix";
 
-import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, modifyDraft, getToc, getChapterContent, getCharacters, getWorkStats } from "../socket";
+import { createSocket, joinWorkspace, sendMessage, sendAuthorAction, adopt, discardArtifact, modifyDraft, getToc, getChapterContent, getCharacters, getWorkStats } from "../socket";
 
 // 注：完整的 connect / ping-pong 端到端验证依赖 Phoenix server 在跑（mix phx.server）+
 // 浏览器 WebSocket。本文件只覆盖 helper 的纯逻辑（socket / channel 对象构造），
@@ -50,16 +50,44 @@ describe("joinWorkspace", () => {
 });
 
 describe("sendMessage", () => {
-  it("pushes user_message with text", () => {
+  it("pushes user_message with text and does not request micro plan by default", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined, behavior_id: undefined, generate_micro_plan: true }, 60000);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined, behavior_id: undefined, generate_micro_plan: false }, 60000);
   });
 
   it("passes work_id when provided", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好", "work-123");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123", behavior_id: undefined, generate_micro_plan: true }, 60000);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123", behavior_id: undefined, generate_micro_plan: false }, 60000);
+  });
+
+  it("can explicitly request a micro plan", () => {
+    const ch = mockChannel();
+    sendMessage(ch, "生成角色设定", "work-123", undefined, true);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "生成角色设定", work_id: "work-123", behavior_id: undefined, generate_micro_plan: true }, 60000);
+  });
+});
+
+describe("sendAuthorAction", () => {
+  it("pushes author_action with source turn and action identity", () => {
+    const ch = mockChannel();
+    sendAuthorAction(ch, {
+      source_turn_ref: "turn-1",
+      action_id: "act-confirm",
+      action_type: "confirm_before_execute",
+      behavior_ref: "bh-1",
+      idempotency_key: "ik-1",
+    });
+    expect(ch.push).toHaveBeenCalledWith("author_action", {
+      action: {
+        source_turn_ref: "turn-1",
+        action_id: "act-confirm",
+        action_type: "confirm_before_execute",
+        behavior_ref: "bh-1",
+        idempotency_key: "ik-1",
+      },
+    }, 60000);
   });
 });
 

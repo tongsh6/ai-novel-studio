@@ -129,6 +129,7 @@ defmodule NovelApplication.BehaviorLifecycleTest do
       {_decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
       assert behavior.available_actions != []
+      assert Enum.all?(behavior.available_actions, &is_binary(&1.action_id))
       assert Enum.any?(behavior.available_actions, &(&1.action_type == "confirm_before_execute"))
 
       assert Enum.any?(

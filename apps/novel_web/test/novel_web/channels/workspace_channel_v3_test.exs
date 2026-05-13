@@ -251,7 +251,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
       socket = assign_server_turn(socket, @creative_turn_result)
 
-      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
                WorkspaceChannel.handle_in(
                  "author_action",
                  %{
@@ -267,6 +267,9 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
       assert_broadcast("task_state", %{phase: "RUNNING", task_type: "creative_generation"})
       assert_broadcast("task_state", %{phase: "COMPLETED", status: "DONE"})
+      assert_broadcast("turn_result", %{turn_id: turn_id})
+      assert socket.assigns.current_turn_id == turn_id
+      assert Map.has_key?(socket.assigns.turn_results_by_id, turn_id)
     end
 
     test "stale source_turn_ref rejected" do

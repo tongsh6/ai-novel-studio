@@ -4,7 +4,17 @@
 import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 
-import { createSocket, joinWorkspace, sendMessage, adopt, discardArtifact, modifyDraft, confirm, rejectAction, revise, dismissCard, resumeCheckpoint, cancelCheckpoint, branchCheckpoint, retryAction } from "../lib/socket";
+import {
+  createSocket,
+  joinWorkspace,
+  sendMessage,
+  sendAuthorAction,
+  onTaskState,
+  adopt,
+  discardArtifact,
+  modifyDraft,
+  type TaskStateData,
+} from "../lib/socket";
 import {
   listWorks,
   createWork,
@@ -13,6 +23,11 @@ import {
   setLastOpenedWorkId,
   type WorkDto,
 } from "../lib/works";
+import {
+  findAuthorizedAction,
+  toAuthorActionPayload,
+  type AvailableActionLike,
+} from "../lib/workbenchActions";
 import {
   ClarificationCard,
   ConfirmationCard,
@@ -38,6 +53,7 @@ interface TurnResult {
   status: string;
   next_action: string;
   assistant_message: { text: string };
+  available_actions?: AvailableAction[];
   ui_cards?: UICardData[];
   candidate_directions?: CandidateDirection[];
   adoption_state?: {
@@ -47,6 +63,10 @@ interface TurnResult {
   behavior_state?: { active: Record<string, unknown> | null };
   projection_refs?: { projection_type: string; projection_id: string; source_revision_refs: string[]; refresh_status?: string | null }[];
   produced_at: string;
+}
+
+interface AvailableAction extends AvailableActionLike {
+  target_ref?: string;
 }
 
 export interface CandidateDirection {
@@ -93,6 +113,7 @@ export function WorkspaceChat() {
   const setContext = useAppStore(state => state.setContext);
   const setChannel = useAppStore(state => state.setChannel);
   const setMode = useAppStore(state => state.setMode);
+  const setLongRun = useAppStore(state => state.setLongRun);
 
   const channelRef = useRef<Channel | null>(null);
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
@@ -142,6 +163,41 @@ export function WorkspaceChat() {
       if (status === "FRESH" || status === "STALE" || status === "REBUILDING" || status === "FAILED") {
         useAppStore.getState().setProjectionStatus(status);
       }
+    }
+  }
+
+  function handleTaskState(state: TaskStateData) {
+    if (state.phase === "RUNNING" || state.phase === "RESUMING") {
+      setLongRun({
+        status: "running",
+        budgetUsed: typeof state.progress === "number" ? state.progress : longRun.budgetUsed,
+      });
+      return;
+    }
+
+    if (state.phase === "CHECKPOINT") {
+      setLongRun({
+        status: "checkpoint",
+        budgetUsed: typeof state.progress === "number" ? state.progress : longRun.budgetUsed,
+        checkpointReason: state.step ?? null,
+      });
+      return;
+    }
+
+    if (state.phase === "FAILED") {
+      setLongRun({
+        status: "failed",
+        checkpointReason: state.step ?? "任务失败",
+      });
+      return;
+    }
+
+    if (state.phase === "COMPLETED" || state.phase === "CANCELLED") {
+      setLongRun({
+        status: "idle",
+        budgetUsed: typeof state.progress === "number" ? state.progress : longRun.budgetUsed,
+        checkpointReason: null,
+      });
     }
   }
 
@@ -213,6 +269,7 @@ export function WorkspaceChat() {
         .receive("timeout", () => setSocketConnected(false));
 
       channel.on("turn_result", handleTurnResult);
+      onTaskState(channel, handleTaskState);
     })();
 
     return () => {
@@ -257,7 +314,10 @@ export function WorkspaceChat() {
     void sendMessage(channelRef.current, text).then(() => setLoading(true));
   }, []);
 
-  const handleSend = async (messageText: string = inputText) => {
+  const handleSend = async (
+    messageText: string = inputText,
+    options: { generateMicroPlan?: boolean } = {},
+  ) => {
     const text = messageText.trim();
     if (!text || !channelRef.current) return;
 
@@ -269,7 +329,13 @@ export function WorkspaceChat() {
     setPendingAnswerBid(null);
 
     try {
-      await sendMessage(channelRef.current, text, context.workId, behaviorId);
+      await sendMessage(
+        channelRef.current,
+        text,
+        context.workId,
+        behaviorId,
+        options.generateMicroPlan ?? false,
+      );
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -317,9 +383,33 @@ export function WorkspaceChat() {
     }
   };
 
+  const handleAvailableAction = async (turnResult: TurnResult, action: AvailableActionLike) => {
+    if (!channelRef.current || action.enabled === false) return;
+
+    try {
+      await sendAuthorAction(
+        channelRef.current,
+        toAuthorActionPayload(turnResult.turn_id, action),
+      );
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: "操作失败，请重试。" },
+      ]);
+    }
+  };
+
+  const actionLabel = (action: AvailableActionLike) => {
+    if (action.action_type === "confirm_before_execute") return "确认执行";
+    if (action.action_type === "reject_or_cancel_confirmation") return "拒绝";
+    if (action.action_type === "cancel_pending_behavior") return "取消";
+    if (action.action_type === "answer_clarification") return "回答";
+    return action.action_type;
+  };
+
   const handlePanelAction = (actionType: string, artifactId?: string) => {
     if (actionType === "init_intent") {
-      void handleSend("我想调整或新增伏笔");
+      void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
     } else if (actionType === "revise" && artifactId) {
       void handleSend(`我想修改设定 ${artifactId}，我的想法是：`);
     } else {
@@ -346,7 +436,7 @@ export function WorkspaceChat() {
   const pendingAdoptionsCount = allPendingAdoptions.length;
 
   return (
-    <div className={styles.workbench}>
+    <div className={styles.workbench} data-slice-verify="workspace-chat">
       {/* 顶部上下文栏 (Top Context Bar) */}
       <div className={styles.topBar}>
         <div className={styles.contextGroup}>
@@ -380,6 +470,7 @@ export function WorkspaceChat() {
           <div 
             className={styles.riskBadge}
             data-status={socketConnected ? "ok" : "error"}
+            data-slice-verify="service-status"
             style={{ backgroundColor: socketConnected ? 'var(--accent)' : 'var(--foreground-secondary)' }}
           >
             服务: {socketConnected ? "已连接" : "离线"}
@@ -416,14 +507,6 @@ export function WorkspaceChat() {
                       input?.focus();
                       return;
                     }
-                    if (actionType === "confirm" && channelRef.current) {
-                      void confirm(channelRef.current, targetRef);
-                      return;
-                    }
-                    if (actionType === "reject" && channelRef.current) {
-                      void rejectAction(channelRef.current, targetRef);
-                      return;
-                    }
                     if (actionType === "discard" && channelRef.current) {
                       const pending = msg.turnResult?.adoption_state?.pending ?? [];
                       const artifact = pending.find((a) => a.artifact_id === targetRef);
@@ -453,34 +536,24 @@ export function WorkspaceChat() {
                       }
                       return;
                     }
-                    if (actionType === "revise" && channelRef.current) {
-                      void revise(channelRef.current, targetRef);
-                      return;
-                    }
-                    if (actionType === "dismiss" && channelRef.current) {
-                      void dismissCard(channelRef.current, targetRef);
-                      return;
-                    }
-                    if (actionType === "resume" && channelRef.current) {
-                      void resumeCheckpoint(channelRef.current, targetRef);
-                      return;
-                    }
-                    if (actionType === "cancel" && channelRef.current) {
-                      void cancelCheckpoint(channelRef.current, targetRef);
-                      return;
-                    }
-                    if (actionType === "branch" && channelRef.current) {
-                      void branchCheckpoint(channelRef.current, targetRef);
-                      return;
-                    }
-                    if (actionType === "retry" && channelRef.current) {
-                      void retryAction(channelRef.current, targetRef);
-                      return;
-                    }
                     const pending = msg.turnResult?.adoption_state?.pending ?? [];
                     const artifact = pending.find((a) => a.artifact_id === targetRef);
                     if (artifact && actionType === "accept") {
                       void handleAdopt(artifact);
+                      return;
+                    }
+
+                    const authorizedAction = findAuthorizedAction(
+                      msg.turnResult?.available_actions ?? [],
+                      {
+                        action_id: _actionId,
+                        action_type: actionType,
+                        target_ref: targetRef,
+                      },
+                    );
+
+                    if (authorizedAction && msg.turnResult) {
+                      void handleAvailableAction(msg.turnResult, authorizedAction);
                     }
                   };
 
@@ -528,6 +601,28 @@ export function WorkspaceChat() {
                     </div>
                   </div>
                 )}
+
+                {msg.turnResult?.available_actions && msg.turnResult.available_actions.length > 0 && (
+                  <div className={styles.cardActions}>
+                    {msg.turnResult.available_actions.map((action) => (
+                      <button
+                        key={action.action_id}
+                        className={styles.btnSecondary}
+                        data-slice-verify="available-action"
+                        data-action-type={action.action_type}
+                        disabled={action.enabled === false}
+                        title={action.disabled_reason}
+                        onClick={() => {
+                          if (msg.turnResult) {
+                            void handleAvailableAction(msg.turnResult, action);
+                          }
+                        }}
+                      >
+                        {actionLabel(action)}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
 
@@ -545,6 +640,7 @@ export function WorkspaceChat() {
             <input
               type="text"
               className={styles.inputBox}
+              data-slice-verify="chat-input"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -553,6 +649,7 @@ export function WorkspaceChat() {
             />
             <button
               className={styles.sendBtn}
+              data-slice-verify="send-button"
               onClick={() => {
                 void handleSend();
               }}
@@ -570,6 +667,7 @@ export function WorkspaceChat() {
             <div className={styles.railSummary}>
               <div 
                 className={styles.openArchiveEntry}
+                data-slice-verify="open-archive"
                 onClick={() => setIsPanelOpen(true)}
               >
                 <span className={styles.spItemCardText}>打开档案<br/>查看详情</span>

@@ -49,6 +49,7 @@ export function sendMessage(
   text: string,
   workId?: string | null,
   behaviorId?: string | null,
+  generateMicroPlan = false,
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
     channel
@@ -56,12 +57,54 @@ export function sendMessage(
         text, 
         work_id: workId, 
         behavior_id: behaviorId,
-        generate_micro_plan: true // REQUIRED for v3 to trigger tools and structural changes
+        generate_micro_plan: generateMicroPlan,
       }, 60000)
       .receive("ok", (response) => resolve(response as { received: boolean }))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("send timeout")));
   });
+}
+
+export interface AuthorActionPayload {
+  source_turn_ref: string;
+  action_id: string;
+  action_type: string;
+  behavior_ref?: string;
+  candidate_set_ref?: string;
+  candidate_ref?: string;
+  idempotency_key?: string;
+}
+
+export function sendAuthorAction(
+  channel: Channel,
+  action: AuthorActionPayload,
+): Promise<{ received: boolean; action_status: string }> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("author_action", { action }, 60000)
+      .receive("ok", (response) =>
+        resolve(response as { received: boolean; action_status: string }),
+      )
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("author_action timeout")));
+  });
+}
+
+export interface TaskStateData {
+  task_id: string;
+  task_type?: string;
+  phase: string;
+  status: string;
+  progress?: number;
+  step?: string;
+  updated_at?: string;
+}
+
+export function onTaskState(
+  channel: Channel,
+  callback: (state: TaskStateData) => void,
+): void {
+  channel.on("task_state", (payload: TaskStateData) => callback(payload));
 }
 
 export function confirm(

@@ -126,6 +126,7 @@ defmodule NovelWeb.WorkspaceChannel do
         broadcast!(socket, "action_result", result)
         broadcast_task_state_events(socket, turn_result)
         broadcast!(socket, "turn_result", turn_result)
+        socket = remember_turn_result(socket, turn_result)
         {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
 
       {:error, reason} ->

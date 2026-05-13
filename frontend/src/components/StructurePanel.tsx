@@ -298,6 +298,7 @@ export function StructurePanel({
       <div className={styles.footerActions}>
         <button
           className={styles.btnSecondary}
+          data-slice-verify="panel-new-action"
           onClick={() => onAction("init_intent")}
         >
           发起新操作
