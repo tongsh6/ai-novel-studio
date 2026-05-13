@@ -40,6 +40,7 @@ defmodule NovelPersistence.MixProject do
     [
       {:novel_foundation, in_umbrella: true},
       {:novel_domain, in_umbrella: true},
+      {:decimal, "~> 3.0", override: true},
       {:ecto, "~> 3.13"},
       {:ecto_sql, "~> 3.13"},
       {:ecto_sqlite3, "~> 0.22"},
