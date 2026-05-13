@@ -15,6 +15,8 @@
 | 先蓝图，后实现 | 先列完整用户能力闭环，再标注哪些已经实现、哪些只是局部实现 |
 | 先主流程，后边缘 | 优先发现阻塞端到端闭环的缺口，再补异常和边界 |
 | 真实消费者 | 每个验收场景必须说明第一个真实消费者：Channel、Frontend、Application、Persistence、Replay 或人工走查 |
+| 前端可发起 | 每个 slice 完成时必须能从真实前端入口发起验证；后端/Channel/API/helper/组件测试只能算局部证据 |
+| 主链穿透 | 前端发起验证必须覆盖 Frontend 用户操作 → socket/API → web/channel/controller → application → domain/agent/persistence → TurnResult/task_state/projection/trace → 前端反馈 |
 | 证据分级 | 已实现不等于已验证；有单测不等于有人机可用；有 stub 不等于真实 LLM / SQLite / UI 走通过 |
 | 不把缺口包装成需求扩张 | 验收缺口应说明是“补测试、补集成、补主流程、补 UX、补文档”还是“新增能力” |
 
@@ -41,11 +43,11 @@
 | 作品空间管理 | 创建、切换、恢复作品，保证上下文隔离 | SU-02 | 0/10 完整验收；5/10 部分/基础设施 | 后端 CRUD、启动去 mock、Channel work_id 透传已推进；运行时切换 UI、rejoin、pending 隔离、跨作品隔离验收不足 |
 | AI 身份与显示 | 给 AI 起名，且按作品隔离 | SU-03 | 0/6 已验收；1/6 仅硬编码默认值 | 组件硬编码 “AI”；无设置入口、持久化、按作品隔离和“仅 UI 展示”验收 |
 | 自然创作对话 | 作者能持续自然讨论，不被表单化打断 | AU-01/AU-02 | AU-01: 0/13；AU-02: 0/12 完整前后端验收 | 后端/Channel 主链较强；真实工作台 walkthrough、普通聊天/探索默认 MicroPlan 风险、候选操作与采纳桥接仍不足 |
-| 上下文与记忆 | AI 使用最新作品背景、当前会话、历史会话、记忆、行为上下文，不编造 | AU-03/AU-09 | AU-03: 0/20 完整前后端验收；5/20 有局部证据 | 缺作品内会话模型、会话列表/搜索/归档、历史会话只读态；memory_summary/behavior_summary 未接入 |
+| 上下文与记忆 | AI 使用最新作品背景、当前会话、历史会话、记忆、行为上下文，不编造 | AU-03/AU-09 | AU-03: 0/20 完整前后端验收；5/20 有局部证据；AU-09: 0/14 完整前后端验收；9/14 有局部证据 | 缺作品内会话模型、会话列表/搜索/归档、历史会话只读态；memory_summary/behavior_summary 未接入；记忆管理 API、召回、溯源未闭环 |
 | 执行与确认 | AI 可提计划，系统负责门禁、确认和重审 | AU-04/AU-06 | AU-04: 0/18；AU-06: 0/17 完整真实前后端验收 | 后端门禁和 BehaviorState 打开较强；真实入口确认卡/author_action、behavior_state 消费、resolution/history、幂等、TTL、ConfirmationBinding、完整 re-gate lifecycle 不足 |
 | 创作产物与采纳 | 产出默认草稿，采纳后才进入作品事实 | AU-05 | AU-05: 0/18 完整真实前后端验收；10/18 有局部证据 | tentative artifact 已测；真实采纳入口、AdoptionBoundary 主流程、StateTrace、持久化待处理箱、采纳到阅读投影链路不足 |
 | 阅读作品与投影 | 作者能像读一本书一样查看已采纳章节，并知道投影是否过期 | AU-08 | AU-08: 0/16 完整真实前后端验收；7/16 有局部证据 | ReadingMode 壳、mode、banner 已有；TOC 仍 mock，章节读取缺 Channel handler，采纳到阅读投影和 no-write refresh 未闭环 |
-| 工作台 UI 与实时反馈 | 看到状态、卡片、候选、action、任务进度 | AU-10 | 部分已实现 | 缺 Playwright/UI 自动化；长任务仅同步工具最小闭环，真实 TaskRunner streaming 未闭环 |
+| 工作台 UI 与实时反馈 | 看到状态、卡片、候选、action、任务进度 | AU-10 | AU-10: 0/17 完整真实前后端验收；9/17 有局部证据 | 真实入口 `WorkspaceChat` 与 `WorkbenchV3` v3 消费者分裂；action/task_state/adoption/trace/Playwright/Tauri 合规未闭环 |
 | 溯源、回放与运营诊断 | 能解释每轮为什么这样做，断网也能回放 | AU-07/E2E/VS-10 | AU-07: 0/16 完整真实前后端验收；8/16 有局部证据 | Replay no-provider 和 DecisionTrace 持久化已有局部证据；真实 why UI、redaction、author/developer 双视图、ToolTrace/BehaviorTrace/StateTrace replay、完整 6 问题回答不足 |
 
 ---
@@ -71,6 +73,10 @@ ID:
 缺口类型:
 优先级:
 ```
+
+`验证方式` 必须优先写真实前端发起路径：作者从哪个界面进入、输入或点击什么、应该看到什么状态变化，以及验证脚本输出到哪个 artifact 目录。若当前只能通过后端/Channel/helper/组件测试验证，`当前状态` 只能写“已测试”“部分实现”或“已实现未验收”，不能写“已验收”。
+
+不算前端发起验证：直接调用后端模块、直接 push Channel payload、只测 socket helper、只测组件 render、只用 mock 文档描述。自动化验证推荐沉淀为 `scripts/slice_verify.sh <slice-id>`，输出截图、日志、网络帧到 `artifacts/slice-verify/<slice-id>/`；接手者可先运行 `bash scripts/slice_verify.sh --list` 查看当前已有场景。
 
 缺口类型只能选：
 
@@ -115,7 +121,7 @@ ID:
 | SU-01 原标 22%，场景化对账后应改为 0/10 已验收 | “能看 health”容易被误判为“可切换供应商” | 先补 health model/error 测试，再设计运行时 provider config |
 | `acceptance/README.md` 的覆盖率和测试计数已滞后 | 新会话会误判完成度 | 下一步先更新 README 总览，改为引用台账和本蓝图 |
 | SU-02 已按 VS-09 证据重算为 10 个场景、0/10 完整端到端验收 | 已推进的 CRUD/启动接入不会再被误判为未开始，但切换闭环风险仍突出 | 下一步按 SU02-GAP-01~04 补运行时切换和隔离验收 |
-| AU-10 仍写“已实现”，AU-08 已修正为真实阅读链路口径 | “已实现”容易被误读为“已验收” | AU-10 需继续按场景化口径重算；AU-08 已改为 0/16 完整验收 |
+| AU-10 已按真实工作台 UI 链路重算 | `WorkspaceChat` 是真实入口，但 `WorkbenchV3` 的 `author_action`/task_state 能力未挂首屏；`WorkspaceChat` 仍调用旧 `confirm`/`adopt` 等事件，候选不可点选，Playwright/Tauri 合规未闭环 | AU-10 应优先与 AU-01/AU-04/AU-05/AU-08 合并成“真实工作台主入口统一 v3 action/task_state/adoption/projection”承重 slice |
 | AU-02 候选方向状态已重算 | backend fallback/real_llm 证据已进入验收文档，但候选卡点选和采纳桥接仍未闭环 | 下一步优先补 AU02-GAP-01~02 |
 | AU-06 与 AU-04 都指向确认 lifecycle 缺口 | 重复但合理，说明它是跨文档主风险 | 建议合并为一个 P0 场景族追踪 |
 | AU-04 已按真实工作台入口重算 | `WorkspaceChat` 调旧 confirm/reject 事件，后端实现 `author_action`，说明“后端测试通过”不能等同“作者可确认执行” | 优先把 AU-04/AU-06 合并为真实确认闭环 slice |
@@ -123,6 +129,7 @@ ID:
 | AU-06 已按真实 lifecycle 重算 | `BehaviorState` 可打开，但真实入口 `WorkspaceChat` 期望 `behavior_state.active`，后端 v3 输出扁平结构；resolution/history/TTL/replay 未闭环 | AU-04/AU-06 应合并为一个 confirmation/behavior lifecycle 承重 slice |
 | AU-07 已按真实解释入口重算 | ReplayService no-provider 已测，TraceRepository 可存 DecisionTrace；但前端无 why 入口，redaction engine、双视图、Tool/Behavior/StateTrace 聚合缺失 | trace/replay 应服务作者解释和开发者诊断两个视图，不能只停留在结构测试 |
 | AU-08 已按真实阅读链路重算 | `ReadingMode` 前端壳存在，但 `get_toc` 是固定 mock，`get_chapter_content` 无 Channel handler，ProjectionHint 未转 `projection_refs` | AU-05/AU-08 应合并验证“生成草稿 -> 采纳 -> 阅读投影 -> 只读刷新” |
+| AU-09 已按真实故事设定/记忆链路重算 | `MemoryItem` schema、Phase 0 管理组件、reference log helper、`memory_summary` 字段存在；但 Router 无 memory API，档案 Channel handler 返回 mock，真实 fetcher 返回 memory nil | AU-09 应与 AU-03/AU-07 合并验证“新建/确认记忆 -> 召回进 context/prompt -> trace 显示引用来源 -> 历史会话不覆盖最新 Work 背景” |
 | 缺少“人工 walkthrough case”标准格式 | 真人走查发现问题难以反哺验收文档 | 增加 walkthrough case 模板，输出场景 ID 和失败证据 |
 
 ---

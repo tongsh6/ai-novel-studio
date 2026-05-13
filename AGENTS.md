@@ -175,6 +175,18 @@ UI 实现必须严格遵循 `docs/design-v2/ui-design/` 中的设计文档和 Pe
 
 如果这 5 项答不上来，先补 slice 设计，不要编码。
 
+### Slice 完成标准：必须能从前端发起验证
+
+每完成一个 slice，都必须能从真实前端入口发起验证，这是承重竖切面的核心价值。后端测试、组件测试、API helper 测试只能作为局部证据，不能单独证明 slice 完成。
+
+- 默认前端入口是当前真实产品入口（例如 `App.tsx -> WorkspaceChat` / Tauri 工作台），不是旁路 demo 组件。
+- Proof 必须说明作者如何在前端触发这条链路：点击、输入、切换、确认、采纳或查看状态。
+- 前端发起验证必须像用户一样操作 UI，并穿过真实主链：Frontend 用户操作 → socket/API 请求 → web/channel/controller → application 编排 → domain/agent/persistence → TurnResult/task_state/projection/trace → 前端可见反馈。
+- 不算前端发起验证：直接调用后端模块、直接 push Channel payload、只测 socket helper、只测组件 render、只用 mock 文档描述。
+- 自动化可以使用 Playwright/Tauri 脚本；人工 walkthrough 可以作为临时证据，但长期应沉淀为 `scripts/slice_verify.sh <slice-id>` 这类可重复脚本，并输出截图/日志/网络帧到 `artifacts/slice-verify/<slice-id>/`。接手时先运行 `bash scripts/slice_verify.sh --list` 查看已有 slice 验证。
+- 如果当前 slice 因基础设施限制暂时无法做到前端发起，必须标记为“未闭环”，说明缺哪个入口、事件、状态或 UI 验收，而不能写 done。
+- 每个 slice 的最终汇报必须区分：前端可发起的真实验证、后端/Channel/组件局部验证、尚未闭环的缺口。
+
 ### 本项目默认承重主链
 
 ```text

@@ -24,6 +24,18 @@
 
 如果一个任务缺少其中任意一项，默认不视为承重竖切面。
 
+### 1.1 前端可发起原则
+
+每完成一个 slice，都必须能从真实前端入口发起验证。这不是额外 UI 要求，而是判断 slice 是否真正切穿产品主链的标准。
+
+- “真实前端入口”指当前用户实际进入的产品入口，例如 Tauri 工作台和 `App.tsx -> WorkspaceChat`，不是旁路 demo、Storybook、孤立组件或只在测试里构造的 helper。
+- 前端发起验证必须像用户一样操作 UI，并穿过真实主链：Frontend 用户操作 → socket/API 请求 → web/channel/controller → application 编排 → domain/agent/persistence → TurnResult / task_state / projection / trace → 前端可见反馈。
+- 后端单测、Channel 测试、API helper 测试、组件类型测试都可以作为 Proof 的局部证据，但不能单独证明 slice 完成。
+- 直接调用后端模块、直接 push Channel payload、只测 socket helper、只测组件 render、只用 mock 文档描述，都不算前端发起验证。
+- 自动化可以使用 Playwright 或 Tauri 脚本；人工 walkthrough 可以作为临时证据，但长期应沉淀为 `scripts/slice_verify.sh <slice-id>` 这类可重复脚本，并输出截图、日志、网络帧到 `artifacts/slice-verify/<slice-id>/`。接手新会话时先运行 `bash scripts/slice_verify.sh --list` 查看已有可复跑场景。
+- Proof 必须写清作者在前端如何触发：输入什么、点击什么、切换什么、确认/采纳什么，以及前端应看到的状态变化。
+- 如果因为缺入口、缺事件、缺状态投影或缺 UI 自动化，暂时不能从前端发起验证，该 slice 只能标为“已实现，未闭环”或“局部证据”，不能标 done。
+
 ---
 
 ## 2. 本项目承重主链
@@ -108,6 +120,7 @@ VS-006 Turn Memory Write-Through
 - `Boundary` 必须列出涉及的 umbrella app 和禁止触碰的 app。
 - `Consumer` 必须是真实调用者，不能写“未来 UI 会用”。
 - `Proof` 必须包含至少一个测试、编译或脚本验证。
+- `Proof` 必须包含真实前端发起路径；如果暂缺，必须明确记录“未闭环”及缺失项。
 
 ---
 
@@ -141,6 +154,7 @@ VS-006 Turn Memory Write-Through
 
 - 实际修改范围
 - 打实的 contract / invariant / boundary / consumer / proof
+- 前端发起验证路径：作者从哪个真实界面、通过什么操作触发本 slice
 - 验证命令
 - 发现的规则缺口
 

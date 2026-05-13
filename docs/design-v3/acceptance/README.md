@@ -53,8 +53,8 @@
 | [AU-06](author/AU-06-behavior-lifecycle.md) | 行为生命周期 | 17 | 0/17 完整真实前后端验收；6/17 有局部证据 | 打开行为已部分实现，resolution/history/TTL/replay 未闭环 |
 | [AU-07](author/AU-07-trace-and-replay.md) | 决策溯源透明度 | 16 | 0/16 完整真实前后端验收；8/16 有局部证据 | Replay no-provider 已测，真实 why UI/redaction/多 trace 回放未闭环 |
 | [AU-08](author/AU-08-reading-mode.md) | 阅读我的作品 | 16 | 0/16 完整真实前后端验收；7/16 有局部证据 | 阅读壳已实现，TOC mock/章节 handler/真实投影链路未闭环 |
-| [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 9 | 待重算 | 部分实现，记忆召回主链未闭环 |
-| [AU-10](author/AU-10-workbench-ui.md) | 工作台实时交互 | 9 | 待重算 | 已实现多处 UI，缺 Playwright/真人复验 |
+| [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 14 | 0/14 完整真实前后端验收；9/14 有局部证据 | 记忆 schema/UI 壳存在，管理 API、召回主链、溯源和 AU-03 分层未闭环 |
+| [AU-10](author/AU-10-workbench-ui.md) | 工作台实时交互 | 17 | 1/17 最小前端发起验证；13/17 有局部证据 | `au10-micro-plan-entry` 已证明真实入口可发起 MicroPlan；adoption/trace/projection/Tauri 合规仍未闭环 |
 
 ---
 
@@ -141,13 +141,21 @@ mix test apps/novel_web/test/novel_web/channels/
 | 采纳到阅读投影与 ProjectionHint adapter | AU-08 AU08-GAP-03~04 | 补集成/修正/补测试 | P0 |
 | projection refresh no-write 与跨作品隔离 | AU-08 AU08-GAP-05~06 | 补实现/补测试/补验收 | P0 |
 | 阅读模式错误态与 UI 自动化 | AU-08 AU08-GAP-07~09 | 补实现/补验收/文案同步 | P1/P2 |
+| 记忆管理 REST/Channel 入口与作品档案真实数据 | AU-09 AU09-GAP-01~03 | 补实现/补集成/补验收 | P0 |
+| 记忆召回到 context/prompt 与 recall ranking | AU-09 AU09-GAP-04~05 | 补实现/补集成 | P0 |
+| 记忆状态机、locked 保护、有效期窗口 | AU-09 AU09-GAP-06~08 | 补实现/补测试/补集成 | P0/P1 |
+| 记忆引用日志、作者溯源、AU-03 会话分层 | AU-09 AU09-GAP-09~12 | 补集成/补实现/新增 | P0/P1 |
+| 真实工作台入口与 v3 action/task_state 消费者分裂 | AU-10 AU10-GAP-01/AU10-GAP-03/AU10-GAP-07 | 已补最小闭环；继续补 UI/Tauri 验收与旁路清理 | P0 |
+| 普通聊天默认 MicroPlan、card action 绕过授权、候选不可点选 | AU-10 AU10-GAP-02/AU10-GAP-04~05 | 默认 MicroPlan 与 WorkspaceChat 授权已修；`au10-micro-plan-entry` 已有前端发起验证；候选点选仍待补 | P0 |
+| adoption UI、trace/why、projection、错误恢复 | AU-10 AU10-GAP-06/AU10-GAP-08~10 | 补集成/补实现/补验收 | P0/P1 |
+| 工作台 UI 自动化与 Tauri/Design 约束 | AU-10 AU10-GAP-11~12 | 补验收/修设计偏差 | P0/P1 |
 | 供应商 health/model/error 补齐 | SU-01 SU01-GAP-01~03 | 补实现/补测试 | P0/P1 |
 | 供应商运行时切换与安全配置 | SU-01 SU01-GAP-04~07 | 补设计/补实现/补集成 | P0 |
 | 作品切换主闭环与隔离 | SU-02 SU02-GAP-01~04 | 补集成/补验收 | P0 |
 | 作品管理 UI 与恢复策略 | SU-02 SU02-GAP-05~09 | 补实现/修设计偏差 | P1/P2 |
 | AI 显示名设置与隔离 | SU-03 SU03-GAP-01~05 | 补实现/补验收 | P2 |
 
-**总缺口：持续重算中。当前 SU-01~03、AU-01~08 已按场景化口径重算；AU-09~10 仍需逐个复核后再给汇总数字。**
+**总缺口：持续重算中。当前 SU-01~03、AU-01~10 已按场景化口径重算；AU-10 action/task_state 最小切片已推进，后续继续承重 slice 实现。**
 
 ---
 
