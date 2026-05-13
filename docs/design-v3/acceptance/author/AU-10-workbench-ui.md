@@ -2,7 +2,7 @@
 
 > 作者视角：工作台是我和 AI 协作的主界面。我需要实时知道系统状态、AI 在做什么、现在等我做什么、哪些按钮可以点。界面上的卡片、候选、action、任务状态、trace 和投影状态必须来自真实主链，不能由前端猜测或用 mock 冒充。
 >
-> 2026-05-13 对账结论：当前有 `WorkspaceChat` 真实入口、`WorkbenchV3` v3 消费者实验组件、`UICards`、候选/任务状态类型测试和 Channel action 安全测试。本日最小切片已把真实入口的普通聊天默认 MicroPlan 风险降下去，并将 `available_actions` / `author_action` / `task_state` 接入 `WorkspaceChat`；同时新增 `scripts/slice_verify.sh au10-micro-plan-entry`，可从真实前端入口触发“发起新操作”并捕获 Phoenix `user_message generate_micro_plan=true`。但这只覆盖一个最小前端发起场景，采纳主流程、候选点选、trace/why、阅读投影和 Tauri/Design 合规尚未闭环。
+> 2026-05-14 对账结论：当前有 `WorkspaceChat` 真实入口、`WorkbenchV3` v3 消费者实验组件、`UICards`、候选/任务状态类型测试和 Channel action 安全测试。`au10-micro-plan-entry` 已证明真实前端入口可触发 MicroPlan；VS-10 进一步新增 `vs10-observability-spine` 浏览器验证和 `scripts/tauri_slice_verify.sh vs10-observability-spine` 原生 Tauri 自动化验证，可在不等待人工操作的情况下驱动真实工作台控件并校验日志链。采纳主流程、候选点选、trace/why、阅读投影和完整 Tauri/Design 合规仍未闭环。
 
 ---
 
@@ -49,7 +49,7 @@
 | 契约 / 实现 | 用途 | 当前证据判断 |
 |---|---|---|
 | `frontend/src/App.tsx` | 真实应用入口 | 当前 `workbench` mode 渲染 `WorkspaceChat`，不渲染 `WorkbenchV3` |
-| `WorkspaceChat.tsx` | 真实工作台主组件 | 有消息、卡片、候选、档案、阅读切换；已接 `available_actions` / `author_action` / `task_state` 最小闭环；adoption、trace、投影和 UI 自动化仍未闭环 |
+| `WorkspaceChat.tsx` | 真实工作台主组件 | 有消息、卡片、候选、档案、阅读切换；已接 `available_actions` / `author_action` / `task_state` 最小闭环；已有 VS-10 原生 Tauri 自动化观测链；adoption、trace、投影和完整 UI 自动化仍未闭环 |
 | `WorkbenchV3.tsx` | v3 UI consumer 实验/旁路组件 | 有 `available_actions` ActionPanel、`author_action`、task_state 订阅；但不是当前首屏入口 |
 | `UICards.tsx` | 结构化卡片渲染 | 10 类卡片组件存在；card actions 由卡片 action 直接触发，未统一校验 available_actions |
 | `socket.ts` | 真实 `WorkspaceChat` 使用的 Channel helper | `sendMessage` 默认 `generate_micro_plan: false`；新增 `sendAuthorAction` 与 `onTaskState`；adoption helper 仍待后端主流程对齐 |
@@ -57,7 +57,7 @@
 | `WorkspaceChannel` | 后端真实 Channel | 实现 `user_message`、`author_action`、`ping`、mock structure handlers；无 `confirm`/`adopt`/`modify_draft` handlers |
 | `workspace_channel_v3_test.exs` | Channel action 安全局部证据 | 覆盖 invented action 被拒绝、confirmation 后 task_state 广播；不是前端真实入口验收 |
 | `frontend/src/lib/__tests__/*` | 前端 helper/type 局部测试 | 覆盖 candidate/task_state/socket helper 形状；没有浏览器 UI 行为 |
-| `frontend/package.json` | 前端脚本 | 有 `playwright` 依赖，但未发现 Playwright spec 或 UI 自动化脚本 |
+| `frontend/package.json` | 前端脚本 | 有 `playwright` 依赖；slice 验证脚本已覆盖 `au10-micro-plan-entry` 与 `vs10-observability-spine`，但还不是完整工作台验收套件 |
 | `docs/design-v2/tech-stack/05-desktop.md` | Tauri 桌面约束 | 工作台仍有直接 `fetch("/api/provider/health")` 与内联样式，不满足全部约束 |
 
 ---
@@ -327,7 +327,7 @@
 - 失败截图/日志可追溯；
 - 不只依赖 helper unit test。
 
-**当前证据**：`scripts/slice_verify.sh au10-micro-plan-entry` 会启动 test Phoenix + Vite，从真实 `WorkspaceChat` 打开档案面板，点击“发起新操作”，并在 `artifacts/slice-verify/au10-micro-plan-entry/frames.json` 记录 Phoenix websocket frame。当前只覆盖 MicroPlan 前端发起入口；尚未覆盖发送普通聊天、candidate、card action、task_state、断线错误或 Tauri 原生窗口。
+**当前证据**：`scripts/slice_verify.sh au10-micro-plan-entry` 会启动 test Phoenix + Vite，从真实 `WorkspaceChat` 打开档案面板，点击“发起新操作”，并在 `artifacts/slice-verify/au10-micro-plan-entry/frames.json` 记录 Phoenix websocket frame。VS-10 另有 `bash scripts/slice_verify.sh vs10-observability-spine` 和 `bash scripts/tauri_slice_verify.sh vs10-observability-spine`，后者启动原生 Tauri 窗口并通过 `VITE_SLICE_VERIFY_AUTORUN=vs10-observability-spine` 自动驱动真实控件，验证同一 `turn_id` 贯穿 app JSONL 关键事件。当前仍未覆盖发送普通聊天、candidate、card action、task_state 或断线错误。
 
 **当前状态**：部分实现 / 最小前端发起验证已建立。
 
@@ -369,10 +369,10 @@
 | SC-AU10-D3 | 超时/取消等待 | 部分实现 | timeout catch 有，取消等待缺 |
 | SC-AU10-E1 | projection hint/阅读模式 | 部分实现 | store 更新有，阅读链路未闭环 |
 | SC-AU10-E2 | trace/why 入口 | 未实现 | 旁路 frame insight，不在真实入口 |
-| SC-AU10-F1 | Playwright/Tauri UI 验收 | 部分实现 / 最小前端发起验证已建立 | `scripts/slice_verify.sh au10-micro-plan-entry`，覆盖真实入口 MicroPlan 操作；未覆盖完整工作台 |
+| SC-AU10-F1 | Playwright/Tauri UI 验收 | 部分实现 / 最小前端与原生 Tauri 自动化证据已建立 | `scripts/slice_verify.sh au10-micro-plan-entry` 覆盖真实入口 MicroPlan 操作；`scripts/tauri_slice_verify.sh vs10-observability-spine` 覆盖原生 Tauri 观测链；未覆盖完整工作台 |
 | SC-AU10-F2 | Tauri/Design 约束 | 部分实现 / 修设计偏差 | 直接 fetch、内联样式、硬编码文案 |
 
-**覆盖率重算**：0/17 完整真实前后端验收；1 条最小前端发起验证已建立；13/17 有局部证据或基础设施；4/17 未实现/未闭环。
+**覆盖率重算**：0/17 完整真实前后端验收；1 条最小前端发起验证已建立；新增 1 条原生 Tauri 自动化观测链证据；13/17 有局部证据或基础设施；4/17 未实现/未闭环。
 
 ---
 
@@ -390,7 +390,7 @@
 | AU10-GAP-08 — trace/why 入口缺失 | 作者无法在真实工作台查看本轮来源/决策解释 | 补实现/补验收 | P1 |
 | AU10-GAP-09 — projection 到阅读链路未闭环 | status store 更新有，TOC/章节读取仍见 AU-08 缺口 | 补集成 | P1 |
 | AU10-GAP-10 — 错误恢复 UX 不完整 | 断线重连、超时取消、失败后恢复缺 UI 验收 | 补实现/补验收 | P1 |
-| AU10-GAP-11 — UI 自动化覆盖不足 | 已有 `au10-micro-plan-entry` 最小前端发起验证；缺普通聊天、candidate、card action、task_state、断线错误和 Tauri 原生窗口覆盖 | 补验收 | P0/P1 |
+| AU10-GAP-11 — UI 自动化覆盖不足 | 已有 `au10-micro-plan-entry` 最小前端发起验证；VS-10 已补原生 Tauri 自动化观测链；仍缺普通聊天、candidate、card action、task_state、断线错误等完整工作台覆盖 | 补验收 | P0/P1 |
 | AU10-GAP-12 — 桌面/设计约束偏差 | 直接 fetch endpoint、内联样式、硬编码文案 | 修设计偏差 | P1 |
 
 ---

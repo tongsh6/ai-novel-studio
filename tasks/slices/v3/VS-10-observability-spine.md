@@ -1,6 +1,6 @@
 # VS-10 Observability Spine
 
-> 状态：docs-ready（2026-05-11）
+> 状态：done（2026-05-14，补齐原生 Tauri 验证）
 >
 > 角色：建立 v3 业务日志体系最小骨架。让任何一次 turn 在出现问题（崩溃 / 性能异常 / 行为异常 / 持久化失败 / 上下文缺失）时都能基于共同的 `turn_id` 串成完整回溯链，覆盖业务步骤层（Planner / ContextAssembler / Orchestrator / Toolbox / AdoptionBoundary / BehaviorState / ReplayService / TaskRunner / Channel），与既有 `LLMLog`（HTTP 层）和 `DecisionTrace`（决策事实链）三源并列。
 
@@ -70,10 +70,12 @@ novel_persistence
 | 步骤 | 命令 | 预期 |
 |------|------|------|
 | 1 | `mix test apps/novel_common/test/novel_common/log_context_test.exs` | metadata 注入 / snapshot / restore 全绿 |
-| 2 | `mix test apps/novel_application/test/novel_application/dialogue_gateway_logging_test.exs` | 跑一次 turn → 捕获日志 → 断言 `planner.form_frame.done` / `orchestrator.decide.done` / `dialogue_gateway.handle_input.done` 均含 `turn_id` |
+| 2 | `mix test apps/novel_application/test/novel_application/dialogue_gateway_logging_test.exs` | 跑一次 turn → JSONL 捕获日志 → 断言 `planner.form_frame.done` / `orchestrator.decide.done` / `dialogue_gateway.handle_input.done` 均含 `turn_id` |
 | 3 | `mix test` 全量 | 0 failures，无新 warning |
-| 4 | `bash scripts/grep_turn.sh <turn_id>` 跑一次 dev 启动后的真实 turn | 输出包含业务日志 + LLMLog + DecisionTrace 三源，按时间排序 |
-| 5 | `bash scripts/ai_static_scan.sh --top 10 --quick` | 0 finding |
+| 4 | `bash scripts/slice_verify.sh vs10-observability-spine` | 浏览器前端入口触发 turn，输出 screenshot / Phoenix frames / app JSONL，关键业务日志事件按同一 `turn_id` 串联 |
+| 5 | `bash scripts/tauri_slice_verify.sh vs10-observability-spine` | 原生 Tauri 窗口启动真实 workbench，由 env-gated verifier 自动驱动 `open-archive → panel-new-action` 控件；不等待人工操作，输出 app JSONL 并验证同一 `turn_id` 贯穿 |
+| 6 | `bash scripts/grep_turn.sh <turn_id>` 跑一次 dev 启动后的真实 turn | 输出包含业务日志 + LLMLog + DecisionTrace 三源，按时间排序 |
+| 7 | `bash scripts/ai_static_scan.sh --top 10 --quick` | 0 finding |
 
 ## 6. 涉及范围
 
@@ -120,6 +122,10 @@ mix run scripts/arch_check.exs
 
 # 静态扫描
 bash scripts/ai_static_scan.sh --top 10 --quick
+
+# 场景化验证
+bash scripts/slice_verify.sh vs10-observability-spine
+bash scripts/tauri_slice_verify.sh vs10-observability-spine
 
 # 回溯工具自检（需要先跑一次 dev 启动产生真实日志）
 bash scripts/dev.sh --web &
