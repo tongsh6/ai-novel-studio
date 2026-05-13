@@ -28,6 +28,7 @@ Usage:
 
 Available slice ids:
   au10-micro-plan-entry
+  vs10-observability-spine
 EOF
 }
 
@@ -94,6 +95,7 @@ MIX_ENV=test mix ecto.migrate --quiet >/dev/null
 MIX_ENV=test \
   PHOENIX_TEST_PORT="$PHOENIX_PORT" \
   PHOENIX_PORT="$PHOENIX_PORT" \
+  SLICE_VERIFY_APP_LOG_DIR="$ARTIFACT_DIR/app-log" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
 PHX_PID=$!
 wait_for_url "$API_URL/health" "Phoenix"

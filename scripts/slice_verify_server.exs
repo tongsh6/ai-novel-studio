@@ -12,6 +12,11 @@ endpoint_config =
 Application.put_env(:novel_web, NovelWeb.Endpoint, endpoint_config)
 Application.put_env(:novel_agent, :provider, default: :stub)
 
+if app_log_dir = System.get_env("SLICE_VERIFY_APP_LOG_DIR") do
+  Application.put_env(:novel_common, :log_jsonl_enabled, true)
+  Application.put_env(:novel_common, :log_jsonl_dir, app_log_dir)
+end
+
 {:ok, _started} = Application.ensure_all_started(:novel_web)
 
 IO.puts("[slice-verify-server] listening on http://127.0.0.1:#{port}")

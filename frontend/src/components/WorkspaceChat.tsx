@@ -43,6 +43,7 @@ import {
 } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
+import { isTauri } from "../lib/env";
 
 import styles from "./WorkspaceChat.module.css";
 
@@ -118,6 +119,7 @@ export function WorkspaceChat() {
   const channelRef = useRef<Channel | null>(null);
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sliceVerifyAutorunRef = useRef(false);
 
   // Check LLM connection status
   useEffect(() => {
@@ -294,6 +296,28 @@ export function WorkspaceChat() {
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    if (!isTauri) return;
+    if (import.meta.env.VITE_SLICE_VERIFY_AUTORUN !== "vs10-observability-spine") return;
+    if (!socketConnected || sliceVerifyAutorunRef.current) return;
+
+    sliceVerifyAutorunRef.current = true;
+    const timers: number[] = [];
+
+    timers.push(window.setTimeout(() => {
+      setIsPanelOpen(true);
+      timers.push(window.setTimeout(() => {
+        document
+          .querySelector<HTMLButtonElement>('[data-slice-verify="panel-new-action"]')
+          ?.click();
+      }, 150));
+    }, 150));
+
+    return () => {
+      timers.forEach((timer) => window.clearTimeout(timer));
+    };
+  }, [socketConnected]);
 
   // ... (rest of the component)
 
