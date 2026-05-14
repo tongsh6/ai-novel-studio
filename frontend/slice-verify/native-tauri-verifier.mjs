@@ -1,6 +1,8 @@
 export const nativeSliceIds = [
   "au03c-work-session-resume",
   "au05-adoption-boundary",
+  "au05-discard-boundary",
+  "au05-modify-draft-boundary",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -26,6 +28,29 @@ const sliceKeyEvents = {
     "channel.adopt.start",
     "adoption.evaluate.done",
     "channel.adopt.done",
+  ],
+  "au05-discard-boundary": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "toolbox.execute.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "channel.discard.start",
+    "channel.discard.done",
+  ],
+  "au05-modify-draft-boundary": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "toolbox.execute.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "channel.modify_draft.start",
+    "adoption.evaluate.done",
+    "channel.modify_draft.done",
   ],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
@@ -96,7 +121,15 @@ export function findNativeSliceEvidence(sliceId, records) {
   }
 
   if (sliceId === "au05-adoption-boundary") {
-    return findAu05AdoptionEvidence(records);
+    return findAu05ActionEvidence(records, sliceId, "channel.adopt.done");
+  }
+
+  if (sliceId === "au05-discard-boundary") {
+    return findAu05ActionEvidence(records, sliceId, "channel.discard.done");
+  }
+
+  if (sliceId === "au05-modify-draft-boundary") {
+    return findAu05ActionEvidence(records, sliceId, "channel.modify_draft.done");
   }
 
   if (sliceId === "au10-micro-plan-entry") {
@@ -138,7 +171,15 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
   }
 
   if (sliceId === "au05-adoption-boundary") {
-    return adoptionBoundaryBehavior(turnIds, turnRecords, options);
+    return adoptionBoundaryBehavior(sliceId, turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au05-discard-boundary") {
+    return discardBoundaryBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au05-modify-draft-boundary") {
+    return modifyDraftBoundaryBehavior(turnIds, turnRecords, options);
   }
 
   if (sliceId === "au10-ordinary-chat-no-micro-plan") {
@@ -162,8 +203,7 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
   return null;
 }
 
-function findAu05AdoptionEvidence(records) {
-  const sliceId = "au05-adoption-boundary";
+function findAu05ActionEvidence(records, sliceId, actionDoneEvent) {
   const keyEvents = keyEventsForSlice(sliceId);
   const byTurn = groupByTurn(records);
 
@@ -178,17 +218,31 @@ function findAu05AdoptionEvidence(records) {
     );
     if (!hasAllEvents) continue;
 
-    const adoptionDone = turnRecords.find((record) => record.event === "channel.adopt.done");
-    if (!adoptionDone?.persisted || !adoptionDone?.mutation_id) continue;
+    const actionDone = turnRecords.find((record) => record.event === actionDoneEvent);
+    if (!actionDone) continue;
 
-    const decision = turnRecords.find((record) => record.event === "adoption.evaluate.done");
-    if (decision?.decision_type !== "adopt_tentative") continue;
+    if (sliceId === "au05-adoption-boundary") {
+      if (!actionDone.persisted || !actionDone.mutation_id) continue;
+
+      const decision = turnRecords.find((record) => record.event === "adoption.evaluate.done");
+      if (decision?.decision_type !== "adopt_tentative") continue;
+    }
+
+    if (sliceId === "au05-discard-boundary" && actionDone.action_status !== "discarded") {
+      continue;
+    }
+
+    if (sliceId === "au05-modify-draft-boundary") {
+      if (actionDone.action_status !== "accepted") continue;
+      const decision = turnRecords.find((record) => record.event === "adoption.evaluate.done");
+      if (decision?.decision_type !== "adopt_tentative") continue;
+    }
 
     return {
       slice_id: sliceId,
       turn_id: turnId,
       key_events: keyEvents,
-      mutation_id: adoptionDone.mutation_id,
+      ...(actionDone.mutation_id ? { mutation_id: actionDone.mutation_id } : {}),
     };
   }
 
@@ -349,7 +403,7 @@ function microPlanBehavior(sliceId, turnIds, turnRecords, options, behavior) {
   };
 }
 
-function adoptionBoundaryBehavior(turnIds, turnRecords, options) {
+function adoptionBoundaryBehavior(sliceId, turnIds, turnRecords, options) {
   if (turnIds.length !== 1) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, true)) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
@@ -361,7 +415,7 @@ function adoptionBoundaryBehavior(turnIds, turnRecords, options) {
   if (!adoptDone?.persisted || !adoptDone?.mutation_id) return null;
 
   return {
-    slice_id: "au05-adoption-boundary",
+    slice_id: sliceId,
     behavior: "artifact_adoption_persisted_and_projection_stale",
     turn_ids: turnIds,
     mutation_id: adoptDone.mutation_id,
@@ -370,6 +424,55 @@ function adoptionBoundaryBehavior(turnIds, turnRecords, options) {
       "author_clicked_accept_from_workbench",
       "adoption_boundary_adopted_tentative",
       "adoption_persisted_as_mutation",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function discardBoundaryBehavior(turnIds, turnRecords, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, true)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.discard.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame", "form_micro_plan"])) return null;
+
+  const discardDone = turnRecords.find((record) => record.event === "channel.discard.done");
+  if (discardDone?.action_status !== "discarded") return null;
+
+  return {
+    slice_id: "au05-discard-boundary",
+    behavior: "artifact_discarded_from_workbench",
+    turn_ids: turnIds,
+    assertions: [
+      "tentative_artifact_generated",
+      "author_clicked_discard_from_workbench",
+      "discard_resolved_without_channel_crash",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function modifyDraftBoundaryBehavior(turnIds, turnRecords, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, true)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "adoption.evaluate.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.modify_draft.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame", "form_micro_plan"])) return null;
+
+  const modifyDone = turnRecords.find((record) => record.event === "channel.modify_draft.done");
+  if (modifyDone?.action_status !== "accepted") return null;
+
+  return {
+    slice_id: "au05-modify-draft-boundary",
+    behavior: "artifact_modified_then_accepted_from_workbench",
+    turn_ids: turnIds,
+    assertions: [
+      "tentative_artifact_generated",
+      "author_clicked_edit_then_accept_from_workbench",
+      "edited_artifact_passed_adoption_boundary",
       "no_error_events",
       "assistant_messages_not_fallback",
     ],

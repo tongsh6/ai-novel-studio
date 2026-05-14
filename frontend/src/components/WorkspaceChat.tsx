@@ -118,7 +118,7 @@ export function WorkspaceChat() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [llmConnected, setLlmConnected] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState<string>("");
-  const [modifyModal, setModifyModal] = useState<{ artifact: ArtifactEntry; action: () => void } | null>(null);
+  const [modifyModal, setModifyModal] = useState<{ artifact: ArtifactEntry; sourceTurnRef?: string } | null>(null);
   const [modifyInstruction, setModifyInstruction] = useState("");
   const [pendingAnswerBid, setPendingAnswerBid] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
@@ -208,17 +208,36 @@ export function WorkspaceChat() {
 
     if (
       isTauri &&
-      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-adoption-boundary" &&
+      (import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-adoption-boundary" ||
+        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-discard-boundary" ||
+        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-modify-draft-boundary") &&
       !sliceVerifyAdoptionRef.current &&
       (result.adoption_state?.pending?.length ?? 0) > 0
     ) {
       sliceVerifyAdoptionRef.current = true;
+      const actionType =
+        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-discard-boundary"
+          ? "discard"
+          : import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-modify-draft-boundary"
+            ? "edit_then_accept"
+            : "accept";
       window.setTimeout(() => {
         document
           .querySelector<HTMLButtonElement>(
-            '[data-slice-verify="card-action"][data-action-type="accept"]',
+            `[data-slice-verify="card-action"][data-action-type="${actionType}"]`,
           )
           ?.click();
+
+        if (actionType === "edit_then_accept") {
+          window.setTimeout(() => {
+            setModifyInstruction("把角色动机改得更果断，并强调保护同伴。");
+            window.setTimeout(() => {
+              document
+                .querySelector<HTMLButtonElement>('[data-slice-verify="modify-submit"]')
+                ?.click();
+            }, 150);
+          }, 150);
+        }
       }, 250);
     }
   }
@@ -405,6 +424,8 @@ export function WorkspaceChat() {
       autorunSlice !== "au10-ordinary-chat-no-micro-plan" &&
       autorunSlice !== "au01-ordinary-chat-two-turn-roundtrip" &&
       autorunSlice !== "au05-adoption-boundary" &&
+      autorunSlice !== "au05-discard-boundary" &&
+      autorunSlice !== "au05-modify-draft-boundary" &&
       autorunSlice !== "au03c-work-session-resume"
     ) return;
     if (!socketConnected || sliceVerifyAutorunRef.current) return;
@@ -560,6 +581,24 @@ export function WorkspaceChat() {
     }
   };
 
+  const handleModifySubmit = async () => {
+    if (!channelRef.current || !modifyModal) return;
+    const instruction = modifyInstruction.trim();
+    if (!instruction) return;
+
+    const { artifact, sourceTurnRef } = modifyModal;
+    await modifyDraft(
+      channelRef.current,
+      artifact.artifact_id,
+      artifact.revision_base as number | undefined,
+      (artifact.payload?.content as string) ?? "",
+      instruction,
+      artifact.artifact_type,
+      sourceTurnRef,
+    );
+    setModifyModal(null);
+  };
+
   const parseRevisionBase = (revisionBase: string | null | undefined) => {
     if (!revisionBase) return undefined;
     const parsed = Number.parseInt(revisionBase, 10);
@@ -671,7 +710,12 @@ export function WorkspaceChat() {
                     if (actionType === "discard" && channelRef.current) {
                       const pending = msg.turnResult?.adoption_state?.pending ?? [];
                       const artifact = pending.find((a) => a.artifact_id === targetRef);
-                      void discardArtifact(channelRef.current, targetRef, artifact?.artifact_type);
+                      void discardArtifact(
+                        channelRef.current,
+                        targetRef,
+                        artifact?.artifact_type,
+                        msg.turnResult?.turn_id,
+                      );
                       return;
                     }
                     if (actionType === "edit_then_accept") {
@@ -681,18 +725,7 @@ export function WorkspaceChat() {
                         setModifyInstruction("");
                         setModifyModal({
                           artifact,
-                          action: () => {
-                            if (modifyInstruction.trim() && channelRef.current) {
-                              void modifyDraft(
-                                channelRef.current,
-                                artifact.artifact_id,
-                                artifact.revision_base as number | undefined,
-                                (artifact.payload?.content as string) ?? "",
-                                modifyInstruction.trim(),
-                              );
-                            }
-                            setModifyModal(null);
-                          },
+                          sourceTurnRef: msg.turnResult?.turn_id,
                         });
                       }
                       return;
@@ -887,6 +920,7 @@ export function WorkspaceChat() {
             <h3>修改草稿</h3>
             <textarea
               className={styles.modalTextarea}
+              data-slice-verify="modify-instruction"
               value={modifyInstruction}
               onChange={(e) => setModifyInstruction(e.target.value)}
               placeholder="请输入修改意见，例如：把主角的性格改得更果断一些..."
@@ -895,7 +929,15 @@ export function WorkspaceChat() {
             />
             <div className={styles.modalActions}>
               <button className={styles.btnSecondary} onClick={() => setModifyModal(null)}>取消</button>
-              <button className={styles.btnPrimary} onClick={() => modifyModal.action()}>提交修改</button>
+              <button
+                className={styles.btnPrimary}
+                data-slice-verify="modify-submit"
+                onClick={() => {
+                  void handleModifySubmit();
+                }}
+              >
+                提交修改
+              </button>
             </div>
           </div>
         </div>

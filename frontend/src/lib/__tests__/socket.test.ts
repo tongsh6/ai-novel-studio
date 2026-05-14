@@ -95,37 +95,66 @@ describe("adopt", () => {
   it("pushes adopt with artifact data", () => {
     const ch = mockChannel();
     adopt(ch, "artifact-1", 3, { title: "test" }, "draft_text");
-    expect(ch.push).toHaveBeenCalledWith("adopt", {
-      artifact_id: "artifact-1", base_revision: 3, payload: { title: "test" }, artifact_type: "draft_text",
-    }, 60000);
+    expect(ch.push).toHaveBeenCalledWith(
+      "adopt",
+      {
+        artifact_id: "artifact-1",
+        base_revision: 3,
+        payload: { title: "test" },
+        artifact_type: "draft_text",
+        source_turn_ref: undefined,
+      },
+      60000,
+    );
   });
 });
 
 describe("discardArtifact", () => {
-  it("pushes discard with artifact_type", () => {
+  it("pushes discard with artifact_type and source turn", () => {
     const ch = mockChannel();
-    discardArtifact(ch, "artifact-2", "draft_text");
-    expect(ch.push).toHaveBeenCalledWith("discard", {
-      artifact_id: "artifact-2", artifact_type: "draft_text",
-    }, 60000);
+    discardArtifact(ch, "artifact-2", "draft_text", "turn-source");
+    expect(ch.push).toHaveBeenCalledWith(
+      "discard",
+      {
+        artifact_id: "artifact-2",
+        artifact_type: "draft_text",
+        source_turn_ref: "turn-source",
+      },
+      60000,
+    );
   });
 
   it("omits artifact_type when not provided", () => {
     const ch = mockChannel();
     discardArtifact(ch, "artifact-3");
-    expect(ch.push).toHaveBeenCalledWith("discard", {
-      artifact_id: "artifact-3", artifact_type: undefined,
-    }, 60000);
+    expect(ch.push).toHaveBeenCalledWith(
+      "discard",
+      {
+        artifact_id: "artifact-3",
+        artifact_type: undefined,
+        source_turn_ref: undefined,
+      },
+      60000,
+    );
   });
 });
 
 describe("modifyDraft", () => {
-  it("pushes modify_draft with all fields", () => {
+  it("pushes modify_draft with all fields and source turn", () => {
     const ch = mockChannel();
-    modifyDraft(ch, "draft-1", 5, "原文内容", "改得更激烈一些");
-    expect(ch.push).toHaveBeenCalledWith("modify_draft", {
-      draft_id: "draft-1", base_revision: 5, content: "原文内容", instruction: "改得更激烈一些",
-    }, 60000);
+    modifyDraft(ch, "draft-1", 5, "原文内容", "改得更激烈一些", "draft_text", "turn-source");
+    expect(ch.push).toHaveBeenCalledWith(
+      "modify_draft",
+      {
+        draft_id: "draft-1",
+        base_revision: 5,
+        content: "原文内容",
+        instruction: "改得更激烈一些",
+        artifact_type: "draft_text",
+        source_turn_ref: "turn-source",
+      },
+      60000,
+    );
   });
 });
 

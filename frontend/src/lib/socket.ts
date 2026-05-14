@@ -139,10 +139,15 @@ export function discardArtifact(
   channel: Channel,
   artifactId: string,
   artifactType?: string,
+  sourceTurnRef?: string | null,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("discard", { artifact_id: artifactId, artifact_type: artifactType }, 60000)
+      .push("discard", {
+        artifact_id: artifactId,
+        artifact_type: artifactType,
+        source_turn_ref: sourceTurnRef,
+      }, 60000)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("discard timeout")));
@@ -180,6 +185,8 @@ export function modifyDraft(
   baseRevision: number | undefined,
   content: string,
   instruction: string,
+  artifactType?: string,
+  sourceTurnRef?: string | null,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
@@ -188,6 +195,8 @@ export function modifyDraft(
         base_revision: baseRevision,
         content,
         instruction,
+        artifact_type: artifactType,
+        source_turn_ref: sourceTurnRef,
       }, 60000)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))

@@ -12,6 +12,8 @@ describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-10 micro plan entry", () => {
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
+    expect(nativeSliceIds).toContain("au05-discard-boundary");
+    expect(nativeSliceIds).toContain("au05-modify-draft-boundary");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -60,6 +62,32 @@ describe("native Tauri slice verifier", () => {
       turn_id: "turn-adopt",
       key_events: keyEventsForSlice("au05-adoption-boundary"),
       mutation_id: "mutation-1",
+    });
+  });
+
+  it("finds AU-05 discard evidence from generated artifact through discard action", () => {
+    const evidence = findNativeSliceEvidence(
+      "au05-discard-boundary",
+      au05DiscardRecords("turn-discard"),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "au05-discard-boundary",
+      turn_id: "turn-discard",
+      key_events: keyEventsForSlice("au05-discard-boundary"),
+    });
+  });
+
+  it("finds AU-05 modify evidence from generated artifact through edited acceptance", () => {
+    const evidence = findNativeSliceEvidence(
+      "au05-modify-draft-boundary",
+      au05ModifyDraftRecords("turn-modify"),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "au05-modify-draft-boundary",
+      turn_id: "turn-modify",
+      key_events: keyEventsForSlice("au05-modify-draft-boundary"),
     });
   });
 
@@ -307,6 +335,42 @@ describe("native Tauri slice verifier", () => {
         "author_clicked_accept_from_workbench",
         "adoption_boundary_adopted_tentative",
         "adoption_persisted_as_mutation",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("accepts AU-05 discard behavior when workbench discard resolves the artifact", () => {
+    const records = au05DiscardRecords("turn-discard");
+    const evidence = findNativeSliceEvidence("au05-discard-boundary", records);
+
+    expect(findSliceBehaviorEvidence("au05-discard-boundary", records, evidence)).toEqual({
+      slice_id: "au05-discard-boundary",
+      behavior: "artifact_discarded_from_workbench",
+      turn_ids: ["turn-discard"],
+      assertions: [
+        "tentative_artifact_generated",
+        "author_clicked_discard_from_workbench",
+        "discard_resolved_without_channel_crash",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("accepts AU-05 modify behavior when workbench edit then accept resolves the artifact", () => {
+    const records = au05ModifyDraftRecords("turn-modify");
+    const evidence = findNativeSliceEvidence("au05-modify-draft-boundary", records);
+
+    expect(findSliceBehaviorEvidence("au05-modify-draft-boundary", records, evidence)).toEqual({
+      slice_id: "au05-modify-draft-boundary",
+      behavior: "artifact_modified_then_accepted_from_workbench",
+      turn_ids: ["turn-modify"],
+      assertions: [
+        "tentative_artifact_generated",
+        "author_clicked_edit_then_accept_from_workbench",
+        "edited_artifact_passed_adoption_boundary",
         "no_error_events",
         "assistant_messages_not_fallback",
       ],
@@ -629,6 +693,72 @@ function au05AdoptionRecords(turnId, persisted) {
       mutation_id: persisted ? "mutation-1" : null,
     },
   ];
+}
+
+function au05DiscardRecords(turnId) {
+  return [
+    ...au05BaseRecords(turnId),
+    {
+      event: "channel.discard.start",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 0,
+      outcome: "start",
+      artifact_id: "as-1",
+    },
+    {
+      event: "channel.discard.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 7,
+      outcome: "ok",
+      action_status: "discarded",
+    },
+  ];
+}
+
+function au05ModifyDraftRecords(turnId) {
+  return [
+    ...au05BaseRecords(turnId),
+    {
+      event: "channel.modify_draft.start",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 0,
+      outcome: "start",
+      artifact_id: "as-1",
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 4,
+      outcome: "ok",
+      decision_type: "adopt_tentative",
+    },
+    {
+      event: "channel.modify_draft.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 7,
+      outcome: "ok",
+      action_status: "accepted",
+    },
+  ];
+}
+
+function au05BaseRecords(turnId) {
+  return au05AdoptionRecords(turnId, true).filter(
+    (record) =>
+      record.event !== "channel.adopt.start" &&
+      record.event !== "adoption.evaluate.done" &&
+      record.event !== "channel.adopt.done",
+  );
 }
 
 function au03cResumeRecords() {
