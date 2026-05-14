@@ -61,15 +61,25 @@ done
 
 # ---- 加载端口配置 ----
 
+REQUESTED_PHOENIX_PORT="${PHOENIX_PORT:-}"
+REQUESTED_VITE_DEV_PORT="${VITE_DEV_PORT:-}"
+REQUESTED_VITE_API_ENDPOINT="${VITE_API_ENDPOINT:-}"
+REQUESTED_VITE_PROXY_TARGET="${VITE_PROXY_TARGET:-}"
+REQUESTED_VITE_WS_ENDPOINT="${VITE_WS_ENDPOINT:-}"
+REQUESTED_NOVEL_PROVIDER_DEFAULT="${NOVEL_PROVIDER_DEFAULT:-}"
+
 set -a
 source "$PROJECT_ROOT/frontend/.env" 2>/dev/null || true
 set +a
 
 # Stage 环境固定参数
 export MIX_ENV=prod
-export PHOENIX_PORT="${PHOENIX_PORT:-4658}"
-export VITE_DEV_PORT="${VITE_DEV_PORT:-5769}"
-export NOVEL_PROVIDER_DEFAULT="${NOVEL_PROVIDER_DEFAULT:-lmstudio}"
+export PHOENIX_PORT="${REQUESTED_PHOENIX_PORT:-4658}"
+export VITE_DEV_PORT="${REQUESTED_VITE_DEV_PORT:-5769}"
+export VITE_API_ENDPOINT="${REQUESTED_VITE_API_ENDPOINT:-}"
+export VITE_PROXY_TARGET="${REQUESTED_VITE_PROXY_TARGET:-http://127.0.0.1:${PHOENIX_PORT}}"
+export VITE_WS_ENDPOINT="${REQUESTED_VITE_WS_ENDPOINT:-ws://127.0.0.1:${PHOENIX_PORT}/socket}"
+export NOVEL_PROVIDER_DEFAULT="${REQUESTED_NOVEL_PROVIDER_DEFAULT:-lmstudio}"
 
 PHX_URL="http://localhost:${PHOENIX_PORT}"
 
@@ -178,7 +188,7 @@ if [[ "$MODE" == "tauri" ]]; then
 
   sed -i '' \
     -e "s|\"devUrl\": \"http://localhost:[0-9]*\"|\"devUrl\": \"http://localhost:${VITE_DEV_PORT}\"|" \
-    -e "s|\(connect-src 'self' \)http://localhost:[0-9]*\( ws://localhost:\)[0-9]*|\1http://localhost:${PHOENIX_PORT}\2${PHOENIX_PORT}|" \
+    -e "s|connect-src 'self'.*\"|connect-src 'self' http://localhost:${PHOENIX_PORT} http://127.0.0.1:${PHOENIX_PORT} ws://localhost:${PHOENIX_PORT} ws://127.0.0.1:${PHOENIX_PORT}\"|" \
     "$TAURI_CONF"
 
   # Tauri 的 beforeDevCommand 会自动启动 Vite dev server

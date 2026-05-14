@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   resumeSessionPath,
   searchSessionsPath,
+  shouldInsertWorkspaceWelcome,
   transcriptToMessages,
   type SessionTranscriptEntry,
 } from "../sessions";
@@ -45,5 +46,11 @@ describe("session API helpers", () => {
         turnResult: transcript[1].turn_result,
       },
     ]);
+  });
+
+  it("does not insert the workspace welcome after restoring transcript messages", () => {
+    expect(shouldInsertWorkspaceWelcome(true, 0)).toBe(false);
+    expect(shouldInsertWorkspaceWelcome(false, 1)).toBe(false);
+    expect(shouldInsertWorkspaceWelcome(false, 0)).toBe(true);
   });
 });

@@ -85,3 +85,10 @@ export function transcriptToMessages(transcript: SessionTranscriptEntry[]): Chat
       ...(entry.turn_result ? { turnResult: entry.turn_result } : {}),
     }));
 }
+
+export function shouldInsertWorkspaceWelcome(
+  restoredTranscriptHasMessages: boolean,
+  currentMessageCount: number,
+): boolean {
+  return !restoredTranscriptHasMessages && currentMessageCount === 0;
+}

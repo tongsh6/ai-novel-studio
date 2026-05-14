@@ -26,6 +26,7 @@ import {
 import {
   resumeWorkspace,
   searchSessions,
+  shouldInsertWorkspaceWelcome,
   transcriptToMessages,
   type WorkSessionDto,
 } from "../lib/sessions";
@@ -50,6 +51,7 @@ import {
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { isTauri } from "../lib/env";
+import { WORKBENCH } from "../lib/copy";
 
 import styles from "./WorkspaceChat.module.css";
 
@@ -100,6 +102,13 @@ interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   turnResult?: TurnResult;
+}
+
+function startupFailureMessage(detail: string): ChatMessage {
+  return {
+    role: "assistant",
+    text: `${WORKBENCH.startupFailurePrefix}\n\n${detail}`,
+  };
 }
 
 export function WorkspaceChat() {
@@ -258,51 +267,62 @@ export function WorkspaceChat() {
     void (async () => {
       // VS-09 work-management: resolve which work to open BEFORE joining
       // the channel, so backend can scope state to it via socket.assigns.
-      let work: WorkDto | null;
+      let work: WorkDto;
       try {
         const works = await listWorks();
         const initialId = pickInitialWorkId(works, getLastOpenedWorkId());
         if (initialId) {
-          work = works.find((w) => w.id === initialId) ?? null;
+          const selected = works.find((w) => w.id === initialId);
+          if (!selected) throw new Error(`selected work not found: ${initialId}`);
+          work = selected;
         } else {
           // No works yet — bootstrap a placeholder so the user lands in a
           // valid context. They can rename it later via the work-management
           // UI (next slice).
           work = await createWork({ title: "未命名作品" });
         }
-      } catch {
-        // Backend unreachable — fall back to ephemeral work_id so UI still
-        // renders. The badge will surface llm-disconnected separately.
-        work = null;
+      } catch (error) {
+        if (cancelled) return;
+        const detail = error instanceof Error ? error.message : String(error);
+        setSocketConnected(false);
+        setContext({ workId: null, workTitle: "作品加载失败", volumeTitle: null });
+        setMessages([startupFailureMessage(`${WORKBENCH.startupFailureLoadWork}${detail}`)]);
+        return;
       }
       if (cancelled) return;
 
-      const workId = work?.id ?? "lobby";
-      const workTitle = work?.title ?? "未连接";
+      const workId = work.id;
+      let workTitle = work.title;
       let sessionId: string | null = null;
       setLastOpenedWorkId(workId);
 
-      if (work?.id) {
-        try {
-          const snapshot = await resumeWorkspace(work.id);
-          sessionId = snapshot.active_session.id;
-          setActiveSessionId(sessionId);
-          setSessions(snapshot.sessions);
-          setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
-          setMessages(transcriptToMessages(snapshot.transcript) as ChatMessage[]);
-          resumeRestoredTranscriptRef.current = snapshot.transcript.length > 0;
-        } catch {
-          setActiveSessionId(null);
-          setSessions([]);
-          setResumePendingAdoptions([]);
-        }
+      try {
+        const snapshot = await resumeWorkspace(work.id);
+        const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
+        sessionId = snapshot.active_session.id;
+        workTitle = snapshot.work.title || workTitle;
+        setActiveSessionId(sessionId);
+        setSessions(snapshot.sessions);
+        setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
+        setMessages(restoredMessages);
+        resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
+      } catch (error) {
+        if (cancelled) return;
+        const detail = error instanceof Error ? error.message : String(error);
+        setActiveSessionId(null);
+        setSessions([]);
+        setResumePendingAdoptions([]);
+        setSocketConnected(false);
+        setContext({ workId, workTitle, volumeTitle: null });
+        setMessages([startupFailureMessage(`${WORKBENCH.startupFailureResumeSession}${detail}`)]);
+        return;
       }
 
       const socket = createSocket();
       socket.connect();
       socketRef.current = socket;
 
-      const channel = joinWorkspace(socket, `workspace:${workId}`, {
+      const channel = joinWorkspace(socket, "workspace:lobby", {
         work_id: workId,
         session_id: sessionId,
       });
@@ -314,12 +334,23 @@ export function WorkspaceChat() {
         .receive("ok", (response: { work_id?: string; session_id?: string }) => {
           const joinedWorkId = response.work_id ?? workId;
           const joinedSessionId = response.session_id ?? sessionId;
+          if (joinedWorkId !== workId || joinedSessionId !== sessionId) {
+            setSocketConnected(false);
+            setMessages([
+              startupFailureMessage(
+                `${WORKBENCH.startupFailureJoinMismatch}work=${joinedWorkId}, session=${joinedSessionId}`,
+              ),
+            ]);
+            channel.leave();
+            socket.disconnect();
+            return;
+          }
           if (joinedSessionId) setActiveSessionId(joinedSessionId);
-          if (joinedWorkId && joinedWorkId !== "lobby") setLastOpenedWorkId(joinedWorkId);
+          setLastOpenedWorkId(joinedWorkId);
           setSocketConnected(true);
           setMessages((prev) => {
             // Avoid duplicate welcome messages if effect re-runs
-            if (prev.length > 0) return prev;
+            if (!shouldInsertWorkspaceWelcome(resumeRestoredTranscriptRef.current, prev.length)) return prev;
             return [
               {
                 role: "assistant",

@@ -26,7 +26,7 @@ const DEFAULT_WS_HOST = "ws://localhost:4657/socket";
  * 浏览器环境：由 VITE_API_ENDPOINT 环境变量注入
  */
 export const apiBaseUrl: string = isTauri
-  ? (import.meta.env.VITE_API_ENDPOINT as string) || DEFAULT_API_HOST
+  ? (import.meta.env.VITE_API_ENDPOINT ?? DEFAULT_API_HOST)
   : (import.meta.env.VITE_API_ENDPOINT as string) ?? "";
 
 /**

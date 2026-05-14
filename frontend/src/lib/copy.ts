@@ -142,6 +142,10 @@ export const WORKBENCH = {
   inputPlaceholder: "输入你的想法、问题或指令...",
   send: "发送",
   emptyState: "开始对话，创作你的作品",
+  startupFailurePrefix: "作品上下文加载失败，工作台未连接。",
+  startupFailureLoadWork: "无法获取或创建作品：",
+  startupFailureResumeSession: "无法恢复作品会话：",
+  startupFailureJoinMismatch: "Channel 返回的作品/会话与启动上下文不一致：",
 } as const;
 
 // ============================================================
