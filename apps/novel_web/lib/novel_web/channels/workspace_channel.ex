@@ -10,12 +10,15 @@ defmodule NovelWeb.WorkspaceChannel do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelApplication.WorkSessionService
   alias NovelCommon.LogContext
   alias NovelDomain.AuthorActionInput
 
   @impl true
   def join("workspace:" <> suffix, payload, socket) do
-    work_id = (is_map(payload) && Map.get(payload, "work_id")) || suffix
+    work_id = resolve_join_work_id(suffix, payload)
+    session_id = resolve_join_session_id(work_id, payload)
+    restored_turn_results = restored_turn_results(work_id, session_id)
 
     LogContext.put_turn(suffix, work_id)
 
@@ -23,8 +26,9 @@ defmodule NovelWeb.WorkspaceChannel do
       socket
       |> assign(:workspace_id, suffix)
       |> assign(:work_id, work_id)
-      |> assign(:turn_results_by_id, %{})
-      |> assign(:current_turn_id, nil)
+      |> assign(:session_id, session_id)
+      |> assign(:turn_results_by_id, restored_turn_results)
+      |> assign(:current_turn_id, latest_turn_id(restored_turn_results))
 
     # Best-effort touch so the most-recently-opened work surfaces first in
     # GET /api/works (VS-09). Missing work_id is fine — pre-VS-09 clients
@@ -39,15 +43,120 @@ defmodule NovelWeb.WorkspaceChannel do
         _, _ -> :skipped
       end
 
-    LogEmit.emit(:channel, :join, :done, %{workspace_id: suffix, work_id: work_id})
+    LogEmit.emit(:channel, :join, :done, %{workspace_id: suffix, work_id: work_id, session_id: session_id})
 
-    {:ok, %{joined: true, work_id: work_id}, socket}
+    {:ok, %{joined: true, work_id: work_id, session_id: session_id}, socket}
+  end
+
+  defp resolve_join_session_id(work_id, payload) do
+    requested = is_map(payload) && Map.get(payload, "session_id")
+
+    cond do
+      valid_uuid?(requested) ->
+        requested
+
+      valid_uuid?(work_id) ->
+        case WorkSessionService.resume(work_id) do
+          {:ok, %{active_session: %{id: id}}} -> id
+          _ -> nil
+        end
+
+      true ->
+        nil
+    end
+  end
+
+  defp restored_turn_results(work_id, session_id) do
+    if valid_uuid?(work_id) and valid_uuid?(session_id) do
+      turn_results_from_resume(work_id, session_id)
+    else
+      %{}
+    end
+  end
+
+  defp turn_results_from_resume(work_id, session_id) do
+    case WorkSessionService.resume(work_id) do
+      {:ok, %{transcript: transcript}} ->
+        LogEmit.emit(:work_session, :resume, :done, %{
+          work_id: work_id,
+          session_id: session_id,
+          transcript_count: length(transcript),
+          pending_adoption_count: count_pending_adoptions(transcript)
+        })
+
+        transcript
+        |> Enum.map(& &1.turn_result)
+        |> Enum.reject(&is_nil/1)
+        |> Map.new(fn turn_result -> {turn_result[:turn_id] || turn_result["turn_id"], turn_result} end)
+
+      _ ->
+        %{}
+    end
+  end
+
+  defp latest_turn_id(turn_results) when map_size(turn_results) == 0, do: nil
+  defp latest_turn_id(turn_results), do: turn_results |> Map.keys() |> List.last()
+
+  defp count_pending_adoptions(transcript) do
+    transcript
+    |> Enum.flat_map(fn entry ->
+      turn_result = entry.turn_result || %{}
+
+      get_in(turn_result, [:adoption_state, :pending]) ||
+        get_in(turn_result, ["adoption_state", "pending"]) ||
+        []
+    end)
+    |> length()
+  end
+
+  defp resolve_join_work_id(suffix, payload) do
+    requested = (is_map(payload) && Map.get(payload, "work_id")) || suffix
+
+    cond do
+      valid_uuid?(requested) ->
+        requested
+
+      real_persistence_enabled?() ->
+        reuse_or_create_work_id(requested)
+
+      true ->
+        requested
+    end
+  end
+
+  defp reuse_or_create_work_id(fallback) do
+    case NovelApplication.WorkService.list() do
+      [%{id: id} | _] ->
+        id
+
+      [] ->
+        case NovelApplication.WorkService.create(%{"title" => "未命名作品"}) do
+          {:ok, work} -> work.id
+          _ -> fallback
+        end
+    end
+  end
+
+  defp valid_uuid?(value) when is_binary(value) do
+    Regex.match?(
+      ~r/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+      value
+    )
+  end
+
+  defp valid_uuid?(_), do: false
+
+  defp real_persistence_enabled? do
+    :novel_web
+    |> Application.get_env(:persistence, [])
+    |> Keyword.get(:inject_real_persistence, false)
   end
 
   @impl true
   def handle_in("user_message", %{"text" => text} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     work_id = socket.assigns[:work_id] || ws_id
+    session_id = socket.assigns[:session_id] || Map.get(msg, "session_id")
     generate_plan = Map.get(msg, "generate_micro_plan", false)
     turn_id = Map.get(msg, "turn_id") || "turn_#{System.unique_integer([:positive, :monotonic])}"
 
@@ -57,6 +166,7 @@ defmodule NovelWeb.WorkspaceChannel do
       text: text,
       workspace_id: ws_id,
       work_id: work_id,
+      session_id: session_id,
       turn_id: turn_id,
       generate_micro_plan: generate_plan
     }
@@ -66,6 +176,8 @@ defmodule NovelWeb.WorkspaceChannel do
     LogEmit.emit(:channel, :user_message, :start, %{
       workspace_id: ws_id,
       work_id: work_id,
+      session_id: session_id,
+      generate_micro_plan: generate_plan,
       text_len: byte_size(text)
     })
 
@@ -89,7 +201,10 @@ defmodule NovelWeb.WorkspaceChannel do
 
     case result do
       {:ok, socket} ->
-        LogEmit.emit(:channel, :user_message, :done, %{duration_ms: duration})
+        LogEmit.emit(:channel, :user_message, :done, %{
+          duration_ms: duration,
+          session_id: session_id
+        })
         {:reply, {:ok, %{received: true}}, socket}
 
       {:error, reason, socket} ->
@@ -134,6 +249,59 @@ defmodule NovelWeb.WorkspaceChannel do
         {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
 
       {:error, reason} ->
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  def handle_in("adopt", %{"artifact_id" => artifact_id} = params, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    work_id = socket.assigns[:work_id] || ws_id
+    source_turn_ref = Map.get(params, "source_turn_ref") || socket.assigns[:current_turn_id]
+
+    LogContext.put_turn(ws_id, work_id, source_turn_ref)
+
+    t0 = System.monotonic_time(:millisecond)
+
+    LogEmit.emit(:channel, :adopt, :start, %{
+      workspace_id: ws_id,
+      work_id: work_id,
+      artifact_id: artifact_id
+    })
+
+    source_turn_result = source_turn_ref && source_turn_result(socket, source_turn_ref)
+
+    adopt_params =
+      params
+      |> Map.put("work_id", work_id)
+      |> Map.put("session_id", socket.assigns[:session_id])
+
+    case NovelApplication.AdoptionWorkflow.handle_adopt(source_turn_result, adopt_params) do
+      {:ok, action_result, turn_result} ->
+        broadcast!(socket, "action_result", action_result)
+        broadcast!(socket, "turn_result", turn_result)
+        socket = remember_turn_result(socket, turn_result)
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :adopt, :done, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          action_status: action_result.status,
+          persisted: get_in(action_result, [:persistence, :persisted]) == true,
+          mutation_id: get_in(action_result, [:persistence, :mutation_id])
+        })
+
+        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
+
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :adopt, :error, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          reason_code: :adoption_rejected,
+          outcome_detail: reason
+        })
+
         {:reply, {:error, %{reason: reason}}, socket}
     end
   end
@@ -219,8 +387,12 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp source_turn_result(socket, source_turn_ref) do
     current_turn_id = socket.assigns[:current_turn_id]
+    turn_results = Map.get(socket.assigns, :turn_results_by_id, %{})
 
     cond do
+      is_map_key(turn_results, source_turn_ref) ->
+        Map.get(turn_results, source_turn_ref)
+
       is_nil(current_turn_id) ->
         nil
 
@@ -228,9 +400,7 @@ defmodule NovelWeb.WorkspaceChannel do
         %{turn_id: current_turn_id, available_actions: []}
 
       true ->
-        socket.assigns
-        |> Map.get(:turn_results_by_id, %{})
-        |> Map.get(source_turn_ref)
+        Map.get(turn_results, source_turn_ref)
     end
   end
 

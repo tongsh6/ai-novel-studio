@@ -14,6 +14,7 @@ defmodule NovelPersistence.Schemas.DecisionTraceRecord do
 
   schema "decision_traces" do
     field(:workspace_id, :string)
+    field(:session_id, :binary_id)
     field(:trace_id, :string)
     field(:turn_id, :string)
     field(:frame_ref, :string)
@@ -39,6 +40,7 @@ defmodule NovelPersistence.Schemas.DecisionTraceRecord do
     :event_order
   ]
   @optional_fields [
+    :session_id,
     :no_tool_reason,
     :no_behavior_reason,
     :no_write_reason,

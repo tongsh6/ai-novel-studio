@@ -42,6 +42,13 @@ defmodule NovelApplication do
     if inject_persistence?(), do: NovelPersistence.WorkspaceContext.interaction_recorder()
   end
 
+  @doc """
+  返回 adoption writer 用于把作者采纳动作写入 authoritative state 证据。
+  """
+  def persistence_adoption_writer do
+    if inject_persistence?(), do: NovelPersistence.AdoptionRepository.writer()
+  end
+
   defp inject_persistence? do
     Application.get_env(:novel_web, :persistence, [])
     |> Keyword.get(:inject_real_persistence, false)

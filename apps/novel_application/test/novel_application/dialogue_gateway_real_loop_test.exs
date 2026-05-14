@@ -3,7 +3,10 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.DialogueGateway
+  alias NovelPersistence.MemoryLog
   alias NovelPersistence.Repo
+  alias NovelPersistence.WorkRepo
+  alias NovelPersistence.WorkSessionRepo
   alias NovelPersistence.WorkspaceContext
 
   @frame_json """
@@ -57,6 +60,29 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       assert String.contains?(second_context.conversation_summary, "assistant: 收到你的消息。")
       assert String.contains?(second_prompt, "## 最近对话")
       assert String.contains?(second_prompt, "user: 第一轮要记住：主角叫林烬。")
+    end
+
+    test "records session_id and assistant turn_result for resume hydration" do
+      {:ok, work} = WorkRepo.create(%{title: "会话作品"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+      recorder = WorkspaceContext.interaction_recorder()
+
+      assert {:ok, turn_result, _trace, _candidates, _context} =
+               DialogueGateway.handle_input(
+                 %{text: "第一轮", workspace_id: work.id, session_id: session.id},
+                 nil,
+                 capturing_complete_fn(),
+                 nil,
+                 recorder
+               )
+
+      transcript = MemoryLog.transcript(session.id)
+
+      assert Enum.map(transcript, & &1.role) == ["user", "assistant"]
+      assert Enum.all?(transcript, &(&1.session_id == session.id))
+
+      assistant = Enum.find(transcript, &(&1.role == "assistant"))
+      assert get_in(assistant.content, ["turn_result", "turn_id"]) == turn_result.turn_id
     end
   end
 

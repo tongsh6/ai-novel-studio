@@ -52,6 +52,21 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert turn_result.truthfulness.durable_behavior_opened == false
     end
 
+    test "malformed provider JSON does not report the LLM as disconnected" do
+      broken_json_fn = fn _prompt -> {:ok, %{content: "not-json"}} end
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "普通聊天", workspace_id: "ws-json-error"},
+          nil,
+          broken_json_fn
+        )
+
+      message = turn_result.assistant_message.text
+      refute String.contains?(message, "无法连接")
+      assert String.contains?(message, "格式")
+    end
+
     test "DecisionTrace records no-tool, no-behavior, no-write reasons" do
       input = %{text: "聊聊风格", workspace_id: "ws-1"}
 

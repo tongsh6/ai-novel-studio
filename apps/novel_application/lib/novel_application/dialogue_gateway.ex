@@ -46,6 +46,7 @@ defmodule NovelApplication.DialogueGateway do
       when is_binary(text) and byte_size(text) > 0 do
     ws_id = Map.get(input, :workspace_id, "default")
     work_id = Map.get(input, :work_id) || ws_id
+    session_id = Map.get(input, :session_id) || Map.get(input, "session_id")
     generate_plan = Map.get(input, :generate_micro_plan, false)
     turn_id = Map.get(input, :turn_id) || Map.get(input, "turn_id") || allocate_turn_id()
 
@@ -68,7 +69,7 @@ defmodule NovelApplication.DialogueGateway do
     case DialogueFrame.validate(frame) do
       :ok ->
         result = handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn)
-        persist_turn_side_effects(result, ws_id, text, trace_persister, memory_recorder)
+        persist_turn_side_effects(result, ws_id, session_id, text, trace_persister, memory_recorder)
 
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -119,12 +120,13 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  defp persist_turn_side_effects(result, ws_id, text, trace_persister, memory_recorder) do
-    maybe_persist_trace(result, ws_id, trace_persister || NovelApplication.persistence_tracer())
+  defp persist_turn_side_effects(result, ws_id, session_id, text, trace_persister, memory_recorder) do
+    maybe_persist_trace(result, ws_id, session_id, trace_persister || NovelApplication.persistence_tracer())
 
     maybe_record_interactions(
       result,
       ws_id,
+      session_id,
       text,
       memory_recorder || NovelApplication.persistence_interaction_recorder()
     )
@@ -132,11 +134,11 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── trace persistence ─────────────────────────
 
-  defp maybe_persist_trace({:ok, _turn_result, _trace, _candidates, _context}, _ws_id, nil),
+  defp maybe_persist_trace({:ok, _turn_result, _trace, _candidates, _context}, _ws_id, _session_id, nil),
     do: :ok
 
-  defp maybe_persist_trace({:ok, _turn_result, trace, _candidates, _context}, ws_id, persister) do
-    with attrs <- trace_to_attrs(trace, ws_id),
+  defp maybe_persist_trace({:ok, _turn_result, trace, _candidates, _context}, ws_id, session_id, persister) do
+    with attrs <- trace_to_attrs(trace, ws_id, session_id),
          :ok <- persister.(ws_id, attrs) do
       :ok
     else
@@ -150,16 +152,17 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  defp maybe_persist_trace(_, _ws_id, _persister), do: :ok
+  defp maybe_persist_trace(_, _ws_id, _session_id, _persister), do: :ok
 
   defp maybe_record_interactions(
          {:ok, turn_result, _trace, _candidates, _context},
          ws_id,
+         session_id,
          user_text,
          recorder
        )
        when is_function(recorder, 2) do
-    entries = interaction_entries(ws_id, turn_result, user_text)
+    entries = interaction_entries(ws_id, session_id, turn_result, user_text)
 
     case recorder.(ws_id, entries) do
       :ok ->
@@ -175,25 +178,26 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  defp maybe_record_interactions(_, _ws_id, _user_text, _recorder), do: :ok
+  defp maybe_record_interactions(_, _ws_id, _session_id, _user_text, _recorder), do: :ok
 
-  defp interaction_entries(ws_id, turn_result, user_text) do
+  defp interaction_entries(ws_id, session_id, turn_result, user_text) do
     turn_id =
       Map.get(turn_result, :turn_id, "turn_#{System.unique_integer([:positive, :monotonic])}")
 
     assistant_text = get_in(turn_result, [:assistant_message, :text]) || ""
 
     [
-      interaction_entry(ws_id, turn_id, "user", user_text),
-      interaction_entry(ws_id, turn_id, "assistant", assistant_text)
+      interaction_entry(ws_id, session_id, turn_id, "user", user_text, nil),
+      interaction_entry(ws_id, session_id, turn_id, "assistant", assistant_text, turn_result)
     ]
   end
 
-  defp interaction_entry(ws_id, turn_id, role, text) do
+  defp interaction_entry(ws_id, session_id, turn_id, role, text, turn_result) do
     %{
+      session_id: session_id,
       turn_id: turn_id,
       role: role,
-      content: %{text: text},
+      content: interaction_content(text, turn_result),
       source_ref: turn_id,
       scope_ref: ws_id,
       freshness_score: 1.0,
@@ -203,9 +207,13 @@ defmodule NovelApplication.DialogueGateway do
     }
   end
 
-  defp trace_to_attrs(trace, ws_id) do
+  defp interaction_content(text, nil), do: %{text: text}
+  defp interaction_content(text, turn_result), do: %{text: text, turn_result: turn_result}
+
+  defp trace_to_attrs(trace, ws_id, session_id) do
     %{
       workspace_id: ws_id,
+      session_id: session_id,
       trace_id: trace.trace_id,
       turn_id: trace.turn_id,
       frame_ref: trace.frame_ref,
@@ -286,6 +294,7 @@ defmodule NovelApplication.DialogueGateway do
       maybe_persist_trace(
         {:ok, turn_result, trace, [], nil},
         frame.workspace_id,
+        nil,
         NovelApplication.persistence_tracer()
       )
 

@@ -28,6 +28,7 @@ defmodule NovelAgent.Provider.Gateway do
 
   @provider_modules %{
     stub: Provider.Stub,
+    slice_verify: Provider.SliceVerify,
     lmstudio: Provider.LMStudio,
     anthropic: Provider.Anthropic
   }

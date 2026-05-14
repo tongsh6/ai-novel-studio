@@ -55,6 +55,25 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       }
   }
 
+  @pending_adoption_turn_result %{
+    turn_id: "turn-adopt-source",
+    frame_ref: "frame-adopt-source",
+    available_actions: [],
+    adoption_state: %{
+      pending: [
+        %{
+          artifact_id: "as-adopt-1",
+          artifact_type: :character_seed,
+          adoption_status: :tentative,
+          requires_adoption: true,
+          source_tool_result_ref: "tr-adopt-1",
+          payload: %{title: "角色设定", content: "主角更果断"}
+        }
+      ],
+      resolved: []
+    }
+  }
+
   # ── VS-07 Proof: user_message → turn_result roundtrip ──
 
   describe "user_message roundtrip" do
@@ -291,6 +310,70 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
       assert String.contains?(reason, "stale") or
                String.contains?(reason, "source_turn_result not available")
+    end
+  end
+
+  describe "artifact adoption roundtrip" do
+    test "adopt event goes through backend adoption boundary and broadcasts resolved turn_result" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @pending_adoption_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "adopt",
+                 %{
+                   "artifact_id" => "as-adopt-1",
+                   "artifact_type" => "character_seed",
+                   "payload" => %{"title" => "角色设定"}
+                 },
+                 socket
+               )
+
+      assert_broadcast("action_result", %{
+        action_type: "adopt",
+        status: "accepted",
+        artifact_id: "as-adopt-1",
+        decision: %{decision_type: :adopt_tentative}
+      })
+
+      assert_broadcast("turn_result", %{
+        parent_turn_id: "turn-adopt-source",
+        adoption_state: %{
+          pending: [],
+          resolved: [
+            %{
+              artifact_id: "as-adopt-1",
+              adoption_status: "ACCEPTED",
+              requires_adoption: false
+            }
+          ]
+        },
+        projection_refs: [%{refresh_status: "STALE"}],
+        truthfulness: %{artifact_adopted: true, production_write_performed: false}
+      })
+
+      assert socket.assigns.current_turn_id != "turn-adopt-source"
+      assert Map.has_key?(socket.assigns.turn_results_by_id, socket.assigns.current_turn_id)
+    end
+
+    test "adopt event rejects invented artifact that is not pending on server turn" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @pending_adoption_turn_result)
+
+      assert {:reply, {:error, %{reason: "pending artifact not found"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "adopt",
+                 %{"artifact_id" => "invented-artifact"},
+                 socket
+               )
     end
   end
 

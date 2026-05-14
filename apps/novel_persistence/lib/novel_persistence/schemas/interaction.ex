@@ -26,6 +26,7 @@ defmodule NovelPersistence.Schemas.Interaction do
 
   schema "interactions" do
     field(:workspace_id, :string)
+    field(:session_id, :binary_id)
     field(:turn_id, :string)
     field(:role, :string)
     field(:content, :map)
@@ -47,6 +48,7 @@ defmodule NovelPersistence.Schemas.Interaction do
     interaction
     |> cast(attrs, [
       :workspace_id,
+      :session_id,
       :turn_id,
       :role,
       :content,

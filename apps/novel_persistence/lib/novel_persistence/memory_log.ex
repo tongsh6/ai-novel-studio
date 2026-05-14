@@ -28,6 +28,15 @@ defmodule NovelPersistence.MemoryLog do
     |> Repo.all()
   end
 
+  @doc "查询 session 下完整 transcript，按写入顺序返回。"
+  @spec transcript(String.t()) :: [Interaction.t()]
+  def transcript(session_id) do
+    Interaction
+    |> where([i], i.session_id == ^session_id)
+    |> order_by([i], asc: i.inserted_at, asc: i.id)
+    |> Repo.all()
+  end
+
   @doc "将 retention_tier 降级（hot → warm → cold）。"
   @spec downgrade(String.t(), String.t(), String.t()) :: {integer(), nil}
   def downgrade(workspace_id, from_tier, to_tier) do

@@ -60,15 +60,17 @@ defmodule NovelApplication.Planner do
 
         {frame, candidates}
 
-      {:error, _reason} ->
+      {:error, reason} ->
         duration = System.monotonic_time(:millisecond) - t0
+        reason_code = frame_error_reason_code(reason)
 
         LogEmit.emit(:planner, :form_frame, :error, %{
           duration_ms: duration,
-          reason_code: :provider_error
+          reason_code: reason_code,
+          outcome_detail: error_detail(reason)
         })
 
-        {fallback_frame(turn_id, frame_id, ws_id, context), []}
+        {fallback_frame(turn_id, frame_id, ws_id, context, reason_code), []}
     end
   end
 
@@ -304,7 +306,12 @@ defmodule NovelApplication.Planner do
     correction = build_correction_prompt(original_prompt, failed_content)
 
     case complete_fn.(correction) do
-      {:ok, %{content: retry_content}} -> parse_json(retry_content)
+      {:ok, %{content: retry_content}} ->
+        case parse_json(retry_content) do
+          {:ok, parsed} -> {:ok, parsed}
+          {:error, _} -> {:error, :json_parse_failed}
+        end
+
       {:error, _} = error -> error
     end
   end
@@ -501,7 +508,7 @@ defmodule NovelApplication.Planner do
     ]
   end
 
-  defp fallback_frame(turn_id, frame_id, ws_id, context) do
+  defp fallback_frame(turn_id, frame_id, ws_id, context, reason_code) do
     context_ref = context && context.workspace_id && "context:#{context.workspace_id}"
 
     %DialogueFrame{
@@ -518,11 +525,30 @@ defmodule NovelApplication.Planner do
       dialogue_goal: %{summary: "用户发来消息"},
       tool_need: %{needs_tool: false, reason_code: :no_tool_needed},
       execution_readiness: :not_applicable,
-      author_visible_draft: %{message: "抱歉，我现在无法连接到创作引擎。请稍后再试。"},
-      evidence_summary: %{fallback: true, context_used: context != nil},
+      author_visible_draft: %{message: fallback_message(reason_code)},
+      evidence_summary: %{fallback: true, context_used: context != nil, reason_code: reason_code},
       uncertainty: []
     }
   end
+
+  defp frame_error_reason_code(:json_parse_failed), do: :json_parse_failed
+  defp frame_error_reason_code(%{type: :invalid_response}), do: :invalid_response
+  defp frame_error_reason_code(%{type: :timeout}), do: :provider_timeout
+  defp frame_error_reason_code(%{type: :connection_refused}), do: :provider_unavailable
+  defp frame_error_reason_code(_), do: :provider_error
+
+  defp fallback_message(:json_parse_failed),
+    do: "创作引擎返回的格式不符合工作台契约，请重试。"
+
+  defp fallback_message(:invalid_response), do: "创作引擎返回内容为空，请重试。"
+  defp fallback_message(:provider_timeout), do: "创作引擎响应超时，请稍后再试。"
+
+  defp fallback_message(_),
+    do: "抱歉，我现在无法连接到创作引擎。请稍后再试。"
+
+  defp error_detail(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_detail(reason) when is_binary(reason), do: reason
+  defp error_detail(reason), do: inspect(reason)
 
   defp allocate_turn_id, do: "turn_#{System.unique_integer([:positive, :monotonic])}"
   defp allocate_frame_id, do: "frame_#{System.unique_integer([:positive, :monotonic])}"
