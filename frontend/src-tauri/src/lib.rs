@@ -1,4 +1,5 @@
 use std::process::Command;
+use tauri::Manager;
 
 fn kill_phoenix_backend() {
   // 尝试通过端口查找并关闭 Phoenix 后端进程
@@ -29,9 +30,10 @@ pub fn run() {
       }
       Ok(())
     })
-    .on_window_event(|_window, event| {
+    .on_window_event(|window, event| {
       if let tauri::WindowEvent::CloseRequested { .. } = event {
         kill_phoenix_backend();
+        window.app_handle().exit(0);
       }
     })
     .run(tauri::generate_context!())
