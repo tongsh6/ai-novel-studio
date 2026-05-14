@@ -449,9 +449,9 @@
 | SC-AU03-B1 | 空作品诚实说不知道 | 后端局部已测试 | 否 |
 | SC-AU03-B2 | 有作品背景但无会话历史 | 缺测试/验收 | 否 |
 | SC-AU03-B3 | context fetcher 异常不阻断聊天 | 未实现 | 否 |
-| SC-AU03-C1 | 一个作品下有 N 个会话列表 | 未实现 | 否 |
-| SC-AU03-C2 | 新建作品内会话 | 未实现 | 否 |
-| SC-AU03-C3 | 搜索历史会话 | 未实现 | 否 |
+| SC-AU03-C1 | 一个作品下有 N 个会话列表 | active session 列表基础已实现；缺历史打开/状态操作完整体验 | 部分 |
+| SC-AU03-C2 | 新建作品内会话 | 后端 API 已实现；缺前端按钮与切换验收 | 否 |
+| SC-AU03-C3 | 搜索历史会话 | 会话搜索 API/UI 基础已实现；缺打开匹配 turn 位置 | 部分 |
 | SC-AU03-C4 | 历史会话退出/只读查看 | 未实现 | 否 |
 | SC-AU03-C5 | 归档会话 | 未实现 | 否 |
 | SC-AU03-C6 | 从历史会话继续创建新会话/分支 | 未实现 | 否 |
@@ -463,7 +463,15 @@
 | SC-AU03-F1 | 长会话上下文压缩 | 部分实现 | 否 |
 | SC-AU03-F2 | 历史会话可回放不调 LLM | 后端局部有证据 | 否 |
 
-**覆盖结论：20 个用户场景；0/20 完整前后端验收；5/20 有后端/持久化局部证据；15/20 存在会话模型、作品上下文、记忆接入、UI 管理或验收缺口。**
+**覆盖结论：20 个用户场景；AU-03C active session 恢复已有 1 条原生 Tauri 闭环证据；其余场景仍存在历史会话只读、归档、分支继续、作品背景 SSOT、记忆接入、引用来源和长会话压缩缺口。**
+
+新增证据（2026-05-15）：
+
+```bash
+bash scripts/tauri_slice_verify.sh au03c-work-session-resume
+```
+
+该验证从真实 Tauri 工作台发起：生成 pending artifact → 关闭/重开 Tauri → 自动回到同一 active session → 恢复完整 transcript 与右侧 pending adoption。证据产物：`artifacts/slice-verify/au03c-work-session-resume-tauri/summary.json`。
 
 ---
 
@@ -471,8 +479,8 @@
 
 | 缺口 | 影响 | 建议处理 |
 |---|---|---|
-| AU03-GAP-01 — 缺作品内会话模型 | 无法表达一个作品下 N 次会话、状态、归档、搜索 | P0：设计并实现 WorkSession / Conversation 最小实体 |
-| AU03-GAP-02 — 缺会话列表/搜索/归档 UI 与 API | 作者无法管理历史会话 | P0：补会话列表、搜索、归档、打开历史会话 |
+| AU03-GAP-01 — 缺作品内会话模型 | 已补 `WorkSession` 最小实体；仍缺历史只读/分支/归档完整状态流 | P0：继续补历史会话打开、只读、分支继续与归档状态 |
+| AU03-GAP-02 — 缺会话列表/搜索/归档 UI 与 API | 会话列表/搜索基础已补；归档、打开历史会话与匹配 turn 定位未闭环 | P0：补归档、打开历史会话、搜索结果定位 |
 | AU03-GAP-03 — 历史会话退出/只读状态缺失 | 重新打开旧会话可能误恢复旧 pending 状态或篡改历史 | P0：定义 exited/read-only 状态和“从此继续”分支 |
 | AU03-GAP-04 — Work 最新背景未接入 context snapshot | AI 可能拿不到当前作品 title/genre/设定 | P0：把 Context fetcher 从旧 Workspace 对齐到 VS-09 Work |
 | AU03-GAP-05 — memory_summary 未接入 | AI 无法基于已确认伏笔/规则回答 | P1：接 memory recall 到 context |

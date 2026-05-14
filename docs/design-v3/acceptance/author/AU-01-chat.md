@@ -2,7 +2,7 @@
 
 > 作者视角：我打开真实工作台，可以像和一个懂创作的写作伙伴聊天一样讨论故事创意、风格、角色。AI 会自然回应，不会偷偷替我写东西、改设定、调用工具，或假装已经做了什么。
 >
-> 2026-05-12 对账结论：后端 reply-only 主链、Channel roundtrip、错误恢复链路已有较多证据；但按“用户真实使用场景”看，尚未形成完整前后端验收闭环。尤其当前实际入口 `App.tsx -> WorkspaceChat -> socket.ts` 默认发送 `generate_micro_plan: true`，可能让普通聊天偏离“只讨论、不执行计划”的目标。
+> 2026-05-14 对账结论：后端 reply-only 主链、Channel roundtrip、错误恢复链路已有较多证据；真实入口 `WorkspaceChat -> socket.ts` 已改为普通聊天默认 `generate_micro_plan: false`，并新增 `scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` 原生 Tauri 自动化，能从输入框/发送按钮发起两轮普通聊天并验证两轮都没有进入 MicroPlan。仍缺 DOM 级验收：自然回复文本、loading 结束、消息顺序和“不出现执行卡”的可见 UI 断言。
 
 ---
 
@@ -44,7 +44,7 @@
 |---|---|---|
 | `frontend/src/App.tsx` | 当前真实入口，渲染 `WorkspaceChat` | 真实用户入口，不是 `WorkbenchV3` |
 | `WorkspaceChat.tsx` | 当前主工作台：输入、loading、消息渲染、socket 调用 | 部分实现，缺 Playwright/真人验收 |
-| `frontend/src/lib/socket.ts` `sendMessage` | 当前主工作台发送 `user_message` | 默认 `generate_micro_plan: true`，与普通聊天目标有冲突风险 |
+| `frontend/src/lib/socket.ts` `sendMessage` | 当前主工作台发送 `user_message` | 默认 `generate_micro_plan: false`；原生 Tauri 两轮普通聊天验收可证明真实入口消费该默认契约 |
 | `WorkspaceChannel.handle_in("user_message")` | Channel 接收前端消息并广播 `turn_result` | 有 Channel roundtrip 测试 |
 | `DialogueGateway.handle_input/5` | v3 对话主链入口 | reply-only、truthfulness、empty text、interaction recorder 有测试 |
 | `Planner.form_frame/3` | 调 LLM 形成 DialogueFrame，异常时 fallback | broken provider / garbage JSON 在 E2E 和 planner 测试中覆盖 |
@@ -134,9 +134,9 @@
 - 后一轮不会覆盖前一轮；
 - 如果使用同一 workspace，后续轮可读取合法上下文，但不编造不存在事实。
 
-**当前证据**：`dialogue_gateway_test.exs` “every turn produces frame ref”；`dialogue_gateway_real_loop_test` / E2E-01 E12 覆盖真实两轮 persistence 方向。
+**当前证据**：`dialogue_gateway_test.exs` “every turn produces frame ref”；`dialogue_gateway_real_loop_test` / E2E-01 E12 覆盖真实两轮 persistence 方向；`scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` 从原生 Tauri 输入框/发送按钮发起两轮普通聊天，并在 `artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri/` 输出两个 `turn_id` 的 `channel.user_message.start`、`dialogue_gateway.handle_input.done`、`channel.user_message.done` JSONL evidence。
 
-**当前状态**：后端局部已测试，缺真实工作台多轮 UI 验收。
+**当前状态**：部分实现 / 原生 Tauri 主链验收已建立；仍缺 DOM 级消息顺序和 loading 可见断言。
 
 ---
 
@@ -191,9 +191,9 @@
 - 不出现确认卡、执行卡、工具结果卡；
 - truthfulness 显示未调用工具、未写入。
 
-**当前证据**：`DialogueGatewayTest` 覆盖 `generate_micro_plan = false` 时不产生 MicroPlan；但当前真实入口 `WorkspaceChat -> socket.ts sendMessage` 默认发送 `generate_micro_plan: true`。
+**当前证据**：`DialogueGatewayTest` 覆盖 `generate_micro_plan = false` 时不产生 MicroPlan；`scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan` 从原生 Tauri 输入框/发送按钮触发普通消息并断言 `channel.user_message.start.generate_micro_plan=false`；`scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` 进一步验证两轮普通聊天均为 `generate_micro_plan=false` 且同 turn 中不存在 `planner.form_micro_plan.*` 事件。
 
-**当前状态**：存在真实入口偏差风险。该场景未完整通过验收。
+**当前状态**：部分实现 / 原生 Tauri 最小验收已建立；仍缺可见 UI 断言“不出现执行/采纳卡”。
 
 ---
 
@@ -322,10 +322,10 @@
 | SC-AU01-A1 | 打开工作台并看到可聊天状态 | 部分实现 | 否 |
 | SC-AU01-A2 | 作者输入创作想法并看到回复 | 部分实现 | 否 |
 | SC-AU01-B1 | 普通创作聊天产生有效 TurnResult | 后端/Channel 已测试 | 否 |
-| SC-AU01-B2 | 连续多轮不覆盖、不串话 | 后端局部已测试 | 否 |
+| SC-AU01-B2 | 连续多轮不覆盖、不串话 | 部分实现 / 原生 Tauri 两轮主链验收已建立 | 否 |
 | SC-AU01-B3 | 空消息不会发送 | 部分实现 | 否 |
 | SC-AU01-B4 | AI 说的和系统记录一致 | 后端已测试 | 否 |
-| SC-AU01-C1 | 纯聊天不应默认生成执行计划 | 存在真实入口偏差风险 | 否 |
+| SC-AU01-C1 | 纯聊天不应默认生成执行计划 | 部分实现 / 原生 Tauri 最小验收已建立 | 否 |
 | SC-AU01-C2 | 纯聊天不调用工具、不写入、不采纳 | 后端/Channel 已测试 | 否 |
 | SC-AU01-C3 | 讨论请求不变成表单化追问 | 后端/Channel 已测试 | 否 |
 | SC-AU01-D1 | 普通聊天可追溯且 replay 不调 LLM | 后端已测试 | 否 |
@@ -333,7 +333,7 @@
 | SC-AU01-E2 | LLM 乱码 JSON 时优雅降级 | 后端/E2E stub 已测试 | 否 |
 | SC-AU01-E3 | frame 校验失败时作者友好提示 | 部分实现 | 否 |
 
-**覆盖结论：13 个用户场景；0/13 完整前后端验收；9/13 有后端/Channel/E2E 局部证据；4/13 存在真实 UI 或入口行为缺口。**
+**覆盖结论：13 个用户场景；0/13 完整前后端验收；新增 1 条原生 Tauri 两轮普通聊天主链证据；9/13 有后端/Channel/E2E 局部证据；4/13 仍存在真实 UI 可见行为缺口。**
 
 ---
 
@@ -342,7 +342,7 @@
 | 缺口 | 影响 | 建议处理 |
 |---|---|---|
 | AU01-GAP-01 — 缺真实工作台 walkthrough / Playwright 验收 | 后端通过不等于作者能在桌面工作台顺畅聊天 | P0：补“打开工作台 -> 输入 -> 收到回复 -> loading 结束”的场景验收 |
-| AU01-GAP-02 — `WorkspaceChat` 默认 `generate_micro_plan: true` | 普通聊天可能被强制推入 plan/执行链，偏离 AU-01 | P0：按意图或 UI 操作决定是否生成计划；普通聊天默认 false |
+| AU01-GAP-02 — 普通聊天默认触发 MicroPlan 风险 | 普通聊天若被强制推入 plan/执行链，会偏离 AU-01；当前默认 false 且已有 Tauri 主链证据，但缺 UI 卡片可见断言 | P0：继续补 DOM/截图级验收，确认普通聊天不出现执行/采纳卡 |
 | AU01-GAP-03 — 空消息 / frame validation 错误的作者友好提示不足 | 用户可能看到内部 reason 或无反馈 | P1：统一 Channel fallback/error copy，前端展示友好错误 |
 | AU01-GAP-04 — provider 不可用 / 乱码降级缺 UI 验收 | 已有后端降级证明，但不知道真实工作台是否可恢复 | P1：补 LM Studio 断开、garbage stub 的 UI walkthrough |
 | AU01-GAP-05 — 多轮聊天 UI 顺序和状态缺自动化证明 | 消息顺序、loading、重复发送等体验风险未覆盖 | P1：补多轮 Playwright 或组件级测试 |
@@ -358,6 +358,7 @@
 | `v3_full_chain_test.exs` | stub LLM 下 reply-only、replay、error recovery 等主链可跑 | 真实 LM Studio 质量、前端视觉和交互 |
 | `planner_real_llm_test.exs` | LM Studio 可用时 Planner 能解析真实 LLM，异常 complete_fn 不崩溃 | 用户完整工作台体验 |
 | `WorkspaceChat.tsx` | 真实入口有输入/消息/状态渲染代码 | 没有验收截图或自动化走查证明 |
+| `scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` | 原生 Tauri 输入框/发送按钮可连续发起两轮普通聊天，且两轮都不进入 MicroPlan | DOM 中消息顺序、loading 消失、执行卡不可见 |
 
 ---
 
@@ -372,8 +373,12 @@ mix test --include integration apps/novel_e2e/test/novel_e2e/v3_full_chain_test.
 # 真实 LM Studio 证据（本地 LM Studio 启动后）
 mix test --include real_llm apps/novel_application/test/novel_application/planner_real_llm_test.exs
 
-# 仍需补：真实工作台 UI / Tauri walkthrough
-# 目标：打开工作台 -> 输入普通创作聊天 -> 看到自然回复 -> 不出现执行卡 -> 异常可恢复
+# 原生 Tauri 主链证据
+bash scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip
+bash scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan
+
+# 仍需补：DOM 级真实工作台 UI / Tauri walkthrough
+# 目标：打开工作台 -> 输入普通创作聊天 -> 看到自然回复 -> loading 结束 -> 不出现执行卡 -> 异常可恢复
 ```
 
 > 注意：这些命令只能证明局部链路。AU-01 的完整验收必须覆盖真实用户入口 `WorkspaceChat` 的 UI 行为。

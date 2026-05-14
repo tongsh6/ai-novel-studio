@@ -187,6 +187,16 @@ UI 实现必须严格遵循 `docs/design-v2/ui-design/` 中的设计文档和 Pe
 - 如果当前 slice 因基础设施限制暂时无法做到前端发起，必须标记为“未闭环”，说明缺哪个入口、事件、状态或 UI 验收，而不能写 done。
 - 每个 slice 的最终汇报必须区分：前端可发起的真实验证、后端/Channel/组件局部验证、尚未闭环的缺口。
 
+### 最小实现步不能缩小 slice 范围
+
+允许把一个承重 slice 拆成多个最小实现步，但最小实现步只能作为执行 checkpoint，不能替代 AU/SU/GAP 文档中的完整验收范围。
+
+- 最小实现步必须引用既有规划、acceptance 文档、GAP 编号或 slice 任务清单，不能由 AI 现场发明范围。
+- 必须说明该 checkpoint 属于哪个完整闭环，以及距离完整闭环还缺哪些计划内后果。
+- 未覆盖 persistence、trace、projection、UI 验证等规划内后果时，不能写“本次不做/范围外”；只能写“下一 checkpoint”或“未闭环缺口”。
+- 只接 handler/helper/service、只跑局部测试、只证明 happy path 的 checkpoint 不能标 slice done。
+- 最小实现步的目的只是降低一次改动风险，不是降低验收标准。
+
 ### 本项目默认承重主链
 
 ```text

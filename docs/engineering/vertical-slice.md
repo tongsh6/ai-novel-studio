@@ -36,6 +36,20 @@
 - Proof 必须写清作者在前端如何触发：输入什么、点击什么、切换什么、确认/采纳什么，以及前端应看到的状态变化。
 - 如果因为缺入口、缺事件、缺状态投影或缺 UI 自动化，暂时不能从前端发起验证，该 slice 只能标为“已实现，未闭环”或“局部证据”，不能标 done。
 
+### 1.2 最小实现步不是交付范围
+
+允许把一个承重 slice 拆成多个最小实现步，但最小实现步只能是执行 checkpoint，不能重新定义或缩小 slice 的完成语义。
+
+每个最小实现步必须同时满足：
+
+- 来源必须是既有规划、acceptance 文档、GAP 编号或 slice 任务清单中的明确缺口，不能由执行者现场发明范围。
+- 必须声明它所属的完整闭环，例如“AU-05 采纳闭环：生成 tentative → 点击采纳 → adoption boundary → persistence / state trace → projection stale → UI 可见反馈”。
+- 必须写清当前 checkpoint 已覆盖哪些计划内后果、尚未覆盖哪些计划内后果；未覆盖部分不能被表述为“本次不做”或“范围外”，只能表述为“下一 checkpoint”或“未闭环缺口”。
+- 如果该 checkpoint 没有真实前端入口验证，只能标“局部证据”，不能标 slice done。
+- 如果该 checkpoint 只接入 handler/helper/service，而没有 persistence、trace、projection、UI feedback 等规划内后果，必须继续推进到完整闭环后再评估完成状态。
+
+最小实现步的作用是降低一次改动风险，不是降低验收标准。任何“最小步完成”都不得覆盖或替代对应 AU/SU/GAP 文档里的完整场景要求。
+
 ---
 
 ## 2. 本项目承重主链

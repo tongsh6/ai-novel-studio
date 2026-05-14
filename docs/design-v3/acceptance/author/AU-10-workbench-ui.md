@@ -2,7 +2,7 @@
 
 > 作者视角：工作台是我和 AI 协作的主界面。我需要实时知道系统状态、AI 在做什么、现在等我做什么、哪些按钮可以点。界面上的卡片、候选、action、任务状态、trace 和投影状态必须来自真实主链，不能由前端猜测或用 mock 冒充。
 >
-> 2026-05-14 对账结论：当前有 `WorkspaceChat` 真实入口、`WorkbenchV3` v3 消费者实验组件、`UICards`、候选/任务状态类型测试和 Channel action 安全测试。`au10-micro-plan-entry` 已证明真实前端入口可触发 MicroPlan；VS-10 进一步新增 `vs10-observability-spine` 浏览器验证和 `scripts/tauri_slice_verify.sh vs10-observability-spine` 原生 Tauri 自动化验证，可在不等待人工操作的情况下驱动真实工作台控件并校验日志链。采纳主流程、候选点选、trace/why、阅读投影和完整 Tauri/Design 合规仍未闭环。
+> 2026-05-14 对账结论：当前有 `WorkspaceChat` 真实入口、`WorkbenchV3` v3 消费者实验组件、`UICards`、候选/任务状态类型测试和 Channel action 安全测试。`au10-micro-plan-entry` 已证明真实前端入口可触发 MicroPlan；`au01-ordinary-chat-two-turn-roundtrip` 已证明原生 Tauri 可从输入框/发送按钮连续完成两轮普通聊天且不进入 MicroPlan；VS-10 进一步新增 `vs10-observability-spine` 浏览器验证和 `scripts/tauri_slice_verify.sh vs10-observability-spine` 原生 Tauri 自动化验证，可在不等待人工操作的情况下驱动真实工作台控件并校验日志链。采纳主流程、候选点选、trace/why、阅读投影和完整 Tauri/Design 合规仍未闭环。
 
 ---
 
@@ -358,7 +358,7 @@
 | SC-AU10-A2 | LLM health/model 状态 | 部分实现 | 代码存在，endpoint 抽象不合规 |
 | SC-AU10-A3 | WebSocket 离线禁用输入 | 部分实现 | 代码存在，缺重连/验收 |
 | SC-AU10-B1 | 发送消息 + loading | 部分实现 | 代码存在，缺真实 UI 验收 |
-| SC-AU10-B2 | 普通聊天不误触发执行 | 部分实现 / 待验收 | `sendMessage` 默认 false，缺 UI/Tauri 验收 |
+| SC-AU10-B2 | 普通聊天不误触发执行 | 部分实现 / 原生 Tauri 两轮主链验收已建立 | `sendMessage` 默认 false；`scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan` 从原生 Tauri 输入框/发送按钮触发普通消息，并断言 `channel.user_message.start.generate_micro_plan=false`；`scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` 连续发起两轮普通聊天，验证两轮均完成 `channel -> application -> channel` 且不存在 `planner.form_micro_plan.*`；仍缺完整普通聊天 DOM 反馈验收 |
 | SC-AU10-C1 | 候选卡显示 | 部分实现 | 组件/类型测试，缺真实 UI 验收 |
 | SC-AU10-C2 | 候选点选继续探索 | 未实现 | 候选卡只展示 |
 | SC-AU10-C3 | ActionPanel 只显示授权 action | 部分实现 / 待验收 | 真实入口已接 `available_actions`，缺 UI 点击验收 |
@@ -369,10 +369,10 @@
 | SC-AU10-D3 | 超时/取消等待 | 部分实现 | timeout catch 有，取消等待缺 |
 | SC-AU10-E1 | projection hint/阅读模式 | 部分实现 | store 更新有，阅读链路未闭环 |
 | SC-AU10-E2 | trace/why 入口 | 未实现 | 旁路 frame insight，不在真实入口 |
-| SC-AU10-F1 | Playwright/Tauri UI 验收 | 部分实现 / 最小前端与原生 Tauri 自动化证据已建立 | `scripts/slice_verify.sh au10-micro-plan-entry` 覆盖真实入口 MicroPlan 操作；`scripts/tauri_slice_verify.sh vs10-observability-spine` 覆盖原生 Tauri 观测链；未覆盖完整工作台 |
+| SC-AU10-F1 | Playwright/Tauri UI 验收 | 部分实现 / 最小前端与原生 Tauri 自动化证据已建立 | `scripts/slice_verify.sh au10-micro-plan-entry` 覆盖浏览器真实入口 MicroPlan 操作；`scripts/tauri_slice_verify.sh au10-micro-plan-entry` 覆盖原生 Tauri 同入口并断言 `generate_micro_plan=true`；`scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan` 覆盖原生 Tauri 普通聊天不触发 MicroPlan；`scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` 覆盖原生 Tauri 两轮普通聊天主链；`scripts/tauri_slice_verify.sh vs10-observability-spine` 覆盖原生 Tauri 观测链；未覆盖完整工作台 |
 | SC-AU10-F2 | Tauri/Design 约束 | 部分实现 / 修设计偏差 | 直接 fetch、内联样式、硬编码文案 |
 
-**覆盖率重算**：0/17 完整真实前后端验收；1 条最小前端发起验证已建立；新增 1 条原生 Tauri 自动化观测链证据；13/17 有局部证据或基础设施；4/17 未实现/未闭环。
+**覆盖率重算**：0/17 完整真实前后端验收；1 条最小浏览器前端发起验证已建立；新增 4 条原生 Tauri 自动化证据（AU-01 两轮普通聊天、AU-10 普通聊天 no-MicroPlan、AU-10 MicroPlan 入口、VS-10 观测链）；13/17 有局部证据或基础设施；4/17 未实现/未闭环。
 
 ---
 
@@ -381,7 +381,7 @@
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
 | AU10-GAP-01 — 真实入口与 v3 消费者分裂 | `WorkspaceChat` 已接 `author_action`/task_state 最小闭环；`WorkbenchV3` 仍是旁路，adoption/projection/trace 能力未统一 | 补集成/修设计偏差 | P0 |
-| AU10-GAP-02 — 普通聊天默认触发 MicroPlan 风险 | `sendMessage` 默认已改为 `generate_micro_plan: false`；仍缺真实工作台验收 | 补验收 | P0 |
+| AU10-GAP-02 — 普通聊天默认触发 MicroPlan 风险 | `sendMessage` 默认已改为 `generate_micro_plan: false`；原生 Tauri 已有 `au10-ordinary-chat-no-micro-plan` 最小验收和 `au01-ordinary-chat-two-turn-roundtrip` 两轮主链验收；仍缺完整普通聊天 DOM 反馈验收 | 补验收 | P0 |
 | AU10-GAP-03 — 真实入口 action 不走 `author_action` | 确认/拒绝旧 helper 路径已移除，真实入口可提交 `author_action`；仍缺 action_result UI 反馈和 Tauri 点击验收 | 补集成/补验收 | P0 |
 | AU10-GAP-04 — card action 可绕过 `available_actions` | `WorkspaceChat` 已校验 `available_actions`；`WorkbenchV3` fallback 构造 generic enabled action 仍待清理 | 修设计偏差/补测试 | P0 |
 | AU10-GAP-05 — 候选方向只展示不可操作 | candidate cards 没有 selection/continue action | 补实现/补验收 | P0 |
@@ -390,7 +390,7 @@
 | AU10-GAP-08 — trace/why 入口缺失 | 作者无法在真实工作台查看本轮来源/决策解释 | 补实现/补验收 | P1 |
 | AU10-GAP-09 — projection 到阅读链路未闭环 | status store 更新有，TOC/章节读取仍见 AU-08 缺口 | 补集成 | P1 |
 | AU10-GAP-10 — 错误恢复 UX 不完整 | 断线重连、超时取消、失败后恢复缺 UI 验收 | 补实现/补验收 | P1 |
-| AU10-GAP-11 — UI 自动化覆盖不足 | 已有 `au10-micro-plan-entry` 最小前端发起验证；VS-10 已补原生 Tauri 自动化观测链；仍缺普通聊天、candidate、card action、task_state、断线错误等完整工作台覆盖 | 补验收 | P0/P1 |
+| AU10-GAP-11 — UI 自动化覆盖不足 | 已有 `au10-micro-plan-entry` 最小浏览器与原生 Tauri 发起验证；已有 `au10-ordinary-chat-no-micro-plan` 原生 Tauri 普通聊天契约验证；已有 `au01-ordinary-chat-two-turn-roundtrip` 原生 Tauri 两轮普通聊天主链验证；VS-10 已补原生 Tauri 自动化观测链；仍缺 candidate、card action、task_state、断线错误等完整工作台覆盖 | 补验收 | P0/P1 |
 | AU10-GAP-12 — 桌面/设计约束偏差 | 直接 fetch endpoint、内联样式、硬编码文案 | 修设计偏差 | P1 |
 
 ---
@@ -404,7 +404,8 @@
 | `UICards` | 卡片组件齐全 | 缺真实点击和 available_actions 约束 |
 | `workspace_channel_v3_test.exs` | 后端 action 安全和 task_state 广播局部证据 | 不证明真实前端使用这些事件 |
 | `turn_result_candidates.test.ts` / `task_state.test.ts` | 类型形状保护 | 不是浏览器 UI 验收 |
-| `scripts/slice_verify.sh` | 可复跑前端发起验证，当前已有 `au10-micro-plan-entry` | 只证明一个最小入口，不证明 AU-10 完整工作台验收 |
+| `scripts/slice_verify.sh` | 可复跑浏览器前端发起验证，当前已有 `au10-micro-plan-entry` | 只证明一个最小入口，不证明 AU-10 完整工作台验收 |
+| `scripts/tauri_slice_verify.sh` | 可复跑原生 Tauri 前端发起验证，当前已有 `au01-ordinary-chat-two-turn-roundtrip`、`au10-ordinary-chat-no-micro-plan`、`au10-micro-plan-entry` 和 `vs10-observability-spine` | 只证明两轮普通聊天主链、普通聊天 no-MicroPlan 契约、MicroPlan 最小入口和观测链，不证明 AU-10 完整工作台验收 |
 | `frontend/walkthroughs/latest/*.png` | 有历史截图 | 不是可复跑、可断言的验收 |
 
 ---
@@ -415,6 +416,11 @@
 # 最小前端发起验证：真实 WorkspaceChat -> socket -> Channel -> Application
 bash scripts/slice_verify.sh --list
 bash scripts/slice_verify.sh au10-micro-plan-entry
+bash scripts/tauri_slice_verify.sh --list
+bash scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip
+bash scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan
+bash scripts/tauri_slice_verify.sh au10-micro-plan-entry
+bash scripts/tauri_slice_verify.sh vs10-observability-spine
 
 # 当前只能证明局部基础设施，不证明 AU-10 完整验收
 mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
