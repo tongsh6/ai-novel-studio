@@ -375,6 +375,98 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                  socket
                )
     end
+
+    test "discard event resolves pending artifact without crashing channel" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @pending_adoption_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "discarded"}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "discard",
+                 %{
+                   "artifact_id" => "as-adopt-1",
+                   "artifact_type" => "character_seed",
+                   "source_turn_ref" => "turn-adopt-source"
+                 },
+                 socket
+               )
+
+      assert_broadcast("action_result", %{
+        action_type: "discard",
+        status: "discarded",
+        artifact_id: "as-adopt-1"
+      })
+
+      assert_broadcast("turn_result", %{
+        parent_turn_id: "turn-adopt-source",
+        adoption_state: %{
+          pending: [],
+          resolved: [
+            %{
+              artifact_id: "as-adopt-1",
+              adoption_status: "DISCARDED",
+              requires_adoption: false
+            }
+          ]
+        },
+        projection_refs: [],
+        truthfulness: %{artifact_adopted: false, production_write_performed: false}
+      })
+
+      assert socket.assigns.current_turn_id != "turn-adopt-source"
+      assert Map.has_key?(socket.assigns.turn_results_by_id, socket.assigns.current_turn_id)
+    end
+
+    test "modify_draft event resolves pending artifact as edited acceptance" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @pending_adoption_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "modify_draft",
+                 %{
+                   "draft_id" => "as-adopt-1",
+                   "artifact_type" => "character_seed",
+                   "content" => "主角更果断",
+                   "instruction" => "增加保护同伴的动机",
+                   "source_turn_ref" => "turn-adopt-source"
+                 },
+                 socket
+               )
+
+      assert_broadcast("action_result", %{
+        action_type: "modify_draft",
+        status: "accepted",
+        artifact_id: "as-adopt-1"
+      })
+
+      assert_broadcast("turn_result", %{
+        parent_turn_id: "turn-adopt-source",
+        adoption_state: %{
+          pending: [],
+          resolved: [
+            %{
+              artifact_id: "as-adopt-1",
+              adoption_status: "EDITED_ACCEPTED",
+              requires_adoption: false
+            }
+          ]
+        },
+        projection_refs: [%{refresh_status: "STALE"}],
+        truthfulness: %{artifact_adopted: true, production_write_performed: false}
+      })
+
+      assert socket.assigns.current_turn_id != "turn-adopt-source"
+      assert Map.has_key?(socket.assigns.turn_results_by_id, socket.assigns.current_turn_id)
+    end
   end
 
   # ── VS-07 Proof: ping/pong ──

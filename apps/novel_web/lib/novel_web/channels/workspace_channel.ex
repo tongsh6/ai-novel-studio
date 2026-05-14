@@ -43,7 +43,11 @@ defmodule NovelWeb.WorkspaceChannel do
         _, _ -> :skipped
       end
 
-    LogEmit.emit(:channel, :join, :done, %{workspace_id: suffix, work_id: work_id, session_id: session_id})
+    LogEmit.emit(:channel, :join, :done, %{
+      workspace_id: suffix,
+      work_id: work_id,
+      session_id: session_id
+    })
 
     {:ok, %{joined: true, work_id: work_id, session_id: session_id}, socket}
   end
@@ -87,7 +91,9 @@ defmodule NovelWeb.WorkspaceChannel do
         transcript
         |> Enum.map(& &1.turn_result)
         |> Enum.reject(&is_nil/1)
-        |> Map.new(fn turn_result -> {turn_result[:turn_id] || turn_result["turn_id"], turn_result} end)
+        |> Map.new(fn turn_result ->
+          {turn_result[:turn_id] || turn_result["turn_id"], turn_result}
+        end)
 
       _ ->
         %{}
@@ -205,6 +211,7 @@ defmodule NovelWeb.WorkspaceChannel do
           duration_ms: duration,
           session_id: session_id
         })
+
         {:reply, {:ok, %{received: true}}, socket}
 
       {:error, reason, socket} ->
@@ -279,6 +286,7 @@ defmodule NovelWeb.WorkspaceChannel do
       {:ok, action_result, turn_result} ->
         broadcast!(socket, "action_result", action_result)
         broadcast!(socket, "turn_result", turn_result)
+        record_action_turn_result(socket, turn_result)
         socket = remember_turn_result(socket, turn_result)
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -299,6 +307,106 @@ defmodule NovelWeb.WorkspaceChannel do
           duration_ms: duration,
           artifact_id: artifact_id,
           reason_code: :adoption_rejected,
+          outcome_detail: reason
+        })
+
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  def handle_in("discard", %{"artifact_id" => artifact_id} = params, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    work_id = socket.assigns[:work_id] || ws_id
+    source_turn_ref = Map.get(params, "source_turn_ref") || socket.assigns[:current_turn_id]
+
+    LogContext.put_turn(ws_id, work_id, source_turn_ref)
+
+    t0 = System.monotonic_time(:millisecond)
+
+    LogEmit.emit(:channel, :discard, :start, %{
+      workspace_id: ws_id,
+      work_id: work_id,
+      artifact_id: artifact_id
+    })
+
+    source_turn_result = source_turn_ref && source_turn_result(socket, source_turn_ref)
+
+    case NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, params) do
+      {:ok, action_result, turn_result} ->
+        broadcast!(socket, "action_result", action_result)
+        broadcast!(socket, "turn_result", turn_result)
+        record_action_turn_result(socket, turn_result)
+        socket = remember_turn_result(socket, turn_result)
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :discard, :done, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          action_status: action_result.status
+        })
+
+        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
+
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :discard, :error, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          reason_code: :discard_rejected,
+          outcome_detail: reason
+        })
+
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  def handle_in("modify_draft", params, socket) do
+    artifact_id = Map.get(params, "artifact_id") || Map.get(params, "draft_id")
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    work_id = socket.assigns[:work_id] || ws_id
+    source_turn_ref = Map.get(params, "source_turn_ref") || socket.assigns[:current_turn_id]
+
+    LogContext.put_turn(ws_id, work_id, source_turn_ref)
+
+    t0 = System.monotonic_time(:millisecond)
+
+    LogEmit.emit(:channel, :modify_draft, :start, %{
+      workspace_id: ws_id,
+      work_id: work_id,
+      artifact_id: artifact_id
+    })
+
+    source_turn_result = source_turn_ref && source_turn_result(socket, source_turn_ref)
+
+    modify_params =
+      params
+      |> Map.put("work_id", work_id)
+      |> Map.put("session_id", socket.assigns[:session_id])
+
+    case NovelApplication.AdoptionWorkflow.handle_modify_draft(source_turn_result, modify_params) do
+      {:ok, action_result, turn_result} ->
+        broadcast!(socket, "action_result", action_result)
+        broadcast!(socket, "turn_result", turn_result)
+        record_action_turn_result(socket, turn_result)
+        socket = remember_turn_result(socket, turn_result)
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :modify_draft, :done, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          action_status: action_result.status
+        })
+
+        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
+
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :modify_draft, :error, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          reason_code: :modify_draft_rejected,
           outcome_detail: reason
         })
 
@@ -384,6 +492,43 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp broadcast_task_state_events(_socket, _turn_result), do: :ok
+
+  defp record_action_turn_result(socket, %{turn_id: turn_id} = turn_result)
+       when is_binary(turn_id) do
+    recorder = NovelApplication.persistence_interaction_recorder()
+    session_id = socket.assigns[:session_id]
+
+    if is_function(recorder, 2) and is_binary(session_id) do
+      workspace_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby"
+      text = get_in(turn_result, [:assistant_message, :text]) || ""
+
+      entry = %{
+        session_id: session_id,
+        turn_id: turn_id,
+        role: "assistant",
+        content: %{text: text, turn_result: turn_result},
+        source_ref: turn_id,
+        scope_ref: workspace_id,
+        freshness_score: 1.0,
+        importance_score: 0.5,
+        replayable: true,
+        retrievable: true
+      }
+
+      case recorder.(workspace_id, [entry]) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          LogEmit.emit(:channel, :persist_interaction, :error, %{
+            reason_code: :persistence_failed,
+            outcome_detail: inspect(reason)
+          })
+      end
+    end
+  end
+
+  defp record_action_turn_result(_socket, _turn_result), do: :ok
 
   defp source_turn_result(socket, source_turn_ref) do
     current_turn_id = socket.assigns[:current_turn_id]

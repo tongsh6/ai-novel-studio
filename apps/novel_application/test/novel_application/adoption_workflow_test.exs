@@ -24,8 +24,12 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert turn_result.truthfulness.artifact_adopted == true
       assert turn_result.truthfulness.production_write_performed == false
       assert turn_result.adoption_state.pending == []
-      assert [%{adoption_status: "ACCEPTED", requires_adoption: false}] = turn_result.adoption_state.resolved
-      assert [%{refresh_status: "STALE", source_revision_refs: ["decision:" <> _]}] = turn_result.projection_refs
+
+      assert [%{adoption_status: "ACCEPTED", requires_adoption: false}] =
+               turn_result.adoption_state.resolved
+
+      assert [%{refresh_status: "STALE", source_revision_refs: ["decision:" <> _]}] =
+               turn_result.projection_refs
     end
 
     test "uses injected persistence writer and exposes persisted state refs" do
@@ -56,12 +60,28 @@ defmodule NovelApplication.AdoptionWorkflowTest do
 
       assert action_result.persistence.persisted == true
       assert action_result.persistence.mutation_id == "mutation-1"
+
       assert [%{mutation_ref: "mutation-1", adopted_state_ref: "memory-1"}] =
                turn_result.adoption_state.resolved
+
       assert [%{source_revision_refs: ["mutation:mutation-1"], refresh_status: "STALE"}] =
                turn_result.projection_refs
+
       assert turn_result.truthfulness.production_write_performed == true
       assert turn_result.truthfulness.state_persisted == true
+    end
+
+    test "accepts restored JSON turn_result with string keys" do
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(string_key_source_turn_result(), %{
+                 "artifact_id" => "as-1"
+               })
+
+      assert action_result.status == "accepted"
+      assert turn_result.parent_turn_id == "turn-source"
+
+      assert [%{artifact_id: "as-1", adoption_status: "ACCEPTED"}] =
+               turn_result.adoption_state.resolved
     end
 
     test "rejects stale revision base" do
@@ -77,6 +97,88 @@ defmodule NovelApplication.AdoptionWorkflowTest do
     test "rejects unknown pending artifact" do
       assert {:error, "pending artifact not found"} =
                AdoptionWorkflow.handle_adopt(source_turn_result(), %{"artifact_id" => "missing"})
+    end
+  end
+
+  describe "handle_discard/2" do
+    test "resolves a pending artifact as discarded without adoption side effects" do
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_discard(source_turn_result(), %{"artifact_id" => "as-1"})
+
+      assert action_result.status == "discarded"
+      assert action_result.action_type == "discard"
+      assert turn_result.parent_turn_id == "turn-source"
+      assert turn_result.adoption_state.pending == []
+
+      assert [%{artifact_id: "as-1", adoption_status: "DISCARDED", requires_adoption: false}] =
+               turn_result.adoption_state.resolved
+
+      assert turn_result.projection_refs == []
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+    end
+
+    test "accepts restored JSON turn_result with string keys" do
+      assert {:ok, _action_result, turn_result} =
+               AdoptionWorkflow.handle_discard(string_key_source_turn_result(), %{
+                 "artifact_id" => "as-1"
+               })
+
+      assert turn_result.parent_turn_id == "turn-source"
+      assert [%{adoption_status: "DISCARDED"}] = turn_result.adoption_state.resolved
+    end
+
+    test "rejects unknown pending artifact" do
+      assert {:error, "pending artifact not found"} =
+               AdoptionWorkflow.handle_discard(source_turn_result(), %{"artifact_id" => "missing"})
+    end
+  end
+
+  describe "handle_modify_draft/2" do
+    test "resolves a pending artifact as edited and accepted" do
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_modify_draft(source_turn_result(), %{
+                 "draft_id" => "as-1",
+                 "content" => "原始内容",
+                 "instruction" => "改得更果断"
+               })
+
+      assert action_result.status == "accepted"
+      assert action_result.action_type == "modify_draft"
+      assert turn_result.parent_turn_id == "turn-source"
+      assert turn_result.adoption_state.pending == []
+
+      assert [
+               %{
+                 artifact_id: "as-1",
+                 adoption_status: "EDITED_ACCEPTED",
+                 requires_adoption: false,
+                 payload: payload
+               }
+             ] = turn_result.adoption_state.resolved
+
+      assert payload.content =~ "原始内容"
+      assert payload.content =~ "修改要求：改得更果断"
+      assert payload.edit_instruction == "改得更果断"
+      assert turn_result.truthfulness.artifact_adopted == true
+      assert [%{refresh_status: "STALE"}] = turn_result.projection_refs
+    end
+
+    test "accepts restored JSON turn_result with string keys" do
+      assert {:ok, _action_result, turn_result} =
+               AdoptionWorkflow.handle_modify_draft(string_key_source_turn_result(), %{
+                 "draft_id" => "as-1",
+                 "content" => "原始内容",
+                 "instruction" => "改得更果断"
+               })
+
+      assert turn_result.parent_turn_id == "turn-source"
+      assert [%{adoption_status: "EDITED_ACCEPTED"}] = turn_result.adoption_state.resolved
+    end
+
+    test "rejects missing instruction" do
+      assert {:error, "instruction is required"} =
+               AdoptionWorkflow.handle_modify_draft(source_turn_result(), %{"draft_id" => "as-1"})
     end
   end
 
@@ -100,6 +202,26 @@ defmodule NovelApplication.AdoptionWorkflowTest do
         resolved: []
       },
       trace_summary: %{trace_id: "trace-source"}
+    }
+  end
+
+  defp string_key_source_turn_result do
+    %{
+      "turn_id" => "turn-source",
+      "adoption_state" => %{
+        "pending" => [
+          %{
+            "artifact_id" => "as-1",
+            "artifact_type" => "character_seed",
+            "adoption_status" => "TENTATIVE",
+            "requires_adoption" => true,
+            "source_tool_result_ref" => "tr-1",
+            "payload" => %{"title" => "角色方向", "content" => "主角更果断"}
+          }
+        ],
+        "resolved" => []
+      },
+      "trace_summary" => %{"trace_id" => "trace-source"}
     }
   end
 end
