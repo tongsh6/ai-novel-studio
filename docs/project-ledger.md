@@ -33,6 +33,16 @@ v3 设计体系已闭环，目前处于特性增强期：
 
 证据：`bash scripts/tauri_slice_verify.sh au03c-work-session-resume`，产物 `artifacts/slice-verify/au03c-work-session-resume-tauri/summary.json`。
 
+Stage 手动走查补充（2026-05-15）：用户通过 `./stage.sh start` 看到历史对话确实被恢复，但 UI 仍有初始化体验缺陷：
+- 已恢复 transcript 前面错误插入欢迎语，说明 `WorkspaceChat` 的 welcome 判定与 resume state 存在竞态或状态覆盖。
+- 顶部作品上下文仍显示 `未连接`，说明 `resume snapshot / join response` 没有可靠覆盖 `context.workTitle`。
+- 顶部 `未定卷` 不是连接异常，而是卷/结构数据未接入真实来源；当前不应与 LLM/服务状态混淆。
+- 点击 macOS 左上角关闭按钮时，当前已做补丁式缓解：Tauri `CloseRequested` 中显式 `app_handle().exit(0)`，`/api/system/shutdown` controller 改为先返回 `Plug.Conn` 再异步停机，避免 `expected action/2 to return a Plug.Conn` 报错。**但这不是桌面生命周期根治**：Tauri 仍通过端口/lsof/HTTP shutdown 间接清理 Phoenix，`stage.sh` 的进程所有权、trap/cleanup、dev/stage/prod 关闭语义和自动化验收尚未闭环。
+- Stage Startup Context Contract 根因修正已开始（2026-05-15）：`stage.sh` 不再让 `frontend/.env` 覆盖 stage 端口，显式导出 `VITE_API_ENDPOINT=http://127.0.0.1:${PHOENIX_PORT}` / `VITE_WS_ENDPOINT=ws://127.0.0.1:${PHOENIX_PORT}/socket`，避免 `localhost` IPv6/IPv4 解析差异；`before-tauri-dev.sh` 保留调用方传入的 Vite/API/WS env；`WorkspaceChat` 不再在 work/session 启动失败时静默 join `lobby`，Channel join 后校验返回的 work/session 必须匹配启动上下文。剩余：需要用户重启 stage 后用真实 Tauri 首屏复验；仍缺自动化脚本证明“顶部不为未连接、恢复 transcript 不插欢迎语、work/session 一致”。
+- Stage 复验补充（2026-05-15 03:11）：Stage Startup Context Contract 的主要问题已解决：Tauri 能通过 Vite proxy 加载真实 work/session，Channel join 参数包含真实 `work_id=cc13925d-930f-48b8-96a1-738b0689b502` 和 `session_id=eac5f2ee-84f8-440a-bf04-3bb6fc95ddf3`，不再出现“服务已连接但作品未连接”的伪成功状态。新暴露问题转入 AU-05/AU-10：恢复出的 pending artifact 可以出现在 UI，但点击采纳时 `channel.adopt` 返回 `pending artifact not found`；随后点击放弃会发送 `discard` 事件，而 `WorkspaceChannel.handle_in/3` 没有对应 clause，导致 Channel GenServer 以 `FunctionClauseError` 崩溃并重连。说明 pending adoption 的恢复来源、当前 turn/current_turn_id、AdoptionWorkflow 查找范围、前端 artifact_type/source_turn_ref 以及 discard/modify backend handler 尚未形成闭环。
+
+因此 AU-03C 当前只能标为“恢复主链有自动化证据，Stage 启动上下文主问题已手动复验通过”，不能标为“pending adoption 可操作闭环完成”。当前重点推进内容切到 **Pending Adoption Resume Action Loop**：从恢复出的 pending artifact 出发，打通采纳/放弃/修改动作，保证前端 action、Channel handler、AdoptionWorkflow 查找范围、source_turn/current_turn 和持久化恢复视图一致。下一步优先修 AU-05/AU-10 的采纳/放弃闭环，而不是继续扩展会话 UI。
+
 ### 1.1 Stage 5 真实进度（基于 acceptance 与 walkthrough 对账）
 
 | 维度 | 实测覆盖率 / 状态 | 证据 |
@@ -88,6 +98,8 @@ v3 设计体系已闭环，目前处于特性增强期：
 | 真实 LLM 测试在 CI 中跑 | **未解决** | `:real_llm` 默认排除，无定期跑 + 无报告留痕 | `apps/novel_application/test/.../planner_real_llm_test.exs` |
 | 前端桌面持久化 API 合规 | **未解决（非本次引入）** | `frontend_audit` 持续 warning：`frontend/src/lib/works.ts` 直接使用 `window.localStorage` 保存 last-opened work；当前不阻塞 CI，但与 Desktop-First 约束存在张力。需决定迁移到 Tauri storage / 后端用户偏好 / env 抽象后再改 | `frontend/src/lib/works.ts`；`scripts/frontend_audit.sh` |
 | 本地 Tauri DMG 打包 | **需核查（非本次引入）** | `frontend_audit` 中 Vite/Rust release app 构建成功，但 macOS DMG bundle 脚本在本机返回 warning；脚本标注 CI 必需、dev 可选。当前无法确认是本机签名/打包环境问题还是发布链路缺口 | `bash scripts/frontend_audit.sh`；`frontend/src-tauri/target/release/bundle/dmg/bundle_dmg.sh` |
+| 桌面生命周期 / Stage 进程所有权 | **未解决（当前仅补丁缓解）** | 点击窗口关闭已补 `CloseRequested -> app exit` 和 shutdown controller 返回值错误；Stage Startup Context Contract 已开始收敛：stage 端口/env 不再被 `.env` 覆盖，API/WS 改用 `127.0.0.1`，前端禁止静默降级到 `lobby`。但真实所有权仍混乱：Tauri 侧按端口清 Phoenix，`stage.sh` 使用 `exec pnpm tauri dev` 后 cleanup/trap 语义弱，缺“点 X 后 Tauri/Vite/Phoenix 全部退出、端口释放、下次可干净启动”的自动化验收。后续应建 Desktop App Lifecycle / Stage Process Ownership 小 slice，明确进程 owner 和关闭契约 | `frontend/src-tauri/src/lib.rs`；`apps/novel_web/lib/novel_web/controllers/system_controller.ex`；`scripts/stage.sh`；`scripts/before-tauri-dev.sh`；`frontend/src/components/WorkspaceChat.tsx` |
+| Pending adoption 恢复后的采纳/放弃闭环 | **未解决（Stage 新暴露，2026-05-15）** | 恢复后的 pending artifact `as_54` 能从历史 turn_result 显示，但采纳时后端返回 `pending artifact not found`；放弃时前端发送 `discard`，`WorkspaceChannel.handle_in/3` 无 clause 导致 Channel 崩溃。需作为 AU-05/AU-10 承重修复：统一恢复 pending artifact 的 source_turn_ref/current_turn_id、AdoptionWorkflow 查找范围、artifact_type 映射，并补齐 discard/modify_draft 的 Channel handler 或禁用未授权 action | `frontend/src/components/WorkspaceChat.tsx`；`apps/novel_web/lib/novel_web/channels/workspace_channel.ex`；`NovelApplication.AdoptionWorkflow` |
 
 ### 8.1 已落地但未闭环的真实缺口（来自 walkthrough 与 acceptance）
 
@@ -140,7 +152,10 @@ v3 设计体系已闭环，目前处于特性增强期：
 | VS-10 Observability Spine | **已落地并验证闭环（2026-05-12）** | Logger metadata key 已纳入配置；`mix credo suggest --strict --format json` 0 issues；AI 静态扫描 13 PASS / 0 finding。novel_agent provider 层自由文案 Logger 属 LLMLog 范围，非本 slice 引入 |
 | VS-09 Work Management | **核心已落地（2026-05-11）**，剩余高级场景待续 | 切换 UI / cross-work e2e / pending 隔离 / 不可用降级 |
 | Workbench action/task_state 最小切片 | **已推进（2026-05-14）** | `WorkspaceChat` 普通消息默认不请求 MicroPlan；真实入口渲染服务器 `available_actions`，提交 `author_action`；订阅 `task_state` 并更新 longRun store；Channel 在 action 后记忆新 turn；`scripts/slice_verify.sh au10-micro-plan-entry` 可从浏览器真实前端入口触发 MicroPlan 并输出 websocket frame / 截图 artifact；`scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` 可从原生 Tauri 输入框/发送按钮连续完成两轮普通聊天并输出两个 turn 的 JSONL evidence；`scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan` 可从原生 Tauri 输入框/发送按钮触发普通消息并输出 `generate_micro_plan=false` JSONL evidence；`scripts/tauri_slice_verify.sh au10-micro-plan-entry` 可从原生 Tauri 触发 MicroPlan 入口并输出 JSONL evidence。剩余：adoption 主流程、候选 selection、trace/why、projection、完整 DOM/Playwright/Tauri 验收 |
-| AU-03C Work Session Resume | **已落地并通过原生 Tauri 验证（2026-05-15）** | active session 自动恢复、完整 transcript 恢复、会话列表/搜索基础、pending adoption 重开恢复已闭环；剩余：新建会话 UI、历史会话打开/只读、归档、从历史继续创建分支、归档不进默认 context、长会话摘要压缩 |
+| AU-03C Work Session Resume | **主链已落地并通过原生 Tauri 验证（2026-05-15）；Stage 启动上下文主问题已手动复验通过** | 自动化证明 active session / transcript / pending adoption 可从持久化恢复；Stage Startup Context Contract 已修复并由用户复验真实 work/session join。剩余：pending adoption 只能恢复显示，尚不能采纳/放弃；新建会话 UI、历史会话打开/只读、归档、从历史继续创建分支、归档不进默认 context、长会话摘要压缩 |
+| Stage Startup Context Contract | **手动 stage 复验通过主问题（2026-05-15）；仍缺自动化** | 已修 stage/env 端口 SSOT、`localhost`→`127.0.0.1` API/WS、`before-tauri-dev.sh` env 传递、Vite proxy target 与前端 API base 拆分、`WorkspaceChat` 禁止 work/session 失败时静默 join `lobby`，并校验 Channel 返回 work/session 与启动上下文一致。用户 stage 复验证明真实 work/session 可 join。剩余：沉淀可重复自动化脚本 |
+| Pending Adoption Resume Action Loop | **新暴露，未解决（2026-05-15）** | Stage 复验中恢复 pending artifact 后，采纳失败 `pending artifact not found`，放弃触发 `discard` 后端 handler 缺失并导致 Channel 崩溃。不能把 AU-03C pending adoption 恢复标为“可操作闭环”；下一步应按 AU-05/AU-10 修 action loop |
+| Desktop App Lifecycle / Stage Process Ownership | **未规划；当前仅补丁缓解（2026-05-15）** | 已修点击关闭后的直接报错和 Tauri app 不退出症状，但尚未定义桌面关闭契约、stage 进程所有权、Phoenix/Vite/Tauri 清理顺序和自动化证明。不能把“点 X 可关”误标为桌面生命周期 done |
 | 体验加固 P1 修复 | **GAP-WT-01 后端闭环 + GAP-WT-03 同步工具最小闭环已落地（2026-05-12）** | 已完成 3 轮复审：契约/架构、测试语义、文档/质量体系。复审中补齐畸形候选 fallback、真实 not_adopted 测试、creative_generation 类型推断、过期注释清理；非本次引入的 localStorage / DMG warning 已登记。剩余为真人走查复验、完整异步 TaskRunner/LongRunTaskLog 接入、真实长任务进度细分 |
 | Toolbox 创作 dispatcher 真实 LLM 接入 | 待规划 | VS-07 收尾后续，4 个 dispatcher 仍返回 demo items |
 
