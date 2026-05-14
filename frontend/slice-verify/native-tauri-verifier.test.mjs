@@ -1,0 +1,736 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  findLmStudioEvidence,
+  findNativeSliceEvidence,
+  findSliceBehaviorEvidence,
+  keyEventsForSlice,
+  nativeSliceIds,
+} from "./native-tauri-verifier.mjs";
+
+describe("native Tauri slice verifier", () => {
+  it("lists native slice ids including AU-10 micro plan entry", () => {
+    expect(nativeSliceIds).toContain("au03c-work-session-resume");
+    expect(nativeSliceIds).toContain("au05-adoption-boundary");
+    expect(nativeSliceIds).toContain("au10-micro-plan-entry");
+    expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
+    expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
+    expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("finds AU-03C evidence only after same session is resumed with transcript and pending adoption", () => {
+    const records = au03cResumeRecords();
+
+    expect(findNativeSliceEvidence("au03c-work-session-resume", records)).toEqual({
+      slice_id: "au03c-work-session-resume",
+      turn_id: "turn-au03c",
+      turn_ids: ["turn-au03c"],
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      transcript_count: 2,
+      pending_adoption_count: 1,
+      key_events: keyEventsForSlice("au03c-work-session-resume"),
+    });
+  });
+
+  it("rejects AU-03C resume if pending adoption was not restored", () => {
+    const records = au03cResumeRecords().map((record) =>
+      record.event === "work_session.resume.done"
+        ? { ...record, pending_adoption_count: 0 }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au03c-work-session-resume", records)).toBeNull();
+  });
+
+  it("requires AU-05 adoption evidence to include persisted mutation", () => {
+    const records = au05AdoptionRecords("turn-adopt", false);
+
+    expect(findNativeSliceEvidence("au05-adoption-boundary", records)).toBeNull();
+  });
+
+  it("finds AU-05 adoption evidence from generated artifact through persisted adopt", () => {
+    const evidence = findNativeSliceEvidence(
+      "au05-adoption-boundary",
+      au05AdoptionRecords("turn-adopt", true),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "au05-adoption-boundary",
+      turn_id: "turn-adopt",
+      key_events: keyEventsForSlice("au05-adoption-boundary"),
+      mutation_id: "mutation-1",
+    });
+  });
+
+  it("does not accept AU-10 micro plan evidence from only a channel start log", () => {
+    const evidence = findNativeSliceEvidence("au10-micro-plan-entry", [
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-1",
+        workspace_id: "ws-1",
+        work_id: "work-1",
+        duration_ms: 0,
+        outcome: "start",
+        text_len: 27,
+        generate_micro_plan: true,
+      },
+    ]);
+
+    expect(evidence).toBeNull();
+  });
+
+  it("finds AU-10 micro plan evidence from the completed UI journey", () => {
+    const evidence = findNativeSliceEvidence(
+      "au10-micro-plan-entry",
+      microPlanTurnRecords("turn-1"),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "au10-micro-plan-entry",
+      turn_id: "turn-1",
+      key_events: [
+        "channel.user_message.start",
+        "dialogue_gateway.handle_input.start",
+        "planner.form_frame.done",
+        "planner.form_micro_plan.done",
+        "dialogue_gateway.handle_input.done",
+        "channel.user_message.done",
+      ],
+    });
+  });
+
+  it("requires two ordinary chat turns without micro plan events", () => {
+    const records = ["turn-a", "turn-b"].flatMap((turnId) => [
+      {
+        event: "channel.user_message.start",
+        turn_id: turnId,
+        workspace_id: "ws-chat",
+        work_id: "work-chat",
+        duration_ms: 0,
+        outcome: "start",
+        text_len: 24,
+        generate_micro_plan: false,
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: turnId,
+        workspace_id: "ws-chat",
+        work_id: "work-chat",
+        duration_ms: 12,
+        outcome: "ok",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: turnId,
+        workspace_id: "ws-chat",
+        work_id: "work-chat",
+        duration_ms: 14,
+        outcome: "ok",
+      },
+    ]);
+
+    expect(findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records)).toEqual({
+      slice_id: "au01-ordinary-chat-two-turn-roundtrip",
+      turn_id: "turn-a",
+      turn_ids: ["turn-a", "turn-b"],
+      key_events: [
+        "channel.user_message.start",
+        "dialogue_gateway.handle_input.done",
+        "channel.user_message.done",
+      ],
+    });
+  });
+
+  it("rejects ordinary two-turn evidence if a micro plan event appears", () => {
+    const records = [
+      ...["turn-a", "turn-b"].flatMap((turnId) => [
+        {
+          event: "channel.user_message.start",
+          turn_id: turnId,
+          workspace_id: "ws-chat",
+          work_id: "work-chat",
+          duration_ms: 0,
+          outcome: "start",
+          text_len: 24,
+          generate_micro_plan: false,
+        },
+        {
+          event: "dialogue_gateway.handle_input.done",
+          turn_id: turnId,
+          workspace_id: "ws-chat",
+          work_id: "work-chat",
+          duration_ms: 12,
+          outcome: "ok",
+        },
+        {
+          event: "channel.user_message.done",
+          turn_id: turnId,
+          workspace_id: "ws-chat",
+          work_id: "work-chat",
+          duration_ms: 14,
+          outcome: "ok",
+        },
+      ]),
+      {
+        event: "planner.form_micro_plan.done",
+        turn_id: "turn-b",
+        workspace_id: "ws-chat",
+        work_id: "work-chat",
+        duration_ms: 7,
+        outcome: "ok",
+      },
+    ];
+
+    expect(findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records)).toBeNull();
+  });
+
+  it("finds ordinary chat evidence only when micro plan is not requested", () => {
+    const evidence = findNativeSliceEvidence(
+      "au10-ordinary-chat-no-micro-plan",
+      ordinarySingleTurnRecords("turn-ordinary"),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "au10-ordinary-chat-no-micro-plan",
+      turn_id: "turn-ordinary",
+      key_events: [
+        "channel.user_message.start",
+        "dialogue_gateway.handle_input.start",
+        "planner.form_frame.done",
+        "dialogue_gateway.handle_input.done",
+        "channel.user_message.done",
+      ],
+    });
+  });
+
+  it("rejects AU-10 ordinary evidence if micro plan is accidentally triggered", () => {
+    const records = [
+      ...ordinarySingleTurnRecords("turn-ordinary"),
+      {
+        event: "planner.form_micro_plan.done",
+        turn_id: "turn-ordinary",
+        workspace_id: "ws-ordinary",
+        work_id: "work-ordinary",
+        duration_ms: 5,
+        outcome: "ok",
+      },
+    ];
+
+    expect(findNativeSliceEvidence("au10-ordinary-chat-no-micro-plan", records)).toBeNull();
+  });
+
+  it("requires all VS-10 key events on one turn", () => {
+    const records = keyEventsForSlice("vs10-observability-spine").map((event) => ({
+      event,
+      turn_id: "turn-2",
+      workspace_id: "ws-2",
+      work_id: "work-2",
+      duration_ms: 1,
+      outcome: event.endsWith(".start") ? "start" : "ok",
+    }));
+
+    expect(findNativeSliceEvidence("vs10-observability-spine", records)).toEqual({
+      slice_id: "vs10-observability-spine",
+      turn_id: "turn-2",
+      key_events: keyEventsForSlice("vs10-observability-spine"),
+    });
+  });
+
+  it("matches real LM Studio chat completion logs by turn id", () => {
+    const evidence = findLmStudioEvidence(["turn-real"], [
+      {
+        turn_id: "turn-real",
+        provider: "lmstudio",
+        request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" },
+        response: { status: 200 },
+      },
+    ]);
+
+    expect(evidence).toEqual({
+      provider: "lmstudio",
+      turn_ids: ["turn-real"],
+      request_count: 1,
+      status_codes: [200],
+    });
+  });
+
+  it("rejects slice evidence without matching real LM Studio request", () => {
+    const evidence = findLmStudioEvidence(["turn-real"], [
+      {
+        turn_id: "turn-other",
+        provider: "slice_verify",
+        request: { method: "POST", url: "memory://slice-verify" },
+        response: { status: 200 },
+      },
+    ]);
+
+    expect(evidence).toBeNull();
+  });
+
+  it("accepts ordinary chat behavior only when both turns complete without micro plan or fallback", () => {
+    const records = ordinaryTwoTurnRecords();
+    const llmRecords = [
+      lmRecord("turn-a", "form_frame", "可以，我们先聊小说创作。"),
+      lmRecord("turn-b", "form_frame", "还可以从人物和世界规则继续展开。"),
+    ];
+    const evidence = findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records);
+
+    expect(findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
+      provider: "lmstudio",
+      llmRecords,
+    })).toEqual({
+      slice_id: "au01-ordinary-chat-two-turn-roundtrip",
+      behavior: "ordinary_chat_two_turn_roundtrip",
+      turn_ids: ["turn-a", "turn-b"],
+      assertions: [
+        "two_user_turns_completed",
+        "micro_plan_not_requested",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+        "lmstudio_form_frame_called_per_turn",
+      ],
+    });
+  });
+
+  it("accepts AU-05 behavior only when adoption boundary persisted a mutation", () => {
+    const records = au05AdoptionRecords("turn-adopt", true);
+    const evidence = findNativeSliceEvidence("au05-adoption-boundary", records);
+
+    expect(findSliceBehaviorEvidence("au05-adoption-boundary", records, evidence)).toEqual({
+      slice_id: "au05-adoption-boundary",
+      behavior: "artifact_adoption_persisted_and_projection_stale",
+      turn_ids: ["turn-adopt"],
+      mutation_id: "mutation-1",
+      assertions: [
+        "tentative_artifact_generated",
+        "author_clicked_accept_from_workbench",
+        "adoption_boundary_adopted_tentative",
+        "adoption_persisted_as_mutation",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("rejects ordinary chat behavior when a micro plan event appears", () => {
+    const records = [
+      ...ordinaryTwoTurnRecords(),
+      {
+        event: "planner.form_micro_plan.done",
+        turn_id: "turn-b",
+        workspace_id: "ws-chat",
+        work_id: "work-chat",
+        duration_ms: 7,
+        outcome: "ok",
+      },
+    ];
+    const evidence = {
+      slice_id: "au01-ordinary-chat-two-turn-roundtrip",
+      turn_id: "turn-a",
+      turn_ids: ["turn-a", "turn-b"],
+      key_events: keyEventsForSlice("au01-ordinary-chat-two-turn-roundtrip"),
+    };
+
+    expect(findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence))
+      .toBeNull();
+  });
+
+  it("rejects real LM Studio behavior when assistant output is fallback text", () => {
+    const records = ordinaryTwoTurnRecords();
+    const evidence = findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records);
+
+    expect(findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
+      provider: "lmstudio",
+      llmRecords: [
+        lmRecord("turn-a", "form_frame", "抱歉，我现在无法连接到创作引擎。请稍后再试。"),
+        lmRecord("turn-b", "form_frame", "继续聊。"),
+      ],
+    })).toBeNull();
+  });
+
+  it("accepts VS-10 behavior only when frame and micro-plan both complete", () => {
+    const records = keyEventsForSlice("vs10-observability-spine").map((event) => ({
+      event,
+      turn_id: "turn-vs10",
+      workspace_id: "ws-vs10",
+      work_id: "work-vs10",
+      duration_ms: event.endsWith(".done") ? 12 : 0,
+      outcome: event.endsWith(".start") ? "start" : "ok",
+      generate_micro_plan: event === "channel.user_message.start" ? true : undefined,
+    }));
+    const evidence = findNativeSliceEvidence("vs10-observability-spine", records);
+
+    expect(findSliceBehaviorEvidence("vs10-observability-spine", records, evidence, {
+      provider: "lmstudio",
+      llmRecords: [
+        lmRecord("turn-vs10", "form_frame", "我会先判断这个请求的创作意图。"),
+        lmRecord("turn-vs10", "form_micro_plan", "这里是下一步计划。"),
+        {
+          turn_id: "turn-vs10",
+          step: "unknown",
+          provider: "lmstudio",
+          request: {
+            method: "POST",
+            url: "http://localhost:1234/v1/chat/completions",
+          },
+          response: {
+            status: 200,
+            body: JSON.stringify({
+              choices: [{ message: { content: "工具执行完成，已生成可查看的草案。" } }],
+            }),
+          },
+        },
+      ],
+    })).toEqual({
+      slice_id: "vs10-observability-spine",
+      behavior: "observability_spine_with_micro_plan",
+      turn_ids: ["turn-vs10"],
+      assertions: [
+        "micro_plan_requested",
+        "frame_and_micro_plan_completed",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+        "lmstudio_frame_and_micro_plan_called",
+      ],
+    });
+  });
+});
+
+function ordinaryTwoTurnRecords() {
+  return ["turn-a", "turn-b"].flatMap((turnId) => [
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 24,
+      generate_micro_plan: false,
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+      candidate_count: 0,
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 14,
+      outcome: "ok",
+    },
+  ]);
+}
+
+function ordinarySingleTurnRecords(turnId) {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      workspace_id: "ws-ordinary",
+      work_id: "work-ordinary",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 24,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: turnId,
+      workspace_id: "ws-ordinary",
+      work_id: "work-ordinary",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: turnId,
+      workspace_id: "ws-ordinary",
+      work_id: "work-ordinary",
+      duration_ms: 12,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: turnId,
+      workspace_id: "ws-ordinary",
+      work_id: "work-ordinary",
+      duration_ms: 14,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: turnId,
+      workspace_id: "ws-ordinary",
+      work_id: "work-ordinary",
+      duration_ms: 15,
+      outcome: "ok",
+    },
+  ];
+}
+
+function microPlanTurnRecords(turnId) {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 27,
+      generate_micro_plan: true,
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: turnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: turnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "planner.form_micro_plan.done",
+      turn_id: turnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      duration_ms: 10,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: turnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: turnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+  ];
+}
+
+function au05AdoptionRecords(turnId, persisted) {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 27,
+      generate_micro_plan: true,
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "planner.form_micro_plan.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 10,
+      outcome: "ok",
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 8,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+    {
+      event: "channel.adopt.start",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 0,
+      outcome: "start",
+      artifact_id: "as-1",
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 4,
+      outcome: "ok",
+      decision_type: "adopt_tentative",
+    },
+    {
+      event: "channel.adopt.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 7,
+      outcome: "ok",
+      action_status: "accepted",
+      persisted,
+      mutation_id: persisted ? "mutation-1" : null,
+    },
+  ];
+}
+
+function au03cResumeRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-au03c",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 3,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-au03c",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 0,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au03c",
+      workspace_id: "work-au03c",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 21,
+      generate_micro_plan: true,
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: "turn-au03c",
+      workspace_id: "work-au03c",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 12,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au03c",
+      workspace_id: "work-au03c",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 18,
+      outcome: "ok",
+    },
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-au03c",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 4,
+      outcome: "ok",
+      transcript_count: 2,
+      pending_adoption_count: 1,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-au03c",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 0,
+      outcome: "ok",
+    },
+  ];
+}
+
+function lmRecord(turnId, step, assistantMessage) {
+  return {
+    turn_id: turnId,
+    step,
+    provider: "lmstudio",
+    request: {
+      method: "POST",
+      url: "http://localhost:1234/v1/chat/completions",
+    },
+    response: {
+      status: 200,
+      body: JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                frame_type: "casual_reply",
+                dialogue_goal_summary: "验证行为",
+                needs_tool: false,
+                no_tool_reason: "no_tool_needed",
+                execution_readiness: "not_applicable",
+                assistant_message: assistantMessage,
+                candidate_directions: [],
+                context_used: false,
+                uncertainty: [],
+              }),
+            },
+          },
+        ],
+      }),
+    },
+  };
+}

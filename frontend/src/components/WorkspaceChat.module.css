@@ -269,6 +269,55 @@
   text-align: center;
 }
 
+.sessionList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.sessionSearch {
+  width: 100%;
+  height: 30px;
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 0 8px;
+  color: var(--foreground-primary);
+  background-color: var(--surface-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+}
+
+.sessionItem,
+.sessionItemActive {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  padding: 8px;
+  background-color: var(--surface-primary);
+}
+
+.sessionItemActive {
+  border-color: var(--foreground-primary);
+}
+
+.sessionTitle {
+  overflow: hidden;
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sessionStatus {
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
 .openArchiveEntry {
   border: 1px solid var(--border-subtle);
   padding: 12px;

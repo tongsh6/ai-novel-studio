@@ -24,6 +24,12 @@ import {
   type WorkDto,
 } from "../lib/works";
 import {
+  resumeWorkspace,
+  searchSessions,
+  transcriptToMessages,
+  type WorkSessionDto,
+} from "../lib/sessions";
+import {
   findAuthorizedAction,
   toAuthorActionPayload,
   type AvailableActionLike,
@@ -83,6 +89,7 @@ export interface ArtifactEntry {
   adoption_status: string;
   requires_adoption: boolean;
   revision_base?: string | null;
+  source_turn_ref?: string | null;
   payload: {
     title?: unknown;
     [key: string]: unknown;
@@ -105,6 +112,10 @@ export function WorkspaceChat() {
   const [modifyModal, setModifyModal] = useState<{ artifact: ArtifactEntry; action: () => void } | null>(null);
   const [modifyInstruction, setModifyInstruction] = useState("");
   const [pendingAnswerBid, setPendingAnswerBid] = useState<string | null>(null);
+  const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
+  const [sessions, setSessions] = useState<WorkSessionDto[]>([]);
+  const [sessionSearch, setSessionSearch] = useState("");
+  const [resumePendingAdoptions, setResumePendingAdoptions] = useState<ArtifactEntry[]>([]);
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore(state => state.socketConnected);
@@ -120,6 +131,9 @@ export function WorkspaceChat() {
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sliceVerifyAutorunRef = useRef(false);
+  const sliceVerifyContinuationRef = useRef(false);
+  const sliceVerifyAdoptionRef = useRef(false);
+  const resumeRestoredTranscriptRef = useRef(false);
 
   // Check LLM connection status
   useEffect(() => {
@@ -165,6 +179,38 @@ export function WorkspaceChat() {
       if (status === "FRESH" || status === "STALE" || status === "REBUILDING" || status === "FAILED") {
         useAppStore.getState().setProjectionStatus(status);
       }
+    }
+
+    if (
+      isTauri &&
+      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au01-ordinary-chat-two-turn-roundtrip" &&
+      !sliceVerifyContinuationRef.current
+    ) {
+      sliceVerifyContinuationRef.current = true;
+      window.setTimeout(() => {
+        setInputText("继续说说还有什么方向");
+        window.setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
+            ?.click();
+        }, 150);
+      }, 250);
+    }
+
+    if (
+      isTauri &&
+      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-adoption-boundary" &&
+      !sliceVerifyAdoptionRef.current &&
+      (result.adoption_state?.pending?.length ?? 0) > 0
+    ) {
+      sliceVerifyAdoptionRef.current = true;
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLButtonElement>(
+            '[data-slice-verify="card-action"][data-action-type="accept"]',
+          )
+          ?.click();
+      }, 250);
     }
   }
 
@@ -233,7 +279,24 @@ export function WorkspaceChat() {
 
       const workId = work?.id ?? "lobby";
       const workTitle = work?.title ?? "未连接";
+      let sessionId: string | null = null;
       setLastOpenedWorkId(workId);
+
+      if (work?.id) {
+        try {
+          const snapshot = await resumeWorkspace(work.id);
+          sessionId = snapshot.active_session.id;
+          setActiveSessionId(sessionId);
+          setSessions(snapshot.sessions);
+          setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
+          setMessages(transcriptToMessages(snapshot.transcript) as ChatMessage[]);
+          resumeRestoredTranscriptRef.current = snapshot.transcript.length > 0;
+        } catch {
+          setActiveSessionId(null);
+          setSessions([]);
+          setResumePendingAdoptions([]);
+        }
+      }
 
       const socket = createSocket();
       socket.connect();
@@ -241,13 +304,18 @@ export function WorkspaceChat() {
 
       const channel = joinWorkspace(socket, `workspace:${workId}`, {
         work_id: workId,
+        session_id: sessionId,
       });
       channelRef.current = channel;
       setChannel(channel);
 
       channel
         .join()
-        .receive("ok", () => {
+        .receive("ok", (response: { work_id?: string; session_id?: string }) => {
+          const joinedWorkId = response.work_id ?? workId;
+          const joinedSessionId = response.session_id ?? sessionId;
+          if (joinedSessionId) setActiveSessionId(joinedSessionId);
+          if (joinedWorkId && joinedWorkId !== "lobby") setLastOpenedWorkId(joinedWorkId);
           setSocketConnected(true);
           setMessages((prev) => {
             // Avoid duplicate welcome messages if effect re-runs
@@ -262,7 +330,7 @@ export function WorkspaceChat() {
 
           // VS-09: real work context, no longer mock_work_123
           setContext({
-            workId,
+            workId: joinedWorkId,
             workTitle,
             volumeTitle: "未定卷",
           });
@@ -299,25 +367,48 @@ export function WorkspaceChat() {
 
   useEffect(() => {
     if (!isTauri) return;
-    if (import.meta.env.VITE_SLICE_VERIFY_AUTORUN !== "vs10-observability-spine") return;
+    const autorunSlice = import.meta.env.VITE_SLICE_VERIFY_AUTORUN as string | undefined;
+    if (
+      autorunSlice !== "vs10-observability-spine" &&
+      autorunSlice !== "au10-micro-plan-entry" &&
+      autorunSlice !== "au10-ordinary-chat-no-micro-plan" &&
+      autorunSlice !== "au01-ordinary-chat-two-turn-roundtrip" &&
+      autorunSlice !== "au05-adoption-boundary" &&
+      autorunSlice !== "au03c-work-session-resume"
+    ) return;
     if (!socketConnected || sliceVerifyAutorunRef.current) return;
+    if (autorunSlice === "au03c-work-session-resume" && resumeRestoredTranscriptRef.current) return;
 
     sliceVerifyAutorunRef.current = true;
     const timers: number[] = [];
 
-    timers.push(window.setTimeout(() => {
-      setIsPanelOpen(true);
+    if (
+      autorunSlice === "au10-ordinary-chat-no-micro-plan" ||
+      autorunSlice === "au01-ordinary-chat-two-turn-roundtrip"
+    ) {
       timers.push(window.setTimeout(() => {
-        document
-          .querySelector<HTMLButtonElement>('[data-slice-verify="panel-new-action"]')
-          ?.click();
+        setInputText("你好，我想聊聊小说创作");
+        timers.push(window.setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
+            ?.click();
+        }, 150));
       }, 150));
-    }, 150));
+    } else {
+      timers.push(window.setTimeout(() => {
+        setIsPanelOpen(true);
+        timers.push(window.setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="panel-new-action"]')
+            ?.click();
+        }, 150));
+      }, 150));
+    }
 
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [socketConnected]);
+  }, [socketConnected, messages.length]);
 
   // ... (rest of the component)
 
@@ -335,8 +426,8 @@ export function WorkspaceChat() {
 
     // Clear pending action and send
     useAppStore.getState().setPendingBuildAction(null);
-    void sendMessage(channelRef.current, text).then(() => setLoading(true));
-  }, []);
+    void sendMessage(channelRef.current, text, context.workId, null, activeSessionId).then(() => setLoading(true));
+  }, [activeSessionId, context.workId]);
 
   const handleSend = async (
     messageText: string = inputText,
@@ -358,6 +449,7 @@ export function WorkspaceChat() {
         text,
         context.workId,
         behaviorId,
+        activeSessionId,
         options.generateMicroPlan ?? false,
       );
     } catch {
@@ -372,17 +464,14 @@ export function WorkspaceChat() {
   const handleAdopt = async (artifact: ArtifactEntry) => {
     if (!channelRef.current) return;
     try {
-      await adopt(
+      const result = await adopt(
         channelRef.current,
         artifact.artifact_id,
         parseRevisionBase(artifact.revision_base),
         artifact.payload,
         artifact.artifact_type,
+        artifact.source_turn_ref ?? null,
       );
-      const title =
-        typeof artifact.payload.title === "string"
-          ? artifact.payload.title
-          : artifact.artifact_id;
 
       // Update context when Work is adopted (persist work_id for subsequent messages)
       if (artifact.artifact_type === "work" && typeof artifact.payload.title === "string") {
@@ -392,13 +481,12 @@ export function WorkspaceChat() {
         });
       }
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          text: `已确认采纳：「${title}」`,
-        },
-      ]);
+      if (result.action_status !== "accepted") {
+        setMessages((prev) => [
+          ...prev,
+          { role: "assistant", text: "采纳未完成，请查看系统提示后重试。" },
+        ]);
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -454,10 +542,28 @@ export function WorkspaceChat() {
     }
   };
 
-  const allPendingAdoptions = messages.flatMap(
-    (msg) => msg.turnResult?.adoption_state?.pending ?? []
+  const resolvedArtifactIds = new Set(
+    messages.flatMap((msg) =>
+      (msg.turnResult?.adoption_state?.resolved ?? []).map((artifact) => artifact.artifact_id),
+    ),
   );
+  const allPendingAdoptions = messages
+    .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
+    .concat(resumePendingAdoptions)
+    .filter((artifact) => !resolvedArtifactIds.has(artifact.artifact_id));
   const pendingAdoptionsCount = allPendingAdoptions.length;
+
+  const handleSessionSearch = async (query: string) => {
+    setSessionSearch(query);
+    if (!context.workId || context.workId === "lobby") return;
+
+    try {
+      const result = await searchSessions(context.workId, query);
+      setSessions(result);
+    } catch {
+      setSessions([]);
+    }
+  };
 
   return (
     <div className={styles.workbench} data-slice-verify="workspace-chat">
@@ -697,10 +803,32 @@ export function WorkspaceChat() {
                 <span className={styles.spItemCardText}>打开档案<br/>查看详情</span>
               </div>
               {pendingAdoptionsCount > 0 && (
-                <div className={styles.spItemTitle} style={{marginTop: '10px'}}>
+                <div className={styles.spItemTitle}>
                   待采纳 {pendingAdoptionsCount}
                 </div>
               )}
+              <div className={styles.sessionList} data-slice-verify="session-list">
+                <input
+                  className={styles.sessionSearch}
+                  data-slice-verify="session-search"
+                  value={sessionSearch}
+                  onChange={(event) => {
+                    void handleSessionSearch(event.target.value);
+                  }}
+                  placeholder="搜索会话"
+                />
+                {sessions.slice(0, 5).map((session) => (
+                  <div
+                    key={session.id}
+                    className={session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem}
+                    data-slice-verify="session-item"
+                    data-session-status={session.status}
+                  >
+                    <span className={styles.sessionTitle}>{session.title}</span>
+                    <span className={styles.sessionStatus}>{session.status}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ) : (

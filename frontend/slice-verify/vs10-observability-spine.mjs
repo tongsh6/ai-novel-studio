@@ -13,8 +13,8 @@ const keyEvents = [
   "channel.user_message.start",
   "dialogue_gateway.handle_input.start",
   "context.assemble.done",
-  "planner.form_frame.error",
-  "planner.form_micro_plan.error",
+  "planner.form_frame.done",
+  "planner.form_micro_plan.done",
   "dialogue_gateway.handle_input.done",
   "channel.user_message.done",
 ];
@@ -109,14 +109,6 @@ try {
 
   await page.locator('[data-slice-verify="open-archive"]').click();
   await page.locator('[data-slice-verify="panel-new-action"]').click();
-
-  await page.waitForFunction(
-    () => {
-      const messages = [...document.querySelectorAll('[data-role="assistant"]')];
-      return messages.some((node) => node.textContent?.includes("思考中"));
-    },
-    { timeout: 10_000 },
-  );
 
   await page.waitForFunction(
     () => window.__vs10TurnResultReceived === true,

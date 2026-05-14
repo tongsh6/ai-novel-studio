@@ -1,0 +1,87 @@
+import { apiBaseUrl } from "./env";
+
+export interface WorkSessionDto {
+  id: string;
+  work_id: string;
+  title: string;
+  summary: string | null;
+  status: "ACTIVE" | "EXITED" | "ARCHIVED";
+  source_session_ref: string | null;
+  source_turn_ref: string | null;
+  last_opened_at: string | null;
+  updated_at: string | null;
+  inserted_at: string | null;
+}
+
+export interface SessionTranscriptEntry {
+  id?: string;
+  session_id?: string;
+  turn_id: string;
+  role: "user" | "assistant" | "system";
+  text: string;
+  turn_result: Record<string, unknown> | null;
+  inserted_at?: string | null;
+}
+
+export interface WorkspaceResumeSnapshot {
+  work: {
+    id: string;
+    title: string;
+    genre: string | null;
+    status: string;
+    updated_at: string | null;
+    inserted_at: string | null;
+  };
+  active_session: WorkSessionDto;
+  sessions: WorkSessionDto[];
+  transcript: SessionTranscriptEntry[];
+  pending_adoptions: Record<string, unknown>[];
+  resolved_adoptions: Record<string, unknown>[];
+  resume_trace_refs: string[];
+}
+
+export interface ChatMessageFromTranscript {
+  role: "user" | "assistant";
+  text: string;
+  turnResult?: Record<string, unknown>;
+}
+
+function url(path: string): string {
+  return `${apiBaseUrl}${path}`;
+}
+
+export function resumeSessionPath(workId: string): string {
+  return `/api/works/${encodeURIComponent(workId)}/sessions/resume`;
+}
+
+export function searchSessionsPath(workId: string, query: string): string {
+  const params = new URLSearchParams();
+  if (query.trim()) params.set("query", query.trim());
+  const suffix = params.toString();
+  return `/api/works/${encodeURIComponent(workId)}/sessions${suffix ? `?${suffix}` : ""}`;
+}
+
+export async function resumeWorkspace(workId: string): Promise<WorkspaceResumeSnapshot> {
+  const res = await fetch(url(resumeSessionPath(workId)));
+  if (!res.ok) throw new Error(`resumeWorkspace failed: HTTP ${res.status}`);
+  return (await res.json()) as WorkspaceResumeSnapshot;
+}
+
+export async function searchSessions(workId: string, query: string): Promise<WorkSessionDto[]> {
+  const res = await fetch(url(searchSessionsPath(workId, query)));
+  if (!res.ok) throw new Error(`searchSessions failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { sessions: WorkSessionDto[] };
+  return body.sessions;
+}
+
+export function transcriptToMessages(transcript: SessionTranscriptEntry[]): ChatMessageFromTranscript[] {
+  return transcript
+    .filter((entry): entry is SessionTranscriptEntry & { role: "user" | "assistant" } =>
+      entry.role === "user" || entry.role === "assistant",
+    )
+    .map((entry) => ({
+      role: entry.role,
+      text: entry.text,
+      ...(entry.turn_result ? { turnResult: entry.turn_result } : {}),
+    }));
+}

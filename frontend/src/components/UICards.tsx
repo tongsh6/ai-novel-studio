@@ -42,6 +42,8 @@ export function ClarificationCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -68,6 +70,8 @@ export function ConfirmationCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -94,6 +98,8 @@ export function WarningCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -119,6 +125,8 @@ export function AdoptionCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -145,6 +153,8 @@ export function ProgressCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -178,6 +188,8 @@ export function CheckpointCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -204,6 +216,8 @@ export function ResultCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -230,6 +244,8 @@ export function FailureCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -256,6 +272,8 @@ export function EscalationCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >
@@ -279,6 +297,8 @@ export function DefaultCard({ card, onAction }: Props) {
             <button
               key={action.action_id}
               className={getButtonStyle(action.style_hint)}
+              data-slice-verify="card-action"
+              data-action-type={action.action_type}
               disabled={!action.enabled}
               onClick={() => onAction(action.action_id, action.target_ref, action.action_type)}
             >

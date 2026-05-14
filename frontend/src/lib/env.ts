@@ -8,8 +8,14 @@
  * 以下硬编码仅作为 .env 缺失时的兜底，修改端口请改 .env
  */
 
-export const isTauri: boolean =
-  typeof window !== "undefined" && "__TAURI__" in window;
+function detectTauri(): boolean {
+  if (typeof window === "undefined") return false;
+
+  const candidate = window as unknown as Record<string, unknown>;
+  return "__TAURI__" in candidate || "__TAURI_INTERNALS__" in candidate;
+}
+
+export const isTauri: boolean = detectTauri();
 
 const DEFAULT_API_HOST = "http://localhost:4657";
 const DEFAULT_WS_HOST = "ws://localhost:4657/socket";

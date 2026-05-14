@@ -49,6 +49,7 @@ export function sendMessage(
   text: string,
   workId?: string | null,
   behaviorId?: string | null,
+  sessionId?: string | null,
   generateMicroPlan = false,
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
@@ -56,6 +57,7 @@ export function sendMessage(
       .push("user_message", { 
         text, 
         work_id: workId, 
+        session_id: sessionId,
         behavior_id: behaviorId,
         generate_micro_plan: generateMicroPlan,
       }, 60000)
@@ -153,11 +155,20 @@ export function adopt(
   baseRevision: number | undefined,
   payload: Record<string, unknown>,
   artifactType?: string,
-): Promise<Record<string, unknown>> {
+  sourceTurnRef?: string | null,
+): Promise<{ received: boolean; action_status: string }> {
   return new Promise((resolve, reject) => {
     channel
-      .push("adopt", { artifact_id: artifactId, base_revision: baseRevision, payload, artifact_type: artifactType }, 60000)
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
+      .push("adopt", {
+        artifact_id: artifactId,
+        base_revision: baseRevision,
+        payload,
+        artifact_type: artifactType,
+        source_turn_ref: sourceTurnRef,
+      }, 60000)
+      .receive("ok", (response) =>
+        resolve(response as { received: boolean; action_status: string }),
+      )
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("adopt timeout")));
   });
