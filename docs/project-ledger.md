@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-15（Milestone: AU-03C 作品内会话恢复闭环，自动回到上次 active session）
+> 最后更新：2026-05-15（Milestone: AU-05 设定采纳后续分流 + 任务完成门禁）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -55,6 +55,10 @@ Reading Mode Projection checkpoint（2026-05-15 12:18）：AU-08 采纳到阅读
 
 Reading Mode product correction（2026-05-15 15:02）：基于真实截图复查，确认阅读模式定位为“作品成品阅读面”，不应展示内部 artifact id、假入口或把所有已采纳内容都硬塞成章节。已修：阅读模式顶部不再显示假的 `[切换]`；`未命名作品` / `无活跃作品` / `作品加载失败` 在阅读模式标题中归一为“当前作品”；前端 `readingProjection` 归一化 `as_15` 等内部 id，避免作者界面暴露 artifact id；`AdoptionWorkflow.artifact_summary/1` 不再 fallback 到 artifact id，优先使用 payload title / items title，否则为“已采纳内容”；`AdoptionRepository.persist/1` 收窄 materialization policy，只有 `scene_draft` / `prose_fragment` 会生成 Reading Projection，`character_seed` / `plot_direction` / `outline_draft` 等只写 mutation + memory，不进入阅读模式；AdoptionDecision 的“查看已采纳内容”入口同样只对正文类 accepted artifact 出现。局部视觉验证：用 Playwright 打开本地 Vite 前端并点击阅读模式，确认页头为“阅读模式 / 当前作品”、无 `[切换]`、空态正常；该浏览器验证未连接后端，不能替代原生 Tauri 端到端复验。验证：`mix test apps/novel_persistence/test/novel_persistence/adoption_repository_test.exs apps/novel_application/test/novel_application/adoption_workflow_test.exs`、`mix compile --warnings-as-errors`、完整 `mix test`、xref cycle check、arch check、前端 typecheck/lint/test、`bash scripts/check_design_trace.sh`、`bash scripts/frontend_audit.sh`、`bash scripts/ai_static_scan.sh --top 10` 均通过；frontend audit 仍仅保留既有 localStorage 与本机 DMG bundle warning。剩余：需要新增原生 Tauri slice 验证覆盖“设定采纳不进阅读模式、正文采纳进入阅读模式、已采纳决策卡后续动作按 artifact_type 分流”。
 
+Adoption Follow-up Routing checkpoint（2026-05-15 15:24）：已补原生 Tauri 验证 `au05-adoption-followup-routing`，从真实工作台输入角色设定请求 → 生成 `character_seed` 待采纳产物 → 点击采纳 → 渲染 resolved adoption decision card，并断言该设定类采纳不会 materialize Reading Projection、决策卡不出现“查看已采纳内容”、pending count 清零、阅读 TOC 章节数为 0。过程中发现并修复真实边界 bug：`TurnResultBuilder.build_artifact_set/2` 只识别 string artifact_type，导致 typed creative tool 返回的 atom `:character_seed` 退化为默认 `:prose_fragment`，从而错误进入阅读模式；现已保留 atom/string 两种输入的 canonical artifact type。`SliceVerify` provider 也改为只从 Prompt 的“用户输入”区段判断工具，避免被 schema 示例词误导。证据：`bash scripts/tauri_slice_verify.sh au05-adoption-followup-routing`，产物 `artifacts/slice-verify/au05-adoption-followup-routing-tauri/summary.json`。验证：`mix compile --warnings-as-errors`、`mix test`、xref cycle check、arch check、前端 typecheck/lint/test、`bash scripts/frontend_audit.sh`、`bash scripts/check_design_trace.sh` 均通过；frontend audit 仍仅保留既有 `works.ts` localStorage 与本机 DMG bundle warning。剩余：正文类采纳进入阅读模式已有 `au08-adoption-reading-projection` 证据；后续还需补 trace/why UI 与角色/设定进入作品档案真实目标面的产品化动作。
+
+Task Completion Gate checkpoint（2026-05-15 18:03）：为避免 AI 完成任务后漏做页面/UI 检查，新增统一完成出口 `bash scripts/task_done.sh` 与门禁检查 `node scripts/task_done_check.mjs`。脚本动态读取当前 `git diff HEAD` 与未跟踪文件，识别前端/Tauri/UI 相关改动；若涉及 UI，必须通过 `--slice <slice-id>` 触发真实 Tauri slice 验证并生成新的 `artifacts/slice-verify/<slice-id>-tauri/summary.json`，再写入 `artifacts/task-done/<timestamp>/manifest.json`。`scripts/ai_static_scan.sh` 已接入 `task-done-manifest` 检查，若完成清单缺失、晚于改动时间不成立，或 UI evidence 早于最新 UI 改动，静态扫描会失败。验证：`bash scripts/task_done.sh --slice au05-adoption-followup-routing --skip-static-scan` 生成完成清单并通过 Tauri UI evidence；`bash scripts/ai_static_scan.sh --top 10` 为 14 PASS / 0 finding，其中包含 `Task completion manifest and UI evidence check`。`/artifacts/task-done/` 已加入 `.gitignore`。
+
 Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新增 `scripts/seed_stage_startup_context.exs` 和 `bash scripts/tauri_slice_verify.sh stage-startup-context-contract`。验证流程先在测试 DB 中创建真实 Work/active session/transcript/pending adoption，再启动原生 Tauri 工作台，由 `WorkspaceChat` 在恢复首屏通过 Channel 上报 `slice_verify.ui_state.done`。verifier 要求 `work_session.resume.done → channel.join.done → slice_verify.ui_state.done`，并断言同一 `work_id/session_id`、`transcript_count=2`、`pending_adoption_count=1`、服务状态已连接、作品标题可见且不是未连接/失败态、恢复 transcript 后没有欢迎语注入。证据：`artifacts/slice-verify/stage-startup-context-contract-tauri/summary.json`。
 
 ### 1.1 Stage 5 真实进度（基于 acceptance 与 walkthrough 对账）
@@ -62,7 +66,7 @@ Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新
 | 维度 | 实测覆盖率 / 状态 | 证据 |
 |------|---|---|
 | 后端主链单元 + 集成测试 | `mix test`：412 tests / 0 failures；`mix test --include integration`：422 tests / 0 failures（含 novel_e2e 10 条）| 默认测试 2026-05-13 本地复核；integration 仍沿用 2026-05-12 复核；`:real_llm` 默认排除 |
-| AI 静态扫描 | 13 PASS / 0 finding / 0 pending disposition | `artifacts/static-scan/top10.md`（2026-05-15）|
+| AI 静态扫描 | 14 PASS / 0 finding / 0 pending disposition；含任务完成清单与 UI evidence 门禁 | `artifacts/static-scan/top10.md`（2026-05-15）|
 | SU-01..SU-03 系统验收 | 已按完整用户场景重算：SU-01 `0/10` 已验收、SU-02 `0/10` 完整端到端验收、SU-03 `0/6` 已验收；均有局部基础设施但未闭环 | `docs/design-v3/acceptance/README.md`；`docs/design-v3/acceptance/system/` |
 | AU-01..AU-10 作者验收 | 已按完整前后端用户场景重算：均为 `0/N` 完整真实前后端验收；局部证据不能再等同“已验收”。AU-09 为 `0/14` 完整验收、`9/14` 局部证据；AU-10 为 `0/17` 完整验收、`13/17` 局部证据（action/task_state 最小切片已推进） | `docs/design-v3/acceptance/README.md`；`docs/design-v3/acceptance/author/AU-01-chat.md`..`AU-10-workbench-ui.md` |
 | 真人走查（最近一次 2026-05-09）| 3 轮对话走通；5 个观感问题（P1×2 / P2×3）| `walkthroughs/2026-05-09/REPORT.md` |

@@ -71,6 +71,7 @@ htmlcov/
 apps/*/log/
 /artifacts/static-scan/
 /artifacts/slice-verify/
+/artifacts/task-done/
 
 # Temporary files
 *.tmp
