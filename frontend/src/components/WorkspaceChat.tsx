@@ -48,6 +48,7 @@ import {
   EscalationCard,
   DefaultCard,
   type UICardData,
+  type UIActionData,
 } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
@@ -103,6 +104,33 @@ interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   turnResult?: TurnResult;
+}
+
+function isArtifactResolutionAction(actionType?: string): boolean {
+  return actionType === "accept" || actionType === "discard" || actionType === "edit_then_accept";
+}
+
+function actionTargetsResolvedArtifact(
+  action: UIActionData,
+  resolvedArtifactIds: Set<string>,
+): boolean {
+  return isArtifactResolutionAction(action.action_type) && resolvedArtifactIds.has(action.target_ref);
+}
+
+function disableResolvedArtifactActions(
+  card: UICardData,
+  resolvedArtifactIds: Set<string>,
+): UICardData {
+  if (card.card_type !== "adoption_card" || !card.actions?.length) return card;
+
+  return {
+    ...card,
+    actions: card.actions.map((action) =>
+      actionTargetsResolvedArtifact(action, resolvedArtifactIds)
+        ? { ...action, enabled: false }
+        : action,
+    ),
+  };
 }
 
 function startupFailureMessage(detail: string): ChatMessage {
@@ -761,6 +789,10 @@ export function WorkspaceChat() {
 
                 {msg.turnResult?.ui_cards?.map((card, ci) => {
                   const handleAction = (_actionId: string, targetRef: string, actionType?: string) => {
+                    if (isArtifactResolutionAction(actionType) && resolvedArtifactIds.has(targetRef)) {
+                      return;
+                    }
+
                     if (actionType === "answer") {
                       setPendingAnswerBid(targetRef);
                       const input = document.querySelector<HTMLInputElement>(`.${styles.inputBox}`);
@@ -810,28 +842,29 @@ export function WorkspaceChat() {
                       void handleAvailableAction(msg.turnResult, authorizedAction);
                     }
                   };
+                  const cardForRender = disableResolvedArtifactActions(card, resolvedArtifactIds);
 
-                  switch (card.card_type) {
+                  switch (cardForRender.card_type) {
                     case "clarification_card":
-                      return <ClarificationCard key={ci} card={card} onAction={handleAction} />;
+                      return <ClarificationCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "confirmation_card":
-                      return <ConfirmationCard key={ci} card={card} onAction={handleAction} />;
+                      return <ConfirmationCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "warning_card":
-                      return <WarningCard key={ci} card={card} onAction={handleAction} />;
+                      return <WarningCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "adoption_card":
-                      return <AdoptionCard key={ci} card={card} onAction={handleAction} />;
+                      return <AdoptionCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "progress_card":
-                      return <ProgressCard key={ci} card={card} onAction={handleAction} />;
+                      return <ProgressCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "checkpoint_card":
-                      return <CheckpointCard key={ci} card={card} onAction={handleAction} />;
+                      return <CheckpointCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "result_card":
-                      return <ResultCard key={ci} card={card} onAction={handleAction} />;
+                      return <ResultCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "failure_card":
-                      return <FailureCard key={ci} card={card} onAction={handleAction} />;
+                      return <FailureCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "escalation_card":
-                      return <EscalationCard key={ci} card={card} onAction={handleAction} />;
+                      return <EscalationCard key={ci} card={cardForRender} onAction={handleAction} />;
                     default:
-                      return <DefaultCard key={ci} card={card} onAction={handleAction} />;
+                      return <DefaultCard key={ci} card={cardForRender} onAction={handleAction} />;
                   }
                 })}
 
