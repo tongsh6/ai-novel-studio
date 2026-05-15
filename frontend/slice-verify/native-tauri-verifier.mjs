@@ -1,4 +1,5 @@
 export const nativeSliceIds = [
+  "stage-startup-context-contract",
   "au03c-work-session-resume",
   "au05-adoption-boundary",
   "au05-discard-boundary",
@@ -11,6 +12,11 @@ export const nativeSliceIds = [
 ];
 
 const sliceKeyEvents = {
+  "stage-startup-context-contract": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "slice_verify.ui_state.done",
+  ],
   "au03c-work-session-resume": [
     "work_session.resume.done",
     "channel.join.done",
@@ -131,6 +137,10 @@ export function findLmStudioEvidence(turnIds, records) {
 }
 
 export function findNativeSliceEvidence(sliceId, records) {
+  if (sliceId === "stage-startup-context-contract") {
+    return findStageStartupContextEvidence(records);
+  }
+
   if (sliceId === "au03c-work-session-resume") {
     return findAu03cWorkSessionResumeEvidence(records);
   }
@@ -172,6 +182,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
 export function findSliceBehaviorEvidence(sliceId, records, evidence, options = {}) {
   if (!evidence) return null;
+
+  if (sliceId === "stage-startup-context-contract") {
+    return stageStartupContextBehavior(records, evidence, options);
+  }
 
   if (sliceId === "au03c-work-session-resume") {
     return workSessionResumeBehavior(records, evidence, options);
@@ -362,6 +376,68 @@ function findAu03cWorkSessionResumeEvidence(records) {
       session_id: resumed.session_id,
       transcript_count: resumed.transcript_count,
       pending_adoption_count: resumed.pending_adoption_count,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findStageStartupContextEvidence(records) {
+  const sliceId = "stage-startup-context-contract";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const resumes = records.filter(
+    (record) =>
+      record.event === "work_session.resume.done" &&
+      record.work_id &&
+      record.session_id &&
+      Number(record.transcript_count ?? 0) >= 2 &&
+      Number(record.pending_adoption_count ?? 0) >= 1,
+  );
+
+  for (const resumed of resumes) {
+    const joined = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === resumed.work_id &&
+        record.session_id === resumed.session_id,
+    );
+    if (!joined) continue;
+
+    const uiState = records.find(
+      (record) =>
+        record.event === "slice_verify.ui_state.done" &&
+        record.slice_id === sliceId &&
+        record.work_id === resumed.work_id &&
+        record.session_id === resumed.session_id &&
+        record.context_work_id === resumed.work_id &&
+        record.active_session_id === resumed.session_id &&
+        record.restored_turn_id,
+    );
+    if (!uiState) continue;
+
+    if (uiState.socket_connected !== true) continue;
+    if (Number(uiState.message_count ?? 0) < resumed.transcript_count) continue;
+    if (Number(uiState.pending_adoption_count ?? 0) < resumed.pending_adoption_count) continue;
+    if (Number(uiState.welcome_message_count ?? 0) !== 0) continue;
+
+    const titleText = String(uiState.title_text ?? uiState.context_work_title ?? "");
+    if (titleText.trim() === "" || titleText.includes("未连接") || titleText.includes("加载失败")) {
+      continue;
+    }
+
+    const serviceStatusText = String(uiState.service_status_text ?? "");
+    if (!serviceStatusText.includes("已连接")) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: uiState.restored_turn_id,
+      turn_ids: [uiState.restored_turn_id],
+      work_id: resumed.work_id,
+      session_id: resumed.session_id,
+      transcript_count: resumed.transcript_count,
+      pending_adoption_count: resumed.pending_adoption_count,
+      context_work_title: uiState.context_work_title,
       key_events: keyEvents,
     };
   }
@@ -593,6 +669,38 @@ function workSessionResumeBehavior(records, evidence, options) {
     assertions: [
       "reopened_same_work_session",
       "complete_transcript_restored_from_persistence",
+      "pending_adoption_restored_to_workbench",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function stageStartupContextBehavior(records, evidence, options) {
+  const baseBehavior = workSessionResumeBehavior(records, evidence, options);
+  if (!baseBehavior) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "stage-startup-context-contract" &&
+      record.work_id === evidence.work_id &&
+      record.session_id === evidence.session_id,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: "stage-startup-context-contract",
+    behavior: "startup_context_resumes_same_work_session_without_welcome_or_disconnected_state",
+    turn_ids: evidence.turn_ids,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "reopened_same_work_session",
+      "channel_join_matched_startup_work_and_session",
+      "workspace_title_visible_after_resume",
+      "service_status_connected",
+      "welcome_message_not_inserted_after_restored_transcript",
       "pending_adoption_restored_to_workbench",
       "no_error_events",
       "assistant_messages_not_fallback",

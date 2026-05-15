@@ -44,6 +44,34 @@ export function ping(
   });
 }
 
+export interface SliceVerifyUiStatePayload {
+  slice_id: string;
+  context_work_id: string | null;
+  context_work_title: string | null;
+  active_session_id: string | null;
+  restored_turn_id: string | null;
+  socket_connected: boolean;
+  message_count: number;
+  welcome_message_count: number;
+  pending_adoption_count: number;
+  first_message_text: string;
+  service_status_text: string;
+  title_text: string;
+}
+
+export function reportSliceVerifyUiState(
+  channel: Channel,
+  payload: SliceVerifyUiStatePayload,
+): Promise<{ received: boolean }> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("slice_verify_ui_state", payload, 60000)
+      .receive("ok", (response) => resolve(response as { received: boolean }))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("slice verify UI state timeout")));
+  });
+}
+
 export function sendMessage(
   channel: Channel,
   text: string,

@@ -10,6 +10,7 @@ import {
   sendMessage,
   sendAuthorAction,
   onTaskState,
+  reportSliceVerifyUiState,
   adopt,
   discardArtifact,
   modifyDraft,
@@ -426,6 +427,17 @@ export function WorkspaceChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  const resolvedArtifactIds = new Set(
+    messages.flatMap((msg) =>
+      (msg.turnResult?.adoption_state?.resolved ?? []).map((artifact) => artifact.artifact_id),
+    ),
+  );
+  const allPendingAdoptions = messages
+    .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
+    .concat(resumePendingAdoptions)
+    .filter((artifact) => !resolvedArtifactIds.has(artifact.artifact_id));
+  const pendingAdoptionsCount = allPendingAdoptions.length;
+
   useEffect(() => {
     if (!isTauri) return;
     const autorunSlice = import.meta.env.VITE_SLICE_VERIFY_AUTORUN as string | undefined;
@@ -438,17 +450,58 @@ export function WorkspaceChat() {
       autorunSlice !== "au05-discard-boundary" &&
       autorunSlice !== "au05-modify-draft-boundary" &&
       autorunSlice !== "au08-adoption-reading-projection" &&
+      autorunSlice !== "stage-startup-context-contract" &&
       autorunSlice !== "au03c-work-session-resume"
     ) return;
     if (!socketConnected || sliceVerifyAutorunRef.current) return;
     if (autorunSlice === "au03c-work-session-resume" && resumeRestoredTranscriptRef.current) return;
+    if (autorunSlice === "stage-startup-context-contract") {
+      if (!resumeRestoredTranscriptRef.current) return;
+      if (!context.workId || !activeSessionId || !context.workTitle || !channelRef.current) return;
+
+      sliceVerifyAutorunRef.current = true;
+      const timer = window.setTimeout(() => {
+        const restoredTurnId =
+          messages.find((message) => typeof message.turnResult?.turn_id === "string")?.turnResult
+            ?.turn_id ?? null;
+        const titleText =
+          document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')?.innerText ?? "";
+        const serviceStatusText =
+          document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')?.innerText ?? "";
+        const welcomeMessageCount = messages.filter((message) =>
+          message.text.includes("欢迎使用 AI Novel Studio"),
+        ).length;
+
+        void reportSliceVerifyUiState(channelRef.current!, {
+          slice_id: autorunSlice,
+          context_work_id: context.workId,
+          context_work_title: context.workTitle,
+          active_session_id: activeSessionId,
+          restored_turn_id: restoredTurnId,
+          socket_connected: socketConnected,
+          message_count: messages.length,
+          welcome_message_count: welcomeMessageCount,
+          pending_adoption_count: pendingAdoptionsCount,
+          first_message_text: messages[0]?.text ?? "",
+          service_status_text: serviceStatusText,
+          title_text: titleText,
+        });
+      }, 250);
+
+      return () => window.clearTimeout(timer);
+    }
 
     sliceVerifyAutorunRef.current = true;
     const timers: number[] = [];
 
     if (autorunSlice === "au08-adoption-reading-projection") {
       timers.push(window.setTimeout(() => {
-        void handleSend("请写一段开场正文片段", { generateMicroPlan: true });
+        const text = "请写一段开场正文片段";
+        setMessages((prev) => [...prev, { role: "user", text }]);
+        setLoading(true);
+        if (channelRef.current) {
+          void sendMessage(channelRef.current, text, context.workId, null, activeSessionId, true);
+        }
       }, 150));
     } else if (
       autorunSlice === "au10-ordinary-chat-no-micro-plan" ||
@@ -476,7 +529,7 @@ export function WorkspaceChat() {
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [socketConnected, messages.length]);
+  }, [activeSessionId, context.workId, context.workTitle, messages, pendingAdoptionsCount, socketConnected]);
 
   // ... (rest of the component)
 
@@ -628,17 +681,6 @@ export function WorkspaceChat() {
     }
   };
 
-  const resolvedArtifactIds = new Set(
-    messages.flatMap((msg) =>
-      (msg.turnResult?.adoption_state?.resolved ?? []).map((artifact) => artifact.artifact_id),
-    ),
-  );
-  const allPendingAdoptions = messages
-    .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
-    .concat(resumePendingAdoptions)
-    .filter((artifact) => !resolvedArtifactIds.has(artifact.artifact_id));
-  const pendingAdoptionsCount = allPendingAdoptions.length;
-
   const handleSessionSearch = async (query: string) => {
     setSessionSearch(query);
     if (!context.workId || context.workId === "lobby") return;
@@ -656,7 +698,9 @@ export function WorkspaceChat() {
       {/* 顶部上下文栏 (Top Context Bar) */}
       <div className={styles.topBar}>
         <div className={styles.contextGroup}>
-          <span className={styles.titleText}>{context.workTitle || "无活跃作品"}</span>
+          <span className={styles.titleText} data-slice-verify="work-title">
+            {context.workTitle || "无活跃作品"}
+          </span>
           <button 
             className={styles.btnSecondary} 
             style={{ padding: "4px 8px", fontSize: "12px", border: "none" }}

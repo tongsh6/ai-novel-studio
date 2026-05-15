@@ -10,6 +10,7 @@ import {
 
 describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-10 micro plan entry", () => {
+    expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
     expect(nativeSliceIds).toContain("au05-discard-boundary");
@@ -19,6 +20,35 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("finds startup context evidence after resume UI reports connected work/session state", () => {
+    const evidence = findNativeSliceEvidence(
+      "stage-startup-context-contract",
+      stageStartupContextRecords(),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "stage-startup-context-contract",
+      turn_id: "turn-au03c",
+      turn_ids: ["turn-au03c"],
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      transcript_count: 2,
+      pending_adoption_count: 1,
+      context_work_title: "Slice Verify Work",
+      key_events: keyEventsForSlice("stage-startup-context-contract"),
+    });
+  });
+
+  it("rejects startup context evidence when the restored UI inserted a welcome message", () => {
+    const records = stageStartupContextRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, welcome_message_count: 1 }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("stage-startup-context-contract", records)).toBeNull();
   });
 
   it("finds AU-03C evidence only after same session is resumed with transcript and pending adoption", () => {
@@ -352,6 +382,29 @@ describe("native Tauri slice verifier", () => {
         "author_clicked_accept_from_workbench",
         "adoption_boundary_adopted_tentative",
         "adoption_persisted_as_mutation",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("accepts startup context behavior only when UI and resume evidence agree", () => {
+    const records = stageStartupContextRecords();
+    const evidence = findNativeSliceEvidence("stage-startup-context-contract", records);
+
+    expect(findSliceBehaviorEvidence("stage-startup-context-contract", records, evidence)).toEqual({
+      slice_id: "stage-startup-context-contract",
+      behavior: "startup_context_resumes_same_work_session_without_welcome_or_disconnected_state",
+      turn_ids: ["turn-au03c"],
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      assertions: [
+        "reopened_same_work_session",
+        "channel_join_matched_startup_work_and_session",
+        "workspace_title_visible_after_resume",
+        "service_status_connected",
+        "welcome_message_not_inserted_after_restored_transcript",
+        "pending_adoption_restored_to_workbench",
         "no_error_events",
         "assistant_messages_not_fallback",
       ],
@@ -901,6 +954,32 @@ function au03cResumeRecords() {
       session_id: "session-au03c",
       duration_ms: 0,
       outcome: "ok",
+    },
+  ];
+}
+
+function stageStartupContextRecords() {
+  return [
+    ...au03cResumeRecords(),
+    {
+      event: "slice_verify.ui_state.done",
+      workspace_id: "lobby",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 0,
+      outcome: "ok",
+      slice_id: "stage-startup-context-contract",
+      context_work_id: "work-au03c",
+      context_work_title: "Slice Verify Work",
+      active_session_id: "session-au03c",
+      restored_turn_id: "turn-au03c",
+      socket_connected: true,
+      message_count: 2,
+      welcome_message_count: 0,
+      pending_adoption_count: 1,
+      first_message_text: "帮我创作角色设定",
+      service_status_text: "服务: 已连接",
+      title_text: "Slice Verify Work",
     },
   ];
 }

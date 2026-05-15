@@ -159,6 +159,15 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   @impl true
+  def handle_in("slice_verify_ui_state", %{"slice_id" => slice_id} = payload, socket) do
+    if slice_verify_ui_state_enabled?() do
+      record_slice_verify_ui_state(slice_id, payload, socket)
+    else
+      {:reply, {:error, %{reason: "slice_verify_disabled"}}, socket}
+    end
+  end
+
+  @impl true
   def handle_in("user_message", %{"text" => text} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     work_id = socket.assigns[:work_id] || ws_id
@@ -498,6 +507,39 @@ defmodule NovelWeb.WorkspaceChannel do
     }
 
     {:reply, {:ok, data}, socket}
+  end
+
+  defp record_slice_verify_ui_state(slice_id, payload, socket) do
+    ws_id = socket.assigns[:workspace_id] || "lobby"
+    work_id = socket.assigns[:work_id] || ws_id
+    session_id = socket.assigns[:session_id]
+    restored_turn_id = payload["restored_turn_id"]
+
+    LogContext.put_turn(ws_id, work_id, restored_turn_id)
+
+    LogEmit.emit(:slice_verify, :ui_state, :done, %{
+      workspace_id: ws_id,
+      work_id: work_id,
+      session_id: session_id,
+      slice_id: slice_id,
+      context_work_id: payload["context_work_id"],
+      context_work_title: payload["context_work_title"],
+      active_session_id: payload["active_session_id"],
+      restored_turn_id: restored_turn_id,
+      socket_connected: payload["socket_connected"],
+      message_count: payload["message_count"],
+      welcome_message_count: payload["welcome_message_count"],
+      pending_adoption_count: payload["pending_adoption_count"],
+      first_message_text: payload["first_message_text"],
+      service_status_text: payload["service_status_text"],
+      title_text: payload["title_text"]
+    })
+
+    {:reply, {:ok, %{received: true}}, socket}
+  end
+
+  defp slice_verify_ui_state_enabled? do
+    Application.get_env(:novel_web, :slice_verify_ui_state_enabled, false)
   end
 
   defp remember_turn_result(socket, %{turn_id: turn_id} = turn_result) when is_binary(turn_id) do
