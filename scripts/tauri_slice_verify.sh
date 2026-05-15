@@ -346,6 +346,104 @@ process.exit(1);
 NODE
 }
 
+print_native_slice_diagnostics() {
+  node --input-type=module - "$SLICE_ID" "$APP_LOG_DIR" "$SLICE_VERIFY_PROVIDER" "$LLM_LOG_DIR" <<'NODE'
+import fs from "node:fs";
+import path from "node:path";
+import { keyEventsForSlice } from "./slice-verify/native-tauri-verifier.mjs";
+
+const [sliceId, appLogDir, provider, llmLogDir] = process.argv.slice(2);
+const today = new Date().toISOString().slice(0, 10);
+const jsonlPath = path.join(appLogDir, `${today}.jsonl`);
+const keyEvents = keyEventsForSlice(sliceId);
+
+console.error("[tauri-slice-verify] app JSONL diagnostics:");
+console.error(`  path: ${jsonlPath}`);
+
+if (!fs.existsSync(jsonlPath)) {
+  console.error("  status: missing app JSONL file");
+  const files = fs.existsSync(appLogDir) ? fs.readdirSync(appLogDir) : [];
+  console.error(`  app-log files: ${files.length > 0 ? files.join(", ") : "(none)"}`);
+  process.exit(0);
+}
+
+const lines = fs.readFileSync(jsonlPath, "utf8").split("\n").filter(Boolean);
+const records = lines.flatMap((line, index) => {
+  try {
+    return [JSON.parse(line)];
+  } catch (error) {
+    console.error(`  parse_error: line=${index + 1} ${error.message}`);
+    return [];
+  }
+});
+
+console.error(`  records: ${records.length}`);
+
+const eventCounts = new Map();
+for (const record of records) {
+  eventCounts.set(record.event ?? "(missing)", (eventCounts.get(record.event ?? "(missing)") ?? 0) + 1);
+}
+
+const topEvents = [...eventCounts.entries()]
+  .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+  .slice(0, 20)
+  .map(([event, count]) => `${event}=${count}`);
+console.error(`  top_events: ${topEvents.length > 0 ? topEvents.join(", ") : "(none)"}`);
+
+const keyEventCounts = keyEvents.map((event) => `${event}=${eventCounts.get(event) ?? 0}`);
+console.error(`  key_events: ${keyEventCounts.length > 0 ? keyEventCounts.join(", ") : "(none)"}`);
+
+const errorRecords = records.filter((record) => String(record.event ?? "").endsWith(".error"));
+console.error(`  error_events: ${errorRecords.length}`);
+for (const record of errorRecords.slice(-10)) {
+  console.error(
+    `    ${record.timestamp ?? ""} ${record.event} turn_id=${record.turn_id ?? ""} reason=${record.reason_code ?? ""} detail=${record.outcome_detail ?? ""}`,
+  );
+}
+
+const byTurn = new Map();
+for (const record of records) {
+  if (!record.turn_id) continue;
+  if (!byTurn.has(record.turn_id)) byTurn.set(record.turn_id, []);
+  byTurn.get(record.turn_id).push(record);
+}
+
+const candidateTurns = [...byTurn.entries()]
+  .filter(([, turnRecords]) => turnRecords.some((record) => record.event === "channel.user_message.start"))
+  .slice(-5);
+
+if (candidateTurns.length === 0) {
+  console.error("  candidate_turns: none with channel.user_message.start");
+} else {
+  console.error("  candidate_turns:");
+  for (const [turnId, turnRecords] of candidateTurns) {
+    const turnEvents = new Set(turnRecords.map((record) => record.event));
+    const missing = keyEvents.filter((event) => !turnEvents.has(event));
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    console.error(
+      `    turn_id=${turnId} generate_micro_plan=${start?.generate_micro_plan ?? ""} records=${turnRecords.length} missing_key_events=${missing.length > 0 ? missing.join(",") : "(none)"}`,
+    );
+  }
+}
+
+console.error("  recent_records:");
+for (const record of records.slice(-20)) {
+  console.error(
+    `    ${record.timestamp ?? ""} ${record.event ?? ""} turn_id=${record.turn_id ?? ""} work_id=${record.work_id ?? ""} session_id=${record.session_id ?? ""} status=${record.action_status ?? record.status ?? ""}`,
+  );
+}
+
+if (provider === "lmstudio") {
+  const llmPath = path.join(llmLogDir, `${today}.jsonl`);
+  const llmLines = fs.existsSync(llmPath)
+    ? fs.readFileSync(llmPath, "utf8").split("\n").filter(Boolean)
+    : [];
+  console.error(`  lmstudio_jsonl: ${fs.existsSync(llmPath) ? llmPath : "(missing)"}`);
+  console.error(`  lmstudio_records: ${llmLines.length}`);
+}
+NODE
+}
+
 echo "[tauri-slice-verify] slice: $SLICE_ID"
 echo "[tauri-slice-verify] provider: $SLICE_VERIFY_PROVIDER"
 echo "[tauri-slice-verify] artifacts: $ARTIFACT_DIR"
@@ -411,6 +509,7 @@ for _ in $(seq 1 "$TAURI_WAIT_SECONDS"); do
 done
 
 echo "[tauri-slice-verify] timed out waiting for native slice evidence: $SLICE_ID" >&2
+print_native_slice_diagnostics
 echo "[tauri-slice-verify] recent Tauri log:" >&2
 tail -80 "$ARTIFACT_DIR/tauri.log" >&2 || true
 echo "[tauri-slice-verify] recent backend log:" >&2
