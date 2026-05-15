@@ -13,6 +13,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
+    expect(nativeSliceIds).toContain("au05-adoption-followup-routing");
     expect(nativeSliceIds).toContain("au05-discard-boundary");
     expect(nativeSliceIds).toContain("au05-modify-draft-boundary");
     expect(nativeSliceIds).toContain("au08-adoption-reading-projection");
@@ -94,6 +95,35 @@ describe("native Tauri slice verifier", () => {
       key_events: keyEventsForSlice("au05-adoption-boundary"),
       mutation_id: "mutation-1",
     });
+  });
+
+  it("finds AU-05 follow-up routing evidence for setting adoption without reading entry", () => {
+    const evidence = findNativeSliceEvidence(
+      "au05-adoption-followup-routing",
+      au05FollowupRoutingRecords("turn-routing"),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "au05-adoption-followup-routing",
+      turn_id: "turn-routing",
+      key_events: keyEventsForSlice("au05-adoption-followup-routing"),
+      mutation_id: "mutation-1",
+      artifact_type: "character_seed",
+      reading_projection_materialized: false,
+      decision_card_count: 1,
+      open_reading_action_count: 0,
+      reading_chapter_count: 0,
+    });
+  });
+
+  it("rejects AU-05 follow-up routing if a setting adoption exposes reading entry", () => {
+    const records = au05FollowupRoutingRecords("turn-routing").map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, open_reading_action_count: 1 }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au05-adoption-followup-routing", records)).toBeNull();
   });
 
   it("finds AU-08 reading evidence after adoption loads TOC and chapter content", () => {
@@ -382,6 +412,29 @@ describe("native Tauri slice verifier", () => {
         "author_clicked_accept_from_workbench",
         "adoption_boundary_adopted_tentative",
         "adoption_persisted_as_mutation",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("accepts AU-05 follow-up behavior when setting adoption renders decision card without reading projection", () => {
+    const records = au05FollowupRoutingRecords("turn-routing");
+    const evidence = findNativeSliceEvidence("au05-adoption-followup-routing", records);
+
+    expect(findSliceBehaviorEvidence("au05-adoption-followup-routing", records, evidence)).toEqual({
+      slice_id: "au05-adoption-followup-routing",
+      behavior: "setting_adoption_resolves_card_without_reading_followup",
+      turn_ids: ["turn-routing"],
+      mutation_id: "mutation-1",
+      assertions: [
+        "character_artifact_generated_from_real_workbench",
+        "author_clicked_accept_from_workbench",
+        "adoption_persisted_as_mutation",
+        "resolved_decision_card_rendered",
+        "setting_adoption_did_not_materialize_reading_projection",
+        "setting_decision_card_did_not_show_reading_followup",
+        "pending_adoption_count_cleared",
         "no_error_events",
         "assistant_messages_not_fallback",
       ],
@@ -791,6 +844,39 @@ function au05AdoptionRecords(turnId, persisted) {
       action_status: "accepted",
       persisted,
       mutation_id: persisted ? "mutation-1" : null,
+      artifact_type: "character_seed",
+      reading_projection_materialized: false,
+    },
+  ];
+}
+
+function au05FollowupRoutingRecords(turnId) {
+  return [
+    ...au05AdoptionRecords(turnId, true),
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au05-adoption-followup-routing",
+      context_work_id: "work-adopt",
+      context_work_title: "Slice Verify Work",
+      active_session_id: "session-adopt",
+      restored_turn_id: turnId,
+      socket_connected: true,
+      message_count: 3,
+      welcome_message_count: 0,
+      pending_adoption_count: 0,
+      first_message_text: "请生成一个角色设定草案",
+      service_status_text: "服务: 已连接",
+      title_text: "Slice Verify Work",
+      adoption_status: "ACCEPTED",
+      artifact_type: "character_seed",
+      decision_card_count: 1,
+      open_reading_action_count: 0,
+      reading_chapter_count: 0,
     },
   ];
 }

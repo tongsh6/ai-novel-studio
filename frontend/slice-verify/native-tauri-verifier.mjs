@@ -2,6 +2,7 @@ export const nativeSliceIds = [
   "stage-startup-context-contract",
   "au03c-work-session-resume",
   "au05-adoption-boundary",
+  "au05-adoption-followup-routing",
   "au05-discard-boundary",
   "au05-modify-draft-boundary",
   "au08-adoption-reading-projection",
@@ -35,6 +36,19 @@ const sliceKeyEvents = {
     "channel.adopt.start",
     "adoption.evaluate.done",
     "channel.adopt.done",
+  ],
+  "au05-adoption-followup-routing": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "toolbox.execute.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "channel.adopt.start",
+    "adoption.evaluate.done",
+    "channel.adopt.done",
+    "slice_verify.ui_state.done",
   ],
   "au05-discard-boundary": [
     "channel.user_message.start",
@@ -149,6 +163,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu05ActionEvidence(records, sliceId, "channel.adopt.done");
   }
 
+  if (sliceId === "au05-adoption-followup-routing") {
+    return findAu05FollowupRoutingEvidence(records);
+  }
+
   if (sliceId === "au05-discard-boundary") {
     return findAu05ActionEvidence(records, sliceId, "channel.discard.done");
   }
@@ -205,6 +223,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au05-adoption-boundary") {
     return adoptionBoundaryBehavior(sliceId, turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au05-adoption-followup-routing") {
+    return adoptionFollowupRoutingBehavior(turnIds, turnRecords, options);
   }
 
   if (sliceId === "au05-discard-boundary") {
@@ -280,6 +302,54 @@ function findAu05ActionEvidence(records, sliceId, actionDoneEvent) {
       turn_id: turnId,
       key_events: keyEvents,
       ...(actionDone.mutation_id ? { mutation_id: actionDone.mutation_id } : {}),
+    };
+  }
+
+  return null;
+}
+
+function findAu05FollowupRoutingEvidence(records) {
+  const sliceId = "au05-adoption-followup-routing";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== true) continue;
+
+    const hasAllEvents = keyEvents.every((event) =>
+      turnRecords.some(
+        (record) => record.event === event && hasRequiredCorrelationFields(record),
+      ),
+    );
+    if (!hasAllEvents) continue;
+
+    const actionDone = turnRecords.find((record) => record.event === "channel.adopt.done");
+    if (!actionDone?.persisted || !actionDone.mutation_id) continue;
+    if (actionDone.artifact_type !== "character_seed") continue;
+    if (actionDone.reading_projection_materialized !== false) continue;
+
+    const uiState = turnRecords.find(
+      (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+    );
+    if (!uiState) continue;
+    if (uiState.artifact_type !== "character_seed") continue;
+    if (uiState.adoption_status !== "ACCEPTED") continue;
+    if (Number(uiState.decision_card_count ?? 0) < 1) continue;
+    if (Number(uiState.open_reading_action_count ?? -1) !== 0) continue;
+    if (Number(uiState.pending_adoption_count ?? -1) !== 0) continue;
+    if (Number(uiState.reading_chapter_count ?? -1) !== 0) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      key_events: keyEvents,
+      mutation_id: actionDone.mutation_id,
+      artifact_type: actionDone.artifact_type,
+      reading_projection_materialized: actionDone.reading_projection_materialized,
+      decision_card_count: uiState.decision_card_count,
+      open_reading_action_count: uiState.open_reading_action_count,
+      reading_chapter_count: uiState.reading_chapter_count,
     };
   }
 
@@ -648,6 +718,47 @@ function readingProjectionBehavior(turnIds, turnRecords, options) {
       "accepted_content_materialized_as_reading_projection",
       "reading_mode_loaded_toc_from_channel",
       "reading_mode_loaded_chapter_content_from_channel",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function adoptionFollowupRoutingBehavior(turnIds, turnRecords, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, true)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "adoption.evaluate.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.adopt.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "slice_verify.ui_state.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame", "form_micro_plan"])) return null;
+
+  const adoptDone = turnRecords.find((record) => record.event === "channel.adopt.done");
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au05-adoption-followup-routing",
+  );
+
+  if (!adoptDone?.persisted || !adoptDone?.mutation_id) return null;
+  if (adoptDone.artifact_type !== "character_seed") return null;
+  if (adoptDone.reading_projection_materialized !== false) return null;
+  if (uiState?.open_reading_action_count !== 0) return null;
+  if (uiState?.reading_chapter_count !== 0) return null;
+
+  return {
+    slice_id: "au05-adoption-followup-routing",
+    behavior: "setting_adoption_resolves_card_without_reading_followup",
+    turn_ids: turnIds,
+    mutation_id: adoptDone.mutation_id,
+    assertions: [
+      "character_artifact_generated_from_real_workbench",
+      "author_clicked_accept_from_workbench",
+      "adoption_persisted_as_mutation",
+      "resolved_decision_card_rendered",
+      "setting_adoption_did_not_materialize_reading_projection",
+      "setting_decision_card_did_not_show_reading_followup",
+      "pending_adoption_count_cleared",
       "no_error_events",
       "assistant_messages_not_fallback",
     ],

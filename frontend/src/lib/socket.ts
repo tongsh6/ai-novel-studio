@@ -57,6 +57,11 @@ export interface SliceVerifyUiStatePayload {
   first_message_text: string;
   service_status_text: string;
   title_text: string;
+  adoption_status?: string | null;
+  artifact_type?: string | null;
+  decision_card_count?: number;
+  open_reading_action_count?: number;
+  reading_chapter_count?: number;
 }
 
 export function reportSliceVerifyUiState(

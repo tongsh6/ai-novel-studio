@@ -171,7 +171,6 @@ export function AdoptionCard({ card, onAction, adoptionDecision }: Props) {
             {adoptionDecisionArtifactTitle(card, adoptionDecision)}
           </div>
         </div>
-        {card.body && <div className={styles.body}>{card.body}</div>}
         <div className={styles.adoptionDecisionNote}>{decisionCopy.description}</div>
         {followUpAction && (
           <div className={styles.actionsEnd}>

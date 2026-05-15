@@ -255,6 +255,11 @@ defmodule NovelApplication.TurnResultBuilder do
   defp to_artifact_type("outline_draft"), do: :outline_draft
   defp to_artifact_type("scene_draft"), do: :scene_draft
   defp to_artifact_type("prose_fragment"), do: :prose_fragment
+  defp to_artifact_type(:character_seed), do: :character_seed
+  defp to_artifact_type(:plot_direction), do: :plot_direction
+  defp to_artifact_type(:outline_draft), do: :outline_draft
+  defp to_artifact_type(:scene_draft), do: :scene_draft
+  defp to_artifact_type(:prose_fragment), do: :prose_fragment
   defp to_artifact_type(_), do: :prose_fragment
 
   defp format_candidates(candidates) do

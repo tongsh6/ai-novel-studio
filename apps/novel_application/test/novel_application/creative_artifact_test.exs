@@ -83,6 +83,17 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert artifact_set.source_turn_ref == "turn-1"
     end
 
+    test "build_artifact_set preserves atom artifact_type from typed creative tools" do
+      req = build_typed_creative_request("character_design")
+      result = Toolbox.execute(req)
+
+      assert result.output.artifact_type == :character_seed
+
+      artifact_set = TurnResultBuilder.build_artifact_set(result, "turn-typed")
+
+      assert artifact_set.artifact_type == :character_seed
+    end
+
     test "tentative? returns true by default" do
       artifact_set = %TentativeArtifactSet{
         artifact_set_id: "as-1",
@@ -224,6 +235,22 @@ defmodule NovelApplication.CreativeArtifactTest do
       read_scope_grants: ["author_text", "context_snapshot"],
       write_scope_grants: [],
       idempotency_key: "idem-creative",
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp build_typed_creative_request(tool_name) do
+    %ToolRequest{
+      tool_request_id: "tq-typed-#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: "t-typed",
+      frame_ref: "f-typed",
+      decision_ref: "d-typed",
+      tool_name: tool_name,
+      tool_version: "1.0.0",
+      input: %{"text" => "生成角色设定", "direction" => tool_name},
+      read_scope_grants: ["author_text", "character_list", "relationship_map"],
+      write_scope_grants: [],
+      idempotency_key: "idem-typed",
       created_at: DateTime.utc_now()
     }
   end

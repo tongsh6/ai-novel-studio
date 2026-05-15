@@ -44,6 +44,29 @@ defmodule NovelAgent.Provider.GatewayTest do
         Application.put_env(:novel_agent, :provider, old)
       end
     end
+
+    test "returns author-facing text for tool narration prompts" do
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :slice_verify)
+
+      prompt = """
+      ## 工具执行结果
+      - 工具: character_design
+      - 状态: succeeded
+
+      ## 要求
+      请用 1-2 句自然中文告诉作者你完成了什么。
+      """
+
+      try do
+        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert content =~ "已生成角色设定草案"
+        refute content =~ "\"frame_type\""
+        refute content =~ "\"candidate_directions\""
+      after
+        Application.put_env(:novel_agent, :provider, old)
+      end
+    end
   end
 
   describe "complete error handling" do

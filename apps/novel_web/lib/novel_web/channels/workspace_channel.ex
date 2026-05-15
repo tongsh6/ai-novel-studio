@@ -501,9 +501,12 @@ defmodule NovelWeb.WorkspaceChannel do
         LogEmit.emit(:channel, :adopt, :done, %{
           duration_ms: duration,
           artifact_id: artifact_id,
+          artifact_type: action_result[:artifact_type],
           action_status: action_result.status,
           persisted: get_in(action_result, [:persistence, :persisted]) == true,
-          mutation_id: get_in(action_result, [:persistence, :mutation_id])
+          mutation_id: get_in(action_result, [:persistence, :mutation_id]),
+          reading_projection_materialized:
+            not is_nil(get_in(action_result, [:persistence, :reading_projection]))
         })
 
         {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
@@ -607,7 +610,12 @@ defmodule NovelWeb.WorkspaceChannel do
       pending_adoption_count: payload["pending_adoption_count"],
       first_message_text: payload["first_message_text"],
       service_status_text: payload["service_status_text"],
-      title_text: payload["title_text"]
+      title_text: payload["title_text"],
+      adoption_status: payload["adoption_status"],
+      artifact_type: payload["artifact_type"],
+      decision_card_count: payload["decision_card_count"],
+      open_reading_action_count: payload["open_reading_action_count"],
+      reading_chapter_count: payload["reading_chapter_count"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}

@@ -15,13 +15,18 @@ defmodule NovelAgent.Provider.SliceVerify do
   @impl true
   def complete(_state, _model, prompt, _params) do
     content =
-      if plan_prompt?(prompt) do
-        plan_response()
-      else
-        frame_response(prompt)
+      cond do
+        plan_prompt?(prompt) ->
+          plan_response(prompt) |> Jason.encode!()
+
+        tool_narration_prompt?(prompt) ->
+          tool_narration_response(prompt)
+
+        true ->
+          frame_response(prompt) |> Jason.encode!()
       end
 
-    {:ok, Result.new(Jason.encode!(content))}
+    {:ok, Result.new(content)}
   end
 
   @impl true
@@ -32,6 +37,11 @@ defmodule NovelAgent.Provider.SliceVerify do
 
   defp plan_prompt?(prompt) do
     String.contains?(prompt, "plan_goal_summary") or String.contains?(prompt, "proposed_actions")
+  end
+
+  defp tool_narration_prompt?(prompt) do
+    String.contains?(prompt, "## 工具执行结果") and
+      String.contains?(prompt, "请用 1-2 句自然中文")
   end
 
   defp frame_response(prompt) do
@@ -76,7 +86,25 @@ defmodule NovelAgent.Provider.SliceVerify do
 
   defp candidate_directions(false), do: []
 
-  defp plan_response do
+  defp tool_narration_response(prompt) do
+    cond do
+      String.contains?(prompt, "character_design") ->
+        "已生成角色设定草案，你可以查看内容后选择采纳、放弃或修改。"
+
+      String.contains?(prompt, "prose_writing") ->
+        "已生成正文片段草稿，你可以采纳后在阅读模式中查看。"
+
+      String.contains?(prompt, "plot_outline") ->
+        "已生成大纲草案，你可以审阅后决定是否纳入作品结构。"
+
+      true ->
+        "已生成创作草稿，你可以继续查看、采纳或修改。"
+    end
+  end
+
+  defp plan_response(prompt) do
+    tool_name = prompt |> author_input_text() |> tool_name_for_prompt()
+
     %{
       plan_goal_summary: "验证工作台 micro plan 入口",
       risk_hint: "low",
@@ -85,15 +113,47 @@ defmodule NovelAgent.Provider.SliceVerify do
         %{
           action_id: "act-slice-verify",
           action_type: "capability_invocation",
-          summary: "生成一组可供作者继续选择的创作方向",
-          target_ref: "creative_generation",
+          summary: action_summary(tool_name),
+          target_ref: tool_name,
           write_intent: "tentative",
           risk_hint: "low"
         }
       ],
       state_changes_requested: [],
-      required_capabilities: ["creative_generation"],
+      required_capabilities: [tool_name],
       fallback_message: "如果暂时不能生成，就先继续用对话收束方向。"
     }
+  end
+
+  defp tool_name_for_prompt(prompt) do
+    cond do
+      contains_any?(prompt, ["正文", "片段", "开场"]) ->
+        "prose_writing"
+
+      contains_any?(prompt, ["角色", "人物", "主角"]) ->
+        "character_design"
+
+      contains_any?(prompt, ["大纲", "章节"]) ->
+        "plot_outline"
+
+      true ->
+        "creative_generation"
+    end
+  end
+
+  defp action_summary("prose_writing"), do: "生成一段正文草稿"
+  defp action_summary("character_design"), do: "生成一个角色设定草案"
+  defp action_summary("plot_outline"), do: "生成一份大纲草案"
+  defp action_summary(_), do: "生成一组可供作者继续选择的创作方向"
+
+  defp contains_any?(text, terms) do
+    Enum.any?(terms, &String.contains?(text, &1))
+  end
+
+  defp author_input_text(prompt) do
+    case Regex.run(~r/## 用户输入\s*(.*?)\s*## 输出格式/s, prompt) do
+      [_, text] -> text
+      _ -> prompt
+    end
   end
 end

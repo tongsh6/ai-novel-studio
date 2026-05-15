@@ -14,6 +14,7 @@ import {
   adopt,
   discardArtifact,
   modifyDraft,
+  getToc,
   type TaskStateData,
 } from "../lib/socket";
 import {
@@ -62,6 +63,7 @@ import styles from "./WorkspaceChat.module.css";
 interface TurnResult {
   schema_version: string;
   turn_id: string;
+  parent_turn_id?: string | null;
   phase: string;
   status: string;
   next_action: string;
@@ -107,6 +109,10 @@ interface ChatMessage {
   text: string;
   turnResult?: TurnResult;
 }
+
+const sliceVerifyAutorunStarted = new Set<string>();
+const sliceVerifyAdoptionStarted = new Set<string>();
+const sliceVerifyUiReported = new Set<string>();
 
 function isArtifactResolutionAction(actionType?: string): boolean {
   return actionType === "accept" || actionType === "discard" || actionType === "edit_then_accept";
@@ -204,6 +210,7 @@ export function WorkspaceChat() {
   const sliceVerifyAutorunRef = useRef(false);
   const sliceVerifyContinuationRef = useRef(false);
   const sliceVerifyAdoptionRef = useRef(false);
+  const sliceVerifyFollowUpRoutingRef = useRef(false);
   const resumeRestoredTranscriptRef = useRef(false);
 
   // Check LLM connection status
@@ -225,6 +232,8 @@ export function WorkspaceChat() {
 
   // Lift the turn_result handler so the effect below stays focused on connection setup.
   function handleTurnResult(result: TurnResult) {
+    const autorunSlice = import.meta.env.VITE_SLICE_VERIFY_AUTORUN as string | undefined;
+
     setMessages((prev) => [
       ...prev,
       {
@@ -270,14 +279,17 @@ export function WorkspaceChat() {
 
     if (
       isTauri &&
-      (import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-adoption-boundary" ||
-        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-discard-boundary" ||
-        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-modify-draft-boundary" ||
-        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au08-adoption-reading-projection") &&
+      (autorunSlice === "au05-adoption-boundary" ||
+        autorunSlice === "au05-discard-boundary" ||
+        autorunSlice === "au05-modify-draft-boundary" ||
+        autorunSlice === "au05-adoption-followup-routing" ||
+        autorunSlice === "au08-adoption-reading-projection") &&
       !sliceVerifyAdoptionRef.current &&
+      !sliceVerifyAdoptionStarted.has(autorunSlice) &&
       (result.adoption_state?.pending?.length ?? 0) > 0
     ) {
       sliceVerifyAdoptionRef.current = true;
+      sliceVerifyAdoptionStarted.add(autorunSlice);
       const actionType =
         import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-discard-boundary"
           ? "discard"
@@ -312,6 +324,62 @@ export function WorkspaceChat() {
       )
     ) {
       window.setTimeout(() => setMode("reading"), 250);
+    }
+
+    if (
+      isTauri &&
+      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-adoption-followup-routing" &&
+      !sliceVerifyFollowUpRoutingRef.current &&
+      !sliceVerifyUiReported.has("au05-adoption-followup-routing")
+    ) {
+      const resolved = result.adoption_state?.resolved?.find((artifact) =>
+        artifact.adoption_status === "ACCEPTED" || artifact.adoption_status === "EDITED_ACCEPTED",
+      );
+
+      if (resolved && channelRef.current) {
+        sliceVerifyFollowUpRoutingRef.current = true;
+        sliceVerifyUiReported.add("au05-adoption-followup-routing");
+        window.setTimeout(() => {
+          const report = async () => {
+            const currentContext = useAppStore.getState().context;
+            const currentSocketConnected = useAppStore.getState().socketConnected;
+            const toc = currentContext.workId && channelRef.current
+              ? await getToc(channelRef.current, currentContext.workId)
+              : { volumes: [] };
+            const readingChapterCount = toc.volumes.flatMap((volume) => volume.chapters).length;
+
+            await reportSliceVerifyUiState(channelRef.current!, {
+              slice_id: "au05-adoption-followup-routing",
+              context_work_id: currentContext.workId,
+              context_work_title: currentContext.workTitle,
+              active_session_id: activeSessionId,
+              restored_turn_id: result.parent_turn_id ?? result.turn_id,
+              socket_connected: currentSocketConnected,
+              message_count: messages.length + 1,
+              welcome_message_count: messages.filter((message) =>
+                message.text.includes("欢迎使用 AI Novel Studio"),
+              ).length,
+              pending_adoption_count: document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
+              first_message_text: messages[0]?.text ?? "",
+              service_status_text:
+                document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                  ?.innerText ?? "",
+              title_text:
+                document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+                  ?.innerText ?? "",
+              adoption_status: resolved.adoption_status,
+              artifact_type: resolved.artifact_type,
+              decision_card_count:
+                document.querySelectorAll('[data-slice-verify="adoption-decision-card"]').length,
+              open_reading_action_count:
+                document.querySelectorAll('[data-slice-verify="open-reading-from-adoption-decision"]').length,
+              reading_chapter_count: readingChapterCount,
+            });
+          };
+
+          void report().catch(() => undefined);
+        }, 500);
+      }
     }
   }
 
@@ -516,11 +584,13 @@ export function WorkspaceChat() {
       autorunSlice !== "au05-adoption-boundary" &&
       autorunSlice !== "au05-discard-boundary" &&
       autorunSlice !== "au05-modify-draft-boundary" &&
+      autorunSlice !== "au05-adoption-followup-routing" &&
       autorunSlice !== "au08-adoption-reading-projection" &&
       autorunSlice !== "stage-startup-context-contract" &&
       autorunSlice !== "au03c-work-session-resume"
     ) return;
     if (!socketConnected || sliceVerifyAutorunRef.current) return;
+    if (sliceVerifyAutorunStarted.has(autorunSlice)) return;
     if (autorunSlice === "au03c-work-session-resume" && resumeRestoredTranscriptRef.current) return;
     if (autorunSlice === "stage-startup-context-contract") {
       if (!resumeRestoredTranscriptRef.current) return;
@@ -559,11 +629,21 @@ export function WorkspaceChat() {
     }
 
     sliceVerifyAutorunRef.current = true;
+    sliceVerifyAutorunStarted.add(autorunSlice);
     const timers: number[] = [];
 
     if (autorunSlice === "au08-adoption-reading-projection") {
       timers.push(window.setTimeout(() => {
         const text = "请写一段开场正文片段";
+        setMessages((prev) => [...prev, { role: "user", text }]);
+        setLoading(true);
+        if (channelRef.current) {
+          void sendMessage(channelRef.current, text, context.workId, null, activeSessionId, true);
+        }
+      }, 150));
+    } else if (autorunSlice === "au05-adoption-followup-routing") {
+      timers.push(window.setTimeout(() => {
+        const text = "请生成一个角色设定草案";
         setMessages((prev) => [...prev, { role: "user", text }]);
         setLoading(true);
         if (channelRef.current) {
