@@ -6,6 +6,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
   alias NovelFoundation.Enums.MemoryType
   alias NovelPersistence.AdoptionRepository
   alias NovelPersistence.MutationLog
+  alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.MemoryItem
 
@@ -28,6 +29,8 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert persisted.mutation_status == "APPLIED"
       assert persisted.memory_status == MemoryStatus.confirmed()
       assert persisted.source_revision_ref == "mutation:#{persisted.mutation_id}"
+      assert persisted.reading_projection.chapter_id
+      assert persisted.reading_projection.draft_id
 
       assert [mutation] = MutationLog.list_by_turn("turn-adopt-source")
       assert mutation.id == persisted.mutation_id
@@ -46,6 +49,14 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert memory.source_id == persisted.mutation_id
       assert memory.locked == true
       assert memory.recallable == true
+
+      assert %{volumes: [%{chapters: [%{id: chapter_id, title: "角色设定"}]}]} =
+               ReadingProjectionRepo.toc(work_id)
+
+      assert chapter_id == persisted.reading_projection.chapter_id
+
+      assert {:ok, %{title: "角色设定", scenes: [%{content: "主角更果断"}]}} =
+               ReadingProjectionRepo.chapter_content(chapter_id, work_id)
     end
   end
 end

@@ -469,6 +469,30 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
     end
   end
 
+  describe "reading mode data handlers" do
+    test "get_toc returns an empty real projection for lobby instead of mock content" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref = push(socket, "get_toc", %{"work_id" => "lobby"})
+
+      assert_reply(ref, :ok, %{work_id: "lobby", volumes: []})
+    end
+
+    test "get_chapter_content rejects missing chapter instead of relying on mock content" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref = push(socket, "get_chapter_content", %{"chapter_id" => "missing"})
+
+      assert_reply(ref, :error, %{reason: "chapter not found"})
+    end
+  end
+
   # ── VS-07 Proof: ping/pong ──
 
   describe "ping/pong" do

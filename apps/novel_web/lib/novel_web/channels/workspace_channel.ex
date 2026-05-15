@@ -418,24 +418,47 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end
 
-  # --- Mock Handlers for Structure Panel ---
+  # --- Structure Panel / Reading Mode data handlers ---
 
-  def handle_in("get_toc", _payload, socket) do
-    data = %{
-      work_id: "mock_work",
-      volumes: [
-        %{
-          id: "vol_1",
-          title: "第一卷：起源",
-          chapters: [
-            %{id: "ch_1", title: "第一章：苏醒"},
-            %{id: "ch_2", title: "第二章：危机"}
-          ]
-        }
-      ]
-    }
+  def handle_in("get_toc", payload, socket) do
+    work_id = Map.get(payload, "work_id") || socket.assigns[:work_id] || "lobby"
+    data = NovelApplication.ReadingProjectionService.toc(work_id)
+
+    LogEmit.emit(:channel, :get_toc, :done, %{
+      work_id: work_id,
+      volume_count: length(data.volumes),
+      chapter_count: data.volumes |> Enum.flat_map(& &1.chapters) |> length()
+    })
 
     {:reply, {:ok, data}, socket}
+  end
+
+  def handle_in("get_chapter_content", %{"chapter_id" => chapter_id}, socket) do
+    work_id = socket.assigns[:work_id] || "lobby"
+
+    case NovelApplication.ReadingProjectionService.chapter_content(chapter_id, work_id) do
+      {:ok, data} ->
+        LogEmit.emit(:channel, :get_chapter_content, :done, %{
+          work_id: work_id,
+          chapter_id: chapter_id,
+          scene_count: length(data.scenes),
+          content_chars:
+            data.scenes
+            |> Enum.map(&String.length(&1.content || ""))
+            |> Enum.sum()
+        })
+
+        {:reply, {:ok, data}, socket}
+
+      {:error, :not_found} ->
+        LogEmit.emit(:channel, :get_chapter_content, :error, %{
+          work_id: work_id,
+          chapter_id: chapter_id,
+          reason_code: :not_found
+        })
+
+        {:reply, {:error, %{reason: "chapter not found"}}, socket}
+    end
   end
 
   def handle_in("get_characters", _payload, socket) do
