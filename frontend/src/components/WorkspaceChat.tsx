@@ -49,6 +49,7 @@ import {
   DefaultCard,
   type UICardData,
   type UIActionData,
+  type AdoptionDecisionData,
 } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
@@ -133,6 +134,36 @@ function disableResolvedArtifactActions(
   };
 }
 
+function resolvedArtifactForCard(
+  card: UICardData,
+  resolvedArtifactsById: Map<string, AdoptionDecisionData>,
+): AdoptionDecisionData | null {
+  const actionTarget = card.actions
+    ?.map((action) => action.target_ref)
+    .find((targetRef) => resolvedArtifactsById.has(targetRef));
+
+  if (actionTarget) return resolvedArtifactsById.get(actionTarget) ?? null;
+
+  const artifactRef = card.artifact_refs?.find((ref) => resolvedArtifactsById.has(ref));
+  if (artifactRef) return resolvedArtifactsById.get(artifactRef) ?? null;
+
+  return null;
+}
+
+function uniqueUnresolvedAdoptions(
+  artifacts: ArtifactEntry[],
+  resolvedArtifactIds: Set<string>,
+): ArtifactEntry[] {
+  const seen = new Set<string>();
+
+  return artifacts.filter((artifact) => {
+    if (resolvedArtifactIds.has(artifact.artifact_id)) return false;
+    if (seen.has(artifact.artifact_id)) return false;
+    seen.add(artifact.artifact_id);
+    return true;
+  });
+}
+
 function startupFailureMessage(detail: string): ChatMessage {
   return {
     role: "assistant",
@@ -154,6 +185,7 @@ export function WorkspaceChat() {
   const [sessions, setSessions] = useState<WorkSessionDto[]>([]);
   const [sessionSearch, setSessionSearch] = useState("");
   const [resumePendingAdoptions, setResumePendingAdoptions] = useState<ArtifactEntry[]>([]);
+  const [resumeResolvedAdoptions, setResumeResolvedAdoptions] = useState<ArtifactEntry[]>([]);
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore(state => state.socketConnected);
@@ -363,6 +395,7 @@ export function WorkspaceChat() {
         setActiveSessionId(sessionId);
         setSessions(snapshot.sessions);
         setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
+        setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
         setMessages(restoredMessages);
         resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
       } catch (error) {
@@ -371,6 +404,7 @@ export function WorkspaceChat() {
         setActiveSessionId(null);
         setSessions([]);
         setResumePendingAdoptions([]);
+        setResumeResolvedAdoptions([]);
         setSocketConnected(false);
         setContext({ workId, workTitle, volumeTitle: null });
         setMessages([startupFailureMessage(`${WORKBENCH.startupFailureResumeSession}${detail}`)]);
@@ -455,15 +489,19 @@ export function WorkspaceChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const resolvedArtifactIds = new Set(
-    messages.flatMap((msg) =>
-      (msg.turnResult?.adoption_state?.resolved ?? []).map((artifact) => artifact.artifact_id),
-    ),
+  const resolvedArtifactsById = new Map<string, AdoptionDecisionData>(
+    messages
+      .flatMap((msg) => msg.turnResult?.adoption_state?.resolved ?? [])
+      .concat(resumeResolvedAdoptions)
+      .map((artifact) => [artifact.artifact_id, artifact]),
   );
-  const allPendingAdoptions = messages
-    .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
-    .concat(resumePendingAdoptions)
-    .filter((artifact) => !resolvedArtifactIds.has(artifact.artifact_id));
+  const resolvedArtifactIds = new Set(resolvedArtifactsById.keys());
+  const allPendingAdoptions = uniqueUnresolvedAdoptions(
+    messages
+      .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
+      .concat(resumePendingAdoptions),
+    resolvedArtifactIds,
+  );
   const pendingAdoptionsCount = allPendingAdoptions.length;
 
   useEffect(() => {
@@ -843,6 +881,10 @@ export function WorkspaceChat() {
                     }
                   };
                   const cardForRender = disableResolvedArtifactActions(card, resolvedArtifactIds);
+                  const adoptionDecision =
+                    cardForRender.card_type === "adoption_card"
+                      ? resolvedArtifactForCard(cardForRender, resolvedArtifactsById)
+                      : null;
 
                   switch (cardForRender.card_type) {
                     case "clarification_card":
@@ -852,7 +894,14 @@ export function WorkspaceChat() {
                     case "warning_card":
                       return <WarningCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "adoption_card":
-                      return <AdoptionCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return (
+                        <AdoptionCard
+                          key={ci}
+                          card={cardForRender}
+                          adoptionDecision={adoptionDecision}
+                          onAction={handleAction}
+                        />
+                      );
                     case "progress_card":
                       return <ProgressCard key={ci} card={cardForRender} onAction={handleAction} />;
                     case "checkpoint_card":

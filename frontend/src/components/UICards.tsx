@@ -1,6 +1,7 @@
 // Design: docs/design-v2/ui-design/42-card-system.md §3 (card component rendering)
 // Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
 import { CARD } from "../lib/copy";
+import { adoptionDecisionCopy } from "../lib/adoptionDecision";
 import styles from "./UICards.module.css";
 
 // Basic interface for UI cards, shared across v2 and v3 implementations
@@ -23,9 +24,45 @@ export interface UIActionData {
   style_hint?: string;
 }
 
+export interface AdoptionDecisionData {
+  artifact_id: string;
+  artifact_type?: string;
+  adoption_status: string;
+  payload?: {
+    title?: unknown;
+    [key: string]: unknown;
+  };
+}
+
 interface Props {
   card: UICardData;
   onAction: (actionId: string, targetRef: string, actionType?: string) => void;
+  adoptionDecision?: AdoptionDecisionData | null;
+}
+
+function adoptionDecisionArtifactTitle(
+  card: UICardData,
+  adoptionDecision: AdoptionDecisionData,
+): string {
+  const title = adoptionDecision.payload?.title;
+  if (typeof title === "string" && title.trim().length > 0 && !isPendingArtifactTitle(title)) {
+    return title;
+  }
+
+  if (card.title && !isPendingArtifactTitle(card.title)) return card.title;
+
+  return CARD.adoptionDecision.artifactFallbackTitle;
+}
+
+function isPendingArtifactTitle(title: string): boolean {
+  const normalized = title.trim();
+
+  return [
+    CARD.tentativeArtifact.title,
+    "待确认的新设定",
+    "待采纳产物",
+    "大纲产物待采纳",
+  ].includes(normalized);
 }
 
 export function ClarificationCard({ card, onAction }: Props) {
@@ -112,11 +149,32 @@ export function WarningCard({ card, onAction }: Props) {
   );
 }
 
-export function AdoptionCard({ card, onAction }: Props) {
+export function AdoptionCard({ card, onAction, adoptionDecision }: Props) {
+  if (adoptionDecision) {
+    const decisionCopy = adoptionDecisionCopy(adoptionDecision.adoption_status);
+
+    return (
+      <div
+        className={`${styles.card} ${styles.adoptionCard} ${styles.adoptionDecisionCard}`}
+        data-slice-verify="adoption-decision-card"
+        data-adoption-status={adoptionDecision.adoption_status}
+      >
+        <div className={styles.header}>
+          <div className={styles.adoptionDecisionStatus}>{decisionCopy.title}</div>
+          <div className={styles.adoptionDecisionTitle}>
+            {adoptionDecisionArtifactTitle(card, adoptionDecision)}
+          </div>
+        </div>
+        {card.body && <div className={styles.body}>{card.body}</div>}
+        <div className={styles.adoptionDecisionNote}>{decisionCopy.description}</div>
+      </div>
+    );
+  }
+
   return (
     <div className={`${styles.card} ${styles.adoptionCard}`}>
       <div className={styles.header}>
-        <div className={styles.adoptionTitle}>{card.title || "待采纳产物"}</div>
+        <div className={styles.adoptionTitle}>{card.title || CARD.tentativeArtifact.title}</div>
       </div>
       {card.body && <div className={styles.body}>{card.body}</div>}
       {card.actions && card.actions.length > 0 && (

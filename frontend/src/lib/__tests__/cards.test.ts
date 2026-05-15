@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type {
+  AdoptionDecisionData,
   UICardData as UICard,
   UIActionData as UIAction,
 } from "../../components/UICards";
+import { adoptionDecisionCopy } from "../adoptionDecision";
 
 describe("card type contracts", () => {
   it("clarification_card with answer action satisfies UICard", () => {
@@ -52,5 +54,53 @@ describe("card type contracts", () => {
     const actionTypes = validAnswerActions.map((a) => a.action_type);
     expect(actionTypes).toContain("answer");
     expect(actionTypes).toContain("dismiss");
+  });
+
+  it("resolved adoption states are renderable decision records, not new card types", () => {
+    const card: UICard = {
+      card_type: "adoption_card",
+      title: "大纲产物待采纳",
+      actions: [
+        {
+          action_id: "accept-artifact-1",
+          action_type: "accept",
+          label: "采纳",
+          target_ref: "artifact-1",
+          enabled: true,
+        },
+      ],
+    };
+    const decision: AdoptionDecisionData = {
+      artifact_id: "artifact-1",
+      artifact_type: "draft",
+      adoption_status: "EDITED_ACCEPTED",
+      payload: { title: "第一章开场修订稿" },
+    };
+
+    expect(card.card_type).toBe("adoption_card");
+    expect(decision.artifact_id).toBe(card.actions![0].target_ref);
+    expect(adoptionDecisionCopy(decision.adoption_status).title).toBe("已修改后采纳");
+  });
+
+  it("discarded adoption state uses author-facing copy", () => {
+    expect(adoptionDecisionCopy("DISCARDED")).toEqual({
+      title: "已废弃",
+      description: "这条候选稿已从待处理列表移除，未写入作品事实。",
+    });
+  });
+
+  it("pending adoption count should be unique by artifact id after resume", () => {
+    const pendingFromTranscript = [{ artifact_id: "artifact-1" }, { artifact_id: "artifact-2" }];
+    const pendingFromResume = [{ artifact_id: "artifact-1" }];
+    const resolved = new Set(["artifact-2"]);
+
+    const visiblePendingIds = [...pendingFromTranscript, ...pendingFromResume]
+      .filter((artifact, index, artifacts) =>
+        !resolved.has(artifact.artifact_id) &&
+        artifacts.findIndex((item) => item.artifact_id === artifact.artifact_id) === index,
+      )
+      .map((artifact) => artifact.artifact_id);
+
+    expect(visiblePendingIds).toEqual(["artifact-1"]);
   });
 });
