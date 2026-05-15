@@ -291,24 +291,7 @@ defmodule NovelWeb.WorkspaceChannel do
       |> Map.put("work_id", work_id)
       |> Map.put("session_id", socket.assigns[:session_id])
 
-    case NovelApplication.AdoptionWorkflow.handle_adopt(source_turn_result, adopt_params) do
-      {:ok, action_result, turn_result} ->
-        broadcast!(socket, "action_result", action_result)
-        broadcast!(socket, "turn_result", turn_result)
-        record_action_turn_result(socket, turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :adopt, :done, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          action_status: action_result.status,
-          persisted: get_in(action_result, [:persistence, :persisted]) == true,
-          mutation_id: get_in(action_result, [:persistence, :mutation_id])
-        })
-
-        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
-
+    case source_turn_result do
       {:error, reason} ->
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -320,6 +303,14 @@ defmodule NovelWeb.WorkspaceChannel do
         })
 
         {:reply, {:error, %{reason: reason}}, socket}
+
+      source_turn_result ->
+        handle_adopt_result(
+          NovelApplication.AdoptionWorkflow.handle_adopt(source_turn_result, adopt_params),
+          socket,
+          artifact_id,
+          t0
+        )
     end
   end
 
@@ -340,22 +331,7 @@ defmodule NovelWeb.WorkspaceChannel do
       artifact_id: artifact_id
     })
 
-    case NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, params) do
-      {:ok, action_result, turn_result} ->
-        broadcast!(socket, "action_result", action_result)
-        broadcast!(socket, "turn_result", turn_result)
-        record_action_turn_result(socket, turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :discard, :done, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          action_status: action_result.status
-        })
-
-        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
-
+    case source_turn_result do
       {:error, reason} ->
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -367,6 +343,14 @@ defmodule NovelWeb.WorkspaceChannel do
         })
 
         {:reply, {:error, %{reason: reason}}, socket}
+
+      source_turn_result ->
+        handle_discard_result(
+          NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, params),
+          socket,
+          artifact_id,
+          t0
+        )
     end
   end
 
@@ -393,22 +377,7 @@ defmodule NovelWeb.WorkspaceChannel do
       |> Map.put("work_id", work_id)
       |> Map.put("session_id", socket.assigns[:session_id])
 
-    case NovelApplication.AdoptionWorkflow.handle_modify_draft(source_turn_result, modify_params) do
-      {:ok, action_result, turn_result} ->
-        broadcast!(socket, "action_result", action_result)
-        broadcast!(socket, "turn_result", turn_result)
-        record_action_turn_result(socket, turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        duration = System.monotonic_time(:millisecond) - t0
-
-        LogEmit.emit(:channel, :modify_draft, :done, %{
-          duration_ms: duration,
-          artifact_id: artifact_id,
-          action_status: action_result.status
-        })
-
-        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
-
+    case source_turn_result do
       {:error, reason} ->
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -420,6 +389,17 @@ defmodule NovelWeb.WorkspaceChannel do
         })
 
         {:reply, {:error, %{reason: reason}}, socket}
+
+      source_turn_result ->
+        handle_modify_draft_result(
+          NovelApplication.AdoptionWorkflow.handle_modify_draft(
+            source_turn_result,
+            modify_params
+          ),
+          socket,
+          artifact_id,
+          t0
+        )
     end
   end
 
@@ -507,6 +487,101 @@ defmodule NovelWeb.WorkspaceChannel do
     }
 
     {:reply, {:ok, data}, socket}
+  end
+
+  defp handle_adopt_result(result, socket, artifact_id, t0) do
+    case result do
+      {:ok, action_result, turn_result} ->
+        broadcast!(socket, "action_result", action_result)
+        broadcast!(socket, "turn_result", turn_result)
+        record_action_turn_result(socket, turn_result)
+        socket = remember_turn_result(socket, turn_result)
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :adopt, :done, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          action_status: action_result.status,
+          persisted: get_in(action_result, [:persistence, :persisted]) == true,
+          mutation_id: get_in(action_result, [:persistence, :mutation_id])
+        })
+
+        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
+
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :adopt, :error, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          reason_code: :adoption_rejected,
+          outcome_detail: reason
+        })
+
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  defp handle_discard_result(result, socket, artifact_id, t0) do
+    case result do
+      {:ok, action_result, turn_result} ->
+        broadcast!(socket, "action_result", action_result)
+        broadcast!(socket, "turn_result", turn_result)
+        record_action_turn_result(socket, turn_result)
+        socket = remember_turn_result(socket, turn_result)
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :discard, :done, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          action_status: action_result.status
+        })
+
+        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
+
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :discard, :error, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          reason_code: :discard_rejected,
+          outcome_detail: reason
+        })
+
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  defp handle_modify_draft_result(result, socket, artifact_id, t0) do
+    case result do
+      {:ok, action_result, turn_result} ->
+        broadcast!(socket, "action_result", action_result)
+        broadcast!(socket, "turn_result", turn_result)
+        record_action_turn_result(socket, turn_result)
+        socket = remember_turn_result(socket, turn_result)
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :modify_draft, :done, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          action_status: action_result.status
+        })
+
+        {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
+
+      {:error, reason} ->
+        duration = System.monotonic_time(:millisecond) - t0
+
+        LogEmit.emit(:channel, :modify_draft, :error, %{
+          duration_ms: duration,
+          artifact_id: artifact_id,
+          reason_code: :modify_draft_rejected,
+          outcome_detail: reason
+        })
+
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
   end
 
   defp record_slice_verify_ui_state(slice_id, payload, socket) do
@@ -618,11 +693,11 @@ defmodule NovelWeb.WorkspaceChannel do
     requested_turn_result = requested_ref && source_turn_result(socket, requested_ref)
 
     cond do
+      artifact_resolved?(socket, artifact_id) ->
+        {requested_ref || socket.assigns[:current_turn_id], {:error, "artifact already resolved"}}
+
       pending_artifact?(requested_turn_result, artifact_id) ->
         {turn_id(requested_turn_result) || requested_ref, requested_turn_result}
-
-      artifact_resolved?(socket, artifact_id) ->
-        fallback_source_turn(socket, requested_ref)
 
       true ->
         find_source_turn_with_pending_artifact(socket, artifact_id) ||

@@ -426,6 +426,51 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       })
     end
 
+    test "artifact actions reject a pending source turn after the artifact is resolved" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @pending_adoption_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "adopt",
+                 %{
+                   "artifact_id" => "as-adopt-1",
+                   "artifact_type" => "character_seed",
+                   "source_turn_ref" => "turn-adopt-source",
+                   "payload" => %{"title" => "角色设定"}
+                 },
+                 socket
+               )
+
+      assert {:reply, {:error, %{reason: "artifact already resolved"}}, ^socket} =
+               WorkspaceChannel.handle_in(
+                 "discard",
+                 %{
+                   "artifact_id" => "as-adopt-1",
+                   "artifact_type" => "character_seed",
+                   "source_turn_ref" => "turn-adopt-source"
+                 },
+                 socket
+               )
+
+      assert {:reply, {:error, %{reason: "artifact already resolved"}}, ^socket} =
+               WorkspaceChannel.handle_in(
+                 "modify_draft",
+                 %{
+                   "draft_id" => "as-adopt-1",
+                   "artifact_type" => "character_seed",
+                   "content" => "主角更果断",
+                   "instruction" => "增加保护同伴的动机",
+                   "source_turn_ref" => "turn-adopt-source"
+                 },
+                 socket
+               )
+    end
+
     test "discard event resolves pending artifact without crashing channel" do
       {:ok, _, socket} =
         UserSocket
