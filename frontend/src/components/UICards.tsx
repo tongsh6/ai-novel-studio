@@ -1,7 +1,9 @@
 // Design: docs/design-v2/ui-design/42-card-system.md §3 (card component rendering)
 // Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
+import { BookOpen } from "lucide-react";
+
 import { CARD } from "../lib/copy";
-import { adoptionDecisionCopy } from "../lib/adoptionDecision";
+import { adoptionDecisionCopy, adoptionDecisionFollowUpAction } from "../lib/adoptionDecision";
 import styles from "./UICards.module.css";
 
 // Basic interface for UI cards, shared across v2 and v3 implementations
@@ -152,6 +154,10 @@ export function WarningCard({ card, onAction }: Props) {
 export function AdoptionCard({ card, onAction, adoptionDecision }: Props) {
   if (adoptionDecision) {
     const decisionCopy = adoptionDecisionCopy(adoptionDecision.adoption_status);
+    const followUpAction = adoptionDecisionFollowUpAction(
+      adoptionDecision.adoption_status,
+      adoptionDecision.artifact_type,
+    );
 
     return (
       <div
@@ -167,6 +173,20 @@ export function AdoptionCard({ card, onAction, adoptionDecision }: Props) {
         </div>
         {card.body && <div className={styles.body}>{card.body}</div>}
         <div className={styles.adoptionDecisionNote}>{decisionCopy.description}</div>
+        {followUpAction && (
+          <div className={styles.actionsEnd}>
+            <button
+              className={styles.btnSecondary}
+              data-slice-verify="open-reading-from-adoption-decision"
+              onClick={() => onAction(followUpAction.action_id, adoptionDecision.artifact_id)}
+            >
+              <span className={styles.buttonIconText}>
+                <BookOpen size={14} aria-hidden="true" />
+                {followUpAction.label}
+              </span>
+            </button>
+          </div>
+        )}
       </div>
     );
   }

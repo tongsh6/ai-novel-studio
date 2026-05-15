@@ -89,6 +89,12 @@
   justify-content: flex-end;
 }
 
+.buttonIconText {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 /* Button variants */
 .btnPrimary, .btnSecondary, .btnDanger, .btnGhost {
   padding: 10px 16px;

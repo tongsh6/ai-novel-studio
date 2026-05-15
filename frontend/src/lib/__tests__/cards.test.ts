@@ -5,7 +5,16 @@ import type {
   UICardData as UICard,
   UIActionData as UIAction,
 } from "../../components/UICards";
-import { adoptionDecisionCopy } from "../adoptionDecision";
+import {
+  adoptionDecisionCopy,
+  adoptionDecisionFollowUpAction,
+  OPEN_READING_MODE_ACTION_ID,
+} from "../adoptionDecision";
+import {
+  normalizeChapterContentTitle,
+  normalizeReadingToc,
+  readingWorkTitle,
+} from "../readingProjection";
 
 describe("card type contracts", () => {
   it("clarification_card with answer action satisfies UICard", () => {
@@ -89,6 +98,18 @@ describe("card type contracts", () => {
     });
   });
 
+  it("only accepted adoption decisions expose a reading follow-up", () => {
+    expect(adoptionDecisionFollowUpAction("ACCEPTED", "prose_fragment")).toEqual({
+      action_id: OPEN_READING_MODE_ACTION_ID,
+      label: "查看已采纳内容",
+    });
+    expect(adoptionDecisionFollowUpAction("EDITED_ACCEPTED", "scene_draft")?.action_id).toBe(
+      OPEN_READING_MODE_ACTION_ID,
+    );
+    expect(adoptionDecisionFollowUpAction("ACCEPTED", "character_seed")).toBeNull();
+    expect(adoptionDecisionFollowUpAction("DISCARDED", "prose_fragment")).toBeNull();
+  });
+
   it("pending adoption count should be unique by artifact id after resume", () => {
     const pendingFromTranscript = [{ artifact_id: "artifact-1" }, { artifact_id: "artifact-2" }];
     const pendingFromResume = [{ artifact_id: "artifact-1" }];
@@ -102,5 +123,33 @@ describe("card type contracts", () => {
       .map((artifact) => artifact.artifact_id);
 
     expect(visiblePendingIds).toEqual(["artifact-1"]);
+  });
+
+  it("reading mode does not expose internal projection ids as author-facing titles", () => {
+    expect(readingWorkTitle("未命名作品")).toBe("当前作品");
+    expect(readingWorkTitle("作品加载失败")).toBe("当前作品");
+
+    expect(
+      normalizeReadingToc({
+        volumes: [
+          {
+            id: "vol-1",
+            title: "已采纳内容",
+            seq: 1,
+            chapters: [{ id: "ch-1", title: "as_15", seq: 1 }],
+          },
+        ],
+      })?.volumes[0].chapters[0].title,
+    ).toBe("已采纳片段 1");
+
+    expect(
+      normalizeChapterContentTitle(
+        { title: "as_15", scenes: [{ title: "as_15", content: "正文" }] },
+        { id: "ch-1", title: "已采纳片段 1", seq: 1 },
+      ),
+    ).toEqual({
+      title: "已采纳片段 1",
+      scenes: [{ title: "已采纳片段 1", content: "正文" }],
+    });
   });
 });

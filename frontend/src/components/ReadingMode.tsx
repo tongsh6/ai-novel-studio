@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import { useAppStore } from "../lib/store";
 import { getToc, getChapterContent } from "../lib/socket";
 import type { TocData, ChapterContent } from "../lib/socket";
+import {
+  normalizeChapterContentTitle,
+  normalizeReadingToc,
+  readingWorkTitle,
+} from "../lib/readingProjection";
 import styles from "./ReadingMode.module.css";
 
 export function ReadingMode() {
@@ -13,7 +18,12 @@ export function ReadingMode() {
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [chapterContent, setChapterContent] = useState<ChapterContent | null>(null);
 
-  const hasContent = toc && toc.volumes.length > 0;
+  const tocView = normalizeReadingToc(toc);
+  const activeChapter = tocView?.volumes.flatMap((volume) => volume.chapters).find((chapter) => chapter.id === activeChapterId);
+  const readableChapterContent = chapterContent
+    ? normalizeChapterContentTitle(chapterContent, activeChapter)
+    : null;
+  const hasContent = tocView && tocView.volumes.length > 0;
   const contentLoading = activeChapterId != null && chapterContent == null;
 
   // Fetch TOC on mount when workId is set
@@ -82,7 +92,7 @@ export function ReadingMode() {
         <div className={styles.contextGroup}>
           <span className={styles.modeText}>阅读模式</span>
           <span className={styles.divider}>/</span>
-          <span className={styles.titleText}>{context.workTitle || "未定作品"}  [切换]</span>
+          <span className={styles.titleText}>{readingWorkTitle(context.workTitle)}</span>
         </div>
         <button
           className={styles.backBtn}
@@ -104,7 +114,7 @@ export function ReadingMode() {
             </div>
           ) : (
             <div className={styles.tocList}>
-              {toc.volumes.map((vol) => (
+              {tocView.volumes.map((vol) => (
                 <div key={vol.id}>
                   <div className={styles.tocVolume}>{vol.title}</div>
                   {vol.chapters.map((ch) => (
@@ -128,7 +138,7 @@ export function ReadingMode() {
             <div className={styles.contentBlock}>
               <p>加载中…</p>
             </div>
-          ) : !chapterContent ? (
+          ) : !readableChapterContent ? (
             <div className={styles.contentBlock}>
               {hasContent
                 ? "请从左侧目录选择一个章节。"
@@ -136,10 +146,10 @@ export function ReadingMode() {
             </div>
           ) : (
             <div className={styles.contentBlock}>
-              <h1 className={styles.chapterTitle}>{chapterContent.title}</h1>
-              {chapterContent.scenes.map((scene, si) => (
+              <h1 className={styles.chapterTitle}>{readableChapterContent.title}</h1>
+              {readableChapterContent.scenes.map((scene, si) => (
                 <div key={si}>
-                  {scene.title && scene.title !== chapterContent.title && (
+                  {scene.title && scene.title !== readableChapterContent.title && (
                     <h3 className={styles.sceneTitle}>{scene.title}</h3>
                   )}
                   {scene.content ? (

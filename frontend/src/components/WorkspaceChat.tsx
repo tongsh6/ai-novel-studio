@@ -36,6 +36,7 @@ import {
   toAuthorActionPayload,
   type AvailableActionLike,
 } from "../lib/workbenchActions";
+import { OPEN_READING_MODE_ACTION_ID } from "../lib/adoptionDecision";
 import {
   ClarificationCard,
   ConfirmationCard,
@@ -828,6 +829,11 @@ export function WorkspaceChat() {
                 {msg.turnResult?.ui_cards?.map((card, ci) => {
                   const handleAction = (_actionId: string, targetRef: string, actionType?: string) => {
                     if (isArtifactResolutionAction(actionType) && resolvedArtifactIds.has(targetRef)) {
+                      return;
+                    }
+
+                    if (_actionId === OPEN_READING_MODE_ACTION_ID) {
+                      setMode("reading");
                       return;
                     }
 

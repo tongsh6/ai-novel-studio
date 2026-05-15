@@ -394,17 +394,22 @@ defmodule NovelApplication.AdoptionWorkflow do
          artifact_id
        ) do
     source_revision_ref = persisted[:source_revision_ref] || "#{source_turn_id}:#{artifact_id}"
+    reading_projection = persisted[:reading_projection]
 
-    Enum.map(hints, fn hint ->
-      %{
-        projection_type: "reading_projection_toc",
-        projection_id: to_string(hint[:projection_ref] || "reading_projection"),
-        source_revision_refs: [source_revision_ref],
-        refresh_status: "STALE",
-        projection_hint_id: hint[:projection_hint_id],
-        reason: hint[:reason]
-      }
-    end)
+    if reading_projection do
+      Enum.map(hints, fn hint ->
+        %{
+          projection_type: "reading_projection_toc",
+          projection_id: to_string(hint[:projection_ref] || "reading_projection"),
+          source_revision_refs: [source_revision_ref],
+          refresh_status: "STALE",
+          projection_hint_id: hint[:projection_hint_id],
+          reason: hint[:reason]
+        }
+      end)
+    else
+      []
+    end
   end
 
   defp decision_payload(%AdoptionDecision{} = decision) do
@@ -425,11 +430,35 @@ defmodule NovelApplication.AdoptionWorkflow do
     payload = artifact_field(artifact, :payload) || %{}
 
     cond do
-      is_binary(payload[:title]) -> payload[:title]
-      is_binary(payload["title"]) -> payload["title"]
-      true -> artifact_field(artifact, :artifact_id)
+      meaningful_title?(payload[:title], artifact) -> String.trim(payload[:title])
+      meaningful_title?(payload["title"], artifact) -> String.trim(payload["title"])
+      is_list(payload[:items]) -> summary_from_items(payload[:items], artifact)
+      is_list(payload["items"]) -> summary_from_items(payload["items"], artifact)
+      true -> "已采纳内容"
     end
   end
+
+  defp summary_from_items(items, artifact) do
+    items
+    |> Enum.map(&item_title/1)
+    |> Enum.find(&meaningful_title?(&1, artifact))
+    |> case do
+      nil -> "已采纳内容"
+      title -> title |> to_string() |> String.trim()
+    end
+  end
+
+  defp item_title(item) when is_map(item), do: Map.get(item, :title) || Map.get(item, "title")
+  defp item_title(_), do: nil
+
+  defp meaningful_title?(title, artifact) when is_binary(title) do
+    trimmed = String.trim(title)
+    artifact_id = artifact_field(artifact, :artifact_id)
+
+    trimmed != "" and trimmed != artifact_id and not String.match?(trimmed, ~r/^as_\d+$/)
+  end
+
+  defp meaningful_title?(_, _artifact), do: false
 
   defp artifact_content(artifact) do
     payload = artifact_field(artifact, :payload) || %{}

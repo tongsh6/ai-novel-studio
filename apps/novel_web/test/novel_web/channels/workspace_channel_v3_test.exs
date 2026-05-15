@@ -352,7 +352,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
             }
           ]
         },
-        projection_refs: [%{refresh_status: "STALE"}],
+        projection_refs: [],
         truthfulness: %{artifact_adopted: true, production_write_performed: false}
       })
 
@@ -555,7 +555,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
             }
           ]
         },
-        projection_refs: [%{refresh_status: "STALE"}],
+        projection_refs: [],
         truthfulness: %{artifact_adopted: true, production_write_performed: false}
       })
 

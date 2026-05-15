@@ -28,11 +28,10 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert [%{adoption_status: "ACCEPTED", requires_adoption: false}] =
                turn_result.adoption_state.resolved
 
-      assert [%{refresh_status: "STALE", source_revision_refs: ["decision:" <> _]}] =
-               turn_result.projection_refs
+      assert turn_result.projection_refs == []
     end
 
-    test "uses injected persistence writer and exposes persisted state refs" do
+    test "uses injected persistence writer and exposes persisted state refs for non-reading artifacts" do
       source_turn = source_turn_result()
 
       writer = fn attrs ->
@@ -47,7 +46,8 @@ defmodule NovelApplication.AdoptionWorkflowTest do
            mutation_status: "APPLIED",
            memory_item_id: "memory-1",
            memory_status: "CONFIRMED",
-           source_revision_ref: "mutation:mutation-1"
+           source_revision_ref: "mutation:mutation-1",
+           reading_projection: nil
          }}
       end
 
@@ -64,11 +64,36 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert [%{mutation_ref: "mutation-1", adopted_state_ref: "memory-1"}] =
                turn_result.adoption_state.resolved
 
-      assert [%{source_revision_refs: ["mutation:mutation-1"], refresh_status: "STALE"}] =
-               turn_result.projection_refs
+      assert turn_result.projection_refs == []
 
       assert turn_result.truthfulness.production_write_performed == true
       assert turn_result.truthfulness.state_persisted == true
+    end
+
+    test "reading projection refs are emitted only after prose artifacts materialize reading content" do
+      source_turn = source_turn_result(%{artifact_type: :prose_fragment})
+
+      writer = fn _attrs ->
+        {:ok,
+         %{
+           mutation_id: "mutation-1",
+           mutation_status: "APPLIED",
+           memory_item_id: "memory-1",
+           memory_status: "CONFIRMED",
+           source_revision_ref: "mutation:mutation-1",
+           reading_projection: %{chapter_id: "chapter-1", draft_id: "draft-1"}
+         }}
+      end
+
+      assert {:ok, _action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer
+               )
+
+      assert [%{source_revision_refs: ["mutation:mutation-1"], refresh_status: "STALE"}] =
+               turn_result.projection_refs
     end
 
     test "accepts restored JSON turn_result with string keys" do
@@ -161,7 +186,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert payload.content =~ "修改要求：改得更果断"
       assert payload.edit_instruction == "改得更果断"
       assert turn_result.truthfulness.artifact_adopted == true
-      assert [%{refresh_status: "STALE"}] = turn_result.projection_refs
+      assert turn_result.projection_refs == []
     end
 
     test "accepts restored JSON turn_result with string keys" do

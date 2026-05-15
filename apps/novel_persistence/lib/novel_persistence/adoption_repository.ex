@@ -43,7 +43,7 @@ defmodule NovelPersistence.AdoptionRepository do
       MemoryItem.changeset(%MemoryItem{}, memory_item_attrs(attrs, mutation.id))
     end)
     |> Multi.run(:reading_projection, fn repo, %{mutation: mutation} ->
-      persist_reading_projection(repo, attrs, mutation.id)
+      maybe_persist_reading_projection(repo, attrs, mutation.id)
     end)
     |> Repo.transaction()
     |> case do
@@ -105,6 +105,20 @@ defmodule NovelPersistence.AdoptionRepository do
   defp memory_type(:outline_draft), do: MemoryType.draft_context()
   defp memory_type("outline_draft"), do: MemoryType.draft_context()
   defp memory_type(_), do: MemoryType.draft_context()
+
+  defp maybe_persist_reading_projection(repo, attrs, mutation_id) do
+    if reading_projection_artifact?(Map.get(attrs, :artifact_type)) do
+      persist_reading_projection(repo, attrs, mutation_id)
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp reading_projection_artifact?(:scene_draft), do: true
+  defp reading_projection_artifact?("scene_draft"), do: true
+  defp reading_projection_artifact?(:prose_fragment), do: true
+  defp reading_projection_artifact?("prose_fragment"), do: true
+  defp reading_projection_artifact?(_), do: false
 
   defp persist_reading_projection(repo, attrs, mutation_id) do
     work_id = Map.fetch!(attrs, :work_id)

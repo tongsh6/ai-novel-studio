@@ -11,7 +11,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
   alias NovelPersistence.Schemas.MemoryItem
 
   describe "persist/1" do
-    test "records accepted adoption as applied mutation plus confirmed memory item" do
+    test "records accepted setting adoption as mutation and memory without reading projection" do
       work_id = Ecto.UUID.generate()
 
       assert {:ok, persisted} =
@@ -29,8 +29,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert persisted.mutation_status == "APPLIED"
       assert persisted.memory_status == MemoryStatus.confirmed()
       assert persisted.source_revision_ref == "mutation:#{persisted.mutation_id}"
-      assert persisted.reading_projection.chapter_id
-      assert persisted.reading_projection.draft_id
+      assert persisted.reading_projection == nil
 
       assert [mutation] = MutationLog.list_by_turn("turn-adopt-source")
       assert mutation.id == persisted.mutation_id
@@ -50,13 +49,27 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert memory.locked == true
       assert memory.recallable == true
 
-      assert %{volumes: [%{chapters: [%{id: chapter_id, title: "角色设定"}]}]} =
+      assert %{volumes: []} = ReadingProjectionRepo.toc(work_id)
+    end
+
+    test "uses accepted artifact item title for reading projection instead of artifact id" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-source",
+                 artifact_id: "as_15",
+                 artifact_type: :prose_fragment,
+                 content: "赛博公司垄断流：顶级大厂垄断了灵气带宽。",
+                 summary: "赛博公司垄断流"
+               })
+
+      assert %{volumes: [%{chapters: [%{id: chapter_id, title: "赛博公司垄断流"}]}]} =
                ReadingProjectionRepo.toc(work_id)
 
       assert chapter_id == persisted.reading_projection.chapter_id
-
-      assert {:ok, %{title: "角色设定", scenes: [%{content: "主角更果断"}]}} =
-               ReadingProjectionRepo.chapter_content(chapter_id, work_id)
     end
   end
 end

@@ -124,6 +124,7 @@ export const CARD = {
     unknownTitle: "已处理",
     unknownDescription: "这条候选稿已有处理结果，不再需要重复操作。",
     artifactFallbackTitle: "创作设定",
+    openReadingModeLabel: "查看已采纳内容",
   },
   longRunProgress: {
     title: "长跑进度",
