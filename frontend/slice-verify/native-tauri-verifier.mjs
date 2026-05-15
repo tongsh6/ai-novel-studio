@@ -3,6 +3,7 @@ export const nativeSliceIds = [
   "au05-adoption-boundary",
   "au05-discard-boundary",
   "au05-modify-draft-boundary",
+  "au08-adoption-reading-projection",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -51,6 +52,20 @@ const sliceKeyEvents = {
     "channel.modify_draft.start",
     "adoption.evaluate.done",
     "channel.modify_draft.done",
+  ],
+  "au08-adoption-reading-projection": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "toolbox.execute.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "channel.adopt.start",
+    "adoption.evaluate.done",
+    "channel.adopt.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
   ],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
@@ -132,6 +147,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu05ActionEvidence(records, sliceId, "channel.modify_draft.done");
   }
 
+  if (sliceId === "au08-adoption-reading-projection") {
+    return findAu08ReadingProjectionEvidence(records);
+  }
+
   if (sliceId === "au10-micro-plan-entry") {
     return findAu10UserMessageEvidence(records, true, "au10-micro-plan-entry");
   }
@@ -180,6 +199,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au05-modify-draft-boundary") {
     return modifyDraftBoundaryBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au08-adoption-reading-projection") {
+    return readingProjectionBehavior(turnIds, turnRecords, options);
   }
 
   if (sliceId === "au10-ordinary-chat-no-micro-plan") {
@@ -243,6 +266,46 @@ function findAu05ActionEvidence(records, sliceId, actionDoneEvent) {
       turn_id: turnId,
       key_events: keyEvents,
       ...(actionDone.mutation_id ? { mutation_id: actionDone.mutation_id } : {}),
+    };
+  }
+
+  return null;
+}
+
+function findAu08ReadingProjectionEvidence(records) {
+  const sliceId = "au08-adoption-reading-projection";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== true) continue;
+
+    const hasAllEvents = keyEvents.every((event) =>
+      turnRecords.some(
+        (record) => record.event === event && hasRequiredCorrelationFields(record),
+      ),
+    );
+    if (!hasAllEvents) continue;
+
+    const actionDone = turnRecords.find((record) => record.event === "channel.adopt.done");
+    if (!actionDone?.persisted || !actionDone.mutation_id) continue;
+
+    const tocDone = turnRecords.find((record) => record.event === "channel.get_toc.done");
+    if (!tocDone || Number(tocDone.chapter_count ?? 0) < 1) continue;
+
+    const chapterDone = turnRecords.find(
+      (record) => record.event === "channel.get_chapter_content.done",
+    );
+    if (!chapterDone || Number(chapterDone.content_chars ?? 0) < 1) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      key_events: keyEvents,
+      mutation_id: actionDone.mutation_id,
+      chapter_count: tocDone.chapter_count,
+      content_chars: chapterDone.content_chars,
     };
   }
 
@@ -473,6 +536,42 @@ function modifyDraftBoundaryBehavior(turnIds, turnRecords, options) {
       "tentative_artifact_generated",
       "author_clicked_edit_then_accept_from_workbench",
       "edited_artifact_passed_adoption_boundary",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function readingProjectionBehavior(turnIds, turnRecords, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, true)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "adoption.evaluate.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.adopt.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.get_toc.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.get_chapter_content.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame", "form_micro_plan"])) return null;
+
+  const adoptDone = turnRecords.find((record) => record.event === "channel.adopt.done");
+  const tocDone = turnRecords.find((record) => record.event === "channel.get_toc.done");
+  const chapterDone = turnRecords.find((record) => record.event === "channel.get_chapter_content.done");
+
+  if (!adoptDone?.persisted || !adoptDone?.mutation_id) return null;
+  if (Number(tocDone?.chapter_count ?? 0) < 1) return null;
+  if (Number(chapterDone?.content_chars ?? 0) < 1) return null;
+
+  return {
+    slice_id: "au08-adoption-reading-projection",
+    behavior: "accepted_artifact_visible_in_reading_mode_projection",
+    turn_ids: turnIds,
+    mutation_id: adoptDone.mutation_id,
+    assertions: [
+      "tentative_artifact_generated_from_real_workbench",
+      "author_clicked_accept_from_workbench",
+      "adoption_persisted_as_mutation",
+      "accepted_content_materialized_as_reading_projection",
+      "reading_mode_loaded_toc_from_channel",
+      "reading_mode_loaded_chapter_content_from_channel",
       "no_error_events",
       "assistant_messages_not_fallback",
     ],

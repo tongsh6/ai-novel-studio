@@ -5,7 +5,7 @@
   "identifier": "com.ai-novel-studio.app",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5768",
+    "devUrl": "http://127.0.0.1:5769",
     "beforeDevCommand": "bash $HOME/workspace/novel/ai-novel-studio/scripts/before-tauri-dev.sh",
     "beforeBuildCommand": "pnpm build"
   },
@@ -21,7 +21,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; connect-src 'self' http://localhost:4657 ws://localhost:4657"
+      "csp": "default-src 'self'; connect-src 'self' http://localhost:4658 http://127.0.0.1:4658 ws://localhost:4658 ws://127.0.0.1:4658"
     }
   },
   "bundle": {

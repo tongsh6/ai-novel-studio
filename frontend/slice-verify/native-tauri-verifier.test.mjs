@@ -14,6 +14,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
     expect(nativeSliceIds).toContain("au05-discard-boundary");
     expect(nativeSliceIds).toContain("au05-modify-draft-boundary");
+    expect(nativeSliceIds).toContain("au08-adoption-reading-projection");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -62,6 +63,22 @@ describe("native Tauri slice verifier", () => {
       turn_id: "turn-adopt",
       key_events: keyEventsForSlice("au05-adoption-boundary"),
       mutation_id: "mutation-1",
+    });
+  });
+
+  it("finds AU-08 reading evidence after adoption loads TOC and chapter content", () => {
+    const evidence = findNativeSliceEvidence(
+      "au08-adoption-reading-projection",
+      au08ReadingProjectionRecords("turn-reading"),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "au08-adoption-reading-projection",
+      turn_id: "turn-reading",
+      key_events: keyEventsForSlice("au08-adoption-reading-projection"),
+      mutation_id: "mutation-1",
+      chapter_count: 1,
+      content_chars: 12,
     });
   });
 
@@ -375,6 +392,36 @@ describe("native Tauri slice verifier", () => {
         "assistant_messages_not_fallback",
       ],
     });
+  });
+
+  it("accepts AU-08 behavior only when reading mode loads accepted content", () => {
+    const records = au08ReadingProjectionRecords("turn-reading");
+    const evidence = findNativeSliceEvidence("au08-adoption-reading-projection", records);
+
+    expect(findSliceBehaviorEvidence("au08-adoption-reading-projection", records, evidence)).toEqual({
+      slice_id: "au08-adoption-reading-projection",
+      behavior: "accepted_artifact_visible_in_reading_mode_projection",
+      turn_ids: ["turn-reading"],
+      mutation_id: "mutation-1",
+      assertions: [
+        "tentative_artifact_generated_from_real_workbench",
+        "author_clicked_accept_from_workbench",
+        "adoption_persisted_as_mutation",
+        "accepted_content_materialized_as_reading_projection",
+        "reading_mode_loaded_toc_from_channel",
+        "reading_mode_loaded_chapter_content_from_channel",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("rejects AU-08 evidence when reading TOC is still empty", () => {
+    const records = au08ReadingProjectionRecords("turn-reading").map((record) =>
+      record.event === "channel.get_toc.done" ? { ...record, chapter_count: 0 } : record,
+    );
+
+    expect(findNativeSliceEvidence("au08-adoption-reading-projection", records)).toBeNull();
   });
 
   it("rejects ordinary chat behavior when a micro plan event appears", () => {
@@ -759,6 +806,33 @@ function au05BaseRecords(turnId) {
       record.event !== "adoption.evaluate.done" &&
       record.event !== "channel.adopt.done",
   );
+}
+
+function au08ReadingProjectionRecords(turnId) {
+  return [
+    ...au05AdoptionRecords(turnId, true),
+    {
+      event: "channel.get_toc.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 5,
+      outcome: "ok",
+      volume_count: 1,
+      chapter_count: 1,
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      turn_id: turnId,
+      workspace_id: "ws-adopt",
+      work_id: "work-adopt",
+      duration_ms: 5,
+      outcome: "ok",
+      chapter_id: "chapter-1",
+      scene_count: 1,
+      content_chars: 12,
+    },
+  ];
 }
 
 function au03cResumeRecords() {

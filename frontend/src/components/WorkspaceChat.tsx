@@ -210,7 +210,8 @@ export function WorkspaceChat() {
       isTauri &&
       (import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-adoption-boundary" ||
         import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-discard-boundary" ||
-        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-modify-draft-boundary") &&
+        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-modify-draft-boundary" ||
+        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au08-adoption-reading-projection") &&
       !sliceVerifyAdoptionRef.current &&
       (result.adoption_state?.pending?.length ?? 0) > 0
     ) {
@@ -239,6 +240,16 @@ export function WorkspaceChat() {
           }, 150);
         }
       }, 250);
+    }
+
+    if (
+      isTauri &&
+      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au08-adoption-reading-projection" &&
+      result.adoption_state?.resolved?.some((artifact) =>
+        artifact.adoption_status === "ACCEPTED" || artifact.adoption_status === "EDITED_ACCEPTED",
+      )
+    ) {
+      window.setTimeout(() => setMode("reading"), 250);
     }
   }
 
@@ -426,6 +437,7 @@ export function WorkspaceChat() {
       autorunSlice !== "au05-adoption-boundary" &&
       autorunSlice !== "au05-discard-boundary" &&
       autorunSlice !== "au05-modify-draft-boundary" &&
+      autorunSlice !== "au08-adoption-reading-projection" &&
       autorunSlice !== "au03c-work-session-resume"
     ) return;
     if (!socketConnected || sliceVerifyAutorunRef.current) return;
@@ -434,7 +446,11 @@ export function WorkspaceChat() {
     sliceVerifyAutorunRef.current = true;
     const timers: number[] = [];
 
-    if (
+    if (autorunSlice === "au08-adoption-reading-projection") {
+      timers.push(window.setTimeout(() => {
+        void handleSend("请写一段开场正文片段", { generateMicroPlan: true });
+      }, 150));
+    } else if (
       autorunSlice === "au10-ordinary-chat-no-micro-plan" ||
       autorunSlice === "au01-ordinary-chat-two-turn-roundtrip"
     ) {
@@ -481,10 +497,10 @@ export function WorkspaceChat() {
     void sendMessage(channelRef.current, text, context.workId, null, activeSessionId).then(() => setLoading(true));
   }, [activeSessionId, context.workId]);
 
-  const handleSend = async (
+  async function handleSend(
     messageText: string = inputText,
     options: { generateMicroPlan?: boolean } = {},
-  ) => {
+  ) {
     const text = messageText.trim();
     if (!text || !channelRef.current) return;
 
@@ -511,7 +527,7 @@ export function WorkspaceChat() {
       ]);
       setLoading(false);
     }
-  };
+  }
 
   const handleAdopt = async (artifact: ArtifactEntry) => {
     if (!channelRef.current) return;

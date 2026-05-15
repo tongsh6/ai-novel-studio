@@ -6,10 +6,14 @@ import './App.css';
 function App() {
   const { mode } = useAppStore();
 
-  if (mode === 'reading') return <ReadingMode />;
-  if (mode === 'workbench') return <WorkspaceChat />;
-
-  return <WorkspaceChat />;
+  return (
+    <>
+      <div hidden={mode !== 'workbench'}>
+        <WorkspaceChat />
+      </div>
+      {mode === 'reading' && <ReadingMode />}
+    </>
+  );
 }
 
 export default App;

@@ -12,6 +12,7 @@
 #   bash scripts/tauri_slice_verify.sh au05-adoption-boundary
 #   bash scripts/tauri_slice_verify.sh au05-discard-boundary
 #   bash scripts/tauri_slice_verify.sh au05-modify-draft-boundary
+#   bash scripts/tauri_slice_verify.sh au08-adoption-reading-projection
 #   bash scripts/tauri_slice_verify.sh vs10-observability-spine
 #
 # The script starts a slice backend and a native Tauri dev window. By default
@@ -24,7 +25,7 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SLICE_ID=""
 SLICE_VERIFY_PROVIDER="${SLICE_VERIFY_PROVIDER:-slice_verify}"
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
-VITE_PORT="${VITE_DEV_PORT:-5768}"
+VITE_PORT="${VITE_DEV_PORT:-5769}"
 API_URL="http://127.0.0.1:${PHOENIX_PORT}"
 WS_URL="ws://127.0.0.1:${PHOENIX_PORT}/socket"
 VITE_WS_URL="ws://localhost:${VITE_PORT}/socket"
@@ -65,6 +66,7 @@ Available native Tauri slice ids:
   au05-adoption-boundary
   au05-discard-boundary
   au05-modify-draft-boundary
+  au08-adoption-reading-projection
   au10-micro-plan-entry
   au10-ordinary-chat-no-micro-plan
   vs10-observability-spine
@@ -92,7 +94,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
+if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -187,6 +189,9 @@ native_action_description() {
       ;;
     au05-modify-draft-boundary)
       echo "open archive panel -> click new action -> wait for pending artifact -> edit then accept -> verify edited acceptance"
+      ;;
+    au08-adoption-reading-projection)
+      echo "type prose request -> wait for pending artifact -> click accept -> switch to reading mode -> verify TOC and chapter content"
       ;;
     au03c-work-session-resume)
       echo "open archive panel -> generate pending artifact -> restart Tauri -> verify same active session transcript and pending item are restored"
