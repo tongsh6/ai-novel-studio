@@ -376,6 +376,56 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                )
     end
 
+    test "adopt event finds restored pending artifact when current turn is an action turn" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket =
+        socket
+        |> assign_server_turn(@pending_adoption_turn_result)
+        |> assign_server_turn(%{
+          turn_id: "turn_adopt_21",
+          adoption_state: %{
+            pending: [],
+            resolved: [
+              %{
+                artifact_id: "other-artifact",
+                artifact_type: "character_seed",
+                adoption_status: "ACCEPTED",
+                requires_adoption: false
+              }
+            ]
+          }
+        })
+
+      assert socket.assigns.current_turn_id == "turn_adopt_21"
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "adopt",
+                 %{
+                   "artifact_id" => "as-adopt-1",
+                   "artifact_type" => "character_seed",
+                   "payload" => %{"title" => "角色设定"}
+                 },
+                 socket
+               )
+
+      assert_broadcast("turn_result", %{
+        parent_turn_id: "turn-adopt-source",
+        adoption_state: %{
+          resolved: [
+            %{
+              artifact_id: "as-adopt-1",
+              adoption_status: "ACCEPTED"
+            }
+          ]
+        }
+      })
+    end
+
     test "discard event resolves pending artifact without crashing channel" do
       {:ok, _, socket} =
         UserSocket
@@ -508,8 +558,10 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
   end
 
   defp assign_server_turn(socket, %{turn_id: turn_id} = turn_result) do
+    turn_results = Map.put(socket.assigns[:turn_results_by_id] || %{}, turn_id, turn_result)
+
     socket
     |> Phoenix.Socket.assign(:current_turn_id, turn_id)
-    |> Phoenix.Socket.assign(:turn_results_by_id, %{turn_id => turn_result})
+    |> Phoenix.Socket.assign(:turn_results_by_id, turn_results)
   end
 end

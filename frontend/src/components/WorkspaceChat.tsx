@@ -582,7 +582,7 @@ export function WorkspaceChat() {
     }
   }
 
-  const handleAdopt = async (artifact: ArtifactEntry) => {
+  const handleAdopt = async (artifact: ArtifactEntry, sourceTurnRef?: string | null) => {
     if (!channelRef.current) return;
     try {
       const result = await adopt(
@@ -591,7 +591,7 @@ export function WorkspaceChat() {
         parseRevisionBase(artifact.revision_base),
         artifact.payload,
         artifact.artifact_type,
-        artifact.source_turn_ref ?? null,
+        sourceTurnRef ?? artifact.source_turn_ref ?? null,
       );
 
       // Update context when Work is adopted (persist work_id for subsequent messages)
@@ -793,7 +793,7 @@ export function WorkspaceChat() {
                     const pending = msg.turnResult?.adoption_state?.pending ?? [];
                     const artifact = pending.find((a) => a.artifact_id === targetRef);
                     if (artifact && actionType === "accept") {
-                      void handleAdopt(artifact);
+                      void handleAdopt(artifact, msg.turnResult?.turn_id);
                       return;
                     }
 

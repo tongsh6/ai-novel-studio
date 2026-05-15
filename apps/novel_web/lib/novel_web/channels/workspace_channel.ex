@@ -272,7 +272,9 @@ defmodule NovelWeb.WorkspaceChannel do
   def handle_in("adopt", %{"artifact_id" => artifact_id} = params, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     work_id = socket.assigns[:work_id] || ws_id
-    source_turn_ref = Map.get(params, "source_turn_ref") || socket.assigns[:current_turn_id]
+
+    {source_turn_ref, source_turn_result} =
+      source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
 
     LogContext.put_turn(ws_id, work_id, source_turn_ref)
 
@@ -283,8 +285,6 @@ defmodule NovelWeb.WorkspaceChannel do
       work_id: work_id,
       artifact_id: artifact_id
     })
-
-    source_turn_result = source_turn_ref && source_turn_result(socket, source_turn_ref)
 
     adopt_params =
       params
@@ -326,7 +326,9 @@ defmodule NovelWeb.WorkspaceChannel do
   def handle_in("discard", %{"artifact_id" => artifact_id} = params, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     work_id = socket.assigns[:work_id] || ws_id
-    source_turn_ref = Map.get(params, "source_turn_ref") || socket.assigns[:current_turn_id]
+
+    {source_turn_ref, source_turn_result} =
+      source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
 
     LogContext.put_turn(ws_id, work_id, source_turn_ref)
 
@@ -337,8 +339,6 @@ defmodule NovelWeb.WorkspaceChannel do
       work_id: work_id,
       artifact_id: artifact_id
     })
-
-    source_turn_result = source_turn_ref && source_turn_result(socket, source_turn_ref)
 
     case NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, params) do
       {:ok, action_result, turn_result} ->
@@ -374,7 +374,9 @@ defmodule NovelWeb.WorkspaceChannel do
     artifact_id = Map.get(params, "artifact_id") || Map.get(params, "draft_id")
     ws_id = socket.assigns[:workspace_id] || "lobby"
     work_id = socket.assigns[:work_id] || ws_id
-    source_turn_ref = Map.get(params, "source_turn_ref") || socket.assigns[:current_turn_id]
+
+    {source_turn_ref, source_turn_result} =
+      source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
 
     LogContext.put_turn(ws_id, work_id, source_turn_ref)
 
@@ -385,8 +387,6 @@ defmodule NovelWeb.WorkspaceChannel do
       work_id: work_id,
       artifact_id: artifact_id
     })
-
-    source_turn_result = source_turn_ref && source_turn_result(socket, source_turn_ref)
 
     modify_params =
       params
@@ -613,6 +613,70 @@ defmodule NovelWeb.WorkspaceChannel do
         Map.get(turn_results, source_turn_ref)
     end
   end
+
+  defp source_turn_for_artifact_action(socket, requested_ref, artifact_id) do
+    requested_turn_result = requested_ref && source_turn_result(socket, requested_ref)
+
+    cond do
+      pending_artifact?(requested_turn_result, artifact_id) ->
+        {turn_id(requested_turn_result) || requested_ref, requested_turn_result}
+
+      artifact_resolved?(socket, artifact_id) ->
+        fallback_source_turn(socket, requested_ref)
+
+      true ->
+        find_source_turn_with_pending_artifact(socket, artifact_id) ||
+          fallback_source_turn(socket, requested_ref)
+    end
+  end
+
+  defp fallback_source_turn(socket, requested_ref) do
+    source_turn_ref = requested_ref || socket.assigns[:current_turn_id]
+    {source_turn_ref, source_turn_ref && source_turn_result(socket, source_turn_ref)}
+  end
+
+  defp find_source_turn_with_pending_artifact(socket, artifact_id) do
+    socket.assigns
+    |> Map.get(:turn_results_by_id, %{})
+    |> Enum.find_value(fn {turn_id, turn_result} ->
+      if pending_artifact?(turn_result, artifact_id), do: {turn_id, turn_result}
+    end)
+  end
+
+  defp pending_artifact?(turn_result, artifact_id) when is_binary(artifact_id) do
+    turn_result
+    |> adoption_entries(:pending)
+    |> Enum.any?(&(map_field(&1, :artifact_id) == artifact_id))
+  end
+
+  defp pending_artifact?(_turn_result, _artifact_id), do: false
+
+  defp artifact_resolved?(socket, artifact_id) when is_binary(artifact_id) do
+    socket.assigns
+    |> Map.get(:turn_results_by_id, %{})
+    |> Map.values()
+    |> Enum.flat_map(&adoption_entries(&1, :resolved))
+    |> Enum.any?(&(map_field(&1, :artifact_id) == artifact_id))
+  end
+
+  defp artifact_resolved?(_socket, _artifact_id), do: false
+
+  defp adoption_entries(turn_result, key) when is_map(turn_result) do
+    turn_result
+    |> map_field(:adoption_state)
+    |> map_field(key)
+    |> List.wrap()
+  end
+
+  defp adoption_entries(_turn_result, _key), do: []
+
+  defp turn_id(turn_result), do: map_field(turn_result, :turn_id)
+
+  defp map_field(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp map_field(_map, _key), do: nil
 
   defp fallback_turn_result(reason) do
     %{
