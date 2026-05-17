@@ -2,7 +2,7 @@
 
 > 作者视角：我的小说有大量设定、角色关系、伏笔线索、世界观规则。我需要能管理这些设定，并且 AI 在后续对话中能自动、可追溯地引用已确认设定。
 >
-> 2026-05-13 对账结论：当前已有 `MemoryItem` schema/enums、记忆管理 Phase 0 前端组件、作品档案面板壳、引用日志表和 `DialogueContext.memory_summary` 字段；但缺可用 REST/Channel 管理入口、真实作品档案数据、记忆召回到主链 context、引用日志写入、作者可见溯源，以及和 AU-03 “作品内多会话 + 最新作品背景”的分层闭环。
+> 2026-05-18 对账结论：作品档案面板的固定样例数据已被最小真实链路替换，真实 Tauri 工作台可打开当前 Work 的档案并读取已采纳角色、confirmed/stabilized 且 recallable 的伏笔/规则、卷章/草稿/记忆统计；但 AU-09 仍缺可用 REST/Channel 管理入口、面板内采纳进入 governed memory、记忆召回到主链 context、引用日志写入、作者可见溯源，以及和 AU-03 “作品内多会话 + 最新作品背景”的分层闭环。
 
 ---
 
@@ -75,9 +75,9 @@
 - 切换作品后统计随当前 Work 改变；
 - 无数据时显示真实空态，不显示固定样例。
 
-**当前证据**：`StructurePanel` 有统计 UI；`WorkspaceChannel.get_work_stats` 返回固定 mock。
+**当前证据**：`StructurePanel` 有统计 UI；`WorkspaceChannel.get_work_stats` 通过 `NovelApplication.WorkArchiveService` 读取当前 `work_id` 的真实卷章、角色、confirmed/stabilized 且 recallable 的记忆和草稿统计；`au09-archive-real-data` 原生 Tauri 验证会从真实工作台打开档案并校验 UI 计数与 Channel 日志一致。
 
-**当前状态**：部分实现。
+**当前状态**：部分实现 / 最小真实前端闭环已补。仍缺切换作品后的 UI 隔离验收和完整记忆管理入口。
 
 ---
 
@@ -91,9 +91,9 @@
 - 不同作品内容隔离；
 - 空态不冒充已有作品事实。
 
-**当前证据**：`StructurePanel` 有四个 tab；Channel handler 返回固定 `mock_work`、`char_1`、`mem_1`、`rule_1`。
+**当前证据**：`StructurePanel` 有四个 tab；大纲 `get_toc` 已在 AU-08 改为真实读取 accepted draft 投影；`get_characters` / `get_foreshadowing` / `get_rules` 已改为通过 `WorkArchiveService` 读取当前 Work 的已采纳角色和已确认可召回记忆；`lobby` / 无效 Work 返回空态，不再返回固定 `char_1`、`mem_1`、`rule_1`。
 
-**当前状态**：部分实现。
+**当前状态**：部分实现 / 最小真实前端闭环已补。仍缺跨作品切换的 UI 级隔离验收、记忆管理页和详情面。
 
 ---
 
@@ -302,8 +302,8 @@
 
 | 场景 | 做什么 | 当前状态 | 证据等级 |
 |---|---|---|---|
-| SC-AU09-A1 | 打开档案看真实统计 | 部分实现 | UI + mock Channel |
-| SC-AU09-A2 | 分类浏览真实作品内容 | 部分实现 | UI + mock Channel |
+| SC-AU09-A1 | 打开档案看真实统计 | 部分实现 / 最小真实前端闭环已补 | Tauri UI + Channel + persistence |
+| SC-AU09-A2 | 分类浏览真实作品内容 | 部分实现 / 最小真实前端闭环已补 | Tauri UI + Channel + persistence |
 | SC-AU09-A3 | 待采纳不混入已确认 | 部分实现 | 前端当前 turn 内存 |
 | SC-AU09-A4 | 面板内采纳进入真实记忆 | 未闭环 | 依赖 AU-05 采纳缺口 |
 | SC-AU09-B1 | 打开记忆管理页 | 部分实现 | 组件存在，未挂路由，API 缺失 |
@@ -317,7 +317,7 @@
 | SC-AU09-D2 | 记忆引用可溯源 | 部分实现 | reference log helper，主链未接 |
 | SC-AU09-D3 | 与 AU-03 会话/最新背景分层一致 | 未实现 | AU-03 会话模型缺口 |
 
-**覆盖率重算**：0/14 完整真实前后端验收；9/14 有局部证据或基础设施；5/14 未实现/未闭环。
+**覆盖率重算**：0/14 完整真实前后端验收；2/14 已有最小真实前端闭环但仍缺完整场景后果；9/14 有局部证据或基础设施；5/14 未实现/未闭环。
 
 ---
 
@@ -326,7 +326,7 @@
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
 | AU09-GAP-01 — 记忆 REST/Channel 管理入口缺失 | 前端 `memoryApi.ts` 调 `/api/works/:id/memories...`，Router 无对应路由 | 补实现/补集成 | P0 |
-| AU09-GAP-02 — 作品档案仍是 mock 数据 | `get_toc` / `get_characters` / `get_foreshadowing` / `get_rules` / `get_work_stats` 返回固定样例 | 补集成/补验收 | P0 |
+| AU09-GAP-02 — 作品档案仍是 mock 数据 | `get_characters` / `get_foreshadowing` / `get_rules` / `get_work_stats` 固定样例已移除；`get_toc` 已由 AU-08 读取 accepted draft 投影；剩余是跨作品 UI 隔离、详情面和完整 AU-09 覆盖 | 最小闭环已补 / 继续补验收 | P0/P1 |
 | AU09-GAP-03 — 面板采纳未进入真实记忆 | pendingAdoptions 是当前前端内存，采纳链路未写入 governed memory | 补集成 | P0 |
 | AU09-GAP-04 — `memory_summary` 未接主链 | `WorkspaceContext.context_fetcher/0` 返回 memory nil | 补集成 | P0 |
 | AU09-GAP-05 — recall 查询和 ranking 缺失 | 未发现按 work/status/type/validity/query 召回 MemoryItem 的 application/persistence 入口 | 补实现 | P0 |
@@ -348,7 +348,7 @@
 | `NovelDomain.MemoryItem` | 纯函数表达生命周期动作 | 未被 persistence/API 主流程消费 |
 | `MemoryReferenceLog` | 可写引用日志 | 没有 recall 调用和 UI/replay 聚合 |
 | `ContextAssembler` / `DialogueContext` | `memory_summary` 能进入 prompt | 真实 fetcher 不提供 memory，只有 stub 测试 |
-| `StructurePanel` | 档案面板视觉壳和 pending 分区 | 数据是 mock 或当前前端内存 |
+| `StructurePanel` | 档案面板视觉壳、真实 archive 读模型和 pending 分区 | 已确认档案数据已有最小真实链路；pending 仍来自 adoption/resume 视图，记忆管理、召回和溯源未闭环 |
 | `MemoryListPage` 系列组件 | Phase 0 管理表格/表单/详情 | 无 App 入口、无设计规范、无后端路由 |
 
 ---

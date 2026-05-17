@@ -1,6 +1,6 @@
 # v3 验收场景全景
 
-> 最后更新：2026-05-14
+> 最后更新：2026-05-18
 >
 > 本目录包含 AI Novel Studio v3 的验收场景文档。按两种用户视角组织：**系统用户**（自然人，配置和运行软件）和**作者用户**（核心用户，用 AI 写小说）。
 >
@@ -53,7 +53,7 @@
 | [AU-06](author/AU-06-behavior-lifecycle.md) | 行为生命周期 | 17 | 0/17 完整真实前后端验收；6/17 有局部证据 | 打开行为已部分实现，resolution/history/TTL/replay 未闭环 |
 | [AU-07](author/AU-07-trace-and-replay.md) | 决策溯源透明度 | 16 | 0/16 完整真实前后端验收；8/16 有局部证据 | Replay no-provider 已测，真实 why UI/redaction/多 trace 回放未闭环 |
 | [AU-08](author/AU-08-reading-mode.md) | 阅读我的作品 | 16 | 0/16 完整真实前后端验收；7/16 有局部证据 | 阅读壳已实现，TOC mock/章节 handler/真实投影链路未闭环 |
-| [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 14 | 0/14 完整真实前后端验收；9/14 有局部证据 | 记忆 schema/UI 壳存在，管理 API、召回主链、溯源和 AU-03 分层未闭环 |
+| [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 14 | 0/14 完整真实前后端验收；2/14 有最小真实前端闭环；9/14 有局部证据 | 作品档案固定 mock 已移除并接真实 archive 读模型；管理 API、召回主链、溯源和 AU-03 分层仍未闭环 |
 | [AU-10](author/AU-10-workbench-ui.md) | 工作台实时交互 | 17 | 1/17 最小前端发起验证；13/17 有局部证据；新增 VS-10 原生 Tauri 自动化证据 | `au10-micro-plan-entry` 已证明真实入口可发起 MicroPlan；`vs10-observability-spine` 已证明原生 Tauri 窗口可自动驱动真实控件并校验日志链；adoption/trace/projection/完整 Tauri 合规仍未闭环 |
 
 ---
@@ -141,7 +141,7 @@ mix test apps/novel_web/test/novel_web/channels/
 | 采纳到阅读投影与 ProjectionHint adapter | AU-08 AU08-GAP-03~04 | 补集成/修正/补测试 | P0 |
 | projection refresh no-write 与跨作品隔离 | AU-08 AU08-GAP-05~06 | 补实现/补测试/补验收 | P0 |
 | 阅读模式错误态与 UI 自动化 | AU-08 AU08-GAP-07~09 | 补实现/补验收/文案同步 | P1/P2 |
-| 记忆管理 REST/Channel 入口与作品档案真实数据 | AU-09 AU09-GAP-01~03 | 补实现/补集成/补验收 | P0 |
+| 记忆管理 REST/Channel 入口与作品档案真实数据 | AU-09 AU09-GAP-01~03 | 档案真实数据最小闭环已补；继续补管理入口/采纳入记忆/完整验收 | P0/P1 |
 | 记忆召回到 context/prompt 与 recall ranking | AU-09 AU09-GAP-04~05 | 补实现/补集成 | P0 |
 | 记忆状态机、locked 保护、有效期窗口 | AU-09 AU09-GAP-06~08 | 补实现/补测试/补集成 | P0/P1 |
 | 记忆引用日志、作者溯源、AU-03 会话分层 | AU-09 AU09-GAP-09~12 | 补集成/补实现/新增 | P0/P1 |

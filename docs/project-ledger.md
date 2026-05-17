@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-17（Milestone: 前端统一工作台状态模型）
+> 最后更新：2026-05-18（Milestone: AU-09 作品档案真实数据 checkpoint）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -30,6 +30,8 @@ Desktop Preference checkpoint（2026-05-17）：已消除前端桌面持久化 A
 Provider Health Endpoint checkpoint（2026-05-17）：已修复 AU-10 / SC-AU10-A2 中登记的前端端点抽象偏差。新增 `frontend/src/lib/providerHealth.ts`，统一通过 `apiBaseUrl` 组装 `GET /api/provider/health`；真实入口 `WorkspaceChat` 与旁路 `WorkbenchV3` 均改为消费该 helper，不再直接 `fetch("/api/provider/health")` 假设浏览器同源路径。同步移除 `WorkspaceChat` 顶栏 touched 区域的 JSX 内联样式，改由 CSS Module 表达 LLM/service badge 与阅读模式按钮状态。验证：`pnpm --dir frontend typecheck`、`pnpm --dir frontend lint`、`pnpm --dir frontend test`、`mix compile --warnings-as-errors`、`mix test`、xref cycle check、arch check、`bash scripts/check_design_trace.sh`、`bash scripts/frontend_audit.sh`、`bash scripts/task_done.sh --slice workspace-runtime-state --top 10` 均通过；原生 Tauri UI 证据为 `artifacts/slice-verify/workspace-runtime-state-tauri/summary.json`；AI 静态扫描 14 PASS / 0 finding。
 
 Candidate Continuation checkpoint（2026-05-17）：已补齐 AU-02 / AU-10 中“候选方向只展示不可操作”的真实工作台入口。`WorkspaceChat` 的 `candidate_directions` 卡片新增“继续聊这个方向”动作，文案集中在 `frontend/src/lib/copy.ts`，payload 由 `frontend/src/lib/candidateSelection.ts` 构造为普通 follow-up message + `candidate_selection` 元数据；`frontend/src/lib/socket.ts` 随 `user_message` 发送 `source_turn_ref` / `candidate_set_ref` / `candidate_ref`，默认仍 `generate_micro_plan=false`。`WorkspaceChannel` 会校验 candidate 必须来自服务器保存的 source TurnResult，校验通过后仍走普通 `DialogueGateway.handle_input/5`，只把 `candidate_ref` 写入日志相关性，不进入 `AdoptionWorkflow`、不写 projection，继续保护 “candidate selected ≠ candidate adopted”。新增浏览器验证 `bash scripts/slice_verify.sh au02-candidate-continuation` 与原生 Tauri 验证 `bash scripts/tauri_slice_verify.sh au02-candidate-continuation`；Tauri 证据 `artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` 显示真实窗口输入模糊方向、收到 candidate card、点击继续按钮后产生 `turn_9`，携带 `source_turn_ref=turn_3` / `candidate_ref=dir_5`，断言 `micro_plan_not_requested`、`no_adoption_or_projection_events`、`surface=tauri`。验证：`mix test`、`pnpm --dir frontend typecheck`、`pnpm --dir frontend lint`、`pnpm --dir frontend test`、`bash scripts/tauri_slice_verify.sh au02-candidate-continuation`、`bash scripts/task_done.sh --slice au02-candidate-continuation --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10` 均通过；AI 静态扫描 14 PASS / 0 finding。剩余：明确采纳候选方向仍属于 AU-02/AU-05 桥接缺口，不能把 AU-02 整体标 done。
+
+AU-09 Archive Real Data checkpoint（2026-05-18）：已补齐作品档案面板固定 mock 数据缺口的最小真实前端闭环。新增 `NovelPersistence.WorkArchiveRepo` 与 `NovelApplication.WorkArchiveService`，`WorkspaceChannel.get_characters/get_foreshadowing/get_rules/get_work_stats` 改为按当前 `work_id` 读取已采纳角色、confirmed/stabilized 且 `recallable=true` 的伏笔/规则、真实卷章/草稿/记忆统计；`lobby`、无效 UUID 或空作品返回真实空态，不再返回 `char_1/mem_1/rule_1` 固定样例。`StructurePanel` 增加 slice verify probes，`scripts/tauri_slice_verify.sh au09-archive-real-data` 会 seed 一个带角色、伏笔、规则、卷章和 accepted draft 的真实 work，打开原生 Tauri 工作台作品档案，校验 Channel 日志与 UI 计数一致。验证：`mix test apps/novel_application/test/novel_application/work_archive_service_test.exs apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs`、`pnpm --dir frontend test -- slice-verify/native-tauri-verifier.test.mjs` 已通过。剩余：AU-09 仍未完成 memory REST 管理入口、面板内采纳进入 governed memory、recall 到 `memory_summary` / prompt、引用日志、作者可见溯源和有效期/locked 状态机；本 checkpoint 不能把 AU-09 整体标 done。
 
 当前主线从 AU-05 采纳链路前移到 **AU-03C 作品内会话模型与恢复**，原因是 AU-05 的 pending adoption 不能依赖 Tauri/Channel 内存；作者关闭应用再打开时，必须自动回到同一作品的上次 active session，并恢复完整 transcript 与右侧待处理事项。
 
@@ -157,7 +159,7 @@ Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新
 | AU-04/AU-06 执行确认与行为生命周期 | AU-04 `0/18`；AU-06 `0/17` 完整真实前后端验收 | 后端门禁较强；真实入口确认/拒绝已接 `author_action` 最小闭环；behavior_state 消费、resolution/history、幂等、TTL、ConfirmationBinding 和 UI 验收未闭环 | `docs/design-v3/acceptance/author/AU-04-execute-and-confirm.md`；`AU-06-behavior-lifecycle.md` |
 | AU-05/AU-08 采纳到阅读投影 | **最小真实 Tauri 闭环已补（2026-05-15）**；完整 AU 覆盖率仍需重算 | `au08-adoption-reading-projection` 已证明真实工作台生成待采纳内容、点击采纳、后端写 mutation/memory/accepted draft read model、ReadingMode 经 Channel 拉到 TOC 和章节正文。剩余：真实卷章归属/合并、projection refresh job 状态机、完整 AU-05/AU-08 场景覆盖未重算 | `docs/design-v3/acceptance/author/AU-05-artifact-adoption.md`；`AU-08-reading-mode.md`；`artifacts/slice-verify/au08-adoption-reading-projection-tauri/summary.json` |
 | AU-07 溯源回放 | `0/16` 完整真实前后端验收；`8/16` 有局部证据 | Replay no-provider 已测；缺 why UI、redaction、author/developer 双视图、Tool/Behavior/StateTrace 聚合 | `docs/design-v3/acceptance/author/AU-07-trace-and-replay.md` |
-| AU-09 故事设定/记忆 | `0/14` 完整真实前后端验收；`9/14` 有局部证据 | `MemoryItem` schema、Phase 0 管理组件、reference log helper、`memory_summary` 字段存在；但 memory REST/Channel 管理入口、真实档案数据、recall 到 prompt、引用溯源和 AU-03 会话/最新背景分层均未闭环 | `docs/design-v3/acceptance/author/AU-09-story-memory.md` |
+| AU-09 故事设定/记忆 | `0/14` 完整真实前后端验收；`2/14` 有最小真实前端闭环；`9/14` 有局部证据 | 作品档案固定 mock 已移除，`au09-archive-real-data` 可从原生 Tauri 工作台打开档案并读取当前 Work 的真实角色、伏笔、规则和统计；但 memory REST/Channel 管理入口、面板内采纳入 governed memory、recall 到 prompt、引用溯源和 AU-03 会话/最新背景分层仍未闭环 | `docs/design-v3/acceptance/author/AU-09-story-memory.md` |
 | AU-10 工作台实时交互 | `0/17` 完整真实前后端验收；1 条最小浏览器前端发起验证；4 条原生 Tauri 自动化证据；`13/17` 有局部证据 | 真实入口 `WorkspaceChat` 已接普通聊天默认 false、`available_actions`/`author_action`、`task_state` 最小闭环；`scripts/slice_verify.sh au10-micro-plan-entry` 已能从浏览器前端触发 MicroPlan；`scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip` 已能从原生 Tauri 输入框/发送按钮连续完成两轮普通聊天并证明不进入 MicroPlan；`scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan` 已能从原生 Tauri 触发普通消息并断言 `generate_micro_plan=false`；`scripts/tauri_slice_verify.sh au10-micro-plan-entry` 已能从原生 Tauri 触发 MicroPlan 入口并断言 `generate_micro_plan=true`；adoption、候选点选、trace/why、projection、完整 DOM/工作台验收仍未闭环 | `docs/design-v3/acceptance/author/AU-10-workbench-ui.md` |
 
 #### 下一会话交接（从这里继续）
@@ -168,7 +170,7 @@ Stage Startup Context Contract automation checkpoint（2026-05-15 12:38）：新
 4. **最小实现步只能是 checkpoint，不能缩小规划范围**。任何“先做最小一步”必须引用既有 AU/SU/GAP 或 slice 任务编号，说明它属于哪个完整闭环、已经覆盖哪些计划内后果、下一 checkpoint 还必须补哪些计划内后果。不能把 persistence、trace、projection、UI 验证等 acceptance 已要求的后果说成“本次不做/范围外”；暂未覆盖时只能标“局部证据”或“未闭环”。规则正文见 `docs/engineering/vertical-slice.md` §1.2。
 5. 下一步不再重算 AU/SU 文档，继续承重 slice 实现。优先候选：
    - 真实工作台主入口继续补 adoption/projection/trace/UI 自动化：覆盖 AU-05/AU-07/AU-08/AU-10 的 P0/P1 缺口。
-   - 记忆召回端到端：新建/确认记忆 -> 召回进 context/prompt -> trace 显示引用来源 -> 历史会话不覆盖最新 Work 背景，覆盖 AU-03/AU-07/AU-09。
+   - 记忆召回端到端：新建/确认记忆 -> 召回进 context/prompt -> trace 显示引用来源 -> 历史会话不覆盖最新 Work 背景，覆盖 AU-03/AU-07/AU-09。作品档案固定 mock 已补，下一步不要重复做 archive 读模型。
 6. 任何实现前仍需回答 Contract / Invariant / Boundary / Consumer / Proof；其中 Proof 必须包含前端发起路径，暂缺则记录未闭环原因。
 
 #### 进行中的承重切片（修正前 §1 的"全 done"假象）
