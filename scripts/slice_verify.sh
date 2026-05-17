@@ -27,6 +27,7 @@ Usage:
   bash scripts/slice_verify.sh <slice-id>
 
 Available slice ids:
+  au02-candidate-continuation
   au10-micro-plan-entry
   vs10-observability-spine
 EOF
@@ -101,7 +102,8 @@ PHX_PID=$!
 wait_for_url "$API_URL/health" "Phoenix"
 
 cd "$PROJECT_ROOT/frontend"
-VITE_API_ENDPOINT="$API_URL" \
+VITE_API_ENDPOINT="" \
+VITE_PROXY_TARGET="$API_URL" \
   VITE_WS_ENDPOINT="$WS_URL" \
   VITE_DEV_PORT="$VITE_PORT" \
   pnpm dev --host 127.0.0.1 >"$ARTIFACT_DIR/frontend.log" 2>&1 &

@@ -8,6 +8,7 @@
 #   bash scripts/tauri_slice_verify.sh stage-startup-context-contract
 #   bash scripts/tauri_slice_verify.sh workspace-runtime-state
 #   bash scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip
+#   bash scripts/tauri_slice_verify.sh au02-candidate-continuation
 #   bash scripts/tauri_slice_verify.sh au10-micro-plan-entry
 #   bash scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan
 #   bash scripts/tauri_slice_verify.sh au03c-work-session-resume
@@ -65,6 +66,7 @@ Usage:
 
 Available native Tauri slice ids:
   au01-ordinary-chat-two-turn-roundtrip
+  au02-candidate-continuation
   stage-startup-context-contract
   workspace-runtime-state
   au03c-work-session-resume
@@ -100,7 +102,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
+if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -186,6 +188,9 @@ native_action_description() {
       ;;
     au01-ordinary-chat-two-turn-roundtrip)
       echo "type ordinary chat -> receive result -> continue second ordinary turn"
+      ;;
+    au02-candidate-continuation)
+      echo "type fuzzy creative direction -> receive candidate cards -> click continue direction -> verify candidate continuation stays dialogue-only"
       ;;
     stage-startup-context-contract)
       echo "seed persisted active session -> start Tauri -> verify restored startup UI has same work/session, no welcome injection, connected service state"

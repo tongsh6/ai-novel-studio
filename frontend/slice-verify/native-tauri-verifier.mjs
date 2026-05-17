@@ -10,6 +10,7 @@ export const nativeSliceIds = [
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
+  "au02-candidate-continuation",
   "vs10-observability-spine",
 ];
 
@@ -114,6 +115,13 @@ const sliceKeyEvents = {
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
   ],
+  "au02-candidate-continuation": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ],
   "vs10-observability-spine": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
@@ -202,6 +210,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findOrdinaryChatTwoTurnEvidence(records);
   }
 
+  if (sliceId === "au02-candidate-continuation") {
+    return findCandidateContinuationEvidence(records);
+  }
+
   if (sliceId === "vs10-observability-spine") {
     return findVs10LogSpineEvidence(records);
   }
@@ -234,6 +246,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au01-ordinary-chat-two-turn-roundtrip") {
     return ordinaryChatBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au02-candidate-continuation") {
+    return candidateContinuationBehavior(turnIds, turnRecords, options);
   }
 
   if (sliceId === "au05-adoption-boundary") {
@@ -635,6 +651,41 @@ function findAu10UserMessageEvidence(records, generateMicroPlan, sliceId) {
   return null;
 }
 
+function findCandidateContinuationEvidence(records) {
+  const sliceId = "au02-candidate-continuation";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== false) continue;
+    if (!start.candidate_ref || !start.candidate_source_turn_ref) continue;
+    if (!hasRequiredCorrelationFields(start)) continue;
+
+    const hasAllEvents = keyEvents.every((event) =>
+      turnRecords.some(
+        (record) => record.event === event && hasRequiredCorrelationFields(record),
+      ),
+    );
+    if (!hasAllEvents) continue;
+
+    if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+      continue;
+    }
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      source_turn_ref: start.candidate_source_turn_ref,
+      candidate_ref: start.candidate_ref,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
 function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 2) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
@@ -654,6 +705,38 @@ function ordinaryChatBehavior(turnIds, turnRecords, options) {
       "no_error_events",
       "assistant_messages_not_fallback",
       "lmstudio_form_frame_called_per_turn",
+    ],
+  };
+}
+
+function candidateContinuationBehavior(turnIds, turnRecords, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.discard.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.modify_draft.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.get_toc.")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+  if (!start?.candidate_ref || !start?.candidate_source_turn_ref) return null;
+
+  return {
+    slice_id: "au02-candidate-continuation",
+    behavior: "candidate_selection_continues_dialogue_without_adoption",
+    turn_ids: turnIds,
+    source_turn_ref: start.candidate_source_turn_ref,
+    candidate_ref: start.candidate_ref,
+    assertions: [
+      "candidate_ref_sent_from_real_workbench",
+      "micro_plan_not_requested",
+      "no_adoption_or_projection_events",
+      "assistant_messages_not_fallback",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_per_turn"
+        : "deterministic_provider_form_frame_called_per_turn",
     ],
   };
 }
