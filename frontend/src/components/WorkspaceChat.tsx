@@ -388,7 +388,7 @@ export function WorkspaceChat() {
       let work: WorkDto;
       try {
         const works = await listWorks();
-        const initialId = pickInitialWorkId(works, getLastOpenedWorkId());
+        const initialId = pickInitialWorkId(works, await getLastOpenedWorkId());
         if (initialId) {
           const selected = works.find((w) => w.id === initialId);
           if (!selected) throw new Error(`selected work not found: ${initialId}`);
@@ -412,7 +412,7 @@ export function WorkspaceChat() {
       const workId = work.id;
       let workTitle = work.title;
       let sessionId: string | null = null;
-      setLastOpenedWorkId(workId);
+      void setLastOpenedWorkId(workId);
 
       try {
         const snapshot = await resumeWorkspace(work.id);
@@ -468,7 +468,7 @@ export function WorkspaceChat() {
             return;
           }
           if (joinedSessionId) setActiveSessionId(joinedSessionId);
-          setLastOpenedWorkId(joinedWorkId);
+          void setLastOpenedWorkId(joinedWorkId);
           setSocketConnected(true);
           setMessages((prev) => {
             const startupRuntime = deriveWorkspaceRuntimeState({

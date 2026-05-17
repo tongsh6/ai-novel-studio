@@ -1,9 +1,9 @@
 // Design: tasks/slices/v3/VS-09-work-management.md §6 (frontend)
 // Contract: backend GET /api/works / POST /api/works (NovelWeb.WorksController)
 //
-// 最小作品 API 客户端：list / create / lastOpened（localStorage）。
+// 最小作品 API 客户端：list / create / lastOpened（Tauri preference command）。
 
-import { apiBaseUrl } from "./env";
+import { apiBaseUrl, isTauri } from "./env";
 
 export interface WorkDto {
   id: string;
@@ -41,19 +41,46 @@ export async function createWork(input: {
   return body.work;
 }
 
-export function getLastOpenedWorkId(): string | null {
+type BrowserStorage = Pick<Storage, "getItem" | "setItem">;
+
+function browserStorage(): BrowserStorage | null {
   try {
-    return window.localStorage.getItem(LS_KEY);
+    const candidate = globalThis as typeof globalThis & {
+      localStorage?: BrowserStorage;
+    };
+    return candidate.localStorage ?? null;
   } catch {
     return null;
   }
 }
 
-export function setLastOpenedWorkId(id: string): void {
+async function invokeTauri<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  const { invoke } = await import("@tauri-apps/api/core");
+  return invoke<T>(command, args);
+}
+
+export async function getLastOpenedWorkId(): Promise<string | null> {
   try {
-    window.localStorage.setItem(LS_KEY, id);
+    if (isTauri) {
+      return await invokeTauri<string | null>("get_last_opened_work_id");
+    }
+
+    return browserStorage()?.getItem(LS_KEY) ?? null;
   } catch {
-    /* localStorage unavailable — ignore */
+    return null;
+  }
+}
+
+export async function setLastOpenedWorkId(id: string): Promise<void> {
+  try {
+    if (isTauri) {
+      await invokeTauri<void>("set_last_opened_work_id", { id });
+      return;
+    }
+
+    browserStorage()?.setItem(LS_KEY, id);
+  } catch {
+    /* Preference persistence unavailable — ignore. */
   }
 }
 
