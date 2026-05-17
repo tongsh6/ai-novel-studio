@@ -586,6 +586,7 @@ export function WorkspaceChat() {
       autorunSlice !== "au05-modify-draft-boundary" &&
       autorunSlice !== "au05-adoption-followup-routing" &&
       autorunSlice !== "au08-adoption-reading-projection" &&
+      autorunSlice !== "au09-archive-real-data" &&
       autorunSlice !== "stage-startup-context-contract" &&
       autorunSlice !== "workspace-runtime-state" &&
       autorunSlice !== "au03c-work-session-resume"
@@ -681,6 +682,46 @@ export function WorkspaceChat() {
         if (channelRef.current) {
           void sendMessage(channelRef.current, text, context.workId, null, activeSessionId, true);
         }
+      }, 150));
+    } else if (autorunSlice === "au09-archive-real-data") {
+      timers.push(window.setTimeout(() => {
+        setIsPanelOpen(true);
+        timers.push(window.setTimeout(() => {
+          if (!channelRef.current || sliceVerifyUiReported.has("au09-archive-real-data")) return;
+          sliceVerifyUiReported.add("au09-archive-real-data");
+
+          const textContent = (selector: string) =>
+            document.querySelector<HTMLElement>(selector)?.innerText.trim() ?? "";
+          const panelDataset =
+            document.querySelector<HTMLElement>('[data-slice-verify="structure-panel"]')
+              ?.dataset;
+          const datasetNumber = (key: string) => Number.parseInt(panelDataset?.[key] ?? "0", 10);
+
+          void reportSliceVerifyUiState(channelRef.current, {
+            slice_id: "au09-archive-real-data",
+            context_work_id: context.workId,
+            context_work_title: visibleWorkTitle,
+            active_session_id: activeSessionId,
+            restored_turn_id: null,
+            socket_connected: socketConnected,
+            message_count: messages.length,
+            welcome_message_count: messages.filter((message) =>
+              message.text.includes("欢迎使用 AI Novel Studio"),
+            ).length,
+            pending_adoption_count: pendingAdoptionsCount,
+            first_message_text: messages[0]?.text ?? "",
+            service_status_text: textContent('[data-slice-verify="service-status"]'),
+            title_text: textContent('[data-slice-verify="work-title"]'),
+            archive_character_count: datasetNumber("archiveCharacterCount"),
+            archive_foreshadowing_count: datasetNumber("archiveForeshadowingCount"),
+            archive_rule_count: datasetNumber("archiveRuleCount"),
+            archive_volumes: datasetNumber("archiveVolumes"),
+            archive_chapters: datasetNumber("archiveChapters"),
+            archive_memory_items: datasetNumber("archiveMemoryItems"),
+            archive_drafts_total: datasetNumber("archiveDraftsTotal"),
+            archive_drafts_accepted: datasetNumber("archiveDraftsAccepted"),
+          }).catch(() => undefined);
+        }, 900));
       }, 150));
     } else if (
       autorunSlice === "au10-ordinary-chat-no-micro-plan" ||

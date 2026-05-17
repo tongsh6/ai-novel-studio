@@ -660,6 +660,27 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
     end
   end
 
+  describe "structure panel data handlers" do
+    test "placeholder archive reads return empty data instead of fixed examples" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref = push(socket, "get_characters", %{"work_id" => "lobby"})
+      assert_reply(ref, :ok, [])
+
+      ref = push(socket, "get_foreshadowing", %{"work_id" => "lobby"})
+      assert_reply(ref, :ok, [])
+
+      ref = push(socket, "get_rules", %{"work_id" => "lobby"})
+      assert_reply(ref, :ok, [])
+
+      ref = push(socket, "get_work_stats", %{"work_id" => "lobby"})
+      assert_reply(ref, :ok, %{characters: 0, memory_items: 0, drafts_total: 0})
+    end
+  end
+
   # ── VS-07 Proof: ping/pong ──
 
   describe "ping/pong" do

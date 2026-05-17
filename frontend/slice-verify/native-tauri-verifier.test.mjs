@@ -18,10 +18,62 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-discard-boundary");
     expect(nativeSliceIds).toContain("au05-modify-draft-boundary");
     expect(nativeSliceIds).toContain("au08-adoption-reading-projection");
+    expect(nativeSliceIds).toContain("au09-archive-real-data");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("accepts AU-09 archive evidence from real scoped archive records", () => {
+    const records = [
+      { event: "channel.join.done", work_id: "work-au09", session_id: "session-au09" },
+      { event: "channel.get_characters.done", work_id: "work-au09", character_count: 1 },
+      { event: "channel.get_foreshadowing.done", work_id: "work-au09", item_count: 1 },
+      { event: "channel.get_rules.done", work_id: "work-au09", rule_count: 1 },
+      {
+        event: "channel.get_work_stats.done",
+        work_id: "work-au09",
+        volumes: 1,
+        chapters: 1,
+        memory_items: 2,
+        drafts_accepted: 1,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-archive-real-data",
+        work_id: "work-au09",
+        context_work_id: "work-au09",
+        archive_character_count: 1,
+        archive_foreshadowing_count: 1,
+        archive_rule_count: 1,
+        archive_volumes: 1,
+        archive_memory_items: 2,
+        archive_drafts_accepted: 1,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-archive-real-data", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au09-archive-real-data",
+      work_id: "work-au09",
+      archive_character_count: 1,
+      archive_foreshadowing_count: 1,
+      archive_rule_count: 1,
+    });
+    expect(findSliceBehaviorEvidence("au09-archive-real-data", records, evidence)).toEqual({
+      slice_id: "au09-archive-real-data",
+      behavior: "archive_panel_reads_real_scoped_work_facts",
+      work_id: "work-au09",
+      assertions: [
+        "archive_panel_opened_from_real_workbench",
+        "characters_loaded_from_channel",
+        "foreshadowing_loaded_from_confirmed_memory",
+        "rules_loaded_from_confirmed_memory",
+        "stats_loaded_from_persistence",
+        "no_fixed_mock_archive_items",
+      ],
+    });
   });
 
   it("finds startup context evidence after resume UI reports connected work/session state", () => {

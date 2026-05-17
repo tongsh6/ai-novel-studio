@@ -54,7 +54,18 @@ export function StructurePanel({
   const hasWork = context.workId != null;
 
   return (
-    <div className={styles.panel}>
+    <div
+      className={styles.panel}
+      data-slice-verify="structure-panel"
+      data-archive-character-count={characters.length}
+      data-archive-foreshadowing-count={foreshadowing.length}
+      data-archive-rule-count={rules.length}
+      data-archive-volumes={stats?.volumes ?? 0}
+      data-archive-chapters={stats?.chapters ?? 0}
+      data-archive-memory-items={stats?.memory_items ?? 0}
+      data-archive-drafts-total={stats?.drafts_total ?? 0}
+      data-archive-drafts-accepted={stats?.drafts_accepted ?? 0}
+    >
       <div className={styles.header}>
         <div className={styles.titleGroup}>
           <div className={styles.headerTitle}>作品档案</div>
@@ -73,19 +84,27 @@ export function StructurePanel({
           <>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>卷</span>
-              <span className={styles.overviewValue}>{stats.volumes}</span>
+              <span className={styles.overviewValue} data-slice-verify="archive-stat-volumes">
+                {stats.volumes}
+              </span>
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>草稿</span>
-              <span className={styles.overviewValue}>{stats.drafts_accepted}/{stats.drafts_total}</span>
+              <span className={styles.overviewValue} data-slice-verify="archive-stat-drafts">
+                {stats.drafts_accepted}/{stats.drafts_total}
+              </span>
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>角色</span>
-              <span className={styles.overviewValue}>{stats.characters}</span>
+              <span className={styles.overviewValue} data-slice-verify="archive-stat-characters">
+                {stats.characters}
+              </span>
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>设定</span>
-              <span className={styles.overviewValue}>{stats.memory_items}</span>
+              <span className={styles.overviewValue} data-slice-verify="archive-stat-memory-items">
+                {stats.memory_items}
+              </span>
             </div>
           </>
         )}
@@ -158,7 +177,11 @@ export function StructurePanel({
                   <span className={styles.secTitle}>已确认设定</span>
                 </div>
                 {foreshadowing.map((item) => (
-                  <div key={item.id} className={styles.cardItem}>
+                  <div
+                    key={item.id}
+                    className={styles.cardItem}
+                    data-slice-verify="archive-foreshadowing-item"
+                  >
                     <div className={styles.cardTitle}>{item.content}</div>
                     <div className={styles.cardDesc}>
                       {item.type}{item.tags.length > 0 && ` · ${item.tags.join("、")}`}
@@ -229,7 +252,11 @@ export function StructurePanel({
             {characters.length > 0 ? (
               <div className={styles.section}>
                 {characters.map((char) => (
-                  <div key={char.id} className={styles.cardItem}>
+                  <div
+                    key={char.id}
+                    className={styles.cardItem}
+                    data-slice-verify="archive-character-item"
+                  >
                     <div className={styles.cardTitle}>
                       {char.name}
                       {char.role && <span className={styles.cardLabel}> — {char.role}</span>}
@@ -274,7 +301,11 @@ export function StructurePanel({
             {rules.length > 0 ? (
               <div className={styles.section}>
                 {rules.map((item) => (
-                  <div key={item.id} className={styles.cardItem}>
+                  <div
+                    key={item.id}
+                    className={styles.cardItem}
+                    data-slice-verify="archive-rule-item"
+                  >
                     <div className={styles.cardTitle}>{item.content}</div>
                     <div className={styles.cardDesc}>
                       {item.type}{item.tags.length > 0 && ` · ${item.tags.join("、")}`}

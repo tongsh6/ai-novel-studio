@@ -7,6 +7,7 @@ export const nativeSliceIds = [
   "au05-discard-boundary",
   "au05-modify-draft-boundary",
   "au08-adoption-reading-projection",
+  "au09-archive-real-data",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -94,6 +95,14 @@ const sliceKeyEvents = {
     "channel.adopt.done",
     "channel.get_toc.done",
     "channel.get_chapter_content.done",
+  ],
+  "au09-archive-real-data": [
+    "channel.join.done",
+    "channel.get_characters.done",
+    "channel.get_foreshadowing.done",
+    "channel.get_rules.done",
+    "channel.get_work_stats.done",
+    "slice_verify.ui_state.done",
   ],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
@@ -198,6 +207,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu08ReadingProjectionEvidence(records);
   }
 
+  if (sliceId === "au09-archive-real-data") {
+    return findAu09ArchiveEvidence(records);
+  }
+
   if (sliceId === "au10-micro-plan-entry") {
     return findAu10UserMessageEvidence(records, true, "au10-micro-plan-entry");
   }
@@ -234,6 +247,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au03c-work-session-resume") {
     return workSessionResumeBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au09-archive-real-data") {
+    return archiveRealDataBehavior(records, evidence, options);
   }
 
   const turnIds = evidence.turn_ids ?? [evidence.turn_id];
@@ -421,6 +438,69 @@ function findAu08ReadingProjectionEvidence(records) {
       mutation_id: actionDone.mutation_id,
       chapter_count: tocDone.chapter_count,
       content_chars: chapterDone.content_chars,
+    };
+  }
+
+  return null;
+}
+
+function findAu09ArchiveEvidence(records) {
+  const sliceId = "au09-archive-real-data";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const workId = uiState.work_id;
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === workId,
+    );
+    if (!joined) continue;
+
+    const characters = records.find(
+      (record) => record.event === "channel.get_characters.done" && record.work_id === workId,
+    );
+    const foreshadowing = records.find(
+      (record) => record.event === "channel.get_foreshadowing.done" && record.work_id === workId,
+    );
+    const rules = records.find(
+      (record) => record.event === "channel.get_rules.done" && record.work_id === workId,
+    );
+    const stats = records.find(
+      (record) => record.event === "channel.get_work_stats.done" && record.work_id === workId,
+    );
+
+    if (!characters || !foreshadowing || !rules || !stats) continue;
+    if (Number(characters.character_count ?? 0) < 1) continue;
+    if (Number(foreshadowing.item_count ?? 0) < 1) continue;
+    if (Number(rules.rule_count ?? 0) < 1) continue;
+    if (Number(stats.volumes ?? 0) < 1) continue;
+    if (Number(stats.chapters ?? 0) < 1) continue;
+    if (Number(stats.memory_items ?? 0) < 2) continue;
+    if (Number(stats.drafts_accepted ?? 0) < 1) continue;
+
+    if (Number(uiState.archive_character_count ?? 0) < 1) continue;
+    if (Number(uiState.archive_foreshadowing_count ?? 0) < 1) continue;
+    if (Number(uiState.archive_rule_count ?? 0) < 1) continue;
+    if (Number(uiState.archive_volumes ?? 0) < 1) continue;
+    if (Number(uiState.archive_memory_items ?? 0) < 2) continue;
+    if (Number(uiState.archive_drafts_accepted ?? 0) < 1) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: workId,
+      key_events: keyEvents,
+      archive_character_count: uiState.archive_character_count,
+      archive_foreshadowing_count: uiState.archive_foreshadowing_count,
+      archive_rule_count: uiState.archive_rule_count,
+      archive_memory_items: uiState.archive_memory_items,
+      archive_drafts_accepted: uiState.archive_drafts_accepted,
     };
   }
 
@@ -892,6 +972,29 @@ function readingProjectionBehavior(turnIds, turnRecords, options) {
       "reading_mode_loaded_chapter_content_from_channel",
       "no_error_events",
       "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function archiveRealDataBehavior(_records, evidence, _options) {
+  if (!evidence?.work_id) return null;
+  if (Number(evidence.archive_character_count ?? 0) < 1) return null;
+  if (Number(evidence.archive_foreshadowing_count ?? 0) < 1) return null;
+  if (Number(evidence.archive_rule_count ?? 0) < 1) return null;
+  if (Number(evidence.archive_memory_items ?? 0) < 2) return null;
+  if (Number(evidence.archive_drafts_accepted ?? 0) < 1) return null;
+
+  return {
+    slice_id: "au09-archive-real-data",
+    behavior: "archive_panel_reads_real_scoped_work_facts",
+    work_id: evidence.work_id,
+    assertions: [
+      "archive_panel_opened_from_real_workbench",
+      "characters_loaded_from_channel",
+      "foreshadowing_loaded_from_confirmed_memory",
+      "rules_loaded_from_confirmed_memory",
+      "stats_loaded_from_persistence",
+      "no_fixed_mock_archive_items",
     ],
   };
 }

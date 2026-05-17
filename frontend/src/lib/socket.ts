@@ -62,6 +62,14 @@ export interface SliceVerifyUiStatePayload {
   decision_card_count?: number;
   open_reading_action_count?: number;
   reading_chapter_count?: number;
+  archive_character_count?: number;
+  archive_foreshadowing_count?: number;
+  archive_rule_count?: number;
+  archive_volumes?: number;
+  archive_chapters?: number;
+  archive_memory_items?: number;
+  archive_drafts_total?: number;
+  archive_drafts_accepted?: number;
 }
 
 export function reportSliceVerifyUiState(
@@ -392,7 +400,7 @@ export interface MemoryItemData {
   content: string;
   type: string;
   tags: string[];
-  weight: number;
+  weight?: number;
 }
 
 export function getForeshadowing(
@@ -422,11 +430,14 @@ export function getRules(
 }
 
 export interface WorkStats {
+  words_total: number;
+  words_today: number;
+  volumes: number;
+  chapters: number;
   drafts_total: number;
   drafts_accepted: number;
   characters: number;
   memory_items: number;
-  volumes: number;
 }
 
 export function getWorkStats(

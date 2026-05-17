@@ -409,43 +409,61 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
-  def handle_in("get_characters", _payload, socket) do
-    data = [
-      %{id: "char_1", name: "主角", role: "Protagonist", summary: "一个神秘的幸存者", aliases: ["老李"]}
-    ]
+  def handle_in("get_characters", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    data = NovelApplication.WorkArchiveService.characters(work_id)
+
+    LogEmit.emit(:channel, :get_characters, :done, %{
+      work_id: work_id,
+      character_count: length(data)
+    })
 
     {:reply, {:ok, data}, socket}
   end
 
-  def handle_in("get_foreshadowing", _payload, socket) do
-    data = [
-      %{id: "mem_1", type: "foreshadowing", content: "脖子后的奇异纹身", tags: ["未解之谜", "主线"]}
-    ]
+  def handle_in("get_foreshadowing", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    data = NovelApplication.WorkArchiveService.foreshadowing(work_id)
+
+    LogEmit.emit(:channel, :get_foreshadowing, :done, %{
+      work_id: work_id,
+      item_count: length(data)
+    })
 
     {:reply, {:ok, data}, socket}
   end
 
-  def handle_in("get_rules", _payload, socket) do
-    data = [
-      %{id: "rule_1", type: "rule", content: "只能在夜间使用魔法", tags: ["世界观", "战斗"]}
-    ]
+  def handle_in("get_rules", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    data = NovelApplication.WorkArchiveService.rules(work_id)
+
+    LogEmit.emit(:channel, :get_rules, :done, %{
+      work_id: work_id,
+      rule_count: length(data)
+    })
 
     {:reply, {:ok, data}, socket}
   end
 
-  def handle_in("get_work_stats", _payload, socket) do
-    data = %{
-      words_total: 10_000,
-      words_today: 1500,
-      volumes: 1,
-      chapters: 2,
-      characters: 1,
-      memory_items: 2,
-      drafts_total: 5,
-      drafts_accepted: 2
-    }
+  def handle_in("get_work_stats", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    data = NovelApplication.WorkArchiveService.stats(work_id)
+
+    LogEmit.emit(:channel, :get_work_stats, :done, %{
+      work_id: work_id,
+      volumes: data.volumes,
+      chapters: data.chapters,
+      characters: data.characters,
+      memory_items: data.memory_items,
+      drafts_total: data.drafts_total,
+      drafts_accepted: data.drafts_accepted
+    })
 
     {:reply, {:ok, data}, socket}
+  end
+
+  defp archive_work_id(payload, socket) do
+    Map.get(payload, "work_id") || socket.assigns[:work_id] || "lobby"
   end
 
   defp handle_adopt_result(result, socket, artifact_id, t0) do
@@ -574,7 +592,15 @@ defmodule NovelWeb.WorkspaceChannel do
       artifact_type: payload["artifact_type"],
       decision_card_count: payload["decision_card_count"],
       open_reading_action_count: payload["open_reading_action_count"],
-      reading_chapter_count: payload["reading_chapter_count"]
+      reading_chapter_count: payload["reading_chapter_count"],
+      archive_character_count: payload["archive_character_count"],
+      archive_foreshadowing_count: payload["archive_foreshadowing_count"],
+      archive_rule_count: payload["archive_rule_count"],
+      archive_volumes: payload["archive_volumes"],
+      archive_chapters: payload["archive_chapters"],
+      archive_memory_items: payload["archive_memory_items"],
+      archive_drafts_total: payload["archive_drafts_total"],
+      archive_drafts_accepted: payload["archive_drafts_accepted"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}
@@ -655,7 +681,9 @@ defmodule NovelWeb.WorkspaceChannel do
   defp validate_candidate_selection(socket, %{} = selection) do
     source_turn_ref = selection["source_turn_ref"]
     candidate_ref = selection["candidate_ref"]
-    turn_result = source_turn_ref && Map.get(socket.assigns[:turn_results_by_id] || %{}, source_turn_ref)
+
+    turn_result =
+      source_turn_ref && Map.get(socket.assigns[:turn_results_by_id] || %{}, source_turn_ref)
 
     cond do
       !is_binary(source_turn_ref) or !is_binary(candidate_ref) ->

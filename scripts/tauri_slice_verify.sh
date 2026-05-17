@@ -17,6 +17,7 @@
 #   bash scripts/tauri_slice_verify.sh au05-discard-boundary
 #   bash scripts/tauri_slice_verify.sh au05-modify-draft-boundary
 #   bash scripts/tauri_slice_verify.sh au08-adoption-reading-projection
+#   bash scripts/tauri_slice_verify.sh au09-archive-real-data
 #   bash scripts/tauri_slice_verify.sh vs10-observability-spine
 #
 # The script starts a slice backend and a native Tauri dev window. By default
@@ -75,6 +76,7 @@ Available native Tauri slice ids:
   au05-discard-boundary
   au05-modify-draft-boundary
   au08-adoption-reading-projection
+  au09-archive-real-data
   au10-micro-plan-entry
   au10-ordinary-chat-no-micro-plan
   vs10-observability-spine
@@ -102,7 +104,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
+if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au09-archive-real-data" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -212,6 +214,9 @@ native_action_description() {
       ;;
     au08-adoption-reading-projection)
       echo "type prose request -> wait for pending artifact -> click accept -> switch to reading mode -> verify TOC and chapter content"
+      ;;
+    au09-archive-real-data)
+      echo "seed persisted archive facts -> open archive panel -> verify real scoped characters, memories, rules, and stats"
       ;;
     au03c-work-session-resume)
       echo "open archive panel -> generate pending artifact -> restart Tauri -> verify same active session transcript and pending item are restored"
@@ -468,6 +473,10 @@ reset_test_db
 
 if [[ "$SLICE_ID" == "stage-startup-context-contract" || "$SLICE_ID" == "workspace-runtime-state" ]]; then
   MIX_ENV=test mix run scripts/seed_stage_startup_context.exs >"$ARTIFACT_DIR/seed.log" 2>&1
+fi
+
+if [[ "$SLICE_ID" == "au09-archive-real-data" ]]; then
+  MIX_ENV=test mix run scripts/seed_au09_archive_real_data.exs >"$ARTIFACT_DIR/seed.log" 2>&1
 fi
 
 MIX_ENV=test \
