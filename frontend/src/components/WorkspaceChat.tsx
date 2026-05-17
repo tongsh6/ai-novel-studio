@@ -63,6 +63,7 @@ import {
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { isTauri } from "../lib/env";
+import { getProviderHealth } from "../lib/providerHealth";
 import { WORKBENCH } from "../lib/copy";
 
 import styles from "./WorkspaceChat.module.css";
@@ -172,8 +173,7 @@ export function WorkspaceChat() {
   useEffect(() => {
     const checkLlm = async () => {
       try {
-        const res = await fetch("/api/provider/health");
-        const data = await res.json() as { connected: boolean; model?: string; message?: string };
+        const data = await getProviderHealth();
         setLlmConnected(data.connected);
         if (data.model) setLlmModel(data.model);
       } catch {
@@ -844,6 +844,23 @@ export function WorkspaceChat() {
     }
   };
 
+  const llmBadgeClassName = [
+    styles.riskBadge,
+    llmConnected === null
+      ? styles.riskBadgeNeutral
+      : llmConnected
+        ? styles.riskBadgeOk
+        : styles.riskBadgeError,
+  ].join(" ");
+  const serviceBadgeClassName = [
+    styles.riskBadge,
+    socketConnected ? styles.riskBadgeOk : styles.riskBadgeNeutral,
+  ].join(" ");
+  const leftColumnClassName = [
+    styles.leftColumn,
+    isPanelOpen ? styles.leftColumnDimmed : "",
+  ].join(" ");
+
   return (
     <div className={styles.workbench} data-slice-verify="workspace-chat">
       {/* 顶部上下文栏 (Top Context Bar) */}
@@ -853,8 +870,7 @@ export function WorkspaceChat() {
             {visibleWorkTitle}
           </span>
           <button 
-            className={styles.btnSecondary} 
-            style={{ padding: "4px 8px", fontSize: "12px", border: "none" }}
+            className={`${styles.btnSecondary} ${styles.readingModeButton}`}
             onClick={() => setMode("reading")}
           >
             [阅读模式]
@@ -867,22 +883,16 @@ export function WorkspaceChat() {
             {longRun.status === "running" ? `长跑中: ${longRun.budgetUsed}%` : "长跑状态: 待机"}
           </span>
           <div
-            className={styles.riskBadge}
+            className={llmBadgeClassName}
             data-status={llmConnected === true ? "ok" : "warn"}
-            style={{
-              backgroundColor:
-                llmConnected === null ? 'var(--foreground-secondary)' :
-                llmConnected ? 'var(--accent)' : '#d94a4a'
-            }}
             title={llmConnected ? `模型: ${llmModel}` : "请检查 LM Studio 是否已启动并加载模型"}
           >
             LLM: {llmConnected === null ? "检测中…" : llmConnected ? "已连接" : "未连接"}
           </div>
           <div 
-            className={styles.riskBadge}
+            className={serviceBadgeClassName}
             data-status={socketConnected ? "ok" : "error"}
             data-slice-verify="service-status"
-            style={{ backgroundColor: socketConnected ? 'var(--accent)' : 'var(--foreground-secondary)' }}
           >
             服务: {connectionLabel}
           </div>
@@ -893,7 +903,7 @@ export function WorkspaceChat() {
       <div className={styles.mainArea}>
         
         {/* 左侧对话与输入列 (Left Column) */}
-        <div className={styles.leftColumn} style={{ opacity: isPanelOpen ? 0.4 : 1, transition: 'opacity 0.2s' }}>
+        <div className={leftColumnClassName}>
           
           {/* 对话流区域 (Chat Area) */}
           <div className={styles.chatArea}>

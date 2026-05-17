@@ -36,6 +36,7 @@ import {
   EscalationCard,
   DefaultCard,
 } from "./UICards";
+import { getProviderHealth } from "../lib/providerHealth";
 import styles from "./WorkbenchV3.module.css";
 
 // ── Types ─────────────────────────────────────────
@@ -73,11 +74,7 @@ export function WorkbenchV3() {
   useEffect(() => {
     const check = async () => {
       try {
-        const res = await fetch("/api/provider/health");
-        const data = (await res.json()) as {
-          connected: boolean;
-          model?: string;
-        };
+        const data = await getProviderHealth();
         setLlmStatus(data.connected);
         if (data.model) setLlmModel(data.model);
       } catch {

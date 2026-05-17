@@ -63,6 +63,24 @@
   font-family: var(--sans);
 }
 
+.riskBadgeNeutral {
+  background-color: var(--foreground-secondary);
+}
+
+.riskBadgeOk {
+  background-color: var(--accent);
+}
+
+.riskBadgeError {
+  background-color: #d94a4a;
+}
+
+.readingModeButton {
+  padding: 4px 8px;
+  border: none;
+  font-size: 12px;
+}
+
 .mainArea {
   display: flex;
   flex: 1;
@@ -74,6 +92,11 @@
   flex-direction: column;
   flex: 1;
   overflow: hidden;
+  transition: opacity 0.2s;
+}
+
+.leftColumnDimmed {
+  opacity: 0.4;
 }
 
 .chatArea {
