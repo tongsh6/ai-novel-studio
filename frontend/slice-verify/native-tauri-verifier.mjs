@@ -1,4 +1,5 @@
 export const nativeSliceIds = [
+  "workspace-runtime-state",
   "stage-startup-context-contract",
   "au03c-work-session-resume",
   "au05-adoption-boundary",
@@ -13,6 +14,12 @@ export const nativeSliceIds = [
 ];
 
 const sliceKeyEvents = {
+  "workspace-runtime-state": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
   "stage-startup-context-contract": [
     "work_session.resume.done",
     "channel.join.done",
@@ -151,6 +158,10 @@ export function findLmStudioEvidence(turnIds, records) {
 }
 
 export function findNativeSliceEvidence(sliceId, records) {
+  if (sliceId === "workspace-runtime-state") {
+    return findWorkspaceRuntimeStateEvidence(records);
+  }
+
   if (sliceId === "stage-startup-context-contract") {
     return findStageStartupContextEvidence(records);
   }
@@ -200,6 +211,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
 export function findSliceBehaviorEvidence(sliceId, records, evidence, options = {}) {
   if (!evidence) return null;
+
+  if (sliceId === "workspace-runtime-state") {
+    return workspaceRuntimeStateBehavior(records, evidence, options);
+  }
 
   if (sliceId === "stage-startup-context-contract") {
     return stageStartupContextBehavior(records, evidence, options);
@@ -515,6 +530,80 @@ function findStageStartupContextEvidence(records) {
   return null;
 }
 
+function findWorkspaceRuntimeStateEvidence(records) {
+  const sliceId = "workspace-runtime-state";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const resumes = records.filter(
+    (record) =>
+      record.event === "work_session.resume.done" &&
+      record.work_id &&
+      record.session_id &&
+      Number(record.transcript_count ?? 0) >= 2 &&
+      Number(record.pending_adoption_count ?? 0) >= 1,
+  );
+
+  for (const resumed of resumes) {
+    const joined = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === resumed.work_id &&
+        record.session_id === resumed.session_id,
+    );
+    if (!joined) continue;
+
+    const tocDone = records.find(
+      (record) =>
+        record.event === "channel.get_toc.done" &&
+        record.work_id === resumed.work_id,
+    );
+    if (!tocDone) continue;
+
+    const uiState = records.find(
+      (record) =>
+        record.event === "slice_verify.ui_state.done" &&
+        record.slice_id === sliceId &&
+        record.work_id === resumed.work_id &&
+        record.session_id === resumed.session_id &&
+        record.context_work_id === resumed.work_id &&
+        record.active_session_id === resumed.session_id &&
+        record.restored_turn_id,
+    );
+    if (!uiState) continue;
+
+    if (uiState.socket_connected !== true) continue;
+    if (Number(uiState.message_count ?? 0) < resumed.transcript_count) continue;
+    if (Number(uiState.welcome_message_count ?? 0) !== 0) continue;
+    if (Number(uiState.pending_adoption_count ?? -1) !== 1) continue;
+    if (Number(uiState.decision_card_count ?? 0) < 1) continue;
+
+    const workTitle = String(uiState.context_work_title ?? "");
+    const readingTitle = String(uiState.title_text ?? "");
+    if (!authorFacingTitle(workTitle) || !authorFacingTitle(readingTitle)) continue;
+
+    const serviceStatusText = String(uiState.service_status_text ?? "");
+    if (!serviceStatusText.includes("已连接")) continue;
+    if (Number(uiState.reading_chapter_count ?? -1) !== 0) continue;
+    if (Number(tocDone.chapter_count ?? -1) !== 0) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: uiState.restored_turn_id,
+      turn_ids: [uiState.restored_turn_id],
+      work_id: resumed.work_id,
+      session_id: resumed.session_id,
+      transcript_count: resumed.transcript_count,
+      pending_adoption_count: uiState.pending_adoption_count,
+      decision_card_count: uiState.decision_card_count,
+      reading_chapter_count: uiState.reading_chapter_count,
+      context_work_title: uiState.context_work_title,
+      reading_title: uiState.title_text,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
 function findAu10UserMessageEvidence(records, generateMicroPlan, sliceId) {
   const keyEvents = keyEventsForSlice(sliceId);
   const byTurn = groupByTurn(records);
@@ -765,6 +854,28 @@ function adoptionFollowupRoutingBehavior(turnIds, turnRecords, options) {
   };
 }
 
+function workspaceRuntimeStateBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  return {
+    slice_id: "workspace-runtime-state",
+    behavior: "workspace_runtime_state_normalizes_resume_connection_adoption_and_reading_empty_state",
+    turn_ids: evidence.turn_ids,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "restored_transcript_did_not_insert_welcome",
+      "work_ready_title_not_disconnected",
+      "connection_state_separate_from_work_state",
+      "pending_adoption_count_derived_from_runtime_state",
+      "resolved_adoption_card_rendered_as_decision_record",
+      "reading_mode_title_author_facing",
+      "reading_projection_empty_state_has_no_fake_chapters",
+      "no_error_events",
+    ],
+  };
+}
+
 function workSessionResumeBehavior(records, evidence, options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
   if (!lmstudioHasSteps(options, evidence.turn_ids ?? [evidence.turn_id], ["form_frame", "form_micro_plan"])) {
@@ -785,6 +896,16 @@ function workSessionResumeBehavior(records, evidence, options) {
       "assistant_messages_not_fallback",
     ],
   };
+}
+
+function authorFacingTitle(title) {
+  const text = String(title ?? "").trim();
+  if (!text) return false;
+  if (text.includes("未连接") || text.includes("加载失败")) return false;
+  if (/^as_\d+$/i.test(text)) return false;
+  if (/^artifact[_-]/i.test(text)) return false;
+  if (/^mock[_-]?work/i.test(text)) return false;
+  return true;
 }
 
 function stageStartupContextBehavior(records, evidence, options) {

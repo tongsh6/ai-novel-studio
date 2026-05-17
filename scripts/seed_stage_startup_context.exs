@@ -37,9 +37,46 @@ turn_result = %{
             }
           ]
         }
+      },
+      %{
+        artifact_id: "as_stage_startup_resolved",
+        artifact_type: "character_seed",
+        adoption_status: "tentative",
+        requires_adoption: true,
+        source_tool_result_ref: "tr_stage_startup_resolved",
+        payload: %{
+          title: "已处理角色草案",
+          items: [
+            %{
+              item_id: "item_stage_startup_resolved",
+              title: "顾岚",
+              body: "一个已经被采纳进设定集的旧候选。",
+              rationale: "用于验证 resolved artifact 不再计入 pending"
+            }
+          ]
+        }
       }
     ],
-    resolved: []
+    resolved: [
+      %{
+        artifact_id: "as_stage_startup_resolved",
+        artifact_type: "character_seed",
+        adoption_status: "ACCEPTED",
+        requires_adoption: false,
+        source_tool_result_ref: "tr_stage_startup_resolved",
+        payload: %{
+          title: "已处理角色草案",
+          items: [
+            %{
+              item_id: "item_stage_startup_resolved",
+              title: "顾岚",
+              body: "一个已经被采纳进设定集的旧候选。",
+              rationale: "用于验证 resolved artifact 不再计入 pending"
+            }
+          ]
+        }
+      }
+    ]
   },
   trace_summary: %{
     trace_ref: "trace_stage_startup_seed",
@@ -49,7 +86,7 @@ turn_result = %{
   },
   ui_cards: [
     %{
-      card_type: "adoption",
+      card_type: "adoption_card",
       title: "待确认的新设定",
       body: "AI 生成了新的创作设定，请审核是否采纳。",
       priority: "high",
@@ -59,6 +96,28 @@ turn_result = %{
           action_type: "accept",
           label: "采纳",
           target_ref: "as_stage_startup_seed",
+          enabled: true
+        }
+      ]
+    },
+    %{
+      card_type: "adoption_card",
+      title: "待确认的新设定",
+      body: "这条旧候选已经被处理。",
+      priority: "normal",
+      actions: [
+        %{
+          action_id: "a_accept_stage_startup_resolved",
+          action_type: "accept",
+          label: "采纳",
+          target_ref: "as_stage_startup_resolved",
+          enabled: true
+        },
+        %{
+          action_id: "a_discard_stage_startup_resolved",
+          action_type: "discard",
+          label: "废弃",
+          target_ref: "as_stage_startup_resolved",
           enabled: true
         }
       ]

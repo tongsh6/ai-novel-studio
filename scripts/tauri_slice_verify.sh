@@ -6,6 +6,7 @@
 #   bash scripts/tauri_slice_verify.sh --list
 #   bash scripts/tauri_slice_verify.sh --real-lmstudio au01-ordinary-chat-two-turn-roundtrip
 #   bash scripts/tauri_slice_verify.sh stage-startup-context-contract
+#   bash scripts/tauri_slice_verify.sh workspace-runtime-state
 #   bash scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip
 #   bash scripts/tauri_slice_verify.sh au10-micro-plan-entry
 #   bash scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan
@@ -65,6 +66,7 @@ Usage:
 Available native Tauri slice ids:
   au01-ordinary-chat-two-turn-roundtrip
   stage-startup-context-contract
+  workspace-runtime-state
   au03c-work-session-resume
   au05-adoption-boundary
   au05-adoption-followup-routing
@@ -98,7 +100,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
+if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -187,6 +189,9 @@ native_action_description() {
       ;;
     stage-startup-context-contract)
       echo "seed persisted active session -> start Tauri -> verify restored startup UI has same work/session, no welcome injection, connected service state"
+      ;;
+    workspace-runtime-state)
+      echo "seed persisted active session -> start Tauri -> derive runtime state -> switch Reading Mode -> verify title, welcome, pending count, and empty projection"
       ;;
     au05-adoption-boundary)
       echo "open archive panel -> click new action -> wait for pending artifact -> click accept -> verify persisted adoption"
@@ -456,7 +461,7 @@ echo "[tauri-slice-verify] artifacts: $ARTIFACT_DIR"
 cd "$PROJECT_ROOT"
 reset_test_db
 
-if [[ "$SLICE_ID" == "stage-startup-context-contract" ]]; then
+if [[ "$SLICE_ID" == "stage-startup-context-contract" || "$SLICE_ID" == "workspace-runtime-state" ]]; then
   MIX_ENV=test mix run scripts/seed_stage_startup_context.exs >"$ARTIFACT_DIR/seed.log" 2>&1
 fi
 

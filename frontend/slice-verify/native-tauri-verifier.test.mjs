@@ -10,6 +10,7 @@ import {
 
 describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-10 micro plan entry", () => {
+    expect(nativeSliceIds).toContain("workspace-runtime-state");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
@@ -39,6 +40,28 @@ describe("native Tauri slice verifier", () => {
       pending_adoption_count: 1,
       context_work_title: "Slice Verify Work",
       key_events: keyEventsForSlice("stage-startup-context-contract"),
+    });
+  });
+
+  it("finds workspace runtime state evidence after resume and reading empty probe", () => {
+    const evidence = findNativeSliceEvidence(
+      "workspace-runtime-state",
+      workspaceRuntimeStateRecords(),
+    );
+
+    expect(evidence).toEqual({
+      slice_id: "workspace-runtime-state",
+      turn_id: "turn-au03c",
+      turn_ids: ["turn-au03c"],
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      transcript_count: 2,
+      pending_adoption_count: 1,
+      decision_card_count: 1,
+      reading_chapter_count: 0,
+      context_work_title: "Slice Verify Work",
+      reading_title: "Slice Verify Work",
+      key_events: keyEventsForSlice("workspace-runtime-state"),
     });
   });
 
@@ -460,6 +483,29 @@ describe("native Tauri slice verifier", () => {
         "pending_adoption_restored_to_workbench",
         "no_error_events",
         "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("accepts workspace runtime state behavior from UI-derived runtime evidence", () => {
+    const records = workspaceRuntimeStateRecords();
+    const evidence = findNativeSliceEvidence("workspace-runtime-state", records);
+
+    expect(findSliceBehaviorEvidence("workspace-runtime-state", records, evidence)).toEqual({
+      slice_id: "workspace-runtime-state",
+      behavior: "workspace_runtime_state_normalizes_resume_connection_adoption_and_reading_empty_state",
+      turn_ids: ["turn-au03c"],
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      assertions: [
+        "restored_transcript_did_not_insert_welcome",
+        "work_ready_title_not_disconnected",
+        "connection_state_separate_from_work_state",
+        "pending_adoption_count_derived_from_runtime_state",
+        "resolved_adoption_card_rendered_as_decision_record",
+        "reading_mode_title_author_facing",
+        "reading_projection_empty_state_has_no_fake_chapters",
+        "no_error_events",
       ],
     });
   });
@@ -1063,9 +1109,47 @@ function stageStartupContextRecords() {
       message_count: 2,
       welcome_message_count: 0,
       pending_adoption_count: 1,
+      decision_card_count: 1,
       first_message_text: "帮我创作角色设定",
       service_status_text: "服务: 已连接",
       title_text: "Slice Verify Work",
+    },
+  ];
+}
+
+function workspaceRuntimeStateRecords() {
+  return [
+    ...au03cResumeRecords(),
+    {
+      event: "channel.get_toc.done",
+      workspace_id: "work-au03c",
+      work_id: "work-au03c",
+      duration_ms: 3,
+      outcome: "ok",
+      volume_count: 0,
+      chapter_count: 0,
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      workspace_id: "lobby",
+      work_id: "work-au03c",
+      session_id: "session-au03c",
+      duration_ms: 0,
+      outcome: "ok",
+      slice_id: "workspace-runtime-state",
+      context_work_id: "work-au03c",
+      context_work_title: "Slice Verify Work",
+      active_session_id: "session-au03c",
+      restored_turn_id: "turn-au03c",
+      socket_connected: true,
+      message_count: 2,
+      welcome_message_count: 0,
+      pending_adoption_count: 1,
+      decision_card_count: 1,
+      first_message_text: "帮我创作角色设定",
+      service_status_text: "服务: 已连接",
+      title_text: "Slice Verify Work",
+      reading_chapter_count: 0,
     },
   ];
 }
