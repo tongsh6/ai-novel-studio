@@ -28,7 +28,6 @@ import {
 import {
   resumeWorkspace,
   searchSessions,
-  shouldInsertWorkspaceWelcome,
   transcriptToMessages,
   type WorkSessionDto,
 } from "../lib/sessions";
@@ -38,6 +37,15 @@ import {
   type AvailableActionLike,
 } from "../lib/workbenchActions";
 import { OPEN_READING_MODE_ACTION_ID } from "../lib/adoptionDecision";
+import {
+  adoptionDecisionForCard,
+  deriveWorkspaceRuntimeState,
+  disableResolvedArtifactActions,
+  getPendingAdoptionCount,
+  getVisibleWorkTitle,
+  isArtifactResolved,
+  shouldShowWelcomeMessage,
+} from "../lib/workspaceRuntimeState";
 import {
   ClarificationCard,
   ConfirmationCard,
@@ -49,9 +57,8 @@ import {
   FailureCard,
   EscalationCard,
   DefaultCard,
-  type UICardData,
-  type UIActionData,
   type AdoptionDecisionData,
+  type UICardData,
 } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
@@ -118,59 +125,6 @@ function isArtifactResolutionAction(actionType?: string): boolean {
   return actionType === "accept" || actionType === "discard" || actionType === "edit_then_accept";
 }
 
-function actionTargetsResolvedArtifact(
-  action: UIActionData,
-  resolvedArtifactIds: Set<string>,
-): boolean {
-  return isArtifactResolutionAction(action.action_type) && resolvedArtifactIds.has(action.target_ref);
-}
-
-function disableResolvedArtifactActions(
-  card: UICardData,
-  resolvedArtifactIds: Set<string>,
-): UICardData {
-  if (card.card_type !== "adoption_card" || !card.actions?.length) return card;
-
-  return {
-    ...card,
-    actions: card.actions.map((action) =>
-      actionTargetsResolvedArtifact(action, resolvedArtifactIds)
-        ? { ...action, enabled: false }
-        : action,
-    ),
-  };
-}
-
-function resolvedArtifactForCard(
-  card: UICardData,
-  resolvedArtifactsById: Map<string, AdoptionDecisionData>,
-): AdoptionDecisionData | null {
-  const actionTarget = card.actions
-    ?.map((action) => action.target_ref)
-    .find((targetRef) => resolvedArtifactsById.has(targetRef));
-
-  if (actionTarget) return resolvedArtifactsById.get(actionTarget) ?? null;
-
-  const artifactRef = card.artifact_refs?.find((ref) => resolvedArtifactsById.has(ref));
-  if (artifactRef) return resolvedArtifactsById.get(artifactRef) ?? null;
-
-  return null;
-}
-
-function uniqueUnresolvedAdoptions(
-  artifacts: ArtifactEntry[],
-  resolvedArtifactIds: Set<string>,
-): ArtifactEntry[] {
-  const seen = new Set<string>();
-
-  return artifacts.filter((artifact) => {
-    if (resolvedArtifactIds.has(artifact.artifact_id)) return false;
-    if (seen.has(artifact.artifact_id)) return false;
-    seen.add(artifact.artifact_id);
-    return true;
-  });
-}
-
 function startupFailureMessage(detail: string): ChatMessage {
   return {
     role: "assistant",
@@ -193,6 +147,7 @@ export function WorkspaceChat() {
   const [sessionSearch, setSessionSearch] = useState("");
   const [resumePendingAdoptions, setResumePendingAdoptions] = useState<ArtifactEntry[]>([]);
   const [resumeResolvedAdoptions, setResumeResolvedAdoptions] = useState<ArtifactEntry[]>([]);
+  const [transcriptRestored, setTranscriptRestored] = useState(false);
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore(state => state.socketConnected);
@@ -351,7 +306,10 @@ export function WorkspaceChat() {
             await reportSliceVerifyUiState(channelRef.current!, {
               slice_id: "au05-adoption-followup-routing",
               context_work_id: currentContext.workId,
-              context_work_title: currentContext.workTitle,
+              context_work_title: deriveWorkspaceRuntimeState({
+                connection: { connected: currentSocketConnected },
+                work: { id: currentContext.workId, title: currentContext.workTitle },
+              }).work.title,
               active_session_id: activeSessionId,
               restored_turn_id: result.parent_turn_id ?? result.turn_id,
               socket_connected: currentSocketConnected,
@@ -467,6 +425,7 @@ export function WorkspaceChat() {
         setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
         setMessages(restoredMessages);
         resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
+        setTranscriptRestored(restoredMessages.length > 0);
       } catch (error) {
         if (cancelled) return;
         const detail = error instanceof Error ? error.message : String(error);
@@ -474,6 +433,7 @@ export function WorkspaceChat() {
         setSessions([]);
         setResumePendingAdoptions([]);
         setResumeResolvedAdoptions([]);
+        setTranscriptRestored(false);
         setSocketConnected(false);
         setContext({ workId, workTitle, volumeTitle: null });
         setMessages([startupFailureMessage(`${WORKBENCH.startupFailureResumeSession}${detail}`)]);
@@ -511,8 +471,16 @@ export function WorkspaceChat() {
           setLastOpenedWorkId(joinedWorkId);
           setSocketConnected(true);
           setMessages((prev) => {
-            // Avoid duplicate welcome messages if effect re-runs
-            if (!shouldInsertWorkspaceWelcome(resumeRestoredTranscriptRef.current, prev.length)) return prev;
+            const startupRuntime = deriveWorkspaceRuntimeState({
+              connection: { connected: true },
+              work: { id: joinedWorkId, title: workTitle },
+              session: {
+                id: joinedSessionId,
+                transcriptRestored: resumeRestoredTranscriptRef.current,
+              },
+              transcript: prev,
+            });
+            if (!shouldShowWelcomeMessage(startupRuntime)) return prev;
             return [
               {
                 role: "assistant",
@@ -558,20 +526,33 @@ export function WorkspaceChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  const resolvedArtifactsById = new Map<string, AdoptionDecisionData>(
-    messages
-      .flatMap((msg) => msg.turnResult?.adoption_state?.resolved ?? [])
-      .concat(resumeResolvedAdoptions)
-      .map((artifact) => [artifact.artifact_id, artifact]),
-  );
-  const resolvedArtifactIds = new Set(resolvedArtifactsById.keys());
-  const allPendingAdoptions = uniqueUnresolvedAdoptions(
-    messages
-      .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
-      .concat(resumePendingAdoptions),
-    resolvedArtifactIds,
-  );
-  const pendingAdoptionsCount = allPendingAdoptions.length;
+  const runtimeState = deriveWorkspaceRuntimeState({
+    connection: { connected: socketConnected },
+    work: {
+      id: context.workId,
+      title: context.workTitle,
+      status: context.workTitle === "作品加载失败" ? "failed" : undefined,
+    },
+    session: {
+      id: activeSessionId,
+      transcriptRestored,
+    },
+    transcript: messages,
+    adoptionState: {
+      pending: messages
+        .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
+        .concat(resumePendingAdoptions),
+      resolved: messages
+        .flatMap((msg) => msg.turnResult?.adoption_state?.resolved ?? [])
+        .concat(resumeResolvedAdoptions),
+    },
+    task: { status: longRun.status },
+  });
+  const allPendingAdoptions = runtimeState.adoption.pendingArtifacts as ArtifactEntry[];
+  const pendingAdoptionsCount = getPendingAdoptionCount(runtimeState);
+  const visibleWorkTitle = getVisibleWorkTitle(runtimeState);
+  const hasValidRuntimeWork = runtimeState.work.hasValidWork;
+  const connectionLabel = runtimeState.ui.connectionLabel;
 
   useEffect(() => {
     if (!isTauri) return;
@@ -587,45 +568,68 @@ export function WorkspaceChat() {
       autorunSlice !== "au05-adoption-followup-routing" &&
       autorunSlice !== "au08-adoption-reading-projection" &&
       autorunSlice !== "stage-startup-context-contract" &&
+      autorunSlice !== "workspace-runtime-state" &&
       autorunSlice !== "au03c-work-session-resume"
     ) return;
     if (!socketConnected || sliceVerifyAutorunRef.current) return;
     if (sliceVerifyAutorunStarted.has(autorunSlice)) return;
-    if (autorunSlice === "au03c-work-session-resume" && resumeRestoredTranscriptRef.current) return;
-    if (autorunSlice === "stage-startup-context-contract") {
-      if (!resumeRestoredTranscriptRef.current) return;
-      if (!context.workId || !activeSessionId || !context.workTitle || !channelRef.current) return;
+    if (autorunSlice === "au03c-work-session-resume" && transcriptRestored) return;
+    if (autorunSlice === "stage-startup-context-contract" || autorunSlice === "workspace-runtime-state") {
+      if (!transcriptRestored) return;
+      if (!hasValidRuntimeWork || !activeSessionId || !channelRef.current) return;
 
       sliceVerifyAutorunRef.current = true;
       const timer = window.setTimeout(() => {
+        if (autorunSlice === "workspace-runtime-state") {
+          setMode("reading");
+        }
+      }, 100);
+      const reportTimer = window.setTimeout(() => {
         const restoredTurnId =
           messages.find((message) => typeof message.turnResult?.turn_id === "string")?.turnResult
             ?.turn_id ?? null;
         const titleText =
-          document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')?.innerText ?? "";
+          (autorunSlice === "workspace-runtime-state"
+            ? document.querySelector<HTMLElement>('[data-slice-verify="reading-work-title"]')?.innerText
+            : document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')?.innerText) ?? "";
         const serviceStatusText =
           document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')?.innerText ?? "";
         const welcomeMessageCount = messages.filter((message) =>
           message.text.includes("欢迎使用 AI Novel Studio"),
         ).length;
 
-        void reportSliceVerifyUiState(channelRef.current!, {
-          slice_id: autorunSlice,
-          context_work_id: context.workId,
-          context_work_title: context.workTitle,
-          active_session_id: activeSessionId,
-          restored_turn_id: restoredTurnId,
-          socket_connected: socketConnected,
-          message_count: messages.length,
-          welcome_message_count: welcomeMessageCount,
-          pending_adoption_count: pendingAdoptionsCount,
-          first_message_text: messages[0]?.text ?? "",
-          service_status_text: serviceStatusText,
-          title_text: titleText,
-        });
-      }, 250);
+        const report = async () => {
+          const toc = context.workId && channelRef.current
+            ? await getToc(channelRef.current, context.workId)
+            : { volumes: [] };
+          const readingChapterCount = toc.volumes.flatMap((volume) => volume.chapters).length;
 
-      return () => window.clearTimeout(timer);
+          await reportSliceVerifyUiState(channelRef.current!, {
+            slice_id: autorunSlice,
+            context_work_id: context.workId,
+            context_work_title: visibleWorkTitle,
+            active_session_id: activeSessionId,
+            restored_turn_id: restoredTurnId,
+            socket_connected: socketConnected,
+            message_count: messages.length,
+            welcome_message_count: welcomeMessageCount,
+            pending_adoption_count: pendingAdoptionsCount,
+            first_message_text: messages[0]?.text ?? "",
+            service_status_text: serviceStatusText,
+            title_text: titleText,
+            decision_card_count:
+              document.querySelectorAll('[data-slice-verify="adoption-decision-card"]').length,
+            reading_chapter_count: readingChapterCount,
+          });
+        };
+
+        void report().catch(() => undefined);
+      }, autorunSlice === "workspace-runtime-state" ? 700 : 250);
+
+      return () => {
+        window.clearTimeout(timer);
+        window.clearTimeout(reportTimer);
+      };
     }
 
     sliceVerifyAutorunRef.current = true;
@@ -676,7 +680,7 @@ export function WorkspaceChat() {
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [activeSessionId, context.workId, context.workTitle, messages, pendingAdoptionsCount, socketConnected]);
+  }, [activeSessionId, context.workId, hasValidRuntimeWork, messages, pendingAdoptionsCount, setMode, socketConnected, transcriptRestored, visibleWorkTitle]);
 
   // ... (rest of the component)
 
@@ -846,7 +850,7 @@ export function WorkspaceChat() {
       <div className={styles.topBar}>
         <div className={styles.contextGroup}>
           <span className={styles.titleText} data-slice-verify="work-title">
-            {context.workTitle || "无活跃作品"}
+            {visibleWorkTitle}
           </span>
           <button 
             className={styles.btnSecondary} 
@@ -880,7 +884,7 @@ export function WorkspaceChat() {
             data-slice-verify="service-status"
             style={{ backgroundColor: socketConnected ? 'var(--accent)' : 'var(--foreground-secondary)' }}
           >
-            服务: {socketConnected ? "已连接" : "离线"}
+            服务: {connectionLabel}
           </div>
         </div>
       </div>
@@ -908,7 +912,7 @@ export function WorkspaceChat() {
 
                 {msg.turnResult?.ui_cards?.map((card, ci) => {
                   const handleAction = (_actionId: string, targetRef: string, actionType?: string) => {
-                    if (isArtifactResolutionAction(actionType) && resolvedArtifactIds.has(targetRef)) {
+                    if (isArtifactResolutionAction(actionType) && isArtifactResolved(runtimeState, targetRef)) {
                       return;
                     }
 
@@ -966,10 +970,10 @@ export function WorkspaceChat() {
                       void handleAvailableAction(msg.turnResult, authorizedAction);
                     }
                   };
-                  const cardForRender = disableResolvedArtifactActions(card, resolvedArtifactIds);
+                  const cardForRender = disableResolvedArtifactActions(runtimeState, card);
                   const adoptionDecision =
                     cardForRender.card_type === "adoption_card"
-                      ? resolvedArtifactForCard(cardForRender, resolvedArtifactsById)
+                      ? adoptionDecisionForCard(runtimeState, cardForRender) as AdoptionDecisionData | null
                       : null;
 
                   switch (cardForRender.card_type) {

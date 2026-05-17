@@ -1,6 +1,7 @@
 // Design: docs/design-v2/ui-design/44-reading-mode.md §3 (accepted projection display)
 // Prototype: novel-studio-v2.pen → 44§3-reading-mode-stale (hEGz0)
 import type { TocData, ChapterContent } from "./socket";
+import { normalizeVisibleWorkTitle } from "./workspaceRuntimeState";
 
 export interface ReadingChapterView {
   id: string;
@@ -20,12 +21,7 @@ export interface ReadingTocView {
 }
 
 export function readingWorkTitle(title: string | null): string {
-  const normalized = title?.trim();
-  if (!normalized || ["未命名作品", "无活跃作品", "作品加载失败"].includes(normalized)) {
-    return "当前作品";
-  }
-
-  return normalized;
+  return normalizeVisibleWorkTitle(title);
 }
 
 export function normalizeReadingToc(toc: TocData | null): ReadingTocView | null {

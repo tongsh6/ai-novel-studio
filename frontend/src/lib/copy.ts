@@ -160,6 +160,15 @@ export const WORKBENCH = {
   startupFailureJoinMismatch: "Channel 返回的作品/会话与启动上下文不一致：",
 } as const;
 
+export const WORKSPACE_RUNTIME = {
+  currentWorkTitle: "当前作品",
+  connectionBooting: "启动中",
+  connectionConnecting: "正在连接",
+  connectionConnected: "已连接",
+  connectionDegraded: "连接不稳定",
+  connectionFailed: "离线",
+} as const;
+
 // ============================================================
 // Memo 系统
 // ============================================================

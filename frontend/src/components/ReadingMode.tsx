@@ -7,36 +7,57 @@ import type { TocData, ChapterContent } from "../lib/socket";
 import {
   normalizeChapterContentTitle,
   normalizeReadingToc,
-  readingWorkTitle,
 } from "../lib/readingProjection";
+import {
+  deriveWorkspaceRuntimeState,
+  getReadingProjectionStatus,
+  getVisibleWorkTitle,
+} from "../lib/workspaceRuntimeState";
 import styles from "./ReadingMode.module.css";
 
 export function ReadingMode() {
   const { setMode, context, projectionStatus, setPendingBuildAction, channel } = useAppStore();
 
   const [toc, setToc] = useState<TocData | null>(null);
+  const [tocError, setTocError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [chapterContent, setChapterContent] = useState<ChapterContent | null>(null);
 
   const tocView = normalizeReadingToc(toc);
-  const activeChapter = tocView?.volumes.flatMap((volume) => volume.chapters).find((chapter) => chapter.id === activeChapterId);
+  const chapters = tocView?.volumes.flatMap((volume) => volume.chapters) ?? [];
+  const activeChapter = chapters.find((chapter) => chapter.id === activeChapterId);
   const readableChapterContent = chapterContent
     ? normalizeChapterContentTitle(chapterContent, activeChapter)
     : null;
-  const hasContent = tocView && tocView.volumes.length > 0;
+  const runtimeState = deriveWorkspaceRuntimeState({
+    connection: { connected: Boolean(channel) },
+    work: { id: context.workId, title: context.workTitle },
+    readingProjection: {
+      chapters: tocView ? chapters : null,
+      activeChapterId,
+      refreshStatus: projectionStatus,
+      error: tocError,
+    },
+  });
+  const readingStatus = getReadingProjectionStatus(runtimeState);
+  const hasContent = readingStatus === "ready" || readingStatus === "stale";
   const contentLoading = activeChapterId != null && chapterContent == null;
 
   // Fetch TOC on mount when workId is set
   useEffect(() => {
     if (!channel || !context.workId) return;
     getToc(channel, context.workId).then((data) => {
+      setTocError(null);
       setToc(data);
       // Auto-select first chapter of first volume
       const firstChapter = data.volumes[0]?.chapters[0];
       if (firstChapter) {
         setActiveChapterId(firstChapter.id);
       }
-    }).catch(() => setToc(null));
+    }).catch((error) => {
+      setToc(null);
+      setTocError(error instanceof Error ? error.message : String(error));
+    });
   }, [channel, context.workId]);
 
   // Fetch chapter content when active chapter changes
@@ -92,7 +113,9 @@ export function ReadingMode() {
         <div className={styles.contextGroup}>
           <span className={styles.modeText}>阅读模式</span>
           <span className={styles.divider}>/</span>
-          <span className={styles.titleText}>{readingWorkTitle(context.workTitle)}</span>
+          <span className={styles.titleText} data-slice-verify="reading-work-title">
+            {getVisibleWorkTitle(runtimeState)}
+          </span>
         </div>
         <button
           className={styles.backBtn}
@@ -108,13 +131,13 @@ export function ReadingMode() {
         {/* TOC sidebar */}
         <div className={styles.tocSidebar}>
           <div className={styles.tocTitle}>目录</div>
-          {!hasContent ? (
+          {runtimeState.ui.shouldShowReadingEmptyState || readingStatus === "unknown" || readingStatus === "failed" ? (
             <div className={styles.tocEmpty}>
               暂无已采纳的章节内容
             </div>
           ) : (
             <div className={styles.tocList}>
-              {tocView.volumes.map((vol) => (
+              {tocView?.volumes.map((vol) => (
                 <div key={vol.id}>
                   <div className={styles.tocVolume}>{vol.title}</div>
                   {vol.chapters.map((ch) => (

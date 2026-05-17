@@ -15,6 +15,7 @@ import {
   normalizeReadingToc,
   readingWorkTitle,
 } from "../readingProjection";
+import { deriveWorkspaceRuntimeState, getPendingAdoptionCount } from "../workspaceRuntimeState";
 
 describe("card type contracts", () => {
   it("clarification_card with answer action satisfies UICard", () => {
@@ -111,23 +112,25 @@ describe("card type contracts", () => {
   });
 
   it("pending adoption count should be unique by artifact id after resume", () => {
-    const pendingFromTranscript = [{ artifact_id: "artifact-1" }, { artifact_id: "artifact-2" }];
-    const pendingFromResume = [{ artifact_id: "artifact-1" }];
-    const resolved = new Set(["artifact-2"]);
+    const state = deriveWorkspaceRuntimeState({
+      adoptionState: {
+        pending: [
+          { artifact_id: "artifact-1" },
+          { artifact_id: "artifact-2" },
+          { artifact_id: "artifact-1" },
+        ],
+        resolved: [{ artifact_id: "artifact-2", adoption_status: "ACCEPTED" }],
+      },
+    });
 
-    const visiblePendingIds = [...pendingFromTranscript, ...pendingFromResume]
-      .filter((artifact, index, artifacts) =>
-        !resolved.has(artifact.artifact_id) &&
-        artifacts.findIndex((item) => item.artifact_id === artifact.artifact_id) === index,
-      )
-      .map((artifact) => artifact.artifact_id);
-
-    expect(visiblePendingIds).toEqual(["artifact-1"]);
+    expect(state.adoption.pendingArtifactIds).toEqual(["artifact-1"]);
+    expect(getPendingAdoptionCount(state)).toBe(1);
   });
 
   it("reading mode does not expose internal projection ids as author-facing titles", () => {
     expect(readingWorkTitle("未命名作品")).toBe("当前作品");
     expect(readingWorkTitle("作品加载失败")).toBe("当前作品");
+    expect(readingWorkTitle("artifact-123")).toBe("当前作品");
 
     expect(
       normalizeReadingToc({
