@@ -43,14 +43,14 @@ describe("V3TurnResult.candidate_directions contract", () => {
         title: "赛博公司垄断流",
         pitch: "底层散修对抗大厂灵气垄断",
         tone_tags: ["压抑", "反叛"],
-        adoption_status: "tentative",
+        adoption_status: "not_adopted",
       },
       {
         direction_id: "dir_2",
         title: "霓虹地牢生存流",
         pitch: "先活下去再图改变",
         tone_tags: ["求生", "黑色"],
-        adoption_status: "tentative",
+        adoption_status: "not_adopted",
       },
     ];
     const result = baseTurnResult(candidates);
@@ -65,7 +65,7 @@ describe("V3TurnResult.candidate_directions contract", () => {
     expect(first.title).toBe("赛博公司垄断流");
     expect(first.pitch.length).toBeGreaterThan(0);
     expect(Array.isArray(first.tone_tags)).toBe(true);
-    expect(first.adoption_status).toBe("tentative");
+    expect(first.adoption_status).toBe("not_adopted");
   });
 
   it("renders nothing when LLM omits candidate_directions (reply-only frame)", () => {

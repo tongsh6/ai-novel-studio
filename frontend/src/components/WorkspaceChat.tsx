@@ -3,6 +3,7 @@
 // Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
 import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
+import { MessageCircle } from "lucide-react";
 
 import {
   createSocket,
@@ -65,6 +66,7 @@ import { useAppStore } from "../lib/store";
 import { isTauri } from "../lib/env";
 import { getProviderHealth } from "../lib/providerHealth";
 import { WORKBENCH } from "../lib/copy";
+import { buildCandidateContinuation } from "../lib/candidateSelection";
 
 import styles from "./WorkspaceChat.module.css";
 
@@ -97,6 +99,7 @@ export interface CandidateDirection {
   title: string;
   pitch: string;
   tone_tags: string[];
+  adoption_status?: string;
 }
 
 export interface ArtifactEntry {
@@ -167,6 +170,7 @@ export function WorkspaceChat() {
   const sliceVerifyContinuationRef = useRef(false);
   const sliceVerifyAdoptionRef = useRef(false);
   const sliceVerifyFollowUpRoutingRef = useRef(false);
+  const sliceVerifyCandidateRef = useRef(false);
   const resumeRestoredTranscriptRef = useRef(false);
 
   // Check LLM connection status
@@ -229,6 +233,20 @@ export function WorkspaceChat() {
             .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
             ?.click();
         }, 150);
+      }, 250);
+    }
+
+    if (
+      isTauri &&
+      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au02-candidate-continuation" &&
+      !sliceVerifyCandidateRef.current &&
+      (result.candidate_directions?.length ?? 0) > 0
+    ) {
+      sliceVerifyCandidateRef.current = true;
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLButtonElement>('[data-slice-verify="candidate-continue"]')
+          ?.click();
       }, 250);
     }
 
@@ -560,6 +578,7 @@ export function WorkspaceChat() {
     if (
       autorunSlice !== "vs10-observability-spine" &&
       autorunSlice !== "au10-micro-plan-entry" &&
+      autorunSlice !== "au02-candidate-continuation" &&
       autorunSlice !== "au10-ordinary-chat-no-micro-plan" &&
       autorunSlice !== "au01-ordinary-chat-two-turn-roundtrip" &&
       autorunSlice !== "au05-adoption-boundary" &&
@@ -645,6 +664,15 @@ export function WorkspaceChat() {
           void sendMessage(channelRef.current, text, context.workId, null, activeSessionId, true);
         }
       }, 150));
+    } else if (autorunSlice === "au02-candidate-continuation") {
+      timers.push(window.setTimeout(() => {
+        setInputText("我想写一个赛博修仙方向");
+        timers.push(window.setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
+            ?.click();
+        }, 150));
+      }, 150));
     } else if (autorunSlice === "au05-adoption-followup-routing") {
       timers.push(window.setTimeout(() => {
         const text = "请生成一个角色设定草案";
@@ -727,11 +755,37 @@ export function WorkspaceChat() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: "发送失败，请重试。" },
+        { role: "assistant", text: WORKBENCH.sendFailure },
       ]);
       setLoading(false);
     }
   }
+
+  const handleCandidateContinue = async (turnResult: TurnResult, candidate: CandidateDirection) => {
+    if (!channelRef.current) return;
+    const continuation = buildCandidateContinuation(turnResult.turn_id, candidate);
+
+    setMessages((prev) => [...prev, { role: "user", text: continuation.text }]);
+    setLoading(true);
+
+    try {
+      await sendMessage(
+        channelRef.current,
+        continuation.text,
+        context.workId,
+        null,
+        activeSessionId,
+        false,
+        continuation.selection,
+      );
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: WORKBENCH.sendFailure },
+      ]);
+      setLoading(false);
+    }
+  };
 
   const handleAdopt = async (artifact: ArtifactEntry, sourceTurnRef?: string | null) => {
     if (!channelRef.current) return;
@@ -1019,7 +1073,7 @@ export function WorkspaceChat() {
 
                 {msg.turnResult?.candidate_directions && msg.turnResult.candidate_directions.length > 0 && (
                   <div className={styles.candidatePanel}>
-                    <div className={styles.candidateHeader}>候选创作方向</div>
+                    <div className={styles.candidateHeader}>{WORKBENCH.candidatePanelTitle}</div>
                     <div className={styles.candidateList}>
                       {msg.turnResult.candidate_directions.map((c) => (
                         <div key={c.direction_id} className={styles.candidateCard}>
@@ -1032,6 +1086,23 @@ export function WorkspaceChat() {
                               ))}
                             </div>
                           )}
+                          <div className={styles.candidateActions}>
+                            <button
+                              className={styles.candidateButton}
+                              data-slice-verify="candidate-continue"
+                              data-candidate-ref={c.direction_id}
+                              disabled={loading || !socketConnected}
+                              title={WORKBENCH.candidateContinueTitle}
+                              onClick={() => {
+                                if (msg.turnResult) {
+                                  void handleCandidateContinue(msg.turnResult, c);
+                                }
+                              }}
+                            >
+                              <MessageCircle size={14} aria-hidden="true" />
+                              <span>{WORKBENCH.candidateContinueLabel}</span>
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </div>

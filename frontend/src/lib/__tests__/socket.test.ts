@@ -53,19 +53,41 @@ describe("sendMessage", () => {
   it("pushes user_message with text and does not request micro plan by default", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined, session_id: undefined, behavior_id: undefined, generate_micro_plan: false }, 60000);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined, session_id: undefined, behavior_id: undefined, generate_micro_plan: false, candidate_selection: undefined }, 60000);
   });
 
   it("passes work_id when provided", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好", "work-123");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123", session_id: undefined, behavior_id: undefined, generate_micro_plan: false }, 60000);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123", session_id: undefined, behavior_id: undefined, generate_micro_plan: false, candidate_selection: undefined }, 60000);
   });
 
   it("can explicitly request a micro plan", () => {
     const ch = mockChannel();
     sendMessage(ch, "生成角色设定", "work-123", undefined, "session-123", true);
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "生成角色设定", work_id: "work-123", session_id: "session-123", behavior_id: undefined, generate_micro_plan: true }, 60000);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "生成角色设定", work_id: "work-123", session_id: "session-123", behavior_id: undefined, generate_micro_plan: true, candidate_selection: undefined }, 60000);
+  });
+
+  it("passes candidate selection metadata without requesting adoption", () => {
+    const ch = mockChannel();
+    sendMessage(ch, "继续聊这个方向", "work-123", undefined, "session-123", false, {
+      source_turn_ref: "turn-1",
+      candidate_set_ref: "candidate_set:turn-1",
+      candidate_ref: "dir-1",
+    });
+
+    expect(ch.push).toHaveBeenCalledWith("user_message", {
+      text: "继续聊这个方向",
+      work_id: "work-123",
+      session_id: "session-123",
+      behavior_id: undefined,
+      generate_micro_plan: false,
+      candidate_selection: {
+        source_turn_ref: "turn-1",
+        candidate_set_ref: "candidate_set:turn-1",
+        candidate_ref: "dir-1",
+      },
+    }, 60000);
   });
 });
 

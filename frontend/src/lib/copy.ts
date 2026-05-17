@@ -158,7 +158,15 @@ export const WORKBENCH = {
   startupFailureLoadWork: "无法获取或创建作品：",
   startupFailureResumeSession: "无法恢复作品会话：",
   startupFailureJoinMismatch: "Channel 返回的作品/会话与启动上下文不一致：",
+  sendFailure: "发送失败，请重试。",
+  candidatePanelTitle: "候选创作方向",
+  candidateContinueLabel: "继续聊这个方向",
+  candidateContinueTitle: "把这个候选作为下一轮探索上下文，不会写入作品设定。",
 } as const;
+
+export function candidateContinuationText(title: string, pitch: string): string {
+  return `继续聊「${title}」这个方向：${pitch}`;
+}
 
 export const WORKSPACE_RUNTIME = {
   currentWorkTitle: "当前作品",

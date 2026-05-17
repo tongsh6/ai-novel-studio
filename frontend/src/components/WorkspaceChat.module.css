@@ -464,6 +464,35 @@
   margin-top: 8px;
 }
 
+.candidateActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+.candidateButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-primary);
+  border-radius: 6px;
+  background: var(--background-secondary);
+  color: var(--foreground-primary);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.candidateButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.candidateButton:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
 .tag {
   font-size: 11px;
   background: var(--background-secondary);

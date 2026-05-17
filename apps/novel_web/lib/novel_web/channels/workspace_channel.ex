@@ -175,61 +175,20 @@ defmodule NovelWeb.WorkspaceChannel do
     generate_plan = Map.get(msg, "generate_micro_plan", false)
     turn_id = Map.get(msg, "turn_id") || "turn_#{System.unique_integer([:positive, :monotonic])}"
 
-    LogContext.put_turn(ws_id, work_id, turn_id)
+    case validate_candidate_selection(socket, Map.get(msg, "candidate_selection")) do
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason}}, socket}
 
-    input = %{
-      text: text,
-      workspace_id: ws_id,
-      work_id: work_id,
-      session_id: session_id,
-      turn_id: turn_id,
-      generate_micro_plan: generate_plan
-    }
-
-    t0 = System.monotonic_time(:millisecond)
-
-    LogEmit.emit(:channel, :user_message, :start, %{
-      workspace_id: ws_id,
-      work_id: work_id,
-      session_id: session_id,
-      generate_micro_plan: generate_plan,
-      text_len: byte_size(text)
-    })
-
-    fetcher = NovelApplication.persistence_fetcher()
-    persister = NovelApplication.persistence_tracer()
-    recorder = NovelApplication.persistence_interaction_recorder()
-
-    result =
-      case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister, recorder) do
-        {:ok, turn_result, _trace, _candidates, _context} ->
-          broadcast!(socket, "turn_result", turn_result)
-          socket = remember_turn_result(socket, turn_result)
-          {:ok, socket}
-
-        {:error, reason} ->
-          broadcast!(socket, "turn_result", fallback_turn_result(inspect(reason)))
-          {:error, reason, socket}
-      end
-
-    duration = System.monotonic_time(:millisecond) - t0
-
-    case result do
-      {:ok, socket} ->
-        LogEmit.emit(:channel, :user_message, :done, %{
-          duration_ms: duration,
-          session_id: session_id
+      {:ok, candidate_selection} ->
+        handle_valid_user_message(socket, %{
+          text: text,
+          ws_id: ws_id,
+          work_id: work_id,
+          session_id: session_id,
+          generate_plan: generate_plan,
+          turn_id: turn_id,
+          candidate_selection: candidate_selection
         })
-
-        {:reply, {:ok, %{received: true}}, socket}
-
-      {:error, reason, socket} ->
-        LogEmit.emit(:channel, :user_message, :error, %{
-          duration_ms: duration,
-          reason_code: reason
-        })
-
-        {:reply, {:ok, %{received: true, note: "fallback"}}, socket}
     end
   end
 
@@ -624,6 +583,117 @@ defmodule NovelWeb.WorkspaceChannel do
   defp slice_verify_ui_state_enabled? do
     Application.get_env(:novel_web, :slice_verify_ui_state_enabled, false)
   end
+
+  defp handle_valid_user_message(socket, params) do
+    LogContext.put_turn(params.ws_id, params.work_id, params.turn_id)
+
+    input = %{
+      text: params.text,
+      workspace_id: params.ws_id,
+      work_id: params.work_id,
+      session_id: params.session_id,
+      turn_id: params.turn_id,
+      generate_micro_plan: params.generate_plan,
+      candidate_selection: params.candidate_selection
+    }
+
+    t0 = System.monotonic_time(:millisecond)
+
+    LogEmit.emit(:channel, :user_message, :start, %{
+      workspace_id: params.ws_id,
+      work_id: params.work_id,
+      session_id: params.session_id,
+      generate_micro_plan: params.generate_plan,
+      candidate_ref: candidate_ref(params.candidate_selection),
+      candidate_source_turn_ref: candidate_source_turn_ref(params.candidate_selection),
+      text_len: byte_size(params.text)
+    })
+
+    result = dispatch_user_message(socket, input)
+    duration = System.monotonic_time(:millisecond) - t0
+
+    reply_user_message_result(result, params.session_id, duration)
+  end
+
+  defp dispatch_user_message(socket, input) do
+    fetcher = NovelApplication.persistence_fetcher()
+    persister = NovelApplication.persistence_tracer()
+    recorder = NovelApplication.persistence_interaction_recorder()
+
+    case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister, recorder) do
+      {:ok, turn_result, _trace, _candidates, _context} ->
+        broadcast!(socket, "turn_result", turn_result)
+        socket = remember_turn_result(socket, turn_result)
+        {:ok, socket}
+
+      {:error, reason} ->
+        broadcast!(socket, "turn_result", fallback_turn_result(inspect(reason)))
+        {:error, reason, socket}
+    end
+  end
+
+  defp reply_user_message_result({:ok, socket}, session_id, duration) do
+    LogEmit.emit(:channel, :user_message, :done, %{
+      duration_ms: duration,
+      session_id: session_id
+    })
+
+    {:reply, {:ok, %{received: true}}, socket}
+  end
+
+  defp reply_user_message_result({:error, reason, socket}, _session_id, duration) do
+    LogEmit.emit(:channel, :user_message, :error, %{
+      duration_ms: duration,
+      reason_code: reason
+    })
+
+    {:reply, {:ok, %{received: true, note: "fallback"}}, socket}
+  end
+
+  defp validate_candidate_selection(_socket, nil), do: {:ok, nil}
+
+  defp validate_candidate_selection(socket, %{} = selection) do
+    source_turn_ref = selection["source_turn_ref"]
+    candidate_ref = selection["candidate_ref"]
+    turn_result = source_turn_ref && Map.get(socket.assigns[:turn_results_by_id] || %{}, source_turn_ref)
+
+    cond do
+      !is_binary(source_turn_ref) or !is_binary(candidate_ref) ->
+        {:error, "candidate selection missing source_turn_ref or candidate_ref"}
+
+      is_nil(turn_result) ->
+        {:error, "candidate source turn not found"}
+
+      candidate_direction?(turn_result, candidate_ref) ->
+        {:ok,
+         %{
+           source_turn_ref: source_turn_ref,
+           candidate_set_ref: selection["candidate_set_ref"],
+           candidate_ref: candidate_ref
+         }}
+
+      true ->
+        {:error, "candidate not found in source turn"}
+    end
+  end
+
+  defp validate_candidate_selection(_socket, _selection),
+    do: {:error, "candidate selection must be an object"}
+
+  defp candidate_direction?(turn_result, candidate_ref) do
+    turn_result
+    |> map_field(:candidate_directions)
+    |> List.wrap()
+    |> Enum.any?(&(map_field(&1, :direction_id) == candidate_ref))
+  end
+
+  defp candidate_ref(nil), do: nil
+  defp candidate_ref(selection), do: selection[:candidate_ref] || selection["candidate_ref"]
+
+  defp candidate_source_turn_ref(nil), do: nil
+
+  defp candidate_source_turn_ref(selection),
+    do: selection[:source_turn_ref] || selection["source_turn_ref"]
 
   defp remember_turn_result(socket, %{turn_id: turn_id} = turn_result) when is_binary(turn_id) do
     turn_results = Map.put(socket.assigns[:turn_results_by_id] || %{}, turn_id, turn_result)

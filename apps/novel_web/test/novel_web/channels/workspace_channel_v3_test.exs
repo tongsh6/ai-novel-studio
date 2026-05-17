@@ -74,6 +74,27 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
     }
   }
 
+  @candidate_turn_result %{
+    turn_id: "turn-candidates-1",
+    frame_ref: "frame-candidates-1",
+    available_actions: [],
+    candidate_directions: [
+      %{
+        direction_id: "dir-1",
+        title: "赛博公司垄断流",
+        pitch: "底层散修对抗大厂灵气垄断",
+        tone_tags: ["反叛"],
+        adoption_status: :not_adopted
+      }
+    ],
+    truthfulness: %{
+      tool_called: false,
+      artifact_adopted: false,
+      production_write_performed: false,
+      durable_behavior_opened: false
+    }
+  }
+
   # ── VS-07 Proof: user_message → turn_result roundtrip ──
 
   describe "user_message roundtrip" do
@@ -141,6 +162,57 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       refute Map.has_key?(result, :missing_slots)
       refute Map.has_key?(result, :slot_form)
       refute Map.has_key?(result, :slot_schema)
+    end
+
+    test "candidate continuation validates source turn and stays a normal dialogue turn" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @candidate_turn_result)
+
+      assert {:reply, {:ok, %{received: true}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "user_message",
+                 %{
+                   "text" => "继续聊「赛博公司垄断流」这个方向",
+                   "candidate_selection" => %{
+                     "source_turn_ref" => "turn-candidates-1",
+                     "candidate_set_ref" => "candidate_set:turn-candidates-1",
+                     "candidate_ref" => "dir-1"
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("turn_result", result)
+      assert result.truthfulness.artifact_adopted == false
+      assert result.truthfulness.production_write_performed == false
+      assert socket.assigns.current_turn_id != "turn-candidates-1"
+    end
+
+    test "candidate continuation rejects invented candidate refs" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @candidate_turn_result)
+
+      assert {:reply, {:error, %{reason: "candidate not found in source turn"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "user_message",
+                 %{
+                   "text" => "继续聊一个不存在的方向",
+                   "candidate_selection" => %{
+                     "source_turn_ref" => "turn-candidates-1",
+                     "candidate_set_ref" => "candidate_set:turn-candidates-1",
+                     "candidate_ref" => "dir-missing"
+                   }
+                 },
+                 socket
+               )
     end
   end
 
