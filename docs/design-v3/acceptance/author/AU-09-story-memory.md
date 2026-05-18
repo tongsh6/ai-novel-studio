@@ -2,7 +2,7 @@
 
 > 作者视角：我的小说有大量设定、角色关系、伏笔线索、世界观规则。我需要能管理这些设定，并且 AI 在后续对话中能自动、可追溯地引用已确认设定。
 >
-> 2026-05-18 对账结论：作品档案面板的固定样例数据已被最小真实链路替换，真实 Tauri 工作台可打开当前 Work 的档案并读取已采纳角色、confirmed/stabilized 且 recallable 的伏笔/规则、卷章/草稿/记忆统计；但 AU-09 仍缺可用 REST/Channel 管理入口、面板内采纳进入 governed memory、记忆召回到主链 context、引用日志写入、作者可见溯源，以及和 AU-03 “作品内多会话 + 最新作品背景”的分层闭环。
+> 2026-05-19 对账结论：作品档案面板的固定样例数据已被最小真实链路替换，真实 Tauri 工作台可打开当前 Work 的档案并读取已采纳角色、confirmed/stabilized 且 recallable 的伏笔/规则、卷章/草稿/记忆统计；档案 L2 列表到 L3 详情的只读查看 checkpoint 已补齐，角色/伏笔/规则可在 `StructurePanel` 中选中查看详情。但 AU-09 仍缺可用 REST/Channel 管理入口、面板内采纳进入 governed memory、记忆召回到主链 context、引用日志写入、作者可见溯源，以及和 AU-03 “作品内多会话 + 最新作品背景”的分层闭环。
 
 ---
 
@@ -91,9 +91,9 @@
 - 不同作品内容隔离；
 - 空态不冒充已有作品事实。
 
-**当前证据**：`StructurePanel` 有四个 tab；大纲 `get_toc` 已在 AU-08 改为真实读取 accepted draft 投影；`get_characters` / `get_foreshadowing` / `get_rules` 已改为通过 `WorkArchiveService` 读取当前 Work 的已采纳角色和已确认可召回记忆；`lobby` / 无效 Work 返回空态，不再返回固定 `char_1`、`mem_1`、`rule_1`。
+**当前证据**：`StructurePanel` 有四个 tab；大纲 `get_toc` 已在 AU-08 改为真实读取 accepted draft 投影；`get_characters` / `get_foreshadowing` / `get_rules` 已改为通过 `WorkArchiveService` 读取当前 Work 的已采纳角色和已确认可召回记忆；`lobby` / 无效 Work 返回空态，不再返回固定 `char_1`、`mem_1`、`rule_1`。2026-05-19 补充：角色/伏笔/规则 DTO 已携带只读详情字段，`StructurePanel` 使用 Radix Tabs，列表项可选中显示 L3 详情，且 Memory enum 在 UI 中映射为作者可读标签。
 
-**当前状态**：部分实现 / 最小真实前端闭环已补。仍缺跨作品切换的 UI 级隔离验收、记忆管理页和详情面。
+**当前状态**：部分实现 / 最小真实前端闭环已补。仍缺跨作品切换的 UI 级隔离验收和记忆管理页。
 
 ---
 
@@ -326,7 +326,7 @@
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
 | AU09-GAP-01 — 记忆 REST/Channel 管理入口缺失 | 前端 `memoryApi.ts` 调 `/api/works/:id/memories...`，Router 无对应路由 | 补实现/补集成 | P0 |
-| AU09-GAP-02 — 作品档案仍是 mock 数据 | `get_characters` / `get_foreshadowing` / `get_rules` / `get_work_stats` 固定样例已移除；`get_toc` 已由 AU-08 读取 accepted draft 投影；剩余是跨作品 UI 隔离、详情面和完整 AU-09 覆盖 | 最小闭环已补 / 继续补验收 | P0/P1 |
+| AU09-GAP-02 — 作品档案仍是 mock 数据 | `get_characters` / `get_foreshadowing` / `get_rules` / `get_work_stats` 固定样例已移除；`get_toc` 已由 AU-08 读取 accepted draft 投影；档案详情面已补最小只读 checkpoint；剩余是跨作品 UI 隔离和完整 AU-09 覆盖 | 最小闭环已补 / 继续补验收 | P0/P1 |
 | AU09-GAP-03 — 面板采纳未进入真实记忆 | pendingAdoptions 是当前前端内存，采纳链路未写入 governed memory | 补集成 | P0 |
 | AU09-GAP-04 — `memory_summary` 未接主链 | `WorkspaceContext.context_fetcher/0` 返回 memory nil | 补集成 | P0 |
 | AU09-GAP-05 — recall 查询和 ranking 缺失 | 未发现按 work/status/type/validity/query 召回 MemoryItem 的 application/persistence 入口 | 补实现 | P0 |
