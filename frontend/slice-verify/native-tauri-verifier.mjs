@@ -505,6 +505,9 @@ function findAu09ArchiveEvidence(records) {
     if (Number(uiState.archive_volumes ?? 0) < 1) continue;
     if (Number(uiState.archive_memory_items ?? 0) < 2) continue;
     if (Number(uiState.archive_drafts_accepted ?? 0) < 1) continue;
+    if (uiState.archive_detail_kind !== "memory") continue;
+    if (String(uiState.archive_detail_id ?? "").length < 1) continue;
+    if (String(uiState.archive_detail_title ?? "").length < 1) continue;
 
     return {
       slice_id: sliceId,
@@ -516,6 +519,8 @@ function findAu09ArchiveEvidence(records) {
       archive_rule_count: uiState.archive_rule_count,
       archive_memory_items: uiState.archive_memory_items,
       archive_drafts_accepted: uiState.archive_drafts_accepted,
+      archive_detail_kind: uiState.archive_detail_kind,
+      archive_detail_title: uiState.archive_detail_title,
     };
   }
 
@@ -1065,10 +1070,12 @@ function archiveRealDataBehavior(_records, evidence, _options) {
   if (Number(evidence.archive_rule_count ?? 0) < 1) return null;
   if (Number(evidence.archive_memory_items ?? 0) < 2) return null;
   if (Number(evidence.archive_drafts_accepted ?? 0) < 1) return null;
+  if (evidence.archive_detail_kind !== "memory") return null;
+  if (String(evidence.archive_detail_title ?? "").length < 1) return null;
 
   return {
     slice_id: "au09-archive-real-data",
-    behavior: "archive_panel_reads_real_scoped_work_facts",
+    behavior: "archive_panel_reads_real_scoped_work_facts_and_detail",
     work_id: evidence.work_id,
     assertions: [
       "archive_panel_opened_from_real_workbench",
@@ -1076,6 +1083,7 @@ function archiveRealDataBehavior(_records, evidence, _options) {
       "foreshadowing_loaded_from_confirmed_memory",
       "rules_loaded_from_confirmed_memory",
       "stats_loaded_from_persistence",
+      "foreshadowing_detail_opened_from_archive_list",
       "no_fixed_mock_archive_items",
     ],
   };

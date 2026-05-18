@@ -808,6 +808,11 @@ export function WorkspaceChat() {
       timers.push(window.setTimeout(() => {
         setIsPanelOpen(true);
         timers.push(window.setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="archive-foreshadowing-detail-button"]')
+            ?.click();
+        }, 900));
+        timers.push(window.setTimeout(() => {
           if (!channelRef.current || sliceVerifyUiReported.has("au09-archive-real-data")) return;
           sliceVerifyUiReported.add("au09-archive-real-data");
 
@@ -816,6 +821,7 @@ export function WorkspaceChat() {
           const panelDataset =
             document.querySelector<HTMLElement>('[data-slice-verify="structure-panel"]')
               ?.dataset;
+          const detailTitle = textContent('[data-slice-verify="archive-detail-title"]');
           const datasetNumber = (key: string) => Number.parseInt(panelDataset?.[key] ?? "0", 10);
 
           void reportSliceVerifyUiState(channelRef.current, {
@@ -841,8 +847,11 @@ export function WorkspaceChat() {
             archive_memory_items: datasetNumber("archiveMemoryItems"),
             archive_drafts_total: datasetNumber("archiveDraftsTotal"),
             archive_drafts_accepted: datasetNumber("archiveDraftsAccepted"),
+            archive_detail_kind: panelDataset?.archiveDetailKind ?? "",
+            archive_detail_id: panelDataset?.archiveDetailId ?? "",
+            archive_detail_title: detailTitle,
           }).catch(() => undefined);
-        }, 900));
+        }, 1150));
       }, 150));
     } else if (
       autorunSlice === "au10-ordinary-chat-no-micro-plan" ||

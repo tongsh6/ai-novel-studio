@@ -600,7 +600,10 @@ defmodule NovelWeb.WorkspaceChannel do
       archive_chapters: payload["archive_chapters"],
       archive_memory_items: payload["archive_memory_items"],
       archive_drafts_total: payload["archive_drafts_total"],
-      archive_drafts_accepted: payload["archive_drafts_accepted"]
+      archive_drafts_accepted: payload["archive_drafts_accepted"],
+      archive_detail_kind: payload["archive_detail_kind"],
+      archive_detail_id: payload["archive_detail_id"],
+      archive_detail_title: payload["archive_detail_title"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}

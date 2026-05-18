@@ -51,6 +51,9 @@ describe("native Tauri slice verifier", () => {
         archive_volumes: 1,
         archive_memory_items: 2,
         archive_drafts_accepted: 1,
+        archive_detail_kind: "memory",
+        archive_detail_id: "mem-au09",
+        archive_detail_title: "林澈背后的旧伤",
       },
     ];
 
@@ -61,10 +64,12 @@ describe("native Tauri slice verifier", () => {
       archive_character_count: 1,
       archive_foreshadowing_count: 1,
       archive_rule_count: 1,
+      archive_detail_kind: "memory",
+      archive_detail_title: "林澈背后的旧伤",
     });
     expect(findSliceBehaviorEvidence("au09-archive-real-data", records, evidence)).toEqual({
       slice_id: "au09-archive-real-data",
-      behavior: "archive_panel_reads_real_scoped_work_facts",
+      behavior: "archive_panel_reads_real_scoped_work_facts_and_detail",
       work_id: "work-au09",
       assertions: [
         "archive_panel_opened_from_real_workbench",
@@ -72,6 +77,7 @@ describe("native Tauri slice verifier", () => {
         "foreshadowing_loaded_from_confirmed_memory",
         "rules_loaded_from_confirmed_memory",
         "stats_loaded_from_persistence",
+        "foreshadowing_detail_opened_from_archive_list",
         "no_fixed_mock_archive_items",
       ],
     });
