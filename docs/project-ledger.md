@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-18（Milestone: VS-11 Desktop Stage Process Ownership checkpoint）
+> 最后更新：2026-05-19（Milestone: SU-02 Runtime Work Switching checkpoint）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -22,6 +22,8 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
 ### 当前重点推进事项（2026-05-15）
+
+SU-02 Runtime Work Switching checkpoint（2026-05-19）：已补齐 `docs/design-v3/acceptance/system/SU-02-work-switching.md` 中 P0 缺口的最小真实前端闭环。`WorkspaceChat` 顶部作品标题改为 Radix Dropdown 作品切换入口，可查看已有作品、刷新列表、创建新作品；运行时切换复用同一 `openWork` 状态流：关闭旧 Channel/Socket、恢复目标 work session、加入 `workspace:{work_id}`，join 成功后才写 last-opened work。每次连接带 token + work_id identity，`turn_result` / `task_state` 回调必须匹配当前连接，旧作品迟到结果不能写入新作品消息流；`setLastOpenedWorkId` 同步拒绝 `lobby`/空 id，避免 fallback 污染桌面偏好。新增原生 Tauri 验证 `su02-work-switching`：真实工作台在作品 A 发送消息后通过作品切换入口创建作品 B，验证两次 `channel.join.done` 属于不同 work，UI/Channel 上下文归属 B，切换后消息数为 1，A 的 turn 不出现在 B 的消息流。证据：`artifacts/slice-verify/su02-work-switching-tauri/summary.json`；task-done manifest：`artifacts/task-done/20260518T161248Z/manifest.json`。验证：`mix compile --warnings-as-errors`、`mix test`、xref cycle check、arch check、`pnpm --dir frontend typecheck`、`pnpm --dir frontend lint`、`pnpm --dir frontend test`、`pnpm tauri build`、`bash scripts/frontend_audit.sh`、`bash scripts/check_design_trace.sh`、`bash scripts/tauri_slice_verify.sh su02-work-switching`、`bash scripts/task_done.sh --slice su02-work-switching --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10` 均通过；AI 静态扫描 14 PASS / 0 finding。剩余：SU-02 D2 不可用作品降级、未命名作品区分/重命名、完整作品管理面板仍按后续 acceptance gap 推进。
 
 Workspace Runtime State checkpoint（2026-05-17）：本轮没有继续扩 AU-05 P0/P1/P2，而是先完成前端统一工作台运行时状态模型。新增 `frontend/src/lib/workspaceRuntimeState.ts`，把 connection / work / session / adoption / readingProjection / task / ui 的 normalize 与 selectors 集中到 `WorkspaceRuntimeState`；新增工程说明 `docs/engineering/frontend-workspace-runtime-state.md`。`WorkspaceChat` 顶部作品标题、欢迎语注入、pending adoption count、旧 adoption card resolved 决策记录、右侧 pending 列表均改为从统一 runtime state 派生；`ReadingMode` 标题、空态、projection ready/empty/failed 判断也从同一模型读取；`readingProjection.readingWorkTitle` 复用统一标题归一，避免 `as_15`、`artifact-*`、`mock_work`、`未连接` 等内部/占位值进入作者界面。review 发现的回归已修：显式 `{connected: false}` 现在归一为 `connection.status=failed`，顶部显示 `服务: 离线`，`shouldShowDisconnectedBadge=true`，不再误显示“启动中”。新增原生 Tauri 验证 `workspace-runtime-state`：种入带 transcript、1 个 pending artifact、1 个 resolved artifact 的 active session，启动真实 Tauri 工作台恢复会话，切到 ReadingMode，上报 UI probe，并断言未注入欢迎语、作品标题不为未连接、pending count 为 1、resolved 旧卡渲染 decision card、阅读标题为作者可见标题、空阅读投影章节数为 0。证据：`artifacts/slice-verify/workspace-runtime-state-tauri/summary.json`。验证：`pnpm --dir frontend typecheck`、`pnpm --dir frontend lint`、`pnpm --dir frontend test`、`bash scripts/frontend_audit.sh`、`bash scripts/check_design_trace.sh`、`bash scripts/tauri_slice_verify.sh workspace-runtime-state`、`bash scripts/task_done.sh --slice workspace-runtime-state`、`bash scripts/ai_static_scan.sh --top 10` 均通过；AI 静态扫描 14 PASS / 0 finding。`frontend_audit` 的 `works.ts` localStorage warning 已由 Desktop Preference checkpoint 修复；本机 DMG bundle warning 仍保留，非本次引入。
 
