@@ -3,8 +3,15 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.DialogueGateway
+  alias NovelFoundation.Enums.MemoryScope
+  alias NovelFoundation.Enums.MemorySourceType
+  alias NovelFoundation.Enums.MemoryStatus
+  alias NovelFoundation.Enums.MemoryType
+  alias NovelFoundation.ID
   alias NovelPersistence.MemoryLog
+  alias NovelPersistence.MemoryReferenceLog
   alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.WorkRepo
   alias NovelPersistence.WorkSessionRepo
   alias NovelPersistence.WorkspaceContext
@@ -84,6 +91,34 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       assistant = Enum.find(transcript, &(&1.role == "assistant"))
       assert get_in(assistant.content, ["turn_result", "turn_id"]) == turn_result.turn_id
     end
+
+    test "injects recalled confirmed memory into the planner prompt and trace context" do
+      {:ok, work} = WorkRepo.create(%{title: "记忆召回作品"})
+      memory = insert_memory!(work.id, "林瑶失踪与灵源矿区有关")
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+      complete_fn = capturing_complete_fn()
+
+      assert {:ok, turn_result, _trace, _candidates, context} =
+               DialogueGateway.handle_input(
+                 %{text: "林烬为什么要去灵源矿区？", workspace_id: work.id},
+                 fetcher,
+                 complete_fn,
+                 nil,
+                 nil
+               )
+
+      [prompt] = captured_prompts(complete_fn)
+
+      assert context.memory_summary =~ "林瑶失踪与灵源矿区有关"
+      assert String.contains?(prompt, "## 相关记忆")
+      assert String.contains?(prompt, "林瑶失踪与灵源矿区有关")
+      assert Enum.any?(turn_result.trace_summary.context_refs, &(&1.source_type == :memory))
+
+      [log] = MemoryReferenceLog.by_scene(work.id, "dialogue_context")
+      assert log.memory_id == memory.id
+      assert log.reference_reason =~ "灵源矿区"
+    end
   end
 
   defp capturing_complete_fn do
@@ -100,4 +135,20 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
   end
 
   defp captured_prompts(complete_fn), do: complete_fn.(:captured_prompts)
+
+  defp insert_memory!(work_id, content) do
+    %MemoryItem{}
+    |> MemoryItem.changeset(%{
+      id: ID.uuid(),
+      work_id: work_id,
+      content: content,
+      summary: content,
+      type: MemoryType.plot_fact(),
+      scope: MemoryScope.work(),
+      status: MemoryStatus.confirmed(),
+      source_type: MemorySourceType.author_confirmed(),
+      recallable: true
+    })
+    |> Repo.insert!()
+  end
 end

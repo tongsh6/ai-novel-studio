@@ -25,7 +25,7 @@ defmodule NovelApplication do
   返回 context_fetcher 用于注入 DialogueGateway。启用真实持久化时返回 DB fetcher。
   """
   def persistence_fetcher do
-    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.context_fetcher()
+    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.context_fetcher_with_query()
   end
 
   @doc """

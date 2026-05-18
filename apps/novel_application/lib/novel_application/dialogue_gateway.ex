@@ -58,7 +58,13 @@ defmodule NovelApplication.DialogueGateway do
       work_id: work_id
     })
 
-    context = ContextAssembler.assemble(ws_id, context_fetcher_or_default(context_fetcher))
+    context =
+      ContextAssembler.assemble_for_input(
+        ws_id,
+        text,
+        context_fetcher_or_default(context_fetcher)
+      )
+
     frame_input = %{text: text, workspace_id: ws_id, turn_id: turn_id}
     frame_fn = complete_fn || (&Gateway.complete/1)
     {frame, candidates} = Planner.form_frame(frame_input, context, frame_fn)
@@ -69,7 +75,15 @@ defmodule NovelApplication.DialogueGateway do
     case DialogueFrame.validate(frame) do
       :ok ->
         result = handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn)
-        persist_turn_side_effects(result, ws_id, session_id, text, trace_persister, memory_recorder)
+
+        persist_turn_side_effects(
+          result,
+          ws_id,
+          session_id,
+          text,
+          trace_persister,
+          memory_recorder
+        )
 
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -120,8 +134,20 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  defp persist_turn_side_effects(result, ws_id, session_id, text, trace_persister, memory_recorder) do
-    maybe_persist_trace(result, ws_id, session_id, trace_persister || NovelApplication.persistence_tracer())
+  defp persist_turn_side_effects(
+         result,
+         ws_id,
+         session_id,
+         text,
+         trace_persister,
+         memory_recorder
+       ) do
+    maybe_persist_trace(
+      result,
+      ws_id,
+      session_id,
+      trace_persister || NovelApplication.persistence_tracer()
+    )
 
     maybe_record_interactions(
       result,
@@ -134,10 +160,20 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── trace persistence ─────────────────────────
 
-  defp maybe_persist_trace({:ok, _turn_result, _trace, _candidates, _context}, _ws_id, _session_id, nil),
-    do: :ok
+  defp maybe_persist_trace(
+         {:ok, _turn_result, _trace, _candidates, _context},
+         _ws_id,
+         _session_id,
+         nil
+       ),
+       do: :ok
 
-  defp maybe_persist_trace({:ok, _turn_result, trace, _candidates, _context}, ws_id, session_id, persister) do
+  defp maybe_persist_trace(
+         {:ok, _turn_result, trace, _candidates, _context},
+         ws_id,
+         session_id,
+         persister
+       ) do
     with attrs <- trace_to_attrs(trace, ws_id, session_id),
          :ok <- persister.(ws_id, attrs) do
       :ok

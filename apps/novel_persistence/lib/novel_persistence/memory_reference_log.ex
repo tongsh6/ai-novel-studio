@@ -92,6 +92,7 @@ defmodule NovelPersistence.MemoryReferenceLog do
       }
     )
     |> Repo.all()
+    |> Enum.map(&normalize_record/1)
   end
 
   @doc """
@@ -114,8 +115,25 @@ defmodule NovelPersistence.MemoryReferenceLog do
       }
     )
     |> Repo.all()
+    |> Enum.map(&normalize_record/1)
   end
 
   defp to_bin(nil), do: nil
   defp to_bin(uuid) when is_binary(uuid), do: Ecto.UUID.dump!(uuid)
+
+  defp normalize_record(record) do
+    record
+    |> Map.update!(:id, &from_bin/1)
+    |> Map.update!(:memory_id, &from_bin/1)
+    |> Map.update!(:work_id, &from_bin/1)
+    |> Map.update!(:task_id, &from_bin/1)
+    |> Map.update!(:conversation_id, &from_bin/1)
+  end
+
+  defp from_bin(nil), do: nil
+
+  defp from_bin(value) when is_binary(value) and byte_size(value) == 16,
+    do: Ecto.UUID.load!(value)
+
+  defp from_bin(value), do: value
 end
