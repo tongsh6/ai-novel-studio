@@ -9,6 +9,7 @@ export const nativeSliceIds = [
   "au05-modify-draft-boundary",
   "au08-adoption-reading-projection",
   "au09-archive-real-data",
+  "au09-memory-recall-context",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -110,6 +111,14 @@ const sliceKeyEvents = {
     "channel.get_rules.done",
     "channel.get_work_stats.done",
     "slice_verify.ui_state.done",
+  ],
+  "au09-memory-recall-context": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
   ],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
@@ -222,6 +231,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu09ArchiveEvidence(records);
   }
 
+  if (sliceId === "au09-memory-recall-context") {
+    return findAu09MemoryRecallEvidence(records);
+  }
+
   if (sliceId === "au10-micro-plan-entry") {
     return findAu10UserMessageEvidence(records, true, "au10-micro-plan-entry");
   }
@@ -266,6 +279,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au09-archive-real-data") {
     return archiveRealDataBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au09-memory-recall-context") {
+    return memoryRecallContextBehavior(records, evidence, options);
   }
 
   const turnIds = evidence.turn_ids ?? [evidence.turn_id];
@@ -521,6 +538,41 @@ function findAu09ArchiveEvidence(records) {
       archive_drafts_accepted: uiState.archive_drafts_accepted,
       archive_detail_kind: uiState.archive_detail_kind,
       archive_detail_title: uiState.archive_detail_title,
+    };
+  }
+
+  return null;
+}
+
+function findAu09MemoryRecallEvidence(records) {
+  const sliceId = "au09-memory-recall-context";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== false) continue;
+    if (!hasRequiredCorrelationFields(start)) continue;
+
+    const hasAllEvents = keyEvents.every((event) =>
+      turnRecords.some(
+        (record) => record.event === event && hasRequiredCorrelationFields(record),
+      ),
+    );
+    if (!hasAllEvents) continue;
+
+    const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
+    if (contextDone?.has_memory !== true) continue;
+    if (Number(contextDone.context_refs_count ?? 0) < 1) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      work_id: start.work_id,
+      session_id: start.session_id,
+      context_refs_count: contextDone.context_refs_count,
+      key_events: keyEvents,
     };
   }
 
@@ -1085,6 +1137,38 @@ function archiveRealDataBehavior(_records, evidence, _options) {
       "stats_loaded_from_persistence",
       "foreshadowing_detail_opened_from_archive_list",
       "no_fixed_mock_archive_items",
+    ],
+  };
+}
+
+function memoryRecallContextBehavior(records, evidence, options) {
+  const turnIds = evidence.turn_ids ?? [evidence.turn_id];
+  const turnRecords = records.filter((record) => turnIds.includes(record.turn_id));
+
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
+  if (contextDone?.has_memory !== true) return null;
+  if (Number(contextDone.context_refs_count ?? 0) < 1) return null;
+
+  return {
+    slice_id: "au09-memory-recall-context",
+    behavior: "confirmed_memory_recalled_into_dialogue_context",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    assertions: [
+      "message_sent_from_real_workbench",
+      "micro_plan_not_requested",
+      "confirmed_recallable_memory_attached_to_context",
+      "planner_received_context_before_frame",
+      "no_error_events",
+      "assistant_messages_not_fallback",
     ],
   };
 }

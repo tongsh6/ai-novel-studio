@@ -651,6 +651,7 @@ export function WorkspaceChat() {
       autorunSlice !== "au05-adoption-followup-routing" &&
       autorunSlice !== "au08-adoption-reading-projection" &&
       autorunSlice !== "au09-archive-real-data" &&
+      autorunSlice !== "au09-memory-recall-context" &&
       autorunSlice !== "stage-startup-context-contract" &&
       autorunSlice !== "workspace-runtime-state" &&
       autorunSlice !== "au03c-work-session-resume"
@@ -852,6 +853,15 @@ export function WorkspaceChat() {
             archive_detail_title: detailTitle,
           }).catch(() => undefined);
         }, 1150));
+      }, 150));
+    } else if (autorunSlice === "au09-memory-recall-context") {
+      timers.push(window.setTimeout(() => {
+        setInputText("林烬为什么要去灵源矿区？");
+        timers.push(window.setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
+            ?.click();
+        }, 150));
       }, 150));
     } else if (
       autorunSlice === "au10-ordinary-chat-no-micro-plan" ||

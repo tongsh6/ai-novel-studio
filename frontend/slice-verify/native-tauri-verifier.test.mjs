@@ -20,6 +20,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-modify-draft-boundary");
     expect(nativeSliceIds).toContain("au08-adoption-reading-projection");
     expect(nativeSliceIds).toContain("au09-archive-real-data");
+    expect(nativeSliceIds).toContain("au09-memory-recall-context");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -79,6 +80,93 @@ describe("native Tauri slice verifier", () => {
         "stats_loaded_from_persistence",
         "foreshadowing_detail_opened_from_archive_list",
         "no_fixed_mock_archive_items",
+      ],
+    });
+  });
+
+  it("accepts AU-09 memory recall evidence when a workbench turn attaches memory context", () => {
+    const records = [
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-memory",
+        workspace_id: "work-memory",
+        work_id: "work-memory",
+        session_id: "session-memory",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "start",
+      },
+      {
+        event: "dialogue_gateway.handle_input.start",
+        turn_id: "turn-memory",
+        workspace_id: "work-memory",
+        work_id: "work-memory",
+        session_id: "session-memory",
+        duration_ms: 0,
+        outcome: "start",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-memory",
+        workspace_id: "work-memory",
+        work_id: "work-memory",
+        session_id: "session-memory",
+        has_memory: true,
+        context_refs_count: 1,
+        duration_ms: 3,
+        outcome: "done",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-memory",
+        workspace_id: "work-memory",
+        work_id: "work-memory",
+        session_id: "session-memory",
+        duration_ms: 10,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-memory",
+        workspace_id: "work-memory",
+        work_id: "work-memory",
+        session_id: "session-memory",
+        duration_ms: 20,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-memory",
+        workspace_id: "work-memory",
+        work_id: "work-memory",
+        session_id: "session-memory",
+        duration_ms: 25,
+        outcome: "done",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-memory-recall-context", records);
+    expect(evidence).toEqual({
+      slice_id: "au09-memory-recall-context",
+      turn_id: "turn-memory",
+      turn_ids: ["turn-memory"],
+      work_id: "work-memory",
+      session_id: "session-memory",
+      context_refs_count: 1,
+      key_events: keyEventsForSlice("au09-memory-recall-context"),
+    });
+    expect(findSliceBehaviorEvidence("au09-memory-recall-context", records, evidence)).toEqual({
+      slice_id: "au09-memory-recall-context",
+      behavior: "confirmed_memory_recalled_into_dialogue_context",
+      turn_ids: ["turn-memory"],
+      work_id: "work-memory",
+      assertions: [
+        "message_sent_from_real_workbench",
+        "micro_plan_not_requested",
+        "confirmed_recallable_memory_attached_to_context",
+        "planner_received_context_before_frame",
+        "no_error_events",
+        "assistant_messages_not_fallback",
       ],
     });
   });
