@@ -34,7 +34,9 @@ defmodule NovelPersistence.WorkArchiveRepo do
         name: c.name,
         role: c.role,
         summary: c.summary,
-        aliases: c.aliases
+        aliases: c.aliases,
+        status: c.status,
+        updated_at: c.updated_at
       })
       |> Repo.all()
       |> Enum.map(&normalize_character/1)
@@ -84,7 +86,23 @@ defmodule NovelPersistence.WorkArchiveRepo do
           m.recallable == true and m.type in ^types
       )
       |> order_by([m], desc: m.updated_at, desc: m.inserted_at)
-      |> select([m], %{id: m.id, type: m.type, content: m.content, tags: m.tags})
+      |> select([m], %{
+        id: m.id,
+        type: m.type,
+        scope: m.scope,
+        status: m.status,
+        source_type: m.source_type,
+        content: m.content,
+        summary: m.summary,
+        tags: m.tags,
+        weight: m.weight,
+        confidence: m.confidence,
+        locked: m.locked,
+        recallable: m.recallable,
+        reference_count: m.reference_count,
+        version: m.version,
+        updated_at: m.updated_at
+      })
       |> Repo.all()
       |> Enum.map(&normalize_memory_item/1)
     end)
@@ -139,12 +157,24 @@ defmodule NovelPersistence.WorkArchiveRepo do
   end
 
   defp normalize_character(character) do
-    %{character | aliases: character.aliases || []}
+    character
+    |> Map.put(:aliases, character.aliases || [])
+    |> Map.put(:updated_at, datetime_to_iso8601(character.updated_at))
   end
 
   defp normalize_memory_item(item) do
-    %{item | tags: item.tags || []}
+    item
+    |> Map.put(:tags, item.tags || [])
+    |> Map.put(:weight, decimal_to_float(item.weight))
+    |> Map.put(:confidence, decimal_to_float(item.confidence))
+    |> Map.put(:updated_at, datetime_to_iso8601(item.updated_at))
   end
+
+  defp decimal_to_float(%Decimal{} = decimal), do: Decimal.to_float(decimal)
+  defp decimal_to_float(value), do: value
+
+  defp datetime_to_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp datetime_to_iso8601(_), do: nil
 
   defp text_size(nil), do: 0
   defp text_size(text) when is_binary(text), do: String.length(text)

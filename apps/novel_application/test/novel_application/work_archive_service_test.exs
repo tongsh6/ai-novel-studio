@@ -38,9 +38,40 @@ defmodule NovelApplication.WorkArchiveServiceTest do
     insert_draft(work.id, scene.id, "已采纳正文", AdoptionStatus.accepted())
     insert_draft(work.id, scene.id, "待采纳正文", AdoptionStatus.tentative())
 
-    assert [%{name: "林澈", aliases: []}] = WorkArchiveService.characters(work.id)
-    assert [%{content: "林澈背后的旧伤", tags: ["主线"]}] = WorkArchiveService.foreshadowing(work.id)
-    assert [%{content: "灵能不能治愈记忆损伤", tags: ["硬规则"]}] = WorkArchiveService.rules(work.id)
+    assert [
+             %{
+               name: "林澈",
+               aliases: [],
+               status: "ACCEPTED",
+               updated_at: character_updated_at
+             }
+           ] = WorkArchiveService.characters(work.id)
+
+    assert is_binary(character_updated_at)
+
+    assert [
+             %{
+               content: "林澈背后的旧伤",
+               tags: ["主线"],
+               status: "CONFIRMED",
+               scope: "WORK",
+               source_type: "AUTHOR_CONFIRMED",
+               locked: false,
+               recallable: true,
+               reference_count: 0,
+               version: 1,
+               weight: weight,
+               confidence: confidence,
+               updated_at: memory_updated_at
+             }
+           ] = WorkArchiveService.foreshadowing(work.id)
+
+    assert is_float(weight)
+    assert is_float(confidence)
+    assert is_binary(memory_updated_at)
+
+    assert [%{content: "灵能不能治愈记忆损伤", tags: ["硬规则"], status: "CONFIRMED"}] =
+             WorkArchiveService.rules(work.id)
 
     assert %{
              volumes: 1,
