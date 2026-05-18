@@ -1,5 +1,6 @@
 export const nativeSliceIds = [
   "workspace-runtime-state",
+  "su02-work-switching",
   "stage-startup-context-contract",
   "au03c-work-session-resume",
   "au05-adoption-boundary",
@@ -20,6 +21,12 @@ const sliceKeyEvents = {
     "work_session.resume.done",
     "channel.join.done",
     "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  "su02-work-switching": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
     "slice_verify.ui_state.done",
   ],
   "stage-startup-context-contract": [
@@ -179,6 +186,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findWorkspaceRuntimeStateEvidence(records);
   }
 
+  if (sliceId === "su02-work-switching") {
+    return findSu02WorkSwitchingEvidence(records);
+  }
+
   if (sliceId === "stage-startup-context-contract") {
     return findStageStartupContextEvidence(records);
   }
@@ -239,6 +250,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "workspace-runtime-state") {
     return workspaceRuntimeStateBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su02-work-switching") {
+    return su02WorkSwitchingBehavior(records, evidence, options);
   }
 
   if (sliceId === "stage-startup-context-contract") {
@@ -700,6 +715,73 @@ function findWorkspaceRuntimeStateEvidence(records) {
   return null;
 }
 
+function findSu02WorkSwitchingEvidence(records) {
+  const sliceId = "su02-work-switching";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id &&
+      record.socket_connected === true,
+  );
+
+  for (const uiState of uiStates) {
+    const joinedWorks = records
+      .filter((record) => record.event === "channel.join.done" && record.work_id)
+      .map((record) => record.work_id);
+    const distinctJoinedWorks = [...new Set(joinedWorks)];
+    if (distinctJoinedWorks.length < 2) continue;
+
+    const previousWorkMessage = records.find(
+      (record) =>
+        record.event === "channel.user_message.start" &&
+        record.work_id &&
+        record.work_id !== uiState.work_id,
+    );
+    if (!previousWorkMessage) continue;
+
+    const resumedCurrent = records.find(
+      (record) =>
+        record.event === "work_session.resume.done" &&
+        record.work_id === uiState.work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!resumedCurrent) continue;
+
+    const joinedCurrent = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === uiState.work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!joinedCurrent) continue;
+
+    const serviceStatusText = String(uiState.service_status_text ?? "");
+    if (!serviceStatusText.includes("已连接")) continue;
+
+    const titleText = String(uiState.title_text ?? uiState.context_work_title ?? "");
+    if (!authorFacingTitle(titleText)) continue;
+
+    if (Number(uiState.message_count ?? 0) > 2) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: previousWorkMessage.turn_id,
+      turn_ids: [previousWorkMessage.turn_id].filter(Boolean),
+      work_id: uiState.work_id,
+      previous_work_id: previousWorkMessage.work_id,
+      session_id: uiState.session_id,
+      joined_work_count: distinctJoinedWorks.length,
+      message_count_after_switch: uiState.message_count,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
 function findAu10UserMessageEvidence(records, generateMicroPlan, sliceId) {
   const keyEvents = keyEventsForSlice(sliceId);
   const byTurn = groupByTurn(records);
@@ -1058,6 +1140,33 @@ function workspaceRuntimeStateBehavior(records, evidence, _options) {
       "reading_mode_title_author_facing",
       "reading_projection_empty_state_has_no_fake_chapters",
       "no_error_events",
+    ],
+  };
+}
+
+function su02WorkSwitchingBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  const previousWorkRecords = records.filter((record) => record.work_id === evidence.previous_work_id);
+  const currentWorkRecords = records.filter((record) => record.work_id === evidence.work_id);
+  if (previousWorkRecords.length === 0 || currentWorkRecords.length === 0) return null;
+
+  return {
+    slice_id: "su02-work-switching",
+    behavior: "runtime_work_switch_rejoins_channel_and_ignores_stale_pending_result",
+    turn_ids: evidence.turn_ids,
+    work_id: evidence.work_id,
+    previous_work_id: evidence.previous_work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "message_sent_from_previous_work_before_switch",
+      "work_switcher_created_second_persisted_work",
+      "channel_rejoined_with_new_workspace_topic",
+      "ui_context_matches_new_channel_work_id",
+      "new_work_message_stream_did_not_include_previous_pending_result",
+      "last_opened_not_written_for_lobby_fallback",
+      "no_error_events",
+      "assistant_messages_not_fallback",
     ],
   };
 }

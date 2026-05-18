@@ -43,6 +43,11 @@ export async function createWork(input: {
 
 type BrowserStorage = Pick<Storage, "getItem" | "setItem">;
 
+export interface WorkConnectionIdentity {
+  token: number;
+  workId: string | null;
+}
+
 function browserStorage(): BrowserStorage | null {
   try {
     const candidate = globalThis as typeof globalThis & {
@@ -73,6 +78,8 @@ export async function getLastOpenedWorkId(): Promise<string | null> {
 
 export async function setLastOpenedWorkId(id: string): Promise<void> {
   try {
+    if (!shouldPersistLastOpenedWorkId(id)) return;
+
     if (isTauri) {
       await invokeTauri<void>("set_last_opened_work_id", { id });
       return;
@@ -96,4 +103,15 @@ export function pickInitialWorkId(
   if (works.length === 0) return null;
   if (lastOpened && works.some((w) => w.id === lastOpened)) return lastOpened;
   return works[0].id;
+}
+
+export function shouldPersistLastOpenedWorkId(id: string | null): id is string {
+  return typeof id === "string" && id.trim().length > 0 && id !== "lobby";
+}
+
+export function isCurrentWorkConnection(
+  active: WorkConnectionIdentity,
+  incoming: WorkConnectionIdentity,
+): boolean {
+  return active.token === incoming.token && active.workId === incoming.workId;
 }

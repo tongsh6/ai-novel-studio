@@ -23,10 +23,127 @@
   gap: 16px;
 }
 
+.workSwitcherButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 180px;
+  max-width: 320px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  color: var(--foreground-primary);
+  cursor: pointer;
+}
+
+.workSwitcherButton:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .titleText {
   color: var(--foreground-primary);
   font-size: 20px;
   font-family: var(--sans);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workMenu {
+  z-index: 80;
+  min-width: 280px;
+  max-width: 360px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
+}
+
+.workMenuHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px 10px;
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 1px;
+}
+
+.workMenuIconButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: transparent;
+  color: var(--foreground-primary);
+  cursor: pointer;
+}
+
+.workMenuItem,
+.workMenuItemActive,
+.workMenuCreate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 8px;
+  border-radius: var(--rounded-sm);
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 13px;
+  outline: none;
+  cursor: pointer;
+}
+
+.workMenuItem[data-disabled],
+.workMenuItemActive[data-disabled],
+.workMenuCreate[data-disabled] {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.workMenuItem:hover,
+.workMenuItem:focus,
+.workMenuCreate:hover,
+.workMenuCreate:focus {
+  background-color: var(--border-subtle);
+}
+
+.workMenuItemActive {
+  border: 1px solid var(--foreground-primary);
+}
+
+.workMenuItemTitle {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workMenuCurrent {
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
+}
+
+.workMenuEmpty {
+  padding: 12px 8px;
+  color: var(--foreground-secondary);
+  font-size: 13px;
+}
+
+.workMenuSeparator {
+  height: 1px;
+  margin: 8px 0;
+  background-color: var(--border-subtle);
 }
 
 .divider1 {

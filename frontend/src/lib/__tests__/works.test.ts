@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   getLastOpenedWorkId,
+  isCurrentWorkConnection,
   pickInitialWorkId,
   setLastOpenedWorkId,
+  shouldPersistLastOpenedWorkId,
   type WorkDto,
 } from "../works";
 
@@ -58,8 +60,55 @@ describe("last opened work preference", () => {
     expect(await getLastOpenedWorkId()).toBe("work-42");
   });
 
+  it("does not persist fallback workspace ids", async () => {
+    const setItem = vi.fn();
+    Object.defineProperty(globalThis, "localStorage", {
+      configurable: true,
+      value: {
+        getItem: vi.fn(),
+        setItem,
+      },
+    });
+
+    await setLastOpenedWorkId("lobby");
+
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
   it("falls back to null when preference storage is unavailable", async () => {
     expect(await getLastOpenedWorkId()).toBeNull();
     await expect(setLastOpenedWorkId("work-42")).resolves.toBeUndefined();
+  });
+});
+
+describe("work connection identity", () => {
+  it("accepts only events from the active work connection", () => {
+    expect(
+      isCurrentWorkConnection(
+        { token: 2, workId: "work-b" },
+        { token: 2, workId: "work-b" },
+      ),
+    ).toBe(true);
+
+    expect(
+      isCurrentWorkConnection(
+        { token: 2, workId: "work-b" },
+        { token: 1, workId: "work-a" },
+      ),
+    ).toBe(false);
+
+    expect(
+      isCurrentWorkConnection(
+        { token: 2, workId: "work-b" },
+        { token: 2, workId: "work-a" },
+      ),
+    ).toBe(false);
+  });
+
+  it("persists only real work ids", () => {
+    expect(shouldPersistLastOpenedWorkId("work-1")).toBe(true);
+    expect(shouldPersistLastOpenedWorkId("lobby")).toBe(false);
+    expect(shouldPersistLastOpenedWorkId("")).toBe(false);
+    expect(shouldPersistLastOpenedWorkId(null)).toBe(false);
   });
 });

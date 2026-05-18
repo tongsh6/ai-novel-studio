@@ -3,7 +3,8 @@
 // Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
 import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
-import { MessageCircle } from "lucide-react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { BookOpen, ChevronDown, MessageCircle, Plus, RefreshCw } from "lucide-react";
 
 import {
   createSocket,
@@ -24,6 +25,7 @@ import {
   pickInitialWorkId,
   getLastOpenedWorkId,
   setLastOpenedWorkId,
+  isCurrentWorkConnection,
   type WorkDto,
 } from "../lib/works";
 import {
@@ -152,6 +154,9 @@ export function WorkspaceChat() {
   const [resumePendingAdoptions, setResumePendingAdoptions] = useState<ArtifactEntry[]>([]);
   const [resumeResolvedAdoptions, setResumeResolvedAdoptions] = useState<ArtifactEntry[]>([]);
   const [transcriptRestored, setTranscriptRestored] = useState(false);
+  const [works, setWorks] = useState<WorkDto[]>([]);
+  const [workMenuOpen, setWorkMenuOpen] = useState(false);
+  const [workSwitchingId, setWorkSwitchingId] = useState<string | null>(null);
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore(state => state.socketConnected);
@@ -172,6 +177,12 @@ export function WorkspaceChat() {
   const sliceVerifyFollowUpRoutingRef = useRef(false);
   const sliceVerifyCandidateRef = useRef(false);
   const resumeRestoredTranscriptRef = useRef(false);
+  const connectionTokenRef = useRef(0);
+  const openWorkRef = useRef<(work: WorkDto) => Promise<void>>(() => Promise.resolve());
+  const activeConnectionRef = useRef<{ token: number; workId: string | null }>({
+    token: 0,
+    workId: null,
+  });
 
   // Check LLM connection status
   useEffect(() => {
@@ -394,149 +405,201 @@ export function WorkspaceChat() {
     }
   }
 
-  useEffect(() => {
-    // Only connect once
-    if (socketRef.current) return;
+  function closeWorkspaceConnection() {
+    if (channelRef.current) {
+      channelRef.current.leave();
+      channelRef.current = null;
+    }
+    if (socketRef.current) {
+      socketRef.current.disconnect();
+      socketRef.current = null;
+    }
+    setChannel(null);
+    setSocketConnected(false);
+  }
 
-    let cancelled = false;
+  function resetWorkScopedRuntime(work: WorkDto) {
+    setLoading(false);
+    setPendingAnswerBid(null);
+    setActiveSessionId(null);
+    setSessions([]);
+    setSessionSearch("");
+    setResumePendingAdoptions([]);
+    setResumeResolvedAdoptions([]);
+    setTranscriptRestored(false);
+    resumeRestoredTranscriptRef.current = false;
+    setMessages([]);
+    setContext({
+      workId: work.id,
+      workTitle: work.title,
+      volumeId: null,
+      volumeTitle: "未定卷",
+      chapterId: null,
+      chapterTitle: null,
+    });
+    useAppStore.getState().setProjectionStatus(null);
+    useAppStore.getState().setPendingBuildAction(null);
+  }
 
-    void (async () => {
-      // VS-09 work-management: resolve which work to open BEFORE joining
-      // the channel, so backend can scope state to it via socket.assigns.
-      let work: WorkDto;
-      try {
-        const works = await listWorks();
-        const initialId = pickInitialWorkId(works, await getLastOpenedWorkId());
-        if (initialId) {
-          const selected = works.find((w) => w.id === initialId);
-          if (!selected) throw new Error(`selected work not found: ${initialId}`);
-          work = selected;
-        } else {
-          // No works yet — bootstrap a placeholder so the user lands in a
-          // valid context. They can rename it later via the work-management
-          // UI (next slice).
-          work = await createWork({ title: "未命名作品" });
+  async function openWork(work: WorkDto) {
+    const token = connectionTokenRef.current + 1;
+    connectionTokenRef.current = token;
+    activeConnectionRef.current = { token, workId: work.id };
+    setWorkSwitchingId(work.id);
+    closeWorkspaceConnection();
+    resetWorkScopedRuntime(work);
+
+    let workTitle = work.title;
+    let sessionId: string | null = null;
+
+    try {
+      const snapshot = await resumeWorkspace(work.id);
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+
+      const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
+      sessionId = snapshot.active_session.id;
+      workTitle = snapshot.work.title || workTitle;
+      setActiveSessionId(sessionId);
+      setSessions(snapshot.sessions);
+      setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
+      setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
+      setMessages(restoredMessages);
+      resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
+      setTranscriptRestored(restoredMessages.length > 0);
+    } catch (error) {
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      const detail = error instanceof Error ? error.message : String(error);
+      setMessages([startupFailureMessage(`${WORKBENCH.startupFailureResumeSession}${detail}`)]);
+      setSocketConnected(false);
+      setWorkSwitchingId(null);
+      return;
+    }
+
+    if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+
+    const socket = createSocket();
+    socket.connect();
+    socketRef.current = socket;
+
+    const channel = joinWorkspace(socket, `workspace:${work.id}`, {
+      work_id: work.id,
+      session_id: sessionId,
+    });
+    channelRef.current = channel;
+    setChannel(channel);
+
+    channel
+      .join()
+      .receive("ok", (response: { work_id?: string; session_id?: string }) => {
+        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+
+        const joinedWorkId = response.work_id ?? work.id;
+        const joinedSessionId = response.session_id ?? sessionId;
+        if (joinedWorkId !== work.id || joinedSessionId !== sessionId) {
+          setSocketConnected(false);
+          setWorkSwitchingId(null);
+          setMessages([
+            startupFailureMessage(
+              `${WORKBENCH.startupFailureJoinMismatch}work=${joinedWorkId}, session=${joinedSessionId}`,
+            ),
+          ]);
+          closeWorkspaceConnection();
+          return;
         }
-      } catch (error) {
-        if (cancelled) return;
-        const detail = error instanceof Error ? error.message : String(error);
+        if (joinedSessionId) setActiveSessionId(joinedSessionId);
+        void setLastOpenedWorkId(joinedWorkId);
+        setSocketConnected(true);
+        setWorkSwitchingId(null);
+        setMessages((prev) => {
+          const startupRuntime = deriveWorkspaceRuntimeState({
+            connection: { connected: true },
+            work: { id: joinedWorkId, title: workTitle },
+            session: {
+              id: joinedSessionId,
+              transcriptRestored: resumeRestoredTranscriptRef.current,
+            },
+            transcript: prev,
+          });
+          if (!shouldShowWelcomeMessage(startupRuntime)) return prev;
+          return [
+            {
+              role: "assistant",
+              text: "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
+            },
+          ];
+        });
+
+        setContext({
+          workId: joinedWorkId,
+          workTitle,
+          volumeTitle: "未定卷",
+        });
+      })
+      .receive("error", () => {
+        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
         setSocketConnected(false);
-        setContext({ workId: null, workTitle: "作品加载失败", volumeTitle: null });
-        setMessages([startupFailureMessage(`${WORKBENCH.startupFailureLoadWork}${detail}`)]);
-        return;
-      }
-      if (cancelled) return;
-
-      const workId = work.id;
-      let workTitle = work.title;
-      let sessionId: string | null = null;
-      void setLastOpenedWorkId(workId);
-
-      try {
-        const snapshot = await resumeWorkspace(work.id);
-        const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
-        sessionId = snapshot.active_session.id;
-        workTitle = snapshot.work.title || workTitle;
-        setActiveSessionId(sessionId);
-        setSessions(snapshot.sessions);
-        setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
-        setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
-        setMessages(restoredMessages);
-        resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
-        setTranscriptRestored(restoredMessages.length > 0);
-      } catch (error) {
-        if (cancelled) return;
-        const detail = error instanceof Error ? error.message : String(error);
-        setActiveSessionId(null);
-        setSessions([]);
-        setResumePendingAdoptions([]);
-        setResumeResolvedAdoptions([]);
-        setTranscriptRestored(false);
+        setWorkSwitchingId(null);
+      })
+      .receive("timeout", () => {
+        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
         setSocketConnected(false);
-        setContext({ workId, workTitle, volumeTitle: null });
-        setMessages([startupFailureMessage(`${WORKBENCH.startupFailureResumeSession}${detail}`)]);
-        return;
-      }
-
-      const socket = createSocket();
-      socket.connect();
-      socketRef.current = socket;
-
-      const channel = joinWorkspace(socket, "workspace:lobby", {
-        work_id: workId,
-        session_id: sessionId,
+        setWorkSwitchingId(null);
       });
-      channelRef.current = channel;
-      setChannel(channel);
 
-      channel
-        .join()
-        .receive("ok", (response: { work_id?: string; session_id?: string }) => {
-          const joinedWorkId = response.work_id ?? workId;
-          const joinedSessionId = response.session_id ?? sessionId;
-          if (joinedWorkId !== workId || joinedSessionId !== sessionId) {
-            setSocketConnected(false);
-            setMessages([
-              startupFailureMessage(
-                `${WORKBENCH.startupFailureJoinMismatch}work=${joinedWorkId}, session=${joinedSessionId}`,
-              ),
-            ]);
-            channel.leave();
-            socket.disconnect();
-            return;
-          }
-          if (joinedSessionId) setActiveSessionId(joinedSessionId);
-          void setLastOpenedWorkId(joinedWorkId);
-          setSocketConnected(true);
-          setMessages((prev) => {
-            const startupRuntime = deriveWorkspaceRuntimeState({
-              connection: { connected: true },
-              work: { id: joinedWorkId, title: workTitle },
-              session: {
-                id: joinedSessionId,
-                transcriptRestored: resumeRestoredTranscriptRef.current,
-              },
-              transcript: prev,
-            });
-            if (!shouldShowWelcomeMessage(startupRuntime)) return prev;
-            return [
-              {
-                role: "assistant",
-                text: "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
-              },
-            ];
-          });
+    channel.on("turn_result", (result: TurnResult) => {
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      handleTurnResult(result);
+    });
+    onTaskState(channel, (state) => {
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      handleTaskState(state);
+    });
+  }
 
-          // VS-09: real work context, no longer mock_work_123
-          setContext({
-            workId: joinedWorkId,
-            workTitle,
-            volumeTitle: "未定卷",
-          });
-        })
-        .receive("error", () => setSocketConnected(false))
-        .receive("timeout", () => setSocketConnected(false));
+  useEffect(() => {
+    openWorkRef.current = openWork;
+  });
 
-      channel.on("turn_result", handleTurnResult);
-      onTaskState(channel, handleTaskState);
-    })();
+  async function loadWorksAndOpenInitial() {
+    try {
+      let availableWorks = await listWorks();
+      let initialId = pickInitialWorkId(availableWorks, await getLastOpenedWorkId());
+      if (!initialId) {
+        const created = await createWork({ title: WORKBENCH.unnamedWorkTitle });
+        availableWorks = [created, ...availableWorks];
+        initialId = created.id;
+      }
+
+      setWorks(availableWorks);
+      const work = availableWorks.find((item) => item.id === initialId);
+      if (!work) throw new Error(`selected work not found: ${initialId}`);
+      await openWork(work);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      activeConnectionRef.current = { token: connectionTokenRef.current + 1, workId: null };
+      setSocketConnected(false);
+      setContext({ workId: null, workTitle: "作品加载失败", volumeTitle: null });
+      setMessages([startupFailureMessage(`${WORKBENCH.startupFailureLoadWork}${detail}`)]);
+    }
+  }
+
+  useEffect(() => {
+    const startupTimer = window.setTimeout(() => {
+      void loadWorksAndOpenInitial();
+    }, 0);
 
     return () => {
-      cancelled = true;
-      if (channelRef.current) {
-        channelRef.current.leave();
-        channelRef.current = null;
-      }
-      if (socketRef.current) {
-        socketRef.current.disconnect();
-        socketRef.current = null;
-      }
-      setSocketConnected(false);
-      setChannel(null);
+      window.clearTimeout(startupTimer);
+      activeConnectionRef.current = {
+        token: connectionTokenRef.current + 1,
+        workId: null,
+      };
+      connectionTokenRef.current += 1;
+      closeWorkspaceConnection();
     };
 
-    // handleTurnResult is intentionally excluded — defined inside the
-    // component but stable for the lifetime of this effect.
+    // Connection setup owns the channel lifecycle; handlers are guarded by
+    // connection tokens so stale async callbacks cannot mutate a new work.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -577,6 +640,7 @@ export function WorkspaceChat() {
     const autorunSlice = import.meta.env.VITE_SLICE_VERIFY_AUTORUN as string | undefined;
     if (
       autorunSlice !== "vs10-observability-spine" &&
+      autorunSlice !== "su02-work-switching" &&
       autorunSlice !== "au10-micro-plan-entry" &&
       autorunSlice !== "au02-candidate-continuation" &&
       autorunSlice !== "au10-ordinary-chat-no-micro-plan" &&
@@ -664,6 +728,63 @@ export function WorkspaceChat() {
         if (channelRef.current) {
           void sendMessage(channelRef.current, text, context.workId, null, activeSessionId, true);
         }
+      }, 150));
+    } else if (autorunSlice === "su02-work-switching") {
+      timers.push(window.setTimeout(() => {
+        const driveSwitchingProof = async () => {
+          const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+
+          setInputText("你好，我想先在当前作品里聊一句");
+          await delay(80);
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
+            ?.click();
+          await delay(40);
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="work-switcher"]')
+            ?.click();
+          await delay(100);
+          const createItem = document.querySelector<HTMLElement>('[data-slice-verify="work-create"]');
+          if (createItem) {
+            createItem.click();
+          } else {
+            const created = await createWork({ title: WORKBENCH.unnamedWorkTitle });
+            setWorks((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+            setWorkMenuOpen(false);
+            await openWorkRef.current(created);
+          }
+          await delay(1800);
+
+          if (!channelRef.current || sliceVerifyUiReported.has("su02-work-switching")) return;
+          sliceVerifyUiReported.add("su02-work-switching");
+          const currentContext = useAppStore.getState().context;
+          const messageCount = document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length;
+          const welcomeMessageCount = Array.from(document.querySelectorAll('[data-role="assistant"]'))
+            .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length;
+
+          void reportSliceVerifyUiState(channelRef.current, {
+            slice_id: "su02-work-switching",
+            context_work_id: currentContext.workId,
+            context_work_title: currentContext.workTitle,
+            active_session_id: activeSessionId,
+            restored_turn_id: null,
+            socket_connected: useAppStore.getState().socketConnected,
+            message_count: messageCount,
+            welcome_message_count: welcomeMessageCount,
+            pending_adoption_count: pendingAdoptionsCount,
+            first_message_text:
+              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
+                ?.innerText ?? "",
+            service_status_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                ?.innerText ?? "",
+            title_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+              ?.innerText ?? "",
+          }).catch(() => undefined);
+        };
+
+        void driveSwitchingProof();
       }, 150));
     } else if (autorunSlice === "au02-candidate-continuation") {
       timers.push(window.setTimeout(() => {
@@ -939,6 +1060,38 @@ export function WorkspaceChat() {
     }
   };
 
+  const handleRefreshWorks = async () => {
+    try {
+      setWorks(await listWorks());
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: `${WORKBENCH.switchFailurePrefix}${WORKBENCH.startupFailureLoadWork}` },
+      ]);
+    }
+  };
+
+  const handleSelectWork = async (work: WorkDto) => {
+    if (work.id === context.workId || workSwitchingId) return;
+    setWorkMenuOpen(false);
+    await openWork(work);
+  };
+
+  const handleCreateWork = async () => {
+    if (workSwitchingId) return;
+    try {
+      const created = await createWork({ title: WORKBENCH.unnamedWorkTitle });
+      setWorks((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+      setWorkMenuOpen(false);
+      await openWork(created);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: WORKBENCH.createWorkFailure },
+      ]);
+    }
+  };
+
   const llmBadgeClassName = [
     styles.riskBadge,
     llmConnected === null
@@ -961,9 +1114,78 @@ export function WorkspaceChat() {
       {/* 顶部上下文栏 (Top Context Bar) */}
       <div className={styles.topBar}>
         <div className={styles.contextGroup}>
-          <span className={styles.titleText} data-slice-verify="work-title">
-            {visibleWorkTitle}
-          </span>
+          <DropdownMenu.Root open={workMenuOpen} onOpenChange={setWorkMenuOpen}>
+            <DropdownMenu.Trigger asChild>
+              <button
+                className={styles.workSwitcherButton}
+                data-slice-verify="work-switcher"
+                disabled={workSwitchingId !== null}
+                title={WORKBENCH.workMenuTitle}
+              >
+                <BookOpen size={16} aria-hidden="true" />
+                <span className={styles.titleText} data-slice-verify="work-title">
+                  {visibleWorkTitle}
+                </span>
+                <ChevronDown size={14} aria-hidden="true" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className={styles.workMenu} align="start" sideOffset={8}>
+                <div className={styles.workMenuHeader}>
+                  <span>{WORKBENCH.workMenuTitle}</span>
+                  <button
+                    className={styles.workMenuIconButton}
+                    type="button"
+                    title={WORKBENCH.workMenuRefresh}
+                    onClick={(event) => {
+                      event.preventDefault();
+                      void handleRefreshWorks();
+                    }}
+                  >
+                    <RefreshCw size={14} aria-hidden="true" />
+                  </button>
+                </div>
+                {works.length === 0 ? (
+                  <div className={styles.workMenuEmpty}>{WORKBENCH.workMenuEmpty}</div>
+                ) : (
+                  works.map((work) => {
+                    const isCurrent = work.id === context.workId;
+                    return (
+                      <DropdownMenu.Item
+                        key={work.id}
+                        className={isCurrent ? styles.workMenuItemActive : styles.workMenuItem}
+                        data-slice-verify="work-switch-item"
+                        data-work-id={work.id}
+                        disabled={workSwitchingId !== null}
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          void handleSelectWork(work);
+                        }}
+                      >
+                        <span className={styles.workMenuItemTitle}>{work.title}</span>
+                        {isCurrent && (
+                          <span className={styles.workMenuCurrent}>{WORKBENCH.workMenuCurrent}</span>
+                        )}
+                      </DropdownMenu.Item>
+                    );
+                  })
+                )}
+                <DropdownMenu.Separator className={styles.workMenuSeparator} />
+                <DropdownMenu.Item
+                  className={styles.workMenuCreate}
+                  data-slice-verify="work-create"
+                  disabled={workSwitchingId !== null}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleCreateWork();
+                  }}
+                >
+                  <Plus size={14} aria-hidden="true" />
+                  <span>{WORKBENCH.workMenuCreate}</span>
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
           <button 
             className={`${styles.btnSecondary} ${styles.readingModeButton}`}
             onClick={() => setMode("reading")}
@@ -975,7 +1197,11 @@ export function WorkspaceChat() {
         </div>
         <div className={styles.statusGroup}>
           <span className={styles.budgetText}>
-            {longRun.status === "running" ? `长跑中: ${longRun.budgetUsed}%` : "长跑状态: 待机"}
+            {workSwitchingId
+              ? WORKBENCH.workMenuSwitching
+              : longRun.status === "running"
+                ? `长跑中: ${longRun.budgetUsed}%`
+                : "长跑状态: 待机"}
           </span>
           <div
             className={llmBadgeClassName}

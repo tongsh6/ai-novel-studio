@@ -162,6 +162,15 @@ export const WORKBENCH = {
   candidatePanelTitle: "候选创作方向",
   candidateContinueLabel: "继续聊这个方向",
   candidateContinueTitle: "把这个候选作为下一轮探索上下文，不会写入作品设定。",
+  workMenuTitle: "作品",
+  workMenuCurrent: "当前",
+  workMenuCreate: "新建作品",
+  workMenuRefresh: "刷新作品列表",
+  workMenuSwitching: "切换中",
+  workMenuEmpty: "暂无作品",
+  unnamedWorkTitle: "未命名作品",
+  switchFailurePrefix: "作品切换失败：",
+  createWorkFailure: "新建作品失败，请重试。",
 } as const;
 
 export function candidateContinuationText(title: string, pitch: string): string {

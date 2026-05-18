@@ -11,6 +11,7 @@ import {
 describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-10 micro plan entry", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");
+    expect(nativeSliceIds).toContain("su02-work-switching");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
@@ -114,6 +115,42 @@ describe("native Tauri slice verifier", () => {
       context_work_title: "Slice Verify Work",
       reading_title: "Slice Verify Work",
       key_events: keyEventsForSlice("workspace-runtime-state"),
+    });
+  });
+
+  it("finds SU-02 work switching evidence after creating a second work", () => {
+    const records = su02WorkSwitchingRecords();
+    const evidence = findNativeSliceEvidence("su02-work-switching", records);
+
+    expect(evidence).toEqual({
+      slice_id: "su02-work-switching",
+      turn_id: "turn-work-a",
+      turn_ids: ["turn-work-a"],
+      work_id: "work-b",
+      previous_work_id: "work-a",
+      session_id: "session-b",
+      joined_work_count: 2,
+      message_count_after_switch: 1,
+      key_events: keyEventsForSlice("su02-work-switching"),
+    });
+
+    expect(findSliceBehaviorEvidence("su02-work-switching", records, evidence)).toEqual({
+      slice_id: "su02-work-switching",
+      behavior: "runtime_work_switch_rejoins_channel_and_ignores_stale_pending_result",
+      turn_ids: ["turn-work-a"],
+      work_id: "work-b",
+      previous_work_id: "work-a",
+      session_id: "session-b",
+      assertions: [
+        "message_sent_from_previous_work_before_switch",
+        "work_switcher_created_second_persisted_work",
+        "channel_rejoined_with_new_workspace_topic",
+        "ui_context_matches_new_channel_work_id",
+        "new_work_message_stream_did_not_include_previous_pending_result",
+        "last_opened_not_written_for_lobby_fallback",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
     });
   });
 
@@ -795,6 +832,78 @@ function ordinarySingleTurnRecords(turnId) {
       work_id: "work-ordinary",
       duration_ms: 15,
       outcome: "ok",
+    },
+  ];
+}
+
+function su02WorkSwitchingRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      duration_ms: 3,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-work-a",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 21,
+      generate_micro_plan: false,
+    },
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      duration_ms: 2,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      duration_ms: 0,
+      outcome: "ok",
+      slice_id: "su02-work-switching",
+      context_work_id: "work-b",
+      context_work_title: "未命名作品",
+      active_session_id: "session-b",
+      restored_turn_id: null,
+      socket_connected: true,
+      message_count: 1,
+      welcome_message_count: 1,
+      pending_adoption_count: 0,
+      first_message_text: "欢迎使用 AI Novel Studio",
+      service_status_text: "服务: 已连接",
+      title_text: "未命名作品",
     },
   ];
 }
