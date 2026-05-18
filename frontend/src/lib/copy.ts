@@ -187,6 +187,100 @@ export const WORKSPACE_RUNTIME = {
 } as const;
 
 // ============================================================
+// 作品档案（docs/design-v2/ui-design/43-structure-panel.md）
+// ============================================================
+
+export const STRUCTURE_PANEL = {
+  title: "作品档案",
+  noWork: "尚未创建设定",
+  unnamedWork: "未命名作品",
+  stats: {
+    volumes: "卷",
+    drafts: "草稿",
+    characters: "角色",
+    memories: "设定",
+    pending: "待采纳",
+  },
+  tabs: {
+    outline: "大纲与结构",
+    character: "角色",
+    foreshadowing: "伏笔",
+    rule: "经验规则",
+  },
+  pendingSection: "待采纳内容",
+  pendingLabel: "待采纳",
+  pendingFallbackTitle: "待审核内容",
+  pendingFallbackContent: "等待审核中的内容",
+  confirmedForeshadowingSection: "已确认设定",
+  acceptSetting: "采纳设定",
+  requestRevision: "提出修改",
+  detailTitle: "详情",
+  detailHint: "详情为当前作品的只读档案，修改需回到工作台对话处理。",
+  viewDetail: "查看详情",
+  selected: "已选中",
+  close: "关闭档案",
+  detailRows: {
+    role: "身份",
+    aliases: "别名",
+    state: "状态",
+    updatedAt: "最后更新",
+    type: "类型",
+    scope: "范围",
+    source: "来源",
+    weight: "权重",
+    confidence: "置信度",
+    referenceCount: "引用次数",
+    version: "版本",
+    tags: "标签",
+    protection: "保护",
+  },
+  detailValues: {
+    adopted: "已采纳",
+    recallable: "可召回",
+    notRecallable: "不进入普通召回",
+    locked: "已锁定",
+  },
+  memoryTypeLabels: {
+    FORESHADOWING: "伏笔",
+    PLOT_FACT: "剧情事实",
+    WORLD_RULE: "世界规则",
+    CONSTRAINT: "约束",
+    STYLE_RULE: "风格规则",
+    IDEA: "灵感",
+  },
+  memoryScopeLabels: {
+    WORK: "整部作品",
+    VOLUME: "当前卷",
+    ARC: "当前故事线",
+    CHAPTER: "当前章节",
+    SCENE: "当前场景",
+    GLOBAL: "全局",
+  },
+  sourceTypeLabels: {
+    AUTHOR_CONFIRMED: "作者确认",
+    AI_EXTRACTED: "AI 提取",
+    IMPORTED: "导入",
+    SYSTEM: "系统",
+  },
+  outlineEmptyTitle: "大纲与结构",
+  outlineEmptyWithWork: "在对话中说「生成章节大纲」或「规划分卷结构」，AI 会帮你整理作品的骨架。",
+  outlineEmptyNoWork: "先在工作台创建作品，AI 会帮你搭建大纲和分卷结构。",
+  startPlanning: "开始规划",
+  noChapter: "暂无章节",
+  characterEmptyTitle: "角色档案",
+  characterEmptyWithWork: "在对话中说「创建角色」或「分析已有角色」，AI 会提取角色信息并建档。",
+  characterEmptyNoWork: "先在工作台创建作品，AI 会在创作过程中自动提取角色信息。",
+  createCharacter: "创建角色",
+  foreshadowingEmptyTitle: "暂无伏笔设定",
+  foreshadowingEmptyDesc: "在对话中说「创建主线大纲」或「构建世界观」，AI 会生成设定内容。",
+  ruleEmptyTitle: "经验规则",
+  ruleEmptyDesc: "在对话中说「导入风格样本」或「构建世界观」，AI 会生成写作规则和设定约束。",
+  newAction: "发起新操作",
+  actionHint: "如需深度修改，请在工作台对话中提出。",
+  aliasPrefix: "别名：",
+} as const;
+
+// ============================================================
 // Memo 系统
 // ============================================================
 

@@ -70,6 +70,9 @@ export interface SliceVerifyUiStatePayload {
   archive_memory_items?: number;
   archive_drafts_total?: number;
   archive_drafts_accepted?: number;
+  archive_detail_kind?: string;
+  archive_detail_id?: string;
+  archive_detail_title?: string;
 }
 
 export function reportSliceVerifyUiState(
@@ -380,6 +383,8 @@ export interface CharacterData {
   aliases: string[];
   role: string | null;
   summary: string | null;
+  status?: string;
+  updated_at?: string | null;
 }
 
 export function getCharacters(
@@ -399,8 +404,18 @@ export interface MemoryItemData {
   id: string;
   content: string;
   type: string;
+  scope?: string;
+  status?: string;
+  source_type?: string;
+  summary?: string | null;
   tags: string[];
   weight?: number;
+  confidence?: number;
+  locked?: boolean;
+  recallable?: boolean;
+  reference_count?: number;
+  version?: number;
+  updated_at?: string | null;
 }
 
 export function getForeshadowing(

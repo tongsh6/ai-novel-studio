@@ -1,6 +1,16 @@
 // Design: docs/design-v2/ui-design/43-structure-panel.md §5
 // Prototype: novel-studio-v2.pen → 43§5-structure-panel-expanded (ATnmR)
+import * as Tabs from "@radix-ui/react-tabs";
+import { X } from "lucide-react";
 import { useEffect, useState } from "react";
+import {
+  archiveDetailRows,
+  archiveDetailSummary,
+  archiveDetailTitle,
+  memoryTypeLabel,
+} from "../lib/archiveDetail";
+import type { ArchiveDetailItem } from "../lib/archiveDetail";
+import { STRUCTURE_PANEL } from "../lib/copy";
 import { useAppStore } from "../lib/store";
 import { getToc, getCharacters, getForeshadowing, getRules, getWorkStats } from "../lib/socket";
 import type { TocData, CharacterData, MemoryItemData, WorkStats } from "../lib/socket";
@@ -16,6 +26,9 @@ interface Props {
 }
 
 type TabType = "outline" | "character" | "foreshadowing" | "rule";
+type SelectedArchiveItem =
+  | { kind: "character"; id: string }
+  | { kind: "memory"; id: string };
 
 function payloadText(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value;
@@ -36,10 +49,10 @@ export function StructurePanel({
   const [foreshadowing, setForeshadowing] = useState<MemoryItemData[]>([]);
   const [rules, setRules] = useState<MemoryItemData[]>([]);
   const [stats, setStats] = useState<WorkStats | null>(null);
+  const [selectedArchiveItem, setSelectedArchiveItem] = useState<SelectedArchiveItem | null>(null);
   const context = useAppStore((s) => s.context);
   const channel = useAppStore((s) => s.channel);
 
-  // Fetch all data when panel opens and work exists
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
     getToc(channel, context.workId).then((data) => setToc(data)).catch(() => setToc(null));
@@ -52,6 +65,19 @@ export function StructurePanel({
   if (!isOpen) return null;
 
   const hasWork = context.workId != null;
+  const selectedCharacter =
+    selectedArchiveItem?.kind === "character"
+      ? characters.find((item) => item.id === selectedArchiveItem.id)
+      : undefined;
+  const selectedMemory =
+    selectedArchiveItem?.kind === "memory"
+      ? [...foreshadowing, ...rules].find((item) => item.id === selectedArchiveItem.id)
+      : undefined;
+  const selectedDetail = selectedCharacter
+    ? { kind: "character" as const, item: selectedCharacter }
+    : selectedMemory
+      ? { kind: "memory" as const, item: selectedMemory }
+      : null;
 
   return (
     <div
@@ -65,43 +91,44 @@ export function StructurePanel({
       data-archive-memory-items={stats?.memory_items ?? 0}
       data-archive-drafts-total={stats?.drafts_total ?? 0}
       data-archive-drafts-accepted={stats?.drafts_accepted ?? 0}
+      data-archive-detail-kind={selectedDetail?.kind ?? ""}
+      data-archive-detail-id={selectedDetail?.item.id ?? ""}
     >
       <div className={styles.header}>
         <div className={styles.titleGroup}>
-          <div className={styles.headerTitle}>作品档案</div>
+          <div className={styles.headerTitle}>{STRUCTURE_PANEL.title}</div>
           <div className={styles.headerSub}>
-            {hasWork ? context.workTitle || "未命名作品" : "尚未创建设定"}
+            {hasWork ? context.workTitle || STRUCTURE_PANEL.unnamedWork : STRUCTURE_PANEL.noWork}
           </div>
         </div>
-        <button className={styles.closeBtn} onClick={onClose}>
-          ✕
+        <button className={styles.closeBtn} onClick={onClose} aria-label={STRUCTURE_PANEL.close}>
+          <X size={16} aria-hidden="true" />
         </button>
       </div>
 
-      {/* L1 Overview */}
       <div className={styles.overview}>
         {stats && (
           <>
             <div className={styles.overviewItem}>
-              <span className={styles.overviewLabel}>卷</span>
+              <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.volumes}</span>
               <span className={styles.overviewValue} data-slice-verify="archive-stat-volumes">
                 {stats.volumes}
               </span>
             </div>
             <div className={styles.overviewItem}>
-              <span className={styles.overviewLabel}>草稿</span>
+              <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.drafts}</span>
               <span className={styles.overviewValue} data-slice-verify="archive-stat-drafts">
                 {stats.drafts_accepted}/{stats.drafts_total}
               </span>
             </div>
             <div className={styles.overviewItem}>
-              <span className={styles.overviewLabel}>角色</span>
+              <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.characters}</span>
               <span className={styles.overviewValue} data-slice-verify="archive-stat-characters">
                 {stats.characters}
               </span>
             </div>
             <div className={styles.overviewItem}>
-              <span className={styles.overviewLabel}>设定</span>
+              <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.memories}</span>
               <span className={styles.overviewValue} data-slice-verify="archive-stat-memory-items">
                 {stats.memory_items}
               </span>
@@ -109,63 +136,62 @@ export function StructurePanel({
           </>
         )}
         <div className={styles.overviewItem}>
-          <span className={styles.overviewLabel}>待采纳</span>
+          <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.pending}</span>
           <span className={pendingAdoptions.length > 0 ? styles.overviewValueAccent : styles.overviewValue}>
             {pendingAdoptions.length}
           </span>
         </div>
       </div>
 
-      <div className={styles.tabs}>
-        <button
-          className={`${styles.tabBtn} ${activeTab === "outline" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("outline")}
-        >
-          大纲与结构
-        </button>
-        <button
-          className={`${styles.tabBtn} ${activeTab === "character" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("character")}
-        >
-          角色
-        </button>
-        <button
-          className={`${styles.tabBtn} ${activeTab === "foreshadowing" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("foreshadowing")}
-        >
-          <span className={pendingAdoptions.length > 0 ? styles.tabTextAccent : ""}>
-            伏笔{pendingAdoptions.length > 0 ? ` (${pendingAdoptions.length})` : ""}
-          </span>
-        </button>
-        <button
-          className={`${styles.tabBtn} ${activeTab === "rule" ? styles.tabActive : ""}`}
-          onClick={() => setActiveTab("rule")}
-        >
-          经验规则
-        </button>
-      </div>
+      <Tabs.Root
+        value={activeTab}
+        onValueChange={(value) => {
+          setActiveTab(value as TabType);
+          setSelectedArchiveItem(null);
+        }}
+        className={styles.tabsRoot}
+      >
+        <Tabs.List className={styles.tabs}>
+          <Tabs.Trigger className={styles.tabBtn} value="outline">
+            {STRUCTURE_PANEL.tabs.outline}
+          </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabBtn} value="character">
+            {STRUCTURE_PANEL.tabs.character}
+          </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabBtn} value="foreshadowing">
+            <span className={pendingAdoptions.length > 0 ? styles.tabTextAccent : ""}>
+              {STRUCTURE_PANEL.tabs.foreshadowing}
+              {pendingAdoptions.length > 0 ? ` (${pendingAdoptions.length})` : ""}
+            </span>
+          </Tabs.Trigger>
+          <Tabs.Trigger className={styles.tabBtn} value="rule">
+            {STRUCTURE_PANEL.tabs.rule}
+          </Tabs.Trigger>
+        </Tabs.List>
 
-      <div className={styles.content}>
-        {/* Foreshadowing Tab */}
-        {activeTab === "foreshadowing" && (
-          <>
+        <div className={styles.content}>
+          <Tabs.Content value="foreshadowing" className={styles.tabContent}>
             {pendingAdoptions.length > 0 && (
               <div className={styles.section}>
                 <div className={styles.secHeader}>
-                  <span className={styles.secTitleAccent}>待采纳内容</span>
+                  <span className={styles.secTitleAccent}>{STRUCTURE_PANEL.pendingSection}</span>
                 </div>
                 {pendingAdoptions.map((artifact) => (
                   <div key={artifact.artifact_id} className={styles.cardAccent}>
-                    <div className={styles.cardLabel}>待采纳</div>
+                    <div className={styles.cardLabel}>{STRUCTURE_PANEL.pendingLabel}</div>
                     <div className={styles.cardTitle}>
-                      {payloadText(artifact.payload.title, artifact.artifact_id)}
+                      {payloadText(artifact.payload.title, STRUCTURE_PANEL.pendingFallbackTitle)}
                     </div>
                     <div className={styles.cardDesc}>
-                      {payloadText(artifact.payload.content, "等待审核中的内容")}
+                      {payloadText(artifact.payload.content, STRUCTURE_PANEL.pendingFallbackContent)}
                     </div>
                     <div className={styles.cardActions}>
-                      <button className={styles.btnPrimary} onClick={() => onAdopt(artifact)}>采纳设定</button>
-                      <button className={styles.btnSecondary} onClick={() => onAction("revise", artifact.artifact_id)}>提出修改</button>
+                      <button className={styles.btnPrimary} onClick={() => onAdopt(artifact)}>
+                        {STRUCTURE_PANEL.acceptSetting}
+                      </button>
+                      <button className={styles.btnSecondary} onClick={() => onAction("revise", artifact.artifact_id)}>
+                        {STRUCTURE_PANEL.requestRevision}
+                      </button>
                     </div>
                   </div>
                 ))}
@@ -174,37 +200,44 @@ export function StructurePanel({
             {foreshadowing.length > 0 && (
               <div className={styles.section}>
                 <div className={styles.secHeader}>
-                  <span className={styles.secTitle}>已确认设定</span>
+                  <span className={styles.secTitle}>{STRUCTURE_PANEL.confirmedForeshadowingSection}</span>
                 </div>
                 {foreshadowing.map((item) => (
                   <div
                     key={item.id}
                     className={styles.cardItem}
                     data-slice-verify="archive-foreshadowing-item"
+                    data-selected={selectedArchiveItem?.id === item.id ? "true" : "false"}
                   >
                     <div className={styles.cardTitle}>{item.content}</div>
                     <div className={styles.cardDesc}>
-                      {item.type}{item.tags.length > 0 && ` · ${item.tags.join("、")}`}
+                      {memoryTypeLabel(item.type)}
+                      {item.tags.length > 0 && ` · ${item.tags.join("、")}`}
+                    </div>
+                    <div className={styles.cardActions}>
+                      <button
+                        className={styles.btnGhost}
+                        data-slice-verify="archive-foreshadowing-detail-button"
+                        aria-pressed={selectedArchiveItem?.id === item.id}
+                        onClick={() => setSelectedArchiveItem({ kind: "memory", id: item.id })}
+                      >
+                        {selectedArchiveItem?.id === item.id ? STRUCTURE_PANEL.selected : STRUCTURE_PANEL.viewDetail}
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             )}
+            {selectedDetail && renderDetail(selectedDetail)}
             {pendingAdoptions.length === 0 && foreshadowing.length === 0 && (
-              <div className={styles.emptySection}>
-                <div className={styles.emptyIcon}>📋</div>
-                <div className={styles.emptyTitle}>暂无伏笔设定</div>
-                <div className={styles.emptyDesc}>
-                  在对话中说"创建主线大纲"或"构建世界观"，AI 会生成设定内容。
-                </div>
-              </div>
+              <EmptyState
+                title={STRUCTURE_PANEL.foreshadowingEmptyTitle}
+                description={STRUCTURE_PANEL.foreshadowingEmptyDesc}
+              />
             )}
-          </>
-        )}
+          </Tabs.Content>
 
-        {/* Outline Tab */}
-        {activeTab === "outline" && (
-          <>
+          <Tabs.Content value="outline" className={styles.tabContent}>
             {toc && toc.volumes.length > 0 ? (
               <div className={styles.section}>
                 {toc.volumes.map((vol) => (
@@ -218,37 +251,25 @@ export function StructurePanel({
                       </div>
                     ))}
                     {vol.chapters.length === 0 && (
-                      <div className={styles.emptyDesc}>暂无章节</div>
+                      <div className={styles.emptyDesc}>{STRUCTURE_PANEL.noChapter}</div>
                     )}
                   </div>
                 ))}
               </div>
             ) : (
-              <div className={styles.emptySection}>
-                <div className={styles.emptyIcon}>📖</div>
-                <div className={styles.emptyTitle}>大纲与结构</div>
-                <div className={styles.emptyDesc}>
-                  {hasWork
-                    ? "在对话中说「生成章节大纲」或「规划分卷结构」，AI 会帮你整理作品的骨架。"
-                    : "先在工作台创建作品，AI 会帮你搭建大纲和分卷结构。"}
-                </div>
-                <button
-                  className={styles.btnPrimary}
-                  onClick={() => {
-                    onAction("init_intent");
-                    onClose();
-                  }}
-                >
-                  开始规划
-                </button>
-              </div>
+              <EmptyState
+                title={STRUCTURE_PANEL.outlineEmptyTitle}
+                description={hasWork ? STRUCTURE_PANEL.outlineEmptyWithWork : STRUCTURE_PANEL.outlineEmptyNoWork}
+                actionLabel={STRUCTURE_PANEL.startPlanning}
+                onAction={() => {
+                  onAction("init_intent");
+                  onClose();
+                }}
+              />
             )}
-          </>
-        )}
+          </Tabs.Content>
 
-        {/* Character Tab */}
-        {activeTab === "character" && (
-          <>
+          <Tabs.Content value="character" className={styles.tabContent}>
             {characters.length > 0 ? (
               <div className={styles.section}>
                 {characters.map((char) => (
@@ -256,48 +277,48 @@ export function StructurePanel({
                     key={char.id}
                     className={styles.cardItem}
                     data-slice-verify="archive-character-item"
+                    data-selected={selectedArchiveItem?.id === char.id ? "true" : "false"}
                   >
                     <div className={styles.cardTitle}>
                       {char.name}
-                      {char.role && <span className={styles.cardLabel}> — {char.role}</span>}
+                      {char.role && <span className={styles.cardLabelInline}>{char.role}</span>}
                     </div>
                     {char.summary && (
                       <div className={styles.cardDesc}>{char.summary}</div>
                     )}
                     {char.aliases && char.aliases.length > 0 && (
                       <div className={styles.cardDesc}>
-                        别名：{char.aliases.join("、")}
+                        {STRUCTURE_PANEL.aliasPrefix}{char.aliases.join("、")}
                       </div>
                     )}
+                    <div className={styles.cardActions}>
+                      <button
+                        className={styles.btnGhost}
+                        data-slice-verify="archive-character-detail-button"
+                        aria-pressed={selectedArchiveItem?.id === char.id}
+                        onClick={() => setSelectedArchiveItem({ kind: "character", id: char.id })}
+                      >
+                        {selectedArchiveItem?.id === char.id ? STRUCTURE_PANEL.selected : STRUCTURE_PANEL.viewDetail}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className={styles.emptySection}>
-                <div className={styles.emptyIcon}>👤</div>
-                <div className={styles.emptyTitle}>角色档案</div>
-                <div className={styles.emptyDesc}>
-                  {hasWork
-                    ? "在对话中说「创建角色」或「分析已有角色」，AI 会提取角色信息并建档。"
-                    : "先在工作台创建作品，AI 会在创作过程中自动提取角色信息。"}
-                </div>
-                <button
-                  className={styles.btnPrimary}
-                  onClick={() => {
-                    onAction("init_intent");
-                    onClose();
-                  }}
-                >
-                  创建角色
-                </button>
-              </div>
+              <EmptyState
+                title={STRUCTURE_PANEL.characterEmptyTitle}
+                description={hasWork ? STRUCTURE_PANEL.characterEmptyWithWork : STRUCTURE_PANEL.characterEmptyNoWork}
+                actionLabel={STRUCTURE_PANEL.createCharacter}
+                onAction={() => {
+                  onAction("init_intent");
+                  onClose();
+                }}
+              />
             )}
-          </>
-        )}
+            {selectedDetail && renderDetail(selectedDetail)}
+          </Tabs.Content>
 
-        {/* Rules Tab */}
-        {activeTab === "rule" && (
-          <>
+          <Tabs.Content value="rule" className={styles.tabContent}>
             {rules.length > 0 ? (
               <div className={styles.section}>
                 {rules.map((item) => (
@@ -305,26 +326,36 @@ export function StructurePanel({
                     key={item.id}
                     className={styles.cardItem}
                     data-slice-verify="archive-rule-item"
+                    data-selected={selectedArchiveItem?.id === item.id ? "true" : "false"}
                   >
                     <div className={styles.cardTitle}>{item.content}</div>
                     <div className={styles.cardDesc}>
-                      {item.type}{item.tags.length > 0 && ` · ${item.tags.join("、")}`}
+                      {memoryTypeLabel(item.type)}
+                      {item.tags.length > 0 && ` · ${item.tags.join("、")}`}
+                    </div>
+                    <div className={styles.cardActions}>
+                      <button
+                        className={styles.btnGhost}
+                        data-slice-verify="archive-rule-detail-button"
+                        aria-pressed={selectedArchiveItem?.id === item.id}
+                        onClick={() => setSelectedArchiveItem({ kind: "memory", id: item.id })}
+                      >
+                        {selectedArchiveItem?.id === item.id ? STRUCTURE_PANEL.selected : STRUCTURE_PANEL.viewDetail}
+                      </button>
                     </div>
                   </div>
                 ))}
               </div>
             ) : (
-              <div className={styles.emptySection}>
-                <div className={styles.emptyIcon}>📐</div>
-                <div className={styles.emptyTitle}>经验规则</div>
-                <div className={styles.emptyDesc}>
-                  在对话中说"导入风格样本"或"构建世界观"，AI 会生成写作规则和设定约束。
-                </div>
-              </div>
+              <EmptyState
+                title={STRUCTURE_PANEL.ruleEmptyTitle}
+                description={STRUCTURE_PANEL.ruleEmptyDesc}
+              />
             )}
-          </>
-        )}
-      </div>
+            {selectedDetail && renderDetail(selectedDetail)}
+          </Tabs.Content>
+        </div>
+      </Tabs.Root>
 
       <div className={styles.footerActions}>
         <button
@@ -332,12 +363,61 @@ export function StructurePanel({
           data-slice-verify="panel-new-action"
           onClick={() => onAction("init_intent")}
         >
-          发起新操作
+          {STRUCTURE_PANEL.newAction}
         </button>
         <div className={styles.actionsHint}>
-          如需深度修改，请在工作台对话中提出。
+          {STRUCTURE_PANEL.actionHint}
         </div>
       </div>
+    </div>
+  );
+}
+
+function EmptyState({
+  title,
+  description,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  description: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div className={styles.emptySection}>
+      <div className={styles.emptyTitle}>{title}</div>
+      <div className={styles.emptyDesc}>{description}</div>
+      {actionLabel && onAction && (
+        <button className={styles.btnPrimary} onClick={onAction}>
+          {actionLabel}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function renderDetail(detail: ArchiveDetailItem) {
+  const summary = archiveDetailSummary(detail);
+
+  return (
+    <div className={styles.detailPanel} data-slice-verify="archive-detail-panel">
+      <div className={styles.secHeader}>
+        <span className={styles.secTitle}>{STRUCTURE_PANEL.detailTitle}</span>
+      </div>
+      <div className={styles.detailTitle} data-slice-verify="archive-detail-title">
+        {archiveDetailTitle(detail)}
+      </div>
+      {summary && <div className={styles.cardDesc}>{summary}</div>}
+      <dl className={styles.detailRows}>
+        {archiveDetailRows(detail).map((row) => (
+          <div className={styles.detailRow} key={row.label}>
+            <dt>{row.label}</dt>
+            <dd>{row.value}</dd>
+          </div>
+        ))}
+      </dl>
+      <div className={styles.detailHint}>{STRUCTURE_PANEL.detailHint}</div>
     </div>
   );
 }

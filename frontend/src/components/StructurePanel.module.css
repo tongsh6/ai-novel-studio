@@ -36,11 +36,22 @@
 }
 
 .closeBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
   background: none;
   border: none;
-  font-size: 16px;
   cursor: pointer;
   color: var(--foreground-secondary);
+}
+
+.tabsRoot {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
 }
 
 .tabs {
@@ -61,7 +72,7 @@
   border-bottom: 2px solid transparent;
 }
 
-.tabActive {
+.tabBtn[data-state="active"] {
   color: var(--foreground-primary);
   border-bottom-color: var(--foreground-primary);
 }
@@ -73,10 +84,14 @@
 .content {
   flex: 1;
   padding: 24px;
+  overflow-y: auto;
+}
+
+.tabContent {
   display: flex;
   flex-direction: column;
   gap: 32px;
-  overflow-y: auto;
+  outline: none;
 }
 
 .section {
@@ -131,6 +146,12 @@
   border-radius: var(--rounded-sm);
 }
 
+.cardLabelInline {
+  margin-left: 8px;
+  color: var(--foreground-secondary);
+  font-size: 12px;
+}
+
 .cardLabelInverse {
   align-self: flex-start;
   background-color: var(--surface-inverse);
@@ -181,6 +202,64 @@
   background-color: transparent;
   color: var(--foreground-secondary);
   padding: 4px 8px;
+}
+
+.cardItem {
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cardItem[data-selected="true"] {
+  border-color: var(--accent);
+}
+
+.detailPanel {
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background-color: var(--surface-secondary);
+}
+
+.detailTitle {
+  font-size: 16px;
+  color: var(--foreground-primary);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.detailRows {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 8px 12px;
+  margin: 0;
+}
+
+.detailRow {
+  display: contents;
+}
+
+.detailRow dt {
+  font-size: 12px;
+  color: var(--foreground-secondary);
+}
+
+.detailRow dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--foreground-primary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.detailHint {
+  color: var(--foreground-secondary);
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .footerActions {

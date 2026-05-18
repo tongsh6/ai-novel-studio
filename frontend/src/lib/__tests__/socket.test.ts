@@ -3,7 +3,21 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Channel, Push } from "phoenix";
 
-import { createSocket, joinWorkspace, sendMessage, sendAuthorAction, adopt, discardArtifact, modifyDraft, getToc, getChapterContent, getCharacters, getWorkStats } from "../socket";
+import {
+  createSocket,
+  joinWorkspace,
+  sendMessage,
+  sendAuthorAction,
+  adopt,
+  discardArtifact,
+  modifyDraft,
+  getToc,
+  getChapterContent,
+  getCharacters,
+  getForeshadowing,
+  getRules,
+  getWorkStats,
+} from "../socket";
 
 // 注：完整的 connect / ping-pong 端到端验证依赖 Phoenix server 在跑（mix phx.server）+
 // 浏览器 WebSocket。本文件只覆盖 helper 的纯逻辑（socket / channel 对象构造），
@@ -201,6 +215,22 @@ describe("getCharacters", () => {
     const ch = mockChannel();
     getCharacters(ch, "work-2");
     expect(ch.push).toHaveBeenCalledWith("get_characters", { work_id: "work-2" });
+  });
+});
+
+describe("getForeshadowing", () => {
+  it("pushes get_foreshadowing with work_id", () => {
+    const ch = mockChannel();
+    getForeshadowing(ch, "work-2");
+    expect(ch.push).toHaveBeenCalledWith("get_foreshadowing", { work_id: "work-2" });
+  });
+});
+
+describe("getRules", () => {
+  it("pushes get_rules with work_id", () => {
+    const ch = mockChannel();
+    getRules(ch, "work-2");
+    expect(ch.push).toHaveBeenCalledWith("get_rules", { work_id: "work-2" });
   });
 });
 
