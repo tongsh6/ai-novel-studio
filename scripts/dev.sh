@@ -14,14 +14,59 @@ set -euo pipefail
 MODE="${1:-tauri}"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PHX_PID=""
+VITE_PID=""
+TAURI_PID=""
+TAURI_CONF=""
+TAURI_CONF_BACKUP=""
+CLEANED_UP=false
 
-cleanup() {
-  if [[ -n "$PHX_PID" ]]; then
-    kill $PHX_PID 2>/dev/null || true
-    wait $PHX_PID 2>/dev/null || true
+terminate_pid() {
+  local pid="$1"
+
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
   fi
 }
+
+restore_tauri_conf() {
+  if [[ -n "$TAURI_CONF_BACKUP" && -f "$TAURI_CONF_BACKUP" && -n "$TAURI_CONF" ]]; then
+    cp "$TAURI_CONF_BACKUP" "$TAURI_CONF" 2>/dev/null || true
+    rm -f "$TAURI_CONF_BACKUP" 2>/dev/null || true
+  fi
+}
+
+sync_tauri_conf() {
+  local vite_port="$1"
+  local phoenix_port="$2"
+
+  TAURI_DEV_URL="http://127.0.0.1:${vite_port}" \
+  TAURI_CONNECT_SRC="http://localhost:${phoenix_port} http://127.0.0.1:${phoenix_port} ws://localhost:${phoenix_port} ws://127.0.0.1:${phoenix_port}" \
+    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g' "$TAURI_CONF"
+}
+
+cleanup() {
+  if [[ "$CLEANED_UP" == "true" ]]; then
+    return
+  fi
+  CLEANED_UP=true
+
+  terminate_pid "$TAURI_PID"
+  terminate_pid "$VITE_PID"
+  terminate_pid "$PHX_PID"
+  restore_tauri_conf
+}
+
+on_signal() {
+  local exit_code="$1"
+  cleanup
+  trap - EXIT INT TERM
+  exit "$exit_code"
+}
+
 trap cleanup EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 # ---- 加载端口配置（单一来源：frontend/.env） ----
 
@@ -43,7 +88,10 @@ if [[ "$MODE" == "--web" ]]; then
   PHX_PID=$!
   sleep 3
   cd "$PROJECT_ROOT/frontend"
-  exec pnpm dev
+  pnpm dev &
+  VITE_PID=$!
+  wait "$VITE_PID"
+  exit $?
 fi
 
 # ---- 桌面端模式 ----
@@ -52,10 +100,10 @@ echo "  桌面端模式 (Phoenix: ${PHOENIX_PORT}, Vite: ${VITE_PORT})"
 
 # 同步 tauri.conf.json（在 Tauri 读取配置之前完成）
 TAURI_CONF="$PROJECT_ROOT/frontend/src-tauri/tauri.conf.json"
-sed -i '' \
-  -e "s|\"devUrl\": \"http://localhost:[0-9]*\"|\"devUrl\": \"http://localhost:${VITE_PORT}\"|" \
-  -e "s|\(connect-src 'self' \)http://localhost:[0-9]*\( ws://localhost:\)[0-9]*|\1http://localhost:${PHOENIX_PORT}\2${PHOENIX_PORT}|" \
-  "$TAURI_CONF"
+TAURI_CONF_BACKUP="$(mktemp -t ai-novel-tauri-conf.XXXXXX)"
+cp "$TAURI_CONF" "$TAURI_CONF_BACKUP"
+
+sync_tauri_conf "$VITE_PORT" "$PHOENIX_PORT"
 
 # 启动 Phoenix
 PHX_URL="http://localhost:${PHOENIX_PORT}"
@@ -83,4 +131,6 @@ fi
 
 # 启动 Tauri（Vite 由 tauri 的 beforeDevCommand 负责）
 cd "$PROJECT_ROOT/frontend"
-exec pnpm tauri dev
+pnpm tauri dev &
+TAURI_PID=$!
+wait "$TAURI_PID"

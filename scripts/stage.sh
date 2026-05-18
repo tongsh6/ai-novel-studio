@@ -22,21 +22,63 @@ MODE="tauri"
 SKIP_BUILD=false
 PHX_PID=""
 VITE_PID=""
+TAURI_PID=""
+TAURI_CONF=""
+TAURI_CONF_BACKUP=""
+CLEANED_UP=false
+
+terminate_pid() {
+  local name="$1"
+  local pid="$2"
+
+  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+    echo "[stage] Stopping ${name} (pid ${pid})..."
+    kill "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+  fi
+}
+
+restore_tauri_conf() {
+  if [[ -n "$TAURI_CONF_BACKUP" && -f "$TAURI_CONF_BACKUP" && -n "$TAURI_CONF" ]]; then
+    cp "$TAURI_CONF_BACKUP" "$TAURI_CONF" 2>/dev/null || true
+    rm -f "$TAURI_CONF_BACKUP" 2>/dev/null || true
+  fi
+}
+
+sync_tauri_conf() {
+  local vite_port="$1"
+  local phoenix_port="$2"
+
+  TAURI_DEV_URL="http://127.0.0.1:${vite_port}" \
+  TAURI_CONNECT_SRC="http://localhost:${phoenix_port} http://127.0.0.1:${phoenix_port} ws://localhost:${phoenix_port} ws://127.0.0.1:${phoenix_port}" \
+    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g' "$TAURI_CONF"
+}
 
 cleanup() {
+  if [[ "$CLEANED_UP" == "true" ]]; then
+    return
+  fi
+  CLEANED_UP=true
+
   echo ""
   echo "[stage] Shutting down..."
-  if [[ -n "$VITE_PID" ]]; then
-    kill "$VITE_PID" 2>/dev/null || true
-    wait "$VITE_PID" 2>/dev/null || true
-  fi
-  if [[ -n "$PHX_PID" ]]; then
-    kill "$PHX_PID" 2>/dev/null || true
-    wait "$PHX_PID" 2>/dev/null || true
-  fi
+  terminate_pid "Tauri" "$TAURI_PID"
+  terminate_pid "Vite" "$VITE_PID"
+  terminate_pid "Phoenix" "$PHX_PID"
+  restore_tauri_conf
   echo "[stage] Stopped."
 }
-trap cleanup EXIT INT TERM
+
+on_signal() {
+  local exit_code="$1"
+  cleanup
+  trap - EXIT INT TERM
+  exit "$exit_code"
+}
+
+trap cleanup EXIT
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 
 # ---- 解析参数 ----
 
@@ -183,17 +225,23 @@ if [[ "$MODE" == "tauri" ]]; then
   echo "[stage] Starting Tauri desktop (Phoenix: ${PHOENIX_PORT}, Vite: ${VITE_DEV_PORT})..."
 
   TAURI_CONF="$PROJECT_ROOT/frontend/src-tauri/tauri.conf.json"
-  cp "$TAURI_CONF" "$TAURI_CONF.stage.bak"
-  trap 'mv "$TAURI_CONF.stage.bak" "$TAURI_CONF" 2>/dev/null; cleanup' EXIT INT TERM
+  TAURI_CONF_BACKUP="$(mktemp -t ai-novel-tauri-conf.XXXXXX)"
+  cp "$TAURI_CONF" "$TAURI_CONF_BACKUP"
 
-  sed -i '' \
-    -e "s|\"devUrl\": \"http://localhost:[0-9]*\"|\"devUrl\": \"http://localhost:${VITE_DEV_PORT}\"|" \
-    -e "s|connect-src 'self'.*\"|connect-src 'self' http://localhost:${PHOENIX_PORT} http://127.0.0.1:${PHOENIX_PORT} ws://localhost:${PHOENIX_PORT} ws://127.0.0.1:${PHOENIX_PORT}\"|" \
-    "$TAURI_CONF"
+  sync_tauri_conf "$VITE_DEV_PORT" "$PHOENIX_PORT"
 
   # Tauri 的 beforeDevCommand 会自动启动 Vite dev server
   cd "$PROJECT_ROOT/frontend"
-  exec pnpm tauri dev
+  pnpm tauri dev &
+  TAURI_PID=$!
+  echo "[stage] Tauri PID: ${TAURI_PID}"
+
+  if wait "$TAURI_PID"; then
+    exit 0
+  else
+    TAURI_STATUS=$?
+    exit "$TAURI_STATUS"
+  fi
 fi
 
 # ---- 浏览器模式：Vite Preview ----
@@ -221,4 +269,4 @@ echo "  按 Ctrl+C 停止所有服务"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
 
-wait
+wait "$VITE_PID"

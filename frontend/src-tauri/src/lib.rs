@@ -1,23 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::process::Command as ProcessCommand;
 use tauri::Manager;
-
-fn kill_phoenix_backend() {
-  // 尝试通过端口查找并关闭 Phoenix 后端进程
-  let port = std::env::var("PHOENIX_PORT").unwrap_or_else(|_| "4657".into());
-  if let Ok(output) = ProcessCommand::new("lsof")
-    .args(["-ti", &format!(":{}", port)])
-    .output()
-  {
-    let pids = String::from_utf8_lossy(&output.stdout);
-    for pid in pids.lines() {
-      if !pid.is_empty() {
-        let _ = ProcessCommand::new("kill").arg(pid).output();
-      }
-    }
-  }
-}
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct Preferences {
@@ -92,7 +75,6 @@ pub fn run() {
     })
     .on_window_event(|window, event| {
       if let tauri::WindowEvent::CloseRequested { .. } = event {
-        kill_phoenix_backend();
         window.app_handle().exit(0);
       }
     })

@@ -18,6 +18,7 @@
 #   bash scripts/tauri_slice_verify.sh au05-modify-draft-boundary
 #   bash scripts/tauri_slice_verify.sh au08-adoption-reading-projection
 #   bash scripts/tauri_slice_verify.sh au09-archive-real-data
+#   bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership
 #   bash scripts/tauri_slice_verify.sh vs10-observability-spine
 #
 # The script starts a slice backend and a native Tauri dev window. By default
@@ -77,6 +78,7 @@ Available native Tauri slice ids:
   au05-modify-draft-boundary
   au08-adoption-reading-projection
   au09-archive-real-data
+  desktop-stage-process-ownership
   au10-micro-plan-entry
   au10-ordinary-chat-no-micro-plan
   vs10-observability-spine
@@ -104,7 +106,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au09-archive-real-data" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
+if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au09-archive-real-data" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -113,6 +115,11 @@ fi
 if [[ "$SLICE_VERIFY_PROVIDER" != "slice_verify" && "$SLICE_VERIFY_PROVIDER" != "lmstudio" ]]; then
   echo "Unsupported slice verify provider: $SLICE_VERIFY_PROVIDER" >&2
   exit 64
+fi
+
+if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
+  bash "$PROJECT_ROOT/scripts/verify_stage_process_ownership.sh"
+  exit 0
 fi
 
 ARTIFACT_SUFFIX="-tauri"
