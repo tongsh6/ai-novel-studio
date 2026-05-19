@@ -2,7 +2,7 @@
 
 > 作者视角：我的小说有大量设定、角色关系、伏笔线索、世界观规则。我需要能管理这些设定，并且 AI 在后续对话中能自动、可追溯地引用已确认设定。
 >
-> 2026-05-19 对账结论：作品档案面板的固定样例数据已被最小真实链路替换，真实 Tauri 工作台可打开当前 Work 的档案并读取已采纳角色、confirmed/stabilized 且 recallable 的伏笔/规则、卷章/草稿/记忆统计；档案 L2 列表到 L3 详情的只读查看 checkpoint 已补齐，角色/伏笔/规则可在 `StructurePanel` 中选中查看详情。记忆召回主链也已有最小真实前端闭环：confirmed/stabilized + recallable 记忆会按当前 Work 与本轮作者输入召回进 `memory_summary`，写入引用日志，并进入 Planner context。`locked=true` 的核心事实字段改写已在 persistence update 边界被拒绝。但 AU-09 仍缺可用 REST/Channel 管理入口、面板内采纳进入 governed memory、作者可见溯源 UI、状态机 guard、locked 修改尝试 trace、有效期窗口，以及和 AU-03 “作品内多会话 + 最新作品背景”的分层闭环。
+> 2026-05-20 对账结论：作品档案面板的固定样例数据已被最小真实链路替换，真实 Tauri 工作台可打开当前 Work 的档案并读取已采纳角色、confirmed/stabilized 且 recallable 的伏笔/规则、卷章/草稿/记忆统计；档案 L2 列表到 L3 详情的只读查看 checkpoint 已补齐，角色/伏笔/规则可在 `StructurePanel` 中选中查看详情。记忆召回主链也已有最小真实前端闭环：confirmed/stabilized + recallable 记忆会按当前 Work 与本轮作者输入召回进 `memory_summary`，写入引用日志，并进入 Planner context。`locked=true` 的核心事实字段改写已在 persistence update 边界被拒绝；`MemoryItem.update_changeset/2` 已消费领域状态机规则，拒绝 DRAFT 直接跳 STABILIZED、DEPRECATED/ARCHIVED 复活，并在进入 DEPRECATED/ARCHIVED 时同步清理 `locked=false`、`recallable=false`。但 AU-09 仍缺可用 REST/Channel 管理入口、面板内采纳进入 governed memory、作者可见溯源 UI、locked 修改尝试 trace、有效期窗口，以及和 AU-03 “作品内多会话 + 最新作品背景”的分层闭环。
 
 ---
 
@@ -48,9 +48,9 @@
 |---|---|---|
 | `docs/design-v2/05-memory-retention-and-retrieval.md` | MemoryType/Scope/Status/SourceType 与字段语义 | 设计冻结，枚举和 schema 有局部实现 |
 | `NovelFoundation.Enums.Memory*` | 编译期冻结记忆枚举 | 已实现并被 schema/domain 测试覆盖 |
-| `NovelDomain.MemoryItem` | 纯领域对象，提供 confirm/lock/deprecate/archive 等函数 | 局部已测试，但未接真实管理入口 |
-| `NovelPersistence.Schemas.MemoryItem` | `memory_items` Ecto schema 与字段校验 | schema/changeset 局部已测；`locked=true` 时 persistence update 已拒绝改写 content/summary/type/scope；仍缺状态流转 guard |
-| `NovelPersistence.MemoryReferenceLog` | 记忆引用日志 | 表和写入/查询 helper 已测；未接召回主链 |
+| `NovelDomain.MemoryItem` | 纯领域对象，提供 confirm/lock/deprecate/archive 等函数 | 已提供状态流转 allowlist 与 terminal 状态 side effect；仍未接真实管理入口 |
+| `NovelPersistence.Schemas.MemoryItem` | `memory_items` Ecto schema 与字段校验 | schema/changeset 局部已测；`locked=true` 时 persistence update 已拒绝改写 content/summary/type/scope；update changeset 已拒绝跳级和 terminal 状态复活，并对 DEPRECATED/ARCHIVED 自动清理 locked/recallable |
+| `NovelPersistence.MemoryReferenceLog` | 记忆引用日志 | 表和写入/查询 helper 已测；召回主链已写入 reference log，仍缺 trace/replay 聚合与作者可见来源 UI |
 | `NovelPersistence.WorkspaceContext.context_fetcher_with_query/0` | DialogueGateway 真实上下文 fetcher | 已按当前 Work + 作者输入召回 confirmed/stabilized 且 recallable 的记忆，返回 `memory_summary` 并写引用日志；`context_fetcher/0` 保留兼容 |
 | `NovelApplication.ContextAssembler` / `DialogueContext.to_prompt_text/1` | 接收 `memory_summary` 并写入 prompt | stub 单测和真实 fetcher 最小闭环均证明字段可用 |
 | `apps/novel_web/lib/novel_web/router.ex` | HTTP API 入口 | 仅有 health/provider/works；无 memory REST 路由 |
@@ -193,9 +193,9 @@
 - draft 不进入普通 `memory_summary`；
 - 确认动作留下来源。
 
-**当前证据**：`NovelDomain.MemoryItem.confirm/1` 和 `MemoryDetailDrawer.confirmMemory` 存在；`MemoryItem.update_changeset/2` 允许直接改 `status`，无状态机 guard；后端 API 缺失。
+**当前证据**：`NovelDomain.MemoryItem.confirm/1` 和 `MemoryDetailDrawer.confirmMemory` 存在；`MemoryItem.update_changeset/2` 已拒绝 DRAFT 直接跳 STABILIZED、DEPRECATED/ARCHIVED 复活，并由 `NovelDomain.MemoryItem.status_transition_allowed?/2` 统一维护领域规则；后端 API 缺失。
 
-**当前状态**：部分实现。
+**当前状态**：部分实现 / 后端 guard 已补。
 
 ---
 
@@ -209,7 +209,7 @@
 - trace 显示它未被引用或被排除；
 - 手动查看历史仍保留记录。
 
-**当前证据**：`NovelDomain.MemoryItem.deprecate/1` / `archive/1` 会设 `recallable: false`；真实 persistence update 和 recall 查询未接入。
+**当前证据**：`NovelDomain.MemoryItem.deprecate/1` / `archive/1` 会设 `recallable: false` 并清理 `locked=false`；`MemoryItem.update_changeset/2` 在进入 DEPRECATED/ARCHIVED 时同步写入 `recallable=false`，召回查询只读取 confirmed/stabilized 且 recallable 的记忆。
 
 **当前状态**：部分实现。
 
@@ -309,8 +309,8 @@
 | SC-AU09-B1 | 打开记忆管理页 | 部分实现 | 组件存在，未挂路由，API 缺失 |
 | SC-AU09-B2 | 筛选搜索设定 | 部分实现 | 前端 query client，后端 API 缺失 |
 | SC-AU09-B3 | 新建作者设定 | 部分实现 | 前端表单 + schema 局部校验，后端 API 缺失 |
-| SC-AU09-C1 | 草稿确认后可召回 | 部分实现 | domain 函数，后端 guard/API 缺失 |
-| SC-AU09-C2 | 废弃/归档不召回 | 部分实现 | domain 函数，recall 主链缺失 |
+| SC-AU09-C1 | 草稿确认后可召回 | 部分实现 / 后端 guard 已补 | domain 函数，update changeset 状态机 guard；后端 API 缺失 |
+| SC-AU09-C2 | 废弃/归档不召回 | 部分实现 / 后端 guard 已补 | domain 函数、update changeset terminal side effect、recall 查询过滤；缺正式管理 API 与 trace/UI 验收 |
 | SC-AU09-C3 | 锁定设定不可自动改写 | 部分实现 | schema update 已拒绝 locked core fact rewrite；缺主链 trace/API 验收 |
 | SC-AU09-C4 | 有效期影响召回 | 未实现 | 字段存在，召回未使用 |
 | SC-AU09-D1 | 已确认设定进入主链 prompt | 部分实现 / 最小真实前端闭环已补 | Tauri UI + context assembler + real fetcher |
@@ -330,7 +330,7 @@
 | AU09-GAP-03 — 面板采纳未进入真实记忆 | pendingAdoptions 是当前前端内存，采纳链路未写入 governed memory | 补集成 | P0 |
 | AU09-GAP-04 — `memory_summary` 未接主链 | 最小闭环已补：真实 fetcher 返回 `memory_summary` 并进入 Planner context；剩余有效期/locked/会话分层与完整 UI 溯源 | 最小闭环已补 / 继续补验收 | P0 |
 | AU09-GAP-05 — recall 查询和 ranking 缺失 | 最小闭环已补：`MemoryRecallRepo` 按 work/status/recallable/query 做基础召回排序；剩余 current narrative position、有效期窗口、冲突/locked 策略 | 最小闭环已补 / 继续补实现 | P0 |
-| AU09-GAP-06 — 状态机后端 guard 缺失 | `update_changeset/2` 可直接写 `status`，非法跳转无法被统一拒绝 | 补实现/补测试 | P0 |
+| AU09-GAP-06 — 状态机后端 guard 缺失 | `update_changeset/2` 已消费 `NovelDomain.MemoryItem` 状态流转规则，拒绝跳级和 terminal 状态复活；剩余是正式管理 API 入口接入与状态变化 trace | 局部已补 / 继续补集成 | P0 |
 | AU09-GAP-07 — locked 保护未落地 | persistence update 已拒绝 locked item 的 content/summary/type/scope 改写；剩余主链 API、修改尝试 trace 和前端验收 | 局部已补 / 继续补集成 | P0 |
 | AU09-GAP-08 — 有效期窗口未参与召回 | `valid_from` / `valid_until` 字段存在但未接 current narrative position | 补实现/补集成 | P1 |
 | AU09-GAP-09 — 引用日志未接 recall | 最小闭环已补：召回后写 `memory_reference_logs` 并更新引用计数；剩余 trace/replay 聚合与作者可见来源 UI | 最小闭环已补 / 继续补集成 | P1 |
@@ -344,8 +344,8 @@
 
 | 基础设施 | 可复用点 | 不能算已验收的原因 |
 |---|---|---|
-| `MemoryItem` schema + migration | 字段、枚举、索引基本存在；locked core fact rewrite 已在 update changeset 拦截 | 没有管理 API、状态 guard、完整 recall pipeline |
-| `NovelDomain.MemoryItem` | 纯函数表达生命周期动作，并声明 locked 保护字段集合 | 仍未被 API 主流程完整消费 |
+| `MemoryItem` schema + migration | 字段、枚举、索引基本存在；locked core fact rewrite 与状态机 guard 已在 update changeset 拦截 | 没有管理 API、状态变化 trace、完整 recall pipeline |
+| `NovelDomain.MemoryItem` | 纯函数表达生命周期动作，并声明 locked 保护字段集合与状态流转 allowlist | 仍未被 API 主流程完整消费 |
 | `MemoryReferenceLog` | 可写引用日志，且已由 recall 主链调用 | 仍没有 UI/replay 聚合 |
 | `ContextAssembler` / `DialogueContext` | `memory_summary` 能进入 prompt；真实 fetcher 已提供最小 memory summary | 仍缺有效期、locked 修改尝试 trace、历史会话分层和作者可见溯源 |
 | `StructurePanel` | 档案面板视觉壳、真实 archive 读模型和 pending 分区 | 已确认档案数据已有最小真实链路；pending 仍来自 adoption/resume 视图，记忆管理、召回和溯源未闭环 |

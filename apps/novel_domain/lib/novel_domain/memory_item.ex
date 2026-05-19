@@ -16,6 +16,33 @@ defmodule NovelDomain.MemoryItem do
   @default_confidence 0.5
   @default_source_confidence 0.5
   @locked_protected_fields [:content, :summary, :type, :scope]
+  @terminal_statuses [MemoryStatus.deprecated(), MemoryStatus.archived()]
+  @status_transitions %{
+    MemoryStatus.draft() => [
+      MemoryStatus.confirmed(),
+      MemoryStatus.conflicted(),
+      MemoryStatus.deprecated(),
+      MemoryStatus.archived()
+    ],
+    MemoryStatus.confirmed() => [
+      MemoryStatus.stabilized(),
+      MemoryStatus.conflicted(),
+      MemoryStatus.deprecated(),
+      MemoryStatus.archived()
+    ],
+    MemoryStatus.stabilized() => [
+      MemoryStatus.conflicted(),
+      MemoryStatus.deprecated(),
+      MemoryStatus.archived()
+    ],
+    MemoryStatus.conflicted() => [
+      MemoryStatus.confirmed(),
+      MemoryStatus.deprecated(),
+      MemoryStatus.archived()
+    ],
+    MemoryStatus.deprecated() => [MemoryStatus.archived()],
+    MemoryStatus.archived() => []
+  }
 
   defstruct [
     :id,
@@ -143,6 +170,7 @@ defmodule NovelDomain.MemoryItem do
     %__MODULE__{
       item
       | status: MemoryStatus.deprecated(),
+        locked: false,
         recallable: false,
         updated_at: next_updated_at(item)
     }
@@ -154,6 +182,7 @@ defmodule NovelDomain.MemoryItem do
     %__MODULE__{
       item
       | status: MemoryStatus.archived(),
+        locked: false,
         recallable: false,
         updated_at: next_updated_at(item)
     }
@@ -215,6 +244,31 @@ defmodule NovelDomain.MemoryItem do
   @doc "Fields that cannot be rewritten while a memory item is locked."
   @spec locked_protected_fields() :: [atom()]
   def locked_protected_fields, do: @locked_protected_fields
+
+  @doc "Returns whether a memory status can move to another status through a governed update."
+  @spec status_transition_allowed?(String.t(), String.t()) :: boolean()
+  def status_transition_allowed?(status, status), do: true
+
+  def status_transition_allowed?(from_status, to_status)
+      when is_binary(from_status) and is_binary(to_status) do
+    to_status in Map.get(@status_transitions, from_status, [])
+  end
+
+  def status_transition_allowed?(_, _), do: false
+
+  @doc "Returns side effects that must accompany a governed status transition."
+  @spec status_transition_side_effects(String.t()) :: %{optional(atom()) => boolean()}
+  def status_transition_side_effects(status) when status in @terminal_statuses do
+    %{locked: false, recallable: false}
+  end
+
+  def status_transition_side_effects(status) do
+    if status == MemoryStatus.conflicted() do
+      %{recallable: false}
+    else
+      %{}
+    end
+  end
 
   @doc "增加引用计数。"
   @spec increment_reference(t()) :: t()

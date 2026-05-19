@@ -132,10 +132,12 @@ defmodule NovelDomain.MemoryItemTest do
           MemoryScope.global(),
           MemorySourceType.author_confirmed()
         )
+        |> MemoryItem.lock()
 
       deprecated = MemoryItem.deprecate(item)
       assert deprecated.status == MemoryStatus.deprecated()
       assert deprecated.recallable == false
+      assert deprecated.locked == false
     end
   end
 
@@ -150,10 +152,12 @@ defmodule NovelDomain.MemoryItemTest do
           MemoryScope.global(),
           MemorySourceType.author_confirmed()
         )
+        |> MemoryItem.lock()
 
       archived = MemoryItem.archive(item)
       assert archived.status == MemoryStatus.archived()
       assert archived.recallable == false
+      assert archived.locked == false
     end
   end
 
@@ -332,6 +336,67 @@ defmodule NovelDomain.MemoryItemTest do
   describe "locked_protected_fields/0" do
     test "lists core fact fields protected by a lock" do
       assert MemoryItem.locked_protected_fields() == [:content, :summary, :type, :scope]
+    end
+  end
+
+  describe "status_transition_allowed?/2" do
+    test "allows governed lifecycle transitions" do
+      assert MemoryItem.status_transition_allowed?(
+               MemoryStatus.draft(),
+               MemoryStatus.confirmed()
+             )
+
+      assert MemoryItem.status_transition_allowed?(
+               MemoryStatus.confirmed(),
+               MemoryStatus.stabilized()
+             )
+
+      assert MemoryItem.status_transition_allowed?(
+               MemoryStatus.conflicted(),
+               MemoryStatus.confirmed()
+             )
+
+      assert MemoryItem.status_transition_allowed?(
+               MemoryStatus.deprecated(),
+               MemoryStatus.archived()
+             )
+    end
+
+    test "rejects skipped and resurrection transitions" do
+      refute MemoryItem.status_transition_allowed?(
+               MemoryStatus.draft(),
+               MemoryStatus.stabilized()
+             )
+
+      refute MemoryItem.status_transition_allowed?(
+               MemoryStatus.deprecated(),
+               MemoryStatus.confirmed()
+             )
+
+      refute MemoryItem.status_transition_allowed?(
+               MemoryStatus.archived(),
+               MemoryStatus.confirmed()
+             )
+    end
+  end
+
+  describe "status_transition_side_effects/1" do
+    test "terminal statuses clear recall and lock authority" do
+      assert MemoryItem.status_transition_side_effects(MemoryStatus.deprecated()) == %{
+               locked: false,
+               recallable: false
+             }
+
+      assert MemoryItem.status_transition_side_effects(MemoryStatus.archived()) == %{
+               locked: false,
+               recallable: false
+             }
+    end
+
+    test "conflicted status pauses normal recall" do
+      assert MemoryItem.status_transition_side_effects(MemoryStatus.conflicted()) == %{
+               recallable: false
+             }
     end
   end
 

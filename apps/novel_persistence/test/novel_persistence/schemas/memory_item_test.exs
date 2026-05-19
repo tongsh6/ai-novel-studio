@@ -219,5 +219,80 @@ defmodule NovelPersistence.Schemas.MemoryItemTest do
       assert updated.recallable == false
       assert updated.content == "核心规则不会变"
     end
+
+    test "rejects skipped lifecycle transitions" do
+      {:ok, item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "未确认设定",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_created()
+        })
+        |> Repo.insert()
+
+      cs = MemoryItem.update_changeset(item, %{status: MemoryStatus.stabilized()})
+
+      refute cs.valid?
+
+      assert {"invalid memory status transition from DRAFT to STABILIZED", _} =
+               Keyword.fetch!(cs.errors, :status)
+    end
+
+    test "rejects resurrecting terminal memory statuses" do
+      {:ok, item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "已废弃设定",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          status: MemoryStatus.deprecated(),
+          recallable: false
+        })
+        |> Repo.insert()
+
+      cs = MemoryItem.update_changeset(item, %{status: MemoryStatus.confirmed()})
+
+      refute cs.valid?
+
+      assert {"invalid memory status transition from DEPRECATED to CONFIRMED", _} =
+               Keyword.fetch!(cs.errors, :status)
+    end
+
+    test "allows confirmation and applies terminal status side effects" do
+      {:ok, item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "作者确认的核心规则",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed()
+        })
+        |> Repo.insert()
+
+      {:ok, confirmed} =
+        item
+        |> MemoryItem.update_changeset(%{status: MemoryStatus.confirmed(), locked: true})
+        |> Repo.update()
+
+      assert confirmed.status == MemoryStatus.confirmed()
+      assert confirmed.locked == true
+      assert confirmed.recallable == true
+
+      cs = MemoryItem.update_changeset(confirmed, %{status: MemoryStatus.deprecated()})
+      assert cs.valid?
+
+      {:ok, deprecated} = Repo.update(cs)
+      assert deprecated.status == MemoryStatus.deprecated()
+      assert deprecated.locked == false
+      assert deprecated.recallable == false
+    end
   end
 end

@@ -147,7 +147,40 @@ defmodule NovelPersistence.Schemas.MemoryItem do
       less_than_or_equal_to: 1.0
     )
     |> validate_number(:version, greater_than_or_equal_to: 1)
+    |> validate_status_transition()
+    |> apply_status_transition_side_effects()
     |> prevent_locked_core_rewrite()
+  end
+
+  defp validate_status_transition(%Ecto.Changeset{data: %{status: current_status}} = changeset) do
+    next_status = get_change(changeset, :status)
+
+    cond do
+      is_nil(next_status) ->
+        changeset
+
+      DomainMemoryItem.status_transition_allowed?(current_status, next_status) ->
+        changeset
+
+      true ->
+        add_error(
+          changeset,
+          :status,
+          "invalid memory status transition from #{current_status} to #{next_status}"
+        )
+    end
+  end
+
+  defp apply_status_transition_side_effects(changeset) do
+    case get_change(changeset, :status) do
+      nil ->
+        changeset
+
+      status ->
+        status
+        |> DomainMemoryItem.status_transition_side_effects()
+        |> Enum.reduce(changeset, fn {field, value}, acc -> put_change(acc, field, value) end)
+    end
   end
 
   defp prevent_locked_core_rewrite(%Ecto.Changeset{data: %{locked: true}} = changeset) do
