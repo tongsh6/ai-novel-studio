@@ -78,15 +78,58 @@ defmodule NovelApplication.ContextAssembler do
 
   defp maybe_add_ref(refs, nil, _type, _id), do: refs
 
-  defp maybe_add_ref(refs, _value, type, id) do
+  defp maybe_add_ref(refs, value, type, id) do
     ref = %ContextSourceRef{
       context_ref: "ctx_#{System.unique_integer([:positive, :monotonic])}",
       source_type: type,
       source_id: id,
-      summary: "context from #{type}",
+      summary: summarize_context(value, type),
       redaction_level: :author_safe
     }
 
     [ref | refs]
+  end
+
+  defp summarize_context(value, :current_work) when is_map(value) do
+    title = Map.get(value, "title") || Map.get(value, :title)
+    protagonist = Map.get(value, "protagonist") || Map.get(value, :protagonist)
+
+    [title, protagonist]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" / ")
+    |> case do
+      "" -> "当前作品背景"
+      summary -> summary
+    end
+  end
+
+  defp summarize_context(value, :memory) when is_binary(value) do
+    value
+    |> String.split("\n")
+    |> Enum.map_join("\n", &String.replace(&1, ~r/^\s*-\s*\[[^\]]+\]\s*/, ""))
+    |> normalize_summary()
+  end
+
+  defp summarize_context(value, :conversation) when is_binary(value) do
+    value
+    |> String.replace(~r/\buser:/, "作者：")
+    |> String.replace(~r/\bassistant:/, "AI：")
+    |> normalize_summary()
+  end
+
+  defp summarize_context(value, _type) when is_binary(value) do
+    normalize_summary(value)
+  end
+
+  defp summarize_context(_value, :memory), do: "已确认设定"
+  defp summarize_context(_value, :conversation), do: "近期对话"
+  defp summarize_context(_value, :behavior), do: "当前待处理动作"
+  defp summarize_context(_value, _type), do: "安全上下文摘要"
+
+  defp normalize_summary(value) do
+    value
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> String.slice(0, 180)
   end
 end

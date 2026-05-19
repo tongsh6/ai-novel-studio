@@ -234,11 +234,25 @@ defmodule NovelApplication.TraceWriter do
 
   defp format_context_refs(refs) when is_list(refs) do
     Enum.map(refs, fn %ContextSourceRef{} = ref ->
-      %{context_ref: ref.context_ref, source_type: ref.source_type}
+      %{
+        context_ref: ref.context_ref,
+        source_type: ref.source_type,
+        summary: author_safe_summary(ref)
+      }
     end)
   end
 
   defp format_context_refs(_), do: []
+
+  defp author_safe_summary(%ContextSourceRef{redaction_level: :author_safe, summary: summary})
+       when is_binary(summary) do
+    summary
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> String.slice(0, 180)
+  end
+
+  defp author_safe_summary(_ref), do: nil
 
   defp allocate_trace_id, do: "trace_#{System.unique_integer([:positive, :monotonic])}"
 end

@@ -113,7 +113,10 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       assert context.memory_summary =~ "林瑶失踪与灵源矿区有关"
       assert String.contains?(prompt, "## 相关记忆")
       assert String.contains?(prompt, "林瑶失踪与灵源矿区有关")
-      assert Enum.any?(turn_result.trace_summary.context_refs, &(&1.source_type == :memory))
+      memory_ref = Enum.find(turn_result.trace_summary.context_refs, &(&1.source_type == :memory))
+      assert memory_ref.summary =~ "林瑶失踪与灵源矿区有关"
+      refute memory_ref.summary =~ "PLOT_FACT"
+      refute memory_ref.summary =~ "["
 
       [log] = MemoryReferenceLog.by_scene(work.id, "dialogue_context")
       assert log.memory_id == memory.id

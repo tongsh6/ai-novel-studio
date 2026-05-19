@@ -33,6 +33,7 @@ defmodule NovelApplication.ContextGroundingTest do
       assert ctx.conversation_summary != nil
       assert ctx.memory_summary != nil
       assert length(ctx.context_refs) == 3
+      assert Enum.any?(ctx.context_refs, &(&1.source_type == :memory and &1.summary =~ "雷电系灵力"))
       assert ctx.assembled_at != nil
     end
 
@@ -81,6 +82,19 @@ defmodule NovelApplication.ContextGroundingTest do
       assert DialogueContext.has_context?(context)
       assert context.context_refs != []
       assert Enum.any?(context.context_refs, &(&1.source_type == :current_work))
+    end
+
+    test "trace context refs carry author-safe source summaries" do
+      input = %{text: "林烬为什么去矿区？", workspace_id: "ws-trace-source-summary"}
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(input, &stub_fetcher/1)
+
+      memory_ref =
+        Enum.find(turn_result.trace_summary.context_refs, &(&1.source_type == :memory))
+
+      assert memory_ref.summary =~ "雷电系灵力"
+      refute Map.has_key?(memory_ref, :source_id)
     end
 
     test "with context, frame records dialogue_context_ref" do
