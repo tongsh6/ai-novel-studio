@@ -333,10 +333,11 @@ export function WorkspaceChat() {
 
     if (
       isTauri &&
-      autorunSlice === "au07-trace-why-entry" &&
+      (autorunSlice === "au07-trace-why-entry" ||
+        autorunSlice === "au09-memory-recall-context") &&
       result.trace_summary &&
       channelRef.current &&
-      !sliceVerifyUiReported.has("au07-trace-why-entry")
+      !sliceVerifyUiReported.has(autorunSlice)
     ) {
       window.setTimeout(() => {
         document
@@ -346,15 +347,15 @@ export function WorkspaceChat() {
           ?.click();
 
         window.setTimeout(() => {
-          if (!channelRef.current || sliceVerifyUiReported.has("au07-trace-why-entry")) return;
-          sliceVerifyUiReported.add("au07-trace-why-entry");
+          if (!channelRef.current || sliceVerifyUiReported.has(autorunSlice)) return;
+          sliceVerifyUiReported.add(autorunSlice);
           const dialogText =
             document.querySelector<HTMLElement>('[data-slice-verify="trace-why-dialog"]')
               ?.innerText ?? "";
           const currentContext = useAppStore.getState().context;
 
           void reportSliceVerifyUiState(channelRef.current, {
-            slice_id: "au07-trace-why-entry",
+            slice_id: autorunSlice,
             context_work_id: currentContext.workId,
             context_work_title: currentContext.workTitle,
             active_session_id: activeSessionId,
@@ -1932,9 +1933,12 @@ export function WorkspaceChat() {
                       {traceDialog.summary.contextSources.length > 0 ? (
                         <div className={styles.traceChipRow}>
                           {traceDialog.summary.contextSources.map((source) => (
-                            <span key={source.key} className={styles.traceChip}>
-                              {source.label}
-                            </span>
+                            <div key={source.key} className={styles.traceSourceItem}>
+                              <span className={styles.traceChip}>{source.label}</span>
+                              {source.summary && (
+                                <span className={styles.traceSourceSummary}>{source.summary}</span>
+                              )}
+                            </div>
                           ))}
                         </div>
                       ) : (

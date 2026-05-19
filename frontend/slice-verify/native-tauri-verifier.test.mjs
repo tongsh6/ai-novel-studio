@@ -274,6 +274,19 @@ describe("native Tauri slice verifier", () => {
         duration_ms: 25,
         outcome: "done",
       },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-memory-recall-context",
+        turn_id: "turn-memory",
+        workspace_id: "work-memory",
+        work_id: "work-memory",
+        session_id: "session-memory",
+        trace_why_dialog_open: true,
+        trace_why_text: "本轮解释 参考来源 已确认设定 林瑶失踪指向灵源矿区，林烬去矿区追查线索。",
+        trace_why_contains_raw_prompt: false,
+        duration_ms: 0,
+        outcome: "done",
+      },
     ];
 
     const evidence = findNativeSliceEvidence("au09-memory-recall-context", records);
@@ -295,6 +308,7 @@ describe("native Tauri slice verifier", () => {
         "message_sent_from_real_workbench",
         "micro_plan_not_requested",
         "confirmed_recallable_memory_attached_to_context",
+        "memory_source_summary_visible_in_why_dialog",
         "planner_received_context_before_frame",
         "no_error_events",
         "assistant_messages_not_fallback",

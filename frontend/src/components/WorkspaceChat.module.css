@@ -463,17 +463,30 @@
 
 .traceChipRow {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column;
   gap: 6px;
 }
 
+.traceSourceItem {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 .traceChip {
+  flex: 0 0 auto;
   padding: 4px 8px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--rounded-sm);
   color: var(--foreground-primary);
   background-color: var(--surface-primary);
   font-size: 12px;
+}
+
+.traceSourceSummary {
+  color: var(--foreground-primary);
+  font-size: 13px;
+  line-height: 1.5;
 }
 
 .traceDetailList {

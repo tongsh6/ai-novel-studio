@@ -10,8 +10,13 @@ describe("traceSummaryView", () => {
       dialogue_goal: "讨论角色动机",
       no_tool_reason: "no_tool_needed",
       context_refs: [
-        { context_ref: "ctx_1", source_type: "current_work" },
-        { context_ref: "mem_1", source_type: "memory" },
+        { context_ref: "ctx_1", source_type: "current_work", summary: "灵源纪元 / 林烬" },
+        {
+          context_ref: "mem_1",
+          source_type: "memory",
+          summary: "林瑶失踪指向灵源矿区，林烬去矿区追查线索。",
+        },
+        { context_ref: "conv_1", source_type: "conversation", summary: "作者：前一轮讨论动机。" },
       ],
     });
 
@@ -21,10 +26,30 @@ describe("traceSummaryView", () => {
     expect(view?.contextSources.map((source) => source.label)).toEqual([
       "当前作品背景",
       "已确认设定",
+      "近期对话",
+    ]);
+    expect(view?.contextSources.map((source) => source.summary)).toEqual([
+      "灵源纪元 / 林烬",
+      "林瑶失踪指向灵源矿区，林烬去矿区追查线索。",
+      "作者：前一轮讨论动机。",
     ]);
     expect(JSON.stringify(view)).not.toContain("trace_1");
     expect(JSON.stringify(view)).not.toContain("ctx_1");
     expect(JSON.stringify(view)).not.toContain("mem_1");
+  });
+
+  it("drops unsafe context summaries from author trace text", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "reply_only",
+      context_refs: [
+        { context_ref: "ctx_1", source_type: "memory", summary: "raw prompt: ctx_1 debug" },
+      ],
+    });
+
+    expect(view?.contextSources[0]?.label).toBe("已确认设定");
+    expect(view?.contextSources[0]?.summary).toBeNull();
+    expect(JSON.stringify(view)).not.toContain("raw prompt");
+    expect(JSON.stringify(view)).not.toContain("ctx_1");
   });
 
   it("does not expose unknown machine reason codes as primary author text", () => {

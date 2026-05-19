@@ -130,6 +130,7 @@ const sliceKeyEvents = {
     "planner.form_frame.done",
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
+    "slice_verify.ui_state.done",
   ],
   "au07-trace-why-entry": [
     "channel.user_message.start",
@@ -699,6 +700,14 @@ function findAu09MemoryRecallEvidence(records) {
     const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
     if (contextDone?.has_memory !== true) continue;
     if (Number(contextDone.context_refs_count ?? 0) < 1) continue;
+    const uiState = turnRecords.find(
+      (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+    );
+    if (!uiState?.trace_why_dialog_open) continue;
+    if (uiState.trace_why_contains_raw_prompt === true) continue;
+    const traceText = String(uiState.trace_why_text ?? "");
+    if (!traceText.includes("已确认设定")) continue;
+    if (!traceText.includes("灵源矿区")) continue;
 
     return {
       slice_id: sliceId,
@@ -1357,6 +1366,7 @@ function memoryRecallContextBehavior(records, evidence, options) {
       "message_sent_from_real_workbench",
       "micro_plan_not_requested",
       "confirmed_recallable_memory_attached_to_context",
+      "memory_source_summary_visible_in_why_dialog",
       "planner_received_context_before_frame",
       "no_error_events",
       "assistant_messages_not_fallback",

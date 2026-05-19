@@ -3,6 +3,7 @@ import { TRACE } from "./copy";
 export interface TraceContextSourceView {
   key: string;
   label: string;
+  summary: string | null;
 }
 
 export interface TraceSummaryView {
@@ -54,6 +55,7 @@ const reasonCodeLabels: Record<string, string> = {
 
 const contextSourceLabels: Record<string, string> = {
   current_work: TRACE.contextSources.currentWork,
+  conversation: TRACE.contextSources.recentDialogue,
   recent_dialogue: TRACE.contextSources.recentDialogue,
   memory: TRACE.contextSources.memory,
   work_archive: TRACE.contextSources.workArchive,
@@ -115,10 +117,24 @@ function contextSourceViews(value: unknown): TraceContextSourceView[] {
     views.push({
       key: sourceType,
       label: contextSourceLabels[sourceType] ?? TRACE.contextSources.other,
+      summary: authorSafeSummary((item as TraceSummaryLike).summary),
     });
   }
 
   return views;
+}
+
+function authorSafeSummary(value: unknown): string | null {
+  const summary = stringValue(value);
+  if (!summary) return null;
+
+  const normalized = summary.replace(/\s+/g, " ").trim().slice(0, 180);
+  if (!normalized) return null;
+  if (/(trace_|ctx_|mem_|raw prompt|provider raw|hidden policy|debug)/i.test(normalized)) {
+    return null;
+  }
+
+  return normalized;
 }
 
 function detailLines(summary: TraceSummaryLike): string[] {
