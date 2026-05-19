@@ -264,7 +264,7 @@
 
 **当前证据**：`ContextAssembler` 和 `DialogueContext` 支持 `memory_summary`；`WorkspaceContext.context_fetcher_with_query/0` 已接 `MemoryRecallRepo`，按当前 Work、confirmed/stabilized、`recallable=true` 和作者输入召回记忆；`DialogueGateway` 把本轮作者文本传入 `ContextAssembler.assemble_for_input/3`；`dialogue_gateway_real_loop_test.exs` 证明 memory 进入 prompt 与 `trace_summary.context_refs`；`au09-memory-recall-context` 原生 Tauri 验证证明真实工作台输入可触发 `context.assemble.done(has_memory=true)`。
 
-**当前状态**：部分实现 / 最小真实前端闭环已补。仍缺有效期窗口、locked 修改尝试 trace、作者可见引用溯源 UI 和历史会话分层验收。
+**当前状态**：部分实现 / 最小真实前端闭环已补。仍缺有效期窗口、locked 修改尝试 trace 和历史会话分层验收。
 
 ---
 
@@ -278,9 +278,9 @@
 - 作者视图显示脱敏中文摘要；
 - 开发者视图可看到完整 source id 和引用原因。
 
-**当前证据**：`MemoryReferenceLog` helper 和测试存在；`WorkspaceContext.context_fetcher_with_query/0` 在召回后批量写入 `memory_reference_logs` 并递增 `reference_count` / `last_referenced_at`；仍没有前端引用来源入口。
+**当前证据**：`MemoryReferenceLog` helper 和测试存在；`WorkspaceContext.context_fetcher_with_query/0` 在召回后批量写入 `memory_reference_logs` 并递增 `reference_count` / `last_referenced_at`；`TraceWriter` 已把 author-safe `ContextSourceRef.summary` 放入 `trace_summary.context_refs`；`WorkspaceChat` 的“为什么”面板展示来源标签与摘要；`bash scripts/tauri_slice_verify.sh au09-memory-recall-context` 已从真实工作台证明记忆摘要可见。
 
-**当前状态**：部分实现。
+**当前状态**：部分实现 / 最小真实前端闭环已补。
 
 ---
 
@@ -316,10 +316,10 @@
 | SC-AU09-C3 | 锁定设定不可自动改写 | 部分实现 / 后端 REST checkpoint 已补 | schema update 已拒绝 locked core fact rewrite，REST lock/unlock 已补；修改尝试 trace/UI 未闭环 |
 | SC-AU09-C4 | 有效期影响召回 | 未实现 | 字段存在，召回未使用 |
 | SC-AU09-D1 | 已确认设定进入主链 prompt | 部分实现 / 最小真实前端闭环已补 | Tauri UI + context assembler + real fetcher |
-| SC-AU09-D2 | 记忆引用可溯源 | 部分实现 | reference log helper，主链未接 |
+| SC-AU09-D2 | 记忆引用可溯源 | 部分实现 / 最小真实前端闭环已补 | `memory_reference_logs` 已写入；真实工作台“为什么”面板可展示本轮使用的记忆来源摘要；trace/replay 聚合和历史旧 turn 查询未闭环 |
 | SC-AU09-D3 | 与 AU-03 会话/最新背景分层一致 | 未实现 | AU-03 会话模型缺口 |
 
-**覆盖率重算**：0/14 完整真实前后端验收；3/14 已有最小真实前端闭环但仍缺完整场景后果；12/14 有局部证据或基础设施；2/14 未实现/未闭环。
+**覆盖率重算**：0/14 完整真实前后端验收；4/14 已有最小真实前端闭环但仍缺完整场景后果；12/14 有局部证据或基础设施；2/14 未实现/未闭环。
 
 ---
 
@@ -335,8 +335,8 @@
 | AU09-GAP-06 — 状态机后端 guard 缺失 | `update_changeset/2` 已消费 `NovelDomain.MemoryItem` 状态流转规则，拒绝跳级和 terminal 状态复活；REST confirm/deprecate/archive 已接入；剩余状态变化 StateTrace/MemoryTrace 和前端验收 | 局部已补 / 继续补集成 | P0 |
 | AU09-GAP-07 — locked 保护未落地 | persistence update 已拒绝 locked item 的 content/summary/type/scope 改写，REST lock/unlock 已接入；剩余修改尝试 trace 和前端验收 | 局部已补 / 继续补集成 | P0 |
 | AU09-GAP-08 — 有效期窗口未参与召回 | `valid_from` / `valid_until` 字段存在但未接 current narrative position | 补实现/补集成 | P1 |
-| AU09-GAP-09 — 引用日志未接 recall | 最小闭环已补：召回后写 `memory_reference_logs` 并更新引用计数；剩余 trace/replay 聚合与作者可见来源 UI | 最小闭环已补 / 继续补集成 | P1 |
-| AU09-GAP-10 — 作者可见溯源缺失 | 无 UI 展示本轮引用了哪些记忆、为何引用 | 补实现/补验收 | P1 |
+| AU09-GAP-09 — 引用日志未接 recall | 最小闭环已补：召回后写 `memory_reference_logs` 并更新引用计数；剩余 trace/replay 聚合和历史旧 turn 查询 | 最小闭环已补 / 继续补集成 | P1 |
+| AU09-GAP-10 — 作者可见溯源缺失 | 最小闭环已补：真实工作台“为什么”面板展示本轮召回的记忆来源摘要；剩余 trace/replay 聚合、历史旧 turn 查询和更细粒度引用原因 | 最小闭环已补 / 继续补集成 | P1 |
 | AU09-GAP-11 — 管理页面无正式设计与路由入口 | Phase 0 组件未挂到 App，设计原型为 N/A | 修设计偏差/补实现 | P2 |
 | AU09-GAP-12 — 与 AU-03 会话模型未对齐 | 无作品内 session，记忆无法按 active/historical session 分层 | 补集成/新增 | P0/P1 |
 
