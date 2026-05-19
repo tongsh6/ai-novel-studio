@@ -83,6 +83,10 @@ export interface SliceVerifyUiStatePayload {
   trace_why_dialog_open?: boolean;
   trace_why_text?: string;
   trace_why_contains_raw_prompt?: boolean;
+  frame_badge_label?: string;
+  frame_badge_kind?: string;
+  frame_badge_goal?: string | null;
+  candidate_panel_count?: number;
 }
 
 export function reportSliceVerifyUiState(

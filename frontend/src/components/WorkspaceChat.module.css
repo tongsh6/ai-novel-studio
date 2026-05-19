@@ -352,6 +352,45 @@
   font-family: var(--sans);
 }
 
+.frameBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  min-height: 24px;
+  padding: 3px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.frameBadge[data-frame-tone="exploration"] {
+  border-color: var(--accent-border);
+  background-color: var(--accent-bg);
+  color: #8a4b00;
+}
+
+.frameBadge[data-frame-tone="reply"] {
+  border-color: var(--border-subtle);
+  color: var(--foreground-secondary);
+}
+
+.frameBadge[data-frame-tone="question"] {
+  border-color: rgba(32, 118, 110, 0.35);
+  background-color: rgba(32, 118, 110, 0.08);
+  color: #14534d;
+}
+
+.frameBadge[data-frame-tone="meta"],
+.frameBadge[data-frame-tone="confirmation"] {
+  border-color: rgba(97, 84, 170, 0.32);
+  background-color: rgba(97, 84, 170, 0.08);
+  color: #473f91;
+}
+
 .text {
   font-size: 14px;
   color: var(--foreground-primary);

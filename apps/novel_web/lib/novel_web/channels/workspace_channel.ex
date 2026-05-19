@@ -613,7 +613,11 @@ defmodule NovelWeb.WorkspaceChannel do
       assistant_role_after_return: payload["assistant_role_after_return"],
       trace_why_dialog_open: payload["trace_why_dialog_open"],
       trace_why_text: payload["trace_why_text"],
-      trace_why_contains_raw_prompt: payload["trace_why_contains_raw_prompt"]
+      trace_why_contains_raw_prompt: payload["trace_why_contains_raw_prompt"],
+      frame_badge_label: payload["frame_badge_label"],
+      frame_badge_kind: payload["frame_badge_kind"],
+      frame_badge_goal: payload["frame_badge_goal"],
+      candidate_panel_count: payload["candidate_panel_count"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}

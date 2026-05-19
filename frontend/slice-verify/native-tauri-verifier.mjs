@@ -1001,6 +1001,16 @@ function findCandidateContinuationEvidence(records) {
   const sliceId = "au02-candidate-continuation";
   const keyEvents = keyEventsForSlice(sliceId);
   const byTurn = groupByTurn(records);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.frame_badge_kind === "exploration" &&
+      record.frame_badge_label &&
+      Number(record.candidate_panel_count ?? 0) > 0,
+  );
+
+  if (!uiState) return null;
 
   for (const [turnId, turnRecords] of byTurn.entries()) {
     const start = turnRecords.find((record) => record.event === "channel.user_message.start");
@@ -1025,6 +1035,10 @@ function findCandidateContinuationEvidence(records) {
       turn_ids: [turnId],
       source_turn_ref: start.candidate_source_turn_ref,
       candidate_ref: start.candidate_ref,
+      frame_badge_label: uiState.frame_badge_label,
+      frame_badge_kind: uiState.frame_badge_kind,
+      frame_badge_goal: uiState.frame_badge_goal,
+      candidate_panel_count: Number(uiState.candidate_panel_count ?? 0),
       key_events: keyEvents,
     };
   }

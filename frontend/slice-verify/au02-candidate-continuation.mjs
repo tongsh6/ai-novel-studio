@@ -55,6 +55,10 @@ try {
   await page.waitForSelector('[data-slice-verify="candidate-continue"]', {
     timeout: 30_000,
   });
+  const frameBadge = page.locator('[data-slice-verify="frame-badge"]').first();
+  await frameBadge.waitFor({ timeout: 10_000 });
+  const frameBadgeLabel = (await frameBadge.innerText()).trim();
+  const frameBadgeTone = await frameBadge.getAttribute("data-frame-tone");
 
   const firstCandidate = page.locator('[data-slice-verify="candidate-continue"]').first();
   const candidateRef = await firstCandidate.getAttribute("data-candidate-ref");
@@ -80,6 +84,8 @@ try {
   const lastTurnResult = receivedTurnResults[receivedTurnResults.length - 1]?.body;
 
   assert(candidateRef, "Candidate button did not expose candidate ref");
+  assert(frameBadgeLabel === "探索方向", `Exploration frame badge missing: ${frameBadgeLabel}`);
+  assert(frameBadgeTone === "exploration", `Exploration frame tone missing: ${frameBadgeTone}`);
   assert(candidateMessage, "Candidate continuation did not send candidate_selection");
   assert(
     candidateMessage.body.generate_micro_plan === false,
@@ -105,6 +111,8 @@ try {
 
   const summary = {
     candidate_ref: candidateRef,
+    frame_badge_label: frameBadgeLabel,
+    frame_badge_tone: frameBadgeTone,
     source_turn_ref: candidateMessage.body.candidate_selection.source_turn_ref,
     continuation_turn_id: lastTurnResult.turn_id,
     artifact_adopted: lastTurnResult.truthfulness.artifact_adopted,

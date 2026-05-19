@@ -25,7 +25,48 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
+    expect(nativeSliceIds).toContain("au02-candidate-continuation");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("accepts AU-02 candidate continuation only when UI exposes exploration frame evidence", () => {
+    const records = au02CandidateContinuationRecords("turn-source", "turn-follow");
+
+    const evidence = findNativeSliceEvidence("au02-candidate-continuation", records);
+    expect(evidence).toEqual({
+      slice_id: "au02-candidate-continuation",
+      turn_id: "turn-follow",
+      turn_ids: ["turn-follow"],
+      source_turn_ref: "turn-source",
+      candidate_ref: "dir-1",
+      frame_badge_label: "探索方向",
+      frame_badge_kind: "exploration",
+      frame_badge_goal: "帮作者展开赛博修仙方向",
+      candidate_panel_count: 1,
+      key_events: keyEventsForSlice("au02-candidate-continuation"),
+    });
+    expect(findSliceBehaviorEvidence("au02-candidate-continuation", records, evidence)).toEqual({
+      slice_id: "au02-candidate-continuation",
+      behavior: "candidate_selection_continues_dialogue_without_adoption",
+      turn_ids: ["turn-follow"],
+      source_turn_ref: "turn-source",
+      candidate_ref: "dir-1",
+      assertions: [
+        "candidate_ref_sent_from_real_workbench",
+        "micro_plan_not_requested",
+        "no_adoption_or_projection_events",
+        "assistant_messages_not_fallback",
+        "deterministic_provider_form_frame_called_per_turn",
+      ],
+    });
+  });
+
+  it("rejects AU-02 candidate evidence when the exploration frame badge is missing", () => {
+    const records = au02CandidateContinuationRecords("turn-source", "turn-follow").filter(
+      (record) => record.event !== "slice_verify.ui_state.done",
+    );
+
+    expect(findNativeSliceEvidence("au02-candidate-continuation", records)).toBeNull();
   });
 
   it("accepts SU-03 assistant display name evidence as work-scoped UI state", () => {
@@ -1101,6 +1142,75 @@ function microPlanTurnRecords(turnId) {
       turn_id: turnId,
       workspace_id: "ws-1",
       work_id: "work-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+  ];
+}
+
+function au02CandidateContinuationRecords(sourceTurnId, followTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au02-candidate-continuation",
+      restored_turn_id: sourceTurnId,
+      frame_badge_label: "探索方向",
+      frame_badge_kind: "exploration",
+      frame_badge_goal: "帮作者展开赛博修仙方向",
+      candidate_panel_count: 1,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 27,
+      generate_micro_plan: false,
+      candidate_source_turn_ref: sourceTurnId,
+      candidate_ref: "dir-1",
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
       duration_ms: 33,
       outcome: "ok",
     },

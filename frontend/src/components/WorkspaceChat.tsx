@@ -74,6 +74,7 @@ import {
   toAuthorTraceSummary,
   type TraceSummaryView,
 } from "../lib/traceSummaryView";
+import { framePresentationForSummary } from "../lib/framePresentation";
 import {
   DEFAULT_ASSISTANT_DISPLAY_NAME,
   assistantRoleLabel,
@@ -92,6 +93,11 @@ interface TurnResult {
   status: string;
   next_action: string;
   assistant_message: { text: string };
+  frame_summary?: {
+    frame_type?: string;
+    dialogue_goal?: string;
+    uncertainty?: string[];
+  };
   available_actions?: AvailableAction[];
   ui_cards?: UICardData[];
   candidate_directions?: CandidateDirection[];
@@ -279,10 +285,50 @@ export function WorkspaceChat() {
     ) {
       sliceVerifyCandidateRef.current = true;
       window.setTimeout(() => {
-        document
-          .querySelector<HTMLButtonElement>('[data-slice-verify="candidate-continue"]')
-          ?.click();
-      }, 250);
+        const frameBadge = document.querySelector<HTMLElement>(
+          `[data-slice-verify="frame-badge"][data-turn-id="${result.turn_id}"]`,
+        );
+        const framePresentation = framePresentationForSummary(result.frame_summary);
+        const continueButton = document.querySelector<HTMLButtonElement>(
+          '[data-slice-verify="candidate-continue"]',
+        );
+
+        const continueCandidate = () => continueButton?.click();
+
+        if (channelRef.current) {
+          reportSliceVerifyUiState(channelRef.current, {
+            slice_id: "au02-candidate-continuation",
+            context_work_id: useAppStore.getState().context.workId,
+            context_work_title: useAppStore.getState().context.workTitle,
+            active_session_id: activeSessionId,
+            restored_turn_id: result.turn_id,
+            socket_connected: socketConnected,
+            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
+            welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
+              .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length,
+            pending_adoption_count:
+              document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
+            first_message_text:
+              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
+                ?.innerText ?? "",
+            service_status_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                ?.innerText ?? "",
+            title_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+                ?.innerText ?? "",
+            frame_badge_label: frameBadge?.innerText.trim() ?? "",
+            frame_badge_kind: frameBadge?.dataset.frameTone ?? framePresentation.tone,
+            frame_badge_goal: framePresentation.goal,
+            candidate_panel_count:
+              document.querySelectorAll('[data-slice-verify="candidate-panel"]').length,
+          })
+            .catch(() => undefined)
+            .finally(continueCandidate);
+        } else {
+          continueCandidate();
+        }
+      }, 300);
     }
 
     if (
@@ -1600,6 +1646,21 @@ export function WorkspaceChat() {
                 >
                   {assistantRoleLabel(msg.role, assistantDisplayName)}
                 </div>
+                {msg.role === "assistant" && msg.turnResult?.frame_summary && (() => {
+                  const framePresentation = framePresentationForSummary(msg.turnResult.frame_summary);
+
+                  return framePresentation.visible ? (
+                    <div
+                      className={styles.frameBadge}
+                      data-frame-tone={framePresentation.tone}
+                      data-slice-verify="frame-badge"
+                      data-turn-id={msg.turnResult.turn_id}
+                      title={framePresentation.title}
+                    >
+                      {framePresentation.label}
+                    </div>
+                  ) : null;
+                })()}
                 <div className={styles.text}>{msg.text}</div>
 
                 {msg.role === "assistant" && msg.turnResult?.trace_summary && (
@@ -1714,7 +1775,7 @@ export function WorkspaceChat() {
                 })}
 
                 {msg.turnResult?.candidate_directions && msg.turnResult.candidate_directions.length > 0 && (
-                  <div className={styles.candidatePanel}>
+                  <div className={styles.candidatePanel} data-slice-verify="candidate-panel">
                     <div className={styles.candidateHeader}>{WORKBENCH.candidatePanelTitle}</div>
                     <div className={styles.candidateList}>
                       {msg.turnResult.candidate_directions.map((c) => (

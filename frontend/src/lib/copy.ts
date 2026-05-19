@@ -176,6 +176,16 @@ export const WORKBENCH = {
   candidatePanelTitle: "候选创作方向",
   candidateContinueLabel: "继续聊这个方向",
   candidateContinueTitle: "把这个候选作为下一轮探索上下文，不会写入作品设定。",
+  frameBadges: {
+    creativeExploration: "探索方向",
+    casualReply: "自然回复",
+    questionAnswer: "回答问题",
+    metaDiscussion: "创作讨论",
+    confirmationAnswer: "确认回合",
+    fallback: "本轮回应",
+  },
+  frameBadgeTitle: (label: string, goal: string | null) =>
+    goal ? `${label}：${goal}` : label,
   workMenuTitle: "作品",
   workMenuCurrent: "当前",
   workMenuCreate: "新建作品",
