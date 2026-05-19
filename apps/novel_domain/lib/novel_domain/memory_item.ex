@@ -15,6 +15,7 @@ defmodule NovelDomain.MemoryItem do
   @default_weight 0.5
   @default_confidence 0.5
   @default_source_confidence 0.5
+  @locked_protected_fields [:content, :summary, :type, :scope]
 
   defstruct [
     :id,
@@ -210,6 +211,10 @@ defmodule NovelDomain.MemoryItem do
   @doc "判断记忆是否可被 AI 自动修改。"
   @spec modifiable?(t()) :: boolean()
   def modifiable?(%__MODULE__{} = item), do: not item.locked
+
+  @doc "Fields that cannot be rewritten while a memory item is locked."
+  @spec locked_protected_fields() :: [atom()]
+  def locked_protected_fields, do: @locked_protected_fields
 
   @doc "增加引用计数。"
   @spec increment_reference(t()) :: t()

@@ -150,5 +150,74 @@ defmodule NovelPersistence.Schemas.MemoryItemTest do
       assert updated.content == "v2"
       assert updated.summary == "更新摘要"
     end
+
+    test "rejects core fact rewrites while locked" do
+      {:ok, item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "核心规则不会变",
+          summary: "核心规则",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          locked: true
+        })
+        |> Repo.insert()
+
+      cs =
+        MemoryItem.update_changeset(item, %{
+          content: "自动流程试图改写",
+          summary: "改写摘要",
+          type: MemoryType.foreshadowing(),
+          scope: MemoryScope.chapter()
+        })
+
+      refute cs.valid?
+
+      assert {"cannot be changed while memory item is locked", _} =
+               Keyword.fetch!(cs.errors, :content)
+
+      assert {"cannot be changed while memory item is locked", _} =
+               Keyword.fetch!(cs.errors, :summary)
+
+      assert {"cannot be changed while memory item is locked", _} =
+               Keyword.fetch!(cs.errors, :type)
+
+      assert {"cannot be changed while memory item is locked", _} =
+               Keyword.fetch!(cs.errors, :scope)
+    end
+
+    test "allows governance metadata updates while locked" do
+      {:ok, item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "核心规则不会变",
+          type: MemoryType.world_rule(),
+          scope: MemoryScope.work(),
+          source_type: MemorySourceType.author_confirmed(),
+          locked: true
+        })
+        |> Repo.insert()
+
+      cs =
+        MemoryItem.update_changeset(item, %{
+          weight: Decimal.new("0.9500"),
+          confidence: Decimal.new("0.9000"),
+          recallable: false,
+          last_referenced_at: DateTime.utc_now()
+        })
+
+      assert cs.valid?
+
+      {:ok, updated} = Repo.update(cs)
+      assert Decimal.equal?(updated.weight, Decimal.new("0.9500"))
+      assert Decimal.equal?(updated.confidence, Decimal.new("0.9000"))
+      assert updated.recallable == false
+      assert updated.content == "核心规则不会变"
+    end
   end
 end

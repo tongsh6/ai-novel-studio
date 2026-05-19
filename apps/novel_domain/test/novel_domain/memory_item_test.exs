@@ -329,6 +329,12 @@ defmodule NovelDomain.MemoryItemTest do
     end
   end
 
+  describe "locked_protected_fields/0" do
+    test "lists core fact fields protected by a lock" do
+      assert MemoryItem.locked_protected_fields() == [:content, :summary, :type, :scope]
+    end
+  end
+
   describe "increment_reference/1" do
     test "increments reference_count and updates last_referenced_at" do
       item =

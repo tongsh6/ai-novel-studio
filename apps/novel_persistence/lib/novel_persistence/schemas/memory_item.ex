@@ -13,6 +13,7 @@ defmodule NovelPersistence.Schemas.MemoryItem do
 
   import Ecto.Changeset
 
+  alias NovelDomain.MemoryItem, as: DomainMemoryItem
   alias NovelFoundation.Enums.MemoryScope
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
@@ -146,5 +147,18 @@ defmodule NovelPersistence.Schemas.MemoryItem do
       less_than_or_equal_to: 1.0
     )
     |> validate_number(:version, greater_than_or_equal_to: 1)
+    |> prevent_locked_core_rewrite()
   end
+
+  defp prevent_locked_core_rewrite(%Ecto.Changeset{data: %{locked: true}} = changeset) do
+    Enum.reduce(DomainMemoryItem.locked_protected_fields(), changeset, fn field, acc ->
+      if changed?(acc, field) do
+        add_error(acc, field, "cannot be changed while memory item is locked")
+      else
+        acc
+      end
+    end)
+  end
+
+  defp prevent_locked_core_rewrite(changeset), do: changeset
 end

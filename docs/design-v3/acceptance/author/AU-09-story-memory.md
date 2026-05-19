@@ -2,7 +2,7 @@
 
 > 作者视角：我的小说有大量设定、角色关系、伏笔线索、世界观规则。我需要能管理这些设定，并且 AI 在后续对话中能自动、可追溯地引用已确认设定。
 >
-> 2026-05-19 对账结论：作品档案面板的固定样例数据已被最小真实链路替换，真实 Tauri 工作台可打开当前 Work 的档案并读取已采纳角色、confirmed/stabilized 且 recallable 的伏笔/规则、卷章/草稿/记忆统计；档案 L2 列表到 L3 详情的只读查看 checkpoint 已补齐，角色/伏笔/规则可在 `StructurePanel` 中选中查看详情。记忆召回主链也已有最小真实前端闭环：confirmed/stabilized + recallable 记忆会按当前 Work 与本轮作者输入召回进 `memory_summary`，写入引用日志，并进入 Planner context。但 AU-09 仍缺可用 REST/Channel 管理入口、面板内采纳进入 governed memory、作者可见溯源 UI、locked/状态机 guard、有效期窗口，以及和 AU-03 “作品内多会话 + 最新作品背景”的分层闭环。
+> 2026-05-19 对账结论：作品档案面板的固定样例数据已被最小真实链路替换，真实 Tauri 工作台可打开当前 Work 的档案并读取已采纳角色、confirmed/stabilized 且 recallable 的伏笔/规则、卷章/草稿/记忆统计；档案 L2 列表到 L3 详情的只读查看 checkpoint 已补齐，角色/伏笔/规则可在 `StructurePanel` 中选中查看详情。记忆召回主链也已有最小真实前端闭环：confirmed/stabilized + recallable 记忆会按当前 Work 与本轮作者输入召回进 `memory_summary`，写入引用日志，并进入 Planner context。`locked=true` 的核心事实字段改写已在 persistence update 边界被拒绝。但 AU-09 仍缺可用 REST/Channel 管理入口、面板内采纳进入 governed memory、作者可见溯源 UI、状态机 guard、locked 修改尝试 trace、有效期窗口，以及和 AU-03 “作品内多会话 + 最新作品背景”的分层闭环。
 
 ---
 
@@ -49,15 +49,15 @@
 | `docs/design-v2/05-memory-retention-and-retrieval.md` | MemoryType/Scope/Status/SourceType 与字段语义 | 设计冻结，枚举和 schema 有局部实现 |
 | `NovelFoundation.Enums.Memory*` | 编译期冻结记忆枚举 | 已实现并被 schema/domain 测试覆盖 |
 | `NovelDomain.MemoryItem` | 纯领域对象，提供 confirm/lock/deprecate/archive 等函数 | 局部已测试，但未接真实管理入口 |
-| `NovelPersistence.Schemas.MemoryItem` | `memory_items` Ecto schema 与字段校验 | schema/changeset 局部已测；无状态流转 guard、locked 内容保护 |
+| `NovelPersistence.Schemas.MemoryItem` | `memory_items` Ecto schema 与字段校验 | schema/changeset 局部已测；`locked=true` 时 persistence update 已拒绝改写 content/summary/type/scope；仍缺状态流转 guard |
 | `NovelPersistence.MemoryReferenceLog` | 记忆引用日志 | 表和写入/查询 helper 已测；未接召回主链 |
 | `NovelPersistence.WorkspaceContext.context_fetcher_with_query/0` | DialogueGateway 真实上下文 fetcher | 已按当前 Work + 作者输入召回 confirmed/stabilized 且 recallable 的记忆，返回 `memory_summary` 并写引用日志；`context_fetcher/0` 保留兼容 |
-| `NovelApplication.ContextAssembler` / `DialogueContext.to_prompt_text/1` | 接收 `memory_summary` 并写入 prompt | stub 单测证明字段可用；真实 fetcher 不提供 memory |
+| `NovelApplication.ContextAssembler` / `DialogueContext.to_prompt_text/1` | 接收 `memory_summary` 并写入 prompt | stub 单测和真实 fetcher 最小闭环均证明字段可用 |
 | `apps/novel_web/lib/novel_web/router.ex` | HTTP API 入口 | 仅有 health/provider/works；无 memory REST 路由 |
-| `WorkspaceChannel` structure handlers | 作品档案面板数据 | `get_toc`/`get_characters`/`get_foreshadowing`/`get_rules`/`get_work_stats` 仍返回 mock |
+| `WorkspaceChannel` structure handlers | 作品档案面板数据 | `get_toc`、角色、伏笔、规则和统计已接当前 Work 的真实 archive/read model；仍缺管理入口 |
 | `frontend/src/lib/memoryApi.ts` | 记忆管理前端 API client | client 存在，但后端路由缺失，真实页面不可用 |
 | `MemoryListPage` / `MemoryCreateDialog` / `MemoryDetailDrawer` | Phase 0 记忆管理 UI | 组件存在，无设计原型、无 app 路由入口、依赖不存在的 REST API |
-| `StructurePanel` | 作品档案 UI | 面板存在，数据主要来自 mock Channel handler 和当前 turn 的 pendingAdoptions |
+| `StructurePanel` | 作品档案 UI | 面板存在，archive 列表已来自真实 Channel/read model；待采纳区仍来自当前 turn 的 pendingAdoptions |
 
 ---
 
@@ -107,7 +107,7 @@
 - 刷新或重新打开作品时，pending 来源仍可恢复或明确丢失；
 - 采纳前不会进入 context recall。
 
-**当前证据**：`StructurePanel` 用 `pendingAdoptions` 单独渲染“待采纳内容”；但 pending 来自当前前端内存，不是持久化待处理箱，已确认列表来自 mock handler。
+**当前证据**：`StructurePanel` 用 `pendingAdoptions` 单独渲染“待采纳内容”；但 pending 来自当前前端内存，不是持久化待处理箱，已确认列表已来自真实 archive/read model。
 
 **当前状态**：部分实现。
 
@@ -225,9 +225,9 @@
 - 作者主动解锁或显式确认后才可改；
 - 修改尝试有失败原因和 trace。
 
-**当前证据**：domain 有 `lock/1` 和 `modifiable?/1`；persistence `update_changeset/2` 仍允许修改 locked item 的 content；无主链自动更新 guard。
+**当前证据**：domain 有 `lock/1`、`modifiable?/1` 和 `locked_protected_fields/0`；persistence `update_changeset/2` 已按领域字段集合拒绝改写 locked item 的 content/summary/type/scope，同时允许权重、置信度、召回开关等治理元数据维护；无主链自动更新 guard 和修改尝试 trace。
 
-**当前状态**：未实现。
+**当前状态**：局部实现。
 
 ---
 
@@ -262,7 +262,7 @@
 
 **当前证据**：`ContextAssembler` 和 `DialogueContext` 支持 `memory_summary`；`WorkspaceContext.context_fetcher_with_query/0` 已接 `MemoryRecallRepo`，按当前 Work、confirmed/stabilized、`recallable=true` 和作者输入召回记忆；`DialogueGateway` 把本轮作者文本传入 `ContextAssembler.assemble_for_input/3`；`dialogue_gateway_real_loop_test.exs` 证明 memory 进入 prompt 与 `trace_summary.context_refs`；`au09-memory-recall-context` 原生 Tauri 验证证明真实工作台输入可触发 `context.assemble.done(has_memory=true)`。
 
-**当前状态**：部分实现 / 最小真实前端闭环已补。仍缺有效期窗口、locked guard、作者可见引用溯源 UI 和历史会话分层验收。
+**当前状态**：部分实现 / 最小真实前端闭环已补。仍缺有效期窗口、locked 修改尝试 trace、作者可见引用溯源 UI 和历史会话分层验收。
 
 ---
 
@@ -292,7 +292,7 @@
 - archived session 默认不参与普通 context；
 - trace 标明 memory 与 conversation 的不同来源。
 
-**当前证据**：AU-03 已确认缺独立作品内会话模型；`WorkspaceContext` 目前按 `workspace_id` 汇总 recent interactions，并返回 memory nil。
+**当前证据**：AU-03 已确认缺独立作品内会话模型；`WorkspaceContext` 已按当前 Work 召回 memory，但 recent interactions、active session 与 historical session 的分层仍未闭环。
 
 **当前状态**：未实现。
 
@@ -311,9 +311,9 @@
 | SC-AU09-B3 | 新建作者设定 | 部分实现 | 前端表单 + schema 局部校验，后端 API 缺失 |
 | SC-AU09-C1 | 草稿确认后可召回 | 部分实现 | domain 函数，后端 guard/API 缺失 |
 | SC-AU09-C2 | 废弃/归档不召回 | 部分实现 | domain 函数，recall 主链缺失 |
-| SC-AU09-C3 | 锁定设定不可自动改写 | 未实现 | schema update 仍可改 locked content |
+| SC-AU09-C3 | 锁定设定不可自动改写 | 部分实现 | schema update 已拒绝 locked core fact rewrite；缺主链 trace/API 验收 |
 | SC-AU09-C4 | 有效期影响召回 | 未实现 | 字段存在，召回未使用 |
-| SC-AU09-D1 | 已确认设定进入主链 prompt | 未闭环 | stub 支持，真实 fetcher memory nil |
+| SC-AU09-D1 | 已确认设定进入主链 prompt | 部分实现 / 最小真实前端闭环已补 | Tauri UI + context assembler + real fetcher |
 | SC-AU09-D2 | 记忆引用可溯源 | 部分实现 | reference log helper，主链未接 |
 | SC-AU09-D3 | 与 AU-03 会话/最新背景分层一致 | 未实现 | AU-03 会话模型缺口 |
 
@@ -331,7 +331,7 @@
 | AU09-GAP-04 — `memory_summary` 未接主链 | 最小闭环已补：真实 fetcher 返回 `memory_summary` 并进入 Planner context；剩余有效期/locked/会话分层与完整 UI 溯源 | 最小闭环已补 / 继续补验收 | P0 |
 | AU09-GAP-05 — recall 查询和 ranking 缺失 | 最小闭环已补：`MemoryRecallRepo` 按 work/status/recallable/query 做基础召回排序；剩余 current narrative position、有效期窗口、冲突/locked 策略 | 最小闭环已补 / 继续补实现 | P0 |
 | AU09-GAP-06 — 状态机后端 guard 缺失 | `update_changeset/2` 可直接写 `status`，非法跳转无法被统一拒绝 | 补实现/补测试 | P0 |
-| AU09-GAP-07 — locked 保护未落地 | locked item 的 content 仍可经 schema update 修改 | 补实现/补测试 | P0 |
+| AU09-GAP-07 — locked 保护未落地 | persistence update 已拒绝 locked item 的 content/summary/type/scope 改写；剩余主链 API、修改尝试 trace 和前端验收 | 局部已补 / 继续补集成 | P0 |
 | AU09-GAP-08 — 有效期窗口未参与召回 | `valid_from` / `valid_until` 字段存在但未接 current narrative position | 补实现/补集成 | P1 |
 | AU09-GAP-09 — 引用日志未接 recall | 最小闭环已补：召回后写 `memory_reference_logs` 并更新引用计数；剩余 trace/replay 聚合与作者可见来源 UI | 最小闭环已补 / 继续补集成 | P1 |
 | AU09-GAP-10 — 作者可见溯源缺失 | 无 UI 展示本轮引用了哪些记忆、为何引用 | 补实现/补验收 | P1 |
@@ -344,10 +344,10 @@
 
 | 基础设施 | 可复用点 | 不能算已验收的原因 |
 |---|---|---|
-| `MemoryItem` schema + migration | 字段、枚举、索引基本存在 | 没有管理 API、状态 guard、recall pipeline |
-| `NovelDomain.MemoryItem` | 纯函数表达生命周期动作 | 未被 persistence/API 主流程消费 |
+| `MemoryItem` schema + migration | 字段、枚举、索引基本存在；locked core fact rewrite 已在 update changeset 拦截 | 没有管理 API、状态 guard、完整 recall pipeline |
+| `NovelDomain.MemoryItem` | 纯函数表达生命周期动作，并声明 locked 保护字段集合 | 仍未被 API 主流程完整消费 |
 | `MemoryReferenceLog` | 可写引用日志，且已由 recall 主链调用 | 仍没有 UI/replay 聚合 |
-| `ContextAssembler` / `DialogueContext` | `memory_summary` 能进入 prompt；真实 fetcher 已提供最小 memory summary | 仍缺有效期、locked、历史会话分层和作者可见溯源 |
+| `ContextAssembler` / `DialogueContext` | `memory_summary` 能进入 prompt；真实 fetcher 已提供最小 memory summary | 仍缺有效期、locked 修改尝试 trace、历史会话分层和作者可见溯源 |
 | `StructurePanel` | 档案面板视觉壳、真实 archive 读模型和 pending 分区 | 已确认档案数据已有最小真实链路；pending 仍来自 adoption/resume 视图，记忆管理、召回和溯源未闭环 |
 | `MemoryListPage` 系列组件 | Phase 0 管理表格/表单/详情 | 无 App 入口、无设计规范、无后端路由 |
 
@@ -358,6 +358,7 @@
 ```bash
 # 当前只能证明局部基础设施，不证明 AU-09 完整验收
 mix test apps/novel_persistence/test/novel_persistence/schemas/memory_item_test.exs
+mix test apps/novel_domain/test/novel_domain/memory_item_test.exs
 mix test apps/novel_persistence/test/novel_persistence/memory_reference_log_test.exs
 mix test apps/novel_persistence/test/novel_persistence/memory_recall_repo_test.exs
 mix test apps/novel_application/test/novel_application/context_grounding_test.exs
