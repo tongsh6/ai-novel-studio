@@ -2,7 +2,7 @@
 
 > 作者视角：我想知道 AI 为什么这样回复、为什么没有执行、为什么要求确认、参考了哪些作品上下文，以及几天后回看时还能不能解释当时发生了什么。解释必须是作者能理解的安全摘要，而不是 raw prompt、debug dump 或英文错误码。
 
-> 2026-05-13 场景化对账结论：`DecisionTrace`、`TraceWriter`、`TraceRepository` 和 `ReplayService.build_report/1` 已有局部证据，能证明“结构化 replay 不调 provider”；但真实工作台没有“为什么？”入口，没有 trace 查询 API / author-safe summary UI，ReplayReport 主要基于 DecisionTrace，尚未接入完整 ToolTrace / BehaviorTrace / StateTrace，也没有 author-safe 与 developer summary 的真正隔离。因此 AU-07 不能再按“80% 核心已实现”判断。
+> 2026-05-19 对账结论：`DecisionTrace`、`TraceWriter`、`TraceRepository` 和 `ReplayService.build_report/1` 已有局部证据，能证明“结构化 replay 不调 provider”；真实工作台已补最小“为什么？”入口，作者可在 assistant 消息旁打开 author-safe 中文解释摘要，且原生 Tauri 验证 `au07-trace-why-entry` 证明该入口来自真实工作台消息流并不展示 raw prompt/provider/debug 内容。但 AU-07 仍缺 trace 查询 API、旧会话解释入口、author/developer 双视图权限边界、ReplayReport 六问完整回答，以及 ToolTrace / BehaviorTrace / StateTrace 聚合。因此 AU-07 不能标整体完成。
 
 ---
 
@@ -57,7 +57,9 @@
 | `apps/novel_persistence/lib/novel_persistence/trace_repository.ex` | DecisionTrace 持久化、按 workspace/turn 查询 |
 | `apps/novel_application/test/novel_application/replay_service_test.exs` | Replay no-provider、partial trace 局部测试 |
 | `apps/novel_persistence/test/novel_persistence/trace_repository_test.exs` | trace 持久化局部测试 |
-| `frontend/src/components/WorkspaceChat.tsx` | 当前真实工作台，目前未渲染 trace summary / why 入口 |
+| `frontend/src/components/WorkspaceChat.tsx` | 当前真实工作台，已渲染最小 trace summary / why 入口 |
+| `frontend/src/lib/traceSummaryView.ts` | 将 trace_summary allowlist 字段映射成 author-safe 中文解释 |
+| `artifacts/slice-verify/au07-trace-why-entry-tauri/summary.json` | 真实 Tauri 工作台点击“为什么”入口的最小闭环证据 |
 
 ---
 
@@ -72,9 +74,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 显示“本轮只需要自然语言回应，不需要工具/写入/等待作者”的中文解释 |
-| 当前证据 | `dialogue_gateway_test.exs` 覆盖 DecisionTrace no-tool/no-behavior/no-write；`TraceWriter.record/3` 生成 `trace_summary` |
-| 当前状态 | 后端局部已测试 |
-| 当前缺口 | 无前端 why 入口；reason code 仍偏机器字段，缺中文映射 |
+| 当前证据 | `dialogue_gateway_test.exs` 覆盖 DecisionTrace no-tool/no-behavior/no-write；`TraceWriter.record/3` 生成 `trace_summary`；`WorkspaceChat` 消费 `trace_summary`，通过 `traceSummaryView` 映射为中文 author-safe 摘要；`bash scripts/tauri_slice_verify.sh au07-trace-why-entry` 从真实 Tauri 工作台输入普通对话并点击“为什么”入口 |
+| 当前状态 | 最小真实前端闭环已补 |
+| 当前缺口 | 仍缺旧会话 trace 查询入口和完整 ReplayReport 六问 |
 | 优先级 | P1 |
 
 #### SC-AU07-A2 — 被拒绝/降级时能解释 gate
@@ -146,9 +148,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | reason_code 有中文业务文案，同时可保留开发者 code |
-| 当前证据 | 当前 trace summary 包含 reason_codes / no_*_reason |
-| 当前状态 | 未实现/未验收 |
-| 当前缺口 | 缺 reason code -> author copy 映射；也未集中进 `copy.ts` |
+| 当前证据 | `frontend/src/lib/traceSummaryView.ts` 对 `no_tool_reason`、gate 和常见 reason_codes 做中文 author-safe 映射；文案集中在 `frontend/src/lib/copy.ts` 的 `TRACE` 命名空间；未知机器码不会直接进入作者视图 |
+| 当前状态 | 部分实现 / 最小真实前端闭环已补 |
+| 当前缺口 | 映射覆盖仍是常见摘要子集；developer code 双视图和权限边界未实现 |
 | 优先级 | P1 |
 
 ### 场景组 C：离线回放与完整性
@@ -236,9 +238,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 前端展示 author-safe trace summary 或解释面板 |
-| 当前证据 | `TurnResult` 有 `trace_summary` 字段；`socket_v3.ts` 类型包含 trace_summary |
-| 当前状态 | 类型存在，UI 未实现 |
-| 当前缺口 | `WorkspaceChat` / `WorkbenchV3` 未渲染 trace_summary，也没有“为什么？”按钮 |
+| 当前证据 | `TurnResult` 有 `trace_summary` 字段；`WorkspaceChat` 对带 trace 的 assistant 消息渲染“为什么”按钮并打开 Radix Dialog；`au07-trace-why-entry` 原生 Tauri 验证已证明真实工作台入口可用 |
+| 当前状态 | 最小真实前端闭环已补 |
+| 当前缺口 | `WorkbenchV3` 旁路入口未统一；历史会话恢复后的旧 turn 查询仍依赖 transcript 内嵌 `turn_result`，没有 Web API / Channel 查询持久化 trace |
 | 优先级 | P1 |
 
 #### SC-AU07-E2 — 可从持久化 trace 查询旧 turn
@@ -271,24 +273,24 @@
 
 | 场景 | 做什么 | 当前状态 | 是否闭环 |
 |---|---|---|---|
-| SC-AU07-A1 | 解释纯聊天为什么不调工具 | 局部已测试 | 否，缺 UI/中文文案 |
+| SC-AU07-A1 | 解释纯聊天为什么不调工具 | 最小真实前端闭环已补 | 是，最小闭环 |
 | SC-AU07-A2 | 解释被拒/降级 gate | 局部实现 | 否 |
 | SC-AU07-A3 | 工具调用过程可查 | 局部实现 | 否，缺 ToolTrace |
 | SC-AU07-A4 | 上下文引用来源可见 | 局部实现 | 否 |
 | SC-AU07-B1 | author-safe 不泄露秘密 | 字段/设计存在 | 否 |
 | SC-AU07-B2 | author/developer 双视图隔离 | 字段存在 | 否 |
-| SC-AU07-B3 | 中文业务解释 | 未实现/未验收 | 否 |
+| SC-AU07-B3 | 中文业务解释 | 部分实现 / 最小真实前端闭环已补 | 部分闭环 |
 | SC-AU07-C1 | 离线 replay 不调 LLM | 已测试 | 否，缺 API/UI 闭环 |
 | SC-AU07-C2 | 不完整 trace 标 partial | 已测试 | 否，检查面不足 |
 | SC-AU07-C3 | 回答 VS-06 六个问题 | 部分实现 | 否 |
 | SC-AU07-D1 | ToolTrace 进入 replay | 摘要级局部实现 | 否 |
 | SC-AU07-D2 | BehaviorTrace 进入 replay | 未闭环 | 否 |
 | SC-AU07-D3 | StateTrace/adoption/projection 进入 replay | 未闭环 | 否 |
-| SC-AU07-E1 | 工作台 why 入口 | 类型存在 | 否 |
+| SC-AU07-E1 | 工作台 why 入口 | 最小真实前端闭环已补 | 是，最小闭环 |
 | SC-AU07-E2 | 持久化 trace 查询旧 turn | persistence 局部实现 | 否 |
 | SC-AU07-E3 | 跨作品/历史会话 trace 隔离 | 部分实现/语义风险 | 否 |
 
-**结论：16 个场景；0/16 完整真实前后端验收；8/16 有 application/persistence 局部证据；8/16 的关键缺口集中在真实 UI 入口、redaction、双视图、Tool/Behavior/StateTrace、Replay 六问和 work/session 隔离。**
+**结论：16 个场景；0/16 完整真实前后端验收；2/16 已有最小真实前端闭环但仍缺完整场景后果；8/16 有 application/persistence 局部证据；关键缺口集中在 redaction engine、双视图、Tool/Behavior/StateTrace、Replay 六问、旧 turn 查询和 work/session 隔离。**
 
 ---
 
@@ -296,8 +298,8 @@
 
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
-| AU07-GAP-01 — 真实工作台无“为什么？”入口 | `WorkspaceChat` / `WorkbenchV3` 未渲染 trace_summary | 补实现/补验收 | P1 |
-| AU07-GAP-02 — reason/gate 缺作者友好中文映射 | `action_scope`、`tool_result_not_adoption` 等直接暴露会难懂 | 补实现/文案同步 | P1 |
+| AU07-GAP-01 — 真实工作台“为什么？”入口不完整 | `WorkspaceChat` 已有最小入口；`WorkbenchV3` 旁路、历史旧 turn 查询和完整 UI 验收未覆盖 | 补实现/补验收 | P1 |
+| AU07-GAP-02 — reason/gate 作者友好中文映射仍是子集 | 常见 `no_tool_reason` / gate / reason_codes 已映射；完整 reason catalog 和 developer code 双视图未实现 | 补实现/文案同步 | P1 |
 | AU07-GAP-03 — redaction engine 缺失 | 有 redaction_level 字段，但无内容脱敏扫描/策略执行测试 | 补实现/补测试 | P0 |
 | AU07-GAP-04 — author-safe / developer summary 未隔离 | `ReplayService` 固定 author_safe，无 developer path 和权限边界 | 补实现/补集成 | P1 |
 | AU07-GAP-05 — ReplayReport 不能回答 VS-06 六问 | plan vs decision、ToolTrace、BehaviorTrace、StateTrace、TurnResultViewModel 解释不足 | 补实现/补测试 | P1 |
@@ -317,7 +319,7 @@
 | `ReplayService.build_report/1` | 能结构化 replay 且不调 provider | 不等于作者 UI 可见解释 |
 | `TraceRepository` | 能持久化和查询 DecisionTrace record | 不等于有 trace API / history UI |
 | `redaction_level` / `redaction_profile` 字段 | 为双视图留下结构 | 不等于脱敏策略已执行 |
-| `trace_summary` 字段 | TurnResult 可携带解释摘要 | 当前前端未渲染 |
+| `trace_summary` 字段 | TurnResult 可携带解释摘要，`WorkspaceChat` 已有最小 why 入口 | 不等于有持久化 trace 查询 API / 旧会话 replay UI |
 
 ---
 
@@ -329,6 +331,8 @@
 mix test apps/novel_application/test/novel_application/replay_service_test.exs
 mix test apps/novel_application/test/novel_application/context_grounding_test.exs
 mix test apps/novel_persistence/test/novel_persistence/trace_repository_test.exs
+pnpm --dir frontend test -- traceSummaryView.test.ts
+bash scripts/tauri_slice_verify.sh au07-trace-why-entry
 ```
 
 完整 AU-07 验收还需要补充：
