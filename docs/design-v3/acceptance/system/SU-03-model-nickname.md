@@ -2,7 +2,7 @@
 
 > 系统用户视角：我可以给 AI 助手起一个显示名，让对话更像与固定创作搭档协作。这个名字只影响界面展示，不影响 LLM provider、消息 role、TurnResult 契约或 AI 行为能力。
 >
-> 2026-05-12 对账结论：当前只有硬编码默认显示 `"AI"`，未发现设置入口、状态字段、持久化或按作品隔离实现。不能把硬编码默认值误判为“已支持给模型起名”。
+> 2026-05-19 对账结论：最小真实前端闭环已补齐。`WorkspaceChat` 提供 work-scoped AI 显示名设置入口，Tauri 桌面偏好持久化到 app config `preferences.json`，不同作品互相隔离；消息流、欢迎消息、历史 transcript、思考态和 `WorkbenchV3` 统一消费显示名 helper。该能力只影响 UI label，不改变 provider、prompt、role 或 TurnResult。
 
 ---
 
@@ -33,11 +33,13 @@
 
 | 契约 / 实现 | 用途 | 当前证据判断 |
 |---|---|---|
-| `frontend/src/lib/store.ts` `AppState` / `SystemContext` | 未来承载当前作品的 AI 显示名或显示名偏好 | 当前没有 `aiDisplayName` / `assistantName` 类字段 |
-| `WorkspaceChat.tsx` 消息列表 | 工作台主对话中 assistant label 展示 | 当前多处硬编码 `"AI"` |
-| `WorkbenchV3.tsx` 消息列表 | v3 工作台消息中 assistant label 展示 | 当前硬编码 `"AI"` |
+| `frontend/src/lib/store.ts` `AppState` / `SystemContext` | 承载当前作品的 AI 显示名 | 已新增 `assistantDisplayName` |
+| `frontend/src/lib/assistantDisplayName.ts` | 显示名归一、默认值、按作品偏好读写、role label helper | 已新增；空白回退默认 `AI`，最长 20 个可见字符 |
+| `frontend/src-tauri/src/lib.rs` preferences command | Tauri 桌面 work-scoped 显示名持久化 | 已新增 `assistant_display_names` map |
+| `WorkspaceChat.tsx` 消息列表 | 工作台主对话中 assistant label 展示 | 已统一使用 `assistantRoleLabel`，并提供设置入口 |
+| `WorkbenchV3.tsx` 消息列表 | v3 工作台消息中 assistant label 展示 | 已统一使用 `assistantRoleLabel` |
 | `role: "assistant"` / TurnResult `assistant_message` | 后端和前端识别 AI 消息的 canonical 角色与内容 | 不应被显示名功能修改 |
-| `WorkService` / Work 上下文 | 若按作品隔离，需要绑定到 Work 维度或 Work 偏好表 | 当前未发现相关字段或 API |
+| `WorkService` / Work 上下文 | 显示名按 Work 维度隔离 | 当前不写后端 Work schema，保持 UI-only preference 边界 |
 
 ---
 
@@ -59,9 +61,9 @@
 - 不出现空 label、`assistant`、provider 名或模型 id；
 - 默认名来自统一展示逻辑，而不是散落硬编码。
 
-**当前证据**：`WorkspaceChat.tsx` 和 `WorkbenchV3.tsx` 中存在硬编码 `"AI"`；无统一 display name helper。
+**当前证据**：`frontend/src/lib/assistantDisplayName.ts` 提供默认值与统一 label helper；`WorkspaceChat.tsx` / `WorkbenchV3.tsx` 消息 label 不再硬编码 `"AI"`；`bash scripts/tauri_slice_verify.sh su03-assistant-display-name` 覆盖真实工作台默认/切换路径。
 
-**当前状态**：部分具备。默认视觉占位存在，但实现方式是硬编码。
+**当前状态**：已实现并通过最小真实前端验收。
 
 ---
 
@@ -79,9 +81,9 @@
 - 新增 UI 入口不能遗漏某个消息面板；
 - “你”这类 user label 不受影响。
 
-**当前证据**：`WorkbenchV3.tsx` 和 `WorkspaceChat.tsx` 各自硬编码 label；没有共享状态或统一渲染函数。
+**当前证据**：`assistantRoleLabel(role, assistantDisplayName)` 被 `WorkspaceChat.tsx` 与 `WorkbenchV3.tsx` 共同消费；`WorkspaceChat` 的欢迎消息、历史 transcript、新消息和 thinking 状态按当前显示名渲染。
 
-**当前状态**：未实现。
+**当前状态**：已实现并通过最小真实前端验收。
 
 ---
 
@@ -101,9 +103,9 @@
 - 刷新或重启后仍保持；
 - 保存失败时展示错误，不产生半更新状态。
 
-**当前证据**：未发现设置入口、保存 API、store 字段或持久化字段。
+**当前证据**：`WorkspaceChat` 顶部 `assistant-name-trigger` 打开 Radix Dialog；保存后立即更新当前工作台 label；Tauri 命令写入 app config preferences；`su03-assistant-display-name` 原生验证覆盖保存和切换后恢复。
 
-**当前状态**：未实现。
+**当前状态**：已实现并通过最小真实前端验收。
 
 ---
 
@@ -121,9 +123,9 @@
 - 点击重置后删除当前作品自定义名；
 - 校验规则在 UI 和持久化层一致。
 
-**当前证据**：未发现显示名字段或校验逻辑。
+**当前证据**：`normalizeAssistantDisplayName/1` 前端 helper 和 Tauri command 均执行 trim、空白重置、20 字符上限；单测覆盖默认、截断、reset。
 
-**当前状态**：未实现。
+**当前状态**：已实现并有单测覆盖。
 
 ---
 
@@ -143,9 +145,9 @@
 - 修改 B 的显示名不影响 A；
 - 删除作品或恢复默认时不污染其他作品。
 
-**当前证据**：SU-02 运行时作品切换尚未闭环；Work schema/API 中未发现 AI 显示名偏好字段。
+**当前证据**：`assistant_display_names` 以 work_id 为 key 存储；`su03-assistant-display-name` 原生验证在作品 A 保存“创作助手”，创建作品 B 后显示默认 `AI`，再切回 A 恢复“创作助手”。
 
-**当前状态**：未实现。
+**当前状态**：已实现并通过最小真实前端验收。
 
 ---
 
@@ -164,9 +166,9 @@
 - LLM 请求不因显示名自动改写系统提示词或 provider 参数；
 - trace / replay 不依赖显示名识别 assistant。
 
-**当前证据**：当前无改名功能，因此也无“不影响行为”的验收；现有后端契约使用 `assistant_message` 和 role `assistant`。
+**当前证据**：实现只落在 UI preference/helper 与 Tauri preferences，不改 provider/gateway/planner/TurnResult schema；`su03-assistant-display-name` 验证 DOM `data-role="assistant"` 保持 canonical role，label 显示“创作助手”。未用真实 LLM 请求日志单独证明 prompt/provider payload 不变。
 
-**当前状态**：未实现验收。
+**当前状态**：部分验收。UI/role 边界已验证；真实 LLM payload 不变仍缺独立日志证据。
 
 ---
 
@@ -174,14 +176,14 @@
 
 | 场景 | 做什么 | 当前状态 | 是否闭环 |
 |---|---|---|---|
-| SC-SU03-A1 | 默认显示名 | 部分具备：硬编码默认 `"AI"` | 否 |
-| SC-SU03-A2 | 所有 AI 展示面统一使用显示名 | 未实现 | 否 |
-| SC-SU03-B1 | 设置显示名并即时生效 | 未实现 | 否 |
-| SC-SU03-B2 | 名称校验、空白回退和重置默认 | 未实现 | 否 |
-| SC-SU03-C1 | 按作品隔离显示名 | 未实现 | 否 |
-| SC-SU03-C2 | 只影响 UI，不影响 LLM 请求和 TurnResult | 未实现验收 | 否 |
+| SC-SU03-A1 | 默认显示名 | 已实现：统一默认 `AI` helper | 是 |
+| SC-SU03-A2 | 所有 AI 展示面统一使用显示名 | 已实现：WorkspaceChat / WorkbenchV3 / thinking 统一 helper | 是 |
+| SC-SU03-B1 | 设置显示名并即时生效 | 已实现：真实工作台 Dialog 保存后即时更新 | 是 |
+| SC-SU03-B2 | 名称校验、空白回退和重置默认 | 已实现：trim、20 字符上限、空白/reset 回默认 | 是 |
+| SC-SU03-C1 | 按作品隔离显示名 | 已实现：Tauri/browser work-scoped preference，原生验证覆盖切换 | 是 |
+| SC-SU03-C2 | 只影响 UI，不影响 LLM 请求和 TurnResult | 部分验收：canonical role/UI 边界已验证，真实 LLM payload 日志未覆盖 | 部分 |
 
-**覆盖结论：6 个场景；0/6 已验收；1/6 仅有硬编码默认值；5/6 未实现或未验收。**
+**覆盖结论：6 个场景；5/6 已通过最小真实前端验收；1/6 部分验收（缺真实 LLM payload 日志证据）。**
 
 ---
 
@@ -189,11 +191,11 @@
 
 | 缺口 | 影响 | 建议处理 |
 |---|---|---|
-| SU03-GAP-01 — 显示名状态字段缺失 | 无法从硬编码 `"AI"` 变成可配置展示偏好 | P2：增加 UI 层显示名状态或 Work 偏好读取模型 |
-| SU03-GAP-02 — 设置入口缺失 | 用户无法修改 AI 名字 | P2：在设置面板或作品偏好入口补 UI |
-| SU03-GAP-03 — 持久化与按作品隔离缺失 | 切换作品无法拥有不同 AI 名字 | P2：定义 Work-scoped preference 存储，不污染 provider/model 配置 |
-| SU03-GAP-04 — 展示面硬编码散落 | 即使加字段也容易遗漏某个消息面板 | P2：抽统一 `assistantDisplayName` selector/helper |
-| SU03-GAP-05 — 行为边界缺验收 | 改名功能可能误改 prompt、role 或 trace 识别 | P2：补“只影响 UI”的测试或 walkthrough |
+| SU03-GAP-01 — 显示名状态字段缺失 | 已解决 | `SystemContext.assistantDisplayName` + `assistantDisplayName.ts` |
+| SU03-GAP-02 — 设置入口缺失 | 已解决 | `WorkspaceChat` 顶部 Radix Dialog 设置入口 |
+| SU03-GAP-03 — 持久化与按作品隔离缺失 | 已解决 | Tauri/browser work-scoped preference |
+| SU03-GAP-04 — 展示面硬编码散落 | 已解决 | `assistantRoleLabel` 统一渲染 |
+| SU03-GAP-05 — 行为边界缺验收 | 部分解决 | 已验证 UI label 与 canonical role；仍缺真实 LLM payload 日志证据 |
 
 ---
 
@@ -201,23 +203,20 @@
 
 | 位置 | 当前 | 目标 |
 |---|---|---|
-| `frontend/src/lib/store.ts` | 无显示名字段 | 增加按当前作品读取的 assistant display name，或通过 Work preference 注入 |
-| `frontend/src/components/WorkspaceChat.tsx` | 多处 `"AI"` 硬编码 | 统一使用 `assistantDisplayName || "AI"` |
-| `frontend/src/components/WorkbenchV3.tsx` | assistant label 硬编码 `"AI"` | 统一使用 `assistantDisplayName || "AI"` |
-| Work preference/API | 未发现相关字段 | 若要求跨重启/按作品隔离，需要持久化契约 |
-| 测试 | 未发现显示名测试 | 补默认值、校验、按作品隔离、仅 UI 展示测试 |
+| `frontend/src/lib/store.ts` | 已有 `assistantDisplayName` 字段 | 当前作品运行时展示名 |
+| `frontend/src/lib/assistantDisplayName.ts` | 已新增 | 默认值、校验、持久化 helper、role label helper |
+| `frontend/src/components/WorkspaceChat.tsx` | 已接入 | 设置入口 + 消息/思考态 label |
+| `frontend/src/components/WorkbenchV3.tsx` | 已接入 | 旁路工作台使用同一 helper |
+| Work preference/API | 已接入 Tauri/browser preference | 不写后端 Work schema，保持 UI-only 边界 |
+| 测试 | 已新增 | `assistantDisplayName.test.ts` + `native-tauri-verifier.test.mjs` + 原生 Tauri 验证 |
 
 ---
 
 ## 8. 验收命令
 
 ```bash
-# 当前无独立自动化验收。未来最小验证建议：
-cd frontend && pnpm test -- assistant-display-name
-
-# 若引入后端/持久化 Work preference：
-mix test apps/novel_application/test/novel_application/work_service_test.exs
-mix test apps/novel_web/test/novel_web/controllers/works_controller_test.exs
+pnpm --dir frontend test -- assistantDisplayName
+bash scripts/tauri_slice_verify.sh su03-assistant-display-name
 ```
 
 > 注意：SU-03 是体验增强项，不阻塞当前主链；实现时必须避免把显示名混入 provider/model 配置或 LLM prompt 语义。

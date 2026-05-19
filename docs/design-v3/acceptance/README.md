@@ -39,7 +39,7 @@
 |------|------|------|--------|------|
 | [SU-01](system/SU-01-model-provider.md) | 切换模型供应商 | 10 | 0/10 已验收；2/10 有基础设施 | health 基础具备，切换/配置未实现 |
 | [SU-02](system/SU-02-work-switching.md) | 切换作品 | 10 | 0/10 完整端到端验收；5/10 部分/基础设施 | VS-09 CRUD/启动接入已推进，切换闭环未验收 |
-| [SU-03](system/SU-03-model-nickname.md) | 给模型起名 | 6 | 0/6 已验收；1/6 仅硬编码默认值 | 未实现，P2 体验增强 |
+| [SU-03](system/SU-03-model-nickname.md) | 给模型起名 | 6 | 5/6 最小真实前端验收；1/6 部分 | work-scoped UI 显示名已补，真实 LLM payload 不变缺独立日志证据 |
 
 ### 作者用户验收（10 文档）
 
@@ -153,7 +153,7 @@ mix test apps/novel_web/test/novel_web/channels/
 | 供应商运行时切换与安全配置 | SU-01 SU01-GAP-04~07 | 补设计/补实现/补集成 | P0 |
 | 作品切换主闭环与隔离 | SU-02 SU02-GAP-01~04 | 补集成/补验收 | P0 |
 | 作品管理 UI 与恢复策略 | SU-02 SU02-GAP-05~09 | 补实现/修设计偏差 | P1/P2 |
-| AI 显示名设置与隔离 | SU-03 SU03-GAP-01~05 | 补实现/补验收 | P2 |
+| AI 显示名设置与隔离 | SU-03 SU03-GAP-01~05 | 最小真实前端闭环已补；剩余真实 LLM payload 不变证据 | P2 |
 
 **总缺口：持续重算中。当前 SU-01~03、AU-01~10 已按场景化口径重算；AU-10 action/task_state 最小切片和 VS-10 原生 Tauri 观测链自动化已推进，后续继续承重 slice 实现。**
 
