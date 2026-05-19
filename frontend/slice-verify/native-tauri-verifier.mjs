@@ -11,6 +11,7 @@ export const nativeSliceIds = [
   "au08-adoption-reading-projection",
   "au09-archive-real-data",
   "au09-memory-recall-context",
+  "au07-trace-why-entry",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -124,6 +125,14 @@ const sliceKeyEvents = {
     "planner.form_frame.done",
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
+  ],
+  "au07-trace-why-entry": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
   ],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
@@ -244,6 +253,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu09MemoryRecallEvidence(records);
   }
 
+  if (sliceId === "au07-trace-why-entry") {
+    return findAu07TraceWhyEvidence(records);
+  }
+
   if (sliceId === "au10-micro-plan-entry") {
     return findAu10UserMessageEvidence(records, true, "au10-micro-plan-entry");
   }
@@ -296,6 +309,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au09-memory-recall-context") {
     return memoryRecallContextBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au07-trace-why-entry") {
+    return traceWhyEntryBehavior(records, evidence, options);
   }
 
   const turnIds = evidence.turn_ids ?? [evidence.turn_id];
@@ -365,7 +382,9 @@ function findAu05ActionEvidence(records, sliceId, actionDoneEvent) {
 
     const hasAllEvents = keyEvents.every((event) =>
       turnRecords.some(
-        (record) => record.event === event && hasRequiredCorrelationFields(record),
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
       ),
     );
     if (!hasAllEvents) continue;
@@ -459,7 +478,9 @@ function findAu05FollowupRoutingEvidence(records) {
 
     const hasAllEvents = keyEvents.every((event) =>
       turnRecords.some(
-        (record) => record.event === event && hasRequiredCorrelationFields(record),
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
       ),
     );
     if (!hasAllEvents) continue;
@@ -507,7 +528,9 @@ function findAu08ReadingProjectionEvidence(records) {
 
     const hasAllEvents = keyEvents.every((event) =>
       turnRecords.some(
-        (record) => record.event === event && hasRequiredCorrelationFields(record),
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
       ),
     );
     if (!hasAllEvents) continue;
@@ -616,7 +639,9 @@ function findAu09MemoryRecallEvidence(records) {
 
     const hasAllEvents = keyEvents.every((event) =>
       turnRecords.some(
-        (record) => record.event === event && hasRequiredCorrelationFields(record),
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
       ),
     );
     if (!hasAllEvents) continue;
@@ -632,6 +657,48 @@ function findAu09MemoryRecallEvidence(records) {
       work_id: start.work_id,
       session_id: start.session_id,
       context_refs_count: contextDone.context_refs_count,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findAu07TraceWhyEvidence(records) {
+  const sliceId = "au07-trace-why-entry";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== false) continue;
+    if (!hasRequiredCorrelationFields(start)) continue;
+
+    const hasAllEvents = keyEvents.every((event) =>
+      turnRecords.some(
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
+      ),
+    );
+    if (!hasAllEvents) continue;
+
+    const uiState = turnRecords.find(
+      (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+    );
+    if (!uiState?.trace_why_dialog_open) continue;
+    if (uiState.trace_why_contains_raw_prompt === true) continue;
+    const traceText = String(uiState.trace_why_text ?? "");
+    if (!traceText.includes("本轮解释")) continue;
+    if (!traceText.includes("为什么这样做")) continue;
+    if (!traceText.includes("不会重新调用模型")) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      work_id: start.work_id,
+      session_id: start.session_id,
       key_events: keyEvents,
     };
   }
@@ -1229,6 +1296,39 @@ function memoryRecallContextBehavior(records, evidence, options) {
       "planner_received_context_before_frame",
       "no_error_events",
       "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function traceWhyEntryBehavior(records, evidence, options) {
+  const turnIds = evidence.turn_ids ?? [evidence.turn_id];
+  const turnRecords = records.filter((record) => turnIds.includes(record.turn_id));
+
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  const uiState = turnRecords.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === "au07-trace-why-entry",
+  );
+  if (!uiState?.trace_why_dialog_open) return null;
+  if (uiState.trace_why_contains_raw_prompt === true) return null;
+
+  return {
+    slice_id: "au07-trace-why-entry",
+    behavior: "author_opens_trace_why_dialog_from_real_workbench_message",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    assertions: [
+      "message_sent_from_real_workbench",
+      "trace_summary_returned_with_turn_result",
+      "why_entry_clicked_in_message_stream",
+      "author_safe_dialog_rendered",
+      "raw_prompt_provider_debug_not_visible",
+      "explanation_does_not_call_provider_or_write_state",
     ],
   };
 }

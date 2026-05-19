@@ -80,6 +80,9 @@ export interface SliceVerifyUiStatePayload {
   assistant_name_in_created_work?: string;
   assistant_name_after_return?: string;
   assistant_role_after_return?: string;
+  trace_why_dialog_open?: boolean;
+  trace_why_text?: string;
+  trace_why_contains_raw_prompt?: boolean;
 }
 
 export function reportSliceVerifyUiState(

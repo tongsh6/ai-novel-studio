@@ -610,7 +610,10 @@ defmodule NovelWeb.WorkspaceChannel do
       assistant_role_after_save: payload["assistant_role_after_save"],
       assistant_name_in_created_work: payload["assistant_name_in_created_work"],
       assistant_name_after_return: payload["assistant_name_after_return"],
-      assistant_role_after_return: payload["assistant_role_after_return"]
+      assistant_role_after_return: payload["assistant_role_after_return"],
+      trace_why_dialog_open: payload["trace_why_dialog_open"],
+      trace_why_text: payload["trace_why_text"],
+      trace_why_contains_raw_prompt: payload["trace_why_contains_raw_prompt"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}
