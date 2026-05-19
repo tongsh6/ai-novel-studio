@@ -80,6 +80,30 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
+  @doc """
+  返回当前默认 provider 的可展示元数据。
+
+  这是 health/status UI 的契约来源；上层不需要知道具体 adapter 的配置模块。
+  """
+  @spec provider_metadata() :: %{provider: atom(), model: String.t() | nil}
+  def provider_metadata do
+    provider_name = default_provider()
+
+    model =
+      case Map.fetch(@provider_modules, provider_name) do
+        {:ok, module} ->
+          module
+          |> build_state()
+          |> Map.get(:model)
+          |> normalize_model()
+
+        :error ->
+          nil
+      end
+
+    %{provider: provider_name, model: model}
+  end
+
   @doc "返回当前已注册的 provider 列表。"
   @spec registered_providers() :: [atom()]
   def registered_providers, do: Map.keys(@provider_modules)
@@ -101,7 +125,7 @@ defmodule NovelAgent.Provider.Gateway do
   end
 
   defp build_state(module) do
-    if function_exported?(module, :from_config, 0) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :from_config, 0) do
       module.from_config()
     else
       module.__struct__()
@@ -117,4 +141,7 @@ defmodule NovelAgent.Provider.Gateway do
     Application.get_env(:novel_agent, :provider, [])
     |> Keyword.get(:model, "qwen/qwen3.6-35b-a3b")
   end
+
+  defp normalize_model(model) when is_binary(model) and model != "", do: model
+  defp normalize_model(_model), do: nil
 end

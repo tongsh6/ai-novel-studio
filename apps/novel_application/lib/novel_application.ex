@@ -11,13 +11,15 @@ defmodule NovelApplication do
   @doc """
   检查 LLM provider 连接状态。
   """
-  @spec provider_health() :: {:ok, atom()} | {:error, map()}
+  @spec provider_health() ::
+          {:ok, %{provider: atom(), model: String.t() | nil}}
+          | {:error, %{provider: atom(), model: String.t() | nil, error: map()}}
   def provider_health do
-    provider = Application.get_env(:novel_agent, :provider)[:default] || :unknown
+    metadata = Gateway.provider_metadata()
 
     case Gateway.health_check() do
-      :ok -> {:ok, provider}
-      {:error, error} -> {:error, error}
+      :ok -> {:ok, metadata}
+      {:error, error} -> {:error, Map.put(metadata, :error, error)}
     end
   end
 

@@ -13,6 +13,38 @@ defmodule NovelAgent.Provider.GatewayTest do
     end
   end
 
+  describe "provider_metadata/0" do
+    test "returns adapter model from current provider configuration" do
+      old_provider = Application.get_env(:novel_agent, :provider)
+      old_lmstudio = Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio)
+
+      Application.put_env(:novel_agent, :provider, default: :lmstudio)
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
+        endpoint: "http://127.0.0.1:1234/v1",
+        model: "local-test-model"
+      )
+
+      try do
+        assert Gateway.provider_metadata() == %{provider: :lmstudio, model: "local-test-model"}
+      after
+        Application.put_env(:novel_agent, :provider, old_provider)
+        Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio, old_lmstudio)
+      end
+    end
+
+    test "does not invent a model for providers without model configuration" do
+      old_provider = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :stub)
+
+      try do
+        assert Gateway.provider_metadata() == %{provider: :stub, model: nil}
+      after
+        Application.put_env(:novel_agent, :provider, old_provider)
+      end
+    end
+  end
+
   describe "complete/2 with test env (stub default)" do
     test "returns echo content from stub" do
       assert {:ok, %{content: content}} = Gateway.complete("hello novel")
