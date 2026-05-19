@@ -193,6 +193,72 @@ export const WORKBENCH = {
   actionAnswer: "回答",
 } as const;
 
+// ============================================================
+// 决策溯源（docs/design-v3/acceptance/author/AU-07-trace-and-replay.md）
+// ============================================================
+
+export const TRACE = {
+  actionLabel: "为什么",
+  actionTitle: "查看本轮回复的安全解释摘要",
+  title: "本轮解释",
+  description: "只展示作者可见的安全摘要，不包含原始提示词、模型日志或内部调试内容。",
+  decisionLabel: "系统判断",
+  reasonLabel: "为什么这样做",
+  goalLabel: "本轮目标",
+  contextLabel: "参考来源",
+  noContext: "本轮没有使用额外作品上下文。",
+  detailLabel: "补充说明",
+  integrityNote: "解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
+  decisions: {
+    replyOnly: "自然回复",
+    exploration: "探索方向",
+    downgrade: "降级为对话",
+    confirmationRequired: "需要确认",
+    clarificationRequired: "需要补充信息",
+    rejected: "已拒绝执行",
+    recovery: "已降级恢复",
+    toolAllowed: "允许工具",
+    toolDispatched: "已调用工具",
+    unknown: "已记录",
+  },
+  reasons: {
+    noToolNeeded: "本轮只需要自然语言回应，不需要调用工具或写入作品状态。",
+    exploratoryOnly: "本轮是在探索创作方向，候选内容不会自动写入作品设定。",
+    userRequestedDiscussion: "你提出的是讨论或解释请求，系统没有执行写入动作。",
+    toolWasDispatched: "本轮调用了创作工具，工具结果仍需通过卡片确认后才会进入作品。",
+    microPlanEvaluated: "系统先评估了执行计划，再按权限和范围决定是否继续。",
+    microPlanFailed: "执行计划生成失败，系统已降级为安全的自然回复。",
+    confirmationRequired: "本轮需要你的确认，系统不会在确认前执行高影响操作。",
+    clarificationRequired: "系统缺少必要信息，需补充后才能继续推进。",
+    rejected: "系统拒绝执行本轮请求，并保留了拒绝原因摘要。",
+    safeFallback: "系统保留了本轮的安全解释摘要。",
+  },
+  gates: {
+    actionScope: "当前请求超出本轮可执行范围。",
+    plannerBoundary: "计划没有通过执行边界检查。",
+    authorityBudget: "权限或预算策略要求先暂停。",
+    confirmationRequired: "此操作需要作者明确确认。",
+    generic: "系统记录了一个执行门禁原因。",
+  },
+  reasonCodes: {
+    gatesPassed: "执行门禁已通过。",
+    candidateAdoptedAsTentative: "候选内容先作为待采纳草稿保存。",
+    toolResultNotAdoption: "工具结果不是自动采纳的作品事实。",
+    generic: "系统记录了一个内部原因，作者视图保留为安全摘要。",
+  },
+  contextSources: {
+    currentWork: "当前作品背景",
+    recentDialogue: "近期对话",
+    memory: "已确认设定",
+    workArchive: "作品档案",
+    sessionTranscript: "当前会话记录",
+    other: "其他安全来源",
+  },
+  recoveryApplied: "系统已使用降级恢复策略。",
+  toolUsed: (name: string) => `本轮使用了工具：${name}。`,
+  toolWithStatus: (name: string, status: string) => `本轮使用了工具：${name}，结果状态为 ${status}。`,
+} as const;
+
 export function candidateContinuationText(title: string, pitch: string): string {
   return `继续聊「${title}」这个方向：${pitch}`;
 }

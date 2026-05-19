@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { BookOpen, Bot, ChevronDown, MessageCircle, Plus, RefreshCw, RotateCcw } from "lucide-react";
+import { BookOpen, Bot, ChevronDown, CircleHelp, MessageCircle, Plus, RefreshCw, RotateCcw } from "lucide-react";
 
 import {
   createSocket,
@@ -68,8 +68,12 @@ import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { isTauri } from "../lib/env";
 import { getProviderHealth } from "../lib/providerHealth";
-import { WORKBENCH } from "../lib/copy";
+import { TRACE, WORKBENCH } from "../lib/copy";
 import { buildCandidateContinuation } from "../lib/candidateSelection";
+import {
+  toAuthorTraceSummary,
+  type TraceSummaryView,
+} from "../lib/traceSummaryView";
 import {
   DEFAULT_ASSISTANT_DISPLAY_NAME,
   assistantRoleLabel,
@@ -91,6 +95,7 @@ interface TurnResult {
   available_actions?: AvailableAction[];
   ui_cards?: UICardData[];
   candidate_directions?: CandidateDirection[];
+  trace_summary?: Record<string, unknown>;
   adoption_state?: {
     pending: ArtifactEntry[];
     resolved: ArtifactEntry[];
@@ -172,6 +177,10 @@ export function WorkspaceChat() {
   const [assistantNameDraft, setAssistantNameDraft] = useState("");
   const [assistantNameSaving, setAssistantNameSaving] = useState(false);
   const [assistantNameError, setAssistantNameError] = useState<string | null>(null);
+  const [traceDialog, setTraceDialog] = useState<{
+    turnId: string;
+    summary: TraceSummaryView;
+  } | null>(null);
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore(state => state.socketConnected);
@@ -274,6 +283,57 @@ export function WorkspaceChat() {
           .querySelector<HTMLButtonElement>('[data-slice-verify="candidate-continue"]')
           ?.click();
       }, 250);
+    }
+
+    if (
+      isTauri &&
+      autorunSlice === "au07-trace-why-entry" &&
+      result.trace_summary &&
+      channelRef.current &&
+      !sliceVerifyUiReported.has("au07-trace-why-entry")
+    ) {
+      window.setTimeout(() => {
+        document
+          .querySelector<HTMLButtonElement>(
+            `[data-slice-verify="trace-why-trigger"][data-turn-id="${result.turn_id}"]`,
+          )
+          ?.click();
+
+        window.setTimeout(() => {
+          if (!channelRef.current || sliceVerifyUiReported.has("au07-trace-why-entry")) return;
+          sliceVerifyUiReported.add("au07-trace-why-entry");
+          const dialogText =
+            document.querySelector<HTMLElement>('[data-slice-verify="trace-why-dialog"]')
+              ?.innerText ?? "";
+          const currentContext = useAppStore.getState().context;
+
+          void reportSliceVerifyUiState(channelRef.current, {
+            slice_id: "au07-trace-why-entry",
+            context_work_id: currentContext.workId,
+            context_work_title: currentContext.workTitle,
+            active_session_id: activeSessionId,
+            restored_turn_id: result.turn_id,
+            socket_connected: socketConnected,
+            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
+            welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
+              .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length,
+            pending_adoption_count:
+              document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
+            first_message_text:
+              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
+                ?.innerText ?? "",
+            service_status_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                ?.innerText ?? "",
+            title_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+                ?.innerText ?? "",
+            trace_why_dialog_open: Boolean(dialogText),
+            trace_why_text: dialogText,
+            trace_why_contains_raw_prompt: /raw prompt|provider raw|hidden policy|debug/i.test(dialogText),
+          }).catch(() => undefined);
+        }, 120);
+      }, 350);
     }
 
     if (
@@ -676,6 +736,7 @@ export function WorkspaceChat() {
       autorunSlice !== "su02-work-switching" &&
       autorunSlice !== "au10-micro-plan-entry" &&
       autorunSlice !== "au02-candidate-continuation" &&
+      autorunSlice !== "au07-trace-why-entry" &&
       autorunSlice !== "au10-ordinary-chat-no-micro-plan" &&
       autorunSlice !== "au01-ordinary-chat-two-turn-roundtrip" &&
       autorunSlice !== "au05-adoption-boundary" &&
@@ -929,6 +990,15 @@ export function WorkspaceChat() {
     } else if (autorunSlice === "au02-candidate-continuation") {
       timers.push(window.setTimeout(() => {
         setInputText("我想写一个赛博修仙方向");
+        timers.push(window.setTimeout(() => {
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
+            ?.click();
+        }, 150));
+      }, 150));
+    } else if (autorunSlice === "au07-trace-why-entry") {
+      timers.push(window.setTimeout(() => {
+        setInputText("我想聊聊林烬为什么会离开故乡");
         timers.push(window.setTimeout(() => {
           document
             .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
@@ -1294,6 +1364,12 @@ export function WorkspaceChat() {
     }
   };
 
+  const openTraceDialog = (turnId: string, traceSummary?: Record<string, unknown>) => {
+    const summary = toAuthorTraceSummary(traceSummary);
+    if (!summary) return;
+    setTraceDialog({ turnId, summary });
+  };
+
   const llmBadgeClassName = [
     styles.riskBadge,
     llmConnected === null
@@ -1526,6 +1602,20 @@ export function WorkspaceChat() {
                 </div>
                 <div className={styles.text}>{msg.text}</div>
 
+                {msg.role === "assistant" && msg.turnResult?.trace_summary && (
+                  <button
+                    className={styles.traceWhyButton}
+                    data-slice-verify="trace-why-trigger"
+                    data-turn-id={msg.turnResult.turn_id}
+                    type="button"
+                    title={TRACE.actionTitle}
+                    onClick={() => openTraceDialog(msg.turnResult!.turn_id, msg.turnResult!.trace_summary)}
+                  >
+                    <CircleHelp size={14} aria-hidden="true" />
+                    <span>{TRACE.actionLabel}</span>
+                  </button>
+                )}
+
                 {msg.turnResult?.ui_cards?.map((card, ci) => {
                   const handleAction = (_actionId: string, targetRef: string, actionType?: string) => {
                     if (isArtifactResolutionAction(actionType) && isArtifactResolved(runtimeState, targetRef)) {
@@ -1695,6 +1785,74 @@ export function WorkspaceChat() {
             )}
             <div ref={messagesEndRef} />
           </div>
+
+          <Dialog.Root
+            open={traceDialog !== null}
+            onOpenChange={(open) => {
+              if (!open) setTraceDialog(null);
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className={styles.dialogOverlay} />
+              <Dialog.Content
+                className={`${styles.dialogContent} ${styles.traceDialogContent}`}
+                data-slice-verify="trace-why-dialog"
+                data-turn-id={traceDialog?.turnId}
+              >
+                {traceDialog && (
+                  <>
+                    <Dialog.Title className={styles.dialogTitle}>
+                      {traceDialog.summary.title}
+                    </Dialog.Title>
+                    <Dialog.Description className={styles.traceDescription}>
+                      {TRACE.description}
+                    </Dialog.Description>
+                    <div className={styles.traceSection}>
+                      <div className={styles.traceLabel}>{TRACE.decisionLabel}</div>
+                      <div className={styles.traceValue}>{traceDialog.summary.decisionLabel}</div>
+                    </div>
+                    <div className={styles.traceSection}>
+                      <div className={styles.traceLabel}>{TRACE.reasonLabel}</div>
+                      <div className={styles.traceValue}>{traceDialog.summary.primaryReason}</div>
+                    </div>
+                    {traceDialog.summary.goal && (
+                      <div className={styles.traceSection}>
+                        <div className={styles.traceLabel}>{TRACE.goalLabel}</div>
+                        <div className={styles.traceValue}>{traceDialog.summary.goal}</div>
+                      </div>
+                    )}
+                    <div className={styles.traceSection}>
+                      <div className={styles.traceLabel}>{TRACE.contextLabel}</div>
+                      {traceDialog.summary.contextSources.length > 0 ? (
+                        <div className={styles.traceChipRow}>
+                          {traceDialog.summary.contextSources.map((source) => (
+                            <span key={source.key} className={styles.traceChip}>
+                              {source.label}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className={styles.traceValue}>{TRACE.noContext}</div>
+                      )}
+                    </div>
+                    {traceDialog.summary.detailLines.length > 0 && (
+                      <div className={styles.traceSection}>
+                        <div className={styles.traceLabel}>{TRACE.detailLabel}</div>
+                        <ul className={styles.traceDetailList}>
+                          {traceDialog.summary.detailLines.map((line) => (
+                            <li key={line}>{line}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    <div className={styles.traceIntegrityNote}>
+                      {traceDialog.summary.integrityNote}
+                    </div>
+                  </>
+                )}
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
 
           {/* 输入区域 (Input Area) */}
           <div className={styles.inputArea}>

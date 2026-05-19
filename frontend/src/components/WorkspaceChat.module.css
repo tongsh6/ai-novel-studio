@@ -359,6 +359,93 @@
   white-space: pre-wrap;
 }
 
+.traceWhyButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  margin-top: 2px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: transparent;
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.traceWhyButton:hover,
+.traceWhyButton:focus {
+  color: var(--foreground-primary);
+  border-color: var(--foreground-primary);
+}
+
+.traceDialogContent {
+  width: min(520px, calc(100vw - 32px));
+  gap: 14px;
+}
+
+.traceDescription {
+  margin: 0;
+  color: var(--foreground-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.traceSection {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.traceLabel {
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0;
+}
+
+.traceValue {
+  color: var(--foreground-primary);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.traceChipRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.traceChip {
+  padding: 4px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  color: var(--foreground-primary);
+  background-color: var(--surface-primary);
+  font-size: 12px;
+}
+
+.traceDetailList {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--foreground-primary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.traceIntegrityNote {
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+  color: var(--foreground-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
 .card {
   border: 1px solid var(--border-subtle);
   border-radius: var(--rounded-sm);
