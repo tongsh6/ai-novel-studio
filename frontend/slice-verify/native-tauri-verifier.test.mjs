@@ -12,6 +12,7 @@ describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-10 micro plan entry", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");
     expect(nativeSliceIds).toContain("su02-work-switching");
+    expect(nativeSliceIds).toContain("su01-provider-health-model");
     expect(nativeSliceIds).toContain("su03-assistant-display-name");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
@@ -27,6 +28,45 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("au02-candidate-continuation");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("accepts SU-01 provider health evidence from the real workbench badge", () => {
+    const records = [
+      { event: "channel.join.done", work_id: "work-su01", session_id: "session-su01" },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su01-provider-health-model",
+        work_id: "work-su01",
+        context_work_id: "work-su01",
+        socket_connected: true,
+        llm_connected: true,
+        llm_model_label: "slice_verify",
+        llm_status_text: "LLM: 已连接 · slice_verify",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("su01-provider-health-model", records);
+    expect(evidence).toEqual({
+      slice_id: "su01-provider-health-model",
+      turn_ids: [],
+      work_id: "work-su01",
+      llm_status_text: "LLM: 已连接 · slice_verify",
+      llm_model_label: "slice_verify",
+      key_events: keyEventsForSlice("su01-provider-health-model"),
+    });
+    expect(findSliceBehaviorEvidence("su01-provider-health-model", records, evidence)).toEqual({
+      slice_id: "su01-provider-health-model",
+      behavior: "provider_health_badge_displays_backend_metadata",
+      turn_ids: [],
+      work_id: "work-su01",
+      assertions: [
+        "provider_health_requested_through_real_workbench",
+        "llm_badge_connected_state_came_from_backend_health",
+        "llm_badge_displays_provider_or_model_label",
+        "channel_joined_current_work",
+        "no_error_events",
+      ],
+    });
   });
 
   it("accepts AU-02 candidate continuation only when UI exposes exploration frame evidence", () => {

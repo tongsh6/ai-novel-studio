@@ -617,7 +617,10 @@ defmodule NovelWeb.WorkspaceChannel do
       frame_badge_label: payload["frame_badge_label"],
       frame_badge_kind: payload["frame_badge_kind"],
       frame_badge_goal: payload["frame_badge_goal"],
-      candidate_panel_count: payload["candidate_panel_count"]
+      candidate_panel_count: payload["candidate_panel_count"],
+      llm_status_text: payload["llm_status_text"],
+      llm_connected: payload["llm_connected"],
+      llm_model_label: payload["llm_model_label"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}

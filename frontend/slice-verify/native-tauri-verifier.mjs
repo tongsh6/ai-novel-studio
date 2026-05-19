@@ -1,6 +1,7 @@
 export const nativeSliceIds = [
   "workspace-runtime-state",
   "su02-work-switching",
+  "su01-provider-health-model",
   "stage-startup-context-contract",
   "au03c-work-session-resume",
   "su03-assistant-display-name",
@@ -30,6 +31,10 @@ const sliceKeyEvents = {
     "work_session.resume.done",
     "channel.join.done",
     "channel.user_message.start",
+    "slice_verify.ui_state.done",
+  ],
+  "su01-provider-health-model": [
+    "channel.join.done",
     "slice_verify.ui_state.done",
   ],
   "su03-assistant-display-name": [
@@ -213,6 +218,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu02WorkSwitchingEvidence(records);
   }
 
+  if (sliceId === "su01-provider-health-model") {
+    return findSu01ProviderHealthEvidence(records);
+  }
+
   if (sliceId === "su03-assistant-display-name") {
     return findSu03AssistantDisplayNameEvidence(records);
   }
@@ -289,6 +298,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "su02-work-switching") {
     return su02WorkSwitchingBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-provider-health-model") {
+    return su01ProviderHealthBehavior(records, evidence, options);
   }
 
   if (sliceId === "su03-assistant-display-name") {
@@ -460,6 +473,43 @@ function findSu03AssistantDisplayNameEvidence(records) {
       assistant_name_after_save: uiState.assistant_name_after_save,
       assistant_name_in_created_work: uiState.assistant_name_in_created_work,
       assistant_name_after_return: uiState.assistant_name_after_return,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01ProviderHealthEvidence(records) {
+  const sliceId = "su01-provider-health-model";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.llm_connected !== true) continue;
+
+    const statusText = String(uiState.llm_status_text ?? "");
+    const modelLabel = String(uiState.llm_model_label ?? "");
+    if (!statusText.includes("LLM: 已连接")) continue;
+    if (!modelLabel || !statusText.includes(modelLabel)) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      llm_status_text: statusText,
+      llm_model_label: modelLabel,
       key_events: keyEvents,
     };
   }
@@ -1453,6 +1503,24 @@ function su03AssistantDisplayNameBehavior(records, evidence, _options) {
       "new_work_fell_back_to_default_ai_name",
       "switching_back_restored_original_work_name",
       "preference_did_not_touch_provider_or_turn_result_contract",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01ProviderHealthBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  return {
+    slice_id: "su01-provider-health-model",
+    behavior: "provider_health_badge_displays_backend_metadata",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    assertions: [
+      "provider_health_requested_through_real_workbench",
+      "llm_badge_connected_state_came_from_backend_health",
+      "llm_badge_displays_provider_or_model_label",
+      "channel_joined_current_work",
       "no_error_events",
     ],
   };

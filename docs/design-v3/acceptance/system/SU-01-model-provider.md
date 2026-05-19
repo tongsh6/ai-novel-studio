@@ -3,6 +3,8 @@
 > 系统用户视角：我可以选择用哪个大模型来驱动 AI 创作助手，切换 Anthropic / 本地 LM Studio / 测试 Stub 等供应商，配置各自的 API Key、模型和端点，并确认连接是否正常。
 >
 > 场景化验收口径：本文按完整功能蓝图验收“模型供应商管理”，不把已有健康检查误判为完整供应商切换。
+>
+> 2026-05-20 对账结论：`GET /api/provider/health` 已补齐 provider/model 契约。Provider metadata 由 `NovelAgent.Provider.Gateway` 从当前 adapter 配置统一读取，`NovelApplication.provider_health/0` 在 connected/disconnected 两种结果中都保留 provider/model，`NovelWeb.ProviderController` 不再把断开状态折叠成 `unknown`。真实 `WorkspaceChat` 和旁路 `WorkbenchV3` 均消费同一前端 health helper，状态徽标可展示后端返回的模型名或 provider 名；新增原生 Tauri 验证 `su01-provider-health-model` 从真实工作台启动、等待 health 轮询、上报 LLM 徽标文本并证明显示 `slice_verify`。这只关闭 health 可见性 checkpoint，不代表 provider 列表、运行时切换、Key/endpoint 设置或安全存储已实现。
 
 ---
 
@@ -46,7 +48,7 @@
 | `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 `stub/lmstudio/anthropic`，支持 `registered_providers/0` 和 `health_check/0` | 后端已有可复用 registry，但没有配置 API |
 | `frontend/src/components/WorkbenchV3.tsx` | 轮询 `/api/provider/health`；若无 model，显示 fallback “LM Studio” | UI 有状态展示，但 provider/model 信息不完整 |
 | `frontend/src/components/WorkspaceChat.tsx` | 轮询 health；title 可显示 `llmModel`，但 health 不返回 model | 旧 UI 状态也不完整 |
-| `apps/novel_web/test/novel_web/controllers/provider_controller_test.exs` | 只测 stub provider connected happy path | 缺 disconnected / model / provider 列表 / 配置变更测试 |
+| `apps/novel_web/test/novel_web/controllers/provider_controller_test.exs` | 已覆盖 stub connected、model-backed provider metadata、disconnected 不折叠 unknown | 仍缺 provider 列表 / 配置变更测试 |
 | `config/*.exs` | 通过 env/config 设置默认 provider、endpoint、model | 支持本地 LM Studio 配置，但不是用户可视化管理 |
 
 ---
@@ -66,7 +68,7 @@
 | 不变量 | SU-I1 |
 | 边界 | frontend → `/api/provider/health` → NovelWeb → NovelApplication → NovelAgent Gateway |
 | 真实消费者 | WorkbenchV3 / WorkspaceChat 状态栏 |
-| 当前证据 | 前端 30s 轮询；ProviderControllerTest 覆盖 connected happy path |
+| 当前证据 | 前端 30s 轮询；ProviderControllerTest 覆盖 connected/disconnected 和 provider/model metadata |
 | 当前状态 | 已实现未完整验收 |
 | 当前缺口 | 无 UI 自动化；断开状态无测试；health 不返回 model |
 | 优先级 | P1 |
@@ -78,9 +80,9 @@
 | 用户视角 | 我能看到当前使用的是 LM Studio、Anthropic 或 Stub，以及具体模型 |
 | 触发 | health check 成功 |
 | 期望结果 | UI 显示 provider + model，例如 `LM Studio · openai/gpt-oss-120b` |
-| 当前证据 | 后端返回 `provider`，前端尝试读取 `model` |
-| 当前状态 | 部分实现 |
-| 当前缺口 | ProviderController 不返回 model；WorkbenchV3 只 fallback 为 “LM Studio”；WorkspaceChat badge 只显示“已连接/未连接” |
+| 当前证据 | 后端返回 `provider` + `model`；`WorkspaceChat` / `WorkbenchV3` 徽标消费同一 `providerHealthName`；`su01-provider-health-model` 原生 Tauri 验证覆盖真实工作台徽标 |
+| 当前状态 | 部分实现 / 最小真实前端闭环已补 |
+| 当前缺口 | 完整 provider 设置页仍未实现；运行时切换后下一轮真实 provider 证据未闭环 |
 | 缺口类型 | 补实现 + 补测试 |
 | 优先级 | P1 |
 
@@ -184,7 +186,7 @@
 | 场景 | 做什么 | 状态 | 证据 | 缺口类型 |
 |---|---|---|---|---|
 | SC-SU01-A1 | 启动后看到 LLM 连接状态 | 已实现未完整验收 | ProviderController + 前端轮询 + happy-path test | 补测试/补验收 |
-| SC-SU01-A2 | 看到 provider 和模型名 | 部分实现 | health 返回 provider，但不返回 model | 补实现 |
+| SC-SU01-A2 | 看到 provider 和模型名 | 部分实现 / 最小真实前端闭环已补 | health 返回 provider/model；`su01-provider-health-model` 原生 Tauri 验证覆盖真实工作台徽标 | 继续补完整设置页与运行时切换验收 |
 | SC-SU01-A3 | LM Studio 未启动提示明确 | 已实现未验收 | adapter/provider health 错误路径 | 补测试 |
 | SC-SU01-B1 | 选择不同 provider | 未实现 | Gateway registry 未暴露到 UI | 补实现 |
 | SC-SU01-B2 | 配置 API Key | 未实现 | 仅 env/config | 补设计/补实现 |
@@ -204,8 +206,8 @@
 
 | ID | 缺口 | 影响 | 建议处理 | 优先级 |
 |---|---|---|---|---|
-| SU01-GAP-01 | health 响应不返回 model | UI 无法准确展示当前模型 | ProviderController 返回 provider + model；补 controller/UI 测试 | P1 |
-| SU01-GAP-02 | disconnected health 无测试 | LM Studio 未启动路径可能回归 | ProviderControllerTest 增加 error path；mock Gateway 或 application callback | P0 |
+| SU01-GAP-01 | health 响应不返回 model | 已补：health 响应返回 provider/model，前端徽标消费同一契约 | 保持 `su01-provider-health-model` 作为回归验证；后续设置页复用该契约 | P1 |
+| SU01-GAP-02 | disconnected health 无测试 | 已补：controller/application 测试覆盖 disconnected 时仍保留 provider/model metadata | 后续补 LM Studio 未启动的端到端 UI 文案断言 | P0 |
 | SU01-GAP-03 | provider registry 未暴露 | UI 无法列出可选供应商 | 新增 application/web 只读 provider list API | P1 |
 | SU01-GAP-04 | 运行时 provider 选择缺失 | 用户只能改 env 重启 | 设计 provider config store 与 Gateway runtime selection | P0 |
 | SU01-GAP-05 | API Key 安全存储缺设计 | 云端 provider 无法产品化 | 先做 ADR/设计：Tauri app data vs keychain vs 后端 secret | P0 |

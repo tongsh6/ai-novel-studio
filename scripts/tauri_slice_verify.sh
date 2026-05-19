@@ -8,6 +8,7 @@
 #   bash scripts/tauri_slice_verify.sh stage-startup-context-contract
 #   bash scripts/tauri_slice_verify.sh workspace-runtime-state
 #   bash scripts/tauri_slice_verify.sh su02-work-switching
+#   bash scripts/tauri_slice_verify.sh su01-provider-health-model
 #   bash scripts/tauri_slice_verify.sh su03-assistant-display-name
 #   bash scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip
 #   bash scripts/tauri_slice_verify.sh au02-candidate-continuation
@@ -76,6 +77,7 @@ Available native Tauri slice ids:
   stage-startup-context-contract
   workspace-runtime-state
   su02-work-switching
+  su01-provider-health-model
   su03-assistant-display-name
   au03c-work-session-resume
   au05-adoption-boundary
@@ -114,7 +116,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au09-archive-real-data" && "$SLICE_ID" != "au09-memory-recall-context" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
+if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au09-archive-real-data" && "$SLICE_ID" != "au09-memory-recall-context" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -217,6 +219,9 @@ native_action_description() {
       ;;
     su02-work-switching)
       echo "type a message in work A -> create work B from the work switcher while pending -> verify channel/UI belongs to work B"
+      ;;
+    su01-provider-health-model)
+      echo "open native workbench -> verify provider health badge displays backend provider/model metadata"
       ;;
     su03-assistant-display-name)
       echo "open assistant name dialog -> save a work-scoped name -> create/switch work -> verify default isolation -> switch back"

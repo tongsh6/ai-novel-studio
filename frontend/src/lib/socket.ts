@@ -87,6 +87,9 @@ export interface SliceVerifyUiStatePayload {
   frame_badge_kind?: string;
   frame_badge_goal?: string | null;
   candidate_panel_count?: number;
+  llm_status_text?: string;
+  llm_connected?: boolean | null;
+  llm_model_label?: string;
 }
 
 export function reportSliceVerifyUiState(
