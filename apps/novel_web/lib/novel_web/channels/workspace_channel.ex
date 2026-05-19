@@ -603,7 +603,14 @@ defmodule NovelWeb.WorkspaceChannel do
       archive_drafts_accepted: payload["archive_drafts_accepted"],
       archive_detail_kind: payload["archive_detail_kind"],
       archive_detail_id: payload["archive_detail_id"],
-      archive_detail_title: payload["archive_detail_title"]
+      archive_detail_title: payload["archive_detail_title"],
+      initial_work_id: payload["initial_work_id"],
+      created_work_id: payload["created_work_id"],
+      assistant_name_after_save: payload["assistant_name_after_save"],
+      assistant_role_after_save: payload["assistant_role_after_save"],
+      assistant_name_in_created_work: payload["assistant_name_in_created_work"],
+      assistant_name_after_return: payload["assistant_name_after_return"],
+      assistant_role_after_return: payload["assistant_role_after_return"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}

@@ -3,6 +3,7 @@ export const nativeSliceIds = [
   "su02-work-switching",
   "stage-startup-context-contract",
   "au03c-work-session-resume",
+  "su03-assistant-display-name",
   "au05-adoption-boundary",
   "au05-adoption-followup-routing",
   "au05-discard-boundary",
@@ -28,6 +29,10 @@ const sliceKeyEvents = {
     "work_session.resume.done",
     "channel.join.done",
     "channel.user_message.start",
+    "slice_verify.ui_state.done",
+  ],
+  "su03-assistant-display-name": [
+    "channel.join.done",
     "slice_verify.ui_state.done",
   ],
   "stage-startup-context-contract": [
@@ -199,6 +204,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu02WorkSwitchingEvidence(records);
   }
 
+  if (sliceId === "su03-assistant-display-name") {
+    return findSu03AssistantDisplayNameEvidence(records);
+  }
+
   if (sliceId === "stage-startup-context-contract") {
     return findStageStartupContextEvidence(records);
   }
@@ -267,6 +276,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "su02-work-switching") {
     return su02WorkSwitchingBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su03-assistant-display-name") {
+    return su03AssistantDisplayNameBehavior(records, evidence, options);
   }
 
   if (sliceId === "stage-startup-context-contract") {
@@ -382,6 +395,53 @@ function findAu05ActionEvidence(records, sliceId, actionDoneEvent) {
       turn_id: turnId,
       key_events: keyEvents,
       ...(actionDone.mutation_id ? { mutation_id: actionDone.mutation_id } : {}),
+    };
+  }
+
+  return null;
+}
+
+function findSu03AssistantDisplayNameEvidence(records) {
+  const sliceId = "su03-assistant-display-name";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const initialWorkId = String(uiState.initial_work_id ?? "");
+    const createdWorkId = String(uiState.created_work_id ?? "");
+    if (!initialWorkId || !createdWorkId || initialWorkId === createdWorkId) continue;
+
+    const joinedInitial = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === initialWorkId,
+    );
+    const joinedCreated = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === createdWorkId,
+    );
+    if (!joinedInitial || !joinedCreated) continue;
+
+    if (uiState.context_work_id !== initialWorkId) continue;
+    if (uiState.assistant_name_after_save !== "创作助手") continue;
+    if (uiState.assistant_role_after_save !== "创作助手") continue;
+    if (uiState.assistant_name_in_created_work !== "AI") continue;
+    if (uiState.assistant_name_after_return !== "创作助手") continue;
+    if (uiState.assistant_role_after_return !== "创作助手") continue;
+    if (uiState.socket_connected !== true) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: initialWorkId,
+      created_work_id: createdWorkId,
+      assistant_name_after_save: uiState.assistant_name_after_save,
+      assistant_name_in_created_work: uiState.assistant_name_in_created_work,
+      assistant_name_after_return: uiState.assistant_name_after_return,
+      key_events: keyEvents,
     };
   }
 
@@ -1259,6 +1319,27 @@ function su02WorkSwitchingBehavior(records, evidence, _options) {
       "last_opened_not_written_for_lobby_fallback",
       "no_error_events",
       "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function su03AssistantDisplayNameBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  return {
+    slice_id: "su03-assistant-display-name",
+    behavior: "assistant_display_name_is_work_scoped_ui_preference",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    created_work_id: evidence.created_work_id,
+    assertions: [
+      "assistant_name_changed_from_real_workbench_entry",
+      "assistant_message_role_remained_assistant",
+      "display_name_saved_for_current_work",
+      "new_work_fell_back_to_default_ai_name",
+      "switching_back_restored_original_work_name",
+      "preference_did_not_touch_provider_or_turn_result_contract",
+      "no_error_events",
     ],
   };
 }

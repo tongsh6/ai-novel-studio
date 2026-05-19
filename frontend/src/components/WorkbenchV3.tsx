@@ -24,6 +24,8 @@ import {
   type V3TaskState,
 } from "../lib/socket_v3";
 import { WORKBENCH_V3 } from "../lib/copy";
+import { useAppStore } from "../lib/store";
+import { assistantRoleLabel } from "../lib/assistantDisplayName";
 import {
   ClarificationCard,
   ConfirmationCard,
@@ -65,6 +67,9 @@ export function WorkbenchV3() {
   const [currentStatus, setCurrentStatus] = useState<string>("");
   const [taskState, setTaskState] = useState<V3TaskState | null>(null);
   const [showInsights, setShowInsights] = useState(false);
+  const assistantDisplayName = useAppStore(
+    (state) => state.context.assistantDisplayName,
+  );
 
   const channelRef = useRef<Channel | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -321,7 +326,7 @@ export function WorkbenchV3() {
             }
           >
             <span className={styles.role}>
-              {msg.role === "user" ? "你" : "AI"}
+              {assistantRoleLabel(msg.role, assistantDisplayName)}
             </span>
             <div className={styles.text}>{msg.text}</div>
 

@@ -12,6 +12,7 @@ describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-10 micro plan entry", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");
     expect(nativeSliceIds).toContain("su02-work-switching");
+    expect(nativeSliceIds).toContain("su03-assistant-display-name");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
     expect(nativeSliceIds).toContain("au05-adoption-boundary");
@@ -25,6 +26,55 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("accepts SU-03 assistant display name evidence as work-scoped UI state", () => {
+    const records = [
+      { event: "channel.join.done", work_id: "work-a", session_id: "session-a" },
+      { event: "channel.join.done", work_id: "work-b", session_id: "session-b" },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su03-assistant-display-name",
+        work_id: "work-a",
+        context_work_id: "work-a",
+        initial_work_id: "work-a",
+        created_work_id: "work-b",
+        socket_connected: true,
+        assistant_name_after_save: "创作助手",
+        assistant_role_after_save: "创作助手",
+        assistant_name_in_created_work: "AI",
+        assistant_name_after_return: "创作助手",
+        assistant_role_after_return: "创作助手",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("su03-assistant-display-name", records);
+    expect(evidence).toEqual({
+      slice_id: "su03-assistant-display-name",
+      turn_ids: [],
+      work_id: "work-a",
+      created_work_id: "work-b",
+      assistant_name_after_save: "创作助手",
+      assistant_name_in_created_work: "AI",
+      assistant_name_after_return: "创作助手",
+      key_events: keyEventsForSlice("su03-assistant-display-name"),
+    });
+    expect(findSliceBehaviorEvidence("su03-assistant-display-name", records, evidence)).toEqual({
+      slice_id: "su03-assistant-display-name",
+      behavior: "assistant_display_name_is_work_scoped_ui_preference",
+      turn_ids: [],
+      work_id: "work-a",
+      created_work_id: "work-b",
+      assertions: [
+        "assistant_name_changed_from_real_workbench_entry",
+        "assistant_message_role_remained_assistant",
+        "display_name_saved_for_current_work",
+        "new_work_fell_back_to_default_ai_name",
+        "switching_back_restored_original_work_name",
+        "preference_did_not_touch_provider_or_turn_result_contract",
+        "no_error_events",
+      ],
+    });
   });
 
   it("accepts AU-09 archive evidence from real scoped archive records", () => {

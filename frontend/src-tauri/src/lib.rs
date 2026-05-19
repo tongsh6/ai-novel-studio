@@ -1,11 +1,17 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
 use tauri::Manager;
 
 #[derive(Debug, Default, Deserialize, Serialize)]
 struct Preferences {
+  #[serde(default)]
   last_opened_work_id: Option<String>,
+  #[serde(default)]
+  assistant_display_names: HashMap<String, String>,
 }
+
+const MAX_ASSISTANT_DISPLAY_NAME_LENGTH: usize = 20;
 
 fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
   let dir = app
@@ -56,12 +62,75 @@ fn set_last_opened_work_id(app: tauri::AppHandle, id: String) -> Result<(), Stri
   write_preferences(&app, &preferences)
 }
 
+#[tauri::command]
+fn get_assistant_display_name(
+  app: tauri::AppHandle,
+  work_id: String,
+) -> Result<Option<String>, String> {
+  let work_id = normalize_work_id(work_id)?;
+  Ok(read_preferences(&app)?
+    .assistant_display_names
+    .get(&work_id)
+    .cloned())
+}
+
+#[tauri::command]
+fn set_assistant_display_name(
+  app: tauri::AppHandle,
+  work_id: String,
+  display_name: String,
+) -> Result<Option<String>, String> {
+  let work_id = normalize_work_id(work_id)?;
+  let display_name = normalize_assistant_display_name(&display_name);
+  let mut preferences = read_preferences(&app)?;
+
+  match display_name {
+    Some(name) => {
+      preferences
+        .assistant_display_names
+        .insert(work_id, name.clone());
+      write_preferences(&app, &preferences)?;
+      Ok(Some(name))
+    }
+    None => {
+      preferences.assistant_display_names.remove(&work_id);
+      write_preferences(&app, &preferences)?;
+      Ok(None)
+    }
+  }
+}
+
+fn normalize_work_id(work_id: String) -> Result<String, String> {
+  let trimmed = work_id.trim();
+  if trimmed.is_empty() || trimmed == "lobby" {
+    return Err("work id must be a real work id".into());
+  }
+
+  Ok(trimmed.to_string())
+}
+
+fn normalize_assistant_display_name(display_name: &str) -> Option<String> {
+  let trimmed = display_name.trim();
+  if trimmed.is_empty() {
+    return None;
+  }
+
+  Some(
+    trimmed
+      .chars()
+      .take(MAX_ASSISTANT_DISPLAY_NAME_LENGTH)
+      .collect(),
+  )
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
   tauri::Builder::default()
     .invoke_handler(tauri::generate_handler![
       get_last_opened_work_id,
-      set_last_opened_work_id
+      set_last_opened_work_id,
+      get_assistant_display_name,
+      set_assistant_display_name
     ])
     .setup(|app| {
       if cfg!(debug_assertions) {

@@ -151,9 +151,23 @@ export const CARD = {
 // ============================================================
 
 export const WORKBENCH = {
+  userDisplayName: "你",
+  assistantDisplayNameDefault: "AI",
+  assistantDisplayNameAction: "AI 名称",
+  assistantDisplayNameTitle: "AI 显示名",
+  assistantDisplayNameDescription: "只改变当前作品里的界面称呼。",
+  assistantDisplayNameField: "显示名",
+  assistantDisplayNamePlaceholder: "AI",
+  assistantDisplayNameSave: "保存名称",
+  assistantDisplayNameReset: "恢复默认",
+  assistantDisplayNameSaving: "保存中",
+  assistantDisplayNameFailure: "名称保存失败，请重试。",
   inputPlaceholder: "输入你的想法、问题或指令...",
   send: "发送",
+  thinking: "思考中...",
   emptyState: "开始对话，创作你的作品",
+  welcomeMessage:
+    "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
   startupFailurePrefix: "作品上下文加载失败，工作台未连接。",
   startupFailureLoadWork: "无法获取或创建作品：",
   startupFailureResumeSession: "无法恢复作品会话：",
@@ -171,6 +185,12 @@ export const WORKBENCH = {
   unnamedWorkTitle: "未命名作品",
   switchFailurePrefix: "作品切换失败：",
   createWorkFailure: "新建作品失败，请重试。",
+  adoptionIncomplete: "采纳未完成，请查看系统提示后重试。",
+  actionFailure: "操作失败，请重试。",
+  actionConfirm: "确认执行",
+  actionReject: "拒绝",
+  actionCancel: "取消",
+  actionAnswer: "回答",
 } as const;
 
 export function candidateContinuationText(title: string, pitch: string): string {

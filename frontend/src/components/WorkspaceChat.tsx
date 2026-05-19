@@ -3,8 +3,9 @@
 // Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
 import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
+import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { BookOpen, ChevronDown, MessageCircle, Plus, RefreshCw } from "lucide-react";
+import { BookOpen, Bot, ChevronDown, MessageCircle, Plus, RefreshCw, RotateCcw } from "lucide-react";
 
 import {
   createSocket,
@@ -69,6 +70,13 @@ import { isTauri } from "../lib/env";
 import { getProviderHealth } from "../lib/providerHealth";
 import { WORKBENCH } from "../lib/copy";
 import { buildCandidateContinuation } from "../lib/candidateSelection";
+import {
+  DEFAULT_ASSISTANT_DISPLAY_NAME,
+  assistantRoleLabel,
+  getAssistantDisplayName,
+  resetAssistantDisplayName,
+  setAssistantDisplayName,
+} from "../lib/assistantDisplayName";
 
 import styles from "./WorkspaceChat.module.css";
 
@@ -157,6 +165,13 @@ export function WorkspaceChat() {
   const [works, setWorks] = useState<WorkDto[]>([]);
   const [workMenuOpen, setWorkMenuOpen] = useState(false);
   const [workSwitchingId, setWorkSwitchingId] = useState<string | null>(null);
+  const [assistantDisplayName, setAssistantDisplayNameState] = useState<string>(
+    DEFAULT_ASSISTANT_DISPLAY_NAME,
+  );
+  const [assistantNameDialogOpen, setAssistantNameDialogOpen] = useState(false);
+  const [assistantNameDraft, setAssistantNameDraft] = useState("");
+  const [assistantNameSaving, setAssistantNameSaving] = useState(false);
+  const [assistantNameError, setAssistantNameError] = useState<string | null>(null);
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore(state => state.socketConnected);
@@ -429,9 +444,13 @@ export function WorkspaceChat() {
     setTranscriptRestored(false);
     resumeRestoredTranscriptRef.current = false;
     setMessages([]);
+    setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
+    setAssistantNameDraft("");
+    setAssistantNameError(null);
     setContext({
       workId: work.id,
       workTitle: work.title,
+      assistantDisplayName: DEFAULT_ASSISTANT_DISPLAY_NAME,
       volumeId: null,
       volumeTitle: "未定卷",
       chapterId: null,
@@ -451,8 +470,16 @@ export function WorkspaceChat() {
 
     let workTitle = work.title;
     let sessionId: string | null = null;
+    let activeAssistantDisplayName: string = DEFAULT_ASSISTANT_DISPLAY_NAME;
 
     try {
+      const displayName = await getAssistantDisplayName(work.id);
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      activeAssistantDisplayName = displayName;
+      setAssistantDisplayNameState(displayName);
+      setAssistantNameDraft(displayName === DEFAULT_ASSISTANT_DISPLAY_NAME ? "" : displayName);
+      setContext({ assistantDisplayName: displayName });
+
       const snapshot = await resumeWorkspace(work.id);
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
 
@@ -524,7 +551,7 @@ export function WorkspaceChat() {
           return [
             {
               role: "assistant",
-              text: "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
+              text: WORKBENCH.welcomeMessage,
             },
           ];
         });
@@ -532,6 +559,7 @@ export function WorkspaceChat() {
         setContext({
           workId: joinedWorkId,
           workTitle,
+          assistantDisplayName: activeAssistantDisplayName,
           volumeTitle: "未定卷",
         });
       })
@@ -578,7 +606,12 @@ export function WorkspaceChat() {
       const detail = error instanceof Error ? error.message : String(error);
       activeConnectionRef.current = { token: connectionTokenRef.current + 1, workId: null };
       setSocketConnected(false);
-      setContext({ workId: null, workTitle: "作品加载失败", volumeTitle: null });
+      setContext({
+        workId: null,
+        workTitle: "作品加载失败",
+        assistantDisplayName: DEFAULT_ASSISTANT_DISPLAY_NAME,
+        volumeTitle: null,
+      });
       setMessages([startupFailureMessage(`${WORKBENCH.startupFailureLoadWork}${detail}`)]);
     }
   }
@@ -654,6 +687,7 @@ export function WorkspaceChat() {
       autorunSlice !== "au09-memory-recall-context" &&
       autorunSlice !== "stage-startup-context-contract" &&
       autorunSlice !== "workspace-runtime-state" &&
+      autorunSlice !== "su03-assistant-display-name" &&
       autorunSlice !== "au03c-work-session-resume"
     ) return;
     if (!socketConnected || sliceVerifyAutorunRef.current) return;
@@ -786,6 +820,111 @@ export function WorkspaceChat() {
         };
 
         void driveSwitchingProof();
+      }, 150));
+    } else if (autorunSlice === "su03-assistant-display-name") {
+      timers.push(window.setTimeout(() => {
+        const driveAssistantNameProof = async () => {
+          const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+          const initialWorkId = context.workId;
+          if (!initialWorkId) return;
+
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="assistant-name-trigger"]')
+            ?.click();
+          await delay(80);
+          setAssistantNameDraft("创作助手");
+          await delay(80);
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="assistant-name-save"]')
+            ?.click();
+          await delay(250);
+          const nameAfterSave =
+            document.querySelector<HTMLElement>('[data-slice-verify="assistant-display-name"]')
+              ?.innerText ?? "";
+          const assistantRoleAfterSave =
+            document.querySelector<HTMLElement>('[data-slice-verify="assistant-role-label"]')
+              ?.innerText ?? "";
+
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="work-switcher"]')
+            ?.click();
+          await delay(100);
+          const createItem = document.querySelector<HTMLElement>('[data-slice-verify="work-create"]');
+          if (createItem) {
+            createItem.click();
+          } else {
+            const created = await createWork({ title: WORKBENCH.unnamedWorkTitle });
+            setWorks((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+            setWorkMenuOpen(false);
+            await openWorkRef.current(created);
+          }
+          await delay(1400);
+
+          const createdWorkId = useAppStore.getState().context.workId;
+          const nameInCreatedWork =
+            document.querySelector<HTMLElement>('[data-slice-verify="assistant-display-name"]')
+              ?.innerText ?? "";
+
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="work-switcher"]')
+            ?.click();
+          await delay(100);
+          const initialWorkItem = document
+            .querySelector<HTMLElement>(
+              `[data-slice-verify="work-switch-item"][data-work-id="${initialWorkId}"]`,
+            );
+          if (initialWorkItem) {
+            initialWorkItem.click();
+          } else {
+            const refreshedWorks = await listWorks();
+            setWorks(refreshedWorks);
+            const initialWork = refreshedWorks.find((work) => work.id === initialWorkId);
+            if (initialWork) await openWorkRef.current(initialWork);
+          }
+          await delay(1400);
+
+          if (!channelRef.current || sliceVerifyUiReported.has("su03-assistant-display-name")) return;
+          sliceVerifyUiReported.add("su03-assistant-display-name");
+
+          const nameAfterReturn =
+            document.querySelector<HTMLElement>('[data-slice-verify="assistant-display-name"]')
+              ?.innerText ?? "";
+          const assistantRoleAfterReturn =
+            document.querySelector<HTMLElement>('[data-slice-verify="assistant-role-label"]')
+              ?.innerText ?? "";
+          const currentContext = useAppStore.getState().context;
+
+          void reportSliceVerifyUiState(channelRef.current, {
+            slice_id: "su03-assistant-display-name",
+            context_work_id: currentContext.workId,
+            context_work_title: currentContext.workTitle,
+            active_session_id: activeSessionId,
+            restored_turn_id: null,
+            socket_connected: useAppStore.getState().socketConnected,
+            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
+            welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
+              .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length,
+            pending_adoption_count: pendingAdoptionsCount,
+            first_message_text:
+              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
+                ?.innerText ?? "",
+            service_status_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                ?.innerText ?? "",
+            title_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+                ?.innerText ?? "",
+            initial_work_id: initialWorkId,
+            created_work_id: createdWorkId,
+            assistant_name_after_save: nameAfterSave,
+            assistant_role_after_save: assistantRoleAfterSave,
+            assistant_name_in_created_work: nameInCreatedWork,
+            assistant_name_after_return: nameAfterReturn,
+            assistant_role_after_return: assistantRoleAfterReturn,
+          }).catch(() => undefined);
+        };
+
+        void driveAssistantNameProof();
       }, 150));
     } else if (autorunSlice === "au02-candidate-continuation") {
       timers.push(window.setTimeout(() => {
@@ -991,13 +1130,13 @@ export function WorkspaceChat() {
       if (result.action_status !== "accepted") {
         setMessages((prev) => [
           ...prev,
-          { role: "assistant", text: "采纳未完成，请查看系统提示后重试。" },
+          { role: "assistant", text: WORKBENCH.adoptionIncomplete },
         ]);
       }
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: "操作失败，请重试。" },
+        { role: "assistant", text: WORKBENCH.actionFailure },
       ]);
     }
   };
@@ -1013,16 +1152,16 @@ export function WorkspaceChat() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: "操作失败，请重试。" },
+        { role: "assistant", text: WORKBENCH.actionFailure },
       ]);
     }
   };
 
   const actionLabel = (action: AvailableActionLike) => {
-    if (action.action_type === "confirm_before_execute") return "确认执行";
-    if (action.action_type === "reject_or_cancel_confirmation") return "拒绝";
-    if (action.action_type === "cancel_pending_behavior") return "取消";
-    if (action.action_type === "answer_clarification") return "回答";
+    if (action.action_type === "confirm_before_execute") return WORKBENCH.actionConfirm;
+    if (action.action_type === "reject_or_cancel_confirmation") return WORKBENCH.actionReject;
+    if (action.action_type === "cancel_pending_behavior") return WORKBENCH.actionCancel;
+    if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     return action.action_type;
   };
 
@@ -1108,6 +1247,50 @@ export function WorkspaceChat() {
         ...prev,
         { role: "assistant", text: WORKBENCH.createWorkFailure },
       ]);
+    }
+  };
+
+  const openAssistantNameDialog = () => {
+    setAssistantNameDraft(
+      assistantDisplayName === DEFAULT_ASSISTANT_DISPLAY_NAME ? "" : assistantDisplayName,
+    );
+    setAssistantNameError(null);
+    setAssistantNameDialogOpen(true);
+  };
+
+  const applyAssistantDisplayName = async (value: string) => {
+    if (!context.workId || assistantNameSaving) return;
+    setAssistantNameSaving(true);
+    setAssistantNameError(null);
+
+    try {
+      const savedName = await setAssistantDisplayName(context.workId, value);
+      setAssistantDisplayNameState(savedName);
+      setAssistantNameDraft(savedName === DEFAULT_ASSISTANT_DISPLAY_NAME ? "" : savedName);
+      setContext({ assistantDisplayName: savedName });
+      setAssistantNameDialogOpen(false);
+    } catch {
+      setAssistantNameError(WORKBENCH.assistantDisplayNameFailure);
+    } finally {
+      setAssistantNameSaving(false);
+    }
+  };
+
+  const handleAssistantNameReset = async () => {
+    if (!context.workId || assistantNameSaving) return;
+    setAssistantNameSaving(true);
+    setAssistantNameError(null);
+
+    try {
+      const savedName = await resetAssistantDisplayName(context.workId);
+      setAssistantDisplayNameState(savedName);
+      setAssistantNameDraft("");
+      setContext({ assistantDisplayName: savedName });
+      setAssistantNameDialogOpen(false);
+    } catch {
+      setAssistantNameError(WORKBENCH.assistantDisplayNameFailure);
+    } finally {
+      setAssistantNameSaving(false);
     }
   };
 
@@ -1205,6 +1388,86 @@ export function WorkspaceChat() {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+          <Dialog.Root open={assistantNameDialogOpen} onOpenChange={setAssistantNameDialogOpen}>
+            <Dialog.Trigger asChild>
+              <button
+                className={styles.assistantNameButton}
+                data-slice-verify="assistant-name-trigger"
+                type="button"
+                disabled={!hasValidRuntimeWork}
+                title={WORKBENCH.assistantDisplayNameAction}
+                onClick={openAssistantNameDialog}
+              >
+                <Bot size={15} aria-hidden="true" />
+                <span
+                  className={styles.assistantNameValue}
+                  data-slice-verify="assistant-display-name"
+                >
+                  {assistantDisplayName}
+                </span>
+              </button>
+            </Dialog.Trigger>
+            <Dialog.Portal>
+              <Dialog.Overlay className={styles.dialogOverlay} />
+              <Dialog.Content className={styles.dialogContent}>
+                <Dialog.Title className={styles.dialogTitle}>
+                  {WORKBENCH.assistantDisplayNameTitle}
+                </Dialog.Title>
+                <Dialog.Description className={styles.dialogDescription}>
+                  {WORKBENCH.assistantDisplayNameDescription}
+                </Dialog.Description>
+                <label className={styles.dialogLabel} htmlFor="assistant-display-name-input">
+                  {WORKBENCH.assistantDisplayNameField}
+                </label>
+                <input
+                  id="assistant-display-name-input"
+                  className={styles.dialogInput}
+                  data-slice-verify="assistant-name-input"
+                  value={assistantNameDraft}
+                  maxLength={20}
+                  placeholder={WORKBENCH.assistantDisplayNamePlaceholder}
+                  disabled={assistantNameSaving}
+                  onChange={(event) => setAssistantNameDraft(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void applyAssistantDisplayName(assistantNameDraft);
+                    }
+                  }}
+                />
+                {assistantNameError && (
+                  <div className={styles.dialogError}>{assistantNameError}</div>
+                )}
+                <div className={styles.dialogActions}>
+                  <button
+                    className={styles.btnSecondary}
+                    data-slice-verify="assistant-name-reset"
+                    type="button"
+                    disabled={assistantNameSaving}
+                    onClick={() => {
+                      void handleAssistantNameReset();
+                    }}
+                  >
+                    <RotateCcw size={14} aria-hidden="true" />
+                    <span>{WORKBENCH.assistantDisplayNameReset}</span>
+                  </button>
+                  <button
+                    className={styles.sendBtn}
+                    data-slice-verify="assistant-name-save"
+                    type="button"
+                    disabled={assistantNameSaving}
+                    onClick={() => {
+                      void applyAssistantDisplayName(assistantNameDraft);
+                    }}
+                  >
+                    {assistantNameSaving
+                      ? WORKBENCH.assistantDisplayNameSaving
+                      : WORKBENCH.assistantDisplayNameSave}
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
           <button 
             className={`${styles.btnSecondary} ${styles.readingModeButton}`}
             onClick={() => setMode("reading")}
@@ -1255,8 +1518,11 @@ export function WorkspaceChat() {
                   msg.role === "user" ? styles.userMsg : styles.assistantMsg
                 }
               >
-                <div className={styles.role}>
-                  {msg.role === "user" ? "你" : "AI"}
+                <div
+                  className={styles.role}
+                  data-slice-verify={msg.role === "assistant" ? "assistant-role-label" : undefined}
+                >
+                  {assistantRoleLabel(msg.role, assistantDisplayName)}
                 </div>
                 <div className={styles.text}>{msg.text}</div>
 
@@ -1421,8 +1687,10 @@ export function WorkspaceChat() {
 
             {loading && (
               <div className={styles.assistantMsg} data-status="thinking" data-role="assistant">
-                <div className={styles.role}>AI</div>
-                <div className={styles.text}>思考中...</div>
+                <div className={styles.role} data-slice-verify="assistant-role-label">
+                  {assistantRoleLabel("assistant", assistantDisplayName)}
+                </div>
+                <div className={styles.text}>{WORKBENCH.thinking}</div>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -1437,7 +1705,7 @@ export function WorkspaceChat() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder="输入指令或继续创作...（例如：我想创建一部玄幻小说）"
+              placeholder={WORKBENCH.inputPlaceholder}
               disabled={!socketConnected || isPanelOpen}
             />
             <button
@@ -1448,7 +1716,7 @@ export function WorkspaceChat() {
               }}
               disabled={loading || !socketConnected || isPanelOpen}
             >
-              发送
+              {WORKBENCH.send}
             </button>
           </div>
         </div>

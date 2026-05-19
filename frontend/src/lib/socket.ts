@@ -73,6 +73,13 @@ export interface SliceVerifyUiStatePayload {
   archive_detail_kind?: string;
   archive_detail_id?: string;
   archive_detail_title?: string;
+  initial_work_id?: string | null;
+  created_work_id?: string | null;
+  assistant_name_after_save?: string;
+  assistant_role_after_save?: string;
+  assistant_name_in_created_work?: string;
+  assistant_name_after_return?: string;
+  assistant_role_after_return?: string;
 }
 
 export function reportSliceVerifyUiState(

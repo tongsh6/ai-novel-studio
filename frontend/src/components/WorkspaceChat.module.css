@@ -146,6 +146,110 @@
   background-color: var(--border-subtle);
 }
 
+.assistantNameButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 78px;
+  max-width: 180px;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  color: var(--foreground-primary);
+  cursor: pointer;
+}
+
+.assistantNameButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.assistantNameValue {
+  overflow: hidden;
+  color: var(--foreground-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dialogOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  background-color: rgba(0, 0, 0, 0.18);
+}
+
+.dialogContent {
+  position: fixed;
+  top: 96px;
+  left: 50%;
+  z-index: 100;
+  display: flex;
+  width: min(360px, calc(100vw - 32px));
+  transform: translateX(-50%);
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.16);
+}
+
+.dialogTitle {
+  margin: 0;
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.dialogDescription {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+}
+
+.dialogLabel {
+  color: var(--foreground-secondary);
+  font-size: 12px;
+}
+
+.dialogInput {
+  width: 100%;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 14px;
+}
+
+.dialogError {
+  color: #d94a4a;
+  font-size: 12px;
+}
+
+.dialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.dialogActions .btnSecondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .divider1 {
   color: var(--border-subtle);
   font-family: var(--mono);

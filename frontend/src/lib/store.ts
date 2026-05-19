@@ -6,6 +6,7 @@ export type WorkspaceMode = "workbench" | "reading";
 export interface SystemContext {
   workId: string | null;
   workTitle: string | null;
+  assistantDisplayName: string | null;
   volumeId: string | null;
   volumeTitle: string | null;
   chapterId: string | null;
@@ -68,6 +69,7 @@ export const useAppStore = create<AppState>((set) => ({
   context: {
     workId: null,
     workTitle: null,
+    assistantDisplayName: null,
     volumeId: null,
     volumeTitle: null,
     chapterId: null,
