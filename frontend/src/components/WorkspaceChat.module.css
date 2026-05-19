@@ -278,6 +278,9 @@
 .riskBadge {
   background-color: var(--accent);
   color: var(--foreground-inverse);
+  display: inline-flex;
+  align-items: center;
+  max-width: 280px;
   padding: 4px 8px;
   border-radius: var(--rounded-sm);
   font-size: 12px;
@@ -294,6 +297,13 @@
 
 .riskBadgeError {
   background-color: #d94a4a;
+}
+
+.llmProviderName {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .readingModeButton {

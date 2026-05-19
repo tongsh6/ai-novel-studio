@@ -67,7 +67,7 @@ import {
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { isTauri } from "../lib/env";
-import { getProviderHealth } from "../lib/providerHealth";
+import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
 import { TRACE, WORKBENCH } from "../lib/copy";
 import { buildCandidateContinuation } from "../lib/candidateSelection";
 import {
@@ -220,7 +220,7 @@ export function WorkspaceChat() {
       try {
         const data = await getProviderHealth();
         setLlmConnected(data.connected);
-        if (data.model) setLlmModel(data.model);
+        setLlmModel(providerHealthName(data));
       } catch {
         setLlmConnected(false);
       }
@@ -781,6 +781,7 @@ export function WorkspaceChat() {
       autorunSlice !== "vs10-observability-spine" &&
       autorunSlice !== "su02-work-switching" &&
       autorunSlice !== "au10-micro-plan-entry" &&
+      autorunSlice !== "su01-provider-health-model" &&
       autorunSlice !== "au02-candidate-continuation" &&
       autorunSlice !== "au07-trace-why-entry" &&
       autorunSlice !== "au10-ordinary-chat-no-micro-plan" &&
@@ -800,6 +801,46 @@ export function WorkspaceChat() {
     if (!socketConnected || sliceVerifyAutorunRef.current) return;
     if (sliceVerifyAutorunStarted.has(autorunSlice)) return;
     if (autorunSlice === "au03c-work-session-resume" && transcriptRestored) return;
+    if (autorunSlice === "su01-provider-health-model") {
+      if (llmConnected === null) return;
+
+      sliceVerifyAutorunRef.current = true;
+      sliceVerifyAutorunStarted.add(autorunSlice);
+
+      const timer = window.setTimeout(() => {
+        if (!channelRef.current || sliceVerifyUiReported.has("su01-provider-health-model")) return;
+        sliceVerifyUiReported.add("su01-provider-health-model");
+
+        void reportSliceVerifyUiState(channelRef.current, {
+          slice_id: "su01-provider-health-model",
+          context_work_id: context.workId,
+          context_work_title: visibleWorkTitle,
+          active_session_id: activeSessionId,
+          restored_turn_id: null,
+          socket_connected: socketConnected,
+          message_count: messages.length,
+          welcome_message_count: messages.filter((message) =>
+            message.text.includes("欢迎使用 AI Novel Studio"),
+          ).length,
+          pending_adoption_count: pendingAdoptionsCount,
+          first_message_text: messages[0]?.text ?? "",
+          service_status_text:
+            document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+              ?.innerText ?? "",
+          title_text:
+            document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+              ?.innerText ?? "",
+          llm_status_text:
+            document.querySelector<HTMLElement>('[data-slice-verify="llm-status"]')
+              ?.innerText ?? "",
+          llm_connected: llmConnected,
+          llm_model_label: llmModel,
+        });
+      }, 250);
+
+      return () => window.clearTimeout(timer);
+    }
+
     if (autorunSlice === "stage-startup-context-contract" || autorunSlice === "workspace-runtime-state") {
       if (!transcriptRestored) return;
       if (!hasValidRuntimeWork || !activeSessionId || !channelRef.current) return;
@@ -1144,7 +1185,7 @@ export function WorkspaceChat() {
     return () => {
       timers.forEach((timer) => window.clearTimeout(timer));
     };
-  }, [activeSessionId, context.workId, hasValidRuntimeWork, messages, pendingAdoptionsCount, setMode, socketConnected, transcriptRestored, visibleWorkTitle]);
+  }, [activeSessionId, context.workId, hasValidRuntimeWork, llmConnected, llmModel, messages, pendingAdoptionsCount, setMode, socketConnected, transcriptRestored, visibleWorkTitle]);
 
   // ... (rest of the component)
 
@@ -1610,9 +1651,13 @@ export function WorkspaceChat() {
           <div
             className={llmBadgeClassName}
             data-status={llmConnected === true ? "ok" : "warn"}
+            data-slice-verify="llm-status"
             title={llmConnected ? `模型: ${llmModel}` : "请检查 LM Studio 是否已启动并加载模型"}
           >
             LLM: {llmConnected === null ? "检测中…" : llmConnected ? "已连接" : "未连接"}
+            {llmConnected && llmModel ? (
+              <span className={styles.llmProviderName}> · {llmModel}</span>
+            ) : null}
           </div>
           <div 
             className={serviceBadgeClassName}

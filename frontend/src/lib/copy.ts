@@ -418,6 +418,7 @@ export const WORKBENCH_V3 = {
   llmChecking: "检测中…",
   llmConnected: "LLM 已连接",
   llmDisconnected: "LLM 未连接",
+  llmProviderUnknown: "未配置模型",
   phaseCompleted: "已完成",
   phaseAwaiting: "等待你的操作",
   statusConversational: "对话中",

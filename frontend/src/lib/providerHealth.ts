@@ -5,6 +5,7 @@ import { apiBaseUrl } from "./env";
 
 export interface ProviderHealth {
   connected: boolean;
+  provider?: string;
   model?: string;
   message?: string;
 }
@@ -19,4 +20,10 @@ export async function getProviderHealth(): Promise<ProviderHealth> {
   const res = await fetch(providerHealthUrl());
   if (!res.ok) throw new Error(`getProviderHealth failed: HTTP ${res.status}`);
   return (await res.json()) as ProviderHealth;
+}
+
+export function providerHealthName(health: Pick<ProviderHealth, "provider" | "model">): string {
+  if (health.model) return health.model;
+  if (health.provider) return health.provider;
+  return "";
 }

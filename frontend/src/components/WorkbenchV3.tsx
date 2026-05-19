@@ -38,7 +38,7 @@ import {
   EscalationCard,
   DefaultCard,
 } from "./UICards";
-import { getProviderHealth } from "../lib/providerHealth";
+import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
 import styles from "./WorkbenchV3.module.css";
 
 // ── Types ─────────────────────────────────────────
@@ -81,7 +81,7 @@ export function WorkbenchV3() {
       try {
         const data = await getProviderHealth();
         setLlmStatus(data.connected);
-        if (data.model) setLlmModel(data.model);
+        setLlmModel(providerHealthName(data));
       } catch {
         setLlmStatus(false);
       }
@@ -302,7 +302,7 @@ export function WorkbenchV3() {
             {llmStatus === null
               ? WORKBENCH_V3.llmChecking
               : llmStatus
-                ? `${WORKBENCH_V3.llmConnected} (${llmModel || "LM Studio"})`
+                ? `${WORKBENCH_V3.llmConnected} (${llmModel || WORKBENCH_V3.llmProviderUnknown})`
                 : WORKBENCH_V3.llmDisconnected}
           </span>
           <span
