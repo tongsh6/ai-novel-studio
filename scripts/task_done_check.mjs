@@ -85,7 +85,7 @@ function writeManifest() {
     ui_touched_files: uiFiles,
     ui: {
       status: uiStatus,
-      slice_id: args["slice-id"] || null,
+      slice_id: optionalString(args["slice-id"]),
       summary_path: uiSummary,
       artifact_dir: uiSummary ? normalizePath(path.dirname(path.resolve(rootDir, uiSummary))) : null,
     },
@@ -272,11 +272,15 @@ function readCommand(command) {
 }
 
 function normalizeOptionalPath(file) {
-  if (!file) {
+  if (typeof file !== "string" || file.length === 0) {
     return null;
   }
 
   return normalizePath(path.resolve(rootDir, file));
+}
+
+function optionalString(value) {
+  return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 function resolveOptionalPath(file) {
