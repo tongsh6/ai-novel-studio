@@ -8,12 +8,11 @@ defmodule NovelCommon.LLMLog do
   require Logger
 
   # 从源文件向上查找 mix.exs 定位项目根。有停止条件，不会无限循环
-  @project_root_dir (
-    __DIR__
-    |> Stream.iterate(&Path.dirname/1)
-    |> Stream.take_while(&(&1 != "/"))
-    |> Enum.find(&File.exists?(Path.join(&1, "mix.exs")))
-  ) || raise("Cannot find project root (mix.exs) from #{__DIR__}")
+  @project_root_dir __DIR__
+                    |> Stream.iterate(&Path.dirname/1)
+                    |> Stream.take_while(&(&1 != "/"))
+                    |> Enum.find(&File.exists?(Path.join(&1, "mix.exs"))) ||
+                      raise("Cannot find project root (mix.exs) from #{__DIR__}")
 
   @doc """
   记录一次 LLM 调用。各 adapter 在 complete/4 返回前调用。
@@ -26,7 +25,13 @@ defmodule NovelCommon.LLMLog do
       step: Process.get(:current_step, "unknown"),
       provider: provider,
       request: %{method: "POST", url: url, body: req_body},
-      response: %{status: status, body: resp_body, model: provider, usage: usage, duration_ms: duration}
+      response: %{
+        status: status,
+        body: resp_body,
+        model: provider,
+        usage: usage,
+        duration_ms: duration
+      }
     })
   end
 
@@ -36,8 +41,8 @@ defmodule NovelCommon.LLMLog do
   end
 
   defp extract_attrs({:ok, _ok_result, attrs}, _start_time) do
-    {Map.get(attrs, :status, 0), Map.get(attrs, :usage, %{}),
-     Map.get(attrs, :duration, 0), Map.get(attrs, :resp_body, "")}
+    {Map.get(attrs, :status, 0), Map.get(attrs, :usage, %{}), Map.get(attrs, :duration, 0),
+     Map.get(attrs, :resp_body, "")}
   end
 
   defp extract_attrs({:error, _error_tuple, attrs}, start_time) do
@@ -67,14 +72,20 @@ defmodule NovelCommon.LLMLog do
         :error -> Process.get(:current_turn_id) || "unknown"
       end
 
-    record = %{
-      ts: ts,
-      turn_id: turn_id,
-      step: Map.get(entry, :step, "unknown"),
-      provider: Map.get(entry, :provider, "unknown"),
-      request: sanitize_request(entry.request),
-      response: sanitize_response(entry.response)
-    }
+    metadata = Logger.metadata()
+
+    record =
+      %{
+        ts: ts,
+        turn_id: turn_id,
+        step: Map.get(entry, :step, "unknown"),
+        provider: Map.get(entry, :provider, "unknown"),
+        request: sanitize_request(entry.request),
+        response: sanitize_response(entry.response)
+      }
+      |> maybe_put_from_meta(:workspace_id, metadata)
+      |> maybe_put_from_meta(:work_id, metadata)
+      |> maybe_put_from_meta(:session_id, metadata)
 
     case Jason.encode(record) do
       {:ok, json} ->
@@ -125,5 +136,12 @@ defmodule NovelCommon.LLMLog do
       usage: Map.get(resp, :usage, %{}),
       duration_ms: Map.get(resp, :duration_ms, 0)
     }
+  end
+
+  defp maybe_put_from_meta(map, key, metadata) do
+    case Keyword.get(metadata, key) do
+      nil -> map
+      value -> Map.put(map, key, value)
+    end
   end
 end

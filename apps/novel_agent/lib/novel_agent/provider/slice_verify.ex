@@ -61,7 +61,8 @@ defmodule NovelAgent.Provider.SliceVerify do
   end
 
   defp exploratory_prompt?(prompt) do
-    Enum.any?(["生成", "角色", "方向", "怎么切入", "小说创作"], &String.contains?(prompt, &1))
+    text = author_input_text(prompt)
+    Enum.any?(["生成", "角色", "方向", "怎么切入", "小说创作"], &String.contains?(text, &1))
   end
 
   defp frame_message(true),
@@ -151,9 +152,15 @@ defmodule NovelAgent.Provider.SliceVerify do
   end
 
   defp author_input_text(prompt) do
-    case Regex.run(~r/## 用户输入\s*(.*?)\s*## 输出格式/s, prompt) do
-      [_, text] -> text
-      _ -> prompt
+    case Regex.run(~r/用户消息：\s*(.*?)\s*$/s, prompt) do
+      [_, text] ->
+        text
+
+      _ ->
+        case Regex.run(~r/## 用户输入\s*(.*?)\s*## 输出格式/s, prompt) do
+          [_, text] -> text
+          _ -> prompt
+        end
     end
   end
 end

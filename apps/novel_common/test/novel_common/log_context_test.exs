@@ -27,6 +27,19 @@ defmodule NovelCommon.LogContextTest do
       assert Keyword.fetch!(meta, :turn_id) == "turn-1"
     end
 
+    test "sets and clears session_id at turn boundaries" do
+      :ok = LogContext.put_turn("ws-1", "work-1", "turn-1", "session-1")
+
+      meta = Logger.metadata()
+      assert Keyword.fetch!(meta, :session_id) == "session-1"
+
+      :ok = LogContext.put_turn("ws-1", "work-1", "turn-2")
+
+      meta = Logger.metadata()
+      refute Keyword.has_key?(meta, :session_id)
+      assert Keyword.fetch!(meta, :turn_id) == "turn-2"
+    end
+
     test "does not set work_id when nil" do
       :ok = LogContext.put_turn("ws-2")
 

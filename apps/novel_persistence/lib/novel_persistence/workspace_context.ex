@@ -35,13 +35,13 @@ defmodule NovelPersistence.WorkspaceContext do
   @doc """
   构建带作者输入的 context fetcher 回调，用于当前 turn 的相关记忆召回。
 
-  返回 (workspace_id, author_text -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary})。
+  返回 (workspace_id, author_text, session_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary})。
   """
   @spec context_fetcher_with_query() :: function()
   def context_fetcher_with_query do
-    fn workspace_id, author_text ->
+    fn workspace_id, author_text, session_id ->
       snapshot = fetch_workspace_info(workspace_id)
-      conv_summary = fetch_conversation_summary(workspace_id)
+      conv_summary = fetch_conversation_summary(workspace_id, session_id)
       {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, author_text), nil}
     end
   end
@@ -105,14 +105,31 @@ defmodule NovelPersistence.WorkspaceContext do
       )
       |> Repo.all()
 
-    if interactions != [] do
-      snippets =
-        interactions
-        |> Enum.reverse()
-        |> Enum.map_join("\n", fn i -> "#{i.role}: #{interaction_text(i)}" end)
+    interactions
+    |> Enum.reverse()
+    |> conversation_summary()
+  end
 
-      snippets
-    end
+  defp fetch_conversation_summary(workspace_id, session_id)
+       when is_binary(session_id) and session_id != "" do
+    interactions =
+      from(i in Interaction,
+        where: i.workspace_id == ^workspace_id and i.session_id == ^session_id,
+        order_by: [asc: i.inserted_at, asc: i.id],
+        limit: 10
+      )
+      |> Repo.all()
+
+    conversation_summary(interactions)
+  end
+
+  defp fetch_conversation_summary(workspace_id, _session_id),
+    do: fetch_conversation_summary(workspace_id)
+
+  defp conversation_summary([]), do: nil
+
+  defp conversation_summary(interactions) do
+    Enum.map_join(interactions, "\n", fn i -> "#{i.role}: #{interaction_text(i)}" end)
   end
 
   defp interaction_text(%Interaction{content: content}) when is_map(content) do

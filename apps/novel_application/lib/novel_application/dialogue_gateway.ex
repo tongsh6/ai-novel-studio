@@ -51,18 +51,20 @@ defmodule NovelApplication.DialogueGateway do
     turn_id = Map.get(input, :turn_id) || Map.get(input, "turn_id") || allocate_turn_id()
 
     t0 = System.monotonic_time(:millisecond)
-    LogContext.put_turn(ws_id, work_id, turn_id)
+    LogContext.put_turn(ws_id, work_id, turn_id, session_id)
 
     LogEmit.emit(:dialogue_gateway, :handle_input, :start, %{
       workspace_id: ws_id,
-      work_id: work_id
+      work_id: work_id,
+      session_id: session_id
     })
 
     context =
       ContextAssembler.assemble_for_input(
         ws_id,
         text,
-        context_fetcher_or_default(context_fetcher)
+        context_fetcher_or_default(context_fetcher),
+        session_id: session_id
       )
 
     frame_input = %{text: text, workspace_id: ws_id, turn_id: turn_id}

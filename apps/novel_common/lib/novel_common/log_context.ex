@@ -18,15 +18,15 @@ defmodule NovelCommon.LogContext do
   The gateway should pass an already allocated `turn_id` so every downstream
   business log line can share the same correlation key from the first event.
   """
-  @spec put_turn(String.t(), String.t() | nil, String.t() | nil) :: :ok
-  def put_turn(workspace_id, work_id \\ nil, turn_id \\ nil) do
-    Logger.metadata(workspace_id: workspace_id)
-    if work_id, do: Logger.metadata(work_id: work_id)
-
+  @spec put_turn(String.t(), String.t() | nil, String.t() | nil, String.t() | nil) :: :ok
+  def put_turn(workspace_id, work_id \\ nil, turn_id \\ nil, session_id \\ nil) do
     # Clear previous turn's local keys so the new turn starts with a
-    # clean correlation slate. workspace_id + work_id persist; turn_id is set
-    # when the gateway has already allocated one.
+    # clean correlation slate. turn_id/session_id are set only when the entry
+    # point has already allocated/restored them.
     Logger.metadata(
+      workspace_id: workspace_id,
+      work_id: work_id,
+      session_id: session_id,
       turn_id: turn_id,
       frame_id: nil,
       behavior_id: nil,

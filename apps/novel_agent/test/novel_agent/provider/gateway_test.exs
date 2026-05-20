@@ -77,6 +77,58 @@ defmodule NovelAgent.Provider.GatewayTest do
       end
     end
 
+    test "classifies ordinary chat from author input instead of prompt instructions" do
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :slice_verify)
+
+      prompt = """
+      你是一个小说创作 AI。分析用户消息并返回 JSON。
+
+      ## 输出格式（严格 JSON）
+      {"candidate_directions": [{"title": "方向标题"}]}
+
+      ## 规则
+      - frame_type == "creative_exploration" 时，candidate_directions 必须包含 2-3 个方向对象
+
+      用户消息：你好，先介绍一下你能如何协助我
+      """
+
+      try do
+        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert {:ok, parsed} = Jason.decode(content)
+        assert parsed["frame_type"] == "casual_reply"
+        assert parsed["candidate_directions"] == []
+      after
+        Application.put_env(:novel_agent, :provider, old)
+      end
+    end
+
+    test "keeps exploration candidates when the author asks for directions" do
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :slice_verify)
+
+      prompt = """
+      你是一个小说创作 AI。分析用户消息并返回 JSON。
+
+      ## 输出格式（严格 JSON）
+      {"candidate_directions": [{"title": "方向标题"}]}
+
+      ## 规则
+      - frame_type == "creative_exploration" 时，candidate_directions 必须包含 2-3 个方向对象
+
+      用户消息：我想找一个赛博修仙方向
+      """
+
+      try do
+        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert {:ok, parsed} = Jason.decode(content)
+        assert parsed["frame_type"] == "creative_exploration"
+        assert length(parsed["candidate_directions"]) == 2
+      after
+        Application.put_env(:novel_agent, :provider, old)
+      end
+    end
+
     test "returns author-facing text for tool narration prompts" do
       old = Application.get_env(:novel_agent, :provider)
       Application.put_env(:novel_agent, :provider, default: :slice_verify)

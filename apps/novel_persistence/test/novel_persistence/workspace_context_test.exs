@@ -14,6 +14,8 @@ defmodule NovelPersistence.WorkspaceContextTest do
   alias NovelPersistence.MemoryReferenceLog
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.MemoryItem
+  alias NovelPersistence.WorkRepo
+  alias NovelPersistence.WorkSessionRepo
   alias NovelPersistence.WorkspaceContext
 
   setup do
@@ -49,7 +51,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
-      assert {:ok, nil, nil, summary, nil} = fetcher.(work_id, "林烬为什么要去灵源矿区？")
+      assert {:ok, nil, nil, summary, nil} = fetcher.(work_id, "林烬为什么要去灵源矿区？", nil)
       assert summary =~ "林瑶失踪与灵源矿区有关"
       refute summary =~ "未确认龙线"
       refute summary =~ "雨夜独行"
@@ -62,6 +64,21 @@ defmodule NovelPersistence.WorkspaceContextTest do
       reloaded = Repo.get!(MemoryItem, memory.id)
       assert reloaded.reference_count == memory.reference_count + 1
       assert reloaded.last_referenced_at != nil
+    end
+
+    test "query fetcher scopes conversation summary to the active session" do
+      {:ok, work} = WorkRepo.create(%{title: "会话上下文隔离"})
+      {:ok, active_session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+      {:ok, other_session} = WorkSessionRepo.create(%{work_id: work.id, title: "其他会话"})
+
+      record_interaction(work.id, active_session.id, "turn-a", "user", "第一会话主角叫林烬")
+      record_interaction(work.id, other_session.id, "turn-b", "user", "另一个会话主角叫周燃")
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, summary, nil, nil} = fetcher.(work.id, "他叫什么？", active_session.id)
+      assert String.contains?(summary, "user: 第一会话主角叫林烬")
+      refute String.contains?(summary, "周燃")
     end
   end
 
@@ -88,6 +105,16 @@ defmodule NovelPersistence.WorkspaceContextTest do
       ws_id
       |> interaction_attrs(turn_id, role, text)
       |> Map.put(:workspace_id, ws_id)
+
+    assert {:ok, _interaction} = MemoryLog.record(attrs)
+  end
+
+  defp record_interaction(ws_id, session_id, turn_id, role, text) do
+    attrs =
+      ws_id
+      |> interaction_attrs(turn_id, role, text)
+      |> Map.put(:workspace_id, ws_id)
+      |> Map.put(:session_id, session_id)
 
     assert {:ok, _interaction} = MemoryLog.record(attrs)
   end

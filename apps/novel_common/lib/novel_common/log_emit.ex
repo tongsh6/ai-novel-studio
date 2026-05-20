@@ -2,12 +2,11 @@ defmodule NovelCommon.LogEmit do
   require Logger
 
   # Find project root once, at compile time.
-  @project_root_dir (
-    __DIR__
-    |> Stream.iterate(&Path.dirname/1)
-    |> Stream.take_while(&(&1 != "/"))
-    |> Enum.find(&File.exists?(Path.join(&1, "mix.exs")))
-  ) || raise("Cannot find project root (mix.exs) from #{__DIR__}")
+  @project_root_dir __DIR__
+                    |> Stream.iterate(&Path.dirname/1)
+                    |> Stream.take_while(&(&1 != "/"))
+                    |> Enum.find(&File.exists?(Path.join(&1, "mix.exs"))) ||
+                      raise("Cannot find project root (mix.exs) from #{__DIR__}")
 
   @moduledoc """
   Structured business-log emission. ADR-0018 §3 (§5).
@@ -70,7 +69,8 @@ defmodule NovelCommon.LogEmit do
   # ── Runtime emission ──────────────────────────
 
   @doc false
-  def __emit__(module, step, phase, fields) when is_atom(module) and is_atom(step) and is_map(fields) do
+  def __emit__(module, step, phase, fields)
+      when is_atom(module) and is_atom(step) and is_map(fields) do
     event = :"#{module}.#{step}.#{phase}"
 
     metadata = Logger.metadata()
@@ -86,6 +86,7 @@ defmodule NovelCommon.LogEmit do
       base
       |> maybe_put_from_meta(:workspace_id, metadata)
       |> maybe_put_from_meta(:work_id, metadata)
+      |> maybe_put_from_meta(:session_id, metadata)
       |> maybe_put_from_meta(:turn_id, metadata)
       |> maybe_put_from_meta(:frame_id, metadata)
       |> maybe_put_from_meta(:behavior_id, metadata)
@@ -103,9 +104,20 @@ defmodule NovelCommon.LogEmit do
 
   # ── Human-readable message builder ───────────────
 
-  @msg_keys [:frame_type, :decision_type, :tool_name, :tool_outcome, :reason_code,
-             :candidate_count, :has_snapshot, :context_refs_count, :text_len,
-             :task_type, :has_behavior, :outcome_detail]
+  @msg_keys [
+    :frame_type,
+    :decision_type,
+    :tool_name,
+    :tool_outcome,
+    :reason_code,
+    :candidate_count,
+    :has_snapshot,
+    :context_refs_count,
+    :text_len,
+    :task_type,
+    :has_behavior,
+    :outcome_detail
+  ]
 
   defp build_msg(module, step, phase, fields) do
     duration =
@@ -124,7 +136,7 @@ defmodule NovelCommon.LogEmit do
       end)
       |> Enum.join("  ")
 
-    parts = ["#{module}.#{step}", phase_cn(phase) | (duration != "" && [duration] || [])]
+    parts = ["#{module}.#{step}", phase_cn(phase)] ++ if(duration != "", do: [duration], else: [])
     parts = if details != "", do: parts ++ [details], else: parts
     Enum.join(parts, " | ")
   end
@@ -234,6 +246,7 @@ defmodule NovelCommon.LogEmit do
   end
 
   defp maybe_put_from_meta(map, _key, nil), do: map
+
   defp maybe_put_from_meta(map, key, metadata) do
     case Keyword.fetch(metadata, key) do
       {:ok, nil} -> map

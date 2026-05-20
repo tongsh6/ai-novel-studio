@@ -20,7 +20,7 @@ defmodule NovelWeb.WorkspaceChannel do
     session_id = resolve_join_session_id(work_id, payload)
     restored_turn_results = restored_turn_results(work_id, session_id)
 
-    LogContext.put_turn(suffix, work_id)
+    LogContext.put_turn(suffix, work_id, nil, session_id)
 
     socket =
       socket
@@ -240,7 +240,7 @@ defmodule NovelWeb.WorkspaceChannel do
     {source_turn_ref, source_turn_result} =
       source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
 
-    LogContext.put_turn(ws_id, work_id, source_turn_ref)
+    LogContext.put_turn(ws_id, work_id, source_turn_ref, socket.assigns[:session_id])
 
     t0 = System.monotonic_time(:millisecond)
 
@@ -285,7 +285,7 @@ defmodule NovelWeb.WorkspaceChannel do
     {source_turn_ref, source_turn_result} =
       source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
 
-    LogContext.put_turn(ws_id, work_id, source_turn_ref)
+    LogContext.put_turn(ws_id, work_id, source_turn_ref, socket.assigns[:session_id])
 
     t0 = System.monotonic_time(:millisecond)
 
@@ -331,7 +331,7 @@ defmodule NovelWeb.WorkspaceChannel do
     {source_turn_ref, source_turn_result} =
       source_turn_for_artifact_action(socket, Map.get(params, "source_turn_ref"), artifact_id)
 
-    LogContext.put_turn(ws_id, work_id, source_turn_ref)
+    LogContext.put_turn(ws_id, work_id, source_turn_ref, socket.assigns[:session_id])
 
     t0 = System.monotonic_time(:millisecond)
 
@@ -656,7 +656,7 @@ defmodule NovelWeb.WorkspaceChannel do
     session_id = socket.assigns[:session_id]
     restored_turn_id = payload["restored_turn_id"]
 
-    LogContext.put_turn(ws_id, work_id, restored_turn_id)
+    LogContext.put_turn(ws_id, work_id, restored_turn_id, session_id)
 
     LogEmit.emit(:slice_verify, :ui_state, :done, %{
       workspace_id: ws_id,
@@ -706,7 +706,16 @@ defmodule NovelWeb.WorkspaceChannel do
       candidate_panel_count: payload["candidate_panel_count"],
       llm_status_text: payload["llm_status_text"],
       llm_connected: payload["llm_connected"],
-      llm_model_label: payload["llm_model_label"]
+      llm_model_label: payload["llm_model_label"],
+      ui_turn_ids: payload["ui_turn_ids"],
+      user_message_count: payload["user_message_count"],
+      assistant_turn_message_count: payload["assistant_turn_message_count"],
+      message_role_order: payload["message_role_order"],
+      thinking_observed: payload["thinking_observed"],
+      thinking_visible_after_reply: payload["thinking_visible_after_reply"],
+      available_action_count: payload["available_action_count"],
+      card_action_count: payload["card_action_count"],
+      adoption_decision_card_count: payload["adoption_decision_card_count"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}
@@ -717,7 +726,7 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp handle_valid_user_message(socket, params) do
-    LogContext.put_turn(params.ws_id, params.work_id, params.turn_id)
+    LogContext.put_turn(params.ws_id, params.work_id, params.turn_id, params.session_id)
 
     input = %{
       text: params.text,

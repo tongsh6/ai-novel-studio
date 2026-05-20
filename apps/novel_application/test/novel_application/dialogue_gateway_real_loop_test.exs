@@ -92,6 +92,45 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       assert get_in(assistant.content, ["turn_result", "turn_id"]) == turn_result.turn_id
     end
 
+    test "injects only active session transcript into the next prompt" do
+      {:ok, work} = WorkRepo.create(%{title: "会话上下文作品"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+      {:ok, other_session} = WorkSessionRepo.create(%{work_id: work.id, title: "其他会话"})
+
+      seed_interaction(work.id, other_session.id, "turn-other", "user", "另一个会话主角叫周燃")
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+      recorder = WorkspaceContext.interaction_recorder()
+      complete_fn = capturing_complete_fn()
+
+      assert {:ok, _turn_result, _trace, _candidates, _context} =
+               DialogueGateway.handle_input(
+                 %{text: "第一轮要记住：主角叫林烬。", workspace_id: work.id, session_id: session.id},
+                 fetcher,
+                 complete_fn,
+                 nil,
+                 recorder
+               )
+
+      assert {:ok, _turn_result, _trace, _candidates, second_context} =
+               DialogueGateway.handle_input(
+                 %{text: "第二轮：他现在叫什么？", workspace_id: work.id, session_id: session.id},
+                 fetcher,
+                 complete_fn,
+                 nil,
+                 recorder
+               )
+
+      [_first_prompt, second_prompt] = captured_prompts(complete_fn)
+
+      assert second_context.conversation_summary =~ "user: 第一轮要记住：主角叫林烬。"
+      assert second_context.conversation_summary =~ "assistant: 收到你的消息。"
+      refute second_context.conversation_summary =~ "周燃"
+      assert second_prompt =~ "## 最近对话"
+      assert second_prompt =~ "林烬"
+      refute second_prompt =~ "周燃"
+    end
+
     test "injects recalled confirmed memory into the planner prompt and trace context" do
       {:ok, work} = WorkRepo.create(%{title: "记忆召回作品"})
       memory = insert_memory!(work.id, "林瑶失踪与灵源矿区有关")
@@ -153,5 +192,17 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       recallable: true
     })
     |> Repo.insert!()
+  end
+
+  defp seed_interaction(work_id, session_id, turn_id, role, text) do
+    assert {:ok, _interaction} =
+             MemoryLog.record(%{
+               workspace_id: work_id,
+               session_id: session_id,
+               turn_id: turn_id,
+               role: role,
+               content: %{text: text},
+               source_ref: turn_id
+             })
   end
 end

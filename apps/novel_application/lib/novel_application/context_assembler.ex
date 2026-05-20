@@ -20,22 +20,24 @@ defmodule NovelApplication.ContextAssembler do
   @type fetcher_return :: {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil}
   @spec assemble(String.t(), (String.t() -> fetcher_return())) :: DialogueContext.t()
   def assemble(workspace_id, fetcher \\ &default_fetch/1) do
-    assemble_for_input(workspace_id, nil, fetcher)
+    assemble_for_input(workspace_id, nil, fetcher, [])
   end
 
   @doc """
   为当前作者输入组装 DialogueContext。
 
   新 fetcher 可实现 `(workspace_id, author_text -> fetcher_return)` 以支持相关记忆召回；
+  也可实现 `(workspace_id, author_text, session_id -> fetcher_return)` 以支持会话内对话召回；
   旧的一参 fetcher 继续兼容，用于既有测试和不需要 query 的调用点。
   """
-  @spec assemble_for_input(String.t(), String.t() | nil, function()) :: DialogueContext.t()
-  def assemble_for_input(workspace_id, author_text, fetcher \\ &default_fetch/1) do
+  @spec assemble_for_input(String.t(), String.t() | nil, function(), keyword()) ::
+          DialogueContext.t()
+  def assemble_for_input(workspace_id, author_text, fetcher \\ &default_fetch/1, opts \\ []) do
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:context, :assemble, :start, %{})
 
     {:ok, snapshot, conv_summary, mem_summary, behavior_summary} =
-      call_fetcher(fetcher, workspace_id, author_text)
+      call_fetcher(fetcher, workspace_id, author_text, Keyword.get(opts, :session_id))
 
     refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary)
 
@@ -61,8 +63,9 @@ defmodule NovelApplication.ContextAssembler do
 
   defp default_fetch(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
-  defp call_fetcher(fetcher, workspace_id, author_text) when is_function(fetcher) do
+  defp call_fetcher(fetcher, workspace_id, author_text, session_id) when is_function(fetcher) do
     case :erlang.fun_info(fetcher, :arity) do
+      {:arity, 3} -> fetcher.(workspace_id, author_text, session_id)
       {:arity, 2} -> fetcher.(workspace_id, author_text)
       {:arity, 1} -> fetcher.(workspace_id)
     end
