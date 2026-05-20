@@ -11,7 +11,9 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
   setup do
     old_enabled = Application.get_env(:novel_common, :log_jsonl_enabled)
     old_dir = Application.get_env(:novel_common, :log_jsonl_dir)
-    log_dir = Path.join(System.tmp_dir!(), "novel-channel-log-#{System.unique_integer([:positive])}")
+
+    log_dir =
+      Path.join(System.tmp_dir!(), "novel-channel-log-#{System.unique_integer([:positive])}")
 
     Application.put_env(:novel_common, :log_jsonl_enabled, true)
     Application.put_env(:novel_common, :log_jsonl_dir, log_dir)
@@ -66,7 +68,7 @@ defmodule NovelWeb.WorkspaceChannelLoggingTest do
   end
 
   defp read_records_if_present(log_dir) do
-    path = Path.join(log_dir, "#{Date.utc_today()}.jsonl")
+    path = Path.join(log_dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
 
     if File.exists?(path) do
       path

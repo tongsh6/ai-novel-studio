@@ -271,7 +271,8 @@ import fs from "node:fs";
 import path from "node:path";
 
 const [appLogDir] = process.argv.slice(2);
-const today = new Date().toISOString().slice(0, 10);
+const localDate = new Date();
+const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
 const jsonlPath = path.join(appLogDir, `${today}.jsonl`);
 if (!fs.existsSync(jsonlPath)) process.exit(1);
 
@@ -320,7 +321,8 @@ import {
 } from "./slice-verify/native-tauri-verifier.mjs";
 
 const [sliceId, appLogDir, artifactDir, provider, llmLogDir] = process.argv.slice(2);
-const today = new Date().toISOString().slice(0, 10);
+const localDate = new Date();
+const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
 const jsonlPath = path.join(appLogDir, `${today}.jsonl`);
 
 if (!fs.existsSync(jsonlPath)) {
@@ -405,7 +407,8 @@ import path from "node:path";
 import { keyEventsForSlice } from "./slice-verify/native-tauri-verifier.mjs";
 
 const [sliceId, appLogDir, provider, llmLogDir] = process.argv.slice(2);
-const today = new Date().toISOString().slice(0, 10);
+const localDate = new Date();
+const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
 const jsonlPath = path.join(appLogDir, `${today}.jsonl`);
 const keyEvents = keyEventsForSlice(sliceId);
 

@@ -67,6 +67,55 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert String.contains?(message, "格式")
     end
 
+    test "frame JSON missing required fields is retried instead of silently defaulting message" do
+      malformed_frame_json = """
+      {
+        "response_type": "continue",
+        "next_topic": "轮回代价·时间裂隙"
+      }
+      """
+
+      valid_frame_json = """
+      {
+        "frame_type": "creative_exploration",
+        "dialogue_goal_summary": "继续深化宿命链",
+        "needs_tool": false,
+        "no_tool_reason": "exploratory_only",
+        "execution_readiness": "not_applicable",
+        "assistant_message": "我们继续围绕宿命链，把选择代价和未来分岔讲清楚。",
+        "candidate_directions": [
+          {"title": "记忆碎片", "pitch": "用破碎未来提示风险。", "tone_tags": ["悬疑"]},
+          {"title": "预言棋局", "pitch": "用占卜师棋盘呈现选择。", "tone_tags": ["策略"]}
+        ],
+        "context_used": true,
+        "uncertainty": []
+      }
+      """
+
+      {:ok, agent} = Agent.start_link(fn -> 0 end)
+
+      complete_fn = fn _prompt ->
+        call_index = Agent.get_and_update(agent, &{&1, &1 + 1})
+
+        if call_index == 0 do
+          {:ok, %{content: malformed_frame_json}}
+        else
+          {:ok, %{content: valid_frame_json}}
+        end
+      end
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "继续聊这个方向", workspace_id: "ws-partial-frame"},
+          nil,
+          complete_fn
+        )
+
+      assert turn_result.assistant_message.text =~ "宿命链"
+      refute turn_result.assistant_message.text == "收到你的消息。"
+      assert Agent.get(agent, & &1) == 2
+    end
+
     test "DecisionTrace records no-tool, no-behavior, no-write reasons" do
       input = %{text: "聊聊风格", workspace_id: "ws-1"}
 

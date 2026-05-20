@@ -208,7 +208,7 @@ defmodule NovelCommon.LogEmit do
   end
 
   defp write_jsonl(dir, entry) do
-    date = Date.utc_today() |> Date.to_iso8601()
+    date = NovelCommon.LogFileDate.today_iso8601()
     path = Path.join(dir, "#{date}.jsonl")
 
     record =

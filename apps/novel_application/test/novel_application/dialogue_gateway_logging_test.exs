@@ -163,7 +163,8 @@ defmodule NovelApplication.DialogueGatewayLoggingTest do
     |> Enum.map(&Jason.decode!/1)
   end
 
-  defp jsonl_path(log_dir), do: Path.join(log_dir, "#{Date.utc_today()}.jsonl")
+  defp jsonl_path(log_dir),
+    do: Path.join(log_dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
 
   defp restore_env(key, nil), do: Application.delete_env(:novel_common, key)
   defp restore_env(key, value), do: Application.put_env(:novel_common, key, value)

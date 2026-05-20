@@ -41,7 +41,7 @@ defmodule NovelCommon.LLMLogTest do
         response: %{status: 200, body: "ok", model: "test-provider", usage: %{}, duration_ms: 12}
       })
 
-    path = Path.join(dir, "#{Date.utc_today() |> Date.to_iso8601()}.jsonl")
+    path = Path.join(dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
     [_prefix, json] = path |> File.read!() |> String.trim() |> String.split("] ", parts: 2)
     record = Jason.decode!(json)
 

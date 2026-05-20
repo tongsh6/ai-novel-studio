@@ -13,6 +13,18 @@ defmodule NovelApplication.Planner do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
 
+  @frame_response_field_specs [
+    {"frame_type", :non_empty_binary},
+    {"dialogue_goal_summary", :non_empty_binary},
+    {"needs_tool", :boolean},
+    {"no_tool_reason", :non_empty_binary},
+    {"execution_readiness", :non_empty_binary},
+    {"assistant_message", :non_empty_binary},
+    {"candidate_directions", :present},
+    {"context_used", :boolean},
+    {"uncertainty", :list}
+  ]
+
   @type complete_fn :: (String.t() -> {:ok, map()} | {:error, term()})
 
   @doc """
@@ -244,9 +256,9 @@ defmodule NovelApplication.Planner do
 
     case complete_fn.(prompt) do
       {:ok, %{content: content}} ->
-        case parse_json(content) do
+        case parse_frame_json(content) do
           {:ok, parsed} -> {:ok, parsed}
-          {:error, _} -> parse_json_retry(content, prompt, complete_fn)
+          {:error, _} -> parse_frame_json_retry(content, prompt, complete_fn)
         end
 
       {:error, reason} ->
@@ -292,6 +304,13 @@ defmodule NovelApplication.Planner do
 
   # ── JSON parsing with extraction + retry ──────
 
+  defp parse_frame_json(content) do
+    with {:ok, parsed} <- parse_json(content),
+         :ok <- validate_frame_response(parsed) do
+      {:ok, parsed}
+    end
+  end
+
   defp parse_json(content) do
     content
     |> extract_json()
@@ -299,6 +318,21 @@ defmodule NovelApplication.Planner do
     |> case do
       {:ok, parsed} when is_map(parsed) -> {:ok, parsed}
       {:error, _} = error -> error
+    end
+  end
+
+  defp parse_frame_json_retry(failed_content, original_prompt, complete_fn) do
+    correction = build_correction_prompt(original_prompt, failed_content)
+
+    case complete_fn.(correction) do
+      {:ok, %{content: retry_content}} ->
+        case parse_frame_json(retry_content) do
+          {:ok, parsed} -> {:ok, parsed}
+          {:error, _} -> {:error, :frame_contract_invalid}
+        end
+
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -312,7 +346,8 @@ defmodule NovelApplication.Planner do
           {:error, _} -> {:error, :json_parse_failed}
         end
 
-      {:error, _} = error -> error
+      {:error, _} = error ->
+        error
     end
   end
 
@@ -389,7 +424,7 @@ defmodule NovelApplication.Planner do
 
   defp build_correction_prompt(original, failed_output) do
     """
-    你的上一次响应不是有效的 JSON。请严格按照 JSON格式重试。
+    你的上一次响应不是有效的 frame JSON，或缺少必要字段。请严格按照 JSON 格式重试。
 
     ## 你的上一次响应（截取前 500 字符）
     #{String.slice(failed_output, 0, 500)}
@@ -403,6 +438,29 @@ defmodule NovelApplication.Planner do
     #{original}
     """
   end
+
+  defp validate_frame_response(parsed) when is_map(parsed) do
+    if Enum.all?(@frame_response_field_specs, &valid_frame_response_field?(parsed, &1)) do
+      :ok
+    else
+      {:error, :frame_contract_invalid}
+    end
+  end
+
+  defp validate_frame_response(_parsed), do: {:error, :frame_contract_invalid}
+
+  defp valid_frame_response_field?(parsed, {field, :present}), do: Map.has_key?(parsed, field)
+
+  defp valid_frame_response_field?(parsed, {field, :non_empty_binary}),
+    do: parsed |> Map.get(field) |> non_empty_binary?()
+
+  defp valid_frame_response_field?(parsed, {field, :boolean}),
+    do: parsed |> Map.get(field) |> is_boolean()
+
+  defp valid_frame_response_field?(parsed, {field, :list}),
+    do: parsed |> Map.get(field) |> is_list()
+
+  defp non_empty_binary?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp build_frame(parsed, text, turn_id, frame_id, ws_id, context) do
     context_ref = context && context.workspace_id && "context:#{context.workspace_id}"
@@ -532,6 +590,7 @@ defmodule NovelApplication.Planner do
   end
 
   defp frame_error_reason_code(:json_parse_failed), do: :json_parse_failed
+  defp frame_error_reason_code(:frame_contract_invalid), do: :json_parse_failed
   defp frame_error_reason_code(%{type: :invalid_response}), do: :invalid_response
   defp frame_error_reason_code(%{type: :timeout}), do: :provider_timeout
   defp frame_error_reason_code(%{type: :connection_refused}), do: :provider_unavailable

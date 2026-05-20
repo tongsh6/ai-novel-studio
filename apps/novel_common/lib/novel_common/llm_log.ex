@@ -61,7 +61,7 @@ defmodule NovelCommon.LLMLog do
 
   defp do_append(entry) do
     dir = Application.get_env(:novel_common, :llm_log_dir) || default_log_dir()
-    date = Date.utc_today() |> Date.to_iso8601()
+    date = NovelCommon.LogFileDate.today_iso8601()
     path = Path.join(dir, "#{date}.jsonl")
 
     ts = DateTime.utc_now() |> DateTime.to_iso8601()
