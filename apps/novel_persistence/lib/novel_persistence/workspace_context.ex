@@ -18,6 +18,8 @@ defmodule NovelPersistence.WorkspaceContext do
   alias NovelPersistence.Schemas.Workspace
   alias NovelPersistence.TraceRepository
 
+  @default_recent_conversation_interaction_limit 10
+
   @doc """
   构建 context fetcher 回调。该回调从 DB 读取当前 workspace 信息和最近的对话。
 
@@ -97,11 +99,13 @@ defmodule NovelPersistence.WorkspaceContext do
   end
 
   defp fetch_conversation_summary(workspace_id) do
+    limit = recent_conversation_interaction_limit()
+
     interactions =
       from(i in Interaction,
         where: i.workspace_id == ^workspace_id,
         order_by: [desc: i.inserted_at],
-        limit: 10
+        limit: ^limit
       )
       |> Repo.all()
 
@@ -112,19 +116,33 @@ defmodule NovelPersistence.WorkspaceContext do
 
   defp fetch_conversation_summary(workspace_id, session_id)
        when is_binary(session_id) and session_id != "" do
+    limit = recent_conversation_interaction_limit()
+
     interactions =
       from(i in Interaction,
         where: i.workspace_id == ^workspace_id and i.session_id == ^session_id,
-        order_by: [asc: i.inserted_at, asc: i.id],
-        limit: 10
+        order_by: [desc: i.inserted_at, desc: i.id],
+        limit: ^limit
       )
       |> Repo.all()
 
-    conversation_summary(interactions)
+    interactions
+    |> Enum.reverse()
+    |> conversation_summary()
   end
 
   defp fetch_conversation_summary(workspace_id, _session_id),
     do: fetch_conversation_summary(workspace_id)
+
+  # Temporary recent-window guard until AU-03 long-session compression replaces
+  # raw transcript injection with a token-budgeted summary layer.
+  defp recent_conversation_interaction_limit do
+    Application.get_env(
+      :novel_persistence,
+      :conversation_summary_interaction_limit,
+      @default_recent_conversation_interaction_limit
+    )
+  end
 
   defp conversation_summary([]), do: nil
 

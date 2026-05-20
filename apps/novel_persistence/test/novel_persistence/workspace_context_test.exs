@@ -80,6 +80,25 @@ defmodule NovelPersistence.WorkspaceContextTest do
       assert String.contains?(summary, "user: 第一会话主角叫林烬")
       refute String.contains?(summary, "周燃")
     end
+
+    test "query fetcher returns the latest active session interactions in chronological order" do
+      {:ok, work} = WorkRepo.create(%{title: "长会话上下文"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "长会话"})
+
+      Enum.each(1..12, fn index ->
+        record_interaction(work.id, session.id, "turn-#{index}", "user", "第#{index}轮设定")
+      end)
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, summary, nil, nil} = fetcher.(work.id, "继续最新设定", session.id)
+      refute String.contains?(summary, "第1轮设定")
+      refute String.contains?(summary, "第2轮设定")
+      assert String.contains?(summary, "第3轮设定")
+      assert String.contains?(summary, "第12轮设定")
+      assert String.split(summary, "\n") |> List.first() == "user: 第3轮设定"
+      assert String.split(summary, "\n") |> List.last() == "user: 第12轮设定"
+    end
   end
 
   describe "interaction_recorder/0" do

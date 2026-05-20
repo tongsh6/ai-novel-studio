@@ -131,6 +131,36 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       refute second_prompt =~ "周燃"
     end
 
+    test "injects latest active session transcript into planner prompt for long sessions" do
+      {:ok, work} = WorkRepo.create(%{title: "长会话上下文作品"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前长会话"})
+
+      Enum.each(1..12, fn index ->
+        seed_interaction(work.id, session.id, "turn-long-#{index}", "user", "第#{index}轮设定")
+      end)
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+      complete_fn = capturing_complete_fn()
+
+      assert {:ok, _turn_result, _trace, _candidates, context} =
+               DialogueGateway.handle_input(
+                 %{text: "继续最新设定", workspace_id: work.id, session_id: session.id},
+                 fetcher,
+                 complete_fn,
+                 nil,
+                 nil
+               )
+
+      [prompt] = captured_prompts(complete_fn)
+
+      refute context.conversation_summary =~ "第1轮设定"
+      refute context.conversation_summary =~ "第2轮设定"
+      assert context.conversation_summary =~ "第12轮设定"
+      refute prompt =~ "第1轮设定"
+      assert prompt =~ "## 最近对话"
+      assert prompt =~ "第12轮设定"
+    end
+
     test "injects recalled confirmed memory into the planner prompt and trace context" do
       {:ok, work} = WorkRepo.create(%{title: "记忆召回作品"})
       memory = insert_memory!(work.id, "林瑶失踪与灵源矿区有关")
