@@ -748,8 +748,11 @@ function findAu07TraceWhyEvidence(records) {
     if (!uiState?.trace_why_dialog_open) continue;
     if (uiState.trace_why_contains_raw_prompt === true) continue;
     const traceText = String(uiState.trace_why_text ?? "");
-    if (!traceText.includes("本轮解释")) continue;
-    if (!traceText.includes("为什么这样做")) continue;
+    if (!traceText.includes("探索方向")) continue;
+    if (traceText.includes("本轮解释")) continue;
+    if (traceText.includes("系统判断")) continue;
+    if (traceText.includes("为什么这样做")) continue;
+    if (traceText.includes("本轮目标")) continue;
     if (!traceText.includes("不会重新调用模型")) continue;
 
     return {
@@ -1401,6 +1404,8 @@ function traceWhyEntryBehavior(records, evidence, options) {
       "trace_summary_returned_with_turn_result",
       "why_entry_clicked_in_message_stream",
       "author_safe_dialog_rendered",
+      "decision_type_used_as_dialog_title",
+      "audit_style_trace_labels_not_visible",
       "raw_prompt_provider_debug_not_visible",
       "explanation_does_not_call_provider_or_write_state",
     ],
