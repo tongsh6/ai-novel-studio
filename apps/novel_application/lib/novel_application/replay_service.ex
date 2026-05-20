@@ -5,6 +5,7 @@ defmodule NovelApplication.ReplayService do
   规格见 docs/design-v3/contracts/VS-06-replay-surface-contract-pack.md §4。
   """
 
+  alias NovelApplication.TraceRedactor
   alias NovelDomain.DecisionTrace
   alias NovelDomain.ReplayReport
 
@@ -20,9 +21,9 @@ defmodule NovelApplication.ReplayService do
       replay_case_ref: "replay_case:#{trace.trace_id}",
       trace_ref: trace.trace_id,
       replay_level: :structural,
-      chain_summary: build_chain_summary(trace),
-      decision_explanations: build_decision_explanations(trace),
-      state_explanations: build_state_explanations(trace),
+      chain_summary: TraceRedactor.author_safe(build_chain_summary(trace)),
+      decision_explanations: TraceRedactor.author_safe(build_decision_explanations(trace)),
+      state_explanations: TraceRedactor.author_safe(build_state_explanations(trace)),
       missing_trace_refs: find_missing_refs(trace),
       redaction_profile: :author_safe,
       provider_called: false,

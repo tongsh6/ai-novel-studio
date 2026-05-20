@@ -124,10 +124,10 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 不展示 raw prompt、hidden policy、provider raw logs、敏感 memory、未脱敏 tool I/O |
-| 当前证据 | `DecisionTrace.redaction_level` 字段、ADR-0014 redaction 决策 |
-| 当前状态 | 字段/设计存在 |
-| 当前缺口 | 缺 redaction engine 和测试；当前 summary 由 TraceWriter 直接拼 map，没有敏感字段扫描 |
-| 优先级 | P0 |
+| 当前证据 | `DecisionTrace.redaction_level` 字段、ADR-0014 redaction 决策；`NovelApplication.TraceRedactor` 已接入 `TraceWriter` / `ReplayService` author-safe 输出，并有 application 测试覆盖敏感 key、raw prompt/provider/tool/sensitive memory marker 与普通中文摘要保留 |
+| 当前状态 | 局部实现 |
+| 当前缺口 | 仍缺真实工作台旧 trace 查询、developer 双视图权限和完整 UI 验收；当前 redaction engine 是最小 author-safe 输出层，不等于完整审计脱敏体系 |
+| 优先级 | P1 |
 
 #### SC-AU07-B2 — author-safe 与 developer summary 隔离
 
@@ -300,7 +300,7 @@
 |---|---|---|---|
 | AU07-GAP-01 — 真实工作台“为什么？”入口不完整 | `WorkspaceChat` 已有最小入口；`WorkbenchV3` 旁路、历史旧 turn 查询和完整 UI 验收未覆盖 | 补实现/补验收 | P1 |
 | AU07-GAP-02 — reason/gate 作者友好中文映射仍是子集 | 常见 `no_tool_reason` / gate / reason_codes 已映射；完整 reason catalog 和 developer code 双视图未实现 | 补实现/文案同步 | P1 |
-| AU07-GAP-03 — redaction engine 缺失 | 有 redaction_level 字段，但无内容脱敏扫描/策略执行测试 | 补实现/补测试 | P0 |
+| AU07-GAP-03 — redaction engine 未形成完整闭环 | 已有 `TraceRedactor` application 输出层和测试；仍缺旧 trace 查询、developer 双视图权限、完整 UI/持久化验收 | 补集成/补验收 | P1 |
 | AU07-GAP-04 — author-safe / developer summary 未隔离 | `ReplayService` 固定 author_safe，无 developer path 和权限边界 | 补实现/补集成 | P1 |
 | AU07-GAP-05 — ReplayReport 不能回答 VS-06 六问 | plan vs decision、ToolTrace、BehaviorTrace、StateTrace、TurnResultViewModel 解释不足 | 补实现/补测试 | P1 |
 | AU07-GAP-06 — ToolTrace 未独立持久化/聚合 | 工具信息在 DecisionTrace summary 中，缺 registry snapshot 和 replay refs | 补集成 | P1 |

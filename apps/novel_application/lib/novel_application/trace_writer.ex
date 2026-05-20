@@ -3,6 +3,7 @@ defmodule NovelApplication.TraceWriter do
   v3 trace 写入。覆盖 reply_only、decision、tool、recovery 全部 trace 类型。
   """
 
+  alias NovelApplication.TraceRedactor
   alias NovelDomain.ContextSourceRef
   alias NovelDomain.DecisionTrace
   alias NovelDomain.DialogueContext
@@ -42,7 +43,7 @@ defmodule NovelApplication.TraceWriter do
       has_context: context != nil and DialogueContext.has_context?(context)
     }
 
-    {trace, summary}
+    {trace, TraceRedactor.author_safe(summary)}
   end
 
   @doc "Record trace with OrchestratorDecision and gate results."
@@ -99,7 +100,7 @@ defmodule NovelApplication.TraceWriter do
       context_refs: format_context_refs(context_refs)
     }
 
-    {trace, summary}
+    {trace, TraceRedactor.author_safe(summary)}
   end
 
   @doc "Record trace with tool execution (VS-02)."
@@ -161,7 +162,7 @@ defmodule NovelApplication.TraceWriter do
       context_refs: format_context_refs(context_refs)
     }
 
-    {trace, summary}
+    {trace, TraceRedactor.author_safe(summary)}
   end
 
   @doc "Record recovery trace when plan generation fails."
@@ -198,7 +199,7 @@ defmodule NovelApplication.TraceWriter do
       recovery: "plan generation failed, reverted to reply_only"
     }
 
-    {trace, summary}
+    {trace, TraceRedactor.author_safe(summary)}
   end
 
   # ── helpers ───────────────────────────────────
@@ -250,6 +251,7 @@ defmodule NovelApplication.TraceWriter do
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
     |> String.slice(0, 180)
+    |> TraceRedactor.author_safe()
   end
 
   defp author_safe_summary(_ref), do: nil
