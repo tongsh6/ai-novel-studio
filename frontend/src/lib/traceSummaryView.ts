@@ -7,7 +7,6 @@ export interface TraceContextSourceView {
 }
 
 export interface TraceSummaryView {
-  title: string;
   primaryReason: string;
   decisionLabel: string;
   goal: string | null;
@@ -17,6 +16,11 @@ export interface TraceSummaryView {
 }
 
 type TraceSummaryLike = Record<string, unknown>;
+
+const authorRoleTextPattern =
+  /(?:^|\s)(?:作者|user)[:：]\s*(.*?)(?=\s(?:作者|AI|user|assistant)[:：]|$)/gu;
+const assistantRoleTextPattern =
+  /(?:^|\s)(?:AI|assistant)[:：]\s*(.*?)(?=\s(?:作者|AI|user|assistant)[:：]|$)/gu;
 
 const decisionLabels: Record<string, string> = {
   reply_only: TRACE.decisions.replyOnly,
@@ -74,10 +78,9 @@ export function toAuthorTraceSummary(
   const details = detailLines(traceSummary);
 
   return {
-    title: TRACE.title,
     primaryReason,
     decisionLabel: decisionLabel(decisionType),
-    goal: stringValue(traceSummary.dialogue_goal) || stringValue(traceSummary.plan_goal),
+    goal: authorSafeGoal(traceSummary.dialogue_goal) || authorSafeGoal(traceSummary.plan_goal),
     contextSources,
     detailLines: details,
     integrityNote: TRACE.integrityNote,
@@ -112,19 +115,46 @@ function contextSourceViews(value: unknown): TraceContextSourceView[] {
     if (!item || typeof item !== "object") continue;
     const sourceType = stringValue((item as TraceSummaryLike).source_type);
     if (!sourceType || seen.has(sourceType)) continue;
+    const summary = authorSafeSummary((item as TraceSummaryLike).summary, sourceType);
+    if (shouldHideContextSource(sourceType, summary)) continue;
 
     seen.add(sourceType);
     views.push({
       key: sourceType,
       label: contextSourceLabels[sourceType] ?? TRACE.contextSources.other,
-      summary: authorSafeSummary((item as TraceSummaryLike).summary),
+      summary,
     });
   }
 
   return views;
 }
 
-function authorSafeSummary(value: unknown): string | null {
+function authorSafeGoal(value: unknown): string | null {
+  const goal = authorSafeText(value);
+  if (!goal) return null;
+
+  const normalized = goal
+    .replace(/^(用户|作者|你)\s*(想要|希望|想|要求|需要|打算|正在|提出)?\s*/u, "")
+    .replace(/^讨论并确定/u, "讨论")
+    .trim();
+
+  if (!normalized) return null;
+  if (isLowValueGoal(normalized)) return null;
+
+  return normalized.slice(0, 72);
+}
+
+function authorSafeSummary(value: unknown, sourceType: string): string | null {
+  const summary = authorSafeText(value);
+  if (!summary) return null;
+  if (sourceType === "conversation" || sourceType === "recent_dialogue") {
+    return summarizeConversation(summary);
+  }
+
+  return summary;
+}
+
+function authorSafeText(value: unknown): string | null {
   const summary = stringValue(value);
   if (!summary) return null;
 
@@ -135,6 +165,41 @@ function authorSafeSummary(value: unknown): string | null {
   }
 
   return normalized;
+}
+
+function summarizeConversation(summary: string): string {
+  if (!/(^|\s)(作者|AI|user|assistant)：?/u.test(summary)) return summary;
+
+  const authorText = latestRoleText(summary, authorRoleTextPattern);
+  const assistantText = latestRoleText(summary, assistantRoleTextPattern);
+
+  if (authorText && assistantText) return TRACE.previousDialogueSummary(authorText);
+  if (authorText) return TRACE.previousAuthorMention(authorText);
+  if (assistantText) return TRACE.previousAssistantReply;
+
+  return TRACE.previousAssistantReply;
+}
+
+function latestRoleText(summary: string, pattern: RegExp): string | null {
+  pattern.lastIndex = 0;
+  const matches = [...summary.matchAll(pattern)];
+  const last = matches.at(-1)?.[1]?.trim();
+  return last ? last.slice(0, 48) : null;
+}
+
+function shouldHideContextSource(sourceType: string, summary: string | null): boolean {
+  if (sourceType !== "current_work") return false;
+  if (!summary) return true;
+  return summary === "当前作品背景" || summary === "未命名作品";
+}
+
+function isLowValueGoal(goal: string): boolean {
+  if (/^(气质氛围|讨论并确定|用户意图|作者意图)$/u.test(goal)) return true;
+  if (goal.length <= 8 && !/(讨论|探索|回答|解释|整理|确认|生成|创作|补充|规划|分析|澄清|继续|构思|完善|推进|比较|选择|复盘|修改|改写)/u.test(goal)) {
+    return true;
+  }
+
+  return false;
 }
 
 function detailLines(summary: TraceSummaryLike): string[] {

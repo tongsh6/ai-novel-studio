@@ -1903,31 +1903,18 @@ export function WorkspaceChat() {
               <Dialog.Overlay className={styles.dialogOverlay} />
               <Dialog.Content
                 className={`${styles.dialogContent} ${styles.traceDialogContent}`}
+                aria-describedby={undefined}
                 data-slice-verify="trace-why-dialog"
                 data-turn-id={traceDialog?.turnId}
               >
                 {traceDialog && (
                   <>
                     <Dialog.Title className={styles.dialogTitle}>
-                      {traceDialog.summary.title}
+                      {traceDialog.summary.decisionLabel}
                     </Dialog.Title>
-                    <Dialog.Description className={styles.traceDescription}>
-                      {TRACE.description}
-                    </Dialog.Description>
                     <div className={styles.traceSection}>
-                      <div className={styles.traceLabel}>{TRACE.decisionLabel}</div>
-                      <div className={styles.traceValue}>{traceDialog.summary.decisionLabel}</div>
-                    </div>
-                    <div className={styles.traceSection}>
-                      <div className={styles.traceLabel}>{TRACE.reasonLabel}</div>
                       <div className={styles.traceValue}>{traceDialog.summary.primaryReason}</div>
                     </div>
-                    {traceDialog.summary.goal && (
-                      <div className={styles.traceSection}>
-                        <div className={styles.traceLabel}>{TRACE.goalLabel}</div>
-                        <div className={styles.traceValue}>{traceDialog.summary.goal}</div>
-                      </div>
-                    )}
                     <div className={styles.traceSection}>
                       <div className={styles.traceLabel}>{TRACE.contextLabel}</div>
                       {traceDialog.summary.contextSources.length > 0 ? (

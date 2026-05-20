@@ -79,28 +79,34 @@ defmodule NovelApplication.ContextAssembler do
   defp maybe_add_ref(refs, nil, _type, _id), do: refs
 
   defp maybe_add_ref(refs, value, type, id) do
-    ref = %ContextSourceRef{
-      context_ref: "ctx_#{System.unique_integer([:positive, :monotonic])}",
-      source_type: type,
-      source_id: id,
-      summary: summarize_context(value, type),
-      redaction_level: :author_safe
-    }
+    case summarize_context(value, type) do
+      nil ->
+        refs
 
-    [ref | refs]
+      "" ->
+        refs
+
+      summary ->
+        ref = %ContextSourceRef{
+          context_ref: "ctx_#{System.unique_integer([:positive, :monotonic])}",
+          source_type: type,
+          source_id: id,
+          summary: summary,
+          redaction_level: :author_safe
+        }
+
+        [ref | refs]
+    end
   end
 
   defp summarize_context(value, :current_work) when is_map(value) do
     title = Map.get(value, "title") || Map.get(value, :title)
-    protagonist = Map.get(value, "protagonist") || Map.get(value, :protagonist)
+    context_parts = current_work_context_parts(value)
+    current_work_summary(title, context_parts)
+  end
 
-    [title, protagonist]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.join(" / ")
-    |> case do
-      "" -> "当前作品背景"
-      summary -> summary
-    end
+  defp summarize_context(value, :conversation) when is_binary(value) do
+    summarize_conversation(value) || normalize_summary(value)
   end
 
   defp summarize_context(value, :memory) when is_binary(value) do
@@ -110,26 +116,117 @@ defmodule NovelApplication.ContextAssembler do
     |> normalize_summary()
   end
 
-  defp summarize_context(value, :conversation) when is_binary(value) do
-    value
-    |> String.replace(~r/\buser:/, "作者：")
-    |> String.replace(~r/\bassistant:/, "AI：")
-    |> normalize_summary()
-  end
-
   defp summarize_context(value, _type) when is_binary(value) do
     normalize_summary(value)
   end
 
+  defp summarize_context(_value, :current_work), do: nil
   defp summarize_context(_value, :memory), do: "已确认设定"
   defp summarize_context(_value, :conversation), do: "近期对话"
   defp summarize_context(_value, :behavior), do: "当前待处理动作"
   defp summarize_context(_value, _type), do: "安全上下文摘要"
+
+  defp current_work_context_parts(value) do
+    [
+      Map.get(value, "genre") || Map.get(value, :genre),
+      Map.get(value, "protagonist") || Map.get(value, :protagonist),
+      Map.get(value, "protagonist_goal") || Map.get(value, :protagonist_goal),
+      Map.get(value, "current_chapter") || Map.get(value, :current_chapter),
+      Map.get(value, "world_setting") || Map.get(value, :world_setting)
+    ]
+    |> Enum.map(&normalize_part/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp current_work_summary(title, context_parts) do
+    title = normalize_part(title)
+
+    cond do
+      context_parts == [] ->
+        nil
+
+      unnamed_work_title?(title) ->
+        context_parts
+        |> Enum.take(3)
+        |> Enum.join(" / ")
+        |> normalize_summary()
+
+      true ->
+        [title | context_parts]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.take(4)
+        |> Enum.join(" / ")
+        |> normalize_summary()
+    end
+  end
+
+  defp summarize_conversation(value) do
+    normalized = normalize_summary(value)
+    author_text = latest_role_text(normalized, "user")
+    assistant_text = latest_role_text(normalized, "assistant")
+
+    cond do
+      author_text && assistant_text ->
+        "上一轮围绕「#{author_text}」展开，AI 已给出回应。"
+
+      author_text ->
+        "上一轮作者提到「#{author_text}」。"
+
+      assistant_text ->
+        "上一轮 AI 已给出回应。"
+
+      true ->
+        nil
+    end
+  end
+
+  defp latest_role_text(nil, _role), do: nil
+
+  defp latest_role_text(value, role) do
+    pattern = ~r/(?:^|\s)#{role}:\s*(.*?)(?=\s(?:user|assistant):|$)/u
+
+    pattern
+    |> Regex.scan(value)
+    |> List.last()
+    |> case do
+      [_, text] ->
+        text
+        |> String.trim()
+        |> String.slice(0, 48)
+
+      _ ->
+        nil
+    end
+  end
+
+  defp normalize_part(value) when is_binary(value) do
+    value
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> case do
+      "" -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_part(_value), do: nil
+
+  defp unnamed_work_title?(nil), do: true
+
+  defp unnamed_work_title?(title) do
+    title in ["未命名作品", "Unnamed Work", "Untitled", "untitled"]
+  end
+
+  defp normalize_summary(nil), do: nil
 
   defp normalize_summary(value) do
     value
     |> String.replace(~r/\s+/, " ")
     |> String.trim()
     |> String.slice(0, 180)
+    |> case do
+      "" -> nil
+      summary -> summary
+    end
   end
 end

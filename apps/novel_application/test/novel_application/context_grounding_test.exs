@@ -37,6 +37,28 @@ defmodule NovelApplication.ContextGroundingTest do
       assert ctx.assembled_at != nil
     end
 
+    test "summarizes transcript-shaped conversation refs instead of exposing role logs" do
+      fetcher = fn _ws_id ->
+        {:ok, nil, "user: 我想写赛博修仙 assistant: 可以从灵气代码化切入", nil, nil}
+      end
+
+      ctx = ContextAssembler.assemble("ws-conversation-summary", fetcher)
+      ref = Enum.find(ctx.context_refs, &(&1.source_type == :conversation))
+
+      assert ref.summary == "上一轮围绕「我想写赛博修仙」展开，AI 已给出回应。"
+      refute ref.summary =~ "user:"
+      refute ref.summary =~ "assistant:"
+    end
+
+    test "does not create low-value current work trace refs for title-only snapshots" do
+      fetcher = fn _ws_id -> {:ok, %{"title" => "未命名作品"}, nil, nil, nil} end
+
+      ctx = ContextAssembler.assemble("ws-title-only", fetcher)
+
+      assert ctx.current_work_snapshot == %{"title" => "未命名作品"}
+      refute Enum.any?(ctx.context_refs, &(&1.source_type == :current_work))
+    end
+
     test "assembles empty context correctly" do
       ctx = ContextAssembler.assemble("ws-empty", &empty_fetcher/1)
 

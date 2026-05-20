@@ -209,16 +209,14 @@ export const WORKBENCH = {
 
 export const TRACE = {
   actionLabel: "为什么",
-  actionTitle: "查看本轮回复的安全解释摘要",
-  title: "本轮解释",
-  description: "只展示作者可见的安全摘要，不包含原始提示词、模型日志或内部调试内容。",
-  decisionLabel: "系统判断",
-  reasonLabel: "为什么这样做",
-  goalLabel: "本轮目标",
+  actionTitle: "查看这轮回应的依据",
   contextLabel: "参考来源",
   noContext: "本轮没有使用额外作品上下文。",
   detailLabel: "补充说明",
   integrityNote: "解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
+  previousDialogueSummary: (topic: string) => `上一轮围绕「${topic}」展开，AI 已给出回应。`,
+  previousAuthorMention: (topic: string) => `上一轮作者提到「${topic}」。`,
+  previousAssistantReply: "上一轮 AI 已给出回应。",
   decisions: {
     replyOnly: "自然回复",
     exploration: "探索方向",
@@ -233,7 +231,7 @@ export const TRACE = {
   },
   reasons: {
     noToolNeeded: "本轮只需要自然语言回应，不需要调用工具或写入作品状态。",
-    exploratoryOnly: "本轮是在探索创作方向，候选内容不会自动写入作品设定。",
+    exploratoryOnly: "本轮是在探索创作方向，候选内容不会自动写入作品档案、设定或正文。",
     userRequestedDiscussion: "你提出的是讨论或解释请求，系统没有执行写入动作。",
     toolWasDispatched: "本轮调用了创作工具，工具结果仍需通过卡片确认后才会进入作品。",
     microPlanEvaluated: "系统先评估了执行计划，再按权限和范围决定是否继续。",

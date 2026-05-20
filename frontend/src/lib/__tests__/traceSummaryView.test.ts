@@ -16,7 +16,11 @@ describe("traceSummaryView", () => {
           source_type: "memory",
           summary: "林瑶失踪指向灵源矿区，林烬去矿区追查线索。",
         },
-        { context_ref: "conv_1", source_type: "conversation", summary: "作者：前一轮讨论动机。" },
+        {
+          context_ref: "conv_1",
+          source_type: "conversation",
+          summary: "作者：前一轮讨论动机。 AI：可以加强亲情线。",
+        },
       ],
     });
 
@@ -31,7 +35,7 @@ describe("traceSummaryView", () => {
     expect(view?.contextSources.map((source) => source.summary)).toEqual([
       "灵源纪元 / 林烬",
       "林瑶失踪指向灵源矿区，林烬去矿区追查线索。",
-      "作者：前一轮讨论动机。",
+      "上一轮围绕「前一轮讨论动机。」展开，AI 已给出回应。",
     ]);
     expect(JSON.stringify(view)).not.toContain("trace_1");
     expect(JSON.stringify(view)).not.toContain("ctx_1");
@@ -65,6 +69,34 @@ describe("traceSummaryView", () => {
     expect(visibleText).toContain("当前请求超出本轮可执行范围。");
     expect(visibleText).not.toContain("internal_provider_policy");
     expect(visibleText).not.toContain("unknown_raw_code");
+  });
+
+  it("normalizes or hides low-value model-generated dialogue goals", () => {
+    expect(
+      toAuthorTraceSummary({
+        decision_type: "reply_only",
+        dialogue_goal: "用户想讨论并确定气质氛围",
+      })?.goal,
+    ).toBe("讨论气质氛围");
+
+    expect(
+      toAuthorTraceSummary({
+        decision_type: "reply_only",
+        dialogue_goal: "气质氛围",
+      })?.goal,
+    ).toBeNull();
+  });
+
+  it("hides low-value current work sources", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "reply_only",
+      context_refs: [
+        { context_ref: "ctx_1", source_type: "current_work", summary: "未命名作品" },
+        { context_ref: "ctx_2", source_type: "memory", summary: "林烬要去灵源矿区。" },
+      ],
+    });
+
+    expect(view?.contextSources.map((source) => source.label)).toEqual(["已确认设定"]);
   });
 
   it("uses author-safe labels for internal tool names", () => {
