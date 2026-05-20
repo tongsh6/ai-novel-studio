@@ -477,6 +477,41 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                )
     end
 
+    test "adopt event rejects pending artifact from another work" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:work-b")
+
+      source_turn =
+        @pending_adoption_turn_result
+        |> Map.put(:work_id, "work-a")
+        |> put_in([:adoption_state, :pending], [
+          %{
+            artifact_id: "as-adopt-1",
+            artifact_type: :character_seed,
+            adoption_status: :tentative,
+            requires_adoption: true,
+            source_tool_result_ref: "tr-adopt-1",
+            work_id: "work-a",
+            payload: %{title: "角色设定", content: "主角更果断"}
+          }
+        ])
+
+      socket = assign_server_turn(socket, source_turn)
+
+      assert {:reply, {:error, %{reason: "cross-work adoption rejected"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "adopt",
+                 %{
+                   "artifact_id" => "as-adopt-1",
+                   "artifact_type" => "character_seed",
+                   "payload" => %{"title" => "角色设定"}
+                 },
+                 socket
+               )
+    end
+
     test "adopt event finds restored pending artifact when current turn is an action turn" do
       {:ok, _, socket} =
         UserSocket

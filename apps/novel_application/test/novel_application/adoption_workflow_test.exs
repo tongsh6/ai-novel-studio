@@ -127,6 +127,26 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                })
     end
 
+    test "rejects cross-work adoption from source turn" do
+      source_turn = source_turn_result(%{}, %{work_id: "work-a"})
+
+      assert {:error, "cross-work adoption rejected"} =
+               AdoptionWorkflow.handle_adopt(source_turn, %{
+                 "artifact_id" => "as-1",
+                 "work_id" => "work-b"
+               })
+    end
+
+    test "rejects cross-work adoption from pending artifact" do
+      source_turn = source_turn_result(%{work_id: "work-a"})
+
+      assert {:error, "cross-work adoption rejected"} =
+               AdoptionWorkflow.handle_adopt(source_turn, %{
+                 "artifact_id" => "as-1",
+                 "work_id" => "work-b"
+               })
+    end
+
     test "rejects unknown pending artifact" do
       assert {:error, "pending artifact not found"} =
                AdoptionWorkflow.handle_adopt(source_turn_result(), %{"artifact_id" => "missing"})
@@ -164,6 +184,16 @@ defmodule NovelApplication.AdoptionWorkflowTest do
     test "rejects unknown pending artifact" do
       assert {:error, "pending artifact not found"} =
                AdoptionWorkflow.handle_discard(source_turn_result(), %{"artifact_id" => "missing"})
+    end
+
+    test "rejects cross-work discard" do
+      source_turn = source_turn_result(%{work_id: "work-a"})
+
+      assert {:error, "cross-work adoption rejected"} =
+               AdoptionWorkflow.handle_discard(source_turn, %{
+                 "artifact_id" => "as-1",
+                 "work_id" => "work-b"
+               })
     end
   end
 
@@ -213,29 +243,43 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert {:error, "instruction is required"} =
                AdoptionWorkflow.handle_modify_draft(source_turn_result(), %{"draft_id" => "as-1"})
     end
+
+    test "rejects cross-work edited adoption" do
+      source_turn = source_turn_result(%{work_id: "work-a"})
+
+      assert {:error, "cross-work adoption rejected"} =
+               AdoptionWorkflow.handle_modify_draft(source_turn, %{
+                 "draft_id" => "as-1",
+                 "instruction" => "改得更果断",
+                 "work_id" => "work-b"
+               })
+    end
   end
 
-  defp source_turn_result(artifact_attrs \\ %{}) do
-    %{
-      turn_id: "turn-source",
-      adoption_state: %{
-        pending: [
-          Map.merge(
-            %{
-              artifact_id: "as-1",
-              artifact_type: :character_seed,
-              adoption_status: :tentative,
-              requires_adoption: true,
-              source_tool_result_ref: "tr-1",
-              payload: %{title: "角色方向", content: "主角更果断"}
-            },
-            artifact_attrs
-          )
-        ],
-        resolved: []
+  defp source_turn_result(artifact_attrs \\ %{}, source_attrs \\ %{}) do
+    Map.merge(
+      %{
+        turn_id: "turn-source",
+        adoption_state: %{
+          pending: [
+            Map.merge(
+              %{
+                artifact_id: "as-1",
+                artifact_type: :character_seed,
+                adoption_status: :tentative,
+                requires_adoption: true,
+                source_tool_result_ref: "tr-1",
+                payload: %{title: "角色方向", content: "主角更果断"}
+              },
+              artifact_attrs
+            )
+          ],
+          resolved: []
+        },
+        trace_summary: %{trace_ref: "trace-source"}
       },
-      trace_summary: %{trace_ref: "trace-source"}
-    }
+      source_attrs
+    )
   end
 
   defp string_key_source_turn_result do

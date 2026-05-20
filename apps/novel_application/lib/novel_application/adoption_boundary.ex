@@ -15,7 +15,13 @@ defmodule NovelApplication.AdoptionBoundary do
   评估一个 candidate 是否可被采纳。返回 AdoptionDecision。
   """
   @spec evaluate(CandidateSet.t(), map(), ToolResult.t() | nil) :: AdoptionDecision.t()
-  def evaluate(%CandidateSet{} = candidate_set, chosen_candidate, _tool_result \\ nil) do
+  def evaluate(%CandidateSet{} = candidate_set, chosen_candidate, tool_result \\ nil) do
+    evaluate(candidate_set, chosen_candidate, tool_result, [])
+  end
+
+  @spec evaluate(CandidateSet.t(), map(), ToolResult.t() | nil, keyword() | map()) ::
+          AdoptionDecision.t()
+  def evaluate(%CandidateSet{} = candidate_set, chosen_candidate, _tool_result, opts) do
     decision_id = "ad_#{System.unique_integer([:positive, :monotonic])}"
     candidate_id = chosen_candidate[:candidate_id] || chosen_candidate["candidate_id"]
     candidate = find_candidate(candidate_set, candidate_id)
@@ -35,6 +41,18 @@ defmodule NovelApplication.AdoptionBoundary do
             candidate_ref: candidate_id || "unknown",
             decision_type: :fail_with_recovery,
             reason_codes: ["candidate_not_found", "stale_or_invented_selection"],
+            decision_trace_ref: decision_trace_ref
+          }
+
+        work_boundary_mismatch?(candidate, chosen_candidate, opts) ->
+          %AdoptionDecision{
+            adoption_decision_id: decision_id,
+            turn_id: candidate_set.turn_id,
+            source_action_ref: "choose_candidate",
+            candidate_ref: candidate_id,
+            target_ref: candidate.adoption_target_ref,
+            decision_type: :fail_with_recovery,
+            reason_codes: ["work_id_mismatch", "cross_work_adoption_rejected"],
             decision_trace_ref: decision_trace_ref
           }
 
@@ -100,6 +118,44 @@ defmodule NovelApplication.AdoptionBoundary do
   defp find_candidate(set, candidate_id) do
     Enum.find(set.candidates, &(&1.candidate_id == candidate_id))
   end
+
+  defp work_boundary_mismatch?(candidate, chosen_candidate, opts) do
+    requested_work_id =
+      option_field(opts, :work_id) ||
+        option_field(opts, :expected_work_id) ||
+        map_field(chosen_candidate, :work_id)
+
+    referenced_work_ids =
+      [
+        option_field(opts, :source_work_id),
+        option_field(opts, :artifact_work_id),
+        map_field(candidate, :work_id)
+      ]
+      |> Enum.reject(&blank?/1)
+      |> Enum.uniq()
+
+    if blank?(requested_work_id) do
+      length(referenced_work_ids) > 1
+    else
+      Enum.any?(referenced_work_ids, &(&1 != requested_work_id))
+    end
+  end
+
+  defp option_field(opts, key) when is_list(opts), do: Keyword.get(opts, key)
+
+  defp option_field(opts, key) when is_map(opts) do
+    Map.get(opts, key) || Map.get(opts, Atom.to_string(key))
+  end
+
+  defp option_field(_opts, _key), do: nil
+
+  defp map_field(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp map_field(_map, _key), do: nil
+
+  defp blank?(value), do: is_nil(value) or value == ""
 
   defp build_projection_hint(turn_id, _decision_id) do
     %{

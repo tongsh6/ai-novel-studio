@@ -309,8 +309,13 @@ defmodule NovelWeb.WorkspaceChannel do
         {:reply, {:error, %{reason: reason}}, socket}
 
       source_turn_result ->
+        discard_params =
+          params
+          |> Map.put("work_id", work_id)
+          |> Map.put("session_id", socket.assigns[:session_id])
+
         handle_discard_result(
-          NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, params),
+          NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, discard_params),
           socket,
           artifact_id,
           t0

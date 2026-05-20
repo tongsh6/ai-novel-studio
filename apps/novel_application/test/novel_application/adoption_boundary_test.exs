@@ -118,6 +118,36 @@ defmodule NovelApplication.AdoptionBoundaryTest do
       rejected = AdoptionBoundary.evaluate(set, %{candidate_id: "c-2"})
       assert rejected.projection_hints == []
     end
+
+    test "cross-work candidate is rejected before adoption" do
+      set =
+        build_candidate_set(
+          candidates: [
+            %{
+              candidate_id: "c-1",
+              summary: "方向A",
+              content_ref: "ref-a",
+              origin_ref: "tool:creative_gen",
+              risk_hint: :low,
+              adoption_target_ref: "char_1",
+              work_id: "work-a"
+            }
+          ]
+        )
+
+      decision =
+        AdoptionBoundary.evaluate(
+          set,
+          %{candidate_id: "c-1", work_id: "work-b"},
+          nil,
+          work_id: "work-b",
+          artifact_work_id: "work-a"
+        )
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "work_id_mismatch" in decision.reason_codes
+      refute AdoptionDecision.adopted?(decision)
+    end
   end
 
   # ── Invariants ──────────────────────────────────

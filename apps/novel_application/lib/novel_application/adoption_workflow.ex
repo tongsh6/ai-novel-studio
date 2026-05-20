@@ -26,9 +26,16 @@ defmodule NovelApplication.AdoptionWorkflow do
   def handle_adopt(source_turn_result, %{"artifact_id" => artifact_id} = params, adoption_writer)
       when is_binary(artifact_id) do
     with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id),
+         {:ok, work_context} <- validate_work_boundary(source_turn_result, artifact, params),
          :ok <- check_revision_base(artifact, params),
          candidate_set <- candidate_set_from_artifact(source_turn_result, artifact),
-         decision <- AdoptionBoundary.evaluate(candidate_set, %{"candidate_id" => artifact_id}),
+         decision <-
+           AdoptionBoundary.evaluate(
+             candidate_set,
+             %{"candidate_id" => artifact_id, "work_id" => work_context.work_id},
+             nil,
+             work_context
+           ),
          true <- AdoptionDecision.adopted?(decision),
          {:ok, persisted} <-
            persist_adoption(adoption_writer, source_turn_result, decision, artifact, params) do
@@ -46,9 +53,10 @@ defmodule NovelApplication.AdoptionWorkflow do
   @spec handle_discard(map() | nil, map()) :: {:ok, map(), map()} | {:error, String.t()}
   def handle_discard(nil, _params), do: {:error, "source_turn_result not available"}
 
-  def handle_discard(source_turn_result, %{"artifact_id" => artifact_id})
+  def handle_discard(source_turn_result, %{"artifact_id" => artifact_id} = params)
       when is_binary(artifact_id) do
-    with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id) do
+    with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id),
+         {:ok, _work_context} <- validate_work_boundary(source_turn_result, artifact, params) do
       {:ok, build_discard_action_result(artifact),
        build_discard_turn_result(source_turn_result, artifact)}
     end
@@ -102,10 +110,17 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   defp handle_modify_draft_with_artifact(source_turn_result, params, adoption_writer, artifact_id) do
     with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id),
+         {:ok, work_context} <- validate_work_boundary(source_turn_result, artifact, params),
          :ok <- check_revision_base(artifact, params),
          edited_artifact <- edited_artifact(artifact, params),
          candidate_set <- candidate_set_from_artifact(source_turn_result, edited_artifact),
-         decision <- AdoptionBoundary.evaluate(candidate_set, %{"candidate_id" => artifact_id}),
+         decision <-
+           AdoptionBoundary.evaluate(
+             candidate_set,
+             %{"candidate_id" => artifact_id, "work_id" => work_context.work_id},
+             nil,
+             work_context
+           ),
          true <- AdoptionDecision.adopted?(decision),
          {:ok, persisted} <-
            persist_adoption(
@@ -139,6 +154,34 @@ defmodule NovelApplication.AdoptionWorkflow do
     end
   end
 
+  defp validate_work_boundary(source_turn_result, artifact, params) do
+    requested_work_id = Map.get(params, "work_id") || map_field(params, :work_id)
+    source_work_id = map_field(source_turn_result, :work_id)
+    artifact_work_id = artifact_field(artifact, :work_id)
+
+    referenced_work_ids =
+      [source_work_id, artifact_work_id]
+      |> Enum.reject(&blank?/1)
+      |> Enum.uniq()
+
+    cond do
+      length(referenced_work_ids) > 1 ->
+        {:error, "cross-work adoption rejected"}
+
+      not blank?(requested_work_id) and
+          Enum.any?(referenced_work_ids, &(&1 != requested_work_id)) ->
+        {:error, "cross-work adoption rejected"}
+
+      true ->
+        {:ok,
+         %{
+           work_id: requested_work_id || List.first(referenced_work_ids),
+           source_work_id: source_work_id,
+           artifact_work_id: artifact_work_id
+         }}
+    end
+  end
+
   defp candidate_set_from_artifact(source_turn_result, artifact) do
     artifact_id = artifact_field(artifact, :artifact_id)
     artifact_type = artifact_field(artifact, :artifact_type)
@@ -157,7 +200,8 @@ defmodule NovelApplication.AdoptionWorkflow do
             artifact_field(artifact, :source_tool_result_ref) ||
               "turn:#{turn_id(source_turn_result)}",
           risk_hint: :low,
-          adoption_target_ref: "artifact:#{artifact_id}"
+          adoption_target_ref: "artifact:#{artifact_id}",
+          work_id: artifact_field(artifact, :work_id) || map_field(source_turn_result, :work_id)
         }
       ],
       stability: :tentative,
@@ -559,4 +603,6 @@ defmodule NovelApplication.AdoptionWorkflow do
       do: Map.put(map, key, value),
       else: Map.put(map, Atom.to_string(key), value)
   end
+
+  defp blank?(value), do: is_nil(value) or value == ""
 end
