@@ -49,6 +49,39 @@ defmodule NovelAgent.Provider.LMStudioTest do
   end
 
   describe "complete/4 error handling" do
+    test "sends chat messages without flattening history into one user prompt" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:request_body, body})
+
+        {:ok, 200,
+         %{
+           "choices" => [%{"message" => %{"content" => "{\"ok\":true}"}}],
+           "usage" => %{}
+         }}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      messages = [
+        %{role: "system", content: "规则"},
+        %{role: "user", content: "第一轮"},
+        %{role: "assistant", content: "回应第一轮"},
+        %{role: "user", content: "第二轮"}
+      ]
+
+      assert {:ok, _result} = LMStudio.complete(state, nil, messages, %InferenceParams{})
+      assert_receive {:request_body, body}
+      assert body.messages == messages
+    end
+
     test "returns connection_refused" do
       mock = fn _url, _body, _opts -> {:error, :connection_refused, 0, "拒绝"} end
 

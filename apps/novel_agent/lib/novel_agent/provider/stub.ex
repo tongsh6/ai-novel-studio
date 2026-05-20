@@ -18,7 +18,7 @@ defmodule NovelAgent.Provider.Stub do
 
   @impl true
   def complete(_state, _model, prompt, _params) do
-    {:ok, Result.new("[stub] echo: #{prompt}")}
+    {:ok, Result.new("[stub] echo: #{prompt_text(prompt)}")}
   end
 
   @impl true
@@ -26,4 +26,12 @@ defmodule NovelAgent.Provider.Stub do
 
   @impl true
   def health_check(_state), do: :ok
+
+  defp prompt_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_text(prompt) when is_list(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
+  end
 end

@@ -14,13 +14,15 @@ defmodule NovelAgent.Provider.SliceVerify do
 
   @impl true
   def complete(_state, _model, prompt, _params) do
+    prompt_text = prompt_text(prompt)
+
     content =
       cond do
-        plan_prompt?(prompt) ->
-          plan_response(prompt) |> Jason.encode!()
+        plan_prompt?(prompt_text) ->
+          plan_response(prompt_text) |> Jason.encode!()
 
-        tool_narration_prompt?(prompt) ->
-          tool_narration_response(prompt)
+        tool_narration_prompt?(prompt_text) ->
+          tool_narration_response(prompt_text)
 
         true ->
           frame_response(prompt) |> Jason.encode!()
@@ -152,6 +154,27 @@ defmodule NovelAgent.Provider.SliceVerify do
   end
 
   defp author_input_text(prompt) do
+    prompt
+    |> current_user_message()
+    |> case do
+      nil -> author_input_text_from_prompt(prompt_text(prompt))
+      text -> text
+    end
+  end
+
+  defp current_user_message(prompt) when is_list(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.reverse()
+    |> Enum.find_value(fn
+      %{role: "user", content: content} -> content
+      _message -> nil
+    end)
+  end
+
+  defp current_user_message(_prompt), do: nil
+
+  defp author_input_text_from_prompt(prompt) do
     case Regex.run(~r/用户消息：\s*(.*?)\s*$/s, prompt) do
       [_, text] ->
         text
@@ -162,5 +185,13 @@ defmodule NovelAgent.Provider.SliceVerify do
           _ -> prompt
         end
     end
+  end
+
+  defp prompt_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_text(prompt) when is_list(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.map_join("\n", fn message -> "#{message.role}: #{message.content}" end)
   end
 end

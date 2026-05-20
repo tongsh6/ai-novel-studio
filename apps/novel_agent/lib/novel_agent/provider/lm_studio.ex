@@ -27,14 +27,14 @@ defmodule NovelAgent.Provider.LMStudio do
 
   @impl true
   def complete(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params)
-      when is_binary(prompt) and not is_nil(endpoint) do
+      when (is_binary(prompt) or is_list(prompt)) and not is_nil(endpoint) do
     start_time = System.monotonic_time(:millisecond)
 
     body =
       HTTP.apply_params(
         %{
           model: state.model,
-          messages: [%{role: "user", content: prompt}]
+          messages: NovelAgent.Provider.normalize_messages(prompt)
         },
         params
       )

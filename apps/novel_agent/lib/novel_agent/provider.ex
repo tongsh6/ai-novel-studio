@@ -9,7 +9,8 @@ defmodule NovelAgent.Provider do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
 
-  @type prompt :: String.t()
+  @type message :: %{required(:role) => String.t(), required(:content) => String.t()}
+  @type prompt :: String.t() | [message()]
   @type model :: String.t()
 
   @type result :: {:ok, Result.t()} | {:error, reason :: term()}
@@ -39,4 +40,20 @@ defmodule NovelAgent.Provider do
   返回 provider 名称（用于日志和 audit）。
   """
   @callback name() :: String.t()
+
+  @doc """
+  Normalize legacy string prompts and chat prompts into OpenAI-compatible
+  message maps.
+  """
+  @spec normalize_messages(prompt()) :: [message()]
+  def normalize_messages(prompt) when is_binary(prompt), do: [%{role: "user", content: prompt}]
+
+  def normalize_messages(messages) when is_list(messages) do
+    Enum.map(messages, fn message ->
+      role = Map.get(message, :role) || Map.get(message, "role")
+      content = Map.get(message, :content) || Map.get(message, "content")
+
+      %{role: to_string(role || "user"), content: to_string(content || "")}
+    end)
+  end
 end

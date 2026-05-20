@@ -40,9 +40,12 @@ defmodule NovelAgent.Provider.Anthropic do
   @api_version "2023-06-01"
 
   @impl true
-  def complete(%__MODULE__{} = state, _model, prompt, params) when is_binary(prompt) do
+  def complete(%__MODULE__{} = state, _model, prompt, params)
+      when is_binary(prompt) or is_list(prompt) do
     start_time = System.monotonic_time(:millisecond)
-    body = %{model: state.model, max_tokens: 4096, messages: [%{role: "user", content: prompt}]}
+    {system_prompt, messages} = anthropic_messages(prompt)
+    body = %{model: state.model, max_tokens: 4096, messages: messages}
+    body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
     body = HTTP.apply_params(body, params)
     url = Path.join(@api_base, "messages")
     headers = [{"x-api-key", state.api_key}, {"anthropic-version", @api_version}]
@@ -63,6 +66,27 @@ defmodule NovelAgent.Provider.Anthropic do
 
     if log = state.log_fn, do: log.(name(), url, body, result, start_time)
     strip_attrs(result)
+  end
+
+  defp anthropic_messages(prompt) do
+    messages = NovelAgent.Provider.normalize_messages(prompt)
+
+    {system_messages, chat_messages} =
+      Enum.split_with(messages, fn message -> message.role == "system" end)
+
+    system_prompt =
+      case Enum.map(system_messages, & &1.content) do
+        [] -> nil
+        parts -> Enum.join(parts, "\n\n")
+      end
+
+    fallback_messages =
+      case chat_messages do
+        [] -> [%{role: "user", content: system_prompt || ""}]
+        messages -> messages
+      end
+
+    {system_prompt, fallback_messages}
   end
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}

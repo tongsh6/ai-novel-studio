@@ -106,12 +106,20 @@ defmodule NovelApplication.DialogueGatewayLoggingTest do
 
   defp complete_fn do
     fn prompt ->
-      if String.contains?(prompt, "\"proposed_actions\"") do
+      if prompt |> prompt_text() |> String.contains?("\"proposed_actions\"") do
         {:ok, %{content: @plan_json}}
       else
         {:ok, %{content: @frame_json}}
       end
     end
+  end
+
+  defp prompt_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_text(prompt) when is_list(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.map_join("\n", fn message -> message.content end)
   end
 
   defp eventually_read_records(log_dir, attempts \\ 40)

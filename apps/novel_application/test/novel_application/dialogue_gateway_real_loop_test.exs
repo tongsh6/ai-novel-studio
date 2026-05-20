@@ -60,13 +60,15 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                  recorder
                )
 
-      [first_prompt, second_prompt] = captured_prompts(complete_fn)
+      [first_messages, second_messages] = captured_prompts(complete_fn)
 
-      refute String.contains?(first_prompt, "## 最近对话")
+      refute history_text(first_messages) =~ "第一轮要记住"
       assert String.contains?(second_context.conversation_summary, "user: 第一轮要记住：主角叫林烬。")
       assert String.contains?(second_context.conversation_summary, "assistant: 收到你的消息。")
-      assert String.contains?(second_prompt, "## 最近对话")
-      assert String.contains?(second_prompt, "user: 第一轮要记住：主角叫林烬。")
+      assert Enum.map(second_messages, & &1.role) == ["system", "user", "assistant", "user"]
+      assert history_text(second_messages) =~ "第一轮要记住：主角叫林烬。"
+      assert List.last(second_messages).content == "第二轮：他现在叫什么？"
+      refute system_text(second_messages) =~ "user: 第一轮要记住"
     end
 
     test "records session_id and assistant turn_result for resume hydration" do
@@ -121,14 +123,14 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                  recorder
                )
 
-      [_first_prompt, second_prompt] = captured_prompts(complete_fn)
+      [_first_messages, second_messages] = captured_prompts(complete_fn)
 
       assert second_context.conversation_summary =~ "user: 第一轮要记住：主角叫林烬。"
       assert second_context.conversation_summary =~ "assistant: 收到你的消息。"
       refute second_context.conversation_summary =~ "周燃"
-      assert second_prompt =~ "## 最近对话"
-      assert second_prompt =~ "林烬"
-      refute second_prompt =~ "周燃"
+      assert history_text(second_messages) =~ "林烬"
+      refute history_text(second_messages) =~ "周燃"
+      refute system_text(second_messages) =~ "## 最近对话"
     end
 
     test "injects latest active session transcript into planner prompt for long sessions" do
@@ -151,14 +153,14 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                  nil
                )
 
-      [prompt] = captured_prompts(complete_fn)
+      [messages] = captured_prompts(complete_fn)
 
       refute context.conversation_summary =~ "第1轮设定"
       refute context.conversation_summary =~ "第2轮设定"
       assert context.conversation_summary =~ "第12轮设定"
-      refute prompt =~ "第1轮设定"
-      assert prompt =~ "## 最近对话"
-      assert prompt =~ "第12轮设定"
+      refute history_text(messages) =~ "第1轮设定"
+      assert history_text(messages) =~ "第12轮设定"
+      assert List.last(messages).content == "继续最新设定"
     end
 
     test "injects recalled confirmed memory into the planner prompt and trace context" do
@@ -177,11 +179,11 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                  nil
                )
 
-      [prompt] = captured_prompts(complete_fn)
+      [messages] = captured_prompts(complete_fn)
 
       assert context.memory_summary =~ "林瑶失踪与灵源矿区有关"
-      assert String.contains?(prompt, "## 相关记忆")
-      assert String.contains?(prompt, "林瑶失踪与灵源矿区有关")
+      assert String.contains?(system_text(messages), "## 相关记忆")
+      assert String.contains?(system_text(messages), "林瑶失踪与灵源矿区有关")
       memory_ref = Enum.find(turn_result.trace_summary.context_refs, &(&1.source_type == :memory))
       assert memory_ref.summary =~ "林瑶失踪与灵源矿区有关"
       refute memory_ref.summary =~ "PLOT_FACT"
@@ -207,6 +209,19 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
   end
 
   defp captured_prompts(complete_fn), do: complete_fn.(:captured_prompts)
+
+  defp system_text(messages) do
+    messages
+    |> Enum.find(&(&1.role == "system"))
+    |> Map.fetch!(:content)
+  end
+
+  defp history_text(messages) do
+    messages
+    |> Enum.reject(&(&1.role == "system"))
+    |> Enum.drop(-1)
+    |> Enum.map_join("\n", & &1.content)
+  end
 
   defp insert_memory!(work_id, content) do
     %MemoryItem{}

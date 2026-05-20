@@ -252,7 +252,7 @@ defmodule NovelApplication.Planner do
   # ── shared helpers (from VS-00) ──
 
   defp call_provider(text, context, complete_fn) do
-    prompt = build_prompt(text, context)
+    prompt = build_messages(text, context)
 
     case complete_fn.(prompt) do
       {:ok, %{content: content}} ->
@@ -266,18 +266,17 @@ defmodule NovelApplication.Planner do
     end
   end
 
-  defp build_prompt(text, context) do
-    context_section =
-      if context && DialogueContext.has_context?(context) do
-        DialogueContext.to_prompt_text(context)
-      else
-        "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
-      end
+  defp build_messages(text, context) do
+    [%{role: "system", content: system_prompt(context)}] ++
+      conversation_messages(context) ++
+      [%{role: "user", content: text}]
+  end
 
+  defp system_prompt(context) do
     """
     你是一个小说创作 AI。分析用户消息并返回 JSON。
 
-    #{context_section}
+    #{non_conversation_context_section(context)}
 
     ## 输出格式（严格 JSON）
     {
@@ -297,9 +296,68 @@ defmodule NovelApplication.Planner do
     - frame_type != "creative_exploration" 时，candidate_directions 为空数组
     - 不要输出纯字符串数组，每个方向必须是带 title/pitch/tone_tags 的对象
     - assistant_message 必须用中文，不要输出 JSON 代码块
-
-    用户消息：#{text}
     """
+  end
+
+  defp non_conversation_context_section(%DialogueContext{} = context) do
+    parts = [current_work_section(context.current_work_snapshot)]
+
+    parts =
+      if context.memory_summary do
+        ["## 相关记忆\n#{context.memory_summary}" | parts]
+      else
+        parts
+      end
+
+    parts
+    |> Enum.reverse()
+    |> Enum.join("\n\n")
+  end
+
+  defp non_conversation_context_section(_context),
+    do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
+
+  defp current_work_section(nil),
+    do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
+
+  defp current_work_section(snapshot) when is_map(snapshot) do
+    "## 当前作品上下文\n" <>
+      Enum.map_join(snapshot, "\n", fn {key, value} -> "- #{key}: #{value}" end)
+  end
+
+  defp conversation_messages(%DialogueContext{conversation_summary: summary})
+       when is_binary(summary),
+       do: parse_conversation_messages(summary)
+
+  defp conversation_messages(_context), do: []
+
+  defp parse_conversation_messages(summary) do
+    summary
+    |> String.split("\n")
+    |> Enum.reduce({[], nil}, &collect_conversation_line/2)
+    |> finalize_conversation_messages()
+  end
+
+  defp collect_conversation_line(line, {messages, current}) do
+    case Regex.run(~r/^(user|assistant):\s*(.*)$/u, line) do
+      [_, role, content] ->
+        {[current | messages], %{role: role, content: content}}
+
+      _ ->
+        {messages, append_conversation_line(current, line)}
+    end
+  end
+
+  defp append_conversation_line(nil, _line), do: nil
+
+  defp append_conversation_line(current, line),
+    do: %{current | content: current.content <> "\n" <> line}
+
+  defp finalize_conversation_messages({messages, current}) do
+    [current | messages]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.reverse()
+    |> Enum.reject(&(String.trim(&1.content) == ""))
   end
 
   # ── JSON parsing with extraction + retry ──────
@@ -435,8 +493,16 @@ defmodule NovelApplication.Planner do
     - 直接以 `{` 开始，`}` 结束
 
     ## 原始要求
-    #{original}
+    #{prompt_to_text(original)}
     """
+  end
+
+  defp prompt_to_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_to_text(prompt) when is_list(prompt) do
+    prompt
+    |> NovelAgent.Provider.normalize_messages()
+    |> Enum.map_join("\n\n", fn message -> "#{message.role}: #{message.content}" end)
   end
 
   defp validate_frame_response(parsed) when is_map(parsed) do

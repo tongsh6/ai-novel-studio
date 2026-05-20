@@ -129,6 +129,27 @@ defmodule NovelAgent.Provider.GatewayTest do
       end
     end
 
+    test "classifies chat messages from the latest user message" do
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :slice_verify)
+
+      messages = [
+        %{role: "system", content: "candidate_directions 必须包含 2-3 个方向对象"},
+        %{role: "user", content: "上一轮想找一个赛博修仙方向"},
+        %{role: "assistant", content: "可以先给几个方向。"},
+        %{role: "user", content: "你好，先介绍一下你能如何协助我"}
+      ]
+
+      try do
+        assert {:ok, %{content: content}} = Gateway.complete(messages)
+        assert {:ok, parsed} = Jason.decode(content)
+        assert parsed["frame_type"] == "casual_reply"
+        assert parsed["candidate_directions"] == []
+      after
+        Application.put_env(:novel_agent, :provider, old)
+      end
+    end
+
     test "returns author-facing text for tool narration prompts" do
       old = Application.get_env(:novel_agent, :provider)
       Application.put_env(:novel_agent, :provider, default: :slice_verify)
