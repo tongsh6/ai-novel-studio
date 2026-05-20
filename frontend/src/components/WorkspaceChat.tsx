@@ -206,6 +206,9 @@ export function WorkspaceChat() {
   const sliceVerifyAdoptionRef = useRef(false);
   const sliceVerifyFollowUpRoutingRef = useRef(false);
   const sliceVerifyCandidateRef = useRef(false);
+  const sliceVerifyOrdinaryTurnIdsRef = useRef<string[]>([]);
+  const sliceVerifyOrdinaryThinkingObservedRef = useRef(false);
+  const sliceVerifyOrdinaryReportedRef = useRef(false);
   const resumeRestoredTranscriptRef = useRef(false);
   const connectionTokenRef = useRef(0);
   const openWorkRef = useRef<(work: WorkDto) => Promise<void>>(() => Promise.resolve());
@@ -268,13 +271,106 @@ export function WorkspaceChat() {
     ) {
       sliceVerifyContinuationRef.current = true;
       window.setTimeout(() => {
-        setInputText("继续说说还有什么方向");
+        setInputText("继续说说还有什么协作方式");
         window.setTimeout(() => {
           document
             .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
             ?.click();
         }, 150);
       }, 250);
+    }
+
+    if (
+      isTauri &&
+      autorunSlice === "au01-ordinary-chat-two-turn-roundtrip" &&
+      channelRef.current &&
+      !sliceVerifyOrdinaryTurnIdsRef.current.includes(result.turn_id)
+    ) {
+      sliceVerifyOrdinaryTurnIdsRef.current = [
+        ...sliceVerifyOrdinaryTurnIdsRef.current,
+        result.turn_id,
+      ];
+
+      if (sliceVerifyOrdinaryTurnIdsRef.current.length >= 2) {
+        window.setTimeout(() => {
+          if (
+            !channelRef.current ||
+            sliceVerifyOrdinaryReportedRef.current ||
+            sliceVerifyUiReported.has("au01-ordinary-chat-two-turn-roundtrip")
+          ) return;
+
+          const visibleConversation = Array.from(
+            document.querySelectorAll<HTMLElement>(
+              '[data-role="user"], [data-role="assistant"][data-turn-id]',
+            ),
+          );
+          const roleOrder = visibleConversation.map((node) => node.dataset.role ?? "");
+          const assistantTurnMessages = document.querySelectorAll(
+            '[data-role="assistant"][data-turn-id]',
+          );
+          const userMessageCount = document.querySelectorAll('[data-role="user"]').length;
+          const thinkingVisibleAfterReply = Boolean(
+            document.querySelector('[data-role="assistant"][data-status="thinking"]'),
+          );
+          const expectedOrder = ["user", "assistant", "user", "assistant"];
+          let orderOffset = 0;
+          for (const role of roleOrder) {
+            if (role === expectedOrder[orderOffset]) orderOffset += 1;
+          }
+
+          if (
+            userMessageCount < 2 ||
+            assistantTurnMessages.length < 2 ||
+            orderOffset < expectedOrder.length
+          ) return;
+
+          sliceVerifyOrdinaryReportedRef.current = true;
+          sliceVerifyUiReported.add("au01-ordinary-chat-two-turn-roundtrip");
+
+          const ordinaryTurnIds = sliceVerifyOrdinaryTurnIdsRef.current;
+          const uiTurnIds = [
+            ordinaryTurnIds[0],
+            ordinaryTurnIds[ordinaryTurnIds.length - 1],
+          ].filter((turnId): turnId is string => Boolean(turnId));
+
+          void reportSliceVerifyUiState(channelRef.current, {
+            slice_id: "au01-ordinary-chat-two-turn-roundtrip",
+            context_work_id: useAppStore.getState().context.workId,
+            context_work_title: useAppStore.getState().context.workTitle,
+            active_session_id: activeSessionId,
+            restored_turn_id: result.turn_id,
+            socket_connected: useAppStore.getState().socketConnected,
+            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
+            welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
+              .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length,
+            pending_adoption_count:
+              document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
+            first_message_text:
+              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
+                ?.innerText ?? "",
+            service_status_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                ?.innerText ?? "",
+            title_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+                ?.innerText ?? "",
+            ui_turn_ids: uiTurnIds,
+            user_message_count: userMessageCount,
+            assistant_turn_message_count: assistantTurnMessages.length,
+            message_role_order: roleOrder,
+            thinking_observed: sliceVerifyOrdinaryThinkingObservedRef.current,
+            thinking_visible_after_reply: thinkingVisibleAfterReply,
+            available_action_count:
+              document.querySelectorAll('[data-slice-verify="available-action"]').length,
+            card_action_count:
+              document.querySelectorAll('[data-slice-verify="card-action"]').length,
+            candidate_panel_count:
+              document.querySelectorAll('[data-slice-verify="candidate-panel"]').length,
+            adoption_decision_card_count:
+              document.querySelectorAll('[data-slice-verify="adoption-decision-card"]').length,
+          }).catch(() => undefined);
+        }, 350);
+      }
     }
 
     if (
@@ -747,6 +843,18 @@ export function WorkspaceChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
+  useEffect(() => {
+    if (
+      !isTauri ||
+      import.meta.env.VITE_SLICE_VERIFY_AUTORUN !== "au01-ordinary-chat-two-turn-roundtrip" ||
+      !loading
+    ) return;
+
+    if (document.querySelector('[data-role="assistant"][data-status="thinking"]')) {
+      sliceVerifyOrdinaryThinkingObservedRef.current = true;
+    }
+  }, [loading]);
+
   const runtimeState = deriveWorkspaceRuntimeState({
     connection: { connected: socketConnected },
     work: {
@@ -1165,7 +1273,7 @@ export function WorkspaceChat() {
       autorunSlice === "au01-ordinary-chat-two-turn-roundtrip"
     ) {
       timers.push(window.setTimeout(() => {
-        setInputText("你好，我想聊聊小说创作");
+        setInputText("你好，先介绍一下你能如何协助我");
         timers.push(window.setTimeout(() => {
           document
             .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
@@ -1682,6 +1790,7 @@ export function WorkspaceChat() {
               <div
                 key={i}
                 data-role={msg.role}
+                data-turn-id={msg.turnResult?.turn_id}
                 className={
                   msg.role === "user" ? styles.userMsg : styles.assistantMsg
                 }

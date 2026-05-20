@@ -1117,16 +1117,24 @@ function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
   if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
 
+  const uiState = ordinaryChatUiState(turnIds, turnRecords);
+  if (!uiState) return null;
+
   return {
     slice_id: "au01-ordinary-chat-two-turn-roundtrip",
-    behavior: "ordinary_chat_two_turn_roundtrip",
+    behavior: "ordinary_chat_two_turn_visible_roundtrip",
     turn_ids: turnIds,
     assertions: [
       "two_user_turns_completed",
+      "real_workbench_rendered_two_user_and_two_assistant_turns_in_order",
+      "thinking_indicator_appeared_then_cleared",
       "micro_plan_not_requested",
+      "no_action_candidate_or_adoption_cards_rendered",
       "no_error_events",
       "assistant_messages_not_fallback",
-      "lmstudio_form_frame_called_per_turn",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_per_turn"
+        : "deterministic_provider_form_frame_called_per_turn",
     ],
   };
 }
@@ -1752,13 +1760,61 @@ function findOrdinaryChatTwoTurnEvidence(records) {
   }
 
   if (matchingTurnIds.length < 2) return null;
+  const turnIds = matchingTurnIds.slice(0, 2);
+  const uiState = ordinaryChatUiState(
+    turnIds,
+    records.filter((record) => turnIds.includes(record.turn_id)),
+  );
+  if (!uiState) return null;
 
   return {
     slice_id: sliceId,
-    turn_id: matchingTurnIds[0],
-    turn_ids: matchingTurnIds.slice(0, 2),
+    turn_id: turnIds[0],
+    turn_ids: turnIds,
+    user_message_count: Number(uiState.user_message_count),
+    assistant_turn_message_count: Number(uiState.assistant_turn_message_count),
+    message_role_order: uiState.message_role_order,
+    thinking_observed: uiState.thinking_observed,
+    thinking_visible_after_reply: uiState.thinking_visible_after_reply,
     key_events: keyEvents,
   };
+}
+
+function ordinaryChatUiState(turnIds, turnRecords) {
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au01-ordinary-chat-two-turn-roundtrip" &&
+      Array.isArray(record.ui_turn_ids) &&
+      turnIds.every((turnId) => record.ui_turn_ids.includes(turnId)),
+  );
+
+  if (!uiState) return null;
+  if (Number(uiState.user_message_count ?? 0) < 2) return null;
+  if (Number(uiState.assistant_turn_message_count ?? 0) < 2) return null;
+  if (uiState.thinking_observed !== true) return null;
+  if (uiState.thinking_visible_after_reply !== false) return null;
+  if (Number(uiState.available_action_count ?? 0) !== 0) return null;
+  if (Number(uiState.card_action_count ?? 0) !== 0) return null;
+  if (Number(uiState.candidate_panel_count ?? 0) !== 0) return null;
+  if (Number(uiState.adoption_decision_card_count ?? 0) !== 0) return null;
+  if (!containsRoleOrder(uiState.message_role_order, ["user", "assistant", "user", "assistant"])) {
+    return null;
+  }
+
+  return uiState;
+}
+
+function containsRoleOrder(actual, expected) {
+  if (!Array.isArray(actual)) return false;
+
+  let offset = 0;
+  for (const role of actual) {
+    if (role === expected[offset]) offset += 1;
+    if (offset === expected.length) return true;
+  }
+
+  return false;
 }
 
 function groupByTurn(records) {

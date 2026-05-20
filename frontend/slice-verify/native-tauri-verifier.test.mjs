@@ -557,39 +557,17 @@ describe("native Tauri slice verifier", () => {
   });
 
   it("requires two ordinary chat turns without micro plan events", () => {
-    const records = ["turn-a", "turn-b"].flatMap((turnId) => [
-      {
-        event: "channel.user_message.start",
-        turn_id: turnId,
-        workspace_id: "ws-chat",
-        work_id: "work-chat",
-        duration_ms: 0,
-        outcome: "start",
-        text_len: 24,
-        generate_micro_plan: false,
-      },
-      {
-        event: "dialogue_gateway.handle_input.done",
-        turn_id: turnId,
-        workspace_id: "ws-chat",
-        work_id: "work-chat",
-        duration_ms: 12,
-        outcome: "ok",
-      },
-      {
-        event: "channel.user_message.done",
-        turn_id: turnId,
-        workspace_id: "ws-chat",
-        work_id: "work-chat",
-        duration_ms: 14,
-        outcome: "ok",
-      },
-    ]);
+    const records = ordinaryTwoTurnRecords();
 
     expect(findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records)).toEqual({
       slice_id: "au01-ordinary-chat-two-turn-roundtrip",
       turn_id: "turn-a",
       turn_ids: ["turn-a", "turn-b"],
+      user_message_count: 2,
+      assistant_turn_message_count: 2,
+      message_role_order: ["user", "assistant", "user", "assistant"],
+      thinking_observed: true,
+      thinking_visible_after_reply: false,
       key_events: [
         "channel.user_message.start",
         "dialogue_gateway.handle_input.done",
@@ -600,34 +578,7 @@ describe("native Tauri slice verifier", () => {
 
   it("rejects ordinary two-turn evidence if a micro plan event appears", () => {
     const records = [
-      ...["turn-a", "turn-b"].flatMap((turnId) => [
-        {
-          event: "channel.user_message.start",
-          turn_id: turnId,
-          workspace_id: "ws-chat",
-          work_id: "work-chat",
-          duration_ms: 0,
-          outcome: "start",
-          text_len: 24,
-          generate_micro_plan: false,
-        },
-        {
-          event: "dialogue_gateway.handle_input.done",
-          turn_id: turnId,
-          workspace_id: "ws-chat",
-          work_id: "work-chat",
-          duration_ms: 12,
-          outcome: "ok",
-        },
-        {
-          event: "channel.user_message.done",
-          turn_id: turnId,
-          workspace_id: "ws-chat",
-          work_id: "work-chat",
-          duration_ms: 14,
-          outcome: "ok",
-        },
-      ]),
+      ...ordinaryTwoTurnRecords(),
       {
         event: "planner.form_micro_plan.done",
         turn_id: "turn-b",
@@ -637,6 +588,14 @@ describe("native Tauri slice verifier", () => {
         outcome: "ok",
       },
     ];
+
+    expect(findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records)).toBeNull();
+  });
+
+  it("rejects ordinary two-turn evidence without real workbench UI state", () => {
+    const records = ordinaryTwoTurnRecords().filter(
+      (record) => record.event !== "slice_verify.ui_state.done",
+    );
 
     expect(findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records)).toBeNull();
   });
@@ -737,16 +696,28 @@ describe("native Tauri slice verifier", () => {
       llmRecords,
     })).toEqual({
       slice_id: "au01-ordinary-chat-two-turn-roundtrip",
-      behavior: "ordinary_chat_two_turn_roundtrip",
+      behavior: "ordinary_chat_two_turn_visible_roundtrip",
       turn_ids: ["turn-a", "turn-b"],
       assertions: [
         "two_user_turns_completed",
+        "real_workbench_rendered_two_user_and_two_assistant_turns_in_order",
+        "thinking_indicator_appeared_then_cleared",
         "micro_plan_not_requested",
+        "no_action_candidate_or_adoption_cards_rendered",
         "no_error_events",
         "assistant_messages_not_fallback",
         "lmstudio_form_frame_called_per_turn",
       ],
     });
+  });
+
+  it("labels deterministic provider ordinary chat evidence without claiming LM Studio calls", () => {
+    const records = ordinaryTwoTurnRecords();
+    const evidence = findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records);
+
+    expect(findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
+      provider: "slice_verify",
+    })?.assertions).toContain("deterministic_provider_form_frame_called_per_turn");
   });
 
   it("accepts AU-05 behavior only when adoption boundary persisted a mutation", () => {
@@ -989,7 +960,7 @@ describe("native Tauri slice verifier", () => {
 });
 
 function ordinaryTwoTurnRecords() {
-  return ["turn-a", "turn-b"].flatMap((turnId) => [
+  const records = ["turn-a", "turn-b"].flatMap((turnId) => [
     {
       event: "channel.user_message.start",
       turn_id: turnId,
@@ -1026,6 +997,29 @@ function ordinaryTwoTurnRecords() {
       outcome: "ok",
     },
   ]);
+
+  return [
+    ...records,
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: "turn-b",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au01-ordinary-chat-two-turn-roundtrip",
+      ui_turn_ids: ["turn-a", "turn-b"],
+      user_message_count: 2,
+      assistant_turn_message_count: 2,
+      message_role_order: ["user", "assistant", "user", "assistant"],
+      thinking_observed: true,
+      thinking_visible_after_reply: false,
+      available_action_count: 0,
+      card_action_count: 0,
+      candidate_panel_count: 0,
+      adoption_decision_card_count: 0,
+    },
+  ];
 }
 
 function ordinarySingleTurnRecords(turnId) {

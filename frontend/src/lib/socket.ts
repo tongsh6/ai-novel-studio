@@ -90,6 +90,15 @@ export interface SliceVerifyUiStatePayload {
   llm_status_text?: string;
   llm_connected?: boolean | null;
   llm_model_label?: string;
+  ui_turn_ids?: string[];
+  user_message_count?: number;
+  assistant_turn_message_count?: number;
+  message_role_order?: string[];
+  thinking_observed?: boolean;
+  thinking_visible_after_reply?: boolean;
+  available_action_count?: number;
+  card_action_count?: number;
+  adoption_decision_card_count?: number;
 }
 
 export function reportSliceVerifyUiState(
