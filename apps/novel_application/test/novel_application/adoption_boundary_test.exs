@@ -95,6 +95,20 @@ defmodule NovelApplication.AdoptionBoundaryTest do
       assert "candidate_adopted_as_tentative" in decision.reason_codes
     end
 
+    test "uses candidate set trace as decision trace provenance" do
+      set = build_candidate_set(trace_ref: "trace-source")
+
+      adopted = AdoptionBoundary.evaluate(set, %{candidate_id: "c-1"})
+      confirmation = AdoptionBoundary.evaluate(set, %{candidate_id: "c-2"})
+      rejected = AdoptionBoundary.evaluate(%{set | stability: :adopted}, %{candidate_id: "c-1"})
+      missing = AdoptionBoundary.evaluate(set, %{candidate_id: "missing"})
+
+      assert adopted.decision_trace_ref == "trace-source"
+      assert confirmation.decision_trace_ref == "trace-source"
+      assert rejected.decision_trace_ref == "trace-source"
+      assert missing.decision_trace_ref == "trace-source"
+    end
+
     test "projection hint appears only on adoption" do
       set = build_candidate_set()
 

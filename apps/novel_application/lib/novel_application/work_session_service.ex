@@ -3,6 +3,7 @@ defmodule NovelApplication.WorkSessionService do
   作品内会话用例层。负责为前端启动恢复提供 work-scoped resume snapshot。
   """
 
+  alias NovelApplication.TraceSummaryRef
   alias NovelApplication.WorkService
   alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.Schemas.WorkSession
@@ -90,7 +91,8 @@ defmodule NovelApplication.WorkSessionService do
   end
 
   defp pending_adoptions(turn_results) do
-    resolved_ids = turn_results |> resolved_adoptions() |> Enum.map(& &1.artifact_id) |> MapSet.new()
+    resolved_ids =
+      turn_results |> resolved_adoptions() |> Enum.map(& &1.artifact_id) |> MapSet.new()
 
     turn_results
     |> Enum.flat_map(fn turn_result ->
@@ -115,7 +117,7 @@ defmodule NovelApplication.WorkSessionService do
 
   defp resume_trace_refs(turn_results) do
     turn_results
-    |> Enum.map(&get_in_any(&1, [:trace_summary, :trace_id]))
+    |> Enum.map(&TraceSummaryRef.from_turn_result/1)
     |> Enum.reject(&is_nil/1)
   end
 
@@ -123,7 +125,9 @@ defmodule NovelApplication.WorkSessionService do
     content["turn_result"] || content[:turn_result]
   end
 
-  defp text_from_content(content) when is_map(content), do: to_string(content["text"] || content[:text] || "")
+  defp text_from_content(content) when is_map(content),
+    do: to_string(content["text"] || content[:text] || "")
+
   defp text_from_content(_), do: ""
 
   defp turn_id(turn_result), do: get_in_any(turn_result, [:turn_id])

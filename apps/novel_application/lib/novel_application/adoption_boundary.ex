@@ -19,58 +19,63 @@ defmodule NovelApplication.AdoptionBoundary do
     decision_id = "ad_#{System.unique_integer([:positive, :monotonic])}"
     candidate_id = chosen_candidate[:candidate_id] || chosen_candidate["candidate_id"]
     candidate = find_candidate(candidate_set, candidate_id)
+    decision_trace_ref = candidate_set.trace_ref || "decision_trace:#{decision_id}"
 
     t0 = System.monotonic_time(:millisecond)
+
     LogEmit.emit(:adoption, :evaluate, :start, %{candidate_set_id: candidate_set.candidate_set_id})
 
     decision =
       cond do
-      is_nil(candidate) ->
-        %AdoptionDecision{
-          adoption_decision_id: decision_id,
-          turn_id: candidate_set.turn_id,
-          source_action_ref: "choose_candidate",
-          candidate_ref: candidate_id || "unknown",
-          decision_type: :fail_with_recovery,
-          reason_codes: ["candidate_not_found", "stale_or_invented_selection"]
-        }
+        is_nil(candidate) ->
+          %AdoptionDecision{
+            adoption_decision_id: decision_id,
+            turn_id: candidate_set.turn_id,
+            source_action_ref: "choose_candidate",
+            candidate_ref: candidate_id || "unknown",
+            decision_type: :fail_with_recovery,
+            reason_codes: ["candidate_not_found", "stale_or_invented_selection"],
+            decision_trace_ref: decision_trace_ref
+          }
 
-      candidate_set.stability != :tentative ->
-        %AdoptionDecision{
-          adoption_decision_id: decision_id,
-          turn_id: candidate_set.turn_id,
-          source_action_ref: "choose_candidate",
-          candidate_ref: candidate_id,
-          decision_type: :reject,
-          reason_codes: ["candidate_not_tentative", "stale_candidate_set"]
-        }
+        candidate_set.stability != :tentative ->
+          %AdoptionDecision{
+            adoption_decision_id: decision_id,
+            turn_id: candidate_set.turn_id,
+            source_action_ref: "choose_candidate",
+            candidate_ref: candidate_id,
+            decision_type: :reject,
+            reason_codes: ["candidate_not_tentative", "stale_candidate_set"],
+            decision_trace_ref: decision_trace_ref
+          }
 
-      candidate.risk_hint == :high ->
-        %AdoptionDecision{
-          adoption_decision_id: decision_id,
-          turn_id: candidate_set.turn_id,
-          source_action_ref: "choose_candidate",
-          candidate_ref: candidate_id,
-          decision_type: :require_confirmation,
-          target_ref: candidate.adoption_target_ref,
-          reason_codes: ["high_risk_candidate", "confirmation_required"]
-        }
+        candidate.risk_hint == :high ->
+          %AdoptionDecision{
+            adoption_decision_id: decision_id,
+            turn_id: candidate_set.turn_id,
+            source_action_ref: "choose_candidate",
+            candidate_ref: candidate_id,
+            decision_type: :require_confirmation,
+            target_ref: candidate.adoption_target_ref,
+            reason_codes: ["high_risk_candidate", "confirmation_required"],
+            decision_trace_ref: decision_trace_ref
+          }
 
-      true ->
-        %AdoptionDecision{
-          adoption_decision_id: decision_id,
-          turn_id: candidate_set.turn_id,
-          source_action_ref: "choose_candidate",
-          candidate_ref: candidate_id,
-          decision_type: :adopt_tentative,
-          target_ref: candidate.adoption_target_ref,
-          adopted_state_ref: "adopted:#{candidate_id}",
-          state_trace_ref: "state_trace:#{decision_id}",
-          reason_codes: ["candidate_adopted_as_tentative", "provenance_verified"],
-          projection_hints: [build_projection_hint(candidate_set.turn_id, decision_id)],
-          decision_trace_ref: "decision_trace:#{decision_id}"
-        }
-    end
+        true ->
+          %AdoptionDecision{
+            adoption_decision_id: decision_id,
+            turn_id: candidate_set.turn_id,
+            source_action_ref: "choose_candidate",
+            candidate_ref: candidate_id,
+            decision_type: :adopt_tentative,
+            target_ref: candidate.adoption_target_ref,
+            adopted_state_ref: "adopted:#{candidate_id}",
+            state_trace_ref: "state_trace:#{decision_id}",
+            reason_codes: ["candidate_adopted_as_tentative", "provenance_verified"],
+            projection_hints: [build_projection_hint(candidate_set.turn_id, decision_id)],
+            decision_trace_ref: decision_trace_ref
+          }
+      end
 
     duration = System.monotonic_time(:millisecond) - t0
 

@@ -59,7 +59,9 @@ defmodule NovelApplication.WorkSessionServiceTest do
       record(work.id, session.id, "turn-pending", "assistant", "这里有一个设定", turn_result)
 
       assert {:ok, snapshot} = WorkSessionService.resume(work.id)
-      assert [%{artifact_id: "artifact-1", source_turn_ref: "turn-pending"}] = snapshot.pending_adoptions
+
+      assert [%{artifact_id: "artifact-1", source_turn_ref: "turn-pending"}] =
+               snapshot.pending_adoptions
     end
 
     test "does not return pending adoption after it is resolved", %{work: work} do
@@ -87,6 +89,23 @@ defmodule NovelApplication.WorkSessionServiceTest do
       assert {:ok, snapshot} = WorkSessionService.resume(work.id)
       assert snapshot.pending_adoptions == []
       assert [%{artifact_id: "artifact-1"}] = snapshot.resolved_adoptions
+    end
+
+    test "returns canonical and legacy trace refs from persisted turn results", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      record(work.id, session.id, "turn-canonical", "assistant", "新 trace", %{
+        turn_id: "turn-canonical",
+        trace_summary: %{trace_ref: "trace-canonical"}
+      })
+
+      record(work.id, session.id, "turn-legacy", "assistant", "旧 trace", %{
+        turn_id: "turn-legacy",
+        trace_summary: %{"trace_id" => "trace-legacy"}
+      })
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+      assert snapshot.resume_trace_refs == ["trace-canonical", "trace-legacy"]
     end
   end
 
@@ -118,5 +137,7 @@ defmodule NovelApplication.WorkSessionServiceTest do
   end
 
   defp maybe_put_turn_result(content, nil), do: content
-  defp maybe_put_turn_result(content, turn_result), do: Map.put(content, :turn_result, turn_result)
+
+  defp maybe_put_turn_result(content, turn_result),
+    do: Map.put(content, :turn_result, turn_result)
 end

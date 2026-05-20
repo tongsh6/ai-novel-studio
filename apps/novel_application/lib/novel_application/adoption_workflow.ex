@@ -8,6 +8,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   """
 
   alias NovelApplication.AdoptionBoundary
+  alias NovelApplication.TraceSummaryRef
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.CandidateSet
 
@@ -529,13 +530,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp candidate_type("outline_draft"), do: :outline
   defp candidate_type(_), do: :draft_fragment
 
-  defp trace_ref(source_turn_result) do
-    case map_field(source_turn_result, :trace_summary) do
-      %{trace_id: trace_id} -> trace_id
-      %{"trace_id" => trace_id} -> trace_id
-      _ -> nil
-    end
-  end
+  defp trace_ref(source_turn_result), do: TraceSummaryRef.from_turn_result(source_turn_result)
 
   defp turn_id(source_turn_result), do: map_field(source_turn_result, :turn_id)
 

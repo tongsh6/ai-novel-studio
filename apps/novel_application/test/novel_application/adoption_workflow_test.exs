@@ -109,6 +109,14 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                turn_result.adoption_state.resolved
     end
 
+    test "carries canonical trace_ref from source turn into adoption decision" do
+      assert {:ok, _action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(source_turn_result(), %{"artifact_id" => "as-1"})
+
+      assert turn_result.trace_summary.decision_trace_ref == "trace-source"
+      assert [%{decision_trace_ref: "trace-source"}] = turn_result.adoption_state.resolved
+    end
+
     test "rejects stale revision base" do
       source_turn = source_turn_result(%{revision_base: "7"})
 
@@ -226,7 +234,7 @@ defmodule NovelApplication.AdoptionWorkflowTest do
         ],
         resolved: []
       },
-      trace_summary: %{trace_id: "trace-source"}
+      trace_summary: %{trace_ref: "trace-source"}
     }
   end
 
