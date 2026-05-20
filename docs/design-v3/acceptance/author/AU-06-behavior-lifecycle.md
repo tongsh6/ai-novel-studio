@@ -319,8 +319,8 @@
 | AU06-GAP-05 — ConfirmationBinding 未完整实现 | 未绑定 behavior_ref/target_ref/state snapshot/gate result | 补实现/补集成 | P0 |
 | AU06-GAP-06 — 单一活跃 behavior 未强制 | 打开新 behavior 前不检查已有 open behavior | 补实现/补测试 | P0 |
 | AU06-GAP-07 — TTL / expires_at 缺失 | available_actions 无 expires_at，无时间过期判断 | 补实现/补测试 | P1 |
-| AU06-GAP-08 — 幂等 ledger 缺失 | `idempotency_key` 有字段但不去重 | 补实现/补测试 | P0 |
-| AU06-GAP-09 — behavior/action 跨作品和跨会话隔离不足 | 只看 current_turn；缺 work/session scoped behavior ledger | 补集成/补验收 | P0 |
+| AU06-GAP-08 — 幂等 ledger 缺失 | **局部已补**：持久 `author_action_receipts` 可按 `idempotency_key` 去重；仍缺真实 UI 重复点击验收和 behavior resolution 结合 | 继续补验收/behavior 绑定 | P0 |
+| AU06-GAP-09 — behavior/action 跨作品和跨会话隔离不足 | 持久 receipt key 已纳入 work/session scope；仍缺完整 work/session scoped BehaviorBinding ledger | 补集成/补验收 | P0 |
 | AU06-GAP-10 — BehaviorTrace / replay 缺失 | open/resolving/closed 事件不可完整回放 | 补集成/补验收 | P1 |
 | AU06-GAP-11 — blocking clarification 主链不明确 | 设计有 clarification，当前测试主要覆盖 confirmation | 状态核查/补实现 | P1 |
 

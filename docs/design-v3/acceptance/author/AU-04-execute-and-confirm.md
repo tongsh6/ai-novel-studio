@@ -163,7 +163,7 @@
 | 期望结果 | 同一 `idempotency_key` 只产生一次执行或返回同一结果 |
 | 当前证据 | action envelope 中有 `idempotency_key`；测试使用该字段 |
 | 当前状态 | 未实现完整幂等 |
-| 当前缺口 | 未看到持久化或进程内 idempotency ledger；`DialogueGateway.handle_action/3` 可能对重复确认重新走 dispatch |
+| 当前缺口 | 持久 author action receipt 已补；仍缺真实 UI 重复点击验收、TTL 和完整 ConfirmationBinding |
 | 优先级 | P0 |
 
 #### SC-AU04-B5 — 旧 turn / 旧作品的确认被拒绝
@@ -327,7 +327,7 @@
 |---|---|---|---|
 | AU04-GAP-01 — 真实入口确认动作未接入 `author_action` | `WorkspaceChat` 调旧 `confirm` / `reject`，后端 Channel 实现的是 `author_action` | 修设计偏差/补集成 | P0 |
 | AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | `TurnResultBuilder` 输出 behavior_state/available_actions，但未生成 `confirmation_card`；`WorkspaceChat` 不渲染 available action panel | 补实现/补验收 | P0 |
-| AU04-GAP-03 — 确认幂等未闭环 | 有 `idempotency_key` 字段，但缺 ledger 和重复确认测试 | 补实现/补测试 | P0 |
+| AU04-GAP-03 — 确认幂等未闭环 | **局部已补**：持久 `author_action_receipts` 以 `work_id/session_id/source_turn/action/idempotency_key` 去重，重复确认不会二次 dispatch；仍缺真实 UI 重复点击验收和 TTL | 继续补验收/TTL | P0 |
 | AU04-GAP-04 — ConfirmationBinding 未完整实现 | 缺 `behavior_ref` + `target_ref` + rebased snapshot + gate result 的持久绑定 | 补实现/补集成 | P0 |
 | AU04-GAP-05 — 取消/拒绝 lifecycle 未闭环 | cancel/reject 可被 validation，但未证明 behavior 关闭、trace 写入、UI 恢复 | 补集成/补验收 | P0 |
 | AU04-GAP-06 — 过期/跨作品/历史确认验证不足 | 只覆盖 current turn stale，缺 TTL、跨作品、历史会话只读态 | 补实现/补验收 | P0/P1 |

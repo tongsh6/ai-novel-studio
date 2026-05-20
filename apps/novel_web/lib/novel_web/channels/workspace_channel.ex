@@ -29,6 +29,7 @@ defmodule NovelWeb.WorkspaceChannel do
       |> assign(:session_id, session_id)
       |> assign(:turn_results_by_id, restored_turn_results)
       |> assign(:current_turn_id, latest_turn_id(restored_turn_results))
+      |> assign(:action_idempotency_ledger, %{})
 
     # Best-effort touch so the most-recently-opened work surfaces first in
     # GET /api/works (VS-09). Missing work_id is fine — pre-VS-09 clients
@@ -210,21 +211,25 @@ defmodule NovelWeb.WorkspaceChannel do
       idempotency_key: action_params["idempotency_key"]
     }
 
-    case NovelApplication.DialogueGateway.handle_action(action_input, source_turn_result) do
-      {:ok, result} ->
-        broadcast!(socket, "action_result", result)
-        {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
+    case lookup_author_action_receipt(socket, action_input) do
+      {:duplicate, entry} ->
+        result = Map.put(entry.result, :duplicate, true)
 
-      {:ok, result, turn_result} ->
-        # Confirmation re-gate dispatched a tool — broadcast both ack + new turn
-        broadcast!(socket, "action_result", result)
-        broadcast_task_state_events(socket, turn_result)
-        broadcast!(socket, "turn_result", turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
+        LogEmit.emit(:channel, :author_action, :done, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          action_status: result.status,
+          duplicate: true
+        })
 
-      {:error, reason} ->
-        {:reply, {:error, %{reason: reason}}, socket}
+        broadcast!(socket, "action_result", result)
+        {:reply, {:ok, %{received: true, action_status: result.status, duplicate: true}}, socket}
+
+      :miss ->
+        handle_author_action(socket, action_input, source_turn_result)
     end
   end
 
@@ -460,6 +465,82 @@ defmodule NovelWeb.WorkspaceChannel do
     })
 
     {:reply, {:ok, data}, socket}
+  end
+
+  defp handle_author_action(socket, action_input, source_turn_result) do
+    case NovelApplication.DialogueGateway.handle_action(action_input, source_turn_result) do
+      {:ok, result} ->
+        socket = remember_action_result(socket, action_input, result)
+        broadcast!(socket, "action_result", result)
+        {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
+
+      {:ok, result, turn_result} ->
+        # Confirmation re-gate dispatched a tool — broadcast both ack + new turn
+        socket = remember_action_result(socket, action_input, result)
+        broadcast!(socket, "action_result", result)
+        broadcast_task_state_events(socket, turn_result)
+        broadcast!(socket, "turn_result", turn_result)
+        socket = remember_turn_result(socket, turn_result)
+        {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
+
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  defp remember_action_result(socket, action_input, result) do
+    case NovelApplication.ActionIdempotencyService.record(
+           action_input,
+           action_idempotency_scope(socket),
+           result
+         ) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :idempotency_receipt_failed,
+          outcome_detail: inspect(reason)
+        })
+    end
+
+    ledger =
+      NovelApplication.ActionIdempotencyLedger.record(
+        socket.assigns[:action_idempotency_ledger],
+        action_input,
+        action_idempotency_scope(socket),
+        result
+      )
+
+    assign(socket, :action_idempotency_ledger, ledger)
+  end
+
+  defp lookup_author_action_receipt(socket, action_input) do
+    scope = action_idempotency_scope(socket)
+
+    case NovelApplication.ActionIdempotencyService.lookup(action_input, scope) do
+      {:duplicate, entry} ->
+        {:duplicate, entry}
+
+      :miss ->
+        NovelApplication.ActionIdempotencyLedger.lookup(
+          socket.assigns[:action_idempotency_ledger],
+          action_input,
+          scope
+        )
+    end
+  end
+
+  defp action_idempotency_scope(socket) do
+    %{
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id]
+    }
   end
 
   defp archive_work_id(payload, socket) do

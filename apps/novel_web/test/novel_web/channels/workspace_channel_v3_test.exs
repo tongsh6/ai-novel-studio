@@ -363,6 +363,35 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert Map.has_key?(socket.assigns.turn_results_by_id, turn_id)
     end
 
+    test "duplicate confirmation with same idempotency key does not dispatch a second turn" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @creative_turn_result)
+
+      action = %{
+        "source_turn_ref" => "turn-action-1",
+        "action_id" => "act-confirm",
+        "action_type" => "confirm_before_execute",
+        "idempotency_key" => "ik-confirm"
+      }
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+               WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
+
+      assert_broadcast("turn_result", %{turn_id: first_dispatch_turn_id})
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted", duplicate: true}},
+              socket} =
+               WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
+
+      assert_broadcast("action_result", %{duplicate: true, idempotency_key: "ik-confirm"})
+      refute_broadcast("turn_result", %{}, 50)
+      assert socket.assigns.current_turn_id == first_dispatch_turn_id
+    end
+
     test "stale source_turn_ref rejected" do
       {:ok, _, socket} =
         UserSocket
