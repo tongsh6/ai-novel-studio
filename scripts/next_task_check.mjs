@@ -47,7 +47,7 @@ if (journeys) {
   requireSection(journeys, files.journeys, "## 2. Journey A");
   requireSection(journeys, files.journeys, "## 6. 使用规则");
 
-  const journeyNextSteps = [...journeys.matchAll(/\|\s*[A-Z]\d+\s*\|[^|\n]*\|\s*next\s*\|/g)];
+  const journeyNextSteps = [...journeys.matchAll(/\|\s*[A-Z]\d+\s*\|[^\n]*\|\s*next\s*\|/g)];
   if (journeyNextSteps.length < 1) {
     failures.push(`${files.journeys}: expected at least one journey step with Status=next`);
   }
@@ -89,4 +89,3 @@ function requireSection(content, relativePath, heading) {
     failures.push(`${relativePath}: missing section ${heading}`);
   }
 }
-

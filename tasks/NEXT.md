@@ -25,11 +25,10 @@
 
 ## 3. Active Journey
 
-来源：`docs/product/user-journeys.md` 的 Journey A。
+来源：`docs/product/user-journeys.md` 的 Journey B。
 
 ```text
-启动应用
-→ 选择/创建作品
+选择/创建作品
 → 恢复 active session
 → 搜索历史会话
 → 只读查看历史 transcript
@@ -47,7 +46,7 @@
 
 | Order | Task ID | Status | Blocked By | Why Next | Proof Target |
 |---:|---|---|---|---|---|
-| 1 | AU03-branch-from-history | next | - | 历史会话已能只读回看，但作者还不能从旧讨论显式创建新 active session 继续创作。 | Tauri：搜索历史会话 -> 打开只读 transcript -> 点击继续 -> 创建新 active session，`source_session_ref/source_turn_ref` 指向旧会话，旧 transcript 不被篡改。 |
+| 1 | AU03-branch-from-history | next | - | 历史会话已能只读回看；后端 create session 已支持 `source_session_ref/source_turn_ref`，但真实工作台还没有“从这里继续”入口，也不会创建并切换到新 active session。 | Tauri：搜索历史会话 -> 打开只读 transcript -> 点击继续 -> 创建新 active session，`source_session_ref/source_turn_ref` 指向旧会话，旧 transcript 不被篡改。 |
 | 2 | AU03-archive-session-filter | queued | AU03-branch-from-history | 历史回看之后需要可治理地退出日常上下文；归档会话默认不应进入普通 context。 | Tauri：归档历史会话 -> 默认列表/上下文过滤 -> 搜索可找回 -> replay 仍可查。 |
 | 3 | AU03-current-work-context-ssot | queued | AU03-branch-from-history | 多会话下必须证明最新 Work 背景与 session transcript 分层，不能用旧会话覆盖当前作品事实。 | Tauri/LMStudio：历史会话只读打开后返回当前会话，下一轮 prompt 使用最新 Work 背景 + 当前 active session transcript。 |
 | 4 | AU03-long-session-compression | queued | AU03-current-work-context-ssot | 长会话已修 recent transcript 顺序，但还缺摘要压缩和 token 预算策略。 | Application + Tauri：超过窗口后旧 turn 进入 session summary，最新 N 轮仍保留顺序。 |
@@ -68,3 +67,4 @@
 | Date | Decision | Why |
 |---|---|---|
 | 2026-05-21 | 建立 `tasks/NEXT.md` 作为唯一任务入口，当前 focus 锁定 AU-03。 | 解决 AI 每轮从台账随机挑任务的问题，把推进方式从“能闭环就做”改成“沿当前用户旅行图连续推进”。 |
+| 2026-05-21 | 对账 `user-journeys.md` 与实际代码后，保持队首为 `AU03-branch-from-history`。 | `WorkSessionService.create/2` 和 `WorkSessionsController.create/2` 已提供 source refs 的 API 局部能力，但 `frontend/src/lib/sessions.ts` / `WorkspaceChat` 没有 create session helper 或“从这里继续”入口，且无 `au03-branch-from-history` Tauri 证据。 |
