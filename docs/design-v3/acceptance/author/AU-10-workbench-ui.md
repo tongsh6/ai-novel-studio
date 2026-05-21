@@ -3,6 +3,8 @@
 > 作者视角：工作台是我和 AI 协作的主界面。我需要实时知道系统状态、AI 在做什么、现在等我做什么、哪些按钮可以点。界面上的卡片、候选、action、任务状态、trace 和投影状态必须来自真实主链，不能由前端猜测或用 mock 冒充。
 >
 > 2026-05-14 对账结论：当前有 `WorkspaceChat` 真实入口、`WorkbenchV3` v3 消费者实验组件、`UICards`、候选/任务状态类型测试和 Channel action 安全测试。`au10-micro-plan-entry` 已证明真实前端入口可触发 MicroPlan；`au01-ordinary-chat-two-turn-roundtrip` 已证明原生 Tauri 可从输入框/发送按钮连续完成两轮普通聊天且不进入 MicroPlan；VS-10 进一步新增 `vs10-observability-spine` 浏览器验证和 `scripts/tauri_slice_verify.sh vs10-observability-spine` 原生 Tauri 自动化验证，可在不等待人工操作的情况下驱动真实工作台控件并校验日志链。采纳主流程、候选点选、trace/why、阅读投影和完整 Tauri/Design 合规仍未闭环。
+>
+> 2026-05-22 验收卫生更正：历史 Tauri 验收曾依赖产品前端内的 autorun / UI state 上报路径。该路径已废弃并清理；当前可重复运行的 Tauri 验证必须由外部 Playwright driver 操作真实界面，不允许在 `WorkspaceChat`、`socket.ts` 或 Channel 中恢复 slice-id 识别、自动填充、自动点击或验收状态上报。
 
 ---
 
@@ -327,7 +329,7 @@
 - 失败截图/日志可追溯；
 - 不只依赖 helper unit test。
 
-**当前证据**：`scripts/slice_verify.sh au10-micro-plan-entry` 会启动 test Phoenix + Vite，从真实 `WorkspaceChat` 打开档案面板，点击“发起新操作”，并在 `artifacts/slice-verify/au10-micro-plan-entry/frames.json` 记录 Phoenix websocket frame。VS-10 另有 `bash scripts/slice_verify.sh vs10-observability-spine` 和 `bash scripts/tauri_slice_verify.sh vs10-observability-spine`，后者启动原生 Tauri 窗口并通过 `VITE_SLICE_VERIFY_AUTORUN=vs10-observability-spine` 自动驱动真实控件，验证同一 `turn_id` 贯穿 app JSONL 关键事件。当前仍未覆盖发送普通聊天、candidate、card action、task_state 或断线错误。
+**当前证据**：`scripts/slice_verify.sh au10-micro-plan-entry` 会启动 test Phoenix + Vite，从真实 `WorkspaceChat` 打开档案面板，点击“发起新操作”，并在 `artifacts/slice-verify/au10-micro-plan-entry/frames.json` 记录 Phoenix websocket frame。Tauri 验证已迁移为外部 UI driver 模式：产品 React 代码不识别 slice id，不自动填字/点击；后续 VS-10 原生验证应由外部 driver 点击真实控件并验证同一 `turn_id` 贯穿 app JSONL 关键事件。当前仍未覆盖发送普通聊天、candidate、card action、task_state 或断线错误。
 
 **当前状态**：部分实现 / 最小前端发起验证已建立。
 

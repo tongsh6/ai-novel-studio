@@ -20,10 +20,11 @@
 
 | Checkpoint | 状态 | 证据 |
 |---|---|---|
+| AU03 long session compression | closed | `artifacts/slice-verify/au03-long-session-compression-tauri-lmstudio/summary.json` |
+| AU03 current work context SSOT | closed | `artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json` |
 | AU03 archive session filter | closed | `artifacts/slice-verify/au03-archive-session-filter-tauri/summary.json` |
 | AU03 branch from history | closed | `artifacts/slice-verify/au03-branch-from-history-tauri/summary.json` |
 | AU03 active session resume | closed | `artifacts/slice-verify/au03c-work-session-resume-tauri/summary.json` |
-| AU03 session history readonly | closed | `artifacts/slice-verify/au03-session-history-readonly-tauri/summary.json` |
 
 ## 3. Active Journey
 
@@ -37,10 +38,11 @@
 → 从历史会话分支继续
 → 归档旧会话
 → 当前作品最新背景 + 当前 session transcript 分层进入 context
+→ 长会话 recent transcript + summary 压缩
 → AI 回复可解释引用来源
 ```
 
-当前断点：**当前作品最新背景 + 当前 session transcript 分层进入 context**。
+当前断点：**AI 回复可解释引用来源**。
 
 ## 4. Queue
 
@@ -50,9 +52,9 @@
 |---:|---|---|---|---|---|
 | 1 | AU03-branch-from-history | done | - | 真实工作台已提供“从这里继续”入口，可创建并切换到新 active session，保留 `source_session_ref/source_turn_ref`。 | `artifacts/slice-verify/au03-branch-from-history-tauri/summary.json` |
 | 2 | AU03-archive-session-filter | done | - | 真实工作台已提供历史会话归档入口；默认列表隐藏 archived，会话搜索仍可找回并只读打开；普通 context 默认排除 archived transcript。 | `artifacts/slice-verify/au03-archive-session-filter-tauri/summary.json` |
-| 3 | AU03-current-work-context-ssot | next | - | 多会话下必须证明最新 Work 背景与 session transcript 分层，不能用旧会话覆盖当前作品事实。 | Tauri/LMStudio：历史会话只读打开后返回当前会话，下一轮 prompt 使用最新 Work 背景 + 当前 active session transcript。 |
-| 4 | AU03-long-session-compression | queued | AU03-current-work-context-ssot | 长会话已修 recent transcript 顺序，但还缺摘要压缩和 token 预算策略。 | Application + Tauri：超过窗口后旧 turn 进入 session summary，最新 N 轮仍保留顺序。 |
-| 5 | AU03-context-source-ui | queued | AU03-current-work-context-ssot | 作者能看到“AI 参考了什么”，把 AU-03 与 AU-07 author-safe trace 连接起来。 | Tauri：普通回复 why 面板显示 current work / session transcript / memory 的来源摘要，不暴露 raw prompt。 |
+| 3 | AU03-current-work-context-ssot | done | - | 多会话下必须证明最新 Work 背景与 session transcript 分层，不能用旧会话覆盖当前作品事实。 | `artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json` |
+| 4 | AU03-long-session-compression | done | - | 超过窗口的旧 turn 已进入 `work_sessions.summary`，最新 transcript 窗口保留自然顺序并进入 Planner prompt。 | `artifacts/slice-verify/au03-long-session-compression-tauri-lmstudio/summary.json` |
+| 5 | AU03-context-source-ui | next | - | 作者能看到“AI 参考了什么”，把 AU-03 与 AU-07 author-safe trace 连接起来。 | Tauri：普通回复 why 面板显示 current work / session transcript / memory 的来源摘要，不暴露 raw prompt。 |
 
 ## 5. Selection Rule
 
@@ -72,3 +74,5 @@
 | 2026-05-21 | 对账 `user-journeys.md` 与实际代码后，保持队首为 `AU03-branch-from-history`。 | `WorkSessionService.create/2` 和 `WorkSessionsController.create/2` 已提供 source refs 的 API 局部能力，但 `frontend/src/lib/sessions.ts` / `WorkspaceChat` 没有 create session helper 或“从这里继续”入口，且无 `au03-branch-from-history` Tauri 证据。 |
 | 2026-05-21 | `AU03-branch-from-history` 已闭环，队首推进到 `AU03-archive-session-filter`。 | 原生 Tauri 证据证明真实工作台从历史 transcript 点击继续后创建新 active session，并保留旧会话/旧 turn 来源引用，旧 transcript 未复制到新 session。 |
 | 2026-05-21 | `AU03-archive-session-filter` 已闭环，队首推进到 `AU03-current-work-context-ssot`。 | 原生 Tauri 证据证明真实工作台可归档历史会话、默认列表隐藏、显式搜索仍可找回并只读打开；persistence/application 测试证明普通 context 默认排除 archived session transcript。 |
+| 2026-05-21 | `AU03-current-work-context-ssot` 已闭环，队首推进到 `AU03-long-session-compression`。 | 原生 Tauri + LMStudio 证据证明真实工作台先打开历史只读 transcript、返回 active session 后发送下一轮，Planner prompt 使用最新 Work 背景 + 当前 active session transcript，旧历史 session transcript 未覆盖当前作品事实。 |
+| 2026-05-21 | `AU03-long-session-compression` 已闭环，队首推进到 `AU03-context-source-ui`。 | Persistence/Application 测试与原生 Tauri + LMStudio 证据证明超过窗口的旧 turn 进入 session summary，Planner request messages 只保留 early summary + 最新 transcript 窗口，未把旧 turn 原文塞入 prompt。 |

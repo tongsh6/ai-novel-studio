@@ -4,6 +4,24 @@
 
 ---
 
+## 场景化验收红线
+
+承重 slice 的验收标准是：**由外部自动化驱动真实页面的场景化验收**。外部自动化可以使用 Playwright/Tauri/系统 UI 驱动，但必须站在产品之外，像用户一样操作当前真实入口。
+
+产品代码不得为了验收而感知、识别或配合验收场景：
+
+- 禁止在 `frontend/src`、`apps/*/lib` 等生产路径中读取验收专用 env、slice id、URL query、localStorage 或其它开关来改变产品行为。
+- 禁止在生产 UI 中内置自动输入、自动点击、自动切换、自动采纳、自动上报 UI 状态等验收逻辑。
+- 禁止为了验收添加产品不可见的 DOM hook、隐藏 metadata、`data-testid`、slice 专用 `data-*`、验收专用 Channel/API 事件。
+- 禁止把验收 provider、fake provider、script provider 注册进生产 app/runtime。验收替身只能位于 test/support、脚本或外部 harness，并通过测试/脚本环境显式注入。
+- 外部自动化应优先使用用户可见语义：role、label、placeholder、按钮文案、页面可见文本，以及网络帧、日志、截图、持久化结果等外部证据。
+
+这不是字符串黑名单。真实产品语义可以出现 `verify`、`data-*`、状态字段或测试相关词，但必须能说明它服务真实用户、真实产品状态或可访问性/样式/组件语义，而不是服务验收脚本。判断标准是行为边界和意图，不是简单命名。
+
+详细规则和模板见 [docs/engineering/scenario-acceptance.md](docs/engineering/scenario-acceptance.md)。
+
+---
+
 ## 架构约束
 
 ### Umbrella 依赖方向（编译期强制，违反即编译失败）
@@ -172,20 +190,21 @@ UI 实现必须严格遵循 `docs/design-v2/ui-design/` 中的设计文档和 Pe
 3. **Boundary**：本 slice 切穿哪些真实 app 边界？哪些 app 明确不应修改？
 4. **Consumer**：第一个真实消费者是谁？Channel、Frontend、Application test、Projection builder 或其他？
 5. **Proof**：用什么测试或命令证明链路和不变量成立？
+6. **Acceptance Driver**：由哪个外部自动化脚本驱动真实页面完成场景化验收？产品代码是否新增任何验收感知逻辑（默认必须为 no；若不是 no，必须说明它为何是真实产品能力而非验收钩子）？
 
-如果这 5 项答不上来，先补 slice 设计，不要编码。
+如果这 6 项答不上来，先补 slice 设计，不要编码。
 
-### Slice 完成标准：必须能从前端发起验证
+### Slice 完成标准：外部自动化驱动真实页面
 
-每完成一个 slice，都必须能从真实前端入口发起验证，这是承重竖切面的核心价值。后端测试、组件测试、API helper 测试只能作为局部证据，不能单独证明 slice 完成。
+每完成一个 slice，都必须能由外部自动化驱动真实页面完成场景化验收，这是承重竖切面的核心价值。后端测试、组件测试、API helper 测试只能作为局部证据，不能单独证明 slice 完成。
 
-- 默认前端入口是当前真实产品入口（例如 `App.tsx -> WorkspaceChat` / Tauri 工作台），不是旁路 demo 组件。
-- Proof 必须说明作者如何在前端触发这条链路：点击、输入、切换、确认、采纳或查看状态。
-- 前端发起验证必须像用户一样操作 UI，并穿过真实主链：Frontend 用户操作 → socket/API 请求 → web/channel/controller → application 编排 → domain/agent/persistence → TurnResult/task_state/projection/trace → 前端可见反馈。
-- 不算前端发起验证：直接调用后端模块、直接 push Channel payload、只测 socket helper、只测组件 render、只用 mock 文档描述。
+- 默认页面入口是当前真实产品入口（例如 `App.tsx -> WorkspaceChat` / Tauri 工作台），不是旁路 demo 组件、Storybook、孤立组件或脚本专用页面。
+- Proof 必须说明外部脚本如何触发这条链路：点击、输入、切换、确认、采纳或查看状态。
+- 场景化验收必须像用户一样操作 UI，并穿过真实主链：Frontend 用户操作 → socket/API 请求 → web/channel/controller → application 编排 → domain/agent/persistence → TurnResult/task_state/projection/trace → 前端可见反馈。
+- 不算完成验收：直接调用后端模块、直接 push Channel payload、只测 socket helper、只测组件 render、只用 mock 文档描述、让产品代码内置自动化或上报验收状态。
 - 自动化可以使用 Playwright/Tauri 脚本；人工 walkthrough 可以作为临时证据，但长期应沉淀为 `scripts/slice_verify.sh <slice-id>` 这类可重复脚本，并输出截图/日志/网络帧到 `artifacts/slice-verify/<slice-id>/`。接手时先运行 `bash scripts/slice_verify.sh --list` 查看已有 slice 验证。
-- 如果当前 slice 因基础设施限制暂时无法做到前端发起，必须标记为“未闭环”，说明缺哪个入口、事件、状态或 UI 验收，而不能写 done。
-- 每个 slice 的最终汇报必须区分：前端可发起的真实验证、后端/Channel/组件局部验证、尚未闭环的缺口。
+- 如果当前 slice 因基础设施限制暂时无法由外部自动化驱动真实页面验收，必须标记为“未闭环”，说明缺哪个入口、事件、状态投影或 UI 自动化，而不能写 done。
+- 每个 slice 的最终汇报必须区分：外部自动化驱动真实页面的验收、后端/Channel/组件局部验证、尚未闭环的缺口。
 
 ### 最小实现步不能缩小 slice 范围
 

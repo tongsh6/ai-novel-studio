@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-05-21
+> 最后更新：2026-05-22
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -10,6 +10,8 @@
 > - 每个断点消费哪个 v3 契约，保护哪个系统不变量？
 >
 > 本文不是完整 acceptance，不替代 `docs/design-v3/acceptance/`；不是事实台账，不替代 `docs/project-ledger.md`；不是执行队列，不替代 `tasks/NEXT.md`。
+>
+> 2026-05-22 验收卫生更正：历史行里的旧 `scripts/tauri_slice_verify.sh <slice-id>` 命令只表示当时沉淀过 Tauri 证据。清理嵌入式验收钩子后，当前可重复运行的原生 Tauri 验证只保留已迁移到外部 UI driver 的 slice；历史 slice 必须补外部 Playwright driver 后才能重新加入 `--list`，不得在产品 React 或 Channel 中恢复 autorun / UI state 上报钩子。
 >
 > 输入来源：
 >
@@ -133,11 +135,11 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 真实消费者：`WorkspaceChat`、Channel join、ContextAssembler、Planner prompt、why 面板。
 
-Longest Closed Prefix：B1-B8。
+Longest Closed Prefix：B1-B9。
 
-Current Breakpoint：B9 最新 Work 背景与当前 session transcript 分层进入 context。
+Current Breakpoint：B10 作者能在 why 面板看到上下文来源摘要。
 
-Next Proof：Tauri/LMStudio：历史会话只读打开后返回当前会话，下一轮 prompt 使用最新 Work 背景 + 当前 active session transcript。
+Next Proof：Tauri：普通回复 why 面板显示 current work / session transcript / memory 的来源摘要，不暴露 raw prompt。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -149,17 +151,17 @@ Next Proof：Tauri/LMStudio：历史会话只读打开后返回当前会话，�
 | B6 | 历史 transcript 不恢复旧 pending/action/loading | AU-03 / AU-05 | AvailableAction / TurnResultViewModel | closed | Tauri automation | 同 B5 | 旧 pending 清空已验证，后续要证明分支来源引用。 |
 | B7 | 从历史会话继续，显式创建新 active session / branch | AU-03 | AuthorActionInput / DialogueContext / DecisionTrace | closed | Tauri automation | `artifacts/slice-verify/au03-branch-from-history-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-branch-from-history` | 真实工作台搜索历史会话、打开只读 transcript、点击“从这里继续”，创建并切换新 active session；`source_session_ref/source_turn_ref` 指向旧会话与旧 turn，旧 transcript 未被复制到新 session。 |
 | B8 | 归档旧会话，默认不进入日常 context，仍可搜索/回放 | AU-03 / AU-07 | DialogueContext / ReplayReport | closed | Tauri automation + Application/Persistence test | `artifacts/slice-verify/au03-archive-session-filter-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-archive-session-filter` | 真实工作台可归档历史会话，默认列表隐藏 archived，显式搜索仍可找回并只读打开；普通 context 过滤 archived transcript 由 persistence/application 测试覆盖。 |
-| B9 | 最新 Work 背景与当前 session transcript 分层进入 context | AU-03 / AU-09 | DialogueContext / ContextSourceRef | next | Application/Persistence test | active session transcript 注入已实现；memory recall 最小闭环已实现 | 需证明历史 session 不覆盖最新 Work 背景。 |
-| B10 | 作者能在 why 面板看到上下文来源摘要 | AU-03 / AU-07 | TraceSummaryView | partial | Tauri automation | `artifacts/slice-verify/au07-trace-why-entry-tauri/summary.json`、`au09-memory-recall-context` | 需要 AU-03 context source UI 与 trace 聚合更完整。 |
-| B11 | 长会话压缩，旧 turn 进入 summary，最新 turn 保持顺序 | AU-03 | DialogueContext / DecisionTrace | gap | Document only | recent transcript 顺序修复已记录在台账 | 缺 session summary 压缩策略和验收。 |
+| B9 | 最新 Work 背景与当前 session transcript 分层进入 context | AU-03 / AU-09 | DialogueContext / ContextSourceRef | closed | Tauri/LMStudio + Application/Persistence test | `artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json`；`bash scripts/tauri_slice_verify.sh --real-lmstudio au03-current-work-context-ssot` | 已证明历史只读 transcript 打开后返回 active session，下一轮 prompt 使用最新 Work 背景 + 当前 active session transcript，旧历史 session 未覆盖当前作品事实。 |
+| B10 | 作者能在 why 面板看到上下文来源摘要 | AU-03 / AU-07 | TraceSummaryView | next | Tauri automation | `artifacts/slice-verify/au07-trace-why-entry-tauri/summary.json`、`au09-memory-recall-context` | 需要 AU-03 context source UI 与 trace 聚合更完整。 |
+| B11 | 长会话压缩，旧 turn 进入 summary，最新 turn 保持顺序 | AU-03 | DialogueContext / DecisionTrace | closed | Tauri/LMStudio + Application/Persistence test | `artifacts/slice-verify/au03-long-session-compression-tauri-lmstudio/summary.json`；`bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression` | 已证明超过窗口的旧 turn 进入 `work_sessions.summary`，Planner request messages 只携带 early summary + 最新 transcript 窗口，不携带旧 turn 原文。 |
 
 当前连续断点：
 
 ```text
-B8 closed -> B9 next
+B9 closed -> B10 next；B11 已作为非连续 checkpoint closed
 ```
 
-因此下一项功能推进应是 `AU03-current-work-context-ssot`，除非出现 P0 bug。
+因此下一项功能推进应是 `AU03-context-source-ui`，除非出现 P0 bug。
 
 ---
 
@@ -415,7 +417,7 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | Journey | Closed Prefix | Current Breakpoint | P0/P1 Gaps | Evidence Level | Health |
 |---|---|---|---:|---|---|
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
-| B 作品与上下文 | B1-B8 | B9 `AU03-current-work-context-ssot` | 2 | Tauri | moving |
+| B 作品与上下文 | B1-B9（B11 已闭环） | B10 `AU03-context-source-ui` | 1 | Tauri/LMStudio | moving |
 | C 自然对话与探索 | C1-C5 | C6 candidate -> adoption bridge | 2 | Tauri | watch |
 | D 创作生命周期 | D1-D3 最小闭环 | D4 lifecycle path | 多个 | Mixed | needs-focus |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
@@ -430,8 +432,8 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 ```text
 Current Focus: AU-03 作品内会话与上下文分层
 Current Journey: Journey B
-Current Breakpoint: B9 最新 Work 背景与当前 session transcript 分层进入 context
-Next Task: AU03-current-work-context-ssot
+Current Breakpoint: B10 上下文来源 UI
+Next Task: AU03-context-source-ui
 ```
 
 ---
@@ -458,16 +460,16 @@ Next Task: AU03-current-work-context-ssot
 ```text
 Current Focus: AU-03 作品内会话与上下文分层
 Active Journey: Journey B
-Queue head: AU03-current-work-context-ssot
+Queue head: AU03-context-source-ui
 ```
 
 本文对应位置：
 
 ```text
 Journey B
-Step B9
+Step B10
 Status: next
-Gap / Next: tasks/NEXT.md 队首 AU03-current-work-context-ssot
+Gap / Next: tasks/NEXT.md 队首 AU03-context-source-ui
 ```
 
 选择规则：
