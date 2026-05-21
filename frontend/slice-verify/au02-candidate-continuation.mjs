@@ -10,6 +10,7 @@ const artifactDir =
 fs.mkdirSync(artifactDir, { recursive: true });
 
 const frames = [];
+const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
@@ -43,25 +44,26 @@ page.on("websocket", (ws) => {
 
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await page.waitForSelector('[data-slice-verify="workspace-chat"]', {
-    timeout: 30_000,
-  });
-  await page.waitForSelector('[data-slice-verify="service-status"][data-status="ok"]', {
-    timeout: 30_000,
-  });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page
+    .getByText(/^服务: 已连接/)
+    .first()
+    .waitFor({ timeout: 30_000 });
 
-  await page.locator('[data-slice-verify="chat-input"]').fill("我想写一个赛博修仙方向");
-  await page.locator('[data-slice-verify="send-button"]').click();
-  await page.waitForSelector('[data-slice-verify="candidate-continue"]', {
+  await page.locator(chatInputSelector).fill("我想写一个赛博修仙方向");
+  await page.getByRole("button", { name: /^发送$/ }).click();
+  await page.getByRole("button", { name: /继续聊这个方向/ }).first().waitFor({
     timeout: 30_000,
   });
-  const frameBadge = page.locator('[data-slice-verify="frame-badge"]').first();
+  const frameBadge = page.getByText("探索方向").first();
   await frameBadge.waitFor({ timeout: 10_000 });
   const frameBadgeLabel = (await frameBadge.innerText()).trim();
-  const frameBadgeTone = await frameBadge.getAttribute("data-frame-tone");
 
-  const firstCandidate = page.locator('[data-slice-verify="candidate-continue"]').first();
-  const candidateRef = await firstCandidate.getAttribute("data-candidate-ref");
+  const firstTurnResult = frames.find(
+    (frame) => frame.direction === "received" && frame.event === "turn_result",
+  )?.body;
+  const firstCandidate = page.getByRole("button", { name: /继续聊这个方向/ }).first();
+  const candidateRef = firstTurnResult?.candidate_directions?.[0]?.direction_id;
   await firstCandidate.click();
 
   await page.waitForFunction(
@@ -85,7 +87,6 @@ try {
 
   assert(candidateRef, "Candidate button did not expose candidate ref");
   assert(frameBadgeLabel === "探索方向", `Exploration frame badge missing: ${frameBadgeLabel}`);
-  assert(frameBadgeTone === "exploration", `Exploration frame tone missing: ${frameBadgeTone}`);
   assert(candidateMessage, "Candidate continuation did not send candidate_selection");
   assert(
     candidateMessage.body.generate_micro_plan === false,
@@ -112,7 +113,6 @@ try {
   const summary = {
     candidate_ref: candidateRef,
     frame_badge_label: frameBadgeLabel,
-    frame_badge_tone: frameBadgeTone,
     source_turn_ref: candidateMessage.body.candidate_selection.source_turn_ref,
     continuation_turn_id: lastTurnResult.turn_id,
     artifact_adopted: lastTurnResult.truthfulness.artifact_adopted,

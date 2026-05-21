@@ -13,11 +13,9 @@ import {
   sendMessage,
   sendAuthorAction,
   onTaskState,
-  reportSliceVerifyUiState,
   adopt,
   discardArtifact,
   modifyDraft,
-  getToc,
   type TaskStateData,
 } from "../lib/socket";
 import {
@@ -69,7 +67,6 @@ import {
 } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
-import { isTauri } from "../lib/env";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
 import { TRACE, WORKBENCH } from "../lib/copy";
 import { buildCandidateContinuation } from "../lib/candidateSelection";
@@ -145,10 +142,6 @@ interface ChatMessage {
   turnResult?: TurnResult;
 }
 
-const sliceVerifyAutorunStarted = new Set<string>();
-const sliceVerifyAdoptionStarted = new Set<string>();
-const sliceVerifyUiReported = new Set<string>();
-
 function isArtifactResolutionAction(actionType?: string): boolean {
   return actionType === "accept" || actionType === "discard" || actionType === "edit_then_accept";
 }
@@ -207,14 +200,6 @@ export function WorkspaceChat() {
   const channelRef = useRef<Channel | null>(null);
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const sliceVerifyAutorunRef = useRef(false);
-  const sliceVerifyContinuationRef = useRef(false);
-  const sliceVerifyAdoptionRef = useRef(false);
-  const sliceVerifyFollowUpRoutingRef = useRef(false);
-  const sliceVerifyCandidateRef = useRef(false);
-  const sliceVerifyOrdinaryTurnIdsRef = useRef<string[]>([]);
-  const sliceVerifyOrdinaryThinkingObservedRef = useRef(false);
-  const sliceVerifyOrdinaryReportedRef = useRef(false);
   const resumeRestoredTranscriptRef = useRef(false);
   const connectionTokenRef = useRef(0);
   const openWorkRef = useRef<(work: WorkDto) => Promise<void>>(() => Promise.resolve());
@@ -242,8 +227,6 @@ export function WorkspaceChat() {
 
   // Lift the turn_result handler so the effect below stays focused on connection setup.
   function handleTurnResult(result: TurnResult) {
-    const autorunSlice = import.meta.env.VITE_SLICE_VERIFY_AUTORUN as string | undefined;
-
     setMessages((prev) => [
       ...prev,
       {
@@ -268,329 +251,6 @@ export function WorkspaceChat() {
       const status = projRefs[0].refresh_status;
       if (status === "FRESH" || status === "STALE" || status === "REBUILDING" || status === "FAILED") {
         useAppStore.getState().setProjectionStatus(status);
-      }
-    }
-
-    if (
-      isTauri &&
-      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au01-ordinary-chat-two-turn-roundtrip" &&
-      !sliceVerifyContinuationRef.current
-    ) {
-      sliceVerifyContinuationRef.current = true;
-      window.setTimeout(() => {
-        setInputText("继续说说还有什么协作方式");
-        window.setTimeout(() => {
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
-            ?.click();
-        }, 150);
-      }, 250);
-    }
-
-    if (
-      isTauri &&
-      autorunSlice === "au01-ordinary-chat-two-turn-roundtrip" &&
-      channelRef.current &&
-      !sliceVerifyOrdinaryTurnIdsRef.current.includes(result.turn_id)
-    ) {
-      sliceVerifyOrdinaryTurnIdsRef.current = [
-        ...sliceVerifyOrdinaryTurnIdsRef.current,
-        result.turn_id,
-      ];
-
-      if (sliceVerifyOrdinaryTurnIdsRef.current.length >= 2) {
-        window.setTimeout(() => {
-          if (
-            !channelRef.current ||
-            sliceVerifyOrdinaryReportedRef.current ||
-            sliceVerifyUiReported.has("au01-ordinary-chat-two-turn-roundtrip")
-          ) return;
-
-          const visibleConversation = Array.from(
-            document.querySelectorAll<HTMLElement>(
-              '[data-role="user"], [data-role="assistant"][data-turn-id]',
-            ),
-          );
-          const roleOrder = visibleConversation.map((node) => node.dataset.role ?? "");
-          const assistantTurnMessages = document.querySelectorAll(
-            '[data-role="assistant"][data-turn-id]',
-          );
-          const userMessageCount = document.querySelectorAll('[data-role="user"]').length;
-          const thinkingVisibleAfterReply = Boolean(
-            document.querySelector('[data-role="assistant"][data-status="thinking"]'),
-          );
-          const expectedOrder = ["user", "assistant", "user", "assistant"];
-          let orderOffset = 0;
-          for (const role of roleOrder) {
-            if (role === expectedOrder[orderOffset]) orderOffset += 1;
-          }
-
-          if (
-            userMessageCount < 2 ||
-            assistantTurnMessages.length < 2 ||
-            orderOffset < expectedOrder.length
-          ) return;
-
-          sliceVerifyOrdinaryReportedRef.current = true;
-          sliceVerifyUiReported.add("au01-ordinary-chat-two-turn-roundtrip");
-
-          const ordinaryTurnIds = sliceVerifyOrdinaryTurnIdsRef.current;
-          const uiTurnIds = [
-            ordinaryTurnIds[0],
-            ordinaryTurnIds[ordinaryTurnIds.length - 1],
-          ].filter((turnId): turnId is string => Boolean(turnId));
-
-          void reportSliceVerifyUiState(channelRef.current, {
-            slice_id: "au01-ordinary-chat-two-turn-roundtrip",
-            context_work_id: useAppStore.getState().context.workId,
-            context_work_title: useAppStore.getState().context.workTitle,
-            active_session_id: activeSessionId,
-            restored_turn_id: result.turn_id,
-            socket_connected: useAppStore.getState().socketConnected,
-            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
-            welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
-              .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length,
-            pending_adoption_count:
-              document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
-            first_message_text:
-              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
-                ?.innerText ?? "",
-            service_status_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                ?.innerText ?? "",
-            title_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-                ?.innerText ?? "",
-            ui_turn_ids: uiTurnIds,
-            user_message_count: userMessageCount,
-            assistant_turn_message_count: assistantTurnMessages.length,
-            message_role_order: roleOrder,
-            thinking_observed: sliceVerifyOrdinaryThinkingObservedRef.current,
-            thinking_visible_after_reply: thinkingVisibleAfterReply,
-            available_action_count:
-              document.querySelectorAll('[data-slice-verify="available-action"]').length,
-            card_action_count:
-              document.querySelectorAll('[data-slice-verify="card-action"]').length,
-            candidate_panel_count:
-              document.querySelectorAll('[data-slice-verify="candidate-panel"]').length,
-            adoption_decision_card_count:
-              document.querySelectorAll('[data-slice-verify="adoption-decision-card"]').length,
-          }).catch(() => undefined);
-        }, 350);
-      }
-    }
-
-    if (
-      isTauri &&
-      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au02-candidate-continuation" &&
-      !sliceVerifyCandidateRef.current &&
-      (result.candidate_directions?.length ?? 0) > 0
-    ) {
-      sliceVerifyCandidateRef.current = true;
-      window.setTimeout(() => {
-        const frameBadge = document.querySelector<HTMLElement>(
-          `[data-slice-verify="frame-badge"][data-turn-id="${result.turn_id}"]`,
-        );
-        const framePresentation = framePresentationForSummary(result.frame_summary);
-        const continueButton = document.querySelector<HTMLButtonElement>(
-          '[data-slice-verify="candidate-continue"]',
-        );
-
-        const continueCandidate = () => continueButton?.click();
-
-        if (channelRef.current) {
-          reportSliceVerifyUiState(channelRef.current, {
-            slice_id: "au02-candidate-continuation",
-            context_work_id: useAppStore.getState().context.workId,
-            context_work_title: useAppStore.getState().context.workTitle,
-            active_session_id: activeSessionId,
-            restored_turn_id: result.turn_id,
-            socket_connected: socketConnected,
-            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
-            welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
-              .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length,
-            pending_adoption_count:
-              document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
-            first_message_text:
-              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
-                ?.innerText ?? "",
-            service_status_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                ?.innerText ?? "",
-            title_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-                ?.innerText ?? "",
-            frame_badge_label: frameBadge?.innerText.trim() ?? "",
-            frame_badge_kind: frameBadge?.dataset.frameTone ?? framePresentation.tone,
-            frame_badge_goal: framePresentation.goal,
-            candidate_panel_count:
-              document.querySelectorAll('[data-slice-verify="candidate-panel"]').length,
-          })
-            .catch(() => undefined)
-            .finally(continueCandidate);
-        } else {
-          continueCandidate();
-        }
-      }, 300);
-    }
-
-    if (
-      isTauri &&
-      (autorunSlice === "au07-trace-why-entry" ||
-        autorunSlice === "au09-memory-recall-context") &&
-      result.trace_summary &&
-      channelRef.current &&
-      !sliceVerifyUiReported.has(autorunSlice)
-    ) {
-      window.setTimeout(() => {
-        document
-          .querySelector<HTMLButtonElement>(
-            `[data-slice-verify="trace-why-trigger"][data-turn-id="${result.turn_id}"]`,
-          )
-          ?.click();
-
-        window.setTimeout(() => {
-          if (!channelRef.current || sliceVerifyUiReported.has(autorunSlice)) return;
-          sliceVerifyUiReported.add(autorunSlice);
-          const dialogText =
-            document.querySelector<HTMLElement>('[data-slice-verify="trace-why-dialog"]')
-              ?.innerText ?? "";
-          const currentContext = useAppStore.getState().context;
-
-          void reportSliceVerifyUiState(channelRef.current, {
-            slice_id: autorunSlice,
-            context_work_id: currentContext.workId,
-            context_work_title: currentContext.workTitle,
-            active_session_id: activeSessionId,
-            restored_turn_id: result.turn_id,
-            socket_connected: socketConnected,
-            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
-            welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
-              .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length,
-            pending_adoption_count:
-              document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
-            first_message_text:
-              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
-                ?.innerText ?? "",
-            service_status_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                ?.innerText ?? "",
-            title_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-                ?.innerText ?? "",
-            trace_why_dialog_open: Boolean(dialogText),
-            trace_why_text: dialogText,
-            trace_why_contains_raw_prompt: /raw prompt|provider raw|hidden policy|debug/i.test(dialogText),
-          }).catch(() => undefined);
-        }, 120);
-      }, 350);
-    }
-
-    if (
-      isTauri &&
-      (autorunSlice === "au05-adoption-boundary" ||
-        autorunSlice === "au05-discard-boundary" ||
-        autorunSlice === "au05-modify-draft-boundary" ||
-        autorunSlice === "au05-adoption-followup-routing" ||
-        autorunSlice === "au08-adoption-reading-projection") &&
-      !sliceVerifyAdoptionRef.current &&
-      !sliceVerifyAdoptionStarted.has(autorunSlice) &&
-      (result.adoption_state?.pending?.length ?? 0) > 0
-    ) {
-      sliceVerifyAdoptionRef.current = true;
-      sliceVerifyAdoptionStarted.add(autorunSlice);
-      const actionType =
-        import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-discard-boundary"
-          ? "discard"
-          : import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-modify-draft-boundary"
-            ? "edit_then_accept"
-            : "accept";
-      window.setTimeout(() => {
-        document
-          .querySelector<HTMLButtonElement>(
-            `[data-slice-verify="card-action"][data-action-type="${actionType}"]`,
-          )
-          ?.click();
-
-        if (actionType === "edit_then_accept") {
-          window.setTimeout(() => {
-            setModifyInstruction("把角色动机改得更果断，并强调保护同伴。");
-            window.setTimeout(() => {
-              document
-                .querySelector<HTMLButtonElement>('[data-slice-verify="modify-submit"]')
-                ?.click();
-            }, 150);
-          }, 150);
-        }
-      }, 250);
-    }
-
-    if (
-      isTauri &&
-      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au08-adoption-reading-projection" &&
-      result.adoption_state?.resolved?.some((artifact) =>
-        artifact.adoption_status === "ACCEPTED" || artifact.adoption_status === "EDITED_ACCEPTED",
-      )
-    ) {
-      window.setTimeout(() => setMode("reading"), 250);
-    }
-
-    if (
-      isTauri &&
-      import.meta.env.VITE_SLICE_VERIFY_AUTORUN === "au05-adoption-followup-routing" &&
-      !sliceVerifyFollowUpRoutingRef.current &&
-      !sliceVerifyUiReported.has("au05-adoption-followup-routing")
-    ) {
-      const resolved = result.adoption_state?.resolved?.find((artifact) =>
-        artifact.adoption_status === "ACCEPTED" || artifact.adoption_status === "EDITED_ACCEPTED",
-      );
-
-      if (resolved && channelRef.current) {
-        sliceVerifyFollowUpRoutingRef.current = true;
-        sliceVerifyUiReported.add("au05-adoption-followup-routing");
-        window.setTimeout(() => {
-          const report = async () => {
-            const currentContext = useAppStore.getState().context;
-            const currentSocketConnected = useAppStore.getState().socketConnected;
-            const toc = currentContext.workId && channelRef.current
-              ? await getToc(channelRef.current, currentContext.workId)
-              : { volumes: [] };
-            const readingChapterCount = toc.volumes.flatMap((volume) => volume.chapters).length;
-
-            await reportSliceVerifyUiState(channelRef.current!, {
-              slice_id: "au05-adoption-followup-routing",
-              context_work_id: currentContext.workId,
-              context_work_title: deriveWorkspaceRuntimeState({
-                connection: { connected: currentSocketConnected },
-                work: { id: currentContext.workId, title: currentContext.workTitle },
-              }).work.title,
-              active_session_id: activeSessionId,
-              restored_turn_id: result.parent_turn_id ?? result.turn_id,
-              socket_connected: currentSocketConnected,
-              message_count: messages.length + 1,
-              welcome_message_count: messages.filter((message) =>
-                message.text.includes("欢迎使用 AI Novel Studio"),
-              ).length,
-              pending_adoption_count: document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
-              first_message_text: messages[0]?.text ?? "",
-              service_status_text:
-                document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                  ?.innerText ?? "",
-              title_text:
-                document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-                  ?.innerText ?? "",
-              adoption_status: resolved.adoption_status,
-              artifact_type: resolved.artifact_type,
-              decision_card_count:
-                document.querySelectorAll('[data-slice-verify="adoption-decision-card"]').length,
-              open_reading_action_count:
-                document.querySelectorAll('[data-slice-verify="open-reading-from-adoption-decision"]').length,
-              reading_chapter_count: readingChapterCount,
-            });
-          };
-
-          void report().catch(() => undefined);
-        }, 500);
       }
     }
   }
@@ -857,18 +517,6 @@ export function WorkspaceChat() {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  useEffect(() => {
-    if (
-      !isTauri ||
-      import.meta.env.VITE_SLICE_VERIFY_AUTORUN !== "au01-ordinary-chat-two-turn-roundtrip" ||
-      !loading
-    ) return;
-
-    if (document.querySelector('[data-role="assistant"][data-status="thinking"]')) {
-      sliceVerifyOrdinaryThinkingObservedRef.current = true;
-    }
-  }, [loading]);
-
   const isReadOnlySessionView = readOnlySession !== null;
   const runtimeState = deriveWorkspaceRuntimeState({
     connection: { connected: socketConnected },
@@ -901,623 +549,6 @@ export function WorkspaceChat() {
   const visibleWorkTitle = getVisibleWorkTitle(runtimeState);
   const hasValidRuntimeWork = runtimeState.work.hasValidWork;
   const connectionLabel = runtimeState.ui.connectionLabel;
-
-  useEffect(() => {
-    if (!isTauri) return;
-    const autorunSlice = import.meta.env.VITE_SLICE_VERIFY_AUTORUN as string | undefined;
-    if (
-      autorunSlice !== "vs10-observability-spine" &&
-      autorunSlice !== "su02-work-switching" &&
-      autorunSlice !== "au10-micro-plan-entry" &&
-      autorunSlice !== "su01-provider-health-model" &&
-      autorunSlice !== "au02-candidate-continuation" &&
-      autorunSlice !== "au07-trace-why-entry" &&
-      autorunSlice !== "au10-ordinary-chat-no-micro-plan" &&
-      autorunSlice !== "au01-ordinary-chat-two-turn-roundtrip" &&
-      autorunSlice !== "au05-adoption-boundary" &&
-      autorunSlice !== "au05-discard-boundary" &&
-      autorunSlice !== "au05-modify-draft-boundary" &&
-      autorunSlice !== "au05-adoption-followup-routing" &&
-      autorunSlice !== "au08-adoption-reading-projection" &&
-      autorunSlice !== "au09-archive-real-data" &&
-      autorunSlice !== "au09-memory-recall-context" &&
-      autorunSlice !== "au03-session-history-readonly" &&
-      autorunSlice !== "au03-branch-from-history" &&
-      autorunSlice !== "au03-archive-session-filter" &&
-      autorunSlice !== "stage-startup-context-contract" &&
-      autorunSlice !== "workspace-runtime-state" &&
-      autorunSlice !== "su03-assistant-display-name" &&
-      autorunSlice !== "au03c-work-session-resume"
-    ) return;
-    if (!socketConnected || sliceVerifyAutorunRef.current) return;
-    if (sliceVerifyAutorunStarted.has(autorunSlice)) return;
-    if (autorunSlice === "au03c-work-session-resume" && transcriptRestored) return;
-    if (autorunSlice === "su01-provider-health-model") {
-      if (llmConnected === null) return;
-
-      sliceVerifyAutorunRef.current = true;
-      sliceVerifyAutorunStarted.add(autorunSlice);
-
-      const timer = window.setTimeout(() => {
-        if (!channelRef.current || sliceVerifyUiReported.has("su01-provider-health-model")) return;
-        sliceVerifyUiReported.add("su01-provider-health-model");
-
-        void reportSliceVerifyUiState(channelRef.current, {
-          slice_id: "su01-provider-health-model",
-          context_work_id: context.workId,
-          context_work_title: visibleWorkTitle,
-          active_session_id: activeSessionId,
-          restored_turn_id: null,
-          socket_connected: socketConnected,
-          message_count: messages.length,
-          welcome_message_count: messages.filter((message) =>
-            message.text.includes("欢迎使用 AI Novel Studio"),
-          ).length,
-          pending_adoption_count: pendingAdoptionsCount,
-          first_message_text: messages[0]?.text ?? "",
-          service_status_text:
-            document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-              ?.innerText ?? "",
-          title_text:
-            document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-              ?.innerText ?? "",
-          llm_status_text:
-            document.querySelector<HTMLElement>('[data-slice-verify="llm-status"]')
-              ?.innerText ?? "",
-          llm_connected: llmConnected,
-          llm_model_label: llmModel,
-        });
-      }, 250);
-
-      return () => window.clearTimeout(timer);
-    }
-
-    if (autorunSlice === "stage-startup-context-contract" || autorunSlice === "workspace-runtime-state") {
-      if (!transcriptRestored) return;
-      if (!hasValidRuntimeWork || !activeSessionId || !channelRef.current) return;
-
-      sliceVerifyAutorunRef.current = true;
-      const timer = window.setTimeout(() => {
-        if (autorunSlice === "workspace-runtime-state") {
-          setMode("reading");
-        }
-      }, 100);
-      const reportTimer = window.setTimeout(() => {
-        const restoredTurnId =
-          messages.find((message) => typeof message.turnResult?.turn_id === "string")?.turnResult
-            ?.turn_id ?? null;
-        const titleText =
-          (autorunSlice === "workspace-runtime-state"
-            ? document.querySelector<HTMLElement>('[data-slice-verify="reading-work-title"]')?.innerText
-            : document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')?.innerText) ?? "";
-        const serviceStatusText =
-          document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')?.innerText ?? "";
-        const welcomeMessageCount = messages.filter((message) =>
-          message.text.includes("欢迎使用 AI Novel Studio"),
-        ).length;
-
-        const report = async () => {
-          const toc = context.workId && channelRef.current
-            ? await getToc(channelRef.current, context.workId)
-            : { volumes: [] };
-          const readingChapterCount = toc.volumes.flatMap((volume) => volume.chapters).length;
-
-          await reportSliceVerifyUiState(channelRef.current!, {
-            slice_id: autorunSlice,
-            context_work_id: context.workId,
-            context_work_title: visibleWorkTitle,
-            active_session_id: activeSessionId,
-            restored_turn_id: restoredTurnId,
-            socket_connected: socketConnected,
-            message_count: messages.length,
-            welcome_message_count: welcomeMessageCount,
-            pending_adoption_count: pendingAdoptionsCount,
-            first_message_text: messages[0]?.text ?? "",
-            service_status_text: serviceStatusText,
-            title_text: titleText,
-            decision_card_count:
-              document.querySelectorAll('[data-slice-verify="adoption-decision-card"]').length,
-            reading_chapter_count: readingChapterCount,
-          });
-        };
-
-        void report().catch(() => undefined);
-      }, autorunSlice === "workspace-runtime-state" ? 700 : 250);
-
-      return () => {
-        window.clearTimeout(timer);
-        window.clearTimeout(reportTimer);
-      };
-    }
-
-    sliceVerifyAutorunRef.current = true;
-    sliceVerifyAutorunStarted.add(autorunSlice);
-    const timers: number[] = [];
-
-    if (autorunSlice === "au08-adoption-reading-projection") {
-      timers.push(window.setTimeout(() => {
-        const text = "请写一段开场正文片段";
-        setMessages((prev) => [...prev, { role: "user", text }]);
-        setLoading(true);
-        if (channelRef.current) {
-          void sendMessage(channelRef.current, text, context.workId, null, activeSessionId, true);
-        }
-      }, 150));
-    } else if (autorunSlice === "su02-work-switching") {
-      timers.push(window.setTimeout(() => {
-        const driveSwitchingProof = async () => {
-          const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-
-          setInputText("你好，我想先在当前作品里聊一句");
-          await delay(80);
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
-            ?.click();
-          await delay(40);
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="work-switcher"]')
-            ?.click();
-          await delay(100);
-          const createItem = document.querySelector<HTMLElement>('[data-slice-verify="work-create"]');
-          if (createItem) {
-            createItem.click();
-          } else {
-            const created = await createWork({ title: WORKBENCH.unnamedWorkTitle });
-            setWorks((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
-            setWorkMenuOpen(false);
-            await openWorkRef.current(created);
-          }
-          await delay(1800);
-
-          if (!channelRef.current || sliceVerifyUiReported.has("su02-work-switching")) return;
-          sliceVerifyUiReported.add("su02-work-switching");
-          const currentContext = useAppStore.getState().context;
-          const messageCount = document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length;
-          const welcomeMessageCount = Array.from(document.querySelectorAll('[data-role="assistant"]'))
-            .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length;
-
-          void reportSliceVerifyUiState(channelRef.current, {
-            slice_id: "su02-work-switching",
-            context_work_id: currentContext.workId,
-            context_work_title: currentContext.workTitle,
-            active_session_id: activeSessionId,
-            restored_turn_id: null,
-            socket_connected: useAppStore.getState().socketConnected,
-            message_count: messageCount,
-            welcome_message_count: welcomeMessageCount,
-            pending_adoption_count: pendingAdoptionsCount,
-            first_message_text:
-              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
-                ?.innerText ?? "",
-            service_status_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                ?.innerText ?? "",
-            title_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-              ?.innerText ?? "",
-          }).catch(() => undefined);
-        };
-
-        void driveSwitchingProof();
-      }, 150));
-    } else if (autorunSlice === "su03-assistant-display-name") {
-      timers.push(window.setTimeout(() => {
-        const driveAssistantNameProof = async () => {
-          const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-          const initialWorkId = context.workId;
-          if (!initialWorkId) return;
-
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="assistant-name-trigger"]')
-            ?.click();
-          await delay(80);
-          setAssistantNameDraft("创作助手");
-          await delay(80);
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="assistant-name-save"]')
-            ?.click();
-          await delay(250);
-          const nameAfterSave =
-            document.querySelector<HTMLElement>('[data-slice-verify="assistant-display-name"]')
-              ?.innerText ?? "";
-          const assistantRoleAfterSave =
-            document.querySelector<HTMLElement>('[data-slice-verify="assistant-role-label"]')
-              ?.innerText ?? "";
-
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="work-switcher"]')
-            ?.click();
-          await delay(100);
-          const createItem = document.querySelector<HTMLElement>('[data-slice-verify="work-create"]');
-          if (createItem) {
-            createItem.click();
-          } else {
-            const created = await createWork({ title: WORKBENCH.unnamedWorkTitle });
-            setWorks((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
-            setWorkMenuOpen(false);
-            await openWorkRef.current(created);
-          }
-          await delay(1400);
-
-          const createdWorkId = useAppStore.getState().context.workId;
-          const nameInCreatedWork =
-            document.querySelector<HTMLElement>('[data-slice-verify="assistant-display-name"]')
-              ?.innerText ?? "";
-
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="work-switcher"]')
-            ?.click();
-          await delay(100);
-          const initialWorkItem = document
-            .querySelector<HTMLElement>(
-              `[data-slice-verify="work-switch-item"][data-work-id="${initialWorkId}"]`,
-            );
-          if (initialWorkItem) {
-            initialWorkItem.click();
-          } else {
-            const refreshedWorks = await listWorks();
-            setWorks(refreshedWorks);
-            const initialWork = refreshedWorks.find((work) => work.id === initialWorkId);
-            if (initialWork) await openWorkRef.current(initialWork);
-          }
-          await delay(1400);
-
-          if (!channelRef.current || sliceVerifyUiReported.has("su03-assistant-display-name")) return;
-          sliceVerifyUiReported.add("su03-assistant-display-name");
-
-          const nameAfterReturn =
-            document.querySelector<HTMLElement>('[data-slice-verify="assistant-display-name"]')
-              ?.innerText ?? "";
-          const assistantRoleAfterReturn =
-            document.querySelector<HTMLElement>('[data-slice-verify="assistant-role-label"]')
-              ?.innerText ?? "";
-          const currentContext = useAppStore.getState().context;
-
-          void reportSliceVerifyUiState(channelRef.current, {
-            slice_id: "su03-assistant-display-name",
-            context_work_id: currentContext.workId,
-            context_work_title: currentContext.workTitle,
-            active_session_id: activeSessionId,
-            restored_turn_id: null,
-            socket_connected: useAppStore.getState().socketConnected,
-            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
-            welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
-              .filter((node) => node.textContent?.includes("欢迎使用 AI Novel Studio")).length,
-            pending_adoption_count: pendingAdoptionsCount,
-            first_message_text:
-              document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
-                ?.innerText ?? "",
-            service_status_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                ?.innerText ?? "",
-            title_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-                ?.innerText ?? "",
-            initial_work_id: initialWorkId,
-            created_work_id: createdWorkId,
-            assistant_name_after_save: nameAfterSave,
-            assistant_role_after_save: assistantRoleAfterSave,
-            assistant_name_in_created_work: nameInCreatedWork,
-            assistant_name_after_return: nameAfterReturn,
-            assistant_role_after_return: assistantRoleAfterReturn,
-          }).catch(() => undefined);
-        };
-
-        void driveAssistantNameProof();
-      }, 150));
-    } else if (autorunSlice === "au02-candidate-continuation") {
-      timers.push(window.setTimeout(() => {
-        setInputText("我想写一个赛博修仙方向");
-        timers.push(window.setTimeout(() => {
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
-            ?.click();
-        }, 150));
-      }, 150));
-    } else if (autorunSlice === "au07-trace-why-entry") {
-      timers.push(window.setTimeout(() => {
-        setInputText("我想聊聊林烬为什么会离开故乡");
-        timers.push(window.setTimeout(() => {
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
-            ?.click();
-        }, 150));
-      }, 150));
-    } else if (autorunSlice === "au05-adoption-followup-routing") {
-      timers.push(window.setTimeout(() => {
-        const text = "请生成一个角色设定草案";
-        setMessages((prev) => [...prev, { role: "user", text }]);
-        setLoading(true);
-        if (channelRef.current) {
-          void sendMessage(channelRef.current, text, context.workId, null, activeSessionId, true);
-        }
-      }, 150));
-    } else if (autorunSlice === "au09-archive-real-data") {
-      timers.push(window.setTimeout(() => {
-        setIsPanelOpen(true);
-        timers.push(window.setTimeout(() => {
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="archive-foreshadowing-detail-button"]')
-            ?.click();
-        }, 900));
-        timers.push(window.setTimeout(() => {
-          if (!channelRef.current || sliceVerifyUiReported.has("au09-archive-real-data")) return;
-          sliceVerifyUiReported.add("au09-archive-real-data");
-
-          const textContent = (selector: string) =>
-            document.querySelector<HTMLElement>(selector)?.innerText.trim() ?? "";
-          const panelDataset =
-            document.querySelector<HTMLElement>('[data-slice-verify="structure-panel"]')
-              ?.dataset;
-          const detailTitle = textContent('[data-slice-verify="archive-detail-title"]');
-          const datasetNumber = (key: string) => Number.parseInt(panelDataset?.[key] ?? "0", 10);
-
-          void reportSliceVerifyUiState(channelRef.current, {
-            slice_id: "au09-archive-real-data",
-            context_work_id: context.workId,
-            context_work_title: visibleWorkTitle,
-            active_session_id: activeSessionId,
-            restored_turn_id: null,
-            socket_connected: socketConnected,
-            message_count: messages.length,
-            welcome_message_count: messages.filter((message) =>
-              message.text.includes("欢迎使用 AI Novel Studio"),
-            ).length,
-            pending_adoption_count: pendingAdoptionsCount,
-            first_message_text: messages[0]?.text ?? "",
-            service_status_text: textContent('[data-slice-verify="service-status"]'),
-            title_text: textContent('[data-slice-verify="work-title"]'),
-            archive_character_count: datasetNumber("archiveCharacterCount"),
-            archive_foreshadowing_count: datasetNumber("archiveForeshadowingCount"),
-            archive_rule_count: datasetNumber("archiveRuleCount"),
-            archive_volumes: datasetNumber("archiveVolumes"),
-            archive_chapters: datasetNumber("archiveChapters"),
-            archive_memory_items: datasetNumber("archiveMemoryItems"),
-            archive_drafts_total: datasetNumber("archiveDraftsTotal"),
-            archive_drafts_accepted: datasetNumber("archiveDraftsAccepted"),
-            archive_detail_kind: panelDataset?.archiveDetailKind ?? "",
-            archive_detail_id: panelDataset?.archiveDetailId ?? "",
-            archive_detail_title: detailTitle,
-          }).catch(() => undefined);
-        }, 1150));
-      }, 150));
-    } else if (autorunSlice === "au09-memory-recall-context") {
-      timers.push(window.setTimeout(() => {
-        setInputText("林烬为什么要去灵源矿区？");
-        timers.push(window.setTimeout(() => {
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
-            ?.click();
-        }, 150));
-      }, 150));
-    } else if (
-      autorunSlice === "au03-session-history-readonly" ||
-      autorunSlice === "au03-branch-from-history" ||
-      autorunSlice === "au03-archive-session-filter"
-    ) {
-      timers.push(window.setTimeout(() => {
-        const driveSessionHistoryProof = async () => {
-          const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
-          setSessionSearch("林瑶");
-          if (context.workId && context.workId !== "lobby") {
-            setSessions(await searchSessions(context.workId, "林瑶"));
-          }
-          await delay(250);
-
-          const historyItem = Array.from(
-            document.querySelectorAll<HTMLButtonElement>('[data-slice-verify="session-item"]'),
-          ).find((item) => item.dataset.sessionStatus !== "ACTIVE");
-          historyItem?.click();
-          await delay(500);
-
-          const readonlyBanner =
-            document.querySelector<HTMLElement>('[data-slice-verify="readonly-session-banner"]');
-          const readonlySessionId = readonlyBanner?.dataset.sessionId ?? "";
-          const inputDisabled =
-            document.querySelector<HTMLInputElement>('[data-slice-verify="chat-input"]')?.disabled ?? false;
-          const sendDisabled =
-            document.querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')?.disabled ?? false;
-          const visibleText = Array.from(
-            document.querySelectorAll<HTMLElement>('[data-role="user"], [data-role="assistant"]'),
-          ).map((node) => node.innerText).join("\n");
-
-          const sourceSessionRef = readonlyBanner?.dataset.sessionId ?? "";
-          const branchButton =
-            document.querySelector<HTMLButtonElement>('[data-slice-verify="branch-from-history"]');
-          const sourceTurnRef = branchButton?.dataset.sourceTurnRef ?? "";
-
-          if (autorunSlice === "au03-archive-session-filter") {
-            const archiveButton =
-              document.querySelector<HTMLButtonElement>('[data-slice-verify="archive-session"]');
-            const archiveButtonVisible = Boolean(archiveButton);
-            archiveButton?.click();
-            await delay(700);
-
-            setSessionSearch("");
-            if (context.workId && context.workId !== "lobby") {
-              setSessions(await searchSessions(context.workId, ""));
-            }
-            await delay(300);
-
-            const archivedHiddenDefault = !Array.from(
-              document.querySelectorAll<HTMLElement>('[data-slice-verify="session-item"]'),
-            ).some((item) => item.dataset.sessionId === readonlySessionId);
-
-            setSessionSearch("林瑶");
-            if (context.workId && context.workId !== "lobby") {
-              setSessions(await searchSessions(context.workId, "林瑶"));
-            }
-            await delay(400);
-
-            const archivedSearchItem = Array.from(
-              document.querySelectorAll<HTMLElement>('[data-slice-verify="session-item"]'),
-            ).find((item) => item.dataset.sessionId === readonlySessionId);
-            archivedSearchItem?.click();
-            await delay(500);
-
-            if (!channelRef.current || sliceVerifyUiReported.has("au03-archive-session-filter")) return;
-            sliceVerifyUiReported.add("au03-archive-session-filter");
-
-            const archivedVisibleText = Array.from(
-              document.querySelectorAll<HTMLElement>('[data-role="user"], [data-role="assistant"]'),
-            ).map((node) => node.innerText).join("\n");
-
-            void reportSliceVerifyUiState(channelRef.current, {
-              slice_id: "au03-archive-session-filter",
-              context_work_id: context.workId,
-              context_work_title: visibleWorkTitle,
-              active_session_id: activeSessionId,
-              restored_turn_id: null,
-              socket_connected: socketConnected,
-              message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
-              welcome_message_count: messages.filter((message) =>
-                message.text.includes("欢迎使用 AI Novel Studio"),
-              ).length,
-              pending_adoption_count: pendingAdoptionsCount,
-              first_message_text: messages[0]?.text ?? "",
-              service_status_text:
-                document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                  ?.innerText ?? "",
-              title_text:
-                document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-                  ?.innerText ?? "",
-              searched_query: "林瑶",
-              readonly_session_id: readonlySessionId,
-              archive_button_visible: archiveButtonVisible,
-              archived_hidden_default: archivedHiddenDefault,
-              archived_search_found: archivedSearchItem?.dataset.sessionStatus === "ARCHIVED",
-              archived_banner_visible: Boolean(
-                document.querySelector('[data-slice-verify="readonly-session-banner"]'),
-              ),
-              archived_visible_text: archivedVisibleText,
-            }).catch(() => undefined);
-            return;
-          }
-
-          if (autorunSlice === "au03-branch-from-history") {
-            branchButton?.click();
-            await delay(1400);
-
-            if (!channelRef.current || sliceVerifyUiReported.has("au03-branch-from-history")) return;
-            sliceVerifyUiReported.add("au03-branch-from-history");
-
-            const currentContext = useAppStore.getState().context;
-            const activeSessionItem = Array.from(
-              document.querySelectorAll<HTMLElement>('[data-slice-verify="session-item"]'),
-            ).find((item) => item.className.includes("sessionItemActive"));
-            const branchSessionId = activeSessionIdRef.current ?? activeSessionItem?.dataset.sessionId ?? "";
-            const branchMessages = Array.from(
-              document.querySelectorAll<HTMLElement>('[data-role="user"], [data-role="assistant"]'),
-            ).map((node) => node.innerText).join("\n");
-
-            void reportSliceVerifyUiState(channelRef.current, {
-              slice_id: "au03-branch-from-history",
-              context_work_id: currentContext.workId,
-              context_work_title: currentContext.workTitle,
-              active_session_id: branchSessionId,
-              restored_turn_id: null,
-              socket_connected: useAppStore.getState().socketConnected,
-              message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
-              welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
-                .filter((message) => message.textContent?.includes("欢迎使用 AI Novel Studio")).length,
-              pending_adoption_count:
-                document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
-              first_message_text:
-                document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
-                  ?.innerText ?? "",
-              service_status_text:
-                document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                  ?.innerText ?? "",
-              title_text:
-                document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-                  ?.innerText ?? "",
-              searched_query: "林瑶",
-              readonly_session_id: sourceSessionRef,
-              readonly_banner_visible: Boolean(readonlyBanner),
-              readonly_visible_text: visibleText,
-              branch_source_session_ref: sourceSessionRef,
-              branch_source_turn_ref: sourceTurnRef,
-              branch_active_session_id: branchSessionId,
-              branch_readonly_banner_visible: Boolean(
-                document.querySelector('[data-slice-verify="readonly-session-banner"]'),
-              ),
-              branch_message_count:
-                document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
-              branch_visible_text: branchMessages,
-              branch_session_item_active: activeSessionItem?.className.includes("sessionItemActive") ?? false,
-            }).catch(() => undefined);
-            return;
-          }
-
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="back-to-active-session"]')
-            ?.click();
-          await delay(500);
-          const activeSessionRestored = !document.querySelector(
-            '[data-slice-verify="readonly-session-banner"]',
-          );
-
-          if (!channelRef.current || sliceVerifyUiReported.has("au03-session-history-readonly")) return;
-          sliceVerifyUiReported.add("au03-session-history-readonly");
-
-          void reportSliceVerifyUiState(channelRef.current, {
-            slice_id: "au03-session-history-readonly",
-            context_work_id: context.workId,
-            context_work_title: visibleWorkTitle,
-            active_session_id: activeSessionId,
-            restored_turn_id: null,
-            socket_connected: socketConnected,
-            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
-            welcome_message_count: messages.filter((message) =>
-              message.text.includes("欢迎使用 AI Novel Studio"),
-            ).length,
-            pending_adoption_count: pendingAdoptionsCount,
-            first_message_text: messages[0]?.text ?? "",
-            service_status_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
-                ?.innerText ?? "",
-            title_text:
-              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
-                ?.innerText ?? "",
-            searched_query: "林瑶",
-            readonly_session_id: readonlySessionId,
-            readonly_banner_visible: Boolean(readonlyBanner),
-            readonly_input_disabled: inputDisabled,
-            readonly_send_disabled: sendDisabled,
-            readonly_visible_text: visibleText,
-            active_session_restored: activeSessionRestored,
-          }).catch(() => undefined);
-        };
-
-        void driveSessionHistoryProof();
-      }, 150));
-    } else if (
-      autorunSlice === "au10-ordinary-chat-no-micro-plan" ||
-      autorunSlice === "au01-ordinary-chat-two-turn-roundtrip"
-    ) {
-      timers.push(window.setTimeout(() => {
-        setInputText("你好，先介绍一下你能如何协助我");
-        timers.push(window.setTimeout(() => {
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')
-            ?.click();
-        }, 150));
-      }, 150));
-    } else {
-      timers.push(window.setTimeout(() => {
-        setIsPanelOpen(true);
-        timers.push(window.setTimeout(() => {
-          document
-            .querySelector<HTMLButtonElement>('[data-slice-verify="panel-new-action"]')
-            ?.click();
-        }, 150));
-      }, 150));
-    }
-
-    return () => {
-      timers.forEach((timer) => window.clearTimeout(timer));
-    };
-  }, [activeSessionId, context.workId, hasValidRuntimeWork, llmConnected, llmModel, messages, pendingAdoptionsCount, setMode, socketConnected, transcriptRestored, visibleWorkTitle]);
 
   // ... (rest of the component)
 
@@ -1906,7 +937,7 @@ export function WorkspaceChat() {
   ].join(" ");
 
   return (
-    <div className={styles.workbench} data-slice-verify="workspace-chat">
+    <div className={styles.workbench}>
       {/* 顶部上下文栏 (Top Context Bar) */}
       <div className={styles.topBar}>
         <div className={styles.contextGroup}>
@@ -1914,12 +945,11 @@ export function WorkspaceChat() {
             <DropdownMenu.Trigger asChild>
               <button
                 className={styles.workSwitcherButton}
-                data-slice-verify="work-switcher"
                 disabled={workSwitchingId !== null}
                 title={WORKBENCH.workMenuTitle}
               >
                 <BookOpen size={16} aria-hidden="true" />
-                <span className={styles.titleText} data-slice-verify="work-title">
+                <span className={styles.titleText}>
                   {visibleWorkTitle}
                 </span>
                 <ChevronDown size={14} aria-hidden="true" />
@@ -1950,8 +980,6 @@ export function WorkspaceChat() {
                       <DropdownMenu.Item
                         key={work.id}
                         className={isCurrent ? styles.workMenuItemActive : styles.workMenuItem}
-                        data-slice-verify="work-switch-item"
-                        data-work-id={work.id}
                         disabled={workSwitchingId !== null}
                         onSelect={(event) => {
                           event.preventDefault();
@@ -1969,7 +997,6 @@ export function WorkspaceChat() {
                 <DropdownMenu.Separator className={styles.workMenuSeparator} />
                 <DropdownMenu.Item
                   className={styles.workMenuCreate}
-                  data-slice-verify="work-create"
                   disabled={workSwitchingId !== null}
                   onSelect={(event) => {
                     event.preventDefault();
@@ -1986,7 +1013,6 @@ export function WorkspaceChat() {
             <Dialog.Trigger asChild>
               <button
                 className={styles.assistantNameButton}
-                data-slice-verify="assistant-name-trigger"
                 type="button"
                 disabled={!hasValidRuntimeWork}
                 title={WORKBENCH.assistantDisplayNameAction}
@@ -1995,7 +1021,6 @@ export function WorkspaceChat() {
                 <Bot size={15} aria-hidden="true" />
                 <span
                   className={styles.assistantNameValue}
-                  data-slice-verify="assistant-display-name"
                 >
                   {assistantDisplayName}
                 </span>
@@ -2016,7 +1041,6 @@ export function WorkspaceChat() {
                 <input
                   id="assistant-display-name-input"
                   className={styles.dialogInput}
-                  data-slice-verify="assistant-name-input"
                   value={assistantNameDraft}
                   maxLength={20}
                   placeholder={WORKBENCH.assistantDisplayNamePlaceholder}
@@ -2035,7 +1059,6 @@ export function WorkspaceChat() {
                 <div className={styles.dialogActions}>
                   <button
                     className={styles.btnSecondary}
-                    data-slice-verify="assistant-name-reset"
                     type="button"
                     disabled={assistantNameSaving}
                     onClick={() => {
@@ -2047,7 +1070,6 @@ export function WorkspaceChat() {
                   </button>
                   <button
                     className={styles.sendBtn}
-                    data-slice-verify="assistant-name-save"
                     type="button"
                     disabled={assistantNameSaving}
                     onClick={() => {
@@ -2081,8 +1103,6 @@ export function WorkspaceChat() {
           </span>
           <div
             className={llmBadgeClassName}
-            data-status={llmConnected === true ? "ok" : "warn"}
-            data-slice-verify="llm-status"
             title={llmConnected ? `模型: ${llmModel}` : "请检查 LM Studio 是否已启动并加载模型"}
           >
             LLM: {llmConnected === null ? "检测中…" : llmConnected ? "已连接" : "未连接"}
@@ -2092,8 +1112,6 @@ export function WorkspaceChat() {
           </div>
           <div 
             className={serviceBadgeClassName}
-            data-status={socketConnected ? "ok" : "error"}
-            data-slice-verify="service-status"
           >
             服务: {connectionLabel}
           </div>
@@ -2111,8 +1129,6 @@ export function WorkspaceChat() {
             {isReadOnlySessionView && (
               <div
                 className={styles.readOnlySessionBanner}
-                data-slice-verify="readonly-session-banner"
-                data-session-id={readOnlySession.id}
               >
                 <div>
                   <div className={styles.readOnlySessionTitle}>{WORKBENCH.sessionReadOnlyTitle}</div>
@@ -2124,7 +1140,6 @@ export function WorkspaceChat() {
                   <button
                     type="button"
                     className={styles.btnSecondary}
-                    data-slice-verify="back-to-active-session"
                     onClick={() => {
                       void restoreActiveSessionView();
                     }}
@@ -2134,9 +1149,6 @@ export function WorkspaceChat() {
                   <button
                     type="button"
                     className={styles.btnPrimary}
-                    data-slice-verify="branch-from-history"
-                    data-source-session-ref={readOnlySession.id}
-                    data-source-turn-ref={readOnlySourceTurnRef ?? ""}
                     disabled={branchingSession || !socketConnected}
                     onClick={() => {
                       void handleBranchFromReadOnlySession();
@@ -2150,15 +1162,12 @@ export function WorkspaceChat() {
             {messages.map((msg, i) => (
               <div
                 key={i}
-                data-role={msg.role}
-                data-turn-id={msg.turnResult?.turn_id}
                 className={
                   msg.role === "user" ? styles.userMsg : styles.assistantMsg
                 }
               >
                 <div
                   className={styles.role}
-                  data-slice-verify={msg.role === "assistant" ? "assistant-role-label" : undefined}
                 >
                   {assistantRoleLabel(msg.role, assistantDisplayName)}
                 </div>
@@ -2169,8 +1178,6 @@ export function WorkspaceChat() {
                     <div
                       className={styles.frameBadge}
                       data-frame-tone={framePresentation.tone}
-                      data-slice-verify="frame-badge"
-                      data-turn-id={msg.turnResult.turn_id}
                       title={framePresentation.title}
                     >
                       {framePresentation.label}
@@ -2182,8 +1189,6 @@ export function WorkspaceChat() {
                 {msg.role === "assistant" && msg.turnResult?.trace_summary && (
                   <button
                     className={styles.traceWhyButton}
-                    data-slice-verify="trace-why-trigger"
-                    data-turn-id={msg.turnResult.turn_id}
                     type="button"
                     title={TRACE.actionTitle}
                     onClick={() => openTraceDialog(msg.turnResult!.turn_id, msg.turnResult!.trace_summary)}
@@ -2291,7 +1296,7 @@ export function WorkspaceChat() {
                 })}
 
                 {!isReadOnlySessionView && msg.turnResult?.candidate_directions && msg.turnResult.candidate_directions.length > 0 && (
-                  <div className={styles.candidatePanel} data-slice-verify="candidate-panel">
+                  <div className={styles.candidatePanel}>
                     <div className={styles.candidateHeader}>{WORKBENCH.candidatePanelTitle}</div>
                     <div className={styles.candidateList}>
                       {msg.turnResult.candidate_directions.map((c) => (
@@ -2308,8 +1313,6 @@ export function WorkspaceChat() {
                           <div className={styles.candidateActions}>
                             <button
                               className={styles.candidateButton}
-                              data-slice-verify="candidate-continue"
-                              data-candidate-ref={c.direction_id}
                               disabled={loading || !socketConnected}
                               title={WORKBENCH.candidateContinueTitle}
                               onClick={() => {
@@ -2334,8 +1337,6 @@ export function WorkspaceChat() {
                       <button
                         key={action.action_id}
                         className={styles.btnSecondary}
-                        data-slice-verify="available-action"
-                        data-action-type={action.action_type}
                         disabled={action.enabled === false}
                         title={action.disabled_reason}
                         onClick={() => {
@@ -2353,8 +1354,8 @@ export function WorkspaceChat() {
             ))}
 
             {loading && (
-              <div className={styles.assistantMsg} data-status="thinking" data-role="assistant">
-                <div className={styles.role} data-slice-verify="assistant-role-label">
+              <div className={styles.assistantMsg}>
+                <div className={styles.role}>
                   {assistantRoleLabel("assistant", assistantDisplayName)}
                 </div>
                 <div className={styles.text}>{WORKBENCH.thinking}</div>
@@ -2374,8 +1375,6 @@ export function WorkspaceChat() {
               <Dialog.Content
                 className={`${styles.dialogContent} ${styles.traceDialogContent}`}
                 aria-describedby={undefined}
-                data-slice-verify="trace-why-dialog"
-                data-turn-id={traceDialog?.turnId}
               >
                 {traceDialog && (
                   <>
@@ -2426,7 +1425,6 @@ export function WorkspaceChat() {
             <input
               type="text"
               className={styles.inputBox}
-              data-slice-verify="chat-input"
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
@@ -2435,7 +1433,6 @@ export function WorkspaceChat() {
             />
             <button
               className={styles.sendBtn}
-              data-slice-verify="send-button"
               onClick={() => {
                 void handleSend();
               }}
@@ -2453,7 +1450,6 @@ export function WorkspaceChat() {
             <div className={styles.railSummary}>
               <div 
                 className={styles.openArchiveEntry}
-                data-slice-verify="open-archive"
                 onClick={() => setIsPanelOpen(true)}
               >
                 <span className={styles.spItemCardText}>
@@ -2465,10 +1461,9 @@ export function WorkspaceChat() {
                   {WORKBENCH.pendingAdoptionsPrefix} {pendingAdoptionsCount}
                 </div>
               )}
-              <div className={styles.sessionList} data-slice-verify="session-list">
+              <div className={styles.sessionList}>
                 <input
                   className={styles.sessionSearch}
-                  data-slice-verify="session-search"
                   value={sessionSearch}
                   onChange={(event) => {
                     void handleSessionSearch(event.target.value);
@@ -2480,8 +1475,6 @@ export function WorkspaceChat() {
                     <button
                       type="button"
                       className={session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem}
-                      data-slice-verify="session-item"
-                      data-session-id={session.id}
                       data-session-status={session.status}
                       data-readonly-open={readOnlySession?.id === session.id ? "true" : "false"}
                       onClick={() => {
@@ -2495,7 +1488,6 @@ export function WorkspaceChat() {
                       <button
                         type="button"
                         className={styles.sessionIconAction}
-                        data-slice-verify="archive-session"
                         aria-label={WORKBENCH.sessionArchive}
                         title={WORKBENCH.sessionArchive}
                         onClick={() => {
@@ -2535,7 +1527,6 @@ export function WorkspaceChat() {
             <h3>修改草稿</h3>
             <textarea
               className={styles.modalTextarea}
-              data-slice-verify="modify-instruction"
               value={modifyInstruction}
               onChange={(e) => setModifyInstruction(e.target.value)}
               placeholder="请输入修改意见，例如：把主角的性格改得更果断一些..."
@@ -2546,7 +1537,6 @@ export function WorkspaceChat() {
               <button className={styles.btnSecondary} onClick={() => setModifyModal(null)}>取消</button>
               <button
                 className={styles.btnPrimary}
-                data-slice-verify="modify-submit"
                 onClick={() => {
                   void handleModifySubmit();
                 }}

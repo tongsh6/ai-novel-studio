@@ -4,33 +4,15 @@
 #
 # Usage:
 #   bash scripts/tauri_slice_verify.sh --list
-#   bash scripts/tauri_slice_verify.sh --real-lmstudio au01-ordinary-chat-two-turn-roundtrip
-#   bash scripts/tauri_slice_verify.sh stage-startup-context-contract
-#   bash scripts/tauri_slice_verify.sh workspace-runtime-state
-#   bash scripts/tauri_slice_verify.sh su02-work-switching
-#   bash scripts/tauri_slice_verify.sh su01-provider-health-model
-#   bash scripts/tauri_slice_verify.sh su03-assistant-display-name
-#   bash scripts/tauri_slice_verify.sh au01-ordinary-chat-two-turn-roundtrip
-#   bash scripts/tauri_slice_verify.sh au02-candidate-continuation
-#   bash scripts/tauri_slice_verify.sh au10-micro-plan-entry
-#   bash scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan
-#   bash scripts/tauri_slice_verify.sh au03c-work-session-resume
-#   bash scripts/tauri_slice_verify.sh au05-adoption-boundary
-#   bash scripts/tauri_slice_verify.sh au05-adoption-followup-routing
-#   bash scripts/tauri_slice_verify.sh au05-discard-boundary
-#   bash scripts/tauri_slice_verify.sh au05-modify-draft-boundary
-#   bash scripts/tauri_slice_verify.sh au08-adoption-reading-projection
-#   bash scripts/tauri_slice_verify.sh au09-archive-real-data
-#   bash scripts/tauri_slice_verify.sh au09-memory-recall-context
-#   bash scripts/tauri_slice_verify.sh au03-session-history-readonly
-#   bash scripts/tauri_slice_verify.sh au03-branch-from-history
-#   bash scripts/tauri_slice_verify.sh au07-trace-why-entry
+#   bash scripts/tauri_slice_verify.sh au03-long-session-compression
+#   bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression
 #   bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership
-#   bash scripts/tauri_slice_verify.sh vs10-observability-spine
 #
-# The script starts a slice backend and a native Tauri dev window. By default
-# the backend uses a deterministic provider; with --real-lmstudio it calls the
-# local LM Studio OpenAI-compatible endpoint and verifies the LLM HTTP log.
+# The script starts a slice backend and a native Tauri dev window. UI actions
+# are driven by an external Playwright driver against the real workbench DOM,
+# not by product-code autorun hooks. By default the backend uses a deterministic
+# provider; with --real-lmstudio it calls the local LM Studio OpenAI-compatible
+# endpoint and verifies the LLM HTTP log.
 
 set -euo pipefail
 
@@ -73,36 +55,19 @@ Usage:
   bash scripts/tauri_slice_verify.sh <slice-id>
   bash scripts/tauri_slice_verify.sh --real-lmstudio <slice-id>
 
-Available native Tauri slice ids:
-  au01-ordinary-chat-two-turn-roundtrip
-  au02-candidate-continuation
-  stage-startup-context-contract
-  workspace-runtime-state
-  su02-work-switching
-  su01-provider-health-model
-  su03-assistant-display-name
-  au03c-work-session-resume
-  au05-adoption-boundary
-  au05-adoption-followup-routing
-  au05-discard-boundary
-  au05-modify-draft-boundary
-  au08-adoption-reading-projection
-  au09-archive-real-data
-  au09-memory-recall-context
-  au03-session-history-readonly
-  au03-branch-from-history
-  au03-archive-session-filter
-  au07-trace-why-entry
+Implemented external UI driver slice ids:
+  au03-long-session-compression
   desktop-stage-process-ownership
-  au10-micro-plan-entry
-  au10-ordinary-chat-no-micro-plan
-  vs10-observability-spine
+
+Legacy slice ids must get an external driver before this script can run them.
+Do not add product-code autorun hooks to make a slice pass.
 
 Native automation:
-  The script opens the AI Novel Studio Tauri window and enables
-  VITE_SLICE_VERIFY_AUTORUN=<slice-id>, which drives the real workbench
-  controls in the native window. No manual operation is required; the script
-  exits only after the correlated logs are verified.
+  The script opens the AI Novel Studio Tauri window and runs an external
+  Playwright UI driver against the real workbench DOM. Product React code does
+  not know the slice id and does not auto-fill, auto-click, or report verifier
+  state. The script exits only after correlated logs and external UI evidence
+  are verified.
 
 Real LM Studio mode:
   --real-lmstudio uses NovelAgent.Provider.LMStudio and verifies that the
@@ -121,7 +86,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au09-archive-real-data" && "$SLICE_ID" != "au09-memory-recall-context" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
+if [[ "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -135,6 +100,12 @@ fi
 if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   bash "$PROJECT_ROOT/scripts/verify_stage_process_ownership.sh"
   exit 0
+fi
+
+if [[ "$SLICE_ID" != "au03-long-session-compression" ]]; then
+  echo "No external UI driver is implemented for: $SLICE_ID" >&2
+  echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
+  exit 65
 fi
 
 ARTIFACT_SUFFIX="-tauri"
@@ -206,121 +177,14 @@ wait_for_tauri_dev_app() {
 }
 
 native_action_description() {
-  case "$SLICE_ID" in
-    au10-ordinary-chat-no-micro-plan)
-      echo "type ordinary chat -> click send -> verify generate_micro_plan=false"
-      ;;
-    au01-ordinary-chat-two-turn-roundtrip)
-      echo "type ordinary chat -> receive result -> continue second ordinary turn"
-      ;;
-    au02-candidate-continuation)
-      echo "type fuzzy creative direction -> receive candidate cards -> click continue direction -> verify candidate continuation stays dialogue-only"
-      ;;
-    stage-startup-context-contract)
-      echo "seed persisted active session -> start Tauri -> verify restored startup UI has same work/session, no welcome injection, connected service state"
-      ;;
-    workspace-runtime-state)
-      echo "seed persisted active session -> start Tauri -> derive runtime state -> switch Reading Mode -> verify title, welcome, pending count, and empty projection"
-      ;;
-    su02-work-switching)
-      echo "type a message in work A -> create work B from the work switcher while pending -> verify channel/UI belongs to work B"
-      ;;
-    su01-provider-health-model)
-      echo "open native workbench -> verify provider health badge displays backend provider/model metadata"
-      ;;
-    su03-assistant-display-name)
-      echo "open assistant name dialog -> save a work-scoped name -> create/switch work -> verify default isolation -> switch back"
-      ;;
-    au05-adoption-boundary)
-      echo "open archive panel -> click new action -> wait for pending artifact -> click accept -> verify persisted adoption"
-      ;;
-    au05-adoption-followup-routing)
-      echo "type character request -> accept setting artifact -> verify resolved card has no reading follow-up and no reading projection"
-      ;;
-    au05-discard-boundary)
-      echo "open archive panel -> click new action -> wait for pending artifact -> click discard -> verify discarded resolution"
-      ;;
-    au05-modify-draft-boundary)
-      echo "open archive panel -> click new action -> wait for pending artifact -> edit then accept -> verify edited acceptance"
-      ;;
-    au08-adoption-reading-projection)
-      echo "type prose request -> wait for pending artifact -> click accept -> switch to reading mode -> verify TOC and chapter content"
-      ;;
-    au09-archive-real-data)
-      echo "seed persisted archive facts -> open archive panel -> verify real scoped characters, memories, rules, and stats"
-      ;;
-    au09-memory-recall-context)
-      echo "seed confirmed memory -> send real workbench message -> verify memory enters dialogue context"
-      ;;
-    au03-session-history-readonly)
-      echo "seed active and exited sessions -> search history -> open transcript read-only -> return to active session"
-      ;;
-    au03-branch-from-history)
-      echo "seed active and exited sessions -> search history -> open transcript read-only -> create branch session -> verify source refs and active switch"
-      ;;
-    au03-archive-session-filter)
-      echo "seed active and exited sessions -> search history -> archive historical session -> verify default hidden and search/replay accessible"
-      ;;
-    au07-trace-why-entry)
-      echo "type ordinary chat -> receive trace summary -> click why -> verify author-safe explanation dialog"
-      ;;
-    au03c-work-session-resume)
-      echo "open archive panel -> generate pending artifact -> restart Tauri -> verify same active session transcript and pending item are restored"
-      ;;
-    au10-micro-plan-entry|vs10-observability-spine)
-      echo "open archive panel -> click new action -> wait for assistant turn result"
-      ;;
-    *)
-      echo "drive native workbench controls"
-      ;;
-  esac
+  echo "seed long active session -> send real workbench turn -> verify prompt uses early summary plus latest transcript window"
 }
 
-wait_for_au03c_seed() {
-  local max="${1:-90}"
-
-  for _ in $(seq 1 "$max"); do
-    if node --input-type=module - "$APP_LOG_DIR" <<'NODE'
-import fs from "node:fs";
-import path from "node:path";
-
-const [appLogDir] = process.argv.slice(2);
-const localDate = new Date();
-const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
-const jsonlPath = path.join(appLogDir, `${today}.jsonl`);
-if (!fs.existsSync(jsonlPath)) process.exit(1);
-
-const records = fs
-  .readFileSync(jsonlPath, "utf8")
-  .split("\n")
-  .filter(Boolean)
-  .map((line) => JSON.parse(line));
-
-const start = records.find(
-  (record) =>
-    record.event === "channel.user_message.start" &&
-    record.generate_micro_plan === true &&
-    record.session_id,
-);
-if (!start) process.exit(1);
-
-const hasTool = records.some(
-  (record) => record.turn_id === start.turn_id && record.event === "toolbox.execute.done",
-);
-const hasDone = records.some(
-  (record) => record.turn_id === start.turn_id && record.event === "channel.user_message.done",
-);
-process.exit(hasTool && hasDone ? 0 : 1);
-NODE
-    then
-      echo "[tauri-slice-verify] AU-03C seed pending artifact generated"
-      return 0
-    fi
-    sleep 1
-  done
-
-  echo "[tauri-slice-verify] AU-03C seed did not finish before restart" >&2
-  return 1
+drive_external_ui() {
+  cd "$PROJECT_ROOT/frontend"
+  SLICE_VERIFY_BASE_URL="http://127.0.0.1:${VITE_PORT}" \
+    SLICE_VERIFY_ARTIFACT_DIR="$ARTIFACT_DIR" \
+    node slice-verify/external-ui-driver.mjs "$SLICE_ID"
 }
 
 verify_native_slice() {
@@ -348,6 +212,12 @@ const records = fs
   .split("\n")
   .filter(Boolean)
   .map((line) => JSON.parse(line));
+
+const uiStatePath = path.join(artifactDir, "ui-state.json");
+if (fs.existsSync(uiStatePath)) {
+  const uiRecords = JSON.parse(fs.readFileSync(uiStatePath, "utf8"));
+  if (Array.isArray(uiRecords)) records.push(...uiRecords);
+}
 
 const evidence = findNativeSliceEvidence(sliceId, records);
 
@@ -520,21 +390,7 @@ echo "[tauri-slice-verify] artifacts: $ARTIFACT_DIR"
 cd "$PROJECT_ROOT"
 reset_test_db
 
-if [[ "$SLICE_ID" == "stage-startup-context-contract" || "$SLICE_ID" == "workspace-runtime-state" ]]; then
-  MIX_ENV=test mix run scripts/seed_stage_startup_context.exs >"$ARTIFACT_DIR/seed.log" 2>&1
-fi
-
-if [[ "$SLICE_ID" == "au09-archive-real-data" ]]; then
-  MIX_ENV=test mix run scripts/seed_au09_archive_real_data.exs >"$ARTIFACT_DIR/seed.log" 2>&1
-fi
-
-if [[ "$SLICE_ID" == "au09-memory-recall-context" ]]; then
-  MIX_ENV=test mix run scripts/seed_au09_memory_recall_context.exs >"$ARTIFACT_DIR/seed.log" 2>&1
-fi
-
-if [[ "$SLICE_ID" == "au03-session-history-readonly" || "$SLICE_ID" == "au03-branch-from-history" || "$SLICE_ID" == "au03-archive-session-filter" ]]; then
-  MIX_ENV=test mix run scripts/seed_au03_session_history_readonly.exs >"$ARTIFACT_DIR/seed.log" 2>&1
-fi
+MIX_ENV=test mix run scripts/seed_au03_long_session_compression.exs >"$ARTIFACT_DIR/seed.log" 2>&1
 
 MIX_ENV=test \
   PHOENIX_TEST_PORT="$PHOENIX_PORT" \
@@ -551,35 +407,20 @@ VITE_API_ENDPOINT="" \
   VITE_PROXY_TARGET="$API_URL" \
   VITE_WS_ENDPOINT="$VITE_WS_URL" \
   VITE_DEV_PORT="$VITE_PORT" \
-  VITE_SLICE_VERIFY_AUTORUN="$SLICE_ID" \
   pnpm tauri dev >"$ARTIFACT_DIR/tauri.log" 2>&1 &
 TAURI_PID=$!
 
 wait_for_tauri_dev_app "$ARTIFACT_DIR/tauri.log" 120
-
-if [[ "$SLICE_ID" == "au03c-work-session-resume" ]]; then
-  wait_for_au03c_seed 90
-  echo "[tauri-slice-verify] restarting Tauri to verify resume hydration"
-  kill "$TAURI_PID" 2>/dev/null || true
-  wait "$TAURI_PID" 2>/dev/null || true
-  TAURI_PID=""
-
-  VITE_API_ENDPOINT="" \
-    VITE_PROXY_TARGET="$API_URL" \
-    VITE_WS_ENDPOINT="$VITE_WS_URL" \
-    VITE_DEV_PORT="$VITE_PORT" \
-    VITE_SLICE_VERIFY_AUTORUN="$SLICE_ID" \
-    pnpm tauri dev >>"$ARTIFACT_DIR/tauri.log" 2>&1 &
-  TAURI_PID=$!
-  wait_for_tauri_dev_app "$ARTIFACT_DIR/tauri.log" 120
-fi
+wait_for_url "http://127.0.0.1:${VITE_PORT}" "Vite"
 
 cat <<EOF
 [tauri-slice-verify] Native window is starting.
-[tauri-slice-verify] Env-gated native verifier is driving:
+[tauri-slice-verify] External UI driver is driving:
 [tauri-slice-verify]   $(native_action_description)
 [tauri-slice-verify] Polling up to ${TAURI_WAIT_SECONDS}s for correlated app JSONL evidence...
 EOF
+
+drive_external_ui
 
 for _ in $(seq 1 "$TAURI_WAIT_SECONDS"); do
   if verify_native_slice; then

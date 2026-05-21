@@ -3,6 +3,22 @@ defmodule NovelAgent.Provider.GatewayTest do
 
   alias NovelAgent.Provider.Gateway
 
+  setup do
+    old_extra = Application.get_env(:novel_agent, :extra_providers)
+
+    Application.put_env(:novel_agent, :extra_providers,
+      slice_verify: NovelAgent.Test.Provider.SliceVerify
+    )
+
+    on_exit(fn ->
+      if old_extra do
+        Application.put_env(:novel_agent, :extra_providers, old_extra)
+      else
+        Application.delete_env(:novel_agent, :extra_providers)
+      end
+    end)
+  end
+
   describe "registered_providers/0" do
     test "returns known providers" do
       providers = Gateway.registered_providers()

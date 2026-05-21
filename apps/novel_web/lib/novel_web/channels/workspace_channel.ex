@@ -160,15 +160,6 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   @impl true
-  def handle_in("slice_verify_ui_state", %{"slice_id" => slice_id} = payload, socket) do
-    if slice_verify_ui_state_enabled?() do
-      record_slice_verify_ui_state(slice_id, payload, socket)
-    else
-      {:reply, {:error, %{reason: "slice_verify_disabled"}}, socket}
-    end
-  end
-
-  @impl true
   def handle_in("user_message", %{"text" => text} = msg, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     work_id = socket.assigns[:work_id] || ws_id
@@ -648,100 +639,6 @@ defmodule NovelWeb.WorkspaceChannel do
 
         {:reply, {:error, %{reason: reason}}, socket}
     end
-  end
-
-  defp record_slice_verify_ui_state(slice_id, payload, socket) do
-    ws_id = socket.assigns[:workspace_id] || "lobby"
-    work_id = socket.assigns[:work_id] || ws_id
-    session_id = socket.assigns[:session_id]
-    restored_turn_id = payload["restored_turn_id"]
-
-    LogContext.put_turn(ws_id, work_id, restored_turn_id, session_id)
-
-    LogEmit.emit(:slice_verify, :ui_state, :done, %{
-      workspace_id: ws_id,
-      work_id: work_id,
-      session_id: session_id,
-      slice_id: slice_id,
-      context_work_id: payload["context_work_id"],
-      context_work_title: payload["context_work_title"],
-      active_session_id: payload["active_session_id"],
-      restored_turn_id: restored_turn_id,
-      socket_connected: payload["socket_connected"],
-      message_count: payload["message_count"],
-      welcome_message_count: payload["welcome_message_count"],
-      pending_adoption_count: payload["pending_adoption_count"],
-      first_message_text: payload["first_message_text"],
-      service_status_text: payload["service_status_text"],
-      title_text: payload["title_text"],
-      adoption_status: payload["adoption_status"],
-      artifact_type: payload["artifact_type"],
-      decision_card_count: payload["decision_card_count"],
-      open_reading_action_count: payload["open_reading_action_count"],
-      reading_chapter_count: payload["reading_chapter_count"],
-      archive_character_count: payload["archive_character_count"],
-      archive_foreshadowing_count: payload["archive_foreshadowing_count"],
-      archive_rule_count: payload["archive_rule_count"],
-      archive_volumes: payload["archive_volumes"],
-      archive_chapters: payload["archive_chapters"],
-      archive_memory_items: payload["archive_memory_items"],
-      archive_drafts_total: payload["archive_drafts_total"],
-      archive_drafts_accepted: payload["archive_drafts_accepted"],
-      archive_detail_kind: payload["archive_detail_kind"],
-      archive_detail_id: payload["archive_detail_id"],
-      archive_detail_title: payload["archive_detail_title"],
-      initial_work_id: payload["initial_work_id"],
-      created_work_id: payload["created_work_id"],
-      assistant_name_after_save: payload["assistant_name_after_save"],
-      assistant_role_after_save: payload["assistant_role_after_save"],
-      assistant_name_in_created_work: payload["assistant_name_in_created_work"],
-      assistant_name_after_return: payload["assistant_name_after_return"],
-      assistant_role_after_return: payload["assistant_role_after_return"],
-      trace_why_dialog_open: payload["trace_why_dialog_open"],
-      trace_why_text: payload["trace_why_text"],
-      trace_why_contains_raw_prompt: payload["trace_why_contains_raw_prompt"],
-      frame_badge_label: payload["frame_badge_label"],
-      frame_badge_kind: payload["frame_badge_kind"],
-      frame_badge_goal: payload["frame_badge_goal"],
-      candidate_panel_count: payload["candidate_panel_count"],
-      llm_status_text: payload["llm_status_text"],
-      llm_connected: payload["llm_connected"],
-      llm_model_label: payload["llm_model_label"],
-      ui_turn_ids: payload["ui_turn_ids"],
-      user_message_count: payload["user_message_count"],
-      assistant_turn_message_count: payload["assistant_turn_message_count"],
-      message_role_order: payload["message_role_order"],
-      thinking_observed: payload["thinking_observed"],
-      thinking_visible_after_reply: payload["thinking_visible_after_reply"],
-      available_action_count: payload["available_action_count"],
-      card_action_count: payload["card_action_count"],
-      adoption_decision_card_count: payload["adoption_decision_card_count"],
-      searched_query: payload["searched_query"],
-      readonly_session_id: payload["readonly_session_id"],
-      readonly_banner_visible: payload["readonly_banner_visible"],
-      readonly_input_disabled: payload["readonly_input_disabled"],
-      readonly_send_disabled: payload["readonly_send_disabled"],
-      readonly_visible_text: payload["readonly_visible_text"],
-      active_session_restored: payload["active_session_restored"],
-      branch_source_session_ref: payload["branch_source_session_ref"],
-      branch_source_turn_ref: payload["branch_source_turn_ref"],
-      branch_active_session_id: payload["branch_active_session_id"],
-      branch_readonly_banner_visible: payload["branch_readonly_banner_visible"],
-      branch_message_count: payload["branch_message_count"],
-      branch_visible_text: payload["branch_visible_text"],
-      branch_session_item_active: payload["branch_session_item_active"],
-      archive_button_visible: payload["archive_button_visible"],
-      archived_hidden_default: payload["archived_hidden_default"],
-      archived_search_found: payload["archived_search_found"],
-      archived_banner_visible: payload["archived_banner_visible"],
-      archived_visible_text: payload["archived_visible_text"]
-    })
-
-    {:reply, {:ok, %{received: true}}, socket}
-  end
-
-  defp slice_verify_ui_state_enabled? do
-    Application.get_env(:novel_web, :slice_verify_ui_state_enabled, false)
   end
 
   defp handle_valid_user_message(socket, params) do

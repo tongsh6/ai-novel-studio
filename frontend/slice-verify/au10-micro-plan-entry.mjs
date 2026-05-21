@@ -10,6 +10,7 @@ const artifactDir =
 fs.mkdirSync(artifactDir, { recursive: true });
 
 const frames = [];
+const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 
 function assert(condition, message) {
   if (!condition) {
@@ -35,6 +36,21 @@ function recordFrame(payload) {
   if (decoded) frames.push(decoded);
 }
 
+async function waitForUserMessage(predicate, timeoutMs = 10_000) {
+  const deadline = Date.now() + timeoutMs;
+
+  while (Date.now() < deadline) {
+    const message = frames
+      .filter((frame) => frame.event === "user_message" && frame.topic.startsWith("workspace:"))
+      .find(predicate);
+
+    if (message) return message;
+    await page.waitForTimeout(100);
+  }
+
+  return null;
+}
+
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 
@@ -44,30 +60,19 @@ page.on("websocket", (ws) => {
 
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await page.waitForSelector('[data-slice-verify="workspace-chat"]', {
-    timeout: 30_000,
-  });
-  await page.waitForSelector('[data-slice-verify="service-status"][data-status="ok"]', {
-    timeout: 30_000,
-  });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page
+    .getByText(/^服务: 已连接/)
+    .first()
+    .waitFor({ timeout: 30_000 });
 
-  await page.locator('[data-slice-verify="open-archive"]').click();
-  await page.locator('[data-slice-verify="panel-new-action"]').click();
+  await page.getByText("打开档案", { exact: false }).click();
+  await page.getByRole("button", { name: "发起新操作" }).click();
 
-  await page.waitForFunction(
-    () => {
-      const thinking = document.querySelector('[data-role="assistant"][data-status="thinking"]');
-      return thinking !== null;
-    },
-    { timeout: 10_000 },
+  const lastMessage = await waitForUserMessage(
+    (frame) => frame.body?.text === "我想调整或新增伏笔",
+    10_000,
   );
-
-  await page.waitForTimeout(500);
-
-  const userMessages = frames.filter(
-    (frame) => frame.event === "user_message" && frame.topic.startsWith("workspace:"),
-  );
-  const lastMessage = userMessages[userMessages.length - 1];
 
   assert(lastMessage, "No user_message Phoenix frame was sent from the workbench");
   assert(

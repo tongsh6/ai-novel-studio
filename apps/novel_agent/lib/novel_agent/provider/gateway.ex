@@ -28,7 +28,6 @@ defmodule NovelAgent.Provider.Gateway do
 
   @provider_modules %{
     stub: Provider.Stub,
-    slice_verify: Provider.SliceVerify,
     lmstudio: Provider.LMStudio,
     anthropic: Provider.Anthropic
   }
@@ -70,7 +69,7 @@ defmodule NovelAgent.Provider.Gateway do
   def health_check do
     provider_name = default_provider()
 
-    case Map.fetch(@provider_modules, provider_name) do
+    case Map.fetch(provider_modules(), provider_name) do
       {:ok, module} ->
         state = build_state(module)
         module.health_check(state)
@@ -90,7 +89,7 @@ defmodule NovelAgent.Provider.Gateway do
     provider_name = default_provider()
 
     model =
-      case Map.fetch(@provider_modules, provider_name) do
+      case Map.fetch(provider_modules(), provider_name) do
         {:ok, module} ->
           module
           |> build_state()
@@ -106,12 +105,12 @@ defmodule NovelAgent.Provider.Gateway do
 
   @doc "返回当前已注册的 provider 列表。"
   @spec registered_providers() :: [atom()]
-  def registered_providers, do: Map.keys(@provider_modules)
+  def registered_providers, do: provider_modules() |> Map.keys()
 
   # ---- private ----
 
   defp do_complete(provider_name, model, prompt, params) do
-    case Map.fetch(@provider_modules, provider_name) do
+    case Map.fetch(provider_modules(), provider_name) do
       {:ok, module} ->
         state = build_state(module)
         module.complete(state, model, prompt, params)
@@ -130,6 +129,14 @@ defmodule NovelAgent.Provider.Gateway do
     else
       module.__struct__()
     end
+  end
+
+  defp provider_modules do
+    extra =
+      Application.get_env(:novel_agent, :extra_providers, [])
+      |> Map.new()
+
+    Map.merge(@provider_modules, extra)
   end
 
   defp default_provider do

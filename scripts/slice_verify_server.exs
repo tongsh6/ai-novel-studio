@@ -15,9 +15,12 @@ provider =
   System.get_env("SLICE_VERIFY_PROVIDER", "slice_verify")
   |> String.to_atom()
 
+Application.put_env(:novel_agent, :extra_providers,
+  slice_verify: NovelAgent.Test.Provider.SliceVerify
+)
+
 Application.put_env(:novel_agent, :provider, default: provider)
 Application.put_env(:novel_web, :persistence, inject_real_persistence: true)
-Application.put_env(:novel_web, :slice_verify_ui_state_enabled, true)
 
 repo_config =
   :novel_persistence

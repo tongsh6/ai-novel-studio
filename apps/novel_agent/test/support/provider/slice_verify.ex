@@ -1,4 +1,4 @@
-defmodule NovelAgent.Provider.SliceVerify do
+defmodule NovelAgent.Test.Provider.SliceVerify do
   @moduledoc """
   Deterministic provider for local slice verification.
 

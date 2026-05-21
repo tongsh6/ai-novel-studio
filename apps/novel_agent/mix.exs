@@ -10,6 +10,7 @@ defmodule NovelAgent.MixProject do
       deps_path: "../../deps",
       lockfile: "../../mix.lock",
       elixir: "~> 1.19",
+      elixirc_paths: elixirc_paths(Mix.env()),
       test_coverage: [tool: ExCoveralls],
       start_permanent: Mix.env() == :prod,
       deps: deps()
@@ -33,4 +34,7 @@ defmodule NovelAgent.MixProject do
       {:excoveralls, "~> 0.18", only: :test, runtime: false}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
 end

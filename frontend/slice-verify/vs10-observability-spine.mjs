@@ -18,6 +18,7 @@ const keyEvents = [
   "dialogue_gateway.handle_input.done",
   "channel.user_message.done",
 ];
+const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 
 fs.mkdirSync(artifactDir, { recursive: true });
 
@@ -55,7 +56,8 @@ function recordFrame(direction, payload) {
 }
 
 function jsonlPath() {
-  const today = new Date().toISOString().slice(0, 10);
+  const localDate = new Date();
+  const today = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, "0")}-${String(localDate.getDate()).padStart(2, "0")}`;
   return path.join(appLogDir, `${today}.jsonl`);
 }
 
@@ -100,15 +102,14 @@ page.on("websocket", (ws) => {
 
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
-  await page.waitForSelector('[data-slice-verify="workspace-chat"]', {
-    timeout: 30_000,
-  });
-  await page.waitForSelector('[data-slice-verify="service-status"][data-status="ok"]', {
-    timeout: 30_000,
-  });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page
+    .getByText(/^服务: 已连接/)
+    .first()
+    .waitFor({ timeout: 30_000 });
 
-  await page.locator('[data-slice-verify="open-archive"]').click();
-  await page.locator('[data-slice-verify="panel-new-action"]').click();
+  await page.getByText("打开档案", { exact: false }).click();
+  await page.getByRole("button", { name: "发起新操作" }).click();
 
   await page.waitForFunction(
     () => window.__vs10TurnResultReceived === true,

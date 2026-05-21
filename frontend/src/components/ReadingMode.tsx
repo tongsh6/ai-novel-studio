@@ -113,7 +113,7 @@ export function ReadingMode() {
         <div className={styles.contextGroup}>
           <span className={styles.modeText}>阅读模式</span>
           <span className={styles.divider}>/</span>
-          <span className={styles.titleText} data-slice-verify="reading-work-title">
+          <span className={styles.titleText}>
             {getVisibleWorkTitle(runtimeState)}
           </span>
         </div>

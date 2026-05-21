@@ -82,7 +82,6 @@ export function StructurePanel({
   return (
     <div
       className={styles.panel}
-      data-slice-verify="structure-panel"
       data-archive-character-count={characters.length}
       data-archive-foreshadowing-count={foreshadowing.length}
       data-archive-rule-count={rules.length}
@@ -111,25 +110,25 @@ export function StructurePanel({
           <>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.volumes}</span>
-              <span className={styles.overviewValue} data-slice-verify="archive-stat-volumes">
+              <span className={styles.overviewValue}>
                 {stats.volumes}
               </span>
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.drafts}</span>
-              <span className={styles.overviewValue} data-slice-verify="archive-stat-drafts">
+              <span className={styles.overviewValue}>
                 {stats.drafts_accepted}/{stats.drafts_total}
               </span>
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.characters}</span>
-              <span className={styles.overviewValue} data-slice-verify="archive-stat-characters">
+              <span className={styles.overviewValue}>
                 {stats.characters}
               </span>
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.memories}</span>
-              <span className={styles.overviewValue} data-slice-verify="archive-stat-memory-items">
+              <span className={styles.overviewValue}>
                 {stats.memory_items}
               </span>
             </div>
@@ -206,7 +205,6 @@ export function StructurePanel({
                   <div
                     key={item.id}
                     className={styles.cardItem}
-                    data-slice-verify="archive-foreshadowing-item"
                     data-selected={selectedArchiveItem?.id === item.id ? "true" : "false"}
                   >
                     <div className={styles.cardTitle}>{item.content}</div>
@@ -217,7 +215,6 @@ export function StructurePanel({
                     <div className={styles.cardActions}>
                       <button
                         className={styles.btnGhost}
-                        data-slice-verify="archive-foreshadowing-detail-button"
                         aria-pressed={selectedArchiveItem?.id === item.id}
                         onClick={() => setSelectedArchiveItem({ kind: "memory", id: item.id })}
                       >
@@ -276,7 +273,6 @@ export function StructurePanel({
                   <div
                     key={char.id}
                     className={styles.cardItem}
-                    data-slice-verify="archive-character-item"
                     data-selected={selectedArchiveItem?.id === char.id ? "true" : "false"}
                   >
                     <div className={styles.cardTitle}>
@@ -294,7 +290,6 @@ export function StructurePanel({
                     <div className={styles.cardActions}>
                       <button
                         className={styles.btnGhost}
-                        data-slice-verify="archive-character-detail-button"
                         aria-pressed={selectedArchiveItem?.id === char.id}
                         onClick={() => setSelectedArchiveItem({ kind: "character", id: char.id })}
                       >
@@ -325,7 +320,6 @@ export function StructurePanel({
                   <div
                     key={item.id}
                     className={styles.cardItem}
-                    data-slice-verify="archive-rule-item"
                     data-selected={selectedArchiveItem?.id === item.id ? "true" : "false"}
                   >
                     <div className={styles.cardTitle}>{item.content}</div>
@@ -336,7 +330,6 @@ export function StructurePanel({
                     <div className={styles.cardActions}>
                       <button
                         className={styles.btnGhost}
-                        data-slice-verify="archive-rule-detail-button"
                         aria-pressed={selectedArchiveItem?.id === item.id}
                         onClick={() => setSelectedArchiveItem({ kind: "memory", id: item.id })}
                       >
@@ -360,7 +353,6 @@ export function StructurePanel({
       <div className={styles.footerActions}>
         <button
           className={styles.btnSecondary}
-          data-slice-verify="panel-new-action"
           onClick={() => onAction("init_intent")}
         >
           {STRUCTURE_PANEL.newAction}
@@ -401,11 +393,11 @@ function renderDetail(detail: ArchiveDetailItem) {
   const summary = archiveDetailSummary(detail);
 
   return (
-    <div className={styles.detailPanel} data-slice-verify="archive-detail-panel">
+    <div className={styles.detailPanel}>
       <div className={styles.secHeader}>
         <span className={styles.secTitle}>{STRUCTURE_PANEL.detailTitle}</span>
       </div>
-      <div className={styles.detailTitle} data-slice-verify="archive-detail-title">
+      <div className={styles.detailTitle}>
         {archiveDetailTitle(detail)}
       </div>
       {summary && <div className={styles.cardDesc}>{summary}</div>}
