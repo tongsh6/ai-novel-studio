@@ -13,6 +13,7 @@ export const nativeSliceIds = [
   "au09-archive-real-data",
   "au09-memory-recall-context",
   "au03-session-history-readonly",
+  "au03-branch-from-history",
   "au07-trace-why-entry",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
@@ -137,6 +138,13 @@ const sliceKeyEvents = {
     "work_session.resume.done",
     "channel.join.done",
     "work_session.show.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au03-branch-from-history": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "work_session.show.done",
+    "work_session.create.done",
     "slice_verify.ui_state.done",
   ],
   "au07-trace-why-entry": [
@@ -274,6 +282,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu03SessionHistoryReadonlyEvidence(records);
   }
 
+  if (sliceId === "au03-branch-from-history") {
+    return findAu03BranchFromHistoryEvidence(records);
+  }
+
   if (sliceId === "au07-trace-why-entry") {
     return findAu07TraceWhyEvidence(records);
   }
@@ -338,6 +350,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au03-session-history-readonly") {
     return sessionHistoryReadonlyBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au03-branch-from-history") {
+    return branchFromHistoryBehavior(records, evidence, options);
   }
 
   if (sliceId === "au07-trace-why-entry") {
@@ -785,6 +801,84 @@ function findAu03SessionHistoryReadonlyEvidence(records) {
       key_events: keyEvents,
       transcript_count: shown.transcript_count,
       pending_adoption_count: shown.pending_adoption_count,
+    };
+  }
+
+  return null;
+}
+
+function findAu03BranchFromHistoryEvidence(records) {
+  const sliceId = "au03-branch-from-history";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const workId = uiState.work_id;
+    const sourceSessionRef = String(uiState.branch_source_session_ref ?? "");
+    const sourceTurnRef = String(uiState.branch_source_turn_ref ?? "");
+    const branchSessionId = String(uiState.branch_active_session_id ?? "");
+    if (!sourceSessionRef || !sourceTurnRef || !branchSessionId) continue;
+    if (sourceSessionRef === branchSessionId) continue;
+
+    const shown = records.find(
+      (record) =>
+        record.event === "work_session.show.done" &&
+        record.work_id === workId &&
+        record.session_id === sourceSessionRef &&
+        record.read_only === true,
+    );
+    if (!shown || Number(shown.transcript_count ?? 0) < 2) continue;
+
+    const created = records.find(
+      (record) =>
+        record.event === "work_session.create.done" &&
+        record.work_id === workId &&
+        record.session_id === branchSessionId &&
+        record.source_session_ref === sourceSessionRef &&
+        record.source_turn_ref === sourceTurnRef,
+    );
+    if (!created) continue;
+
+    const joinedBranch = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === workId &&
+        record.session_id === branchSessionId,
+    );
+    if (!joinedBranch) continue;
+
+    const branchResume = records.find(
+      (record) =>
+        record.event === "work_session.resume.done" &&
+        record.work_id === workId &&
+        record.session_id === branchSessionId &&
+        Number(record.transcript_count ?? -1) === 0,
+    );
+    if (!branchResume) continue;
+
+    if (uiState.readonly_banner_visible !== true) continue;
+    if (uiState.branch_readonly_banner_visible !== false) continue;
+    if (uiState.branch_session_item_active !== true) continue;
+    if (Number(uiState.branch_message_count ?? -1) !== 1) continue;
+    const readonlyText = String(uiState.readonly_visible_text ?? "");
+    const branchText = String(uiState.branch_visible_text ?? "");
+    if (!readonlyText.includes("林瑶")) continue;
+    if (branchText.includes("林瑶的失踪可以作为第三章")) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: workId,
+      session_id: branchSessionId,
+      source_session_ref: sourceSessionRef,
+      source_turn_ref: sourceTurnRef,
+      key_events: keyEvents,
     };
   }
 
@@ -1488,6 +1582,50 @@ function sessionHistoryReadonlyBehavior(records, evidence, _options) {
       "old_pending_adoptions_not_restored",
       "chat_input_and_send_disabled_while_viewing_history",
       "active_session_view_can_be_restored",
+    ],
+  };
+}
+
+function branchFromHistoryBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au03-branch-from-history" &&
+      record.branch_active_session_id === evidence.session_id,
+  );
+  if (!uiState) return null;
+
+  const created = records.find(
+    (record) =>
+      record.event === "work_session.create.done" &&
+      record.work_id === evidence.work_id &&
+      record.session_id === evidence.session_id &&
+      record.source_session_ref === evidence.source_session_ref &&
+      record.source_turn_ref === evidence.source_turn_ref,
+  );
+  if (!created) return null;
+
+  if (uiState.branch_readonly_banner_visible !== false) return null;
+  if (uiState.branch_session_item_active !== true) return null;
+  if (Number(uiState.branch_message_count ?? -1) !== 1) return null;
+
+  return {
+    slice_id: "au03-branch-from-history",
+    behavior: "historical_session_branch_created_and_switched_from_real_workbench",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    source_session_ref: evidence.source_session_ref,
+    source_turn_ref: evidence.source_turn_ref,
+    assertions: [
+      "history_session_opened_readonly_before_branching",
+      "branch_action_started_from_real_workbench_banner",
+      "new_session_created_through_web_application_persistence",
+      "branch_session_records_source_session_ref",
+      "branch_session_records_source_turn_ref",
+      "workbench_rejoined_new_active_session",
+      "old_history_transcript_not_copied_into_branch",
+      "no_error_events",
     ],
   };
 }

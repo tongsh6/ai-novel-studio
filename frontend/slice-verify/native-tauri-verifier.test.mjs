@@ -23,6 +23,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au08-adoption-reading-projection");
     expect(nativeSliceIds).toContain("au09-archive-real-data");
     expect(nativeSliceIds).toContain("au09-memory-recall-context");
+    expect(nativeSliceIds).toContain("au03-branch-from-history");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -153,6 +154,75 @@ describe("native Tauri slice verifier", () => {
         "new_work_fell_back_to_default_ai_name",
         "switching_back_restored_original_work_name",
         "preference_did_not_touch_provider_or_turn_result_contract",
+        "no_error_events",
+      ],
+    });
+  });
+
+  it("accepts AU-03 branch-from-history evidence when source refs are preserved", () => {
+    const records = [
+      { event: "work_session.resume.done", work_id: "work-au03", session_id: "session-active", transcript_count: 1 },
+      { event: "channel.join.done", work_id: "work-au03", session_id: "session-active" },
+      {
+        event: "work_session.show.done",
+        work_id: "work-au03",
+        session_id: "session-history",
+        read_only: true,
+        transcript_count: 2,
+        pending_adoption_count: 0,
+      },
+      {
+        event: "work_session.create.done",
+        work_id: "work-au03",
+        session_id: "session-branch",
+        source_session_ref: "session-history",
+        source_turn_ref: "turn-history-1",
+      },
+      { event: "work_session.resume.done", work_id: "work-au03", session_id: "session-branch", transcript_count: 0 },
+      { event: "channel.join.done", work_id: "work-au03", session_id: "session-branch" },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au03-branch-from-history",
+        work_id: "work-au03",
+        context_work_id: "work-au03",
+        readonly_banner_visible: true,
+        readonly_visible_text: "林瑶历史讨论",
+        branch_source_session_ref: "session-history",
+        branch_source_turn_ref: "turn-history-1",
+        branch_active_session_id: "session-branch",
+        branch_readonly_banner_visible: false,
+        branch_message_count: 1,
+        branch_visible_text: "欢迎使用 AI Novel Studio",
+        branch_session_item_active: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au03-branch-from-history", records);
+    expect(evidence).toEqual({
+      slice_id: "au03-branch-from-history",
+      turn_ids: [],
+      work_id: "work-au03",
+      session_id: "session-branch",
+      source_session_ref: "session-history",
+      source_turn_ref: "turn-history-1",
+      key_events: keyEventsForSlice("au03-branch-from-history"),
+    });
+    expect(findSliceBehaviorEvidence("au03-branch-from-history", records, evidence)).toEqual({
+      slice_id: "au03-branch-from-history",
+      behavior: "historical_session_branch_created_and_switched_from_real_workbench",
+      turn_ids: [],
+      work_id: "work-au03",
+      session_id: "session-branch",
+      source_session_ref: "session-history",
+      source_turn_ref: "turn-history-1",
+      assertions: [
+        "history_session_opened_readonly_before_branching",
+        "branch_action_started_from_real_workbench_banner",
+        "new_session_created_through_web_application_persistence",
+        "branch_session_records_source_session_ref",
+        "branch_session_records_source_turn_ref",
+        "workbench_rejoined_new_active_session",
+        "old_history_transcript_not_copied_into_branch",
         "no_error_events",
       ],
     });

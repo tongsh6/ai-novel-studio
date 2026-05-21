@@ -133,11 +133,11 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 真实消费者：`WorkspaceChat`、Channel join、ContextAssembler、Planner prompt、why 面板。
 
-Longest Closed Prefix：B1-B6。
+Longest Closed Prefix：B1-B7。
 
-Current Breakpoint：B7 从历史会话分支继续。
+Current Breakpoint：B8 归档旧会话并过滤默认上下文。
 
-Next Proof：Tauri：搜索历史会话 -> 打开只读 transcript -> 点击继续 -> 创建新 active session，`source_session_ref/source_turn_ref` 指向旧会话，旧 transcript 不被篡改。
+Next Proof：Tauri：归档历史会话 -> 默认列表/上下文过滤 -> 搜索可找回 -> replay 仍可查。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -147,8 +147,8 @@ Next Proof：Tauri：搜索历史会话 -> 打开只读 transcript -> 点击继�
 | B4 | 搜索历史会话 | AU-03 | DialogueContext | partial | Channel/API automation | `WorkSessionService.search/2`、`WorkSessionsController.index/2`、右侧 session list | 搜索命中高亮、打开指定 turn 位置仍缺。 |
 | B5 | 只读查看历史 transcript | AU-03 | TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/au03-session-history-readonly-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-session-history-readonly` | 只读回看已闭环；下一步是分支继续。 |
 | B6 | 历史 transcript 不恢复旧 pending/action/loading | AU-03 / AU-05 | AvailableAction / TurnResultViewModel | closed | Tauri automation | 同 B5 | 旧 pending 清空已验证，后续要证明分支来源引用。 |
-| B7 | 从历史会话继续，显式创建新 active session / branch | AU-03 | AuthorActionInput / DialogueContext / DecisionTrace | next | Channel/API automation | 后端 `POST /api/works/:work_id/sessions` 已可创建带 `source_session_ref/source_turn_ref` 的 session；`WorkSessionsControllerTest` 覆盖 create；`frontend/src/lib/sessions.ts` 尚无 create helper；`tasks/NEXT.md` 队首：`AU03-branch-from-history` | 当前唯一队首任务：补真实工作台“从这里继续”入口、active session 切换和 Tauri proof。 |
-| B8 | 归档旧会话，默认不进入日常 context，仍可搜索/回放 | AU-03 / AU-07 | DialogueContext / ReplayReport | gap | Document only | 会话状态字段存在 | 需要归档入口、过滤规则和 UI 验收。 |
+| B7 | 从历史会话继续，显式创建新 active session / branch | AU-03 | AuthorActionInput / DialogueContext / DecisionTrace | closed | Tauri automation | `artifacts/slice-verify/au03-branch-from-history-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-branch-from-history` | 真实工作台搜索历史会话、打开只读 transcript、点击“从这里继续”，创建并切换新 active session；`source_session_ref/source_turn_ref` 指向旧会话与旧 turn，旧 transcript 未被复制到新 session。 |
+| B8 | 归档旧会话，默认不进入日常 context，仍可搜索/回放 | AU-03 / AU-07 | DialogueContext / ReplayReport | next | Document only | 会话状态字段存在；`tasks/NEXT.md` 队首：`AU03-archive-session-filter` | 需要归档入口、过滤规则和 UI 验收。 |
 | B9 | 最新 Work 背景与当前 session transcript 分层进入 context | AU-03 / AU-09 | DialogueContext / ContextSourceRef | partial | Application/Persistence test | active session transcript 注入已实现；memory recall 最小闭环已实现 | 需证明历史 session 不覆盖最新 Work 背景。 |
 | B10 | 作者能在 why 面板看到上下文来源摘要 | AU-03 / AU-07 | TraceSummaryView | partial | Tauri automation | `artifacts/slice-verify/au07-trace-why-entry-tauri/summary.json`、`au09-memory-recall-context` | 需要 AU-03 context source UI 与 trace 聚合更完整。 |
 | B11 | 长会话压缩，旧 turn 进入 summary，最新 turn 保持顺序 | AU-03 | DialogueContext / DecisionTrace | gap | Document only | recent transcript 顺序修复已记录在台账 | 缺 session summary 压缩策略和验收。 |
@@ -156,10 +156,10 @@ Next Proof：Tauri：搜索历史会话 -> 打开只读 transcript -> 点击继�
 当前连续断点：
 
 ```text
-B6 closed -> B7 next
+B7 closed -> B8 next
 ```
 
-因此下一项功能推进应是 `AU03-branch-from-history`，除非出现 P0 bug。
+因此下一项功能推进应是 `AU03-archive-session-filter`，除非出现 P0 bug。
 
 ---
 
@@ -415,7 +415,7 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | Journey | Closed Prefix | Current Breakpoint | P0/P1 Gaps | Evidence Level | Health |
 |---|---|---|---:|---|---|
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
-| B 作品与上下文 | B1-B6 | B7 `AU03-branch-from-history` | 4 | Tauri | moving |
+| B 作品与上下文 | B1-B7 | B8 `AU03-archive-session-filter` | 3 | Tauri | moving |
 | C 自然对话与探索 | C1-C5 | C6 candidate -> adoption bridge | 2 | Tauri | watch |
 | D 创作生命周期 | D1-D3 最小闭环 | D4 lifecycle path | 多个 | Mixed | needs-focus |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
@@ -430,8 +430,8 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 ```text
 Current Focus: AU-03 作品内会话与上下文分层
 Current Journey: Journey B
-Current Breakpoint: B7 从历史会话分支继续
-Next Task: AU03-branch-from-history
+Current Breakpoint: B8 归档旧会话并过滤默认上下文
+Next Task: AU03-archive-session-filter
 ```
 
 ---
@@ -458,23 +458,23 @@ Next Task: AU03-branch-from-history
 ```text
 Current Focus: AU-03 作品内会话与上下文分层
 Active Journey: Journey B
-Queue head: AU03-branch-from-history
+Queue head: AU03-archive-session-filter
 ```
 
 本文对应位置：
 
 ```text
 Journey B
-Step B7
+Step B8
 Status: next
-Gap / Next: tasks/NEXT.md 队首 AU03-branch-from-history
+Gap / Next: tasks/NEXT.md 队首 AU03-archive-session-filter
 ```
 
 选择规则：
 
 1. 默认只能取 `tasks/NEXT.md` 中第一个 `Status=next` 的任务。
 2. 如果出现 P0 bug，可以临时插队，但必须同步更新 `tasks/NEXT.md` Decision Log 和本文对应 journey step。
-3. 如果 B7 无法闭环，不能跳到其他 AU/SU；必须先把 blocker 写入 `tasks/NEXT.md`，再选择 Journey B 内最小可闭环 checkpoint。
+3. 如果 B8 无法闭环，不能跳到其他 AU/SU；必须先把 blocker 写入 `tasks/NEXT.md`，再选择 Journey B 内最小可闭环 checkpoint。
 4. 完成任务后必须同步更新：
    - `tasks/NEXT.md` 的 Queue 和 Decision Log
    - 本文对应 journey step 的 Status / Evidence
