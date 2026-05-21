@@ -88,15 +88,31 @@ defmodule NovelWeb.WorkSessionsController do
   end
 
   def create(conn, %{"work_id" => work_id} = params) do
+    t0 = System.monotonic_time(:millisecond)
     attrs = Map.take(params, ["title", "summary", "source_session_ref", "source_turn_ref"])
 
     case WorkSessionService.create(work_id, attrs) do
       {:ok, session} ->
+        LogEmit.emit(:work_session, :create, :done, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session.id,
+          source_session_ref: session.source_session_ref,
+          source_turn_ref: session.source_turn_ref
+        })
+
         conn
         |> put_status(:created)
         |> json(%{session: serialize_session(session)})
 
       {:error, %Ecto.Changeset{} = changeset} ->
+        LogEmit.emit(:work_session, :create, :error, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          reason_code: :invalid_session,
+          outcome_detail: inspect(changeset.errors)
+        })
+
         conn
         |> put_status(:unprocessable_entity)
         |> json(%{errors: changeset_errors(changeset)})

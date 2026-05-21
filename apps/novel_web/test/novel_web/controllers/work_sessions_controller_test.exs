@@ -109,11 +109,21 @@ defmodule NovelWeb.WorkSessionsControllerTest do
   end
 
   test "POST /api/works/:work_id/sessions creates a session", %{conn: conn, work: work} do
-    conn = post(conn, "/api/works/#{work.id}/sessions", %{"title" => "角色动机讨论"})
+    {:ok, source_session} = WorkSessionRepo.create(%{work_id: work.id, title: "旧会话"})
+
+    conn =
+      post(conn, "/api/works/#{work.id}/sessions", %{
+        "title" => "角色动机讨论",
+        "source_session_ref" => source_session.id,
+        "source_turn_ref" => "turn-history-1"
+      })
+
     body = json_response(conn, 201)
 
     assert body["session"]["work_id"] == work.id
     assert body["session"]["title"] == "角色动机讨论"
     assert body["session"]["status"] == "ACTIVE"
+    assert body["session"]["source_session_ref"] == source_session.id
+    assert body["session"]["source_turn_ref"] == "turn-history-1"
   end
 end

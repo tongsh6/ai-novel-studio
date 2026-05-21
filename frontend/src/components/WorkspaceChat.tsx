@@ -33,6 +33,7 @@ import {
   resumeWorkspace,
   searchSessions,
   getSessionSnapshot,
+  createWorkSession,
   transcriptToMessages,
   type WorkSessionDto,
 } from "../lib/sessions";
@@ -172,6 +173,8 @@ export function WorkspaceChat() {
   const [sessions, setSessions] = useState<WorkSessionDto[]>([]);
   const [sessionSearch, setSessionSearch] = useState("");
   const [readOnlySession, setReadOnlySession] = useState<WorkSessionDto | null>(null);
+  const [readOnlySourceTurnRef, setReadOnlySourceTurnRef] = useState<string | null>(null);
+  const [branchingSession, setBranchingSession] = useState(false);
   const [resumePendingAdoptions, setResumePendingAdoptions] = useState<ArtifactEntry[]>([]);
   const [resumeResolvedAdoptions, setResumeResolvedAdoptions] = useState<ArtifactEntry[]>([]);
   const [transcriptRestored, setTranscriptRestored] = useState(false);
@@ -218,6 +221,7 @@ export function WorkspaceChat() {
     token: 0,
     workId: null,
   });
+  const activeSessionIdRef = useRef<string | null>(null);
 
   // Check LLM connection status
   useEffect(() => {
@@ -643,6 +647,8 @@ export function WorkspaceChat() {
     setPendingAnswerBid(null);
     setActiveSessionId(null);
     setReadOnlySession(null);
+    setReadOnlySourceTurnRef(null);
+    setBranchingSession(false);
     setSessions([]);
     setSessionSearch("");
     setResumePendingAdoptions([]);
@@ -794,6 +800,10 @@ export function WorkspaceChat() {
     openWorkRef.current = openWork;
   });
 
+  useEffect(() => {
+    activeSessionIdRef.current = activeSessionId;
+  }, [activeSessionId]);
+
   async function loadWorksAndOpenInitial() {
     try {
       let availableWorks = await listWorks();
@@ -911,6 +921,7 @@ export function WorkspaceChat() {
       autorunSlice !== "au09-archive-real-data" &&
       autorunSlice !== "au09-memory-recall-context" &&
       autorunSlice !== "au03-session-history-readonly" &&
+      autorunSlice !== "au03-branch-from-history" &&
       autorunSlice !== "stage-startup-context-contract" &&
       autorunSlice !== "workspace-runtime-state" &&
       autorunSlice !== "su03-assistant-display-name" &&
@@ -1277,7 +1288,7 @@ export function WorkspaceChat() {
             ?.click();
         }, 150));
       }, 150));
-    } else if (autorunSlice === "au03-session-history-readonly") {
+    } else if (autorunSlice === "au03-session-history-readonly" || autorunSlice === "au03-branch-from-history") {
       timers.push(window.setTimeout(() => {
         const driveSessionHistoryProof = async () => {
           const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1303,6 +1314,66 @@ export function WorkspaceChat() {
           const visibleText = Array.from(
             document.querySelectorAll<HTMLElement>('[data-role="user"], [data-role="assistant"]'),
           ).map((node) => node.innerText).join("\n");
+
+          const sourceSessionRef = readonlyBanner?.dataset.sessionId ?? "";
+          const branchButton =
+            document.querySelector<HTMLButtonElement>('[data-slice-verify="branch-from-history"]');
+          const sourceTurnRef = branchButton?.dataset.sourceTurnRef ?? "";
+
+          if (autorunSlice === "au03-branch-from-history") {
+            branchButton?.click();
+            await delay(1400);
+
+            if (!channelRef.current || sliceVerifyUiReported.has("au03-branch-from-history")) return;
+            sliceVerifyUiReported.add("au03-branch-from-history");
+
+            const currentContext = useAppStore.getState().context;
+            const activeSessionItem = Array.from(
+              document.querySelectorAll<HTMLElement>('[data-slice-verify="session-item"]'),
+            ).find((item) => item.className.includes("sessionItemActive"));
+            const branchSessionId = activeSessionIdRef.current ?? activeSessionItem?.dataset.sessionId ?? "";
+            const branchMessages = Array.from(
+              document.querySelectorAll<HTMLElement>('[data-role="user"], [data-role="assistant"]'),
+            ).map((node) => node.innerText).join("\n");
+
+            void reportSliceVerifyUiState(channelRef.current, {
+              slice_id: "au03-branch-from-history",
+              context_work_id: currentContext.workId,
+              context_work_title: currentContext.workTitle,
+              active_session_id: branchSessionId,
+              restored_turn_id: null,
+              socket_connected: useAppStore.getState().socketConnected,
+              message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
+              welcome_message_count: Array.from(document.querySelectorAll('[data-role="assistant"]'))
+                .filter((message) => message.textContent?.includes("欢迎使用 AI Novel Studio")).length,
+              pending_adoption_count:
+                document.querySelectorAll('[data-slice-verify="card-action"][data-action-type="accept"]').length,
+              first_message_text:
+                document.querySelector<HTMLElement>('[data-role="assistant"], [data-role="user"]')
+                  ?.innerText ?? "",
+              service_status_text:
+                document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                  ?.innerText ?? "",
+              title_text:
+                document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+                  ?.innerText ?? "",
+              searched_query: "林瑶",
+              readonly_session_id: sourceSessionRef,
+              readonly_banner_visible: Boolean(readonlyBanner),
+              readonly_visible_text: visibleText,
+              branch_source_session_ref: sourceSessionRef,
+              branch_source_turn_ref: sourceTurnRef,
+              branch_active_session_id: branchSessionId,
+              branch_readonly_banner_visible: Boolean(
+                document.querySelector('[data-slice-verify="readonly-session-banner"]'),
+              ),
+              branch_message_count:
+                document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
+              branch_visible_text: branchMessages,
+              branch_session_item_active: activeSessionItem?.className.includes("sessionItemActive") ?? false,
+            }).catch(() => undefined);
+            return;
+          }
 
           document
             .querySelector<HTMLButtonElement>('[data-slice-verify="back-to-active-session"]')
@@ -1569,6 +1640,7 @@ export function WorkspaceChat() {
       const snapshot = await resumeWorkspace(context.workId);
       const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
       setReadOnlySession(null);
+      setReadOnlySourceTurnRef(null);
       setActiveSessionId(snapshot.active_session.id);
       setSessions(snapshot.sessions);
       setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
@@ -1593,7 +1665,12 @@ export function WorkspaceChat() {
       const snapshot = await getSessionSnapshot(context.workId, session.id);
       const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
       const shouldOpenReadOnly = snapshot.read_only || snapshot.session.id !== activeSessionId;
+      const sourceTurnRef = [...snapshot.transcript]
+        .reverse()
+        .find((entry) => typeof entry.turn_id === "string" && entry.turn_id.trim().length > 0)
+        ?.turn_id ?? null;
       setReadOnlySession(shouldOpenReadOnly ? snapshot.session : null);
+      setReadOnlySourceTurnRef(shouldOpenReadOnly ? sourceTurnRef : null);
       setMessages(restoredMessages);
       setResumePendingAdoptions(
         shouldOpenReadOnly ? [] : snapshot.pending_adoptions as unknown as ArtifactEntry[],
@@ -1605,6 +1682,32 @@ export function WorkspaceChat() {
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionOpenFailure }]);
+    }
+  };
+
+  const handleBranchFromReadOnlySession = async () => {
+    if (!context.workId || context.workId === "lobby" || !readOnlySession || branchingSession) return;
+
+    setBranchingSession(true);
+    try {
+      const created = await createWorkSession(context.workId, {
+        title: WORKBENCH.sessionBranchTitle(readOnlySession.title),
+        source_session_ref: readOnlySession.id,
+        ...(readOnlySourceTurnRef ? { source_turn_ref: readOnlySourceTurnRef } : {}),
+      });
+      setSessions((prev) => [created, ...prev.filter((session) => session.id !== created.id)]);
+      await openWorkRef.current({
+        id: context.workId,
+        title: visibleWorkTitle,
+        genre: null,
+        status: "ACTIVE",
+        updated_at: null,
+        inserted_at: null,
+      });
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionBranchFailure }]);
+    } finally {
+      setBranchingSession(false);
     }
   };
 
@@ -1922,16 +2025,31 @@ export function WorkspaceChat() {
                     {readOnlySession.title} · {WORKBENCH.sessionReadOnlyDescription}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  className={styles.btnSecondary}
-                  data-slice-verify="back-to-active-session"
-                  onClick={() => {
-                    void restoreActiveSessionView();
-                  }}
-                >
-                  {WORKBENCH.sessionBackToActive}
-                </button>
+                <div className={styles.readOnlySessionActions}>
+                  <button
+                    type="button"
+                    className={styles.btnSecondary}
+                    data-slice-verify="back-to-active-session"
+                    onClick={() => {
+                      void restoreActiveSessionView();
+                    }}
+                  >
+                    {WORKBENCH.sessionBackToActive}
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.btnPrimary}
+                    data-slice-verify="branch-from-history"
+                    data-source-session-ref={readOnlySession.id}
+                    data-source-turn-ref={readOnlySourceTurnRef ?? ""}
+                    disabled={branchingSession || !socketConnected}
+                    onClick={() => {
+                      void handleBranchFromReadOnlySession();
+                    }}
+                  >
+                    {WORKBENCH.sessionBranchFromHistory}
+                  </button>
+                </div>
               </div>
             )}
             {messages.map((msg, i) => (

@@ -366,6 +366,13 @@
   line-height: 1.4;
 }
 
+.readOnlySessionActions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 8px;
+}
+
 .userMsg, .assistantMsg {
   display: flex;
   flex-direction: column;

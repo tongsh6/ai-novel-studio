@@ -56,6 +56,13 @@ export interface ChatMessageFromTranscript {
   turnResult?: Record<string, unknown>;
 }
 
+export interface CreateWorkSessionInput {
+  title?: string;
+  summary?: string;
+  source_session_ref?: string;
+  source_turn_ref?: string;
+}
+
 function url(path: string): string {
   return `${apiBaseUrl}${path}`;
 }
@@ -73,6 +80,10 @@ export function searchSessionsPath(workId: string, query: string): string {
 
 export function sessionSnapshotPath(workId: string, sessionId: string): string {
   return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}`;
+}
+
+export function createSessionPath(workId: string): string {
+  return `/api/works/${encodeURIComponent(workId)}/sessions`;
 }
 
 export async function resumeWorkspace(workId: string): Promise<WorkspaceResumeSnapshot> {
@@ -95,6 +106,20 @@ export async function searchSessions(workId: string, query: string): Promise<Wor
   if (!res.ok) throw new Error(`searchSessions failed: HTTP ${res.status}`);
   const body = (await res.json()) as { sessions: WorkSessionDto[] };
   return body.sessions;
+}
+
+export async function createWorkSession(
+  workId: string,
+  input: CreateWorkSessionInput = {},
+): Promise<WorkSessionDto> {
+  const res = await fetch(url(createSessionPath(workId)), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`createWorkSession failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { session: WorkSessionDto };
+  return body.session;
 }
 
 export function transcriptToMessages(transcript: SessionTranscriptEntry[]): ChatMessageFromTranscript[] {

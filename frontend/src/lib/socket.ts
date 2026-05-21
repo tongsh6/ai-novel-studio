@@ -106,6 +106,13 @@ export interface SliceVerifyUiStatePayload {
   readonly_send_disabled?: boolean;
   readonly_visible_text?: string;
   active_session_restored?: boolean;
+  branch_source_session_ref?: string;
+  branch_source_turn_ref?: string;
+  branch_active_session_id?: string;
+  branch_readonly_banner_visible?: boolean;
+  branch_message_count?: number;
+  branch_visible_text?: string;
+  branch_session_item_active?: boolean;
 }
 
 export function reportSliceVerifyUiState(

@@ -209,6 +209,9 @@ export const WORKBENCH = {
   sessionReadOnlyTitle: "历史会话",
   sessionReadOnlyDescription: "正在只读查看历史 transcript。新输入仍会回到当前活跃会话。",
   sessionBackToActive: "返回当前会话",
+  sessionBranchFromHistory: "从这里继续",
+  sessionBranchTitle: (title: string) => `${title} 的延续`,
+  sessionBranchFailure: "从历史会话继续失败，请重试。",
   sessionOpenFailure: "会话打开失败，请重试。",
 } as const;
 

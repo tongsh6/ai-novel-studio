@@ -722,7 +722,14 @@ defmodule NovelWeb.WorkspaceChannel do
       readonly_input_disabled: payload["readonly_input_disabled"],
       readonly_send_disabled: payload["readonly_send_disabled"],
       readonly_visible_text: payload["readonly_visible_text"],
-      active_session_restored: payload["active_session_restored"]
+      active_session_restored: payload["active_session_restored"],
+      branch_source_session_ref: payload["branch_source_session_ref"],
+      branch_source_turn_ref: payload["branch_source_turn_ref"],
+      branch_active_session_id: payload["branch_active_session_id"],
+      branch_readonly_banner_visible: payload["branch_readonly_banner_visible"],
+      branch_message_count: payload["branch_message_count"],
+      branch_visible_text: payload["branch_visible_text"],
+      branch_session_item_active: payload["branch_session_item_active"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}

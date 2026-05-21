@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  createSessionPath,
   sessionSnapshotPath,
   resumeSessionPath,
   searchSessionsPath,
@@ -24,6 +25,10 @@ describe("session API helpers", () => {
     expect(sessionSnapshotPath("work 1", "session/1")).toBe(
       "/api/works/work%201/sessions/session%2F1",
     );
+  });
+
+  it("builds create session path", () => {
+    expect(createSessionPath("work 1")).toBe("/api/works/work%201/sessions");
   });
 
   it("converts transcript entries to chat messages and keeps turn_result", () => {
