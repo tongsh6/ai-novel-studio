@@ -133,6 +133,55 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       refute system_text(second_messages) =~ "## 最近对话"
     end
 
+    test "planner prompt separates latest work snapshot from active session transcript" do
+      {:ok, work} =
+        WorkRepo.create(%{
+          title: "灵源纪元",
+          genre: "东方奇幻",
+          core_selling_point: "林澈为寻找妹妹林瑶追查灵源矿区真相",
+          target_reader: "喜欢悬疑成长线的读者",
+          tone_preference: "克制、悬疑、带希望感"
+        })
+
+      {:ok, active_session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+      {:ok, history_session} = WorkSessionRepo.create(%{work_id: work.id, title: "历史会话"})
+
+      seed_interaction(work.id, active_session.id, "turn-active", "user", "当前会话确认：主角现在叫林澈")
+      seed_interaction(work.id, history_session.id, "turn-history", "user", "历史会话旧设定：主角当时叫林烬")
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+      complete_fn = capturing_complete_fn()
+
+      assert {:ok, turn_result, _trace, _candidates, context} =
+               DialogueGateway.handle_input(
+                 %{text: "主角现在的核心动机是什么？", workspace_id: work.id, session_id: active_session.id},
+                 fetcher,
+                 complete_fn,
+                 nil,
+                 nil
+               )
+
+      [messages] = captured_prompts(complete_fn)
+      system = system_text(messages)
+      history = history_text(messages)
+
+      assert context.current_work_snapshot.title == "灵源纪元"
+      assert context.current_work_snapshot.core_selling_point == "林澈为寻找妹妹林瑶追查灵源矿区真相"
+      assert context.conversation_summary =~ "主角现在叫林澈"
+      refute context.conversation_summary =~ "主角当时叫林烬"
+
+      assert system =~ "## 当前作品上下文"
+      assert system =~ "灵源纪元"
+      assert system =~ "林澈为寻找妹妹林瑶追查灵源矿区真相"
+      assert history =~ "主角现在叫林澈"
+      refute history =~ "主角当时叫林烬"
+      assert List.last(messages).content == "主角现在的核心动机是什么？"
+
+      source_types = Enum.map(turn_result.trace_summary.context_refs, & &1.source_type)
+      assert :current_work in source_types
+      assert :conversation in source_types
+    end
+
     test "injects latest active session transcript into planner prompt for long sessions" do
       {:ok, work} = WorkRepo.create(%{title: "长会话上下文作品"})
       {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前长会话"})
@@ -154,11 +203,15 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                )
 
       [messages] = captured_prompts(complete_fn)
+      history_messages = historical_messages(messages)
 
-      refute context.conversation_summary =~ "第1轮设定"
-      refute context.conversation_summary =~ "第2轮设定"
+      assert context.conversation_summary =~ "会话早期摘要"
+      assert context.conversation_summary =~ "作者提到「第1轮设定」"
+      refute context.conversation_summary =~ "user: 第1轮设定"
       assert context.conversation_summary =~ "第12轮设定"
-      refute history_text(messages) =~ "第1轮设定"
+      assert hd(history_messages).role == "assistant"
+      assert hd(history_messages).content =~ "会话早期摘要"
+      assert Enum.at(history_messages, 1).content == "第3轮设定"
       assert history_text(messages) =~ "第12轮设定"
       assert List.last(messages).content == "继续最新设定"
     end
@@ -221,6 +274,12 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
     |> Enum.reject(&(&1.role == "system"))
     |> Enum.drop(-1)
     |> Enum.map_join("\n", & &1.content)
+  end
+
+  defp historical_messages(messages) do
+    messages
+    |> Enum.reject(&(&1.role == "system"))
+    |> Enum.drop(-1)
   end
 
   defp insert_memory!(work_id, content) do

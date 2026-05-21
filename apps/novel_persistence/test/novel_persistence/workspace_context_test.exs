@@ -14,6 +14,7 @@ defmodule NovelPersistence.WorkspaceContextTest do
   alias NovelPersistence.MemoryReferenceLog
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.MemoryItem
+  alias NovelPersistence.Schemas.Work
   alias NovelPersistence.WorkRepo
   alias NovelPersistence.WorkSessionRepo
   alias NovelPersistence.WorkspaceContext
@@ -81,6 +82,45 @@ defmodule NovelPersistence.WorkspaceContextTest do
       refute String.contains?(summary, "周燃")
     end
 
+    test "current work snapshot uses latest Work facts while transcript stays scoped to active session" do
+      {:ok, work} =
+        WorkRepo.create(%{
+          title: "灵源纪元",
+          genre: "东方奇幻",
+          core_selling_point: "林澈追查灵源矿区真相",
+          target_reader: "喜欢悬疑成长线的读者",
+          tone_preference: "克制、悬疑"
+        })
+
+      {:ok, active_session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+      {:ok, history_session} = WorkSessionRepo.create(%{work_id: work.id, title: "历史会话"})
+
+      work
+      |> Work.changeset(%{
+        core_selling_point: "林澈为寻找妹妹林瑶追查灵源矿区真相",
+        tone_preference: "克制、悬疑、带希望感"
+      })
+      |> Repo.update!()
+
+      record_interaction(work.id, active_session.id, "turn-active", "user", "当前设定：主角现在叫林澈")
+      record_interaction(work.id, history_session.id, "turn-history", "user", "旧讨论：主角当时叫林烬")
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, snapshot, summary, nil, nil} =
+               fetcher.(work.id, "主角现在的核心动机是什么？", active_session.id)
+
+      assert snapshot.title == "灵源纪元"
+      assert snapshot.genre == "东方奇幻"
+      assert snapshot.core_selling_point == "林澈为寻找妹妹林瑶追查灵源矿区真相"
+      assert snapshot.target_reader == "喜欢悬疑成长线的读者"
+      assert snapshot.tone_preference == "克制、悬疑、带希望感"
+      assert snapshot.revision >= 2
+
+      assert summary =~ "主角现在叫林澈"
+      refute summary =~ "主角当时叫林烬"
+    end
+
     test "query fetcher excludes archived session transcript from ordinary context" do
       {:ok, work} = WorkRepo.create(%{title: "归档上下文过滤"})
       {:ok, active_session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
@@ -133,12 +173,19 @@ defmodule NovelPersistence.WorkspaceContextTest do
       fetcher = WorkspaceContext.context_fetcher_with_query()
 
       assert {:ok, _snapshot, summary, nil, nil} = fetcher.(work.id, "继续最新设定", session.id)
-      refute String.contains?(summary, "第1轮设定")
-      refute String.contains?(summary, "第2轮设定")
+      assert String.contains?(summary, "会话早期摘要")
+      assert String.contains?(summary, "作者提到「第1轮设定」")
+      assert String.contains?(summary, "作者提到「第2轮设定」")
+      refute String.contains?(summary, "user: 第1轮设定")
+      refute String.contains?(summary, "user: 第2轮设定")
       assert String.contains?(summary, "第3轮设定")
       assert String.contains?(summary, "第12轮设定")
-      assert String.split(summary, "\n") |> List.first() == "user: 第3轮设定"
+      assert String.split(summary, "\n") |> Enum.at(1) == "user: 第3轮设定"
       assert String.split(summary, "\n") |> List.last() == "user: 第12轮设定"
+
+      reloaded = WorkSessionRepo.get_by_work(work.id, session.id)
+      assert reloaded.summary =~ "会话早期摘要"
+      assert reloaded.summary =~ "第1轮设定"
     end
   end
 

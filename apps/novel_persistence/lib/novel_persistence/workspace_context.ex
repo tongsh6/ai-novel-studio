@@ -18,8 +18,10 @@ defmodule NovelPersistence.WorkspaceContext do
   alias NovelPersistence.Schemas.WorkSession
   alias NovelPersistence.Schemas.Workspace
   alias NovelPersistence.TraceRepository
+  alias NovelPersistence.WorkSessionRepo
 
   @default_recent_conversation_interaction_limit 10
+  @session_summary_sample_limit 6
 
   @doc """
   构建 context fetcher 回调。该回调从 DB 读取当前 workspace 信息和最近的对话。
@@ -84,7 +86,7 @@ defmodule NovelPersistence.WorkspaceContext do
       {:ok, uuid} ->
         case Repo.get(Work, uuid) do
           nil -> nil
-          work -> %{id: work.id, title: work.title, genre: work.genre}
+          work -> work_snapshot(work)
         end
 
       :error ->
@@ -122,27 +124,101 @@ defmodule NovelPersistence.WorkspaceContext do
        when is_binary(session_id) and session_id != "" do
     limit = recent_conversation_interaction_limit()
 
-    interactions =
-      from(i in Interaction,
-        join: s in WorkSession,
-        on: i.session_id == s.id,
-        where: i.workspace_id == ^workspace_id and i.session_id == ^session_id,
-        where: s.status != "ARCHIVED",
-        order_by: [desc: i.inserted_at, desc: i.id],
-        limit: ^limit
-      )
-      |> Repo.all()
+    case fetch_active_session(workspace_id, session_id) do
+      nil ->
+        nil
 
-    interactions
-    |> Enum.reverse()
-    |> conversation_summary()
+      %WorkSession{} = session ->
+        session
+        |> maybe_refresh_session_summary(limit)
+        |> session_conversation_summary(limit)
+    end
   end
 
   defp fetch_conversation_summary(workspace_id, _session_id),
     do: fetch_conversation_summary(workspace_id)
 
-  # Temporary recent-window guard until AU-03 long-session compression replaces
-  # raw transcript injection with a token-budgeted summary layer.
+  defp fetch_active_session(workspace_id, session_id) do
+    from(s in WorkSession,
+      where: s.work_id == ^workspace_id and s.id == ^session_id and s.status != "ARCHIVED",
+      limit: 1
+    )
+    |> Repo.one()
+  end
+
+  defp session_conversation_summary(%WorkSession{} = session, limit) do
+    recent =
+      from(i in Interaction,
+        where: i.workspace_id == ^session.work_id and i.session_id == ^session.id,
+        order_by: [desc: i.inserted_at, desc: i.id],
+        limit: ^limit
+      )
+      |> Repo.all()
+      |> Enum.reverse()
+
+    [session_summary_as_message(session.summary), conversation_summary(recent)]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+    |> blank_to_nil()
+  end
+
+  defp maybe_refresh_session_summary(%WorkSession{status: "ARCHIVED"} = session, _limit),
+    do: session
+
+  defp maybe_refresh_session_summary(%WorkSession{} = session, limit) do
+    total = session_interaction_count(session)
+
+    summary =
+      if total > limit do
+        older_count = total - limit
+
+        older_interactions =
+          oldest_session_interactions(session, min(older_count, @session_summary_sample_limit))
+
+        build_session_summary(older_count, older_interactions)
+      end
+
+    if normalize_blank(session.summary) == normalize_blank(summary) do
+      session
+    else
+      case WorkSessionRepo.update_summary(session, summary) do
+        {:ok, updated} -> updated
+        {:error, _reason} -> %{session | summary: summary}
+      end
+    end
+  end
+
+  defp session_interaction_count(%WorkSession{} = session) do
+    from(i in Interaction,
+      where: i.workspace_id == ^session.work_id and i.session_id == ^session.id
+    )
+    |> Repo.aggregate(:count)
+  end
+
+  defp oldest_session_interactions(%WorkSession{} = session, limit) do
+    from(i in Interaction,
+      where: i.workspace_id == ^session.work_id and i.session_id == ^session.id,
+      order_by: [asc: i.inserted_at, asc: i.id],
+      limit: ^limit
+    )
+    |> Repo.all()
+  end
+
+  defp work_snapshot(%Work{} = work) do
+    %{
+      id: work.id,
+      title: work.title,
+      genre: work.genre,
+      core_selling_point: work.core_selling_point,
+      target_reader: work.target_reader,
+      tone_preference: work.tone_preference,
+      revision: work.revision,
+      updated_at: datetime_to_iso8601(work.updated_at)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+    |> Map.new()
+  end
+
   defp recent_conversation_interaction_limit do
     Application.get_env(
       :novel_persistence,
@@ -157,9 +233,76 @@ defmodule NovelPersistence.WorkspaceContext do
     Enum.map_join(interactions, "\n", fn i -> "#{i.role}: #{interaction_text(i)}" end)
   end
 
+  defp datetime_to_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
+  defp datetime_to_iso8601(_), do: nil
+
   defp interaction_text(%Interaction{content: content}) when is_map(content) do
     Map.get(content, "text") || Map.get(content, :text) || ""
   end
+
+  defp build_session_summary(older_count, interactions) do
+    samples =
+      interactions
+      |> Enum.map(&summary_fragment/1)
+      |> Enum.reject(&is_nil/1)
+
+    cond do
+      older_count <= 0 ->
+        nil
+
+      samples == [] ->
+        "会话早期摘要：#{older_count} 条较早消息已压缩。"
+
+      older_count > length(samples) ->
+        "会话早期摘要：#{Enum.join(samples, "；")}；另有 #{older_count - length(samples)} 条较早消息已压缩。"
+
+      true ->
+        "会话早期摘要：#{Enum.join(samples, "；")}。"
+    end
+  end
+
+  defp summary_fragment(%Interaction{role: "user"} = interaction) do
+    if text = summary_text(interaction), do: "作者提到「#{text}」"
+  end
+
+  defp summary_fragment(%Interaction{role: "assistant"} = interaction) do
+    if text = summary_text(interaction), do: "AI 回应「#{text}」"
+  end
+
+  defp summary_fragment(%Interaction{} = interaction), do: summary_text(interaction)
+
+  defp summary_text(%Interaction{} = interaction) do
+    interaction
+    |> interaction_text()
+    |> normalize_summary_text()
+  end
+
+  defp normalize_summary_text(value) do
+    value
+    |> to_string()
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> String.slice(0, 48)
+    |> blank_to_nil()
+  end
+
+  defp session_summary_as_message(summary) do
+    case normalize_blank(summary) do
+      nil -> nil
+      text -> "assistant: #{text}"
+    end
+  end
+
+  defp normalize_blank(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> blank_to_nil()
+  end
+
+  defp normalize_blank(_), do: nil
+
+  defp blank_to_nil(""), do: nil
+  defp blank_to_nil(value), do: value
 
   defp fetch_memory_summary(workspace_id, author_text) do
     memories = MemoryRecallRepo.recall(workspace_id, author_text)

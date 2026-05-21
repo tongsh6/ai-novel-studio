@@ -46,6 +46,8 @@ defmodule NovelApplication.ContextAssembler do
     LogEmit.emit(:context, :assemble, :done, %{
       context_refs_count: length(refs),
       has_snapshot: snapshot != nil,
+      has_conversation: conv_summary != nil,
+      has_session_summary: session_summary?(conv_summary),
       has_memory: mem_summary != nil,
       duration_ms: duration
     })
@@ -62,6 +64,11 @@ defmodule NovelApplication.ContextAssembler do
   end
 
   defp default_fetch(_workspace_id), do: {:ok, nil, nil, nil, nil}
+
+  defp session_summary?(summary) when is_binary(summary),
+    do: String.contains?(summary, "会话早期摘要")
+
+  defp session_summary?(_summary), do: false
 
   defp call_fetcher(fetcher, workspace_id, author_text, session_id) when is_function(fetcher) do
     case :erlang.fun_info(fetcher, :arity) do

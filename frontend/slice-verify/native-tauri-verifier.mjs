@@ -15,6 +15,8 @@ export const nativeSliceIds = [
   "au03-session-history-readonly",
   "au03-branch-from-history",
   "au03-archive-session-filter",
+  "au03-current-work-context-ssot",
+  "au03-long-session-compression",
   "au07-trace-why-entry",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
@@ -153,6 +155,27 @@ const sliceKeyEvents = {
     "channel.join.done",
     "work_session.show.done",
     "work_session.archive.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au03-current-work-context-ssot": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "work_session.show.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au03-long-session-compression": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "au07-trace-why-entry": [
@@ -298,6 +321,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu03ArchiveSessionFilterEvidence(records);
   }
 
+  if (sliceId === "au03-current-work-context-ssot") {
+    return findAu03CurrentWorkContextSsotEvidence(records);
+  }
+
+  if (sliceId === "au03-long-session-compression") {
+    return findAu03LongSessionCompressionEvidence(records);
+  }
+
   if (sliceId === "au07-trace-why-entry") {
     return findAu07TraceWhyEvidence(records);
   }
@@ -370,6 +401,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au03-archive-session-filter") {
     return archiveSessionFilterBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au03-current-work-context-ssot") {
+    return currentWorkContextSsotBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au03-long-session-compression") {
+    return longSessionCompressionBehavior(records, evidence, options);
   }
 
   if (sliceId === "au07-trace-why-entry") {
@@ -959,6 +998,128 @@ function findAu03ArchiveSessionFilterEvidence(records) {
       session_id: sessionId,
       key_events: keyEvents,
       transcript_count: shownAfterArchive.transcript_count,
+    };
+  }
+
+  return null;
+}
+
+function findAu03CurrentWorkContextSsotEvidence(records) {
+  const sliceId = "au03-current-work-context-ssot";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== false) continue;
+    if (!hasRequiredCorrelationFields(start)) continue;
+
+    const uiState = turnRecords.find(
+      (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+    );
+    if (!uiState) continue;
+    if (uiState.context_work_id !== start.work_id) continue;
+    if (uiState.active_session_restored !== true) continue;
+    if (uiState.readonly_banner_visible === true) continue;
+    if (!String(uiState.readonly_session_id ?? "")) continue;
+
+    const showHistory = records.find(
+      (record) =>
+        record.event === "work_session.show.done" &&
+        record.work_id === start.work_id &&
+        record.session_id === uiState.readonly_session_id &&
+        record.read_only === true,
+    );
+    if (!showHistory) continue;
+
+    const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
+    if (!contextDone?.has_snapshot) continue;
+    if (!contextDone?.has_conversation) continue;
+    if (Number(contextDone.context_refs_count ?? 0) < 2) continue;
+
+    const hasAllEvents = keyEvents.every((event) => {
+      if (event === "work_session.resume.done" || event === "channel.join.done") {
+        return records.some(
+          (record) =>
+            record.event === event &&
+            record.work_id === start.work_id &&
+            record.session_id === start.session_id,
+        );
+      }
+
+      if (event === "work_session.show.done") return Boolean(showHistory);
+
+      return turnRecords.some(
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
+      );
+    });
+    if (!hasAllEvents) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      work_id: start.work_id,
+      session_id: start.session_id,
+      readonly_session_id: uiState.readonly_session_id,
+      context_refs_count: contextDone.context_refs_count,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findAu03LongSessionCompressionEvidence(records) {
+  const sliceId = "au03-long-session-compression";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== false) continue;
+    if (!hasRequiredCorrelationFields(start)) continue;
+
+    const uiState = turnRecords.find(
+      (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+    );
+    if (!uiState) continue;
+    if (uiState.context_work_id !== start.work_id) continue;
+    if (uiState.active_session_id !== start.session_id) continue;
+
+    const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
+    if (!contextDone?.has_conversation) continue;
+    if (contextDone?.has_session_summary !== true) continue;
+    if (Number(contextDone.context_refs_count ?? 0) < 1) continue;
+
+    const hasAllEvents = keyEvents.every((event) => {
+      if (event === "work_session.resume.done" || event === "channel.join.done") {
+        return records.some(
+          (record) =>
+            record.event === event &&
+            record.work_id === start.work_id &&
+            record.session_id === start.session_id,
+        );
+      }
+
+      return turnRecords.some(
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
+      );
+    });
+    if (!hasAllEvents) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      work_id: start.work_id,
+      session_id: start.session_id,
+      context_refs_count: contextDone.context_refs_count,
+      key_events: keyEvents,
     };
   }
 
@@ -1752,6 +1913,111 @@ function archiveSessionFilterBehavior(records, evidence, _options) {
   };
 }
 
+function currentWorkContextSsotBehavior(records, evidence, options) {
+  const turnIds = evidence.turn_ids ?? [evidence.turn_id];
+  const turnRecords = records.filter((record) => turnIds.includes(record.turn_id));
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) return null;
+
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au03-current-work-context-ssot",
+  );
+  if (!uiState) return null;
+  if (uiState.active_session_restored !== true) return null;
+  if (uiState.readonly_banner_visible === true) return null;
+
+  const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
+  if (!contextDone?.has_snapshot || !contextDone?.has_conversation) return null;
+  if (Number(contextDone.context_refs_count ?? 0) < 2) return null;
+
+  const requestMessages = lmstudioRequestMessages(options, turnIds[0]);
+  if (options.provider === "lmstudio") {
+    if (!requestMessages) return null;
+    if (!messagesContainLatestWorkSnapshot(requestMessages)) return null;
+    if (!messagesContainActiveSessionTranscript(requestMessages)) return null;
+    if (messagesContainHistoricalSessionTranscript(requestMessages)) return null;
+  }
+
+  return {
+    slice_id: "au03-current-work-context-ssot",
+    behavior: "latest_work_snapshot_and_active_session_transcript_are_layered_into_context",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    readonly_session_id: evidence.readonly_session_id,
+    assertions: [
+      "history_session_opened_readonly_before_next_turn",
+      "active_session_restored_before_author_message",
+      "context_assembler_attached_current_work_snapshot",
+      "context_assembler_attached_active_session_transcript",
+      "planner_received_context_before_frame",
+      "historical_session_transcript_did_not_replace_current_work_facts",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function longSessionCompressionBehavior(records, evidence, options) {
+  const turnIds = evidence.turn_ids ?? [evidence.turn_id];
+  const turnRecords = records.filter((record) => turnIds.includes(record.turn_id));
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) return null;
+
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au03-long-session-compression",
+  );
+  if (!uiState) return null;
+  if (uiState.context_work_id !== evidence.work_id) return null;
+  if (uiState.active_session_id !== evidence.session_id) return null;
+
+  const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
+  if (!contextDone?.has_conversation) return null;
+  if (contextDone?.has_session_summary !== true) return null;
+  if (Number(contextDone.context_refs_count ?? 0) < 1) return null;
+
+  const requestMessages = lmstudioRequestMessages(options, turnIds[0]);
+  if (options.provider === "lmstudio") {
+    if (!requestMessages) return null;
+    if (!messagesContainLongSessionSummary(requestMessages)) return null;
+    if (!messagesContainLatestLongSessionWindow(requestMessages)) return null;
+    if (messagesContainRawOldLongSessionTurns(requestMessages)) return null;
+  }
+
+  return {
+    slice_id: "au03-long-session-compression",
+    behavior: "long_active_session_context_uses_early_summary_and_recent_window",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "message_sent_from_real_workbench",
+      "session_summary_attached_to_context",
+      "old_turns_compressed_into_session_summary",
+      "latest_recent_transcript_preserved_in_order",
+      "planner_received_context_before_frame",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
 function traceWhyEntryBehavior(records, evidence, options) {
   const turnIds = evidence.turn_ids ?? [evidence.turn_id];
   const turnRecords = records.filter((record) => turnIds.includes(record.turn_id));
@@ -2013,6 +2279,86 @@ function assistantMessagesAreValid(provider, turnIds, llmRecords) {
     const assistantMessage = assistantMessageFromLmStudioRecord(record);
     return assistantMessage && !fallbackText(assistantMessage);
   });
+}
+
+function lmstudioRequestMessages(options, turnId) {
+  if (options.provider !== "lmstudio") return null;
+
+  const record = (options.llmRecords ?? []).find(
+    (candidate) =>
+      candidate.turn_id === turnId &&
+      candidate.provider === "lmstudio" &&
+      candidate.step === "form_frame" &&
+      Number(candidate.response?.status ?? 0) >= 200 &&
+      Number(candidate.response?.status ?? 0) < 300,
+  );
+
+  const messages = record?.request?.body?.messages;
+  return Array.isArray(messages) ? messages : null;
+}
+
+function messageContent(message) {
+  return String(message?.content ?? "");
+}
+
+function messagesContainLatestWorkSnapshot(messages) {
+  const system = messages.find((message) => message.role === "system");
+  const content = messageContent(system);
+
+  return (
+    content.includes("## 当前作品上下文") &&
+    content.includes("灵源纪元") &&
+    content.includes("东方奇幻") &&
+    content.includes("林澈为寻找妹妹林瑶追查灵源矿区真相") &&
+    content.includes("克制、悬疑、带希望感")
+  );
+}
+
+function messagesContainActiveSessionTranscript(messages) {
+  return messages.some(
+    (message) =>
+      message.role === "user" &&
+      messageContent(message).includes("当前会话确认") &&
+      messageContent(message).includes("林澈"),
+  );
+}
+
+function messagesContainHistoricalSessionTranscript(messages) {
+  return messages.some(
+    (message) =>
+      messageContent(message).includes("主角当时叫林烬") ||
+      messageContent(message).includes("旧讨论") ||
+      messageContent(message).includes("离开故乡"),
+  );
+}
+
+function messagesContainLongSessionSummary(messages) {
+  return messages.some(
+    (message) =>
+      message.role === "assistant" &&
+      messageContent(message).includes("会话早期摘要") &&
+      (messageContent(message).includes("第1轮设定") ||
+        messageContent(message).includes("第2轮设定")),
+  );
+}
+
+function messagesContainLatestLongSessionWindow(messages) {
+  const userContents = messages
+    .filter((message) => message.role === "user")
+    .map((message) => messageContent(message));
+  const index3 = userContents.findIndex((content) => content.includes("第3轮设定"));
+  const index12 = userContents.findIndex((content) => content.includes("第12轮设定"));
+
+  return index3 >= 0 && index12 > index3;
+}
+
+function messagesContainRawOldLongSessionTurns(messages) {
+  return messages.some(
+    (message) =>
+      message.role === "user" &&
+      (messageContent(message).includes("第1轮设定") ||
+        messageContent(message).includes("第2轮设定")),
+  );
 }
 
 function assistantMessageFromLmStudioRecord(record) {

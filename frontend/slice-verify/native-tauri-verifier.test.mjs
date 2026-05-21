@@ -25,6 +25,8 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au09-memory-recall-context");
     expect(nativeSliceIds).toContain("au03-branch-from-history");
     expect(nativeSliceIds).toContain("au03-archive-session-filter");
+    expect(nativeSliceIds).toContain("au03-current-work-context-ssot");
+    expect(nativeSliceIds).toContain("au03-long-session-compression");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -293,6 +295,284 @@ describe("native Tauri slice verifier", () => {
         "archived_transcript_and_trace_not_deleted",
         "ordinary_context_filter_covered_by_application_test",
         "no_error_events",
+      ],
+    });
+  });
+
+  it("accepts AU-03 current work context SSOT evidence with LMStudio prompt layering", () => {
+    const records = [
+      { event: "work_session.resume.done", work_id: "work-au03", session_id: "session-active", transcript_count: 2 },
+      { event: "channel.join.done", work_id: "work-au03", session_id: "session-active" },
+      {
+        event: "work_session.show.done",
+        work_id: "work-au03",
+        session_id: "session-history",
+        read_only: true,
+        transcript_count: 2,
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-current",
+        work_id: "work-au03",
+        session_id: "session-active",
+        workspace_id: "work-au03",
+        outcome: "started",
+        duration_ms: 0,
+        generate_micro_plan: false,
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-current",
+        work_id: "work-au03",
+        session_id: "session-active",
+        workspace_id: "work-au03",
+        outcome: "success",
+        duration_ms: 1,
+        has_snapshot: true,
+        has_conversation: true,
+        context_refs_count: 2,
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-current",
+        work_id: "work-au03",
+        session_id: "session-active",
+        workspace_id: "work-au03",
+        outcome: "success",
+        duration_ms: 1,
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-current",
+        work_id: "work-au03",
+        session_id: "session-active",
+        workspace_id: "work-au03",
+        outcome: "success",
+        duration_ms: 2,
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-current",
+        work_id: "work-au03",
+        session_id: "session-active",
+        workspace_id: "work-au03",
+        outcome: "success",
+        duration_ms: 3,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au03-current-work-context-ssot",
+        turn_id: "turn-current",
+        work_id: "work-au03",
+        session_id: "session-active",
+        workspace_id: "work-au03",
+        context_work_id: "work-au03",
+        readonly_session_id: "session-history",
+        active_session_restored: true,
+        readonly_banner_visible: false,
+      },
+    ];
+
+    const llmRecords = [
+      {
+        turn_id: "turn-current",
+        provider: "lmstudio",
+        step: "form_frame",
+        request: {
+          method: "POST",
+          url: "http://localhost:1234/v1/chat/completions",
+          body: {
+            messages: [
+              {
+                role: "system",
+                content:
+                  "## 当前作品上下文\n- title: 灵源纪元\n- genre: 东方奇幻\n- core_selling_point: 林澈为寻找妹妹林瑶追查灵源矿区真相\n- tone_preference: 克制、悬疑、带希望感",
+              },
+              { role: "user", content: "当前会话确认：主角现在叫林澈。" },
+              { role: "assistant", content: "已按最新作品背景记录。" },
+              { role: "user", content: "主角现在的核心动机是什么？" },
+            ],
+          },
+        },
+        response: {
+          status: 200,
+          body:
+            '{"choices":[{"message":{"content":"{\\"assistant_message\\":\\"他在追查妹妹林瑶与灵源矿区真相。\\"}"}}]}',
+        },
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au03-current-work-context-ssot", records);
+    expect(evidence).toEqual({
+      slice_id: "au03-current-work-context-ssot",
+      turn_id: "turn-current",
+      turn_ids: ["turn-current"],
+      work_id: "work-au03",
+      session_id: "session-active",
+      readonly_session_id: "session-history",
+      context_refs_count: 2,
+      key_events: keyEventsForSlice("au03-current-work-context-ssot"),
+    });
+    expect(findSliceBehaviorEvidence("au03-current-work-context-ssot", records, evidence, {
+      provider: "lmstudio",
+      llmRecords,
+    })).toEqual({
+      slice_id: "au03-current-work-context-ssot",
+      behavior: "latest_work_snapshot_and_active_session_transcript_are_layered_into_context",
+      turn_ids: ["turn-current"],
+      work_id: "work-au03",
+      session_id: "session-active",
+      readonly_session_id: "session-history",
+      assertions: [
+        "history_session_opened_readonly_before_next_turn",
+        "active_session_restored_before_author_message",
+        "context_assembler_attached_current_work_snapshot",
+        "context_assembler_attached_active_session_transcript",
+        "planner_received_context_before_frame",
+        "historical_session_transcript_did_not_replace_current_work_facts",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("accepts AU-03 long session compression evidence with LMStudio prompt windowing", () => {
+    const records = [
+      { event: "work_session.resume.done", work_id: "work-long", session_id: "session-long", transcript_count: 12 },
+      { event: "channel.join.done", work_id: "work-long", session_id: "session-long" },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-long",
+        workspace_id: "work-long",
+        work_id: "work-long",
+        session_id: "session-long",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "start",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-long",
+        workspace_id: "work-long",
+        work_id: "work-long",
+        session_id: "session-long",
+        has_conversation: true,
+        has_session_summary: true,
+        context_refs_count: 1,
+        duration_ms: 2,
+        outcome: "done",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-long",
+        workspace_id: "work-long",
+        work_id: "work-long",
+        session_id: "session-long",
+        duration_ms: 10,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-long",
+        workspace_id: "work-long",
+        work_id: "work-long",
+        session_id: "session-long",
+        duration_ms: 20,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-long",
+        workspace_id: "work-long",
+        work_id: "work-long",
+        session_id: "session-long",
+        duration_ms: 22,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au03-long-session-compression",
+        turn_id: "turn-long",
+        workspace_id: "work-long",
+        work_id: "work-long",
+        session_id: "session-long",
+        context_work_id: "work-long",
+        active_session_id: "session-long",
+        restored_turn_id: "turn-long",
+        socket_connected: true,
+        long_session_visible_text: "第12轮设定\n继续最新设定",
+        duration_ms: 0,
+        outcome: "done",
+      },
+    ];
+    const llmRecords = [
+      {
+        turn_id: "turn-long",
+        provider: "lmstudio",
+        step: "form_frame",
+        request: {
+          method: "POST",
+          url: "http://localhost:1234/v1/chat/completions",
+          body: {
+            messages: [
+              {
+                role: "system",
+                content:
+                  "## 当前作品上下文\n- title: AU03 Long Session Work\n- genre: 东方奇幻\n- core_selling_point: 长会话里保留最近设定，同时压缩早期讨论",
+              },
+              {
+                role: "assistant",
+                content: "会话早期摘要：作者提到「第1轮设定」；作者提到「第2轮设定」。",
+              },
+              { role: "user", content: "第3轮设定" },
+              { role: "user", content: "第4轮设定" },
+              { role: "user", content: "第5轮设定" },
+              { role: "user", content: "第6轮设定" },
+              { role: "user", content: "第7轮设定" },
+              { role: "user", content: "第8轮设定" },
+              { role: "user", content: "第9轮设定" },
+              { role: "user", content: "第10轮设定" },
+              { role: "user", content: "第11轮设定" },
+              { role: "user", content: "第12轮设定" },
+              { role: "user", content: "继续最新设定" },
+            ],
+          },
+        },
+        response: {
+          status: 200,
+          body:
+            '{"choices":[{"message":{"content":"{\\"assistant_message\\":\\"我会沿用最近设定继续整理。\\"}"}}]}',
+        },
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au03-long-session-compression", records);
+    expect(evidence).toEqual({
+      slice_id: "au03-long-session-compression",
+      turn_id: "turn-long",
+      turn_ids: ["turn-long"],
+      work_id: "work-long",
+      session_id: "session-long",
+      context_refs_count: 1,
+      key_events: keyEventsForSlice("au03-long-session-compression"),
+    });
+    expect(findSliceBehaviorEvidence("au03-long-session-compression", records, evidence, {
+      provider: "lmstudio",
+      llmRecords,
+    })).toEqual({
+      slice_id: "au03-long-session-compression",
+      behavior: "long_active_session_context_uses_early_summary_and_recent_window",
+      turn_ids: ["turn-long"],
+      work_id: "work-long",
+      session_id: "session-long",
+      assertions: [
+        "message_sent_from_real_workbench",
+        "session_summary_attached_to_context",
+        "old_turns_compressed_into_session_summary",
+        "latest_recent_transcript_preserved_in_order",
+        "planner_received_context_before_frame",
+        "no_error_events",
+        "assistant_messages_not_fallback",
       ],
     });
   });

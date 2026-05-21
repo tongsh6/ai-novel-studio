@@ -81,6 +81,16 @@ defmodule NovelPersistence.WorkSessionRepo do
     |> Repo.update()
   end
 
+  @doc "Persist a derived session summary without changing transcript rows."
+  @spec update_summary(WorkSession.t(), String.t() | nil) ::
+          {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
+  def update_summary(%WorkSession{} = session, summary)
+      when is_binary(summary) or is_nil(summary) do
+    session
+    |> WorkSession.changeset(%{summary: summary})
+    |> Repo.update()
+  end
+
   @doc "Archive one session without deleting its transcript."
   @spec archive(WorkSession.t()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
   def archive(%WorkSession{} = session) do
