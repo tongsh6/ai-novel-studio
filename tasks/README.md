@@ -38,6 +38,9 @@
 
 ## 跨会话纪律
 
+- 开工前必须先读 `tasks/NEXT.md`。除非有 P0 bug，下一项工作从 `Queue` 中唯一 `Status=next` 的任务开始。
+- `docs/product/user-journeys.md` 负责说明队首任务位于哪条用户旅行图、前后断点是什么；不能只因为某个局部任务容易闭环就跳出当前 focus。
+- 每次完成 checkpoint 后必须同步更新 `tasks/NEXT.md`、`docs/product/user-journeys.md` 和 `docs/project-ledger.md`。可用 `node scripts/next_task_check.mjs` 做结构检查。
 - 任务状态变更要 commit（不积压、不留在工作树）。
 - 决策日志即使内容短也要写——它是接手者的关键上下文。
 - 完成的任务保留在文件里，用 status 标记 `done`，不删除。

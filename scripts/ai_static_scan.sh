@@ -176,6 +176,8 @@ if [[ -f "$ROOT_DIR/frontend/package.json" ]]; then
     "bash scripts/check_design_trace.sh"
   run_check "task-done-manifest" "Task completion manifest and UI evidence check" "process" "high" \
     "node scripts/task_done_check.mjs"
+  run_check "next-task-check" "NEXT queue and user journey integrity check" "process" "high" \
+    "node scripts/next_task_check.mjs"
 else
   skip_check "frontend-typecheck" "Frontend TypeScript typecheck" "correctness" "high" \
     "frontend/package.json not found"
@@ -189,6 +191,8 @@ else
     "frontend/package.json not found"
   run_check "task-done-manifest" "Task completion manifest and UI evidence check" "process" "high" \
     "node scripts/task_done_check.mjs"
+  run_check "next-task-check" "NEXT queue and user journey integrity check" "process" "high" \
+    "node scripts/next_task_check.mjs"
 fi
 
 if command -v gitleaks >/dev/null 2>&1; then
