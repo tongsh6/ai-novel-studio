@@ -86,6 +86,10 @@ export function createSessionPath(workId: string): string {
   return `/api/works/${encodeURIComponent(workId)}/sessions`;
 }
 
+export function archiveSessionPath(workId: string, sessionId: string): string {
+  return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}/archive`;
+}
+
 export async function resumeWorkspace(workId: string): Promise<WorkspaceResumeSnapshot> {
   const res = await fetch(url(resumeSessionPath(workId)));
   if (!res.ok) throw new Error(`resumeWorkspace failed: HTTP ${res.status}`);
@@ -118,6 +122,15 @@ export async function createWorkSession(
     body: JSON.stringify(input),
   });
   if (!res.ok) throw new Error(`createWorkSession failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { session: WorkSessionDto };
+  return body.session;
+}
+
+export async function archiveWorkSession(workId: string, sessionId: string): Promise<WorkSessionDto> {
+  const res = await fetch(url(archiveSessionPath(workId, sessionId)), {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`archiveWorkSession failed: HTTP ${res.status}`);
   const body = (await res.json()) as { session: WorkSessionDto };
   return body.session;
 }

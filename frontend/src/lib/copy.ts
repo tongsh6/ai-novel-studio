@@ -212,6 +212,8 @@ export const WORKBENCH = {
   sessionBranchFromHistory: "从这里继续",
   sessionBranchTitle: (title: string) => `${title} 的延续`,
   sessionBranchFailure: "从历史会话继续失败，请重试。",
+  sessionArchive: "归档会话",
+  sessionArchiveFailure: "会话归档失败，请重试。",
   sessionOpenFailure: "会话打开失败，请重试。",
 } as const;
 

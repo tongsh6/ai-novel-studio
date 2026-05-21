@@ -24,6 +24,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au09-archive-real-data");
     expect(nativeSliceIds).toContain("au09-memory-recall-context");
     expect(nativeSliceIds).toContain("au03-branch-from-history");
+    expect(nativeSliceIds).toContain("au03-archive-session-filter");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -223,6 +224,74 @@ describe("native Tauri slice verifier", () => {
         "branch_session_records_source_turn_ref",
         "workbench_rejoined_new_active_session",
         "old_history_transcript_not_copied_into_branch",
+        "no_error_events",
+      ],
+    });
+  });
+
+  it("accepts AU-03 archive-session-filter evidence when archived history is hidden but searchable", () => {
+    const records = [
+      { event: "work_session.resume.done", work_id: "work-au03", session_id: "session-active", transcript_count: 1 },
+      { event: "channel.join.done", work_id: "work-au03", session_id: "session-active" },
+      {
+        event: "work_session.show.done",
+        work_id: "work-au03",
+        session_id: "session-history",
+        read_only: true,
+        transcript_count: 2,
+        pending_adoption_count: 0,
+      },
+      {
+        event: "work_session.archive.done",
+        work_id: "work-au03",
+        session_id: "session-history",
+        status: "ARCHIVED",
+      },
+      {
+        event: "work_session.show.done",
+        work_id: "work-au03",
+        session_id: "session-history",
+        read_only: true,
+        transcript_count: 2,
+        pending_adoption_count: 0,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au03-archive-session-filter",
+        work_id: "work-au03",
+        context_work_id: "work-au03",
+        readonly_session_id: "session-history",
+        archive_button_visible: true,
+        archived_hidden_default: true,
+        archived_search_found: true,
+        archived_banner_visible: true,
+        archived_visible_text: "林瑶历史讨论",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au03-archive-session-filter", records);
+    expect(evidence).toEqual({
+      slice_id: "au03-archive-session-filter",
+      turn_ids: [],
+      work_id: "work-au03",
+      session_id: "session-history",
+      key_events: keyEventsForSlice("au03-archive-session-filter"),
+      transcript_count: 2,
+    });
+    expect(findSliceBehaviorEvidence("au03-archive-session-filter", records, evidence)).toEqual({
+      slice_id: "au03-archive-session-filter",
+      behavior: "historical_session_archived_hidden_from_default_list_and_searchable",
+      turn_ids: [],
+      work_id: "work-au03",
+      session_id: "session-history",
+      assertions: [
+        "archive_action_started_from_real_workbench_session_list",
+        "session_archived_through_web_application_persistence",
+        "archived_session_hidden_from_default_session_list",
+        "archived_session_still_found_by_explicit_search",
+        "archived_transcript_reopens_read_only_after_search",
+        "archived_transcript_and_trace_not_deleted",
+        "ordinary_context_filter_covered_by_application_test",
         "no_error_events",
       ],
     });

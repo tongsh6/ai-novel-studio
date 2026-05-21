@@ -729,7 +729,12 @@ defmodule NovelWeb.WorkspaceChannel do
       branch_readonly_banner_visible: payload["branch_readonly_banner_visible"],
       branch_message_count: payload["branch_message_count"],
       branch_visible_text: payload["branch_visible_text"],
-      branch_session_item_active: payload["branch_session_item_active"]
+      branch_session_item_active: payload["branch_session_item_active"],
+      archive_button_visible: payload["archive_button_visible"],
+      archived_hidden_default: payload["archived_hidden_default"],
+      archived_search_found: payload["archived_search_found"],
+      archived_banner_visible: payload["archived_banner_visible"],
+      archived_visible_text: payload["archived_visible_text"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}

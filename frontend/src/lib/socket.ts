@@ -113,6 +113,11 @@ export interface SliceVerifyUiStatePayload {
   branch_message_count?: number;
   branch_visible_text?: string;
   branch_session_item_active?: boolean;
+  archive_button_visible?: boolean;
+  archived_hidden_default?: boolean;
+  archived_search_found?: boolean;
+  archived_banner_visible?: boolean;
+  archived_visible_text?: string;
 }
 
 export function reportSliceVerifyUiState(

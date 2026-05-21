@@ -14,6 +14,7 @@ export const nativeSliceIds = [
   "au09-memory-recall-context",
   "au03-session-history-readonly",
   "au03-branch-from-history",
+  "au03-archive-session-filter",
   "au07-trace-why-entry",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
@@ -145,6 +146,13 @@ const sliceKeyEvents = {
     "channel.join.done",
     "work_session.show.done",
     "work_session.create.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au03-archive-session-filter": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "work_session.show.done",
+    "work_session.archive.done",
     "slice_verify.ui_state.done",
   ],
   "au07-trace-why-entry": [
@@ -286,6 +294,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu03BranchFromHistoryEvidence(records);
   }
 
+  if (sliceId === "au03-archive-session-filter") {
+    return findAu03ArchiveSessionFilterEvidence(records);
+  }
+
   if (sliceId === "au07-trace-why-entry") {
     return findAu07TraceWhyEvidence(records);
   }
@@ -354,6 +366,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au03-branch-from-history") {
     return branchFromHistoryBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au03-archive-session-filter") {
+    return archiveSessionFilterBehavior(records, evidence, options);
   }
 
   if (sliceId === "au07-trace-why-entry") {
@@ -879,6 +895,70 @@ function findAu03BranchFromHistoryEvidence(records) {
       source_session_ref: sourceSessionRef,
       source_turn_ref: sourceTurnRef,
       key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findAu03ArchiveSessionFilterEvidence(records) {
+  const sliceId = "au03-archive-session-filter";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const workId = uiState.work_id;
+    const sessionId = String(uiState.readonly_session_id ?? "");
+    if (!sessionId) continue;
+
+    const shownBeforeArchive = records.find(
+      (record) =>
+        record.event === "work_session.show.done" &&
+        record.work_id === workId &&
+        record.session_id === sessionId &&
+        record.read_only === true,
+    );
+    if (!shownBeforeArchive || Number(shownBeforeArchive.transcript_count ?? 0) < 2) continue;
+
+    const archived = records.find(
+      (record) =>
+        record.event === "work_session.archive.done" &&
+        record.work_id === workId &&
+        record.session_id === sessionId &&
+        record.status === "ARCHIVED",
+    );
+    if (!archived) continue;
+
+    const shownAfterArchive = records.find(
+      (record) =>
+        record.event === "work_session.show.done" &&
+        record.work_id === workId &&
+        record.session_id === sessionId &&
+        record.read_only === true &&
+        records.indexOf(record) > records.indexOf(archived),
+    );
+    if (!shownAfterArchive || Number(shownAfterArchive.transcript_count ?? 0) < 2) continue;
+
+    if (uiState.archive_button_visible !== true) continue;
+    if (uiState.archived_hidden_default !== true) continue;
+    if (uiState.archived_search_found !== true) continue;
+    if (uiState.archived_banner_visible !== true) continue;
+    const archivedText = String(uiState.archived_visible_text ?? "");
+    if (!archivedText.includes("林瑶")) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: workId,
+      session_id: sessionId,
+      key_events: keyEvents,
+      transcript_count: shownAfterArchive.transcript_count,
     };
   }
 
@@ -1625,6 +1705,48 @@ function branchFromHistoryBehavior(records, evidence, _options) {
       "branch_session_records_source_turn_ref",
       "workbench_rejoined_new_active_session",
       "old_history_transcript_not_copied_into_branch",
+      "no_error_events",
+    ],
+  };
+}
+
+function archiveSessionFilterBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au03-archive-session-filter" &&
+      record.readonly_session_id === evidence.session_id,
+  );
+  if (!uiState) return null;
+
+  const archiveDone = records.find(
+    (record) =>
+      record.event === "work_session.archive.done" &&
+      record.work_id === evidence.work_id &&
+      record.session_id === evidence.session_id &&
+      record.status === "ARCHIVED",
+  );
+  if (!archiveDone) return null;
+
+  if (uiState.archive_button_visible !== true) return null;
+  if (uiState.archived_hidden_default !== true) return null;
+  if (uiState.archived_search_found !== true) return null;
+  if (uiState.archived_banner_visible !== true) return null;
+
+  return {
+    slice_id: "au03-archive-session-filter",
+    behavior: "historical_session_archived_hidden_from_default_list_and_searchable",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "archive_action_started_from_real_workbench_session_list",
+      "session_archived_through_web_application_persistence",
+      "archived_session_hidden_from_default_session_list",
+      "archived_session_still_found_by_explicit_search",
+      "archived_transcript_reopens_read_only_after_search",
+      "archived_transcript_and_trace_not_deleted",
+      "ordinary_context_filter_covered_by_application_test",
       "no_error_events",
     ],
   };

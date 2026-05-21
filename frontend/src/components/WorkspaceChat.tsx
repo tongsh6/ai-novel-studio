@@ -5,7 +5,7 @@ import { useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { BookOpen, Bot, ChevronDown, CircleHelp, MessageCircle, Plus, RefreshCw, RotateCcw } from "lucide-react";
+import { Archive, BookOpen, Bot, ChevronDown, CircleHelp, MessageCircle, Plus, RefreshCw, RotateCcw } from "lucide-react";
 
 import {
   createSocket,
@@ -34,6 +34,7 @@ import {
   searchSessions,
   getSessionSnapshot,
   createWorkSession,
+  archiveWorkSession,
   transcriptToMessages,
   type WorkSessionDto,
 } from "../lib/sessions";
@@ -922,6 +923,7 @@ export function WorkspaceChat() {
       autorunSlice !== "au09-memory-recall-context" &&
       autorunSlice !== "au03-session-history-readonly" &&
       autorunSlice !== "au03-branch-from-history" &&
+      autorunSlice !== "au03-archive-session-filter" &&
       autorunSlice !== "stage-startup-context-contract" &&
       autorunSlice !== "workspace-runtime-state" &&
       autorunSlice !== "su03-assistant-display-name" &&
@@ -1288,7 +1290,11 @@ export function WorkspaceChat() {
             ?.click();
         }, 150));
       }, 150));
-    } else if (autorunSlice === "au03-session-history-readonly" || autorunSlice === "au03-branch-from-history") {
+    } else if (
+      autorunSlice === "au03-session-history-readonly" ||
+      autorunSlice === "au03-branch-from-history" ||
+      autorunSlice === "au03-archive-session-filter"
+    ) {
       timers.push(window.setTimeout(() => {
         const driveSessionHistoryProof = async () => {
           const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
@@ -1319,6 +1325,74 @@ export function WorkspaceChat() {
           const branchButton =
             document.querySelector<HTMLButtonElement>('[data-slice-verify="branch-from-history"]');
           const sourceTurnRef = branchButton?.dataset.sourceTurnRef ?? "";
+
+          if (autorunSlice === "au03-archive-session-filter") {
+            const archiveButton =
+              document.querySelector<HTMLButtonElement>('[data-slice-verify="archive-session"]');
+            const archiveButtonVisible = Boolean(archiveButton);
+            archiveButton?.click();
+            await delay(700);
+
+            setSessionSearch("");
+            if (context.workId && context.workId !== "lobby") {
+              setSessions(await searchSessions(context.workId, ""));
+            }
+            await delay(300);
+
+            const archivedHiddenDefault = !Array.from(
+              document.querySelectorAll<HTMLElement>('[data-slice-verify="session-item"]'),
+            ).some((item) => item.dataset.sessionId === readonlySessionId);
+
+            setSessionSearch("林瑶");
+            if (context.workId && context.workId !== "lobby") {
+              setSessions(await searchSessions(context.workId, "林瑶"));
+            }
+            await delay(400);
+
+            const archivedSearchItem = Array.from(
+              document.querySelectorAll<HTMLElement>('[data-slice-verify="session-item"]'),
+            ).find((item) => item.dataset.sessionId === readonlySessionId);
+            archivedSearchItem?.click();
+            await delay(500);
+
+            if (!channelRef.current || sliceVerifyUiReported.has("au03-archive-session-filter")) return;
+            sliceVerifyUiReported.add("au03-archive-session-filter");
+
+            const archivedVisibleText = Array.from(
+              document.querySelectorAll<HTMLElement>('[data-role="user"], [data-role="assistant"]'),
+            ).map((node) => node.innerText).join("\n");
+
+            void reportSliceVerifyUiState(channelRef.current, {
+              slice_id: "au03-archive-session-filter",
+              context_work_id: context.workId,
+              context_work_title: visibleWorkTitle,
+              active_session_id: activeSessionId,
+              restored_turn_id: null,
+              socket_connected: socketConnected,
+              message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
+              welcome_message_count: messages.filter((message) =>
+                message.text.includes("欢迎使用 AI Novel Studio"),
+              ).length,
+              pending_adoption_count: pendingAdoptionsCount,
+              first_message_text: messages[0]?.text ?? "",
+              service_status_text:
+                document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                  ?.innerText ?? "",
+              title_text:
+                document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+                  ?.innerText ?? "",
+              searched_query: "林瑶",
+              readonly_session_id: readonlySessionId,
+              archive_button_visible: archiveButtonVisible,
+              archived_hidden_default: archivedHiddenDefault,
+              archived_search_found: archivedSearchItem?.dataset.sessionStatus === "ARCHIVED",
+              archived_banner_visible: Boolean(
+                document.querySelector('[data-slice-verify="readonly-session-banner"]'),
+              ),
+              archived_visible_text: archivedVisibleText,
+            }).catch(() => undefined);
+            return;
+          }
 
           if (autorunSlice === "au03-branch-from-history") {
             branchButton?.click();
@@ -1708,6 +1782,27 @@ export function WorkspaceChat() {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionBranchFailure }]);
     } finally {
       setBranchingSession(false);
+    }
+  };
+
+  const handleArchiveSession = async (session: WorkSessionDto) => {
+    if (!context.workId || context.workId === "lobby" || session.status === "ACTIVE") return;
+
+    try {
+      const archived = await archiveWorkSession(context.workId, session.id);
+      setSessions((prev) => {
+        if (sessionSearch.trim()) {
+          return prev.map((item) => (item.id === archived.id ? archived : item));
+        }
+
+        return prev.filter((item) => item.id !== archived.id);
+      });
+
+      if (readOnlySession?.id === archived.id) {
+        setReadOnlySession(archived);
+      }
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionArchiveFailure }]);
     }
   };
 
@@ -2381,21 +2476,36 @@ export function WorkspaceChat() {
                   placeholder={WORKBENCH.sessionSearchPlaceholder}
                 />
                 {sessions.slice(0, 5).map((session) => (
-                  <button
-                    type="button"
-                    key={session.id}
-                    className={session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem}
-                    data-slice-verify="session-item"
-                    data-session-id={session.id}
-                    data-session-status={session.status}
-                    data-readonly-open={readOnlySession?.id === session.id ? "true" : "false"}
-                    onClick={() => {
-                      void handleOpenSession(session);
-                    }}
-                  >
-                    <span className={styles.sessionTitle}>{session.title}</span>
-                    <span className={styles.sessionStatus}>{session.status}</span>
-                  </button>
+                  <div key={session.id} className={styles.sessionItemShell}>
+                    <button
+                      type="button"
+                      className={session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem}
+                      data-slice-verify="session-item"
+                      data-session-id={session.id}
+                      data-session-status={session.status}
+                      data-readonly-open={readOnlySession?.id === session.id ? "true" : "false"}
+                      onClick={() => {
+                        void handleOpenSession(session);
+                      }}
+                    >
+                      <span className={styles.sessionTitle}>{session.title}</span>
+                      <span className={styles.sessionStatus}>{session.status}</span>
+                    </button>
+                    {session.status !== "ACTIVE" && session.status !== "ARCHIVED" && (
+                      <button
+                        type="button"
+                        className={styles.sessionIconAction}
+                        data-slice-verify="archive-session"
+                        aria-label={WORKBENCH.sessionArchive}
+                        title={WORKBENCH.sessionArchive}
+                        onClick={() => {
+                          void handleArchiveSession(session);
+                        }}
+                      >
+                        <Archive size={14} aria-hidden="true" />
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
             </div>

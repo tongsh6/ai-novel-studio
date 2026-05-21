@@ -91,6 +91,7 @@ Available native Tauri slice ids:
   au09-memory-recall-context
   au03-session-history-readonly
   au03-branch-from-history
+  au03-archive-session-filter
   au07-trace-why-entry
   desktop-stage-process-ownership
   au10-micro-plan-entry
@@ -120,7 +121,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au09-archive-real-data" && "$SLICE_ID" != "au09-memory-recall-context" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
+if [[ "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "stage-startup-context-contract" && "$SLICE_ID" != "workspace-runtime-state" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au03c-work-session-resume" && "$SLICE_ID" != "au05-adoption-boundary" && "$SLICE_ID" != "au05-adoption-followup-routing" && "$SLICE_ID" != "au05-discard-boundary" && "$SLICE_ID" != "au05-modify-draft-boundary" && "$SLICE_ID" != "au08-adoption-reading-projection" && "$SLICE_ID" != "au09-archive-real-data" && "$SLICE_ID" != "au09-memory-recall-context" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "desktop-stage-process-ownership" && "$SLICE_ID" != "au10-micro-plan-entry" && "$SLICE_ID" != "au10-ordinary-chat-no-micro-plan" && "$SLICE_ID" != "vs10-observability-spine" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -256,6 +257,9 @@ native_action_description() {
       ;;
     au03-branch-from-history)
       echo "seed active and exited sessions -> search history -> open transcript read-only -> create branch session -> verify source refs and active switch"
+      ;;
+    au03-archive-session-filter)
+      echo "seed active and exited sessions -> search history -> archive historical session -> verify default hidden and search/replay accessible"
       ;;
     au07-trace-why-entry)
       echo "type ordinary chat -> receive trace summary -> click why -> verify author-safe explanation dialog"
@@ -528,7 +532,7 @@ if [[ "$SLICE_ID" == "au09-memory-recall-context" ]]; then
   MIX_ENV=test mix run scripts/seed_au09_memory_recall_context.exs >"$ARTIFACT_DIR/seed.log" 2>&1
 fi
 
-if [[ "$SLICE_ID" == "au03-session-history-readonly" || "$SLICE_ID" == "au03-branch-from-history" ]]; then
+if [[ "$SLICE_ID" == "au03-session-history-readonly" || "$SLICE_ID" == "au03-branch-from-history" || "$SLICE_ID" == "au03-archive-session-filter" ]]; then
   MIX_ENV=test mix run scripts/seed_au03_session_history_readonly.exs >"$ARTIFACT_DIR/seed.log" 2>&1
 fi
 

@@ -715,6 +715,13 @@
   font-size: 12px;
 }
 
+.sessionItemShell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 30px;
+  gap: 6px;
+  align-items: stretch;
+}
+
 .sessionItem,
 .sessionItemActive {
   display: flex;
@@ -753,6 +760,25 @@
   color: var(--foreground-secondary);
   font-family: var(--mono);
   font-size: 10px;
+}
+
+.sessionIconAction {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  min-width: 30px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--foreground-secondary);
+  background-color: var(--surface-primary);
+  cursor: pointer;
+}
+
+.sessionIconAction:hover,
+.sessionIconAction:focus {
+  color: var(--foreground-primary);
+  background-color: var(--surface-secondary);
 }
 
 .openArchiveEntry {
