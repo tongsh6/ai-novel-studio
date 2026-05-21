@@ -119,6 +119,50 @@ defmodule NovelWeb.WorkSessionsController do
     end
   end
 
+  def archive(conn, %{"work_id" => work_id, "id" => session_id}) do
+    t0 = System.monotonic_time(:millisecond)
+
+    case WorkSessionService.archive(work_id, session_id) do
+      {:ok, session} ->
+        LogEmit.emit(:work_session, :archive, :done, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session.id,
+          status: session.status
+        })
+
+        json(conn, %{session: serialize_session(session)})
+
+      {:error, reason} when reason in [:work_not_found, :session_not_found] ->
+        LogEmit.emit(:work_session, :archive, :error, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session_id,
+          reason_code: reason
+        })
+
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: Atom.to_string(reason), work_id: work_id, session_id: session_id})
+
+      {:error, :cannot_archive_active_session} ->
+        LogEmit.emit(:work_session, :archive, :error, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session_id,
+          reason_code: :cannot_archive_active_session
+        })
+
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{
+          error: "cannot_archive_active_session",
+          work_id: work_id,
+          session_id: session_id
+        })
+    end
+  end
+
   defp serialize_snapshot(snapshot) do
     %{
       work: serialize_work(snapshot.work),

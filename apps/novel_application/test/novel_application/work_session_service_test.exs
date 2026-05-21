@@ -107,6 +107,16 @@ defmodule NovelApplication.WorkSessionServiceTest do
       assert {:ok, snapshot} = WorkSessionService.resume(work.id)
       assert snapshot.resume_trace_refs == ["trace-canonical", "trace-legacy"]
     end
+
+    test "does not include archived sessions in the default resume list", %{work: work} do
+      {:ok, active} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      {:ok, _archived} =
+        WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "ARCHIVED"})
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+      assert Enum.map(snapshot.sessions, & &1.id) == [active.id]
+    end
   end
 
   describe "search/2" do
@@ -116,6 +126,36 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
       assert [%{id: id}] = WorkSessionService.search(work.id, "林瑶")
       assert id == session.id
+    end
+
+    test "search can find archived sessions", %{work: work} do
+      {:ok, session} =
+        WorkSessionRepo.create(%{
+          work_id: work.id,
+          title: "归档会话",
+          summary: "妹妹林瑶的旧讨论",
+          status: "ARCHIVED"
+        })
+
+      assert [%{id: id, status: "ARCHIVED"}] = WorkSessionService.search(work.id, "林瑶")
+      assert id == session.id
+    end
+  end
+
+  describe "archive/2" do
+    test "archives an exited session", %{work: work} do
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "EXITED"})
+
+      assert {:ok, archived} = WorkSessionService.archive(work.id, session.id)
+      assert archived.id == session.id
+      assert archived.status == "ARCHIVED"
+    end
+
+    test "does not archive the active session", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      assert {:error, :cannot_archive_active_session} =
+               WorkSessionService.archive(work.id, session.id)
     end
   end
 

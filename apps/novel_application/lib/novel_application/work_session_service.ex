@@ -85,6 +85,30 @@ defmodule NovelApplication.WorkSessionService do
     end
   end
 
+  @doc "Archive an exited/history session while preserving transcript and trace access."
+  @spec archive(String.t(), String.t()) ::
+          {:ok, map()}
+          | {:error,
+             :work_not_found | :session_not_found | :cannot_archive_active_session | term()}
+  def archive(work_id, session_id) when is_binary(work_id) and is_binary(session_id) do
+    with work when not is_nil(work) <- WorkService.get(work_id),
+         %WorkSession{} = session <- WorkSessionRepo.get_by_work(work_id, session_id),
+         :ok <- ensure_archivable(session),
+         {:ok, archived} <- WorkSessionRepo.archive(session) do
+      {:ok, session_dto(archived)}
+    else
+      nil ->
+        if WorkService.get(work_id) == nil do
+          {:error, :work_not_found}
+        else
+          {:error, :session_not_found}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   defp session_dto(%WorkSession{} = session) do
     %{
       id: session.id,
@@ -99,6 +123,11 @@ defmodule NovelApplication.WorkSessionService do
       inserted_at: session.inserted_at
     }
   end
+
+  defp ensure_archivable(%WorkSession{status: "ACTIVE"}),
+    do: {:error, :cannot_archive_active_session}
+
+  defp ensure_archivable(%WorkSession{}), do: :ok
 
   defp interaction_dto(%Interaction{} = interaction) do
     turn_result = turn_result_from_content(interaction.content)

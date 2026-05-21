@@ -81,6 +81,47 @@ defmodule NovelPersistence.WorkspaceContextTest do
       refute String.contains?(summary, "周燃")
     end
 
+    test "query fetcher excludes archived session transcript from ordinary context" do
+      {:ok, work} = WorkRepo.create(%{title: "归档上下文过滤"})
+      {:ok, active_session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+
+      {:ok, archived_session} =
+        WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "ARCHIVED"})
+
+      record_interaction(work.id, active_session.id, "turn-a", "user", "当前会话主角叫林澈")
+      record_interaction(work.id, archived_session.id, "turn-b", "user", "归档旧设定主角叫林烬")
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, active_summary, nil, nil} =
+               fetcher.(work.id, "主角叫什么？", active_session.id)
+
+      assert active_summary =~ "林澈"
+      refute active_summary =~ "林烬"
+
+      assert {:ok, _snapshot, archived_summary, nil, nil} =
+               fetcher.(work.id, "主角叫什么？", archived_session.id)
+
+      assert archived_summary == nil
+    end
+
+    test "workspace fallback context excludes archived session transcript" do
+      {:ok, work} = WorkRepo.create(%{title: "默认上下文过滤"})
+      {:ok, active_session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+
+      {:ok, archived_session} =
+        WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "ARCHIVED"})
+
+      record_interaction(work.id, active_session.id, "turn-a", "user", "当前会话事实")
+      record_interaction(work.id, archived_session.id, "turn-b", "user", "归档会话事实")
+
+      fetcher = WorkspaceContext.context_fetcher()
+
+      assert {:ok, _snapshot, summary, nil, nil} = fetcher.(work.id)
+      assert summary =~ "当前会话事实"
+      refute summary =~ "归档会话事实"
+    end
+
     test "query fetcher returns the latest active session interactions in chronological order" do
       {:ok, work} = WorkRepo.create(%{title: "长会话上下文"})
       {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "长会话"})

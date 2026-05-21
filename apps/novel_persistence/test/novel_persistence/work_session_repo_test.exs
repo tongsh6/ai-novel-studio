@@ -44,6 +44,19 @@ defmodule NovelPersistence.WorkSessionRepoTest do
 
       assert WorkSessionRepo.list_by_work(work.id) |> Enum.map(& &1.id) == [new.id, old.id]
     end
+
+    test "hides archived sessions by default but can include them", %{work: work} do
+      {:ok, active} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+
+      {:ok, archived} =
+        WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "ARCHIVED"})
+
+      assert WorkSessionRepo.list_by_work(work.id) |> Enum.map(& &1.id) == [active.id]
+
+      assert WorkSessionRepo.list_by_work(work.id, include_archived: true)
+             |> Enum.map(& &1.id)
+             |> Enum.sort() == Enum.sort([active.id, archived.id])
+    end
   end
 
   describe "search/2" do
@@ -70,6 +83,38 @@ defmodule NovelPersistence.WorkSessionRepoTest do
 
       assert Enum.map(results, & &1.id) |> Enum.sort() == Enum.sort([session.id, other.id])
     end
+
+    test "can find archived sessions", %{work: work} do
+      {:ok, session} =
+        WorkSessionRepo.create(%{
+          work_id: work.id,
+          title: "已归档会话",
+          summary: "妹妹林瑶",
+          status: "ARCHIVED"
+        })
+
+      assert [%{id: id}] = WorkSessionRepo.search(work.id, "林瑶")
+      assert id == session.id
+    end
+
+    test "empty search uses the default non-archived list", %{work: work} do
+      {:ok, active} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+
+      {:ok, _archived} =
+        WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "ARCHIVED"})
+
+      assert WorkSessionRepo.search(work.id, "") |> Enum.map(& &1.id) == [active.id]
+    end
+  end
+
+  describe "archive/1" do
+    test "marks a session archived", %{work: work} do
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "EXITED"})
+
+      assert {:ok, archived} = WorkSessionRepo.archive(session)
+      assert archived.status == "ARCHIVED"
+      assert WorkSessionRepo.get_by_work(work.id, session.id).status == "ARCHIVED"
+    end
   end
 
   describe "transcript/1" do
@@ -94,7 +139,10 @@ defmodule NovelPersistence.WorkSessionRepoTest do
           content: %{text: "第二句"}
         })
 
-      assert WorkSessionRepo.transcript(session.id) |> Enum.map(& &1.content["text"]) == ["第一句", "第二句"]
+      assert WorkSessionRepo.transcript(session.id) |> Enum.map(& &1.content["text"]) == [
+               "第一句",
+               "第二句"
+             ]
     end
   end
 end

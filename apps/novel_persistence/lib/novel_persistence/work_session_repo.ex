@@ -33,11 +33,14 @@ defmodule NovelPersistence.WorkSessionRepo do
     end
   end
 
-  @doc "List sessions for one work newest-first."
-  @spec list_by_work(String.t()) :: [WorkSession.t()]
-  def list_by_work(work_id) when is_binary(work_id) do
+  @doc "List sessions for one work newest-first. Archived sessions are hidden by default."
+  @spec list_by_work(String.t(), keyword()) :: [WorkSession.t()]
+  def list_by_work(work_id, opts \\ []) when is_binary(work_id) do
+    include_archived? = Keyword.get(opts, :include_archived, false)
+
     WorkSession
     |> where([s], s.work_id == ^work_id)
+    |> maybe_exclude_archived(include_archived?)
     |> order_by([s], desc: s.last_opened_at, desc: s.updated_at)
     |> Repo.all()
   end
@@ -55,11 +58,15 @@ defmodule NovelPersistence.WorkSessionRepo do
   def search(work_id, query) when is_binary(work_id) and is_binary(query) do
     needle = query |> String.trim() |> String.downcase()
 
-    work_id
-    |> list_by_work()
-    |> Enum.filter(fn session ->
-      session_matches?(session, needle) or transcript_matches?(session.id, needle)
-    end)
+    if needle == "" do
+      list_by_work(work_id)
+    else
+      work_id
+      |> list_by_work(include_archived: true)
+      |> Enum.filter(fn session ->
+        session_matches?(session, needle) or transcript_matches?(session.id, needle)
+      end)
+    end
   end
 
   @doc "Return full transcript for a session in insertion order."
@@ -74,6 +81,14 @@ defmodule NovelPersistence.WorkSessionRepo do
     |> Repo.update()
   end
 
+  @doc "Archive one session without deleting its transcript."
+  @spec archive(WorkSession.t()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
+  def archive(%WorkSession{} = session) do
+    session
+    |> WorkSession.changeset(%{status: "ARCHIVED"})
+    |> Repo.update()
+  end
+
   defp latest_active(work_id) do
     WorkSession
     |> where([s], s.work_id == ^work_id and s.status == "ACTIVE")
@@ -81,6 +96,9 @@ defmodule NovelPersistence.WorkSessionRepo do
     |> limit(1)
     |> Repo.one()
   end
+
+  defp maybe_exclude_archived(query, true), do: query
+  defp maybe_exclude_archived(query, false), do: where(query, [s], s.status != "ARCHIVED")
 
   defp session_matches?(session, needle) do
     searchable =

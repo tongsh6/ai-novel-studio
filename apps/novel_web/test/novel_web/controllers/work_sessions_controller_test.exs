@@ -55,6 +55,54 @@ defmodule NovelWeb.WorkSessionsControllerTest do
     assert id == session.id
   end
 
+  test "GET /api/works/:work_id/sessions/resume hides archived sessions by default", %{
+    conn: conn,
+    work: work
+  } do
+    {:ok, active} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    {:ok, _archived} =
+      WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "ARCHIVED"})
+
+    conn = get(conn, "/api/works/#{work.id}/sessions/resume")
+    body = json_response(conn, 200)
+
+    assert [%{"id" => id}] = body["sessions"]
+    assert id == active.id
+  end
+
+  test "GET /api/works/:work_id/sessions can search archived sessions", %{conn: conn, work: work} do
+    {:ok, session} =
+      WorkSessionRepo.create(%{
+        work_id: work.id,
+        title: "归档会话",
+        summary: "妹妹林瑶",
+        status: "ARCHIVED"
+      })
+
+    conn = get(conn, "/api/works/#{work.id}/sessions", %{"query" => "林瑶"})
+    body = json_response(conn, 200)
+
+    assert [%{"id" => id, "status" => "ARCHIVED"}] = body["sessions"]
+    assert id == session.id
+  end
+
+  test "GET /api/works/:work_id/sessions without query hides archived sessions", %{
+    conn: conn,
+    work: work
+  } do
+    {:ok, active} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    {:ok, _archived} =
+      WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "ARCHIVED"})
+
+    conn = get(conn, "/api/works/#{work.id}/sessions")
+    body = json_response(conn, 200)
+
+    assert [%{"id" => id}] = body["sessions"]
+    assert id == active.id
+  end
+
   test "GET /api/works/:work_id/sessions/:id returns read-only history transcript", %{
     conn: conn,
     work: work
@@ -125,5 +173,29 @@ defmodule NovelWeb.WorkSessionsControllerTest do
     assert body["session"]["status"] == "ACTIVE"
     assert body["session"]["source_session_ref"] == source_session.id
     assert body["session"]["source_turn_ref"] == "turn-history-1"
+  end
+
+  test "POST /api/works/:work_id/sessions/:id/archive archives an exited session", %{
+    conn: conn,
+    work: work
+  } do
+    {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "EXITED"})
+
+    conn = post(conn, "/api/works/#{work.id}/sessions/#{session.id}/archive")
+    body = json_response(conn, 200)
+
+    assert body["session"]["id"] == session.id
+    assert body["session"]["status"] == "ARCHIVED"
+  end
+
+  test "POST /api/works/:work_id/sessions/:id/archive rejects active session", %{
+    conn: conn,
+    work: work
+  } do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    conn = post(conn, "/api/works/#{work.id}/sessions/#{session.id}/archive")
+
+    assert %{"error" => "cannot_archive_active_session"} = json_response(conn, 422)
   end
 end

@@ -15,6 +15,7 @@ defmodule NovelPersistence.WorkspaceContext do
   alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.Schemas.Work
+  alias NovelPersistence.Schemas.WorkSession
   alias NovelPersistence.Schemas.Workspace
   alias NovelPersistence.TraceRepository
 
@@ -103,7 +104,10 @@ defmodule NovelPersistence.WorkspaceContext do
 
     interactions =
       from(i in Interaction,
+        left_join: s in WorkSession,
+        on: i.session_id == s.id,
         where: i.workspace_id == ^workspace_id,
+        where: is_nil(i.session_id) or s.status != "ARCHIVED",
         order_by: [desc: i.inserted_at],
         limit: ^limit
       )
@@ -120,7 +124,10 @@ defmodule NovelPersistence.WorkspaceContext do
 
     interactions =
       from(i in Interaction,
+        join: s in WorkSession,
+        on: i.session_id == s.id,
         where: i.workspace_id == ^workspace_id and i.session_id == ^session_id,
+        where: s.status != "ARCHIVED",
         order_by: [desc: i.inserted_at, desc: i.id],
         limit: ^limit
       )
