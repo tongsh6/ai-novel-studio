@@ -53,7 +53,7 @@
 | `ContextAssembler` | 组装 DialogueContext | 有测试；fetcher 异常无保护；ContextSourceRef summary 仍是占位 |
 | `DialogueContext.to_prompt_text/1` | 把上下文写入 LLM prompt | 有单测覆盖非空段落 |
 | `TraceWriter` | 记录 context_refs | 有结构化 refs，但作者可见来源摘要不足 |
-| 会话 Session / Conversation 表 | 作品内多会话、会话状态、归档、搜索 | 当前未发现独立实体、API 或 UI |
+| 会话 Session / Conversation 表 | 作品内多会话、会话状态、归档、搜索 | 已补 `WorkSession`、resume/show/search/create/archive API 和工作台最小 UI；仍缺搜索命中定位和完整 replay 页面 |
 | `memory_items.conversation_id` | 记忆可关联 conversation 的设计痕迹 | 存在字段迹象，但会话管理闭环未接入 |
 
 ---
@@ -281,9 +281,9 @@
 - 搜索/回放仍可访问；
 - 归档不删除 transcript 和 trace。
 
-**当前证据**：记忆/作品状态有 ARCHIVED 概念；会话层未实现。
+**当前证据**：`WorkSessionService.archive/2` / `WorkSessionsController.archive/2` 已提供 work-scoped 归档入口；`WorkspaceChat` 会话列表可从真实工作台归档历史会话；`WorkspaceContext` 默认排除 archived session transcript；`bash scripts/tauri_slice_verify.sh au03-archive-session-filter` 已通过。
 
-**当前状态**：未实现。
+**当前状态**：最小真实前端闭环已实现。仍缺搜索命中定位、高亮和完整会话 replay 页面。
 
 ---
 
@@ -337,9 +337,9 @@
 - 搜索/手动引用仍能找到 archived session；
 - trace 说明是否引用了 archived source。
 
-**当前证据**：当前 context 只按 workspace_id 取最近 interactions，没有 session archived 过滤。
+**当前证据**：`WorkspaceContext.context_fetcher/0` 和 `context_fetcher_with_query/0` 默认排除 `ARCHIVED` work session 的 transcript；`workspace_context_test.exs` 覆盖 fallback 和显式 session 两种路径；`au03-archive-session-filter` Tauri 证据覆盖真实工作台归档后默认列表隐藏与搜索找回。
 
-**当前状态**：未实现。
+**当前状态**：局部闭环。普通 context 过滤已测；显式引用 archived source 进入 prompt 的产品路径仍未实现。
 
 ---
 
@@ -453,17 +453,17 @@
 | SC-AU03-C2 | 新建作品内会话 | 后端 API 已实现；缺前端按钮与切换验收 | 否 |
 | SC-AU03-C3 | 搜索历史会话 | 会话搜索 API/UI 基础已实现；缺打开匹配 turn 位置 | 部分 |
 | SC-AU03-C4 | 历史会话退出/只读查看 | 未实现 | 否 |
-| SC-AU03-C5 | 归档会话 | 未实现 | 否 |
+| SC-AU03-C5 | 归档会话 | 最小真实前端闭环已实现；缺搜索命中定位/完整 replay 页面 | 是（最小闭环） |
 | SC-AU03-C6 | 从历史会话继续创建新会话/分支 | 未实现 | 否 |
 | SC-AU03-D1 | 历史 transcript 冻结，作品背景最新 | 未实现 | 否 |
-| SC-AU03-D2 | 归档会话不默认进入 context | 未实现 | 否 |
+| SC-AU03-D2 | 归档会话不默认进入 context | 默认 context 过滤已由 persistence/application 测试覆盖；显式引用路径未实现 | 部分 |
 | SC-AU03-D3 | 切换作品不串会话/上下文 | 依赖 SU-02 | 否 |
 | SC-AU03-E1 | 作者能看到引用来源 | 部分实现 | 否 |
 | SC-AU03-E2 | 引用摘要 author-safe | 局部结构存在 | 否 |
 | SC-AU03-F1 | 长会话上下文压缩 | 部分实现 | 否 |
 | SC-AU03-F2 | 历史会话可回放不调 LLM | 后端局部有证据 | 否 |
 
-**覆盖结论：20 个用户场景；AU-03C active session 恢复已有 1 条原生 Tauri 闭环证据；其余场景仍存在历史会话只读、归档、分支继续、作品背景 SSOT、记忆接入、引用来源和长会话压缩缺口。**
+**覆盖结论：20 个用户场景；AU-03C active session 恢复、历史只读、从历史分支继续、归档过滤均已有原生 Tauri 闭环证据；其余场景仍存在作品背景 SSOT、历史 turn 定位/高亮、显式引用 archived source、引用来源和长会话压缩缺口。**
 
 新增证据（2026-05-15）：
 
@@ -479,15 +479,15 @@ bash scripts/tauri_slice_verify.sh au03c-work-session-resume
 
 | 缺口 | 影响 | 建议处理 |
 |---|---|---|
-| AU03-GAP-01 — 缺作品内会话模型 | 已补 `WorkSession` 最小实体；仍缺历史只读/分支/归档完整状态流 | P0：继续补历史会话打开、只读、分支继续与归档状态 |
-| AU03-GAP-02 — 缺会话列表/搜索/归档 UI 与 API | 会话列表/搜索基础已补；归档、打开历史会话与匹配 turn 定位未闭环 | P0：补归档、打开历史会话、搜索结果定位 |
+| AU03-GAP-01 — 缺作品内会话模型 | 已补 `WorkSession` 最小实体、历史只读、分支继续和归档最小状态流 | P1：补搜索命中 turn 定位、显式引用 archived source 和完整 replay 页面 |
+| AU03-GAP-02 — 缺会话列表/搜索/归档 UI 与 API | 会话列表/搜索/打开历史/归档最小真实入口已补；匹配 turn 定位未闭环 | P1：补搜索结果定位和高亮 |
 | AU03-GAP-03 — 历史会话退出/只读状态缺失 | 重新打开旧会话可能误恢复旧 pending 状态或篡改历史 | P0：定义 exited/read-only 状态和“从此继续”分支 |
 | AU03-GAP-04 — Work 最新背景未接入 context snapshot | AI 可能拿不到当前作品 title/genre/设定 | P0：把 Context fetcher 从旧 Workspace 对齐到 VS-09 Work |
 | AU03-GAP-05 — memory_summary 未接入 | AI 无法基于已确认伏笔/规则回答 | P1：接 memory recall 到 context |
 | AU03-GAP-06 — behavior_summary 未接入 | open behavior / 等待确认容易丢 | P1：接 behavior summary |
 | AU03-GAP-07 — ContextSourceRef.summary 占位 | 作者看不到真实引用依据 | P1：生成 author-safe 来源摘要 |
 | AU03-GAP-08 — context fetcher 异常无保护 | DB 抖动可导致整轮对话失败 | P1：ContextAssembler fallback empty context + trace warning |
-| AU03-GAP-09 — 归档会话过滤缺失 | 旧讨论可能污染日常上下文 | P1：context 默认排除 archived session，支持显式引用 |
+| AU03-GAP-09 — 归档会话过滤缺失 | 默认 context 过滤已补；显式引用 archived session 进入 context 尚未设计 | P1：支持作者主动引用 archived session source，并在 trace 中说明来源 |
 | AU03-GAP-10 — 长会话只有最近 10 条硬截断 | 可能丢关键上下文，且无 session summary | P2：补 session summary/压缩策略 |
 | AU03-GAP-11 — 作品切换会话隔离未验收 | 跨作品会话/上下文污染风险 | P0/P1：与 SU-02 联动验收 |
 
@@ -498,11 +498,12 @@ bash scripts/tauri_slice_verify.sh au03c-work-session-resume
 | 证据 | 证明了什么 | 不能证明什么 |
 |---|---|---|
 | `context_grounding_test.exs` | ContextAssembler 可组装 snapshot/conversation/memory stub；空 context 不编造 stub 事实 | 真实 Work、session、memory 是否接入 |
-| `workspace_context_test.exs` | interactions 可形成 conversation_summary | 独立会话列表、搜索、归档、只读历史 |
+| `workspace_context_test.exs` | interactions 可形成 conversation_summary；active session transcript 可隔离；archived session transcript 默认不进 ordinary context | 显式引用 archived source 和最新 Work 背景 SSOT |
 | `dialogue_gateway_real_loop_test.exs` | 同 workspace 两轮可读到上一轮 interaction | 作品下多会话、当前会话与历史会话分离 |
 | `ReplayService` / E2E replay | replay 可不调 provider | 会话级 replay UI 和历史 transcript 管理 |
 | `MemoryListPage` / memory API | 记忆管理有搜索/归档基础 | 会话搜索/归档不是同一能力 |
 | `WorkspaceContext.context_fetcher/0` | 真实 persistence 注入点存在 | 当前只返回 conversation summary，memory/behavior nil，snapshot 查旧 workspace |
+| `au03-archive-session-filter` | 真实工作台可归档历史会话；默认列表隐藏 archived；显式搜索仍可找回并只读打开；普通 context 默认排除 archived transcript 有局部测试 | 不证明最新 Work 背景 SSOT、显式引用 archived source、搜索命中 turn 定位或完整 replay 页面 |
 
 ---
 
