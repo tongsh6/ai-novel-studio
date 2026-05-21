@@ -99,6 +99,13 @@ export interface SliceVerifyUiStatePayload {
   available_action_count?: number;
   card_action_count?: number;
   adoption_decision_card_count?: number;
+  searched_query?: string;
+  readonly_session_id?: string;
+  readonly_banner_visible?: boolean;
+  readonly_input_disabled?: boolean;
+  readonly_send_disabled?: boolean;
+  readonly_visible_text?: string;
+  active_session_restored?: boolean;
 }
 
 export function reportSliceVerifyUiState(

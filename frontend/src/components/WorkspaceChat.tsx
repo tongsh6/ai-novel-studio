@@ -32,6 +32,7 @@ import {
 import {
   resumeWorkspace,
   searchSessions,
+  getSessionSnapshot,
   transcriptToMessages,
   type WorkSessionDto,
 } from "../lib/sessions";
@@ -170,6 +171,7 @@ export function WorkspaceChat() {
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<WorkSessionDto[]>([]);
   const [sessionSearch, setSessionSearch] = useState("");
+  const [readOnlySession, setReadOnlySession] = useState<WorkSessionDto | null>(null);
   const [resumePendingAdoptions, setResumePendingAdoptions] = useState<ArtifactEntry[]>([]);
   const [resumeResolvedAdoptions, setResumeResolvedAdoptions] = useState<ArtifactEntry[]>([]);
   const [transcriptRestored, setTranscriptRestored] = useState(false);
@@ -640,6 +642,7 @@ export function WorkspaceChat() {
     setLoading(false);
     setPendingAnswerBid(null);
     setActiveSessionId(null);
+    setReadOnlySession(null);
     setSessions([]);
     setSessionSearch("");
     setResumePendingAdoptions([]);
@@ -855,6 +858,7 @@ export function WorkspaceChat() {
     }
   }, [loading]);
 
+  const isReadOnlySessionView = readOnlySession !== null;
   const runtimeState = deriveWorkspaceRuntimeState({
     connection: { connected: socketConnected },
     work: {
@@ -868,12 +872,16 @@ export function WorkspaceChat() {
     },
     transcript: messages,
     adoptionState: {
-      pending: messages
-        .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
-        .concat(resumePendingAdoptions),
-      resolved: messages
-        .flatMap((msg) => msg.turnResult?.adoption_state?.resolved ?? [])
-        .concat(resumeResolvedAdoptions),
+      pending: isReadOnlySessionView
+        ? []
+        : messages
+          .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
+          .concat(resumePendingAdoptions),
+      resolved: isReadOnlySessionView
+        ? []
+        : messages
+          .flatMap((msg) => msg.turnResult?.adoption_state?.resolved ?? [])
+          .concat(resumeResolvedAdoptions),
     },
     task: { status: longRun.status },
   });
@@ -902,6 +910,7 @@ export function WorkspaceChat() {
       autorunSlice !== "au08-adoption-reading-projection" &&
       autorunSlice !== "au09-archive-real-data" &&
       autorunSlice !== "au09-memory-recall-context" &&
+      autorunSlice !== "au03-session-history-readonly" &&
       autorunSlice !== "stage-startup-context-contract" &&
       autorunSlice !== "workspace-runtime-state" &&
       autorunSlice !== "su03-assistant-display-name" &&
@@ -1268,6 +1277,75 @@ export function WorkspaceChat() {
             ?.click();
         }, 150));
       }, 150));
+    } else if (autorunSlice === "au03-session-history-readonly") {
+      timers.push(window.setTimeout(() => {
+        const driveSessionHistoryProof = async () => {
+          const delay = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
+          setSessionSearch("林瑶");
+          if (context.workId && context.workId !== "lobby") {
+            setSessions(await searchSessions(context.workId, "林瑶"));
+          }
+          await delay(250);
+
+          const historyItem = Array.from(
+            document.querySelectorAll<HTMLButtonElement>('[data-slice-verify="session-item"]'),
+          ).find((item) => item.dataset.sessionStatus !== "ACTIVE");
+          historyItem?.click();
+          await delay(500);
+
+          const readonlyBanner =
+            document.querySelector<HTMLElement>('[data-slice-verify="readonly-session-banner"]');
+          const readonlySessionId = readonlyBanner?.dataset.sessionId ?? "";
+          const inputDisabled =
+            document.querySelector<HTMLInputElement>('[data-slice-verify="chat-input"]')?.disabled ?? false;
+          const sendDisabled =
+            document.querySelector<HTMLButtonElement>('[data-slice-verify="send-button"]')?.disabled ?? false;
+          const visibleText = Array.from(
+            document.querySelectorAll<HTMLElement>('[data-role="user"], [data-role="assistant"]'),
+          ).map((node) => node.innerText).join("\n");
+
+          document
+            .querySelector<HTMLButtonElement>('[data-slice-verify="back-to-active-session"]')
+            ?.click();
+          await delay(500);
+          const activeSessionRestored = !document.querySelector(
+            '[data-slice-verify="readonly-session-banner"]',
+          );
+
+          if (!channelRef.current || sliceVerifyUiReported.has("au03-session-history-readonly")) return;
+          sliceVerifyUiReported.add("au03-session-history-readonly");
+
+          void reportSliceVerifyUiState(channelRef.current, {
+            slice_id: "au03-session-history-readonly",
+            context_work_id: context.workId,
+            context_work_title: visibleWorkTitle,
+            active_session_id: activeSessionId,
+            restored_turn_id: null,
+            socket_connected: socketConnected,
+            message_count: document.querySelectorAll('[data-role="user"], [data-role="assistant"]').length,
+            welcome_message_count: messages.filter((message) =>
+              message.text.includes("欢迎使用 AI Novel Studio"),
+            ).length,
+            pending_adoption_count: pendingAdoptionsCount,
+            first_message_text: messages[0]?.text ?? "",
+            service_status_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="service-status"]')
+                ?.innerText ?? "",
+            title_text:
+              document.querySelector<HTMLElement>('[data-slice-verify="work-title"]')
+                ?.innerText ?? "",
+            searched_query: "林瑶",
+            readonly_session_id: readonlySessionId,
+            readonly_banner_visible: Boolean(readonlyBanner),
+            readonly_input_disabled: inputDisabled,
+            readonly_send_disabled: sendDisabled,
+            readonly_visible_text: visibleText,
+            active_session_restored: activeSessionRestored,
+          }).catch(() => undefined);
+        };
+
+        void driveSessionHistoryProof();
+      }, 150));
     } else if (
       autorunSlice === "au10-ordinary-chat-no-micro-plan" ||
       autorunSlice === "au01-ordinary-chat-two-turn-roundtrip"
@@ -1320,7 +1398,7 @@ export function WorkspaceChat() {
     options: { generateMicroPlan?: boolean } = {},
   ) {
     const text = messageText.trim();
-    if (!text || !channelRef.current) return;
+    if (!text || !channelRef.current || isReadOnlySessionView) return;
 
     setMessages((prev) => [...prev, { role: "user", text }]);
     if (messageText === inputText) setInputText("");
@@ -1481,6 +1559,52 @@ export function WorkspaceChat() {
       setSessions(result);
     } catch {
       setSessions([]);
+    }
+  };
+
+  const restoreActiveSessionView = async () => {
+    if (!context.workId || context.workId === "lobby") return;
+
+    try {
+      const snapshot = await resumeWorkspace(context.workId);
+      const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
+      setReadOnlySession(null);
+      setActiveSessionId(snapshot.active_session.id);
+      setSessions(snapshot.sessions);
+      setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
+      setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
+      setMessages(restoredMessages);
+      setTranscriptRestored(restoredMessages.length > 0);
+      resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionOpenFailure }]);
+    }
+  };
+
+  const handleOpenSession = async (session: WorkSessionDto) => {
+    if (!context.workId || context.workId === "lobby") return;
+
+    if (session.id === activeSessionId && session.status === "ACTIVE") {
+      await restoreActiveSessionView();
+      return;
+    }
+
+    try {
+      const snapshot = await getSessionSnapshot(context.workId, session.id);
+      const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
+      const shouldOpenReadOnly = snapshot.read_only || snapshot.session.id !== activeSessionId;
+      setReadOnlySession(shouldOpenReadOnly ? snapshot.session : null);
+      setMessages(restoredMessages);
+      setResumePendingAdoptions(
+        shouldOpenReadOnly ? [] : snapshot.pending_adoptions as unknown as ArtifactEntry[],
+      );
+      setResumeResolvedAdoptions(
+        shouldOpenReadOnly ? [] : snapshot.resolved_adoptions as unknown as ArtifactEntry[],
+      );
+      setTranscriptRestored(restoredMessages.length > 0);
+      resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionOpenFailure }]);
     }
   };
 
@@ -1786,6 +1910,30 @@ export function WorkspaceChat() {
           
           {/* 对话流区域 (Chat Area) */}
           <div className={styles.chatArea}>
+            {isReadOnlySessionView && (
+              <div
+                className={styles.readOnlySessionBanner}
+                data-slice-verify="readonly-session-banner"
+                data-session-id={readOnlySession.id}
+              >
+                <div>
+                  <div className={styles.readOnlySessionTitle}>{WORKBENCH.sessionReadOnlyTitle}</div>
+                  <div className={styles.readOnlySessionDescription}>
+                    {readOnlySession.title} · {WORKBENCH.sessionReadOnlyDescription}
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  data-slice-verify="back-to-active-session"
+                  onClick={() => {
+                    void restoreActiveSessionView();
+                  }}
+                >
+                  {WORKBENCH.sessionBackToActive}
+                </button>
+              </div>
+            )}
             {messages.map((msg, i) => (
               <div
                 key={i}
@@ -1832,7 +1980,7 @@ export function WorkspaceChat() {
                   </button>
                 )}
 
-                {msg.turnResult?.ui_cards?.map((card, ci) => {
+                {!isReadOnlySessionView && msg.turnResult?.ui_cards?.map((card, ci) => {
                   const handleAction = (_actionId: string, targetRef: string, actionType?: string) => {
                     if (isArtifactResolutionAction(actionType) && isArtifactResolved(runtimeState, targetRef)) {
                       return;
@@ -1929,7 +2077,7 @@ export function WorkspaceChat() {
                   }
                 })}
 
-                {msg.turnResult?.candidate_directions && msg.turnResult.candidate_directions.length > 0 && (
+                {!isReadOnlySessionView && msg.turnResult?.candidate_directions && msg.turnResult.candidate_directions.length > 0 && (
                   <div className={styles.candidatePanel} data-slice-verify="candidate-panel">
                     <div className={styles.candidateHeader}>{WORKBENCH.candidatePanelTitle}</div>
                     <div className={styles.candidateList}>
@@ -1967,7 +2115,7 @@ export function WorkspaceChat() {
                   </div>
                 )}
 
-                {msg.turnResult?.available_actions && msg.turnResult.available_actions.length > 0 && (
+                {!isReadOnlySessionView && msg.turnResult?.available_actions && msg.turnResult.available_actions.length > 0 && (
                   <div className={styles.cardActions}>
                     {msg.turnResult.available_actions.map((action) => (
                       <button
@@ -2070,7 +2218,7 @@ export function WorkspaceChat() {
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder={WORKBENCH.inputPlaceholder}
-              disabled={!socketConnected || isPanelOpen}
+              disabled={!socketConnected || isPanelOpen || isReadOnlySessionView}
             />
             <button
               className={styles.sendBtn}
@@ -2078,7 +2226,7 @@ export function WorkspaceChat() {
               onClick={() => {
                 void handleSend();
               }}
-              disabled={loading || !socketConnected || isPanelOpen}
+              disabled={loading || !socketConnected || isPanelOpen || isReadOnlySessionView}
             >
               {WORKBENCH.send}
             </button>
@@ -2088,18 +2236,20 @@ export function WorkspaceChat() {
         {/* 结构与长跑收纳面板 (Structure Rail) */}
         {!isPanelOpen ? (
           <div className={styles.structureRailCollapsed}>
-            <div className={styles.spTitle}>作品档案</div>
+            <div className={styles.spTitle}>{WORKBENCH.archiveRailTitle}</div>
             <div className={styles.railSummary}>
               <div 
                 className={styles.openArchiveEntry}
                 data-slice-verify="open-archive"
                 onClick={() => setIsPanelOpen(true)}
               >
-                <span className={styles.spItemCardText}>打开档案<br/>查看详情</span>
+                <span className={styles.spItemCardText}>
+                  {WORKBENCH.archiveRailOpen}<br/>{WORKBENCH.archiveRailDetail}
+                </span>
               </div>
               {pendingAdoptionsCount > 0 && (
                 <div className={styles.spItemTitle}>
-                  待采纳 {pendingAdoptionsCount}
+                  {WORKBENCH.pendingAdoptionsPrefix} {pendingAdoptionsCount}
                 </div>
               )}
               <div className={styles.sessionList} data-slice-verify="session-list">
@@ -2110,18 +2260,24 @@ export function WorkspaceChat() {
                   onChange={(event) => {
                     void handleSessionSearch(event.target.value);
                   }}
-                  placeholder="搜索会话"
+                  placeholder={WORKBENCH.sessionSearchPlaceholder}
                 />
                 {sessions.slice(0, 5).map((session) => (
-                  <div
+                  <button
+                    type="button"
                     key={session.id}
                     className={session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem}
                     data-slice-verify="session-item"
+                    data-session-id={session.id}
                     data-session-status={session.status}
+                    data-readonly-open={readOnlySession?.id === session.id ? "true" : "false"}
+                    onClick={() => {
+                      void handleOpenSession(session);
+                    }}
                   >
                     <span className={styles.sessionTitle}>{session.title}</span>
                     <span className={styles.sessionStatus}>{session.status}</span>
-                  </div>
+                  </button>
                 ))}
               </div>
             </div>

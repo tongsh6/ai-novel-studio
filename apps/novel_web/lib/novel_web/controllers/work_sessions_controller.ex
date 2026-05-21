@@ -51,7 +51,40 @@ defmodule NovelWeb.WorkSessionsController do
 
   def index(conn, %{"work_id" => work_id} = params) do
     query = Map.get(params, "query", "")
-    json(conn, %{sessions: Enum.map(WorkSessionService.search(work_id, query), &serialize_session/1)})
+
+    json(conn, %{
+      sessions: Enum.map(WorkSessionService.search(work_id, query), &serialize_session/1)
+    })
+  end
+
+  def show(conn, %{"work_id" => work_id, "id" => session_id}) do
+    t0 = System.monotonic_time(:millisecond)
+
+    case WorkSessionService.show(work_id, session_id) do
+      {:ok, snapshot} ->
+        LogEmit.emit(:work_session, :show, :done, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session_id,
+          read_only: snapshot.read_only,
+          transcript_count: length(snapshot.transcript),
+          pending_adoption_count: length(snapshot.pending_adoptions)
+        })
+
+        json(conn, serialize_session_snapshot(snapshot))
+
+      {:error, reason} when reason in [:work_not_found, :session_not_found] ->
+        LogEmit.emit(:work_session, :show, :error, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session_id,
+          reason_code: reason
+        })
+
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: Atom.to_string(reason), work_id: work_id, session_id: session_id})
+    end
   end
 
   def create(conn, %{"work_id" => work_id} = params) do
@@ -75,6 +108,18 @@ defmodule NovelWeb.WorkSessionsController do
       work: serialize_work(snapshot.work),
       active_session: serialize_session(snapshot.active_session),
       sessions: Enum.map(snapshot.sessions, &serialize_session/1),
+      transcript: Enum.map(snapshot.transcript, &serialize_interaction/1),
+      pending_adoptions: snapshot.pending_adoptions,
+      resolved_adoptions: snapshot.resolved_adoptions,
+      resume_trace_refs: snapshot.resume_trace_refs
+    }
+  end
+
+  defp serialize_session_snapshot(snapshot) do
+    %{
+      work: serialize_work(snapshot.work),
+      session: serialize_session(snapshot.session),
+      read_only: snapshot.read_only,
       transcript: Enum.map(snapshot.transcript, &serialize_interaction/1),
       pending_adoptions: snapshot.pending_adoptions,
       resolved_adoptions: snapshot.resolved_adoptions,

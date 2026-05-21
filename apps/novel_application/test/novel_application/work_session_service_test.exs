@@ -119,6 +119,70 @@ defmodule NovelApplication.WorkSessionServiceTest do
     end
   end
 
+  describe "show/2" do
+    test "returns a read-only snapshot for exited history and does not restore pending actions",
+         %{
+           work: work
+         } do
+      {:ok, session} =
+        WorkSessionRepo.create(%{
+          work_id: work.id,
+          title: "第三章节奏",
+          status: "EXITED"
+        })
+
+      turn_result = %{
+        turn_id: "turn-pending",
+        adoption_state: %{
+          pending: [
+            %{
+              artifact_id: "artifact-1",
+              artifact_type: "plot_direction",
+              adoption_status: "PENDING",
+              requires_adoption: true,
+              payload: %{title: "林瑶伏笔"}
+            }
+          ],
+          resolved: []
+        }
+      }
+
+      record(work.id, session.id, "turn-1", "user", "我想回收妹妹林瑶的伏笔")
+      record(work.id, session.id, "turn-pending", "assistant", "可以这样设计", turn_result)
+
+      assert {:ok, snapshot} = WorkSessionService.show(work.id, session.id)
+      assert snapshot.session.id == session.id
+      assert snapshot.read_only == true
+      assert Enum.map(snapshot.transcript, & &1.text) == ["我想回收妹妹林瑶的伏笔", "可以这样设计"]
+      assert snapshot.pending_adoptions == []
+    end
+
+    test "keeps active session pending actions available", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      turn_result = %{
+        turn_id: "turn-pending",
+        adoption_state: %{
+          pending: [%{artifact_id: "artifact-1", artifact_type: "plot_direction", payload: %{}}],
+          resolved: []
+        }
+      }
+
+      record(work.id, session.id, "turn-pending", "assistant", "待采纳", turn_result)
+
+      assert {:ok, snapshot} = WorkSessionService.show(work.id, session.id)
+      assert snapshot.read_only == false
+      assert [%{artifact_id: "artifact-1"}] = snapshot.pending_adoptions
+    end
+
+    test "does not expose a session from another work", %{work: work} do
+      {:ok, other_work} = WorkService.create(%{title: "另一部作品"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: other_work.id, title: "其他会话"})
+
+      assert {:error, :session_not_found} = WorkSessionService.show(work.id, session.id)
+    end
+  end
+
   defp record(work_id, session_id, turn_id, role, text, turn_result \\ nil) do
     content =
       %{text: text}

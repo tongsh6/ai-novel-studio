@@ -715,7 +715,14 @@ defmodule NovelWeb.WorkspaceChannel do
       thinking_visible_after_reply: payload["thinking_visible_after_reply"],
       available_action_count: payload["available_action_count"],
       card_action_count: payload["card_action_count"],
-      adoption_decision_card_count: payload["adoption_decision_card_count"]
+      adoption_decision_card_count: payload["adoption_decision_card_count"],
+      searched_query: payload["searched_query"],
+      readonly_session_id: payload["readonly_session_id"],
+      readonly_banner_visible: payload["readonly_banner_visible"],
+      readonly_input_disabled: payload["readonly_input_disabled"],
+      readonly_send_disabled: payload["readonly_send_disabled"],
+      readonly_visible_text: payload["readonly_visible_text"],
+      active_session_restored: payload["active_session_restored"]
     })
 
     {:reply, {:ok, %{received: true}}, socket}

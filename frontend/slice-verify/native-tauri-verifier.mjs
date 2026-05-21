@@ -12,6 +12,7 @@ export const nativeSliceIds = [
   "au08-adoption-reading-projection",
   "au09-archive-real-data",
   "au09-memory-recall-context",
+  "au03-session-history-readonly",
   "au07-trace-why-entry",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
@@ -130,6 +131,12 @@ const sliceKeyEvents = {
     "planner.form_frame.done",
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au03-session-history-readonly": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "work_session.show.done",
     "slice_verify.ui_state.done",
   ],
   "au07-trace-why-entry": [
@@ -263,6 +270,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu09MemoryRecallEvidence(records);
   }
 
+  if (sliceId === "au03-session-history-readonly") {
+    return findAu03SessionHistoryReadonlyEvidence(records);
+  }
+
   if (sliceId === "au07-trace-why-entry") {
     return findAu07TraceWhyEvidence(records);
   }
@@ -323,6 +334,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au09-memory-recall-context") {
     return memoryRecallContextBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au03-session-history-readonly") {
+    return sessionHistoryReadonlyBehavior(records, evidence, options);
   }
 
   if (sliceId === "au07-trace-why-entry") {
@@ -717,6 +732,59 @@ function findAu09MemoryRecallEvidence(records) {
       session_id: start.session_id,
       context_refs_count: contextDone.context_refs_count,
       key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findAu03SessionHistoryReadonlyEvidence(records) {
+  const sliceId = "au03-session-history-readonly";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const workId = uiState.work_id;
+    const readonlySessionId = String(uiState.readonly_session_id ?? "");
+    if (!readonlySessionId) continue;
+
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === workId,
+    );
+    const resumed = records.find(
+      (record) => record.event === "work_session.resume.done" && record.work_id === workId,
+    );
+    const shown = records.find(
+      (record) =>
+        record.event === "work_session.show.done" &&
+        record.work_id === workId &&
+        record.session_id === readonlySessionId &&
+        record.read_only === true,
+    );
+    if (!joined || !resumed || !shown) continue;
+    if (Number(shown.pending_adoption_count ?? -1) !== 0) continue;
+    if (Number(shown.transcript_count ?? 0) < 2) continue;
+    if (uiState.readonly_banner_visible !== true) continue;
+    if (uiState.readonly_input_disabled !== true) continue;
+    if (uiState.readonly_send_disabled !== true) continue;
+    if (uiState.active_session_restored !== true) continue;
+    const visibleText = String(uiState.readonly_visible_text ?? "");
+    if (!visibleText.includes("林瑶")) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: workId,
+      session_id: readonlySessionId,
+      key_events: keyEvents,
+      transcript_count: shown.transcript_count,
+      pending_adoption_count: shown.pending_adoption_count,
     };
   }
 
@@ -1381,6 +1449,45 @@ function memoryRecallContextBehavior(records, evidence, options) {
       "planner_received_context_before_frame",
       "no_error_events",
       "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function sessionHistoryReadonlyBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au03-session-history-readonly" &&
+      record.readonly_session_id === evidence.session_id,
+  );
+  if (!uiState) return null;
+
+  const showDone = records.find(
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.work_id === evidence.work_id &&
+      record.session_id === evidence.session_id,
+  );
+  if (!showDone || showDone.read_only !== true) return null;
+  if (Number(showDone.pending_adoption_count ?? -1) !== 0) return null;
+  if (uiState.readonly_banner_visible !== true) return null;
+  if (uiState.readonly_input_disabled !== true) return null;
+  if (uiState.readonly_send_disabled !== true) return null;
+  if (uiState.active_session_restored !== true) return null;
+
+  return {
+    slice_id: "au03-session-history-readonly",
+    behavior: "historical_session_transcript_opened_readonly_from_real_workbench",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "session_search_started_from_real_workbench",
+      "history_session_snapshot_loaded_through_web_application_persistence",
+      "exited_session_opened_as_read_only",
+      "old_pending_adoptions_not_restored",
+      "chat_input_and_send_disabled_while_viewing_history",
+      "active_session_view_can_be_restored",
     ],
   };
 }

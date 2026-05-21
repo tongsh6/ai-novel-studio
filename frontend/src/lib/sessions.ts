@@ -40,6 +40,16 @@ export interface WorkspaceResumeSnapshot {
   resume_trace_refs: string[];
 }
 
+export interface WorkspaceSessionSnapshot {
+  work: WorkspaceResumeSnapshot["work"];
+  session: WorkSessionDto;
+  read_only: boolean;
+  transcript: SessionTranscriptEntry[];
+  pending_adoptions: Record<string, unknown>[];
+  resolved_adoptions: Record<string, unknown>[];
+  resume_trace_refs: string[];
+}
+
 export interface ChatMessageFromTranscript {
   role: "user" | "assistant";
   text: string;
@@ -61,10 +71,23 @@ export function searchSessionsPath(workId: string, query: string): string {
   return `/api/works/${encodeURIComponent(workId)}/sessions${suffix ? `?${suffix}` : ""}`;
 }
 
+export function sessionSnapshotPath(workId: string, sessionId: string): string {
+  return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}`;
+}
+
 export async function resumeWorkspace(workId: string): Promise<WorkspaceResumeSnapshot> {
   const res = await fetch(url(resumeSessionPath(workId)));
   if (!res.ok) throw new Error(`resumeWorkspace failed: HTTP ${res.status}`);
   return (await res.json()) as WorkspaceResumeSnapshot;
+}
+
+export async function getSessionSnapshot(
+  workId: string,
+  sessionId: string,
+): Promise<WorkspaceSessionSnapshot> {
+  const res = await fetch(url(sessionSnapshotPath(workId, sessionId)));
+  if (!res.ok) throw new Error(`getSessionSnapshot failed: HTTP ${res.status}`);
+  return (await res.json()) as WorkspaceSessionSnapshot;
 }
 
 export async function searchSessions(workId: string, query: string): Promise<WorkSessionDto[]> {

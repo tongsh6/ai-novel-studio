@@ -201,6 +201,15 @@ export const WORKBENCH = {
   actionReject: "拒绝",
   actionCancel: "取消",
   actionAnswer: "回答",
+  archiveRailTitle: "作品档案",
+  archiveRailOpen: "打开档案",
+  archiveRailDetail: "查看详情",
+  pendingAdoptionsPrefix: "待采纳",
+  sessionSearchPlaceholder: "搜索会话",
+  sessionReadOnlyTitle: "历史会话",
+  sessionReadOnlyDescription: "正在只读查看历史 transcript。新输入仍会回到当前活跃会话。",
+  sessionBackToActive: "返回当前会话",
+  sessionOpenFailure: "会话打开失败，请重试。",
 } as const;
 
 // ============================================================

@@ -339,6 +339,33 @@
   overflow-y: auto;
 }
 
+.readOnlySessionBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 800px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-secondary);
+}
+
+.readOnlySessionTitle {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.readOnlySessionDescription {
+  margin-top: 4px;
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
 .userMsg, .assistantMsg {
   display: flex;
   flex-direction: column;
@@ -686,14 +713,24 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  width: 100%;
   border: 1px solid var(--border-subtle);
   border-radius: 6px;
   padding: 8px;
   background-color: var(--surface-primary);
+  cursor: pointer;
+  text-align: left;
 }
 
 .sessionItemActive {
   border-color: var(--foreground-primary);
+}
+
+.sessionItem:hover,
+.sessionItem:focus,
+.sessionItemActive:hover,
+.sessionItemActive:focus {
+  background-color: var(--surface-secondary);
 }
 
 .sessionTitle {

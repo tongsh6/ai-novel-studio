@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  sessionSnapshotPath,
   resumeSessionPath,
   searchSessionsPath,
   shouldInsertWorkspaceWelcome,
@@ -16,6 +17,12 @@ describe("session API helpers", () => {
   it("builds encoded search path", () => {
     expect(searchSessionsPath("work-1", "妹妹 林瑶")).toBe(
       "/api/works/work-1/sessions?query=%E5%A6%B9%E5%A6%B9+%E6%9E%97%E7%91%B6",
+    );
+  });
+
+  it("builds encoded session snapshot path", () => {
+    expect(sessionSnapshotPath("work 1", "session/1")).toBe(
+      "/api/works/work%201/sessions/session%2F1",
     );
   });
 

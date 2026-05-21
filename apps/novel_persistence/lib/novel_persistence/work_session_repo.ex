@@ -24,7 +24,8 @@ defmodule NovelPersistence.WorkSessionRepo do
   end
 
   @doc "Return the newest active session for a work, creating one when missing."
-  @spec ensure_active_for_work(String.t()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
+  @spec ensure_active_for_work(String.t()) ::
+          {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
   def ensure_active_for_work(work_id) when is_binary(work_id) do
     case latest_active(work_id) do
       nil -> create(%{work_id: work_id, title: "默认会话"})
@@ -39,6 +40,14 @@ defmodule NovelPersistence.WorkSessionRepo do
     |> where([s], s.work_id == ^work_id)
     |> order_by([s], desc: s.last_opened_at, desc: s.updated_at)
     |> Repo.all()
+  end
+
+  @doc "Get one session scoped to a work."
+  @spec get_by_work(String.t(), String.t()) :: WorkSession.t() | nil
+  def get_by_work(work_id, session_id) when is_binary(work_id) and is_binary(session_id) do
+    WorkSession
+    |> where([s], s.work_id == ^work_id and s.id == ^session_id)
+    |> Repo.one()
   end
 
   @doc "Search session title, summary, and transcript inside a work."

@@ -33,6 +33,36 @@ defmodule NovelApplication.WorkSessionService do
     end
   end
 
+  @doc "Return a work-scoped session snapshot without changing the active session."
+  @spec show(String.t(), String.t()) ::
+          {:ok, map()} | {:error, :work_not_found | :session_not_found}
+  def show(work_id, session_id) when is_binary(work_id) and is_binary(session_id) do
+    with work when not is_nil(work) <- WorkService.get(work_id),
+         %WorkSession{} = session <- WorkSessionRepo.get_by_work(work_id, session_id) do
+      transcript = WorkSessionRepo.transcript(session.id)
+      turn_results = transcript_turn_results(transcript)
+      read_only? = session.status != "ACTIVE"
+
+      {:ok,
+       %{
+         work: work,
+         session: session_dto(session),
+         read_only: read_only?,
+         transcript: Enum.map(transcript, &interaction_dto/1),
+         pending_adoptions: pending_adoptions_for_session(read_only?, turn_results),
+         resolved_adoptions: resolved_adoptions(turn_results),
+         resume_trace_refs: resume_trace_refs(turn_results)
+       }}
+    else
+      nil ->
+        if WorkService.get(work_id) == nil do
+          {:error, :work_not_found}
+        else
+          {:error, :session_not_found}
+        end
+    end
+  end
+
   @doc "Search sessions in one work."
   @spec search(String.t(), String.t()) :: [map()]
   def search(work_id, query) do
@@ -102,6 +132,9 @@ defmodule NovelApplication.WorkSessionService do
     end)
     |> Enum.reject(&MapSet.member?(resolved_ids, &1.artifact_id))
   end
+
+  defp pending_adoptions_for_session(true, _turn_results), do: []
+  defp pending_adoptions_for_session(false, turn_results), do: pending_adoptions(turn_results)
 
   defp resolved_adoptions(turn_results) do
     turn_results
