@@ -70,6 +70,10 @@ function latestActionResult() {
     .at(-1)?.body;
 }
 
+function latestSentEvent(event) {
+  return frames.filter((frame) => frame.direction === "sent" && frame.event === event).at(-1);
+}
+
 async function waitForFrame(predicate, message, timeoutMs = 60_000) {
   const started = Date.now();
 
@@ -691,12 +695,131 @@ async function driveCanonConflictRecovery(page) {
   ];
 }
 
+async function driveP1ChapterPlanMinimum(page) {
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.getByRole("button", { name: "开始规划" }).click();
+
+  const planMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("章节大纲"),
+    "Real workbench did not send chapter plan user_message with micro plan enabled",
+  );
+
+  const generationFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "plot_outline" &&
+      frame.body?.tool_result?.output?.artifact_type === "outline_draft" &&
+      frame.body?.adoption_state?.pending?.[0]?.payload?.chapter_count === 12,
+    "No P1 chapter plan outline_draft turn_result websocket frame was received",
+  );
+  const generationTurnResult = generationFrame.body;
+  const pendingArtifact = generationTurnResult.adoption_state.pending[0];
+
+  await page.waitForFunction(() => document.body.innerText.includes("章节计划待采纳"), {
+    timeout: 10_000,
+  });
+  await page.getByRole("button", { name: /^采纳$/ }).first().click();
+
+  const adoptFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "adopt" &&
+      frame.body?.artifact_id === pendingArtifact.artifact_id &&
+      frame.body?.artifact_type === "outline_draft",
+    "Real workbench did not send adopt event for outline_draft artifact",
+  );
+
+  const actionResultFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "accepted" &&
+      frame.body?.artifact_id === pendingArtifact.artifact_id &&
+      frame.body?.artifact_type === "outline_draft",
+    "No accepted outline_draft action_result websocket frame was received",
+  );
+
+  const adoptionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.adoption_state?.resolved?.[0]?.artifact_id === pendingArtifact.artifact_id &&
+      frame.body?.adoption_state?.resolved?.[0]?.adoption_status === "ACCEPTED",
+    "No accepted outline_draft adoption turn_result websocket frame was received",
+  );
+  const adoptionTurnResult = adoptionFrame.body;
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("已采纳") &&
+      document.body.innerText.includes("P1 10 万字章节计划"),
+    { timeout: 10_000 },
+  );
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+
+  await waitForFrame(
+    (frame) => frame.direction === "sent" && frame.event === "get_chapter_plans",
+    "Real workbench did not request adopted chapter plans through the archive channel",
+  );
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes("第01章：底层灵气账单") &&
+      document.body.innerText.includes("第12章：第一卷终局：灵气回流"),
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const chapterTitleMatches = visibleText.match(/第\d{2}章：/g) ?? [];
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, generationTurnResult, sentMessage);
+
+  assert(chapterTitleMatches.length >= 12, "Accepted chapter plan did not render 12 visible chapters");
+  assert(
+    actionResultFrame.body?.persistence?.reading_projection == null,
+    "Outline adoption unexpectedly materialized a reading projection",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: generationTurnResult.turn_id,
+      generation_turn_id: generationTurnResult.turn_id,
+      adoption_turn_id: adoptionTurnResult.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      chapter_count: pendingArtifact.payload.chapter_count,
+      chapter_titles_visible_count: chapterTitleMatches.length,
+      chapter_plan_visible: visibleText.includes("已采纳章节计划"),
+      first_chapter_visible: visibleText.includes("第01章：底层灵气账单"),
+      final_chapter_visible: visibleText.includes("第12章：第一卷终局：灵气回流"),
+      outline_adopt_clicked: true,
+      outline_adopted: true,
+      reading_projection_materialized: Boolean(actionResultFrame.body?.persistence?.reading_projection),
+      adopt_payload: adoptFrame.body,
+      chapter_plan_request_sent: Boolean(latestSentEvent("get_chapter_plans")),
+      action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
+      user_message_text: planMessageFrame.body?.text,
+    },
+  ];
+}
+
 const drivers = {
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,
   "au05-conflict-cross-work-recovery": driveConflictCrossWorkRecovery,
   "au05-canon-conflict-recovery": driveCanonConflictRecovery,
+  "p1-chapter-plan-minimum": driveP1ChapterPlanMinimum,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,
 };
