@@ -1,6 +1,6 @@
 # AU05 Conflict / Cross-Work Adoption Recovery / 冲突与跨作品采纳恢复
 
-- 状态：checkpoint closed（cross-work）；canon conflict recovery 仍待后续
+- 状态：checkpoint closed（cross-work）；后续 canon conflict recovery 已闭环
 - 类型：Safety Slice / Adoption Boundary
 - 来源：`tasks/slices/AU05-stale-conflict-cross-work-freshness.md` §5.4；`docs/design-v3/acceptance/author/AU-05-artifact-adoption.md` SC-AU05-C4/C5；AU05-GAP-06
 - 当前目标：在 stale restored candidate 已被真实 Tauri 工作台拒绝后，继续把 canon conflict 与 cross-work action 的拒绝、恢复或覆盖确认做成可复跑的真实产品链路。
@@ -84,6 +84,6 @@
 
 ### 5.4 未闭环缺口
 
-- canon conflict 仍缺真实 revision/canon 依据、恢复或覆盖确认产品链路。
+- canon conflict checkpoint 已补；仍缺真实 revision/canon store 自动计算、覆盖确认和 StateTrace 产品链路。
 - context version / state snapshot freshness 仍未形成完整持久化 contract。
 - 完整 AU-04 confirmation re-gate 与 StateTrace 持久化仍是后续 slice。

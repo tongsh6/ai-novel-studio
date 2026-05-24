@@ -86,7 +86,7 @@
 
 ### 5.4 未闭环缺口
 
-- canon conflict 仍缺真实 revision/canon 依据、恢复或覆盖确认产品链路。
+- 后续 cross-work 与 canon conflict checkpoint 已补；仍缺真实 revision/canon store 自动计算、覆盖确认和完整 StateTrace 产品链路。
 - cross-work 仍缺真实工作台跨作品旧 action 的可复跑验收。
 - context version / state snapshot freshness 仍未形成完整持久化 contract。
 - 完整 AU-04 confirmation re-gate 与 StateTrace 持久化仍是后续 slice。

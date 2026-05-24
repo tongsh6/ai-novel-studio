@@ -138,9 +138,9 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 Longest Closed Prefix：B1-B11。
 
-Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接、F5 高风险 confirmation checkpoint、F6 stale restored candidate checkpoint 和 F7 cross-work recovery checkpoint 已闭环，下一推进继续 Journey F 的 canon conflict 采纳安全恢复。
+Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接、F5 高风险 confirmation checkpoint、F6 stale restored candidate checkpoint、F7 cross-work recovery checkpoint 和 F8 canon conflict recovery checkpoint 已闭环，下一推进转向 Journey D 的 P1 章节计划最小闭环。
 
-Next Proof：Tauri：canon conflict 采纳不能静默成功，必须进入 recovery / confirmation，并在 trace 中解释原因。
+Next Proof：Tauri：真实工作台生成并采纳 10-20 章章节计划；未采纳计划不进入作品事实，采纳后计划能被后续正文生成或计划视图消费。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -159,10 +159,10 @@ Next Proof：Tauri：canon conflict 采纳不能静默成功，必须进入 reco
 当前连续断点：
 
 ```text
-B1-B11 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed；F6 stale restored candidate checkpoint closed；F7 cross-work recovery checkpoint closed；下一阶段继续 Journey F 的 canon conflict recovery
+B1-B11 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed；F6 stale restored candidate checkpoint closed；F7 cross-work recovery checkpoint closed；F8 canon conflict recovery checkpoint closed；下一阶段转向 Journey D 的 P1 chapter plan minimum
 ```
 
-因此下一项功能推进应是 `AU05-canon-conflict-recovery`，除非出现 P0 bug。
+因此下一项功能推进应是 `P1-chapter-plan-minimum`，除非出现 P0 bug。
 
 ---
 
@@ -222,7 +222,7 @@ Next Proof：从一个创作目标进入角色/章节/场景/正文其中一种�
 | D4 | 立项 -> 世界观/角色/大纲/章节/场景的连续规划 | AU-02 / AU-09 | MicroPlan / ToolRequest / DialogueContext | gap | Document only | v2 lifecycle 设计、v3 acceptance 分散覆盖 | 缺统一生命周期入口和分阶段 proof。 |
 | D5 | 修订已采纳内容，保留 provenance 和冲突恢复 | AU-05 / AU-08 | AdoptionDecision / DecisionTrace | gap | Document only | AU-05 conflict/freshness gaps | 缺 revision boundary、覆盖确认、阅读投影刷新。 |
 | D6 | 内容质量门禁参与采纳或修订 | AU-05 / AU-09 | ToolResult / OrchestratorDecision / TraceSummaryView | gap | Document only | v2 quality gates 已设计，v3 首批只接最小质量证明 | 缺质量 finding 到 UI/proof 的产品链。 |
-| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | gap | Document only | `docs/product/novel-output-milestones.md` | 缺章节计划、逐章正文生成、正文有效字数统计、阅读投影、导出和真实工作台外部验收。 |
+| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | next | Document only | `docs/product/novel-output-milestones.md`；`tasks/slices/P1-chapter-plan-minimum.md` | 队首先补章节计划最小闭环；后续仍缺逐章正文生成、正文有效字数统计、阅读投影、导出和真实工作台外部验收。 |
 
 ---
 
@@ -282,9 +282,9 @@ Next Proof：真实工作台高风险动作 -> confirmation behavior -> 点击�
 
 Longest Closed Prefix：F1-F4 最小闭环。
 
-Current Breakpoint：F8 canon conflict 安全恢复不足；stale restored candidate rejection 和 cross-work recovery 已有真实 Tauri checkpoint。
+Current Breakpoint：F8 canon conflict recovery checkpoint 已闭环；完整 context version/revision freshness、覆盖确认和 StateTrace 仍待后续。
 
-Next Proof：canon conflict candidate 不能被静默采纳，必须进入恢复或覆盖确认。
+Next Proof：后续 P1 章节计划和正文生产必须继续复用 adoption/canon gate，避免长篇事实被静默污染。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -294,8 +294,8 @@ Next Proof：canon conflict candidate 不能被静默采纳，必须进入恢复
 | F4 | 修改后再采纳从真实工作台触发 | AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au05-modify-draft-boundary-tauri/summary.json` | 修改链路的正式 revision boundary 仍缺。 |
 | F5 | 高风险采纳要求确认并重新 gate | AU-05 / AU-06 | BehaviorState / ConfirmationBinding | checkpoint closed | Tauri automation | `artifacts/slice-verify/au05-adoption-safety-freshness-tauri/summary.json` | 已证明高风险候选不能静默采纳；完整 AU-04 confirmation lifecycle 仍需后续接 re-gate。 |
 | F6 | stale source 草稿不能采纳 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-stale-conflict-cross-work-freshness-tauri/summary.json`；`tasks/slices/AU05-stale-conflict-cross-work-freshness.md` | stale restored candidate 已证明真实工作台拒绝且不写 production fact；context version 和 revision freshness 仍缺。 |
-| F7 | cross-work 草稿不能采纳到当前作品 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-conflict-cross-work-recovery-tauri/summary.json`；`tasks/slices/AU05-conflict-cross-work-recovery.md` | cross-work candidate 已证明真实工作台 fail_with_recovery 且不写 production fact；canon conflict recovery 仍缺。 |
-| F8 | canon conflict 采纳恢复 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | next | Document only | `tasks/slices/AU05-canon-conflict-recovery.md` | 需要真实工作台触发 canon conflict 采纳，服务端返回恢复或覆盖确认，UI 显示原因且不写 production fact。 |
+| F7 | cross-work 草稿不能采纳到当前作品 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-conflict-cross-work-recovery-tauri/summary.json`；`tasks/slices/AU05-conflict-cross-work-recovery.md` | cross-work candidate 已证明真实工作台 fail_with_recovery 且不写 production fact；完整 work-scoped adoption store 仍缺。 |
+| F8 | canon conflict 采纳恢复 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-canon-conflict-recovery-tauri/summary.json`；`tasks/slices/AU05-canon-conflict-recovery.md` | 结构化 canon conflict candidate 已证明真实工作台 fail_with_recovery 且不写 production fact；自动读取 canon/revision 计算冲突、覆盖确认、StateTrace 仍缺。 |
 | F9 | 采纳可回放且 AI 不谎报状态 | AU-05 / AU-07 | StateTrace / ReplayReport | partial | Application test | truthfulness/tool result tests | 缺成功/失败文案、StateTrace 聚合和 replay。 |
 
 ---
@@ -425,7 +425,7 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | C 自然对话与探索 | C1-C6 | C7 error recovery | 1 | Tauri | watch |
 | D 创作生命周期 | D1-D3 最小闭环 | D4 lifecycle path | 多个 | Mixed | needs-focus |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
-| F 草稿与采纳 | F1-F7 checkpoint | canon conflict recovery | 多个 P0 | Tauri | watch |
+| F 草稿与采纳 | F1-F8 checkpoint | revision/state trace completeness | 多个 P0 | Tauri | watch |
 | G 阅读投影 | G1-G2 | G3 refresh state machine | 多个 P0/P1 | Tauri | watch |
 | H 记忆治理 | H1-H2/H4 | H3/H6 management/governed memory | 多个 P0/P1 | Tauri + tests | needs-focus |
 | I Trace/Replay | I1 | I2-I5 trace/replay completeness | 多个 P0/P1 | Tauri + tests | needs-focus |
@@ -434,10 +434,10 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 当前推进锁定：
 
 ```text
-Current Focus: AU-05 canon conflict 采纳安全恢复
-Current Journey: Journey F
-Current Breakpoint: F8 canon conflict adoption safety
-Next Task: AU05-canon-conflict-recovery
+Current Focus: P1 章节计划最小闭环
+Current Journey: Journey D
+Current Breakpoint: D7 P1 chapter plan minimum
+Next Task: P1-chapter-plan-minimum
 ```
 
 ---
@@ -462,18 +462,18 @@ Next Task: AU05-canon-conflict-recovery
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: AU-05 canon conflict 采纳安全恢复
-Active Journey: Journey F
-Queue head: AU05-canon-conflict-recovery
+Current Focus: P1 章节计划最小闭环
+Active Journey: Journey D
+Queue head: P1-chapter-plan-minimum
 ```
 
 本文对应位置：
 
 ```text
-Journey F
-Step F8 canon conflict adoption safety
+Journey D
+Step D7 P1 10 万字最小长篇闭环
 Status: next
-Gap / Next: stale restored candidate 和 cross-work recovery 已闭环；tasks/NEXT.md 队首 AU05-canon-conflict-recovery
+Gap / Next: 先补 10-20 章章节计划的真实工作台生成与采纳；tasks/NEXT.md 队首 P1-chapter-plan-minimum
 ```
 
 选择规则：

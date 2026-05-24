@@ -200,7 +200,7 @@ P1 是当前最适合转成承重 slice 的阶段目标。P1 不要求工业化�
 
 ## 7. 建议推进顺序
 
-在当前 AU-05 canon conflict recovery 队首之后，P1 能力建议拆为以下产品 checkpoint：
+AU-05 canon conflict recovery 已闭环后，P1 能力建议拆为以下产品 checkpoint；当前队首为第一项：
 
 1. **P1-chapter-plan-minimum**：真实工作台生成并采纳 10-20 章章节计划。
 2. **P1-chapter-draft-generation**：按章节计划生成单章正文草稿，正文有效字数达到下限。

@@ -8,13 +8,13 @@
 
 ## 1. Current Focus
 
-**AU-05 采纳安全与新鲜度：canon conflict recovery**
+**P1 10 万字最小长篇闭环：章节计划最小闭环**
 
-AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可以先点选候选继续探索，再通过服务端授权的 `choose_candidate` action 进入 `AdoptionBoundary`。高风险候选 confirmation checkpoint、恢复自持久化 transcript 的 stale candidate rejection、以及 cross-work candidate recovery failure 都已闭环。下一阶段继续沿 Journey F 加固 canon conflict，避免与当前作品事实冲突的内容被静默采纳。
+AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可以先点选候选继续探索，再通过服务端授权的 `choose_candidate` action 进入 `AdoptionBoundary`。高风险候选 confirmation、恢复自持久化 transcript 的 stale candidate rejection、cross-work candidate recovery failure、以及 canon conflict recovery 都已闭环。下一阶段从 Journey F 的安全门禁转向 Journey D 的小说产出主链，先补 P1 10 万字最小长篇的章节计划 checkpoint。
 
 ## 2. Why This Focus
 
-采纳安全是作品事实可信度的第一道门禁。候选采纳桥接已经证明 UI 不能绕过 available action；高风险、stale restored candidate 和 cross-work checkpoint 已分别证明确认、拒绝与恢复失败路径不会写作品事实。现在需要继续证明 canon conflict 不会静默进入作品事实，否则后续作品档案、阅读投影、记忆治理和 trace replay 都会读到不可信状态。
+P1 的最终目标不是一次性生成 10 万字，而是让真实工作台具备可审计的长篇生产链路。canon conflict 已证明与当前作品事实冲突的候选不会静默写入；现在最高杠杆缺口是“章节计划”这个长篇产出路线图。如果章节计划仍只是聊天文本，后续正文生成、字数统计、阅读投影、导出和连续性治理都没有稳定对象可消费。
 
 已闭环的最近 checkpoint：
 
@@ -30,22 +30,23 @@ AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可�
 | AU05 high-risk adoption confirmation | closed | `artifacts/slice-verify/au05-adoption-safety-freshness-tauri/summary.json` |
 | AU05 stale restored candidate rejection | checkpoint closed | `artifacts/slice-verify/au05-stale-conflict-cross-work-freshness-tauri/summary.json` |
 | AU05 cross-work candidate recovery failure | checkpoint closed | `artifacts/slice-verify/au05-conflict-cross-work-recovery-tauri/summary.json` |
+| AU05 canon conflict recovery failure | checkpoint closed | `artifacts/slice-verify/au05-canon-conflict-recovery-tauri/summary.json` |
 
 ## 3. Active Journey
 
-来源：`docs/product/user-journeys.md` 的 Journey C / Journey F。
+来源：`docs/product/user-journeys.md` 的 Journey D；`docs/product/novel-output-milestones.md` 的 P1。
 
 ```text
-候选或草稿已展示
-→ 作者触发采纳
-→ 服务端校验 source turn / available action / candidate ref / work boundary / freshness
-→ adoption boundary 重新 gate
-→ 高风险、过期、冲突或跨作品 action 进入 confirmation / rejection / recovery
-→ UI 显示等待确认或拒绝原因
-→ trace 解释为什么不能静默写入作品事实
+作者输入长篇创作目标
+→ AI 生成章节计划草稿
+→ 草稿以待采纳 artifact/card 展示
+→ 作者明确采纳
+→ adoption boundary 裁决
+→ 章节计划进入可消费作品事实或章节计划视图
+→ 后续正文生成、字数统计、阅读和导出以该计划为路线图
 ```
 
-当前断点：**canon conflict 采纳安全恢复**。
+当前断点：**P1 章节计划最小闭环**。
 
 ## 4. Queue
 
@@ -62,7 +63,8 @@ AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可�
 | 7 | AU05-adoption-safety-freshness | checkpoint closed | - | 高风险候选不能静默采纳，必须进入 confirmation。 | `artifacts/slice-verify/au05-adoption-safety-freshness-tauri/summary.json` |
 | 8 | AU05-stale-conflict-cross-work-freshness | checkpoint closed | - | 高风险 confirmation 后，优先证明恢复出的 stale candidate 不能静默采纳。 | `artifacts/slice-verify/au05-stale-conflict-cross-work-freshness-tauri/summary.json`；真实工作台恢复旧候选、点击“采用这个方向”，服务端返回 `reject`，UI 显示拒绝原因且 `production_write_performed=false`。 |
 | 9 | AU05-conflict-cross-work-recovery | checkpoint closed | - | stale source 后，优先证明跨作品 action 不能静默采纳到当前作品。 | `artifacts/slice-verify/au05-conflict-cross-work-recovery-tauri/summary.json`；真实工作台恢复其它作品候选、点击“采用这个方向”，服务端返回 `fail_with_recovery`，UI 显示失败原因且 `production_write_performed=false`。 |
-| 10 | AU05-canon-conflict-recovery | next | - | stale source 与 cross-work 已闭环；剩余最高风险是与当前 canon/revision 冲突的候选或草稿被静默采纳，污染作品事实与后续投影/记忆。 | `tasks/slices/AU05-canon-conflict-recovery.md`；Tauri：真实工作台触发 canon conflict 采纳，服务端返回 recovery/confirmation，UI 显示原因且不写 production fact。 |
+| 10 | AU05-canon-conflict-recovery | checkpoint closed | - | 与当前 canon/revision 冲突的候选不能静默采纳，必须进入恢复失败或后续覆盖确认。 | `artifacts/slice-verify/au05-canon-conflict-recovery-tauri/summary.json`；真实工作台触发 canon conflict 采纳，服务端返回 `fail_with_recovery`，UI 显示失败原因且不写 production fact。 |
+| 11 | P1-chapter-plan-minimum | next | - | P1 10 万字最小长篇闭环需要先有可采纳、可追踪、可消费的章节计划；否则后续逐章正文、有效字数统计、阅读投影和导出都没有稳定路线图。 | `tasks/slices/P1-chapter-plan-minimum.md`；Tauri：真实工作台生成并采纳 10-20 章章节计划，后续消费者可读取，未采纳计划不进入作品事实。 |
 
 ## 5. Selection Rule
 
@@ -89,3 +91,4 @@ AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可�
 | 2026-05-24 | `AU05-adoption-safety-freshness` 的高风险 confirmation checkpoint 已闭环，队首推进到 stale / conflict / cross-work freshness。 | 原生 Tauri 外部 UI driver 证明真实工作台输入高风险候选并点击“采用这个方向”后，服务端授权 `choose_candidate` 进入 `AdoptionBoundary`，返回 `require_confirmation` / `needs_confirmation`，UI 显示“候选方向待确认”，`candidate_adopted=false` 且 `production_write_performed=false`。Application 回归已覆盖 cross-work rejection，但真实 UI 场景仍需后续闭环。 |
 | 2026-05-24 | `AU05-stale-conflict-cross-work-freshness` 的 stale restored candidate checkpoint 已闭环，队首推进到 conflict / cross-work recovery。 | 原生 Tauri 外部 UI driver 证明真实工作台从持久化 transcript 恢复出 stale candidate 后，作者点击“采用这个方向”，服务端授权 `choose_candidate` 经 `AdoptionBoundary` 返回 `reject`，UI 显示“候选方向未采用”，`candidate_adopted=false` 且 `production_write_performed=false`。剩余 canon conflict 与跨作品旧 action 仍需真实 UI 验收。 |
 | 2026-05-24 | `AU05-conflict-cross-work-recovery` 的 cross-work checkpoint 已闭环，队首推进到 canon conflict recovery。 | 原生 Tauri 外部 UI driver 证明真实工作台从当前作品 transcript 恢复出其它作品来源候选后，作者点击“采用这个方向”，服务端授权 `choose_candidate` 经 `AdoptionBoundary` 返回 `fail_with_recovery`，UI 显示“候选方向采用失败”，`candidate_adopted=false` 且 `production_write_performed=false`。剩余 canon/revision conflict 仍需真实 UI 验收。 |
+| 2026-05-24 | `AU05-canon-conflict-recovery` 的 canon conflict checkpoint 已闭环，队首推进到 `P1-chapter-plan-minimum`。 | 原生 Tauri 外部 UI driver 证明真实工作台恢复出带结构化 `canon_conflicts` 的“年龄设定覆盖”候选后，作者点击“采用这个方向”，服务端授权 `choose_candidate` 经 `AdoptionBoundary` 返回 `fail_with_recovery`，reason_codes 包含 `canon_conflict_detected` / `conflict_recovery_required`，UI 显示“候选方向采用失败”，`candidate_adopted=false` 且 `production_write_performed=false`。下一步按 `docs/product/novel-output-milestones.md` 转向 P1 长篇产出主链的章节计划最小闭环。 |
