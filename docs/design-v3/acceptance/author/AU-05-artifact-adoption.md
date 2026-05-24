@@ -116,7 +116,7 @@
 | 期望结果 | 系统记录 selection intent 或继续对话；不产生 adopted state，不刷新阅读投影 |
 | 当前证据 | `ADR-0010` 明确 selection != adoption；`adoption_boundary_test.exs` 覆盖高风险 selection 不 adopted；`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` 和 `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` 证明真实工作台先继续探索、再明确采纳 |
 | 当前状态 | 最小真实前后端闭环已完成 |
-| 当前缺口 | 高风险、stale、conflict、cross-work 采纳安全仍待 AU05 safety/freshness 加固 |
+| 当前缺口 | 高风险 confirmation 和 stale restored candidate rejection 已有真实 Tauri checkpoint；conflict、cross-work 采纳安全仍待 AU05 safety/freshness 加固 |
 | 优先级 | P0 |
 
 #### SC-AU05-B2 — 点击“采纳”必须走后端 adoption boundary
@@ -188,9 +188,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 系统识别 stale source/action/state snapshot，要求重新生成或重新确认 |
-| 当前证据 | `adoption_boundary_test.exs` 只覆盖 unknown candidate_id -> fail_with_recovery |
-| 当前状态 | 局部测试，不是真 freshness |
-| 当前缺口 | 未实现 source turn / state snapshot / context version freshness check |
+| 当前证据 | `artifacts/slice-verify/au05-stale-conflict-cross-work-freshness-tauri/summary.json` 证明真实 Tauri 工作台从持久化 transcript 恢复出带 `candidate_set_stability: "stale"` 的旧候选，作者点击“采用这个方向”后，服务端授权 `choose_candidate` 经 `AdoptionBoundary` 返回 `reject`，UI 显示“候选方向未采用”，`candidate_adopted=false` 且 `production_write_performed=false`；`adoption_boundary_test.exs`、`action_roundtrip_test.exs`、`workspace_channel_v3_test.exs` 覆盖回归 |
+| 当前状态 | stale restored candidate rejection checkpoint 已闭环 |
+| 当前缺口 | context version / state snapshot / revision freshness 仍未形成完整持久化 contract；conflict/cross-work 仍需真实 UI 验收 |
 | 优先级 | P0 |
 
 #### SC-AU05-C4 — 冲突采纳进入恢复或修订
@@ -308,7 +308,7 @@
 | SC-AU05-B4 | 放弃草稿 | 局部实现 | 否 |
 | SC-AU05-C1 | 低风险采纳有 decision/trace | 已测试 | 否，trace 是字符串 ref |
 | SC-AU05-C2 | 高风险采纳要求确认 | checkpoint closed | 是，高风险候选不能静默采纳；完整 AU-04 re-gate lifecycle 仍未闭环 |
-| SC-AU05-C3 | stale 草稿拒绝 | 部分测试 | 否 |
+| SC-AU05-C3 | stale 草稿拒绝 | checkpoint closed | 是，恢复出的 stale candidate 已由真实工作台拒绝；完整 context version / state snapshot freshness 仍未闭环 |
 | SC-AU05-C4 | 冲突采纳恢复 | 已设计 | 否 |
 | SC-AU05-C5 | 跨作品采纳隔离 | 未实现/未验收 | 否 |
 | SC-AU05-D1 | 采纳后作品档案更新 | UI 壳存在 | 否 |
@@ -318,7 +318,7 @@
 | SC-AU05-E2 | AI 不谎报采纳 | 局部已测试 | 否 |
 | SC-AU05-E3 | 采纳失败恢复 | 局部规则存在 | 否 |
 
-**结论：18 个场景；已有草稿采纳/放弃/修改、候选继续探索、候选授权采纳和高风险候选 confirmation checkpoint 等真实 Tauri 前后端闭环；关键剩余缺口集中在 StateTrace、持久化作品事实、阅读投影刷新状态机，以及 stale、conflict、cross-work 采纳安全。**
+**结论：18 个场景；已有草稿采纳/放弃/修改、候选继续探索、候选授权采纳、高风险候选 confirmation checkpoint 和 stale restored candidate rejection checkpoint 等真实 Tauri 前后端闭环；关键剩余缺口集中在 StateTrace、持久化作品事实、阅读投影刷新状态机，以及 conflict、cross-work 采纳安全。**
 
 ---
 
@@ -331,7 +331,7 @@
 | AU05-GAP-03 — StateTrace / adopted_state_ref 未真实写入 | 当前是字符串 ref，不是持久化 state trace 或作品事实 | 补实现/补验收 | P0 |
 | AU05-GAP-04 — pending adoption 不是持久化待处理箱 | `WorkspaceChat` 从消息内存聚合 pending，切作品/重启/历史会话后不可恢复 | 补实现/补集成 | P0 |
 | AU05-GAP-05 — selection/action/adoption 桥接缺失 | 已闭环：候选卡展示、选择继续探索、授权 `choose_candidate` 采纳边界有完整 Tauri 证据 | 已完成 | closed |
-| AU05-GAP-06 — freshness / conflict / cross-work 检查不足 | stale 测试只是 unknown id；cross-work rejection 已有 application 回归但缺真实 UI 验收；缺 context version、revision、conflict recovery | 补实现/补测试/补验收 | P0 |
+| AU05-GAP-06 — freshness / conflict / cross-work 检查不足 | restored stale candidate 已有真实 Tauri 拒绝证据；cross-work rejection 已有 application 回归但缺真实 UI 验收；缺 context version、revision、conflict recovery | 补实现/补测试/补验收 | P0 |
 | AU05-GAP-07 — 高风险采纳未接 confirmation lifecycle | 高风险 rule 已经通过真实 Tauri 工作台返回 `require_confirmation` / `needs_confirmation` 且不写 production fact；完整 AU-04 re-gate 仍未接 | checkpoint closed / 后续补 confirmation lifecycle | P0 |
 | AU05-GAP-08 — ProjectionHint 未接 ReadingMode | `projection_hints` 未转 `projection_refs`，projection_ref 硬编码 | 补集成/修正 | P1 |
 | AU05-GAP-09 — 修改/放弃链路缺后端 | `modify_draft` / `discard` 前端 helper 有，Channel handler 缺失 | 补实现 | P1 |
@@ -369,7 +369,7 @@ cd frontend && pnpm test -- src/lib/__tests__/socket.test.ts src/lib/__tests__/s
 1. 真实工作台：生成草稿 -> 待采纳卡可见 -> 点击采纳 -> 后端 AdoptionBoundary -> action_result/turn_result。
 2. 采纳后作品档案：pending 移除，已确认设定/角色/章节出现，且来自持久化事实。
 3. 采纳到阅读投影：accepted source 改变 -> projection_refs STALE -> ReadingMode 提示刷新 -> 刷新后可读。
-4. stale/conflict/cross-work：旧草稿、冲突草稿、跨作品草稿不能写入当前作品。
+4. stale/conflict/cross-work：已证明恢复出的 stale candidate 不能写入当前作品；还需补冲突草稿、跨作品草稿不能写入当前作品。
 5. modify/discard：修改后采纳和放弃都有 resolved adoption state 与 trace。
 6. replay/truthfulness：回放能解释来源、作者动作、decision、state trace 和 projection hint。
 ```
