@@ -17,6 +17,7 @@ export const nativeSliceIds = [
   "au03-archive-session-filter",
   "au03-current-work-context-ssot",
   "au03-long-session-compression",
+  "au03-context-source-ui",
   "au07-trace-why-entry",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
@@ -178,6 +179,16 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au03-context-source-ui": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au07-trace-why-entry": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
@@ -329,6 +340,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu03LongSessionCompressionEvidence(records);
   }
 
+  if (sliceId === "au03-context-source-ui") {
+    return findAu03ContextSourceUiEvidence(records);
+  }
+
   if (sliceId === "au07-trace-why-entry") {
     return findAu07TraceWhyEvidence(records);
   }
@@ -409,6 +424,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au03-long-session-compression") {
     return longSessionCompressionBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au03-context-source-ui") {
+    return contextSourceUiBehavior(records, evidence, options);
   }
 
   if (sliceId === "au07-trace-why-entry") {
@@ -1093,6 +1112,71 @@ function findAu03LongSessionCompressionEvidence(records) {
     if (!contextDone?.has_conversation) continue;
     if (contextDone?.has_session_summary !== true) continue;
     if (Number(contextDone.context_refs_count ?? 0) < 1) continue;
+
+    const hasAllEvents = keyEvents.every((event) => {
+      if (event === "work_session.resume.done" || event === "channel.join.done") {
+        return records.some(
+          (record) =>
+            record.event === event &&
+            record.work_id === start.work_id &&
+            record.session_id === start.session_id,
+        );
+      }
+
+      return turnRecords.some(
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
+      );
+    });
+    if (!hasAllEvents) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      work_id: start.work_id,
+      session_id: start.session_id,
+      context_refs_count: contextDone.context_refs_count,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findAu03ContextSourceUiEvidence(records) {
+  const sliceId = "au03-context-source-ui";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+    if (!start || start.generate_micro_plan !== false) continue;
+    if (!hasRequiredCorrelationFields(start)) continue;
+
+    const uiState = turnRecords.find(
+      (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+    );
+    if (!uiState) continue;
+    if (uiState.context_work_id !== start.work_id) continue;
+    if (uiState.active_session_id !== start.session_id) continue;
+    if (uiState.trace_why_dialog_open !== true) continue;
+    if (uiState.trace_why_contains_raw_prompt === true) continue;
+
+    const traceText = String(uiState.trace_why_text ?? "");
+    if (!traceText.includes("参考来源")) continue;
+    if (!traceText.includes("当前作品背景")) continue;
+    if (!traceText.includes("近期对话")) continue;
+    if (!traceText.includes("已确认设定")) continue;
+    if (!traceText.includes("灵源纪元")) continue;
+    if (!traceText.includes("灵源矿区")) continue;
+
+    const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
+    if (!contextDone?.has_snapshot) continue;
+    if (!contextDone?.has_conversation) continue;
+    if (!contextDone?.has_memory) continue;
+    if (Number(contextDone.context_refs_count ?? 0) < 3) continue;
 
     const hasAllEvents = keyEvents.every((event) => {
       if (event === "work_session.resume.done" || event === "channel.join.done") {
@@ -2011,6 +2095,60 @@ function longSessionCompressionBehavior(records, evidence, options) {
       "session_summary_attached_to_context",
       "old_turns_compressed_into_session_summary",
       "latest_recent_transcript_preserved_in_order",
+      "planner_received_context_before_frame",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function contextSourceUiBehavior(records, evidence, options) {
+  const turnIds = evidence.turn_ids ?? [evidence.turn_id];
+  const turnRecords = records.filter((record) => turnIds.includes(record.turn_id));
+
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+  if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) return null;
+
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" && record.slice_id === "au03-context-source-ui",
+  );
+  if (!uiState?.trace_why_dialog_open) return null;
+  if (uiState.trace_why_contains_raw_prompt === true) return null;
+  if (uiState.context_work_id !== evidence.work_id) return null;
+  if (uiState.active_session_id !== evidence.session_id) return null;
+
+  const contextDone = turnRecords.find((record) => record.event === "context.assemble.done");
+  if (!contextDone?.has_snapshot) return null;
+  if (!contextDone?.has_conversation) return null;
+  if (!contextDone?.has_memory) return null;
+  if (Number(contextDone.context_refs_count ?? 0) < 3) return null;
+
+  const traceText = String(uiState.trace_why_text ?? "");
+  for (const expected of ["当前作品背景", "近期对话", "已确认设定", "灵源纪元", "灵源矿区"]) {
+    if (!traceText.includes(expected)) return null;
+  }
+
+  return {
+    slice_id: "au03-context-source-ui",
+    behavior: "author_visible_context_sources_render_from_trace_summary",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "message_sent_from_real_workbench",
+      "current_work_session_and_memory_context_attached",
+      "why_entry_clicked_in_message_stream",
+      "current_work_source_summary_visible",
+      "recent_dialogue_source_summary_visible",
+      "confirmed_memory_source_summary_visible",
+      "raw_prompt_provider_debug_not_visible",
       "planner_received_context_before_frame",
       "no_error_events",
       "assistant_messages_not_fallback",

@@ -59,6 +59,27 @@ defmodule NovelApplication.ContextGroundingTest do
       refute Enum.any?(ctx.context_refs, &(&1.source_type == :current_work))
     end
 
+    test "summarizes persisted work fields into author-visible current work refs" do
+      fetcher = fn _ws_id ->
+        {:ok,
+         %{
+           "title" => "灵源纪元",
+           "genre" => "东方奇幻",
+           "core_selling_point" => "林烬追查灵源矿区真相",
+           "target_reader" => "悬疑成长读者",
+           "tone_preference" => "克制、带希望感"
+         }, nil, nil, nil}
+      end
+
+      ctx = ContextAssembler.assemble("ws-work-summary", fetcher)
+      ref = Enum.find(ctx.context_refs, &(&1.source_type == :current_work))
+
+      assert ref.summary =~ "灵源纪元"
+      assert ref.summary =~ "东方奇幻"
+      assert ref.summary =~ "林烬追查灵源矿区真相"
+      assert ref.summary =~ "悬疑成长读者"
+    end
+
     test "assembles empty context correctly" do
       ctx = ContextAssembler.assemble("ws-empty", &empty_fetcher/1)
 

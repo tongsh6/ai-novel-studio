@@ -119,8 +119,65 @@ async function driveLongSessionCompression(page) {
   return [uiState];
 }
 
+async function openLatestWhyDialog(page) {
+  const whyButton = page.getByRole("button", { name: /为什么/ }).last();
+  await whyButton.waitFor({ timeout: 10_000 });
+  await whyButton.click();
+
+  const dialog = page.getByRole("dialog").first();
+  await dialog.waitFor({ timeout: 10_000 });
+  await page.waitForFunction(
+    () => document.body.innerText.includes("参考来源"),
+    { timeout: 10_000 },
+  );
+
+  return dialog.innerText();
+}
+
+async function driveContextSourceUi(page) {
+  await page.locator(chatInputSelector).fill("林烬为什么要去灵源矿区？");
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("林烬为什么要去灵源矿区？"),
+    { timeout: 10_000 },
+  );
+  for (let attempt = 0; attempt < 120 && !latestTurnResult(); attempt += 1) {
+    await page.waitForTimeout(500);
+  }
+  await page.waitForTimeout(300);
+
+  const sentMessage = latestSentUserMessage();
+  const turnResult = latestTurnResult();
+  assert(sentMessage, "No user_message websocket frame was sent");
+  assert(turnResult, "No turn_result websocket frame was received");
+  assert(turnResult.trace_summary, "Turn result did not include trace summary");
+
+  const whyText = await openLatestWhyDialog(page);
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
+
+  assert(whyText.includes("参考来源"), "Why dialog did not show the source section");
+  assert(whyText.includes("当前作品背景"), "Why dialog did not show current work source");
+  assert(whyText.includes("近期对话"), "Why dialog did not show recent dialogue source");
+  assert(whyText.includes("已确认设定"), "Why dialog did not show memory source");
+  assert(whyText.includes("灵源纪元"), "Why dialog did not show work summary text");
+  assert(whyText.includes("灵源矿区"), "Why dialog did not show memory or session summary text");
+  assert(!unsafePattern.test(whyText), "Why dialog exposed unsafe trace or prompt text");
+
+  return [
+    {
+      ...uiState,
+      trace_why_dialog_open: true,
+      trace_why_text: whyText,
+      trace_why_contains_raw_prompt: unsafePattern.test(whyText),
+    },
+  ];
+}
+
 const drivers = {
   "au03-long-session-compression": driveLongSessionCompression,
+  "au03-context-source-ui": driveContextSourceUi,
 };
 
 const driver = drivers[sliceId];

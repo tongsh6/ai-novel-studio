@@ -27,6 +27,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au03-archive-session-filter");
     expect(nativeSliceIds).toContain("au03-current-work-context-ssot");
     expect(nativeSliceIds).toContain("au03-long-session-compression");
+    expect(nativeSliceIds).toContain("au03-context-source-ui");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -570,6 +571,117 @@ describe("native Tauri slice verifier", () => {
         "session_summary_attached_to_context",
         "old_turns_compressed_into_session_summary",
         "latest_recent_transcript_preserved_in_order",
+        "planner_received_context_before_frame",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("accepts AU-03 context source UI evidence when why panel shows author-safe sources", () => {
+    const records = [
+      {
+        event: "work_session.resume.done",
+        work_id: "work-source",
+        session_id: "session-source",
+      },
+      {
+        event: "channel.join.done",
+        work_id: "work-source",
+        session_id: "session-source",
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-source",
+        workspace_id: "work-source",
+        work_id: "work-source",
+        session_id: "session-source",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "start",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-source",
+        workspace_id: "work-source",
+        work_id: "work-source",
+        session_id: "session-source",
+        has_snapshot: true,
+        has_conversation: true,
+        has_memory: true,
+        context_refs_count: 3,
+        duration_ms: 3,
+        outcome: "done",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-source",
+        workspace_id: "work-source",
+        work_id: "work-source",
+        session_id: "session-source",
+        duration_ms: 10,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-source",
+        workspace_id: "work-source",
+        work_id: "work-source",
+        session_id: "session-source",
+        duration_ms: 20,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-source",
+        workspace_id: "work-source",
+        work_id: "work-source",
+        session_id: "session-source",
+        duration_ms: 25,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au03-context-source-ui",
+        turn_id: "turn-source",
+        workspace_id: "work-source",
+        work_id: "work-source",
+        session_id: "session-source",
+        context_work_id: "work-source",
+        active_session_id: "session-source",
+        trace_why_dialog_open: true,
+        trace_why_text:
+          "自然回复 参考来源 当前作品背景 灵源纪元 / 东方奇幻 / 林烬追查灵源矿区真相 近期对话 上一轮围绕「林烬进入灵源矿区」展开，AI 已给出回应。 已确认设定 林瑶失踪指向灵源矿区，林烬去矿区追查线索。 解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
+        trace_why_contains_raw_prompt: false,
+        duration_ms: 0,
+        outcome: "done",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au03-context-source-ui", records);
+    expect(evidence).toEqual({
+      slice_id: "au03-context-source-ui",
+      turn_id: "turn-source",
+      turn_ids: ["turn-source"],
+      work_id: "work-source",
+      session_id: "session-source",
+      context_refs_count: 3,
+      key_events: keyEventsForSlice("au03-context-source-ui"),
+    });
+    expect(findSliceBehaviorEvidence("au03-context-source-ui", records, evidence)).toEqual({
+      slice_id: "au03-context-source-ui",
+      behavior: "author_visible_context_sources_render_from_trace_summary",
+      turn_ids: ["turn-source"],
+      work_id: "work-source",
+      session_id: "session-source",
+      assertions: [
+        "message_sent_from_real_workbench",
+        "current_work_session_and_memory_context_attached",
+        "why_entry_clicked_in_message_stream",
+        "current_work_source_summary_visible",
+        "recent_dialogue_source_summary_visible",
+        "confirmed_memory_source_summary_visible",
+        "raw_prompt_provider_debug_not_visible",
         "planner_received_context_before_frame",
         "no_error_events",
         "assistant_messages_not_fallback",

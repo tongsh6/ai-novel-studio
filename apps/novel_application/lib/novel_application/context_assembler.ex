@@ -139,6 +139,9 @@ defmodule NovelApplication.ContextAssembler do
   defp current_work_context_parts(value) do
     [
       Map.get(value, "genre") || Map.get(value, :genre),
+      Map.get(value, "core_selling_point") || Map.get(value, :core_selling_point),
+      Map.get(value, "target_reader") || Map.get(value, :target_reader),
+      Map.get(value, "tone_preference") || Map.get(value, :tone_preference),
       Map.get(value, "protagonist") || Map.get(value, :protagonist),
       Map.get(value, "protagonist_goal") || Map.get(value, :protagonist_goal),
       Map.get(value, "current_chapter") || Map.get(value, :current_chapter),

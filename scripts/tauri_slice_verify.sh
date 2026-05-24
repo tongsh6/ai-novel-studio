@@ -5,6 +5,7 @@
 # Usage:
 #   bash scripts/tauri_slice_verify.sh --list
 #   bash scripts/tauri_slice_verify.sh au03-long-session-compression
+#   bash scripts/tauri_slice_verify.sh au03-context-source-ui
 #   bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression
 #   bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership
 #
@@ -57,6 +58,7 @@ Usage:
 
 Implemented external UI driver slice ids:
   au03-long-session-compression
+  au03-context-source-ui
   desktop-stage-process-ownership
 
 Legacy slice ids must get an external driver before this script can run them.
@@ -86,7 +88,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -102,7 +104,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au03-long-session-compression" ]]; then
+if [[ "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -177,7 +179,14 @@ wait_for_tauri_dev_app() {
 }
 
 native_action_description() {
-  echo "seed long active session -> send real workbench turn -> verify prompt uses early summary plus latest transcript window"
+  case "$SLICE_ID" in
+    au03-context-source-ui)
+      echo "seed work/session/memory context -> send real workbench turn -> open why panel -> verify author-safe source summaries"
+      ;;
+    *)
+      echo "seed long active session -> send real workbench turn -> verify prompt uses early summary plus latest transcript window"
+      ;;
+  esac
 }
 
 drive_external_ui() {
@@ -390,7 +399,16 @@ echo "[tauri-slice-verify] artifacts: $ARTIFACT_DIR"
 cd "$PROJECT_ROOT"
 reset_test_db
 
-MIX_ENV=test mix run scripts/seed_au03_long_session_compression.exs >"$ARTIFACT_DIR/seed.log" 2>&1
+case "$SLICE_ID" in
+  au03-context-source-ui)
+    SEED_SCRIPT="scripts/seed_au03_context_source_ui.exs"
+    ;;
+  *)
+    SEED_SCRIPT="scripts/seed_au03_long_session_compression.exs"
+    ;;
+esac
+
+MIX_ENV=test mix run "$SEED_SCRIPT" >"$ARTIFACT_DIR/seed.log" 2>&1
 
 MIX_ENV=test \
   PHOENIX_TEST_PORT="$PHOENIX_PORT" \
