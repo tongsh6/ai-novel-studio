@@ -594,11 +594,109 @@ async function driveConflictCrossWorkRecovery(page) {
   ];
 }
 
+async function driveCanonConflictRecovery(page) {
+  await page.waitForFunction(
+    () => document.body.innerText.includes("年龄设定覆盖"),
+    { timeout: 20_000 },
+  );
+
+  await page.getByRole("button", { name: /采用这个方向/ }).first().click();
+
+  const actionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "choose_candidate" &&
+      frame.body?.action?.candidate_ref === "dir_au05_canon_conflict_1" &&
+      frame.body?.action?.candidate_set_ref ===
+        "candidate_set:turn_au05_canon_conflict_candidate_seed",
+    "Real workbench did not send authorized canon-conflict choose_candidate author_action",
+  );
+
+  const actionResultFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.action_type === "choose_candidate" &&
+      frame.body?.candidate_ref === "dir_au05_canon_conflict_1" &&
+      frame.body?.status === "failed" &&
+      frame.body?.adoption_decision?.decision_type === "fail_with_recovery",
+    "No canon-conflict candidate recovery failure action_result websocket frame was received",
+  );
+
+  const failureTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.parent_turn_id === "turn_au05_canon_conflict_candidate_seed" &&
+      frame.body?.status === "failed" &&
+      frame.body?.adoption_decision?.decision_type === "fail_with_recovery",
+    "No canon-conflict candidate recovery failure turn_result websocket frame was received",
+  );
+  const failureTurnResult = failureTurnFrame.body;
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("候选方向采用失败"),
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const topic = actionFrame.topic ?? "";
+  const workId = topic.startsWith("workspace:") ? topic.slice("workspace:".length) : undefined;
+
+  assert(
+    failureTurnResult.truthfulness?.candidate_selected === true,
+    "Canon-conflict failure turn_result did not mark candidate_selected",
+  );
+  assert(
+    failureTurnResult.truthfulness?.candidate_adopted === false,
+    "Canon-conflict failure turn_result incorrectly marked candidate_adopted",
+  );
+  assert(
+    failureTurnResult.truthfulness?.production_write_performed === false,
+    "Canon-conflict failure turn_result claimed a production write",
+  );
+  assert(
+    failureTurnResult.truthfulness?.reason_codes?.includes("canon_conflict_detected"),
+    "Canon-conflict failure turn_result did not include canon_conflict_detected reason",
+  );
+  assert(
+    failureTurnResult.truthfulness?.reason_codes?.includes("conflict_recovery_required"),
+    "Canon-conflict failure turn_result did not include conflict_recovery_required reason",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: failureTurnResult.turn_id,
+      work_id: workId,
+      workspace_id: workId,
+      source_turn_id: "turn_au05_canon_conflict_candidate_seed",
+      failure_turn_id: failureTurnResult.turn_id,
+      candidate_ref: "dir_au05_canon_conflict_1",
+      candidate_set_ref: "candidate_set:turn_au05_canon_conflict_candidate_seed",
+      candidate_adopt_clicked: true,
+      action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
+      adoption_decision_type: failureTurnResult.adoption_decision.decision_type,
+      adoption_reason_codes: failureTurnResult.adoption_decision.reason_codes,
+      candidate_selected: failureTurnResult.truthfulness.candidate_selected,
+      candidate_adopted: failureTurnResult.truthfulness.candidate_adopted,
+      production_write_performed: failureTurnResult.truthfulness.production_write_performed,
+      visible_failure_result: visibleText.includes("候选方向采用失败"),
+      canon_conflict_candidate_visible: visibleText.includes("年龄设定覆盖"),
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
 const drivers = {
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,
   "au05-conflict-cross-work-recovery": driveConflictCrossWorkRecovery,
+  "au05-canon-conflict-recovery": driveCanonConflictRecovery,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,
 };

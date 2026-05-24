@@ -36,6 +36,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-adoption-safety-freshness");
     expect(nativeSliceIds).toContain("au05-stale-conflict-cross-work-freshness");
     expect(nativeSliceIds).toContain("au05-conflict-cross-work-recovery");
+    expect(nativeSliceIds).toContain("au05-canon-conflict-recovery");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
@@ -262,6 +263,44 @@ describe("native Tauri slice verifier", () => {
       candidate_set_ref: "candidate_set:turn-source",
       assertions: [
         "cross_work_candidate_visible_in_real_workbench",
+        "ui_sent_authorized_choose_candidate_action",
+        "adoption_boundary_returned_fail_with_recovery",
+        "channel_acknowledged_failed",
+        "ui_rendered_candidate_failure_result",
+        "candidate_not_adopted",
+        "production_write_not_claimed",
+        "no_legacy_artifact_adopt_endpoint_used",
+      ],
+    });
+  });
+
+  it("accepts AU-05 canon conflict recovery only when candidate adoption fails without write", () => {
+    const records = au05CanonConflictRecoveryRecords(
+      "turn-source",
+      "turn-failure",
+    );
+
+    const evidence = findNativeSliceEvidence("au05-canon-conflict-recovery", records);
+    expect(evidence).toEqual({
+      slice_id: "au05-canon-conflict-recovery",
+      turn_id: "turn-failure",
+      turn_ids: ["turn-source", "turn-failure"],
+      source_turn_ref: "turn-source",
+      failure_turn_id: "turn-failure",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      key_events: keyEventsForSlice("au05-canon-conflict-recovery"),
+    });
+    expect(findSliceBehaviorEvidence("au05-canon-conflict-recovery", records, evidence)).toEqual({
+      slice_id: "au05-canon-conflict-recovery",
+      behavior: "canon_conflict_candidate_failed_with_recovery_without_production_write",
+      turn_ids: ["turn-source", "turn-failure"],
+      source_turn_ref: "turn-source",
+      failure_turn_id: "turn-failure",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      assertions: [
+        "canon_conflict_candidate_visible_in_real_workbench",
         "ui_sent_authorized_choose_candidate_action",
         "adoption_boundary_returned_fail_with_recovery",
         "channel_acknowledged_failed",
@@ -2326,6 +2365,72 @@ function au05ConflictCrossWorkRecoveryRecords(sourceTurnId, failureTurnId) {
       outcome: "error",
       decision_type: "fail_with_recovery",
       reason_codes: ["work_id_mismatch", "cross_work_adoption_rejected"],
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 5,
+      outcome: "ok",
+      action_type: "choose_candidate",
+      action_id: "choose_candidate:dir-1",
+      action_status: "failed",
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+    },
+  ];
+}
+
+function au05CanonConflictRecoveryRecords(sourceTurnId, failureTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: failureTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au05-canon-conflict-recovery",
+      source_turn_id: sourceTurnId,
+      failure_turn_id: failureTurnId,
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      canon_conflict_candidate_visible: true,
+      candidate_adopt_clicked: true,
+      visible_failure_result: true,
+      action_result_status: "failed",
+      adoption_decision_type: "fail_with_recovery",
+      adoption_reason_codes: ["canon_conflict_detected", "conflict_recovery_required"],
+      candidate_selected: true,
+      candidate_adopted: false,
+      production_write_performed: false,
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      action_type: "choose_candidate",
+      action_id: "choose_candidate:dir-1",
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 4,
+      outcome: "error",
+      decision_type: "fail_with_recovery",
+      reason_codes: ["canon_conflict_detected", "conflict_recovery_required"],
     },
     {
       event: "channel.author_action.done",
