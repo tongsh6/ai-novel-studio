@@ -200,10 +200,10 @@ P1 是当前最适合转成承重 slice 的阶段目标。P1 不要求工业化�
 
 ## 7. 建议推进顺序
 
-AU-05 canon conflict recovery 已闭环后，P1 能力建议拆为以下产品 checkpoint；当前队首为第一项：
+AU-05 canon conflict recovery 与 P1 chapter plan minimum 已闭环后，P1 能力建议拆为以下产品 checkpoint；当前队首为第二项：
 
-1. **P1-chapter-plan-minimum**：真实工作台生成并采纳 10-20 章章节计划。
-2. **P1-chapter-draft-generation**：按章节计划生成单章正文草稿，正文有效字数达到下限。
+1. **P1-chapter-plan-minimum**：真实工作台生成并采纳 10-20 章章节计划。（已闭环：`artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`）
+2. **P1-chapter-draft-generation**：按章节计划生成单章正文草稿，正文有效字数达到下限。（当前队首）
 3. **P1-chapter-adoption-reading**：采纳章节正文后进入作品事实和阅读投影。
 4. **P1-word-count-audit**：确定性统计章节正文有效字数、总字数、短章、空章、重复段落。
 5. **P1-export-minimum**：导出完整 Markdown/txt，目录和章节顺序可验证。

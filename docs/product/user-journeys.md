@@ -138,9 +138,9 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 Longest Closed Prefix：B1-B11。
 
-Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接、F5 高风险 confirmation checkpoint、F6 stale restored candidate checkpoint、F7 cross-work recovery checkpoint 和 F8 canon conflict recovery checkpoint 已闭环，下一推进转向 Journey D 的 P1 章节计划最小闭环。
+Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接、F5 高风险 confirmation checkpoint、F6 stale restored candidate checkpoint、F7 cross-work recovery checkpoint、F8 canon conflict recovery checkpoint 和 Journey D 的 P1 章节计划最小闭环已闭环，下一推进转向 P1 单章正文草稿生成。
 
-Next Proof：Tauri：真实工作台生成并采纳 10-20 章章节计划；未采纳计划不进入作品事实，采纳后计划能被后续正文生成或计划视图消费。
+Next Proof：Tauri：真实工作台基于已采纳章节计划生成单章正文草稿；未采纳正文不进入阅读模式或正文有效字数。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -159,10 +159,10 @@ Next Proof：Tauri：真实工作台生成并采纳 10-20 章章节计划；未�
 当前连续断点：
 
 ```text
-B1-B11 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed；F6 stale restored candidate checkpoint closed；F7 cross-work recovery checkpoint closed；F8 canon conflict recovery checkpoint closed；下一阶段转向 Journey D 的 P1 chapter plan minimum
+B1-B11 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed；F6 stale restored candidate checkpoint closed；F7 cross-work recovery checkpoint closed；F8 canon conflict recovery checkpoint closed；Journey D 的 P1 chapter plan minimum closed；下一阶段转向 P1 chapter draft generation
 ```
 
-因此下一项功能推进应是 `P1-chapter-plan-minimum`，除非出现 P0 bug。
+因此下一项功能推进应是 `P1-chapter-draft-generation`，除非出现 P0 bug。
 
 ---
 
@@ -208,11 +208,11 @@ Next Proof：LLM 异常、乱码、超时或恢复后，真实工作台仍能保
 
 真实消费者：作者主工作台、作品档案、采纳面板、阅读模式。
 
-Longest Closed Prefix：D1-D3 是最小闭环，不代表完整生命周期闭环。
+Longest Closed Prefix：D1-D3 是最小闭环；D7 的章节计划 checkpoint 已闭环，但 P1 完整长篇仍未闭环。
 
-Current Breakpoint：D4 结构化生命周期节点仍缺统一用户路径；P1 10 万字最小长篇闭环还缺章节计划、正文生成、字数统计和导出主链。
+Current Breakpoint：D4 结构化生命周期节点仍缺统一用户路径；P1 10 万字最小长篇闭环已补章节计划 checkpoint，仍缺正文生成、字数统计和导出主链。
 
-Next Proof：从一个创作目标进入角色/章节/场景/正文其中一种生命周期节点，产出 tentative，采纳后进入作品事实和阅读/档案；P1 后续 proof 还必须能统计正文有效字数和导出完整小说。
+Next Proof：基于已采纳章节计划生成单章正文草稿，正文草稿保持 tentative；P1 后续 proof 还必须能采纳正文、统计正文有效字数和导出完整小说。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -222,7 +222,8 @@ Next Proof：从一个创作目标进入角色/章节/场景/正文其中一种�
 | D4 | 立项 -> 世界观/角色/大纲/章节/场景的连续规划 | AU-02 / AU-09 | MicroPlan / ToolRequest / DialogueContext | gap | Document only | v2 lifecycle 设计、v3 acceptance 分散覆盖 | 缺统一生命周期入口和分阶段 proof。 |
 | D5 | 修订已采纳内容，保留 provenance 和冲突恢复 | AU-05 / AU-08 | AdoptionDecision / DecisionTrace | gap | Document only | AU-05 conflict/freshness gaps | 缺 revision boundary、覆盖确认、阅读投影刷新。 |
 | D6 | 内容质量门禁参与采纳或修订 | AU-05 / AU-09 | ToolResult / OrchestratorDecision / TraceSummaryView | gap | Document only | v2 quality gates 已设计，v3 首批只接最小质量证明 | 缺质量 finding 到 UI/proof 的产品链。 |
-| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | next | Document only | `docs/product/novel-output-milestones.md`；`tasks/slices/P1-chapter-plan-minimum.md` | 队首先补章节计划最小闭环；后续仍缺逐章正文生成、正文有效字数统计、阅读投影、导出和真实工作台外部验收。 |
+| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | partial | Tauri automation | `artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`；`tasks/slices/P1-chapter-draft-generation.md` | 章节计划最小闭环已完成；当前队首先补单章正文草稿生成。后续仍缺正文采纳、正文有效字数统计、阅读投影、导出和完整 10 万字狗粮验收。 |
+| D8 | P1 单章正文草稿生成 | AU-02 / AU-05 / AU-10 | MicroPlan / ToolRequest / ToolResult / TentativeArtifactSet | next | Document only | `tasks/slices/P1-chapter-draft-generation.md` | 基于已采纳章节计划生成单章正文草稿；正文草稿必须保持 tentative，未采纳不得进入阅读模式或正文有效字数。 |
 
 ---
 
@@ -423,7 +424,7 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
 | B 作品与上下文 | B1-B11 | 支撑 F5/F6 adoption safety | 0（当前连续链路） | Tauri/LMStudio | closed-prefix |
 | C 自然对话与探索 | C1-C6 | C7 error recovery | 1 | Tauri | watch |
-| D 创作生命周期 | D1-D3 最小闭环 | D4 lifecycle path | 多个 | Mixed | needs-focus |
+| D 创作生命周期 | D1-D3 + D7 章节计划 checkpoint | P1 chapter draft generation | 多个 | Tauri + tests | needs-focus |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
 | F 草稿与采纳 | F1-F8 checkpoint | revision/state trace completeness | 多个 P0 | Tauri | watch |
 | G 阅读投影 | G1-G2 | G3 refresh state machine | 多个 P0/P1 | Tauri | watch |
@@ -434,10 +435,10 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 当前推进锁定：
 
 ```text
-Current Focus: P1 章节计划最小闭环
+Current Focus: P1 单章正文草稿生成
 Current Journey: Journey D
-Current Breakpoint: D7 P1 chapter plan minimum
-Next Task: P1-chapter-plan-minimum
+Current Breakpoint: D7 P1 chapter draft generation
+Next Task: P1-chapter-draft-generation
 ```
 
 ---
@@ -462,9 +463,9 @@ Next Task: P1-chapter-plan-minimum
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: P1 章节计划最小闭环
+Current Focus: P1 单章正文草稿生成
 Active Journey: Journey D
-Queue head: P1-chapter-plan-minimum
+Queue head: P1-chapter-draft-generation
 ```
 
 本文对应位置：
@@ -472,8 +473,8 @@ Queue head: P1-chapter-plan-minimum
 ```text
 Journey D
 Step D7 P1 10 万字最小长篇闭环
-Status: next
-Gap / Next: 先补 10-20 章章节计划的真实工作台生成与采纳；tasks/NEXT.md 队首 P1-chapter-plan-minimum
+Status: partial
+Gap / Next: 章节计划真实工作台生成与采纳已闭环；下一步基于已采纳章节计划生成单章正文草稿；tasks/NEXT.md 队首 P1-chapter-draft-generation
 ```
 
 选择规则：
