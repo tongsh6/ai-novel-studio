@@ -24,6 +24,7 @@ export const nativeSliceIds = [
   "au01-ordinary-chat-two-turn-roundtrip",
   "au02-candidate-continuation",
   "au02-candidate-adoption-bridge",
+  "au05-adoption-safety-freshness",
   "vs10-observability-spine",
 ];
 
@@ -83,6 +84,15 @@ const sliceKeyEvents = {
     "channel.adopt.start",
     "adoption.evaluate.done",
     "channel.adopt.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au05-adoption-safety-freshness": [
+    "channel.user_message.start",
+    "planner.form_frame.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
   "au05-discard-boundary": [
@@ -380,6 +390,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findCandidateAdoptionBridgeEvidence(records);
   }
 
+  if (sliceId === "au05-adoption-safety-freshness") {
+    return findAdoptionSafetyFreshnessEvidence(records);
+  }
+
   if (sliceId === "vs10-observability-spine") {
     return findVs10LogSpineEvidence(records);
   }
@@ -456,6 +470,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au02-candidate-adoption-bridge") {
     return candidateAdoptionBridgeBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au05-adoption-safety-freshness") {
+    return adoptionSafetyFreshnessBehavior(turnIds, turnRecords, options);
   }
 
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) {
@@ -1693,6 +1711,76 @@ function findCandidateAdoptionBridgeEvidence(records) {
   };
 }
 
+function findAdoptionSafetyFreshnessEvidence(records) {
+  const sliceId = "au05-adoption-safety-freshness";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.candidate_adopt_clicked === true &&
+      record.visible_confirmation_result === true &&
+      record.candidate_risk_hint === "high" &&
+      record.adoption_decision_type === "require_confirmation" &&
+      record.action_result_status === "needs_confirmation" &&
+      record.candidate_selected === true &&
+      record.candidate_adopted === false &&
+      record.production_write_performed === false,
+  );
+
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? "");
+  const confirmationTurnId = String(uiState.confirmation_turn_id ?? "");
+  if (!sourceTurnId || !confirmationTurnId) return null;
+
+  const sourceRecords = records.filter((record) => record.turn_id === sourceTurnId);
+  const actionRecords = sourceRecords.filter((record) =>
+    ["channel.author_action.start", "adoption.evaluate.done", "channel.author_action.done"].includes(
+      record.event,
+    ),
+  );
+
+  const sourceStarted = sourceRecords.some(
+    (record) => record.event === "channel.user_message.start" && !record.candidate_ref,
+  );
+  const sourceCompleted = sourceRecords.some(
+    (record) => record.event === "channel.user_message.done",
+  );
+  const actionStarted = actionRecords.some(
+    (record) =>
+      record.event === "channel.author_action.start" &&
+      record.action_type === "choose_candidate" &&
+      record.candidate_ref === uiState.candidate_ref,
+  );
+  const actionDone = actionRecords.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "choose_candidate" &&
+      record.action_status === "needs_confirmation",
+  );
+  const confirmationRequired = actionRecords.some(
+    (record) =>
+      record.event === "adoption.evaluate.done" &&
+      record.decision_type === "require_confirmation",
+  );
+
+  if (!sourceStarted || !sourceCompleted || !actionStarted || !actionDone) return null;
+  if (!confirmationRequired) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: confirmationTurnId,
+    turn_ids: [sourceTurnId, confirmationTurnId],
+    source_turn_ref: sourceTurnId,
+    confirmation_turn_id: confirmationTurnId,
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    candidate_risk_hint: uiState.candidate_risk_hint,
+    key_events: keyEvents,
+  };
+}
+
 function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 2) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
@@ -1829,6 +1917,88 @@ function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
       "candidate_adoption_sent_authorized_choose_candidate_action",
       "adoption_boundary_returned_adopt_tentative",
       "ui_rendered_candidate_adoption_result",
+      "production_write_not_claimed",
+      "no_legacy_artifact_adopt_endpoint_used",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_for_source_candidate_turn"
+        : "deterministic_provider_form_frame_called_for_source_candidate_turn",
+    ],
+  };
+}
+
+function adoptionSafetyFreshnessBehavior(turnIds, turnRecords, options) {
+  if (turnIds.length !== 2) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.discard.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.modify_draft.")) return null;
+
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au05-adoption-safety-freshness",
+  );
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? "");
+  const confirmationTurnId = String(uiState.confirmation_turn_id ?? "");
+  const candidateRef = uiState.candidate_ref;
+
+  const sourceTurn = turnRecords.find(
+    (record) => record.turn_id === sourceTurnId && record.event === "channel.user_message.start",
+  );
+  const actionStart = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "channel.author_action.start" &&
+      record.action_type === "choose_candidate" &&
+      record.candidate_ref === candidateRef,
+  );
+  const actionDone = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "channel.author_action.done" &&
+      record.action_type === "choose_candidate" &&
+      record.action_status === "needs_confirmation",
+  );
+  const decision = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "adoption.evaluate.done" &&
+      record.decision_type === "require_confirmation",
+  );
+  const confirmationUi = turnRecords.find(
+    (record) =>
+      record.turn_id === confirmationTurnId &&
+      record.event === "slice_verify.ui_state.done" &&
+      record.visible_confirmation_result === true,
+  );
+
+  if (!sourceTurn || !actionStart || !actionDone || !decision || !confirmationUi) return null;
+  if (uiState.candidate_risk_hint !== "high") return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.candidate_selected !== true || uiState.candidate_adopted !== false) return null;
+  if (!Array.isArray(uiState.adoption_reason_codes)) return null;
+  if (!uiState.adoption_reason_codes.includes("high_risk_candidate")) return null;
+  if (options.provider === "lmstudio" && !lmstudioHasSteps(options, [sourceTurnId], ["form_frame"])) {
+    return null;
+  }
+
+  return {
+    slice_id: "au05-adoption-safety-freshness",
+    behavior: "high_risk_candidate_requires_confirmation_without_production_write",
+    turn_ids: turnIds,
+    source_turn_ref: sourceTurnId,
+    confirmation_turn_id: confirmationTurnId,
+    candidate_ref: candidateRef,
+    candidate_set_ref: uiState.candidate_set_ref,
+    assertions: [
+      "high_risk_candidate_rendered_from_turn_result",
+      "ui_sent_authorized_choose_candidate_action",
+      "adoption_boundary_returned_require_confirmation",
+      "channel_acknowledged_needs_confirmation",
+      "ui_rendered_candidate_confirmation_result",
+      "candidate_not_adopted",
       "production_write_not_claimed",
       "no_legacy_artifact_adopt_endpoint_used",
       options.provider === "lmstudio"

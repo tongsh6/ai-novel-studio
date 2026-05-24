@@ -7,6 +7,7 @@
 #   bash scripts/tauri_slice_verify.sh au03-long-session-compression
 #   bash scripts/tauri_slice_verify.sh au03-context-source-ui
 #   bash scripts/tauri_slice_verify.sh au02-candidate-adoption-bridge
+#   bash scripts/tauri_slice_verify.sh au05-adoption-safety-freshness
 #   bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression
 #   bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership
 #
@@ -59,6 +60,7 @@ Usage:
 
 Implemented external UI driver slice ids:
   au02-candidate-adoption-bridge
+  au05-adoption-safety-freshness
   au03-long-session-compression
   au03-context-source-ui
   desktop-stage-process-ownership
@@ -90,7 +92,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -106,7 +108,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65

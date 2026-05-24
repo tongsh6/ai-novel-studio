@@ -33,6 +33,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("au02-candidate-continuation");
     expect(nativeSliceIds).toContain("au02-candidate-adoption-bridge");
+    expect(nativeSliceIds).toContain("au05-adoption-safety-freshness");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
@@ -147,6 +148,46 @@ describe("native Tauri slice verifier", () => {
         "candidate_adoption_sent_authorized_choose_candidate_action",
         "adoption_boundary_returned_adopt_tentative",
         "ui_rendered_candidate_adoption_result",
+        "production_write_not_claimed",
+        "no_legacy_artifact_adopt_endpoint_used",
+        "deterministic_provider_form_frame_called_for_source_candidate_turn",
+      ],
+    });
+  });
+
+  it("accepts AU-05 adoption safety only when high-risk candidate requires confirmation", () => {
+    const records = au05AdoptionSafetyFreshnessRecords(
+      "turn-source",
+      "turn-confirmation",
+    );
+
+    const evidence = findNativeSliceEvidence("au05-adoption-safety-freshness", records);
+    expect(evidence).toEqual({
+      slice_id: "au05-adoption-safety-freshness",
+      turn_id: "turn-confirmation",
+      turn_ids: ["turn-source", "turn-confirmation"],
+      source_turn_ref: "turn-source",
+      confirmation_turn_id: "turn-confirmation",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      candidate_risk_hint: "high",
+      key_events: keyEventsForSlice("au05-adoption-safety-freshness"),
+    });
+    expect(findSliceBehaviorEvidence("au05-adoption-safety-freshness", records, evidence)).toEqual({
+      slice_id: "au05-adoption-safety-freshness",
+      behavior: "high_risk_candidate_requires_confirmation_without_production_write",
+      turn_ids: ["turn-source", "turn-confirmation"],
+      source_turn_ref: "turn-source",
+      confirmation_turn_id: "turn-confirmation",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      assertions: [
+        "high_risk_candidate_rendered_from_turn_result",
+        "ui_sent_authorized_choose_candidate_action",
+        "adoption_boundary_returned_require_confirmation",
+        "channel_acknowledged_needs_confirmation",
+        "ui_rendered_candidate_confirmation_result",
+        "candidate_not_adopted",
         "production_write_not_claimed",
         "no_legacy_artifact_adopt_endpoint_used",
         "deterministic_provider_form_frame_called_for_source_candidate_turn",
@@ -1992,6 +2033,101 @@ function au02CandidateAdoptionBridgeRecords(sourceTurnId, followTurnId, adoption
       action_type: "choose_candidate",
       action_id: "choose_candidate:dir-1",
       action_status: "accepted",
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+    },
+  ];
+}
+
+function au05AdoptionSafetyFreshnessRecords(sourceTurnId, confirmationTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: confirmationTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au05-adoption-safety-freshness",
+      source_turn_id: sourceTurnId,
+      confirmation_turn_id: confirmationTurnId,
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      candidate_risk_hint: "high",
+      candidate_adopt_clicked: true,
+      visible_confirmation_result: true,
+      action_result_status: "needs_confirmation",
+      adoption_decision_type: "require_confirmation",
+      adoption_reason_codes: ["high_risk_candidate", "confirmation_required"],
+      candidate_selected: true,
+      candidate_adopted: false,
+      production_write_performed: false,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 31,
+      generate_micro_plan: false,
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      action_type: "choose_candidate",
+      action_id: "choose_candidate:dir-1",
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 4,
+      outcome: "skipped",
+      decision_type: "require_confirmation",
+      reason_codes: ["high_risk_candidate", "confirmation_required"],
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 5,
+      outcome: "ok",
+      action_type: "choose_candidate",
+      action_id: "choose_candidate:dir-1",
+      action_status: "needs_confirmation",
       candidate_ref: "dir-1",
       candidate_set_ref: `candidate_set:${sourceTurnId}`,
     },

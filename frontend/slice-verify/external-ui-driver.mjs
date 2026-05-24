@@ -306,8 +306,108 @@ async function driveCandidateAdoptionBridge(page) {
   ];
 }
 
+async function driveAdoptionSafetyFreshness(page) {
+  await page
+    .locator(chatInputSelector)
+    .fill("我想写一个高风险、会覆盖主线设定的小说创作方向。");
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sourceTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      Array.isArray(frame.body?.candidate_directions) &&
+      frame.body.candidate_directions.some((candidate) => candidate.risk_hint === "high"),
+    "No high-risk candidate turn_result websocket frame was received",
+  );
+  const sourceTurnResult = sourceTurnFrame.body;
+  const candidate = sourceTurnResult.candidate_directions.find(
+    (item) => item.risk_hint === "high",
+  );
+
+  assert(candidate, "High-risk candidate was not present in source turn_result");
+
+  await page.getByRole("button", { name: /采用这个方向/ }).first().click();
+
+  const actionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "choose_candidate" &&
+      frame.body?.action?.candidate_ref === candidate.direction_id &&
+      frame.body?.action?.candidate_set_ref === `candidate_set:${sourceTurnResult.turn_id}`,
+    "Real workbench did not send authorized high-risk choose_candidate author_action",
+  );
+
+  const actionResultFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.action_type === "choose_candidate" &&
+      frame.body?.candidate_ref === candidate.direction_id &&
+      frame.body?.status === "needs_confirmation" &&
+      frame.body?.adoption_decision?.decision_type === "require_confirmation",
+    "No high-risk candidate confirmation action_result websocket frame was received",
+  );
+
+  const confirmationTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.parent_turn_id === sourceTurnResult.turn_id &&
+      frame.body?.status === "needs_confirmation" &&
+      frame.body?.adoption_decision?.decision_type === "require_confirmation",
+    "No high-risk candidate confirmation turn_result websocket frame was received",
+  );
+  const confirmationTurnResult = confirmationTurnFrame.body;
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("候选方向待确认"),
+    { timeout: 10_000 },
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, confirmationTurnResult, sentMessage);
+  const visibleText = await page.locator("body").innerText();
+
+  assert(visibleText.includes("采用这个方向"), "Candidate adoption button was not rendered");
+  assert(
+    confirmationTurnResult.truthfulness?.candidate_selected === true,
+    "Confirmation turn_result did not mark candidate_selected",
+  );
+  assert(
+    confirmationTurnResult.truthfulness?.candidate_adopted === false,
+    "High-risk confirmation turn_result incorrectly marked candidate_adopted",
+  );
+  assert(
+    confirmationTurnResult.truthfulness?.production_write_performed === false,
+    "High-risk confirmation turn_result claimed a production write",
+  );
+
+  return [
+    {
+      ...uiState,
+      source_turn_id: sourceTurnResult.turn_id,
+      confirmation_turn_id: confirmationTurnResult.turn_id,
+      candidate_ref: candidate.direction_id,
+      candidate_set_ref: `candidate_set:${sourceTurnResult.turn_id}`,
+      candidate_risk_hint: candidate.risk_hint,
+      candidate_adopt_clicked: true,
+      author_action: actionFrame.body.action,
+      action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
+      adoption_decision_type: confirmationTurnResult.adoption_decision.decision_type,
+      adoption_reason_codes: confirmationTurnResult.adoption_decision.reason_codes,
+      candidate_selected: confirmationTurnResult.truthfulness.candidate_selected,
+      candidate_adopted: confirmationTurnResult.truthfulness.candidate_adopted,
+      production_write_performed: confirmationTurnResult.truthfulness.production_write_performed,
+      visible_confirmation_result: visibleText.includes("候选方向待确认"),
+    },
+  ];
+}
+
 const drivers = {
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
+  "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,
 };
