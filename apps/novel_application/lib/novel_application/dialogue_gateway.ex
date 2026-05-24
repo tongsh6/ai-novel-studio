@@ -383,7 +383,7 @@ defmodule NovelApplication.DialogueGateway do
            source_refs: [map_field(source_turn_result, :frame_ref)] |> Enum.reject(&blank?/1),
            candidate_type: :direction,
            candidates: candidates,
-           stability: :tentative,
+           stability: candidate_set_stability(source_turn_result),
            trace_ref: trace_ref(source_turn_result)
          }}
     end
@@ -423,6 +423,21 @@ defmodule NovelApplication.DialogueGateway do
   defp candidate_risk_hint("medium"), do: :medium
   defp candidate_risk_hint("low"), do: :low
   defp candidate_risk_hint(_), do: :low
+
+  defp candidate_set_stability(source_turn_result) do
+    source_turn_result
+    |> map_field(:candidate_set_stability)
+    |> normalize_candidate_set_stability()
+  end
+
+  defp normalize_candidate_set_stability(:stale), do: :stale
+  defp normalize_candidate_set_stability(:adopted), do: :adopted
+  defp normalize_candidate_set_stability(:conflicted), do: :conflicted
+  defp normalize_candidate_set_stability("stale"), do: :stale
+  defp normalize_candidate_set_stability("expired"), do: :stale
+  defp normalize_candidate_set_stability("adopted"), do: :adopted
+  defp normalize_candidate_set_stability("conflicted"), do: :conflicted
+  defp normalize_candidate_set_stability(_), do: :tentative
 
   defp chosen_candidate(%CandidateSet{} = candidate_set, candidate_ref) do
     if Enum.any?(candidate_set.candidates, &(&1.candidate_id == candidate_ref)) do
@@ -583,7 +598,10 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   defp trace_ref(source_turn_result) do
-    get_in(source_turn_result, [:trace_summary, :trace_id]) ||
+    trace_summary = map_field(source_turn_result, :trace_summary) || %{}
+
+    map_field(trace_summary, :trace_ref) ||
+      map_field(trace_summary, :trace_id) ||
       "decision_trace:#{map_field(source_turn_result, :turn_id)}"
   end
 

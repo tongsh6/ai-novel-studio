@@ -91,6 +91,32 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert String.contains?(reason, "candidate_ref")
     end
 
+    test "restored string-key source action passes validation" do
+      input = %AuthorActionInput{
+        input_id: "in-candidate-restored",
+        source_turn_ref: "turn-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-1",
+        candidate_ref: "dir-1"
+      }
+
+      source = %{
+        "turn_id" => "turn-1",
+        "available_actions" => [
+          %{
+            "action_id" => "choose_candidate:dir-1",
+            "action_type" => "choose_candidate",
+            "candidate_set_ref" => "candidate_set:turn-1",
+            "candidate_ref" => "dir-1",
+            "enabled" => true
+          }
+        ]
+      }
+
+      assert :ok = ActionValidator.validate(input, source)
+    end
+
     test "missing source_turn_result rejected" do
       input = %AuthorActionInput{
         input_id: "in-1",
@@ -298,6 +324,31 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert ack.status == "failed"
       assert ack.adoption_decision.decision_type == :fail_with_recovery
       assert "work_id_mismatch" in ack.adoption_decision.reason_codes
+      assert turn_result.truthfulness.candidate_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+    end
+
+    test "stale source candidate adoption is rejected with visible turn_result" do
+      input = %AuthorActionInput{
+        input_id: "in-gw-candidate-stale",
+        source_turn_ref: "turn-candidates-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-candidates-1",
+        candidate_ref: "dir-1"
+      }
+
+      source =
+        @candidate_source
+        |> Map.put(:current_work_id, "work-1")
+        |> Map.put(:candidate_set_stability, "stale")
+        |> put_in([:candidate_directions, Access.at(0), :risk_hint], :low)
+
+      assert {:ok, ack, turn_result} = DialogueGateway.handle_action(input, source)
+      assert ack.status == "rejected"
+      assert ack.adoption_decision.decision_type == :reject
+      assert "source_turn_stale" in ack.adoption_decision.reason_codes
+      assert turn_result.status == "cancelled"
       assert turn_result.truthfulness.candidate_adopted == false
       assert turn_result.truthfulness.production_write_performed == false
     end

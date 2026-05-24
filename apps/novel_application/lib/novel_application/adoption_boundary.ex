@@ -63,7 +63,7 @@ defmodule NovelApplication.AdoptionBoundary do
             source_action_ref: "choose_candidate",
             candidate_ref: candidate_id,
             decision_type: :reject,
-            reason_codes: ["candidate_not_tentative", "stale_candidate_set"],
+            reason_codes: non_tentative_reason_codes(candidate_set.stability),
             decision_trace_ref: decision_trace_ref
           }
 
@@ -112,6 +112,9 @@ defmodule NovelApplication.AdoptionBoundary do
   defp outcome_for_decision(:reject), do: "skipped"
   defp outcome_for_decision(:fail_with_recovery), do: "error"
   defp outcome_for_decision(_), do: "ok"
+
+  defp non_tentative_reason_codes(:stale), do: ["source_turn_stale", "stale_candidate_set"]
+  defp non_tentative_reason_codes(_), do: ["candidate_not_tentative", "stale_candidate_set"]
 
   defp find_candidate(_set, nil), do: nil
 

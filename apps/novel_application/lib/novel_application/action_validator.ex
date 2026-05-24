@@ -29,11 +29,13 @@ defmodule NovelApplication.ActionValidator do
   defp check_not_stale(_input, nil), do: {:error, "source_turn_result not available"}
 
   defp check_not_stale(input, source) do
-    if input.source_turn_ref == source[:turn_id] do
+    source_turn_id = source_field(source, :turn_id)
+
+    if input.source_turn_ref == source_turn_id do
       :ok
     else
       {:error,
-       "stale action: source_turn_ref #{input.source_turn_ref} != current #{source[:turn_id]}"}
+       "stale action: source_turn_ref #{input.source_turn_ref} != current #{source_turn_id}"}
     end
   end
 
@@ -41,7 +43,7 @@ defmodule NovelApplication.ActionValidator do
     do: {:error, "no available actions to validate against"}
 
   defp check_action_in_available(input, source) do
-    actions = source[:available_actions] || []
+    actions = source_field(source, :available_actions) || []
 
     match =
       Enum.find(
@@ -59,7 +61,7 @@ defmodule NovelApplication.ActionValidator do
   end
 
   defp check_not_disabled(input, source) do
-    actions = source[:available_actions] || []
+    actions = source_field(source, :available_actions) || []
 
     match =
       Enum.find(
@@ -105,4 +107,7 @@ defmodule NovelApplication.ActionValidator do
       true -> nil
     end
   end
+
+  defp source_field(source, key) when is_map(source), do: action_field(source, key)
+  defp source_field(_source, _key), do: nil
 end

@@ -18,7 +18,7 @@ defmodule NovelDomain.CandidateSet do
           source_refs: [String.t()],
           candidate_type: :direction | :setting | :outline | :draft_fragment | :revision_option,
           candidates: [candidate()],
-          stability: :tentative,
+          stability: :tentative | :stale | :adopted | :conflicted,
           selection_policy_ref: String.t() | nil,
           adoption_policy_ref: String.t() | nil,
           trace_ref: String.t() | nil

@@ -85,6 +85,18 @@ defmodule NovelApplication.AdoptionBoundaryTest do
       assert decision.decision_type == :reject
     end
 
+    test "stale candidate set is rejected with source freshness reason" do
+      set = build_candidate_set(stability: :stale)
+      chosen = %{candidate_id: "c-1"}
+
+      decision = AdoptionBoundary.evaluate(set, chosen)
+
+      assert decision.decision_type == :reject
+      assert "source_turn_stale" in decision.reason_codes
+      assert "stale_candidate_set" in decision.reason_codes
+      refute AdoptionDecision.adopted?(decision)
+    end
+
     test "adopted decision has reason codes" do
       set = build_candidate_set()
       chosen = %{candidate_id: "c-1"}

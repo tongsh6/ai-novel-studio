@@ -507,6 +507,53 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert [%{card_type: "result_card", title: "候选方向待确认"}] = result.ui_cards
       assert socket.assigns.current_turn_id == result.turn_id
     end
+
+    test "stale candidate adoption broadcasts rejection result without production write" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      stale_turn_result =
+        @candidate_turn_result
+        |> put_in([:candidate_directions, Access.at(0), :risk_hint], :low)
+        |> Map.put(:candidate_set_stability, "stale")
+
+      socket = assign_server_turn(socket, stale_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "rejected"}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-candidates-1",
+                     "action_id" => "choose_candidate:dir-1",
+                     "action_type" => "choose_candidate",
+                     "candidate_set_ref" => "candidate_set:turn-candidates-1",
+                     "candidate_ref" => "dir-1",
+                     "idempotency_key" => "idem:turn-candidates-1:choose_candidate:dir-1"
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("action_result", %{
+        action_type: "choose_candidate",
+        candidate_ref: "dir-1",
+        status: "rejected",
+        adoption_decision: %{decision_type: :reject}
+      })
+
+      assert_broadcast("turn_result", result)
+      assert result.parent_turn_id == "turn-candidates-1"
+      assert result.status == "cancelled"
+      assert result.truthfulness.candidate_selected == true
+      assert result.truthfulness.candidate_adopted == false
+      assert result.truthfulness.production_write_performed == false
+      assert "source_turn_stale" in result.truthfulness.reason_codes
+      assert [%{card_type: "result_card", title: "候选方向未采用"}] = result.ui_cards
+      assert socket.assigns.current_turn_id == result.turn_id
+    end
   end
 
   describe "artifact adoption roundtrip" do
