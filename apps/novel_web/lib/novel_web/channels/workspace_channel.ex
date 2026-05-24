@@ -459,6 +459,19 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, data}, socket}
   end
 
+  def handle_in("get_chapter_plans", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    data = NovelApplication.WorkArchiveService.chapter_plans(work_id)
+
+    LogEmit.emit(:channel, :get_chapter_plans, :done, %{
+      work_id: work_id,
+      plan_count: length(data),
+      chapter_count: data |> Enum.flat_map(& &1.chapters) |> length()
+    })
+
+    {:reply, {:ok, data}, socket}
+  end
+
   def handle_in("get_work_stats", payload, socket) do
     work_id = archive_work_id(payload, socket)
     data = NovelApplication.WorkArchiveService.stats(work_id)

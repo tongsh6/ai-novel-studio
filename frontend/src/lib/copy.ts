@@ -374,6 +374,8 @@ export const STRUCTURE_PANEL = {
     SYSTEM: "系统",
   },
   outlineEmptyTitle: "大纲与结构",
+  acceptedChapterPlanSection: "已采纳章节计划",
+  chapterCountUnit: "章",
   outlineEmptyWithWork: "在对话中说「生成章节大纲」或「规划分卷结构」，AI 会帮你整理作品的骨架。",
   outlineEmptyNoWork: "先在工作台创建作品，AI 会帮你搭建大纲和分卷结构。",
   startPlanning: "开始规划",

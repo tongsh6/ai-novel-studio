@@ -22,6 +22,8 @@ defmodule NovelPersistence.WorkArchiveRepo do
   @confirmed_memory_statuses [MemoryStatus.confirmed(), MemoryStatus.stabilized()]
   @foreshadowing_types [MemoryType.foreshadowing(), MemoryType.plot_fact()]
   @rule_types [MemoryType.world_rule(), MemoryType.constraint(), MemoryType.style_rule()]
+  @chapter_plan_types [MemoryType.draft_context()]
+  @chapter_plan_tag "outline_draft"
 
   @spec characters(String.t()) :: [map()]
   def characters(work_id) when is_binary(work_id) do
@@ -51,6 +53,14 @@ defmodule NovelPersistence.WorkArchiveRepo do
   @spec rules(String.t()) :: [map()]
   def rules(work_id) when is_binary(work_id) do
     memory_items(work_id, @rule_types)
+  end
+
+  @spec chapter_plans(String.t()) :: [map()]
+  def chapter_plans(work_id) when is_binary(work_id) do
+    work_id
+    |> memory_items(@chapter_plan_types)
+    |> Enum.filter(&chapter_plan_memory?/1)
+    |> Enum.map(&normalize_chapter_plan/1)
   end
 
   @spec stats(String.t()) :: map()
@@ -168,6 +178,42 @@ defmodule NovelPersistence.WorkArchiveRepo do
     |> Map.put(:weight, decimal_to_float(item.weight))
     |> Map.put(:confidence, decimal_to_float(item.confidence))
     |> Map.put(:updated_at, datetime_to_iso8601(item.updated_at))
+  end
+
+  defp chapter_plan_memory?(%{tags: tags}) when is_list(tags), do: @chapter_plan_tag in tags
+  defp chapter_plan_memory?(_item), do: false
+
+  defp normalize_chapter_plan(item) do
+    chapters =
+      item.content
+      |> to_string()
+      |> String.split("\n", trim: true)
+      |> Enum.with_index(1)
+      |> Enum.map(fn {line, seq} -> parse_chapter_line(item.id, line, seq) end)
+
+    %{
+      id: item.id,
+      title: item.summary || "已采纳章节计划",
+      summary: item.summary,
+      chapter_count: length(chapters),
+      chapters: chapters,
+      updated_at: item.updated_at
+    }
+  end
+
+  defp parse_chapter_line(plan_id, line, seq) do
+    {title, summary} =
+      case String.split(line, ": ", parts: 2) do
+        [title, summary] -> {title, summary}
+        [title] -> {title, nil}
+      end
+
+    %{
+      id: "#{plan_id}:#{seq}",
+      seq: seq,
+      title: String.trim(title),
+      summary: summary && String.trim(summary)
+    }
   end
 
   defp decimal_to_float(%Decimal{} = decimal), do: Decimal.to_float(decimal)

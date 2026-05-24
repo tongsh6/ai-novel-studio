@@ -13,6 +13,7 @@ import {
   modifyDraft,
   getToc,
   getChapterContent,
+  getChapterPlans,
   getCharacters,
   getForeshadowing,
   getRules,
@@ -207,6 +208,14 @@ describe("getChapterContent", () => {
     const ch = mockChannel();
     getChapterContent(ch, "chapter-1");
     expect(ch.push).toHaveBeenCalledWith("get_chapter_content", { chapter_id: "chapter-1" });
+  });
+});
+
+describe("getChapterPlans", () => {
+  it("pushes get_chapter_plans with work_id", () => {
+    const ch = mockChannel();
+    getChapterPlans(ch, "work-1");
+    expect(ch.push).toHaveBeenCalledWith("get_chapter_plans", { work_id: "work-1" });
   });
 });
 

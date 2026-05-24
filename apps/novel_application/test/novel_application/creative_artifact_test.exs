@@ -48,6 +48,31 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert result.output.item_count == 2
     end
 
+    test "typed plot_outline generates a P1 chapter plan artifact" do
+      req = build_plot_outline_request()
+
+      result = Toolbox.execute(req)
+
+      assert result.status == :succeeded
+      assert result.output.artifact_type == :outline_draft
+      assert result.output.item_count == 12
+
+      assert [
+               %{title: "第01章：底层灵气账单"},
+               _,
+               _,
+               _,
+               _,
+               _,
+               _,
+               _,
+               _,
+               _,
+               _,
+               %{title: "第12章：第一卷终局：灵气回流"}
+             ] = result.output.items
+    end
+
     test "result has tentative_artifact in state_delta" do
       req = build_creative_request("character_seed")
 
@@ -221,6 +246,53 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert turn_result.tool_result.output.artifact_type == "plot_direction"
       assert [%{artifact_type: :plot_direction}] = turn_result.adoption_state.pending
     end
+
+    test "plot_outline turn_result exposes chapter plan adoption payload" do
+      plan_json = """
+      {
+        "plan_goal_summary": "生成章节计划",
+        "risk_hint": "low",
+        "requires_confirmation_hint": false,
+        "proposed_actions": [
+          {"action_id": "a1", "action_type": "capability_invocation", "summary": "生成章节计划", "target_ref": "plot_outline", "write_intent": "tentative", "risk_hint": "low"}
+        ],
+        "state_changes_requested": [],
+        "required_capabilities": [],
+        "fallback_message": "无法生成章节计划"
+      }
+      """
+
+      complete_fn = sequenced_complete_fn([@frame_json, plan_json, "已生成章节计划草稿。"])
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "生成 10 万字长篇章节大纲", workspace_id: "ws-chapter-plan", generate_micro_plan: true},
+          nil,
+          complete_fn
+        )
+
+      assert turn_result.tool_result.output.artifact_type == :outline_draft
+
+      assert [
+               %{
+                 artifact_type: :outline_draft,
+                 payload: %{title: "P1 10 万字章节计划", chapter_count: 12, items: items}
+               }
+             ] = turn_result.adoption_state.pending
+
+      assert length(items) == 12
+
+      assert [
+               %{
+                 card_type: "adoption_card",
+                 title: "章节计划待采纳",
+                 body: body
+               }
+             ] = turn_result.ui_cards
+
+      assert String.contains?(body, "12 章章节计划")
+      assert String.contains?(body, "第01章：底层灵气账单")
+    end
   end
 
   defp build_creative_request(direction) do
@@ -235,6 +307,22 @@ defmodule NovelApplication.CreativeArtifactTest do
       read_scope_grants: ["author_text", "context_snapshot"],
       write_scope_grants: [],
       idempotency_key: "idem-creative",
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp build_plot_outline_request do
+    %ToolRequest{
+      tool_request_id: "tq-outline-#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: "t-outline",
+      frame_ref: "f-outline",
+      decision_ref: "d-outline",
+      tool_name: "plot_outline",
+      tool_version: "1.0.0",
+      input: %{"text" => "生成 10 万字长篇章节大纲", "direction" => "plot_outline"},
+      read_scope_grants: ["author_text", "plot_summary", "beat_list"],
+      write_scope_grants: [],
+      idempotency_key: "idem-outline",
       created_at: DateTime.utc_now()
     }
   end

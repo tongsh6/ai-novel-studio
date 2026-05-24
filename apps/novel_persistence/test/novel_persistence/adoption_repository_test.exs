@@ -9,6 +9,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
   alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.MemoryItem
+  alias NovelPersistence.WorkArchiveRepo
 
   describe "persist/1" do
     test "records accepted setting adoption as mutation and memory without reading projection" do
@@ -70,6 +71,46 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
                ReadingProjectionRepo.toc(work_id)
 
       assert chapter_id == persisted.reading_projection.chapter_id
+    end
+
+    test "records adopted outline draft as chapter plan without reading projection" do
+      work_id = Ecto.UUID.generate()
+
+      content = """
+      第01章：底层灵气账单: 主角发现灵气带宽被公司暗中抽走。
+      第02章：旧服务器里的残诀: 主角找到残缺功法并第一次突破。
+      """
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-outline-source",
+                 artifact_id: "as-outline-1",
+                 artifact_type: :outline_draft,
+                 base_revision: 1,
+                 content: String.trim(content),
+                 summary: "P1 10 万字章节计划"
+               })
+
+      assert persisted.reading_projection == nil
+
+      memory = Repo.get!(MemoryItem, persisted.memory_item_id)
+      assert memory.type == MemoryType.draft_context()
+      assert memory.tags == ["adopted_artifact", "outline_draft"]
+
+      assert %{volumes: []} = ReadingProjectionRepo.toc(work_id)
+
+      assert [
+               %{
+                 title: "P1 10 万字章节计划",
+                 chapter_count: 2,
+                 chapters: [
+                   %{seq: 1, title: "第01章：底层灵气账单", summary: "主角发现灵气带宽被公司暗中抽走。"},
+                   %{seq: 2, title: "第02章：旧服务器里的残诀", summary: "主角找到残缺功法并第一次突破。"}
+                 ]
+               }
+             ] = WorkArchiveRepo.chapter_plans(work_id)
     end
   end
 end

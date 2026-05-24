@@ -64,6 +64,7 @@ function isPendingArtifactTitle(title: string): boolean {
     "待确认的新设定",
     "待采纳产物",
     "大纲产物待采纳",
+    "章节计划待采纳",
   ].includes(normalized);
 }
 

@@ -12,8 +12,8 @@ import {
 import type { ArchiveDetailItem } from "../lib/archiveDetail";
 import { STRUCTURE_PANEL } from "../lib/copy";
 import { useAppStore } from "../lib/store";
-import { getToc, getCharacters, getForeshadowing, getRules, getWorkStats } from "../lib/socket";
-import type { TocData, CharacterData, MemoryItemData, WorkStats } from "../lib/socket";
+import { getToc, getChapterPlans, getCharacters, getForeshadowing, getRules, getWorkStats } from "../lib/socket";
+import type { TocData, ChapterPlanData, CharacterData, MemoryItemData, WorkStats } from "../lib/socket";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
@@ -45,6 +45,7 @@ export function StructurePanel({
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("foreshadowing");
   const [toc, setToc] = useState<TocData | null>(null);
+  const [chapterPlans, setChapterPlans] = useState<ChapterPlanData[]>([]);
   const [characters, setCharacters] = useState<CharacterData[]>([]);
   const [foreshadowing, setForeshadowing] = useState<MemoryItemData[]>([]);
   const [rules, setRules] = useState<MemoryItemData[]>([]);
@@ -56,6 +57,7 @@ export function StructurePanel({
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
     getToc(channel, context.workId).then((data) => setToc(data)).catch(() => setToc(null));
+    getChapterPlans(channel, context.workId).then((data) => setChapterPlans(data)).catch(() => setChapterPlans([]));
     getCharacters(channel, context.workId).then((data) => setCharacters(data)).catch(() => setCharacters([]));
     getForeshadowing(channel, context.workId).then((data) => setForeshadowing(data)).catch(() => setForeshadowing([]));
     getRules(channel, context.workId).then((data) => setRules(data)).catch(() => setRules([]));
@@ -235,6 +237,27 @@ export function StructurePanel({
           </Tabs.Content>
 
           <Tabs.Content value="outline" className={styles.tabContent}>
+            {chapterPlans.length > 0 && (
+              <div className={styles.section}>
+                {chapterPlans.map((plan) => (
+                  <div key={plan.id} className={styles.section}>
+                    <div className={styles.secHeader}>
+                      <span className={styles.secTitle}>
+                        {STRUCTURE_PANEL.acceptedChapterPlanSection}
+                        {plan.chapter_count > 0 ? ` · ${plan.chapter_count}${STRUCTURE_PANEL.chapterCountUnit}` : ""}
+                      </span>
+                    </div>
+                    <div className={styles.cardTitle}>{plan.title}</div>
+                    {plan.chapters.map((ch) => (
+                      <div key={ch.id} className={styles.cardItem}>
+                        <span className={styles.cardTitle}>{ch.title}</span>
+                        {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
             {toc && toc.volumes.length > 0 ? (
               <div className={styles.section}>
                 {toc.volumes.map((vol) => (
@@ -253,17 +276,17 @@ export function StructurePanel({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : chapterPlans.length === 0 ? (
               <EmptyState
                 title={STRUCTURE_PANEL.outlineEmptyTitle}
                 description={hasWork ? STRUCTURE_PANEL.outlineEmptyWithWork : STRUCTURE_PANEL.outlineEmptyNoWork}
                 actionLabel={STRUCTURE_PANEL.startPlanning}
                 onAction={() => {
-                  onAction("init_intent");
+                  onAction("init_outline");
                   onClose();
                 }}
               />
-            )}
+            ) : null}
           </Tabs.Content>
 
           <Tabs.Content value="character" className={styles.tabContent}>

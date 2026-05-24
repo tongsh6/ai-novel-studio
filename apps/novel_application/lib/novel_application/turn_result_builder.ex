@@ -177,13 +177,15 @@ defmodule NovelApplication.TurnResultBuilder do
   defp maybe_add_artifacts(r, nil), do: r
 
   defp maybe_add_artifacts(r, as) do
+    payload = artifact_payload(as)
+
     adoption_state = %{
       pending: [
         %{
           artifact_id: as.artifact_set_id,
           artifact_type: as.artifact_type,
           requires_adoption: true,
-          payload: %{items: as.items},
+          payload: payload,
           adoption_status: as.adoption_status,
           source_tool_result_ref: as.source_tool_result_ref
         }
@@ -195,8 +197,8 @@ defmodule NovelApplication.TurnResultBuilder do
       card_type: "adoption_card",
       priority: "high",
       visibility: "always",
-      title: "待确认的新设定",
-      body: "AI 生成了新的创作设定，请审核是否采纳。",
+      title: adoption_card_title(as),
+      body: adoption_card_body(as),
       artifact_refs: [as.artifact_set_id],
       actions: [
         %{
@@ -230,6 +232,42 @@ defmodule NovelApplication.TurnResultBuilder do
     |> Map.put(:adoption_state, adoption_state)
     |> Map.update(:ui_cards, [adoption_card], fn cards -> cards ++ [adoption_card] end)
   end
+
+  defp artifact_payload(%TentativeArtifactSet{} = as) do
+    %{
+      items: as.items,
+      title: artifact_payload_title(as),
+      item_count: length(as.items)
+    }
+    |> maybe_put_chapter_count(as)
+  end
+
+  defp maybe_put_chapter_count(payload, %{artifact_type: :outline_draft} = as),
+    do: Map.put(payload, :chapter_count, length(as.items))
+
+  defp maybe_put_chapter_count(payload, _as), do: payload
+
+  defp artifact_payload_title(%{artifact_type: :outline_draft}), do: "P1 10 万字章节计划"
+  defp artifact_payload_title(_as), do: "待采纳创作产物"
+
+  defp adoption_card_title(%{artifact_type: :outline_draft}), do: "章节计划待采纳"
+  defp adoption_card_title(_as), do: "待确认的新设定"
+
+  defp adoption_card_body(%{artifact_type: :outline_draft, items: items}) do
+    preview =
+      items
+      |> Enum.take(3)
+      |> Enum.map_join("；", &item_title/1)
+
+    "AI 生成了 #{length(items)} 章章节计划，请审核是否采纳。预览：#{preview}"
+  end
+
+  defp adoption_card_body(_as), do: "AI 生成了新的创作设定，请审核是否采纳。"
+
+  defp item_title(item) when is_map(item),
+    do: Map.get(item, :title) || Map.get(item, "title") || ""
+
+  defp item_title(_item), do: ""
 
   defp maybe_add_behavior(r, nil), do: r
 

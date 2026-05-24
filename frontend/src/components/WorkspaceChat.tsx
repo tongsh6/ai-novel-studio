@@ -706,6 +706,8 @@ export function WorkspaceChat() {
   const handlePanelAction = (actionType: string, artifactId?: string) => {
     if (actionType === "init_intent") {
       void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
+    } else if (actionType === "init_outline") {
+      void handleSend("我想规划一部 10 万字长篇小说，请生成章节大纲", { generateMicroPlan: true });
     } else if (actionType === "revise" && artifactId) {
       void handleSend(`我想修改设定 ${artifactId}，我的想法是：`);
     } else {

@@ -302,6 +302,15 @@ export interface TocData {
   volumes: TocVolume[];
 }
 
+export interface ChapterPlanData {
+  id: string;
+  title: string;
+  summary?: string | null;
+  chapter_count: number;
+  chapters: { id: string; title: string; seq: number; summary?: string | null }[];
+  updated_at?: string | null;
+}
+
 export function getToc(
   channel: Channel,
   workId: string,
@@ -330,6 +339,19 @@ export function getChapterContent(
       .receive("ok", (response) => resolve(response as ChapterContent))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("get_chapter_content timeout")));
+  });
+}
+
+export function getChapterPlans(
+  channel: Channel,
+  workId: string,
+): Promise<ChapterPlanData[]> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_chapter_plans", { work_id: workId })
+      .receive("ok", (response) => resolve(response as ChapterPlanData[]))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_chapter_plans timeout")));
   });
 }
 
