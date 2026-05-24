@@ -26,6 +26,7 @@ export const nativeSliceIds = [
   "au02-candidate-adoption-bridge",
   "au05-adoption-safety-freshness",
   "au05-stale-conflict-cross-work-freshness",
+  "au05-conflict-cross-work-recovery",
   "vs10-observability-spine",
 ];
 
@@ -97,6 +98,12 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "au05-stale-conflict-cross-work-freshness": [
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au05-conflict-cross-work-recovery": [
     "channel.author_action.start",
     "adoption.evaluate.done",
     "channel.author_action.done",
@@ -405,6 +412,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findStaleConflictCrossWorkEvidence(records);
   }
 
+  if (sliceId === "au05-conflict-cross-work-recovery") {
+    return findConflictCrossWorkRecoveryEvidence(records);
+  }
+
   if (sliceId === "vs10-observability-spine") {
     return findVs10LogSpineEvidence(records);
   }
@@ -477,6 +488,11 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   const turnIds = evidence.turn_ids ?? [evidence.turn_id];
   const turnRecords = records.filter((record) => turnIds.includes(record.turn_id));
+
+  if (sliceId === "au05-conflict-cross-work-recovery") {
+    return conflictCrossWorkRecoveryBehavior(turnIds, turnRecords, options);
+  }
+
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
 
   if (sliceId === "au02-candidate-adoption-bridge") {
@@ -1852,6 +1868,62 @@ function findStaleConflictCrossWorkEvidence(records) {
   };
 }
 
+function findConflictCrossWorkRecoveryEvidence(records) {
+  const sliceId = "au05-conflict-cross-work-recovery";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.cross_work_candidate_visible === true &&
+      record.candidate_adopt_clicked === true &&
+      record.visible_failure_result === true &&
+      record.adoption_decision_type === "fail_with_recovery" &&
+      record.action_result_status === "failed" &&
+      record.candidate_selected === true &&
+      record.candidate_adopted === false &&
+      record.production_write_performed === false,
+  );
+
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? "");
+  const failureTurnId = String(uiState.failure_turn_id ?? "");
+  if (!sourceTurnId || !failureTurnId) return null;
+
+  const actionRecords = records.filter((record) => record.turn_id === sourceTurnId);
+  const actionStarted = actionRecords.some(
+    (record) =>
+      record.event === "channel.author_action.start" &&
+      record.action_type === "choose_candidate" &&
+      record.candidate_ref === uiState.candidate_ref,
+  );
+  const actionDone = actionRecords.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "choose_candidate" &&
+      record.action_status === "failed",
+  );
+  const failedWithRecovery = actionRecords.some(
+    (record) =>
+      record.event === "adoption.evaluate.done" &&
+      record.decision_type === "fail_with_recovery",
+  );
+
+  if (!actionStarted || !actionDone || !failedWithRecovery) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: failureTurnId,
+    turn_ids: [sourceTurnId, failureTurnId],
+    source_turn_ref: sourceTurnId,
+    failure_turn_id: failureTurnId,
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    key_events: keyEvents,
+  };
+}
+
 function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 2) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
@@ -2144,6 +2216,79 @@ function staleConflictCrossWorkBehavior(turnIds, turnRecords, _options) {
       "adoption_boundary_returned_reject",
       "channel_acknowledged_rejected",
       "ui_rendered_candidate_rejection_result",
+      "candidate_not_adopted",
+      "production_write_not_claimed",
+      "no_legacy_artifact_adopt_endpoint_used",
+    ],
+  };
+}
+
+function conflictCrossWorkRecoveryBehavior(turnIds, turnRecords, _options) {
+  if (turnIds.length !== 2) return null;
+  if (hasFallbackText(turnRecords)) return null;
+  if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.discard.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.modify_draft.")) return null;
+
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au05-conflict-cross-work-recovery",
+  );
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? "");
+  const failureTurnId = String(uiState.failure_turn_id ?? "");
+  const candidateRef = uiState.candidate_ref;
+
+  const actionStart = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "channel.author_action.start" &&
+      record.action_type === "choose_candidate" &&
+      record.candidate_ref === candidateRef,
+  );
+  const actionDone = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "channel.author_action.done" &&
+      record.action_type === "choose_candidate" &&
+      record.action_status === "failed",
+  );
+  const decision = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "adoption.evaluate.done" &&
+      record.decision_type === "fail_with_recovery",
+  );
+  const failureUi = turnRecords.find(
+    (record) =>
+      record.turn_id === failureTurnId &&
+      record.event === "slice_verify.ui_state.done" &&
+      record.visible_failure_result === true,
+  );
+
+  if (!actionStart || !actionDone || !decision || !failureUi) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.candidate_selected !== true || uiState.candidate_adopted !== false) return null;
+  if (!Array.isArray(uiState.adoption_reason_codes)) return null;
+  if (!uiState.adoption_reason_codes.includes("work_id_mismatch")) return null;
+  if (!uiState.adoption_reason_codes.includes("cross_work_adoption_rejected")) return null;
+
+  return {
+    slice_id: "au05-conflict-cross-work-recovery",
+    behavior: "cross_work_candidate_failed_with_recovery_without_production_write",
+    turn_ids: turnIds,
+    source_turn_ref: sourceTurnId,
+    failure_turn_id: failureTurnId,
+    candidate_ref: candidateRef,
+    candidate_set_ref: uiState.candidate_set_ref,
+    assertions: [
+      "cross_work_candidate_visible_in_real_workbench",
+      "ui_sent_authorized_choose_candidate_action",
+      "adoption_boundary_returned_fail_with_recovery",
+      "channel_acknowledged_failed",
+      "ui_rendered_candidate_failure_result",
       "candidate_not_adopted",
       "production_write_not_claimed",
       "no_legacy_artifact_adopt_endpoint_used",
