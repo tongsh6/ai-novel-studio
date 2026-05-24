@@ -61,7 +61,8 @@ defmodule NovelApplication.CreativeExplorationLoopTest do
       # Proof #4: no mechanical form
       assert turn_result.status == "conversational"
       assert turn_result.truthfulness.durable_behavior_opened == false
-      assert Enum.empty?(turn_result.available_actions)
+      assert Enum.all?(turn_result.available_actions, &(&1.action_type == "choose_candidate"))
+      assert hd(turn_result.available_actions).candidate_ref == hd(candidates).direction_id
 
       # Proof #5: trace explains choice
       assert trace.decision_type == :exploration

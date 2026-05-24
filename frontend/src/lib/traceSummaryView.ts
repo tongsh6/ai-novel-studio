@@ -33,6 +33,7 @@ const decisionLabels: Record<string, string> = {
   fail_with_recovery: TRACE.decisions.recovery,
   tool_allowed: TRACE.decisions.toolAllowed,
   tool_dispatched: TRACE.decisions.toolDispatched,
+  adopt_tentative: TRACE.decisions.adoptTentative,
 };
 
 const noToolReasons: Record<string, string> = {

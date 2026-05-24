@@ -188,8 +188,11 @@ defmodule NovelWeb.WorkspaceChannel do
   def handle_in("author_action", %{"action" => action_params}, socket) do
     ws_id = socket.assigns[:workspace_id] || "lobby"
     source_turn_ref = action_params["source_turn_ref"] || ws_id
+    work_id = socket.assigns[:work_id] || ws_id
+    session_id = socket.assigns[:session_id]
 
     source_turn_result = source_turn_result(socket, source_turn_ref)
+    LogContext.put_turn(ws_id, work_id, source_turn_ref, session_id)
 
     action_input = %AuthorActionInput{
       input_id: "in_#{System.unique_integer([:positive, :monotonic])}",
@@ -201,6 +204,16 @@ defmodule NovelWeb.WorkspaceChannel do
       candidate_ref: action_params["candidate_ref"],
       idempotency_key: action_params["idempotency_key"]
     }
+
+    LogEmit.emit(:channel, :author_action, :start, %{
+      work_id: work_id,
+      session_id: session_id,
+      turn_id: source_turn_ref,
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      candidate_ref: action_input.candidate_ref,
+      candidate_set_ref: action_input.candidate_set_ref
+    })
 
     case lookup_author_action_receipt(socket, action_input) do
       {:duplicate, entry} ->
@@ -468,6 +481,7 @@ defmodule NovelWeb.WorkspaceChannel do
       {:ok, result} ->
         socket = remember_action_result(socket, action_input, result)
         broadcast!(socket, "action_result", result)
+        log_author_action_done(socket, action_input, result)
         {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
 
       {:ok, result, turn_result} ->
@@ -477,11 +491,25 @@ defmodule NovelWeb.WorkspaceChannel do
         broadcast_task_state_events(socket, turn_result)
         broadcast!(socket, "turn_result", turn_result)
         socket = remember_turn_result(socket, turn_result)
+        log_author_action_done(socket, action_input, result)
         {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
 
       {:error, reason} ->
         {:reply, {:error, %{reason: reason}}, socket}
     end
+  end
+
+  defp log_author_action_done(socket, action_input, result) do
+    LogEmit.emit(:channel, :author_action, :done, %{
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id],
+      turn_id: action_input.source_turn_ref,
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      action_status: result.status,
+      candidate_ref: action_input.candidate_ref,
+      candidate_set_ref: action_input.candidate_set_ref
+    })
   end
 
   defp remember_action_result(socket, action_input, result) do

@@ -21,6 +21,14 @@ const actions: AvailableActionLike[] = [
     enabled: false,
     disabled_reason: "already resolved",
   },
+  {
+    action_id: "choose_candidate:dir-1",
+    action_type: "choose_candidate",
+    candidate_set_ref: "candidate_set:turn-1",
+    candidate_ref: "dir-1",
+    enabled: true,
+    idempotency_key: "ik-candidate",
+  },
 ];
 
 describe("workbench action authorization", () => {
@@ -61,6 +69,26 @@ describe("workbench action authorization", () => {
       action_type: "confirm_before_execute",
       behavior_ref: "bh-1",
       idempotency_key: "ik-confirm",
+    });
+  });
+
+  it("builds candidate adoption payload only from a matching available action", () => {
+    const cardAction: UICardActionLike = {
+      action_id: "choose_candidate:dir-1",
+      action_type: "choose_candidate",
+      target_ref: "dir-1",
+    };
+
+    const action = findAuthorizedAction(actions, cardAction);
+
+    expect(action).toEqual(actions[2]);
+    expect(toAuthorActionPayload("turn-1", action!)).toEqual({
+      source_turn_ref: "turn-1",
+      action_id: "choose_candidate:dir-1",
+      action_type: "choose_candidate",
+      candidate_set_ref: "candidate_set:turn-1",
+      candidate_ref: "dir-1",
+      idempotency_key: "ik-candidate",
     });
   });
 });

@@ -77,7 +77,16 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
   @candidate_turn_result %{
     turn_id: "turn-candidates-1",
     frame_ref: "frame-candidates-1",
-    available_actions: [],
+    available_actions: [
+      %{
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-candidates-1",
+        candidate_ref: "dir-1",
+        enabled: true,
+        idempotency_key: "idem:turn-candidates-1:choose_candidate:dir-1"
+      }
+    ],
     candidate_directions: [
       %{
         direction_id: "dir-1",
@@ -411,6 +420,47 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
       assert String.contains?(reason, "stale") or
                String.contains?(reason, "source_turn_result not available")
+    end
+
+    test "candidate adoption action goes through adoption boundary and broadcasts decision turn_result" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @candidate_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-candidates-1",
+                     "action_id" => "choose_candidate:dir-1",
+                     "action_type" => "choose_candidate",
+                     "candidate_set_ref" => "candidate_set:turn-candidates-1",
+                     "candidate_ref" => "dir-1",
+                     "idempotency_key" => "idem:turn-candidates-1:choose_candidate:dir-1"
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("action_result", %{
+        action_type: "choose_candidate",
+        candidate_ref: "dir-1",
+        adoption_decision: %{decision_type: :adopt_tentative}
+      })
+
+      assert_broadcast("turn_result", result)
+      assert result.parent_turn_id == "turn-candidates-1"
+      assert result.truthfulness.candidate_selected == true
+      assert result.truthfulness.candidate_adopted == true
+      assert result.truthfulness.production_write_performed == false
+      assert result.adoption_decision.decision_type == :adopt_tentative
+      assert [%{card_type: "result_card", title: "候选方向已采用"}] = result.ui_cards
+      assert socket.assigns.current_turn_id == result.turn_id
+      assert Map.has_key?(socket.assigns.turn_results_by_id, result.turn_id)
     end
   end
 

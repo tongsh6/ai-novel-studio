@@ -682,8 +682,25 @@ export function WorkspaceChat() {
     if (action.action_type === "reject_or_cancel_confirmation") return WORKBENCH.actionReject;
     if (action.action_type === "cancel_pending_behavior") return WORKBENCH.actionCancel;
     if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
+    if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
     return action.action_type;
   };
+
+  const authorizedCandidateAction = (
+    turnResult: TurnResult,
+    candidate: CandidateDirection,
+  ): AvailableActionLike | null => {
+    const candidateActions = turnResult.available_actions ?? [];
+
+    return findAuthorizedAction(candidateActions, {
+      action_id: `choose_candidate:${candidate.direction_id}`,
+      action_type: "choose_candidate",
+      target_ref: candidate.direction_id,
+    });
+  };
+
+  const visibleAvailableActions = (turnResult: TurnResult): AvailableAction[] =>
+    (turnResult.available_actions ?? []).filter((action) => action.action_type !== "choose_candidate");
 
   const handlePanelAction = (actionType: string, artifactId?: string) => {
     if (actionType === "init_intent") {
@@ -1299,41 +1316,60 @@ export function WorkspaceChat() {
                   <div className={styles.candidatePanel}>
                     <div className={styles.candidateHeader}>{WORKBENCH.candidatePanelTitle}</div>
                     <div className={styles.candidateList}>
-                      {msg.turnResult.candidate_directions.map((c) => (
-                        <div key={c.direction_id} className={styles.candidateCard}>
-                          <div className={styles.candidateTitle}>{c.title}</div>
-                          <div className={styles.candidatePitch}>{c.pitch}</div>
-                          {c.tone_tags && c.tone_tags.length > 0 && (
-                            <div className={styles.candidateTags}>
-                              {c.tone_tags.map((t) => (
-                                <span key={t} className={styles.tag}>{t}</span>
-                              ))}
+                      {msg.turnResult.candidate_directions.map((c) => {
+                        const adoptAction = authorizedCandidateAction(msg.turnResult!, c);
+
+                        return (
+                          <div key={c.direction_id} className={styles.candidateCard}>
+                            <div className={styles.candidateTitle}>{c.title}</div>
+                            <div className={styles.candidatePitch}>{c.pitch}</div>
+                            {c.tone_tags && c.tone_tags.length > 0 && (
+                              <div className={styles.candidateTags}>
+                                {c.tone_tags.map((t) => (
+                                  <span key={t} className={styles.tag}>{t}</span>
+                                ))}
+                              </div>
+                            )}
+                            <div className={styles.candidateActions}>
+                              <button
+                                className={styles.candidateButton}
+                                disabled={loading || !socketConnected}
+                                title={WORKBENCH.candidateContinueTitle}
+                                onClick={() => {
+                                  if (msg.turnResult) {
+                                    void handleCandidateContinue(msg.turnResult, c);
+                                  }
+                                }}
+                              >
+                                <MessageCircle size={14} aria-hidden="true" />
+                                <span>{WORKBENCH.candidateContinueLabel}</span>
+                              </button>
+                              {adoptAction && (
+                                <button
+                                  className={styles.candidateButton}
+                                  disabled={loading || !socketConnected || adoptAction.enabled === false}
+                                  title={adoptAction.disabled_reason ?? WORKBENCH.candidateAdoptTitle}
+                                  onClick={() => {
+                                    if (msg.turnResult && adoptAction) {
+                                      void handleAvailableAction(msg.turnResult, adoptAction);
+                                    }
+                                  }}
+                                >
+                                  <BookOpen size={14} aria-hidden="true" />
+                                  <span>{WORKBENCH.candidateAdoptLabel}</span>
+                                </button>
+                              )}
                             </div>
-                          )}
-                          <div className={styles.candidateActions}>
-                            <button
-                              className={styles.candidateButton}
-                              disabled={loading || !socketConnected}
-                              title={WORKBENCH.candidateContinueTitle}
-                              onClick={() => {
-                                if (msg.turnResult) {
-                                  void handleCandidateContinue(msg.turnResult, c);
-                                }
-                              }}
-                            >
-                              <MessageCircle size={14} aria-hidden="true" />
-                              <span>{WORKBENCH.candidateContinueLabel}</span>
-                            </button>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
 
-                {!isReadOnlySessionView && msg.turnResult?.available_actions && msg.turnResult.available_actions.length > 0 && (
+                {!isReadOnlySessionView && msg.turnResult && visibleAvailableActions(msg.turnResult).length > 0 && (
                   <div className={styles.cardActions}>
-                    {msg.turnResult.available_actions.map((action) => (
+                    {visibleAvailableActions(msg.turnResult).map((action) => (
                       <button
                         key={action.action_id}
                         className={styles.btnSecondary}

@@ -7,6 +7,7 @@ defmodule NovelApplication.DialogueGateway do
 
   alias NovelAgent.Provider.Gateway
   alias NovelApplication.ActionValidator
+  alias NovelApplication.AdoptionBoundary
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
@@ -15,7 +16,9 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.LogContext
+  alias NovelDomain.AdoptionDecision
   alias NovelDomain.AuthorActionInput
+  alias NovelDomain.CandidateSet
   alias NovelDomain.DialogueFrame
   alias NovelDomain.ToolRequest
 
@@ -296,6 +299,21 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
+  def handle_action(
+        %AuthorActionInput{action_type: "choose_candidate"} = action_input,
+        source_turn_result,
+        _complete_fn
+      ) do
+    with :ok <- ActionValidator.validate(action_input, source_turn_result),
+         {:ok, candidate_set} <- candidate_set_from_turn_result(source_turn_result, action_input),
+         {:ok, chosen_candidate} <- chosen_candidate(candidate_set, action_input.candidate_ref) do
+      decision = AdoptionBoundary.evaluate(candidate_set, chosen_candidate)
+
+      {:ok, candidate_action_result(action_input, decision),
+       candidate_turn_result(source_turn_result, chosen_candidate, decision)}
+    end
+  end
+
   def handle_action(%AuthorActionInput{} = action_input, source_turn_result, _complete_fn) do
     case ActionValidator.validate(action_input, source_turn_result) do
       :ok ->
@@ -311,6 +329,225 @@ defmodule NovelApplication.DialogueGateway do
         {:error, reason}
     end
   end
+
+  defp candidate_set_from_turn_result(source_turn_result, action_input) do
+    candidates =
+      source_turn_result
+      |> map_field(:candidate_directions)
+      |> List.wrap()
+      |> Enum.map(&candidate_direction_to_boundary_candidate/1)
+      |> Enum.reject(&is_nil/1)
+
+    cond do
+      candidates == [] ->
+        {:error, "candidate set has no candidates"}
+
+      blank?(action_input.candidate_set_ref) ->
+        {:error, "choose_candidate missing candidate_set_ref"}
+
+      blank?(action_input.candidate_ref) ->
+        {:error, "choose_candidate missing candidate_ref"}
+
+      true ->
+        {:ok,
+         %CandidateSet{
+           candidate_set_id: action_input.candidate_set_ref,
+           turn_id: map_field(source_turn_result, :turn_id),
+           source_refs: [map_field(source_turn_result, :frame_ref)] |> Enum.reject(&blank?/1),
+           candidate_type: :direction,
+           candidates: candidates,
+           stability: :tentative,
+           trace_ref: trace_ref(source_turn_result)
+         }}
+    end
+  end
+
+  defp candidate_direction_to_boundary_candidate(candidate) do
+    candidate_id = map_field(candidate, :direction_id)
+
+    if blank?(candidate_id) do
+      nil
+    else
+      %{
+        candidate_id: candidate_id,
+        summary: map_field(candidate, :title) || candidate_id,
+        content_ref: map_field(candidate, :pitch) || candidate_id,
+        origin_ref: map_field(candidate, :source_frame_ref) || candidate_id,
+        risk_hint: :low,
+        adoption_target_ref: "work_direction"
+      }
+    end
+  end
+
+  defp chosen_candidate(%CandidateSet{} = candidate_set, candidate_ref) do
+    if Enum.any?(candidate_set.candidates, &(&1.candidate_id == candidate_ref)) do
+      {:ok, %{candidate_id: candidate_ref}}
+    else
+      {:error, "candidate not found in source turn"}
+    end
+  end
+
+  defp candidate_action_result(action_input, %AdoptionDecision{} = decision) do
+    %{
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      status: candidate_action_status(decision),
+      idempotency_key: action_input.idempotency_key,
+      candidate_set_ref: action_input.candidate_set_ref,
+      candidate_ref: action_input.candidate_ref,
+      adoption_decision: adoption_decision_view(decision)
+    }
+  end
+
+  defp candidate_action_status(%AdoptionDecision{decision_type: :adopt_tentative}), do: "accepted"
+
+  defp candidate_action_status(%AdoptionDecision{decision_type: :require_confirmation}),
+    do: "needs_confirmation"
+
+  defp candidate_action_status(%AdoptionDecision{decision_type: :reject}), do: "rejected"
+
+  defp candidate_action_status(%AdoptionDecision{decision_type: :fail_with_recovery}),
+    do: "failed"
+
+  defp candidate_action_status(_decision), do: "accepted"
+
+  defp candidate_turn_result(source_turn_result, chosen_candidate, %AdoptionDecision{} = decision) do
+    adopted? = AdoptionDecision.adopted?(decision)
+    turn_id = "turn_#{System.unique_integer([:positive, :monotonic])}"
+    title = chosen_candidate_title(source_turn_result, chosen_candidate.candidate_id)
+
+    %{
+      schema_version: "3.0-draft",
+      turn_id: turn_id,
+      parent_turn_id: map_field(source_turn_result, :turn_id),
+      frame_ref: "frame_#{turn_id}",
+      assistant_message: %{text: candidate_decision_message(decision, title)},
+      ui_cards: [candidate_decision_card(decision, title)],
+      frame_summary: %{
+        frame_type: :confirmation_answer,
+        dialogue_goal: "采纳候选创作方向"
+      },
+      trace_summary: candidate_trace_summary(decision),
+      phase: candidate_phase(decision),
+      status: candidate_status(decision),
+      available_actions: [],
+      truthfulness: %{
+        tool_called: false,
+        candidate_selected: true,
+        candidate_adopted: adopted?,
+        artifact_adopted: adopted?,
+        production_write_performed: false,
+        durable_behavior_opened: false,
+        reason_codes: decision.reason_codes
+      },
+      adoption_decision: adoption_decision_view(decision),
+      projection_hints: decision.projection_hints
+    }
+  end
+
+  defp candidate_phase(%AdoptionDecision{decision_type: :require_confirmation}),
+    do: "awaiting_author"
+
+  defp candidate_phase(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
+  defp candidate_phase(_decision), do: "completed"
+
+  defp candidate_status(%AdoptionDecision{decision_type: :require_confirmation}),
+    do: "needs_confirmation"
+
+  defp candidate_status(%AdoptionDecision{decision_type: :reject}), do: "cancelled"
+  defp candidate_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
+  defp candidate_status(_decision), do: "conversational"
+
+  defp candidate_decision_message(%AdoptionDecision{decision_type: :adopt_tentative}, title) do
+    "已采用「#{title}」作为后续创作方向；本次只形成待确认方向，不写入正文或生产状态。"
+  end
+
+  defp candidate_decision_message(%AdoptionDecision{decision_type: :require_confirmation}, title) do
+    "「#{title}」需要进一步确认后才能采用。"
+  end
+
+  defp candidate_decision_message(%AdoptionDecision{decision_type: :reject}, title) do
+    "「#{title}」当前不能采用，候选来源或状态已不满足采纳条件。"
+  end
+
+  defp candidate_decision_message(%AdoptionDecision{decision_type: :fail_with_recovery}, title) do
+    "未能采用「#{title}」，请重新选择当前轮次中的候选方向。"
+  end
+
+  defp candidate_decision_message(_decision, title), do: "已处理「#{title}」的采纳请求。"
+
+  defp candidate_decision_card(%AdoptionDecision{} = decision, title) do
+    %{
+      card_type: "result_card",
+      priority: "normal",
+      visibility: "always",
+      title: candidate_decision_title(decision),
+      body: candidate_decision_message(decision, title),
+      actions: []
+    }
+  end
+
+  defp candidate_decision_title(%AdoptionDecision{decision_type: :adopt_tentative}), do: "候选方向已采用"
+
+  defp candidate_decision_title(%AdoptionDecision{decision_type: :require_confirmation}),
+    do: "候选方向待确认"
+
+  defp candidate_decision_title(%AdoptionDecision{decision_type: :reject}), do: "候选方向未采用"
+
+  defp candidate_decision_title(%AdoptionDecision{decision_type: :fail_with_recovery}),
+    do: "候选方向采用失败"
+
+  defp candidate_decision_title(_decision), do: "候选方向已处理"
+
+  defp candidate_trace_summary(%AdoptionDecision{} = decision) do
+    %{
+      decision_type: decision.decision_type,
+      no_tool_reason: :user_requested_discussion,
+      dialogue_goal: "采纳候选创作方向",
+      reason_codes: decision.reason_codes,
+      turn_result_ref: decision.turn_id,
+      candidate_ref: decision.candidate_ref
+    }
+  end
+
+  defp adoption_decision_view(%AdoptionDecision{} = decision) do
+    %{
+      adoption_decision_id: decision.adoption_decision_id,
+      turn_id: decision.turn_id,
+      source_action_ref: decision.source_action_ref,
+      candidate_ref: decision.candidate_ref,
+      target_ref: decision.target_ref,
+      decision_type: decision.decision_type,
+      adopted_state_ref: decision.adopted_state_ref,
+      state_trace_ref: decision.state_trace_ref,
+      reason_codes: decision.reason_codes,
+      projection_hints: decision.projection_hints,
+      decision_trace_ref: decision.decision_trace_ref
+    }
+  end
+
+  defp chosen_candidate_title(source_turn_result, candidate_ref) do
+    source_turn_result
+    |> map_field(:candidate_directions)
+    |> List.wrap()
+    |> Enum.find(&(map_field(&1, :direction_id) == candidate_ref))
+    |> case do
+      nil -> candidate_ref
+      candidate -> map_field(candidate, :title) || candidate_ref
+    end
+  end
+
+  defp trace_ref(source_turn_result) do
+    get_in(source_turn_result, [:trace_summary, :trace_id]) ||
+      "decision_trace:#{map_field(source_turn_result, :turn_id)}"
+  end
+
+  defp map_field(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp map_field(_map, _key), do: nil
+
+  defp blank?(value), do: is_nil(value) or value == ""
 
   # ── confirmation re-gate (Strategy 1 / ADR-0009) ─
 

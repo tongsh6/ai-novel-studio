@@ -18,6 +18,13 @@ defmodule NovelApplication.ActionRoundtripTest do
         action_type: "cancel_pending_behavior",
         enabled: false,
         disabled_reason: "stale"
+      },
+      %{
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-1",
+        candidate_ref: "dir-1",
+        enabled: true
       }
     ]
   }
@@ -68,6 +75,20 @@ defmodule NovelApplication.ActionRoundtripTest do
 
       assert {:error, reason} = ActionValidator.validate(input, @valid_source)
       assert String.contains?(reason, "disabled")
+    end
+
+    test "candidate action scope mismatch rejected" do
+      input = %AuthorActionInput{
+        input_id: "in-candidate-mismatch",
+        source_turn_ref: "turn-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-1",
+        candidate_ref: "dir-2"
+      }
+
+      assert {:error, reason} = ActionValidator.validate(input, @valid_source)
+      assert String.contains?(reason, "candidate_ref")
     end
 
     test "missing source_turn_result rejected" do

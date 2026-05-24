@@ -176,6 +176,8 @@ export const WORKBENCH = {
   candidatePanelTitle: "候选创作方向",
   candidateContinueLabel: "继续聊这个方向",
   candidateContinueTitle: "把这个候选作为下一轮探索上下文，不会写入作品设定。",
+  candidateAdoptLabel: "采用这个方向",
+  candidateAdoptTitle: "提交服务端授权的采纳动作，重新经过采纳边界评估。",
   frameBadges: {
     creativeExploration: "探索方向",
     casualReply: "自然回复",
@@ -241,6 +243,7 @@ export const TRACE = {
     recovery: "已降级恢复",
     toolAllowed: "允许工具",
     toolDispatched: "已调用工具",
+    adoptTentative: "已采用候选",
     unknown: "已记录",
   },
   reasons: {

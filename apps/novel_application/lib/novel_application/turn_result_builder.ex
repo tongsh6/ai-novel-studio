@@ -46,7 +46,7 @@ defmodule NovelApplication.TurnResultBuilder do
     }
 
     result
-    |> maybe_add_candidates(candidates)
+    |> maybe_add_candidates(frame, candidates)
     |> maybe_add_decision(decision)
     |> maybe_add_tool_result(tool_result)
     |> maybe_add_artifacts(artifact_set)
@@ -137,8 +137,17 @@ defmodule NovelApplication.TurnResultBuilder do
 
   # ── optional sections ─────────────────────────
 
-  defp maybe_add_candidates(r, []), do: r
-  defp maybe_add_candidates(r, c), do: Map.put(r, :candidate_directions, format_candidates(c))
+  defp maybe_add_candidates(r, _frame, []), do: r
+
+  defp maybe_add_candidates(r, frame, c) do
+    r
+    |> Map.put(:candidate_directions, format_candidates(c))
+    |> Map.update(
+      :available_actions,
+      candidate_actions(frame, c),
+      &(&1 ++ candidate_actions(frame, c))
+    )
+  end
 
   defp maybe_add_decision(r, nil), do: r
 
@@ -270,6 +279,21 @@ defmodule NovelApplication.TurnResultBuilder do
         pitch: c.pitch,
         tone_tags: c.tone_tags,
         adoption_status: c.adoption_status
+      }
+    end)
+  end
+
+  defp candidate_actions(frame, candidates) do
+    candidate_set_ref = "candidate_set:#{frame.turn_id}"
+
+    Enum.map(candidates, fn c ->
+      %{
+        action_id: "choose_candidate:#{c.direction_id}",
+        action_type: "choose_candidate",
+        candidate_set_ref: candidate_set_ref,
+        candidate_ref: c.direction_id,
+        enabled: true,
+        idempotency_key: "idem:#{frame.turn_id}:choose_candidate:#{c.direction_id}"
       }
     end)
   end

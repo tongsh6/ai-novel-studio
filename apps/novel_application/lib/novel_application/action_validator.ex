@@ -46,11 +46,12 @@ defmodule NovelApplication.ActionValidator do
     match =
       Enum.find(
         actions,
-        &(&1[:action_type] == input.action_type && &1[:action_id] == input.action_id)
+        &(action_field(&1, :action_type) == input.action_type &&
+            action_field(&1, :action_id) == input.action_id)
       )
 
     if match do
-      :ok
+      check_scoped_refs(input, match)
     else
       {:error,
        "invented action: #{input.action_type}:#{input.action_id} not in available actions"}
@@ -63,13 +64,45 @@ defmodule NovelApplication.ActionValidator do
     match =
       Enum.find(
         actions,
-        &(&1[:action_type] == input.action_type && &1[:action_id] == input.action_id)
+        &(action_field(&1, :action_type) == input.action_type &&
+            action_field(&1, :action_id) == input.action_id)
       )
 
-    if match && match[:enabled] == false do
-      {:error, "disabled action: #{match[:disabled_reason] || "action is not available"}"}
+    if match && action_field(match, :enabled) == false do
+      {:error,
+       "disabled action: #{action_field(match, :disabled_reason) || "action is not available"}"}
     else
       :ok
+    end
+  end
+
+  defp check_scoped_refs(input, action) do
+    cond do
+      ref_mismatch?(input.behavior_ref, action_field(action, :behavior_ref)) ->
+        {:error, "action scope mismatch: behavior_ref does not match available action"}
+
+      ref_mismatch?(input.candidate_set_ref, action_field(action, :candidate_set_ref)) ->
+        {:error, "action scope mismatch: candidate_set_ref does not match available action"}
+
+      ref_mismatch?(input.candidate_ref, action_field(action, :candidate_ref)) ->
+        {:error, "action scope mismatch: candidate_ref does not match available action"}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp ref_mismatch?(nil, _expected), do: false
+  defp ref_mismatch?(_actual, nil), do: false
+  defp ref_mismatch?(actual, expected), do: actual != expected
+
+  defp action_field(action, key) do
+    string_key = Atom.to_string(key)
+
+    cond do
+      Map.has_key?(action, key) -> Map.get(action, key)
+      Map.has_key?(action, string_key) -> Map.get(action, string_key)
+      true -> nil
     end
   end
 end
