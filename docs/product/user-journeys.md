@@ -23,6 +23,7 @@
 > - `docs/design-v3/acceptance/README.md`
 > - `docs/project-ledger.md`
 > - `tasks/NEXT.md`
+> - `docs/product/novel-output-milestones.md`
 
 ---
 
@@ -197,7 +198,7 @@ Next Proof：LLM 异常、乱码、超时或恢复后，真实工作台仍能保
 
 ## 5. Journey D：小说创作生命周期
 
-目标：作者能围绕一部长篇作品从立项、定位、世界观、角色、卷章、场景、正文、修订到成稿持续推进，而不是只得到零散聊天回复或孤立草稿。
+目标：作者能围绕一部长篇作品从立项、定位、世界观、角色、卷章、场景、正文、修订到成稿持续推进，而不是只得到零散聊天回复或孤立草稿。本 Journey 也是 `docs/product/novel-output-milestones.md` 的主要产品承载面，P1/P2/P3/P4 的字数目标必须通过这里的章节规划、正文生成、采纳、阅读和导出链路证明，而不是通过旁路脚本堆字数。
 
 关联验收：AU-02、AU-05、AU-08、AU-09；复用 v2 小说领域设计 `20-28`、质量门禁 `31-32` 的产品语义。
 
@@ -209,9 +210,9 @@ Next Proof：LLM 异常、乱码、超时或恢复后，真实工作台仍能保
 
 Longest Closed Prefix：D1-D3 是最小闭环，不代表完整生命周期闭环。
 
-Current Breakpoint：D4 结构化生命周期节点仍缺统一用户路径。
+Current Breakpoint：D4 结构化生命周期节点仍缺统一用户路径；P1 10 万字最小长篇闭环还缺章节计划、正文生成、字数统计和导出主链。
 
-Next Proof：从一个创作目标进入角色/章节/场景/正文其中一种生命周期节点，产出 tentative，采纳后进入作品事实和阅读/档案。
+Next Proof：从一个创作目标进入角色/章节/场景/正文其中一种生命周期节点，产出 tentative，采纳后进入作品事实和阅读/档案；P1 后续 proof 还必须能统计正文有效字数和导出完整小说。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -221,6 +222,7 @@ Next Proof：从一个创作目标进入角色/章节/场景/正文其中一种�
 | D4 | 立项 -> 世界观/角色/大纲/章节/场景的连续规划 | AU-02 / AU-09 | MicroPlan / ToolRequest / DialogueContext | gap | Document only | v2 lifecycle 设计、v3 acceptance 分散覆盖 | 缺统一生命周期入口和分阶段 proof。 |
 | D5 | 修订已采纳内容，保留 provenance 和冲突恢复 | AU-05 / AU-08 | AdoptionDecision / DecisionTrace | gap | Document only | AU-05 conflict/freshness gaps | 缺 revision boundary、覆盖确认、阅读投影刷新。 |
 | D6 | 内容质量门禁参与采纳或修订 | AU-05 / AU-09 | ToolResult / OrchestratorDecision / TraceSummaryView | gap | Document only | v2 quality gates 已设计，v3 首批只接最小质量证明 | 缺质量 finding 到 UI/proof 的产品链。 |
+| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | gap | Document only | `docs/product/novel-output-milestones.md` | 缺章节计划、逐章正文生成、正文有效字数统计、阅读投影、导出和真实工作台外部验收。 |
 
 ---
 
