@@ -160,6 +160,37 @@ defmodule NovelApplication.AdoptionBoundaryTest do
       assert "work_id_mismatch" in decision.reason_codes
       refute AdoptionDecision.adopted?(decision)
     end
+
+    test "canon conflict candidate fails with recovery before high-risk confirmation" do
+      set =
+        build_candidate_set(
+          candidates: [
+            %{
+              candidate_id: "c-conflict",
+              summary: "冲突方向",
+              content_ref: "ref-conflict",
+              origin_ref: "tool:creative_gen",
+              risk_hint: :high,
+              adoption_target_ref: "canon:role:lin-jin:age",
+              canon_conflicts: [
+                %{
+                  target_ref: "canon:role:lin-jin:age",
+                  current_value: "17岁",
+                  proposed_value: "32岁",
+                  canon_revision: 7
+                }
+              ]
+            }
+          ]
+        )
+
+      decision = AdoptionBoundary.evaluate(set, %{candidate_id: "c-conflict"})
+
+      assert decision.decision_type == :fail_with_recovery
+      assert "canon_conflict_detected" in decision.reason_codes
+      assert "conflict_recovery_required" in decision.reason_codes
+      refute AdoptionDecision.adopted?(decision)
+    end
   end
 
   # ── Invariants ──────────────────────────────────

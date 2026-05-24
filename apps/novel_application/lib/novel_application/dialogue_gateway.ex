@@ -402,7 +402,8 @@ defmodule NovelApplication.DialogueGateway do
         origin_ref: map_field(candidate, :source_frame_ref) || candidate_id,
         risk_hint: candidate_risk_hint(map_field(candidate, :risk_hint)),
         work_id: map_field(candidate, :work_id),
-        adoption_target_ref: "work_direction"
+        adoption_target_ref: map_field(candidate, :adoption_target_ref) || "work_direction",
+        canon_conflicts: map_field(candidate, :canon_conflicts) || []
       }
     end
   end

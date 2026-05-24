@@ -328,6 +328,44 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert turn_result.truthfulness.production_write_performed == false
     end
 
+    test "canon conflict candidate adoption fails with recovery" do
+      input = %AuthorActionInput{
+        input_id: "in-gw-candidate-canon-conflict",
+        source_turn_ref: "turn-candidates-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-candidates-1",
+        candidate_ref: "dir-1"
+      }
+
+      source =
+        @candidate_source
+        |> Map.put(:current_work_id, "work-1")
+        |> put_in([:candidate_directions, Access.at(0), :risk_hint], :low)
+        |> put_in(
+          [:candidate_directions, Access.at(0), :adoption_target_ref],
+          "canon:role:lin-jin:age"
+        )
+        |> put_in([:candidate_directions, Access.at(0), :canon_conflicts], [
+          %{
+            target_ref: "canon:role:lin-jin:age",
+            current_value: "林烬十七岁",
+            proposed_value: "林烬三十二岁",
+            canon_revision: 7
+          }
+        ])
+
+      assert {:ok, ack, turn_result} = DialogueGateway.handle_action(input, source)
+      assert ack.status == "failed"
+      assert ack.adoption_decision.decision_type == :fail_with_recovery
+      assert "canon_conflict_detected" in ack.adoption_decision.reason_codes
+      assert "conflict_recovery_required" in ack.adoption_decision.reason_codes
+      assert turn_result.status == "failed"
+      assert turn_result.truthfulness.candidate_selected == true
+      assert turn_result.truthfulness.candidate_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+    end
+
     test "stale source candidate adoption is rejected with visible turn_result" do
       input = %AuthorActionInput{
         input_id: "in-gw-candidate-stale",

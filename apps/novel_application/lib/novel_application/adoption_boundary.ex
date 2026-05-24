@@ -32,68 +32,16 @@ defmodule NovelApplication.AdoptionBoundary do
     LogEmit.emit(:adoption, :evaluate, :start, %{candidate_set_id: candidate_set.candidate_set_id})
 
     decision =
-      cond do
-        is_nil(candidate) ->
-          %AdoptionDecision{
-            adoption_decision_id: decision_id,
-            turn_id: candidate_set.turn_id,
-            source_action_ref: "choose_candidate",
-            candidate_ref: candidate_id || "unknown",
-            decision_type: :fail_with_recovery,
-            reason_codes: ["candidate_not_found", "stale_or_invented_selection"],
-            decision_trace_ref: decision_trace_ref
-          }
-
-        work_boundary_mismatch?(candidate, chosen_candidate, opts) ->
-          %AdoptionDecision{
-            adoption_decision_id: decision_id,
-            turn_id: candidate_set.turn_id,
-            source_action_ref: "choose_candidate",
-            candidate_ref: candidate_id,
-            target_ref: candidate.adoption_target_ref,
-            decision_type: :fail_with_recovery,
-            reason_codes: ["work_id_mismatch", "cross_work_adoption_rejected"],
-            decision_trace_ref: decision_trace_ref
-          }
-
-        candidate_set.stability != :tentative ->
-          %AdoptionDecision{
-            adoption_decision_id: decision_id,
-            turn_id: candidate_set.turn_id,
-            source_action_ref: "choose_candidate",
-            candidate_ref: candidate_id,
-            decision_type: :reject,
-            reason_codes: non_tentative_reason_codes(candidate_set.stability),
-            decision_trace_ref: decision_trace_ref
-          }
-
-        candidate.risk_hint == :high ->
-          %AdoptionDecision{
-            adoption_decision_id: decision_id,
-            turn_id: candidate_set.turn_id,
-            source_action_ref: "choose_candidate",
-            candidate_ref: candidate_id,
-            decision_type: :require_confirmation,
-            target_ref: candidate.adoption_target_ref,
-            reason_codes: ["high_risk_candidate", "confirmation_required"],
-            decision_trace_ref: decision_trace_ref
-          }
-
-        true ->
-          %AdoptionDecision{
-            adoption_decision_id: decision_id,
-            turn_id: candidate_set.turn_id,
-            source_action_ref: "choose_candidate",
-            candidate_ref: candidate_id,
-            decision_type: :adopt_tentative,
-            target_ref: candidate.adoption_target_ref,
-            adopted_state_ref: "adopted:#{candidate_id}",
-            state_trace_ref: "state_trace:#{decision_id}",
-            reason_codes: ["candidate_adopted_as_tentative", "provenance_verified"],
-            projection_hints: [build_projection_hint(candidate_set.turn_id, decision_id)],
-            decision_trace_ref: decision_trace_ref
-          }
-      end
+      %{
+        candidate_set: candidate_set,
+        chosen_candidate: chosen_candidate,
+        candidate: candidate,
+        candidate_id: candidate_id,
+        decision_id: decision_id,
+        decision_trace_ref: decision_trace_ref,
+        opts: opts
+      }
+      |> evaluate_candidate_decision()
 
     duration = System.monotonic_time(:millisecond) - t0
 
@@ -115,6 +63,157 @@ defmodule NovelApplication.AdoptionBoundary do
 
   defp non_tentative_reason_codes(:stale), do: ["source_turn_stale", "stale_candidate_set"]
   defp non_tentative_reason_codes(_), do: ["candidate_not_tentative", "stale_candidate_set"]
+
+  defp evaluate_candidate_decision(context) do
+    [
+      &missing_candidate_decision/1,
+      &work_boundary_decision/1,
+      &stability_decision/1,
+      &canon_conflict_decision/1,
+      &high_risk_decision/1
+    ]
+    |> Enum.find_value(fn decision_fn -> decision_fn.(context) end)
+    |> case do
+      nil -> adopt_tentative_decision(context)
+      decision -> decision
+    end
+  end
+
+  defp missing_candidate_decision(%{
+         candidate: nil,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref
+       }) do
+    %AdoptionDecision{
+      adoption_decision_id: decision_id,
+      turn_id: candidate_set.turn_id,
+      source_action_ref: "choose_candidate",
+      candidate_ref: candidate_id || "unknown",
+      decision_type: :fail_with_recovery,
+      reason_codes: ["candidate_not_found", "stale_or_invented_selection"],
+      decision_trace_ref: decision_trace_ref
+    }
+  end
+
+  defp missing_candidate_decision(_context), do: nil
+
+  defp work_boundary_decision(%{
+         candidate: candidate,
+         chosen_candidate: chosen_candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref,
+         opts: opts
+       }) do
+    if work_boundary_mismatch?(candidate, chosen_candidate, opts) do
+      %AdoptionDecision{
+        adoption_decision_id: decision_id,
+        turn_id: candidate_set.turn_id,
+        source_action_ref: "choose_candidate",
+        candidate_ref: candidate_id,
+        target_ref: candidate.adoption_target_ref,
+        decision_type: :fail_with_recovery,
+        reason_codes: ["work_id_mismatch", "cross_work_adoption_rejected"],
+        decision_trace_ref: decision_trace_ref
+      }
+    end
+  end
+
+  defp stability_decision(%{
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref
+       }) do
+    if candidate_set.stability != :tentative do
+      %AdoptionDecision{
+        adoption_decision_id: decision_id,
+        turn_id: candidate_set.turn_id,
+        source_action_ref: "choose_candidate",
+        candidate_ref: candidate_id,
+        decision_type: :reject,
+        reason_codes: non_tentative_reason_codes(candidate_set.stability),
+        decision_trace_ref: decision_trace_ref
+      }
+    end
+  end
+
+  defp canon_conflict_decision(%{
+         candidate: candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref
+       }) do
+    if canon_conflict?(candidate) do
+      %AdoptionDecision{
+        adoption_decision_id: decision_id,
+        turn_id: candidate_set.turn_id,
+        source_action_ref: "choose_candidate",
+        candidate_ref: candidate_id,
+        target_ref: candidate.adoption_target_ref,
+        decision_type: :fail_with_recovery,
+        reason_codes: ["canon_conflict_detected", "conflict_recovery_required"],
+        decision_trace_ref: decision_trace_ref
+      }
+    end
+  end
+
+  defp high_risk_decision(%{
+         candidate: candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref
+       }) do
+    if candidate.risk_hint == :high do
+      %AdoptionDecision{
+        adoption_decision_id: decision_id,
+        turn_id: candidate_set.turn_id,
+        source_action_ref: "choose_candidate",
+        candidate_ref: candidate_id,
+        decision_type: :require_confirmation,
+        target_ref: candidate.adoption_target_ref,
+        reason_codes: ["high_risk_candidate", "confirmation_required"],
+        decision_trace_ref: decision_trace_ref
+      }
+    end
+  end
+
+  defp adopt_tentative_decision(%{
+         candidate: candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref
+       }) do
+    %AdoptionDecision{
+      adoption_decision_id: decision_id,
+      turn_id: candidate_set.turn_id,
+      source_action_ref: "choose_candidate",
+      candidate_ref: candidate_id,
+      decision_type: :adopt_tentative,
+      target_ref: candidate.adoption_target_ref,
+      adopted_state_ref: "adopted:#{candidate_id}",
+      state_trace_ref: "state_trace:#{decision_id}",
+      reason_codes: ["candidate_adopted_as_tentative", "provenance_verified"],
+      projection_hints: [build_projection_hint(candidate_set.turn_id, decision_id)],
+      decision_trace_ref: decision_trace_ref
+    }
+  end
+
+  defp canon_conflict?(candidate) do
+    candidate
+    |> map_field(:canon_conflicts)
+    |> List.wrap()
+    |> Enum.any?(&map_size_positive?/1)
+  end
+
+  defp map_size_positive?(value) when is_map(value), do: map_size(value) > 0
+  defp map_size_positive?(_value), do: false
 
   defp find_candidate(_set, nil), do: nil
 

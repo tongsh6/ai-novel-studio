@@ -4,12 +4,14 @@ defmodule NovelDomain.CandidateSet do
   """
 
   @type candidate :: %{
-          candidate_id: String.t(),
-          summary: String.t(),
-          content_ref: String.t(),
-          origin_ref: String.t(),
-          risk_hint: :low | :medium | :high,
-          adoption_target_ref: String.t() | nil
+          required(:candidate_id) => String.t(),
+          required(:summary) => String.t(),
+          required(:content_ref) => String.t(),
+          required(:origin_ref) => String.t(),
+          required(:risk_hint) => :low | :medium | :high,
+          required(:adoption_target_ref) => String.t() | nil,
+          optional(:canon_conflicts) => [map()],
+          optional(:work_id) => String.t()
         }
 
   @type t :: %__MODULE__{
