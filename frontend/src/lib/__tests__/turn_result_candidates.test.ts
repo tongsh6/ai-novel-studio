@@ -43,6 +43,7 @@ describe("V3TurnResult.candidate_directions contract", () => {
         title: "赛博公司垄断流",
         pitch: "底层散修对抗大厂灵气垄断",
         tone_tags: ["压抑", "反叛"],
+        risk_hint: "high",
         adoption_status: "not_adopted",
       },
       {
@@ -65,6 +66,7 @@ describe("V3TurnResult.candidate_directions contract", () => {
     expect(first.title).toBe("赛博公司垄断流");
     expect(first.pitch.length).toBeGreaterThan(0);
     expect(Array.isArray(first.tone_tags)).toBe(true);
+    expect(first.risk_hint).toBe("high");
     expect(first.adoption_status).toBe("not_adopted");
   });
 

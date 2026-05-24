@@ -477,6 +477,8 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp handle_author_action(socket, action_input, source_turn_result) do
+    source_turn_result = scope_source_turn_result(socket, source_turn_result)
+
     case NovelApplication.DialogueGateway.handle_action(action_input, source_turn_result) do
       {:ok, result} ->
         socket = remember_action_result(socket, action_input, result)
@@ -486,6 +488,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
       {:ok, result, turn_result} ->
         # Confirmation re-gate dispatched a tool — broadcast both ack + new turn
+        turn_result = scope_turn_result(socket, turn_result)
         socket = remember_action_result(socket, action_input, result)
         broadcast!(socket, "action_result", result)
         broadcast_task_state_events(socket, turn_result)
@@ -707,6 +710,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
     case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister, recorder) do
       {:ok, turn_result, _trace, _candidates, _context} ->
+        turn_result = scope_turn_result(socket, turn_result)
         broadcast!(socket, "turn_result", turn_result)
         socket = remember_turn_result(socket, turn_result)
         {:ok, socket}
@@ -783,6 +787,7 @@ defmodule NovelWeb.WorkspaceChannel do
     do: selection[:source_turn_ref] || selection["source_turn_ref"]
 
   defp remember_turn_result(socket, %{turn_id: turn_id} = turn_result) when is_binary(turn_id) do
+    turn_result = scope_turn_result(socket, turn_result)
     turn_results = Map.put(socket.assigns[:turn_results_by_id] || %{}, turn_id, turn_result)
 
     socket
@@ -791,6 +796,28 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp remember_turn_result(socket, _turn_result), do: socket
+
+  defp scope_source_turn_result(_socket, nil), do: nil
+
+  defp scope_source_turn_result(socket, source_turn_result) when is_map(source_turn_result) do
+    source_turn_result
+    |> Map.put_new(:workspace_id, socket.assigns[:workspace_id])
+    |> Map.put_new(:work_id, socket.assigns[:work_id])
+    |> Map.put_new(:session_id, socket.assigns[:session_id])
+    |> Map.put(:current_work_id, socket.assigns[:work_id])
+    |> Map.put(:current_session_id, socket.assigns[:session_id])
+  end
+
+  defp scope_source_turn_result(_socket, source_turn_result), do: source_turn_result
+
+  defp scope_turn_result(socket, turn_result) when is_map(turn_result) do
+    turn_result
+    |> Map.put_new(:workspace_id, socket.assigns[:workspace_id])
+    |> Map.put_new(:work_id, socket.assigns[:work_id])
+    |> Map.put_new(:session_id, socket.assigns[:session_id])
+  end
+
+  defp scope_turn_result(_socket, turn_result), do: turn_result
 
   defp broadcast_task_state_events(socket, %{task_state_events: events}) when is_list(events) do
     Enum.each(events, &broadcast!(socket, "task_state", &1))

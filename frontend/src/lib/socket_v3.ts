@@ -91,6 +91,7 @@ export interface V3CandidateDirection {
   title: string;
   pitch: string;
   tone_tags: string[];
+  risk_hint?: "low" | "medium" | "high";
   adoption_status: string;
 }
 

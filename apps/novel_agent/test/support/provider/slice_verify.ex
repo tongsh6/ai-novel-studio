@@ -56,7 +56,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       no_tool_reason: if(exploratory, do: "exploratory_only", else: "no_tool_needed"),
       execution_readiness: "not_applicable",
       assistant_message: frame_message(exploratory),
-      candidate_directions: candidate_directions(exploratory),
+      candidate_directions: candidate_directions(exploratory, prompt),
       context_used: false,
       uncertainty: []
     }
@@ -72,22 +72,39 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp frame_message(false), do: "可以，我们先围绕小说创作方向聊下去。"
 
-  defp candidate_directions(true) do
+  defp candidate_directions(true, prompt) do
+    author_text = author_input_text(prompt)
+    high_risk? = contains_any?(author_text, ["高风险", "覆盖主线", "重写设定", "推翻设定"])
+
+    first =
+      if high_risk? do
+        %{
+          title: "高风险主线覆盖",
+          pitch: "直接覆盖既有主线设定，需要作者再次确认后才能采用。",
+          tone_tags: ["主线", "高风险"],
+          risk_hint: "high"
+        }
+      else
+        %{
+          title: "人物动机",
+          pitch: "从主角最想得到但最难承受的东西切入。",
+          tone_tags: ["人物", "冲突"],
+          risk_hint: "low"
+        }
+      end
+
     [
-      %{
-        title: "人物动机",
-        pitch: "从主角最想得到但最难承受的东西切入。",
-        tone_tags: ["人物", "冲突"]
-      },
+      first,
       %{
         title: "世界规则",
         pitch: "先确定一个会持续制造选择压力的规则。",
-        tone_tags: ["设定", "推进"]
+        tone_tags: ["设定", "推进"],
+        risk_hint: "low"
       }
     ]
   end
 
-  defp candidate_directions(false), do: []
+  defp candidate_directions(false, _prompt), do: []
 
   defp tool_narration_response(prompt) do
     cond do

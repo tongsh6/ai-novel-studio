@@ -278,6 +278,7 @@ defmodule NovelApplication.TurnResultBuilder do
         title: c.title,
         pitch: c.pitch,
         tone_tags: c.tone_tags,
+        risk_hint: c.risk_hint,
         adoption_status: c.adoption_status
       }
     end)

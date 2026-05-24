@@ -286,7 +286,7 @@ defmodule NovelApplication.Planner do
       "no_tool_reason": "no_tool_needed" | "exploratory_only" | "insufficient_execution_target" | "user_requested_discussion",
       "execution_readiness": "not_applicable",
       "assistant_message": "自然语言回应（中文）",
-      "candidate_directions": [{"title": "方向标题", "pitch": "一句话吸引力描述", "tone_tags": ["悬疑", "温柔"]}],
+      "candidate_directions": [{"title": "方向标题", "pitch": "一句话吸引力描述", "tone_tags": ["悬疑", "温柔"], "risk_hint": "low"}],
       "context_used": true or false,
       "uncertainty": []
     }
@@ -295,6 +295,7 @@ defmodule NovelApplication.Planner do
     - frame_type == "creative_exploration" 时，candidate_directions 必须包含 2-3 个方向对象
     - frame_type != "creative_exploration" 时，candidate_directions 为空数组
     - 不要输出纯字符串数组，每个方向必须是带 title/pitch/tone_tags 的对象
+    - candidate_directions[].risk_hint 可选，只能是 "low" | "medium" | "high"，不确定时用 "low"
     - assistant_message 必须用中文，不要输出 JSON 代码块
     """
   end
@@ -568,6 +569,7 @@ defmodule NovelApplication.Planner do
             pitch: c |> Map.get("pitch", "") |> to_string() |> String.trim(),
             tone_tags: Map.get(c, "tone_tags", []),
             source_frame_ref: frame_id,
+            risk_hint: c |> Map.get("risk_hint", "low") |> to_risk_hint(),
             adoption_status: :not_adopted
           }
 

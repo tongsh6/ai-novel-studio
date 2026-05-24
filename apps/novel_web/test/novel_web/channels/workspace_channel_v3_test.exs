@@ -462,6 +462,51 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert socket.assigns.current_turn_id == result.turn_id
       assert Map.has_key?(socket.assigns.turn_results_by_id, result.turn_id)
     end
+
+    test "high risk candidate adoption broadcasts confirmation result without production write" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      high_risk_turn_result =
+        put_in(@candidate_turn_result, [:candidate_directions, Access.at(0), :risk_hint], :high)
+
+      socket = assign_server_turn(socket, high_risk_turn_result)
+
+      assert {:reply, {:ok, %{received: true, action_status: "needs_confirmation"}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-candidates-1",
+                     "action_id" => "choose_candidate:dir-1",
+                     "action_type" => "choose_candidate",
+                     "candidate_set_ref" => "candidate_set:turn-candidates-1",
+                     "candidate_ref" => "dir-1",
+                     "idempotency_key" => "idem:turn-candidates-1:choose_candidate:dir-1"
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("action_result", %{
+        action_type: "choose_candidate",
+        candidate_ref: "dir-1",
+        status: "needs_confirmation",
+        adoption_decision: %{decision_type: :require_confirmation}
+      })
+
+      assert_broadcast("turn_result", result)
+      assert result.parent_turn_id == "turn-candidates-1"
+      assert result.status == "needs_confirmation"
+      assert result.truthfulness.candidate_selected == true
+      assert result.truthfulness.candidate_adopted == false
+      assert result.truthfulness.production_write_performed == false
+      assert "high_risk_candidate" in result.truthfulness.reason_codes
+      assert [%{card_type: "result_card", title: "候选方向待确认"}] = result.ui_cards
+      assert socket.assigns.current_turn_id == result.turn_id
+    end
   end
 
   describe "artifact adoption roundtrip" do

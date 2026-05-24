@@ -79,7 +79,9 @@ defmodule NovelApplication.DialogueGateway do
 
     case DialogueFrame.validate(frame) do
       :ok ->
-        result = handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn)
+        result =
+          handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn)
+          |> scope_turn_result(ws_id, work_id, session_id)
 
         persist_turn_side_effects(
           result,
@@ -130,6 +132,25 @@ defmodule NovelApplication.DialogueGateway do
   defp empty_context(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
   defp allocate_turn_id, do: "turn_#{System.unique_integer([:positive, :monotonic])}"
+
+  defp scope_turn_result(
+         {:ok, turn_result, trace, candidates, context},
+         ws_id,
+         work_id,
+         session_id
+       ) do
+    {:ok, put_turn_result_scope(turn_result, ws_id, work_id, session_id), trace, candidates,
+     context}
+  end
+
+  defp scope_turn_result(result, _ws_id, _work_id, _session_id), do: result
+
+  defp put_turn_result_scope(turn_result, ws_id, work_id, session_id) do
+    turn_result
+    |> Map.put_new(:workspace_id, ws_id)
+    |> Map.put_new(:work_id, work_id)
+    |> Map.put_new(:session_id, session_id)
+  end
 
   defp handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn) do
     if needs_micro_plan?(frame, generate_plan) do
@@ -307,7 +328,13 @@ defmodule NovelApplication.DialogueGateway do
     with :ok <- ActionValidator.validate(action_input, source_turn_result),
          {:ok, candidate_set} <- candidate_set_from_turn_result(source_turn_result, action_input),
          {:ok, chosen_candidate} <- chosen_candidate(candidate_set, action_input.candidate_ref) do
-      decision = AdoptionBoundary.evaluate(candidate_set, chosen_candidate)
+      decision =
+        AdoptionBoundary.evaluate(
+          candidate_set,
+          chosen_candidate,
+          nil,
+          candidate_adoption_scope(source_turn_result)
+        )
 
       {:ok, candidate_action_result(action_input, decision),
        candidate_turn_result(source_turn_result, chosen_candidate, decision)}
@@ -373,11 +400,29 @@ defmodule NovelApplication.DialogueGateway do
         summary: map_field(candidate, :title) || candidate_id,
         content_ref: map_field(candidate, :pitch) || candidate_id,
         origin_ref: map_field(candidate, :source_frame_ref) || candidate_id,
-        risk_hint: :low,
+        risk_hint: candidate_risk_hint(map_field(candidate, :risk_hint)),
+        work_id: map_field(candidate, :work_id),
         adoption_target_ref: "work_direction"
       }
     end
   end
+
+  defp candidate_adoption_scope(source_turn_result) do
+    [
+      work_id:
+        map_field(source_turn_result, :current_work_id) ||
+          map_field(source_turn_result, :work_id),
+      source_work_id: map_field(source_turn_result, :work_id)
+    ]
+  end
+
+  defp candidate_risk_hint(:high), do: :high
+  defp candidate_risk_hint(:medium), do: :medium
+  defp candidate_risk_hint(:low), do: :low
+  defp candidate_risk_hint("high"), do: :high
+  defp candidate_risk_hint("medium"), do: :medium
+  defp candidate_risk_hint("low"), do: :low
+  defp candidate_risk_hint(_), do: :low
 
   defp chosen_candidate(%CandidateSet{} = candidate_set, candidate_ref) do
     if Enum.any?(candidate_set.candidates, &(&1.candidate_id == candidate_ref)) do

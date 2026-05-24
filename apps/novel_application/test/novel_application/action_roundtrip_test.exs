@@ -182,6 +182,31 @@ defmodule NovelApplication.ActionRoundtripTest do
                         fallback_strategy: %{downgrade_message: "fallback"}
                       })
 
+    @candidate_source %{
+      turn_id: "turn-candidates-1",
+      frame_ref: "frame-candidates-1",
+      work_id: "work-1",
+      available_actions: [
+        %{
+          action_id: "choose_candidate:dir-1",
+          action_type: "choose_candidate",
+          candidate_set_ref: "candidate_set:turn-candidates-1",
+          candidate_ref: "dir-1",
+          enabled: true
+        }
+      ],
+      candidate_directions: [
+        %{
+          direction_id: "dir-1",
+          title: "高风险主线覆盖",
+          pitch: "直接覆盖既有主线设定",
+          tone_tags: ["主线"],
+          risk_hint: :high,
+          adoption_status: :not_adopted
+        }
+      ]
+    }
+
     test "confirm_before_execute requires stored plan in source" do
       input = %AuthorActionInput{
         input_id: "in-gw",
@@ -227,6 +252,54 @@ defmodule NovelApplication.ActionRoundtripTest do
 
       assert {:error, reason} = DialogueGateway.handle_action(input, @valid_source)
       assert String.contains?(reason, "stale")
+    end
+
+    test "high risk candidate adoption requires confirmation and does not write production state" do
+      input = %AuthorActionInput{
+        input_id: "in-gw-candidate-high-risk",
+        source_turn_ref: "turn-candidates-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-candidates-1",
+        candidate_ref: "dir-1"
+      }
+
+      assert {:ok, ack, turn_result} =
+               DialogueGateway.handle_action(
+                 input,
+                 Map.put(@candidate_source, :current_work_id, "work-1")
+               )
+
+      assert ack.status == "needs_confirmation"
+      assert ack.adoption_decision.decision_type == :require_confirmation
+      assert "high_risk_candidate" in ack.adoption_decision.reason_codes
+      assert turn_result.status == "needs_confirmation"
+      assert turn_result.truthfulness.candidate_selected == true
+      assert turn_result.truthfulness.candidate_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+    end
+
+    test "cross work candidate adoption fails with recovery" do
+      input = %AuthorActionInput{
+        input_id: "in-gw-candidate-cross-work",
+        source_turn_ref: "turn-candidates-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-candidates-1",
+        candidate_ref: "dir-1"
+      }
+
+      source =
+        @candidate_source
+        |> Map.put(:current_work_id, "work-2")
+        |> put_in([:candidate_directions, Access.at(0), :risk_hint], :low)
+
+      assert {:ok, ack, turn_result} = DialogueGateway.handle_action(input, source)
+      assert ack.status == "failed"
+      assert ack.adoption_decision.decision_type == :fail_with_recovery
+      assert "work_id_mismatch" in ack.adoption_decision.reason_codes
+      assert turn_result.truthfulness.candidate_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
     end
   end
 end

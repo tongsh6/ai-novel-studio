@@ -20,7 +20,8 @@ defmodule NovelApplication.CreativeExplorationLoopTest do
       {
         "title": "赛博公司垄断流",
         "pitch": "顶级大厂垄断了灵气带宽，底层散修只能用二手的“延迟灵气”。",
-        "tone_tags": ["压抑", "社会批判"]
+        "tone_tags": ["压抑", "社会批判"],
+        "risk_hint": "high"
       },
       {
         "title": "算法飞升流",
@@ -57,6 +58,8 @@ defmodule NovelApplication.CreativeExplorationLoopTest do
       assert length(turn_result.candidate_directions) == 2
       assert hd(candidates).adoption_status == :not_adopted
       assert hd(candidates).title == "赛博公司垄断流"
+      assert hd(candidates).risk_hint == :high
+      assert hd(turn_result.candidate_directions).risk_hint == :high
 
       # Proof #4: no mechanical form
       assert turn_result.status == "conversational"

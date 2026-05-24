@@ -11,6 +11,7 @@ defmodule NovelDomain.CandidateDirection do
           pitch: String.t(),
           tone_tags: [String.t()],
           source_frame_ref: String.t(),
+          risk_hint: :low | :medium | :high,
           adoption_status: :not_adopted
         }
 
@@ -21,6 +22,7 @@ defmodule NovelDomain.CandidateDirection do
     :pitch,
     :source_frame_ref,
     tone_tags: [],
+    risk_hint: :low,
     adoption_status: :not_adopted
   ]
 end
