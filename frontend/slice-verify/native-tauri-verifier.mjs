@@ -25,6 +25,7 @@ export const nativeSliceIds = [
   "au02-candidate-continuation",
   "au02-candidate-adoption-bridge",
   "au05-adoption-safety-freshness",
+  "au05-stale-conflict-cross-work-freshness",
   "vs10-observability-spine",
 ];
 
@@ -90,6 +91,12 @@ const sliceKeyEvents = {
     "channel.user_message.start",
     "planner.form_frame.done",
     "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au05-stale-conflict-cross-work-freshness": [
     "channel.author_action.start",
     "adoption.evaluate.done",
     "channel.author_action.done",
@@ -394,6 +401,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAdoptionSafetyFreshnessEvidence(records);
   }
 
+  if (sliceId === "au05-stale-conflict-cross-work-freshness") {
+    return findStaleConflictCrossWorkEvidence(records);
+  }
+
   if (sliceId === "vs10-observability-spine") {
     return findVs10LogSpineEvidence(records);
   }
@@ -474,6 +485,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au05-adoption-safety-freshness") {
     return adoptionSafetyFreshnessBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au05-stale-conflict-cross-work-freshness") {
+    return staleConflictCrossWorkBehavior(turnIds, turnRecords, options);
   }
 
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) {
@@ -1781,6 +1796,62 @@ function findAdoptionSafetyFreshnessEvidence(records) {
   };
 }
 
+function findStaleConflictCrossWorkEvidence(records) {
+  const sliceId = "au05-stale-conflict-cross-work-freshness";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.restored_stale_candidate_visible === true &&
+      record.candidate_adopt_clicked === true &&
+      record.visible_rejection_result === true &&
+      record.adoption_decision_type === "reject" &&
+      record.action_result_status === "rejected" &&
+      record.candidate_selected === true &&
+      record.candidate_adopted === false &&
+      record.production_write_performed === false,
+  );
+
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? "");
+  const rejectionTurnId = String(uiState.rejection_turn_id ?? "");
+  if (!sourceTurnId || !rejectionTurnId) return null;
+
+  const actionRecords = records.filter((record) => record.turn_id === sourceTurnId);
+  const actionStarted = actionRecords.some(
+    (record) =>
+      record.event === "channel.author_action.start" &&
+      record.action_type === "choose_candidate" &&
+      record.candidate_ref === uiState.candidate_ref,
+  );
+  const actionDone = actionRecords.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "choose_candidate" &&
+      record.action_status === "rejected",
+  );
+  const rejected = actionRecords.some(
+    (record) =>
+      record.event === "adoption.evaluate.done" &&
+      record.decision_type === "reject",
+  );
+
+  if (!actionStarted || !actionDone || !rejected) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: rejectionTurnId,
+    turn_ids: [sourceTurnId, rejectionTurnId],
+    source_turn_ref: sourceTurnId,
+    rejection_turn_id: rejectionTurnId,
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    key_events: keyEvents,
+  };
+}
+
 function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 2) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
@@ -2004,6 +2075,78 @@ function adoptionSafetyFreshnessBehavior(turnIds, turnRecords, options) {
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_called_for_source_candidate_turn"
         : "deterministic_provider_form_frame_called_for_source_candidate_turn",
+    ],
+  };
+}
+
+function staleConflictCrossWorkBehavior(turnIds, turnRecords, _options) {
+  if (turnIds.length !== 2) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.discard.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.modify_draft.")) return null;
+
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au05-stale-conflict-cross-work-freshness",
+  );
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? "");
+  const rejectionTurnId = String(uiState.rejection_turn_id ?? "");
+  const candidateRef = uiState.candidate_ref;
+
+  const actionStart = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "channel.author_action.start" &&
+      record.action_type === "choose_candidate" &&
+      record.candidate_ref === candidateRef,
+  );
+  const actionDone = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "channel.author_action.done" &&
+      record.action_type === "choose_candidate" &&
+      record.action_status === "rejected",
+  );
+  const decision = turnRecords.find(
+    (record) =>
+      record.turn_id === sourceTurnId &&
+      record.event === "adoption.evaluate.done" &&
+      record.decision_type === "reject",
+  );
+  const rejectionUi = turnRecords.find(
+    (record) =>
+      record.turn_id === rejectionTurnId &&
+      record.event === "slice_verify.ui_state.done" &&
+      record.visible_rejection_result === true,
+  );
+
+  if (!actionStart || !actionDone || !decision || !rejectionUi) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.candidate_selected !== true || uiState.candidate_adopted !== false) return null;
+  if (!Array.isArray(uiState.adoption_reason_codes)) return null;
+  if (!uiState.adoption_reason_codes.includes("source_turn_stale")) return null;
+
+  return {
+    slice_id: "au05-stale-conflict-cross-work-freshness",
+    behavior: "restored_stale_candidate_rejected_without_production_write",
+    turn_ids: turnIds,
+    source_turn_ref: sourceTurnId,
+    rejection_turn_id: rejectionTurnId,
+    candidate_ref: candidateRef,
+    candidate_set_ref: uiState.candidate_set_ref,
+    assertions: [
+      "restored_stale_candidate_visible_in_real_workbench",
+      "ui_sent_authorized_choose_candidate_action",
+      "adoption_boundary_returned_reject",
+      "channel_acknowledged_rejected",
+      "ui_rendered_candidate_rejection_result",
+      "candidate_not_adopted",
+      "production_write_not_claimed",
+      "no_legacy_artifact_adopt_endpoint_used",
     ],
   };
 }

@@ -34,6 +34,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au02-candidate-continuation");
     expect(nativeSliceIds).toContain("au02-candidate-adoption-bridge");
     expect(nativeSliceIds).toContain("au05-adoption-safety-freshness");
+    expect(nativeSliceIds).toContain("au05-stale-conflict-cross-work-freshness");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
@@ -191,6 +192,44 @@ describe("native Tauri slice verifier", () => {
         "production_write_not_claimed",
         "no_legacy_artifact_adopt_endpoint_used",
         "deterministic_provider_form_frame_called_for_source_candidate_turn",
+      ],
+    });
+  });
+
+  it("accepts AU-05 stale freshness only when restored candidate adoption is rejected", () => {
+    const records = au05StaleConflictCrossWorkRecords(
+      "turn-source",
+      "turn-rejection",
+    );
+
+    const evidence = findNativeSliceEvidence("au05-stale-conflict-cross-work-freshness", records);
+    expect(evidence).toEqual({
+      slice_id: "au05-stale-conflict-cross-work-freshness",
+      turn_id: "turn-rejection",
+      turn_ids: ["turn-source", "turn-rejection"],
+      source_turn_ref: "turn-source",
+      rejection_turn_id: "turn-rejection",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      key_events: keyEventsForSlice("au05-stale-conflict-cross-work-freshness"),
+    });
+    expect(findSliceBehaviorEvidence("au05-stale-conflict-cross-work-freshness", records, evidence)).toEqual({
+      slice_id: "au05-stale-conflict-cross-work-freshness",
+      behavior: "restored_stale_candidate_rejected_without_production_write",
+      turn_ids: ["turn-source", "turn-rejection"],
+      source_turn_ref: "turn-source",
+      rejection_turn_id: "turn-rejection",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      assertions: [
+        "restored_stale_candidate_visible_in_real_workbench",
+        "ui_sent_authorized_choose_candidate_action",
+        "adoption_boundary_returned_reject",
+        "channel_acknowledged_rejected",
+        "ui_rendered_candidate_rejection_result",
+        "candidate_not_adopted",
+        "production_write_not_claimed",
+        "no_legacy_artifact_adopt_endpoint_used",
       ],
     });
   });
@@ -2128,6 +2167,72 @@ function au05AdoptionSafetyFreshnessRecords(sourceTurnId, confirmationTurnId) {
       action_type: "choose_candidate",
       action_id: "choose_candidate:dir-1",
       action_status: "needs_confirmation",
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+    },
+  ];
+}
+
+function au05StaleConflictCrossWorkRecords(sourceTurnId, rejectionTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: rejectionTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au05-stale-conflict-cross-work-freshness",
+      source_turn_id: sourceTurnId,
+      rejection_turn_id: rejectionTurnId,
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      restored_stale_candidate_visible: true,
+      candidate_adopt_clicked: true,
+      visible_rejection_result: true,
+      action_result_status: "rejected",
+      adoption_decision_type: "reject",
+      adoption_reason_codes: ["source_turn_stale", "stale_candidate_set"],
+      candidate_selected: true,
+      candidate_adopted: false,
+      production_write_performed: false,
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      action_type: "choose_candidate",
+      action_id: "choose_candidate:dir-1",
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 4,
+      outcome: "skipped",
+      decision_type: "reject",
+      reason_codes: ["source_turn_stale", "stale_candidate_set"],
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 5,
+      outcome: "ok",
+      action_type: "choose_candidate",
+      action_id: "choose_candidate:dir-1",
+      action_status: "rejected",
       candidate_ref: "dir-1",
       candidate_set_ref: `candidate_set:${sourceTurnId}`,
     },

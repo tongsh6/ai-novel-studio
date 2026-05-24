@@ -405,9 +405,102 @@ async function driveAdoptionSafetyFreshness(page) {
   ];
 }
 
+async function driveStaleConflictCrossWorkFreshness(page) {
+  await page.waitForFunction(
+    () => document.body.innerText.includes("旧版主线覆盖"),
+    { timeout: 20_000 },
+  );
+
+  await page.getByRole("button", { name: /采用这个方向/ }).first().click();
+
+  const actionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "choose_candidate" &&
+      frame.body?.action?.candidate_ref === "dir_au05_stale_1" &&
+      frame.body?.action?.candidate_set_ref === "candidate_set:turn_au05_stale_candidate_seed",
+    "Real workbench did not send authorized stale choose_candidate author_action",
+  );
+
+  const actionResultFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.action_type === "choose_candidate" &&
+      frame.body?.candidate_ref === "dir_au05_stale_1" &&
+      frame.body?.status === "rejected" &&
+      frame.body?.adoption_decision?.decision_type === "reject",
+    "No stale candidate rejection action_result websocket frame was received",
+  );
+
+  const rejectionTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.parent_turn_id === "turn_au05_stale_candidate_seed" &&
+      frame.body?.status === "cancelled" &&
+      frame.body?.adoption_decision?.decision_type === "reject",
+    "No stale candidate rejection turn_result websocket frame was received",
+  );
+  const rejectionTurnResult = rejectionTurnFrame.body;
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("候选方向未采用"),
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const topic = actionFrame.topic ?? "";
+  const workId = topic.startsWith("workspace:") ? topic.slice("workspace:".length) : undefined;
+
+  assert(
+    rejectionTurnResult.truthfulness?.candidate_selected === true,
+    "Stale rejection turn_result did not mark candidate_selected",
+  );
+  assert(
+    rejectionTurnResult.truthfulness?.candidate_adopted === false,
+    "Stale rejection turn_result incorrectly marked candidate_adopted",
+  );
+  assert(
+    rejectionTurnResult.truthfulness?.production_write_performed === false,
+    "Stale rejection turn_result claimed a production write",
+  );
+  assert(
+    rejectionTurnResult.truthfulness?.reason_codes?.includes("source_turn_stale"),
+    "Stale rejection turn_result did not include source_turn_stale reason",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: rejectionTurnResult.turn_id,
+      work_id: workId,
+      workspace_id: workId,
+      source_turn_id: "turn_au05_stale_candidate_seed",
+      rejection_turn_id: rejectionTurnResult.turn_id,
+      candidate_ref: "dir_au05_stale_1",
+      candidate_set_ref: "candidate_set:turn_au05_stale_candidate_seed",
+      candidate_adopt_clicked: true,
+      action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
+      adoption_decision_type: rejectionTurnResult.adoption_decision.decision_type,
+      adoption_reason_codes: rejectionTurnResult.adoption_decision.reason_codes,
+      candidate_selected: rejectionTurnResult.truthfulness.candidate_selected,
+      candidate_adopted: rejectionTurnResult.truthfulness.candidate_adopted,
+      production_write_performed: rejectionTurnResult.truthfulness.production_write_performed,
+      visible_rejection_result: visibleText.includes("候选方向未采用"),
+      restored_stale_candidate_visible: visibleText.includes("旧版主线覆盖"),
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
 const drivers = {
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
+  "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,
 };

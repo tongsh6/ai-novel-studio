@@ -8,6 +8,7 @@
 #   bash scripts/tauri_slice_verify.sh au03-context-source-ui
 #   bash scripts/tauri_slice_verify.sh au02-candidate-adoption-bridge
 #   bash scripts/tauri_slice_verify.sh au05-adoption-safety-freshness
+#   bash scripts/tauri_slice_verify.sh au05-stale-conflict-cross-work-freshness
 #   bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression
 #   bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership
 #
@@ -61,6 +62,7 @@ Usage:
 Implemented external UI driver slice ids:
   au02-candidate-adoption-bridge
   au05-adoption-safety-freshness
+  au05-stale-conflict-cross-work-freshness
   au03-long-session-compression
   au03-context-source-ui
   desktop-stage-process-ownership
@@ -92,7 +94,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -108,7 +110,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -186,6 +188,9 @@ native_action_description() {
   case "$SLICE_ID" in
     au02-candidate-adoption-bridge)
       echo "send fuzzy creative input -> click visible candidate continuation -> click authorized candidate adoption -> verify adoption boundary decision"
+      ;;
+    au05-stale-conflict-cross-work-freshness)
+      echo "seed restored stale candidate -> click visible authorized adoption -> verify adoption boundary rejects without production write"
       ;;
     au03-context-source-ui)
       echo "seed work/session/memory context -> send real workbench turn -> open why panel -> verify author-safe source summaries"
@@ -409,6 +414,9 @@ reset_test_db
 case "$SLICE_ID" in
   au03-context-source-ui)
     SEED_SCRIPT="scripts/seed_au03_context_source_ui.exs"
+    ;;
+  au05-stale-conflict-cross-work-freshness)
+    SEED_SCRIPT="scripts/seed_au05_stale_conflict_cross_work_freshness.exs"
     ;;
   *)
     SEED_SCRIPT="scripts/seed_au03_long_session_compression.exs"
