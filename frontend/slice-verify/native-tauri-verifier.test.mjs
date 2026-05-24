@@ -32,6 +32,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("au02-candidate-continuation");
+    expect(nativeSliceIds).toContain("au02-candidate-adoption-bridge");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
@@ -112,6 +113,45 @@ describe("native Tauri slice verifier", () => {
     );
 
     expect(findNativeSliceEvidence("au02-candidate-continuation", records)).toBeNull();
+  });
+
+  it("accepts AU-02 candidate adoption bridge only after authorized action reaches boundary", () => {
+    const records = au02CandidateAdoptionBridgeRecords(
+      "turn-source",
+      "turn-follow",
+      "turn-adoption",
+    );
+
+    const evidence = findNativeSliceEvidence("au02-candidate-adoption-bridge", records);
+    expect(evidence).toEqual({
+      slice_id: "au02-candidate-adoption-bridge",
+      turn_id: "turn-adoption",
+      turn_ids: ["turn-source", "turn-follow", "turn-adoption"],
+      source_turn_ref: "turn-source",
+      continuation_turn_id: "turn-follow",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      key_events: keyEventsForSlice("au02-candidate-adoption-bridge"),
+    });
+    expect(findSliceBehaviorEvidence("au02-candidate-adoption-bridge", records, evidence)).toEqual({
+      slice_id: "au02-candidate-adoption-bridge",
+      behavior: "candidate_selection_then_authorized_adoption_boundary",
+      turn_ids: ["turn-source", "turn-follow", "turn-adoption"],
+      source_turn_ref: "turn-source",
+      continuation_turn_id: "turn-follow",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      assertions: [
+        "candidate_panel_rendered_from_turn_result",
+        "candidate_continuation_sent_candidate_selection_without_adoption",
+        "candidate_adoption_sent_authorized_choose_candidate_action",
+        "adoption_boundary_returned_adopt_tentative",
+        "ui_rendered_candidate_adoption_result",
+        "production_write_not_claimed",
+        "no_legacy_artifact_adopt_endpoint_used",
+        "deterministic_provider_form_frame_called_for_source_candidate_turn",
+      ],
+    });
   });
 
   it("accepts SU-03 assistant display name evidence as work-scoped UI state", () => {
@@ -1792,6 +1832,168 @@ function au02CandidateContinuationRecords(sourceTurnId, followTurnId) {
       session_id: "session-1",
       duration_ms: 33,
       outcome: "ok",
+    },
+  ];
+}
+
+function au02CandidateAdoptionBridgeRecords(sourceTurnId, followTurnId, adoptionTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: adoptionTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au02-candidate-adoption-bridge",
+      source_turn_id: sourceTurnId,
+      continuation_turn_id: followTurnId,
+      adoption_turn_id: adoptionTurnId,
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      candidate_panel_count: 1,
+      candidate_continue_clicked: true,
+      candidate_adopt_clicked: true,
+      visible_adoption_result: true,
+      adoption_decision_type: "adopt_tentative",
+      candidate_selected: true,
+      candidate_adopted: true,
+      production_write_performed: false,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 29,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 31,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 27,
+      generate_micro_plan: false,
+      candidate_source_turn_ref: sourceTurnId,
+      candidate_ref: "dir-1",
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      action_type: "choose_candidate",
+      action_id: "choose_candidate:dir-1",
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 4,
+      outcome: "ok",
+      decision_type: "adopt_tentative",
+      reason_codes: ["candidate_adopted_as_tentative", "provenance_verified"],
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 5,
+      outcome: "ok",
+      action_type: "choose_candidate",
+      action_id: "choose_candidate:dir-1",
+      action_status: "accepted",
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
     },
   ];
 }
