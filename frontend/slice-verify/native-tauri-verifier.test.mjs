@@ -37,6 +37,8 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-stale-conflict-cross-work-freshness");
     expect(nativeSliceIds).toContain("au05-conflict-cross-work-recovery");
     expect(nativeSliceIds).toContain("au05-canon-conflict-recovery");
+    expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
+    expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
@@ -1604,6 +1606,55 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("au08-adoption-reading-projection", records)).toBeNull();
   });
 
+  it("accepts P1 chapter draft generation only when draft stays pending outside reading mode", () => {
+    const records = p1ChapterDraftGenerationRecords("turn-draft");
+    const evidence = findNativeSliceEvidence("p1-chapter-draft-generation", records);
+
+    expect(evidence).toEqual({
+      slice_id: "p1-chapter-draft-generation",
+      turn_id: "turn-draft",
+      turn_ids: ["turn-draft"],
+      draft_turn_id: "turn-draft",
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      draft_body_chars: 128,
+      chapter_count: 12,
+      reading_chapter_count: 0,
+      key_events: keyEventsForSlice("p1-chapter-draft-generation"),
+    });
+    expect(findSliceBehaviorEvidence("p1-chapter-draft-generation", records, evidence)).toEqual({
+      slice_id: "p1-chapter-draft-generation",
+      behavior: "chapter_draft_generated_from_adopted_plan_without_reading_projection",
+      turn_ids: ["turn-draft"],
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      draft_body_chars: 128,
+      assertions: [
+        "real_archive_outline_chapter_plan_rendered",
+        "chapter_draft_requested_from_visible_chapter_action",
+        "micro_plan_requested_from_real_workbench",
+        "prose_writing_generated_prose_fragment",
+        "prose_fragment_remained_pending_for_author_adoption",
+        "reading_mode_checked_before_adoption",
+        "unadopted_prose_fragment_did_not_materialize_reading_projection",
+        "no_adoption_event_was_sent",
+        "deterministic_provider_form_frame_and_micro_plan_called",
+      ],
+    });
+  });
+
+  it("rejects P1 chapter draft evidence when unadopted draft leaks into reading mode", () => {
+    const records = p1ChapterDraftGenerationRecords("turn-draft").map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, unadopted_draft_visible_in_reading: true }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("p1-chapter-draft-generation", records)).toBeNull();
+  });
+
   it("rejects ordinary chat behavior when a micro plan event appears", () => {
     const records = [
       ...ordinaryTwoTurnRecords(),
@@ -2663,6 +2714,132 @@ function au08ReadingProjectionRecords(turnId) {
       chapter_id: "chapter-1",
       scene_count: 1,
       content_chars: 12,
+    },
+  ];
+}
+
+function p1ChapterDraftGenerationRecords(turnId) {
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 4,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 0,
+      outcome: "ok",
+    },
+    {
+      event: "channel.get_chapter_plans.done",
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 5,
+      outcome: "ok",
+      plan_count: 1,
+      chapter_count: 12,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 43,
+      message_preview: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+      generate_micro_plan: true,
+    },
+    {
+      event: "context.assemble.done",
+      turn_id: turnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 3,
+      outcome: "ok",
+      has_memory: true,
+      context_refs_count: 1,
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: turnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 11,
+      outcome: "ok",
+    },
+    {
+      event: "planner.form_micro_plan.done",
+      turn_id: turnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 9,
+      outcome: "ok",
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: turnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 7,
+      outcome: "ok",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: turnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 28,
+      outcome: "ok",
+    },
+    {
+      event: "channel.get_toc.done",
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 5,
+      outcome: "ok",
+      volume_count: 0,
+      chapter_count: 0,
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: turnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "p1-chapter-draft-generation",
+      draft_turn_id: turnId,
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      draft_generated: true,
+      draft_pending: true,
+      draft_body_chars: 128,
+      draft_card_visible: true,
+      reading_mode_empty_before_adoption: true,
+      unadopted_draft_visible_in_reading: false,
+      adopt_event_sent: false,
+      user_message_text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
     },
   ];
 }

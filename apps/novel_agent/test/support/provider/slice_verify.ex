@@ -112,7 +112,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         "已生成角色设定草案，你可以查看内容后选择采纳、放弃或修改。"
 
       String.contains?(prompt, "prose_writing") ->
-        "已生成正文片段草稿，你可以采纳后在阅读模式中查看。"
+        "已生成正文草稿，请先审阅，采纳后才会进入阅读模式。"
 
       String.contains?(prompt, "plot_outline") ->
         "已生成大纲草案，你可以审阅后决定是否纳入作品结构。"

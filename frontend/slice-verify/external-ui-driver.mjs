@@ -813,6 +813,93 @@ async function driveP1ChapterPlanMinimum(page) {
   ];
 }
 
+async function driveP1ChapterDraftGeneration(page) {
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes("第01章：底层灵气账单"),
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "生成正文草稿" }).first().click();
+
+  const draftMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("第01章：底层灵气账单") &&
+      String(frame.body?.text ?? "").includes("正文草稿"),
+    "Real workbench did not send chapter draft user_message with micro plan enabled",
+  );
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No P1 chapter draft prose_fragment turn_result websocket frame was received",
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+  const draftBody = pendingArtifact.payload?.items?.[0]?.body ?? "";
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("正文草稿待采纳") &&
+      document.body.innerText.includes("欠费提醒"),
+    { timeout: 10_000 },
+  );
+
+  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("暂无已采纳的章节内容"),
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, draftTurnResult, sentMessage);
+
+  assert(draftBody.includes("欠费提醒"), "Draft payload did not contain prose body text");
+  assert(
+    !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
+    "Draft generation unexpectedly submitted an adopt event",
+  );
+  assert(
+    visibleText.includes("暂无已采纳的章节内容"),
+    "Reading mode did not remain empty before draft adoption",
+  );
+  assert(
+    !visibleText.includes("欠费提醒第三次弹出时"),
+    "Unadopted draft leaked into reading mode content",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      draft_turn_id: draftTurnResult.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      chapter_title: "第01章：底层灵气账单",
+      draft_generated: true,
+      draft_pending: true,
+      draft_body_chars: String(draftBody).length,
+      draft_card_visible: true,
+      reading_mode_empty_before_adoption: visibleText.includes("暂无已采纳的章节内容"),
+      unadopted_draft_visible_in_reading: visibleText.includes("欠费提醒第三次弹出时"),
+      adopt_event_sent: frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
+      user_message_text: draftMessageFrame.body?.text,
+    },
+  ];
+}
+
 const drivers = {
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
@@ -820,6 +907,7 @@ const drivers = {
   "au05-conflict-cross-work-recovery": driveConflictCrossWorkRecovery,
   "au05-canon-conflict-recovery": driveCanonConflictRecovery,
   "p1-chapter-plan-minimum": driveP1ChapterPlanMinimum,
+  "p1-chapter-draft-generation": driveP1ChapterDraftGeneration,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,
 };

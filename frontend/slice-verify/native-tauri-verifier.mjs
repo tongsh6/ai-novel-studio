@@ -29,6 +29,7 @@ export const nativeSliceIds = [
   "au05-conflict-cross-work-recovery",
   "au05-canon-conflict-recovery",
   "p1-chapter-plan-minimum",
+  "p1-chapter-draft-generation",
   "vs10-observability-spine",
 ];
 
@@ -129,6 +130,19 @@ const sliceKeyEvents = {
     "adoption.evaluate.done",
     "channel.adopt.done",
     "channel.get_chapter_plans.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-chapter-draft-generation": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.get_chapter_plans.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.get_toc.done",
     "slice_verify.ui_state.done",
   ],
   "au05-discard-boundary": [
@@ -446,6 +460,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterPlanMinimumEvidence(records);
   }
 
+  if (sliceId === "p1-chapter-draft-generation") {
+    return findP1ChapterDraftGenerationEvidence(records);
+  }
+
   if (sliceId === "vs10-observability-spine") {
     return findVs10LogSpineEvidence(records);
   }
@@ -543,6 +561,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-plan-minimum") {
     return p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-chapter-draft-generation") {
+    return p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) {
@@ -2084,6 +2106,83 @@ function findP1ChapterPlanMinimumEvidence(records) {
   };
 }
 
+function findP1ChapterDraftGenerationEvidence(records) {
+  const sliceId = "p1-chapter-draft-generation";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.draft_generated === true &&
+      record.draft_pending === true &&
+      record.draft_card_visible === true &&
+      record.artifact_type === "prose_fragment" &&
+      record.reading_mode_empty_before_adoption === true &&
+      record.unadopted_draft_visible_in_reading === false &&
+      record.adopt_event_sent === false &&
+      Number(record.draft_body_chars ?? 0) >= 80,
+  );
+
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  if (!draftTurnId) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+  const start = draftRecords.find(
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      record.generate_micro_plan === true,
+  );
+  if (!start) return null;
+  if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
+
+  const contextDone = draftRecords.find((record) => record.event === "context.assemble.done");
+  if (!contextDone || Number(contextDone.context_refs_count ?? 0) < 1) return null;
+
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+
+  const done = draftRecords.find((record) => record.event === "channel.user_message.done");
+  if (!done) return null;
+
+  const chapterPlanRead = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_plans.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.plan_count ?? 0) >= 1 &&
+      Number(record.chapter_count ?? 0) >= 10,
+  );
+  if (!chapterPlanRead) return null;
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? -1) === 0,
+  );
+  if (!tocRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    chapter_title: uiState.chapter_title,
+    draft_body_chars: uiState.draft_body_chars,
+    chapter_count: chapterPlanRead.chapter_count,
+    reading_chapter_count: tocRead.chapter_count,
+    key_events: keyEvents,
+  };
+}
+
 function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 2) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
@@ -2189,6 +2288,68 @@ function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, o
       "outline_draft_did_not_materialize_reading_projection",
       "archive_chapter_plan_view_read_confirmed_memory",
       "real_ui_rendered_first_and_final_chapter_titles",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_and_micro_plan_called"
+        : "deterministic_provider_form_frame_and_micro_plan_called",
+    ],
+  };
+}
+
+function p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "planner.form_micro_plan.done")) {
+    return null;
+  }
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+  if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
+  if (!lmstudioHasSteps(options, [evidence.draft_turn_id], ["form_frame", "form_micro_plan"])) {
+    return null;
+  }
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-chapter-draft-generation" &&
+      record.draft_turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+
+  const chapterPlanRead = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_plans.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.plan_count ?? 0) >= 1 &&
+      Number(record.chapter_count ?? 0) >= 10,
+  );
+  if (!chapterPlanRead) return null;
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? -1) === 0,
+  );
+  if (!tocRead) return null;
+
+  return {
+    slice_id: "p1-chapter-draft-generation",
+    behavior: "chapter_draft_generated_from_adopted_plan_without_reading_projection",
+    turn_ids: turnIds,
+    artifact_id: evidence.artifact_id,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    draft_body_chars: Number(uiState.draft_body_chars ?? 0),
+    assertions: [
+      "real_archive_outline_chapter_plan_rendered",
+      "chapter_draft_requested_from_visible_chapter_action",
+      "micro_plan_requested_from_real_workbench",
+      "prose_writing_generated_prose_fragment",
+      "prose_fragment_remained_pending_for_author_adoption",
+      "reading_mode_checked_before_adoption",
+      "unadopted_prose_fragment_did_not_materialize_reading_projection",
+      "no_adoption_event_was_sent",
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_and_micro_plan_called"
         : "deterministic_provider_form_frame_and_micro_plan_called",

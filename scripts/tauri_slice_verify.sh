@@ -12,6 +12,7 @@
 #   bash scripts/tauri_slice_verify.sh au05-conflict-cross-work-recovery
 #   bash scripts/tauri_slice_verify.sh au05-canon-conflict-recovery
 #   bash scripts/tauri_slice_verify.sh p1-chapter-plan-minimum
+#   bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation
 #   bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression
 #   bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership
 #
@@ -69,6 +70,7 @@ Implemented external UI driver slice ids:
   au05-conflict-cross-work-recovery
   au05-canon-conflict-recovery
   p1-chapter-plan-minimum
+  p1-chapter-draft-generation
   au03-long-session-compression
   au03-context-source-ui
   desktop-stage-process-ownership
@@ -100,7 +102,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -116,7 +118,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -206,6 +208,9 @@ native_action_description() {
       ;;
     p1-chapter-plan-minimum)
       echo "open real archive outline -> click start planning -> generate 12 chapter plan -> adopt -> reopen archive outline and verify adopted chapter plan"
+      ;;
+    p1-chapter-draft-generation)
+      echo "seed adopted chapter plan -> open real archive outline -> click generate draft for chapter 1 -> verify tentative prose draft and empty reading mode"
       ;;
     au03-context-source-ui)
       echo "seed work/session/memory context -> send real workbench turn -> open why panel -> verify author-safe source summaries"
@@ -438,6 +443,9 @@ case "$SLICE_ID" in
     ;;
   au05-canon-conflict-recovery)
     SEED_SCRIPT="scripts/seed_au05_canon_conflict_recovery.exs"
+    ;;
+  p1-chapter-draft-generation)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   *)
     SEED_SCRIPT="scripts/seed_au03_long_session_compression.exs"
