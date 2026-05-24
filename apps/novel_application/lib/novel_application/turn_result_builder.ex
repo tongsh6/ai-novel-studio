@@ -248,9 +248,11 @@ defmodule NovelApplication.TurnResultBuilder do
   defp maybe_put_chapter_count(payload, _as), do: payload
 
   defp artifact_payload_title(%{artifact_type: :outline_draft}), do: "P1 10 万字章节计划"
+  defp artifact_payload_title(%{artifact_type: :prose_fragment}), do: "第01章正文草稿"
   defp artifact_payload_title(_as), do: "待采纳创作产物"
 
   defp adoption_card_title(%{artifact_type: :outline_draft}), do: "章节计划待采纳"
+  defp adoption_card_title(%{artifact_type: :prose_fragment}), do: "正文草稿待采纳"
   defp adoption_card_title(_as), do: "待确认的新设定"
 
   defp adoption_card_body(%{artifact_type: :outline_draft, items: items}) do
@@ -262,12 +264,32 @@ defmodule NovelApplication.TurnResultBuilder do
     "AI 生成了 #{length(items)} 章章节计划，请审核是否采纳。预览：#{preview}"
   end
 
+  defp adoption_card_body(%{artifact_type: :prose_fragment, items: items}) do
+    preview =
+      items
+      |> Enum.map(&item_body/1)
+      |> Enum.find(&(&1 != ""))
+      |> case do
+        nil -> ""
+        body -> String.slice(body, 0, 80)
+      end
+
+    "AI 生成了正文草稿，请审核是否采纳。预览：#{preview}"
+  end
+
   defp adoption_card_body(_as), do: "AI 生成了新的创作设定，请审核是否采纳。"
 
   defp item_title(item) when is_map(item),
     do: Map.get(item, :title) || Map.get(item, "title") || ""
 
   defp item_title(_item), do: ""
+
+  defp item_body(item) when is_map(item) do
+    Map.get(item, :body) || Map.get(item, "body") || Map.get(item, :content) ||
+      Map.get(item, "content") || ""
+  end
+
+  defp item_body(_item), do: ""
 
   defp maybe_add_behavior(r, nil), do: r
 

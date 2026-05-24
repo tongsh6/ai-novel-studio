@@ -774,9 +774,9 @@ defmodule NovelApplication.DialogueGateway do
 
     cond do
       contains_any?(text, ["角色", "人物", "主角", "反派"]) -> "character_seed"
+      contains_any?(text, ["正文", "片段", "描写", "开场"]) -> "prose_fragment"
       contains_any?(text, ["剧情", "情节", "走向", "主线", "方向"]) -> "plot_direction"
       contains_any?(text, ["大纲", "章节", "卷纲"]) -> "outline_draft"
-      contains_any?(text, ["正文", "片段", "描写", "开场"]) -> "prose_fragment"
       true -> "character_seed"
     end
   end

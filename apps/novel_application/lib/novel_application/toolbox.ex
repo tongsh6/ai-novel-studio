@@ -170,7 +170,7 @@ defmodule NovelApplication.Toolbox do
   end
 
   defp creative_dispatch(%ToolRequest{} = req, result_id, now, direction) do
-    context_text = Map.get(req.input, "context_text", "")
+    context_text = Map.get(req.input, "context_text") || Map.get(req.input, "text", "")
     items = generate_creative_items(direction, context_text)
     artifact_type = String.to_atom(direction)
 
@@ -266,13 +266,15 @@ defmodule NovelApplication.Toolbox do
     end)
   end
 
-  defp generate_creative_items("prose_fragment", _context) do
+  defp generate_creative_items("prose_fragment", context) do
+    chapter_title = chapter_title_from_context(context)
+
     [
       %{
         item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "开场描写",
-        body: "霓虹灯闪烁在积水的街面，灵气泵的轰鸣声像垂死者的喘息。",
-        rationale: nil
+        title: "#{chapter_title} 正文草稿",
+        body: prose_fragment_body(chapter_title),
+        rationale: "基于已采纳章节计划生成，采纳前不得进入阅读模式或正文统计"
       }
     ]
   end
@@ -286,6 +288,34 @@ defmodule NovelApplication.Toolbox do
         rationale: nil
       }
     ]
+  end
+
+  defp chapter_title_from_context(context) when is_binary(context) do
+    case Regex.run(~r/(第\d{2}章：.+?)(?:正文草稿|正文|：|，|。|\n|\s|$)/u, context) do
+      [_, title] -> title
+      _ -> "第01章：底层灵气账单"
+    end
+  end
+
+  defp chapter_title_from_context(_context), do: "第01章：底层灵气账单"
+
+  defp prose_fragment_body("第01章：底层灵气账单") do
+    [
+      "欠费提醒第三次弹出时，林烬正蹲在筒子楼顶层的检修井旁，指尖贴着冰冷的灵气表。表盘里的数字像濒死的心跳，一格一格往下掉，直到整条走廊的护身符同时暗了下去。",
+      "楼下有人骂公司，有人把孩子抱到还亮着的广告牌底下取暖。林烬没有跟着喊，他盯着表壳背面的封签，发现那道本该直连公共灵脉的铜线被人悄悄改了向，细得像一根偷血的针。",
+      "他把旧终端接进检修口，屏幕上跳出一串不属于居民区的调用记录。每一次停灵之前，都会有一笔微小的带宽被转走，汇入城中心那座永远灯火通明的云上仙塔。",
+      "林烬终于明白，底层人不是交不起灵气账单，而是从一开始就被写进了亏空里。就在他准备拔线时，巡检无人机的红光从楼边升起，照亮了他掌心那枚刚刚被唤醒的残缺符文。"
+    ]
+    |> Enum.join("\n\n")
+  end
+
+  defp prose_fragment_body(chapter_title) do
+    [
+      "#{chapter_title}的第一场从具体事件切入，而不是复述设定。主角先面对一个无法逃避的现实压力，再发现压力背后有人为操控的痕迹。",
+      "这一章正文草稿保留冲突、行动和信息增量：主角在有限资源下做出选择，读者能看到世界规则如何压到个人命运上。",
+      "草稿仍是待采纳正文，后续必须经过作者确认，才能进入阅读模式、正文有效字数统计和导出链路。"
+    ]
+    |> Enum.join("\n\n")
   end
 
   defp count_words(text), do: text |> String.split(~r/\s+/, trim: true) |> length()

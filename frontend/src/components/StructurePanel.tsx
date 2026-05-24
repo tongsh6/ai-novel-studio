@@ -252,6 +252,17 @@ export function StructurePanel({
                       <div key={ch.id} className={styles.cardItem}>
                         <span className={styles.cardTitle}>{ch.title}</span>
                         {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
+                        <div className={styles.cardActions}>
+                          <button
+                            className={styles.btnGhost}
+                            onClick={() => {
+                              onAction("draft_chapter", `${ch.title}：${ch.summary ?? ""}`);
+                              onClose();
+                            }}
+                          >
+                            {STRUCTURE_PANEL.generateChapterDraft}
+                          </button>
+                        </div>
                       </div>
                     ))}
                   </div>

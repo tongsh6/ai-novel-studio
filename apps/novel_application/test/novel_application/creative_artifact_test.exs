@@ -73,6 +73,20 @@ defmodule NovelApplication.CreativeArtifactTest do
              ] = result.output.items
     end
 
+    test "typed prose_writing generates chapter draft from chapter plan target" do
+      req = build_prose_writing_request()
+
+      result = Toolbox.execute(req)
+
+      assert result.status == :succeeded
+      assert result.output.artifact_type == :prose_fragment
+      assert result.output.item_count == 1
+
+      assert [%{title: "第01章：底层灵气账单 正文草稿", body: body}] = result.output.items
+      assert String.contains?(body, "欠费提醒")
+      assert String.contains?(body, "巡检无人机")
+    end
+
     test "result has tentative_artifact in state_delta" do
       req = build_creative_request("character_seed")
 
@@ -247,6 +261,38 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert [%{artifact_type: :plot_direction}] = turn_result.adoption_state.pending
     end
 
+    test "generic creative_generation treats chapter body requests as prose, not outline" do
+      plan_json = """
+      {
+        "plan_goal_summary": "生成正文草稿",
+        "risk_hint": "low",
+        "requires_confirmation_hint": false,
+        "proposed_actions": [
+          {"action_id": "a1", "action_type": "capability_invocation", "summary": "生成第01章正文", "target_ref": "creative_generation", "write_intent": "tentative", "risk_hint": "low"}
+        ],
+        "state_changes_requested": [],
+        "required_capabilities": [],
+        "fallback_message": "无法生成正文"
+      }
+      """
+
+      complete_fn = sequenced_complete_fn([@frame_json, plan_json, "已生成正文草稿。"])
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{
+            text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+            workspace_id: "ws-prose-fragment",
+            generate_micro_plan: true
+          },
+          nil,
+          complete_fn
+        )
+
+      assert turn_result.tool_result.output.artifact_type == "prose_fragment"
+      assert [%{artifact_type: :prose_fragment}] = turn_result.adoption_state.pending
+    end
+
     test "plot_outline turn_result exposes chapter plan adoption payload" do
       plan_json = """
       {
@@ -293,6 +339,55 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert String.contains?(body, "12 章章节计划")
       assert String.contains?(body, "第01章：底层灵气账单")
     end
+
+    test "prose_writing turn_result exposes tentative chapter draft card" do
+      plan_json = """
+      {
+        "plan_goal_summary": "生成正文草稿",
+        "risk_hint": "low",
+        "requires_confirmation_hint": false,
+        "proposed_actions": [
+          {"action_id": "a1", "action_type": "capability_invocation", "summary": "生成第01章正文草稿", "target_ref": "prose_writing", "write_intent": "tentative", "risk_hint": "low"}
+        ],
+        "state_changes_requested": [],
+        "required_capabilities": [],
+        "fallback_message": "无法生成正文草稿"
+      }
+      """
+
+      complete_fn = sequenced_complete_fn([@frame_json, plan_json, "已生成正文草稿。"])
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{
+            text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+            workspace_id: "ws-prose-card",
+            generate_micro_plan: true
+          },
+          nil,
+          complete_fn
+        )
+
+      assert turn_result.tool_result.output.artifact_type == :prose_fragment
+
+      assert [
+               %{
+                 artifact_type: :prose_fragment,
+                 payload: %{title: "第01章正文草稿", items: [%{title: "第01章：底层灵气账单 正文草稿"}]}
+               }
+             ] = turn_result.adoption_state.pending
+
+      assert [
+               %{
+                 card_type: "adoption_card",
+                 title: "正文草稿待采纳",
+                 body: body
+               }
+             ] = turn_result.ui_cards
+
+      assert String.contains?(body, "AI 生成了正文草稿")
+      assert String.contains?(body, "欠费提醒")
+    end
   end
 
   defp build_creative_request(direction) do
@@ -323,6 +418,25 @@ defmodule NovelApplication.CreativeArtifactTest do
       read_scope_grants: ["author_text", "plot_summary", "beat_list"],
       write_scope_grants: [],
       idempotency_key: "idem-outline",
+      created_at: DateTime.utc_now()
+    }
+  end
+
+  defp build_prose_writing_request do
+    %ToolRequest{
+      tool_request_id: "tq-prose-#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: "t-prose",
+      frame_ref: "f-prose",
+      decision_ref: "d-prose",
+      tool_name: "prose_writing",
+      tool_version: "1.0.0",
+      input: %{
+        "text" => "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+        "direction" => "prose_writing"
+      },
+      read_scope_grants: ["author_text", "chapter_draft", "prose_style_guide"],
+      write_scope_grants: [],
+      idempotency_key: "idem-prose",
       created_at: DateTime.utc_now()
     }
   end
