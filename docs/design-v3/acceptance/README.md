@@ -46,7 +46,7 @@
 | 文档 | 能力 | 场景 | 覆盖率 | 状态 |
 |------|------|------|--------|------|
 | [AU-01](author/AU-01-chat.md) | 与 AI 聊创作 | 13 | 0/13 完整前后端验收；9/13 有局部证据 | 后端/Channel 主链较强，真实工作台验收不足 |
-| [AU-02](author/AU-02-explore.md) | 探索创作方向 | 12 | 0/12 完整前后端验收；6/12 有局部证据 | 候选生成已补，候选操作/采纳桥接未闭环 |
+| [AU-02](author/AU-02-explore.md) | 探索创作方向 | 12 | 4/12 已有真实 Tauri 前后端验收；6/12 有局部证据 | 候选生成、继续探索、明确采纳桥接已补；多轮追问、异常恢复、真实 LLM 质量和未采纳反证仍缺 |
 | [AU-03](author/AU-03-context.md) | AI 了解我的作品 | 20 | 0/20 完整前后端验收；5/20 有局部证据 | 缺作品内会话模型与最新作品背景闭环 |
 | [AU-04](author/AU-04-execute-and-confirm.md) | 执行任务与确认 | 18 | 0/18 完整真实前后端验收；11/18 有局部证据 | 后端门禁较强，真实确认卡/author_action/幂等闭环不足 |
 | [AU-05](author/AU-05-artifact-adoption.md) | 采纳创作产物 | 18 | 0/18 完整真实前后端验收；10/18 有局部证据 | 产物默认草稿已测，真实采纳入口/StateTrace/阅读投影未闭环 |
@@ -117,7 +117,7 @@ mix test apps/novel_web/test/novel_web/channels/
 | 普通聊天误触发 MicroPlan 风险 | AU-01 AU01-GAP-02 | 修正/补验收 | P0 |
 | 聊天异常与降级 UI 体验 | AU-01 AU01-GAP-03~05 | 补集成/补验收 | P1 |
 | 候选卡点选继续探索 | AU-02 AU02-GAP-01 | 补实现/补验收 | P0 |
-| 候选采纳桥接 adoption boundary | AU-02 AU02-GAP-02 | 补集成 | P0/P1 |
+| 候选采纳桥接 adoption boundary | AU-02 AU02-GAP-02 | 已闭环：`au02-candidate-adoption-bridge` | closed |
 | 探索阶段真实入口与多轮体验 | AU-02 AU02-GAP-03~07 | 修正/补验收 | P0/P1 |
 | 作品内会话模型与管理 | AU-03 AU03-GAP-01~03 | 新增/补集成 | P0 |
 | 最新作品背景接入 context | AU-03 AU03-GAP-04 | 修正/补集成 | P0 |
@@ -146,7 +146,7 @@ mix test apps/novel_web/test/novel_web/channels/
 | 记忆状态机、locked 保护、有效期窗口 | AU-09 AU09-GAP-06~08 | 补实现/补测试/补集成 | P0/P1 |
 | 记忆引用日志、作者溯源、AU-03 会话分层 | AU-09 AU09-GAP-09~12 | 补集成/补实现/新增 | P0/P1 |
 | 真实工作台入口与 v3 action/task_state 消费者分裂 | AU-10 AU10-GAP-01/AU10-GAP-03/AU10-GAP-07 | 已补最小闭环；继续补 UI/Tauri 验收与旁路清理 | P0 |
-| 普通聊天默认 MicroPlan、card action 绕过授权、候选不可点选 | AU-10 AU10-GAP-02/AU10-GAP-04~05 | 默认 MicroPlan 与 WorkspaceChat 授权已修；`au10-micro-plan-entry` 已有前端发起验证；候选点选仍待补 | P0 |
+| 普通聊天默认 MicroPlan、card action 绕过授权、候选操作 | AU-10 AU10-GAP-02/AU10-GAP-04~05 | 默认 MicroPlan、WorkspaceChat 授权、候选继续探索与候选授权采纳均已有 Tauri 证据；剩余为综合错误恢复/断线/任务体验 | P1 |
 | adoption UI、trace/why、projection、错误恢复 | AU-10 AU10-GAP-06/AU10-GAP-08~10 | 补集成/补实现/补验收 | P0/P1 |
 | 工作台 UI 自动化与 Tauri/Design 约束 | AU-10 AU10-GAP-11~12 | 已补 VS-10 原生 Tauri 自动化观测链；继续补完整工作台验收/修设计偏差 | P0/P1 |
 | 供应商 health/model/error 补齐 | SU-01 SU01-GAP-01~03 | 补实现/补测试 | P0/P1 |

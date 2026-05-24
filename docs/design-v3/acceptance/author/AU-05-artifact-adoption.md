@@ -114,9 +114,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 系统记录 selection intent 或继续对话；不产生 adopted state，不刷新阅读投影 |
-| 当前证据 | `ADR-0010` 明确 selection != adoption；`adoption_boundary_test.exs` 覆盖高风险 selection 不 adopted |
-| 当前状态 | 规则已测试，UI 未实现 |
-| 当前缺口 | AU-02 已记录候选卡当前主要展示，不支持点选继续/采纳桥接 |
+| 当前证据 | `ADR-0010` 明确 selection != adoption；`adoption_boundary_test.exs` 覆盖高风险 selection 不 adopted；`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` 和 `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` 证明真实工作台先继续探索、再明确采纳 |
+| 当前状态 | 最小真实前后端闭环已完成 |
+| 当前缺口 | 高风险、stale、conflict、cross-work 采纳安全仍待 AU05 safety/freshness 加固 |
 | 优先级 | P0 |
 
 #### SC-AU05-B2 — 点击“采纳”必须走后端 adoption boundary
@@ -318,7 +318,7 @@
 | SC-AU05-E2 | AI 不谎报采纳 | 局部已测试 | 否 |
 | SC-AU05-E3 | 采纳失败恢复 | 局部规则存在 | 否 |
 
-**结论：18 个场景；0/18 完整真实前后端验收；10/18 有 domain/application/frontend 局部证据；8/18 的关键缺口集中在真实采纳入口、StateTrace、持久化作品事实、阅读投影和跨作品/freshness 安全。**
+**结论：18 个场景；已有草稿采纳/放弃/修改、候选继续探索、候选授权采纳等真实 Tauri 前后端闭环；关键剩余缺口集中在 StateTrace、持久化作品事实、阅读投影刷新状态机，以及高风险、stale、conflict、cross-work 采纳安全。**
 
 ---
 
@@ -330,7 +330,7 @@
 | AU05-GAP-02 — AdoptionBoundary 未进入主流程 | `AdoptionBoundary.evaluate/3` 只有纯规则测试，未被 Channel/DialogueGateway/author_action 调用 | 补集成 | P0 |
 | AU05-GAP-03 — StateTrace / adopted_state_ref 未真实写入 | 当前是字符串 ref，不是持久化 state trace 或作品事实 | 补实现/补验收 | P0 |
 | AU05-GAP-04 — pending adoption 不是持久化待处理箱 | `WorkspaceChat` 从消息内存聚合 pending，切作品/重启/历史会话后不可恢复 | 补实现/补集成 | P0 |
-| AU05-GAP-05 — selection/action/adoption 桥接缺失 | 候选卡展示、选择、采纳边界没有完整 author action 链路 | 补实现/补集成 | P0 |
+| AU05-GAP-05 — selection/action/adoption 桥接缺失 | 已闭环：候选卡展示、选择继续探索、授权 `choose_candidate` 采纳边界有完整 Tauri 证据 | 已完成 | closed |
 | AU05-GAP-06 — freshness / conflict / cross-work 检查不足 | stale 测试只是 unknown id；缺 context version、revision、work_id 隔离 | 补实现/补测试 | P0 |
 | AU05-GAP-07 — 高风险采纳未接 confirmation lifecycle | 高风险 rule 返回 `require_confirmation`，但未接 AU-04 re-gate | 补集成 | P0 |
 | AU05-GAP-08 — ProjectionHint 未接 ReadingMode | `projection_hints` 未转 `projection_refs`，projection_ref 硬编码 | 补集成/修正 | P1 |

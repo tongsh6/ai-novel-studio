@@ -137,9 +137,9 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 Longest Closed Prefix：B1-B11。
 
-Current Breakpoint：Journey B 当前连续前缀已闭环；下一推进转入 Journey C 的 C6 候选采纳桥接。
+Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接也已闭环，下一推进转入 Journey F 的采纳安全与新鲜度。
 
-Next Proof：Tauri：模糊创意产生候选，点选继续探索不写事实；明确采纳候选时进入 adoption boundary，并在 trace 中解释 selection 与 adoption 的边界。
+Next Proof：Tauri：高风险、stale、conflict 或 cross-work 采纳不能静默成功，必须进入 confirmation / rejection / recovery，并在 trace 中解释原因。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -158,10 +158,10 @@ Next Proof：Tauri：模糊创意产生候选，点选继续探索不写事实�
 当前连续断点：
 
 ```text
-B1-B11 closed；下一阶段转入 Journey C / F 的候选采纳桥接
+B1-B11 closed；C1-C6 closed；下一阶段转入 Journey F 的采纳安全与新鲜度
 ```
 
-因此下一项功能推进应是 `AU02-candidate-adoption-bridge`，除非出现 P0 bug。
+因此下一项功能推进应是 `AU05-adoption-safety-freshness`，除非出现 P0 bug。
 
 ---
 
@@ -177,11 +177,11 @@ B1-B11 closed；下一阶段转入 Journey C / F 的候选采纳桥接
 
 真实消费者：`WorkspaceChat` 输入框、消息列表、候选卡、frame badge。
 
-Longest Closed Prefix：C1-C5。
+Longest Closed Prefix：C1-C6。
 
-Current Breakpoint：C6 候选明确采纳桥接 Journey F。
+Current Breakpoint：C7 异常恢复与持续自然对话。
 
-Next Proof：候选方向 -> 明确采纳意图 -> 进入 adoption boundary，而不是前端直接写入或普通文本继续。
+Next Proof：LLM 异常、乱码、超时或恢复后，真实工作台仍能保留对话上下文并继续自然创作。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -190,7 +190,7 @@ Next Proof：候选方向 -> 明确采纳意图 -> 进入 adoption boundary，�
 | C3 | 模糊创意产生候选方向 | AU-02 | DialogueFrame / TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` | 真人 UI 观感复验仍可补。 |
 | C4 | 候选卡可点击继续探索 | AU-02 / AU-10 | AvailableAction / AuthorInput | closed | Tauri automation | `bash scripts/tauri_slice_verify.sh au02-candidate-continuation` | 继续探索不等于采纳已验证。 |
 | C5 | frame badge 区分自然回复和探索 | AU-02 / AU-10 | DialogueFrame / TurnResultViewModel | closed | Tauri automation | `au02-candidate-continuation` frame badge evidence | 还缺更多 frame 类型样例。 |
-| C6 | 从候选方向明确进入采纳边界 | AU-02 / AU-05 | AuthorActionInput / AdoptionDecision | next | Document only | acceptance 记录 AU-02/AU-05 交界缺口；`tasks/NEXT.md` 队首 `AU02-candidate-adoption-bridge` | 需要桥接 Journey F，不得把选择当 adoption。 |
+| C6 | 从候选方向明确进入采纳边界 | AU-02 / AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` | 已证明 selection / adoption 分离；后续转入 Journey F 安全门禁。 |
 | C7 | LLM 异常、乱码、超时后可继续自然对话 | AU-01 | OrchestratorDecision / TraceSummaryView | partial | Application test | broken provider / garbage JSON tests | 缺真实工作台 UI 恢复验收。 |
 
 ---
@@ -290,7 +290,7 @@ Next Proof：跨 work / stale / conflict candidate 不能被静默采纳；高�
 | F2 | 采纳从真实工作台触发并走后端 | AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `au05-adoption-boundary` Tauri evidence 见台账 | 需继续加固 source turn / freshness。 |
 | F3 | 放弃草稿从真实工作台触发 | AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au05-discard-boundary-tauri/summary.json` | 完整 replay/provenance 仍缺。 |
 | F4 | 修改后再采纳从真实工作台触发 | AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au05-modify-draft-boundary-tauri/summary.json` | 修改链路的正式 revision boundary 仍缺。 |
-| F5 | 高风险采纳要求确认并重新 gate | AU-05 / AU-06 | BehaviorState / ConfirmationBinding | gap | Document only | AU05-GAP-07 | 依赖 Journey E 的 confirmation lifecycle。 |
+| F5 | 高风险采纳要求确认并重新 gate | AU-05 / AU-06 | BehaviorState / ConfirmationBinding | next | Document only | `tasks/slices/AU05-adoption-safety-freshness.md` | 与 F6 合并为当前队首，先证明不能静默采纳。 |
 | F6 | stale/conflict/cross-work 草稿不能采纳 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | gap | Document only | AU05-GAP-06 | 缺 context version、revision、work_id 隔离验收。 |
 | F7 | 采纳可回放且 AI 不谎报状态 | AU-05 / AU-07 | StateTrace / ReplayReport | partial | Application test | truthfulness/tool result tests | 缺成功/失败文案、StateTrace 聚合和 replay。 |
 
@@ -403,7 +403,7 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 |---:|---|---|---|---|---|---|---|
 | J1 | 真实工作台普通聊天入口 | AU-10 / AU-01 | TurnResultViewModel | closed | Tauri automation | `au01-ordinary-chat-two-turn-roundtrip`、`au10-ordinary-chat-no-micro-plan` | 完整 AU-10 DOM/状态覆盖仍不足。 |
 | J2 | 真实工作台 MicroPlan 入口 | AU-10 / AU-04 | MicroPlan / AvailableAction | partial | Browser + Tauri verify | `au10-micro-plan-entry` browser + Tauri evidence | 只证明入口，不证明完整执行 lifecycle。 |
-| J3 | 候选卡、frame badge 和继续探索 | AU-10 / AU-02 | DialogueFrame / AvailableAction | closed | Tauri automation | `au02-candidate-continuation` | 候选明确采纳桥接仍属 Journey C/F gap。 |
+| J3 | 候选卡、frame badge、继续探索和授权采纳 | AU-10 / AU-02 / AU-05 | DialogueFrame / AvailableAction / AdoptionDecision | closed | Tauri automation | `au02-candidate-continuation`；`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` | 后续转入 AU-05 safety/freshness。 |
 | J4 | AI 显示名按作品隔离 | SU-03 | TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/su03-assistant-display-name-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh su03-assistant-display-name` | 真实 LLM payload 不变仍缺独立日志证据。 |
 | J5 | 工作台统一运行时状态 | AU-10 | TurnResultViewModel / ProjectionHint | closed | Tauri automation | `artifacts/slice-verify/workspace-runtime-state-tauri/summary.json` | 只覆盖 runtime state 模型，不覆盖完整用户流程。 |
 | J6 | available action panel 和 stale/invented 拒绝 | AU-10 / AU-06 | AvailableAction / AuthorActionInput | partial | Channel/API automation | `workspace_channel_v3_test.exs`、`action_roundtrip_test.exs` | 缺完整 UI action walkthrough。 |
@@ -417,8 +417,8 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | Journey | Closed Prefix | Current Breakpoint | P0/P1 Gaps | Evidence Level | Health |
 |---|---|---|---:|---|---|
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
-| B 作品与上下文 | B1-B11 | 转入 C6/F adoption bridge | 0（当前连续链路） | Tauri/LMStudio | closed-prefix |
-| C 自然对话与探索 | C1-C5 | C6 candidate -> adoption bridge | 2 | Tauri | watch |
+| B 作品与上下文 | B1-B11 | 支撑 F5/F6 adoption safety | 0（当前连续链路） | Tauri/LMStudio | closed-prefix |
+| C 自然对话与探索 | C1-C6 | C7 error recovery | 1 | Tauri | watch |
 | D 创作生命周期 | D1-D3 最小闭环 | D4 lifecycle path | 多个 | Mixed | needs-focus |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
 | F 草稿与采纳 | F1-F4 | F5 safety/freshness | 多个 P0 | Tauri | watch |
@@ -430,10 +430,10 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 当前推进锁定：
 
 ```text
-Current Focus: AU-02 / AU-05 候选方向到采纳边界
-Current Journey: Journey C / Journey F
-Current Breakpoint: C6 candidate -> adoption bridge
-Next Task: AU02-candidate-adoption-bridge
+Current Focus: AU-05 采纳安全与新鲜度
+Current Journey: Journey F
+Current Breakpoint: F5/F6 adoption safety and freshness
+Next Task: AU05-adoption-safety-freshness
 ```
 
 ---
@@ -443,7 +443,7 @@ Next Task: AU02-candidate-adoption-bridge
 | Source Gap / Step | Blocks | Reason |
 |---|---|---|
 | B7-B11 work/session/context 分层 | H 记忆召回、I trace why、F adoption provenance | 上下文边界不稳会污染记忆、采纳来源和解释。 |
-| C6 candidate -> adoption bridge | F 草稿采纳、D 创作生命周期 | 候选选择如果不能进入 adoption，探索无法变成作品事实。 |
+| C6 candidate -> adoption bridge | F 草稿采纳、D 创作生命周期 | 已闭环；候选选择现在可以通过授权 action 进入 adoption boundary。 |
 | E3-E6 confirmation lifecycle | F5 高风险采纳、D5 修订覆盖 | 高风险写入必须复用 confirmation binding 和 re-gate。 |
 | F5-F7 adoption safety | G 阅读投影、H 设定入记忆 | 没有可靠 adopted state，阅读和记忆都会读到不可信事实。 |
 | G3 projection refresh | D 成稿阅读体验、J 工作台状态 | 投影刷新边界不稳会让阅读模式误报事实状态。 |
@@ -458,18 +458,18 @@ Next Task: AU02-candidate-adoption-bridge
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: AU-02 / AU-05 候选方向到采纳边界
-Active Journey: Journey C / Journey F
-Queue head: AU02-candidate-adoption-bridge
+Current Focus: AU-05 采纳安全与新鲜度
+Active Journey: Journey F
+Queue head: AU05-adoption-safety-freshness
 ```
 
 本文对应位置：
 
 ```text
-Journey C / Journey F
-Step C6 / F adoption boundary bridge
+Journey F
+Step F5/F6 adoption safety and freshness
 Status: next
-Gap / Next: tasks/NEXT.md 队首 AU02-candidate-adoption-bridge
+Gap / Next: tasks/NEXT.md 队首 AU05-adoption-safety-freshness
 ```
 
 选择规则：

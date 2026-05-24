@@ -44,12 +44,12 @@
 |---|---|---|
 | `DialogueFrame.frame_type == :creative_exploration` | 标记探索型对话 | 已有后端测试 |
 | `CandidateDirection` | 候选方向结构：title / pitch / tone_tags / adoption_status | 已有后端构造和 fallback 测试 |
-| `TurnResultBuilder.maybe_add_candidates/2` | 把 candidates 写入 TurnResult | 已有 application 测试间接覆盖 |
-| `WorkspaceChat.tsx` candidate panel | 当前真实入口渲染候选方向 | 有渲染代码，缺点击/采纳交互 |
+| `TurnResultBuilder.maybe_add_candidates/3` | 把 candidates 写入 TurnResult，并为每个候选生成服务端授权 `choose_candidate` action | `au02-candidate-adoption-bridge` Tauri 证据 |
+| `WorkspaceChat.tsx` candidate panel | 当前真实入口渲染候选方向、继续探索和授权采纳按钮 | `au02-candidate-continuation` / `au02-candidate-adoption-bridge` Tauri 证据 |
 | `WorkbenchV3.tsx` candidate panel | v3 工作台候选渲染 | 有渲染代码，当前 App 不直接使用 |
 | `turn_result_candidates.test.ts` | 前端候选字段契约测试 | 有测试，但样例 `adoption_status: "tentative"` 与业务期望 `not_adopted` 存在口径风险 |
-| `AdoptionBoundary.evaluate/3` | 候选采纳边界 | 有 application 测试，但未接入 AU-02 候选卡 UI 闭环 |
-| `frontend/src/lib/socket.ts` `sendMessage` | 当前真实入口发送 user_message | 默认 `generate_micro_plan: true`，可能破坏探索阶段 |
+| `AdoptionBoundary.evaluate/3` | 候选采纳边界 | 已接入 AU-02 候选卡授权采纳闭环；后续需补高风险/stale/conflict/cross-work |
+| `frontend/src/lib/socket.ts` `sendMessage` | 当前真实入口发送 user_message | 普通探索默认不生成 MicroPlan；候选继续探索携带 `candidate_selection` |
 
 ---
 
@@ -164,9 +164,9 @@
 - AI 继续自然探索，不写入作品事实；
 - trace 记录 candidate selection 来源。
 
-**当前证据**：`WorkspaceChat` 和 `WorkbenchV3` 目前可渲染候选卡；未发现候选卡点击/选择交互。`socket_v3.ts` action payload 支持 `candidate_ref`，但未见候选卡接入。
+**当前证据**：`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` 与 `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` 均证明真实工作台候选卡可点击继续探索，并发送带 `candidate_selection` 的 user_message。
 
-**当前状态**：未实现闭环。
+**当前状态**：已闭环。
 
 ---
 
@@ -184,9 +184,9 @@
 - trace 记录采纳来源；
 - 阅读模式/作品事实只展示已采纳结果，不展示未采纳候选。
 
-**当前证据**：`AdoptionBoundaryTest` 有 candidate adoption 规则测试；但 AU-02 候选卡 UI 未接入此边界。
+**当前证据**：`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` 证明真实工作台点击“采用这个方向”后发送服务端授权 `author_action.choose_candidate`，`AdoptionBoundary` 返回 `adopt_tentative`，UI 显示采纳结果且 `production_write_performed=false`。
 
-**当前状态**：未实现闭环。该场景和 AU-05 有交叉，AU-02 负责“候选方向的用户入口”，AU-05 负责“采纳后进入作品事实/投影”。
+**当前状态**：最小闭环已完成。该场景和 AU-05 有交叉，AU-02 负责“候选方向的用户入口”，AU-05 后续继续负责高风险、stale/conflict/cross-work 采纳安全，以及真正进入作品事实/投影的完整链路。
 
 ---
 
@@ -290,18 +290,18 @@
 |---|---|---|---|
 | SC-AU02-A1 | 模糊想法得到自然探索回应 | 后端已测试 | 否 |
 | SC-AU02-A2 | 不弹机械表单 | 后端/Channel 已测试 | 否 |
-| SC-AU02-B1 | 看到候选方向卡片 | 部分实现 | 否 |
-| SC-AU02-B2 | 候选方向只是灵感，不自动采纳 | 后端已测试 | 否 |
+| SC-AU02-B1 | 看到候选方向卡片 | Tauri 已验收 | 是 |
+| SC-AU02-B2 | 候选方向只是灵感，不自动采纳 | Tauri 已验收 | 是 |
 | SC-AU02-B3 | 候选缺失或格式坏时 fallback | 后端已测试 | 否 |
-| SC-AU02-B4 | 点选候选方向继续探索 | 未实现闭环 | 否 |
-| SC-AU02-B5 | 明确采纳候选方向 | 未实现闭环 | 否 |
+| SC-AU02-B4 | 点选候选方向继续探索 | Tauri 已验收 | 是 |
+| SC-AU02-B5 | 明确采纳候选方向 | Tauri 最小闭环已验收 | 是 |
 | SC-AU02-C1 | 追问一个方向后继续自然展开 | 未完整验收 | 否 |
 | SC-AU02-C2 | 探索阶段始终可自由输入 | 后端已测试 | 否 |
 | SC-AU02-C3 | 探索阶段不误触发执行计划 | 存在真实入口偏差风险 | 否 |
 | SC-AU02-D1 | 本地 LM Studio 产生质量可用中文探索 | real LLM 局部测试 | 否 |
 | SC-AU02-D2 | 前后端候选契约一致 | 部分实现 | 否 |
 
-**覆盖结论：12 个用户场景；0/12 完整前后端验收；6/12 有后端/前端局部证据；6/12 存在 UI 操作、采纳边界、多轮追问、真实入口或契约语义缺口。**
+**覆盖结论：12 个用户场景；4/12 已有真实 Tauri 前后端验收；6/12 有后端/前端局部证据；剩余缺口集中在多轮追问、异常恢复、真实 LMStudio 质量复验和未采纳候选不进入阅读/事实的反证。**
 
 ---
 
@@ -309,8 +309,8 @@
 
 | 缺口 | 影响 | 建议处理 |
 |---|---|---|
-| AU02-GAP-01 — 候选卡缺点选继续探索 | 作者看到方向后无法用卡片自然进入下一轮，探索闭环断裂 | P0：给候选卡加“继续聊这个方向”入口，发送 candidate_ref |
-| AU02-GAP-02 — 候选采纳入口未接 adoption boundary | “采用这个方向”没有端到端路径，selection/adoption 边界不清 | P0/P1：定义 AU-02 到 AU-05 的候选采纳桥接 |
+| AU02-GAP-01 — 候选卡缺点选继续探索 | 已闭环：真实工作台可点击“继续聊这个方向”，发送 `candidate_selection` 且不采纳 | 证据：`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` |
+| AU02-GAP-02 — 候选采纳入口未接 adoption boundary | 已闭环：真实工作台点击“采用这个方向”后发送授权 `choose_candidate` action 并进入 `AdoptionBoundary` | 证据：`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json`；后续转 AU05 safety/freshness |
 | AU02-GAP-03 — 真实入口默认 `generate_micro_plan: true` | 探索可能误入执行计划，破坏“不强制 action”体验 | P0：与 AU-01 同源修正，普通聊天/探索默认不生成计划 |
 | AU02-GAP-04 — 缺真实 UI walkthrough | 后端能产候选不等于作者能看到、理解、继续操作 | P1：补“输入模糊创意 -> 看到候选 -> 点选继续聊”的 UI 验收 |
 | AU02-GAP-05 — 多轮追问缺验收 | 无法证明探索能持续，而不是一次性候选展示 | P1：补 candidate follow-up 多轮测试 |
