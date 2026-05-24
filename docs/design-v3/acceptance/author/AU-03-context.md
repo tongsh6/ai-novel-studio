@@ -375,9 +375,9 @@
 - 可区分 Work / active session / archived session / memory / behavior；
 - 不暴露 raw prompt。
 
-**当前证据**：`ContextSourceRef` 有 source_type；`TraceWriter` 可输出 refs。
+**当前证据**：`ContextSourceRef` 有 source_type；`ContextAssembler` 会从真实 Work snapshot、recent dialogue、memory summary 生成 author-safe summary；`TraceWriter` 输出 refs；真实 Tauri 工作台通过 `bash scripts/tauri_slice_verify.sh au03-context-source-ui` 证明普通回复 why 面板展示 current work / recent dialogue / memory 三类来源摘要。
 
-**当前状态**：部分实现。`ContextSourceRef.summary` 当前是 `"context from #{type}"` 占位，前端真实入口未展示 context refs。
+**当前状态**：最小真实前端闭环已补。证据：`artifacts/slice-verify/au03-context-source-ui-tauri/summary.json`。剩余未覆盖：显式引用 archived source、历史旧 turn 查询和 developer 双视图。
 
 ---
 
@@ -393,9 +393,9 @@
 - sensitive / developer-only 信息不进入作者视图；
 - developer trace 与 author trace 分层。
 
-**当前证据**：`ContextSourceRef.redaction_level` 字段存在；AU-07 也覆盖 trace 脱敏。
+**当前证据**：`ContextSourceRef.redaction_level` 字段存在；AU-07 覆盖 trace 脱敏；`TraceWriter` / `TraceSummaryView` 均有 author-safe 过滤测试；`au03-context-source-ui` Tauri evidence 断言 why 面板不包含 raw prompt / provider raw / debug trace id。
 
-**当前状态**：局部结构存在，缺 UI/脱敏专门验收。
+**当前状态**：最小真实前端闭环已补；完整 developer 双视图和旧 trace 查询仍未闭环。
 
 ---
 
@@ -458,12 +458,12 @@
 | SC-AU03-D1 | 历史 transcript 冻结，作品背景最新 | 未实现 | 否 |
 | SC-AU03-D2 | 归档会话不默认进入 context | 默认 context 过滤已由 persistence/application 测试覆盖；显式引用路径未实现 | 部分 |
 | SC-AU03-D3 | 切换作品不串会话/上下文 | 依赖 SU-02 | 否 |
-| SC-AU03-E1 | 作者能看到引用来源 | 部分实现 | 否 |
-| SC-AU03-E2 | 引用摘要 author-safe | 局部结构存在 | 否 |
+| SC-AU03-E1 | 作者能看到引用来源 | 最小真实前端闭环已补 | 是（最小闭环） |
+| SC-AU03-E2 | 引用摘要 author-safe | 最小真实前端闭环已补 | 是（最小闭环） |
 | SC-AU03-F1 | 长会话上下文压缩 | 部分实现 | 否 |
 | SC-AU03-F2 | 历史会话可回放不调 LLM | 后端局部有证据 | 否 |
 
-**覆盖结论：20 个用户场景；AU-03C active session 恢复、历史只读、从历史分支继续、归档过滤均已有原生 Tauri 闭环证据；其余场景仍存在作品背景 SSOT、历史 turn 定位/高亮、显式引用 archived source、引用来源和长会话压缩缺口。**
+**覆盖结论：20 个用户场景；AU-03C active session 恢复、历史只读、从历史分支继续、归档过滤、最新 Work 背景 SSOT、长会话压缩和上下文来源 UI 均已有原生 Tauri 闭环证据；剩余 AU-03 缺口集中在搜索命中 turn 定位/高亮、显式引用 archived source、作品切换隔离联动和完整 replay 页面。**
 
 新增证据（2026-05-15）：
 
@@ -485,7 +485,7 @@ bash scripts/tauri_slice_verify.sh au03c-work-session-resume
 | AU03-GAP-04 — Work 最新背景未接入 context snapshot | AI 可能拿不到当前作品 title/genre/设定 | P0：把 Context fetcher 从旧 Workspace 对齐到 VS-09 Work |
 | AU03-GAP-05 — memory_summary 未接入 | AI 无法基于已确认伏笔/规则回答 | P1：接 memory recall 到 context |
 | AU03-GAP-06 — behavior_summary 未接入 | open behavior / 等待确认容易丢 | P1：接 behavior summary |
-| AU03-GAP-07 — ContextSourceRef.summary 占位 | 作者看不到真实引用依据 | P1：生成 author-safe 来源摘要 |
+| AU03-GAP-07 — ContextSourceRef.summary 占位 | 已补真实 Work / recent dialogue / memory 的 author-safe 来源摘要，并由真实 Tauri why 面板验收 | closed：`artifacts/slice-verify/au03-context-source-ui-tauri/summary.json` |
 | AU03-GAP-08 — context fetcher 异常无保护 | DB 抖动可导致整轮对话失败 | P1：ContextAssembler fallback empty context + trace warning |
 | AU03-GAP-09 — 归档会话过滤缺失 | 默认 context 过滤已补；显式引用 archived session 进入 context 尚未设计 | P1：支持作者主动引用 archived session source，并在 trace 中说明来源 |
 | AU03-GAP-10 — 长会话只有最近 10 条硬截断 | 可能丢关键上下文，且无 session summary | P2：补 session summary/压缩策略 |

@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-05-22
+> 最后更新：2026-05-24
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -135,11 +135,11 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 真实消费者：`WorkspaceChat`、Channel join、ContextAssembler、Planner prompt、why 面板。
 
-Longest Closed Prefix：B1-B9。
+Longest Closed Prefix：B1-B11。
 
-Current Breakpoint：B10 作者能在 why 面板看到上下文来源摘要。
+Current Breakpoint：Journey B 当前连续前缀已闭环；下一推进转入 Journey C 的 C6 候选采纳桥接。
 
-Next Proof：Tauri：普通回复 why 面板显示 current work / session transcript / memory 的来源摘要，不暴露 raw prompt。
+Next Proof：Tauri：模糊创意产生候选，点选继续探索不写事实；明确采纳候选时进入 adoption boundary，并在 trace 中解释 selection 与 adoption 的边界。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -152,16 +152,16 @@ Next Proof：Tauri：普通回复 why 面板显示 current work / session transc
 | B7 | 从历史会话继续，显式创建新 active session / branch | AU-03 | AuthorActionInput / DialogueContext / DecisionTrace | closed | Tauri automation | `artifacts/slice-verify/au03-branch-from-history-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-branch-from-history` | 真实工作台搜索历史会话、打开只读 transcript、点击“从这里继续”，创建并切换新 active session；`source_session_ref/source_turn_ref` 指向旧会话与旧 turn，旧 transcript 未被复制到新 session。 |
 | B8 | 归档旧会话，默认不进入日常 context，仍可搜索/回放 | AU-03 / AU-07 | DialogueContext / ReplayReport | closed | Tauri automation + Application/Persistence test | `artifacts/slice-verify/au03-archive-session-filter-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-archive-session-filter` | 真实工作台可归档历史会话，默认列表隐藏 archived，显式搜索仍可找回并只读打开；普通 context 过滤 archived transcript 由 persistence/application 测试覆盖。 |
 | B9 | 最新 Work 背景与当前 session transcript 分层进入 context | AU-03 / AU-09 | DialogueContext / ContextSourceRef | closed | Tauri/LMStudio + Application/Persistence test | `artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json`；`bash scripts/tauri_slice_verify.sh --real-lmstudio au03-current-work-context-ssot` | 已证明历史只读 transcript 打开后返回 active session，下一轮 prompt 使用最新 Work 背景 + 当前 active session transcript，旧历史 session 未覆盖当前作品事实。 |
-| B10 | 作者能在 why 面板看到上下文来源摘要 | AU-03 / AU-07 | TraceSummaryView | next | Tauri automation | `artifacts/slice-verify/au07-trace-why-entry-tauri/summary.json`、`au09-memory-recall-context` | 需要 AU-03 context source UI 与 trace 聚合更完整。 |
+| B10 | 作者能在 why 面板看到上下文来源摘要 | AU-03 / AU-07 | TraceSummaryView | closed | Tauri automation | `artifacts/slice-verify/au03-context-source-ui-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-context-source-ui` | 真实工作台普通回复 why 面板显示 current work / recent dialogue / memory 三类 author-safe 来源摘要，不暴露 raw prompt。 |
 | B11 | 长会话压缩，旧 turn 进入 summary，最新 turn 保持顺序 | AU-03 | DialogueContext / DecisionTrace | closed | Tauri/LMStudio + Application/Persistence test | `artifacts/slice-verify/au03-long-session-compression-tauri-lmstudio/summary.json`；`bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression` | 已证明超过窗口的旧 turn 进入 `work_sessions.summary`，Planner request messages 只携带 early summary + 最新 transcript 窗口，不携带旧 turn 原文。 |
 
 当前连续断点：
 
 ```text
-B9 closed -> B10 next；B11 已作为非连续 checkpoint closed
+B1-B11 closed；下一阶段转入 Journey C / F 的候选采纳桥接
 ```
 
-因此下一项功能推进应是 `AU03-context-source-ui`，除非出现 P0 bug。
+因此下一项功能推进应是 `AU02-candidate-adoption-bridge`，除非出现 P0 bug。
 
 ---
 
@@ -190,7 +190,7 @@ Next Proof：候选方向 -> 明确采纳意图 -> 进入 adoption boundary，�
 | C3 | 模糊创意产生候选方向 | AU-02 | DialogueFrame / TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` | 真人 UI 观感复验仍可补。 |
 | C4 | 候选卡可点击继续探索 | AU-02 / AU-10 | AvailableAction / AuthorInput | closed | Tauri automation | `bash scripts/tauri_slice_verify.sh au02-candidate-continuation` | 继续探索不等于采纳已验证。 |
 | C5 | frame badge 区分自然回复和探索 | AU-02 / AU-10 | DialogueFrame / TurnResultViewModel | closed | Tauri automation | `au02-candidate-continuation` frame badge evidence | 还缺更多 frame 类型样例。 |
-| C6 | 从候选方向明确进入采纳边界 | AU-02 / AU-05 | AuthorActionInput / AdoptionDecision | gap | Document only | acceptance 记录 AU-02/AU-05 交界缺口 | 需要桥接 Journey F，不得把选择当 adoption。 |
+| C6 | 从候选方向明确进入采纳边界 | AU-02 / AU-05 | AuthorActionInput / AdoptionDecision | next | Document only | acceptance 记录 AU-02/AU-05 交界缺口；`tasks/NEXT.md` 队首 `AU02-candidate-adoption-bridge` | 需要桥接 Journey F，不得把选择当 adoption。 |
 | C7 | LLM 异常、乱码、超时后可继续自然对话 | AU-01 | OrchestratorDecision / TraceSummaryView | partial | Application test | broken provider / garbage JSON tests | 缺真实工作台 UI 恢复验收。 |
 
 ---
@@ -417,7 +417,7 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | Journey | Closed Prefix | Current Breakpoint | P0/P1 Gaps | Evidence Level | Health |
 |---|---|---|---:|---|---|
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
-| B 作品与上下文 | B1-B9（B11 已闭环） | B10 `AU03-context-source-ui` | 1 | Tauri/LMStudio | moving |
+| B 作品与上下文 | B1-B11 | 转入 C6/F adoption bridge | 0（当前连续链路） | Tauri/LMStudio | closed-prefix |
 | C 自然对话与探索 | C1-C5 | C6 candidate -> adoption bridge | 2 | Tauri | watch |
 | D 创作生命周期 | D1-D3 最小闭环 | D4 lifecycle path | 多个 | Mixed | needs-focus |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
@@ -430,10 +430,10 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 当前推进锁定：
 
 ```text
-Current Focus: AU-03 作品内会话与上下文分层
-Current Journey: Journey B
-Current Breakpoint: B10 上下文来源 UI
-Next Task: AU03-context-source-ui
+Current Focus: AU-02 / AU-05 候选方向到采纳边界
+Current Journey: Journey C / Journey F
+Current Breakpoint: C6 candidate -> adoption bridge
+Next Task: AU02-candidate-adoption-bridge
 ```
 
 ---
@@ -458,25 +458,25 @@ Next Task: AU03-context-source-ui
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: AU-03 作品内会话与上下文分层
-Active Journey: Journey B
-Queue head: AU03-context-source-ui
+Current Focus: AU-02 / AU-05 候选方向到采纳边界
+Active Journey: Journey C / Journey F
+Queue head: AU02-candidate-adoption-bridge
 ```
 
 本文对应位置：
 
 ```text
-Journey B
-Step B10
+Journey C / Journey F
+Step C6 / F adoption boundary bridge
 Status: next
-Gap / Next: tasks/NEXT.md 队首 AU03-context-source-ui
+Gap / Next: tasks/NEXT.md 队首 AU02-candidate-adoption-bridge
 ```
 
 选择规则：
 
 1. 默认只能取 `tasks/NEXT.md` 中第一个 `Status=next` 的任务。
 2. 如果出现 P0 bug，可以临时插队，但必须同步更新 `tasks/NEXT.md` Decision Log 和本文对应 journey step。
-3. 如果 B8 无法闭环，不能跳到其他 AU/SU；必须先把 blocker 写入 `tasks/NEXT.md`，再选择 Journey B 内最小可闭环 checkpoint。
+3. 如果 C6 无法闭环，不能跳到其他 AU/SU；必须先把 blocker 写入 `tasks/NEXT.md`，再选择 Journey C/F 内最小可闭环 checkpoint。
 4. 完成任务后必须同步更新：
    - `tasks/NEXT.md` 的 Queue 和 Decision Log
    - 本文对应 journey step 的 Status / Evidence
