@@ -137,9 +137,9 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 Longest Closed Prefix：B1-B11。
 
-Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接也已闭环，下一推进转入 Journey F 的采纳安全与新鲜度。
+Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接和 F5 高风险 confirmation checkpoint 已闭环，下一推进继续 Journey F 的 stale / conflict / cross-work 采纳安全。
 
-Next Proof：Tauri：高风险、stale、conflict 或 cross-work 采纳不能静默成功，必须进入 confirmation / rejection / recovery，并在 trace 中解释原因。
+Next Proof：Tauri：stale、conflict 或 cross-work 采纳不能静默成功，必须进入 rejection / recovery / confirmation，并在 trace 中解释原因。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -158,10 +158,10 @@ Next Proof：Tauri：高风险、stale、conflict 或 cross-work 采纳不能静
 当前连续断点：
 
 ```text
-B1-B11 closed；C1-C6 closed；下一阶段转入 Journey F 的采纳安全与新鲜度
+B1-B11 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed；下一阶段继续 Journey F 的 stale / conflict / cross-work freshness
 ```
 
-因此下一项功能推进应是 `AU05-adoption-safety-freshness`，除非出现 P0 bug。
+因此下一项功能推进应是 `AU05-stale-conflict-cross-work-freshness`，除非出现 P0 bug。
 
 ---
 
@@ -280,9 +280,9 @@ Next Proof：真实工作台高风险动作 -> confirmation behavior -> 点击�
 
 Longest Closed Prefix：F1-F4 最小闭环。
 
-Current Breakpoint：F5 高风险、冲突、freshness、cross-work 安全不足。
+Current Breakpoint：F6 stale / conflict / cross-work 安全不足。
 
-Next Proof：跨 work / stale / conflict candidate 不能被静默采纳；高风险采纳进入 Journey E 的 confirmation lifecycle。
+Next Proof：跨 work / stale / conflict candidate 不能被静默采纳，必须进入拒绝、恢复或覆盖确认。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -290,8 +290,8 @@ Next Proof：跨 work / stale / conflict candidate 不能被静默采纳；高�
 | F2 | 采纳从真实工作台触发并走后端 | AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `au05-adoption-boundary` Tauri evidence 见台账 | 需继续加固 source turn / freshness。 |
 | F3 | 放弃草稿从真实工作台触发 | AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au05-discard-boundary-tauri/summary.json` | 完整 replay/provenance 仍缺。 |
 | F4 | 修改后再采纳从真实工作台触发 | AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au05-modify-draft-boundary-tauri/summary.json` | 修改链路的正式 revision boundary 仍缺。 |
-| F5 | 高风险采纳要求确认并重新 gate | AU-05 / AU-06 | BehaviorState / ConfirmationBinding | next | Document only | `tasks/slices/AU05-adoption-safety-freshness.md` | 与 F6 合并为当前队首，先证明不能静默采纳。 |
-| F6 | stale/conflict/cross-work 草稿不能采纳 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | gap | Document only | AU05-GAP-06 | 缺 context version、revision、work_id 隔离验收。 |
+| F5 | 高风险采纳要求确认并重新 gate | AU-05 / AU-06 | BehaviorState / ConfirmationBinding | checkpoint closed | Tauri automation | `artifacts/slice-verify/au05-adoption-safety-freshness-tauri/summary.json` | 已证明高风险候选不能静默采纳；完整 AU-04 confirmation lifecycle 仍需后续接 re-gate。 |
+| F6 | stale/conflict/cross-work 草稿不能采纳 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | next | Document + application test | `tasks/slices/AU05-stale-conflict-cross-work-freshness.md` | cross-work rejection 已有 application 回归；缺真实 UI 场景、context version、revision 和 conflict recovery 验收。 |
 | F7 | 采纳可回放且 AI 不谎报状态 | AU-05 / AU-07 | StateTrace / ReplayReport | partial | Application test | truthfulness/tool result tests | 缺成功/失败文案、StateTrace 聚合和 replay。 |
 
 ---
@@ -430,10 +430,10 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 当前推进锁定：
 
 ```text
-Current Focus: AU-05 采纳安全与新鲜度
+Current Focus: AU-05 stale / conflict / cross-work 采纳安全
 Current Journey: Journey F
-Current Breakpoint: F5/F6 adoption safety and freshness
-Next Task: AU05-adoption-safety-freshness
+Current Breakpoint: F6 adoption safety and freshness
+Next Task: AU05-stale-conflict-cross-work-freshness
 ```
 
 ---
@@ -458,18 +458,18 @@ Next Task: AU05-adoption-safety-freshness
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: AU-05 采纳安全与新鲜度
+Current Focus: AU-05 stale / conflict / cross-work 采纳安全
 Active Journey: Journey F
-Queue head: AU05-adoption-safety-freshness
+Queue head: AU05-stale-conflict-cross-work-freshness
 ```
 
 本文对应位置：
 
 ```text
 Journey F
-Step F5/F6 adoption safety and freshness
+Step F6 stale / conflict / cross-work adoption safety
 Status: next
-Gap / Next: tasks/NEXT.md 队首 AU05-adoption-safety-freshness
+Gap / Next: tasks/NEXT.md 队首 AU05-stale-conflict-cross-work-freshness
 ```
 
 选择规则：

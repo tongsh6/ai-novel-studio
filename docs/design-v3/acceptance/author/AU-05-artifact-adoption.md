@@ -176,9 +176,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | adoption boundary 返回 `require_confirmation`，并接入 AU-04 确认 lifecycle |
-| 当前证据 | `adoption_boundary_test.exs` 覆盖 high-risk candidate requires confirmation |
-| 当前状态 | 纯规则已测试 |
-| 当前缺口 | 未接 AU-04 `author_action` / ConfirmationBinding / re-gate 主流程 |
+| 当前证据 | `artifacts/slice-verify/au05-adoption-safety-freshness-tauri/summary.json` 证明真实 Tauri 工作台输入高风险候选并点击“采用这个方向”后，服务端授权 `choose_candidate` 进入 `AdoptionBoundary`，返回 `require_confirmation` / `needs_confirmation`，UI 显示“候选方向待确认”，`candidate_adopted=false` 且 `production_write_performed=false`；`action_roundtrip_test.exs` / `workspace_channel_v3_test.exs` 覆盖回归 |
+| 当前状态 | 高风险不能静默采纳的 checkpoint 已闭环 |
+| 当前缺口 | 完整 AU-04 `ConfirmationBinding` / re-gate 主流程仍未接入；后续需要把 confirmation 后的继续处理做成真实工作台闭环 |
 | 优先级 | P0 |
 
 #### SC-AU05-C3 — stale 草稿不能采纳
@@ -307,7 +307,7 @@
 | SC-AU05-B3 | 修改后再采纳 | 前端壳存在 | 否 |
 | SC-AU05-B4 | 放弃草稿 | 局部实现 | 否 |
 | SC-AU05-C1 | 低风险采纳有 decision/trace | 已测试 | 否，trace 是字符串 ref |
-| SC-AU05-C2 | 高风险采纳要求确认 | 已测试 | 否，未接 AU-04 lifecycle |
+| SC-AU05-C2 | 高风险采纳要求确认 | checkpoint closed | 是，高风险候选不能静默采纳；完整 AU-04 re-gate lifecycle 仍未闭环 |
 | SC-AU05-C3 | stale 草稿拒绝 | 部分测试 | 否 |
 | SC-AU05-C4 | 冲突采纳恢复 | 已设计 | 否 |
 | SC-AU05-C5 | 跨作品采纳隔离 | 未实现/未验收 | 否 |
@@ -318,7 +318,7 @@
 | SC-AU05-E2 | AI 不谎报采纳 | 局部已测试 | 否 |
 | SC-AU05-E3 | 采纳失败恢复 | 局部规则存在 | 否 |
 
-**结论：18 个场景；已有草稿采纳/放弃/修改、候选继续探索、候选授权采纳等真实 Tauri 前后端闭环；关键剩余缺口集中在 StateTrace、持久化作品事实、阅读投影刷新状态机，以及高风险、stale、conflict、cross-work 采纳安全。**
+**结论：18 个场景；已有草稿采纳/放弃/修改、候选继续探索、候选授权采纳和高风险候选 confirmation checkpoint 等真实 Tauri 前后端闭环；关键剩余缺口集中在 StateTrace、持久化作品事实、阅读投影刷新状态机，以及 stale、conflict、cross-work 采纳安全。**
 
 ---
 
@@ -331,8 +331,8 @@
 | AU05-GAP-03 — StateTrace / adopted_state_ref 未真实写入 | 当前是字符串 ref，不是持久化 state trace 或作品事实 | 补实现/补验收 | P0 |
 | AU05-GAP-04 — pending adoption 不是持久化待处理箱 | `WorkspaceChat` 从消息内存聚合 pending，切作品/重启/历史会话后不可恢复 | 补实现/补集成 | P0 |
 | AU05-GAP-05 — selection/action/adoption 桥接缺失 | 已闭环：候选卡展示、选择继续探索、授权 `choose_candidate` 采纳边界有完整 Tauri 证据 | 已完成 | closed |
-| AU05-GAP-06 — freshness / conflict / cross-work 检查不足 | stale 测试只是 unknown id；缺 context version、revision、work_id 隔离 | 补实现/补测试 | P0 |
-| AU05-GAP-07 — 高风险采纳未接 confirmation lifecycle | 高风险 rule 返回 `require_confirmation`，但未接 AU-04 re-gate | 补集成 | P0 |
+| AU05-GAP-06 — freshness / conflict / cross-work 检查不足 | stale 测试只是 unknown id；cross-work rejection 已有 application 回归但缺真实 UI 验收；缺 context version、revision、conflict recovery | 补实现/补测试/补验收 | P0 |
+| AU05-GAP-07 — 高风险采纳未接 confirmation lifecycle | 高风险 rule 已经通过真实 Tauri 工作台返回 `require_confirmation` / `needs_confirmation` 且不写 production fact；完整 AU-04 re-gate 仍未接 | checkpoint closed / 后续补 confirmation lifecycle | P0 |
 | AU05-GAP-08 — ProjectionHint 未接 ReadingMode | `projection_hints` 未转 `projection_refs`，projection_ref 硬编码 | 补集成/修正 | P1 |
 | AU05-GAP-09 — 修改/放弃链路缺后端 | `modify_draft` / `discard` 前端 helper 有，Channel handler 缺失 | 补实现 | P1 |
 | AU05-GAP-10 — adoption truthfulness 缺成功/失败文案测试 | 只验证 ToolResult not adoption，缺 adopted/rejected 后文案约束 | 补测试 | P1 |

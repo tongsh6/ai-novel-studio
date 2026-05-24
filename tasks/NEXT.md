@@ -8,9 +8,9 @@
 
 ## 1. Current Focus
 
-**AU-05 采纳安全与新鲜度**
+**AU-05 采纳安全与新鲜度：stale / conflict / cross-work**
 
-AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可以先点选候选继续探索，再通过服务端授权的 `choose_candidate` action 进入 `AdoptionBoundary`。下一阶段继续沿 Journey F 加固采纳安全：高风险、stale、conflict、cross-work action 不能被静默采纳。
+AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可以先点选候选继续探索，再通过服务端授权的 `choose_candidate` action 进入 `AdoptionBoundary`。高风险候选 confirmation checkpoint 也已闭环：真实工作台点击“采用这个方向”后返回 `require_confirmation` / `needs_confirmation`，且不写 production fact。下一阶段继续沿 Journey F 加固 stale、conflict、cross-work action，避免过期或错误作品上下文被静默采纳。
 
 ## 2. Why This Focus
 
@@ -27,6 +27,7 @@ AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可�
 | AU03 active session resume | closed | `artifacts/slice-verify/au03c-work-session-resume-tauri/summary.json` |
 | AU03 context source UI | closed | `artifacts/slice-verify/au03-context-source-ui-tauri/summary.json` |
 | AU02 candidate adoption bridge | closed | `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` |
+| AU05 high-risk adoption confirmation | closed | `artifacts/slice-verify/au05-adoption-safety-freshness-tauri/summary.json` |
 
 ## 3. Active Journey
 
@@ -42,7 +43,7 @@ AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可�
 → trace 解释为什么不能静默写入作品事实
 ```
 
-当前断点：**采纳安全与新鲜度门禁**。
+当前断点：**stale / conflict / cross-work 采纳安全门禁**。
 
 ## 4. Queue
 
@@ -56,7 +57,8 @@ AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可�
 | 4 | AU03-long-session-compression | done | - | 超过窗口的旧 turn 已进入 `work_sessions.summary`，最新 transcript 窗口保留自然顺序并进入 Planner prompt。 | `artifacts/slice-verify/au03-long-session-compression-tauri-lmstudio/summary.json` |
 | 5 | AU03-context-source-ui | done | - | 作者能看到“AI 参考了什么”，把 AU-03 与 AU-07 author-safe trace 连接起来。 | `artifacts/slice-verify/au03-context-source-ui-tauri/summary.json` |
 | 6 | AU02-candidate-adoption-bridge | done | - | 候选方向不能停在“继续探索”，也不能被前端直接写成事实；明确采纳必须经过 AU-05 adoption boundary。 | `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` |
-| 7 | AU05-adoption-safety-freshness | next | - | 采纳桥接已通，下一风险是过期、跨作品、冲突或高风险 action 被静默采纳，污染作品事实与后续投影/记忆。 | `tasks/slices/AU05-adoption-safety-freshness.md`；Tauri：真实工作台触发高风险或 stale/cross-work 采纳，服务端返回 confirmation/rejection/recovery，UI 显示原因且不写 production fact。 |
+| 7 | AU05-adoption-safety-freshness | checkpoint closed | - | 高风险候选不能静默采纳，必须进入 confirmation。 | `artifacts/slice-verify/au05-adoption-safety-freshness-tauri/summary.json` |
+| 8 | AU05-stale-conflict-cross-work-freshness | next | - | 高风险 confirmation 已闭环；下一风险是过期、跨作品或冲突 action 被静默采纳，污染作品事实与后续投影/记忆。 | `tasks/slices/AU05-stale-conflict-cross-work-freshness.md`；Tauri：真实工作台触发 stale/cross-work/conflict 采纳，服务端返回 rejection/recovery/confirmation，UI 显示原因且不写 production fact。 |
 
 ## 5. Selection Rule
 
@@ -80,3 +82,4 @@ AU-02 / AU-05 候选方向到采纳边界已闭环：真实 Tauri 工作台可�
 | 2026-05-21 | `AU03-long-session-compression` 已闭环，队首推进到 `AU03-context-source-ui`。 | Persistence/Application 测试与原生 Tauri + LMStudio 证据证明超过窗口的旧 turn 进入 session summary，Planner request messages 只保留 early summary + 最新 transcript 窗口，未把旧 turn 原文塞入 prompt。 |
 | 2026-05-24 | `AU03-context-source-ui` 已闭环，当前 focus 从 AU-03 转入 AU-02/AU-05 候选采纳桥接。 | 原生 Tauri 外部 UI driver 证明普通回复 why 面板显示 current work / recent dialogue / memory 三类 author-safe 来源摘要，且不暴露 raw prompt；Journey B 当前连续前缀已闭环到 B11，下一最高杠杆断点是 C6/F 的 selection/adoption 边界。 |
 | 2026-05-24 | `AU02-candidate-adoption-bridge` 已闭环，队首推进到 `AU05-adoption-safety-freshness`。 | 原生 Tauri 外部 UI driver 证明真实工作台先点击候选继续探索，再点击服务端授权的“采用这个方向”，`author_action.choose_candidate` 进入 `AdoptionBoundary` 并返回 `adopt_tentative`；下一风险是高风险、stale、conflict、cross-work 采纳安全。 |
+| 2026-05-24 | `AU05-adoption-safety-freshness` 的高风险 confirmation checkpoint 已闭环，队首推进到 stale / conflict / cross-work freshness。 | 原生 Tauri 外部 UI driver 证明真实工作台输入高风险候选并点击“采用这个方向”后，服务端授权 `choose_candidate` 进入 `AdoptionBoundary`，返回 `require_confirmation` / `needs_confirmation`，UI 显示“候选方向待确认”，`candidate_adopted=false` 且 `production_write_performed=false`。Application 回归已覆盖 cross-work rejection，但真实 UI 场景仍需后续闭环。 |

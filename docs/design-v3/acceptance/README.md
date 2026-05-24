@@ -127,7 +127,7 @@ mix test apps/novel_web/test/novel_web/channels/
 | 确认后任务反馈、真值文案、失败恢复 | AU-04 AU04-GAP-07~09 | 补集成/补测试/补验收 | P1 |
 | 真实采纳入口与 AdoptionBoundary 主流程 | AU-05 AU05-GAP-01~02 | 补实现/补集成 | P0 |
 | StateTrace、持久化待处理箱、selection/adoption 桥接 | AU-05 AU05-GAP-03~05 | 补实现/补集成/补验收 | P0 |
-| freshness/conflict/cross-work 与高风险确认 | AU-05 AU05-GAP-06~07 | 补实现/补测试/补集成 | P0 |
+| freshness/conflict/cross-work 与高风险确认 | AU-05 AU05-GAP-06~07 | 高风险 confirmation checkpoint 已闭环；stale/conflict/cross-work 继续补实现/补测试/补集成 | P0 |
 | ProjectionHint、修改/放弃、truthfulness、真实档案/阅读 | AU-05 AU05-GAP-08~11 | 补集成/补测试/补验收 | P1 |
 | 真实入口 behavior_state / available_actions 消费 | AU-06 AU06-GAP-01~02 | 修正/补集成/补验收 | P0 |
 | behavior resolution/history 与 ConfirmationBinding | AU-06 AU06-GAP-03~05 | 补实现/补集成/补测试 | P0 |
