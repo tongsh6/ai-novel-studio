@@ -1,6 +1,6 @@
 # P1 Chapter Draft Generation / 10 万字最小长篇单章正文草稿
 
-- 状态：next
+- 状态：done
 - 类型：Product Slice / Novel Output Milestone P1
 - 来源：`docs/product/novel-output-milestones.md` §6-§7；`docs/product/user-journeys.md` Journey D7；`tasks/slices/P1-chapter-plan-minimum.md`
 - 当前目标：从已采纳章节计划中选择一个章节目标，生成一章正文草稿，并证明正文草稿仍是 tentative，后续必须经过采纳边界才进入阅读投影。
@@ -43,3 +43,53 @@ P1 的下一步不是继续扩章节计划，而是让章节计划成为正文�
 - 不实现全书批量生成。
 - 不把大纲、设定、摘要或系统日志计入正文。
 - 不降低 P1 最终 10 万字验收标准。
+
+---
+
+## 5. 已闭环范围（2026-05-24）
+
+本 checkpoint 已完成最小产品闭环：
+
+```text
+已采纳章节计划
+→ 作品档案“大纲与结构”读取章节计划
+→ 作者点击第 1 章“生成正文草稿”
+→ 工作台发送带 MicroPlan 的真实用户消息
+→ application 调用 prose_writing
+→ 生成 prose_fragment tentative artifact
+→ UI 展示“正文草稿待采纳”采纳卡
+→ 阅读模式在采纳前保持空投影
+```
+
+关键约束：
+
+- `prose_fragment` 只作为待采纳草稿展示。
+- 未点击采纳时，不发送 `adopt` 事件。
+- 未采纳正文不会出现在 ReadingMode，也不应进入正文有效字数统计。
+- 章节计划是正文生成输入，不被当作正文。
+
+## 6. 验收证据
+
+外部自动化驱动真实 Tauri 页面：
+
+```bash
+bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation
+```
+
+证据路径：
+
+- `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`
+- `artifacts/slice-verify/p1-chapter-draft-generation-tauri/app-log.json`
+- `artifacts/slice-verify/p1-chapter-draft-generation-tauri/ui-state.json`
+- `artifacts/slice-verify/p1-chapter-draft-generation-tauri/ui-frames.json`
+- `artifacts/slice-verify/p1-chapter-draft-generation-tauri/p1-chapter-draft-generation-external-ui.png`
+
+局部回归：
+
+- `mix test apps/novel_application/test/novel_application/creative_artifact_test.exs`
+- `cd frontend && pnpm test -- slice-verify/native-tauri-verifier.test.mjs`
+
+## 7. 未闭环缺口
+
+- 本 checkpoint 生成的是短正文草稿，尚未达到 P1 单章正文有效字数 ≥1000 的最终口径；后续由正文扩写 / 字数统计 checkpoint 继续补齐。
+- 正文采纳后写入作品事实、阅读投影和后续字数统计尚未在本 checkpoint 闭环；下一 checkpoint 为 `P1-chapter-adoption-reading`。

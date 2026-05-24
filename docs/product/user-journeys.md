@@ -138,9 +138,9 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 Longest Closed Prefix：B1-B11。
 
-Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接、F5 高风险 confirmation checkpoint、F6 stale restored candidate checkpoint、F7 cross-work recovery checkpoint、F8 canon conflict recovery checkpoint 和 Journey D 的 P1 章节计划最小闭环已闭环，下一推进转向 P1 单章正文草稿生成。
+Current Breakpoint：Journey B 当前连续前缀已闭环；C6 候选采纳桥接、F5 高风险 confirmation checkpoint、F6 stale restored candidate checkpoint、F7 cross-work recovery checkpoint、F8 canon conflict recovery checkpoint、Journey D 的 P1 章节计划最小闭环和 P1 单章正文草稿生成已闭环，下一推进转向 P1 单章正文采纳与阅读。
 
-Next Proof：Tauri：真实工作台基于已采纳章节计划生成单章正文草稿；未采纳正文不进入阅读模式或正文有效字数。
+Next Proof：Tauri：真实工作台基于已采纳章节计划生成单章正文草稿，作者采纳后 ReadingMode 目录和章节正文可从 Channel 读取；未采纳正文仍不得进入阅读模式或正文有效字数。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -159,10 +159,10 @@ Next Proof：Tauri：真实工作台基于已采纳章节计划生成单章正�
 当前连续断点：
 
 ```text
-B1-B11 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed；F6 stale restored candidate checkpoint closed；F7 cross-work recovery checkpoint closed；F8 canon conflict recovery checkpoint closed；Journey D 的 P1 chapter plan minimum closed；下一阶段转向 P1 chapter draft generation
+B1-B11 closed；C1-C6 closed；F5 high-risk confirmation checkpoint closed；F6 stale restored candidate checkpoint closed；F7 cross-work recovery checkpoint closed；F8 canon conflict recovery checkpoint closed；Journey D 的 P1 chapter plan minimum 与 P1 chapter draft generation closed；下一阶段转向 P1 chapter adoption reading
 ```
 
-因此下一项功能推进应是 `P1-chapter-draft-generation`，除非出现 P0 bug。
+因此下一项功能推进应是 `P1-chapter-adoption-reading`，除非出现 P0 bug。
 
 ---
 
@@ -208,11 +208,11 @@ Next Proof：LLM 异常、乱码、超时或恢复后，真实工作台仍能保
 
 真实消费者：作者主工作台、作品档案、采纳面板、阅读模式。
 
-Longest Closed Prefix：D1-D3 是最小闭环；D7 的章节计划 checkpoint 已闭环，但 P1 完整长篇仍未闭环。
+Longest Closed Prefix：D1-D3 是最小闭环；D7 的章节计划 checkpoint 与 D8 的单章正文草稿生成 checkpoint 已闭环，但 P1 完整长篇仍未闭环。
 
-Current Breakpoint：D4 结构化生命周期节点仍缺统一用户路径；P1 10 万字最小长篇闭环已补章节计划 checkpoint，仍缺正文生成、字数统计和导出主链。
+Current Breakpoint：D4 结构化生命周期节点仍缺统一用户路径；P1 10 万字最小长篇闭环已补章节计划 checkpoint 与单章正文草稿生成 checkpoint，仍缺正文采纳阅读、字数统计和导出主链。
 
-Next Proof：基于已采纳章节计划生成单章正文草稿，正文草稿保持 tentative；P1 后续 proof 还必须能采纳正文、统计正文有效字数和导出完整小说。
+Next Proof：基于已采纳章节计划生成单章正文草稿并采纳；采纳后的正文进入 Reading Projection，ReadingMode 可读取目录和章节正文。P1 后续 proof 还必须统计正文有效字数和导出完整小说。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -222,8 +222,9 @@ Next Proof：基于已采纳章节计划生成单章正文草稿，正文草稿�
 | D4 | 立项 -> 世界观/角色/大纲/章节/场景的连续规划 | AU-02 / AU-09 | MicroPlan / ToolRequest / DialogueContext | gap | Document only | v2 lifecycle 设计、v3 acceptance 分散覆盖 | 缺统一生命周期入口和分阶段 proof。 |
 | D5 | 修订已采纳内容，保留 provenance 和冲突恢复 | AU-05 / AU-08 | AdoptionDecision / DecisionTrace | gap | Document only | AU-05 conflict/freshness gaps | 缺 revision boundary、覆盖确认、阅读投影刷新。 |
 | D6 | 内容质量门禁参与采纳或修订 | AU-05 / AU-09 | ToolResult / OrchestratorDecision / TraceSummaryView | gap | Document only | v2 quality gates 已设计，v3 首批只接最小质量证明 | 缺质量 finding 到 UI/proof 的产品链。 |
-| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | partial | Tauri automation | `artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`；`tasks/slices/P1-chapter-draft-generation.md` | 章节计划最小闭环已完成；当前队首先补单章正文草稿生成。后续仍缺正文采纳、正文有效字数统计、阅读投影、导出和完整 10 万字狗粮验收。 |
-| D8 | P1 单章正文草稿生成 | AU-02 / AU-05 / AU-10 | MicroPlan / ToolRequest / ToolResult / TentativeArtifactSet | next | Document only | `tasks/slices/P1-chapter-draft-generation.md` | 基于已采纳章节计划生成单章正文草稿；正文草稿必须保持 tentative，未采纳不得进入阅读模式或正文有效字数。 |
+| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | partial | Tauri automation | `artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`；`artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`tasks/slices/P1-chapter-adoption-reading.md` | 章节计划最小闭环与单章正文草稿生成已完成；当前队首先补正文采纳到阅读投影。后续仍缺正文有效字数统计、导出和完整 10 万字狗粮验收。 |
+| D8 | P1 单章正文草稿生成 | AU-02 / AU-05 / AU-10 | MicroPlan / ToolRequest / ToolResult / TentativeArtifactSet | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation` | 真实工作台基于已采纳章节计划生成 `prose_fragment` 待采纳正文草稿；未采纳正文不进入 ReadingMode。单章 1000 字下限仍待后续扩写 / 字数统计 checkpoint。 |
+| D9 | P1 单章正文采纳与阅读 | AU-05 / AU-08 / AU-10 | AdoptionDecision / ProjectionHint / TurnResultViewModel | next | Document only | `tasks/slices/P1-chapter-adoption-reading.md` | 证明作者采纳 `prose_fragment` 后，正文进入作品事实和 Reading Projection，ReadingMode 目录和章节正文从 Channel 读取。 |
 
 ---
 
