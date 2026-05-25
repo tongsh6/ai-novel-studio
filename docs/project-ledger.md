@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-26（Milestone: CandidateSet Item Visibility Correction）
+> 最后更新：2026-05-26（Milestone: Fixture Provider Prompt Leak Correction）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -22,6 +22,8 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
 ### 当前重点推进事项（2026-05-26）
+
+Fixture Provider Prompt Leak Correction（2026-05-26）：已修复 `CandidateSetCard` 展示真实 item 后暴露的第二层问题：stage/验收 provider 返回的 `items.body` 不是产品形态正文，而是把 creative prompt / 当前作品上下文原样包装成“候选内容”。根因不是所有模型都会这样，也不是 UI 应该隐藏正文；截图中的 `候选内容 277BT6` 精确来自 `NovelAgent.Test.Provider.SliceVerify`，该 deterministic provider 过去为了验证 nonce/context 贯通直接把 `creative_prompt_text` 放进 body。正式离线 `NovelAgent.Provider.Stub` 也有类似“字节透传用户输入”的 fixture 逻辑。当前修复把 `slice_verify` 与 `stub` creative items 改为生成产品形态的待确认正文片段，只保留作者意图摘要和随机标识符，不再把 `## 当前作品上下文`、`用户创作简述` 等 prompt heading 显示给作者；I3 nonce 贯通、I2 item_id 输入差异和 I1 provider→artifact 因果绑定均已复验通过。外部 Tauri driver `p1-chapter-draft-generation` 同步改为检查可见正文片段而不是 `候选内容` 占位词。验证：`mix test apps/novel_agent/test/novel_agent/provider/gateway_test.exs`、`pnpm --dir frontend test -- --run frontend/slice-verify/native-tauri-verifier.test.mjs`、三条 scenario invariant、`bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation` 已通过；完整 check/build/task_done/static scan 见本轮提交记录。
 
 CandidateSet Item Visibility Correction（2026-05-26）：已修复 stage 暴露的“工具已生成三个正文素材，但 UI 只显示一条摘要预览，作者无法阅读正文却被要求确认/放弃/修改”的消费者缺口。根因不是模型都不会写正文，也不是 creative runtime 未产出内容；`TurnResultBuilder` 已把 `TentativeArtifactSet.items` 放进 semantic `candidate_set` ui_card，但 `WorkspaceChat` 和 `WorkbenchV3` 仍把 `candidate_set` 当 `DefaultCard` 渲染，只显示 `card.body` 摘要，丢掉每个 item 的 `title/body/rationale`。当前修复新增 `CandidateSetCard` 展示组件，真实入口均按 `card_type=candidate_set` 渲染每个待确认素材的标题、正文和创作依据；该组件仍是纯展示卡，不读取或渲染 `card.actions`，采纳/放弃/修改仍必须来自 server-provided `available_actions` / pending adoption 状态。新增回归覆盖：前端组件测试断言 `candidate_set.items` 的正文与 rationale 会渲染，legacy embedded `actions` 不渲染；application contract 测试断言 `candidate_set` card 携带 item title/body。验证：`mix test apps/novel_application/test/novel_application/creative_artifact_test.exs`、`pnpm --dir frontend check` 已通过；完整 check/build/task_done/static scan 见本轮提交记录。
 
