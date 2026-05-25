@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-26（Milestone: Candidate Continuation available_actions Acceptance）
+> 最后更新：2026-05-26（Milestone: Stage Planner Production Intent Correction）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -22,6 +22,8 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
 ### 当前重点推进事项（2026-05-24）
+
+Stage Planner Production Intent Correction（2026-05-26）：已修复 stage 暴露的“明确要求写开篇场景/正文片段却继续返回候选方向”的 v3 Planner 合同缺口。根因不是某个模型不可用，而是应用层把 `creative_exploration` 同时用于“方向探索”和“具体创作产出请求”，且旧 prompt/归一化规则没有把“写/描写/生成/开篇场景/正文/章节草稿”等请求强制转入 `DialogueFrame.tool_need.needs_tool -> MicroPlan -> concrete capability` 主链，导致 Qwen/LMStudio 等模型容易把产出请求包装成 `creative_exploration + candidate_directions + needs_tool=false`。当前修复把 `DialogueFrame` 的 tool-needed production state 补齐为 `reason_code=:tool_needed`、`execution_readiness=:ready`；`Planner` 在 application 边界识别明确创作交付物请求，即使 provider 返回探索候选，也会归一化为 tool-needed frame、清空 candidate directions，并由 `DialogueGateway` 现有 `frame.tool_need.needs_tool` gate 进入 MicroPlan。MicroPlan prompt 增加具体工具选择规则：正文/开篇场景/片段/描写/续写/章节草稿 → `prose_writing`，大纲 → `plot_outline`，角色 → `character_design`，世界观/设定 → `world_building`。新增回归覆盖 stage 日志形态：provider 返回 `creative_exploration + candidate_directions + needs_tool=false`，作者输入为“开篇场景/描写”时，系统不再显示候选方向，而是调度 `prose_writing` 并产出 `prose_fragment` tentative artifact。验证：`mix test apps/novel_domain/test/novel_domain/dialogue_frame_test.exs apps/novel_application/test/novel_application/creative_artifact_test.exs`、`mix check`、三条 scenario invariant、`bash scripts/task_done.sh --slice stage-planner-production-intent --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10` 均通过。注意：已启动的 stage 进程需要重启后才会加载本修复。
 
 Candidate Continuation available_actions Acceptance（2026-05-26）：第四轮验收确认 `WorkspaceChat.handleCandidateContinue` 不再绕过 server-provided `available_actions` 构造本地 candidate continuation payload；候选继续/选择路径先通过 `turnResult.available_actions` 匹配 `choose_candidate` action，missing 或 disabled action 不提交，最终统一走 `sendAuthorAction(... toAuthorActionPayload(...))`，payload 的 `action_id/action_type/source_turn_ref/target_ref/candidate_ref/candidate_set_ref/idempotency_key` 来自 matched available_action。`candidateSelection.ts` 已收敛为 lookup helper，不再存在 `buildCandidateContinuation`，也不再通过 `turnId + candidate.direction_id` 构造可提交 `candidate_ref/candidate_set_ref/source_turn_ref`；当前仍允许 `candidate.direction_id` 作为 lookup-only key，后续可进一步命名清理。前端新增 `WorkspaceChat.availableActions.test.tsx` 覆盖 candidate button from available_actions、payload 使用 server refs、无 matching action 不提交、`card_type=candidate_set` 不生成业务 action；旧路径搜索未发现 `card.actions` / `adoption_card` / `sendMessage(...selection)` / generic fallback 回归。target_ref roundtrip 与后端主链烟雾检查未回退。验证：`mix check`、`pnpm --dir frontend check`、`pnpm --dir frontend build` 均通过；完整验收结论为 WARN / 有条件接受，WARN 仅限 lookup-only 本地 id 与子组件级测试入口，不构成 Critical FAIL。
 
