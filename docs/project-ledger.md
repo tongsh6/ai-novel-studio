@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-26（Milestone: Stage Planner Production Intent Correction）
+> 最后更新：2026-05-26（Milestone: LLM Timeout Contract Alignment）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -22,6 +22,8 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
 ### 当前重点推进事项（2026-05-24）
+
+LLM Timeout Contract Alignment（2026-05-26）：已把真实创作 turn 的超时合同从分散的 60s/120s 收敛为统一长等待窗口。根因是后端 provider、共享 HTTP 默认值、前端 Phoenix Channel push timeout 和文档验收口径各自维护数字；在同步 `WorkspaceChannel -> DialogueGateway -> Provider` 主链里，前端 60s 会先于后端合法 LLM 调用窗口报 timeout，尤其本地大模型冷启动或正文生成多次 LLM 调用时更明显。当前默认 `NOVEL_LLM_TIMEOUT_MS=300000`，可用 `NOVEL_LMSTUDIO_TIMEOUT_MS` / `NOVEL_ANTHROPIC_TIMEOUT_MS` 分 provider 覆盖；LMStudio、Anthropic adapter 与共享 HTTP post 默认值对齐到 300s。前端 `socket.ts` 和 `socket_v3.ts` 将 `user_message` / `author_action` / confirmation 类会触发 LLM 的 push timeout 统一使用 `LLM_TURN_TIMEOUT_MS=300000`，避免 UI 早于后端 timeout；AU-10 超时验收口径同步为 LLM turn timeout，而不是硬编码 60s。验证：provider 目标测试、`pnpm --dir frontend test -- --run frontend/src/lib/__tests__/socket.test.ts`、`mix check`、`pnpm --dir frontend check`、`pnpm --dir frontend build`、`bash scripts/task_done.sh --slice au03-long-session-compression --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10` 均通过。注意：这是同步 turn 的等待窗口修正，不等于长任务生命周期根治；超长正文/多步生成仍应后续用 Task/Job lifecycle 异步化。
 
 Stage Planner Production Intent Correction（2026-05-26）：已修复 stage 暴露的“明确要求写开篇场景/正文片段却继续返回候选方向”的 v3 Planner 合同缺口。根因不是某个模型不可用，而是应用层把 `creative_exploration` 同时用于“方向探索”和“具体创作产出请求”，且旧 prompt/归一化规则没有把“写/描写/生成/开篇场景/正文/章节草稿”等请求强制转入 `DialogueFrame.tool_need.needs_tool -> MicroPlan -> concrete capability` 主链，导致 Qwen/LMStudio 等模型容易把产出请求包装成 `creative_exploration + candidate_directions + needs_tool=false`。当前修复把 `DialogueFrame` 的 tool-needed production state 补齐为 `reason_code=:tool_needed`、`execution_readiness=:ready`；`Planner` 在 application 边界识别明确创作交付物请求，即使 provider 返回探索候选，也会归一化为 tool-needed frame、清空 candidate directions，并由 `DialogueGateway` 现有 `frame.tool_need.needs_tool` gate 进入 MicroPlan。MicroPlan prompt 增加具体工具选择规则：正文/开篇场景/片段/描写/续写/章节草稿 → `prose_writing`，大纲 → `plot_outline`，角色 → `character_design`，世界观/设定 → `world_building`。新增回归覆盖 stage 日志形态：provider 返回 `creative_exploration + candidate_directions + needs_tool=false`，作者输入为“开篇场景/描写”时，系统不再显示候选方向，而是调度 `prose_writing` 并产出 `prose_fragment` tentative artifact。验证：`mix test apps/novel_domain/test/novel_domain/dialogue_frame_test.exs apps/novel_application/test/novel_application/creative_artifact_test.exs`、`mix check`、三条 scenario invariant、`bash scripts/task_done.sh --slice stage-planner-production-intent --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10` 均通过。注意：已启动的 stage 进程需要重启后才会加载本修复。
 

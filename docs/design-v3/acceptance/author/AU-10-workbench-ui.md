@@ -272,12 +272,12 @@
 **作为作者**，LLM 超时或后端卡住时，我能看到超时提示并继续操作。
 
 **期望结果**：
-- 60s timeout 显示明确错误；
+- LLM turn timeout 显示明确错误；
 - loading 结束；
 - 可重试或取消等待；
 - 不留下假 AI 消息。
 
-**当前证据**：`socket.ts` helper 有 60s timeout，`handleSend` catch 显示“发送失败，请重试。”；无取消等待、重连恢复或 UI 自动化。
+**当前证据**：`socket.ts` / `socket_v3.ts` 对 user_message / author_action 使用 `LLM_TURN_TIMEOUT_MS=300000`，与 provider 默认长等待窗口对齐；`handleSend` catch 显示“发送失败，请重试。”；无取消等待、重连恢复或 UI 自动化。
 
 **当前状态**：部分实现。
 
