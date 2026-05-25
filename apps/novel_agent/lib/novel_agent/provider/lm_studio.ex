@@ -34,7 +34,10 @@ defmodule NovelAgent.Provider.LMStudio do
       HTTP.apply_params(
         %{
           model: state.model,
-          messages: NovelAgent.Provider.normalize_messages(prompt)
+          messages:
+            prompt
+            |> NovelAgent.Provider.normalize_messages()
+            |> ensure_chat_starts_with_user()
         },
         params
       )
@@ -126,6 +129,49 @@ defmodule NovelAgent.Provider.LMStudio do
 
   defp maybe_json_mode(body, true), do: Map.put(body, :response_format, %{type: "json_object"})
   defp maybe_json_mode(body, _), do: body
+
+  defp ensure_chat_starts_with_user(messages) do
+    {system_messages, chat_messages} = Enum.split_with(messages, &(&1.role == "system"))
+
+    case Enum.split_while(chat_messages, &(&1.role != "user")) do
+      {[], _} ->
+        messages
+
+      {leading_context, []} ->
+        merge_into_system(system_messages, leading_context)
+
+      {leading_context, rest} ->
+        merge_into_system(system_messages, leading_context) ++ rest
+    end
+  end
+
+  defp merge_into_system([], leading_context), do: [%{role: "system", content: context_text(leading_context)}]
+
+  defp merge_into_system(system_messages, leading_context) do
+    context = context_text(leading_context)
+
+    system_messages
+    |> combine_system_messages()
+    |> List.update_at(-1, fn message ->
+      %{message | content: [message.content, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n\n")}
+    end)
+  end
+
+  defp combine_system_messages(system_messages) do
+    content =
+      system_messages
+      |> Enum.map(& &1.content)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n\n")
+
+    [%{role: "system", content: content}]
+  end
+
+  defp context_text(messages) do
+    messages
+    |> Enum.map(fn message -> "#{message.role}: #{message.content}" end)
+    |> Enum.join("\n")
+  end
 
   @impl true
   def name, do: "lmstudio"
