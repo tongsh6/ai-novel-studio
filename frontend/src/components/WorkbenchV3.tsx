@@ -36,6 +36,7 @@ import {
   ResultCard,
   FailureCard,
   EscalationCard,
+  CandidateSetCard,
   DefaultCard,
 } from "./UICards";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
@@ -223,6 +224,8 @@ export function WorkbenchV3() {
         return <ConfirmationCard key={i} {...props} />;
       case "warning_card":
         return <WarningCard key={i} {...props} />;
+      case "candidate_set":
+        return <CandidateSetCard key={i} {...props} />;
       case "progress_card":
         return <ProgressCard key={i} {...props} />;
       case "checkpoint_card":

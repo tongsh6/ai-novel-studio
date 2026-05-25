@@ -5,7 +5,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import type {
   UICardData as UICard,
 } from "../../components/UICards";
-import { DefaultCard } from "../../components/UICards";
+import { CandidateSetCard, DefaultCard } from "../../components/UICards";
 import {
   adoptionDecisionCopy,
   adoptionDecisionFollowUpAction,
@@ -52,6 +52,37 @@ describe("card type contracts", () => {
 
     expect(html).toContain("候选内容");
     expect(html).toContain("候选正文");
+    expect(html).not.toContain("不应渲染");
+    expect(html).not.toContain("accept-local");
+  });
+
+  it("candidate_set renders generated item body and rationale without embedded actions", () => {
+    const card = {
+      card_type: "candidate_set",
+      title: "待确认的创作材料",
+      body: "这里是一组待确认的创作材料。",
+      items: [
+        {
+          item_id: "scene_01",
+          title: "雨夜霓虹下的 28% 生存率",
+          body: "AI 在视网膜边缘弹出红色警告：生存率 28%。他只剩三秒决定是否相信算法。",
+          rationale: "直接呈现生死决策瞬间。",
+        },
+      ],
+      actions: [{
+        action_id: "accept-local",
+        action_type: "accept",
+        label: "不应渲染",
+        target_ref: "artifact-1",
+        enabled: true,
+      }],
+    } as unknown as UICard;
+
+    const html = renderToStaticMarkup(React.createElement(CandidateSetCard, { card }));
+
+    expect(html).toContain("雨夜霓虹下的 28% 生存率");
+    expect(html).toContain("AI 在视网膜边缘弹出红色警告");
+    expect(html).toContain("创作依据：直接呈现生死决策瞬间。");
     expect(html).not.toContain("不应渲染");
     expect(html).not.toContain("accept-local");
   });

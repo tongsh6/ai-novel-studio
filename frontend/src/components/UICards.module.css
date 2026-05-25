@@ -187,6 +187,10 @@
   border-left: 3px solid #22c55e;
 }
 
+.candidateSetCard {
+  border-left: 3px solid var(--accent);
+}
+
 .failureCard {
   border-left: 3px solid #ef4444;
   background-color: var(--accent-bg);
@@ -217,5 +221,43 @@
   background: var(--surface-secondary);
   border: 1px solid var(--border-subtle);
   border-radius: var(--rounded-sm);
+  color: var(--foreground-secondary);
+}
+
+.candidateItems {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.candidateItem {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-secondary);
+}
+
+.candidateItemTitle {
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--foreground-primary);
+}
+
+.candidateItemBody {
+  font-family: var(--sans);
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--foreground-primary);
+  white-space: pre-wrap;
+}
+
+.candidateItemRationale {
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.5;
   color: var(--foreground-secondary);
 }

@@ -159,7 +159,7 @@ defmodule NovelApplication.CreativeArtifactTest do
                %{
                  card_type: "candidate_set",
                  artifact_type: :character_seed,
-                 items: [%{item_id: "char"}]
+                 items: [%{item_id: "char", title: "title-char", body: "body-char"}]
                } = card
              ] = turn_result.ui_cards
 

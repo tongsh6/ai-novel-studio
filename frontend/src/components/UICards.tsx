@@ -11,10 +11,25 @@ export interface UICardData {
   title?: string;
   body?: string;
   artifact_refs?: string[];
+  candidate_set_ref?: string;
+  artifact_type?: string;
+  items?: UICardItem[];
+  tentative?: boolean;
 }
 
 interface Props {
   card: UICardData;
+}
+
+export interface UICardItem {
+  item_id?: string;
+  title?: unknown;
+  body?: unknown;
+  rationale?: unknown;
+}
+
+function displayText(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 export function ClarificationCard({ card }: Props) {
@@ -92,6 +107,39 @@ export function ResultCard({ card }: Props) {
         <div className={styles.title}>{card.title || "执行完成"}</div>
       </div>
       {card.body && <div className={styles.body}>{card.body}</div>}
+    </div>
+  );
+}
+
+export function CandidateSetCard({ card }: Props) {
+  const items = Array.isArray(card.items) ? card.items : [];
+
+  return (
+    <div className={`${styles.card} ${styles.candidateSetCard}`}>
+      <div className={styles.header}>
+        <div className={styles.title}>{card.title || "待确认的创作材料"}</div>
+      </div>
+      {card.body && <div className={styles.body}>{card.body}</div>}
+      {items.length > 0 && (
+        <div className={styles.candidateItems}>
+          {items.map((item, index) => {
+            const title = displayText(item.title) || `候选 ${index + 1}`;
+            const body = displayText(item.body);
+            const rationale = displayText(item.rationale);
+            const key = item.item_id || `${title}-${index}`;
+
+            return (
+              <article key={key} className={styles.candidateItem}>
+                <div className={styles.candidateItemTitle}>{title}</div>
+                {body && <div className={styles.candidateItemBody}>{body}</div>}
+                {rationale && (
+                  <div className={styles.candidateItemRationale}>创作依据：{rationale}</div>
+                )}
+              </article>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

@@ -43,7 +43,18 @@ export interface V3UICard {
   title?: string;
   body?: string;
   artifact_refs?: string[];
+  candidate_set_ref?: string;
+  artifact_type?: string;
+  tentative?: boolean;
+  items?: V3UICardItem[];
   actions?: V3UIAction[];
+}
+
+export interface V3UICardItem {
+  item_id?: string;
+  title?: unknown;
+  body?: unknown;
+  rationale?: unknown;
 }
 
 export interface V3UIAction {

@@ -53,6 +53,7 @@ import {
   ResultCard,
   FailureCard,
   EscalationCard,
+  CandidateSetCard,
   DefaultCard,
   type UICardData,
 } from "./UICards";
@@ -1283,7 +1284,7 @@ export function WorkspaceChat() {
                     case "warning_card":
                       return <WarningCard key={ci} card={card} />;
                     case "candidate_set":
-                      return <DefaultCard key={ci} card={card} />;
+                      return <CandidateSetCard key={ci} card={card} />;
                     case "progress_card":
                       return <ProgressCard key={ci} card={card} />;
                     case "checkpoint_card":
