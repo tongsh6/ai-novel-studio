@@ -23,6 +23,17 @@ defmodule NovelDomain.DialogueFrameTest do
       assert DialogueFrame.validate(@valid_frame) == :ok
     end
 
+    test "accepts tool-needed frames for concrete creative production" do
+      frame = %DialogueFrame{
+        @valid_frame
+        | frame_type: :creative_exploration,
+          tool_need: %{needs_tool: true, reason_code: :tool_needed},
+          execution_readiness: :ready
+      }
+
+      assert DialogueFrame.validate(frame) == :ok
+    end
+
     test "returns error if required fields are missing" do
       frame = %DialogueFrame{@valid_frame | frame_id: nil, turn_id: ""}
       assert {:error, errors} = DialogueFrame.validate(frame)

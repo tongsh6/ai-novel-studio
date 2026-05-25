@@ -46,9 +46,7 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     test "DialogueGateway source does not contain creative keyword classifier functions" do
       source =
-        File.read!(
-          Path.expand("../../lib/novel_application/dialogue_gateway.ex", __DIR__)
-        )
+        File.read!(Path.expand("../../lib/novel_application/dialogue_gateway.ex", __DIR__))
 
       refute String.contains?(source, "creative_direction")
       refute String.contains?(source, "contains_any")
@@ -223,6 +221,57 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert turn_result.tool_result.output.artifact_type == :character_seed
       assert [%{card_type: "candidate_set"}] = turn_result.ui_cards
       refute Map.has_key?(turn_result, :task_state_events)
+    end
+
+    test "explicit prose request overrides exploratory candidate frame and dispatches prose tool" do
+      exploratory_frame_json =
+        Jason.encode!(%{
+          "frame_type" => "creative_exploration",
+          "dialogue_goal_summary" => "推进开篇场景创作",
+          "needs_tool" => false,
+          "no_tool_reason" => "exploratory_only",
+          "execution_readiness" => "not_applicable",
+          "assistant_message" => "我为你准备了三种开篇写法。",
+          "candidate_directions" => [
+            %{
+              "title" => "内心独白型开篇",
+              "pitch" => "聚焦三秒内的心理博弈。",
+              "tone_tags" => ["紧张"]
+            },
+            %{
+              "title" => "视觉冲击型开篇",
+              "pitch" => "用数据流和动作场面交织。",
+              "tone_tags" => ["快节奏"]
+            }
+          ],
+          "context_used" => true,
+          "uncertainty" => []
+        })
+
+      complete_fn =
+        sequenced_complete_fn([
+          exploratory_frame_json,
+          plan_json("prose_writing"),
+          Jason.encode!([single_item("opening-scene")]),
+          "已生成待确认的开篇场景，尚未采纳。"
+        ])
+
+      {:ok, turn_result, _trace, candidates, _context} =
+        DialogueGateway.handle_input(
+          %{
+            text: "1. **开篇场景**：从AI提示生存率28%的瞬间切入，描写主角在3秒内的心理博弈与抉择",
+            workspace_id: "ws-opening-scene"
+          },
+          nil,
+          complete_fn
+        )
+
+      assert candidates == []
+      refute Map.has_key?(turn_result, :candidate_directions)
+      assert turn_result.frame_summary.frame_type == :creative_exploration
+      assert turn_result.tool_result.tool_name == "prose_writing"
+      assert turn_result.tool_result.output.artifact_type == :prose_fragment
+      assert turn_result.truthfulness.tool_called == true
     end
 
     test "provider failure is honest failed TurnResult with no card or actions" do

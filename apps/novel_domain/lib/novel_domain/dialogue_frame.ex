@@ -8,10 +8,11 @@ defmodule NovelDomain.DialogueFrame do
   @type frame_type :: :casual_reply | :creative_exploration | :question_answer | :meta_discussion
   @type reason_code ::
           :no_tool_needed
+          | :tool_needed
           | :exploratory_only
           | :insufficient_execution_target
           | :user_requested_discussion
-  @type execution_readiness :: :not_applicable | :not_ready
+  @type execution_readiness :: :not_applicable | :not_ready | :ready
 
   @type t :: %__MODULE__{
           schema_version: String.t(),
@@ -48,11 +49,12 @@ defmodule NovelDomain.DialogueFrame do
   @allowed_frame_types [:casual_reply, :creative_exploration, :question_answer, :meta_discussion]
   @allowed_reason_codes [
     :no_tool_needed,
+    :tool_needed,
     :exploratory_only,
     :insufficient_execution_target,
     :user_requested_discussion
   ]
-  @allowed_execution_readiness [:not_applicable, :not_ready]
+  @allowed_execution_readiness [:not_applicable, :not_ready, :ready]
 
   @doc """
   Validate a DialogueFrame. Returns :ok or {:error, [reasons]}.

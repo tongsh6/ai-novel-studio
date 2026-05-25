@@ -58,7 +58,7 @@ defmodule NovelApplication.Planner do
         frame = build_frame(parsed, text, turn_id, frame_id, ws_id, context)
 
         candidates =
-          if frame.frame_type == :creative_exploration do
+          if frame.frame_type == :creative_exploration and not frame.tool_need.needs_tool do
             build_candidates(parsed, frame.frame_id)
           else
             []
@@ -141,6 +141,12 @@ defmodule NovelApplication.Planner do
 
     ## 当前开放的创作工具 (Capabilities)
     #{Enum.join(tools, ", ")}
+
+    ## 工具选择规则
+    - 正文、开篇场景、具体片段、场景描写、动作描写、续写、章节草稿 → prose_writing
+    - 大纲、章节规划、剧情走向 → plot_outline
+    - 角色、人物、小传、动机、关系 → character_design
+    - 世界观、规则体系、门派/组织/地理/设定 → world_building
 
     ## 用户输入
     #{author_input.text}
@@ -288,9 +294,9 @@ defmodule NovelApplication.Planner do
     {
       "frame_type": "casual_reply" | "creative_exploration" | "question_answer" | "meta_discussion",
       "dialogue_goal_summary": "用户本轮想达到什么",
-      "needs_tool": false,
-      "no_tool_reason": "no_tool_needed" | "exploratory_only" | "insufficient_execution_target" | "user_requested_discussion",
-      "execution_readiness": "not_applicable",
+      "needs_tool": true or false,
+      "no_tool_reason": "tool_needed" | "no_tool_needed" | "exploratory_only" | "insufficient_execution_target" | "user_requested_discussion",
+      "execution_readiness": "ready" | "not_applicable" | "not_ready",
       "assistant_message": "自然语言回应（中文）",
       "candidate_directions": [{"title": "方向标题", "pitch": "一句话吸引力描述", "tone_tags": ["悬疑", "温柔"], "risk_hint": "low"}],
       "context_used": true or false,
@@ -298,7 +304,11 @@ defmodule NovelApplication.Planner do
     }
 
     ## 规则
-    - frame_type == "creative_exploration" 时，candidate_directions 必须包含 2-3 个方向对象
+    - 作者要求“写/生成/产出/描写/续写/开篇场景/正文/章节草稿/具体片段”时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
+    - 作者要求“大纲/角色设定/世界观设定/剧情设计”等具体交付物时，也属于创作产出请求，needs_tool 必须为 true
+    - 只有作者还在比较方向、头脑风暴、问“怎么切入/几个方案”，且没有要求立刻产出具体文本或设定时，才使用 creative_exploration + needs_tool=false
+    - frame_type == "creative_exploration" 且 needs_tool == false 时，candidate_directions 必须包含 2-3 个方向对象
+    - frame_type == "creative_exploration" 且 needs_tool == true 时，candidate_directions 必须为空数组
     - frame_type != "creative_exploration" 时，candidate_directions 为空数组
     - 不要输出纯字符串数组，每个方向必须是带 title/pitch/tone_tags 的对象
     - candidate_directions[].risk_hint 可选，只能是 "low" | "medium" | "high"，不确定时用 "low"
@@ -569,10 +579,11 @@ defmodule NovelApplication.Planner do
 
   defp build_frame(parsed, text, turn_id, frame_id, ws_id, context) do
     context_ref = context && context.workspace_id && "context:#{context.workspace_id}"
+    production_intent? = concrete_production_author_input?(text)
 
     tool_need = %{
-      needs_tool: Map.get(parsed, "needs_tool", false),
-      reason_code: to_reason_code(Map.get(parsed, "no_tool_reason", "no_tool_needed"))
+      needs_tool: parsed_needs_tool?(parsed, production_intent?),
+      reason_code: parsed_reason_code(parsed, production_intent?)
     }
 
     %DialogueFrame{
@@ -581,14 +592,15 @@ defmodule NovelApplication.Planner do
       turn_id: turn_id,
       workspace_id: ws_id,
       primary: true,
-      frame_type: normalized_frame_type(parsed, text),
+      frame_type: normalized_frame_type(parsed, text, production_intent?),
       source_refs: %{
         author_input_ref: "author_input:#{turn_id}",
         dialogue_context_ref: context_ref
       },
       dialogue_goal: %{summary: Map.get(parsed, "dialogue_goal_summary", "用户发来消息")},
       tool_need: tool_need,
-      execution_readiness: :not_applicable,
+      execution_readiness:
+        parsed_execution_readiness(Map.get(parsed, "execution_readiness"), tool_need.needs_tool),
       author_visible_draft: %{message: Map.get(parsed, "assistant_message", "收到你的消息。")},
       evidence_summary: %{context_used: Map.get(parsed, "context_used", context != nil)},
       uncertainty: Map.get(parsed, "uncertainty", [])
@@ -732,17 +744,28 @@ defmodule NovelApplication.Planner do
   defp to_frame_type("meta_discussion"), do: :meta_discussion
   defp to_frame_type(_), do: :casual_reply
 
-  defp normalized_frame_type(parsed, text) do
+  defp normalized_frame_type(parsed, text, production_intent?) do
     raw_type = to_frame_type(Map.get(parsed, "frame_type", "casual_reply"))
 
-    if raw_type == :casual_reply and exploratory_author_input?(text) do
-      :creative_exploration
-    else
-      raw_type
+    cond do
+      production_intent? and raw_type in [:casual_reply, :creative_exploration] ->
+        :creative_exploration
+
+      raw_type == :casual_reply and exploratory_author_input?(text) ->
+        :creative_exploration
+
+      true ->
+        raw_type
     end
   end
 
   defp exploratory_author_input?(text) when is_binary(text) do
+    if concrete_production_author_input?(text), do: false, else: exploratory_markers?(text)
+  end
+
+  defp exploratory_author_input?(_text), do: false
+
+  defp exploratory_markers?(text) do
     markers = ["没想好", "方向", "切入", "想想", "怎么写", "怎么展开", "几个方案", "几种"]
     creative_terms = ["小说", "故事", "赛博", "修仙", "角色", "世界观", "大纲", "剧情", "主角"]
 
@@ -750,8 +773,51 @@ defmodule NovelApplication.Planner do
       Enum.any?(creative_terms, &String.contains?(text, &1))
   end
 
-  defp exploratory_author_input?(_text), do: false
+  defp concrete_production_author_input?(text) when is_binary(text) do
+    text = String.trim(text)
+    has_production_verb? = contains_any?(text, ["写", "生成", "产出", "描写", "续写", "撰写", "创作"])
 
+    has_deliverable? =
+      contains_any?(text, [
+        "开篇场景",
+        "正文",
+        "章节草稿",
+        "草稿",
+        "具体场景",
+        "场景",
+        "片段",
+        "段落",
+        "大纲",
+        "角色设定",
+        "人物设定",
+        "世界观",
+        "设定"
+      ])
+
+    has_production_verb? and has_deliverable? and not explicit_discussion_only?(text)
+  end
+
+  defp concrete_production_author_input?(_text), do: false
+
+  defp explicit_discussion_only?(text) do
+    contains_any?(text, ["先别写", "不写正文", "纯交流", "先聊", "只聊", "讨论一下"])
+  end
+
+  defp contains_any?(text, terms), do: Enum.any?(terms, &String.contains?(text, &1))
+
+  defp parsed_needs_tool?(_parsed, true), do: true
+  defp parsed_needs_tool?(parsed, false), do: Map.get(parsed, "needs_tool", false)
+
+  defp parsed_reason_code(_parsed, true), do: :tool_needed
+
+  defp parsed_reason_code(parsed, false),
+    do: to_reason_code(Map.get(parsed, "no_tool_reason", "no_tool_needed"))
+
+  defp parsed_execution_readiness(_raw, true), do: :ready
+  defp parsed_execution_readiness("not_ready", false), do: :not_ready
+  defp parsed_execution_readiness(_, false), do: :not_applicable
+
+  defp to_reason_code("tool_needed"), do: :tool_needed
   defp to_reason_code("exploratory_only"), do: :exploratory_only
   defp to_reason_code("insufficient_execution_target"), do: :insufficient_execution_target
   defp to_reason_code("user_requested_discussion"), do: :user_requested_discussion
