@@ -209,9 +209,11 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       assert context.conversation_summary =~ "作者提到「第1轮设定」"
       refute context.conversation_summary =~ "user: 第1轮设定"
       assert context.conversation_summary =~ "第12轮设定"
-      assert hd(history_messages).role == "assistant"
-      assert hd(history_messages).content =~ "会话早期摘要"
-      assert Enum.at(history_messages, 1).content == "第3轮设定"
+      assert system_text(messages) =~ "## 会话摘要"
+      assert system_text(messages) =~ "会话早期摘要"
+      refute Enum.any?(history_messages, &String.contains?(&1.content, "会话早期摘要"))
+      assert hd(history_messages).role == "user"
+      assert hd(history_messages).content == "第3轮设定"
       assert history_text(messages) =~ "第12轮设定"
       assert List.last(messages).content == "继续最新设定"
     end

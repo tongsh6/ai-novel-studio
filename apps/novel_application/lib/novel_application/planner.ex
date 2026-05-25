@@ -269,16 +269,20 @@ defmodule NovelApplication.Planner do
   end
 
   defp build_messages(text, context) do
-    [%{role: "system", content: system_prompt(context)}] ++
-      conversation_messages(context) ++
+    conversation = conversation_prompt(context)
+
+    [%{role: "system", content: system_prompt(context, conversation.summary)}] ++
+      conversation.messages ++
       [%{role: "user", content: text}]
   end
 
-  defp system_prompt(context) do
+  defp system_prompt(context, session_summary) do
     """
     你是一个小说创作 AI。分析用户消息并返回 JSON。
 
     #{non_conversation_context_section(context)}
+
+    #{session_summary_section(session_summary)}
 
     ## 输出格式（严格 JSON）
     {
@@ -299,6 +303,15 @@ defmodule NovelApplication.Planner do
     - 不要输出纯字符串数组，每个方向必须是带 title/pitch/tone_tags 的对象
     - candidate_directions[].risk_hint 可选，只能是 "low" | "medium" | "high"，不确定时用 "low"
     - assistant_message 必须用中文，不要输出 JSON 代码块
+    """
+  end
+
+  defp session_summary_section(nil), do: ""
+
+  defp session_summary_section(summary) do
+    """
+    ## 会话摘要
+    #{summary}
     """
   end
 
@@ -328,26 +341,34 @@ defmodule NovelApplication.Planner do
       Enum.map_join(snapshot, "\n", fn {key, value} -> "- #{key}: #{value}" end)
   end
 
-  defp conversation_messages(%DialogueContext{conversation_summary: summary})
+  defp conversation_prompt(%DialogueContext{conversation_summary: summary})
        when is_binary(summary),
-       do: parse_conversation_messages(summary)
+       do: parse_conversation_prompt(summary)
 
-  defp conversation_messages(_context), do: []
+  defp conversation_prompt(_context), do: %{summary: nil, messages: []}
 
-  defp parse_conversation_messages(summary) do
+  defp parse_conversation_prompt(summary) do
     summary
     |> String.split("\n")
-    |> Enum.reduce({[], nil}, &collect_conversation_line/2)
-    |> finalize_conversation_messages()
+    |> Enum.reduce({[], nil, []}, &collect_conversation_line/2)
+    |> finalize_conversation_prompt()
   end
 
-  defp collect_conversation_line(line, {messages, current}) do
+  defp collect_conversation_line(line, {messages, current, context_lines}) do
     case Regex.run(~r/^(user|assistant):\s*(.*)$/u, line) do
       [_, role, content] ->
-        {[current | messages], %{role: role, content: content}}
+        if session_summary_line?(content) do
+          {messages, current, [content | context_lines]}
+        else
+          {[current | messages], %{role: role, content: content}, context_lines}
+        end
 
       _ ->
-        {messages, append_conversation_line(current, line)}
+        if current do
+          {messages, append_conversation_line(current, line), context_lines}
+        else
+          {messages, nil, [line | context_lines]}
+        end
     end
   end
 
@@ -356,12 +377,27 @@ defmodule NovelApplication.Planner do
   defp append_conversation_line(current, line),
     do: %{current | content: current.content <> "\n" <> line}
 
-  defp finalize_conversation_messages({messages, current}) do
-    [current | messages]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.reverse()
-    |> Enum.reject(&(String.trim(&1.content) == ""))
+  defp finalize_conversation_prompt({messages, current, context_lines}) do
+    parsed_messages =
+      [current | messages]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.reverse()
+      |> Enum.reject(&(String.trim(&1.content) == ""))
+
+    context =
+      context_lines
+      |> Enum.reverse()
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> case do
+        [] -> nil
+        lines -> Enum.join(lines, "\n")
+      end
+
+    %{summary: context, messages: parsed_messages}
   end
+
+  defp session_summary_line?(content), do: String.starts_with?(String.trim(content), "会话早期摘要")
 
   # ── JSON parsing with extraction + retry ──────
 

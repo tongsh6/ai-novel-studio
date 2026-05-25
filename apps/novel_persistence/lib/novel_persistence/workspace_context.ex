@@ -292,7 +292,7 @@ defmodule NovelPersistence.WorkspaceContext do
   defp session_summary_as_message(summary) do
     case normalize_blank(summary) do
       nil -> nil
-      text -> "assistant: #{text}"
+      text -> text
     end
   end
 

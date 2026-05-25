@@ -82,45 +82,6 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert body.messages == messages
     end
 
-    test "moves leading assistant context into system prompt for local chat templates" do
-      test_pid = self()
-
-      mock = fn _url, body, _opts ->
-        send(test_pid, {:request_body, body})
-
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "{\"ok\":true}"}}],
-           "usage" => %{}
-         }}
-      end
-
-      state = %LMStudio{
-        endpoint: "http://localhost/v1",
-        model: "t",
-        timeout: 100,
-        http_fn: mock,
-        log_fn: nil
-      }
-
-      messages = [
-        %{role: "system", content: "规则"},
-        %{role: "assistant", content: "会话早期摘要"},
-        %{role: "user", content: "继续"}
-      ]
-
-      assert {:ok, _result} = LMStudio.complete(state, nil, messages, %InferenceParams{})
-      assert_receive {:request_body, body}
-
-      assert [
-               %{role: "system", content: system_content},
-               %{role: "user", content: "继续"}
-             ] = body.messages
-
-      assert system_content =~ "规则"
-      assert system_content =~ "assistant: 会话早期摘要"
-    end
-
     test "returns connection_refused" do
       mock = fn _url, _body, _opts -> {:error, :connection_refused, 0, "拒绝"} end
 
