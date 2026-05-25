@@ -9,10 +9,11 @@ defmodule NovelDomain.TentativeArtifactSet do
           :character_seed | :plot_direction | :outline_draft | :scene_draft | :prose_fragment
 
   @type artifact_item :: %{
-          item_id: String.t(),
-          title: String.t(),
-          body: String.t(),
-          rationale: String.t() | nil
+          required(:item_id) => String.t(),
+          required(:title) => String.t(),
+          required(:body) => String.t(),
+          required(:rationale) => String.t() | nil,
+          optional(:provider_call_ref) => String.t() | nil
         }
 
   @type t :: %__MODULE__{

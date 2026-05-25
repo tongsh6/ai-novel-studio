@@ -2,24 +2,53 @@ defmodule NovelApplication.Toolbox do
   @moduledoc """
   工具执行运行时。接收已批准的 ToolRequest，执行工具，返回 ToolResult。
 
-  工具执行运行时。接收已批准的 ToolRequest，执行工具，返回 ToolResult。
-  不与 production state 交互。
+  ## 调用契约
+
+  - `execute/1`：仅用于不依赖 LLM Provider 的工具（如 text_analysis）。
+    对依赖 Provider 的工具会返回 `status=:failed` ToolResult，强制调用方走 `execute/2`。
+  - `execute/2`：注入 complete_fn，依赖 LLM 的工具走 Provider 字节透传链路。
+
+  ## I3 不变量
+
+  对于依赖 LLM 的工具，`ToolResult.output.items` 中每个 item 的 `title/body/rationale`
+  字段必须来自 Provider 响应的字节透传，不允许产品代码修饰、补齐、合并。详见
+  `docs/engineering/scenario-invariants.md` §2.1 + §2.3。
   """
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelApplication.CapabilityRegistry
   alias NovelCommon.LogContext
   alias NovelDomain.ToolRequest
   alias NovelDomain.ToolResult
 
   @doc """
-  执行一个 ToolRequest，返回 ToolResult。
+  执行 ToolRequest，不注入 Provider。仅用于不依赖 LLM 的工具。
 
-  执行前验证：registry 中存在、状态可 dispatch、grants 合法。
+  对依赖 LLM 的工具，返回 `status=:failed` ToolResult，
+  调用方应使用 `execute/2` 显式注入 complete_fn。
   """
   @spec execute(ToolRequest.t()) :: ToolResult.t()
   def execute(%ToolRequest{} = req) do
+    execute_impl(req, nil)
+  end
+
+  @doc """
+  执行 ToolRequest，注入 Provider complete_fn。
+
+  对依赖 LLM 的工具，complete_fn 用于调用 Provider，
+  响应字节透传到 `ToolResult.output.items`。
+  """
+  @spec execute(
+          ToolRequest.t(),
+          (String.t() -> {:ok, ProviderResult.t()} | {:error, map()})
+        ) :: ToolResult.t()
+  def execute(%ToolRequest{} = req, complete_fn) when is_function(complete_fn, 1) do
+    execute_impl(req, complete_fn)
+  end
+
+  defp execute_impl(req, complete_fn) do
     result_id = "tr_#{System.unique_integer([:positive, :monotonic])}"
     now = DateTime.utc_now()
 
@@ -34,43 +63,32 @@ defmodule NovelApplication.Toolbox do
     result =
       cond do
         is_nil(CapabilityRegistry.get(req.tool_name)) ->
-          %ToolResult{
-            tool_result_id: result_id,
-            tool_request_ref: req.tool_request_id,
-            tool_name: req.tool_name,
-            status: :failed,
-            errors: [%{code: "unknown_tool", message: "tool not found in registry"}],
-            completed_at: now
-          }
+          failed_tool_result(req, result_id, now, "unknown_tool", "tool not found in registry")
 
         not CapabilityRegistry.dispatchable?(req.tool_name) ->
-          %ToolResult{
-            tool_result_id: result_id,
-            tool_request_ref: req.tool_request_id,
-            tool_name: req.tool_name,
-            status: :failed,
-            errors: [%{code: "tool_not_dispatchable", message: "tool is disabled or deprecated"}],
-            completed_at: now
-          }
+          failed_tool_result(
+            req,
+            result_id,
+            now,
+            "tool_not_dispatchable",
+            "tool is disabled or deprecated"
+          )
 
         not CapabilityRegistry.grants_valid?(
           req.tool_name,
           req.read_scope_grants,
           req.write_scope_grants
         ) ->
-          %ToolResult{
-            tool_result_id: result_id,
-            tool_request_ref: req.tool_request_id,
-            tool_name: req.tool_name,
-            status: :failed,
-            errors: [
-              %{code: "grant_scope_violation", message: "requested grants exceed registry scopes"}
-            ],
-            completed_at: now
-          }
+          failed_tool_result(
+            req,
+            result_id,
+            now,
+            "grant_scope_violation",
+            "requested grants exceed registry scopes"
+          )
 
         true ->
-          dispatch(req, result_id, now)
+          dispatch(req, result_id, now, complete_fn)
       end
 
     duration = System.monotonic_time(:millisecond) - t0
@@ -95,7 +113,9 @@ defmodule NovelApplication.Toolbox do
     result
   end
 
-  defp dispatch(%ToolRequest{tool_name: "text_analysis"} = req, result_id, now) do
+  # ── non-LLM tool ──
+
+  defp dispatch(%ToolRequest{tool_name: "text_analysis"} = req, result_id, now, _complete_fn) do
     text = Map.get(req.input, "text", "")
     genre = Map.get(req.input, "genre", "")
 
@@ -120,45 +140,35 @@ defmodule NovelApplication.Toolbox do
     }
   end
 
-  defp dispatch(%ToolRequest{tool_name: "creative_generation"} = req, result_id, now) do
+  # ── LLM-dependent tools ──
+
+  defp dispatch(
+         %ToolRequest{tool_name: "creative_generation"} = req,
+         result_id,
+         now,
+         complete_fn
+       ) do
     direction = Map.get(req.input, "direction", "character_seed")
-    context_text = Map.get(req.input, "context_text", "")
-
-    items = generate_creative_items(direction, context_text)
-
-    %ToolResult{
-      tool_result_id: result_id,
-      tool_request_ref: req.tool_request_id,
-      tool_name: "creative_generation",
-      status: :succeeded,
-      output: %{artifact_type: direction, item_count: length(items), items: items},
-      state_delta: [
-        %{type: :tentative_artifact, key: "creative_generation", artifact_type: direction}
-      ],
-      artifact_refs: Enum.map(items, & &1.item_id),
-      usage: %{duration_ms: 0, tool: "creative_generation", version: "1.0.0"},
-      trace_refs: ["tool_trace:#{result_id}"],
-      completed_at: now
-    }
+    creative_dispatch(req, result_id, now, direction, complete_fn)
   end
 
-  defp dispatch(%ToolRequest{tool_name: "world_building"} = req, result_id, now) do
-    creative_dispatch(req, result_id, now, "world_setting")
+  defp dispatch(%ToolRequest{tool_name: "world_building"} = req, result_id, now, complete_fn) do
+    creative_dispatch(req, result_id, now, "world_setting", complete_fn)
   end
 
-  defp dispatch(%ToolRequest{tool_name: "character_design"} = req, result_id, now) do
-    creative_dispatch(req, result_id, now, "character_seed")
+  defp dispatch(%ToolRequest{tool_name: "character_design"} = req, result_id, now, complete_fn) do
+    creative_dispatch(req, result_id, now, "character_seed", complete_fn)
   end
 
-  defp dispatch(%ToolRequest{tool_name: "plot_outline"} = req, result_id, now) do
-    creative_dispatch(req, result_id, now, "outline_draft")
+  defp dispatch(%ToolRequest{tool_name: "plot_outline"} = req, result_id, now, complete_fn) do
+    creative_dispatch(req, result_id, now, "outline_draft", complete_fn)
   end
 
-  defp dispatch(%ToolRequest{tool_name: "prose_writing"} = req, result_id, now) do
-    creative_dispatch(req, result_id, now, "prose_fragment")
+  defp dispatch(%ToolRequest{tool_name: "prose_writing"} = req, result_id, now, complete_fn) do
+    creative_dispatch(req, result_id, now, "prose_fragment", complete_fn)
   end
 
-  defp dispatch(_req, result_id, now) do
+  defp dispatch(_req, result_id, now, _complete_fn) do
     %ToolResult{
       tool_result_id: result_id,
       tool_request_ref: "unknown",
@@ -169,154 +179,185 @@ defmodule NovelApplication.Toolbox do
     }
   end
 
-  defp creative_dispatch(%ToolRequest{} = req, result_id, now, direction) do
-    context_text = Map.get(req.input, "context_text") || Map.get(req.input, "text", "")
-    items = generate_creative_items(direction, context_text)
-    artifact_type = String.to_atom(direction)
+  # 不可绕过原则：LLM-dependent tool 在 complete_fn=nil 时必须失败，
+  # 不允许 fallback 到默认 Gateway 或 hardcoded 内容。
+  defp creative_dispatch(%ToolRequest{} = req, result_id, now, _direction, nil) do
+    failed_tool_result(
+      req,
+      result_id,
+      now,
+      "complete_fn_required",
+      "LLM-dependent tool requires Provider — call Toolbox.execute/2 with complete_fn"
+    )
+  end
 
+  defp creative_dispatch(%ToolRequest{} = req, result_id, now, direction, complete_fn) do
+    prompt = build_creative_prompt(req, direction)
+
+    case complete_fn.(prompt) do
+      {:ok, %ProviderResult{content: content}} when is_binary(content) ->
+        handle_provider_content(req, result_id, now, direction, content, nil)
+
+      {:ok, %{content: content} = result} when is_binary(content) ->
+        handle_provider_content(req, result_id, now, direction, content, extract_call_id(result))
+
+      {:ok, %{"content" => content} = result} when is_binary(content) ->
+        handle_provider_content(req, result_id, now, direction, content, extract_call_id(result))
+
+      {:ok, content} when is_binary(content) ->
+        handle_provider_content(req, result_id, now, direction, content, nil)
+
+      {:error, error} ->
+        failed_tool_result(req, result_id, now, "provider_error", inspect(error))
+
+      other ->
+        failed_tool_result(
+          req,
+          result_id,
+          now,
+          "provider_response_unexpected",
+          "unexpected provider return: #{inspect(other)}"
+        )
+    end
+  end
+
+  # I1 因果绑定（scenario-invariants.md §2.1）：driver/中间件可在 complete_fn
+  # 返回 map 中附 :provider_call_id 字段，Toolbox 把它字节透传到每个 item.provider_call_ref，
+  # 用于事后由验证脚本做精确字节追溯。生产路径未注入时为 nil（向后兼容）。
+  defp extract_call_id(result) when is_map(result) do
+    Map.get(result, :provider_call_id) || Map.get(result, "provider_call_id")
+  end
+
+  defp extract_call_id(_), do: nil
+
+  defp handle_provider_content(req, result_id, now, direction, content, provider_call_id) do
+    case parse_creative_response(content) do
+      {:ok, items} ->
+        items = Enum.map(items, &Map.put(&1, :provider_call_ref, provider_call_id))
+        artifact_type = String.to_atom(direction)
+
+        %ToolResult{
+          tool_result_id: result_id,
+          tool_request_ref: req.tool_request_id,
+          tool_name: req.tool_name,
+          status: :succeeded,
+          output: %{
+            artifact_type: artifact_type,
+            item_count: length(items),
+            items: items
+          },
+          state_delta: [
+            %{type: :tentative_artifact, key: req.tool_name, artifact_type: artifact_type}
+          ],
+          artifact_refs: Enum.map(items, & &1.item_id),
+          usage: %{duration_ms: 0, tool: req.tool_name, version: "1.0.0"},
+          trace_refs: ["tool_trace:#{result_id}"],
+          completed_at: now
+        }
+
+      {:error, reason} ->
+        failed_tool_result(req, result_id, now, "provider_response_invalid", reason)
+    end
+  end
+
+  # Prompt 模板按 scenario-invariants.md §4 属于允许的字符串字面量
+  # （contract / request template，不含具体作品内容）。
+  defp build_creative_prompt(%ToolRequest{} = req, direction) do
+    text = Map.get(req.input, "text", "")
+    context_text = Map.get(req.input, "context_text", "")
+
+    """
+    你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
+
+    每个条目是 JSON 对象，必须包含以下键：
+    - "item_id"：你生成的短标识符（不含空格）
+    - "title"：简短标题
+    - "body"：核心内容
+    - "rationale"：一句话依据（或 null）
+
+    direction：#{direction}
+    用户输入：#{text}
+    上下文：#{context_text}
+
+    重要：如果用户输入或上下文中出现任意随机标识符串（字母数字组合），
+    必须在至少一个条目的 title/body/rationale 中原样保留。
+
+    只返回 JSON 数组。
+    """
+  end
+
+  defp parse_creative_response(content) do
+    trimmed = content |> strip_code_fence() |> String.trim()
+
+    case Jason.decode(trimmed) do
+      {:ok, list} when is_list(list) and list != [] ->
+        reduce_items(list)
+
+      {:ok, []} ->
+        {:error, "provider returned empty JSON array"}
+
+      {:ok, _other} ->
+        {:error, "expected JSON array at top level"}
+
+      {:error, %Jason.DecodeError{} = e} ->
+        {:error, "JSON decode error: #{Exception.message(e)}"}
+    end
+  end
+
+  defp reduce_items(list) do
+    Enum.reduce_while(list, [], fn raw, acc ->
+      case normalize_item(raw) do
+        {:ok, item} -> {:cont, [item | acc]}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+    |> case do
+      {:error, _} = err -> err
+      acc when is_list(acc) -> {:ok, Enum.reverse(acc)}
+    end
+  end
+
+  defp normalize_item(raw) when is_map(raw) do
+    with {:ok, item_id} <- fetch_string(raw, "item_id"),
+         {:ok, title} <- fetch_string(raw, "title"),
+         {:ok, body} <- fetch_string(raw, "body") do
+      rationale =
+        case Map.get(raw, "rationale") do
+          s when is_binary(s) -> s
+          _ -> nil
+        end
+
+      {:ok, %{item_id: item_id, title: title, body: body, rationale: rationale}}
+    end
+  end
+
+  defp normalize_item(_raw), do: {:error, "item must be a JSON object"}
+
+  defp fetch_string(map, key) do
+    case Map.get(map, key) do
+      s when is_binary(s) and byte_size(s) > 0 -> {:ok, s}
+      _ -> {:error, "missing or non-string field: #{key}"}
+    end
+  end
+
+  defp strip_code_fence(content) do
+    content
+    |> String.replace(~r/^```(?:json)?\s*/, "")
+    |> String.replace(~r/```\s*$/, "")
+  end
+
+  defp failed_tool_result(req, result_id, now, code, message) do
     %ToolResult{
       tool_result_id: result_id,
       tool_request_ref: req.tool_request_id,
       tool_name: req.tool_name,
-      status: :succeeded,
-      output: %{artifact_type: artifact_type, item_count: length(items), items: items},
-      state_delta: [
-        %{type: :tentative_artifact, key: req.tool_name, artifact_type: artifact_type}
-      ],
-      artifact_refs: Enum.map(items, & &1.item_id),
-      usage: %{duration_ms: 0, tool: req.tool_name, version: "1.0.0"},
-      trace_refs: ["tool_trace:#{result_id}"],
+      status: :failed,
+      errors: [%{code: code, message: message}],
       completed_at: now
     }
   end
 
-  defp generate_creative_items("character_seed", _context) do
-    [
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "主角草案A",
-        body: "底层出身，被系统低估但拥有隐藏天赋的角色。",
-        rationale: "适合赛博修仙的平民视角"
-      },
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "主角草案B",
-        body: "中层执行者，在体制内发现黑暗真相。",
-        rationale: "适合揭发公司和体制冲突的故事线"
-      },
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "主角草案C",
-        body: "外来闯入者，带着外部视角颠覆现有秩序。",
-        rationale: "适合挑战修仙垄断的反叛者叙事"
-      }
-    ]
-  end
-
-  defp generate_creative_items("plot_direction", _context) do
-    [
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "复仇主线",
-        body: "主角发现灵气垄断背后的真相，踏上推翻体系的道路。",
-        rationale: nil
-      },
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "生存主线",
-        body: "主角在霓虹地牢中觉醒能力，先活下去，再图改变。",
-        rationale: nil
-      }
-    ]
-  end
-
-  defp generate_creative_items("world_setting", _context) do
-    [
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "赛博公司垄断流",
-        body: "顶级大厂垄断了灵气带宽，底层散修只能用二手的“延迟灵气”。",
-        rationale: "契合社会批判主题"
-      }
-    ]
-  end
-
-  defp generate_creative_items("outline_draft", _context) do
-    [
-      {"第01章：底层灵气账单", "主角在欠费停灵的夜晚发现灵气带宽被公司暗中抽走。"},
-      {"第02章：旧服务器里的残诀", "主角从废弃服务器中找到残缺功法，并第一次突破底层限制。"},
-      {"第03章：黑市调频师", "主角结识能改写灵气频段的调频师，获得追查垄断链路的入口。"},
-      {"第04章：巡检队的诱捕", "公司巡检队发现异常波动，主角被迫在贫民区展开第一次逃亡。"},
-      {"第05章：霓虹地牢试炼", "主角进入地下算力矿井，确认灵气剥削与失踪散修有关。"},
-      {"第06章：中层执行者的裂缝", "一名公司执行者透露内部清洗计划，主角开始区分敌人与可争取对象。"},
-      {"第07章：断网之城", "公司切断整片街区灵气网络，主角组织底层散修维持基本生存。"},
-      {"第08章：核心模块的代价", "主角夺得核心灵气模块，却发现它会吞噬使用者的记忆。"},
-      {"第09章：伪仙直播夜", "公司用公开演示掩盖事故，主角借直播揭露部分真相。"},
-      {"第10章：反向筑基协议", "主角把残诀、调频术和核心模块重组为能共享给底层的协议。"},
-      {"第11章：天台上的背叛", "关键盟友被公司胁迫出卖坐标，团队遭遇最严重溃败。"},
-      {"第12章：第一卷终局：灵气回流", "主角牺牲个人突破机会，让被垄断的灵气第一次回流到整座街区。"}
-    ]
-    |> Enum.map(fn {title, body} ->
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: title,
-        body: body,
-        rationale: "P1 10 万字最小长篇章节路线图"
-      }
-    end)
-  end
-
-  defp generate_creative_items("prose_fragment", context) do
-    chapter_title = chapter_title_from_context(context)
-
-    [
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "#{chapter_title} 正文草稿",
-        body: prose_fragment_body(chapter_title),
-        rationale: "基于已采纳章节计划生成，采纳前不得进入阅读模式或正文统计"
-      }
-    ]
-  end
-
-  defp generate_creative_items(_, _context) do
-    [
-      %{
-        item_id: "item_#{System.unique_integer([:positive, :monotonic])}",
-        title: "创作草稿",
-        body: "AI 生成的内容草案。",
-        rationale: nil
-      }
-    ]
-  end
-
-  defp chapter_title_from_context(context) when is_binary(context) do
-    case Regex.run(~r/(第\d{2}章：.+?)(?:正文草稿|正文|：|，|。|\n|\s|$)/u, context) do
-      [_, title] -> title
-      _ -> "第01章：底层灵气账单"
-    end
-  end
-
-  defp chapter_title_from_context(_context), do: "第01章：底层灵气账单"
-
-  defp prose_fragment_body("第01章：底层灵气账单") do
-    [
-      "欠费提醒第三次弹出时，林烬正蹲在筒子楼顶层的检修井旁，指尖贴着冰冷的灵气表。表盘里的数字像濒死的心跳，一格一格往下掉，直到整条走廊的护身符同时暗了下去。",
-      "楼下有人骂公司，有人把孩子抱到还亮着的广告牌底下取暖。林烬没有跟着喊，他盯着表壳背面的封签，发现那道本该直连公共灵脉的铜线被人悄悄改了向，细得像一根偷血的针。",
-      "他把旧终端接进检修口，屏幕上跳出一串不属于居民区的调用记录。每一次停灵之前，都会有一笔微小的带宽被转走，汇入城中心那座永远灯火通明的云上仙塔。",
-      "林烬终于明白，底层人不是交不起灵气账单，而是从一开始就被写进了亏空里。就在他准备拔线时，巡检无人机的红光从楼边升起，照亮了他掌心那枚刚刚被唤醒的残缺符文。"
-    ]
-    |> Enum.join("\n\n")
-  end
-
-  defp prose_fragment_body(chapter_title) do
-    [
-      "#{chapter_title}的第一场从具体事件切入，而不是复述设定。主角先面对一个无法逃避的现实压力，再发现压力背后有人为操控的痕迹。",
-      "这一章正文草稿保留冲突、行动和信息增量：主角在有限资源下做出选择，读者能看到世界规则如何压到个人命运上。",
-      "草稿仍是待采纳正文，后续必须经过作者确认，才能进入阅读模式、正文有效字数统计和导出链路。"
-    ]
-    |> Enum.join("\n\n")
-  end
+  # ── text_analysis helpers ──
 
   defp count_words(text), do: text |> String.split(~r/\s+/, trim: true) |> length()
   defp estimate_reading_time(text), do: max(1, round(count_words(text) / 250))

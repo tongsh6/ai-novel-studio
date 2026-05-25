@@ -2,6 +2,7 @@ defmodule NovelApplication.DialogueGatewayTest do
   use ExUnit.Case, async: true
 
   alias NovelApplication.DialogueGateway
+  alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueFrame
 
   @frame_json """
@@ -299,6 +300,28 @@ defmodule NovelApplication.DialogueGatewayTest do
     test "empty text returns error" do
       assert {:error, _} = DialogueGateway.handle_input(%{text: ""})
       assert {:error, _} = DialogueGateway.handle_input(%{})
+    end
+
+    test "explicit nil provider is rejected instead of falling back to Gateway" do
+      assert {:error, reason} = DialogueGateway.handle_input(%{text: "普通聊天"}, nil, nil)
+      assert String.contains?(reason, "provider complete_fn")
+
+      assert {:error, reason} =
+               DialogueGateway.handle_input(%{text: "普通聊天"}, nil, nil, fn _, _ -> :ok end, nil)
+
+      assert String.contains?(reason, "provider complete_fn")
+    end
+
+    test "explicit nil provider is rejected for author actions" do
+      input = %AuthorActionInput{
+        input_id: "in-provider-boundary",
+        source_turn_ref: "turn-provider-boundary",
+        action_id: "act-provider-boundary",
+        action_type: "confirm_before_execute"
+      }
+
+      assert {:error, reason} = DialogueGateway.handle_action(input, %{}, nil)
+      assert String.contains?(reason, "provider complete_fn")
     end
 
     test "DialogueFrame validation rejects forbidden semantics" do

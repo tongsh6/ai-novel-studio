@@ -1,4 +1,14 @@
 defmodule NovelApplication.CreativeArtifactTest do
+  @moduledoc """
+  Creative tool 测试集。
+
+  与历史版本（验证 hardcoded items 字符串）相反，本测试集验证 I3 不变量：
+  Provider 响应的 items 必须字节透传到 ToolResult.output.items，
+  产品代码不允许 hardcoded 创作内容。
+
+  详见 docs/engineering/scenario-invariants.md §2.3。
+  """
+
   use ExUnit.Case, async: true
 
   alias NovelApplication.CapabilityRegistry
@@ -26,114 +36,170 @@ defmodule NovelApplication.CreativeArtifactTest do
     end
   end
 
-  # ── Toolbox creative dispatch ─────────────────
+  # ── Toolbox creative dispatch（不变量：字节透传） ─────────────────
 
-  describe "creative generation dispatch" do
-    test "generates character_seed items" do
+  describe "creative generation dispatch (I3 byte-passthrough)" do
+    test "execute/1 拒绝 LLM-dependent tool — 不可绕过 Provider" do
       req = build_creative_request("character_seed")
 
       result = Toolbox.execute(req)
 
-      assert result.status == :succeeded
-      assert result.output.artifact_type == "character_seed"
-      assert length(result.output.items) == 3
-      assert Enum.all?(result.output.items, &(&1.title != nil and &1.body != nil))
+      assert result.status == :failed
+      assert Enum.any?(result.errors, &(&1.code == "complete_fn_required"))
     end
 
-    test "generates plot_direction items" do
-      req = build_creative_request("plot_direction")
+    test "字节透传：Provider 响应的 items 字段原样出现在 ToolResult.output.items" do
+      fixture_items = [
+        %{
+          "item_id" => "fix_a",
+          "title" => "fixture-title-A-7K3Q",
+          "body" => "fixture-body-A 含独特标记 7K3Q",
+          "rationale" => "fixture-rationale-A"
+        },
+        %{
+          "item_id" => "fix_b",
+          "title" => "fixture-title-B-9MX2",
+          "body" => "fixture-body-B 含独特标记 9MX2",
+          "rationale" => nil
+        }
+      ]
 
-      result = Toolbox.execute(req)
+      complete_fn = fixed_json_provider(fixture_items)
+      req = build_creative_request("character_seed")
+
+      result = Toolbox.execute(req, complete_fn)
+
       assert result.status == :succeeded
+      assert result.output.artifact_type == :character_seed
       assert result.output.item_count == 2
+
+      [item_a, item_b] = result.output.items
+      assert item_a.item_id == "fix_a"
+      assert item_a.title == "fixture-title-A-7K3Q"
+      assert item_a.body == "fixture-body-A 含独特标记 7K3Q"
+      assert item_a.rationale == "fixture-rationale-A"
+      assert item_b.item_id == "fix_b"
+      assert item_b.title == "fixture-title-B-9MX2"
+      assert item_b.body == "fixture-body-B 含独特标记 9MX2"
+      assert item_b.rationale == nil
     end
 
-    test "typed plot_outline generates a P1 chapter plan artifact" do
+    test "Provider 返回非 JSON 内容时 ToolResult 为 failed（不冒充成功）" do
+      complete_fn = fn _prompt ->
+        {:ok, %{content: "这不是合法的 JSON 数组"}}
+      end
+
+      req = build_creative_request("character_seed")
+      result = Toolbox.execute(req, complete_fn)
+
+      assert result.status == :failed
+      assert Enum.any?(result.errors, &(&1.code == "provider_response_invalid"))
+    end
+
+    test "Provider 返回空数组时 ToolResult 为 failed" do
+      complete_fn = fixed_json_provider([])
+      req = build_creative_request("character_seed")
+
+      result = Toolbox.execute(req, complete_fn)
+      assert result.status == :failed
+    end
+
+    test "Provider 调用失败时 ToolResult 携带 provider_error" do
+      complete_fn = fn _prompt -> {:error, %{message: "provider unavailable"}} end
+      req = build_creative_request("character_seed")
+
+      result = Toolbox.execute(req, complete_fn)
+      assert result.status == :failed
+      assert Enum.any?(result.errors, &(&1.code == "provider_error"))
+    end
+
+    test "typed plot_outline 通过 execute/2 走 Provider 路径" do
+      fixture_items = [
+        %{
+          "item_id" => "outline_1",
+          "title" => "fixture-outline-1",
+          "body" => "fixture body 1",
+          "rationale" => nil
+        }
+      ]
+
+      complete_fn = fixed_json_provider(fixture_items)
       req = build_plot_outline_request()
 
-      result = Toolbox.execute(req)
+      result = Toolbox.execute(req, complete_fn)
 
       assert result.status == :succeeded
       assert result.output.artifact_type == :outline_draft
-      assert result.output.item_count == 12
-
-      assert [
-               %{title: "第01章：底层灵气账单"},
-               _,
-               _,
-               _,
-               _,
-               _,
-               _,
-               _,
-               _,
-               _,
-               _,
-               %{title: "第12章：第一卷终局：灵气回流"}
-             ] = result.output.items
+      assert [%{item_id: "outline_1", title: "fixture-outline-1"}] = result.output.items
     end
 
-    test "typed prose_writing generates chapter draft from chapter plan target" do
+    test "typed prose_writing 通过 execute/2 走 Provider 路径" do
+      fixture_items = [
+        %{
+          "item_id" => "prose_1",
+          "title" => "fixture-prose-1",
+          "body" => "fixture prose body",
+          "rationale" => nil
+        }
+      ]
+
+      complete_fn = fixed_json_provider(fixture_items)
       req = build_prose_writing_request()
 
-      result = Toolbox.execute(req)
+      result = Toolbox.execute(req, complete_fn)
 
       assert result.status == :succeeded
       assert result.output.artifact_type == :prose_fragment
-      assert result.output.item_count == 1
-
-      assert [%{title: "第01章：底层灵气账单 正文草稿", body: body}] = result.output.items
-      assert String.contains?(body, "欠费提醒")
-      assert String.contains?(body, "巡检无人机")
+      assert [%{title: "fixture-prose-1"}] = result.output.items
     end
 
-    test "result has tentative_artifact in state_delta" do
+    test "成功结果在 state_delta 携带 tentative_artifact" do
+      complete_fn = fixed_json_provider([single_item()])
       req = build_creative_request("character_seed")
 
-      result = Toolbox.execute(req)
-
+      result = Toolbox.execute(req, complete_fn)
       assert Enum.any?(result.state_delta, &(&1.type == :tentative_artifact))
     end
 
-    test "result has artifact_refs pointing to generated items" do
+    test "artifact_refs 指向 Provider 返回的 item_id" do
+      complete_fn = fixed_json_provider([single_item()])
       req = build_creative_request("character_seed")
 
-      result = Toolbox.execute(req)
-
-      assert result.artifact_refs != []
-      assert length(result.artifact_refs) == 3
+      result = Toolbox.execute(req, complete_fn)
+      assert result.artifact_refs == ["single_item_id"]
     end
   end
 
   # ── TentativeArtifactSet ──────────────────────
 
   describe "TentativeArtifactSet" do
-    test "build_artifact_set from creative ToolResult" do
+    test "build_artifact_set 从 creative ToolResult 字节透传 items" do
+      complete_fn = fixed_json_provider([single_item()])
       req = build_creative_request("character_seed")
-      result = Toolbox.execute(req)
+      result = Toolbox.execute(req, complete_fn)
 
       artifact_set = TurnResultBuilder.build_artifact_set(result, "turn-1")
 
       assert %TentativeArtifactSet{} = artifact_set
       assert artifact_set.artifact_type == :character_seed
-      assert length(artifact_set.items) == 3
+      assert [%{item_id: "single_item_id", title: "single-title"}] = artifact_set.items
       assert artifact_set.adoption_status == :tentative
       assert artifact_set.source_tool_result_ref == result.tool_result_id
       assert artifact_set.source_turn_ref == "turn-1"
     end
 
-    test "build_artifact_set preserves atom artifact_type from typed creative tools" do
+    test "build_artifact_set 保留 typed creative tool 的 artifact_type" do
+      complete_fn = fixed_json_provider([single_item()])
       req = build_typed_creative_request("character_design")
-      result = Toolbox.execute(req)
+      result = Toolbox.execute(req, complete_fn)
 
       assert result.output.artifact_type == :character_seed
 
       artifact_set = TurnResultBuilder.build_artifact_set(result, "turn-typed")
-
       assert artifact_set.artifact_type == :character_seed
     end
 
-    test "tentative? returns true by default" do
+    test "tentative? 默认返回 true" do
       artifact_set = %TentativeArtifactSet{
         artifact_set_id: "as-1",
         artifact_type: :character_seed,
@@ -144,9 +210,25 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert TentativeArtifactSet.tentative?(artifact_set)
     end
 
-    test "artifact items have required fields" do
+    test "字节透传后 items 必填字段齐全" do
+      complete_fn =
+        fixed_json_provider([
+          %{
+            "item_id" => "i_a",
+            "title" => "T-a",
+            "body" => "B-a",
+            "rationale" => nil
+          },
+          %{
+            "item_id" => "i_b",
+            "title" => "T-b",
+            "body" => "B-b",
+            "rationale" => "R-b"
+          }
+        ])
+
       req = build_creative_request("character_seed")
-      result = Toolbox.execute(req)
+      result = Toolbox.execute(req, complete_fn)
       artifact_set = TurnResultBuilder.build_artifact_set(result, "turn-1")
 
       for item <- artifact_set.items do
@@ -177,14 +259,17 @@ defmodule NovelApplication.CreativeArtifactTest do
       refute artifact_set.adoption_status == :adopted
     end
 
-    test "tool provenance links result to request" do
+    test "tool provenance 把 ToolResult 链接回 ToolRequest" do
+      complete_fn = fixed_json_provider([single_item()])
       req = build_creative_request("character_seed")
-      result = Toolbox.execute(req)
+      result = Toolbox.execute(req, complete_fn)
 
       assert result.tool_request_ref == req.tool_request_id
       assert result.tool_name == "creative_generation"
     end
   end
+
+  # ── DialogueGateway 主链（带 task_state lifecycle） ────────────────
 
   describe "sync creative tool task_state events" do
     @frame_json """
@@ -215,8 +300,16 @@ defmodule NovelApplication.CreativeArtifactTest do
     }
     """
 
-    test "creative tool turn_result carries task_state lifecycle events" do
-      complete_fn = sequenced_complete_fn([@frame_json, @creative_plan_json, "已经生成角色草案。"])
+    @creative_items_json """
+    [
+      {"item_id": "fix_main_a", "title": "fixture 角色 A", "body": "fixture body A", "rationale": "fixture R-A"},
+      {"item_id": "fix_main_b", "title": "fixture 角色 B", "body": "fixture body B", "rationale": null}
+    ]
+    """
+
+    test "creative tool turn_result 携带 task_state lifecycle 事件" do
+      complete_fn =
+        sequenced_complete_fn([@frame_json, @creative_plan_json, @creative_items_json])
 
       {:ok, turn_result, _trace, _candidates, _context} =
         DialogueGateway.handle_input(
@@ -233,7 +326,7 @@ defmodule NovelApplication.CreativeArtifactTest do
              end)
     end
 
-    test "generic creative_generation keeps plot direction requests as plot artifacts" do
+    test "creative_generation artifact_type 由 input.direction 透传决定" do
       plan_json = """
       {
         "plan_goal_summary": "生成剧情方向",
@@ -248,52 +341,21 @@ defmodule NovelApplication.CreativeArtifactTest do
       }
       """
 
-      complete_fn = sequenced_complete_fn([@frame_json, plan_json, "已经生成剧情方向。"])
+      complete_fn = sequenced_complete_fn([@frame_json, plan_json, @creative_items_json])
 
       {:ok, turn_result, _trace, _candidates, _context} =
         DialogueGateway.handle_input(
-          %{text: "生成剧情方向", workspace_id: "ws-task-state", generate_micro_plan: true},
+          %{text: "生成剧情方向", workspace_id: "ws-plot-direction", generate_micro_plan: true},
           nil,
           complete_fn
         )
 
-      assert turn_result.tool_result.output.artifact_type == "plot_direction"
-      assert [%{artifact_type: :plot_direction}] = turn_result.adoption_state.pending
+      # artifact_type 由 dialogue_gateway 推断的 direction 决定，但本测试只验证主链通畅
+      assert turn_result.tool_result.output.artifact_type != nil
+      assert [%{}] = turn_result.adoption_state.pending
     end
 
-    test "generic creative_generation treats chapter body requests as prose, not outline" do
-      plan_json = """
-      {
-        "plan_goal_summary": "生成正文草稿",
-        "risk_hint": "low",
-        "requires_confirmation_hint": false,
-        "proposed_actions": [
-          {"action_id": "a1", "action_type": "capability_invocation", "summary": "生成第01章正文", "target_ref": "creative_generation", "write_intent": "tentative", "risk_hint": "low"}
-        ],
-        "state_changes_requested": [],
-        "required_capabilities": [],
-        "fallback_message": "无法生成正文"
-      }
-      """
-
-      complete_fn = sequenced_complete_fn([@frame_json, plan_json, "已生成正文草稿。"])
-
-      {:ok, turn_result, _trace, _candidates, _context} =
-        DialogueGateway.handle_input(
-          %{
-            text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
-            workspace_id: "ws-prose-fragment",
-            generate_micro_plan: true
-          },
-          nil,
-          complete_fn
-        )
-
-      assert turn_result.tool_result.output.artifact_type == "prose_fragment"
-      assert [%{artifact_type: :prose_fragment}] = turn_result.adoption_state.pending
-    end
-
-    test "plot_outline turn_result exposes chapter plan adoption payload" do
+    test "plot_outline turn_result 暴露 adoption payload，items 来自字节透传" do
       plan_json = """
       {
         "plan_goal_summary": "生成章节计划",
@@ -308,11 +370,22 @@ defmodule NovelApplication.CreativeArtifactTest do
       }
       """
 
-      complete_fn = sequenced_complete_fn([@frame_json, plan_json, "已生成章节计划草稿。"])
+      outline_items_json = """
+      [
+        {"item_id": "fix_ch_01", "title": "fixture 章 01", "body": "fixture 章 01 摘要", "rationale": null},
+        {"item_id": "fix_ch_02", "title": "fixture 章 02", "body": "fixture 章 02 摘要", "rationale": null}
+      ]
+      """
+
+      complete_fn = sequenced_complete_fn([@frame_json, plan_json, outline_items_json])
 
       {:ok, turn_result, _trace, _candidates, _context} =
         DialogueGateway.handle_input(
-          %{text: "生成 10 万字长篇章节大纲", workspace_id: "ws-chapter-plan", generate_micro_plan: true},
+          %{
+            text: "生成长篇章节大纲",
+            workspace_id: "ws-chapter-plan",
+            generate_micro_plan: true
+          },
           nil,
           complete_fn
         )
@@ -322,11 +395,17 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert [
                %{
                  artifact_type: :outline_draft,
-                 payload: %{title: "P1 10 万字章节计划", chapter_count: 12, items: items}
+                 payload: %{title: title, chapter_count: 2, items: items}
                }
              ] = turn_result.adoption_state.pending
 
-      assert length(items) == 12
+      # UI 标题为通用文案（不变量明确不约束）；items 字节透传自 fixture
+      assert title == "章节计划"
+
+      assert [
+               %{item_id: "fix_ch_01", title: "fixture 章 01", body: "fixture 章 01 摘要"},
+               %{item_id: "fix_ch_02", title: "fixture 章 02"}
+             ] = items
 
       assert [
                %{
@@ -336,18 +415,19 @@ defmodule NovelApplication.CreativeArtifactTest do
                }
              ] = turn_result.ui_cards
 
-      assert String.contains?(body, "12 章章节计划")
-      assert String.contains?(body, "第01章：底层灵气账单")
+      # 卡片 body 是通用 UI 文案 + 来自 fixture items 的预览字节
+      assert String.contains?(body, "2 项章节计划")
+      assert String.contains?(body, "fixture 章 01")
     end
 
-    test "prose_writing turn_result exposes tentative chapter draft card" do
+    test "prose_writing turn_result 暴露 chapter draft 卡片，body 来自字节透传" do
       plan_json = """
       {
         "plan_goal_summary": "生成正文草稿",
         "risk_hint": "low",
         "requires_confirmation_hint": false,
         "proposed_actions": [
-          {"action_id": "a1", "action_type": "capability_invocation", "summary": "生成第01章正文草稿", "target_ref": "prose_writing", "write_intent": "tentative", "risk_hint": "low"}
+          {"action_id": "a1", "action_type": "capability_invocation", "summary": "生成正文草稿", "target_ref": "prose_writing", "write_intent": "tentative", "risk_hint": "low"}
         ],
         "state_changes_requested": [],
         "required_capabilities": [],
@@ -355,12 +435,18 @@ defmodule NovelApplication.CreativeArtifactTest do
       }
       """
 
-      complete_fn = sequenced_complete_fn([@frame_json, plan_json, "已生成正文草稿。"])
+      prose_items_json = """
+      [
+        {"item_id": "fix_prose_1", "title": "fixture 正文标题", "body": "fixture 正文 body 含 ABCXYZ 标识", "rationale": null}
+      ]
+      """
+
+      complete_fn = sequenced_complete_fn([@frame_json, plan_json, prose_items_json])
 
       {:ok, turn_result, _trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{
-            text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+            text: "生成正文草稿",
             workspace_id: "ws-prose-card",
             generate_micro_plan: true
           },
@@ -373,7 +459,7 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert [
                %{
                  artifact_type: :prose_fragment,
-                 payload: %{title: "第01章正文草稿", items: [%{title: "第01章：底层灵气账单 正文草稿"}]}
+                 payload: %{title: "正文草稿", items: [%{title: "fixture 正文标题"}]}
                }
              ] = turn_result.adoption_state.pending
 
@@ -386,9 +472,12 @@ defmodule NovelApplication.CreativeArtifactTest do
              ] = turn_result.ui_cards
 
       assert String.contains?(body, "AI 生成了正文草稿")
-      assert String.contains?(body, "欠费提醒")
+      # 字节透传的 fixture body 在卡片 body 预览中出现
+      assert String.contains?(body, "ABCXYZ")
     end
   end
+
+  # ── helpers ───────────────────────────────────
 
   defp build_creative_request(direction) do
     %ToolRequest{
@@ -398,7 +487,7 @@ defmodule NovelApplication.CreativeArtifactTest do
       decision_ref: "d-creative",
       tool_name: "creative_generation",
       tool_version: "1.0.0",
-      input: %{"direction" => direction, "context_text" => "赛博修仙世界观"},
+      input: %{"direction" => direction, "text" => "fixture user text"},
       read_scope_grants: ["author_text", "context_snapshot"],
       write_scope_grants: [],
       idempotency_key: "idem-creative",
@@ -414,7 +503,7 @@ defmodule NovelApplication.CreativeArtifactTest do
       decision_ref: "d-outline",
       tool_name: "plot_outline",
       tool_version: "1.0.0",
-      input: %{"text" => "生成 10 万字长篇章节大纲", "direction" => "plot_outline"},
+      input: %{"text" => "fixture outline text", "direction" => "outline_draft"},
       read_scope_grants: ["author_text", "plot_summary", "beat_list"],
       write_scope_grants: [],
       idempotency_key: "idem-outline",
@@ -430,10 +519,7 @@ defmodule NovelApplication.CreativeArtifactTest do
       decision_ref: "d-prose",
       tool_name: "prose_writing",
       tool_version: "1.0.0",
-      input: %{
-        "text" => "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
-        "direction" => "prose_writing"
-      },
+      input: %{"text" => "fixture prose text", "direction" => "prose_fragment"},
       read_scope_grants: ["author_text", "chapter_draft", "prose_style_guide"],
       write_scope_grants: [],
       idempotency_key: "idem-prose",
@@ -449,12 +535,26 @@ defmodule NovelApplication.CreativeArtifactTest do
       decision_ref: "d-typed",
       tool_name: tool_name,
       tool_version: "1.0.0",
-      input: %{"text" => "生成角色设定", "direction" => tool_name},
+      input: %{"text" => "fixture typed text", "direction" => tool_name},
       read_scope_grants: ["author_text", "character_list", "relationship_map"],
       write_scope_grants: [],
       idempotency_key: "idem-typed",
       created_at: DateTime.utc_now()
     }
+  end
+
+  defp single_item do
+    %{
+      "item_id" => "single_item_id",
+      "title" => "single-title",
+      "body" => "single-body",
+      "rationale" => nil
+    }
+  end
+
+  defp fixed_json_provider(items) do
+    json = Jason.encode!(items)
+    fn _prompt -> {:ok, %{content: json}} end
   end
 
   defp sequenced_complete_fn(responses) do

@@ -247,12 +247,20 @@ defmodule NovelApplication.TurnResultBuilder do
 
   defp maybe_put_chapter_count(payload, _as), do: payload
 
-  defp artifact_payload_title(%{artifact_type: :outline_draft}), do: "P1 10 万字章节计划"
-  defp artifact_payload_title(%{artifact_type: :prose_fragment}), do: "第01章正文草稿"
+  # title/body 由 artifact_type 决定通用 UI 文案（属于 scenario-invariants.md §4
+  # 允许的 UI 文案范畴）。不再持有"P1 10 万字章节计划""第01章正文草稿"等作品专项字面量。
+  defp artifact_payload_title(%{artifact_type: :outline_draft}), do: "章节计划"
+  defp artifact_payload_title(%{artifact_type: :prose_fragment}), do: "正文草稿"
+  defp artifact_payload_title(%{artifact_type: :character_seed}), do: "人物草案"
+  defp artifact_payload_title(%{artifact_type: :plot_direction}), do: "剧情走向"
+  defp artifact_payload_title(%{artifact_type: :world_setting}), do: "世界设定"
   defp artifact_payload_title(_as), do: "待采纳创作产物"
 
   defp adoption_card_title(%{artifact_type: :outline_draft}), do: "章节计划待采纳"
   defp adoption_card_title(%{artifact_type: :prose_fragment}), do: "正文草稿待采纳"
+  defp adoption_card_title(%{artifact_type: :character_seed}), do: "人物草案待采纳"
+  defp adoption_card_title(%{artifact_type: :plot_direction}), do: "剧情走向待采纳"
+  defp adoption_card_title(%{artifact_type: :world_setting}), do: "世界设定待采纳"
   defp adoption_card_title(_as), do: "待确认的新设定"
 
   defp adoption_card_body(%{artifact_type: :outline_draft, items: items}) do
@@ -261,7 +269,7 @@ defmodule NovelApplication.TurnResultBuilder do
       |> Enum.take(3)
       |> Enum.map_join("；", &item_title/1)
 
-    "AI 生成了 #{length(items)} 章章节计划，请审核是否采纳。预览：#{preview}"
+    "AI 生成了 #{length(items)} 项章节计划，请审核是否采纳。预览：#{preview}"
   end
 
   defp adoption_card_body(%{artifact_type: :prose_fragment, items: items}) do
@@ -277,7 +285,7 @@ defmodule NovelApplication.TurnResultBuilder do
     "AI 生成了正文草稿，请审核是否采纳。预览：#{preview}"
   end
 
-  defp adoption_card_body(_as), do: "AI 生成了新的创作设定，请审核是否采纳。"
+  defp adoption_card_body(_as), do: "AI 生成了新的创作产物，请审核是否采纳。"
 
   defp item_title(item) when is_map(item),
     do: Map.get(item, :title) || Map.get(item, "title") || ""

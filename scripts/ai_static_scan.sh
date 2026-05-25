@@ -140,6 +140,15 @@ run_check "arch-check" "Umbrella architecture boundary check" "architecture" "hi
 run_check "credo" "Credo strict static analysis" "maintainability" "medium" \
   "mix credo suggest --strict --format json"
 
+run_check "scenario-invariants-i3" "Scenario invariants — I3 nonce propagation" "correctness" "critical" \
+  "MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs"
+
+run_check "scenario-invariants-i1" "Scenario invariants — I1 causal binding" "correctness" "critical" \
+  "MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs"
+
+run_check "scenario-invariants-i2" "Scenario invariants — I2 input variation" "correctness" "critical" \
+  "MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs"
+
 if has_mix_task "sobelow"; then
   run_check "sobelow" "Sobelow Phoenix security scan" "security" "high" \
     "mix sobelow --exit --format json"

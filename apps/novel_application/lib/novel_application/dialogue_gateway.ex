@@ -22,31 +22,81 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.ToolRequest
 
-  @doc "处理作者文本输入。可注入 complete_fn / trace_persister / memory_recorder 用于测试和生产。"
-  @spec handle_input(
+  @doc "处理作者文本输入；未注入 provider 时显式走真实 Provider Gateway。"
+  @spec handle_input(map(), (String.t() -> tuple()) | nil) ::
+          {:ok, map(), any(), list(), any()} | {:error, term()}
+  def handle_input(input, context_fetcher \\ nil) do
+    handle_input_with_provider(input, context_fetcher, &Gateway.complete/1, nil, nil)
+  end
+
+  @doc "处理作者文本输入；显式注入 provider complete_fn。"
+  @spec handle_input(map(), (String.t() -> tuple()) | nil, function()) ::
+          {:ok, map(), any(), list(), any()} | {:error, term()}
+  def handle_input(input, context_fetcher, complete_fn) when is_function(complete_fn, 1) do
+    handle_input_with_provider(input, context_fetcher, complete_fn, nil, nil)
+  end
+
+  def handle_input(_input, _context_fetcher, nil), do: provider_boundary_error()
+
+  @doc "处理作者文本输入；显式注入 provider complete_fn 和 trace persister。"
+  @spec handle_input(map(), (String.t() -> tuple()) | nil, function(), function() | nil) ::
+          {:ok, map(), any(), list(), any()} | {:error, term()}
+  def handle_input(input, context_fetcher, complete_fn, trace_persister)
+      when is_function(complete_fn, 1) do
+    handle_input_with_provider(input, context_fetcher, complete_fn, trace_persister, nil)
+  end
+
+  def handle_input(_input, _context_fetcher, nil, _trace_persister), do: provider_boundary_error()
+
+  @doc "处理作者文本输入；显式走真实 Provider Gateway 并注入持久化回调。"
+  @spec handle_input_with_gateway(
           map(),
           (String.t() -> tuple()) | nil,
-          function() | nil,
           function() | nil,
           function() | nil
         ) ::
           {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(
-        input,
-        context_fetcher \\ nil,
-        complete_fn \\ nil,
-        trace_persister \\ nil,
-        memory_recorder \\ nil
-      )
+  def handle_input_with_gateway(input, context_fetcher, trace_persister, memory_recorder) do
+    handle_input_with_provider(
+      input,
+      context_fetcher,
+      &Gateway.complete/1,
+      trace_persister,
+      memory_recorder
+    )
+  end
 
-  def handle_input(
-        %{text: text} = input,
-        context_fetcher,
-        complete_fn,
-        trace_persister,
-        memory_recorder
-      )
-      when is_binary(text) and byte_size(text) > 0 do
+  @doc "处理作者文本输入；显式注入 provider complete_fn 和持久化回调。"
+  @spec handle_input(
+          map(),
+          (String.t() -> tuple()) | nil,
+          function(),
+          function() | nil,
+          function() | nil
+        ) ::
+          {:ok, map(), any(), list(), any()} | {:error, term()}
+  def handle_input(input, context_fetcher, complete_fn, trace_persister, memory_recorder)
+      when is_function(complete_fn, 1) do
+    handle_input_with_provider(
+      input,
+      context_fetcher,
+      complete_fn,
+      trace_persister,
+      memory_recorder
+    )
+  end
+
+  def handle_input(_input, _context_fetcher, nil, _trace_persister, _memory_recorder),
+    do: provider_boundary_error()
+
+  defp handle_input_with_provider(
+         %{text: text} = input,
+         context_fetcher,
+         complete_fn,
+         trace_persister,
+         memory_recorder
+       )
+       when is_binary(text) and byte_size(text) > 0 do
     ws_id = Map.get(input, :workspace_id, "default")
     work_id = Map.get(input, :work_id) || ws_id
     session_id = Map.get(input, :session_id) || Map.get(input, "session_id")
@@ -71,8 +121,7 @@ defmodule NovelApplication.DialogueGateway do
       )
 
     frame_input = %{text: text, workspace_id: ws_id, turn_id: turn_id}
-    frame_fn = complete_fn || (&Gateway.complete/1)
-    {frame, candidates} = Planner.form_frame(frame_input, context, frame_fn)
+    {frame, candidates} = Planner.form_frame(frame_input, context, complete_fn)
 
     # Update metadata now that Planner has generated frame_id.
     LogContext.put_frame(frame.frame_id)
@@ -115,13 +164,18 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  def handle_input(_, _fetcher, _complete_fn, _trace_persister, _memory_recorder) do
+  defp handle_input_with_provider(_, _fetcher, _complete_fn, _trace_persister, _memory_recorder) do
     LogEmit.emit(:dialogue_gateway, :handle_input, :error, %{
       reason_code: :empty_text,
       outcome_detail: "text is required"
     })
 
     {:error, "text is required"}
+  end
+
+  defp provider_boundary_error do
+    {:error,
+     "provider complete_fn must be explicit: inject a function or use the real Gateway entry"}
   end
 
   defp context_fetcher_or_default(nil),
@@ -296,15 +350,20 @@ defmodule NovelApplication.DialogueGateway do
   处理作者动作输入。confirm_before_execute 触发 re-gate → tool dispatch
   （ADR-0009 + 05-turn-behavior §18 不变量 #5）；其他动作走 validator。
   """
+  @spec handle_action(AuthorActionInput.t(), map()) ::
+          {:ok, map()} | {:ok, map(), map()} | {:error, String.t()}
+  def handle_action(action_input, source_turn_result) do
+    handle_action(action_input, source_turn_result, &Gateway.complete/1)
+  end
+
   @spec handle_action(AuthorActionInput.t(), map(), function() | nil) ::
           {:ok, map()} | {:ok, map(), map()} | {:error, String.t()}
-  def handle_action(action_input, source_turn_result, complete_fn \\ nil)
-
   def handle_action(
         %AuthorActionInput{action_type: "confirm_before_execute"} = action_input,
         source_turn_result,
         complete_fn
-      ) do
+      )
+      when is_function(complete_fn, 1) do
     case ActionValidator.validate(action_input, source_turn_result) do
       {:error, reason} ->
         {:error, reason}
@@ -323,8 +382,9 @@ defmodule NovelApplication.DialogueGateway do
   def handle_action(
         %AuthorActionInput{action_type: "choose_candidate"} = action_input,
         source_turn_result,
-        _complete_fn
-      ) do
+        complete_fn
+      )
+      when is_function(complete_fn, 1) do
     with :ok <- ActionValidator.validate(action_input, source_turn_result),
          {:ok, candidate_set} <- candidate_set_from_turn_result(source_turn_result, action_input),
          {:ok, chosen_candidate} <- chosen_candidate(candidate_set, action_input.candidate_ref) do
@@ -341,7 +401,8 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  def handle_action(%AuthorActionInput{} = action_input, source_turn_result, _complete_fn) do
+  def handle_action(%AuthorActionInput{} = action_input, source_turn_result, complete_fn)
+      when is_function(complete_fn, 1) do
     case ActionValidator.validate(action_input, source_turn_result) do
       :ok ->
         {:ok,
@@ -356,6 +417,8 @@ defmodule NovelApplication.DialogueGateway do
         {:error, reason}
     end
   end
+
+  def handle_action(%AuthorActionInput{}, _source_turn_result, nil), do: provider_boundary_error()
 
   defp candidate_set_from_turn_result(source_turn_result, action_input) do
     candidates =
@@ -616,7 +679,6 @@ defmodule NovelApplication.DialogueGateway do
   # ── confirmation re-gate (Strategy 1 / ADR-0009) ─
 
   defp handle_confirmation_dispatch(action_input, source_turn_result, plan, complete_fn) do
-    complete = complete_fn || (&Gateway.complete/1)
     frame = frame_from_turn_result(source_turn_result)
     {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
 
@@ -628,7 +690,7 @@ defmodule NovelApplication.DialogueGateway do
     }
 
     if decision.decision_type == :allow_tool do
-      {turn_result, trace} = execute_tool(frame, plan, decision, complete, "_confirmed")
+      {turn_result, trace} = execute_tool(frame, plan, decision, complete_fn, "_confirmed")
 
       maybe_persist_trace(
         {:ok, turn_result, trace, [], nil},
@@ -666,7 +728,7 @@ defmodule NovelApplication.DialogueGateway do
       created_at: DateTime.utc_now()
     }
 
-    result = Toolbox.execute(req)
+    result = dispatch_tool(req, tool_name, complete_fn)
 
     artifact_set =
       if creative_tool?(tool_name) and result.status == :succeeded do
@@ -802,15 +864,13 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   defp handle_with_plan(frame, candidates, context, author_input, complete_fn) do
-    complete = complete_fn || (&Gateway.complete/1)
-
-    case Planner.form_micro_plan(frame, author_input, complete) do
+    case Planner.form_micro_plan(frame, author_input, complete_fn) do
       {:ok, plan} ->
         {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
         cond do
           decision.decision_type == :allow_tool ->
-            handle_tool_dispatch(frame, plan, decision, candidates, context)
+            handle_tool_dispatch(frame, plan, decision, candidates, context, complete_fn)
 
           behavior != nil ->
             handle_behavior_open(frame, plan, decision, behavior, candidates, context)
@@ -850,8 +910,8 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── tool dispatch ─────────────────────────────
 
-  defp handle_tool_dispatch(frame, plan, decision, candidates, context) do
-    {turn_result, trace} = execute_tool(frame, plan, decision, &Gateway.complete/1)
+  defp handle_tool_dispatch(frame, plan, decision, candidates, context, complete_fn) do
+    {turn_result, trace} = execute_tool(frame, plan, decision, complete_fn)
 
     {:ok, turn_result, trace, candidates, context}
   end
@@ -862,6 +922,16 @@ defmodule NovelApplication.DialogueGateway do
   defp creative_tool?("plot_outline"), do: true
   defp creative_tool?("prose_writing"), do: true
   defp creative_tool?(_), do: false
+
+  # LLM-dependent tool 必须显式注入 complete_fn — Toolbox 不允许绕过 Provider。
+  # 详见 docs/engineering/scenario-invariants.md §2.1（I1 因果绑定）。
+  defp dispatch_tool(req, tool_name, complete_fn) do
+    if creative_tool?(tool_name) do
+      Toolbox.execute(req, complete_fn)
+    else
+      Toolbox.execute(req)
+    end
+  end
 
   defp changeset_error_summary(%Ecto.Changeset{errors: errors}) when errors != [] do
     errors |> Enum.map_join("; ", fn {field, {msg, _}} -> "#{field}: #{msg}" end)

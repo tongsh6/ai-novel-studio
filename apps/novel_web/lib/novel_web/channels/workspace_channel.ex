@@ -721,7 +721,12 @@ defmodule NovelWeb.WorkspaceChannel do
     persister = NovelApplication.persistence_tracer()
     recorder = NovelApplication.persistence_interaction_recorder()
 
-    case NovelApplication.DialogueGateway.handle_input(input, fetcher, nil, persister, recorder) do
+    case NovelApplication.DialogueGateway.handle_input_with_gateway(
+           input,
+           fetcher,
+           persister,
+           recorder
+         ) do
       {:ok, turn_result, _trace, _candidates, _context} ->
         turn_result = scope_turn_result(socket, turn_result)
         broadcast!(socket, "turn_result", turn_result)

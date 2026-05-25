@@ -115,6 +115,30 @@ AI 必须基于 `artifacts/static-scan/top10.md` 和 `artifacts/static-scan/repo
 bash scripts/ai_static_scan.sh --top 10 --quick
 ```
 
+### 场景化验收不变量（机器强制）
+
+[场景化验收红线](#场景化验收红线)的可机器验证版本见 [docs/engineering/scenario-invariants.md](docs/engineering/scenario-invariants.md)，落地为三条 0/1 不变量，**全部已落地、CI 强制**：
+
+- **I3 种子贯通**：用户输入中的随机标识符必须出现在最终 user-facing artifact 内容字段（抓 hardcoded 创作内容）
+- **I1 因果绑定**：artifact item 的 title/body/rationale 必须精确字节相等于 Provider 调用响应中同 item_id 的字段（抓字节修补/补齐/合并）
+- **I2 输入差异**：N 个语义独立输入产出的 artifact item_id 集合两两不相交（抓按输入分支预制 hardcoded）
+
+完成涉及主链 / 工具 / TurnResult / artifact 的任何改动后，必须执行：
+
+```bash
+MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs
+MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs
+MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs
+```
+
+任一 driver 退出码非 0 → 改动不可提交。**禁止使用 `--no-verify`、注释 disable directive、修改不变量规则脚本等方式绕过**。
+
+唯一允许的豁免路径：在 `docs/engineering/scenario-invariants.md` 增加 Exceptions 节明确登记 + PR 审核通过。
+
+违规修复方向由 driver 报告 `artifacts/scenario-invariants/{i1,i2,i3}.md` 给出，AI 必须按其中 "修复方向" 字段处理，不允许自行发明绕路。
+
+CI 在 `.github/workflows/ci.yml` 已加三条 step（I3 / I1 / I2），PR 触发后强制运行。三条形成捕获网：单一伪造手段最多绕过其中一条，要全部绕过的复杂度已等价于实现一个真实 LLM。
+
 ---
 
 ## 前端约束

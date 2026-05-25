@@ -55,6 +55,15 @@ jobs:
       - name: Architecture check
         run: mix run scripts/arch_check.exs
 
+      - name: Scenario invariants — I3 nonce propagation
+        run: MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs
+
+      - name: Scenario invariants — I1 causal binding
+        run: MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs
+
+      - name: Scenario invariants — I2 input variation
+        run: MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs
+
       - name: Restore PLT cache
         uses: actions/cache@v4
         with:
