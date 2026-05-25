@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-26（Milestone: Execution Candidate Context Correction）
+> 最后更新：2026-05-26（Milestone: CandidateSet Item Visibility Correction）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -21,7 +21,9 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **QP-Workbench（UI Enhancement）：已交付（实现 Frame Insight 认知洞察可视化，已完成 UI 组件解耦与类型加固）**
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
-### 当前重点推进事项（2026-05-24）
+### 当前重点推进事项（2026-05-26）
+
+CandidateSet Item Visibility Correction（2026-05-26）：已修复 stage 暴露的“工具已生成三个正文素材，但 UI 只显示一条摘要预览，作者无法阅读正文却被要求确认/放弃/修改”的消费者缺口。根因不是模型都不会写正文，也不是 creative runtime 未产出内容；`TurnResultBuilder` 已把 `TentativeArtifactSet.items` 放进 semantic `candidate_set` ui_card，但 `WorkspaceChat` 和 `WorkbenchV3` 仍把 `candidate_set` 当 `DefaultCard` 渲染，只显示 `card.body` 摘要，丢掉每个 item 的 `title/body/rationale`。当前修复新增 `CandidateSetCard` 展示组件，真实入口均按 `card_type=candidate_set` 渲染每个待确认素材的标题、正文和创作依据；该组件仍是纯展示卡，不读取或渲染 `card.actions`，采纳/放弃/修改仍必须来自 server-provided `available_actions` / pending adoption 状态。新增回归覆盖：前端组件测试断言 `candidate_set.items` 的正文与 rationale 会渲染，legacy embedded `actions` 不渲染；application contract 测试断言 `candidate_set` card 携带 item title/body。验证：`mix test apps/novel_application/test/novel_application/creative_artifact_test.exs`、`pnpm --dir frontend check` 已通过；完整 check/build/task_done/static scan 见本轮提交记录。
 
 Execution Candidate Context Correction（2026-05-26）：已修复 stage 暴露的“工具已生成草稿但 UI 仍标为探索方向，且用户说继续时 prose_writing 丢失上一轮具体创作约束”的主链缺口。根因有两层：第一，上一轮为了压住 explicit production 请求绕回 candidate 的问题，把 `needs_tool=true` 归一化了，但仍复用 `frame_type=creative_exploration`，导致真实 UI badge 显示“探索方向”；第二，`TurnExecutionService` 构造 creative `ToolRequest.input` 时只把当前作者输入放入 `context_text`，当当前输入是“继续”时，`prose_writing` 看不到最近对话里的“生存率28% / 3秒心理博弈与抉择”等约束，容易生成泛化素材。当前修复把 tool-needed 创作产出帧归一化为 `frame_type=:execution_candidate`，Domain validator、Planner prompt/parser、TraceWriter、LogEmit、WorkspaceChat frame badge 均识别该语义，前端显示为“生成草稿”而不是“探索方向”；creative ToolRequest 的 `context_text` 现在包含 `DialogueContext.to_prompt_text(context)` 和当前作者输入，确保工具 prompt 保留当前作品上下文、最近对话和记忆摘要。新增回归覆盖：provider 返回 `creative_exploration + needs_tool=true` 时 frame_summary 归一为 `execution_candidate`；当前输入只有“继续”但 session context 含“生存率28% / 3秒内的心理博弈与抉择”时，第三次 LLM 调用（creative tool prompt）包含这些约束以及“当前作者输入：继续”。验证：`mix test apps/novel_domain/test/novel_domain/dialogue_frame_test.exs apps/novel_application/test/novel_application/creative_artifact_test.exs`、`pnpm --dir frontend test -- --run frontend/src/lib/__tests__/framePresentation.test.ts`、`mix check`、`pnpm --dir frontend check`、`pnpm --dir frontend build`、`bash scripts/task_done.sh --slice au03-long-session-compression --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10` 均通过。注意：stage 进程需要重启后才会加载本修复。
 
