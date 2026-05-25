@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-26（Milestone: LLM Timeout Contract Alignment）
+> 最后更新：2026-05-26（Milestone: Execution Candidate Context Correction）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -22,6 +22,8 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
 ### 当前重点推进事项（2026-05-24）
+
+Execution Candidate Context Correction（2026-05-26）：已修复 stage 暴露的“工具已生成草稿但 UI 仍标为探索方向，且用户说继续时 prose_writing 丢失上一轮具体创作约束”的主链缺口。根因有两层：第一，上一轮为了压住 explicit production 请求绕回 candidate 的问题，把 `needs_tool=true` 归一化了，但仍复用 `frame_type=creative_exploration`，导致真实 UI badge 显示“探索方向”；第二，`TurnExecutionService` 构造 creative `ToolRequest.input` 时只把当前作者输入放入 `context_text`，当当前输入是“继续”时，`prose_writing` 看不到最近对话里的“生存率28% / 3秒心理博弈与抉择”等约束，容易生成泛化素材。当前修复把 tool-needed 创作产出帧归一化为 `frame_type=:execution_candidate`，Domain validator、Planner prompt/parser、TraceWriter、LogEmit、WorkspaceChat frame badge 均识别该语义，前端显示为“生成草稿”而不是“探索方向”；creative ToolRequest 的 `context_text` 现在包含 `DialogueContext.to_prompt_text(context)` 和当前作者输入，确保工具 prompt 保留当前作品上下文、最近对话和记忆摘要。新增回归覆盖：provider 返回 `creative_exploration + needs_tool=true` 时 frame_summary 归一为 `execution_candidate`；当前输入只有“继续”但 session context 含“生存率28% / 3秒内的心理博弈与抉择”时，第三次 LLM 调用（creative tool prompt）包含这些约束以及“当前作者输入：继续”。验证：`mix test apps/novel_domain/test/novel_domain/dialogue_frame_test.exs apps/novel_application/test/novel_application/creative_artifact_test.exs`、`pnpm --dir frontend test -- --run frontend/src/lib/__tests__/framePresentation.test.ts`、`mix check`、`pnpm --dir frontend check`、`pnpm --dir frontend build`、`bash scripts/task_done.sh --slice au03-long-session-compression --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10` 均通过。注意：stage 进程需要重启后才会加载本修复。
 
 LLM Timeout Contract Alignment（2026-05-26）：已把真实创作 turn 的超时合同从分散的 60s/120s 收敛为统一长等待窗口。根因是后端 provider、共享 HTTP 默认值、前端 Phoenix Channel push timeout 和文档验收口径各自维护数字；在同步 `WorkspaceChannel -> DialogueGateway -> Provider` 主链里，前端 60s 会先于后端合法 LLM 调用窗口报 timeout，尤其本地大模型冷启动或正文生成多次 LLM 调用时更明显。当前默认 `NOVEL_LLM_TIMEOUT_MS=300000`，可用 `NOVEL_LMSTUDIO_TIMEOUT_MS` / `NOVEL_ANTHROPIC_TIMEOUT_MS` 分 provider 覆盖；LMStudio、Anthropic adapter 与共享 HTTP post 默认值对齐到 300s。前端 `socket.ts` 和 `socket_v3.ts` 将 `user_message` / `author_action` / confirmation 类会触发 LLM 的 push timeout 统一使用 `LLM_TURN_TIMEOUT_MS=300000`，避免 UI 早于后端 timeout；AU-10 超时验收口径同步为 LLM turn timeout，而不是硬编码 60s。验证：provider 目标测试、`pnpm --dir frontend test -- --run frontend/src/lib/__tests__/socket.test.ts`、`mix check`、`pnpm --dir frontend check`、`pnpm --dir frontend build`、`bash scripts/task_done.sh --slice au03-long-session-compression --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10` 均通过。注意：这是同步 turn 的等待窗口修正，不等于长任务生命周期根治；超长正文/多步生成仍应后续用 Task/Job lifecycle 异步化。
 
