@@ -14,8 +14,7 @@ defmodule NovelAgent.Provider.Stub do
   识别失败时回退为 echo 响应。
 
   creative items prompt 的响应同时满足：
-  - **I3 种子贯通**：把 user 输入文本字节透传到 items.body，输入中的随机标识符
-    自然出现在 artifact
+  - **I3 种子贯通**：保留 user 输入文本中的随机标识符，让它们自然出现在 artifact
   - **I2 输入差异**：`item_id` 从 user input 派生 fingerprint，保证不同输入产生
     不同 id（两两不相交）
 
@@ -69,20 +68,21 @@ defmodule NovelAgent.Provider.Stub do
 
   # ── 最小合法响应 ──
 
-  # creative items：把 user 输入文本字节透传到 body，
-  # 这样输入中的随机标识符（nonce）会自然出现在 artifact（I3 不变量）。
+  # creative items：生成产品形态的最小 fixture 内容，并保留 user 输入中的
+  # 随机标识符（nonce），避免离线 provider 在 UI 中泄漏 prompt/context heading。
   # item_id 从 user input 派生 fingerprint，保证不同输入产生不同 id
   # （I2 不变量：N 个语义独立输入的 item_id 集合两两不相交）。
   defp creative_items_json(prompt_text) do
-    user_excerpt = extract_user_text(prompt_text)
+    {brief, context} = extract_creative_parts(prompt_text)
+    user_excerpt = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
     fp = input_fingerprint(user_excerpt)
 
     Jason.encode!([
       %{
         "item_id" => "stub_item_" <> fp <> "_1",
-        "title" => "[stub] 候选 1（" <> fp <> "）",
-        "body" => "[stub] 字节透传用户输入：" <> user_excerpt,
-        "rationale" => nil
+        "title" => stub_creative_title(brief, fp),
+        "body" => stub_creative_body(brief, context),
+        "rationale" => "离线 fixture provider 生成的待确认创作素材，未写入作品事实。"
       }
     ])
   end
@@ -150,6 +150,46 @@ defmodule NovelAgent.Provider.Stub do
       _ ->
         extract_role_user_text(prompt_text)
     end
+  end
+
+  defp extract_creative_parts(prompt_text) do
+    case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt_text) do
+      [_, brief, context] -> {String.trim(brief), String.trim(context)}
+      _ -> {extract_role_user_text(prompt_text), ""}
+    end
+  end
+
+  defp stub_creative_title(brief, fp) do
+    case Regex.run(~r/第\d+章[：:]\s*([^。\n]+?)(?:正文草稿|$)/u, brief) do
+      [_, chapter_title] -> String.trim(chapter_title) <> " 草稿"
+      _ -> "离线待确认素材 " <> fp
+    end
+  end
+
+  defp stub_creative_body(brief, context) do
+    nonce_text =
+      context
+      |> random_identifier_tokens()
+      |> Enum.take(3)
+      |> Enum.join("、")
+
+    nonce_sentence = if nonce_text == "", do: "", else: "校验标识 #{nonce_text} 被刻在旧终端的边框上。"
+
+    [
+      "离线草稿从作者请求出发：#{String.slice(brief, 0, 80)}。",
+      "主角站在灵气账单闪烁的巷口，意识到这次欠费不是普通催缴，而是有人借系统规则逼他现身。",
+      nonce_sentence,
+      "他收起最后一张护身符，沿着停电的楼梯向下走，准备在巡检车抵达前找到账单背后的漏洞。"
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp random_identifier_tokens(text) do
+    ~r/\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{6,}\b/u
+    |> Regex.scan(text)
+    |> Enum.map(fn [token] -> token end)
+    |> Enum.uniq()
   end
 
   defp extract_role_user_text(prompt_text) do

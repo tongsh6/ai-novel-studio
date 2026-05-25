@@ -841,11 +841,12 @@ async function driveP1ChapterDraftGeneration(page) {
   const draftTurnResult = draftTurnFrame.body;
   const pendingArtifact = draftTurnResult.adoption_state.pending[0];
   const draftBody = pendingArtifact.payload?.items?.[0]?.body ?? "";
+  const draftLeakMarker = "灵气账单从屋檐下垂落";
 
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("待确认的创作材料") &&
-      document.body.innerText.includes("候选内容") &&
+      document.body.innerText.includes("灵气账单从屋檐下垂落") &&
       document.body.innerText.includes("底层灵气账单"),
     { timeout: 10_000 },
   );
@@ -872,7 +873,7 @@ async function driveP1ChapterDraftGeneration(page) {
     "Reading mode did not remain empty before draft adoption",
   );
   assert(
-    !visibleText.includes("候选内容") || visibleText.includes("暂无已采纳的章节内容"),
+    !visibleText.includes(draftLeakMarker) || visibleText.includes("暂无已采纳的章节内容"),
     "Unadopted draft leaked into reading mode content",
   );
 
@@ -890,7 +891,7 @@ async function driveP1ChapterDraftGeneration(page) {
       draft_card_visible: true,
       reading_mode_empty_before_adoption: visibleText.includes("暂无已采纳的章节内容"),
       unadopted_draft_visible_in_reading:
-        visibleText.includes("候选内容") && !visibleText.includes("暂无已采纳的章节内容"),
+        visibleText.includes(draftLeakMarker) && !visibleText.includes("暂无已采纳的章节内容"),
       adopt_event_sent: frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
       user_message_text: draftMessageFrame.body?.text,
     },

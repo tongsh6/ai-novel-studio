@@ -76,6 +76,30 @@ defmodule NovelAgent.Provider.GatewayTest do
     test "completes without error" do
       assert {:ok, _} = Gateway.complete("should use stub in test env")
     end
+
+    test "stub creative items preserve nonce without leaking prompt headings" do
+      prompt = """
+      你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
+
+      capability：prose_writing
+      artifact_type：prose_fragment
+      用户创作简述：请生成第01章：底层灵气账单正文草稿
+      上下文：## 当前作品上下文
+      - id: 8cde8315-0208-4308-8422-6a1a75a1234d
+
+      重要：如果用户输入或上下文中出现任意随机标识符串（字母数字组合），
+      必须在至少一个条目的 title/body/rationale 中原样保留。
+
+      只返回 JSON 数组。
+      """
+
+      assert {:ok, %{content: content}} = Gateway.complete(prompt)
+      assert {:ok, [item]} = Jason.decode(content)
+      assert item["body"] =~ "8cde8315"
+      assert item["body"] =~ "灵气账单"
+      refute item["body"] =~ "## 当前作品上下文"
+      refute item["body"] =~ "用户创作简述"
+    end
   end
 
   describe "complete/2 with slice verify provider" do
@@ -184,6 +208,40 @@ defmodule NovelAgent.Provider.GatewayTest do
         assert content =~ "已生成角色设定草案"
         refute content =~ "\"frame_type\""
         refute content =~ "\"candidate_directions\""
+      after
+        Application.put_env(:novel_agent, :provider, old)
+      end
+    end
+
+    test "returns product-shaped creative items without leaking prompt headings" do
+      old = Application.get_env(:novel_agent, :provider)
+      Application.put_env(:novel_agent, :provider, default: :slice_verify)
+
+      prompt = """
+      你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
+
+      capability：prose_writing
+      artifact_type：prose_fragment
+      用户创作简述：请根据已采纳章节计划生成第01章：底层灵气账单正文草稿
+      上下文：## 当前作品上下文
+      - id: 8cde8315-0208-4308-8422-6a1a75a1234d
+      - title: P1 单章正文草稿验证作品
+
+      重要：如果用户输入或上下文中出现任意随机标识符串（字母数字组合），
+      必须在至少一个条目的 title/body/rationale 中原样保留。
+
+      只返回 JSON 数组。
+      """
+
+      try do
+        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert {:ok, [item]} = Jason.decode(content)
+        assert item["title"] =~ "底层灵气账单"
+        assert item["body"] =~ "灵气账单"
+        assert item["body"] =~ "8cde8315"
+        refute item["body"] =~ "## 当前作品上下文"
+        refute item["body"] =~ "用户创作简述"
+        refute item["title"] =~ "候选内容"
       after
         Application.put_env(:novel_agent, :provider, old)
       end

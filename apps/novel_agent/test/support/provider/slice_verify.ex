@@ -130,15 +130,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp creative_items_response(prompt) do
-    text = creative_prompt_text(prompt)
+    {brief, context} = creative_prompt_parts(prompt)
+    text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
     fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
 
     [
       %{
         item_id: "slice_item_#{fingerprint}_1",
-        title: "候选内容 #{fingerprint}",
-        body: text,
-        rationale: "基于本次作者输入生成的待确认草稿"
+        title: creative_title(brief, fingerprint),
+        body: creative_body(brief, context),
+        rationale: creative_rationale(brief)
       }
     ]
   end
@@ -226,16 +227,66 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp creative_prompt_text(prompt) do
+  defp creative_prompt_parts(prompt) do
     case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt) do
       [_, brief, context] ->
-        [String.trim(brief), String.trim(context)]
-        |> Enum.reject(&(&1 == ""))
-        |> Enum.join("\n")
+        {String.trim(brief), String.trim(context)}
 
       _ ->
-        author_input_text_from_prompt(prompt)
+        {author_input_text_from_prompt(prompt), ""}
     end
+  end
+
+  defp creative_title(brief, fingerprint) do
+    case Regex.run(~r/第\d+章[：:]\s*([^。\n]+?)(?:正文草稿|$)/u, brief) do
+      [_, chapter_title] ->
+        "#{String.trim(chapter_title)} 正文草稿"
+
+      _ ->
+        "待确认正文草稿 #{fingerprint}"
+    end
+  end
+
+  defp creative_body(brief, context) do
+    subject = creative_subject(brief)
+    nonce_text = context |> random_identifier_tokens() |> Enum.take(3) |> Enum.join("、")
+
+    nonce_sentence =
+      if nonce_text == "", do: "", else: "档案暗码 #{nonce_text} 像冷光一样贴在他的视野边缘，提醒这不是幻觉。"
+
+    [
+      "夜色压在#{subject}上，灵气账单从屋檐下垂落，像一串即将燃尽的符纸。",
+      "主角停在巷口，听见远处公司巡检车的低鸣，也听见自己腕骨里那枚旧阵芯正在倒数。",
+      nonce_sentence,
+      "他没有立刻逃跑，而是把欠费记录折进袖中，反手扣住最后一张护身符，朝最黑的楼梯口走去。"
+    ]
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp creative_subject(brief) do
+    case Regex.run(~r/第\d+章[：:]\s*([^：:\n。]+?)(?:：|正文草稿|$)/u, brief) do
+      [_, subject] ->
+        String.trim(subject)
+
+      _ ->
+        "这座赛博修仙城市"
+    end
+  end
+
+  defp creative_rationale(brief) do
+    if String.contains?(brief, "正文草稿") do
+      "根据作者指定章节生成待确认正文片段，未写入作品事实。"
+    else
+      "根据本次作者输入生成待确认创作素材，未写入作品事实。"
+    end
+  end
+
+  defp random_identifier_tokens(text) do
+    ~r/\b(?=[A-Za-z0-9]*\d)(?=[A-Za-z0-9]*[A-Za-z])[A-Za-z0-9]{6,}\b/u
+    |> Regex.scan(text)
+    |> Enum.map(fn [token] -> token end)
+    |> Enum.uniq()
   end
 
   defp prompt_text(prompt) when is_binary(prompt), do: prompt
