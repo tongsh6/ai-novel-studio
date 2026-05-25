@@ -18,6 +18,17 @@ describe("frame presentation", () => {
     expect(presentation.title).toContain("帮作者展开赛博修仙方向");
   });
 
+  it("maps execution candidate to generation label", () => {
+    const presentation = framePresentationForSummary({
+      frame_type: "execution_candidate",
+      dialogue_goal: "撰写开篇场景正文",
+    });
+
+    expect(presentation.visible).toBe(true);
+    expect(presentation.label).toBe("生成草稿");
+    expect(presentation.tone).toBe("execution");
+  });
+
   it("normalizes frame type spelling without exposing raw enums", () => {
     expect(normalizeFrameType("Creative-Exploration")).toBe("creative_exploration");
   });

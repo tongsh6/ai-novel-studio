@@ -26,7 +26,7 @@ defmodule NovelDomain.DialogueFrameTest do
     test "accepts tool-needed frames for concrete creative production" do
       frame = %DialogueFrame{
         @valid_frame
-        | frame_type: :creative_exploration,
+        | frame_type: :execution_candidate,
           tool_need: %{needs_tool: true, reason_code: :tool_needed},
           execution_readiness: :ready
       }

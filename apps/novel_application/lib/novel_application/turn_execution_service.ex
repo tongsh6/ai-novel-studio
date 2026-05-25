@@ -78,7 +78,7 @@ defmodule NovelApplication.TurnExecutionService do
       decision_ref: decision.decision_id,
       tool_name: tool_name,
       tool_version: (entry && entry.tool_version) || "unknown",
-      input: tool_input(frame, action, input[:author_input]),
+      input: tool_input(frame, action, input[:author_input], input[:context]),
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
       idempotency_key: "idem_#{frame.turn_id}_#{tool_name}#{input[:idempotency_suffix] || ""}",
@@ -87,7 +87,7 @@ defmodule NovelApplication.TurnExecutionService do
     }
   end
 
-  defp tool_input(frame, action, author_input) do
+  defp tool_input(frame, action, author_input, context) do
     text =
       case author_input do
         %{text: text} when is_binary(text) -> text
@@ -95,12 +95,23 @@ defmodule NovelApplication.TurnExecutionService do
         _ -> frame.author_visible_draft.message
       end
 
+    context_text = tool_context_text(context, text)
+
     %{
       "text" => text,
-      "creative_brief" => [action_summary(action), text] |> Enum.reject(&blank?/1) |> Enum.join("\n"),
-      "context_text" => text
+      "creative_brief" =>
+        [action_summary(action), text] |> Enum.reject(&blank?/1) |> Enum.join("\n"),
+      "context_text" => context_text
     }
   end
+
+  defp tool_context_text(%NovelDomain.DialogueContext{} = context, text) do
+    [NovelDomain.DialogueContext.to_prompt_text(context), "## 当前作者输入\n#{text}"]
+    |> Enum.reject(&blank?/1)
+    |> Enum.join("\n\n")
+  end
+
+  defp tool_context_text(_context, text), do: text
 
   defp action_summary(action) when is_map(action) do
     Map.get(action, :summary) || Map.get(action, "summary")

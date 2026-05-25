@@ -7,6 +7,7 @@ export interface FrameSummaryLike {
 
 export type FrameTone =
   | "exploration"
+  | "execution"
   | "reply"
   | "question"
   | "meta"
@@ -25,6 +26,10 @@ const FRAME_PRESENTATION_BY_TYPE: Record<string, { label: string; tone: FrameTon
   creative_exploration: {
     label: WORKBENCH.frameBadges.creativeExploration,
     tone: "exploration",
+  },
+  execution_candidate: {
+    label: WORKBENCH.frameBadges.executionCandidate,
+    tone: "execution",
   },
   casual_reply: {
     label: WORKBENCH.frameBadges.casualReply,

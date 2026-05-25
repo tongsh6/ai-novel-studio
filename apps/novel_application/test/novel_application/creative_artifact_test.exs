@@ -268,10 +268,60 @@ defmodule NovelApplication.CreativeArtifactTest do
 
       assert candidates == []
       refute Map.has_key?(turn_result, :candidate_directions)
-      assert turn_result.frame_summary.frame_type == :creative_exploration
+      assert turn_result.frame_summary.frame_type == :execution_candidate
       assert turn_result.tool_result.tool_name == "prose_writing"
       assert turn_result.tool_result.output.artifact_type == :prose_fragment
       assert turn_result.truthfulness.tool_called == true
+    end
+
+    test "creative tool prompt receives dialogue context when author only says continue" do
+      frame_json =
+        Jason.encode!(%{
+          "frame_type" => "creative_exploration",
+          "dialogue_goal_summary" => "继续撰写开篇场景正文",
+          "needs_tool" => true,
+          "no_tool_reason" => "tool_needed",
+          "execution_readiness" => "ready",
+          "assistant_message" => "我会继续生成开篇场景正文。",
+          "candidate_directions" => [],
+          "context_used" => true,
+          "uncertainty" => []
+        })
+
+      prompt_agent = start_supervised!({Agent, fn -> [] end})
+
+      complete_fn =
+        sequenced_complete_fn(
+          [
+            frame_json,
+            plan_json("prose_writing"),
+            Jason.encode!([single_item("opening-context")]),
+            "已生成待确认的开篇场景，尚未采纳。"
+          ],
+          prompt_agent
+        )
+
+      context_fetcher = fn _workspace_id, _text, _session_id ->
+        {:ok, nil, "user: 1. **开篇场景**：从AI提示生存率28%的瞬间切入，描写主角在3秒内的心理博弈与抉择\nassistant: 我会按概率预判流继续。",
+         nil, nil}
+      end
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "继续", workspace_id: "ws-opening-context", session_id: "session-opening"},
+          context_fetcher,
+          complete_fn
+        )
+
+      prompts = Agent.get(prompt_agent, &Enum.reverse/1)
+      tool_prompt = Enum.at(prompts, 2)
+
+      assert turn_result.frame_summary.frame_type == :execution_candidate
+      assert turn_result.tool_result.tool_name == "prose_writing"
+      assert tool_prompt =~ "## 最近对话"
+      assert tool_prompt =~ "生存率28%"
+      assert tool_prompt =~ "3秒内的心理博弈与抉择"
+      assert tool_prompt =~ "## 当前作者输入\n继续"
     end
 
     test "provider failure is honest failed TurnResult with no card or actions" do
@@ -383,10 +433,11 @@ defmodule NovelApplication.CreativeArtifactTest do
     })
   end
 
-  defp sequenced_complete_fn(responses) do
+  defp sequenced_complete_fn(responses, prompt_agent \\ nil) do
     {:ok, agent} = Agent.start_link(fn -> responses end)
 
-    fn _prompt ->
+    fn prompt ->
+      if prompt_agent, do: Agent.update(prompt_agent, &[prompt | &1])
       {:ok, %{content: next_response(agent)}}
     end
   end

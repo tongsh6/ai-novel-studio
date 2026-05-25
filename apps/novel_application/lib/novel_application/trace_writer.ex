@@ -205,6 +205,7 @@ defmodule NovelApplication.TraceWriter do
   # ── helpers ───────────────────────────────────
 
   defp decision_type(:creative_exploration), do: :exploration
+  defp decision_type(:execution_candidate), do: :tool_allowed
   defp decision_type(_), do: :reply_only
 
   defp decision_type_for(:downgrade_to_dialogue), do: :downgrade
@@ -215,6 +216,10 @@ defmodule NovelApplication.TraceWriter do
   defp decision_type_for(:allow_tool), do: :tool_allowed
 
   defp no_behavior_reason(:creative_exploration), do: "exploration stays conversational"
+
+  defp no_behavior_reason(:execution_candidate),
+    do: "execution candidate evaluated by orchestrator"
+
   defp no_behavior_reason(_), do: "reply-only turn does not open durable behavior"
 
   defp build_event_order(context) do

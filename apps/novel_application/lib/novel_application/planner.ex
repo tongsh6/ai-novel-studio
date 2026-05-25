@@ -292,7 +292,7 @@ defmodule NovelApplication.Planner do
 
     ## 输出格式（严格 JSON）
     {
-      "frame_type": "casual_reply" | "creative_exploration" | "question_answer" | "meta_discussion",
+      "frame_type": "casual_reply" | "creative_exploration" | "execution_candidate" | "question_answer" | "meta_discussion",
       "dialogue_goal_summary": "用户本轮想达到什么",
       "needs_tool": true or false,
       "no_tool_reason": "tool_needed" | "no_tool_needed" | "exploratory_only" | "insufficient_execution_target" | "user_requested_discussion",
@@ -306,6 +306,7 @@ defmodule NovelApplication.Planner do
     ## 规则
     - 作者要求“写/生成/产出/描写/续写/开篇场景/正文/章节草稿/具体片段”时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
     - 作者要求“大纲/角色设定/世界观设定/剧情设计”等具体交付物时，也属于创作产出请求，needs_tool 必须为 true
+    - 创作产出请求的 frame_type 使用 "execution_candidate"，不要使用 "creative_exploration"
     - 只有作者还在比较方向、头脑风暴、问“怎么切入/几个方案”，且没有要求立刻产出具体文本或设定时，才使用 creative_exploration + needs_tool=false
     - frame_type == "creative_exploration" 且 needs_tool == false 时，candidate_directions 必须包含 2-3 个方向对象
     - frame_type == "creative_exploration" 且 needs_tool == true 时，candidate_directions 必须为空数组
@@ -740,6 +741,7 @@ defmodule NovelApplication.Planner do
   end
 
   defp to_frame_type("creative_exploration"), do: :creative_exploration
+  defp to_frame_type("execution_candidate"), do: :execution_candidate
   defp to_frame_type("question_answer"), do: :question_answer
   defp to_frame_type("meta_discussion"), do: :meta_discussion
   defp to_frame_type(_), do: :casual_reply
@@ -749,7 +751,10 @@ defmodule NovelApplication.Planner do
 
     cond do
       production_intent? and raw_type in [:casual_reply, :creative_exploration] ->
-        :creative_exploration
+        :execution_candidate
+
+      Map.get(parsed, "needs_tool", false) == true and raw_type == :creative_exploration ->
+        :execution_candidate
 
       raw_type == :casual_reply and exploratory_author_input?(text) ->
         :creative_exploration

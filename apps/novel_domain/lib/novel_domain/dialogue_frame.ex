@@ -5,7 +5,12 @@ defmodule NovelDomain.DialogueFrame do
   字段规格见 docs/design-v3/contracts/VS-00-reply-only-contract-pack.md §2。
   """
 
-  @type frame_type :: :casual_reply | :creative_exploration | :question_answer | :meta_discussion
+  @type frame_type ::
+          :casual_reply
+          | :creative_exploration
+          | :execution_candidate
+          | :question_answer
+          | :meta_discussion
   @type reason_code ::
           :no_tool_needed
           | :tool_needed
@@ -46,7 +51,13 @@ defmodule NovelDomain.DialogueFrame do
     uncertainty: []
   ]
 
-  @allowed_frame_types [:casual_reply, :creative_exploration, :question_answer, :meta_discussion]
+  @allowed_frame_types [
+    :casual_reply,
+    :creative_exploration,
+    :execution_candidate,
+    :question_answer,
+    :meta_discussion
+  ]
   @allowed_reason_codes [
     :no_tool_needed,
     :tool_needed,

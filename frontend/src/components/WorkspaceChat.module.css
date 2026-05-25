@@ -422,6 +422,12 @@
   color: var(--foreground-secondary);
 }
 
+.frameBadge[data-frame-tone="execution"] {
+  border-color: rgba(32, 118, 110, 0.35);
+  background-color: rgba(32, 118, 110, 0.08);
+  color: #14534d;
+}
+
 .frameBadge[data-frame-tone="question"] {
   border-color: rgba(32, 118, 110, 0.35);
   background-color: rgba(32, 118, 110, 0.08);

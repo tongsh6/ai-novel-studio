@@ -173,6 +173,7 @@ defmodule NovelCommon.LogEmit do
   defp translate_val(_key, false), do: "否"
   defp translate_val(:frame_type, :casual_reply), do: "闲聊回复"
   defp translate_val(:frame_type, :creative_exploration), do: "创意探索"
+  defp translate_val(:frame_type, :execution_candidate), do: "执行候选"
   defp translate_val(:frame_type, :question_answer), do: "问答"
   defp translate_val(:frame_type, :meta_discussion), do: "元讨论"
   defp translate_val(:decision_type, :allow_tool), do: "允许工具调用"

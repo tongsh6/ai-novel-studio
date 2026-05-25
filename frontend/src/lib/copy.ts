@@ -180,6 +180,7 @@ export const WORKBENCH = {
   candidateAdoptTitle: "提交服务端授权的采纳动作，重新经过采纳边界评估。",
   frameBadges: {
     creativeExploration: "探索方向",
+    executionCandidate: "生成草稿",
     casualReply: "自然回复",
     questionAnswer: "回答问题",
     metaDiscussion: "创作讨论",
@@ -237,6 +238,7 @@ export const TRACE = {
   decisions: {
     replyOnly: "自然回复",
     exploration: "探索方向",
+    executionCandidate: "生成草稿",
     downgrade: "降级为对话",
     confirmationRequired: "需要确认",
     clarificationRequired: "需要补充信息",
