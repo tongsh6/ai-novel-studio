@@ -313,7 +313,7 @@
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
 | AU06-GAP-01 — 真实入口 behavior_state 契约不匹配 | `WorkspaceChat` 读 `behavior_state.active`，后端 v3 输出扁平 behavior_state | 修正/补集成 | P0 |
-| AU06-GAP-02 — 真实入口不渲染 available_actions | `WorkspaceChat` 不显示 v3 action panel；确认卡也未生成 | 补实现/补验收 | P0 |
+| AU06-GAP-02 — 真实入口不渲染 available_actions | **superseded（2026-05-25）**：`WorkspaceChat` 已改为从 `available_actions` 显示 v3 action panel；card 不承载业务动作。剩余为真实 UI 点击验收 | 补验收 | P0 |
 | AU06-GAP-03 — cancel/reject/clarification resolution 未实现 | 非 confirm action 只 ack，不关闭 behavior；`behavior_id` 随 user_message 发送后后端不处理 | 补实现/补集成 | P0 |
 | AU06-GAP-04 — open -> resolving -> resolved/history 未闭环 | 无 resolution builder、closed_at_turn_ref、history 输出和持久化 | 补实现/补测试 | P0 |
 | AU06-GAP-05 — ConfirmationBinding 未完整实现 | 未绑定 behavior_ref/target_ref/state snapshot/gate result | 补实现/补集成 | P0 |

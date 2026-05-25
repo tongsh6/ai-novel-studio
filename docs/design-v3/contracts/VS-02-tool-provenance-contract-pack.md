@@ -51,6 +51,7 @@ VS-02 规则：
 2. `status=deprecated` 的工具只能作为 replay / compatibility 材料，不能被新 decision 正常选择。
 3. `status=experimental` 的工具不能成为 production write 的唯一门禁。
 4. ToolTrace 必须记录 registry entry 的 name / version / status snapshot。
+5. production registry 不包含泛化 creative capability `creative_generation`；创作工具必须以具体 capability 注册和 dispatch。
 
 ---
 
@@ -109,6 +110,11 @@ VS-02 真值边界：
 2. `state_delta` 必须等待 later adoption boundary。
 3. ToolResult 不能被直接拼成作者主消息。
 4. ToolResult failure 必须仍然生成 ToolTrace。
+5. unknown artifact_type 是 output contract validation failure，不能 fallback 为 `prose_fragment`。
+
+### 4.1 Creative output contract correction
+
+2026-05-25 起，creative `ToolResult.output` 的 artifact contract 由 agent-side `ToolAdapter` 确定，Planner / MicroPlan 不输出 authoritative artifact_type。application-side `ArtifactAssembler` 校验 `output_contract_ref`、`artifact_type` 和 `items` 后才创建 `TentativeArtifactSet`。
 
 ---
 

@@ -116,6 +116,7 @@
 ## 8. 决策日志
 
 - 2026-05-08 — 根据最终愿景复审新增 VS-02A。当前只授权 slice 设计和评审，不进入 implementation plan / code。
+- 2026-05-25 — Creative Artifact Runtime 纠偏实现已落地：工具 envelope 移到 `novel_common`，Toolbox runtime 移到 `novel_agent`，`ArtifactAssembler` 成为唯一 tentative artifact 创建边界，`world_setting` 纳入 artifact_type，unknown artifact_type 改为 validation failure；泛化 creative capability `creative_generation` 已从 production registry 移除，不再作为 production capability。
 
 ---
 
@@ -123,3 +124,4 @@
 
 - VS-02A 的关键不是做完整写作引擎，而是证明 AI 能产出小说材料，同时默认只进入待采纳状态。
 - VS-02A 刻意放在 VS-02 后、VS-04 前：先有工具调用 provenance，再谈创作草稿，最后才进入采纳边界。
+- 本轮明确不冻结正式长跑任务契约；同步创作工具不再输出 synthetic task_state_events。Formal TaskState / Long-running Creative Job Contract deferred。

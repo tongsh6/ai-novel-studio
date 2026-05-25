@@ -38,7 +38,7 @@ I1（因果绑定）与 I2（输入差异）作为后续 slice 落地。
 | novel_foundation | no | — |
 | novel_domain | yes | 给 `TentativeArtifactSet.artifact_item` 加 `provider_call_ref` 字段（默认 nil，向后兼容） |
 | novel_agent | no | Provider Gateway / stub 已具备 nonce 透传能力，不改 |
-| novel_application | yes | Toolbox 在 creative_generation 路径接通 Provider；DialogueGateway 删除中文关键词路由；TurnResultBuilder 删除作品专项默认文案 |
+| novel_application | yes | Toolbox 在具体 creative capability 路径接通 Provider；DialogueGateway 删除中文关键词路由；TurnResultBuilder 删除作品专项默认文案 |
 | novel_persistence | no | — |
 | novel_web | no | — |
 | frontend | no | — |
@@ -56,9 +56,9 @@ I1（因果绑定）与 I2（输入差异）作为后续 slice 落地。
 | T4 | 跑基线，记录 baseline 报告 | done | 三 case 精确命中 hardcoded 违规（"第01章：底层灵气账单"等 excerpts 自动暴露） |
 | T5 | 决策点：是否继续 Phase A2 修复产品代码 | done | 用户选择继续 |
 | T6 | 给 `TentativeArtifactSet.artifact_item` 加 `provider_call_ref` 字段 | deferred | 留 SI-002（I1 trace 因果绑定时统一加） |
-| T7 | Toolbox.execute 接收 complete_fn，creative_generation 调 Provider | done | 删除 `generate_creative_items/2` 全部 5 分支 + `chapter_title_from_context`、`prose_fragment_body`；新增 `execute/2`、`build_creative_prompt`、`parse_creative_response`（字节透传 Provider 响应） |
+| T7 | Toolbox.execute 接收 complete_fn，具体 creative capability 调 Provider | done | 删除 `generate_creative_items/2` 全部 5 分支 + `chapter_title_from_context`、`prose_fragment_body`；新增 provider 字节透传响应链路 |
 | T8 | DialogueGateway 修复 `handle_tool_dispatch` 透传 complete_fn | done | 改 line 880 + 921 让 complete_fn 透传到 execute_tool 避免 fallback 到 `&Gateway.complete/1`；`creative_direction` 中文关键词路由暂保留（I3 不直接命中，留 SI-002） |
-| T9 | TurnResultBuilder 删除作品专项默认文案 | done | `artifact_payload_title`/`adoption_card_title`/`adoption_card_body` 改为通用 UI 文案 |
+| T9 | TurnResultBuilder 删除作品专项默认文案 | done | creative artifact card 改为 semantic `candidate_set`，通用展示文案不承载采纳语义 |
 | T10 | 跑 I3 转绿，输出 done 报告 | done | Layer-B 3/3 pass，exit 0 |
 | T11 | 重写 `creative_artifact_test.exs` | done | 22 测试改为"验证字节透传"形态 |
 | T12 | 升级 stub provider 为合法 fixture | done | 识别 creative prompt 返回最小合法 items JSON |

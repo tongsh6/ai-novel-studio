@@ -53,7 +53,7 @@
 | `docs/design-v3/adr/ADR-0010-state-adoption-boundary-v3.md` | selection / ToolResult / adopted state 分层决策 |
 | `docs/design-v3/adr/ADR-0016-projection-hint-v3.md` | ProjectionHint 与阅读投影刷新边界 |
 | `apps/novel_application/lib/novel_application/adoption_boundary.ex` | 当前采纳评估纯规则 |
-| `apps/novel_application/lib/novel_application/turn_result_builder.ex` | creative ToolResult -> `adoption_state.pending` 与 `adoption_card` |
+| `apps/novel_application/lib/novel_application/artifact_assembler.ex` / `turn_result_builder.ex` | creative ToolResult -> `TentativeArtifactSet` -> `adoption_state.pending` 与 semantic `candidate_set` |
 | `apps/novel_application/test/novel_application/adoption_boundary_test.exs` | 低风险/高风险/未知候选/stability/projection hint 局部测试 |
 | `apps/novel_application/test/novel_application/creative_artifact_test.exs` | creative tool、TentativeArtifactSet、task_state 局部测试 |
 | `frontend/src/components/WorkspaceChat.tsx` | 当前真实工作台展示 pending adoption 与调用采纳动作 |
@@ -76,7 +76,7 @@
 | 前置条件 | 已打开某个作品；模型或 stub 可用 |
 | 触发 | 输入创作产物请求 |
 | 期望结果 | 工作台出现待采纳草稿卡；草稿有标题、正文/摘要、来源；不进入已确认设定 |
-| 当前证据 | `creative_artifact_test.exs` 覆盖 `TentativeArtifactSet`、`adoption_status: :tentative`；`TurnResultBuilder.maybe_add_artifacts/2` 生成 `adoption_state.pending` 和 `adoption_card` |
+| 当前证据 | `creative_artifact_test.exs` 覆盖 `TentativeArtifactSet`、`adoption_status: :tentative`；`ArtifactAssembler` 生成 artifact，`TurnResultBuilder.maybe_add_artifacts/2` 生成 `adoption_state.pending` 和 semantic `candidate_set` |
 | 当前状态 | 已测试/部分实现 |
 | 当前缺口 | 未有真实工作台 walkthrough 证明卡片在 `WorkspaceChat` 中完整可见、可审核 |
 | 优先级 | P0 |
@@ -88,7 +88,7 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | `truthfulness.production_write_performed=false`；阅读模式目录/正文不显示该片段 |
-| 当前证据 | `creative_generation` capability `write_scopes == []`；`creative_artifact_test.exs` 覆盖 creative tool 无 write scope；E2E 覆盖 pending artifact |
+| 当前证据 | 具体 creative capability 无 production write；`creative_artifact_test.exs` 覆盖 provider failure 不生成 artifact/action；E2E 覆盖 pending artifact |
 | 当前状态 | 后端局部已测试 |
 | 当前缺口 | 阅读模式当前数据来自 `get_toc` / `get_chapter_content` mock handler，未和 adoption state 真实隔离验收 |
 | 优先级 | P0 |
@@ -344,8 +344,8 @@
 
 | 基础设施 | 当前价值 | 不应误判 |
 |---|---|---|
-| `creative_generation` + `TentativeArtifactSet` | 能证明 AI 产物默认 tentative | 不等于可采纳进作品 |
-| `TurnResultBuilder.maybe_add_artifacts/2` | 能输出 `adoption_state.pending` 和 `adoption_card` | 不等于点击采纳会成功 |
+| concrete creative capability + `TentativeArtifactSet` | 能证明 AI 产物默认 tentative | 不等于可采纳进作品 |
+| `ArtifactAssembler` + `TurnResultBuilder.maybe_add_artifacts/2` | 能输出 `adoption_state.pending` 和 semantic `candidate_set` | 不等于点击采纳会成功 |
 | `AdoptionBoundary.evaluate/3` | 能表达低风险采纳、高风险确认、未知候选恢复 | 不等于已写入作品事实 |
 | `WorkspaceChat.handleAdopt/1` | 前端有采纳按钮和 helper | 后端没有对应 `adopt` handler |
 | `StructurePanel` | 能展示待采纳列表 | 列表来自当前消息内存，不是持久化工作箱 |

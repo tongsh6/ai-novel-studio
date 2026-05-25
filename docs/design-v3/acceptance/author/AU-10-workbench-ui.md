@@ -53,7 +53,7 @@
 | `frontend/src/App.tsx` | 真实应用入口 | 当前 `workbench` mode 渲染 `WorkspaceChat`，不渲染 `WorkbenchV3` |
 | `WorkspaceChat.tsx` | 真实工作台主组件 | 有消息、卡片、候选、档案、阅读切换；已接 `available_actions` / `author_action` / `task_state` 最小闭环；已有 VS-10 原生 Tauri 自动化观测链；adoption、trace、投影和完整 UI 自动化仍未闭环 |
 | `WorkbenchV3.tsx` | v3 UI consumer 实验/旁路组件 | 有 `available_actions` ActionPanel、`author_action`、task_state 订阅；但不是当前首屏入口 |
-| `UICards.tsx` | 结构化卡片渲染 | 10 类卡片组件存在；card actions 由卡片 action 直接触发，未统一校验 available_actions |
+| `UICards.tsx` | 结构化卡片渲染 | 10 类卡片组件存在；**superseded（2026-05-26）**：card 不再承载业务动作，真实提交动作必须来自 `available_actions` |
 | `socket.ts` | 真实 `WorkspaceChat` 使用的 Channel helper | `sendMessage` 默认 `generate_micro_plan: false`；新增 `sendAuthorAction` 与 `onTaskState`；adoption helper 仍待后端主流程对齐 |
 | `socket_v3.ts` | v3 helper | 支持 `author_action` 和 `task_state`；当前只被 `WorkbenchV3` 消费 |
 | `WorkspaceChannel` | 后端真实 Channel | 实现 `user_message`、`author_action`、`ping`、mock structure handlers；无 `confirm`/`adopt`/`modify_draft` handlers |
@@ -195,7 +195,7 @@
 - 点击后走 `author_action`；
 - 前端不会构造不在 `available_actions` 中的 enabled action。
 
-**当前证据**：`WorkspaceChat` 已渲染 `available_actions`，disabled action 不可点击，点击后通过 `sendAuthorAction` 回传；`workbenchActions` 测试覆盖 action_id/action_type/target_ref 匹配。仍缺真实浏览器/Tauri 点击验收，`WorkbenchV3` 旁路 fallback 仍待清理。
+**当前证据**：`WorkspaceChat` 已渲染 `available_actions`，disabled action 不可点击，点击后通过 `sendAuthorAction` 回传；`workbenchActions` 测试覆盖 action_id/action_type/target_ref 匹配。**2026-05-26 更新**：`WorkbenchV3` card action bridge / generic fallback 已清理，仍缺真实浏览器/Tauri 点击验收。
 
 **当前状态**：部分实现 / 待验收。
 
@@ -385,7 +385,7 @@
 | AU10-GAP-01 — 真实入口与 v3 消费者分裂 | `WorkspaceChat` 已接 `author_action`/task_state 最小闭环；`WorkbenchV3` 仍是旁路，adoption/projection/trace 能力未统一 | 补集成/修设计偏差 | P0 |
 | AU10-GAP-02 — 普通聊天默认触发 MicroPlan 风险 | `sendMessage` 默认已改为 `generate_micro_plan: false`；原生 Tauri 已有 `au10-ordinary-chat-no-micro-plan` 最小验收和 `au01-ordinary-chat-two-turn-roundtrip` 两轮主链验收；仍缺完整普通聊天 DOM 反馈验收 | 补验收 | P0 |
 | AU10-GAP-03 — 真实入口 action 不走 `author_action` | 确认/拒绝旧 helper 路径已移除，真实入口可提交 `author_action`；仍缺 action_result UI 反馈和 Tauri 点击验收 | 补集成/补验收 | P0 |
-| AU10-GAP-04 — card action 可绕过 `available_actions` | `WorkspaceChat` 已校验 `available_actions`；`WorkbenchV3` fallback 构造 generic enabled action 仍待清理 | 修设计偏差/补测试 | P0 |
+| AU10-GAP-04 — card action 可绕过 `available_actions` | **resolved for current runtime（2026-05-26）**：`WorkspaceChat` / `WorkbenchV3` / `UICards` 不再从 card / card_type / StructurePanel 构造可提交业务 action；剩余为真实 UI 点击验收 | 补验收 | P0 |
 | AU10-GAP-05 — 候选方向只展示不可操作 | candidate cards 没有 selection/continue action | 补实现/补验收 | P0 |
 | AU10-GAP-06 — adoption UI 与后端不匹配 | `adopt`/`discard`/`modify_draft` helper 无 WorkspaceChannel handler | 补集成 | P0 |
 | AU10-GAP-07 — 真实入口未消费 task_state | `WorkspaceChat` 已订阅并映射 `task_state`；仍缺真实 UI 状态验收和完整异步 TaskRunner 订阅 | 补验收/补集成 | P0 |
@@ -402,8 +402,8 @@
 | 基础设施 | 可复用点 | 不能算已验收的原因 |
 |---|---|---|
 | `WorkspaceChat` | 当前真实首屏，有消息、卡片、候选、档案入口；已接 `available_actions` / `author_action` / `task_state` 最小闭环 | adoption/trace/projection/UI 自动化多条主链未闭环 |
-| `WorkbenchV3` | 已按 v3 helper 消费 `author_action`、`available_actions`、`task_state` | 未挂真实入口，且 renderCard fallback 可构造 action |
-| `UICards` | 卡片组件齐全 | 缺真实点击和 available_actions 约束 |
+| `WorkbenchV3` | 已按 v3 helper 消费 `author_action`、`available_actions`、`task_state`；**superseded（2026-05-26）**：renderCard fallback / card action bridge 已清理 | 未挂真实入口，缺真实点击验收 |
+| `UICards` | 卡片组件齐全；**superseded（2026-05-26）**：card 不提交业务 action | 缺真实点击验收 |
 | `workspace_channel_v3_test.exs` | 后端 action 安全和 task_state 广播局部证据 | 不证明真实前端使用这些事件 |
 | `turn_result_candidates.test.ts` / `task_state.test.ts` | 类型形状保护 | 不是浏览器 UI 验收 |
 | `scripts/slice_verify.sh` | 可复跑浏览器前端发起验证，当前已有 `au10-micro-plan-entry` | 只证明一个最小入口，不证明 AU-10 完整工作台验收 |

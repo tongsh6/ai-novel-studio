@@ -51,7 +51,7 @@
 ## 5. 闭环结果（2026-05-24）
 
 - 真实工作台作品档案的“大纲与结构”空态入口会发起章节规划 MicroPlan。
-- `plot_outline` 生成 12 章 `outline_draft` 章节计划，并以 `adoption_card` 展示为待采纳产物。
+- `plot_outline` 生成 12 章 `outline_draft` 章节计划，并以 semantic `candidate_set` 展示为待确认创作材料；采纳/放弃/修改动作来自 `available_actions`。
 - 作者点击真实“采纳”后进入 `AdoptionBoundary`，采纳结果持久化为 confirmed `MemoryItem`，标签包含 `outline_draft`。
 - `outline_draft` 不进入 Reading Projection；阅读模式仍只消费正文类 artifact。
 - 作品档案新增章节计划读取视图，采纳后可显示 12 个章节标题和目标。

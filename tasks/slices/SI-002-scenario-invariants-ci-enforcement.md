@@ -56,7 +56,7 @@ I1（因果绑定）+ I2（差异化输入）的实现留 [SI-003](./SI-003-scen
 |---|---|---|---|
 | T1 | 写本 slice 任务 | done | — |
 | T2 | stub.ex 增加 frame prompt 识别 → 返回最小合法 frame JSON | done | needs_tool=false 兼容 reply-only；user 文本字节透传到 assistant_message；context_used 根据 prompt 段落动态判断 |
-| T3 | stub.ex 增加 plan prompt 识别 → 返回最小合法 plan JSON | done | proposed_actions 含 creative_generation capability_invocation |
+| T3 | stub.ex 增加 plan prompt 识别 → 返回最小合法 plan JSON | done | proposed_actions 含具体 creative capability invocation |
 | T4 | 跑 driver 确认 Layer-A 转绿 | done | Layer-A 3/3 + Layer-B 3/3 全 pass，driver 改为直接走 Gateway.complete（test env 自动用升级后的 Stub） |
 | T5 | 接入 `scripts/ai_static_scan.sh` 新增 i3 lane | done | run_check "scenario-invariants-i3" category=correctness severity=critical |
 | T6 | 增加 `.github/workflows/ci.yml` I3 step | done | Elixir job 在 Architecture check 之后 |

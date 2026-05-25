@@ -3,6 +3,8 @@
 > 作者视角：当我让 AI 做具体工作时，AI 可以提出执行建议，但不能自己批准执行。系统必须把高风险、写入、长任务和生产事实变更拦在确认边界前；我确认后也不是直接执行，而是绑定原确认对象、重新审查当前状态，再决定是否执行。
 
 > 2026-05-13 场景化对账结论：后端 Orchestrator / Gate / ActionValidator 已覆盖较多执行权不变量，Channel 也已有 `author_action` 局部闭环；但真实前端入口 `App.tsx -> WorkspaceChat` 仍调用旧 `confirm` / `reject` 事件，且主要渲染 `ui_cards` 而不是 `available_actions`。因此 AU-04 不能再按“86% 核心已实现”判断，应改为“后端门禁较强，真实工作台确认闭环不足”。
+>
+> 2026-05-25 纠偏更新：上述 2026-05-13 前端入口描述为 historical/superseded。真实入口已改为从 `available_actions` 渲染可提交动作，并通过 `author_action` 回传；card 不再作为业务 action 来源。
 
 ---
 
@@ -77,7 +79,7 @@
 | 期望结果 | AI 不直接声称已替换；系统进入 `needs_confirmation`；作者看到确认对象和影响范围 |
 | 当前证据 | `execution_authority_test.exs` 覆盖 high-risk / production_candidate -> `require_confirmation`；`v3_full_chain_test.exs` 覆盖 stub confirmation chain |
 | 当前状态 | 已测试，未完整真实入口验收 |
-| 当前缺口 | `WorkspaceChat` 未稳定渲染来自 `available_actions` 的确认动作，确认卡片也未被证明在真实入口可点击 |
+| 当前缺口 | **superseded（2026-05-25）**：真实入口已改为从 `available_actions` 渲染动作；仍缺完整真实 UI 点击验收 |
 | 优先级 | P0 |
 
 #### SC-AU04-A2 — 低风险单步工具可以执行，但结果仍是草稿
@@ -237,7 +239,7 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | UI 接收并展示 RUNNING / COMPLETED / FAILED 等状态 |
-| 当前证据 | `DialogueGateway.task_state_events/2`、`workspace_channel_v3_test.exs` 覆盖 RUNNING/COMPLETED broadcast；`socket_v3.ts.onTaskState` 可订阅 |
+| 当前证据 | 2026-05-25 起 synthetic task lifecycle 已移除；同步 creative tool 通过 TurnResult phase/status、ToolResult.status 与 trace_summary 表达结果。正式 TaskState / Long-running Creative Job Contract deferred |
 | 当前状态 | 后端/备用前端局部实现 |
 | 当前缺口 | 真实入口 `WorkspaceChat` 未订阅 `task_state`；没有 Playwright/人工 walkthrough 证明 |
 | 优先级 | P1 |
@@ -325,8 +327,8 @@
 
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
-| AU04-GAP-01 — 真实入口确认动作未接入 `author_action` | `WorkspaceChat` 调旧 `confirm` / `reject`，后端 Channel 实现的是 `author_action` | 修设计偏差/补集成 | P0 |
-| AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | `TurnResultBuilder` 输出 behavior_state/available_actions，但未生成 `confirmation_card`；`WorkspaceChat` 不渲染 available action panel | 补实现/补验收 | P0 |
+| AU04-GAP-01 — 真实入口确认动作未接入 `author_action` | **superseded（2026-05-25）**：真实入口已改为通过 `available_actions` + `author_action` 提交；剩余为 UI 点击验收 | 补验收 | P0 |
+| AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | **superseded（2026-05-25）**：真实入口已渲染 available action panel；card 不再承载业务动作 | 补验收 | P0 |
 | AU04-GAP-03 — 确认幂等未闭环 | **局部已补**：持久 `author_action_receipts` 以 `work_id/session_id/source_turn/action/idempotency_key` 去重，重复确认不会二次 dispatch；仍缺真实 UI 重复点击验收和 TTL | 继续补验收/TTL | P0 |
 | AU04-GAP-04 — ConfirmationBinding 未完整实现 | 缺 `behavior_ref` + `target_ref` + rebased snapshot + gate result 的持久绑定 | 补实现/补集成 | P0 |
 | AU04-GAP-05 — 取消/拒绝 lifecycle 未闭环 | cancel/reject 可被 validation，但未证明 behavior 关闭、trace 写入、UI 恢复 | 补集成/补验收 | P0 |

@@ -142,7 +142,7 @@ novel_web (Phoenix.ChannelTest)
 
 ```
 输入: "帮我创建三个反派角色"
-经过: Planner(LLM) → creative_generation → ToolResult → TentativeArtifactSet
+经过: Planner(LLM) → concrete creative capability → ToolResult → TentativeArtifactSet
 ```
 
 **验证点**：
@@ -253,7 +253,7 @@ novel_web (Phoenix.ChannelTest)
 | E4 | 执行降级 | `v3_full_chain_test.exs` | ✅ stub integration |
 | E5 | 高风险确认 | `v3_full_chain_test.exs` | ✅ stub integration |
 | E6 | 工具调度 | `v3_full_chain_test.exs` | ✅ stub integration |
-| E7 | 创作产出 | `v3_full_chain_test.exs` | ✅ stub integration（2026-05-12 修复 generic creative_generation 默认方向） |
+| E7 | 创作产出 | `v3_full_chain_test.exs` | ✅ stub integration；2026-05-25 已移除泛化 creative capability，改为具体 creative capability |
 | E8 | Action 校验 | `workspace_channel_v3_test.exs` | ✅ Channel 层 |
 | E9 | 回放审计 | `v3_full_chain_test.exs` | ✅ stub integration |
 | E10 | 持久化闭环 | `dialogue_gateway_real_loop_test.exs` | ⚠️ interaction real-loop 已测，trace repository 查询场景仍需补 |

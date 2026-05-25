@@ -188,7 +188,7 @@ artifacts/scenario-invariants/
   actual: no item contains the nonce
   root cause: 产品代码未将用户输入传递到 Provider，或未将 Provider 响应字节透传到 artifact
   fix path:
-    1. 确认 Toolbox.execute 在 creative_generation 时调用 Gateway.complete
+    1. 确认 Toolbox.execute 在具体 creative capability 时调用 Provider complete_fn
     2. 确认 prompt template 包含用户原始文本
     3. 确认 ToolResult.output.items 来自 Provider 响应解析，不是 hardcoded
   reference: docs/engineering/scenario-invariants.md §2.3

@@ -100,6 +100,7 @@
 
 - 2026-05-07 — 从 `tasks/slices/v3/DAG.md` B6 建立 VS-05 文件。当前只授权 slice 设计和评审，不进入 implementation plan / code。
 - 2026-05-07 — 新增 `docs/design-v3/contracts/VS-05-ui-roundtrip-contract-pack.md`，关闭 VS-05 文档 blocker，并将 ADR-0014、ADR-0015 标记为 Accepted。仍不授权代码实现。
+- 2026-05-25 — Creative artifact UI roundtrip 纠偏落地：tentative creative artifact 改用 semantic `candidate_set` display card，card 不内嵌采纳/放弃/修改动作；动作由 application 层 `AvailableActionBuilder` 独立生成，frontend 从 `available_actions` 渲染和提交。
 
 ---
 
@@ -108,6 +109,7 @@
 - VS-05 的关键不是做页面，而是证明 UI roundtrip 不会绕过 TurnResult 和 Orchestrator。
 - VS-05 的验收必须证明客户端伪造的 `source_turn_result` 不能授权 action；服务端必须使用自己保存或可回读的 TurnResultViewModel 作为校验来源。
 - VS-05 刻意不冻结 replay developer report；否则会把 VS-06 的 replay surface 提前拉进来。
+- `choose_candidate` 只表达 selection intent，不等于 adoption；正文/设定类 artifact 采纳仍必须经过 adoption boundary。
 
 ---
 

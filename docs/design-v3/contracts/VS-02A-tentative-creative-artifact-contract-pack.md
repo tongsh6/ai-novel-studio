@@ -39,7 +39,7 @@ TentativeArtifactSet 表示 AI 生成的待采纳创作材料。
 | 字段 / 语义 | 要求 |
 |---|---|
 | `artifact_set_id` | 可被 TurnResult / trace 引用 |
-| `artifact_type` | character_seed / plot_direction / outline_draft / scene_draft / prose_fragment 等最小集合之一 |
+| `artifact_type` | `character_seed` / `plot_direction` / `outline_draft` / `scene_draft` / `prose_fragment` / `world_setting` 之一；unknown 必须 validation failure |
 | `items` | 一个或多个草稿项 |
 | `source_turn_ref` | 引用当前 turn |
 | `source_tool_result_ref` | 引用生成它的 ToolResult |
@@ -73,6 +73,16 @@ TentativeArtifactSet 表示 AI 生成的待采纳创作材料。
 - TurnResult 宣称草稿已经被采纳
 - UI 把 tentative artifact 当作权威作品投影
 - replay 时重新调用 provider 补齐草稿原因
+- Provider / adapter 失败时生成空 artifact、demo artifact 或 adoption action
+
+### 3.1 2026-05-25 runtime correction
+
+本 contract 已按 v3 creative artifact runtime 纠偏同步：
+
+- production capabilities 只保留具体工具：`character_design`、`plot_outline`、`prose_writing`、`world_building`；泛化 creative capability `creative_generation` 已从 production registry 移除，不可 dispatch，也不得出现在 Planner 可用工具提示中。
+- `Toolbox` 只返回 `ToolResult`；`ArtifactAssembler` 是唯一 `ToolResult -> TentativeArtifactSet` 创建边界。
+- `ToolAdapter` 负责具体工具到 artifact_type 的 contract 映射：`character_design -> character_seed`、`plot_outline -> outline_draft`、`prose_writing -> prose_fragment`、`world_building -> world_setting`。
+- provider failure / invalid output 必须返回 failed `ToolResult`；不得生成 `TentativeArtifactSet`、candidate_set card 或采纳类 action。
 
 ---
 
@@ -117,4 +127,4 @@ VS-02A implementation plan 必须把以下 proof 转成测试或可运行命令�
 | 草稿卡片 UI 呈现 | VS-05 |
 | 长篇正文质量评估 | 后续 creative quality slice |
 | 草稿是否持久化 | 后续 persistence / artifact repository slice |
-
+| Formal TaskState / Long-running Creative Job Contract | 后续单独冻结 queued / running / checkpointed / completed / failed / cancelled 生命周期；本 contract 不保留 synthetic task_state_events |

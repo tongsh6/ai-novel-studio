@@ -65,7 +65,7 @@ novel_web (Phoenix.ChannelTest)
 | 4 | downgrade E2E | `%{text: "重写第一章+更新角色+整理伏笔", generate_micro_plan: true}` | `decision.decision_type == :downgrade_to_dialogue`, `OrchestratorDecision.blocks_execution?(decision) == true` |
 | 5 | confirmation E2E | `%{text: "直接替换正文", generate_micro_plan: true}`（高风险） | `decision.decision_type == :require_confirmation`, `behavior != nil`, `behavior.behavior_type == :confirmation` |
 | 6 | tool dispatch E2E | 单步低风险 capability_invocation | `decision.decision_type == :allow_tool`, `result.status == :succeeded`, trace 可查询 |
-| 7 | creative artifact E2E | creative_generation tool dispatch | `TentativeArtifactSet` 非空，`artifact_set.adoption_status == :tentative` |
+| 7 | creative artifact E2E | concrete creative tool dispatch | `TentativeArtifactSet` 非空，`artifact_set.adoption_status == :tentative` |
 | 8 | action validation E2E | `ActionValidator.validate` 各种输入 | stale → `{:error, "stale..."}`, invented → `{:error, "invented..."}`, disabled → `{:error, "disabled..."}` |
 | 9 | replay E2E | 从任意 trace 构建 ReplayReport | `report.provider_called == false`, `report.result_status in [:complete, :partial]` |
 | 10 | persistence E2E | 任意 turn 后查询 DB | `TraceRepository.list_by_turn(turn_id) != []`, trace 字段完整 |

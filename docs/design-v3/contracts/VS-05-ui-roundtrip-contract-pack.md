@@ -104,6 +104,21 @@ Rules:
 1. UI cannot invent `card_type`.
 2. card does not imply action.
 3. card facts must match TurnResult / trace.
+4. creative tentative artifact display uses semantic `candidate_set`; cards do not embed business actions.
+5. `available_actions` is the only source for submit-capable actions; UI must not derive adoption or candidate actions from `card_type`.
+
+### 4.1 Creative card correction
+
+The previous creative artifact projection that emitted adoption-style cards for newly generated tentative materials is retired for the v3 runtime. The current rule is:
+
+```text
+TentativeArtifactSet
+→ candidate_set ui_card (display only)
+→ separate available_actions
+→ AuthorActionInput references the available action
+```
+
+`choose_candidate` means author selection intent only. It is not an adoption decision and does not imply production write.
 
 ---
 
