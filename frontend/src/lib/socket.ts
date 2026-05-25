@@ -51,7 +51,6 @@ export function sendMessage(
   behaviorId?: string | null,
   sessionId?: string | null,
   generateMicroPlan = false,
-  candidateSelection?: CandidateSelectionPayload,
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
     channel
@@ -61,7 +60,6 @@ export function sendMessage(
         session_id: sessionId,
         behavior_id: behaviorId,
         generate_micro_plan: generateMicroPlan,
-        candidate_selection: candidateSelection,
       }, 60000)
       .receive("ok", (response) => resolve(response as { received: boolean }))
       .receive("error", (error) => reject(new Error(String(error))))
@@ -69,16 +67,11 @@ export function sendMessage(
   });
 }
 
-export interface CandidateSelectionPayload {
-  source_turn_ref: string;
-  candidate_set_ref: string;
-  candidate_ref: string;
-}
-
 export interface AuthorActionPayload {
   source_turn_ref: string;
   action_id: string;
   action_type: string;
+  target_ref?: string;
   behavior_ref?: string;
   candidate_set_ref?: string;
   candidate_ref?: string;
@@ -140,75 +133,6 @@ export function rejectAction(
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("reject timeout")));
-  });
-}
-
-export function discardArtifact(
-  channel: Channel,
-  artifactId: string,
-  artifactType?: string,
-  sourceTurnRef?: string | null,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("discard", {
-        artifact_id: artifactId,
-        artifact_type: artifactType,
-        source_turn_ref: sourceTurnRef,
-      }, 60000)
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("discard timeout")));
-  });
-}
-
-export function adopt(
-  channel: Channel,
-  artifactId: string,
-  baseRevision: number | undefined,
-  payload: Record<string, unknown>,
-  artifactType?: string,
-  sourceTurnRef?: string | null,
-): Promise<{ received: boolean; action_status: string }> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("adopt", {
-        artifact_id: artifactId,
-        base_revision: baseRevision,
-        payload,
-        artifact_type: artifactType,
-        source_turn_ref: sourceTurnRef,
-      }, 60000)
-      .receive("ok", (response) =>
-        resolve(response as { received: boolean; action_status: string }),
-      )
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("adopt timeout")));
-  });
-}
-
-export function modifyDraft(
-  channel: Channel,
-  draftId: string,
-  baseRevision: number | undefined,
-  content: string,
-  instruction: string,
-  artifactType?: string,
-  sourceTurnRef?: string | null,
-): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    channel
-      .push("modify_draft", {
-        draft_id: draftId,
-        base_revision: baseRevision,
-        content,
-        instruction,
-        artifact_type: artifactType,
-        source_turn_ref: sourceTurnRef,
-      }, 60000)
-      .receive("ok", (response) => resolve(response as Record<string, unknown>))
-      .receive("error", (error) => reject(new Error(String(error))))
-      .receive("timeout", () => reject(new Error("modify_draft timeout")));
   });
 }
 

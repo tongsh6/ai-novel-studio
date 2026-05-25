@@ -13,9 +13,6 @@ import {
   sendMessage,
   sendAuthorAction,
   onTaskState,
-  adopt,
-  discardArtifact,
-  modifyDraft,
   type TaskStateData,
 } from "../lib/socket";
 import {
@@ -37,39 +34,37 @@ import {
   type WorkSessionDto,
 } from "../lib/sessions";
 import {
-  findAuthorizedAction,
+  findAvailableActionForTarget,
   toAuthorActionPayload,
   type AvailableActionLike,
 } from "../lib/workbenchActions";
-import { OPEN_READING_MODE_ACTION_ID } from "../lib/adoptionDecision";
 import {
-  adoptionDecisionForCard,
   deriveWorkspaceRuntimeState,
-  disableResolvedArtifactActions,
   getPendingAdoptionCount,
   getVisibleWorkTitle,
-  isArtifactResolved,
   shouldShowWelcomeMessage,
 } from "../lib/workspaceRuntimeState";
 import {
   ClarificationCard,
   ConfirmationCard,
   WarningCard,
-  AdoptionCard,
   ProgressCard,
   CheckpointCard,
   ResultCard,
   FailureCard,
   EscalationCard,
   DefaultCard,
-  type AdoptionDecisionData,
   type UICardData,
 } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
+import type {
+  StructurePanelActionState,
+  StructurePanelArtifactAction,
+} from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
-import { TRACE, WORKBENCH } from "../lib/copy";
-import { buildCandidateContinuation } from "../lib/candidateSelection";
+import { CARD, TRACE, WORKBENCH } from "../lib/copy";
+import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import {
   toAuthorTraceSummary,
   type TraceSummaryView,
@@ -85,7 +80,7 @@ import {
 
 import styles from "./WorkspaceChat.module.css";
 
-interface TurnResult {
+export interface TurnResult {
   schema_version: string;
   turn_id: string;
   parent_turn_id?: string | null;
@@ -111,7 +106,7 @@ interface TurnResult {
   produced_at: string;
 }
 
-interface AvailableAction extends AvailableActionLike {
+export interface AvailableAction extends AvailableActionLike {
   target_ref?: string;
 }
 
@@ -143,8 +138,84 @@ interface ChatMessage {
   turnResult?: TurnResult;
 }
 
-function isArtifactResolutionAction(actionType?: string): boolean {
-  return actionType === "accept" || actionType === "discard" || actionType === "edit_then_accept";
+export interface WorkspaceCandidatePanelProps {
+  turnResult: TurnResult;
+  candidates: CandidateDirection[];
+  loading: boolean;
+  socketConnected: boolean;
+  onCandidateContinue: (turnResult: TurnResult, candidate: CandidateDirection) => void;
+  onCandidateAdopt: (turnResult: TurnResult, action: AvailableActionLike) => void;
+}
+
+export function WorkspaceCandidatePanel({
+  turnResult,
+  candidates,
+  loading,
+  socketConnected,
+  onCandidateContinue,
+  onCandidateAdopt,
+}: WorkspaceCandidatePanelProps) {
+  return (
+    <div className={styles.candidatePanel}>
+      <div className={styles.candidateHeader}>{WORKBENCH.candidatePanelTitle}</div>
+      <div className={styles.candidateList}>
+        {candidates.map((candidate, candidateIndex) => {
+          const candidateAction = findCandidateAvailableAction({
+            availableActions: turnResult.available_actions ?? [],
+            candidate,
+            candidateIndex,
+            candidateCount: candidates.length,
+            sourceTurnRef: turnResult.turn_id,
+          });
+          const unavailableReason = candidateAction?.disabled_reason ?? WORKBENCH.actionUnavailable;
+          const actionUnavailable =
+            !candidateAction || candidateAction.enabled === false || !socketConnected;
+
+          return (
+            <div key={candidate.direction_id} className={styles.candidateCard}>
+              <div className={styles.candidateTitle}>{candidate.title}</div>
+              <div className={styles.candidatePitch}>{candidate.pitch}</div>
+              {candidate.tone_tags && candidate.tone_tags.length > 0 && (
+                <div className={styles.candidateTags}>
+                  {candidate.tone_tags.map((tag) => (
+                    <span key={tag} className={styles.tag}>{tag}</span>
+                  ))}
+                </div>
+              )}
+              <div className={styles.candidateActions}>
+                <button
+                  className={styles.candidateButton}
+                  disabled={loading || actionUnavailable}
+                  title={actionUnavailable ? unavailableReason : WORKBENCH.candidateContinueTitle}
+                  onClick={() => {
+                    if (!candidateAction || candidateAction.enabled === false) return;
+                    onCandidateContinue(turnResult, candidate);
+                  }}
+                >
+                  <MessageCircle size={14} aria-hidden="true" />
+                  <span>{WORKBENCH.candidateContinueLabel}</span>
+                </button>
+                {candidateAction && (
+                  <button
+                    className={styles.candidateButton}
+                    disabled={loading || !socketConnected || candidateAction.enabled === false}
+                    title={candidateAction.disabled_reason ?? WORKBENCH.candidateAdoptTitle}
+                    onClick={() => {
+                      if (candidateAction.enabled === false) return;
+                      onCandidateAdopt(turnResult, candidateAction);
+                    }}
+                  >
+                    <BookOpen size={14} aria-hidden="true" />
+                    <span>{WORKBENCH.candidateAdoptLabel}</span>
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 function startupFailureMessage(detail: string): ChatMessage {
@@ -161,8 +232,6 @@ export function WorkspaceChat() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [llmConnected, setLlmConnected] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState<string>("");
-  const [modifyModal, setModifyModal] = useState<{ artifact: ArtifactEntry; sourceTurnRef?: string } | null>(null);
-  const [modifyInstruction, setModifyInstruction] = useState("");
   const [pendingAnswerBid, setPendingAnswerBid] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<WorkSessionDto[]>([]);
@@ -604,62 +673,29 @@ export function WorkspaceChat() {
 
   const handleCandidateContinue = async (turnResult: TurnResult, candidate: CandidateDirection) => {
     if (!channelRef.current) return;
-    const continuation = buildCandidateContinuation(turnResult.turn_id, candidate);
+    const turnCandidates = turnResult.candidate_directions ?? [];
+    const candidateIndex = turnCandidates.findIndex((item) => item.direction_id === candidate.direction_id);
+    const action = findCandidateAvailableAction({
+      availableActions: turnResult.available_actions ?? [],
+      candidate,
+      candidateIndex: candidateIndex >= 0 ? candidateIndex : undefined,
+      candidateCount: turnCandidates.length,
+      sourceTurnRef: turnResult.turn_id,
+    });
 
-    setMessages((prev) => [...prev, { role: "user", text: continuation.text }]);
-    setLoading(true);
-
-    try {
-      await sendMessage(
-        channelRef.current,
-        continuation.text,
-        context.workId,
-        null,
-        activeSessionId,
-        false,
-        continuation.selection,
-      );
-    } catch {
+    if (!action || action.enabled === false) {
+      console.warn("Available action unavailable for candidate continuation", {
+        candidateLookupId: candidate.direction_id,
+        turnId: turnResult.turn_id,
+      });
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: WORKBENCH.sendFailure },
+        { role: "assistant", text: action?.disabled_reason ?? WORKBENCH.actionUnavailable },
       ]);
-      setLoading(false);
+      return;
     }
-  };
 
-  const handleAdopt = async (artifact: ArtifactEntry, sourceTurnRef?: string | null) => {
-    if (!channelRef.current) return;
-    try {
-      const result = await adopt(
-        channelRef.current,
-        artifact.artifact_id,
-        parseRevisionBase(artifact.revision_base),
-        artifact.payload,
-        artifact.artifact_type,
-        sourceTurnRef ?? artifact.source_turn_ref ?? null,
-      );
-
-      // Update context when Work is adopted (persist work_id for subsequent messages)
-      if (artifact.artifact_type === "work" && typeof artifact.payload.title === "string") {
-        setContext({
-          workId: artifact.artifact_id,
-          workTitle: artifact.payload.title,
-        });
-      }
-
-      if (result.action_status !== "accepted") {
-        setMessages((prev) => [
-          ...prev,
-          { role: "assistant", text: WORKBENCH.adoptionIncomplete },
-        ]);
-      }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: WORKBENCH.actionFailure },
-      ]);
-    }
+    await handleAvailableAction(turnResult, action);
   };
 
   const handleAvailableAction = async (turnResult: TurnResult, action: AvailableActionLike) => {
@@ -684,63 +720,79 @@ export function WorkspaceChat() {
     if (action.action_type === "cancel_pending_behavior") return WORKBENCH.actionCancel;
     if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
+    if (action.action_type === "accept") return CARD.tentativeArtifact.acceptLabel;
+    if (action.action_type === "discard") return CARD.tentativeArtifact.discardLabel;
+    if (action.action_type === "edit_then_accept") return CARD.tentativeArtifact.editThenAcceptLabel;
     return action.action_type;
   };
 
-  const authorizedCandidateAction = (
-    turnResult: TurnResult,
-    candidate: CandidateDirection,
-  ): AvailableActionLike | null => {
-    const candidateActions = turnResult.available_actions ?? [];
-
-    return findAuthorizedAction(candidateActions, {
-      action_id: `choose_candidate:${candidate.direction_id}`,
-      action_type: "choose_candidate",
-      target_ref: candidate.direction_id,
-    });
+  const handleVisibleAvailableAction = (turnResult: TurnResult, action: AvailableAction) => {
+    void handleAvailableAction(turnResult, action);
   };
 
   const visibleAvailableActions = (turnResult: TurnResult): AvailableAction[] =>
     (turnResult.available_actions ?? []).filter((action) => action.action_type !== "choose_candidate");
 
-  const handlePanelAction = (actionType: string, artifactId?: string) => {
-    if (actionType === "init_intent") {
-      void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
-    } else if (actionType === "init_outline") {
-      void handleSend("我想规划一部 10 万字长篇小说，请生成章节大纲", { generateMicroPlan: true });
-    } else if (actionType === "draft_chapter" && artifactId) {
-      void handleSend(`请根据已采纳章节计划生成${artifactId}正文草稿，保持为待采纳草稿。`, {
-        generateMicroPlan: true,
+  const findArtifactAvailableAction = (
+    artifact: ArtifactEntry,
+    actionType: StructurePanelArtifactAction,
+  ): { turnResult: TurnResult; action: AvailableActionLike } | null => {
+    const sourceTurnRef = artifact.source_turn_ref;
+
+    const turnResults = messages
+      .map((msg) => msg.turnResult)
+      .filter((turnResult): turnResult is TurnResult => Boolean(turnResult));
+
+    const candidateTurns = sourceTurnRef
+      ? turnResults.filter((turnResult) => turnResult.turn_id === sourceTurnRef)
+      : turnResults;
+
+    for (const turnResult of candidateTurns) {
+      const action = findAvailableActionForTarget(turnResult.available_actions ?? [], {
+        action_type: actionType,
+        target_ref: artifact.artifact_id,
       });
-    } else if (actionType === "revise" && artifactId) {
-      void handleSend(`我想修改设定 ${artifactId}，我的想法是：`);
-    } else {
-      console.warn("Panel action ignored:", actionType, artifactId);
+
+      if (action) return { turnResult, action };
     }
+
+    return null;
   };
 
-  const handleModifySubmit = async () => {
-    if (!channelRef.current || !modifyModal) return;
-    const instruction = modifyInstruction.trim();
-    if (!instruction) return;
-
-    const { artifact, sourceTurnRef } = modifyModal;
-    await modifyDraft(
-      channelRef.current,
-      artifact.artifact_id,
-      artifact.revision_base as number | undefined,
-      (artifact.payload?.content as string) ?? "",
-      instruction,
-      artifact.artifact_type,
-      sourceTurnRef,
-    );
-    setModifyModal(null);
+  const artifactActionState = (
+    artifact: ArtifactEntry,
+    actionType: StructurePanelArtifactAction,
+  ): StructurePanelActionState => {
+    const match = findArtifactAvailableAction(artifact, actionType);
+    if (!match) return { enabled: false, disabledReason: WORKBENCH.actionUnavailable };
+    if (match.action.enabled === false) {
+      return {
+        enabled: false,
+        disabledReason: match.action.disabled_reason ?? WORKBENCH.actionUnavailable,
+      };
+    }
+    return { enabled: true, disabledReason: match.action.disabled_reason };
   };
 
-  const parseRevisionBase = (revisionBase: string | null | undefined) => {
-    if (!revisionBase) return undefined;
-    const parsed = Number.parseInt(revisionBase, 10);
-    return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+  const submitArtifactAvailableAction = (
+    artifact: ArtifactEntry,
+    actionType: StructurePanelArtifactAction,
+  ) => {
+    const match = findArtifactAvailableAction(artifact, actionType);
+
+    if (!match || match.action.enabled === false) {
+      console.warn("Available action unavailable for artifact", {
+        actionType,
+        artifactId: artifact.artifact_id,
+      });
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: WORKBENCH.actionUnavailable },
+      ]);
+      return;
+    }
+
+    void handleAvailableAction(match.turnResult, match.action);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -1223,155 +1275,43 @@ export function WorkspaceChat() {
                 )}
 
                 {!isReadOnlySessionView && msg.turnResult?.ui_cards?.map((card, ci) => {
-                  const handleAction = (_actionId: string, targetRef: string, actionType?: string) => {
-                    if (isArtifactResolutionAction(actionType) && isArtifactResolved(runtimeState, targetRef)) {
-                      return;
-                    }
-
-                    if (_actionId === OPEN_READING_MODE_ACTION_ID) {
-                      setMode("reading");
-                      return;
-                    }
-
-                    if (actionType === "answer") {
-                      setPendingAnswerBid(targetRef);
-                      const input = document.querySelector<HTMLInputElement>(`.${styles.inputBox}`);
-                      input?.focus();
-                      return;
-                    }
-                    if (actionType === "discard" && channelRef.current) {
-                      const pending = msg.turnResult?.adoption_state?.pending ?? [];
-                      const artifact = pending.find((a) => a.artifact_id === targetRef);
-                      void discardArtifact(
-                        channelRef.current,
-                        targetRef,
-                        artifact?.artifact_type,
-                        msg.turnResult?.turn_id,
-                      );
-                      return;
-                    }
-                    if (actionType === "edit_then_accept") {
-                      const pending = msg.turnResult?.adoption_state?.pending ?? [];
-                      const artifact = pending.find((a) => a.artifact_id === targetRef);
-                      if (artifact && channelRef.current) {
-                        setModifyInstruction("");
-                        setModifyModal({
-                          artifact,
-                          sourceTurnRef: msg.turnResult?.turn_id,
-                        });
-                      }
-                      return;
-                    }
-                    const pending = msg.turnResult?.adoption_state?.pending ?? [];
-                    const artifact = pending.find((a) => a.artifact_id === targetRef);
-                    if (artifact && actionType === "accept") {
-                      void handleAdopt(artifact, msg.turnResult?.turn_id);
-                      return;
-                    }
-
-                    const authorizedAction = findAuthorizedAction(
-                      msg.turnResult?.available_actions ?? [],
-                      {
-                        action_id: _actionId,
-                        action_type: actionType,
-                        target_ref: targetRef,
-                      },
-                    );
-
-                    if (authorizedAction && msg.turnResult) {
-                      void handleAvailableAction(msg.turnResult, authorizedAction);
-                    }
-                  };
-                  const cardForRender = disableResolvedArtifactActions(runtimeState, card);
-                  const adoptionDecision =
-                    cardForRender.card_type === "adoption_card"
-                      ? adoptionDecisionForCard(runtimeState, cardForRender) as AdoptionDecisionData | null
-                      : null;
-
-                  switch (cardForRender.card_type) {
+                  switch (card.card_type) {
                     case "clarification_card":
-                      return <ClarificationCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return <ClarificationCard key={ci} card={card} />;
                     case "confirmation_card":
-                      return <ConfirmationCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return <ConfirmationCard key={ci} card={card} />;
                     case "warning_card":
-                      return <WarningCard key={ci} card={cardForRender} onAction={handleAction} />;
-                    case "adoption_card":
-                      return (
-                        <AdoptionCard
-                          key={ci}
-                          card={cardForRender}
-                          adoptionDecision={adoptionDecision}
-                          onAction={handleAction}
-                        />
-                      );
+                      return <WarningCard key={ci} card={card} />;
+                    case "candidate_set":
+                      return <DefaultCard key={ci} card={card} />;
                     case "progress_card":
-                      return <ProgressCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return <ProgressCard key={ci} card={card} />;
                     case "checkpoint_card":
-                      return <CheckpointCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return <CheckpointCard key={ci} card={card} />;
                     case "result_card":
-                      return <ResultCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return <ResultCard key={ci} card={card} />;
                     case "failure_card":
-                      return <FailureCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return <FailureCard key={ci} card={card} />;
                     case "escalation_card":
-                      return <EscalationCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return <EscalationCard key={ci} card={card} />;
                     default:
-                      return <DefaultCard key={ci} card={cardForRender} onAction={handleAction} />;
+                      return <DefaultCard key={ci} card={card} />;
                   }
                 })}
 
                 {!isReadOnlySessionView && msg.turnResult?.candidate_directions && msg.turnResult.candidate_directions.length > 0 && (
-                  <div className={styles.candidatePanel}>
-                    <div className={styles.candidateHeader}>{WORKBENCH.candidatePanelTitle}</div>
-                    <div className={styles.candidateList}>
-                      {msg.turnResult.candidate_directions.map((c) => {
-                        const adoptAction = authorizedCandidateAction(msg.turnResult!, c);
-
-                        return (
-                          <div key={c.direction_id} className={styles.candidateCard}>
-                            <div className={styles.candidateTitle}>{c.title}</div>
-                            <div className={styles.candidatePitch}>{c.pitch}</div>
-                            {c.tone_tags && c.tone_tags.length > 0 && (
-                              <div className={styles.candidateTags}>
-                                {c.tone_tags.map((t) => (
-                                  <span key={t} className={styles.tag}>{t}</span>
-                                ))}
-                              </div>
-                            )}
-                            <div className={styles.candidateActions}>
-                              <button
-                                className={styles.candidateButton}
-                                disabled={loading || !socketConnected}
-                                title={WORKBENCH.candidateContinueTitle}
-                                onClick={() => {
-                                  if (msg.turnResult) {
-                                    void handleCandidateContinue(msg.turnResult, c);
-                                  }
-                                }}
-                              >
-                                <MessageCircle size={14} aria-hidden="true" />
-                                <span>{WORKBENCH.candidateContinueLabel}</span>
-                              </button>
-                              {adoptAction && (
-                                <button
-                                  className={styles.candidateButton}
-                                  disabled={loading || !socketConnected || adoptAction.enabled === false}
-                                  title={adoptAction.disabled_reason ?? WORKBENCH.candidateAdoptTitle}
-                                  onClick={() => {
-                                    if (msg.turnResult && adoptAction) {
-                                      void handleAvailableAction(msg.turnResult, adoptAction);
-                                    }
-                                  }}
-                                >
-                                  <BookOpen size={14} aria-hidden="true" />
-                                  <span>{WORKBENCH.candidateAdoptLabel}</span>
-                                </button>
-                              )}
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
+                  <WorkspaceCandidatePanel
+                    turnResult={msg.turnResult}
+                    candidates={msg.turnResult.candidate_directions}
+                    loading={loading}
+                    socketConnected={socketConnected}
+                    onCandidateContinue={(candidateTurnResult, candidate) => {
+                      void handleCandidateContinue(candidateTurnResult, candidate);
+                    }}
+                    onCandidateAdopt={(candidateTurnResult, action) => {
+                      void handleAvailableAction(candidateTurnResult, action);
+                    }}
+                  />
                 )}
 
                 {!isReadOnlySessionView && msg.turnResult && visibleAvailableActions(msg.turnResult).length > 0 && (
@@ -1384,7 +1324,7 @@ export function WorkspaceChat() {
                         title={action.disabled_reason}
                         onClick={() => {
                           if (msg.turnResult) {
-                            void handleAvailableAction(msg.turnResult, action);
+                            handleVisibleAvailableAction(msg.turnResult, action);
                           }
                         }}
                       >
@@ -1550,46 +1490,32 @@ export function WorkspaceChat() {
             isOpen={isPanelOpen} 
             onClose={() => setIsPanelOpen(false)}
             pendingAdoptions={allPendingAdoptions}
-            onAdopt={(artifact) => {
-              void handleAdopt(artifact);
+            getArtifactActionState={artifactActionState}
+            onArtifactAction={(artifact, actionType) => {
+              submitArtifactAvailableAction(artifact, actionType);
               setIsPanelOpen(false);
             }}
-            onAction={(type, id) => {
-              handlePanelAction(type, id);
+            onStartPlanning={() => {
+              void handleSend("我想规划一部 10 万字长篇小说，请生成章节大纲", {
+                generateMicroPlan: true,
+              });
+            }}
+            onCreateCharacter={() => {
+              void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
+            }}
+            onDraftChapter={(chapterBrief) => {
+              void handleSend(`请根据已采纳章节计划生成${chapterBrief}正文草稿，保持为待采纳草稿。`, {
+                generateMicroPlan: true,
+              });
+            }}
+            onNewAction={() => {
+              void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
               setIsPanelOpen(false);
             }}
           />
         )}
 
       </div>
-
-      {/* Modify Draft Modal */}
-      {modifyModal && (
-        <div className={styles.modalOverlay} onClick={() => setModifyModal(null)}>
-          <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-            <h3>修改草稿</h3>
-            <textarea
-              className={styles.modalTextarea}
-              value={modifyInstruction}
-              onChange={(e) => setModifyInstruction(e.target.value)}
-              placeholder="请输入修改意见，例如：把主角的性格改得更果断一些..."
-              rows={4}
-              autoFocus
-            />
-            <div className={styles.modalActions}>
-              <button className={styles.btnSecondary} onClick={() => setModifyModal(null)}>取消</button>
-              <button
-                className={styles.btnPrimary}
-                onClick={() => {
-                  void handleModifySubmit();
-                }}
-              >
-                提交修改
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

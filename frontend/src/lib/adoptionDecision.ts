@@ -1,4 +1,4 @@
-// Design: docs/design-v2/ui-design/42-card-system.md §3 (adoption_card state projection)
+// Design: docs/design-v2/ui-design/42-card-system.md §3 (adoption decision projection)
 // Prototype: novel-studio-v2.pen → 42§4-adoption-card-states (PZAVY)
 import { CARD } from "./copy";
 

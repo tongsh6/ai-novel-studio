@@ -26,11 +26,11 @@ import {
 import { WORKBENCH_V3 } from "../lib/copy";
 import { useAppStore } from "../lib/store";
 import { assistantRoleLabel } from "../lib/assistantDisplayName";
+import { actionRequiresTargetRef } from "../lib/workbenchActions";
 import {
   ClarificationCard,
   ConfirmationCard,
   WarningCard,
-  AdoptionCard,
   ProgressCard,
   CheckpointCard,
   ResultCard,
@@ -176,11 +176,13 @@ export function WorkbenchV3() {
   const handleAction = useCallback(
     async (action: V3AvailableAction) => {
       if (!channelRef.current || !action.enabled) return;
+      if (actionRequiresTargetRef(action.action_type) && !action.target_ref) return;
 
       const payload: V3AuthorActionPayload = {
-        source_turn_ref: currentTurnId,
+        source_turn_ref: action.source_turn_ref ?? currentTurnId,
         action_id: action.action_id,
         action_type: action.action_type,
+        target_ref: action.target_ref,
         behavior_ref: action.behavior_ref,
         candidate_set_ref: action.candidate_set_ref,
         candidate_ref: action.candidate_ref,
@@ -211,30 +213,8 @@ export function WorkbenchV3() {
   // ── Render Card ─────────────────────────────────
 
   const renderCard = (card: V3UICard, i: number) => {
-    const handleCardAction = (
-      _actionId: string,
-      targetRef: string,
-      actionType?: string,
-    ) => {
-      // Find matching available action or build a generic one
-      const action = availableActions.find(
-        (a) => a.action_id === _actionId || a.target_ref === targetRef,
-      );
-      if (action) {
-        void handleAction(action);
-      } else {
-        // Fallback for generic actions
-        void handleAction({
-          action_id: _actionId,
-          action_type: actionType || "unknown",
-          target_ref: targetRef,
-          enabled: true,
-        });
-      }
-    };
-
     // Mapping V3UICard to the Props expected by UICards (which uses the same shape)
-    const props = { card, onAction: handleCardAction };
+    const props = { card };
 
     switch (card.card_type) {
       case "clarification_card":
@@ -243,8 +223,6 @@ export function WorkbenchV3() {
         return <ConfirmationCard key={i} {...props} />;
       case "warning_card":
         return <WarningCard key={i} {...props} />;
-      case "adoption_card":
-        return <AdoptionCard key={i} {...props} />;
       case "progress_card":
         return <ProgressCard key={i} {...props} />;
       case "checkpoint_card":

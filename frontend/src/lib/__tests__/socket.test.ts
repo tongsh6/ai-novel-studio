@@ -8,9 +8,6 @@ import {
   joinWorkspace,
   sendMessage,
   sendAuthorAction,
-  adopt,
-  discardArtifact,
-  modifyDraft,
   getToc,
   getChapterContent,
   getChapterPlans,
@@ -68,41 +65,19 @@ describe("sendMessage", () => {
   it("pushes user_message with text and does not request micro plan by default", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined, session_id: undefined, behavior_id: undefined, generate_micro_plan: false, candidate_selection: undefined }, 60000);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined, session_id: undefined, behavior_id: undefined, generate_micro_plan: false }, 60000);
   });
 
   it("passes work_id when provided", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好", "work-123");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123", session_id: undefined, behavior_id: undefined, generate_micro_plan: false, candidate_selection: undefined }, 60000);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123", session_id: undefined, behavior_id: undefined, generate_micro_plan: false }, 60000);
   });
 
   it("can explicitly request a micro plan", () => {
     const ch = mockChannel();
     sendMessage(ch, "生成角色设定", "work-123", undefined, "session-123", true);
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "生成角色设定", work_id: "work-123", session_id: "session-123", behavior_id: undefined, generate_micro_plan: true, candidate_selection: undefined }, 60000);
-  });
-
-  it("passes candidate selection metadata without requesting adoption", () => {
-    const ch = mockChannel();
-    sendMessage(ch, "继续聊这个方向", "work-123", undefined, "session-123", false, {
-      source_turn_ref: "turn-1",
-      candidate_set_ref: "candidate_set:turn-1",
-      candidate_ref: "dir-1",
-    });
-
-    expect(ch.push).toHaveBeenCalledWith("user_message", {
-      text: "继续聊这个方向",
-      work_id: "work-123",
-      session_id: "session-123",
-      behavior_id: undefined,
-      generate_micro_plan: false,
-      candidate_selection: {
-        source_turn_ref: "turn-1",
-        candidate_set_ref: "candidate_set:turn-1",
-        candidate_ref: "dir-1",
-      },
-    }, 60000);
+    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "生成角色设定", work_id: "work-123", session_id: "session-123", behavior_id: undefined, generate_micro_plan: true }, 60000);
   });
 });
 
@@ -113,6 +88,7 @@ describe("sendAuthorAction", () => {
       source_turn_ref: "turn-1",
       action_id: "act-confirm",
       action_type: "confirm_before_execute",
+      target_ref: "target-1",
       behavior_ref: "bh-1",
       idempotency_key: "ik-1",
     });
@@ -121,77 +97,11 @@ describe("sendAuthorAction", () => {
         source_turn_ref: "turn-1",
         action_id: "act-confirm",
         action_type: "confirm_before_execute",
+        target_ref: "target-1",
         behavior_ref: "bh-1",
         idempotency_key: "ik-1",
       },
     }, 60000);
-  });
-});
-
-describe("adopt", () => {
-  it("pushes adopt with artifact data", () => {
-    const ch = mockChannel();
-    adopt(ch, "artifact-1", 3, { title: "test" }, "draft_text");
-    expect(ch.push).toHaveBeenCalledWith(
-      "adopt",
-      {
-        artifact_id: "artifact-1",
-        base_revision: 3,
-        payload: { title: "test" },
-        artifact_type: "draft_text",
-        source_turn_ref: undefined,
-      },
-      60000,
-    );
-  });
-});
-
-describe("discardArtifact", () => {
-  it("pushes discard with artifact_type and source turn", () => {
-    const ch = mockChannel();
-    discardArtifact(ch, "artifact-2", "draft_text", "turn-source");
-    expect(ch.push).toHaveBeenCalledWith(
-      "discard",
-      {
-        artifact_id: "artifact-2",
-        artifact_type: "draft_text",
-        source_turn_ref: "turn-source",
-      },
-      60000,
-    );
-  });
-
-  it("omits artifact_type when not provided", () => {
-    const ch = mockChannel();
-    discardArtifact(ch, "artifact-3");
-    expect(ch.push).toHaveBeenCalledWith(
-      "discard",
-      {
-        artifact_id: "artifact-3",
-        artifact_type: undefined,
-        source_turn_ref: undefined,
-      },
-      60000,
-    );
-  });
-});
-
-describe("modifyDraft", () => {
-  it("pushes modify_draft with all fields and source turn", () => {
-    const ch = mockChannel();
-    modifyDraft(ch, "draft-1", 5, "原文内容", "改得更激烈一些", "draft_text", "turn-source");
-    expect(ch.push).toHaveBeenCalledWith(
-      "modify_draft",
-      {
-        draft_id: "draft-1",
-        base_revision: 5,
-        content: "原文内容",
-        instruction: "改得更激烈一些",
-        artifact_type: "draft_text",
-        source_turn_ref: "turn-source",
-      },
-      60000,
-    );
   });
 });
 

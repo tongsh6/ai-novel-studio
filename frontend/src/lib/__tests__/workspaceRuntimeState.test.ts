@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  adoptionDecisionForCard,
   deriveWorkspaceRuntimeState,
-  disableResolvedArtifactActions,
   getPendingAdoptionCount,
   getReadingProjectionStatus,
   getVisibleWorkTitle,
@@ -144,35 +142,6 @@ describe("WorkspaceRuntimeState", () => {
       "edited",
     ]);
     expect(state.adoption.pendingArtifactIds).toEqual(["pending"]);
-  });
-
-  it("derives decision cards and disables resolved pending actions", () => {
-    const state = deriveWorkspaceRuntimeState({
-      adoptionState: {
-        pending: [{ artifact_id: "artifact-1", adoption_status: "PENDING" }],
-        resolved: [{
-          artifact_id: "artifact-1",
-          artifact_type: "prose_fragment",
-          adoption_status: "EDITED_ACCEPTED",
-          payload: { title: "第一章开场" },
-        }],
-      },
-    });
-    const card = {
-      card_type: "adoption_card",
-      actions: [
-        {
-          action_id: "accept-artifact-1",
-          action_type: "accept",
-          label: "采纳",
-          target_ref: "artifact-1",
-          enabled: true,
-        },
-      ],
-    };
-
-    expect(adoptionDecisionForCard(state, card)?.adoption_status).toBe("EDITED_ACCEPTED");
-    expect(disableResolvedArtifactActions(state, card).actions?.[0].enabled).toBe(false);
   });
 
   it("derives reading projection empty, ready, and failed states", () => {

@@ -17,12 +17,29 @@ import type { TocData, ChapterPlanData, CharacterData, MemoryItemData, WorkStats
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
+export type StructurePanelArtifactAction = "accept" | "edit_then_accept";
+
+export interface StructurePanelActionState {
+  enabled: boolean;
+  disabledReason?: string;
+}
+
 interface Props {
   isOpen: boolean;
   onClose: () => void;
   pendingAdoptions: ArtifactEntry[];
-  onAdopt: (artifact: ArtifactEntry) => void;
-  onAction: (actionType: string, artifactId?: string) => void;
+  getArtifactActionState: (
+    artifact: ArtifactEntry,
+    actionType: StructurePanelArtifactAction,
+  ) => StructurePanelActionState;
+  onArtifactAction: (
+    artifact: ArtifactEntry,
+    actionType: StructurePanelArtifactAction,
+  ) => void;
+  onStartPlanning: () => void;
+  onCreateCharacter: () => void;
+  onDraftChapter: (chapterBrief: string) => void;
+  onNewAction: () => void;
 }
 
 type TabType = "outline" | "character" | "foreshadowing" | "rule";
@@ -40,8 +57,12 @@ export function StructurePanel({
   isOpen,
   onClose,
   pendingAdoptions,
-  onAdopt,
-  onAction,
+  getArtifactActionState,
+  onArtifactAction,
+  onStartPlanning,
+  onCreateCharacter,
+  onDraftChapter,
+  onNewAction,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("foreshadowing");
   const [toc, setToc] = useState<TocData | null>(null);
@@ -177,25 +198,40 @@ export function StructurePanel({
                 <div className={styles.secHeader}>
                   <span className={styles.secTitleAccent}>{STRUCTURE_PANEL.pendingSection}</span>
                 </div>
-                {pendingAdoptions.map((artifact) => (
-                  <div key={artifact.artifact_id} className={styles.cardAccent}>
-                    <div className={styles.cardLabel}>{STRUCTURE_PANEL.pendingLabel}</div>
-                    <div className={styles.cardTitle}>
-                      {payloadText(artifact.payload.title, STRUCTURE_PANEL.pendingFallbackTitle)}
+                {pendingAdoptions.map((artifact) => {
+                  const acceptAction = getArtifactActionState(artifact, "accept");
+                  const editAction = getArtifactActionState(artifact, "edit_then_accept");
+
+                  return (
+                    <div key={artifact.artifact_id} className={styles.cardAccent}>
+                      <div className={styles.cardLabel}>{STRUCTURE_PANEL.pendingLabel}</div>
+                      <div className={styles.cardTitle}>
+                        {payloadText(artifact.payload.title, STRUCTURE_PANEL.pendingFallbackTitle)}
+                      </div>
+                      <div className={styles.cardDesc}>
+                        {payloadText(artifact.payload.content, STRUCTURE_PANEL.pendingFallbackContent)}
+                      </div>
+                      <div className={styles.cardActions}>
+                        <button
+                          className={styles.btnPrimary}
+                          disabled={!acceptAction.enabled}
+                          title={acceptAction.disabledReason}
+                          onClick={() => onArtifactAction(artifact, "accept")}
+                        >
+                          {STRUCTURE_PANEL.acceptSetting}
+                        </button>
+                        <button
+                          className={styles.btnSecondary}
+                          disabled={!editAction.enabled}
+                          title={editAction.disabledReason}
+                          onClick={() => onArtifactAction(artifact, "edit_then_accept")}
+                        >
+                          {STRUCTURE_PANEL.requestRevision}
+                        </button>
+                      </div>
                     </div>
-                    <div className={styles.cardDesc}>
-                      {payloadText(artifact.payload.content, STRUCTURE_PANEL.pendingFallbackContent)}
-                    </div>
-                    <div className={styles.cardActions}>
-                      <button className={styles.btnPrimary} onClick={() => onAdopt(artifact)}>
-                        {STRUCTURE_PANEL.acceptSetting}
-                      </button>
-                      <button className={styles.btnSecondary} onClick={() => onAction("revise", artifact.artifact_id)}>
-                        {STRUCTURE_PANEL.requestRevision}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
             {foreshadowing.length > 0 && (
@@ -255,10 +291,10 @@ export function StructurePanel({
                         <div className={styles.cardActions}>
                           <button
                             className={styles.btnGhost}
-                            onClick={() => {
-                              onAction("draft_chapter", `${ch.title}：${ch.summary ?? ""}`);
-                              onClose();
-                            }}
+	                            onClick={() => {
+	                              onDraftChapter(`${ch.title}：${ch.summary ?? ""}`);
+	                              onClose();
+	                            }}
                           >
                             {STRUCTURE_PANEL.generateChapterDraft}
                           </button>
@@ -291,11 +327,11 @@ export function StructurePanel({
               <EmptyState
                 title={STRUCTURE_PANEL.outlineEmptyTitle}
                 description={hasWork ? STRUCTURE_PANEL.outlineEmptyWithWork : STRUCTURE_PANEL.outlineEmptyNoWork}
-                actionLabel={STRUCTURE_PANEL.startPlanning}
-                onAction={() => {
-                  onAction("init_outline");
-                  onClose();
-                }}
+	                actionLabel={STRUCTURE_PANEL.startPlanning}
+	                onAction={() => {
+	                  onStartPlanning();
+	                  onClose();
+	                }}
               />
             ) : null}
           </Tabs.Content>
@@ -337,11 +373,11 @@ export function StructurePanel({
               <EmptyState
                 title={STRUCTURE_PANEL.characterEmptyTitle}
                 description={hasWork ? STRUCTURE_PANEL.characterEmptyWithWork : STRUCTURE_PANEL.characterEmptyNoWork}
-                actionLabel={STRUCTURE_PANEL.createCharacter}
-                onAction={() => {
-                  onAction("init_intent");
-                  onClose();
-                }}
+	                actionLabel={STRUCTURE_PANEL.createCharacter}
+	                onAction={() => {
+	                  onCreateCharacter();
+	                  onClose();
+	                }}
               />
             )}
             {selectedDetail && renderDetail(selectedDetail)}
@@ -385,10 +421,10 @@ export function StructurePanel({
       </Tabs.Root>
 
       <div className={styles.footerActions}>
-        <button
-          className={styles.btnSecondary}
-          onClick={() => onAction("init_intent")}
-        >
+	        <button
+	          className={styles.btnSecondary}
+	          onClick={onNewAction}
+	        >
           {STRUCTURE_PANEL.newAction}
         </button>
         <div className={styles.actionsHint}>

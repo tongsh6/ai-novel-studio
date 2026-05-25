@@ -70,6 +70,7 @@ export interface V3ArtifactEntry {
 export interface V3AvailableAction {
   action_id: string;
   action_type: string;
+  source_turn_ref?: string;
   behavior_ref?: string;
   target_ref?: string;
   candidate_set_ref?: string;
@@ -101,6 +102,7 @@ export interface V3AuthorActionPayload {
   source_turn_ref: string;
   action_id: string;
   action_type: string;
+  target_ref?: string;
   behavior_ref?: string;
   candidate_set_ref?: string;
   candidate_ref?: string;

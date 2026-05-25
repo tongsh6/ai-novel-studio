@@ -126,12 +126,6 @@ export interface WorkspaceRuntimeState {
   };
 }
 
-interface CardLike {
-  card_type?: string;
-  artifact_refs?: string[];
-  actions?: { target_ref: string; action_type?: string; enabled?: boolean }[];
-}
-
 const INVALID_WORK_TITLES = new Set([
   "未命名作品",
   "无活跃作品",
@@ -208,46 +202,6 @@ export function getReadingProjectionStatus(
   state: WorkspaceRuntimeState,
 ): WorkspaceReadingProjectionStatus {
   return state.readingProjection.status;
-}
-
-export function adoptionDecisionForCard(
-  state: WorkspaceRuntimeState,
-  card: CardLike,
-): WorkspaceAdoptionArtifact | null {
-  if (card.card_type !== "adoption_card") return null;
-
-  const actionTarget = card.actions
-    ?.map((action) => normalizeId(action.target_ref))
-    .find((targetRef): targetRef is string =>
-      Boolean(targetRef && state.adoption.resolvedArtifactsById[targetRef]),
-    );
-
-  if (actionTarget) return state.adoption.resolvedArtifactsById[actionTarget] ?? null;
-
-  const artifactRef = card.artifact_refs
-    ?.map(normalizeId)
-    .find((ref): ref is string =>
-      Boolean(ref && state.adoption.resolvedArtifactsById[ref]),
-    );
-
-  return artifactRef ? state.adoption.resolvedArtifactsById[artifactRef] ?? null : null;
-}
-
-export function disableResolvedArtifactActions<TCard extends CardLike>(
-  state: WorkspaceRuntimeState,
-  card: TCard,
-): TCard {
-  if (card.card_type !== "adoption_card" || !card.actions?.length) return card;
-
-  return {
-    ...card,
-    actions: card.actions.map((action) =>
-      isArtifactResolutionAction(action.action_type) &&
-      isArtifactResolved(state, action.target_ref)
-        ? { ...action, enabled: false }
-        : action,
-    ),
-  };
 }
 
 export function normalizeVisibleWorkTitle(title: string | null | undefined): string {
@@ -464,12 +418,6 @@ function normalizeArtifact(value: unknown): WorkspaceAdoptionArtifact | null {
 
 function isResolvedAdoptionStatus(status: string | undefined): boolean {
   return RESOLVED_ADOPTION_STATUSES.has(String(status ?? "").toUpperCase());
-}
-
-function isArtifactResolutionAction(actionType?: string): boolean {
-  return actionType === "accept" ||
-    actionType === "discard" ||
-    actionType === "edit_then_accept";
 }
 
 function normalizeString(value: unknown): string | null {

@@ -1732,7 +1732,6 @@ function findCandidateAdoptionBridgeEvidence(records) {
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
       record.candidate_continue_clicked === true &&
-      record.candidate_adopt_clicked === true &&
       record.visible_adoption_result === true &&
       record.adoption_decision_type === "adopt_tentative" &&
       record.candidate_selected === true &&
@@ -1743,12 +1742,10 @@ function findCandidateAdoptionBridgeEvidence(records) {
   if (!uiState) return null;
 
   const sourceTurnId = String(uiState.source_turn_id ?? "");
-  const continuationTurnId = String(uiState.continuation_turn_id ?? "");
   const adoptionTurnId = String(uiState.adoption_turn_id ?? "");
-  if (!sourceTurnId || !continuationTurnId || !adoptionTurnId) return null;
+  if (!sourceTurnId || !adoptionTurnId) return null;
 
   const sourceRecords = records.filter((record) => record.turn_id === sourceTurnId);
-  const continuationRecords = records.filter((record) => record.turn_id === continuationTurnId);
   const actionRecords = records.filter(
     (record) =>
       record.turn_id === sourceTurnId &&
@@ -1762,12 +1759,6 @@ function findCandidateAdoptionBridgeEvidence(records) {
   );
   const sourceCompleted = sourceRecords.some(
     (record) => record.event === "channel.user_message.done",
-  );
-  const continuationSelected = continuationRecords.some(
-    (record) =>
-      record.event === "channel.user_message.start" &&
-      record.candidate_ref === uiState.candidate_ref &&
-      record.candidate_source_turn_ref === sourceTurnId,
   );
   const actionStarted = actionRecords.some(
     (record) =>
@@ -1787,15 +1778,15 @@ function findCandidateAdoptionBridgeEvidence(records) {
       record.decision_type === "adopt_tentative",
   );
 
-  if (!sourceStarted || !sourceCompleted || !continuationSelected || !actionStarted) return null;
+  if (!sourceStarted || !sourceCompleted || !actionStarted) return null;
   if (!actionDone || !adopted) return null;
 
   return {
     slice_id: sliceId,
     turn_id: adoptionTurnId,
-    turn_ids: [sourceTurnId, continuationTurnId, adoptionTurnId],
+    turn_ids: [sourceTurnId, adoptionTurnId],
     source_turn_ref: sourceTurnId,
-    continuation_turn_id: continuationTurnId,
+    continuation_turn_id: null,
     candidate_ref: uiState.candidate_ref,
     candidate_set_ref: uiState.candidate_set_ref,
     key_events: keyEvents,
@@ -2358,7 +2349,7 @@ function p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidenc
 }
 
 function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
-  if (turnIds.length !== 3) return null;
+  if (turnIds.length !== 2) return null;
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
   if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
   if (hasEventPrefix(turnRecords, "channel.discard.")) return null;
@@ -2372,18 +2363,10 @@ function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
   if (!uiState) return null;
 
   const sourceTurnId = String(uiState.source_turn_id ?? "");
-  const continuationTurnId = String(uiState.continuation_turn_id ?? "");
   const candidateRef = uiState.candidate_ref;
 
   const sourceTurn = turnRecords.find(
     (record) => record.turn_id === sourceTurnId && record.event === "channel.user_message.start",
-  );
-  const continuationTurn = turnRecords.find(
-    (record) =>
-      record.turn_id === continuationTurnId &&
-      record.event === "channel.user_message.start" &&
-      record.candidate_ref === candidateRef &&
-      record.candidate_source_turn_ref === sourceTurnId,
   );
   const actionStart = turnRecords.find(
     (record) =>
@@ -2406,7 +2389,7 @@ function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
       record.decision_type === "adopt_tentative",
   );
 
-  if (!sourceTurn || !continuationTurn || !actionStart || !actionDone || !decision) {
+  if (!sourceTurn || !actionStart || !actionDone || !decision) {
     return null;
   }
 
@@ -2418,16 +2401,15 @@ function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
 
   return {
     slice_id: "au02-candidate-adoption-bridge",
-    behavior: "candidate_selection_then_authorized_adoption_boundary",
+    behavior: "candidate_continuation_authorized_by_available_action",
     turn_ids: turnIds,
     source_turn_ref: sourceTurnId,
-    continuation_turn_id: continuationTurnId,
+    continuation_turn_id: null,
     candidate_ref: candidateRef,
     candidate_set_ref: uiState.candidate_set_ref,
     assertions: [
       "candidate_panel_rendered_from_turn_result",
-      "candidate_continuation_sent_candidate_selection_without_adoption",
-      "candidate_adoption_sent_authorized_choose_candidate_action",
+      "candidate_continuation_sent_authorized_choose_candidate_action",
       "adoption_boundary_returned_adopt_tentative",
       "ui_rendered_candidate_adoption_result",
       "production_write_not_claimed",

@@ -211,37 +211,32 @@ async function driveCandidateAdoptionBridge(page) {
   );
   const sourceTurnResult = sourceTurnFrame.body;
   const candidate = sourceTurnResult.candidate_directions[0];
+  const availableAction = (sourceTurnResult.available_actions ?? []).find(
+    (action) =>
+      action.action_type === "choose_candidate" &&
+      (action.candidate_ref === candidate.direction_id || action.target_ref === candidate.direction_id),
+  ) ?? (
+    sourceTurnResult.candidate_directions.length === 1 &&
+    (sourceTurnResult.available_actions ?? []).filter((action) => action.action_type === "choose_candidate").length === 1
+      ? (sourceTurnResult.available_actions ?? []).find((action) => action.action_type === "choose_candidate")
+      : null
+  );
+
+  assert(availableAction, "Candidate turn_result did not include a matching choose_candidate available_action");
 
   await page.getByRole("button", { name: /继续聊这个方向/ }).first().click();
-
-  const continuationFrame = await waitForFrame(
-    (frame) =>
-      frame.direction === "sent" &&
-      frame.event === "user_message" &&
-      frame.body?.candidate_selection?.candidate_ref === candidate.direction_id &&
-      frame.body?.candidate_selection?.source_turn_ref === sourceTurnResult.turn_id,
-    "Real workbench did not send candidate_selection for continuation",
-  );
-
-  const continuationTurnFrame = await waitForFrame(
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "turn_result" &&
-      frame.body?.turn_id !== sourceTurnResult.turn_id &&
-      !frame.body?.adoption_decision,
-    "No continuation turn_result websocket frame was received",
-  );
-
-  await page.getByRole("button", { name: /采用这个方向/ }).first().click();
 
   const actionFrame = await waitForFrame(
     (frame) =>
       frame.direction === "sent" &&
       frame.event === "author_action" &&
-      frame.body?.action?.action_type === "choose_candidate" &&
-      frame.body?.action?.candidate_ref === candidate.direction_id &&
-      frame.body?.action?.candidate_set_ref === `candidate_set:${sourceTurnResult.turn_id}`,
-    "Real workbench did not send authorized choose_candidate author_action",
+      frame.body?.action?.action_id === availableAction.action_id &&
+      frame.body?.action?.action_type === availableAction.action_type &&
+      frame.body?.action?.source_turn_ref === (availableAction.source_turn_ref ?? sourceTurnResult.turn_id) &&
+      frame.body?.action?.target_ref === availableAction.target_ref &&
+      frame.body?.action?.candidate_ref === availableAction.candidate_ref &&
+      frame.body?.action?.candidate_set_ref === availableAction.candidate_set_ref,
+    "Real workbench did not send server-provided choose_candidate author_action from candidate continuation",
   );
 
   const actionResultFrame = await waitForFrame(
@@ -249,7 +244,7 @@ async function driveCandidateAdoptionBridge(page) {
       frame.direction === "received" &&
       frame.event === "action_result" &&
       frame.body?.action_type === "choose_candidate" &&
-      frame.body?.candidate_ref === candidate.direction_id,
+      frame.body?.candidate_ref === availableAction.candidate_ref,
     "No choose_candidate action_result websocket frame was received",
   );
 
@@ -291,14 +286,14 @@ async function driveCandidateAdoptionBridge(page) {
     {
       ...uiState,
       source_turn_id: sourceTurnResult.turn_id,
-      continuation_turn_id: continuationTurnFrame.body.turn_id,
+      continuation_turn_id: null,
       adoption_turn_id: adoptionTurnResult.turn_id,
-      candidate_ref: candidate.direction_id,
-      candidate_set_ref: `candidate_set:${sourceTurnResult.turn_id}`,
+      candidate_ref: availableAction.candidate_ref,
+      candidate_set_ref: availableAction.candidate_set_ref,
       candidate_panel_count: await page.locator("[class*=candidatePanel]").count(),
       candidate_continue_clicked: true,
-      candidate_adopt_clicked: true,
-      continuation_candidate_selection: continuationFrame.body.candidate_selection,
+      candidate_adopt_clicked: false,
+      continuation_author_action: actionFrame.body.action,
       author_action: actionFrame.body.action,
       action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
       adoption_decision_type: adoptionTurnResult.adoption_decision.decision_type,
@@ -849,8 +844,9 @@ async function driveP1ChapterDraftGeneration(page) {
 
   await page.waitForFunction(
     () =>
-      document.body.innerText.includes("正文草稿待采纳") &&
-      document.body.innerText.includes("欠费提醒"),
+      document.body.innerText.includes("待确认的创作材料") &&
+      document.body.innerText.includes("候选内容") &&
+      document.body.innerText.includes("底层灵气账单"),
     { timeout: 10_000 },
   );
 
@@ -866,7 +862,7 @@ async function driveP1ChapterDraftGeneration(page) {
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, draftTurnResult, sentMessage);
 
-  assert(draftBody.includes("欠费提醒"), "Draft payload did not contain prose body text");
+  assert(draftBody.includes("底层灵气账单"), "Draft payload did not contain prose body text");
   assert(
     !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
     "Draft generation unexpectedly submitted an adopt event",
@@ -876,7 +872,7 @@ async function driveP1ChapterDraftGeneration(page) {
     "Reading mode did not remain empty before draft adoption",
   );
   assert(
-    !visibleText.includes("欠费提醒第三次弹出时"),
+    !visibleText.includes("候选内容") || visibleText.includes("暂无已采纳的章节内容"),
     "Unadopted draft leaked into reading mode content",
   );
 
@@ -893,7 +889,8 @@ async function driveP1ChapterDraftGeneration(page) {
       draft_body_chars: String(draftBody).length,
       draft_card_visible: true,
       reading_mode_empty_before_adoption: visibleText.includes("暂无已采纳的章节内容"),
-      unadopted_draft_visible_in_reading: visibleText.includes("欠费提醒第三次弹出时"),
+      unadopted_draft_visible_in_reading:
+        visibleText.includes("候选内容") && !visibleText.includes("暂无已采纳的章节内容"),
       adopt_event_sent: frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
       user_message_text: draftMessageFrame.body?.text,
     },
