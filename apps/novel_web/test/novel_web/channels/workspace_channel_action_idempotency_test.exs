@@ -33,7 +33,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
           action_id: "act-creative",
           action_type: :capability_invocation,
           summary: "生成角色设定",
-          target_ref: "creative_generation",
+          target_ref: "character_design",
           write_intent: :tentative,
           risk_hint: :low
         }

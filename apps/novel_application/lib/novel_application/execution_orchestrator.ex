@@ -100,7 +100,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
       plan_ref: plan.plan_id,
       target_ref: target,
       required_next_action: behavior_next_action(behavior_type),
-      available_actions: behavior_actions(behavior_type, decision_id),
+      available_actions: behavior_actions(behavior_type, decision_id, target),
       prompt_contract: %{question: reason},
       constraints: %{risk: plan.risk_hint}
     }
@@ -110,41 +110,45 @@ defmodule NovelApplication.ExecutionOrchestrator do
   defp behavior_next_action(:confirmation), do: "confirm_before_execute"
   defp behavior_next_action(_), do: "continue_dialogue"
 
-  defp behavior_actions(:clarification, d_id) do
+  defp behavior_actions(:clarification, d_id, target) do
     [
       %{
         action_id: "act_answer_#{d_id}",
         action_type: "answer_clarification",
         behavior_ref: d_id,
+        target_ref: target,
         idempotency_key: "clarify_#{d_id}"
       },
       %{
         action_id: "act_cancel_#{d_id}",
         action_type: "cancel_pending_behavior",
         behavior_ref: d_id,
+        target_ref: target,
         idempotency_key: "cancel_#{d_id}"
       }
     ]
   end
 
-  defp behavior_actions(:confirmation, d_id) do
+  defp behavior_actions(:confirmation, d_id, target) do
     [
       %{
         action_id: "act_confirm_#{d_id}",
         action_type: "confirm_before_execute",
         behavior_ref: d_id,
+        target_ref: target,
         idempotency_key: "confirm_#{d_id}"
       },
       %{
         action_id: "act_reject_#{d_id}",
         action_type: "reject_or_cancel_confirmation",
         behavior_ref: d_id,
+        target_ref: target,
         idempotency_key: "reject_#{d_id}"
       }
     ]
   end
 
-  defp behavior_actions(_, _), do: []
+  defp behavior_actions(_, _, _), do: []
 
   # ── VS-02 tool dispatch ───────────────────────
 

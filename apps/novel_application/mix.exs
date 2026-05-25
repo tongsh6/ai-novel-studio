@@ -26,6 +26,7 @@ defmodule NovelApplication.MixProject do
   defp deps do
     [
       {:novel_foundation, in_umbrella: true},
+      {:novel_common, in_umbrella: true},
       {:novel_domain, in_umbrella: true},
       {:novel_agent, in_umbrella: true},
       {:novel_persistence, in_umbrella: true},

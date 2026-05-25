@@ -8,19 +8,17 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelAgent.Provider.Gateway
   alias NovelApplication.ActionValidator
   alias NovelApplication.AdoptionBoundary
-  alias NovelApplication.CapabilityRegistry
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.Planner
-  alias NovelApplication.Toolbox
   alias NovelApplication.TraceWriter
+  alias NovelApplication.TurnExecutionService
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.LogContext
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.CandidateSet
   alias NovelDomain.DialogueFrame
-  alias NovelDomain.ToolRequest
 
   @doc "处理作者文本输入；未注入 provider 时显式走真实 Provider Gateway。"
   @spec handle_input(map(), (String.t() -> tuple()) | nil) ::
@@ -690,7 +688,17 @@ defmodule NovelApplication.DialogueGateway do
     }
 
     if decision.decision_type == :allow_tool do
-      {turn_result, trace} = execute_tool(frame, plan, decision, complete_fn, "_confirmed")
+      {turn_result, trace} =
+        TurnExecutionService.execute(%{
+          frame: frame,
+          plan: plan,
+          decision: decision,
+          candidates: [],
+          context: nil,
+          author_input: %{text: frame.author_visible_draft.message},
+          complete_fn: complete_fn,
+          idempotency_suffix: "_confirmed"
+        })
 
       maybe_persist_trace(
         {:ok, turn_result, trace, [], nil},
@@ -703,103 +711,6 @@ defmodule NovelApplication.DialogueGateway do
     else
       {:ok, Map.put(ack, :status, "confirmed_but_blocked")}
     end
-  end
-
-  # ── shared tool executor (Strategies 1 + 4) ─────
-
-  defp execute_tool(frame, plan, decision, complete_fn, idem_suffix \\ "") do
-    action = hd(plan.proposed_actions)
-    tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"
-    entry = CapabilityRegistry.get(tool_name)
-
-    req = %ToolRequest{
-      tool_request_id: "tq_#{System.unique_integer([:positive, :monotonic])}",
-      turn_id: frame.turn_id,
-      frame_ref: frame.frame_id,
-      plan_ref: plan.plan_id,
-      decision_ref: decision.decision_id,
-      tool_name: tool_name,
-      tool_version: (entry && entry.tool_version) || "unknown",
-      input: tool_input(frame, tool_name, action),
-      read_scope_grants: (entry && entry.read_scopes) || [],
-      write_scope_grants: [],
-      idempotency_key: "idem_#{frame.turn_id}_#{tool_name}#{idem_suffix}",
-      trace_policy: %{level: "standard"},
-      created_at: DateTime.utc_now()
-    }
-
-    result = dispatch_tool(req, tool_name, complete_fn)
-
-    artifact_set =
-      if creative_tool?(tool_name) and result.status == :succeeded do
-        TurnResultBuilder.build_artifact_set(result, frame.turn_id)
-      end
-
-    {trace, trace_summary} =
-      TraceWriter.record_with_tool(
-        frame,
-        plan,
-        decision,
-        req,
-        result,
-        %{turn_id: frame.turn_id},
-        nil
-      )
-
-    narrated = Planner.narrate_tool_result(result, complete_fn)
-
-    turn_result =
-      TurnResultBuilder.build(frame, trace_summary, [], decision, result, artifact_set)
-      |> Map.put(:assistant_message, %{text: narrated})
-      |> maybe_put_task_state_events(req, result)
-
-    {turn_result, trace}
-  end
-
-  defp maybe_put_task_state_events(turn_result, req, result) do
-    if creative_tool?(req.tool_name) do
-      Map.put(turn_result, :task_state_events, task_state_events(req, result))
-    else
-      turn_result
-    end
-  end
-
-  defp task_state_events(req, result) do
-    task_id = "task_#{req.tool_request_id}"
-
-    [
-      %{
-        task_id: task_id,
-        task_type: req.tool_name,
-        phase: "RUNNING",
-        status: "RUNNING",
-        progress: 0,
-        step: "tool_dispatch"
-      },
-      task_done_event(task_id, req.tool_name, result)
-    ]
-  end
-
-  defp task_done_event(task_id, tool_name, %{status: :succeeded}) do
-    %{
-      task_id: task_id,
-      task_type: tool_name,
-      phase: "COMPLETED",
-      status: "DONE",
-      progress: 100,
-      step: "tool_dispatch"
-    }
-  end
-
-  defp task_done_event(task_id, tool_name, _result) do
-    %{
-      task_id: task_id,
-      task_type: tool_name,
-      phase: "FAILED",
-      status: "ERROR",
-      progress: 100,
-      step: "tool_dispatch"
-    }
   end
 
   defp frame_from_turn_result(tr) do
@@ -818,33 +729,6 @@ defmodule NovelApplication.DialogueGateway do
       evidence_summary: %{},
       uncertainty: []
     }
-  end
-
-  defp tool_input(frame, "creative_generation", action) do
-    %{
-      "text" => frame.author_visible_draft.message,
-      "direction" => creative_direction(frame, action)
-    }
-  end
-
-  defp tool_input(frame, tool_name, _action) do
-    %{"text" => frame.author_visible_draft.message, "direction" => tool_name}
-  end
-
-  defp creative_direction(frame, action) do
-    text = "#{Map.get(action, :summary, "")} #{frame.author_visible_draft.message}"
-
-    cond do
-      contains_any?(text, ["角色", "人物", "主角", "反派"]) -> "character_seed"
-      contains_any?(text, ["正文", "片段", "描写", "开场"]) -> "prose_fragment"
-      contains_any?(text, ["剧情", "情节", "走向", "主线", "方向"]) -> "plot_direction"
-      contains_any?(text, ["大纲", "章节", "卷纲"]) -> "outline_draft"
-      true -> "character_seed"
-    end
-  end
-
-  defp contains_any?(text, terms) do
-    Enum.any?(terms, &String.contains?(text, &1))
   end
 
   # ── reply-only ────────────────────────────────
@@ -870,7 +754,15 @@ defmodule NovelApplication.DialogueGateway do
 
         cond do
           decision.decision_type == :allow_tool ->
-            handle_tool_dispatch(frame, plan, decision, candidates, context, complete_fn)
+            handle_tool_dispatch(
+              frame,
+              plan,
+              decision,
+              candidates,
+              context,
+              author_input,
+              complete_fn
+            )
 
           behavior != nil ->
             handle_behavior_open(frame, plan, decision, behavior, candidates, context)
@@ -910,27 +802,19 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── tool dispatch ─────────────────────────────
 
-  defp handle_tool_dispatch(frame, plan, decision, candidates, context, complete_fn) do
-    {turn_result, trace} = execute_tool(frame, plan, decision, complete_fn)
+  defp handle_tool_dispatch(frame, plan, decision, candidates, context, author_input, complete_fn) do
+    {turn_result, trace} =
+      TurnExecutionService.execute(%{
+        frame: frame,
+        plan: plan,
+        decision: decision,
+        candidates: candidates,
+        context: context,
+        author_input: author_input,
+        complete_fn: complete_fn
+      })
 
     {:ok, turn_result, trace, candidates, context}
-  end
-
-  defp creative_tool?("creative_generation"), do: true
-  defp creative_tool?("world_building"), do: true
-  defp creative_tool?("character_design"), do: true
-  defp creative_tool?("plot_outline"), do: true
-  defp creative_tool?("prose_writing"), do: true
-  defp creative_tool?(_), do: false
-
-  # LLM-dependent tool 必须显式注入 complete_fn — Toolbox 不允许绕过 Provider。
-  # 详见 docs/engineering/scenario-invariants.md §2.1（I1 因果绑定）。
-  defp dispatch_tool(req, tool_name, complete_fn) do
-    if creative_tool?(tool_name) do
-      Toolbox.execute(req, complete_fn)
-    else
-      Toolbox.execute(req)
-    end
   end
 
   defp changeset_error_summary(%Ecto.Changeset{errors: errors}) when errors != [] do

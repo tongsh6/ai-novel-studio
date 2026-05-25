@@ -4,14 +4,14 @@ defmodule NovelApplication.TraceWriter do
   """
 
   alias NovelApplication.TraceRedactor
+  alias NovelCommon.Contracts.ToolRequest
+  alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.ContextSourceRef
   alias NovelDomain.DecisionTrace
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
-  alias NovelDomain.ToolRequest
-  alias NovelDomain.ToolResult
 
   @doc "Record reply-only/exploration trace."
   @spec record(DialogueFrame.t(), map(), DialogueContext.t() | nil) :: {DecisionTrace.t(), map()}

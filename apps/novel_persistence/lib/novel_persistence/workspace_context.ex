@@ -8,6 +8,7 @@ defmodule NovelPersistence.WorkspaceContext do
 
   import Ecto.Query, only: [from: 2]
 
+  alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.MemoryRecallRepo
   alias NovelPersistence.MemoryReferenceLog
@@ -20,6 +21,7 @@ defmodule NovelPersistence.WorkspaceContext do
   alias NovelPersistence.TraceRepository
   alias NovelPersistence.WorkSessionRepo
 
+  @archived_status StructureStatus.archived()
   @default_recent_conversation_interaction_limit 10
   @session_summary_sample_limit 6
 
@@ -109,7 +111,7 @@ defmodule NovelPersistence.WorkspaceContext do
         left_join: s in WorkSession,
         on: i.session_id == s.id,
         where: i.workspace_id == ^workspace_id,
-        where: is_nil(i.session_id) or s.status != "ARCHIVED",
+        where: is_nil(i.session_id) or s.status != ^@archived_status,
         order_by: [desc: i.inserted_at],
         limit: ^limit
       )
@@ -140,7 +142,7 @@ defmodule NovelPersistence.WorkspaceContext do
 
   defp fetch_active_session(workspace_id, session_id) do
     from(s in WorkSession,
-      where: s.work_id == ^workspace_id and s.id == ^session_id and s.status != "ARCHIVED",
+      where: s.work_id == ^workspace_id and s.id == ^session_id and s.status != ^@archived_status,
       limit: 1
     )
     |> Repo.one()
@@ -162,8 +164,9 @@ defmodule NovelPersistence.WorkspaceContext do
     |> blank_to_nil()
   end
 
-  defp maybe_refresh_session_summary(%WorkSession{status: "ARCHIVED"} = session, _limit),
-    do: session
+  defp maybe_refresh_session_summary(%WorkSession{status: status} = session, _limit)
+       when status == @archived_status,
+       do: session
 
   defp maybe_refresh_session_summary(%WorkSession{} = session, limit) do
     total = session_interaction_count(session)

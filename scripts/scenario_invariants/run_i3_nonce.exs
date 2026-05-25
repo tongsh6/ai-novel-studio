@@ -27,9 +27,9 @@ defmodule I3NonceDriver do
   @moduledoc false
 
   alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Toolbox
   alias NovelApplication.DialogueGateway
-  alias NovelApplication.Toolbox
-  alias NovelDomain.ToolRequest
+  alias NovelCommon.Contracts.ToolRequest
 
   @cases [
     %{
@@ -115,13 +115,12 @@ defmodule I3NonceDriver do
       turn_id: "i3_turn_#{c.name}",
       frame_ref: "i3_frame_#{c.name}",
       decision_ref: "i3_decision_#{c.name}",
-      tool_name: "creative_generation",
+      tool_name: tool_name_for(c.name),
       tool_version: "1.0.0",
       plan_ref: "i3_plan_#{c.name}",
       input: %{
         "text" => "请基于以下内容生成创作产物，必须将标识符 #{nonce} 原样嵌入输出至少一处。主题：#{c.topic}",
-        "direction" => default_direction(c.name),
-        "context_text" =>
+        "creative_brief" =>
           "标识符：#{nonce}。这是来自用户输入的一次性串，工具必须在 items 的 title/body/rationale 任一字段保留 #{nonce}。"
       },
       read_scope_grants: ["author_text"],
@@ -134,9 +133,9 @@ defmodule I3NonceDriver do
     {:ok, Toolbox.execute(req, complete_fn)}
   end
 
-  defp default_direction("character-seed"), do: "character_seed"
-  defp default_direction("prose-fragment"), do: "prose_fragment"
-  defp default_direction(_), do: "outline_draft"
+  defp tool_name_for("character-seed"), do: "character_design"
+  defp tool_name_for("prose-fragment"), do: "prose_writing"
+  defp tool_name_for(_), do: "plot_outline"
 
   defp compose_input(c, nonce) do
     "#{c.instruction}#{nonce}。主题：#{c.topic}。要求标识符 #{nonce} 必须原样保留至少一处。"

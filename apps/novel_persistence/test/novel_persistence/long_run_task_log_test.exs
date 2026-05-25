@@ -12,7 +12,7 @@ defmodule NovelPersistence.LongRunTaskLogTest do
 
   @valid_attrs %{
     workspace_id: "ws-task",
-    task_type: "creative_generation",
+    task_type: "creative_job",
     status: "READY",
     phase: "PLANNED",
     goal: "write chapter 1",

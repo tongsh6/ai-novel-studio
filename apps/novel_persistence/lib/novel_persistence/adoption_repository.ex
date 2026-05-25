@@ -15,6 +15,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
+  alias NovelFoundation.Enums.SourceType
   alias NovelFoundation.Enums.StructureStatus
   alias NovelFoundation.ID
   alias NovelPersistence.Repo
@@ -94,7 +95,7 @@ defmodule NovelPersistence.AdoptionRepository do
       source_confidence: Decimal.new("1.0000"),
       locked: true,
       recallable: true,
-      tags: ["adopted_artifact", to_string(Map.get(attrs, :artifact_type, "artifact"))]
+      tags: ["adopted_artifact", to_string(Map.get(attrs, :artifact_type, SourceType.artifact()))]
     }
   end
 

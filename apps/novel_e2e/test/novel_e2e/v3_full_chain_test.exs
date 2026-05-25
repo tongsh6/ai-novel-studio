@@ -84,7 +84,7 @@ defmodule NovelE2E.V3FullChainTest do
     "risk_hint": "low",
     "requires_confirmation_hint": false,
     "proposed_actions": [
-      {"action_id": "a1", "action_type": "capability_invocation", "summary": "创作角色", "target_ref": "creative_generation", "write_intent": "tentative", "risk_hint": "low"}
+      {"action_id": "a1", "action_type": "capability_invocation", "summary": "创作角色", "target_ref": "character_design", "write_intent": "tentative", "risk_hint": "low"}
     ],
     "state_changes_requested": [],
     "required_capabilities": [],
@@ -161,6 +161,7 @@ defmodule NovelE2E.V3FullChainTest do
 
     test "replay from reply-only trace never calls provider" do
       complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
+
       {:ok, _turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(%{text: "hi", workspace_id: "ws-r1b"}, nil, complete_fn)
 
@@ -183,7 +184,9 @@ defmodule NovelE2E.V3FullChainTest do
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "重写第一章+更新角色+整理伏笔", workspace_id: "ws-dg", generate_micro_plan: true},
-          nil, complete_fn)
+          nil,
+          complete_fn
+        )
 
       # 主链到达了 OrchestratorDecision
       decision = turn_result.orchestrator_decision
@@ -214,7 +217,9 @@ defmodule NovelE2E.V3FullChainTest do
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "直接替换正文", workspace_id: "ws-cf", generate_micro_plan: true},
-          nil, complete_fn)
+          nil,
+          complete_fn
+        )
 
       decision = turn_result.orchestrator_decision
       assert decision != nil
@@ -253,7 +258,9 @@ defmodule NovelE2E.V3FullChainTest do
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "分析文本", workspace_id: "ws-tl", generate_micro_plan: true},
-          nil, complete_fn)
+          nil,
+          complete_fn
+        )
 
       # Orchestrator 放行了工具
       decision = turn_result.orchestrator_decision
@@ -292,14 +299,16 @@ defmodule NovelE2E.V3FullChainTest do
       {:ok, turn_result, _trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "生成角色设定", workspace_id: "ws-ca", generate_micro_plan: true},
-          nil, complete_fn)
+          nil,
+          complete_fn
+        )
 
       decision = turn_result.orchestrator_decision
       assert decision.decision_type == :allow_tool
 
       tool_result = turn_result.tool_result
       assert tool_result.status == :succeeded
-      assert tool_result.tool_name == "creative_generation"
+      assert tool_result.tool_name == "character_design"
 
       # TentativeArtifactSet 存在
       adoption_state = turn_result.adoption_state
@@ -345,12 +354,13 @@ defmodule NovelE2E.V3FullChainTest do
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "test", workspace_id: "ws-err3", generate_micro_plan: true},
-          nil, complete_fn)
+          nil,
+          complete_fn
+        )
 
       assert turn_result.frame_ref != nil
       assert trace.decision_type == :fail_with_recovery
       assert :micro_plan_generation_failed in trace.event_order
     end
   end
-
 end

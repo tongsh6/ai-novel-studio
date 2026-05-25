@@ -47,7 +47,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
               action_id: "act-creative",
               action_type: :capability_invocation,
               summary: "生成角色设定",
-              target_ref: "creative_generation",
+              target_ref: "character_design",
               write_intent: :tentative,
               risk_hint: :low
             }
@@ -81,6 +81,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       %{
         action_id: "choose_candidate:dir-1",
         action_type: "choose_candidate",
+        target_ref: "dir-1",
         candidate_set_ref: "candidate_set:turn-candidates-1",
         candidate_ref: "dir-1",
         enabled: true,
@@ -343,7 +344,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert_reply(ref, _status, _payload)
     end
 
-    test "confirmation dispatch broadcasts task_state events for creative tool" do
+    test "confirmation dispatch broadcasts turn_result without synthetic task_state events" do
       {:ok, _, socket} =
         UserSocket
         |> socket("user_id", %{})
@@ -365,9 +366,8 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                  socket
                )
 
-      assert_broadcast("task_state", %{phase: "RUNNING", task_type: "creative_generation"})
-      assert_broadcast("task_state", %{phase: "COMPLETED", status: "DONE"})
       assert_broadcast("turn_result", %{turn_id: turn_id})
+      refute_broadcast("task_state", _payload, 20)
       assert socket.assigns.current_turn_id == turn_id
       assert Map.has_key?(socket.assigns.turn_results_by_id, turn_id)
     end
@@ -438,6 +438,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                      "source_turn_ref" => "turn-candidates-1",
                      "action_id" => "choose_candidate:dir-1",
                      "action_type" => "choose_candidate",
+                     "target_ref" => "dir-1",
                      "candidate_set_ref" => "candidate_set:turn-candidates-1",
                      "candidate_ref" => "dir-1",
                      "idempotency_key" => "idem:turn-candidates-1:choose_candidate:dir-1"
@@ -482,6 +483,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                      "source_turn_ref" => "turn-candidates-1",
                      "action_id" => "choose_candidate:dir-1",
                      "action_type" => "choose_candidate",
+                     "target_ref" => "dir-1",
                      "candidate_set_ref" => "candidate_set:turn-candidates-1",
                      "candidate_ref" => "dir-1",
                      "idempotency_key" => "idem:turn-candidates-1:choose_candidate:dir-1"
@@ -529,6 +531,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                      "source_turn_ref" => "turn-candidates-1",
                      "action_id" => "choose_candidate:dir-1",
                      "action_type" => "choose_candidate",
+                     "target_ref" => "dir-1",
                      "candidate_set_ref" => "candidate_set:turn-candidates-1",
                      "candidate_ref" => "dir-1",
                      "idempotency_key" => "idem:turn-candidates-1:choose_candidate:dir-1"
@@ -577,6 +580,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                      "source_turn_ref" => "turn-candidates-1",
                      "action_id" => "choose_candidate:dir-1",
                      "action_type" => "choose_candidate",
+                     "target_ref" => "dir-1",
                      "candidate_set_ref" => "candidate_set:turn-candidates-1",
                      "candidate_ref" => "dir-1",
                      "idempotency_key" => "idem:turn-candidates-1:choose_candidate:dir-1"
@@ -635,6 +639,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                      "source_turn_ref" => "turn-candidates-1",
                      "action_id" => "choose_candidate:dir-1",
                      "action_type" => "choose_candidate",
+                     "target_ref" => "dir-1",
                      "candidate_set_ref" => "candidate_set:turn-candidates-1",
                      "candidate_ref" => "dir-1",
                      "idempotency_key" => "idem:turn-candidates-1:choose_candidate:dir-1"

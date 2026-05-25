@@ -56,7 +56,7 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   defp creative_items_prompt?(text) do
-    String.contains?(text, "JSON 数组") and String.contains?(text, "direction：")
+    String.contains?(text, "JSON 数组") and String.contains?(text, "artifact_type：")
   end
 
   defp plan_prompt?(text) do
@@ -93,21 +93,21 @@ defmodule NovelAgent.Provider.Stub do
 
   defp plan_json do
     Jason.encode!(%{
-      "plan_goal_summary" => "[stub] 调用 creative_generation 推进",
+      "plan_goal_summary" => "[stub] 调用 character_design 推进",
       "risk_hint" => "low",
       "requires_confirmation_hint" => false,
       "proposed_actions" => [
         %{
           "action_id" => "act-stub-1",
           "action_type" => "capability_invocation",
-          "summary" => "[stub] 调用 creative_generation",
-          "target_ref" => "creative_generation",
+          "summary" => "[stub] 调用 character_design",
+          "target_ref" => "character_design",
           "write_intent" => "tentative",
           "risk_hint" => "low"
         }
       ],
       "state_changes_requested" => [],
-      "required_capabilities" => ["creative_generation"],
+      "required_capabilities" => ["character_design"],
       "fallback_message" => "[stub] 无可调度行动"
     })
   end
@@ -131,7 +131,7 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   # 当 prompt 中 "当前作品上下文" 段落不是空标记时，认为 context 已提供。
-  # 注：此处标记字符串与 `NovelApplication.Planner` 的 prompt 模板隐式耦合 —
+  # 注：此处标记字符串与 plan prompt 模板隐式耦合 —
   # 如果 Planner 改了"当前作品上下文"段落或空标记文案，stub 也要同步更新。
   # 这种耦合是 fixture provider 与真实 prompt template 之间合理的契约链接。
   defp context_provided?(prompt_text) do
@@ -141,6 +141,18 @@ defmodule NovelAgent.Provider.Stub do
 
   # 从 normalized prompt 中提取 user role 部分（含 nonce 等用户随机内容）
   defp extract_user_text(prompt_text) do
+    case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt_text) do
+      [_, brief, context] ->
+        [String.trim(brief), String.trim(context)]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join("\n")
+
+      _ ->
+        extract_role_user_text(prompt_text)
+    end
+  end
+
+  defp extract_role_user_text(prompt_text) do
     case Regex.run(~r/user:\s*(.+?)(?:\n[a-z_]+:|\z)/su, prompt_text) do
       [_, text] -> String.trim(text)
       _ -> prompt_text |> String.slice(-200, 200) |> String.trim()

@@ -18,6 +18,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     content =
       cond do
+        creative_items_prompt?(prompt_text) ->
+          creative_items_response(prompt_text) |> Jason.encode!()
+
         plan_prompt?(prompt_text) ->
           plan_response(prompt_text) |> Jason.encode!()
 
@@ -39,6 +42,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp plan_prompt?(prompt) do
     String.contains?(prompt, "plan_goal_summary") or String.contains?(prompt, "proposed_actions")
+  end
+
+  defp creative_items_prompt?(prompt) do
+    String.contains?(prompt, "JSON 数组") and String.contains?(prompt, "artifact_type：")
   end
 
   defp tool_narration_prompt?(prompt) do
@@ -122,6 +129,20 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  defp creative_items_response(prompt) do
+    text = creative_prompt_text(prompt)
+    fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
+
+    [
+      %{
+        item_id: "slice_item_#{fingerprint}_1",
+        title: "候选内容 #{fingerprint}",
+        body: text,
+        rationale: "基于本次作者输入生成的待确认草稿"
+      }
+    ]
+  end
+
   defp plan_response(prompt) do
     tool_name = prompt |> author_input_text() |> tool_name_for_prompt()
 
@@ -157,13 +178,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         "plot_outline"
 
       true ->
-        "creative_generation"
+        "world_building"
     end
   end
 
   defp action_summary("prose_writing"), do: "生成一段正文草稿"
   defp action_summary("character_design"), do: "生成一个角色设定草案"
   defp action_summary("plot_outline"), do: "生成一份大纲草案"
+  defp action_summary("world_building"), do: "生成一组世界设定草案"
   defp action_summary(_), do: "生成一组可供作者继续选择的创作方向"
 
   defp contains_any?(text, terms) do
@@ -201,6 +223,18 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           [_, text] -> text
           _ -> prompt
         end
+    end
+  end
+
+  defp creative_prompt_text(prompt) do
+    case Regex.run(~r/用户创作简述：(.+?)\n\s*上下文：(.+?)\n\s*重要：/su, prompt) do
+      [_, brief, context] ->
+        [String.trim(brief), String.trim(context)]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join("\n")
+
+      _ ->
+        author_input_text_from_prompt(prompt)
     end
   end
 

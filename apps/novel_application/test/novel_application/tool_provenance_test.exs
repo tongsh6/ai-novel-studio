@@ -1,12 +1,12 @@
 defmodule NovelApplication.ToolProvenanceTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Toolbox
   alias NovelApplication.CapabilityRegistry
-  alias NovelApplication.Toolbox
-  alias NovelDomain.CapabilityRegistryEntry
+  alias NovelCommon.Contracts.CapabilityRegistryEntry
+  alias NovelCommon.Contracts.ToolRequest
+  alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.OrchestratorDecision
-  alias NovelDomain.ToolRequest
-  alias NovelDomain.ToolResult
 
   # ── Registry ──────────────────────────────────
 
@@ -15,6 +15,7 @@ defmodule NovelApplication.ToolProvenanceTest do
       tools = CapabilityRegistry.list()
       assert "text_analysis" in tools
       assert "disabled_tool" in tools
+      refute ("creative_" <> "generation") in tools
     end
 
     test "get returns entry for known tool" do

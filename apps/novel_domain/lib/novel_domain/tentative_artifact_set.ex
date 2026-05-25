@@ -6,7 +6,12 @@ defmodule NovelDomain.TentativeArtifactSet do
   """
 
   @type artifact_type ::
-          :character_seed | :plot_direction | :outline_draft | :scene_draft | :prose_fragment
+          :character_seed
+          | :plot_direction
+          | :outline_draft
+          | :scene_draft
+          | :prose_fragment
+          | :world_setting
 
   @type artifact_item :: %{
           required(:item_id) => String.t(),

@@ -24,6 +24,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         action_type: "choose_candidate",
         candidate_set_ref: "candidate_set:turn-1",
         candidate_ref: "dir-1",
+        target_ref: "dir-1",
         enabled: true
       }
     ]
@@ -83,6 +84,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         source_turn_ref: "turn-1",
         action_id: "choose_candidate:dir-1",
         action_type: "choose_candidate",
+        target_ref: "dir-1",
         candidate_set_ref: "candidate_set:turn-1",
         candidate_ref: "dir-2"
       }
@@ -91,12 +93,42 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert String.contains?(reason, "candidate_ref")
     end
 
+    test "target_ref mismatch rejected" do
+      input = %AuthorActionInput{
+        input_id: "in-target-mismatch",
+        source_turn_ref: "turn-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        target_ref: "dir-other",
+        candidate_set_ref: "candidate_set:turn-1",
+        candidate_ref: "dir-1"
+      }
+
+      assert {:error, reason} = ActionValidator.validate(input, @valid_source)
+      assert String.contains?(reason, "target_ref")
+    end
+
+    test "missing target_ref is rejected when available action carries one" do
+      input = %AuthorActionInput{
+        input_id: "in-target-missing",
+        source_turn_ref: "turn-1",
+        action_id: "choose_candidate:dir-1",
+        action_type: "choose_candidate",
+        candidate_set_ref: "candidate_set:turn-1",
+        candidate_ref: "dir-1"
+      }
+
+      assert {:error, reason} = ActionValidator.validate(input, @valid_source)
+      assert String.contains?(reason, "target_ref")
+    end
+
     test "restored string-key source action passes validation" do
       input = %AuthorActionInput{
         input_id: "in-candidate-restored",
         source_turn_ref: "turn-1",
         action_id: "choose_candidate:dir-1",
         action_type: "choose_candidate",
+        target_ref: "dir-1",
         candidate_set_ref: "candidate_set:turn-1",
         candidate_ref: "dir-1"
       }
@@ -107,6 +139,7 @@ defmodule NovelApplication.ActionRoundtripTest do
           %{
             "action_id" => "choose_candidate:dir-1",
             "action_type" => "choose_candidate",
+            "target_ref" => "dir-1",
             "candidate_set_ref" => "candidate_set:turn-1",
             "candidate_ref" => "dir-1",
             "enabled" => true
@@ -216,6 +249,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         %{
           action_id: "choose_candidate:dir-1",
           action_type: "choose_candidate",
+          target_ref: "dir-1",
           candidate_set_ref: "candidate_set:turn-candidates-1",
           candidate_ref: "dir-1",
           enabled: true
@@ -286,6 +320,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         source_turn_ref: "turn-candidates-1",
         action_id: "choose_candidate:dir-1",
         action_type: "choose_candidate",
+        target_ref: "dir-1",
         candidate_set_ref: "candidate_set:turn-candidates-1",
         candidate_ref: "dir-1"
       }
@@ -311,6 +346,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         source_turn_ref: "turn-candidates-1",
         action_id: "choose_candidate:dir-1",
         action_type: "choose_candidate",
+        target_ref: "dir-1",
         candidate_set_ref: "candidate_set:turn-candidates-1",
         candidate_ref: "dir-1"
       }
@@ -334,6 +370,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         source_turn_ref: "turn-candidates-1",
         action_id: "choose_candidate:dir-1",
         action_type: "choose_candidate",
+        target_ref: "dir-1",
         candidate_set_ref: "candidate_set:turn-candidates-1",
         candidate_ref: "dir-1"
       }
@@ -372,6 +409,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         source_turn_ref: "turn-candidates-1",
         action_id: "choose_candidate:dir-1",
         action_type: "choose_candidate",
+        target_ref: "dir-1",
         candidate_set_ref: "candidate_set:turn-candidates-1",
         candidate_ref: "dir-1"
       }

@@ -5,9 +5,12 @@ defmodule NovelPersistence.WorkSessionRepo do
 
   import Ecto.Query
 
+  alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.WorkSession
+
+  @archived_status StructureStatus.archived()
 
   @doc "Create a work session."
   @spec create(map()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
@@ -95,7 +98,7 @@ defmodule NovelPersistence.WorkSessionRepo do
   @spec archive(WorkSession.t()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
   def archive(%WorkSession{} = session) do
     session
-    |> WorkSession.changeset(%{status: "ARCHIVED"})
+    |> WorkSession.changeset(%{status: @archived_status})
     |> Repo.update()
   end
 
@@ -108,7 +111,7 @@ defmodule NovelPersistence.WorkSessionRepo do
   end
 
   defp maybe_exclude_archived(query, true), do: query
-  defp maybe_exclude_archived(query, false), do: where(query, [s], s.status != "ARCHIVED")
+  defp maybe_exclude_archived(query, false), do: where(query, [s], s.status != ^@archived_status)
 
   defp session_matches?(session, needle) do
     searchable =

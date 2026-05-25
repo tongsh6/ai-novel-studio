@@ -11,6 +11,9 @@ defmodule NovelApplication.AdoptionWorkflow do
   alias NovelApplication.TraceSummaryRef
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.CandidateSet
+  alias NovelFoundation.Enums.AdoptionStatus
+  alias NovelFoundation.Enums.MemoryStatus
+  alias NovelFoundation.Enums.MutationStatus
 
   @spec handle_adopt(map() | nil, map(), function() | nil) ::
           {:ok, map(), map()} | {:error, String.t()}
@@ -213,9 +216,9 @@ defmodule NovelApplication.AdoptionWorkflow do
     {:ok,
      %{
        mutation_id: decision.adoption_decision_id,
-       mutation_status: "APPLIED",
+       mutation_status: MutationStatus.applied(),
        memory_item_id: decision.adopted_state_ref,
-       memory_status: "CONFIRMED",
+       memory_status: MemoryStatus.confirmed(),
        source_revision_ref: "decision:#{decision.adoption_decision_id}",
        persisted: false,
        persistence_status: "not_configured"
@@ -301,7 +304,7 @@ defmodule NovelApplication.AdoptionWorkflow do
           %{
             artifact_id: artifact_id,
             artifact_type: artifact_field(artifact, :artifact_type),
-            adoption_status: "ACCEPTED",
+            adoption_status: AdoptionStatus.accepted(),
             requires_adoption: false,
             source_artifact_ref: artifact_id,
             adopted_state_ref: persisted[:memory_item_id] || decision.adopted_state_ref,
@@ -353,7 +356,7 @@ defmodule NovelApplication.AdoptionWorkflow do
           %{
             artifact_id: artifact_id,
             artifact_type: artifact_field(artifact, :artifact_type),
-            adoption_status: "DISCARDED",
+            adoption_status: AdoptionStatus.discarded(),
             requires_adoption: false,
             source_artifact_ref: artifact_id,
             payload: artifact_field(artifact, :payload) || %{}
@@ -405,7 +408,7 @@ defmodule NovelApplication.AdoptionWorkflow do
           %{
             artifact_id: artifact_id,
             artifact_type: artifact_field(artifact, :artifact_type),
-            adoption_status: "EDITED_ACCEPTED",
+            adoption_status: AdoptionStatus.edited_accepted(),
             requires_adoption: false,
             source_artifact_ref: artifact_id,
             adopted_state_ref: persisted[:memory_item_id] || decision.adopted_state_ref,

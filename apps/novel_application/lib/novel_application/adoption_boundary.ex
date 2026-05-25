@@ -7,9 +7,9 @@ defmodule NovelApplication.AdoptionBoundary do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.CandidateSet
-  alias NovelDomain.ToolResult
 
   @doc """
   评估一个 candidate 是否可被采纳。返回 AdoptionDecision。

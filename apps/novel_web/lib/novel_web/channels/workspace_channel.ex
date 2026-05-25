@@ -199,6 +199,7 @@ defmodule NovelWeb.WorkspaceChannel do
       source_turn_ref: source_turn_ref,
       action_id: action_params["action_id"],
       action_type: action_params["action_type"],
+      target_ref: action_params["target_ref"],
       behavior_ref: action_params["behavior_ref"],
       candidate_set_ref: action_params["candidate_set_ref"],
       candidate_ref: action_params["candidate_ref"],
@@ -211,6 +212,7 @@ defmodule NovelWeb.WorkspaceChannel do
       turn_id: source_turn_ref,
       action_id: action_input.action_id,
       action_type: action_input.action_type,
+      target_ref: action_input.target_ref,
       candidate_ref: action_input.candidate_ref,
       candidate_set_ref: action_input.candidate_set_ref
     })
@@ -504,7 +506,6 @@ defmodule NovelWeb.WorkspaceChannel do
         turn_result = scope_turn_result(socket, turn_result)
         socket = remember_action_result(socket, action_input, result)
         broadcast!(socket, "action_result", result)
-        broadcast_task_state_events(socket, turn_result)
         broadcast!(socket, "turn_result", turn_result)
         socket = remember_turn_result(socket, turn_result)
         log_author_action_done(socket, action_input, result)
@@ -836,12 +837,6 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp scope_turn_result(_socket, turn_result), do: turn_result
-
-  defp broadcast_task_state_events(socket, %{task_state_events: events}) when is_list(events) do
-    Enum.each(events, &broadcast!(socket, "task_state", &1))
-  end
-
-  defp broadcast_task_state_events(_socket, _turn_result), do: :ok
 
   defp record_action_turn_result(socket, %{turn_id: turn_id} = turn_result)
        when is_binary(turn_id) do

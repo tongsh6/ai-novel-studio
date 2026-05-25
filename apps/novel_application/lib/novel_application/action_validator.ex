@@ -80,6 +80,9 @@ defmodule NovelApplication.ActionValidator do
 
   defp check_scoped_refs(input, action) do
     cond do
+      target_ref_mismatch?(input.target_ref, action_field(action, :target_ref)) ->
+        {:error, "action scope mismatch: target_ref does not match available action"}
+
       ref_mismatch?(input.behavior_ref, action_field(action, :behavior_ref)) ->
         {:error, "action scope mismatch: behavior_ref does not match available action"}
 
@@ -97,6 +100,9 @@ defmodule NovelApplication.ActionValidator do
   defp ref_mismatch?(nil, _expected), do: false
   defp ref_mismatch?(_actual, nil), do: false
   defp ref_mismatch?(actual, expected), do: actual != expected
+
+  defp target_ref_mismatch?(nil, nil), do: false
+  defp target_ref_mismatch?(actual, expected), do: actual != expected
 
   defp action_field(action, key) do
     string_key = Atom.to_string(key)
