@@ -35,18 +35,25 @@ config :logger, :default_formatter,
 
 # ── Provider 通用配置 ──────────────────────────
 # 各环境可通过 import_config "#{config_env()}.exs" 覆盖。
+llm_timeout_ms = System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000") |> String.to_integer()
+
+lmstudio_timeout_ms =
+  System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
+anthropic_timeout_ms =
+  System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
 config :novel_agent, :provider, default: :lmstudio
 
 config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
   model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.5-122b-a10b"),
-  timeout: 60_000
+  timeout: lmstudio_timeout_ms
 
 config :novel_agent, NovelAgent.Provider.Anthropic,
   api_key: System.get_env("NOVEL_ANTHROPIC_API_KEY"),
   model: System.get_env("NOVEL_ANTHROPIC_MODEL", "claude-sonnet-4-6"),
-  timeout: 120_000
+  timeout: anthropic_timeout_ms
 
 config :novel_web, NovelWeb.Endpoint,
   url: [host: "localhost"],

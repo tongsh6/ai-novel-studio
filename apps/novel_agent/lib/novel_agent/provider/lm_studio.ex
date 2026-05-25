@@ -153,7 +153,7 @@ defmodule NovelAgent.Provider.LMStudio do
     %__MODULE__{
       endpoint: Keyword.get(config, :endpoint, "http://localhost:1234/v1"),
       model: Keyword.get(config, :model, "qwen/qwen3.6-35b-a3b"),
-      timeout: Keyword.get(config, :timeout, 60_000),
+      timeout: Keyword.get(config, :timeout, 300_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
       log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5),
       json_mode: Keyword.get(config, :json_mode, false)

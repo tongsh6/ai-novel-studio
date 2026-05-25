@@ -22,18 +22,26 @@ config :dialyxir,
 
 # Provider Gateway — 开发环境
 # 默认使用 LM Studio 本地推理。LLM 不可用时直接报错，不做降级
+llm_timeout_ms = System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000") |> String.to_integer()
+
+lmstudio_timeout_ms =
+  System.get_env("NOVEL_LMSTUDIO_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
+anthropic_timeout_ms =
+  System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
 config :novel_agent, :provider, default: :lmstudio
 
 config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: "http://localhost:1234/v1",
   model: "openai/gpt-oss-120b",
-  timeout: 120_000
+  timeout: lmstudio_timeout_ms
 
 # 可选：Anthropic Claude API（需设置 ANTHROPIC_API_KEY 环境变量）
 # 切换到云端 provider 时，只需修改 :provider → default: :anthropic
 config :novel_agent, NovelAgent.Provider.Anthropic,
   model: "claude-sonnet-4-6",
-  timeout: 120_000
+  timeout: anthropic_timeout_ms
 
 # Stage 1 桌面应用：SQLite 自包含数据库。
 # 数据库文件位于项目根目录 priv/ 下，生产环境将放在 OS 用户数据目录。

@@ -9,7 +9,7 @@ defmodule NovelAgent.Provider.Anthropic do
       config :novel_agent, NovelAgent.Provider.Anthropic,
         api_key: "sk-ant-...",
         model: "claude-sonnet-4-6",
-        timeout: 120_000
+        timeout: 300_000
 
   或通过环境变量 ANTHROPIC_API_KEY 设置。
   """
@@ -168,7 +168,7 @@ defmodule NovelAgent.Provider.Anthropic do
     %__MODULE__{
       api_key: Keyword.get(config, :api_key) || System.get_env("ANTHROPIC_API_KEY"),
       model: Keyword.get(config, :model, "claude-sonnet-4-6"),
-      timeout: Keyword.get(config, :timeout, 120_000),
+      timeout: Keyword.get(config, :timeout, 300_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
       log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5)
     }

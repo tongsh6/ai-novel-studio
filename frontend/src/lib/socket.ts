@@ -2,6 +2,7 @@ import { Socket, Channel } from "phoenix";
 import { wsBaseUrl } from "./env";
 
 const DEFAULT_ENDPOINT: string = wsBaseUrl;
+export const LLM_TURN_TIMEOUT_MS = 300000;
 
 // TODO(Phase 1): params 收窄为具体业务类型
 export interface ConnectOptions {
@@ -60,7 +61,7 @@ export function sendMessage(
         session_id: sessionId,
         behavior_id: behaviorId,
         generate_micro_plan: generateMicroPlan,
-      }, 60000)
+      }, LLM_TURN_TIMEOUT_MS)
       .receive("ok", (response) => resolve(response as { received: boolean }))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("send timeout")));
@@ -84,7 +85,7 @@ export function sendAuthorAction(
 ): Promise<{ received: boolean; action_status: string }> {
   return new Promise((resolve, reject) => {
     channel
-      .push("author_action", { action }, 60000)
+      .push("author_action", { action }, LLM_TURN_TIMEOUT_MS)
       .receive("ok", (response) =>
         resolve(response as { received: boolean; action_status: string }),
       )
@@ -116,7 +117,7 @@ export function confirm(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("confirm", { behavior_id: behaviorId }, 60000)
+      .push("confirm", { behavior_id: behaviorId }, LLM_TURN_TIMEOUT_MS)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("confirm timeout")));
@@ -129,7 +130,7 @@ export function rejectAction(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("reject", { behavior_id: behaviorId }, 60000)
+      .push("reject", { behavior_id: behaviorId }, LLM_TURN_TIMEOUT_MS)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("reject timeout")));
@@ -143,7 +144,7 @@ export function revise(
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
-      .push("revise", { behavior_id: behaviorId, feedback }, 60000)
+      .push("revise", { behavior_id: behaviorId, feedback }, LLM_TURN_TIMEOUT_MS)
       .receive("ok", (response) => resolve(response as Record<string, unknown>))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("revise timeout")));

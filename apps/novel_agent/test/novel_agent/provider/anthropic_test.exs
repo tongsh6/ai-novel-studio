@@ -14,7 +14,7 @@ defmodule NovelAgent.Provider.AnthropicTest do
     test "returns struct with defaults" do
       state = Anthropic.from_config()
       assert state.model == "claude-sonnet-4-6"
-      assert state.timeout == 120_000
+      assert state.timeout == 300_000
     end
   end
 

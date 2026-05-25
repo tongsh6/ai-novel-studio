@@ -5,7 +5,7 @@
 // 所有 v3 消息通过 WorkspaceChannel (Elixir) 处理，返回 TurnResult。
 
 import type { Channel, Socket } from "phoenix";
-import { createSocket, joinWorkspace } from "./socket";
+import { createSocket, joinWorkspace, LLM_TURN_TIMEOUT_MS } from "./socket";
 
 // ── v3 TurnResult types ──────────────────────────
 
@@ -132,7 +132,7 @@ export function sendUserMessage(
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
     channel
-      .push("user_message", { text, generate_micro_plan: generateMicroPlan })
+      .push("user_message", { text, generate_micro_plan: generateMicroPlan }, LLM_TURN_TIMEOUT_MS)
       .receive("ok", (resp) => resolve(resp as { received: boolean }))
       .receive("error", (err) => reject(new Error(String(err))))
       .receive("timeout", () => reject(new Error("user_message timeout")));
@@ -152,7 +152,7 @@ export function sendAuthorAction(
 ): Promise<AuthorActionResult> {
   return new Promise((resolve, reject) => {
     channel
-      .push("author_action", { action })
+      .push("author_action", { action }, LLM_TURN_TIMEOUT_MS)
       .receive("ok", (resp) => resolve(resp as AuthorActionResult))
       .receive("error", (err) => reject(new Error(String(err))))
       .receive("timeout", () => reject(new Error("author_action timeout")));

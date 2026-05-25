@@ -24,7 +24,7 @@ defmodule NovelAgent.Provider.HTTP do
   @spec post(String.t(), map(), keyword()) :: http_result()
   def post(url, json_body, opts \\ []) do
     headers = [{"content-type", "application/json"} | Keyword.get(opts, :headers, [])]
-    receive_timeout = Keyword.get(opts, :receive_timeout, 60_000)
+    receive_timeout = Keyword.get(opts, :receive_timeout, 300_000)
     connect_timeout = Keyword.get(opts, :connect_timeout, 15_000)
 
     case Req.post(url,

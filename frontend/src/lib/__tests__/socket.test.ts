@@ -15,6 +15,7 @@ import {
   getForeshadowing,
   getRules,
   getWorkStats,
+  LLM_TURN_TIMEOUT_MS,
 } from "../socket";
 
 // 注：完整的 connect / ping-pong 端到端验证依赖 Phoenix server 在跑（mix phx.server）+
@@ -65,19 +66,49 @@ describe("sendMessage", () => {
   it("pushes user_message with text and does not request micro plan by default", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: undefined, session_id: undefined, behavior_id: undefined, generate_micro_plan: false }, 60000);
+    expect(ch.push).toHaveBeenCalledWith(
+      "user_message",
+      {
+        text: "你好",
+        work_id: undefined,
+        session_id: undefined,
+        behavior_id: undefined,
+        generate_micro_plan: false,
+      },
+      LLM_TURN_TIMEOUT_MS,
+    );
   });
 
   it("passes work_id when provided", () => {
     const ch = mockChannel();
     sendMessage(ch, "你好", "work-123");
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "你好", work_id: "work-123", session_id: undefined, behavior_id: undefined, generate_micro_plan: false }, 60000);
+    expect(ch.push).toHaveBeenCalledWith(
+      "user_message",
+      {
+        text: "你好",
+        work_id: "work-123",
+        session_id: undefined,
+        behavior_id: undefined,
+        generate_micro_plan: false,
+      },
+      LLM_TURN_TIMEOUT_MS,
+    );
   });
 
   it("can explicitly request a micro plan", () => {
     const ch = mockChannel();
     sendMessage(ch, "生成角色设定", "work-123", undefined, "session-123", true);
-    expect(ch.push).toHaveBeenCalledWith("user_message", { text: "生成角色设定", work_id: "work-123", session_id: "session-123", behavior_id: undefined, generate_micro_plan: true }, 60000);
+    expect(ch.push).toHaveBeenCalledWith(
+      "user_message",
+      {
+        text: "生成角色设定",
+        work_id: "work-123",
+        session_id: "session-123",
+        behavior_id: undefined,
+        generate_micro_plan: true,
+      },
+      LLM_TURN_TIMEOUT_MS,
+    );
   });
 });
 
@@ -92,16 +123,20 @@ describe("sendAuthorAction", () => {
       behavior_ref: "bh-1",
       idempotency_key: "ik-1",
     });
-    expect(ch.push).toHaveBeenCalledWith("author_action", {
-      action: {
-        source_turn_ref: "turn-1",
-        action_id: "act-confirm",
-        action_type: "confirm_before_execute",
-        target_ref: "target-1",
-        behavior_ref: "bh-1",
-        idempotency_key: "ik-1",
+    expect(ch.push).toHaveBeenCalledWith(
+      "author_action",
+      {
+        action: {
+          source_turn_ref: "turn-1",
+          action_id: "act-confirm",
+          action_type: "confirm_before_execute",
+          target_ref: "target-1",
+          behavior_ref: "bh-1",
+          idempotency_key: "ik-1",
+        },
       },
-    }, 60000);
+      LLM_TURN_TIMEOUT_MS,
+    );
   });
 });
 
