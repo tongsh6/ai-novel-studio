@@ -69,10 +69,8 @@ htmlcov/
 # Logs (runtime output)
 /log/
 apps/*/log/
-/artifacts/static-scan/
-/artifacts/slice-verify/
-/artifacts/task-done/
-/artifacts/scenario-invariants/
+/artifacts/**
+!/artifacts/.gitkeep
 
 # Temporary files
 *.tmp
