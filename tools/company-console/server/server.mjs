@@ -3,6 +3,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { anthropicConfig } from "./config.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(__dirname, "..");
@@ -862,9 +863,9 @@ function buildOfflineOutput(action, targetPlan, input = {}) {
 }
 
 async function callModelIfConfigured({ action, context, input, targetPlan, signal }) {
-  const baseUrl = process.env.ANTHROPIC_BASE_URL;
-  const token = process.env.ANTHROPIC_AUTH_TOKEN;
-  const model = process.env.ANTHROPIC_MODEL;
+  const baseUrl = anthropicConfig.baseUrl;
+  const token = anthropicConfig.authToken;
+  const model = anthropicConfig.model;
   if (!baseUrl || !token || !model) {
     return {
       usedModel: false,
@@ -1386,11 +1387,11 @@ async function router(req, res) {
   if (req.method === "GET" && pathname === "/api/model/status") {
     const retryAfter = modelHealth.retryAfterUntil ? new Date(modelHealth.retryAfterUntil).toISOString() : null;
     return sendJson(res, {
-      configured: Boolean(process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN && process.env.ANTHROPIC_MODEL),
-      baseUrlConfigured: Boolean(process.env.ANTHROPIC_BASE_URL),
-      modelConfigured: Boolean(process.env.ANTHROPIC_MODEL),
-      model: process.env.ANTHROPIC_MODEL || null,
-      endpoint: modelHealth.endpoint || (process.env.ANTHROPIC_BASE_URL ? redactEndpoint(resolveMessagesEndpoint(process.env.ANTHROPIC_BASE_URL)) : null),
+      configured: Boolean(anthropicConfig.baseUrl && anthropicConfig.authToken && anthropicConfig.model),
+      baseUrlConfigured: Boolean(anthropicConfig.baseUrl),
+      modelConfigured: Boolean(anthropicConfig.model),
+      model: anthropicConfig.model || null,
+      endpoint: modelHealth.endpoint || (anthropicConfig.baseUrl ? redactEndpoint(resolveMessagesEndpoint(anthropicConfig.baseUrl)) : null),
       lastError: modelHealth.lastError,
       lastFailureAt: modelHealth.lastFailureAt,
       retryAfter
