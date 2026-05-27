@@ -1,0 +1,37 @@
+{
+  "bookTitle": "诸天之上：始皇重生",
+  "version": 1,
+  "arcs": [
+    {
+      "id": "act-1",
+      "stage": "第一幕",
+      "title": "帝落神域",
+      "chapterStart": 1,
+      "chapterEnd": 35
+    },
+    {
+      "id": "act-2",
+      "stage": "第二幕",
+      "title": "淬炼帝身",
+      "chapterStart": 36,
+      "chapterEnd": 85
+    },
+    {
+      "id": "act-3",
+      "stage": "第三幕",
+      "title": "神选角斗",
+      "chapterStart": 86,
+      "chapterEnd": 155
+    },
+    {
+      "id": "act-4",
+      "stage": "第四幕",
+      "title": "龙入大海",
+      "chapterStart": 156,
+      "chapterEnd": 200
+    }
+  ],
+  "notes": [
+    "类型\t章节位置\t数量\n小爽点\t每3-5章\t约40个\n中等爽点\tch15/30/40/55/70/85/100/120/140/165/175/190\t12个\n大高潮\tch10/60/110/150/200\t5个\n情感爆点\tch139/200\t2个"
+  ]
+}

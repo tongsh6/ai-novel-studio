@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ProjectGod 资料展示器</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" aria-label="文件导航">
+        <div class="brand">
+          <div>
+            <p class="eyebrow">ProjectGod</p>
+            <h1>资料展示器</h1>
+          </div>
+          <span class="status-pill">只读</span>
+        </div>
+
+        <label class="search-box">
+          <span>搜索文件</span>
+          <input id="searchInput" type="search" placeholder="路径、标题或正文关键词" />
+        </label>
+
+        <nav class="scope-tabs" aria-label="范围筛选">
+          <button class="scope-tab active" data-scope="all" type="button">全部</button>
+          <button class="scope-tab" data-scope="company" type="button">公司</button>
+          <button class="scope-tab" data-scope="books" type="button">书本</button>
+          <button class="scope-tab" data-scope="root" type="button">根目录</button>
+        </nav>
+
+        <div id="fileTree" class="file-tree" role="tree"></div>
+      </aside>
+
+      <main class="content-pane">
+        <header class="topbar">
+          <div>
+            <p id="metaLine" class="meta-line">正在加载资料...</p>
+            <h2 id="docTitle">请选择文件</h2>
+          </div>
+          <div class="topbar-actions">
+            <button id="copyPathButton" class="ghost-button" type="button">复制路径</button>
+          </div>
+        </header>
+
+        <section class="quick-links" aria-label="重点入口">
+          <button type="button" data-path="company/standards/company_charter.md">公司章程</button>
+          <button type="button" data-path="company/proposals/department_responsibility_and_capability_catalog_2026-05-21_v1.md">部门职责</button>
+          <button type="button" data-path="company/capabilities/indexes/action_library_index.md">能力索引</button>
+          <button type="button" data-path="company/proposals/workspace_folder_architecture_v2_2026-05-21.md">架构提案</button>
+          <button type="button" data-path="books/_template/AGENTS.md">书本模板</button>
+        </section>
+
+        <article id="markdownView" class="markdown-view">
+          <div class="empty-state">
+            <h3>选择左侧文件查看内容</h3>
+            <p>页面只展示文件原文的可视化渲染，不对文件内容做业务字段拆解。</p>
+          </div>
+        </article>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
+
