@@ -1,0 +1,61 @@
+id: p1-chapter-plan-minimum
+title: 章节计划最小闭环
+tier: known-gap
+status: blocked
+blocked_reason: actual turn_result currently reports chapter_count=1 while manifest/driver expect chapter_count=12
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-chapter-plan-minimum --surface tauri
+
+contract:
+  - docs/design-v2/schemas/turn_result_v2.json
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/P1-chapter-plan-minimum.md
+
+invariants:
+  - I1-causal-binding
+  - I2-input-variation
+  - I3-nonce-propagation
+  - adoption-boundary-authorized-only
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案
+  - click: 开始规划
+  - input: 生成 12 章章节计划
+  - click: 发送
+  - wait_for: candidate_set visible
+  - click: 采纳
+  - reopen: archive outline
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-chapter-plan-minimum-tauri
+
+assertions:
+  ui:
+    - user input visible
+    - generated chapter items visible
+    - adoption result visible
+  network:
+    - user_message sent
+    - turn_result received
+    - author_action sent
+  data:
+    - accepted source persisted
+    - archive outline shows adopted chapter plan
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

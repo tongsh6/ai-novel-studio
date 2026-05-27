@@ -1,0 +1,47 @@
+id: au10-micro-plan-entry
+title: 浏览器微计划入口
+tier: pr-smoke
+surface: browser
+entrypoint: scripts/quality_accept.sh au10-micro-plan-entry --surface browser
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/v3/VS-01-micro-plan-downgrade-confirmation.md
+
+invariants:
+  - micro-plan-cannot-approve-itself
+  - visible-confirmation-required
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real browser workbench
+  - input: 触发微计划
+  - click: 发送
+  - wait_for: micro plan visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+  artifact_dir: artifacts/slice-verify/au10-micro-plan-entry
+
+assertions:
+  ui:
+    - micro plan visible
+    - confirmation control visible when required
+  network:
+    - user_message sent
+    - turn_result received
+  data:
+    - plan is not executed without author confirmation
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

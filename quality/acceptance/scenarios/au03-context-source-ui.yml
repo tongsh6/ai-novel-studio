@@ -1,0 +1,55 @@
+id: au03-context-source-ui
+title: 上下文来源可见解释
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au03-context-source-ui --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/engineering/frontend-workspace-runtime-state.md
+  - tasks/slices/v3/VS-00B-dialogue-context-grounding.md
+
+invariants:
+  - author-safe-source-summary
+  - no-raw-prompt-exposure
+  - context-bound-response
+
+setup:
+  seed: scripts/seed_au03_context_source_ui.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 林烬为什么要去灵源矿区？
+  - click: 发送
+  - wait_for: turn result visible
+  - click: 为什么
+  - wait_for: source panel visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au03-context-source-ui-tauri
+
+assertions:
+  ui:
+    - current work source visible
+    - recent dialogue source visible
+    - memory source visible
+    - raw prompt not visible
+  network:
+    - user_message sent
+    - turn_result received
+  data:
+    - trace summary contains author-safe source groups
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

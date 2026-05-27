@@ -1,0 +1,56 @@
+id: au02-candidate-adoption-bridge
+title: 候选方向选择与采纳边界
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au02-candidate-adoption-bridge --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/AU02-candidate-adoption-bridge.md
+  - docs/design-v2/schemas/turn_result_v2.json
+
+invariants:
+  - server-provided-action-only
+  - adoption-boundary-authorized-only
+  - traceable-candidate-source
+
+setup:
+  seed: scripts/seed_au03_long_session_compression.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 模糊小说创作方向
+  - click: 发送
+  - wait_for: candidate directions visible
+  - click: 继续聊这个方向
+  - wait_for: adoption decision visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au02-candidate-adoption-bridge-tauri
+
+assertions:
+  ui:
+    - candidate direction visible
+    - visible action uses server-provided action
+    - adoption decision visible
+  network:
+    - user_message sent
+    - author_action sent with server action id
+    - action_result received
+  data:
+    - candidate choice does not bypass adoption boundary
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

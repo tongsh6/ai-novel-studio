@@ -1,0 +1,54 @@
+id: au05-adoption-safety-freshness
+title: 采纳安全与新鲜度
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au05-adoption-safety-freshness --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/AU05-adoption-safety-freshness.md
+  - docs/design-v2/schemas/turn_result_v2.json
+
+invariants:
+  - adoption-boundary-authorized-only
+  - stale-candidate-rejected
+  - production-write-blocked-on-conflict
+
+setup:
+  seed: scripts/seed_au03_long_session_compression.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 生成候选并尝试采纳
+  - click: 发送
+  - wait_for: candidate visible
+  - click: 采纳
+  - wait_for: safety or freshness decision visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au05-adoption-safety-freshness-tauri
+
+assertions:
+  ui:
+    - adoption action visible
+    - adoption decision visible
+  network:
+    - author_action sent
+    - action_result received
+  data:
+    - unsafe or stale adoption does not write production state
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

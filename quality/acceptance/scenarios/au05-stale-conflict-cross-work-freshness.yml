@@ -1,0 +1,50 @@
+id: au05-stale-conflict-cross-work-freshness
+title: 过期候选跨作品新鲜度拒绝
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au05-stale-conflict-cross-work-freshness --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/AU05-stale-conflict-cross-work-freshness.md
+
+invariants:
+  - stale-candidate-rejected
+  - cross-work-write-blocked
+  - recovery-message-visible
+
+setup:
+  seed: scripts/seed_au05_stale_conflict_cross_work_freshness.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - view: restored stale candidate
+  - click: 采纳
+  - wait_for: stale rejection visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au05-stale-conflict-cross-work-freshness-tauri
+
+assertions:
+  ui:
+    - restored candidate visible
+    - recovery decision visible
+  network:
+    - author_action sent
+    - action_result received
+  data:
+    - production write blocked
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

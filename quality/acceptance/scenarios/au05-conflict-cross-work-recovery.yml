@@ -1,0 +1,49 @@
+id: au05-conflict-cross-work-recovery
+title: 跨作品冲突恢复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au05-conflict-cross-work-recovery --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/AU05-conflict-cross-work-recovery.md
+
+invariants:
+  - cross-work-conflict-detected
+  - production-write-blocked
+  - recovery-message-visible
+
+setup:
+  seed: scripts/seed_au05_conflict_cross_work_recovery.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - view: cross-work candidate
+  - click: 采纳
+  - wait_for: conflict recovery visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au05-conflict-cross-work-recovery-tauri
+
+assertions:
+  ui:
+    - conflict recovery visible
+  network:
+    - author_action sent
+    - action_result received
+  data:
+    - conflicting candidate not persisted as production fact
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

@@ -1,0 +1,50 @@
+id: au03-long-session-compression
+title: 长会话压缩上下文
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au03-long-session-compression --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/v3/VS-00B-dialogue-context-grounding.md
+
+invariants:
+  - context-window-uses-early-summary
+  - latest-transcript-window-preserved
+  - user-message-visible
+
+setup:
+  seed: scripts/seed_au03_long_session_compression.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 继续最新设定
+  - click: 发送
+  - wait_for: turn result visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au03-long-session-compression-tauri
+
+assertions:
+  ui:
+    - user input visible
+    - response visible
+  network:
+    - user_message sent
+    - turn_result received
+  data:
+    - prompt context uses compressed early history and latest transcript
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

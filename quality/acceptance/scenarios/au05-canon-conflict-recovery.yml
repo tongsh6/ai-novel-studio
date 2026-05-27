@@ -1,0 +1,49 @@
+id: au05-canon-conflict-recovery
+title: 正典冲突恢复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au05-canon-conflict-recovery --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/AU05-canon-conflict-recovery.md
+
+invariants:
+  - canon-conflict-detected
+  - production-write-blocked
+  - recovery-message-visible
+
+setup:
+  seed: scripts/seed_au05_canon_conflict_recovery.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - view: canon-conflict candidate
+  - click: 采纳
+  - wait_for: canon conflict recovery visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au05-canon-conflict-recovery-tauri
+
+assertions:
+  ui:
+    - canon conflict recovery visible
+  network:
+    - author_action sent
+    - action_result received
+  data:
+    - canon-conflicting candidate not persisted as production fact
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

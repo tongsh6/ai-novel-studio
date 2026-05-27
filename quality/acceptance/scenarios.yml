@@ -1,0 +1,89 @@
+scenarios:
+  - id: p1-chapter-plan-minimum
+    title: "章节计划最小闭环"
+    tier: known-gap
+    status: blocked
+    blocked_reason: "actual turn_result currently reports chapter_count=1 while manifest/driver expect chapter_count=12"
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-chapter-plan-minimum.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-chapter-plan-minimum --surface tauri
+  - id: p1-chapter-draft-generation
+    title: "章节草稿生成闭环"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-chapter-draft-generation.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-chapter-draft-generation --surface tauri
+  - id: au02-candidate-adoption-bridge
+    title: "候选方向选择与采纳边界"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au02-candidate-adoption-bridge.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au02-candidate-adoption-bridge --surface tauri
+  - id: au05-adoption-safety-freshness
+    title: "采纳安全与新鲜度"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au05-adoption-safety-freshness.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au05-adoption-safety-freshness --surface tauri
+  - id: au03-context-source-ui
+    title: "上下文来源可见解释"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au03-context-source-ui.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au03-context-source-ui --surface tauri
+  - id: au03-long-session-compression
+    title: "长会话压缩上下文"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au03-long-session-compression.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au03-long-session-compression --surface tauri
+  - id: au05-stale-conflict-cross-work-freshness
+    title: "过期候选跨作品新鲜度拒绝"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au05-stale-conflict-cross-work-freshness.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au05-stale-conflict-cross-work-freshness --surface tauri
+  - id: au05-conflict-cross-work-recovery
+    title: "跨作品冲突恢复"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au05-conflict-cross-work-recovery.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au05-conflict-cross-work-recovery --surface tauri
+  - id: au05-canon-conflict-recovery
+    title: "正典冲突恢复"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au05-canon-conflict-recovery.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au05-canon-conflict-recovery --surface tauri
+  - id: au02-candidate-continuation
+    title: "浏览器候选方向延续"
+    tier: known-gap
+    status: blocked
+    blocked_reason: "browser driver currently fails because candidate continuation did not send candidate_selection"
+    surface: browser
+    manifest: quality/acceptance/scenarios/au02-candidate-continuation.yml
+    driver: frontend/slice-verify/au02-candidate-continuation.mjs
+    entrypoint: scripts/quality_accept.sh au02-candidate-continuation --surface browser
+  - id: au10-micro-plan-entry
+    title: "浏览器微计划入口"
+    tier: pr-smoke
+    surface: browser
+    manifest: quality/acceptance/scenarios/au10-micro-plan-entry.yml
+    driver: frontend/slice-verify/au10-micro-plan-entry.mjs
+    entrypoint: scripts/quality_accept.sh au10-micro-plan-entry --surface browser
+  - id: vs10-observability-spine
+    title: "浏览器可观测性主链"
+    tier: pr-smoke
+    surface: browser
+    manifest: quality/acceptance/scenarios/vs10-observability-spine.yml
+    driver: frontend/slice-verify/vs10-observability-spine.mjs
+    entrypoint: scripts/quality_accept.sh vs10-observability-spine --surface browser

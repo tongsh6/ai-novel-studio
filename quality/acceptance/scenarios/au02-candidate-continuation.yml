@@ -1,0 +1,50 @@
+id: au02-candidate-continuation
+title: 浏览器候选方向延续
+tier: known-gap
+status: blocked
+blocked_reason: browser driver currently fails because candidate continuation did not send candidate_selection
+surface: browser
+entrypoint: scripts/quality_accept.sh au02-candidate-continuation --surface browser
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/AU02-candidate-adoption-bridge.md
+
+invariants:
+  - server-provided-action-only
+  - candidate-continuation-visible
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real browser workbench
+  - input: 模糊小说创作方向
+  - click: 发送
+  - wait_for: candidate direction visible
+  - click: 继续聊这个方向
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+  artifact_dir: artifacts/slice-verify/au02-candidate-continuation
+
+assertions:
+  ui:
+    - candidate direction visible
+    - continuation action visible
+  network:
+    - user_message sent
+    - turn_result received
+    - author_action sent
+  data:
+    - browser smoke proves external driver can use visible semantics
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

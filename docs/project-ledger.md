@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-26（Milestone: Fixture Provider Prompt Leak Correction）
+> 最后更新：2026-05-28（Milestone: Quality Operating System Baseline）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -21,7 +21,11 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **QP-Workbench（UI Enhancement）：已交付（实现 Frame Insight 认知洞察可视化，已完成 UI 组件解耦与类型加固）**
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
-### 当前重点推进事项（2026-05-26）
+### 当前重点推进事项（2026-05-28）
+
+Quality Operating System Baseline（2026-05-28）：已把分散的质量资产收敛到 `quality/` 作为统一入口，并补齐五层质量结构：L1 Spec / Design、L2 Architecture Guard、L3 Runtime Invariant、L4 Scenario Acceptance、L5 Evidence / Report。`quality/acceptance/scenarios.yml` 成为场景 manifest 总表；`scripts/quality_accept.sh` 统一路由 browser → `scripts/slice_verify.sh`、Tauri → `scripts/tauri_slice_verify.sh`；`scripts/quality_manifest_check.sh` 校验 scenario/manifest 字段、anti-hooks、surface/entrypoint 一致性、Tauri driver 对账和 release tier 文档一致性；CI 新增 `Quality manifest check`。当前 PR smoke 只包含已实跑通过的 browser 场景 `au10-micro-plan-entry` 与 `vs10-observability-spine`；`p1-chapter-plan-minimum` 因实际 `chapter_count=1` 与 12 章期望不一致降级为 `known-gap/blocked`，`au02-candidate-continuation` 因 browser driver 未观察到 `candidate_selection` 同样为 `known-gap/blocked`，二者不得进入 PR smoke。Anthropic-compatible company-console 历史配置文件不属于当前产品范围，已从当前本地 refs 历史中移除 `tools/company-console/server/config.mjs`，不保留 `.gitleaksignore` baseline；重新执行 `bash scripts/ai_static_scan.sh --top 10 --quick` 为 17 PASS / 0 findings。已清理 tracked runtime artifacts，`git ls-files artifacts` 只保留 `artifacts/.gitkeep`。验证：`bash scripts/quality_manifest_check.sh`、`bash scripts/quality_accept.sh --list`、`bash scripts/quality_accept.sh --tier pr-smoke`、I1/I2/I3、`mix compile --warnings-as-errors`、清理 test DB 后 `mix test`、`mix run scripts/arch_check.exs`、frontend typecheck/lint/test/build、static scan quick 已通过。剩余：release / release-real-llm gate 仍是 planned/not enforced；`mix format --check-formatted` 仍在既有未触碰 Elixir 文件失败；p1 12 章真实主链与 au02 browser continuation 需后续单独闭环。
+
+### 历史重点推进事项（2026-05-26）
 
 Fixture Provider Prompt Leak Correction（2026-05-26）：已修复 `CandidateSetCard` 展示真实 item 后暴露的第二层问题：stage/验收 provider 返回的 `items.body` 不是产品形态正文，而是把 creative prompt / 当前作品上下文原样包装成“候选内容”。根因不是所有模型都会这样，也不是 UI 应该隐藏正文；截图中的 `候选内容 277BT6` 精确来自 `NovelAgent.Test.Provider.SliceVerify`，该 deterministic provider 过去为了验证 nonce/context 贯通直接把 `creative_prompt_text` 放进 body。正式离线 `NovelAgent.Provider.Stub` 也有类似“字节透传用户输入”的 fixture 逻辑。当前修复把 `slice_verify` 与 `stub` creative items 改为生成产品形态的待确认正文片段，只保留作者意图摘要和随机标识符，不再把 `## 当前作品上下文`、`用户创作简述` 等 prompt heading 显示给作者；I3 nonce 贯通、I2 item_id 输入差异和 I1 provider→artifact 因果绑定均已复验通过。外部 Tauri driver `p1-chapter-draft-generation` 同步改为检查可见正文片段而不是 `候选内容` 占位词。验证：`mix test apps/novel_agent/test/novel_agent/provider/gateway_test.exs`、`pnpm --dir frontend test -- --run frontend/slice-verify/native-tauri-verifier.test.mjs`、三条 scenario invariant、`bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation` 已通过；完整 check/build/task_done/static scan 见本轮提交记录。
 

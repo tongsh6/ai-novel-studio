@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "quality/acceptance/evidence-schema.json",
+  "title": "AI Novel Studio Scenario Acceptance Evidence",
+  "type": "object",
+  "required": ["scenario_id", "surface", "tier", "artifact_dir", "required"],
+  "properties": {
+    "scenario_id": { "type": "string" },
+    "surface": { "enum": ["browser", "tauri"] },
+    "tier": { "type": "string" },
+    "artifact_dir": { "type": "string" },
+    "required": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "screenshot",
+          "websocket_frames",
+          "app_jsonl",
+          "turn_result",
+          "action_result",
+          "persistence_snapshot",
+          "summary_json",
+          "llm_http_log"
+        ]
+      }
+    }
+  },
+  "additionalProperties": true
+}
+

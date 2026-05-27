@@ -1,0 +1,50 @@
+id: vs10-observability-spine
+title: 浏览器可观测性主链
+tier: pr-smoke
+surface: browser
+entrypoint: scripts/quality_accept.sh vs10-observability-spine --surface browser
+
+contract:
+  - docs/engineering/observability.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/v3/VS-10-observability-spine.md
+
+invariants:
+  - trace-visible
+  - app-log-correlated
+  - no-raw-prompt-exposure
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real browser workbench
+  - input: 触发可观测链路
+  - click: 发送
+  - wait_for: trace summary visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+  artifact_dir: artifacts/slice-verify/vs10-observability-spine
+
+assertions:
+  ui:
+    - trace summary visible
+    - author-safe explanation visible
+  network:
+    - user_message sent
+    - turn_result received
+  data:
+    - app log and websocket evidence are correlated
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+
