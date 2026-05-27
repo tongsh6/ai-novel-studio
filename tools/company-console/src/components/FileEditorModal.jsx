@@ -17,11 +17,11 @@ export function FileEditorModal({ editor, onClose, onChange, onSave, onDelete })
           </button>
         </div>
         <div className="editor-toolbar">
-          <button className={editor.mode === "preview" ? "active" : ""} onClick={() => onChange({ mode: "preview" })}>
+          <button className={editor.mode === "preview" ? "active ui-button secondary" : "ui-button secondary"} onClick={() => onChange({ mode: "preview" })}>
             <Eye size={15} />
             预览
           </button>
-          <button className={editor.mode === "edit" ? "active" : ""} onClick={() => onChange({ mode: "edit" })}>
+          <button className={editor.mode === "edit" ? "active ui-button secondary" : "ui-button secondary"} onClick={() => onChange({ mode: "edit" })}>
             <Pencil size={15} />
             编辑
           </button>
@@ -40,12 +40,12 @@ export function FileEditorModal({ editor, onClose, onChange, onSave, onDelete })
         <div className="modal-actions">
           <span>{editor.dirty ? "有未保存修改" : "当前内容与磁盘一致"}</span>
           <div className="button-row">
-            <button className="danger" onClick={() => onDelete?.(editor.path)}>
+            <button className="ui-button danger" onClick={() => onDelete?.(editor.path)}>
               <Trash2 size={15} />
               删除文件
             </button>
-            <button onClick={onClose}>关闭</button>
-            <button className="primary" disabled={!editor.dirty || editor.saving} onClick={onSave}>
+            <button className="ui-button secondary" onClick={onClose}>关闭</button>
+            <button className="ui-button primary" disabled={!editor.dirty || editor.saving} onClick={onSave}>
               <Save size={15} />
               {editor.saving ? "保存中..." : "保存修改"}
             </button>

@@ -29,6 +29,20 @@ const companyGuideFiles = [
   "company/共享方法/写作规则.md",
   "company/术语表/统一术语.md"
 ];
+const actionVisuals = {
+  "project-skeleton": { icon: NotebookTabs, tone: "company", hint: "创建资料树" },
+  "core-selling-point": { icon: ShieldCheck, tone: "insight", hint: "压卖点与钩子" },
+  "golden-three": { icon: Workflow, tone: "insight", hint: "排前三章节奏" },
+  "character-card": { icon: Users, tone: "people", hint: "补角色卡" },
+  "plotline-plan": { icon: SplitSquareHorizontal, tone: "plot", hint: "推进卷纲与篇章线" },
+  "chapter-contract": { icon: Hammer, tone: "build", hint: "生成施工图" },
+  "scene-sequence": { icon: Workflow, tone: "build", hint: "拆场景序列" },
+  "chapter-draft": { icon: FileText, tone: "build", hint: "生成正文草稿" },
+  "payoff-audit": { icon: ClipboardCheck, tone: "review", hint: "查爽点与钩子" },
+  "anti-ai-audit": { icon: ClipboardCheck, tone: "review", hint: "查语感与说明腔" },
+  "foreshadow-check": { icon: ShieldCheck, tone: "review", hint: "查伏笔影响" },
+  "timeline-check": { icon: ShieldCheck, tone: "review", hint: "查时间线矛盾" }
+};
 
 export function CompanyDashboard({ manifest, openFile, onDeleteFile }) {
   const guideFiles = companyGuideFiles
@@ -165,7 +179,7 @@ export function ProjectsHub({ manifest, selectedProject, openProject, builder, s
           </label>
         </div>
         <div className="button-row">
-          <button className="primary" disabled={!actionsEnabled || !builder.seed.trim()} onClick={() => runAction("project-skeleton", builder, { projectSlug: "" })}>
+          <button className="ui-button primary large" disabled={!actionsEnabled || !builder.seed.trim()} onClick={() => runAction("project-skeleton", builder, { projectSlug: "" })}>
             <Play size={16} />
             创建书籍项目
           </button>
@@ -185,7 +199,7 @@ export function ProjectsHub({ manifest, selectedProject, openProject, builder, s
                     <h2>{project.title}</h2>
                     <p>{project.slug}</p>
                   </div>
-                  <button className="icon-button" onClick={() => openProject(project.slug)} title="进入项目">
+                  <button className="icon-button strong" onClick={() => openProject(project.slug)} title="进入项目">
                     <CheckCircle2 size={18} />
                   </button>
                 </div>
@@ -386,10 +400,18 @@ function ActionStrip({ actionIds, actionMap, disabled, onRun }) {
       {actionIds.map((id) => {
         const action = actionMap.get(id);
         if (!action) return null;
+        const visual = actionVisuals[id] || {};
+        const Icon = visual.icon || Play;
         return (
-          <button key={id} disabled={disabled} onClick={() => onRun(id)}>
-            <Play size={15} />
-            {action.label}
+          <button key={id} className={`action-button ${visual.tone || "default"}`} disabled={disabled} onClick={() => onRun(id)}>
+            <span className="action-button-icon">
+              <Icon size={16} />
+            </span>
+            <span className="action-button-copy">
+              <strong>{action.label}</strong>
+              <small>{visual.hint || action.stage}</small>
+            </span>
+            <em>{action.stage}</em>
           </button>
         );
       })}

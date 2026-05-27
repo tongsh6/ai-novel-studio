@@ -7,7 +7,7 @@ export function Topbar({ manifest, currentScope, currentProject, onBackToCompany
       </div>
       <div className="topbar-actions">
         {currentScope === "project" && (
-          <button onClick={onBackToCompany}>返回公司层</button>
+          <button className="ui-button secondary" onClick={onBackToCompany}>返回公司层</button>
         )}
         <span className="pill library">书籍资料 {manifest.stats.bookFiles}</span>
         <span className="pill company">公司资料 {manifest.stats.companyFiles}</span>

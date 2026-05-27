@@ -153,6 +153,7 @@ function App() {
     }
 
     const projectSlug = options.projectSlug ?? (currentScope === "project" ? selectedProject : "");
+    const resumeState = options.resumeState || null;
     const action = actionMap.get(actionId);
     const controller = new AbortController();
     requestControllerRef.current = controller;
@@ -166,6 +167,7 @@ function App() {
       kind: "running",
       title: action?.label || "执行中",
       actionId,
+      projectSlug,
       input,
       steps: [{ phase: "Context", message: "正在读取固定 Context Profile。" }]
     });
@@ -173,7 +175,7 @@ function App() {
     try {
       const start = await api("/api/actions/start", {
         method: "POST",
-        body: JSON.stringify({ actionId, projectSlug, input }),
+        body: JSON.stringify({ actionId, projectSlug, input, resumeState }),
         signal: controller.signal
       });
       currentRunRef.current = start.runId;
@@ -181,6 +183,7 @@ function App() {
         kind: "running",
         title: action?.label || "执行中",
         actionId,
+        projectSlug,
         input,
         runId: start.runId,
         steps: [{ phase: "Context", message: "任务已创建，正在等待服务端回传执行步骤。" }]
@@ -192,6 +195,7 @@ function App() {
           kind: "cancelled",
           title: action?.label || "执行已取消",
           actionId,
+          projectSlug,
           input,
           error: "本次请求已取消。",
           retryable: true
@@ -202,6 +206,7 @@ function App() {
         kind: "error",
         title: action?.label || "执行失败",
         actionId,
+        projectSlug,
         input,
         error: error.message,
         retryable: true
@@ -218,7 +223,9 @@ function App() {
     return new Promise((resolve, reject) => {
       const eventSource = new EventSource(`/api/actions/${runId}/events`);
       eventSourceRef.current = eventSource;
-      const steps = [];
+      let steps = [];
+      let settled = false;
+      let aborted = false;
 
       const cleanup = () => {
         eventSource.close();
@@ -227,7 +234,20 @@ function App() {
         }
       };
 
-      signal.addEventListener("abort", () => cleanup(), { once: true });
+      signal.addEventListener("abort", () => {
+        aborted = true;
+        cleanup();
+      }, { once: true });
+
+      eventSource.onopen = () => {
+        setModal((current) => current && current.runId === runId
+          ? {
+            ...current,
+            kind: "running",
+            steps: current.steps?.length ? current.steps : [{ phase: "Context", message: "执行连接已建立，等待服务端逐步回传。" }]
+          }
+          : current);
+      };
 
       eventSource.addEventListener("step", (event) => {
         const step = JSON.parse(event.data);
@@ -235,26 +255,42 @@ function App() {
         setModal((current) => current && current.runId === runId ? { ...current, kind: "running", steps: [...steps] } : current);
       });
 
+      eventSource.addEventListener("patch", (event) => {
+        const nextStep = JSON.parse(event.data);
+        const index = steps.findIndex((item) => item.id === nextStep.id);
+        if (index >= 0) {
+          steps = steps.map((item, itemIndex) => itemIndex === index ? nextStep : item);
+        } else {
+          steps = [...steps, nextStep];
+        }
+        setModal((current) => current && current.runId === runId ? { ...current, kind: "running", steps: [...steps] } : current);
+      });
+
       eventSource.addEventListener("done", (event) => {
+        settled = true;
         const result = JSON.parse(event.data || "{}");
         cleanup();
         currentRunRef.current = null;
         refreshModelStatus();
         if (result.status === "cancelled") {
-          setModal({ kind: "cancelled", title: action?.label || "执行已取消", actionId, input, error: result.error || "本次请求已取消。", retryable: true });
+          setModal({ kind: "cancelled", title: action?.label || "执行已取消", actionId, projectSlug: result.projectSlug || "", input, error: result.error || "本次请求已取消。", retryable: true, result: { ...result, events: result.events || steps } });
           resolve();
           return;
         }
         if (result.status === "error") {
-          setModal({ kind: "error", title: action?.label || "执行失败", actionId, input, error: result.error || "执行失败", retryable: true, result: { ...result, events: result.events || steps } });
+          setModal({ kind: "error", title: action?.label || "执行失败", actionId, projectSlug: result.projectSlug || "", input, error: result.error || "执行失败", retryable: true, result: { ...result, events: result.events || steps } });
           resolve();
           return;
         }
-        setModal({ kind: "result", title: result.action?.label || action?.label || "执行完成", actionId, input, result });
+        setModal({ kind: "result", title: result.action?.label || action?.label || "执行完成", actionId, projectSlug: result.projectSlug || "", input, result });
         resolve();
       });
 
       eventSource.onerror = () => {
+        if (settled || aborted || signal.aborted) {
+          cleanup();
+          return;
+        }
         cleanup();
         reject(new Error("执行过程连接中断，请重试。"));
       };
@@ -301,6 +337,7 @@ function App() {
         title: modal.title,
         actionId: modal.actionId,
         input: modal.input,
+        projectSlug: modal.projectSlug,
         error: "本次请求已取消。",
         retryable: true
       });
@@ -309,7 +346,15 @@ function App() {
 
   function retryModalAction() {
     if (!modal?.actionId) return;
-    runAction(modal.actionId, modal.input || {});
+    runAction(modal.actionId, modal.input || {}, { projectSlug: modal.projectSlug || "" });
+  }
+
+  function resumeModalAction() {
+    if (!modal?.actionId || !modal?.result?.resumeState) return;
+    runAction(modal.actionId, modal.input || {}, {
+      projectSlug: modal.projectSlug || "",
+      resumeState: modal.result.resumeState
+    });
   }
 
   function refreshModelStatus() {
@@ -374,7 +419,7 @@ function App() {
           {page === "continuity" && <BoardPage boardKey="continuity" manifest={manifest} currentProject={currentProject} runAction={runAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
         </main>
       </div>
-      {modal && <ActionModal modal={modal} onClose={() => setModal(null)} onSave={saveActionResult} onRetry={retryModalAction} onCancel={cancelRun} />}
+      {modal && <ActionModal modal={modal} onClose={() => setModal(null)} onSave={saveActionResult} onRetry={retryModalAction} onResume={resumeModalAction} onCancel={cancelRun} />}
       {editor && <FileEditorModal editor={editor} onClose={() => setEditor(null)} onChange={patchEditor} onSave={saveEditor} onDelete={deleteFile} />}
     </ErrorBoundary>
   );

@@ -12,10 +12,10 @@ export function Sidebar({ currentScope, setCurrentScope, companyNavItems, projec
       </div>
 
       <div className="scope-switch">
-        <button className={currentScope === "company" ? "active" : ""} onClick={() => setCurrentScope("company")}>
+        <button className={currentScope === "company" ? "active ui-button secondary" : "ui-button secondary"} onClick={() => setCurrentScope("company")}>
           公司层
         </button>
-        <button className={currentScope === "project" ? "active" : ""} onClick={() => currentProject && setCurrentScope("project")} disabled={!currentProject}>
+        <button className={currentScope === "project" ? "active ui-button secondary" : "ui-button secondary"} onClick={() => currentProject && setCurrentScope("project")} disabled={!currentProject}>
           书层
         </button>
       </div>
@@ -54,4 +54,3 @@ export function Sidebar({ currentScope, setCurrentScope, companyNavItems, projec
     </aside>
   );
 }
-
