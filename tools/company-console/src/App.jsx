@@ -6,6 +6,7 @@ import { ErrorBoundary } from "./components/ErrorBoundary.jsx";
 import { Sidebar } from "./components/Sidebar.jsx";
 import { Topbar } from "./components/Topbar.jsx";
 import { ActionModal } from "./components/ActionModal.jsx";
+import { ActionInputModal } from "./components/ActionInputModal.jsx";
 import { FileEditorModal } from "./components/FileEditorModal.jsx";
 import {
   BoardPage,
@@ -27,6 +28,7 @@ function App() {
   const [modal, setModal] = useState(null);
   const [builder, setBuilder] = useState({ seed: "" });
   const [editor, setEditor] = useState(null);
+  const [actionInputModal, setActionInputModal] = useState(null);
   const requestControllerRef = useRef(null);
   const eventSourceRef = useRef(null);
   const currentRunRef = useRef(null);
@@ -52,6 +54,10 @@ function App() {
       const tag = event.target?.tagName;
       const isTyping = tag === "INPUT" || tag === "TEXTAREA" || event.target?.isContentEditable;
       if (event.key === "Escape") {
+        if (actionInputModal) {
+          setActionInputModal(null);
+          return;
+        }
         if (editor) {
           setEditor(null);
           return;
@@ -73,7 +79,7 @@ function App() {
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modal, editor, activeNav]);
+  }, [modal, editor, actionInputModal, activeNav]);
 
   async function loadBootstrap() {
     try {
@@ -146,6 +152,35 @@ function App() {
     }
   }
 
+  function hasValue(value) {
+    return value !== undefined && value !== null && String(value).trim() !== "";
+  }
+
+  function uniqueList(items = []) {
+    return [...new Set(items.filter(Boolean))];
+  }
+
+  function withActionDefaults(action, input = {}) {
+    const next = { ...input };
+    for (const field of action?.inputSchema || []) {
+      if (!hasValue(next[field.key]) && hasValue(field.defaultValue)) {
+        next[field.key] = field.defaultValue;
+      }
+    }
+    return next;
+  }
+
+  function requestAction(actionId, input = {}, options = {}) {
+    const action = actionMap.get(actionId);
+    const normalized = withActionDefaults(action, input);
+    setActionInputModal({
+      actionId,
+      action,
+      value: normalized,
+      projectSlug: options.projectSlug ?? (currentScope === "project" ? selectedProject : "")
+    });
+  }
+
   async function runAction(actionId, input = {}, options = {}) {
     if (!actionsEnabled) {
       setModal({ kind: "error", title: "模型不可用", error: "当前没有可用模型配置，无法执行写作动作。", retryable: false });
@@ -154,6 +189,11 @@ function App() {
 
     const projectSlug = options.projectSlug ?? (currentScope === "project" ? selectedProject : "");
     const resumeState = options.resumeState || null;
+    const executionOptions = {
+      targetPlanOverride: options.targetPlanOverride || null,
+      contextPathsOverride: options.contextPathsOverride || null,
+      workflowOverride: options.workflowOverride || null
+    };
     const action = actionMap.get(actionId);
     const controller = new AbortController();
     requestControllerRef.current = controller;
@@ -169,13 +209,20 @@ function App() {
       actionId,
       projectSlug,
       input,
-      steps: [{ phase: "Context", message: "正在读取固定 Context Profile。" }]
+      executionOptions,
+      steps: [{ phase: "Context", message: "正在读取你刚确认的资料与目标文件计划。" }]
     });
 
     try {
       const start = await api("/api/actions/start", {
         method: "POST",
-        body: JSON.stringify({ actionId, projectSlug, input, resumeState }),
+        body: JSON.stringify({
+          actionId,
+          projectSlug,
+          input,
+          resumeState,
+          ...executionOptions
+        }),
         signal: controller.signal
       });
       currentRunRef.current = start.runId;
@@ -185,10 +232,11 @@ function App() {
         actionId,
         projectSlug,
         input,
+        executionOptions,
         runId: start.runId,
-        steps: [{ phase: "Context", message: "任务已创建，正在等待服务端回传执行步骤。" }]
+        steps: [{ phase: "Context", message: "任务已创建，正在等待服务端按确认后的计划回传执行步骤。" }]
       });
-      await streamRun(start.runId, action, actionId, input, controller.signal);
+      await streamRun(start.runId, action, actionId, input, projectSlug, executionOptions, controller.signal);
     } catch (error) {
       if (error.name === "AbortError") {
         setModal({
@@ -197,6 +245,7 @@ function App() {
           actionId,
           projectSlug,
           input,
+          executionOptions,
           error: "本次请求已取消。",
           retryable: true
         });
@@ -208,6 +257,7 @@ function App() {
         actionId,
         projectSlug,
         input,
+        executionOptions,
         error: error.message,
         retryable: true
       });
@@ -219,7 +269,7 @@ function App() {
     }
   }
 
-  function streamRun(runId, action, actionId, input, signal) {
+  function streamRun(runId, action, actionId, input, projectSlug, executionOptions, signal) {
     return new Promise((resolve, reject) => {
       const eventSource = new EventSource(`/api/actions/${runId}/events`);
       eventSourceRef.current = eventSource;
@@ -273,16 +323,16 @@ function App() {
         currentRunRef.current = null;
         refreshModelStatus();
         if (result.status === "cancelled") {
-          setModal({ kind: "cancelled", title: action?.label || "执行已取消", actionId, projectSlug: result.projectSlug || "", input, error: result.error || "本次请求已取消。", retryable: true, result: { ...result, events: result.events || steps } });
+          setModal({ kind: "cancelled", title: action?.label || "执行已取消", actionId, projectSlug: result.projectSlug || projectSlug || "", input, executionOptions, error: result.error || "本次请求已取消。", retryable: true, result: { ...result, events: result.events || steps } });
           resolve();
           return;
         }
         if (result.status === "error") {
-          setModal({ kind: "error", title: action?.label || "执行失败", actionId, projectSlug: result.projectSlug || "", input, error: result.error || "执行失败", retryable: true, result: { ...result, events: result.events || steps } });
+          setModal({ kind: "error", title: action?.label || "执行失败", actionId, projectSlug: result.projectSlug || projectSlug || "", input, executionOptions, error: result.error || "执行失败", retryable: true, result: { ...result, events: result.events || steps } });
           resolve();
           return;
         }
-        setModal({ kind: "result", title: result.action?.label || action?.label || "执行完成", actionId, projectSlug: result.projectSlug || "", input, result });
+        setModal({ kind: "result", title: result.action?.label || action?.label || "执行完成", actionId, projectSlug: result.projectSlug || projectSlug || "", input, executionOptions, result });
         resolve();
       });
 
@@ -297,24 +347,78 @@ function App() {
     });
   }
 
-  async function saveActionResult(result) {
+  async function saveActionResult(result, selectedPaths = []) {
+    const requested = new Set((selectedPaths.length ? selectedPaths : (result.artifacts || []).map((artifact) => artifact.path)).filter(Boolean));
+    const alreadyWritten = new Set(result.writtenPaths || []);
+    const artifacts = (result.artifacts || []).filter((artifact) => requested.has(artifact.path) && !alreadyWritten.has(artifact.path));
+    if (!artifacts.length) return;
+    const writingPaths = artifacts.map((artifact) => artifact.path);
+    setModal((current) => current?.result
+      ? {
+        ...current,
+        error: "",
+        result: {
+          ...current.result,
+          writingPaths: uniqueList([...(current.result.writingPaths || []), ...writingPaths])
+        }
+      }
+      : current);
     try {
       const saved = await api("/api/artifacts/write", {
         method: "POST",
-        body: JSON.stringify({ artifacts: result.artifacts || [] })
+        body: JSON.stringify({ artifacts })
       });
       const nextManifest = await api("/api/manifest");
       setManifest(nextManifest);
-      if (result.saveMode === "project-bootstrap" && result.projectSlug) {
+      const nextWrittenPaths = uniqueList([...(result.writtenPaths || []), ...(saved.written || [])]);
+      const allWritten = (result.artifacts || []).length > 0 && nextWrittenPaths.length >= (result.artifacts || []).length;
+      if (allWritten && result.saveMode === "project-bootstrap" && result.projectSlug) {
         openProject(result.projectSlug);
         setEditor(null);
-        setModal({ kind: "saved", title: "已创建书籍项目", path: `books/${result.projectSlug}/` });
-        return;
       }
-      setModal({ kind: "saved", title: "已写入目标文件", path: (saved.written || []).join("、") });
+      setModal((current) => {
+        if (!current?.result) return current;
+        return {
+          ...current,
+          kind: allWritten ? "saved" : "result",
+          title: allWritten
+            ? (result.saveMode === "project-bootstrap" ? "已创建书籍项目" : "已写入目标文件")
+            : current.title,
+          path: allWritten
+            ? (result.saveMode === "project-bootstrap" && result.projectSlug ? `books/${result.projectSlug}/` : nextWrittenPaths.join("、"))
+            : current.path,
+          writeResult: mergeWriteResults(current.writeResult, saved),
+          result: {
+            ...current.result,
+            writtenPaths: nextWrittenPaths,
+            writingPaths: (current.result.writingPaths || []).filter((path) => !writingPaths.includes(path))
+          }
+        };
+      });
     } catch (error) {
-      setModal({ kind: "error", title: "写入失败", error: error.message, retryable: false });
+      setModal((current) => current?.result
+        ? {
+          ...current,
+          error: error.message,
+          result: {
+            ...current.result,
+            writingPaths: (current.result.writingPaths || []).filter((path) => !writingPaths.includes(path))
+          }
+        }
+        : { kind: "error", title: "写入失败", error: error.message, retryable: false });
     }
+  }
+
+  function mergeWriteResults(current, next) {
+    if (!current) return next;
+    return {
+      ok: current.ok || next.ok,
+      written: uniqueList([...(current.written || []), ...(next.written || [])]),
+      created: uniqueList([...(current.created || []), ...(next.created || [])]),
+      overwritten: uniqueList([...(current.overwritten || []), ...(next.overwritten || [])]),
+      unchanged: uniqueList([...(current.unchanged || []), ...(next.unchanged || [])]),
+      projectRoots: uniqueList([...(current.projectRoots || []), ...(next.projectRoots || [])])
+    };
   }
 
   function cancelRun(updateModal = true) {
@@ -338,6 +442,7 @@ function App() {
         actionId: modal.actionId,
         input: modal.input,
         projectSlug: modal.projectSlug,
+        executionOptions: modal.executionOptions,
         error: "本次请求已取消。",
         retryable: true
       });
@@ -346,14 +451,18 @@ function App() {
 
   function retryModalAction() {
     if (!modal?.actionId) return;
-    runAction(modal.actionId, modal.input || {}, { projectSlug: modal.projectSlug || "" });
+    runAction(modal.actionId, modal.input || {}, {
+      projectSlug: modal.projectSlug || "",
+      ...(modal.executionOptions || {})
+    });
   }
 
   function resumeModalAction() {
     if (!modal?.actionId || !modal?.result?.resumeState) return;
     runAction(modal.actionId, modal.input || {}, {
       projectSlug: modal.projectSlug || "",
-      resumeState: modal.result.resumeState
+      resumeState: modal.result.resumeState,
+      ...(modal.executionOptions || {})
     });
   }
 
@@ -395,7 +504,7 @@ function App() {
               selectedDepartment={selectedDepartment}
               setSelectedDepartment={setSelectedDepartment}
               currentProject={currentProject}
-              runAction={runAction}
+              runAction={requestAction}
               actionMap={actionMap}
               actionsEnabled={actionsEnabled}
             />
@@ -407,19 +516,34 @@ function App() {
               openProject={openProject}
               builder={builder}
               setBuilder={setBuilder}
-              runAction={runAction}
+              runAction={requestAction}
               actionsEnabled={actionsEnabled}
             />
           )}
           {page === "project-overview" && <ProjectOverview currentProject={currentProject} manifest={manifest} openFile={openFile} onDeleteFile={deleteFile} />}
-          {page === "bible" && <BoardPage boardKey="bible" manifest={manifest} currentProject={currentProject} runAction={runAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
-          {page === "characters" && <BoardPage boardKey="characters" manifest={manifest} currentProject={currentProject} runAction={runAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
-          {page === "plot" && <PlotBoard manifest={manifest} currentProject={currentProject} runAction={runAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
-          {page === "factory" && <ChapterFactory currentProject={currentProject} runAction={runAction} actionMap={actionMap} actionsEnabled={actionsEnabled} />}
-          {page === "continuity" && <BoardPage boardKey="continuity" manifest={manifest} currentProject={currentProject} runAction={runAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
+          {page === "bible" && <BoardPage boardKey="bible" manifest={manifest} currentProject={currentProject} runAction={requestAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
+          {page === "characters" && <BoardPage boardKey="characters" manifest={manifest} currentProject={currentProject} runAction={requestAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
+          {page === "plot" && <PlotBoard manifest={manifest} currentProject={currentProject} runAction={requestAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
+          {page === "factory" && <ChapterFactory currentProject={currentProject} runAction={requestAction} actionMap={actionMap} actionsEnabled={actionsEnabled} />}
+          {page === "continuity" && <BoardPage boardKey="continuity" manifest={manifest} currentProject={currentProject} runAction={requestAction} actionMap={actionMap} actionsEnabled={actionsEnabled} openFile={openFile} onDeleteFile={deleteFile} />}
         </main>
       </div>
       {modal && <ActionModal modal={modal} onClose={() => setModal(null)} onSave={saveActionResult} onRetry={retryModalAction} onResume={resumeModalAction} onCancel={cancelRun} />}
+      {actionInputModal && (
+        <ActionInputModal
+          actionId={actionInputModal.actionId}
+          action={actionInputModal.action}
+          initialValue={actionInputModal.value}
+          projectSlug={actionInputModal.projectSlug}
+          onClose={() => setActionInputModal(null)}
+          onConfirm={({ input, options }) => {
+            const payload = withActionDefaults(actionInputModal.action, input);
+            const actionId = actionInputModal.actionId;
+            setActionInputModal(null);
+            runAction(actionId, payload, options);
+          }}
+        />
+      )}
       {editor && <FileEditorModal editor={editor} onClose={() => setEditor(null)} onChange={patchEditor} onSave={saveEditor} onDelete={deleteFile} />}
     </ErrorBoundary>
   );

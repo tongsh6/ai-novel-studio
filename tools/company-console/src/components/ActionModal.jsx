@@ -1,17 +1,41 @@
-import { useMemo, useState } from "react";
-import { History, RotateCcw, Square, X } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { History, LoaderCircle, RotateCcw, Square, X } from "lucide-react";
 import { renderMarkdown } from "../lib/markdown.js";
 import { statusLabel } from "../lib/view-models.js";
 
 export function ActionModal({ modal, onClose, onSave, onRetry, onResume, onCancel }) {
   const result = modal.result;
   const events = result?.events || modal.steps || [];
-  const [viewMode, setViewMode] = useState("key");
-  const visibleEvents = useMemo(() => viewMode === "all" ? events : pickKeyEvents(events), [events, viewMode]);
+  const [viewMode, setViewMode] = useState(modal.kind === "running" ? "all" : "key");
+  const processRef = useRef(null);
+  const visibleEvents = useMemo(
+    () => (viewMode === "all" ? events : pickKeyEvents(events)).filter((event) => event.phase !== "Output"),
+    [events, viewMode]
+  );
+  const targetList = useMemo(() => collectTargetStatuses(modal, events), [modal, events]);
+  const targetSummary = useMemo(() => summarizeTargets(targetList), [targetList]);
+  const livePhase = events.length ? formatEventPhase(events.at(-1)?.phase) : "";
+  const fileCards = useMemo(() => buildFileCards(modal, targetList, events), [modal, targetList, events]);
+  const writtenPaths = useMemo(() => new Set(result?.writtenPaths || modal.writeResult?.written || []), [result?.writtenPaths, modal.writeResult?.written]);
+  const writingPaths = useMemo(() => new Set(result?.writingPaths || []), [result?.writingPaths]);
+  const pendingWrites = useMemo(
+    () => fileCards.filter((card) => card.canWrite && !writtenPaths.has(card.path)).length,
+    [fileCards, writtenPaths]
+  );
+
+  useEffect(() => {
+    setViewMode(modal.kind === "running" ? "all" : "key");
+  }, [modal.kind, modal.runId, result?.runId]);
+
+  useEffect(() => {
+    if (modal.kind === "running" && viewMode === "all" && processRef.current) {
+      processRef.current.scrollTop = processRef.current.scrollHeight;
+    }
+  }, [events, modal.kind, viewMode]);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true">
-      <div className="modal">
+      <div className="modal execution-modal">
         <div className="modal-head">
           <div>
             <p className="eyebrow">{formatModalKind(modal.kind)}</p>
@@ -23,50 +47,100 @@ export function ActionModal({ modal, onClose, onSave, onRetry, onResume, onCance
         </div>
         {modal.error && <div className="error-box">{modal.error}</div>}
         {modal.path && <div className="success-box">已写入：{modal.path}</div>}
-        {events.length > 0 && (
-          <div className="run-toolbar">
-            <div className="segmented-control" aria-label="执行视图">
-              <button className={viewMode === "key" ? "ui-button secondary active" : "ui-button secondary"} onClick={() => setViewMode("key")}>
-                关键事件
-              </button>
-              <button className={viewMode === "all" ? "ui-button secondary active" : "ui-button secondary"} onClick={() => setViewMode("all")}>
-                完整过程
-              </button>
-            </div>
-            <span className="run-toolbar-note">
-              {viewMode === "key" ? `当前展示 ${visibleEvents.length}/${events.length} 个关键节点` : `当前展示全部 ${events.length} 个节点`}
-            </span>
-          </div>
-        )}
-        {events.length > 0 && (
-          <div className="run-steps">
-            {visibleEvents.map((event, index) => (
-              <details
-                key={`${event.phase}-${event.at || index}-${index}`}
-                className={`run-step ${event.phase === "Output" ? "output-step" : ""}`}
-                open={defaultOpen(event.phase, modal.kind)}
-              >
-                <summary className="run-step-summary">
-                  <span className="run-step-phase">{formatEventPhase(event.phase)}</span>
-                  <strong>{event.phase === "Draft" && event.details?.generatedText ? "正文正在流式生成中。" : event.message}</strong>
-                  <em>{formatEventTime(event.at)}</em>
-                </summary>
-                <div className="run-step-body">
-                  {renderEventDetails(event)}
-                  {event.phase === "Output" || event.phase === "Draft" ? (
-                    <div className="markdown-body compact result-output" dangerouslySetInnerHTML={{ __html: renderMarkdown(event.phase === "Draft" ? detailsForDraft(event) : event.message) }} />
-                  ) : (
-                    <p className="run-step-copy">{event.message}</p>
-                  )}
+        {modal.writeResult && <WriteResultPanel writeResult={modal.writeResult} />}
+
+        <div className="execution-layout">
+          <section className="execution-process-panel">
+            {events.length > 0 && (
+              <div className="run-toolbar">
+                <div className="segmented-control" aria-label="执行视图">
+                  <button className={viewMode === "key" ? "ui-button secondary active" : "ui-button secondary"} onClick={() => setViewMode("key")}>
+                    关键事件
+                  </button>
+                  <button className={viewMode === "all" ? "ui-button secondary active" : "ui-button secondary"} onClick={() => setViewMode("all")}>
+                    完整过程
+                  </button>
                 </div>
-              </details>
-            ))}
-          </div>
-        )}
+                <span className="run-toolbar-note">
+                  {modal.kind === "running" && viewMode === "all"
+                    ? `正在实时展示全部 ${events.length} 个节点`
+                    : viewMode === "key"
+                      ? `当前展示 ${visibleEvents.length}/${events.length} 个关键节点`
+                      : `当前展示全部 ${events.length} 个节点`}
+                </span>
+              </div>
+            )}
+            <div className="process-panel-head">
+              <div>
+                <p className="eyebrow">主过程</p>
+                <strong>Observe / Plan / Draft / Review 实时轨迹</strong>
+              </div>
+              {modal.kind === "running" && livePhase && <span className="live-phase-badge">实时阶段：{livePhase}</span>}
+            </div>
+            {visibleEvents.length > 0 ? (
+              <div ref={processRef} className={`run-steps process-stream ${modal.kind === "running" && viewMode === "all" ? "live" : ""}`}>
+                {visibleEvents.map((event, index) => (
+                  <details
+                    key={`${event.id || event.phase}-${event.at || index}-${index}`}
+                    className={`run-step ${modal.kind === "running" && index === visibleEvents.length - 1 ? "is-live" : ""}`}
+                    open={defaultOpen(event.phase, modal.kind)}
+                  >
+                    <summary className="run-step-summary">
+                      <span className="run-step-phase">{formatEventPhase(event.phase)}</span>
+                      <strong>{event.message}</strong>
+                      <em>{formatEventTime(event.at)}</em>
+                    </summary>
+                    <div className="run-step-body">
+                      {renderEventDetails(event)}
+                    </div>
+                  </details>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-file-card">
+                <strong>当前还没有可展示的执行过程。</strong>
+                <p>开始执行后，公开过程会逐步回传到这里。</p>
+              </div>
+            )}
+          </section>
+
+          <section className="execution-files-panel">
+            <div className="process-panel-head">
+              <div>
+                <p className="eyebrow">文件窗口</p>
+                <strong>每个目标文件单独预览并单独确认写入</strong>
+              </div>
+              <span className="run-toolbar-note">
+                {targetSummary.total
+                  ? `共 ${targetSummary.total} 个目标文件，待写入 ${pendingWrites} 个`
+                  : "当前任务未生成目标文件"}
+              </span>
+            </div>
+            <div className="file-window-grid">
+              {fileCards.map((card) => (
+                <FileWindow
+                  key={card.path}
+                  card={card}
+                  modalKind={modal.kind}
+                  isWritten={writtenPaths.has(card.path)}
+                  isWriting={writingPaths.has(card.path)}
+                  onWrite={() => onSave(result, [card.path])}
+                />
+              ))}
+              {!fileCards.length && (
+                <div className="empty-file-card">
+                  <strong>还没有文件结果。</strong>
+                  <p>规划完成后，这里会按目标文件拆出独立窗口。</p>
+                </div>
+              )}
+            </div>
+          </section>
+        </div>
+
         <div className="modal-actions">
           <span>
-            {result?.targets?.length
-              ? `目标文件：${result.targets.map((item) => item.path).join("、")}`
+            {targetSummary.total
+              ? `目标文件 ${targetSummary.total} 个：新增 ${targetSummary.create}，覆盖 ${targetSummary.overwrite}${targetSummary.unchanged ? `，未变化 ${targetSummary.unchanged}` : ""}。`
               : "当前任务未生成可保存结果。"}
           </span>
           <div className="button-row">
@@ -88,11 +162,6 @@ export function ActionModal({ modal, onClose, onSave, onRetry, onResume, onCance
                 从恢复点继续
               </button>
             )}
-            {modal.kind === "result" && result && (
-              <button className="ui-button primary" onClick={() => onSave(result)}>
-                {result.saveLabel || "确认写入目标文件"}
-              </button>
-            )}
             {modal.kind !== "running" && (
               <button className="ui-button secondary" onClick={onClose}>
                 关闭
@@ -101,6 +170,104 @@ export function ActionModal({ modal, onClose, onSave, onRetry, onResume, onCance
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function FileWindow({ card, modalKind, isWritten, isWriting, onWrite }) {
+  const meta = targetStatus(card);
+  const writeDisabled = !card.canWrite || isWriting || isWritten || modalKind !== "result";
+
+  return (
+    <article className="file-window-card">
+      <div className="file-window-head">
+        <div className="file-window-copy">
+          <p className="eyebrow">{card.label || "目标文件"}</p>
+          <strong>{card.path}</strong>
+        </div>
+        <div className="file-window-badges">
+          <span className={`target-chip-badge ${meta.className}`}>{meta.label}</span>
+          {isWritten && <span className="target-chip-badge create">已写入</span>}
+          {modalKind === "running" && !isWritten && <span className="target-chip-badge unchanged">生成中</span>}
+        </div>
+      </div>
+      <div className="file-window-body">
+        {card.content ? (
+          <div className="markdown-body compact compact-file-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(card.content) }} />
+        ) : (
+          <div className="empty-file-card inline">
+            <strong>{card.placeholderTitle}</strong>
+            <p>{card.placeholderCopy}</p>
+          </div>
+        )}
+      </div>
+      <div className="file-window-actions">
+        <span className="run-toolbar-note">{card.footerNote}</span>
+        {modalKind === "result" && (
+          <button className="ui-button primary" disabled={writeDisabled} onClick={onWrite}>
+            {isWriting
+              ? (
+                <>
+                  <LoaderCircle size={15} className="spin" />
+                  写入中
+                </>
+              ) : isWritten
+                ? "已写入"
+                : "写入这个文件"}
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function WriteResultPanel({ writeResult }) {
+  const summary = summarizeTargets([
+    ...(writeResult.created || []).map((path) => ({ path, changeType: "create" })),
+    ...(writeResult.overwritten || []).map((path) => ({ path, changeType: "overwrite" })),
+    ...(writeResult.unchanged || []).map((path) => ({ path, changeType: "unchanged" }))
+  ]);
+
+  return (
+    <div className="target-overview">
+      <div className="target-overview-head">
+        <div>
+          <p className="eyebrow">写入结果</p>
+          <strong>已完成部分或全部文件落盘</strong>
+        </div>
+      </div>
+      <div className="detail-metrics">
+        <div className="detail-metric">
+          <span>新建</span>
+          <strong>{summary.create}</strong>
+        </div>
+        <div className="detail-metric">
+          <span>覆盖</span>
+          <strong>{summary.overwrite}</strong>
+        </div>
+        <div className="detail-metric">
+          <span>未变化</span>
+          <strong>{summary.unchanged}</strong>
+        </div>
+      </div>
+      <div className="target-chip-list">
+        {(writeResult.created || []).map((path) => <TargetChip key={`created-${path}`} target={{ path, changeType: "create" }} />)}
+        {(writeResult.overwritten || []).map((path) => <TargetChip key={`overwritten-${path}`} target={{ path, changeType: "overwrite" }} />)}
+        {(writeResult.unchanged || []).map((path) => <TargetChip key={`unchanged-${path}`} target={{ path, changeType: "unchanged" }} />)}
+      </div>
+    </div>
+  );
+}
+
+function TargetChip({ target }) {
+  const meta = targetStatus(target);
+  return (
+    <div className="target-chip-card">
+      <div className="target-chip-copy">
+        <strong>{target.label || inferLabelFromPath(target.path) || "目标文件"}</strong>
+        <code>{target.path}</code>
+      </div>
+      <span className={`target-chip-badge ${meta.className}`}>{meta.label}</span>
     </div>
   );
 }
@@ -127,13 +294,11 @@ function formatEventPhase(phase) {
     Draft: "生成",
     "Write Plan": "写入计划",
     Reflection: "执行摘要",
-    Review: "自检",
-    Output: "生成结果"
+    Review: "自检"
   }[phase] || phase;
 }
 
 function defaultOpen(phase, modalKind) {
-  if (phase === "Output") return modalKind === "result";
   if (phase === "Draft" && modalKind === "running") return true;
   return true;
 }
@@ -197,9 +362,10 @@ function renderEventDetails(event) {
           <pre>{details.preview}</pre>
         </div>
       )}
-      {details.generatedText && event.phase === "Draft" && (
+      {details.streamedText && event.phase !== "Draft" && (
         <div className="detail-block">
-          <strong>当前已生成内容</strong>
+          <strong>当前公开过程</strong>
+          <pre>{details.streamedText}</pre>
         </div>
       )}
       {details.sections?.length > 0 && (
@@ -243,14 +409,9 @@ function renderEventDetails(event) {
       {details.targets && (
         <div className="detail-block">
           <strong>目标文件</strong>
-          <ul className="detail-list">
-            {details.targets.map((target) => (
-              <li key={target.path}>
-                <code>{target.path}</code>
-                {target.exists ? "（将修改现有文件）" : "（将创建新文件）"}
-              </li>
-            ))}
-          </ul>
+          <div className="target-chip-list">
+            {details.targets.map((target) => <TargetChip key={target.path} target={target} />)}
+          </div>
         </div>
       )}
       {details.input && (
@@ -283,7 +444,7 @@ function renderCompressionLine(file) {
 
 function pickKeyEvents(events) {
   if (!Array.isArray(events) || !events.length) return [];
-  const preferredOrder = ["Scope", "Budget", "Workflow", "Observe", "Plan", "Draft", "Review", "Write Plan", "Output"];
+  const preferredOrder = ["Scope", "Context", "Budget", "Workflow", "Prompt", "Observe", "Plan", "Draft", "Review", "Write Plan", "Reflection"];
   const lastByPhase = new Map();
   events.forEach((event) => {
     if (preferredOrder.includes(event.phase)) {
@@ -302,6 +463,65 @@ function pickKeyEvents(events) {
   return preferredOrder.map((phase) => lastByPhase.get(phase)).filter(Boolean);
 }
 
-function detailsForDraft(event) {
-  return event.details?.generatedText || "";
+function collectTargetStatuses(modal, events) {
+  if (Array.isArray(modal.result?.targets) && modal.result.targets.length) {
+    return modal.result.targets;
+  }
+  const targetEvent = [...events].reverse().find((event) => Array.isArray(event.details?.targets) && event.details.targets.length);
+  return targetEvent?.details?.targets || [];
+}
+
+function summarizeTargets(targets = []) {
+  return targets.reduce((summary, target) => {
+    const meta = targetStatus(target);
+    summary.total += 1;
+    summary[meta.bucket] += 1;
+    return summary;
+  }, { total: 0, create: 0, overwrite: 0, unchanged: 0 });
+}
+
+function targetStatus(target = {}) {
+  const changeType = target.changeType || (target.exists ? "overwrite" : "create");
+  if (changeType === "overwrite") {
+    return { bucket: "overwrite", label: "覆盖", className: "overwrite" };
+  }
+  if (changeType === "unchanged") {
+    return { bucket: "unchanged", label: "未变化", className: "unchanged" };
+  }
+  return { bucket: "create", label: "新增", className: "create" };
+}
+
+function inferLabelFromPath(repoPath) {
+  return String(repoPath || "").split("/").pop()?.replace(/\.[^.]+$/, "") || "目标文件";
+}
+
+function buildFileCards(modal, targets, events) {
+  const result = modal.result || {};
+  const artifacts = Array.isArray(result.artifacts) ? result.artifacts : [];
+  const artifactMap = new Map(artifacts.map((artifact) => [artifact.path, artifact]));
+  const liveDraft = [...events].reverse().find((event) => event.phase === "Draft" && event.details?.generatedText)?.details?.generatedText || "";
+  const paths = [...new Set([...targets.map((target) => target.path), ...artifacts.map((artifact) => artifact.path)])];
+  const singleTargetPath = paths.length === 1 ? paths[0] : "";
+
+  return paths.map((path) => {
+    const target = targets.find((item) => item.path === path) || { path, label: inferLabelFromPath(path) };
+    const artifact = artifactMap.get(path);
+    const fallbackContent = modal.kind === "running" && path === singleTargetPath ? liveDraft : "";
+    const content = artifact?.content || fallbackContent;
+    const hasRenderableContent = Boolean(String(content || "").trim());
+    return {
+      ...target,
+      content,
+      canWrite: Boolean(artifact?.path),
+      placeholderTitle: modal.kind === "running"
+        ? "该文件正在等待生成内容。"
+        : "该文件暂时没有可预览内容。",
+      placeholderCopy: modal.kind === "running"
+        ? "如果是多文件结果，模型完成后会把对应内容拆到这里。"
+        : "重新执行后会在这里显示可确认写入的 Markdown。",
+      footerNote: hasRenderableContent
+        ? (artifact?.path ? "这里展示的是确认前的文件预览，可单独写入。" : "当前为实时流式草稿，待完整结果回传后才能单独写入。")
+        : (modal.kind === "running" ? "当前仍在等待该文件的专属内容。" : "当前没有可写入内容。")
+    };
+  });
 }

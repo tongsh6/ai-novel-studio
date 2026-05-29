@@ -155,7 +155,7 @@ export function Departments({ manifest, selectedDepartment, setSelectedDepartmen
           actionIds={department.actions}
           actionMap={actionMap}
           disabled={!actionsEnabled}
-          onRun={(id) => runAction(id, { title: actionMap.get(id)?.label }, { projectSlug: target === "__company__" ? "" : target })}
+          onRun={(id) => runAction(id, {}, { projectSlug: target === "__company__" ? "" : target })}
         />
       </div>
     </section>
@@ -262,7 +262,7 @@ export function BoardPage({ boardKey, manifest, currentProject, runAction, actio
           actionIds={board.actions}
           actionMap={actionMap}
           disabled={!actionsEnabled || !currentProject}
-          onRun={(id) => runAction(id, { title: actionMap.get(id)?.label }, { projectSlug: currentProject?.slug || "" })}
+          onRun={(id) => runAction(id, {}, { projectSlug: currentProject?.slug || "" })}
         />
       </section>
       <section className="panel wide">
@@ -333,7 +333,7 @@ export function PlotBoard({ manifest, currentProject, runAction, actionMap, acti
           actionIds={["plotline-plan", "golden-three", "scene-sequence"]}
           actionMap={actionMap}
           disabled={!actionsEnabled || !currentProject}
-          onRun={(id) => runAction(id, { title: actionMap.get(id)?.label }, { projectSlug: currentProject?.slug || "" })}
+          onRun={(id) => runAction(id, {}, { projectSlug: currentProject?.slug || "" })}
         />
       </section>
       <section className="panel wide">

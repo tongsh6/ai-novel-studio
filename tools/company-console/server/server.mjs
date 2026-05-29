@@ -20,10 +20,11 @@ const modelHealth = {
   endpoint: null
 };
 const modelTokenPolicy = {
-  maxInputTokens: 22000,
-  maxOutputTokens: 4000,
-  reservedInstructionTokens: 1200,
-  minContextTokens: 1200
+  maxContextWindowTokens: 204800,
+  maxOutputTokens: 16384,
+  reservedInstructionTokens: 1800,
+  minContextTokens: 1200,
+  tokenizerMode: "heuristic-estimate"
 };
 const publicTracePhases = new Set(["Observe", "Plan", "Draft", "Review"]);
 const continuationPolicy = {
@@ -113,6 +114,15 @@ const actions = [
     stage: "开新书",
     skill: "新书项目构建",
     scope: "company",
+    inputSchema: [
+      {
+        key: "seed",
+        label: "立项文本",
+        type: "textarea",
+        required: true,
+        placeholder: "粘贴书名、题材、主角设定、剧情大纲、人物小传、爽点与伏笔。"
+      }
+    ],
     contextProfile: ({ input }) => [
       "company/公司标准/公司章程.md",
       "company/共享方法/写作规则.md",
@@ -169,17 +179,49 @@ const actions = [
     stage: "角色工作台",
     skill: "角色卡构建",
     scope: "project",
+    inputSchema: [
+      {
+        key: "characterName",
+        label: "角色名",
+        type: "text",
+        required: true,
+        placeholder: "例如：嬴政 / 马库斯 / 新角色名"
+      },
+      {
+        key: "roleType",
+        label: "角色类型",
+        type: "select",
+        required: true,
+        options: ["主角", "重要配角", "次要配角", "龙套", "组织/团体"],
+        defaultValue: "重要配角"
+      },
+      {
+        key: "changeIntent",
+        label: "本次任务",
+        type: "select",
+        required: true,
+        options: ["新增角色档案", "补全既有角色", "重写角色定位"],
+        defaultValue: "补全既有角色"
+      },
+      {
+        key: "notes",
+        label: "补充要求",
+        type: "textarea",
+        required: false,
+        placeholder: "例如：补出关键关系、首次出场章节、记忆点、禁区。"
+      }
+    ],
     contextProfile: ({ projectSlug }) => [
       "company/模板/角色模板.md",
       "company/共享方法/写作规则.md",
       ...bookScopePaths(projectSlug, ["圣经/书籍圣经.md", "角色/角色总表.md", "剧情/剧情总纲.md"])
     ],
-    workflow: () => [
-      "抽取主配角欲望、弱点、关系和成长线。",
-      "识别角色空洞、重复功能和缺失动机。",
-      "把新角色卡或补充卡直接写入角色目录。"
+    workflow: ({ input }) => [
+      `围绕 ${input?.characterName || "目标角色"} 读取现有角色总表，而不是新建散落角色文件。`,
+      "按角色档案库思路补齐身份标签、记忆点、关系网络、核心动机和当前正式状态。",
+      "同步更新角色索引与对应角色分区，确认前展示为写回角色总表。"
     ],
-    targetResolver: ({ projectSlug, input }) => requireProjectTarget(projectSlug, `资料库/角色/${resolveCharacterFileName(input)}.md`, "角色卡")
+    targetResolver: ({ projectSlug }) => requireProjectTarget(projectSlug, "资料库/角色/角色总表.md", "角色总表")
   },
   {
     id: "plotline-plan",
@@ -187,17 +229,48 @@ const actions = [
     stage: "剧情工作台",
     skill: "卷纲与篇章线规划",
     scope: "project",
+    inputSchema: [
+      {
+        key: "arcName",
+        label: "篇章/卷名",
+        type: "text",
+        required: true,
+        placeholder: "例如：角斗场脱困卷 / 神选角斗篇"
+      },
+      {
+        key: "chapterRange",
+        label: "章节范围",
+        type: "text",
+        required: false,
+        placeholder: "例如：第1-30章"
+      },
+      {
+        key: "planningFocus",
+        label: "规划重点",
+        type: "select",
+        required: true,
+        options: ["主线推进", "篇章拆解", "章节推进"],
+        defaultValue: "篇章拆解"
+      },
+      {
+        key: "notes",
+        label: "补充要求",
+        type: "textarea",
+        required: false,
+        placeholder: "例如：强化中点反转、补足爽点节奏、明确章尾钩。"
+      }
+    ],
     contextProfile: ({ projectSlug }) => [
       "company/共享方法/写作规则.md",
       "company/公司标准/情绪原则.md",
       ...bookScopePaths(projectSlug, ["圣经/书籍圣经.md", "剧情/剧情总纲.md", "伏笔/伏笔总表.md"])
     ],
-    workflow: () => [
-      "确认卷级主问题、阶段驱动力和大高潮位置。",
-      "把剧情线拆成可继续写章节的篇章结构。",
-      "更新剧情线文件，而不是落独立临时稿。"
+    workflow: ({ input }) => [
+      `围绕 ${input?.arcName || "目标篇章"} 梳理主问题、阶段驱动力和大高潮位置。`,
+      "按情节大纲总档案思路，把主线、篇章和章节推进写回同一份剧情总纲。",
+      "确认前展示为剧情总纲更新，不另起临时剧情散文件。"
     ],
-    targetResolver: ({ projectSlug }) => requireProjectTarget(projectSlug, "资料库/剧情/卷纲与篇章线.md", "卷纲与篇章线")
+    targetResolver: ({ projectSlug }) => requireProjectTarget(projectSlug, "资料库/剧情/剧情总纲.md", "剧情总纲")
   },
   {
     id: "chapter-contract",
@@ -366,6 +439,10 @@ const requiredBookLibrary = ["圣经", "角色", "剧情", "伏笔", "时间", "
 
 function compactList(items) {
   return items.filter(Boolean);
+}
+
+function uniqueList(items = []) {
+  return [...new Set(compactList(items))];
 }
 
 function bookScopePaths(projectSlug, suffixes = []) {
@@ -636,8 +713,11 @@ function extractBookTitle(seed) {
   const text = String(seed || "").trim();
   const quoted = text.match(/《([^》]+)》/);
   if (quoted) return quoted[1].trim();
+  const labeled = text.match(/(?:^|\n)\s*书名\s*[:：]\s*(.+)\s*(?:$|\n)/);
+  if (labeled?.[1]) return labeled[1].trim();
   const firstLine = text.split("\n").map((line) => line.trim()).find(Boolean) || "未命名项目";
   return firstLine
+    .replace(/^书名\s*[:：]\s*/, "")
     .replace(/第[一二三四五六七八九十0-9]+卷.*$/, "")
     .replace(/[（(].*?[)）]\s*$/, "")
     .trim() || "未命名项目";
@@ -954,19 +1034,79 @@ async function resolveContext(actionId, projectSlug) {
   return { action, projectSlug, context: [], missing: [] };
 }
 
+function allowedTargetPrefixes(action, projectSlug) {
+  if (action.scope === "company" || !projectSlug) return ["company/"];
+  if (action.scope === "project") return [`books/${projectSlug}/`];
+  return ["company/", `books/${projectSlug}/`];
+}
+
+function normalizePlanTargetPath(rawPath, action, payload, fallbackTarget = null) {
+  const value = String(rawPath || "").trim().replace(/^\/+/, "");
+  if (!value) return "";
+  if (value.startsWith("company/") || value.startsWith("books/")) return value;
+  if (fallbackTarget?.path) {
+    const baseDir = path.posix.dirname(fallbackTarget.path);
+    return `${baseDir}/${value}`;
+  }
+  if (payload.projectSlug && action.scope !== "company") {
+    return `books/${payload.projectSlug}/资料库/${value}`;
+  }
+  return `company/${value}`;
+}
+
+function normalizeTargetEntries(action, payload, requestedTargets = [], fallbackTargets = []) {
+  const prefixes = allowedTargetPrefixes(action, payload.projectSlug);
+  const normalized = [];
+  requestedTargets.forEach((target, index) => {
+    const fallbackTarget = fallbackTargets[index] || fallbackTargets[0] || null;
+    const nextPath = normalizePlanTargetPath(target?.path, action, payload, fallbackTarget);
+    if (!nextPath) return;
+    if (!prefixes.some((prefix) => nextPath.startsWith(prefix))) return;
+    normalized.push({
+      path: nextPath,
+      label: String(target?.label || fallbackTarget?.label || path.basename(nextPath, path.extname(nextPath)) || "目标文件").trim()
+    });
+  });
+  return normalized.filter((target, index, list) => list.findIndex((item) => item.path === target.path) === index);
+}
+
+function normalizeTargetPlanOverride(action, payload, fallbackTargetPlan) {
+  const mode = fallbackTargetPlan.mode === "project-bootstrap" ? "project-bootstrap" : "write-artifacts";
+  const fallbackTargets = fallbackTargetPlan.targets || [];
+  const hasExplicitTargets = Array.isArray(payload.targetPlanOverride?.targets);
+  const requestedTargets = hasExplicitTargets ? payload.targetPlanOverride.targets : fallbackTargets;
+  const targets = normalizeTargetEntries(action, payload, requestedTargets, fallbackTargets);
+  return {
+    ...fallbackTargetPlan,
+    mode,
+    targets: hasExplicitTargets ? targets : (targets.length ? targets : fallbackTargets)
+  };
+}
+
 function resolveActionExecution(action, payload) {
-  const targetPlan = action.targetResolver({
+  const baseTargetPlan = action.targetResolver({
     projectSlug: payload.projectSlug,
     input: payload.input || {}
   });
-  const contextPaths = compactList(
-    typeof action.contextProfile === "function"
-      ? action.contextProfile({ projectSlug: payload.projectSlug, input: payload.input || {}, targets: targetPlan.targets || [] })
-      : action.contextProfile
+  const targetPlan = payload.targetPlanOverride
+    ? normalizeTargetPlanOverride(action, payload, baseTargetPlan)
+    : baseTargetPlan;
+  const baseContextPaths = compactList(
+    Array.isArray(payload.contextPathsOverride)
+      ? payload.contextPathsOverride
+      : typeof action.contextProfile === "function"
+        ? action.contextProfile({ projectSlug: payload.projectSlug, input: payload.input || {}, targets: targetPlan.targets || [] })
+        : action.contextProfile
   );
-  const workflow = typeof action.workflow === "function"
-    ? action.workflow({ projectSlug: payload.projectSlug, input: payload.input || {}, targets: targetPlan.targets || [] })
-    : action.workflow || [];
+  const contextPaths = uniqueList([
+    ...baseContextPaths,
+    ...(targetPlan.targets || []).map((target) => target.path)
+  ]);
+  const workflow = Array.isArray(payload.workflowOverride) && payload.workflowOverride.length
+    ? payload.workflowOverride
+    : typeof action.workflow === "function"
+      ? action.workflow({ projectSlug: payload.projectSlug, input: payload.input || {}, targets: targetPlan.targets || [] })
+      : action.workflow || [];
   return {
     action,
     targetPlan,
@@ -990,9 +1130,202 @@ async function resolveContextForPayload(actionId, payload) {
   };
 }
 
+function planningPromptRules(action, projectSlug) {
+  const sharedRules = [
+    "ProjectGod 当前工作流不再使用 candidate/workspace/proposal 平行目录。",
+    "优先选择当前已存在的总档案文件做增量修改，只有章节生产或明确拆分需求时才新建章节级文件。",
+    "角色类任务优先考虑 角色总表/角色档案总表 这类总档案；剧情类任务优先考虑 剧情总纲/情节大纲；连续性类任务优先考虑 伏笔总表、时间线、矛盾检测表、质量检查清单。"
+  ];
+  const scopeRule = projectSlug
+    ? `当前在书层项目 ${projectSlug} 内，新增或修改文件优先落在 books/${projectSlug}/资料库/ 下。`
+    : "当前在公司层，新增或修改文件优先落在 company/ 下。";
+  const actionRule = {
+    "project-skeleton": "新书骨架允许一次规划多个初始化文件。",
+    "character-card": "角色动作默认应该修改角色总档案，而不是生成孤立角色散文件，除非用户明确要求拆分。",
+    "plotline-plan": "剧情规划默认应该修改剧情总纲这类总档案，而不是单独长出临时卷纲。",
+    "chapter-contract": "章节合同、场景序列、正文草稿、审稿类动作通常可以使用章节级文件。",
+    "scene-sequence": "场景序列通常落在合同区的章节场景序列文件。",
+    "chapter-draft": "章节草稿通常落在正文区单章文件。",
+    "payoff-audit": "审稿类动作通常落在审稿区专项文件。",
+    "anti-ai-audit": "审稿类动作通常落在审稿区专项文件。",
+    "foreshadow-check": "连续性检查优先落在审稿区专项文件，必要时同步伏笔总表。",
+    "timeline-check": "时间线检查优先落在审稿区专项文件，必要时同步时间线或矛盾检测表。"
+  }[action.id] || "请根据任务本身判断目标文件，不要机械复用按钮名生成文件名。";
+  return [...sharedRules, scopeRule, actionRule].join("\n");
+}
+
+function planningCandidateFiles(files, projectSlug) {
+  return files
+    .filter((file) => file.path.startsWith("company/") || (projectSlug && file.path.startsWith(`books/${projectSlug}/`)))
+    .filter((file) => file.extension !== "json" || file.path.endsWith("时间线.json"))
+    .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function formatPlanningCandidates(files = []) {
+  return files
+    .map((file) => `- ${file.path} [${file.status}]`)
+    .join("\n");
+}
+
+function safeJsonParse(text) {
+  try {
+    return JSON.parse(String(text || "").trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+  } catch {
+    return null;
+  }
+}
+
+function normalizePlannedWorkflow(workflow, fallbackWorkflow = []) {
+  if (!Array.isArray(workflow)) return fallbackWorkflow;
+  const next = workflow.map((item) => String(item || "").trim()).filter(Boolean).slice(0, 6);
+  return next.length ? next : fallbackWorkflow;
+}
+
+async function suggestActionPlan(payload) {
+  const action = actions.find((item) => item.id === payload.actionId);
+  if (!action) throw httpError(404, `Unknown action: ${payload.actionId}`);
+  const manifest = await buildManifest();
+  const defaultExecution = resolveActionExecution(action, payload);
+  const candidateFiles = planningCandidateFiles(manifest.files, payload.projectSlug);
+  const candidatePaths = candidateFiles.map((file) => file.path);
+  const fallbackTargets = defaultExecution.targetPlan.targets || [];
+  const fallbackContextPaths = uniqueList(defaultExecution.contextPaths || []);
+  const fallbackWorkflow = defaultExecution.workflow || [];
+
+  const fallbackPlan = {
+    summary: "已按当前动作默认规则生成文件计划，可在确认前手动修改。",
+    workflow: fallbackWorkflow,
+    targets: fallbackTargets,
+    contextPaths: fallbackContextPaths,
+    note: "当前为默认规划结果。"
+  };
+
+  const baseUrl = anthropicConfig.baseUrl;
+  const token = anthropicConfig.authToken;
+  const model = anthropicConfig.model;
+  if (!baseUrl || !token || !model || (modelHealth.retryAfterUntil && Date.now() < modelHealth.retryAfterUntil)) {
+    return {
+      ...fallbackPlan,
+      usedModel: false,
+      contextCandidates: candidateFiles
+    };
+  }
+
+  const endpoint = resolveMessagesEndpoint(baseUrl);
+  const prompt = [
+    "你是 ProjectGod 写作工作台的执行规划助手。",
+    `动作：${action.label}`,
+    `阶段：${action.stage}`,
+    `作用域：${payload.projectSlug ? `书层 ${payload.projectSlug}` : "公司层"}`,
+    `用户输入：${JSON.stringify(payload.input || {}, null, 2)}`,
+    `当前默认目标文件：${fallbackTargets.map((item) => item.path).join(" | ") || "无"}`,
+    planningPromptRules(action, payload.projectSlug),
+    "你要做两件事：",
+    "1. 判断这次任务应该新增或修改哪些目标文件。",
+    "2. 判断正式执行前最该读取哪些上下文资料。",
+    "可选文件列表：",
+    formatPlanningCandidates(candidateFiles),
+    "严格返回 JSON：",
+    "{\"summary\":\"一句话说明\",\"workflow\":[\"最多6条\"],\"targets\":[{\"path\":\"repo path\",\"label\":\"短标签\",\"reason\":\"一句理由\"}],\"contextPaths\":[\"repo path\"],\"note\":\"补充说明\"}",
+    "要求：",
+    "- targets 里的 path 必须来自合理的 repo 路径，不要输出 candidate/workspace/proposal 目录。",
+    "- contextPaths 必须从可选文件列表中挑选。",
+    "- 如果现有总档案更合适，优先修改总档案，不要无意义新增散文件。"
+  ].join("\n\n");
+
+  const response = await callModelText({
+    endpoint,
+    token,
+    signal: null,
+    maxTokens: 900,
+    messages: [{ role: "user", content: [{ type: "text", text: prompt }] }]
+  });
+  const parsed = safeJsonParse(response.text);
+  if (!parsed) {
+    return {
+      ...fallbackPlan,
+      usedModel: false,
+      note: "模型规划结果不可解析，已回退到默认计划。",
+      contextCandidates: candidateFiles
+    };
+  }
+
+  return {
+    summary: String(parsed.summary || fallbackPlan.summary).trim() || fallbackPlan.summary,
+    workflow: normalizePlannedWorkflow(parsed.workflow, fallbackWorkflow),
+    targets: normalizeTargetEntries(action, payload, Array.isArray(parsed.targets) ? parsed.targets : [], fallbackTargets).length
+      ? normalizeTargetEntries(action, payload, Array.isArray(parsed.targets) ? parsed.targets : [], fallbackTargets)
+      : fallbackTargets,
+    contextPaths: uniqueList((Array.isArray(parsed.contextPaths) ? parsed.contextPaths : []).filter((path) => candidatePaths.includes(path))),
+    note: String(parsed.note || "").trim() || "已生成 AI 文件计划。",
+    usedModel: true,
+    contextCandidates: candidateFiles
+  };
+}
+
+async function buildActionPlan(payload) {
+  const action = actions.find((item) => item.id === payload.actionId);
+  if (!action) throw httpError(404, `Unknown action: ${payload.actionId}`);
+  const defaultExecution = resolveActionExecution(action, payload);
+  const suggested = await suggestActionPlan(payload);
+  const suggestedTargets = Array.isArray(suggested.targets) && suggested.targets.length
+    ? suggested.targets
+    : defaultExecution.targetPlan.targets || [];
+  const targetPlan = payload.targetPlanOverride
+    ? normalizeTargetPlanOverride(action, payload, defaultExecution.targetPlan)
+    : normalizeTargetPlanOverride(action, {
+      ...payload,
+      targetPlanOverride: {
+        targets: suggestedTargets
+      }
+    }, defaultExecution.targetPlan);
+  const contextPaths = uniqueList(
+    Array.isArray(payload.contextPathsOverride) && payload.contextPathsOverride.length
+      ? payload.contextPathsOverride
+      : suggested.contextPaths?.length
+        ? suggested.contextPaths
+        : defaultExecution.contextPaths
+  );
+  const workflow = normalizePlannedWorkflow(payload.workflowOverride, suggested.workflow?.length ? suggested.workflow : defaultExecution.workflow);
+  const resolved = await resolveContextForPayload(action.id, {
+    ...payload,
+    targetPlanOverride: targetPlan,
+    contextPathsOverride: contextPaths,
+    workflowOverride: workflow
+  });
+  const promptPack = preparePromptContext(resolved.action, resolved.context, payload.input || {}, resolved.targetPlan);
+  return {
+    action,
+    summary: suggested.summary,
+    workflow,
+    note: suggested.note,
+    usedModel: Boolean(suggested.usedModel),
+    targetPlan: resolved.targetPlan,
+    targetStatuses: await readTargetStatuses(resolved.targetPlan.targets || []),
+    contextCandidates: suggested.contextCandidates,
+    selectedContextPaths: contextPaths,
+    context: serializeContextForClient(promptPack.preparedFiles),
+    budget: promptPack.budget,
+    promptPreview: promptPack.preview
+  };
+}
+
 function buildOfflineOutput(action, targetPlan, input = {}) {
   const targets = targetPlan.targets || [];
   const title = input.seed || input.title || input.chapterLabel || input.chapter || "未命名任务";
+  if (targets.length > 1) {
+    return `${targets.map((target) => [
+      `<<<FILE:${target.path}>>>`,
+      `# ${target.label || action.label}`,
+      "",
+      `目标：围绕“${title}”生成可直接写入 ${target.path} 的结果。`,
+      "",
+      "## 执行重点",
+      "- 人物当下欲望优先于设定推进。",
+      "- 每个章节产物都要包含目标、冲突、爽点、代价、章尾钩。",
+      "- 作者确认前只展示结果，不直接落盘。"
+    ].join("\n")).join("\n<<<END_FILE>>>\n\n")}<<<END_FILE>>>\n[[COMPLETE]]`;
+  }
   return [
     `# ${action.label}`,
     "",
@@ -1044,7 +1377,8 @@ function buildOfflineWorklog(action, targetPlan, input = {}) {
 }
 
 function buildPromptBudget(action, input, targetPlan) {
-  const outputLimit = outputTokenLimitForAction(action);
+  const modelLabel = anthropicConfig.model || "MiniMax-M2.7-highspeed";
+  const outputLimit = Math.min(outputTokenLimitForAction(action), modelTokenPolicy.maxOutputTokens);
   const promptScaffold = [
     "你是 ProjectGod 写作公司工作台的执行模型。",
     `当前任务：${action.label}`,
@@ -1053,15 +1387,24 @@ function buildPromptBudget(action, input, targetPlan) {
     `目标文件：${(targetPlan.targets || []).map((item) => item.path).join(" | ")}`
   ].join("\n\n");
   const promptOverheadTokens = estimateTokenCount(promptScaffold) + modelTokenPolicy.reservedInstructionTokens;
+  const maxInputTokens = Math.max(
+    modelTokenPolicy.minContextTokens,
+    modelTokenPolicy.maxContextWindowTokens - outputLimit
+  );
   const availableContextTokens = Math.max(
     modelTokenPolicy.minContextTokens,
-    modelTokenPolicy.maxInputTokens - promptOverheadTokens
+    maxInputTokens - promptOverheadTokens
   );
   return {
-    maxInputTokens: modelTokenPolicy.maxInputTokens,
+    modelLabel,
+    maxContextWindowTokens: modelTokenPolicy.maxContextWindowTokens,
+    maxInputTokens,
     maxOutputTokens: outputLimit,
+    providerMaxOutputTokens: modelTokenPolicy.maxOutputTokens,
     promptOverheadTokens,
-    availableContextTokens
+    availableContextTokens,
+    tokenizerMode: modelTokenPolicy.tokenizerMode,
+    tokenizerNote: `当前 token 预算基于本地启发式估算，不是 MiniMax 官方 tokenizer；按官方文档，${modelLabel} 的 context window 为 ${modelTokenPolicy.maxContextWindowTokens} tokens，max_tokens 最大为 ${modelTokenPolicy.maxOutputTokens}。`
   };
 }
 
@@ -1204,9 +1547,12 @@ function preparePromptContext(action, context, input, targetPlan) {
   const budget = buildPromptBudget(action, input, targetPlan);
   const profile = resolveCompressionProfile(action);
   const availableItems = context.filter((item) => item.available);
-  const allocations = new Map(
-    allocateContextBudget(availableItems, budget.availableContextTokens, profile).map((item) => [item.path, item])
-  );
+  const originalAvailableContextTokens = availableItems.reduce((sum, item) => sum + (item.fullTokens || 0), 0);
+  const compressionThresholdTokens = Math.floor(budget.availableContextTokens * 0.8);
+  const compressionActive = originalAvailableContextTokens >= compressionThresholdTokens;
+  const allocations = compressionActive
+    ? new Map(allocateContextBudget(availableItems, budget.availableContextTokens, profile).map((item) => [item.path, item]))
+    : new Map();
 
   const preparedFiles = context.map((item) => {
     if (!item.available) {
@@ -1217,6 +1563,17 @@ function preparePromptContext(action, context, input, targetPlan) {
         compressionLevel: "missing",
         compressionNote: "路径缺失，模型会按缺资料处理。",
         allocatedBudget: 0,
+        priorityScore: 0
+      };
+    }
+    if (!compressionActive) {
+      return {
+        ...item,
+        selectedText: normalizeWorkspaceLanguage(item.rawContent || ""),
+        selectedTokens: item.fullTokens || estimateTokenCount(item.rawContent || ""),
+        compressionLevel: "full",
+        compressionNote: `当前上下文约 ${originalAvailableContextTokens} tokens，未达到压缩阈值 ${compressionThresholdTokens} tokens，保留全文。`,
+        allocatedBudget: item.fullTokens || 0,
         priorityScore: 0
       };
     }
@@ -1256,11 +1613,13 @@ function preparePromptContext(action, context, input, targetPlan) {
       compressedFiles,
       fileCount: preparedFiles.length,
       profileId: profile.id,
-      profileLabel: profile.label
+      profileLabel: profile.label,
+      compressionActive,
+      compressionThresholdTokens
     },
     preparedFiles,
     promptContext,
-    preview: `${preview}\n压缩策略：${profile.label}`
+    preview: `${preview}\n压缩策略：${compressionActive ? profile.label : "未触发压缩，保留全文"}`
   };
 }
 
@@ -1501,7 +1860,7 @@ function buildTaskContextBlock(action, input, targetPlan, promptPack) {
     `阶段：${action.stage}`,
     `用户输入：${JSON.stringify(input || {}, null, 2)}`,
     `目标文件：${(targetPlan.targets || []).map((item) => item.path).join(" | ") || "未设置目标文件"}`,
-    `输入预算：总输入上限约 ${promptPack.budget.maxInputTokens} tokens；当前上下文预算约 ${promptPack.budget.availableContextTokens} tokens；当前单次输出上限约 ${promptPack.budget.maxOutputTokens} tokens。`,
+    `模型总窗口约 ${promptPack.budget.maxContextWindowTokens} tokens；本次输入上限约 ${promptPack.budget.maxInputTokens} tokens；当前上下文预算约 ${promptPack.budget.availableContextTokens} tokens；当前单次输出上限约 ${promptPack.budget.maxOutputTokens} tokens。`,
     "固定上下文：",
     promptPack.promptContext || "无可用固定上下文。",
     "当前产品术语已经取消候选区、工作区和正式区的对立说法。请使用“当前文件”“目标文件”“确认写入”等表述。"
@@ -1529,12 +1888,54 @@ function buildPlanPrompt(action, input, targetPlan, promptPack, observeText) {
   ].join("\n\n");
 }
 
+function actionSpecificDraftRules(action, input = {}, targetPlan) {
+  if (action.id === "character-card") {
+    return [
+      `本次角色：${input.characterName || "未指定"}；角色类型：${input.roleType || "未指定"}；任务类型：${input.changeIntent || "未指定"}。`,
+      `你必须输出完整的目标文件 ${targetPlan.targets?.[0]?.path || "角色总表"}，而不是输出单个角色散文件。`,
+      "如果目标文件已有其他角色条目，除非用户明确要求删除，否则必须保留并在原有基础上补写或修订。",
+      "输出至少包含：文件标题、角色索引、对应角色分区中的目标角色完整档案、关系网络或关系补充、当前正式状态。",
+      "角色档案要突出身份标签、核心欲望、核心恐惧、关键记忆点、关键关系、出场阶段和禁区，不要只给空泛人物小传。"
+    ];
+  }
+  if (action.id === "plotline-plan") {
+    return [
+      `本次篇章：${input.arcName || "未指定"}；章节范围：${input.chapterRange || "未指定"}；规划重点：${input.planningFocus || "未指定"}。`,
+      `你必须输出完整的目标文件 ${targetPlan.targets?.[0]?.path || "剧情总纲"}，而不是输出独立临时卷纲。`,
+      "请沿用总档案思路，至少覆盖：一句话主线、篇章目标、主要事件、爽点安排、章节推进或下一阶段钩子。",
+      "如果目标文件已有其他篇章内容，除非用户明确要求删除，否则必须保留并在原有结构中新增或修订对应篇章。"
+    ];
+  }
+  return [];
+}
+
+function buildTargetOutputFormatRules(targetPlan) {
+  const targets = targetPlan.targets || [];
+  if (targets.length <= 1) {
+    return [
+      "本次只有 1 个目标文件，请直接输出该文件的完整正文，不要输出文件包装标记。"
+    ];
+  }
+  return [
+    "本次有多个目标文件，你必须按下面的精确格式依次输出每个文件的完整正文：",
+    "<<<FILE:repo/path>>>",
+    "这里写该文件的完整正文",
+    "<<<END_FILE>>>",
+    "要求：",
+    `- 必须覆盖全部 ${targets.length} 个目标文件，且顺序与下面一致：${targets.map((target) => target.path).join(" | ")}`,
+    "- FILE 标记里的 repo/path 必须与目标文件路径完全一致。",
+    "- 每个文件都要输出完整正文，不能只输出差异说明。"
+  ];
+}
+
 function buildDraftPrompt(action, input, targetPlan, promptPack, observeText, planText) {
   return [
     "你是 ProjectGod 写作工作台的正文生成器。",
     buildTaskContextBlock(action, input, targetPlan, promptPack),
     `公开观察：\n${observeText}`,
     `公开计划：\n${planText}`,
+    ...actionSpecificDraftRules(action, input, targetPlan),
+    ...buildTargetOutputFormatRules(targetPlan),
     "现在只生成目标文件正文，不要输出 JSON，不要输出解释，不要输出代码围栏。",
     "请尽量一次写完整；如果本次输出即将触达长度上限但正文还没完成，必须在自然段落或小节结束后另起一行输出 [[TO_BE_CONTINUED]]。",
     "如果正文已经完整结束，必须在末尾另起一行输出 [[COMPLETE]]。",
@@ -2046,27 +2447,37 @@ async function callModelIfConfigured({ action, context, input, targetPlan, signa
     };
   }
   const resuming = Boolean(resumeState?.accumulatedOutput);
+  hooks.onObserveStart?.({ resuming });
   const observeResponse = resuming && resumeState?.observeText
     ? { text: String(resumeState.observeText), stopReason: "resume_cache" }
-    : await callModelText({
+    : await streamModelText({
       endpoint,
       token,
       signal,
       maxTokens: 420,
-      messages: [{ role: "user", content: [{ type: "text", text: buildObservePrompt(action, input, targetPlan, promptPack) }] }]
+      messages: [{ role: "user", content: [{ type: "text", text: buildObservePrompt(action, input, targetPlan, promptPack) }] }],
+      onText: (_chunk, fullText) => hooks.onObserveChunk?.(fullText, { resuming: false })
     });
+  if (resuming && resumeState?.observeText) {
+    hooks.onObserveChunk?.(String(resumeState.observeText), { resuming: true });
+  }
   const observe = parsePublicPhaseText(observeResponse.text);
   hooks.onObserve?.(observe, observeResponse.text, { resuming });
 
+  hooks.onPlanStart?.({ resuming });
   const planResponse = resuming && resumeState?.planText
     ? { text: String(resumeState.planText), stopReason: "resume_cache" }
-    : await callModelText({
+    : await streamModelText({
       endpoint,
       token,
       signal,
       maxTokens: 520,
-      messages: [{ role: "user", content: [{ type: "text", text: buildPlanPrompt(action, input, targetPlan, promptPack, observeResponse.text) }] }]
+      messages: [{ role: "user", content: [{ type: "text", text: buildPlanPrompt(action, input, targetPlan, promptPack, observeResponse.text) }] }],
+      onText: (_chunk, fullText) => hooks.onPlanChunk?.(fullText, { resuming: false })
     });
+  if (resuming && resumeState?.planText) {
+    hooks.onPlanChunk?.(String(resumeState.planText), { resuming: true });
+  }
   const plan = parsePublicPhaseText(planResponse.text);
   hooks.onPlan?.(plan, planResponse.text, { resuming });
 
@@ -2316,25 +2727,62 @@ function normalizeWorkspaceLanguage(text) {
     .replace(/\bStory Bible\b/gi, "书籍圣经");
 }
 
-function targetExistsMap(targets = [], context = []) {
-  const availablePaths = new Set(context.filter((item) => item.available).map((item) => item.path));
-  return targets.map((target) => ({
-    path: target.path,
-    label: target.label,
-    exists: availablePaths.has(target.path)
+function targetStatusMeta(existsNow) {
+  return existsNow
+    ? { changeType: "overwrite", statusLabel: "将覆盖现有文件" }
+    : { changeType: "create", statusLabel: "将创建新文件" };
+}
+
+async function readTargetStatuses(targets = []) {
+  return Promise.all(targets.map(async (target) => {
+    const absPath = safeJoinRepo(target.path);
+    const existsNow = await exists(absPath);
+    return {
+      path: target.path,
+      label: target.label,
+      exists: existsNow,
+      ...targetStatusMeta(existsNow)
+    };
   }));
+}
+
+function parseArtifactBlocks(output) {
+  const cleanOutput = stripGenerationMarkers(output).replace(/\r/g, "");
+  const regex = /<<<FILE:([^\n>]+)>>>\n?([\s\S]*?)<<<END_FILE>>>/g;
+  const artifacts = [];
+  let match = regex.exec(cleanOutput);
+  while (match) {
+    artifacts.push({
+      path: String(match[1] || "").trim(),
+      content: String(match[2] || "").replace(/^\n+/, "").trimEnd()
+    });
+    match = regex.exec(cleanOutput);
+  }
+  return artifacts;
 }
 
 function buildArtifactsFromResult(targetPlan, output) {
   if (targetPlan.mode === "project-bootstrap") {
     return targetPlan.artifacts || [];
   }
-  const target = targetPlan.targets?.[0];
-  if (!target) return [];
-  return [{ path: target.path, content: output }];
+  const targets = targetPlan.targets || [];
+  if (!targets.length) return [];
+  const parsedArtifacts = parseArtifactBlocks(output);
+  if (parsedArtifacts.length) {
+    const allowedPaths = new Set(targets.map((target) => target.path));
+    const filtered = parsedArtifacts.filter((artifact) => allowedPaths.has(artifact.path));
+    if (filtered.length) return filtered;
+  }
+  if (targets.length === 1) {
+    return [{ path: targets[0].path, content: stripGenerationMarkers(output) }];
+  }
+  return targets.map((target) => ({
+    path: target.path,
+    content: `# ${target.label || "目标文件"}\n\n生成结果未按多文件协议返回，请重新执行。`
+  }));
 }
 
-function buildPreludeEvents({ action, payload, context, missing, targetPlan, workflow, preparedContext, budget, promptPreview }) {
+function buildPreludeEvents({ action, payload, context, missing, targetPlan, targetStatuses, workflow, preparedContext, budget, promptPreview }) {
   return [
     {
       phase: "Scope",
@@ -2357,14 +2805,18 @@ function buildPreludeEvents({ action, payload, context, missing, targetPlan, wor
       message: `上下文预算已计算：约 ${budget.selectedContextTokens}/${budget.availableContextTokens} tokens。`,
       details: {
         metrics: [
+          { label: "模型总窗口", value: `${budget.maxContextWindowTokens} tok` },
           { label: "压缩策略", value: budget.profileLabel },
+          { label: "压缩阈值", value: `${budget.compressionThresholdTokens || 0} tok` },
           { label: "输入上限", value: `${budget.maxInputTokens} tok` },
           { label: "输出上限", value: `${budget.maxOutputTokens} tok` },
           { label: "原始上下文", value: `${budget.originalContextTokens} tok` },
           { label: "压缩后上下文", value: `${budget.selectedContextTokens} tok` },
           { label: "压缩文件数", value: `${budget.compressedFiles}` }
         ],
-        note: `当前动作使用“${budget.profileLabel}”策略分配上下文预算。`
+        note: budget.compressionActive
+          ? `${budget.tokenizerNote} 当前上下文已达到压缩阈值，使用“${budget.profileLabel}”策略分配预算。`
+          : `${budget.tokenizerNote} 当前上下文未达到压缩阈值 ${budget.compressionThresholdTokens || 0} tok，保留全文。`
       }
     },
     {
@@ -2391,7 +2843,7 @@ function buildPreludeEvents({ action, payload, context, missing, targetPlan, wor
       phase: "Write Plan",
       message: `已规划 ${targetPlan.targets?.length || 0} 个目标文件。`,
       details: {
-        targets: targetExistsMap(targetPlan.targets || [], context),
+        targets: targetStatuses || [],
         note: "确认前不落盘；确认后直接写入这些文件。"
       }
     }
@@ -2437,6 +2889,7 @@ function buildPublicTraceEvents(result = {}) {
 async function runAction(payload) {
   const { action, context, missing, targetPlan, workflow } = await resolveContextForPayload(payload.actionId, payload);
   const promptPack = preparePromptContext(action, context, payload.input || {}, targetPlan);
+  const targetStatuses = await readTargetStatuses(targetPlan.targets || []);
   const runId = `run_${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const events = buildPreludeEvents({
     action,
@@ -2444,6 +2897,7 @@ async function runAction(payload) {
     context,
     missing,
     targetPlan,
+    targetStatuses,
     workflow,
     preparedContext: promptPack.preparedFiles,
     budget: promptPack.budget,
@@ -2487,7 +2941,7 @@ async function runAction(payload) {
     saveLabel: targetPlan.mode === "project-bootstrap" ? "确认创建书籍项目" : "确认写入目标文件",
     projectSlug: targetPlan.projectSlug || payload.projectSlug || null,
     projectTitle: targetPlan.projectTitle || null,
-    targets: targetPlan.targets || [],
+    targets: targetStatuses,
     artifacts: buildArtifactsFromResult(targetPlan, result.output),
     checkpoints: result.checkpoints || [],
     outputSections: result.outputSections || splitOutputSections(result.output),
@@ -2583,6 +3037,7 @@ async function executeRunRecord(record) {
   const payload = record.payload;
   const { action, context, missing, targetPlan, workflow } = await resolveContextForPayload(payload.actionId, payload);
   const promptPack = preparePromptContext(action, context, payload.input || {}, targetPlan);
+  const targetStatuses = await readTargetStatuses(targetPlan.targets || []);
   const runtime = {
     latestOutput: stripGenerationMarkers(payload.resumeState?.accumulatedOutput || ""),
     checkpoints: [],
@@ -2608,6 +3063,7 @@ async function executeRunRecord(record) {
     context,
     missing,
     targetPlan,
+    targetStatuses,
     workflow,
     preparedContext: promptPack.preparedFiles,
     budget: promptPack.budget,
@@ -2615,6 +3071,26 @@ async function executeRunRecord(record) {
   })) {
     emitRunEvent(record, event);
   }
+  const canStreamPublicTrace = Boolean(anthropicConfig.baseUrl && anthropicConfig.authToken && anthropicConfig.model)
+    && !(modelHealth.retryAfterUntil && Date.now() < modelHealth.retryAfterUntil);
+  const observeEvent = canStreamPublicTrace
+    ? emitRunEvent(record, {
+      phase: "Observe",
+      message: "公开观察阶段准备中。",
+      details: {
+        note: "将逐步回传当前任务范围、关键约束和需保留资料。"
+      }
+    })
+    : null;
+  const planEvent = canStreamPublicTrace
+    ? emitRunEvent(record, {
+      phase: "Plan",
+      message: "执行计划阶段准备中。",
+      details: {
+        note: "将逐步回传公开执行计划和目标文件安排。"
+      }
+    })
+    : null;
   const draftEvent = emitRunEvent(record, {
     phase: "Draft",
     message: "正文正在流式生成中。",
@@ -2635,17 +3111,65 @@ async function executeRunRecord(record) {
       signal: record.controller.signal,
       resumeState: payload.resumeState || null,
       hooks: {
+        onObserveStart: ({ resuming }) => {
+          if (!observeEvent) return;
+          patchRunEvent(record, observeEvent.id, {
+            message: resuming ? "正在复用上一轮公开观察。" : "正在生成公开观察。",
+            details: {
+              note: resuming ? "已命中恢复点缓存，会直接回放上一轮观察结果。" : "公开观察会边生成边回传。"
+            }
+          });
+        },
+        onObserveChunk: (fullText, meta = {}) => {
+          if (!observeEvent) return;
+          patchRunEvent(record, observeEvent.id, {
+            details: {
+              streamedText: fullText,
+              note: meta.resuming ? "正在回放恢复点中的公开观察。" : "公开观察正在流式回传。"
+            }
+          });
+        },
         onObserve: (observe, observeText, meta = {}) => {
           runtime.resumeState = {
             ...(runtime.resumeState || {}),
             observeText
           };
+          if (observeEvent) {
+            patchRunEvent(record, observeEvent.id, {
+              message: observe.summary,
+              details: {
+                ...(observe.bullets?.length ? { items: observe.bullets } : {}),
+                streamedText: observeText,
+                note: meta.resuming ? "本轮复用了上一次已生成的观察结果。" : "本轮重新生成了公开观察。"
+              }
+            });
+            return;
+          }
           emitRunEvent(record, {
             phase: "Observe",
             message: observe.summary,
             details: {
               ...(observe.bullets?.length ? { items: observe.bullets } : {}),
+              streamedText: observeText,
               note: meta.resuming ? "本轮复用了上一次已生成的观察结果。" : "本轮重新生成了公开观察。"
+            }
+          });
+        },
+        onPlanStart: ({ resuming }) => {
+          if (!planEvent) return;
+          patchRunEvent(record, planEvent.id, {
+            message: resuming ? "正在复用上一轮公开计划。" : "正在生成公开计划。",
+            details: {
+              note: resuming ? "已命中恢复点缓存，会直接回放上一轮计划结果。" : "公开计划会边生成边回传。"
+            }
+          });
+        },
+        onPlanChunk: (fullText, meta = {}) => {
+          if (!planEvent) return;
+          patchRunEvent(record, planEvent.id, {
+            details: {
+              streamedText: fullText,
+              note: meta.resuming ? "正在回放恢复点中的公开计划。" : "公开计划正在流式回传。"
             }
           });
         },
@@ -2654,11 +3178,23 @@ async function executeRunRecord(record) {
             ...(runtime.resumeState || {}),
             planText
           };
+          if (planEvent) {
+            patchRunEvent(record, planEvent.id, {
+              message: plan.summary,
+              details: {
+                ...(plan.bullets?.length ? { items: plan.bullets } : {}),
+                streamedText: planText,
+                note: meta.resuming ? "本轮复用了上一次已生成的执行计划。" : "本轮重新生成了公开计划。"
+              }
+            });
+            return;
+          }
           emitRunEvent(record, {
             phase: "Plan",
             message: plan.summary,
             details: {
               ...(plan.bullets?.length ? { items: plan.bullets } : {}),
+              streamedText: planText,
               note: meta.resuming ? "本轮复用了上一次已生成的执行计划。" : "本轮重新生成了公开计划。"
             }
           });
@@ -2758,7 +3294,7 @@ async function executeRunRecord(record) {
       saveLabel: targetPlan.mode === "project-bootstrap" ? "确认创建书籍项目" : "确认写入目标文件",
       projectSlug: targetPlan.projectSlug || payload.projectSlug || null,
       projectTitle: targetPlan.projectTitle || null,
-      targets: targetPlan.targets || [],
+      targets: targetStatuses,
       artifacts: buildArtifactsFromResult(targetPlan, result.output),
       checkpoints: runtime.checkpoints,
       outputSections: runtime.outputSections,
@@ -2777,7 +3313,7 @@ async function executeRunRecord(record) {
         output: runtime.latestOutput || "",
         usedModel: false,
         modelUnavailable: false,
-        targets: targetPlan.targets || [],
+        targets: targetStatuses,
         error: "本次请求已取消。",
         checkpoints: runtime.checkpoints,
         outputSections: runtime.outputSections,
@@ -2804,11 +3340,11 @@ async function executeRunRecord(record) {
         action,
         context: serializeContextForClient(promptPack.preparedFiles),
         missing,
-        events: record.events,
-        output: runtime.latestOutput || output,
-        usedModel: false,
+      events: record.events,
+      output: runtime.latestOutput || output,
+      usedModel: false,
       modelUnavailable: Boolean(modelHealth.lastError),
-      targets: targetPlan.targets || [],
+      targets: targetStatuses,
       error: error.message,
       checkpoints: runtime.checkpoints,
       outputSections: runtime.outputSections,
@@ -2854,6 +3390,9 @@ async function writeArtifacts(payload) {
     throw httpError(400, "No artifacts to write");
   }
   const written = [];
+  const created = [];
+  const overwritten = [];
+  const unchanged = [];
   for (const artifact of artifacts) {
     const repoPath = String(artifact.path || "");
     if (!repoPath) throw httpError(400, "Artifact path is required");
@@ -2862,14 +3401,27 @@ async function writeArtifacts(payload) {
       throw httpError(403, `Invalid artifact target: ${repoPath}`);
     }
     const absPath = safeJoinRepo(repoPath);
+    const existedBefore = await exists(absPath);
+    const previousContent = existedBefore ? await readFile(absPath, "utf8") : null;
+    const nextContent = String(artifact.content || "");
     await mkdir(path.dirname(absPath), { recursive: true });
-    await writeFile(absPath, String(artifact.content || ""), "utf8");
+    await writeFile(absPath, nextContent, "utf8");
     written.push(repoPath);
+    if (!existedBefore) {
+      created.push(repoPath);
+    } else if (previousContent === nextContent) {
+      unchanged.push(repoPath);
+    } else {
+      overwritten.push(repoPath);
+    }
   }
   const projectRoots = [...new Set(written.filter((item) => item.startsWith("books/")).map((item) => item.split("/").slice(0, 2).join("/")))];
   return {
     ok: true,
     written,
+    created,
+    overwritten,
+    unchanged,
     projectRoots
   };
 }
@@ -2941,6 +3493,10 @@ async function router(req, res) {
     const projectSlug = url.searchParams.get("projectSlug");
     return sendJson(res, { projectSlug, cards: await buildPlotCards(projectSlug) });
   }
+  if (req.method === "POST" && pathname === "/api/action-plan") {
+    const payload = await readRequestBody(req);
+    return sendJson(res, await buildActionPlan(payload));
+  }
   if (req.method === "POST" && pathname === "/api/context/resolve") {
     const payload = await readRequestBody(req);
     const resolved = await resolveContextForPayload(payload.actionId, payload);
@@ -2948,6 +3504,7 @@ async function router(req, res) {
     return sendJson(res, {
       ...resolved,
       context: serializeContextForClient(promptPack.preparedFiles),
+      targetStatuses: await readTargetStatuses(resolved.targetPlan.targets || []),
       budget: promptPack.budget,
       promptPreview: promptPack.preview
     });
