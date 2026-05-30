@@ -186,20 +186,36 @@ defmodule NovelFoundation.TurnResultValidator do
     end
   end
 
-  defp check_behavior_state(violations, tr) do
-    case Map.get(tr, :behavior_state) do
-      nil ->
-        violations
+  @doc """
+  单独校验 `behavior_state` 子结构是否合 schema（`{active, history}` + `active.status`
+  属 BehaviorStatus 枚举且非终态）。
 
-      bs when is_map(bs) ->
-        violations
-        |> require_keys(bs, [:active, :history], "behavior_state")
-        |> check_active_behavior(bs)
-
-      other ->
-        ["behavior_state must be a map, got #{inspect(other)}" | violations]
+  活路径 emit 的是 reduced `3.0-draft` envelope，跑全量 `validate/1` 会因缺 envelope
+  字段误报；contract 测试用本函数只锁 behavior_state 这一段的形状。
+  """
+  @spec validate_behavior_state(any()) :: :ok | {:error, [String.t()]}
+  def validate_behavior_state(behavior_state) do
+    case behavior_state_violations([], behavior_state) |> Enum.reverse() do
+      [] -> :ok
+      violations -> {:error, violations}
     end
   end
+
+  defp check_behavior_state(violations, tr) do
+    case Map.get(tr, :behavior_state) do
+      nil -> violations
+      bs -> behavior_state_violations(violations, bs)
+    end
+  end
+
+  defp behavior_state_violations(violations, bs) when is_map(bs) do
+    violations
+    |> require_keys(bs, [:active, :history], "behavior_state")
+    |> check_active_behavior(bs)
+  end
+
+  defp behavior_state_violations(violations, other),
+    do: ["behavior_state must be a map, got #{inspect(other)}" | violations]
 
   defp check_active_behavior(violations, %{active: nil}), do: violations
 
