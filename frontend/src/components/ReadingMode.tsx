@@ -5,9 +5,11 @@ import { useAppStore } from "../lib/store";
 import { getToc, getChapterContent } from "../lib/socket";
 import type { TocData, ChapterContent } from "../lib/socket";
 import {
+  formatWordCount,
   normalizeChapterContentTitle,
   normalizeReadingToc,
 } from "../lib/readingProjection";
+import { READING } from "../lib/copy";
 import {
   deriveWorkspaceRuntimeState,
   getReadingProjectionStatus,
@@ -24,6 +26,7 @@ export function ReadingMode() {
   const [chapterContent, setChapterContent] = useState<ChapterContent | null>(null);
 
   const tocView = normalizeReadingToc(toc);
+  const totalWordCount = tocView?.totalWordCount ?? 0;
   const chapters = tocView?.volumes.flatMap((volume) => volume.chapters) ?? [];
   const activeChapter = chapters.find((chapter) => chapter.id === activeChapterId);
   const readableChapterContent = chapterContent
@@ -116,6 +119,14 @@ export function ReadingMode() {
           <span className={styles.titleText}>
             {getVisibleWorkTitle(runtimeState)}
           </span>
+          {hasContent && totalWordCount > 0 && (
+            <>
+              <span className={styles.divider}>/</span>
+              <span className={styles.totalWords}>
+                {READING.totalWordsLabel} {formatWordCount(totalWordCount)}
+              </span>
+            </>
+          )}
         </div>
         <button
           className={styles.backBtn}
@@ -146,7 +157,10 @@ export function ReadingMode() {
                       className={ch.id === activeChapterId ? styles.tocChapterActive : styles.tocChapter}
                       onClick={() => setActiveChapterId(ch.id)}
                     >
-                      {ch.title}
+                      <span className={styles.tocChapterTitle}>{ch.title}</span>
+                      {ch.wordCount > 0 && (
+                        <span className={styles.tocChapterWords}>{formatWordCount(ch.wordCount)}</span>
+                      )}
                     </div>
                   ))}
                 </div>
@@ -170,6 +184,11 @@ export function ReadingMode() {
           ) : (
             <div className={styles.contentBlock}>
               <h1 className={styles.chapterTitle}>{readableChapterContent.title}</h1>
+              {(activeChapter?.wordCount ?? 0) > 0 && (
+                <div className={styles.chapterMeta}>
+                  {READING.chapterWordsLabel} {formatWordCount(activeChapter?.wordCount ?? 0)}
+                </div>
+              )}
               {readableChapterContent.scenes.map((scene, si) => (
                 <div key={si}>
                   {scene.title && scene.title !== readableChapterContent.title && (

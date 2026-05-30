@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Channel } from "phoenix";
 
-export type WorkspaceMode = "workbench" | "reading";
+export type WorkspaceMode = "workbench" | "reading" | "memory";
 
 export interface SystemContext {
   workId: string | null;

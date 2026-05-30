@@ -2,11 +2,13 @@
 // Prototype: novel-studio-v2.pen → 44§3-reading-mode-stale (hEGz0)
 import type { TocData, ChapterContent } from "./socket";
 import { normalizeVisibleWorkTitle } from "./workspaceRuntimeState";
+import { READING } from "./copy";
 
 export interface ReadingChapterView {
   id: string;
   title: string;
   seq: number;
+  wordCount: number;
 }
 
 export interface ReadingVolumeView {
@@ -17,6 +19,7 @@ export interface ReadingVolumeView {
 }
 
 export interface ReadingTocView {
+  totalWordCount: number;
   volumes: ReadingVolumeView[];
 }
 
@@ -28,15 +31,25 @@ export function normalizeReadingToc(toc: TocData | null): ReadingTocView | null 
   if (!toc) return null;
 
   return {
+    totalWordCount: safeWordCount(toc.total_word_count),
     volumes: toc.volumes.map((volume) => ({
       ...volume,
       title: readableTitle(volume.title, "已采纳内容"),
       chapters: volume.chapters.map((chapter) => ({
         ...chapter,
         title: readableTitle(chapter.title, `已采纳片段 ${chapter.seq || 1}`),
+        wordCount: safeWordCount(chapter.word_count),
       })),
     })),
   };
+}
+
+function safeWordCount(value: number | null | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
+}
+
+export function formatWordCount(value: number): string {
+  return `${value.toLocaleString()} ${READING.wordsUnit}`;
 }
 
 export function normalizeChapterContentTitle(

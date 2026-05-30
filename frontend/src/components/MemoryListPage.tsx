@@ -6,6 +6,7 @@ import { listMemories } from "../lib/memoryApi";
 import type { MemoryItem, SearchParams } from "../lib/memoryApi";
 import { MemoryCreateDialog } from "./MemoryCreateDialog";
 import { MemoryDetailDrawer } from "./MemoryDetailDrawer";
+import { MEMORY } from "../lib/copy";
 import styles from "./MemoryListPage.module.css";
 
 const TYPE_LABELS: Record<string, string> = {
@@ -28,9 +29,10 @@ const STATUSES = ["", "DRAFT", "CONFIRMED", "STABILIZED", "CONFLICTED", "DEPRECA
 
 interface Props {
   workId: string;
+  onBack?: () => void;
 }
 
-export function MemoryListPage({ workId }: Props) {
+export function MemoryListPage({ workId, onBack }: Props) {
   const [memories, setMemories] = useState<MemoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -86,9 +88,14 @@ export function MemoryListPage({ workId }: Props) {
   return (
     <div className={styles.container}>
       <div className={styles.toolbar}>
-        <h2>记忆管理</h2>
+        {onBack && (
+          <button className={styles.btnSecondary} onClick={onBack}>
+            {MEMORY.backToWorkbench}
+          </button>
+        )}
+        <h2>{MEMORY.pageTitle}</h2>
         <button className={styles.btnPrimary} onClick={() => setShowCreate(true)}>
-          + 新建记忆
+          {MEMORY.createButton}
         </button>
       </div>
 

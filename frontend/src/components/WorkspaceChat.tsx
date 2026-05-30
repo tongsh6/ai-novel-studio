@@ -34,6 +34,7 @@ import {
   type WorkSessionDto,
 } from "../lib/sessions";
 import {
+  filterVisibleAvailableActions,
   findAvailableActionForTarget,
   toAuthorActionPayload,
   type AvailableActionLike,
@@ -64,7 +65,7 @@ import type {
 } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
-import { CARD, TRACE, WORKBENCH } from "../lib/copy";
+import { CARD, MEMORY, TRACE, WORKBENCH } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import {
   toAuthorTraceSummary,
@@ -257,6 +258,12 @@ export function WorkspaceChat() {
     turnId: string;
     summary: TraceSummaryView;
   } | null>(null);
+  const [editDialog, setEditDialog] = useState<{
+    turnResult: TurnResult;
+    action: AvailableAction;
+    text: string;
+  } | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore(state => state.socketConnected);
@@ -699,19 +706,56 @@ export function WorkspaceChat() {
     await handleAvailableAction(turnResult, action);
   };
 
-  const handleAvailableAction = async (turnResult: TurnResult, action: AvailableActionLike) => {
+  const handleAvailableAction = async (
+    turnResult: TurnResult,
+    action: AvailableActionLike,
+    authorPayload?: Record<string, unknown>,
+  ) => {
     if (!channelRef.current || action.enabled === false) return;
 
     try {
       await sendAuthorAction(
         channelRef.current,
-        toAuthorActionPayload(turnResult.turn_id, action),
+        toAuthorActionPayload(turnResult.turn_id, action, authorPayload),
       );
     } catch {
       setMessages((prev) => [
         ...prev,
         { role: "assistant", text: WORKBENCH.actionFailure },
       ]);
+    }
+  };
+
+  // 从待采纳 artifact 取出可编辑的正文（payload.content 优先，否则拼接 items 正文）。
+  const draftProseForAction = (turnResult: TurnResult, action: AvailableAction): string => {
+    const artifact = (turnResult.adoption_state?.pending ?? []).find(
+      (entry) => entry.artifact_id === action.target_ref,
+    );
+    const payload = artifact?.payload as
+      | { content?: unknown; items?: { body?: unknown }[] }
+      | undefined;
+    if (typeof payload?.content === "string") return payload.content;
+    if (Array.isArray(payload?.items)) {
+      return payload.items
+        .map((item) => (typeof item?.body === "string" ? item.body : ""))
+        .filter(Boolean)
+        .join("\n\n");
+    }
+    return "";
+  };
+
+  const submitEditThenAccept = async () => {
+    if (!editDialog) return;
+    const trimmed = editDialog.text.trim();
+    if (trimmed === "") return;
+    setEditSubmitting(true);
+    try {
+      await handleAvailableAction(editDialog.turnResult, editDialog.action, {
+        edited_content: trimmed,
+      });
+      setEditDialog(null);
+    } finally {
+      setEditSubmitting(false);
     }
   };
 
@@ -728,11 +772,34 @@ export function WorkspaceChat() {
   };
 
   const handleVisibleAvailableAction = (turnResult: TurnResult, action: AvailableAction) => {
+    // edit_then_accept 需要作者先编辑正文，打开编辑弹窗而不是直接提交。
+    if (action.action_type === "edit_then_accept") {
+      setEditDialog({ turnResult, action, text: draftProseForAction(turnResult, action) });
+      return;
+    }
     void handleAvailableAction(turnResult, action);
   };
 
+  // 当前活跃行为 id：取最近一个携带 behavior_state 的 turn_result 的 active 行为。
+  // 确认后采纳/取消会把 active 置空，确认按钮随之隐藏。
+  const activeBehaviorId: string | null = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const behaviorState = messages[i].turnResult?.behavior_state;
+      if (behaviorState !== undefined) {
+        const behaviorId = behaviorState.active?.behavior_id;
+        return typeof behaviorId === "string" ? behaviorId : null;
+      }
+    }
+    return null;
+  })();
+
+  // 采纳类动作一旦目标 artifact 已被采纳/放弃就不再显示；确认类动作只在行为活跃时显示。
   const visibleAvailableActions = (turnResult: TurnResult): AvailableAction[] =>
-    (turnResult.available_actions ?? []).filter((action) => action.action_type !== "choose_candidate");
+    filterVisibleAvailableActions(
+      turnResult.available_actions ?? [],
+      runtimeState.adoption.pendingArtifactIds,
+      activeBehaviorId,
+    );
 
   const findArtifactAvailableAction = (
     artifact: ArtifactEntry,
@@ -1161,11 +1228,18 @@ export function WorkspaceChat() {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
-          <button 
+          <button
             className={`${styles.btnSecondary} ${styles.readingModeButton}`}
             onClick={() => setMode("reading")}
           >
             [阅读模式]
+          </button>
+          <button
+            className={`${styles.btnSecondary} ${styles.readingModeButton}`}
+            disabled={!hasValidRuntimeWork}
+            onClick={() => setMode("memory")}
+          >
+            [{MEMORY.workbenchEntry}]
           </button>
           <span className={styles.divider1}>/</span>
           <span className={styles.volText}>{context.volumeTitle || "全书"}</span>
@@ -1400,6 +1474,60 @@ export function WorkspaceChat() {
                     </div>
                   </>
                 )}
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
+
+          {/* 修改后采纳：编辑弹窗 (edit_then_accept) */}
+          <Dialog.Root
+            open={editDialog !== null}
+            onOpenChange={(open) => {
+              if (!open) setEditDialog(null);
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className={styles.dialogOverlay} />
+              <Dialog.Content
+                className={`${styles.dialogContent} ${styles.editDialogContent}`}
+                aria-describedby={undefined}
+              >
+                <Dialog.Title className={styles.dialogTitle}>
+                  {CARD.tentativeArtifact.editDialogTitle}
+                </Dialog.Title>
+                <Dialog.Description className={styles.dialogDescription}>
+                  {CARD.tentativeArtifact.editDialogDescription}
+                </Dialog.Description>
+                <textarea
+                  className={styles.editTextarea}
+                  value={editDialog?.text ?? ""}
+                  placeholder={CARD.tentativeArtifact.editPlaceholder}
+                  disabled={editSubmitting}
+                  onChange={(event) =>
+                    setEditDialog((prev) =>
+                      prev ? { ...prev, text: event.target.value } : prev,
+                    )
+                  }
+                />
+                <div className={styles.dialogActions}>
+                  <button
+                    className={styles.btnSecondary}
+                    type="button"
+                    disabled={editSubmitting}
+                    onClick={() => setEditDialog(null)}
+                  >
+                    {CARD.tentativeArtifact.editCancelLabel}
+                  </button>
+                  <button
+                    className={styles.sendBtn}
+                    type="button"
+                    disabled={editSubmitting || (editDialog?.text ?? "").trim() === ""}
+                    onClick={() => {
+                      void submitEditThenAccept();
+                    }}
+                  >
+                    {CARD.tentativeArtifact.editConfirmLabel}
+                  </button>
+                </div>
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>

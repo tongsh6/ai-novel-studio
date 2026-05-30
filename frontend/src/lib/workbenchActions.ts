@@ -34,6 +34,38 @@ export function findAvailableActionForTarget(
   return match ?? null;
 }
 
+const ARTIFACT_ADOPTION_ACTION_TYPES = ["accept", "discard", "edit_then_accept"];
+const CONFIRMATION_BEHAVIOR_ACTION_TYPES = [
+  "confirm_before_execute",
+  "reject_or_cancel_confirmation",
+];
+
+/**
+ * 过滤一个 turn_result 的 available_actions，得到当前仍可在该消息卡上提交的动作：
+ * - choose_candidate 由候选面板单独渲染，不出现在通用动作区；
+ * - 采纳类动作（accept/discard/edit_then_accept）一旦目标 artifact 已被采纳/放弃
+ *   （不在 pendingArtifactIds 中），就不再显示，避免旧草稿卡按钮被重复点击重复提交；
+ * - 确认类动作（confirm/reject）只在其 behavior 仍是当前活跃行为时显示，确认或取消后
+ *   行为关闭（active=null），按钮即隐藏，避免重复确认（ADR-0008 单一活跃行为）。
+ */
+export function filterVisibleAvailableActions<T extends AvailableActionLike>(
+  availableActions: T[],
+  pendingArtifactIds: Iterable<string>,
+  activeBehaviorId?: string | null,
+): T[] {
+  const pending = new Set(pendingArtifactIds);
+  return availableActions.filter((action) => {
+    if (action.action_type === "choose_candidate") return false;
+    if (ARTIFACT_ADOPTION_ACTION_TYPES.includes(action.action_type) && action.target_ref) {
+      return pending.has(action.target_ref);
+    }
+    if (CONFIRMATION_BEHAVIOR_ACTION_TYPES.includes(action.action_type) && action.behavior_ref) {
+      return activeBehaviorId != null && action.behavior_ref === activeBehaviorId;
+    }
+    return true;
+  });
+}
+
 export function actionRequiresTargetRef(actionType: string): boolean {
   return [
     "answer_clarification",
@@ -50,6 +82,7 @@ export function actionRequiresTargetRef(actionType: string): boolean {
 export function toAuthorActionPayload(
   sourceTurnRef: string,
   action: AvailableActionLike,
+  authorPayload?: Record<string, unknown>,
 ): AuthorActionPayload {
   if (actionRequiresTargetRef(action.action_type) && !action.target_ref) {
     throw new Error(`available_action ${action.action_id} missing target_ref`);
@@ -66,6 +99,7 @@ export function toAuthorActionPayload(
   if (action.candidate_set_ref) payload.candidate_set_ref = action.candidate_set_ref;
   if (action.candidate_ref) payload.candidate_ref = action.candidate_ref;
   if (action.idempotency_key) payload.idempotency_key = action.idempotency_key;
+  if (authorPayload && Object.keys(authorPayload).length > 0) payload.payload = authorPayload;
 
   return payload;
 }

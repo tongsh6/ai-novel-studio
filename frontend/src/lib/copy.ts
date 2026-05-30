@@ -109,6 +109,11 @@ export const CARD = {
     acceptLabel: "确认创建",
     discardLabel: "放弃",
     editThenAcceptLabel: "修改后采纳",
+    editDialogTitle: "修改后采纳",
+    editDialogDescription: "编辑这段正文后再采纳；采纳的是你修改后的版本。",
+    editPlaceholder: "在此修改正文…",
+    editConfirmLabel: "采纳修改后的版本",
+    editCancelLabel: "取消",
   },
   adoption: {
     title: "已采纳",
@@ -398,10 +403,24 @@ export const STRUCTURE_PANEL = {
 } as const;
 
 // ============================================================
+// 阅读模式
+// ============================================================
+
+export const READING = {
+  totalWordsLabel: "全书有效字数",
+  chapterWordsLabel: "本章有效字数",
+  wordsUnit: "字",
+} as const;
+
+// ============================================================
 // Memo 系统
 // ============================================================
 
 export const MEMORY = {
+  pageTitle: "记忆管理",
+  createButton: "+ 新建记忆",
+  backToWorkbench: "返回工作台",
+  workbenchEntry: "记忆",
   createTitle: "新建记忆",
   editTitle: "编辑记忆",
   detailTitle: "记忆详情",

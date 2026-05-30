@@ -77,6 +77,8 @@ export interface AuthorActionPayload {
   candidate_set_ref?: string;
   candidate_ref?: string;
   idempotency_key?: string;
+  // 作者补充输入（如 edit_then_accept 的 edited_content）。VS-04 §3 AuthorActionInput.payload。
+  payload?: Record<string, unknown>;
 }
 
 export function sendAuthorAction(
@@ -220,10 +222,11 @@ export interface TocVolume {
   id: string;
   title: string;
   seq: number;
-  chapters: { id: string; title: string; seq: number }[];
+  chapters: { id: string; title: string; seq: number; word_count?: number }[];
 }
 
 export interface TocData {
+  total_word_count?: number;
   volumes: TocVolume[];
 }
 
@@ -251,6 +254,7 @@ export function getToc(
 
 export interface ChapterContent {
   title: string;
+  word_count?: number;
   scenes: { title: string; content: string }[];
 }
 

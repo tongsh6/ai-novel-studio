@@ -475,6 +475,25 @@
   gap: 14px;
 }
 
+.editDialogContent {
+  width: min(640px, calc(100vw - 32px));
+  gap: 14px;
+}
+
+.editTextarea {
+  width: 100%;
+  min-height: 280px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 15px;
+  line-height: 1.8;
+  resize: vertical;
+}
+
 .traceDescription {
   margin: 0;
   color: var(--foreground-secondary);

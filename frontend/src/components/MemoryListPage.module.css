@@ -123,3 +123,17 @@
 .btnPrimary:hover {
   background: #6d28d9;
 }
+
+.btnSecondary {
+  padding: 8px 16px;
+  background: transparent;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.btnSecondary:hover {
+  background: #f3f4f6;
+}

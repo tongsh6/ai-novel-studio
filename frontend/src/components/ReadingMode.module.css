@@ -130,6 +130,10 @@
 }
 
 .tocChapter {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--foreground-secondary);
   font-family: var(--sans);
   font-size: 14px;
@@ -137,10 +141,42 @@
 }
 
 .tocChapterActive {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
   color: var(--accent);
   font-family: var(--sans);
   font-size: 14px;
   cursor: pointer;
+}
+
+.tocChapterTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.tocChapterWords {
+  flex-shrink: 0;
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.totalWords {
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.chapterMeta {
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 12px;
+  margin-top: -20px;
 }
 
 .readingContentArea {
