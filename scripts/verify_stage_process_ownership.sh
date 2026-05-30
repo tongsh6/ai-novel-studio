@@ -10,6 +10,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 SLICE_ID="desktop-stage-process-ownership"
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts/slice-verify/${SLICE_ID}-tauri"
 STAGE_LOG="$ARTIFACT_DIR/stage.log"
@@ -25,10 +26,11 @@ rm -f "$STAGE_LOG" "$SUMMARY_PATH"
 cp "$TAURI_CONF" "$ORIGINAL_CONF"
 
 cleanup() {
-  if [[ -n "$STAGE_PID" ]] && kill -0 "$STAGE_PID" 2>/dev/null; then
-    kill "$STAGE_PID" 2>/dev/null || true
-    wait "$STAGE_PID" 2>/dev/null || true
-  fi
+  # 安全网：stage.sh 退出时已自清进程树；此处再整树兜底，避免本验证脚本
+  # 被中断时漏掉 stage 启动的 Phoenix/Tauri/Vite 子树。
+  [[ -n "$STAGE_PID" ]] || return 0
+  kill_process_tree "$STAGE_PID"
+  wait "$STAGE_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 

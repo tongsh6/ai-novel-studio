@@ -10,9 +10,13 @@
 #
 
 set -euo pipefail
+# 启用 job control：每个后台 `&` 作业自成进程组，cleanup 时可整组回收，
+# 即使用户直接关闭 Tauri 窗口（包装进程先退）也不会留下孤儿 vite/app。
+set -m
 
 MODE="${1:-tauri}"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 PHX_PID=""
 VITE_PID=""
 TAURI_PID=""
@@ -23,10 +27,10 @@ CLEANED_UP=false
 terminate_pid() {
   local pid="$1"
 
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-    kill "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
-  fi
+  [[ -n "$pid" ]] || return 0
+  # 不只杀包装进程，连同其进程树/进程组一并回收（孤儿 vite/app 也在内）。
+  kill_process_tree "$pid"
+  wait "$pid" 2>/dev/null || true
 }
 
 restore_tauri_conf() {
@@ -84,11 +88,11 @@ echo "=== AI Novel Studio ==="
 if [[ "$MODE" == "--web" ]]; then
   echo "  浏览器模式 (Phoenix: ${PHOENIX_PORT}, Vite: ${VITE_PORT})"
   cd "$PROJECT_ROOT"
-  PHOENIX_PORT="$PHOENIX_PORT" mix phx.server &
+  PHOENIX_PORT="$PHOENIX_PORT" mix phx.server </dev/null &
   PHX_PID=$!
   sleep 3
   cd "$PROJECT_ROOT/frontend"
-  pnpm dev &
+  pnpm dev </dev/null &
   VITE_PID=$!
   wait "$VITE_PID"
   exit $?
@@ -113,7 +117,7 @@ if curl -s "$PHX_URL/health" 2>/dev/null | grep -q "ok"; then
 else
   echo "[dev] Starting Phoenix backend on port ${PHOENIX_PORT}..."
   cd "$PROJECT_ROOT"
-  PHOENIX_PORT="$PHOENIX_PORT" mix phx.server &
+  PHOENIX_PORT="$PHOENIX_PORT" mix phx.server </dev/null &
   PHX_PID=$!
 
   for i in $(seq 1 15); do
@@ -131,6 +135,6 @@ fi
 
 # 启动 Tauri（Vite 由 tauri 的 beforeDevCommand 负责）
 cd "$PROJECT_ROOT/frontend"
-pnpm tauri dev &
+pnpm tauri dev </dev/null &
 TAURI_PID=$!
 wait "$TAURI_PID"

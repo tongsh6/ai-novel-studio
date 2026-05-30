@@ -13,6 +13,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 SLICE_ID="${1:-}"
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5768}"
@@ -58,14 +59,12 @@ PHX_PID=""
 VITE_PID=""
 
 cleanup() {
-  if [[ -n "$VITE_PID" ]]; then
-    kill "$VITE_PID" 2>/dev/null || true
-    wait "$VITE_PID" 2>/dev/null || true
-  fi
-  if [[ -n "$PHX_PID" ]]; then
-    kill "$PHX_PID" 2>/dev/null || true
-    wait "$PHX_PID" 2>/dev/null || true
-  fi
+  # 整棵进程树回收：pnpm/mix 包装进程之下的 vite node、beam.smp 必须一并终止，
+  # 否则包装进程一死，真实实例被 reparent 到 init 后常驻、占用端口。
+  kill_process_tree "$VITE_PID"
+  wait "$VITE_PID" 2>/dev/null || true
+  kill_process_tree "$PHX_PID"
+  wait "$PHX_PID" 2>/dev/null || true
 }
 trap cleanup EXIT
 

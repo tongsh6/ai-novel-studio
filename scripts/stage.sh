@@ -16,8 +16,12 @@
 #
 
 set -euo pipefail
+# 启用 job control：每个后台 `&` 作业自成进程组，cleanup 时可整组回收，
+# 即使用户直接关闭 Tauri 窗口（包装进程先退）也不会留下孤儿 vite/app。
+set -m
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 MODE="tauri"
 SKIP_BUILD=false
 PHX_PID=""
@@ -31,11 +35,11 @@ terminate_pid() {
   local name="$1"
   local pid="$2"
 
-  if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-    echo "[stage] Stopping ${name} (pid ${pid})..."
-    kill "$pid" 2>/dev/null || true
-    wait "$pid" 2>/dev/null || true
-  fi
+  [[ -n "$pid" ]] || return 0
+  echo "[stage] Stopping ${name} (pid ${pid})..."
+  # 不只杀包装进程，连同其进程树/进程组一并回收（孤儿 vite/app 也在内）。
+  kill_process_tree "$pid"
+  wait "$pid" 2>/dev/null || true
 }
 
 restore_tauri_conf() {
@@ -198,7 +202,8 @@ cd "$PROJECT_ROOT"
 # ---- 启动 Phoenix (prod) ----
 
 echo "[stage] Starting Phoenix (prod) on port ${PHOENIX_PORT}..."
-mix phx.server &
+# </dev/null：job control 下后台进程探测 TTY 会触发 SIGTTIN 停摆，重定向 stdin 规避。
+mix phx.server </dev/null &
 PHX_PID=$!
 
 for i in $(seq 1 20); do
@@ -232,7 +237,7 @@ if [[ "$MODE" == "tauri" ]]; then
 
   # Tauri 的 beforeDevCommand 会自动启动 Vite dev server
   cd "$PROJECT_ROOT/frontend"
-  pnpm tauri dev &
+  pnpm tauri dev </dev/null &
   TAURI_PID=$!
   echo "[stage] Tauri PID: ${TAURI_PID}"
 
@@ -248,7 +253,7 @@ fi
 
 echo "[stage] Starting Vite preview on port ${VITE_DEV_PORT}..."
 cd "$PROJECT_ROOT/frontend"
-pnpm preview --port "$VITE_DEV_PORT" --strictPort &
+pnpm preview --port "$VITE_DEV_PORT" --strictPort </dev/null &
 VITE_PID=$!
 
 sleep 2

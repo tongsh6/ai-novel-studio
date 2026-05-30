@@ -25,6 +25,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 SLICE_ID=""
 SLICE_VERIFY_PROVIDER="${SLICE_VERIFY_PROVIDER:-slice_verify}"
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
@@ -152,14 +153,12 @@ reset_test_db() {
 }
 
 cleanup() {
-  if [[ -n "$TAURI_PID" ]]; then
-    kill "$TAURI_PID" 2>/dev/null || true
-    wait "$TAURI_PID" 2>/dev/null || true
-  fi
-  if [[ -n "$PHX_PID" ]]; then
-    kill "$PHX_PID" 2>/dev/null || true
-    wait "$PHX_PID" 2>/dev/null || true
-  fi
+  # 整棵进程树回收：pnpm tauri dev 之下的 vite node、cargo、target/debug/app
+  # 与 mix 之下的 beam.smp 必须一并终止，否则会留下孤儿 Tauri 窗口/端口。
+  kill_process_tree "$TAURI_PID"
+  wait "$TAURI_PID" 2>/dev/null || true
+  kill_process_tree "$PHX_PID"
+  wait "$PHX_PID" 2>/dev/null || true
   reset_test_db >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
