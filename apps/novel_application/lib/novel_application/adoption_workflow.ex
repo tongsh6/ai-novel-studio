@@ -10,48 +10,122 @@ defmodule NovelApplication.AdoptionWorkflow do
   alias NovelApplication.AdoptionBoundary
   alias NovelApplication.TraceSummaryRef
   alias NovelDomain.AdoptionDecision
+  alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateSet
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MutationStatus
 
-  @spec handle_adopt(map() | nil, map(), function() | nil) ::
+  @spec handle_adopt(
+          map() | nil,
+          map(),
+          function() | nil,
+          (String.t(), String.t() -> boolean()) | nil
+        ) ::
           {:ok, map(), map()} | {:error, String.t()}
   def handle_adopt(
         source_turn_result,
         params,
-        adoption_writer \\ NovelApplication.persistence_adoption_writer()
+        adoption_writer \\ NovelApplication.persistence_adoption_writer(),
+        overwrite_reader \\ NovelApplication.persistence_overwrite_reader()
       )
 
-  def handle_adopt(nil, _params, _adoption_writer),
+  def handle_adopt(nil, _params, _adoption_writer, _overwrite_reader),
     do: {:error, "source_turn_result not available"}
 
-  def handle_adopt(source_turn_result, %{"artifact_id" => artifact_id} = params, adoption_writer)
+  def handle_adopt(
+        source_turn_result,
+        %{"artifact_id" => artifact_id} = params,
+        adoption_writer,
+        overwrite_reader
+      )
       when is_binary(artifact_id) do
+    # 结构性/无效 action（artifact 不存在、跨作品、stale revision）保持 {:error}，
+    # 由 channel 侧 ActionValidator 在前置守门。AdoptionBoundary 的决定（采纳/需确认/
+    # 拒绝/失败恢复）则一律以 TurnResult 形式回传，满足 ADR-0010 决策规则4 与
+    # VS-04 §4.5「adoption failure 必须产生 TurnResult，不允许静默丢弃」。
     with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id),
          {:ok, work_context} <- validate_work_boundary(source_turn_result, artifact, params),
-         :ok <- check_revision_base(artifact, params),
-         candidate_set <- candidate_set_from_artifact(source_turn_result, artifact),
-         decision <-
-           AdoptionBoundary.evaluate(
-             candidate_set,
-             %{"candidate_id" => artifact_id, "work_id" => work_context.work_id},
-             nil,
-             work_context
-           ),
-         true <- AdoptionDecision.adopted?(decision),
-         {:ok, persisted} <-
-           persist_adoption(adoption_writer, source_turn_result, decision, artifact, params) do
-      {:ok, build_action_result(decision, artifact, persisted),
-       build_turn_result(source_turn_result, decision, artifact, persisted)}
-    else
-      {:error, reason} -> {:error, reason}
-      false -> {:error, "adoption boundary did not accept artifact"}
+         :ok <- check_revision_base(artifact, params) do
+      candidate_set = candidate_set_from_artifact(source_turn_result, artifact)
+      opts = adoption_decision_opts(work_context, artifact, params, overwrite_reader)
+
+      decision =
+        AdoptionBoundary.evaluate(
+          candidate_set,
+          %{"candidate_id" => artifact_id, "work_id" => work_context.work_id},
+          nil,
+          opts
+        )
+
+      finalize_adoption(decision, source_turn_result, artifact, params, adoption_writer)
     end
   end
 
-  def handle_adopt(_source_turn_result, _params, _adoption_writer),
+  def handle_adopt(_source_turn_result, _params, _adoption_writer, _overwrite_reader),
     do: {:error, "artifact_id is required"}
+
+  # 把 work boundary、覆盖判定、确认状态合成采纳边界 opts。
+  # 覆盖已有正文（同 title 章节已有已采纳内容）= 高风险 production write → 需确认。
+  defp adoption_decision_opts(work_context, artifact, params, overwrite_reader) do
+    work_context
+    |> Map.put(:confirmation_satisfied, truthy?(Map.get(params, "confirmation_satisfied")))
+    |> Map.put(:overwrite, overwrite_existing?(overwrite_reader, work_context.work_id, artifact))
+  end
+
+  defp overwrite_existing?(reader, work_id, artifact)
+       when is_function(reader, 2) and is_binary(work_id) do
+    reading_projection_artifact_type?(artifact_field(artifact, :artifact_type)) and
+      reader.(work_id, artifact_summary(artifact))
+  end
+
+  defp overwrite_existing?(_reader, _work_id, _artifact), do: false
+
+  defp reading_projection_artifact_type?(type)
+       when type in [:prose_fragment, "prose_fragment", :scene_draft, "scene_draft"],
+       do: true
+
+  defp reading_projection_artifact_type?(_type), do: false
+
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?(_), do: false
+
+  # adopt_tentative：通过采纳边界，写入 production fact 并物化阅读投影。
+  # 其它决定（require_confirmation / reject / fail_with_recovery）：不写库，
+  # 但仍产出真实 TurnResult（ADR-0010 规则4 / VS-04 §4.5）。confirm→重新 gate→
+  # 完成采纳的确认闭环属 AU-04/06（ADR-0008/0009），与候选路径一致暂不在此实现。
+  defp finalize_adoption(
+         %AdoptionDecision{} = decision,
+         source_turn_result,
+         artifact,
+         params,
+         adoption_writer
+       ) do
+    if AdoptionDecision.adopted?(decision) do
+      case persist_adoption(adoption_writer, source_turn_result, decision, artifact, params) do
+        {:ok, persisted} ->
+          {:ok, build_action_result(decision, artifact, persisted),
+           build_turn_result(source_turn_result, decision, artifact, persisted)}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, build_decision_action_result(decision, artifact),
+       build_decision_turn_result(source_turn_result, decision, artifact)}
+    end
+  end
+
+  defp artifact_risk_hint(artifact) do
+    case artifact_field(artifact, :risk_hint) do
+      :high -> :high
+      "high" -> :high
+      :medium -> :medium
+      "medium" -> :medium
+      _ -> :low
+    end
+  end
 
   @spec handle_discard(map() | nil, map()) :: {:ok, map(), map()} | {:error, String.t()}
   def handle_discard(nil, _params), do: {:error, "source_turn_result not available"}
@@ -67,6 +141,25 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   def handle_discard(_source_turn_result, _params), do: {:error, "artifact_id is required"}
 
+  @doc """
+  拒绝/取消一个 open 采纳确认。关闭 confirmation behavior，不写 production fact，
+  artifact 仍保留为待采纳（作者可改主意后重新采纳）。
+  """
+  @spec handle_confirmation_reject(map() | nil, map()) ::
+          {:ok, map(), map()} | {:error, String.t()}
+  def handle_confirmation_reject(nil, _params), do: {:error, "source_turn_result not available"}
+
+  def handle_confirmation_reject(source_turn_result, %{"artifact_id" => artifact_id})
+      when is_binary(artifact_id) do
+    with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id) do
+      {:ok, build_cancel_confirmation_action_result(artifact),
+       build_cancel_confirmation_turn_result(source_turn_result, artifact)}
+    end
+  end
+
+  def handle_confirmation_reject(_source_turn_result, _params),
+    do: {:error, "artifact_id is required"}
+
   @spec handle_modify_draft(map() | nil, map(), function() | nil) ::
           {:ok, map(), map()} | {:error, String.t()}
   def handle_modify_draft(
@@ -80,14 +173,13 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   def handle_modify_draft(source_turn_result, params, adoption_writer) do
     artifact_id = Map.get(params, "artifact_id") || Map.get(params, "draft_id")
-    instruction = Map.get(params, "instruction")
 
     cond do
       not is_binary(artifact_id) ->
         {:error, "draft_id is required"}
 
-      not is_binary(instruction) or String.trim(instruction) == "" ->
-        {:error, "instruction is required"}
+      not has_edit_payload?(params) ->
+        {:error, "edited content or instruction is required"}
 
       true ->
         handle_modify_draft_with_artifact(
@@ -98,6 +190,22 @@ defmodule NovelApplication.AdoptionWorkflow do
         )
     end
   end
+
+  # edit_then_accept 接受两种编辑载荷：作者全文编辑（edited_content，替换）或
+  # 旧版修改要求（instruction，追加，向后兼容）。
+  defp has_edit_payload?(params) do
+    not is_nil(normalize_edit(Map.get(params, "edited_content"))) or
+      not is_nil(normalize_edit(Map.get(params, "instruction")))
+  end
+
+  defp normalize_edit(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_edit(_value), do: nil
 
   defp find_pending_artifact(source_turn_result, artifact_id) do
     pending =
@@ -202,7 +310,7 @@ defmodule NovelApplication.AdoptionWorkflow do
           origin_ref:
             artifact_field(artifact, :source_tool_result_ref) ||
               "turn:#{turn_id(source_turn_result)}",
-          risk_hint: :low,
+          risk_hint: artifact_risk_hint(artifact),
           adoption_target_ref: "artifact:#{artifact_id}",
           work_id: artifact_field(artifact, :work_id) || map_field(source_turn_result, :work_id)
         }
@@ -257,6 +365,71 @@ defmodule NovelApplication.AdoptionWorkflow do
     }
   end
 
+  defp build_decision_action_result(%AdoptionDecision{} = decision, artifact) do
+    %{
+      action_id: "adopt:#{artifact_field(artifact, :artifact_id)}",
+      action_type: "adopt",
+      status: decision_action_status(decision),
+      artifact_id: artifact_field(artifact, :artifact_id),
+      artifact_type: artifact_field(artifact, :artifact_type),
+      decision: decision_payload(decision),
+      persistence: %{persisted: false}
+    }
+  end
+
+  defp decision_action_status(%AdoptionDecision{decision_type: :require_confirmation}),
+    do: "needs_confirmation"
+
+  defp decision_action_status(%AdoptionDecision{decision_type: :reject}), do: "rejected"
+  defp decision_action_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
+  defp decision_action_status(_decision), do: "rejected"
+
+  defp build_cancel_confirmation_action_result(artifact) do
+    %{
+      action_id: "reject:#{artifact_field(artifact, :artifact_id)}",
+      action_type: "reject_or_cancel_confirmation",
+      status: "cancelled",
+      artifact_id: artifact_field(artifact, :artifact_id),
+      artifact_type: artifact_field(artifact, :artifact_type),
+      persistence: %{persisted: false}
+    }
+  end
+
+  # 取消确认：关闭 confirmation behavior（active: nil），artifact 仍 pending，不写库。
+  defp build_cancel_confirmation_turn_result(source_turn_result, _artifact) do
+    source_turn_id = turn_id(source_turn_result)
+
+    %{
+      schema_version: "3.0-draft",
+      turn_id: "turn_adopt_#{System.unique_integer([:positive, :monotonic])}",
+      parent_turn_id: source_turn_id,
+      assistant_message: %{text: "已取消采纳；未覆盖正文，草稿仍保留为待采纳。"},
+      ui_cards: [],
+      trace_summary: %{
+        decision_type: "cancel_confirmation",
+        reason_codes: ["author_cancelled_confirmation"],
+        decision_trace_ref: nil,
+        state_trace_ref: nil
+      },
+      phase: "cancelled",
+      status: "cancelled",
+      available_actions: [],
+      behavior_state: BehaviorState.snapshot(nil),
+      projection_refs: [],
+      truthfulness: %{
+        tool_called: false,
+        artifact_adopted: false,
+        production_write_performed: false,
+        state_persisted: false,
+        mutation_ref: nil,
+        adopted_state_ref: nil,
+        durable_behavior_opened: false,
+        decision_type: :cancel_confirmation,
+        reason_codes: ["author_cancelled_confirmation"]
+      }
+    }
+  end
+
   defp build_discard_action_result(artifact) do
     %{
       action_id: "discard:#{artifact_field(artifact, :artifact_id)}",
@@ -298,6 +471,8 @@ defmodule NovelApplication.AdoptionWorkflow do
       phase: "completed",
       status: "conversational",
       available_actions: [],
+      # 关闭任何 open confirmation behavior（确认后采纳完成）。
+      behavior_state: BehaviorState.snapshot(nil),
       adoption_state: %{
         pending: [],
         resolved: [
@@ -377,6 +552,122 @@ defmodule NovelApplication.AdoptionWorkflow do
       }
     }
   end
+
+  # 非采纳决定的 TurnResult：不写 production fact、不发 projection_refs。
+  # - require_confirmation：打开 confirmation BehaviorState + confirm/reject available_actions
+  #   （ADR-0008/0009），作者确认后重新 gate；artifact 留在原 pending。
+  # - reject / fail_with_recovery：终态，available_actions 为空。
+  defp build_decision_turn_result(source_turn_result, %AdoptionDecision{} = decision, artifact) do
+    source_turn_id = turn_id(source_turn_result)
+    artifact_id = artifact_field(artifact, :artifact_id)
+    confirmation? = decision.decision_type == :require_confirmation
+    behavior_id = "bh_confirm_#{artifact_id}"
+
+    %{
+      schema_version: "3.0-draft",
+      turn_id: "turn_adopt_#{System.unique_integer([:positive, :monotonic])}",
+      parent_turn_id: source_turn_id,
+      assistant_message: %{text: decision_message(decision)},
+      ui_cards: [],
+      trace_summary: %{
+        decision_type: to_string(decision.decision_type),
+        reason_codes: decision.reason_codes,
+        decision_trace_ref: decision.decision_trace_ref,
+        state_trace_ref: decision.state_trace_ref
+      },
+      phase: decision_phase(decision),
+      status: decision_status(decision),
+      available_actions:
+        if(confirmation?, do: confirmation_available_actions(artifact_id, behavior_id), else: []),
+      behavior_state:
+        BehaviorState.snapshot(
+          if(confirmation?,
+            do: confirmation_behavior(behavior_id, artifact_id, source_turn_id, decision),
+            else: nil
+          )
+        ),
+      projection_refs: [],
+      adoption_decision: decision_payload(decision),
+      truthfulness: %{
+        tool_called: false,
+        artifact_adopted: false,
+        production_write_performed: false,
+        state_persisted: false,
+        mutation_ref: nil,
+        adopted_state_ref: nil,
+        durable_behavior_opened: confirmation?,
+        decision_type: decision.decision_type,
+        reason_codes: decision.reason_codes
+      }
+    }
+  end
+
+  defp confirmation_available_actions(artifact_id, behavior_id) do
+    [
+      %{
+        action_id: "confirm:#{artifact_id}",
+        action_type: "confirm_before_execute",
+        target_ref: artifact_id,
+        behavior_ref: behavior_id,
+        idempotency_key: "idem:confirm:#{artifact_id}",
+        enabled: true
+      },
+      %{
+        action_id: "reject:#{artifact_id}",
+        action_type: "reject_or_cancel_confirmation",
+        target_ref: artifact_id,
+        behavior_ref: behavior_id,
+        idempotency_key: "idem:reject:#{artifact_id}",
+        enabled: true
+      }
+    ]
+  end
+
+  # 采纳覆盖确认是 durable BehaviorState（VS-03 §4）；构造领域结构体，由
+  # BehaviorState.snapshot/1 序列化成 schema behavior_state，和主链同一形状。
+  defp confirmation_behavior(behavior_id, artifact_id, source_turn_id, decision) do
+    %BehaviorState{
+      behavior_id: behavior_id,
+      behavior_type: :confirmation,
+      lifecycle_status: :awaiting_author,
+      blocking_actor: :author,
+      opened_at_turn_ref: source_turn_id,
+      opened_by_decision_ref: decision.adoption_decision_id,
+      frame_ref: source_turn_id,
+      target_ref: artifact_id,
+      required_next_action: "confirm_before_execute",
+      available_actions: confirmation_available_actions(artifact_id, behavior_id),
+      prompt_contract: %{
+        summary: "采纳会覆盖该章节已有的已采纳正文，确认后才写入作品事实。",
+        reason_codes: decision.reason_codes
+      },
+      trace_ref: decision.decision_trace_ref
+    }
+  end
+
+  defp decision_phase(%AdoptionDecision{decision_type: :require_confirmation}),
+    do: "awaiting_author"
+
+  defp decision_phase(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
+  defp decision_phase(_decision), do: "completed"
+
+  defp decision_status(%AdoptionDecision{decision_type: :require_confirmation}),
+    do: "needs_confirmation"
+
+  defp decision_status(%AdoptionDecision{decision_type: :reject}), do: "cancelled"
+  defp decision_status(%AdoptionDecision{decision_type: :fail_with_recovery}), do: "failed"
+  defp decision_status(_decision), do: "conversational"
+
+  defp decision_message(%AdoptionDecision{decision_type: :require_confirmation}),
+    do: "这段草稿需要你进一步确认对象和影响后才能采纳；当前未写入正文或作品事实。"
+
+  defp decision_message(%AdoptionDecision{decision_type: :reject}),
+    do: "当前不能采纳这段草稿，来源或状态已不满足采纳条件；草稿仍保留为待采纳。"
+
+  defp decision_message(%AdoptionDecision{decision_type: :fail_with_recovery}),
+    do: "未能采纳这段草稿，请重新生成或检查目标章节后再试；当前未写入作品事实。"
+
+  defp decision_message(_decision), do: "已处理这段草稿的采纳请求。"
 
   defp build_edited_turn_result(
          source_turn_result,
@@ -522,17 +813,28 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   defp edited_artifact(artifact, params) do
     payload = artifact_field(artifact, :payload) || %{}
-    instruction = params |> Map.fetch!("instruction") |> String.trim()
 
     original_content =
       Map.get(params, "content") || payload[:content] || payload["content"] ||
         artifact_summary(artifact)
 
+    edited = normalize_edit(Map.get(params, "edited_content"))
+    instruction = normalize_edit(Map.get(params, "instruction"))
+
+    # 作者全文编辑优先：直接替换正文（采纳/阅读投影/字数都以编辑后内容为准）。
+    # 否则回退到旧版「修改要求」追加语义，保持向后兼容。
+    {new_content, edit_instruction} =
+      if edited do
+        {edited, nil}
+      else
+        {edited_content(original_content, instruction), instruction}
+      end
+
     edited_payload =
       payload
-      |> Map.put(:content, edited_content(original_content, instruction))
+      |> Map.put(:content, new_content)
       |> Map.put(:original_content, original_content)
-      |> Map.put(:edit_instruction, instruction)
+      |> Map.put(:edit_instruction, edit_instruction)
 
     put_artifact_field(artifact, :payload, edited_payload)
   end

@@ -117,6 +117,58 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert [%{decision_trace_ref: "trace-source"}] = turn_result.adoption_state.resolved
     end
 
+    test "surfaces require_confirmation as a TurnResult for high-risk artifacts without writing" do
+      # ADR-0010 规则4 / VS-04 §4.5：非采纳决定也必须产生 TurnResult，不允许静默丢弃。
+      source_turn = source_turn_result(%{risk_hint: :high})
+      writer = fn _attrs -> flunk("high-risk artifact must not persist before confirmation") end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(source_turn, %{"artifact_id" => "as-1"}, writer)
+
+      assert action_result.status == "needs_confirmation"
+      assert action_result.decision.decision_type == :require_confirmation
+      assert action_result.persistence.persisted == false
+
+      assert turn_result.status == "needs_confirmation"
+      assert turn_result.phase == "awaiting_author"
+      assert turn_result.projection_refs == []
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+      assert turn_result.truthfulness.durable_behavior_opened == true
+      assert turn_result.adoption_decision.decision_type == :require_confirmation
+
+      # B2: require_confirmation 打开 confirmation behavior + confirm/reject 动作
+      action_types = Enum.map(turn_result.available_actions, & &1.action_type)
+      assert "confirm_before_execute" in action_types
+      assert "reject_or_cancel_confirmation" in action_types
+      assert turn_result.behavior_state.active.behavior_type == "confirmation"
+      assert turn_result.behavior_state.active.target_ref == "as-1"
+      assert turn_result.behavior_state.active.status == "WAITING_USER"
+
+      # contract：采纳路径 emit 的 behavior_state 合 schema（{active,history}+status 枚举）
+      assert :ok =
+               NovelFoundation.TurnResultValidator.validate_behavior_state(
+                 turn_result.behavior_state
+               )
+    end
+
+    test "confirmation_satisfied re-gate adopts a previously high-risk artifact" do
+      writer = fn _attrs -> {:ok, %{mutation_id: "m1", persisted: true}} end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn_result(%{risk_hint: :high}),
+                 %{"artifact_id" => "as-1", "confirmation_satisfied" => true},
+                 writer
+               )
+
+      assert action_result.status == "accepted"
+      assert action_result.decision.decision_type == :adopt_tentative
+      assert turn_result.truthfulness.artifact_adopted == true
+      # 采纳完成后关闭 confirmation behavior
+      assert turn_result.behavior_state.active == nil
+    end
+
     test "rejects stale revision base" do
       source_turn = source_turn_result(%{revision_base: "7"})
 
@@ -239,8 +291,30 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert [%{adoption_status: "EDITED_ACCEPTED"}] = turn_result.adoption_state.resolved
     end
 
-    test "rejects missing instruction" do
-      assert {:error, "instruction is required"} =
+    test "author-edited full content replaces the draft (edit_then_accept)" do
+      writer = fn attrs ->
+        # 采纳/持久化必须用编辑后的全文，而不是原始草稿。
+        assert attrs.content == "林澈终于醒来，世界一片寂静。"
+        {:ok, %{mutation_id: "m1", persisted: true}}
+      end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_modify_draft(
+                 source_turn_result(),
+                 %{
+                   "artifact_id" => "as-1",
+                   "edited_content" => "林澈终于醒来，世界一片寂静。"
+                 },
+                 writer
+               )
+
+      assert action_result.status == "accepted"
+      assert [%{adoption_status: "EDITED_ACCEPTED"}] = turn_result.adoption_state.resolved
+      assert turn_result.truthfulness.artifact_adopted == true
+    end
+
+    test "rejects when neither edited content nor instruction is provided" do
+      assert {:error, "edited content or instruction is required"} =
                AdoptionWorkflow.handle_modify_draft(source_turn_result(), %{"draft_id" => "as-1"})
     end
 

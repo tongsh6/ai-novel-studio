@@ -242,15 +242,11 @@ defmodule NovelApplication.TurnResultBuilder do
 
   defp maybe_add_behavior(r, nil), do: r
 
-  defp maybe_add_behavior(r, b) do
-    Map.put(r, :behavior_state, %{
-      behavior_id: b.behavior_id,
-      behavior_type: b.behavior_type,
-      lifecycle_status: b.lifecycle_status,
-      required_next_action: b.required_next_action,
-      prompt_contract: b.prompt_contract,
-      available_actions: b.available_actions
-    })
+  # behavior_state 形状唯一来源：BehaviorState.snapshot/1（{active, history}，
+  # active.status 为 BehaviorStatus 枚举）。本 turn 无 behavior 变化时不加该字段，
+  # 保持前端「取最近一个携带 behavior_state 的 turn」语义。
+  defp maybe_add_behavior(r, %BehaviorState{} = b) do
+    Map.put(r, :behavior_state, BehaviorState.snapshot(b))
   end
 
   defp format_candidates(candidates) do

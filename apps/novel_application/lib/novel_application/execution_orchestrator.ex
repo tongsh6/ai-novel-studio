@@ -41,6 +41,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
     LogContext.put_decision(decision_id)
 
     duration = System.monotonic_time(:millisecond) - t0
+
     LogEmit.emit(:orchestrator, :decide, :done, %{
       decision_type: decision.decision_type,
       decision_id: decision_id,
@@ -85,12 +86,13 @@ defmodule NovelApplication.ExecutionOrchestrator do
   defp open_behavior(decision_type, decision_id, frame, plan, reason) do
     action = hd(plan.proposed_actions)
     target = action[:target_ref]
+    behavior_id = "bh_#{System.unique_integer([:positive, :monotonic])}"
 
     behavior_type =
       if decision_type == :require_confirmation, do: :confirmation, else: :clarification
 
     %BehaviorState{
-      behavior_id: "bh_#{System.unique_integer([:positive, :monotonic])}",
+      behavior_id: behavior_id,
       behavior_type: behavior_type,
       lifecycle_status: :awaiting_author,
       blocking_actor: :author,
@@ -100,7 +102,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
       plan_ref: plan.plan_id,
       target_ref: target,
       required_next_action: behavior_next_action(behavior_type),
-      available_actions: behavior_actions(behavior_type, decision_id, target),
+      available_actions: behavior_actions(behavior_type, decision_id, behavior_id, target),
       prompt_contract: %{question: reason},
       constraints: %{risk: plan.risk_hint}
     }
@@ -110,45 +112,48 @@ defmodule NovelApplication.ExecutionOrchestrator do
   defp behavior_next_action(:confirmation), do: "confirm_before_execute"
   defp behavior_next_action(_), do: "continue_dialogue"
 
-  defp behavior_actions(:clarification, d_id, target) do
+  # behavior_ref 必须指向 behavior 自身（ADR-0009 / VS-03），前端按
+  # action.behavior_ref == behavior_state.active.behavior_id 门控确认动作显隐。
+  # action_id / idempotency_key 仍以 decision_id 为键（一次决定一组动作）。
+  defp behavior_actions(:clarification, d_id, behavior_id, target) do
     [
       %{
         action_id: "act_answer_#{d_id}",
         action_type: "answer_clarification",
-        behavior_ref: d_id,
+        behavior_ref: behavior_id,
         target_ref: target,
         idempotency_key: "clarify_#{d_id}"
       },
       %{
         action_id: "act_cancel_#{d_id}",
         action_type: "cancel_pending_behavior",
-        behavior_ref: d_id,
+        behavior_ref: behavior_id,
         target_ref: target,
         idempotency_key: "cancel_#{d_id}"
       }
     ]
   end
 
-  defp behavior_actions(:confirmation, d_id, target) do
+  defp behavior_actions(:confirmation, d_id, behavior_id, target) do
     [
       %{
         action_id: "act_confirm_#{d_id}",
         action_type: "confirm_before_execute",
-        behavior_ref: d_id,
+        behavior_ref: behavior_id,
         target_ref: target,
         idempotency_key: "confirm_#{d_id}"
       },
       %{
         action_id: "act_reject_#{d_id}",
         action_type: "reject_or_cancel_confirmation",
-        behavior_ref: d_id,
+        behavior_ref: behavior_id,
         target_ref: target,
         idempotency_key: "reject_#{d_id}"
       }
     ]
   end
 
-  defp behavior_actions(_, _, _), do: []
+  defp behavior_actions(_, _, _, _), do: []
 
   # ── VS-02 tool dispatch ───────────────────────
 

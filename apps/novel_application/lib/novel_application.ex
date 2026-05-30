@@ -51,6 +51,14 @@ defmodule NovelApplication do
     if inject_persistence?(), do: NovelPersistence.AdoptionRepository.writer()
   end
 
+  @doc """
+  返回 overwrite reader 用于采纳边界判断「同 title 章节是否已有已采纳正文」。
+  未启用真实持久化时返回 nil（视为不存在覆盖）。
+  """
+  def persistence_overwrite_reader do
+    if inject_persistence?(), do: NovelPersistence.AdoptionRepository.overwrite_reader()
+  end
+
   defp inject_persistence? do
     Application.get_env(:novel_web, :persistence, [])
     |> Keyword.get(:inject_real_persistence, false)

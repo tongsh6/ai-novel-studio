@@ -70,6 +70,7 @@ defmodule NovelApplication.AdoptionBoundary do
       &work_boundary_decision/1,
       &stability_decision/1,
       &canon_conflict_decision/1,
+      &overwrite_decision/1,
       &high_risk_decision/1
     ]
     |> Enum.find_value(fn decision_fn -> decision_fn.(context) end)
@@ -162,14 +163,41 @@ defmodule NovelApplication.AdoptionBoundary do
     end
   end
 
+  # 覆盖已有 canon（已采纳正文/设定）是 production write，必须先确认（VS-04 §4）。
+  # 作者确认后（confirmation_satisfied）重新 gate 时放行。
+  defp overwrite_decision(%{
+         candidate: candidate,
+         candidate_id: candidate_id,
+         candidate_set: candidate_set,
+         decision_id: decision_id,
+         decision_trace_ref: decision_trace_ref,
+         opts: opts
+       }) do
+    if option_field(opts, :overwrite) == true and not confirmation_satisfied?(opts) do
+      %AdoptionDecision{
+        adoption_decision_id: decision_id,
+        turn_id: candidate_set.turn_id,
+        source_action_ref: "choose_candidate",
+        candidate_ref: candidate_id,
+        decision_type: :require_confirmation,
+        target_ref: candidate && candidate.adoption_target_ref,
+        reason_codes: ["overwrite_existing_canon", "confirmation_required"],
+        decision_trace_ref: decision_trace_ref
+      }
+    end
+  end
+
+  defp overwrite_decision(_context), do: nil
+
   defp high_risk_decision(%{
          candidate: candidate,
          candidate_id: candidate_id,
          candidate_set: candidate_set,
          decision_id: decision_id,
-         decision_trace_ref: decision_trace_ref
+         decision_trace_ref: decision_trace_ref,
+         opts: opts
        }) do
-    if candidate.risk_hint == :high do
+    if candidate.risk_hint == :high and not confirmation_satisfied?(opts) do
       %AdoptionDecision{
         adoption_decision_id: decision_id,
         turn_id: candidate_set.turn_id,
@@ -182,6 +210,8 @@ defmodule NovelApplication.AdoptionBoundary do
       }
     end
   end
+
+  defp confirmation_satisfied?(opts), do: option_field(opts, :confirmation_satisfied) == true
 
   defp adopt_tentative_decision(%{
          candidate: candidate,
