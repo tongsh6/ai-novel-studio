@@ -26,15 +26,46 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
 
       assert %{
                work_id: ^work_id,
+               total_word_count: 2,
                volumes: [
                  %{
                    title: "第一卷：起源",
-                   chapters: [%{id: chapter_id, title: "第一章：苏醒", seq: 1}]
+                   chapters: [
+                     %{id: chapter_id, title: "第一章：苏醒", seq: 1, word_count: 2}
+                   ]
                  }
                ]
              } = ReadingProjectionRepo.toc(work_id)
 
       assert chapter_id == accepted_chapter.id
+    end
+
+    test "total_word_count 只统计已采纳正文且排除标点空白" do
+      work_id = Ecto.UUID.generate()
+
+      # 已采纳：有效字数 = 「他终于醒来」5 字（逗号、句号不计）
+      %{chapter: chapter, scene: scene} =
+        insert_reading_chain(work_id, "第一卷", "第一章", "他，终于醒来。", :accepted)
+
+      # 同章第二场，再采纳一段：有效字数 = 「世界安静」4 字
+      second_scene = insert_scene(work_id, chapter.id, "第二场", 2)
+      insert_draft(work_id, second_scene.id, "世界  安静\n", AdoptionStatus.accepted(), 1)
+
+      # 未采纳草稿不计入字数事实
+      third_scene = insert_scene(work_id, chapter.id, "第三场", 3)
+      insert_draft(work_id, third_scene.id, "这段不该被统计", AdoptionStatus.tentative(), 1)
+
+      # 同场更高 revision 的已采纳草稿应覆盖旧版本（取最新，不重复累加）
+      insert_draft(work_id, scene.id, "他终于慢慢醒来过来", AdoptionStatus.accepted(), 2)
+
+      assert %{
+               total_word_count: total,
+               volumes: [%{chapters: [%{word_count: chapter_words}]}]
+             } = ReadingProjectionRepo.toc(work_id)
+
+      # 第一场最新版「他终于慢慢醒来过来」9 字 + 第二场「世界安静」4 字 = 13
+      assert chapter_words == 13
+      assert total == 13
     end
   end
 
@@ -53,6 +84,7 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
               %{
                 id: chapter_id,
                 title: "第一章",
+                word_count: 9,
                 scenes: [
                   %{title: "第一场", content: "新版正文"},
                   %{title: "第二场", content: "第二场正文"}

@@ -1,14 +1,22 @@
 defmodule NovelPersistence.AdoptionRepositoryTest do
   use NovelPersistence.DataCase, async: true
 
+  import Ecto.Query
+
+  alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
+  alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.AdoptionRepository
   alias NovelPersistence.MutationLog
   alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.MemoryItem
+  alias NovelPersistence.Schemas.Scene
+  alias NovelPersistence.Schemas.Volume
   alias NovelPersistence.WorkArchiveRepo
 
   describe "persist/1" do
@@ -111,6 +119,99 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
                  ]
                }
              ] = WorkArchiveRepo.chapter_plans(work_id)
+    end
+  end
+
+  describe "章节身份与覆盖检测 (A3/A4)" do
+    test "A3: 同 title 正文落到遗留卷里的同名章，就地覆盖不堆重复章" do
+      work_id = Ecto.UUID.generate()
+
+      # 模拟旧代码：在第二个「已采纳内容」卷里留下一个同名已采纳章（散落遗留数据）。
+      legacy_volume =
+        %Volume{}
+        |> Volume.changeset(%{
+          work_id: work_id,
+          title: "已采纳内容",
+          seq: 2,
+          status: StructureStatus.completed()
+        })
+        |> Repo.insert!()
+
+      legacy_chapter =
+        %Chapter{}
+        |> Chapter.changeset(%{
+          work_id: work_id,
+          volume_id: legacy_volume.id,
+          title: "遗留章",
+          seq: 1,
+          status: StructureStatus.completed()
+        })
+        |> Repo.insert!()
+
+      legacy_scene =
+        %Scene{}
+        |> Scene.changeset(%{
+          work_id: work_id,
+          chapter_id: legacy_chapter.id,
+          title: "遗留章",
+          seq: 1,
+          status: StructureStatus.completed()
+        })
+        |> Repo.insert!()
+
+      %Draft{}
+      |> Draft.changeset(%{
+        work_id: work_id,
+        scene_id: legacy_scene.id,
+        content: "旧版正文。",
+        status: AdoptionStatus.accepted(),
+        revision: 1
+      })
+      |> Repo.insert!()
+
+      # 采纳同名章新正文：应复用遗留章并就地覆盖，而不是在规范卷新建重复章。
+      assert {:ok, _persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-source",
+                 artifact_id: "as-legacy-1",
+                 artifact_type: :prose_fragment,
+                 content: "新版正文。",
+                 summary: "遗留章"
+               })
+
+      chapter_ids =
+        Chapter
+        |> where([c], c.work_id == ^work_id and c.title == "遗留章")
+        |> select([c], c.id)
+        |> Repo.all()
+
+      assert chapter_ids == [legacy_chapter.id]
+
+      assert {:ok, %{title: "遗留章", scenes: [%{content: "新版正文。"}]}} =
+               ReadingProjectionRepo.chapter_content(legacy_chapter.id, work_id)
+    end
+
+    test "A4: 空 summary 采纳存为「已采纳内容」，覆盖检测仍命中" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-source",
+                 artifact_id: "as-empty-1",
+                 artifact_type: :prose_fragment,
+                 content: "无标题正文。",
+                 summary: "   "
+               })
+
+      # 存储回退「已采纳内容」，读端口用同一归一 → 空/空白 summary 也能检出覆盖。
+      assert AdoptionRepository.has_accepted_chapter?(work_id, "   ")
+      assert AdoptionRepository.has_accepted_chapter?(work_id, "")
+      assert AdoptionRepository.has_accepted_chapter?(work_id, "已采纳内容")
+      refute AdoptionRepository.has_accepted_chapter?(work_id, "不存在的章")
     end
   end
 end

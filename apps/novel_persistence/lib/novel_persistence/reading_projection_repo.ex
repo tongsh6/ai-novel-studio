@@ -8,6 +8,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
   import Ecto.Query
 
+  alias NovelDomain.ProseWordCount
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
@@ -15,29 +16,50 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
 
-  @spec toc(String.t()) :: %{work_id: String.t(), volumes: [map()]}
+  @spec toc(String.t()) ::
+          %{work_id: String.t(), total_word_count: non_neg_integer(), volumes: [map()]}
   def toc(work_id) when is_binary(work_id) do
     case Ecto.UUID.cast(work_id) do
       {:ok, work_id} ->
-        chapters = accepted_chapters(work_id)
+        word_counts = word_counts_by_chapter(work_id)
+
+        chapters =
+          work_id
+          |> accepted_chapters()
+          |> Enum.map(&Map.put(&1, :word_count, Map.get(word_counts, &1.id, 0)))
+
         volume_ids = chapters |> Enum.map(& &1.volume_id) |> Enum.uniq()
         volumes = volumes_by_id(work_id, volume_ids)
 
+        rendered_volumes =
+          volumes
+          |> Enum.map(&volume_with_chapters(&1, chapters))
+          |> Enum.reject(&(Map.get(&1, :chapters) == []))
+
         %{
           work_id: work_id,
-          volumes:
-            volumes
-            |> Enum.map(&volume_with_chapters(&1, chapters))
-            |> Enum.reject(&(Map.get(&1, :chapters) == []))
+          total_word_count:
+            rendered_volumes
+            |> Enum.flat_map(& &1.chapters)
+            |> Enum.map(& &1.word_count)
+            |> Enum.sum(),
+          volumes: rendered_volumes
         }
 
       :error ->
-        %{work_id: work_id, volumes: []}
+        %{work_id: work_id, total_word_count: 0, volumes: []}
     end
   end
 
   @spec chapter_content(String.t(), String.t()) ::
-          {:ok, %{id: String.t(), title: String.t(), scenes: [map()]}} | {:error, :not_found}
+          {:ok,
+           %{
+             id: String.t(),
+             title: String.t(),
+             word_count: non_neg_integer(),
+             scenes: [map()]
+           }}
+          | {:error, :not_found}
   def chapter_content(chapter_id, work_id) when is_binary(chapter_id) and is_binary(work_id) do
     with {:ok, chapter_id} <- Ecto.UUID.cast(chapter_id),
          {:ok, work_id} <- Ecto.UUID.cast(work_id),
@@ -45,18 +67,21 @@ defmodule NovelPersistence.ReadingProjectionRepo do
       scenes = scenes_for_chapter(chapter.id, work_id)
       drafts_by_scene = accepted_drafts_by_scene(Enum.map(scenes, & &1.id), work_id)
 
+      scene_views =
+        Enum.map(scenes, fn scene ->
+          %{
+            id: scene.id,
+            title: scene.title,
+            content: drafts_by_scene |> Map.get(scene.id) |> draft_content()
+          }
+        end)
+
       {:ok,
        %{
          id: chapter.id,
          title: chapter.title,
-         scenes:
-           Enum.map(scenes, fn scene ->
-             %{
-               id: scene.id,
-               title: scene.title,
-               content: drafts_by_scene |> Map.get(scene.id) |> draft_content()
-             }
-           end)
+         word_count: scene_views |> Enum.map(& &1.content) |> ProseWordCount.sum(),
+         scenes: scene_views
        }}
     else
       _ -> {:error, :not_found}
@@ -93,9 +118,29 @@ defmodule NovelPersistence.ReadingProjectionRepo do
       chapters
       |> Enum.filter(&(&1.volume_id == volume.id))
       |> Enum.sort_by(& &1.seq)
-      |> Enum.map(&Map.take(&1, [:id, :title, :seq]))
+      |> Enum.map(&Map.take(&1, [:id, :title, :seq, :word_count]))
 
     Map.put(volume, :chapters, volume_chapters)
+  end
+
+  # 每章有效字数：以"阅读模式实际展示的内容"为准——每个 scene 取最新已采纳草稿，
+  # 与 chapter_content/2 的选取规则一致。未采纳草稿不计入字数事实（§7 #11）。
+  defp word_counts_by_chapter(work_id) do
+    scene_to_chapter =
+      Scene
+      |> where([s], s.work_id == ^work_id)
+      |> select([s], %{id: s.id, chapter_id: s.chapter_id})
+      |> Repo.all()
+      |> Map.new(&{&1.id, &1.chapter_id})
+
+    scene_to_chapter
+    |> Map.keys()
+    |> accepted_drafts_by_scene(work_id)
+    |> Enum.reduce(%{}, fn {scene_id, draft}, acc ->
+      chapter_id = Map.get(scene_to_chapter, scene_id)
+      words = ProseWordCount.count(draft.content)
+      Map.update(acc, chapter_id, words, &(&1 + words))
+    end)
   end
 
   defp get_chapter(chapter_id, work_id) do

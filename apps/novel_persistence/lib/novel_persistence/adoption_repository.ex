@@ -121,34 +121,24 @@ defmodule NovelPersistence.AdoptionRepository do
   defp reading_projection_artifact?("prose_fragment"), do: true
   defp reading_projection_artifact?(_), do: false
 
+  # 同 title 的正文采纳落到同一卷/章/场景（章节身份）：覆盖时 supersede 旧 accepted
+  # 草稿，再写新 accepted 草稿。这样阅读投影同一章显示最新正文，而不是堆出重复章。
   defp persist_reading_projection(repo, attrs, mutation_id) do
     work_id = Map.fetch!(attrs, :work_id)
     title = projection_title(attrs)
     content = projection_content(attrs)
-    volume_seq = next_volume_seq(repo, work_id)
 
-    with {:ok, volume} <-
-           insert_volume(repo, %{work_id: work_id, title: "已采纳内容", seq: volume_seq}),
-         {:ok, chapter} <-
-           insert_chapter(repo, %{
-             work_id: work_id,
-             volume_id: volume.id,
-             title: title,
-             seq: 1
-           }),
-         {:ok, scene} <-
-           insert_scene(repo, %{
-             work_id: work_id,
-             chapter_id: chapter.id,
-             title: title,
-             seq: 1
-           }),
+    with {:ok, volume} <- find_or_create_accepted_volume(repo, work_id),
+         {:ok, chapter} <- find_or_create_chapter(repo, work_id, volume.id, title),
+         {:ok, scene} <- find_or_create_scene(repo, work_id, chapter.id, title),
+         :ok <- supersede_accepted_drafts(repo, work_id, scene.id),
          {:ok, draft} <-
            insert_draft(repo, %{
              work_id: work_id,
              scene_id: scene.id,
              content: content,
-             status: AdoptionStatus.accepted()
+             status: AdoptionStatus.accepted(),
+             revision: next_draft_revision(repo, scene.id)
            }) do
       {:ok,
        %{
@@ -162,13 +152,116 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
-  defp next_volume_seq(repo, work_id) do
-    count =
-      Volume
-      |> where([v], v.work_id == ^work_id)
-      |> repo.aggregate(:count)
+  @doc """
+  读端口：当前作品是否已有「同 title 且含已采纳正文」的章节。
+  采纳边界用它判断是否为覆盖已有 canon（需作者确认）。
+  """
+  @spec has_accepted_chapter?(String.t(), String.t()) :: boolean()
+  def has_accepted_chapter?(work_id, title) when is_binary(work_id) and is_binary(title) do
+    case Ecto.UUID.cast(work_id) do
+      {:ok, uuid} ->
+        accepted = AdoptionStatus.accepted()
+        normalized = canonical_chapter_title(title)
 
-    count + 1
+        Chapter
+        |> join(:inner, [c], s in Scene, on: s.chapter_id == c.id and s.work_id == ^uuid)
+        |> join(:inner, [_c, s], d in Draft,
+          on: d.scene_id == s.id and d.work_id == ^uuid and d.status == ^accepted
+        )
+        |> where([c], c.work_id == ^uuid and c.title == ^normalized)
+        |> Repo.exists?()
+
+      :error ->
+        false
+    end
+  end
+
+  def has_accepted_chapter?(_work_id, _title), do: false
+
+  @doc "读端口工厂：注入 AdoptionWorkflow 判断覆盖。"
+  @spec overwrite_reader() :: (String.t(), String.t() -> boolean())
+  def overwrite_reader, do: &has_accepted_chapter?/2
+
+  defp find_or_create_accepted_volume(repo, work_id) do
+    Volume
+    |> where([v], v.work_id == ^work_id and v.title == "已采纳内容")
+    |> order_by([v], asc: v.seq)
+    |> limit(1)
+    |> repo.one()
+    |> case do
+      nil ->
+        insert_volume(repo, %{
+          work_id: work_id,
+          title: "已采纳内容",
+          seq: next_volume_seq(repo, work_id)
+        })
+
+      volume ->
+        {:ok, volume}
+    end
+  end
+
+  # 章节身份按 (work_id, title) 跨卷匹配，与覆盖检测 has_accepted_chapter?/2 一致：
+  # 旧代码每次采纳建新「已采纳内容」卷，遗留同名章会散落在多卷，按 title 跨卷查能复用并
+  # 就地覆盖，不再堆出重复章（A3）。新章才落到当前规范卷。
+  defp find_or_create_chapter(repo, work_id, volume_id, title) do
+    Chapter
+    |> where([c], c.work_id == ^work_id and c.title == ^title)
+    |> order_by([c], asc: c.seq)
+    |> limit(1)
+    |> repo.one()
+    |> case do
+      nil ->
+        insert_chapter(repo, %{
+          work_id: work_id,
+          volume_id: volume_id,
+          title: title,
+          seq: next_chapter_seq(repo, volume_id)
+        })
+
+      chapter ->
+        {:ok, chapter}
+    end
+  end
+
+  # 场景身份按 (work_id, chapter_id, title) 匹配：同章同 title 复用同场景并就地覆盖；
+  # 多场景章不会误 supersede 别的场景（A6）。单场景模型下与原行为一致。
+  defp find_or_create_scene(repo, work_id, chapter_id, title) do
+    Scene
+    |> where([s], s.work_id == ^work_id and s.chapter_id == ^chapter_id and s.title == ^title)
+    |> order_by([s], asc: s.seq)
+    |> limit(1)
+    |> repo.one()
+    |> case do
+      nil -> insert_scene(repo, %{work_id: work_id, chapter_id: chapter_id, title: title, seq: 1})
+      scene -> {:ok, scene}
+    end
+  end
+
+  defp supersede_accepted_drafts(repo, work_id, scene_id) do
+    accepted_statuses = [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
+
+    Draft
+    |> where(
+      [d],
+      d.work_id == ^work_id and d.scene_id == ^scene_id and d.status in ^accepted_statuses
+    )
+    |> repo.update_all(set: [status: AdoptionStatus.superseded(), updated_at: DateTime.utc_now()])
+
+    :ok
+  end
+
+  defp next_draft_revision(repo, scene_id) do
+    (Draft |> where([d], d.scene_id == ^scene_id) |> repo.aggregate(:max, :revision) || 0) + 1
+  end
+
+  # 下一个 seq 用 max(seq)+1（非 count+1）：删行后也不会和现存 seq 撞（A5）。
+  defp next_chapter_seq(repo, volume_id) do
+    (Chapter |> where([c], c.volume_id == ^volume_id) |> repo.aggregate(:max, :seq) || 0) + 1
+  end
+
+  defp next_volume_seq(repo, work_id) do
+    (Volume |> where([v], v.work_id == ^work_id) |> repo.aggregate(:max, :seq) || 0) + 1
   end
 
   defp insert_volume(repo, attrs) do
@@ -196,11 +289,13 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   defp projection_title(attrs) do
-    attrs
-    |> Map.get(:summary, "已采纳内容")
-    |> to_string()
-    |> String.trim()
-    |> case do
+    canonical_chapter_title(Map.get(attrs, :summary))
+  end
+
+  # 章节标题归一：trim + 空白回退「已采纳内容」。存储（projection_title）与覆盖查询
+  # （has_accepted_chapter?）共用，保证空 summary 采纳也能被检测为覆盖（A4）。
+  defp canonical_chapter_title(value) do
+    case value |> to_string() |> String.trim() do
       "" -> "已采纳内容"
       title -> title
     end

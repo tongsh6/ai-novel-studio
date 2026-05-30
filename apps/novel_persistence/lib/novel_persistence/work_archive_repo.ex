@@ -8,6 +8,7 @@ defmodule NovelPersistence.WorkArchiveRepo do
 
   import Ecto.Query
 
+  alias NovelDomain.ProseWordCount
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
@@ -222,8 +223,9 @@ defmodule NovelPersistence.WorkArchiveRepo do
   defp datetime_to_iso8601(%DateTime{} = datetime), do: DateTime.to_iso8601(datetime)
   defp datetime_to_iso8601(_), do: nil
 
-  defp text_size(nil), do: 0
-  defp text_size(text) when is_binary(text), do: String.length(text)
+  # 正文有效字数统一走 NovelDomain.ProseWordCount（排除标点与空白），
+  # 与 reading projection 共用同一口径，见 novel-output-milestones.md §2。
+  defp text_size(text), do: ProseWordCount.count(text)
 
   defp inserted_today?(%{inserted_at: %DateTime{} = inserted_at}) do
     Date.compare(DateTime.to_date(inserted_at), Date.utc_today()) == :eq
