@@ -715,6 +715,205 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert Map.has_key?(socket.assigns.turn_results_by_id, socket.assigns.current_turn_id)
     end
 
+    test "accept author_action routes through adoption boundary and broadcasts resolved turn_result" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      source_turn =
+        Map.put(@pending_adoption_turn_result, :available_actions, [
+          %{
+            action_id: "accept:as-adopt-1",
+            action_type: "accept",
+            target_ref: "as-adopt-1",
+            enabled: true
+          }
+        ])
+
+      socket = assign_server_turn(socket, source_turn)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "action_id" => "accept:as-adopt-1",
+                     "action_type" => "accept",
+                     "target_ref" => "as-adopt-1",
+                     "source_turn_ref" => "turn-adopt-source"
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("action_result", %{
+        action_type: "adopt",
+        status: "accepted",
+        artifact_id: "as-adopt-1",
+        decision: %{decision_type: :adopt_tentative}
+      })
+
+      assert_broadcast("turn_result", %{
+        parent_turn_id: "turn-adopt-source",
+        adoption_state: %{
+          pending: [],
+          resolved: [%{artifact_id: "as-adopt-1", adoption_status: "ACCEPTED"}]
+        },
+        truthfulness: %{artifact_adopted: true, production_write_performed: false}
+      })
+    end
+
+    test "accept author_action rejects an invented action not in available actions" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      # @pending_adoption_turn_result has available_actions: [] → accept is invented here
+      socket = assign_server_turn(socket, @pending_adoption_turn_result)
+
+      assert {:reply, {:error, %{reason: reason}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "action_id" => "accept:as-adopt-1",
+                     "action_type" => "accept",
+                     "target_ref" => "as-adopt-1",
+                     "source_turn_ref" => "turn-adopt-source"
+                   }
+                 },
+                 socket
+               )
+
+      assert String.contains?(reason, "invented action")
+    end
+
+    test "edit_then_accept author_action adopts the author-edited content" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      source_turn =
+        Map.put(@pending_adoption_turn_result, :available_actions, [
+          %{
+            action_id: "edit:as-adopt-1",
+            action_type: "edit_then_accept",
+            target_ref: "as-adopt-1",
+            enabled: true
+          }
+        ])
+
+      socket = assign_server_turn(socket, source_turn)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "action_id" => "edit:as-adopt-1",
+                     "action_type" => "edit_then_accept",
+                     "target_ref" => "as-adopt-1",
+                     "source_turn_ref" => "turn-adopt-source",
+                     "payload" => %{"edited_content" => "作者改写后的正文"}
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("turn_result", %{
+        parent_turn_id: "turn-adopt-source",
+        adoption_state: %{
+          resolved: [%{artifact_id: "as-adopt-1", adoption_status: "EDITED_ACCEPTED"}]
+        },
+        truthfulness: %{artifact_adopted: true}
+      })
+    end
+
+    test "confirm_before_execute on a pending artifact re-gates adoption and adopts" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      source_turn =
+        Map.put(@pending_adoption_turn_result, :available_actions, [
+          %{
+            action_id: "confirm:as-adopt-1",
+            action_type: "confirm_before_execute",
+            target_ref: "as-adopt-1",
+            behavior_ref: "bh_confirm_as-adopt-1",
+            enabled: true
+          }
+        ])
+
+      socket = assign_server_turn(socket, source_turn)
+
+      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "action_id" => "confirm:as-adopt-1",
+                     "action_type" => "confirm_before_execute",
+                     "target_ref" => "as-adopt-1",
+                     "source_turn_ref" => "turn-adopt-source",
+                     "behavior_ref" => "bh_confirm_as-adopt-1"
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("turn_result", %{
+        adoption_state: %{resolved: [%{artifact_id: "as-adopt-1", adoption_status: "ACCEPTED"}]},
+        behavior_state: %{active: nil},
+        truthfulness: %{artifact_adopted: true}
+      })
+    end
+
+    test "reject_or_cancel_confirmation closes the confirmation without writing" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      source_turn =
+        Map.put(@pending_adoption_turn_result, :available_actions, [
+          %{
+            action_id: "reject:as-adopt-1",
+            action_type: "reject_or_cancel_confirmation",
+            target_ref: "as-adopt-1",
+            behavior_ref: "bh_confirm_as-adopt-1",
+            enabled: true
+          }
+        ])
+
+      socket = assign_server_turn(socket, source_turn)
+
+      assert {:reply, {:ok, %{received: true, action_status: "cancelled"}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "action_id" => "reject:as-adopt-1",
+                     "action_type" => "reject_or_cancel_confirmation",
+                     "target_ref" => "as-adopt-1",
+                     "source_turn_ref" => "turn-adopt-source",
+                     "behavior_ref" => "bh_confirm_as-adopt-1"
+                   }
+                 },
+                 socket
+               )
+
+      assert_broadcast("turn_result", %{
+        phase: "cancelled",
+        behavior_state: %{active: nil},
+        truthfulness: %{artifact_adopted: false, production_write_performed: false}
+      })
+    end
+
     test "adopt event rejects invented artifact that is not pending on server turn" do
       {:ok, _, socket} =
         UserSocket

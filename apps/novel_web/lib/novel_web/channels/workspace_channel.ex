@@ -203,6 +203,7 @@ defmodule NovelWeb.WorkspaceChannel do
       behavior_ref: action_params["behavior_ref"],
       candidate_set_ref: action_params["candidate_set_ref"],
       candidate_ref: action_params["candidate_ref"],
+      payload: Map.get(action_params, "payload", %{}),
       idempotency_key: action_params["idempotency_key"]
     }
 
@@ -491,7 +492,115 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, data}, socket}
   end
 
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: type} = action_input,
+         source_turn_result
+       )
+       when type in ["accept", "discard", "edit_then_accept"] do
+    # 采纳/放弃/编辑后采纳 tentative artifact：ADR-0010 §87 要求 adoption 在 application
+    # 执行，web 只路由。先用 ActionValidator 守住 stale/invented action（AU-05/06 不变量），
+    # 再走既有 AdoptionWorkflow 持久化路径，并以 TurnResult 形式回传全部决定。
+    source_turn_result = scope_source_turn_result(socket, source_turn_result)
+
+    case NovelApplication.ActionValidator.validate(action_input, source_turn_result) do
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason}}, socket}
+
+      :ok ->
+        params = %{
+          "artifact_id" => action_input.target_ref,
+          "work_id" => socket.assigns[:work_id],
+          "session_id" => socket.assigns[:session_id],
+          "source_turn_ref" => action_input.source_turn_ref
+        }
+
+        result =
+          case type do
+            "accept" ->
+              NovelApplication.AdoptionWorkflow.handle_adopt(source_turn_result, params)
+
+            "discard" ->
+              NovelApplication.AdoptionWorkflow.handle_discard(source_turn_result, params)
+
+            "edit_then_accept" ->
+              # 作者全文编辑随 author_action.payload.edited_content 传入。
+              edit_params = Map.put(params, "edited_content", action_payload(action_input, "edited_content"))
+              NovelApplication.AdoptionWorkflow.handle_modify_draft(source_turn_result, edit_params)
+          end
+
+        finish_adoption_author_action(socket, action_input, result)
+    end
+  end
+
+  # 采纳确认的 confirm/reject：当 target 是某个 pending artifact（采纳确认）时，
+  # confirm → 重新 gate 采纳（confirmation_satisfied），reject → 关闭确认不写库。
+  # 否则（工具派发确认等）走既有 DialogueGateway 路径。
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: type} = action_input,
+         source_turn_result
+       )
+       when type in ["confirm_before_execute", "reject_or_cancel_confirmation"] do
+    case adoption_confirmation_source(socket, action_input) do
+      {:adoption, draft_turn} ->
+        route_adoption_confirmation(socket, action_input, source_turn_result, draft_turn)
+
+      :not_adoption ->
+        handle_dialogue_gateway_action(socket, action_input, source_turn_result)
+    end
+  end
+
   defp handle_author_action(socket, action_input, source_turn_result) do
+    handle_dialogue_gateway_action(socket, action_input, source_turn_result)
+  end
+
+  defp route_adoption_confirmation(socket, action_input, source_turn_result, draft_turn) do
+    scoped_source = scope_source_turn_result(socket, source_turn_result)
+
+    case NovelApplication.ActionValidator.validate(action_input, scoped_source) do
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason}}, socket}
+
+      :ok ->
+        params = %{
+          "artifact_id" => action_input.target_ref,
+          "work_id" => socket.assigns[:work_id],
+          "session_id" => socket.assigns[:session_id],
+          "source_turn_ref" => action_input.source_turn_ref
+        }
+
+        scoped_draft = scope_source_turn_result(socket, draft_turn)
+        result = run_adoption_confirmation(action_input.action_type, scoped_draft, params)
+        finish_adoption_author_action(socket, action_input, result)
+    end
+  end
+
+  defp run_adoption_confirmation("confirm_before_execute", scoped_draft, params) do
+    NovelApplication.AdoptionWorkflow.handle_adopt(
+      scoped_draft,
+      Map.put(params, "confirmation_satisfied", true)
+    )
+  end
+
+  defp run_adoption_confirmation("reject_or_cancel_confirmation", scoped_draft, params) do
+    NovelApplication.AdoptionWorkflow.handle_confirmation_reject(scoped_draft, params)
+  end
+
+  defp adoption_confirmation_source(socket, %AuthorActionInput{target_ref: target_ref})
+       when is_binary(target_ref) do
+    case source_turn_for_artifact_action(socket, nil, target_ref) do
+      {_ref, draft_turn} when is_map(draft_turn) ->
+        if pending_artifact?(draft_turn, target_ref), do: {:adoption, draft_turn}, else: :not_adoption
+
+      _ ->
+        :not_adoption
+    end
+  end
+
+  defp adoption_confirmation_source(_socket, _action_input), do: :not_adoption
+
+  defp handle_dialogue_gateway_action(socket, action_input, source_turn_result) do
     source_turn_result = scope_source_turn_result(socket, source_turn_result)
 
     case NovelApplication.DialogueGateway.handle_action(action_input, source_turn_result) do
@@ -515,6 +624,37 @@ defmodule NovelWeb.WorkspaceChannel do
         {:reply, {:error, %{reason: reason}}, socket}
     end
   end
+
+  defp finish_adoption_author_action(socket, action_input, {:ok, action_result, turn_result}) do
+    turn_result = scope_turn_result(socket, turn_result)
+    socket = remember_action_result(socket, action_input, action_result)
+    broadcast!(socket, "action_result", action_result)
+    broadcast!(socket, "turn_result", turn_result)
+    socket = remember_turn_result(socket, turn_result)
+    record_action_turn_result(socket, turn_result)
+    log_author_action_done(socket, action_input, action_result)
+    {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
+  end
+
+  defp finish_adoption_author_action(socket, action_input, {:error, reason}) do
+    LogEmit.emit(:channel, :author_action, :error, %{
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id],
+      turn_id: action_input.source_turn_ref,
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      reason_code: :adoption_rejected,
+      outcome_detail: reason
+    })
+
+    {:reply, {:error, %{reason: reason}}, socket}
+  end
+
+  defp action_payload(%AuthorActionInput{payload: payload}, key) when is_map(payload) do
+    Map.get(payload, key) || Map.get(payload, to_string(key))
+  end
+
+  defp action_payload(_action_input, _key), do: nil
 
   defp log_author_action_done(socket, action_input, result) do
     LogEmit.emit(:channel, :author_action, :done, %{
