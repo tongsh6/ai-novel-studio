@@ -71,6 +71,12 @@ Implemented external UI driver slice ids:
   au05-canon-conflict-recovery
   p1-chapter-plan-minimum
   p1-chapter-draft-generation
+  p1-chapter-adoption-reading
+  p1-chapter-edit-then-accept
+  p1-chapter-overwrite-confirm
+  au09-memory-create-recall
+  au09-adopt-setting-recall
+  au09-validity-window-recall
   au03-long-session-compression
   au03-context-source-ui
   desktop-stage-process-ownership
@@ -102,7 +108,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -118,7 +124,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -211,6 +217,24 @@ native_action_description() {
       ;;
     p1-chapter-draft-generation)
       echo "seed adopted chapter plan -> open real archive outline -> click generate draft for chapter 1 -> verify tentative prose draft and empty reading mode"
+      ;;
+    p1-chapter-adoption-reading)
+      echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click accept -> open reading mode -> verify chapter prose and effective word counts (book total + chapter) match the visible adopted prose"
+      ;;
+    p1-chapter-edit-then-accept)
+      echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click edit-then-accept -> rewrite prose in dialog -> adopt edited -> open reading mode -> verify edited prose shown and word count equals edited text"
+      ;;
+    p1-chapter-overwrite-confirm)
+      echo "seed adopted chapter plan -> adopt chapter 1 prose -> re-generate + adopt same chapter -> overwrite requires confirmation -> click confirm -> re-gate adopts in place -> reading mode shows single chapter (no duplicate)"
+      ;;
+    au09-memory-create-recall)
+      echo "open memory page from real workbench -> create + confirm a governed memory -> back to workbench -> send a related message -> memory recalled into context/prompt -> why panel shows the confirmed memory as an author-safe source"
+      ;;
+    au09-adopt-setting-recall)
+      echo "generate an AI setting (world_setting) from the archive -> adopt it into a confirmed recallable governed memory -> send a related message -> setting recalled into context/prompt -> why panel shows it as an author-safe source"
+      ;;
+    au09-validity-window-recall)
+      echo "seed current position=chapter 5 + an out-of-window memory (ch1-2) + an unwindowed memory -> send a message matching both -> only the in-window memory recalls -> why panel shows the in-window source and excludes the out-of-window one"
       ;;
     au03-context-source-ui)
       echo "seed work/session/memory context -> send real workbench turn -> open why panel -> verify author-safe source summaries"
@@ -446,6 +470,24 @@ case "$SLICE_ID" in
     ;;
   p1-chapter-draft-generation)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  p1-chapter-adoption-reading)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  p1-chapter-edit-then-accept)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  p1-chapter-overwrite-confirm)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  au09-memory-create-recall)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  au09-adopt-setting-recall)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  au09-validity-window-recall)
+    SEED_SCRIPT="scripts/seed_au09_validity_window.exs"
     ;;
   *)
     SEED_SCRIPT="scripts/seed_au03_long_session_compression.exs"

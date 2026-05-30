@@ -30,6 +30,12 @@ export const nativeSliceIds = [
   "au05-canon-conflict-recovery",
   "p1-chapter-plan-minimum",
   "p1-chapter-draft-generation",
+  "p1-chapter-adoption-reading",
+  "p1-chapter-edit-then-accept",
+  "p1-chapter-overwrite-confirm",
+  "au09-memory-create-recall",
+  "au09-adopt-setting-recall",
+  "au09-validity-window-recall",
   "vs10-observability-spine",
 ];
 
@@ -143,6 +149,62 @@ const sliceKeyEvents = {
     "toolbox.execute.done",
     "channel.user_message.done",
     "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-chapter-adoption-reading": [
+    "channel.get_chapter_plans.done",
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-chapter-edit-then-accept": [
+    "channel.get_chapter_plans.done",
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-chapter-overwrite-confirm": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-memory-create-recall": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-adopt-setting-recall": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "context.assemble.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-validity-window-recall": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "au05-discard-boundary": [
@@ -464,6 +526,30 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterDraftGenerationEvidence(records);
   }
 
+  if (sliceId === "p1-chapter-adoption-reading") {
+    return findP1ChapterAdoptionReadingEvidence(records);
+  }
+
+  if (sliceId === "p1-chapter-edit-then-accept") {
+    return findP1ChapterEditThenAcceptEvidence(records);
+  }
+
+  if (sliceId === "p1-chapter-overwrite-confirm") {
+    return findP1ChapterOverwriteConfirmEvidence(records);
+  }
+
+  if (sliceId === "au09-memory-create-recall") {
+    return findAu09MemoryCreateRecallEvidence(records);
+  }
+
+  if (sliceId === "au09-adopt-setting-recall") {
+    return findAu09AdoptSettingRecallEvidence(records);
+  }
+
+  if (sliceId === "au09-validity-window-recall") {
+    return findAu09ValidityWindowRecallEvidence(records);
+  }
+
   if (sliceId === "vs10-observability-spine") {
     return findVs10LogSpineEvidence(records);
   }
@@ -565,6 +651,30 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-draft-generation") {
     return p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-chapter-adoption-reading") {
+    return p1ChapterAdoptionReadingBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-chapter-edit-then-accept") {
+    return p1ChapterEditThenAcceptBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-chapter-overwrite-confirm") {
+    return p1ChapterOverwriteConfirmBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-memory-create-recall") {
+    return au09MemoryCreateRecallBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-adopt-setting-recall") {
+    return au09AdoptSettingRecallBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-validity-window-recall") {
+    return au09ValidityWindowRecallBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) {
@@ -2344,6 +2454,580 @@ function p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidenc
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_and_micro_plan_called"
         : "deterministic_provider_form_frame_and_micro_plan_called",
+    ],
+  };
+}
+
+function findP1ChapterAdoptionReadingEvidence(records) {
+  const sliceId = "p1-chapter-adoption-reading";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.accept_event_sent === true &&
+      record.accept_button_cleared_after_adoption === true &&
+      record.artifact_adopted === true &&
+      record.reading_mode_populated_after_adoption === true &&
+      record.word_count_matches_adopted_prose === true &&
+      Number(record.total_word_count ?? 0) > 0 &&
+      Number(record.chapter_word_count ?? 0) > 0,
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  if (!draftTurnId) return null;
+  if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+
+  const start = draftRecords.find(
+    (record) =>
+      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+  );
+  if (!start) return null;
+
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+
+  // accept author_action 闭环：作者点击「确认创建」后进入采纳边界并被接受。
+  const acceptDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!acceptDone) return null;
+
+  // 采纳后阅读投影物化：TOC 至少 1 章，章节正文有效字符 >= 1。
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? 0) >= 1,
+  );
+  if (!tocRead) return null;
+
+  const chapterRead = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.content_chars ?? 0) >= 1,
+  );
+  if (!chapterRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    adopt_turn_id: uiState.adopt_turn_id,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    chapter_title: uiState.chapter_title,
+    chapter_count: tocRead.chapter_count,
+    content_chars: chapterRead.content_chars,
+    total_word_count: uiState.total_word_count,
+    chapter_word_count: uiState.chapter_word_count,
+    expected_word_count: uiState.expected_word_count,
+    key_events: keyEvents,
+  };
+}
+
+function p1ChapterAdoptionReadingBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-chapter-adoption-reading" &&
+      record.draft_turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.word_count_matches_adopted_prose !== true) return null;
+  if (Number(uiState.chapter_word_count ?? 0) !== Number(uiState.expected_word_count ?? -1)) {
+    return null;
+  }
+  if (Number(uiState.total_word_count ?? 0) !== Number(uiState.chapter_word_count ?? -1)) {
+    return null;
+  }
+
+  return {
+    slice_id: "p1-chapter-adoption-reading",
+    behavior: "adopted_prose_materializes_reading_projection_with_effective_word_counts",
+    turn_ids: turnIds,
+    artifact_id: evidence.artifact_id,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    total_word_count: Number(uiState.total_word_count ?? 0),
+    chapter_word_count: Number(uiState.chapter_word_count ?? 0),
+    expected_word_count: Number(uiState.expected_word_count ?? 0),
+    content_chars: evidence.content_chars,
+    assertions: [
+      "chapter_draft_generated_from_adopted_plan",
+      "author_clicked_accept_from_real_workbench",
+      "accept_author_action_routed_through_adoption_boundary",
+      "accept_button_cleared_after_adoption_no_resubmit",
+      "adopted_prose_materialized_reading_projection",
+      "reading_mode_loaded_toc_and_chapter_content_from_channel",
+      "book_total_effective_word_count_visible_and_positive",
+      "chapter_effective_word_count_visible_and_positive",
+      "displayed_word_count_equals_effective_count_of_adopted_prose",
+    ],
+  };
+}
+
+function findP1ChapterEditThenAcceptEvidence(records) {
+  const sliceId = "p1-chapter-edit-then-accept";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.edit_then_accept_event_sent === true &&
+      record.artifact_edited_accepted === true &&
+      record.edited_text_shown_in_reading === true &&
+      record.edit_button_cleared_after_adoption === true &&
+      record.word_count_matches_edited_prose === true &&
+      Number(record.total_word_count ?? 0) > 0 &&
+      Number(record.chapter_word_count ?? 0) > 0,
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  if (!draftTurnId) return null;
+  if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+
+  const start = draftRecords.find(
+    (record) =>
+      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+  );
+  if (!start) return null;
+
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+
+  // edit_then_accept author_action 闭环：作者编辑后采纳被接受。
+  const editDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "edit_then_accept" &&
+      record.action_status === "accepted",
+  );
+  if (!editDone) return null;
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? 0) >= 1,
+  );
+  if (!tocRead) return null;
+
+  const chapterRead = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.content_chars ?? 0) >= 1,
+  );
+  if (!chapterRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    adopt_turn_id: uiState.adopt_turn_id,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    chapter_title: uiState.chapter_title,
+    chapter_count: tocRead.chapter_count,
+    content_chars: chapterRead.content_chars,
+    total_word_count: uiState.total_word_count,
+    chapter_word_count: uiState.chapter_word_count,
+    expected_word_count: uiState.expected_word_count,
+    key_events: keyEvents,
+  };
+}
+
+function p1ChapterEditThenAcceptBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-chapter-edit-then-accept" &&
+      record.draft_turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.word_count_matches_edited_prose !== true) return null;
+  if (uiState.edited_text_shown_in_reading !== true) return null;
+  if (Number(uiState.chapter_word_count ?? 0) !== Number(uiState.expected_word_count ?? -1)) {
+    return null;
+  }
+  if (Number(uiState.total_word_count ?? 0) !== Number(uiState.chapter_word_count ?? -1)) {
+    return null;
+  }
+
+  return {
+    slice_id: "p1-chapter-edit-then-accept",
+    behavior: "author_edited_prose_replaces_draft_and_materializes_reading_projection",
+    turn_ids: turnIds,
+    artifact_id: evidence.artifact_id,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    total_word_count: Number(uiState.total_word_count ?? 0),
+    chapter_word_count: Number(uiState.chapter_word_count ?? 0),
+    expected_word_count: Number(uiState.expected_word_count ?? 0),
+    content_chars: evidence.content_chars,
+    assertions: [
+      "chapter_draft_generated_from_adopted_plan",
+      "author_opened_edit_dialog_and_rewrote_prose",
+      "edit_then_accept_author_action_carried_edited_content",
+      "edit_then_accept_routed_through_adoption_boundary_as_edited_accepted",
+      "edit_button_cleared_after_adoption_no_resubmit",
+      "edited_prose_visible_in_reading_mode",
+      "reading_mode_loaded_toc_and_chapter_content_from_channel",
+      "displayed_word_count_equals_effective_count_of_edited_prose",
+    ],
+  };
+}
+
+function findP1ChapterOverwriteConfirmEvidence(records) {
+  const sliceId = "p1-chapter-overwrite-confirm";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.cycle1_adopted === true &&
+      record.cycle2_required_confirmation === true &&
+      record.confirmation_behavior_opened === true &&
+      record.no_write_before_confirmation === true &&
+      record.confirmed_overwrite_adopted === true,
+  );
+  if (!uiState) return null;
+
+  // 确认动作真实经过 author_action 闭环
+  const confirmDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "confirm_before_execute" &&
+      record.action_status === "accepted",
+  );
+  if (!confirmDone) return null;
+
+  // 覆盖采纳后阅读投影仍只有 1 章（同一章替换，而非堆出重复章）
+  const tocReads = records.filter(
+    (record) => record.event === "channel.get_toc.done" && record.work_id === uiState.work_id,
+  );
+  const finalToc = tocReads[tocReads.length - 1];
+  if (!finalToc || Number(finalToc.chapter_count ?? 0) !== 1) return null;
+
+  // turn_ids 只放生成 turn：lmstudio 证据要求每个 turn 都有 LLM 调用，而采纳/确认
+  // turn 不调 LLM。覆盖采纳的因果在 behavior 函数里按全量 records 校验。
+  const turnIds = [uiState.first_generate_turn_id, uiState.second_generate_turn_id].filter(
+    (id) => typeof id === "string" && id !== "",
+  );
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.second_generate_turn_id ?? uiState.turn_id ?? ""),
+    turn_ids: turnIds,
+    first_artifact_id: uiState.first_artifact_id,
+    second_artifact_id: uiState.second_artifact_id,
+    final_chapter_count: finalToc.chapter_count,
+    key_events: keyEvents,
+  };
+}
+
+function p1ChapterOverwriteConfirmBehavior(turnIds, _turnRecords, records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-chapter-overwrite-confirm",
+  );
+  if (!uiState) return null;
+  if (uiState.cycle1_adopted !== true) return null;
+  if (uiState.cycle2_required_confirmation !== true) return null;
+  if (uiState.no_write_before_confirmation !== true) return null;
+  if (uiState.confirmed_overwrite_adopted !== true) return null;
+  if (Number(evidence.final_chapter_count ?? 0) !== 1) return null;
+
+  return {
+    slice_id: "p1-chapter-overwrite-confirm",
+    behavior: "overwriting_accepted_chapter_requires_confirmation_then_replaces_in_place",
+    turn_ids: turnIds,
+    first_artifact_id: evidence.first_artifact_id,
+    second_artifact_id: evidence.second_artifact_id,
+    final_chapter_count: evidence.final_chapter_count,
+    assertions: [
+      "first_chapter_prose_adopted",
+      "re_adopting_same_chapter_detected_as_overwrite_required_confirmation",
+      "confirmation_behavior_opened_with_no_write_before_confirm",
+      "author_confirmed_execute_then_re_gated_and_adopted",
+      "reading_projection_replaced_in_place_single_chapter_no_duplicate",
+    ],
+  };
+}
+
+function findAu09MemoryCreateRecallEvidence(records) {
+  const sliceId = "au09-memory-create-recall";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.memory_created === true &&
+      record.memory_confirmed === true &&
+      record.why_shows_memory_source === true,
+  );
+  if (!uiState) return null;
+
+  const recallTurnId = String(uiState.recall_turn_id ?? "");
+  if (!recallTurnId) return null;
+
+  const turnRecords = records.filter((record) => record.turn_id === recallTurnId);
+
+  // 召回命中：上下文装配把记忆纳入（has_memory=true）。
+  const contextDone = turnRecords.find(
+    (record) => record.event === "context.assemble.done" && record.has_memory === true,
+  );
+  if (!contextDone) return null;
+
+  if (!turnRecords.some((record) => record.event === "channel.user_message.done")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: recallTurnId,
+    turn_ids: [recallTurnId],
+    memory_nonce: uiState.memory_nonce,
+    key_events: keyEvents,
+  };
+}
+
+function au09MemoryCreateRecallBehavior(turnIds, _turnRecords, records, evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-memory-create-recall",
+  );
+  if (!uiState) return null;
+  if (uiState.why_shows_memory_source !== true) return null;
+
+  const nonce = String(uiState.memory_nonce ?? "");
+
+  // lmstudio：额外证明召回的设定真正进入了 LLM prompt（含 nonce）。
+  if (options.provider === "lmstudio") {
+    const promptHasMemory = (options.llmRecords ?? []).some(
+      (record) =>
+        record.turn_id === evidence.turn_id &&
+        JSON.stringify(record.request?.body ?? "").includes(nonce),
+    );
+    if (!promptHasMemory) return null;
+  }
+
+  return {
+    slice_id: "au09-memory-create-recall",
+    behavior: "author_created_memory_confirmed_recalled_into_prompt_and_shown_in_why",
+    turn_ids: turnIds,
+    memory_nonce: nonce,
+    assertions: [
+      "author_opened_memory_page_from_real_workbench",
+      "author_created_and_confirmed_governed_memory",
+      "confirmed_memory_recalled_into_dialogue_context",
+      "why_panel_shows_confirmed_memory_as_author_safe_source",
+      options.provider === "lmstudio"
+        ? "lmstudio_prompt_included_recalled_memory"
+        : "deterministic_context_assembled_with_memory",
+    ],
+  };
+}
+
+function findAu09AdoptSettingRecallEvidence(records) {
+  const sliceId = "au09-adopt-setting-recall";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.setting_adopted === true &&
+      record.why_shows_memory_source === true,
+  );
+  if (!uiState) return null;
+
+  const recallTurnId = String(uiState.recall_turn_id ?? "");
+  if (!recallTurnId) return null;
+
+  // 召回轮：上下文装配纳入记忆。
+  const contextDone = records.find(
+    (record) =>
+      record.turn_id === recallTurnId &&
+      record.event === "context.assemble.done" &&
+      record.has_memory === true,
+  );
+  if (!contextDone) return null;
+
+  // 设定确实由某个创作工具生成（world_building/plot_outline/character_design 等），并经 accept 采纳。
+  const generatedSetting = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_outcome === "succeeded" &&
+      record.tool_name !== "prose_writing",
+  );
+  if (!generatedSetting) return null;
+
+  const adoptDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!adoptDone) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: recallTurnId,
+    turn_ids: [recallTurnId],
+    setting_chunk: uiState.setting_chunk,
+    setting_artifact_id: uiState.setting_artifact_id,
+    key_events: keyEvents,
+  };
+}
+
+function au09AdoptSettingRecallBehavior(turnIds, _turnRecords, records, evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-adopt-setting-recall",
+  );
+  if (!uiState) return null;
+  if (uiState.setting_adopted !== true) return null;
+  if (uiState.why_shows_memory_source !== true) return null;
+
+  // lmstudio：证明被采纳的设定内容真正进入召回轮的 LLM prompt。
+  if (options.provider === "lmstudio") {
+    const chunk = String(uiState.setting_chunk ?? "");
+    const promptHasSetting =
+      chunk.length > 0 &&
+      (options.llmRecords ?? []).some(
+        (record) =>
+          record.turn_id === evidence.turn_id &&
+          JSON.stringify(record.request?.body ?? "").includes(chunk),
+      );
+    if (!promptHasSetting) return null;
+  }
+
+  return {
+    slice_id: "au09-adopt-setting-recall",
+    behavior: "adopted_ai_setting_becomes_governed_memory_and_recalls",
+    turn_ids: turnIds,
+    setting_chunk: uiState.setting_chunk,
+    assertions: [
+      "ai_generated_a_setting_artifact_from_real_workbench",
+      "author_adopted_setting_into_confirmed_recallable_governed_memory",
+      "adopted_setting_recalled_into_later_turn_context",
+      "why_panel_shows_confirmed_memory_as_author_safe_source",
+      options.provider === "lmstudio"
+        ? "lmstudio_prompt_included_adopted_setting"
+        : "deterministic_context_assembled_with_adopted_setting",
+    ],
+  };
+}
+
+function findAu09ValidityWindowRecallEvidence(records) {
+  const sliceId = "au09-validity-window-recall";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.why_shows_in_window === true &&
+      record.why_excludes_out_of_window === true,
+  );
+  if (!uiState) return null;
+
+  const recallTurnId = String(uiState.recall_turn_id ?? "");
+  if (!recallTurnId) return null;
+
+  // 召回轮纳入了（窗口内）记忆。
+  const contextDone = records.find(
+    (record) =>
+      record.turn_id === recallTurnId &&
+      record.event === "context.assemble.done" &&
+      record.has_memory === true,
+  );
+  if (!contextDone) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: recallTurnId,
+    turn_ids: [recallTurnId],
+    in_window_phrase: uiState.in_window_phrase,
+    out_of_window_phrase: uiState.out_of_window_phrase,
+    key_events: keyEvents,
+  };
+}
+
+function au09ValidityWindowRecallBehavior(turnIds, _turnRecords, records, evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-validity-window-recall",
+  );
+  if (!uiState) return null;
+  if (uiState.why_shows_in_window !== true) return null;
+  if (uiState.why_excludes_out_of_window !== true) return null;
+
+  // lmstudio：召回轮的真实 prompt 含窗口内设定、不含窗口外设定（仅序章设定）。
+  if (options.provider === "lmstudio") {
+    const inPhrase = String(uiState.in_window_phrase ?? "");
+    const outPhrase = String(uiState.out_of_window_phrase ?? "");
+    const recallLlm = (options.llmRecords ?? []).filter(
+      (record) => record.turn_id === evidence.turn_id,
+    );
+    const promptIncludesInWindow =
+      inPhrase.length > 0 &&
+      recallLlm.some((record) => JSON.stringify(record.request?.body ?? "").includes(inPhrase));
+    const promptExcludesOutOfWindow =
+      outPhrase.length > 0 &&
+      recallLlm.every((record) => !JSON.stringify(record.request?.body ?? "").includes(outPhrase));
+    if (!promptIncludesInWindow || !promptExcludesOutOfWindow) return null;
+  }
+
+  return {
+    slice_id: "au09-validity-window-recall",
+    behavior: "validity_window_keeps_in_window_memory_and_excludes_out_of_window_from_recall",
+    turn_ids: turnIds,
+    in_window_phrase: uiState.in_window_phrase,
+    out_of_window_phrase: uiState.out_of_window_phrase,
+    assertions: [
+      "current_position_is_latest_accepted_chapter",
+      "in_window_memory_recalled_and_shown_in_why",
+      "out_of_window_memory_excluded_from_recall_and_why",
+      options.provider === "lmstudio"
+        ? "lmstudio_prompt_included_in_window_excluded_out_of_window"
+        : "deterministic_why_panel_reflected_window_filtering",
     ],
   };
 }

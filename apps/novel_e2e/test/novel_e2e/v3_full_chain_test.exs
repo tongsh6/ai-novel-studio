@@ -226,12 +226,13 @@ defmodule NovelE2E.V3FullChainTest do
       assert decision.decision_type == :require_confirmation
       assert decision.first_blocking_gate != nil
 
-      # BehaviorState 被打开
+      # BehaviorState 被打开（schema 形状：{active, history}，active.status 为 BehaviorStatus 枚举）
       behavior = turn_result.behavior_state
       assert behavior != nil
-      assert behavior.behavior_type == :confirmation
-      assert behavior.lifecycle_status == :awaiting_author
-      assert behavior.required_next_action == "confirm_before_execute"
+      assert behavior.active.behavior_type == "confirmation"
+      assert behavior.active.status == "WAITING_USER"
+      assert behavior.active.required_next_action == "confirm_before_execute"
+      assert behavior.history == []
 
       # available_actions 来自 Orchestrator，不为空
       assert turn_result.available_actions != []
