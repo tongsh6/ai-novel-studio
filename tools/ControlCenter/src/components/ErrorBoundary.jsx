@@ -11,7 +11,7 @@ export class ErrorBoundary extends Component {
   }
 
   componentDidCatch(error) {
-    console.error("company-console render error", error);
+    console.error("ControlCenter render error", error);
   }
 
   render() {

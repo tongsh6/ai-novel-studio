@@ -10,7 +10,7 @@ const appRoot = path.resolve(__dirname, "..");
 const repoRoot = path.resolve(appRoot, "../..");
 const distRoot = path.join(appRoot, "dist");
 
-const textExtensions = new Set([".md", ".json", ".toml", ".txt"]);
+const textExtensions = new Set([".md", ".json", ".toml", ".txt", ".yaml", ".yml", ".csv", ".tsv", ".log"]);
 const blockedSegments = new Set([".git", "node_modules", "dist", ".vite", ".DS_Store", "archive"]);
 const runs = new Map();
 const modelHealth = {
@@ -73,7 +73,7 @@ const departments = [
     capabilities: ["章节合同", "场景卡", "章节草稿", "反概括化执行卡"],
     inputs: ["章节大纲", "角色卡", "公司写作规则", "上一章摘要"],
     outputs: ["章节合同", "章节草稿", "章节摘要"],
-    actions: ["chapter-contract", "scene-sequence", "chapter-draft"]
+    actions: ["chapter-outline", "chapter-contract", "scene-sequence", "chapter-draft"]
   },
   {
     id: "review",
@@ -179,47 +179,15 @@ const actions = [
     stage: "角色工作台",
     skill: "角色卡构建",
     scope: "project",
-    inputSchema: [
-      {
-        key: "characterName",
-        label: "角色名",
-        type: "text",
-        required: true,
-        placeholder: "例如：嬴政 / 马库斯 / 新角色名"
-      },
-      {
-        key: "roleType",
-        label: "角色类型",
-        type: "select",
-        required: true,
-        options: ["主角", "重要配角", "次要配角", "龙套", "组织/团体"],
-        defaultValue: "重要配角"
-      },
-      {
-        key: "changeIntent",
-        label: "本次任务",
-        type: "select",
-        required: true,
-        options: ["新增角色档案", "补全既有角色", "重写角色定位"],
-        defaultValue: "补全既有角色"
-      },
-      {
-        key: "notes",
-        label: "补充要求",
-        type: "textarea",
-        required: false,
-        placeholder: "例如：补出关键关系、首次出场章节、记忆点、禁区。"
-      }
-    ],
     contextProfile: ({ projectSlug }) => [
       "company/模板/角色模板.md",
       "company/共享方法/写作规则.md",
       ...bookScopePaths(projectSlug, ["圣经/书籍圣经.md", "角色/角色总表.md", "剧情/剧情总纲.md"])
     ],
-    workflow: ({ input }) => [
-      `围绕 ${input?.characterName || "目标角色"} 读取现有角色总表，而不是新建散落角色文件。`,
-      "按角色档案库思路补齐身份标签、记忆点、关系网络、核心动机和当前正式状态。",
-      "同步更新角色索引与对应角色分区，确认前展示为写回角色总表。"
+    workflow: () => [
+      "先读取现有角色总表、书籍圣经和剧情总纲，识别当前角色库缺口，而不是先问用户填角色表单。",
+      "按角色档案库思路推断这次应该新增或补写哪些角色分区、索引项和关系信息。",
+      "确认前展示为写回角色总表，避免生成散落角色文件。"
     ],
     targetResolver: ({ projectSlug }) => requireProjectTarget(projectSlug, "资料库/角色/角色总表.md", "角色总表")
   },
@@ -273,6 +241,53 @@ const actions = [
     targetResolver: ({ projectSlug }) => requireProjectTarget(projectSlug, "资料库/剧情/剧情总纲.md", "剧情总纲")
   },
   {
+    id: "chapter-outline",
+    label: "生成章节大纲",
+    stage: "章节工厂",
+    skill: "单章大纲规划",
+    scope: "project",
+    inputSchema: [
+      {
+        key: "chapterId",
+        label: "章节标识",
+        type: "text",
+        required: true,
+        placeholder: "例如：第一章 / 第1章"
+      },
+      {
+        key: "chapterLabel",
+        label: "章节名称",
+        type: "text",
+        required: false,
+        placeholder: "例如：第一章 角斗场开场"
+      },
+      {
+        key: "notes",
+        label: "本章重点",
+        type: "textarea",
+        required: false,
+        placeholder: "例如：建立压抑、引出金手指、章尾钩指向明天审判。"
+      }
+    ],
+    contextProfile: ({ projectSlug, input }) => [
+      "company/共享方法/写作规则.md",
+      "company/公司标准/情绪原则.md",
+      ...bookScopePaths(projectSlug, [
+        "圣经/书籍圣经.md",
+        "剧情/剧情总纲.md",
+        "角色/角色总表.md",
+        "伏笔/伏笔总表.md",
+        input?.chapterId ? `剧情/${resolveChapterStem(input)}_大纲.md` : null
+      ])
+    ],
+    workflow: ({ input }) => [
+      `围绕 ${resolveChapterLabel(input)} 确定本章读者期待、主冲突、爽点位置和章尾钩。`,
+      "标注本章情绪功能（建压/释放/过渡/转折/收尾）和相对卷内的位置。",
+      `把单章大纲写入 ${resolveChapterStem(input)}_大纲.md，供章节合同直接读取。`
+    ],
+    targetResolver: ({ projectSlug, input }) => requireProjectTarget(projectSlug, `资料库/剧情/${resolveChapterStem(input)}_大纲.md`, "章节大纲")
+  },
+  {
     id: "chapter-contract",
     label: "生成章节合同",
     stage: "章节工厂",
@@ -286,6 +301,7 @@ const actions = [
         "圣经/书籍圣经.md",
         "角色/角色总表.md",
         "剧情/剧情总纲.md",
+        `剧情/${resolveChapterStem(input)}_大纲.md`,
         `合同/${resolveChapterStem(input)}_场景序列.md`,
         `正文/${resolveChapterStem(input)}_草稿.md`
       ])
@@ -982,6 +998,36 @@ async function buildPlotCards(projectSlug) {
   return cards;
 }
 
+const chapterArtifactPattern = /^章节_(.+?)_(?:章节合同|场景序列|草稿|大纲|爽点审查|反AI审查|伏笔检查|时间线检查)\.md$/;
+
+async function buildChapterOptions(projectSlug) {
+  if (!projectSlug) return [];
+  const libraryRoot = path.join(repoRoot, "books", projectSlug, "资料库");
+  if (!(await exists(libraryRoot))) return [];
+
+  const scanDirs = ["合同", "正文", "剧情", "审稿"];
+  const keys = new Map();
+
+  for (const dirName of scanDirs) {
+    const dirPath = path.join(libraryRoot, dirName);
+    if (!(await exists(dirPath))) continue;
+    const names = await fs.readdir(dirPath).catch(() => []);
+    for (const name of names) {
+      const match = name.match(chapterArtifactPattern);
+      if (!match) continue;
+      const chapterKey = match[1].replace(/_/g, " ").trim();
+      if (!chapterKey) continue;
+      keys.set(chapterKey, {
+        id: chapterKey,
+        label: chapterKey,
+        stem: `章节_${slugifySegment(chapterKey, chapterKey)}`
+      });
+    }
+  }
+
+  return [...keys.values()].sort((a, b) => a.label.localeCompare(b.label, "zh-CN"));
+}
+
 function titleFromSlug(slug) {
   return slug
     .split("-")
@@ -1143,6 +1189,7 @@ function planningPromptRules(action, projectSlug) {
     "project-skeleton": "新书骨架允许一次规划多个初始化文件。",
     "character-card": "角色动作默认应该修改角色总档案，而不是生成孤立角色散文件，除非用户明确要求拆分。",
     "plotline-plan": "剧情规划默认应该修改剧情总纲这类总档案，而不是单独长出临时卷纲。",
+    "chapter-outline": "章节大纲默认落在剧情区的单章大纲文件，供章节工厂后续步骤读取。",
     "chapter-contract": "章节合同、场景序列、正文草稿、审稿类动作通常可以使用章节级文件。",
     "scene-sequence": "场景序列通常落在合同区的章节场景序列文件。",
     "chapter-draft": "章节草稿通常落在正文区单章文件。",
@@ -1159,6 +1206,30 @@ function planningCandidateFiles(files, projectSlug) {
     .filter((file) => file.path.startsWith("company/") || (projectSlug && file.path.startsWith(`books/${projectSlug}/`)))
     .filter((file) => file.extension !== "json" || file.path.endsWith("时间线.json"))
     .sort((a, b) => a.path.localeCompare(b.path));
+}
+
+function contextCatalogFiles(files, scope, projectSlug) {
+  if (scope === "company") {
+    return files
+      .filter((file) => file.path.startsWith("company/"))
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }
+  if (scope === "book") {
+    if (!projectSlug) return [];
+    return files
+      .filter((file) => file.path.startsWith(`books/${projectSlug}/`))
+      .sort((a, b) => a.path.localeCompare(b.path));
+  }
+  return [];
+}
+
+async function buildContextCatalog(scope, projectSlug) {
+  const manifest = await buildManifest();
+  return {
+    scope,
+    projectSlug,
+    files: contextCatalogFiles(manifest.files, scope, projectSlug)
+  };
 }
 
 function formatPlanningCandidates(files = []) {
@@ -1414,6 +1485,7 @@ function outputTokenLimitForAction(action) {
     "core-selling-point": 3200,
     "golden-three": 5000,
     "plotline-plan": 7000,
+    "chapter-outline": 4500,
     "character-card": 3500,
     "chapter-contract": 5000,
     "scene-sequence": 4500,
@@ -1431,6 +1503,7 @@ function resolveCompressionProfile(action) {
     "core-selling-point": "story-shaping",
     "golden-three": "story-shaping",
     "plotline-plan": "story-shaping",
+    "chapter-outline": "story-shaping",
     "chapter-contract": "chapter-build",
     "scene-sequence": "chapter-build",
     "chapter-draft": "chapter-draft",
@@ -1891,8 +1964,8 @@ function buildPlanPrompt(action, input, targetPlan, promptPack, observeText) {
 function actionSpecificDraftRules(action, input = {}, targetPlan) {
   if (action.id === "character-card") {
     return [
-      `本次角色：${input.characterName || "未指定"}；角色类型：${input.roleType || "未指定"}；任务类型：${input.changeIntent || "未指定"}。`,
       `你必须输出完整的目标文件 ${targetPlan.targets?.[0]?.path || "角色总表"}，而不是输出单个角色散文件。`,
+      "先根据角色总表现状判断这次应该新增、补齐还是重写哪些角色条目，再生成完整回写结果。",
       "如果目标文件已有其他角色条目，除非用户明确要求删除，否则必须保留并在原有基础上补写或修订。",
       "输出至少包含：文件标题、角色索引、对应角色分区中的目标角色完整档案、关系网络或关系补充、当前正式状态。",
       "角色档案要突出身份标签、核心欲望、核心恐惧、关键记忆点、关键关系、出场阶段和禁区，不要只给空泛人物小传。"
@@ -1904,6 +1977,14 @@ function actionSpecificDraftRules(action, input = {}, targetPlan) {
       `你必须输出完整的目标文件 ${targetPlan.targets?.[0]?.path || "剧情总纲"}，而不是输出独立临时卷纲。`,
       "请沿用总档案思路，至少覆盖：一句话主线、篇章目标、主要事件、爽点安排、章节推进或下一阶段钩子。",
       "如果目标文件已有其他篇章内容，除非用户明确要求删除，否则必须保留并在原有结构中新增或修订对应篇章。"
+    ];
+  }
+  if (action.id === "chapter-outline") {
+    return [
+      `本次章节：${resolveChapterLabel(input)}；补充要求：${input.notes || "无"}。`,
+      `你必须输出完整的目标文件 ${targetPlan.targets?.[0]?.path || "章节大纲"}，而不是只给摘要。`,
+      "至少覆盖：本章情绪功能（建压/释放/过渡/转折/收尾）、读者期待、主冲突、爽点位置、章尾钩、与上一章/下一章的衔接。",
+      "这是单章级大纲，不要写成整卷规划；若已有同章大纲，保留有效信息并在原结构上修订。"
     ];
   }
   return [];
@@ -2188,6 +2269,11 @@ function completenessProfileForAction(action) {
     "plotline-plan": {
       minChars: 1800,
       minSections: 6,
+      naturalEndingRequired: true
+    },
+    "chapter-outline": {
+      minChars: 900,
+      minSections: 4,
       naturalEndingRequired: true
     },
     "character-card": {
@@ -3384,6 +3470,20 @@ async function deleteEditableFile(payload) {
   return { ok: true, path: repoPath };
 }
 
+async function deleteProjectFolder(payload) {
+  const projectSlug = String(payload.projectSlug || "").trim();
+  if (!projectSlug) throw httpError(400, "Missing project slug");
+  if (projectSlug === "_template") throw httpError(403, "Template project cannot be deleted");
+  const projectRoot = safeJoinRepo(`books/${projectSlug}`);
+  if (!(await exists(projectRoot))) throw httpError(404, `Missing project: ${projectSlug}`);
+  await rm(projectRoot, { recursive: true, force: false });
+  return {
+    ok: true,
+    projectSlug,
+    path: `books/${projectSlug}`
+  };
+}
+
 async function writeArtifacts(payload) {
   const artifacts = Array.isArray(payload.artifacts) ? payload.artifacts : [];
   if (!artifacts.length) {
@@ -3493,6 +3593,15 @@ async function router(req, res) {
     const projectSlug = url.searchParams.get("projectSlug");
     return sendJson(res, { projectSlug, cards: await buildPlotCards(projectSlug) });
   }
+  if (req.method === "GET" && pathname === "/api/chapter-options") {
+    const projectSlug = url.searchParams.get("projectSlug");
+    return sendJson(res, { projectSlug, chapters: await buildChapterOptions(projectSlug) });
+  }
+  if (req.method === "GET" && pathname === "/api/context-files") {
+    const scope = url.searchParams.get("scope");
+    const projectSlug = url.searchParams.get("projectSlug");
+    return sendJson(res, await buildContextCatalog(scope, projectSlug));
+  }
   if (req.method === "POST" && pathname === "/api/action-plan") {
     const payload = await readRequestBody(req);
     return sendJson(res, await buildActionPlan(payload));
@@ -3576,6 +3685,10 @@ async function router(req, res) {
   if (req.method === "POST" && pathname === "/api/file/delete") {
     const payload = await readRequestBody(req);
     return sendJson(res, await deleteEditableFile(payload));
+  }
+  if (req.method === "POST" && pathname === "/api/project/delete") {
+    const payload = await readRequestBody(req);
+    return sendJson(res, await deleteProjectFolder(payload));
   }
   if (req.method === "GET" && !pathname.startsWith("/api/")) {
     return serveStatic(req, res, pathname);

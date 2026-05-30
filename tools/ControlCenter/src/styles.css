@@ -120,12 +120,48 @@ details summary:focus-visible {
   background: var(--surface);
   padding: 12px;
   display: grid;
-  gap: 4px;
+  gap: 8px;
 }
 
 .scope-card span {
   color: var(--muted);
   font-size: 12px;
+}
+
+.project-switch-list {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 2px;
+}
+
+.project-switch-button {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaf7;
+  padding: 10px 11px;
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  color: var(--ink);
+}
+
+.project-switch-button strong,
+.project-switch-button em {
+  overflow-wrap: anywhere;
+}
+
+.project-switch-button em {
+  font-style: normal;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.project-switch-button.active {
+  background: #e8efe9;
+  border-color: #b9d1c4;
+  color: #143f2d;
 }
 
 .nav-list {
@@ -223,6 +259,10 @@ details summary:focus-visible {
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.inline-actions {
+  margin-bottom: 12px;
 }
 
 input,
@@ -524,6 +564,12 @@ button:disabled {
   margin-bottom: 12px;
 }
 
+.project-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .project-head h2 {
   margin: 0;
   font-size: 17px;
@@ -567,6 +613,25 @@ button:disabled {
   gap: 12px;
 }
 
+.health-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.health-metric-card {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfaf7;
+  padding: 10px;
+  display: grid;
+  gap: 4px;
+}
+
+.health-metric-card strong {
+  font-size: 16px;
+}
+
 .health span {
   display: block;
   font-size: 12px;
@@ -580,35 +645,37 @@ button:disabled {
   font-size: 13px;
 }
 
-.progress {
-  height: 24px;
+.health-missing {
   border: 1px solid var(--line);
   border-radius: 8px;
-  overflow: hidden;
-  background: #f2f0eb;
-  position: relative;
+  background: #fbfaf7;
+  padding: 10px 12px;
 }
 
-.progress div {
-  height: 100%;
+.health-missing.ready {
+  background: #eef5ef;
 }
 
-.progress .library {
-  background: #9cc9ad;
+.mini-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
 }
 
-.progress .company {
-  background: #dfba74;
-}
-
-.progress span {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  color: var(--ink);
+.mini-chip-list em {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #f7efe2;
+  color: var(--amber);
+  font-style: normal;
   font-size: 12px;
-  margin: 0;
+}
+
+.project-switch-select {
+  min-width: 220px;
 }
 
 .builder-panel {
@@ -841,6 +908,66 @@ button:disabled {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 10px;
+}
+
+.factory-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: end;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.factory-chapter-field {
+  display: grid;
+  gap: 6px;
+  min-width: 180px;
+}
+
+.factory-chapter-field.grow {
+  flex: 1 1 220px;
+}
+
+.factory-chapter-field span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.factory-chapter-field select,
+.factory-chapter-field input {
+  width: 100%;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+}
+
+.factory-chapter-active {
+  display: grid;
+  gap: 4px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--green) 35%, var(--line));
+}
+
+.factory-chapter-active span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.factory-chapter-active strong {
+  font-size: 15px;
+}
+
+.factory-chapter-active.muted {
+  background: var(--bg);
+  border-color: var(--line);
 }
 
 .factory-step {
@@ -1810,6 +1937,11 @@ button:disabled {
   text-align: left;
 }
 
+.tree-folder-row.selectable {
+  width: 100%;
+  cursor: pointer;
+}
+
 .tree-folder-row span,
 .tree-folder-row em,
 .tree-folder-label strong,
@@ -1829,6 +1961,11 @@ button:disabled {
 .tree-file-row.active {
   border-color: #b9d1c4;
   background: #edf4ee;
+}
+
+.tree-folder-row.partial {
+  border-color: #d2c49c;
+  background: #fbf4e6;
 }
 
 .tree-folder-label {
@@ -1886,6 +2023,10 @@ button:disabled {
   .project-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
+
+  .health-metrics {
+    grid-template-columns: 1fr;
+  }
 }
 
 @media (max-width: 960px) {
@@ -1911,6 +2052,11 @@ button:disabled {
 
   .topbar {
     flex-direction: column;
+  }
+
+  .project-switch-select {
+    min-width: 0;
+    width: 100%;
   }
 
   .page-grid,

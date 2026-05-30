@@ -53,12 +53,12 @@ export const boardConfig = {
     subtitle: "伏笔、时间线、矛盾与质量检查",
     icon: ClipboardCheck,
     groups: ["伏笔", "时间", "审稿"],
-    actions: ["foreshadow-check", "timeline-check", "payoff-audit"]
+    actions: ["foreshadow-check", "timeline-check"]
   }
 };
 
 export const chapterSteps = [
-  { id: "outline", title: "章节大纲", action: "plotline-plan", note: "先确定本章推进什么读者期待。" },
+  { id: "outline", title: "章节大纲", action: "chapter-outline", note: "先确定本章推进什么读者期待。" },
   { id: "contract", title: "章节合同", action: "chapter-contract", note: "把情绪、场景、信息边界压成施工图。" },
   { id: "sequence", title: "场景序列", action: "scene-sequence", note: "每场都有进入、冲突、反转、场尾钩。" },
   { id: "draft", title: "章节草稿", action: "chapter-draft", note: "根据合同和场景序列生成可审阅草稿。" },

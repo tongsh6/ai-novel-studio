@@ -1,9 +1,20 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { FilePlus2, FolderTree, LoaderCircle, Play, RefreshCcw, Trash2, X } from "lucide-react";
 import { api } from "../lib/api.js";
 
 function uniqueList(items = []) {
   return [...new Set(items.filter(Boolean))];
+}
+
+function mergeFileEntries(...groups) {
+  const index = new Map();
+  for (const group of groups) {
+    for (const item of group || []) {
+      if (!item?.path || index.has(item.path)) continue;
+      index.set(item.path, item);
+    }
+  }
+  return [...index.values()];
 }
 
 function normalizeRepoPath(value) {
@@ -100,7 +111,7 @@ function targetDraftToTarget(target) {
 
 function normalizeApiError(error, action = "规划") {
   if (error?.message === "Not found") {
-    return `${action}接口不可用。请确认当前启动的是 company-console 的完整服务，而不是只有前端静态页。`;
+    return `${action}接口不可用。请确认当前启动的是 ControlCenter 的完整服务，而不是只有前端静态页。`;
   }
   return error?.message || `${action}失败`;
 }
@@ -184,6 +195,13 @@ function buildFileTree(items = []) {
   return root;
 }
 
+function collectNodeFilePaths(node) {
+  return [
+    ...(node.files || []).map((file) => file.path),
+    ...((node.folders || []).flatMap((folder) => collectNodeFilePaths(folder)))
+  ];
+}
+
 export function ActionInputModal({ actionId, action, initialValue, projectSlug, onClose, onConfirm }) {
   const [value, setValue] = useState(initialValue || {});
   const [guidanceDraft, setGuidanceDraft] = useState(initialValue?.additionalGuidance || "");
@@ -192,6 +210,9 @@ export function ActionInputModal({ actionId, action, initialValue, projectSlug, 
   const [workflow, setWorkflow] = useState([]);
   const [selectedContextPaths, setSelectedContextPaths] = useState([]);
   const [contextCandidates, setContextCandidates] = useState([]);
+  const [contextCatalog, setContextCatalog] = useState({ company: [], book: [] });
+  const [contextCatalogLoading, setContextCatalogLoading] = useState("");
+  const [contextCatalogError, setContextCatalogError] = useState("");
   const [planState, setPlanState] = useState({ loading: false, error: "", summary: "", note: "", usedModel: false });
   const [preview, setPreview] = useState({ context: [], budget: null, promptPreview: "", targetStatuses: [] });
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -226,17 +247,22 @@ export function ActionInputModal({ actionId, action, initialValue, projectSlug, 
     [selectedContextPaths, mandatoryTargetPaths]
   );
 
+  const availableContextItems = useMemo(
+    () => mergeFileEntries(contextCandidates, contextCatalog.company, contextCatalog.book),
+    [contextCandidates, contextCatalog]
+  );
+
   const groupedCandidates = useMemo(() => {
-    const optional = (contextCandidates || []).filter((item) => !mandatoryTargetPaths.includes(item.path));
+    const optional = availableContextItems.filter((item) => !mandatoryTargetPaths.includes(item.path));
     return {
       company: optional.filter((item) => item.path.startsWith("company/")),
       book: optional.filter((item) => item.path.startsWith("books/"))
     };
-  }, [contextCandidates, mandatoryTargetPaths]);
+  }, [availableContextItems, mandatoryTargetPaths]);
 
   const folderOptions = useMemo(
-    () => buildFolderOptions({ action, projectSlug, targetDrafts: targets, contextCandidates, previewContext: preview.context }),
-    [action, projectSlug, targets, contextCandidates, preview.context]
+    () => buildFolderOptions({ action, projectSlug, targetDrafts: targets, contextCandidates: availableContextItems, previewContext: preview.context }),
+    [action, projectSlug, targets, availableContextItems, preview.context]
   );
 
   const selectedContextMap = useMemo(
@@ -256,7 +282,36 @@ export function ActionInputModal({ actionId, action, initialValue, projectSlug, 
     setRefreshNonce(0);
     setFolderPickerIndex(null);
     setContextPickerScope("");
+    setContextCatalog({ company: [], book: [] });
+    setContextCatalogLoading("");
+    setContextCatalogError("");
   }, [initialValue, actionId]);
+
+  useEffect(() => {
+    if (!actionId) return;
+    let cancelled = false;
+    async function warmCatalog(scope) {
+      if (scope === "book" && !projectSlug) {
+        if (!cancelled) {
+          setContextCatalog((current) => ({ ...current, book: [] }));
+        }
+        return;
+      }
+      try {
+        const data = await api(`/api/context-files?scope=${scope}&projectSlug=${encodeURIComponent(projectSlug || "")}`);
+        if (!cancelled) {
+          setContextCatalog((current) => ({ ...current, [scope]: data.files || [] }));
+        }
+      } catch {
+        // Ignore warm-up failures; the explicit picker load will surface errors.
+      }
+    }
+    warmCatalog("company");
+    warmCatalog("book");
+    return () => {
+      cancelled = true;
+    };
+  }, [actionId, projectSlug]);
 
   useEffect(() => {
     if (!actionId) {
@@ -403,8 +458,38 @@ export function ActionInputModal({ actionId, action, initialValue, projectSlug, 
     setGuidanceCommitted(Boolean(nextValue));
   }
 
+  async function refreshContextCatalog(scope, silent = false) {
+    if (scope === "book" && !projectSlug) {
+      setContextCatalog((current) => ({ ...current, book: [] }));
+      return [];
+    }
+    if (!silent) {
+      setContextCatalogLoading(scope);
+      setContextCatalogError("");
+    }
+    try {
+      const data = await api(`/api/context-files?scope=${scope}&projectSlug=${encodeURIComponent(projectSlug || "")}`);
+      setContextCatalog((current) => ({ ...current, [scope]: data.files || [] }));
+      if (!silent) {
+        setContextCatalogError("");
+      }
+      return data.files || [];
+    } catch (error) {
+      if (!silent) {
+        setContextCatalogError(normalizeApiError(error, "资料目录读取"));
+      }
+      return [];
+    } finally {
+      if (!silent) {
+        setContextCatalogLoading("");
+      }
+    }
+  }
+
   function openContextPicker(scope) {
+    setContextCatalogError("");
     setContextPickerScope(scope);
+    refreshContextCatalog(scope);
   }
 
   function applyContextScopeSelection(scope, nextPaths) {
@@ -435,41 +520,43 @@ export function ActionInputModal({ actionId, action, initialValue, projectSlug, 
             <div className="target-overview-head">
               <div>
                 <p className="eyebrow">{action.stage}</p>
-                <strong>先补齐业务输入，再由 AI 规划文件与资料</strong>
+                <strong>{fields.length ? "先补齐业务输入，再由 AI 规划文件与资料" : "先看 AI 规划文件与资料，再决定是否微调"}</strong>
               </div>
               <button className="ui-button secondary" onClick={() => setRefreshNonce((current) => current + 1)} disabled={planState.loading}>
                 <RefreshCcw size={15} />
                 重新规划
               </button>
             </div>
-            <div className="form-grid">
-              {fields.map((field) => (
-                <label key={field.key} className={field.type === "textarea" ? "full-span-field" : ""}>
-                  <span>{field.label}{field.required ? " *" : ""}</span>
-                  {field.type === "select" ? (
-                    <select value={value[field.key] ?? field.defaultValue ?? ""} onChange={(event) => updateField(field.key, event.target.value)}>
-                      {(field.options || []).map((option) => (
-                        <option key={option} value={option}>{option}</option>
-                      ))}
-                    </select>
-                  ) : field.type === "textarea" ? (
-                    <textarea
-                      rows={6}
-                      value={value[field.key] ?? ""}
-                      placeholder={field.placeholder || ""}
-                      onChange={(event) => updateField(field.key, event.target.value)}
-                    />
-                  ) : (
-                    <input
-                      type="text"
-                      value={value[field.key] ?? ""}
-                      placeholder={field.placeholder || ""}
-                      onChange={(event) => updateField(field.key, event.target.value)}
-                    />
-                  )}
-                </label>
-              ))}
-            </div>
+            {fields.length > 0 && (
+              <div className="form-grid">
+                {fields.map((field) => (
+                  <label key={field.key} className={field.type === "textarea" ? "full-span-field" : ""}>
+                    <span>{field.label}{field.required ? " *" : ""}</span>
+                    {field.type === "select" ? (
+                      <select value={value[field.key] ?? field.defaultValue ?? ""} onChange={(event) => updateField(field.key, event.target.value)}>
+                        {(field.options || []).map((option) => (
+                          <option key={option} value={option}>{option}</option>
+                        ))}
+                      </select>
+                    ) : field.type === "textarea" ? (
+                      <textarea
+                        rows={6}
+                        value={value[field.key] ?? ""}
+                        placeholder={field.placeholder || ""}
+                        onChange={(event) => updateField(field.key, event.target.value)}
+                      />
+                    ) : (
+                      <input
+                        type="text"
+                        value={value[field.key] ?? ""}
+                        placeholder={field.placeholder || ""}
+                        onChange={(event) => updateField(field.key, event.target.value)}
+                      />
+                    )}
+                  </label>
+                ))}
+              </div>
+            )}
             {requiredMissing.length > 0 && (
               <div className="error-box">请先补齐必填项：{requiredMissing.map((field) => field.label).join("、")}</div>
             )}
@@ -752,6 +839,9 @@ export function ActionInputModal({ actionId, action, initialValue, projectSlug, 
           items={pickerItems}
           initialSelected={pickerSelected}
           selectedContextMap={selectedContextMap}
+          loading={contextCatalogLoading === contextPickerScope}
+          error={contextCatalogError}
+          onRefresh={() => refreshContextCatalog(contextPickerScope)}
           onClose={() => setContextPickerScope("")}
           onApply={(paths) => applyContextScopeSelection(contextPickerScope, paths)}
         />
@@ -798,18 +888,39 @@ function FolderNode({ node, currentPath, onSelect, depth }) {
   );
 }
 
-function ContextPickerModal({ title, items, initialSelected, selectedContextMap, onClose, onApply }) {
+function ContextPickerModal({ title, items, initialSelected, selectedContextMap, loading, error, onRefresh, onClose, onApply }) {
   const [draftSelected, setDraftSelected] = useState(initialSelected);
+  const draftSelectedRef = useRef(initialSelected);
   const tree = useMemo(() => buildFileTree(items), [items]);
 
   useEffect(() => {
     setDraftSelected(initialSelected);
+    draftSelectedRef.current = initialSelected;
   }, [initialSelected]);
 
   function togglePath(path) {
-    setDraftSelected((current) => current.includes(path)
-      ? current.filter((item) => item !== path)
-      : [...current, path]);
+    setDraftSelected((current) => {
+      const next = current.includes(path)
+        ? current.filter((item) => item !== path)
+        : [...current, path];
+      draftSelectedRef.current = next;
+      return next;
+    });
+  }
+
+  function toggleMany(paths) {
+    setDraftSelected((current) => {
+      const currentSet = new Set(current);
+      const allSelected = paths.every((path) => currentSet.has(path));
+      if (allSelected) {
+        const next = current.filter((path) => !paths.includes(path));
+        draftSelectedRef.current = next;
+        return next;
+      }
+      const next = uniqueList([...current, ...paths]);
+      draftSelectedRef.current = next;
+      return next;
+    });
   }
 
   return (
@@ -818,26 +929,43 @@ function ContextPickerModal({ title, items, initialSelected, selectedContextMap,
         <div className="overlay-head">
           <div>
             <p className="eyebrow">{title}</p>
-            <strong>按文件树多选后再应用</strong>
+            <strong>支持按目录整批勾选，也支持逐文件微调</strong>
           </div>
-          <button className="icon-button" onClick={onClose}>
-            <X size={16} />
-          </button>
+          <div className="button-row">
+            <button className="ui-button secondary compact" onClick={onRefresh} disabled={loading}>
+              <RefreshCcw size={14} />
+              刷新目录
+            </button>
+            <button className="icon-button" onClick={onClose}>
+              <X size={16} />
+            </button>
+          </div>
         </div>
         <div className="tree-scroll">
-          <ContextTreeNode
-            node={tree}
-            depth={0}
-            selected={draftSelected}
-            onToggle={togglePath}
-            selectedContextMap={selectedContextMap}
-          />
+          {loading && (
+            <div className="loading-strip">
+              <LoaderCircle size={16} className="spin" />
+              <span>正在刷新目录里的资料文件。</span>
+            </div>
+          )}
+          {error && <div className="error-box">{error}</div>}
+          {!loading && !items.length && !error && <div className="empty-state">当前目录下还没有可选文本资料。</div>}
+          {!loading && items.length > 0 && (
+            <ContextTreeNode
+              node={tree}
+              depth={0}
+              selected={draftSelected}
+              onToggle={togglePath}
+              onToggleMany={toggleMany}
+              selectedContextMap={selectedContextMap}
+            />
+          )}
         </div>
         <div className="overlay-actions">
           <span>已选 {draftSelected.length} 个资料文件</span>
           <div className="button-row">
             <button className="ui-button secondary" onClick={onClose}>取消</button>
-            <button className="ui-button primary" onClick={() => onApply(draftSelected)}>应用选择</button>
+            <button className="ui-button primary" onClick={() => onApply(draftSelectedRef.current)}>应用选择</button>
           </div>
         </div>
       </div>
@@ -845,15 +973,25 @@ function ContextPickerModal({ title, items, initialSelected, selectedContextMap,
   );
 }
 
-function ContextTreeNode({ node, depth, selected, onToggle, selectedContextMap }) {
+function ContextTreeNode({ node, depth, selected, onToggle, onToggleMany, selectedContextMap }) {
   const folders = node.folders || [];
   const files = node.files || [];
+  const descendantPaths = collectNodeFilePaths(node);
+  const selectedCount = descendantPaths.filter((path) => selected.includes(path)).length;
+  const allSelected = descendantPaths.length > 0 && selectedCount === descendantPaths.length;
+  const partiallySelected = selectedCount > 0 && !allSelected;
   return (
     <div>
       {node.label && (
-        <div className="tree-folder-label" style={{ marginLeft: `${depth * 16}px` }}>
-          <strong>{node.label}</strong>
-        </div>
+        <button
+          type="button"
+          className={`tree-folder-row selectable ${allSelected ? "active" : partiallySelected ? "partial" : ""}`}
+          style={{ marginLeft: `${depth * 16}px` }}
+          onClick={() => onToggleMany(descendantPaths)}
+        >
+          <span>{node.label}</span>
+          <em>{selectedCount}/{descendantPaths.length} 已选</em>
+        </button>
       )}
       {files.map((file) => {
         const checked = selected.includes(file.path);
@@ -873,6 +1011,7 @@ function ContextTreeNode({ node, depth, selected, onToggle, selectedContextMap }
           depth={depth + (node.label ? 1 : 0)}
           selected={selected}
           onToggle={onToggle}
+          onToggleMany={onToggleMany}
           selectedContextMap={selectedContextMap}
         />
       ))}

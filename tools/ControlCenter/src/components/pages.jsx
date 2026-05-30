@@ -9,13 +9,14 @@ import {
   ListChecks,
   NotebookTabs,
   Play,
+  RefreshCcw,
   ShieldCheck,
   SplitSquareHorizontal,
   Trash2,
   Users,
   Workflow
 } from "lucide-react";
-import { EmptyState, InfoColumns, Metric, Progress, SectionTitle } from "./shared.jsx";
+import { EmptyState, InfoColumns, Metric, SectionTitle } from "./shared.jsx";
 import { boardConfig, chapterSteps, workflowSteps } from "../constants/ui.js";
 import { api } from "../lib/api.js";
 import { filesForGroups, statusLabel } from "../lib/view-models.js";
@@ -35,6 +36,7 @@ const actionVisuals = {
   "golden-three": { icon: Workflow, tone: "insight", hint: "排前三章节奏" },
   "character-card": { icon: Users, tone: "people", hint: "补角色卡" },
   "plotline-plan": { icon: SplitSquareHorizontal, tone: "plot", hint: "推进卷纲与篇章线" },
+  "chapter-outline": { icon: ListChecks, tone: "plot", hint: "规划单章推进" },
   "chapter-contract": { icon: Hammer, tone: "build", hint: "生成施工图" },
   "scene-sequence": { icon: Workflow, tone: "build", hint: "拆场景序列" },
   "chapter-draft": { icon: FileText, tone: "build", hint: "生成正文草稿" },
@@ -44,10 +46,13 @@ const actionVisuals = {
   "timeline-check": { icon: ShieldCheck, tone: "review", hint: "查时间线矛盾" }
 };
 
-export function CompanyDashboard({ manifest, openFile, onDeleteFile }) {
+export function CompanyDashboard({ manifest, openFile, onDeleteFile, onRefreshLibrary, libraryRefreshing }) {
   const guideFiles = companyGuideFiles
     .map((targetPath) => manifest.files.find((file) => file.path === targetPath))
     .filter(Boolean);
+  const companyLibraryFiles = manifest.files
+    .filter((file) => file.path.startsWith("company/"))
+    .sort((a, b) => a.path.localeCompare(b.path, "zh-CN"));
 
   return (
     <section className="page-grid">
@@ -72,6 +77,16 @@ export function CompanyDashboard({ manifest, openFile, onDeleteFile }) {
       <section className="panel wide">
         <SectionTitle icon={BookOpen} title="先读这些公司规则" subtitle="这些卡片就是整个网站的使用说明、命名规则、公司规则和写作底线；点开即可查看与修改" />
         <FileTiles files={guideFiles} onOpenFile={openFile} onDeleteFile={onDeleteFile} />
+      </section>
+      <section className="panel wide">
+        <SectionTitle icon={FileText} title="资料库" subtitle="company/ 下的资料文件会自动汇总成卡片；直接丢进目录里的文本文件，回到窗口后会自动刷新，也可手动刷新" />
+        <div className="button-row inline-actions">
+          <button className="ui-button secondary compact" onClick={() => onRefreshLibrary?.()} disabled={libraryRefreshing}>
+            <RefreshCcw size={14} />
+            {libraryRefreshing ? "正在刷新资料库" : "刷新资料库"}
+          </button>
+        </div>
+        <FileTiles files={companyLibraryFiles} onOpenFile={openFile} onDeleteFile={onDeleteFile} />
       </section>
       <section className="panel">
         <SectionTitle icon={ShieldCheck} title="公司层到底管什么" subtitle="这里不写某一本书的正文，只维护通用规则、部门能力、项目入口和共享方法" />
@@ -162,7 +177,7 @@ export function Departments({ manifest, selectedDepartment, setSelectedDepartmen
   );
 }
 
-export function ProjectsHub({ manifest, selectedProject, openProject, builder, setBuilder, runAction, actionsEnabled }) {
+export function ProjectsHub({ manifest, selectedProject, openProject, onDeleteProject, builder, setBuilder, runAction, actionsEnabled }) {
   return (
     <section className="page-grid">
       <section className="panel wide">
@@ -197,11 +212,16 @@ export function ProjectsHub({ manifest, selectedProject, openProject, builder, s
                 <div className="project-head">
                   <div>
                     <h2>{project.title}</h2>
-                    <p>{project.slug}</p>
+                    <p>{project.currentTask}</p>
                   </div>
-                  <button className="icon-button strong" onClick={() => openProject(project.slug)} title="进入项目">
-                    <CheckCircle2 size={18} />
-                  </button>
+                  <div className="project-head-actions">
+                    <button className="icon-button strong" onClick={() => openProject(project.slug)} title="进入项目">
+                      <CheckCircle2 size={18} />
+                    </button>
+                    <button className="icon-button danger" onClick={() => onDeleteProject?.(project.slug, project.title)} title="删除书籍项目">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
                 </div>
                 <ProjectHealth project={project} />
               </article>
@@ -330,7 +350,7 @@ export function PlotBoard({ manifest, currentProject, runAction, actionMap, acti
           <EmptyState message="当前项目还没有剧情或合同资料。" />
         )}
         <ActionStrip
-          actionIds={["plotline-plan", "golden-three", "scene-sequence"]}
+          actionIds={["plotline-plan", "golden-three"]}
           actionMap={actionMap}
           disabled={!actionsEnabled || !currentProject}
           onRun={(id) => runAction(id, {}, { projectSlug: currentProject?.slug || "" })}
@@ -345,34 +365,115 @@ export function PlotBoard({ manifest, currentProject, runAction, actionMap, acti
 }
 
 export function ChapterFactory({ currentProject, runAction, actionMap, actionsEnabled }) {
+  const [chapterOptions, setChapterOptions] = useState([]);
+  const [chapterLoading, setChapterLoading] = useState(false);
+  const [selectedChapterId, setSelectedChapterId] = useState("");
+  const [customChapterId, setCustomChapterId] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!currentProject?.slug) {
+      setChapterOptions([]);
+      setSelectedChapterId("");
+      return;
+    }
+    setChapterLoading(true);
+    api(`/api/chapter-options?projectSlug=${encodeURIComponent(currentProject.slug)}`)
+      .then((data) => {
+        if (cancelled) return;
+        const chapters = data.chapters || [];
+        setChapterOptions(chapters);
+        setSelectedChapterId((prev) => {
+          if (prev && chapters.some((item) => item.id === prev)) return prev;
+          return chapters[0]?.id || "";
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setChapterOptions([]);
+          setSelectedChapterId("");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setChapterLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProject?.slug]);
+
+  const activeChapterId = (customChapterId.trim() || selectedChapterId).trim();
+  const activeChapterLabel = activeChapterId || "当前章节";
+
   return (
     <section className="panel">
-      <SectionTitle icon={Hammer} title="章节工厂" subtitle={`${currentProject?.title || "当前项目"} · 从合同到草稿再到回写`} />
+      <SectionTitle icon={Hammer} title="章节工厂" subtitle={`${currentProject?.title || "当前项目"} · 先选章节，再按流水线生产`} />
       {!currentProject ? (
         <EmptyState message="还没有选中项目，无法生成章节合同或草稿。" />
       ) : (
-        <div className="factory-lane">
-          {chapterSteps.map((step, index) => {
-            const action = actionMap.get(step.action);
-            return (
-              <button
-                key={step.id}
-                className="factory-step"
-                disabled={!actionsEnabled}
-                onClick={() => runAction(step.action, {
-                  chapterId: step.id,
-                  chapterLabel: step.title,
-                  projectSlug: currentProject.slug
-                }, { projectSlug: currentProject.slug })}
+        <>
+          <div className="factory-toolbar">
+            <label className="factory-chapter-field">
+              <span>已有章节</span>
+              <select
+                value={selectedChapterId}
+                disabled={chapterLoading || Boolean(customChapterId.trim())}
+                onChange={(event) => {
+                  setCustomChapterId("");
+                  setSelectedChapterId(event.target.value);
+                }}
               >
-                <span>{index + 1}</span>
-                <strong>{step.title}</strong>
-                <p>{step.note}</p>
-                <em>{action?.label}</em>
-              </button>
-            );
-          })}
-        </div>
+                <option value="">{chapterLoading ? "正在读取章节..." : chapterOptions.length ? "选择已有章节" : "暂无已有章节"}</option>
+                {chapterOptions.map((chapter) => (
+                  <option key={chapter.id} value={chapter.id}>
+                    {chapter.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="factory-chapter-field grow">
+              <span>或新建章节标识</span>
+              <input
+                type="text"
+                value={customChapterId}
+                placeholder="例如：第一章 / 第1章"
+                onChange={(event) => setCustomChapterId(event.target.value)}
+              />
+            </label>
+            {activeChapterId ? (
+              <div className="factory-chapter-active">
+                <span>当前生产章节</span>
+                <strong>{activeChapterLabel}</strong>
+              </div>
+            ) : (
+              <div className="factory-chapter-active muted">
+                <span>请先选择或输入章节标识</span>
+              </div>
+            )}
+          </div>
+          <div className="factory-lane">
+            {chapterSteps.map((step, index) => {
+              const action = actionMap.get(step.action);
+              return (
+                <button
+                  key={step.id}
+                  className="factory-step"
+                  disabled={!actionsEnabled || !activeChapterId}
+                  onClick={() => runAction(step.action, {
+                    chapterId: activeChapterId,
+                    chapterLabel: activeChapterLabel,
+                    projectSlug: currentProject.slug
+                  }, { projectSlug: currentProject.slug })}
+                >
+                  <span>{index + 1}</span>
+                  <strong>{step.title}</strong>
+                  <p>{step.note}</p>
+                  <em>{action?.label}</em>
+                </button>
+              );
+            })}
+          </div>
+        </>
       )}
     </section>
   );
@@ -383,13 +484,38 @@ export function ProjectHealth({ project }) {
     return <EmptyState message="暂无项目。" />;
   }
 
+  const readyLibrary = (project.library || []).filter((item) => item.ready);
+  const missingLibrary = (project.library || []).filter((item) => !item.ready).map((item) => item.name);
+
   return (
     <div className="health">
-      <div>
-        <span>资料完整度</span>
-        <Progress value={project.knowledgeCompleteness} tone="library" />
+      <div className="health-metrics">
+        <div className="health-metric-card">
+          <span>已就绪资料区</span>
+          <strong>{readyLibrary.length}/{project.library?.length || 0}</strong>
+        </div>
+        <div className="health-metric-card">
+          <span>资料文件数</span>
+          <strong>{project.fileCount}</strong>
+        </div>
+        <div className="health-metric-card">
+          <span>当前阶段</span>
+          <strong>{project.stage}</strong>
+        </div>
       </div>
       <p>{project.currentTask}</p>
+      {missingLibrary.length > 0 ? (
+        <div className="health-missing">
+          <span>还缺这些资料区</span>
+          <div className="mini-chip-list">
+            {missingLibrary.map((item) => <em key={item}>{item}</em>)}
+          </div>
+        </div>
+      ) : (
+        <div className="health-missing ready">
+          <span>资料区已齐，可以直接推进剧情、章节与连续性工作。</span>
+        </div>
+      )}
     </div>
   );
 }

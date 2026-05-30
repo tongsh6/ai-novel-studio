@@ -20,6 +20,7 @@ import {
 
 function App() {
   const [manifest, setManifest] = useState(null);
+  const [manifestRefreshing, setManifestRefreshing] = useState(false);
   const [modelStatus, setModelStatus] = useState(null);
   const [currentScope, setCurrentScope] = useState("company");
   const [page, setPage] = useState("company-dashboard");
@@ -40,6 +41,27 @@ function App() {
 
   useEffect(() => {
     loadBootstrap();
+  }, []);
+
+  useEffect(() => {
+    let disposed = false;
+    async function syncOnFocus() {
+      if (disposed) return;
+      await refreshManifest();
+      refreshModelStatus();
+    }
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        syncOnFocus();
+      }
+    }
+    window.addEventListener("focus", syncOnFocus);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      disposed = true;
+      window.removeEventListener("focus", syncOnFocus);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   useEffect(() => {
@@ -83,12 +105,31 @@ function App() {
 
   async function loadBootstrap() {
     try {
-      const [nextManifest, status] = await Promise.all([api("/api/manifest"), api("/api/model/status")]);
-      setManifest(nextManifest);
+      const status = await api("/api/model/status");
       setModelStatus(status);
-      setSelectedProject((current) => current || nextManifest.projects?.[0]?.slug || "");
+      await refreshManifest();
     } catch (error) {
       setModal({ kind: "error", title: "加载失败", error: error.message, retryable: true });
+    }
+  }
+
+  async function refreshManifest(options = {}) {
+    const { withIndicator = false } = options;
+    if (withIndicator) {
+      setManifestRefreshing(true);
+    }
+    try {
+      const nextManifest = await api("/api/manifest");
+      setManifest(nextManifest);
+      setSelectedProject((current) => {
+        if (current && nextManifest.projects?.some((project) => project.slug === current)) return current;
+        return nextManifest.projects?.[0]?.slug || "";
+      });
+      return nextManifest;
+    } finally {
+      if (withIndicator) {
+        setManifestRefreshing(false);
+      }
     }
   }
 
@@ -96,6 +137,32 @@ function App() {
     setSelectedProject(slug);
     setCurrentScope("project");
     setPage("project-overview");
+  }
+
+  async function deleteProject(projectSlug, projectTitle = projectSlug) {
+    if (!window.confirm(`确认删除这本书及其全部资料？\n\n${projectTitle}\nbooks/${projectSlug}\n\n这个操作会删除整本书的资料文件夹。`)) return;
+    try {
+      await api("/api/project/delete", {
+        method: "POST",
+        body: JSON.stringify({ projectSlug })
+      });
+      const nextManifest = await refreshManifest();
+      setSelectedProject((current) => {
+        if (current !== projectSlug) return current;
+        return nextManifest.projects?.[0]?.slug || "";
+      });
+      if (selectedProject === projectSlug) {
+        if (nextManifest.projects?.length) {
+          openProject(nextManifest.projects[0].slug);
+        } else {
+          setCurrentScope("company");
+          setPage("projects");
+        }
+      }
+      setModal({ kind: "saved", title: "已删除书籍项目", path: `books/${projectSlug}` });
+    } catch (error) {
+      setModal({ kind: "error", title: "删除书籍失败", error: error.message, retryable: false });
+    }
   }
 
   async function openFile(path) {
@@ -127,8 +194,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ path: editor.path, content: editor.draft })
       });
-      const nextManifest = await api("/api/manifest");
-      setManifest(nextManifest);
+      await refreshManifest();
       setEditor((current) => current ? { ...current, original: current.draft, dirty: false, saving: false } : current);
     } catch (error) {
       patchEditor({ saving: false });
@@ -143,8 +209,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ path })
       });
-      const nextManifest = await api("/api/manifest");
-      setManifest(nextManifest);
+      await refreshManifest();
       setEditor((current) => current?.path === path ? null : current);
       setModal({ kind: "saved", title: "已删除文件", path });
     } catch (error) {
@@ -368,8 +433,7 @@ function App() {
         method: "POST",
         body: JSON.stringify({ artifacts })
       });
-      const nextManifest = await api("/api/manifest");
-      setManifest(nextManifest);
+      await refreshManifest();
       const nextWrittenPaths = uniqueList([...(result.writtenPaths || []), ...(saved.written || [])]);
       const allWritten = (result.artifacts || []).length > 0 && nextWrittenPaths.length >= (result.artifacts || []).length;
       if (allWritten && result.saveMode === "project-bootstrap" && result.projectSlug) {
@@ -488,16 +552,33 @@ function App() {
           page={page}
           setPage={setPage}
           currentProject={currentProject}
+          projects={manifest.projects}
+          onSelectProject={openProject}
           modelStatus={modelStatus}
           statusLine={modelStatusLine(modelStatus)}
         />
         <main className="main">
-          <Topbar manifest={manifest} currentScope={currentScope} currentProject={currentProject} onBackToCompany={() => {
-            setCurrentScope("company");
-            setPage("projects");
-          }} />
+          <Topbar
+            manifest={manifest}
+            currentScope={currentScope}
+            currentProject={currentProject}
+            projects={manifest.projects}
+            onSelectProject={openProject}
+            onBackToCompany={() => {
+              setCurrentScope("company");
+              setPage("projects");
+            }}
+          />
 
-          {page === "company-dashboard" && <CompanyDashboard manifest={manifest} openFile={openFile} onDeleteFile={deleteFile} />}
+          {page === "company-dashboard" && (
+            <CompanyDashboard
+              manifest={manifest}
+              openFile={openFile}
+              onDeleteFile={deleteFile}
+              onRefreshLibrary={() => refreshManifest({ withIndicator: true })}
+              libraryRefreshing={manifestRefreshing}
+            />
+          )}
           {page === "departments" && (
             <Departments
               manifest={manifest}
@@ -514,6 +595,7 @@ function App() {
               manifest={manifest}
               selectedProject={selectedProject}
               openProject={openProject}
+              onDeleteProject={deleteProject}
               builder={builder}
               setBuilder={setBuilder}
               runAction={requestAction}

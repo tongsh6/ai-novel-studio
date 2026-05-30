@@ -12,9 +12,9 @@
 ## 启动
 
 ```bash
-rtk run "cd tools/company-console && npm install"
-rtk run "cd tools/company-console && npm run build"
-rtk run "cd tools/company-console && npm run preview"
+rtk run "cd tools/ControlCenter && npm install"
+rtk run "cd tools/ControlCenter && npm run build"
+rtk run "cd tools/ControlCenter && npm run preview"
 ```
 
 打开：
@@ -26,6 +26,6 @@ http://127.0.0.1:4173
 开发模式需要同时启动 API 与 Vite：
 
 ```bash
-rtk run "cd tools/company-console && npm run api"
-rtk run "cd tools/company-console && npm run dev"
+rtk run "cd tools/ControlCenter && npm run api"
+rtk run "cd tools/ControlCenter && npm run dev"
 ```

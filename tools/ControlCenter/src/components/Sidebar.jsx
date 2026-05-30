@@ -1,4 +1,4 @@
-export function Sidebar({ currentScope, setCurrentScope, companyNavItems, projectNavItems, page, setPage, currentProject, modelStatus, statusLine }) {
+export function Sidebar({ currentScope, setCurrentScope, companyNavItems, projectNavItems, page, setPage, currentProject, projects, onSelectProject, modelStatus, statusLine }) {
   const activeNav = currentScope === "project" ? projectNavItems : companyNavItems;
 
   return (
@@ -22,8 +22,20 @@ export function Sidebar({ currentScope, setCurrentScope, companyNavItems, projec
 
       {currentScope === "project" && (
         <div className="scope-card">
-          <strong>{currentProject?.title || "未选中项目"}</strong>
-          <span>{currentProject ? "该项目的资料、剧情与章节生产" : "先在公司层选择或创建项目"}</span>
+          <strong>当前书籍</strong>
+          <span>{currentProject ? "点下面的书籍按钮直接切换，不再只是静态展示标题。" : "先在公司层选择或创建项目"}</span>
+          <div className="project-switch-list">
+            {(projects || []).map((project) => (
+              <button
+                key={project.slug}
+                className={project.slug === currentProject?.slug ? "project-switch-button active" : "project-switch-button"}
+                onClick={() => onSelectProject?.(project.slug)}
+              >
+                <strong>{project.title}</strong>
+                <em>{project.fileCount} 个资料文件</em>
+              </button>
+            ))}
+          </div>
         </div>
       )}
 
