@@ -31,6 +31,7 @@ export const nativeSliceIds = [
   "p1-chapter-plan-minimum",
   "p1-chapter-draft-generation",
   "p1-chapter-adoption-reading",
+  "p1-word-count-audit",
   "p1-chapter-edit-then-accept",
   "p1-chapter-overwrite-confirm",
   "au09-memory-create-recall",
@@ -152,6 +153,18 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-adoption-reading": [
+    "channel.get_chapter_plans.done",
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-word-count-audit": [
     "channel.get_chapter_plans.done",
     "channel.user_message.start",
     "toolbox.execute.done",
@@ -526,6 +539,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterDraftGenerationEvidence(records);
   }
 
+  if (sliceId === "p1-word-count-audit") {
+    return findP1WordCountAuditEvidence(records);
+  }
+
   if (sliceId === "p1-chapter-adoption-reading") {
     return findP1ChapterAdoptionReadingEvidence(records);
   }
@@ -651,6 +668,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-draft-generation") {
     return p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-word-count-audit") {
+    return p1WordCountAuditBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "p1-chapter-adoption-reading") {
@@ -2458,8 +2479,29 @@ function p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidenc
   };
 }
 
-function findP1ChapterAdoptionReadingEvidence(records) {
-  const sliceId = "p1-chapter-adoption-reading";
+function findP1WordCountAuditEvidence(records) {
+  // 复用采纳到阅读的主链证据查找，再叠加短章审计断言。
+  const base = findP1ChapterAdoptionReadingEvidence(records, "p1-word-count-audit");
+  if (!base) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-word-count-audit" &&
+      record.short_chapter_marked === true &&
+      record.milestone_met === false,
+  );
+  if (!uiState) return null;
+
+  return {
+    ...base,
+    slice_id: "p1-word-count-audit",
+    short_chapter_marked: true,
+    milestone_met: false,
+  };
+}
+
+function findP1ChapterAdoptionReadingEvidence(records, sliceId = "p1-chapter-adoption-reading") {
   const keyEvents = keyEventsForSlice(sliceId);
 
   const uiState = records.find(
@@ -2540,14 +2582,56 @@ function findP1ChapterAdoptionReadingEvidence(records) {
   };
 }
 
-function p1ChapterAdoptionReadingBehavior(turnIds, turnRecords, records, evidence, _options) {
+function p1WordCountAuditBehavior(turnIds, turnRecords, records, evidence, options) {
+  const base = p1ChapterAdoptionReadingBehavior(
+    turnIds,
+    turnRecords,
+    records,
+    evidence,
+    options,
+    "p1-word-count-audit",
+  );
+  if (!base) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-word-count-audit" &&
+      record.draft_turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.short_chapter_marked !== true) return null;
+  if (uiState.milestone_met !== false) return null;
+
+  return {
+    ...base,
+    slice_id: "p1-word-count-audit",
+    behavior: "sub_minimum_adopted_chapter_marked_short_and_milestone_not_met",
+    short_chapter_marked: true,
+    milestone_met: false,
+    assertions: [
+      ...(base.assertions ?? []),
+      "sub_1000_word_chapter_marked_short_in_toc",
+      "p1_milestone_progress_visible_not_met",
+    ],
+  };
+}
+
+function p1ChapterAdoptionReadingBehavior(
+  turnIds,
+  turnRecords,
+  records,
+  evidence,
+  _options,
+  sliceId = "p1-chapter-adoption-reading",
+) {
   if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
   if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
 
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "p1-chapter-adoption-reading" &&
+      record.slice_id === sliceId &&
       record.draft_turn_id === evidence.draft_turn_id,
   );
   if (!uiState) return null;
@@ -2560,7 +2644,7 @@ function p1ChapterAdoptionReadingBehavior(turnIds, turnRecords, records, evidenc
   }
 
   return {
-    slice_id: "p1-chapter-adoption-reading",
+    slice_id: sliceId,
     behavior: "adopted_prose_materializes_reading_projection_with_effective_word_counts",
     turn_ids: turnIds,
     artifact_id: evidence.artifact_id,

@@ -117,6 +117,31 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert artifact_set.source_turn_ref == "turn-world"
     end
 
+    test "carries authoring_intent + target_chapter provenance when provided" do
+      result =
+        Toolbox.execute(request("prose_writing"), fixed_json_provider([single_item("prose")]))
+
+      assert {:ok, %TentativeArtifactSet{} = artifact_set} =
+               ArtifactAssembler.assemble(result, "turn-prose", %{
+                 authoring_intent: :continuation,
+                 target_chapter: "第01章：底层灵气账单"
+               })
+
+      assert artifact_set.authoring_intent == :continuation
+      assert artifact_set.target_chapter == "第01章：底层灵气账单"
+    end
+
+    test "defaults provenance to nil when not provided (backward compatible)" do
+      result =
+        Toolbox.execute(request("prose_writing"), fixed_json_provider([single_item("prose")]))
+
+      assert {:ok, %TentativeArtifactSet{} = artifact_set} =
+               ArtifactAssembler.assemble(result, "turn-prose")
+
+      assert artifact_set.authoring_intent == nil
+      assert artifact_set.target_chapter == nil
+    end
+
     test "unknown artifact_type is validation failure and never falls back" do
       result = %ToolResult{
         tool_result_id: "tr-unknown",

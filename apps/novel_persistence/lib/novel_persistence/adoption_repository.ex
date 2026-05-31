@@ -121,17 +121,20 @@ defmodule NovelPersistence.AdoptionRepository do
   defp reading_projection_artifact?("prose_fragment"), do: true
   defp reading_projection_artifact?(_), do: false
 
-  # 同 title 的正文采纳落到同一卷/章/场景（章节身份）：覆盖时 supersede 旧 accepted
-  # 草稿，再写新 accepted 草稿。这样阅读投影同一章显示最新正文，而不是堆出重复章。
+  # 章含多场景（v2 21 §6.6 / ADR-0004）。正文采纳按 mode 分流：
+  # - :overwrite（默认/重写）—— 同 title 落同一卷/章/场景，supersede 旧 accepted 再写新版，
+  #   阅读投影同一章显示最新正文，不堆重复章。
+  # - :append（续写）—— 同章新建场景（seq+1）累积，不复用旧场景、不 supersede，字数累加。
   defp persist_reading_projection(repo, attrs, mutation_id) do
     work_id = Map.fetch!(attrs, :work_id)
-    title = projection_title(attrs)
+    chapter_title = projection_title(attrs)
     content = projection_content(attrs)
+    mode = projection_mode(attrs)
 
     with {:ok, volume} <- find_or_create_accepted_volume(repo, work_id),
-         {:ok, chapter} <- find_or_create_chapter(repo, work_id, volume.id, title),
-         {:ok, scene} <- find_or_create_scene(repo, work_id, chapter.id, title),
-         :ok <- supersede_accepted_drafts(repo, work_id, scene.id),
+         {:ok, chapter} <- find_or_create_chapter(repo, work_id, volume.id, chapter_title),
+         {:ok, scene} <- resolve_scene(repo, work_id, chapter.id, chapter_title, mode),
+         :ok <- maybe_supersede_scene(repo, work_id, scene.id, mode),
          {:ok, draft} <-
            insert_draft(repo, %{
              work_id: work_id,
@@ -151,6 +154,31 @@ defmodule NovelPersistence.AdoptionRepository do
        }}
     end
   end
+
+  defp projection_mode(attrs) do
+    case Map.get(attrs, :mode) do
+      :append -> :append
+      "append" -> :append
+      _ -> :overwrite
+    end
+  end
+
+  # :overwrite —— 复用同章同 title 场景（章身份=场景身份）。
+  # :append —— 续写：同章新建场景（seq+1）累积。
+  defp resolve_scene(repo, work_id, chapter_id, chapter_title, :overwrite) do
+    find_or_create_scene(repo, work_id, chapter_id, chapter_title)
+  end
+
+  defp resolve_scene(repo, work_id, chapter_id, _chapter_title, :append) do
+    seq = next_scene_seq(repo, chapter_id)
+    insert_scene(repo, %{work_id: work_id, chapter_id: chapter_id, title: "场景 #{seq}", seq: seq})
+  end
+
+  defp maybe_supersede_scene(repo, work_id, scene_id, :overwrite) do
+    supersede_accepted_drafts(repo, work_id, scene_id)
+  end
+
+  defp maybe_supersede_scene(_repo, _work_id, _scene_id, :append), do: :ok
 
   @doc """
   读端口：当前作品是否已有「同 title 且含已采纳正文」的章节。
@@ -258,6 +286,10 @@ defmodule NovelPersistence.AdoptionRepository do
   # 下一个 seq 用 max(seq)+1（非 count+1）：删行后也不会和现存 seq 撞（A5）。
   defp next_chapter_seq(repo, volume_id) do
     (Chapter |> where([c], c.volume_id == ^volume_id) |> repo.aggregate(:max, :seq) || 0) + 1
+  end
+
+  defp next_scene_seq(repo, chapter_id) do
+    (Scene |> where([s], s.chapter_id == ^chapter_id) |> repo.aggregate(:max, :seq) || 0) + 1
   end
 
   defp next_volume_seq(repo, work_id) do

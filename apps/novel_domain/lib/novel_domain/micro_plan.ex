@@ -15,14 +15,19 @@ defmodule NovelDomain.MicroPlan do
           | :capability_invocation
   @type write_intent :: :none | :tentative | :production_candidate
   @type risk_hint :: :low | :medium | :high
+  # 生成意图 provenance（续写/重写 + 目标章），由 Planner 识别填充，经 ArtifactAssembler
+  # 流到 artifact provenance → 采纳分流。VS-01 §2 之上的可选扩展，默认不填（非续写/重写）。
+  @type authoring_intent :: :continuation | :rewrite | nil
 
   @type proposed_action :: %{
-          action_id: String.t(),
-          action_type: action_type(),
-          summary: String.t(),
-          target_ref: String.t() | nil,
-          write_intent: write_intent(),
-          risk_hint: risk_hint()
+          required(:action_id) => String.t(),
+          required(:action_type) => action_type(),
+          required(:summary) => String.t(),
+          required(:target_ref) => String.t() | nil,
+          required(:write_intent) => write_intent(),
+          required(:risk_hint) => risk_hint(),
+          optional(:authoring_intent) => authoring_intent(),
+          optional(:target_chapter) => String.t() | nil
         }
 
   @type state_change :: %{

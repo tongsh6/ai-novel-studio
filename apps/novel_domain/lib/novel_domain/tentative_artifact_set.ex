@@ -21,6 +21,10 @@ defmodule NovelDomain.TentativeArtifactSet do
           optional(:provider_call_ref) => String.t() | nil
         }
 
+  # 生成意图 provenance（不是采纳决策）：这批草稿是作为续写还是重写某章生成的，
+  # 以及归属哪一章。采纳层据此映射 append/overwrite + 归章；nil 表示非章节续写/重写。
+  @type authoring_intent :: :continuation | :rewrite | nil
+
   @type t :: %__MODULE__{
           artifact_set_id: String.t(),
           artifact_type: artifact_type(),
@@ -28,6 +32,8 @@ defmodule NovelDomain.TentativeArtifactSet do
           source_turn_ref: String.t(),
           source_tool_result_ref: String.t(),
           context_refs: [String.t()],
+          authoring_intent: authoring_intent(),
+          target_chapter: String.t() | nil,
           adoption_status: :tentative
         }
 
@@ -39,6 +45,8 @@ defmodule NovelDomain.TentativeArtifactSet do
     :source_tool_result_ref,
     items: [],
     context_refs: [],
+    authoring_intent: nil,
+    target_chapter: nil,
     adoption_status: :tentative
   ]
 

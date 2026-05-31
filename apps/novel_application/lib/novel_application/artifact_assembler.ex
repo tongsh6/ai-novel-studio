@@ -11,9 +11,13 @@ defmodule NovelApplication.ArtifactAssembler do
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.TentativeArtifactSet
 
-  @spec assemble(ToolResult.t(), String.t()) ::
+  # provenance（可选）：调用方（知道本轮 MicroPlan 意图）传入 :authoring_intent + :target_chapter，
+  # 作为 artifact 生成来源记录，顺现有 artifact -> pending -> 采纳 流转到采纳层。默认空（非续写/重写）。
+  @spec assemble(ToolResult.t(), String.t(), map()) ::
           {:ok, TentativeArtifactSet.t()} | {:error, map()}
-  def assemble(%ToolResult{status: :succeeded, output: output} = tool_result, turn_ref)
+  def assemble(tool_result, turn_ref, provenance \\ %{})
+
+  def assemble(%ToolResult{status: :succeeded, output: output} = tool_result, turn_ref, provenance)
       when is_map(output) do
     with {:ok, artifact_type} <-
            ToolOutputContract.normalize_artifact_type(output[:artifact_type]),
@@ -25,17 +29,34 @@ defmodule NovelApplication.ArtifactAssembler do
          items: items,
          source_turn_ref: turn_ref,
          source_tool_result_ref: tool_result.tool_result_id,
+         authoring_intent: normalize_authoring_intent(Map.get(provenance, :authoring_intent)),
+         target_chapter: normalize_target_chapter(Map.get(provenance, :target_chapter)),
          adoption_status: :tentative
        }}
     end
   end
 
-  def assemble(%ToolResult{status: status}, _turn_ref) when status != :succeeded do
+  def assemble(%ToolResult{status: status}, _turn_ref, _provenance) when status != :succeeded do
     {:error,
      %{code: "tool_result_not_succeeded", message: "failed tool result cannot create artifact"}}
   end
 
-  def assemble(%ToolResult{}, _turn_ref) do
+  def assemble(%ToolResult{}, _turn_ref, _provenance) do
     {:error, %{code: "invalid_tool_output", message: "creative tool output is missing"}}
   end
+
+  defp normalize_authoring_intent(:continuation), do: :continuation
+  defp normalize_authoring_intent(:rewrite), do: :rewrite
+  defp normalize_authoring_intent("continuation"), do: :continuation
+  defp normalize_authoring_intent("rewrite"), do: :rewrite
+  defp normalize_authoring_intent(_), do: nil
+
+  defp normalize_target_chapter(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_target_chapter(_), do: nil
 end

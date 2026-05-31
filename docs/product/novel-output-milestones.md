@@ -205,7 +205,7 @@ AU-05 canon conflict recovery、P1 chapter plan minimum 与 P1 chapter draft gen
 1. **P1-chapter-plan-minimum**：真实工作台生成并采纳 10-20 章章节计划。（已闭环：`artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`）
 2. **P1-chapter-draft-generation**：按章节计划生成单章正文草稿，并证明未采纳正文不进入阅读投影。（已闭环：`artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；正文有效字数达到下限仍待后续字数/扩写 checkpoint）
 3. **P1-chapter-adoption-reading**：采纳章节正文后进入作品事实和阅读投影。（当前队首）
-4. **P1-word-count-audit**：确定性统计章节正文有效字数、总字数、短章、空章、重复段落。
+4. **P1-word-count-audit**：确定性统计章节正文有效字数、总字数、短章、空章、重复段落。（checkpoint A 已闭环：空章/短章判定 + P1 门槛 + ReadingMode 短章标记与达标进度，`artifacts/slice-verify/p1-word-count-audit-tauri/summary.json`；重复段落与缺章率归 checkpoint B/C）
 5. **P1-export-minimum**：导出完整 Markdown/txt，目录和章节顺序可验证。
 6. **P1-100k-dogfood-run**：真实工作台或产品任务链完成 10 万字狗粮产出，并输出验收报告。
 

@@ -1057,6 +1057,54 @@ async function driveP1ChapterAdoptionReading(page) {
   ];
 }
 
+async function driveP1WordCountAudit(page) {
+  // 复用采纳到阅读链路：确定性 provider 生成的正文草稿天然 < 1000 字，
+  // 采纳后即为短章，用于验证 ReadingMode 的短章标记与 P1 达标进度。
+  const [base] = await driveP1ChapterAdoptionReading(page);
+
+  // 此时 page 已停在 ReadingMode：目录该章应标「短章」，顶栏显示「P1 进度」。
+  await page.waitForFunction(
+    () => {
+      const text = document.body.innerText;
+      return text.includes("短章") && text.includes("P1 进度");
+    },
+    { timeout: 10_000 },
+  );
+
+  const shortBadgeVisible = (await page.getByText("短章", { exact: true }).count()) > 0;
+  const milestoneMet = (await page.getByText("已达 P1 目标").count()) > 0;
+  const visibleText = await page.locator("body").innerText();
+  const milestoneProgressVisible = visibleText.includes("P1 进度");
+  const belowMinChapter = Number(base.chapter_word_count ?? 0) < 1000;
+
+  assert(
+    shortBadgeVisible,
+    "短章 badge not visible in TOC for a sub-1000-word adopted chapter",
+  );
+  assert(
+    milestoneProgressVisible,
+    "P1 milestone progress not visible in reading mode top bar",
+  );
+  assert(
+    !milestoneMet,
+    "Milestone must not be marked met for a single short chapter",
+  );
+  assert(
+    belowMinChapter,
+    `Adopted chapter ${base.chapter_word_count} should be below the 1000-word P1 minimum`,
+  );
+
+  return [
+    {
+      ...base,
+      short_chapter_marked: shortBadgeVisible,
+      milestone_progress_visible: milestoneProgressVisible,
+      milestone_met: milestoneMet,
+      below_min_chapter: belowMinChapter,
+    },
+  ];
+}
+
 async function driveP1ChapterEditThenAccept(page) {
   // 复用 p1-chapter-draft-generation：生成第 1 章正文草稿。
   await page.getByText("打开档案").first().click();
@@ -1540,6 +1588,7 @@ const drivers = {
   "p1-chapter-plan-minimum": driveP1ChapterPlanMinimum,
   "p1-chapter-draft-generation": driveP1ChapterDraftGeneration,
   "p1-chapter-adoption-reading": driveP1ChapterAdoptionReading,
+  "p1-word-count-audit": driveP1WordCountAudit,
   "p1-chapter-edit-then-accept": driveP1ChapterEditThenAccept,
   "p1-chapter-overwrite-confirm": driveP1ChapterOverwriteConfirm,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,

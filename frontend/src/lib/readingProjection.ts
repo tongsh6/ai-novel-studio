@@ -1,14 +1,17 @@
 // Design: docs/design-v2/ui-design/44-reading-mode.md §3 (accepted projection display)
 // Prototype: novel-studio-v2.pen → 44§3-reading-mode-stale (hEGz0)
-import type { TocData, ChapterContent } from "./socket";
+import type { TocData, WorkAudit, ChapterContent } from "./socket";
 import { normalizeVisibleWorkTitle } from "./workspaceRuntimeState";
 import { READING } from "./copy";
+
+export type ReadingChapterStatus = "empty" | "short" | "ok";
 
 export interface ReadingChapterView {
   id: string;
   title: string;
   seq: number;
   wordCount: number;
+  status: ReadingChapterStatus | null;
 }
 
 export interface ReadingVolumeView {
@@ -18,8 +21,19 @@ export interface ReadingVolumeView {
   chapters: ReadingChapterView[];
 }
 
+export interface ReadingWorkAudit {
+  totalWordCount: number;
+  totalTarget: number;
+  minChapterWords: number;
+  chapterCount: number;
+  shortChapterCount: number;
+  emptyChapterCount: number;
+  meetsThreshold: boolean;
+}
+
 export interface ReadingTocView {
   totalWordCount: number;
+  audit: ReadingWorkAudit | null;
   volumes: ReadingVolumeView[];
 }
 
@@ -32,6 +46,7 @@ export function normalizeReadingToc(toc: TocData | null): ReadingTocView | null 
 
   return {
     totalWordCount: safeWordCount(toc.total_word_count),
+    audit: normalizeWorkAudit(toc.audit),
     volumes: toc.volumes.map((volume) => ({
       ...volume,
       title: readableTitle(volume.title, "已采纳内容"),
@@ -39,9 +54,28 @@ export function normalizeReadingToc(toc: TocData | null): ReadingTocView | null 
         ...chapter,
         title: readableTitle(chapter.title, `已采纳片段 ${chapter.seq || 1}`),
         wordCount: safeWordCount(chapter.word_count),
+        status: normalizeChapterStatus(chapter.audit_status),
       })),
     })),
   };
+}
+
+function normalizeWorkAudit(audit: WorkAudit | null | undefined): ReadingWorkAudit | null {
+  if (!audit) return null;
+
+  return {
+    totalWordCount: safeWordCount(audit.total_word_count),
+    totalTarget: safeWordCount(audit.total_target),
+    minChapterWords: safeWordCount(audit.min_chapter_words),
+    chapterCount: safeWordCount(audit.chapter_count),
+    shortChapterCount: safeWordCount(audit.short_chapter_count),
+    emptyChapterCount: safeWordCount(audit.empty_chapter_count),
+    meetsThreshold: audit.meets_threshold === true,
+  };
+}
+
+function normalizeChapterStatus(value: unknown): ReadingChapterStatus | null {
+  return value === "empty" || value === "short" || value === "ok" ? value : null;
 }
 
 function safeWordCount(value: number | null | undefined): number {

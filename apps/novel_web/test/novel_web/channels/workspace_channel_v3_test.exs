@@ -1162,7 +1162,12 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
       ref = push(socket, "get_toc", %{"work_id" => "lobby"})
 
-      assert_reply(ref, :ok, %{work_id: "lobby", volumes: []})
+      assert_reply(ref, :ok, %{work_id: "lobby", volumes: [], audit: audit})
+      assert audit.stage == :p1
+      assert audit.min_chapter_words == 1_000
+      assert audit.total_target == 100_000
+      assert audit.chapter_count == 0
+      assert audit.meets_threshold == false
     end
 
     test "get_chapter_content rejects missing chapter instead of relying on mock content" do

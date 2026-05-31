@@ -8,6 +8,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
   import Ecto.Query
 
+  alias NovelDomain.ProseAudit
   alias NovelDomain.ProseWordCount
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelPersistence.Repo
@@ -16,8 +17,17 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
 
+  # 阅读视图按当前产品阶段（P1）审计正文有效字数。阶段阈值见
+  # NovelDomain.NovelMilestone / docs/product/novel-output-milestones.md §3。
+  @audit_stage :p1
+
   @spec toc(String.t()) ::
-          %{work_id: String.t(), total_word_count: non_neg_integer(), volumes: [map()]}
+          %{
+            work_id: String.t(),
+            total_word_count: non_neg_integer(),
+            audit: ProseAudit.work_audit(),
+            volumes: [map()]
+          }
   def toc(work_id) when is_binary(work_id) do
     case Ecto.UUID.cast(work_id) do
       {:ok, work_id} ->
@@ -36,19 +46,43 @@ defmodule NovelPersistence.ReadingProjectionRepo do
           |> Enum.map(&volume_with_chapters(&1, chapters))
           |> Enum.reject(&(Map.get(&1, :chapters) == []))
 
+        audit =
+          rendered_volumes
+          |> Enum.flat_map(& &1.chapters)
+          |> Enum.map(& &1.word_count)
+          |> ProseAudit.summarize(@audit_stage)
+
         %{
           work_id: work_id,
-          total_word_count:
-            rendered_volumes
-            |> Enum.flat_map(& &1.chapters)
-            |> Enum.map(& &1.word_count)
-            |> Enum.sum(),
-          volumes: rendered_volumes
+          total_word_count: audit.total_word_count,
+          audit: audit,
+          volumes: annotate_audit_status(rendered_volumes, audit.min_chapter_words)
         }
 
       :error ->
-        %{work_id: work_id, total_word_count: 0, volumes: []}
+        %{
+          work_id: work_id,
+          total_word_count: 0,
+          audit: ProseAudit.summarize([], @audit_stage),
+          volumes: []
+        }
     end
+  end
+
+  # 给每章附上审计状态（empty/short/ok），供阅读消费者标记短章/空章。
+  defp annotate_audit_status(volumes, min_chapter_words) do
+    Enum.map(volumes, &annotate_volume(&1, min_chapter_words))
+  end
+
+  defp annotate_volume(volume, min_chapter_words) do
+    Map.update!(volume, :chapters, fn chapters ->
+      Enum.map(chapters, &annotate_chapter(&1, min_chapter_words))
+    end)
+  end
+
+  defp annotate_chapter(chapter, min_chapter_words) do
+    status = ProseAudit.chapter_status(chapter.word_count, min_chapter_words)
+    Map.put(chapter, :audit_status, status)
   end
 
   @spec chapter_content(String.t(), String.t()) ::

@@ -410,6 +410,11 @@ export const READING = {
   totalWordsLabel: "全书有效字数",
   chapterWordsLabel: "本章有效字数",
   wordsUnit: "字",
+  shortChapterBadge: "短章",
+  emptyChapterBadge: "空章",
+  milestoneProgressLabel: "P1 进度",
+  milestoneMetLabel: "已达 P1 目标",
+  chaptersBelowMinSuffix: "章待补足",
 } as const;
 
 // ============================================================

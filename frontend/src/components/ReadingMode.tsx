@@ -27,6 +27,8 @@ export function ReadingMode() {
 
   const tocView = normalizeReadingToc(toc);
   const totalWordCount = tocView?.totalWordCount ?? 0;
+  const audit = tocView?.audit ?? null;
+  const belowMinCount = audit ? audit.shortChapterCount + audit.emptyChapterCount : 0;
   const chapters = tocView?.volumes.flatMap((volume) => volume.chapters) ?? [];
   const activeChapter = chapters.find((chapter) => chapter.id === activeChapterId);
   const readableChapterContent = chapterContent
@@ -127,6 +129,23 @@ export function ReadingMode() {
               </span>
             </>
           )}
+          {hasContent && audit && audit.chapterCount > 0 && (
+            <>
+              <span className={styles.divider}>/</span>
+              {audit.meetsThreshold ? (
+                <span className={styles.milestoneMet}>{READING.milestoneMetLabel}</span>
+              ) : (
+                <span className={styles.milestoneProgress}>
+                  {READING.milestoneProgressLabel}{" "}
+                  {audit.totalWordCount.toLocaleString()} / {audit.totalTarget.toLocaleString()}{" "}
+                  {READING.wordsUnit}
+                  {belowMinCount > 0
+                    ? ` · ${belowMinCount} ${READING.chaptersBelowMinSuffix}`
+                    : ""}
+                </span>
+              )}
+            </>
+          )}
         </div>
         <button
           className={styles.backBtn}
@@ -158,6 +177,12 @@ export function ReadingMode() {
                       onClick={() => setActiveChapterId(ch.id)}
                     >
                       <span className={styles.tocChapterTitle}>{ch.title}</span>
+                      {ch.status === "empty" && (
+                        <span className={styles.auditBadge}>{READING.emptyChapterBadge}</span>
+                      )}
+                      {ch.status === "short" && (
+                        <span className={styles.auditBadge}>{READING.shortChapterBadge}</span>
+                      )}
                       {ch.wordCount > 0 && (
                         <span className={styles.tocChapterWords}>{formatWordCount(ch.wordCount)}</span>
                       )}

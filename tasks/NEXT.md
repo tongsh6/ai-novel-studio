@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-05-24
+> 最后更新：2026-05-31
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 
@@ -8,9 +8,9 @@
 
 ## 1. Current Focus
 
-**P1 10 万字最小长篇闭环：单章正文采纳与阅读**
+**P1 10 万字最小长篇闭环：正文有效字数审计（短章/空章/门槛）已闭环 → 重复检测 / 缺章 / 导出**
 
-AU-02 / AU-05 候选方向到采纳边界已闭环；P1 章节计划最小闭环与单章正文草稿生成也已闭环：真实 Tauri 工作台可从作品档案“大纲与结构”读取已采纳章节计划，点击章节生成 `prose_fragment` 待采纳正文草稿，并证明未采纳正文不进入 Reading Projection。下一阶段沿 Journey D 继续推进，证明作者采纳正文草稿后，正文进入作品事实和阅读模式。
+P1 主链已连续闭环到「正文有效字数审计 checkpoint A」：章节计划 → 单章正文草稿 → 采纳（accept / edit_then_accept / 覆盖确认重新 gate）→ 进入作品事实与 Reading Projection → 显示有效字数 → **审计短章/空章并判定 P1 门槛**，全部由真实 Tauri 工作台验收（确定性，多处含 `--real-lmstudio`）。当前断点转入 P1-word-count-audit 的 checkpoint B/C（重复段落、缺章率 + word-count.json 完整版）与 P1-export-minimum。
 
 ## 2. Why This Focus
 
@@ -71,7 +71,12 @@ P1 的最终目标不是一次性生成 10 万字，而是让真实工作台具�
 | 10 | AU05-canon-conflict-recovery | checkpoint closed | - | 与当前 canon/revision 冲突的候选不能静默采纳，必须进入恢复失败或后续覆盖确认。 | `artifacts/slice-verify/au05-canon-conflict-recovery-tauri/summary.json`；真实工作台触发 canon conflict 采纳，服务端返回 `fail_with_recovery`，UI 显示失败原因且不写 production fact。 |
 | 11 | P1-chapter-plan-minimum | done | - | P1 10 万字最小长篇闭环需要先有可采纳、可追踪、可消费的章节计划；否则后续逐章正文、有效字数统计、阅读投影和导出都没有稳定路线图。 | `artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`；Tauri：真实工作台生成并采纳 12 章章节计划，作品档案可读取，未采纳计划不进入作品事实。 |
 | 12 | P1-chapter-draft-generation | done | - | 已采纳章节计划已经成为正文生产输入；真实工作台可从章节计划生成 `prose_fragment` 待采纳正文草稿，且未采纳正文不进入阅读模式。 | `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；Tauri：真实工作台基于已采纳章节计划生成单章正文草稿，正文草稿以 tentative artifact 展示，阅读模式在采纳前为空。 |
-| 13 | P1-chapter-adoption-reading | next | - | 正文草稿不能停留在聊天卡片里；下一步证明作者采纳正文后，正文进入作品事实和 Reading Projection，ReadingMode 可读取章节正文。 | `tasks/slices/P1-chapter-adoption-reading.md`；Tauri：真实工作台生成正文草稿并采纳，ReadingMode 目录和章节正文从 Channel 读取到已采纳内容。 |
+| 13 | P1-chapter-adoption-reading | done | - | 作者采纳正文后进入作品事实和 Reading Projection，ReadingMode 读取章节正文与有效字数。 | `artifacts/slice-verify/p1-chapter-adoption-reading-tauri{,-lmstudio}/summary.json` |
+| 14 | P1-chapter-edit-then-accept / overwrite-confirm | done | - | 采纳三元组补齐（edit_then_accept 全文替换）+ 覆盖已有正文需确认重新 gate（AU-04/06 核心）。 | `artifacts/slice-verify/p1-chapter-edit-then-accept-tauri*/summary.json`；`artifacts/slice-verify/p1-chapter-overwrite-confirm-tauri*/summary.json` |
+| 15 | P1-word-count-audit（checkpoint A）| done | - | 在有效字数之上补审计层：短章/空章判定 + P1 门槛；ReadingMode 目录标记短章/空章、顶栏达标进度。 | `artifacts/slice-verify/p1-word-count-audit-tauri/summary.json`；`tasks/slices/P1-word-count-audit.md` |
+| 16 | P1-chapter-expansion | next | - | 单章续写累积到达标（每章 ≥1000）。数据流地基已就位（plan→provenance→采纳 append/overwrite，后端 635 绿）；剩 Planner 真实 LLM 意图识别（AI 非关键字）+ Tauri 验收。 | `tasks/slices/P1-chapter-expansion.md` |
+| 17 | P1-word-count-audit-repetition-gaps | blocked | 16 | 重复段落/重复章检测（B）+ 缺章率与 word-count.json 完整版（C）。质量放后。 | `tasks/slices/P1-word-count-audit.md` §3/§6 |
+| 18 | P1-export-minimum | blocked | 16 | 导出完整 Markdown/txt，目录与章节顺序可验证。 | `docs/product/novel-output-milestones.md` §7 #5 |
 
 ## 5. Selection Rule
 
@@ -101,3 +106,7 @@ P1 的最终目标不是一次性生成 10 万字，而是让真实工作台具�
 | 2026-05-24 | `AU05-canon-conflict-recovery` 的 canon conflict checkpoint 已闭环，队首推进到 `P1-chapter-plan-minimum`。 | 原生 Tauri 外部 UI driver 证明真实工作台恢复出带结构化 `canon_conflicts` 的“年龄设定覆盖”候选后，作者点击“采用这个方向”，服务端授权 `choose_candidate` 经 `AdoptionBoundary` 返回 `fail_with_recovery`，reason_codes 包含 `canon_conflict_detected` / `conflict_recovery_required`，UI 显示“候选方向采用失败”，`candidate_adopted=false` 且 `production_write_performed=false`。下一步按 `docs/product/novel-output-milestones.md` 转向 P1 长篇产出主链的章节计划最小闭环。 |
 | 2026-05-24 | `P1-chapter-plan-minimum` 已闭环，队首推进到 `P1-chapter-draft-generation`。 | 原生 Tauri 外部 UI driver 证明真实工作台从作品档案“大纲与结构”点击“开始规划”，发送带 micro plan 的章节大纲请求，`plot_outline` 生成 12 章 `outline_draft`，作者点击真实“采纳”后经 `AdoptionBoundary` 持久化为作品档案章节计划；`outline_draft` 不 materialize Reading Projection，作品档案 `get_chapter_plans` 可读取并显示首章和终章标题。 |
 | 2026-05-24 | `P1-chapter-draft-generation` 已闭环，队首推进到 `P1-chapter-adoption-reading`。 | 原生 Tauri 外部 UI driver 证明真实工作台从已采纳章节计划点击第 1 章“生成正文草稿”，发送带 micro plan 的正文请求，`prose_writing` 生成 `prose_fragment` 待采纳正文草稿；UI 显示“正文草稿待采纳”，未发送 adopt 事件，ReadingMode 在采纳前为空且未泄漏正文草稿。 |
+| 2026-05-29 | `P1-chapter-adoption-reading` 闭环，并补齐 `edit_then_accept`、覆盖确认重新 gate（B1/B2）。 | 真实 accept 接通采纳持久化（纠正空兜底高估）；采纳三元组 + 覆盖确认；两 provider Tauri 通过。 |
+| 2026-05-30 | AU-09 记忆召回端到端（create / adopt-setting / validity-window）闭环；code-review 回归（behavior_state 形状、章节身份 A2–A6）修复。 | 见 `docs/project-ledger.md` 对应条目。 |
+| 2026-05-31 | `P1-word-count-audit` checkpoint A 闭环，队首推进到 checkpoint B/C（重复/缺章）。 | `NovelDomain.ProseAudit` + `NovelMilestone` 审计层；`ReadingProjectionRepo.toc` 附 audit；ReadingMode 标记短章/空章 + P1 达标进度；确定性 Tauri 验收 `short_chapter_marked=true`、`milestone_met=false`（168 字短章）。后端 631 + 全门禁绿。 |
+| 2026-05-31 | 质量门禁收敛（word-count B/C）放后，新焦点 `P1-chapter-expansion`：单章续写累积到达标，数据流地基已就位。 | 字数审计暴露"全是短章"，根因是采纳把章/场景塌缩成单场景 + 缺续写产出。续写累积对齐 v2 21 §6.6/ADR-0004；意图识别走 v3 DialogueFrame/Planner（AI 非关键字），意图作为 artifact provenance 顺现有数据流。本轮完成数据流地基（plan→artifact provenance→采纳 append/overwrite），后端 635 绿；未闭环：Planner 真实 LLM 识别 + Tauri（队首仍为本 slice）。 |

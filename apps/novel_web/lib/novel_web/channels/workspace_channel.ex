@@ -392,7 +392,11 @@ defmodule NovelWeb.WorkspaceChannel do
     LogEmit.emit(:channel, :get_toc, :done, %{
       work_id: work_id,
       volume_count: length(data.volumes),
-      chapter_count: data.volumes |> Enum.flat_map(& &1.chapters) |> length()
+      chapter_count: data.volumes |> Enum.flat_map(& &1.chapters) |> length(),
+      total_word_count: data.total_word_count,
+      short_chapter_count: data.audit.short_chapter_count,
+      empty_chapter_count: data.audit.empty_chapter_count,
+      meets_threshold: data.audit.meets_threshold
     })
 
     {:reply, {:ok, data}, socket}

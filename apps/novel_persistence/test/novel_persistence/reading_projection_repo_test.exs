@@ -69,6 +69,45 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
     end
   end
 
+  describe "toc/1 字数审计（P1）" do
+    test "空作品 audit 为空且不达标" do
+      assert %{audit: audit} = ReadingProjectionRepo.toc(Ecto.UUID.generate())
+      assert audit.stage == :p1
+      assert audit.min_chapter_words == 1_000
+      assert audit.total_target == 100_000
+      assert audit.chapter_count == 0
+      assert audit.total_word_count == 0
+      assert audit.meets_threshold == false
+    end
+
+    test "短章被标记 audit_status :short 并计入 work audit" do
+      work_id = Ecto.UUID.generate()
+      insert_reading_chain(work_id, "第一卷", "第一章", "他终于醒来", :accepted)
+
+      assert %{
+               audit: %{
+                 stage: :p1,
+                 chapter_count: 1,
+                 short_chapter_count: 1,
+                 ok_chapter_count: 0,
+                 empty_chapter_count: 0,
+                 meets_threshold: false
+               },
+               volumes: [%{chapters: [%{word_count: 5, audit_status: :short}]}]
+             } = ReadingProjectionRepo.toc(work_id)
+    end
+
+    test "纯标点空白的已采纳内容为空章 audit_status :empty" do
+      work_id = Ecto.UUID.generate()
+      insert_reading_chain(work_id, "第一卷", "第一章", "，。！？ ……", :accepted)
+
+      assert %{
+               audit: %{empty_chapter_count: 1, short_chapter_count: 0},
+               volumes: [%{chapters: [%{word_count: 0, audit_status: :empty}]}]
+             } = ReadingProjectionRepo.toc(work_id)
+    end
+  end
+
   describe "chapter_content/2" do
     test "returns ordered scenes with latest accepted draft content" do
       work_id = Ecto.UUID.generate()

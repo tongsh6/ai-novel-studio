@@ -143,7 +143,7 @@ describe("card type contracts", () => {
     expect(
       normalizeChapterContentTitle(
         { title: "as_15", scenes: [{ title: "as_15", content: "正文" }] },
-        { id: "ch-1", title: "已采纳片段 1", seq: 1, wordCount: 0 },
+        { id: "ch-1", title: "已采纳片段 1", seq: 1, wordCount: 0, status: null },
       ),
     ).toEqual({
       title: "已采纳片段 1",

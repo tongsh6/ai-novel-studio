@@ -73,10 +73,12 @@ defmodule NovelApplication.AdoptionWorkflow do
     |> Map.put(:overwrite, overwrite_existing?(overwrite_reader, work_context.work_id, artifact))
   end
 
+  # 续写（append）是追加新场景，不是覆盖，不需确认；只有重写/默认覆盖才查目标章已有正文。
   defp overwrite_existing?(reader, work_id, artifact)
        when is_function(reader, 2) and is_binary(work_id) do
-    reading_projection_artifact_type?(artifact_field(artifact, :artifact_type)) and
-      reader.(work_id, artifact_summary(artifact))
+    adoption_mode(artifact) == :overwrite and
+      reading_projection_artifact_type?(artifact_field(artifact, :artifact_type)) and
+      reader.(work_id, adoption_chapter_title(artifact))
   end
 
   defp overwrite_existing?(_reader, _work_id, _artifact), do: false
@@ -343,7 +345,8 @@ defmodule NovelApplication.AdoptionWorkflow do
       artifact_type: artifact_field(artifact, :artifact_type),
       base_revision: normalized_base_revision(artifact_field(artifact, :revision_base)),
       content: artifact_content(artifact),
-      summary: artifact_summary(artifact),
+      summary: adoption_chapter_title(artifact),
+      mode: adoption_mode(artifact),
       decision_id: decision.adoption_decision_id
     }
 
@@ -763,6 +766,29 @@ defmodule NovelApplication.AdoptionWorkflow do
       reason_codes: decision.reason_codes,
       projection_hints: decision.projection_hints
     }
+  end
+
+  # 采纳 provenance → 持久化分流：续写 append 同章新场景累积；重写/默认 overwrite 覆盖。
+  defp adoption_mode(artifact) do
+    case artifact_field(artifact, :authoring_intent) do
+      :continuation -> :append
+      "continuation" -> :append
+      _ -> :overwrite
+    end
+  end
+
+  # 续写/重写归目标章（target_chapter provenance）；无则回退 artifact 标题。
+  defp adoption_chapter_title(artifact) do
+    case artifact_field(artifact, :target_chapter) do
+      title when is_binary(title) ->
+        case String.trim(title) do
+          "" -> artifact_summary(artifact)
+          trimmed -> trimmed
+        end
+
+      _ ->
+        artifact_summary(artifact)
+    end
   end
 
   defp artifact_summary(artifact) do

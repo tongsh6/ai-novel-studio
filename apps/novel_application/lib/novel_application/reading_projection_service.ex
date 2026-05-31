@@ -8,7 +8,12 @@ defmodule NovelApplication.ReadingProjectionService do
 
   alias NovelPersistence.ReadingProjectionRepo
 
-  @type toc :: %{work_id: String.t(), total_word_count: non_neg_integer(), volumes: [map()]}
+  @type toc :: %{
+          work_id: String.t(),
+          total_word_count: non_neg_integer(),
+          audit: map(),
+          volumes: [map()]
+        }
   @type chapter_content :: %{
           id: String.t(),
           title: String.t(),

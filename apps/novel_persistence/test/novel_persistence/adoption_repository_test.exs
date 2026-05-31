@@ -3,6 +3,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
 
   import Ecto.Query
 
+  alias NovelDomain.ProseWordCount
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
@@ -213,5 +214,95 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert AdoptionRepository.has_accepted_chapter?(work_id, "已采纳内容")
       refute AdoptionRepository.has_accepted_chapter?(work_id, "不存在的章")
     end
+  end
+
+  describe "续写累积多场景 (append)" do
+    test "续写同章落为新场景累积字数，不 supersede 已采纳场景" do
+      work_id = Ecto.UUID.generate()
+
+      first = "林澈摸黑钻进矿道。"
+      second = "矿道深处，灵脉在岩壁上搏动。"
+
+      # 首段：默认（overwrite）采纳第 1 章第一段
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-1",
+                 artifact_id: "as-ch1-s1",
+                 artifact_type: :prose_fragment,
+                 content: first,
+                 summary: "第01章：底层灵气账单"
+               })
+
+      # 续写：append 模式落为同章新场景，不覆盖第一段
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-2",
+                 artifact_id: "as-ch1-s2",
+                 artifact_type: :prose_fragment,
+                 content: second,
+                 summary: "第01章：底层灵气账单",
+                 mode: :append
+               })
+
+      # 同一章两个场景，两段正文都在（旧场景未被 supersede）
+      assert {:ok, %{title: "第01章：底层灵气账单", scenes: scenes}} =
+               chapter_content_for(work_id, "第01章：底层灵气账单")
+
+      contents = Enum.map(scenes, & &1.content)
+      assert length(scenes) == 2
+      assert first in contents
+      assert second in contents
+
+      # 字数 = 两段有效字数之和；仍只有一章
+      assert %{volumes: [%{chapters: [%{word_count: word_count}]}], audit: audit} =
+               ReadingProjectionRepo.toc(work_id)
+
+      assert word_count == ProseWordCount.count(first) + ProseWordCount.count(second)
+      assert audit.chapter_count == 1
+    end
+
+    test "重写（默认 overwrite）仍 supersede 旧场景，不累积" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "t1",
+                 artifact_id: "a1",
+                 artifact_type: :prose_fragment,
+                 content: "初版正文。",
+                 summary: "第01章"
+               })
+
+      assert {:ok, _} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "t2",
+                 artifact_id: "a2",
+                 artifact_type: :prose_fragment,
+                 content: "重写版正文。",
+                 summary: "第01章"
+               })
+
+      assert {:ok, %{scenes: [%{content: "重写版正文。"}]}} =
+               chapter_content_for(work_id, "第01章")
+    end
+  end
+
+  defp chapter_content_for(work_id, title) do
+    %{volumes: volumes} = ReadingProjectionRepo.toc(work_id)
+
+    chapter =
+      volumes
+      |> Enum.flat_map(& &1.chapters)
+      |> Enum.find(&(&1.title == title))
+
+    ReadingProjectionRepo.chapter_content(chapter.id, work_id)
   end
 end

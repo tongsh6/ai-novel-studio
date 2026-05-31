@@ -36,7 +36,7 @@ defmodule NovelApplication.TurnExecutionService do
   def execute(%{frame: frame, plan: plan, decision: decision} = input) do
     req = build_tool_request(frame, plan, decision, input)
     tool_result = dispatch_tool(req, input[:complete_fn])
-    artifact_set = assemble_artifact(tool_result, frame.turn_id)
+    artifact_set = assemble_artifact(tool_result, frame.turn_id, plan)
 
     {trace, trace_summary} =
       TraceWriter.record_with_tool(
@@ -128,15 +128,25 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp dispatch_tool(%ToolRequest{} = req, _complete_fn), do: Toolbox.execute(req)
 
-  defp assemble_artifact(%ToolResult{tool_name: tool_name} = result, turn_id)
+  defp assemble_artifact(%ToolResult{tool_name: tool_name} = result, turn_id, plan)
        when tool_name in @creative_tools do
-    case ArtifactAssembler.assemble(result, turn_id) do
+    case ArtifactAssembler.assemble(result, turn_id, plan_provenance(plan)) do
       {:ok, artifact_set} -> artifact_set
       {:error, _reason} -> nil
     end
   end
 
-  defp assemble_artifact(_result, _turn_id), do: nil
+  defp assemble_artifact(_result, _turn_id, _plan), do: nil
+
+  # 把本轮 MicroPlan 的生成意图（续写/重写 + 目标章）作为 provenance 传给 artifact 创建边界。
+  defp plan_provenance(%MicroPlan{proposed_actions: [action | _]}) when is_map(action) do
+    %{
+      authoring_intent: Map.get(action, :authoring_intent),
+      target_chapter: Map.get(action, :target_chapter)
+    }
+  end
+
+  defp plan_provenance(_), do: %{}
 
   defp narrate(%ToolResult{status: :succeeded} = tool_result, complete_fn)
        when is_function(complete_fn, 1) do

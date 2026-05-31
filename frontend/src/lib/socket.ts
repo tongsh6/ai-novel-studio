@@ -218,15 +218,36 @@ export function retryAction(
   });
 }
 
+export type ChapterAuditStatus = "empty" | "short" | "ok";
+
+export interface WorkAudit {
+  stage?: string;
+  min_chapter_words?: number;
+  total_target?: number;
+  total_word_count?: number;
+  chapter_count?: number;
+  ok_chapter_count?: number;
+  short_chapter_count?: number;
+  empty_chapter_count?: number;
+  meets_threshold?: boolean;
+}
+
 export interface TocVolume {
   id: string;
   title: string;
   seq: number;
-  chapters: { id: string; title: string; seq: number; word_count?: number }[];
+  chapters: {
+    id: string;
+    title: string;
+    seq: number;
+    word_count?: number;
+    audit_status?: ChapterAuditStatus;
+  }[];
 }
 
 export interface TocData {
   total_word_count?: number;
+  audit?: WorkAudit;
   volumes: TocVolume[];
 }
 
