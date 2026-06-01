@@ -17,7 +17,10 @@ defmodule NovelApplication.ContextAssembler do
   fetcher 是一个函数 `(workspace_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary})`。
   测试中可注入 stub fetcher。
   """
-  @type fetcher_return :: {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil}
+  # fetcher 可返回 5 元组（无章节，向后兼容既有 stub）或 6 元组（末位为已采纳章节标题列表）。
+  @type fetcher_return ::
+          {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil}
+          | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()]}
   @spec assemble(String.t(), (String.t() -> fetcher_return())) :: DialogueContext.t()
   def assemble(workspace_id, fetcher \\ &default_fetch/1) do
     assemble_for_input(workspace_id, nil, fetcher, [])
@@ -36,8 +39,10 @@ defmodule NovelApplication.ContextAssembler do
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:context, :assemble, :start, %{})
 
-    {:ok, snapshot, conv_summary, mem_summary, behavior_summary} =
-      call_fetcher(fetcher, workspace_id, author_text, Keyword.get(opts, :session_id))
+    {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters} =
+      fetcher
+      |> call_fetcher(workspace_id, author_text, Keyword.get(opts, :session_id))
+      |> normalize_fetch_result()
 
     refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary)
 
@@ -58,12 +63,23 @@ defmodule NovelApplication.ContextAssembler do
       conversation_summary: conv_summary,
       memory_summary: mem_summary,
       open_behavior_summary: behavior_summary,
+      current_chapters: chapters,
       context_refs: refs,
       assembled_at: DateTime.utc_now() |> DateTime.to_iso8601()
     }
   end
 
   defp default_fetch(_workspace_id), do: {:ok, nil, nil, nil, nil}
+
+  # fetcher 可返回 5 或 6 元组；统一补齐为带章节列表的 6 元组（缺省空列表）。
+  defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters}),
+    do: {:ok, snapshot, conv, mem, behavior, normalize_chapters(chapters)}
+
+  defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior}),
+    do: {:ok, snapshot, conv, mem, behavior, []}
+
+  defp normalize_chapters(chapters) when is_list(chapters), do: chapters
+  defp normalize_chapters(_), do: []
 
   defp session_summary?(summary) when is_binary(summary),
     do: String.contains?(summary, "会话早期摘要")

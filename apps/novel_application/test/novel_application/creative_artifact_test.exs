@@ -373,6 +373,113 @@ defmodule NovelApplication.CreativeArtifactTest do
     end
   end
 
+  describe "Planner authoring intent recognition (P1 chapter expansion)" do
+    test "maps continuation authoring_intent + target_chapter from plan json" do
+      complete_fn = fn _prompt ->
+        {:ok, %{content: plan_json_with_intent("prose_writing", "continuation", "第01章：底层灵气账单")}}
+      end
+
+      assert {:ok, plan} =
+               Planner.form_micro_plan(frame("turn-cont"), %{text: "接着第一章往下写"}, complete_fn)
+
+      action = hd(plan.proposed_actions)
+      assert action.authoring_intent == :continuation
+      assert action.target_chapter == "第01章：底层灵气账单"
+    end
+
+    test "maps rewrite authoring_intent from plan json" do
+      complete_fn = fn _prompt ->
+        {:ok, %{content: plan_json_with_intent("prose_writing", "rewrite", "第01章：底层灵气账单")}}
+      end
+
+      assert {:ok, plan} =
+               Planner.form_micro_plan(frame("turn-rw"), %{text: "第一章太平了，推翻重写"}, complete_fn)
+
+      action = hd(plan.proposed_actions)
+      assert action.authoring_intent == :rewrite
+      assert action.target_chapter == "第01章：底层灵气账单"
+    end
+
+    test "defaults to nil authoring_intent when plan json omits it (new chapter)" do
+      complete_fn = fn _prompt -> {:ok, %{content: plan_json("prose_writing")}} end
+
+      assert {:ok, plan} =
+               Planner.form_micro_plan(frame("turn-new"), %{text: "写新一章正文"}, complete_fn)
+
+      action = hd(plan.proposed_actions)
+      assert action.authoring_intent == nil
+      assert action.target_chapter == nil
+    end
+
+    test "plan prompt lists accepted chapters from context for target resolution" do
+      {:ok, prompt_agent} = Agent.start_link(fn -> [] end)
+
+      complete_fn = fn prompt ->
+        Agent.update(prompt_agent, &[prompt | &1])
+        {:ok, %{content: plan_json("prose_writing")}}
+      end
+
+      context = %NovelDomain.DialogueContext{
+        workspace_id: "ws",
+        current_chapters: ["第01章：底层灵气账单", "第02章：宗门试炼"]
+      }
+
+      assert {:ok, _plan} =
+               Planner.form_micro_plan(frame("turn-ctx"), %{text: "接着写"}, complete_fn, context)
+
+      [prompt] = Agent.get(prompt_agent, & &1)
+      assert prompt =~ "已采纳章节"
+      assert prompt =~ "第01章：底层灵气账单"
+      assert prompt =~ "第02章：宗门试炼"
+    end
+  end
+
+  describe "DialogueGateway continuation provenance flow" do
+    test "continuation intent flows to pending artifact provenance with chapter context" do
+      prompt_agent = start_supervised!({Agent, fn -> [] end})
+
+      complete_fn =
+        sequenced_complete_fn(
+          [
+            frame_json(),
+            plan_json_with_intent("prose_writing", "continuation", "第01章：底层灵气账单"),
+            Jason.encode!([single_item("cont-scene")]),
+            "已生成待确认的续写正文，尚未采纳。"
+          ],
+          prompt_agent
+        )
+
+      context_fetcher = fn _ws, _text, _session ->
+        {:ok, nil, nil, nil, nil, ["第01章：底层灵气账单"]}
+      end
+
+      {:ok, turn_result, _trace, _candidates, context} =
+        DialogueGateway.handle_input(
+          %{
+            text: "接着第一章往下写",
+            workspace_id: "ws-cont",
+            session_id: "s-cont",
+            generate_micro_plan: true
+          },
+          context_fetcher,
+          complete_fn
+        )
+
+      # 计划 prompt（第 2 次 LLM 调用）带上已采纳章节，供 LLM 解析目标章
+      plan_prompt = prompt_agent |> Agent.get(&Enum.reverse/1) |> Enum.at(1)
+      assert plan_prompt =~ "已采纳章节"
+      assert plan_prompt =~ "第01章：底层灵气账单"
+
+      # 章节经 6 元组 fetcher 进入 context
+      assert context.current_chapters == ["第01章：底层灵气账单"]
+
+      # pending artifact 带续写 provenance（顺数据流到采纳层 append 同章新场景）
+      [pending] = turn_result.adoption_state.pending
+      assert pending.authoring_intent == :continuation
+      assert pending.target_chapter == "第01章：底层灵气账单"
+    end
+  end
+
   defp request(tool_name) do
     entry = CapabilityRegistry.get(tool_name)
 
@@ -450,6 +557,29 @@ defmodule NovelApplication.CreativeArtifactTest do
           "target_ref" => tool_name,
           "write_intent" => "tentative",
           "risk_hint" => "low"
+        }
+      ],
+      "state_changes_requested" => [],
+      "required_capabilities" => [tool_name],
+      "fallback_message" => "无法执行"
+    })
+  end
+
+  defp plan_json_with_intent(tool_name, authoring_intent, target_chapter) do
+    Jason.encode!(%{
+      "plan_goal_summary" => "调用 #{tool_name}",
+      "risk_hint" => if(authoring_intent == "rewrite", do: "high", else: "low"),
+      "requires_confirmation_hint" => false,
+      "proposed_actions" => [
+        %{
+          "action_id" => "a1",
+          "action_type" => "capability_invocation",
+          "summary" => "调用 #{tool_name}",
+          "target_ref" => tool_name,
+          "write_intent" => "tentative",
+          "risk_hint" => "low",
+          "authoring_intent" => authoring_intent,
+          "target_chapter" => target_chapter
         }
       ],
       "state_changes_requested" => [],

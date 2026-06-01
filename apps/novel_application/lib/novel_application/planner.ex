@@ -92,15 +92,21 @@ defmodule NovelApplication.Planner do
   VS-01：Planner 只能建议，不能批准。Orchestrator 裁决所有执行。
 
   `complete_fn` 可注入，默认走 Gateway.complete/1。
+  `context` 携带已采纳章节标题，供 LLM 识别"续写/重写哪一章"并解析目标章。
   """
-  @spec form_micro_plan(DialogueFrame.t(), map(), complete_fn()) ::
+  @spec form_micro_plan(DialogueFrame.t(), map(), complete_fn(), DialogueContext.t() | nil) ::
           {:ok, MicroPlan.t()} | {:error, term()}
-  def form_micro_plan(%DialogueFrame{} = frame, author_input, complete_fn \\ &Gateway.complete/1) do
+  def form_micro_plan(
+        %DialogueFrame{} = frame,
+        author_input,
+        complete_fn \\ &Gateway.complete/1,
+        context \\ nil
+      ) do
     plan_id = "plan_#{System.unique_integer([:positive, :monotonic])}"
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:planner, :form_micro_plan, :start, %{})
 
-    prompt = build_plan_prompt(frame, author_input)
+    prompt = build_plan_prompt(frame, author_input, context)
 
     res =
       case with_turn_context(frame.turn_id, "form_micro_plan", fn -> complete_fn.(prompt) end) do
@@ -129,7 +135,7 @@ defmodule NovelApplication.Planner do
     res
   end
 
-  defp build_plan_prompt(frame, author_input) do
+  defp build_plan_prompt(frame, author_input, context) do
     tools = CapabilityRegistry.list()
 
     """
@@ -147,7 +153,7 @@ defmodule NovelApplication.Planner do
     - 大纲、章节规划、剧情走向 → plot_outline
     - 角色、人物、小传、动机、关系 → character_design
     - 世界观、规则体系、门派/组织/地理/设定 → world_building
-
+    #{accepted_chapters_section(context)}
     ## 用户输入
     #{author_input.text}
 
@@ -162,12 +168,20 @@ defmodule NovelApplication.Planner do
           "summary": "人类可读的动作描述",
           "target_ref": "工具名称 (如 world_building, character_design, plot_outline, prose_writing)",
           "write_intent": "none" | "tentative",
-          "risk_hint": "low" | "medium" | "high"
+          "risk_hint": "low" | "medium" | "high",
+          "authoring_intent": "none" | "continuation" | "rewrite",
+          "target_chapter": "要续写/重写的已有章节标题；不针对已有章则为 null"
         }
       ],
       "required_capabilities": ["world_building"],
       "fallback_message": "如果无法执行，降级为对话时告诉作者什么"
     }
+
+    ## 续写 / 重写意图识别（针对已有章节时必填）
+    - 作者想在某个已有章节"接着往下写 / 继续 / 补一段 / 加场景" → authoring_intent = "continuation"，target_chapter 必须精确复制上面"已采纳章节"列表中的某个标题
+    - 作者想"推翻重写 / 改写 / 重新写"某个已有章节 → authoring_intent = "rewrite"，target_chapter 同样精确复制已有标题，risk_hint 用 "high"
+    - 写全新章节、大纲、角色、设定，或没有已采纳章节可参照 → authoring_intent = "none"，target_chapter = null
+    - 无法确定指向哪一章时，宁可用 "none"（新增低风险），不要猜一个不在列表里的标题
 
     ## 重要
     - proposed_actions 只能包含 capability_invocation 类型的动作
@@ -177,6 +191,14 @@ defmodule NovelApplication.Planner do
     - risk_hint 默认用 "low"
     """
   end
+
+  defp accepted_chapters_section(%DialogueContext{current_chapters: [_ | _] = chapters}) do
+    listed = Enum.map_join(chapters, "\n", &"- #{&1}")
+
+    "\n## 已采纳章节（续写/重写的 target_chapter 必须精确取自此列表）\n#{listed}\n"
+  end
+
+  defp accepted_chapters_section(_context), do: ""
 
   defp build_micro_plan(parsed, plan_id, frame) do
     actions =
@@ -190,7 +212,9 @@ defmodule NovelApplication.Planner do
           summary: Map.get(a, "summary", ""),
           target_ref: Map.get(a, "target_ref"),
           write_intent: to_write_intent(Map.get(a, "write_intent", "none")),
-          risk_hint: to_risk_hint(Map.get(a, "risk_hint", "low"))
+          risk_hint: to_risk_hint(Map.get(a, "risk_hint", "low")),
+          authoring_intent: to_authoring_intent(Map.get(a, "authoring_intent")),
+          target_chapter: normalize_target_chapter(Map.get(a, "target_chapter"))
         }
       end)
 
@@ -834,6 +858,20 @@ defmodule NovelApplication.Planner do
   defp to_write_intent("tentative"), do: :tentative
   defp to_write_intent("production_candidate"), do: :production_candidate
   defp to_write_intent(_), do: :none
+
+  # 续写/重写意图：只认 continuation / rewrite，其它（含 "none"/缺失）一律 nil（非续写/重写）。
+  defp to_authoring_intent("continuation"), do: :continuation
+  defp to_authoring_intent("rewrite"), do: :rewrite
+  defp to_authoring_intent(_), do: nil
+
+  defp normalize_target_chapter(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_target_chapter(_), do: nil
 
   defp to_risk_hint("medium"), do: :medium
   defp to_risk_hint("high"), do: :high

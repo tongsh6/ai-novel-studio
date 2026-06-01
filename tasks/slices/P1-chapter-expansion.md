@@ -1,6 +1,6 @@
 # P1 Chapter Expansion / 单章正文续写累积到达标
 
-- 状态：in_progress（checkpoint 1 实现中）
+- 状态：checkpoint 1 closed（2026-06-01）— 两 provider Tauri 验收通过
 - 类型：Product Slice / Novel Output Milestone P1
 - 来源：`docs/product/novel-output-milestones.md` P1 Done（每章 ≥1000）；`docs/design-v2/21-novel-object-model.md` §6.6（场景是细粒度写作单元，ADR-0004 `chapter→scene`）；`docs/design-v2/28-authoring-lifecycle.md`（"继续写"基于前文）；`docs/design-v3/02-dialogue-frame-and-micro-plan.md` + ADR-0001/0002/0003；`docs/design-v3/contracts/VS-04-adoption-boundary-contract-pack.md`（覆盖确认）；`tasks/slices/P1-word-count-audit.md`（审计暴露"全是短章"）。
 - 当前目标：作者用自然语言推进单章正文，系统**通过 AI 识别意图**（续写某章 / 重写某章），续写产出落为该章**新场景**累积有效字数，直到单章 ≥1000 达标（审计 `short→ok`）；重写走已有覆盖确认。
@@ -122,10 +122,17 @@ word-count-audit 的 F1/F2/F3（质量门禁收敛到 `quality_finding`、阶段
 - 前端未改（本 checkpoint 纯后端 Elixir）。
 - 新增测试：`adoption_repository` append 累积 2 例、`creative_artifact` provenance 透传 2 例。
 
-### 未闭环缺口（slice 未完成）
+### checkpoint 1 闭环（已完成，2026-06-01）
 
-- **意图来源未接**：`MicroPlan.authoring_intent` 字段就位但 **Planner 还没填**——真实使用中续写意图产生不了（确定性/手动构造带 `authoring_intent` 的 plan 时已能端到端跑通）。task 11（Planner 真实 LLM 从自然输入识别续写/重写 + 目标章）是质变工作，未做。
-- **Tauri 验收未做**（task 13）：多轮续写累积到达标章的真实页面验收。
+task 11（Planner 真实 LLM 识别续写/重写 + 目标章）与 task 13（Tauri 验收）已完成，checkpoint 1 闭环：
+
+- **意图识别已接（task 11）**：`Planner.form_micro_plan` 现接收 `DialogueContext`；已采纳章节标题经 `WorkspaceContext` 6 元组 fetcher → `ContextAssembler` → `DialogueContext.current_chapters` → plan prompt 的「## 已采纳章节」。LLM 据此输出 `authoring_intent`(continuation/rewrite/none) + `target_chapter`(精确取自列表)，`build_micro_plan` 映射到 action → `plan_provenance` → `ArtifactAssembler` → pending → 采纳层 append/overwrite。安全网：rewrite→overwrite→目标章已有正文则覆盖确认拦截。
+- **Tauri 验收已做（task 13）**：`scripts/tauri_slice_verify.sh p1-chapter-expansion`。
+  - 确定性：初稿 168（短）→ 自然语言 2 轮续写均识别 continuation → 单章累积 **1302**、chapter_count=1（未分叉/未 supersede）、短章翻达标。`artifacts/slice-verify/p1-chapter-expansion-tauri/summary.json`。
+  - `--real-lmstudio`（gpt-oss-120b）：初稿 672 → 真实 LLM 两轮均识别 continuation → 单章累积 **1509**、4×POST `/v1/chat/completions` 全 200。`artifacts/slice-verify/p1-chapter-expansion-tauri-lmstudio/summary.json`。
+
+### 计划内后续 checkpoint（未做）
+
 - 续写连续性（prose_writing 带本章已采纳正文，§5 checkpoint 2）未做。
-
-本 checkpoint 是数据流地基，不是 slice 闭环；NEXT 队首仍为本 slice。
+- 连续多章（§5 checkpoint 3）未做。
+- 这些归后续 checkpoint / P1-export-minimum / 10 万字狗粮，不影响 checkpoint 1 闭环。

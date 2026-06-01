@@ -1105,6 +1105,153 @@ async function driveP1WordCountAudit(page) {
   ];
 }
 
+async function driveP1ChapterExpansion(page) {
+  // Step 1：复用采纳到阅读链路，先生成并采纳第 1 章正文草稿（确定性下天然 < 1000 = 短章）。
+  const [base] = await driveP1ChapterAdoptionReading(page);
+  const draftChapterWords = Number(base.chapter_word_count ?? 0);
+  assert(
+    draftChapterWords > 0 && draftChapterWords < 1000,
+    `Chapter 1 first draft should be a sub-1000-word short chapter, got ${draftChapterWords}`,
+  );
+
+  // Step 2：返回工作台，用自然语言多轮续写第 1 章。
+  // 不存在"续写按钮"/关键字开关：续写意图由 Planner（AI）在 plan 阶段识别为 authoring_intent=continuation，
+  // 目标章由 AI 从已采纳章节列表里解析。每轮续写采纳后应作为同章新场景累积字数。
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const continuationMessages = [
+    "接着第一章往下写一段正文，让林澈继续深入矿道，把危机一步步推上来。",
+    "很好，再接着这一章往下写一段正文，把冲突推到林澈不得不做出选择的地步。",
+  ];
+
+  const continuations = [];
+  for (const message of continuationMessages) {
+    await page.locator(chatInputSelector).fill(message);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+
+    // 本轮续写 turn_result：prose_writing 产 prose_fragment，且 AI 在 plan 阶段识别为 continuation。
+    const contFrame = await waitForFrame(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.tool_result?.tool_name === "prose_writing" &&
+        frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
+        frame.body?.adoption_state?.pending?.[0]?.authoring_intent === "continuation",
+      `No continuation prose_fragment turn_result (authoring_intent=continuation) for: ${message}`,
+      200_000,
+    );
+    const pending = contFrame.body.adoption_state.pending[0];
+
+    await page.waitForFunction(
+      () => document.body.innerText.includes("确认创建"),
+      { timeout: 10_000 },
+    );
+    await page.getByRole("button", { name: "确认创建" }).first().click();
+
+    const adoptFrame = await waitForFrame(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.truthfulness?.artifact_adopted === true &&
+        frame.body?.adoption_state?.resolved?.some(
+          (entry) => entry.artifact_id === pending.artifact_id,
+        ),
+      `No resolved adoption turn_result after continuation accept for: ${message}`,
+      120_000,
+    );
+
+    // 采纳后按钮必须消失，避免重复点击重复提交。
+    await page.waitForFunction(
+      () =>
+        ![...document.querySelectorAll("button")].some(
+          (btn) => (btn.textContent ?? "").trim() === "确认创建",
+        ),
+      { timeout: 10_000 },
+    );
+
+    continuations.push({
+      message,
+      artifact_id: pending.artifact_id,
+      authoring_intent: pending.authoring_intent,
+      target_chapter: pending.target_chapter ?? null,
+      adopted: adoptFrame.body.truthfulness?.artifact_adopted === true,
+    });
+  }
+
+  // Step 3：回到阅读模式，等本章有效字数累积过 P1 单章 1000 字门槛。
+  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("全书有效字数"),
+    { timeout: 15_000 },
+  );
+  await page
+    .waitForFunction(
+      () => {
+        const match = /本章有效字数\s*([\d,]+)\s*字/.exec(document.body.innerText);
+        return Boolean(match) && Number(match[1].replace(/,/g, "")) >= 1000;
+      },
+      { timeout: 20_000 },
+    )
+    .catch(() => {});
+
+  const visibleText = await page.locator("body").innerText();
+  const lastTurnResult = latestTurnResult() ?? {};
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, lastTurnResult, sentMessage);
+
+  const chapterWords = parseChapterWords(visibleText);
+  const totalWords = parseBookTotalWords(visibleText);
+  const shortBadgeVisible = (await page.getByText("短章", { exact: true }).count()) > 0;
+  const allRecognizedContinuation = continuations.every(
+    (entry) => entry.authoring_intent === "continuation" && entry.adopted,
+  );
+
+  assert(
+    Number(chapterWords) >= 1000,
+    `Chapter effective word count ${chapterWords} did not reach the P1 1000-word minimum after continuations`,
+  );
+  // 续写必须落到同一章（target_chapter 命中既有章）：单章模型下全书字数 == 本章字数。
+  assert(
+    totalWords === chapterWords,
+    `Continuations created extra chapters instead of appending: book total ${totalWords} != single chapter ${chapterWords}`,
+  );
+  assert(
+    Number(chapterWords) > draftChapterWords,
+    `Word count did not accumulate: chapter ${chapterWords} not greater than first draft ${draftChapterWords}`,
+  );
+  assert(
+    !shortBadgeVisible,
+    "Chapter is still marked 短章 after accumulating past 1000 words (short -> ok transition failed)",
+  );
+  assert(
+    allRecognizedContinuation,
+    "At least one continuation turn was not recognized as authoring_intent=continuation or not adopted",
+  );
+
+  return [
+    {
+      ...uiState,
+      draft_turn_id: base.draft_turn_id,
+      first_adopt_turn_id: base.adopt_turn_id,
+      chapter_title: base.chapter_title,
+      first_draft_chapter_words: draftChapterWords,
+      continuation_count: continuations.length,
+      continuation_intents: continuations.map((entry) => entry.authoring_intent),
+      continuation_target_chapters: continuations.map((entry) => entry.target_chapter),
+      continuations_all_recognized: allRecognizedContinuation,
+      final_chapter_word_count: chapterWords,
+      final_total_word_count: totalWords,
+      appended_to_single_chapter: totalWords === chapterWords,
+      accumulated_past_min: Number(chapterWords) >= 1000,
+      short_to_ok_transition: !shortBadgeVisible && Number(chapterWords) >= 1000,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveP1ChapterEditThenAccept(page) {
   // 复用 p1-chapter-draft-generation：生成第 1 章正文草稿。
   await page.getByText("打开档案").first().click();
@@ -1591,6 +1738,7 @@ const drivers = {
   "p1-word-count-audit": driveP1WordCountAudit,
   "p1-chapter-edit-then-accept": driveP1ChapterEditThenAccept,
   "p1-chapter-overwrite-confirm": driveP1ChapterOverwriteConfirm,
+  "p1-chapter-expansion": driveP1ChapterExpansion,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,

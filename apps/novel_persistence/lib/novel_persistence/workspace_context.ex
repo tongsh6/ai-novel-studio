@@ -12,6 +12,7 @@ defmodule NovelPersistence.WorkspaceContext do
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.MemoryRecallRepo
   alias NovelPersistence.MemoryReferenceLog
+  alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.Schemas.MemoryItem
@@ -28,28 +29,33 @@ defmodule NovelPersistence.WorkspaceContext do
   @doc """
   构建 context fetcher 回调。该回调从 DB 读取当前 workspace 信息和最近的对话。
 
-  返回 (workspace_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary})。
+  返回 (workspace_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters})。
+  末位 chapters 是当前作品已采纳章节标题（供 Planner 解析续写/重写目标章）。
   """
   @spec context_fetcher() :: function()
   def context_fetcher do
     fn workspace_id ->
       snapshot = fetch_workspace_info(workspace_id)
       conv_summary = fetch_conversation_summary(workspace_id)
-      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, nil), nil}
+
+      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, nil), nil,
+       fetch_accepted_chapters(workspace_id)}
     end
   end
 
   @doc """
   构建带作者输入的 context fetcher 回调，用于当前 turn 的相关记忆召回。
 
-  返回 (workspace_id, author_text, session_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary})。
+  返回 (workspace_id, author_text, session_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters})。
   """
   @spec context_fetcher_with_query() :: function()
   def context_fetcher_with_query do
     fn workspace_id, author_text, session_id ->
       snapshot = fetch_workspace_info(workspace_id)
       conv_summary = fetch_conversation_summary(workspace_id, session_id)
-      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, author_text), nil}
+
+      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, author_text), nil,
+       fetch_accepted_chapters(workspace_id)}
     end
   end
 
@@ -102,6 +108,19 @@ defmodule NovelPersistence.WorkspaceContext do
         end
     end
   end
+
+  # 已采纳章节标题（按卷/章顺序），供 Planner 解析续写/重写的目标章。
+  # 复用阅读投影 TOC：只含已采纳正文章节，tentative 不计，与采纳层章节身份口径一致。
+  defp fetch_accepted_chapters(workspace_id) when is_binary(workspace_id) do
+    workspace_id
+    |> ReadingProjectionRepo.toc()
+    |> Map.get(:volumes, [])
+    |> Enum.flat_map(&Map.get(&1, :chapters, []))
+    |> Enum.map(&Map.get(&1, :title))
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+  end
+
+  defp fetch_accepted_chapters(_workspace_id), do: []
 
   defp fetch_conversation_summary(workspace_id) do
     limit = recent_conversation_interaction_limit()

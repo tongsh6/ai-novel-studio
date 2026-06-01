@@ -8,9 +8,9 @@
 
 ## 1. Current Focus
 
-**P1 10 万字最小长篇闭环：正文有效字数审计（短章/空章/门槛）已闭环 → 重复检测 / 缺章 / 导出**
+**P1 10 万字最小长篇闭环：单章续写累积到达标（每章 ≥1000）已闭环 → 重复检测 / 缺章 / 导出**
 
-P1 主链已连续闭环到「正文有效字数审计 checkpoint A」：章节计划 → 单章正文草稿 → 采纳（accept / edit_then_accept / 覆盖确认重新 gate）→ 进入作品事实与 Reading Projection → 显示有效字数 → **审计短章/空章并判定 P1 门槛**，全部由真实 Tauri 工作台验收（确定性，多处含 `--real-lmstudio`）。当前断点转入 P1-word-count-audit 的 checkpoint B/C（重复段落、缺章率 + word-count.json 完整版）与 P1-export-minimum。
+P1 主链已连续闭环到「单章续写累积达标」：章节计划 → 单章正文草稿 → 采纳（accept / edit_then_accept / 覆盖确认重新 gate）→ 进入作品事实与 Reading Projection → 显示有效字数 → 审计短章/空章并判定 P1 门槛 → **作者用自然语言多轮续写，Planner（AI）识别续写/重写意图与目标章，续写采纳为同章新场景累积，单章越过 1000 字短章翻达标**，全部由真实 Tauri 工作台验收（确定性 + `--real-lmstudio`）。当前断点转入 P1-word-count-audit 的 checkpoint B/C（重复段落、缺章率 + word-count.json 完整版）与 P1-export-minimum。
 
 ## 2. Why This Focus
 
@@ -74,9 +74,9 @@ P1 的最终目标不是一次性生成 10 万字，而是让真实工作台具�
 | 13 | P1-chapter-adoption-reading | done | - | 作者采纳正文后进入作品事实和 Reading Projection，ReadingMode 读取章节正文与有效字数。 | `artifacts/slice-verify/p1-chapter-adoption-reading-tauri{,-lmstudio}/summary.json` |
 | 14 | P1-chapter-edit-then-accept / overwrite-confirm | done | - | 采纳三元组补齐（edit_then_accept 全文替换）+ 覆盖已有正文需确认重新 gate（AU-04/06 核心）。 | `artifacts/slice-verify/p1-chapter-edit-then-accept-tauri*/summary.json`；`artifacts/slice-verify/p1-chapter-overwrite-confirm-tauri*/summary.json` |
 | 15 | P1-word-count-audit（checkpoint A）| done | - | 在有效字数之上补审计层：短章/空章判定 + P1 门槛；ReadingMode 目录标记短章/空章、顶栏达标进度。 | `artifacts/slice-verify/p1-word-count-audit-tauri/summary.json`；`tasks/slices/P1-word-count-audit.md` |
-| 16 | P1-chapter-expansion | next | - | 单章续写累积到达标（每章 ≥1000）。数据流地基已就位（plan→provenance→采纳 append/overwrite，后端 635 绿）；剩 Planner 真实 LLM 意图识别（AI 非关键字）+ Tauri 验收。 | `tasks/slices/P1-chapter-expansion.md` |
-| 17 | P1-word-count-audit-repetition-gaps | blocked | 16 | 重复段落/重复章检测（B）+ 缺章率与 word-count.json 完整版（C）。质量放后。 | `tasks/slices/P1-word-count-audit.md` §3/§6 |
-| 18 | P1-export-minimum | blocked | 16 | 导出完整 Markdown/txt，目录与章节顺序可验证。 | `docs/product/novel-output-milestones.md` §7 #5 |
+| 16 | P1-chapter-expansion | done | - | 单章续写累积到达标（每章 ≥1000）。Planner（AI）从自然语言识别续写/重写意图+目标章；续写采纳为同章新场景累积。确定性 + `--real-lmstudio` 两 provider Tauri 验收通过。 | `artifacts/slice-verify/p1-chapter-expansion-tauri{,-lmstudio}/summary.json` |
+| 17 | P1-word-count-audit-repetition-gaps | next | - | 重复段落/重复章检测（B）+ 缺章率与 word-count.json 完整版（C）。质量放后。 | `tasks/slices/P1-word-count-audit.md` §3/§6 |
+| 18 | P1-export-minimum | blocked | 17 | 导出完整 Markdown/txt，目录与章节顺序可验证。线性队列：先做 17。 | `docs/product/novel-output-milestones.md` §7 #5 |
 
 ## 5. Selection Rule
 
@@ -110,3 +110,4 @@ P1 的最终目标不是一次性生成 10 万字，而是让真实工作台具�
 | 2026-05-30 | AU-09 记忆召回端到端（create / adopt-setting / validity-window）闭环；code-review 回归（behavior_state 形状、章节身份 A2–A6）修复。 | 见 `docs/project-ledger.md` 对应条目。 |
 | 2026-05-31 | `P1-word-count-audit` checkpoint A 闭环，队首推进到 checkpoint B/C（重复/缺章）。 | `NovelDomain.ProseAudit` + `NovelMilestone` 审计层；`ReadingProjectionRepo.toc` 附 audit；ReadingMode 标记短章/空章 + P1 达标进度；确定性 Tauri 验收 `short_chapter_marked=true`、`milestone_met=false`（168 字短章）。后端 631 + 全门禁绿。 |
 | 2026-05-31 | 质量门禁收敛（word-count B/C）放后，新焦点 `P1-chapter-expansion`：单章续写累积到达标，数据流地基已就位。 | 字数审计暴露"全是短章"，根因是采纳把章/场景塌缩成单场景 + 缺续写产出。续写累积对齐 v2 21 §6.6/ADR-0004；意图识别走 v3 DialogueFrame/Planner（AI 非关键字），意图作为 artifact provenance 顺现有数据流。本轮完成数据流地基（plan→artifact provenance→采纳 append/overwrite），后端 635 绿；未闭环：Planner 真实 LLM 识别 + Tauri（队首仍为本 slice）。 |
+| 2026-06-01 | `P1-chapter-expansion` 闭环，队首推进到 `P1-word-count-audit-repetition-gaps` / `P1-export-minimum`。 | Planner 现从自然语言识别续写/重写意图 + 目标章（章节上下文经 6 元组 fetcher 注入 plan prompt，LLM 精确复制已采纳章节标题），续写采纳为同章新场景累积、不 supersede；重写走覆盖确认兜底。确定性 Tauri：初稿 168 → 2 轮续写 → 单章累积 1302、短章翻达标。`--real-lmstudio`（gpt-oss-120b）：初稿 672 → 真实 LLM 两轮均识别 continuation → 单章累积 1509、4×POST 全 200。两证据 `artifacts/slice-verify/p1-chapter-expansion-tauri{,-lmstudio}/summary.json`。 |

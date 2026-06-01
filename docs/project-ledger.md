@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-05-31（P1-chapter-expansion 数据流地基：续写/重写意图 schema 链路接通 + 章含多场景 append/overwrite；word-count-audit checkpoint A 已闭环）
+> 最后更新：2026-06-01（P1-chapter-expansion checkpoint 1 闭环：Planner 从自然语言识别续写/重写意图+目标章，续写采纳为同章新场景累积到达标；确定性 + --real-lmstudio 两 provider Tauri 验收通过）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -21,7 +21,11 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **QP-Workbench（UI Enhancement）：已交付（实现 Frame Insight 认知洞察可视化，已完成 UI 组件解耦与类型加固）**
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
 
-### 当前重点推进事项（2026-05-28）
+### 当前重点推进事项（2026-06-01）
+
+P1 Chapter Expansion checkpoint 1（2026-06-01）：已补齐「作者用自然语言多轮续写单章、由 AI 识别续写意图并把正文累积到 P1 单章 ≥1000 字门槛」的真实工作台闭环。这是 P1-chapter-expansion 的 task 11（Planner 真实 LLM 识别续写/重写 + 目标章）+ task 13（Tauri 验收）。消费侧（`AdoptionWorkflow` authoring_intent→append/overwrite、`AdoptionRepository` 章含多场景累积/不 supersede、覆盖确认兜底）此前已通；本轮接通生成侧意图来源：`NovelDomain.DialogueContext` 新增 `current_chapters` 字段；`NovelPersistence.WorkspaceContext` 的 `context_fetcher{,_with_query}` 返回 6 元组，末位 `fetch_accepted_chapters/1` 复用 `ReadingProjectionRepo.toc` 取已采纳章节标题；`NovelApplication.ContextAssembler` 兼容 5/6 元组 fetcher（向后兼容旧 stub）并填充 `current_chapters`；`NovelApplication.Planner.form_micro_plan` 增加可选 `context` 形参（第 4 位，不破坏既有 3-arg 调用），plan prompt 列出已采纳章节并要求 LLM 输出 `authoring_intent`(none/continuation/rewrite) + `target_chapter`(精确取自列表)，`build_micro_plan` 映射两字段到 proposed_action；`DialogueGateway` 把 context 传入。意图识别在 DialogueFrame/Planner（dialogue-first，AI 而非关键字/按钮），续写=同章新场景累积、不 supersede，重写=覆盖确认兜底（AI 误判由确认门拦截）。新 Tauri slice `p1-chapter-expansion`（复用 `seed_p1_chapter_draft_generation.exs`）：外部 Playwright 生成并采纳第 1 章（短章）→ 返回工作台用自然语言多轮续写 → 每轮经 plan 识别 continuation + 目标章 → 采纳为同章新场景 → 回阅读模式断言单章累积过 1000、短章翻达标。确定性：初稿 168 → 累积 1302、chapter_count=1。`--real-lmstudio`（gpt-oss-120b）：初稿 672 → 真实 LLM 两轮均识别 continuation → 累积 1509、4×POST `/v1/chat/completions` 全 200。证据：`artifacts/slice-verify/p1-chapter-expansion-tauri{,-lmstudio}/summary.json`。验证：`MIX_ENV=test mix compile --warnings-as-errors`、`mix test`（全绿）、`mix credo --strict`（0 issues）、xref 无循环、arch、I1/I2/I3、`creative_artifact_test` 新增 5 例、`workspace_context_test` 5→6 元组 + 已采纳章节正例、`bash scripts/tauri_slice_verify.sh p1-chapter-expansion`、`bash scripts/tauri_slice_verify.sh --real-lmstudio p1-chapter-expansion` 均通过。剩余（计划内后续 checkpoint，不影响 checkpoint 1 闭环）：续写连续性（prose_writing 带本章已采纳正文）、连续多章、P1-export-minimum、10 万字狗粮。
+
+### 历史重点推进事项（2026-05-28）
 
 Quality Operating System Baseline（2026-05-28）：已把分散的质量资产收敛到 `quality/` 作为统一入口，并补齐五层质量结构：L1 Spec / Design、L2 Architecture Guard、L3 Runtime Invariant、L4 Scenario Acceptance、L5 Evidence / Report。`quality/acceptance/scenarios.yml` 成为场景 manifest 总表；`scripts/quality_accept.sh` 统一路由 browser → `scripts/slice_verify.sh`、Tauri → `scripts/tauri_slice_verify.sh`；`scripts/quality_manifest_check.sh` 校验 scenario/manifest 字段、anti-hooks、surface/entrypoint 一致性、Tauri driver 对账和 release tier 文档一致性；CI 新增 `Quality manifest check`。当前 PR smoke 只包含已实跑通过的 browser 场景 `au10-micro-plan-entry` 与 `vs10-observability-spine`；`p1-chapter-plan-minimum` 因实际 `chapter_count=1` 与 12 章期望不一致降级为 `known-gap/blocked`，`au02-candidate-continuation` 因 browser driver 未观察到 `candidate_selection` 同样为 `known-gap/blocked`，二者不得进入 PR smoke。Anthropic-compatible company-console 历史配置文件不属于当前产品范围，已从当前本地 refs 历史中移除 `tools/company-console/server/config.mjs`，不保留 `.gitleaksignore` baseline；重新执行 `bash scripts/ai_static_scan.sh --top 10 --quick` 为 17 PASS / 0 findings。已清理 tracked runtime artifacts，`git ls-files artifacts` 只保留 `artifacts/.gitkeep`。验证：`bash scripts/quality_manifest_check.sh`、`bash scripts/quality_accept.sh --list`、`bash scripts/quality_accept.sh --tier pr-smoke`、I1/I2/I3、`mix compile --warnings-as-errors`、清理 test DB 后 `mix test`、`mix run scripts/arch_check.exs`、frontend typecheck/lint/test/build、static scan quick 已通过。剩余：release / release-real-llm gate 仍是 planned/not enforced；`mix format --check-formatted` 仍在既有未触碰 Elixir 文件失败；p1 12 章真实主链与 au02 browser continuation 需后续单独闭环。
 

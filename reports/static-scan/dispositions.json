@@ -23,5 +23,12 @@
     "status": "deferred",
     "planned_fix": "VS-012",
     "reason": "VS-004 引入。需将 discard mutation 组装逻辑抽取为私有函数。VS-012 消费 AdoptionBoundary 时一并处理。"
+  },
+  "gitleaks|generic-api-key|tools/company-console/server/config.mjs|4|generic-api-key": {
+    "status": "accepted_risk",
+    "owner": "tongshuanglong",
+    "updated_at": "2026-06-01",
+    "handling": "该 generic-api-key 位于 ProjectGod 线历史 commit 0234860（作者 jasperyang，2026-05-27），不在当前 idea/dialogue-based-novel-workbench/v3 分支历史，也不在工作树（tools/ 仅余 .gitkeep）。v3 开发分支内不重写历史，确认接受现状。",
+    "recommendation": "凭证作废由 token 所有者在 MiniMax 控制台轮换/吊销；如需从仓库历史彻底清除该文件，由用户在 ProjectGod 线用 git filter-repo 重写并 force-push（属 ProjectGod 维护范围，不在 v3 dev scope，见 dev-branch-scope 约束）。"
   }
 }

@@ -34,6 +34,7 @@ export const nativeSliceIds = [
   "p1-word-count-audit",
   "p1-chapter-edit-then-accept",
   "p1-chapter-overwrite-confirm",
+  "p1-chapter-expansion",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
   "au09-validity-window-recall",
@@ -196,6 +197,18 @@ const sliceKeyEvents = {
     "adoption.evaluate.done",
     "channel.author_action.done",
     "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-chapter-expansion": [
+    "channel.get_chapter_plans.done",
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
     "slice_verify.ui_state.done",
   ],
   "au09-memory-create-recall": [
@@ -555,6 +568,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterOverwriteConfirmEvidence(records);
   }
 
+  if (sliceId === "p1-chapter-expansion") {
+    return findP1ChapterExpansionEvidence(records);
+  }
+
   if (sliceId === "au09-memory-create-recall") {
     return findAu09MemoryCreateRecallEvidence(records);
   }
@@ -684,6 +701,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-overwrite-confirm") {
     return p1ChapterOverwriteConfirmBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-chapter-expansion") {
+    return p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "au09-memory-create-recall") {
@@ -2664,6 +2685,125 @@ function p1ChapterAdoptionReadingBehavior(
       "book_total_effective_word_count_visible_and_positive",
       "chapter_effective_word_count_visible_and_positive",
       "displayed_word_count_equals_effective_count_of_adopted_prose",
+    ],
+  };
+}
+
+function findP1ChapterExpansionEvidence(records) {
+  const sliceId = "p1-chapter-expansion";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.continuations_all_recognized === true &&
+      record.appended_to_single_chapter === true &&
+      record.accumulated_past_min === true &&
+      record.short_to_ok_transition === true &&
+      Number(record.first_draft_chapter_words ?? 0) > 0 &&
+      Number(record.first_draft_chapter_words ?? 0) < 1000 &&
+      Number(record.final_chapter_word_count ?? 0) >= 1000 &&
+      Number(record.continuation_count ?? 0) >= 2,
+  );
+  if (!uiState) return null;
+
+  // 续写意图必须由 Planner（AI）在 plan 阶段识别为 continuation，而不是按钮/关键字开关。
+  const intents = Array.isArray(uiState.continuation_intents) ? uiState.continuation_intents : [];
+  if (intents.length < 2) return null;
+  if (!intents.every((intent) => intent === "continuation")) return null;
+
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  if (!draftTurnId) return null;
+
+  // 工具链：初稿 + 至少 2 次续写都经 prose_writing 成功产出（共 >= 3 次）。
+  const proseRuns = records.filter(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (proseRuns.length < 3) return null;
+
+  // 采纳闭环：初稿 + 每轮续写都经 accept author_action 被采纳（共 >= 3 次）。
+  const accepts = records.filter(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (accepts.length < 3) return null;
+
+  // 续写落同一章：累积后阅读投影只有 1 章，且该章正文有效字符 >= 1000。
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? 0) === 1,
+  );
+  if (!tocRead) return null;
+
+  const chapterRead = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.content_chars ?? 0) >= 1000,
+  );
+  if (!chapterRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    chapter_title: uiState.chapter_title,
+    chapter_count: tocRead.chapter_count,
+    content_chars: chapterRead.content_chars,
+    first_draft_chapter_words: uiState.first_draft_chapter_words,
+    final_chapter_word_count: uiState.final_chapter_word_count,
+    continuation_count: uiState.continuation_count,
+    continuation_intents: intents,
+    key_events: keyEvents,
+  };
+}
+
+function p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-chapter-expansion" &&
+      record.draft_turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.continuations_all_recognized !== true) return null;
+  if (uiState.appended_to_single_chapter !== true) return null;
+  if (uiState.accumulated_past_min !== true) return null;
+  if (uiState.short_to_ok_transition !== true) return null;
+  if (!(Number(uiState.first_draft_chapter_words ?? 0) < 1000)) return null;
+  if (Number(uiState.final_chapter_word_count ?? 0) < 1000) return null;
+
+  const intents = Array.isArray(uiState.continuation_intents) ? uiState.continuation_intents : [];
+  if (intents.length < 2 || !intents.every((intent) => intent === "continuation")) return null;
+
+  return {
+    slice_id: "p1-chapter-expansion",
+    behavior:
+      "ai_recognized_continuation_appends_scenes_and_single_chapter_accumulates_past_p1_minimum",
+    turn_ids: turnIds,
+    chapter_title: evidence.chapter_title,
+    first_draft_chapter_words: Number(uiState.first_draft_chapter_words ?? 0),
+    final_chapter_word_count: Number(uiState.final_chapter_word_count ?? 0),
+    continuation_count: Number(uiState.continuation_count ?? 0),
+    continuation_intents: intents,
+    assertions: [
+      "first_chapter_draft_adopted_as_sub_1000_short_chapter",
+      "natural_language_continuation_recognized_as_authoring_intent_continuation_by_planner",
+      "each_continuation_appended_a_new_scene_to_the_same_chapter",
+      "continuations_did_not_supersede_or_fork_a_new_chapter",
+      "single_chapter_accumulated_past_p1_1000_word_minimum",
+      "short_chapter_flipped_to_ok_after_accumulation",
     ],
   };
 }

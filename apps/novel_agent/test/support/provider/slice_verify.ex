@@ -145,27 +145,78 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp plan_response(prompt) do
-    tool_name = prompt |> author_input_text() |> tool_name_for_prompt()
+    author_text = author_input_text(prompt)
+    tool_name = tool_name_for_prompt(author_text)
+    {authoring_intent, target_chapter} = authoring_intent_for(prompt, author_text)
+    rewrite? = authoring_intent == "rewrite"
+
+    action =
+      %{
+        action_id: "act-slice-verify",
+        action_type: "capability_invocation",
+        summary: action_summary(tool_name),
+        target_ref: tool_name,
+        write_intent: if(rewrite?, do: "production_candidate", else: "tentative"),
+        risk_hint: if(rewrite?, do: "high", else: "low")
+      }
+      |> maybe_put_authoring(authoring_intent, target_chapter)
 
     %{
       plan_goal_summary: "验证工作台 micro plan 入口",
-      risk_hint: "low",
+      risk_hint: if(rewrite?, do: "high", else: "low"),
       requires_confirmation_hint: false,
-      proposed_actions: [
-        %{
-          action_id: "act-slice-verify",
-          action_type: "capability_invocation",
-          summary: action_summary(tool_name),
-          target_ref: tool_name,
-          write_intent: "tentative",
-          risk_hint: "low"
-        }
-      ],
+      proposed_actions: [action],
       state_changes_requested: [],
       required_capabilities: [tool_name],
       fallback_message: "如果暂时不能生成，就先继续用对话收束方向。"
     }
   end
+
+  defp maybe_put_authoring(action, nil, _chapter), do: action
+
+  defp maybe_put_authoring(action, intent, chapter) do
+    action
+    |> Map.put(:authoring_intent, intent)
+    |> Map.put(:target_chapter, chapter)
+  end
+
+  # 续写/重写意图识别（确定性）：仅当 plan prompt 已带「已采纳章节」列表时才可能续写/重写。
+  # 作者「接着/继续/续写/往下写」→ continuation；「推翻/重写/改写」→ rewrite。
+  # target_chapter 精确取自 prompt 的已采纳章节列表（与真实 LLM「精确复制」规则一致）。
+  defp authoring_intent_for(prompt, author_text) do
+    case accepted_chapters_in_prompt(prompt) do
+      [] ->
+        {nil, nil}
+
+      chapters ->
+        cond do
+          contains_any?(author_text, ["推翻", "重写", "改写", "重新写"]) ->
+            {"rewrite", target_chapter_for(chapters)}
+
+          contains_any?(author_text, ["接着", "继续", "续写", "往下写", "再写", "补一段", "补写"]) ->
+            {"continuation", target_chapter_for(chapters)}
+
+          true ->
+            {nil, nil}
+        end
+    end
+  end
+
+  defp accepted_chapters_in_prompt(prompt) do
+    case Regex.run(~r/##\s*已采纳章节[^\n]*\n(.*?)(?:\n##|\z)/su, prompt) do
+      [_, block] ->
+        ~r/^\s*-\s*(.+?)\s*$/mu
+        |> Regex.scan(block)
+        |> Enum.map(fn [_, title] -> title end)
+        |> Enum.reject(&(&1 == ""))
+
+      _ ->
+        []
+    end
+  end
+
+  # checkpoint 1 单章续写：默认归第一章（与 driver 续写第 1 章一致）。
+  defp target_chapter_for(chapters), do: List.first(chapters)
 
   defp tool_name_for_prompt(prompt) do
     cond do
@@ -248,6 +299,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp creative_body(brief, context) do
+    if continuation_brief?(brief),
+      do: continuation_body(brief, context),
+      else: opening_body(brief, context)
+  end
+
+  defp continuation_brief?(brief) do
+    contains_any?(brief, ["接着", "继续", "续写", "往下写", "再写", "补一段", "补写", "推翻", "重写", "改写"])
+  end
+
+  defp opening_body(brief, context) do
     subject = creative_subject(brief)
     nonce_text = context |> random_identifier_tokens() |> Enum.take(3) |> Enum.join("、")
 
@@ -261,6 +322,38 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       "他没有立刻逃跑，而是把欠费记录折进袖中，反手扣住最后一张护身符，朝最黑的楼梯口走去。"
     ]
     |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  # 续写正文：单段约 500 有效字，2 轮续写叠加初稿（约 168）即可越过 P1 单章 1000 字门槛。
+  # 各句互不相同（不靠重复段落注水）；fingerprint 让相邻续写不字节相同。
+  defp continuation_body(brief, context) do
+    fingerprint = [brief, context] |> Enum.join("|") |> :erlang.phash2() |> Integer.to_string(36)
+    nonce_text = context |> random_identifier_tokens() |> Enum.take(2) |> Enum.join("、")
+
+    nonce_line =
+      if nonce_text == "",
+        do: "矿道深处的旧阵芯仍在倒数，他听得见自己的心跳与符纸燃烧的细响交叠在一起。",
+        else: "档案暗码 #{nonce_text} 在视野边缘明灭，像替这条矿道标好了退路与陷阱。"
+
+    [
+      "林澈把欠费记录折进袖口，借着护身符的微光辨认岔路，脚下碎石被踩出一连串闷响。",
+      "矿道越往里越窄，潮湿的灵气贴着石壁缓缓流动，凝成一层会呼吸的薄霜。",
+      "他想起母亲临走前的叮嘱，把翻涌的恐惧压回胸腔，逼自己一步一步丈量这片黑暗。",
+      nonce_line,
+      "前方传来金属摩擦的声响，像有什么东西在缓慢苏醒，又像巡检傀儡在重新校准刃口。",
+      "他屏住呼吸贴着石壁挪动，指尖触到一道被人为凿开的暗槽，里面嵌着半枚冷却的阵钉。",
+      "阵钉残留的纹路与他腕骨里的旧阵芯隐隐共鸣，刺痛顺着血管一路爬上后颈。",
+      "他咬牙拔出阵钉，黑暗骤然裂开一线幽蓝，照亮墙上密密麻麻、尚未结清的灵气欠条。",
+      "那一刻他才真正明白，这座矿区埋着的从来不是矿石，而是无数被账单困住的活人。",
+      "身后的脚步声不紧不慢地逼近，他没有回头，只把阵钉攥得更紧，朝幽蓝走得更深。",
+      "通道尽头是一扇半塌的阵门，门缝漏出的光像水一样在地面铺开，又被黑暗一点点吞回。",
+      "他蹲下身，用阵钉在门槛上刻下一个只有自己看得懂的记号，给将来的退路留一道凭证。",
+      "远处的低鸣忽然停了，整条矿道陷入令人牙酸的寂静，连灵气流动的声音都听得清楚。",
+      "林澈知道，这种安静往往意味着对方已经发现了他，正等着他先露出破绽。",
+      "他缓缓吐出一口浊气，把最后一张护身符贴在心口，做好了随时把命押上去的准备。",
+      "黑暗里那串编号 #{fingerprint} 又一次在他脑海里亮起，提醒他记住走过的每一个拐角。"
+    ]
     |> Enum.join("\n")
   end
 

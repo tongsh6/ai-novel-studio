@@ -748,7 +748,7 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   defp handle_with_plan(frame, candidates, context, author_input, complete_fn) do
-    case Planner.form_micro_plan(frame, author_input, complete_fn) do
+    case Planner.form_micro_plan(frame, author_input, complete_fn, context) do
       {:ok, plan} ->
         {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
