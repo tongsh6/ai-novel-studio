@@ -1,6 +1,6 @@
 # P1 Chapter Expansion / 单章正文续写累积到达标
 
-- 状态：checkpoint 1 closed（2026-06-01）— 两 provider Tauri 验收通过
+- 状态：checkpoint 1+2 closed（2026-06-04）— 续写累积达标 + 续写连贯，两 provider Tauri 验收通过
 - 类型：Product Slice / Novel Output Milestone P1
 - 来源：`docs/product/novel-output-milestones.md` P1 Done（每章 ≥1000）；`docs/design-v2/21-novel-object-model.md` §6.6（场景是细粒度写作单元，ADR-0004 `chapter→scene`）；`docs/design-v2/28-authoring-lifecycle.md`（"继续写"基于前文）；`docs/design-v3/02-dialogue-frame-and-micro-plan.md` + ADR-0001/0002/0003；`docs/design-v3/contracts/VS-04-adoption-boundary-contract-pack.md`（覆盖确认）；`tasks/slices/P1-word-count-audit.md`（审计暴露"全是短章"）。
 - 当前目标：作者用自然语言推进单章正文，系统**通过 AI 识别意图**（续写某章 / 重写某章），续写产出落为该章**新场景**累积有效字数，直到单章 ≥1000 达标（审计 `short→ok`）；重写走已有覆盖确认。
@@ -131,8 +131,17 @@ task 11（Planner 真实 LLM 识别续写/重写 + 目标章）与 task 13（Tau
   - 确定性：初稿 168（短）→ 自然语言 2 轮续写均识别 continuation → 单章累积 **1302**、chapter_count=1（未分叉/未 supersede）、短章翻达标。`artifacts/slice-verify/p1-chapter-expansion-tauri/summary.json`。
   - `--real-lmstudio`（gpt-oss-120b）：初稿 672 → 真实 LLM 两轮均识别 continuation → 单章累积 **1509**、4×POST `/v1/chat/completions` 全 200。`artifacts/slice-verify/p1-chapter-expansion-tauri-lmstudio/summary.json`。
 
+### checkpoint 2 闭环（续写连贯，2026-06-04）
+
+prose_writing 续写/重写时上下文带入**目标章已采纳正文**，基于前文衔接（v2 28）而非重复/另起：
+
+- `ReadingProjectionRepo.accepted_chapter_prose/2`（按 work_id + title 取该章已采纳正文）+ `NovelApplication.persistence_chapter_prose_reader/0` 读端口注入。
+- `TurnExecutionService` 在续写/重写轮把前文拼成 `## 本章已采纳正文（…衔接续写…）` section 进 prose_writing 上下文；记 observability 事件 `turn_execution.continuation_context.done`（prior_prose_chars）。
+- **健壮性修复（真实 LLM 反馈）**：真实 LLM 能识别 continuation 意图但常**漏 `target_chapter`**。故目标章改由应用层 `resolve_continuation_chapter/2` 用 `DialogueContext.current_chapters` 确定性解析（命中用之，否则回退最新章），并把解析结果同时用于"读前文"与"采纳归章"（`assemble_artifact` provenance 用解析后章），二者一致。AI 只负责识别意图。
+- 测试：`tool_provenance`（continuity 5 例，含 target_chapter 缺失回退最新章）+ `reading_projection`（accepted_chapter_prose 4 例）。
+- Tauri：确定性累积 1290、`--real-lmstudio` 491→1637，两者 `prior_prose_context_events=2`、真实 prose_writing 请求含「本章已采纳正文」。
+
 ### 计划内后续 checkpoint（未做）
 
-- 续写连续性（prose_writing 带本章已采纳正文，§5 checkpoint 2）未做。
-- 连续多章（§5 checkpoint 3）未做。
-- 这些归后续 checkpoint / P1-export-minimum / 10 万字狗粮，不影响 checkpoint 1 闭环。
+- 连续多章（§5 checkpoint 3）未做——队首。目标章确定性解析地基已支撑多章归章。
+- 归后续 P1-export-minimum / 10 万字狗粮 / 独立 creative-quality slice（repetition 等）。

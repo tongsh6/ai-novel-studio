@@ -143,6 +143,43 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
     end
   end
 
+  describe "accepted_chapter_prose/2" do
+    test "concatenates accepted prose of all scenes for the matching chapter title" do
+      work_id = Ecto.UUID.generate()
+
+      %{chapter: chapter} =
+        insert_reading_chain(work_id, "已采纳内容", "第01章：底层灵气账单", "第一场正文。", :accepted)
+
+      second = insert_scene(work_id, chapter.id, "场景 2", 2)
+      insert_draft(work_id, second.id, "第二场续写正文。", AdoptionStatus.accepted(), 1)
+
+      prose = ReadingProjectionRepo.accepted_chapter_prose(work_id, "第01章：底层灵气账单")
+      assert prose =~ "第一场正文。"
+      assert prose =~ "第二场续写正文。"
+    end
+
+    test "returns empty string for unknown chapter title" do
+      work_id = Ecto.UUID.generate()
+      insert_reading_chain(work_id, "已采纳内容", "第01章", "正文", :accepted)
+      assert ReadingProjectionRepo.accepted_chapter_prose(work_id, "不存在的章") == ""
+    end
+
+    test "excludes tentative drafts from prior prose" do
+      work_id = Ecto.UUID.generate()
+      %{chapter: chapter} = insert_reading_chain(work_id, "已采纳内容", "第01章", "已采纳正文。", :accepted)
+      pending = insert_scene(work_id, chapter.id, "场景 2", 2)
+      insert_draft(work_id, pending.id, "未采纳不应出现", AdoptionStatus.tentative(), 1)
+
+      prose = ReadingProjectionRepo.accepted_chapter_prose(work_id, "第01章")
+      assert prose =~ "已采纳正文。"
+      refute prose =~ "未采纳不应出现"
+    end
+
+    test "returns empty string for invalid work id" do
+      assert ReadingProjectionRepo.accepted_chapter_prose("not-a-uuid", "第01章") == ""
+    end
+  end
+
   defp insert_reading_chain(work_id, volume_title, chapter_title, content, draft_state) do
     volume = insert_volume(work_id, volume_title, 1)
     chapter = insert_chapter(work_id, volume.id, chapter_title, 1)

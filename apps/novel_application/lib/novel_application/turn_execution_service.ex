@@ -7,6 +7,8 @@ defmodule NovelApplication.TurnExecutionService do
   trace, and builds the final TurnResult.
   """
 
+  require NovelCommon.LogEmit, as: LogEmit
+
   alias NovelAgent.Toolbox
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
@@ -29,14 +31,24 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:context) => term(),
           optional(:author_input) => map(),
           optional(:complete_fn) => function(),
+          optional(:chapter_prose_reader) => function(),
           optional(:idempotency_suffix) => String.t()
         }
 
   @spec execute(execution_input()) :: {map(), NovelDomain.DecisionTrace.t()}
   def execute(%{frame: frame, plan: plan, decision: decision} = input) do
-    req = build_tool_request(frame, plan, decision, input)
+    action = hd(plan.proposed_actions)
+
+    # AI 只负责识别续写/重写意图；目标章由应用层用已采纳章节列表确定性解析（LLM 对结构化
+    # target_chapter 不可靠），并把解析结果同时用于"读前文"和"采纳归章"，二者保持一致。
+    resolved_chapter = resolve_continuation_chapter(action, input[:context])
+
+    prior_prose =
+      continuation_prior_prose(frame, action, resolved_chapter, input[:chapter_prose_reader])
+
+    req = build_tool_request(frame, plan, decision, input, action, prior_prose)
     tool_result = dispatch_tool(req, input[:complete_fn])
-    artifact_set = assemble_artifact(tool_result, frame.turn_id, plan)
+    artifact_set = assemble_artifact(tool_result, frame.turn_id, plan, resolved_chapter)
 
     {trace, trace_summary} =
       TraceWriter.record_with_tool(
@@ -65,8 +77,7 @@ defmodule NovelApplication.TurnExecutionService do
     {turn_result, trace}
   end
 
-  defp build_tool_request(frame, plan, decision, input) do
-    action = hd(plan.proposed_actions)
+  defp build_tool_request(frame, plan, decision, input, action, prior_prose) do
     tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"
     entry = CapabilityRegistry.get(tool_name)
 
@@ -78,7 +89,7 @@ defmodule NovelApplication.TurnExecutionService do
       decision_ref: decision.decision_id,
       tool_name: tool_name,
       tool_version: (entry && entry.tool_version) || "unknown",
-      input: tool_input(frame, action, input[:author_input], input[:context]),
+      input: tool_input(frame, action, input[:author_input], input[:context], prior_prose),
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
       idempotency_key: "idem_#{frame.turn_id}_#{tool_name}#{input[:idempotency_suffix] || ""}",
@@ -87,7 +98,7 @@ defmodule NovelApplication.TurnExecutionService do
     }
   end
 
-  defp tool_input(frame, action, author_input, context) do
+  defp tool_input(frame, action, author_input, context, prior_prose) do
     text =
       case author_input do
         %{text: text} when is_binary(text) -> text
@@ -95,7 +106,10 @@ defmodule NovelApplication.TurnExecutionService do
         _ -> frame.author_visible_draft.message
       end
 
-    context_text = tool_context_text(context, text)
+    context_text =
+      [prior_prose_section(action, prior_prose), tool_context_text(context, text)]
+      |> Enum.reject(&blank?/1)
+      |> Enum.join("\n\n")
 
     %{
       "text" => text,
@@ -103,6 +117,78 @@ defmodule NovelApplication.TurnExecutionService do
         [action_summary(action), text] |> Enum.reject(&blank?/1) |> Enum.join("\n"),
       "context_text" => context_text
     }
+  end
+
+  # 解析续写/重写的目标章（确定性，不依赖 LLM 结构化输出）：
+  # - 非续写/重写意图 → ""（不归章、不读前文）。
+  # - LLM 给的 target_chapter 命中已采纳章节 → 用它。
+  # - 否则回退到最近一章已采纳章节（"接着往下写"默认续当前/最新章）。
+  # AI 只负责识别意图；目标章的安全解析在应用层用 DialogueContext.current_chapters 完成。
+  defp resolve_continuation_chapter(action, context) do
+    if action[:authoring_intent] in [:continuation, :rewrite] do
+      chapters = accepted_chapter_titles(context)
+      target = action[:target_chapter]
+      trimmed = if is_binary(target), do: String.trim(target), else: ""
+
+      cond do
+        trimmed != "" and trimmed in chapters -> trimmed
+        chapters != [] -> List.last(chapters)
+        trimmed != "" -> trimmed
+        true -> ""
+      end
+    else
+      ""
+    end
+  end
+
+  defp accepted_chapter_titles(%NovelDomain.DialogueContext{current_chapters: chapters})
+       when is_list(chapters),
+       do: chapters
+
+  defp accepted_chapter_titles(_context), do: []
+
+  # 续写/重写：取目标章已采纳正文，作为 prose_writing 衔接前文（v2 28「基于前文」）的上下文。
+  # 同时记一条业务日志（observability，ADR-0018），让外部验收能证明前文确实进入续写上下文。
+  defp continuation_prior_prose(frame, action, resolved_chapter, reader)
+       when is_function(reader, 2) and is_binary(resolved_chapter) and resolved_chapter != "" do
+    prose = safe_read_prose(reader, frame.workspace_id, resolved_chapter)
+
+    if prose != "" do
+      LogEmit.emit(:turn_execution, :continuation_context, :done, %{
+        turn_id: frame.turn_id,
+        authoring_intent: to_string(action[:authoring_intent]),
+        target_chapter: resolved_chapter,
+        prior_prose_chars: String.length(prose)
+      })
+    end
+
+    prose
+  end
+
+  defp continuation_prior_prose(_frame, _action, _resolved_chapter, _reader), do: ""
+
+  defp safe_read_prose(reader, work_id, chapter) when is_binary(work_id) do
+    case reader.(work_id, chapter) do
+      prose when is_binary(prose) -> prose
+      _ -> ""
+    end
+  end
+
+  defp safe_read_prose(_reader, _work_id, _chapter), do: ""
+
+  defp prior_prose_section(_action, ""), do: ""
+
+  defp prior_prose_section(action, prose) do
+    heading =
+      case action[:authoring_intent] do
+        :rewrite ->
+          "## 本章当前已采纳正文（请基于它重写整章，可大幅改动情节与措辞，但保持人物与设定一致）"
+
+        _ ->
+          "## 本章已采纳正文（请在其后自然衔接续写，承接情节、人物状态与语气，不要重复已写内容，也不要从头另起）"
+      end
+
+    heading <> "\n" <> prose
   end
 
   defp tool_context_text(%NovelDomain.DialogueContext{} = context, text) do
@@ -128,25 +214,35 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp dispatch_tool(%ToolRequest{} = req, _complete_fn), do: Toolbox.execute(req)
 
-  defp assemble_artifact(%ToolResult{tool_name: tool_name} = result, turn_id, plan)
+  defp assemble_artifact(
+         %ToolResult{tool_name: tool_name} = result,
+         turn_id,
+         plan,
+         resolved_chapter
+       )
        when tool_name in @creative_tools do
-    case ArtifactAssembler.assemble(result, turn_id, plan_provenance(plan)) do
+    case ArtifactAssembler.assemble(result, turn_id, provenance(plan, resolved_chapter)) do
       {:ok, artifact_set} -> artifact_set
       {:error, _reason} -> nil
     end
   end
 
-  defp assemble_artifact(_result, _turn_id, _plan), do: nil
+  defp assemble_artifact(_result, _turn_id, _plan, _resolved_chapter), do: nil
 
-  # 把本轮 MicroPlan 的生成意图（续写/重写 + 目标章）作为 provenance 传给 artifact 创建边界。
-  defp plan_provenance(%MicroPlan{proposed_actions: [action | _]}) when is_map(action) do
-    %{
-      authoring_intent: Map.get(action, :authoring_intent),
-      target_chapter: Map.get(action, :target_chapter)
-    }
+  # artifact provenance：authoring_intent 来自 plan；target_chapter 用应用层解析后的归章
+  # （命中/回退后的章），保证"生成时读前文的章"与"采纳时归入的章"是同一章。
+  # 非续写/重写时 resolved_chapter=""，回退到 plan 的 target_chapter（通常为 nil）。
+  defp provenance(%MicroPlan{proposed_actions: [action | _]}, resolved_chapter)
+       when is_map(action) do
+    target =
+      if is_binary(resolved_chapter) and resolved_chapter != "",
+        do: resolved_chapter,
+        else: Map.get(action, :target_chapter)
+
+    %{authoring_intent: Map.get(action, :authoring_intent), target_chapter: target}
   end
 
-  defp plan_provenance(_), do: %{}
+  defp provenance(_plan, _resolved_chapter), do: %{}
 
   defp narrate(%ToolResult{status: :succeeded} = tool_result, complete_fn)
        when is_function(complete_fn, 1) do

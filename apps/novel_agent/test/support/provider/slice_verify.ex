@@ -288,13 +288,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  # 章节正文 item 标题取章节计划标题（"第N章：标题"，止于下一个分隔符），让采纳后的章节名
+  # 是真实章名而非占位。无法识别章号时回退占位标题。
   defp creative_title(brief, fingerprint) do
-    case Regex.run(~r/第\d+章[：:]\s*([^。\n]+?)(?:正文草稿|$)/u, brief) do
-      [_, chapter_title] ->
-        "#{String.trim(chapter_title)} 正文草稿"
-
-      _ ->
-        "待确认正文草稿 #{fingerprint}"
+    case Regex.run(~r/第\d+章[：:]\s*[^：:。\n]+/u, brief) do
+      [chapter_title] -> String.trim(chapter_title)
+      _ -> "待确认正文草稿 #{fingerprint}"
     end
   end
 

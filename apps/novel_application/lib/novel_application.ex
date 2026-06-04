@@ -59,6 +59,14 @@ defmodule NovelApplication do
     if inject_persistence?(), do: NovelPersistence.AdoptionRepository.overwrite_reader()
   end
 
+  @doc """
+  返回章节正文读端口：(work_id, chapter_title) -> 该章已采纳正文（续写/重写衔接用）。
+  未启用真实持久化时返回 nil（视为无前文，prose_writing 不带本章已采纳正文）。
+  """
+  def persistence_chapter_prose_reader do
+    if inject_persistence?(), do: &NovelPersistence.ReadingProjectionRepo.accepted_chapter_prose/2
+  end
+
   defp inject_persistence? do
     Application.get_env(:novel_web, :persistence, [])
     |> Keyword.get(:inject_real_persistence, false)

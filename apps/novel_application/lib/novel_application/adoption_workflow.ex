@@ -791,15 +791,25 @@ defmodule NovelApplication.AdoptionWorkflow do
     end
   end
 
+  # 章节标题（归章用）优先取创作内容本身的 item 标题，而不是通用 UI 卡片标签
+  # （`TurnResultBuilder.artifact_payload_title/1` 恒为"待确认的创作材料"，是展示用占位，
+  # 不该成为章节名）。items 无可用标题时才回退 payload.title，最后回退"已采纳内容"。
   defp artifact_summary(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
+    items = payload[:items] || payload["items"]
 
     cond do
-      meaningful_title?(payload[:title], artifact) -> String.trim(payload[:title])
-      meaningful_title?(payload["title"], artifact) -> String.trim(payload["title"])
-      is_list(payload[:items]) -> summary_from_items(payload[:items], artifact)
-      is_list(payload["items"]) -> summary_from_items(payload["items"], artifact)
-      true -> "已采纳内容"
+      is_list(items) && summary_from_items(items, artifact) ->
+        summary_from_items(items, artifact)
+
+      meaningful_title?(payload[:title], artifact) ->
+        String.trim(payload[:title])
+
+      meaningful_title?(payload["title"], artifact) ->
+        String.trim(payload["title"])
+
+      true ->
+        "已采纳内容"
     end
   end
 
@@ -808,7 +818,7 @@ defmodule NovelApplication.AdoptionWorkflow do
     |> Enum.map(&item_title/1)
     |> Enum.find(&meaningful_title?(&1, artifact))
     |> case do
-      nil -> "已采纳内容"
+      nil -> nil
       title -> title |> to_string() |> String.trim()
     end
   end

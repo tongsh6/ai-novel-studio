@@ -811,7 +811,8 @@ defmodule NovelApplication.DialogueGateway do
         candidates: candidates,
         context: context,
         author_input: author_input,
-        complete_fn: complete_fn
+        complete_fn: complete_fn,
+        chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader()
       })
 
     {:ok, turn_result, trace, candidates, context}

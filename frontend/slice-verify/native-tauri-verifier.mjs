@@ -2734,6 +2734,16 @@ function findP1ChapterExpansionEvidence(records) {
   );
   if (accepts.length < 3) return null;
 
+  // checkpoint 2 续写连贯：每轮续写的 prose_writing 上下文都带入了"本章已采纳正文"，
+  // 由后端 observability 事件 turn_execution.continuation_context.done 证明（prior_prose_chars > 0）。
+  const continuityEvents = records.filter(
+    (record) =>
+      record.event === "turn_execution.continuation_context.done" &&
+      record.authoring_intent === "continuation" &&
+      Number(record.prior_prose_chars ?? 0) > 0,
+  );
+  if (continuityEvents.length < 2) return null;
+
   // 续写落同一章：累积后阅读投影只有 1 章，且该章正文有效字符 >= 1000。
   const tocRead = records.find(
     (record) =>
@@ -2763,6 +2773,7 @@ function findP1ChapterExpansionEvidence(records) {
     final_chapter_word_count: uiState.final_chapter_word_count,
     continuation_count: uiState.continuation_count,
     continuation_intents: intents,
+    prior_prose_context_events: continuityEvents.length,
     key_events: keyEvents,
   };
 }
@@ -2787,6 +2798,15 @@ function p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, _op
   const intents = Array.isArray(uiState.continuation_intents) ? uiState.continuation_intents : [];
   if (intents.length < 2 || !intents.every((intent) => intent === "continuation")) return null;
 
+  // checkpoint 2：每轮续写都把本章已采纳正文喂进 prose_writing 上下文（基于前文衔接）。
+  const continuityEvents = records.filter(
+    (record) =>
+      record.event === "turn_execution.continuation_context.done" &&
+      record.authoring_intent === "continuation" &&
+      Number(record.prior_prose_chars ?? 0) > 0,
+  );
+  if (continuityEvents.length < 2) return null;
+
   return {
     slice_id: "p1-chapter-expansion",
     behavior:
@@ -2797,6 +2817,7 @@ function p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, _op
     final_chapter_word_count: Number(uiState.final_chapter_word_count ?? 0),
     continuation_count: Number(uiState.continuation_count ?? 0),
     continuation_intents: intents,
+    prior_prose_context_events: continuityEvents.length,
     assertions: [
       "first_chapter_draft_adopted_as_sub_1000_short_chapter",
       "natural_language_continuation_recognized_as_authoring_intent_continuation_by_planner",
@@ -2804,6 +2825,7 @@ function p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, _op
       "continuations_did_not_supersede_or_fork_a_new_chapter",
       "single_chapter_accumulated_past_p1_1000_word_minimum",
       "short_chapter_flipped_to_ok_after_accumulation",
+      "each_continuation_prose_writing_received_prior_chapter_prose_for_coherent_continuation",
     ],
   };
 }
