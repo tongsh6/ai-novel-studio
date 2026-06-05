@@ -170,18 +170,19 @@ defmodule NovelApplication.Planner do
           "write_intent": "none" | "tentative",
           "risk_hint": "low" | "medium" | "high",
           "authoring_intent": "none" | "continuation" | "rewrite",
-          "target_chapter": "要续写/重写的已有章节标题；不针对已有章则为 null"
+          "target_chapter": "本次正文针对的作品现有章节标题（从下方章节列表精确复制）；写全新章节或不针对具体章时为 null"
         }
       ],
       "required_capabilities": ["world_building"],
       "fallback_message": "如果无法执行，降级为对话时告诉作者什么"
     }
 
-    ## 续写 / 重写意图识别（针对已有章节时必填）
-    - 作者想在某个已有章节"接着往下写 / 继续 / 补一段 / 加场景" → authoring_intent = "continuation"，target_chapter 必须精确复制上面"已采纳章节"列表中的某个标题
-    - 作者想"推翻重写 / 改写 / 重新写"某个已有章节 → authoring_intent = "rewrite"，target_chapter 同样精确复制已有标题，risk_hint 用 "high"
-    - 写全新章节、大纲、角色、设定，或没有已采纳章节可参照 → authoring_intent = "none"，target_chapter = null
-    - 无法确定指向哪一章时，宁可用 "none"（新增低风险），不要猜一个不在列表里的标题
+    ## 意图与目标章（针对下方章节列表中的某章时，target_chapter 必填且精确复制）
+    - 作者想"写 / 生成"列表里某个具体章节的正文（含还没写正文的计划章，首次成稿）→ authoring_intent = "none"，target_chapter 精确复制该章标题
+    - 作者想在某个已有章节"接着往下写 / 继续 / 补一段 / 加场景" → authoring_intent = "continuation"，target_chapter 精确复制该章标题
+    - 作者想"推翻重写 / 改写 / 重新写"某个已有章节 → authoring_intent = "rewrite"，target_chapter 精确复制该章标题，risk_hint 用 "high"
+    - 写全新章节（不在列表里）、大纲、角色、设定 → authoring_intent = "none"，target_chapter = null
+    - 无法确定指向列表里哪一章时，target_chapter = null，不要猜一个不在列表里的标题
 
     ## 重要
     - proposed_actions 只能包含 capability_invocation 类型的动作
@@ -195,7 +196,7 @@ defmodule NovelApplication.Planner do
   defp accepted_chapters_section(%DialogueContext{current_chapters: [_ | _] = chapters}) do
     listed = Enum.map_join(chapters, "\n", &"- #{&1}")
 
-    "\n## 已采纳章节（续写/重写的 target_chapter 必须精确取自此列表）\n#{listed}\n"
+    "\n## 作品章节（target_chapter 必须从此列表精确复制；含已规划但还没写正文的章）\n#{listed}\n"
   end
 
   defp accepted_chapters_section(_context), do: ""

@@ -214,20 +214,24 @@ export function ReadingMode() {
                   {READING.chapterWordsLabel} {formatWordCount(activeChapter?.wordCount ?? 0)}
                 </div>
               )}
-              {readableChapterContent.scenes.map((scene, si) => (
-                <div key={si}>
-                  {scene.title && scene.title !== readableChapterContent.title && (
-                    <h3 className={styles.sceneTitle}>{scene.title}</h3>
-                  )}
-                  {scene.content ? (
-                    scene.content.split("\n").map((para, pi) => (
-                      para.trim() ? <div key={pi} className={styles.paragraph}>{para}</div> : <br key={pi} />
-                    ))
-                  ) : (
-                    <div className={styles.paragraph}>（该场景暂无已采纳正文）</div>
-                  )}
-                </div>
-              ))}
+              {readableChapterContent.scenes.length === 0 ? (
+                <div className={styles.paragraph}>{READING.emptyChapterBody}</div>
+              ) : (
+                readableChapterContent.scenes.map((scene, si) => (
+                  <div key={si}>
+                    {scene.title && scene.title !== readableChapterContent.title && (
+                      <h3 className={styles.sceneTitle}>{scene.title}</h3>
+                    )}
+                    {scene.content ? (
+                      scene.content.split("\n").map((para, pi) => (
+                        para.trim() ? <div key={pi} className={styles.paragraph}>{para}</div> : <br key={pi} />
+                      ))
+                    ) : (
+                      <div className={styles.paragraph}>{READING.sceneEmptyBody}</div>
+                    )}
+                  </div>
+                ))
+              )}
             </div>
           )}
         </div>

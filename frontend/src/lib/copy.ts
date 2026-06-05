@@ -411,10 +411,12 @@ export const READING = {
   chapterWordsLabel: "本章有效字数",
   wordsUnit: "字",
   shortChapterBadge: "短章",
-  emptyChapterBadge: "空章",
+  emptyChapterBadge: "待补足",
   milestoneProgressLabel: "P1 进度",
   milestoneMetLabel: "已达 P1 目标",
   chaptersBelowMinSuffix: "章待补足",
+  emptyChapterBody: "本章尚无已采纳正文，待补足。",
+  sceneEmptyBody: "（该场景暂无已采纳正文）",
 } as const;
 
 // ============================================================

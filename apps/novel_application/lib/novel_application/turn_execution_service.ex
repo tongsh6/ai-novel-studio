@@ -39,9 +39,15 @@ defmodule NovelApplication.TurnExecutionService do
   def execute(%{frame: frame, plan: plan, decision: decision} = input) do
     action = hd(plan.proposed_actions)
 
-    # AI 只负责识别续写/重写意图；目标章由应用层用已采纳章节列表确定性解析（LLM 对结构化
+    # AI 只识别意图与候选目标章；目标章由应用层用作品现有章节列表确定性解析（LLM 对结构化
     # target_chapter 不可靠），并把解析结果同时用于"读前文"和"采纳归章"，二者保持一致。
-    resolved_chapter = resolve_continuation_chapter(action, input[:context])
+    resolved_chapter =
+      resolve_target_chapter(
+        action,
+        input[:context],
+        input[:chapter_prose_reader],
+        frame.workspace_id
+      )
 
     prior_prose =
       continuation_prior_prose(frame, action, resolved_chapter, input[:chapter_prose_reader])
@@ -119,27 +125,42 @@ defmodule NovelApplication.TurnExecutionService do
     }
   end
 
-  # 解析续写/重写的目标章（确定性，不依赖 LLM 结构化输出）：
-  # - 非续写/重写意图 → ""（不归章、不读前文）。
-  # - LLM 给的 target_chapter 命中已采纳章节 → 用它。
-  # - 否则回退到最近一章已采纳章节（"接着往下写"默认续当前/最新章）。
-  # AI 只负责识别意图；目标章的安全解析在应用层用 DialogueContext.current_chapters 完成。
-  defp resolve_continuation_chapter(action, context) do
-    if action[:authoring_intent] in [:continuation, :rewrite] do
-      chapters = accepted_chapter_titles(context)
-      target = action[:target_chapter]
-      trimmed = if is_binary(target), do: String.trim(target), else: ""
+  # 解析本次正文归属的章（确定性，不依赖 LLM 结构化输出可靠性）：
+  # - target_chapter 精确命中作品现有章（计划章或已写章）→ 归到该章
+  #   （写第X章首稿 / 续写 / 重写都走这里，章身份由作品结构定，不由模型自创标题定）。
+  # - 续写/重写但漏给或没命中目标章 → 回退到"最近一个已写正文的章"（"接着往下写"默认续最新已写章）。
+  #   注意：current_chapters 现含计划待写章，不能简单取 List.last（会落到末尾的计划空章）。
+  # - 其它（写全新章、不针对具体章）→ ""（不归章，由创作内容自身标题命名）。
+  # AI 只识别意图与候选目标章；安全解析在应用层用 DialogueContext.current_chapters 完成。
+  defp resolve_target_chapter(action, context, reader, work_id) do
+    chapters = accepted_chapter_titles(context)
+    target = normalize_target_chapter(action[:target_chapter])
+    intent = action[:authoring_intent]
 
-      cond do
-        trimmed != "" and trimmed in chapters -> trimmed
-        chapters != [] -> List.last(chapters)
-        trimmed != "" -> trimmed
-        true -> ""
-      end
-    else
-      ""
+    cond do
+      target != "" and target in chapters ->
+        target
+
+      intent in [:continuation, :rewrite] ->
+        latest_written_chapter(chapters, reader, work_id) || target
+
+      true ->
+        ""
     end
   end
+
+  # 按计划顺序从后往前找第一个已有已采纳正文的章（无 reader 或都没正文 → nil）。
+  defp latest_written_chapter(chapters, reader, work_id)
+       when is_function(reader, 2) and is_binary(work_id) do
+    chapters
+    |> Enum.reverse()
+    |> Enum.find(fn title -> safe_read_prose(reader, work_id, title) != "" end)
+  end
+
+  defp latest_written_chapter(_chapters, _reader, _work_id), do: nil
+
+  defp normalize_target_chapter(target) when is_binary(target), do: String.trim(target)
+  defp normalize_target_chapter(_target), do: ""
 
   defp accepted_chapter_titles(%NovelDomain.DialogueContext{current_chapters: chapters})
        when is_list(chapters),
@@ -147,22 +168,27 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp accepted_chapter_titles(_context), do: []
 
-  # 续写/重写：取目标章已采纳正文，作为 prose_writing 衔接前文（v2 28「基于前文」）的上下文。
+  # 只有续写/重写才把目标章已采纳正文喂给 prose_writing 衔接前文（28「基于前文」）。
+  # 写计划章首稿（intent=none 但归到某章）不注入前文：该章本就还没有正文。
   # 同时记一条业务日志（observability，ADR-0018），让外部验收能证明前文确实进入续写上下文。
   defp continuation_prior_prose(frame, action, resolved_chapter, reader)
        when is_function(reader, 2) and is_binary(resolved_chapter) and resolved_chapter != "" do
-    prose = safe_read_prose(reader, frame.workspace_id, resolved_chapter)
+    if action[:authoring_intent] in [:continuation, :rewrite] do
+      prose = safe_read_prose(reader, frame.workspace_id, resolved_chapter)
 
-    if prose != "" do
-      LogEmit.emit(:turn_execution, :continuation_context, :done, %{
-        turn_id: frame.turn_id,
-        authoring_intent: to_string(action[:authoring_intent]),
-        target_chapter: resolved_chapter,
-        prior_prose_chars: String.length(prose)
-      })
+      if prose != "" do
+        LogEmit.emit(:turn_execution, :continuation_context, :done, %{
+          turn_id: frame.turn_id,
+          authoring_intent: to_string(action[:authoring_intent]),
+          target_chapter: resolved_chapter,
+          prior_prose_chars: String.length(prose)
+        })
+      end
+
+      prose
+    else
+      ""
     end
-
-    prose
   end
 
   defp continuation_prior_prose(_frame, _action, _resolved_chapter, _reader), do: ""

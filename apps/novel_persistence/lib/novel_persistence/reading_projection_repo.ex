@@ -2,8 +2,9 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   @moduledoc """
   Read-model repository for AU-08 Reading Mode.
 
-  Reading projections are derived from accepted draft content only. Tentative
-  drafts remain adoption candidates and must not appear in TOC or chapter body.
+  目录（TOC）来源是当前作品**已采纳的卷/章结构**（AU08-I1：只有已采纳作品事实进投影；
+  SC-AU08-B2：章可以在目录里但还没有已采纳正文 → 空章/待补足）。章节正文仍只来自
+  accepted draft —— tentative 草稿是采纳候选，绝不进 TOC 或正文。
   """
 
   import Ecto.Query
@@ -11,6 +12,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
   alias NovelDomain.ProseAudit
   alias NovelDomain.ProseWordCount
   alias NovelFoundation.Enums.AdoptionStatus
+  alias NovelFoundation.Enums.StructureStatus
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Draft
@@ -35,7 +37,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
 
         chapters =
           work_id
-          |> accepted_chapters()
+          |> structure_chapters()
           |> Enum.map(&Map.put(&1, :word_count, Map.get(word_counts, &1.id, 0)))
 
         volume_ids = chapters |> Enum.map(& &1.volume_id) |> Enum.uniq()
@@ -159,19 +161,16 @@ defmodule NovelPersistence.ReadingProjectionRepo do
     |> Repo.one()
   end
 
-  defp accepted_chapters(work_id) do
-    accepted = AdoptionStatus.accepted()
+  # 目录按已采纳的卷/章结构展示（含还没有正文的计划章，SC-AU08-B2）。
+  # 已归档章不展示。每章有效字数由 word_counts_by_chapter 叠加（无正文则为 0）。
+  defp structure_chapters(work_id) do
+    archived = StructureStatus.archived()
 
     Chapter
-    |> join(:inner, [c], s in Scene, on: s.chapter_id == c.id and s.work_id == ^work_id)
-    |> join(:inner, [_c, s], d in Draft,
-      on: d.scene_id == s.id and d.work_id == ^work_id and d.status == ^accepted
-    )
-    |> where([c], c.work_id == ^work_id)
+    |> where([c], c.work_id == ^work_id and c.status != ^archived)
     |> order_by([c], asc: c.volume_id, asc: c.seq)
     |> select([c], %{id: c.id, volume_id: c.volume_id, title: c.title, seq: c.seq})
     |> Repo.all()
-    |> Enum.uniq_by(& &1.id)
   end
 
   defp volumes_by_id(_work_id, []), do: []

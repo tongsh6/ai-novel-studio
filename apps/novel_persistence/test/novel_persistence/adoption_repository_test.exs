@@ -82,7 +82,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert chapter_id == persisted.reading_projection.chapter_id
     end
 
-    test "records adopted outline draft as chapter plan without reading projection" do
+    test "adopted outline materializes accepted volume/chapter structure (no prose yet)" do
       work_id = Ecto.UUID.generate()
 
       content = """
@@ -102,14 +102,14 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
                  summary: "P1 10 万字章节计划"
                })
 
+      # 大纲采纳不直接产出阅读投影 draft（正文才是 prose 路径）。
       assert persisted.reading_projection == nil
 
       memory = Repo.get!(MemoryItem, persisted.memory_item_id)
       assert memory.type == MemoryType.draft_context()
       assert memory.tags == ["adopted_artifact", "outline_draft"]
 
-      assert %{volumes: []} = ReadingProjectionRepo.toc(work_id)
-
+      # 章节计划只读视图仍可用。
       assert [
                %{
                  title: "P1 10 万字章节计划",
@@ -120,6 +120,27 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
                  ]
                }
              ] = WorkArchiveRepo.chapter_plans(work_id)
+
+      # 采纳计划即物化 accepted 卷/章结构：章 status=PLANNED，按计划顺序。
+      chapters =
+        Chapter
+        |> where([c], c.work_id == ^work_id)
+        |> order_by([c], asc: c.seq)
+        |> Repo.all()
+
+      assert [c1, c2] = chapters
+      assert {c1.title, c1.status} == {"第01章：底层灵气账单", StructureStatus.planned()}
+      assert {c2.title, c2.status} == {"第02章：旧服务器里的残诀", StructureStatus.planned()}
+      assert c1.volume_id == c2.volume_id
+
+      # 目录展示计划全章，即使还没有已采纳正文（SC-AU08-B2）：每章字数 0、空章。
+      assert %{volumes: [%{chapters: toc_chapters}], total_word_count: 0} =
+               ReadingProjectionRepo.toc(work_id)
+
+      assert [
+               %{title: "第01章：底层灵气账单", word_count: 0, audit_status: :empty},
+               %{title: "第02章：旧服务器里的残诀", word_count: 0, audit_status: :empty}
+             ] = toc_chapters
     end
   end
 

@@ -428,7 +428,7 @@ defmodule NovelApplication.CreativeArtifactTest do
                Planner.form_micro_plan(frame("turn-ctx"), %{text: "接着写"}, complete_fn, context)
 
       [prompt] = Agent.get(prompt_agent, & &1)
-      assert prompt =~ "已采纳章节"
+      assert prompt =~ "作品章节"
       assert prompt =~ "第01章：底层灵气账单"
       assert prompt =~ "第02章：宗门试炼"
     end
@@ -465,9 +465,9 @@ defmodule NovelApplication.CreativeArtifactTest do
           complete_fn
         )
 
-      # 计划 prompt（第 2 次 LLM 调用）带上已采纳章节，供 LLM 解析目标章
+      # 计划 prompt（第 2 次 LLM 调用）带上作品章节列表，供 LLM 解析目标章
       plan_prompt = prompt_agent |> Agent.get(&Enum.reverse/1) |> Enum.at(1)
-      assert plan_prompt =~ "已采纳章节"
+      assert plan_prompt =~ "作品章节"
       assert plan_prompt =~ "第01章：底层灵气账单"
 
       # 章节经 6 元组 fetcher 进入 context

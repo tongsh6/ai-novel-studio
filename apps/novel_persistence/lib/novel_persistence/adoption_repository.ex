@@ -18,6 +18,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelFoundation.Enums.SourceType
   alias NovelFoundation.Enums.StructureStatus
   alias NovelFoundation.ID
+  alias NovelPersistence.ChapterPlanParser
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Draft
@@ -25,6 +26,9 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelPersistence.Schemas.Mutation
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
+
+  # 计划是扁平章列表、无卷分组，用单一默认卷承载已采纳卷/章结构。
+  @default_volume_title "第一卷"
 
   @spec writer() :: function()
   def writer do
@@ -45,6 +49,9 @@ defmodule NovelPersistence.AdoptionRepository do
     end)
     |> Multi.run(:reading_projection, fn repo, %{mutation: mutation} ->
       maybe_persist_reading_projection(repo, attrs, mutation.id)
+    end)
+    |> Multi.run(:chapter_structure, fn repo, _changes ->
+      maybe_materialize_chapter_structure(repo, attrs)
     end)
     |> Repo.transaction()
     |> case do
@@ -131,8 +138,9 @@ defmodule NovelPersistence.AdoptionRepository do
     content = projection_content(attrs)
     mode = projection_mode(attrs)
 
-    with {:ok, volume} <- find_or_create_accepted_volume(repo, work_id),
+    with {:ok, volume} <- find_or_create_volume(repo, work_id),
          {:ok, chapter} <- find_or_create_chapter(repo, work_id, volume.id, chapter_title),
+         :ok <- mark_chapter_drafted(repo, chapter),
          {:ok, scene} <- resolve_scene(repo, work_id, chapter.id, chapter_title, mode),
          :ok <- maybe_supersede_scene(repo, work_id, scene.id, mode),
          {:ok, draft} <-
@@ -210,9 +218,82 @@ defmodule NovelPersistence.AdoptionRepository do
   @spec overwrite_reader() :: (String.t(), String.t() -> boolean())
   def overwrite_reader, do: &has_accepted_chapter?/2
 
-  defp find_or_create_accepted_volume(repo, work_id) do
+  # 采纳章节计划（outline）→ 物化 accepted 卷/章结构（v3 AU-08：目录来源是已采纳的卷/章结构；
+  # AU08-I1 只有已采纳作品事实进投影；SC-AU08-B2 允许章在目录里但还没有已采纳正文）。
+  # 章以 status=PLANNED 落地，正文采纳时由 mark_chapter_drafted 翻成 DRAFTING。
+  defp maybe_materialize_chapter_structure(repo, attrs) do
+    if outline_artifact?(Map.get(attrs, :artifact_type)) do
+      materialize_chapter_structure(repo, Map.fetch!(attrs, :work_id), Map.get(attrs, :content))
+    else
+      {:ok, 0}
+    end
+  end
+
+  defp materialize_chapter_structure(repo, work_id, content) do
+    titles = ChapterPlanParser.titles(content)
+
+    with {:ok, volume} <- find_or_create_volume(repo, work_id) do
+      reduce_planned_chapters(repo, work_id, volume.id, titles)
+    end
+  end
+
+  defp reduce_planned_chapters(repo, work_id, volume_id, titles) do
+    Enum.reduce_while(titles, {:ok, 0}, fn title, {:ok, n} ->
+      case ensure_planned_chapter(repo, work_id, volume_id, title) do
+        :ok -> {:cont, {:ok, n + 1}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp outline_artifact?(:outline_draft), do: true
+  defp outline_artifact?("outline_draft"), do: true
+  defp outline_artifact?(_), do: false
+
+  # 计划章按 (work_id, title) 幂等：已存在（含正文采纳已建的章）则不重复建。
+  defp ensure_planned_chapter(repo, work_id, volume_id, title) do
+    exists? =
+      Chapter
+      |> where([c], c.work_id == ^work_id and c.title == ^title)
+      |> repo.exists?()
+
+    if exists? do
+      :ok
+    else
+      case insert_chapter(repo, %{
+             work_id: work_id,
+             volume_id: volume_id,
+             title: title,
+             seq: next_chapter_seq(repo, volume_id),
+             status: StructureStatus.planned()
+           }) do
+        {:ok, _chapter} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  # 正文采纳进某章 → 该章不再是纯计划态。PLANNED → DRAFTING；已 COMPLETED/其它不回退。
+  defp mark_chapter_drafted(repo, %Chapter{status: status} = chapter) do
+    if status == StructureStatus.planned() do
+      chapter
+      |> Chapter.changeset(%{status: StructureStatus.drafting()})
+      |> repo.update()
+      |> case do
+        {:ok, _} -> :ok
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      :ok
+    end
+  end
+
+  # 当前作品的规范卷：复用已存在的（计划物化或历史采纳建的）首个卷；无则建默认卷。
+  # 计划是扁平章列表，无卷分组（v3 27 §5.1：TOC 以 volume ordering 为一级、arc 仅 secondary），
+  # 故用单一默认卷承载。
+  defp find_or_create_volume(repo, work_id) do
     Volume
-    |> where([v], v.work_id == ^work_id and v.title == "已采纳内容")
+    |> where([v], v.work_id == ^work_id)
     |> order_by([v], asc: v.seq)
     |> limit(1)
     |> repo.one()
@@ -220,7 +301,7 @@ defmodule NovelPersistence.AdoptionRepository do
       nil ->
         insert_volume(repo, %{
           work_id: work_id,
-          title: "已采纳内容",
+          title: @default_volume_title,
           seq: next_volume_seq(repo, work_id)
         })
 
@@ -298,13 +379,13 @@ defmodule NovelPersistence.AdoptionRepository do
 
   defp insert_volume(repo, attrs) do
     %Volume{}
-    |> Volume.changeset(Map.put(attrs, :status, StructureStatus.completed()))
+    |> Volume.changeset(Map.put_new(attrs, :status, StructureStatus.completed()))
     |> repo.insert()
   end
 
   defp insert_chapter(repo, attrs) do
     %Chapter{}
-    |> Chapter.changeset(Map.put(attrs, :status, StructureStatus.completed()))
+    |> Chapter.changeset(Map.put_new(attrs, :status, StructureStatus.completed()))
     |> repo.insert()
   end
 

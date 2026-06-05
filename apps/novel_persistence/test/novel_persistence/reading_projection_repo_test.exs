@@ -14,30 +14,45 @@ defmodule NovelPersistence.ReadingProjectionRepoTest do
       assert %{volumes: []} = ReadingProjectionRepo.toc(Ecto.UUID.generate())
     end
 
-    test "lists only chapters with accepted draft content for the current work" do
+    test "TOC 按已采纳卷/章结构展示；未采纳内容既不计字数也不进正文，跨作品不串" do
       work_id = Ecto.UUID.generate()
       other_work_id = Ecto.UUID.generate()
 
       %{chapter: accepted_chapter} =
         insert_reading_chain(work_id, "第一卷：起源", "第一章：苏醒", "醒来。", :accepted)
 
-      insert_reading_chain(work_id, "第二卷：草稿", "第二章：未采纳", "不能出现", :tentative)
+      # 结构里的章即使只有未采纳草稿，也按结构出现在目录（SC-AU08-B2 空章），
+      # 但未采纳内容不计字数（AU08-I2）。
+      %{chapter: tentative_chapter} =
+        insert_reading_chain(work_id, "第二卷：草稿", "第二章：未采纳", "不能出现", :tentative)
+
       insert_reading_chain(other_work_id, "串线卷", "串线章", "不能串作品", :accepted)
 
-      assert %{
-               work_id: ^work_id,
-               total_word_count: 2,
-               volumes: [
-                 %{
-                   title: "第一卷：起源",
-                   chapters: [
-                     %{id: chapter_id, title: "第一章：苏醒", seq: 1, word_count: 2}
-                   ]
-                 }
-               ]
-             } = ReadingProjectionRepo.toc(work_id)
+      toc = ReadingProjectionRepo.toc(work_id)
+      assert toc.work_id == work_id
+      # 只统计已采纳正文「醒来」2 字；未采纳草稿不计。
+      assert toc.total_word_count == 2
 
-      assert chapter_id == accepted_chapter.id
+      chapters = Enum.flat_map(toc.volumes, & &1.chapters)
+      titles = Enum.map(chapters, & &1.title)
+      assert "第一章：苏醒" in titles
+      assert "第二章：未采纳" in titles
+      # 跨作品隔离。
+      refute "串线章" in titles
+
+      accepted = Enum.find(chapters, &(&1.title == "第一章：苏醒"))
+      assert accepted.id == accepted_chapter.id
+      assert accepted.word_count == 2
+
+      empty = Enum.find(chapters, &(&1.title == "第二章：未采纳"))
+      assert empty.word_count == 0
+      assert empty.audit_status == :empty
+
+      # 未采纳内容不进正文。
+      assert {:ok, %{scenes: scenes}} =
+               ReadingProjectionRepo.chapter_content(tentative_chapter.id, work_id)
+
+      refute scenes |> Enum.map_join("", & &1.content) =~ "不能出现"
     end
 
     test "total_word_count 只统计已采纳正文且排除标点空白" do

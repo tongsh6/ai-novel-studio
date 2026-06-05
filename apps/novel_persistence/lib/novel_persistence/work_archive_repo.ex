@@ -12,6 +12,7 @@ defmodule NovelPersistence.WorkArchiveRepo do
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
+  alias NovelPersistence.ChapterPlanParser
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Character
@@ -185,12 +186,11 @@ defmodule NovelPersistence.WorkArchiveRepo do
   defp chapter_plan_memory?(_item), do: false
 
   defp normalize_chapter_plan(item) do
+    # 章节解析口径与采纳物化共用 ChapterPlanParser，避免两套数据逻辑。
     chapters =
       item.content
-      |> to_string()
-      |> String.split("\n", trim: true)
-      |> Enum.with_index(1)
-      |> Enum.map(fn {line, seq} -> parse_chapter_line(item.id, line, seq) end)
+      |> ChapterPlanParser.parse()
+      |> Enum.map(fn ch -> Map.put(ch, :id, "#{item.id}:#{ch.seq}") end)
 
     %{
       id: item.id,
@@ -199,21 +199,6 @@ defmodule NovelPersistence.WorkArchiveRepo do
       chapter_count: length(chapters),
       chapters: chapters,
       updated_at: item.updated_at
-    }
-  end
-
-  defp parse_chapter_line(plan_id, line, seq) do
-    {title, summary} =
-      case String.split(line, ": ", parts: 2) do
-        [title, summary] -> {title, summary}
-        [title] -> {title, nil}
-      end
-
-    %{
-      id: "#{plan_id}:#{seq}",
-      seq: seq,
-      title: String.trim(title),
-      summary: summary && String.trim(summary)
     }
   end
 
