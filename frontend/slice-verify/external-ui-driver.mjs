@@ -987,11 +987,14 @@ async function driveP1ChapterAdoptionReading(page) {
     (await page.getByRole("button", { name: "确认创建" }).count()) === 0;
 
   // 进入阅读模式：采纳后的正文应进入投影，并显示有效字数。
+  // 必须等到「本章有效字数」也渲染再快照：TOC（全书字数）与章节正文/章字数来自两次异步
+  // 读取（get_toc 与 get_chapter_content），只等全书字数会在章字数渲染前抢拍导致 flaky。
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("阅读模式") &&
       document.body.innerText.includes("全书有效字数") &&
+      document.body.innerText.includes("本章有效字数") &&
       !document.body.innerText.includes("暂无已采纳的章节内容"),
     { timeout: 15_000 },
   );

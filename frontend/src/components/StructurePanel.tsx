@@ -88,6 +88,15 @@ export function StructurePanel({
   if (!isOpen) return null;
 
   const hasWork = context.workId != null;
+
+  // 章节已采纳正文字数（按标题匹配已物化的卷/章结构），用于在章节计划里显示写作进度，
+  // 避免「章节计划卡」与「卷/章结构列表」各列一遍（计划即结构，统一成一份带进度的列表）。
+  const chapterWordsByTitle = new Map<string, number>();
+  toc?.volumes.forEach((vol) =>
+    vol.chapters.forEach((ch) => {
+      if (ch.title) chapterWordsByTitle.set(ch.title, ch.word_count ?? 0);
+    }),
+  );
   const selectedCharacter =
     selectedArchiveItem?.kind === "character"
       ? characters.find((item) => item.id === selectedArchiveItem.id)
@@ -287,6 +296,11 @@ export function StructurePanel({
                     {plan.chapters.map((ch) => (
                       <div key={ch.id} className={styles.cardItem}>
                         <span className={styles.cardTitle}>{ch.title}</span>
+                        <div className={styles.cardDesc}>
+                          {(chapterWordsByTitle.get(ch.title) ?? 0) > 0
+                            ? `${STRUCTURE_PANEL.chapterWrittenPrefix} ${chapterWordsByTitle.get(ch.title)} ${STRUCTURE_PANEL.chapterWordsUnit}`
+                            : STRUCTURE_PANEL.chapterPendingBadge}
+                        </div>
                         {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
                         <div className={styles.cardActions}>
                           <button
@@ -305,7 +319,8 @@ export function StructurePanel({
                 ))}
               </div>
             )}
-            {toc && toc.volumes.length > 0 ? (
+            {/* 无章节计划时（自由写作：章直接由正文采纳产生）才单列卷/章结构，避免与计划卡重复 */}
+            {chapterPlans.length === 0 && toc && toc.volumes.length > 0 ? (
               <div className={styles.section}>
                 {toc.volumes.map((vol) => (
                   <div key={vol.id} className={styles.section}>
