@@ -45,6 +45,30 @@ defmodule NovelAgent.CreativeProvider.Real do
     provider_error("complete_fn_required", "creative provider requires an injected complete_fn")
   end
 
+  # prose_writing：写一章/一段正文，结果应是一段连贯文本，而不是多个互相竞争、
+  # 各自从头另起的开头。因此要求"恰好一个连贯条目"。其余创意发散类能力（大纲、
+  # 人物草案等）仍返回多个候选供作者择一。
+  defp build_prompt(%CreativeRequest{tool_name: "prose_writing"} = request) do
+    """
+    你是小说正文写作助手。请严格按 JSON 数组格式返回恰好一个连贯条目，不要附加任何额外文字。
+
+    该条目是 JSON 对象，必须包含以下键：
+    - "item_id"：你生成的短标识符（不含空格）
+    - "title"：本段正文的简短标题（只给一个标题，不要罗列多个备选）
+    - "body"：一段连贯、完整的正文。直接写正文，不要在开头重复标题或章节名，也不要把同一情节用多个不同开头写多遍。若上下文中已给出本章前文，请在其后自然衔接续写，承接情节与人物状态，不要从头另起或重复已写内容。
+    - "rationale"：一句话依据（或 null）
+
+    capability：#{request.tool_name}
+    artifact_type：#{request.artifact_type}
+    用户创作简述：#{request.creative_brief}
+    上下文：#{request.context_text}
+
+    重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在该条目的 body 或 rationale 中原样保留至少一处。
+
+    只返回包含单个对象的 JSON 数组。
+    """
+  end
+
   defp build_prompt(%CreativeRequest{} = request) do
     """
     你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
@@ -60,7 +84,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     用户创作简述：#{request.creative_brief}
     上下文：#{request.context_text}
 
-    重要：如果用户输入或上下文中出现任意随机标识符串（字母数字组合），
+    重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），
     必须在至少一个条目的 title/body/rationale 中原样保留。
 
     只返回 JSON 数组。

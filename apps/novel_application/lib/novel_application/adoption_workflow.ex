@@ -837,15 +837,38 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   defp artifact_content(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
+    items = payload[:items] || payload["items"]
 
     cond do
       is_binary(payload[:content]) -> payload[:content]
       is_binary(payload["content"]) -> payload["content"]
-      is_list(payload[:items]) -> Enum.map_join(payload[:items], "\n", &item_content/1)
-      is_list(payload["items"]) -> Enum.map_join(payload["items"], "\n", &item_content/1)
+      is_list(items) -> items_to_content(items, artifact)
       true -> artifact_summary(artifact)
     end
   end
+
+  # 正文类（prose_fragment/scene_draft）：正文 = 各 item 的 body 本身。不要把 item title
+  # 拼进正文——title 已作为章节标题（adoption_chapter_title）单独承载，再拼一次会让正文以
+  # "第N章：标题: …"重复开头（曾在阅读视图里看到）。其余类型保留 "title: body" 拼接。
+  defp items_to_content(items, artifact) do
+    if reading_projection_artifact_type?(artifact_field(artifact, :artifact_type)) do
+      items
+      |> Enum.map(&item_body/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n\n")
+    else
+      Enum.map_join(items, "\n", &item_content/1)
+    end
+  end
+
+  defp item_body(item) when is_map(item) do
+    (Map.get(item, :body) || Map.get(item, "body") || Map.get(item, :content) ||
+       Map.get(item, "content") || "")
+    |> to_string()
+    |> String.trim()
+  end
+
+  defp item_body(other), do: other |> to_string() |> String.trim()
 
   defp edited_artifact(artifact, params) do
     payload = artifact_field(artifact, :payload) || %{}

@@ -226,9 +226,12 @@ defmodule NovelPersistence.WorkspaceContext do
     |> Repo.all()
   end
 
+  # 注意：不要把内部主键 id 放进 snapshot。snapshot 会被 DialogueContext.to_prompt_text
+  # 原样 dump 进创作/Planner prompt，而 Work 的 UUID 对创作毫无意义；一旦进入 prompt，
+  # 真实 provider 可能把它当成"符文/编号"织进正文（曾把 work id 写进第一章）。
+  # 这里只暴露创作相关事实字段。
   defp work_snapshot(%Work{} = work) do
     %{
-      id: work.id,
       title: work.title,
       genre: work.genre,
       core_selling_point: work.core_selling_point,
