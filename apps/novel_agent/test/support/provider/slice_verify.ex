@@ -180,9 +180,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Map.put(:target_chapter, chapter)
   end
 
-  # 续写/重写意图识别（确定性）：仅当 plan prompt 已带「已采纳章节」列表时才可能续写/重写。
+  # 续写/重写意图识别（确定性）：仅当 plan prompt 已带「作品章节」列表时才可能续写/重写。
   # 作者「接着/继续/续写/往下写」→ continuation；「推翻/重写/改写」→ rewrite。
-  # target_chapter 精确取自 prompt 的已采纳章节列表（与真实 LLM「精确复制」规则一致）。
+  # target_chapter 精确取自 prompt 的作品章节列表（与真实 LLM「精确复制」规则一致）。
   defp authoring_intent_for(prompt, author_text) do
     case accepted_chapters_in_prompt(prompt) do
       [] ->
@@ -203,7 +203,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp accepted_chapters_in_prompt(prompt) do
-    case Regex.run(~r/##\s*已采纳章节[^\n]*\n(.*?)(?:\n##|\z)/su, prompt) do
+    # planner 段头为「## 作品章节（…含已规划但还没写正文的章）」，正文章节列表取自此段。
+    case Regex.run(~r/##\s*作品章节[^\n]*\n(.*?)(?:\n##|\z)/su, prompt) do
       [_, block] ->
         ~r/^\s*-\s*(.+?)\s*$/mu
         |> Regex.scan(block)

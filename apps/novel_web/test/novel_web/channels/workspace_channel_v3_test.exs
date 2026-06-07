@@ -1180,17 +1180,6 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
 
       assert_reply(ref, :error, %{reason: "chapter not found"})
     end
-
-    test "get_chapter_plans returns an empty real archive view for lobby" do
-      {:ok, _, socket} =
-        UserSocket
-        |> socket("user_id", %{})
-        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
-
-      ref = push(socket, "get_chapter_plans", %{"work_id" => "lobby"})
-
-      assert_reply(ref, :ok, [])
-    end
   end
 
   describe "structure panel data handlers" do

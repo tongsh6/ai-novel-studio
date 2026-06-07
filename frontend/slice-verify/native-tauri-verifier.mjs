@@ -137,13 +137,12 @@ const sliceKeyEvents = {
     "channel.adopt.start",
     "adoption.evaluate.done",
     "channel.adopt.done",
-    "channel.get_chapter_plans.done",
+    "channel.get_toc.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-draft-generation": [
     "work_session.resume.done",
     "channel.join.done",
-    "channel.get_chapter_plans.done",
     "channel.user_message.start",
     "context.assemble.done",
     "planner.form_frame.done",
@@ -154,7 +153,6 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-adoption-reading": [
-    "channel.get_chapter_plans.done",
     "channel.user_message.start",
     "toolbox.execute.done",
     "channel.user_message.done",
@@ -166,7 +164,6 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "p1-word-count-audit": [
-    "channel.get_chapter_plans.done",
     "channel.user_message.start",
     "toolbox.execute.done",
     "channel.user_message.done",
@@ -178,7 +175,6 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-edit-then-accept": [
-    "channel.get_chapter_plans.done",
     "channel.user_message.start",
     "toolbox.execute.done",
     "channel.user_message.done",
@@ -200,7 +196,6 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-expansion": [
-    "channel.get_chapter_plans.done",
     "channel.user_message.start",
     "toolbox.execute.done",
     "channel.user_message.done",
@@ -2227,15 +2222,15 @@ function findP1ChapterPlanMinimumEvidence(records) {
       record.persisted === true &&
       record.reading_projection_materialized === false,
   );
-  const chapterPlanRead = records.some(
+  // 采纳的章节计划物化为可读卷/章结构（get_toc 单一数据源，不再有 get_chapter_plans）。
+  const chapterStructureRead = records.some(
     (record) =>
-      record.event === "channel.get_chapter_plans.done" &&
+      record.event === "channel.get_toc.done" &&
       record.work_id === uiState.work_id &&
-      Number(record.plan_count ?? 0) >= 1 &&
       Number(record.chapter_count ?? 0) >= 10,
   );
 
-  if (!generatedByTool || !microPlanStarted || !adopted || !chapterPlanRead) return null;
+  if (!generatedByTool || !microPlanStarted || !adopted || !chapterStructureRead) return null;
 
   return {
     slice_id: sliceId,
@@ -2260,7 +2255,7 @@ function findP1ChapterDraftGenerationEvidence(records) {
       record.draft_pending === true &&
       record.draft_card_visible === true &&
       record.artifact_type === "prose_fragment" &&
-      record.reading_mode_empty_before_adoption === true &&
+      record.reading_plan_visible_before_adoption === true &&
       record.unadopted_draft_visible_in_reading === false &&
       record.adopt_event_sent === false &&
       Number(record.draft_body_chars ?? 0) >= 80,
@@ -2294,20 +2289,13 @@ function findP1ChapterDraftGenerationEvidence(records) {
   const done = draftRecords.find((record) => record.event === "channel.user_message.done");
   if (!done) return null;
 
-  const chapterPlanRead = records.find(
-    (record) =>
-      record.event === "channel.get_chapter_plans.done" &&
-      record.work_id === uiState.work_id &&
-      Number(record.plan_count ?? 0) >= 1 &&
-      Number(record.chapter_count ?? 0) >= 10,
-  );
-  if (!chapterPlanRead) return null;
-
+  // 采纳的章节计划已成正式目录：阅读 toc 显示计划全章（>=10），但还没有已采纳正文（全书 0 字）。
   const tocRead = records.find(
     (record) =>
       record.event === "channel.get_toc.done" &&
       record.work_id === uiState.work_id &&
-      Number(record.chapter_count ?? -1) === 0,
+      Number(record.chapter_count ?? 0) >= 10 &&
+      Number(record.total_word_count ?? -1) === 0,
   );
   if (!tocRead) return null;
 
@@ -2320,7 +2308,7 @@ function findP1ChapterDraftGenerationEvidence(records) {
     artifact_type: uiState.artifact_type,
     chapter_title: uiState.chapter_title,
     draft_body_chars: uiState.draft_body_chars,
-    chapter_count: chapterPlanRead.chapter_count,
+    chapter_count: tocRead.chapter_count,
     reading_chapter_count: tocRead.chapter_count,
     key_events: keyEvents,
   };
@@ -2409,18 +2397,18 @@ function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, o
   );
   if (!uiState) return null;
 
-  const chapterPlanRead = records.find(
+  // 采纳的章节计划成正式目录：从 get_toc 读到计划全章（>=10），单一数据源，无 get_chapter_plans。
+  const chapterStructureRead = records.find(
     (record) =>
-      record.event === "channel.get_chapter_plans.done" &&
+      record.event === "channel.get_toc.done" &&
       record.work_id === uiState.work_id &&
-      Number(record.plan_count ?? 0) >= 1 &&
       Number(record.chapter_count ?? 0) >= 10,
   );
-  if (!chapterPlanRead) return null;
+  if (!chapterStructureRead) return null;
 
   return {
     slice_id: "p1-chapter-plan-minimum",
-    behavior: "chapter_plan_generated_adopted_and_read_from_archive",
+    behavior: "chapter_plan_generated_adopted_and_read_from_structure",
     turn_ids: turnIds,
     chapter_count: Number(uiState.chapter_count ?? 0),
     assertions: [
@@ -2429,7 +2417,7 @@ function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, o
       "plot_outline_generated_outline_draft",
       "outline_draft_adopted_through_adoption_boundary",
       "outline_draft_did_not_materialize_reading_projection",
-      "archive_chapter_plan_view_read_confirmed_memory",
+      "adopted_plan_materialized_chapter_structure_read_via_toc",
       "real_ui_rendered_first_and_final_chapter_titles",
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_and_micro_plan_called"
@@ -2459,20 +2447,13 @@ function p1ChapterDraftGenerationBehavior(turnIds, turnRecords, records, evidenc
   );
   if (!uiState) return null;
 
-  const chapterPlanRead = records.find(
-    (record) =>
-      record.event === "channel.get_chapter_plans.done" &&
-      record.work_id === uiState.work_id &&
-      Number(record.plan_count ?? 0) >= 1 &&
-      Number(record.chapter_count ?? 0) >= 10,
-  );
-  if (!chapterPlanRead) return null;
-
+  // 阅读目录显示已采纳计划的全章（>=10）但还没有正文（全书 0 字）：计划即目录，正文未采纳不进阅读。
   const tocRead = records.find(
     (record) =>
       record.event === "channel.get_toc.done" &&
       record.work_id === uiState.work_id &&
-      Number(record.chapter_count ?? -1) === 0,
+      Number(record.chapter_count ?? 0) >= 10 &&
+      Number(record.total_word_count ?? -1) === 0,
   );
   if (!tocRead) return null;
 
@@ -2744,14 +2725,24 @@ function findP1ChapterExpansionEvidence(records) {
   );
   if (continuityEvents.length < 2) return null;
 
-  // 续写落同一章：累积后阅读投影只有 1 章，且该章正文有效字符 >= 1000。
+  // 续写落同一章：累积后目录里恰好 1 章有正文（其余为计划空章），且该章正文有效字符 >= 1000。
+  // 注意：计划章现在都在目录里（chapter_count 含待写计划章），所以判「恰好 1 章有正文」=
+  // ok 章数（总章 - 空章 - 短章）=== 1，而不是「目录只有 1 章」。
   const tocRead = records.find(
     (record) =>
       record.event === "channel.get_toc.done" &&
       record.work_id === uiState.work_id &&
-      Number(record.chapter_count ?? 0) === 1,
+      Number(record.chapter_count ?? 0) -
+        Number(record.empty_chapter_count ?? 0) -
+        Number(record.short_chapter_count ?? 0) ===
+        1,
   );
   if (!tocRead) return null;
+
+  const writtenChapterCount =
+    Number(tocRead.chapter_count ?? 0) -
+    Number(tocRead.empty_chapter_count ?? 0) -
+    Number(tocRead.short_chapter_count ?? 0);
 
   const chapterRead = records.find(
     (record) =>
@@ -2767,7 +2758,7 @@ function findP1ChapterExpansionEvidence(records) {
     turn_ids: [draftTurnId],
     draft_turn_id: draftTurnId,
     chapter_title: uiState.chapter_title,
-    chapter_count: tocRead.chapter_count,
+    chapter_count: writtenChapterCount,
     content_chars: chapterRead.content_chars,
     first_draft_chapter_words: uiState.first_draft_chapter_words,
     final_chapter_word_count: uiState.final_chapter_word_count,

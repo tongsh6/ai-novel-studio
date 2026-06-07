@@ -466,19 +466,6 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, data}, socket}
   end
 
-  def handle_in("get_chapter_plans", payload, socket) do
-    work_id = archive_work_id(payload, socket)
-    data = NovelApplication.WorkArchiveService.chapter_plans(work_id)
-
-    LogEmit.emit(:channel, :get_chapter_plans, :done, %{
-      work_id: work_id,
-      plan_count: length(data),
-      chapter_count: data |> Enum.flat_map(& &1.chapters) |> length()
-    })
-
-    {:reply, {:ok, data}, socket}
-  end
-
   def handle_in("get_work_stats", payload, socket) do
     work_id = archive_work_id(payload, socket)
     data = NovelApplication.WorkArchiveService.stats(work_id)
@@ -529,8 +516,13 @@ defmodule NovelWeb.WorkspaceChannel do
 
             "edit_then_accept" ->
               # 作者全文编辑随 author_action.payload.edited_content 传入。
-              edit_params = Map.put(params, "edited_content", action_payload(action_input, "edited_content"))
-              NovelApplication.AdoptionWorkflow.handle_modify_draft(source_turn_result, edit_params)
+              edit_params =
+                Map.put(params, "edited_content", action_payload(action_input, "edited_content"))
+
+              NovelApplication.AdoptionWorkflow.handle_modify_draft(
+                source_turn_result,
+                edit_params
+              )
           end
 
         finish_adoption_author_action(socket, action_input, result)
@@ -595,7 +587,9 @@ defmodule NovelWeb.WorkspaceChannel do
        when is_binary(target_ref) do
     case source_turn_for_artifact_action(socket, nil, target_ref) do
       {_ref, draft_turn} when is_map(draft_turn) ->
-        if pending_artifact?(draft_turn, target_ref), do: {:adoption, draft_turn}, else: :not_adoption
+        if pending_artifact?(draft_turn, target_ref),
+          do: {:adoption, draft_turn},
+          else: :not_adoption
 
       _ ->
         :not_adoption

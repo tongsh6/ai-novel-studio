@@ -169,7 +169,13 @@ defmodule NovelPersistence.ReadingProjectionRepo do
     Chapter
     |> where([c], c.work_id == ^work_id and c.status != ^archived)
     |> order_by([c], asc: c.volume_id, asc: c.seq)
-    |> select([c], %{id: c.id, volume_id: c.volume_id, title: c.title, seq: c.seq})
+    |> select([c], %{
+      id: c.id,
+      volume_id: c.volume_id,
+      title: c.title,
+      seq: c.seq,
+      summary: c.summary
+    })
     |> Repo.all()
   end
 
@@ -188,7 +194,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
       chapters
       |> Enum.filter(&(&1.volume_id == volume.id))
       |> Enum.sort_by(& &1.seq)
-      |> Enum.map(&Map.take(&1, [:id, :title, :seq, :word_count]))
+      |> Enum.map(&Map.take(&1, [:id, :title, :seq, :word_count, :summary]))
 
     Map.put(volume, :chapters, volume_chapters)
   end

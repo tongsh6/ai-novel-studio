@@ -18,7 +18,6 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.Schemas.Scene
   alias NovelPersistence.Schemas.Volume
-  alias NovelPersistence.WorkArchiveRepo
 
   describe "persist/1" do
     test "records accepted setting adoption as mutation and memory without reading projection" do
@@ -109,19 +108,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert memory.type == MemoryType.draft_context()
       assert memory.tags == ["adopted_artifact", "outline_draft"]
 
-      # 章节计划只读视图仍可用。
-      assert [
-               %{
-                 title: "P1 10 万字章节计划",
-                 chapter_count: 2,
-                 chapters: [
-                   %{seq: 1, title: "第01章：底层灵气账单", summary: "主角发现灵气带宽被公司暗中抽走。"},
-                   %{seq: 2, title: "第02章：旧服务器里的残诀", summary: "主角找到残缺功法并第一次突破。"}
-                 ]
-               }
-             ] = WorkArchiveRepo.chapter_plans(work_id)
-
-      # 采纳计划即物化 accepted 卷/章结构：章 status=PLANNED，按计划顺序。
+      # 采纳计划即物化 accepted 卷/章结构：章 status=PLANNED，大纲摘要落到 chapter 结构上。
       chapters =
         Chapter
         |> where([c], c.work_id == ^work_id)
@@ -129,17 +116,32 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
         |> Repo.all()
 
       assert [c1, c2] = chapters
-      assert {c1.title, c1.status} == {"第01章：底层灵气账单", StructureStatus.planned()}
-      assert {c2.title, c2.status} == {"第02章：旧服务器里的残诀", StructureStatus.planned()}
+
+      assert {c1.title, c1.status, c1.summary} ==
+               {"第01章：底层灵气账单", StructureStatus.planned(), "主角发现灵气带宽被公司暗中抽走。"}
+
+      assert {c2.title, c2.status, c2.summary} ==
+               {"第02章：旧服务器里的残诀", StructureStatus.planned(), "主角找到残缺功法并第一次突破。"}
+
       assert c1.volume_id == c2.volume_id
 
-      # 目录展示计划全章，即使还没有已采纳正文（SC-AU08-B2）：每章字数 0、空章。
+      # 目录展示计划全章（结构即大纲，单一数据源带摘要），即使还没有已采纳正文（SC-AU08-B2）。
       assert %{volumes: [%{chapters: toc_chapters}], total_word_count: 0} =
                ReadingProjectionRepo.toc(work_id)
 
       assert [
-               %{title: "第01章：底层灵气账单", word_count: 0, audit_status: :empty},
-               %{title: "第02章：旧服务器里的残诀", word_count: 0, audit_status: :empty}
+               %{
+                 title: "第01章：底层灵气账单",
+                 summary: "主角发现灵气带宽被公司暗中抽走。",
+                 word_count: 0,
+                 audit_status: :empty
+               },
+               %{
+                 title: "第02章：旧服务器里的残诀",
+                 summary: "主角找到残缺功法并第一次突破。",
+                 word_count: 0,
+                 audit_status: :empty
+               }
              ] = toc_chapters
     end
   end

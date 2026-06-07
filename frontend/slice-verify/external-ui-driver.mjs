@@ -70,10 +70,6 @@ function latestActionResult() {
     .at(-1)?.body;
 }
 
-function latestSentEvent(event) {
-  return frames.filter((frame) => frame.direction === "sent" && frame.event === event).at(-1);
-}
-
 async function waitForFrame(predicate, message, timeoutMs = 60_000) {
   const started = Date.now();
 
@@ -760,11 +756,7 @@ async function driveP1ChapterPlanMinimum(page) {
   await page.getByText("打开档案").first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
 
-  await waitForFrame(
-    (frame) => frame.direction === "sent" && frame.event === "get_chapter_plans",
-    "Real workbench did not request adopted chapter plans through the archive channel",
-  );
-
+  // 大纲与结构单一数据源 = 已采纳卷/章结构（get_toc），不再有独立的 get_chapter_plans。
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("已采纳章节计划") &&
@@ -801,7 +793,6 @@ async function driveP1ChapterPlanMinimum(page) {
       outline_adopted: true,
       reading_projection_materialized: Boolean(actionResultFrame.body?.persistence?.reading_projection),
       adopt_payload: adoptFrame.body,
-      chapter_plan_request_sent: Boolean(latestSentEvent("get_chapter_plans")),
       action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
       user_message_text: planMessageFrame.body?.text,
     },
@@ -852,10 +843,12 @@ async function driveP1ChapterDraftGeneration(page) {
   );
 
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  // 已采纳的章节计划成为正式目录，阅读模式显示计划全章（待补足）；未采纳的正文草稿不进阅读（AU08-I2）。
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("阅读模式") &&
-      document.body.innerText.includes("暂无已采纳的章节内容"),
+      document.body.innerText.includes("待补足") &&
+      !document.body.innerText.includes("暂无已采纳的章节内容"),
     { timeout: 10_000 },
   );
 
@@ -868,12 +861,14 @@ async function driveP1ChapterDraftGeneration(page) {
     !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
     "Draft generation unexpectedly submitted an adopt event",
   );
+  // 阅读目录显示已采纳计划的全章（待补足），不是空态。
   assert(
-    visibleText.includes("暂无已采纳的章节内容"),
-    "Reading mode did not remain empty before draft adoption",
+    visibleText.includes("待补足") && !visibleText.includes("暂无已采纳的章节内容"),
+    "Reading mode did not show the adopted chapter plan (pending chapters) before draft adoption",
   );
+  // 未采纳的正文草稿内容不得出现在阅读模式。
   assert(
-    !visibleText.includes(draftLeakMarker) || visibleText.includes("暂无已采纳的章节内容"),
+    !visibleText.includes(draftLeakMarker),
     "Unadopted draft leaked into reading mode content",
   );
 
@@ -889,9 +884,9 @@ async function driveP1ChapterDraftGeneration(page) {
       draft_pending: true,
       draft_body_chars: String(draftBody).length,
       draft_card_visible: true,
-      reading_mode_empty_before_adoption: visibleText.includes("暂无已采纳的章节内容"),
-      unadopted_draft_visible_in_reading:
-        visibleText.includes(draftLeakMarker) && !visibleText.includes("暂无已采纳的章节内容"),
+      reading_plan_visible_before_adoption:
+        visibleText.includes("待补足") && !visibleText.includes("暂无已采纳的章节内容"),
+      unadopted_draft_visible_in_reading: visibleText.includes(draftLeakMarker),
       adopt_event_sent: frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
       user_message_text: draftMessageFrame.body?.text,
     },
@@ -1333,10 +1328,13 @@ async function driveP1ChapterEditThenAccept(page) {
     (await page.getByRole("button", { name: "修改后采纳" }).count()) === 0;
 
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  // 同 adoption-reading：必须等「本章有效字数」也渲染再快照，否则章节正文（编辑后正文）
+  // 来自 get_chapter_content 的异步加载会被抢拍，导致误判正文未显示。
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("阅读模式") &&
       document.body.innerText.includes("全书有效字数") &&
+      document.body.innerText.includes("本章有效字数") &&
       !document.body.innerText.includes("暂无已采纳的章节内容"),
     { timeout: 15_000 },
   );

@@ -12,8 +12,8 @@ import {
 import type { ArchiveDetailItem } from "../lib/archiveDetail";
 import { STRUCTURE_PANEL } from "../lib/copy";
 import { useAppStore } from "../lib/store";
-import { getToc, getChapterPlans, getCharacters, getForeshadowing, getRules, getWorkStats } from "../lib/socket";
-import type { TocData, ChapterPlanData, CharacterData, MemoryItemData, WorkStats } from "../lib/socket";
+import { getToc, getCharacters, getForeshadowing, getRules, getWorkStats } from "../lib/socket";
+import type { TocData, CharacterData, MemoryItemData, WorkStats } from "../lib/socket";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
@@ -66,7 +66,6 @@ export function StructurePanel({
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("foreshadowing");
   const [toc, setToc] = useState<TocData | null>(null);
-  const [chapterPlans, setChapterPlans] = useState<ChapterPlanData[]>([]);
   const [characters, setCharacters] = useState<CharacterData[]>([]);
   const [foreshadowing, setForeshadowing] = useState<MemoryItemData[]>([]);
   const [rules, setRules] = useState<MemoryItemData[]>([]);
@@ -78,7 +77,6 @@ export function StructurePanel({
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
     getToc(channel, context.workId).then((data) => setToc(data)).catch(() => setToc(null));
-    getChapterPlans(channel, context.workId).then((data) => setChapterPlans(data)).catch(() => setChapterPlans([]));
     getCharacters(channel, context.workId).then((data) => setCharacters(data)).catch(() => setCharacters([]));
     getForeshadowing(channel, context.workId).then((data) => setForeshadowing(data)).catch(() => setForeshadowing([]));
     getRules(channel, context.workId).then((data) => setRules(data)).catch(() => setRules([]));
@@ -89,14 +87,9 @@ export function StructurePanel({
 
   const hasWork = context.workId != null;
 
-  // 章节已采纳正文字数（按标题匹配已物化的卷/章结构），用于在章节计划里显示写作进度，
-  // 避免「章节计划卡」与「卷/章结构列表」各列一遍（计划即结构，统一成一份带进度的列表）。
-  const chapterWordsByTitle = new Map<string, number>();
-  toc?.volumes.forEach((vol) =>
-    vol.chapters.forEach((ch) => {
-      if (ch.title) chapterWordsByTitle.set(ch.title, ch.word_count ?? 0);
-    }),
-  );
+  // 已采纳卷/章结构即大纲（结构携带 summary + 进度），单一数据源，作为面板章节列表。
+  const planChapters = (toc?.volumes ?? []).flatMap((vol) => vol.chapters);
+
   const selectedCharacter =
     selectedArchiveItem?.kind === "character"
       ? characters.find((item) => item.id === selectedArchiveItem.id)
@@ -282,73 +275,49 @@ export function StructurePanel({
           </Tabs.Content>
 
           <Tabs.Content value="outline" className={styles.tabContent}>
-            {chapterPlans.length > 0 && (
+            {/* 大纲与结构单一数据源：已采纳卷/章结构（结构携带摘要+进度），不再有独立计划视图。 */}
+            {planChapters.length > 0 ? (
               <div className={styles.section}>
-                {chapterPlans.map((plan) => (
-                  <div key={plan.id} className={styles.section}>
-                    <div className={styles.secHeader}>
-                      <span className={styles.secTitle}>
-                        {STRUCTURE_PANEL.acceptedChapterPlanSection}
-                        {plan.chapter_count > 0 ? ` · ${plan.chapter_count}${STRUCTURE_PANEL.chapterCountUnit}` : ""}
-                      </span>
+                <div className={styles.secHeader}>
+                  <span className={styles.secTitle}>
+                    {STRUCTURE_PANEL.acceptedChapterPlanSection}
+                    {` · ${planChapters.length}${STRUCTURE_PANEL.chapterCountUnit}`}
+                  </span>
+                </div>
+                {planChapters.map((ch) => (
+                  <div key={ch.id} className={styles.cardItem}>
+                    <span className={styles.cardTitle}>{ch.title}</span>
+                    <div className={styles.cardDesc}>
+                      {(ch.word_count ?? 0) > 0
+                        ? `${STRUCTURE_PANEL.chapterWrittenPrefix} ${ch.word_count} ${STRUCTURE_PANEL.chapterWordsUnit}`
+                        : STRUCTURE_PANEL.chapterPendingBadge}
                     </div>
-                    <div className={styles.cardTitle}>{plan.title}</div>
-                    {plan.chapters.map((ch) => (
-                      <div key={ch.id} className={styles.cardItem}>
-                        <span className={styles.cardTitle}>{ch.title}</span>
-                        <div className={styles.cardDesc}>
-                          {(chapterWordsByTitle.get(ch.title) ?? 0) > 0
-                            ? `${STRUCTURE_PANEL.chapterWrittenPrefix} ${chapterWordsByTitle.get(ch.title)} ${STRUCTURE_PANEL.chapterWordsUnit}`
-                            : STRUCTURE_PANEL.chapterPendingBadge}
-                        </div>
-                        {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
-                        <div className={styles.cardActions}>
-                          <button
-                            className={styles.btnGhost}
-	                            onClick={() => {
-	                              onDraftChapter(`${ch.title}：${ch.summary ?? ""}`);
-	                              onClose();
-	                            }}
-                          >
-                            {STRUCTURE_PANEL.generateChapterDraft}
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                    {ch.summary && <div className={styles.cardDesc}>{ch.summary}</div>}
+                    <div className={styles.cardActions}>
+                      <button
+                        className={styles.btnGhost}
+                        onClick={() => {
+                          onDraftChapter(`${ch.title}：${ch.summary ?? ""}`);
+                          onClose();
+                        }}
+                      >
+                        {STRUCTURE_PANEL.generateChapterDraft}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
-            )}
-            {/* 无章节计划时（自由写作：章直接由正文采纳产生）才单列卷/章结构，避免与计划卡重复 */}
-            {chapterPlans.length === 0 && toc && toc.volumes.length > 0 ? (
-              <div className={styles.section}>
-                {toc.volumes.map((vol) => (
-                  <div key={vol.id} className={styles.section}>
-                    <div className={styles.secHeader}>
-                      <span className={styles.secTitle}>{vol.title}</span>
-                    </div>
-                    {vol.chapters.map((ch) => (
-                      <div key={ch.id} className={styles.cardItem}>
-                        <span className={styles.cardTitle}>{ch.title}</span>
-                      </div>
-                    ))}
-                    {vol.chapters.length === 0 && (
-                      <div className={styles.emptyDesc}>{STRUCTURE_PANEL.noChapter}</div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            ) : chapterPlans.length === 0 ? (
+            ) : (
               <EmptyState
                 title={STRUCTURE_PANEL.outlineEmptyTitle}
                 description={hasWork ? STRUCTURE_PANEL.outlineEmptyWithWork : STRUCTURE_PANEL.outlineEmptyNoWork}
-	                actionLabel={STRUCTURE_PANEL.startPlanning}
-	                onAction={() => {
-	                  onStartPlanning();
-	                  onClose();
-	                }}
+                actionLabel={STRUCTURE_PANEL.startPlanning}
+                onAction={() => {
+                  onStartPlanning();
+                  onClose();
+                }}
               />
-            ) : null}
+            )}
           </Tabs.Content>
 
           <Tabs.Content value="character" className={styles.tabContent}>

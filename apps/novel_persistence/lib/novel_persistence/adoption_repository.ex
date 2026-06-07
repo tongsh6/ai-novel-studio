@@ -230,16 +230,16 @@ defmodule NovelPersistence.AdoptionRepository do
   end
 
   defp materialize_chapter_structure(repo, work_id, content) do
-    titles = ChapterPlanParser.titles(content)
+    chapters = ChapterPlanParser.parse(content)
 
     with {:ok, volume} <- find_or_create_volume(repo, work_id) do
-      reduce_planned_chapters(repo, work_id, volume.id, titles)
+      reduce_planned_chapters(repo, work_id, volume.id, chapters)
     end
   end
 
-  defp reduce_planned_chapters(repo, work_id, volume_id, titles) do
-    Enum.reduce_while(titles, {:ok, 0}, fn title, {:ok, n} ->
-      case ensure_planned_chapter(repo, work_id, volume_id, title) do
+  defp reduce_planned_chapters(repo, work_id, volume_id, chapters) do
+    Enum.reduce_while(chapters, {:ok, 0}, fn chapter, {:ok, n} ->
+      case ensure_planned_chapter(repo, work_id, volume_id, chapter) do
         :ok -> {:cont, {:ok, n + 1}}
         {:error, reason} -> {:halt, {:error, reason}}
       end
@@ -250,28 +250,50 @@ defmodule NovelPersistence.AdoptionRepository do
   defp outline_artifact?("outline_draft"), do: true
   defp outline_artifact?(_), do: false
 
-  # 计划章按 (work_id, title) 幂等：已存在（含正文采纳已建的章）则不重复建。
-  defp ensure_planned_chapter(repo, work_id, volume_id, title) do
-    exists? =
-      Chapter
-      |> where([c], c.work_id == ^work_id and c.title == ^title)
-      |> repo.exists?()
+  # 计划章按 (work_id, title) 幂等：不存在则建（带大纲摘要）；已存在但摘要为空则补上摘要
+  # （正文先于计划采纳、或重采纳更完整计划时）；已有摘要则不动。
+  defp ensure_planned_chapter(repo, work_id, volume_id, %{title: title} = chapter) do
+    summary = blank_to_nil(Map.get(chapter, :summary))
 
-    if exists? do
-      :ok
-    else
-      case insert_chapter(repo, %{
-             work_id: work_id,
-             volume_id: volume_id,
-             title: title,
-             seq: next_chapter_seq(repo, volume_id),
-             status: StructureStatus.planned()
-           }) do
-        {:ok, _chapter} -> :ok
-        {:error, reason} -> {:error, reason}
-      end
+    Chapter
+    |> where([c], c.work_id == ^work_id and c.title == ^title)
+    |> limit(1)
+    |> repo.one()
+    |> case do
+      nil ->
+        insert_chapter(repo, %{
+          work_id: work_id,
+          volume_id: volume_id,
+          title: title,
+          seq: next_chapter_seq(repo, volume_id),
+          status: StructureStatus.planned(),
+          summary: summary
+        })
+        |> wrap_chapter_result()
+
+      %Chapter{summary: existing} = existing_chapter
+      when existing in [nil, ""] and not is_nil(summary) ->
+        existing_chapter
+        |> Chapter.changeset(%{summary: summary})
+        |> repo.update()
+        |> wrap_chapter_result()
+
+      %Chapter{} ->
+        :ok
     end
   end
+
+  defp wrap_chapter_result({:ok, _chapter}), do: :ok
+  defp wrap_chapter_result({:error, reason}), do: {:error, reason}
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(_value), do: nil
 
   # 正文采纳进某章 → 该章不再是纯计划态。PLANNED → DRAFTING；已 COMPLETED/其它不回退。
   defp mark_chapter_drafted(repo, %Chapter{status: status} = chapter) do

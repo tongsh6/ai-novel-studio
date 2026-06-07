@@ -17,9 +17,6 @@ defmodule NovelApplication.WorkArchiveService do
   @spec rules(String.t()) :: [map()]
   def rules(work_id) when is_binary(work_id), do: WorkArchiveRepo.rules(work_id)
 
-  @spec chapter_plans(String.t()) :: [map()]
-  def chapter_plans(work_id) when is_binary(work_id), do: WorkArchiveRepo.chapter_plans(work_id)
-
   @spec stats(String.t()) :: map()
   def stats(work_id) when is_binary(work_id), do: WorkArchiveRepo.stats(work_id)
 end

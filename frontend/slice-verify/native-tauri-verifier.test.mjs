@@ -1619,7 +1619,7 @@ describe("native Tauri slice verifier", () => {
       chapter_title: "第01章：底层灵气账单",
       draft_body_chars: 128,
       chapter_count: 12,
-      reading_chapter_count: 0,
+      reading_chapter_count: 12,
       key_events: keyEventsForSlice("p1-chapter-draft-generation"),
     });
     expect(findSliceBehaviorEvidence("p1-chapter-draft-generation", records, evidence)).toEqual({
@@ -2738,16 +2738,6 @@ function p1ChapterDraftGenerationRecords(turnId) {
       outcome: "ok",
     },
     {
-      event: "channel.get_chapter_plans.done",
-      workspace_id: "work-p1",
-      work_id: "work-p1",
-      session_id: "session-p1",
-      duration_ms: 5,
-      outcome: "ok",
-      plan_count: 1,
-      chapter_count: 12,
-    },
-    {
       event: "channel.user_message.start",
       turn_id: turnId,
       workspace_id: "work-p1",
@@ -2815,8 +2805,9 @@ function p1ChapterDraftGenerationRecords(turnId) {
       session_id: "session-p1",
       duration_ms: 5,
       outcome: "ok",
-      volume_count: 0,
-      chapter_count: 0,
+      volume_count: 1,
+      chapter_count: 12,
+      total_word_count: 0,
     },
     {
       event: "slice_verify.ui_state.done",
@@ -2835,7 +2826,7 @@ function p1ChapterDraftGenerationRecords(turnId) {
       draft_pending: true,
       draft_body_chars: 128,
       draft_card_visible: true,
-      reading_mode_empty_before_adoption: true,
+      reading_plan_visible_before_adoption: true,
       unadopted_draft_visible_in_reading: false,
       adopt_event_sent: false,
       user_message_text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
