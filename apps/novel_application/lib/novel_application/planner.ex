@@ -170,7 +170,8 @@ defmodule NovelApplication.Planner do
           "write_intent": "none" | "tentative",
           "risk_hint": "low" | "medium" | "high",
           "authoring_intent": "none" | "continuation" | "rewrite",
-          "target_chapter": "本次正文针对的作品现有章节标题（从下方章节列表精确复制）；写全新章节或不针对具体章时为 null"
+          "target_chapter": "本次正文针对的作品现有章节标题（从下方章节列表精确复制）；写全新章节或不针对具体章时为 null",
+          "target_word_count": 600
         }
       ],
       "required_capabilities": ["world_building"],
@@ -183,6 +184,11 @@ defmodule NovelApplication.Planner do
     - 作者想"推翻重写 / 改写 / 重新写"某个已有章节 → authoring_intent = "rewrite"，target_chapter 精确复制该章标题，risk_hint 用 "high"
     - 写全新章节（不在列表里）、大纲、角色、设定 → authoring_intent = "none"，target_chapter = null
     - 无法确定指向列表里哪一章时，target_chapter = null，不要猜一个不在列表里的标题
+
+    ## 篇幅（target_word_count）
+    - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右""短一点""详细展开多写些"）→ target_word_count 给一个整数估计（如 800 / 300 / 1500）
+    - 作者没有任何篇幅诉求 → target_word_count = null，不要硬编一个数
+    - 只有 prose_writing（正文类）才考虑篇幅；大纲、角色、设定一律 null
 
     ## 重要
     - proposed_actions 只能包含 capability_invocation 类型的动作
@@ -215,7 +221,8 @@ defmodule NovelApplication.Planner do
           write_intent: to_write_intent(Map.get(a, "write_intent", "none")),
           risk_hint: to_risk_hint(Map.get(a, "risk_hint", "low")),
           authoring_intent: to_authoring_intent(Map.get(a, "authoring_intent")),
-          target_chapter: normalize_target_chapter(Map.get(a, "target_chapter"))
+          target_chapter: normalize_target_chapter(Map.get(a, "target_chapter")),
+          target_word_count: normalize_target_word_count(Map.get(a, "target_word_count"))
         }
       end)
 
@@ -873,6 +880,20 @@ defmodule NovelApplication.Planner do
   end
 
   defp normalize_target_chapter(_), do: nil
+
+  # 目标字数：作者有明确篇幅诉求时 Planner(AI) 给出的整数估计；非正整数/缺失 → nil。
+  # 上限兜底（单次正文不会要 2 万字以上），保留可审计的安全裁剪而非信任任意大值。
+  defp normalize_target_word_count(value) when is_integer(value) and value > 0,
+    do: min(value, 20_000)
+
+  defp normalize_target_word_count(value) when is_binary(value) do
+    case Integer.parse(String.trim(value)) do
+      {n, _} when n > 0 -> min(n, 20_000)
+      _ -> nil
+    end
+  end
+
+  defp normalize_target_word_count(_), do: nil
 
   defp to_risk_hint("medium"), do: :medium
   defp to_risk_hint("high"), do: :high

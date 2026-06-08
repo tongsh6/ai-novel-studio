@@ -27,7 +27,8 @@ defmodule NovelDomain.MicroPlan do
           required(:write_intent) => write_intent(),
           required(:risk_hint) => risk_hint(),
           optional(:authoring_intent) => authoring_intent(),
-          optional(:target_chapter) => String.t() | nil
+          optional(:target_chapter) => String.t() | nil,
+          optional(:target_word_count) => pos_integer() | nil
         }
 
   @type state_change :: %{

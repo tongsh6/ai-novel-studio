@@ -77,6 +77,7 @@ Implemented external UI driver slice ids:
   p1-chapter-edit-then-accept
   p1-chapter-overwrite-confirm
   p1-chapter-expansion
+  p1-chapter-word-count-target
   au09-memory-create-recall
   au09-adopt-setting-recall
   au09-validity-window-recall
@@ -111,7 +112,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -127,7 +128,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -224,6 +225,9 @@ native_action_description() {
       ;;
     p1-word-count-audit)
       echo "seed adopted chapter plan -> generate and adopt a sub-1000-word chapter -> open reading mode -> verify the chapter is marked 短章 and the P1 milestone progress shows not-met"
+      ;;
+    p1-chapter-word-count-target)
+      echo "seed adopted chapter plan -> type a chapter-1 prose request with an explicit target length -> planner recognizes target_word_count -> generate + adopt -> reading mode shows chapter effective word count close to the requested target"
       ;;
     p1-chapter-edit-then-accept)
       echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click edit-then-accept -> rewrite prose in dialog -> adopt edited -> open reading mode -> verify edited prose shown and word count equals edited text"
@@ -491,6 +495,9 @@ case "$SLICE_ID" in
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   p1-chapter-expansion)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  p1-chapter-word-count-target)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   au09-memory-create-recall)

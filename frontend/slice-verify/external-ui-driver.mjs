@@ -1070,6 +1070,139 @@ async function driveP1ChapterAdoptionReading(page) {
   ];
 }
 
+async function driveP1ChapterWordCountTarget(page) {
+  const targetWordCount = 600;
+  // 作者在对话框用自然语言给出"带篇幅"的创作指令：篇幅诉求由 Planner（AI）识别为
+  // target_word_count（不是按钮/开关）。沿用"生成正文草稿"按钮的「标题：摘要。正文草稿」
+  // 措辞，让正文按标题归到第01章计划章；字数诉求追加在"正文草稿"之后，不污染标题归章。
+  const requestText =
+    "请根据已采纳章节计划生成第01章：底层灵气账单：主角在欠费停灵的夜晚发现灵气带宽被公司暗中抽走。正文草稿，大约 600 字，保持为待采纳草稿。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No prose_fragment turn_result was received for the word-count-target request",
+    200_000,
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("待确认的创作材料") &&
+      document.body.innerText.includes("确认创建"),
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "确认创建" }).first().click();
+
+  const acceptActionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === pendingArtifact.artifact_id,
+    "Real workbench did not send an accept author_action for the prose draft",
+  );
+
+  const adoptTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === pendingArtifact.artifact_id,
+      ),
+    "No resolved adoption turn_result websocket frame was received after accept",
+    120_000,
+  );
+  const adoptTurnResult = adoptTurnFrame.body;
+
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll("button")].some(
+        (btn) => (btn.textContent ?? "").trim() === "确认创建",
+      ),
+    { timeout: 10_000 },
+  );
+  const acceptButtonCleared =
+    (await page.getByRole("button", { name: "确认创建" }).count()) === 0;
+
+  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("全书有效字数") &&
+      document.body.innerText.includes("本章有效字数") &&
+      !document.body.innerText.includes("暂无已采纳的章节内容"),
+    { timeout: 15_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, adoptTurnResult, sentMessage);
+
+  const totalWords = parseBookTotalWords(visibleText);
+  const chapterWords = parseChapterWords(visibleText);
+
+  const renderedProse = await page.evaluate(() => {
+    const heading = [...document.querySelectorAll("h1")].find((el) => el.textContent?.trim());
+    const block = heading?.parentElement;
+    if (!block) return "";
+    return [...block.querySelectorAll("div")]
+      .filter((el) => el.children.length === 0)
+      .map((el) => el.textContent ?? "")
+      .filter((text) => !text.startsWith("本章有效字数"))
+      .join("");
+  });
+  const visibleProseWords = effectiveWordCount(renderedProse);
+  const lowerBound = Math.floor(targetWordCount * 0.5);
+
+  assert(visibleProseWords > 0, "No visible prose found in reading mode to count");
+  assert(Number(totalWords) > 0, "Book total effective word count not visible/positive in reading mode");
+  assert(Number(chapterWords) > 0, "Chapter effective word count not visible/positive in reading mode");
+  assert(
+    chapterWords === visibleProseWords,
+    `Displayed chapter word count ${chapterWords} != effective count of visible prose ${visibleProseWords}`,
+  );
+  assert(
+    Number(chapterWords) >= lowerBound,
+    `Chapter effective word count ${chapterWords} did not approach the requested target ${targetWordCount} (>= ${lowerBound})`,
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      draft_turn_id: draftTurnResult.turn_id,
+      adopt_turn_id: adoptTurnResult.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      chapter_title: "第01章：底层灵气账单",
+      accept_event_sent: true,
+      accept_action_type: acceptActionFrame.body?.action?.action_type,
+      accept_button_cleared_after_adoption: acceptButtonCleared,
+      artifact_adopted: adoptTurnResult.truthfulness?.artifact_adopted === true,
+      reading_mode_populated_after_adoption: !visibleText.includes("暂无已采纳的章节内容"),
+      total_word_count: totalWords,
+      chapter_word_count: chapterWords,
+      expected_word_count: visibleProseWords,
+      word_count_matches_adopted_prose:
+        chapterWords === visibleProseWords && totalWords === chapterWords,
+      target_word_count_requested: targetWordCount,
+      word_count_meets_target: Number(chapterWords) >= lowerBound,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveP1WordCountAudit(page) {
   // 复用采纳到阅读链路：确定性 provider 生成的正文草稿天然 < 1000 字，
   // 采纳后即为短章，用于验证 ReadingMode 的短章标记与 P1 达标进度。
@@ -1755,6 +1888,7 @@ const drivers = {
   "p1-chapter-edit-then-accept": driveP1ChapterEditThenAccept,
   "p1-chapter-overwrite-confirm": driveP1ChapterOverwriteConfirm,
   "p1-chapter-expansion": driveP1ChapterExpansion,
+  "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,

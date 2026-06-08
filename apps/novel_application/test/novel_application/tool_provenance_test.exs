@@ -3,6 +3,7 @@ defmodule NovelApplication.ToolProvenanceTest do
 
   alias NovelAgent.Toolbox
   alias NovelApplication.CapabilityRegistry
+  alias NovelApplication.Planner
   alias NovelApplication.TurnExecutionService
   alias NovelCommon.Contracts.CapabilityRegistryEntry
   alias NovelCommon.Contracts.ToolRequest
@@ -323,6 +324,63 @@ defmodule NovelApplication.ToolProvenanceTest do
       assert pending.target_chapter == "第02章：宗门试炼"
     end
 
+    test "prose_writing prompt carries author target word count into creative brief" do
+      tool_prompt = first_tool_prompt_with_word_count(800)
+      assert tool_prompt =~ "目标字数：约 800 字"
+    end
+
+    test "no target word count leaves brief without a concrete word count line" do
+      # 写作要求里有占位符引导句"目标字数：约 N 字"，故只断言不出现具体数字的字数行。
+      tool_prompt = first_tool_prompt_with_word_count(nil)
+      refute tool_prompt =~ ~r/目标字数：约\s*\d+\s*字/
+    end
+
+    defp first_tool_prompt_with_word_count(word_count) do
+      {:ok, prompts} = Agent.start_link(fn -> [] end)
+
+      complete_fn = fn prompt ->
+        Agent.update(prompts, &[prompt | &1])
+
+        {:ok,
+         %{
+           content:
+             Jason.encode!([
+               %{"item_id" => "i1", "title" => "开篇", "body" => "正文", "rationale" => nil}
+             ])
+         }}
+      end
+
+      action =
+        %{
+          action_id: "act-wc",
+          action_type: :capability_invocation,
+          summary: "生成一段正文草稿",
+          target_ref: "prose_writing",
+          write_intent: :tentative,
+          risk_hint: :low
+        }
+        |> maybe_put(:target_word_count, word_count)
+
+      plan = %MicroPlan{
+        plan_id: "plan-wc",
+        turn_id: "turn-cont",
+        frame_ref: "frame-cont",
+        plan_goal: %{summary: "写正文"},
+        risk_hint: :low,
+        proposed_actions: [action]
+      }
+
+      TurnExecutionService.execute(%{
+        frame: continuity_frame(),
+        plan: plan,
+        decision: allow_decision(),
+        author_input: %{text: "写约800字的开篇"},
+        complete_fn: complete_fn
+      })
+
+      prompts |> Agent.get(&Enum.reverse/1) |> List.first()
+    end
+
     defp first_tool_prompt(intent, chapter, author_text, reader) do
       {:ok, prompts} = Agent.start_link(fn -> [] end)
 
@@ -402,6 +460,79 @@ defmodule NovelApplication.ToolProvenanceTest do
         decision_type: :allow_tool,
         decision_status: :decided,
         reason_codes: ["gates_passed", "tool:prose_writing"]
+      }
+    end
+  end
+
+  describe "Planner target_word_count parsing" do
+    test "parses author target word count from LLM action" do
+      {:ok, plan} = plan_from_action(%{"target_word_count" => 800})
+      assert hd(plan.proposed_actions).target_word_count == 800
+    end
+
+    test "missing target word count yields nil" do
+      {:ok, plan} = plan_from_action(%{})
+      assert hd(plan.proposed_actions).target_word_count == nil
+    end
+
+    test "string target word count is parsed to integer" do
+      {:ok, plan} = plan_from_action(%{"target_word_count" => "600"})
+      assert hd(plan.proposed_actions).target_word_count == 600
+    end
+
+    test "absurd target word count is clamped to upper bound" do
+      {:ok, plan} = plan_from_action(%{"target_word_count" => 999_999})
+      assert hd(plan.proposed_actions).target_word_count == 20_000
+    end
+
+    defp plan_from_action(extra) do
+      action =
+        Map.merge(
+          %{
+            "action_id" => "act-1",
+            "action_type" => "capability_invocation",
+            "summary" => "写开篇正文",
+            "target_ref" => "prose_writing",
+            "write_intent" => "tentative",
+            "risk_hint" => "low",
+            "authoring_intent" => "none",
+            "target_chapter" => nil
+          },
+          extra
+        )
+
+      complete_fn = fn _prompt ->
+        {:ok,
+         %{
+           content:
+             Jason.encode!(%{
+               "plan_goal_summary" => "写正文",
+               "risk_hint" => "low",
+               "proposed_actions" => [action],
+               "required_capabilities" => ["prose_writing"],
+               "fallback_message" => "降级对话"
+             })
+         }}
+      end
+
+      Planner.form_micro_plan(plan_frame(), %{text: "写约800字的开篇"}, complete_fn)
+    end
+
+    defp plan_frame do
+      %DialogueFrame{
+        schema_version: "3.0-draft",
+        frame_id: "frame-wc",
+        turn_id: "turn-wc",
+        workspace_id: "work-wc",
+        primary: true,
+        frame_type: :execution_candidate,
+        source_refs: %{},
+        dialogue_goal: %{summary: "写正文"},
+        tool_need: %{needs_tool: true, reason_code: :tool_needed},
+        execution_readiness: :ready,
+        author_visible_draft: %{message: "好的"},
+        evidence_summary: %{},
+        uncertainty: []
       }
     end
   end

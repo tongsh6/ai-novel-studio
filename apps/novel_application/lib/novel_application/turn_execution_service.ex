@@ -52,6 +52,8 @@ defmodule NovelApplication.TurnExecutionService do
     prior_prose =
       continuation_prior_prose(frame, action, resolved_chapter, input[:chapter_prose_reader])
 
+    maybe_emit_target_word_count(frame, action)
+
     req = build_tool_request(frame, plan, decision, input, action, prior_prose)
     tool_result = dispatch_tool(req, input[:complete_fn])
     artifact_set = assemble_artifact(tool_result, frame.turn_id, plan, resolved_chapter)
@@ -120,9 +122,35 @@ defmodule NovelApplication.TurnExecutionService do
     %{
       "text" => text,
       "creative_brief" =>
-        [action_summary(action), text] |> Enum.reject(&blank?/1) |> Enum.join("\n"),
+        [action_summary(action), word_count_brief(action), text]
+        |> Enum.reject(&blank?/1)
+        |> Enum.join("\n"),
       "context_text" => context_text
     }
+  end
+
+  # 作者明确篇幅诉求时，把目标字数并入创作简述（走 brief 通道：brief 本就被创作
+  # provider 与 stub/slice_verify 的三锚点正则捕获，无需在 prompt 另加行、也不破坏锚点）。
+  defp word_count_brief(action) do
+    case action[:target_word_count] do
+      n when is_integer(n) and n > 0 -> "目标字数：约 #{n} 字"
+      _ -> ""
+    end
+  end
+
+  # 作者篇幅诉求 observability（ADR-0018）：作者明确目标字数时记一条业务日志，
+  # 让外部审计/验收能证明该诉求确实进入执行链（与 continuation_context 对称）。
+  defp maybe_emit_target_word_count(frame, action) do
+    case action[:target_word_count] do
+      n when is_integer(n) and n > 0 ->
+        LogEmit.emit(:turn_execution, :target_word_count, :done, %{
+          turn_id: frame.turn_id,
+          target_word_count: n
+        })
+
+      _ ->
+        :ok
+    end
   end
 
   # 解析本次正文归属的章（确定性，不依赖 LLM 结构化输出可靠性）：

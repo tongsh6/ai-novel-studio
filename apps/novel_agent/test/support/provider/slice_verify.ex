@@ -158,7 +158,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp outline_chapter_items(brief, context) do
     fingerprint =
-      [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n") |> :erlang.phash2() |> Integer.to_string(36)
+      [brief, context]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+      |> :erlang.phash2()
+      |> Integer.to_string(36)
 
     @outline_chapter_themes
     |> Enum.with_index(1)
@@ -178,6 +182,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     author_text = author_input_text(prompt)
     tool_name = tool_name_for_prompt(author_text)
     {authoring_intent, target_chapter} = authoring_intent_for(prompt, author_text)
+    target_word_count = target_word_count_from_text(author_text)
     rewrite? = authoring_intent == "rewrite"
 
     action =
@@ -190,6 +195,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         risk_hint: if(rewrite?, do: "high", else: "low")
       }
       |> maybe_put_authoring(authoring_intent, target_chapter)
+      |> maybe_put_target_word_count(target_word_count)
 
     %{
       plan_goal_summary: "验证工作台 micro plan 入口",
@@ -208,6 +214,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     action
     |> Map.put(:authoring_intent, intent)
     |> Map.put(:target_chapter, chapter)
+  end
+
+  defp maybe_put_target_word_count(action, nil), do: action
+  defp maybe_put_target_word_count(action, n), do: Map.put(action, :target_word_count, n)
+
+  # 目标字数识别（确定性）：作者文本里的"约 N 字 / N 字"。与真实 LLM 的篇幅识别对称。
+  defp target_word_count_from_text(text) do
+    case Regex.run(~r/(\d+)\s*字/u, text) do
+      [_, n] -> String.to_integer(n)
+      _ -> nil
+    end
   end
 
   # 续写/重写意图识别（确定性）：仅当 plan prompt 已带「作品章节」列表时才可能续写/重写。
@@ -329,9 +346,46 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp creative_body(brief, context) do
-    if continuation_brief?(brief),
-      do: continuation_body(brief, context),
-      else: opening_body(brief, context)
+    case {continuation_brief?(brief), target_word_count_in_brief(brief)} do
+      {true, _} -> continuation_body(brief, context)
+      {false, n} when is_integer(n) -> length_targeted_body(n, brief, context)
+      {false, _} -> opening_body(brief, context)
+    end
+  end
+
+  # 目标字数槽（Slice B）：作者明确篇幅诉求时，确定性产出有效字数贴近 N 的正文。
+  # 以 opening_body 为骨架（含 nonce 句，保 I3），再用带序号的填充句补到 >= N；
+  # 序号让句子字节互不相同（不靠重复同句注水）。有效字数落在 [N, N + 一句] 区间。
+  defp length_targeted_body(target, brief, context) do
+    base = opening_body(brief, context)
+    fill_to_word_count([base], effective_count(base), target, 1)
+  end
+
+  defp fill_to_word_count(acc, count, target, _idx) when count >= target do
+    acc |> Enum.reverse() |> Enum.join("\n")
+  end
+
+  defp fill_to_word_count(acc, count, target, idx) do
+    line = filler_line(idx)
+    fill_to_word_count([line | acc], count + effective_count(line), target, idx + 1)
+  end
+
+  defp filler_line(idx) do
+    "他在第#{idx}道阵纹前停下脚步，指尖缓缓描过冷硬的刻痕，把这一处岔路的走向与气味默默记进心里。"
+  end
+
+  # 从创作简述里取作者篇幅诉求（turn_execution 注入的"目标字数：约 N 字"）。
+  defp target_word_count_in_brief(brief) do
+    case Regex.run(~r/目标字数：约\s*(\d+)\s*字/u, brief) do
+      [_, n] -> String.to_integer(n)
+      _ -> nil
+    end
+  end
+
+  # 有效字数口径与 NovelDomain.ProseWordCount 对齐（字母/表意文字/数字），
+  # novel_agent 不依赖 novel_domain，故在此本地实现同口径正则。
+  defp effective_count(text) do
+    ~r/[^\p{L}\p{N}]/u |> Regex.replace(text, "") |> String.length()
   end
 
   defp continuation_brief?(brief) do
