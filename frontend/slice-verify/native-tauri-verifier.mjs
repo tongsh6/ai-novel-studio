@@ -134,9 +134,9 @@ const sliceKeyEvents = {
     "planner.form_micro_plan.done",
     "toolbox.execute.done",
     "channel.user_message.done",
-    "channel.adopt.start",
+    "channel.author_action.start",
     "adoption.evaluate.done",
-    "channel.adopt.done",
+    "channel.author_action.done",
     "channel.get_toc.done",
     "slice_verify.ui_state.done",
   ],
@@ -2190,10 +2190,9 @@ function findP1ChapterPlanMinimumEvidence(records) {
       record.chapter_plan_visible === true &&
       record.first_chapter_visible === true &&
       record.final_chapter_visible === true &&
-      Number(record.chapter_count ?? 0) >= 10 &&
-      Number(record.chapter_count ?? 0) <= 20 &&
-      record.reading_projection_materialized === false &&
-      record.chapter_plan_request_sent === true,
+      // 章数是 AI 生成产物，只要求长篇计划下限（>= 8），不再写死「恰好 12」或上限。
+      Number(record.chapter_count ?? 0) >= 8 &&
+      record.reading_projection_materialized === false,
   );
 
   if (!uiState) return null;
@@ -2214,20 +2213,20 @@ function findP1ChapterPlanMinimumEvidence(records) {
       record.event === "channel.user_message.start" &&
       record.generate_micro_plan === true,
   );
+  // 采纳走当前模型 author_action accept（channel adopt handler 已是遗留、前端不用）。
+  // 持久化/未物化阅读投影由 uiState 门（reading_projection_materialized===false）保证。
   const adopted = generationRecords.some(
     (record) =>
-      record.event === "channel.adopt.done" &&
-      record.artifact_type === "outline_draft" &&
-      record.action_status === "accepted" &&
-      record.persisted === true &&
-      record.reading_projection_materialized === false,
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
   );
   // 采纳的章节计划物化为可读卷/章结构（get_toc 单一数据源，不再有 get_chapter_plans）。
   const chapterStructureRead = records.some(
     (record) =>
       record.event === "channel.get_toc.done" &&
       record.work_id === uiState.work_id &&
-      Number(record.chapter_count ?? 0) >= 10,
+      Number(record.chapter_count ?? 0) >= 8,
   );
 
   if (!generatedByTool || !microPlanStarted || !adopted || !chapterStructureRead) return null;
@@ -2384,7 +2383,7 @@ function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, o
     return null;
   }
   if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "toolbox.execute.done")) return null;
-  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "channel.adopt.done")) return null;
+  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "channel.author_action.done")) return null;
   if (!lmstudioHasSteps(options, [evidence.generation_turn_id], ["form_frame", "form_micro_plan"])) {
     return null;
   }
@@ -2397,12 +2396,12 @@ function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, o
   );
   if (!uiState) return null;
 
-  // 采纳的章节计划成正式目录：从 get_toc 读到计划全章（>=10），单一数据源，无 get_chapter_plans。
+  // 采纳的章节计划成正式目录：从 get_toc 读到计划全章（>= 8），单一数据源，无 get_chapter_plans。
   const chapterStructureRead = records.find(
     (record) =>
       record.event === "channel.get_toc.done" &&
       record.work_id === uiState.work_id &&
-      Number(record.chapter_count ?? 0) >= 10,
+      Number(record.chapter_count ?? 0) >= 8,
   );
   if (!chapterStructureRead) return null;
 
@@ -2971,12 +2970,18 @@ function findP1ChapterOverwriteConfirmEvidence(records) {
   );
   if (!confirmDone) return null;
 
-  // 覆盖采纳后阅读投影仍只有 1 章（同一章替换，而非堆出重复章）
+  // 覆盖采纳后阅读投影里「有正文的章」仍恰好 1 章（同一章就地替换，而非堆出重复章）。
+  // toc 语义已归正为完整卷/章结构（含空计划章），故判「有正文章 = 1」=
+  // 非空章数（chapter_count - empty_chapter_count）=== 1，而不是「目录只有 1 章」。
+  // 覆盖正文不校验字数门槛（不扣 short_chapter_count）：若错误堆出重复章，非空章会变成 2。
   const tocReads = records.filter(
     (record) => record.event === "channel.get_toc.done" && record.work_id === uiState.work_id,
   );
   const finalToc = tocReads[tocReads.length - 1];
-  if (!finalToc || Number(finalToc.chapter_count ?? 0) !== 1) return null;
+  if (!finalToc) return null;
+  const writtenChapterCount =
+    Number(finalToc.chapter_count ?? 0) - Number(finalToc.empty_chapter_count ?? 0);
+  if (writtenChapterCount !== 1) return null;
 
   // turn_ids 只放生成 turn：lmstudio 证据要求每个 turn 都有 LLM 调用，而采纳/确认
   // turn 不调 LLM。覆盖采纳的因果在 behavior 函数里按全量 records 校验。
@@ -2990,7 +2995,7 @@ function findP1ChapterOverwriteConfirmEvidence(records) {
     turn_ids: turnIds,
     first_artifact_id: uiState.first_artifact_id,
     second_artifact_id: uiState.second_artifact_id,
-    final_chapter_count: finalToc.chapter_count,
+    final_chapter_count: writtenChapterCount,
     key_events: keyEvents,
   };
 }

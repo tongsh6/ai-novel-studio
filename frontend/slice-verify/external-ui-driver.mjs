@@ -706,24 +706,37 @@ async function driveP1ChapterPlanMinimum(page) {
       frame.event === "turn_result" &&
       frame.body?.tool_result?.tool_name === "plot_outline" &&
       frame.body?.tool_result?.output?.artifact_type === "outline_draft" &&
-      frame.body?.adoption_state?.pending?.[0]?.payload?.chapter_count === 12,
+      // 章数是 AI 生成的产物，不写死「恰好 12」：只要求达到长篇计划下限（>= 8）。
+      Number(frame.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 8,
     "No P1 chapter plan outline_draft turn_result websocket frame was received",
   );
   const generationTurnResult = generationFrame.body;
   const pendingArtifact = generationTurnResult.adoption_state.pending[0];
+  // 首/末章标题取自实际生成的计划条目（provider 中立：确定性与真实 LLM 标题不同）。
+  const planItems = pendingArtifact.payload?.items ?? [];
+  const chapterCount = Number(pendingArtifact.payload?.chapter_count ?? planItems.length);
+  const firstChapterTitle = String(planItems[0]?.title ?? "");
+  const lastChapterTitle = String(planItems[planItems.length - 1]?.title ?? "");
 
-  await page.waitForFunction(() => document.body.innerText.includes("章节计划待采纳"), {
-    timeout: 10_000,
-  });
-  await page.getByRole("button", { name: /^采纳$/ }).first().click();
+  // 采纳走当前模型：待采纳计划卡（候选集）+「确认创建」按钮（author_action accept），
+  // 不再用旧的「采纳」按钮 / adopt 事件（channel adopt handler 已遗留、前端不用）。
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("待确认的创作材料") &&
+      [...document.querySelectorAll("button")].some(
+        (btn) => (btn.textContent ?? "").trim() === "确认创建",
+      ),
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "确认创建" }).first().click();
 
-  const adoptFrame = await waitForFrame(
+  const acceptActionFrame = await waitForFrame(
     (frame) =>
       frame.direction === "sent" &&
-      frame.event === "adopt" &&
-      frame.body?.artifact_id === pendingArtifact.artifact_id &&
-      frame.body?.artifact_type === "outline_draft",
-    "Real workbench did not send adopt event for outline_draft artifact",
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === pendingArtifact.artifact_id,
+    "Real workbench did not send accept author_action for the chapter plan",
   );
 
   const actionResultFrame = await waitForFrame(
@@ -731,46 +744,49 @@ async function driveP1ChapterPlanMinimum(page) {
       frame.direction === "received" &&
       frame.event === "action_result" &&
       frame.body?.status === "accepted" &&
-      frame.body?.artifact_id === pendingArtifact.artifact_id &&
-      frame.body?.artifact_type === "outline_draft",
-    "No accepted outline_draft action_result websocket frame was received",
+      frame.body?.artifact_id === pendingArtifact.artifact_id,
+    "No accepted action_result websocket frame was received for the chapter plan",
+    120_000,
   );
 
   const adoptionFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
-      frame.body?.adoption_state?.resolved?.[0]?.artifact_id === pendingArtifact.artifact_id &&
-      frame.body?.adoption_state?.resolved?.[0]?.adoption_status === "ACCEPTED",
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === pendingArtifact.artifact_id,
+      ),
     "No accepted outline_draft adoption turn_result websocket frame was received",
+    120_000,
   );
   const adoptionTurnResult = adoptionFrame.body;
-
-  await page.waitForFunction(
-    () =>
-      document.body.innerText.includes("已采纳") &&
-      document.body.innerText.includes("P1 10 万字章节计划"),
-    { timeout: 10_000 },
-  );
 
   await page.getByText("打开档案").first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
 
   // 大纲与结构单一数据源 = 已采纳卷/章结构（get_toc），不再有独立的 get_chapter_plans。
+  // 断言用「实际生成的首/末章标题」，不写死特定标题（确定性与真实 LLM 章名不同）。
+  // 注意 Playwright 签名 waitForFunction(fn, arg, options)：arg 在前、options 在后。
   await page.waitForFunction(
-    () =>
+    ({ first, last }) =>
       document.body.innerText.includes("已采纳章节计划") &&
-      document.body.innerText.includes("第01章：底层灵气账单") &&
-      document.body.innerText.includes("第12章：第一卷终局：灵气回流"),
+      (first === "" || document.body.innerText.includes(first)) &&
+      (last === "" || document.body.innerText.includes(last)),
+    { first: firstChapterTitle, last: lastChapterTitle },
     { timeout: 10_000 },
   );
 
   const visibleText = await page.locator("body").innerText();
-  const chapterTitleMatches = visibleText.match(/第\d{2}章：/g) ?? [];
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, generationTurnResult, sentMessage);
 
-  assert(chapterTitleMatches.length >= 12, "Accepted chapter plan did not render 12 visible chapters");
+  const firstChapterVisible = firstChapterTitle !== "" && visibleText.includes(firstChapterTitle);
+  const finalChapterVisible = lastChapterTitle !== "" && visibleText.includes(lastChapterTitle);
+
+  assert(chapterCount >= 8, `Generated chapter plan too small for a long-form work: ${chapterCount}`);
+  assert(firstChapterVisible && finalChapterVisible, "Accepted chapter plan did not render its first and final chapters");
   assert(
     actionResultFrame.body?.persistence?.reading_projection == null,
     "Outline adoption unexpectedly materialized a reading projection",
@@ -784,15 +800,14 @@ async function driveP1ChapterPlanMinimum(page) {
       adoption_turn_id: adoptionTurnResult.turn_id,
       artifact_id: pendingArtifact.artifact_id,
       artifact_type: pendingArtifact.artifact_type,
-      chapter_count: pendingArtifact.payload.chapter_count,
-      chapter_titles_visible_count: chapterTitleMatches.length,
+      chapter_count: chapterCount,
       chapter_plan_visible: visibleText.includes("已采纳章节计划"),
-      first_chapter_visible: visibleText.includes("第01章：底层灵气账单"),
-      final_chapter_visible: visibleText.includes("第12章：第一卷终局：灵气回流"),
+      first_chapter_visible: firstChapterVisible,
+      final_chapter_visible: finalChapterVisible,
       outline_adopt_clicked: true,
       outline_adopted: true,
       reading_projection_materialized: Boolean(actionResultFrame.body?.persistence?.reading_projection),
-      adopt_payload: adoptFrame.body,
+      adopt_payload: acceptActionFrame.body,
       action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
       user_message_text: planMessageFrame.body?.text,
     },

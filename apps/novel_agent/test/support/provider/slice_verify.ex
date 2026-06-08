@@ -129,19 +129,49 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  # 章节计划主题（确定性、稳定、可支撑长篇），用于 outline_draft 多章生成。
+  @outline_chapter_themes ~w(觉醒 试炼 盟约 裂隙 暗流 突围 真相 背叛 抉择 决战 余烬 新生)
+
   defp creative_items_response(prompt) do
     {brief, context} = creative_prompt_parts(prompt)
-    text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
-    fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
 
-    [
+    # 章节计划（plot_outline -> outline_draft）确定性产出多章，让 plan-minimum 等 slice
+    # 在离线 provider 下也能演练「生成结构化章节计划」；其余 artifact_type 仍单条。
+    if outline_plan_prompt?(prompt) do
+      outline_chapter_items(brief, context)
+    else
+      text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
+      fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
+
+      [
+        %{
+          item_id: "slice_item_#{fingerprint}_1",
+          title: creative_title(brief, fingerprint),
+          body: creative_body(brief, context),
+          rationale: creative_rationale(brief)
+        }
+      ]
+    end
+  end
+
+  defp outline_plan_prompt?(prompt), do: String.contains?(prompt, "artifact_type：outline_draft")
+
+  defp outline_chapter_items(brief, context) do
+    fingerprint =
+      [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n") |> :erlang.phash2() |> Integer.to_string(36)
+
+    @outline_chapter_themes
+    |> Enum.with_index(1)
+    |> Enum.map(fn {theme, n} ->
+      seq = n |> Integer.to_string() |> String.pad_leading(2, "0")
+
       %{
-        item_id: "slice_item_#{fingerprint}_1",
-        title: creative_title(brief, fingerprint),
-        body: creative_body(brief, context),
-        rationale: creative_rationale(brief)
+        item_id: "slice_outline_#{fingerprint}_#{n}",
+        title: "第#{seq}章：#{theme}",
+        body: "第#{seq}章梗概：围绕「#{theme}」推进主线第 #{n} 阶段。",
+        rationale: nil
       }
-    ]
+    end)
   end
 
   defp plan_response(prompt) do
