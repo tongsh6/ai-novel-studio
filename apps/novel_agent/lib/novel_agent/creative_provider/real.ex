@@ -13,6 +13,19 @@ defmodule NovelAgent.CreativeProvider.Real do
   alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.Contracts.ToolOutputContract
 
+  # 正文写作质量约束（show-don't-tell / 对白个性化 / 反 AI 套话 / 节奏）。
+  # 面向真实作者的写作质量要求，集中在此便于维护（如日后扩充套话黑名单）。
+  # 注意位置：必须放在 stub/slice_verify provider 解析的
+  # 「用户创作简述：…上下文：…重要：」三锚点之后，否则会污染 brief/context 捕获
+  # （见记忆 creative-prompt-stub-anchor-coupling）。
+  @prose_writing_guidelines """
+  写作要求：
+  - 用动作、神态、对白和具体细节表现情绪，禁止直接断言"他很生气""她很悲伤"这类总结句。
+  - 对白要贴合各人物的性格与处境，不同人物的说话方式应有区别。
+  - 避免"随着""在……中""阳光洒落""不由得""仿佛"等 AI 套话式表达。
+  - 节奏紧凑，删去与情节和人物无关的环境与背景堆砌。
+  """
+
   @impl true
   def generate(%CreativeRequest{} = request, complete_fn) when is_function(complete_fn, 1) do
     prompt = build_prompt(request)
@@ -65,6 +78,7 @@ defmodule NovelAgent.CreativeProvider.Real do
 
     重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在该条目的 body 或 rationale 中原样保留至少一处。
 
+    #{@prose_writing_guidelines}
     只返回包含单个对象的 JSON 数组。
     """
   end
