@@ -322,7 +322,19 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   defp interaction_content(text, nil), do: %{text: text}
-  defp interaction_content(text, turn_result), do: %{text: text, turn_result: turn_result}
+
+  defp interaction_content(text, turn_result),
+    do: %{text: text, turn_result: jsonable(turn_result)}
+
+  @doc false
+  # 持久化前把 turn_result 规范化为纯 map：confirmation 路径的 turn_result 内嵌 MicroPlan
+  # 等 domain struct，而 Interaction.content 是 Ecto :map（JSON），不接受嵌套 struct
+  # （会 Ecto.ChangeError 崩 GenServer）。深度转 struct→map（保留 atom key、标量值不变），
+  # 纯 map 路径（allow_tool/reply）经此不变。公开仅为可测（@doc false，内部用途）。
+  def jsonable(value) when is_struct(value), do: value |> Map.from_struct() |> jsonable()
+  def jsonable(value) when is_map(value), do: Map.new(value, fn {k, v} -> {k, jsonable(v)} end)
+  def jsonable(value) when is_list(value), do: Enum.map(value, &jsonable/1)
+  def jsonable(value), do: value
 
   defp trace_to_attrs(trace, ws_id, session_id) do
     %{

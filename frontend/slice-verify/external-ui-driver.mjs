@@ -1398,6 +1398,137 @@ async function driveP1ChapterExpansion(page) {
   ];
 }
 
+async function driveP1ChapterExpansionMultichapter(page) {
+  // checkpoint 3 连续多章：作者用自然语言逐章推进第 1/2/3 章首稿，每章正文按计划章
+  // 标题归到各自计划章（target_chapter 精确/标题匹配），不串章、各自累积。意图与
+  // 目标章由 Planner（AI）识别，不加续写按钮/关键字（v3 反模式）。
+  const plan = [
+    { title: "第01章：底层灵气账单", summary: "主角在欠费停灵的夜晚发现灵气带宽被公司暗中抽走。" },
+    { title: "第02章：旧服务器里的残诀", summary: "主角从废弃服务器中找到残缺功法，并第一次突破底层限制。" },
+    { title: "第03章：黑市调频师", summary: "主角结识擅长调制灵气频段的调频师，获得追查垄断链路的入口。" },
+  ];
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  const written = [];
+  let lastAdopt = null;
+
+  for (const ch of plan) {
+    const instruction = `请根据已采纳章节计划生成${ch.title}：${ch.summary}正文草稿，保持为待采纳草稿。`;
+    await page.locator(chatInputSelector).fill(instruction);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+
+    const adoptedIds = new Set(written.map((w) => w.artifact_id));
+    const draftFrame = await waitForFrame(
+      (f) =>
+        f.direction === "received" &&
+        f.event === "turn_result" &&
+        f.body?.tool_result?.tool_name === "prose_writing" &&
+        f.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
+        !adoptedIds.has(f.body.adoption_state.pending[0].artifact_id),
+      `No new prose_fragment turn_result for ${ch.title}`,
+      200_000,
+    );
+    const pending = draftFrame.body.adoption_state.pending[0];
+
+    await page.waitForFunction(
+      () => document.body.innerText.includes("确认创建"),
+      { timeout: 10_000 },
+    );
+    await page.getByRole("button", { name: "确认创建" }).first().click();
+
+    const adoptFrame = await waitForFrame(
+      (f) =>
+        f.direction === "received" &&
+        f.event === "turn_result" &&
+        f.body?.truthfulness?.artifact_adopted === true &&
+        f.body?.adoption_state?.resolved?.some((e) => e.artifact_id === pending.artifact_id),
+      `No resolved adoption turn_result for ${ch.title}`,
+      120_000,
+    );
+    lastAdopt = adoptFrame.body;
+
+    // 采纳后旧草稿卡的「确认创建」必须消失，避免下一章误点到上一张卡。
+    await page.waitForFunction(
+      () =>
+        ![...document.querySelectorAll("button")].some(
+          (b) => (b.textContent ?? "").trim() === "确认创建",
+        ),
+      { timeout: 10_000 },
+    );
+
+    written.push({
+      title: ch.title,
+      artifact_id: pending.artifact_id,
+      draft_turn_id: draftFrame.body.turn_id,
+      adopt_turn_id: adoptFrame.body.turn_id,
+      adopted: adoptFrame.body.truthfulness?.artifact_adopted === true,
+    });
+  }
+
+  // 进入阅读模式：目录应显示完整计划，且第 1/2/3 章各有正文。
+  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("第01章：底层灵气账单") &&
+      document.body.innerText.includes("第02章：旧服务器里的残诀") &&
+      document.body.innerText.includes("第03章：黑市调频师"),
+    { timeout: 15_000 },
+  );
+  await page
+    .waitForFunction(() => document.body.innerText.includes("本章有效字数"), { timeout: 15_000 })
+    .catch(() => {});
+
+  // 从后端真实 get_toc 投影读各章字数与顺序：这是"多章各归各章、不串"的最可靠证据。
+  const tocReplies = frames.filter((f) => {
+    const resp = f.body?.response ?? f.payload?.response ?? f.body;
+    return f.direction === "received" && Array.isArray(resp?.volumes);
+  });
+  const lastTocReply = tocReplies[tocReplies.length - 1];
+  const toc = lastTocReply
+    ? lastTocReply.body?.response ?? lastTocReply.payload?.response ?? lastTocReply.body
+    : null;
+  const allChapters = (toc?.volumes ?? []).flatMap((v) => v.chapters ?? []);
+  const targets = written.map((w) => allChapters.find((c) => c.title === w.title));
+  const writtenChapters = allChapters.filter((c) => Number(c.word_count ?? 0) > 0);
+  const seqs = targets.map((c) => Number(c?.seq ?? 0));
+  const orderCorrect = seqs.every((s, i) => i === 0 || s > seqs[i - 1]);
+  const allHaveProse = targets.every((c) => Number(c?.word_count ?? 0) > 0);
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, lastAdopt ?? {}, sentMessage);
+
+  assert(toc, "No get_toc projection frame captured in reading mode");
+  assert(
+    writtenChapters.length >= written.length,
+    `Expected >= ${written.length} chapters with prose, got ${writtenChapters.length}`,
+  );
+  assert(allHaveProse, "A target chapter has no prose — cross-chapter contamination or misfiling");
+  assert(orderCorrect, `Chapter order incorrect in TOC: seqs=${seqs.join(",")}`);
+  assert(
+    !visibleText.includes("暂无已采纳的章节内容"),
+    "Reading mode stayed empty after multi-chapter adoption",
+  );
+
+  return [
+    {
+      ...uiState,
+      draft_turn_ids: written.map((w) => w.draft_turn_id),
+      adopt_turn_ids: written.map((w) => w.adopt_turn_id),
+      target_chapter_titles: written.map((w) => w.title),
+      written_chapter_count: writtenChapters.length,
+      target_chapters_with_prose: targets.filter((c) => Number(c?.word_count ?? 0) > 0).length,
+      per_chapter_words: targets.map((c) => Number(c?.word_count ?? 0)),
+      total_chapter_count: allChapters.length,
+      chapter_order_correct: orderCorrect,
+      all_chapters_have_prose: allHaveProse,
+      all_adopted: written.every((w) => w.adopted),
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveP1ChapterEditThenAccept(page) {
   // 复用 p1-chapter-draft-generation：生成第 1 章正文草稿。
   await page.getByText("打开档案").first().click();
@@ -1888,6 +2019,7 @@ const drivers = {
   "p1-chapter-edit-then-accept": driveP1ChapterEditThenAccept,
   "p1-chapter-overwrite-confirm": driveP1ChapterOverwriteConfirm,
   "p1-chapter-expansion": driveP1ChapterExpansion,
+  "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,

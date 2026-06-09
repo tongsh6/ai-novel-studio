@@ -35,6 +35,7 @@ export const nativeSliceIds = [
   "p1-chapter-edit-then-accept",
   "p1-chapter-overwrite-confirm",
   "p1-chapter-expansion",
+  "p1-chapter-expansion-multichapter",
   "p1-chapter-word-count-target",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
@@ -197,6 +198,17 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-expansion": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-chapter-expansion-multichapter": [
     "channel.user_message.start",
     "toolbox.execute.done",
     "channel.user_message.done",
@@ -584,6 +596,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterExpansionEvidence(records);
   }
 
+  if (sliceId === "p1-chapter-expansion-multichapter") {
+    return findP1ChapterExpansionMultichapterEvidence(records);
+  }
+
   if (sliceId === "au09-memory-create-recall") {
     return findAu09MemoryCreateRecallEvidence(records);
   }
@@ -721,6 +737,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-expansion") {
     return p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-chapter-expansion-multichapter") {
+    return p1ChapterExpansionMultichapterBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "au09-memory-create-recall") {
@@ -2875,6 +2895,96 @@ function findP1ChapterExpansionEvidence(records) {
     continuation_intents: intents,
     prior_prose_context_events: continuityEvents.length,
     key_events: keyEvents,
+  };
+}
+
+function findP1ChapterExpansionMultichapterEvidence(records) {
+  const sliceId = "p1-chapter-expansion-multichapter";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.all_adopted === true &&
+      r.all_chapters_have_prose === true &&
+      r.chapter_order_correct === true &&
+      Number(r.written_chapter_count ?? 0) >= 3 &&
+      Array.isArray(r.draft_turn_ids) &&
+      r.draft_turn_ids.length >= 3,
+  );
+  if (!uiState) return null;
+
+  const draftTurnIds = uiState.draft_turn_ids.map(String);
+
+  // 每章首稿都经 prose_writing 成功产出（>= 3，对应 3 章）。
+  const proseRuns = records.filter(
+    (r) =>
+      r.event === "toolbox.execute.done" &&
+      r.tool_name === "prose_writing" &&
+      r.tool_outcome === "succeeded" &&
+      draftTurnIds.includes(String(r.turn_id)),
+  );
+  if (proseRuns.length < 3) return null;
+
+  // 每章都经 accept author_action 采纳（>= 3）。
+  const accepts = records.filter(
+    (r) =>
+      r.event === "channel.author_action.done" &&
+      r.action_type === "accept" &&
+      r.action_status === "accepted",
+  );
+  if (accepts.length < 3) return null;
+
+  // 阅读投影：完整计划 + 非空章数 >= 3（多章各归各章、不堆单章）。
+  const tocReads = records.filter(
+    (r) => r.event === "channel.get_toc.done" && r.work_id === uiState.work_id,
+  );
+  const finalToc = tocReads[tocReads.length - 1];
+  if (!finalToc) return null;
+  const writtenInToc =
+    Number(finalToc.chapter_count ?? 0) - Number(finalToc.empty_chapter_count ?? 0);
+  if (writtenInToc < 3) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnIds[draftTurnIds.length - 1],
+    turn_ids: draftTurnIds,
+    draft_turn_ids: draftTurnIds,
+    written_chapter_count: uiState.written_chapter_count,
+    target_chapter_titles: uiState.target_chapter_titles,
+    total_chapter_count: finalToc.chapter_count,
+    written_in_toc: writtenInToc,
+    key_events: keyEvents,
+  };
+}
+
+function p1ChapterExpansionMultichapterBehavior(turnIds, turnRecords, records, evidence, _options) {
+  // 每章首稿 turn 都经工具产出（对话框自然语言路径，generate_micro_plan=false）。
+  if (!turnsHaveEvent(evidence.draft_turn_ids, turnRecords, "toolbox.execute.done")) return null;
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === "p1-chapter-expansion-multichapter",
+  );
+  if (!uiState) return null;
+  if (uiState.all_chapters_have_prose !== true) return null;
+  if (uiState.chapter_order_correct !== true) return null;
+  if (Number(uiState.written_chapter_count ?? 0) < 3) return null;
+
+  return {
+    slice_id: "p1-chapter-expansion-multichapter",
+    behavior: "consecutive_multichapter_each_filed_to_own_planned_chapter_in_order",
+    turn_ids: evidence.draft_turn_ids,
+    written_chapter_count: evidence.written_chapter_count,
+    target_chapter_titles: evidence.target_chapter_titles,
+    assertions: [
+      "three_chapters_drafted_via_prose_writing",
+      "each_chapter_adopted_via_author_action_accept",
+      "each_target_chapter_has_own_prose_no_cross_contamination",
+      "reading_toc_shows_full_plan_with_three_written_chapters_in_order",
+    ],
   };
 }
 
