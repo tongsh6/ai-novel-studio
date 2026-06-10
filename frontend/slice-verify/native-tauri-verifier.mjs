@@ -37,6 +37,7 @@ export const nativeSliceIds = [
   "p1-chapter-expansion",
   "p1-chapter-expansion-multichapter",
   "p1-chapter-word-count-target",
+  "au04-confirm-before-execute",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
   "au09-validity-window-recall",
@@ -217,6 +218,15 @@ const sliceKeyEvents = {
     "channel.author_action.done",
     "channel.get_toc.done",
     "channel.get_chapter_content.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-confirm-before-execute": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "orchestrator.decide.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "toolbox.execute.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-word-count-target": [
@@ -584,6 +594,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterWordCountTargetEvidence(records);
   }
 
+  if (sliceId === "au04-confirm-before-execute") {
+    return findAu04ConfirmBeforeExecuteEvidence(records);
+  }
+
   if (sliceId === "p1-chapter-edit-then-accept") {
     return findP1ChapterEditThenAcceptEvidence(records);
   }
@@ -725,6 +739,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-word-count-target") {
     return p1ChapterWordCountTargetBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-confirm-before-execute") {
+    return au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "p1-chapter-edit-then-accept") {
@@ -2672,6 +2690,105 @@ function findP1ChapterWordCountTargetEvidence(records) {
     target_word_count_event: Number(wordCountEvent.target_word_count ?? 0),
     word_count_lower_bound: lowerBound,
     key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function findAu04ConfirmBeforeExecuteEvidence(records) {
+  const sliceId = "au04-confirm-before-execute";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.confirmation_card_received === true &&
+      r.plan_carried_over_wire === true &&
+      r.tool_called_before_confirm === false &&
+      r.production_write_before_confirm === false &&
+      r.confirm_action_sent === true &&
+      r.confirmed_dispatch === true &&
+      r.artifact_pending_after_confirm === true &&
+      String(r.confirm_action_behavior_ref ?? "") !== "",
+  );
+  if (!uiState) return null;
+
+  const confirmTurnId = String(uiState.confirm_turn_id ?? "");
+  if (!confirmTurnId) return null;
+
+  const turnRecords = records.filter((r) => String(r.turn_id ?? "") === confirmTurnId);
+
+  // 对话框自然语言路径（非按钮）发起。
+  const start = turnRecords.find(
+    (r) => r.event === "channel.user_message.start" && r.generate_micro_plan === false,
+  );
+  if (!start) return null;
+
+  // 同一 turn 上 Orchestrator 两次裁决：先 require_confirmation 拦下，确认后 re-gate 放行。
+  const decisions = turnRecords.filter((r) => r.event === "orchestrator.decide.done");
+  const blockedFirst = decisions.some((r) => r.decision_type === "require_confirmation");
+  const allowedAfterConfirm = decisions.some((r) => r.decision_type === "allow_tool");
+  if (!blockedFirst || !allowedAfterConfirm) return null;
+
+  // 确认动作经 author_action 闭环。
+  const confirmDone = records.find(
+    (r) =>
+      r.event === "channel.author_action.done" &&
+      r.action_type === "confirm_before_execute" &&
+      r.action_status === "accepted",
+  );
+  if (!confirmDone) return null;
+
+  // 确认后才执行：prose_writing 在同一 turn 成功产出。
+  const executed = turnRecords.find(
+    (r) =>
+      r.event === "toolbox.execute.done" &&
+      r.tool_name === "prose_writing" &&
+      r.tool_outcome === "succeeded",
+  );
+  if (!executed) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: confirmTurnId,
+    turn_ids: [confirmTurnId],
+    confirm_turn_id: confirmTurnId,
+    executed_turn_id: uiState.executed_turn_id,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    confirm_action_behavior_ref: uiState.confirm_action_behavior_ref,
+    key_events: keyEvents,
+  };
+}
+
+function au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (!turnsHaveEvent([evidence.confirm_turn_id], turnRecords, "toolbox.execute.done")) {
+    return null;
+  }
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" && r.slice_id === "au04-confirm-before-execute",
+  );
+  if (!uiState) return null;
+  if (uiState.tool_called_before_confirm !== false) return null;
+  if (uiState.production_write_before_confirm !== false) return null;
+  if (uiState.confirmed_dispatch !== true) return null;
+  if (uiState.artifact_pending_after_confirm !== true) return null;
+
+  return {
+    slice_id: "au04-confirm-before-execute",
+    behavior:
+      "high_risk_user_turn_requires_confirmation_then_binding_re_gate_executes_tentatively",
+    turn_ids: turnIds,
+    artifact_id: evidence.artifact_id,
+    confirm_action_behavior_ref: evidence.confirm_action_behavior_ref,
+    assertions: [
+      "high_risk_rewrite_blocked_with_confirmation_card_over_real_wire",
+      "no_tool_call_or_production_write_before_confirm",
+      "confirm_action_bound_to_open_confirmation_behavior",
+      "re_gate_allows_and_dispatches_prose_writing_same_turn",
+      "executed_output_stays_tentative_pending_adoption",
+    ],
   };
 }
 

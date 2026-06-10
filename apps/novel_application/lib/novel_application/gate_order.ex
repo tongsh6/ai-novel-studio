@@ -3,8 +3,14 @@ defmodule NovelApplication.GateOrder do
   Execution Gate Order — 按 ADR-0005 顺序评估 MicroPlan。
 
   VS-01 只证明 gate 子集。gates 2/4/6/8 为后续 slice 留着位置。
+
+  确认 re-gate（ADR-0009 / VS-03 §5）：作者确认后必须重新跑全部 gate；携带有效
+  ConfirmationBinding（answer_type=confirm）时，authority / write_boundary 两个
+  以"需作者确认"为 block 理由的 gate 视为确认已满足而放行，其余 gate 照常评估
+  （所以 multi-step、forbidden semantics 等仍会拦，确认不等于 gate 一定通过）。
   """
 
+  alias NovelDomain.ConfirmationBinding
   alias NovelDomain.MicroPlan
 
   @type gate_result :: :pass | {:block, atom(), String.t()}
@@ -14,15 +20,15 @@ defmodule NovelApplication.GateOrder do
   """
   @type gate_results :: [{atom(), :pass}] | [{atom(), :pass | {:block, String.t()}}]
   @type eval_result :: {:pass, gate_results()} | {:block, atom(), String.t(), gate_results()}
-  @spec evaluate(MicroPlan.t()) :: eval_result()
-  def evaluate(%MicroPlan{} = plan) do
+  @spec evaluate(MicroPlan.t(), ConfirmationBinding.t() | nil) :: eval_result()
+  def evaluate(%MicroPlan{} = plan, binding \\ nil) do
     gates = [
       {:correlation, &gate_correlation/1},
       {:envelope_validation, &gate_envelope/1},
       {:action_scope, &gate_action_scope/1},
-      {:authority, &gate_authority/1},
+      {:authority, &gate_authority(&1, binding)},
       {:budget, &gate_budget/1},
-      {:write_boundary, &gate_write_boundary/1},
+      {:write_boundary, &gate_write_boundary(&1, binding)},
       {:trace_readiness, &gate_trace_readiness/1},
       {:turn_result_compat, &gate_turn_result_compat/1}
     ]
@@ -69,14 +75,18 @@ defmodule NovelApplication.GateOrder do
     end
   end
 
-  # Gate 5: Authority — high-risk requires confirmation
-  defp gate_authority(plan) do
-    if MicroPlan.high_risk?(plan) do
-      action_summaries = Enum.map_join(plan.proposed_actions, "；", & &1.summary)
+  # Gate 5: Authority — high-risk requires confirmation；有效确认绑定满足该要求。
+  defp gate_authority(plan, binding) do
+    cond do
+      not MicroPlan.high_risk?(plan) ->
+        :pass
 
-      {:block, "检测到高风险行动，需作者确认：#{action_summaries}"}
-    else
-      :pass
+      confirmed?(binding) ->
+        :pass
+
+      true ->
+        action_summaries = Enum.map_join(plan.proposed_actions, "；", & &1.summary)
+        {:block, "检测到高风险行动，需作者确认：#{action_summaries}"}
     end
   end
 
@@ -86,14 +96,24 @@ defmodule NovelApplication.GateOrder do
     :pass
   end
 
-  # Gate 9: Write / adoption boundary — production_candidate blocked
-  defp gate_write_boundary(plan) do
-    if MicroPlan.production_candidate_count(plan) > 0 do
-      {:block, "production candidate write not allowed without adoption boundary check"}
-    else
-      :pass
+  # Gate 9: Write / adoption boundary — production_candidate blocked。
+  # 确认后放行的只是工具 dispatch；产出仍是 tentative artifact，真正的生产写入
+  # 边界由采纳层把守（VS-04 adoption boundary / 覆盖确认）。
+  defp gate_write_boundary(plan, binding) do
+    cond do
+      MicroPlan.production_candidate_count(plan) == 0 ->
+        :pass
+
+      confirmed?(binding) ->
+        :pass
+
+      true ->
+        {:block, "production candidate write not allowed without adoption boundary check"}
     end
   end
+
+  defp confirmed?(%ConfirmationBinding{} = binding), do: ConfirmationBinding.confirm?(binding)
+  defp confirmed?(_binding), do: false
 
   # Gate 10: Trace readiness
   defp gate_trace_readiness(_plan) do

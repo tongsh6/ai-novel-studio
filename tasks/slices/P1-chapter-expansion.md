@@ -59,7 +59,7 @@ P1-word-count-audit 暴露的瓶颈：当前每章都是短章（确定性 168�
 |---|---|---|
 | DialogueFrame | `frame_type=execution_candidate` 表达创作产出，无目标对象维度 | 识别"针对已有章的续写/重写"（具体落在 frame 还是仅 plan，编码时定，优先不动 frame enforce 字段） |
 | MicroPlan | `proposed_action` 已有 `target_ref`+`write_intent`+`risk_hint` | **复用**：target_ref=目标章；write_intent=tentative(续写)/production_candidate(重写) |
-| CreativeRequest | 有 `provider_hints: map()` | **用 provider_hints 承载** `target_chapter_ref` + `mode`，不动 `@enforce_keys` |
+| CreativeRequest | 有 `provider_hints: map()` | ~~用 provider_hints 承载~~ **as-built（见 §4.1）**：意图作为 artifact provenance 流转、前文走 context_text、生成参数（如目标字数）走 creative_brief；provider_hints 至今无人填充（死通道），勿据本行新增写入方 |
 | AdoptionRepository | chapter/scene 用同一 title 塌缩单场景 | 续写=同章新场景（scene seq+1，不 supersede）；重写=覆盖。**章身份与场景身份分离** |
 
 ### 4.1 Y2 意图透传链路（顺现有数据流，已确认 + 进度）

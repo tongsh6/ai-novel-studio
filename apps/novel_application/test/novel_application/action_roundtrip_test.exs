@@ -10,6 +10,10 @@ defmodule NovelApplication.ActionRoundtripTest do
       %{
         action_id: "act-confirm",
         action_type: "confirm_before_execute",
+        # 生产 turn_result 的确认 action 始终带 behavior_ref/target_ref（指向 open
+        # confirmation，VS-03 §5），fixture 与之对齐。
+        behavior_ref: "bh-1",
+        target_ref: "text_analysis",
         enabled: true,
         idempotency_key: "ik1"
       },
@@ -32,11 +36,15 @@ defmodule NovelApplication.ActionRoundtripTest do
 
   describe "action validation" do
     test "valid action passes" do
+      # 前端提交确认时回传 available_action 的 target_ref/behavior_ref
+      # （workbenchActions.toAuthorActionPayload），input 与之对齐。
       input = %AuthorActionInput{
         input_id: "in-1",
         source_turn_ref: "turn-1",
         action_id: "act-confirm",
-        action_type: "confirm_before_execute"
+        action_type: "confirm_before_execute",
+        target_ref: "text_analysis",
+        behavior_ref: "bh-1"
       }
 
       assert :ok = ActionValidator.validate(input, @valid_source)
@@ -272,7 +280,9 @@ defmodule NovelApplication.ActionRoundtripTest do
         input_id: "in-gw",
         source_turn_ref: "turn-1",
         action_id: "act-confirm",
-        action_type: "confirm_before_execute"
+        action_type: "confirm_before_execute",
+        target_ref: "text_analysis",
+        behavior_ref: "bh-1"
       }
 
       assert {:error, reason} = DialogueGateway.handle_action(input, @valid_source)
@@ -284,10 +294,79 @@ defmodule NovelApplication.ActionRoundtripTest do
         input_id: "in-gw-plan",
         source_turn_ref: "turn-1",
         action_id: "act-confirm",
-        action_type: "confirm_before_execute"
+        action_type: "confirm_before_execute",
+        target_ref: "text_analysis",
+        behavior_ref: "bh-1"
       }
 
       assert {:ok, _ack} = DialogueGateway.handle_action(input, @source_with_plan)
+    end
+
+    test "high-risk confirmation re-gates to execution with persisted (string-keyed) source" do
+      # 回归（发现2）：resume 后 source_turn_result 经持久化往返为 string-keyed、
+      # plan 为 JSON 安全 map；确认必须仍能 rehydrate plan 并 re-gate 放行执行。
+      plan = %NovelDomain.MicroPlan{
+        plan_id: "plan-persist-1",
+        turn_id: "turn-persist-1",
+        frame_ref: "frame-persist-1",
+        plan_goal: %{summary: "重写第一章"},
+        risk_hint: :high,
+        proposed_actions: [
+          %{
+            action_id: "a1",
+            action_type: :capability_invocation,
+            summary: "重写第一章正文",
+            target_ref: "prose_writing",
+            write_intent: :production_candidate,
+            risk_hint: :high
+          }
+        ]
+      }
+
+      source =
+        %{
+          turn_id: "turn-persist-1",
+          frame_ref: "frame-persist-1",
+          workspace_id: "ws-persist",
+          available_actions: [
+            %{
+              action_id: "act-confirm-p",
+              action_type: "confirm_before_execute",
+              behavior_ref: "bh-p1",
+              target_ref: "prose_writing",
+              enabled: true,
+              idempotency_key: "ik-p"
+            }
+          ],
+          plan: DialogueGateway.jsonable(plan)
+        }
+        |> Jason.encode!()
+        |> Jason.decode!()
+
+      input = %AuthorActionInput{
+        input_id: "in-p",
+        source_turn_ref: "turn-persist-1",
+        action_id: "act-confirm-p",
+        action_type: "confirm_before_execute",
+        target_ref: "prose_writing",
+        behavior_ref: "bh-p1",
+        idempotency_key: "ik-p"
+      }
+
+      complete_fn = fn _prompt ->
+        {:ok,
+         %{
+           content:
+             Jason.encode!([
+               %{"item_id" => "i1", "title" => "重写", "body" => "新正文", "rationale" => nil}
+             ])
+         }}
+      end
+
+      assert {:ok, ack, turn_result} = DialogueGateway.handle_action(input, source, complete_fn)
+      assert ack.status == "accepted"
+      assert turn_result.tool_result.tool_name == "prose_writing"
+      assert turn_result.truthfulness.tool_called == true
     end
 
     test "invented action rejected by gateway" do

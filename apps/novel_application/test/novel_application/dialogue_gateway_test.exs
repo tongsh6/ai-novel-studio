@@ -424,14 +424,25 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert Enum.at(entries, 1).content.text == "收到你的消息。"
     end
 
-    test "jsonable normalizes nested structs into plain maps (Ecto :map safe)" do
-      # 回归：require_confirmation 的 turn_result 内嵌 MicroPlan 等 struct，持久化到
-      # Interaction.content（Ecto :map）若不规范化会 ChangeError 崩 GenServer。jsonable
-      # 必须把任意嵌套 struct 递归转纯 map（这里用 DateTime/Date/嵌套 list 覆盖三条子句）。
+    test "jsonable normalizes encoder-less structs and keeps Jason-native scalars" do
+      # 回归：require_confirmation 的 turn_result 内嵌 MicroPlan 等无 Encoder 的 struct，
+      # 持久化（Ecto :map）/广播（Jason）若不规范化会崩。jsonable 只展开无 Encoder 的
+      # struct；DateTime/Date 等 Jason 原生可编码的标量 struct 必须原样保留（展开会把
+      # ISO8601 编码丢成 raw map）。
+      plan = %NovelDomain.MicroPlan{
+        plan_id: "p",
+        turn_id: "t",
+        frame_ref: "f",
+        plan_goal: %{summary: "重写第一章"},
+        risk_hint: :high,
+        proposed_actions: [%{action_id: "a", target_chapter: "第01章"}]
+      }
+
       input = %{
         text: "记住这轮",
         turn_result: %{
           status: "needs_confirmation",
+          plan: plan,
           created_at: ~U[2024-01-01 00:00:00Z],
           actions: [%{at: ~D[2024-01-02], note: "x"}]
         }
@@ -439,21 +450,16 @@ defmodule NovelApplication.DialogueGatewayTest do
 
       out = DialogueGateway.jsonable(input)
 
-      assert plain_map_only?(out)
-      assert out.text == "记住这轮"
+      # 整体可被 Jason 编码（broadcast/persist 都安全）。
+      assert {:ok, _json} = Jason.encode(out)
+      # 无 Encoder 的 MicroPlan 被深度展开为纯 map，内容保留。
+      refute is_struct(out.turn_result.plan)
+      assert out.turn_result.plan.risk_hint == :high
+      assert hd(out.turn_result.plan.proposed_actions).target_chapter == "第01章"
+      # Jason 原生可编码的标量 struct 原样保留（不丢 ISO8601 编码）。
+      assert out.turn_result.created_at == ~U[2024-01-01 00:00:00Z]
+      assert hd(out.turn_result.actions).at == ~D[2024-01-02]
       assert out.turn_result.status == "needs_confirmation"
-      # 纯标量/字符串保持不变，struct 被展开为 map。
-      assert is_map(out.turn_result.created_at)
-      assert hd(out.turn_result.actions).note == "x"
     end
   end
-
-  # 递归判定值里没有任何 struct（Ecto :map 字段可安全持久化的充分条件）。
-  defp plain_map_only?(value) when is_struct(value), do: false
-
-  defp plain_map_only?(value) when is_map(value),
-    do: Enum.all?(value, fn {_k, v} -> plain_map_only?(v) end)
-
-  defp plain_map_only?(value) when is_list(value), do: Enum.all?(value, &plain_map_only?/1)
-  defp plain_map_only?(_value), do: true
 end

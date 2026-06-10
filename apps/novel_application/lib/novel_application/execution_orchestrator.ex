@@ -10,14 +10,24 @@ defmodule NovelApplication.ExecutionOrchestrator do
   alias NovelApplication.PlannerBoundary
   alias NovelCommon.LogContext
   alias NovelDomain.BehaviorState
+  alias NovelDomain.ConfirmationBinding
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
 
-  @doc "裁决 MicroPlan。返回 {decision, behavior}。"
-  @spec decide(DialogueFrame.t(), MicroPlan.t()) ::
+  @doc """
+  裁决 MicroPlan。返回 {decision, behavior}。
+
+  opts 可带 `confirmation_binding`（ADR-0009 确认 re-gate）：作者确认后重新裁决时
+  传入有效 ConfirmationBinding，authority / write_boundary gate 视确认已满足；
+  其余 gate 照常评估，确认不等于裁决一定放行（VS-03 §6）。
+  """
+  @spec decide(DialogueFrame.t(), MicroPlan.t(), keyword()) ::
           {OrchestratorDecision.t(), BehaviorState.t() | nil}
-  def decide(%DialogueFrame{} = frame, %MicroPlan{} = plan) do
+  def decide(frame, plan, opts \\ [])
+
+  def decide(%DialogueFrame{} = frame, %MicroPlan{} = plan, opts) do
+    binding = Keyword.get(opts, :confirmation_binding)
     decision_id = "decision_#{System.unique_integer([:positive, :monotonic])}"
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:orchestrator, :decide, :start, %{})
@@ -35,7 +45,9 @@ defmodule NovelApplication.ExecutionOrchestrator do
            ), nil}
 
         :ok ->
-          decision_from_gate_result(GateOrder.evaluate(plan), decision_id, frame, plan)
+          GateOrder.evaluate(plan, binding)
+          |> decision_from_gate_result(decision_id, frame, plan, binding)
+          |> mark_confirmed_by(binding)
       end
 
     LogContext.put_decision(decision_id)
@@ -54,8 +66,21 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   # ── gate result handling ──────────────────────
 
-  defp decision_from_gate_result({:pass, _results}, decision_id, frame, plan) do
-    if allow_tool_dispatch?(plan) do
+  # 确认 re-gate 的裁决在 reason_codes 留下绑定证明（VS-03 §5：gate result 与
+  # binding 可经 trace 追溯），只标记携带了有效确认的裁决。
+  defp mark_confirmed_by({decision, behavior}, %ConfirmationBinding{} = binding) do
+    if ConfirmationBinding.confirm?(binding) do
+      {%{decision | reason_codes: decision.reason_codes ++ ["confirmed_by:#{binding.binding_id}"]},
+       behavior}
+    else
+      {decision, behavior}
+    end
+  end
+
+  defp mark_confirmed_by(result, _binding), do: result
+
+  defp decision_from_gate_result({:pass, _results}, decision_id, frame, plan, binding) do
+    if allow_tool_dispatch?(plan, binding) do
       {build_allow_decision(decision_id, frame, plan), nil}
     else
       {build_decision(
@@ -69,7 +94,13 @@ defmodule NovelApplication.ExecutionOrchestrator do
     end
   end
 
-  defp decision_from_gate_result({:block, gate_name, reason, _results}, decision_id, frame, plan) do
+  defp decision_from_gate_result(
+         {:block, gate_name, reason, _results},
+         decision_id,
+         frame,
+         plan,
+         _binding
+       ) do
     decision_type = gate_to_decision_type(gate_name)
     decision = build_decision(decision_type, decision_id, frame, plan, reason, gate_name)
 
@@ -157,12 +188,18 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   # ── VS-02 tool dispatch ───────────────────────
 
-  defp allow_tool_dispatch?(%MicroPlan{} = plan) do
+  # 高风险 plan 在携带有效确认绑定（re-gate）时不再因风险被降级；
+  # 单步、可分发等其余条件照常要求。
+  defp allow_tool_dispatch?(%MicroPlan{} = plan, binding) do
     actions = plan.proposed_actions
 
-    not MicroPlan.multi_step?(plan) and not MicroPlan.high_risk?(plan) and
+    not MicroPlan.multi_step?(plan) and
+      (not MicroPlan.high_risk?(plan) or confirmed?(binding)) and
       length(actions) == 1 and tool_dispatchable?(hd(actions))
   end
+
+  defp confirmed?(%ConfirmationBinding{} = binding), do: ConfirmationBinding.confirm?(binding)
+  defp confirmed?(_binding), do: false
 
   defp tool_dispatchable?(action) do
     tool_name = tool_name_from_action(action)

@@ -278,6 +278,116 @@ defmodule NovelApplication.ExecutionAuthorityTest do
       assert OrchestratorDecision.blocks_execution?(decision)
     end
 
+    test "high-risk plan with confirm binding re-gates to allow_tool (ADR-0009)" do
+      frame = build_frame(frame_id: "f-hr-confirm")
+
+      plan =
+        build_plan(
+          frame_ref: "f-hr-confirm",
+          risk_hint: :high,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :capability_invocation,
+              summary: "重写第一章正文",
+              target_ref: "prose_writing",
+              write_intent: :production_candidate,
+              risk_hint: :high
+            }
+          ]
+        )
+
+      # 无确认 → 拦；携带有效确认绑定 → 放行，且裁决留下绑定证明。
+      {blocked, _} = ExecutionOrchestrator.decide(frame, plan)
+      assert blocked.decision_type == :require_confirmation
+
+      {:ok, binding} =
+        NovelDomain.ConfirmationBinding.build(%{
+          behavior_ref: "bh-1",
+          target_ref: "prose_writing",
+          author_input_ref: "in-1",
+          answer_type: :confirm,
+          idempotency_key: "ik-1"
+        })
+
+      {decision, behavior} =
+        ExecutionOrchestrator.decide(frame, plan, confirmation_binding: binding)
+
+      assert decision.decision_type == :allow_tool
+      assert behavior == nil
+      assert Enum.any?(decision.reason_codes, &String.starts_with?(&1, "confirmed_by:"))
+    end
+
+    test "reject binding does not unlock high-risk plan" do
+      frame = build_frame(frame_id: "f-hr-reject")
+
+      plan =
+        build_plan(
+          frame_ref: "f-hr-reject",
+          risk_hint: :high,
+          proposed_actions: [
+            %{
+              action_id: "a1",
+              action_type: :capability_invocation,
+              summary: "重写",
+              target_ref: "prose_writing",
+              write_intent: :tentative,
+              risk_hint: :high
+            }
+          ]
+        )
+
+      {:ok, binding} =
+        NovelDomain.ConfirmationBinding.build(%{
+          behavior_ref: "bh-1",
+          target_ref: "prose_writing",
+          author_input_ref: "in-1",
+          answer_type: :reject
+        })
+
+      {decision, _behavior} =
+        ExecutionOrchestrator.decide(frame, plan, confirmation_binding: binding)
+
+      assert decision.decision_type == :require_confirmation
+      refute Enum.any?(decision.reason_codes, &String.starts_with?(&1, "confirmed_by:"))
+    end
+
+    test "confirm binding does not bypass non-confirmation gates (multi-step still blocked)" do
+      frame = build_frame(frame_id: "f-hr-multi")
+
+      action = %{
+        action_id: "a1",
+        action_type: :capability_invocation,
+        summary: "动作",
+        target_ref: "prose_writing",
+        write_intent: :tentative,
+        risk_hint: :high
+      }
+
+      plan =
+        build_plan(
+          frame_ref: "f-hr-multi",
+          risk_hint: :high,
+          proposed_actions: [action, Map.put(action, :action_id, "a2")]
+        )
+
+      {:ok, binding} =
+        NovelDomain.ConfirmationBinding.build(%{
+          behavior_ref: "bh-1",
+          target_ref: "prose_writing",
+          author_input_ref: "in-1",
+          answer_type: :confirm
+        })
+
+      {decision, _behavior} =
+        ExecutionOrchestrator.decide(frame, plan, confirmation_binding: binding)
+
+      # 确认满足的只是 authority/write_boundary；多步 plan 仍被 action_scope 拦
+      # （VS-03 §6：确认不等于 gate 一定通过）。
+      assert decision.decision_type == :downgrade_to_dialogue
+      assert decision.first_blocking_gate == "action_scope"
+    end
+
     test "frame_ref mismatch → fail_with_recovery" do
       frame = build_frame(frame_id: "f-real-2")
       plan = build_plan(frame_ref: "f-wrong-2")

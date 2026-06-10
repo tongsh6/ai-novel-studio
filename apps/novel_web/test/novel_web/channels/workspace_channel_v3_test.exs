@@ -15,6 +15,9 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       %{
         action_id: "act-confirm",
         action_type: "confirm_before_execute",
+        # 生产 turn_result 的确认 action 始终带 behavior_ref/target_ref（VS-03 §5）。
+        behavior_ref: "bh-chan-1",
+        target_ref: "text_analysis",
         enabled: true,
         idempotency_key: "ik-confirm"
       },
@@ -360,6 +363,9 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
                      "source_turn_ref" => "turn-action-1",
                      "action_id" => "act-confirm",
                      "action_type" => "confirm_before_execute",
+                     # 前端提交确认时回传 available_action 的 target_ref/behavior_ref。
+                     "target_ref" => "text_analysis",
+                     "behavior_ref" => "bh-chan-1",
                      "idempotency_key" => "ik-confirm"
                    }
                  },
@@ -384,6 +390,8 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
         "source_turn_ref" => "turn-action-1",
         "action_id" => "act-confirm",
         "action_type" => "confirm_before_execute",
+        "target_ref" => "text_analysis",
+        "behavior_ref" => "bh-chan-1",
         "idempotency_key" => "ik-confirm"
       }
 

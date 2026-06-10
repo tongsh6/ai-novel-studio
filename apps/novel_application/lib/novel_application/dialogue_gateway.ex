@@ -18,7 +18,9 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.CandidateSet
+  alias NovelDomain.ConfirmationBinding
   alias NovelDomain.DialogueFrame
+  alias NovelDomain.MicroPlan
 
   @doc "处理作者文本输入；未注入 provider 时显式走真实 Provider Gateway。"
   @spec handle_input(map(), (String.t() -> tuple()) | nil) ::
@@ -327,11 +329,19 @@ defmodule NovelApplication.DialogueGateway do
     do: %{text: text, turn_result: jsonable(turn_result)}
 
   @doc false
-  # 持久化前把 turn_result 规范化为纯 map：confirmation 路径的 turn_result 内嵌 MicroPlan
-  # 等 domain struct，而 Interaction.content 是 Ecto :map（JSON），不接受嵌套 struct
-  # （会 Ecto.ChangeError 崩 GenServer）。深度转 struct→map（保留 atom key、标量值不变），
+  # 持久化/广播前把 turn_result 规范化为 JSON 安全形态：confirmation 路径的 turn_result
+  # 内嵌 MicroPlan 等 domain struct，而 Interaction.content 是 Ecto :map（JSON）、channel
+  # broadcast 走 Jason 序列化，二者都不接受无 Encoder 的嵌套 struct（Ecto.ChangeError /
+  # Protocol.UndefinedError）。只展开 Jason 不能原生编码的 struct（impl 落 Encoder.Any）；
+  # DateTime/Date 等有专属 Encoder 的标量 struct 原样保留（展开反而丢 ISO8601 编码）。
   # 纯 map 路径（allow_tool/reply）经此不变。公开仅为可测（@doc false，内部用途）。
-  def jsonable(value) when is_struct(value), do: value |> Map.from_struct() |> jsonable()
+  def jsonable(value) when is_struct(value) do
+    case Jason.Encoder.impl_for(value) do
+      Jason.Encoder.Any -> value |> Map.from_struct() |> jsonable()
+      _native_encoder -> value
+    end
+  end
+
   def jsonable(value) when is_map(value), do: Map.new(value, fn {k, v} -> {k, jsonable(v)} end)
   def jsonable(value) when is_list(value), do: Enum.map(value, &jsonable/1)
   def jsonable(value), do: value
@@ -379,13 +389,11 @@ defmodule NovelApplication.DialogueGateway do
         {:error, reason}
 
       :ok ->
-        plan = source_turn_result[:plan]
-
-        if is_nil(plan) do
-          {:error, "confirmation without stored plan — cannot re-gate"}
-        else
-          handle_confirmation_dispatch(action_input, source_turn_result, plan, complete_fn)
-        end
+        # turn_result 携带的 plan 是 JSON 安全 map（broadcast/持久化要求，见
+        # handle_behavior_open）；进程内为 atom key、resume 恢复后为 string key，
+        # 统一经 MicroPlan.from_map 恢复 struct 再 re-gate（ADR-0009）。
+        plan = MicroPlan.from_map(source_turn_result[:plan] || source_turn_result["plan"])
+        confirm_with_plan(plan, action_input, source_turn_result, complete_fn)
     end
   end
 
@@ -688,9 +696,47 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── confirmation re-gate (Strategy 1 / ADR-0009) ─
 
-  defp handle_confirmation_dispatch(action_input, source_turn_result, plan, complete_fn) do
+  defp confirm_with_plan(nil, _action_input, _source_turn_result, _complete_fn) do
+    {:error, "confirmation without stored plan — cannot re-gate"}
+  end
+
+  # 确认必须绑定 open confirmation（ADR-0009 / VS-03 §5）：绑定字段取自服务端授权的
+  # available_action 条目（AU04-I5：UI 不能自报权限字段）。
+  defp confirm_with_plan(plan, action_input, source_turn_result, complete_fn) do
+    case build_confirmation_binding(action_input, source_turn_result) do
+      {:ok, binding} ->
+        handle_confirmation_dispatch(action_input, source_turn_result, plan, binding, complete_fn)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # 从服务端授权的 available_action 条目构造 ConfirmationBinding：behavior_ref /
+  # target_ref / idempotency_key 取服务端下发值（ActionValidator 已验证该 action
+  # 存在且未过期），author_input_ref 取本次作者动作。缺 behavior_ref 等于没有
+  # open confirmation 可绑定 → 拒绝（VS-03 §5 规则 1）。
+  defp build_confirmation_binding(action_input, source_turn_result) do
+    source_action =
+      source_turn_result
+      |> map_field(:available_actions)
+      |> List.wrap()
+      |> Enum.find(%{}, &(map_field(&1, :action_id) == action_input.action_id))
+
+    ConfirmationBinding.build(%{
+      behavior_ref: map_field(source_action, :behavior_ref) || action_input.behavior_ref,
+      target_ref: map_field(source_action, :target_ref) || action_input.target_ref,
+      author_input_ref: action_input.input_id,
+      answer_type: :confirm,
+      idempotency_key: map_field(source_action, :idempotency_key) || action_input.idempotency_key
+    })
+  end
+
+  defp handle_confirmation_dispatch(action_input, source_turn_result, plan, binding, complete_fn) do
     frame = frame_from_turn_result(source_turn_result)
-    {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
+
+    {decision, _behavior} =
+      ExecutionOrchestrator.decide(frame, plan, confirmation_binding: binding)
 
     ack = %{
       action_id: action_input.action_id,
@@ -726,11 +772,12 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   defp frame_from_turn_result(tr) do
+    # source turn_result 可能是 resume 恢复的 string-keyed 形态，refs 用 map_field 双取。
     %DialogueFrame{
       schema_version: "3.0-draft",
-      frame_id: Map.get(tr, :frame_ref, "recovered_frame"),
-      turn_id: Map.get(tr, :turn_id, "recovered_turn"),
-      workspace_id: Map.get(tr, :workspace_id, "recovered"),
+      frame_id: map_field(tr, :frame_ref) || "recovered_frame",
+      turn_id: map_field(tr, :turn_id) || "recovered_turn",
+      workspace_id: map_field(tr, :workspace_id) || "recovered",
       primary: true,
       frame_type: :confirmation_answer,
       source_refs: %{},
@@ -804,9 +851,12 @@ defmodule NovelApplication.DialogueGateway do
     {trace, trace_summary} =
       TraceWriter.record_with_decision(frame, plan, decision, %{turn_id: frame.turn_id}, context)
 
+    # plan 是确认 re-gate 的载体（ADR-0009），但 TurnResult 要经 channel broadcast（Jason）
+    # 与 Interaction 持久化（Ecto :map），raw struct 会 Protocol.UndefinedError /
+    # Ecto.ChangeError。这里放 JSON 安全形态，确认侧用 MicroPlan.from_map 恢复。
     turn_result =
       TurnResultBuilder.build(frame, trace_summary, candidates, decision, nil, nil, behavior)
-      |> Map.put(:plan, plan)
+      |> Map.put(:plan, jsonable(plan))
       |> Map.put(:workspace_id, frame.workspace_id)
 
     {:ok, turn_result, trace, candidates, context}

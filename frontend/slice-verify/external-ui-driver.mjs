@@ -1070,6 +1070,133 @@ async function driveP1ChapterAdoptionReading(page) {
   ];
 }
 
+async function driveAu04ConfirmBeforeExecute(page) {
+  // AU-04：作者用自然语言要求重写已有章（高风险）→ 系统出确认卡（确认前不执行不写入）
+  // → 作者点「确认执行」→ ConfirmationBinding re-gate（ADR-0009）→ prose_writing 产出
+  // 待采纳正文。本 slice 同时是「确认卡 turn_result 穿过真实 wire」的回归验证：
+  // 该 turn_result 携带 plan（JSON 安全形态），此前 raw struct 在 broadcast/persist 必崩。
+  const requestText =
+    "第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿，保持为待采纳草稿。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  // 确认卡 turn_result 必须从真实 websocket 收到（核心回归点）：
+  // needs_confirmation + confirm_before_execute 可用动作 + 确认前无执行无写入 + 携带 plan。
+  const confirmTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "needs_confirmation" &&
+      (frame.body?.available_actions ?? []).some(
+        (action) => action.action_type === "confirm_before_execute",
+      ),
+    "No needs_confirmation turn_result with confirm_before_execute action was received",
+    200_000,
+  );
+  const confirmTurnResult = confirmTurnFrame.body;
+  const confirmAction = confirmTurnResult.available_actions.find(
+    (action) => action.action_type === "confirm_before_execute",
+  );
+
+  // 确认卡在真实页面可见：确认执行 / 拒绝。
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    { timeout: 10_000 },
+  );
+
+  await page.getByRole("button", { name: "确认执行" }).first().click();
+
+  const confirmActionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === confirmAction.action_id,
+    "Real workbench did not send the confirm_before_execute author_action",
+  );
+
+  // 确认后 re-gate 放行执行：同一 turn 产出 prose_fragment 待采纳正文。
+  const executedTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No prose_fragment turn_result was received after confirm_before_execute",
+    200_000,
+  );
+  const executedTurnResult = executedTurnFrame.body;
+  const pendingArtifact = executedTurnResult.adoption_state.pending[0];
+
+  // 产出仍是 tentative（AU04-I9）：待确认创作材料出现，未自动写入作品事实。
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("待确认的创作材料") &&
+      document.body.innerText.includes("确认创建"),
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, executedTurnResult, sentMessage);
+
+  assert(
+    confirmTurnResult.truthfulness?.tool_called === false,
+    "Confirmation turn_result claimed tool execution before author confirmed",
+  );
+  assert(
+    confirmTurnResult.truthfulness?.production_write_performed === false,
+    "Confirmation turn_result claimed a production write before author confirmed",
+  );
+  assert(
+    confirmTurnResult.plan != null && typeof confirmTurnResult.plan === "object",
+    "Confirmation turn_result did not carry the re-gate plan over the wire",
+  );
+  assert(
+    confirmAction.behavior_ref != null && confirmAction.behavior_ref !== "",
+    "confirm_before_execute action did not reference an open confirmation behavior",
+  );
+  assert(
+    executedTurnResult.truthfulness?.tool_called === true,
+    "Executed turn_result did not record tool_called after confirmation",
+  );
+  assert(
+    executedTurnResult.truthfulness?.artifact_adopted !== true,
+    "Executed turn_result claimed adoption — output must stay tentative (AU04-I9)",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: confirmTurnResult.turn_id,
+      confirm_turn_id: confirmTurnResult.turn_id,
+      executed_turn_id: executedTurnResult.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      confirmation_card_received: true,
+      confirmation_card_visible: visibleTextIncludesConfirm(visibleText),
+      plan_carried_over_wire: confirmTurnResult.plan != null,
+      confirm_action_behavior_ref: confirmAction.behavior_ref ?? "",
+      tool_called_before_confirm: confirmTurnResult.truthfulness?.tool_called === true,
+      production_write_before_confirm:
+        confirmTurnResult.truthfulness?.production_write_performed === true,
+      confirmed_dispatch: executedTurnResult.truthfulness?.tool_called === true,
+      artifact_pending_after_confirm: pendingArtifact.artifact_type === "prose_fragment",
+      confirm_action_sent: confirmActionFrame.body?.action?.action_type ===
+        "confirm_before_execute",
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
+function visibleTextIncludesConfirm(visibleText) {
+  // 确认后页面已进入待采纳态；确认卡可见性在点击前已由 waitForFunction 证明。
+  return visibleText.includes("待确认的创作材料");
+}
+
 async function driveP1ChapterWordCountTarget(page) {
   const targetWordCount = 600;
   // 作者在对话框用自然语言给出"带篇幅"的创作指令：篇幅诉求由 Planner（AI）识别为
@@ -2021,6 +2148,7 @@ const drivers = {
   "p1-chapter-expansion": driveP1ChapterExpansion,
   "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
+  "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,
