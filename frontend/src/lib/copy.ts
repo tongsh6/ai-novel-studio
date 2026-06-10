@@ -420,6 +420,10 @@ export const READING = {
   chaptersBelowMinSuffix: "章待补足",
   emptyChapterBody: "本章尚无已采纳正文，待补足。",
   sceneEmptyBody: "（该场景暂无已采纳正文）",
+  exportLabel: "导出全书",
+  exportInProgress: "导出中…",
+  exportSuccessPrefix: "已导出到",
+  exportFailurePrefix: "导出失败：",
 } as const;
 
 // ============================================================

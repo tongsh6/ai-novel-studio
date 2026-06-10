@@ -38,6 +38,9 @@ config :novel_agent, NovelAgent.Provider.LMStudio, timeout: 5_000
 
 config :novel_application, sync_memory_reference_log: true
 
+# 测试环境导出落到项目 tmp（不污染用户 Documents）；dev/prod 走默认导出目录。
+config :novel_application, :export_dir, "tmp/exports"
+
 # 测试中默认不启用真实 persistence 注入（避免 SQLite3 Sandbox 并发冲突）。
 # 需要真实 persistence 的集成测试应通过回调手动注入。
 config :novel_web, :persistence, inject_real_persistence: false

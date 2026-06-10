@@ -37,6 +37,7 @@ export const nativeSliceIds = [
   "p1-chapter-expansion",
   "p1-chapter-expansion-multichapter",
   "p1-chapter-word-count-target",
+  "p1-export-minimum",
   "au04-confirm-before-execute",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
@@ -227,6 +228,15 @@ const sliceKeyEvents = {
     "channel.author_action.start",
     "channel.author_action.done",
     "toolbox.execute.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-export-minimum": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.export_work.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-word-count-target": [
@@ -598,6 +608,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu04ConfirmBeforeExecuteEvidence(records);
   }
 
+  if (sliceId === "p1-export-minimum") {
+    return findP1ExportMinimumEvidence(records);
+  }
+
   if (sliceId === "p1-chapter-edit-then-accept") {
     return findP1ChapterEditThenAcceptEvidence(records);
   }
@@ -743,6 +757,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au04-confirm-before-execute") {
     return au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-export-minimum") {
+    return p1ExportMinimumBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "p1-chapter-edit-then-accept") {
@@ -2757,6 +2775,96 @@ function findAu04ConfirmBeforeExecuteEvidence(records) {
     artifact_type: uiState.artifact_type,
     confirm_action_behavior_ref: uiState.confirm_action_behavior_ref,
     key_events: keyEvents,
+  };
+}
+
+function findP1ExportMinimumEvidence(records) {
+  const sliceId = "p1-export-minimum";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.exported_file_exists === true &&
+      r.toc_complete === true &&
+      r.toc_in_order === true &&
+      r.adopted_prose_in_file === true &&
+      Number(r.unwritten_placeholder_count ?? -1) === 11 &&
+      r.export_notice_visible === true &&
+      String(r.export_path ?? "") !== "",
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  if (!draftTurnId) return null;
+
+  // 导出经真实后端用例：channel.export_work.done 携带与页面一致的路径和完整目录规模。
+  const exportDone = records.find(
+    (r) =>
+      r.event === "channel.export_work.done" &&
+      r.format === "markdown" &&
+      Number(r.chapter_count ?? 0) >= 10 &&
+      Number(r.total_word_count ?? 0) > 0 &&
+      String(r.export_path ?? "") === String(uiState.export_path),
+  );
+  if (!exportDone) return null;
+
+  // 导出的正文来自已采纳事实：本链先有 prose_writing 产出 + accept 采纳。
+  const generated = records.find(
+    (r) =>
+      r.event === "toolbox.execute.done" &&
+      r.tool_name === "prose_writing" &&
+      r.tool_outcome === "succeeded" &&
+      String(r.turn_id ?? "") === draftTurnId,
+  );
+  if (!generated) return null;
+
+  const accepted = records.find(
+    (r) =>
+      r.event === "channel.author_action.done" &&
+      r.action_type === "accept" &&
+      r.action_status === "accepted",
+  );
+  if (!accepted) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    export_path: uiState.export_path,
+    export_chapter_count: exportDone.chapter_count,
+    export_total_word_count: exportDone.total_word_count,
+    key_events: keyEvents,
+  };
+}
+
+function p1ExportMinimumBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+
+  const uiState = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "p1-export-minimum",
+  );
+  if (!uiState) return null;
+  if (uiState.toc_complete !== true) return null;
+  if (uiState.toc_in_order !== true) return null;
+  if (uiState.adopted_prose_in_file !== true) return null;
+  if (Number(uiState.unwritten_placeholder_count ?? -1) !== 11) return null;
+
+  return {
+    slice_id: "p1-export-minimum",
+    behavior: "full_book_markdown_export_with_ordered_toc_and_honest_placeholders",
+    turn_ids: turnIds,
+    export_path: evidence.export_path,
+    export_chapter_count: evidence.export_chapter_count,
+    assertions: [
+      "export_button_in_reading_mode_produces_real_markdown_file",
+      "exported_toc_lists_all_planned_chapters_in_seq_order",
+      "adopted_chapter_prose_present_in_exported_file",
+      "unwritten_chapters_get_honest_placeholders_not_fabricated_prose",
+      "export_reads_accepted_work_facts_only",
+    ],
   };
 }
 

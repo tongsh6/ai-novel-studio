@@ -92,6 +92,32 @@
   font-family: var(--sans);
 }
 
+.exportBtn {
+  background-color: transparent;
+  color: var(--foreground-primary);
+  border: 1px solid var(--border-subtle);
+  padding: 8px 16px;
+  margin-right: 8px;
+  border-radius: var(--rounded-sm);
+  font-size: 14px;
+  cursor: pointer;
+  font-family: var(--sans);
+}
+
+.exportBtn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.exportNotice {
+  padding: 8px 24px;
+  font-size: 13px;
+  color: var(--foreground-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+  font-family: var(--sans);
+  word-break: break-all;
+}
+
 .mainArea {
   display: flex;
   flex: 1;

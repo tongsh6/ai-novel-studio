@@ -402,6 +402,32 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, data}, socket}
   end
 
+  def handle_in("export_work", payload, socket) do
+    work_id = Map.get(payload, "work_id") || socket.assigns[:work_id] || "lobby"
+
+    case NovelApplication.ExportService.export(work_id) do
+      {:ok, result} ->
+        LogEmit.emit(:channel, :export_work, :done, %{
+          work_id: work_id,
+          format: result.format,
+          chapter_count: result.chapter_count,
+          total_word_count: result.total_word_count,
+          export_path: result.path
+        })
+
+        {:reply, {:ok, result}, socket}
+
+      {:error, reason} ->
+        LogEmit.emit(:channel, :export_work, :error, %{
+          work_id: work_id,
+          reason_code: reason
+        })
+
+        {:reply, {:error, %{reason: to_string(reason)}}, socket}
+    end
+  end
+
+  @impl true
   def handle_in("get_chapter_content", %{"chapter_id" => chapter_id}, socket) do
     work_id = socket.assigns[:work_id] || "lobby"
 

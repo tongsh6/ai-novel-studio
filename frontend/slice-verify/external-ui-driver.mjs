@@ -1070,6 +1070,86 @@ async function driveP1ChapterAdoptionReading(page) {
   ];
 }
 
+async function driveP1ExportMinimum(page) {
+  // P1-export-minimum：复用"采纳到阅读"全链（生成第1章正文→采纳→阅读模式），
+  // 然后点真实「导出全书」按钮，由后端从已采纳作品事实组装 Markdown 并落盘；
+  // driver 从页面显示的导出路径读取真实文件，验证目录顺序与正文完整性。
+  const [base] = await driveP1ChapterAdoptionReading(page);
+
+  // 第1章已采纳正文（从生成帧取 body 片段，用于断言"导出文件含已采纳正文"因果绑定）。
+  const draftFrame = frames.find(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+  );
+  const adoptedBody = String(
+    draftFrame?.body?.adoption_state?.pending?.[0]?.payload?.items?.[0]?.body ?? "",
+  );
+  const adoptedSnippet = adoptedBody.slice(0, 16);
+
+  await page.getByRole("button", { name: "导出全书" }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes("已导出到"),
+    { timeout: 20_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  // 路径可能含空格（作品标题入文件名），抓到行尾的 .md。
+  const exportPathMatch = /已导出到\s+([^\n]+\.md)/.exec(visibleText);
+  const exportPath = exportPathMatch?.[1] ?? "";
+  assert(exportPath !== "", `Export path not visible on page: ${visibleText.slice(0, 200)}`);
+
+  const fileExists = fs.existsSync(exportPath);
+  assert(fileExists, `Exported file does not exist at ${exportPath}`);
+  const doc = fs.readFileSync(exportPath, "utf8");
+
+  // 目录完整且按 seq 有序：12 个计划章标题在目录段依序出现。
+  const tocPositions = [];
+  for (let n = 1; n <= 12; n += 1) {
+    const seq = String(n).padStart(2, "0");
+    const idx = doc.indexOf(`第${seq}章：`);
+    tocPositions.push(idx);
+  }
+  const allChaptersPresent = tocPositions.every((idx) => idx >= 0);
+  const lastOccurrenceOrdered = (() => {
+    // 每章标题出现两次（目录 + 正文标题）；用首次出现位置验证目录顺序。
+    return tocPositions.every((idx, i) => i === 0 || idx > tocPositions[i - 1]);
+  })();
+
+  const adoptedProseInFile = adoptedSnippet !== "" && doc.includes(adoptedSnippet);
+  const placeholderCount = doc.split("（本章暂无已采纳正文）").length - 1;
+
+  assert(allChaptersPresent, "Exported document is missing planned chapters in TOC");
+  assert(lastOccurrenceOrdered, "Exported TOC chapters are out of order");
+  assert(adoptedProseInFile, "Adopted chapter prose did not appear in the exported file");
+  assert(
+    placeholderCount === 11,
+    `Expected 11 unwritten-chapter placeholders, got ${placeholderCount}`,
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, latestTurnResult() ?? {}, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: base.draft_turn_id,
+      draft_turn_id: base.draft_turn_id,
+      adopt_turn_id: base.adopt_turn_id,
+      export_path: exportPath,
+      exported_file_exists: fileExists,
+      export_chapter_count: 12,
+      toc_complete: allChaptersPresent,
+      toc_in_order: lastOccurrenceOrdered,
+      adopted_prose_in_file: adoptedProseInFile,
+      unwritten_placeholder_count: placeholderCount,
+      export_notice_visible: visibleText.includes("已导出到"),
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveAu04ConfirmBeforeExecute(page) {
   // AU-04：作者用自然语言要求重写已有章（高风险）→ 系统出确认卡（确认前不执行不写入）
   // → 作者点「确认执行」→ ConfirmationBinding re-gate（ADR-0009）→ prose_writing 产出
@@ -2148,6 +2228,7 @@ const drivers = {
   "p1-chapter-expansion": driveP1ChapterExpansion,
   "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
+  "p1-export-minimum": driveP1ExportMinimum,
   "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,

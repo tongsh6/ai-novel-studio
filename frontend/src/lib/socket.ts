@@ -265,6 +265,30 @@ export function getToc(
   });
 }
 
+export interface ExportResult {
+  path: string;
+  format: string;
+  work_title: string;
+  chapter_count: number;
+  total_word_count: number;
+  exported_at: string;
+}
+
+export function exportWork(
+  channel: Channel,
+  workId: string,
+): Promise<ExportResult> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("export_work", { work_id: workId })
+      .receive("ok", (response) => resolve(response as ExportResult))
+      .receive("error", (error) =>
+        reject(new Error(String((error as { reason?: string })?.reason ?? error))),
+      )
+      .receive("timeout", () => reject(new Error("export_work timeout")));
+  });
+}
+
 export interface ChapterContent {
   title: string;
   word_count?: number;

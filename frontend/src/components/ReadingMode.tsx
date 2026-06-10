@@ -2,8 +2,8 @@
 // Prototype: novel-studio-v2.pen → 44§3-reading-mode-stale (hEGz0)
 import { useEffect, useState } from "react";
 import { useAppStore } from "../lib/store";
-import { getToc, getChapterContent } from "../lib/socket";
-import type { TocData, ChapterContent } from "../lib/socket";
+import { getToc, getChapterContent, exportWork } from "../lib/socket";
+import type { TocData, ChapterContent, ExportResult } from "../lib/socket";
 import {
   formatWordCount,
   normalizeChapterContentTitle,
@@ -24,6 +24,9 @@ export function ReadingMode() {
   const [tocError, setTocError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [chapterContent, setChapterContent] = useState<ChapterContent | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportResult, setExportResult] = useState<ExportResult | null>(null);
+  const [exportError, setExportError] = useState<string | null>(null);
 
   const tocView = normalizeReadingToc(toc);
   const totalWordCount = tocView?.totalWordCount ?? 0;
@@ -76,6 +79,19 @@ export function ReadingMode() {
   const handleRefreshProjection = () => {
     setPendingBuildAction("refresh_projection");
     setMode("workbench");
+  };
+
+  // 导出全书：后端从已采纳作品事实组装 Markdown 并落盘，这里只展示结果路径。
+  const handleExport = () => {
+    if (!channel || !context.workId || exporting) return;
+    setExporting(true);
+    setExportError(null);
+    exportWork(channel, context.workId)
+      .then((result) => setExportResult(result))
+      .catch((error) =>
+        setExportError(error instanceof Error ? error.message : String(error)),
+      )
+      .finally(() => setExporting(false));
   };
 
   const handleRetryProjection = () => {
@@ -147,6 +163,15 @@ export function ReadingMode() {
             </>
           )}
         </div>
+        {hasContent && (
+          <button
+            className={styles.exportBtn}
+            onClick={handleExport}
+            disabled={exporting}
+          >
+            {exporting ? READING.exportInProgress : READING.exportLabel}
+          </button>
+        )}
         <button
           className={styles.backBtn}
           onClick={() => setMode("workbench")}
@@ -154,6 +179,14 @@ export function ReadingMode() {
           返回工作台
         </button>
       </div>
+
+      {(exportResult || exportError) && (
+        <div className={styles.exportNotice}>
+          {exportResult
+            ? `${READING.exportSuccessPrefix} ${exportResult.path}`
+            : `${READING.exportFailurePrefix}${exportError}`}
+        </div>
+      )}
 
       {/* Main reading area */}
       <div className={styles.mainArea}>
