@@ -1070,6 +1070,139 @@ async function driveP1ChapterAdoptionReading(page) {
   ];
 }
 
+async function driveP1PlanIncremental(page) {
+  // 增量规划：已有 12 章已采纳计划的作品里，作者用自然语言要求继续规划后续章节；
+  // 新计划经采纳边界物化为**追加**的计划章（title 幂等 + seq 续排，单一默认卷
+  // 是 v2 27 §5.1/ADR-0004 的冻结决策），既有章（标题/顺序/字数）不被改动。
+
+  // baseline：进阅读模式取当前投影（12 章计划）。
+  const baselineFrames = frames.length;
+  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes("阅读模式"),
+    { timeout: 15_000 },
+  );
+  const baselineToc = await waitForFrame(
+    (f) =>
+      frames.indexOf(f) >= baselineFrames &&
+      f.direction === "received" &&
+      Array.isArray((f.body?.response ?? f.body)?.volumes),
+    "No baseline get_toc frame",
+    20_000,
+  ).then((f) => f.body?.response ?? f.body);
+  const baselineChapters = (baselineToc.volumes ?? []).flatMap((v) => v.chapters ?? []);
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  // 作者自然语言发起增量规划（无专用按钮/关键字开关，意图由 AI 识别）。
+  await page
+    .locator(chatInputSelector)
+    .fill("已有章节计划很好，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。");
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const outlineFrame = await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.tool_result?.tool_name === "plot_outline" &&
+      f.body?.tool_result?.output?.artifact_type === "outline_draft" &&
+      // 增量批量由 AI 自定（实测 7-12 章），只设保底下限。
+      Number(f.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 5,
+    "No incremental outline_draft turn_result was received",
+    200_000,
+  );
+  const pendingArtifact = outlineFrame.body.adoption_state.pending[0];
+  const newPlanItems = pendingArtifact.payload?.items ?? [];
+  const newTitles = newPlanItems.map((item) => String(item.title ?? ""));
+  const baselineTitles = new Set(baselineChapters.map((c) => c.title));
+  const titlesDisjoint = newTitles.every((title) => !baselineTitles.has(title));
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("待确认的创作材料") &&
+      document.body.innerText.includes("确认创建"),
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "确认创建" }).last().click();
+
+  await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.truthfulness?.artifact_adopted === true &&
+      (f.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === pendingArtifact.artifact_id,
+      ),
+    "No adoption turn_result for the incremental outline",
+    120_000,
+  );
+
+  // 采纳后投影：原章不动、新章按 seq 接续追加。
+  const afterFrames = frames.length;
+  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes("阅读模式"),
+    { timeout: 15_000 },
+  );
+  const afterToc = await waitForFrame(
+    (f) =>
+      frames.indexOf(f) >= afterFrames &&
+      f.direction === "received" &&
+      Array.isArray((f.body?.response ?? f.body)?.volumes),
+    "No post-adoption get_toc frame",
+    20_000,
+  ).then((f) => f.body?.response ?? f.body);
+  const afterChapters = (afterToc.volumes ?? []).flatMap((v) => v.chapters ?? []);
+
+  const originalsIntact = baselineChapters.every((before) => {
+    const after = afterChapters.find((c) => c.id === before.id);
+    return (
+      after &&
+      after.title === before.title &&
+      after.seq === before.seq &&
+      Number(after.word_count ?? 0) === Number(before.word_count ?? 0)
+    );
+  });
+  const appended = afterChapters.filter(
+    (c) => !baselineChapters.some((before) => before.id === c.id),
+  );
+  const maxBaselineSeq = Math.max(...baselineChapters.map((c) => Number(c.seq ?? 0)));
+  const appendedSeqs = appended.map((c) => Number(c.seq ?? 0));
+  const appendedInOrder =
+    appendedSeqs.length > 0 &&
+    appendedSeqs.every((seq, i) => seq > maxBaselineSeq && (i === 0 || seq > appendedSeqs[i - 1]));
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, outlineFrame.body, sentMessage);
+
+  assert(titlesDisjoint, "Incremental plan reused existing chapter titles (would be deduped, not appended)");
+  assert(originalsIntact, "Existing chapters were modified by the incremental plan adoption");
+  assert(
+    appended.length >= 5,
+    `Expected >= 5 appended chapters, got ${appended.length}`,
+  );
+  assert(appendedInOrder, `Appended chapters not in continuing seq order: ${appendedSeqs.join(",")}`);
+
+  return [
+    {
+      ...uiState,
+      turn_id: outlineFrame.body.turn_id,
+      plan_turn_id: outlineFrame.body.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      baseline_chapter_count: baselineChapters.length,
+      new_plan_chapter_count: newPlanItems.length,
+      total_chapter_count_after: afterChapters.length,
+      appended_chapter_count: appended.length,
+      new_titles_disjoint: titlesDisjoint,
+      originals_intact: originalsIntact,
+      appended_in_seq_order: appendedInOrder,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveP1ExportMinimum(page) {
   // P1-export-minimum：复用"采纳到阅读"全链（生成第1章正文→采纳→阅读模式），
   // 然后点真实「导出全书」按钮，由后端从已采纳作品事实组装 Markdown 并落盘；
@@ -2229,6 +2362,7 @@ const drivers = {
   "p1-chapter-expansion-multichapter": driveP1ChapterExpansionMultichapter,
   "p1-chapter-word-count-target": driveP1ChapterWordCountTarget,
   "p1-export-minimum": driveP1ExportMinimum,
+  "p1-plan-incremental": driveP1PlanIncremental,
   "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,

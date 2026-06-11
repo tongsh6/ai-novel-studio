@@ -156,6 +156,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp outline_plan_prompt?(prompt), do: String.contains?(prompt, "artifact_type：outline_draft")
 
+  # 章节计划生成具备增量感知（与真实 LLM 行为对称）：上下文里已有 N 章时，
+  # 新计划从第 N+1 章接续编号（标题不与既有章相撞 → 采纳物化按 title 幂等追加）。
   defp outline_chapter_items(brief, context) do
     fingerprint =
       [brief, context]
@@ -164,8 +166,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       |> :erlang.phash2()
       |> Integer.to_string(36)
 
+    start = existing_chapter_count(context) + 1
+
     @outline_chapter_themes
-    |> Enum.with_index(1)
+    |> Enum.with_index(start)
     |> Enum.map(fn {theme, n} ->
       seq = n |> Integer.to_string() |> String.pad_leading(2, "0")
 
@@ -176,6 +180,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         rationale: nil
       }
     end)
+  end
+
+  # creative 上下文（DialogueContext.to_prompt_text）的「## 已采纳章节」段行数。
+  defp existing_chapter_count(context) do
+    case Regex.run(~r/##\s*已采纳章节[^\n]*\n(.*?)(?:\n##|\z)/su, context) do
+      [_, block] ->
+        block |> String.split("\n") |> Enum.count(&String.match?(&1, ~r/^\s*-\s+/))
+
+      _ ->
+        0
+    end
   end
 
   defp plan_response(prompt) do

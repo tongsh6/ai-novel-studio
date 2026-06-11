@@ -50,10 +50,12 @@ function recordFrame(direction, payload) {
   if (decoded) frames.push({ direction, ...decoded });
 }
 
-async function waitForFrame(predicate, message, timeoutMs = 60_000) {
+// fromIndex：只匹配该下标之后到达的帧。长跑会话里历史帧大量累积（含旧轮的
+// needs_confirmation / pending），不限定起点会误匹配历史帧、走错分支。
+async function waitForFrame(predicate, message, timeoutMs = 60_000, fromIndex = 0) {
   const started = Date.now();
   while (Date.now() - started < timeoutMs) {
-    const match = frames.find(predicate);
+    const match = frames.slice(fromIndex).find(predicate);
     if (match) return match;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -74,6 +76,7 @@ async function readToc(page) {
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
   await page.waitForFunction(
     () => document.body.innerText.includes("阅读模式"),
+    null,
     { timeout: 15_000 },
   );
 
@@ -91,7 +94,9 @@ async function readToc(page) {
   }
   if (!resp) throw new Error("No get_toc projection frame after entering reading mode");
 
-  await page.getByRole("button", { name: "返回工作台" }).click();
+  // 异常恢复路径下页面状态可能不在预期（残卡/弹层），点击失败不立即抛——
+  // 以下一行「对话输入框可见」为准（仍不可见则诚实失败）。
+  await page.getByRole("button", { name: "返回工作台" }).click({ timeout: 10_000 }).catch(() => {});
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
   return resp;
 }
@@ -109,23 +114,16 @@ function nextPendingChapter(toc, skippedTitles) {
   );
 }
 
-async function adoptPendingDraft(page, chapterTitle) {
-  const adoptedIds = new Set(
-    frames
-      .filter((f) => f.direction === "received" && f.event === "turn_result")
-      .flatMap((f) => f.body?.adoption_state?.resolved ?? [])
-      .map((entry) => entry.artifact_id),
-  );
-
+async function adoptPendingDraft(page, chapterTitle, fromIndex) {
   const freshProse = (f) =>
     f.direction === "received" &&
     f.event === "turn_result" &&
     f.body?.tool_result?.tool_name === "prose_writing" &&
-    f.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
-    !adoptedIds.has(f.body.adoption_state.pending[0].artifact_id);
+    f.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment";
 
   // 系统可能把指令判为高风险（如重写语义）并出确认卡（AU-04）；
   // runner 像真实作者一样点「确认执行」，re-gate 后继续等正文产出。
+  // 所有帧匹配从本轮发送之后开始（fromIndex），不与历史轮串。
   let draftFrame = await waitForFrame(
     (f) =>
       freshProse(f) ||
@@ -137,19 +135,23 @@ async function adoptPendingDraft(page, chapterTitle) {
         )),
     `No prose_fragment or confirmation turn_result for ${chapterTitle}`,
     300_000,
+    fromIndex,
   );
 
   if (draftFrame.body?.status === "needs_confirmation") {
     log(`${chapterTitle}: confirmation required — confirming execution`);
     await page.waitForFunction(
       () => document.body.innerText.includes("确认执行"),
+      null,
       { timeout: 15_000 },
     );
-    await page.getByRole("button", { name: "确认执行" }).first().click();
+    // 失败重试可能在页面留下多张卡：永远点最新一张（消息流尾部）。
+    await page.getByRole("button", { name: "确认执行" }).last().click();
     draftFrame = await waitForFrame(
       freshProse,
       `No prose_fragment turn_result after confirmation for ${chapterTitle}`,
       300_000,
+      fromIndex,
     );
   }
 
@@ -157,27 +159,64 @@ async function adoptPendingDraft(page, chapterTitle) {
 
   await page.waitForFunction(
     () => document.body.innerText.includes("确认创建"),
+    null,
     { timeout: 15_000 },
   );
-  await page.getByRole("button", { name: "确认创建" }).first().click();
+  // 同上：多卡堆积时 .first() 会点到旧 turn 的卡（其 accept 永远 needs_confirmation），
+  // 本轮 artifact 永远等不到 resolved —— 必须点最新卡。
+  await page.getByRole("button", { name: "确认创建" }).last().click();
 
-  await waitForFrame(
+  // accept 可能因目标章已有正文被采纳层判覆盖确认（needs_confirmation 的 action_result）；
+  // runner 像真实作者一样点「确认执行」完成覆盖替换（overwrite-confirm 链）。
+  const settle = await waitForFrame(
     (f) =>
-      f.direction === "received" &&
-      f.event === "turn_result" &&
-      f.body?.truthfulness?.artifact_adopted === true &&
-      f.body?.adoption_state?.resolved?.some((entry) => entry.artifact_id === pending.artifact_id),
-    `No adoption turn_result for ${chapterTitle}`,
+      (f.direction === "received" &&
+        f.event === "turn_result" &&
+        f.body?.truthfulness?.artifact_adopted === true &&
+        f.body?.adoption_state?.resolved?.some(
+          (entry) => entry.artifact_id === pending.artifact_id,
+        )) ||
+      (f.direction === "received" &&
+        f.event === "action_result" &&
+        f.body?.status === "needs_confirmation" &&
+        f.body?.artifact_id === pending.artifact_id),
+    `No adoption or overwrite-confirmation result for ${chapterTitle}`,
     120_000,
+    fromIndex,
   );
+
+  if (settle.event === "action_result") {
+    log(`${chapterTitle}: overwrite confirmation — confirming replace`);
+    await page.waitForFunction(
+      () => document.body.innerText.includes("确认执行"),
+      null,
+      { timeout: 15_000 },
+    );
+    await page.getByRole("button", { name: "确认执行" }).last().click();
+    await waitForFrame(
+      (f) =>
+        f.direction === "received" &&
+        f.event === "turn_result" &&
+        f.body?.truthfulness?.artifact_adopted === true &&
+        f.body?.adoption_state?.resolved?.some(
+          (entry) => entry.artifact_id === pending.artifact_id,
+        ),
+      `No adoption turn_result after overwrite confirmation for ${chapterTitle}`,
+      120_000,
+      fromIndex,
+    );
+  }
 
   await page.waitForFunction(
     () =>
       ![...document.querySelectorAll("button")].some(
         (btn) => (btn.textContent ?? "").trim() === "确认创建",
       ),
+    null,
     { timeout: 15_000 },
-  );
+  ).catch(() => {
+    // 历史失败轮残留的旧卡可能让按钮无法清零；以帧证据（上方 resolved）为准，不阻塞。
+  });
   return draftFrame.body.turn_id;
 }
 
@@ -189,20 +228,23 @@ async function driveChapterTurn(page, chapter) {
       ? `请根据已采纳章节计划生成${chapter.title}：${summary}正文草稿，保持为待采纳草稿。`
       : `接着${chapter.title}往下写一段正文，自然衔接前文，推进本章情节。`;
 
+  const fromIndex = frames.length;
   await page.locator(chatInputSelector).fill(instruction);
   await page.getByRole("button", { name: /^发送$/ }).click();
-  return adoptPendingDraft(page, chapter.title);
+  return adoptPendingDraft(page, chapter.title, fromIndex);
 }
 
 async function exportBook(page) {
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
   await page.waitForFunction(
     () => document.body.innerText.includes("阅读模式"),
+    null,
     { timeout: 15_000 },
   );
   await page.getByRole("button", { name: "导出全书" }).click();
   await page.waitForFunction(
     () => document.body.innerText.includes("已导出到"),
+    null,
     { timeout: 30_000 },
   );
   const visibleText = await page.locator("body").innerText();
@@ -305,6 +347,7 @@ try {
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await page.waitForFunction(
     () => document.body.innerText.includes("服务: 已连接"),
+    null,
     { timeout: 30_000 },
   );
 

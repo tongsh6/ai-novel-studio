@@ -38,6 +38,7 @@ export const nativeSliceIds = [
   "p1-chapter-expansion-multichapter",
   "p1-chapter-word-count-target",
   "p1-export-minimum",
+  "p1-plan-incremental",
   "au04-confirm-before-execute",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
@@ -237,6 +238,15 @@ const sliceKeyEvents = {
     "channel.author_action.done",
     "channel.get_toc.done",
     "channel.export_work.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-plan-incremental": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.done",
+    "adoption.evaluate.done",
+    "channel.get_toc.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-word-count-target": [
@@ -612,6 +622,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ExportMinimumEvidence(records);
   }
 
+  if (sliceId === "p1-plan-incremental") {
+    return findP1PlanIncrementalEvidence(records);
+  }
+
   if (sliceId === "p1-chapter-edit-then-accept") {
     return findP1ChapterEditThenAcceptEvidence(records);
   }
@@ -761,6 +775,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-export-minimum") {
     return p1ExportMinimumBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-plan-incremental") {
+    return p1PlanIncrementalBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "p1-chapter-edit-then-accept") {
@@ -2775,6 +2793,99 @@ function findAu04ConfirmBeforeExecuteEvidence(records) {
     artifact_type: uiState.artifact_type,
     confirm_action_behavior_ref: uiState.confirm_action_behavior_ref,
     key_events: keyEvents,
+  };
+}
+
+function findP1PlanIncrementalEvidence(records) {
+  const sliceId = "p1-plan-incremental";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.new_titles_disjoint === true &&
+      r.originals_intact === true &&
+      r.appended_in_seq_order === true &&
+      Number(r.baseline_chapter_count ?? 0) >= 10 &&
+      Number(r.appended_chapter_count ?? 0) >= 5 &&
+      Number(r.total_chapter_count_after ?? 0) ===
+        Number(r.baseline_chapter_count ?? 0) + Number(r.appended_chapter_count ?? 0),
+  );
+  if (!uiState) return null;
+
+  const planTurnId = String(uiState.plan_turn_id ?? "");
+  if (!planTurnId) return null;
+
+  const turnRecords = records.filter((r) => String(r.turn_id ?? "") === planTurnId);
+
+  // 对话框自然语言发起（非按钮路径），经 plot_outline 真实产出。
+  const start = turnRecords.find(
+    (r) => r.event === "channel.user_message.start" && r.generate_micro_plan === false,
+  );
+  if (!start) return null;
+
+  const generated = turnRecords.find(
+    (r) =>
+      r.event === "toolbox.execute.done" &&
+      r.tool_name === "plot_outline" &&
+      r.tool_outcome === "succeeded",
+  );
+  if (!generated) return null;
+
+  const accepted = records.find(
+    (r) =>
+      r.event === "channel.author_action.done" &&
+      r.action_type === "accept" &&
+      r.action_status === "accepted",
+  );
+  if (!accepted) return null;
+
+  // 采纳后投影含追加章（>= baseline + appended）。
+  const tocRead = records.find(
+    (r) =>
+      r.event === "channel.get_toc.done" &&
+      r.work_id === uiState.work_id &&
+      Number(r.chapter_count ?? 0) >= Number(uiState.total_chapter_count_after ?? 0),
+  );
+  if (!tocRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: planTurnId,
+    turn_ids: [planTurnId],
+    plan_turn_id: planTurnId,
+    artifact_id: uiState.artifact_id,
+    baseline_chapter_count: uiState.baseline_chapter_count,
+    appended_chapter_count: uiState.appended_chapter_count,
+    total_chapter_count_after: uiState.total_chapter_count_after,
+    key_events: keyEvents,
+  };
+}
+
+function p1PlanIncrementalBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (!turnsHaveEvent([evidence.plan_turn_id], turnRecords, "toolbox.execute.done")) return null;
+
+  const uiState = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "p1-plan-incremental",
+  );
+  if (!uiState) return null;
+  if (uiState.new_titles_disjoint !== true) return null;
+  if (uiState.originals_intact !== true) return null;
+  if (uiState.appended_in_seq_order !== true) return null;
+
+  return {
+    slice_id: "p1-plan-incremental",
+    behavior: "incremental_outline_adoption_appends_new_planned_chapters_without_touching_existing",
+    turn_ids: turnIds,
+    baseline_chapter_count: evidence.baseline_chapter_count,
+    appended_chapter_count: evidence.appended_chapter_count,
+    assertions: [
+      "natural_language_request_generates_continuing_outline",
+      "adoption_appends_new_planned_chapters_with_continuing_seq",
+      "existing_chapters_title_seq_word_count_untouched",
+      "new_titles_do_not_collide_with_existing_chapters",
+    ],
   };
 }
 
