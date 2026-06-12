@@ -43,6 +43,9 @@ lmstudio_timeout_ms =
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
+deepseek_timeout_ms =
+  System.get_env("NOVEL_DEEPSEEK_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
 config :novel_agent, :provider, default: :lmstudio
 
 config :novel_agent, NovelAgent.Provider.LMStudio,
@@ -54,6 +57,14 @@ config :novel_agent, NovelAgent.Provider.Anthropic,
   api_key: System.get_env("NOVEL_ANTHROPIC_API_KEY"),
   model: System.get_env("NOVEL_ANTHROPIC_MODEL", "claude-sonnet-4-6"),
   timeout: anthropic_timeout_ms
+
+config :novel_agent, NovelAgent.Provider.DeepSeek,
+  api_key: System.get_env("NOVEL_DEEPSEEK_API_KEY"),
+  endpoint: System.get_env("NOVEL_DEEPSEEK_ENDPOINT", "https://api.deepseek.com"),
+  model: System.get_env("NOVEL_DEEPSEEK_MODEL", "deepseek-v4-flash"),
+  timeout: deepseek_timeout_ms,
+  thinking: System.get_env("NOVEL_DEEPSEEK_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_DEEPSEEK_REASONING_EFFORT")
 
 config :novel_web, NovelWeb.Endpoint,
   url: [host: "localhost"],

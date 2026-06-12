@@ -2,15 +2,19 @@ defmodule NovelAgent.Provider.GatewayTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.RuntimeConfig
 
   setup do
     old_extra = Application.get_env(:novel_agent, :extra_providers)
+    RuntimeConfig.reset()
 
     Application.put_env(:novel_agent, :extra_providers,
       slice_verify: NovelAgent.Test.Provider.SliceVerify
     )
 
     on_exit(fn ->
+      RuntimeConfig.reset()
+
       if old_extra do
         Application.put_env(:novel_agent, :extra_providers, old_extra)
       else
@@ -26,6 +30,7 @@ defmodule NovelAgent.Provider.GatewayTest do
       assert :slice_verify in providers
       assert :lmstudio in providers
       assert :anthropic in providers
+      assert :deepseek in providers
     end
   end
 
@@ -59,6 +64,284 @@ defmodule NovelAgent.Provider.GatewayTest do
         Application.put_env(:novel_agent, :provider, old_provider)
       end
     end
+
+    test "returns DeepSeek model from provider configuration" do
+      old_provider = Application.get_env(:novel_agent, :provider)
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+
+      Application.put_env(:novel_agent, :provider, default: :deepseek)
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        api_key: "key",
+        model: "deepseek-v4-pro"
+      )
+
+      try do
+        assert Gateway.provider_metadata() == %{provider: :deepseek, model: "deepseek-v4-pro"}
+      after
+        Application.put_env(:novel_agent, :provider, old_provider)
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
+  end
+
+  describe "provider_options/0" do
+    test "returns provider capabilities without leaking secrets" do
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        api_key: "secret",
+        model: "deepseek-v4-flash"
+      )
+
+      try do
+        options = Gateway.provider_options()
+        deepseek = Enum.find(options.providers, &(&1.id == :deepseek))
+        slice_verify = Enum.find(options.providers, &(&1.id == :slice_verify))
+
+        assert options.current_provider == :stub
+        assert deepseek.label == "DeepSeek"
+        assert deepseek.supports_api_key == true
+        assert deepseek.api_key_configured == true
+        refute Map.has_key?(deepseek, :api_key)
+        assert slice_verify.label == "slice_verify"
+        assert slice_verify.requires_api_key == false
+        assert slice_verify.supports_endpoint == false
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
+  end
+
+  describe "configure_provider/1" do
+    test "changes the runtime provider and merges provider config" do
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:body, body})
+
+        {:ok, 200,
+         %{
+           "choices" => [%{"message" => %{"content" => "runtime deepseek"}}],
+           "model" => "deepseek-v4-pro",
+           "usage" => %{}
+         }}
+      end
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        endpoint: "https://api.deepseek.com",
+        http_fn: mock,
+        log_fn: nil
+      )
+
+      try do
+        assert {:ok, %{provider: :deepseek, model: "deepseek-v4-pro"}} =
+                 Gateway.configure_provider(%{
+                   "provider" => "deepseek",
+                   "model" => "deepseek-v4-pro",
+                   "api_key" => "key",
+                   "thinking" => "enabled"
+                 })
+
+        assert Gateway.provider_metadata() == %{provider: :deepseek, model: "deepseek-v4-pro"}
+        assert {:ok, %{content: "runtime deepseek"}} = Gateway.complete("hello")
+        assert_receive {:body, body}
+        assert body.model == "deepseek-v4-pro"
+        assert body.thinking == %{type: "enabled"}
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
+
+    test "clears a previously configured runtime api key" do
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+      old_env_key = System.get_env("DEEPSEEK_API_KEY")
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        log_fn: nil
+      )
+
+      System.delete_env("DEEPSEEK_API_KEY")
+
+      try do
+        assert {:ok, %{provider: :deepseek, model: "deepseek-v4-flash"}} =
+                 Gateway.configure_provider(%{
+                   "provider" => "deepseek",
+                   "api_key" => "runtime-key"
+                 })
+
+        configured = Gateway.provider_options().providers |> Enum.find(&(&1.id == :deepseek))
+        assert configured.api_key_configured == true
+
+        assert {:ok, %{provider: :deepseek, model: "deepseek-v4-flash"}} =
+                 Gateway.configure_provider(%{
+                   "provider" => "deepseek",
+                   "clear_api_key" => true
+                 })
+
+        cleared = Gateway.provider_options().providers |> Enum.find(&(&1.id == :deepseek))
+        assert cleared.api_key_configured == false
+
+        assert {:error, %{error: %{type: :unauthorized}}} =
+                 Gateway.test_provider(%{
+                   "provider" => "deepseek",
+                   "clear_api_key" => true
+                 })
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+
+        if old_env_key do
+          System.put_env("DEEPSEEK_API_KEY", old_env_key)
+        else
+          System.delete_env("DEEPSEEK_API_KEY")
+        end
+      end
+    end
+  end
+
+  describe "test_provider/1" do
+    test "checks supplied provider config without changing current provider" do
+      old_lmstudio = Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio)
+
+      mock = fn _url, _opts ->
+        {:ok, 200, %{"data" => []}}
+      end
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
+        endpoint: "http://old.invalid/v1",
+        model: "old-model",
+        get_fn: mock
+      )
+
+      try do
+        assert {:ok, %{provider: :lmstudio, model: "test-model"}} =
+                 Gateway.test_provider(%{
+                   "provider" => "lmstudio",
+                   "endpoint" => "http://localhost:1234/v1",
+                   "model" => "test-model"
+                 })
+
+        assert Gateway.provider_metadata() == %{provider: :stub, model: nil}
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio, old_lmstudio)
+      end
+    end
+  end
+
+  describe "provider_models/1" do
+    test "loads DeepSeek models from the provider API without changing current provider" do
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+      test_pid = self()
+
+      mock = fn url, opts ->
+        send(test_pid, {:deepseek_models_request, url, opts})
+
+        {:ok, 200,
+         %{
+           "data" => [
+             %{"id" => "deepseek-chat", "owned_by" => "deepseek"},
+             %{"id" => "deepseek-reasoner", "owned_by" => "deepseek"}
+           ]
+         }}
+      end
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        endpoint: "https://api.deepseek.com",
+        get_fn: mock,
+        log_fn: nil
+      )
+
+      try do
+        assert {:ok, %{provider: :deepseek, models: models}} =
+                 Gateway.provider_models(%{
+                   "provider" => "deepseek",
+                   "api_key" => "runtime-key"
+                 })
+
+        assert Enum.map(models, & &1.id) == ["deepseek-chat", "deepseek-reasoner"]
+        assert_receive {:deepseek_models_request, "https://api.deepseek.com/models", opts}
+        assert {"authorization", "Bearer runtime-key"} in Keyword.fetch!(opts, :headers)
+        assert Gateway.provider_metadata() == %{provider: :stub, model: nil}
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
+
+    test "loads Anthropic models and preserves display names" do
+      old_anthropic = Application.get_env(:novel_agent, NovelAgent.Provider.Anthropic)
+      test_pid = self()
+
+      mock = fn url, opts ->
+        send(test_pid, {:anthropic_models_request, url, opts})
+
+        {:ok, 200,
+         %{
+           "data" => [
+             %{"id" => "claude-sonnet-4-6", "display_name" => "Claude Sonnet 4.6"}
+           ]
+         }}
+      end
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.Anthropic,
+        get_fn: mock,
+        log_fn: nil
+      )
+
+      try do
+        assert {:ok, %{provider: :anthropic, models: [model]}} =
+                 Gateway.provider_models(%{
+                   "provider" => "anthropic",
+                   "api_key" => "anthropic-key"
+                 })
+
+        assert model.id == "claude-sonnet-4-6"
+        assert model.label == "Claude Sonnet 4.6"
+        assert model.owned_by == "anthropic"
+        assert_receive {:anthropic_models_request, "https://api.anthropic.com/v1/models", opts}
+        assert {"x-api-key", "anthropic-key"} in Keyword.fetch!(opts, :headers)
+        assert {"anthropic-version", "2023-06-01"} in Keyword.fetch!(opts, :headers)
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.Anthropic, old_anthropic)
+      end
+    end
+
+    test "loads LM Studio models from the configured local endpoint" do
+      old_lmstudio = Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio)
+      test_pid = self()
+
+      mock = fn url, _opts ->
+        send(test_pid, {:lmstudio_models_request, url})
+
+        {:ok, 200,
+         %{
+           "data" => [
+             %{"id" => "qwen/qwen3.6-35b-a3b"},
+             %{"id" => "mistral/local"}
+           ]
+         }}
+      end
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
+        endpoint: "http://127.0.0.1:1234/v1",
+        get_fn: mock
+      )
+
+      try do
+        assert {:ok, %{provider: :lmstudio, models: models}} =
+                 Gateway.provider_models(%{
+                   "provider" => "lmstudio",
+                   "endpoint" => "http://127.0.0.1:1234/v1"
+                 })
+
+        assert Enum.map(models, & &1.id) == ["qwen/qwen3.6-35b-a3b", "mistral/local"]
+        assert_receive {:lmstudio_models_request, "http://127.0.0.1:1234/v1/models"}
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio, old_lmstudio)
+      end
+    end
   end
 
   describe "complete/2 with test env (stub default)" do
@@ -66,6 +349,42 @@ defmodule NovelAgent.Provider.GatewayTest do
       assert {:ok, %{content: content}} = Gateway.complete("hello novel")
       assert content =~ "[stub]"
       assert content =~ "hello novel"
+    end
+
+    test "emits provider and model audit logs without prompt or secrets" do
+      old_enabled = Application.get_env(:novel_common, :log_jsonl_enabled)
+      old_dir = Application.get_env(:novel_common, :log_jsonl_dir)
+
+      log_dir =
+        Path.join(System.tmp_dir!(), "novel-provider-log-#{System.unique_integer([:positive])}")
+
+      Application.put_env(:novel_common, :log_jsonl_enabled, true)
+      Application.put_env(:novel_common, :log_jsonl_dir, log_dir)
+
+      try do
+        prompt = "hello novel secret-marker"
+
+        assert {:ok, %{content: content}} = Gateway.complete(prompt)
+        assert content =~ "[stub]"
+
+        records = eventually_read_provider_records(log_dir)
+        start_record = Enum.find(records, &(&1["event"] == "provider_gateway.complete.start"))
+        done_record = Enum.find(records, &(&1["event"] == "provider_gateway.complete.done"))
+
+        assert start_record["provider"] == "stub"
+        assert start_record["model"] == "qwen/qwen3.6-35b-a3b"
+        assert done_record["provider"] == "stub"
+        assert done_record["model"] == "qwen/qwen3.6-35b-a3b"
+        assert is_integer(done_record["duration_ms"])
+
+        encoded = Jason.encode!(records)
+        refute encoded =~ prompt
+        refute encoded =~ "secret-marker"
+      after
+        restore_common_env(:log_jsonl_enabled, old_enabled)
+        restore_common_env(:log_jsonl_dir, old_dir)
+        File.rm_rf(log_dir)
+      end
     end
 
     test "works with empty prompt" do
@@ -99,6 +418,46 @@ defmodule NovelAgent.Provider.GatewayTest do
       assert item["body"] =~ "灵气账单"
       refute item["body"] =~ "## 当前作品上下文"
       refute item["body"] =~ "用户创作简述"
+    end
+  end
+
+  describe "complete/2 with deepseek provider" do
+    test "routes through the configured DeepSeek adapter" do
+      old_provider = Application.get_env(:novel_agent, :provider)
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:deepseek_body, body})
+
+        {:ok, 200,
+         %{
+           "choices" => [%{"message" => %{"content" => "deepseek ok"}}],
+           "model" => "deepseek-v4-flash",
+           "usage" => %{}
+         }}
+      end
+
+      Application.put_env(:novel_agent, :provider, default: :deepseek)
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        api_key: "key",
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      )
+
+      try do
+        assert {:ok, %{content: "deepseek ok"}} = Gateway.complete("hello")
+        assert_receive {:deepseek_body, body}
+        assert body.model == "deepseek-v4-flash"
+        assert body.messages == [%{role: "user", content: "hello"}]
+      after
+        Application.put_env(:novel_agent, :provider, old_provider)
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
     end
   end
 
@@ -263,4 +622,46 @@ defmodule NovelAgent.Provider.GatewayTest do
       Application.put_env(:novel_agent, :provider, old)
     end
   end
+
+  defp eventually_read_provider_records(log_dir, attempts \\ 40)
+
+  defp eventually_read_provider_records(log_dir, 0) do
+    records = read_records_if_present(log_dir)
+
+    flunk(
+      "timed out waiting for provider gateway JSONL events; got #{inspect(Enum.map(records, & &1["event"]))}"
+    )
+  end
+
+  defp eventually_read_provider_records(log_dir, attempts) do
+    records = read_records_if_present(log_dir)
+
+    if provider_gateway_events_present?(records) do
+      records
+    else
+      Process.sleep(25)
+      eventually_read_provider_records(log_dir, attempts - 1)
+    end
+  end
+
+  defp provider_gateway_events_present?(records) do
+    Enum.any?(records, &(&1["event"] == "provider_gateway.complete.start")) and
+      Enum.any?(records, &(&1["event"] == "provider_gateway.complete.done"))
+  end
+
+  defp read_records_if_present(log_dir) do
+    path = Path.join(log_dir, "#{NovelCommon.LogFileDate.today_iso8601()}.jsonl")
+
+    if File.exists?(path) do
+      path
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+    else
+      []
+    end
+  end
+
+  defp restore_common_env(key, nil), do: Application.delete_env(:novel_common, key)
+  defp restore_common_env(key, value), do: Application.put_env(:novel_common, key, value)
 end

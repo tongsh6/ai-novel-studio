@@ -41,14 +41,15 @@ kill_process_tree() {
   # 自成组、PGID==PID，故 root 即组 id；即使 root 已退出仍可凭此回收同组孤儿）。
   # 安全护栏：只对与当前 shell 进程组不同且 > 1 的组下手，绝不自杀；当 root 并非
   # 组长时，对 -root 的信号会落空（ESRCH），无副作用。
-  local shell_pgid queried_pgid
+  local shell_pgid current_pgid queried_pgid
   shell_pgid="$(ps -o pgid= -p $$ 2>/dev/null | tr -d ' ')"
+  current_pgid="$(ps -o pgid= -p "${BASHPID:-$$}" 2>/dev/null | tr -d ' ')"
   queried_pgid="$(ps -o pgid= -p "$root" 2>/dev/null | tr -d ' ')"
 
   local group_targets=""
   local cand
   for cand in "$queried_pgid" "$root"; do
-    if [[ -n "$cand" && "$cand" -gt 1 && "$cand" != "$shell_pgid" && " $group_targets " != *" $cand "* ]]; then
+    if [[ -n "$cand" && "$cand" -gt 1 && "$cand" != "$shell_pgid" && "$cand" != "$current_pgid" && " $group_targets " != *" $cand "* ]]; then
       group_targets="$group_targets $cand"
     fi
   done

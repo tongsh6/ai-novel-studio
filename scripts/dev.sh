@@ -74,12 +74,39 @@ trap 'on_signal 143' TERM
 
 # ---- 加载端口配置（单一来源：frontend/.env） ----
 
+REQUESTED_VITE_API_ENDPOINT="${VITE_API_ENDPOINT:-}"
+REQUESTED_VITE_PROXY_TARGET="${VITE_PROXY_TARGET:-}"
+REQUESTED_VITE_WS_ENDPOINT="${VITE_WS_ENDPOINT:-}"
+REQUESTED_VITE_API_ENDPOINT_SET="${VITE_API_ENDPOINT+x}"
+REQUESTED_VITE_PROXY_TARGET_SET="${VITE_PROXY_TARGET+x}"
+REQUESTED_VITE_WS_ENDPOINT_SET="${VITE_WS_ENDPOINT+x}"
+
 set -a
 source "$PROJECT_ROOT/frontend/.env" 2>/dev/null || true
 set +a
 
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5768}"
+
+# Dev/Tauri runs from the Vite origin. Keep HTTP API same-origin (/api) unless
+# the caller explicitly asks for a direct backend endpoint; Vite proxies /api.
+if [[ -n "$REQUESTED_VITE_API_ENDPOINT_SET" ]]; then
+  export VITE_API_ENDPOINT="$REQUESTED_VITE_API_ENDPOINT"
+else
+  export VITE_API_ENDPOINT=""
+fi
+
+if [[ -n "$REQUESTED_VITE_PROXY_TARGET_SET" ]]; then
+  export VITE_PROXY_TARGET="$REQUESTED_VITE_PROXY_TARGET"
+else
+  export VITE_PROXY_TARGET="${VITE_PROXY_TARGET:-http://127.0.0.1:${PHOENIX_PORT}}"
+fi
+
+if [[ -n "$REQUESTED_VITE_WS_ENDPOINT_SET" ]]; then
+  export VITE_WS_ENDPOINT="$REQUESTED_VITE_WS_ENDPOINT"
+else
+  export VITE_WS_ENDPOINT="${VITE_WS_ENDPOINT:-ws://127.0.0.1:${PHOENIX_PORT}/socket}"
+fi
 
 echo "=== AI Novel Studio ==="
 

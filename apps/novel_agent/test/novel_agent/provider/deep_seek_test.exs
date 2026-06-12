@@ -1,0 +1,157 @@
+defmodule NovelAgent.Provider.DeepSeekTest do
+  use ExUnit.Case, async: false
+
+  alias NovelAgent.Provider.DeepSeek
+  alias NovelAgent.Provider.InferenceParams
+
+  describe "name/0" do
+    test "returns deepseek identifier" do
+      assert DeepSeek.name() == "deepseek"
+    end
+  end
+
+  describe "from_config/0" do
+    test "returns struct with defaults" do
+      state = DeepSeek.from_config()
+
+      assert %DeepSeek{} = state
+      assert state.endpoint == "https://api.deepseek.com"
+      assert state.model == "deepseek-v4-flash"
+      assert state.timeout == 300_000
+      assert state.thinking == :disabled
+    end
+  end
+
+  describe "health_check/1" do
+    test "checks API key configuration without calling the model" do
+      assert DeepSeek.health_check(%DeepSeek{api_key: "key"}) == :ok
+
+      assert {:error, %{type: :unauthorized}} = DeepSeek.health_check(%DeepSeek{api_key: nil})
+    end
+  end
+
+  describe "complete/4" do
+    test "sends OpenAI-compatible chat completion request" do
+      test_pid = self()
+
+      mock = fn url, body, opts ->
+        send(test_pid, {:request, url, body, opts})
+
+        {:ok, 200,
+         %{
+           "choices" => [%{"message" => %{"content" => "完成"}}],
+           "model" => "deepseek-v4-flash",
+           "usage" => %{"prompt_tokens" => 11, "completion_tokens" => 7}
+         }}
+      end
+
+      state = %DeepSeek{
+        api_key: "secret",
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil,
+        thinking: :disabled
+      }
+
+      assert {:ok, result} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert result.content == "完成"
+      assert result.usage.input_tokens == 11
+      assert result.usage.output_tokens == 7
+      assert result.usage.model == "deepseek-v4-flash"
+
+      assert_receive {:request, url, body, opts}
+      assert url == "https://api.deepseek.com/chat/completions"
+      assert body.model == "deepseek-v4-flash"
+      assert body.messages == [%{role: "user", content: "prompt"}]
+      assert body.stream == false
+      assert body.thinking == %{type: "disabled"}
+      assert {"authorization", "Bearer secret"} in Keyword.fetch!(opts, :headers)
+    end
+
+    test "can enable thinking mode explicitly" do
+      test_pid = self()
+
+      mock = fn _url, body, _opts ->
+        send(test_pid, {:request_body, body})
+
+        {:ok, 200,
+         %{
+           "choices" => [%{"message" => %{"content" => "完成"}}],
+           "usage" => %{}
+         }}
+      end
+
+      state = %DeepSeek{
+        api_key: "secret",
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-pro",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil,
+        thinking: :enabled,
+        reasoning_effort: "max"
+      }
+
+      assert {:ok, _result} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert_receive {:request_body, body}
+      assert body.thinking == %{type: "enabled"}
+      assert body.reasoning_effort == "max"
+    end
+
+    test "returns auth error before HTTP when API key is missing" do
+      mock = fn _url, _body, _opts ->
+        send(self(), :unexpected_http)
+        {:ok, 200, %{}}
+      end
+
+      state = %DeepSeek{
+        api_key: nil,
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      assert {:error, error} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert error.type == :auth
+      refute_received :unexpected_http
+    end
+
+    test "maps auth and rate limit HTTP errors" do
+      auth_mock = fn _url, _body, _opts -> {:error, :http_error, 401, "Unauthorized"} end
+
+      state = %DeepSeek{
+        api_key: "secret",
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-flash",
+        timeout: 100,
+        http_fn: auth_mock,
+        log_fn: nil,
+        thinking: :disabled
+      }
+
+      assert {:error, auth_error} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert auth_error.type == :auth
+
+      rate_limit_mock = fn _url, _body, _opts -> {:error, :http_error, 429, "Too Many"} end
+      state = %{state | http_fn: rate_limit_mock}
+
+      assert {:error, rate_limit_error} =
+               DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+
+      assert rate_limit_error.type == :rate_limit
+      assert rate_limit_error.retryable == true
+    end
+  end
+
+  describe "behaviour conformance" do
+    test "exports required callbacks" do
+      assert function_exported?(DeepSeek, :complete, 4)
+      assert function_exported?(DeepSeek, :name, 0)
+      assert function_exported?(DeepSeek, :from_config, 0)
+    end
+  end
+end

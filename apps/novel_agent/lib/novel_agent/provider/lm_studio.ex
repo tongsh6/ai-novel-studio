@@ -11,9 +11,10 @@ defmodule NovelAgent.Provider.LMStudio do
   alias NovelAgent.Provider.Result
   alias NovelFoundation.UpstreamError
 
-  defstruct [:endpoint, :model, :timeout, :http_fn, :log_fn, :json_mode]
+  defstruct [:endpoint, :model, :timeout, :http_fn, :get_fn, :log_fn, :json_mode]
 
   @type http_fn :: (String.t(), map(), keyword() -> {:ok, integer(), map()} | {:error, atom()})
+  @type get_fn :: (String.t(), keyword() -> HTTP.http_result())
   @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
 
   @type t :: %__MODULE__{
@@ -21,6 +22,7 @@ defmodule NovelAgent.Provider.LMStudio do
           model: String.t(),
           timeout: pos_integer(),
           http_fn: http_fn(),
+          get_fn: get_fn(),
           log_fn: log_fn(),
           json_mode: boolean()
         }
@@ -131,12 +133,12 @@ defmodule NovelAgent.Provider.LMStudio do
   def name, do: "lmstudio"
 
   @impl true
-  def health_check(%__MODULE__{endpoint: endpoint, timeout: timeout})
+  def health_check(%__MODULE__{endpoint: endpoint, timeout: timeout, get_fn: get})
       when is_binary(endpoint) and endpoint != "" do
     url = Path.join(endpoint, "models")
-    post = &HTTP.post/3
+    get = get || (&HTTP.get/2)
 
-    case post.(url, %{}, receive_timeout: timeout || 5_000) do
+    case get.(url, receive_timeout: timeout || 5_000) do
       {:ok, status, _body} when status in 200..299 -> :ok
       {:error, reason, _status, msg} -> {:error, %{message: msg, reason: reason}}
     end
@@ -145,18 +147,61 @@ defmodule NovelAgent.Provider.LMStudio do
   def health_check(%__MODULE__{}),
     do: {:error, %{message: "LM Studio endpoint 未配置", type: :config_error}}
 
+  @impl true
+  def list_models(%__MODULE__{endpoint: endpoint, timeout: timeout, get_fn: get})
+      when is_binary(endpoint) and endpoint != "" do
+    url = Path.join(endpoint, "models")
+    get = get || (&HTTP.get/2)
+
+    case get.(url, receive_timeout: timeout || 15_000) do
+      {:ok, _status, body} ->
+        {:ok, models_from_openai_list(body)}
+
+      {:error, :connection_refused, _status, _message} ->
+        {:error, %{message: "LM Studio 未启动", type: :connection_refused}}
+
+      {:error, reason, _status, message} ->
+        {:error, %{message: message, type: reason}}
+    end
+  end
+
+  def list_models(%__MODULE__{}),
+    do: {:error, %{message: "LM Studio endpoint 未配置", type: :config_error}}
+
   @doc "从应用配置构建 state struct。"
   @spec from_config() :: t()
-  def from_config do
-    config = Application.get_env(:novel_agent, __MODULE__, [])
-
+  def from_config(config \\ Application.get_env(:novel_agent, __MODULE__, [])) do
     %__MODULE__{
       endpoint: Keyword.get(config, :endpoint, "http://localhost:1234/v1"),
       model: Keyword.get(config, :model, "qwen/qwen3.6-35b-a3b"),
       timeout: Keyword.get(config, :timeout, 300_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
+      get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
       log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5),
       json_mode: Keyword.get(config, :json_mode, false)
     }
   end
+
+  defp models_from_openai_list(%{"data" => models}) when is_list(models) do
+    models
+    |> Enum.flat_map(&model_from_openai_entry/1)
+    |> Enum.uniq_by(& &1.id)
+  end
+
+  defp models_from_openai_list(_body), do: []
+
+  defp model_from_openai_entry(%{"id" => id} = model) when is_binary(id) and id != "" do
+    [
+      %{
+        id: id,
+        label: id,
+        owned_by: normalize_owned_by(model["owned_by"])
+      }
+    ]
+  end
+
+  defp model_from_openai_entry(_entry), do: []
+
+  defp normalize_owned_by(owner) when is_binary(owner) and owner != "", do: owner
+  defp normalize_owned_by(_owner), do: nil
 end

@@ -17,28 +17,28 @@ function detectTauri(): boolean {
 
 export const isTauri: boolean = detectTauri();
 
-const DEFAULT_API_HOST = "http://localhost:4657";
 const DEFAULT_WS_HOST = "ws://localhost:4657/socket";
+
+function configuredEnvValue(value: string | undefined): string | undefined {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+const configuredApiEndpoint = configuredEnvValue(import.meta.env.VITE_API_ENDPOINT);
+const configuredWsEndpoint = configuredEnvValue(import.meta.env.VITE_WS_ENDPOINT);
 
 /**
  * API 基础 URL
- * Tauri 桌面环境：sidecar Phoenix server
- * 浏览器环境：由 VITE_API_ENDPOINT 环境变量注入
+ * 默认使用同源相对路径，由 Vite proxy 转发到 Phoenix。
+ * 只有显式配置 VITE_API_ENDPOINT 时才跨源直连后端。
  */
-export const apiBaseUrl: string = isTauri
-  ? (import.meta.env.VITE_API_ENDPOINT ?? DEFAULT_API_HOST)
-  : (import.meta.env.VITE_API_ENDPOINT as string) ?? "";
+export const apiBaseUrl: string = configuredApiEndpoint ?? "";
 
-/**
- * WebSocket 基础 URL
- * Tauri 桌面环境：sidecar Phoenix server
- * 浏览器环境：由 VITE_WS_ENDPOINT 环境变量注入
- */
 /**
  * WebSocket 基础 URL
  * - Tauri 桌面环境：直连 Phoenix（env 或默认 ws://localhost:4657/socket）
  * - 浏览器环境：空字符串，Phoenix.Socket 自动使用 window.location 拼接
  */
 export const wsBaseUrl: string = isTauri
-  ? (import.meta.env.VITE_WS_ENDPOINT as string) || DEFAULT_WS_HOST
-  : (import.meta.env.VITE_WS_ENDPOINT as string) || DEFAULT_WS_HOST;
+  ? (configuredWsEndpoint ?? DEFAULT_WS_HOST)
+  : (configuredWsEndpoint ?? DEFAULT_WS_HOST);

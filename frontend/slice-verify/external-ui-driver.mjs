@@ -139,6 +139,60 @@ async function driveLongSessionCompression(page) {
   return [uiState];
 }
 
+async function driveSu01ModelProviderSwitching(page) {
+  const message = "SU01 模型切换后，请用一句话回复当前状态。";
+
+  await page.getByRole("button", { name: /模型设置|Stub|LM Studio|DeepSeek|Anthropic/ }).first().click();
+  await page.getByRole("dialog", { name: "模型供应商" }).waitFor({ timeout: 10_000 });
+  await page.locator("#model-provider-select").selectOption("stub");
+  await page.getByRole("button", { name: "测试连接" }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes("连接可用。"),
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "保存并切换" }).click();
+  await page.getByRole("dialog", { name: "模型供应商" }).waitFor({ state: "detached", timeout: 10_000 });
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const turnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.assistant_message != null,
+    "No turn_result frame after provider switching message",
+    90_000,
+  );
+
+  const turnResult = turnFrame.body;
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const visibleText = await page.locator("body").innerText();
+  const modelButtonText = await page
+    .getByRole("button", { name: /Stub|LM Studio|DeepSeek|Anthropic|模型设置/ })
+    .first()
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+
+  assert(sentMessage, "No provider-switching user_message websocket frame was sent");
+  assert(visibleText.includes(message), "Real UI did not retain the post-switch user message");
+  assert(modelButtonText.includes("Stub"), "Model provider button did not show Stub after saving");
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      message_text: message,
+      model_provider_button_text: modelButtonText,
+      provider_switched_to: "stub",
+      provider_switch_saved: true,
+      post_switch_message_visible: visibleText.includes(message),
+      dialogue_preserved_after_switch: true,
+    },
+  ];
+}
+
 async function openLatestWhyDialog(page) {
   const whyButton = page.getByRole("button", { name: /为什么/ }).last();
   await whyButton.waitFor({ timeout: 10_000 });
@@ -2363,6 +2417,7 @@ async function driveAu09ValidityWindowRecall(page) {
 }
 
 const drivers = {
+  "su01-model-provider-switching": driveSu01ModelProviderSwitching,
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,

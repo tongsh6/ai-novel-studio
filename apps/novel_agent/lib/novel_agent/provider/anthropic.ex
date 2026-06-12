@@ -23,9 +23,10 @@ defmodule NovelAgent.Provider.Anthropic do
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
 
-  defstruct [:api_key, :model, :timeout, :http_fn, :log_fn]
+  defstruct [:api_key, :model, :timeout, :http_fn, :get_fn, :log_fn]
 
   @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
+  @type get_fn :: (String.t(), keyword() -> HTTP.http_result())
   @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
 
   @type t :: %__MODULE__{
@@ -33,6 +34,7 @@ defmodule NovelAgent.Provider.Anthropic do
           model: String.t(),
           timeout: pos_integer(),
           http_fn: http_fn(),
+          get_fn: get_fn(),
           log_fn: log_fn()
         }
 
@@ -160,17 +162,71 @@ defmodule NovelAgent.Provider.Anthropic do
   def health_check(%__MODULE__{}),
     do: {:error, %{message: "Anthropic API key 未配置", type: :unauthorized}}
 
+  @impl true
+  def list_models(%__MODULE__{api_key: key} = state) when is_binary(key) and key != "" do
+    url = Path.join(@api_base, "models")
+    get = state.get_fn || (&HTTP.get/2)
+    headers = [{"x-api-key", key}, {"anthropic-version", @api_version}]
+
+    case get.(url, headers: headers, receive_timeout: state.timeout || 15_000) do
+      {:ok, _status, body} ->
+        {:ok, models_from_anthropic_list(body)}
+
+      {:error, :http_error, status, message} ->
+        {:error, %{message: "Anthropic API: #{message}", type: http_error_type(status)}}
+
+      {:error, :connection_refused, _status, _message} ->
+        {:error, %{message: "无法连接 Anthropic API", type: :connection_refused}}
+
+      {:error, :timeout, _status, _message} ->
+        {:error, %{message: "Anthropic API 请求超时", type: :timeout}}
+
+      {:error, reason, _status, message} ->
+        {:error, %{message: message, type: reason}}
+    end
+  end
+
+  def list_models(%__MODULE__{}),
+    do: {:error, %{message: "Anthropic API key 未配置", type: :unauthorized}}
+
   @doc "从应用配置构建 state struct。支持环境变量 ANTHROPIC_API_KEY。"
   @spec from_config() :: t()
-  def from_config do
-    config = Application.get_env(:novel_agent, __MODULE__, [])
-
+  def from_config(config \\ Application.get_env(:novel_agent, __MODULE__, [])) do
     %__MODULE__{
       api_key: Keyword.get(config, :api_key) || System.get_env("ANTHROPIC_API_KEY"),
       model: Keyword.get(config, :model, "claude-sonnet-4-6"),
       timeout: Keyword.get(config, :timeout, 300_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
+      get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
       log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5)
     }
   end
+
+  defp http_error_type(status) when status in [401, 403], do: :auth
+  defp http_error_type(429), do: :rate_limit
+  defp http_error_type(status) when status in [400, 422], do: :invalid_response
+  defp http_error_type(_status), do: :provider_internal
+
+  defp models_from_anthropic_list(%{"data" => models}) when is_list(models) do
+    models
+    |> Enum.flat_map(&model_from_anthropic_entry/1)
+    |> Enum.uniq_by(& &1.id)
+  end
+
+  defp models_from_anthropic_list(_body), do: []
+
+  defp model_from_anthropic_entry(%{"id" => id} = model) when is_binary(id) and id != "" do
+    [
+      %{
+        id: id,
+        label: normalize_label(model["display_name"], id),
+        owned_by: "anthropic"
+      }
+    ]
+  end
+
+  defp model_from_anthropic_entry(_entry), do: []
+
+  defp normalize_label(label, _fallback) when is_binary(label) and label != "", do: label
+  defp normalize_label(_label, fallback), do: fallback
 end

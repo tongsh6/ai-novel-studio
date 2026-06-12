@@ -32,13 +32,15 @@ fi
 if [[ -n "$REQUESTED_VITE_API_ENDPOINT_SET" ]]; then
   export VITE_API_ENDPOINT="$REQUESTED_VITE_API_ENDPOINT"
 else
-  export VITE_API_ENDPOINT="${VITE_API_ENDPOINT:-}"
+  # Tauri dev is served from Vite. Keep HTTP API same-origin (/api) and proxy
+  # through Vite unless the caller explicitly configured a direct endpoint.
+  export VITE_API_ENDPOINT=""
 fi
 
 if [[ -n "$REQUESTED_VITE_PROXY_TARGET_SET" ]]; then
   export VITE_PROXY_TARGET="$REQUESTED_VITE_PROXY_TARGET"
 else
-  export VITE_PROXY_TARGET="${VITE_PROXY_TARGET:-}"
+  export VITE_PROXY_TARGET="${VITE_PROXY_TARGET:-http://127.0.0.1:${PHOENIX_PORT:-4657}}"
 fi
 
 if [[ -n "$REQUESTED_VITE_WS_ENDPOINT_SET" ]]; then

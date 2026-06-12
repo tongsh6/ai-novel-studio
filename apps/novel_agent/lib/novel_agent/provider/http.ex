@@ -71,16 +71,18 @@ defmodule NovelAgent.Provider.HTTP do
   """
   @spec get(String.t(), keyword()) :: http_result()
   def get(url, opts \\ []) do
+    headers = Keyword.get(opts, :headers, [])
     receive_timeout = Keyword.get(opts, :receive_timeout, 15_000)
     connect_timeout = Keyword.get(opts, :connect_timeout, 10_000)
 
     case Req.get(url,
+           headers: headers,
            retry: false,
            receive_timeout: receive_timeout,
            connect_options: [timeout: connect_timeout]
          ) do
-      {:ok, %{status: status}} when status in 200..299 ->
-        {:ok, status, %{}}
+      {:ok, %{status: status, body: body}} when status in 200..299 ->
+        {:ok, status, body}
 
       {:ok, %{status: status}} ->
         {:error, :http_error, status, "HTTP #{status}"}

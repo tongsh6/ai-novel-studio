@@ -13,7 +13,9 @@ defmodule NovelAgent.Application do
     ensure_log_dir()
     NovelAgent.Telemetry.attach_all()
 
-    children = []
+    children = [
+      NovelAgent.Provider.RuntimeConfig
+    ]
 
     opts = [strategy: :one_for_one, name: NovelAgent.Supervisor]
 

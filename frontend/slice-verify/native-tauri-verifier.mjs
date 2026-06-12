@@ -2,6 +2,7 @@ export const nativeSliceIds = [
   "workspace-runtime-state",
   "su02-work-switching",
   "su01-provider-health-model",
+  "su01-model-provider-switching",
   "stage-startup-context-contract",
   "au03c-work-session-resume",
   "su03-assistant-display-name",
@@ -61,6 +62,13 @@ const sliceKeyEvents = {
   ],
   "su01-provider-health-model": [
     "channel.join.done",
+    "slice_verify.ui_state.done",
+  ],
+  "su01-model-provider-switching": [
+    "channel.join.done",
+    "channel.user_message.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "su03-assistant-display-name": [
@@ -490,6 +498,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu01ProviderHealthEvidence(records);
   }
 
+  if (sliceId === "su01-model-provider-switching") {
+    return findSu01ModelProviderSwitchingEvidence(records);
+  }
+
   if (sliceId === "su03-assistant-display-name") {
     return findSu03AssistantDisplayNameEvidence(records);
   }
@@ -674,6 +686,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "su01-provider-health-model") {
     return su01ProviderHealthBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-model-provider-switching") {
+    return su01ModelProviderSwitchingBehavior(records, evidence, options);
   }
 
   if (sliceId === "su03-assistant-display-name") {
@@ -987,6 +1003,61 @@ function findSu01ProviderHealthEvidence(records) {
       work_id: uiState.work_id,
       llm_status_text: statusText,
       llm_model_label: modelLabel,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01ModelProviderSwitchingEvidence(records) {
+  const sliceId = "su01-model-provider-switching";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.provider_switch_saved === true &&
+      record.provider_switched_to === "stub" &&
+      record.post_switch_message_visible === true &&
+      record.dialogue_preserved_after_switch === true &&
+      record.turn_id,
+  );
+
+  for (const uiState of uiStates) {
+    const turnRecords = byTurn.get(uiState.turn_id) ?? [];
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+
+    const hasAllEvents = keyEvents.every((event) =>
+      event === "channel.join.done"
+        ? true
+        : turnRecords.some((record) => record.event === event),
+    );
+    if (!hasAllEvents) continue;
+
+    const providerDone = turnRecords.find(
+      (record) =>
+        record.event === "provider_gateway.complete.done" &&
+        record.provider === "stub" &&
+        typeof record.model === "string" &&
+        record.model.length > 0,
+    );
+    if (!providerDone) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: uiState.turn_id,
+      turn_ids: [uiState.turn_id],
+      work_id: uiState.work_id,
+      provider_after_switch: providerDone.provider,
+      model_after_switch: providerDone.model,
+      model_provider_button_text: uiState.model_provider_button_text,
+      message_text: uiState.message_text,
       key_events: keyEvents,
     };
   }
@@ -4860,6 +4931,31 @@ function su01ProviderHealthBehavior(records, evidence, _options) {
       "llm_badge_connected_state_came_from_backend_health",
       "llm_badge_displays_provider_or_model_label",
       "channel_joined_current_work",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01ModelProviderSwitchingBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  const unsafe = JSON.stringify(records).includes("api_key") || JSON.stringify(records).includes("secret");
+  if (unsafe) return null;
+
+  return {
+    slice_id: "su01-model-provider-switching",
+    behavior: "model_provider_switch_applies_to_next_turn",
+    turn_ids: evidence.turn_ids,
+    work_id: evidence.work_id,
+    provider_after_switch: evidence.provider_after_switch,
+    model_after_switch: evidence.model_after_switch,
+    assertions: [
+      "model_settings_opened_from_real_workbench",
+      "provider_options_came_from_backend_registry",
+      "save_switched_runtime_provider",
+      "post_switch_turn_used_stub_provider_in_gateway_log",
+      "dialogue_remained_visible_after_switch",
+      "provider_options_and_ui_state_did_not_expose_api_key",
       "no_error_events",
     ],
   };

@@ -30,6 +30,9 @@ lmstudio_timeout_ms =
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
+deepseek_timeout_ms =
+  System.get_env("NOVEL_DEEPSEEK_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
 config :novel_agent, :provider, default: :lmstudio
 
 config :novel_agent, NovelAgent.Provider.LMStudio,
@@ -42,6 +45,15 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
 config :novel_agent, NovelAgent.Provider.Anthropic,
   model: "claude-sonnet-4-6",
   timeout: anthropic_timeout_ms
+
+# 可选：DeepSeek API（需设置 DEEPSEEK_API_KEY 或 NOVEL_DEEPSEEK_API_KEY）
+# 切换到 DeepSeek 时，只需修改 :provider → default: :deepseek
+config :novel_agent, NovelAgent.Provider.DeepSeek,
+  endpoint: System.get_env("NOVEL_DEEPSEEK_ENDPOINT", "https://api.deepseek.com"),
+  model: System.get_env("NOVEL_DEEPSEEK_MODEL", "deepseek-v4-flash"),
+  timeout: deepseek_timeout_ms,
+  thinking: System.get_env("NOVEL_DEEPSEEK_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_DEEPSEEK_REASONING_EFFORT")
 
 # Stage 1 桌面应用：SQLite 自包含数据库。
 # 数据库文件位于项目根目录 priv/ 下，生产环境将放在 OS 用户数据目录。

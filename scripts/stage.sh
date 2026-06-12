@@ -27,6 +27,9 @@ SKIP_BUILD=false
 PHX_PID=""
 VITE_PID=""
 TAURI_PID=""
+PHX_STARTED=false
+VITE_STARTED=false
+TAURI_STARTED=false
 TAURI_CONF=""
 TAURI_CONF_BACKUP=""
 CLEANED_UP=false
@@ -40,6 +43,21 @@ terminate_pid() {
   # 不只杀包装进程，连同其进程树/进程组一并回收（孤儿 vite/app 也在内）。
   kill_process_tree "$pid"
   wait "$pid" 2>/dev/null || true
+}
+
+terminate_port_listeners() {
+  local name="$1"
+  local port="$2"
+  local pids pid
+
+  pids="$(listener_pids_for_port "$port")"
+  [[ -n "$pids" ]] || return 0
+
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    echo "[stage] Stopping ${name} listener on port ${port} (pid ${pid})..."
+    kill_process_tree "$pid"
+  done <<< "$pids"
 }
 
 restore_tauri_conf() {
@@ -58,18 +76,56 @@ sync_tauri_conf() {
     perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g' "$TAURI_CONF"
 }
 
+listener_pids_for_port() {
+  local port="$1"
+  lsof -nP -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null | sort -u || true
+}
+
+require_port_free() {
+  local name="$1"
+  local port="$2"
+  local pids
+
+  pids="$(listener_pids_for_port "$port")"
+  if [[ -z "$pids" ]]; then
+    return 0
+  fi
+
+  echo "[stage] ERROR: ${name} port ${port} is already in use." >&2
+  echo "[stage] Existing listener(s):" >&2
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] || continue
+    ps -o pid=,ppid=,command= -p "$pid" 2>/dev/null | sed 's/^/[stage]   /' >&2 || true
+  done <<< "$pids"
+  echo "[stage] Stop the existing process, then rerun stage." >&2
+  exit 1
+}
+
 cleanup() {
   if [[ "$CLEANED_UP" == "true" ]]; then
     return
   fi
   CLEANED_UP=true
+  trap '' INT TERM
 
   echo ""
   echo "[stage] Shutting down..."
+  restore_tauri_conf
+  if [[ "$PHX_STARTED" == "true" ]]; then
+    terminate_port_listeners "Phoenix" "$PHOENIX_PORT"
+  fi
+  if [[ "$TAURI_STARTED" == "true" || "$VITE_STARTED" == "true" ]]; then
+    terminate_port_listeners "Vite" "$VITE_DEV_PORT"
+  fi
   terminate_pid "Tauri" "$TAURI_PID"
   terminate_pid "Vite" "$VITE_PID"
   terminate_pid "Phoenix" "$PHX_PID"
-  restore_tauri_conf
+  if [[ "$PHX_STARTED" == "true" ]]; then
+    terminate_port_listeners "Phoenix" "$PHOENIX_PORT"
+  fi
+  if [[ "$TAURI_STARTED" == "true" || "$VITE_STARTED" == "true" ]]; then
+    terminate_port_listeners "Vite" "$VITE_DEV_PORT"
+  fi
   echo "[stage] Stopped."
 }
 
@@ -122,6 +178,9 @@ set +a
 export MIX_ENV=prod
 export PHOENIX_PORT="${REQUESTED_PHOENIX_PORT:-4658}"
 export VITE_DEV_PORT="${REQUESTED_VITE_DEV_PORT:-5769}"
+# Stage Tauri runs from the Vite dev origin. Keep HTTP API same-origin (/api)
+# and let Vite proxy to Phoenix; otherwise WebView fetches cross-origin and
+# Phoenix must opt into CORS. WebSocket remains an explicit Phoenix endpoint.
 export VITE_API_ENDPOINT="${REQUESTED_VITE_API_ENDPOINT:-}"
 export VITE_PROXY_TARGET="${REQUESTED_VITE_PROXY_TARGET:-http://127.0.0.1:${PHOENIX_PORT}}"
 export VITE_WS_ENDPOINT="${REQUESTED_VITE_WS_ENDPOINT:-ws://127.0.0.1:${PHOENIX_PORT}/socket}"
@@ -140,6 +199,10 @@ else
   echo "  Vite:      http://localhost:${VITE_DEV_PORT} (preview)"
 fi
 echo ""
+
+# ---- 端口占用检查 ----
+
+require_port_free "Phoenix" "$PHOENIX_PORT"
 
 # ---- Provider 预检 ----
 
@@ -205,6 +268,7 @@ echo "[stage] Starting Phoenix (prod) on port ${PHOENIX_PORT}..."
 # </dev/null：job control 下后台进程探测 TTY 会触发 SIGTTIN 停摆，重定向 stdin 规避。
 mix phx.server </dev/null &
 PHX_PID=$!
+PHX_STARTED=true
 
 for i in $(seq 1 20); do
   if curl -s "$PHX_URL/health" 2>/dev/null | grep -q "ok"; then
@@ -239,6 +303,7 @@ if [[ "$MODE" == "tauri" ]]; then
   cd "$PROJECT_ROOT/frontend"
   pnpm tauri dev </dev/null &
   TAURI_PID=$!
+  TAURI_STARTED=true
   echo "[stage] Tauri PID: ${TAURI_PID}"
 
   if wait "$TAURI_PID"; then
@@ -255,6 +320,7 @@ echo "[stage] Starting Vite preview on port ${VITE_DEV_PORT}..."
 cd "$PROJECT_ROOT/frontend"
 pnpm preview --port "$VITE_DEV_PORT" --strictPort </dev/null &
 VITE_PID=$!
+VITE_STARTED=true
 
 sleep 2
 if ! kill -0 "$VITE_PID" 2>/dev/null; then

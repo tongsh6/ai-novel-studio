@@ -13,6 +13,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");
     expect(nativeSliceIds).toContain("su02-work-switching");
     expect(nativeSliceIds).toContain("su01-provider-health-model");
+    expect(nativeSliceIds).toContain("su01-model-provider-switching");
     expect(nativeSliceIds).toContain("su03-assistant-display-name");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
     expect(nativeSliceIds).toContain("au03c-work-session-resume");
@@ -76,6 +77,75 @@ describe("native Tauri slice verifier", () => {
         "llm_badge_connected_state_came_from_backend_health",
         "llm_badge_displays_provider_or_model_label",
         "channel_joined_current_work",
+        "no_error_events",
+      ],
+    });
+  });
+
+  it("accepts SU-01 model provider switching only when the next turn uses the selected provider", () => {
+    const records = [
+      { event: "channel.join.done", work_id: "work-su01", session_id: "session-su01" },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-su01-switch",
+        work_id: "work-su01",
+        session_id: "session-su01",
+      },
+      {
+        event: "provider_gateway.complete.done",
+        turn_id: "turn-su01-switch",
+        work_id: "work-su01",
+        provider: "stub",
+        model: "qwen/qwen3.6-35b-a3b",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-su01-switch",
+        work_id: "work-su01",
+        session_id: "session-su01",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su01-model-provider-switching",
+        turn_id: "turn-su01-switch",
+        work_id: "work-su01",
+        context_work_id: "work-su01",
+        socket_connected: true,
+        provider_switch_saved: true,
+        provider_switched_to: "stub",
+        model_provider_button_text: "Stub",
+        post_switch_message_visible: true,
+        dialogue_preserved_after_switch: true,
+        message_text: "SU01 模型切换后，请用一句话回复当前状态。",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("su01-model-provider-switching", records);
+    expect(evidence).toEqual({
+      slice_id: "su01-model-provider-switching",
+      turn_id: "turn-su01-switch",
+      turn_ids: ["turn-su01-switch"],
+      work_id: "work-su01",
+      provider_after_switch: "stub",
+      model_after_switch: "qwen/qwen3.6-35b-a3b",
+      model_provider_button_text: "Stub",
+      message_text: "SU01 模型切换后，请用一句话回复当前状态。",
+      key_events: keyEventsForSlice("su01-model-provider-switching"),
+    });
+    expect(findSliceBehaviorEvidence("su01-model-provider-switching", records, evidence)).toEqual({
+      slice_id: "su01-model-provider-switching",
+      behavior: "model_provider_switch_applies_to_next_turn",
+      turn_ids: ["turn-su01-switch"],
+      work_id: "work-su01",
+      provider_after_switch: "stub",
+      model_after_switch: "qwen/qwen3.6-35b-a3b",
+      assertions: [
+        "model_settings_opened_from_real_workbench",
+        "provider_options_came_from_backend_registry",
+        "save_switched_runtime_provider",
+        "post_switch_turn_used_stub_provider_in_gateway_log",
+        "dialogue_remained_visible_after_switch",
+        "provider_options_and_ui_state_did_not_expose_api_key",
         "no_error_events",
       ],
     });

@@ -15,6 +15,10 @@ defmodule NovelWeb.Router do
     pipe_through(:api)
 
     get("/provider/health", ProviderController, :health)
+    get("/provider/options", ProviderController, :options)
+    post("/provider/models", ProviderController, :models)
+    put("/provider/config", ProviderController, :configure)
+    post("/provider/test", ProviderController, :test)
     post("/system/shutdown", SystemController, :shutdown)
 
     get("/works", WorksController, :index)

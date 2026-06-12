@@ -24,6 +24,43 @@ defmodule NovelApplication do
   end
 
   @doc """
+  返回可配置 provider 列表和当前运行时选择。
+
+  返回值不包含 API key 等 secret。
+  """
+  @spec provider_options() :: %{current_provider: atom(), providers: [map()]}
+  def provider_options do
+    Gateway.provider_options()
+  end
+
+  @doc """
+  保存当前运行时 provider 选择与配置。
+  """
+  @spec configure_provider(map()) ::
+          {:ok, %{provider: atom(), model: String.t() | nil}} | {:error, map()}
+  def configure_provider(attrs) when is_map(attrs) do
+    Gateway.configure_provider(attrs)
+  end
+
+  @doc """
+  使用传入 provider 配置做轻量连接测试，不改变当前运行时选择。
+  """
+  @spec test_provider(map()) ::
+          {:ok, %{provider: atom(), model: String.t() | nil}} | {:error, map()}
+  def test_provider(attrs) when is_map(attrs) do
+    Gateway.test_provider(attrs)
+  end
+
+  @doc """
+  使用传入 provider 配置实时拉取模型列表，不改变当前运行时选择。
+  """
+  @spec provider_models(map()) ::
+          {:ok, %{provider: atom(), models: [map()]}} | {:error, map()}
+  def provider_models(attrs) when is_map(attrs) do
+    Gateway.provider_models(attrs)
+  end
+
+  @doc """
   返回 context_fetcher 用于注入 DialogueGateway。启用真实持久化时返回 DB fetcher。
   """
   def persistence_fetcher do

@@ -12,6 +12,11 @@ defmodule NovelAgent.Provider do
   @type message :: %{required(:role) => String.t(), required(:content) => String.t()}
   @type prompt :: String.t() | [message()]
   @type model :: String.t()
+  @type model_option :: %{
+          required(:id) => String.t(),
+          optional(:label) => String.t(),
+          optional(:owned_by) => String.t()
+        }
 
   @type result :: {:ok, Result.t()} | {:error, reason :: term()}
 
@@ -37,9 +42,19 @@ defmodule NovelAgent.Provider do
   @callback health_check(state :: term()) :: :ok | {:error, term()}
 
   @doc """
+  返回 provider 当前可用模型列表。
+
+  云端 provider 必须实时调用供应商模型列表 API；本地 provider 调本地服务
+  可见模型列表。该回调不应返回硬编码模型名。
+  """
+  @callback list_models(state :: term()) :: {:ok, [model_option()]} | {:error, term()}
+
+  @doc """
   返回 provider 名称（用于日志和 audit）。
   """
   @callback name() :: String.t()
+
+  @optional_callbacks list_models: 1
 
   @doc """
   Normalize legacy string prompts and chat prompts into OpenAI-compatible

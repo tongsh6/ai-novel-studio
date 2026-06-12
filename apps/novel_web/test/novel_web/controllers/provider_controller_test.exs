@@ -1,6 +1,13 @@
 defmodule NovelWeb.ProviderControllerTest do
   use NovelWeb.ConnCase, async: false
 
+  alias NovelAgent.Provider.RuntimeConfig
+
+  setup do
+    RuntimeConfig.reset()
+    on_exit(fn -> RuntimeConfig.reset() end)
+  end
+
   describe "GET /api/provider/health" do
     test "returns provider and model metadata when the provider is available" do
       old_provider = Application.get_env(:novel_agent, :provider)
@@ -63,6 +70,89 @@ defmodule NovelWeb.ProviderControllerTest do
       after
         Application.put_env(:novel_agent, :provider, old_provider)
       end
+    end
+  end
+
+  describe "GET /api/provider/options" do
+    test "returns provider registry without secrets" do
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        api_key: "secret",
+        model: "deepseek-v4-flash"
+      )
+
+      try do
+        conn = get(build_conn(), "/api/provider/options")
+        body = json_response(conn, 200)
+        deepseek = Enum.find(body["providers"], &(&1["id"] == "deepseek"))
+
+        assert body["current_provider"] == "stub"
+        assert deepseek["api_key_configured"] == true
+        refute Map.has_key?(deepseek, "api_key")
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
+  end
+
+  describe "PUT /api/provider/config" do
+    test "switches current runtime provider" do
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> put("/api/provider/config", %{provider: "stub"})
+
+      body = json_response(conn, 200)
+      assert body["ok"] == true
+      assert body["provider"] == "stub"
+    end
+  end
+
+  describe "POST /api/provider/models" do
+    test "returns live provider model options without secrets" do
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+
+      mock = fn _url, _opts ->
+        {:ok, 200, %{"data" => [%{"id" => "deepseek-chat", "owned_by" => "deepseek"}]}}
+      end
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        get_fn: mock,
+        log_fn: nil
+      )
+
+      try do
+        conn =
+          build_conn()
+          |> put_req_header("content-type", "application/json")
+          |> post("/api/provider/models", %{provider: "deepseek", api_key: "secret"})
+
+        body = json_response(conn, 200)
+        assert body["ok"] == true
+        assert body["provider"] == "deepseek"
+
+        assert body["models"] == [
+                 %{"id" => "deepseek-chat", "label" => "deepseek-chat", "owned_by" => "deepseek"}
+               ]
+
+        refute inspect(body) =~ "secret"
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
+  end
+
+  describe "POST /api/provider/test" do
+    test "tests provider config without saving it" do
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/provider/test", %{provider: "stub"})
+
+      body = json_response(conn, 200)
+      assert body["connected"] == true
+      assert body["provider"] == "stub"
     end
   end
 end

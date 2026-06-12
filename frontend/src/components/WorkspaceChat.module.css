@@ -237,6 +237,68 @@
   font-size: 14px;
 }
 
+.providerDialogContent {
+  width: min(460px, calc(100vw - 32px));
+  max-height: calc(100vh - 128px);
+  overflow-y: auto;
+}
+
+.dialogHint {
+  color: var(--foreground-secondary);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.dialogCheckboxRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--foreground-primary);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.dialogCheckboxRow input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--foreground-primary);
+}
+
+.dialogStatus {
+  color: var(--foreground-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.modelSelectRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 8px;
+}
+
+.modelRefreshButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  background-color: var(--surface-primary);
+  color: var(--foreground-primary);
+  cursor: pointer;
+}
+
+.modelRefreshButton:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.modelRefreshButton:not(:disabled):hover {
+  border-color: var(--foreground-secondary);
+}
+
 .dialogError {
   color: #d94a4a;
   font-size: 12px;
@@ -317,7 +379,24 @@
   background-color: #d94a4a;
 }
 
-.llmProviderName {
+.modelStatusButton {
+  appearance: none;
+  justify-content: center;
+  gap: 6px;
+  border: 0;
+  cursor: pointer;
+}
+
+.modelStatusButton:hover {
+  filter: brightness(0.96);
+}
+
+.modelStatusButton:focus-visible {
+  outline: 2px solid rgba(112, 154, 255, 0.9);
+  outline-offset: 2px;
+}
+
+.modelStatusValue {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -1,11 +1,11 @@
 // Design: docs/design-v2/ui-design/41-workbench-layout.md §2 (3-zone workbench)
 // Design: docs/design-v2/ui-design/42-card-system.md §2 (card type to ADR-0006 mapping)
 // Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
-import { useEffect, useState, useRef } from "react";
+import { useCallback, useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Archive, BookOpen, Bot, ChevronDown, CircleHelp, MessageCircle, Plus, RefreshCw, RotateCcw } from "lucide-react";
+import { Archive, BookOpen, Bot, ChevronDown, CircleHelp, MessageCircle, Plus, RefreshCw, RotateCcw, Settings2 } from "lucide-react";
 
 import {
   createSocket,
@@ -65,7 +65,19 @@ import type {
 } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
-import { CARD, TRACE, WORKBENCH } from "../lib/copy";
+import {
+  getStoredProviderApiKey,
+  listProviderModels,
+  loadAndSyncModelProviderState,
+  providerDisplayName,
+  providerOption,
+  saveAndApplyModelProviderConfig,
+  testProviderConnection,
+  type ModelProviderRuntimeState,
+  type ProviderModelOption,
+  type ProviderId,
+} from "../lib/modelProvider";
+import { BUTTON, CARD, TRACE, WORKBENCH } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import {
   toAuthorTraceSummary,
@@ -138,6 +150,17 @@ interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   turnResult?: TurnResult;
+}
+
+interface ModelProviderDraft {
+  provider: ProviderId;
+  model: string;
+  endpoint: string;
+  apiKey: string;
+  apiKeyConfigured: boolean;
+  clearApiKey: boolean;
+  thinking: "enabled" | "disabled";
+  reasoningEffort: string;
 }
 
 export interface WorkspaceCandidatePanelProps {
@@ -263,6 +286,47 @@ function startupFailureMessage(detail: string): ChatMessage {
   };
 }
 
+function modelProviderDraftFromState(state: ModelProviderRuntimeState): ModelProviderDraft {
+  const option = providerOption(state.options, state.selectedProvider);
+  const stored = state.stored.providers[state.selectedProvider] ?? {};
+
+  return {
+    provider: state.selectedProvider,
+    model: stored.model ?? option?.model ?? "",
+    endpoint: stored.endpoint ?? option?.endpoint ?? "",
+    apiKey: "",
+    apiKeyConfigured: Boolean(stored.api_key_configured ?? option?.api_key_configured),
+    clearApiKey: false,
+    thinking: stored.thinking ?? "disabled",
+    reasoningEffort: stored.reasoning_effort ?? "",
+  };
+}
+
+function modelProviderDraftForProvider(
+  state: ModelProviderRuntimeState | null,
+  provider: ProviderId,
+): ModelProviderDraft {
+  const option = state ? providerOption(state.options, provider) : undefined;
+  const stored = state?.stored.providers[provider] ?? {};
+
+  return {
+    provider,
+    model: stored.model ?? option?.model ?? "",
+    endpoint: stored.endpoint ?? option?.endpoint ?? "",
+    apiKey: "",
+    apiKeyConfigured: Boolean(stored.api_key_configured ?? option?.api_key_configured),
+    clearApiKey: false,
+    thinking: stored.thinking ?? "disabled",
+    reasoningEffort: stored.reasoning_effort ?? "",
+  };
+}
+
+function errorDetail(error: unknown): string | null {
+  if (error instanceof Error && error.message.trim()) return error.message.trim();
+  if (typeof error === "string" && error.trim()) return error.trim();
+  return null;
+}
+
 export function WorkspaceChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState("");
@@ -270,6 +334,24 @@ export function WorkspaceChat() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [llmConnected, setLlmConnected] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState<string>("");
+  const [modelProviderState, setModelProviderState] = useState<ModelProviderRuntimeState | null>(null);
+  const [modelProviderDialogOpen, setModelProviderDialogOpen] = useState(false);
+  const [modelProviderDraft, setModelProviderDraft] = useState<ModelProviderDraft>({
+    provider: "stub",
+    model: "",
+    endpoint: "",
+    apiKey: "",
+    apiKeyConfigured: false,
+    clearApiKey: false,
+    thinking: "disabled",
+    reasoningEffort: "",
+  });
+  const [modelProviderSaving, setModelProviderSaving] = useState(false);
+  const [modelProviderTesting, setModelProviderTesting] = useState(false);
+  const [modelProviderMessage, setModelProviderMessage] = useState<string | null>(null);
+  const [modelProviderModels, setModelProviderModels] = useState<ProviderModelOption[]>([]);
+  const [modelProviderModelsLoading, setModelProviderModelsLoading] = useState(false);
+  const [modelProviderModelsMessage, setModelProviderModelsMessage] = useState<string | null>(null);
   const [pendingAnswerBid, setPendingAnswerBid] = useState<string | null>(null);
   const [activeSessionId, setActiveSessionId] = useState<string | null>(null);
   const [sessions, setSessions] = useState<WorkSessionDto[]>([]);
@@ -322,22 +404,42 @@ export function WorkspaceChat() {
     workId: null,
   });
   const activeSessionIdRef = useRef<string | null>(null);
+  const modelProviderModelsRequestRef = useRef(0);
 
-  // Check LLM connection status
+  const refreshLlmHealth = useCallback(async () => {
+    try {
+      const data = await getProviderHealth();
+      setLlmConnected(data.connected);
+      setLlmModel(providerHealthName(data));
+      return data;
+    } catch {
+      setLlmConnected(false);
+      return null;
+    }
+  }, []);
+
+  // Check LLM connection status and apply persisted provider settings.
   useEffect(() => {
     const checkLlm = async () => {
+      await refreshLlmHealth();
+    };
+
+    const initializeProvider = async () => {
       try {
-        const data = await getProviderHealth();
-        setLlmConnected(data.connected);
-        setLlmModel(providerHealthName(data));
+        const state = await loadAndSyncModelProviderState();
+        setModelProviderState(state);
+        setModelProviderDraft(modelProviderDraftFromState(state));
       } catch {
-        setLlmConnected(false);
+        setModelProviderMessage(WORKBENCH.modelProviderLoadFailure);
+      } finally {
+        await checkLlm();
       }
     };
-    void checkLlm();
+
+    void initializeProvider();
     const interval = setInterval(checkLlm, 30_000);
     return () => clearInterval(interval);
-  }, []);
+  }, [refreshLlmHealth]);
 
   // Lift the turn_result handler so the effect below stays focused on connection setup.
   function handleTurnResult(result: TurnResult) {
@@ -1117,6 +1219,182 @@ export function WorkspaceChat() {
     }
   };
 
+  const openModelProviderDialog = async () => {
+    setModelProviderMessage(null);
+
+    if (modelProviderState) {
+      const draft = modelProviderDraftFromState(modelProviderState);
+      setModelProviderDraft(draft);
+      setModelProviderDialogOpen(true);
+      void loadModelProviderModels(draft, modelProviderState);
+      return;
+    }
+
+    try {
+      const state = await loadAndSyncModelProviderState();
+      const draft = modelProviderDraftFromState(state);
+      setModelProviderState(state);
+      setModelProviderDraft(draft);
+      void loadModelProviderModels(draft, state);
+    } catch (error) {
+      const detail = errorDetail(error);
+      setModelProviderMessage(
+        detail ? WORKBENCH.modelProviderLoadFailureDetail(detail) : WORKBENCH.modelProviderLoadFailure,
+      );
+    } finally {
+      setModelProviderDialogOpen(true);
+    }
+  };
+
+  const handleModelProviderDialogOpenChange = (open: boolean) => {
+    if (open) {
+      void openModelProviderDialog();
+      return;
+    }
+
+    setModelProviderDialogOpen(false);
+  };
+
+  const updateModelProviderDraftProvider = (provider: ProviderId) => {
+    const draft = modelProviderDraftForProvider(modelProviderState, provider);
+    setModelProviderDraft(draft);
+    setModelProviderMessage(null);
+    void loadModelProviderModels(draft, modelProviderState);
+  };
+
+  const modelProviderApiKeyForSubmit = async (
+    draft: ModelProviderDraft = modelProviderDraft,
+  ): Promise<string | null> => {
+    const trimmed = draft.apiKey.trim();
+    if (draft.clearApiKey) return null;
+    if (trimmed) return trimmed;
+    if (draft.apiKeyConfigured) {
+      return await getStoredProviderApiKey(draft.provider);
+    }
+    return null;
+  };
+
+  const loadModelProviderModels = async (
+    draft: ModelProviderDraft,
+    state: ModelProviderRuntimeState | null,
+  ) => {
+    const requestId = modelProviderModelsRequestRef.current + 1;
+    modelProviderModelsRequestRef.current = requestId;
+    setModelProviderModels([]);
+    setModelProviderModelsMessage(null);
+
+    if (!state || draft.provider === "stub") {
+      setModelProviderModelsLoading(false);
+      if (draft.provider === "stub") {
+        setModelProviderModelsMessage(WORKBENCH.modelProviderModelsUnsupported);
+      }
+      return;
+    }
+
+    setModelProviderModelsLoading(true);
+
+    try {
+      const result = await listProviderModels({
+        provider: draft.provider,
+        endpoint: draft.endpoint,
+        apiKey: await modelProviderApiKeyForSubmit(draft),
+        clearApiKey: draft.clearApiKey,
+      });
+
+      if (modelProviderModelsRequestRef.current !== requestId) return;
+
+      setModelProviderModels(result.models);
+      setModelProviderModelsMessage(
+        result.ok
+          ? null
+          : result.message || WORKBENCH.modelProviderModelsLoadFailure,
+      );
+
+      if (result.models.length > 0) {
+        setModelProviderDraft((prev) => {
+          if (prev.provider !== draft.provider) return prev;
+          if (result.models.some((model) => model.id === prev.model)) return prev;
+          return { ...prev, model: result.models[0]?.id ?? prev.model };
+        });
+      }
+    } catch (error) {
+      if (modelProviderModelsRequestRef.current !== requestId) return;
+
+      const detail = errorDetail(error);
+      setModelProviderModels([]);
+      setModelProviderModelsMessage(
+        detail
+          ? WORKBENCH.modelProviderModelsLoadFailureDetail(detail)
+          : WORKBENCH.modelProviderModelsLoadFailure,
+      );
+    } finally {
+      if (modelProviderModelsRequestRef.current === requestId) {
+        setModelProviderModelsLoading(false);
+      }
+    }
+  };
+
+  const handleModelProviderTest = async () => {
+    if (modelProviderTesting) return;
+    setModelProviderTesting(true);
+    setModelProviderMessage(null);
+
+    try {
+      const result = await testProviderConnection({
+        provider: modelProviderDraft.provider,
+        model: modelProviderDraft.model,
+        endpoint: modelProviderDraft.endpoint,
+        apiKey: await modelProviderApiKeyForSubmit(),
+        clearApiKey: modelProviderDraft.clearApiKey,
+        thinking: modelProviderDraft.thinking,
+        reasoningEffort: modelProviderDraft.reasoningEffort,
+      });
+
+      setModelProviderMessage(
+        result.ok && result.connected !== false
+          ? WORKBENCH.modelProviderTestSuccess
+          : result.message || WORKBENCH.modelProviderTestFailure,
+      );
+    } catch (error) {
+      const detail = errorDetail(error);
+      setModelProviderMessage(
+        detail ? WORKBENCH.modelProviderTestFailureDetail(detail) : WORKBENCH.modelProviderTestFailure,
+      );
+    } finally {
+      setModelProviderTesting(false);
+    }
+  };
+
+  const handleModelProviderSave = async () => {
+    if (modelProviderSaving) return;
+    setModelProviderSaving(true);
+    setModelProviderMessage(null);
+
+    try {
+      const state = await saveAndApplyModelProviderConfig({
+        provider: modelProviderDraft.provider,
+        model: modelProviderDraft.model,
+        endpoint: modelProviderDraft.endpoint,
+        apiKey: await modelProviderApiKeyForSubmit(),
+        clearApiKey: modelProviderDraft.clearApiKey,
+        thinking: modelProviderDraft.thinking,
+        reasoningEffort: modelProviderDraft.reasoningEffort,
+      });
+
+      setModelProviderState(state);
+      setModelProviderDraft(modelProviderDraftFromState(state));
+      setModelProviderDialogOpen(false);
+      await refreshLlmHealth();
+    } catch (error) {
+      const detail = errorDetail(error);
+      setModelProviderMessage(
+        detail ? WORKBENCH.modelProviderSaveFailureDetail(detail) : WORKBENCH.modelProviderSaveFailure,
+      );
+    } finally {
+      setModelProviderSaving(false);
+    }
+  };
+
   const openTraceDialog = (turnId: string, traceSummary?: Record<string, unknown>) => {
     const summary = toAuthorTraceSummary(traceSummary);
     if (!summary) return;
@@ -1158,6 +1436,26 @@ export function WorkspaceChat() {
     llmConnected && llmModel
       ? WORKBENCH.modelStatusTitle(llmModel)
       : WORKBENCH.modelDisconnectedTitle;
+  const selectedProviderOption = modelProviderState
+    ? providerOption(modelProviderState.options, modelProviderState.selectedProvider)
+    : null;
+  const draftProviderOption = modelProviderState
+    ? providerOption(modelProviderState.options, modelProviderDraft.provider)
+    : null;
+  const modelProviderStatusLabel = selectedProviderOption
+    ? selectedProviderOption.label
+    : modelStatusLabel;
+  const modelProviderStatusTitle = selectedProviderOption
+    ? `${providerDisplayName(selectedProviderOption)} · ${modelStatusTitle}`
+    : modelStatusTitle;
+  const modelProviderRequiresModel = modelProviderDraft.provider !== "stub";
+  const modelProviderSaveDisabled =
+    !modelProviderState ||
+    modelProviderSaving ||
+    modelProviderTesting ||
+    modelProviderModelsLoading ||
+    (modelProviderRequiresModel &&
+      (modelProviderDraft.model.trim() === "" || modelProviderModels.length === 0));
 
   return (
     <div className={styles.workbench}>
@@ -1325,12 +1623,270 @@ export function WorkspaceChat() {
         </div>
         <div className={styles.statusGroup}>
           <span className={styles.budgetText}>{taskStatusLabel}</span>
-          <div
-            className={llmBadgeClassName}
-            title={modelStatusTitle}
+          <Dialog.Root
+            open={modelProviderDialogOpen}
+            onOpenChange={handleModelProviderDialogOpenChange}
           >
-            {modelStatusLabel}
-          </div>
+            <Dialog.Trigger asChild>
+              <button
+                className={`${llmBadgeClassName} ${styles.modelStatusButton}`}
+                type="button"
+                title={modelProviderStatusTitle}
+              >
+                <Settings2 size={13} aria-hidden="true" />
+                <span className={styles.modelStatusValue}>{modelProviderStatusLabel}</span>
+              </button>
+            </Dialog.Trigger>
+            <Dialog.Portal>
+              <Dialog.Overlay className={styles.dialogOverlay} />
+              <Dialog.Content className={`${styles.dialogContent} ${styles.providerDialogContent}`}>
+                <Dialog.Title className={styles.dialogTitle}>
+                  {WORKBENCH.modelProviderTitle}
+                </Dialog.Title>
+                <Dialog.Description className={styles.dialogDescription}>
+                  {WORKBENCH.modelProviderDescription}
+                </Dialog.Description>
+                {modelProviderState && (
+                  <>
+                    <label className={styles.dialogLabel} htmlFor="model-provider-select">
+                      {WORKBENCH.modelProviderField}
+                    </label>
+                    <select
+                      id="model-provider-select"
+                      className={styles.dialogInput}
+                      value={modelProviderDraft.provider}
+                      disabled={modelProviderSaving || modelProviderTesting}
+                      onChange={(event) => updateModelProviderDraftProvider(event.target.value as ProviderId)}
+                    >
+                      {modelProviderState.options.providers.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+
+                    {draftProviderOption?.supports_endpoint && (
+                      <>
+                        <label className={styles.dialogLabel} htmlFor="model-provider-endpoint-input">
+                          {WORKBENCH.modelProviderEndpointField}
+                        </label>
+                        <input
+                          id="model-provider-endpoint-input"
+                          className={styles.dialogInput}
+                          value={modelProviderDraft.endpoint}
+                          maxLength={200}
+                          disabled={modelProviderSaving || modelProviderTesting}
+                          onChange={(event) => {
+                            setModelProviderModels([]);
+                            setModelProviderModelsMessage(null);
+                            setModelProviderDraft((prev) => ({
+                              ...prev,
+                              endpoint: event.target.value,
+                              model: "",
+                            }));
+                          }}
+                        />
+                      </>
+                    )}
+
+                    {draftProviderOption?.supports_api_key && (
+                      <>
+                        <label className={styles.dialogLabel} htmlFor="model-provider-api-key-input">
+                          {WORKBENCH.modelProviderApiKeyField}
+                        </label>
+                        <input
+                          id="model-provider-api-key-input"
+                          className={styles.dialogInput}
+                          type="password"
+                          value={modelProviderDraft.apiKey}
+                          maxLength={200}
+                          autoComplete="off"
+                          placeholder={
+                            modelProviderDraft.apiKeyConfigured
+                              ? WORKBENCH.modelProviderApiKeyPlaceholder
+                              : undefined
+                          }
+                          disabled={
+                            modelProviderSaving ||
+                            modelProviderTesting ||
+                            modelProviderDraft.clearApiKey
+                          }
+                          onChange={(event) => {
+                            setModelProviderModels([]);
+                            setModelProviderModelsMessage(null);
+                            setModelProviderDraft((prev) => ({
+                              ...prev,
+                              apiKey: event.target.value,
+                              clearApiKey: false,
+                              model: "",
+                            }));
+                          }}
+                        />
+                        {modelProviderDraft.apiKeyConfigured && (
+                          <div className={styles.dialogHint}>
+                            {WORKBENCH.modelProviderApiKeyConfigured}
+                          </div>
+                        )}
+                        {modelProviderDraft.apiKeyConfigured && (
+                          <label className={styles.dialogCheckboxRow}>
+                            <input
+                              type="checkbox"
+                              checked={modelProviderDraft.clearApiKey}
+                              disabled={modelProviderSaving || modelProviderTesting}
+                              onChange={(event) => {
+                                setModelProviderModels([]);
+                                setModelProviderModelsMessage(null);
+                                setModelProviderDraft((prev) => ({
+                                  ...prev,
+                                  apiKey: "",
+                                  clearApiKey: event.target.checked,
+                                  model: "",
+                                }));
+                              }}
+                            />
+                            <span>{WORKBENCH.modelProviderClearApiKey}</span>
+                          </label>
+                        )}
+                      </>
+                    )}
+
+                    <label className={styles.dialogLabel} htmlFor="model-provider-model-input">
+                      {WORKBENCH.modelProviderModelField}
+                    </label>
+                    <div className={styles.modelSelectRow}>
+                      <select
+                        id="model-provider-model-input"
+                        className={styles.dialogInput}
+                        value={modelProviderDraft.model}
+                        disabled={
+                          modelProviderSaving ||
+                          modelProviderTesting ||
+                          modelProviderModelsLoading ||
+                          modelProviderModels.length === 0
+                        }
+                        onChange={(event) =>
+                          setModelProviderDraft((prev) => ({ ...prev, model: event.target.value }))
+                        }
+                      >
+                        {modelProviderModels.length > 0 ? (
+                          modelProviderModels.map((model) => (
+                            <option key={model.id} value={model.id}>
+                              {model.label}
+                            </option>
+                          ))
+                        ) : (
+                          <option value={modelProviderDraft.model}>
+                            {modelProviderModelsLoading
+                              ? WORKBENCH.modelProviderModelsLoading
+                              : modelProviderDraft.model || WORKBENCH.modelProviderNoModels}
+                          </option>
+                        )}
+                      </select>
+                      <button
+                        className={styles.modelRefreshButton}
+                        type="button"
+                        aria-label={WORKBENCH.modelProviderRefreshModels}
+                        title={WORKBENCH.modelProviderRefreshModels}
+                        disabled={modelProviderSaving || modelProviderTesting || modelProviderModelsLoading}
+                        onClick={() => {
+                          void loadModelProviderModels(modelProviderDraft, modelProviderState);
+                        }}
+                      >
+                        <RefreshCw size={14} aria-hidden="true" />
+                      </button>
+                    </div>
+                    {modelProviderModelsMessage && (
+                      <div className={styles.dialogHint}>{modelProviderModelsMessage}</div>
+                    )}
+
+                    {draftProviderOption?.supports_thinking && (
+                      <>
+                        <label className={styles.dialogCheckboxRow}>
+                          <input
+                            type="checkbox"
+                            checked={modelProviderDraft.thinking === "enabled"}
+                            disabled={modelProviderSaving || modelProviderTesting}
+                            onChange={(event) =>
+                              setModelProviderDraft((prev) => ({
+                                ...prev,
+                                thinking: event.target.checked ? "enabled" : "disabled",
+                              }))
+                            }
+                          />
+                          <span>{WORKBENCH.modelProviderThinkingField}</span>
+                          <span className={styles.dialogHint}>
+                            {modelProviderDraft.thinking === "enabled"
+                              ? WORKBENCH.modelProviderThinkingEnabled
+                              : WORKBENCH.modelProviderThinkingDisabled}
+                          </span>
+                        </label>
+                        {modelProviderDraft.thinking === "enabled" && (
+                          <>
+                            <label
+                              className={styles.dialogLabel}
+                              htmlFor="model-provider-reasoning-input"
+                            >
+                              {WORKBENCH.modelProviderReasoningField}
+                            </label>
+                            <input
+                              id="model-provider-reasoning-input"
+                              className={styles.dialogInput}
+                              value={modelProviderDraft.reasoningEffort}
+                              maxLength={200}
+                              disabled={modelProviderSaving || modelProviderTesting}
+                              onChange={(event) =>
+                                setModelProviderDraft((prev) => ({
+                                  ...prev,
+                                  reasoningEffort: event.target.value,
+                                }))
+                              }
+                            />
+                          </>
+                        )}
+                      </>
+                    )}
+                  </>
+                )}
+                {modelProviderMessage && (
+                  <div className={styles.dialogStatus}>{modelProviderMessage}</div>
+                )}
+                <div className={styles.dialogActions}>
+                  <button
+                    className={styles.btnSecondary}
+                    type="button"
+                    disabled={modelProviderSaving || modelProviderTesting}
+                    onClick={() => setModelProviderDialogOpen(false)}
+                  >
+                    {BUTTON.cancel}
+                  </button>
+                  <button
+                    className={styles.btnSecondary}
+                    type="button"
+                    disabled={!modelProviderState || modelProviderSaving || modelProviderTesting}
+                    onClick={() => {
+                      void handleModelProviderTest();
+                    }}
+                  >
+                    {modelProviderTesting
+                      ? WORKBENCH.modelProviderTesting
+                      : WORKBENCH.modelProviderTest}
+                  </button>
+                  <button
+                    className={styles.sendBtn}
+                    type="button"
+                    disabled={modelProviderSaveDisabled}
+                    onClick={() => {
+                      void handleModelProviderSave();
+                    }}
+                  >
+                    {modelProviderSaving
+                      ? WORKBENCH.modelProviderSaving
+                      : WORKBENCH.modelProviderSave}
+                  </button>
+                </div>
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
           <div 
             className={serviceBadgeClassName}
           >

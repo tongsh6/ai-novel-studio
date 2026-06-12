@@ -6,6 +6,7 @@
 #   bash scripts/tauri_slice_verify.sh --list
 #   bash scripts/tauri_slice_verify.sh au03-long-session-compression
 #   bash scripts/tauri_slice_verify.sh au03-context-source-ui
+#   bash scripts/tauri_slice_verify.sh su01-model-provider-switching
 #   bash scripts/tauri_slice_verify.sh au02-candidate-adoption-bridge
 #   bash scripts/tauri_slice_verify.sh au05-adoption-safety-freshness
 #   bash scripts/tauri_slice_verify.sh au05-stale-conflict-cross-work-freshness
@@ -66,6 +67,7 @@ Usage:
 
 Implemented external UI driver slice ids:
   au02-candidate-adoption-bridge
+  su01-model-provider-switching
   au05-adoption-safety-freshness
   au05-stale-conflict-cross-work-freshness
   au05-conflict-cross-work-recovery
@@ -116,7 +118,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -132,7 +134,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -151,6 +153,24 @@ mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR"
 
 PHX_PID=""
 TAURI_PID=""
+TAURI_CONF="$PROJECT_ROOT/frontend/src-tauri/tauri.conf.json"
+TAURI_CONF_BACKUP=""
+
+restore_tauri_conf() {
+  if [[ -n "$TAURI_CONF_BACKUP" && -f "$TAURI_CONF_BACKUP" ]]; then
+    cp "$TAURI_CONF_BACKUP" "$TAURI_CONF" 2>/dev/null || true
+    rm -f "$TAURI_CONF_BACKUP" 2>/dev/null || true
+  fi
+}
+
+sync_tauri_conf() {
+  local vite_port="$1"
+  local phoenix_port="$2"
+
+  TAURI_DEV_URL="http://127.0.0.1:${vite_port}" \
+  TAURI_CONNECT_SRC="http://localhost:${phoenix_port} http://127.0.0.1:${phoenix_port} ws://localhost:${phoenix_port} ws://127.0.0.1:${phoenix_port}" \
+    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g' "$TAURI_CONF"
+}
 
 reset_test_db() {
   cd "$PROJECT_ROOT"
@@ -166,6 +186,7 @@ cleanup() {
   wait "$TAURI_PID" 2>/dev/null || true
   kill_process_tree "$PHX_PID"
   wait "$PHX_PID" 2>/dev/null || true
+  restore_tauri_conf
   reset_test_db >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -206,6 +227,9 @@ wait_for_tauri_dev_app() {
 
 native_action_description() {
   case "$SLICE_ID" in
+    su01-model-provider-switching)
+      echo "open model settings from real workbench -> select Stub provider -> test connection -> save -> send the next message -> verify provider_gateway routed that turn through stub without losing the dialogue"
+      ;;
     au02-candidate-adoption-bridge)
       echo "send fuzzy creative input -> click visible candidate continuation -> click authorized candidate adoption -> verify adoption boundary decision"
       ;;
@@ -481,6 +505,9 @@ echo "[tauri-slice-verify] artifacts: $ARTIFACT_DIR"
 
 cd "$PROJECT_ROOT"
 reset_test_db
+TAURI_CONF_BACKUP="$(mktemp -t ai-novel-tauri-slice-conf.XXXXXX)"
+cp "$TAURI_CONF" "$TAURI_CONF_BACKUP"
+sync_tauri_conf "$VITE_PORT" "$PHOENIX_PORT"
 
 case "$SLICE_ID" in
   au03-context-source-ui)

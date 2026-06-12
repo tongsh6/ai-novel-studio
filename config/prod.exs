@@ -29,6 +29,9 @@ lmstudio_timeout_ms =
 anthropic_timeout_ms =
   System.get_env("NOVEL_ANTHROPIC_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
 
+deepseek_timeout_ms =
+  System.get_env("NOVEL_DEEPSEEK_TIMEOUT_MS", "#{llm_timeout_ms}") |> String.to_integer()
+
 config :novel_agent, :provider,
   default: System.get_env("NOVEL_PROVIDER_DEFAULT", "lmstudio") |> String.to_atom()
 
@@ -41,6 +44,14 @@ config :novel_agent, NovelAgent.Provider.LMStudio,
   endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
   model: System.get_env("NOVEL_LMSTUDIO_MODEL", "qwen/qwen3.5-122b-a10b"),
   timeout: lmstudio_timeout_ms
+
+config :novel_agent, NovelAgent.Provider.DeepSeek,
+  api_key: System.get_env("NOVEL_DEEPSEEK_API_KEY"),
+  endpoint: System.get_env("NOVEL_DEEPSEEK_ENDPOINT", "https://api.deepseek.com"),
+  model: System.get_env("NOVEL_DEEPSEEK_MODEL", "deepseek-v4-flash"),
+  timeout: deepseek_timeout_ms,
+  thinking: System.get_env("NOVEL_DEEPSEEK_THINKING", "disabled"),
+  reasoning_effort: System.get_env("NOVEL_DEEPSEEK_REASONING_EFFORT")
 
 # 数据库：DATABASE_URL 优先（PostgreSQL），否则用本地 SQLite
 if db_url = System.get_env("DATABASE_URL") do
