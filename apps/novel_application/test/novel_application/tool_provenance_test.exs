@@ -281,6 +281,21 @@ defmodule NovelApplication.ToolProvenanceTest do
       refute tool_prompt =~ "本章已采纳正文"
     end
 
+    test "long prior prose is trimmed to the recent tail (small-context model safety)" do
+      # 3000 字前文：注入必须只保留末尾（衔接只需最近文脉），并标注省略。
+      early = String.duplicate("早", 1000)
+      late = String.duplicate("近", 2000)
+
+      tool_prompt =
+        first_tool_prompt(:continuation, "第01章：底层灵气账单", "接着往下写", fn _w, _t ->
+          early <> late
+        end)
+
+      assert tool_prompt =~ "最近的部分"
+      assert tool_prompt =~ String.duplicate("近", 100)
+      refute tool_prompt =~ "早早"
+    end
+
     test "continuation falls back to latest accepted chapter when target_chapter missing" do
       # 真实 LLM 常识别出 continuation 意图但漏掉 target_chapter；应用层用 current_chapters 回退到最新章。
       {:ok, prompts} = Agent.start_link(fn -> [] end)

@@ -13,6 +13,8 @@
 //   DOGFOOD_ARTIFACT_DIR    产物目录
 //   DOGFOOD_MAX_CHAPTERS    本次最多推进的章数（0 = 不限）
 //   DOGFOOD_MIN_WORDS       每章有效字数下限（默认 1000）
+//   DOGFOOD_TARGET_WORDS    全书目标有效字数（0 = 不扩章；>0 时全部章达标而总字数
+//                           未达标则自动发增量规划指令扩章，消费 p1-plan-incremental 链）
 //   DOGFOOD_PROVIDER        slice_verify | lmstudio（仅记录进 summary）
 import { chromium } from "playwright";
 import fs from "node:fs";
@@ -23,6 +25,7 @@ const artifactDir =
   process.env.DOGFOOD_ARTIFACT_DIR ?? path.resolve("..", "artifacts", "novel-output", "p1-100k-dogfood");
 const maxChapters = Number(process.env.DOGFOOD_MAX_CHAPTERS ?? "0");
 const minWords = Number(process.env.DOGFOOD_MIN_WORDS ?? "1000");
+const targetWords = Number(process.env.DOGFOOD_TARGET_WORDS ?? "0");
 const provider = process.env.DOGFOOD_PROVIDER ?? "lmstudio";
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 
@@ -220,6 +223,50 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
   return draftFrame.body.turn_id;
 }
 
+// 增量扩章：作者自然语言要求接续生成新一批章节计划并采纳（p1-plan-incremental 链）。
+async function planMoreChapters(page) {
+  const fromIndex = frames.length;
+  await page
+    .locator(chatInputSelector)
+    .fill("已有章节剧情推进得不错，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。");
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const outlineFrame = await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.tool_result?.tool_name === "plot_outline" &&
+      f.body?.tool_result?.output?.artifact_type === "outline_draft" &&
+      Number(f.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 5,
+    "No incremental outline_draft turn_result while expanding the plan",
+    300_000,
+    fromIndex,
+  );
+  const pending = outlineFrame.body.adoption_state.pending[0];
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("确认创建"),
+    null,
+    { timeout: 15_000 },
+  );
+  await page.getByRole("button", { name: "确认创建" }).last().click();
+
+  await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "turn_result" &&
+      f.body?.truthfulness?.artifact_adopted === true &&
+      (f.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === pending.artifact_id,
+      ),
+    "No adoption turn_result while expanding the plan",
+    120_000,
+    fromIndex,
+  );
+
+  return Number(pending.payload?.chapter_count ?? 0);
+}
+
 async function driveChapterTurn(page, chapter) {
   const words = Number(chapter.word_count ?? 0);
   const summary = String(chapter.summary ?? "").trim();
@@ -358,9 +405,34 @@ try {
   // maxChapters 限制的是“本次推进了多少个不同的章”，0 = 跑到全部达标。
   const advancedTitles = new Set();
   const skippedTitles = new Set();
+  let planFailures = 0;
 
   for (;;) {
     const chapter = nextPendingChapter(toc, skippedTitles);
+
+    // 全部章达标但总字数未到目标 → 增量扩章（targetWords=0 时不扩，保持原行为）。
+    if (!chapter && targetWords > 0 && Number(toc.total_word_count ?? 0) < targetWords) {
+      if (planFailures >= 2) {
+        log("plan expansion failed twice — stopping");
+        break;
+      }
+
+      try {
+        const added = await planMoreChapters(page);
+        toc = await readToc(page);
+        log(
+          `plan expanded: +${added} chapters (now ${flatChapters(toc).length} chapters, ${toc.total_word_count} words)`,
+        );
+        appendProgress({ plan_expanded_by: added, chapter_count: flatChapters(toc).length });
+      } catch (error) {
+        planFailures += 1;
+        appendProgress({ plan_expansion_error: String(error?.message ?? error) });
+        log(`plan expansion error: ${error?.message ?? error}`);
+        toc = await readToc(page);
+      }
+      continue;
+    }
+
     if (!chapter) {
       log("no pending chapters left (all at min words or skipped)");
       break;

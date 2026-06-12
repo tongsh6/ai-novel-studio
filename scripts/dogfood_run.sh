@@ -9,8 +9,10 @@
 # 用法：
 #   bash scripts/dogfood_run.sh [--chapters N] [--min-words W] [--provider lmstudio|slice_verify] [--resume]
 #
-#   --chapters N    本次最多推进 N 个不同的章（0 = 跑到全部达标；默认 0）
-#   --min-words W   每章有效字数下限（默认 1000）
+#   --chapters N      本次最多推进 N 个不同的章（0 = 跑到全部达标；默认 0）
+#   --min-words W     每章有效字数下限（默认 1000）
+#   --target-words T  全书目标有效字数（0 = 不扩章；>0 时全部章达标而总字数未达
+#                     则自动增量规划扩章后继续，直到达标）
 #   --provider      默认 lmstudio（狗粮要真实产出）；slice_verify 仅用于调试 runner
 #   --resume        断点续跑：不重置数据库、不重新 seed，从当前作品事实继续
 #                   （这也是 P1 Done「重启后能继续生成下一章」的真实演练）
@@ -27,6 +29,7 @@ VITE_WS_URL="ws://localhost:${VITE_PORT}/socket"
 
 CHAPTERS=0
 MIN_WORDS=1000
+TARGET_WORDS=0
 PROVIDER="lmstudio"
 RESUME=0
 
@@ -36,6 +39,8 @@ while [[ $# -gt 0 ]]; do
       CHAPTERS="$2"; shift 2 ;;
     --min-words)
       MIN_WORDS="$2"; shift 2 ;;
+    --target-words)
+      TARGET_WORDS="$2"; shift 2 ;;
     --provider)
       PROVIDER="$2"; shift 2 ;;
     --resume)
@@ -139,12 +144,13 @@ TAURI_PID=$!
 wait_for_tauri_dev_app "$ARTIFACT_DIR/tauri.log" 120
 wait_for_url "http://127.0.0.1:${VITE_PORT}" "Vite"
 
-echo "[dogfood] runner driving real workbench (provider=$PROVIDER chapters=$CHAPTERS min-words=$MIN_WORDS resume=$RESUME)"
+echo "[dogfood] runner driving real workbench (provider=$PROVIDER chapters=$CHAPTERS min-words=$MIN_WORDS target-words=$TARGET_WORDS resume=$RESUME)"
 
 SLICE_VERIFY_BASE_URL="http://127.0.0.1:${VITE_PORT}" \
   DOGFOOD_ARTIFACT_DIR="$ARTIFACT_DIR" \
   DOGFOOD_MAX_CHAPTERS="$CHAPTERS" \
   DOGFOOD_MIN_WORDS="$MIN_WORDS" \
+  DOGFOOD_TARGET_WORDS="$TARGET_WORDS" \
   DOGFOOD_PROVIDER="$PROVIDER" \
   node slice-verify/dogfood-runner.mjs
 

@@ -29,20 +29,28 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   @impl true
   def generate(%CreativeRequest{} = request, complete_fn) when is_function(complete_fn, 1) do
-    prompt = build_prompt(request)
+    request
+    |> build_prompt()
+    |> do_generate(complete_fn, _retry? = true)
+  end
 
+  def generate(%CreativeRequest{}, _complete_fn) do
+    provider_error("complete_fn_required", "creative provider requires an injected complete_fn")
+  end
+
+  defp do_generate(prompt, complete_fn, retry?) do
     case complete_fn.(prompt) do
       {:ok, %ProviderResult{content: content}} when is_binary(content) ->
-        parse_content(content, nil)
+        parse_or_retry(content, nil, prompt, complete_fn, retry?)
 
       {:ok, %{content: content} = result} when is_binary(content) ->
-        parse_content(content, provider_call_ref(result))
+        parse_or_retry(content, provider_call_ref(result), prompt, complete_fn, retry?)
 
       {:ok, %{"content" => content} = result} when is_binary(content) ->
-        parse_content(content, provider_call_ref(result))
+        parse_or_retry(content, provider_call_ref(result), prompt, complete_fn, retry?)
 
       {:ok, content} when is_binary(content) ->
-        parse_content(content, nil)
+        parse_or_retry(content, nil, prompt, complete_fn, retry?)
 
       {:error, error} ->
         provider_error("provider_error", inspect(error))
@@ -55,8 +63,40 @@ defmodule NovelAgent.CreativeProvider.Real do
     end
   end
 
-  def generate(%CreativeRequest{}, _complete_fn) do
-    provider_error("complete_fn_required", "creative provider requires an injected complete_fn")
+  # 真实 LLM 偶发输出非法 JSON（长上下文下字符串值内裸换行、JSON 外多余文字等），
+  # 与 Planner 的 frame JSON 重试同模式：携带失败片段重试一次，再失败才向上报错。
+  defp parse_or_retry(content, provider_call_ref, prompt, complete_fn, retry?) do
+    result = parse_content(content, provider_call_ref)
+
+    if retry? and invalid_json?(result) do
+      prompt
+      |> json_correction_prompt(content)
+      |> do_generate(complete_fn, false)
+    else
+      result
+    end
+  end
+
+  defp invalid_json?(%CreativeProviderResult{
+         status: :error,
+         errors: [%{code: "provider_response_invalid"} | _]
+       }),
+       do: true
+
+  defp invalid_json?(_result), do: false
+
+  defp json_correction_prompt(original_prompt, failed_content) do
+    """
+    你上一次的输出不是合法 JSON，解析失败。请严格重新输出：
+    - 只返回一个合法的 JSON 数组，不要输出 JSON 以外的任何文字
+    - 字符串值内的换行必须写成 \\n 转义，不能出现裸换行
+
+    ## 你的上一次输出（截取前 300 字符）
+    #{String.slice(failed_content, 0, 300)}
+
+    ## 原始任务
+    #{original_prompt}
+    """
   end
 
   # prose_writing：写一章/一段正文，结果应是一段连贯文本，而不是多个互相竞争、

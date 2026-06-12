@@ -230,6 +230,11 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp safe_read_prose(_reader, _work_id, _chapter), do: ""
 
+  # 前文注入上限：续写「衔接」只需要最近文脉；不裁剪则章越写越长后，
+  # prompt 会超出小上下文窗口模型的 n_ctx（实测 LM Studio n_ctx=4096 时
+  # ~1000 字章的续写请求被 HTTP 400 拒绝），章永远无法继续累积。
+  @prior_prose_max_chars 2000
+
   defp prior_prose_section(_action, ""), do: ""
 
   defp prior_prose_section(action, prose) do
@@ -242,7 +247,17 @@ defmodule NovelApplication.TurnExecutionService do
           "## 本章已采纳正文（请在其后自然衔接续写，承接情节、人物状态与语气，不要重复已写内容，也不要从头另起）"
       end
 
-    heading <> "\n" <> prose
+    heading <> "\n" <> tail_slice(prose, @prior_prose_max_chars)
+  end
+
+  # 取末尾 max 字（最近文脉）；截断时标注前文有省略，避免模型误以为是全文。
+  defp tail_slice(text, max) do
+    if String.length(text) <= max do
+      text
+    else
+      "（本章更早的正文已省略，以下是最近的部分）\n…" <>
+        String.slice(text, String.length(text) - max, max)
+    end
   end
 
   defp tool_context_text(%NovelDomain.DialogueContext{} = context, text) do
