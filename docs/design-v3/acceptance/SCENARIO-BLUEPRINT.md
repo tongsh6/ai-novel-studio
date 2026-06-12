@@ -1,6 +1,6 @@
 # 场景化验收蓝图 / Scenario Acceptance Blueprint
 
-> 最后更新：2026-06-12
+> 最后更新：2026-06-13
 >
 > 目的：把验收从“已有实现对应测试”升级为“完整功能蓝图对应场景”。本文不证明系统已经完成，而是用完整场景地图发现当前系统中不完整、覆盖不足或状态误判的实现。
 
@@ -39,10 +39,11 @@
 
 | 能力链 | 用户目标 | 现有文档 | 当前判断 | 主要缺口 |
 |---|---|---|---|---|
-| 系统启动与模型配置 | 本地启动后知道 AI 是否可用，可配置/测试供应商 | SU-01 | 0/10 已验收；2/10 有基础设施 | health 基础具备但不返回 model；无供应商切换、Key/endpoint 管理、测试连接 UI |
+| 系统启动与模型配置 | 本地启动后知道 AI 是否可用，可配置/测试供应商 | SU-01 | 6/10 最小真实 Tauri 证据；3/10 已实现但缺真实桌面矩阵 | DeepSeek、运行时切换 API、供应商实时模型列表、工作台模型设置 UI、Tauri 偏好/Keychain、provider/model 审计日志已实现；`su01-model-provider-switching` 已验收 Stub 切换主路径，仍缺 API Key/endpoint/DeepSeek/LM Studio 异常矩阵和跨平台 secret 策略 |
 | 作品空间管理 | 创建、切换、恢复作品，保证上下文隔离 | SU-02 | 0/10 完整验收；5/10 部分/基础设施 | 后端 CRUD、启动去 mock、Channel work_id 透传已推进；运行时切换 UI、rejoin、pending 隔离、跨作品隔离验收不足 |
 | AI 身份与显示 | 给 AI 起名，且按作品隔离 | SU-03 | 0/6 已验收；1/6 仅硬编码默认值 | 组件硬编码 “AI”；无设置入口、持久化、按作品隔离和“仅 UI 展示”验收 |
 | 自然创作对话 | 作者能持续自然讨论，不被表单化打断 | AU-01/AU-02 | AU-01: 0/13；AU-02: 4/12 已有真实 Tauri 前后端验收 | 普通聊天、候选继续探索和候选采纳桥接已有 Tauri 证据；仍缺完整 AU-01/AU-02 覆盖重算、异常恢复、多轮追问和真实 LLM 质量复验 |
+| AI 引导式创作会话结构 | AI 每轮基于小说层、当前作品层、本轮引导层组织 message，并结构化判断探索/结构/执行/质量/澄清/确认 | AU-11/VS-00D | AU-11: 0/4 完整验收；设计入口已补 | 缺 AIMessageEnvelope 代码对象或 trace 重建、guidance_mode 过渡 proof、WorkState projection 和 prose_writing envelope proof |
 | 上下文与记忆 | AI 使用最新作品背景、当前会话、历史会话、记忆、行为上下文，不编造 | AU-03/AU-09 | AU-03: 0/20 完整前后端验收；5/20 有局部证据；AU-09: 0/14 完整前后端验收；9/14 有局部证据 | 缺作品内会话模型、会话列表/搜索/归档、历史会话只读态；memory_summary/behavior_summary 未接入；记忆管理 API、召回、溯源未闭环 |
 | 执行与确认 | AI 可提计划，系统负责门禁、确认和重审 | AU-04/AU-06 | AU-04: 0/18；AU-06: 0/17 完整真实前后端验收 | 后端门禁和 BehaviorState 打开较强；真实入口确认卡/author_action、behavior_state 消费、resolution/history、幂等、TTL、ConfirmationBinding、完整 re-gate lifecycle 不足 |
 | 创作产物与采纳 | 产出默认草稿，采纳后才进入作品事实 | AU-05 | AU-05: 0/18 完整真实前后端验收；采纳/放弃/修改后采用已有最小真实 Tauri 闭环 | 真实采纳入口已接 AdoptionWorkflow；StateTrace、revision/workbox、freshness/conflict 完整矩阵仍不足 |
@@ -104,6 +105,7 @@ ID:
 | P0 | 确认幂等与重审闭环 | 高风险计划 → 确认 → 重新 gate → 工具执行；重复点击不重复执行 | AU-04/AU-06 | 补集成/补实现 | 执行权是 v3 核心安全边界 |
 | P0 | 候选方向操作闭环 | 模糊输入 → 候选方向 → 点选某方向继续探索 → 明确采纳时进入 adoption boundary | AU-02/AU-05/AU-10 | 已闭环 | `au02-candidate-continuation` 与 `au02-candidate-adoption-bridge` 已提供真实 Tauri 证据；高风险候选 confirmation checkpoint 见 `au05-adoption-safety-freshness`，stale restored candidate rejection checkpoint 见 `au05-stale-conflict-cross-work-freshness`，cross-work recovery checkpoint 见 `au05-conflict-cross-work-recovery`，canon conflict recovery checkpoint 见 `au05-canon-conflict-recovery` |
 | P1 | 记忆召回端到端 | 新建/确认记忆 → 对话引用 → trace 显示引用来源 → 无上下文不编造 | AU-03/AU-09/AU-07 | 补集成 | 记忆是小说长期创作的关键差异点 |
+| P0 | AI 引导式创作 message 闭环 | 作者说“这一章不够爽”时，Planner/Provider 调用能重建 NovelLayer / WorkState / TurnGuidance 三层 message，缺上下文不编造，进入重写仍需 Orchestrator | AU-11/VS-00D/AU-07 | 补设计到实现闭环 | 这是“AI 引导作者创作”的核心，不补会退化为 prompt 文案优化 |
 | P0 | 作品内会话管理闭环 | 一个作品下 N 个会话；列表/搜索/归档；历史会话只读；最新作品背景仍生效 | AU-03/SU-02/AU-07 | 新增/补集成 | 作品长期创作不能只有一条无限聊天流；会话和作品背景分层是上下文正确性的基础 |
 | P1 | 采纳到阅读投影 | 生成草稿 → 采纳 → projection hint → 阅读模式 TOC/正文刷新 | AU-05/AU-08 | 已有最小闭环/继续补完整投影 | `au08-adoption-reading-projection` 已证明采纳后正文可读；剩余 projection job/stale/rebuild/cross-work/no-write |
 | P1 | TaskRunner 长任务实时反馈 | 长耗时任务 RUNNING/CHECKPOINT/COMPLETED/FAILED 真实 streaming 到 UI | AU-10/VS-06+ | 补集成 | 当前只有同步工具最小 task_state，不能代表完整长任务 |
@@ -159,5 +161,6 @@ ID:
 | SC-AU04-01 | 确认幂等 | 同一 `idempotency_key` 重复确认只执行一次 |
 | SC-AU02-01 | 候选方向操作闭环 | 输入模糊创意得到候选；点选候选继续探索；明确采纳时进入 adoption boundary |
 | SC-AU05-01 | 采纳到阅读投影 | 采纳章节片段后，阅读模式可看到该章节或明确显示 projection 待刷新 |
+| SC-AU11-01 | AI 引导质量诊断 | 输入“这一章不够爽，主角赢得太轻了”；trace 能重建三层 message；缺当前章上下文时明确缺失 |
 
 这些 case 的作用不是证明系统已经可用，而是刻意把当前实现压到完整用户闭环上，暴露不完整处。

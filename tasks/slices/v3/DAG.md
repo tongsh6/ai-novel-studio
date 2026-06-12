@@ -1,6 +1,6 @@
 # v3 承重竖切面 DAG
 
-> 状态：VS-00 ~ VS-08 done；VS-09 done（最小核心，剩余高级场景待续）；VS-10 done（2026-05-14，已补原生 Tauri 验证）；VS-11 done（2026-05-18，桌面 stage 进程所有权收束）
+> 状态：VS-00 ~ VS-08 done；VS-09 done（最小核心，剩余高级场景待续）；VS-10 done（2026-05-14，已补原生 Tauri 验证）；VS-11 done（2026-05-18，桌面 stage 进程所有权收束）；VS-00D docs-ready（2026-06-13，AI 引导式创作三层 + message contract）
 >
 > 角色：把 `docs/design-v3/00c-state-and-contract-atlas.md` §9 的候选入口排序为 v3 承重竖切面 DAG。B1-B14 已闭环；下一阶段入口待从 acceptance gap / product slice ledger 中挑选。
 >
@@ -60,6 +60,10 @@ flowchart TD
     VS08["VS-08 End-to-End Integration Tests"]
   end
 
+  subgraph Batch16["Batch 16: Authoring Intelligence Contract Reconciliation"]
+    VS00D["VS-00D AI-Guided Authoring Message Contract"]
+  end
+
   VS00 --> VS00A
   VS00A --> VS00B
   VS00B --> VS01
@@ -79,6 +83,10 @@ flowchart TD
   VS05 --> VS08
   VS06 --> VS08
   VS07 --> VS08
+  VS00A --> VS00D
+  VS00B --> VS00D
+  VS02A --> VS00D
+  VS06 --> VS00D
 ```
 
 ---
@@ -102,6 +110,7 @@ flowchart TD
 | B13 | VS-09 | Work Management Closed Loop（消除 mock_work_123，落地 SU-02 核心 7 场景）| **done**（最小核心）|
 | B14 | VS-10 | Observability Spine（业务日志体系骨架 + ADR-0018 schema 冻结）| **done** |
 | B15 | VS-11 | Desktop Stage Process Ownership（dev/stage 启停所有权与窗口关闭契约）| **done** |
+| B16 | VS-00D | AI 引导式创作三层 + message contract，证明每次创作相关 AI 调用可重建 NovelLayer / WorkState / TurnGuidance | **docs-ready** |
 
 说明：
 
@@ -111,6 +120,7 @@ flowchart TD
 - VS-04 依赖 VS-02A 和 VS-03：candidate / adoption 需要真实创作草稿来源，也需要 confirmation / behavior lifecycle。
 - VS-05 依赖 VS-03 和 VS-04：UI action roundtrip 必须先有 durable behavior 和 adoption boundary。
 - VS-06 放在首批末尾：replay surface 需要前面至少出现 decision、tool、创作草稿、behavior 和 adoption 的代表性 trace。
+- VS-00D 是后置 contract reconciliation：它不推翻已完成主链，而是把 VS-00A 的创作伙伴体验、VS-00B 的上下文 grounding、VS-02A 的创作产物和 VS-06 的 trace/replay 收束到统一 AI message envelope。
 
 ---
 
@@ -131,6 +141,7 @@ flowchart TD
 | VS-07 | Integration Slice | VS-05 (done), VS-06 (done), Tauri 2 + React 19 + TypeScript 6 | 前端 Channel 连接与 Tauri dev 可运行 | VS-08 | `TurnResult` JSON / AvailableAction / Phoenix Channel WebSocket / Tauri Workbench UI |
 | VS-08 | Validation Slice | VS-07 (done), real LM Studio, real SQLite3 | done | — | full umbrella chain: web → application → agent → domain → persistence |
 | VS-11 | Infrastructure Slice | Desktop shell contract, stage walkthrough gap | none | cleaner walkthrough / Tauri verification | dev/stage launcher ownership / Tauri close event |
+| VS-00D | Contract Reconciliation Slice | VS-00A, VS-00B, VS-02A, VS-06, VS-00D contract pack, AU-11 | implementation plan not authorized | future Planner / Context / Provider message slices | `AIMessageEnvelope` / `NovelLayerMessage` / `WorkStateMessage` / `TurnGuidanceMessage` |
 
 ---
 
@@ -171,6 +182,18 @@ Slice 文件：`tasks/slices/v3/VS-00B-dialogue-context-grounding.md`
 | Boundary | 切过 application context assembly / persistence read model 或测试 stub / agent planner input / TurnResult / trace；不让 agent 直接访问 Repo；不写 production state |
 | Consumer | Application context assembly test 或 planner contract test |
 | Proof | 同一作者输入在有作品上下文时回应引用真实上下文；无上下文时不编造事实；trace 能列出被使用的 context refs |
+
+### VS-00D：AI 引导式创作三层 + Message Contract
+
+Slice 文件：`tasks/slices/v3/VS-00D-ai-guided-authoring-message-contract.md`
+
+| 问题 | 回答 |
+|---|---|
+| Contract | 小说层（NovelLayerMessage）、当前作品层（WorkStateMessage）、本轮引导层（TurnGuidanceMessage）、`AIMessageEnvelope`、`DialogueFrame` / trace 过渡承载、`CreativeDecisionPacket` |
+| Invariant | AI 必须参与创作语义判断；作品状态必须有来源；message envelope 可重建；AI 判断不能越过 Orchestrator 和作者采纳边界 |
+| Boundary | 切过 application context assembly / agent planner message / domain frame validation / creative provider input / trace；不新增并行 Router，不让 provider 自行读取 Repo，不写 production state |
+| Consumer | Planner message、FrameTrace、MicroPlan、CreativeProvider tool input、AU-11 验收场景 |
+| Proof | “这一章不够爽”场景能重建 NovelLayer / WorkState / TurnGuidance 三层 message；缺当前章上下文时不编造；若进入重写仍需 Orchestrator 裁决 |
 
 ### VS-01：MicroPlan 被 Orchestrator 降级或要求确认
 

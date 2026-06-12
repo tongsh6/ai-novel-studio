@@ -76,13 +76,53 @@ Dialogue Planner 负责：
 - 生成候选方向、对比方案、追问与自然语言回应。
 - 把用户自然语言整理为结构化草稿。
 
-### 3.2 Contract-first, not prompt-only
+### 3.2 AI-guided authoring
+
+v3 的默认体验应是 AI 引导作者创作，而不是作者指挥一组离散工具。作者可以从"我想写个更燃的开头""这一章感觉不对""给我一个修仙升级体系"这类不完整表达开始；AI 的责任是把它推进为可创作、可执行、可审计的下一步。
+
+AI 引导作者创作包括四类动作：
+
+| 引导类型 | AI 应做什么 | 不应做什么 |
+|---|---|---|
+| 探索引导 | 帮作者展开题材、主题、人物、冲突、卖点和读者期待 | 立刻要求作者填写固定字段 |
+| 结构引导 | 把想法整理成卷/章/场方向、章节功能、信息释放和伏笔安排 | 把自由讨论直接写入权威大纲 |
+| 执行引导 | 在首稿、续写、重写、修订之间提出下一步建议，并说明依据 | 绕过 Orchestrator 直接执行高风险写入 |
+| 质量引导 | 提醒人物动机、连续性、节奏、读者效果和承诺风险 | 用泛泛的写作建议替代当前作品上下文判断 |
+
+这意味着 Dialogue Planner 的作者可见回应不只是"回答问题"，而是要持续帮助作者完成创作判断：下一步写什么、为什么这样写、有哪些选择、风险在哪里、哪些内容需要确认。系统内部再把这些引导结果落成 DialogueFrame、MicroPlan、CreativeDecisionPacket 和 TurnResult。
+
+AI 引导式创作的 contract 分三层（正式定义见 `contracts/VS-00D-ai-guided-authoring-contract-pack.md`）：
+
+| 层 | 本层回答的问题 | 交互含义 |
+|---|---|---|
+| 小说层 | 什么是有效的小说创作判断 | AI 不是泛聊，而是按欲望、阻力、变化、代价、读者期待、人物动机、章节功能、信息释放、伏笔、连续性、文风、质量门来引导 |
+| 当前作品层 | 这本书现在有什么真实状态 | AI 只能基于 DialogueContext 中有来源的作品状态判断；没有上下文时必须暴露缺失 |
+| 本轮引导层 | 这一轮该怎么推进作者 | Planner 用 AI 做语义判断，系统把判断结构化、校验、留痕，并交给 Orchestrator 控制执行边界 |
+
+这个三层 contract 是交互体验的底座：作者看到的是自然创作引导，系统内部必须能回答“AI 为什么这样引导、基于哪些作品状态、涉及哪些小说要素、下一步是否允许执行”。这些答案不能只存在于产品架构图里；每次调用 AI 时，三层 contract 都必须投影为可重建的 AI message envelope。
+
+### 3.3 Conversation structure is the Agent kernel
+
+v3 是 Agent-native，不是"聊天框 + 工具调用"。每一次用户与 AI 的交互都必须被视为一个 agent turn；这个 turn 的会话结构决定了创作质量上限。
+
+一个有效的小说创作 agent turn 至少要回答：
+
+- 作者此刻是在探索、规划、首稿、续写、重写、修订还是维护；
+- 当前写作坐标指向哪部作品、哪一卷、哪一章、哪一场或哪一段；
+- AI 看到的是哪些设计态、实现态、进度态材料；
+- 缺失、冲突、过期、超预算内容如何处理；
+- 本轮输出是建议、候选正文、可采纳变更、维护提炼，还是纯对话；
+- 执行权、写入权、确认权、采纳权分别属于谁。
+
+因此，prompt 不是主设计对象。prompt 是会话结构在具体 provider 上的文本投影；真正的 contract 是 `AIMessageEnvelope`、DialogueFrame、ContextPacket、MicroPlan、ToolInput、ToolResult、TurnResult 和 Trace 的组合。如果只优化 prompt 文案而不设计 message envelope 和会话结构，系统会退化为不可审计的通用聊天续写。
+
+### 3.4 Contract-first, not prompt-only
 
 v3 不把系统契约藏进 prompt。
 
 Intent、slot、capability、policy、authority、budget、behavior、TurnResult 仍然必须是结构化契约。LLM 可以提出理解和建议，但不能绕过契约执行。
 
-### 3.3 Workbench as Toolbox
+### 3.5 Workbench as Toolbox
 
 工作台不是用户前台流程，而是工具箱：
 
@@ -92,13 +132,13 @@ Intent、slot、capability、policy、authority、budget、behavior、TurnResult
 | 技能库 | intent 解释、slot 更新、候选方向生成、内容生成、校验 |
 | 武器库 | 写入、adoption、projection、audit、authority、budget、confirmation |
 
-### 3.4 Execution authority stays outside Planner
+### 3.6 Execution authority stays outside Planner
 
 Dialogue Planner 可以提出 MicroPlan，但不能批准自己的 MicroPlan。
 
 写入、长跑、高风险、预算敏感、confirmation、production state 变更都必须由 Execution Orchestrator 放行。
 
-### 3.5 Trace and replay are first-class
+### 3.7 Trace and replay are first-class
 
 废弃 Router-first 后，系统不能滑入不可审计黑箱。
 
@@ -241,6 +281,7 @@ v3 的 Orchestrator 不是单个 Router-first 调度器，而是双层协作：
 | 字段 | 含义 |
 |---|---|
 | `frame_type` | 本轮类型：闲聊、探索、补槽、确认、纠错、取消、执行候选等 |
+| `guidance_mode` | AI 本轮引导方式：`explore` / `structure` / `execute` / `quality` / `clarify` / `confirm` / `none` |
 | `dialogue_goal` | 本轮对话目标，如“探索新书定位” |
 | `intent_hypothesis` | 可为空；如果能判断，则指向候选 intent |
 | `slot_state_delta` | 本轮从用户话语中得到的 slot 草稿增量 |
@@ -253,6 +294,7 @@ v3 的 Orchestrator 不是单个 Router-first 调度器，而是双层协作：
 ```json
 {
   "frame_type": "exploration",
+  "guidance_mode": "explore",
   "dialogue_goal": "explore_work_seed_positioning",
   "intent_hypothesis": "intent.CREATE_WORK_SEED",
   "slot_state_delta": {},
@@ -265,6 +307,7 @@ v3 的 Orchestrator 不是单个 Router-first 调度器，而是双层协作：
 `DialogueFrame` 的关键价值：
 
 - 每轮都有结构化认知入口。
+- AI 引导作者的方式可被测试和回放，而不是只体现在文案语气里。
 - 闲聊、探索、纠错、取消、确认都能进入同一主链。
 - Router-first 被替代后，trace 仍连续。
 - 测试可以断言“系统为什么没有执行”。
@@ -599,7 +642,7 @@ docs/design-v3/
 |---|---|
 | 分支 | 从 v2 签出 `v3` 分支进行大改 |
 | 文档 | `docs/design-v3/` 独立成套，不在 v2 文档内打补丁 |
-| 代码 | VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已齐备；只有用户明确批准后，才进入 implementation plan 或代码实现 |
+| 代码 | VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已齐备；VS-00D 后置 contract reconciliation 已 docs-ready；只有用户明确批准后，才进入 implementation plan 或代码实现 |
 | 命名 | 不再以 `Router` 命名顶层模块；引入 `DialoguePlanner`, `ExecutionOrchestrator`, `DialogueFrame`, `MicroPlan` |
 | 旧实现 | 作为 v2 原型和对照，不作为 v3 兼容约束 |
 | ADR | 首批 ADR-0001 至 ADR-0017 已按 slice 需要进入 Accepted |

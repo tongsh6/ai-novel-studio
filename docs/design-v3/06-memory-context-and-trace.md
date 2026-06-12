@@ -14,6 +14,7 @@
 > - `03-capability-toolbox-contract.md` — Capability Toolbox 协议草案
 > - `04-execution-orchestrator.md` — Execution Orchestrator 协议草案
 > - `05-turn-behavior-and-state-model.md` — Turn Behavior 与状态模型草案
+> - `contracts/VS-00D-ai-guided-authoring-contract-pack.md` — AI 引导式创作三层 contract 与 AI message layer
 >
 > 本文不做：
 >
@@ -205,6 +206,42 @@ stateDiagram-v2
 ---
 
 ## 5. Context Layer
+
+### 5.0 当前作品层职责
+
+在 AI 引导式创作主链中，Context Layer 负责 `VS-00D` 定义的 **当前作品层（Work State Contract）**。它不是把数据库对象直接塞给模型，而是把当前作品状态投影成可供不同消费者使用的 ContextPacket，并最终渲染为 AI message layer 中的 `WorkStateMessage`。
+
+当前作品层必须回答：
+
+```text
+这本书现在有哪些可被引用的真实状态？
+这些状态来自哪里？
+哪些状态缺失、过期、冲突或被预算省略？
+这些缺失会影响本轮 Planner 判断、工具执行或质量诊断吗？
+```
+
+候选投影范围：
+
+| 投影 | 典型来源 | 进入 AI message 的规则 |
+|---|---|---|
+| work snapshot | 当前作品元信息、类型、定位、tone | 可以压缩为 snapshot summary，但必须保留来源 ref |
+| writing coordinate | 当前 work / volume / chapter / scene / lifecycle / mode | 先于上下文选择产生；不能让 AI 从自由文本里静默猜成事实 |
+| chapter state | 章节标题、顺序、计划摘要、前后章位置 | 目标章身份和相邻关系优先级高于普通背景材料 |
+| prior prose excerpt | 已采纳正文相邻片段 | 只带与坐标强相关片段；超预算必须有 omission note |
+| chapter summary | 已采纳正文的高信息密度压缩 | 缺失时显式缺失；不得用计划摘要冒充实现态摘要 |
+| character state | 人物当前动机、关系、伤势、立场、弧光阶段 | tentative / confirmed / canonical 必须分开 |
+| continuity ledgers | 伏笔、信息、情绪、承诺、冲突进度 | 无对象化账本时可以降级为摘要，但不能伪造账本存在 |
+| style intent | 作者偏好、风格样本、feedback patch、局部 brief | 与作品事实分层，不得改写 canon |
+
+缺失处理：
+
+1. `absent`：需要的材料不存在，AI message 必须明示缺失。
+2. `omitted`：材料存在但因预算、权限或相关性被裁剪，必须产生 omission note。
+3. `stale`：材料可能过期，必须进入 freshness note 或降权。
+4. `conflicting`：设计态、实现态或记忆冲突时，必须暴露冲突，不能在 context assembly 阶段自行合并。
+5. `unauthorized`：当前消费者无权读取时，不进入 provider 可见文本，只进入 redacted trace。
+
+因此，`DialogueContext` 的目标不是“一份给所有 AI 调用的文本”，而是当前作品层的结构化投影；AI message 中的 `WorkStateMessage` 只是该投影按 call site 渲染后的可见部分。
 
 ### 5.1 DialogueContext
 
@@ -854,7 +891,7 @@ ADR 前置材料已经具备：
 当前阶段结论：
 
 ```text
-VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready；VS-00D 作为后置 contract reconciliation 已 docs-ready
 ```
 
 原因：
@@ -870,4 +907,4 @@ VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-read
 - `tasks/slices/v3/DAG.md` 已经安排 trace / replay proof 在首批 slice 中的位置。
 - VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 的文档 blocker 已关闭；下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。
 
-VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的具体 slice 文件、contract pack 和核心 ADR 已齐备；下一步必须由用户明确批准后，才可创建 implementation plan 或进入代码实现。
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的具体 slice 文件、contract pack 和核心 ADR 已齐备；VS-00D 已补 contract pack、AU-11 验收入口和 slice 入口。下一步必须由用户明确批准后，才可创建 implementation plan 或进入代码实现。

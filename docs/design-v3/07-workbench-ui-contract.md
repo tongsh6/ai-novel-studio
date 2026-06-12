@@ -694,7 +694,7 @@ ADR 前置材料已经具备：
 当前阶段结论：
 
 ```text
-VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready；VS-00D 作为后置 contract reconciliation 已 docs-ready
 ```
 
 原因：
@@ -709,4 +709,4 @@ VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-read
 - `tasks/slices/v3/DAG.md` 已经安排 UI action roundtrip 在主链 proof 之后。
 - VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 的文档 blocker 已关闭；下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。
 
-VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的具体 slice 文件、contract pack 和核心 ADR 已齐备；下一步必须由用户明确批准后，才可创建 implementation plan 或进入代码实现。
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的具体 slice 文件、contract pack 和核心 ADR 已齐备；VS-00D 已补 contract pack、AU-11 验收入口和 slice 入口。下一步必须由用户明确批准后，才可创建 implementation plan 或进入代码实现。

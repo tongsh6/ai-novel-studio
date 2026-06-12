@@ -159,6 +159,8 @@ Dialogue Planner 不应面对全量数据库，也不应凭空聊天。它接收
 
 上下文组装必须可 trace。`06-memory-context-and-trace.md` 负责定义细节。
 
+在 AI 引导式创作链路中，`DialogueContext` 同时承担 `VS-00D` 的当前作品层投影：它只提供有来源的作品状态、会话状态和省略说明，不承载小说层原则本身，也不让 AI 从自由文本里静默猜当前作品事实。
+
 ### 4.3 Step 3：Dialogue Planner 生成 DialogueFrame
 
 每个 turn 必须有 `DialogueFrame`。
@@ -183,6 +185,17 @@ Dialogue Planner 不应面对全量数据库，也不应凭空聊天。它接收
 | `rejection_candidate` | Planner 认为请求可能不应执行 |
 
 `DialogueFrame` 可以包含 `author_visible_message` 草案，但该消息仍要经过 Execution Orchestrator envelope 校验后才进入 TurnResult。
+
+Planner 调用 AI 时，message 必须由 `VS-00D` 的三层 message envelope 推导：
+
+```text
+Planner messages
+  NovelLayerMessage      = 本轮需要的小说原则、要素焦点、质量门
+  WorkStateMessage       = DialogueContext 投影出的当前作品状态、refs、omission
+  TurnGuidanceMessage    = 作者原始输入、本轮判断任务、输出 schema、越权禁止项
+```
+
+Planner 的输出不是直接执行，而是把 AI 对本轮引导方式的判断压缩为 `DialogueFrame` / FrameTrace：本轮应探索、结构化、执行、质量诊断、澄清还是确认；关注哪些小说要素；哪些当前作品状态缺失或冲突。
 
 ### 4.4 Step 4：判断是否需要 MicroPlan
 
@@ -581,6 +594,7 @@ v3 主链必须保护以下不变量：
 8. durable behavior 必须显式 open / close / resolution。
 9. TurnResult 是 UI 与外部入口的 canonical 输出。
 10. DecisionTrace 必须能解释“为什么没有执行”。
+11. 创作相关 AI 调用必须能重建 message envelope：小说层、当前作品层、本轮引导层分别来自哪里、哪些内容被省略、缺失如何处理。
 
 ---
 
@@ -596,6 +610,7 @@ v3 主链必须保护以下不变量：
 | `05-turn-behavior-and-state-model.md` | phase/status/next_action 与 behavior lifecycle |
 | `06-memory-context-and-trace.md` | DialogueContext 与 DecisionTrace 详细结构 |
 | `07-workbench-ui-contract.md` | UI 如何消费 assistant_message、cards、trace |
+| `contracts/VS-00D-ai-guided-authoring-contract-pack.md` | AI 引导式创作三层 contract 与 AI message layer |
 
 ---
 
@@ -619,7 +634,7 @@ v3 主链必须保护以下不变量：
 当前阶段结论：
 
 ```text
-VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready；VS-00D 作为后置 contract reconciliation 已 docs-ready
 ```
 
 原因：

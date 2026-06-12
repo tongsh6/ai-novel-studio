@@ -64,6 +64,44 @@ v3 的目标不是“更会聊天”，而是建立一个可以长期演化的�
 v3 要做的是一个可审计、可规划、可持续迭代的 LLM 创作伙伴系统，而不是一个会调用 LLM 的表单工作台。
 ```
 
+### 2.1 Agent 系统的核心：会话结构
+
+v3 的本质是一个小说创作 Agent 系统。它的核心不是模型供应商、prompt 模板、UI 表单或工具数量，而是**每一轮用户与 AI 交互时的会话结构**。
+
+会话结构定义了：
+
+- AI 当前以什么身份参与创作；
+- 本轮作者意图、写作坐标、作品状态、可用工具、权限、预算和风险是什么；
+- 哪些材料进入上下文，哪些材料被省略，省略如何解释；
+- AI 的输出如何进入候选、确认、采纳、提炼、trace 和 replay；
+- 哪些内容可以被模型建议，哪些内容必须由系统 contract 和 Orchestrator 决策。
+
+因此，v3 的首要设计对象不是"最终 prompt 文案"，而是每个 agent turn 的结构化会话合同。prompt 只是该合同在某个 provider 上的渲染结果。只要会话结构没有设计好，模型越强只会更快地产生不可追溯、不可控、不可持续的创作漂移；会话结构设计好以后，不同 provider 只是预算、渲染和质量上限的差异。
+
+### 2.2 AI 引导式创作
+
+本应用应当帮助作者**通过 AI 的引导完成小说创作**，而不是要求作者先学会系统字段、工具面板或工程化流程。
+
+AI 引导式创作的含义：
+
+- 作者可以用模糊、片段化、情绪化的语言开始创作；
+- AI 负责把模糊想法推进成可讨论的方向、对比方案、关键取舍和下一步行动；
+- AI 在适当时机提醒作者补齐前提、角色动机、冲突、读者期待、章节功能、伏笔与风险；
+- AI 能根据当前作品状态主动指出"现在更应该规划、续写、重写、修订还是维护"；
+- 系统把 AI 的引导结果结构化为 DialogueFrame / MicroPlan / CreativeDecisionPacket / TurnResult，而不是让作者直接面对 schema。
+
+边界同样明确：AI 可以引导、建议、整理、生成候选与暴露风险，但不能替作者静默决定作品权威状态。写入、采纳、高风险改动和长期记忆进入权威层，仍必须经过 Execution Orchestrator、policy、confirmation/adoption 和 trace。
+
+实现层必须把 AI 引导式创作拆成三层 contract，并让三层 contract 投影到每一次 AI 调用的 message layer，而不是只优化 prompt 文案：
+
+| 层 | 责任 | 主要载体 |
+|---|---|---|
+| 小说层 | 定义通用创作判断框架：欲望、阻力、变化、代价、读者期待、人物动机、章节功能、信息释放、伏笔、连续性、文风、质量门 | `08-novel-element-model.md`、质量门、`VS-00D` |
+| 当前作品层 | 投影当前作品真实状态：snapshot、章节、摘要、记忆、前文、人物状态、伏笔/信息/情绪进度 | `DialogueContext` / Context Layer |
+| 本轮引导层 | 由 AI 在 Planner 阶段判断本轮该探索、结构化、执行、质量诊断，还是澄清/确认；系统负责校验和门禁 | `DialogueFrame` / `MicroPlan` / Trace |
+
+这三层与 AI message layer 的设计入口见 `contracts/VS-00D-ai-guided-authoring-contract-pack.md`。任何实现如果只把这些原则写进 provider prompt，而没有形成可重建的 `AIMessageEnvelope`，也没有进入 DialogueFrame、DialogueContext、MicroPlan、ToolInput 或 trace，就不算完成 AI 引导式创作能力。
+
 ---
 
 ## 3. v3 的工程推进阶段
@@ -359,6 +397,7 @@ v3 不允许“有一个想法就直接写代码”。
 24. `ADR-0014` 至 `ADR-0015` 已将 Trace Redaction 与 TurnResultViewModel 升级为 Accepted 决策。
 25. `ADR-0016` 至 `ADR-0017` 已将 ProjectionHint 与 ReplayReport 升级为 Accepted 决策。
 26. 首批 v3 slice 需要同时证明“系统不会乱执行”和“AI 像创作伙伴”：VS-00A 证明模糊创作想法先自然展开，VS-00B 证明 AI 带着当前小说上下文回应。
+27. 产品默认体验是 AI 引导作者进行小说创作；作者面对的是自然创作引导，系统内部再把引导结果结构化为 DialogueFrame / MicroPlan / CreativeDecisionPacket / TurnResult。
 
 ---
 

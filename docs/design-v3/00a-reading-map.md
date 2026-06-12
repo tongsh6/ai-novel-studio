@@ -83,6 +83,10 @@ Execution Orchestrator 保留执行硬门禁。
 | 8 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 设计 durable behavior 与 phase/status |
 | 9 | `06-memory-context-and-trace.md` | 草案，已存在 | 设计 context、trace、replay |
 | 10 | `07-workbench-ui-contract.md` | 草案，已存在 | 设计 UI 消费 TurnResult 和 trace 摘要 |
+| 10a | `08-novel-element-model.md` | 草案，已存在 | 设计创作类 contract（规划 schema、maintenance 提炼、面板、上下文组装共用的小说要素全景） |
+| 10b | `contracts/VS-00D-ai-guided-authoring-contract-pack.md` | Proposed，已存在 | 设计 AI 引导式创作的三层 contract 与 AI message layer |
+| 10c | `contracts/VS-00C-creative-context-assembly-contract-pack.md` | Proposed，已存在 | 设计 prose_writing 等创作执行调用的 CreativeDecisionPacket 与上下文组装 |
+| 10d | `acceptance/author/AU-11-ai-guided-authoring.md` | Design-ready，已存在 | 从作者视角验收三层 message 和 AI 引导式创作闭环 |
 | 11 | `00c-state-and-contract-atlas.md` | 草案，已存在 | 汇总状态、contract、ADR 和 slice 入口 |
 | 12 | `adr/README.md` | 草案，已存在 | 定义 v3 ADR 编号、状态、模板和首批顺序 |
 | 13 | `adr/ADR-0001-dialogue-frame-v3.md` | Accepted，已存在 | 冻结每 turn 必有的认知锚点决策 |
@@ -177,7 +181,7 @@ UI 侧当前结论：
 | 14 | `adr/ADR-0003-planner-authority-boundary.md` | Accepted，已存在 | 10 min | Planner 不能批准执行如何成为硬边界 |
 | 15 | `adr/ADR-0004-orchestrator-decision-v3.md` | Accepted，已存在 | 10 min | OrchestratorDecision 如何承接执行权 |
 | 16 | `adr/ADR-0005-execution-gate-order-v3.md` | Accepted，已存在 | 10 min | 执行门禁顺序如何保护权限、预算和写入 |
-| 17 | `tasks/slices/v3/DAG.md` | docs-ready，已存在 | 10 min | VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A） 如何排序、依赖和阻塞 |
+| 17 | `tasks/slices/v3/DAG.md` | docs-ready，已存在 | 10 min | VS-00 到 VS-11 以及 VS-00D 如何排序、依赖和阻塞 |
 | 18 | `../engineering/v3-architecture.md` | 试行护栏，已存在 | 15 min | v3 实现计划必须遵守哪些 app 边界和复用边界 |
 | 19 | `../engineering/v3-quality-gates.md` | 试行护栏，已存在 | 15 min | 每个 slice 需要哪些工程证明、语义证明和扫描闭环 |
 
@@ -191,7 +195,7 @@ UI 侧当前结论：
 | Consumer | 第一个真实消费者是谁 |
 | Proof | 用什么测试或命令证明链路成立 |
 
-v3 第一批 slice 已在 `tasks/slices/v3/DAG.md` 排序，并已为 VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）创建具体 slice 文件、contract pack 和 Accepted ADR 输入。implementation plan / code 仍需用户明确批准。
+v3 第一批 slice 已在 `tasks/slices/v3/DAG.md` 排序，并已为 VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）创建具体 slice 文件、contract pack 和 Accepted ADR 输入；VS-00D 作为后置 contract reconciliation 已补 contract pack、AU-11 验收入口和 slice 入口。implementation plan / code 仍需用户明确批准。
 
 进入任意 implementation plan 前，必须先读 `docs/engineering/v3-architecture.md` 和 `docs/engineering/v3-quality-gates.md`。这两篇负责把已有工程规则、v2 可复用设计和 v3 主链约束合并成实现前护栏。
 
@@ -213,6 +217,10 @@ v3 第一批 slice 已在 `tasks/slices/v3/DAG.md` 排序，并已为 VS-00 到 
 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 对话行为状态 |
 | `06-memory-context-and-trace.md` | 草案，已存在 | 记忆、上下文与回放 |
 | `07-workbench-ui-contract.md` | 草案，已存在 | UI 消费契约 |
+| `08-novel-element-model.md` | 草案，已存在 | 小说要素模型（要素 × 层级 × 三态），创作类 contract pack 共同上游 |
+| `contracts/VS-00D-ai-guided-authoring-contract-pack.md` | Proposed，已存在 | AI 引导式创作三层 contract 与 AI message layer |
+| `contracts/VS-00C-creative-context-assembly-contract-pack.md` | Proposed，已存在 | 创作执行上下文组装与 CreativeDecisionPacket |
+| `acceptance/author/AU-11-ai-guided-authoring.md` | Design-ready，已存在 | AI 引导式创作三层 message 验收入口 |
 | `adr/README.md` | 草案，已存在 | ADR 编号、状态、模板 |
 | `adr/ADR-0001-dialogue-frame-v3.md` | Accepted，已存在 | DialogueFrame v3 决策 |
 | `adr/ADR-0002-micro-plan-v3.md` | Accepted，已存在 | MicroPlan v3 决策 |
@@ -220,7 +228,8 @@ v3 第一批 slice 已在 `tasks/slices/v3/DAG.md` 排序，并已为 VS-00 到 
 | `adr/ADR-0004-orchestrator-decision-v3.md` | Accepted，已存在 | OrchestratorDecision v3 决策 |
 | `adr/ADR-0005-execution-gate-order-v3.md` | Accepted，已存在 | Execution Gate Order v3 决策 |
 | `adr/ADR-0006` 至 `adr/ADR-0017` | Accepted，已存在 | behavior、tool、adoption、UI、replay 决策 |
-| `tasks/slices/v3/DAG.md` | docs-ready，已存在 | VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A） 垂直切面排序 |
+| `tasks/slices/v3/DAG.md` | docs-ready，已存在 | VS-00 到 VS-11、VS-00D 垂直切面排序 |
+| `tasks/slices/v3/VS-00D-ai-guided-authoring-message-contract.md` | docs-ready，已存在 | AI 引导式创作三层 + message contract 的承重 slice 入口 |
 | `../engineering/v3-architecture.md` | 试行护栏，已存在 | v3 技术架构、app 边界、深模块和 v2 复用边界 |
 | `../engineering/v3-quality-gates.md` | 试行护栏，已存在 | v3 工程门禁、slice 门禁、小说质量门禁和验证模板 |
 
@@ -246,7 +255,7 @@ v3 第一批 slice 已在 `tasks/slices/v3/DAG.md` 排序，并已为 VS-00 到 
 如果你现在要继续推进 v3，当前文档阶段结论是：
 
 ```text
-VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready；VS-00D 作为后置 contract reconciliation 已 docs-ready
 ```
 
 原因：
@@ -262,7 +271,7 @@ VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-read
 - `ADR-0003` 已经把 Planner 权限边界升级为 Accepted 决策。
 - `ADR-0004` 已经把 OrchestratorDecision 升级为 Accepted 决策。
 - `ADR-0005` 已经把 Execution Gate Order 升级为 Accepted 决策。
-- `tasks/slices/v3/DAG.md` 已经把首批承重垂直切面排序，并关闭 VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的文档 blocker。
+- `tasks/slices/v3/DAG.md` 已经把首批承重垂直切面排序，并关闭 VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）的文档 blocker；VS-00D 后置 contract reconciliation 入口也已补齐。
 - VS-00 / VS-00A / VS-00B / VS-01 / VS-02 / VS-02A / VS-03 / VS-04 / VS-05 / VS-06 具体 slice 文件已经创建，文档 blocker 已关闭。
 - `docs/engineering/v3-architecture.md` 和 `docs/engineering/v3-quality-gates.md` 已经把 v3 实现前的架构护栏、质量门禁和 v2 复用边界收口。
 - 下一步需要用户明确批准后，才可创建 implementation plan 或进入代码实现。

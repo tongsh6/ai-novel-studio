@@ -1,6 +1,6 @@
 # v3 验收场景全景
 
-> 最后更新：2026-06-12
+> 最后更新：2026-06-13
 >
 > 本目录包含 AI Novel Studio v3 的验收场景文档。按两种用户视角组织：**系统用户**（自然人，配置和运行软件）和**作者用户**（核心用户，用 AI 写小说）。
 >
@@ -37,11 +37,11 @@
 
 | 文档 | 能力 | 场景 | 覆盖率 | 状态 |
 |------|------|------|--------|------|
-| [SU-01](system/SU-01-model-provider.md) | 切换模型供应商 | 10 | 0/10 已验收；2/10 有基础设施 | health 基础具备，切换/配置未实现 |
+| [SU-01](system/SU-01-model-provider.md) | 切换模型供应商 | 10 | 6/10 最小真实 Tauri 证据；3/10 已实现但缺真实桌面矩阵 | DeepSeek、运行时切换 API、供应商实时模型列表、工作台模型设置 UI、Tauri 偏好/Keychain、provider/model 审计日志已实现；`su01-model-provider-switching` 已验收 Stub 切换主路径，仍缺 API Key/endpoint/DeepSeek/LM Studio 异常矩阵 |
 | [SU-02](system/SU-02-work-switching.md) | 切换作品 | 10 | 0/10 完整端到端验收；5/10 部分/基础设施 | VS-09 CRUD/启动接入已推进，切换闭环未验收 |
 | [SU-03](system/SU-03-model-nickname.md) | 给模型起名 | 6 | 5/6 最小真实前端验收；1/6 部分 | work-scoped UI 显示名已补，真实 LLM payload 不变缺独立日志证据 |
 
-### 作者用户验收（10 文档）
+### 作者用户验收（11 文档）
 
 | 文档 | 能力 | 场景 | 覆盖率 | 状态 |
 |------|------|------|--------|------|
@@ -55,6 +55,7 @@
 | [AU-08](author/AU-08-reading-mode.md) | 阅读我的作品 | 16 | 0/16 完整真实前后端验收；采纳到阅读投影已有最小真实 Tauri 闭环 | ReadingMode 已能显示已采纳 artifact；projection job、stale/rebuild、跨作品隔离和 no-write refresh 仍缺 |
 | [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 14 | 0/14 完整真实前后端验收；2/14 有最小真实前端闭环；9/14 有局部证据 | 作品档案固定 mock 已移除并接真实 archive 读模型；管理 API、召回主链、溯源和 AU-03 分层仍未闭环 |
 | [AU-10](author/AU-10-workbench-ui.md) | 工作台实时交互 | 17 | 0/17 完整 AU-10 工作台矩阵；9/17 已有最小真实 Tauri 闭环；8/17 部分实现或设计/恢复态缺口 | provider health、普通聊天、候选、action、adoption、trace/why、reading projection、MicroPlan/no-MicroPlan 已有分散证据；完整 AU-10 matrix、viewport/layout、长任务和错误恢复未闭环 |
+| [AU-11](author/AU-11-ai-guided-authoring.md) | AI 引导式创作会话结构 | 4 | 0/4 完整验收；设计入口已补 | VS-00D 已定义三层 + message contract；仍需 AIMessageEnvelope、guidance_mode 过渡 trace、WorkState projection 和 prose_writing envelope proof |
 
 ---
 
@@ -62,23 +63,23 @@
 
 v3 系统 15 个不变量（来自 `00c` §7）与验收文档的映射：
 
-| 不变量 | AU-01 | AU-02 | AU-03 | AU-04 | AU-05 | AU-06 | AU-07 | AU-08 | AU-09 | AU-10 |
-|--------|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|
-| #1 每 turn 必有 frame | ● | ● | ● | | | | | | | |
-| #2 MicroPlan 只是建议 | | | | ● | | | | | | |
-| #3 Orchestrator 唯一门禁 | | | | ● | | | | | | |
-| #4 默认只允许下一步 | | | | ● | | | | | | |
-| #5 工具调用有 trace | | | | | | | ● | | ● | |
-| #6 写入默认 tentative | | | | ● | ● | | | ● | | |
-| #7 behavior 有生命周期 | | | | | | ● | | | | |
-| #8 缺 slot 不自动表单 | | ● | ● | | | ● | | | | |
-| #9 TurnResult canonical | ● | ● | | | | | ● | | | ● |
-| #10 UI 只能提交 action | | | | | | ● | | | | ● |
-| #11 selection ≠ adoption | | | | | ● | | | | ● | |
-| #12 确认后重新 gate | | | | ● | ● | ● | | | | |
-| #13 trace summary 脱敏 | | | ● | | | | ● | | | |
-| #14 replay 不调 LLM | ● | | | | | ● | ● | | | |
-| #15 projection 只刷新 | | | | | ● | | | ● | | |
+| 不变量 | AU-01 | AU-02 | AU-03 | AU-04 | AU-05 | AU-06 | AU-07 | AU-08 | AU-09 | AU-10 | AU-11 |
+|--------|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|:-----:|
+| #1 每 turn 必有 frame | ● | ● | ● | | | | | | | | ● |
+| #2 MicroPlan 只是建议 | | | | ● | | | | | | | |
+| #3 Orchestrator 唯一门禁 | | | | ● | | | | | | | ● |
+| #4 默认只允许下一步 | | | | ● | | | | | | | |
+| #5 工具调用有 trace | | | | | | | ● | | ● | | |
+| #6 写入默认 tentative | | | | ● | ● | | | ● | | | |
+| #7 behavior 有生命周期 | | | | | | ● | | | | | |
+| #8 缺 slot 不自动表单 | | ● | ● | | | ● | | | | | ● |
+| #9 TurnResult canonical | ● | ● | | | | | ● | | | ● | ● |
+| #10 UI 只能提交 action | | | | | | ● | | | | ● | |
+| #11 selection ≠ adoption | | | | | ● | | | | ● | | |
+| #12 确认后重新 gate | | | | ● | ● | ● | | | | | ● |
+| #13 trace summary 脱敏 | | | ● | | | | ● | | | | ● |
+| #14 replay 不调 LLM | ● | | | | | ● | ● | | | | ● |
+| #15 projection 只刷新 | | | | | ● | | | ● | | | |
 
 **不变量覆盖率：15/15（100%）**
 
@@ -149,13 +150,14 @@ mix test apps/novel_web/test/novel_web/channels/
 | 普通聊天默认 MicroPlan、card action 绕过授权、候选操作 | AU-10 AU10-GAP-02/AU10-GAP-04~05 | 默认 MicroPlan、card action 授权、候选继续探索均已有 Tauri 证据；剩余为完整矩阵归并 | P1 |
 | adoption UI、trace/why、projection、错误恢复 | AU-10 AU10-GAP-06/AU10-GAP-08~10 | adoption/why/projection 最小闭环已有；错误恢复和深度状态待补 | P0/P1 |
 | 工作台 UI 自动化与 Tauri/Design 约束 | AU-10 AU10-GAP-11~12 | 缺 AU-10 专属 matrix；截图暴露 viewport/layout 问题，另有文案/hidden metadata 卫生待复核 | P0 |
+| AI 引导式创作三层 message 闭环 | AU-11 AU11-GAP-01~05 | 新增验收入口；设计已成文，缺代码对象、trace 重建和真实工作台场景证明 | P0 |
 | 供应商 health/model/error 补齐 | SU-01 SU01-GAP-01~03 | 补实现/补测试 | P0/P1 |
 | 供应商运行时切换与安全配置 | SU-01 SU01-GAP-04~07 | 补设计/补实现/补集成 | P0 |
 | 作品切换主闭环与隔离 | SU-02 SU02-GAP-01~04 | 补集成/补验收 | P0 |
 | 作品管理 UI 与恢复策略 | SU-02 SU02-GAP-05~09 | 补实现/修设计偏差 | P1/P2 |
 | AI 显示名设置与隔离 | SU-03 SU03-GAP-01~05 | 最小真实前端闭环已补；剩余真实 LLM payload 不变证据 | P2 |
 
-**总缺口：持续重算中。当前 SU-01~03、AU-01~10 已按场景化口径重算；AU-10 已完成多条分散真实入口 checkpoint 的真源对齐，下一步应优先补 AU-10 专属 matrix 与截图暴露的 viewport/layout 缺口。**
+**总缺口：持续重算中。当前 SU-01~03、AU-01~10 已按场景化口径重算；AU-11 已补设计验收入口但尚未实现验收。下一步应在 AU-10 专属 matrix 与截图暴露的 viewport/layout 缺口之外，补 VS-00D / AU-11 的 AIMessageEnvelope 最小 proof。**
 
 ---
 

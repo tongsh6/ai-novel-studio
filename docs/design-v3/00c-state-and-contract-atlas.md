@@ -380,7 +380,13 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | Projection Hint UI v3 | Accepted：`adr/ADR-0016-projection-hint-ui-v3.md`；VS-04 contract pack：`contracts/VS-04-adoption-boundary-contract-pack.md` | `07` | refresh 和 write 边界要分清 | projection refresh slice |
 | ReplayReport v3 | Accepted：`adr/ADR-0017-replay-report-v3.md`；VS-06 contract pack：`contracts/VS-06-replay-surface-contract-pack.md` | `06` | replay 默认不调用 provider | replay explanation slice |
 
-### 8.4 ADR 编号与状态建议
+### 8.4 Batch D：AI 引导式创作三层 + Message 契约
+
+| ADR 候选 | 状态 | 来源 | 为什么优先 | 阻塞内容 |
+|---|---|---|---|---|
+| AI-Guided Authoring Three-Layer + Message Contract | Proposed：`contracts/VS-00D-ai-guided-authoring-contract-pack.md`；验收入口：`acceptance/author/AU-11-ai-guided-authoring.md`；slice 入口：`tasks/slices/v3/VS-00D-ai-guided-authoring-message-contract.md` | `00`, `01`, `02`, `06`, `08`, `VS-00C`, `AU-11` | 收束小说层 / 当前作品层 / 本轮引导层的分工，以及这些分层如何落到每次 AI 调用的 message envelope，防止 AI 引导能力只停留在 prompt 文案 | Planner 引导判断、AIMessageEnvelope、DialogueFrame schema 演进、DialogueContext 作品状态投影、CreativeProvider 输入契约、trace 重建 |
+
+### 8.5 ADR 编号与状态建议
 
 v3 ADR 目录建议独立于 v2：
 
@@ -444,6 +450,18 @@ ADR 状态建议先使用：
 | Proof | 同一句“把主角动机改得更狠一点”，有当前作品上下文时引用真实设定；无上下文时诚实说明缺上下文 |
 
 价值：证明 v3 是小说工作台，不只是可追踪聊天器。
+
+### 9.3A VS-00D：AI 引导式创作三层 + Message Contract
+
+| 问题 | 回答 |
+|---|---|
+| Contract | 小说层（通用创作判断框架）、当前作品层（DialogueContext 作品状态投影）、本轮引导层（DialogueFrame / MicroPlan 中的 AI 语义判断）、AIMessageEnvelope（三层 message 投影） |
+| Invariant | AI 必须参与创作语义判断；作品状态必须有来源；AI 判断不能越过 Orchestrator 和作者采纳边界；每次创作相关 AI 调用必须能重建三层 message 来源与缺失处理 |
+| Boundary | 切过 application context assembly / agent planner / domain frame validation / execution gate / trace；不新增并行 Router 或让 provider 自行读取 Repo |
+| Consumer | Planner message、DialogueFrame/Trace、MicroPlan、CreativeProvider tool input、QualityDiagnosis / MemorySummary 后续调用 |
+| Proof | 输入“这一章不够爽，主角赢得太轻了”，系统能指出关注冲突/代价/读者回报/主角能动性；缺当前章上下文时明确缺失；trace 能重建 NovelLayer / WorkState / TurnGuidance 三层 message；若进入重写仍需 Orchestrator 裁决 |
+
+价值：把“AI 像创作伙伴”从体验口号落成三层 contract，明确未来实现应增强现有 Planner / DialogueFrame / DialogueContext / MicroPlan / Provider，而不是另起一套黑箱 agent。
 
 ### 9.4 VS-01：MicroPlan 被 Orchestrator 降级或要求确认
 
@@ -663,7 +681,7 @@ v3 需要区分“谁说了算”。
 后续仍需补齐：
 
 - JSON Schema 或代码级 contract。
-- 垂直切面 DAG：`tasks/slices/v3/DAG.md` 已创建，并已补入 VS-00A / VS-00B 创作伙伴体验切面和 VS-02A 创作草稿切面，整体推进到 VS-06 docs-ready。
+- 垂直切面 DAG：`tasks/slices/v3/DAG.md` 已创建，并已补入 VS-00A / VS-00B 创作伙伴体验切面、VS-02A 创作草稿切面和 VS-00D AI 引导式创作 message contract 切面。
 - implementation plan。
 
 ---
@@ -673,7 +691,7 @@ v3 需要区分“谁说了算”。
 本文完成后，当前阶段结论：
 
 ```text
-VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready；VS-00D 作为后置 contract reconciliation 已 docs-ready
 ```
 
 原因：

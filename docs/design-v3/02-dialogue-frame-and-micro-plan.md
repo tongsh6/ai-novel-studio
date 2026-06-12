@@ -8,6 +8,7 @@
 > - `00b-end-to-end-dialogue-flow.md` — v3 动态主链
 > - `00d-runtime-architecture.md` — v3 运行时组件视图
 > - `01-user-llm-workbench-interaction-model.md` — 用户、LLM、工作台交互模型
+> - `contracts/VS-00D-ai-guided-authoring-contract-pack.md` — AI 引导式创作三层 contract 与 message layer
 >
 > 不负责范围：
 > - 不定义 Toolbox / Capability 注册格式，留给 `03-capability-toolbox-contract.md`
@@ -70,11 +71,14 @@ DialogueFrame 是每个用户 turn 必须产生的结构化认知帧。
 
 ### 2.2 候选字段
 
+> 实现同步说明：本节是 DialogueFrame 目标 schema 草案，不等于当前代码结构已经全部实现。当前实现若尚未包含某字段（如 `guidance_mode`），承重 slice 可先通过 `evidence_summary` / `uncertainty` / trace 承载过渡语义；进入 domain struct 前必须补 ADR/schema/test。
+
 | 字段 | 必填 | 含义 |
 |---|---:|---|
 | `frame_id` | 是 | DialogueFrame 唯一 id |
 | `turn_ref` | 是 | 所属 turn |
 | `frame_type` | 是 | 本轮认知类型 |
+| `guidance_mode` | 是 | AI 本轮引导方式：`explore` / `structure` / `execute` / `quality` / `clarify` / `confirm` / `none` |
 | `dialogue_goal` | 是 | 本轮对话目标，用作者语义表达 |
 | `intent_hypothesis` | 否 | 候选 intent，可为空或多个候选 |
 | `slot_state_delta` | 是 | 本轮从作者输入中得到的 slot draft 增量，默认为空 map |
@@ -93,6 +97,37 @@ DialogueFrame 是每个用户 turn 必须产生的结构化认知帧。
 2. `author_visible_message` 是草案，最终进入 TurnResult 前仍要经过 envelope / policy 校验。
 3. `intent_hypothesis` 是假设，不是执行授权。
 4. `frame_type` 必须能解释为什么本轮没有执行。
+5. `guidance_mode` 必须能解释 AI 如何引导作者推进创作判断；它描述作者可见引导方式，不描述执行授权。
+
+### 2.2.1 作为 VS-00D 本轮引导层的承载
+
+在 AI 引导式创作中，`DialogueFrame` 是 `VS-00D` Turn Guidance Contract 的主要结构化承载。Planner 的 AI 调用会先接收三层 message：
+
+```text
+NovelLayerMessage
+WorkStateMessage
+TurnGuidanceMessage
+```
+
+然后把 AI 对“本轮如何引导作者”的判断压缩进 `DialogueFrame` 与 trace。
+
+最小映射：
+
+| AI message 输出语义 | DialogueFrame / trace 目标 |
+|---|---|
+| 本轮是探索、结构、执行、质量诊断、澄清还是确认 | `guidance_mode`；当前未落地时进入 `evidence_summary` / `uncertainty` / trace |
+| 作者真实卡点或创作问题 | `dialogue_goal`、`author_visible_message` |
+| 关注哪些小说要素 | `element_focus` 目标字段；过渡期进入 FrameTrace / evidence |
+| 缺哪些当前作品状态 | `uncertainty_reasons`、missing questions、ContextTrace omission |
+| 是否需要下一步行动 | `needs_tool` 与后续 `MicroPlan` |
+| 是否可能执行 | `execution_readiness=ready_candidate`，但不等于执行授权 |
+
+约束：
+
+1. `DialogueFrame` 不保存完整 AI message，也不保存 LLM 私有推理。
+2. AI 可以建议本轮引导方式，但 schema validation 和 Orchestrator gate 必须能拦截越权语义。
+3. 如果当前代码尚无目标字段，承重 slice 可以先用 `evidence_summary` / `uncertainty` / trace 承载，不得在文档中假装已实现。
+4. `DialogueFrame` 的作者可见消息只是一份可审查草案；最终输出仍由 TurnResult 负责。
 
 ### 2.3 frame_type 候选枚举
 
@@ -115,7 +150,21 @@ DialogueFrame 是每个用户 turn 必须产生的结构化认知帧。
 - `meta_request` 是否拆成 explain / inspect / help。
 - `rejection_candidate` 是否属于 frame_type，还是 policy result。
 
-### 2.4 execution_readiness 候选枚举
+### 2.4 guidance_mode 候选枚举
+
+| guidance_mode | 含义 | 典型作者可见形态 |
+|---|---|---|
+| `explore` | 探索题材、主题、人物、冲突、卖点、读者期待 | 给候选方向、对比方案、偏好追问 |
+| `structure` | 把想法整理成可执行的卷/章/场/伏笔/信息释放结构 | 给结构草案、章节功能、取舍说明 |
+| `execute` | 引导作者进入首稿、续写、重写、修订、维护等具体动作 | 说明下一步动作、所需确认、执行依据 |
+| `quality` | 基于当前作品状态指出质量风险和改进方向 | 提醒动机、连续性、节奏、读者效果、承诺风险 |
+| `clarify` | 当前缺少继续判断或行动所需信息，应向作者澄清 | 提出一到两个具体问题，不打开机械字段表单 |
+| `confirm` | 信息基本足够，但需要作者确认风险、方向、成本或写入边界 | 给出确认项、风险摘要和可选动作 |
+| `none` | 本轮不承担创作引导，只做确认、取消、状态解释或普通回应 | 简短回答、状态说明、确认结果 |
+
+`guidance_mode` 与 `frame_type` 可以组合：例如 `frame_type=exploration` 通常对应 `guidance_mode=explore`，但 `frame_type=execution_candidate` 也可能对应 `guidance_mode=quality`（先指出风险而非立即执行）或 `guidance_mode=confirm`（进入执行前需要作者确认）。`guidance_mode=clarify` 表示本轮作者可见引导形态是澄清问题，不等于一定打开 durable clarification；是否打开 durable behavior 仍由 MicroPlan / Orchestrator 决定。
+
+### 2.5 execution_readiness 候选枚举
 
 | 值 | 含义 |
 |---|---|
@@ -129,7 +178,7 @@ DialogueFrame 是每个用户 turn 必须产生的结构化认知帧。
 - 把 `ready_candidate` 当作 capability invoke 授权。
 - 因为 `not_ready` 就一定创建 durable clarification。
 
-### 2.5 DialogueFrame 生命周期
+### 2.6 DialogueFrame 生命周期
 
 ```mermaid
 stateDiagram-v2
@@ -311,12 +360,13 @@ ADR-0002 对本文早期草案做了收缩：`allow_next_action`、`downgrade_to
 
 1. 必填字段存在。
 2. `frame_type` 在候选枚举内。
-3. `execution_readiness` 在候选枚举内。
-4. `slot_state_delta` 是 map。
-5. `needs_tool` 是 boolean。
-6. `author_visible_message` 非空，除非该 frame 明确只用于内部恢复。
-7. 若 `needs_tool=false`，不得包含 MicroPlan 引用。
-8. 若 `execution_readiness=ready_candidate`，`needs_tool` 必须为 true。
+3. `guidance_mode` 在候选枚举内。
+4. `execution_readiness` 在候选枚举内。
+5. `slot_state_delta` 是 map。
+6. `needs_tool` 是 boolean。
+7. `author_visible_message` 非空，除非该 frame 明确只用于内部恢复。
+8. 若 `needs_tool=false`，不得包含 MicroPlan 引用。
+9. 若 `execution_readiness=ready_candidate`，`needs_tool` 必须为 true。
 
 ### 5.2 MicroPlan envelope 校验
 
@@ -359,6 +409,7 @@ DialogueFrame：
 ```json
 {
   "frame_type": "casual_reply",
+  "guidance_mode": "none",
   "dialogue_goal": "respond_to_author_mood",
   "intent_hypothesis": null,
   "slot_state_delta": {},
@@ -383,6 +434,7 @@ DialogueFrame：
 ```json
 {
   "frame_type": "exploration",
+  "guidance_mode": "explore",
   "dialogue_goal": "explore_work_seed_positioning",
   "intent_hypothesis": "intent.CREATE_WORK_SEED",
   "slot_state_delta": {},
@@ -421,6 +473,7 @@ DialogueFrame：
 ```json
 {
   "frame_type": "execution_candidate",
+  "guidance_mode": "execute",
   "dialogue_goal": "create_work_seed_from_selected_direction",
   "intent_hypothesis": "intent.CREATE_WORK_SEED",
   "slot_state_delta": {},
@@ -561,7 +614,7 @@ ADR 前置材料已经具备：
 当前阶段结论：
 
 ```text
-VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready
+VS-00 到 VS-06（含 VS-00A、VS-00B、VS-02A）首批文档输入已 docs-ready；VS-00D 作为后置 contract reconciliation 已 docs-ready
 ```
 
 原因：
