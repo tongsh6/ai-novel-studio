@@ -150,7 +150,7 @@ defmodule NovelApplication.Planner do
 
     ## 工具选择规则
     - 正文、开篇场景、具体片段、场景描写、动作描写、续写、章节草稿 → prose_writing
-    - 大纲、章节规划、剧情走向 → plot_outline
+    - 大纲、章节规划、分卷、卷数、章节数、剧情走向、角色成长线、势力结构 → plot_outline
     - 角色、人物、小传、动机、关系 → character_design
     - 世界观、规则体系、门派/组织/地理/设定 → world_building
     #{accepted_chapters_section(context)}
@@ -336,8 +336,8 @@ defmodule NovelApplication.Planner do
     }
 
     ## 规则
-    - 作者要求“写/生成/产出/描写/续写/开篇场景/正文/章节草稿/具体片段”时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
-    - 作者要求“大纲/角色设定/世界观设定/剧情设计”等具体交付物时，也属于创作产出请求，needs_tool 必须为 true
+    - 作者要求“写/生成/产出/描写/续写/规划/安排/整理/开篇场景/正文/章节草稿/具体片段”时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
+    - 作者要求“大纲/卷数/章节数/角色成长路线/势力结构/角色设定/世界观设定/剧情设计”等具体交付物时，也属于创作产出请求，needs_tool 必须为 true
     - 创作产出请求的 frame_type 使用 "execution_candidate"，不要使用 "creative_exploration"
     - 只有作者还在比较方向、头脑风暴、问“怎么切入/几个方案”，且没有要求立刻产出具体文本或设定时，才使用 creative_exploration + needs_tool=false
     - frame_type == "creative_exploration" 且 needs_tool == false 时，candidate_directions 必须包含 2-3 个方向对象
@@ -814,6 +814,9 @@ defmodule NovelApplication.Planner do
     text = String.trim(text)
     has_production_verb? = contains_any?(text, ["写", "生成", "产出", "描写", "续写", "撰写", "创作"])
 
+    has_planning_verb? =
+      contains_any?(text, ["规划", "计划", "安排", "整理", "设计"])
+
     has_deliverable? =
       contains_any?(text, [
         "开篇场景",
@@ -831,7 +834,27 @@ defmodule NovelApplication.Planner do
         "设定"
       ])
 
-    has_production_verb? and has_deliverable? and not explicit_discussion_only?(text)
+    has_planning_deliverable? =
+      contains_any?(text, [
+        "大纲",
+        "分卷",
+        "卷数",
+        "章节数",
+        "章节",
+        "角色",
+        "人物",
+        "成长路线",
+        "成长线",
+        "势力结构",
+        "势力",
+        "门派",
+        "组织",
+        "剧情结构"
+      ])
+
+    ((has_production_verb? and has_deliverable?) ||
+       (has_planning_verb? and has_planning_deliverable?)) and
+      not explicit_discussion_only?(text)
   end
 
   defp concrete_production_author_input?(_text), do: false

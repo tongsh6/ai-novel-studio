@@ -193,7 +193,7 @@ defmodule NovelApplication.TurnResultBuilder do
       card_type: "candidate_set",
       priority: "high",
       visibility: "always",
-      title: "待确认的创作材料",
+      title: artifact_payload_title(as),
       body: artifact_card_body(as),
       artifact_refs: [as.artifact_set_id],
       candidate_set_ref: as.artifact_set_id,
@@ -221,9 +221,29 @@ defmodule NovelApplication.TurnResultBuilder do
 
   defp maybe_put_chapter_count(payload, _as), do: payload
 
-  defp artifact_payload_title(_as), do: "待确认的创作材料"
+  defp artifact_payload_title(%{artifact_type: type, target_chapter: chapter})
+       when type in [:prose_fragment, "prose_fragment"] and is_binary(chapter) and chapter != "",
+       do: "#{chapter}正文草稿"
 
-  defp artifact_card_body(%{items: items}) do
+  defp artifact_payload_title(%{artifact_type: type})
+       when type in [:prose_fragment, "prose_fragment"],
+       do: "章节正文草稿"
+
+  defp artifact_payload_title(%{artifact_type: type})
+       when type in [:outline_draft, "outline_draft"],
+       do: "大纲草稿"
+
+  defp artifact_payload_title(%{artifact_type: type})
+       when type in [:character_seed, "character_seed"],
+       do: "角色设定草稿"
+
+  defp artifact_payload_title(%{artifact_type: type})
+       when type in [:world_setting, "world_setting"],
+       do: "世界设定草稿"
+
+  defp artifact_payload_title(_as), do: "待保存草稿"
+
+  defp artifact_card_body(%{items: items} = as) do
     preview =
       items
       |> Enum.take(3)
@@ -234,8 +254,22 @@ defmodule NovelApplication.TurnResultBuilder do
         text -> "预览：#{String.slice(text, 0, 120)}"
       end
 
-    "这里是一组待确认的创作材料，尚未采纳，也没有写入作品事实。#{preview}"
+    "#{artifact_save_hint(as)}#{preview}"
   end
+
+  defp artifact_save_hint(%{artifact_type: type})
+       when type in [:prose_fragment, "prose_fragment"],
+       do: "这是待保存章节草稿。确认保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。"
+
+  defp artifact_save_hint(%{artifact_type: type}) when type in [:outline_draft, "outline_draft"],
+    do: "这是待保存大纲草稿。确认保存后会进入作品档案的大纲与结构；未保存前只保留为本轮草稿。"
+
+  defp artifact_save_hint(%{artifact_type: type})
+       when type in [:character_seed, "character_seed", :world_setting, "world_setting"],
+       do: "这是待保存设定草稿。确认保存后会进入作品档案；未保存前不会写入作品事实。"
+
+  defp artifact_save_hint(_as),
+    do: "这是待保存草稿。确认保存后才会进入作品档案；未保存前不会写入作品事实。"
 
   defp item_title(item) when is_map(item),
     do: Map.get(item, :title) || Map.get(item, "title") || ""

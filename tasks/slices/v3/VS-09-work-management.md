@@ -51,7 +51,7 @@ frontend
 
 ## 4. Consumer
 
-- 真实消费者：`frontend/src/components/WorkspaceChat.tsx`（去 `mock_work_123`）+ `WorkbenchV3.tsx`（如需）
+- 真实消费者：`frontend/src/components/WorkspaceChat.tsx`（去 `mock_work_123`）。历史 `WorkbenchV3.tsx` 旁路已退役删除，不再作为消费者。
 - 测试消费者：`apps/novel_e2e/test/novel_e2e/work_switching_test.exs`（新增）+ `apps/novel_web/test/.../workspace_channel_v3_test.exs`（扩展）
 
 ## 5. Proof

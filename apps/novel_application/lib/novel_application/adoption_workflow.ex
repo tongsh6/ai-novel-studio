@@ -792,8 +792,8 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   # 章节标题（归章用）优先取创作内容本身的 item 标题，而不是通用 UI 卡片标签
-  # （`TurnResultBuilder.artifact_payload_title/1` 恒为"待确认的创作材料"，是展示用占位，
-  # 不该成为章节名）。items 无可用标题时才回退 payload.title，最后回退"已采纳内容"。
+  # （例如"章节正文草稿"、"大纲草稿"这类展示标题不该成为章节名）。
+  # items 无可用标题时才回退 payload.title，最后回退"已采纳内容"。
   defp artifact_summary(artifact) do
     payload = artifact_field(artifact, :payload) || %{}
     items = payload[:items] || payload["items"]

@@ -2,7 +2,7 @@
 
 > 系统用户视角：我可以给 AI 助手起一个显示名，让对话更像与固定创作搭档协作。这个名字只影响界面展示，不影响 LLM provider、消息 role、TurnResult 契约或 AI 行为能力。
 >
-> 2026-05-19 对账结论：最小真实前端闭环已补齐。`WorkspaceChat` 提供 work-scoped AI 显示名设置入口，Tauri 桌面偏好持久化到 app config `preferences.json`，不同作品互相隔离；消息流、欢迎消息、历史 transcript、思考态和 `WorkbenchV3` 统一消费显示名 helper。该能力只影响 UI label，不改变 provider、prompt、role 或 TurnResult。
+> 2026-05-19 对账结论：最小真实前端闭环已补齐。`WorkspaceChat` 提供 work-scoped AI 显示名设置入口，Tauri 桌面偏好持久化到 app config `preferences.json`，不同作品互相隔离；消息流、欢迎消息、历史 transcript 和思考态统一消费显示名 helper。该能力只影响 UI label，不改变 provider、prompt、role 或 TurnResult。历史旁路 `WorkbenchV3` 已退役删除，不再作为当前展示面。
 
 ---
 
@@ -37,7 +37,6 @@
 | `frontend/src/lib/assistantDisplayName.ts` | 显示名归一、默认值、按作品偏好读写、role label helper | 已新增；空白回退默认 `AI`，最长 20 个可见字符 |
 | `frontend/src-tauri/src/lib.rs` preferences command | Tauri 桌面 work-scoped 显示名持久化 | 已新增 `assistant_display_names` map |
 | `WorkspaceChat.tsx` 消息列表 | 工作台主对话中 assistant label 展示 | 已统一使用 `assistantRoleLabel`，并提供设置入口 |
-| `WorkbenchV3.tsx` 消息列表 | v3 工作台消息中 assistant label 展示 | 已统一使用 `assistantRoleLabel` |
 | `role: "assistant"` / TurnResult `assistant_message` | 后端和前端识别 AI 消息的 canonical 角色与内容 | 不应被显示名功能修改 |
 | `WorkService` / Work 上下文 | 显示名按 Work 维度隔离 | 当前不写后端 Work schema，保持 UI-only preference 边界 |
 
@@ -61,7 +60,7 @@
 - 不出现空 label、`assistant`、provider 名或模型 id；
 - 默认名来自统一展示逻辑，而不是散落硬编码。
 
-**当前证据**：`frontend/src/lib/assistantDisplayName.ts` 提供默认值与统一 label helper；`WorkspaceChat.tsx` / `WorkbenchV3.tsx` 消息 label 不再硬编码 `"AI"`；`bash scripts/tauri_slice_verify.sh su03-assistant-display-name` 覆盖真实工作台默认/切换路径。
+**当前证据**：`frontend/src/lib/assistantDisplayName.ts` 提供默认值与统一 label helper；`WorkspaceChat.tsx` 消息 label 不再硬编码 `"AI"`；`bash scripts/tauri_slice_verify.sh su03-assistant-display-name` 覆盖真实工作台默认/切换路径。
 
 **当前状态**：已实现并通过最小真实前端验收。
 
@@ -69,11 +68,11 @@
 
 #### SC-SU03-A2 — 所有 AI 展示面统一使用显示名
 
-**作为系统用户**，无论 AI 消息出现在主工作台、v3 工作台、思考态还是历史消息中，都使用同一个显示名。
+**作为系统用户**，无论 AI 消息出现在主工作台、思考态还是历史消息中，都使用同一个显示名。
 
 **前置条件**：当前作品已有 AI 显示名，例如“创作助手”。
 
-**触发**：查看历史消息、发送新消息、等待 AI 回复、进入 v3 工作台。
+**触发**：查看历史消息、发送新消息、等待 AI 回复。
 
 **期望结果**：
 - 所有 assistant 消息 label 显示为“创作助手”；
@@ -81,7 +80,7 @@
 - 新增 UI 入口不能遗漏某个消息面板；
 - “你”这类 user label 不受影响。
 
-**当前证据**：`assistantRoleLabel(role, assistantDisplayName)` 被 `WorkspaceChat.tsx` 与 `WorkbenchV3.tsx` 共同消费；`WorkspaceChat` 的欢迎消息、历史 transcript、新消息和 thinking 状态按当前显示名渲染。
+**当前证据**：`assistantRoleLabel(role, assistantDisplayName)` 被 `WorkspaceChat.tsx` 消费；`WorkspaceChat` 的欢迎消息、历史 transcript、新消息和 thinking 状态按当前显示名渲染。
 
 **当前状态**：已实现并通过最小真实前端验收。
 
@@ -177,7 +176,7 @@
 | 场景 | 做什么 | 当前状态 | 是否闭环 |
 |---|---|---|---|
 | SC-SU03-A1 | 默认显示名 | 已实现：统一默认 `AI` helper | 是 |
-| SC-SU03-A2 | 所有 AI 展示面统一使用显示名 | 已实现：WorkspaceChat / WorkbenchV3 / thinking 统一 helper | 是 |
+| SC-SU03-A2 | 所有 AI 展示面统一使用显示名 | 已实现：WorkspaceChat / thinking 统一 helper | 是 |
 | SC-SU03-B1 | 设置显示名并即时生效 | 已实现：真实工作台 Dialog 保存后即时更新 | 是 |
 | SC-SU03-B2 | 名称校验、空白回退和重置默认 | 已实现：trim、20 字符上限、空白/reset 回默认 | 是 |
 | SC-SU03-C1 | 按作品隔离显示名 | 已实现：Tauri/browser work-scoped preference，原生验证覆盖切换 | 是 |
@@ -206,7 +205,6 @@
 | `frontend/src/lib/store.ts` | 已有 `assistantDisplayName` 字段 | 当前作品运行时展示名 |
 | `frontend/src/lib/assistantDisplayName.ts` | 已新增 | 默认值、校验、持久化 helper、role label helper |
 | `frontend/src/components/WorkspaceChat.tsx` | 已接入 | 设置入口 + 消息/思考态 label |
-| `frontend/src/components/WorkbenchV3.tsx` | 已接入 | 旁路工作台使用同一 helper |
 | Work preference/API | 已接入 Tauri/browser preference | 不写后端 Work schema，保持 UI-only 边界 |
 | 测试 | 已新增 | `assistantDisplayName.test.ts` + `native-tauri-verifier.test.mjs` + 原生 Tauri 验证 |
 

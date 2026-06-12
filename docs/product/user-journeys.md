@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-05-24
+> 最后更新：2026-06-12
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -224,7 +224,7 @@ Next Proof：基于已采纳章节计划生成单章正文草稿并采纳；采�
 | D6 | 内容质量门禁参与采纳或修订 | AU-05 / AU-09 | ToolResult / OrchestratorDecision / TraceSummaryView | gap | Document only | v2 quality gates 已设计，v3 首批只接最小质量证明 | 缺质量 finding 到 UI/proof 的产品链。 |
 | D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | partial | Tauri automation | `artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`；`artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`tasks/slices/P1-chapter-adoption-reading.md` | 章节计划最小闭环与单章正文草稿生成已完成；当前队首先补正文采纳到阅读投影。后续仍缺正文有效字数统计、导出和完整 10 万字狗粮验收。 |
 | D8 | P1 单章正文草稿生成 | AU-02 / AU-05 / AU-10 | MicroPlan / ToolRequest / ToolResult / TentativeArtifactSet | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation` | 真实工作台基于已采纳章节计划生成 `prose_fragment` 待采纳正文草稿；未采纳正文不进入 ReadingMode。单章 1000 字下限仍待后续扩写 / 字数统计 checkpoint。 |
-| D9 | P1 单章正文采纳与阅读 | AU-05 / AU-08 / AU-10 | AdoptionDecision / ProjectionHint / TurnResultViewModel | next | Document only | `tasks/slices/P1-chapter-adoption-reading.md` | 证明作者采纳 `prose_fragment` 后，正文进入作品事实和 Reading Projection，ReadingMode 目录和章节正文从 Channel 读取。 |
+| D9 | P1 单章正文采纳与阅读 | AU-05 / AU-08 / AU-10 | AdoptionDecision / ProjectionHint / TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-adoption-reading-tauri{,-lmstudio}/summary.json`；`tasks/slices/P1-chapter-adoption-reading.md` | 已证明作者采纳 `prose_fragment` 后，正文进入作品事实和 Reading Projection，ReadingMode 目录和章节正文从 Channel 读取。 |
 
 ---
 
@@ -397,13 +397,13 @@ Next Proof：从一个包含 context/tool/behavior/state 的真实 turn 打开 w
 
 保护的不变量：`00c` §7 #8 缺 slot 不自动表单、#9 TurnResult canonical、#10 UI 只能提交 available actions、#13 trace summary 脱敏、#15 projection 只刷新。
 
-真实消费者：`WorkspaceChat`、`WorkbenchV3` 实验组件、ActionPanel、MessageList、StructurePanel、ReadingMode。
+真实消费者：`WorkspaceChat`、ActionPanel、MessageList、StructurePanel、ReadingMode。历史 `WorkbenchV3` 实验组件已退役删除，不再作为当前消费者。
 
 Longest Closed Prefix：J1-J4 是最小真实入口闭环，不代表完整工作台闭环。
 
-Current Breakpoint：J5-J8 仍分散在各 journey，缺完整工作台体验验收。
+Current Breakpoint：J8/AU10-workbench-matrix-layout。`WorkspaceChat` 已是唯一生产工作台入口；缺完整工作台体验验收和截图暴露的 viewport/layout 修复。
 
-Next Proof：从真实工作台覆盖普通聊天、探索候选、available action、adoption、why、reading projection、错误恢复的一条综合 walkthrough。
+Next Proof：从真实工作台覆盖普通聊天、探索候选、available action、adoption、why、reading projection、task_state、错误恢复和 1280×800 layout 的一条综合 walkthrough。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -414,7 +414,7 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | J5 | 工作台统一运行时状态 | AU-10 | TurnResultViewModel / ProjectionHint | closed | Tauri automation | `artifacts/slice-verify/workspace-runtime-state-tauri/summary.json` | 只覆盖 runtime state 模型，不覆盖完整用户流程。 |
 | J6 | available action panel 和 stale/invented 拒绝 | AU-10 / AU-06 | AvailableAction / AuthorActionInput | partial | Channel/API automation | `workspace_channel_v3_test.exs`、`action_roundtrip_test.exs` | 缺完整 UI action walkthrough。 |
 | J7 | trace/why、adoption、projection 在同一工作台主入口协作 | AU-10 / AU-05 / AU-07 / AU-08 | TraceSummaryView / AdoptionDecision / ProjectionHint | partial | Multiple Tauri proofs | 各 journey 有单点 evidence | 缺综合工作台验收。 |
-| J8 | 完整错误恢复、断线、任务进度、Tauri 合规体验 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | gap | Document only | AU10-GAP-08~12 | 缺综合 walkthrough 和自动化。 |
+| J8 | 完整错误恢复、断线、任务进度、Tauri 合规体验 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | next | Document only | AU10-GAP-08~12；`AU10-workbench-matrix-layout` | 补综合 walkthrough、外部 Tauri 自动化和 viewport/layout 断言。 |
 
 ---
 
@@ -431,15 +431,15 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | G 阅读投影 | G1-G2 | G3 refresh state machine | 多个 P0/P1 | Tauri | watch |
 | H 记忆治理 | H1-H2/H4 | H3/H6 management/governed memory | 多个 P0/P1 | Tauri + tests | needs-focus |
 | I Trace/Replay | I1 | I2-I5 trace/replay completeness | 多个 P0/P1 | Tauri + tests | needs-focus |
-| J 工作台体验 | J1-J5 最小闭环 | J6-J8 integrated UX | 多个 P0/P1 | Tauri | watch |
+| J 工作台体验 | J1-J5 最小闭环 | J8 AU10-workbench-matrix-layout | 多个 P0/P1 | Tauri | next |
 
 当前推进锁定：
 
 ```text
-Current Focus: P1 单章正文草稿生成
-Current Journey: Journey D
-Current Breakpoint: D7 P1 chapter draft generation
-Next Task: P1-chapter-draft-generation
+Current Focus: AU-10 工作台 matrix/layout
+Current Journey: Journey J
+Current Breakpoint: J8 integrated workbench UX
+Next Task: AU10-workbench-matrix-layout
 ```
 
 ---
@@ -464,18 +464,18 @@ Next Task: P1-chapter-draft-generation
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: P1 单章正文草稿生成
-Active Journey: Journey D
-Queue head: P1-chapter-draft-generation
+Current Focus: AU-10 工作台 matrix/layout
+Active Journey: Journey J
+Queue head: AU10-workbench-matrix-layout
 ```
 
 本文对应位置：
 
 ```text
-Journey D
-Step D7 P1 10 万字最小长篇闭环
-Status: partial
-Gap / Next: 章节计划真实工作台生成与采纳已闭环；下一步基于已采纳章节计划生成单章正文草稿；tasks/NEXT.md 队首 P1-chapter-draft-generation
+Journey J
+Step J8 完整错误恢复、断线、任务进度、Tauri 合规体验
+Status: next
+Gap / Next: `WorkspaceChat` 已是唯一生产工作台入口；下一步补 AU-10 专属 matrix/layout；tasks/NEXT.md 队首 AU10-workbench-matrix-layout
 ```
 
 选择规则：

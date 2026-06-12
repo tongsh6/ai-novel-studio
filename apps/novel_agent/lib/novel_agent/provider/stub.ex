@@ -82,7 +82,7 @@ defmodule NovelAgent.Provider.Stub do
         "item_id" => "stub_item_" <> fp <> "_1",
         "title" => stub_creative_title(brief, fp),
         "body" => stub_creative_body(brief, context),
-        "rationale" => "离线 fixture provider 生成的待确认创作素材，未写入作品事实。"
+        "rationale" => "离线 fixture provider 生成的待保存草稿，未写入作品事实。"
       }
     ])
   end

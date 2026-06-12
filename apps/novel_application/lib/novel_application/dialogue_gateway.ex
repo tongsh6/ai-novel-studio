@@ -567,7 +567,7 @@ defmodule NovelApplication.DialogueGateway do
       ui_cards: [candidate_decision_card(decision, title)],
       frame_summary: %{
         frame_type: :confirmation_answer,
-        dialogue_goal: "采纳候选创作方向"
+        dialogue_goal: "设置后续创作方向"
       },
       trace_summary: candidate_trace_summary(decision),
       phase: candidate_phase(decision),
@@ -601,22 +601,22 @@ defmodule NovelApplication.DialogueGateway do
   defp candidate_status(_decision), do: "conversational"
 
   defp candidate_decision_message(%AdoptionDecision{decision_type: :adopt_tentative}, title) do
-    "已采用「#{title}」作为后续创作方向；本次只形成待确认方向，不写入正文或生产状态。"
+    "已将「#{title}」设为后续创作方向；这不会写入章节正文或作品事实。"
   end
 
   defp candidate_decision_message(%AdoptionDecision{decision_type: :require_confirmation}, title) do
-    "「#{title}」需要进一步确认后才能采用。"
+    "「#{title}」需要进一步确认后才能设为后续创作方向。"
   end
 
   defp candidate_decision_message(%AdoptionDecision{decision_type: :reject}, title) do
-    "「#{title}」当前不能采用，候选来源或状态已不满足采纳条件。"
+    "「#{title}」当前不能设为后续创作方向，候选来源或状态已不满足条件。"
   end
 
   defp candidate_decision_message(%AdoptionDecision{decision_type: :fail_with_recovery}, title) do
-    "未能采用「#{title}」，请重新选择当前轮次中的候选方向。"
+    "未能将「#{title}」设为后续创作方向，请重新选择当前轮次中的候选。"
   end
 
-  defp candidate_decision_message(_decision, title), do: "已处理「#{title}」的采纳请求。"
+  defp candidate_decision_message(_decision, title), do: "已处理「#{title}」的后续方向请求。"
 
   defp candidate_decision_card(%AdoptionDecision{} = decision, title) do
     %{
@@ -629,23 +629,24 @@ defmodule NovelApplication.DialogueGateway do
     }
   end
 
-  defp candidate_decision_title(%AdoptionDecision{decision_type: :adopt_tentative}), do: "候选方向已采用"
+  defp candidate_decision_title(%AdoptionDecision{decision_type: :adopt_tentative}),
+    do: "已设为后续方向"
 
   defp candidate_decision_title(%AdoptionDecision{decision_type: :require_confirmation}),
-    do: "候选方向待确认"
+    do: "后续方向待确认"
 
-  defp candidate_decision_title(%AdoptionDecision{decision_type: :reject}), do: "候选方向未采用"
+  defp candidate_decision_title(%AdoptionDecision{decision_type: :reject}), do: "后续方向未设置"
 
   defp candidate_decision_title(%AdoptionDecision{decision_type: :fail_with_recovery}),
-    do: "候选方向采用失败"
+    do: "后续方向设置失败"
 
-  defp candidate_decision_title(_decision), do: "候选方向已处理"
+  defp candidate_decision_title(_decision), do: "后续方向已处理"
 
   defp candidate_trace_summary(%AdoptionDecision{} = decision) do
     %{
       decision_type: decision.decision_type,
       no_tool_reason: :user_requested_discussion,
-      dialogue_goal: "采纳候选创作方向",
+      dialogue_goal: "设置后续创作方向",
       reason_codes: decision.reason_codes,
       turn_result_ref: decision.turn_id,
       candidate_ref: decision.candidate_ref

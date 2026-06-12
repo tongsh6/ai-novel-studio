@@ -32,6 +32,37 @@ function displayText(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
+function artifactDraftCopy(card: UICardData): { title: string; body: string } {
+  switch (card.artifact_type) {
+    case "prose_fragment":
+    case "scene_draft":
+      return {
+        title: CARD.artifactDraft.proseTitle,
+        body: CARD.artifactDraft.proseDescription,
+      };
+    case "outline_draft":
+      return {
+        title: CARD.artifactDraft.outlineTitle,
+        body: CARD.artifactDraft.outlineDescription,
+      };
+    case "character_seed":
+      return {
+        title: CARD.artifactDraft.characterTitle,
+        body: CARD.artifactDraft.archiveDescription,
+      };
+    case "world_setting":
+      return {
+        title: CARD.artifactDraft.worldTitle,
+        body: CARD.artifactDraft.archiveDescription,
+      };
+    default:
+      return {
+        title: CARD.artifactDraft.fallbackTitle,
+        body: CARD.artifactDraft.fallbackDescription,
+      };
+  }
+}
+
 export function ClarificationCard({ card }: Props) {
   return (
     <div className={`${styles.card} ${styles.clarificationCard}`}>
@@ -113,13 +144,16 @@ export function ResultCard({ card }: Props) {
 
 export function CandidateSetCard({ card }: Props) {
   const items = Array.isArray(card.items) ? card.items : [];
+  const fallbackCopy = artifactDraftCopy(card);
+  const title = card.title || fallbackCopy.title;
+  const description = card.body || fallbackCopy.body;
 
   return (
     <div className={`${styles.card} ${styles.candidateSetCard}`}>
       <div className={styles.header}>
-        <div className={styles.title}>{card.title || "待确认的创作材料"}</div>
+        <div className={styles.title}>{title}</div>
       </div>
-      {card.body && <div className={styles.body}>{card.body}</div>}
+      {description && <div className={styles.body}>{description}</div>}
       {items.length > 0 && (
         <div className={styles.candidateItems}>
           {items.map((item, index) => {
@@ -133,7 +167,10 @@ export function CandidateSetCard({ card }: Props) {
                 <div className={styles.candidateItemTitle}>{title}</div>
                 {body && <div className={styles.candidateItemBody}>{body}</div>}
                 {rationale && (
-                  <div className={styles.candidateItemRationale}>创作依据：{rationale}</div>
+                  <div className={styles.candidateItemRationale}>
+                    {CARD.artifactDraft.rationalePrefix}
+                    {rationale}
+                  </div>
                 )}
               </article>
             );

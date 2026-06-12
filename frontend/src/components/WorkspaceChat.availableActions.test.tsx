@@ -9,6 +9,7 @@ import {
   type TurnResult,
 } from "./WorkspaceChat";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
+import { WORKBENCH } from "../lib/copy";
 import { toAuthorActionPayload } from "../lib/workbenchActions";
 import type { AuthorActionPayload } from "../lib/socket";
 
@@ -129,7 +130,7 @@ describe("WorkspaceChat candidate available_actions rendering", () => {
       onCandidateAdopt: vi.fn(),
     });
 
-    const [button] = findButtonsByText(tree, "继续聊这个方向");
+    const [button] = findButtonsByText(tree, WORKBENCH.candidateContinueLabel);
     expect(button).toBeDefined();
     expect(button.props.disabled).toBe(false);
 
@@ -160,7 +161,7 @@ describe("WorkspaceChat candidate available_actions rendering", () => {
       onCandidateAdopt: vi.fn(),
     });
 
-    const [button] = findButtonsByText(tree, "继续聊这个方向");
+    const [button] = findButtonsByText(tree, WORKBENCH.candidateContinueLabel);
     expect(button.props.disabled).toBe(true);
 
     button.props.onClick?.();
@@ -198,7 +199,7 @@ describe("WorkspaceChat candidate available_actions rendering", () => {
       onCandidateAdopt: vi.fn(),
     });
 
-    findButtonsByText(tree, "继续聊这个方向")[0].props.onClick?.();
+    findButtonsByText(tree, WORKBENCH.candidateContinueLabel)[0].props.onClick?.();
 
     expect(submitted[0]).toMatchObject({
       action_id: "server-action-y",
@@ -224,7 +225,7 @@ describe("WorkspaceChat candidate available_actions rendering", () => {
       onCandidateAdopt: vi.fn(),
     });
 
-    const [button] = findButtonsByText(tree, "继续聊这个方向");
+    const [button] = findButtonsByText(tree, WORKBENCH.candidateContinueLabel);
     expect(button.props.disabled).toBe(true);
 
     button.props.onClick?.();

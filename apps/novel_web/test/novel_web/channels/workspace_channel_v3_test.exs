@@ -467,7 +467,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert result.truthfulness.candidate_adopted == true
       assert result.truthfulness.production_write_performed == false
       assert result.adoption_decision.decision_type == :adopt_tentative
-      assert [%{card_type: "result_card", title: "候选方向已采用"}] = result.ui_cards
+      assert [%{card_type: "result_card", title: "已设为后续方向"}] = result.ui_cards
       assert socket.assigns.current_turn_id == result.turn_id
       assert Map.has_key?(socket.assigns.turn_results_by_id, result.turn_id)
     end
@@ -514,7 +514,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert result.truthfulness.candidate_adopted == false
       assert result.truthfulness.production_write_performed == false
       assert "high_risk_candidate" in result.truthfulness.reason_codes
-      assert [%{card_type: "result_card", title: "候选方向待确认"}] = result.ui_cards
+      assert [%{card_type: "result_card", title: "后续方向待确认"}] = result.ui_cards
       assert socket.assigns.current_turn_id == result.turn_id
     end
 
@@ -562,7 +562,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert result.truthfulness.candidate_adopted == false
       assert result.truthfulness.production_write_performed == false
       assert "source_turn_stale" in result.truthfulness.reason_codes
-      assert [%{card_type: "result_card", title: "候选方向未采用"}] = result.ui_cards
+      assert [%{card_type: "result_card", title: "后续方向未设置"}] = result.ui_cards
       assert socket.assigns.current_turn_id == result.turn_id
     end
 
@@ -611,7 +611,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert result.truthfulness.candidate_adopted == false
       assert result.truthfulness.production_write_performed == false
       assert "work_id_mismatch" in result.truthfulness.reason_codes
-      assert [%{card_type: "result_card", title: "候选方向采用失败"}] = result.ui_cards
+      assert [%{card_type: "result_card", title: "后续方向设置失败"}] = result.ui_cards
       assert socket.assigns.current_turn_id == result.turn_id
     end
 
@@ -671,7 +671,7 @@ defmodule NovelWeb.WorkspaceChannelV3Test do
       assert result.truthfulness.production_write_performed == false
       assert "canon_conflict_detected" in result.truthfulness.reason_codes
       assert "conflict_recovery_required" in result.truthfulness.reason_codes
-      assert [%{card_type: "result_card", title: "候选方向采用失败"}] = result.ui_cards
+      assert [%{card_type: "result_card", title: "后续方向设置失败"}] = result.ui_cards
       assert socket.assigns.current_turn_id == result.turn_id
     end
   end

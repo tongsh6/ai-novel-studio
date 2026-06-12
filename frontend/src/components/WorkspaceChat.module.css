@@ -8,11 +8,12 @@
 }
 
 .topBar {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) max-content;
   align-items: center;
-  justify-content: space-between;
   height: 64px;
-  padding: 0 32px;
+  gap: 16px;
+  padding: 0 24px;
   border-bottom: 1px solid var(--border-subtle);
   flex-shrink: 0;
 }
@@ -20,11 +21,14 @@
 .contextGroup {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .workSwitcherButton {
   display: inline-flex;
+  flex: 0 1 320px;
   align-items: center;
   gap: 8px;
   min-width: 180px;
@@ -148,6 +152,7 @@
 
 .assistantNameButton {
   display: inline-flex;
+  flex: 0 1 150px;
   align-items: center;
   gap: 6px;
   min-width: 78px;
@@ -261,18 +266,26 @@
   font-size: 12px;
   font-family: var(--sans);
   letter-spacing: 1px;
+  min-width: 0;
+  max-width: 96px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .statusGroup {
   display: flex;
+  justify-content: flex-end;
   align-items: center;
-  gap: 24px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .budgetText {
   color: var(--foreground-secondary);
   font-size: 12px;
   font-family: var(--sans);
+  white-space: nowrap;
 }
 
 .riskBadge {
@@ -280,11 +293,16 @@
   color: var(--foreground-inverse);
   display: inline-flex;
   align-items: center;
-  max-width: 280px;
+  min-width: 0;
+  max-width: 132px;
+  min-height: 28px;
   padding: 4px 8px;
   border-radius: var(--rounded-sm);
   font-size: 12px;
   font-family: var(--sans);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .riskBadgeNeutral {
@@ -307,9 +325,15 @@
 }
 
 .readingModeButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 42px;
+  height: 32px;
   padding: 4px 8px;
   border: none;
   font-size: 12px;
+  white-space: nowrap;
 }
 
 .mainArea {

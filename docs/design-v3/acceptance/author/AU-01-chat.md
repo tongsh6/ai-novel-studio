@@ -42,7 +42,7 @@
 
 | 契约 / 实现 | 用途 | 当前证据判断 |
 |---|---|---|
-| `frontend/src/App.tsx` | 当前真实入口，渲染 `WorkspaceChat` | 真实用户入口，不是 `WorkbenchV3` |
+| `frontend/src/App.tsx` | 当前真实入口，渲染 `WorkspaceChat` | 唯一生产工作台入口 |
 | `WorkspaceChat.tsx` | 当前主工作台：输入、loading、消息渲染、socket 调用 | 部分实现，缺 Playwright/真人验收 |
 | `frontend/src/lib/socket.ts` `sendMessage` | 当前主工作台发送 `user_message` | 默认 `generate_micro_plan: false`；原生 Tauri 两轮普通聊天验收可证明真实入口消费该默认契约 |
 | `WorkspaceChannel.handle_in("user_message")` | Channel 接收前端消息并广播 `turn_result` | 有 Channel roundtrip 测试 |

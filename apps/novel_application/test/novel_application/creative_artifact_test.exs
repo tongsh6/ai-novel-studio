@@ -244,6 +244,8 @@ defmodule NovelApplication.CreativeArtifactTest do
 
       assert turn_result.tool_result.tool_name == "character_design"
       assert turn_result.tool_result.output.artifact_type == :character_seed
+      assert turn_result.assistant_message.text =~ "角色设定草稿"
+      refute turn_result.assistant_message.text =~ "创作材料"
       assert [%{card_type: "candidate_set"}] = turn_result.ui_cards
       refute Map.has_key?(turn_result, :task_state_events)
     end
@@ -296,6 +298,62 @@ defmodule NovelApplication.CreativeArtifactTest do
       assert turn_result.frame_summary.frame_type == :execution_candidate
       assert turn_result.tool_result.tool_name == "prose_writing"
       assert turn_result.tool_result.output.artifact_type == :prose_fragment
+      assert turn_result.assistant_message.text =~ "章节正文草稿"
+      assert turn_result.assistant_message.text =~ "写入章节正文"
+      refute turn_result.assistant_message.text =~ "创作材料"
+      assert [%{title: "章节正文草稿", body: prose_body}] = turn_result.ui_cards
+      assert prose_body =~ "待保存章节草稿"
+      assert turn_result.truthfulness.tool_called == true
+    end
+
+    test "explicit outline planning request overrides exploratory candidate frame and dispatches outline tool" do
+      exploratory_frame_json =
+        Jason.encode!(%{
+          "frame_type" => "creative_exploration",
+          "dialogue_goal_summary" => "规划长篇大纲和势力结构",
+          "needs_tool" => false,
+          "no_tool_reason" => "exploratory_only",
+          "execution_readiness" => "not_applicable",
+          "assistant_message" => "我为你准备了几种创作方向。",
+          "candidate_directions" => [
+            %{
+              "title" => "科技武学融合",
+              "pitch" => "主角用现代科学改造内功体系。",
+              "tone_tags" => ["理性"]
+            }
+          ],
+          "context_used" => true,
+          "uncertainty" => []
+        })
+
+      complete_fn =
+        sequenced_complete_fn([
+          exploratory_frame_json,
+          plan_json("plot_outline"),
+          Jason.encode!([single_item("outline")]),
+          "已生成待确认的大纲草稿，尚未采纳。"
+        ])
+
+      {:ok, turn_result, _trace, candidates, _context} =
+        DialogueGateway.handle_input(
+          %{
+            text: "现在我们开始规划大纲，规划卷数、每一卷的章节数、角色成长路线和势力结构。",
+            workspace_id: "ws-outline-planning"
+          },
+          nil,
+          complete_fn
+        )
+
+      assert candidates == []
+      refute Map.has_key?(turn_result, :candidate_directions)
+      assert turn_result.frame_summary.frame_type == :execution_candidate
+      assert turn_result.tool_result.tool_name == "plot_outline"
+      assert turn_result.tool_result.output.artifact_type == :outline_draft
+      assert turn_result.assistant_message.text =~ "大纲草稿"
+      assert turn_result.assistant_message.text =~ "作品档案"
+      refute turn_result.assistant_message.text =~ "创作材料"
+      assert [%{title: "大纲草稿", body: outline_body}] = turn_result.ui_cards
+      assert outline_body =~ "待保存大纲草稿"
       assert turn_result.truthfulness.tool_called == true
     end
 

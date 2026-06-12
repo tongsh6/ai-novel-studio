@@ -60,7 +60,6 @@
 | `apps/novel_application/test/novel_application/behavior_lifecycle_test.exs` | BehaviorState open/closed predicate 和 Orchestrator open 行为测试 |
 | `apps/novel_application/test/novel_application/action_roundtrip_test.exs` | action validation / gateway 局部测试 |
 | `frontend/src/components/WorkspaceChat.tsx` | 当前真实工作台对 behavior_state 的消费入口 |
-| `frontend/src/components/WorkbenchV3.tsx` | 备用 v3 action panel，不是当前 App 入口 |
 
 ---
 
@@ -275,7 +274,7 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 前端只提交 action；不本地把 awaiting_author 改成 resolved |
-| 当前证据 | `WorkbenchV3` 使用 `sendAuthorAction`；`WorkspaceChat` 主要通过收到 TurnResult 更新消息 |
+| 当前证据 | `WorkspaceChat` 使用 `available_actions` / `sendAuthorAction`；真实入口通过收到 TurnResult 更新消息 |
 | 当前状态 | 部分符合 |
 | 当前缺口 | `WorkspaceChat` 当前对 confirm/reject 调旧事件且没有接收关闭后 TurnResult，真实 lifecycle 展示不完整 |
 | 优先级 | P1 |
@@ -335,7 +334,7 @@
 | `ExecutionOrchestrator.open_behavior/5` | 能打开 confirmation 并生成 actions | 不检查已有 open behavior、TTL、trace_ref |
 | `ActionValidator` | 拒绝 stale/invented/disabled action | 不验证 behavior_ref/target_ref/idempotency 绑定 |
 | `DialogueGateway.handle_action/3` | confirm 有 re-gate / dispatch 局部路径 | cancel/reject/clarification resolution 未实现 |
-| `WorkbenchV3` | 有 v3 action panel 原型实现 | 当前 App 入口仍是 `WorkspaceChat` |
+| `WorkspaceChat` | 当前真实工作台 action panel 实现 | 缺完整 behavior lifecycle 和长跑状态矩阵 |
 
 ---
 

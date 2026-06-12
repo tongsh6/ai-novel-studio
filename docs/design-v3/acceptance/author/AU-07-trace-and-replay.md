@@ -240,7 +240,7 @@
 | 期望结果 | 前端展示 author-safe trace summary 或解释面板 |
 | 当前证据 | `TurnResult` 有 `trace_summary` 字段；`WorkspaceChat` 对带 trace 的 assistant 消息渲染“为什么”按钮并打开 Radix Dialog；`au07-trace-why-entry` 原生 Tauri 验证已证明真实工作台入口可用 |
 | 当前状态 | 最小真实前端闭环已补 |
-| 当前缺口 | `WorkbenchV3` 旁路入口未统一；历史会话恢复后的旧 turn 查询仍依赖 transcript 内嵌 `turn_result`，没有 Web API / Channel 查询持久化 trace |
+| 当前缺口 | 历史会话恢复后的旧 turn 查询仍依赖 transcript 内嵌 `turn_result`，没有 Web API / Channel 查询持久化 trace |
 | 优先级 | P1 |
 
 #### SC-AU07-E2 — 可从持久化 trace 查询旧 turn
@@ -298,7 +298,7 @@
 
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
-| AU07-GAP-01 — 真实工作台“为什么？”入口不完整 | `WorkspaceChat` 已有最小入口；`WorkbenchV3` 旁路、历史旧 turn 查询和完整 UI 验收未覆盖 | 补实现/补验收 | P1 |
+| AU07-GAP-01 — 真实工作台“为什么？”入口不完整 | `WorkspaceChat` 已有最小入口；历史旧 turn 查询和完整 UI 验收未覆盖 | 补实现/补验收 | P1 |
 | AU07-GAP-02 — reason/gate 作者友好中文映射仍是子集 | 常见 `no_tool_reason` / gate / reason_codes 已映射；完整 reason catalog 和 developer code 双视图未实现 | 补实现/文案同步 | P1 |
 | AU07-GAP-03 — redaction engine 未形成完整闭环 | 已有 `TraceRedactor` application 输出层和测试；仍缺旧 trace 查询、developer 双视图权限、完整 UI/持久化验收 | 补集成/补验收 | P1 |
 | AU07-GAP-04 — author-safe / developer summary 未隔离 | `ReplayService` 固定 author_safe，无 developer path 和权限边界 | 补实现/补集成 | P1 |

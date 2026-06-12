@@ -69,7 +69,7 @@ defmodule NovelApplication.TurnExecutionService do
         input[:context]
       )
 
-    assistant_message = narrate(tool_result, input[:complete_fn])
+    assistant_message = narrate(tool_result, artifact_set, input[:complete_fn])
 
     turn_result =
       TurnResultBuilder.build(
@@ -313,16 +313,49 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp provenance(_plan, _resolved_chapter), do: %{}
 
-  defp narrate(%ToolResult{status: :succeeded} = tool_result, complete_fn)
+  defp narrate(
+         %ToolResult{status: :succeeded},
+         %{artifact_type: type, target_chapter: chapter},
+         _complete_fn
+       )
+       when type in [:prose_fragment, "prose_fragment"] and is_binary(chapter) and chapter != "" do
+    "已生成#{chapter}正文草稿。请先审阅，保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。"
+  end
+
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _complete_fn)
+       when type in [:prose_fragment, "prose_fragment"] do
+    "已生成章节正文草稿。请先审阅，保存后会写入章节正文；未保存前不会进入阅读模式或作品事实。"
+  end
+
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _complete_fn)
+       when type in [:outline_draft, "outline_draft"] do
+    "已生成大纲草稿。请先审阅，保存后会进入作品档案的大纲与结构；未保存前只保留为本轮草稿。"
+  end
+
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _complete_fn)
+       when type in [:character_seed, "character_seed"] do
+    "已生成角色设定草稿。请先审阅，保存后会进入作品档案；未保存前不会写入作品事实。"
+  end
+
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _complete_fn)
+       when type in [:world_setting, "world_setting"] do
+    "已生成世界设定草稿。请先审阅，保存后会进入作品档案；未保存前不会写入作品事实。"
+  end
+
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: _type}, _complete_fn) do
+    "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"
+  end
+
+  defp narrate(%ToolResult{status: :succeeded} = tool_result, _artifact_set, complete_fn)
        when is_function(complete_fn, 1) do
     Planner.narrate_tool_result(tool_result, complete_fn)
   end
 
-  defp narrate(%ToolResult{status: :succeeded}, _complete_fn) do
-    "已生成一组待确认的创作材料。它们尚未采纳，也没有写入作品事实。"
+  defp narrate(%ToolResult{status: :succeeded}, _artifact_set, _complete_fn) do
+    "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"
   end
 
-  defp narrate(%ToolResult{status: :failed} = tool_result, _complete_fn) do
+  defp narrate(%ToolResult{status: :failed} = tool_result, _artifact_set, _complete_fn) do
     reason =
       tool_result.errors
       |> List.wrap()
@@ -332,7 +365,7 @@ defmodule NovelApplication.TurnExecutionService do
     "这次没有生成创作草稿，工具执行失败：#{reason}。未创建待采纳内容，也没有写入作品事实。"
   end
 
-  defp narrate(_tool_result, _complete_fn) do
+  defp narrate(_tool_result, _artifact_set, _complete_fn) do
     "工具执行未完成。未创建待采纳内容，也没有写入作品事实。"
   end
 end

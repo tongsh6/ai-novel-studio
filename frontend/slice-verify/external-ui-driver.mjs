@@ -8,6 +8,8 @@ const artifactDir =
   process.env.SLICE_VERIFY_ARTIFACT_DIR ??
   path.resolve("..", "artifacts", "slice-verify", sliceId ?? "unknown");
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
+const acceptDraftButtonPattern = /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/;
+const readingModeButtonPattern = /\[阅读模式\]|阅读/;
 
 if (!sliceId) {
   throw new Error("Usage: node slice-verify/external-ui-driver.mjs <slice-id>");
@@ -45,7 +47,7 @@ async function textContent(page, selector) {
 }
 
 function serviceStatus(page) {
-  return page.getByText(/^服务:/).first();
+  return page.getByText(/^服务:|^同步/).first();
 }
 
 function workTitle(page) {
@@ -718,17 +720,22 @@ async function driveP1ChapterPlanMinimum(page) {
   const firstChapterTitle = String(planItems[0]?.title ?? "");
   const lastChapterTitle = String(planItems[planItems.length - 1]?.title ?? "");
 
-  // 采纳走当前模型：待采纳计划卡（候选集）+「确认创建」按钮（author_action accept），
+  // 采纳走当前模型：待保存计划卡（候选集）+保存按钮（author_action accept），
   // 不再用旧的「采纳」按钮 / adopt 事件（channel adopt handler 已遗留、前端不用）。
   await page.waitForFunction(
-    () =>
-      document.body.innerText.includes("待确认的创作材料") &&
-      [...document.querySelectorAll("button")].some(
-        (btn) => (btn.textContent ?? "").trim() === "确认创建",
-      ),
+    () => {
+      return (
+        /待确认的创作材料|大纲草稿/.test(document.body.innerText) &&
+        [...document.querySelectorAll("button")].some((btn) =>
+          /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+            (btn.textContent ?? "").trim(),
+          ),
+        )
+      );
+    },
     { timeout: 10_000 },
   );
-  await page.getByRole("button", { name: "确认创建" }).first().click();
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
 
   const acceptActionFrame = await waitForFrame(
     (frame) =>
@@ -738,7 +745,6 @@ async function driveP1ChapterPlanMinimum(page) {
       frame.body?.action?.target_ref === pendingArtifact.artifact_id,
     "Real workbench did not send accept author_action for the chapter plan",
   );
-
   const actionResultFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
@@ -953,14 +959,21 @@ async function driveP1ChapterAdoptionReading(page) {
   const pendingArtifact = draftTurnResult.adoption_state.pending[0];
 
   await page.waitForFunction(
-    () =>
-      document.body.innerText.includes("待确认的创作材料") &&
-      document.body.innerText.includes("确认创建"),
+    () => {
+      return (
+        /待确认的创作材料|章节正文草稿/.test(document.body.innerText) &&
+        [...document.querySelectorAll("button")].some((btn) =>
+          /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+            (btn.textContent ?? "").trim(),
+          ),
+        )
+      );
+    },
     { timeout: 10_000 },
   );
 
-  // 作者点击「确认创建」采纳正文草稿（accept author_action → 采纳边界 → 持久化）。
-  await page.getByRole("button", { name: "确认创建" }).first().click();
+  // 作者点击保存正文草稿（accept author_action → 采纳边界 → 持久化）。
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
 
   const acceptActionFrame = await waitForFrame(
     (frame) =>
@@ -985,21 +998,24 @@ async function driveP1ChapterAdoptionReading(page) {
   );
   const adoptTurnResult = adoptTurnFrame.body;
 
-  // 采纳后旧草稿卡的「确认创建」必须消失，否则作者会重复点击、重复提交同一动作。
+  // 采纳后旧草稿卡的保存按钮必须消失，否则作者会重复点击、重复提交同一动作。
   await page.waitForFunction(
-    () =>
-      ![...document.querySelectorAll("button")].some(
-        (btn) => (btn.textContent ?? "").trim() === "确认创建",
-      ),
+    () => {
+      return ![...document.querySelectorAll("button")].some((btn) =>
+        /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+          (btn.textContent ?? "").trim(),
+        ),
+      );
+    },
     { timeout: 10_000 },
   );
   const acceptButtonCleared =
-    (await page.getByRole("button", { name: "确认创建" }).count()) === 0;
+    (await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) === 0;
 
   // 进入阅读模式：采纳后的正文应进入投影，并显示有效字数。
   // 必须等到「本章有效字数」也渲染再快照：TOC（全书字数）与章节正文/章字数来自两次异步
   // 读取（get_toc 与 get_chapter_content），只等全书字数会在章字数渲染前抢拍导致 flaky。
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("阅读模式") &&
@@ -2389,7 +2405,7 @@ try {
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await serviceStatus(page).waitFor({ timeout: 30_000 });
   await page.waitForFunction(
-    () => document.body.innerText.includes("服务: 已连接"),
+    () => /服务: 已连接|同步已连接/.test(document.body.innerText),
     { timeout: 30_000 },
   );
 

@@ -60,7 +60,7 @@
 | `apps/novel_application/lib/novel_application/dialogue_gateway.ex` | `handle_action/3` 执行确认后的 re-gate / tool dispatch |
 | `apps/novel_web/lib/novel_web/channels/workspace_channel.ex` | `author_action` Channel 入口 |
 | `frontend/src/components/WorkspaceChat.tsx` | 当前真实 App 入口使用的工作台 |
-| `frontend/src/components/WorkbenchV3.tsx` + `frontend/src/lib/socket_v3.ts` | 已存在但当前 App 未接入的 v3 action roundtrip 前端实现 |
+| `frontend/src/components/WorkspaceChat.tsx` + `frontend/src/lib/socket.ts` | 当前真实 App 入口使用的 action/task_state 前端实现 |
 
 ---
 
@@ -139,7 +139,7 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 前端提交 `author_action`，包含 `source_turn_ref`、`action_id`、`action_type`、`behavior_ref`、`idempotency_key` |
-| 当前证据 | `socket_v3.ts.sendAuthorAction` 和 `WorkbenchV3.handleAction` 已按 v3 方式提交；`WorkspaceChannel.handle_in("author_action")` 已实现 |
+| 当前证据 | `WorkspaceChat` 通过 `available_actions` 匹配后调用 `socket.ts.sendAuthorAction`；`WorkspaceChannel.handle_in("author_action")` 已实现 |
 | 当前状态 | 备用前端已实现，真实 App 入口未接入 |
 | 当前缺口 | `App.tsx` 当前渲染 `WorkspaceChat`；`WorkspaceChat` 的确认按钮调用旧 `confirm` 事件，但 `WorkspaceChannel` 未实现 `handle_in("confirm")` |
 | 优先级 | P0 |
@@ -333,7 +333,7 @@
 | AU04-GAP-04 — ConfirmationBinding 未完整实现 | 缺 `behavior_ref` + `target_ref` + rebased snapshot + gate result 的持久绑定 | 补实现/补集成 | P0 |
 | AU04-GAP-05 — 取消/拒绝 lifecycle 未闭环 | cancel/reject 可被 validation，但未证明 behavior 关闭、trace 写入、UI 恢复 | 补集成/补验收 | P0 |
 | AU04-GAP-06 — 过期/跨作品/历史确认验证不足 | 只覆盖 current turn stale，缺 TTL、跨作品、历史会话只读态 | 补实现/补验收 | P0/P1 |
-| AU04-GAP-07 — task_state 真实入口未展示 | Channel 可广播，`socket_v3.ts` 可订阅，但当前 `WorkspaceChat` 未订阅 | 补集成 | P1 |
+| AU04-GAP-07 — task_state 真实入口完整展示不足 | Channel 可广播，`WorkspaceChat` 已订阅并映射到 longRun store；仍缺长跑全过程 UI 验收 | 补验收 | P1 |
 | AU04-GAP-08 — assistant_message 文本真值约束不足 | truthfulness map 存在，但缺 LLM 文案不撒谎测试 | 补测试 | P1 |
 | AU04-GAP-09 — 确认后失败恢复缺场景 | 缺工具失败、LLM 超时、恢复 action 的 UI/Channel 验收 | 补验收 | P1 |
 
@@ -347,7 +347,7 @@
 | `ActionValidator.validate/2` | 能拒绝 missing/stale/invented/disabled action | 不等于幂等、TTL、跨作品安全完成 |
 | `DialogueGateway.handle_action/3` | `confirm_before_execute` 可 re-gate 并在 allow_tool 时 dispatch | 不等于 ConfirmationBinding 完整实现 |
 | `WorkspaceChannel.handle_in("author_action")` | Channel 层 action roundtrip 已有测试 | 不等于当前 App 入口已经使用 |
-| `WorkbenchV3` + `socket_v3.ts` | 有更接近 v3 的前端 action 实现 | 当前 `App.tsx` 未接入它，真实入口仍是 `WorkspaceChat` |
+| `WorkspaceChat` + `socket.ts` | 当前真实入口已接 `available_actions` / `author_action` / `task_state` | 缺完整 action_result、长跑 task_state 和错误恢复 UI 验收 |
 | `workspace_channel_v3_test.exs` | 覆盖 task_state、stale/invented action 等局部链路 | 不等于 Playwright/真人工作台验收 |
 
 ---

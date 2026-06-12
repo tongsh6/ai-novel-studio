@@ -2,7 +2,7 @@
 
 > 作者视角：我有一个模糊的创作想法但还没想清楚，AI 应该像创作伙伴一样帮我展开思路、给出几个可能方向，并允许我选择某个方向继续探索。候选方向是灵感入口，不应自动写入作品事实；若要采纳为正式方向，必须经过明确的 adoption boundary。
 >
-> 2026-05-12 对账结论：后端 creative exploration、candidate fallback、malformed candidate 修复已有较强证据；`WorkspaceChat` / `WorkbenchV3` 已能渲染候选卡。但按真实用户场景看，候选卡缺“点选继续探索/明确采纳”的操作闭环，且真实入口默认 `generate_micro_plan: true` 可能把探索误推入执行链。
+> 2026-05-12 对账结论：后端 creative exploration、candidate fallback、malformed candidate 修复已有较强证据；`WorkspaceChat` 已能渲染候选卡。但按真实用户场景看，候选卡曾缺“点选继续探索/明确采纳”的操作闭环，且真实入口曾有默认 MicroPlan 风险。后续已补 `au02-candidate-continuation` 与 `au02-candidate-adoption-bridge` 真实 Tauri 证据；历史旁路 `WorkbenchV3` 已退役删除，不再作为当前证据。
 
 ---
 
@@ -46,7 +46,6 @@
 | `CandidateDirection` | 候选方向结构：title / pitch / tone_tags / adoption_status | 已有后端构造和 fallback 测试 |
 | `TurnResultBuilder.maybe_add_candidates/3` | 把 candidates 写入 TurnResult，并为每个候选生成服务端授权 `choose_candidate` action | `au02-candidate-adoption-bridge` Tauri 证据 |
 | `WorkspaceChat.tsx` candidate panel | 当前真实入口渲染候选方向、继续探索和授权采纳按钮 | `au02-candidate-continuation` / `au02-candidate-adoption-bridge` Tauri 证据 |
-| `WorkbenchV3.tsx` candidate panel | v3 工作台候选渲染 | 有渲染代码，当前 App 不直接使用 |
 | `turn_result_candidates.test.ts` | 前端候选字段契约测试 | 有测试，但样例 `adoption_status: "tentative"` 与业务期望 `not_adopted` 存在口径风险 |
 | `AdoptionBoundary.evaluate/3` | 候选采纳边界 | 已接入 AU-02 候选卡授权采纳闭环；后续需补高风险/stale/conflict/cross-work |
 | `frontend/src/lib/socket.ts` `sendMessage` | 当前真实入口发送 user_message | 普通探索默认不生成 MicroPlan；候选继续探索携带 `candidate_selection` |
@@ -108,7 +107,7 @@
 - 候选数量合理，通常 2-3 个；
 - 卡片不被误显示为正式设定或已采纳内容。
 
-**当前证据**：`WorkspaceChat.tsx` 渲染 `msg.turnResult.candidate_directions`；`WorkbenchV3.tsx` 也有 candidate panel；`turn_result_candidates.test.ts` 覆盖字段存在时可渲染。
+**当前证据**：`WorkspaceChat.tsx` 渲染 `msg.turnResult.candidate_directions`；`turn_result_candidates.test.ts` 覆盖字段存在时可渲染。
 
 **当前状态**：部分实现。前端有渲染代码，缺真实 UI walkthrough。
 
@@ -326,7 +325,7 @@
 | `dialogue_gateway_test.exs` | exploration、candidate fallback、not_adopted、无表单 | 真实工作台是否可见/可点/可继续 |
 | `creative_exploration_loop_test.exs` | partner-like exploration、available_actions 空 | 前端输入框和候选卡交互 |
 | `planner_real_llm_test.exs` | LM Studio 下可解析 exploration | 人工体验质量和 UI 渲染 |
-| `WorkspaceChat.tsx` / `WorkbenchV3.tsx` | 候选卡渲染代码存在 | 选择/采纳候选的用户操作闭环 |
+| `WorkspaceChat.tsx` | 候选卡渲染代码存在 | 选择/采纳候选的用户操作闭环 |
 | `turn_result_candidates.test.ts` | TS 字段形状与渲染门禁 | adoption_status 语义样例目前不准 |
 | `AdoptionBoundaryTest` | 候选采纳规则 | AU-02 候选卡是否能进入采纳边界 |
 

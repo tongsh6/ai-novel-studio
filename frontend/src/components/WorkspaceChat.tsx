@@ -65,7 +65,7 @@ import type {
 } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
-import { CARD, MEMORY, TRACE, WORKBENCH } from "../lib/copy";
+import { CARD, TRACE, WORKBENCH } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import {
   toAuthorTraceSummary,
@@ -218,6 +218,42 @@ export function WorkspaceCandidatePanel({
       </div>
     </div>
   );
+}
+
+function isProseArtifact(artifactType?: string): boolean {
+  return artifactType === "prose_fragment" || artifactType === "scene_draft";
+}
+
+function isOutlineArtifact(artifactType?: string): boolean {
+  return artifactType === "outline_draft";
+}
+
+function isArchiveArtifact(artifactType?: string): boolean {
+  return artifactType === "character_seed" || artifactType === "world_setting";
+}
+
+function acceptActionLabel(artifactType?: string): string {
+  if (isProseArtifact(artifactType)) return CARD.tentativeArtifact.acceptProseLabel;
+  if (isOutlineArtifact(artifactType)) return CARD.tentativeArtifact.acceptOutlineLabel;
+  if (isArchiveArtifact(artifactType)) return CARD.tentativeArtifact.acceptArchiveLabel;
+  return CARD.tentativeArtifact.acceptLabel;
+}
+
+function editThenAcceptActionLabel(artifactType?: string): string {
+  if (isProseArtifact(artifactType)) return CARD.tentativeArtifact.editProseThenAcceptLabel;
+  return CARD.tentativeArtifact.editThenAcceptLabel;
+}
+
+function acceptActionTitle(artifactType?: string): string {
+  if (isProseArtifact(artifactType)) return WORKBENCH.acceptProseActionTitle;
+  if (isOutlineArtifact(artifactType)) return WORKBENCH.acceptOutlineActionTitle;
+  if (isArchiveArtifact(artifactType)) return WORKBENCH.acceptArchiveActionTitle;
+  return WORKBENCH.acceptGenericActionTitle;
+}
+
+function editThenAcceptActionTitle(artifactType?: string): string {
+  if (isProseArtifact(artifactType)) return WORKBENCH.editProseActionTitle;
+  return WORKBENCH.editGenericActionTitle;
 }
 
 function startupFailureMessage(detail: string): ChatMessage {
@@ -759,15 +795,26 @@ export function WorkspaceChat() {
     }
   };
 
-  const actionLabel = (action: AvailableActionLike) => {
+  const artifactForAction = (
+    turnResult: TurnResult,
+    action: AvailableActionLike,
+  ): ArtifactEntry | null =>
+    (turnResult.adoption_state?.pending ?? []).find(
+      (entry) => entry.artifact_id === action.target_ref,
+    ) ?? null;
+
+  const actionLabel = (turnResult: TurnResult, action: AvailableActionLike) => {
     if (action.action_type === "confirm_before_execute") return WORKBENCH.actionConfirm;
     if (action.action_type === "reject_or_cancel_confirmation") return WORKBENCH.actionReject;
     if (action.action_type === "cancel_pending_behavior") return WORKBENCH.actionCancel;
     if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
-    if (action.action_type === "accept") return CARD.tentativeArtifact.acceptLabel;
+    const artifact = artifactForAction(turnResult, action);
+    if (action.action_type === "accept") return acceptActionLabel(artifact?.artifact_type);
     if (action.action_type === "discard") return CARD.tentativeArtifact.discardLabel;
-    if (action.action_type === "edit_then_accept") return CARD.tentativeArtifact.editThenAcceptLabel;
+    if (action.action_type === "edit_then_accept") {
+      return editThenAcceptActionLabel(artifact?.artifact_type);
+    }
     return action.action_type;
   };
 
@@ -800,6 +847,19 @@ export function WorkspaceChat() {
       runtimeState.adoption.pendingArtifactIds,
       activeBehaviorId,
     );
+
+  const actionTitle = (turnResult: TurnResult, action: AvailableActionLike) => {
+    if (action.disabled_reason) return action.disabled_reason;
+    const artifact = artifactForAction(turnResult, action);
+
+    if (action.action_type === "accept") return acceptActionTitle(artifact?.artifact_type);
+    if (action.action_type === "discard") return WORKBENCH.discardActionTitle;
+    if (action.action_type === "edit_then_accept") {
+      return editThenAcceptActionTitle(artifact?.artifact_type);
+    }
+
+    return undefined;
+  };
 
   const findArtifactAvailableAction = (
     artifact: ArtifactEntry,
@@ -1079,6 +1139,25 @@ export function WorkspaceChat() {
     styles.leftColumn,
     isPanelOpen ? styles.leftColumnDimmed : "",
   ].join(" ");
+  const taskStatusLabel = workSwitchingId
+    ? WORKBENCH.taskSwitchingLabel
+    : longRun.status === "running"
+      ? WORKBENCH.taskRunningLabel(longRun.budgetUsed)
+      : longRun.status === "checkpoint"
+        ? WORKBENCH.taskCheckpointLabel
+        : longRun.status === "failed"
+          ? WORKBENCH.taskFailedLabel
+          : WORKBENCH.taskIdleLabel;
+  const modelStatusLabel =
+    llmConnected === null
+      ? WORKBENCH.modelCheckingLabel
+      : llmConnected
+        ? WORKBENCH.modelConnectedLabel
+        : WORKBENCH.modelDisconnectedLabel;
+  const modelStatusTitle =
+    llmConnected && llmModel
+      ? WORKBENCH.modelStatusTitle(llmModel)
+      : WORKBENCH.modelDisconnectedTitle;
 
   return (
     <div className={styles.workbench}>
@@ -1232,39 +1311,30 @@ export function WorkspaceChat() {
             className={`${styles.btnSecondary} ${styles.readingModeButton}`}
             onClick={() => setMode("reading")}
           >
-            [阅读模式]
+            {WORKBENCH.readingModeLabel}
           </button>
           <button
             className={`${styles.btnSecondary} ${styles.readingModeButton}`}
             disabled={!hasValidRuntimeWork}
             onClick={() => setMode("memory")}
           >
-            [{MEMORY.workbenchEntry}]
+            {WORKBENCH.memoryLabel}
           </button>
           <span className={styles.divider1}>/</span>
-          <span className={styles.volText}>{context.volumeTitle || "全书"}</span>
+          <span className={styles.volText}>{context.volumeTitle || WORKBENCH.wholeBookLabel}</span>
         </div>
         <div className={styles.statusGroup}>
-          <span className={styles.budgetText}>
-            {workSwitchingId
-              ? WORKBENCH.workMenuSwitching
-              : longRun.status === "running"
-                ? `长跑中: ${longRun.budgetUsed}%`
-                : "长跑状态: 待机"}
-          </span>
+          <span className={styles.budgetText}>{taskStatusLabel}</span>
           <div
             className={llmBadgeClassName}
-            title={llmConnected ? `模型: ${llmModel}` : "请检查 LM Studio 是否已启动并加载模型"}
+            title={modelStatusTitle}
           >
-            LLM: {llmConnected === null ? "检测中…" : llmConnected ? "已连接" : "未连接"}
-            {llmConnected && llmModel ? (
-              <span className={styles.llmProviderName}> · {llmModel}</span>
-            ) : null}
+            {modelStatusLabel}
           </div>
           <div 
             className={serviceBadgeClassName}
           >
-            服务: {connectionLabel}
+            {WORKBENCH.syncStatusLabel(connectionLabel)}
           </div>
         </div>
       </div>
@@ -1396,14 +1466,14 @@ export function WorkspaceChat() {
                         key={action.action_id}
                         className={styles.btnSecondary}
                         disabled={action.enabled === false}
-                        title={action.disabled_reason}
+                        title={actionTitle(msg.turnResult!, action)}
                         onClick={() => {
                           if (msg.turnResult) {
                             handleVisibleAvailableAction(msg.turnResult, action);
                           }
                         }}
                       >
-                        {actionLabel(action)}
+                        {actionLabel(msg.turnResult!, action)}
                       </button>
                     ))}
                   </div>
@@ -1478,7 +1548,7 @@ export function WorkspaceChat() {
             </Dialog.Portal>
           </Dialog.Root>
 
-          {/* 修改后采纳：编辑弹窗 (edit_then_accept) */}
+          {/* 修改后保存：编辑弹窗 (edit_then_accept) */}
           <Dialog.Root
             open={editDialog !== null}
             onOpenChange={(open) => {

@@ -42,7 +42,7 @@
 | `frontend/src/lib/works.ts` | 前端 Work API 客户端、lastOpened 选择逻辑 | 已实现，`pickInitialWorkId` 有单测；lastOpened 仍用 `localStorage` |
 | `WorkspaceChat.tsx` 启动流程 | 启动时 list works、选择 lastOpened/最新、无作品则创建“未命名作品”、join channel | 部分实现；只在 mount 时连接一次，没有运行时切换 |
 | `WorkspaceChannel.join/3` | 从 topic/payload 注入 `workspace_id` 和 `work_id`，best-effort `mark_opened` | 已实现；join 任意 workspace 有测试 |
-| `socket_v3.ts` / `socket.test.ts` | 前端发送消息和工具请求携带 `work_id` | 部分测试覆盖 |
+| `socket.ts` / socket tests | 前端发送消息和工具请求携带 `work_id` | 部分测试覆盖；历史 `socket_v3.ts` 旁路已退役删除 |
 | `docs/project-ledger.md` | VS-09 / GAP-WT-02 / GAP-AC-P0-5 当前状态 | 台账确认 CRUD 与 work_id pass-through 已推进，切换 UI/隔离 E2E 未闭环 |
 
 ---

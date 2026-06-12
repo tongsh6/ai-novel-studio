@@ -2,42 +2,36 @@
 // Regression for: docs/project-ledger.md §8.1 GAP-WT-01
 //
 // 守住后端 `candidate_directions` → 前端渲染条件之间的契约：
-// 一旦 V3TurnResult.candidate_directions 形状被悄悄改坏，
-// WorkbenchV3 候选面板的渲染条件 (`candidates.length > 0`) 就会失效。
+// 一旦 TurnResult.candidate_directions 形状被悄悄改坏，
+// WorkspaceChat 候选面板的渲染条件 (`candidates.length > 0`) 就会失效。
 import { describe, expect, it } from "vitest";
 
 import type {
-  V3CandidateDirection,
-  V3TurnResult,
-} from "../socket_v3";
+  CandidateDirection,
+  TurnResult,
+} from "../../components/WorkspaceChat";
 
 const baseTurnResult = (
-  candidates: V3CandidateDirection[] | undefined,
-): V3TurnResult => ({
+  candidates: CandidateDirection[] | undefined,
+): TurnResult => ({
   schema_version: "3.0-draft",
   turn_id: "turn_t1",
-  frame_ref: "frame_f1",
   assistant_message: { text: "好的" },
   frame_summary: {
     frame_type: "creative_exploration",
     dialogue_goal: "帮作者展开创意",
   },
-  trace_summary: {},
   phase: "completed",
   status: "conversational",
+  next_action: "continue_dialogue",
   available_actions: [],
-  truthfulness: {
-    tool_called: false,
-    artifact_adopted: false,
-    production_write_performed: false,
-    durable_behavior_opened: false,
-  },
+  produced_at: "2026-06-12T00:00:00Z",
   ...(candidates !== undefined ? { candidate_directions: candidates } : {}),
 });
 
-describe("V3TurnResult.candidate_directions contract", () => {
+describe("TurnResult.candidate_directions contract", () => {
   it("returns a renderable array when LLM produces candidates", () => {
-    const candidates: V3CandidateDirection[] = [
+    const candidates: CandidateDirection[] = [
       {
         direction_id: "dir_1",
         title: "赛博公司垄断流",
@@ -56,7 +50,7 @@ describe("V3TurnResult.candidate_directions contract", () => {
     ];
     const result = baseTurnResult(candidates);
 
-    // 这是 WorkbenchV3.tsx 的渲染门禁条件，必须为真
+    // 这是 WorkspaceChat.tsx 的渲染门禁条件，必须为真
     expect(result.candidate_directions).toBeDefined();
     expect((result.candidate_directions ?? []).length).toBeGreaterThan(0);
 

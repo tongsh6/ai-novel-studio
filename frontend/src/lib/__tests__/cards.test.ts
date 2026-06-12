@@ -87,6 +87,27 @@ describe("card type contracts", () => {
     expect(html).not.toContain("accept-local");
   });
 
+  it("prose candidate_set fallback uses chapter draft language", () => {
+    const card = {
+      card_type: "candidate_set",
+      artifact_type: "prose_fragment",
+      items: [
+        {
+          item_id: "chapter_01",
+          title: "第一章：穿越初遇",
+          body: "陆明站在茶馆门口，听见城门外马蹄声骤近。",
+        },
+      ],
+    } as UICard;
+
+    const html = renderToStaticMarkup(React.createElement(CandidateSetCard, { card }));
+
+    expect(html).toContain("章节正文草稿");
+    expect(html).toContain("保存后会写入章节正文");
+    expect(html).not.toContain("待确认的创作材料");
+    expect(html).not.toContain("创作素材");
+  });
+
   it("discarded adoption state uses author-facing copy", () => {
     expect(adoptionDecisionCopy("DISCARDED")).toEqual({
       title: "已废弃",
