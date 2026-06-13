@@ -87,3 +87,12 @@ scenarios:
     manifest: quality/acceptance/scenarios/vs10-observability-spine.yml
     driver: frontend/slice-verify/vs10-observability-spine.mjs
     entrypoint: scripts/quality_accept.sh vs10-observability-spine --surface browser
+  - id: dogfood-runner
+    title: "P1 长篇狗粮运行器"
+    tier: nightly
+    surface: browser
+    runner: dogfood_run
+    default_provider: lmstudio
+    manifest: quality/acceptance/scenarios/dogfood-runner.yml
+    driver: frontend/slice-verify/dogfood-runner.mjs
+    entrypoint: scripts/dogfood_run.sh --provider lmstudio

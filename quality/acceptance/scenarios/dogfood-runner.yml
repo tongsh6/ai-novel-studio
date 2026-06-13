@@ -1,0 +1,58 @@
+id: dogfood-runner
+title: P1 长篇狗粮运行器
+tier: nightly
+surface: browser
+runner: dogfood_run
+default_provider: lmstudio
+entrypoint: scripts/dogfood_run.sh --provider lmstudio
+
+contract:
+  - docs/product/novel-output-milestones.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - tasks/NEXT.md
+
+invariants:
+  - external-browser-driver
+  - no-product-dogfood-awareness
+  - chapter-progress-persisted
+  - exported-reading-artifact
+
+setup:
+  seed: current P1 dogfood work
+  provider: lmstudio
+  runner: scripts/dogfood_run.sh
+
+user_flow:
+  - open: real browser workbench
+  - inspect: reading projection for chapters below target word count
+  - input: write or continue the next pending chapter
+  - click: adopt server-provided pending draft action
+  - repeat: until chapter limit or target word count is reached
+  - export: reading mode full manuscript
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - progress_jsonl
+    - word_count_json
+    - exported_manuscript
+  artifact_dir: artifacts/novel-output/p1-100k-dogfood
+
+assertions:
+  ui:
+    - real workbench input is used
+    - reading mode export is available
+  network:
+    - user_message sent for each chapter step
+    - adoption action sent through server-provided action
+  data:
+    - chapter word counts are persisted
+    - exported manuscript matches accepted chapter content
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

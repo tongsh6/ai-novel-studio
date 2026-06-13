@@ -7,6 +7,7 @@ SCENARIO_INDEX="$PROJECT_ROOT/quality/acceptance/scenarios.yml"
 SCENARIO_ID=""
 SURFACE=""
 PROVIDER="${SLICE_VERIFY_PROVIDER:-slice_verify}"
+PROVIDER_SET=false
 TIER=""
 LIST=false
 
@@ -65,13 +66,17 @@ if (!fs.existsSync(indexPath)) {
 const scenarios = parseIndex(fs.readFileSync(indexPath, "utf8"));
 
 if (command === "list") {
-  console.log("id\ttier\tstatus\tsurface\tdriver\tentrypoint");
+  console.log("id\ttier\tstatus\tsurface\trunner\tdriver\tentrypoint");
   for (const scenario of scenarios) {
+    const runner = scenario.runner || (
+      scenario.surface === "tauri" ? "tauri_slice_verify" : "slice_verify"
+    );
     console.log([
       scenario.id,
       scenario.tier,
       scenario.status || "active",
       scenario.surface,
+      runner,
       scenario.driver,
       scenario.entrypoint,
     ].join("\t"));
@@ -121,6 +126,7 @@ while [[ $# -gt 0 ]]; do
       ;;
     --provider)
       PROVIDER="${2:-}"
+      PROVIDER_SET=true
       shift 2
       ;;
     -h|--help)
@@ -152,10 +158,37 @@ run_scenario() {
   local blocked_reason
   local manifest
   local artifact_dir
+  local scenario_runner
+  local scenario_default_provider
+  local scenario_provider="$PROVIDER"
+  local entrypoint
 
   if [[ -z "$scenario_surface" ]]; then
     scenario_surface="$(query_scenarios field "$scenario_id" surface)"
   fi
+
+  scenario_runner="$(query_scenarios field "$scenario_id" runner)"
+  if [[ -z "$scenario_runner" ]]; then
+    case "$scenario_surface" in
+      browser)
+        scenario_runner="slice_verify"
+        ;;
+      tauri)
+        scenario_runner="tauri_slice_verify"
+        ;;
+      *)
+        echo "[quality-accept] Unsupported surface: $scenario_surface" >&2
+        exit 64
+        ;;
+    esac
+  fi
+
+  scenario_default_provider="$(query_scenarios field "$scenario_id" default_provider)"
+  if [[ "$PROVIDER_SET" == false && -n "$scenario_default_provider" ]]; then
+    scenario_provider="$scenario_default_provider"
+  fi
+
+  entrypoint="$(query_scenarios field "$scenario_id" entrypoint)"
 
   scenario_status="$(query_scenarios field "$scenario_id" status)"
   if [[ "$scenario_status" == "blocked" ]]; then
@@ -171,19 +204,22 @@ run_scenario() {
     exit 66
   fi
 
-  case "$scenario_surface" in
-    browser)
+  case "$scenario_runner" in
+    slice_verify)
       artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/$scenario_id"
       ;;
-    tauri)
-      if [[ "$PROVIDER" == "lmstudio" ]]; then
+    tauri_slice_verify)
+      if [[ "$scenario_provider" == "lmstudio" ]]; then
         artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/${scenario_id}-tauri-lmstudio"
       else
         artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/${scenario_id}-tauri"
       fi
       ;;
+    dogfood_run)
+      artifact_dir="$PROJECT_ROOT/artifacts/novel-output/p1-100k-dogfood"
+      ;;
     *)
-      echo "[quality-accept] Unsupported surface: $scenario_surface" >&2
+      echo "[quality-accept] Unsupported runner: $scenario_runner" >&2
       exit 64
       ;;
   esac
@@ -191,21 +227,57 @@ run_scenario() {
   cat <<EOF
 [quality-accept] scenario: $scenario_id
 [quality-accept] surface: $scenario_surface
-[quality-accept] provider: $PROVIDER
+[quality-accept] runner: $scenario_runner
+[quality-accept] provider: $scenario_provider
+[quality-accept] entrypoint: $entrypoint
 [quality-accept] manifest: $manifest
 [quality-accept] artifacts: $artifact_dir
 EOF
 
-  case "$scenario_surface" in
-    browser)
+  case "$scenario_runner" in
+    slice_verify)
+      if [[ "$scenario_surface" != "browser" ]]; then
+        echo "[quality-accept] runner slice_verify requires surface=browser, got $scenario_surface" >&2
+        exit 64
+      fi
       if ! bash "$PROJECT_ROOT/scripts/slice_verify.sh" "$scenario_id"; then
         echo "[quality-accept] failed: $scenario_id" >&2
         echo "[quality-accept] inspect artifacts: $artifact_dir" >&2
         exit 1
       fi
       ;;
-    tauri)
-      if ! bash "$PROJECT_ROOT/scripts/tauri_slice_verify.sh" --provider "$PROVIDER" "$scenario_id"; then
+    tauri_slice_verify)
+      if [[ "$scenario_surface" != "tauri" ]]; then
+        echo "[quality-accept] runner tauri_slice_verify requires surface=tauri, got $scenario_surface" >&2
+        exit 64
+      fi
+      if ! bash "$PROJECT_ROOT/scripts/tauri_slice_verify.sh" --provider "$scenario_provider" "$scenario_id"; then
+        echo "[quality-accept] failed: $scenario_id" >&2
+        echo "[quality-accept] inspect artifacts: $artifact_dir" >&2
+        exit 1
+      fi
+      ;;
+    dogfood_run)
+      if [[ "$scenario_provider" != "lmstudio" && "$scenario_provider" != "slice_verify" ]]; then
+        echo "[quality-accept] dogfood_run supports provider lmstudio|slice_verify, got $scenario_provider" >&2
+        exit 64
+      fi
+
+      local dogfood_args=(--provider "$scenario_provider")
+      if [[ -n "${DOGFOOD_QUALITY_CHAPTERS:-}" ]]; then
+        dogfood_args+=(--chapters "$DOGFOOD_QUALITY_CHAPTERS")
+      fi
+      if [[ -n "${DOGFOOD_QUALITY_MIN_WORDS:-}" ]]; then
+        dogfood_args+=(--min-words "$DOGFOOD_QUALITY_MIN_WORDS")
+      fi
+      if [[ -n "${DOGFOOD_QUALITY_TARGET_WORDS:-}" ]]; then
+        dogfood_args+=(--target-words "$DOGFOOD_QUALITY_TARGET_WORDS")
+      fi
+      if [[ "${DOGFOOD_QUALITY_RESUME:-false}" == "true" ]]; then
+        dogfood_args+=(--resume)
+      fi
+
+      if ! bash "$PROJECT_ROOT/scripts/dogfood_run.sh" "${dogfood_args[@]}"; then
         echo "[quality-accept] failed: $scenario_id" >&2
         echo "[quality-accept] inspect artifacts: $artifact_dir" >&2
         exit 1

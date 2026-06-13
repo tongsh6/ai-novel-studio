@@ -62,6 +62,10 @@ function requireCondition(condition, message) {
   if (!condition) errors.push(message);
 }
 
+function defaultRunnerForSurface(surface) {
+  return surface === "tauri" ? "tauri_slice_verify" : "slice_verify";
+}
+
 function parseTauriList(output) {
   const ids = new Set();
   let inImplementedBlock = false;
@@ -117,6 +121,11 @@ if (!fs.existsSync(indexPath)) {
       errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} unsupported surface ${scenario.surface}`);
     }
 
+    const runner = scenario.runner || defaultRunnerForSurface(scenario.surface);
+    if (!["slice_verify", "tauri_slice_verify", "dogfood_run"].includes(runner)) {
+      errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} unsupported runner ${runner}`);
+    }
+
     if (scenario.status === "blocked" && !scenario.blocked_reason) {
       errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} is blocked but missing blocked_reason`);
     }
@@ -125,15 +134,41 @@ if (!fs.existsSync(indexPath)) {
       errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} driver missing: ${scenario.driver}`);
     }
 
-    if (scenario.surface === "tauri" && /scripts\/slice_verify\.sh\b/.test(scenario.entrypoint ?? "")) {
+    if (runner === "slice_verify" && scenario.surface !== "browser") {
+      errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} runner slice_verify requires surface browser`);
+    }
+
+    if (runner === "tauri_slice_verify" && scenario.surface !== "tauri") {
+      errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} runner tauri_slice_verify requires surface tauri`);
+    }
+
+    if (runner === "dogfood_run") {
+      if (scenario.surface !== "browser") {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} dogfood_run must declare surface browser`);
+      }
+      if (scenario.default_provider !== "lmstudio") {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} dogfood_run must declare default_provider lmstudio`);
+      }
+      if (!/scripts\/dogfood_run\.sh\b/.test(scenario.entrypoint ?? "")) {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} dogfood_run entrypoint must route to scripts/dogfood_run.sh`);
+      }
+      if (/scripts\/quality_accept\.sh\b/.test(scenario.entrypoint ?? "")) {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} dogfood_run entrypoint must not route through quality_accept.sh`);
+      }
+      if (scenario.driver && !scenario.driver.endsWith("/dogfood-runner.mjs")) {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} dogfood_run driver must be dogfood-runner.mjs`);
+      }
+    }
+
+    if (runner === "tauri_slice_verify" && /scripts\/slice_verify\.sh\b/.test(scenario.entrypoint ?? "")) {
       errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} tauri scenario routes to browser slice_verify.sh`);
     }
 
-    if (scenario.surface === "browser" && /scripts\/tauri_slice_verify\.sh\b/.test(scenario.entrypoint ?? "")) {
+    if (runner === "slice_verify" && /scripts\/tauri_slice_verify\.sh\b/.test(scenario.entrypoint ?? "")) {
       errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} browser scenario routes to tauri_slice_verify.sh`);
     }
 
-    if (scenario.surface && scenario.entrypoint && !scenario.entrypoint.includes(`--surface ${scenario.surface}`)) {
+    if (["slice_verify", "tauri_slice_verify"].includes(runner) && scenario.surface && scenario.entrypoint && !scenario.entrypoint.includes(`--surface ${scenario.surface}`)) {
       errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} entrypoint does not include --surface ${scenario.surface}`);
     }
 
@@ -195,6 +230,29 @@ if (!fs.existsSync(indexPath)) {
     const manifestSurface = parseScalar(manifestText, "surface");
     if (manifestSurface && manifestSurface !== scenario.surface) {
       errors.push(`${manifestFile}: surface ${manifestSurface} does not match scenarios.yml surface ${scenario.surface}`);
+    }
+
+    const manifestRunner = parseScalar(manifestText, "runner");
+    if (manifestRunner && manifestRunner !== runner) {
+      errors.push(`${manifestFile}: runner ${manifestRunner} does not match scenarios.yml runner ${runner}`);
+    }
+
+    const manifestEntrypoint = parseScalar(manifestText, "entrypoint");
+    if (manifestEntrypoint && manifestEntrypoint !== scenario.entrypoint) {
+      errors.push(`${manifestFile}: entrypoint does not match scenarios.yml entrypoint`);
+    }
+
+    if (runner === "dogfood_run") {
+      const manifestDefaultProvider = parseScalar(manifestText, "default_provider");
+      if (manifestRunner !== "dogfood_run") {
+        errors.push(`${manifestFile}: dogfood scenario must declare runner: dogfood_run`);
+      }
+      if (manifestDefaultProvider !== "lmstudio") {
+        errors.push(`${manifestFile}: dogfood scenario must declare default_provider: lmstudio`);
+      }
+      if (!/scripts\/dogfood_run\.sh\b/.test(manifestEntrypoint)) {
+        errors.push(`${manifestFile}: dogfood entrypoint must route to scripts/dogfood_run.sh`);
+      }
     }
   }
 
@@ -289,4 +347,3 @@ if (errors.length > 0) {
 
 console.log("[quality-manifest-check] passed");
 NODE
-
