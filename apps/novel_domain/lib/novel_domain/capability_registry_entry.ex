@@ -2,7 +2,7 @@ defmodule NovelDomain.CapabilityRegistryEntry do
   @moduledoc """
   工具注册表中的一条能力记录。Orchestrator 和 ToolTrace 据此审查工具调用。
 
-  规格见 docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md §2。
+  规格见 docs/design/contracts/VS-02-tool-provenance-contract-pack.md §2。
   """
 
   @type tool_layer :: :cognitive | :memory | :policy | :creative | :artifact | :debug

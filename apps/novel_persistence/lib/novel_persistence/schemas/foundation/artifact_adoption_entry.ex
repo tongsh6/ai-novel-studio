@@ -1,6 +1,6 @@
 defmodule NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntry do
   @moduledoc """
-  Mirrors `docs/design-v2/schemas/foundation/artifact_adoption_entry.json`
+  Mirrors `docs/design/schemas/foundation/artifact_adoption_entry.json`
   (ADR-0001 §2). adoption_status 7 态由 30 §3.2 / ADR-0001 §2 唯一权威。
   """
 

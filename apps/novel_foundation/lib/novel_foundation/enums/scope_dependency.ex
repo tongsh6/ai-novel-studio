@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/scope_dependency.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/scope_dependency.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.ScopeDependency do
   @moduledoc """
-  ScopeDependency — generated from `docs/design-v2/schemas/foundation/enums/scope_dependency.json`.
+  ScopeDependency — generated from `docs/design/schemas/foundation/enums/scope_dependency.json`.
 
   ADR-0010 §5 scope_dependency 最小集合
 

@@ -1,4 +1,4 @@
-defmodule NovelE2E.V3FullChainTest do
+defmodule NovelE2E.FullChainTest do
   use ExUnit.Case, async: false
 
   @moduledoc """

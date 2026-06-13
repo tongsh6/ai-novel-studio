@@ -2,7 +2,7 @@ defmodule NovelDomain.OrchestratorDecision do
   @moduledoc """
   Execution Orchestrator 的裁决记录。Planner 不能批准自己的 MicroPlan。
 
-  规格见 docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md §5。
+  规格见 docs/design/contracts/VS-01-execution-authority-contract-pack.md §5。
   """
 
   @type decision_type ::

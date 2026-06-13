@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/memory_status.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/memory_status.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.MemoryStatus do
   @moduledoc """
-  MemoryStatus — generated from `docs/design-v2/schemas/foundation/enums/memory_status.json`.
+  MemoryStatus — generated from `docs/design/schemas/foundation/enums/memory_status.json`.
 
   05-memory-retention-and-retrieval.md §6 记忆状态设计
 

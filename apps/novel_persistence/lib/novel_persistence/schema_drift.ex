@@ -1,6 +1,6 @@
 defmodule NovelPersistence.SchemaDrift do
   @moduledoc """
-  Compares JSON Schema files under `docs/design-v2/schemas/` against the Ecto
+  Compares JSON Schema files under `docs/design/schemas/` against the Ecto
   embedded_schema modules that mirror them.
 
   Phase 0 minimum: ensures top-level field set and required-field set match.
@@ -14,7 +14,7 @@ defmodule NovelPersistence.SchemaDrift do
 
   alias NovelPersistence.Schemas.Foundation.{ArtifactAdoptionEntry, TurnResult}
 
-  @schemas_root Path.expand("../../../../docs/design-v2/schemas", __DIR__)
+  @schemas_root Path.expand("../../../../docs/design/schemas", __DIR__)
 
   @mirrors [
     ArtifactAdoptionEntry,

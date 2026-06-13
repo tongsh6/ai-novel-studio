@@ -1,6 +1,6 @@
 defmodule NovelPersistence.Schemas.Foundation.TurnResult do
   @moduledoc """
-  Mirrors `docs/design-v2/schemas/foundation/turn_result_v2.json` (ADR-0001 §1).
+  Mirrors `docs/design/schemas/foundation/turn_result_v2.json` (ADR-0001 §1).
 
   Phase 0 simplifications (intentional, will tighten as downstream ADRs land):
 

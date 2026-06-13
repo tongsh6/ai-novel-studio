@@ -1,5 +1,5 @@
-// Design: docs/design-v3/07-workbench-ui-contract.md §8
-// Regression for: docs/design-v3/acceptance/author/AU-02-explore.md AU02-GAP-01
+// Design: docs/design/07-workbench-ui-contract.md §8
+// Regression for: docs/design/acceptance/author/AU-02-explore.md AU02-GAP-01
 import { describe, expect, it } from "vitest";
 
 import { findCandidateAvailableAction } from "../candidateSelection";

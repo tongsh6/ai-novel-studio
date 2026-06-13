@@ -1,10 +1,9 @@
 #!/usr/bin/env node
-// Phase 0 minimal codegen for frontend zod schemas.
-// Walks docs/design-v2/schemas/ for *.json (the SSOT, ADR-0001) and runs
+// Minimal codegen for frontend zod schemas.
+// Walks docs/design/schemas/ for *.json (the SSOT) and runs
 // json-schema-to-zod into frontend/src/generated/ mirroring the same path.
 //
-// Phase 1 may upgrade this to handle $ref resolution + tighter typing once
-// downstream enum/envelope ADRs land their schemas. For now $ref targets that
+// A later hardening pass may add $ref resolution + tighter typing. For now $ref targets that
 // are not resolvable will fall through to z.any() (CLI default depth).
 
 import { execFileSync } from "node:child_process";
@@ -14,7 +13,7 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = join(here, "..", "..");
-const schemasRoot = join(root, "docs", "design-v2", "schemas");
+const schemasRoot = join(root, "docs", "design", "schemas");
 const generatedRoot = join(here, "..", "src", "generated");
 
 function walk(dir) {

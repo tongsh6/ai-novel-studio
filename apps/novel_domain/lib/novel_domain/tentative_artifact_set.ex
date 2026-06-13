@@ -2,7 +2,7 @@ defmodule NovelDomain.TentativeArtifactSet do
   @moduledoc """
   AI 生成的待采纳创作材料集合。默认 tentative，不自动成为作品事实。
 
-  规格见 docs/design-v3/contracts/VS-02A-tentative-creative-artifact-contract-pack.md §2。
+  规格见 docs/design/contracts/VS-02A-tentative-creative-artifact-contract-pack.md §2。
   """
 
   @type artifact_type ::

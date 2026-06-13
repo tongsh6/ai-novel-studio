@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/task_phase.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/task_phase.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.TaskPhase do
   @moduledoc """
-  TaskPhase — generated from `docs/design-v2/schemas/foundation/enums/task_phase.json`.
+  TaskPhase — generated from `docs/design/schemas/foundation/enums/task_phase.json`.
 
   ADR-0002 §4 Task phase 与 status 映射
 

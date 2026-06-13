@@ -1,5 +1,5 @@
-// Design: docs/design-v2/ui-design/44-reading-mode.md §3
-// Prototype: novel-studio-v2.pen → 44§3-reading-mode-stale (hEGz0)
+// Design: docs/design/ui/44-reading-mode.md §3
+// Prototype: novel-studio.pen → 44§3-reading-mode-stale (hEGz0)
 import { useEffect, useState } from "react";
 import { useAppStore } from "../lib/store";
 import { getToc, getChapterContent, exportWork } from "../lib/socket";

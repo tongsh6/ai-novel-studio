@@ -1,5 +1,5 @@
-// Design: docs/design-v2/ui-design/42-card-system.md §3 (card component rendering)
-// Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
+// Design: docs/design/ui/42-card-system.md §3 (card component rendering)
+// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
 import { CARD } from "../lib/copy";
 import styles from "./UICards.module.css";
 

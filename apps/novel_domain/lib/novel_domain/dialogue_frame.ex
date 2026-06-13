@@ -2,7 +2,7 @@ defmodule NovelDomain.DialogueFrame do
   @moduledoc """
   v3 每 turn 必有的认知帧。覆盖 reply-only、exploration、tool_dispatch 全场景。
 
-  字段规格见 docs/design-v3/contracts/VS-00-reply-only-contract-pack.md §2。
+  字段规格见 docs/design/contracts/VS-00-reply-only-contract-pack.md §2。
   """
 
   @type frame_type ::

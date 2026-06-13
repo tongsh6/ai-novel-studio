@@ -3,7 +3,7 @@ defmodule NovelDomain.ToolResult do
   工具返回的结构化事实。不是作者消息，不是生产写入。
   status=succeeded 不代表 production state 已写入。
 
-  规格见 docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md §4。
+  规格见 docs/design/contracts/VS-02-tool-provenance-contract-pack.md §4。
   """
 
   @type result_status :: :succeeded | :failed | :partial | :cancelled

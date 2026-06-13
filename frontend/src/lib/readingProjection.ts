@@ -1,5 +1,5 @@
-// Design: docs/design-v2/ui-design/44-reading-mode.md §3 (accepted projection display)
-// Prototype: novel-studio-v2.pen → 44§3-reading-mode-stale (hEGz0)
+// Design: docs/design/ui/44-reading-mode.md §3 (accepted projection display)
+// Prototype: novel-studio.pen → 44§3-reading-mode-stale (hEGz0)
 import type { TocData, WorkAudit, ChapterContent } from "./socket";
 import { normalizeVisibleWorkTitle } from "./workspaceRuntimeState";
 import { READING } from "./copy";

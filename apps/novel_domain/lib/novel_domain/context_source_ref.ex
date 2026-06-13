@@ -2,7 +2,7 @@ defmodule NovelDomain.ContextSourceRef do
   @moduledoc """
   上下文片段的来源引用。每个进入 Planner 的上下文片段必须绑定来源。
 
-  规格见 docs/design-v3/contracts/VS-00B-dialogue-context-grounding-contract-pack.md §3。
+  规格见 docs/design/contracts/VS-00B-dialogue-context-grounding-contract-pack.md §3。
   """
 
   @type source_type :: :current_work | :conversation | :memory | :behavior | :policy

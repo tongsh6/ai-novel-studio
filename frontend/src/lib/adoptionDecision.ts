@@ -1,5 +1,5 @@
-// Design: docs/design-v2/ui-design/42-card-system.md §3 (adoption decision projection)
-// Prototype: novel-studio-v2.pen → 42§4-adoption-card-states (PZAVY)
+// Design: docs/design/ui/42-card-system.md §3 (adoption decision projection)
+// Prototype: novel-studio.pen → 42§4-adoption-card-states (PZAVY)
 import { CARD } from "./copy";
 
 export const OPEN_READING_MODE_ACTION_ID = "open-reading-mode";

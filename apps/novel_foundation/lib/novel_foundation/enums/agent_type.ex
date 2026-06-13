@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/agent_type.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/agent_type.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.AgentType do
   @moduledoc """
-  AgentType — generated from `docs/design-v2/schemas/foundation/enums/agent_type.json`.
+  AgentType — generated from `docs/design/schemas/foundation/enums/agent_type.json`.
 
   tech-stack/08 §3.1 agent_ref struct
 

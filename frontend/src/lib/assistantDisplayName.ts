@@ -1,5 +1,5 @@
-// Contract: docs/design-v3/acceptance/system/SU-03-model-nickname.md
-// Design: docs/design-v2/ui-design/41-workbench-layout.md §4.2
+// Contract: docs/design/acceptance/system/SU-03-model-nickname.md
+// Design: docs/design/ui/41-workbench-layout.md §4.2
 //
 // Work-scoped UI preference only. This module must not influence provider,
 // prompt, canonical message role, or TurnResult shape.

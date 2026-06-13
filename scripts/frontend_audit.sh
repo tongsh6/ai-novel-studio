@@ -13,7 +13,7 @@
 #   bash scripts/frontend_audit.sh          # 全量检查
 #   bash scripts/frontend_audit.sh --quick  # 快速模式（跳过构建）
 #
-# 设计依据: docs/design-v2/tech-stack/04-frontend.md + 05-desktop.md
+# 设计依据: docs/design/tech-stack/04-frontend.md + 05-desktop.md
 # 规则来源: AGENTS.md 前端约束
 
 set -eo pipefail
@@ -54,7 +54,7 @@ echo "--- 1. Dependencies ---"
 REQUIRED_DEPS=("@tauri-apps/api" "react" "react-dom" "phoenix" "zod")
 REQUIRED_DEV_DEPS=("@tauri-apps/cli" "typescript" "vite" "vitest")
 
-# spec 技术栈依赖（来自 docs/design-v2/tech-stack/04-frontend.md）
+# spec 技术栈依赖（来自 docs/design/tech-stack/04-frontend.md）
 SPEC_DEPS=(
   "zustand"
   "@tanstack/react-query"

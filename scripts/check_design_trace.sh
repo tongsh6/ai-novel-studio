@@ -12,7 +12,7 @@
 #   bash scripts/check_design_trace.sh          # 检查所有组件
 #   bash scripts/check_design_trace.sh --json   # JSON 格式输出
 #
-# 设计依据：docs/design-v2/ui-design/README.md §5（追溯要求）
+# 设计依据：docs/design/ui/README.md §5（追溯要求）
 # 规则来源：AGENTS.md § UI 设计驱动（Design-Driven）
 
 set -euo pipefail
@@ -23,8 +23,8 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 COMPONENT_DIR="frontend/src/components"
-DESIGN_DIR="docs/design-v2/ui-design"
-PEN_FILE="$DESIGN_DIR/novel-studio-v2.pen"
+DESIGN_DIR="docs/design/ui"
+PEN_FILE="$DESIGN_DIR/novel-studio.pen"
 PASS=0
 WARN=0
 FAIL=0
@@ -140,8 +140,8 @@ for file in "${WITH_TRACE[@]}"; do
 
   # 验证设计文档引用
   if [[ -n "$DESIGN_REF" ]]; then
-    # 提取文件路径（例如 docs/design-v2/ui-design/42-card-system.md）
-    DOC_PATH=$(echo "$DESIGN_REF" | grep -oE 'docs/design-v2/[^ ]+\.md' || echo "")
+    # 提取文件路径（例如 docs/design/ui/42-card-system.md）
+    DOC_PATH=$(echo "$DESIGN_REF" | grep -oE 'docs/design/[^ ]+\.md' || echo "")
     if [[ -n "$DOC_PATH" ]]; then
       if [[ -f "$DOC_PATH" ]]; then
         pass "$file: 引用 $DOC_PATH 有效"
@@ -196,12 +196,12 @@ if [[ ${#MISSING_TRACE[@]} -gt 0 ]] && [[ "$JSON_OUT" == false ]]; then
   for file in "${MISSING_TRACE[@]}"; do
     echo "  文件: $file"
     echo "  添加格式:"
-    echo "    // Design: docs/design-v2/ui-design/<文档>.md §<章节>"
-    echo "    // Prototype: novel-studio-v2.pen → <screen-frame-name> (<NODE_ID>)"
+    echo "    // Design: docs/design/ui/<文档>.md §<章节>"
+    echo "    // Prototype: novel-studio.pen → <screen-frame-name> (<NODE_ID>)"
     echo ""
   done
-  echo "  参考：docs/design-v2/ui-design/traceability/screen-to-doc-map.md"
-  echo "  参考：docs/design-v2/ui-design/README.md §5（追溯要求）"
+  echo "  参考：docs/design/ui/traceability/screen-to-doc-map.md"
+  echo "  参考：docs/design/ui/README.md §5（追溯要求）"
 fi
 
 # ---- 汇总 ----

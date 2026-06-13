@@ -3,7 +3,7 @@ defmodule ArchCheck do
   架构门禁脚本。
 
   检查每个 umbrella app 是否使用了其层禁止的模块/模式。
-  设计文档依据：docs/design-v2/00-overview.md §3（三层架构 + 依赖方向）。
+  设计文档依据：AGENTS.md §架构约束；docs/design/README.md §写作规则。
 
   用法：mix run scripts/arch_check.exs
   """

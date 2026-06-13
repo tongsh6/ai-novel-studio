@@ -1,6 +1,6 @@
 defmodule NovelFoundation.TurnResultValidator do
   @moduledoc """
-  Runtime validator for TurnResult v2 envelopes (ADR-0001 §1).
+  Runtime validator for TurnResult envelopes (ADR-0001 §1).
 
   TurnService 在出口处调用 `validate!/1`。任何不符合契约的 emit 立即 raise，
   防止字面量漂移悄悄进入下游 channel / 前端 / 持久化。

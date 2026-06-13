@@ -1,4 +1,4 @@
-defmodule NovelWeb.WorkspaceChannelV3Test do
+defmodule NovelWeb.WorkspaceChannelContractTest do
   use ExUnit.Case, async: true
 
   import Phoenix.ChannelTest

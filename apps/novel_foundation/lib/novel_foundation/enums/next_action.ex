@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/next_action.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/next_action.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.NextAction do
   @moduledoc """
-  NextAction — generated from `docs/design-v2/schemas/foundation/enums/next_action.json`.
+  NextAction — generated from `docs/design/schemas/foundation/enums/next_action.json`.
 
   ADR-0002 §6 next_action 完整集合
 

@@ -2,7 +2,7 @@ defmodule NovelDomain.DecisionTrace do
   @moduledoc """
   v3 决策追溯。覆盖 reply_only、exploration、tool_dispatched、downgrade、confirmation 等全部决策类型。
 
-  字段规格见 docs/design-v3/contracts/VS-00-reply-only-contract-pack.md §3。
+  字段规格见 docs/design/contracts/VS-00-reply-only-contract-pack.md §3。
   """
 
   @type t :: %__MODULE__{

@@ -3,7 +3,7 @@ defmodule NovelDomain.ConfirmationBinding do
   确认绑定。把作者的确认回答绑定到一个 open confirmation behavior + target，
   并只用于触发重新 gate，不直接写生产状态。
 
-  规格冻结于 docs/design-v3/contracts/VS-03-behavior-lifecycle-contract-pack.md §5
+  规格冻结于 docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md §5
   与 ADR-0009：确认不能是「点了按钮就执行最近动作」，必须绑定明确对象后重新审查。
   """
 

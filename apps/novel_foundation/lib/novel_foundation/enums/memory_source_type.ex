@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/memory_source_type.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/memory_source_type.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.MemorySourceType do
   @moduledoc """
-  MemorySourceType — generated from `docs/design-v2/schemas/foundation/enums/memory_source_type.json`.
+  MemorySourceType — generated from `docs/design/schemas/foundation/enums/memory_source_type.json`.
 
   05-memory-retention-and-retrieval.md §7 source_type
 

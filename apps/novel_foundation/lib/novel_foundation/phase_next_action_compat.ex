@@ -2,7 +2,7 @@ defmodule NovelFoundation.PhaseNextActionCompat do
   @moduledoc """
   ADR-0002 §7 兼容矩阵的可执行投影。
 
-  矩阵 SSOT：`docs/design-v2/schemas/foundation/phase_next_action_compat.json`，
+  矩阵 SSOT：`docs/design/schemas/foundation/phase_next_action_compat.json`，
   本模块在编译期读取以保证两者永远同步（`@external_resource` 触发文件变更重编）。
 
   ## 用法
@@ -18,7 +18,7 @@ defmodule NovelFoundation.PhaseNextActionCompat do
       # canonical 投影。Validator 应单独处理 transient phase。
   """
 
-  @schema_path "docs/design-v2/schemas/foundation/phase_next_action_compat.json"
+  @schema_path "docs/design/schemas/foundation/phase_next_action_compat.json"
   @external_resource Path.expand("../../../../#{@schema_path}", __DIR__)
 
   @raw @external_resource |> File.read!() |> Jason.decode!()

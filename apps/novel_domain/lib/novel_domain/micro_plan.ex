@@ -3,7 +3,7 @@ defmodule NovelDomain.MicroPlan do
   Planner 到 Execution Orchestrator 的行动建议 envelope。
   MicroPlan 只是建议，不包含执行批准语义。
 
-  规格见 docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md §2。
+  规格见 docs/design/contracts/VS-01-execution-authority-contract-pack.md §2。
   """
 
   @type action_type ::

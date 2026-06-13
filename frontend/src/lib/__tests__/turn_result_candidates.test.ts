@@ -1,4 +1,4 @@
-// Design: docs/design-v3/07-workbench-ui-contract.md §candidate_directions
+// Design: docs/design/07-workbench-ui-contract.md §candidate_directions
 // Regression for: docs/project-ledger.md §8.1 GAP-WT-01
 //
 // 守住后端 `candidate_directions` → 前端渲染条件之间的契约：

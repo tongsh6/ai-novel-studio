@@ -2,7 +2,7 @@ defmodule NovelDomain.DialogueContext do
   @moduledoc """
   组装好的对话上下文。Planner 只能接收已组装好的 DialogueContext，不能直接访问 Repo。
 
-  规格见 docs/design-v3/contracts/VS-00B-dialogue-context-grounding-contract-pack.md §2。
+  规格见 docs/design/contracts/VS-00B-dialogue-context-grounding-contract-pack.md §2。
   """
 
   alias NovelDomain.ContextSourceRef

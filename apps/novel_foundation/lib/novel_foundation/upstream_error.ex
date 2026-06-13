@@ -2,7 +2,7 @@ defmodule NovelFoundation.UpstreamError do
   @moduledoc """
   标准化上游服务错误（Provider Error）。
 
-  按 `docs/design-v2/08-provider-abstraction.md` §6 分类，覆盖本地 provider 错误
+  按 `docs/design/foundation/08-provider-abstraction.md` §6 分类，覆盖本地 provider 错误
   并为云端 provider 预留错误类型。
 
   所有 provider adapter 返回的 error 必须使用本模块的 error type，确保上层

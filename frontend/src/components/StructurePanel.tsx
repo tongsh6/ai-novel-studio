@@ -1,5 +1,5 @@
-// Design: docs/design-v2/ui-design/43-structure-panel.md §5
-// Prototype: novel-studio-v2.pen → 43§5-structure-panel-expanded (ATnmR)
+// Design: docs/design/ui/43-structure-panel.md §5
+// Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 import * as Tabs from "@radix-ui/react-tabs";
 import { X } from "lucide-react";
 import { useEffect, useState } from "react";

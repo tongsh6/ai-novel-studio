@@ -1,4 +1,4 @@
-// Contract: docs/design-v3/acceptance/system/SU-01-model-provider.md
+// Contract: docs/design/acceptance/system/SU-01-model-provider.md
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {

@@ -3,7 +3,7 @@ defmodule NovelDomain.ToolRequest do
   Execution Orchestrator 批准后形成的工具调用请求。
   没有 decision_ref 的 ToolRequest 不能存在——这是 Planner 不能直接调工具的硬约束。
 
-  规格见 docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md §3。
+  规格见 docs/design/contracts/VS-02-tool-provenance-contract-pack.md §3。
   """
 
   @type t :: %__MODULE__{

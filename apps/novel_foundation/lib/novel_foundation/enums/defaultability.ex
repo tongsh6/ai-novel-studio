@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/defaultability.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/defaultability.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.Defaultability do
   @moduledoc """
-  Defaultability — generated from `docs/design-v2/schemas/foundation/enums/defaultability.json`.
+  Defaultability — generated from `docs/design/schemas/foundation/enums/defaultability.json`.
 
   ADR-0010 §3 slot entry 最小字段
 

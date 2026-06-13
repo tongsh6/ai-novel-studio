@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/memory_type.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/memory_type.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.MemoryType do
   @moduledoc """
-  MemoryType — generated from `docs/design-v2/schemas/foundation/enums/memory_type.json`.
+  MemoryType — generated from `docs/design/schemas/foundation/enums/memory_type.json`.
 
   05-memory-retention-and-retrieval.md §4 记忆类型体系
 

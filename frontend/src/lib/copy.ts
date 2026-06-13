@@ -2,7 +2,7 @@
  * 集中化文案管理
  *
  * 规则来源：
- *   - docs/design-v2/ui-design/47-ui-copy-guidelines.md（UI 文案指南）
+ *   - docs/design/ui/47-ui-copy-guidelines.md（UI 文案指南）
  *   - AGENTS.md § UI 设计驱动（Design-Driven）
  *
  * 约束：
@@ -77,7 +77,7 @@ export const STATUS = {
 } as const;
 
 // ============================================================
-// 卡片系统（docs/design-v2/ui-design/42-card-system.md）
+// 卡片系统（docs/design/ui/42-card-system.md）
 // ============================================================
 
 export const CARD = {
@@ -168,7 +168,7 @@ export const CARD = {
 } as const;
 
 // ============================================================
-// 工作台（docs/design-v2/ui-design/41-workbench-layout.md）
+// 工作台（docs/design/ui/41-workbench-layout.md）
 // ============================================================
 
 export const WORKBENCH = {
@@ -295,7 +295,7 @@ export const WORKBENCH = {
 } as const;
 
 // ============================================================
-// 决策溯源（docs/design-v3/acceptance/author/AU-07-trace-and-replay.md）
+// 决策溯源（docs/design/acceptance/author/AU-07-trace-and-replay.md）
 // ============================================================
 
 export const TRACE = {
@@ -374,7 +374,7 @@ export const WORKSPACE_RUNTIME = {
 } as const;
 
 // ============================================================
-// 作品档案（docs/design-v2/ui-design/43-structure-panel.md）
+// 作品档案（docs/design/ui/43-structure-panel.md）
 // ============================================================
 
 export const STRUCTURE_PANEL = {
@@ -521,12 +521,12 @@ export const MEMORY = {
 } as const;
 
 // ============================================================
-// v3 Workbench (VS-07)
+// Workbench
 // ============================================================
 
-export const WORKBENCH_V3 = {
+export const WORKBENCH_COPY = {
   welcomeMessage:
-    "欢迎使用 AI Novel Studio v3！\n\n" +
+    "欢迎使用 AI Novel Studio！\n\n" +
     "这是一款对话式小说创作工具。你可以：\n" +
     "• 聊聊创作方向，我会帮你探索\n" +
     "• 让我帮你生成角色设定、剧情草案\n" +

@@ -2,7 +2,7 @@ defmodule NovelApplication.ReplayService do
   @moduledoc """
   结构化回放服务。基于 DecisionTrace + trace refs 重建决策链，不调用 LLM。
 
-  规格见 docs/design-v3/contracts/VS-06-replay-surface-contract-pack.md §4。
+  规格见 docs/design/contracts/VS-06-replay-surface-contract-pack.md §4。
   """
 
   alias NovelApplication.TraceRedactor

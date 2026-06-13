@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/behavior_status.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/behavior_status.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.BehaviorStatus do
   @moduledoc """
-  BehaviorStatus — generated from `docs/design-v2/schemas/foundation/enums/behavior_status.json`.
+  BehaviorStatus — generated from `docs/design/schemas/foundation/enums/behavior_status.json`.
 
   ADR-0002 §8 behavior status 最小集合
 

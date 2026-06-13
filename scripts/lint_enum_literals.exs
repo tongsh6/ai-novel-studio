@@ -15,23 +15,23 @@ defmodule LintEnumLiterals do
   """
 
   @enum_files [
-    "docs/design-v2/schemas/foundation/enums/status.json",
-    "docs/design-v2/schemas/foundation/enums/turn_phase.json",
-    "docs/design-v2/schemas/foundation/enums/task_phase.json",
-    "docs/design-v2/schemas/foundation/enums/adoption_status.json",
-    "docs/design-v2/schemas/foundation/enums/next_action.json",
-    "docs/design-v2/schemas/foundation/enums/behavior_status.json",
-    "docs/design-v2/schemas/foundation/enums/memory_class.json",
-    "docs/design-v2/schemas/foundation/enums/retention_tier.json",
-    "docs/design-v2/schemas/foundation/enums/source_type.json",
-    "docs/design-v2/schemas/foundation/enums/requiredness.json",
-    "docs/design-v2/schemas/foundation/enums/inferability.json",
-    "docs/design-v2/schemas/foundation/enums/defaultability.json",
-    "docs/design-v2/schemas/foundation/enums/mutation_status.json",
-    "docs/design-v2/schemas/foundation/enums/memory_type.json",
-    "docs/design-v2/schemas/foundation/enums/memory_scope.json",
-    "docs/design-v2/schemas/foundation/enums/memory_status.json",
-    "docs/design-v2/schemas/foundation/enums/memory_source_type.json"
+    "docs/design/schemas/foundation/enums/status.json",
+    "docs/design/schemas/foundation/enums/turn_phase.json",
+    "docs/design/schemas/foundation/enums/task_phase.json",
+    "docs/design/schemas/foundation/enums/adoption_status.json",
+    "docs/design/schemas/foundation/enums/next_action.json",
+    "docs/design/schemas/foundation/enums/behavior_status.json",
+    "docs/design/schemas/foundation/enums/memory_class.json",
+    "docs/design/schemas/foundation/enums/retention_tier.json",
+    "docs/design/schemas/foundation/enums/source_type.json",
+    "docs/design/schemas/foundation/enums/requiredness.json",
+    "docs/design/schemas/foundation/enums/inferability.json",
+    "docs/design/schemas/foundation/enums/defaultability.json",
+    "docs/design/schemas/foundation/enums/mutation_status.json",
+    "docs/design/schemas/foundation/enums/memory_type.json",
+    "docs/design/schemas/foundation/enums/memory_scope.json",
+    "docs/design/schemas/foundation/enums/memory_status.json",
+    "docs/design/schemas/foundation/enums/memory_source_type.json"
   ]
 
   @exempt_paths [

@@ -1,5 +1,5 @@
-// Design: docs/design-v2/ui-design/43-structure-panel.md §4.3
-// Prototype: novel-studio-v2.pen → 43§5-structure-panel-expanded (ATnmR)
+// Design: docs/design/ui/43-structure-panel.md §4.3
+// Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 import type { CharacterData, MemoryItemData } from "./socket";
 import { STRUCTURE_PANEL } from "./copy";
 

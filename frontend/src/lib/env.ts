@@ -1,7 +1,7 @@
 /**
  * 环境检测 — 区分 Tauri 桌面环境与浏览器环境
  *
- * 规则来源：docs/design-v2/tech-stack/05-desktop.md §5
+ * 规则来源：docs/design/tech-stack/05-desktop.md §5
  * 引用：AGENTS.md § 桌面优先（Desktop-First）
  *
  * 端口配置：见 frontend/.env（VITE_API_ENDPOINT, VITE_WS_ENDPOINT）

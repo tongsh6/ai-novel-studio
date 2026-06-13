@@ -1,5 +1,5 @@
-// Contract: docs/design-v3/acceptance/system/SU-01-model-provider.md
-// Design: docs/design-v2/ui-design/41-workbench-layout.md §4.2
+// Contract: docs/design/acceptance/system/SU-01-model-provider.md
+// Design: docs/design/ui/41-workbench-layout.md §4.2
 //
 // Provider settings are split deliberately:
 // - backend runtime config is in-memory only;

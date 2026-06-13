@@ -1,7 +1,7 @@
 defmodule Mix.Tasks.Codegen.Enums do
   @moduledoc """
   Generate `NovelFoundation.Enums.*` modules from JSON SSOT under
-  `docs/design-v2/schemas/foundation/enums/`.
+  `docs/design/schemas/foundation/enums/`.
 
   Each JSON file describes one enum (string values). Output modules are
   written to `apps/novel_foundation/lib/novel_foundation/enums/<snake>.ex`
@@ -18,7 +18,7 @@ defmodule Mix.Tasks.Codegen.Enums do
   @namespace "NovelFoundation.Enums"
 
   defp schemas_dir,
-    do: Path.join(File.cwd!(), "docs/design-v2/schemas/foundation/enums")
+    do: Path.join(File.cwd!(), "docs/design/schemas/foundation/enums")
 
   defp output_dir,
     do: Path.join(File.cwd!(), "apps/novel_foundation/lib/novel_foundation/enums")
@@ -58,7 +58,7 @@ defmodule Mix.Tasks.Codegen.Enums do
 
     json = json_path |> File.read!() |> Jason.decode!()
     # Render with project-root-relative source path so output is reproducible
-    relative_source = Path.join("docs/design-v2/schemas/foundation/enums", filename)
+    relative_source = Path.join("docs/design/schemas/foundation/enums", filename)
     rendered = render(base, json, relative_source)
 
     cond do

@@ -1,5 +1,5 @@
 // Contract: GET /api/provider/health
-// Design: docs/design-v2/tech-stack/05-desktop.md §5 (Tauri endpoint abstraction)
+// Design: docs/design/tech-stack/05-desktop.md §5 (Tauri endpoint abstraction)
 
 import { apiBaseUrl } from "./env";
 

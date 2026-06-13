@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/turn_phase.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/turn_phase.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.TurnPhase do
   @moduledoc """
-  TurnPhase — generated from `docs/design-v2/schemas/foundation/enums/turn_phase.json`.
+  TurnPhase — generated from `docs/design/schemas/foundation/enums/turn_phase.json`.
 
   ADR-0002 §3 Turn phase 与 status 映射
 

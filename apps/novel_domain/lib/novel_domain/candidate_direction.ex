@@ -2,7 +2,7 @@ defmodule NovelDomain.CandidateDirection do
   @moduledoc """
   创作探索中的候选方向。是讨论材料，不是系统事实。
 
-  字段规格见 docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md §3。
+  字段规格见 docs/design/contracts/VS-00A-creative-exploration-contract-pack.md §3。
   """
 
   @type t :: %__MODULE__{

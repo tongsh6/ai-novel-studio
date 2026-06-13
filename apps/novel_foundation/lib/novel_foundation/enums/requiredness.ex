@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/requiredness.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/requiredness.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.Requiredness do
   @moduledoc """
-  Requiredness — generated from `docs/design-v2/schemas/foundation/enums/requiredness.json`.
+  Requiredness — generated from `docs/design/schemas/foundation/enums/requiredness.json`.
 
   ADR-0010 §3 slot entry 最小字段
 

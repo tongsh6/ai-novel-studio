@@ -10,10 +10,16 @@ defmodule AdrTrace do
   Phase 1：只做正向校验（ADR → 代码）。
   """
 
-  @adr_dir "docs/design-v2/adr"
+  @adr_dir "docs/design/adr"
+  @adr_glob "ADR-????-*.md"
 
   def run do
     adr_files = list_adr_files()
+
+    if adr_files == [] do
+      IO.puts("❌ ADR traceability: no ADR files found under #{@adr_dir} with #{@adr_glob}")
+      System.halt(1)
+    end
 
     results =
       adr_files
@@ -25,12 +31,12 @@ defmodule AdrTrace do
 
     cond do
       missing != [] ->
-        IO.puts("❌ ADR traceability: #{length(missing)} ADR(s) missing enforced_by frontmatter")
+        IO.puts("⚠️  ADR traceability: #{length(missing)} ADR(s) missing enforced_by frontmatter")
         Enum.each(missing, fn {_, adr, _} -> IO.puts("  - #{adr}") end)
         IO.puts("")
 
       broken != [] ->
-        IO.puts("❌ ADR traceability: #{length(broken)} ADR(s) with broken code references")
+        IO.puts("⚠️  ADR traceability: #{length(broken)} ADR(s) with broken code references")
         Enum.each(broken, fn {_, adr, refs} ->
           IO.puts("  - #{adr}: #{inspect(refs)}")
         end)
@@ -47,8 +53,7 @@ defmodule AdrTrace do
   end
 
   defp list_adr_files do
-    Path.wildcard("#{@adr_dir}/????-*.md")
-    |> Enum.reject(&String.contains?(&1, "0000-index"))
+    Path.wildcard("#{@adr_dir}/#{@adr_glob}")
     |> Enum.reject(&String.contains?(&1, "README"))
     |> Enum.sort()
   end

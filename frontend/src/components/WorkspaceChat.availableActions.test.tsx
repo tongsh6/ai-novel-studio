@@ -1,5 +1,5 @@
-// Design: docs/design-v3/acceptance/author/AU-10-workbench-ui.md §SC-AU10-C3
-// Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
+// Design: docs/design/acceptance/author/AU-10-workbench-ui.md §SC-AU10-C3
+// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
 import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 

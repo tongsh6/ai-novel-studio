@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/structure_status.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/structure_status.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.StructureStatus do
   @moduledoc """
-  StructureStatus — generated from `docs/design-v2/schemas/foundation/enums/structure_status.json`.
+  StructureStatus — generated from `docs/design/schemas/foundation/enums/structure_status.json`.
 
   ADR-0002 §5 结构对象状态
 

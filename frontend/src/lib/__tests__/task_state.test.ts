@@ -1,4 +1,4 @@
-// Design: docs/design-v3/07-workbench-ui-contract.md (long-running tasks)
+// Design: docs/design/07-workbench-ui-contract.md (long-running tasks)
 // Regression for: docs/project-ledger.md §8.1 GAP-WT-03
 //
 // 守住后端 `task_state` Channel 事件 → 前端状态条之间的契约形状：

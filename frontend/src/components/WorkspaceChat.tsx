@@ -1,6 +1,6 @@
-// Design: docs/design-v2/ui-design/41-workbench-layout.md §2 (3-zone workbench)
-// Design: docs/design-v2/ui-design/42-card-system.md §2 (card type to ADR-0006 mapping)
-// Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
+// Design: docs/design/ui/41-workbench-layout.md §2 (3-zone workbench)
+// Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
+// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
 import { useCallback, useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";

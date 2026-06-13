@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/adoption_status.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/adoption_status.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.AdoptionStatus do
   @moduledoc """
-  AdoptionStatus — generated from `docs/design-v2/schemas/foundation/enums/adoption_status.json`.
+  AdoptionStatus — generated from `docs/design/schemas/foundation/enums/adoption_status.json`.
 
   ADR-0002 §5 Artifact lifecycle state 与 status 映射
 

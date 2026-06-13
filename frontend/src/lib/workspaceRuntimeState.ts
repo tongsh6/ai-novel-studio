@@ -1,6 +1,6 @@
-// Design: docs/design-v2/ui-design/41-workbench-layout.md §4.1
-// Design: docs/design-v2/ui-design/42-card-system.md §5
-// Prototype: novel-studio-v2.pen → 41§3-main-workbench (ZOwOi)
+// Design: docs/design/ui/41-workbench-layout.md §4.1
+// Design: docs/design/ui/42-card-system.md §5
+// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
 import { WORKSPACE_RUNTIME } from "./copy";
 
 export type WorkspaceConnectionStatus =

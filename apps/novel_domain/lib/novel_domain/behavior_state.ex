@@ -3,7 +3,7 @@ defmodule NovelDomain.BehaviorState do
   Durable behavior 状态。只能由 OrchestratorDecision 打开、更新或关闭。
   不是 UI 弹窗——是跨 turn 的系统等待态。
 
-  规格见 docs/design-v3/contracts/VS-03-behavior-lifecycle-contract-pack.md §4。
+  规格见 docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md §4。
   """
 
   alias NovelFoundation.Enums.BehaviorStatus

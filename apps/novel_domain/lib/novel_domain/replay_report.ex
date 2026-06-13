@@ -2,7 +2,7 @@ defmodule NovelDomain.ReplayReport do
   @moduledoc """
   结构化回放报告。默认不重新调用 LLM——只基于 trace 和 contract refs 解释系统决策。
 
-  字段规格见 docs/design-v3/contracts/VS-06-replay-surface-contract-pack.md §4。
+  字段规格见 docs/design/contracts/VS-06-replay-surface-contract-pack.md §4。
   """
 
   @type result_status :: :complete | :partial | :invalid_trace

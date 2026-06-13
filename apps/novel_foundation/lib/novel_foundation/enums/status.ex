@@ -1,8 +1,8 @@
-# AUTO-GENERATED FROM docs/design-v2/schemas/foundation/enums/status.json — DO NOT EDIT.
+# AUTO-GENERATED FROM docs/design/schemas/foundation/enums/status.json — DO NOT EDIT.
 # Run `mix codegen.enums` to regenerate; CI runs `mix codegen.enums --check`.
 defmodule NovelFoundation.Enums.Status do
   @moduledoc """
-  Status — generated from `docs/design-v2/schemas/foundation/enums/status.json`.
+  Status — generated from `docs/design/schemas/foundation/enums/status.json`.
 
   ADR-0002 §2 Foundation 通用 status family
 
