@@ -1,6 +1,6 @@
 # Frontend Stack
 
-前端技术栈以 `docs/design-v2/tech-stack/04-frontend.md` 和 `docs/design-v2/tech-stack/05-desktop.md` 为权威来源。
+前端技术栈以 `docs/design/tech-stack/04-frontend.md` 和 `docs/design/tech-stack/05-desktop.md` 为权威来源。
 
 ## Required
 

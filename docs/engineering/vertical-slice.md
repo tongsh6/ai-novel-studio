@@ -64,7 +64,7 @@ Turn 输入
 → turn phase/status 状态推进
 → application 编排
 → agent / domain / persistence 边界调用
-→ TurnResult v2 输出
+→ TurnResult / TurnResultViewModel 输出
 → ui_card / action / adoption / projection 消费
 → memory / audit / replay 留痕
 ```
@@ -84,7 +84,7 @@ slice 不要求一次覆盖完整主链，但必须覆盖一段连续链路，�
 | Artifact Slice | 打实 tentative artifact 到 adoption 的边界 | `requires_adoption`、adoption lifecycle |
 | Projection Slice | 打实 accepted source 到 projection stale/rebuild/fresh 的链路 | `source_revision_refs`、projection status |
 | Memory Slice | 打实 turn / artifact / decision 写入与检索路径 | workspace 分区、retention tier |
-| UI Contract Slice | 打实 TurnResult / card / action 在 Tauri workbench 中的消费 | ADR-0006、UI design trace |
+| UI Contract Slice | 打实 TurnResult / card / action 在 Tauri workbench 中的消费 | `docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md`、UI design trace |
 
 ---
 
@@ -132,7 +132,7 @@ VS-006 Turn Memory Write-Through
 
 检查标准：
 
-- `Contract` 必须引用 `docs/design-v2/`、ADR、schema 或既有代码契约。
+- `Contract` 必须引用 `docs/design/`、ADR、schema 或既有代码契约。
 - `Invariant` 必须能写成测试断言或明确的非法路径。
 - `Boundary` 必须列出涉及的 umbrella app 和禁止触碰的 app。
 - `Consumer` 必须是真实调用者，不能写“未来 UI 会用”。

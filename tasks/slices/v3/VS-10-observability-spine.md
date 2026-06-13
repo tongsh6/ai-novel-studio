@@ -10,7 +10,7 @@
 
 | Contract | 用途 |
 |---|---|
-| `docs/design-v3/adr/ADR-0018-business-log-schema-v3.md` | 冻结事件命名空间、关联键、JSONL 输出格式、与 LLMLog/DecisionTrace 的边界 |
+| `docs/design/adr/ADR-0018-business-log-schema-v3.md` | 冻结事件命名空间、关联键、JSONL 输出格式、与 LLMLog/DecisionTrace 的边界 |
 | `apps/novel_common/lib/novel_common/log_context.ex`（新增）| Logger.metadata 注入与跨进程 snapshot/restore 协议 |
 | `apps/novel_common/lib/novel_common/llm_log.ex` | LLMLog 改为读 `Logger.metadata[:turn_id]`，保持向后兼容 |
 | `log/app/YYYY-MM-DD.jsonl` | 业务日志文件后端（生产 / 桌面运行启用，测试态关闭）|

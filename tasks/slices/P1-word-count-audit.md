@@ -98,7 +98,7 @@ P1 已经能：生成章节计划 → 生成正文草稿 → 采纳进入作品�
 
 ## 7. 已知设计债（review 发现，按"质量放后"暂挂）
 
-依据 v3 复用边界（`engineering/v3-quality-gates.md` §4 + `engineering/v3-architecture.md` line 38 显式复用 v2 `31-novel-quality-gates.md` + ADR-0012）做的对齐 review，本 checkpoint 有三处与 v3/v2 设计的偏差，经用户决策「质量放后面」暂挂，不在当前阶段重构：
+依据 v3 复用边界（`engineering/quality-gates.md` §4 + `engineering/architecture-guardrails.md` line 38 显式复用 v2 `31-novel-quality-gates.md` + ADR-0012）做的对齐 review，本 checkpoint 有三处与 v3/v2 设计的偏差，经用户决策「质量放后面」暂挂，不在当前阶段重构：
 
 - **F1（语义归属，中）**：短章/空章/字数门槛在设计上属「小说质量门禁」（v2 31 `serialization_retention`/`pacing` → `quality_finding`，ADR-0012 投影到 `warning_card`）。当前实现为 reading projection 派生字段（`audit`/`audit_status`）+ ReadingMode 内联 badge，违反 `v3-quality-gates` §4.3「质量发现不能直接…刷新阅读投影」的分离原则。后果：`audit_status` 无 severity/action/can_override，进不了 adoption risk、不能 BLOCK/CONFIRM。未来若需"短章提示补写 / 阻断低质量章采纳"，应收敛到 `quality_finding` + policy + `warning_card`，从 reading projection 解耦。**当前合规依据**：`v3-quality-gates` §4.2 明确首批不要求完整运行质量门、line 200「完整质量门禁后续 creative quality slice 逐步进入」，故 P1 展示型审计可接受。
 - **F2（阶段硬编码，低）**：`ReadingProjectionRepo` 的 `@audit_stage :p1` 写死。阶段应来自 work 级目标里程碑配置（v2 31 §7 阶段默认门禁 + milestones §3 分阶段阈值）。P2+ work 会用 P1 阈值（1000）错判。当前只有 P1，暂可接受。

@@ -1,0 +1,52 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/phase_next_action_compat.json",
+  "title": "PhaseNextActionCompatibility",
+  "description": "ADR-0002 §7 phase × next_action 兼容矩阵 + §7 规则。key 形如 'turn:<TurnPhase>' 或 'task:<TaskPhase>'。allowed 是该 phase 唯一可出 next_action 集合（未列入 allowed 一律禁止）；forbidden 仅作高风险显式拦截 + 测试输入。",
+  "x-adr": "ADR-0002",
+  "x-section": "§7 phase × next_action 兼容表",
+  "x-source": "docs/design/adr/ADR-0006-turn-phase-status-v3.md",
+  "matrix": {
+    "turn:NEEDS_CLARIFICATION": {
+      "allowed": ["ASK_USER"],
+      "forbidden": ["SHOW_RESULT", "NO_FURTHER_ACTION", "RESUME_TASK", "ADOPT_ARTIFACTS", "CANCEL_TASK"]
+    },
+    "turn:NEEDS_CONFIRMATION": {
+      "allowed": ["CONFIRM_BEFORE_EXECUTE"],
+      "forbidden": ["ASK_USER", "SHOW_RESULT", "NO_FURTHER_ACTION", "RESUME_TASK", "ADOPT_ARTIFACTS", "CANCEL_TASK"]
+    },
+    "turn:READY_TO_EXECUTE": {
+      "allowed": ["NO_FURTHER_ACTION"],
+      "forbidden": ["ASK_USER", "CONFIRM_BEFORE_EXECUTE", "SHOW_RESULT", "RESUME_TASK", "ADOPT_ARTIFACTS", "CANCEL_TASK"]
+    },
+    "turn:EXECUTING": {
+      "allowed": ["NO_FURTHER_ACTION"],
+      "forbidden": ["ASK_USER", "CONFIRM_BEFORE_EXECUTE", "SHOW_RESULT", "ADOPT_ARTIFACTS"]
+    },
+    "turn:COMPLETED": {
+      "allowed": ["SHOW_RESULT", "ADOPT_ARTIFACTS", "NO_FURTHER_ACTION"],
+      "forbidden": ["ASK_USER", "CONFIRM_BEFORE_EXECUTE", "RETRY_SYSTEM", "RESUME_TASK", "CANCEL_TASK"]
+    },
+    "turn:FAILED": {
+      "allowed": ["RETRY_SYSTEM", "NO_FURTHER_ACTION"],
+      "forbidden": ["SHOW_RESULT", "ADOPT_ARTIFACTS", "RESUME_TASK"]
+    },
+    "turn:CANCELLED": {
+      "allowed": ["NO_FURTHER_ACTION"],
+      "forbidden": ["ASK_USER", "CONFIRM_BEFORE_EXECUTE", "SHOW_RESULT", "RETRY_SYSTEM", "RESUME_TASK", "ADOPT_ARTIFACTS", "CANCEL_TASK"]
+    },
+    "task:CHECKPOINT": {
+      "allowed": ["ASK_USER", "RESUME_TASK", "ADOPT_ARTIFACTS", "CANCEL_TASK"],
+      "forbidden": []
+    }
+  },
+  "rules": {
+    "behavior_active_requires_user_or_resolution": {
+      "description": "ADR-0002 §7 规则 3：behavior_state.active != null 时，next_action 必须属于等待用户集合。",
+      "allowed_when_active": ["ASK_USER", "CONFIRM_BEFORE_EXECUTE", "ADOPT_ARTIFACTS", "RESUME_TASK", "CANCEL_TASK"]
+    },
+    "errors_imply_not_done": {
+      "description": "ADR-0002 §7 规则 4：errors 非空时 status 不得为成功终态 DONE。"
+    }
+  }
+}

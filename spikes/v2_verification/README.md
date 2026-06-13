@@ -1,6 +1,6 @@
-# v2_verification
+# Historical Verification Spike
 
-Phase 0 的 spike 脚手架，承载 `docs/design-v2/tech-stack/verification/` 列出的两个验证任务：
+历史 spike 脚手架，承载 `docs/design/tech-stack/verification/` 列出的两个验证任务。它不属于当前主阅读路径，仅用于复查早期技术选型证据：
 
 - `paper_trail` × Ecto 3.13 × SQLite / PostgreSQL 兼容性
 - 结构化输出选型（langchain / legacy hex `instructor` 0.1 / 直连 Req / instructor_lite 四路对比）

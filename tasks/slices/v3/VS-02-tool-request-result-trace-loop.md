@@ -32,10 +32,10 @@
 | 输入 | 当前状态 | VS-02 使用方式 |
 |---|---|---|
 | `tasks/slices/v3/VS-01-micro-plan-downgrade-confirmation.md` | docs-ready | 提供 accepted OrchestratorDecision 起点 |
-| `docs/design-v3/adr/ADR-0011-toolbox-registry-v3.md` | Accepted | 固化 registry entry 与 status / version 语义 |
-| `docs/design-v3/adr/ADR-0012-tool-request-result-v3.md` | Accepted | 固化 ToolRequest / ToolResult envelope |
-| `docs/design-v3/adr/ADR-0013-decision-trace-v3.md` | Accepted | 固化 ToolTrace 进入 DecisionTrace 的最小语义 |
-| `docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md` | Draft contract pack | 关闭 VS-02 registry / request / result / trace / proof 文档 blocker |
+| `docs/design/adr/ADR-0011-toolbox-registry-v3.md` | Accepted | 固化 registry entry 与 status / version 语义 |
+| `docs/design/adr/ADR-0012-tool-request-result-v3.md` | Accepted | 固化 ToolRequest / ToolResult envelope |
+| `docs/design/adr/ADR-0013-decision-trace-v3.md` | Accepted | 固化 ToolTrace 进入 DecisionTrace 的最小语义 |
+| `docs/design/contracts/VS-02-tool-provenance-contract-pack.md` | Draft contract pack | 关闭 VS-02 registry / request / result / trace / proof 文档 blocker |
 
 ---
 
@@ -44,11 +44,11 @@
 | Blocker | 状态 | 关闭依据 |
 |---|---|---|
 | ADR-0011 / ADR-0012 / ADR-0013 Accepted | closed | 三条 ADR 已标记 Accepted |
-| `CapabilityRegistryEntry` 最小 schema 明确 | closed | `docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md` §2 |
-| `ToolRequest` 最小 schema 与 forbidden semantics 明确 | closed | `docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md` §3 |
-| `ToolResult` 最小 schema 与 truth boundary 明确 | closed | `docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md` §4 |
-| ToolTrace / DecisionTrace 最小 policy 明确 | closed | `docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md` §5 |
-| replay / audit proof 明确 | closed | `docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md` §6 |
+| `CapabilityRegistryEntry` 最小 schema 明确 | closed | `docs/design/contracts/VS-02-tool-provenance-contract-pack.md` §2 |
+| `ToolRequest` 最小 schema 与 forbidden semantics 明确 | closed | `docs/design/contracts/VS-02-tool-provenance-contract-pack.md` §3 |
+| `ToolResult` 最小 schema 与 truth boundary 明确 | closed | `docs/design/contracts/VS-02-tool-provenance-contract-pack.md` §4 |
+| ToolTrace / DecisionTrace 最小 policy 明确 | closed | `docs/design/contracts/VS-02-tool-provenance-contract-pack.md` §5 |
+| replay / audit proof 明确 | closed | `docs/design/contracts/VS-02-tool-provenance-contract-pack.md` §6 |
 
 当前没有声明 implementation 例外。代码实现仍需用户明确批准。
 
@@ -65,7 +65,7 @@
 | novel_persistence | no | VS-02 不要求新增 Repo、DB schema 或 migration |
 | novel_web | yes | 只提交 AuthorInput 并返回 TurnResult；不直接提交 ToolRequest |
 | frontend | no | UI action schema 留给 VS-03 / VS-05 |
-| docs/design-v3 | yes | 本 slice 消费 ADR-0011 至 ADR-0013 和 VS-02 contract pack |
+| docs/design | yes | 本 slice 消费 ADR-0011 至 ADR-0013 和 VS-02 contract pack |
 
 ---
 
@@ -76,7 +76,7 @@
 | T1 | 评审 ADR-0011 是否满足 Toolbox Registry 输入门槛 | done | ADR-0011 已进入 Accepted |
 | T2 | 评审 ADR-0012 是否满足 ToolRequest / ToolResult 输入门槛 | done | ADR-0012 已进入 Accepted |
 | T3 | 评审 ADR-0013 是否满足 ToolTrace / DecisionTrace 输入门槛 | done | ADR-0013 已进入 Accepted |
-| T4 | 补 VS-02 contract pack | done | `docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md` |
+| T4 | 补 VS-02 contract pack | done | `docs/design/contracts/VS-02-tool-provenance-contract-pack.md` |
 
 ---
 
@@ -84,8 +84,8 @@
 
 设计阶段验证：
 
-- [ ] `rg -n "ADR-0011.*Pro""posed|ADR-0012.*Pro""posed|ADR-0013.*Pro""posed|ToolRequest.*Pro""posed|ToolResult.*Pro""posed|ToolTrace.*Pro""posed|VS-02.*plan""ned" docs/design-v3 tasks/slices/v3`
-- [ ] `rg -n "TO""DO|TB""D|占位""符|下一步需要冻""结|仍未进入 Pro""posed" docs/design-v3 tasks/slices/v3`
+- [ ] `rg -n "ADR-0011.*Pro""posed|ADR-0012.*Pro""posed|ADR-0013.*Pro""posed|ToolRequest.*Pro""posed|ToolResult.*Pro""posed|ToolTrace.*Pro""posed|VS-02.*plan""ned" docs/design tasks/slices/v3`
+- [ ] `rg -n "TO""DO|TB""D|占位""符|下一步需要冻""结|仍未进入 Pro""posed" docs/design tasks/slices/v3`
 - [ ] `git diff --check`
 
 实现阶段验证入口：
@@ -101,7 +101,7 @@
 ## 8. 决策日志
 
 - 2026-05-07 — 从 `tasks/slices/v3/DAG.md` B3 建立 VS-02 文件。当前只授权 slice 设计和评审，不进入 implementation plan / code。
-- 2026-05-07 — 新增 `docs/design-v3/contracts/VS-02-tool-provenance-contract-pack.md`，关闭 VS-02 文档 blocker，并将 ADR-0011 至 ADR-0013 标记为 Accepted。仍不授权代码实现。
+- 2026-05-07 — 新增 `docs/design/contracts/VS-02-tool-provenance-contract-pack.md`，关闭 VS-02 文档 blocker，并将 ADR-0011 至 ADR-0013 标记为 Accepted。仍不授权代码实现。
 
 ---
 

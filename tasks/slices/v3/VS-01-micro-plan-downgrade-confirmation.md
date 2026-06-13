@@ -32,11 +32,11 @@
 | 输入 | 当前状态 | VS-01 使用方式 |
 |---|---|---|
 | `tasks/slices/v3/VS-00-reply-only-dialogue-frame-turn-result-trace.md` | docs-ready | 提供 accepted `DialogueFrame` 起点 |
-| `docs/design-v3/adr/ADR-0002-micro-plan-v3.md` | Accepted | 固化 MicroPlan 只是建议 |
-| `docs/design-v3/adr/ADR-0003-planner-authority-boundary.md` | Accepted | 固化 Planner 不能批准执行 |
-| `docs/design-v3/adr/ADR-0004-orchestrator-decision-v3.md` | Accepted | 固化 execution decision envelope |
-| `docs/design-v3/adr/ADR-0005-execution-gate-order-v3.md` | Accepted | 固化 gate order 最小顺序 |
-| `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md` | Draft contract pack | 关闭 VS-01 最小 schema / gate / proof 文档 blocker |
+| `docs/design/adr/ADR-0002-micro-plan-v3.md` | Accepted | 固化 MicroPlan 只是建议 |
+| `docs/design/adr/ADR-0003-planner-authority-boundary.md` | Accepted | 固化 Planner 不能批准执行 |
+| `docs/design/adr/ADR-0004-orchestrator-decision-v3.md` | Accepted | 固化 execution decision envelope |
+| `docs/design/adr/ADR-0005-execution-gate-order-v3.md` | Accepted | 固化 gate order 最小顺序 |
+| `docs/design/contracts/VS-01-execution-authority-contract-pack.md` | Draft contract pack | 关闭 VS-01 最小 schema / gate / proof 文档 blocker |
 
 ---
 
@@ -45,11 +45,11 @@
 | Blocker | 状态 | 关闭依据 |
 |---|---|---|
 | ADR-0002 / ADR-0003 / ADR-0004 / ADR-0005 Accepted | closed | 四条 ADR 已标记 Accepted |
-| `MicroPlan` 最小 schema 和 action subset 明确 | closed | `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md` §2 |
-| PlannerOutput Boundary validation 明确 | closed | `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md` §3 |
-| VS-01 gate order subset 明确 | closed | `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md` §4 |
-| `OrchestratorDecision` 最小 schema 和 decision subset 明确 | closed | `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md` §5 |
-| TurnResult truthfulness 和 DecisionTrace proof 明确 | closed | `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md` §6-8 |
+| `MicroPlan` 最小 schema 和 action subset 明确 | closed | `docs/design/contracts/VS-01-execution-authority-contract-pack.md` §2 |
+| PlannerOutput Boundary validation 明确 | closed | `docs/design/contracts/VS-01-execution-authority-contract-pack.md` §3 |
+| VS-01 gate order subset 明确 | closed | `docs/design/contracts/VS-01-execution-authority-contract-pack.md` §4 |
+| `OrchestratorDecision` 最小 schema 和 decision subset 明确 | closed | `docs/design/contracts/VS-01-execution-authority-contract-pack.md` §5 |
+| TurnResult truthfulness 和 DecisionTrace proof 明确 | closed | `docs/design/contracts/VS-01-execution-authority-contract-pack.md` §6-8 |
 
 当前没有声明 implementation 例外。代码实现仍需用户明确批准。
 
@@ -66,7 +66,7 @@
 | novel_persistence | no | VS-01 不要求新增 Repo、DB schema 或 migration |
 | novel_web | yes | 只提交 AuthorInput 并返回 TurnResult；不运行 gate |
 | frontend | no | UI action schema 留给 VS-03 / VS-05 |
-| docs/design-v3 | yes | 本 slice 消费 ADR-0002 至 ADR-0005 和 VS-01 contract pack |
+| docs/design | yes | 本 slice 消费 ADR-0002 至 ADR-0005 和 VS-01 contract pack |
 
 ---
 
@@ -78,7 +78,7 @@
 | T2 | 评审 ADR-0003 是否满足 PlannerOutput Boundary 门槛 | done | ADR-0003 已进入 Accepted |
 | T3 | 评审 ADR-0004 是否满足 OrchestratorDecision 输入门槛 | done | ADR-0004 已进入 Accepted |
 | T4 | 评审 ADR-0005 是否满足 gate order 输入门槛 | done | ADR-0005 已进入 Accepted |
-| T5 | 补 VS-01 contract pack | done | `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md` |
+| T5 | 补 VS-01 contract pack | done | `docs/design/contracts/VS-01-execution-authority-contract-pack.md` |
 
 ---
 
@@ -86,8 +86,8 @@
 
 设计阶段验证：
 
-- [ ] `rg -n "ADR-0002.*Pro""posed|ADR-0003.*Pro""posed|ADR-0004.*Pro""posed|ADR-0005.*Pro""posed|下一步需要评审 VS-""01|进入代码实现" docs/design-v3 tasks/slices/v3`
-- [ ] `rg -n "TO""DO|TB""D|占位""符|下一步需要冻""结|仍未进入 Pro""posed" docs/design-v3 tasks/slices/v3`
+- [ ] `rg -n "ADR-0002.*Pro""posed|ADR-0003.*Pro""posed|ADR-0004.*Pro""posed|ADR-0005.*Pro""posed|下一步需要评审 VS-""01|进入代码实现" docs/design tasks/slices/v3`
+- [ ] `rg -n "TO""DO|TB""D|占位""符|下一步需要冻""结|仍未进入 Pro""posed" docs/design tasks/slices/v3`
 - [ ] `git diff --check`
 
 实现阶段验证入口：
@@ -103,7 +103,7 @@
 ## 8. 决策日志
 
 - 2026-05-07 — 从 `tasks/slices/v3/DAG.md` B2 建立 VS-01 文件。当前只授权 slice 设计和评审，不进入 implementation plan / code。
-- 2026-05-07 — 新增 `docs/design-v3/contracts/VS-01-execution-authority-contract-pack.md`，关闭 VS-01 文档 blocker，并将 ADR-0002 至 ADR-0005 标记为 Accepted。仍不授权代码实现。
+- 2026-05-07 — 新增 `docs/design/contracts/VS-01-execution-authority-contract-pack.md`，关闭 VS-01 文档 blocker，并将 ADR-0002 至 ADR-0005 标记为 Accepted。仍不授权代码实现。
 
 ---
 

@@ -84,7 +84,7 @@
 - 修改：`frontend/slice-verify/native-tauri-verifier.mjs`
 - 修改：`frontend/slice-verify/native-tauri-verifier.test.mjs`
 - 修改：`docs/project-ledger.md`
-- 修改：`docs/design-v3/acceptance/author/AU-03-context.md`
+- 修改：`docs/design/acceptance/author/AU-03-context.md`
 
 - [ ] 增加 `au03c-work-session-resume` Tauri 场景。
 - [ ] 验证关闭/重开后恢复 last active session 的完整 transcript 和右侧待处理事项。

@@ -1,6 +1,6 @@
 # Architecture Boundaries
 
-本页是架构边界索引，权威规则仍位于 `AGENTS.md`、`docs/engineering/v3-architecture.md` 和各 umbrella app 的 `mix.exs`。
+本页是架构边界索引，权威规则仍位于 `AGENTS.md`、`docs/engineering/architecture-guardrails.md` 和各 umbrella app 的 `mix.exs`。
 
 ## Umbrella Direction
 

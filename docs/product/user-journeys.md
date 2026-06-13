@@ -9,18 +9,18 @@
 > - 下一步为什么应补这个断点？
 > - 每个断点消费哪个 v3 契约，保护哪个系统不变量？
 >
-> 本文不是完整 acceptance，不替代 `docs/design-v3/acceptance/`；不是事实台账，不替代 `docs/project-ledger.md`；不是执行队列，不替代 `tasks/NEXT.md`。
+> 本文不是完整 acceptance，不替代 `docs/design/acceptance/`；不是事实台账，不替代 `docs/project-ledger.md`；不是执行队列，不替代 `tasks/NEXT.md`。
 >
 > 2026-05-22 验收卫生更正：历史行里的旧 `scripts/tauri_slice_verify.sh <slice-id>` 命令只表示当时沉淀过 Tauri 证据。清理嵌入式验收钩子后，当前可重复运行的原生 Tauri 验证只保留已迁移到外部 UI driver 的 slice；历史 slice 必须补外部 Playwright driver 后才能重新加入 `--list`，不得在产品 React 或 Channel 中恢复 autorun / UI state 上报钩子。
 >
 > 输入来源：
 >
-> - `docs/design-v3/00-vision-and-engineering-roadmap.md`
-> - `docs/design-v3/00b-end-to-end-dialogue-flow.md`
-> - `docs/design-v3/00c-state-and-contract-atlas.md`
-> - `docs/design-v3/07-workbench-ui-contract.md`
-> - `docs/design-v3/acceptance/SCENARIO-BLUEPRINT.md`
-> - `docs/design-v3/acceptance/README.md`
+> - `docs/design/00-vision-and-engineering-roadmap.md`
+> - `docs/design/00b-end-to-end-dialogue-flow.md`
+> - `docs/design/00c-state-and-contract-atlas.md`
+> - `docs/design/07-workbench-ui-contract.md`
+> - `docs/design/acceptance/SCENARIO-BLUEPRINT.md`
+> - `docs/design/acceptance/README.md`
 > - `docs/project-ledger.md`
 > - `tasks/NEXT.md`
 > - `docs/product/novel-output-milestones.md`
@@ -235,7 +235,7 @@ Next Proof：基于已采纳章节计划生成单章正文草稿并采纳；采�
 3. 如果要改变 Current Focus，必须先更新本文对应 journey 状态，再更新 `tasks/NEXT.md` 的 `Decision Log`。
 4. 每完成一个 checkpoint，必须把对应 step 的 `Status`、`Evidence Grade`、`Evidence / Command` 更新到本文。
 5. `closed` 必须有真实 Tauri/前端发起闭环；后端、Channel、组件或文档证据只能标 `partial` 或 `gap`。
-6. 单场景细节仍以 `docs/design-v3/acceptance/` 为准；本文只维护跨 AU/SU 的连续用户流程。
+6. 单场景细节仍以 `docs/design/acceptance/` 为准；本文只维护跨 AU/SU 的连续用户流程。
 7. 如果一个 journey step 新增或改动，必须能回答 Contract / Invariant / Boundary / Consumer / Proof。
 
 ---
@@ -397,7 +397,7 @@ Next Proof：从一个包含 context/tool/behavior/state 的真实 turn 打开 w
 
 保护的不变量：`00c` §7 #8 缺 slot 不自动表单、#9 TurnResult canonical、#10 UI 只能提交 available actions、#13 trace summary 脱敏、#15 projection 只刷新。
 
-真实消费者：`WorkspaceChat`、ActionPanel、MessageList、StructurePanel、ReadingMode。历史 `WorkbenchV3` 实验组件已退役删除，不再作为当前消费者。
+真实消费者：`WorkspaceChat`、ActionPanel、MessageList、StructurePanel、ReadingMode。历史 `历史旁路工作台` 实验组件已退役删除，不再作为当前消费者。
 
 Longest Closed Prefix：J1-J4 是最小真实入口闭环，不代表完整工作台闭环。
 

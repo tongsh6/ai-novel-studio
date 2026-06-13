@@ -2,7 +2,7 @@
 
 - 状态：checkpoint closed（stale source）；conflict / cross-work recovery 仍待后续
 - 类型：Safety Slice / Adoption Boundary
-- 来源：`tasks/slices/AU05-adoption-safety-freshness.md` §6；`docs/design-v3/acceptance/author/AU-05-artifact-adoption.md` AU05-GAP-06 / SC-AU05-C3~C5
+- 来源：`tasks/slices/AU05-adoption-safety-freshness.md` §6；`docs/design/acceptance/author/AU-05-artifact-adoption.md` AU05-GAP-06 / SC-AU05-C3~C5
 - 当前目标：在高风险候选 confirmation 已闭环后，继续把 stale source、canon conflict、cross-work action 的拒绝或恢复路径做成真实工作台可验收的产品链路。
 - 本轮 checkpoint：已闭环“从持久化 transcript 恢复出的 stale candidate 不能被静默采纳”。真实 Tauri 工作台恢复旧候选卡，作者点击可见“采用这个方向”，后端通过 `ActionValidator -> DialogueGateway -> AdoptionBoundary` 返回 `reject`，UI 显示拒绝结果，`production_write_performed=false`。
 

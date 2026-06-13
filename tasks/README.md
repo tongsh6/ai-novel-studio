@@ -6,8 +6,8 @@
 
 | 层 | 位置 | 性质 |
 |---|---|---|
-| 规划 | `docs/design-v2/README.md`、`docs/design-v2/tech-stack/14-roadmap.md` | "应该怎么走"——节奏、目标、完成标准 |
-| 决策 | `docs/design-v2/adr/` | 硬骨决策——一旦 Accepted 就稳定 |
+| 设计 | `docs/design/README.md` | 当前唯一设计入口，说明产品、架构、contract、ADR、验收与 UI 设计结构 |
+| 决策 | `docs/design/adr/` | 硬骨决策——一旦 Accepted 就稳定 |
 | 施工规则 | `docs/engineering/vertical-slice.md` | "如何组织开发任务"——承重竖切面试行规则 |
 | 执行 | `tasks/`（本目录） | "现在走到哪、为什么这么走"——状态、卡点、决策日志 |
 | 竖切面 | `tasks/slices/` | "当前在打实哪段承重链路"——slice 开工检查、任务清单、验证与试行反馈 |
@@ -18,8 +18,7 @@
 
 ## 文件命名
 
-`YYYY-MM-DD-<phase-or-scope>-<slug>.md`，例如 `2026-04-26-phase-0-week-1-bootstrap.md`。
-日期是任务**启动日期**，不是更新日期。
+当前优先使用 `tasks/NEXT.md` 维护推进队列；需要新增执行文件时使用 `YYYY-MM-DD-<scope>-<slug>.md`，日期是任务**启动日期**，不是更新日期。
 
 ## 文件结构（最小）
 

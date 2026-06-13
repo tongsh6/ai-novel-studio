@@ -43,12 +43,12 @@
 
 | 输入 | 当前状态 | VS-00D 使用方式 |
 |---|---|---|
-| `docs/design-v3/contracts/VS-00D-ai-guided-authoring-contract-pack.md` | Proposed contract pack | 总 contract 与 AIMessageEnvelope 定义 |
-| `docs/design-v3/08-novel-element-model.md` | Draft design | 小说层上游：要素 × 层级 × 三态 |
-| `docs/design-v3/06-memory-context-and-trace.md` | Draft design | 当前作品层、ContextPacket、omission、trace |
-| `docs/design-v3/02-dialogue-frame-and-micro-plan.md` | Draft design + ADR-0001/0002 accepted boundary | 本轮引导层结构化承载 |
-| `docs/design-v3/contracts/VS-00C-creative-context-assembly-contract-pack.md` | Proposed contract pack | prose_writing 调用点的 CreativeDecisionPacket |
-| `docs/design-v3/acceptance/author/AU-11-ai-guided-authoring.md` | Design-ready acceptance | 作者视角验收闭环 |
+| `docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md` | Proposed contract pack | 总 contract 与 AIMessageEnvelope 定义 |
+| `docs/design/08-novel-element-model.md` | Draft design | 小说层上游：要素 × 层级 × 三态 |
+| `docs/design/06-memory-context-and-trace.md` | Draft design | 当前作品层、ContextPacket、omission、trace |
+| `docs/design/02-dialogue-frame-and-micro-plan.md` | Draft design + ADR-0001/0002 accepted boundary | 本轮引导层结构化承载 |
+| `docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md` | Proposed contract pack | prose_writing 调用点的 CreativeDecisionPacket |
+| `docs/design/acceptance/author/AU-11-ai-guided-authoring.md` | Design-ready acceptance | 作者视角验收闭环 |
 | `tasks/slices/v3/VS-00A-creative-exploration-loop.md` | docs-ready / implemented evidence exists | 自然探索体验基础 |
 | `tasks/slices/v3/VS-00B-dialogue-context-grounding.md` | docs-ready / implemented evidence exists | 当前作品上下文不编造基础 |
 | `tasks/slices/v3/VS-02A-tentative-creative-artifact.md` | done | 创作产物 tentative-first 基础 |
@@ -81,7 +81,7 @@
 | novel_persistence | no | 本 slice 不新增 schema；只通过现有/后续 read model 提供 WorkState refs |
 | novel_web | yes | 后续验收从真实 Channel / 工作台入口进入 |
 | frontend | yes | 后续 AU-11 真实验收需要 why/trace summary 可见，但本 slice 不改 UI |
-| docs/design-v3 | yes | 本 slice 收束 contract、acceptance、DAG、reading map |
+| docs/design | yes | 本 slice 收束 contract、acceptance、DAG、reading map |
 
 ---
 
@@ -89,9 +89,9 @@
 
 | # | 任务 | Status | 备注 |
 |---|---|---|---|
-| T1 | 补 VS-00D 三层 + message contract | done | `docs/design-v3/contracts/VS-00D-ai-guided-authoring-contract-pack.md` |
+| T1 | 补 VS-00D 三层 + message contract | done | `docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md` |
 | T2 | 补 06/08/02 的职责边界 | done | 当前作品层 / 小说层 / 本轮引导层 |
-| T3 | 补 AU-11 验收入口 | done | `docs/design-v3/acceptance/author/AU-11-ai-guided-authoring.md` |
+| T3 | 补 AU-11 验收入口 | done | `docs/design/acceptance/author/AU-11-ai-guided-authoring.md` |
 | T4 | 补 DAG 与索引引用 | done | `tasks/slices/v3/DAG.md`、`00c`、`00a` |
 | T5 | 后续实现 CP1/CP1A | pending | 需单独授权 implementation plan |
 
@@ -102,8 +102,8 @@
 设计阶段验证：
 
 ```bash
-rg -n "VS-00D|AIMessageEnvelope|NovelLayerMessage|WorkStateMessage|TurnGuidanceMessage|AU-11" docs/design-v3 tasks/slices/v3
-rg -n "guidance_mode.*clarify|guidance_mode.*confirm|澄清 / 确认|澄清还是确认" docs/design-v3
+rg -n "VS-00D|AIMessageEnvelope|NovelLayerMessage|WorkStateMessage|TurnGuidanceMessage|AU-11" docs/design tasks/slices/v3
+rg -n "guidance_mode.*clarify|guidance_mode.*confirm|澄清 / 确认|澄清还是确认" docs/design
 git diff --check
 ```
 

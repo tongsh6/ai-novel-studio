@@ -2,7 +2,7 @@
 
 - 状态：done
 - 类型：Artifact Slice / UI Contract Slice
-- 来源：`docs/product/user-journeys.md` Journey C6、Journey F；`docs/design-v3/acceptance/author/AU-02-explore.md` AU02-GAP-02；`docs/design-v3/acceptance/author/AU-05-artifact-adoption.md` AU05-GAP-05
+- 来源：`docs/product/user-journeys.md` Journey C6、Journey F；`docs/design/acceptance/author/AU-02-explore.md` AU02-GAP-02；`docs/design/acceptance/author/AU-05-artifact-adoption.md` AU05-GAP-05
 - 当前目标：把“候选方向只是灵感入口”与“明确采纳必须进入 adoption boundary”打成真实工作台闭环。
 
 ---
@@ -21,7 +21,7 @@
 
 ## 2. 开工检查
 
-- Contract: `CandidateDirectionSet`、`AuthorActionInput.choose_candidate`、`AvailableAction`、`AdoptionDecision`、`AdoptionBoundary`、`ProjectionHint`、`DecisionTrace`、ADR-0010、ADR-0016、`docs/design-v3/contracts/VS-04-adoption-boundary-contract-pack.md`
+- Contract: `CandidateDirectionSet`、`AuthorActionInput.choose_candidate`、`AvailableAction`、`AdoptionDecision`、`AdoptionBoundary`、`ProjectionHint`、`DecisionTrace`、ADR-0010、ADR-0016、`docs/design/contracts/VS-04-adoption-boundary-contract-pack.md`
 - Invariant: candidate selection 不等于 adoption；UI 只能提交服务端授权 action；production write 必须经过 adoption boundary；trace/replay 能解释候选来源、作者动作和裁决结果。
 - Boundary: 切过 `frontend`、`novel_web`、`novel_application`、必要的 `novel_domain` 纯规则；不让 `frontend` 直接写作品事实，不让 `novel_web` 直接访问 Repo，不让 `novel_agent` 直接越过 adoption boundary。
 - Consumer: 真实 Tauri 工作台 `WorkspaceChat` 的候选卡、available action、why/trace 面板。

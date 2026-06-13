@@ -7,7 +7,7 @@ entrypoint: scripts/quality_accept.sh au05-adoption-safety-freshness --surface t
 contract:
   - docs/engineering/scenario-acceptance.md
   - tasks/slices/AU05-adoption-safety-freshness.md
-  - docs/design-v2/schemas/turn_result_v2.json
+  - docs/design/schemas/turn_result_v2.json
 
 invariants:
   - adoption-boundary-authorized-only

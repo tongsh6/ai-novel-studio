@@ -13,9 +13,9 @@
 | `apps/novel_persistence/lib/novel_persistence/schemas/work.ex` | works 表已存在，包含 `title / genre / status / revision`（已就位）|
 | `apps/novel_persistence/lib/novel_persistence/schemas/workspace.ex` | workspaces 表已存在（已就位）|
 | `apps/novel_web/lib/novel_web/channels/workspace_channel.ex` | join `workspace:<id>` 接受 `work_id` 参数；后续 `user_message` 注入 `work_id` 进 input |
-| `docs/design-v3/acceptance/system/SU-02-work-switching.md` | 验收 8 个场景；本 slice 至少完成 A1/A2/B1/B2/B3/C1/C2/D1（7 个核心）|
-| `docs/design-v3/00b-end-to-end-dialogue-flow.md` §work boundary | DialogueContext 必须按 work_id 隔离 |
-| `docs/design-v2/24-novel-intent-catalog.md` `CREATE_WORK_SEED` intent | 新建作品的语义入口已设计 |
+| `docs/design/acceptance/system/SU-02-work-switching.md` | 验收 8 个场景；本 slice 至少完成 A1/A2/B1/B2/B3/C1/C2/D1（7 个核心）|
+| `docs/design/00b-end-to-end-dialogue-flow.md` §work boundary | DialogueContext 必须按 work_id 隔离 |
+| `docs/design/domain/24-novel-intent-catalog.md` `CREATE_WORK_SEED` intent | 新建作品的语义入口已设计 |
 
 > **冻结点**：本 slice 不重新发明 `Work` schema，只补 HTTP/Channel/前端入口与 work_id 透传。
 
@@ -51,7 +51,7 @@ frontend
 
 ## 4. Consumer
 
-- 真实消费者：`frontend/src/components/WorkspaceChat.tsx`（去 `mock_work_123`）。历史 `WorkbenchV3.tsx` 旁路已退役删除，不再作为消费者。
+- 真实消费者：`frontend/src/components/WorkspaceChat.tsx`（去 `mock_work_123`）。历史 `历史旁路工作台` 旁路已退役删除，不再作为消费者。
 - 测试消费者：`apps/novel_e2e/test/novel_e2e/work_switching_test.exs`（新增）+ `apps/novel_web/test/.../workspace_channel_v3_test.exs`（扩展）
 
 ## 5. Proof

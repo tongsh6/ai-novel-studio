@@ -7,7 +7,7 @@ surface: tauri
 entrypoint: scripts/quality_accept.sh p1-chapter-plan-minimum --surface tauri
 
 contract:
-  - docs/design-v2/schemas/turn_result_v2.json
+  - docs/design/schemas/turn_result_v2.json
   - docs/engineering/scenario-acceptance.md
   - tasks/slices/P1-chapter-plan-minimum.md
 

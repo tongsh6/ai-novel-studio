@@ -2,7 +2,7 @@
 
 - 状态：checkpoint closed（cross-work）；后续 canon conflict recovery 已闭环
 - 类型：Safety Slice / Adoption Boundary
-- 来源：`tasks/slices/AU05-stale-conflict-cross-work-freshness.md` §5.4；`docs/design-v3/acceptance/author/AU-05-artifact-adoption.md` SC-AU05-C4/C5；AU05-GAP-06
+- 来源：`tasks/slices/AU05-stale-conflict-cross-work-freshness.md` §5.4；`docs/design/acceptance/author/AU-05-artifact-adoption.md` SC-AU05-C4/C5；AU05-GAP-06
 - 当前目标：在 stale restored candidate 已被真实 Tauri 工作台拒绝后，继续把 canon conflict 与 cross-work action 的拒绝、恢复或覆盖确认做成可复跑的真实产品链路。
 - 本轮 checkpoint：已闭环“来自其它作品的候选不能被静默采纳到当前作品”。真实 Tauri 工作台在当前作品恢复一条 source work 属于外部作品的候选卡，作者点击可见“采用这个方向”，后端通过 `ActionValidator -> DialogueGateway -> AdoptionBoundary` 返回 `fail_with_recovery`，UI 显示“候选方向采用失败”，`production_write_performed=false`。
 

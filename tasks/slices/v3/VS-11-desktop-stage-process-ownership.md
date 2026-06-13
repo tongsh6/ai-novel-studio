@@ -8,8 +8,8 @@
 
 | Contract | 用途 |
 |---|---|
-| `docs/design-v2/tech-stack/05-desktop.md` §2 / §4 | Tauri 是桌面壳，生产形态由主进程管理 sidecar；当前 dev/stage 形态下 shell launcher 临时承担进程 owner |
-| `docs/design-v2/00-overview.md` §3 退出时数据安全 | 退出必须走可控 shutdown，不能靠误杀端口 |
+| `docs/design/tech-stack/05-desktop.md` §2 / §4 | Tauri 是桌面壳，生产形态由主进程管理 sidecar；当前 dev/stage 形态下 shell launcher 临时承担进程 owner |
+| `docs/design/README.md` §3 退出时数据安全 | 退出必须走可控 shutdown，不能靠误杀端口 |
 | `scripts/stage.sh` / `scripts/dev.sh` | 当前 dev/stage 启动契约：谁启动 Phoenix/Vite/Tauri，谁负责清理 |
 
 ## 2. Invariant

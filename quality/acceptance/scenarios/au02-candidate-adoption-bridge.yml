@@ -7,7 +7,7 @@ entrypoint: scripts/quality_accept.sh au02-candidate-adoption-bridge --surface t
 contract:
   - docs/engineering/scenario-acceptance.md
   - tasks/slices/AU02-candidate-adoption-bridge.md
-  - docs/design-v2/schemas/turn_result_v2.json
+  - docs/design/schemas/turn_result_v2.json
 
 invariants:
   - server-provided-action-only

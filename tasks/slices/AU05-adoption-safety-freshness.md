@@ -2,7 +2,7 @@
 
 - 状态：checkpoint closed（high-risk confirmation）；AU05-GAP-06 stale/conflict/cross-work 仍需后续 checkpoint
 - 类型：Artifact Slice / Safety Slice
-- 来源：`docs/product/user-journeys.md` Journey F5-F6；`docs/design-v3/acceptance/author/AU-05-artifact-adoption.md` AU05-GAP-06 / AU05-GAP-07
+- 来源：`docs/product/user-journeys.md` Journey F5-F6；`docs/design/acceptance/author/AU-05-artifact-adoption.md` AU05-GAP-06 / AU05-GAP-07
 - 当前目标：在候选采纳桥接已闭环后，加固高风险、stale、conflict、cross-work 的 adoption boundary，避免作者在过期或错误作品上下文中静默采纳。
 
 ---

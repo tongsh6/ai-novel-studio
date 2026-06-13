@@ -151,29 +151,29 @@ CI 在 `.github/workflows/ci.yml` 已加三条 step（I3 / I1 / I2），PR 触�
 - **环境检测**：所有涉及 URL/端点的代码必须通过 `frontend/src/lib/env.ts` 的 `isTauri` 判断，不允许假设运行在浏览器。
 - **Tauri API 必须使用**：文件系统访问、系统通知、窗口管理必须使用 `@tauri-apps/api`，不允许使用浏览器 API 替代。
 - **禁止浏览器专用 API**：不允许直接使用 `window.location.*`、`document.title`、`navigator.*`（除非通过 `env.ts` 的平台抽象层）。
-- **Tauri 配置必须与 spec 一致**：`tauri.conf.json` 的窗口大小（1280×800）、identifier（`com.ai-novel-studio.app`）、CSP、sidecar 配置必须与 `docs/design-v2/tech-stack/05-desktop.md` 一致。
+- **Tauri 配置必须与 spec 一致**：`tauri.conf.json` 的窗口大小（1280×800）、identifier（`com.ai-novel-studio.app`）、CSP、sidecar 配置必须与 `docs/design/tech-stack/05-desktop.md` 一致。
 - **CI 必须验证 Tauri 构建**：`pnpm tauri build` 必须成功。
 
-参考：`docs/design-v2/tech-stack/05-desktop.md`（Tauri 2 + Mix Release sidecar 完整方案）
+参考：`docs/design/tech-stack/05-desktop.md`（Tauri 2 + Mix Release sidecar 完整方案）
 
 ### UI 设计驱动（Design-Driven）
 
-UI 实现必须严格遵循 `docs/design-v2/ui-design/` 中的设计文档和 Pencil 原型。
+UI 实现必须严格遵循 `docs/design/ui/` 中的设计文档和 Pencil 原型。
 
-- **写 UI 代码前**：必须先查看对应的 Pencil 原型 screen frame（`docs/design-v2/ui-design/novel-studio-v2.pen`）和设计文档章节。
+- **写 UI 代码前**：必须先查看对应的 Pencil 原型 screen frame（`docs/design/ui/novel-studio.pen`）和设计文档章节。
 - **组件必须可追溯**：每个组件文件头部必须有注释，标注对应的设计文档章节和原型 screen frame ID。格式：
   ```
-  // Design: docs/design-v2/ui-design/42-card-system.md §3
-  // Prototype: novel-studio-v2.pen → 42§4-adoption-card-states (PZAVY)
+  // Design: docs/design/ui/42-card-system.md §3
+  // Prototype: novel-studio.pen → 42§4-adoption-card-states (PZAVY)
   ```
-- **卡片类型必须来自 ADR**：`card_type` 必须使用 ADR-0006 已冻结集合，不允许前端自行发明新卡片类型。
-- **文案必须集中管理**：所有用户可见文案必须放在 `frontend/src/lib/copy.ts`，不允许在组件中硬编码。参考 `docs/design-v2/ui-design/47-ui-copy-guidelines.md`。
+- **卡片类型必须来自当前 UI contract**：`card_type` 必须使用 `docs/design/07-workbench-ui-contract.md` §4 与 `docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md` §4 的当前集合，不允许前端自行发明新卡片类型。
+- **文案必须集中管理**：所有用户可见文案必须放在 `frontend/src/lib/copy.ts`，不允许在组件中硬编码。参考 `docs/design/ui/47-ui-copy-guidelines.md`。
 - **禁止内联样式**：不允许 `style={{...}}`，使用 Tailwind CSS 4 或 CSS Modules（优先 Tailwind）。
-- **设计 token 必须对齐**：颜色、间距、字体必须与 `docs/design-v2/ui-design/40-ui-overview.md` 中的设计 token 一致。
+- **设计 token 必须对齐**：颜色、间距、字体必须与 `docs/design/ui/40-ui-overview.md` 中的设计 token 一致。
 
 ### 前端技术栈（强制）
 
-以下技术栈由 `docs/design-v2/tech-stack/04-frontend.md` 锁定，不允许自行替换：
+以下技术栈由 `docs/design/tech-stack/04-frontend.md` 锁定，不允许自行替换：
 
 | 类别 | 强制使用 | 禁止使用 |
 |------|---------|----------|
@@ -248,7 +248,7 @@ Turn 输入
 → turn phase/status 状态推进
 → application 编排
 → agent / domain / persistence 边界调用
-→ TurnResult v2 输出
+→ TurnResult / TurnResultViewModel 输出
 → ui_card / action / adoption / projection 消费
 → memory / audit / replay 留痕
 ```
@@ -275,8 +275,8 @@ slice 可以只覆盖其中一段连续链路，但必须形成可执行闭环�
 
 ## 项目文档
 
-- 设计文档：`docs/design-v2/`（权威，代码必须遵循）
-- ADR：`docs/design-v2/adr/`（已冻结的决策）
-- JSON Schema SSOT：`docs/design-v2/schemas/`
-- 技术栈：`docs/design-v2/tech-stack/`
+- 设计文档：`docs/design/`（当前唯一设计真源，代码必须遵循）
+- ADR：`docs/design/adr/`（当前唯一 ADR 目录）
+- JSON Schema SSOT：`docs/design/schemas/`
+- 技术栈：`docs/design/tech-stack/`
 - 工程实践：`docs/engineering/`

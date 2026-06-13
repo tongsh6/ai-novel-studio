@@ -2,7 +2,7 @@
 
 > 最后更新：2026-05-24
 >
-> 角色：本文是 AI Novel Studio 的长期产出能力目标。它不替代 `docs/product/user-journeys.md`、`docs/design-v3/acceptance/` 或 `tasks/NEXT.md`，而是回答：
+> 角色：本文是 AI Novel Studio 的长期产出能力目标。它不替代 `docs/product/user-journeys.md`、`docs/design/acceptance/` 或 `tasks/NEXT.md`，而是回答：
 >
 > - 产品最终要支撑多大规模的小说生产？
 > - “产出 10 万 / 50 万 / 100 万 / 500 万字”应该怎样验收？

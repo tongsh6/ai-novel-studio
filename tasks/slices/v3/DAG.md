@@ -2,7 +2,7 @@
 
 > 状态：VS-00 ~ VS-08 done；VS-09 done（最小核心，剩余高级场景待续）；VS-10 done（2026-05-14，已补原生 Tauri 验证）；VS-11 done（2026-05-18，桌面 stage 进程所有权收束）；VS-00D docs-ready（2026-06-13，AI 引导式创作三层 + message contract）
 >
-> 角色：把 `docs/design-v3/00c-state-and-contract-atlas.md` §9 的候选入口排序为 v3 承重竖切面 DAG。B1-B14 已闭环；下一阶段入口待从 acceptance gap / product slice ledger 中挑选。
+> 角色：把 `docs/design/00c-state-and-contract-atlas.md` §9 的候选入口排序为 v3 承重竖切面 DAG。B1-B14 已闭环；下一阶段入口待从 acceptance gap / product slice ledger 中挑选。
 >
 > 2026-05-25 纠偏记录：v3 creative artifact runtime 已重新对齐 DAG 边界。Toolbox runtime 归 `novel_agent`，ToolRequest / ToolResult / CapabilityRegistryEntry / CreativeRequest / CreativeProviderResult / ToolOutputContract 归 `novel_common`，`ArtifactAssembler` 归 `novel_application`；synthetic task_state_events 移除，Formal TaskState / Long-running Creative Job Contract deferred。
 

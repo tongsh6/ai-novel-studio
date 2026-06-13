@@ -2,7 +2,7 @@
 
 - 状态：checkpoint 1+2 closed（2026-06-04）— 续写累积达标 + 续写连贯，两 provider Tauri 验收通过
 - 类型：Product Slice / Novel Output Milestone P1
-- 来源：`docs/product/novel-output-milestones.md` P1 Done（每章 ≥1000）；`docs/design-v2/21-novel-object-model.md` §6.6（场景是细粒度写作单元，ADR-0004 `chapter→scene`）；`docs/design-v2/28-authoring-lifecycle.md`（"继续写"基于前文）；`docs/design-v3/02-dialogue-frame-and-micro-plan.md` + ADR-0001/0002/0003；`docs/design-v3/contracts/VS-04-adoption-boundary-contract-pack.md`（覆盖确认）；`tasks/slices/P1-word-count-audit.md`（审计暴露"全是短章"）。
+- 来源：`docs/product/novel-output-milestones.md` P1 Done（每章 ≥1000）；`docs/design/domain/21-novel-object-model.md` §6.6（场景是细粒度写作单元，ADR-0004 `chapter→scene`）；`docs/design/domain/28-authoring-lifecycle.md`（"继续写"基于前文）；`docs/design/02-dialogue-frame-and-micro-plan.md` + ADR-0001/0002/0003；`docs/design/contracts/VS-04-adoption-boundary-contract-pack.md`（覆盖确认）；`tasks/slices/P1-word-count-audit.md`（审计暴露"全是短章"）。
 - 当前目标：作者用自然语言推进单章正文，系统**通过 AI 识别意图**（续写某章 / 重写某章），续写产出落为该章**新场景**累积有效字数，直到单章 ≥1000 达标（审计 `short→ok`）；重写走已有覆盖确认。
 
 ---

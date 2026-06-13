@@ -50,10 +50,10 @@
 | 输入 | 当前状态 | VS-00A 使用方式 |
 |---|---|---|
 | `tasks/slices/v3/VS-00-reply-only-dialogue-frame-turn-result-trace.md` | docs-ready | 提供每 turn 必有 frame、TurnResult 和 trace 的最小主链 |
-| `docs/design-v3/01-user-llm-workbench-interaction-model.md` | Draft design | 提供“AI 是创作伙伴、工作台退到后台工具箱”的体验目标 |
-| `docs/design-v3/adr/ADR-0001-dialogue-frame-v3.md` | Accepted | 固化 exploration turn 也必须有 primary DialogueFrame |
-| `docs/design-v3/adr/ADR-0015-turn-result-view-model-v3.md` | Accepted | 约束前台只消费 TurnResult / view model，不读取内部 planner 输出 |
-| `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` | Draft contract pack | 关闭 VS-00A 探索回应、候选方向和 proof 文档 blocker |
+| `docs/design/01-user-llm-workbench-interaction-model.md` | Draft design | 提供“AI 是创作伙伴、工作台退到后台工具箱”的体验目标 |
+| `docs/design/adr/ADR-0001-dialogue-frame-v3.md` | Accepted | 固化 exploration turn 也必须有 primary DialogueFrame |
+| `docs/design/adr/ADR-0015-turn-result-view-model-v3.md` | Accepted | 约束前台只消费 TurnResult / view model，不读取内部 planner 输出 |
+| `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` | Draft contract pack | 关闭 VS-00A 探索回应、候选方向和 proof 文档 blocker |
 
 ---
 
@@ -61,10 +61,10 @@
 
 | Blocker | 状态 | 关闭依据 |
 |---|---|---|
-| exploration turn 的最小语义明确 | closed | `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` §2 |
-| 候选方向不等于 adoption 的规则明确 | closed | `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` §3 |
-| 缺 slot 不自动表单化的证明明确 | closed | `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` §4 |
-| TurnResult truthfulness 和 trace proof 明确 | closed | `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` §5-6 |
+| exploration turn 的最小语义明确 | closed | `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` §2 |
+| 候选方向不等于 adoption 的规则明确 | closed | `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` §3 |
+| 缺 slot 不自动表单化的证明明确 | closed | `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` §4 |
+| TurnResult truthfulness 和 trace proof 明确 | closed | `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` §5-6 |
 
 当前没有声明 implementation 例外。代码实现仍需用户明确批准。
 
@@ -81,7 +81,7 @@
 | novel_persistence | no | VS-00A 不要求新增 Repo、DB schema 或 migration |
 | novel_web | yes | 只作为 AuthorInput / Channel response 边界；不直接构造候选方向 |
 | frontend | no | 可先用 Channel / API contract test 证明；最终 UI 消费留给 VS-05 |
-| docs/design-v3 | yes | 本 slice 消费 v3 愿景、ADR-0001、ADR-0015 和 VS-00A contract pack |
+| docs/design | yes | 本 slice 消费 v3 愿景、ADR-0001、ADR-0015 和 VS-00A contract pack |
 
 ---
 
@@ -89,10 +89,10 @@
 
 | # | 任务 | Status | 备注 |
 |---|---|---|---|
-| T1 | 补 exploration turn 最小 contract | done | `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` §2 |
-| T2 | 补候选方向与系统事实边界 | done | `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` §3 |
-| T3 | 补“缺信息不自动表单化”证明 | done | `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` §4 |
-| T4 | 补 TurnResult 和 trace proof | done | `docs/design-v3/contracts/VS-00A-creative-exploration-contract-pack.md` §5-6 |
+| T1 | 补 exploration turn 最小 contract | done | `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` §2 |
+| T2 | 补候选方向与系统事实边界 | done | `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` §3 |
+| T3 | 补“缺信息不自动表单化”证明 | done | `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` §4 |
+| T4 | 补 TurnResult 和 trace proof | done | `docs/design/contracts/VS-00A-creative-exploration-contract-pack.md` §5-6 |
 
 ---
 
@@ -100,8 +100,8 @@
 
 设计阶段验证：
 
-- [ ] `rg -n "VS-00A|Creative Exploration|自然探索|创作伙伴" docs/design-v3 tasks/slices/v3`
-- [ ] `rg -n "TO""DO|TB""D|占位""符|下一步需要冻""结|仍未进入 Pro""posed" docs/design-v3 tasks/slices/v3`
+- [ ] `rg -n "VS-00A|Creative Exploration|自然探索|创作伙伴" docs/design tasks/slices/v3`
+- [ ] `rg -n "TO""DO|TB""D|占位""符|下一步需要冻""结|仍未进入 Pro""posed" docs/design tasks/slices/v3`
 - [ ] `git diff --check`
 
 实现阶段验证入口：

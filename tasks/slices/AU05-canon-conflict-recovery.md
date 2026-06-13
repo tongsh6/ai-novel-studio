@@ -2,7 +2,7 @@
 
 - 状态：checkpoint closed
 - 类型：Safety Slice / Adoption Boundary
-- 来源：`tasks/slices/AU05-conflict-cross-work-recovery.md` §5.4；`docs/design-v3/acceptance/author/AU-05-artifact-adoption.md` SC-AU05-C4；AU05-GAP-06
+- 来源：`tasks/slices/AU05-conflict-cross-work-recovery.md` §5.4；`docs/design/acceptance/author/AU-05-artifact-adoption.md` SC-AU05-C4；AU05-GAP-06
 - 当前目标：在 stale source 与 cross-work adoption 都已能由真实 Tauri 工作台拒绝后，补齐“与当前 canon/revision 冲突的候选或草稿不能静默覆盖作品事实”的真实产品链路。
 
 ---

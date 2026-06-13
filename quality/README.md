@@ -23,7 +23,7 @@ L5 Evidence / Report
 
 | Layer | 目的 | 主要入口 |
 |---|---|---|
-| L1 Spec / Design | 明确 slice 消费的设计、ADR、schema、状态字段 | `docs/design-v2/`, `docs/engineering/`, `tasks/slices/` |
+| L1 Spec / Design | 明确 slice 消费的设计、ADR、schema、状态字段 | `docs/design/`, `docs/engineering/`, `tasks/slices/` |
 | L2 Architecture Guard | 保证 umbrella 依赖方向、frontend 技术栈和设计追溯不漂移 | `mix check`, `scripts/arch_check.exs`, `scripts/frontend_audit.sh`, `scripts/check_design_trace.sh` |
 | L3 Runtime Invariant | 证明运行时 user-facing 创作内容来源真实 | `scripts/scenario_invariants/run_i*.exs` |
 | L4 Scenario Acceptance | 由外部自动化驱动真实 browser/Tauri 页面完成用户场景 | `scripts/quality_accept.sh`, `scripts/slice_verify.sh`, `scripts/tauri_slice_verify.sh` |
@@ -41,4 +41,3 @@ L5 Evidence / Report
 - 外部自动化驱动真实页面的场景化验收。
 - 验收证据路径。
 - PR / nightly / release 质量门禁层级。
-

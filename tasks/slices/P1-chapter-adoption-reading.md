@@ -85,7 +85,7 @@ P1 已证明章节计划能生成待采纳正文草稿。下一步要证明正�
 
 ### checkpoint B3 — edit_then_accept 真实编辑闭环（确定性 + 真实 LLM Tauri 已通过，2026-05-29）
 
-补齐 ADR-0006 §5 采纳动作三元组的最后一个（accept / discard / **edit_then_accept**）。作者在采纳前编辑 AI 草稿全文，采纳的是编辑后的版本。
+补齐当前采纳边界中“作者编辑后采纳”的闭环。作者在采纳前编辑 AI 草稿全文，采纳的是编辑后的版本；UI 只提交服务端提供的 available action，具体写入仍由后端 adoption boundary 裁决。
 
 - 后端 `adoption_workflow.ex`：编辑语义改为**作者全文替换**（`edited_content` 优先，直接替换 `payload.content` → `artifact_content` → 持久化 → 阅读投影 → 字数都以编辑后内容为准）；旧 `instruction` 追加语义保留向后兼容；校验改为「edited_content 或 instruction 二选一」。
 - 通道 `workspace_channel.ex`：`edit_then_accept` author_action 经 `ActionValidator` 路由到 `handle_modify_draft`，编辑全文随 `AuthorActionInput.payload.edited_content`（VS-04 §3）传入。

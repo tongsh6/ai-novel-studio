@@ -150,7 +150,7 @@ context.assemble.done context_refs: 0          ← ContextAssembler 没从 DB �
 
 ## 6. 相关文档
 
-- `docs/design-v3/adr/ADR-0018-business-log-schema-v3.md` — 日志 schema 规范（事件命名空间、三必填、关联键）
+- `docs/design/adr/ADR-0018-business-log-schema-v3.md` — 日志 schema 规范（事件命名空间、三必填、关联键）
 - `apps/novel_common/lib/novel_common/log_context.ex` — metadata 注入协议
 - `apps/novel_common/lib/novel_common/log_emit.ex` — emit 宏（编译期 phase 校验）
 - `apps/novel_common/lib/novel_common/log_file_backend.ex` — JSONL 文件 backend
