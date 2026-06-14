@@ -69,6 +69,8 @@ D. 与 v3 冲突 → 淘汰/废弃。
   - glossary §3.2.1 升级为 Accepted canonical 镜像；22 §13.5 注指向 ADR-0019；ADR README 加 ADR-0019 行。
   - 代码固化：`NovelDomain.AdoptionStatus.transition_allowed?/2`（矩阵单一来源，对称 MemoryItem）+ 接入 `ArtifactAdoptionEntry.changeset`（有 from 态时拒非法转换）。测试：domain 11 + changeset 6 全绿；编译零警告；arch_check 通过。
   - **后续 slice（标注，非本次）**：repository 层 enforcement——`adoption_repository` 草稿插入即 ACCEPTED（line 151）与 update_all 转 SUPERSEDED（line 380，绕过 changeset）尚未走转换校验；DISCARDED/复活等转换暂无代码路径。需真实采纳状态流转 slice 接入 domain 校验。
+  - **验证（2026-06-14，commit 06ad825 后）**：mix compile --warnings-as-errors 零警告；novel_domain 116/0、novel_persistence 136/0（无回归）；arch_check 通过；xref 无循环；场景不变量 I3 3/3、I1 3/3、I2 disjoint 3/3 零违规；ai_static_scan --quick 除 gitleaks 外全 PASS。
+  - **gitleaks FAIL（预存在，非本次引入）**：`tools/company-console/server/config.mjs` generic-api-key，提交 `0234860`（jasperyang 2026-05-27），在 develop 历史中。与本次改动无关。**不一致**：project-ledger §44 曾称该文件已从历史移除 + 0 findings，但本分支仍可扫到——历史移除未覆盖 develop。属 accepted_risk / 历史重写范畴（见记忆 gitleaks-projectgod-secret），需仓库 owner 决策，不在本次代码改动职责内。
 
 校验通过项：README 无残留旧框架词；glossary §0 引用的 02/04/05/06/VS-00D/ADR 全部存在；15 篇头部节名一致；00e 节锚点 5 个齐全。
 
