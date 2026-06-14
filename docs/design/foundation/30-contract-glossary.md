@@ -1,8 +1,32 @@
 # Contract Glossary
 
-> 状态：v3 体系领域层 · 当前权威（横切契约 · 术语）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。后续按台账补 v3 术语（DialogueFrame/MicroPlan/ContextPacket 等）。
+> 状态：v3 体系领域层 · 当前权威（横切契约 · 术语）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。v3 主链核心术语见 §0。
 >
-> 角色：为 `docs/design` 中 Foundation 与 Domain 文档提供统一命名、字段、状态和 namespace 规则。本文不引入新业务能力，只消除跨文档漂移。
+> 角色：为 `docs/design` 中主链、Foundation 与 Domain 文档提供统一命名、字段、状态和 namespace 规则。本文不引入新业务能力，只消除跨文档漂移。
+
+---
+
+## 0. v3 主链核心术语（spine）
+
+v3 会话结构与执行主链的 canonical 术语。**定义以各源文档/ADR 为准**，本表只给一句话定位与指针，避免漂移。
+
+| 术语 | 一句话 | 权威源 |
+|---|---|---|
+| `DialogueFrame` | 每个 turn 必有的结构化认知帧（frame_type / dialogue_goal / 执行就绪度等） | `02`、ADR-0001 |
+| `MicroPlan` | Planner 向执行层提出的下一步行动建议 envelope（无执行批准权） | `02`、ADR-0002/0003 |
+| `OrchestratorDecision` | Execution Orchestrator 的执行裁决 envelope | `04`、ADR-0004 |
+| Execution Gate Order | 执行门禁顺序（authority / write_boundary / budget…） | `04`、ADR-0005 |
+| `ContextPacket` | 按消费者分型的最小上下文包（planner / tool / ui_trace / replay…） | `06`§5.2 |
+| `DialogueContext` | 组装好、可解释 omission 的对话上下文 envelope | `06`§5.3、VS-00B/VS-00C |
+| `AIMessageEnvelope` | AI 引导三层契约投影到每次 AI 调用的可重建 message | `00`§2.2、`01`§3.3、VS-00D |
+| `TurnResult` | 每个 turn 唯一 canonical 出口 view model | ADR-0015 |
+| `DecisionTrace` | turn 决策留痕（可回放；replay 默认不重调 LLM） | ADR-0013、`06` |
+| `ConfirmationBinding` | 确认动作与待执行计划的绑定（re-gate） | ADR-0009 |
+| `AvailableAction` | UI 可消费的本轮可用动作 | ADR-0007 |
+| `BehaviorState` | durable behavior（clarification / confirmation…）状态 | ADR-0008、`05` |
+| phase / status | turn 阶段与状态机 | ADR-0006、`05` |
+
+> 与下文关系：§2–§9 是 v2 来源、被 v3 吸取保留的字段/对象/namespace 术语；本 §0 是 v3 主链新增的会话结构与执行术语。两者同属当前 v3 体系。
 
 ---
 

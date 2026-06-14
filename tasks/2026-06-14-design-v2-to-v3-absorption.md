@@ -50,8 +50,11 @@ D. 与 v3 冲突 → 淘汰/废弃。
 - 2026-06-14：**Step A 完成**——15 篇按 C 类重新定位头部（去标题 v2、状态改"v3 体系领域层·当前权威"、声明归 v3 治理）。证据纠正：24/28/34 经 grep 无 Router/关键字/分类信号，从"审 A"降为 C（纯领域知识）。**唯一真冲突是 `foundation/00e-architecture`**（7 处 Router-first），已加 part-superseded 状态头指向 00d/04/01/00§5.2。
 - 2026-06-14：**Step B 完成**——`00e-architecture` 深度审计：发现不止 7 处 Router，其整个运行时架构角色与 v3 `00d-runtime-architecture` 重叠，且"与已有图分工"引用了 v3 不存在的旧文档名（00a-system-landscape/00b-end-to-end-flow/00d-state-machine-atlas）。处置：① 更正死引用并声明从属于 `00d`；② 新增「§0 v3 对照与 supersession」表，逐项标 Router 概念**死**（turn 站/intent+slot 抽取→Dialogue Planner+DialogueFrame/MicroPlan+AI 意图）/**活**（产候选不执行、Orchestrator 唯一编排、门禁横切）。未改写 mermaid 图（00d 为权威图，按对照表换算）。
 
+- 2026-06-14：**Step C 完成**——`30` glossary 新增「§0 v3 主链核心术语」（DialogueFrame/MicroPlan/OrchestratorDecision/ContextPacket/DialogueContext/AIMessageEnvelope/TurnResult/DecisionTrace/ConfirmationBinding/AvailableAction/BehaviorState/phase-status，一句话+权威源，防漂移）；`25` 加向上链（其 hook 链路=`08`§5 实现态提炼机制）；`08`§6 加向下链到领域细节层（34/25），双向可达。决策：`34` **不物理合并入 08**（避免 08 臃肿/丢细节），保留为 08 领域细节层 + 双向链接。
+
 ## 6. 卡点 / 下次恢复
 
-- **Step A + Step B 已完成。** 实质整合核心（v3 主导权威模型 + 16 篇重新定位 + 唯一冲突 00e supersession）已闭环。
-- **Step C 待办（增强，非阻塞）**：`25` 对账机制 ↔ `08`§5 三态对账交叉链接；`34` 字段优先级评估上提/合并入 `08`；`30` glossary 补 v3 术语（DialogueFrame/MicroPlan/ContextPacket/AIMessageEnvelope）。这些是内容增强，需逐项确认范围。
-- 恢复指引：先读 `docs/design/README.md` 整合原则 → 本表 status 列 → Step C 逐项。
+- **Step A + B + C 全部完成。实质整合闭环。**
+- 终态：`docs/design/` 为 v3 主导的单一体系——主链 spine（00-08）权威、16 篇领域层归 v3 治理且去版本化、唯一架构冲突 00e 已 supersession 对照、glossary 覆盖 v3+v2 术语、要素模型与领域细节层双向可达。
+- 无遗留阻塞。后续若 v3 再推翻某领域结论，按本台账「四类吸取判定」就地标 superseded 即可。
+- 恢复指引：先读 `docs/design/README.md` 整合原则 → 本表（全 done）。

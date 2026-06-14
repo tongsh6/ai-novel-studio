@@ -4,6 +4,8 @@
 >
 > 角色：`docs/design/domain/24-novel-intent-catalog.md` 中维护族的运行展开文档，并依赖 `docs/design/04-execution-orchestrator.md`、`docs/design/07-workbench-ui-contract.md`、`docs/design/domain/22-continuity-model.md`。
 >
+> v3 定位：本文的 maintenance hook 链路是 `docs/design/08-novel-element-model.md`§5「三态对账」中**实现态提炼**的机制实现——从已采纳正文提炼实现态、产 tentative、经 adoption 进权威层（对应 08 NEM-GAP-06）。
+>
 > 目标：定义 v2 中小说层默认 maintenance hook 链路，包括触发时机、产物类型、pending adoption 路径、validator 角色、失败与修正处理，以及它们与正文执行、长跑 checkpoint 和连续性权威层的关系。
 
 ---
