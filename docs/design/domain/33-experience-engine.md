@@ -1,6 +1,6 @@
-# Experience Engine v2
+# Experience Engine
 
-> 状态：草案
+> 状态：v3 体系领域层 · 当前权威（领域细节）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。
 >
 > 角色：`docs/design/06-memory-context-and-trace.md`、`23-style-and-author-intent.md`、`31-novel-quality-gates.md` 与 `32-human-approval-policy.md` 之后的经验沉淀机制。
 >

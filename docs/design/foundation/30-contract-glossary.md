@@ -1,6 +1,6 @@
-# Contract Glossary v2
+# Contract Glossary
 
-> 状态：contract 收口草案
+> 状态：v3 体系领域层 · 当前权威（横切契约 · 术语）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。后续按台账补 v3 术语（DialogueFrame/MicroPlan/ContextPacket 等）。
 >
 > 角色：为 `docs/design` 中 Foundation 与 Domain 文档提供统一命名、字段、状态和 namespace 规则。本文不引入新业务能力，只消除跨文档漂移。
 

@@ -1,6 +1,6 @@
-# Maintenance Hooks v2
+# Maintenance Hooks
 
-> 状态：草案
+> 状态：v3 体系领域层 · 当前权威（领域细节）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。
 >
 > 角色：`docs/design/domain/24-novel-intent-catalog.md` 中维护族的运行展开文档，并依赖 `docs/design/04-execution-orchestrator.md`、`docs/design/07-workbench-ui-contract.md`、`docs/design/domain/22-continuity-model.md`。
 >

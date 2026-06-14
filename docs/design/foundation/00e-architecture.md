@@ -1,6 +1,8 @@
 # 完整架构图
 
-> 状态：草案
+> 状态：**部分 superseded** · v3 体系领域层（横切/历史参照）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则」）；标题/历史中的 v2 仅为来源标记。
+>
+> ⚠️ v3 supersession：本文含 **Router-first 架构**（Router 作为 turn 站做 intent 识别 + slot 抽取，见 §lines 88/152/281/325/397/413/422/503）。该部分已被 v3 废弃——当前架构以 `00d-runtime-architecture.md`、`04-execution-orchestrator.md`、`01-user-llm-workbench-interaction-model.md`、`00`§5.2 为准（Dialogue Planner + Execution Orchestrator，无 Router turn 站，意图用 AI 非关键字）。本文 Router 相关结构**不再作为当前架构**，仅供历史与横切（umbrella 依赖、门禁顺序等仍有效部分）参照；逐条 superseded 标注见整合台账 Step B。
 >
 > 角色：把项目的运行时形态讲清楚——系统在用户、外部依赖、内部容器（控制面 / 数据面）、横切关注、多 Agent 5 个视角下分别长什么样。
 >

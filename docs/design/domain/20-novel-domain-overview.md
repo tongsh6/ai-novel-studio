@@ -1,6 +1,6 @@
-# Novel Domain Overview v2
+# Novel Domain Overview
 
-> 状态：草案
+> 状态：v3 体系领域层 · 当前权威（领域细节）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。
 >
 > 角色：v2 Domain Layer 的总览文档。它建立在 `docs/design/foundation/00e-architecture.md` 到 `11-ux-contract.md` 的 Foundation contract 之上。
 >

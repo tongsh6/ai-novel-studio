@@ -1,6 +1,6 @@
-# Provider Abstraction Contract v2
+# Provider Abstraction Contract
 
-> 状态：草案
+> 状态：v3 体系领域层 · 当前权威（横切契约）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。
 >
 > 角色：`docs/design/foundation/00e-architecture.md` 的 Provider Abstraction 子系统展开文档，并依赖 `docs/design/03-capability-toolbox-contract.md` 与 `docs/design/04-execution-orchestrator.md`。
 >

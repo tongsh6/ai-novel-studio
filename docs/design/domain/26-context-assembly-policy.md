@@ -1,6 +1,6 @@
-# Context Assembly Policy v2
+# Context Assembly Policy
 
-> 状态：草案
+> 状态：v3 体系领域层 · 当前权威（领域细节）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；已被主链 `06-memory-context-and-trace.md` 与 `contracts/VS-00C-creative-context-assembly-contract-pack.md` 吸取为"v3 信封 + 内容策略"；标题/历史中的 v2 仅为来源标记。
 >
 > 角色：`docs/design/domain/20-novel-domain-overview.md` 之后的上下文组装策略文档，并依赖 `docs/design/06-memory-context-and-trace.md`、`docs/design/domain/21-novel-object-model.md`、`docs/design/domain/22-continuity-model.md`、`docs/design/domain/23-style-and-author-intent.md`、`docs/design/domain/24-novel-intent-catalog.md`、`docs/design/domain/25-maintenance-hooks.md`、`docs/design/quality/31-novel-quality-gates.md`、`docs/design/domain/33-experience-engine.md`、`docs/design/domain/34-novel-element-field-priority.md`。
 >

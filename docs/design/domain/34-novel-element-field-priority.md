@@ -1,6 +1,8 @@
-# Novel Element Field Priority v2
+# Novel Element Field Priority
 
-> 状态：草案
+> 状态：v3 体系领域层 · 当前权威（领域细节）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。
+>
+> 与 `08-novel-element-model.md` 关系：`08`（主链小说要素模型）是上游；本文的字段优先级/对象落位是其领域细节层，后续可考虑上提合并入 `08`（见整合台账 Step C）。
 >
 > 角色：把“小说要素全集”转译为 v2 Domain 的结构化优先级、对象落位和字段治理规则。
 >

@@ -1,6 +1,8 @@
-# Novel Intent Catalog v2
+# Novel Intent Catalog
 
-> 状态：草案
+> 状态：v3 体系领域层 · 当前权威（领域细节）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。
+>
+> v3 适配说明：本文是**创作动作族词汇表**（领域知识），不是 Router 式 intent 分类表。运行时意图判定由 Planner 用 AI 语义完成（v3 原则 4：意图用 AI 非关键字），本目录供 Planner 与 capability registry 对齐动作类型，不规定机械分类/前台 slot。
 >
 > 角色：`docs/design/domain/20-novel-domain-overview.md` 的小说动作目录文档，并依赖 `docs/design/03-capability-toolbox-contract.md`、`docs/design/domain/21-novel-object-model.md`、`docs/design/domain/22-continuity-model.md`、`docs/design/domain/23-style-and-author-intent.md`。
 >

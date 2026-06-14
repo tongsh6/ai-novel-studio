@@ -1,6 +1,6 @@
-# Authoring Lifecycle v2
+# Authoring Lifecycle
 
-> 状态：草案
+> 状态：v3 体系领域层 · 当前权威（领域细节）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。
 >
 > 角色：`docs/design/domain/20-novel-domain-overview.md` 中创作生命周期的展开文档，并依赖 `docs/design/domain/21-novel-object-model.md`、`docs/design/domain/22-continuity-model.md`、`docs/design/domain/23-style-and-author-intent.md`、`docs/design/domain/24-novel-intent-catalog.md`、`docs/design/domain/25-maintenance-hooks.md`、`docs/design/domain/27-reading-projection.md`。
 >
