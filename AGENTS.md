@@ -273,10 +273,38 @@ slice 可以只覆盖其中一段连续链路，但必须形成可执行闭环�
 
 ---
 
-## 项目文档
+## 项目知识结构（SSOT）与禁止自建
 
-- 设计文档：`docs/design/`（当前唯一设计真源，代码必须遵循）
-- ADR：`docs/design/adr/`（当前唯一 ADR 目录）
-- JSON Schema SSOT：`docs/design/schemas/`
-- 技术栈：`docs/design/tech-stack/`
-- 工程实践：`docs/engineering/`
+本项目的文档、任务、证据已有唯一体系。**任何 AI 或外部工具进入本项目，必须把产物落到下表既有位置，禁止自建平行体系。** 这是入场即生效的硬约束，违反即视为引入孤岛。
+
+### 唯一落点表
+
+| 你要落的东西 | 唯一位置 | 入口/规则 |
+|---|---|---|
+| 设计、运行时、状态、UI 设计 | `docs/design/` | `docs/design/README.md`（当前唯一设计真源，禁止新建版本化目录） |
+| ADR（冻结决策） | `docs/design/adr/` | 当前唯一 ADR 目录 |
+| Contract pack / spec | `docs/design/contracts/` | 契约冻结前文档 |
+| JSON Schema / enum SSOT | `docs/design/schemas/` | codegen 源 |
+| 验收设计 | `docs/design/acceptance/` | 场景化验收 |
+| 技术栈 | `docs/design/tech-stack/` | — |
+| 工程实践规则 | `docs/engineering/` | vertical-slice、scenario-invariants 等 |
+| 讨论备忘 / 运行经验（不授权实现） | `docs/design/notes/` | 唯一 notes 落点 |
+| 任务、计划、进度、决策日志、恢复指引 | `tasks/` | `tasks/README.md`；开工前必读 `tasks/NEXT.md` |
+| 承重竖切面任务 | `tasks/slices/` | slice 开工检查与验证 |
+| 质量**运行体系**（gates / invariants / acceptance manifest / scenarios） | `quality/` | `quality/README.md`；被 `scripts/quality_*.sh`、`scenario_invariants` 消费 |
+| 长期处置台账（如 static-scan baseline / disposition） | `reports/` | `reports/static-scan/`；被静态扫描闭环引用 |
+| 技术选型**可复跑验证代码**（独立 mix spike） | `spikes/` | 被 `docs/design/tech-stack/verification/` 引用；不参与产品 umbrella build |
+| 产品体验**人工走查报告**（real LLM + GUI 自动化截图 + 观感） | `walkthroughs/<date>/` | `walkthroughs/README.md`；走查发现须按 `docs/project-ledger.md` §规则登记 |
+| 运行/验收/扫描/狗粮**证据产物** | `artifacts/`（已 gitignore） | 只放机器产出的证据，不放设计或任务文档 |
+| 作者本人想法 / 手记 | `notes/`（顶层） | 作者私人笔记，非 AI 工作产物，AI 不在此落任何东西 |
+
+> 角色辨析（看名字易混，实为不同层）：`docs/design/quality/` = 质量门禁**设计**；`quality/` = 质量**运行体系**；`artifacts/` = 单次运行**证据**；`reports/` = 跨次**处置台账**。四者不是重复，不要互相合并或复制。
+
+### 禁止事项
+
+- **禁止新建平行的 plans / specs / notes / tasks / docs 目录或工具专属知识树。** 已知反例：`.sisyphus/`、`docs/superpowers/`、顶层 `notes/`、顶层 `quality/`、`artifacts/task-done/` 属历史孤岛，待收编，不得新增同类。
+- 带入外部 AI 工具（其自带 plan/spec/memory 约定）时，必须把其产物重定向到上表既有位置，不得让工具在仓库根或 docs 下另起目录。
+- 设计引用一律用 `docs/design/...`；不得引用已删除的 `docs/design-v2/` `docs/design-v3/` 旧路径。
+- 临时/运行产物（`*.sqlite3`、`/tmp`、`/log`、`/cover`、`/artifacts/**`）已由 `.gitignore` 覆盖，不要提交，也不要在别处复制一份。
+
+新增任何文档前，先在上表找到它该去的唯一位置；找不到对应类别，说明它可能不该存在，先问，不要自创目录。
