@@ -6,14 +6,30 @@
 >
 > 角色：把项目的运行时形态讲清楚——系统在用户、外部依赖、内部容器（控制面 / 数据面）、横切关注、多 Agent 5 个视角下分别长什么样。
 >
-> 与已有图的分工：
+> v3 从属关系：运行时架构的**当前权威是主链 `00d-runtime-architecture.md`**。本文是 v2 来源的组件/部署视图，与 `00d` 重叠的运行时控制面以 `00d` 为准；本文仅在提供 `00d` 尚未覆盖的部署/组件/横切细节时作参照，发现冲突一律以 `00d`/`04`/`01` 为准。
 >
-> - `00a-system-landscape.md` 回答"有哪些模块、哪些冻结了"（**静态文档地图**）
-> - `00b-end-to-end-flow.md` 回答"数据怎么流"（**动态数据流**）
-> - `00d-state-machine-atlas.md` 回答"对象生命周期"（**控制态**）
-> - **本文** 回答"运行时由哪些容器组成、它们怎么连、外部边界在哪"（**部署与组件**）
+> 与其他文档的分工（已更正为当前 v3 文档）：
 >
-> 本文不发明组件名。所有 box 都来自 00 / 01 / 04 / 05 / 12 / 25 / 26 / 30 已有定义。
+> - `00a-reading-map.md`：按角色阅读路径
+> - `00b-end-to-end-dialogue-flow.md`：v3 主链数据流
+> - `00c-state-and-contract-atlas.md`：对象状态机与 contract 索引
+> - `00d-runtime-architecture.md`：**v3 权威运行时架构**（控制面/数据面/横切）
+> - **本文**：v2 来源的组件/部署补充视图（Router-first 部分已 superseded，见下「v3 对照」）
+
+---
+
+## 0. v3 对照与 supersession（Step B）
+
+本文图中沿用了 v2 的 **Router** 控制面概念。按 v3 整合原则（`docs/design/README.md`、`00`§5.2），逐项对照如下——**死**=已被 v3 废弃、不再作为当前架构；**活**=与 v3 兼容、保留：
+
+| 本文出现处 | v2 表述 | 判定 | v3 替代 / 说明 |
+|---|---|---|---|
+| §控制面图 line 90、anti-pattern line 503 | `Router`：识别 intent + 抽取 slots（仅产候选，不执行） | **死（概念名）/ 活（不执行原则）** | turn 第一站是 **Dialogue Planner**，产 `DialogueFrame`/`MicroPlan`；意图用 **AI 语义判断**，不做 slot 抽取（`01`§2/§3、`02`、ADR-0001/0002）。"只产候选、不执行"这一点 v3 保留（Planner 无执行权，ADR-0003） |
+| 控制面要点 1（line 152） | Orchestrator 是唯一编排入口 | **活** | 与 v3 Execution Orchestrator 一致（`04`、ADR-0004/0005） |
+| 多 Agent 视图 line 397/413/422 | 父/子 Agent 各含 Router | **死（概念名）** | 同上：各 turn 入口是 Dialogue Planner，不是 Router |
+| 能力消费者表 line 281/325 | Router 作为 capability consumer | **死（作为 turn 站）/ 活（作为后台候选产生器）** | v3 中"识别方向"能力归 Planner；`Router` 不再作为顶层 turn 站（`00`§5.2） |
+
+> 一句话：本文 Router 相关的**命名与"turn 第一站做 intent+slot 抽取"职责已 superseded**；其"产候选不执行、Orchestrator 唯一编排、门禁/横切覆盖"等结构与 v3 兼容、保留。mermaid 图未改写（`00d` 为权威运行时图），阅读本文图时按本表换算。
 
 ---
 

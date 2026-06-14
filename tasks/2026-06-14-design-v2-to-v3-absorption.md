@@ -48,10 +48,10 @@ D. 与 v3 冲突 → 淘汰/废弃。
 
 - 2026-06-14：确立"以 v3 吸取 v2"整合原则（README）；改正此前"spine+substrate 并立永久权威"的误框架（用户定调：单向吸取，v2 概念消解）。完成 README 基石 + 本台账逐篇判定表。
 - 2026-06-14：**Step A 完成**——15 篇按 C 类重新定位头部（去标题 v2、状态改"v3 体系领域层·当前权威"、声明归 v3 治理）。证据纠正：24/28/34 经 grep 无 Router/关键字/分类信号，从"审 A"降为 C（纯领域知识）。**唯一真冲突是 `foundation/00e-architecture`**（7 处 Router-first），已加 part-superseded 状态头指向 00d/04/01/00§5.2。
+- 2026-06-14：**Step B 完成**——`00e-architecture` 深度审计：发现不止 7 处 Router，其整个运行时架构角色与 v3 `00d-runtime-architecture` 重叠，且"与已有图分工"引用了 v3 不存在的旧文档名（00a-system-landscape/00b-end-to-end-flow/00d-state-machine-atlas）。处置：① 更正死引用并声明从属于 `00d`；② 新增「§0 v3 对照与 supersession」表，逐项标 Router 概念**死**（turn 站/intent+slot 抽取→Dialogue Planner+DialogueFrame/MicroPlan+AI 意图）/**活**（产候选不执行、Orchestrator 唯一编排、门禁横切）。未改写 mermaid 图（00d 为权威图，按对照表换算）。
 
 ## 6. 卡点 / 下次恢复
 
-- **Step A 已完成（16 篇头部全部重新定位）。**
-- **Step B 待办**：`00e-architecture` 逐条 Router 段落 superseded 标注（lines 88/152/281/325/397/413/422/503）；其余文档无需 Step B。
-- **Step C 待办**：`25` 对账机制、`34` 字段优先级上提/合并入 `08`；`30` 补 v3 术语（DialogueFrame/MicroPlan/ContextPacket）。
-- 恢复指引：先读 `docs/design/README.md` 整合原则 → 本表 status 列 → 从 Step B（00e）继续。
+- **Step A + Step B 已完成。** 实质整合核心（v3 主导权威模型 + 16 篇重新定位 + 唯一冲突 00e supersession）已闭环。
+- **Step C 待办（增强，非阻塞）**：`25` 对账机制 ↔ `08`§5 三态对账交叉链接；`34` 字段优先级评估上提/合并入 `08`；`30` glossary 补 v3 术语（DialogueFrame/MicroPlan/ContextPacket/AIMessageEnvelope）。这些是内容增强，需逐项确认范围。
+- 恢复指引：先读 `docs/design/README.md` 整合原则 → 本表 status 列 → Step C 逐项。
