@@ -62,7 +62,13 @@ D. 与 v3 冲突 → 淘汰/废弃。
 | R2 | `00e` 状态头用简称「整合原则」，与其余 15 篇全称不一致 | 自引入 | 补全为「整合原则：以 v3 为主体，吸取 v2」 |
 | R3 | `22 §13.5` 引用 `02 §523-533`「已固化合法转换」、`06 §11.3` 均失效（02 该区间现为 Trace、06§11 为 Replay） | **预存在 v2 漂移** | 改指可验证 canonical（30 §3.2 + ADR-0001）；删失效行号 |
 
-**遗留 GAP（R3 暴露）**：adoption 7 态的"合法转换"表在 v3 无统一 canonical 落点（glossary §3.2 仅列取值集合、无转换；无 ADR 含转换表）。建议后续由 ADR-0010（state-adoption-boundary）或 glossary 收口。非本次整合阻塞。
+**遗留 GAP（R3 暴露）→ 已部分收口（2026-06-14）**：彻底核实确认 adoption 7 态"合法转换"在 v3 文档/ADR/schema/代码**全部不存在**（glossary §3.2 仅取值；`adoption_status.ex` 仅 valid?；`artifact_adoption_entry.ex` 仅 validate_required；ADR-0010=采纳边界、ADR-0002=status 映射，均无转换；`memory_item.ex` 状态机是另一套记忆态）。判定为**从未定义的设计空白**，非"文档丢失"。
+- **已收口（2026-06-14，用户裁定 + ADR + 代码双固化）**：
+  - 用户裁定：① 允许 ACCEPTED/EDITED_ACCEPTED→DISCARDED（撤采纳）；② 三非活跃态 + ARCHIVED 允许复活；③ ADR+代码双固化。
+  - **ADR-0019**（Accepted）冻结全可逆矩阵：初始 TENTATIVE；复活统一 →TENTATIVE 重入采纳流（不直接复原 canon，INV-1 保可溯）；无永久终态（ARCHIVED 可 un-archive）；非表转换拒绝。
+  - glossary §3.2.1 升级为 Accepted canonical 镜像；22 §13.5 注指向 ADR-0019；ADR README 加 ADR-0019 行。
+  - 代码固化：`NovelDomain.AdoptionStatus.transition_allowed?/2`（矩阵单一来源，对称 MemoryItem）+ 接入 `ArtifactAdoptionEntry.changeset`（有 from 态时拒非法转换）。测试：domain 11 + changeset 6 全绿；编译零警告；arch_check 通过。
+  - **后续 slice（标注，非本次）**：repository 层 enforcement——`adoption_repository` 草稿插入即 ACCEPTED（line 151）与 update_all 转 SUPERSEDED（line 380，绕过 changeset）尚未走转换校验；DISCARDED/复活等转换暂无代码路径。需真实采纳状态流转 slice 接入 domain 校验。
 
 校验通过项：README 无残留旧框架词；glossary §0 引用的 02/04/05/06/VS-00D/ADR 全部存在；15 篇头部节名一致；00e 节锚点 5 个齐全。
 

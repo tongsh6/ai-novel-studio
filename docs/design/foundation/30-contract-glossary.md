@@ -120,6 +120,24 @@ artifact adoption 状态至少包括：
 
 `INVALIDATED` 表示 artifact 前提或适用范围失效，不能再被静默采纳。
 
+#### 3.2.1 合法转换矩阵（canonical，ADR-0019）
+
+> 状态：**Accepted**（ADR-0019，2026-06-14）。本表是 ADR-0019 的 canonical 镜像；冲突以 ADR-0019 为准。管 artifact adoption 7 态，与 `NovelDomain.MemoryItem` 记忆状态机是两套独立状态机。
+
+初始态：`TENTATIVE`（artifact 产出即 tentative，VS-02A / ADR-0010）。
+
+| from | 允许 to |
+|---|---|
+| `TENTATIVE` | `ACCEPTED`、`EDITED_ACCEPTED`、`DISCARDED`、`INVALIDATED` |
+| `ACCEPTED` | `SUPERSEDED`、`INVALIDATED`、`DISCARDED`、`ARCHIVED` |
+| `EDITED_ACCEPTED` | `SUPERSEDED`、`INVALIDATED`、`DISCARDED`、`ARCHIVED` |
+| `DISCARDED` | `TENTATIVE`（复活）、`ARCHIVED` |
+| `SUPERSEDED` | `TENTATIVE`（复活）、`ARCHIVED` |
+| `INVALIDATED` | `TENTATIVE`（复活）、`ARCHIVED` |
+| `ARCHIVED` | `TENTATIVE`（un-archive 复活） |
+
+不变量（ADR-0019）：进入 `ACCEPTED`/`EDITED_ACCEPTED` 只能来自 `TENTATIVE`，**复活不直接复原 canon，须经 `TENTATIVE` 重新采纳**（保证每个 canon 有可溯采纳决策）；当前有效 canon 只含 `ACCEPTED`/`EDITED_ACCEPTED`；无永久终态（`ARCHIVED` 可 un-archive）；非表中转换在持久化边界一律拒绝；自反转换为合法 no-op。
+
 ---
 
 ## 4. Long-Run Budget 字段

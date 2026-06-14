@@ -42,5 +42,25 @@ defmodule NovelPersistence.Schemas.Foundation.ArtifactAdoptionEntry do
     struct
     |> cast(attrs, @required_fields ++ @optional_fields)
     |> validate_required(@required_fields)
+    |> validate_adoption_transition(struct)
   end
+
+  # ADR-0019：当已有 from 态（更新已存在的 adoption entry）时，拒绝非法转换。
+  # 转换合法性由 NovelDomain.AdoptionStatus 单一权威（与 MemoryItem 状态机模式对称）。
+  # 新建（struct.adoption_status 为 nil）= 初始设值，不校验转换。
+  defp validate_adoption_transition(changeset, %{adoption_status: from}) when not is_nil(from) do
+    case get_change(changeset, :adoption_status) do
+      nil ->
+        changeset
+
+      to ->
+        if NovelDomain.AdoptionStatus.transition_allowed?(to_string(from), to_string(to)) do
+          changeset
+        else
+          add_error(changeset, :adoption_status, "illegal adoption transition #{from} -> #{to}")
+        end
+    end
+  end
+
+  defp validate_adoption_transition(changeset, _struct), do: changeset
 end

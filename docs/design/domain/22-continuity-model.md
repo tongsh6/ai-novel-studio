@@ -490,7 +490,7 @@ worldrule 一旦 superseded，不代表旧版本没有历史意义，因此不�
 
 > 取值集合不得改写或删减；canonical 7 态取值见 `foundation/30-contract-glossary.md §3.2` 与 ADR-0001。
 >
-> 注（2026-06-14 整合 review 修正）：原 v2 行号/节号引用 `02 §lines 523-533`（已固化合法转换）、`06 §11.3` 已随文档演进失效（02 该区间现为 Trace 要求、06 §11 为 Replay Layer），已移除以免误导。7 态"合法转换"表的统一 canonical 落点尚未在 v3 收口，记为 gap（见 `tasks/2026-06-14-design-v2-to-v3-absorption.md`）。
+> 注（2026-06-14 整合 review 修正）：原 v2 行号/节号引用 `02 §lines 523-533`（已固化合法转换）、`06 §11.3` 已随文档演进失效（02 该区间现为 Trace 要求、06 §11 为 Replay Layer），已移除以免误导。7 态合法转换矩阵见 `foundation/30-contract-glossary.md §3.2.1` 与 **ADR-0019**（Accepted）。
 
 ---
 
