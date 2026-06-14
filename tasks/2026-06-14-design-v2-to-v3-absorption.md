@@ -52,9 +52,23 @@ D. 与 v3 冲突 → 淘汰/废弃。
 
 - 2026-06-14：**Step C 完成**——`30` glossary 新增「§0 v3 主链核心术语」（DialogueFrame/MicroPlan/OrchestratorDecision/ContextPacket/DialogueContext/AIMessageEnvelope/TurnResult/DecisionTrace/ConfirmationBinding/AvailableAction/BehaviorState/phase-status，一句话+权威源，防漂移）；`25` 加向上链（其 hook 链路=`08`§5 实现态提炼机制）；`08`§6 加向下链到领域细节层（34/25），双向可达。决策：`34` **不物理合并入 08**（避免 08 臃肿/丢细节），保留为 08 领域细节层 + 双向链接。
 
+## 5b. Review 发现与修复（2026-06-14）
+
+整合后做核验式 review，发现并修复：
+
+| # | 问题 | 性质 | 处置 |
+|---|---|---|---|
+| R1 | `00e` §0 表与状态头引用的行号（88/152/281…）因插入内容上移而全失效 | 自引入 | 改为稳定节锚点（§2A/§3/§4/§6/§10/ROUTER 节），删全部行号 |
+| R2 | `00e` 状态头用简称「整合原则」，与其余 15 篇全称不一致 | 自引入 | 补全为「整合原则：以 v3 为主体，吸取 v2」 |
+| R3 | `22 §13.5` 引用 `02 §523-533`「已固化合法转换」、`06 §11.3` 均失效（02 该区间现为 Trace、06§11 为 Replay） | **预存在 v2 漂移** | 改指可验证 canonical（30 §3.2 + ADR-0001）；删失效行号 |
+
+**遗留 GAP（R3 暴露）**：adoption 7 态的"合法转换"表在 v3 无统一 canonical 落点（glossary §3.2 仅列取值集合、无转换；无 ADR 含转换表）。建议后续由 ADR-0010（state-adoption-boundary）或 glossary 收口。非本次整合阻塞。
+
+校验通过项：README 无残留旧框架词；glossary §0 引用的 02/04/05/06/VS-00D/ADR 全部存在；15 篇头部节名一致；00e 节锚点 5 个齐全。
+
 ## 6. 卡点 / 下次恢复
 
-- **Step A + B + C 全部完成。实质整合闭环。**
+- **Step A + B + C 全部完成。实质整合闭环。Review 已过（R1/R2/R3 已修，遗留 1 个 7 态转换表 canonical gap）。**
 - 终态：`docs/design/` 为 v3 主导的单一体系——主链 spine（00-08）权威、16 篇领域层归 v3 治理且去版本化、唯一架构冲突 00e 已 supersession 对照、glossary 覆盖 v3+v2 术语、要素模型与领域细节层双向可达。
 - 无遗留阻塞。后续若 v3 再推翻某领域结论，按本台账「四类吸取判定」就地标 superseded 即可。
 - 恢复指引：先读 `docs/design/README.md` 整合原则 → 本表（全 done）。

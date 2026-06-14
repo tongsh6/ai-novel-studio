@@ -1,8 +1,8 @@
 # 完整架构图
 
-> 状态：**部分 superseded** · v3 体系领域层（横切/历史参照）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则」）；标题/历史中的 v2 仅为来源标记。
+> 状态：**部分 superseded** · v3 体系领域层（横切/历史参照）。归 v3 治理、服从 v3 原则（见 `docs/design/README.md`「整合原则：以 v3 为主体，吸取 v2」）；标题/历史中的 v2 仅为来源标记。
 >
-> ⚠️ v3 supersession：本文含 **Router-first 架构**（Router 作为 turn 站做 intent 识别 + slot 抽取，见 §lines 88/152/281/325/397/413/422/503）。该部分已被 v3 废弃——当前架构以 `00d-runtime-architecture.md`、`04-execution-orchestrator.md`、`01-user-llm-workbench-interaction-model.md`、`00`§5.2 为准（Dialogue Planner + Execution Orchestrator，无 Router turn 站，意图用 AI 非关键字）。本文 Router 相关结构**不再作为当前架构**，仅供历史与横切（umbrella 依赖、门禁顺序等仍有效部分）参照；逐条 superseded 标注见整合台账 Step B。
+> ⚠️ v3 supersession：本文含 **Router-first 架构**（Router 作为 turn 站做 intent 识别 + slot 抽取，逐处见下 §0 对照表）。该部分已被 v3 废弃——当前架构以 `00d-runtime-architecture.md`、`04-execution-orchestrator.md`、`01-user-llm-workbench-interaction-model.md`、`00`§5.2 为准（Dialogue Planner + Execution Orchestrator，无 Router turn 站，意图用 AI 非关键字）。本文 Router 相关结构**不再作为当前架构**，仅供历史与横切（umbrella 依赖、门禁顺序等仍有效部分）参照。
 >
 > 角色：把项目的运行时形态讲清楚——系统在用户、外部依赖、内部容器（控制面 / 数据面）、横切关注、多 Agent 5 个视角下分别长什么样。
 >
@@ -22,12 +22,12 @@
 
 本文图中沿用了 v2 的 **Router** 控制面概念。按 v3 整合原则（`docs/design/README.md`、`00`§5.2），逐项对照如下——**死**=已被 v3 废弃、不再作为当前架构；**活**=与 v3 兼容、保留：
 
-| 本文出现处 | v2 表述 | 判定 | v3 替代 / 说明 |
+| 本文出现处（按节定位） | v2 表述 | 判定 | v3 替代 / 说明 |
 |---|---|---|---|
-| §控制面图 line 90、anti-pattern line 503 | `Router`：识别 intent + 抽取 slots（仅产候选，不执行） | **死（概念名）/ 活（不执行原则）** | turn 第一站是 **Dialogue Planner**，产 `DialogueFrame`/`MicroPlan`；意图用 **AI 语义判断**，不做 slot 抽取（`01`§2/§3、`02`、ADR-0001/0002）。"只产候选、不执行"这一点 v3 保留（Planner 无执行权，ADR-0003） |
-| 控制面要点 1（line 152） | Orchestrator 是唯一编排入口 | **活** | 与 v3 Execution Orchestrator 一致（`04`、ADR-0004/0005） |
-| 多 Agent 视图 line 397/413/422 | 父/子 Agent 各含 Router | **死（概念名）** | 同上：各 turn 入口是 Dialogue Planner，不是 Router |
-| 能力消费者表 line 281/325 | Router 作为 capability consumer | **死（作为 turn 站）/ 活（作为后台候选产生器）** | v3 中"识别方向"能力归 Planner；`Router` 不再作为顶层 turn 站（`00`§5.2） |
+| §2A 控制面图 `ROUTER` 节、§10 反模式 #8 | `Router`：识别 intent + 抽取 slots（仅产候选，不执行） | **死（概念名）/ 活（不执行原则）** | turn 第一站是 **Dialogue Planner**，产 `DialogueFrame`/`MicroPlan`；意图用 **AI 语义判断**，不做 slot 抽取（`01`§2/§3、`02`、ADR-0001/0002）。"只产候选、不执行"这一点 v3 保留（Planner 无执行权，ADR-0003） |
+| §2A 控制面要点 1 | Orchestrator 是唯一编排入口 | **活** | 与 v3 Execution Orchestrator 一致（`04`、ADR-0004/0005） |
+| §6 多 Agent 拓扑（§6.1/§6.2） | 父/子 Agent 各含 Router | **死（概念名）** | 同上：各 turn 入口是 Dialogue Planner，不是 Router |
+| §3 组件锚定表、§4 读写矩阵 Router 行 | Router 作为 capability consumer | **死（作为 turn 站）/ 活（作为后台候选产生器）** | v3 中"识别方向"能力归 Planner；`Router` 不再作为顶层 turn 站（`00`§5.2） |
 
 > 一句话：本文 Router 相关的**命名与"turn 第一站做 intent+slot 抽取"职责已 superseded**；其"产候选不执行、Orchestrator 唯一编排、门禁/横切覆盖"等结构与 v3 兼容、保留。mermaid 图未改写（`00d` 为权威运行时图），阅读本文图时按本表换算。
 
