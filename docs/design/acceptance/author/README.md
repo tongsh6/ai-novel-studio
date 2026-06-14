@@ -1,0 +1,19 @@
+# Acceptance / Author — 作者视角验收索引
+
+> 作者（创作者）视角的场景化验收文档（AU-*）。验收口径与总览见 `../README.md` 与 `../SCENARIO-BLUEPRINT.md`。
+
+## 文档
+
+| 文件 | 场景 |
+|---|---|
+| `AU-01-chat.md` | 与 AI 聊创作 |
+| `AU-02-explore.md` | 探索创作方向 |
+| `AU-03-context.md` | AI 了解我的作品（上下文 / 作品内多会话） |
+| `AU-04-execute-and-confirm.md` | 执行任务与系统确认 |
+| `AU-05-artifact-adoption.md` | 采纳创作产物 |
+| `AU-06-behavior-lifecycle.md` | 对话行为生命周期 |
+| `AU-07-trace-and-replay.md` | 系统透明度与决策溯源 |
+| `AU-08-reading-mode.md` | 阅读我的作品 |
+| `AU-09-story-memory.md` | 管理故事设定 |
+| `AU-10-workbench-ui.md` | 工作台实时交互 |
+| `AU-11-ai-guided-authoring.md` | AI 引导式创作会话结构 |
