@@ -37,27 +37,27 @@ defmodule NovelDomain.WritingCoordinateTest do
   end
 
   describe "derive/1 字段归一与透传" do
-    test "target/requested chapter 去空白；source ref 透传" do
+    test "requested/matched chapter 去空白；source ref 透传" do
       c =
         WritingCoordinate.derive(%{
           capability: "prose_writing",
           authoring_intent: :continuation,
-          target_chapter: "  第三章  ",
           requested_chapter: " 第三章 ",
+          matched_chapter: "  第03章：xxx  ",
           work_ref: "work_1",
           source_turn_ref: "turn_9"
         })
 
-      assert c.target_chapter == "第三章"
       assert c.requested_chapter == "第三章"
+      assert c.matched_chapter == "第03章：xxx"
       assert c.work_ref == "work_1"
       assert c.source_turn_ref == "turn_9"
     end
 
-    test "缺失/非字符串目标章归一为空串" do
+    test "缺失/非字符串章节归一为空串" do
       c = WritingCoordinate.derive(%{capability: "prose_writing", authoring_intent: :none})
-      assert c.target_chapter == ""
       assert c.requested_chapter == ""
+      assert c.matched_chapter == ""
     end
   end
 end

@@ -25,37 +25,42 @@ defmodule NovelDomain.MissingPolicyResult do
   def ok, do: %__MODULE__{severity: :ok, missing: []}
 
   @doc """
-  评估写作坐标相对于作品现有章节列表的缺失。
+  评估写作坐标的缺失。
 
-  hard-missing（CP0 唯一 block 条件）：续写/重写且作者**显式命名**了目标章，
-  但该章不在作品现有章节列表中——现状会静默回退到"最近已写章"，掩盖了作者意图。
+  hard-missing（CP0 唯一 block 条件）：续写/重写且作者**显式点名**了目标章
+  （`requested_chapter` 非空），但 planner 未能把它匹配到作品现有章节列表
+  （`matched_chapter` 为空）——即"作者要写的章在作品里找不到"。现状会静默回退到
+  "最近已写章"，掩盖作者意图。
 
-  注意：未命名目标章的"接着往下写"不算缺失（回退到最新已写章是期望行为）。
+  靠 planner 的匹配结果判定，不在此做模糊匹配（作者原话"第99章"与全名
+  "第01章：xxx"不会精确相等，匹配由 planner 按"精确复制列表标题或置空"完成）。
+
+  注意：未点名具体章的"接着往下写"不算缺失（`requested_chapter` 为空 → 回退到
+  最新已写章是期望行为）。
   """
-  @spec evaluate(WritingCoordinate.t(), [String.t()]) :: t()
-  def evaluate(%WritingCoordinate{} = coordinate, available_chapters)
-      when is_list(available_chapters) do
-    requested = coordinate.requested_chapter
-
+  @spec evaluate(WritingCoordinate.t()) :: t()
+  def evaluate(%WritingCoordinate{} = coordinate) do
     cond do
       coordinate.authoring_mode not in [:continuation, :rewrite] ->
         ok()
 
-      requested in ["", nil] ->
+      coordinate.requested_chapter in ["", nil] ->
         ok()
 
-      requested in available_chapters ->
+      coordinate.matched_chapter not in ["", nil] ->
         ok()
 
       true ->
         %__MODULE__{
           severity: :block,
-          missing: [%{what: :target_chapter, reason: :not_found, ref: requested}]
+          missing: [
+            %{what: :target_chapter, reason: :not_found, ref: coordinate.requested_chapter}
+          ]
         }
     end
   end
 
-  def evaluate(_coordinate, _available_chapters), do: ok()
+  def evaluate(_coordinate), do: ok()
 
   @spec block?(t()) :: boolean()
   def block?(%__MODULE__{severity: :block}), do: true

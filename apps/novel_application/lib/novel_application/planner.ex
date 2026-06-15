@@ -171,6 +171,7 @@ defmodule NovelApplication.Planner do
           "risk_hint": "low" | "medium" | "high",
           "authoring_intent": "none" | "continuation" | "rewrite",
           "target_chapter": "本次正文针对的作品现有章节标题（从下方章节列表精确复制）；写全新章节或不针对具体章时为 null",
+          "requested_chapter_raw": "作者本轮原话点名的具体章节标识（如\"第99章\"），不管它在不在下方列表里，原样填；作者没点名具体章（如\"接着往下写\"）时为 null",
           "target_word_count": 600
         }
       ],
@@ -184,6 +185,7 @@ defmodule NovelApplication.Planner do
     - 作者想"推翻重写 / 改写 / 重新写"某个已有章节 → authoring_intent = "rewrite"，target_chapter 精确复制该章标题，risk_hint 用 "high"
     - 写全新章节（不在列表里）、大纲、角色、设定 → authoring_intent = "none"，target_chapter = null
     - 无法确定指向列表里哪一章时，target_chapter = null，不要猜一个不在列表里的标题
+    - requested_chapter_raw 与 target_chapter 不同：只要作者点名了某个具体章节，就把作者原话里的章节标识原样填进 requested_chapter_raw（即使它不在列表里，也不要置 null）；只有"接着往下写/继续"这种没点名具体章时才为 null。系统据此判断作者要写的章是否存在。
 
     ## 篇幅（target_word_count）
     - 作者明确表达了篇幅诉求（如"写约 800 字""三百字左右""短一点""详细展开多写些"）→ target_word_count 给一个整数估计（如 800 / 300 / 1500）
@@ -222,6 +224,7 @@ defmodule NovelApplication.Planner do
           risk_hint: to_risk_hint(Map.get(a, "risk_hint", "low")),
           authoring_intent: to_authoring_intent(Map.get(a, "authoring_intent")),
           target_chapter: normalize_target_chapter(Map.get(a, "target_chapter")),
+          requested_chapter_raw: normalize_target_chapter(Map.get(a, "requested_chapter_raw")),
           target_word_count: normalize_target_word_count(Map.get(a, "target_word_count"))
         }
       end)

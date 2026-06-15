@@ -32,7 +32,9 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
     }
   end
 
-  defp plan(intent, chapter) do
+  # requested = 作者点名原文（planner requested_chapter_raw）；
+  # matched = planner 精确匹配到列表的章（target_chapter，未匹配为 nil）。
+  defp plan(intent, requested, matched) do
     action =
       %{
         action_id: "act-cp0",
@@ -41,9 +43,10 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
         target_ref: "prose_writing",
         write_intent: :tentative,
         risk_hint: :low,
-        authoring_intent: intent
+        authoring_intent: intent,
+        requested_chapter_raw: requested,
+        target_chapter: matched
       }
-      |> then(fn a -> if chapter, do: Map.put(a, :target_chapter, chapter), else: a end)
 
     %MicroPlan{
       plan_id: "plan-cp0",
@@ -92,7 +95,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
       {turn_result, _trace} =
         TurnExecutionService.execute(%{
           frame: frame(),
-          plan: plan(:rewrite, "第99章"),
+          plan: plan(:rewrite, "第99章", nil),
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "重写第99章"},
@@ -110,7 +113,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
       {turn_result, _trace} =
         TurnExecutionService.execute(%{
           frame: frame(),
-          plan: plan(:continuation, "番外"),
+          plan: plan(:continuation, "番外", nil),
           decision: allow_decision(),
           context: context(["第一章"]),
           author_input: %{text: "续写番外"},
@@ -129,7 +132,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
       {turn_result, _trace} =
         TurnExecutionService.execute(%{
           frame: frame(),
-          plan: plan(:rewrite, "第一章"),
+          plan: plan(:rewrite, "第一章", "第一章"),
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "重写第一章"},
@@ -148,7 +151,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
       {_turn_result, _trace} =
         TurnExecutionService.execute(%{
           frame: frame(),
-          plan: plan(:continuation, nil),
+          plan: plan(:continuation, nil, nil),
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "接着往下写"},
@@ -159,13 +162,13 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
       assert length(Agent.get(agent, & &1)) == 1
     end
 
-    test "无 context（确认派发路径）：不评估缺失、不误阻断" do
+    test "确认派发路径：原计划已匹配（matched 非空）→ 不阻断、正常执行" do
       {:ok, agent} = Agent.start_link(fn -> [] end)
 
       {_turn_result, _trace} =
         TurnExecutionService.execute(%{
           frame: frame(),
-          plan: plan(:rewrite, "第99章"),
+          plan: plan(:rewrite, "第99章", "第99章"),
           decision: allow_decision(),
           context: nil,
           author_input: %{text: "确认执行"},

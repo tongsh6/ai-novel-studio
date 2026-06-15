@@ -196,7 +196,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp plan_response(prompt) do
     author_text = author_input_text(prompt)
     tool_name = tool_name_for_prompt(author_text)
-    {authoring_intent, target_chapter} = authoring_intent_for(prompt, author_text)
+
+    {authoring_intent, target_chapter, requested_chapter_raw} =
+      authoring_intent_for(prompt, author_text)
+
     target_word_count = target_word_count_from_text(author_text)
     rewrite? = authoring_intent == "rewrite"
 
@@ -210,6 +213,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         risk_hint: if(rewrite?, do: "high", else: "low")
       }
       |> maybe_put_authoring(authoring_intent, target_chapter)
+      |> maybe_put_requested_chapter_raw(requested_chapter_raw)
       |> maybe_put_target_word_count(target_word_count)
 
     %{
@@ -231,6 +235,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     |> Map.put(:target_chapter, chapter)
   end
 
+  defp maybe_put_requested_chapter_raw(action, nil), do: action
+
+  defp maybe_put_requested_chapter_raw(action, raw),
+    do: Map.put(action, :requested_chapter_raw, raw)
+
   defp maybe_put_target_word_count(action, nil), do: action
   defp maybe_put_target_word_count(action, n), do: Map.put(action, :target_word_count, n)
 
@@ -248,21 +257,97 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp authoring_intent_for(prompt, author_text) do
     case accepted_chapters_in_prompt(prompt) do
       [] ->
-        {nil, nil}
+        {nil, nil, nil}
 
       chapters ->
-        cond do
-          contains_any?(author_text, ["推翻", "重写", "改写", "重新写"]) ->
-            {"rewrite", target_chapter_for(chapters)}
+        intent =
+          cond do
+            contains_any?(author_text, ["推翻", "重写", "改写", "重新写"]) ->
+              "rewrite"
 
-          contains_any?(author_text, ["接着", "继续", "续写", "往下写", "再写", "补一段", "补写"]) ->
-            {"continuation", target_chapter_for(chapters)}
+            contains_any?(author_text, ["接着", "继续", "续写", "往下写", "再写", "补一段", "补写"]) ->
+              "continuation"
 
-          true ->
-            {nil, nil}
-        end
+            true ->
+              nil
+          end
+
+        resolve_chapter_refs(intent, author_text, chapters)
     end
   end
+
+  # 返回 {intent, target_chapter（planner 匹配到列表的全名，未匹配为 nil）, requested_chapter_raw（作者点名原文）}。
+  # 与真实 LLM「精确匹配列表标题或置空」对称：按章号把作者点名的章对到列表全名。
+  defp resolve_chapter_refs(nil, _author_text, _chapters), do: {nil, nil, nil}
+
+  defp resolve_chapter_refs(intent, author_text, chapters) do
+    case named_chapter_token(author_text) do
+      nil ->
+        # 未点名具体章（如"接着往下写"）：维持既有"默认归首章"行为，不报缺失。
+        {intent, target_chapter_for(chapters), nil}
+
+      token ->
+        num = chapter_num(token)
+        matched = num && Enum.find(chapters, fn title -> chapter_num(title) == num end)
+
+        # 点名但匹配不到列表 → target_chapter=nil（block 信号）；匹配到 → 列表全名。
+        {intent, matched, token}
+    end
+  end
+
+  defp named_chapter_token(text) do
+    case Regex.run(~r/第\s*[0-9零一二三四五六七八九十百两]+\s*章/u, text) do
+      [token] -> String.replace(token, ~r/\s+/, "")
+      _ -> nil
+    end
+  end
+
+  @cn_digits %{
+    "零" => 0,
+    "一" => 1,
+    "二" => 2,
+    "两" => 2,
+    "三" => 3,
+    "四" => 4,
+    "五" => 5,
+    "六" => 6,
+    "七" => 7,
+    "八" => 8,
+    "九" => 9
+  }
+
+  # 从"第N章"提取章号（Arabic 或中文 1-99），匹配不出为 nil。
+  defp chapter_num(nil), do: nil
+
+  defp chapter_num(text) when is_binary(text) do
+    cond do
+      match = Regex.run(~r/第\s*(\d+)\s*章/u, text) ->
+        match |> Enum.at(1) |> String.to_integer()
+
+      match = Regex.run(~r/第\s*([零一二三四五六七八九十百两]+)\s*章/u, text) ->
+        cn_numeral(Enum.at(match, 1))
+
+      true ->
+        nil
+    end
+  end
+
+  defp cn_numeral(s) do
+    cond do
+      s == "十" -> 10
+      String.starts_with?(s, "十") -> 10 + cn_digit(String.slice(s, 1, 8))
+      String.contains?(s, "十") -> cn_tens(s)
+      true -> cn_digit(s)
+    end
+  end
+
+  defp cn_tens(s) do
+    [tens, ones] = String.split(s, "十", parts: 2)
+    cn_digit(tens) * 10 + if(ones == "", do: 0, else: cn_digit(ones))
+  end
+
+  defp cn_digit(""), do: 0
+  defp cn_digit(s), do: Map.get(@cn_digits, s, 0)
 
   defp accepted_chapters_in_prompt(prompt) do
     # planner 段头为「## 作品章节（…含已规划但还没写正文的章）」，正文章节列表取自此段。

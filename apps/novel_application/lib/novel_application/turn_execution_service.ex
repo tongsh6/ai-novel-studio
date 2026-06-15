@@ -17,7 +17,6 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
-  alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.MissingPolicyResult
@@ -53,9 +52,9 @@ defmodule NovelApplication.TurnExecutionService do
         frame.workspace_id
       )
 
-    # CP0：固化写作坐标并评估缺失策略。hard missing（作者显式命名的目标章不存在）→ 不调 provider。
-    coordinate = build_coordinate(frame, action, resolved_chapter, input)
-    missing = evaluate_missing(coordinate, input[:context])
+    # CP0：固化写作坐标并评估缺失策略。hard missing（作者点名但 planner 匹配不到的章）→ 不调 provider。
+    coordinate = build_coordinate(frame, action, input)
+    missing = MissingPolicyResult.evaluate(coordinate)
     emit_coordinate(frame, coordinate, missing)
 
     if MissingPolicyResult.block?(missing) do
@@ -104,31 +103,27 @@ defmodule NovelApplication.TurnExecutionService do
 
   # ── CP0: WritingCoordinate + MissingPolicyResult ──
 
-  defp build_coordinate(frame, action, resolved_chapter, input) do
+  # requested_chapter = 作者点名原文（planner requested_chapter_raw）；
+  # matched_chapter = planner 精确匹配到列表的章（planner target_chapter，回退前）。
+  # 二者据此判定"点名了找不到的章"，不受 resolve_target_chapter 的回退掩盖。
+  defp build_coordinate(frame, action, input) do
     WritingCoordinate.derive(%{
       capability: action[:target_ref] || action[:capability_name],
       authoring_intent: action[:authoring_intent],
-      target_chapter: resolved_chapter,
-      requested_chapter: action[:target_chapter],
+      requested_chapter: action[:requested_chapter_raw],
+      matched_chapter: action[:target_chapter],
       work_ref: frame.workspace_id,
       source_turn_ref: input[:source_turn_ref]
     })
   end
-
-  # 仅当本轮带真实 DialogueContext（首轮）时评估缺失；确认派发等无 context 路径不评估，
-  # 避免把"读不到章节列表"误判成 hard missing（确认链的完整同源组装留 CP1）。
-  defp evaluate_missing(coordinate, %DialogueContext{current_chapters: chapters}),
-    do: MissingPolicyResult.evaluate(coordinate, chapters)
-
-  defp evaluate_missing(_coordinate, _context), do: MissingPolicyResult.ok()
 
   # 坐标与缺失决策 observability（ADR-0018），让外部验收能证明本轮坐标与缺失处理。
   defp emit_coordinate(frame, %WritingCoordinate{} = coordinate, %MissingPolicyResult{} = missing) do
     LogEmit.emit(:turn_execution, :writing_coordinate, :done, %{
       turn_id: frame.turn_id,
       authoring_mode: to_string(coordinate.authoring_mode),
-      target_chapter: coordinate.target_chapter,
       requested_chapter: coordinate.requested_chapter,
+      matched_chapter: coordinate.matched_chapter,
       missing_severity: to_string(missing.severity)
     })
   end

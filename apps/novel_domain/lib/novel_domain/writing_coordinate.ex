@@ -17,8 +17,8 @@ defmodule NovelDomain.WritingCoordinate do
           work_ref: String.t() | nil,
           authoring_mode: authoring_mode(),
           target_unit: target_unit(),
-          target_chapter: String.t(),
           requested_chapter: String.t(),
+          matched_chapter: String.t(),
           source_turn_ref: String.t() | nil,
           source_input_ref: String.t() | nil
         }
@@ -26,8 +26,8 @@ defmodule NovelDomain.WritingCoordinate do
   defstruct work_ref: nil,
             authoring_mode: :none,
             target_unit: nil,
-            target_chapter: "",
             requested_chapter: "",
+            matched_chapter: "",
             source_turn_ref: nil,
             source_input_ref: nil
 
@@ -37,8 +37,10 @@ defmodule NovelDomain.WritingCoordinate do
   入参 map 字段：
   - `:capability`：工具名（如 "prose_writing" / "plot_outline"）
   - `:authoring_intent`：AI 产出的写作意图（`:none | :continuation | :rewrite | nil`）
-  - `:target_chapter`：应用层确定性解析后的目标章（已命中/回退）
-  - `:requested_chapter`：作者本轮显式请求的目标章（解析/回退前的原值，供缺失判定）
+  - `:requested_chapter`：作者本轮原话点名的章（来自 planner `requested_chapter_raw`，
+    不管是否在列表里；作者没点名具体章时为空）
+  - `:matched_chapter`：planner 精确匹配到作品章节列表的目标章（来自 `target_chapter`，
+    未匹配上时为空）——`requested_chapter` 非空但 `matched_chapter` 为空即"点名了找不到的章"
   - `:work_ref` / `:source_turn_ref` / `:source_input_ref`：可选
   """
   @spec derive(map()) :: t()
@@ -49,8 +51,8 @@ defmodule NovelDomain.WritingCoordinate do
       work_ref: attrs[:work_ref],
       authoring_mode: mode,
       target_unit: target_unit(mode),
-      target_chapter: normalize(attrs[:target_chapter]),
       requested_chapter: normalize(attrs[:requested_chapter]),
+      matched_chapter: normalize(attrs[:matched_chapter]),
       source_turn_ref: attrs[:source_turn_ref],
       source_input_ref: attrs[:source_input_ref]
     }
