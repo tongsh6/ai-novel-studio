@@ -117,7 +117,9 @@ defmodule NovelApplication.DialogueGateway do
         ws_id,
         text,
         context_fetcher_or_default(context_fetcher),
-        session_id: session_id
+        # CP1：在应用边界按当前 provider 解析组装策略，挂到 DialogueContext envelope。
+        session_id: session_id,
+        assembly_policy: NovelApplication.current_assembly_policy()
       )
 
     frame_input = %{text: text, workspace_id: ws_id, turn_id: turn_id}

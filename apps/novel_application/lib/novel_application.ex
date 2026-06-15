@@ -34,6 +34,25 @@ defmodule NovelApplication do
   end
 
   @doc """
+  按当前运行时 provider 解析创作执行的上下文组装策略（VS-00C CP1）。
+
+  在应用边界集中解析 provider→profile，挂到 DialogueContext envelope（`06` §5.3）；
+  ContextAssembler 与 TurnExecutionService 只读 envelope，不直接够 provider 运行时。
+  Gateway 不可用时安全回落地板档。
+  """
+  @spec current_assembly_policy() :: NovelDomain.AssemblyPolicy.t()
+  def current_assembly_policy do
+    provider =
+      try do
+        Gateway.provider_options() |> Map.get(:current_provider)
+      rescue
+        _ -> nil
+      end
+
+    NovelDomain.AssemblyPolicy.for_provider(provider)
+  end
+
+  @doc """
   保存当前运行时 provider 选择与配置。
   """
   @spec configure_provider(map()) ::

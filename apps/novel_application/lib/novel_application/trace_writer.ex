@@ -149,21 +149,34 @@ defmodule NovelApplication.TraceWriter do
       ]
     }
 
-    summary = %{
-      trace_ref: trace_id,
-      decision_type: :tool_dispatched,
-      tool_name: req.tool_name,
-      tool_version: req.tool_version,
-      tool_status: result.status,
-      tool_request_id: req.tool_request_id,
-      tool_result_id: result.tool_result_id,
-      decision_ref: decision.decision_id,
-      adoption_status: "not_adopted",
-      context_refs: format_context_refs(context_refs)
-    }
+    summary =
+      %{
+        trace_ref: trace_id,
+        decision_type: :tool_dispatched,
+        tool_name: req.tool_name,
+        tool_version: req.tool_version,
+        tool_status: result.status,
+        tool_request_id: req.tool_request_id,
+        tool_result_id: result.tool_result_id,
+        decision_ref: decision.decision_id,
+        adoption_status: "not_adopted",
+        context_refs: format_context_refs(context_refs)
+      }
+      |> maybe_put_omissions(turn_result)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
+
+  # CP1：本轮组装/执行期被省略的材料进入作者可见 trace（`06` §5.3 omission_notes / §7）。
+  defp maybe_put_omissions(summary, %{omission_notes: [_ | _] = notes}) do
+    Map.put(
+      summary,
+      :omission_notes,
+      Enum.map(notes, &NovelDomain.OmissionNote.author_safe_summary/1)
+    )
+  end
+
+  defp maybe_put_omissions(summary, _turn_result), do: summary
 
   @doc "Record recovery trace when plan generation fails."
   @spec record_recovery(DialogueFrame.t(), map(), DialogueContext.t() | nil) ::

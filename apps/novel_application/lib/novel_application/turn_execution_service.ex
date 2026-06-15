@@ -17,9 +17,11 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
+  alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
   alias NovelDomain.MissingPolicyResult
+  alias NovelDomain.OmissionNote
   alias NovelDomain.OrchestratorDecision
   alias NovelDomain.WritingCoordinate
 
@@ -65,8 +67,18 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp do_execute(frame, plan, decision, input, action, resolved_chapter) do
-    prior_prose =
+    prior_prose_full =
       continuation_prior_prose(frame, action, resolved_chapter, input[:chapter_prose_reader])
+
+    # CP1：前文 excerpt 预算由本上下文的组装策略给出（按 provider 档位），超预算尾部裁剪
+    # 并产生 OmissionNote + 发 context.downgrade.done 业务日志；裁剪不再用写死的常量。
+    {prior_prose, omission_notes} =
+      budget_prior_prose(
+        frame,
+        resolved_chapter,
+        prior_prose_full,
+        DialogueContext.policy(input[:context])
+      )
 
     maybe_emit_target_word_count(frame, action)
 
@@ -81,7 +93,7 @@ defmodule NovelApplication.TurnExecutionService do
         decision,
         req,
         tool_result,
-        %{turn_id: frame.turn_id},
+        %{turn_id: frame.turn_id, omission_notes: omission_notes},
         input[:context]
       )
 
@@ -304,10 +316,47 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp safe_read_prose(_reader, _work_id, _chapter), do: ""
 
-  # 前文注入上限：续写「衔接」只需要最近文脉；不裁剪则章越写越长后，
-  # prompt 会超出小上下文窗口模型的 n_ctx（实测 LM Studio n_ctx=4096 时
-  # ~1000 字章的续写请求被 HTTP 400 拒绝），章永远无法继续累积。
-  @prior_prose_max_chars 2000
+  # CP1：按组装策略给的 excerpt 预算裁剪前文（续写「衔接」只需最近文脉；不裁剪则章越写
+  # 越长后，prompt 会超出小上下文窗口模型的 n_ctx——实测 LM Studio n_ctx=4096 时 ~1000 字章
+  # 续写被 HTTP 400 拒绝）。预算随 provider 档位（地板档 2000、大窗口放开），不再写死常量。
+  # 裁剪时产生 OmissionNote（reason=:budget_limited，CP1 暂无 summary 替代，replacement=nil）
+  # 并发 context.downgrade.done 业务日志（`domain/26` §25 / ADR-0018），让省略可解释、可外部验证。
+  @spec budget_prior_prose(
+          DialogueFrame.t(),
+          String.t(),
+          String.t(),
+          NovelDomain.AssemblyPolicy.t()
+        ) ::
+          {String.t(), [OmissionNote.t()]}
+  defp budget_prior_prose(_frame, _chapter, "", _policy), do: {"", []}
+
+  defp budget_prior_prose(frame, chapter, prose, policy) do
+    max = policy.excerpt_budget_chars
+
+    if String.length(prose) <= max do
+      {prose, []}
+    else
+      excerpt =
+        "（本章更早的正文已省略，以下是最近的部分）\n…" <>
+          String.slice(prose, String.length(prose) - max, max)
+
+      note = OmissionNote.new("prior_prose:#{chapter_label(chapter)}", :budget_limited, nil)
+
+      LogEmit.emit(:context, :downgrade, :done, %{
+        turn_id: frame.turn_id,
+        source: note.source,
+        reason: to_string(note.reason),
+        assembly_policy_id: policy.policy_id,
+        excerpt_budget_chars: max,
+        original_chars: String.length(prose)
+      })
+
+      {excerpt, [note]}
+    end
+  end
+
+  defp chapter_label(chapter) when is_binary(chapter) and chapter != "", do: chapter
+  defp chapter_label(_), do: "本章"
 
   defp prior_prose_section(_action, ""), do: ""
 
@@ -321,17 +370,7 @@ defmodule NovelApplication.TurnExecutionService do
           "## 本章已采纳正文（请在其后自然衔接续写，承接情节、人物状态与语气，不要重复已写内容，也不要从头另起）"
       end
 
-    heading <> "\n" <> tail_slice(prose, @prior_prose_max_chars)
-  end
-
-  # 取末尾 max 字（最近文脉）；截断时标注前文有省略，避免模型误以为是全文。
-  defp tail_slice(text, max) do
-    if String.length(text) <= max do
-      text
-    else
-      "（本章更早的正文已省略，以下是最近的部分）\n…" <>
-        String.slice(text, String.length(text) - max, max)
-    end
+    heading <> "\n" <> prose
   end
 
   defp tool_context_text(%NovelDomain.DialogueContext{} = context, text) do

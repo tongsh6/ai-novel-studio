@@ -65,6 +65,9 @@ defmodule NovelApplication.ContextAssembler do
       open_behavior_summary: behavior_summary,
       current_chapters: chapters,
       context_refs: refs,
+      # CP1：组装策略由 application 在边界解析后传入并挂到 envelope（`06` §5.3）；
+      # 未传则回落地板档默认，保证 floor 行为不变。
+      assembly_policy: Keyword.get(opts, :assembly_policy, NovelDomain.AssemblyPolicy.default()),
       assembled_at: DateTime.utc_now() |> DateTime.to_iso8601()
     }
   end
