@@ -17,9 +17,12 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
+  alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
+  alias NovelDomain.MissingPolicyResult
   alias NovelDomain.OrchestratorDecision
+  alias NovelDomain.WritingCoordinate
 
   @creative_tools ~w(world_building character_design plot_outline prose_writing)
 
@@ -32,6 +35,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:author_input) => map(),
           optional(:complete_fn) => function(),
           optional(:chapter_prose_reader) => function(),
+          optional(:source_turn_ref) => String.t(),
           optional(:idempotency_suffix) => String.t()
         }
 
@@ -49,6 +53,19 @@ defmodule NovelApplication.TurnExecutionService do
         frame.workspace_id
       )
 
+    # CP0：固化写作坐标并评估缺失策略。hard missing（作者显式命名的目标章不存在）→ 不调 provider。
+    coordinate = build_coordinate(frame, action, resolved_chapter, input)
+    missing = evaluate_missing(coordinate, input[:context])
+    emit_coordinate(frame, coordinate, missing)
+
+    if MissingPolicyResult.block?(missing) do
+      blocked_result(frame, input, coordinate, missing)
+    else
+      do_execute(frame, plan, decision, input, action, resolved_chapter)
+    end
+  end
+
+  defp do_execute(frame, plan, decision, input, action, resolved_chapter) do
     prior_prose =
       continuation_prior_prose(frame, action, resolved_chapter, input[:chapter_prose_reader])
 
@@ -84,6 +101,68 @@ defmodule NovelApplication.TurnExecutionService do
 
     {turn_result, trace}
   end
+
+  # ── CP0: WritingCoordinate + MissingPolicyResult ──
+
+  defp build_coordinate(frame, action, resolved_chapter, input) do
+    WritingCoordinate.derive(%{
+      capability: action[:target_ref] || action[:capability_name],
+      authoring_intent: action[:authoring_intent],
+      target_chapter: resolved_chapter,
+      requested_chapter: action[:target_chapter],
+      work_ref: frame.workspace_id,
+      source_turn_ref: input[:source_turn_ref]
+    })
+  end
+
+  # 仅当本轮带真实 DialogueContext（首轮）时评估缺失；确认派发等无 context 路径不评估，
+  # 避免把"读不到章节列表"误判成 hard missing（确认链的完整同源组装留 CP1）。
+  defp evaluate_missing(coordinate, %DialogueContext{current_chapters: chapters}),
+    do: MissingPolicyResult.evaluate(coordinate, chapters)
+
+  defp evaluate_missing(_coordinate, _context), do: MissingPolicyResult.ok()
+
+  # 坐标与缺失决策 observability（ADR-0018），让外部验收能证明本轮坐标与缺失处理。
+  defp emit_coordinate(frame, %WritingCoordinate{} = coordinate, %MissingPolicyResult{} = missing) do
+    LogEmit.emit(:turn_execution, :writing_coordinate, :done, %{
+      turn_id: frame.turn_id,
+      authoring_mode: to_string(coordinate.authoring_mode),
+      target_chapter: coordinate.target_chapter,
+      requested_chapter: coordinate.requested_chapter,
+      missing_severity: to_string(missing.severity)
+    })
+  end
+
+  # hard missing 短路：不调用 provider，产出可解释 conversational TurnResult；trace 记 reply-only。
+  defp blocked_result(
+         frame,
+         input,
+         %WritingCoordinate{} = coordinate,
+         %MissingPolicyResult{} = missing
+       ) do
+    LogEmit.emit(:turn_execution, :missing_policy, :done, %{
+      turn_id: frame.turn_id,
+      severity: to_string(missing.severity),
+      missing: inspect(missing.missing)
+    })
+
+    {trace, trace_summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, input[:context])
+
+    turn_result =
+      TurnResultBuilder.build(frame, trace_summary, input[:candidates] || [], nil, nil, nil)
+      |> Map.put(:assistant_message, %{text: blocked_message(coordinate)})
+
+    {turn_result, trace}
+  end
+
+  defp blocked_message(%WritingCoordinate{requested_chapter: chapter})
+       when is_binary(chapter) and chapter != "" do
+    "没有找到《#{chapter}》这一章。当前作品里还没有这一章，无法续写或重写它——" <>
+      "你可以先创建该章的计划，或确认要写的是哪一章。"
+  end
+
+  defp blocked_message(_coordinate),
+    do: "没有找到要续写或重写的目标章节，无法继续。请确认要写哪一章。"
 
   defp build_tool_request(frame, plan, decision, input, action, prior_prose) do
     tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"

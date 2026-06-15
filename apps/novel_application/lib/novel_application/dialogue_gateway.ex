@@ -755,6 +755,9 @@ defmodule NovelApplication.DialogueGateway do
           candidates: [],
           context: nil,
           author_input: %{text: frame.author_visible_draft.message},
+          # CP0：把原轮 turn 引用透传给执行，使确认路径的 WritingCoordinate 携带来源
+          # （坐标侧接 G9；完整同源上下文重组留 CP1）。
+          source_turn_ref: map_field(source_turn_result, :turn_id),
           complete_fn: complete_fn,
           idempotency_suffix: "_confirmed"
         })

@@ -13,6 +13,7 @@
 | `VS-00-reply-only-dialogue-frame-turn-result-trace.md` | 纯回复 DialogueFrame + TurnResult + Trace |
 | `VS-00A-creative-exploration-loop.md` | 创意探索回合 |
 | `VS-00B-dialogue-context-grounding.md` | 带作品上下文回应 |
+| `VS-00C-creative-context-assembly.md` | 创作上下文组装（VS-00D prose_writing 投影；CP0-CP5） |
 | `VS-00D-ai-guided-authoring-message-contract.md` | AI 引导式创作 Message 契约 |
 | `VS-01-micro-plan-downgrade-confirmation.md` | MicroPlan 降级 / 确认 |
 | `VS-02-tool-request-result-trace-loop.md` | ToolRequest/Result/Trace 回合 |
