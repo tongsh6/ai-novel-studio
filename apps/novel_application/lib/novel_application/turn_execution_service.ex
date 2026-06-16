@@ -17,6 +17,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
+  alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
@@ -570,6 +571,7 @@ defmodule NovelApplication.TurnExecutionService do
     title = Map.get(current, :title, "")
     seq = Map.get(current, :seq)
     summary = Map.get(current, :summary, "")
+    direction = current |> Map.get(:plan_direction) |> ChapterPlanDirection.from_storage()
     has_prose = Map.get(current, :has_prose, false)
 
     LogEmit.emit(:context, :structure, :done, %{
@@ -578,6 +580,7 @@ defmodule NovelApplication.TurnExecutionService do
       target_chapter: title,
       chapter_seq: seq,
       has_plan_summary: not blank?(summary),
+      has_plan_direction: not is_nil(direction),
       has_previous: not is_nil(window.previous),
       has_next: not is_nil(window.next),
       assembly_policy_id: policy.policy_id
@@ -586,11 +589,22 @@ defmodule NovelApplication.TurnExecutionService do
     [
       "## 目标章结构（写前设计态）",
       "- 目标章：#{title}#{seq_suffix(seq)}",
-      "- 计划摘要：#{summary_or_empty(summary)}",
+      direction_or_summary_lines(direction, summary),
       "- 卷内位置：#{neighbor_label("上一章", window.previous)}；#{neighbor_label("下一章", window.next)}",
       "- 正文状态：#{if has_prose, do: "已有已采纳正文", else: "尚无已采纳正文"}"
     ]
+    |> List.flatten()
     |> Enum.join("\n")
+  end
+
+  defp direction_or_summary_lines(nil, summary), do: ["- 计划摘要：#{summary_or_empty(summary)}"]
+
+  defp direction_or_summary_lines(direction, summary) do
+    [
+      "- 章方向：E18-E22 结构化方向",
+      ChapterPlanDirection.prompt_lines(direction),
+      if(blank?(summary), do: [], else: ["- 计划摘要：#{summary}"])
+    ]
   end
 
   defp seq_suffix(seq) when is_integer(seq), do: "（seq=#{seq}）"

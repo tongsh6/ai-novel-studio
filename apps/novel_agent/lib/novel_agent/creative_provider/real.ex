@@ -124,6 +124,39 @@ defmodule NovelAgent.CreativeProvider.Real do
     """
   end
 
+  defp build_prompt(
+         %CreativeRequest{tool_name: "plot_outline", artifact_type: :outline_draft} = request
+       ) do
+    """
+    你是长篇小说章计划助手。请严格按 JSON 数组格式返回多个章节条目，不要附加任何额外文字。
+
+    每个条目是 JSON 对象，必须包含以下键：
+    - "item_id"：你生成的短标识符（不含空格）
+    - "title"：章节标题，格式建议为“第NN章：标题”
+    - "body"：该章的结构化方向，必须逐行包含以下标签：
+      章功能定位：推进章 / 铺垫章 / 高潮章 / 过渡章 / 转折章之一或自然语言等价描述
+      情节推进：本章推进什么外部事件
+      人物变化：本章人物状态或关系发生什么变化
+      信息释放：本章向读者释放什么信息
+      伏笔动作：本章新埋、推进或回收什么伏笔
+      情绪定位：本章读者应感受到的情绪
+      章首拉力：开章吸引读者继续读的钩子
+      章尾断章：章尾悬念、危机或期待断点
+      字数与场次：建议字数与场次划分
+    - "rationale"：一句话说明该章在整体结构中的作用（或 null）
+
+    capability：#{request.tool_name}
+    artifact_type：#{request.artifact_type}
+    用户创作简述：#{request.creative_brief}
+    上下文：#{request.context_text}
+
+    重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），
+    必须在至少一个条目的 title/body/rationale 中原样保留。
+
+    只返回 JSON 数组。
+    """
+  end
+
   defp build_prompt(%CreativeRequest{} = request) do
     """
     你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。

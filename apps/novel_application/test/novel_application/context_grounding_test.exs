@@ -95,7 +95,17 @@ defmodule NovelApplication.ContextGroundingTest do
         {:ok, @work_snapshot, nil, nil, nil, ["第一章", "第二章"],
          [
            %{title: "第一章", seq: 1, summary: "开局计划", has_prose: true},
-           %{title: "第二章", seq: 2, summary: "推进计划", has_prose: false}
+           %{
+             title: "第二章",
+             seq: 2,
+             summary: "推进计划",
+             has_prose: false,
+             plan_direction: %{
+               "chapter_role" => "转折章",
+               "plot_progress" => "主角进入旧服务器",
+               "emotion" => "紧张"
+             }
+           }
          ]}
       end
 
@@ -105,7 +115,17 @@ defmodule NovelApplication.ContextGroundingTest do
 
       assert [
                %{title: "第一章", seq: 1, summary: "开局计划", has_prose: true},
-               %{title: "第二章", seq: 2, summary: "推进计划", has_prose: false}
+               %{
+                 title: "第二章",
+                 seq: 2,
+                 summary: "推进计划",
+                 has_prose: false,
+                 plan_direction: %{
+                   "chapter_role" => "转折章",
+                   "plot_progress" => "主角进入旧服务器",
+                   "emotion" => "紧张"
+                 }
+               }
              ] = ctx.structured_chapters
     end
 

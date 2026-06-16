@@ -73,6 +73,48 @@ defmodule NovelPersistence.WorkspaceContextTest do
               ]} = fetcher.(work.id)
     end
 
+    test "returns structured chapter plan_direction for prose writing L2" do
+      {:ok, work} = WorkRepo.create(%{title: "结构化章计划上下文"})
+
+      content = """
+      第01章：底层灵气账单: 章功能定位：推进章
+      情节推进：主角发现灵气账单异常
+      人物变化：主角开始主动追查
+      信息释放：公司抽取底层灵气
+      伏笔动作：埋下旧服务器残诀
+      情绪定位：压迫、悬疑
+      章首拉力：红字账单倒计时
+      章尾断章：旧服务器回应妹妹声音
+      字数与场次：约 3000 字，2 场
+      """
+
+      {:ok, _} =
+        AdoptionRepository.persist(%{
+          actor_ref: "author",
+          work_id: work.id,
+          source_turn_ref: "turn-outline-structured",
+          artifact_id: "as-outline-structured",
+          artifact_type: :outline_draft,
+          base_revision: 1,
+          content: String.trim(content),
+          summary: "结构化章节计划"
+        })
+
+      fetcher = WorkspaceContext.context_fetcher()
+
+      assert {:ok, _snapshot, _summary, _mem, _behavior, ["第01章：底层灵气账单"],
+              [
+                %{
+                  title: "第01章：底层灵气账单",
+                  plan_direction: %{
+                    "chapter_role" => "推进章",
+                    "plot_progress" => "主角发现灵气账单异常",
+                    "emotion" => "压迫、悬疑"
+                  }
+                }
+              ]} = fetcher.(work.id)
+    end
+
     test "returns relevant confirmed memory summary and records references" do
       work_id = ID.uuid()
       memory = insert_memory!(work_id, "林瑶失踪与灵源矿区有关", MemoryStatus.confirmed(), true)

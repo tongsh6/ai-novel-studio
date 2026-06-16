@@ -176,11 +176,30 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       %{
         item_id: "slice_outline_#{fingerprint}_#{n}",
         title: "第#{seq}章：#{theme}",
-        body: "第#{seq}章梗概：围绕「#{theme}」推进主线第 #{n} 阶段。",
+        body: outline_chapter_body(theme, n),
         rationale: nil
       }
     end)
   end
+
+  defp outline_chapter_body(theme, n) do
+    """
+    章功能定位：#{outline_chapter_role(n)}
+    情节推进：围绕「#{theme}」推进主线第 #{n} 阶段。
+    人物变化：主角在「#{theme}」压力下完成一次选择升级。
+    信息释放：释放与「#{theme}」相关的新线索。
+    伏笔动作：埋下「#{theme}」后续回收点。
+    情绪定位：紧张、期待。
+    章首拉力：以「#{theme}」相关异常开场。
+    章尾断章：在「#{theme}」线索刚要揭晓时切断。
+    字数与场次：约 3000 字，2 场。
+    """
+    |> String.trim()
+  end
+
+  defp outline_chapter_role(n) when rem(n, 5) == 0, do: "高潮章"
+  defp outline_chapter_role(n) when rem(n, 3) == 0, do: "转折章"
+  defp outline_chapter_role(_n), do: "推进章"
 
   # creative 上下文（DialogueContext.to_prompt_text）的「## 已采纳章节」段行数。
   defp existing_chapter_count(context) do

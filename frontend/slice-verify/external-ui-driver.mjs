@@ -1236,6 +1236,196 @@ async function driveVs00cCp3StructuredContext(page) {
   ];
 }
 
+async function driveVs00cCp4ChapterPlanStructure(page) {
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.getByRole("button", { name: "开始规划" }).click();
+
+  const planMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("章节大纲"),
+    "Real workbench did not send CP4 chapter plan user_message with micro plan enabled",
+  );
+
+  const generationFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "plot_outline" &&
+      frame.body?.tool_result?.output?.artifact_type === "outline_draft" &&
+      Number(frame.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 8,
+    "No CP4 outline_draft turn_result websocket frame was received",
+  );
+  const generationTurnResult = generationFrame.body;
+  const pendingOutline = generationTurnResult.adoption_state.pending[0];
+  const planItems = pendingOutline.payload?.items ?? [];
+  const targetItem = planItems[1] ?? planItems[0];
+  const targetChapterTitle = String(targetItem?.title ?? "");
+  const targetBody = String(targetItem?.body ?? "");
+
+  assert(targetChapterTitle !== "", "CP4 generated outline did not contain a target chapter");
+  assert(
+    targetBody.includes("章功能定位") &&
+      targetBody.includes("情节推进") &&
+      targetBody.includes("人物变化") &&
+      targetBody.includes("信息释放") &&
+      targetBody.includes("伏笔动作") &&
+      targetBody.includes("情绪定位") &&
+      targetBody.includes("章尾断章"),
+    "CP4 outline item body did not contain E18-E22 direction labels",
+  );
+
+  await page.waitForFunction(
+    () => {
+      return (
+        /待确认的创作材料|大纲草稿/.test(document.body.innerText) &&
+        [...document.querySelectorAll("button")].some((btn) =>
+          /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+            (btn.textContent ?? "").trim(),
+          ),
+        )
+      );
+    },
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+
+  const acceptActionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === pendingOutline.artifact_id,
+    "Real workbench did not send accept author_action for the CP4 chapter plan",
+  );
+
+  const actionResultFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "accepted" &&
+      frame.body?.artifact_id === pendingOutline.artifact_id,
+    "No accepted action_result websocket frame was received for the CP4 chapter plan",
+    120_000,
+  );
+
+  const adoptionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === pendingOutline.artifact_id,
+      ),
+    "No accepted CP4 outline_draft adoption turn_result websocket frame was received",
+    120_000,
+  );
+  const adoptionTurnResult = adoptionFrame.body;
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    (targetTitle) =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const targetIndex = Math.max(
+    planItems.findIndex((item) => item === targetItem),
+    0,
+  );
+  const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert(
+    (await draftButtons.count()) > targetIndex,
+    "Archive outline did not render a draft action for the CP4 target chapter",
+  );
+  await draftButtons.nth(targetIndex).click();
+
+  const draftMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes(targetChapterTitle) &&
+      String(frame.body?.text ?? "").includes("正文草稿"),
+    "Real workbench did not send CP4 draft user_message with micro plan enabled",
+  );
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No CP4 prose_fragment turn_result websocket frame was received",
+    170_000,
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingDraft = draftTurnResult.adoption_state.pending[0];
+  const draftBody = pendingDraft.payload?.items?.[0]?.body ?? "";
+
+  const structureLog = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.turn_id === draftTurnResult.turn_id &&
+      record.target_chapter === targetChapterTitle &&
+      record.has_plan_summary === true &&
+      record.has_plan_direction === true,
+    "No VS-00C CP4 structured direction app log was emitted before prose writing",
+  );
+
+  await page.waitForFunction(
+    (targetTitle) =>
+      /待保存章节草稿|章节正文草稿|待确认的创作材料/.test(document.body.innerText) &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, draftTurnResult, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      generation_turn_id: generationTurnResult.turn_id,
+      adoption_turn_id: adoptionTurnResult.turn_id,
+      draft_turn_id: draftTurnResult.turn_id,
+      outline_artifact_id: pendingOutline.artifact_id,
+      artifact_id: pendingDraft.artifact_id,
+      artifact_type: pendingDraft.artifact_type,
+      chapter_title: targetChapterTitle,
+      chapter_seq: Number(structureLog.chapter_seq ?? targetIndex + 1),
+      chapter_count: Number(pendingOutline.payload?.chapter_count ?? planItems.length),
+      outline_direction_labels_present: true,
+      outline_adopt_clicked: true,
+      outline_adopted: true,
+      reading_projection_materialized: Boolean(
+        actionResultFrame.body?.persistence?.reading_projection,
+      ),
+      has_plan_summary: structureLog.has_plan_summary,
+      has_plan_direction: structureLog.has_plan_direction,
+      draft_generated: true,
+      draft_pending: true,
+      draft_body_chars: String(draftBody).length,
+      draft_card_visible: /待保存章节草稿|章节正文草稿|待确认的创作材料/.test(visibleText),
+      adopt_payload: acceptActionFrame.body,
+      action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
+      user_message_text: draftMessageFrame.body?.text,
+      plan_user_message_text: planMessageFrame.body?.text,
+    },
+  ];
+}
+
 // 从可见文本里解析「全书/本章有效字数 1,234 字」中的数字（去千分位逗号）。
 // 使用硬编码字面量正则（避免动态 RegExp），文本为产品 UI 渲染、非用户输入。
 function parseWordCount(match) {
@@ -2924,6 +3114,7 @@ const drivers = {
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
+  "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,

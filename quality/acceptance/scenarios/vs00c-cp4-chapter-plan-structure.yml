@@ -1,0 +1,61 @@
+id: vs00c-cp4-chapter-plan-structure
+title: VS-00C CP4 结构化章方向
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh vs00c-cp4-chapter-plan-structure --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+  - docs/design/08-novel-element-model.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/v3/VS-00C-creative-context-assembly.md
+
+invariants:
+  - I1-causal-binding
+  - I2-input-variation
+  - I3-nonce-propagation
+  - chapter-plan-direction-before-provider-call
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline
+  - click: start planning
+  - wait_for: outline_draft with E18-E22 labels
+  - click: save outline draft
+  - open: archive outline
+  - click: generate draft for a planned chapter
+  - verify: context.structure.done has_plan_direction=true before prose provider call
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/vs00c-cp4-chapter-plan-structure-tauri
+
+assertions:
+  ui:
+    - outline draft generated and saved
+    - planned chapter draft action visible
+    - tentative prose draft visible
+  network:
+    - outline user_message sent with generate_micro_plan=true
+    - draft user_message sent with generate_micro_plan=true
+    - outline_draft and prose_fragment turn_results received
+  data:
+    - outline item body contains E18-E22 direction labels
+    - outline adoption does not materialize reading projection prose
+    - chapter plan_direction materializes into chapter structure
+    - prose_writing context.structure.done has_plan_direction=true
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

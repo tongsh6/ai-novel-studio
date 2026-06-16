@@ -120,8 +120,12 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert {c1.title, c1.status, c1.summary} ==
                {"第01章：底层灵气账单", StructureStatus.planned(), "主角发现灵气带宽被公司暗中抽走。"}
 
+      assert c1.plan_direction == nil
+
       assert {c2.title, c2.status, c2.summary} ==
                {"第02章：旧服务器里的残诀", StructureStatus.planned(), "主角找到残缺功法并第一次突破。"}
+
+      assert c2.plan_direction == nil
 
       assert c1.volume_id == c2.volume_id
 
@@ -143,6 +147,56 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
                  audit_status: :empty
                }
              ] = toc_chapters
+    end
+
+    test "adopted structured outline materializes chapter plan_direction" do
+      work_id = Ecto.UUID.generate()
+
+      content = """
+      第01章：底层灵气账单: 章功能定位：推进章
+      情节推进：主角发现灵气账单异常
+      人物变化：主角从被动忍耐转为主动追查
+      信息释放：公司正在抽取底层修士灵气
+      伏笔动作：埋下旧服务器残诀线索
+      情绪定位：压迫、悬疑
+      章首拉力：账单红字倒计时
+      章尾断章：旧服务器突然响应妹妹声音
+      字数与场次：约 3000 字，2 场
+      """
+
+      assert {:ok, _persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-outline-structured",
+                 artifact_id: "as-outline-structured",
+                 artifact_type: :outline_draft,
+                 base_revision: 1,
+                 content: String.trim(content),
+                 summary: "结构化章节计划"
+               })
+
+      chapter = Repo.one!(from(c in Chapter, where: c.work_id == ^work_id))
+
+      assert chapter.summary ==
+               "主角发现灵气账单异常；主角从被动忍耐转为主动追查；公司正在抽取底层修士灵气；埋下旧服务器残诀线索"
+
+      assert chapter.plan_direction == %{
+               "chapter_role" => "推进章",
+               "plot_progress" => "主角发现灵气账单异常",
+               "character_change" => "主角从被动忍耐转为主动追查",
+               "information_release" => "公司正在抽取底层修士灵气",
+               "foreshadowing_action" => "埋下旧服务器残诀线索",
+               "emotion" => "压迫、悬疑",
+               "opening_hook" => "账单红字倒计时",
+               "ending_hook" => "旧服务器突然响应妹妹声音",
+               "word_count_and_scenes" => "约 3000 字，2 场"
+             }
+
+      assert %{volumes: [%{chapters: [%{plan_direction: direction}]}]} =
+               ReadingProjectionRepo.toc(work_id)
+
+      assert direction["plot_progress"] == "主角发现灵气账单异常"
     end
   end
 

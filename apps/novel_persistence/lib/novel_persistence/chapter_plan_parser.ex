@@ -2,20 +2,52 @@ defmodule NovelPersistence.ChapterPlanParser do
   @moduledoc """
   已采纳章节计划文本的唯一解析口径。
 
-  章节计划内容（采纳 outline 时的正文）约定：每行一章，格式 `标题: 摘要`（摘要可缺省）。
+  章节计划内容（采纳 outline 时的正文）兼容两种格式：
+
+  - 旧格式：每行一章，`标题: 摘要`（摘要可缺省）。
+  - CP4 结构格式：每章以 `标题: ...` 开头，后续多行可包含 E18-E22 标签
+    （章功能定位 / 情节推进 / 人物变化 / 信息释放 / 伏笔动作 / 情绪定位 / 章首拉力 /
+    章尾断章 / 字数与场次）。
+
   这里把它解析为有序章节条目，供两处共用，避免各写一套数据逻辑：
 
   - `AdoptionRepository`：采纳章节计划时物化为 accepted 卷/章结构（AU-08 目录来源）。
   """
 
-  @type chapter :: %{seq: pos_integer(), title: String.t(), summary: String.t() | nil}
+  alias NovelDomain.ChapterPlanDirection
+
+  @direction_label_groups [
+    chapter_role: ["章功能定位", "功能定位", "章功能"],
+    plot_progress: ["情节推进", "剧情推进", "主线推进"],
+    character_change: ["人物变化", "人物弧光", "人物状态", "人物状态与弧光"],
+    information_release: ["信息释放", "信息揭示", "真相释放"],
+    foreshadowing_action: ["伏笔动作", "伏笔", "伏笔处理"],
+    emotion: ["情绪定位", "情绪基调", "读者情绪"],
+    opening_hook: ["章首拉力", "开篇钩子", "开场钩子", "章首钩子"],
+    ending_hook: ["章尾断章", "断章要求", "结尾钩子", "悬念断点"],
+    word_count_and_scenes: ["字数与场次", "字数与场次划分", "场次划分", "字数"]
+  ]
+
+  @direction_fields Map.new(
+                      for {field, labels} <- @direction_label_groups,
+                          label <- labels,
+                          do: {label, field}
+                    )
+
+  @type chapter :: %{
+          seq: pos_integer(),
+          title: String.t(),
+          summary: String.t() | nil,
+          plan_direction: map() | nil
+        }
 
   @doc "解析章节计划文本为有序章节条目（seq 从 1 起）。空标题行被丢弃。"
   @spec parse(String.t() | nil) :: [chapter()]
   def parse(content) when is_binary(content) do
     content
-    |> String.split("\n", trim: true)
-    |> Enum.map(&parse_line/1)
+    |> lines()
+    |> chapter_blocks()
+    |> Enum.map(&parse_block/1)
     |> Enum.reject(&(&1.title == ""))
     |> Enum.with_index(1)
     |> Enum.map(fn {chapter, seq} -> %{chapter | seq: seq} end)
@@ -23,10 +55,120 @@ defmodule NovelPersistence.ChapterPlanParser do
 
   def parse(_content), do: []
 
-  defp parse_line(line) do
+  defp lines(content) do
+    content
+    |> String.split("\n")
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp chapter_blocks(lines) do
+    lines
+    |> Enum.reduce([], fn line, blocks ->
+      if chapter_start_line?(line) or blocks == [] do
+        [[line] | blocks]
+      else
+        [current | rest] = blocks
+        [[line | current] | rest]
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.map(&Enum.reverse/1)
+  end
+
+  defp chapter_start_line?(line) do
+    not direction_label_line?(line) and
+      (String.contains?(line, ": ") or Regex.match?(~r/^第\s*[0-9０-９一二三四五六七八九十百]+\s*[章节回]/u, line))
+  end
+
+  defp parse_block([first | rest]) do
+    {title, initial} = parse_title_and_initial(first)
+    direction_text = [initial | rest] |> Enum.reject(&blank?/1) |> Enum.join("\n")
+    direction = parse_direction(direction_text)
+
+    %{
+      seq: 0,
+      title: title,
+      summary: summary(initial, direction),
+      plan_direction: ChapterPlanDirection.to_storage(direction)
+    }
+  end
+
+  defp parse_block(_block), do: %{seq: 0, title: "", summary: nil, plan_direction: nil}
+
+  defp parse_title_and_initial(line) do
     case String.split(line, ": ", parts: 2) do
-      [title, summary] -> %{seq: 0, title: String.trim(title), summary: String.trim(summary)}
-      [title] -> %{seq: 0, title: String.trim(title), summary: nil}
+      [title, initial] -> {String.trim(title), String.trim(initial)}
+      [title] -> {String.trim(title), nil}
     end
   end
+
+  defp parse_direction(text) when is_binary(text) do
+    text
+    |> String.split(~r/\n|；|;/u)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reduce(%{}, &put_direction_field/2)
+    |> ChapterPlanDirection.new()
+  end
+
+  defp parse_direction(_text), do: nil
+
+  defp put_direction_field(line, acc) do
+    case split_label(line) do
+      {:ok, label, value} ->
+        case direction_field(label) do
+          nil -> acc
+          field -> Map.put(acc, field, value)
+        end
+
+      :error ->
+        acc
+    end
+  end
+
+  defp split_label(line) do
+    case Regex.run(~r/^([^:：]+)[:：]\s*(.+)$/u, line) do
+      [_, label, value] -> {:ok, String.trim(label), String.trim(value)}
+      _ -> :error
+    end
+  end
+
+  defp direction_label_line?(line) do
+    case split_label(line) do
+      {:ok, label, _value} -> not is_nil(direction_field(label))
+      :error -> false
+    end
+  end
+
+  defp direction_field(label) do
+    label
+    |> normalize_direction_label()
+    |> then(&Map.get(@direction_fields, &1))
+  end
+
+  defp normalize_direction_label(label), do: label |> String.replace(~r/\s/u, "") |> String.trim()
+
+  defp summary(initial, direction) do
+    cond do
+      not blank?(initial) and not direction_label_line?(initial) ->
+        String.trim(initial)
+
+      not ChapterPlanDirection.empty?(direction) ->
+        direction |> ChapterPlanDirection.summary() |> blank_to_nil()
+
+      true ->
+        nil
+    end
+  end
+
+  defp blank_to_nil(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp blank_to_nil(_value), do: nil
+
+  defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 end

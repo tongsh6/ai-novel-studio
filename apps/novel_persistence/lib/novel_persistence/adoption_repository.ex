@@ -10,6 +10,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias Ecto.Multi
   import Ecto.Query
 
+  alias NovelDomain.ChapterPlanDirection
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryScope
   alias NovelFoundation.Enums.MemorySourceType
@@ -250,10 +251,11 @@ defmodule NovelPersistence.AdoptionRepository do
   defp outline_artifact?("outline_draft"), do: true
   defp outline_artifact?(_), do: false
 
-  # 计划章按 (work_id, title) 幂等：不存在则建（带大纲摘要）；已存在但摘要为空则补上摘要
-  # （正文先于计划采纳、或重采纳更完整计划时）；已有摘要则不动。
+  # 计划章按 (work_id, title) 幂等：不存在则建（带大纲摘要/方向）；已存在则只补缺失的
+  # summary 或 plan_direction（正文先于计划采纳、或旧计划无结构方向时）。已有事实不覆盖。
   defp ensure_planned_chapter(repo, work_id, volume_id, %{title: title} = chapter) do
     summary = blank_to_nil(Map.get(chapter, :summary))
+    plan_direction = ChapterPlanDirection.to_storage(Map.get(chapter, :plan_direction))
 
     Chapter
     |> where([c], c.work_id == ^work_id and c.title == ^title)
@@ -267,19 +269,39 @@ defmodule NovelPersistence.AdoptionRepository do
           title: title,
           seq: next_chapter_seq(repo, volume_id),
           status: StructureStatus.planned(),
-          summary: summary
+          summary: summary,
+          plan_direction: plan_direction
         })
         |> wrap_chapter_result()
 
-      %Chapter{summary: existing} = existing_chapter
-      when existing in [nil, ""] and not is_nil(summary) ->
-        existing_chapter
-        |> Chapter.changeset(%{summary: summary})
-        |> repo.update()
-        |> wrap_chapter_result()
+      %Chapter{} = existing_chapter ->
+        changes =
+          %{}
+          |> maybe_put_missing_summary(existing_chapter.summary, summary)
+          |> maybe_put_missing_direction(existing_chapter.plan_direction, plan_direction)
 
-      %Chapter{} ->
-        :ok
+        if changes == %{} do
+          :ok
+        else
+          existing_chapter
+          |> Chapter.changeset(changes)
+          |> repo.update()
+          |> wrap_chapter_result()
+        end
+    end
+  end
+
+  defp maybe_put_missing_summary(changes, existing, summary)
+       when existing in [nil, ""] and not is_nil(summary),
+       do: Map.put(changes, :summary, summary)
+
+  defp maybe_put_missing_summary(changes, _existing, _summary), do: changes
+
+  defp maybe_put_missing_direction(changes, existing, plan_direction) do
+    if ChapterPlanDirection.empty?(existing) and not is_nil(plan_direction) do
+      Map.put(changes, :plan_direction, plan_direction)
+    else
+      changes
     end
   end
 

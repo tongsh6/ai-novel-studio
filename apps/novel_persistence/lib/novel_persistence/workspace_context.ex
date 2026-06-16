@@ -139,6 +139,7 @@ defmodule NovelPersistence.WorkspaceContext do
         title: title,
         seq: Map.get(chapter, :seq),
         summary: chapter |> Map.get(:summary) |> normalize_title(),
+        plan_direction: Map.get(chapter, :plan_direction),
         has_prose: Map.get(chapter, :word_count, 0) > 0
       }
     end

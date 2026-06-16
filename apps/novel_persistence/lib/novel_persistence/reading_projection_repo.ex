@@ -174,7 +174,8 @@ defmodule NovelPersistence.ReadingProjectionRepo do
       volume_id: c.volume_id,
       title: c.title,
       seq: c.seq,
-      summary: c.summary
+      summary: c.summary,
+      plan_direction: c.plan_direction
     })
     |> Repo.all()
   end
@@ -194,7 +195,7 @@ defmodule NovelPersistence.ReadingProjectionRepo do
       chapters
       |> Enum.filter(&(&1.volume_id == volume.id))
       |> Enum.sort_by(& &1.seq)
-      |> Enum.map(&Map.take(&1, [:id, :title, :seq, :word_count, :summary]))
+      |> Enum.map(&Map.take(&1, [:id, :title, :seq, :word_count, :summary, :plan_direction]))
 
     Map.put(volume, :chapters, volume_chapters)
   end

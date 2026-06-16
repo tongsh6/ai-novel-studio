@@ -1,6 +1,6 @@
 # VS-00C Creative Context Assembly
 
-- 状态：CP0 done / CP1 done / CP2 done / **CP3 done**（结构化章节条目进入 prose_writing L2；当前队首 CP4）
+- 状态：CP0 done / CP1 done / CP2 done / CP3 done / **CP4 done**（结构化章方向进入 prose_writing L2；当前队首 CP5）
 - 类型：Context Assembly Slice（VS-00D `call_site=:prose_writing` 投影）
 - 启动日期：2026-06-14
 - 所属契约：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md`
@@ -21,8 +21,8 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
 | **CP1** | 策略化省略 + 预算 profile + 确认路径同源组装 + fetcher fallback | G2/G4/G9/G10 | **done（76ca402+560b5c2）** |
 | CP2 | chapter_summary 对象 + 续写摘要兜底 | G3/G5 | **done（CP2.1 + CP2.2 核心；why-panel + dogfood 延后）** |
 | CP3 | 结构对象分层进入上下文 | G6/G1 | **done（Tauri evidence）** |
-| CP4 | 章计划结构化（方向层） | 08 NEM-GAP-03 | **next** |
-| CP5 | ReaderEffectBrief + 创作输出自报告 | G12/G14 | 待 CP4 |
+| CP4 | 章计划结构化（方向层） | 08 NEM-GAP-03 | **done（Tauri evidence）** |
+| CP5 | ReaderEffectBrief + 创作输出自报告 | G12/G14 | **next** |
 
 ---
 
@@ -147,6 +147,43 @@ CP3 仍不 claim “写第 N 章首稿上下文已完备”。它把目标章计
 
 ---
 
+## 8. CP4 设计（章计划结构化方向层）
+
+- 关闭 Gap：`08` NEM-GAP-03。CP3 解决“目标章在哪里、计划摘要是什么”，CP4 解决“这章承担什么叙事功能、推进什么四件套、如何制造情绪与断章”。
+- 契约依据：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md` §8 CP4；`docs/design/08-novel-element-model.md` E18-E22。
+
+### 8.1 承重六问
+
+1. **Contract**：新增 `NovelDomain.ChapterPlanDirection`；`chapters.summary` 保持计划摘要，`chapters.plan_direction` 作为伴生结构承载 E18-E22（章功能定位 / 情节推进 / 人物变化 / 信息释放 / 伏笔动作 / 情绪定位 / 章首拉力 / 章尾断章 / 字数与场次）。
+2. **Invariant**：规划采纳后的章结构可保存结构化方向；prose_writing L2 优先渲染 `plan_direction`，旧数据无方向时回退 CP3 的计划摘要；增量规划继续按章标题幂等追加，不覆盖已有章事实。
+3. **Boundary**：domain 只放纯值对象；persistence 负责 parser、migration、schema、TOC/WorkspaceContext 读模型；application 只消费结构方向渲染 L2；agent 仅约束 `outline_draft` 输出 body 标签与确定性 provider fixture；前端生产代码不新增验收感知逻辑。
+4. **Consumer**：第一个真实消费者是 `TurnExecutionService` 的 prose_writing `ToolRequest.input["context_text"]`；外部消费者是 `context.structure.done.has_plan_direction=true` 业务日志。
+5. **Proof**：domain/parser/repo/workspace context/context assembler/application prompt 单测；`native-tauri-verifier` 规则覆盖真实页面“生成结构化大纲 → 保存 → 生成章节正文草稿”。
+6. **Acceptance Driver**：`bash scripts/tauri_slice_verify.sh vs00c-cp4-chapter-plan-structure`。driver 只用真实档案按钮、保存按钮、websocket 帧和业务日志；产品代码不读 slice id/env/query/localStorage。
+
+### 8.2 关键实现事实
+
+- `NovelDomain.ChapterPlanDirection` 统一归一、存储和 prompt 渲染 E18-E22 方向字段。
+- `ChapterPlanParser` 兼容旧 `标题: 摘要` 行格式与 CP4 多行标签格式；结构化方向存在时生成可读 `summary`，同时保存 `plan_direction`。
+- `Chapter` 新增 `plan_direction :map`；`AdoptionRepository` 采纳 outline 时新章写入 summary + direction，旧章只补缺失 summary/direction，不覆盖已有事实；`ReadingProjectionRepo.toc/1` 与 `WorkspaceContext` 透出该字段。
+- `ContextAssembler` 归一 string/atom key 的 `plan_direction`；`TurnExecutionService` 在目标章结构段中优先输出 `章方向：E18-E22 结构化方向` 与目标四件套，`context.structure.done` 增加 `has_plan_direction`。
+- `CreativeProvider.Real` 对 `plot_outline/outline_draft` 的 `body` 输出增加 E18-E22 标签要求；`SliceVerify` deterministic provider 同步生成结构化章方向。
+
+### 8.3 证据
+
+- `artifacts/slice-verify/vs00c-cp4-chapter-plan-structure-tauri/summary.json`
+- `apps/novel_domain/test/novel_domain/chapter_plan_direction_test.exs`
+- `apps/novel_persistence/test/novel_persistence/chapter_plan_parser_test.exs`
+- `apps/novel_persistence/test/novel_persistence/adoption_repository_test.exs`
+- `apps/novel_application/test/novel_application/cp4_chapter_plan_direction_test.exs`
+- `frontend/slice-verify/native-tauri-verifier.test.mjs`
+
+### 8.4 诚实边界
+
+CP4 仍不 claim “首稿质量闭环完成”。它把写前章方向从自由文本升级为结构对象，但读者效果、承诺/钩子风险和 AI 输出自报告仍属 CP5。
+
+---
+
 ## 5. 决策日志
 
 - 2026-06-14：确认 VS-00C↔VS-00D 边界已在契约 §1.4 对齐（VS-00C = call_site=:prose_writing 投影）。实现序列 CP0 先行（坐标/缺失是 CP1 组装的前置）。CP0 slice 六问冻结，待用户批准编码。
@@ -177,3 +214,4 @@ CP3 仍不 claim “写第 N 章首稿上下文已完备”。它把目标章计
 - 2026-06-17：**CP2.2 核心完成**。prose_writing 轮新增 `chapter_summary_reader` port：L5 裁剪本章已采纳正文时以本章 ACCEPTED 摘要填 `OmissionNote.replacement=chapter_summary:章`，L3a 注入目标章之前最近 N 章已采纳摘要；N 不再由本地常量控制，统一使用 `AssemblyPolicy.summary_window`，默认 15，policy id 升级为 `prose_writing/*_v2`；业务日志 `context.continuity.done` 记录窗口和 policy。why-panel 专属 label 与 dogfood 长跑仍 deferred。
 - 2026-06-17：**CP3 完成**。persistence/fetcher 返回结构化章节条目，`DialogueContext.structured_chapters` 进入 prose_writing L2；真实 UI 第 2 章首稿路径暴露 planner 漏 `target_chapter` 的问题，应用层补确定性目标章解析（planner 目标优先，其次作者输入命中现有章标题/章号），保证首稿结构上下文与采纳归章一致。外部 Tauri 证据：`artifacts/slice-verify/vs00c-cp3-structured-context-tauri/summary.json`。
 - 2026-06-17：**队列修正**。AU10 baseline 已闭环但不得抢占 VS-00C CP 序列；当前队首为 CP4（章计划结构化），CP5 完成后再回到下一个任务。
+- 2026-06-17：**CP4 完成**。新增 `ChapterPlanDirection` 与 `chapters.plan_direction`，规划采纳从 `outline_draft` body 标签解析 E18-E22 章方向并物化到章结构；WorkspaceContext/ContextAssembler 透出 `plan_direction`，prose_writing L2 优先渲染章功能、目标四件套、情绪定位、章首拉力、章尾断章和字数场次，`context.structure.done` 记录 `has_plan_direction=true`。外部 Tauri 证据：`artifacts/slice-verify/vs00c-cp4-chapter-plan-structure-tauri/summary.json`。

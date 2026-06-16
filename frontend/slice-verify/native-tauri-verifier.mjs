@@ -44,6 +44,7 @@ export const nativeSliceIds = [
   "au04-confirm-before-execute",
   "vs00c-cp0-missing-chapter-block",
   "vs00c-cp3-structured-context",
+  "vs00c-cp4-chapter-plan-structure",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
   "au09-validity-window-recall",
@@ -253,6 +254,20 @@ const sliceKeyEvents = {
     "context.structure.done",
     "planner.form_micro_plan.done",
     "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  "vs00c-cp4-chapter-plan-structure": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "toolbox.execute.done",
+    "channel.author_action.done",
+    "context.assemble.done",
+    "context.structure.done",
     "channel.user_message.done",
     "channel.get_toc.done",
     "slice_verify.ui_state.done",
@@ -669,6 +684,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findVs00cCp3StructuredContextEvidence(records);
   }
 
+  if (sliceId === "vs00c-cp4-chapter-plan-structure") {
+    return findVs00cCp4ChapterPlanStructureEvidence(records);
+  }
+
   if (sliceId === "p1-export-minimum") {
     return findP1ExportMinimumEvidence(records);
   }
@@ -874,6 +893,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "vs00c-cp3-structured-context") {
     return vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "vs00c-cp4-chapter-plan-structure") {
+    return vs00cCp4ChapterPlanStructureBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) {
@@ -3344,6 +3367,172 @@ function p1PlanIncrementalBehavior(turnIds, turnRecords, records, evidence, _opt
       "adoption_appends_new_planned_chapters_with_continuing_seq",
       "existing_chapters_title_seq_word_count_untouched",
       "new_titles_do_not_collide_with_existing_chapters",
+    ],
+  };
+}
+
+function findVs00cCp4ChapterPlanStructureEvidence(records) {
+  const sliceId = "vs00c-cp4-chapter-plan-structure";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.outline_direction_labels_present === true &&
+      record.outline_adopt_clicked === true &&
+      record.outline_adopted === true &&
+      record.reading_projection_materialized === false &&
+      record.draft_generated === true &&
+      record.draft_pending === true &&
+      record.draft_card_visible === true &&
+      record.has_plan_summary === true &&
+      record.has_plan_direction === true &&
+      record.artifact_type === "prose_fragment" &&
+      Number(record.chapter_count ?? 0) >= 8 &&
+      Number(record.draft_body_chars ?? 0) >= 80,
+  );
+  if (!uiState) return null;
+
+  const generationTurnId = String(uiState.generation_turn_id ?? "");
+  const adoptionTurnId = String(uiState.adoption_turn_id ?? "");
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  if (!generationTurnId || !adoptionTurnId || !draftTurnId) return null;
+
+  const generationRecords = records.filter((record) => record.turn_id === generationTurnId);
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+
+  const generatedOutline = generationRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "plot_outline" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedOutline) return null;
+
+  const adopted = generationRecords.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!adopted) return null;
+
+  const structure = draftRecords.find(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.source_type === "structure" &&
+      record.target_chapter === uiState.chapter_title &&
+      record.has_plan_summary === true &&
+      record.has_plan_direction === true,
+  );
+  if (!structure) return null;
+
+  const generatedDraft = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedDraft) return null;
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? 0) >= Number(uiState.chapter_count ?? 0),
+  );
+  if (!tocRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [generationTurnId, adoptionTurnId, draftTurnId],
+    generation_turn_id: generationTurnId,
+    adoption_turn_id: adoptionTurnId,
+    draft_turn_id: draftTurnId,
+    outline_artifact_id: uiState.outline_artifact_id,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    chapter_title: uiState.chapter_title,
+    chapter_seq: Number(structure.chapter_seq ?? uiState.chapter_seq ?? 0),
+    chapter_count: Number(uiState.chapter_count ?? 0),
+    has_plan_summary: structure.has_plan_summary,
+    has_plan_direction: structure.has_plan_direction,
+    draft_body_chars: Number(uiState.draft_body_chars ?? 0),
+    assembly_policy_id: structure.assembly_policy_id,
+    key_events: keyEvents,
+  };
+}
+
+function vs00cCp4ChapterPlanStructureBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 3) return null;
+  if (!turnIds.includes(evidence.generation_turn_id)) return null;
+  if (!turnIds.includes(evidence.draft_turn_id)) return null;
+  if (
+    !turnsHaveGenerateMicroPlan(
+      [evidence.generation_turn_id, evidence.draft_turn_id],
+      turnRecords,
+      true,
+    )
+  ) {
+    return null;
+  }
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.structure.done")) return null;
+  if (
+    !turnsHaveEvent(
+      [evidence.generation_turn_id, evidence.draft_turn_id],
+      turnRecords,
+      "toolbox.execute.done",
+    )
+  ) {
+    return null;
+  }
+  if (
+    !lmstudioHasSteps(
+      options,
+      [evidence.generation_turn_id, evidence.draft_turn_id],
+      ["form_frame", "form_micro_plan"],
+    )
+  ) {
+    return null;
+  }
+
+  const structure = turnRecords.find(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.turn_id === evidence.draft_turn_id &&
+      record.target_chapter === evidence.chapter_title &&
+      record.has_plan_summary === true &&
+      record.has_plan_direction === true,
+  );
+  if (!structure) return null;
+
+  return {
+    slice_id: "vs00c-cp4-chapter-plan-structure",
+    behavior: "structured_chapter_direction_materializes_and_reaches_prose_writing",
+    turn_ids: turnIds,
+    generation_turn_id: evidence.generation_turn_id,
+    adoption_turn_id: evidence.adoption_turn_id,
+    draft_turn_id: evidence.draft_turn_id,
+    outline_artifact_id: evidence.outline_artifact_id,
+    artifact_id: evidence.artifact_id,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    chapter_seq: evidence.chapter_seq,
+    chapter_count: evidence.chapter_count,
+    draft_body_chars: evidence.draft_body_chars,
+    assertions: [
+      "real_archive_outline_start_planning_clicked",
+      "outline_draft_generated_with_e18_e22_direction_labels",
+      "outline_draft_adopted_through_author_action_boundary",
+      "chapter_plan_direction_materialized_into_chapter_structure",
+      "target_chapter_direction_available_before_provider_call",
+      "prose_writing_generated_pending_draft_without_adoption",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_and_micro_plan_called"
+        : "deterministic_provider_form_frame_and_micro_plan_called",
     ],
   };
 }

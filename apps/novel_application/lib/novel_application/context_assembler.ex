@@ -8,6 +8,7 @@ defmodule NovelApplication.ContextAssembler do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelDomain.ChapterPlanDirection
   alias NovelDomain.ContextSourceRef
   alias NovelDomain.DialogueContext
 
@@ -174,6 +175,10 @@ defmodule NovelApplication.ContextAssembler do
         title: title,
         seq: chapter |> get_any([:seq, "seq"]) |> normalize_integer(),
         summary: chapter |> get_any([:summary, "summary"]) |> normalize_text(),
+        plan_direction:
+          chapter
+          |> get_any([:plan_direction, "plan_direction"])
+          |> normalize_plan_direction(),
         has_prose:
           chapter
           |> get_any([:has_prose, "has_prose", :word_count, "word_count"])
@@ -185,6 +190,8 @@ defmodule NovelApplication.ContextAssembler do
   defp normalize_structured_chapter(_), do: nil
 
   defp titles_from_structured(entries), do: Enum.map(entries, & &1.title)
+
+  defp normalize_plan_direction(value), do: ChapterPlanDirection.to_storage(value)
 
   defp get_any(map, keys) do
     Enum.reduce_while(keys, nil, fn key, _acc ->

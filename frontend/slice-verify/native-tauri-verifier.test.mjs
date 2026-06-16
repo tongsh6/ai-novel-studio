@@ -42,6 +42,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
     expect(nativeSliceIds).toContain("vs00c-cp3-structured-context");
+    expect(nativeSliceIds).toContain("vs00c-cp4-chapter-plan-structure");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
@@ -1877,6 +1878,66 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("vs00c-cp3-structured-context", records)).toBeNull();
   });
 
+  it("accepts VS-00C CP4 only when structured chapter direction reaches prose writing", () => {
+    const records = vs00cCp4ChapterPlanStructureRecords();
+    const evidence = findNativeSliceEvidence("vs00c-cp4-chapter-plan-structure", records);
+
+    expect(evidence).toEqual({
+      slice_id: "vs00c-cp4-chapter-plan-structure",
+      turn_id: "turn-cp4-draft",
+      turn_ids: ["turn-cp4-plan", "turn-cp4-adopt", "turn-cp4-draft"],
+      generation_turn_id: "turn-cp4-plan",
+      adoption_turn_id: "turn-cp4-adopt",
+      draft_turn_id: "turn-cp4-draft",
+      outline_artifact_id: "artifact-outline-cp4",
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第02章：试炼",
+      chapter_seq: 2,
+      chapter_count: 12,
+      has_plan_summary: true,
+      has_plan_direction: true,
+      draft_body_chars: 128,
+      assembly_policy_id: "slice_verify",
+      key_events: keyEventsForSlice("vs00c-cp4-chapter-plan-structure"),
+    });
+
+    expect(
+      findSliceBehaviorEvidence("vs00c-cp4-chapter-plan-structure", records, evidence),
+    ).toEqual({
+      slice_id: "vs00c-cp4-chapter-plan-structure",
+      behavior: "structured_chapter_direction_materializes_and_reaches_prose_writing",
+      turn_ids: ["turn-cp4-plan", "turn-cp4-adopt", "turn-cp4-draft"],
+      generation_turn_id: "turn-cp4-plan",
+      adoption_turn_id: "turn-cp4-adopt",
+      draft_turn_id: "turn-cp4-draft",
+      outline_artifact_id: "artifact-outline-cp4",
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第02章：试炼",
+      chapter_seq: 2,
+      chapter_count: 12,
+      draft_body_chars: 128,
+      assertions: [
+        "real_archive_outline_start_planning_clicked",
+        "outline_draft_generated_with_e18_e22_direction_labels",
+        "outline_draft_adopted_through_author_action_boundary",
+        "chapter_plan_direction_materialized_into_chapter_structure",
+        "target_chapter_direction_available_before_provider_call",
+        "prose_writing_generated_pending_draft_without_adoption",
+        "deterministic_provider_form_frame_and_micro_plan_called",
+      ],
+    });
+  });
+
+  it("rejects VS-00C CP4 evidence when plan direction is not materialized", () => {
+    const records = vs00cCp4ChapterPlanStructureRecords().map((record) =>
+      record.event === "context.structure.done" ? { ...record, has_plan_direction: false } : record,
+    );
+
+    expect(findNativeSliceEvidence("vs00c-cp4-chapter-plan-structure", records)).toBeNull();
+  });
+
   it("rejects ordinary chat behavior when a micro plan event appears", () => {
     const records = [
       ...ordinaryTwoTurnRecords(),
@@ -3263,6 +3324,135 @@ function vs00cCp3StructuredContextRecords(turnId) {
     structureRecord,
     ...records.slice(contextIndex + 1),
   ];
+}
+
+function vs00cCp4ChapterPlanStructureRecords() {
+  const planTurnId = "turn-cp4-plan";
+  const adoptTurnId = "turn-cp4-adopt";
+  const draftTurnId = "turn-cp4-draft";
+  const targetChapterTitle = "第02章：试炼";
+  const userMessageText = `请根据已采纳章节计划生成${targetChapterTitle}正文草稿`;
+
+  const planningRecords = [
+    {
+      event: "work_session.resume.done",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+    },
+    {
+      event: "channel.join.done",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      generate_micro_plan: true,
+      message_preview: "请为当前作品生成章节大纲",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+    },
+    {
+      event: "planner.form_micro_plan.done",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      tool_name: "plot_outline",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: planTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      action_type: "accept",
+      action_status: "accepted",
+    },
+    {
+      event: "turn_result",
+      turn_id: adoptTurnId,
+      workspace_id: "work-p1",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      truthfulness: { artifact_adopted: true },
+      adoption_state: { resolved: [{ artifact_id: "artifact-outline-cp4" }] },
+    },
+  ];
+
+  const draftRecords = vs00cCp3StructuredContextRecords(draftTurnId).map((record) => {
+    if (record.event === "channel.user_message.start") {
+      return {
+        ...record,
+        message_preview: userMessageText,
+      };
+    }
+
+    if (record.event === "context.structure.done") {
+      return {
+        ...record,
+        target_chapter: targetChapterTitle,
+        chapter_seq: 2,
+        has_plan_direction: true,
+      };
+    }
+
+    if (record.event === "slice_verify.ui_state.done") {
+      return {
+        ...record,
+        slice_id: "vs00c-cp4-chapter-plan-structure",
+        generation_turn_id: planTurnId,
+        adoption_turn_id: adoptTurnId,
+        draft_turn_id: draftTurnId,
+        outline_artifact_id: "artifact-outline-cp4",
+        outline_direction_labels_present: true,
+        outline_adopt_clicked: true,
+        outline_adopted: true,
+        reading_projection_materialized: false,
+        chapter_count: 12,
+        chapter_title: targetChapterTitle,
+        chapter_seq: 2,
+        has_plan_summary: true,
+        has_plan_direction: true,
+        draft_generated: true,
+        draft_pending: true,
+        draft_body_chars: 128,
+        draft_card_visible: true,
+        user_message_text: userMessageText,
+      };
+    }
+
+    return record;
+  });
+
+  return [...planningRecords, ...draftRecords];
 }
 
 function au03cResumeRecords() {
