@@ -29,6 +29,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au03-current-work-context-ssot");
     expect(nativeSliceIds).toContain("au03-long-session-compression");
     expect(nativeSliceIds).toContain("au03-context-source-ui");
+    expect(nativeSliceIds).toContain("au10-workbench-matrix-layout");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -1454,6 +1455,72 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("au10-ordinary-chat-no-micro-plan", records)).toBeNull();
   });
 
+  it("finds AU-10 workbench matrix layout evidence from aggregate UI state and correlated events", () => {
+    const records = au10WorkbenchMatrixRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-matrix-layout", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au10-workbench-matrix-layout",
+      turn_id: "turn-au10-ordinary",
+      turn_ids: [
+        "turn-au10-ordinary",
+        "turn-au10-candidate",
+        "turn-au10-draft",
+        "turn-au10-adoption",
+      ],
+      ordinary_turn_id: "turn-au10-ordinary",
+      candidate_turn_id: "turn-au10-candidate",
+      draft_turn_id: "turn-au10-draft",
+      adoption_turn_id: "turn-au10-adoption",
+      artifact_id: "artifact-au10",
+      candidate_ref: "dir-au10",
+      viewport_width: 1280,
+      viewport_height: 800,
+      matrix_phases: ["ordinary_turn", "candidate_action", "adoption_reading"],
+      key_events: keyEventsForSlice("au10-workbench-matrix-layout"),
+    });
+  });
+
+  it("rejects AU-10 matrix evidence if the ordinary turn enters micro-plan", () => {
+    expect(
+      findNativeSliceEvidence(
+        "au10-workbench-matrix-layout",
+        au10WorkbenchMatrixRecords({ ordinaryMicroPlan: true }),
+      ),
+    ).toBeNull();
+  });
+
+  it("accepts AU-10 matrix behavior when layout, action, why and projection all passed", () => {
+    const records = au10WorkbenchMatrixRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-matrix-layout", records);
+
+    expect(findSliceBehaviorEvidence("au10-workbench-matrix-layout", records, evidence)).toEqual({
+      slice_id: "au10-workbench-matrix-layout",
+      behavior: "workbench_matrix_layout_covers_core_real_ui_states",
+      turn_ids: [
+        "turn-au10-ordinary",
+        "turn-au10-candidate",
+        "turn-au10-draft",
+        "turn-au10-adoption",
+      ],
+      viewport: "1280x800",
+      artifact_id: "artifact-au10",
+      candidate_ref: "dir-au10",
+      assertions: [
+        "real_workbench_rendered_at_1280x800_without_horizontal_overflow",
+        "top_status_bar_stayed_single_row",
+        "input_area_and_structure_rail_remained_visible",
+        "ordinary_chat_completed_without_micro_plan",
+        "author_opened_trace_why_dialog_without_raw_prompt_leak",
+        "candidate_action_used_server_authorized_author_action",
+        "candidate_selection_did_not_write_production_content",
+        "prose_draft_accept_used_adoption_boundary",
+        "reading_projection_loaded_adopted_prose_and_word_counts",
+        "task_status_baseline_visible_in_first_viewport",
+      ],
+    });
+  });
+
   it("requires all VS-10 key events on one turn", () => {
     const records = keyEventsForSlice("vs10-observability-spine").map((event) => ({
       event,
@@ -1951,6 +2018,154 @@ function ordinarySingleTurnRecords(turnId) {
       work_id: "work-ordinary",
       duration_ms: 15,
       outcome: "ok",
+    },
+  ];
+}
+
+function au10WorkbenchMatrixRecords(options = {}) {
+  const ordinaryMicroPlan = options.ordinaryMicroPlan === true;
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-matrix-layout",
+      turn_id: "turn-au10-ordinary",
+      ordinary_turn_id: "turn-au10-ordinary",
+      candidate_turn_id: "turn-au10-candidate",
+      draft_turn_id: "turn-au10-draft",
+      adoption_turn_id: "turn-au10-adoption",
+      artifact_id: "artifact-au10",
+      candidate_ref: "dir-au10",
+      viewport_width: 1280,
+      viewport_height: 800,
+      layout_no_horizontal_overflow: true,
+      top_bar_single_row: true,
+      input_area_visible: true,
+      service_status_visible: true,
+      provider_status_visible: true,
+      task_status_visible: true,
+      ordinary_turn_completed: true,
+      trace_why_dialog_open: true,
+      trace_why_contains_raw_prompt: false,
+      candidate_action_completed: true,
+      candidate_selected: true,
+      candidate_adopted: true,
+      adoption_reading_completed: true,
+      word_count_matches_adopted_prose: true,
+      matrix_phases: ["ordinary_turn", "candidate_action", "adoption_reading"],
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au10-ordinary",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      session_id: "session-au10",
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: "turn-au10-ordinary",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      session_id: "session-au10",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au10-ordinary",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      session_id: "session-au10",
+    },
+    ...(ordinaryMicroPlan
+      ? [
+          {
+            event: "planner.form_micro_plan.done",
+            turn_id: "turn-au10-ordinary",
+            workspace_id: "ws-au10",
+            work_id: "work-au10",
+          },
+        ]
+      : []),
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-au10-candidate",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      session_id: "session-au10",
+      action_type: "choose_candidate",
+      candidate_ref: "dir-au10",
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: "turn-au10-candidate",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      decision_type: "adopt_tentative",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-au10-candidate",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      action_type: "choose_candidate",
+      action_status: "accepted",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au10-draft",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      session_id: "session-au10",
+      generate_micro_plan: true,
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: "turn-au10-draft",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au10-draft",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      session_id: "session-au10",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-au10-adoption",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      session_id: "session-au10",
+      action_type: "accept",
+      target_ref: "artifact-au10",
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: "turn-au10-adoption",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      decision_type: "adopt_tentative",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-au10-adoption",
+      workspace_id: "ws-au10",
+      work_id: "work-au10",
+      action_type: "accept",
+      action_status: "accepted",
+    },
+    {
+      event: "channel.get_toc.done",
+      work_id: "work-au10",
+      chapter_count: 1,
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      work_id: "work-au10",
+      content_chars: 42,
     },
   ];
 }

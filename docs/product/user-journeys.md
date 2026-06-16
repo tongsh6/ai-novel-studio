@@ -1,6 +1,6 @@
 # Product User Journeys / 用户旅程地图
 
-> 最后更新：2026-06-12
+> 最后更新：2026-06-17
 >
 > 角色：v3 产品级用户旅程总图。本文按真实用户目标组织 SU/AU、v3 主链对象、contract、不变量、证据和断点，负责回答：
 >
@@ -399,11 +399,11 @@ Next Proof：从一个包含 context/tool/behavior/state 的真实 turn 打开 w
 
 真实消费者：`WorkspaceChat`、ActionPanel、MessageList、StructurePanel、ReadingMode。历史 `历史旁路工作台` 实验组件已退役删除，不再作为当前消费者。
 
-Longest Closed Prefix：J1-J4 是最小真实入口闭环，不代表完整工作台闭环。
+Longest Closed Prefix：J1-J5 是最小真实入口闭环；J8 是 AU-10 baseline matrix checkpoint，仍不代表完整工作台恢复态闭环。
 
-Current Breakpoint：J8/AU10-workbench-matrix-layout。`WorkspaceChat` 已是唯一生产工作台入口；缺完整工作台体验验收和截图暴露的 viewport/layout 修复。
+Current Breakpoint：J9/AU10-workbench-recovery-taskstate。`WorkspaceChat` 已是唯一生产工作台入口，`au10-workbench-matrix-layout` 已覆盖 1280×800 baseline；缺长任务、断线、超时和失败恢复体验验收。
 
-Next Proof：从真实工作台覆盖普通聊天、探索候选、available action、adoption、why、reading projection、task_state、错误恢复和 1280×800 layout 的一条综合 walkthrough。
+Next Proof：从真实工作台覆盖 `task_state` RUNNING/CHECKPOINT/COMPLETED/FAILED、WebSocket 断线重连、LLM 超时/失败后恢复的一条综合 walkthrough，并继续复核 1280×800 layout。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -413,8 +413,9 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | J4 | AI 显示名按作品隔离 | SU-03 | TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/su03-assistant-display-name-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh su03-assistant-display-name` | 真实 LLM payload 不变仍缺独立日志证据。 |
 | J5 | 工作台统一运行时状态 | AU-10 | TurnResultViewModel / ProjectionHint | closed | Tauri automation | `artifacts/slice-verify/workspace-runtime-state-tauri/summary.json` | 只覆盖 runtime state 模型，不覆盖完整用户流程。 |
 | J6 | available action panel 和 stale/invented 拒绝 | AU-10 / AU-06 | AvailableAction / AuthorActionInput | partial | Channel/API automation | `workspace_channel_v3_test.exs`、`action_roundtrip_test.exs` | 缺完整 UI action walkthrough。 |
-| J7 | trace/why、adoption、projection 在同一工作台主入口协作 | AU-10 / AU-05 / AU-07 / AU-08 | TraceSummaryView / AdoptionDecision / ProjectionHint | partial | Multiple Tauri proofs | 各 journey 有单点 evidence | 缺综合工作台验收。 |
-| J8 | 完整错误恢复、断线、任务进度、Tauri 合规体验 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | next | Document only | AU10-GAP-08~12；`AU10-workbench-matrix-layout` | 补综合 walkthrough、外部 Tauri 自动化和 viewport/layout 断言。 |
+| J7 | trace/why、adoption、projection 在同一工作台主入口协作 | AU-10 / AU-05 / AU-07 / AU-08 | TraceSummaryView / AdoptionDecision / ProjectionHint | partial | Multiple Tauri proofs | 各 journey 有单点 evidence | 缺恢复态和深矩阵。 |
+| J8 | AU-10 baseline matrix 与 1280×800 layout | AU-10 / AU-01 / AU-02 / AU-05 / AU-07 / AU-08 | TurnResultViewModel / AvailableAction / TraceSummaryView / AdoptionDecision / ProjectionHint | checkpoint closed | Tauri automation | `artifacts/slice-verify/au10-workbench-matrix-layout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout` | 已覆盖普通聊天 no-MicroPlan、why、候选授权 action、正文草稿采纳、Reading Projection、task status 首屏基线和 1280×800 无横向溢出；不覆盖长任务、断线、超时。 |
+| J9 | 完整错误恢复、断线、任务进度、Tauri 合规体验 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | next | Document only | AU10-GAP-07/10/11；`AU10-workbench-recovery-taskstate` | 补真实工作台恢复态 walkthrough、外部 Tauri 自动化和长任务状态矩阵。 |
 
 ---
 
@@ -431,15 +432,15 @@ Next Proof：从真实工作台覆盖普通聊天、探索候选、available act
 | G 阅读投影 | G1-G2 | G3 refresh state machine | 多个 P0/P1 | Tauri | watch |
 | H 记忆治理 | H1-H2/H4 | H3/H6 management/governed memory | 多个 P0/P1 | Tauri + tests | needs-focus |
 | I Trace/Replay | I1 | I2-I5 trace/replay completeness | 多个 P0/P1 | Tauri + tests | needs-focus |
-| J 工作台体验 | J1-J5 最小闭环 | J8 AU10-workbench-matrix-layout | 多个 P0/P1 | Tauri | next |
+| J 工作台体验 | J1-J5 最小闭环 + J8 baseline checkpoint | J9 AU10-workbench-recovery-taskstate | 多个 P0/P1 | Tauri | next |
 
 当前推进锁定：
 
 ```text
-Current Focus: AU-10 工作台 matrix/layout
+Current Focus: AU-10 工作台恢复态/task_state
 Current Journey: Journey J
-Current Breakpoint: J8 integrated workbench UX
-Next Task: AU10-workbench-matrix-layout
+Current Breakpoint: J9 recovery/task_state UX
+Next Task: AU10-workbench-recovery-taskstate
 ```
 
 ---
@@ -464,18 +465,18 @@ Next Task: AU10-workbench-matrix-layout
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: AU-10 工作台 matrix/layout
+Current Focus: AU-10 工作台恢复态/task_state
 Active Journey: Journey J
-Queue head: AU10-workbench-matrix-layout
+Queue head: AU10-workbench-recovery-taskstate
 ```
 
 本文对应位置：
 
 ```text
 Journey J
-Step J8 完整错误恢复、断线、任务进度、Tauri 合规体验
+Step J9 完整错误恢复、断线、任务进度、Tauri 合规体验
 Status: next
-Gap / Next: `WorkspaceChat` 已是唯一生产工作台入口；下一步补 AU-10 专属 matrix/layout；tasks/NEXT.md 队首 AU10-workbench-matrix-layout
+Gap / Next: `WorkspaceChat` 已是唯一生产工作台入口，baseline matrix/layout 已闭环；下一步补 AU-10 恢复态和长任务状态矩阵；tasks/NEXT.md 队首 AU10-workbench-recovery-taskstate
 ```
 
 选择规则：

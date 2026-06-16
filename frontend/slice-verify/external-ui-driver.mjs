@@ -125,6 +125,99 @@ async function waitForAppLogRecord(predicate, message, timeoutMs = 60_000) {
   throw new Error(message);
 }
 
+function viewportForSlice(id) {
+  if (id === "au10-workbench-matrix-layout") return { width: 1280, height: 800 };
+  return { width: 1440, height: 900 };
+}
+
+async function captureWorkbenchLayout(page, phase) {
+  return await page.evaluate((currentPhase) => {
+    const rectOf = (selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return null;
+      const rect = element.getBoundingClientRect();
+      return {
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        right: rect.right,
+        bottom: rect.bottom,
+      };
+    };
+    const visible = (selector) => {
+      const element = document.querySelector(selector);
+      if (!element) return false;
+      const rect = element.getBoundingClientRect();
+      const style = window.getComputedStyle(element);
+      return rect.width > 0 && rect.height > 0 && style.visibility !== "hidden";
+    };
+    const text = document.body.innerText;
+    const topBar = rectOf('[class*="topBar"]');
+    const mainArea = rectOf('[class*="mainArea"]');
+    const inputArea = rectOf('[class*="inputArea"]');
+    const rail = rectOf('[class*="structureRailCollapsed"]');
+
+    return {
+      phase: currentPhase,
+      viewport_width: window.innerWidth,
+      viewport_height: window.innerHeight,
+      document_scroll_width: document.documentElement.scrollWidth,
+      document_scroll_height: document.documentElement.scrollHeight,
+      body_scroll_width: document.body.scrollWidth,
+      top_bar_height: topBar?.height ?? 0,
+      top_bar_within_viewport:
+        Boolean(topBar) &&
+        topBar.x >= 0 &&
+        topBar.y >= 0 &&
+        topBar.right <= window.innerWidth + 1 &&
+        topBar.bottom <= window.innerHeight + 1,
+      top_bar_single_row: Boolean(topBar) && topBar.height <= 72,
+      main_area_visible: Boolean(mainArea) && mainArea.width >= 960 && mainArea.height >= 560,
+      input_area_visible:
+        Boolean(inputArea) &&
+        inputArea.y >= 0 &&
+        inputArea.bottom <= window.innerHeight + 1 &&
+        inputArea.height >= 56,
+      rail_width: rail?.width ?? 0,
+      rail_within_viewport:
+        Boolean(rail) && rail.right <= window.innerWidth + 1 && rail.height >= 560,
+      no_horizontal_overflow:
+        document.documentElement.scrollWidth <= window.innerWidth + 2 &&
+        document.body.scrollWidth <= window.innerWidth + 2,
+      workbench_visible: visible('[class*="workbench"]'),
+      chat_input_visible: visible('input[placeholder="输入你的想法、问题或指令..."]'),
+      send_button_visible: [...document.querySelectorAll("button")].some(
+        (button) => (button.textContent ?? "").trim() === "发送",
+      ),
+      service_status_visible: /服务: 已连接|同步已连接/.test(text),
+      provider_status_visible: /Stub|LM Studio|DeepSeek|Anthropic|模型已连接|模型未连接/.test(text),
+      task_status_visible: text.includes("无任务"),
+      reading_entry_visible: text.includes("[阅读模式]") || text.includes("阅读"),
+      archive_entry_visible: text.includes("打开档案"),
+    };
+  }, phase);
+}
+
+function assertWorkbenchLayout(layout, phase) {
+  assert(layout.viewport_width === 1280, `${phase}: expected 1280px viewport`);
+  assert(layout.viewport_height === 800, `${phase}: expected 800px viewport`);
+  assert(layout.workbench_visible, `${phase}: workbench root is not visible`);
+  assert(layout.no_horizontal_overflow, `${phase}: page has horizontal overflow`);
+  assert(layout.top_bar_within_viewport, `${phase}: top bar is outside viewport`);
+  assert(layout.top_bar_single_row, `${phase}: top bar wrapped into a second row`);
+  assert(layout.main_area_visible, `${phase}: main work area is too small or hidden`);
+  assert(layout.input_area_visible, `${phase}: input area is not stable at the bottom`);
+  assert(layout.rail_within_viewport, `${phase}: structure rail overflows viewport`);
+  assert(layout.chat_input_visible, `${phase}: chat input is not visible`);
+  assert(layout.send_button_visible, `${phase}: send button is not visible`);
+  assert(layout.service_status_visible, `${phase}: service status is not visible`);
+  assert(layout.provider_status_visible, `${phase}: provider status is not visible`);
+  assert(layout.task_status_visible, `${phase}: task status baseline is not visible`);
+  assert(layout.reading_entry_visible, `${phase}: reading entry is not visible`);
+  assert(layout.archive_entry_visible, `${phase}: archive entry is not visible`);
+}
+
 async function commonUiState(page, turnResult, sentMessage) {
   const visibleText = await page.locator("body").innerText();
 
@@ -331,7 +424,7 @@ async function driveCandidateAdoptionBridge(page) {
   );
 
   await page
-    .getByRole("button", { name: /继续聊这个方向/ })
+    .getByRole("button", { name: /继续讨论|继续聊这个方向/ })
     .first()
     .click();
 
@@ -368,16 +461,25 @@ async function driveCandidateAdoptionBridge(page) {
   );
   const adoptionTurnResult = adoptionTurnFrame.body;
 
-  await page.waitForFunction(() => document.body.innerText.includes("候选方向已采用"), {
-    timeout: 10_000,
-  });
+  await page.waitForFunction(
+    () => /已采用候选|已设为后续方向|候选方向已采用/.test(document.body.innerText),
+    {
+      timeout: 10_000,
+    },
+  );
 
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, adoptionTurnResult, sentMessage);
   const visibleText = await page.locator("body").innerText();
 
-  assert(visibleText.includes("继续聊这个方向"), "Candidate continuation button was not rendered");
-  assert(visibleText.includes("采用这个方向"), "Candidate adoption button was not rendered");
+  assert(
+    /继续讨论|继续聊这个方向/.test(visibleText),
+    "Candidate continuation button was not rendered",
+  );
+  assert(
+    /设为后续方向|采用这个方向/.test(visibleText),
+    "Candidate adoption button was not rendered",
+  );
   assert(
     adoptionTurnResult.truthfulness?.candidate_selected === true,
     "Adoption turn_result did not mark candidate_selected",
@@ -409,7 +511,7 @@ async function driveCandidateAdoptionBridge(page) {
       candidate_selected: adoptionTurnResult.truthfulness.candidate_selected,
       candidate_adopted: adoptionTurnResult.truthfulness.candidate_adopted,
       production_write_performed: adoptionTurnResult.truthfulness.production_write_performed,
-      visible_adoption_result: visibleText.includes("候选方向已采用"),
+      visible_adoption_result: /已采用候选|已设为后续方向|候选方向已采用/.test(visibleText),
     },
   ];
 }
@@ -2501,6 +2603,124 @@ async function driveAu09ValidityWindowRecall(page) {
   ];
 }
 
+async function driveAu10WorkbenchMatrixLayout(page) {
+  const records = [];
+  const initialLayout = await captureWorkbenchLayout(page, "initial");
+  assertWorkbenchLayout(initialLayout, "initial");
+
+  const ordinaryMessage = "请用一句话说明当前作品的创作状态。";
+  await page.locator(chatInputSelector).fill(ordinaryMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const ordinaryTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.assistant_message != null,
+    "No ordinary AU-10 turn_result websocket frame was received",
+    120_000,
+  );
+  const ordinaryTurnResult = ordinaryTurnFrame.body;
+
+  await page.waitForFunction(
+    (message) =>
+      document.body.innerText.includes(message) && !document.body.innerText.includes("思考中"),
+    ordinaryMessage,
+    { timeout: 10_000 },
+  );
+
+  const whyText = await openLatestWhyDialog(page);
+  assert(whyText.includes("参考来源"), "Why dialog did not expose author-facing trace sources");
+  await page.keyboard.press("Escape").catch(() => {});
+  await page
+    .getByRole("dialog")
+    .first()
+    .waitFor({ state: "detached", timeout: 2_000 })
+    .catch(() => {});
+
+  const afterOrdinaryLayout = await captureWorkbenchLayout(page, "after_ordinary_turn");
+  assertWorkbenchLayout(afterOrdinaryLayout, "after_ordinary_turn");
+  const ordinaryUiState = await commonUiState(page, ordinaryTurnResult, latestSentUserMessage());
+
+  records.push({
+    ...ordinaryUiState,
+    phase: "ordinary_turn",
+    turn_id: ordinaryTurnResult.turn_id,
+    ordinary_turn_id: ordinaryTurnResult.turn_id,
+    ordinary_message_text: ordinaryMessage,
+    trace_why_dialog_open: true,
+    trace_why_text: whyText,
+    trace_why_contains_raw_prompt: /raw prompt|provider raw|hidden policy|debug|ctx_/i.test(
+      whyText,
+    ),
+    layout: afterOrdinaryLayout,
+    au10_layout_passed: true,
+  });
+
+  const candidateRecords = await driveCandidateAdoptionBridge(page);
+  const candidateRecord = candidateRecords[0];
+  records.push({
+    ...candidateRecord,
+    phase: "candidate_action",
+    au10_candidate_action_passed: true,
+  });
+
+  const adoptionRecords = await driveP1ChapterAdoptionReading(page);
+  const adoptionRecord = adoptionRecords[0];
+  const afterReadingLayout = await captureWorkbenchLayout(page, "after_adoption_reading");
+  assert(afterReadingLayout.no_horizontal_overflow, "reading mode introduced horizontal overflow");
+
+  records.push({
+    ...adoptionRecord,
+    phase: "adoption_reading",
+    layout: afterReadingLayout,
+    au10_adoption_reading_passed: true,
+  });
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-matrix-layout",
+      turn_id: ordinaryTurnResult.turn_id,
+      ordinary_turn_id: ordinaryTurnResult.turn_id,
+      candidate_turn_id: candidateRecord.turn_id,
+      candidate_source_turn_ref: candidateRecord.source_turn_ref,
+      candidate_ref: candidateRecord.candidate_ref,
+      adoption_turn_id: adoptionRecord.adopt_turn_id,
+      draft_turn_id: adoptionRecord.draft_turn_id,
+      artifact_id: adoptionRecord.artifact_id,
+      layout_initial: initialLayout,
+      layout_after_ordinary: afterOrdinaryLayout,
+      layout_after_reading: afterReadingLayout,
+      viewport_width: initialLayout.viewport_width,
+      viewport_height: initialLayout.viewport_height,
+      layout_no_horizontal_overflow:
+        initialLayout.no_horizontal_overflow &&
+        afterOrdinaryLayout.no_horizontal_overflow &&
+        afterReadingLayout.no_horizontal_overflow,
+      top_bar_single_row:
+        initialLayout.top_bar_single_row && afterOrdinaryLayout.top_bar_single_row,
+      input_area_visible:
+        initialLayout.input_area_visible && afterOrdinaryLayout.input_area_visible,
+      service_status_visible: initialLayout.service_status_visible,
+      provider_status_visible: initialLayout.provider_status_visible,
+      task_status_visible: initialLayout.task_status_visible,
+      ordinary_turn_completed: Boolean(ordinaryTurnResult.turn_id),
+      trace_why_dialog_open: true,
+      trace_why_contains_raw_prompt: records.some(
+        (record) => record.trace_why_contains_raw_prompt === true,
+      ),
+      candidate_action_completed: Boolean(candidateRecord.action_result_status),
+      candidate_selected: candidateRecord.candidate_selected === true,
+      candidate_adopted: candidateRecord.candidate_adopted === true,
+      adoption_reading_completed: adoptionRecord.reading_mode_populated_after_adoption === true,
+      word_count_matches_adopted_prose: adoptionRecord.word_count_matches_adopted_prose === true,
+      matrix_phases: records.map((record) => record.phase),
+    },
+    ...records,
+  ];
+}
+
 async function driveCp0MissingChapterBlock(page) {
   // VS-00C CP0：作品里有第01章计划，但没有第99章。作者用自然语言「续写第99章」→
   // Planner 识别 continuation 意图 + 把作者点名的「第99章」原样放进 requested_chapter_raw，
@@ -2602,6 +2822,7 @@ async function driveCp0MissingChapterBlock(page) {
 
 const drivers = {
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
+  "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
@@ -2633,7 +2854,7 @@ if (!driver) {
 }
 
 const browser = await chromium.launch({ headless: true });
-const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+const page = await browser.newPage({ viewport: viewportForSlice(sliceId) });
 
 page.on("websocket", (ws) => {
   ws.on("framesent", (event) => recordFrame("sent", event.payload));

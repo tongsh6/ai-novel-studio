@@ -1,6 +1,6 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-06-12
+> 最后更新：2026-06-17
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 
@@ -8,13 +8,13 @@
 
 ## 1. Current Focus
 
-**AU-10 工作台入口收口与 matrix/layout：`WorkspaceChat` 已成为唯一生产工作台入口，下一步补完整工作台 matrix 与 1280×800 viewport/layout 验收**
+**AU-10 工作台入口收口与恢复态：`au10-workbench-matrix-layout` baseline 已闭环，下一步补长任务 `task_state` / 断线 / 超时恢复矩阵**
 
-P1 主链已在 2026-06-12 达成 10 万字狗粮里程碑。当前用户反馈指出 `WorkspaceChat` / `历史旁路工作台` 分裂问题尚未解决，本轮已退役删除 `历史旁路工作台` / `历史旁路 socket helper` 旁路，保留 `WorkspaceChat` 作为唯一生产入口，并完成截图问题第一轮修复：规划请求进入 `plot_outline`，章节/大纲/设定草稿、assistant_message、离线 provider rationale、保存动作和候选后续方向结果均改为作者语义，顶部栏压缩可见运行态。下一断点仍是 AU-10：用外部 Tauri driver 覆盖启动、连接、provider health、普通聊天、候选、available action、adoption、trace/why、reading projection、task_state、错误恢复和 1280×800 layout，避免工作台 UI 再被分散 checkpoint 高估。
+P1 主链已在 2026-06-12 达成 10 万字狗粮里程碑。当前用户反馈指出 `WorkspaceChat` / `历史旁路工作台` 分裂问题尚未解决，本轮已退役删除 `历史旁路工作台` / `历史旁路 socket helper` 旁路，保留 `WorkspaceChat` 作为唯一生产入口，并完成截图问题第一轮修复：规划请求进入 `plot_outline`，章节/大纲/设定草稿、assistant_message、离线 provider rationale、保存动作和候选后续方向结果均改为作者语义，顶部栏压缩可见运行态。2026-06-17 新增并跑通 `au10-workbench-matrix-layout` 外部 Tauri driver：真实工作台在 1280×800 viewport 下完成普通聊天 no-MicroPlan、why 弹窗、候选授权 action、正文草稿采纳、阅读投影与任务状态首屏基线。下一断点仍在 AU-10，但范围收窄为恢复态：长任务 `task_state` RUNNING/CHECKPOINT/COMPLETED/FAILED、断线重连、LLM 超时/失败后恢复，避免把 baseline matrix 误写成完整 AU-10。
 
 ## 2. Why This Focus
 
-P1 的 10 万字狗粮证明了长篇主链可以跑通，但也暴露工作台仍是所有作者旅程的真实消费者。截图中的顶部状态栏压缩、右侧栏挤压、以及历史 `历史旁路工作台` 旁路都说明 AU-10 不能只靠分散 checkpoint 判断。先收口唯一入口并补 matrix/layout 验收，才能继续稳定推进错误恢复、长跑任务状态和后续质量护栏。
+P1 的 10 万字狗粮证明了长篇主链可以跑通，但也暴露工作台仍是所有作者旅程的真实消费者。截图中的顶部状态栏压缩、右侧栏挤压、以及历史 `历史旁路工作台` 旁路都说明 AU-10 不能只靠分散 checkpoint 判断。唯一入口与 baseline matrix/layout 已有外部 Tauri 证据；下一步必须补恢复态和长跑状态，才能把工作台从“主链能跑”推进到“异常和等待时仍可判断、可恢复”。
 
 已闭环的最近 checkpoint：
 
@@ -33,6 +33,7 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通，但也暴露工作台�
 | AU05 canon conflict recovery failure | checkpoint closed | `artifacts/slice-verify/au05-canon-conflict-recovery-tauri/summary.json` |
 | P1 chapter plan minimum | checkpoint closed | `artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json` |
 | P1 chapter draft generation | checkpoint closed | `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json` |
+| AU10 workbench matrix/layout baseline | checkpoint closed | `artifacts/slice-verify/au10-workbench-matrix-layout-tauri/summary.json` |
 
 ## 3. Active Journey
 
@@ -47,7 +48,7 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通，但也暴露工作台�
 → 工作台在 1280×800 viewport 下保持可读、可操作、可恢复
 ```
 
-当前断点：**AU10-workbench-matrix-layout**。
+当前断点：**AU10-workbench-recovery-taskstate**。
 
 ## 4. Queue
 
@@ -76,7 +77,8 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通，但也暴露工作台�
 | 19 | P1-word-count-audit-repetition-gaps | deferred | - | 重复段落/重复章检测（B）+ 缺章率与 word-count.json 完整版（C）。质量护栏，按「质量放后」延后为独立 creative-quality slice，收敛到 `quality_finding` + policy（v3-quality-gates §4.2「主链稳定后再铺开」），不再贴 reading projection（避免加深 F1 债）。 | `tasks/slices/P1-word-count-audit.md` §3/§6/§7 |
 | 20 | P1-export-minimum | done | - | 阅读模式「导出全书」→ 后端从已采纳作品事实（阅读投影单一源）组装完整 Markdown 落盘：头部元信息 + 全章有序目录 + 已采纳正文 + 未写章诚实占位；确定性 + `--real-lmstudio` 通过（driver 读真实导出文件验证）。 | `artifacts/slice-verify/p1-export-minimum-tauri{,-lmstudio}/summary.json` |
 | 21 | P1-100k-dogfood-run | done | - | **P1 里程碑达成**：真实工作台狗粮产出 **115,274 有效字 / 90 章全部 ≥1000**（min 1024），全程外部 Playwright 像作者一样操作（规划→逐章首稿/续写→采纳→增量扩章循环→导出）；多次 `--resume` 断点续跑实证「重启后继续」；抽查 0 系统泄漏 / 0 空章 / 0 重复开篇。狗粮还反哺两个产品健壮性修复（LLM 坏 JSON 重试、续写前文裁剪）。 | `artifacts/novel-output/p1-100k-dogfood/`（summary/word-count/chapter-quality/continuity/export/progress/work-snapshot.sqlite3） |
-| 22 | AU10-workbench-matrix-layout | next | - | `WorkspaceChat` 已是唯一生产工作台入口；需要用 AU-10 专属外部 Tauri driver 把分散证据归并，并修截图暴露的顶部状态栏/右侧栏/底部输入区 viewport 问题。 | `bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout`（待新增）；1280×800 screenshot/layout 断言 + action/adoption/why/projection/task_state 基线 |
+| 22 | AU10-workbench-matrix-layout | checkpoint closed | - | `WorkspaceChat` 已是唯一生产工作台入口；首条 AU-10 baseline matrix 已把分散证据归并到真实 1280×800 工作台：普通聊天 no-MicroPlan、why、候选授权 action、adoption、reading projection 与 task status 首屏基线。 | `artifacts/slice-verify/au10-workbench-matrix-layout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout` |
+| 23 | AU10-workbench-recovery-taskstate | next | - | baseline matrix 尚未覆盖长任务 RUNNING/CHECKPOINT/COMPLETED/FAILED、WebSocket 断线重连、LLM 超时/失败后恢复；这些是 AU-10 仍不能标完整工作台闭环的主要 P0/P1 缺口。 | `bash scripts/tauri_slice_verify.sh au10-workbench-recovery-taskstate`（待新增）；真实工作台恢复态 walkthrough + `task_state` 可见生命周期 + 断线/超时 UI 证据 |
 
 ## 5. Selection Rule
 
@@ -117,6 +119,7 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通，但也暴露工作台�
 | 2026-06-10 | 插队工作（不在主队列，借「降 AI 味」提示词 + harness 修复）。 | plan-minimum 复活 + overwrite-confirm 对齐 toc 语义（`53c7d9b`）；prose_writing 写作质量约束 Slice A（`ceefa60`）；目标字数结构化创作槽 Slice B checkpoint 1（`4959943`，新 slice `p1-chapter-word-count-target`）。降 AI 味分析性验收结论见 memory：对白手法显著、反套话黑名单照搬截图未对准本地模型指纹，按「本地模型先聚焦功能」延后。 |
 | 2026-06-12 | `P1-100k-dogfood-run`（Order 21）**P1 里程碑达成**：115,274 有效字 / 90 章全 ≥1000 / 审计全 ok / 导出 390KB 完整 90 章目录有序 / 抽查 0 泄漏 0 重复。 | 放大跑暴露并修复两个真实产品缺口：① 真实 LLM 长上下文偶发非法 JSON（字符串内裸换行）→ `CreativeProvider.Real` 增加坏 JSON 纠错重试（与 Planner frame retry 同模式，3 单测）；② **续写前文注入无长度上限** → LM Studio n_ctx=4096 下 ~1000 字章的续写请求 HTTP 400（`n_keep 4264 >= n_ctx 4096`），任何达标章永远无法续写 → `prior_prose_section` 裁剪到末尾 2000 字并标注省略（修复后 21 个滞留章连续零失败补齐）。运维教训：狗粮数据在共用 test DB，`tauri_slice_verify.sh` cleanup 会重置——长跑期间禁跑 slice 验收（基建改进项：狗粮独立 DB）；LM Studio 建议 n_ctx ≥8192；6 小时高负载后模型输出会暂时退化（停跑喘息可恢复）。质量观察（非阻断）：8/90 章标题无「第NN章」编号前缀（目录 seq 仍有序）；连续性/重复段自动检测归 Order 19（deferred）。 |
 | 2026-06-12 | P0 插队：`AU10-workbench-matrix-layout` 成为当前 next。 | 用户指出 `WorkspaceChat` / `历史旁路工作台` 的问题并未解决。当前已退役删除 `历史旁路工作台` / `历史旁路 socket helper` 旁路，`WorkspaceChat` 成为唯一生产工作台入口；下一步补 AU-10 专属 matrix/layout Tauri 验收和截图暴露的真实 viewport 问题。 |
+| 2026-06-17 | `AU10-workbench-matrix-layout` baseline checkpoint 已闭环，队首推进到 `AU10-workbench-recovery-taskstate`。 | 原生 Tauri 外部 driver 在 1280×800 真实工作台完成普通聊天 no-MicroPlan、why 弹窗、候选授权 action、正文草稿采纳、Reading Projection 与任务状态首屏基线；但仍未覆盖长任务全过程、断线、超时和失败恢复，因此 AU-10 整体不得标 complete。 |
 | 2026-06-11 | dogfood checkpoint 2：12 章全部跑满（16,734 字、12/12 ≥1000、0 失败、末跑 8 分钟）+ 增量规划 slice `p1-plan-incremental` 两 provider 闭环（**零产品代码**——物化层 title 幂等 + seq 续排本就支持追加，真实 gpt-oss-120b 从已有 12 章正确接续生成第13-19章、采纳追加、原章不动）。10 万字放大跑解锁。 | runner 修两个深层 bug：① 长会话**历史帧误匹配**（帧匹配不限起点 → 第08章误进第03章的确认分支）→ waitForFrame 加 fromIndex 限定本轮；② **waitForFunction(fn, arg, options) 参数顺序坑复发**（两参形式 timeout 被当 arg 从未生效、默认 30s）→ runner 全部改三参——该坑在所有 slice driver 的两参调用里潜伏（条件总在 30s 内满足未暴露），后续宜统一清理。狗粮还实证：覆盖确认/确认执行/失败重试-跳过/`--resume` 三次断点续跑全部工作；确定性 provider 的「改写」关键字误判（planner-keyword 债）只影响离线调试不影响真实跑。增量批量由 AI 自定（实测 7 章），验收下限放宽 >= 5。 |
 | 2026-06-11 | `P1-100k-dogfood-run`（Order 21）checkpoint 1：狗粮长跑 runner 基建落地并真实试跑通过；放大到 10 万字前发现产品缺口「计划无法增量扩展」。 | 新增 `scripts/dogfood_run.sh` + `frontend/slice-verify/dogfood-runner.mjs`（外部 Playwright 像作者一样逐章推进真实工作台：读阅读投影找未达标章 → 首稿/续写自然语言指令 → 确认创建采纳 → 循环 → 导出全书；支持 `--resume` 断点续跑=「重启后继续生成下一章」真实演练、确认卡处理（消费 AU-04 链）、失败重试-跳过、progress.jsonl + milestones §8 产物）。真实试跑（gpt-oss-120b）：第01章 135→642→1101、第02章 137→804→1600，续写衔接自然（nonce 贯通）、~25s/轮。**缺口**：seed 计划仅一卷 12 章（≈1.8 万字），10 万字需 ~70-100 章；增量规划（「继续规划第二卷」→ outline 采纳追加到既有结构）未验证，疑似采纳物化（固定「第一卷」+ seq 从 1 重算）不支持追加——需先以独立 slice 闭环增量规划，或本轮先跑满 12 章并如实报告缺口。 |
 | 2026-06-11 | `P1-export-minimum`（Order 20）闭环，队首推进到 `P1-100k-dogfood-run`。 | 阅读模式新增「导出全书」：channel `export_work` → `ExportService`（复用 `ReadingProjectionService.toc/chapter_content` 单一作品事实源，AU-08 口径——未采纳草稿天然不进导出）→ `NovelDomain.ExportDocument` 纯函数渲染（头部元信息 + 全章按 seq 目录 + 逐卷逐章正文 + 未写章「（本章暂无已采纳正文）」诚实占位）→ 写盘（`:export_dir` config，test=tmp/exports、默认 ~/Documents/AI Novel Studio）→ UI 显示「已导出到 <路径>」。验收 driver 复用采纳-阅读链后点真实导出按钮、从页面路径读真实文件断言 12 章目录有序、已采纳正文在文、占位恰 11；确定性 + `--real-lmstudio` 通过。后端 229+105 测试、I3/I1/I2、前端审计/设计追溯全过。 |

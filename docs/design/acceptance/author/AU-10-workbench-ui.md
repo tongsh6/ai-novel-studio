@@ -9,6 +9,8 @@
 > 2026-06-12 真源对齐：`WorkspaceChat` 已是当前真实入口，并已有多条外部 Tauri driver 证据覆盖 provider health、普通聊天、候选继续探索、候选 action 授权、confirm-before-execute、保存/不保存/修改后保存、trace/why、保存后阅读投影、档案真实数据、记忆创建/召回、AU-10 MicroPlan 入口和 no-MicroPlan 普通聊天。`历史旁路工作台` / `历史旁路 socket helper` 旁路已退役删除，避免继续保留第二套工作台 UI/helper 语义。AU-10 当前主要缺口不再是“这些链路不存在”，而是完整工作台矩阵尚未一次性闭环：首屏/顶部状态栏在真实 viewport 下布局失控，长跑 `task_state`/断线/超时恢复缺完整 UI 证据，部分组件仍有设计追溯/文案集中/隐藏 metadata 卫生问题，且缺覆盖这些状态的统一 AU-10 Tauri 验收。
 >
 > 2026-06-12 截图问题第一轮修复：明确“规划大纲/卷数/章节数/角色成长路线/势力结构”的作者输入会被归一为创作产出请求并进入 `plot_outline`，不再停在候选方向；`candidate_set` 按 `artifact_type` 显示“大纲草稿 / 章节正文草稿 / 角色设定草稿 / 世界设定草稿”，assistant_message fallback 与离线 provider rationale 同步使用“待保存草稿”语义；保存/不保存/修改后保存动作说明目标落点；顶部栏压缩可见运行态，模型长名进入 tooltip，候选按钮和结果卡从“采用这个方向/候选方向已采用”调整为“设为后续方向/已设为后续方向”，明确不写入章节正文或作品事实。这只是语义与首屏拥挤的实现修复，仍需 AU-10 专属 Tauri matrix 和 1280×800 screenshot 断言复核。
+>
+> 2026-06-17 baseline matrix 复核：新增 `bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout`。该外部 Tauri driver 不依赖产品验收钩子，在 1280×800 真实工作台依次验证首屏/顶部栏/输入区/结构栏无横向溢出、普通聊天默认 no-MicroPlan、why 弹窗不泄漏 raw prompt、候选方向通过服务器授权 `author_action.choose_candidate`、候选选择不写生产正文、正文草稿采纳进入 adoption boundary、Reading Projection 可读取已采纳正文与字数、任务状态首屏基线可见。证据：`artifacts/slice-verify/au10-workbench-matrix-layout-tauri/summary.json`。这只是 AU-10 baseline checkpoint；长任务 RUNNING/CHECKPOINT/COMPLETED/FAILED、断线重连、LLM 超时/失败恢复、disabled/stale/idempotency UI 和全 card 视觉矩阵仍未闭环。
 
 ---
 
@@ -55,14 +57,14 @@
 | 契约 / 实现 | 用途 | 当前证据判断 |
 |---|---|---|
 | `frontend/src/App.tsx` | 真实应用入口 | 当前 `workbench` mode 只渲染 `WorkspaceChat` |
-| `WorkspaceChat.tsx` | 真实工作台主组件 | 当前首屏真实入口；已有消息、卡片、候选、档案、阅读切换、provider health、`available_actions` / `author_action` / `task_state`、adoption、trace/why、reading projection 的最小闭环或跨 AU Tauri 证据；仍缺完整 AU-10 工作台矩阵、viewport/layout、错误恢复和长跑状态验收 |
+| `WorkspaceChat.tsx` | 真实工作台主组件 | 当前首屏真实入口；已有消息、卡片、候选、档案、阅读切换、provider health、`available_actions` / `author_action` / `task_state`、adoption、trace/why、reading projection 的最小闭环或跨 AU Tauri 证据；`au10-workbench-matrix-layout` 已补 1280×800 baseline matrix；仍缺错误恢复、长跑 `task_state` 全生命周期和更深 UI 状态矩阵 |
 | `UICards.tsx` | 结构化卡片渲染 | 10 类卡片组件存在；**superseded（2026-05-26）**：card 不再承载业务动作，真实提交动作必须来自 `available_actions` |
 | `socket.ts` | 真实 `WorkspaceChat` 使用的 Channel helper | `sendMessage` 默认 `generate_micro_plan: false`；`sendAuthorAction` 与 `onTaskState` 已被真实入口消费；adoption 当前通过服务器 `available_actions` 与 `author_action` 主路进入，旧 direct helper 仅作为兼容边界审计对象 |
 | `历史旁路工作台` / `历史旁路 socket helper` | 历史旁路 UI/helper | 已退役删除；后续不得再把它们作为当前 AU-10 局部证据 |
 | `WorkspaceChannel` | 后端真实 Channel | 实现 `user_message`、`author_action`、`ping`、adoption accept/discard/edit_then_accept 路由、confirmation 针对 pending artifact 的采纳路由，以及档案/结构相关 handlers；旧 direct `adopt`/`discard` 兼容路径仍需治理，完整 action_result/长跑状态 UI 仍需验收 |
 | `workspace_channel_v3_test.exs` | Channel action 安全局部证据 | 覆盖 invented action 被拒绝、confirmation 后 task_state 广播；不是前端真实入口验收 |
 | `frontend/src/lib/__tests__/*` | 前端 helper/type 局部测试 | 覆盖 candidate/task_state/socket helper 形状；没有浏览器 UI 行为 |
-| `frontend/package.json` | 前端脚本 | 有 `playwright` 依赖；slice/Tauri 验证脚本已覆盖 AU-01/AU-02/AU-04/AU-05/AU-07/AU-08/AU-09/AU-10/VS-10 的多条真实入口证据，但还不是完整 AU-10 工作台验收套件 |
+| `frontend/package.json` | 前端脚本 | 有 `playwright` 依赖；slice/Tauri 验证脚本已覆盖 AU-01/AU-02/AU-04/AU-05/AU-07/AU-08/AU-09/AU-10/VS-10 的多条真实入口证据，`au10-workbench-matrix-layout` 已提供 AU-10 baseline matrix；仍不是错误恢复和长跑状态的完整 AU-10 套件 |
 | `docs/design/tech-stack/05-desktop.md` | Tauri 桌面约束 | provider health 已通过 `providerHealth.ts`/`env.ts` 端点抽象；当前主要偏差是截图暴露的桌面布局、组件追溯/文案集中和少量隐藏 `data-*` metadata 卫生 |
 
 ---
@@ -81,9 +83,9 @@
 - 不依赖浏览器 dev server 人工 mock；
 - 有 Playwright/Tauri walkthrough 证据。
 
-**当前证据**：`App.tsx` 渲染 `WorkspaceChat`；`WorkspaceChat` 已被 `stage-startup-context-contract`、`workspace-runtime-state`、AU-01/AU-10 等外部 Tauri driver 多次作为真实入口驱动；历史 `历史旁路工作台` 旁路已退役删除。
+**当前证据**：`App.tsx` 渲染 `WorkspaceChat`；`WorkspaceChat` 已被 `stage-startup-context-contract`、`workspace-runtime-state`、AU-01/AU-10 等外部 Tauri driver 多次作为真实入口驱动；历史 `历史旁路工作台` 旁路已退役删除。`au10-workbench-matrix-layout` 已在 1280×800 真实工作台断言顶部栏、主工作区、输入区、结构栏和无横向溢出。
 
-**当前状态**：部分实现 / 真实入口已确认，完整首屏布局验收未闭环。
+**当前状态**：baseline checkpoint 已闭环 / 完整错误恢复矩阵未闭环。
 
 ---
 
@@ -99,7 +101,7 @@
 
 **当前证据**：`WorkspaceChat` 通过 `frontend/src/lib/providerHealth.ts` 调用 `apiBaseUrl("/api/provider/health")`；`su01-provider-health-model-tauri` 已证明真实 Tauri 工作台能显示后端 provider metadata。
 
-**当前状态**：最小闭环 / 仍需并入 AU-10 完整工作台矩阵。
+**当前状态**：最小闭环 / 已并入 AU-10 baseline matrix，运行时切换和异常矩阵另见 SU-01。
 
 ---
 
@@ -332,9 +334,9 @@
 - 失败截图/日志可追溯；
 - 不只依赖 helper unit test。
 
-**当前证据**：`scripts/slice_verify.sh` / `scripts/tauri_slice_verify.sh` 已有多条真实入口证据：provider health、AU-01 普通聊天、AU-02 候选继续/授权、AU-04 confirmation、AU-05 adoption、AU-07 why、AU-08 reading projection、AU-09 archive/memory、AU-10 MicroPlan/no-MicroPlan、VS-10 observability。所有驱动均为外部 driver，不依赖产品识别 slice id。当前仍未形成一条 AU-10 专属完整矩阵，尤其缺 viewport/layout、长任务、断线错误和恢复态覆盖。
+**当前证据**：`scripts/slice_verify.sh` / `scripts/tauri_slice_verify.sh` 已有多条真实入口证据：provider health、AU-01 普通聊天、AU-02 候选继续/授权、AU-04 confirmation、AU-05 adoption、AU-07 why、AU-08 reading projection、AU-09 archive/memory、AU-10 MicroPlan/no-MicroPlan、VS-10 observability。所有驱动均为外部 driver，不依赖产品识别 slice id。`au10-workbench-matrix-layout` 已形成 AU-10 baseline matrix，覆盖 1280×800 viewport/layout、普通聊天、why、候选授权 action、adoption、reading projection 和 task status 首屏基线；当前仍缺长任务、断线错误和恢复态覆盖。
 
-**当前状态**：部分实现 / 多条最小真实入口证据已建立，完整工作台矩阵未闭环。
+**当前状态**：baseline matrix checkpoint 已闭环 / 恢复态矩阵未闭环。
 
 ---
 
@@ -359,25 +361,25 @@
 
 | 场景 | 做什么 | 当前状态 | 证据等级 |
 |---|---|---|---|
-| SC-AU10-A1 | 打开真实工作台首屏 | 部分实现 / 入口已确认 | `App.tsx -> WorkspaceChat`；多条 Tauri driver 经过真实入口；缺 viewport/layout 验收 |
-| SC-AU10-A2 | LLM health/model 状态 | 最小闭环 | `su01-provider-health-model-tauri`；`providerHealth.ts` 走 `env.ts` |
+| SC-AU10-A1 | 打开真实工作台首屏 | baseline checkpoint 已闭环 | `App.tsx -> WorkspaceChat`；`au10-workbench-matrix-layout-tauri` 覆盖 1280×800 首屏/layout；完整恢复态仍缺 |
+| SC-AU10-A2 | LLM health/model 状态 | 最小闭环 / 已并入 baseline | `su01-provider-health-model-tauri`；`providerHealth.ts` 走 `env.ts`；`au10-workbench-matrix-layout-tauri` 复核 provider 状态可见 |
 | SC-AU10-A3 | WebSocket 离线禁用输入 | 部分实现 | 代码和 `workspace-runtime-state-tauri` 有局部证据；缺断线/重连矩阵 |
-| SC-AU10-B1 | 发送消息 + loading | 最小闭环 | AU-01 deterministic 与 LMStudio Tauri 两轮普通聊天；缺超时/取消恢复态 |
-| SC-AU10-B2 | 普通聊天不误触发执行 | 最小闭环 | `au10-ordinary-chat-no-micro-plan-*` 与 `au10-micro-plan-entry-*` 区分普通聊天和明确执行入口 |
+| SC-AU10-B1 | 发送消息 + loading | 最小闭环 / 已并入 baseline | AU-01 deterministic 与 LMStudio Tauri 两轮普通聊天；`au10-workbench-matrix-layout-tauri` 覆盖普通消息完成；缺超时/取消恢复态 |
+| SC-AU10-B2 | 普通聊天不误触发执行 | 最小闭环 / 已并入 baseline | `au10-ordinary-chat-no-micro-plan-*` 与 `au10-micro-plan-entry-*` 区分普通聊天和明确执行入口；baseline driver 断言 ordinary turn 不进入 planner micro-plan |
 | SC-AU10-C1 | 候选卡显示 | 最小闭环 | AU-02 Tauri 真实入口候选继续/授权证据 |
 | SC-AU10-C2 | 候选点选继续探索 | 最小闭环 | `au02-candidate-continuation-tauri` 证明继续探索不等于采纳 |
-| SC-AU10-C3 | ActionPanel 只显示授权 action | 最小闭环 / 完整矩阵待补 | AU-02/AU-05 真实入口 action 证据；仍缺 stale/disabled/idempotency UI 覆盖 |
+| SC-AU10-C3 | ActionPanel 只显示授权 action | baseline checkpoint 已闭环 / 完整矩阵待补 | AU-02/AU-05 真实入口 action 证据；baseline driver 覆盖 `choose_candidate` 授权 action；仍缺 stale/disabled/idempotency UI 覆盖 |
 | SC-AU10-C4 | 确认/拒绝走 `author_action` | 最小闭环 / 完整反馈待补 | AU-04/AU-05 真实点击到后端 action route；缺 action_result 全状态 UI |
 | SC-AU10-C5 | 10 种 card 渲染和行为 | 部分实现 | card 不再自行构造业务 action；全 card 视觉/未知类型降级测试不足 |
-| SC-AU10-D1 | 采纳/修改/放弃主流程 | 最小闭环 / 深语义待补 | AU-05 accept/discard/edit_then_accept 与 AU-08 adoption-reading projection |
+| SC-AU10-D1 | 采纳/修改/放弃主流程 | baseline checkpoint 已闭环 / 深语义待补 | AU-05 accept/discard/edit_then_accept、AU-08 adoption-reading projection；baseline driver 覆盖正文草稿 accept -> Reading Projection |
 | SC-AU10-D2 | task_state 实时显示 | 部分实现 | `onTaskState` 与 store 映射存在；缺真实长任务全过程 UI |
 | SC-AU10-D3 | 超时/取消等待 | 部分实现 | timeout/catch 有；缺取消等待、断线恢复和 Tauri 证据 |
 | SC-AU10-E1 | projection hint/阅读模式 | 最小闭环 / 完整 AU-08 待补 | `au08-adoption-reading-projection-tauri` |
 | SC-AU10-E2 | trace/why 入口 | 最小闭环 / 深度 replay 待补 | `au07-trace-why-entry-tauri`，`au09-memory-create-recall-tauri` |
-| SC-AU10-F1 | Playwright/Tauri UI 验收 | 部分实现 / 多条真实入口证据已建立 | AU-01/AU-02/AU-04/AU-05/AU-07/AU-08/AU-09/AU-10/VS-10；缺 AU-10 专属完整矩阵 |
-| SC-AU10-F2 | Tauri/Design 约束 | 部分实现 / 首轮设计偏差已修 | endpoint/inline-style/历史旁路工作台 旁路旧问题已不成立；截图暴露的规划意图、草稿命名、按钮语义和顶部栏拥挤已做实现修复；剩余 AU-10 专属 screenshot/layout matrix、隐藏 metadata |
+| SC-AU10-F1 | Playwright/Tauri UI 验收 | baseline matrix checkpoint 已闭环 / 恢复态待补 | AU-01/AU-02/AU-04/AU-05/AU-07/AU-08/AU-09/AU-10/VS-10；`au10-workbench-matrix-layout-tauri` 是首条 AU-10 baseline matrix；缺断线/超时/长任务恢复矩阵 |
+| SC-AU10-F2 | Tauri/Design 约束 | baseline layout checkpoint 已闭环 / 卫生项待补 | endpoint/inline-style/历史旁路工作台 旁路旧问题已不成立；规划语义、草稿命名、按钮语义和顶部栏拥挤首轮修复后已由 1280×800 baseline driver 复核；剩余隐藏 metadata、文案集中和更深 viewport 状态 |
 
-**覆盖率重算（2026-06-12）**：AU-10 仍是 0/17 “完整工作台矩阵”闭环；但不再是 0/17 无真实证据。当前已有 9 条场景达到最小真实 Tauri 闭环，8 条仍为部分实现或设计/恢复态缺口。后续不能把跨 AU checkpoint 误写成 AU-10 完成，应补一条专属 AU-10 matrix driver，把启动、连接、消息、候选、action、adoption、task_state、trace、projection、错误恢复和 viewport/layout 一次性串起来。
+**覆盖率重算（2026-06-17）**：AU-10 已有首条 baseline matrix checkpoint，但仍不是完整 AU-10 闭环。当前可说清的是：真实入口、1280×800 首屏/layout、普通消息 no-MicroPlan、why、候选授权 action、正文草稿采纳、Reading Projection 和 task status 首屏基线已被一条 AU-10 专属外部 Tauri driver 串起来；仍不能说完整覆盖长任务 `task_state` 全生命周期、断线重连、LLM 超时/失败恢复、disabled/stale/idempotency action UI、全 card 视觉和隐藏 metadata 卫生。后续队首应从 `AU10-workbench-recovery-taskstate` 补恢复态矩阵。
 
 ---
 
@@ -391,12 +393,12 @@
 | AU10-GAP-04 — card action 可绕过 `available_actions` | **resolved for current runtime（2026-05-26）**：card 不再构造业务 action；剩余为全 card 视觉和未知类型降级测试 | 补验收 | P1 |
 | AU10-GAP-05 — 候选方向完整体验未入矩阵 | 已由 AU-02 证明候选可继续探索；剩余是多候选、多轮、失败态和 trace 质量 | 补验收 | P1 |
 | AU10-GAP-06 — adoption UI 与后端不匹配 | accept/discard/edit_then_accept 已有真实入口证据；旧 direct helper/handler 兼容路径和 StateTrace/revision/workbox 完整语义仍需治理 | 补集成/补验收 | P0 |
-| AU10-GAP-07 — 真实入口 task_state 只到 store | `WorkspaceChat` 已订阅并映射 `task_state`；缺长跑任务从 RUNNING 到 COMPLETED/FAILED 的可见 UI 验收 | 补验收/补集成 | P0 |
+| AU10-GAP-07 — 真实入口 task_state 只到 store | `WorkspaceChat` 已订阅并映射 `task_state`；baseline driver 只证明“无任务”首屏基线可见，仍缺长跑任务从 RUNNING 到 CHECKPOINT/COMPLETED/FAILED 的可见 UI 验收 | 补验收/补集成 | P0 |
 | AU10-GAP-08 — trace/why 深链路不足 | why dialog 已有真实入口；缺历史 turn replay、developer trace id、持久化查询和脱敏边界矩阵 | 补实现/补验收 | P1 |
 | AU10-GAP-09 — projection 到阅读完整矩阵不足 | adoption-reading 最小闭环已有；缺 projection job、stale/rebuild、跨 Work 隔离、只读保护 | 补集成/补验收 | P1 |
 | AU10-GAP-10 — 错误恢复 UX 不完整 | 断线重连、LLM 超时、取消等待、失败后恢复缺 UI 验收 | 补实现/补验收 | P1 |
-| AU10-GAP-11 — AU-10 专属 UI 自动化不足 | 已有多条跨 AU Tauri 证据，但缺一条覆盖完整工作台状态矩阵的 AU-10 driver | 补验收 | P0 |
-| AU10-GAP-12 — 桌面/设计约束偏差 | 首轮已修：顶部状态区短文案/tooltip、草稿命名、动作落点说明、规划请求归一；剩余：用 AU-10 专属 driver 复核 1280×800 screenshot、右侧栏挤压、隐藏 `data-*` metadata | 修设计偏差/验收卫生 | P0 |
+| AU10-GAP-11 — AU-10 专属 UI 自动化不足 | baseline driver 已补：`au10-workbench-matrix-layout` 覆盖 1280×800 layout、普通聊天、why、候选 action、adoption、projection 和 task status 基线；剩余是恢复态、长任务和全 action/card 矩阵 | 补验收 | P0 |
+| AU10-GAP-12 — 桌面/设计约束偏差 | 首轮已修：顶部状态区短文案/tooltip、草稿命名、动作落点说明、规划请求归一；1280×800 screenshot/layout baseline 已由 AU-10 专属 driver 复核；剩余：隐藏 `data-*` metadata、文案集中、全 card/右侧栏更多状态 | 修设计偏差/验收卫生 | P1 |
 
 ---
 
@@ -404,13 +406,13 @@
 
 | 基础设施 | 可复用点 | 不能算已完成 AU-10 的原因 |
 |---|---|---|
-| `WorkspaceChat` | 当前真实首屏，已承载 provider health、消息、候选、action、adoption、why、reading、archive/memory 的最小证据 | 仍是大型组件，布局和状态矩阵未被 AU-10 专属 driver 覆盖 |
+| `WorkspaceChat` | 当前真实首屏，已承载 provider health、消息、候选、action、adoption、why、reading、archive/memory 的最小证据；baseline layout/state 已被 AU-10 专属 driver 覆盖 | 仍是大型组件，恢复态、长任务和全 action/card 状态矩阵未覆盖 |
 | `历史旁路工作台` / `历史旁路 socket helper` | 历史 v3 旁路 UI/helper | 已退役删除，不再作为当前验收基础设施 |
 | `UICards` | 卡片组件齐全，业务 action 不再从 card 自行提交 | 缺全 card 视觉/降级验收 |
 | `workspace_channel_v3_test.exs` | 后端 action 安全和 task_state 广播局部证据 | 不证明真实 UI 全状态反馈 |
 | `turn_result_candidates.test.ts` / `task_state.test.ts` | 类型形状保护 | 不是用户视角验收 |
 | `scripts/slice_verify.sh` | 浏览器外部 driver，可跑 `au10-micro-plan-entry` | 只证明局部入口 |
-| `scripts/tauri_slice_verify.sh` | 原生 Tauri 外部 driver，已覆盖多条跨 AU 真实入口证据 | 证据分散，尚未形成 AU-10 完整矩阵 |
+| `scripts/tauri_slice_verify.sh` | 原生 Tauri 外部 driver，已覆盖多条跨 AU 真实入口证据，并已新增 `au10-workbench-matrix-layout` baseline matrix | baseline 不等于完整 AU-10：断线、超时、长任务、全 card/action 仍缺 |
 | `artifacts/slice-verify/*/summary.json` | 可复核历史验收摘要与 deterministic/LMStudio 证据 | 不能把 deterministic fixture 说成真实 provider；LMStudio 证据也需逐条标明 |
 
 ---
@@ -437,6 +439,7 @@ bash scripts/tauri_slice_verify.sh au09-archive-real-data
 bash scripts/tauri_slice_verify.sh au09-memory-create-recall
 bash scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan
 bash scripts/tauri_slice_verify.sh au10-micro-plan-entry
+bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout
 bash scripts/tauri_slice_verify.sh workspace-runtime-state
 bash scripts/tauri_slice_verify.sh vs10-observability-spine
 
@@ -447,9 +450,9 @@ cd frontend && pnpm test
 cd frontend && pnpm typecheck
 ```
 
-后续真正闭环后至少需要新增：
-- AU-10 matrix Tauri spec：启动、连接、provider health、发送、loading、候选、card/action、adoption、task_state、trace、projection、断线/超时和截图布局断言；
-- viewport/layout 断言：顶部状态栏不能竖排压缩，右侧栏不能遮挡或挤爆主流程，底部输入区在 1280×800 和截图等价尺寸下稳定；
-- `WorkspaceChat` 作为唯一生产入口的 AU-10 matrix Tauri 验收；
+后续真正完整闭环前还需要新增：
+- AU-10 recovery/task_state Tauri spec：长任务 RUNNING/CHECKPOINT/COMPLETED/FAILED、断线重连、LLM 超时/失败恢复、重试/取消等待；
+- 更深 UI 状态矩阵：disabled/stale/idempotency action、全 card 视觉/未知类型降级、projection stale/rebuild、跨 Work 只读隔离；
+- viewport/layout 扩展断言：在更多状态下顶部状态栏不能竖排压缩，右侧栏不能遮挡或挤爆主流程，底部输入区在 1280×800 和截图等价尺寸下稳定；
 - 组件文案集中、隐藏 `data-*` metadata 复核和设计追溯补齐；
-- 与 AU-02/AU-04/AU-05/AU-08/AU-09 的跨场景 walkthrough 合并为 AU-10 专属验收报告。
+- 与 AU-02/AU-04/AU-05/AU-08/AU-09 的跨场景 walkthrough 继续合并为 AU-10 专属验收报告。

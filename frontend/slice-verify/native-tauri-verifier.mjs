@@ -20,6 +20,7 @@ export const nativeSliceIds = [
   "au03-long-session-compression",
   "au03-context-source-ui",
   "au07-trace-why-entry",
+  "au10-workbench-matrix-layout",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -408,6 +409,15 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au10-workbench-matrix-layout": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
@@ -572,6 +582,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au07-trace-why-entry") {
     return findAu07TraceWhyEvidence(records);
+  }
+
+  if (sliceId === "au10-workbench-matrix-layout") {
+    return findAu10WorkbenchMatrixLayoutEvidence(records);
   }
 
   if (sliceId === "au10-micro-plan-entry") {
@@ -757,6 +771,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au05-canon-conflict-recovery") {
     return canonConflictRecoveryBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au10-workbench-matrix-layout") {
+    return au10WorkbenchMatrixLayoutBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
@@ -2099,6 +2117,92 @@ function findAu10UserMessageEvidence(records, generateMicroPlan, sliceId) {
   return null;
 }
 
+function findAu10WorkbenchMatrixLayoutEvidence(records) {
+  const sliceId = "au10-workbench-matrix-layout";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      Array.isArray(record.matrix_phases) &&
+      record.layout_no_horizontal_overflow === true &&
+      record.top_bar_single_row === true &&
+      record.input_area_visible === true &&
+      record.service_status_visible === true &&
+      record.provider_status_visible === true &&
+      record.task_status_visible === true &&
+      record.ordinary_turn_completed === true &&
+      record.trace_why_dialog_open === true &&
+      record.trace_why_contains_raw_prompt !== true &&
+      record.candidate_action_completed === true &&
+      record.candidate_selected === true &&
+      record.candidate_adopted === true &&
+      record.adoption_reading_completed === true &&
+      record.word_count_matches_adopted_prose === true,
+  );
+  if (!uiState) return null;
+  if (Number(uiState.viewport_width ?? 0) !== 1280) return null;
+  if (Number(uiState.viewport_height ?? 0) !== 800) return null;
+
+  const ordinaryTurnId = String(uiState.ordinary_turn_id ?? "");
+  const candidateTurnId = String(uiState.candidate_turn_id ?? "");
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  const adoptionTurnId = String(uiState.adoption_turn_id ?? "");
+  const turnIds = [ordinaryTurnId, candidateTurnId, draftTurnId, adoptionTurnId].filter(Boolean);
+  if (turnIds.length < 4) return null;
+
+  const ordinaryRecords = records.filter((record) => record.turn_id === ordinaryTurnId);
+  const ordinaryStart = ordinaryRecords.find(
+    (record) =>
+      record.event === "channel.user_message.start" && record.generate_micro_plan === false,
+  );
+  if (!ordinaryStart) return null;
+  if (ordinaryRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  const chooseCandidateAction = records.find(
+    (record) =>
+      record.event === "channel.author_action.start" &&
+      record.action_type === "choose_candidate" &&
+      record.candidate_ref === uiState.candidate_ref,
+  );
+  if (!chooseCandidateAction) return null;
+
+  const acceptActionDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!acceptActionDone) return null;
+
+  const tocRead = records.find(
+    (record) => record.event === "channel.get_toc.done" && Number(record.chapter_count ?? 0) >= 1,
+  );
+  const chapterRead = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_content.done" && Number(record.content_chars ?? 0) >= 1,
+  );
+  if (!tocRead || !chapterRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: ordinaryTurnId,
+    turn_ids: turnIds,
+    ordinary_turn_id: ordinaryTurnId,
+    candidate_turn_id: candidateTurnId,
+    draft_turn_id: draftTurnId,
+    adoption_turn_id: adoptionTurnId,
+    artifact_id: uiState.artifact_id,
+    candidate_ref: uiState.candidate_ref,
+    viewport_width: uiState.viewport_width,
+    viewport_height: uiState.viewport_height,
+    matrix_phases: uiState.matrix_phases,
+    key_events: keyEvents,
+  };
+}
+
 function findCandidateContinuationEvidence(records) {
   const sliceId = "au02-candidate-continuation";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -3309,6 +3413,55 @@ function p1ChapterAdoptionReadingBehavior(
       "book_total_effective_word_count_visible_and_positive",
       "chapter_effective_word_count_visible_and_positive",
       "displayed_word_count_equals_effective_count_of_adopted_prose",
+    ],
+  };
+}
+
+function au10WorkbenchMatrixLayoutBehavior(_turnIds, _turnRecords, records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au10-workbench-matrix-layout" &&
+      Array.isArray(record.matrix_phases),
+  );
+  if (!uiState) return null;
+  if (Number(uiState.viewport_width ?? 0) !== 1280) return null;
+  if (Number(uiState.viewport_height ?? 0) !== 800) return null;
+  if (uiState.layout_no_horizontal_overflow !== true) return null;
+  if (uiState.top_bar_single_row !== true) return null;
+  if (uiState.input_area_visible !== true) return null;
+  if (uiState.service_status_visible !== true) return null;
+  if (uiState.provider_status_visible !== true) return null;
+  if (uiState.task_status_visible !== true) return null;
+  if (uiState.trace_why_dialog_open !== true) return null;
+  if (uiState.trace_why_contains_raw_prompt === true) return null;
+  if (uiState.candidate_selected !== true || uiState.candidate_adopted !== true) return null;
+  if (uiState.adoption_reading_completed !== true) return null;
+  if (uiState.word_count_matches_adopted_prose !== true) return null;
+
+  const phases = uiState.matrix_phases ?? [];
+  for (const phase of ["ordinary_turn", "candidate_action", "adoption_reading"]) {
+    if (!phases.includes(phase)) return null;
+  }
+
+  return {
+    slice_id: "au10-workbench-matrix-layout",
+    behavior: "workbench_matrix_layout_covers_core_real_ui_states",
+    turn_ids: evidence.turn_ids,
+    viewport: `${uiState.viewport_width}x${uiState.viewport_height}`,
+    artifact_id: evidence.artifact_id,
+    candidate_ref: evidence.candidate_ref,
+    assertions: [
+      "real_workbench_rendered_at_1280x800_without_horizontal_overflow",
+      "top_status_bar_stayed_single_row",
+      "input_area_and_structure_rail_remained_visible",
+      "ordinary_chat_completed_without_micro_plan",
+      "author_opened_trace_why_dialog_without_raw_prompt_leak",
+      "candidate_action_used_server_authorized_author_action",
+      "candidate_selection_did_not_write_production_content",
+      "prose_draft_accept_used_adoption_boundary",
+      "reading_projection_loaded_adopted_prose_and_word_counts",
+      "task_status_baseline_visible_in_first_viewport",
     ],
   };
 }
