@@ -594,13 +594,14 @@ defmodule NovelAgent.Provider.GatewayTest do
 
       try do
         assert {:ok, %{content: content}} = Gateway.complete(prompt)
-        assert {:ok, [item]} = Jason.decode(content)
+        assert {:ok, %{"items" => [item], "self_report" => self_report}} = Jason.decode(content)
         assert item["title"] =~ "底层灵气账单"
         assert item["body"] =~ "灵气账单"
         assert item["body"] =~ "8cde8315"
         refute item["body"] =~ "## 当前作品上下文"
         refute item["body"] =~ "用户创作简述"
         refute item["title"] =~ "候选内容"
+        assert "reader_effect_brief" in self_report["used_context_refs"]
       after
         Application.put_env(:novel_agent, :provider, old)
       end

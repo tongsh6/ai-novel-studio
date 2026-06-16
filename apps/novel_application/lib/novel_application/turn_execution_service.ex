@@ -24,6 +24,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelDomain.MissingPolicyResult
   alias NovelDomain.OmissionNote
   alias NovelDomain.OrchestratorDecision
+  alias NovelDomain.ReaderEffectBrief
   alias NovelDomain.WritingCoordinate
 
   @creative_tools ~w(world_building character_design plot_outline prose_writing)
@@ -572,6 +573,7 @@ defmodule NovelApplication.TurnExecutionService do
     seq = Map.get(current, :seq)
     summary = Map.get(current, :summary, "")
     direction = current |> Map.get(:plan_direction) |> ChapterPlanDirection.from_storage()
+    reader_effect = ReaderEffectBrief.from_plan_direction(direction)
     has_prose = Map.get(current, :has_prose, false)
 
     LogEmit.emit(:context, :structure, :done, %{
@@ -581,15 +583,19 @@ defmodule NovelApplication.TurnExecutionService do
       chapter_seq: seq,
       has_plan_summary: not blank?(summary),
       has_plan_direction: not is_nil(direction),
+      has_reader_effect_brief: not is_nil(reader_effect),
       has_previous: not is_nil(window.previous),
       has_next: not is_nil(window.next),
       assembly_policy_id: policy.policy_id
     })
 
+    emit_reader_effect(frame, title, reader_effect, policy)
+
     [
       "## 目标章结构（写前设计态）",
       "- 目标章：#{title}#{seq_suffix(seq)}",
       direction_or_summary_lines(direction, summary),
+      reader_effect_lines(reader_effect),
       "- 卷内位置：#{neighbor_label("上一章", window.previous)}；#{neighbor_label("下一章", window.next)}",
       "- 正文状态：#{if has_prose, do: "已有已采纳正文", else: "尚无已采纳正文"}"
     ]
@@ -605,6 +611,27 @@ defmodule NovelApplication.TurnExecutionService do
       ChapterPlanDirection.prompt_lines(direction),
       if(blank?(summary), do: [], else: ["- 计划摘要：#{summary}"])
     ]
+  end
+
+  defp reader_effect_lines(reader_effect) do
+    ["## 读者效果目标（写前约束）", ReaderEffectBrief.prompt_lines(reader_effect)]
+  end
+
+  defp emit_reader_effect(frame, title, reader_effect, policy) do
+    storage = ReaderEffectBrief.to_storage(reader_effect) || %{}
+
+    LogEmit.emit(:context, :reader_effect, :done, %{
+      turn_id: frame.turn_id,
+      source_type: "reader_effect",
+      target_chapter: title,
+      has_reader_effect_brief: not is_nil(reader_effect),
+      intended_emotion_present: present?(storage["intended_emotion"]),
+      hook_target_present: present?(storage["hook_target"]),
+      payoff_or_promise_present: present?(storage["payoff_or_promise"]),
+      suspense_boundary_present: present?(storage["suspense_boundary"]),
+      risk_note_count: length(storage["web_serial_risk_notes"] || []),
+      assembly_policy_id: policy.policy_id
+    })
   end
 
   defp seq_suffix(seq) when is_integer(seq), do: "（seq=#{seq}）"
@@ -646,6 +673,8 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp action_summary(_), do: nil
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp blank?(value), do: not is_binary(value) or String.trim(value) == ""
 

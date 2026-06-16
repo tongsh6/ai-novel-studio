@@ -70,6 +70,64 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
      %{code: "invalid_items", message: "creative tool output items must be a non-empty list"}}
   end
 
+  @doc """
+  Normalize optional prose-writing self-report fields.
+
+  The report is a non-authoritative quality signal. Invalid or empty fields are
+  dropped; invalid report shape does not invalidate otherwise valid creative
+  items.
+  """
+  @spec normalize_creative_self_report(term()) :: {:ok, map() | nil}
+  def normalize_creative_self_report(nil), do: {:ok, nil}
+
+  def normalize_creative_self_report(report) when is_map(report) do
+    normalized = %{
+      assumptions: string_list(map_get(report, :assumptions)),
+      intended_reader_effect: optional_string(map_get(report, :intended_reader_effect)),
+      used_context_refs: string_list(map_get(report, :used_context_refs)),
+      risk_flags: string_list(map_get(report, :risk_flags))
+    }
+
+    if empty_self_report?(normalized) do
+      {:ok, nil}
+    else
+      {:ok, Map.put(normalized, :quality_action, self_report_quality_action(normalized))}
+    end
+  end
+
+  def normalize_creative_self_report(_report), do: {:ok, nil}
+
+  @doc """
+  Map self-reported risk flags to the first quality-gate-style action.
+
+  This is only a signal for quality gates / trace. It does not authorize writes
+  or mutate production facts.
+  """
+  @spec self_report_quality_action(map() | [String.t()] | nil) ::
+          :proceed | :warn | :confirm | :block
+  def self_report_quality_action(%{} = report),
+    do: report |> Map.get(:risk_flags, []) |> self_report_quality_action()
+
+  def self_report_quality_action(flags) when is_list(flags) do
+    normalized = Enum.map(flags, &String.downcase(to_string(&1)))
+
+    cond do
+      Enum.any?(normalized, &contains_any?(&1, ["block", "阻断", "禁止", "严重冲突"])) ->
+        :block
+
+      Enum.any?(normalized, &contains_any?(&1, ["confirm", "确认", "高风险", "需作者"])) ->
+        :confirm
+
+      normalized != [] ->
+        :warn
+
+      true ->
+        :proceed
+    end
+  end
+
+  def self_report_quality_action(_flags), do: :proceed
+
   defp normalize_item(raw) when is_map(raw) do
     with {:ok, item_id} <- fetch_string(raw, :item_id),
          {:ok, title} <- fetch_string(raw, :title),
@@ -111,4 +169,30 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   end
 
   defp map_get(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp string_list(values) when is_list(values) do
+    values
+    |> Enum.map(&optional_string/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp string_list(_values), do: []
+
+  defp optional_string(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp optional_string(_value), do: nil
+
+  defp empty_self_report?(report) do
+    report.assumptions == [] and
+      is_nil(report.intended_reader_effect) and
+      report.used_context_refs == [] and
+      report.risk_flags == []
+  end
+
+  defp contains_any?(text, terms), do: Enum.any?(terms, &String.contains?(text, &1))
 end

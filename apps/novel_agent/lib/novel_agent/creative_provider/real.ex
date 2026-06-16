@@ -88,7 +88,9 @@ defmodule NovelAgent.CreativeProvider.Real do
   defp json_correction_prompt(original_prompt, failed_content) do
     """
     你上一次的输出不是合法 JSON，解析失败。请严格重新输出：
-    - 只返回一个合法的 JSON 数组，不要输出 JSON 以外的任何文字
+    - 只返回一个合法的 JSON 数组，或一个包含 "items" 数组的 JSON 对象
+    - 如果原始任务要求 self_report，必须保留 self_report 对象
+    - 不要输出 JSON 以外的任何文字
     - 字符串值内的换行必须写成 \\n 转义，不能出现裸换行
 
     ## 你的上一次输出（截取前 300 字符）
@@ -104,13 +106,23 @@ defmodule NovelAgent.CreativeProvider.Real do
   # 人物草案等）仍返回多个候选供作者择一。
   defp build_prompt(%CreativeRequest{tool_name: "prose_writing"} = request) do
     """
-    你是小说正文写作助手。请严格按 JSON 数组格式返回恰好一个连贯条目，不要附加任何额外文字。
+    你是小说正文写作助手。请严格按 JSON 对象格式返回，不要附加任何额外文字。
 
-    该条目是 JSON 对象，必须包含以下键：
+    顶层对象必须包含：
+    - "items"：JSON 数组，且恰好包含一个连贯正文条目
+    - "self_report"：非权威自报告对象，只供质量门和 trace 复核，不代表作品事实
+
+    items 内的正文条目必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：本段正文的简短标题（只给一个标题，不要罗列多个备选）
     - "body"：一段连贯、完整的正文。直接写正文，不要在开头重复标题或章节名，也不要把同一情节用多个不同开头写多遍。若上下文中已给出本章前文，请在其后自然衔接续写，承接情节与人物状态，不要从头另起或重复已写内容。
     - "rationale"：一句话依据（或 null）
+
+    self_report 必须包含以下键：
+    - "assumptions"：数组；列出你为了完成正文所做的关键假设，没有则 []
+    - "intended_reader_effect"：字符串或 null；概括你尝试制造的读者效果
+    - "used_context_refs"：数组；列出你实际使用的上下文段名称，例如 reader_effect_brief、target_structure、continuity_summary、prior_prose
+    - "risk_flags"：数组；列出可能需要作者或质量门复核的风险，没有则 []
 
     capability：#{request.tool_name}
     artifact_type：#{request.artifact_type}
@@ -120,7 +132,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在该条目的 body 或 rationale 中原样保留至少一处。
 
     #{@prose_writing_guidelines}
-    只返回包含单个对象的 JSON 数组。
+    只返回 JSON 对象。
     """
   end
 
@@ -183,10 +195,13 @@ defmodule NovelAgent.CreativeProvider.Real do
     trimmed = content |> strip_code_fence() |> String.trim()
 
     with {:ok, decoded} <- Jason.decode(trimmed),
-         {:ok, items} <- ToolOutputContract.validate_creative_items(decoded) do
+         {:ok, raw_items, raw_self_report} <- creative_payload(decoded),
+         {:ok, items} <- ToolOutputContract.validate_creative_items(raw_items),
+         {:ok, self_report} <- ToolOutputContract.normalize_creative_self_report(raw_self_report) do
       %CreativeProviderResult{
         status: :ok,
         items: put_provider_call_ref(items, provider_call_ref),
+        self_report: self_report,
         provider_call_ref: provider_call_ref
       }
     else
@@ -202,6 +217,19 @@ defmodule NovelAgent.CreativeProvider.Real do
       {:error, reason} ->
         provider_error("provider_response_invalid", inspect(reason))
     end
+  end
+
+  defp creative_payload(items) when is_list(items), do: {:ok, items, nil}
+
+  defp creative_payload(%{} = payload) do
+    items = Map.get(payload, "items") || Map.get(payload, :items)
+    self_report = Map.get(payload, "self_report") || Map.get(payload, :self_report)
+    {:ok, items, self_report}
+  end
+
+  defp creative_payload(_decoded) do
+    {:error,
+     %{code: "invalid_items", message: "creative tool output items must be a non-empty list"}}
   end
 
   defp provider_call_ref(result) when is_map(result) do

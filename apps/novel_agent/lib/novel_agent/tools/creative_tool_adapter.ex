@@ -18,8 +18,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       request = creative_request(req, normalized_type)
 
       case provider_module.generate(request, complete_fn) do
-        %CreativeProviderResult{status: :ok, items: items} ->
-          succeeded_tool_result(req, result_id, now, normalized_type, items)
+        %CreativeProviderResult{status: :ok, items: items, self_report: self_report} ->
+          succeeded_tool_result(req, result_id, now, normalized_type, items, self_report)
 
         %CreativeProviderResult{status: :error, errors: errors} ->
           failed_tool_result(req, result_id, now, errors)
@@ -47,27 +47,57 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
     }
   end
 
-  defp succeeded_tool_result(req, result_id, now, artifact_type, items) do
+  defp succeeded_tool_result(req, result_id, now, artifact_type, items, self_report) do
     %ToolResult{
       tool_result_id: result_id,
       tool_request_ref: req.tool_request_id,
       tool_name: req.tool_name,
       status: :succeeded,
-      output: %{
-        output_contract_ref: "tentative_artifact_v1",
-        artifact_type: artifact_type,
-        item_count: length(items),
-        items: items
-      },
-      state_delta: [
-        %{type: :tentative_artifact, key: req.tool_name, artifact_type: artifact_type}
-      ],
+      output:
+        %{
+          output_contract_ref: "tentative_artifact_v1",
+          artifact_type: artifact_type,
+          item_count: length(items),
+          items: items
+        }
+        |> maybe_put_self_report(self_report),
+      state_delta:
+        [%{type: :tentative_artifact, key: req.tool_name, artifact_type: artifact_type}]
+        |> maybe_add_self_report_delta(self_report),
       artifact_refs: Enum.map(items, & &1.item_id),
+      warnings: self_report_warnings(self_report),
       usage: %{duration_ms: 0, tool: req.tool_name, version: req.tool_version},
       trace_refs: ["tool_trace:#{result_id}"],
       completed_at: now
     }
   end
+
+  defp maybe_put_self_report(output, nil), do: output
+  defp maybe_put_self_report(output, self_report), do: Map.put(output, :self_report, self_report)
+
+  defp maybe_add_self_report_delta(state_delta, nil), do: state_delta
+
+  defp maybe_add_self_report_delta(state_delta, self_report) do
+    state_delta ++
+      [%{type: :observation, key: "creative_output_self_report", value: self_report}]
+  end
+
+  defp self_report_warnings(nil), do: []
+
+  defp self_report_warnings(%{risk_flags: []}), do: []
+
+  defp self_report_warnings(%{risk_flags: flags, quality_action: action}) do
+    [
+      %{
+        code: "creative_output_self_report",
+        message: "creative output self_report contains non-authoritative risk flags",
+        quality_action: action,
+        risk_flags: flags
+      }
+    ]
+  end
+
+  defp self_report_warnings(_self_report), do: []
 
   defp failed_tool_result(req, result_id, now, errors) do
     %ToolResult{

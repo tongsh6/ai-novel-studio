@@ -17,6 +17,7 @@ defmodule NovelCommon.Contracts.CreativeProviderResult do
   @type t :: %__MODULE__{
           status: :ok | :error,
           items: [item()],
+          self_report: map() | nil,
           provider_call_ref: String.t() | nil,
           errors: [map()],
           raw_usage: map()
@@ -24,6 +25,7 @@ defmodule NovelCommon.Contracts.CreativeProviderResult do
 
   defstruct status: :ok,
             items: [],
+            self_report: nil,
             provider_call_ref: nil,
             errors: [],
             raw_usage: %{}

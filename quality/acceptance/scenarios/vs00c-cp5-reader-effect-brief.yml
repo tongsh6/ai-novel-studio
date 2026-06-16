@@ -1,0 +1,65 @@
+id: vs00c-cp5-reader-effect-brief
+title: VS-00C CP5 读者效果与自报告
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh vs00c-cp5-reader-effect-brief --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+  - docs/design/08-novel-element-model.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/v3/VS-00C-creative-context-assembly.md
+
+invariants:
+  - I1-causal-binding
+  - I2-input-variation
+  - I3-nonce-propagation
+  - reader-effect-brief-before-provider-call
+  - self-report-non-authoritative
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline
+  - click: start planning
+  - wait_for: outline_draft with E18-E22 labels
+  - click: save outline draft
+  - open: archive outline
+  - click: generate draft for a planned chapter
+  - verify: context.reader_effect.done has_reader_effect_brief=true before prose provider call
+  - verify: prose_fragment turn_result carries self_report outside adoption payload
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/vs00c-cp5-reader-effect-brief-tauri
+
+assertions:
+  ui:
+    - outline draft generated and saved
+    - planned chapter draft action visible
+    - tentative prose draft visible
+  network:
+    - outline user_message sent with generate_micro_plan=true
+    - draft user_message sent with generate_micro_plan=true
+    - outline_draft and prose_fragment turn_results received
+  data:
+    - outline item body contains E18-E22 direction labels
+    - chapter plan_direction materializes into ReaderEffectBrief
+    - context.reader_effect.done has_reader_effect_brief=true
+    - reader effect includes emotion, hook, promise, suspense boundary and risk notes
+    - prose_fragment output carries self_report intended_reader_effect and used_context_refs
+    - self_report risk_flags remain quality signal and do not enter adoption payload
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

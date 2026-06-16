@@ -143,18 +143,41 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
       fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
 
-      [
-        %{
-          item_id: "slice_item_#{fingerprint}_1",
-          title: creative_title(brief, fingerprint),
-          body: creative_body(brief, context),
-          rationale: creative_rationale(brief)
-        }
-      ]
+      item = %{
+        item_id: "slice_item_#{fingerprint}_1",
+        title: creative_title(brief, fingerprint),
+        body: creative_body(brief, context),
+        rationale: creative_rationale(brief)
+      }
+
+      if prose_fragment_prompt?(prompt) do
+        %{items: [item], self_report: creative_self_report(context)}
+      else
+        [item]
+      end
     end
   end
 
   defp outline_plan_prompt?(prompt), do: String.contains?(prompt, "artifact_type：outline_draft")
+
+  defp prose_fragment_prompt?(prompt),
+    do: String.contains?(prompt, "artifact_type：prose_fragment")
+
+  defp creative_self_report(context) do
+    %{
+      assumptions: ["按目标章结构和 ReaderEffectBrief 生成正文草稿"],
+      intended_reader_effect: reader_effect_from_context(context),
+      used_context_refs: ["target_structure", "reader_effect_brief"],
+      risk_flags: ["WARN: 章尾钩子强度需作者审阅"]
+    }
+  end
+
+  defp reader_effect_from_context(context) do
+    case Regex.run(~r/目标情绪[:：]\s*([^\n]+)/u, context) do
+      [_, emotion] -> String.trim(emotion)
+      _ -> "按 ReaderEffectBrief 制造紧张和期待"
+    end
+  end
 
   # 章节计划生成具备增量感知（与真实 LLM 行为对称）：上下文里已有 N 章时，
   # 新计划从第 N+1 章接续编号（标题不与既有章相撞 → 采纳物化按 title 幂等追加）。

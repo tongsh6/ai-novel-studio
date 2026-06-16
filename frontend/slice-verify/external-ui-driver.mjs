@@ -1370,6 +1370,8 @@ async function driveVs00cCp4ChapterPlanStructure(page) {
   const draftTurnResult = draftTurnFrame.body;
   const pendingDraft = draftTurnResult.adoption_state.pending[0];
   const draftBody = pendingDraft.payload?.items?.[0]?.body ?? "";
+  const selfReport = draftTurnResult.tool_result?.output?.self_report ?? null;
+  const selfReportRiskFlags = Array.isArray(selfReport?.risk_flags) ? selfReport.risk_flags : [];
 
   const structureLog = await waitForAppLogRecord(
     (record) =>
@@ -1379,6 +1381,20 @@ async function driveVs00cCp4ChapterPlanStructure(page) {
       record.has_plan_summary === true &&
       record.has_plan_direction === true,
     "No VS-00C CP4 structured direction app log was emitted before prose writing",
+  );
+
+  const readerEffectLog = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.reader_effect.done" &&
+      record.turn_id === draftTurnResult.turn_id &&
+      record.target_chapter === targetChapterTitle &&
+      record.has_reader_effect_brief === true &&
+      record.intended_emotion_present === true &&
+      record.hook_target_present === true &&
+      record.payoff_or_promise_present === true &&
+      record.suspense_boundary_present === true &&
+      Number(record.risk_note_count ?? 0) >= 1,
+    "No VS-00C CP5 ReaderEffectBrief app log was emitted before prose writing",
   );
 
   await page.waitForFunction(
@@ -1414,6 +1430,22 @@ async function driveVs00cCp4ChapterPlanStructure(page) {
       ),
       has_plan_summary: structureLog.has_plan_summary,
       has_plan_direction: structureLog.has_plan_direction,
+      has_reader_effect_brief: readerEffectLog.has_reader_effect_brief,
+      reader_effect_fields_present:
+        readerEffectLog.intended_emotion_present === true &&
+        readerEffectLog.hook_target_present === true &&
+        readerEffectLog.payoff_or_promise_present === true &&
+        readerEffectLog.suspense_boundary_present === true,
+      reader_effect_risk_note_count: Number(readerEffectLog.risk_note_count ?? 0),
+      self_report_present: Boolean(selfReport),
+      self_report_intended_reader_effect_present:
+        typeof selfReport?.intended_reader_effect === "string" &&
+        selfReport.intended_reader_effect.trim() !== "",
+      self_report_used_context_refs: Array.isArray(selfReport?.used_context_refs)
+        ? selfReport.used_context_refs
+        : [],
+      self_report_risk_flags_count: selfReportRiskFlags.length,
+      self_report_quality_action: selfReport?.quality_action,
       draft_generated: true,
       draft_pending: true,
       draft_body_chars: String(draftBody).length,
@@ -3115,6 +3147,7 @@ const drivers = {
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
+  "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,

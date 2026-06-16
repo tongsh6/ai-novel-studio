@@ -45,6 +45,7 @@ export const nativeSliceIds = [
   "vs00c-cp0-missing-chapter-block",
   "vs00c-cp3-structured-context",
   "vs00c-cp4-chapter-plan-structure",
+  "vs00c-cp5-reader-effect-brief",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
   "au09-validity-window-recall",
@@ -268,6 +269,21 @@ const sliceKeyEvents = {
     "channel.author_action.done",
     "context.assemble.done",
     "context.structure.done",
+    "channel.user_message.done",
+    "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  "vs00c-cp5-reader-effect-brief": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "toolbox.execute.done",
+    "channel.author_action.done",
+    "context.assemble.done",
+    "context.structure.done",
+    "context.reader_effect.done",
     "channel.user_message.done",
     "channel.get_toc.done",
     "slice_verify.ui_state.done",
@@ -688,6 +704,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findVs00cCp4ChapterPlanStructureEvidence(records);
   }
 
+  if (sliceId === "vs00c-cp5-reader-effect-brief") {
+    return findVs00cCp5ReaderEffectBriefEvidence(records);
+  }
+
   if (sliceId === "p1-export-minimum") {
     return findP1ExportMinimumEvidence(records);
   }
@@ -897,6 +917,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
     return vs00cCp4ChapterPlanStructureBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "vs00c-cp5-reader-effect-brief") {
+    return vs00cCp5ReaderEffectBriefBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) {
@@ -3371,8 +3395,10 @@ function p1PlanIncrementalBehavior(turnIds, turnRecords, records, evidence, _opt
   };
 }
 
-function findVs00cCp4ChapterPlanStructureEvidence(records) {
-  const sliceId = "vs00c-cp4-chapter-plan-structure";
+function findVs00cCp4ChapterPlanStructureEvidence(
+  records,
+  sliceId = "vs00c-cp4-chapter-plan-structure",
+) {
   const keyEvents = keyEventsForSlice(sliceId);
 
   const uiState = records.find(
@@ -3465,6 +3491,51 @@ function findVs00cCp4ChapterPlanStructureEvidence(records) {
   };
 }
 
+function findVs00cCp5ReaderEffectBriefEvidence(records) {
+  const sliceId = "vs00c-cp5-reader-effect-brief";
+  const evidence = findVs00cCp4ChapterPlanStructureEvidence(records, sliceId);
+  if (!evidence) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.has_reader_effect_brief === true &&
+      record.reader_effect_fields_present === true &&
+      Number(record.reader_effect_risk_note_count ?? 0) >= 1 &&
+      record.self_report_present === true &&
+      record.self_report_intended_reader_effect_present === true &&
+      Array.isArray(record.self_report_used_context_refs) &&
+      record.self_report_used_context_refs.includes("reader_effect_brief") &&
+      Number(record.self_report_risk_flags_count ?? 0) >= 1,
+  );
+  if (!uiState) return null;
+
+  const readerEffect = records.find(
+    (record) =>
+      record.event === "context.reader_effect.done" &&
+      record.turn_id === evidence.draft_turn_id &&
+      record.target_chapter === evidence.chapter_title &&
+      record.has_reader_effect_brief === true &&
+      record.intended_emotion_present === true &&
+      record.hook_target_present === true &&
+      record.payoff_or_promise_present === true &&
+      record.suspense_boundary_present === true &&
+      Number(record.risk_note_count ?? 0) >= 1,
+  );
+  if (!readerEffect) return null;
+
+  return {
+    ...evidence,
+    slice_id: sliceId,
+    has_reader_effect_brief: true,
+    reader_effect_risk_note_count: Number(readerEffect.risk_note_count ?? 0),
+    self_report_risk_flags_count: Number(uiState.self_report_risk_flags_count ?? 0),
+    self_report_quality_action: uiState.self_report_quality_action,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
 function vs00cCp4ChapterPlanStructureBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 3) return null;
   if (!turnIds.includes(evidence.generation_turn_id)) return null;
@@ -3530,6 +3601,55 @@ function vs00cCp4ChapterPlanStructureBehavior(turnIds, turnRecords, records, evi
       "chapter_plan_direction_materialized_into_chapter_structure",
       "target_chapter_direction_available_before_provider_call",
       "prose_writing_generated_pending_draft_without_adoption",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_and_micro_plan_called"
+        : "deterministic_provider_form_frame_and_micro_plan_called",
+    ],
+  };
+}
+
+function vs00cCp5ReaderEffectBriefBehavior(turnIds, turnRecords, records, evidence, options) {
+  const base = vs00cCp4ChapterPlanStructureBehavior(
+    turnIds,
+    turnRecords,
+    records,
+    evidence,
+    options,
+  );
+  if (!base) return null;
+
+  const readerEffect = turnRecords.find(
+    (record) =>
+      record.event === "context.reader_effect.done" &&
+      record.turn_id === evidence.draft_turn_id &&
+      record.target_chapter === evidence.chapter_title &&
+      record.has_reader_effect_brief === true,
+  );
+  if (!readerEffect) return null;
+
+  return {
+    slice_id: "vs00c-cp5-reader-effect-brief",
+    behavior: "reader_effect_brief_and_self_report_reach_prose_writing",
+    turn_ids: turnIds,
+    generation_turn_id: evidence.generation_turn_id,
+    adoption_turn_id: evidence.adoption_turn_id,
+    draft_turn_id: evidence.draft_turn_id,
+    outline_artifact_id: evidence.outline_artifact_id,
+    artifact_id: evidence.artifact_id,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    chapter_seq: evidence.chapter_seq,
+    chapter_count: evidence.chapter_count,
+    reader_effect_risk_note_count: evidence.reader_effect_risk_note_count,
+    self_report_risk_flags_count: evidence.self_report_risk_flags_count,
+    self_report_quality_action: evidence.self_report_quality_action,
+    assertions: [
+      "real_archive_outline_start_planning_clicked",
+      "outline_draft_generated_with_e18_e22_direction_labels",
+      "chapter_plan_direction_materialized_into_reader_effect_brief",
+      "reader_effect_brief_available_before_provider_call",
+      "prose_writing_output_carried_non_authoritative_self_report",
+      "self_report_risk_flags_remain_quality_signal_not_adoption_fact",
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_and_micro_plan_called"
         : "deterministic_provider_form_frame_and_micro_plan_called",

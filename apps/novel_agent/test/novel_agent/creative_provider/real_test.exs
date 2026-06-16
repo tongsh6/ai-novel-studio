@@ -68,4 +68,44 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert result.status == :ok
     assert Agent.get(agent, & &1) == 1
   end
+
+  test "accepts top-level items with creative output self report" do
+    content =
+      Jason.encode!(%{
+        items: [
+          %{item_id: "i1", title: "开篇", body: "夜色压在账单上。", rationale: nil}
+        ],
+        self_report: %{
+          assumptions: ["按章计划处理"],
+          intended_reader_effect: "紧张、期待",
+          used_context_refs: ["reader_effect_brief"],
+          risk_flags: ["章尾钩子需作者确认"]
+        }
+      })
+
+    result = Real.generate(@request, fn _prompt -> {:ok, %{content: content}} end)
+
+    assert result.status == :ok
+    assert [%{item_id: "i1"}] = result.items
+    assert result.self_report.intended_reader_effect == "紧张、期待"
+    assert result.self_report.quality_action == :confirm
+  end
+
+  test "prose writing prompt asks for ReaderEffect self report without losing anchors" do
+    {:ok, agent} = Agent.start_link(fn -> nil end)
+
+    complete_fn = fn prompt ->
+      Agent.update(agent, fn _ -> prompt end)
+      {:ok, %{content: @good_json}}
+    end
+
+    assert %{status: :ok} = Real.generate(@request, complete_fn)
+
+    prompt = Agent.get(agent, & &1)
+    assert prompt =~ "self_report"
+    assert prompt =~ "risk_flags"
+    assert prompt =~ "用户创作简述："
+    assert prompt =~ "上下文："
+    assert prompt =~ "重要："
+  end
 end

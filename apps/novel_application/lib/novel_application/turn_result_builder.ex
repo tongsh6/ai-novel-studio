@@ -164,6 +164,7 @@ defmodule NovelApplication.TurnResultBuilder do
       status: tr.status,
       output: tr.output,
       errors: tr.errors,
+      warnings: tr.warnings,
       state_delta: tr.state_delta
     })
   end

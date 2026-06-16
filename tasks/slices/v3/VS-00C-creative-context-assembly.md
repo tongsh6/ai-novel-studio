@@ -1,6 +1,6 @@
 # VS-00C Creative Context Assembly
 
-- 状态：CP0 done / CP1 done / CP2 done / CP3 done / **CP4 done**（结构化章方向进入 prose_writing L2；当前队首 CP5）
+- 状态：CP0 done / CP1 done / CP2 done / CP3 done / CP4 done / **CP5 done**（ReaderEffectBrief 与非权威 self_report 已进入 prose_writing / TurnResult；VS-00C CP 序列完成）
 - 类型：Context Assembly Slice（VS-00D `call_site=:prose_writing` 投影）
 - 启动日期：2026-06-14
 - 所属契约：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md`
@@ -22,7 +22,7 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
 | CP2 | chapter_summary 对象 + 续写摘要兜底 | G3/G5 | **done（CP2.1 + CP2.2 核心；why-panel + dogfood 延后）** |
 | CP3 | 结构对象分层进入上下文 | G6/G1 | **done（Tauri evidence）** |
 | CP4 | 章计划结构化（方向层） | 08 NEM-GAP-03 | **done（Tauri evidence）** |
-| CP5 | ReaderEffectBrief + 创作输出自报告 | G12/G14 | **next** |
+| CP5 | ReaderEffectBrief + 创作输出自报告 | G12/G14 | **done（Tauri evidence）** |
 
 ---
 
@@ -184,7 +184,45 @@ CP4 仍不 claim “首稿质量闭环完成”。它把写前章方向从自由
 
 ---
 
-## 5. 决策日志
+## 9. CP5 设计（ReaderEffectBrief + 创作输出自报告）
+
+- 关闭 Gap：G12/G14。CP4 已把章计划方向结构化，CP5 把该方向投影成写前读者效果约束，并让模型输出附带非权威自报告，供质量/maintenance 后续消费，而不是写入作品事实。
+- 契约依据：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md` §8 CP5；`docs/design/08-novel-element-model.md` E18-E22。
+
+### 9.1 承重六问
+
+1. **Contract**：新增 `NovelDomain.ReaderEffectBrief`；`ToolResult.output.self_report` 承载 `CreativeOutputSelfReport`；`NovelCommon.Contracts.ToolOutputContract` 归一 `self_report` 并给出 `quality_action`；业务日志新增 `context.reader_effect.done`。
+2. **Invariant**：ReaderEffectBrief 是 provider 调用前的写作约束，不是生成后评价；AI `self_report` 只作为质量线索和 warning，不自动进入 `adoption_state.pending[].payload`、Reading Projection 或作品事实；缺 plan_direction 时必须明确省略，不能伪造读者效果。
+3. **Boundary**：`novel_domain` 只放纯值对象；`novel_common` 定义 provider output contract；`novel_agent` 负责真实 provider JSON 解析与 tool adapter 输出；`novel_application` 渲染 ReaderEffectBrief、记录日志并把 warnings 透到 TurnResult；前端仅更新外部 verifier，不新增生产 UI 验收 hook。
+4. **Consumer**：第一个真实消费者是 `prose_writing` 的 `ToolRequest.input["context_text"]`；第二消费者是 `ToolResult.output.self_report` / `warnings`；外部消费者是 Tauri verifier 对 `context.reader_effect.done` 与 `ui-state` 的关联断言。
+5. **Proof**：domain/common/agent/application 单测；`frontend/slice-verify/native-tauri-verifier.test.mjs`；`bash scripts/tauri_slice_verify.sh vs00c-cp5-reader-effect-brief`。
+6. **Acceptance Driver**：`bash scripts/tauri_slice_verify.sh vs00c-cp5-reader-effect-brief`。driver 只用真实档案按钮、保存按钮、websocket 帧和业务日志；产品代码不读 slice id/env/query/localStorage。
+
+### 9.2 关键实现事实
+
+- `ReaderEffectBrief.from_plan_direction/1` 从 CP4 的 E18-E22 结构化章方向投影出目标情绪、张力来源、承诺/爽点、悬念边界、钩子目标与网文风险说明，并在 prose_writing L2 中以 `## 读者效果目标（写前约束）` 渲染。
+- `TurnExecutionService` 在 `context.structure.done` 后追加 `context.reader_effect.done`，记录 `has_reader_effect_brief`、关键字段是否存在、风险条数与 `assembly_policy_id`。
+- `CreativeProvider.Real` 的 prose_writing 输出合同从单纯 JSON array 扩展为兼容旧 array 的 object：`items` + `self_report`；纠错 prompt 同步允许两种形态，保留三锚点。
+- `CreativeToolAdapter` 把 `self_report` 放入 `ToolResult.output.self_report`，并以 `creative_output_self_report` warning 暴露 `quality_action` 与 `risk_flags`；`TurnResultBuilder` 透传 tool warnings。
+- `SliceVerify` deterministic provider 在正文草稿响应中返回 `self_report`，Tauri verifier 断言 `used_context_refs` 包含 `reader_effect_brief`，且 risk flags 只作为质量信号存在。
+
+### 9.3 证据
+
+- `artifacts/slice-verify/vs00c-cp5-reader-effect-brief-tauri/summary.json`
+- `apps/novel_domain/test/novel_domain/reader_effect_brief_test.exs`
+- `apps/novel_common/test/novel_common/contracts/tool_output_contract_test.exs`
+- `apps/novel_agent/test/novel_agent/creative_provider/real_test.exs`
+- `apps/novel_agent/test/novel_agent/tools/creative_tool_adapter_test.exs`
+- `apps/novel_application/test/novel_application/cp5_reader_effect_brief_test.exs`
+- `frontend/slice-verify/native-tauri-verifier.test.mjs`
+
+### 9.4 诚实边界
+
+CP5 完成的是“写前上下文与输出质量线索”闭环，不等于自动质量门禁或最终小说质量评审完成。`self_report` 不是事实来源，不能绕过 adoption boundary；后续若要把风险标记变成正式质量 finding，需要进入独立 creative-quality / maintenance slice。
+
+---
+
+## 10. 决策日志
 
 - 2026-06-14：确认 VS-00C↔VS-00D 边界已在契约 §1.4 对齐（VS-00C = call_site=:prose_writing 投影）。实现序列 CP0 先行（坐标/缺失是 CP1 组装的前置）。CP0 slice 六问冻结，待用户批准编码。
 - 2026-06-15：**CP0 后端闭环**（用户批准）。新增 `NovelDomain.WritingCoordinate`（derive/1 归一 authoring_mode，不重判意图）、`NovelDomain.MissingPolicyResult`（evaluate/2，CP0 只判 :ok/:block）；`TurnExecutionService.execute` 前置坐标推导 + 缺失评估，hard missing（作者显式命名的不存在章）短路不调 provider 并产可解释 TurnResult；`emit_coordinate` 业务日志（ADR-0018）；确认派发透传 source_turn_ref（坐标侧接 G9）。仅当带真实 DialogueContext 时评估缺失（确认/无 context 路径不误阻断）。
@@ -215,3 +253,4 @@ CP4 仍不 claim “首稿质量闭环完成”。它把写前章方向从自由
 - 2026-06-17：**CP3 完成**。persistence/fetcher 返回结构化章节条目，`DialogueContext.structured_chapters` 进入 prose_writing L2；真实 UI 第 2 章首稿路径暴露 planner 漏 `target_chapter` 的问题，应用层补确定性目标章解析（planner 目标优先，其次作者输入命中现有章标题/章号），保证首稿结构上下文与采纳归章一致。外部 Tauri 证据：`artifacts/slice-verify/vs00c-cp3-structured-context-tauri/summary.json`。
 - 2026-06-17：**队列修正**。AU10 baseline 已闭环但不得抢占 VS-00C CP 序列；当前队首为 CP4（章计划结构化），CP5 完成后再回到下一个任务。
 - 2026-06-17：**CP4 完成**。新增 `ChapterPlanDirection` 与 `chapters.plan_direction`，规划采纳从 `outline_draft` body 标签解析 E18-E22 章方向并物化到章结构；WorkspaceContext/ContextAssembler 透出 `plan_direction`，prose_writing L2 优先渲染章功能、目标四件套、情绪定位、章首拉力、章尾断章和字数场次，`context.structure.done` 记录 `has_plan_direction=true`。外部 Tauri 证据：`artifacts/slice-verify/vs00c-cp4-chapter-plan-structure-tauri/summary.json`。
+- 2026-06-17：**CP5 完成**。新增 `ReaderEffectBrief` 写前约束和 prose_writing `self_report` 输出合同；ReaderEffectBrief 从 CP4 `plan_direction` 投影目标情绪、张力、承诺/爽点、悬念边界、钩子目标与风险说明，进入 L2；`context.reader_effect.done` 提供业务日志证据；`self_report` 归一后进入 `ToolResult.output.self_report` / warnings，且不进入 adoption payload 或作品事实。外部 Tauri 证据：`artifacts/slice-verify/vs00c-cp5-reader-effect-brief-tauri/summary.json`。VS-00C CP0-CP5 序列完成，队列可回到 AU10 recovery/taskstate。

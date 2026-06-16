@@ -29,6 +29,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/vs00c-cp4-chapter-plan-structure.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh vs00c-cp4-chapter-plan-structure --surface tauri
+  - id: vs00c-cp5-reader-effect-brief
+    title: "VS-00C CP5 读者效果与自报告"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/vs00c-cp5-reader-effect-brief.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh vs00c-cp5-reader-effect-brief --surface tauri
   - id: au02-candidate-adoption-bridge
     title: "候选方向选择与采纳边界"
     tier: nightly

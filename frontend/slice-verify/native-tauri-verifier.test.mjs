@@ -43,6 +43,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
     expect(nativeSliceIds).toContain("vs00c-cp3-structured-context");
     expect(nativeSliceIds).toContain("vs00c-cp4-chapter-plan-structure");
+    expect(nativeSliceIds).toContain("vs00c-cp5-reader-effect-brief");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
@@ -1938,6 +1939,61 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("vs00c-cp4-chapter-plan-structure", records)).toBeNull();
   });
 
+  it("accepts VS-00C CP5 only when reader effect and self report reach prose writing", () => {
+    const records = vs00cCp5ReaderEffectBriefRecords();
+    const evidence = findNativeSliceEvidence("vs00c-cp5-reader-effect-brief", records);
+
+    expect(evidence).toMatchObject({
+      slice_id: "vs00c-cp5-reader-effect-brief",
+      turn_id: "turn-cp4-draft",
+      generation_turn_id: "turn-cp4-plan",
+      adoption_turn_id: "turn-cp4-adopt",
+      draft_turn_id: "turn-cp4-draft",
+      has_reader_effect_brief: true,
+      reader_effect_risk_note_count: 1,
+      self_report_risk_flags_count: 1,
+      self_report_quality_action: "warn",
+      key_events: keyEventsForSlice("vs00c-cp5-reader-effect-brief"),
+    });
+
+    expect(findSliceBehaviorEvidence("vs00c-cp5-reader-effect-brief", records, evidence)).toEqual({
+      slice_id: "vs00c-cp5-reader-effect-brief",
+      behavior: "reader_effect_brief_and_self_report_reach_prose_writing",
+      turn_ids: ["turn-cp4-plan", "turn-cp4-adopt", "turn-cp4-draft"],
+      generation_turn_id: "turn-cp4-plan",
+      adoption_turn_id: "turn-cp4-adopt",
+      draft_turn_id: "turn-cp4-draft",
+      outline_artifact_id: "artifact-outline-cp4",
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第02章：试炼",
+      chapter_seq: 2,
+      chapter_count: 12,
+      reader_effect_risk_note_count: 1,
+      self_report_risk_flags_count: 1,
+      self_report_quality_action: "warn",
+      assertions: [
+        "real_archive_outline_start_planning_clicked",
+        "outline_draft_generated_with_e18_e22_direction_labels",
+        "chapter_plan_direction_materialized_into_reader_effect_brief",
+        "reader_effect_brief_available_before_provider_call",
+        "prose_writing_output_carried_non_authoritative_self_report",
+        "self_report_risk_flags_remain_quality_signal_not_adoption_fact",
+        "deterministic_provider_form_frame_and_micro_plan_called",
+      ],
+    });
+  });
+
+  it("rejects VS-00C CP5 evidence when self report is absent", () => {
+    const records = vs00cCp5ReaderEffectBriefRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, self_report_present: false }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("vs00c-cp5-reader-effect-brief", records)).toBeNull();
+  });
+
   it("rejects ordinary chat behavior when a micro plan event appears", () => {
     const records = [
       ...ordinaryTwoTurnRecords(),
@@ -3453,6 +3509,54 @@ function vs00cCp4ChapterPlanStructureRecords() {
   });
 
   return [...planningRecords, ...draftRecords];
+}
+
+function vs00cCp5ReaderEffectBriefRecords() {
+  const draftTurnId = "turn-cp4-draft";
+  const targetChapterTitle = "第02章：试炼";
+  const readerEffectRecord = {
+    event: "context.reader_effect.done",
+    turn_id: draftTurnId,
+    workspace_id: "work-p1",
+    work_id: "work-p1",
+    session_id: "session-p1",
+    duration_ms: 1,
+    outcome: "ok",
+    source_type: "reader_effect",
+    target_chapter: targetChapterTitle,
+    has_reader_effect_brief: true,
+    intended_emotion_present: true,
+    hook_target_present: true,
+    payoff_or_promise_present: true,
+    suspense_boundary_present: true,
+    risk_note_count: 1,
+    assembly_policy_id: "slice_verify",
+  };
+
+  return vs00cCp4ChapterPlanStructureRecords().flatMap((record) => {
+    if (record.event === "context.structure.done") {
+      return [{ ...record, has_reader_effect_brief: true }, readerEffectRecord];
+    }
+
+    if (record.event === "slice_verify.ui_state.done") {
+      return [
+        {
+          ...record,
+          slice_id: "vs00c-cp5-reader-effect-brief",
+          has_reader_effect_brief: true,
+          reader_effect_fields_present: true,
+          reader_effect_risk_note_count: 1,
+          self_report_present: true,
+          self_report_intended_reader_effect_present: true,
+          self_report_used_context_refs: ["target_structure", "reader_effect_brief"],
+          self_report_risk_flags_count: 1,
+          self_report_quality_action: "warn",
+        },
+      ];
+    }
+
+    return [record];
+  });
 }
 
 function au03cResumeRecords() {
