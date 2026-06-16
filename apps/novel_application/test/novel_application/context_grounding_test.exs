@@ -90,6 +90,44 @@ defmodule NovelApplication.ContextGroundingTest do
       refute DialogueContext.has_context?(ctx)
     end
 
+    test "accepts structured chapter entries without changing current_chapters title list" do
+      fetcher = fn _ws_id ->
+        {:ok, @work_snapshot, nil, nil, nil, ["第一章", "第二章"],
+         [
+           %{title: "第一章", seq: 1, summary: "开局计划", has_prose: true},
+           %{title: "第二章", seq: 2, summary: "推进计划", has_prose: false}
+         ]}
+      end
+
+      ctx = ContextAssembler.assemble("ws-structured-chapters", fetcher)
+
+      assert ctx.current_chapters == ["第一章", "第二章"]
+
+      assert [
+               %{title: "第一章", seq: 1, summary: "开局计划", has_prose: true},
+               %{title: "第二章", seq: 2, summary: "推进计划", has_prose: false}
+             ] = ctx.structured_chapters
+    end
+
+    test "can derive current_chapters from a legacy six-tuple structured chapter payload" do
+      fetcher = fn _ws_id ->
+        {:ok, @work_snapshot, nil, nil, nil,
+         [
+           %{"title" => "第一章", "seq" => "1", "summary" => "开局计划", "word_count" => 12},
+           %{"title" => "第二章", "seq" => 2, "summary" => "推进计划", "word_count" => 0}
+         ]}
+      end
+
+      ctx = ContextAssembler.assemble("ws-structured-six-tuple", fetcher)
+
+      assert ctx.current_chapters == ["第一章", "第二章"]
+
+      assert [
+               %{title: "第一章", seq: 1, summary: "开局计划", has_prose: true},
+               %{title: "第二章", seq: 2, summary: "推进计划", has_prose: false}
+             ] = ctx.structured_chapters
+    end
+
     test "has_context? returns true when snapshot exists" do
       ctx = ContextAssembler.assemble("ws-has", &stub_fetcher/1)
       assert DialogueContext.has_context?(ctx)

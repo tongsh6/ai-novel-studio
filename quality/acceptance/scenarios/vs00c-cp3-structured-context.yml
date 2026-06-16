@@ -1,0 +1,55 @@
+id: vs00c-cp3-structured-context
+title: VS-00C CP3 结构化章节上下文
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh vs00c-cp3-structured-context --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/v3/VS-00C-creative-context-assembly.md
+
+invariants:
+  - I1-causal-binding
+  - I2-input-variation
+  - I3-nonce-propagation
+  - structured-context-before-provider-call
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline
+  - click: generate draft for chapter 2
+  - wait_for: tentative prose draft visible
+  - verify: context.structure.done emitted before toolbox.execute.done
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/vs00c-cp3-structured-context-tauri
+
+assertions:
+  ui:
+    - chapter 2 draft action visible
+    - tentative draft visible
+  network:
+    - user_message sent with generate_micro_plan=true
+    - turn_result received with prose_fragment
+  data:
+    - structured chapter context emitted for target chapter
+    - target chapter plan summary available before provider call
+    - previous and next chapter position available
+    - prose draft remains tentative until author adoption
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

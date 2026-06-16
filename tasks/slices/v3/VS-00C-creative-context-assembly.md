@@ -1,6 +1,6 @@
 # VS-00C Creative Context Assembly
 
-- 状态：CP0 后端闭环 / CP1 done / CP2.1 done / **CP2.2 核心 done**（G3/G5 prompt 闭合；why-panel + dogfood 延后）
+- 状态：CP0 done / CP1 done / CP2 done / **CP3 done**（结构化章节条目进入 prose_writing L2；当前队首 CP4）
 - 类型：Context Assembly Slice（VS-00D `call_site=:prose_writing` 投影）
 - 启动日期：2026-06-14
 - 所属契约：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md`
@@ -17,11 +17,11 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
 
 | CP | 范围 | 关闭 Gap | 状态 |
 |---|---|---|---|
-| **CP0** | WritingCoordinate + MissingPolicyResult（坐标与缺失策略固化） | G11、G13(hard-missing)、降 G9 | **后端全链路验证（外部 UI harness 本地 WIP）** |
+| **CP0** | WritingCoordinate + MissingPolicyResult（坐标与缺失策略固化） | G11、G13(hard-missing)、降 G9 | **done（Tauri evidence）** |
 | **CP1** | 策略化省略 + 预算 profile + 确认路径同源组装 + fetcher fallback | G2/G4/G9/G10 | **done（76ca402+560b5c2）** |
-| CP2 | chapter_summary 对象 + 续写摘要兜底 | G3/G5 | **活跃：CP2.1 实现中 / CP2.2 待接** |
-| CP3 | 结构对象分层进入上下文 | G6/G1 | 待 CP2 |
-| CP4 | 章计划结构化（方向层） | 08 NEM-GAP-03 | 待 CP3 |
+| CP2 | chapter_summary 对象 + 续写摘要兜底 | G3/G5 | **done（CP2.1 + CP2.2 核心；why-panel + dogfood 延后）** |
+| CP3 | 结构对象分层进入上下文 | G6/G1 | **done（Tauri evidence）** |
+| CP4 | 章计划结构化（方向层） | 08 NEM-GAP-03 | **next** |
 | CP5 | ReaderEffectBrief + 创作输出自报告 | G12/G14 | 待 CP4 |
 
 ---
@@ -113,6 +113,38 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
   - **诚实边界**：CP2.2 不 claim “写第 N 章首稿上下文已完备”。第 N 章首稿还需要 CP3 的目标章计划摘要/卷内位置、CP4 的 E18-E22 章方向四件套，以及 CP5 的读者效果目标。
   - **CP2.2 deferred（why-panel + dogfood）**：`:continuity` 的完整 ContextSourceRef → trace_summary → 前端 why 面板专属 label（§6「可后置 checkpoint」）；真实 LLM dogfood 长跑（当前 provider 上下文容量配置下连续累积超长章不再 HTTP 400 + 衔接质量人工抽查）作为外部真实页面验收。
 
+## 7. CP3 设计（结构对象分层进入上下文）
+
+- 关闭 Gap：G6/G1。CP2 解决实现态连续性（前面已写了什么），CP3 解决目标章在计划结构中的设计态位置（这章计划写什么、在前后章之间处于哪里）。
+- 契约依据：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md` §8 CP3。
+
+### 7.1 承重六问
+
+1. **Contract**：`NovelDomain.DialogueContext.structured_chapters`；fetcher 7 元组 `{snapshot, conv, mem, behavior, current_chapters, structured_chapters}`；结构条目 `%{title, seq, summary, has_prose}`。`current_chapters` 标题列表保持给 Planner 使用。
+2. **Invariant**：标题列表和结构对象分层；planner 不因 CP3 改语义；prose_writing 在 provider 调用前可获得目标章计划摘要、seq、上一章/下一章位置和正文状态；未命中结构对象时保持旧行为，不伪造方向。
+3. **Boundary**：persistence 只从 `ReadingProjectionRepo.toc/1` 映射章节结构；application 组装 L2 section；agent/provider 模板不改；前端不新增验收感知逻辑。
+4. **Consumer**：第一个真实消费者是 `TurnExecutionService` 的 prose_writing `ToolRequest.input["context_text"]`；外部消费者是 ADR-0018 业务日志 `context.structure.done`。
+5. **Proof**：application 单测覆盖目标章结构注入、缺结构回退、planner 漏 `target_chapter` 时从真实作者输入命中现有章；persistence 单测覆盖 fetcher 结构条目；Tauri 外部 driver `vs00c-cp3-structured-context` 从真实档案点击第 2 章“生成正文草稿”，业务日志证明 `context.structure.done` 发生在 `toolbox.execute.done` 之前。
+6. **Acceptance Driver**：`bash scripts/tauri_slice_verify.sh vs00c-cp3-structured-context`；产品代码不读 slice id/env/query/localStorage。该 driver 只使用真实档案、大纲按钮、websocket 帧和业务日志。
+
+### 7.2 关键实现事实
+
+- `NovelPersistence.WorkspaceContext` 返回结构化章节条目，标题列表从结构条目派生，兼容旧 6 元组 fetcher。
+- `ContextAssembler` 同时兼容旧标题列表、旧结构 map payload 和新 7 元组，统一归一为 `DialogueContext.current_chapters` + `structured_chapters`。
+- `TurnExecutionService` 在 prose_writing context_text 中按顺序放入：L2 目标章结构 → L3a 前文各章摘要 → L5 本章已采纳正文/裁剪摘要 → 当前作者输入。
+- 真实 UI 首稿路径中 planner 可能不填 `target_chapter`；应用层已补确定性兜底：planner 精确目标优先，其次从作者输入命中现有章标题/章号。该修复同时让生成时上下文目标章与采纳归章一致。
+
+### 7.3 证据
+
+- `artifacts/slice-verify/vs00c-cp3-structured-context-tauri/summary.json`
+- `apps/novel_application/test/novel_application/cp3_structured_context_test.exs`
+- `apps/novel_application/test/novel_application/context_grounding_test.exs`
+- `apps/novel_persistence/test/novel_persistence/chapter_summary_reader_test.exs`
+
+### 7.4 诚实边界
+
+CP3 仍不 claim “写第 N 章首稿上下文已完备”。它把目标章计划摘要和卷内位置放进 L2，但计划摘要仍是自由文本近似。CP4 才把章方向升级为 E18-E22 结构化四件套；CP5 才补 ReaderEffectBrief。
+
 ---
 
 ## 5. 决策日志
@@ -142,3 +174,6 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
   - **接线**：`AdoptionWorkflow.handle_adopt` 加注入 `summary_maintainer`（默认异步 + 兜底 rescue），正文/场景采纳成功后用 `persisted.reading_projection.chapter_id` 触发；非正文 artifact 不触发。
   - 验证：domain 147/0、application 253/0、persistence 141/0 无回归；CP2.1 新测 21（domain 8 + repo 5 + maintenance 6 + hook 2）；I3/I1/I2 全过；compile(0 警告)/xref(无环)/arch/format/credo(改动文件 0 issue) 通过；静态扫描仅余两预存在 FAIL（gitleaks 历史 accepted_risk、task-done 本地陈旧）。
   - **诚实边界 / 未 claim**：真实 LLM 摘要质量、dogfood 长跑、上下文消费（L3a/L5 replacement + :continuity + why 透出）均属 **CP2.2**；CP2.1 默认 generator 从本次采纳正文生成，按全章已采纳正文生成（append 连续性）也留 CP2.2。
+- 2026-06-17：**CP2.2 核心完成**。prose_writing 轮新增 `chapter_summary_reader` port：L5 裁剪本章已采纳正文时以本章 ACCEPTED 摘要填 `OmissionNote.replacement=chapter_summary:章`，L3a 注入目标章之前最近 N 章已采纳摘要；N 不再由本地常量控制，统一使用 `AssemblyPolicy.summary_window`，默认 15，policy id 升级为 `prose_writing/*_v2`；业务日志 `context.continuity.done` 记录窗口和 policy。why-panel 专属 label 与 dogfood 长跑仍 deferred。
+- 2026-06-17：**CP3 完成**。persistence/fetcher 返回结构化章节条目，`DialogueContext.structured_chapters` 进入 prose_writing L2；真实 UI 第 2 章首稿路径暴露 planner 漏 `target_chapter` 的问题，应用层补确定性目标章解析（planner 目标优先，其次作者输入命中现有章标题/章号），保证首稿结构上下文与采纳归章一致。外部 Tauri 证据：`artifacts/slice-verify/vs00c-cp3-structured-context-tauri/summary.json`。
+- 2026-06-17：**队列修正**。AU10 baseline 已闭环但不得抢占 VS-00C CP 序列；当前队首为 CP4（章计划结构化），CP5 完成后再回到下一个任务。

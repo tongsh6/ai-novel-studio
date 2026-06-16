@@ -14,13 +14,16 @@ defmodule NovelApplication.ContextAssembler do
   @doc """
   为给定 workspace 组装 DialogueContext。
 
-  fetcher 是一个函数 `(workspace_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary})`。
+  fetcher 是一个函数，返回 5 元组（基础上下文）、6 元组（+章节标题）或 7 元组（+结构化章节条目）。
   测试中可注入 stub fetcher。
   """
-  # fetcher 可返回 5 元组（无章节，向后兼容既有 stub）或 6 元组（末位为已采纳章节标题列表）。
+  # fetcher 可返回 5 元组（无章节，向后兼容既有 stub）、6 元组（末位为已采纳章节标题列表）
+  # 或 7 元组（标题列表 + 结构化章节条目，VS-00C CP3）。
   @type fetcher_return ::
           {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil}
           | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()]}
+          | {:ok, map() | nil, String.t() | nil, String.t() | nil, String.t() | nil, [String.t()],
+             [map()]}
   @spec assemble(String.t(), (String.t() -> fetcher_return())) :: DialogueContext.t()
   def assemble(workspace_id, fetcher \\ &default_fetch/1) do
     assemble_for_input(workspace_id, nil, fetcher, [])
@@ -41,7 +44,7 @@ defmodule NovelApplication.ContextAssembler do
 
     # CP1（关 G10 / AU-03 SC-B3）：fetcher 异常/非 ok 时不让整轮崩溃，降级为**明确**空上下文
     # 并留痕（context.assemble.fallback），后续 Planner 在空上下文下诚实说明读不到，而不是编造。
-    {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters} =
+    {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters} =
       safe_fetch(fetcher, workspace_id, author_text, Keyword.get(opts, :session_id))
 
     refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary)
@@ -64,6 +67,7 @@ defmodule NovelApplication.ContextAssembler do
       memory_summary: mem_summary,
       open_behavior_summary: behavior_summary,
       current_chapters: chapters,
+      structured_chapters: structured_chapters,
       context_refs: refs,
       # CP1：组装策略由 application 在边界解析后传入并挂到 envelope（`06` §5.3）；
       # 未传则回落地板档默认，保证 floor 行为不变。
@@ -75,7 +79,7 @@ defmodule NovelApplication.ContextAssembler do
   defp default_fetch(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
   # 明确空上下文（fetcher 失败时的降级形态）。
-  @empty_fetch {:ok, nil, nil, nil, nil, []}
+  @empty_fetch {:ok, nil, nil, nil, nil, [], []}
 
   # fetcher 异常或返回非 {:ok, ...} 时降级为明确空上下文 + 留痕，不让整轮崩溃（G10 / AU-03 SC-B3）。
   defp safe_fetch(fetcher, workspace_id, author_text, session_id) do
@@ -101,16 +105,110 @@ defmodule NovelApplication.ContextAssembler do
   end
 
   # fetcher 可返回 5 或 6 元组；统一补齐为带章节列表的 6 元组（缺省空列表）。非 ok 返回也降级为空。
+  defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters, structured_chapters}) do
+    {titles, entries} = normalize_chapter_payload(chapters, structured_chapters)
+    {:ok, snapshot, conv, mem, behavior, titles, entries}
+  end
+
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters}),
-    do: {:ok, snapshot, conv, mem, behavior, normalize_chapters(chapters)}
+    do: normalize_six_tuple(snapshot, conv, mem, behavior, chapters)
 
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior}),
-    do: {:ok, snapshot, conv, mem, behavior, []}
+    do: {:ok, snapshot, conv, mem, behavior, [], []}
 
   defp normalize_fetch_result(_other), do: @empty_fetch
 
-  defp normalize_chapters(chapters) when is_list(chapters), do: chapters
+  defp normalize_six_tuple(snapshot, conv, mem, behavior, chapters) do
+    cond do
+      structured_chapter_list?(chapters) ->
+        entries = normalize_structured_chapters(chapters)
+        {:ok, snapshot, conv, mem, behavior, titles_from_structured(entries), entries}
+
+      is_list(chapters) ->
+        {:ok, snapshot, conv, mem, behavior, normalize_chapters(chapters), []}
+
+      true ->
+        {:ok, snapshot, conv, mem, behavior, [], []}
+    end
+  end
+
+  defp normalize_chapter_payload(chapters, structured_chapters) do
+    entries = normalize_structured_chapters(structured_chapters)
+
+    titles =
+      case normalize_chapters(chapters) do
+        [] -> titles_from_structured(entries)
+        titles -> titles
+      end
+
+    {titles, entries}
+  end
+
+  defp normalize_chapters(chapters) when is_list(chapters) do
+    chapters
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
   defp normalize_chapters(_), do: []
+
+  defp structured_chapter_list?([first | _]), do: is_map(first)
+  defp structured_chapter_list?(_), do: false
+
+  defp normalize_structured_chapters(chapters) when is_list(chapters) do
+    chapters
+    |> Enum.map(&normalize_structured_chapter/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_structured_chapters(_), do: []
+
+  defp normalize_structured_chapter(chapter) when is_map(chapter) do
+    title = chapter |> get_any([:title, "title"]) |> normalize_text()
+
+    if title == "" do
+      nil
+    else
+      %{
+        title: title,
+        seq: chapter |> get_any([:seq, "seq"]) |> normalize_integer(),
+        summary: chapter |> get_any([:summary, "summary"]) |> normalize_text(),
+        has_prose:
+          chapter
+          |> get_any([:has_prose, "has_prose", :word_count, "word_count"])
+          |> normalize_has_prose()
+      }
+    end
+  end
+
+  defp normalize_structured_chapter(_), do: nil
+
+  defp titles_from_structured(entries), do: Enum.map(entries, & &1.title)
+
+  defp get_any(map, keys) do
+    Enum.reduce_while(keys, nil, fn key, _acc ->
+      if Map.has_key?(map, key), do: {:halt, Map.get(map, key)}, else: {:cont, nil}
+    end)
+  end
+
+  defp normalize_text(value) when is_binary(value), do: String.trim(value)
+  defp normalize_text(_), do: ""
+
+  defp normalize_integer(value) when is_integer(value), do: value
+
+  defp normalize_integer(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, _} -> n
+      :error -> nil
+    end
+  end
+
+  defp normalize_integer(_), do: nil
+
+  defp normalize_has_prose(value) when is_boolean(value), do: value
+  defp normalize_has_prose(value) when is_integer(value), do: value > 0
+  defp normalize_has_prose(_), do: false
 
   defp session_summary?(summary) when is_binary(summary),
     do: String.contains?(summary, "会话早期摘要")

@@ -1137,6 +1137,105 @@ async function driveP1ChapterDraftGeneration(page) {
   ];
 }
 
+async function driveVs00cCp3StructuredContext(page) {
+  const targetChapterTitle = "第02章：旧服务器里的残诀";
+  const previousChapterTitle = "第01章：底层灵气账单";
+  const nextChapterTitle = "第03章";
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    ({ previousTitle, targetTitle }) =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes(previousTitle) &&
+      document.body.innerText.includes(targetTitle),
+    { previousTitle: previousChapterTitle, targetTitle: targetChapterTitle },
+    { timeout: 10_000 },
+  );
+
+  const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert(
+    (await draftButtons.count()) >= 2,
+    "Archive outline did not render a draft action for chapter 2",
+  );
+  await draftButtons.nth(1).click();
+
+  const draftMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes(targetChapterTitle) &&
+      String(frame.body?.text ?? "").includes("正文草稿"),
+    "Real workbench did not send chapter-2 draft user_message with micro plan enabled",
+  );
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No VS-00C CP3 chapter-2 prose_fragment turn_result websocket frame was received",
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+  const draftBody = pendingArtifact.payload?.items?.[0]?.body ?? "";
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.turn_id === draftTurnResult.turn_id &&
+      record.target_chapter === targetChapterTitle &&
+      Number(record.chapter_seq ?? 0) === 2 &&
+      record.has_plan_summary === true &&
+      record.has_previous === true &&
+      record.has_next === true,
+    "No VS-00C CP3 structured context app log was emitted for chapter 2",
+  );
+
+  await page.waitForFunction(
+    (targetTitle) =>
+      /待保存章节草稿|章节正文草稿|待确认的创作材料/.test(document.body.innerText) &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, draftTurnResult, sentMessage);
+
+  assert(draftBody.includes("旧服务器里的残诀"), "Draft payload did not target chapter 2");
+  assert(
+    !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
+    "CP3 draft generation unexpectedly submitted an adopt event",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      draft_turn_id: draftTurnResult.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      chapter_title: targetChapterTitle,
+      previous_chapter_title: previousChapterTitle,
+      next_chapter_title: nextChapterTitle,
+      draft_generated: true,
+      draft_pending: true,
+      draft_body_chars: String(draftBody).length,
+      draft_card_visible: /待保存章节草稿|章节正文草稿|待确认的创作材料/.test(visibleText),
+      requested_second_chapter: true,
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
+      user_message_text: draftMessageFrame.body?.text,
+    },
+  ];
+}
+
 // 从可见文本里解析「全书/本章有效字数 1,234 字」中的数字（去千分位逗号）。
 // 使用硬编码字面量正则（避免动态 RegExp），文本为产品 UI 渲染、非用户输入。
 function parseWordCount(match) {
@@ -2824,6 +2923,7 @@ const drivers = {
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
+  "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,

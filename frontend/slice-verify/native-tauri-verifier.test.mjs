@@ -41,6 +41,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-canon-conflict-recovery");
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
+    expect(nativeSliceIds).toContain("vs00c-cp3-structured-context");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
@@ -1823,6 +1824,59 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("p1-chapter-draft-generation", records)).toBeNull();
   });
 
+  it("accepts VS-00C CP3 only when structured chapter context reaches prose writing", () => {
+    const records = vs00cCp3StructuredContextRecords("turn-cp3");
+    const evidence = findNativeSliceEvidence("vs00c-cp3-structured-context", records);
+
+    expect(evidence).toEqual({
+      slice_id: "vs00c-cp3-structured-context",
+      turn_id: "turn-cp3",
+      turn_ids: ["turn-cp3"],
+      draft_turn_id: "turn-cp3",
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第02章：旧服务器里的残诀",
+      chapter_seq: 2,
+      previous_chapter_title: "第01章：底层灵气账单",
+      next_chapter_title: "第03章",
+      has_plan_summary: true,
+      has_previous: true,
+      has_next: true,
+      draft_body_chars: 128,
+      assembly_policy_id: "slice_verify",
+      chapter_count: 12,
+      key_events: keyEventsForSlice("vs00c-cp3-structured-context"),
+    });
+    expect(findSliceBehaviorEvidence("vs00c-cp3-structured-context", records, evidence)).toEqual({
+      slice_id: "vs00c-cp3-structured-context",
+      behavior: "structured_chapter_plan_context_reaches_prose_writing",
+      turn_ids: ["turn-cp3"],
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第02章：旧服务器里的残诀",
+      chapter_seq: 2,
+      draft_body_chars: 128,
+      assertions: [
+        "real_archive_outline_second_chapter_action_clicked",
+        "micro_plan_requested_from_real_workbench",
+        "structured_chapter_context_emitted_for_target_chapter",
+        "target_chapter_plan_summary_available_before_provider_call",
+        "previous_and_next_chapter_position_available",
+        "prose_writing_generated_pending_draft_without_adoption",
+        "adopted_plan_remained_toc_source_before_prose_adoption",
+        "deterministic_provider_form_frame_and_micro_plan_called",
+      ],
+    });
+  });
+
+  it("rejects VS-00C CP3 evidence when structured chapter context log is missing", () => {
+    const records = vs00cCp3StructuredContextRecords("turn-cp3").filter(
+      (record) => record.event !== "context.structure.done",
+    );
+
+    expect(findNativeSliceEvidence("vs00c-cp3-structured-context", records)).toBeNull();
+  });
+
   it("rejects ordinary chat behavior when a micro plan event appears", () => {
     const records = [
       ...ordinaryTwoTurnRecords(),
@@ -3153,6 +3207,61 @@ function p1ChapterDraftGenerationRecords(turnId) {
       adopt_event_sent: false,
       user_message_text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
     },
+  ];
+}
+
+function vs00cCp3StructuredContextRecords(turnId) {
+  const targetChapterTitle = "第02章：旧服务器里的残诀";
+  const userMessageText = `请根据已采纳章节计划生成${targetChapterTitle}正文草稿`;
+
+  const records = p1ChapterDraftGenerationRecords(turnId).map((record) => {
+    if (record.event === "channel.user_message.start") {
+      return {
+        ...record,
+        text_len: userMessageText.length,
+        message_preview: userMessageText,
+      };
+    }
+
+    if (record.event === "slice_verify.ui_state.done") {
+      return {
+        ...record,
+        slice_id: "vs00c-cp3-structured-context",
+        chapter_title: targetChapterTitle,
+        previous_chapter_title: "第01章：底层灵气账单",
+        next_chapter_title: "第03章",
+        requested_second_chapter: true,
+        user_message_text: userMessageText,
+      };
+    }
+
+    return record;
+  });
+
+  const contextIndex = records.findIndex((record) => record.event === "context.assemble.done");
+  const structureRecord = {
+    event: "context.structure.done",
+    turn_id: turnId,
+    workspace_id: "work-p1",
+    work_id: "work-p1",
+    session_id: "session-p1",
+    duration_ms: 1,
+    outcome: "ok",
+    source_type: "structure",
+    target_chapter: targetChapterTitle,
+    chapter_seq: 2,
+    has_plan_summary: true,
+    has_previous: true,
+    has_next: true,
+    assembly_policy_id: "slice_verify",
+  };
+
+  if (contextIndex < 0) return [...records, structureRecord];
+
+  return [
+    ...records.slice(0, contextIndex + 1),
+    structureRecord,
+    ...records.slice(contextIndex + 1),
   ];
 }
 

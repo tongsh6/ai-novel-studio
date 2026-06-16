@@ -43,6 +43,7 @@ export const nativeSliceIds = [
   "p1-plan-incremental",
   "au04-confirm-before-execute",
   "vs00c-cp0-missing-chapter-block",
+  "vs00c-cp3-structured-context",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
   "au09-validity-window-recall",
@@ -242,6 +243,18 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "turn_execution.writing_coordinate.done",
     "turn_execution.missing_policy.done",
+    "slice_verify.ui_state.done",
+  ],
+  "vs00c-cp3-structured-context": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "context.structure.done",
+    "planner.form_micro_plan.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.get_toc.done",
     "slice_verify.ui_state.done",
   ],
   "p1-export-minimum": [
@@ -652,6 +665,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findVs00cMissingChapterBlockEvidence(records);
   }
 
+  if (sliceId === "vs00c-cp3-structured-context") {
+    return findVs00cCp3StructuredContextEvidence(records);
+  }
+
   if (sliceId === "p1-export-minimum") {
     return findP1ExportMinimumEvidence(records);
   }
@@ -855,6 +872,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return vs00cMissingChapterBlockBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "vs00c-cp3-structured-context") {
+    return vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) {
     return null;
   }
@@ -1008,6 +1029,160 @@ function vs00cMissingChapterBlockBehavior(_turnIds, turnRecords, _records, evide
       "ui_rendered_honest_chapter_not_found_reply",
       "toolbox_execute_not_called",
       "no_creative_or_adoption_card_rendered",
+    ],
+  };
+}
+
+function findVs00cCp3StructuredContextEvidence(records) {
+  const sliceId = "vs00c-cp3-structured-context";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const targetChapterTitle = "第02章：旧服务器里的残诀";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.draft_generated === true &&
+      record.draft_pending === true &&
+      record.draft_card_visible === true &&
+      record.requested_second_chapter === true &&
+      record.artifact_type === "prose_fragment" &&
+      record.chapter_title === targetChapterTitle &&
+      record.adopt_event_sent === false &&
+      Number(record.draft_body_chars ?? 0) >= 80,
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  if (!draftTurnId) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+  const start = draftRecords.find(
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      record.generate_micro_plan === true &&
+      String(uiState.user_message_text ?? "").includes(targetChapterTitle) &&
+      String(uiState.user_message_text ?? "").includes("正文草稿"),
+  );
+  if (!start) return null;
+
+  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+
+  const structure = draftRecords.find(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.source_type === "structure" &&
+      record.target_chapter === targetChapterTitle &&
+      Number(record.chapter_seq ?? 0) === 2 &&
+      record.has_plan_summary === true &&
+      record.has_previous === true &&
+      record.has_next === true,
+  );
+  if (!structure) return null;
+
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+
+  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? 0) >= 10 &&
+      Number(record.total_word_count ?? -1) === 0,
+  );
+  if (!tocRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    chapter_title: uiState.chapter_title,
+    chapter_seq: Number(structure.chapter_seq),
+    previous_chapter_title: uiState.previous_chapter_title,
+    next_chapter_title: uiState.next_chapter_title,
+    has_plan_summary: structure.has_plan_summary,
+    has_previous: structure.has_previous,
+    has_next: structure.has_next,
+    draft_body_chars: uiState.draft_body_chars,
+    assembly_policy_id: structure.assembly_policy_id,
+    chapter_count: tocRead.chapter_count,
+    key_events: keyEvents,
+  };
+}
+
+function vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.structure.done")) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "planner.form_micro_plan.done")) {
+    return null;
+  }
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+  if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
+  if (!lmstudioHasSteps(options, [evidence.draft_turn_id], ["form_frame", "form_micro_plan"])) {
+    return null;
+  }
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "vs00c-cp3-structured-context" &&
+      record.draft_turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.adopt_event_sent !== false) return null;
+
+  const structure = turnRecords.find(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.target_chapter === evidence.chapter_title &&
+      Number(record.chapter_seq ?? 0) === 2 &&
+      record.has_plan_summary === true &&
+      record.has_previous === true &&
+      record.has_next === true,
+  );
+  if (!structure) return null;
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? 0) >= 10 &&
+      Number(record.total_word_count ?? -1) === 0,
+  );
+  if (!tocRead) return null;
+
+  return {
+    slice_id: "vs00c-cp3-structured-context",
+    behavior: "structured_chapter_plan_context_reaches_prose_writing",
+    turn_ids: turnIds,
+    artifact_id: evidence.artifact_id,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    chapter_seq: evidence.chapter_seq,
+    draft_body_chars: Number(uiState.draft_body_chars ?? 0),
+    assertions: [
+      "real_archive_outline_second_chapter_action_clicked",
+      "micro_plan_requested_from_real_workbench",
+      "structured_chapter_context_emitted_for_target_chapter",
+      "target_chapter_plan_summary_available_before_provider_call",
+      "previous_and_next_chapter_position_available",
+      "prose_writing_generated_pending_draft_without_adoption",
+      "adopted_plan_remained_toc_source_before_prose_adoption",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_and_micro_plan_called"
+        : "deterministic_provider_form_frame_and_micro_plan_called",
     ],
   };
 }

@@ -16,6 +16,7 @@ defmodule NovelDomain.DialogueContext do
           memory_summary: String.t() | nil,
           open_behavior_summary: String.t() | nil,
           current_chapters: [String.t()],
+          structured_chapters: [map()],
           context_refs: [ContextSourceRef.t()],
           # 组装策略（CP1，VS-00C §3.4 / `06` §5.3 assembly_policy_ref）：预算是 envelope
           # 一等字段，由 application 按当前 provider 解析后挂上，供创作执行读取。
@@ -32,6 +33,7 @@ defmodule NovelDomain.DialogueContext do
     memory_summary: nil,
     open_behavior_summary: nil,
     current_chapters: [],
+    structured_chapters: [],
     context_refs: [],
     assembly_policy: nil,
     omission_notes: [],

@@ -210,7 +210,7 @@ Next Proof：LLM 异常、乱码、超时或恢复后，真实工作台仍能保
 
 Longest Closed Prefix：D1-D3 是最小闭环；D7 的章节计划 checkpoint 与 D8 的单章正文草稿生成 checkpoint 已闭环，但 P1 完整长篇仍未闭环。
 
-Current Breakpoint：D4 结构化生命周期节点仍缺统一用户路径；P1 10 万字最小长篇闭环已补章节计划 checkpoint 与单章正文草稿生成 checkpoint，仍缺正文采纳阅读、字数统计和导出主链。
+Current Breakpoint：VS-00C CP4 章计划结构化。P1 10 万字主链已证明系统能长跑；当前补的是“写第 N 章首稿”的上下文质量前置：CP2 已提供实现态摘要窗口，CP3 已提供目标章计划摘要和卷内位置，CP4 需要把章计划升级为结构化方向层。
 
 Next Proof：基于已采纳章节计划生成单章正文草稿并采纳；采纳后的正文进入 Reading Projection，ReadingMode 可读取目录和章节正文。P1 后续 proof 还必须统计正文有效字数和导出完整小说。
 
@@ -222,9 +222,10 @@ Next Proof：基于已采纳章节计划生成单章正文草稿并采纳；采�
 | D4 | 立项 -> 世界观/角色/大纲/章节/场景的连续规划 | AU-02 / AU-09 | MicroPlan / ToolRequest / DialogueContext | gap | Document only | v2 lifecycle 设计、v3 acceptance 分散覆盖 | 缺统一生命周期入口和分阶段 proof。 |
 | D5 | 修订已采纳内容，保留 provenance 和冲突恢复 | AU-05 / AU-08 | AdoptionDecision / DecisionTrace | gap | Document only | AU-05 conflict/freshness gaps | 缺 revision boundary、覆盖确认、阅读投影刷新。 |
 | D6 | 内容质量门禁参与采纳或修订 | AU-05 / AU-09 | ToolResult / OrchestratorDecision / TraceSummaryView | gap | Document only | v2 quality gates 已设计，v3 首批只接最小质量证明 | 缺质量 finding 到 UI/proof 的产品链。 |
-| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | partial | Tauri automation | `artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`；`artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`tasks/slices/P1-chapter-adoption-reading.md` | 章节计划最小闭环与单章正文草稿生成已完成；当前队首先补正文采纳到阅读投影。后续仍缺正文有效字数统计、导出和完整 10 万字狗粮验收。 |
+| D7 | P1 10 万字最小长篇闭环 | AU-02 / AU-05 / AU-08 / AU-10 | TentativeArtifactSet / AdoptionDecision / ProjectionHint / TurnResultViewModel | closed | Tauri automation | `artifacts/novel-output/p1-100k-dogfood/`；`artifacts/slice-verify/p1-chapter-plan-minimum-tauri/summary.json`；`artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`tasks/slices/P1-chapter-adoption-reading.md` | P1 长篇主链已达成；当前队列转向 VS-00C 上下文质量 CP4/CP5，避免把“能写长”误读为“首稿方向层足够”。 |
 | D8 | P1 单章正文草稿生成 | AU-02 / AU-05 / AU-10 | MicroPlan / ToolRequest / ToolResult / TentativeArtifactSet | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation` | 真实工作台基于已采纳章节计划生成 `prose_fragment` 待采纳正文草稿；未采纳正文不进入 ReadingMode。单章 1000 字下限仍待后续扩写 / 字数统计 checkpoint。 |
 | D9 | P1 单章正文采纳与阅读 | AU-05 / AU-08 / AU-10 | AdoptionDecision / ProjectionHint / TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-adoption-reading-tauri{,-lmstudio}/summary.json`；`tasks/slices/P1-chapter-adoption-reading.md` | 已证明作者采纳 `prose_fragment` 后，正文进入作品事实和 Reading Projection，ReadingMode 目录和章节正文从 Channel 读取。 |
+| D10 | VS-00C CP4 章计划结构化方向层 | VS-00C / NEM-GAP-03 | DialogueContext / ToolRequest / DecisionTrace | next | Tauri + tests | `tasks/slices/v3/VS-00C-creative-context-assembly.md`；`tasks/NEXT.md` 队首 `VS-00C-CP4-chapter-plan-structure` | CP2/CP3 已证明实现态摘要窗口与目标章结构进入 prose_writing；下一步把章计划自由文本摘要升级为结构化方向层。 |
 
 ---
 
@@ -401,9 +402,9 @@ Next Proof：从一个包含 context/tool/behavior/state 的真实 turn 打开 w
 
 Longest Closed Prefix：J1-J5 是最小真实入口闭环；J8 是 AU-10 baseline matrix checkpoint，仍不代表完整工作台恢复态闭环。
 
-Current Breakpoint：J9/AU10-workbench-recovery-taskstate。`WorkspaceChat` 已是唯一生产工作台入口，`au10-workbench-matrix-layout` 已覆盖 1280×800 baseline；缺长任务、断线、超时和失败恢复体验验收。
+Current Breakpoint：J9/AU10-workbench-recovery-taskstate 仍是工作台体验缺口，但当前执行队列延后它，先完成 VS-00C CP4/CP5。`WorkspaceChat` 已是唯一生产工作台入口，`au10-workbench-matrix-layout` 已覆盖 1280×800 baseline；缺长任务、断线、超时和失败恢复体验验收。
 
-Next Proof：从真实工作台覆盖 `task_state` RUNNING/CHECKPOINT/COMPLETED/FAILED、WebSocket 断线重连、LLM 超时/失败后恢复的一条综合 walkthrough，并继续复核 1280×800 layout。
+Next Proof（回到 AU10 时）：从真实工作台覆盖 `task_state` RUNNING/CHECKPOINT/COMPLETED/FAILED、WebSocket 断线重连、LLM 超时/失败后恢复的一条综合 walkthrough，并继续复核 1280×800 layout。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -415,7 +416,7 @@ Next Proof：从真实工作台覆盖 `task_state` RUNNING/CHECKPOINT/COMPLETED/
 | J6 | available action panel 和 stale/invented 拒绝 | AU-10 / AU-06 | AvailableAction / AuthorActionInput | partial | Channel/API automation | `workspace_channel_v3_test.exs`、`action_roundtrip_test.exs` | 缺完整 UI action walkthrough。 |
 | J7 | trace/why、adoption、projection 在同一工作台主入口协作 | AU-10 / AU-05 / AU-07 / AU-08 | TraceSummaryView / AdoptionDecision / ProjectionHint | partial | Multiple Tauri proofs | 各 journey 有单点 evidence | 缺恢复态和深矩阵。 |
 | J8 | AU-10 baseline matrix 与 1280×800 layout | AU-10 / AU-01 / AU-02 / AU-05 / AU-07 / AU-08 | TurnResultViewModel / AvailableAction / TraceSummaryView / AdoptionDecision / ProjectionHint | checkpoint closed | Tauri automation | `artifacts/slice-verify/au10-workbench-matrix-layout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout` | 已覆盖普通聊天 no-MicroPlan、why、候选授权 action、正文草稿采纳、Reading Projection、task status 首屏基线和 1280×800 无横向溢出；不覆盖长任务、断线、超时。 |
-| J9 | 完整错误恢复、断线、任务进度、Tauri 合规体验 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | next | Document only | AU10-GAP-07/10/11；`AU10-workbench-recovery-taskstate` | 补真实工作台恢复态 walkthrough、外部 Tauri 自动化和长任务状态矩阵。 |
+| J9 | 完整错误恢复、断线、任务进度、Tauri 合规体验 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | deferred | Document only | AU10-GAP-07/10/11；`AU10-workbench-recovery-taskstate` | 待 VS-00C CP0-CP5 完成后，补真实工作台恢复态 walkthrough、外部 Tauri 自动化和长任务状态矩阵。 |
 
 ---
 
@@ -426,21 +427,21 @@ Next Proof：从真实工作台覆盖 `task_state` RUNNING/CHECKPOINT/COMPLETED/
 | A 启动与供应商 | A1-A4 | A5 provider runtime config | 多个 SU-01 P0/P1 | Tauri + API | watch |
 | B 作品与上下文 | B1-B11 | 支撑 F5/F6 adoption safety | 0（当前连续链路） | Tauri/LMStudio | closed-prefix |
 | C 自然对话与探索 | C1-C6 | C7 error recovery | 1 | Tauri | watch |
-| D 创作生命周期 | D1-D3 + D7 章节计划 checkpoint | P1 chapter draft generation | 多个 | Tauri + tests | needs-focus |
+| D 创作生命周期 | D1-D3 + P1 长篇主链 checkpoint | VS-00C CP4 chapter plan direction layer | 多个 | Tauri + tests | next |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
 | F 草稿与采纳 | F1-F8 checkpoint | revision/state trace completeness | 多个 P0 | Tauri | watch |
 | G 阅读投影 | G1-G2 | G3 refresh state machine | 多个 P0/P1 | Tauri | watch |
 | H 记忆治理 | H1-H2/H4 | H3/H6 management/governed memory | 多个 P0/P1 | Tauri + tests | needs-focus |
 | I Trace/Replay | I1 | I2-I5 trace/replay completeness | 多个 P0/P1 | Tauri + tests | needs-focus |
-| J 工作台体验 | J1-J5 最小闭环 + J8 baseline checkpoint | J9 AU10-workbench-recovery-taskstate | 多个 P0/P1 | Tauri | next |
+| J 工作台体验 | J1-J5 最小闭环 + J8 baseline checkpoint | J9 AU10-workbench-recovery-taskstate | 多个 P0/P1 | Tauri | deferred |
 
 当前推进锁定：
 
 ```text
-Current Focus: AU-10 工作台恢复态/task_state
-Current Journey: Journey J
-Current Breakpoint: J9 recovery/task_state UX
-Next Task: AU10-workbench-recovery-taskstate
+Current Focus: VS-00C 创作上下文组装 CP4
+Current Journey: Journey D 支撑切面
+Current Breakpoint: CP4 chapter plan structured direction layer
+Next Task: VS-00C-CP4-chapter-plan-structure
 ```
 
 ---
@@ -465,18 +466,18 @@ Next Task: AU10-workbench-recovery-taskstate
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: AU-10 工作台恢复态/task_state
-Active Journey: Journey J
-Queue head: AU10-workbench-recovery-taskstate
+Current Focus: VS-00C 创作上下文组装 CP4
+Active Journey: Journey D 支撑切面
+Queue head: VS-00C-CP4-chapter-plan-structure
 ```
 
 本文对应位置：
 
 ```text
-Journey J
-Step J9 完整错误恢复、断线、任务进度、Tauri 合规体验
+Journey D / VS-00C
+Step: 写第 N 章首稿的上下文质量支撑
 Status: next
-Gap / Next: `WorkspaceChat` 已是唯一生产工作台入口，baseline matrix/layout 已闭环；下一步补 AU-10 恢复态和长任务状态矩阵；tasks/NEXT.md 队首 AU10-workbench-recovery-taskstate
+Gap / Next: CP2/CP3 已证明实现态摘要窗口与目标章结构进入 prose_writing；下一步 CP4 把章计划自由文本摘要升级为结构化方向层；Journey J 的 AU10 recovery 延后到 VS-00C CP0-CP5 完成后。
 ```
 
 选择规则：

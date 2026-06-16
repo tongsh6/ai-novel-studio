@@ -61,6 +61,48 @@ defmodule NovelPersistence.ChapterSummaryReaderTest do
     assert reader.by_title.(work_id, "不存在的章") == nil
   end
 
+  test "context_fetcher 返回 CP3 结构化章节条目", %{work_id: work_id} do
+    {:ok, _persisted} =
+      AdoptionRepository.persist(%{
+        actor_ref: "author",
+        work_id: work_id,
+        source_turn_ref: "turn-prose",
+        artifact_id: ID.uuid(),
+        artifact_type: :prose_fragment,
+        base_revision: 1,
+        content: "第一章正文已经写入。",
+        summary: "第01章：底层灵气账单",
+        decision_id: ID.uuid()
+      })
+
+    fetcher = WorkspaceContext.context_fetcher()
+
+    assert {:ok, _snapshot, _conv, _mem, _behavior, titles, structured} = fetcher.(work_id)
+
+    assert titles == [
+             "第01章：底层灵气账单",
+             "第02章：旧服务器里的残诀",
+             "第03章：地下链路",
+             "第04章：云端审判"
+           ]
+
+    assert [
+             %{
+               title: "第01章：底层灵气账单",
+               seq: 1,
+               summary: "主角发现灵气带宽被公司暗中抽走。",
+               has_prose: true
+             },
+             %{
+               title: "第02章：旧服务器里的残诀",
+               seq: 2,
+               summary: "主角找到残缺功法并第一次突破。",
+               has_prose: false
+             }
+             | _
+           ] = structured
+  end
+
   test "previous 返回目标章之前窗口内的 ACCEPTED 摘要", %{
     work_id: work_id,
     chapters: chapters

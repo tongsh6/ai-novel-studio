@@ -15,6 +15,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/p1-chapter-draft-generation.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh p1-chapter-draft-generation --surface tauri
+  - id: vs00c-cp3-structured-context
+    title: "VS-00C CP3 结构化章节上下文"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/vs00c-cp3-structured-context.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh vs00c-cp3-structured-context --surface tauri
   - id: au02-candidate-adoption-bridge
     title: "候选方向选择与采纳边界"
     tier: nightly

@@ -30,8 +30,9 @@ defmodule NovelPersistence.WorkspaceContext do
   @doc """
   构建 context fetcher 回调。该回调从 DB 读取当前 workspace 信息和最近的对话。
 
-  返回 (workspace_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters})。
-  末位 chapters 是当前作品已采纳章节标题（供 Planner 解析续写/重写目标章）。
+  返回 (workspace_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters})。
+  chapters 是当前作品已采纳章节标题（供 Planner 解析续写/重写目标章）；structured_chapters
+  是 VS-00C CP3 的 tool 侧结构对象（标题、顺序、计划摘要、是否已有正文）。
   """
   @spec context_fetcher() :: function()
   def context_fetcher do
@@ -39,15 +40,18 @@ defmodule NovelPersistence.WorkspaceContext do
       snapshot = fetch_workspace_info(workspace_id)
       conv_summary = fetch_conversation_summary(workspace_id)
 
+      structured_chapters = fetch_structured_chapters(workspace_id)
+
       {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, nil), nil,
-       fetch_accepted_chapters(workspace_id)}
+       titles_from_structured_chapters(structured_chapters), structured_chapters}
     end
   end
 
   @doc """
   构建带作者输入的 context fetcher 回调，用于当前 turn 的相关记忆召回。
 
-  返回 (workspace_id, author_text, session_id -> {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters})。
+  返回 (workspace_id, author_text, session_id ->
+    {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters})。
   """
   @spec context_fetcher_with_query() :: function()
   def context_fetcher_with_query do
@@ -55,8 +59,10 @@ defmodule NovelPersistence.WorkspaceContext do
       snapshot = fetch_workspace_info(workspace_id)
       conv_summary = fetch_conversation_summary(workspace_id, session_id)
 
+      structured_chapters = fetch_structured_chapters(workspace_id)
+
       {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, author_text), nil,
-       fetch_accepted_chapters(workspace_id)}
+       titles_from_structured_chapters(structured_chapters), structured_chapters}
     end
   end
 
@@ -110,18 +116,40 @@ defmodule NovelPersistence.WorkspaceContext do
     end
   end
 
-  # 已采纳章节标题（按卷/章顺序），供 Planner 解析续写/重写的目标章。
-  # 复用阅读投影 TOC：只含已采纳正文章节，tentative 不计，与采纳层章节身份口径一致。
-  defp fetch_accepted_chapters(workspace_id) when is_binary(workspace_id) do
+  # VS-00C CP3：结构化章节条目（按卷/章顺序），供 prose_writing L2 注入目标章计划摘要与卷内位置。
+  # 复用阅读投影 TOC：结构章即使尚无正文也会出现，has_prose 用 word_count 判断。
+  defp fetch_structured_chapters(workspace_id) when is_binary(workspace_id) do
     workspace_id
     |> ReadingProjectionRepo.toc()
     |> Map.get(:volumes, [])
     |> Enum.flat_map(&Map.get(&1, :chapters, []))
-    |> Enum.map(&Map.get(&1, :title))
-    |> Enum.reject(&(is_nil(&1) or &1 == ""))
+    |> Enum.map(&structured_chapter_entry/1)
+    |> Enum.reject(&is_nil/1)
   end
 
-  defp fetch_accepted_chapters(_workspace_id), do: []
+  defp fetch_structured_chapters(_workspace_id), do: []
+
+  defp structured_chapter_entry(chapter) when is_map(chapter) do
+    title = chapter |> Map.get(:title) |> normalize_title()
+
+    if title == "" do
+      nil
+    else
+      %{
+        title: title,
+        seq: Map.get(chapter, :seq),
+        summary: chapter |> Map.get(:summary) |> normalize_title(),
+        has_prose: Map.get(chapter, :word_count, 0) > 0
+      }
+    end
+  end
+
+  defp structured_chapter_entry(_chapter), do: nil
+
+  defp titles_from_structured_chapters(chapters), do: Enum.map(chapters, & &1.title)
+
+  defp normalize_title(value) when is_binary(value), do: String.trim(value)
+  defp normalize_title(_), do: ""
 
   @doc """
   章摘要 reader port（VS-00C CP2.2）。返回 `by_title` / `previous` 两个能力，供

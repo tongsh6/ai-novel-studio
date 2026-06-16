@@ -52,7 +52,8 @@ defmodule NovelApplication.TurnExecutionService do
         action,
         input[:context],
         input[:chapter_prose_reader],
-        frame.workspace_id
+        frame.workspace_id,
+        author_input_text(frame, input[:author_input])
       )
 
     # CP0：固化写作坐标并评估缺失策略。hard missing（作者点名但 planner 匹配不到的章）→ 不调 provider。
@@ -98,7 +99,18 @@ defmodule NovelApplication.TurnExecutionService do
 
     maybe_emit_target_word_count(frame, action)
 
-    req = build_tool_request(frame, plan, decision, input, action, prior_prose, prior_summaries)
+    req =
+      build_tool_request(
+        frame,
+        plan,
+        decision,
+        input,
+        action,
+        resolved_chapter,
+        prior_prose,
+        prior_summaries
+      )
+
     tool_result = dispatch_tool(req, input[:complete_fn])
     artifact_set = assemble_artifact(tool_result, frame.turn_id, plan, resolved_chapter)
 
@@ -187,7 +199,16 @@ defmodule NovelApplication.TurnExecutionService do
   defp blocked_message(_coordinate),
     do: "没有找到要续写或重写的目标章节，无法继续。请确认要写哪一章。"
 
-  defp build_tool_request(frame, plan, decision, input, action, prior_prose, prior_summaries) do
+  defp build_tool_request(
+         frame,
+         plan,
+         decision,
+         input,
+         action,
+         resolved_chapter,
+         prior_prose,
+         prior_summaries
+       ) do
     tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"
     entry = CapabilityRegistry.get(tool_name)
 
@@ -205,6 +226,7 @@ defmodule NovelApplication.TurnExecutionService do
           action,
           input[:author_input],
           input[:context],
+          resolved_chapter,
           prior_prose,
           prior_summaries
         ),
@@ -216,17 +238,22 @@ defmodule NovelApplication.TurnExecutionService do
     }
   end
 
-  defp tool_input(frame, action, author_input, context, prior_prose, prior_summaries) do
-    text =
-      case author_input do
-        %{text: text} when is_binary(text) -> text
-        %{"text" => text} when is_binary(text) -> text
-        _ -> frame.author_visible_draft.message
-      end
+  defp tool_input(
+         frame,
+         action,
+         author_input,
+         context,
+         resolved_chapter,
+         prior_prose,
+         prior_summaries
+       ) do
+    text = author_input_text(frame, author_input)
 
-    # 顺序：前文各章摘要（L3a 跨章背景）→ 本章已采纳正文（L5 衔接）→ 当前作者输入。
+    # 顺序：目标章结构对象（L2 设计态）→ 前文各章摘要（L3a 跨章实现态）→
+    # 本章已采纳正文（L5 衔接）→ 当前作者输入。
     context_text =
       [
+        target_structure_section(frame, action, context, resolved_chapter),
         prior_summaries,
         prior_prose_section(action, prior_prose),
         tool_context_text(context, text)
@@ -271,18 +298,24 @@ defmodule NovelApplication.TurnExecutionService do
   # 解析本次正文归属的章（确定性，不依赖 LLM 结构化输出可靠性）：
   # - target_chapter 精确命中作品现有章（计划章或已写章）→ 归到该章
   #   （写第X章首稿 / 续写 / 重写都走这里，章身份由作品结构定，不由模型自创标题定）。
+  # - planner 漏给 target_chapter，但真实作者输入点名了现有章标题/章号 → 归到该章
+  #   （外部 UI 的"生成正文草稿"会把可见章名写进作者输入，应用层不能只依赖 LLM 补字段）。
   # - 续写/重写但漏给或没命中目标章 → 回退到"最近一个已写正文的章"（"接着往下写"默认续最新已写章）。
   #   注意：current_chapters 现含计划待写章，不能简单取 List.last（会落到末尾的计划空章）。
   # - 其它（写全新章、不针对具体章）→ ""（不归章，由创作内容自身标题命名）。
   # AI 只识别意图与候选目标章；安全解析在应用层用 DialogueContext.current_chapters 完成。
-  defp resolve_target_chapter(action, context, reader, work_id) do
+  defp resolve_target_chapter(action, context, reader, work_id, author_text) do
     chapters = accepted_chapter_titles(context)
     target = normalize_target_chapter(action[:target_chapter])
     intent = action[:authoring_intent]
+    mentioned = mentioned_chapter_title(author_text, chapters)
 
     cond do
       target != "" and target in chapters ->
         target
+
+      mentioned != "" ->
+        mentioned
 
       intent in [:continuation, :rewrite] ->
         latest_written_chapter(chapters, reader, work_id) || target
@@ -304,6 +337,42 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp normalize_target_chapter(target) when is_binary(target), do: String.trim(target)
   defp normalize_target_chapter(_target), do: ""
+
+  defp author_input_text(frame, author_input) do
+    case author_input do
+      %{text: text} when is_binary(text) -> text
+      %{"text" => text} when is_binary(text) -> text
+      _ -> frame.author_visible_draft.message
+    end
+  end
+
+  defp mentioned_chapter_title(text, chapters) when is_binary(text) and is_list(chapters) do
+    Enum.find(chapters, &(is_binary(&1) and String.contains?(text, &1))) ||
+      mentioned_chapter_by_number(text, chapters) ||
+      ""
+  end
+
+  defp mentioned_chapter_title(_text, _chapters), do: ""
+
+  defp mentioned_chapter_by_number(text, chapters) do
+    case Regex.run(~r/第\s*(\d+)\s*章/u, text) do
+      [_, n] ->
+        number = String.to_integer(n)
+        Enum.find(chapters, &(chapter_number(&1) == number))
+
+      _ ->
+        nil
+    end
+  end
+
+  defp chapter_number(title) when is_binary(title) do
+    case Regex.run(~r/第\s*(\d+)\s*章/u, title) do
+      [_, n] -> String.to_integer(n)
+      _ -> nil
+    end
+  end
+
+  defp chapter_number(_title), do: nil
 
   defp accepted_chapter_titles(%NovelDomain.DialogueContext{current_chapters: chapters})
        when is_list(chapters),
@@ -456,6 +525,84 @@ defmodule NovelApplication.TurnExecutionService do
   defp prose_writing_action?(action) do
     (action[:target_ref] || action[:capability_name]) == "prose_writing"
   end
+
+  # CP3（G6/G1）：tool 侧独立 L2 结构对象。current_chapters 标题列表仍保留给 planner；
+  # prose_writing 额外拿到目标章计划摘要、顺序和前后章位置。
+  defp target_structure_section(frame, action, %DialogueContext{} = context, resolved_chapter) do
+    if prose_writing_action?(action) do
+      target = structure_target_title(action, resolved_chapter)
+
+      context.structured_chapters
+      |> structured_chapter_window(target)
+      |> render_target_structure_section(frame, DialogueContext.policy(context))
+    else
+      ""
+    end
+  end
+
+  defp target_structure_section(_frame, _action, _context, _resolved_chapter), do: ""
+
+  defp structure_target_title(_action, resolved_chapter)
+       when is_binary(resolved_chapter) and resolved_chapter != "",
+       do: resolved_chapter
+
+  defp structure_target_title(action, _resolved_chapter),
+    do: normalize_target_chapter(action[:target_chapter])
+
+  defp structured_chapter_window(chapters, target)
+       when is_list(chapters) and is_binary(target) and target != "" do
+    index = Enum.find_index(chapters, &(Map.get(&1, :title) == target))
+
+    if is_integer(index) do
+      %{
+        current: Enum.at(chapters, index),
+        previous: if(index > 0, do: Enum.at(chapters, index - 1), else: nil),
+        next: Enum.at(chapters, index + 1)
+      }
+    end
+  end
+
+  defp structured_chapter_window(_chapters, _target), do: nil
+
+  defp render_target_structure_section(nil, _frame, _policy), do: ""
+
+  defp render_target_structure_section(%{current: current} = window, frame, policy) do
+    title = Map.get(current, :title, "")
+    seq = Map.get(current, :seq)
+    summary = Map.get(current, :summary, "")
+    has_prose = Map.get(current, :has_prose, false)
+
+    LogEmit.emit(:context, :structure, :done, %{
+      turn_id: frame.turn_id,
+      source_type: "structure",
+      target_chapter: title,
+      chapter_seq: seq,
+      has_plan_summary: not blank?(summary),
+      has_previous: not is_nil(window.previous),
+      has_next: not is_nil(window.next),
+      assembly_policy_id: policy.policy_id
+    })
+
+    [
+      "## 目标章结构（写前设计态）",
+      "- 目标章：#{title}#{seq_suffix(seq)}",
+      "- 计划摘要：#{summary_or_empty(summary)}",
+      "- 卷内位置：#{neighbor_label("上一章", window.previous)}；#{neighbor_label("下一章", window.next)}",
+      "- 正文状态：#{if has_prose, do: "已有已采纳正文", else: "尚无已采纳正文"}"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp seq_suffix(seq) when is_integer(seq), do: "（seq=#{seq}）"
+  defp seq_suffix(_seq), do: ""
+
+  defp summary_or_empty(summary) when is_binary(summary) and summary != "", do: summary
+  defp summary_or_empty(_summary), do: "（无计划摘要）"
+
+  defp neighbor_label(label, %{title: title}) when is_binary(title) and title != "",
+    do: "#{label}=#{title}"
+
+  defp neighbor_label(label, _chapter), do: "#{label}=无"
 
   defp prior_prose_section(_action, ""), do: ""
 
