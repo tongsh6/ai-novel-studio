@@ -4,6 +4,19 @@
 
 ---
 
+## git
+### commit message 规范
+使用中文 message，使用以下格式：
+<type>: <subject>
+- feat: 新增功能
+- fix: 修复 bug
+- docs: 仅文档变更
+- style: 代码格式（不影响功能，例如空格、分号等）
+- refactor: 代码重构（既不是新增功能，也不是修复 bug）
+- perf: 性能优化
+- test: 添加或修改测试
+- chore: 其他修改（构建过程或辅助工具的变动）
+
 ## 场景化验收红线
 
 承重 slice 的验收标准是：**由外部自动化驱动真实页面的场景化验收**。外部自动化可以使用 Playwright/Tauri/系统 UI 驱动，但必须站在产品之外，像用户一样操作当前真实入口。
