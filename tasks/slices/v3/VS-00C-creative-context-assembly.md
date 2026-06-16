@@ -17,9 +17,9 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
 
 | CP | 范围 | 关闭 Gap | 状态 |
 |---|---|---|---|
-| **CP0** | WritingCoordinate + MissingPolicyResult（坐标与缺失策略固化） | G11、G13(hard-missing)、降 G9 | **后端闭环（待外部页面验收）** |
-| CP1 | 策略化省略 + 预算 profile + 确认路径同源组装 + fetcher fallback | G2/G4/G9/G10 | 下一活跃 |
-| CP2 | chapter_summary 对象 + 续写摘要兜底 | G3/G5 | 待 CP1 |
+| **CP0** | WritingCoordinate + MissingPolicyResult（坐标与缺失策略固化） | G11、G13(hard-missing)、降 G9 | **后端全链路验证（外部 UI harness 本地 WIP）** |
+| **CP1** | 策略化省略 + 预算 profile + 确认路径同源组装 + fetcher fallback | G2/G4/G9/G10 | **done（76ca402+560b5c2）** |
+| CP2 | chapter_summary 对象 + 续写摘要兜底 | G3/G5 | **下一活跃** |
 | CP3 | 结构对象分层进入上下文 | G6/G1 | 待 CP2 |
 | CP4 | 章计划结构化（方向层） | 08 NEM-GAP-03 | 待 CP3 |
 | CP5 | ReaderEffectBrief + 创作输出自报告 | G12/G14 | 待 CP4 |
@@ -88,6 +88,11 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
   - **tauri 外部场景：已编码、未通过、未提交（本地 WIP）**。harness 文件：`frontend/slice-verify/external-ui-driver.mjs`(driveCp0MissingChapterBlock)、`native-tauri-verifier.mjs`(vs00c-cp0-missing-chapter-block 事件)、`scripts/tauri_slice_verify.sh`(4 处注册，复用 seed_p1_chapter_draft_generation)。slice_verify provider 章号匹配已随 c1c257d 提交。
   - **未破的诊断（下次专调入口）**：实跑两次，运行后端的 coordinate 日志为 `requested="第99章", matched="", authoring_mode="first_draft"`——即 action 同时 `requested_chapter_raw="第99章"` 却 `authoring_intent=nil`，这在 provider+planner 源码里**数学上不可能同时发生**（repro4 反证）。指向运行态差异（多半 seed 的 current_chapters 没按预期进 context，或编译/缓存态）。下次：起后端后直接打印那轮真实 planner prompt + provider plan JSON，与 repro4 对比定位。
   - **CP0 当前交付（用户选 B）**：后端真修复落袋（c1c257d 待 push），外部页面验收作为 tracked 缺口；harness 本地 WIP 留待短会话专调。
+- 2026-06-15/16：**CP1 完成**（用户批准，关 G2/G4/G9/G10）。设计驱动，逐条回指 06 §5.3/§5.5、26 §14/§25、ADR-0009、AU-03 SC-B3、VS-00C §3.2/§3.3；不是补丁。
+  - **G2/G4（76ca402）**：`NovelDomain.AssemblyPolicy`（provider→profile 矩阵 floor 2000/large 200k）+ `OmissionNote`；`DialogueContext += assembly_policy/omission_notes`（envelope 一等字段）；策略在应用边界解析（`NovelApplication.current_assembly_policy` 读 provider 配置）挂 envelope，TurnExecution 只读不够 Gateway（避开补丁坑#1）；`budget_prior_prose` 用 policy 预算裁剪 + 产 OmissionNote + 发 `context.downgrade.done`；trace_summary 透出作者可见 omission。floor=2000 与历史一致，行为不变。
+  - **G9/G10（560b5c2）**：确认派发同源重组装（ContextAssembler 取 snapshot/章节 + 挂 policy + 注入 reader，去特例非塞字段，避开补丁坑#2）；`safe_fetch` 异常/非 ok 降级明确空 + `context.assemble.error` 留痕（避开补丁坑#3，非默默吞）。
+  - 验证：domain 139/0、application 245/0 无回归；CP1 新测 17（policy 6+omission 6+assembly 4+fallback 3，部分计入上数）；I3/I1/I2 全过；arch/xref/format/compile 通过。G9 端到端由既有 au04 tauri 场景覆盖。
+  - **诚实边界**：CP1 让裁剪策略化+可解释，但被裁前文 replacement=nil（凭空消失变"有记录的消失"）；真正用摘要兜底是 CP2。
 - 2026-06-15（专调）：**根因基本定位**。in-process 复现完整应用主链：`DialogueGateway.handle_input/3`（直注 slice_verify complete_fn）→ **block 成功**（"没有找到《第99章》", tool_called=false）；进一步 `handle_input/2` 走 **`Gateway.complete` 配置 provider 路由**（= 真实 tauri 路径）、provider 配 **atom `:slice_verify`** → **同样 block 成功**。即 CP0 block 行为已穿过 handle_input→form_frame→Gateway.complete(slice_verify)→form_micro_plan→orchestrator→execute **整条主链 + 真实 Gateway 路由**验证通过，只差 Tauri React UI 渲染。
   - 真实 tauri 后端却给 first_draft（生成草稿），与 c1c257d 源码 + in-process 复现**矛盾**（坐标日志 requested="第99章" 却 authoring_mode=first_draft，源码不可能）。结论：**tauri 后端那次 `mix run --no-start` 的陈旧增量编译**（in-process repro 每次 fresh compile 故正确）。
   - 坑：`Gateway` provider 路由 `@provider_modules`/`extra_providers` 用 **atom 键**，slice 后端 `slice_verify_server.exs` 配 `default: "slice_verify"`（字符串）；in-process 用字符串会 "unknown provider" fallback，用 atom 才通——真实后端能通说明 RuntimeConfig 已归一，但这是个易踩点。
