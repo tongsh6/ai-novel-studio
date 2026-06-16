@@ -39,10 +39,10 @@ defmodule NovelApplication.ContextAssembler do
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:context, :assemble, :start, %{})
 
+    # CP1（关 G10 / AU-03 SC-B3）：fetcher 异常/非 ok 时不让整轮崩溃，降级为**明确**空上下文
+    # 并留痕（context.assemble.fallback），后续 Planner 在空上下文下诚实说明读不到，而不是编造。
     {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters} =
-      fetcher
-      |> call_fetcher(workspace_id, author_text, Keyword.get(opts, :session_id))
-      |> normalize_fetch_result()
+      safe_fetch(fetcher, workspace_id, author_text, Keyword.get(opts, :session_id))
 
     refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary)
 
@@ -74,12 +74,40 @@ defmodule NovelApplication.ContextAssembler do
 
   defp default_fetch(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
-  # fetcher 可返回 5 或 6 元组；统一补齐为带章节列表的 6 元组（缺省空列表）。
+  # 明确空上下文（fetcher 失败时的降级形态）。
+  @empty_fetch {:ok, nil, nil, nil, nil, []}
+
+  # fetcher 异常或返回非 {:ok, ...} 时降级为明确空上下文 + 留痕，不让整轮崩溃（G10 / AU-03 SC-B3）。
+  defp safe_fetch(fetcher, workspace_id, author_text, session_id) do
+    fetcher
+    |> call_fetcher(workspace_id, author_text, session_id)
+    |> normalize_fetch_result()
+  rescue
+    error ->
+      emit_fetch_fallback(workspace_id, Exception.message(error))
+      @empty_fetch
+  catch
+    kind, reason ->
+      emit_fetch_fallback(workspace_id, "#{kind}: #{inspect(reason)}")
+      @empty_fetch
+  end
+
+  defp emit_fetch_fallback(workspace_id, reason) do
+    LogEmit.emit(:context, :assemble, :error, %{
+      workspace_id: workspace_id,
+      reason: reason,
+      degraded_to: "empty_context"
+    })
+  end
+
+  # fetcher 可返回 5 或 6 元组；统一补齐为带章节列表的 6 元组（缺省空列表）。非 ok 返回也降级为空。
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior, chapters}),
     do: {:ok, snapshot, conv, mem, behavior, normalize_chapters(chapters)}
 
   defp normalize_fetch_result({:ok, snapshot, conv, mem, behavior}),
     do: {:ok, snapshot, conv, mem, behavior, []}
+
+  defp normalize_fetch_result(_other), do: @empty_fetch
 
   defp normalize_chapters(chapters) when is_list(chapters), do: chapters
   defp normalize_chapters(_), do: []

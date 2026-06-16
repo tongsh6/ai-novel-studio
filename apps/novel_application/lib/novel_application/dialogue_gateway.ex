@@ -749,18 +749,28 @@ defmodule NovelApplication.DialogueGateway do
     }
 
     if decision.decision_type == :allow_tool do
+      # CP1（关 G9）：确认后的执行与正常路径**同源组装**上下文——重新经 ContextAssembler
+      # 取当前作品 snapshot/章节列表 + 挂组装策略，并注入 chapter_prose_reader。
+      # 否则高风险 rewrite 确认后反而拿不到本章已采纳正文（原 context:nil 会让重写凭空另写）。
+      context =
+        ContextAssembler.assemble_for_input(
+          frame.workspace_id,
+          nil,
+          context_fetcher_or_default(nil),
+          assembly_policy: NovelApplication.current_assembly_policy()
+        )
+
       {turn_result, trace} =
         TurnExecutionService.execute(%{
           frame: frame,
           plan: plan,
           decision: decision,
           candidates: [],
-          context: nil,
+          context: context,
           author_input: %{text: frame.author_visible_draft.message},
-          # CP0：把原轮 turn 引用透传给执行，使确认路径的 WritingCoordinate 携带来源
-          # （坐标侧接 G9；完整同源上下文重组留 CP1）。
           source_turn_ref: map_field(source_turn_result, :turn_id),
           complete_fn: complete_fn,
+          chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
           idempotency_suffix: "_confirmed"
         })
 
