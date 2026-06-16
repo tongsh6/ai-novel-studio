@@ -96,7 +96,7 @@
 
 | 字段 | 内容 |
 |---|---|
-| 期望结果 | 右侧正文显示章节标题、场景标题和自然段，不显示 JSON / ToolResult 原始结构 |
+| 期望结果 | 右侧正文显示章节标题、作者可读的有效场景标题和自然段；系统生成的占位场景标题（如“场景 2”“第2场”）不得暴露到成品阅读面；不显示 JSON / ToolResult 原始结构 |
 | 当前证据 | `ReadingMode` 有 chapter/scenes 渲染和段落 split 逻辑；`socket.ts.getChapterContent` helper 存在 |
 | 当前状态 | 前端局部实现 |
 | 当前缺口 | `WorkspaceChannel` 没有 `handle_in("get_chapter_content")`；真实章节正文无法通过当前 Channel 读取 |

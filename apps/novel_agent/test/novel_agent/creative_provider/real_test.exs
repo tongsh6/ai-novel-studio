@@ -104,6 +104,9 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     prompt = Agent.get(agent, & &1)
     assert prompt =~ "self_report"
     assert prompt =~ "risk_flags"
+    assert prompt =~ "body 内不得出现独立的结构/状态元标签"
+    assert prompt =~ "场景 2"
+    assert prompt =~ "待采纳草稿"
     assert prompt =~ "用户创作简述："
     assert prompt =~ "上下文："
     assert prompt =~ "重要："

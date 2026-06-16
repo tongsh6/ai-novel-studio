@@ -1084,7 +1084,7 @@ async function driveP1ChapterDraftGeneration(page) {
     { timeout: 10_000 },
   );
 
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   // 已采纳的章节计划成为正式目录，阅读模式显示计划全章（待补足）；未采纳的正文草稿不进阅读（AU08-I2）。
   await page.waitForFunction(
     () =>
@@ -1505,7 +1505,7 @@ async function driveP1ChapterAdoptionReading(page) {
   await page.waitForFunction(
     () => {
       return (
-        /待确认的创作材料|章节正文草稿/.test(document.body.innerText) &&
+        /待确认的创作材料|正文草稿/.test(document.body.innerText) &&
         [...document.querySelectorAll("button")].some((btn) =>
           /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
             (btn.textContent ?? "").trim(),
@@ -1640,7 +1640,7 @@ async function driveP1PlanIncremental(page) {
 
   // baseline：进阅读模式取当前投影（12 章计划）。
   const baselineFrames = frames.length;
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), {
     timeout: 15_000,
   });
@@ -1703,7 +1703,7 @@ async function driveP1PlanIncremental(page) {
 
   // 采纳后投影：原章不动、新章按 seq 接续追加。
   const afterFrames = frames.length;
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), {
     timeout: 15_000,
   });
@@ -2038,7 +2038,7 @@ async function driveP1ChapterWordCountTarget(page) {
   );
   const acceptButtonCleared = (await page.getByRole("button", { name: "确认创建" }).count()) === 0;
 
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("阅读模式") &&
@@ -2189,10 +2189,16 @@ async function driveP1ChapterExpansion(page) {
     );
     const pending = contFrame.body.adoption_state.pending[0];
 
-    await page.waitForFunction(() => document.body.innerText.includes("确认创建"), {
-      timeout: 10_000,
-    });
-    await page.getByRole("button", { name: "确认创建" }).first().click();
+    await page.waitForFunction(
+      () =>
+        [...document.querySelectorAll("button")].some((btn) =>
+          /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+            (btn.textContent ?? "").trim(),
+          ),
+        ),
+      { timeout: 10_000 },
+    );
+    await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
 
     const adoptFrame = await waitForFrame(
       (frame) =>
@@ -2209,8 +2215,10 @@ async function driveP1ChapterExpansion(page) {
     // 采纳后按钮必须消失，避免重复点击重复提交。
     await page.waitForFunction(
       () =>
-        ![...document.querySelectorAll("button")].some(
-          (btn) => (btn.textContent ?? "").trim() === "确认创建",
+        ![...document.querySelectorAll("button")].some((btn) =>
+          /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+            (btn.textContent ?? "").trim(),
+          ),
         ),
       { timeout: 10_000 },
     );
@@ -2225,7 +2233,7 @@ async function driveP1ChapterExpansion(page) {
   }
 
   // Step 3：回到阅读模式，等本章有效字数累积过 P1 单章 1000 字门槛。
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("阅读模式") &&
@@ -2370,7 +2378,7 @@ async function driveP1ChapterExpansionMultichapter(page) {
   }
 
   // 进入阅读模式：目录应显示完整计划，且第 1/2/3 章各有正文。
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("阅读模式") &&
@@ -2509,7 +2517,7 @@ async function driveP1ChapterEditThenAccept(page) {
   );
   const editButtonCleared = (await page.getByRole("button", { name: "修改后采纳" }).count()) === 0;
 
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   // 同 adoption-reading：必须等「本章有效字数」也渲染再快照，否则章节正文（编辑后正文）
   // 来自 get_chapter_content 的异步加载会被抢拍，导致误判正文未显示。
   await page.waitForFunction(
@@ -2645,7 +2653,7 @@ async function driveP1ChapterOverwriteConfirm(page) {
   const overwriteAdopt = await waitAdopted(artifact2.artifact_id);
 
   // ── 打开阅读模式：同一章显示采纳后正文，章节不重复。
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
   await page.waitForFunction(
     () =>
       document.body.innerText.includes("阅读模式") &&

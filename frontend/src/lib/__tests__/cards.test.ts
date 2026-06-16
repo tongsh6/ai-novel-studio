@@ -170,7 +170,27 @@ describe("card type contracts", () => {
       ),
     ).toEqual({
       title: "已采纳片段 1",
-      scenes: [{ title: "已采纳片段 1", content: "正文" }],
+      scenes: [{ title: "", content: "正文" }],
     });
+  });
+
+  it("reading mode hides generated scene placeholder titles but keeps meaningful scene titles", () => {
+    expect(
+      normalizeChapterContentTitle(
+        {
+          title: "第01章：底层灵气账单",
+          scenes: [
+            { title: "场景 2", content: "续写正文" },
+            { title: "第三场", content: "继续正文" },
+            { title: "矿道追击", content: "有效场景标题正文" },
+          ],
+        },
+        { id: "ch-1", title: "第01章：底层灵气账单", seq: 1, wordCount: 0, status: null },
+      ).scenes,
+    ).toEqual([
+      { title: "", content: "续写正文" },
+      { title: "", content: "继续正文" },
+      { title: "矿道追击", content: "有效场景标题正文" },
+    ]);
   });
 });

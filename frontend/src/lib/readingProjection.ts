@@ -95,12 +95,28 @@ export function normalizeChapterContentTitle(
     title: selectedChapter?.title ?? readableTitle(chapterContent.title, "已采纳片段"),
     scenes: chapterContent.scenes.map((scene) => ({
       ...scene,
-      title:
-        scene.title === chapterContent.title
-          ? (selectedChapter?.title ?? readableTitle(scene.title, "已采纳片段"))
-          : readableTitle(scene.title, "正文片段"),
+      title: readableSceneTitle(scene.title, chapterContent.title, selectedChapter),
     })),
   };
+}
+
+function readableSceneTitle(
+  sceneTitle: string | null | undefined,
+  chapterTitle: string | null | undefined,
+  selectedChapter?: ReadingChapterView,
+): string {
+  const normalized = sceneTitle?.trim();
+  if (
+    !normalized ||
+    isInternalProjectionTitle(normalized) ||
+    isGeneratedScenePlaceholder(normalized)
+  ) {
+    return "";
+  }
+
+  return normalized === chapterTitle
+    ? (selectedChapter?.title ?? readableTitle(normalized, "已采纳片段"))
+    : normalized;
 }
 
 function readableTitle(title: string | null | undefined, fallback: string): string {
@@ -111,4 +127,12 @@ function readableTitle(title: string | null | undefined, fallback: string): stri
 
 function isInternalProjectionTitle(title: string): boolean {
   return /^as_\d+$/i.test(title);
+}
+
+function isGeneratedScenePlaceholder(title: string): boolean {
+  return (
+    /^(?:场景\s*)?[0-9]+$/u.test(title) ||
+    /^场景\s*[一二三四五六七八九十百]+$/u.test(title) ||
+    /^第\s*(?:[0-9]+|[一二三四五六七八九十百]+)\s*场$/u.test(title)
+  );
 }

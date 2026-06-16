@@ -3973,6 +3973,7 @@ function findP1ChapterExpansionEvidence(records) {
   const intents = Array.isArray(uiState.continuation_intents) ? uiState.continuation_intents : [];
   if (intents.length < 2) return null;
   if (!intents.every((intent) => intent === "continuation")) return null;
+  if (containsGeneratedScenePlaceholderLine(uiState.long_session_visible_text)) return null;
 
   const draftTurnId = String(uiState.draft_turn_id ?? "");
   if (!draftTurnId) return null;
@@ -4044,6 +4045,7 @@ function findP1ChapterExpansionEvidence(records) {
     final_chapter_word_count: uiState.final_chapter_word_count,
     continuation_count: uiState.continuation_count,
     continuation_intents: intents,
+    scene_placeholder_titles_hidden: true,
     prior_prose_context_events: continuityEvents.length,
     key_events: keyEvents,
   };
@@ -4158,6 +4160,7 @@ function p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, _op
 
   const intents = Array.isArray(uiState.continuation_intents) ? uiState.continuation_intents : [];
   if (intents.length < 2 || !intents.every((intent) => intent === "continuation")) return null;
+  if (containsGeneratedScenePlaceholderLine(uiState.long_session_visible_text)) return null;
 
   // checkpoint 2：每轮续写都把本章已采纳正文喂进 prose_writing 上下文（基于前文衔接）。
   const continuityEvents = records.filter(
@@ -4178,6 +4181,7 @@ function p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, _op
     final_chapter_word_count: Number(uiState.final_chapter_word_count ?? 0),
     continuation_count: Number(uiState.continuation_count ?? 0),
     continuation_intents: intents,
+    scene_placeholder_titles_hidden: true,
     prior_prose_context_events: continuityEvents.length,
     assertions: [
       "first_chapter_draft_adopted_as_sub_1000_short_chapter",
@@ -4187,8 +4191,21 @@ function p1ChapterExpansionBehavior(turnIds, turnRecords, records, evidence, _op
       "single_chapter_accumulated_past_p1_1000_word_minimum",
       "short_chapter_flipped_to_ok_after_accumulation",
       "each_continuation_prose_writing_received_prior_chapter_prose_for_coherent_continuation",
+      "reading_mode_hides_generated_scene_placeholder_titles",
     ],
   };
+}
+
+function containsGeneratedScenePlaceholderLine(value) {
+  const text = String(value ?? "");
+
+  return text
+    .split(/\r?\n/u)
+    .some((line) =>
+      /^(?:场景\s*[0-9一二三四五六七八九十百]+|第\s*(?:[0-9]+|[一二三四五六七八九十百]+)\s*场)$/u.test(
+        line.trim(),
+      ),
+    );
 }
 
 function findP1ChapterEditThenAcceptEvidence(records) {

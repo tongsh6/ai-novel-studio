@@ -1826,6 +1826,30 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("p1-chapter-draft-generation", records)).toBeNull();
   });
 
+  it("accepts P1 chapter expansion only when reading mode hides generated scene placeholders", () => {
+    const records = p1ChapterExpansionRecords("turn-p1-expansion", "正文\n\n矿道追击\n正文");
+    const evidence = findNativeSliceEvidence("p1-chapter-expansion", records);
+
+    expect(evidence).toMatchObject({
+      slice_id: "p1-chapter-expansion",
+      turn_id: "turn-p1-expansion",
+      scene_placeholder_titles_hidden: true,
+      continuation_count: 2,
+      prior_prose_context_events: 2,
+    });
+    expect(findSliceBehaviorEvidence("p1-chapter-expansion", records, evidence)).toMatchObject({
+      slice_id: "p1-chapter-expansion",
+      scene_placeholder_titles_hidden: true,
+      assertions: expect.arrayContaining(["reading_mode_hides_generated_scene_placeholder_titles"]),
+    });
+  });
+
+  it("rejects P1 chapter expansion when generated scene placeholder titles leak to reading mode", () => {
+    const records = p1ChapterExpansionRecords("turn-p1-expansion", "正文\n场景 2\n续写正文");
+
+    expect(findNativeSliceEvidence("p1-chapter-expansion", records)).toBeNull();
+  });
+
   it("accepts VS-00C CP3 only when structured chapter context reaches prose writing", () => {
     const records = vs00cCp3StructuredContextRecords("turn-cp3");
     const evidence = findNativeSliceEvidence("vs00c-cp3-structured-context", records);
@@ -3323,6 +3347,76 @@ function p1ChapterDraftGenerationRecords(turnId) {
       unadopted_draft_visible_in_reading: false,
       adopt_event_sent: false,
       user_message_text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+    },
+  ];
+}
+
+function p1ChapterExpansionRecords(turnId, visibleText) {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      work_id: "work-p1",
+      session_id: "session-p1",
+    },
+    ...[turnId, "turn-p1-cont-1", "turn-p1-cont-2"].flatMap((toolTurnId) => [
+      {
+        event: "toolbox.execute.done",
+        turn_id: toolTurnId,
+        work_id: "work-p1",
+        tool_name: "prose_writing",
+        tool_outcome: "succeeded",
+      },
+      {
+        event: "channel.author_action.done",
+        turn_id: `adopt-${toolTurnId}`,
+        work_id: "work-p1",
+        action_type: "accept",
+        action_status: "accepted",
+      },
+    ]),
+    {
+      event: "turn_execution.continuation_context.done",
+      turn_id: "turn-p1-cont-1",
+      work_id: "work-p1",
+      authoring_intent: "continuation",
+      prior_prose_chars: 180,
+    },
+    {
+      event: "turn_execution.continuation_context.done",
+      turn_id: "turn-p1-cont-2",
+      work_id: "work-p1",
+      authoring_intent: "continuation",
+      prior_prose_chars: 760,
+    },
+    {
+      event: "channel.get_toc.done",
+      work_id: "work-p1",
+      chapter_count: 12,
+      empty_chapter_count: 11,
+      short_chapter_count: 0,
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      work_id: "work-p1",
+      content_chars: 1300,
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "p1-chapter-expansion",
+      turn_id: turnId,
+      work_id: "work-p1",
+      draft_turn_id: turnId,
+      chapter_title: "第01章：底层灵气账单",
+      continuations_all_recognized: true,
+      appended_to_single_chapter: true,
+      accumulated_past_min: true,
+      short_to_ok_transition: true,
+      first_draft_chapter_words: 168,
+      final_chapter_word_count: 1302,
+      continuation_count: 2,
+      continuation_intents: ["continuation", "continuation"],
+      long_session_visible_text: visibleText,
     },
   ];
 }
