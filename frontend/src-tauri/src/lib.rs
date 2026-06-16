@@ -64,14 +64,20 @@ struct ModelProviderPreferenceStatus {
 
 const MAX_ASSISTANT_DISPLAY_NAME_LENGTH: usize = 20;
 const MAX_PROVIDER_FIELD_LENGTH: usize = 200;
+const MAX_DESKTOP_PROFILE_LENGTH: usize = 40;
 const MODEL_PROVIDER_IDS: [&str; 4] = ["stub", "lmstudio", "anthropic", "deepseek"];
 const MODEL_PROVIDER_KEYCHAIN_SERVICE: &str = "com.ai-novel-studio.app.model-provider";
+const DESKTOP_PROFILE_ENV: &str = "AI_NOVEL_DESKTOP_PROFILE";
 
 fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-  let dir = app
+  let mut dir = app
     .path()
     .app_config_dir()
     .map_err(|error| format!("failed to resolve app config dir: {error}"))?;
+
+  if let Some(profile) = desktop_profile()? {
+    dir = dir.join("profiles").join(profile);
+  }
 
   std::fs::create_dir_all(&dir)
     .map_err(|error| format!("failed to create app config dir: {error}"))?;
@@ -230,6 +236,40 @@ fn normalize_provider_id(provider: String) -> Result<String, String> {
   }
 }
 
+fn desktop_profile() -> Result<Option<String>, String> {
+  match std::env::var(DESKTOP_PROFILE_ENV) {
+    Ok(value) => normalize_desktop_profile(&value),
+    Err(std::env::VarError::NotPresent) => {
+      if cfg!(debug_assertions) {
+        Ok(Some("dev".into()))
+      } else {
+        Ok(None)
+      }
+    }
+    Err(error) => Err(format!("failed to read desktop profile: {error}")),
+  }
+}
+
+fn normalize_desktop_profile(value: &str) -> Result<Option<String>, String> {
+  let trimmed = value.trim();
+
+  if trimmed.is_empty() {
+    return Ok(None);
+  }
+
+  let valid =
+    trimmed.len() <= MAX_DESKTOP_PROFILE_LENGTH
+      && trimmed
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || ch == '-' || ch == '_');
+
+  if valid {
+    Ok(Some(trimmed.to_string()))
+  } else {
+    Err("desktop profile must use only ASCII letters, numbers, '-' or '_'".into())
+  }
+}
+
 fn normalize_optional_text(value: Option<String>, max_len: usize) -> Option<String> {
   let trimmed = value?.trim().to_string();
   if trimmed.is_empty() {
@@ -288,11 +328,12 @@ impl ModelProviderSelection for ModelProviderPreferences {
 
 #[cfg(target_os = "macos")]
 fn get_provider_api_key(provider: &str) -> Result<Option<String>, String> {
+  let service = model_provider_keychain_service()?;
   let output = std::process::Command::new("security")
     .args([
       "find-generic-password",
       "-s",
-      MODEL_PROVIDER_KEYCHAIN_SERVICE,
+      service.as_str(),
       "-a",
       provider,
       "-w",
@@ -317,11 +358,12 @@ fn get_provider_api_key(provider: &str) -> Result<Option<String>, String> {
 
 #[cfg(target_os = "macos")]
 fn set_provider_api_key(provider: &str, api_key: &str) -> Result<(), String> {
+  let service = model_provider_keychain_service()?;
   let status = std::process::Command::new("security")
     .args([
       "add-generic-password",
       "-s",
-      MODEL_PROVIDER_KEYCHAIN_SERVICE,
+      service.as_str(),
       "-a",
       provider,
       "-w",
@@ -340,11 +382,12 @@ fn set_provider_api_key(provider: &str, api_key: &str) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn delete_provider_api_key(provider: &str) -> Result<(), String> {
+  let service = model_provider_keychain_service()?;
   let output = std::process::Command::new("security")
     .args([
       "delete-generic-password",
       "-s",
-      MODEL_PROVIDER_KEYCHAIN_SERVICE,
+      service.as_str(),
       "-a",
       provider,
     ])
@@ -378,6 +421,17 @@ fn delete_provider_api_key(_provider: &str) -> Result<(), String> {
   Ok(())
 }
 
+fn model_provider_keychain_service() -> Result<String, String> {
+  Ok(profiled_keychain_service(desktop_profile()?.as_deref()))
+}
+
+fn profiled_keychain_service(profile: Option<&str>) -> String {
+  match profile {
+    Some(profile) => format!("{MODEL_PROVIDER_KEYCHAIN_SERVICE}.{profile}"),
+    None => MODEL_PROVIDER_KEYCHAIN_SERVICE.to_string(),
+  }
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -400,6 +454,29 @@ mod tests {
     assert_eq!(input.reasoning_effort.as_deref(), Some("medium"));
     assert_eq!(input.api_key.as_deref(), Some("secret"));
     assert!(!input.clear_api_key);
+  }
+
+  #[test]
+  fn validates_desktop_profile_names() {
+    assert_eq!(
+      normalize_desktop_profile(" stage-1 ").expect("profile should be valid"),
+      Some("stage-1".into())
+    );
+    assert_eq!(normalize_desktop_profile("  ").expect("blank profile disables scoping"), None);
+    assert!(normalize_desktop_profile("../stage").is_err());
+    assert!(normalize_desktop_profile("stage dev").is_err());
+  }
+
+  #[test]
+  fn scopes_keychain_service_by_desktop_profile() {
+    assert_eq!(
+      profiled_keychain_service(Some("stage")),
+      "com.ai-novel-studio.app.model-provider.stage"
+    );
+    assert_eq!(
+      profiled_keychain_service(None),
+      "com.ai-novel-studio.app.model-provider"
+    );
   }
 }
 

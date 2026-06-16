@@ -8,7 +8,7 @@
 >
 > 2026-06-12 对账结论：Gateway 已新增 `deepseek` adapter，配置来源为 `NOVEL_DEEPSEEK_API_KEY` / `DEEPSEEK_API_KEY`、`NOVEL_DEEPSEEK_MODEL`、`NOVEL_DEEPSEEK_ENDPOINT`，默认模型 `deepseek-v4-flash`，默认非 thinking 模式。该变更只扩展后端 provider registry 和 env/config 接入，不代表 SU-01 的 provider 列表 UI、运行时切换、安全存储或真实页面验收已完成。
 >
-> 2026-06-12 完整版模型切换实现进展：`Gateway` 已提供 `provider_options/provider_models/configure_provider/test_provider` 运行时 API，`NovelWeb.ProviderController` 暴露 `/api/provider/options`、`POST /api/provider/models`、`PUT /api/provider/config`、`POST /api/provider/test`，`WorkspaceChat` 顶栏新增“模型设置”入口，可查看后端 provider registry、配置 endpoint/API Key、实时刷新并选择供应商模型、DeepSeek thinking/reasoning effort、手动测试连接并保存切换；模型名不再由作者手输，也不由前端预制写死，DeepSeek/Anthropic/LM Studio 分别经供应商模型列表 API 拉取。Tauri 桌面侧将非 secret 偏好写入 app config，API Key 写入 macOS Keychain，后端运行时只保留当前进程配置；本轮修复了前端 camelCase payload 与 Rust snake_case struct 不匹配导致的保存失败，并以 Rust 单测锁定。新增外部自动化 `su01-model-provider-switching` 已从真实工作台打开设置、切换到 Stub、测试连接、保存、发送下一轮，并用 `provider_gateway.complete.done provider=stub` 业务日志证明下一轮确实走新 provider 且对话保留。当前仍不能标 SU-01 全量完成：DeepSeek/API Key/endpoint 的真实桌面矩阵、LM Studio 断开态、Keychain 端到端和非 macOS secret 策略仍未闭环。
+> 2026-06-12 完整版模型切换实现进展：`Gateway` 已提供 `provider_options/provider_models/configure_provider/test_provider` 运行时 API，`NovelWeb.ProviderController` 暴露 `/api/provider/options`、`POST /api/provider/models`、`PUT /api/provider/config`、`POST /api/provider/test`，`WorkspaceChat` 顶栏新增“模型设置”入口，可查看后端 provider registry、配置 endpoint/API Key、实时刷新并选择供应商模型、DeepSeek thinking/reasoning effort、手动测试连接并保存切换；模型名不再由作者手输，也不由前端预制写死，DeepSeek/Anthropic/LM Studio 分别经供应商模型列表 API 拉取。Tauri 桌面侧将非 secret 偏好写入 profile-scoped app config，API Key 写入 profile-scoped macOS Keychain service，后端运行时只保留当前进程配置；本轮修复了前端 camelCase payload 与 Rust snake_case struct 不匹配导致的保存失败，并以 Rust 单测锁定。新增外部自动化 `su01-model-provider-switching` 已从真实工作台打开设置、切换到 Stub、测试连接、保存、发送下一轮，并用 `provider_gateway.complete.done provider=stub` 业务日志证明下一轮确实走新 provider 且对话保留。当前仍不能标 SU-01 全量完成：DeepSeek/API Key/endpoint 的真实桌面矩阵、LM Studio 断开态、Keychain 端到端和非 macOS secret 策略仍未闭环。
 
 ---
 
@@ -52,7 +52,7 @@
 | `apps/novel_agent/lib/novel_agent/provider/runtime_config.ex` | 保存当前进程的 provider 选择与运行时配置 | 持久化归桌面 shell，不落项目仓库 |
 | `apps/novel_agent/lib/novel_agent/provider/gateway.ex` | 注册 `stub/lmstudio/anthropic/deepseek`，支持 registry、实时模型列表、health、运行时切换和连接测试；`clear_api_key` 不复用旧 runtime key | 后端最小切换闭环已实现并有单元/控制器测试 |
 | `frontend/src/lib/modelProvider.ts` | 集中封装 provider options/models/config/test、Tauri 偏好、Keychain 同步、浏览器 fallback | 前端只调用后端 API，不直接调用 provider |
-| `frontend/src-tauri/src/lib.rs` | 非 secret provider 偏好写 app config，API Key 写 macOS Keychain；保存 payload 支持前端 camelCase | 桌面安全存储边界已实现；非 macOS Keychain 写入返回明确错误 |
+| `frontend/src-tauri/src/lib.rs` | 非 secret provider 偏好写 profile-scoped app config，API Key 写 profile-scoped macOS Keychain service；保存 payload 支持前端 camelCase | dev/stage/slice verification 的 provider 选择互相隔离；非 macOS Keychain 写入返回明确错误 |
 | `frontend/src/components/WorkspaceChat.tsx` | 顶栏“模型设置”入口，支持选择 provider、endpoint、API Key、刷新/选择供应商实时模型、DeepSeek thinking/reasoning effort、测试连接、保存切换 | 作者可在真实工作台发起模型切换；`su01-model-provider-switching` 已覆盖 Stub 切换主路径 |
 | `apps/novel_web/test/novel_web/controllers/provider_controller_test.exs` | 覆盖 options/models/config/test 和 secret 不泄漏 | 后端 Web 合同已测试 |
 | `frontend/src/lib/__tests__/modelProvider.test.ts` | 覆盖前端 runtime payload、模型列表 payload/归一化、secret 不写 localStorage、clear key 合同 | 前端 client 合同已测试 |
@@ -181,7 +181,7 @@
 |---|---|
 | 用户视角 | 我的 API Key 和 provider 偏好不会被提交到项目仓库 |
 | 期望结果 | 配置落在 Tauri app data / OS keychain / 明确的安全后端位置 |
-| 当前证据 | Tauri app config 保存非 secret 偏好；macOS Keychain 保存 API Key；后端 runtime config 进程内保存，不写仓库文件 |
+| 当前证据 | Tauri app config 保存非 secret 偏好；macOS Keychain 保存 API Key；二者均按 `AI_NOVEL_DESKTOP_PROFILE` 隔离（dev/stage/slice-verify 默认不同 profile）；后端 runtime config 进程内保存，不写仓库文件 |
 | 当前状态 | 已实现未验收 |
 | 缺口类型 | 补真实桌面验收 + 补跨平台 secret 策略 |
 | 优先级 | P0 |
@@ -201,7 +201,7 @@
 | SC-SU01-B4 | 手动测试连接 | 已有最小真实 Tauri 验收 | test API + UI 按钮 + `su01-model-provider-switching` | 补失败态 UI 验收 |
 | SC-SU01-C1 | 切换后下一轮用新 provider | 已有最小真实 Tauri 验收 | Gateway runtime routing 测试 + `provider_gateway.complete.done provider=stub` | 补 DeepSeek/LM Studio 矩阵 |
 | SC-SU01-C2 | 切换不丢对话 | 已有最小真实 Tauri 验收 | `su01-model-provider-switching` 断言切换后消息仍可见 | 补长会话/历史消息矩阵 |
-| SC-SU01-C3 | 配置安全存储 | 已实现未验收 | app config + macOS Keychain + runtime in-memory | 补真实桌面验收/跨平台策略 |
+| SC-SU01-C3 | 配置安全存储 | 已实现未验收 | profile-scoped app config + profile-scoped macOS Keychain + runtime in-memory | 补真实桌面验收/跨平台策略 |
 
 **场景化覆盖判断：6/10 已有最小真实 Tauri 证据（A1/A2/B1/B4/C1/C2），3/10 已实现但缺真实桌面矩阵（B2/B3/C3），A3 仍缺 LM Studio 断开态页面验收。**
 
@@ -217,7 +217,7 @@
 | SU01-GAP-02 | disconnected health 无测试 | 已补：controller/application 测试覆盖 disconnected 时仍保留 provider/model metadata | 后续补 LM Studio 未启动的端到端 UI 文案断言 | P0 |
 | SU01-GAP-03 | provider registry 未暴露 | 已补：`GET /api/provider/options` 返回可选 provider 且不含 secret | 保持 Web/controller/client 测试；补真实页面验收 | P1 |
 | SU01-GAP-04 | 运行时 provider 选择缺失 | 已补：`RuntimeConfig` + `configure_provider` + `Gateway.complete` runtime routing | 补真实页面下一轮 provider 证据 | P0 |
-| SU01-GAP-05 | API Key 安全存储缺设计 | 已补：Tauri app config 保存非 secret 偏好，macOS Keychain 保存 Key，后端进程内 runtime | 补真实桌面验收；决定非 macOS secret 策略 | P0 |
+| SU01-GAP-05 | API Key 安全存储缺设计 | 已补：Tauri app config 保存非 secret 偏好，macOS Keychain 保存 Key，二者按 desktop profile 隔离；后端进程内 runtime | 补真实桌面验收；决定非 macOS secret 策略 | P0 |
 | SU01-GAP-06 | endpoint/model UI 缺失 | 已补：模型设置 Dialog 支持 endpoint，并通过供应商实时模型列表选择 model；保存失败的 Tauri payload 命名根因已修 | 补 URL 校验、真实 provider 页面验收和失败矩阵 | P1 |
 | SU01-GAP-07 | 切换后 trace/log 不标 provider | 已补：`provider_gateway.complete.start/done/error` 记录 provider/model/duration/error，不含 prompt/secret | 保持 Gateway 日志测试和 `su01-model-provider-switching` 验收 | P1 |
 | SU01-GAP-08 | 缺完整模型切换 Tauri driver | 已补：`su01-model-provider-switching` 覆盖设置、测试连接、保存、下一轮调用和对话保留 | 后续扩展 DeepSeek/LM Studio/API Key/endpoint 失败矩阵 | P0 |
@@ -257,7 +257,7 @@ SU-01 完整版必须同时满足：
 | 1 | 已完成：修正 A2 基础断裂 | `/api/provider/health` 返回 `provider` + `model` | Controller/application/frontend health test |
 | 2 | 已完成：暴露 provider registry | `GET /api/provider/options` | Web/controller/frontend client test |
 | 3 | 已完成：运行时配置与切换 UI | `PUT /api/provider/config` + `POST /api/provider/test` + 工作台 Dialog | Gateway/Web/frontend client test |
-| 4 | 已完成：桌面存储边界 | Tauri preferences + macOS Keychain commands | `cargo check` + 前端 client test |
+| 4 | 已完成：桌面存储边界 | profile-scoped Tauri preferences + profile-scoped macOS Keychain commands | `cargo check` + Rust/frontend client test |
 | 5 | 已完成：完整 Tauri 切换主路径验收 | `su01-model-provider-switching` driver | 外部自动化：打开设置、切换 provider、保存、发送下一轮、读取日志/截图 |
 | 6 | 已完成：provider/model trace | provider call log 增加 provider/model 审计字段 | Gateway 日志测试 + Tauri 验收读取日志证据 |
 | 7 | 已完成：供应商实时模型列表 | `POST /api/provider/models` + 工作台模型选择器 | Gateway/Web/frontend/Rust 局部测试 |

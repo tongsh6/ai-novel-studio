@@ -77,9 +77,11 @@ trap 'on_signal 143' TERM
 REQUESTED_VITE_API_ENDPOINT="${VITE_API_ENDPOINT:-}"
 REQUESTED_VITE_PROXY_TARGET="${VITE_PROXY_TARGET:-}"
 REQUESTED_VITE_WS_ENDPOINT="${VITE_WS_ENDPOINT:-}"
+REQUESTED_AI_NOVEL_DESKTOP_PROFILE="${AI_NOVEL_DESKTOP_PROFILE:-}"
 REQUESTED_VITE_API_ENDPOINT_SET="${VITE_API_ENDPOINT+x}"
 REQUESTED_VITE_PROXY_TARGET_SET="${VITE_PROXY_TARGET+x}"
 REQUESTED_VITE_WS_ENDPOINT_SET="${VITE_WS_ENDPOINT+x}"
+REQUESTED_AI_NOVEL_DESKTOP_PROFILE_SET="${AI_NOVEL_DESKTOP_PROFILE+x}"
 
 set -a
 source "$PROJECT_ROOT/frontend/.env" 2>/dev/null || true
@@ -87,6 +89,12 @@ set +a
 
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5768}"
+
+if [[ -n "$REQUESTED_AI_NOVEL_DESKTOP_PROFILE_SET" ]]; then
+  export AI_NOVEL_DESKTOP_PROFILE="$REQUESTED_AI_NOVEL_DESKTOP_PROFILE"
+else
+  export AI_NOVEL_DESKTOP_PROFILE="${AI_NOVEL_DESKTOP_PROFILE:-dev}"
+fi
 
 # Dev/Tauri runs from the Vite origin. Keep HTTP API same-origin (/api) unless
 # the caller explicitly asks for a direct backend endpoint; Vite proxies /api.
@@ -109,6 +117,7 @@ else
 fi
 
 echo "=== AI Novel Studio ==="
+echo "  Desktop profile: ${AI_NOVEL_DESKTOP_PROFILE:-<shared>}"
 
 # ---- 浏览器模式 ----
 

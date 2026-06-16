@@ -311,10 +311,19 @@ const path = await invoke("export_novel", { workId, format: "docx" });
 | Windows | `%APPDATA%/com.ai-novel-studio.app/` |
 | Linux | `~/.local/share/com.ai-novel-studio.app/` |
 
+桌面偏好（如当前模型供应商、最近打开作品、助手显示名）按 `AI_NOVEL_DESKTOP_PROFILE`
+隔离到 `<data dir>/profiles/<profile>/preferences.json`。脚本默认 profile：
+`dev.sh` → `dev`，`stage.sh` → `stage`，`tauri_slice_verify.sh` → `slice-verify`。
+生产 release 未指定 profile 时使用 `<data dir>/preferences.json`。
+
 存储内容：
 
 ```
 <data dir>/
+├── profiles/
+│   ├── dev/preferences.json     # 开发桌面偏好
+│   ├── stage/preferences.json   # 预发布桌面偏好
+│   └── slice-verify/...         # 外部验收隔离偏好
 ├── db.sqlite3                # 主数据库
 ├── db.sqlite3-wal            # WAL 文件
 ├── db.sqlite3-shm

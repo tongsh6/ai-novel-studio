@@ -12,7 +12,7 @@
 #   - 桌面端：Phoenix (prod) + Vite dev server + Tauri 原生窗口
 #   - 浏览器：Phoenix (prod) + Vite preview（构建产物，无 HMR）
 #   - 与 dev 端口不同，可同时运行
-#   - 默认使用 Anthropic provider（可通过 NOVEL_PROVIDER_DEFAULT=lmstudio 切换）
+#   - 默认使用 LM Studio provider（可通过 NOVEL_PROVIDER_DEFAULT=deepseek/anthropic 切换）
 #
 
 set -euo pipefail
@@ -169,6 +169,8 @@ REQUESTED_VITE_API_ENDPOINT="${VITE_API_ENDPOINT:-}"
 REQUESTED_VITE_PROXY_TARGET="${VITE_PROXY_TARGET:-}"
 REQUESTED_VITE_WS_ENDPOINT="${VITE_WS_ENDPOINT:-}"
 REQUESTED_NOVEL_PROVIDER_DEFAULT="${NOVEL_PROVIDER_DEFAULT:-}"
+REQUESTED_AI_NOVEL_DESKTOP_PROFILE="${AI_NOVEL_DESKTOP_PROFILE:-}"
+REQUESTED_AI_NOVEL_DESKTOP_PROFILE_SET="${AI_NOVEL_DESKTOP_PROFILE+x}"
 
 set -a
 source "$PROJECT_ROOT/frontend/.env" 2>/dev/null || true
@@ -185,6 +187,11 @@ export VITE_API_ENDPOINT="${REQUESTED_VITE_API_ENDPOINT:-}"
 export VITE_PROXY_TARGET="${REQUESTED_VITE_PROXY_TARGET:-http://127.0.0.1:${PHOENIX_PORT}}"
 export VITE_WS_ENDPOINT="${REQUESTED_VITE_WS_ENDPOINT:-ws://127.0.0.1:${PHOENIX_PORT}/socket}"
 export NOVEL_PROVIDER_DEFAULT="${REQUESTED_NOVEL_PROVIDER_DEFAULT:-lmstudio}"
+if [[ -n "$REQUESTED_AI_NOVEL_DESKTOP_PROFILE_SET" ]]; then
+  export AI_NOVEL_DESKTOP_PROFILE="$REQUESTED_AI_NOVEL_DESKTOP_PROFILE"
+else
+  export AI_NOVEL_DESKTOP_PROFILE="${AI_NOVEL_DESKTOP_PROFILE:-stage}"
+fi
 
 PHX_URL="http://localhost:${PHOENIX_PORT}"
 
@@ -192,6 +199,7 @@ echo "=== AI Novel Studio [STAGE] ==="
 echo "  Mode:      ${MODE}"
 echo "  MIX_ENV:   ${MIX_ENV}"
 echo "  Provider:  ${NOVEL_PROVIDER_DEFAULT}"
+echo "  Profile:   ${AI_NOVEL_DESKTOP_PROFILE:-<shared>}"
 echo "  Phoenix:   ${PHX_URL}"
 if [[ "$MODE" == "tauri" ]]; then
   echo "  Vite:      http://localhost:${VITE_DEV_PORT} (dev server → Tauri)"

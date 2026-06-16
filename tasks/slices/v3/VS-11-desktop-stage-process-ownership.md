@@ -18,6 +18,7 @@
 2. 关闭 Tauri 窗口只退出 Tauri app；Phoenix/Vite 由启动它们的 script 依据 PID 清理。
 3. 清理只能作用于本次启动记录的 PID，不按端口扫描杀进程，避免误杀用户已有服务。
 4. 临时修改 `tauri.conf.json` 必须在退出时恢复，且备份不写入仓库工作区。
+5. dev/stage/slice verification 的 Tauri 桌面偏好必须按 `AI_NOVEL_DESKTOP_PROFILE` 隔离，避免 stage 保存的 provider 选择自动影响 dev 验证。
 
 ## 3. Boundary
 
@@ -25,7 +26,7 @@
 |---|---|---|
 | `scripts/stage.sh` | yes | Stage owner：Phoenix + Tauri dev CLI；web 模式 Phoenix + Vite preview |
 | `scripts/dev.sh` | yes | Dev owner：Phoenix + Tauri dev CLI；web 模式 Phoenix + Vite dev |
-| `frontend/src-tauri/src/lib.rs` | yes | 关闭窗口只退出 Tauri，不再按端口 kill Phoenix |
+| `frontend/src-tauri/src/lib.rs` | yes | 关闭窗口只退出 Tauri，不再按端口 kill Phoenix；桌面偏好和 provider Keychain service 按 profile 隔离 |
 | `frontend/src/main.tsx` | yes | 前端不再拦截窗口关闭去调用 `/api/system/shutdown` |
 | `novel_web` | no | 保留 `/api/system/shutdown` 兼容端点，不作为当前桌面关闭主链 |
 | domain/application/persistence/agent | no | 不触碰业务主链 |
@@ -44,6 +45,7 @@
 | 前端编译 | `pnpm --dir frontend typecheck && pnpm --dir frontend lint && pnpm --dir frontend test` | 移除 close hook 后无 TS/lint/test 回归 |
 | 后端质量 | `mix compile --warnings-as-errors && mix test && mix xref ... && mix run scripts/arch_check.exs` | 未破坏 umbrella 和后端门禁 |
 | Stage 生命周期 | `bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership` | 启动真实 stage Tauri，Tauri 退出后 launcher 清理 Phoenix 并恢复配置 |
+| Profile 隔离 | `cargo test` + `bash -n scripts/stage.sh scripts/dev.sh scripts/tauri_slice_verify.sh` | dev/stage/slice verify 默认 profile 不同，provider 偏好不会共用同一 app config |
 | 静态扫描 | `bash scripts/ai_static_scan.sh --top 10` | 无 P0/P1；本次文件无未处置 P2 |
 
 > 前端发起验证：真实路径是 `bash scripts/stage.sh` 启动 Tauri 工作台后点击窗口关闭按钮，预期 Tauri 退出触发 script cleanup 并释放 Phoenix/Vite。自动化 `tauri_slice_verify.sh desktop-stage-process-ownership` 先覆盖同一 Tauri 退出后果：真实 stage + 原生 Tauri app 启动，终止 Tauri launcher 后验证 cleanup。它证明 owner 模型成立；仍不声称覆盖生产 sidecar 生命周期。

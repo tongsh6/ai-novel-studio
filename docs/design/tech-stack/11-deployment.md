@@ -33,6 +33,10 @@
 | Windows | `%APPDATA%/com.ai-novel-studio.app/` |
 | Linux | `~/.local/share/com.ai-novel-studio.app/` |
 
+开发/预发布桌面壳通过 `AI_NOVEL_DESKTOP_PROFILE` 隔离偏好与 provider Keychain
+service：`dev.sh` 默认 `dev`，`stage.sh` 默认 `stage`，外部 Tauri 验收默认
+`slice-verify`。因此 stage 中保存的 DeepSeek 选择不会在 dev 启动时自动同步。
+
 ### 1.4 网络
 
 - 本地通信：`localhost:4000` HTTP/WS
