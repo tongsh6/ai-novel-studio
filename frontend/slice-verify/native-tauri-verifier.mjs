@@ -41,6 +41,7 @@ export const nativeSliceIds = [
   "p1-export-minimum",
   "p1-plan-incremental",
   "au04-confirm-before-execute",
+  "vs00c-cp0-missing-chapter-block",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
   "au09-validity-window-recall",
@@ -60,10 +61,7 @@ const sliceKeyEvents = {
     "channel.user_message.start",
     "slice_verify.ui_state.done",
   ],
-  "su01-provider-health-model": [
-    "channel.join.done",
-    "slice_verify.ui_state.done",
-  ],
+  "su01-provider-health-model": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-model-provider-switching": [
     "channel.join.done",
     "channel.user_message.start",
@@ -71,10 +69,7 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
-  "su03-assistant-display-name": [
-    "channel.join.done",
-    "slice_verify.ui_state.done",
-  ],
+  "su03-assistant-display-name": ["channel.join.done", "slice_verify.ui_state.done"],
   "stage-startup-context-contract": [
     "work_session.resume.done",
     "channel.join.done",
@@ -237,6 +232,15 @@ const sliceKeyEvents = {
     "channel.author_action.start",
     "channel.author_action.done",
     "toolbox.execute.done",
+    "slice_verify.ui_state.done",
+  ],
+  // CP0：续写不存在的章 → 执行前 block。要求坐标与缺失决策业务日志出现，
+  // 且不要求 toolbox.execute（block 短路不调 provider，由 driver 断言 tool_called=false）。
+  "vs00c-cp0-missing-chapter-block": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "turn_execution.writing_coordinate.done",
+    "turn_execution.missing_policy.done",
     "slice_verify.ui_state.done",
   ],
   "p1-export-minimum": [
@@ -630,6 +634,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu04ConfirmBeforeExecuteEvidence(records);
   }
 
+  if (sliceId === "vs00c-cp0-missing-chapter-block") {
+    return findVs00cMissingChapterBlockEvidence(records);
+  }
+
   if (sliceId === "p1-export-minimum") {
     return findP1ExportMinimumEvidence(records);
   }
@@ -825,6 +833,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return au09ValidityWindowRecallBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "vs00c-cp0-missing-chapter-block") {
+    return vs00cMissingChapterBlockBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
   if (!assistantMessagesAreValid(options.provider, turnIds, options.llmRecords ?? [])) {
     return null;
   }
@@ -876,6 +888,110 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
   }
 
   return null;
+}
+
+function findVs00cMissingChapterBlockEvidence(records) {
+  const sliceId = "vs00c-cp0-missing-chapter-block";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+
+  for (const [turnId, turnRecords] of byTurn.entries()) {
+    const start = turnRecords.find(
+      (record) =>
+        record.event === "channel.user_message.start" && String(record.text_len ?? "") !== "0",
+    );
+    if (!start) continue;
+
+    const coordinate = turnRecords.find(
+      (record) =>
+        record.event === "turn_execution.writing_coordinate.done" &&
+        record.requested_chapter === "第99章" &&
+        record.matched_chapter === "" &&
+        record.missing_severity === "block",
+    );
+    if (!coordinate) continue;
+
+    const missing = turnRecords.find(
+      (record) =>
+        record.event === "turn_execution.missing_policy.done" &&
+        record.severity === "block" &&
+        String(record.missing ?? "").includes("第99章"),
+    );
+    if (!missing) continue;
+
+    if (turnRecords.some((record) => record.event === "toolbox.execute.done")) continue;
+
+    const uiState = turnRecords.find(
+      (record) =>
+        record.event === "slice_verify.ui_state.done" &&
+        record.slice_id === sliceId &&
+        record.missing_chapter_blocked === true &&
+        record.honest_not_found_message === true,
+    );
+    if (!uiState) continue;
+
+    const hasRequiredEvents = keyEvents.every((event) =>
+      turnRecords.some(
+        (record) =>
+          record.event === event &&
+          (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
+      ),
+    );
+    if (!hasRequiredEvents) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: turnId,
+      work_id: start.work_id,
+      session_id: start.session_id,
+      requested_chapter: coordinate.requested_chapter,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function vs00cMissingChapterBlockBehavior(_turnIds, turnRecords, _records, evidence, _options) {
+  const uiState = turnRecords.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "vs00c-cp0-missing-chapter-block",
+  );
+  if (!uiState) return null;
+  if (uiState.missing_chapter_blocked !== true) return null;
+  if (uiState.honest_not_found_message !== true) return null;
+  if (uiState.tool_called !== false) return null;
+  if (uiState.no_adoption_artifact !== true) return null;
+  if (uiState.no_tool_result !== true) return null;
+  if (uiState.creative_card_absent !== true) return null;
+  if (uiState.no_toolbox_execute_event !== true) return null;
+
+  const missing = turnRecords.find(
+    (record) =>
+      record.event === "turn_execution.missing_policy.done" &&
+      record.severity === "block" &&
+      String(record.missing ?? "").includes("第99章"),
+  );
+  if (!missing) return null;
+  if (turnRecords.some((record) => record.event === "toolbox.execute.done")) return null;
+
+  return {
+    slice_id: "vs00c-cp0-missing-chapter-block",
+    behavior: "missing_chapter_blocks_before_provider_dispatch",
+    turn_ids: [evidence.turn_id],
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    requested_chapter: evidence.requested_chapter,
+    assertions: [
+      "real_workbench_sent_missing_chapter_request",
+      "writing_coordinate_recorded_requested_chapter_without_match",
+      "missing_policy_blocked_before_tool_dispatch",
+      "ui_rendered_honest_chapter_not_found_reply",
+      "toolbox_execute_not_called",
+      "no_creative_or_adoption_card_rendered",
+    ],
+  };
 }
 
 function findAu05ActionEvidence(records, sliceId, actionDoneEvent) {
@@ -1034,9 +1150,7 @@ function findSu01ModelProviderSwitchingEvidence(records) {
     if (uiState.socket_connected !== true) continue;
 
     const hasAllEvents = keyEvents.every((event) =>
-      event === "channel.join.done"
-        ? true
-        : turnRecords.some((record) => record.event === event),
+      event === "channel.join.done" ? true : turnRecords.some((record) => record.event === event),
     );
     if (!hasAllEvents) continue;
 
@@ -1726,7 +1840,8 @@ function findAu03cWorkSessionResumeEvidence(records) {
         record.turn_id,
     );
     const start = sessionTurnRecords.find(
-      (record) => record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+      (record) =>
+        record.event === "channel.user_message.start" && record.generate_micro_plan === true,
     );
     if (!start) continue;
 
@@ -1838,9 +1953,7 @@ function findWorkspaceRuntimeStateEvidence(records) {
     if (!joined) continue;
 
     const tocDone = records.find(
-      (record) =>
-        record.event === "channel.get_toc.done" &&
-        record.work_id === resumed.work_id,
+      (record) => record.event === "channel.get_toc.done" && record.work_id === resumed.work_id,
     );
     if (!tocDone) continue;
 
@@ -1967,9 +2080,7 @@ function findAu10UserMessageEvidence(records, generateMicroPlan, sliceId) {
     if (!hasRequiredCorrelationFields(start)) continue;
 
     const hasAllEvents = keyEvents.every((event) =>
-      turnRecords.some(
-        (record) => record.event === event && hasRequiredCorrelationFields(record),
-      ),
+      turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
     );
     if (!hasAllEvents) continue;
 
@@ -2010,9 +2121,7 @@ function findCandidateContinuationEvidence(records) {
     if (!hasRequiredCorrelationFields(start)) continue;
 
     const hasAllEvents = keyEvents.every((event) =>
-      turnRecords.some(
-        (record) => record.event === event && hasRequiredCorrelationFields(record),
-      ),
+      turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
     );
     if (!hasAllEvents) continue;
 
@@ -2062,9 +2171,11 @@ function findCandidateAdoptionBridgeEvidence(records) {
   const actionRecords = records.filter(
     (record) =>
       record.turn_id === sourceTurnId &&
-      ["channel.author_action.start", "adoption.evaluate.done", "channel.author_action.done"].includes(
-        record.event,
-      ),
+      [
+        "channel.author_action.start",
+        "adoption.evaluate.done",
+        "channel.author_action.done",
+      ].includes(record.event),
   );
 
   const sourceStarted = sourceRecords.some(
@@ -2087,8 +2198,7 @@ function findCandidateAdoptionBridgeEvidence(records) {
   );
   const adopted = actionRecords.some(
     (record) =>
-      record.event === "adoption.evaluate.done" &&
-      record.decision_type === "adopt_tentative",
+      record.event === "adoption.evaluate.done" && record.decision_type === "adopt_tentative",
   );
 
   if (!sourceStarted || !sourceCompleted || !actionStarted) return null;
@@ -2131,9 +2241,11 @@ function findAdoptionSafetyFreshnessEvidence(records) {
 
   const sourceRecords = records.filter((record) => record.turn_id === sourceTurnId);
   const actionRecords = sourceRecords.filter((record) =>
-    ["channel.author_action.start", "adoption.evaluate.done", "channel.author_action.done"].includes(
-      record.event,
-    ),
+    [
+      "channel.author_action.start",
+      "adoption.evaluate.done",
+      "channel.author_action.done",
+    ].includes(record.event),
   );
 
   const sourceStarted = sourceRecords.some(
@@ -2156,8 +2268,7 @@ function findAdoptionSafetyFreshnessEvidence(records) {
   );
   const confirmationRequired = actionRecords.some(
     (record) =>
-      record.event === "adoption.evaluate.done" &&
-      record.decision_type === "require_confirmation",
+      record.event === "adoption.evaluate.done" && record.decision_type === "require_confirmation",
   );
 
   if (!sourceStarted || !sourceCompleted || !actionStarted || !actionDone) return null;
@@ -2213,9 +2324,7 @@ function findStaleConflictCrossWorkEvidence(records) {
       record.action_status === "rejected",
   );
   const rejected = actionRecords.some(
-    (record) =>
-      record.event === "adoption.evaluate.done" &&
-      record.decision_type === "reject",
+    (record) => record.event === "adoption.evaluate.done" && record.decision_type === "reject",
   );
 
   if (!actionStarted || !actionDone || !rejected) return null;
@@ -2270,8 +2379,7 @@ function findConflictCrossWorkRecoveryEvidence(records) {
   );
   const failedWithRecovery = actionRecords.some(
     (record) =>
-      record.event === "adoption.evaluate.done" &&
-      record.decision_type === "fail_with_recovery",
+      record.event === "adoption.evaluate.done" && record.decision_type === "fail_with_recovery",
   );
 
   if (!actionStarted || !actionDone || !failedWithRecovery) return null;
@@ -2326,8 +2434,7 @@ function findCanonConflictRecoveryEvidence(records) {
   );
   const failedWithRecovery = actionRecords.some(
     (record) =>
-      record.event === "adoption.evaluate.done" &&
-      record.decision_type === "fail_with_recovery",
+      record.event === "adoption.evaluate.done" && record.decision_type === "fail_with_recovery",
   );
 
   if (!actionStarted || !actionDone || !failedWithRecovery) return null;
@@ -2376,8 +2483,7 @@ function findP1ChapterPlanMinimumEvidence(records) {
   );
   const microPlanStarted = generationRecords.some(
     (record) =>
-      record.event === "channel.user_message.start" &&
-      record.generate_micro_plan === true,
+      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
   );
   // 采纳走当前模型 author_action accept（channel adopt handler 已是遗留、前端不用）。
   // 持久化/未物化阅读投影由 uiState 门（reading_projection_materialized===false）保证。
@@ -2434,8 +2540,7 @@ function findP1ChapterDraftGenerationEvidence(records) {
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
   const start = draftRecords.find(
     (record) =>
-      record.event === "channel.user_message.start" &&
-      record.generate_micro_plan === true,
+      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
   );
   if (!start) return null;
   if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
@@ -2548,9 +2653,13 @@ function p1ChapterPlanMinimumBehavior(turnIds, turnRecords, records, evidence, o
   if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "planner.form_micro_plan.done")) {
     return null;
   }
-  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "toolbox.execute.done")) return null;
-  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "channel.author_action.done")) return null;
-  if (!lmstudioHasSteps(options, [evidence.generation_turn_id], ["form_frame", "form_micro_plan"])) {
+  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "toolbox.execute.done"))
+    return null;
+  if (!turnsHaveEvent([evidence.generation_turn_id], turnRecords, "channel.author_action.done"))
+    return null;
+  if (
+    !lmstudioHasSteps(options, [evidence.generation_turn_id], ["form_frame", "form_micro_plan"])
+  ) {
     return null;
   }
 
@@ -3056,8 +3165,7 @@ function au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidenc
   }
 
   const uiState = records.find(
-    (r) =>
-      r.event === "slice_verify.ui_state.done" && r.slice_id === "au04-confirm-before-execute",
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "au04-confirm-before-execute",
   );
   if (!uiState) return null;
   if (uiState.tool_called_before_confirm !== false) return null;
@@ -3067,8 +3175,7 @@ function au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidenc
 
   return {
     slice_id: "au04-confirm-before-execute",
-    behavior:
-      "high_risk_user_turn_requires_confirmation_then_binding_re_gate_executes_tentatively",
+    behavior: "high_risk_user_turn_requires_confirmation_then_binding_re_gate_executes_tentatively",
     turn_ids: turnIds,
     artifact_id: evidence.artifact_id,
     confirm_action_behavior_ref: evidence.confirm_action_behavior_ref,
@@ -3948,7 +4055,10 @@ function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
 
   if (uiState.production_write_performed !== false) return null;
   if (uiState.candidate_selected !== true || uiState.candidate_adopted !== true) return null;
-  if (options.provider === "lmstudio" && !lmstudioHasSteps(options, [sourceTurnId], ["form_frame"])) {
+  if (
+    options.provider === "lmstudio" &&
+    !lmstudioHasSteps(options, [sourceTurnId], ["form_frame"])
+  ) {
     return null;
   }
 
@@ -4028,7 +4138,10 @@ function adoptionSafetyFreshnessBehavior(turnIds, turnRecords, options) {
   if (uiState.candidate_selected !== true || uiState.candidate_adopted !== false) return null;
   if (!Array.isArray(uiState.adoption_reason_codes)) return null;
   if (!uiState.adoption_reason_codes.includes("high_risk_candidate")) return null;
-  if (options.provider === "lmstudio" && !lmstudioHasSteps(options, [sourceTurnId], ["form_frame"])) {
+  if (
+    options.provider === "lmstudio" &&
+    !lmstudioHasSteps(options, [sourceTurnId], ["form_frame"])
+  ) {
     return null;
   }
 
@@ -4405,7 +4518,9 @@ function readingProjectionBehavior(turnIds, turnRecords, options) {
 
   const adoptDone = turnRecords.find((record) => record.event === "channel.adopt.done");
   const tocDone = turnRecords.find((record) => record.event === "channel.get_toc.done");
-  const chapterDone = turnRecords.find((record) => record.event === "channel.get_chapter_content.done");
+  const chapterDone = turnRecords.find(
+    (record) => record.event === "channel.get_chapter_content.done",
+  );
 
   if (!adoptDone?.persisted || !adoptDone?.mutation_id) return null;
   if (Number(tocDone?.chapter_count ?? 0) < 1) return null;
@@ -4784,7 +4899,8 @@ function traceWhyEntryBehavior(records, evidence, options) {
   if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
 
   const uiState = turnRecords.find(
-    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === "au07-trace-why-entry",
+    (record) =>
+      record.event === "slice_verify.ui_state.done" && record.slice_id === "au07-trace-why-entry",
   );
   if (!uiState?.trace_why_dialog_open) return null;
   if (uiState.trace_why_contains_raw_prompt === true) return null;
@@ -4853,7 +4969,8 @@ function workspaceRuntimeStateBehavior(records, evidence, _options) {
 
   return {
     slice_id: "workspace-runtime-state",
-    behavior: "workspace_runtime_state_normalizes_resume_connection_adoption_and_reading_empty_state",
+    behavior:
+      "workspace_runtime_state_normalizes_resume_connection_adoption_and_reading_empty_state",
     turn_ids: evidence.turn_ids,
     work_id: evidence.work_id,
     session_id: evidence.session_id,
@@ -4873,7 +4990,9 @@ function workspaceRuntimeStateBehavior(records, evidence, _options) {
 function su02WorkSwitchingBehavior(records, evidence, _options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
 
-  const previousWorkRecords = records.filter((record) => record.work_id === evidence.previous_work_id);
+  const previousWorkRecords = records.filter(
+    (record) => record.work_id === evidence.previous_work_id,
+  );
   const currentWorkRecords = records.filter((record) => record.work_id === evidence.work_id);
   if (previousWorkRecords.length === 0 || currentWorkRecords.length === 0) return null;
 
@@ -4939,7 +5058,8 @@ function su01ProviderHealthBehavior(records, evidence, _options) {
 function su01ModelProviderSwitchingBehavior(records, evidence, _options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
 
-  const unsafe = JSON.stringify(records).includes("api_key") || JSON.stringify(records).includes("secret");
+  const unsafe =
+    JSON.stringify(records).includes("api_key") || JSON.stringify(records).includes("secret");
   if (unsafe) return null;
 
   return {
@@ -4963,7 +5083,12 @@ function su01ModelProviderSwitchingBehavior(records, evidence, _options) {
 
 function workSessionResumeBehavior(records, evidence, options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
-  if (!lmstudioHasSteps(options, evidence.turn_ids ?? [evidence.turn_id], ["form_frame", "form_micro_plan"])) {
+  if (
+    !lmstudioHasSteps(options, evidence.turn_ids ?? [evidence.turn_id], [
+      "form_frame",
+      "form_micro_plan",
+    ])
+  ) {
     return null;
   }
 
@@ -5209,9 +5334,7 @@ function findVs10LogSpineEvidence(records) {
 
   for (const [turnId, turnRecords] of byTurn.entries()) {
     const hasAllEvents = keyEvents.every((event) =>
-      turnRecords.some(
-        (record) => record.event === event && hasRequiredCorrelationFields(record),
-      ),
+      turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
     );
 
     if (!hasAllEvents) continue;
@@ -5237,9 +5360,7 @@ function findOrdinaryChatTwoTurnEvidence(records) {
     if (!start || start.generate_micro_plan !== false) continue;
 
     const hasRequiredEvents = keyEvents.every((event) =>
-      turnRecords.some(
-        (record) => record.event === event && hasRequiredCorrelationFields(record),
-      ),
+      turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
     );
     if (!hasRequiredEvents) continue;
 

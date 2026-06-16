@@ -26,6 +26,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+ORIGINAL_HOME="${HOME:-}"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
 SLICE_ID=""
 SLICE_VERIFY_PROVIDER="${SLICE_VERIFY_PROVIDER:-slice_verify}"
@@ -84,6 +85,7 @@ Implemented external UI driver slice ids:
   p1-export-minimum
   p1-plan-incremental
   au04-confirm-before-execute
+  vs00c-cp0-missing-chapter-block
   au09-memory-create-recall
   au09-adopt-setting-recall
   au09-validity-window-recall
@@ -118,7 +120,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -134,7 +136,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -148,8 +150,9 @@ fi
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts/slice-verify/${SLICE_ID}${ARTIFACT_SUFFIX}"
 APP_LOG_DIR="$ARTIFACT_DIR/app-log"
 LLM_LOG_DIR="$ARTIFACT_DIR/llm-calls"
+TAURI_SLICE_HOME="$ARTIFACT_DIR/tauri-home"
 rm -rf "$ARTIFACT_DIR"
-mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR"
+mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR" "$TAURI_SLICE_HOME"
 
 PHX_PID=""
 TAURI_PID=""
@@ -169,7 +172,8 @@ sync_tauri_conf() {
 
   TAURI_DEV_URL="http://127.0.0.1:${vite_port}" \
   TAURI_CONNECT_SRC="http://localhost:${phoenix_port} http://127.0.0.1:${phoenix_port} ws://localhost:${phoenix_port} ws://127.0.0.1:${phoenix_port}" \
-    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g' "$TAURI_CONF"
+  TAURI_BEFORE_DEV_COMMAND="bash ${PROJECT_ROOT}/scripts/before-tauri-dev.sh" \
+    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g; s#"beforeDevCommand":\s*"[^"]+"#"beforeDevCommand": "$ENV{TAURI_BEFORE_DEV_COMMAND}"#g' "$TAURI_CONF"
 }
 
 reset_test_db() {
@@ -259,6 +263,9 @@ native_action_description() {
       ;;
     au04-confirm-before-execute)
       echo "seed adopted chapter plan -> type a high-risk rewrite request in chat -> confirmation card arrives over the real wire (no tool call, no production write) -> click confirm -> ConfirmationBinding re-gate allows -> prose_writing produces a tentative draft pending adoption"
+      ;;
+    vs00c-cp0-missing-chapter-block)
+      echo "seed adopted chapter plan (has chapter 1, no chapter 99) -> type a natural-language continuation request for a non-existent chapter -> planner names the chapter but cannot match it -> WritingCoordinate + MissingPolicyResult block before tool dispatch -> honest 'chapter not found' reply with no provider call and no creative card"
       ;;
     p1-export-minimum)
       echo "seed adopted chapter plan -> generate + adopt chapter 1 prose -> reading mode -> click export -> backend assembles full markdown from accepted work facts and writes the file -> driver reads the real exported file and verifies ordered toc, adopted prose and honest placeholders"
@@ -502,6 +509,7 @@ NODE
 echo "[tauri-slice-verify] slice: $SLICE_ID"
 echo "[tauri-slice-verify] provider: $SLICE_VERIFY_PROVIDER"
 echo "[tauri-slice-verify] artifacts: $ARTIFACT_DIR"
+echo "[tauri-slice-verify] isolated Tauri home: $TAURI_SLICE_HOME"
 
 cd "$PROJECT_ROOT"
 reset_test_db
@@ -549,6 +557,9 @@ case "$SLICE_ID" in
   au04-confirm-before-execute)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
+  vs00c-cp0-missing-chapter-block)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
   p1-export-minimum)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
@@ -577,11 +588,16 @@ MIX_ENV=test \
   SLICE_VERIFY_APP_LOG_DIR="$APP_LOG_DIR" \
   SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
   SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \
+  AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
 PHX_PID=$!
 wait_for_url "$API_URL/health" "Phoenix"
 
 cd "$PROJECT_ROOT/frontend"
+HOME="$TAURI_SLICE_HOME" \
+AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
+CARGO_HOME="${CARGO_HOME:-${ORIGINAL_HOME}/.cargo}" \
+RUSTUP_HOME="${RUSTUP_HOME:-${ORIGINAL_HOME}/.rustup}" \
 VITE_API_ENDPOINT="" \
   VITE_PROXY_TARGET="$API_URL" \
   VITE_WS_ENDPOINT="$VITE_WS_URL" \

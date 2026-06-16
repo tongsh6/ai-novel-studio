@@ -43,7 +43,12 @@ function assert(condition, message) {
 }
 
 async function textContent(page, selector) {
-  return page.locator(selector).first().textContent().then((value) => value?.trim() ?? "").catch(() => "");
+  return page
+    .locator(selector)
+    .first()
+    .textContent()
+    .then((value) => value?.trim() ?? "")
+    .catch(() => "");
 }
 
 function serviceStatus(page) {
@@ -84,6 +89,42 @@ async function waitForFrame(predicate, message, timeoutMs = 60_000) {
   throw new Error(message);
 }
 
+function localDateString() {
+  const date = new Date();
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
+}
+
+function readAppLogRecords() {
+  const logPath = path.join(artifactDir, "app-log", `${localDateString()}.jsonl`);
+  if (!fs.existsSync(logPath)) return [];
+
+  return fs
+    .readFileSync(logPath, "utf8")
+    .split("\n")
+    .filter(Boolean)
+    .flatMap((line) => {
+      try {
+        return [JSON.parse(line)];
+      } catch {
+        return [];
+      }
+    });
+}
+
+async function waitForAppLogRecord(predicate, message, timeoutMs = 60_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const match = readAppLogRecords().find(predicate);
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(message);
+}
+
 async function commonUiState(page, turnResult, sentMessage) {
   const visibleText = await page.locator("body").innerText();
 
@@ -102,8 +143,12 @@ async function commonUiState(page, turnResult, sentMessage) {
     welcome_message_count: visibleText.includes("欢迎使用 AI Novel Studio") ? 1 : 0,
     pending_adoption_count: await page.getByRole("button", { name: /采纳/ }).count(),
     first_message_text: visibleText.slice(0, 300),
-    service_status_text: await serviceStatus(page).textContent().then((value) => value?.trim() ?? ""),
-    title_text: await workTitle(page).textContent().then((value) => value?.trim() ?? ""),
+    service_status_text: await serviceStatus(page)
+      .textContent()
+      .then((value) => value?.trim() ?? ""),
+    title_text: await workTitle(page)
+      .textContent()
+      .then((value) => value?.trim() ?? ""),
     long_session_visible_text: visibleText,
     duration_ms: 0,
     outcome: "done",
@@ -114,10 +159,9 @@ async function driveLongSessionCompression(page) {
   await page.locator(chatInputSelector).fill("继续最新设定");
   await page.getByRole("button", { name: /^发送$/ }).click();
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("继续最新设定"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("继续最新设定"), {
+    timeout: 10_000,
+  });
   for (let attempt = 0; attempt < 120 && !latestTurnResult(); attempt += 1) {
     await page.waitForTimeout(500);
   }
@@ -142,16 +186,20 @@ async function driveLongSessionCompression(page) {
 async function driveSu01ModelProviderSwitching(page) {
   const message = "SU01 模型切换后，请用一句话回复当前状态。";
 
-  await page.getByRole("button", { name: /模型设置|Stub|LM Studio|DeepSeek|Anthropic/ }).first().click();
+  await page
+    .getByRole("button", { name: /模型设置|Stub|LM Studio|DeepSeek|Anthropic/ })
+    .first()
+    .click();
   await page.getByRole("dialog", { name: "模型供应商" }).waitFor({ timeout: 10_000 });
   await page.locator("#model-provider-select").selectOption("stub");
   await page.getByRole("button", { name: "测试连接" }).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("连接可用。"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("连接可用。"), {
+    timeout: 10_000,
+  });
   await page.getByRole("button", { name: "保存并切换" }).click();
-  await page.getByRole("dialog", { name: "模型供应商" }).waitFor({ state: "detached", timeout: 10_000 });
+  await page
+    .getByRole("dialog", { name: "模型供应商" })
+    .waitFor({ state: "detached", timeout: 10_000 });
 
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -200,10 +248,9 @@ async function openLatestWhyDialog(page) {
 
   const dialog = page.getByRole("dialog").first();
   await dialog.waitFor({ timeout: 10_000 });
-  await page.waitForFunction(
-    () => document.body.innerText.includes("参考来源"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("参考来源"), {
+    timeout: 10_000,
+  });
 
   return dialog.innerText();
 }
@@ -212,10 +259,9 @@ async function driveContextSourceUi(page) {
   await page.locator(chatInputSelector).fill("林烬为什么要去灵源矿区？");
   await page.getByRole("button", { name: /^发送$/ }).click();
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("林烬为什么要去灵源矿区？"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("林烬为什么要去灵源矿区？"), {
+    timeout: 10_000,
+  });
   for (let attempt = 0; attempt < 120 && !latestTurnResult(); attempt += 1) {
     await page.waitForTimeout(500);
   }
@@ -263,20 +309,31 @@ async function driveCandidateAdoptionBridge(page) {
   );
   const sourceTurnResult = sourceTurnFrame.body;
   const candidate = sourceTurnResult.candidate_directions[0];
-  const availableAction = (sourceTurnResult.available_actions ?? []).find(
-    (action) =>
-      action.action_type === "choose_candidate" &&
-      (action.candidate_ref === candidate.direction_id || action.target_ref === candidate.direction_id),
-  ) ?? (
-    sourceTurnResult.candidate_directions.length === 1 &&
-    (sourceTurnResult.available_actions ?? []).filter((action) => action.action_type === "choose_candidate").length === 1
-      ? (sourceTurnResult.available_actions ?? []).find((action) => action.action_type === "choose_candidate")
-      : null
+  const availableAction =
+    (sourceTurnResult.available_actions ?? []).find(
+      (action) =>
+        action.action_type === "choose_candidate" &&
+        (action.candidate_ref === candidate.direction_id ||
+          action.target_ref === candidate.direction_id),
+    ) ??
+    (sourceTurnResult.candidate_directions.length === 1 &&
+    (sourceTurnResult.available_actions ?? []).filter(
+      (action) => action.action_type === "choose_candidate",
+    ).length === 1
+      ? (sourceTurnResult.available_actions ?? []).find(
+          (action) => action.action_type === "choose_candidate",
+        )
+      : null);
+
+  assert(
+    availableAction,
+    "Candidate turn_result did not include a matching choose_candidate available_action",
   );
 
-  assert(availableAction, "Candidate turn_result did not include a matching choose_candidate available_action");
-
-  await page.getByRole("button", { name: /继续聊这个方向/ }).first().click();
+  await page
+    .getByRole("button", { name: /继续聊这个方向/ })
+    .first()
+    .click();
 
   const actionFrame = await waitForFrame(
     (frame) =>
@@ -284,7 +341,8 @@ async function driveCandidateAdoptionBridge(page) {
       frame.event === "author_action" &&
       frame.body?.action?.action_id === availableAction.action_id &&
       frame.body?.action?.action_type === availableAction.action_type &&
-      frame.body?.action?.source_turn_ref === (availableAction.source_turn_ref ?? sourceTurnResult.turn_id) &&
+      frame.body?.action?.source_turn_ref ===
+        (availableAction.source_turn_ref ?? sourceTurnResult.turn_id) &&
       frame.body?.action?.target_ref === availableAction.target_ref &&
       frame.body?.action?.candidate_ref === availableAction.candidate_ref &&
       frame.body?.action?.candidate_set_ref === availableAction.candidate_set_ref,
@@ -310,10 +368,9 @@ async function driveCandidateAdoptionBridge(page) {
   );
   const adoptionTurnResult = adoptionTurnFrame.body;
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("候选方向已采用"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("候选方向已采用"), {
+    timeout: 10_000,
+  });
 
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, adoptionTurnResult, sentMessage);
@@ -358,9 +415,7 @@ async function driveCandidateAdoptionBridge(page) {
 }
 
 async function driveAdoptionSafetyFreshness(page) {
-  await page
-    .locator(chatInputSelector)
-    .fill("我想写一个高风险、会覆盖主线设定的小说创作方向。");
+  await page.locator(chatInputSelector).fill("我想写一个高风险、会覆盖主线设定的小说创作方向。");
   await page.getByRole("button", { name: /^发送$/ }).click();
 
   const sourceTurnFrame = await waitForFrame(
@@ -372,13 +427,14 @@ async function driveAdoptionSafetyFreshness(page) {
     "No high-risk candidate turn_result websocket frame was received",
   );
   const sourceTurnResult = sourceTurnFrame.body;
-  const candidate = sourceTurnResult.candidate_directions.find(
-    (item) => item.risk_hint === "high",
-  );
+  const candidate = sourceTurnResult.candidate_directions.find((item) => item.risk_hint === "high");
 
   assert(candidate, "High-risk candidate was not present in source turn_result");
 
-  await page.getByRole("button", { name: /采用这个方向/ }).first().click();
+  await page
+    .getByRole("button", { name: /采用这个方向/ })
+    .first()
+    .click();
 
   const actionFrame = await waitForFrame(
     (frame) =>
@@ -412,10 +468,9 @@ async function driveAdoptionSafetyFreshness(page) {
   );
   const confirmationTurnResult = confirmationTurnFrame.body;
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("候选方向待确认"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("候选方向待确认"), {
+    timeout: 10_000,
+  });
 
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, confirmationTurnResult, sentMessage);
@@ -457,12 +512,14 @@ async function driveAdoptionSafetyFreshness(page) {
 }
 
 async function driveStaleConflictCrossWorkFreshness(page) {
-  await page.waitForFunction(
-    () => document.body.innerText.includes("旧版主线覆盖"),
-    { timeout: 20_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("旧版主线覆盖"), {
+    timeout: 20_000,
+  });
 
-  await page.getByRole("button", { name: /采用这个方向/ }).first().click();
+  await page
+    .getByRole("button", { name: /采用这个方向/ })
+    .first()
+    .click();
 
   const actionFrame = await waitForFrame(
     (frame) =>
@@ -496,10 +553,9 @@ async function driveStaleConflictCrossWorkFreshness(page) {
   );
   const rejectionTurnResult = rejectionTurnFrame.body;
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("候选方向未采用"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("候选方向未采用"), {
+    timeout: 10_000,
+  });
 
   const visibleText = await page.locator("body").innerText();
   const topic = actionFrame.topic ?? "";
@@ -549,12 +605,14 @@ async function driveStaleConflictCrossWorkFreshness(page) {
 }
 
 async function driveConflictCrossWorkRecovery(page) {
-  await page.waitForFunction(
-    () => document.body.innerText.includes("外部作品主线移植"),
-    { timeout: 20_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("外部作品主线移植"), {
+    timeout: 20_000,
+  });
 
-  await page.getByRole("button", { name: /采用这个方向/ }).first().click();
+  await page
+    .getByRole("button", { name: /采用这个方向/ })
+    .first()
+    .click();
 
   const actionFrame = await waitForFrame(
     (frame) =>
@@ -562,8 +620,7 @@ async function driveConflictCrossWorkRecovery(page) {
       frame.event === "author_action" &&
       frame.body?.action?.action_type === "choose_candidate" &&
       frame.body?.action?.candidate_ref === "dir_au05_cross_work_1" &&
-      frame.body?.action?.candidate_set_ref ===
-        "candidate_set:turn_au05_cross_work_candidate_seed",
+      frame.body?.action?.candidate_set_ref === "candidate_set:turn_au05_cross_work_candidate_seed",
     "Real workbench did not send authorized cross-work choose_candidate author_action",
   );
 
@@ -589,10 +646,9 @@ async function driveConflictCrossWorkRecovery(page) {
   );
   const failureTurnResult = failureTurnFrame.body;
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("候选方向采用失败"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("候选方向采用失败"), {
+    timeout: 10_000,
+  });
 
   const visibleText = await page.locator("body").innerText();
   const topic = actionFrame.topic ?? "";
@@ -646,12 +702,14 @@ async function driveConflictCrossWorkRecovery(page) {
 }
 
 async function driveCanonConflictRecovery(page) {
-  await page.waitForFunction(
-    () => document.body.innerText.includes("年龄设定覆盖"),
-    { timeout: 20_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("年龄设定覆盖"), {
+    timeout: 20_000,
+  });
 
-  await page.getByRole("button", { name: /采用这个方向/ }).first().click();
+  await page
+    .getByRole("button", { name: /采用这个方向/ })
+    .first()
+    .click();
 
   const actionFrame = await waitForFrame(
     (frame) =>
@@ -686,10 +744,9 @@ async function driveCanonConflictRecovery(page) {
   );
   const failureTurnResult = failureTurnFrame.body;
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("候选方向采用失败"),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("候选方向采用失败"), {
+    timeout: 10_000,
+  });
 
   const visibleText = await page.locator("body").innerText();
   const topic = actionFrame.topic ?? "";
@@ -845,8 +902,14 @@ async function driveP1ChapterPlanMinimum(page) {
   const firstChapterVisible = firstChapterTitle !== "" && visibleText.includes(firstChapterTitle);
   const finalChapterVisible = lastChapterTitle !== "" && visibleText.includes(lastChapterTitle);
 
-  assert(chapterCount >= 8, `Generated chapter plan too small for a long-form work: ${chapterCount}`);
-  assert(firstChapterVisible && finalChapterVisible, "Accepted chapter plan did not render its first and final chapters");
+  assert(
+    chapterCount >= 8,
+    `Generated chapter plan too small for a long-form work: ${chapterCount}`,
+  );
+  assert(
+    firstChapterVisible && finalChapterVisible,
+    "Accepted chapter plan did not render its first and final chapters",
+  );
   assert(
     actionResultFrame.body?.persistence?.reading_projection == null,
     "Outline adoption unexpectedly materialized a reading projection",
@@ -866,7 +929,9 @@ async function driveP1ChapterPlanMinimum(page) {
       final_chapter_visible: finalChapterVisible,
       outline_adopt_clicked: true,
       outline_adopted: true,
-      reading_projection_materialized: Boolean(actionResultFrame.body?.persistence?.reading_projection),
+      reading_projection_materialized: Boolean(
+        actionResultFrame.body?.persistence?.reading_projection,
+      ),
       adopt_payload: acceptActionFrame.body,
       action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
       user_message_text: planMessageFrame.body?.text,
@@ -962,7 +1027,9 @@ async function driveP1ChapterDraftGeneration(page) {
       reading_plan_visible_before_adoption:
         visibleText.includes("待补足") && !visibleText.includes("暂无已采纳的章节内容"),
       unadopted_draft_visible_in_reading: visibleText.includes(draftLeakMarker),
-      adopt_event_sent: frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
       user_message_text: draftMessageFrame.body?.text,
     },
   ];
@@ -1101,8 +1168,14 @@ async function driveP1ChapterAdoptionReading(page) {
   const visibleProseWords = effectiveWordCount(renderedProse);
 
   assert(visibleProseWords > 0, "No visible prose found in reading mode to count");
-  assert(Number(totalWords) > 0, "Book total effective word count not visible/positive in reading mode");
-  assert(Number(chapterWords) > 0, "Chapter effective word count not visible/positive in reading mode");
+  assert(
+    Number(totalWords) > 0,
+    "Book total effective word count not visible/positive in reading mode",
+  );
+  assert(
+    Number(chapterWords) > 0,
+    "Chapter effective word count not visible/positive in reading mode",
+  );
   assert(
     chapterWords === visibleProseWords,
     `Displayed chapter word count ${chapterWords} != effective count of visible prose ${visibleProseWords}`,
@@ -1111,10 +1184,7 @@ async function driveP1ChapterAdoptionReading(page) {
     totalWords === chapterWords,
     `Book total ${totalWords} != single adopted chapter ${chapterWords}`,
   );
-  assert(
-    !visibleText.includes("暂无已采纳的章节内容"),
-    "Reading mode stayed empty after adoption",
-  );
+  assert(!visibleText.includes("暂无已采纳的章节内容"), "Reading mode stayed empty after adoption");
 
   return [
     {
@@ -1148,10 +1218,9 @@ async function driveP1PlanIncremental(page) {
   // baseline：进阅读模式取当前投影（12 章计划）。
   const baselineFrames = frames.length;
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("阅读模式"),
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), {
+    timeout: 15_000,
+  });
   const baselineToc = await waitForFrame(
     (f) =>
       frames.indexOf(f) >= baselineFrames &&
@@ -1167,7 +1236,9 @@ async function driveP1PlanIncremental(page) {
   // 作者自然语言发起增量规划（无专用按钮/关键字开关，意图由 AI 识别）。
   await page
     .locator(chatInputSelector)
-    .fill("已有章节计划很好，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。");
+    .fill(
+      "已有章节计划很好，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。",
+    );
   await page.getByRole("button", { name: /^发送$/ }).click();
 
   const outlineFrame = await waitForFrame(
@@ -1210,10 +1281,9 @@ async function driveP1PlanIncremental(page) {
   // 采纳后投影：原章不动、新章按 seq 接续追加。
   const afterFrames = frames.length;
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("阅读模式"),
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), {
+    timeout: 15_000,
+  });
   const afterToc = await waitForFrame(
     (f) =>
       frames.indexOf(f) >= afterFrames &&
@@ -1246,13 +1316,16 @@ async function driveP1PlanIncremental(page) {
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, outlineFrame.body, sentMessage);
 
-  assert(titlesDisjoint, "Incremental plan reused existing chapter titles (would be deduped, not appended)");
-  assert(originalsIntact, "Existing chapters were modified by the incremental plan adoption");
   assert(
-    appended.length >= 5,
-    `Expected >= 5 appended chapters, got ${appended.length}`,
+    titlesDisjoint,
+    "Incremental plan reused existing chapter titles (would be deduped, not appended)",
   );
-  assert(appendedInOrder, `Appended chapters not in continuing seq order: ${appendedSeqs.join(",")}`);
+  assert(originalsIntact, "Existing chapters were modified by the incremental plan adoption");
+  assert(appended.length >= 5, `Expected >= 5 appended chapters, got ${appended.length}`);
+  assert(
+    appendedInOrder,
+    `Appended chapters not in continuing seq order: ${appendedSeqs.join(",")}`,
+  );
 
   return [
     {
@@ -1292,10 +1365,9 @@ async function driveP1ExportMinimum(page) {
   const adoptedSnippet = adoptedBody.slice(0, 16);
 
   await page.getByRole("button", { name: "导出全书" }).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("已导出到"),
-    { timeout: 20_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("已导出到"), {
+    timeout: 20_000,
+  });
 
   const visibleText = await page.locator("body").innerText();
   // 路径可能含空格（作品标题入文件名），抓到行尾的 .md。
@@ -1385,8 +1457,7 @@ async function driveAu04ConfirmBeforeExecute(page) {
 
   // 确认卡在真实页面可见：确认执行 / 拒绝。
   await page.waitForFunction(
-    () =>
-      document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
     { timeout: 10_000 },
   );
 
@@ -1468,8 +1539,8 @@ async function driveAu04ConfirmBeforeExecute(page) {
         confirmTurnResult.truthfulness?.production_write_performed === true,
       confirmed_dispatch: executedTurnResult.truthfulness?.tool_called === true,
       artifact_pending_after_confirm: pendingArtifact.artifact_type === "prose_fragment",
-      confirm_action_sent: confirmActionFrame.body?.action?.action_type ===
-        "confirm_before_execute",
+      confirm_action_sent:
+        confirmActionFrame.body?.action?.action_type === "confirm_before_execute",
       user_message_text: sentMessage?.body?.text,
     },
   ];
@@ -1542,8 +1613,7 @@ async function driveP1ChapterWordCountTarget(page) {
       ),
     { timeout: 10_000 },
   );
-  const acceptButtonCleared =
-    (await page.getByRole("button", { name: "确认创建" }).count()) === 0;
+  const acceptButtonCleared = (await page.getByRole("button", { name: "确认创建" }).count()) === 0;
 
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
   await page.waitForFunction(
@@ -1576,8 +1646,14 @@ async function driveP1ChapterWordCountTarget(page) {
   const lowerBound = Math.floor(targetWordCount * 0.5);
 
   assert(visibleProseWords > 0, "No visible prose found in reading mode to count");
-  assert(Number(totalWords) > 0, "Book total effective word count not visible/positive in reading mode");
-  assert(Number(chapterWords) > 0, "Chapter effective word count not visible/positive in reading mode");
+  assert(
+    Number(totalWords) > 0,
+    "Book total effective word count not visible/positive in reading mode",
+  );
+  assert(
+    Number(chapterWords) > 0,
+    "Chapter effective word count not visible/positive in reading mode",
+  );
   assert(
     chapterWords === visibleProseWords,
     `Displayed chapter word count ${chapterWords} != effective count of visible prose ${visibleProseWords}`,
@@ -1633,18 +1709,9 @@ async function driveP1WordCountAudit(page) {
   const milestoneProgressVisible = visibleText.includes("P1 进度");
   const belowMinChapter = Number(base.chapter_word_count ?? 0) < 1000;
 
-  assert(
-    shortBadgeVisible,
-    "短章 badge not visible in TOC for a sub-1000-word adopted chapter",
-  );
-  assert(
-    milestoneProgressVisible,
-    "P1 milestone progress not visible in reading mode top bar",
-  );
-  assert(
-    !milestoneMet,
-    "Milestone must not be marked met for a single short chapter",
-  );
+  assert(shortBadgeVisible, "短章 badge not visible in TOC for a sub-1000-word adopted chapter");
+  assert(milestoneProgressVisible, "P1 milestone progress not visible in reading mode top bar");
+  assert(!milestoneMet, "Milestone must not be marked met for a single short chapter");
   assert(
     belowMinChapter,
     `Adopted chapter ${base.chapter_word_count} should be below the 1000-word P1 minimum`,
@@ -1699,10 +1766,9 @@ async function driveP1ChapterExpansion(page) {
     );
     const pending = contFrame.body.adoption_state.pending[0];
 
-    await page.waitForFunction(
-      () => document.body.innerText.includes("确认创建"),
-      { timeout: 10_000 },
-    );
+    await page.waitForFunction(() => document.body.innerText.includes("确认创建"), {
+      timeout: 10_000,
+    });
     await page.getByRole("button", { name: "确认创建" }).first().click();
 
     const adoptFrame = await waitForFrame(
@@ -1814,8 +1880,14 @@ async function driveP1ChapterExpansionMultichapter(page) {
   // 目标章由 Planner（AI）识别，不加续写按钮/关键字（v3 反模式）。
   const plan = [
     { title: "第01章：底层灵气账单", summary: "主角在欠费停灵的夜晚发现灵气带宽被公司暗中抽走。" },
-    { title: "第02章：旧服务器里的残诀", summary: "主角从废弃服务器中找到残缺功法，并第一次突破底层限制。" },
-    { title: "第03章：黑市调频师", summary: "主角结识擅长调制灵气频段的调频师，获得追查垄断链路的入口。" },
+    {
+      title: "第02章：旧服务器里的残诀",
+      summary: "主角从废弃服务器中找到残缺功法，并第一次突破底层限制。",
+    },
+    {
+      title: "第03章：黑市调频师",
+      summary: "主角结识擅长调制灵气频段的调频师，获得追查垄断链路的入口。",
+    },
   ];
 
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
@@ -1840,10 +1912,9 @@ async function driveP1ChapterExpansionMultichapter(page) {
     );
     const pending = draftFrame.body.adoption_state.pending[0];
 
-    await page.waitForFunction(
-      () => document.body.innerText.includes("确认创建"),
-      { timeout: 10_000 },
-    );
+    await page.waitForFunction(() => document.body.innerText.includes("确认创建"), {
+      timeout: 10_000,
+    });
     await page.getByRole("button", { name: "确认创建" }).first().click();
 
     const adoptFrame = await waitForFrame(
@@ -1896,7 +1967,7 @@ async function driveP1ChapterExpansionMultichapter(page) {
   });
   const lastTocReply = tocReplies[tocReplies.length - 1];
   const toc = lastTocReply
-    ? lastTocReply.body?.response ?? lastTocReply.payload?.response ?? lastTocReply.body
+    ? (lastTocReply.body?.response ?? lastTocReply.payload?.response ?? lastTocReply.body)
     : null;
   const allChapters = (toc?.volumes ?? []).flatMap((v) => v.chapters ?? []);
   const targets = written.map((w) => allChapters.find((c) => c.title === w.title));
@@ -2013,8 +2084,7 @@ async function driveP1ChapterEditThenAccept(page) {
       ),
     { timeout: 10_000 },
   );
-  const editButtonCleared =
-    (await page.getByRole("button", { name: "修改后采纳" }).count()) === 0;
+  const editButtonCleared = (await page.getByRole("button", { name: "修改后采纳" }).count()) === 0;
 
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
   // 同 adoption-reading：必须等「本章有效字数」也渲染再快照，否则章节正文（编辑后正文）
@@ -2100,10 +2170,9 @@ async function driveP1ChapterOverwriteConfirm(page) {
     );
     const artifact = frame.body.adoption_state.pending[0];
     seen.add(artifact.artifact_id);
-    await page.waitForFunction(
-      () => document.body.innerText.includes("确认创建"),
-      { timeout: 10_000 },
-    );
+    await page.waitForFunction(() => document.body.innerText.includes("确认创建"), {
+      timeout: 10_000,
+    });
     // 生成 turn 才是带 LLM 调用的轮次（采纳/确认 turn 不调 LLM）。
     return { artifact, generateTurnId: frame.body.turn_id };
   }
@@ -2199,14 +2268,18 @@ async function driveAu09MemoryCreateRecall(page) {
 
   // ── 打开记忆管理页（真实工作台头部入口）。
   await page.getByRole("button", { name: /记忆/ }).first().click();
-  await page.waitForFunction(() => document.body.innerText.includes("记忆管理"), { timeout: 10_000 });
+  await page.waitForFunction(() => document.body.innerText.includes("记忆管理"), {
+    timeout: 10_000,
+  });
 
   // ── 新建一条设定（后端强制从 DRAFT 开始）。
   await page.getByRole("button", { name: "+ 新建记忆" }).click();
   await page.locator("textarea").first().fill(memoryContent);
   await page.getByRole("button", { name: "创建" }).click();
   // 注意 Playwright 签名 waitForFunction(fn, arg, options)：arg 在前、options 在后。
-  await page.waitForFunction((n) => document.body.innerText.includes(n), nonce, { timeout: 10_000 });
+  await page.waitForFunction((n) => document.body.innerText.includes(n), nonce, {
+    timeout: 10_000,
+  });
 
   // ── 打开详情并确认（CONFIRMED + recallable 才进召回）。
   await page.getByText(new RegExp(nonce)).first().click();
@@ -2243,7 +2316,9 @@ async function driveAu09MemoryCreateRecall(page) {
 
   // ── 打开「为什么」面板：应显示「已确认设定」记忆来源。
   await openLatestWhyDialog(page);
-  await page.waitForFunction(() => document.body.innerText.includes("已确认设定"), { timeout: 10_000 });
+  await page.waitForFunction(() => document.body.innerText.includes("已确认设定"), {
+    timeout: 10_000,
+  });
 
   const visibleText = await page.locator("body").innerText();
   const sentMessage = latestSentUserMessage();
@@ -2296,9 +2371,14 @@ async function driveAu09AdoptSettingRecall(page) {
   // 档案面板可能在发送后已自动关闭；存在才关闭。
   const closeArchive = page.getByRole("button", { name: "关闭档案" });
   if ((await closeArchive.count()) > 0) {
-    await closeArchive.first().click().catch(() => {});
+    await closeArchive
+      .first()
+      .click()
+      .catch(() => {});
   }
-  await page.waitForFunction(() => document.body.innerText.includes("确认创建"), { timeout: 10_000 });
+  await page.waitForFunction(() => document.body.innerText.includes("确认创建"), {
+    timeout: 10_000,
+  });
 
   // ── 采纳该设定 → 进入 confirmed + recallable governed memory。
   await page.getByRole("button", { name: "确认创建" }).first().click();
@@ -2338,7 +2418,9 @@ async function driveAu09AdoptSettingRecall(page) {
 
   // ── 「为什么」面板显示「已确认设定」记忆来源。
   await openLatestWhyDialog(page);
-  await page.waitForFunction(() => document.body.innerText.includes("已确认设定"), { timeout: 10_000 });
+  await page.waitForFunction(() => document.body.innerText.includes("已确认设定"), {
+    timeout: 10_000,
+  });
 
   const visibleText = await page.locator("body").innerText();
   const sentMessage = latestSentUserMessage();
@@ -2351,7 +2433,10 @@ async function driveAu09AdoptSettingRecall(page) {
       adoptFrame.body.truthfulness?.artifact_adopted === true,
     "Setting was not adopted",
   );
-  assert(whyShowsMemorySource, "Why panel did not show the adopted setting as a confirmed-memory source");
+  assert(
+    whyShowsMemorySource,
+    "Why panel did not show the adopted setting as a confirmed-memory source",
+  );
 
   return [
     {
@@ -2416,8 +2501,108 @@ async function driveAu09ValidityWindowRecall(page) {
   ];
 }
 
+async function driveCp0MissingChapterBlock(page) {
+  // VS-00C CP0：作品里有第01章计划，但没有第99章。作者用自然语言「续写第99章」→
+  // Planner 识别 continuation 意图 + 把作者点名的「第99章」原样放进 requested_chapter_raw，
+  // 但匹配不到列表（target_chapter=null）→ 应用层 MissingPolicyResult 判 hard missing →
+  // 执行前短路：不调 provider、不产创作卡，诚实回复"找不到该章"。
+  // 这是 G13 的承重验收：系统不再静默回退到最新章去改错章。
+  const requestText = "续写第99章的正文草稿，把冲突推进一下，保持为待采纳草稿。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  // 真实页面可见诚实回复；业务 JSONL 证明 MissingPolicyResult 已在 provider dispatch 前 block。
+  await page.waitForFunction(() => document.body.innerText.includes("没有找到"), {
+    timeout: 200_000,
+  });
+
+  const missingRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "turn_execution.missing_policy.done" &&
+      record.severity === "block" &&
+      String(record.missing ?? "").includes("第99章"),
+    "No missing_policy block record for missing-chapter continuation",
+    200_000,
+  );
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === missingRecord.turn_id,
+    "No channel.user_message.done record for missing-chapter block",
+    30_000,
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage() ?? {
+    body: {
+      text: requestText,
+      work_id: missingRecord.work_id,
+      session_id: missingRecord.session_id,
+    },
+  };
+  const blockedTurnResult = latestTurnResult() ?? {
+    turn_id: missingRecord.turn_id,
+    assistant_message: { text: "没有找到" },
+    truthfulness: {
+      artifact_adopted: false,
+      durable_behavior_opened: false,
+      production_write_performed: false,
+      tool_called: false,
+    },
+    adoption_state: null,
+    tool_result: null,
+  };
+  const uiState = await commonUiState(page, blockedTurnResult, sentMessage);
+  const sameTurnRecords = readAppLogRecords().filter(
+    (record) => record.turn_id === missingRecord.turn_id,
+  );
+
+  assert(
+    blockedTurnResult.truthfulness?.tool_called === false,
+    "Missing-chapter turn claimed a tool call — provider must not be invoked on hard missing",
+  );
+  assert(
+    blockedTurnResult.adoption_state == null,
+    "Missing-chapter turn produced an adoption artifact — block must not generate content",
+  );
+  assert(
+    blockedTurnResult.tool_result == null,
+    "Missing-chapter turn carried a tool_result — block must short-circuit before tool dispatch",
+  );
+  assert(
+    !visibleText.includes("待确认的创作材料"),
+    "A creative artifact card was shown for a missing chapter",
+  );
+  assert(
+    !sameTurnRecords.some((record) => record.event === "toolbox.execute.done"),
+    "Provider/toolbox executed despite missing chapter block",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: blockedTurnResult.turn_id,
+      missing_chapter_blocked: true,
+      missing_policy_severity: missingRecord.severity,
+      requested_chapter: "第99章",
+      honest_not_found_message: String(blockedTurnResult.assistant_message?.text ?? "").includes(
+        "没有找到",
+      ),
+      tool_called: blockedTurnResult.truthfulness?.tool_called === true,
+      no_adoption_artifact: blockedTurnResult.adoption_state == null,
+      no_tool_result: blockedTurnResult.tool_result == null,
+      no_toolbox_execute_event: true,
+      creative_card_absent: !visibleText.includes("待确认的创作材料"),
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 const drivers = {
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
+  "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,
@@ -2459,10 +2644,9 @@ try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await serviceStatus(page).waitFor({ timeout: 30_000 });
-  await page.waitForFunction(
-    () => /服务: 已连接|同步已连接/.test(document.body.innerText),
-    { timeout: 30_000 },
-  );
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
 
   const uiRecords = await driver(page);
 

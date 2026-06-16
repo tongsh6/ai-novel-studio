@@ -230,10 +230,7 @@ describe("native Tauri slice verifier", () => {
   });
 
   it("accepts AU-05 adoption safety only when high-risk candidate requires confirmation", () => {
-    const records = au05AdoptionSafetyFreshnessRecords(
-      "turn-source",
-      "turn-confirmation",
-    );
+    const records = au05AdoptionSafetyFreshnessRecords("turn-source", "turn-confirmation");
 
     const evidence = findNativeSliceEvidence("au05-adoption-safety-freshness", records);
     expect(evidence).toEqual({
@@ -270,10 +267,7 @@ describe("native Tauri slice verifier", () => {
   });
 
   it("accepts AU-05 stale freshness only when restored candidate adoption is rejected", () => {
-    const records = au05StaleConflictCrossWorkRecords(
-      "turn-source",
-      "turn-rejection",
-    );
+    const records = au05StaleConflictCrossWorkRecords("turn-source", "turn-rejection");
 
     const evidence = findNativeSliceEvidence("au05-stale-conflict-cross-work-freshness", records);
     expect(evidence).toEqual({
@@ -286,7 +280,9 @@ describe("native Tauri slice verifier", () => {
       candidate_set_ref: "candidate_set:turn-source",
       key_events: keyEventsForSlice("au05-stale-conflict-cross-work-freshness"),
     });
-    expect(findSliceBehaviorEvidence("au05-stale-conflict-cross-work-freshness", records, evidence)).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au05-stale-conflict-cross-work-freshness", records, evidence),
+    ).toEqual({
       slice_id: "au05-stale-conflict-cross-work-freshness",
       behavior: "restored_stale_candidate_rejected_without_production_write",
       turn_ids: ["turn-source", "turn-rejection"],
@@ -308,10 +304,7 @@ describe("native Tauri slice verifier", () => {
   });
 
   it("accepts AU-05 cross-work recovery only when candidate adoption fails without write", () => {
-    const records = au05ConflictCrossWorkRecoveryRecords(
-      "turn-source",
-      "turn-failure",
-    );
+    const records = au05ConflictCrossWorkRecoveryRecords("turn-source", "turn-failure");
 
     const evidence = findNativeSliceEvidence("au05-conflict-cross-work-recovery", records);
     expect(evidence).toEqual({
@@ -324,7 +317,9 @@ describe("native Tauri slice verifier", () => {
       candidate_set_ref: "candidate_set:turn-source",
       key_events: keyEventsForSlice("au05-conflict-cross-work-recovery"),
     });
-    expect(findSliceBehaviorEvidence("au05-conflict-cross-work-recovery", records, evidence)).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au05-conflict-cross-work-recovery", records, evidence),
+    ).toEqual({
       slice_id: "au05-conflict-cross-work-recovery",
       behavior: "cross_work_candidate_failed_with_recovery_without_production_write",
       turn_ids: ["turn-source", "turn-failure"],
@@ -346,10 +341,7 @@ describe("native Tauri slice verifier", () => {
   });
 
   it("accepts AU-05 canon conflict recovery only when candidate adoption fails without write", () => {
-    const records = au05CanonConflictRecoveryRecords(
-      "turn-source",
-      "turn-failure",
-    );
+    const records = au05CanonConflictRecoveryRecords("turn-source", "turn-failure");
 
     const evidence = findNativeSliceEvidence("au05-canon-conflict-recovery", records);
     expect(evidence).toEqual({
@@ -434,7 +426,12 @@ describe("native Tauri slice verifier", () => {
 
   it("accepts AU-03 branch-from-history evidence when source refs are preserved", () => {
     const records = [
-      { event: "work_session.resume.done", work_id: "work-au03", session_id: "session-active", transcript_count: 1 },
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au03",
+        session_id: "session-active",
+        transcript_count: 1,
+      },
       { event: "channel.join.done", work_id: "work-au03", session_id: "session-active" },
       {
         event: "work_session.show.done",
@@ -451,7 +448,12 @@ describe("native Tauri slice verifier", () => {
         source_session_ref: "session-history",
         source_turn_ref: "turn-history-1",
       },
-      { event: "work_session.resume.done", work_id: "work-au03", session_id: "session-branch", transcript_count: 0 },
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au03",
+        session_id: "session-branch",
+        transcript_count: 0,
+      },
       { event: "channel.join.done", work_id: "work-au03", session_id: "session-branch" },
       {
         event: "slice_verify.ui_state.done",
@@ -503,7 +505,12 @@ describe("native Tauri slice verifier", () => {
 
   it("accepts AU-03 archive-session-filter evidence when archived history is hidden but searchable", () => {
     const records = [
-      { event: "work_session.resume.done", work_id: "work-au03", session_id: "session-active", transcript_count: 1 },
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au03",
+        session_id: "session-active",
+        transcript_count: 1,
+      },
       { event: "channel.join.done", work_id: "work-au03", session_id: "session-active" },
       {
         event: "work_session.show.done",
@@ -571,7 +578,12 @@ describe("native Tauri slice verifier", () => {
 
   it("accepts AU-03 current work context SSOT evidence with LMStudio prompt layering", () => {
     const records = [
-      { event: "work_session.resume.done", work_id: "work-au03", session_id: "session-active", transcript_count: 2 },
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au03",
+        session_id: "session-active",
+        transcript_count: 2,
+      },
       { event: "channel.join.done", work_id: "work-au03", session_id: "session-active" },
       {
         event: "work_session.show.done",
@@ -666,8 +678,7 @@ describe("native Tauri slice verifier", () => {
         },
         response: {
           status: 200,
-          body:
-            '{"choices":[{"message":{"content":"{\\"assistant_message\\":\\"他在追查妹妹林瑶与灵源矿区真相。\\"}"}}]}',
+          body: '{"choices":[{"message":{"content":"{\\"assistant_message\\":\\"他在追查妹妹林瑶与灵源矿区真相。\\"}"}}]}',
         },
       },
     ];
@@ -683,10 +694,12 @@ describe("native Tauri slice verifier", () => {
       context_refs_count: 2,
       key_events: keyEventsForSlice("au03-current-work-context-ssot"),
     });
-    expect(findSliceBehaviorEvidence("au03-current-work-context-ssot", records, evidence, {
-      provider: "lmstudio",
-      llmRecords,
-    })).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au03-current-work-context-ssot", records, evidence, {
+        provider: "lmstudio",
+        llmRecords,
+      }),
+    ).toEqual({
       slice_id: "au03-current-work-context-ssot",
       behavior: "latest_work_snapshot_and_active_session_transcript_are_layered_into_context",
       turn_ids: ["turn-current"],
@@ -708,7 +721,12 @@ describe("native Tauri slice verifier", () => {
 
   it("accepts AU-03 long session compression evidence with LMStudio prompt windowing", () => {
     const records = [
-      { event: "work_session.resume.done", work_id: "work-long", session_id: "session-long", transcript_count: 12 },
+      {
+        event: "work_session.resume.done",
+        work_id: "work-long",
+        session_id: "session-long",
+        transcript_count: 12,
+      },
       { event: "channel.join.done", work_id: "work-long", session_id: "session-long" },
       {
         event: "channel.user_message.start",
@@ -810,8 +828,7 @@ describe("native Tauri slice verifier", () => {
         },
         response: {
           status: 200,
-          body:
-            '{"choices":[{"message":{"content":"{\\"assistant_message\\":\\"我会沿用最近设定继续整理。\\"}"}}]}',
+          body: '{"choices":[{"message":{"content":"{\\"assistant_message\\":\\"我会沿用最近设定继续整理。\\"}"}}]}',
         },
       },
     ];
@@ -826,10 +843,12 @@ describe("native Tauri slice verifier", () => {
       context_refs_count: 1,
       key_events: keyEventsForSlice("au03-long-session-compression"),
     });
-    expect(findSliceBehaviorEvidence("au03-long-session-compression", records, evidence, {
-      provider: "lmstudio",
-      llmRecords,
-    })).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au03-long-session-compression", records, evidence, {
+        provider: "lmstudio",
+        llmRecords,
+      }),
+    ).toEqual({
       slice_id: "au03-long-session-compression",
       behavior: "long_active_session_context_uses_early_summary_and_recent_window",
       turn_ids: ["turn-long"],
@@ -1453,14 +1472,17 @@ describe("native Tauri slice verifier", () => {
   });
 
   it("matches real LM Studio chat completion logs by turn id", () => {
-    const evidence = findLmStudioEvidence(["turn-real"], [
-      {
-        turn_id: "turn-real",
-        provider: "lmstudio",
-        request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" },
-        response: { status: 200 },
-      },
-    ]);
+    const evidence = findLmStudioEvidence(
+      ["turn-real"],
+      [
+        {
+          turn_id: "turn-real",
+          provider: "lmstudio",
+          request: { method: "POST", url: "http://localhost:1234/v1/chat/completions" },
+          response: { status: 200 },
+        },
+      ],
+    );
 
     expect(evidence).toEqual({
       provider: "lmstudio",
@@ -1471,14 +1493,17 @@ describe("native Tauri slice verifier", () => {
   });
 
   it("rejects slice evidence without matching real LM Studio request", () => {
-    const evidence = findLmStudioEvidence(["turn-real"], [
-      {
-        turn_id: "turn-other",
-        provider: "slice_verify",
-        request: { method: "POST", url: "memory://slice-verify" },
-        response: { status: 200 },
-      },
-    ]);
+    const evidence = findLmStudioEvidence(
+      ["turn-real"],
+      [
+        {
+          turn_id: "turn-other",
+          provider: "slice_verify",
+          request: { method: "POST", url: "memory://slice-verify" },
+          response: { status: 200 },
+        },
+      ],
+    );
 
     expect(evidence).toBeNull();
   });
@@ -1491,10 +1516,12 @@ describe("native Tauri slice verifier", () => {
     ];
     const evidence = findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records);
 
-    expect(findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
-      provider: "lmstudio",
-      llmRecords,
-    })).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
+        provider: "lmstudio",
+        llmRecords,
+      }),
+    ).toEqual({
       slice_id: "au01-ordinary-chat-two-turn-roundtrip",
       behavior: "ordinary_chat_two_turn_visible_roundtrip",
       turn_ids: ["turn-a", "turn-b"],
@@ -1515,9 +1542,11 @@ describe("native Tauri slice verifier", () => {
     const records = ordinaryTwoTurnRecords();
     const evidence = findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records);
 
-    expect(findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
-      provider: "slice_verify",
-    })?.assertions).toContain("deterministic_provider_form_frame_called_per_turn");
+    expect(
+      findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
+        provider: "slice_verify",
+      })?.assertions,
+    ).toContain("deterministic_provider_form_frame_called_per_turn");
   });
 
   it("accepts AU-05 behavior only when adoption boundary persisted a mutation", () => {
@@ -1592,7 +1621,8 @@ describe("native Tauri slice verifier", () => {
 
     expect(findSliceBehaviorEvidence("workspace-runtime-state", records, evidence)).toEqual({
       slice_id: "workspace-runtime-state",
-      behavior: "workspace_runtime_state_normalizes_resume_connection_adoption_and_reading_empty_state",
+      behavior:
+        "workspace_runtime_state_normalizes_resume_connection_adoption_and_reading_empty_state",
       turn_ids: ["turn-au03c"],
       work_id: "work-au03c",
       session_id: "session-au03c",
@@ -1649,7 +1679,9 @@ describe("native Tauri slice verifier", () => {
     const records = au08ReadingProjectionRecords("turn-reading");
     const evidence = findNativeSliceEvidence("au08-adoption-reading-projection", records);
 
-    expect(findSliceBehaviorEvidence("au08-adoption-reading-projection", records, evidence)).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au08-adoption-reading-projection", records, evidence),
+    ).toEqual({
       slice_id: "au08-adoption-reading-projection",
       behavior: "accepted_artifact_visible_in_reading_mode_projection",
       turn_ids: ["turn-reading"],
@@ -1743,21 +1775,24 @@ describe("native Tauri slice verifier", () => {
       key_events: keyEventsForSlice("au01-ordinary-chat-two-turn-roundtrip"),
     };
 
-    expect(findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence))
-      .toBeNull();
+    expect(
+      findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence),
+    ).toBeNull();
   });
 
   it("rejects real LM Studio behavior when assistant output is fallback text", () => {
     const records = ordinaryTwoTurnRecords();
     const evidence = findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records);
 
-    expect(findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
-      provider: "lmstudio",
-      llmRecords: [
-        lmRecord("turn-a", "form_frame", "抱歉，我现在无法连接到创作引擎。请稍后再试。"),
-        lmRecord("turn-b", "form_frame", "继续聊。"),
-      ],
-    })).toBeNull();
+    expect(
+      findSliceBehaviorEvidence("au01-ordinary-chat-two-turn-roundtrip", records, evidence, {
+        provider: "lmstudio",
+        llmRecords: [
+          lmRecord("turn-a", "form_frame", "抱歉，我现在无法连接到创作引擎。请稍后再试。"),
+          lmRecord("turn-b", "form_frame", "继续聊。"),
+        ],
+      }),
+    ).toBeNull();
   });
 
   it("accepts VS-10 behavior only when frame and micro-plan both complete", () => {
@@ -1772,28 +1807,30 @@ describe("native Tauri slice verifier", () => {
     }));
     const evidence = findNativeSliceEvidence("vs10-observability-spine", records);
 
-    expect(findSliceBehaviorEvidence("vs10-observability-spine", records, evidence, {
-      provider: "lmstudio",
-      llmRecords: [
-        lmRecord("turn-vs10", "form_frame", "我会先判断这个请求的创作意图。"),
-        lmRecord("turn-vs10", "form_micro_plan", "这里是下一步计划。"),
-        {
-          turn_id: "turn-vs10",
-          step: "unknown",
-          provider: "lmstudio",
-          request: {
-            method: "POST",
-            url: "http://localhost:1234/v1/chat/completions",
+    expect(
+      findSliceBehaviorEvidence("vs10-observability-spine", records, evidence, {
+        provider: "lmstudio",
+        llmRecords: [
+          lmRecord("turn-vs10", "form_frame", "我会先判断这个请求的创作意图。"),
+          lmRecord("turn-vs10", "form_micro_plan", "这里是下一步计划。"),
+          {
+            turn_id: "turn-vs10",
+            step: "unknown",
+            provider: "lmstudio",
+            request: {
+              method: "POST",
+              url: "http://localhost:1234/v1/chat/completions",
+            },
+            response: {
+              status: 200,
+              body: JSON.stringify({
+                choices: [{ message: { content: "工具执行完成，已生成可查看的草案。" } }],
+              }),
+            },
           },
-          response: {
-            status: 200,
-            body: JSON.stringify({
-              choices: [{ message: { content: "工具执行完成，已生成可查看的草案。" } }],
-            }),
-          },
-        },
-      ],
-    })).toEqual({
+        ],
+      }),
+    ).toEqual({
       slice_id: "vs10-observability-spine",
       behavior: "observability_spine_with_micro_plan",
       turn_ids: ["turn-vs10"],
