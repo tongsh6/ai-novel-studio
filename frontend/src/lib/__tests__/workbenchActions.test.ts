@@ -25,7 +25,9 @@ describe("filterVisibleAvailableActions", () => {
 
   it("keeps accept while the artifact is still pending", () => {
     const actions = [accept("a1", "as-1")];
-    expect(filterVisibleAvailableActions(actions, ["as-1"]).map((a) => a.action_id)).toEqual(["a1"]);
+    expect(filterVisibleAvailableActions(actions, ["as-1"]).map((a) => a.action_id)).toEqual([
+      "a1",
+    ]);
   });
 
   it("drops choose_candidate (rendered by the candidate panel instead)", () => {
@@ -44,14 +46,23 @@ describe("filterVisibleAvailableActions", () => {
 
   it("shows confirm/reject only while their behavior is active", () => {
     const actions: AvailableActionLike[] = [
-      { action_id: "cf1", action_type: "confirm_before_execute", target_ref: "as-1", behavior_ref: "bh-1" },
-      { action_id: "rj1", action_type: "reject_or_cancel_confirmation", target_ref: "as-1", behavior_ref: "bh-1" },
+      {
+        action_id: "cf1",
+        action_type: "confirm_before_execute",
+        target_ref: "as-1",
+        behavior_ref: "bh-1",
+      },
+      {
+        action_id: "rj1",
+        action_type: "reject_or_cancel_confirmation",
+        target_ref: "as-1",
+        behavior_ref: "bh-1",
+      },
     ];
     // 行为活跃 → 显示
-    expect(filterVisibleAvailableActions(actions, ["as-1"], "bh-1").map((a) => a.action_id)).toEqual([
-      "cf1",
-      "rj1",
-    ]);
+    expect(
+      filterVisibleAvailableActions(actions, ["as-1"], "bh-1").map((a) => a.action_id),
+    ).toEqual(["cf1", "rj1"]);
     // 行为已关闭（active=null）→ 隐藏，防止重复确认
     expect(filterVisibleAvailableActions(actions, ["as-1"], null)).toEqual([]);
     // 活跃的是别的行为 → 隐藏
@@ -60,7 +71,9 @@ describe("filterVisibleAvailableActions", () => {
 
   it("only the still-pending artifact's accept survives a mixed batch", () => {
     const actions = [accept("a1", "as-1"), accept("a2", "as-2")];
-    expect(filterVisibleAvailableActions(actions, ["as-2"]).map((a) => a.action_id)).toEqual(["a2"]);
+    expect(filterVisibleAvailableActions(actions, ["as-2"]).map((a) => a.action_id)).toEqual([
+      "a2",
+    ]);
   });
 });
 

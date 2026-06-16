@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 import type { Channel } from "phoenix";
 
 export type WorkspaceMode = "workbench" | "reading" | "memory";
@@ -75,8 +75,7 @@ export const useAppStore = create<AppState>((set) => ({
     chapterId: null,
     chapterTitle: null,
   },
-  setContext: (ctx) =>
-    set((state) => ({ context: { ...state.context, ...ctx } })),
+  setContext: (ctx) => set((state) => ({ context: { ...state.context, ...ctx } })),
 
   longRun: {
     status: "idle",
@@ -84,16 +83,14 @@ export const useAppStore = create<AppState>((set) => ({
     budgetTotal: 100,
     checkpointReason: null,
   },
-  setLongRun: (stateUpdate) =>
-    set((state) => ({ longRun: { ...state.longRun, ...stateUpdate } })),
+  setLongRun: (stateUpdate) => set((state) => ({ longRun: { ...state.longRun, ...stateUpdate } })),
 
   feedback: {
     severity: "none",
     activeCount: 0,
     message: null,
   },
-  setFeedback: (fb) =>
-    set((state) => ({ feedback: { ...state.feedback, ...fb } })),
+  setFeedback: (fb) => set((state) => ({ feedback: { ...state.feedback, ...fb } })),
 
   projectionStatus: null,
   setProjectionStatus: (status) => set({ projectionStatus: status }),

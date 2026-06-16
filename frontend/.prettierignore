@@ -1,0 +1,11 @@
+node_modules/
+dist/
+coverage/
+test-results/
+
+src-tauri/target/
+src-tauri/gen/
+src-tauri/Cargo.lock
+
+src/generated/
+pnpm-lock.yaml

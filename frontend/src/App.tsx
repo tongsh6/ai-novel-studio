@@ -1,8 +1,8 @@
-import { WorkspaceChat } from './components/WorkspaceChat';
-import { ReadingMode } from './components/ReadingMode';
-import { MemoryListPage } from './components/MemoryListPage';
-import { useAppStore } from './lib/store';
-import './App.css';
+import { WorkspaceChat } from "./components/WorkspaceChat";
+import { ReadingMode } from "./components/ReadingMode";
+import { MemoryListPage } from "./components/MemoryListPage";
+import { useAppStore } from "./lib/store";
+import "./App.css";
 
 function App() {
   const mode = useAppStore((state) => state.mode);
@@ -11,12 +11,12 @@ function App() {
 
   return (
     <>
-      <div hidden={mode !== 'workbench'}>
+      <div hidden={mode !== "workbench"}>
         <WorkspaceChat />
       </div>
-      {mode === 'reading' && <ReadingMode />}
-      {mode === 'memory' && workId && (
-        <MemoryListPage workId={workId} onBack={() => setMode('workbench')} />
+      {mode === "reading" && <ReadingMode />}
+      {mode === "memory" && workId && (
+        <MemoryListPage workId={workId} onBack={() => setMode("workbench")} />
       )}
     </>
   );

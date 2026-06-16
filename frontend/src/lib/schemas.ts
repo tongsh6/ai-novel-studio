@@ -3,10 +3,7 @@
 // codegen 用 PascalCase + Schema 后缀；本文件提供别名，
 // 让消费者写 `TurnResultSchema` 而不是文件名 `TurnResultV2Schema`。
 
-export {
-  TurnResultV2Schema,
-  type TurnResultV2,
-} from "../generated/foundation/turn_result_v2";
+export { TurnResultV2Schema, type TurnResultV2 } from "../generated/foundation/turn_result_v2";
 
 export {
   ArtifactAdoptionEntrySchema,

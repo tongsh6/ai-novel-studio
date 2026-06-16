@@ -79,9 +79,7 @@ export function MemoryListPage({ workId, onBack }: Props) {
   };
 
   const handleUpdated = (item: MemoryItem) => {
-    setMemories((prev) =>
-      prev.map((m) => (m.id === item.id ? item : m)),
-    );
+    setMemories((prev) => prev.map((m) => (m.id === item.id ? item : m)));
     setSelected(item);
   };
 
@@ -109,17 +107,23 @@ export function MemoryListPage({ workId, onBack }: Props) {
         />
         <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           {MEMORY_TYPES.map((t) => (
-            <option key={t} value={t}>{t || "全部类型"}</option>
+            <option key={t} value={t}>
+              {t || "全部类型"}
+            </option>
           ))}
         </select>
         <select value={filterScope} onChange={(e) => setFilterScope(e.target.value)}>
           {SCOPES.map((s) => (
-            <option key={s} value={s}>{s || "全部范围"}</option>
+            <option key={s} value={s}>
+              {s || "全部范围"}
+            </option>
           ))}
         </select>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
           {STATUSES.map((s) => (
-            <option key={s} value={s}>{s || "全部状态"}</option>
+            <option key={s} value={s}>
+              {s || "全部状态"}
+            </option>
           ))}
         </select>
         <select value={filterLocked} onChange={(e) => setFilterLocked(e.target.value)}>
@@ -148,9 +152,7 @@ export function MemoryListPage({ workId, onBack }: Props) {
               <tr key={m.id} onClick={() => setSelected(m)} className={styles.row}>
                 <td className={styles.contentCell}>
                   <div className={styles.contentPreview}>
-                    {m.content.length > 60
-                      ? m.content.slice(0, 60) + "..."
-                      : m.content}
+                    {m.content.length > 60 ? m.content.slice(0, 60) + "..." : m.content}
                   </div>
                 </td>
                 <td>

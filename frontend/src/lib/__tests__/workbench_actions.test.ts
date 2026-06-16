@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  findAvailableActionForTarget,
-  toAuthorActionPayload,
-} from "../workbenchActions";
+import { findAvailableActionForTarget, toAuthorActionPayload } from "../workbenchActions";
 import type { AvailableActionLike } from "../workbenchActions";
 
 const actions: AvailableActionLike[] = [

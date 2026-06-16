@@ -196,7 +196,12 @@ function shouldHideContextSource(sourceType: string, summary: string | null): bo
 
 function isLowValueGoal(goal: string): boolean {
   if (/^(气质氛围|讨论并确定|用户意图|作者意图)$/u.test(goal)) return true;
-  if (goal.length <= 8 && !/(讨论|探索|回答|解释|整理|确认|生成|创作|补充|规划|分析|澄清|继续|构思|完善|推进|比较|选择|复盘|修改|改写)/u.test(goal)) {
+  if (
+    goal.length <= 8 &&
+    !/(讨论|探索|回答|解释|整理|确认|生成|创作|补充|规划|分析|澄清|继续|构思|完善|推进|比较|选择|复盘|修改|改写)/u.test(
+      goal,
+    )
+  ) {
     return true;
   }
 
@@ -220,7 +225,9 @@ function detailLines(summary: TraceSummaryLike): string[] {
   const toolStatus = stringValue(summary.tool_status);
   if (toolName) {
     const label = toolNameLabel(toolName);
-    lines.push(toolStatus ? TRACE.toolWithStatus(label, toolStatusLabel(toolStatus)) : TRACE.toolUsed(label));
+    lines.push(
+      toolStatus ? TRACE.toolWithStatus(label, toolStatusLabel(toolStatus)) : TRACE.toolUsed(label),
+    );
   }
 
   const recovery = stringValue(summary.recovery);

@@ -126,7 +126,10 @@ export async function createWorkSession(
   return body.session;
 }
 
-export async function archiveWorkSession(workId: string, sessionId: string): Promise<WorkSessionDto> {
+export async function archiveWorkSession(
+  workId: string,
+  sessionId: string,
+): Promise<WorkSessionDto> {
   const res = await fetch(url(archiveSessionPath(workId, sessionId)), {
     method: "POST",
   });
@@ -135,10 +138,13 @@ export async function archiveWorkSession(workId: string, sessionId: string): Pro
   return body.session;
 }
 
-export function transcriptToMessages(transcript: SessionTranscriptEntry[]): ChatMessageFromTranscript[] {
+export function transcriptToMessages(
+  transcript: SessionTranscriptEntry[],
+): ChatMessageFromTranscript[] {
   return transcript
-    .filter((entry): entry is SessionTranscriptEntry & { role: "user" | "assistant" } =>
-      entry.role === "user" || entry.role === "assistant",
+    .filter(
+      (entry): entry is SessionTranscriptEntry & { role: "user" | "assistant" } =>
+        entry.role === "user" || entry.role === "assistant",
     )
     .map((entry) => ({
       role: entry.role,

@@ -1,10 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import {
-  getProviderHealth,
-  providerHealthName,
-  providerHealthUrl,
-} from "../providerHealth";
+import { getProviderHealth, providerHealthName, providerHealthUrl } from "../providerHealth";
 
 describe("provider health API client", () => {
   afterEach(() => {
@@ -21,8 +17,7 @@ describe("provider health API client", () => {
   it("fetches provider health through the shared endpoint helper", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () =>
-        Promise.resolve({ connected: true, provider: "lmstudio", model: "local-model" }),
+      json: () => Promise.resolve({ connected: true, provider: "lmstudio", model: "local-model" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -35,20 +30,13 @@ describe("provider health API client", () => {
   });
 
   it("fails on non-2xx provider health responses", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue({ ok: false, status: 503 }),
-    );
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
 
-    await expect(getProviderHealth()).rejects.toThrow(
-      "getProviderHealth failed: HTTP 503",
-    );
+    await expect(getProviderHealth()).rejects.toThrow("getProviderHealth failed: HTTP 503");
   });
 
   it("derives a display name from model first and provider second", () => {
-    expect(providerHealthName({ provider: "lmstudio", model: "local-model" })).toBe(
-      "local-model",
-    );
+    expect(providerHealthName({ provider: "lmstudio", model: "local-model" })).toBe("local-model");
     expect(providerHealthName({ provider: "stub" })).toBe("stub");
     expect(providerHealthName({})).toBe("");
   });

@@ -22,7 +22,8 @@ import path from "node:path";
 
 const baseUrl = process.env.SLICE_VERIFY_BASE_URL ?? "http://127.0.0.1:5769";
 const artifactDir =
-  process.env.DOGFOOD_ARTIFACT_DIR ?? path.resolve("..", "artifacts", "novel-output", "p1-100k-dogfood");
+  process.env.DOGFOOD_ARTIFACT_DIR ??
+  path.resolve("..", "artifacts", "novel-output", "p1-100k-dogfood");
 const maxChapters = Number(process.env.DOGFOOD_MAX_CHAPTERS ?? "0");
 const minWords = Number(process.env.DOGFOOD_MIN_WORDS ?? "1000");
 const targetWords = Number(process.env.DOGFOOD_TARGET_WORDS ?? "0");
@@ -70,25 +71,30 @@ function log(message) {
 }
 
 function appendProgress(entry) {
-  fs.appendFileSync(progressPath, `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`);
+  fs.appendFileSync(
+    progressPath,
+    `${JSON.stringify({ at: new Date().toISOString(), ...entry })}\n`,
+  );
 }
 
 // 进入阅读模式触发 get_toc，取最新投影后返回工作台。
 async function readToc(page) {
   const before = frames.length;
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("阅读模式"),
-    null,
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), null, {
+    timeout: 15_000,
+  });
 
   const started = Date.now();
   let resp = null;
   while (Date.now() - started < 20_000) {
     const match = frames
       .slice(before)
-      .find((frame) => frame.direction === "received" && Array.isArray((frame.body?.response ?? frame.body)?.volumes));
+      .find(
+        (frame) =>
+          frame.direction === "received" &&
+          Array.isArray((frame.body?.response ?? frame.body)?.volumes),
+      );
     if (match) {
       resp = match.body?.response ?? match.body;
       break;
@@ -99,7 +105,10 @@ async function readToc(page) {
 
   // 异常恢复路径下页面状态可能不在预期（残卡/弹层），点击失败不立即抛——
   // 以下一行「对话输入框可见」为准（仍不可见则诚实失败）。
-  await page.getByRole("button", { name: "返回工作台" }).click({ timeout: 10_000 }).catch(() => {});
+  await page
+    .getByRole("button", { name: "返回工作台" })
+    .click({ timeout: 10_000 })
+    .catch(() => {});
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
   return resp;
 }
@@ -111,8 +120,7 @@ function flatChapters(toc) {
 function nextPendingChapter(toc, skippedTitles) {
   return (
     flatChapters(toc).find(
-      (chapter) =>
-        Number(chapter.word_count ?? 0) < minWords && !skippedTitles.has(chapter.title),
+      (chapter) => Number(chapter.word_count ?? 0) < minWords && !skippedTitles.has(chapter.title),
     ) ?? null
   );
 }
@@ -143,11 +151,9 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
 
   if (draftFrame.body?.status === "needs_confirmation") {
     log(`${chapterTitle}: confirmation required — confirming execution`);
-    await page.waitForFunction(
-      () => document.body.innerText.includes("确认执行"),
-      null,
-      { timeout: 15_000 },
-    );
+    await page.waitForFunction(() => document.body.innerText.includes("确认执行"), null, {
+      timeout: 15_000,
+    });
     // 失败重试可能在页面留下多张卡：永远点最新一张（消息流尾部）。
     await page.getByRole("button", { name: "确认执行" }).last().click();
     draftFrame = await waitForFrame(
@@ -160,11 +166,9 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
 
   const pending = draftFrame.body.adoption_state.pending[0];
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("确认创建"),
-    null,
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("确认创建"), null, {
+    timeout: 15_000,
+  });
   // 同上：多卡堆积时 .first() 会点到旧 turn 的卡（其 accept 永远 needs_confirmation），
   // 本轮 artifact 永远等不到 resolved —— 必须点最新卡。
   await page.getByRole("button", { name: "确认创建" }).last().click();
@@ -190,11 +194,9 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
 
   if (settle.event === "action_result") {
     log(`${chapterTitle}: overwrite confirmation — confirming replace`);
-    await page.waitForFunction(
-      () => document.body.innerText.includes("确认执行"),
-      null,
-      { timeout: 15_000 },
-    );
+    await page.waitForFunction(() => document.body.innerText.includes("确认执行"), null, {
+      timeout: 15_000,
+    });
     await page.getByRole("button", { name: "确认执行" }).last().click();
     await waitForFrame(
       (f) =>
@@ -210,16 +212,18 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
     );
   }
 
-  await page.waitForFunction(
-    () =>
-      ![...document.querySelectorAll("button")].some(
-        (btn) => (btn.textContent ?? "").trim() === "确认创建",
-      ),
-    null,
-    { timeout: 15_000 },
-  ).catch(() => {
-    // 历史失败轮残留的旧卡可能让按钮无法清零；以帧证据（上方 resolved）为准，不阻塞。
-  });
+  await page
+    .waitForFunction(
+      () =>
+        ![...document.querySelectorAll("button")].some(
+          (btn) => (btn.textContent ?? "").trim() === "确认创建",
+        ),
+      null,
+      { timeout: 15_000 },
+    )
+    .catch(() => {
+      // 历史失败轮残留的旧卡可能让按钮无法清零；以帧证据（上方 resolved）为准，不阻塞。
+    });
   return draftFrame.body.turn_id;
 }
 
@@ -228,7 +232,9 @@ async function planMoreChapters(page) {
   const fromIndex = frames.length;
   await page
     .locator(chatInputSelector)
-    .fill("已有章节剧情推进得不错，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。");
+    .fill(
+      "已有章节剧情推进得不错，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。",
+    );
   await page.getByRole("button", { name: /^发送$/ }).click();
 
   const outlineFrame = await waitForFrame(
@@ -244,11 +250,9 @@ async function planMoreChapters(page) {
   );
   const pending = outlineFrame.body.adoption_state.pending[0];
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("确认创建"),
-    null,
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("确认创建"), null, {
+    timeout: 15_000,
+  });
   await page.getByRole("button", { name: "确认创建" }).last().click();
 
   await waitForFrame(
@@ -283,17 +287,13 @@ async function driveChapterTurn(page, chapter) {
 
 async function exportBook(page) {
   await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("阅读模式"),
-    null,
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), null, {
+    timeout: 15_000,
+  });
   await page.getByRole("button", { name: "导出全书" }).click();
-  await page.waitForFunction(
-    () => document.body.innerText.includes("已导出到"),
-    null,
-    { timeout: 30_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("已导出到"), null, {
+    timeout: 30_000,
+  });
   const visibleText = await page.locator("body").innerText();
   const match = /已导出到\s+([^\n]+\.md)/.exec(visibleText);
   return match?.[1] ?? "";
@@ -392,11 +392,9 @@ const failures = [];
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
-  await page.waitForFunction(
-    () => document.body.innerText.includes("服务: 已连接"),
-    null,
-    { timeout: 30_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("服务: 已连接"), null, {
+    timeout: 30_000,
+  });
 
   let toc = await readToc(page);
   log(`start: ${flatChapters(toc).length} chapters, total ${toc.total_word_count} words`);
@@ -438,7 +436,11 @@ try {
       break;
     }
 
-    if (maxChapters > 0 && !advancedTitles.has(chapter.title) && advancedTitles.size >= maxChapters) {
+    if (
+      maxChapters > 0 &&
+      !advancedTitles.has(chapter.title) &&
+      advancedTitles.size >= maxChapters
+    ) {
       log(`chapter limit ${maxChapters} reached`);
       break;
     }

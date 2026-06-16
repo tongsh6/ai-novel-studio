@@ -32,10 +32,7 @@ interface Props {
     artifact: ArtifactEntry,
     actionType: StructurePanelArtifactAction,
   ) => StructurePanelActionState;
-  onArtifactAction: (
-    artifact: ArtifactEntry,
-    actionType: StructurePanelArtifactAction,
-  ) => void;
+  onArtifactAction: (artifact: ArtifactEntry, actionType: StructurePanelArtifactAction) => void;
   onStartPlanning: () => void;
   onCreateCharacter: () => void;
   onDraftChapter: (chapterBrief: string) => void;
@@ -43,9 +40,7 @@ interface Props {
 }
 
 type TabType = "outline" | "character" | "foreshadowing" | "rule";
-type SelectedArchiveItem =
-  | { kind: "character"; id: string }
-  | { kind: "memory"; id: string };
+type SelectedArchiveItem = { kind: "character"; id: string } | { kind: "memory"; id: string };
 
 function payloadText(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value;
@@ -76,11 +71,21 @@ export function StructurePanel({
 
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
-    getToc(channel, context.workId).then((data) => setToc(data)).catch(() => setToc(null));
-    getCharacters(channel, context.workId).then((data) => setCharacters(data)).catch(() => setCharacters([]));
-    getForeshadowing(channel, context.workId).then((data) => setForeshadowing(data)).catch(() => setForeshadowing([]));
-    getRules(channel, context.workId).then((data) => setRules(data)).catch(() => setRules([]));
-    getWorkStats(channel, context.workId).then((data) => setStats(data)).catch(() => setStats(null));
+    getToc(channel, context.workId)
+      .then((data) => setToc(data))
+      .catch(() => setToc(null));
+    getCharacters(channel, context.workId)
+      .then((data) => setCharacters(data))
+      .catch(() => setCharacters([]));
+    getForeshadowing(channel, context.workId)
+      .then((data) => setForeshadowing(data))
+      .catch(() => setForeshadowing([]));
+    getRules(channel, context.workId)
+      .then((data) => setRules(data))
+      .catch(() => setRules([]));
+    getWorkStats(channel, context.workId)
+      .then((data) => setStats(data))
+      .catch(() => setStats(null));
   }, [isOpen, channel, context.workId]);
 
   if (!isOpen) return null;
@@ -135,9 +140,7 @@ export function StructurePanel({
           <>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.volumes}</span>
-              <span className={styles.overviewValue}>
-                {stats.volumes}
-              </span>
+              <span className={styles.overviewValue}>{stats.volumes}</span>
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.drafts}</span>
@@ -147,21 +150,21 @@ export function StructurePanel({
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.characters}</span>
-              <span className={styles.overviewValue}>
-                {stats.characters}
-              </span>
+              <span className={styles.overviewValue}>{stats.characters}</span>
             </div>
             <div className={styles.overviewItem}>
               <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.memories}</span>
-              <span className={styles.overviewValue}>
-                {stats.memory_items}
-              </span>
+              <span className={styles.overviewValue}>{stats.memory_items}</span>
             </div>
           </>
         )}
         <div className={styles.overviewItem}>
           <span className={styles.overviewLabel}>{STRUCTURE_PANEL.stats.pending}</span>
-          <span className={pendingAdoptions.length > 0 ? styles.overviewValueAccent : styles.overviewValue}>
+          <span
+            className={
+              pendingAdoptions.length > 0 ? styles.overviewValueAccent : styles.overviewValue
+            }
+          >
             {pendingAdoptions.length}
           </span>
         </div>
@@ -211,7 +214,10 @@ export function StructurePanel({
                         {payloadText(artifact.payload.title, STRUCTURE_PANEL.pendingFallbackTitle)}
                       </div>
                       <div className={styles.cardDesc}>
-                        {payloadText(artifact.payload.content, STRUCTURE_PANEL.pendingFallbackContent)}
+                        {payloadText(
+                          artifact.payload.content,
+                          STRUCTURE_PANEL.pendingFallbackContent,
+                        )}
                       </div>
                       <div className={styles.cardActions}>
                         <button
@@ -239,7 +245,9 @@ export function StructurePanel({
             {foreshadowing.length > 0 && (
               <div className={styles.section}>
                 <div className={styles.secHeader}>
-                  <span className={styles.secTitle}>{STRUCTURE_PANEL.confirmedForeshadowingSection}</span>
+                  <span className={styles.secTitle}>
+                    {STRUCTURE_PANEL.confirmedForeshadowingSection}
+                  </span>
                 </div>
                 {foreshadowing.map((item) => (
                   <div
@@ -258,7 +266,9 @@ export function StructurePanel({
                         aria-pressed={selectedArchiveItem?.id === item.id}
                         onClick={() => setSelectedArchiveItem({ kind: "memory", id: item.id })}
                       >
-                        {selectedArchiveItem?.id === item.id ? STRUCTURE_PANEL.selected : STRUCTURE_PANEL.viewDetail}
+                        {selectedArchiveItem?.id === item.id
+                          ? STRUCTURE_PANEL.selected
+                          : STRUCTURE_PANEL.viewDetail}
                       </button>
                     </div>
                   </div>
@@ -310,7 +320,11 @@ export function StructurePanel({
             ) : (
               <EmptyState
                 title={STRUCTURE_PANEL.outlineEmptyTitle}
-                description={hasWork ? STRUCTURE_PANEL.outlineEmptyWithWork : STRUCTURE_PANEL.outlineEmptyNoWork}
+                description={
+                  hasWork
+                    ? STRUCTURE_PANEL.outlineEmptyWithWork
+                    : STRUCTURE_PANEL.outlineEmptyNoWork
+                }
                 actionLabel={STRUCTURE_PANEL.startPlanning}
                 onAction={() => {
                   onStartPlanning();
@@ -333,12 +347,11 @@ export function StructurePanel({
                       {char.name}
                       {char.role && <span className={styles.cardLabelInline}>{char.role}</span>}
                     </div>
-                    {char.summary && (
-                      <div className={styles.cardDesc}>{char.summary}</div>
-                    )}
+                    {char.summary && <div className={styles.cardDesc}>{char.summary}</div>}
                     {char.aliases && char.aliases.length > 0 && (
                       <div className={styles.cardDesc}>
-                        {STRUCTURE_PANEL.aliasPrefix}{char.aliases.join("、")}
+                        {STRUCTURE_PANEL.aliasPrefix}
+                        {char.aliases.join("、")}
                       </div>
                     )}
                     <div className={styles.cardActions}>
@@ -347,7 +360,9 @@ export function StructurePanel({
                         aria-pressed={selectedArchiveItem?.id === char.id}
                         onClick={() => setSelectedArchiveItem({ kind: "character", id: char.id })}
                       >
-                        {selectedArchiveItem?.id === char.id ? STRUCTURE_PANEL.selected : STRUCTURE_PANEL.viewDetail}
+                        {selectedArchiveItem?.id === char.id
+                          ? STRUCTURE_PANEL.selected
+                          : STRUCTURE_PANEL.viewDetail}
                       </button>
                     </div>
                   </div>
@@ -356,12 +371,16 @@ export function StructurePanel({
             ) : (
               <EmptyState
                 title={STRUCTURE_PANEL.characterEmptyTitle}
-                description={hasWork ? STRUCTURE_PANEL.characterEmptyWithWork : STRUCTURE_PANEL.characterEmptyNoWork}
-	                actionLabel={STRUCTURE_PANEL.createCharacter}
-	                onAction={() => {
-	                  onCreateCharacter();
-	                  onClose();
-	                }}
+                description={
+                  hasWork
+                    ? STRUCTURE_PANEL.characterEmptyWithWork
+                    : STRUCTURE_PANEL.characterEmptyNoWork
+                }
+                actionLabel={STRUCTURE_PANEL.createCharacter}
+                onAction={() => {
+                  onCreateCharacter();
+                  onClose();
+                }}
               />
             )}
             {selectedDetail && renderDetail(selectedDetail)}
@@ -387,7 +406,9 @@ export function StructurePanel({
                         aria-pressed={selectedArchiveItem?.id === item.id}
                         onClick={() => setSelectedArchiveItem({ kind: "memory", id: item.id })}
                       >
-                        {selectedArchiveItem?.id === item.id ? STRUCTURE_PANEL.selected : STRUCTURE_PANEL.viewDetail}
+                        {selectedArchiveItem?.id === item.id
+                          ? STRUCTURE_PANEL.selected
+                          : STRUCTURE_PANEL.viewDetail}
                       </button>
                     </div>
                   </div>
@@ -405,15 +426,10 @@ export function StructurePanel({
       </Tabs.Root>
 
       <div className={styles.footerActions}>
-	        <button
-	          className={styles.btnSecondary}
-	          onClick={onNewAction}
-	        >
+        <button className={styles.btnSecondary} onClick={onNewAction}>
           {STRUCTURE_PANEL.newAction}
         </button>
-        <div className={styles.actionsHint}>
-          {STRUCTURE_PANEL.actionHint}
-        </div>
+        <div className={styles.actionsHint}>{STRUCTURE_PANEL.actionHint}</div>
       </div>
     </div>
   );
@@ -451,9 +467,7 @@ function renderDetail(detail: ArchiveDetailItem) {
       <div className={styles.secHeader}>
         <span className={styles.secTitle}>{STRUCTURE_PANEL.detailTitle}</span>
       </div>
-      <div className={styles.detailTitle}>
-        {archiveDetailTitle(detail)}
-      </div>
+      <div className={styles.detailTitle}>{archiveDetailTitle(detail)}</div>
       {summary && <div className={styles.cardDesc}>{summary}</div>}
       <dl className={styles.detailRows}>
         {archiveDetailRows(detail).map((row) => (

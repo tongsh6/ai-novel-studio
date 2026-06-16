@@ -54,18 +54,20 @@ export function ReadingMode() {
   // Fetch TOC on mount when workId is set
   useEffect(() => {
     if (!channel || !context.workId) return;
-    getToc(channel, context.workId).then((data) => {
-      setTocError(null);
-      setToc(data);
-      // Auto-select first chapter of first volume
-      const firstChapter = data.volumes[0]?.chapters[0];
-      if (firstChapter) {
-        setActiveChapterId(firstChapter.id);
-      }
-    }).catch((error) => {
-      setToc(null);
-      setTocError(error instanceof Error ? error.message : String(error));
-    });
+    getToc(channel, context.workId)
+      .then((data) => {
+        setTocError(null);
+        setToc(data);
+        // Auto-select first chapter of first volume
+        const firstChapter = data.volumes[0]?.chapters[0];
+        if (firstChapter) {
+          setActiveChapterId(firstChapter.id);
+        }
+      })
+      .catch((error) => {
+        setToc(null);
+        setTocError(error instanceof Error ? error.message : String(error));
+      });
   }, [channel, context.workId]);
 
   // Fetch chapter content when active chapter changes
@@ -88,9 +90,7 @@ export function ReadingMode() {
     setExportError(null);
     exportWork(channel, context.workId)
       .then((result) => setExportResult(result))
-      .catch((error) =>
-        setExportError(error instanceof Error ? error.message : String(error)),
-      )
+      .catch((error) => setExportError(error instanceof Error ? error.message : String(error)))
       .finally(() => setExporting(false));
   };
 
@@ -106,9 +106,13 @@ export function ReadingMode() {
         <div className={styles.staleBanner}>
           <div className={styles.bannerLeft}>
             <span className={styles.bannerStatus}>投影状态：已过期</span>
-            <span className={styles.bannerDesc}>底层设定已有变更，当前阅读的可能不是最新版本。</span>
+            <span className={styles.bannerDesc}>
+              底层设定已有变更，当前阅读的可能不是最新版本。
+            </span>
           </div>
-          <button className={styles.refreshBtn} onClick={handleRefreshProjection}>刷新投影</button>
+          <button className={styles.refreshBtn} onClick={handleRefreshProjection}>
+            刷新投影
+          </button>
         </div>
       )}
       {projectionStatus === "REBUILDING" && (
@@ -125,7 +129,9 @@ export function ReadingMode() {
             <span className={styles.bannerStatus}>投影状态：重建失败</span>
             <span className={styles.bannerDesc}>阅读视图重建失败，请返回工作台重试。</span>
           </div>
-          <button className={styles.refreshBtn} onClick={handleRetryProjection}>重试</button>
+          <button className={styles.refreshBtn} onClick={handleRetryProjection}>
+            重试
+          </button>
         </div>
       )}
 
@@ -134,9 +140,7 @@ export function ReadingMode() {
         <div className={styles.contextGroup}>
           <span className={styles.modeText}>阅读模式</span>
           <span className={styles.divider}>/</span>
-          <span className={styles.titleText}>
-            {getVisibleWorkTitle(runtimeState)}
-          </span>
+          <span className={styles.titleText}>{getVisibleWorkTitle(runtimeState)}</span>
           {hasContent && totalWordCount > 0 && (
             <>
               <span className={styles.divider}>/</span>
@@ -152,30 +156,20 @@ export function ReadingMode() {
                 <span className={styles.milestoneMet}>{READING.milestoneMetLabel}</span>
               ) : (
                 <span className={styles.milestoneProgress}>
-                  {READING.milestoneProgressLabel}{" "}
-                  {audit.totalWordCount.toLocaleString()} / {audit.totalTarget.toLocaleString()}{" "}
-                  {READING.wordsUnit}
-                  {belowMinCount > 0
-                    ? ` · ${belowMinCount} ${READING.chaptersBelowMinSuffix}`
-                    : ""}
+                  {READING.milestoneProgressLabel} {audit.totalWordCount.toLocaleString()} /{" "}
+                  {audit.totalTarget.toLocaleString()} {READING.wordsUnit}
+                  {belowMinCount > 0 ? ` · ${belowMinCount} ${READING.chaptersBelowMinSuffix}` : ""}
                 </span>
               )}
             </>
           )}
         </div>
         {hasContent && (
-          <button
-            className={styles.exportBtn}
-            onClick={handleExport}
-            disabled={exporting}
-          >
+          <button className={styles.exportBtn} onClick={handleExport} disabled={exporting}>
             {exporting ? READING.exportInProgress : READING.exportLabel}
           </button>
         )}
-        <button
-          className={styles.backBtn}
-          onClick={() => setMode("workbench")}
-        >
+        <button className={styles.backBtn} onClick={() => setMode("workbench")}>
           返回工作台
         </button>
       </div>
@@ -190,14 +184,13 @@ export function ReadingMode() {
 
       {/* Main reading area */}
       <div className={styles.mainArea}>
-
         {/* TOC sidebar */}
         <div className={styles.tocSidebar}>
           <div className={styles.tocTitle}>目录</div>
-          {runtimeState.ui.shouldShowReadingEmptyState || readingStatus === "unknown" || readingStatus === "failed" ? (
-            <div className={styles.tocEmpty}>
-              暂无已采纳的章节内容
-            </div>
+          {runtimeState.ui.shouldShowReadingEmptyState ||
+          readingStatus === "unknown" ||
+          readingStatus === "failed" ? (
+            <div className={styles.tocEmpty}>暂无已采纳的章节内容</div>
           ) : (
             <div className={styles.tocList}>
               {tocView?.volumes.map((vol) => (
@@ -206,7 +199,9 @@ export function ReadingMode() {
                   {vol.chapters.map((ch) => (
                     <div
                       key={ch.id}
-                      className={ch.id === activeChapterId ? styles.tocChapterActive : styles.tocChapter}
+                      className={
+                        ch.id === activeChapterId ? styles.tocChapterActive : styles.tocChapter
+                      }
                       onClick={() => setActiveChapterId(ch.id)}
                     >
                       <span className={styles.tocChapterTitle}>{ch.title}</span>
@@ -217,7 +212,9 @@ export function ReadingMode() {
                         <span className={styles.auditBadge}>{READING.shortChapterBadge}</span>
                       )}
                       {ch.wordCount > 0 && (
-                        <span className={styles.tocChapterWords}>{formatWordCount(ch.wordCount)}</span>
+                        <span className={styles.tocChapterWords}>
+                          {formatWordCount(ch.wordCount)}
+                        </span>
                       )}
                     </div>
                   ))}
@@ -256,9 +253,15 @@ export function ReadingMode() {
                       <h3 className={styles.sceneTitle}>{scene.title}</h3>
                     )}
                     {scene.content ? (
-                      scene.content.split("\n").map((para, pi) => (
-                        para.trim() ? <div key={pi} className={styles.paragraph}>{para}</div> : <br key={pi} />
-                      ))
+                      scene.content.split("\n").map((para, pi) =>
+                        para.trim() ? (
+                          <div key={pi} className={styles.paragraph}>
+                            {para}
+                          </div>
+                        ) : (
+                          <br key={pi} />
+                        ),
+                      )
                     ) : (
                       <div className={styles.paragraph}>{READING.sceneEmptyBody}</div>
                     )}
@@ -268,7 +271,6 @@ export function ReadingMode() {
             </div>
           )}
         </div>
-
       </div>
     </div>
   );

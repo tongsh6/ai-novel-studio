@@ -83,10 +83,7 @@ export interface SearchParams {
   offset?: number;
 }
 
-async function request<T>(
-  path: string,
-  options: RequestInit = {},
-): Promise<ApiResponse<T>> {
+async function request<T>(path: string, options: RequestInit = {}): Promise<ApiResponse<T>> {
   const res = await fetch(`${BASE}${path}`, {
     headers: { "Content-Type": "application/json", ...options.headers },
     ...options,
@@ -113,9 +110,7 @@ export async function listMemories(
     if (v !== undefined && v !== null && v !== "") qs.set(k, String(v));
   }
   const query = qs.toString();
-  return request<MemoryItem[]>(
-    `/api/works/${workId}/memories${query ? `?${query}` : ""}`,
-  );
+  return request<MemoryItem[]>(`/api/works/${workId}/memories${query ? `?${query}` : ""}`);
 }
 
 export async function getMemory(
@@ -129,50 +124,43 @@ export async function confirmMemory(
   workId: string,
   memoryId: string,
 ): Promise<ApiResponse<MemoryItem>> {
-  return request<MemoryItem>(
-    `/api/works/${workId}/memories/${memoryId}/confirm`,
-    { method: "POST" },
-  );
+  return request<MemoryItem>(`/api/works/${workId}/memories/${memoryId}/confirm`, {
+    method: "POST",
+  });
 }
 
 export async function lockMemory(
   workId: string,
   memoryId: string,
 ): Promise<ApiResponse<MemoryItem>> {
-  return request<MemoryItem>(
-    `/api/works/${workId}/memories/${memoryId}/lock`,
-    { method: "POST" },
-  );
+  return request<MemoryItem>(`/api/works/${workId}/memories/${memoryId}/lock`, { method: "POST" });
 }
 
 export async function unlockMemory(
   workId: string,
   memoryId: string,
 ): Promise<ApiResponse<MemoryItem>> {
-  return request<MemoryItem>(
-    `/api/works/${workId}/memories/${memoryId}/unlock`,
-    { method: "POST" },
-  );
+  return request<MemoryItem>(`/api/works/${workId}/memories/${memoryId}/unlock`, {
+    method: "POST",
+  });
 }
 
 export async function deprecateMemory(
   workId: string,
   memoryId: string,
 ): Promise<ApiResponse<MemoryItem>> {
-  return request<MemoryItem>(
-    `/api/works/${workId}/memories/${memoryId}/deprecate`,
-    { method: "POST" },
-  );
+  return request<MemoryItem>(`/api/works/${workId}/memories/${memoryId}/deprecate`, {
+    method: "POST",
+  });
 }
 
 export async function archiveMemory(
   workId: string,
   memoryId: string,
 ): Promise<ApiResponse<MemoryItem>> {
-  return request<MemoryItem>(
-    `/api/works/${workId}/memories/${memoryId}/archive`,
-    { method: "POST" },
-  );
+  return request<MemoryItem>(`/api/works/${workId}/memories/${memoryId}/archive`, {
+    method: "POST",
+  });
 }
 
 export async function updateMemoryWeight(
@@ -180,13 +168,10 @@ export async function updateMemoryWeight(
   memoryId: string,
   weight: number,
 ): Promise<ApiResponse<MemoryItem>> {
-  return request<MemoryItem>(
-    `/api/works/${workId}/memories/${memoryId}/weight`,
-    {
-      method: "PATCH",
-      body: JSON.stringify({ weight }),
-    },
-  );
+  return request<MemoryItem>(`/api/works/${workId}/memories/${memoryId}/weight`, {
+    method: "PATCH",
+    body: JSON.stringify({ weight }),
+  });
 }
 
 export async function updateMemoryValidity(
@@ -198,13 +183,10 @@ export async function updateMemoryValidity(
     expire_condition?: string;
   },
 ): Promise<ApiResponse<MemoryItem>> {
-  return request<MemoryItem>(
-    `/api/works/${workId}/memories/${memoryId}/validity`,
-    {
-      method: "PATCH",
-      body: JSON.stringify(data),
-    },
-  );
+  return request<MemoryItem>(`/api/works/${workId}/memories/${memoryId}/validity`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 }
 
 export async function recallMemories(
@@ -227,7 +209,5 @@ export async function getMemoryReferences(
   workId: string,
   memoryId: string,
 ): Promise<ApiResponse<ReferenceLog[]>> {
-  return request<ReferenceLog[]>(
-    `/api/works/${workId}/memories/${memoryId}/references`,
-  );
+  return request<ReferenceLog[]>(`/api/works/${workId}/memories/${memoryId}/references`);
 }

@@ -12,8 +12,7 @@ const MAX_DISPLAY_NAME_LENGTH = 20;
 
 type BrowserStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 
-export const DEFAULT_ASSISTANT_DISPLAY_NAME =
-  WORKBENCH.assistantDisplayNameDefault;
+export const DEFAULT_ASSISTANT_DISPLAY_NAME = WORKBENCH.assistantDisplayNameDefault;
 
 function browserStorage(): BrowserStorage | null {
   try {
@@ -98,7 +97,9 @@ export async function setAssistantDisplayName(
   return normalized ?? DEFAULT_ASSISTANT_DISPLAY_NAME;
 }
 
-export async function resetAssistantDisplayName(workId: string | null | undefined): Promise<string> {
+export async function resetAssistantDisplayName(
+  workId: string | null | undefined,
+): Promise<string> {
   return setAssistantDisplayName(workId, "");
 }
 
@@ -133,9 +134,7 @@ function writeBrowserNameMap(names: Record<string, string>): void {
   const storage = browserStorage();
   if (!storage) return;
 
-  const entries = Object.entries(names).filter(([, value]) =>
-    normalizeAssistantDisplayName(value),
-  );
+  const entries = Object.entries(names).filter(([, value]) => normalizeAssistantDisplayName(value));
 
   if (entries.length === 0) {
     storage.removeItem(STORAGE_KEY);

@@ -83,9 +83,7 @@ describe("assistant display name browser preference", () => {
   });
 
   it("ignores fallback workspace ids", async () => {
-    expect(await setAssistantDisplayName("lobby", "创作助手")).toBe(
-      DEFAULT_ASSISTANT_DISPLAY_NAME,
-    );
+    expect(await setAssistantDisplayName("lobby", "创作助手")).toBe(DEFAULT_ASSISTANT_DISPLAY_NAME);
     expect(await getAssistantDisplayName(null)).toBe(DEFAULT_ASSISTANT_DISPLAY_NAME);
   });
 });

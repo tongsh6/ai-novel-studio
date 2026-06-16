@@ -476,7 +476,8 @@
   gap: 8px;
 }
 
-.userMsg, .assistantMsg {
+.userMsg,
+.assistantMsg {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -703,7 +704,8 @@
   margin-top: 4px;
 }
 
-.btnPrimary, .btnSecondary {
+.btnPrimary,
+.btnSecondary {
   padding: 8px 16px;
   border-radius: var(--rounded-sm);
   font-size: 14px;
@@ -759,7 +761,7 @@
   font-size: 14px;
   font-family: var(--sans);
   color: var(--foreground-primary);
-  background-color: #FFFFFF;
+  background-color: #ffffff;
   outline: none;
 }
 
@@ -930,7 +932,10 @@
 /* Modify Draft Modal */
 .modalOverlay {
   position: fixed;
-  top: 0; left: 0; right: 0; bottom: 0;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
   background: rgba(0, 0, 0, 0.5);
   display: flex;
   align-items: center;
@@ -943,7 +948,7 @@
   padding: 24px;
   width: 480px;
   max-width: 90vw;
-  box-shadow: 0 4px 24px rgba(0,0,0,0.2);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
 }
 .modalContent h3 {
   margin: 0 0 12px 0;

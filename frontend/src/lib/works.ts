@@ -27,10 +27,7 @@ export async function listWorks(): Promise<WorkDto[]> {
   return body.works;
 }
 
-export async function createWork(input: {
-  title: string;
-  genre?: string;
-}): Promise<WorkDto> {
+export async function createWork(input: { title: string; genre?: string }): Promise<WorkDto> {
   const res = await fetch(url("/api/works"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -96,10 +93,7 @@ export async function setLastOpenedWorkId(id: string): Promise<void> {
  * still present in `works`, otherwise fall back to the newest work, otherwise
  * null. Pure — easy to unit-test.
  */
-export function pickInitialWorkId(
-  works: WorkDto[],
-  lastOpened: string | null,
-): string | null {
+export function pickInitialWorkId(works: WorkDto[], lastOpened: string | null): string | null {
   if (works.length === 0) return null;
   if (lastOpened && works.some((w) => w.id === lastOpened)) return lastOpened;
   return works[0].id;

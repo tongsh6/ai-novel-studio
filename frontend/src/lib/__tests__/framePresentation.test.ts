@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  framePresentationForSummary,
-  normalizeFrameType,
-} from "../framePresentation";
+import { framePresentationForSummary, normalizeFrameType } from "../framePresentation";
 
 describe("frame presentation", () => {
   it("maps creative exploration to an author-facing label", () => {

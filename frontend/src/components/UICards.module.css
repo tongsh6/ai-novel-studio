@@ -96,7 +96,10 @@
 }
 
 /* Button variants */
-.btnPrimary, .btnSecondary, .btnDanger, .btnGhost {
+.btnPrimary,
+.btnSecondary,
+.btnDanger,
+.btnGhost {
   padding: 10px 16px;
   border-radius: var(--rounded-sm);
   font-size: 12px;

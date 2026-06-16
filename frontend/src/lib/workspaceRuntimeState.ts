@@ -10,30 +10,13 @@ export type WorkspaceConnectionStatus =
   | "degraded"
   | "failed";
 
-export type WorkspaceWorkStatus =
-  | "loading"
-  | "ready"
-  | "missing"
-  | "failed";
+export type WorkspaceWorkStatus = "loading" | "ready" | "missing" | "failed";
 
-export type WorkspaceSessionStatus =
-  | "idle"
-  | "resuming"
-  | "active"
-  | "failed";
+export type WorkspaceSessionStatus = "idle" | "resuming" | "active" | "failed";
 
-export type WorkspaceReadingProjectionStatus =
-  | "unknown"
-  | "empty"
-  | "ready"
-  | "stale"
-  | "failed";
+export type WorkspaceReadingProjectionStatus = "unknown" | "empty" | "ready" | "stale" | "failed";
 
-export type WorkspaceTaskStatus =
-  | "idle"
-  | "running"
-  | "checkpoint"
-  | "failed";
+export type WorkspaceTaskStatus = "idle" | "running" | "checkpoint" | "failed";
 
 export interface WorkspaceAdoptionArtifact {
   artifact_id: string;
@@ -146,9 +129,7 @@ const RESOLVED_ADOPTION_STATUSES = new Set([
   "ARCHIVED",
 ]);
 
-export function deriveWorkspaceRuntimeState(
-  input: WorkspaceRuntimeInput,
-): WorkspaceRuntimeState {
+export function deriveWorkspaceRuntimeState(input: WorkspaceRuntimeInput): WorkspaceRuntimeState {
   const connection = deriveConnectionState(input.connection);
   const work = deriveWorkState(input);
   const session = deriveSessionState(input);
@@ -184,17 +165,12 @@ export function getPendingAdoptionCount(state: WorkspaceRuntimeState): number {
   return state.adoption.pendingCount;
 }
 
-export function isArtifactResolved(
-  state: WorkspaceRuntimeState,
-  artifactId: string,
-): boolean {
+export function isArtifactResolved(state: WorkspaceRuntimeState, artifactId: string): boolean {
   const id = normalizeId(artifactId);
   return id ? state.adoption.resolvedArtifactIds.includes(id) : false;
 }
 
-export function shouldShowDisconnectedBadge(
-  state: WorkspaceRuntimeState,
-): boolean {
+export function shouldShowDisconnectedBadge(state: WorkspaceRuntimeState): boolean {
   return state.ui.shouldShowDisconnectedBadge;
 }
 
@@ -228,11 +204,9 @@ function deriveConnectionState(
 function deriveWorkState(input: WorkspaceRuntimeInput): WorkspaceRuntimeState["work"] {
   const snapshotWork = objectRecord(objectRecord(input.resumeSnapshot)?.work);
   const join = objectRecord(input.joinResponse);
-  const id = normalizeId(input.work?.id) ??
-    normalizeId(snapshotWork?.id) ??
-    normalizeId(join?.work_id);
-  const rawTitle = normalizeString(input.work?.title) ??
-    normalizeString(snapshotWork?.title);
+  const id =
+    normalizeId(input.work?.id) ?? normalizeId(snapshotWork?.id) ?? normalizeId(join?.work_id);
+  const rawTitle = normalizeString(input.work?.title) ?? normalizeString(snapshotWork?.title);
   const title = normalizeVisibleWorkTitle(rawTitle);
   const status = normalizeWorkStatus(input.work?.status, input.work?.error, id);
 
@@ -245,22 +219,18 @@ function deriveWorkState(input: WorkspaceRuntimeInput): WorkspaceRuntimeState["w
   };
 }
 
-function deriveSessionState(
-  input: WorkspaceRuntimeInput,
-): WorkspaceRuntimeState["session"] {
+function deriveSessionState(input: WorkspaceRuntimeInput): WorkspaceRuntimeState["session"] {
   const snapshot = objectRecord(input.resumeSnapshot);
   const activeSession = objectRecord(snapshot?.active_session);
   const join = objectRecord(input.joinResponse);
-  const id = normalizeId(input.session?.id) ??
+  const id =
+    normalizeId(input.session?.id) ??
     normalizeId(activeSession?.id) ??
     normalizeId(join?.session_id);
   const transcriptCount = input.transcript?.length ?? 0;
-  const snapshotTranscript = Array.isArray(snapshot?.transcript)
-    ? snapshot.transcript
-    : [];
+  const snapshotTranscript = Array.isArray(snapshot?.transcript) ? snapshot.transcript : [];
   const transcriptRestored =
-    input.session?.transcriptRestored === true ||
-    snapshotTranscript.length > 0;
+    input.session?.transcriptRestored === true || snapshotTranscript.length > 0;
 
   let status: WorkspaceSessionStatus = "idle";
   if (input.session?.error) status = "failed";
@@ -272,10 +242,7 @@ function deriveSessionState(
     status,
     transcriptRestored,
     shouldShowWelcome:
-      status !== "failed" &&
-      status !== "resuming" &&
-      !transcriptRestored &&
-      transcriptCount === 0,
+      status !== "failed" && status !== "resuming" && !transcriptRestored && transcriptCount === 0,
   };
 }
 
@@ -347,9 +314,7 @@ function deriveReadingProjectionState(
   return { status: "ready", chapterCount, activeChapterId };
 }
 
-function deriveTaskState(
-  task: WorkspaceRuntimeInput["task"],
-): WorkspaceRuntimeState["task"] {
+function deriveTaskState(task: WorkspaceRuntimeInput["task"]): WorkspaceRuntimeState["task"] {
   const status = normalizeString(task?.status)?.toLowerCase();
   if (status === "running" || status === "checkpoint" || status === "failed") {
     return { status };
@@ -390,9 +355,7 @@ function connectionLabel(status: WorkspaceConnectionStatus): string {
   }
 }
 
-function shouldShowDisconnectedBadgeFromConnection(
-  status: WorkspaceConnectionStatus,
-): boolean {
+function shouldShowDisconnectedBadgeFromConnection(status: WorkspaceConnectionStatus): boolean {
   return status === "failed" || status === "degraded";
 }
 
@@ -432,7 +395,7 @@ function normalizeId(value: unknown): string | null {
 
 function objectRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
+    ? (value as Record<string, unknown>)
     : null;
 }
 

@@ -5,7 +5,18 @@ import { useCallback, useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { Archive, BookOpen, Bot, ChevronDown, CircleHelp, MessageCircle, Plus, RefreshCw, RotateCcw, Settings2 } from "lucide-react";
+import {
+  Archive,
+  BookOpen,
+  Bot,
+  ChevronDown,
+  CircleHelp,
+  MessageCircle,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  Settings2,
+} from "lucide-react";
 
 import {
   createSocket,
@@ -59,10 +70,7 @@ import {
   type UICardData,
 } from "./UICards";
 import { StructurePanel } from "./StructurePanel";
-import type {
-  StructurePanelActionState,
-  StructurePanelArtifactAction,
-} from "./StructurePanel";
+import type { StructurePanelActionState, StructurePanelArtifactAction } from "./StructurePanel";
 import { useAppStore } from "../lib/store";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
 import {
@@ -79,10 +87,7 @@ import {
 } from "../lib/modelProvider";
 import { BUTTON, CARD, TRACE, WORKBENCH } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
-import {
-  toAuthorTraceSummary,
-  type TraceSummaryView,
-} from "../lib/traceSummaryView";
+import { toAuthorTraceSummary, type TraceSummaryView } from "../lib/traceSummaryView";
 import { framePresentationForSummary } from "../lib/framePresentation";
 import {
   DEFAULT_ASSISTANT_DISPLAY_NAME,
@@ -116,7 +121,12 @@ export interface TurnResult {
     resolved: ArtifactEntry[];
   };
   behavior_state?: { active: Record<string, unknown> | null };
-  projection_refs?: { projection_type: string; projection_id: string; source_revision_refs: string[]; refresh_status?: string | null }[];
+  projection_refs?: {
+    projection_type: string;
+    projection_id: string;
+    source_revision_refs: string[];
+    refresh_status?: string | null;
+  }[];
   produced_at: string;
 }
 
@@ -203,7 +213,9 @@ export function WorkspaceCandidatePanel({
               {candidate.tone_tags && candidate.tone_tags.length > 0 && (
                 <div className={styles.candidateTags}>
                   {candidate.tone_tags.map((tag) => (
-                    <span key={tag} className={styles.tag}>{tag}</span>
+                    <span key={tag} className={styles.tag}>
+                      {tag}
+                    </span>
                   ))}
                 </div>
               )}
@@ -334,7 +346,9 @@ export function WorkspaceChat() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [llmConnected, setLlmConnected] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState<string>("");
-  const [modelProviderState, setModelProviderState] = useState<ModelProviderRuntimeState | null>(null);
+  const [modelProviderState, setModelProviderState] = useState<ModelProviderRuntimeState | null>(
+    null,
+  );
   const [modelProviderDialogOpen, setModelProviderDialogOpen] = useState(false);
   const [modelProviderDraft, setModelProviderDraft] = useState<ModelProviderDraft>({
     provider: "stub",
@@ -384,14 +398,14 @@ export function WorkspaceChat() {
   const [editSubmitting, setEditSubmitting] = useState(false);
 
   // Connect to Zustand Global Store with selectors for stability
-  const socketConnected = useAppStore(state => state.socketConnected);
-  const setSocketConnected = useAppStore(state => state.setSocketConnected);
-  const context = useAppStore(state => state.context);
-  const longRun = useAppStore(state => state.longRun);
-  const setContext = useAppStore(state => state.setContext);
-  const setChannel = useAppStore(state => state.setChannel);
-  const setMode = useAppStore(state => state.setMode);
-  const setLongRun = useAppStore(state => state.setLongRun);
+  const socketConnected = useAppStore((state) => state.socketConnected);
+  const setSocketConnected = useAppStore((state) => state.setSocketConnected);
+  const context = useAppStore((state) => state.context);
+  const longRun = useAppStore((state) => state.longRun);
+  const setContext = useAppStore((state) => state.setContext);
+  const setChannel = useAppStore((state) => state.setChannel);
+  const setMode = useAppStore((state) => state.setMode);
+  const setLongRun = useAppStore((state) => state.setLongRun);
 
   const channelRef = useRef<Channel | null>(null);
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
@@ -465,7 +479,12 @@ export function WorkspaceChat() {
     const projRefs = result.projection_refs;
     if (projRefs && projRefs.length > 0) {
       const status = projRefs[0].refresh_status;
-      if (status === "FRESH" || status === "STALE" || status === "REBUILDING" || status === "FAILED") {
+      if (
+        status === "FRESH" ||
+        status === "STALE" ||
+        status === "REBUILDING" ||
+        status === "FAILED"
+      ) {
         useAppStore.getState().setProjectionStatus(status);
       }
     }
@@ -607,7 +626,8 @@ export function WorkspaceChat() {
     channel
       .join()
       .receive("ok", (response: { work_id?: string; session_id?: string }) => {
-        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id }))
+          return;
 
         const joinedWorkId = response.work_id ?? work.id;
         const joinedSessionId = response.session_id ?? sessionId;
@@ -653,12 +673,14 @@ export function WorkspaceChat() {
         });
       })
       .receive("error", () => {
-        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id }))
+          return;
         setSocketConnected(false);
         setWorkSwitchingId(null);
       })
       .receive("timeout", () => {
-        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+        if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id }))
+          return;
         setSocketConnected(false);
         setWorkSwitchingId(null);
       });
@@ -750,13 +772,13 @@ export function WorkspaceChat() {
       pending: isReadOnlySessionView
         ? []
         : messages
-          .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
-          .concat(resumePendingAdoptions),
+            .flatMap((msg) => msg.turnResult?.adoption_state?.pending ?? [])
+            .concat(resumePendingAdoptions),
       resolved: isReadOnlySessionView
         ? []
         : messages
-          .flatMap((msg) => msg.turnResult?.adoption_state?.resolved ?? [])
-          .concat(resumeResolvedAdoptions),
+            .flatMap((msg) => msg.turnResult?.adoption_state?.resolved ?? [])
+            .concat(resumeResolvedAdoptions),
     },
     task: { status: longRun.status },
   });
@@ -782,7 +804,9 @@ export function WorkspaceChat() {
 
     // Clear pending action and send
     useAppStore.getState().setPendingBuildAction(null);
-    void sendMessage(channelRef.current, text, context.workId, null, activeSessionId).then(() => setLoading(true));
+    void sendMessage(channelRef.current, text, context.workId, null, activeSessionId).then(() =>
+      setLoading(true),
+    );
   }, [activeSessionId, context.workId]);
 
   async function handleSend(
@@ -809,10 +833,7 @@ export function WorkspaceChat() {
         options.generateMicroPlan ?? false,
       );
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: WORKBENCH.sendFailure },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
       setLoading(false);
     }
   }
@@ -820,7 +841,9 @@ export function WorkspaceChat() {
   const handleCandidateContinue = async (turnResult: TurnResult, candidate: CandidateDirection) => {
     if (!channelRef.current) return;
     const turnCandidates = turnResult.candidate_directions ?? [];
-    const candidateIndex = turnCandidates.findIndex((item) => item.direction_id === candidate.direction_id);
+    const candidateIndex = turnCandidates.findIndex(
+      (item) => item.direction_id === candidate.direction_id,
+    );
     const action = findCandidateAvailableAction({
       availableActions: turnResult.available_actions ?? [],
       candidate,
@@ -857,10 +880,7 @@ export function WorkspaceChat() {
         toAuthorActionPayload(turnResult.turn_id, action, authorPayload),
       );
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: WORKBENCH.actionFailure },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
     }
   };
 
@@ -1015,10 +1035,7 @@ export function WorkspaceChat() {
         actionType,
         artifactId: artifact.artifact_id,
       });
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: WORKBENCH.actionUnavailable },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionUnavailable }]);
       return;
     }
 
@@ -1076,18 +1093,19 @@ export function WorkspaceChat() {
       const snapshot = await getSessionSnapshot(context.workId, session.id);
       const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
       const shouldOpenReadOnly = snapshot.read_only || snapshot.session.id !== activeSessionId;
-      const sourceTurnRef = [...snapshot.transcript]
-        .reverse()
-        .find((entry) => typeof entry.turn_id === "string" && entry.turn_id.trim().length > 0)
-        ?.turn_id ?? null;
+      const sourceTurnRef =
+        [...snapshot.transcript]
+          .reverse()
+          .find((entry) => typeof entry.turn_id === "string" && entry.turn_id.trim().length > 0)
+          ?.turn_id ?? null;
       setReadOnlySession(shouldOpenReadOnly ? snapshot.session : null);
       setReadOnlySourceTurnRef(shouldOpenReadOnly ? sourceTurnRef : null);
       setMessages(restoredMessages);
       setResumePendingAdoptions(
-        shouldOpenReadOnly ? [] : snapshot.pending_adoptions as unknown as ArtifactEntry[],
+        shouldOpenReadOnly ? [] : (snapshot.pending_adoptions as unknown as ArtifactEntry[]),
       );
       setResumeResolvedAdoptions(
-        shouldOpenReadOnly ? [] : snapshot.resolved_adoptions as unknown as ArtifactEntry[],
+        shouldOpenReadOnly ? [] : (snapshot.resolved_adoptions as unknown as ArtifactEntry[]),
       );
       setTranscriptRestored(restoredMessages.length > 0);
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
@@ -1097,7 +1115,8 @@ export function WorkspaceChat() {
   };
 
   const handleBranchFromReadOnlySession = async () => {
-    if (!context.workId || context.workId === "lobby" || !readOnlySession || branchingSession) return;
+    if (!context.workId || context.workId === "lobby" || !readOnlySession || branchingSession)
+      return;
 
     setBranchingSession(true);
     try {
@@ -1139,7 +1158,10 @@ export function WorkspaceChat() {
         setReadOnlySession(archived);
       }
     } catch {
-      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionArchiveFailure }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", text: WORKBENCH.sessionArchiveFailure },
+      ]);
     }
   };
 
@@ -1149,7 +1171,10 @@ export function WorkspaceChat() {
     } catch {
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", text: `${WORKBENCH.switchFailurePrefix}${WORKBENCH.startupFailureLoadWork}` },
+        {
+          role: "assistant",
+          text: `${WORKBENCH.switchFailurePrefix}${WORKBENCH.startupFailureLoadWork}`,
+        },
       ]);
     }
   };
@@ -1168,10 +1193,7 @@ export function WorkspaceChat() {
       setWorkMenuOpen(false);
       await openWork(created);
     } catch {
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: WORKBENCH.createWorkFailure },
-      ]);
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.createWorkFailure }]);
     }
   };
 
@@ -1239,7 +1261,9 @@ export function WorkspaceChat() {
     } catch (error) {
       const detail = errorDetail(error);
       setModelProviderMessage(
-        detail ? WORKBENCH.modelProviderLoadFailureDetail(detail) : WORKBENCH.modelProviderLoadFailure,
+        detail
+          ? WORKBENCH.modelProviderLoadFailureDetail(detail)
+          : WORKBENCH.modelProviderLoadFailure,
       );
     } finally {
       setModelProviderDialogOpen(true);
@@ -1305,9 +1329,7 @@ export function WorkspaceChat() {
 
       setModelProviderModels(result.models);
       setModelProviderModelsMessage(
-        result.ok
-          ? null
-          : result.message || WORKBENCH.modelProviderModelsLoadFailure,
+        result.ok ? null : result.message || WORKBENCH.modelProviderModelsLoadFailure,
       );
 
       if (result.models.length > 0) {
@@ -1358,7 +1380,9 @@ export function WorkspaceChat() {
     } catch (error) {
       const detail = errorDetail(error);
       setModelProviderMessage(
-        detail ? WORKBENCH.modelProviderTestFailureDetail(detail) : WORKBENCH.modelProviderTestFailure,
+        detail
+          ? WORKBENCH.modelProviderTestFailureDetail(detail)
+          : WORKBENCH.modelProviderTestFailure,
       );
     } finally {
       setModelProviderTesting(false);
@@ -1388,7 +1412,9 @@ export function WorkspaceChat() {
     } catch (error) {
       const detail = errorDetail(error);
       setModelProviderMessage(
-        detail ? WORKBENCH.modelProviderSaveFailureDetail(detail) : WORKBENCH.modelProviderSaveFailure,
+        detail
+          ? WORKBENCH.modelProviderSaveFailureDetail(detail)
+          : WORKBENCH.modelProviderSaveFailure,
       );
     } finally {
       setModelProviderSaving(false);
@@ -1413,10 +1439,9 @@ export function WorkspaceChat() {
     styles.riskBadge,
     socketConnected ? styles.riskBadgeOk : styles.riskBadgeNeutral,
   ].join(" ");
-  const leftColumnClassName = [
-    styles.leftColumn,
-    isPanelOpen ? styles.leftColumnDimmed : "",
-  ].join(" ");
+  const leftColumnClassName = [styles.leftColumn, isPanelOpen ? styles.leftColumnDimmed : ""].join(
+    " ",
+  );
   const taskStatusLabel = workSwitchingId
     ? WORKBENCH.taskSwitchingLabel
     : longRun.status === "running"
@@ -1470,9 +1495,7 @@ export function WorkspaceChat() {
                 title={WORKBENCH.workMenuTitle}
               >
                 <BookOpen size={16} aria-hidden="true" />
-                <span className={styles.titleText}>
-                  {visibleWorkTitle}
-                </span>
+                <span className={styles.titleText}>{visibleWorkTitle}</span>
                 <ChevronDown size={14} aria-hidden="true" />
               </button>
             </DropdownMenu.Trigger>
@@ -1509,7 +1532,9 @@ export function WorkspaceChat() {
                       >
                         <span className={styles.workMenuItemTitle}>{work.title}</span>
                         {isCurrent && (
-                          <span className={styles.workMenuCurrent}>{WORKBENCH.workMenuCurrent}</span>
+                          <span className={styles.workMenuCurrent}>
+                            {WORKBENCH.workMenuCurrent}
+                          </span>
                         )}
                       </DropdownMenu.Item>
                     );
@@ -1540,11 +1565,7 @@ export function WorkspaceChat() {
                 onClick={openAssistantNameDialog}
               >
                 <Bot size={15} aria-hidden="true" />
-                <span
-                  className={styles.assistantNameValue}
-                >
-                  {assistantDisplayName}
-                </span>
+                <span className={styles.assistantNameValue}>{assistantDisplayName}</span>
               </button>
             </Dialog.Trigger>
             <Dialog.Portal>
@@ -1656,7 +1677,9 @@ export function WorkspaceChat() {
                       className={styles.dialogInput}
                       value={modelProviderDraft.provider}
                       disabled={modelProviderSaving || modelProviderTesting}
-                      onChange={(event) => updateModelProviderDraftProvider(event.target.value as ProviderId)}
+                      onChange={(event) =>
+                        updateModelProviderDraftProvider(event.target.value as ProviderId)
+                      }
                     >
                       {modelProviderState.options.providers.map((option) => (
                         <option key={option.id} value={option.id}>
@@ -1667,7 +1690,10 @@ export function WorkspaceChat() {
 
                     {draftProviderOption?.supports_endpoint && (
                       <>
-                        <label className={styles.dialogLabel} htmlFor="model-provider-endpoint-input">
+                        <label
+                          className={styles.dialogLabel}
+                          htmlFor="model-provider-endpoint-input"
+                        >
                           {WORKBENCH.modelProviderEndpointField}
                         </label>
                         <input
@@ -1691,7 +1717,10 @@ export function WorkspaceChat() {
 
                     {draftProviderOption?.supports_api_key && (
                       <>
-                        <label className={styles.dialogLabel} htmlFor="model-provider-api-key-input">
+                        <label
+                          className={styles.dialogLabel}
+                          htmlFor="model-provider-api-key-input"
+                        >
                           {WORKBENCH.modelProviderApiKeyField}
                         </label>
                         <input
@@ -1787,7 +1816,9 @@ export function WorkspaceChat() {
                         type="button"
                         aria-label={WORKBENCH.modelProviderRefreshModels}
                         title={WORKBENCH.modelProviderRefreshModels}
-                        disabled={modelProviderSaving || modelProviderTesting || modelProviderModelsLoading}
+                        disabled={
+                          modelProviderSaving || modelProviderTesting || modelProviderModelsLoading
+                        }
                         onClick={() => {
                           void loadModelProviderModels(modelProviderDraft, modelProviderState);
                         }}
@@ -1887,28 +1918,22 @@ export function WorkspaceChat() {
               </Dialog.Content>
             </Dialog.Portal>
           </Dialog.Root>
-          <div 
-            className={serviceBadgeClassName}
-          >
-            {WORKBENCH.syncStatusLabel(connectionLabel)}
-          </div>
+          <div className={serviceBadgeClassName}>{WORKBENCH.syncStatusLabel(connectionLabel)}</div>
         </div>
       </div>
 
       {/* 主工作区域 (Main Area) */}
       <div className={styles.mainArea}>
-        
         {/* 左侧对话与输入列 (Left Column) */}
         <div className={leftColumnClassName}>
-          
           {/* 对话流区域 (Chat Area) */}
           <div className={styles.chatArea}>
             {isReadOnlySessionView && (
-              <div
-                className={styles.readOnlySessionBanner}
-              >
+              <div className={styles.readOnlySessionBanner}>
                 <div>
-                  <div className={styles.readOnlySessionTitle}>{WORKBENCH.sessionReadOnlyTitle}</div>
+                  <div className={styles.readOnlySessionTitle}>
+                    {WORKBENCH.sessionReadOnlyTitle}
+                  </div>
                   <div className={styles.readOnlySessionDescription}>
                     {readOnlySession.title} · {WORKBENCH.sessionReadOnlyDescription}
                   </div>
@@ -1937,30 +1962,27 @@ export function WorkspaceChat() {
               </div>
             )}
             {messages.map((msg, i) => (
-              <div
-                key={i}
-                className={
-                  msg.role === "user" ? styles.userMsg : styles.assistantMsg
-                }
-              >
-                <div
-                  className={styles.role}
-                >
+              <div key={i} className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
+                <div className={styles.role}>
                   {assistantRoleLabel(msg.role, assistantDisplayName)}
                 </div>
-                {msg.role === "assistant" && msg.turnResult?.frame_summary && (() => {
-                  const framePresentation = framePresentationForSummary(msg.turnResult.frame_summary);
+                {msg.role === "assistant" &&
+                  msg.turnResult?.frame_summary &&
+                  (() => {
+                    const framePresentation = framePresentationForSummary(
+                      msg.turnResult.frame_summary,
+                    );
 
-                  return framePresentation.visible ? (
-                    <div
-                      className={styles.frameBadge}
-                      data-frame-tone={framePresentation.tone}
-                      title={framePresentation.title}
-                    >
-                      {framePresentation.label}
-                    </div>
-                  ) : null;
-                })()}
+                    return framePresentation.visible ? (
+                      <div
+                        className={styles.frameBadge}
+                        data-frame-tone={framePresentation.tone}
+                        title={framePresentation.title}
+                      >
+                        {framePresentation.label}
+                      </div>
+                    ) : null;
+                  })()}
                 <div className={styles.text}>{msg.text}</div>
 
                 {msg.role === "assistant" && msg.turnResult?.trace_summary && (
@@ -1968,72 +1990,79 @@ export function WorkspaceChat() {
                     className={styles.traceWhyButton}
                     type="button"
                     title={TRACE.actionTitle}
-                    onClick={() => openTraceDialog(msg.turnResult!.turn_id, msg.turnResult!.trace_summary)}
+                    onClick={() =>
+                      openTraceDialog(msg.turnResult!.turn_id, msg.turnResult!.trace_summary)
+                    }
                   >
                     <CircleHelp size={14} aria-hidden="true" />
                     <span>{TRACE.actionLabel}</span>
                   </button>
                 )}
 
-                {!isReadOnlySessionView && msg.turnResult?.ui_cards?.map((card, ci) => {
-                  switch (card.card_type) {
-                    case "clarification_card":
-                      return <ClarificationCard key={ci} card={card} />;
-                    case "confirmation_card":
-                      return <ConfirmationCard key={ci} card={card} />;
-                    case "warning_card":
-                      return <WarningCard key={ci} card={card} />;
-                    case "candidate_set":
-                      return <CandidateSetCard key={ci} card={card} />;
-                    case "progress_card":
-                      return <ProgressCard key={ci} card={card} />;
-                    case "checkpoint_card":
-                      return <CheckpointCard key={ci} card={card} />;
-                    case "result_card":
-                      return <ResultCard key={ci} card={card} />;
-                    case "failure_card":
-                      return <FailureCard key={ci} card={card} />;
-                    case "escalation_card":
-                      return <EscalationCard key={ci} card={card} />;
-                    default:
-                      return <DefaultCard key={ci} card={card} />;
-                  }
-                })}
+                {!isReadOnlySessionView &&
+                  msg.turnResult?.ui_cards?.map((card, ci) => {
+                    switch (card.card_type) {
+                      case "clarification_card":
+                        return <ClarificationCard key={ci} card={card} />;
+                      case "confirmation_card":
+                        return <ConfirmationCard key={ci} card={card} />;
+                      case "warning_card":
+                        return <WarningCard key={ci} card={card} />;
+                      case "candidate_set":
+                        return <CandidateSetCard key={ci} card={card} />;
+                      case "progress_card":
+                        return <ProgressCard key={ci} card={card} />;
+                      case "checkpoint_card":
+                        return <CheckpointCard key={ci} card={card} />;
+                      case "result_card":
+                        return <ResultCard key={ci} card={card} />;
+                      case "failure_card":
+                        return <FailureCard key={ci} card={card} />;
+                      case "escalation_card":
+                        return <EscalationCard key={ci} card={card} />;
+                      default:
+                        return <DefaultCard key={ci} card={card} />;
+                    }
+                  })}
 
-                {!isReadOnlySessionView && msg.turnResult?.candidate_directions && msg.turnResult.candidate_directions.length > 0 && (
-                  <WorkspaceCandidatePanel
-                    turnResult={msg.turnResult}
-                    candidates={msg.turnResult.candidate_directions}
-                    loading={loading}
-                    socketConnected={socketConnected}
-                    onCandidateContinue={(candidateTurnResult, candidate) => {
-                      void handleCandidateContinue(candidateTurnResult, candidate);
-                    }}
-                    onCandidateAdopt={(candidateTurnResult, action) => {
-                      void handleAvailableAction(candidateTurnResult, action);
-                    }}
-                  />
-                )}
+                {!isReadOnlySessionView &&
+                  msg.turnResult?.candidate_directions &&
+                  msg.turnResult.candidate_directions.length > 0 && (
+                    <WorkspaceCandidatePanel
+                      turnResult={msg.turnResult}
+                      candidates={msg.turnResult.candidate_directions}
+                      loading={loading}
+                      socketConnected={socketConnected}
+                      onCandidateContinue={(candidateTurnResult, candidate) => {
+                        void handleCandidateContinue(candidateTurnResult, candidate);
+                      }}
+                      onCandidateAdopt={(candidateTurnResult, action) => {
+                        void handleAvailableAction(candidateTurnResult, action);
+                      }}
+                    />
+                  )}
 
-                {!isReadOnlySessionView && msg.turnResult && visibleAvailableActions(msg.turnResult).length > 0 && (
-                  <div className={styles.cardActions}>
-                    {visibleAvailableActions(msg.turnResult).map((action) => (
-                      <button
-                        key={action.action_id}
-                        className={styles.btnSecondary}
-                        disabled={action.enabled === false}
-                        title={actionTitle(msg.turnResult!, action)}
-                        onClick={() => {
-                          if (msg.turnResult) {
-                            handleVisibleAvailableAction(msg.turnResult, action);
-                          }
-                        }}
-                      >
-                        {actionLabel(msg.turnResult!, action)}
-                      </button>
-                    ))}
-                  </div>
-                )}
+                {!isReadOnlySessionView &&
+                  msg.turnResult &&
+                  visibleAvailableActions(msg.turnResult).length > 0 && (
+                    <div className={styles.cardActions}>
+                      {visibleAvailableActions(msg.turnResult).map((action) => (
+                        <button
+                          key={action.action_id}
+                          className={styles.btnSecondary}
+                          disabled={action.enabled === false}
+                          title={actionTitle(msg.turnResult!, action)}
+                          onClick={() => {
+                            if (msg.turnResult) {
+                              handleVisibleAvailableAction(msg.turnResult, action);
+                            }
+                          }}
+                        >
+                          {actionLabel(msg.turnResult!, action)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
               </div>
             ))}
 
@@ -2129,9 +2158,7 @@ export function WorkspaceChat() {
                   placeholder={CARD.tentativeArtifact.editPlaceholder}
                   disabled={editSubmitting}
                   onChange={(event) =>
-                    setEditDialog((prev) =>
-                      prev ? { ...prev, text: event.target.value } : prev,
-                    )
+                    setEditDialog((prev) => (prev ? { ...prev, text: event.target.value } : prev))
                   }
                 />
                 <div className={styles.dialogActions}>
@@ -2186,12 +2213,11 @@ export function WorkspaceChat() {
           <div className={styles.structureRailCollapsed}>
             <div className={styles.spTitle}>{WORKBENCH.archiveRailTitle}</div>
             <div className={styles.railSummary}>
-              <div 
-                className={styles.openArchiveEntry}
-                onClick={() => setIsPanelOpen(true)}
-              >
+              <div className={styles.openArchiveEntry} onClick={() => setIsPanelOpen(true)}>
                 <span className={styles.spItemCardText}>
-                  {WORKBENCH.archiveRailOpen}<br/>{WORKBENCH.archiveRailDetail}
+                  {WORKBENCH.archiveRailOpen}
+                  <br />
+                  {WORKBENCH.archiveRailDetail}
                 </span>
               </div>
               {pendingAdoptionsCount > 0 && (
@@ -2212,7 +2238,11 @@ export function WorkspaceChat() {
                   <div key={session.id} className={styles.sessionItemShell}>
                     <button
                       type="button"
-                      className={session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem}
+                      className={
+                        session.id === activeSessionId
+                          ? styles.sessionItemActive
+                          : styles.sessionItem
+                      }
                       data-session-status={session.status}
                       data-readonly-open={readOnlySession?.id === session.id ? "true" : "false"}
                       onClick={() => {
@@ -2241,8 +2271,8 @@ export function WorkspaceChat() {
             </div>
           </div>
         ) : (
-          <StructurePanel 
-            isOpen={isPanelOpen} 
+          <StructurePanel
+            isOpen={isPanelOpen}
             onClose={() => setIsPanelOpen(false)}
             pendingAdoptions={allPendingAdoptions}
             getArtifactActionState={artifactActionState}
@@ -2259,9 +2289,12 @@ export function WorkspaceChat() {
               void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
             }}
             onDraftChapter={(chapterBrief) => {
-              void handleSend(`请根据已采纳章节计划生成${chapterBrief}正文草稿，保持为待采纳草稿。`, {
-                generateMicroPlan: true,
-              });
+              void handleSend(
+                `请根据已采纳章节计划生成${chapterBrief}正文草稿，保持为待采纳草稿。`,
+                {
+                  generateMicroPlan: true,
+                },
+              );
             }}
             onNewAction={() => {
               void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
@@ -2269,7 +2302,6 @@ export function WorkspaceChat() {
             }}
           />
         )}
-
       </div>
     </div>
   );

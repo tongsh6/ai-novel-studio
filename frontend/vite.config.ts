@@ -10,11 +10,13 @@ export default defineConfig({
     strictPort: false,
     proxy: {
       "/api": {
-        target: process.env.VITE_PROXY_TARGET || process.env.VITE_API_ENDPOINT || "http://localhost:4657",
+        target:
+          process.env.VITE_PROXY_TARGET || process.env.VITE_API_ENDPOINT || "http://localhost:4657",
         changeOrigin: true,
       },
       "/socket": {
-        target: process.env.VITE_PROXY_TARGET || process.env.VITE_API_ENDPOINT || "http://localhost:4657",
+        target:
+          process.env.VITE_PROXY_TARGET || process.env.VITE_API_ENDPOINT || "http://localhost:4657",
         changeOrigin: true,
         ws: true,
       },

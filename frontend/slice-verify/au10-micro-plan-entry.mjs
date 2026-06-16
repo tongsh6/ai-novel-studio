@@ -84,10 +84,7 @@ try {
     `Expected panel action text, got ${JSON.stringify(lastMessage.body?.text)}`,
   );
 
-  fs.writeFileSync(
-    path.join(artifactDir, "frames.json"),
-    JSON.stringify(frames, null, 2),
-  );
+  fs.writeFileSync(path.join(artifactDir, "frames.json"), JSON.stringify(frames, null, 2));
   await page.screenshot({
     path: path.join(artifactDir, "au10-micro-plan-entry.png"),
     fullPage: true,
@@ -97,10 +94,7 @@ try {
     path: path.join(artifactDir, "failure.png"),
     fullPage: true,
   });
-  fs.writeFileSync(
-    path.join(artifactDir, "frames.json"),
-    JSON.stringify(frames, null, 2),
-  );
+  fs.writeFileSync(path.join(artifactDir, "frames.json"), JSON.stringify(frames, null, 2));
   throw error;
 } finally {
   await browser.close();

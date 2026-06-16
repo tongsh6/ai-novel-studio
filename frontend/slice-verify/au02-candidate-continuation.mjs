@@ -52,9 +52,12 @@ try {
 
   await page.locator(chatInputSelector).fill("我想写一个赛博修仙方向");
   await page.getByRole("button", { name: /^发送$/ }).click();
-  await page.getByRole("button", { name: /继续聊这个方向/ }).first().waitFor({
-    timeout: 30_000,
-  });
+  await page
+    .getByRole("button", { name: /继续聊这个方向/ })
+    .first()
+    .waitFor({
+      timeout: 30_000,
+    });
   const frameBadge = page.getByText("探索方向").first();
   await frameBadge.waitFor({ timeout: 10_000 });
   const frameBadgeLabel = (await frameBadge.innerText()).trim();

@@ -23,21 +23,20 @@ export function findCandidateAvailableAction({
 }: FindCandidateAvailableActionOptions): AvailableActionLike | null {
   const candidateActions = availableActions.filter((action) => {
     if (action.action_type !== "choose_candidate") return false;
-    if (sourceTurnRef && action.source_turn_ref && action.source_turn_ref !== sourceTurnRef) return false;
+    if (sourceTurnRef && action.source_turn_ref && action.source_turn_ref !== sourceTurnRef)
+      return false;
     return true;
   });
 
-  const exactRefMatch = candidateActions.find((action) =>
-    action.candidate_ref === candidate.direction_id || action.target_ref === candidate.direction_id,
+  const exactRefMatch = candidateActions.find(
+    (action) =>
+      action.candidate_ref === candidate.direction_id ||
+      action.target_ref === candidate.direction_id,
   );
 
   if (exactRefMatch) return exactRefMatch;
 
-  if (
-    candidateActions.length === 1 &&
-    candidateCount === 1 &&
-    candidateIndex === 0
-  ) {
+  if (candidateActions.length === 1 && candidateCount === 1 && candidateIndex === 0) {
     return candidateActions[0];
   }
 

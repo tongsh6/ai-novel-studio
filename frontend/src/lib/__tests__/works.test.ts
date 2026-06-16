@@ -84,24 +84,15 @@ describe("last opened work preference", () => {
 describe("work connection identity", () => {
   it("accepts only events from the active work connection", () => {
     expect(
-      isCurrentWorkConnection(
-        { token: 2, workId: "work-b" },
-        { token: 2, workId: "work-b" },
-      ),
+      isCurrentWorkConnection({ token: 2, workId: "work-b" }, { token: 2, workId: "work-b" }),
     ).toBe(true);
 
     expect(
-      isCurrentWorkConnection(
-        { token: 2, workId: "work-b" },
-        { token: 1, workId: "work-a" },
-      ),
+      isCurrentWorkConnection({ token: 2, workId: "work-b" }, { token: 1, workId: "work-a" }),
     ).toBe(false);
 
     expect(
-      isCurrentWorkConnection(
-        { token: 2, workId: "work-b" },
-        { token: 2, workId: "work-a" },
-      ),
+      isCurrentWorkConnection({ token: 2, workId: "work-b" }, { token: 2, workId: "work-a" }),
     ).toBe(false);
   });
 

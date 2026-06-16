@@ -6,8 +6,7 @@ const baseUrl = process.env.SLICE_VERIFY_BASE_URL ?? "http://127.0.0.1:5768";
 const artifactDir =
   process.env.SLICE_VERIFY_ARTIFACT_DIR ??
   path.resolve("..", "artifacts", "slice-verify", "vs10-observability-spine");
-const appLogDir =
-  process.env.SLICE_VERIFY_APP_LOG_DIR ?? path.join(artifactDir, "app-log");
+const appLogDir = process.env.SLICE_VERIFY_APP_LOG_DIR ?? path.join(artifactDir, "app-log");
 
 const keyEvents = [
   "channel.user_message.start",
@@ -48,9 +47,11 @@ function recordFrame(direction, payload) {
   if (decoded) {
     frames.push({ direction, ...decoded });
     if (direction === "received" && decoded.event === "turn_result") {
-      page.evaluate(() => {
-        window.__vs10TurnResultReceived = true;
-      }).catch(() => {});
+      page
+        .evaluate(() => {
+          window.__vs10TurnResultReceived = true;
+        })
+        .catch(() => {});
     }
   }
 }
@@ -111,10 +112,7 @@ try {
   await page.getByText("打开档案", { exact: false }).click();
   await page.getByRole("button", { name: "发起新操作" }).click();
 
-  await page.waitForFunction(
-    () => window.__vs10TurnResultReceived === true,
-    { timeout: 30_000 },
-  );
+  await page.waitForFunction(() => window.__vs10TurnResultReceived === true, { timeout: 30_000 });
 
   const turnResultFrame = frames.find(
     (frame) => frame.direction === "received" && frame.event === "turn_result",
@@ -137,7 +135,10 @@ try {
   }
 
   fs.writeFileSync(path.join(artifactDir, "frames.json"), JSON.stringify(frames, null, 2));
-  fs.writeFileSync(path.join(artifactDir, "turn-result.json"), JSON.stringify(turnResultFrame.body, null, 2));
+  fs.writeFileSync(
+    path.join(artifactDir, "turn-result.json"),
+    JSON.stringify(turnResultFrame.body, null, 2),
+  );
   fs.writeFileSync(path.join(artifactDir, "app-log.json"), JSON.stringify(records, null, 2));
   await page.screenshot({
     path: path.join(artifactDir, "vs10-observability-spine.png"),
@@ -149,7 +150,10 @@ try {
     fullPage: true,
   });
   fs.writeFileSync(path.join(artifactDir, "frames.json"), JSON.stringify(frames, null, 2));
-  fs.writeFileSync(path.join(artifactDir, "app-log.json"), JSON.stringify(readAppLogRecords(), null, 2));
+  fs.writeFileSync(
+    path.join(artifactDir, "app-log.json"),
+    JSON.stringify(readAppLogRecords(), null, 2),
+  );
   throw error;
 } finally {
   await browser.close();

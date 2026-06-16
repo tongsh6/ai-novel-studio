@@ -21,6 +21,7 @@ styling:         Tailwind CSS 4
 icons:           Lucide
 forms:           React Hook Form + Zod resolver
 testing:         Vitest + React Testing Library + Playwright
+formatter:       Prettier
 package:         pnpm (workspace)
 ```
 
@@ -90,6 +91,12 @@ Phoenix Channels 官方 JS 客户端，npm 包名是 `phoenix`，提供：
 - 自动重连
 - Channel 抽象（topic + event + payload）
 - Presence 跨用户在线状态（阶段 2 多作者协作有用）
+
+### 2.9 Prettier
+
+- 只负责前端 TypeScript / JavaScript / CSS / JSON / Markdown 等文本格式化。
+- 不替代 TypeScript、ESLint、Vitest、设计追溯或场景化验收。
+- 生成目录与依赖目录必须通过 `.prettierignore` 排除，避免格式化 codegen / build 产物。
 
 ---
 

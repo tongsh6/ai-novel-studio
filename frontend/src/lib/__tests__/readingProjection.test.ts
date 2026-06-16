@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  formatWordCount,
-  normalizeReadingToc,
-} from "../readingProjection";
+import { formatWordCount, normalizeReadingToc } from "../readingProjection";
 import type { TocData } from "../socket";
 
 describe("normalizeReadingToc word counts", () => {

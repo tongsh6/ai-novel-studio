@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
-import type {
-  UICardData as UICard,
-} from "../../components/UICards";
+import type { UICardData as UICard } from "../../components/UICards";
 import { CandidateSetCard, DefaultCard } from "../../components/UICards";
 import {
   adoptionDecisionCopy,
@@ -39,13 +37,15 @@ describe("card type contracts", () => {
       card_type: "candidate_set",
       title: "候选内容",
       body: "候选正文",
-      actions: [{
-        action_id: "accept-local",
-        action_type: "accept",
-        label: "不应渲染",
-        target_ref: "artifact-1",
-        enabled: true,
-      }],
+      actions: [
+        {
+          action_id: "accept-local",
+          action_type: "accept",
+          label: "不应渲染",
+          target_ref: "artifact-1",
+          enabled: true,
+        },
+      ],
     } as unknown as UICard;
 
     const html = renderToStaticMarkup(React.createElement(DefaultCard, { card }));
@@ -69,13 +69,15 @@ describe("card type contracts", () => {
           rationale: "直接呈现生死决策瞬间。",
         },
       ],
-      actions: [{
-        action_id: "accept-local",
-        action_type: "accept",
-        label: "不应渲染",
-        target_ref: "artifact-1",
-        enabled: true,
-      }],
+      actions: [
+        {
+          action_id: "accept-local",
+          action_type: "accept",
+          label: "不应渲染",
+          target_ref: "artifact-1",
+          enabled: true,
+        },
+      ],
     } as unknown as UICard;
 
     const html = renderToStaticMarkup(React.createElement(CandidateSetCard, { card }));

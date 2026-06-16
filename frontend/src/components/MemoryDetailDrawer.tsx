@@ -61,7 +61,9 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
       <div className={styles.drawer} onClick={(e) => e.stopPropagation()}>
         <div className={styles.header}>
           <h3>记忆详情</h3>
-          <button className={styles.close} onClick={onClose}>×</button>
+          <button className={styles.close} onClick={onClose}>
+            ×
+          </button>
         </div>
 
         <div className={styles.badges}>
@@ -119,7 +121,9 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
             <label>标签</label>
             <div className={styles.tags}>
               {item.tags.map((t) => (
-                <span key={t} className={styles.tag}>{t}</span>
+                <span key={t} className={styles.tag}>
+                  {t}
+                </span>
               ))}
             </div>
           </section>

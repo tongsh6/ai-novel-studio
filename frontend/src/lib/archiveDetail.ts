@@ -18,7 +18,10 @@ function nonEmpty(value: string | null | undefined): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function labelFromMap(labels: Record<string, string>, value: string | null | undefined): string | null {
+function labelFromMap(
+  labels: Record<string, string>,
+  value: string | null | undefined,
+): string | null {
   const normalized = nonEmpty(value);
   if (!normalized) return null;
   return labels[normalized] ?? normalized;
@@ -70,15 +73,31 @@ export function archiveDetailRows(detail: ArchiveDetailItem): ArchiveDetailRow[]
 
   if (detail.kind === "character") {
     pushRow(rows, STRUCTURE_PANEL.detailRows.role, nonEmpty(detail.item.role));
-    pushRow(rows, STRUCTURE_PANEL.detailRows.aliases, detail.item.aliases.length > 0 ? detail.item.aliases.join("、") : null);
+    pushRow(
+      rows,
+      STRUCTURE_PANEL.detailRows.aliases,
+      detail.item.aliases.length > 0 ? detail.item.aliases.join("、") : null,
+    );
     pushRow(rows, STRUCTURE_PANEL.detailRows.state, STRUCTURE_PANEL.detailValues.adopted);
     pushRow(rows, STRUCTURE_PANEL.detailRows.updatedAt, formatDate(detail.item.updated_at));
     return rows;
   }
 
-  pushRow(rows, STRUCTURE_PANEL.detailRows.type, labelFromMap(STRUCTURE_PANEL.memoryTypeLabels, detail.item.type));
-  pushRow(rows, STRUCTURE_PANEL.detailRows.scope, labelFromMap(STRUCTURE_PANEL.memoryScopeLabels, detail.item.scope));
-  pushRow(rows, STRUCTURE_PANEL.detailRows.source, labelFromMap(STRUCTURE_PANEL.sourceTypeLabels, detail.item.source_type));
+  pushRow(
+    rows,
+    STRUCTURE_PANEL.detailRows.type,
+    labelFromMap(STRUCTURE_PANEL.memoryTypeLabels, detail.item.type),
+  );
+  pushRow(
+    rows,
+    STRUCTURE_PANEL.detailRows.scope,
+    labelFromMap(STRUCTURE_PANEL.memoryScopeLabels, detail.item.scope),
+  );
+  pushRow(
+    rows,
+    STRUCTURE_PANEL.detailRows.source,
+    labelFromMap(STRUCTURE_PANEL.sourceTypeLabels, detail.item.source_type),
+  );
   pushRow(
     rows,
     STRUCTURE_PANEL.detailRows.state,
@@ -88,10 +107,22 @@ export function archiveDetailRows(detail: ArchiveDetailItem): ArchiveDetailRow[]
   );
   pushRow(rows, STRUCTURE_PANEL.detailRows.weight, formatNumber(detail.item.weight));
   pushRow(rows, STRUCTURE_PANEL.detailRows.confidence, formatNumber(detail.item.confidence));
-  pushRow(rows, STRUCTURE_PANEL.detailRows.referenceCount, String(detail.item.reference_count ?? 0));
+  pushRow(
+    rows,
+    STRUCTURE_PANEL.detailRows.referenceCount,
+    String(detail.item.reference_count ?? 0),
+  );
   pushRow(rows, STRUCTURE_PANEL.detailRows.version, String(detail.item.version ?? 1));
-  pushRow(rows, STRUCTURE_PANEL.detailRows.tags, detail.item.tags.length > 0 ? detail.item.tags.join("、") : null);
-  pushRow(rows, STRUCTURE_PANEL.detailRows.protection, detail.item.locked ? STRUCTURE_PANEL.detailValues.locked : null);
+  pushRow(
+    rows,
+    STRUCTURE_PANEL.detailRows.tags,
+    detail.item.tags.length > 0 ? detail.item.tags.join("、") : null,
+  );
+  pushRow(
+    rows,
+    STRUCTURE_PANEL.detailRows.protection,
+    detail.item.locked ? STRUCTURE_PANEL.detailValues.locked : null,
+  );
   pushRow(rows, STRUCTURE_PANEL.detailRows.updatedAt, formatDate(detail.item.updated_at));
 
   return rows;

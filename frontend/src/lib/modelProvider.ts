@@ -205,10 +205,7 @@ export async function getStoredProviderApiKey(provider: ProviderId): Promise<str
 }
 
 export async function loadAndSyncModelProviderState(): Promise<ModelProviderRuntimeState> {
-  const [options, stored] = await Promise.all([
-    getProviderOptions(),
-    getStoredProviderSettings(),
-  ]);
+  const [options, stored] = await Promise.all([getProviderOptions(), getStoredProviderSettings()]);
 
   const selectedProvider = stored.selected_provider ?? options.current_provider;
   const preference = stored.providers[selectedProvider] ?? {};
@@ -284,13 +281,15 @@ function normalizeProviderOptions(raw: ProviderOptionsResponse): ProviderOptions
         const id = normalizeProviderId(option.id);
         if (!id) return [];
 
-        return [{
-          ...option,
-          id,
-          model: normalizeOptionalText(option.model),
-          endpoint: normalizeOptionalText(option.endpoint),
-          api_key_configured: Boolean(option.api_key_configured),
-        }];
+        return [
+          {
+            ...option,
+            id,
+            model: normalizeOptionalText(option.model),
+            endpoint: normalizeOptionalText(option.endpoint),
+            api_key_configured: Boolean(option.api_key_configured),
+          },
+        ];
       })
       .filter((option, index, all) => all.findIndex((item) => item.id === option.id) === index),
   };
@@ -305,11 +304,13 @@ function normalizeProviderModels(raw: ProviderModelsResponse): ProviderModelsRes
         const id = normalizeOptionalText(model.id);
         if (!id) return [];
 
-        return [{
-          id,
-          label: normalizeOptionalText(model.label) ?? id,
-          owned_by: normalizeOptionalText(model.owned_by),
-        }];
+        return [
+          {
+            id,
+            label: normalizeOptionalText(model.label) ?? id,
+            owned_by: normalizeOptionalText(model.owned_by),
+          },
+        ];
       })
       .filter((model, index, all) => all.findIndex((item) => item.id === model.id) === index),
     message: normalizeOptionalText(raw.message) ?? undefined,

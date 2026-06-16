@@ -6,14 +6,9 @@
 // WorkspaceChat 候选面板的渲染条件 (`candidates.length > 0`) 就会失效。
 import { describe, expect, it } from "vitest";
 
-import type {
-  CandidateDirection,
-  TurnResult,
-} from "../../components/WorkspaceChat";
+import type { CandidateDirection, TurnResult } from "../../components/WorkspaceChat";
 
-const baseTurnResult = (
-  candidates: CandidateDirection[] | undefined,
-): TurnResult => ({
+const baseTurnResult = (candidates: CandidateDirection[] | undefined): TurnResult => ({
   schema_version: "3.0-draft",
   turn_id: "turn_t1",
   assistant_message: { text: "好的" },

@@ -7,16 +7,28 @@ import type { MemoryItem } from "../lib/memoryApi";
 import styles from "./MemoryCreateDialog.module.css";
 
 const MEMORY_TYPES = [
-  "WORLD_RULE", "CHARACTER_PROFILE", "CURRENT_STATE", "RELATIONSHIP",
-  "PLOT_FACT", "FORESHADOWING", "STYLE_RULE", "CONSTRAINT",
-  "AUTHOR_PREFERENCE", "IDEA", "DRAFT_CONTEXT",
+  "WORLD_RULE",
+  "CHARACTER_PROFILE",
+  "CURRENT_STATE",
+  "RELATIONSHIP",
+  "PLOT_FACT",
+  "FORESHADOWING",
+  "STYLE_RULE",
+  "CONSTRAINT",
+  "AUTHOR_PREFERENCE",
+  "IDEA",
+  "DRAFT_CONTEXT",
 ];
 
 const MEMORY_SCOPES = ["GLOBAL", "WORK", "VOLUME", "ARC", "CHAPTER", "SESSION"];
 
 const SOURCE_TYPES = [
-  "AUTHOR_CONFIRMED", "AUTHOR_CREATED", "AI_EXTRACTED",
-  "CHAPTER_EXTRACTED", "WORK_SETTING_IMPORTED", "SESSION_CONTEXT",
+  "AUTHOR_CONFIRMED",
+  "AUTHOR_CREATED",
+  "AI_EXTRACTED",
+  "CHAPTER_EXTRACTED",
+  "WORK_SETTING_IMPORTED",
+  "SESSION_CONTEXT",
 ];
 
 interface Props {
@@ -86,7 +98,9 @@ export function MemoryCreateDialog({ workId, onCreated, onClose }: Props) {
             <label>类型</label>
             <select value={type} onChange={(e) => setType(e.target.value)}>
               {MEMORY_TYPES.map((t) => (
-                <option key={t} value={t}>{t}</option>
+                <option key={t} value={t}>
+                  {t}
+                </option>
               ))}
             </select>
           </div>
@@ -94,7 +108,9 @@ export function MemoryCreateDialog({ workId, onCreated, onClose }: Props) {
             <label>作用范围</label>
             <select value={scope} onChange={(e) => setScope(e.target.value)}>
               {MEMORY_SCOPES.map((s) => (
-                <option key={s} value={s}>{s}</option>
+                <option key={s} value={s}>
+                  {s}
+                </option>
               ))}
             </select>
           </div>
@@ -103,12 +119,11 @@ export function MemoryCreateDialog({ workId, onCreated, onClose }: Props) {
         <div className={styles.row}>
           <div className={styles.field}>
             <label>来源类型</label>
-            <select
-              value={sourceType}
-              onChange={(e) => setSourceType(e.target.value)}
-            >
+            <select value={sourceType} onChange={(e) => setSourceType(e.target.value)}>
               {SOURCE_TYPES.map((s) => (
-                <option key={s} value={s}>{s}</option>
+                <option key={s} value={s}>
+                  {s}
+                </option>
               ))}
             </select>
           </div>
@@ -127,11 +142,7 @@ export function MemoryCreateDialog({ workId, onCreated, onClose }: Props) {
 
         <div className={styles.row}>
           <label className={styles.checkbox}>
-            <input
-              type="checkbox"
-              checked={locked}
-              onChange={(e) => setLocked(e.target.checked)}
-            />
+            <input type="checkbox" checked={locked} onChange={(e) => setLocked(e.target.checked)} />
             锁定（AI 不可修改）
           </label>
         </div>

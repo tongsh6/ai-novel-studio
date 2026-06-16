@@ -32,10 +32,7 @@ export interface PingResult {
   echo: Record<string, unknown>;
 }
 
-export function ping(
-  channel: Channel,
-  payload: Record<string, unknown>,
-): Promise<PingResult> {
+export function ping(channel: Channel, payload: Record<string, unknown>): Promise<PingResult> {
   return new Promise((resolve, reject) => {
     channel
       .push("ping", payload)
@@ -55,13 +52,17 @@ export function sendMessage(
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
     channel
-      .push("user_message", { 
-        text, 
-        work_id: workId, 
-        session_id: sessionId,
-        behavior_id: behaviorId,
-        generate_micro_plan: generateMicroPlan,
-      }, LLM_TURN_TIMEOUT_MS)
+      .push(
+        "user_message",
+        {
+          text,
+          work_id: workId,
+          session_id: sessionId,
+          behavior_id: behaviorId,
+          generate_micro_plan: generateMicroPlan,
+        },
+        LLM_TURN_TIMEOUT_MS,
+      )
       .receive("ok", (response) => resolve(response as { received: boolean }))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("send timeout")));
@@ -106,17 +107,11 @@ export interface TaskStateData {
   updated_at?: string;
 }
 
-export function onTaskState(
-  channel: Channel,
-  callback: (state: TaskStateData) => void,
-): void {
+export function onTaskState(channel: Channel, callback: (state: TaskStateData) => void): void {
   channel.on("task_state", (payload: TaskStateData) => callback(payload));
 }
 
-export function confirm(
-  channel: Channel,
-  behaviorId: string,
-): Promise<Record<string, unknown>> {
+export function confirm(channel: Channel, behaviorId: string): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
     channel
       .push("confirm", { behavior_id: behaviorId }, LLM_TURN_TIMEOUT_MS)
@@ -252,10 +247,7 @@ export interface TocData {
   volumes: TocVolume[];
 }
 
-export function getToc(
-  channel: Channel,
-  workId: string,
-): Promise<TocData> {
+export function getToc(channel: Channel, workId: string): Promise<TocData> {
   return new Promise((resolve, reject) => {
     channel
       .push("get_toc", { work_id: workId })
@@ -274,10 +266,7 @@ export interface ExportResult {
   exported_at: string;
 }
 
-export function exportWork(
-  channel: Channel,
-  workId: string,
-): Promise<ExportResult> {
+export function exportWork(channel: Channel, workId: string): Promise<ExportResult> {
   return new Promise((resolve, reject) => {
     channel
       .push("export_work", { work_id: workId })
@@ -295,10 +284,7 @@ export interface ChapterContent {
   scenes: { title: string; content: string }[];
 }
 
-export function getChapterContent(
-  channel: Channel,
-  chapterId: string,
-): Promise<ChapterContent> {
+export function getChapterContent(channel: Channel, chapterId: string): Promise<ChapterContent> {
   return new Promise((resolve, reject) => {
     channel
       .push("get_chapter_content", { chapter_id: chapterId })
@@ -318,10 +304,7 @@ export interface CharacterData {
   updated_at?: string | null;
 }
 
-export function getCharacters(
-  channel: Channel,
-  workId: string,
-): Promise<CharacterData[]> {
+export function getCharacters(channel: Channel, workId: string): Promise<CharacterData[]> {
   return new Promise((resolve, reject) => {
     channel
       .push("get_characters", { work_id: workId })
@@ -349,10 +332,7 @@ export interface MemoryItemData {
   updated_at?: string | null;
 }
 
-export function getForeshadowing(
-  channel: Channel,
-  workId: string,
-): Promise<MemoryItemData[]> {
+export function getForeshadowing(channel: Channel, workId: string): Promise<MemoryItemData[]> {
   return new Promise((resolve, reject) => {
     channel
       .push("get_foreshadowing", { work_id: workId })
@@ -362,10 +342,7 @@ export function getForeshadowing(
   });
 }
 
-export function getRules(
-  channel: Channel,
-  workId: string,
-): Promise<MemoryItemData[]> {
+export function getRules(channel: Channel, workId: string): Promise<MemoryItemData[]> {
   return new Promise((resolve, reject) => {
     channel
       .push("get_rules", { work_id: workId })
@@ -386,10 +363,7 @@ export interface WorkStats {
   memory_items: number;
 }
 
-export function getWorkStats(
-  channel: Channel,
-  workId: string,
-): Promise<WorkStats> {
+export function getWorkStats(channel: Channel, workId: string): Promise<WorkStats> {
   return new Promise((resolve, reject) => {
     channel
       .push("get_work_stats", { work_id: workId })

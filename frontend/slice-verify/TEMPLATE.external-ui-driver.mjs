@@ -57,14 +57,14 @@ async function waitForWorkbench(page) {
 
   // Prefer visible product semantics: role, label, placeholder, button text,
   // and visible status text. Do not add hooks to product code for this.
+  await page.getByPlaceholder("输入你的想法、问题或指令...").waitFor({ timeout: 30_000 });
   await page
-    .getByPlaceholder("输入你的想法、问题或指令...")
+    .getByText(/^服务:/)
+    .first()
     .waitFor({ timeout: 30_000 });
-  await page.getByText(/^服务:/).first().waitFor({ timeout: 30_000 });
-  await page.waitForFunction(
-    () => document.body.innerText.includes("服务: 已连接"),
-    { timeout: 30_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("服务: 已连接"), {
+    timeout: 30_000,
+  });
 }
 
 async function driveScenario(page) {

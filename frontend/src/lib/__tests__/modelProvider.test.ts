@@ -237,7 +237,8 @@ describe("model provider API client", () => {
           bodies.push(parseJsonBody(init));
           return Promise.resolve({
             ok: true,
-            json: () => Promise.resolve({ ok: true, provider: "deepseek", model: "deepseek-v4-pro" }),
+            json: () =>
+              Promise.resolve({ ok: true, provider: "deepseek", model: "deepseek-v4-pro" }),
           });
         }
 
@@ -257,7 +258,7 @@ describe("model provider API client", () => {
       reasoningEffort: "medium",
     });
 
-    expect(store.get("ans.modelProviderSettings")).toContain("\"api_key_configured\":true");
+    expect(store.get("ans.modelProviderSettings")).toContain('"api_key_configured":true');
     expect(store.get("ans.modelProviderSettings")).not.toContain("secret");
     expect(bodies[0]).toMatchObject({ api_key: "secret", clear_api_key: false });
 
@@ -268,7 +269,7 @@ describe("model provider API client", () => {
       clearApiKey: true,
     });
 
-    expect(store.get("ans.modelProviderSettings")).toContain("\"api_key_configured\":false");
+    expect(store.get("ans.modelProviderSettings")).toContain('"api_key_configured":false');
     expect(bodies[1]).toMatchObject({ api_key: null, clear_api_key: true });
   });
 });

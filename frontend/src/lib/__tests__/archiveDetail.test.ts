@@ -28,21 +28,25 @@ describe("archiveDetail", () => {
       },
     });
 
-    expect(archiveDetailTitle({
-      kind: "character",
-      item: {
-        id: "char-1",
-        name: "林澈",
-        aliases: [],
-        role: null,
-        summary: null,
-      },
-    })).toBe("林澈");
-    expect(rows).toEqual(expect.arrayContaining([
-      { label: "身份", value: "主角" },
-      { label: "别名", value: "阿澈" },
-      { label: "状态", value: "已采纳" },
-    ]));
+    expect(
+      archiveDetailTitle({
+        kind: "character",
+        item: {
+          id: "char-1",
+          name: "林澈",
+          aliases: [],
+          role: null,
+          summary: null,
+        },
+      }),
+    ).toBe("林澈");
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        { label: "身份", value: "主角" },
+        { label: "别名", value: "阿澈" },
+        { label: "状态", value: "已采纳" },
+      ]),
+    );
   });
 
   it("builds memory detail rows from confirmed recallable archive data", () => {
@@ -69,13 +73,15 @@ describe("archiveDetail", () => {
 
     expect(archiveDetailTitle(detail)).toBe("灵能不能治愈记忆损伤");
     expect(archiveDetailSummary(detail)).toBe("灵能的硬规则");
-    expect(archiveDetailRows(detail)).toEqual(expect.arrayContaining([
-      { label: "类型", value: "世界规则" },
-      { label: "范围", value: "整部作品" },
-      { label: "来源", value: "作者确认" },
-      { label: "状态", value: "可召回" },
-      { label: "保护", value: "已锁定" },
-    ]));
+    expect(archiveDetailRows(detail)).toEqual(
+      expect.arrayContaining([
+        { label: "类型", value: "世界规则" },
+        { label: "范围", value: "整部作品" },
+        { label: "来源", value: "作者确认" },
+        { label: "状态", value: "可召回" },
+        { label: "保护", value: "已锁定" },
+      ]),
+    );
   });
 
   it("does not duplicate memory content as a summary", () => {

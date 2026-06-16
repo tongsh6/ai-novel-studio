@@ -11,9 +11,11 @@ pnpm tauri dev
 ## Local checks
 
 ```bash
+pnpm format:check
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm check
 pnpm build
 pnpm tauri build
 ```

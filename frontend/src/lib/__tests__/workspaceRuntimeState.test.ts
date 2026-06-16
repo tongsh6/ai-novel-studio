@@ -112,9 +112,7 @@ describe("WorkspaceRuntimeState", () => {
           { artifact_id: "artifact-2", adoption_status: "PENDING" },
           { artifact_id: "artifact-1", adoption_status: "PENDING" },
         ],
-        resolved: [
-          { artifact_id: "artifact-2", adoption_status: "ACCEPTED" },
-        ],
+        resolved: [{ artifact_id: "artifact-2", adoption_status: "ACCEPTED" }],
       },
     });
 
@@ -136,31 +134,33 @@ describe("WorkspaceRuntimeState", () => {
       },
     });
 
-    expect(state.adoption.resolvedArtifactIds.sort()).toEqual([
-      "accepted",
-      "discarded",
-      "edited",
-    ]);
+    expect(state.adoption.resolvedArtifactIds.sort()).toEqual(["accepted", "discarded", "edited"]);
     expect(state.adoption.pendingArtifactIds).toEqual(["pending"]);
   });
 
   it("derives reading projection empty, ready, and failed states", () => {
     expect(
-      getReadingProjectionStatus(deriveWorkspaceRuntimeState({
-        readingProjection: { chapters: [] },
-      })),
+      getReadingProjectionStatus(
+        deriveWorkspaceRuntimeState({
+          readingProjection: { chapters: [] },
+        }),
+      ),
     ).toBe("empty");
 
     expect(
-      getReadingProjectionStatus(deriveWorkspaceRuntimeState({
-        readingProjection: { chapters: [{ id: "chapter-1" }] },
-      })),
+      getReadingProjectionStatus(
+        deriveWorkspaceRuntimeState({
+          readingProjection: { chapters: [{ id: "chapter-1" }] },
+        }),
+      ),
     ).toBe("ready");
 
     expect(
-      getReadingProjectionStatus(deriveWorkspaceRuntimeState({
-        readingProjection: { chapters: [], error: "boom" },
-      })),
+      getReadingProjectionStatus(
+        deriveWorkspaceRuntimeState({
+          readingProjection: { chapters: [], error: "boom" },
+        }),
+      ),
     ).toBe("failed");
   });
 

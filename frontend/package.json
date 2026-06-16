@@ -10,8 +10,10 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "codegen:schemas": "node scripts/codegen-schemas.mjs",
-    "check": "pnpm typecheck && pnpm lint && pnpm test"
+    "check": "pnpm format:check && pnpm typecheck && pnpm lint && pnpm test"
   },
   "dependencies": {
     "@hookform/resolvers": "^5.2.2",
@@ -45,6 +47,7 @@
     "globals": "^17.5.0",
     "json-schema-to-zod": "^2.8.1",
     "playwright": "^1.59.1",
+    "prettier": "^3.8.4",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.58.2",
     "vite": "^8.0.10",

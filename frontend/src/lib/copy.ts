@@ -121,9 +121,11 @@ export const CARD = {
   },
   artifactDraft: {
     proseTitle: "章节正文草稿",
-    proseDescription: "这是待保存章节草稿。保存后会写入章节正文并进入阅读模式；未保存前不会进入作品事实。",
+    proseDescription:
+      "这是待保存章节草稿。保存后会写入章节正文并进入阅读模式；未保存前不会进入作品事实。",
     outlineTitle: "大纲草稿",
-    outlineDescription: "这是待保存大纲草稿。保存后会进入作品档案的大纲与结构；未保存前只保留为本轮草稿。",
+    outlineDescription:
+      "这是待保存大纲草稿。保存后会进入作品档案的大纲与结构；未保存前只保留为本轮草稿。",
     characterTitle: "角色设定草稿",
     worldTitle: "世界设定草稿",
     archiveDescription: "这是待保存设定草稿。保存后会进入作品档案；未保存前不会写入作品事实。",
@@ -208,8 +210,7 @@ export const WORKBENCH = {
     confirmationAnswer: "确认回合",
     fallback: "本轮回应",
   },
-  frameBadgeTitle: (label: string, goal: string | null) =>
-    goal ? `${label}：${goal}` : label,
+  frameBadgeTitle: (label: string, goal: string | null) => (goal ? `${label}：${goal}` : label),
   workMenuTitle: "作品",
   workMenuCurrent: "当前",
   workMenuCreate: "新建作品",
@@ -357,7 +358,8 @@ export const TRACE = {
   },
   recoveryApplied: "系统已使用降级恢复策略。",
   toolUsed: (name: string) => `本轮使用了工具：${name}。`,
-  toolWithStatus: (name: string, status: string) => `本轮使用了工具：${name}，结果状态为 ${status}。`,
+  toolWithStatus: (name: string, status: string) =>
+    `本轮使用了工具：${name}，结果状态为 ${status}。`,
 } as const;
 
 export function candidateContinuationText(title: string, pitch: string): string {

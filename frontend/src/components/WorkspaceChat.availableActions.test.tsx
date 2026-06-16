@@ -3,11 +3,7 @@
 import { Children, isValidElement, type ReactElement, type ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  WorkspaceCandidatePanel,
-  type CandidateDirection,
-  type TurnResult,
-} from "./WorkspaceChat";
+import { WorkspaceCandidatePanel, type CandidateDirection, type TurnResult } from "./WorkspaceChat";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import { WORKBENCH } from "../lib/copy";
 import { toAuthorActionPayload } from "../lib/workbenchActions";

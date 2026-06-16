@@ -95,9 +95,10 @@ export function normalizeChapterContentTitle(
     title: selectedChapter?.title ?? readableTitle(chapterContent.title, "已采纳片段"),
     scenes: chapterContent.scenes.map((scene) => ({
       ...scene,
-      title: scene.title === chapterContent.title
-        ? selectedChapter?.title ?? readableTitle(scene.title, "已采纳片段")
-        : readableTitle(scene.title, "正文片段"),
+      title:
+        scene.title === chapterContent.title
+          ? (selectedChapter?.title ?? readableTitle(scene.title, "已采纳片段"))
+          : readableTitle(scene.title, "正文片段"),
     })),
   };
 }

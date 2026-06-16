@@ -55,20 +55,11 @@ for (const json of files) {
   const name = nameFromPath(json);
   execFileSync(
     "pnpm",
-    [
-      "exec",
-      "json-schema-to-zod",
-      "-i",
-      json,
-      "-o",
-      out,
-      "-n",
-      `${name}Schema`,
-      "-t",
-      name,
-    ],
+    ["exec", "json-schema-to-zod", "-i", json, "-o", out, "-n", `${name}Schema`, "-t", name],
     { stdio: "inherit" },
   );
   count++;
 }
-console.log(`codegen.schemas: ok (${count} schemas generated to ${relative(root, generatedRoot)}/)`);
+console.log(
+  `codegen.schemas: ok (${count} schemas generated to ${relative(root, generatedRoot)}/)`,
+);

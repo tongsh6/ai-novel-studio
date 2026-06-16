@@ -122,7 +122,9 @@ export function CheckpointCard({ card }: Props) {
       {card.artifact_refs && card.artifact_refs.length > 0 && (
         <div className={styles.artifactList}>
           {card.artifact_refs.map((ref) => (
-            <span key={ref} className={styles.artifactTag}>{ref}</span>
+            <span key={ref} className={styles.artifactTag}>
+              {ref}
+            </span>
           ))}
         </div>
       )}

@@ -3,26 +3,26 @@
 :root {
   --text: #666666;
   --text-h: #000000;
-  --bg: #FCFAF7;
-  --border: #EEEEEE;
-  --accent: #FF9800;
+  --bg: #fcfaf7;
+  --border: #eeeeee;
+  --accent: #ff9800;
   --accent-bg: rgba(255, 152, 0, 0.1);
   --accent-border: rgba(255, 152, 0, 0.5);
-  
-  --surface-primary: #FCFAF7;
+
+  --surface-primary: #fcfaf7;
   --surface-inverse: #000000;
-  
+
   --foreground-primary: #000000;
   --foreground-secondary: #666666;
-  --foreground-inverse: #FFFFFF;
+  --foreground-inverse: #ffffff;
 
-  --border-subtle: #EEEEEE;
-  
+  --border-subtle: #eeeeee;
+
   --rounded-sm: 4px;
 
-  --sans: 'Geist', system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: 'Newsreader', system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: 'Geist Mono', ui-monospace, Consolas, monospace;
+  --sans: "Geist", system-ui, "Segoe UI", Roboto, sans-serif;
+  --heading: "Newsreader", system-ui, "Segoe UI", Roboto, sans-serif;
+  --mono: "Geist Mono", ui-monospace, Consolas, monospace;
 
   font: 14px/1.5 var(--sans);
   color-scheme: light;

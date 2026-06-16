@@ -40,10 +40,7 @@ export function adoptionDecisionHasReadingProjection(adoptionStatus: string): bo
   return normalized === "ACCEPTED" || normalized === "EDITED_ACCEPTED";
 }
 
-export function adoptionDecisionFollowUpAction(
-  adoptionStatus: string,
-  artifactType?: string,
-) {
+export function adoptionDecisionFollowUpAction(adoptionStatus: string, artifactType?: string) {
   if (!adoptionDecisionHasReadingProjection(adoptionStatus)) return null;
   if (!isReadingProjectionArtifact(artifactType)) return null;
 
