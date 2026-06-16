@@ -27,17 +27,19 @@ defmodule NovelApplication.AdoptionWorkflow do
         source_turn_result,
         params,
         adoption_writer \\ NovelApplication.persistence_adoption_writer(),
-        overwrite_reader \\ NovelApplication.persistence_overwrite_reader()
+        overwrite_reader \\ NovelApplication.persistence_overwrite_reader(),
+        summary_maintainer \\ NovelApplication.chapter_summary_maintainer()
       )
 
-  def handle_adopt(nil, _params, _adoption_writer, _overwrite_reader),
+  def handle_adopt(nil, _params, _adoption_writer, _overwrite_reader, _summary_maintainer),
     do: {:error, "source_turn_result not available"}
 
   def handle_adopt(
         source_turn_result,
         %{"artifact_id" => artifact_id} = params,
         adoption_writer,
-        overwrite_reader
+        overwrite_reader,
+        summary_maintainer
       )
       when is_binary(artifact_id) do
     # 结构性/无效 action（artifact 不存在、跨作品、stale revision）保持 {:error}，
@@ -58,12 +60,25 @@ defmodule NovelApplication.AdoptionWorkflow do
           opts
         )
 
-      finalize_adoption(decision, source_turn_result, artifact, params, adoption_writer)
+      finalize_adoption(
+        decision,
+        source_turn_result,
+        artifact,
+        params,
+        adoption_writer,
+        summary_maintainer
+      )
     end
   end
 
-  def handle_adopt(_source_turn_result, _params, _adoption_writer, _overwrite_reader),
-    do: {:error, "artifact_id is required"}
+  def handle_adopt(
+        _source_turn_result,
+        _params,
+        _adoption_writer,
+        _overwrite_reader,
+        _maintainer
+      ),
+      do: {:error, "artifact_id is required"}
 
   # 把 work boundary、覆盖判定、确认状态合成采纳边界 opts。
   # 覆盖已有正文（同 title 章节已有已采纳内容）= 高风险 production write → 需确认。
@@ -102,11 +117,20 @@ defmodule NovelApplication.AdoptionWorkflow do
          source_turn_result,
          artifact,
          params,
-         adoption_writer
+         adoption_writer,
+         summary_maintainer
        ) do
     if AdoptionDecision.adopted?(decision) do
       case persist_adoption(adoption_writer, source_turn_result, decision, artifact, params) do
         {:ok, persisted} ->
+          maybe_maintain_chapter_summary(
+            summary_maintainer,
+            source_turn_result,
+            artifact,
+            params,
+            persisted
+          )
+
           {:ok, build_action_result(decision, artifact, persisted),
            build_turn_result(source_turn_result, decision, artifact, persisted)}
 
@@ -118,6 +142,60 @@ defmodule NovelApplication.AdoptionWorkflow do
        build_decision_turn_result(source_turn_result, decision, artifact)}
     end
   end
+
+  # 正文/场景采纳成功后触发章摘要 maintenance（VS-00C CP2.1 / contract §5.3）。
+  # 仅对正文类 artifact、且持久化已物化章节（persisted 带 chapter_id）时触发。
+  # 失败容忍：maintainer 默认异步且自身不抛错，这里再包一层兜底，绝不影响采纳返回。
+  defp maybe_maintain_chapter_summary(nil, _source_turn_result, _artifact, _params, _persisted),
+    do: :ok
+
+  defp maybe_maintain_chapter_summary(maintainer, source_turn_result, artifact, params, persisted)
+       when is_function(maintainer, 1) do
+    with true <- prose_artifact?(artifact),
+         chapter_id when is_binary(chapter_id) <- chapter_id_from_persisted(persisted) do
+      maintainer.(%{
+        work_id: Map.get(params, "work_id") || map_field(source_turn_result, :work_id),
+        chapter_id: chapter_id,
+        chapter_title: adoption_chapter_title(artifact),
+        prose_text: artifact_content(artifact),
+        source_ref: turn_id(source_turn_result),
+        revision_base: revision_base_from_persisted(persisted)
+      })
+
+      :ok
+    else
+      _ -> :ok
+    end
+  rescue
+    _ -> :ok
+  end
+
+  defp prose_artifact?(artifact) do
+    artifact_field(artifact, :artifact_type) in [
+      :prose_fragment,
+      "prose_fragment",
+      :scene_draft,
+      "scene_draft"
+    ]
+  end
+
+  defp chapter_id_from_persisted(persisted) when is_map(persisted) do
+    case Map.get(persisted, :reading_projection) do
+      %{} = projection -> Map.get(projection, :chapter_id)
+      _ -> nil
+    end
+  end
+
+  defp chapter_id_from_persisted(_persisted), do: nil
+
+  defp revision_base_from_persisted(persisted) when is_map(persisted) do
+    case Map.get(persisted, :reading_projection) do
+      %{source_revision_ref: ref} when is_binary(ref) -> ref
+      _ -> Map.get(persisted, :source_revision_ref)
+    end
+  end
+
+  defp revision_base_from_persisted(_persisted), do: nil
 
   defp artifact_risk_hint(artifact) do
     case artifact_field(artifact, :risk_hint) do

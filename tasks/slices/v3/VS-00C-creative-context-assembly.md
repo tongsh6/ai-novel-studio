@@ -1,6 +1,6 @@
 # VS-00C Creative Context Assembly
 
-- 状态：docs-ready（CP0 待批准实现）
+- 状态：CP0 后端闭环 / CP1 done / **CP2.1 实现中**（用户批准 2026-06-16）
 - 类型：Context Assembly Slice（VS-00D `call_site=:prose_writing` 投影）
 - 启动日期：2026-06-14
 - 所属契约：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md`
@@ -19,7 +19,7 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
 |---|---|---|---|
 | **CP0** | WritingCoordinate + MissingPolicyResult（坐标与缺失策略固化） | G11、G13(hard-missing)、降 G9 | **后端全链路验证（外部 UI harness 本地 WIP）** |
 | **CP1** | 策略化省略 + 预算 profile + 确认路径同源组装 + fetcher fallback | G2/G4/G9/G10 | **done（76ca402+560b5c2）** |
-| CP2 | chapter_summary 对象 + 续写摘要兜底 | G3/G5 | **下一活跃** |
+| CP2 | chapter_summary 对象 + 续写摘要兜底 | G3/G5 | **活跃：CP2.1 实现中 / CP2.2 待接** |
 | CP3 | 结构对象分层进入上下文 | G6/G1 | 待 CP2 |
 | CP4 | 章计划结构化（方向层） | 08 NEM-GAP-03 | 待 CP3 |
 | CP5 | ReaderEffectBrief + 创作输出自报告 | G12/G14 | 待 CP4 |
@@ -77,6 +77,40 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
 
 ---
 
+## 6. CP2 设计（承重六问 + checkpoint 拆分）
+
+- 关闭 Gap：G3（被裁前文以摘要替代，replacement 不再 nil）、G5（跨章写作时模型知道前面各章**写了什么**，不只是标题）。
+- 契约依据：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md` §5（新对象）/§8（CP2 范围）/§10（ADR 候选）。
+
+### 6.1 承重六问
+
+1. **Contract**：新增 `chapter_summaries`（契约 §5.2 字段）+ `NovelDomain.ChapterSummary` 状态机（复用 `NovelDomain.AdoptionStatus` 七态矩阵 / ADR-0019）；消费 CP1 `OmissionNote.replacement` 槽、22 §10/§16/§17。与既有 `chapters.summary`（**计划摘要**，写前）严格区分（契约 §5.1：写后内容压缩，不是 chapter 偷塞字段）。
+2. **Invariant**：VS00C-I5（未采纳摘要不进普通创作上下文）；G3（L5 截断 replacement 填本章摘要）；G5（首稿 prompt 含前 N-1 章摘要）；正文重写/续写采纳后旧 ACCEPTED 摘要→SUPERSEDED 并产新 tentative；**摘要生成失败不阻断正文采纳主链**（降级留痕）；I1/I2/I3 不破、real.ex 三锚点不动。
+3. **Boundary**：domain（ChapterSummary 纯状态流转，无 I/O）；persistence（chapter_summaries schema/migration/repo + 后续 fetcher 扩展）；application（ChapterSummaryMaintenance 用例 + ContextAssembler 注入[CP2.2]）；agent（摘要走既有 CreativeProvider `Gateway.complete` 通道，不新增 provider 类型、不动 real.ex 模板 / stub 锚点）。**不改**：Planner 判定、GateOrder、AdoptionWorkflow 主流程返回契约、reading projection 口径。
+4. **Consumer**：续写/首稿组装链（L3a/L5，CP2.2）为第一消费者；maintenance 为产出侧消费者（正文采纳后）；why 面板透出为后置 checkpoint。
+5. **Proof**：见 §6.3。
+6. **Acceptance Driver**：外部 Tauri 驱动真实工作台续写超预算长章 → 从 trace/日志断言 prompt 含「摘要替代物」（CP2.2）。产品代码**不新增验收感知**（摘要生成对所有正文采纳一致触发，不读验收 env/slice id）。
+
+### 6.2 三个开放决策（契约留待 slice 拍板，用户 2026-06-16 定）
+
+- **采纳档位 = 自动采纳**：maintenance 产 tentative → 低风险自动转 ACCEPTED。摘要是写后派生物，与 AU-03 会话摘要同构，KISS、无新增 UI、不打断作者；仍经 adoption 状态机留 trace。
+- **source_type = 新增 `:continuity`**：why 面板区分「作品背景」vs「前章摘要」；落地在 **CP2.2**（摘要进上下文时），ContextSourceRef 枚举 + Zod SSOT 同步。
+- **重写后旧摘要 = SUPERSEDED + 新 tentative**（revision_base 指向新正文）。契约 §5.3 已定，非开放项。
+
+### 6.3 Checkpoint 拆分（最小实现步，不缩小 CP2 范围）
+
+- **CP2.1（本轮）— 摘要对象 + 生成 + 自动采纳**：
+  - domain `NovelDomain.ChapterSummary`：`new/1`（TENTATIVE）、`accept/1`、`supersede/1`，四栏 `summary_text` 渲染（情节推进 / 人物状态与弧光 / 伏笔动作 / 情绪基调）。
+  - persistence `chapter_summaries` schema/migration/repo：`insert_tentative` / `accept` / `supersede_prior_accepted` / `current_accepted` / `list_recent_accepted`。
+  - application `NovelApplication.ChapterSummaryMaintenance.run/3`（注入 generator + repo）：supersede 旧 ACCEPTED → 生成 tentative（四栏）→ insert → 自动 accept；失败降级留痕（`chapter_summary.maintenance.degraded`）不阻断。
+  - 接 `AdoptionWorkflow.handle_adopt`（注入 maintainer，正文/场景采纳后触发，默认异步 + 失败吞掉，不影响采纳返回）。
+  - 默认 generator 走 `Gateway.complete/1`（独立摘要 prompt，不动 real.ex 三锚点）。
+  - **Proof**：domain 状态机单测；repo 单测（insert/accept/supersede/current）；maintenance 单测（stub generator：采纳→ACCEPTED 四栏摘要；同章再采纳→旧 SUPERSEDED；generator 失败→degraded 且采纳侧不受影响）；`handle_adopt` 注入 recording maintainer 断言收到正确 input（work_id/chapter_id/content）；I1/I2/I3 + 工程门禁。
+  - **不 claim**：真实 LLM 摘要质量 / dogfood 长跑 / 上下文消费（均 CP2.2）。
+- **CP2.2 — 上下文消费（关 G3/G5 收口）**：L5 截断 replacement=本章摘要 + OmissionNote；L3a 注入最近 N 章摘要；fetcher 扩展返回摘要；新增 `:continuity` source_type + why 透出；外部 Tauri dogfood 长跑不再 HTTP 400。
+
+---
+
 ## 5. 决策日志
 
 - 2026-06-14：确认 VS-00C↔VS-00D 边界已在契约 §1.4 对齐（VS-00C = call_site=:prose_writing 投影）。实现序列 CP0 先行（坐标/缺失是 CP1 组装的前置）。CP0 slice 六问冻结，待用户批准编码。
@@ -97,3 +131,10 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
   - 真实 tauri 后端却给 first_draft（生成草稿），与 c1c257d 源码 + in-process 复现**矛盾**（坐标日志 requested="第99章" 却 authoring_mode=first_draft，源码不可能）。结论：**tauri 后端那次 `mix run --no-start` 的陈旧增量编译**（in-process repro 每次 fresh compile 故正确）。
   - 坑：`Gateway` provider 路由 `@provider_modules`/`extra_providers` 用 **atom 键**，slice 后端 `slice_verify_server.exs` 配 `default: "slice_verify"`（字符串）；in-process 用字符串会 "unknown provider" fallback，用 atom 才通——真实后端能通说明 RuntimeConfig 已归一，但这是个易踩点。
   - **下次收尾（轻量）**：tauri 跑前强制 clean 编译（`MIX_ENV=test mix compile` 或 `rm -rf _build/test/lib/novel_agent` 后再 `tauri_slice_verify.sh vs00c-cp0-missing-chapter-block`），预期 block 通过即可提交 harness。CP0 产品行为本身已由 in-process 全链路证明，无需再改后端。
+- 2026-06-16：**CP2.1 完成**（用户批准；采纳档位=自动采纳、source_type=新增 :continuity[落地 CP2.2]）。关 G5 的对象与生成侧，G3 的 replacement 兜底留 CP2.2 收口。
+  - **domain**：`NovelDomain.ChapterSummary`（new→TENTATIVE / accept→ACCEPTED / supersede→SUPERSEDED，复用 `AdoptionStatus` 矩阵；四栏 `render_sections`/`four_column?`）。与 `chapters.summary`（计划摘要）严格区分。
+  - **persistence**：`chapter_summaries` 表（migration 20260616000001）+ schema + `ChapterSummaryRepo`（insert/update_status/supersede_prior_accepted/current_accepted/list_recent_accepted）。
+  - **application**：`ChapterSummaryMaintenance.run/3`（注入 generator+repo）：supersede 旧 ACCEPTED → 生成 tentative（四栏）→ insert → 自动 accept；**失败容忍**（生成失败/抛错/缺锚点→`{:degraded}` + `chapter_summary_maintenance.run.error`，绝不阻断采纳）。`ChapterSummaryGenerator` 走 `Gateway.complete/1` 独立摘要 prompt（不碰 real.ex 锚点）。
+  - **接线**：`AdoptionWorkflow.handle_adopt` 加注入 `summary_maintainer`（默认异步 + 兜底 rescue），正文/场景采纳成功后用 `persisted.reading_projection.chapter_id` 触发；非正文 artifact 不触发。
+  - 验证：domain 147/0、application 253/0、persistence 141/0 无回归；CP2.1 新测 21（domain 8 + repo 5 + maintenance 6 + hook 2）；I3/I1/I2 全过；compile(0 警告)/xref(无环)/arch/format/credo(改动文件 0 issue) 通过；静态扫描仅余两预存在 FAIL（gitleaks 历史 accepted_risk、task-done 本地陈旧）。
+  - **诚实边界 / 未 claim**：真实 LLM 摘要质量、dogfood 长跑、上下文消费（L3a/L5 replacement + :continuity + why 透出）均属 **CP2.2**；CP2.1 默认 generator 从本次采纳正文生成，按全章已采纳正文生成（append 连续性）也留 CP2.2。

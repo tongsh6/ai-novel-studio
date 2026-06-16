@@ -123,6 +123,37 @@ defmodule NovelApplication do
     if inject_persistence?(), do: &NovelPersistence.ReadingProjectionRepo.accepted_chapter_prose/2
   end
 
+  @doc """
+  返回章摘要 maintainer：正文采纳完成后产连续性摘要（VS-00C CP2.1 / contract §5.3）。
+
+  未启用真实持久化时返回 nil（采纳路径无后续摘要副作用）。默认**异步**执行
+  （`Task.start`，不阻塞作者的采纳响应）且**失败容忍**——绝不抛错、绝不阻断正文采纳主链。
+  """
+  def chapter_summary_maintainer do
+    if inject_persistence?() do
+      generator = default_summary_generator()
+      repo = default_summary_repo()
+      fn input -> run_summary_maintenance_async(input, generator, repo) end
+    end
+  end
+
+  defp run_summary_maintenance_async(input, generator, repo) do
+    Task.start(fn -> NovelApplication.ChapterSummaryMaintenance.run(input, generator, repo) end)
+    :ok
+  end
+
+  defp default_summary_generator do
+    &NovelApplication.ChapterSummaryGenerator.generate/1
+  end
+
+  defp default_summary_repo do
+    %{
+      supersede: &NovelPersistence.ChapterSummaryRepo.supersede_prior_accepted/2,
+      insert: &NovelPersistence.ChapterSummaryRepo.insert/1,
+      update_status: &NovelPersistence.ChapterSummaryRepo.update_status/2
+    }
+  end
+
   defp inject_persistence? do
     Application.get_env(:novel_web, :persistence, [])
     |> Keyword.get(:inject_real_persistence, false)
