@@ -21,18 +21,18 @@ defmodule NovelDomain.AssemblyPolicy do
           context_budget_chars: pos_integer() | nil
         }
 
-  defstruct policy_id: "prose_writing/floor_v1",
+  defstruct policy_id: "prose_writing/floor_v2",
             consumer: :tool,
             excerpt_budget_chars: 2000,
-            summary_window: 2,
+            summary_window: 15,
             context_budget_chars: nil
 
   # profile 矩阵（VS-00C §3.2）。floor 的 2000 与历史 @prior_prose_max_chars 一致，
-  # 保证地板档（本地小模型/确定性 provider）行为不变；大窗口档放开 excerpt 与摘要窗口。
+  # 保证地板档 excerpt 行为不变；CP2.2 L3a 摘要窗口统一由策略给出。
   @profiles %{
-    floor: %{excerpt_budget_chars: 2000, summary_window: 2},
-    standard: %{excerpt_budget_chars: 8000, summary_window: 5},
-    large: %{excerpt_budget_chars: 200_000, summary_window: 50}
+    floor: %{excerpt_budget_chars: 2000, summary_window: 15},
+    standard: %{excerpt_budget_chars: 8000, summary_window: 15},
+    large: %{excerpt_budget_chars: 200_000, summary_window: 15}
   }
 
   # provider → 档位。地板档：本地小窗口与确定性替身；大窗口档：云端大模型。
@@ -66,7 +66,7 @@ defmodule NovelDomain.AssemblyPolicy do
     p = Map.fetch!(@profiles, tier)
 
     %__MODULE__{
-      policy_id: "prose_writing/#{tier}_v1",
+      policy_id: "prose_writing/#{tier}_v2",
       consumer: :tool,
       excerpt_budget_chars: p.excerpt_budget_chars,
       summary_window: p.summary_window,

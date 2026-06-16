@@ -1,6 +1,6 @@
 # VS-00C Creative Context Assembly
 
-- 状态：CP0 后端闭环 / CP1 done / **CP2.1 实现中**（用户批准 2026-06-16）
+- 状态：CP0 后端闭环 / CP1 done / CP2.1 done / **CP2.2 核心 done**（G3/G5 prompt 闭合；why-panel + dogfood 延后）
 - 类型：Context Assembly Slice（VS-00D `call_site=:prose_writing` 投影）
 - 启动日期：2026-06-14
 - 所属契约：`docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md`
@@ -85,7 +85,7 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
 ### 6.1 承重六问
 
 1. **Contract**：新增 `chapter_summaries`（契约 §5.2 字段）+ `NovelDomain.ChapterSummary` 状态机（复用 `NovelDomain.AdoptionStatus` 七态矩阵 / ADR-0019）；消费 CP1 `OmissionNote.replacement` 槽、22 §10/§16/§17。与既有 `chapters.summary`（**计划摘要**，写前）严格区分（契约 §5.1：写后内容压缩，不是 chapter 偷塞字段）。
-2. **Invariant**：VS00C-I5（未采纳摘要不进普通创作上下文）；G3（L5 截断 replacement 填本章摘要）；G5（首稿 prompt 含前 N-1 章摘要）；正文重写/续写采纳后旧 ACCEPTED 摘要→SUPERSEDED 并产新 tentative；**摘要生成失败不阻断正文采纳主链**（降级留痕）；I1/I2/I3 不破、real.ex 三锚点不动。
+2. **Invariant**：VS00C-I5（未采纳摘要不进普通创作上下文）；G3（L5 截断 replacement 填本章摘要）；G5（写作 prompt 可获得目标章之前的实现态连续性窗口）；正文重写/续写采纳后旧 ACCEPTED 摘要→SUPERSEDED 并产新 tentative；**摘要生成失败不阻断正文采纳主链**（降级留痕）；I1/I2/I3 不破、real.ex 三锚点不动。注意：前章摘要只说明“之前写了什么”，不能单独证明第 N 章首稿具备完整创作方向；首稿完备上下文依赖 CP3/CP4/CP5。
 3. **Boundary**：domain（ChapterSummary 纯状态流转，无 I/O）；persistence（chapter_summaries schema/migration/repo + 后续 fetcher 扩展）；application（ChapterSummaryMaintenance 用例 + ContextAssembler 注入[CP2.2]）；agent（摘要走既有 CreativeProvider `Gateway.complete` 通道，不新增 provider 类型、不动 real.ex 模板 / stub 锚点）。**不改**：Planner 判定、GateOrder、AdoptionWorkflow 主流程返回契约、reading projection 口径。
 4. **Consumer**：续写/首稿组装链（L3a/L5，CP2.2）为第一消费者；maintenance 为产出侧消费者（正文采纳后）；why 面板透出为后置 checkpoint。
 5. **Proof**：见 §6.3。
@@ -107,7 +107,11 @@ CP0 → CP1 → CP2 → CP3 → CP4 → CP5。依据数据依赖与杠杆，与�
   - 默认 generator 走 `Gateway.complete/1`（独立摘要 prompt，不动 real.ex 三锚点）。
   - **Proof**：domain 状态机单测；repo 单测（insert/accept/supersede/current）；maintenance 单测（stub generator：采纳→ACCEPTED 四栏摘要；同章再采纳→旧 SUPERSEDED；generator 失败→degraded 且采纳侧不受影响）；`handle_adopt` 注入 recording maintainer 断言收到正确 input（work_id/chapter_id/content）；I1/I2/I3 + 工程门禁。
   - **不 claim**：真实 LLM 摘要质量 / dogfood 长跑 / 上下文消费（均 CP2.2）。
-- **CP2.2 — 上下文消费（关 G3/G5 收口）**：L5 截断 replacement=本章摘要 + OmissionNote；L3a 注入最近 N 章摘要；fetcher 扩展返回摘要；新增 `:continuity` source_type + why 透出；外部 Tauri dogfood 长跑不再 HTTP 400。
+- **CP2.2 — 上下文消费（关 G3/G5 收口）**：L5 截断 replacement=本章摘要 + OmissionNote；L3a 注入目标章之前最近 N 章摘要（实现态连续性窗口，不等同首稿完备方向）；fetcher 扩展返回摘要；新增 `:continuity` source_type + why 透出；外部 Tauri dogfood 长跑不再 HTTP 400。
+  - **实现取向（最小涟漪，reader-port）**：摘要经新 reader port `chapter_summary_reader`（与 `chapter_prose_reader` 同型注入），**不改** DialogueContext envelope / fetcher 6-tuple / ContextAssembler。port 经 `WorkspaceContext` 用 `toc()` 索引在应用层做 title↔chapter_id Map 解析（与 work_id `:string` 口径一致，不做跨类型 DB join），调 `ChapterSummaryRepo.current_accepted`；L3a 使用 `previous(work_id, target_title, n)`，按目录顺序取目标章之前窗口，避免按写入时间把后章摘要带入当前章。
+  - **CP2.2 本轮交付（G3/G5 prompt 闭合）**：L5——`budget_prior_prose` 裁剪时以本章摘要兜底（replacement=`chapter_summary:章` + excerpt 前置「更早正文摘要」），无摘要才回落 replacement=nil；L3a——prose_writing 轮注入「## 前文各章摘要」（目标章之前最近 N 章，CP2 当前默认 15，N 来自 `AssemblyPolicy.summary_window`；排除当前章/后章）；`context.continuity.done` 业务日志（含 `source_type: continuity`、`summary_window`、`assembly_policy_id`）作外部证据；`ContextSourceRef.source_type += :continuity`（前端 `traceSummaryView` 未映射时回落「其他」，不破）。
+  - **诚实边界**：CP2.2 不 claim “写第 N 章首稿上下文已完备”。第 N 章首稿还需要 CP3 的目标章计划摘要/卷内位置、CP4 的 E18-E22 章方向四件套，以及 CP5 的读者效果目标。
+  - **CP2.2 deferred（why-panel + dogfood）**：`:continuity` 的完整 ContextSourceRef → trace_summary → 前端 why 面板专属 label（§6「可后置 checkpoint」）；真实 LLM dogfood 长跑（当前 provider 上下文容量配置下连续累积超长章不再 HTTP 400 + 衔接质量人工抽查）作为外部真实页面验收。
 
 ---
 

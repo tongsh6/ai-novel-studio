@@ -154,6 +154,14 @@ defmodule NovelApplication do
     }
   end
 
+  @doc """
+  返回章摘要 reader port（VS-00C CP2.2）：`%{by_title, previous}`，供续写/首稿组装消费
+  本章摘要兜底（L5）与目标章前序 N 章摘要（L3a）。未启用真实持久化时返回 nil（无摘要消费）。
+  """
+  def persistence_chapter_summary_reader do
+    if inject_persistence?(), do: NovelPersistence.WorkspaceContext.chapter_summary_reader()
+  end
+
   defp inject_persistence? do
     Application.get_env(:novel_web, :persistence, [])
     |> Keyword.get(:inject_real_persistence, false)

@@ -3,11 +3,11 @@ defmodule NovelDomain.AssemblyPolicyTest do
 
   alias NovelDomain.AssemblyPolicy
 
-  test "default 是地板档（2000/2），与历史裁剪上限一致" do
+  test "default 是地板档（2000/15），与历史 excerpt 裁剪上限一致" do
     p = AssemblyPolicy.default()
     assert p.excerpt_budget_chars == 2000
-    assert p.summary_window == 2
-    assert p.policy_id == "prose_writing/floor_v1"
+    assert p.summary_window == 15
+    assert p.policy_id == "prose_writing/floor_v2"
   end
 
   describe "for_provider/1 按 provider 解析档位" do
@@ -17,12 +17,18 @@ defmodule NovelDomain.AssemblyPolicyTest do
       end
     end
 
-    test "云端大窗口 → large 档（excerpt 放开、摘要窗口更大）" do
+    test "云端大窗口 → large 档（excerpt 放开、CP2 摘要窗口保持 15）" do
       large = AssemblyPolicy.for_provider(:anthropic)
       assert large.excerpt_budget_chars == 200_000
-      assert large.summary_window == 50
-      assert large.policy_id == "prose_writing/large_v1"
+      assert large.summary_window == 15
+      assert large.policy_id == "prose_writing/large_v2"
       assert AssemblyPolicy.for_provider("deepseek").excerpt_budget_chars == 200_000
+    end
+
+    test "CP2 L3a 摘要窗口在所有档位统一为 15" do
+      for tier <- [:floor, :standard, :large] do
+        assert AssemblyPolicy.for_tier(tier).summary_window == 15
+      end
     end
 
     test "未知 / nil provider → 安全回落地板档" do

@@ -27,10 +27,10 @@ defmodule NovelDomain.MissingPolicyResult do
   @doc """
   评估写作坐标的缺失。
 
-  hard-missing（CP0 唯一 block 条件）：续写/重写且作者**显式点名**了目标章
+  hard-missing（CP0 唯一 block 条件）：prose_writing 的章级坐标中，作者**显式点名**了目标章
   （`requested_chapter` 非空），但 planner 未能把它匹配到作品现有章节列表
   （`matched_chapter` 为空）——即"作者要写的章在作品里找不到"。现状会静默回退到
-  "最近已写章"，掩盖作者意图。
+  "最近已写章"或创建错误章，掩盖作者意图。
 
   靠 planner 的匹配结果判定，不在此做模糊匹配（作者原话"第99章"与全名
   "第01章：xxx"不会精确相等，匹配由 planner 按"精确复制列表标题或置空"完成）。
@@ -41,7 +41,7 @@ defmodule NovelDomain.MissingPolicyResult do
   @spec evaluate(WritingCoordinate.t()) :: t()
   def evaluate(%WritingCoordinate{} = coordinate) do
     cond do
-      coordinate.authoring_mode not in [:continuation, :rewrite] ->
+      coordinate.target_unit != :chapter ->
         ok()
 
       coordinate.requested_chapter in ["", nil] ->

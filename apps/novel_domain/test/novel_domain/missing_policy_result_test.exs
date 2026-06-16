@@ -8,10 +8,14 @@ defmodule NovelDomain.MissingPolicyResultTest do
   defp coord(mode, requested, matched) do
     %WritingCoordinate{
       authoring_mode: mode,
+      target_unit: target_unit(mode),
       requested_chapter: requested,
       matched_chapter: matched
     }
   end
+
+  defp target_unit(:planning), do: :work
+  defp target_unit(_mode), do: :chapter
 
   describe "evaluate/1 hard missing → :block" do
     test "重写：作者点名但 planner 未匹配（matched 空）→ :block" do
@@ -23,6 +27,10 @@ defmodule NovelDomain.MissingPolicyResultTest do
 
     test "续写：作者点名但未匹配 → :block" do
       assert %{severity: :block} = MissingPolicyResult.evaluate(coord(:continuation, "番外篇", ""))
+    end
+
+    test "首稿：作者点名不存在章节 → :block（不静默创建错误章）" do
+      assert %{severity: :block} = MissingPolicyResult.evaluate(coord(:first_draft, "第99章", ""))
     end
   end
 
@@ -36,8 +44,7 @@ defmodule NovelDomain.MissingPolicyResultTest do
       assert %{severity: :ok} = MissingPolicyResult.evaluate(coord(:continuation, "", ""))
     end
 
-    test "首稿/规划模式不评估章缺失 → :ok" do
-      assert %{severity: :ok} = MissingPolicyResult.evaluate(coord(:first_draft, "新章", ""))
+    test "规划模式不评估章缺失 → :ok" do
       assert %{severity: :ok} = MissingPolicyResult.evaluate(coord(:planning, "", ""))
     end
   end

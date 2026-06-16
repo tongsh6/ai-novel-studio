@@ -226,7 +226,7 @@ CreativeOutputSelfReport
 |---|---|---|
 | L1 任务元信息 | `WritingCoordinate` + creative_brief：动作摘要 + 目标字数 + 作者输入原文 | creative_brief【已有】；坐标【新】CP0 |
 | L2 目标结构对象与方向 | 目标章 title + seq + **计划摘要**（`chapters.summary`）+ 卷内位置（前一章/后一章标题）；章计划结构化（CP4）后，计划摘要升级为要素四件套方向信息（章功能 / 目标四件套 / 情绪定位 / 断章要求，`08` E18-E22）；并投影 `ReaderEffectBrief` 的章级目标 | 【新】CP3 / CP4 / CP5 |
-| L3 连续性层 | (a) 最近 N 章的 `chapter_summary`（写后内容压缩，N 由策略定，默认 2）；(b) 相关 confirmed/recallable memory（伏笔/规则/设定）；按设计态/实现态/进度态拆分渲染，不混为一段"背景" | (a)【新】CP2；(b)【已有】AU-09 recall 主链 |
+| L3 连续性层 | (a) 目标章之前最近 N 章的 `chapter_summary`（写后内容压缩，N 由策略定，CP2 当前默认 15），作为跨章实现态窗口；(b) 相关 confirmed/recallable memory（伏笔/规则/设定）；按设计态/实现态/进度态拆分渲染，不混为一段"背景" | (a)【新】CP2；(b)【已有】AU-09 recall 主链 |
 | L4 风格与作者意图层 | 作品 snapshot 风格字段（tone_preference 等）；写作守则（provider 层 `@prose_writing_guidelines`）；后续 style 对象补齐时挂接 style_intent_packet | 【已有最小形态】；style 对象【空位】§9 |
 | L5 局部原文 excerpt | 仅 continuation/rewrite：目标章已采纳正文**尾部 excerpt**，预算由策略给出；超预算部分以该章 `chapter_summary` 替代并产生 OmissionNote | 裁剪【已有】→ 策略化 CP1；summary 替代 CP2 |
 | L6 近期运行态 | conversation_summary（含 session 早期摘要）、open_behavior_summary | 【已有】 |
@@ -244,7 +244,7 @@ CreativeOutputSelfReport
 
 ```text
 AssemblyPolicy
-  policy_id            : string（trace 引用用，如 "prose_writing/floor_v1"、"prose_writing/large_v1"）
+  policy_id            : string（trace 引用用，如 "prose_writing/floor_v2"、"prose_writing/large_v2"）
   consumer             : :tool | :planner（本期只冻结 :tool 的 prose_writing profile）
   excerpt_budget_chars : integer（L5 预算）
   summary_window       : integer（L3(a) 最近 N 章）
@@ -255,9 +255,9 @@ profile 矩阵（初始档位，数值属"暂不冻结"内容，落地时按 pro
 
 | 档位 | 适用 provider | excerpt_budget_chars | summary_window |
 |---|---|---|---|
-| floor（地板档） | lmstudio 小窗口（n_ctx≈4k） | 2000（迁移自 `@prior_prose_max_chars`，作为档位参数而非设计常量） | 2 |
-| standard | 中等窗口 | 整章或 8000+ | 5+ |
-| large | anthropic / deepseek 大窗口 | 整章全文 | 卷内全部章 |
+| floor（地板档） | lmstudio / deterministic provider | 2000（迁移自 `@prior_prose_max_chars`，作为档位参数而非设计常量） | 15 |
+| standard | 中等窗口 | 整章或 8000+ | 15 |
+| large | anthropic / deepseek 大窗口 | 整章全文 | 15 |
 
 规则：
 
@@ -399,8 +399,9 @@ chapter_summaries
 
 ### CP2 — chapter_summary 对象与续写摘要兜底
 
-- **范围**：schema/migration/repo/领域状态流转；正文采纳后 maintenance 产 tentative → 采纳路径（按 ADR-0010 定自动/确认档位）；L5 截断时 replacement 填该章摘要、L3(a) 注入最近 N 章摘要；fetcher 扩展。
-- **Proof**：续写一个 >预算 长章时 prompt 含「摘要 + 尾部 excerpt + OmissionNote(replacement=摘要)」三件套；写第 N 章首稿时 prompt 含前 N-1 章（窗口内）摘要；正文重写后旧摘要 SUPERSEDED；摘要生成失败不阻断采纳；dogfood 长跑（LM Studio n_ctx=4096）连续累积超长章不再 HTTP 400 且衔接质量可人工抽查。
+- **范围**：schema/migration/repo/领域状态流转；正文采纳后 maintenance 产 tentative → 采纳路径（按 ADR-0010 定自动/确认档位）；L5 截断时 replacement 填该章摘要、L3(a) 注入目标章之前最近 N 章摘要；fetcher 扩展。
+- **Proof**：续写一个 >预算 长章时 prompt 含「摘要 + 尾部 excerpt + OmissionNote(replacement=摘要)」三件套；写作目标章前存在已采纳章节摘要时，prompt 含 L3(a) 连续性窗口（CP2 当前默认最近 15 章，不能把后章或当前章摘要带入，窗口值必须来自 `AssemblyPolicy.summary_window`）；正文重写后旧摘要 SUPERSEDED；摘要生成失败不阻断采纳；dogfood 长跑在当前 provider 上下文容量配置下连续累积超长章不再 HTTP 400 且衔接质量可人工抽查。
+- **诚实边界**：CP2 只解决“前面已写了什么”的实现态连续性，不证明写第 N 章首稿已经有完整创作方向。首稿完备上下文还依赖 CP3 的目标章计划摘要/卷内位置、CP4 的 E18-E22 结构化章方向，以及 CP5 的 ReaderEffectBrief。
 - **Gap 关闭**：G3、G5。
 
 ### CP3 — 结构对象分层进入创作上下文

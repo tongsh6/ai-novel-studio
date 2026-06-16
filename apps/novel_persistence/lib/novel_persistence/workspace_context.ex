@@ -9,6 +9,7 @@ defmodule NovelPersistence.WorkspaceContext do
   import Ecto.Query, only: [from: 2]
 
   alias NovelFoundation.Enums.StructureStatus
+  alias NovelPersistence.ChapterSummaryRepo
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.MemoryRecallRepo
   alias NovelPersistence.MemoryReferenceLog
@@ -121,6 +122,74 @@ defmodule NovelPersistence.WorkspaceContext do
   end
 
   defp fetch_accepted_chapters(_workspace_id), do: []
+
+  @doc """
+  章摘要 reader port（VS-00C CP2.2）。返回 `by_title` / `previous` 两个能力，供
+  TurnExecutionService 做 L5（截断前文以本章摘要兜底）与 L3a（注入目标章之前最近 N 章摘要的实现态连续性窗口）。
+
+  title↔chapter_id 在应用层用 toc 索引 Map 解析（不做跨类型 DB join，与 work_id `:string`
+  口径一致）。注入机制同 `chapter_prose_reader`：novel_web → novel_persistence →（callback）。
+  """
+  @spec chapter_summary_reader() :: %{
+          by_title: (String.t(), String.t() -> String.t() | nil),
+          previous: (String.t(), String.t(), pos_integer() ->
+                       [%{chapter_title: String.t(), summary_text: String.t()}])
+        }
+  def chapter_summary_reader do
+    %{by_title: &accepted_summary_by_title/2, previous: &previous_accepted_summaries/3}
+  end
+
+  defp accepted_summary_by_title(work_id, title) when is_binary(work_id) and is_binary(title) do
+    with chapter_id when is_binary(chapter_id) <- chapter_id_for_title(work_id, title),
+         %{summary_text: text} <- ChapterSummaryRepo.current_accepted(work_id, chapter_id) do
+      text
+    else
+      _ -> nil
+    end
+  end
+
+  defp accepted_summary_by_title(_work_id, _title), do: nil
+
+  defp previous_accepted_summaries(work_id, target_title, n)
+       when is_binary(work_id) and is_binary(target_title) and is_integer(n) and n > 0 do
+    entries = chapter_entries(work_id)
+
+    entries
+    |> Enum.take_while(&(Map.get(&1, :title) != target_title))
+    |> Enum.take(-n)
+    |> Enum.map(&summary_for_entry(work_id, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp previous_accepted_summaries(_work_id, _target_title, _n), do: []
+
+  defp chapter_id_for_title(work_id, title) do
+    work_id
+    |> chapter_entries()
+    |> Enum.find_value(fn ch -> if Map.get(ch, :title) == title, do: Map.get(ch, :id) end)
+  end
+
+  defp summary_for_entry(work_id, %{id: chapter_id, title: title})
+       when is_binary(chapter_id) and is_binary(title) do
+    case ChapterSummaryRepo.current_accepted(work_id, chapter_id) do
+      %{summary_text: text} when is_binary(text) and text != "" ->
+        %{chapter_title: title, summary_text: text}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp summary_for_entry(_work_id, _entry), do: nil
+
+  defp chapter_entries(workspace_id) when is_binary(workspace_id) do
+    workspace_id
+    |> ReadingProjectionRepo.toc()
+    |> Map.get(:volumes, [])
+    |> Enum.flat_map(&Map.get(&1, :chapters, []))
+  end
+
+  defp chapter_entries(_workspace_id), do: []
 
   defp fetch_conversation_summary(workspace_id) do
     limit = recent_conversation_interaction_limit()

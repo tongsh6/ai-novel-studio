@@ -36,6 +36,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:author_input) => map(),
           optional(:complete_fn) => function(),
           optional(:chapter_prose_reader) => function(),
+          optional(:chapter_summary_reader) => map() | nil,
           optional(:source_turn_ref) => String.t(),
           optional(:idempotency_suffix) => String.t()
         }
@@ -67,22 +68,37 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp do_execute(frame, plan, decision, input, action, resolved_chapter) do
+    summary_reader = input[:chapter_summary_reader]
+
     prior_prose_full =
       continuation_prior_prose(frame, action, resolved_chapter, input[:chapter_prose_reader])
 
     # CP1：前文 excerpt 预算由本上下文的组装策略给出（按 provider 档位），超预算尾部裁剪
     # 并产生 OmissionNote + 发 context.downgrade.done 业务日志；裁剪不再用写死的常量。
+    # CP2.2（G3）：裁剪时以本章已采纳摘要兜底——replacement=chapter_summary:章 + excerpt
+    # 前置「更早正文摘要」，让被省略的更早正文以摘要替代而非凭空消失；无摘要才回落 nil。
     {prior_prose, omission_notes} =
       budget_prior_prose(
         frame,
         resolved_chapter,
         prior_prose_full,
-        DialogueContext.policy(input[:context])
+        DialogueContext.policy(input[:context]),
+        read_chapter_summary(summary_reader, frame.workspace_id, resolved_chapter)
+      )
+
+    # CP2.2（G5）：写作轮注入目标章之前的实现态摘要窗口，让模型知道前面已写了什么。
+    prior_summaries =
+      prior_chapter_summaries_section(
+        frame,
+        action,
+        resolved_chapter,
+        input[:context],
+        summary_reader
       )
 
     maybe_emit_target_word_count(frame, action)
 
-    req = build_tool_request(frame, plan, decision, input, action, prior_prose)
+    req = build_tool_request(frame, plan, decision, input, action, prior_prose, prior_summaries)
     tool_result = dispatch_tool(req, input[:complete_fn])
     artifact_set = assemble_artifact(tool_result, frame.turn_id, plan, resolved_chapter)
 
@@ -171,7 +187,7 @@ defmodule NovelApplication.TurnExecutionService do
   defp blocked_message(_coordinate),
     do: "没有找到要续写或重写的目标章节，无法继续。请确认要写哪一章。"
 
-  defp build_tool_request(frame, plan, decision, input, action, prior_prose) do
+  defp build_tool_request(frame, plan, decision, input, action, prior_prose, prior_summaries) do
     tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"
     entry = CapabilityRegistry.get(tool_name)
 
@@ -183,7 +199,15 @@ defmodule NovelApplication.TurnExecutionService do
       decision_ref: decision.decision_id,
       tool_name: tool_name,
       tool_version: (entry && entry.tool_version) || "unknown",
-      input: tool_input(frame, action, input[:author_input], input[:context], prior_prose),
+      input:
+        tool_input(
+          frame,
+          action,
+          input[:author_input],
+          input[:context],
+          prior_prose,
+          prior_summaries
+        ),
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
       idempotency_key: "idem_#{frame.turn_id}_#{tool_name}#{input[:idempotency_suffix] || ""}",
@@ -192,7 +216,7 @@ defmodule NovelApplication.TurnExecutionService do
     }
   end
 
-  defp tool_input(frame, action, author_input, context, prior_prose) do
+  defp tool_input(frame, action, author_input, context, prior_prose, prior_summaries) do
     text =
       case author_input do
         %{text: text} when is_binary(text) -> text
@@ -200,8 +224,13 @@ defmodule NovelApplication.TurnExecutionService do
         _ -> frame.author_visible_draft.message
       end
 
+    # 顺序：前文各章摘要（L3a 跨章背景）→ 本章已采纳正文（L5 衔接）→ 当前作者输入。
     context_text =
-      [prior_prose_section(action, prior_prose), tool_context_text(context, text)]
+      [
+        prior_summaries,
+        prior_prose_section(action, prior_prose),
+        tool_context_text(context, text)
+      ]
       |> Enum.reject(&blank?/1)
       |> Enum.join("\n\n")
 
@@ -325,27 +354,30 @@ defmodule NovelApplication.TurnExecutionService do
           DialogueFrame.t(),
           String.t(),
           String.t(),
-          NovelDomain.AssemblyPolicy.t()
+          NovelDomain.AssemblyPolicy.t(),
+          String.t() | nil
         ) ::
           {String.t(), [OmissionNote.t()]}
-  defp budget_prior_prose(_frame, _chapter, "", _policy), do: {"", []}
+  defp budget_prior_prose(_frame, _chapter, "", _policy, _summary), do: {"", []}
 
-  defp budget_prior_prose(frame, chapter, prose, policy) do
+  defp budget_prior_prose(frame, chapter, prose, policy, summary) do
     max = policy.excerpt_budget_chars
 
     if String.length(prose) <= max do
       {prose, []}
     else
-      excerpt =
-        "（本章更早的正文已省略，以下是最近的部分）\n…" <>
-          String.slice(prose, String.length(prose) - max, max)
+      tail = String.slice(prose, String.length(prose) - max, max)
+      {preamble, replacement} = omitted_prose_preamble(summary, chapter)
+      excerpt = preamble <> "\n…" <> tail
 
-      note = OmissionNote.new("prior_prose:#{chapter_label(chapter)}", :budget_limited, nil)
+      note =
+        OmissionNote.new("prior_prose:#{chapter_label(chapter)}", :budget_limited, replacement)
 
       LogEmit.emit(:context, :downgrade, :done, %{
         turn_id: frame.turn_id,
         source: note.source,
         reason: to_string(note.reason),
+        replacement: replacement,
         assembly_policy_id: policy.policy_id,
         excerpt_budget_chars: max,
         original_chars: String.length(prose)
@@ -355,8 +387,75 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
+  # CP2.2（G3）：有本章摘要则以摘要替代被省略的更早正文（replacement=chapter_summary:章）；
+  # 无摘要才回落 CP1 行为（replacement=nil，凭空消失仅有省略记录）。
+  defp omitted_prose_preamble(summary, chapter) when is_binary(summary) and summary != "" do
+    {"（本章更早的正文已省略，以下是其摘要与最近的部分）\n更早正文摘要：#{summary}", "chapter_summary:#{chapter_label(chapter)}"}
+  end
+
+  defp omitted_prose_preamble(_summary, _chapter) do
+    {"（本章更早的正文已省略，以下是最近的部分）", nil}
+  end
+
   defp chapter_label(chapter) when is_binary(chapter) and chapter != "", do: chapter
   defp chapter_label(_), do: "本章"
+
+  # CP2.2（G3）：读本章当前已采纳摘要，作为裁剪前文的替代物。
+  defp read_chapter_summary(%{by_title: by_title}, work_id, chapter)
+       when is_function(by_title, 2) and is_binary(work_id) and is_binary(chapter) and
+              chapter != "" do
+    case by_title.(work_id, chapter) do
+      text when is_binary(text) and text != "" -> text
+      _ -> nil
+    end
+  end
+
+  defp read_chapter_summary(_reader, _work_id, _chapter), do: nil
+
+  # CP2.2（G5）：prose_writing 轮按 AssemblyPolicy.summary_window 注入目标章之前
+  # 最近 N 章摘要，让模型知道前面已写了什么；记 context.continuity.done（source_type=continuity）。
+  defp prior_chapter_summaries_section(
+         frame,
+         action,
+         resolved_chapter,
+         context,
+         %{previous: previous}
+       )
+       when is_function(previous, 3) do
+    if prose_writing_action?(action) do
+      policy = DialogueContext.policy(context)
+
+      previous.(frame.workspace_id, resolved_chapter, policy.summary_window)
+      |> Enum.reject(&(&1.chapter_title == resolved_chapter))
+      |> build_summaries_section(frame, policy)
+    else
+      ""
+    end
+  end
+
+  defp prior_chapter_summaries_section(_frame, _action, _resolved_chapter, _context, _reader),
+    do: ""
+
+  defp build_summaries_section([], _frame, _policy), do: ""
+
+  defp build_summaries_section(summaries, frame, policy) do
+    LogEmit.emit(:context, :continuity, :done, %{
+      turn_id: frame.turn_id,
+      source_type: "continuity",
+      chapter_count: length(summaries),
+      summary_window: policy.summary_window,
+      assembly_policy_id: policy.policy_id
+    })
+
+    body =
+      Enum.map_join(summaries, "\n\n", fn s -> "### #{s.chapter_title}\n#{s.summary_text}" end)
+
+    "## 前文各章摘要（用于跨章连续性，不要照抄）\n" <> body
+  end
+
+  defp prose_writing_action?(action) do
+    (action[:target_ref] || action[:capability_name]) == "prose_writing"
+  end
 
   defp prior_prose_section(_action, ""), do: ""
 

@@ -771,6 +771,7 @@ defmodule NovelApplication.DialogueGateway do
           source_turn_ref: map_field(source_turn_result, :turn_id),
           complete_fn: complete_fn,
           chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
+          chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
           idempotency_suffix: "_confirmed"
         })
 
@@ -890,7 +891,8 @@ defmodule NovelApplication.DialogueGateway do
         context: context,
         author_input: author_input,
         complete_fn: complete_fn,
-        chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader()
+        chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
+        chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader()
       })
 
     {:ok, turn_result, trace, candidates, context}
