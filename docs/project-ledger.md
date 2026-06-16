@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-06-13（正式开发分支迁移前对齐：SU-01 完整版模型切换已有最小真实 Tauri 证据但异常矩阵未闭环；VS-00D / AU-11 已补 AI 引导式创作三层 + message contract 文档入口，状态为 docs-ready，不代表代码实现完成）
+> 最后更新：2026-06-17（VS-00C CP2.2 已接入已采纳章节摘要读端口、前文摘要窗口默认 15 并回到 AssemblyPolicy 管理；前端新增 Prettier 项目级基线；桌面 dev/stage/slice profile 已隔离，避免模型供应商偏好跨环境串用）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -20,6 +20,10 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **VS-06 后续（Task Lifecycle）：已交付（重建 TaskRunner，支持 SQLite 持久化，已通过 3 轮 Review 加固）**
 - **QP-Workbench（UI Enhancement）：已交付（实现 Frame Insight 认知洞察可视化，已完成 UI 组件解耦与类型加固）**
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
+
+### 当前重点推进事项（2026-06-17）
+
+VS-00C CP2.2 / desktop profile isolation / frontend formatter checkpoint（2026-06-17）：已把“充分上下文”从本地常量与 prompt 口号推进到可审计实现：`NovelApplication.TurnExecutionService` 通过应用层注入 `chapter_summary_reader`，在 prose_writing 轮注入目标章之前的前 N 章已采纳摘要，并在本章已采纳正文被裁剪时优先用本章摘要作为 `OmissionNote.replacement`；摘要窗口不再由 CP2.2 私有常量控制，统一消费 `AssemblyPolicy.summary_window`，默认从 2 调整为 15，policy id 升级为 `prose_writing/*_v2`，`context.continuity.done` 日志记录 `summary_window` 与 `assembly_policy_id`。持久化侧新增基于目录顺序和已采纳摘要的 reader，测试覆盖摘要窗口、摘要替代、跨章摘要注入与读端口。CP0 同步加固“显式请求不存在章节”路径：WritingCoordinate / MissingPolicyResult 在 provider/tool dispatch 前阻断，新增外部 Tauri driver `vs00c-cp0-missing-chapter-block` 作为真实页面证据入口。前端新增项目级 Prettier 依赖、配置和脚本，`frontend check` 现在包含 `format:check`，本轮大面积前端 diff 主要是首次格式化基线。桌面模型供应商设置已按 `AI_NOVEL_DESKTOP_PROFILE` 隔离 app config 与 macOS Keychain service：dev 默认 `dev`，stage 默认 `stage`，slice verify 使用独立 `slice-verify` home/profile，避免 stage 中保存的 DeepSeek provider 在开发验证中被自动同步到 runtime。验证已覆盖 `mix compile --warnings-as-errors`、`mix test`、xref、arch、frontend typecheck/lint/test、Tauri Rust `cargo test`/`cargo check`、`bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership`、`bash scripts/task_done.sh --slice desktop-stage-process-ownership --skip-static-scan`、`bash scripts/ai_static_scan.sh --top 10`；静态扫描仍只剩历史 `tools/company-console/server/config.mjs` 的 gitleaks accepted risk，非本轮触碰文件且 blocking=0。剩余边界：dev/stage 不迁移旧共享偏好与 Keychain secret，各 profile 需各自保存一次 provider/API Key；VS-00C 当前仍是“已采纳摘要窗口 + 本章裁剪摘要替代”，不是完整百万字级全局记忆检索。
 
 ### 当前重点推进事项（2026-06-13）
 
