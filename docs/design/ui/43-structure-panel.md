@@ -33,7 +33,7 @@
 
 ---
 
-## 4. 渐进披露层级 (ADR-0015)
+## 4. 渐进披露层级
 
 结构面板的展开与导航必须遵循以下 L1-L4 层级：
 
@@ -56,7 +56,7 @@
 ### 4.3 L3 详情 (Detail)
 - **UI 呈现**：选中 L2 中的某项对象后展示的内容卡片。
 - **内容**：
-  - 单对象的字段内容（遵循 `34-novel-element-field-priority.md` 过滤显示核心字段）。
+  - 单对象的字段内容（遵循 `../domain/34-novel-element-field-priority.md` 过滤显示核心字段）。
   - Source refs、修订版本 (Revision)。
   - 若为暂态，显示 Adoption status。
   - 关联的 Findings / Warnings。
@@ -83,6 +83,8 @@
 7. **Long-run tasks**（长跑任务监控台，如批量推演）
 8. **Experience 经验沉淀**（只读证据、待审经验草稿、已启用经验规则）
 
+2026-06-17 实现状态：`AU12-work-profile-overview` 已补 Work 概览 CP1，只读展示 works 表中的立项字段（题材、核心卖点、目标读者、基调、状态、修订号），证据 `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`。主题/大纲整合、采纳产物类立项要素和从概览发起 correction 修订仍属后续 checkpoint。
+
 ### 5.1 Experience 模块边界
 
 | 对象 | 面板呈现 | 可操作性 |
@@ -97,7 +99,7 @@ Experience 模块不得把 evidence、artifact、rule 混成同一种“偏好�
 
 ## 6. 验收标准约束
 
-1. 字段优先级必须明确引用 `34-novel-element-field-priority.md` 和 ADR-0015。
+1. 字段优先级必须明确引用 `../domain/34-novel-element-field-priority.md`；渐进披露层级见本文 §4。
 2. 明确面板的操作边界：只提供查看、跳转、发起意图（correction/adoption），坚决禁止绕过 Agent 直接写权威状态。
 3. 视觉上明确区分 authoritative、accepted、tentative、pending adoption 的状态，防误导。
 4. 未冻结扩展类型（如 timeline_event 的具体细分类型）只能以纯文本标签/Placeholder 展示，不得自造下拉列表或验证。

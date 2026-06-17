@@ -27,7 +27,7 @@
 
 1. **包体积**：单作者期下载 ~40MB 总包 vs ~200MB 是用户体验差异
 2. **Sidecar**：Tauri 原生支持启动外部二进制（Mix Release），不需要自己写 process 管理
-3. **安全模型**：Capability allowlist 可以严格限制前端能做的事，符合 [`../00-overview.md`](../00-overview.md) §4.10 安全要求
+3. **安全模型**：Capability allowlist 可以严格限制前端能做的事，符合 [`../foundation/10-security-and-budget.md`](../foundation/10-security-and-budget.md) 安全要求
 4. **多平台一致性**：用系统 Webview 而非 Chromium，跨 macOS/Win/Linux 行为一致
 
 ---

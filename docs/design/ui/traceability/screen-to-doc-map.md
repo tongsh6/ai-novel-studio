@@ -8,7 +8,7 @@
 
 | Screen frame name (ID) | UI 文档章节 | 关键 contract 来源 | 状态 |
 | --- | --- | --- | --- |
-| `41§3-main-workbench` (ZOwOi) | `docs/design/ui/41-workbench-layout.md` §3 | `07-workbench-ui-contract.md` / `ADR-0015` / VS-05 | ✅ 已修订：结构入口默认折叠；已导出 PNG |
+| `41§3-main-workbench` (ZOwOi) | `docs/design/ui/41-workbench-layout.md` §3 | `43-structure-panel.md` §4 / `07-workbench-ui-contract.md` / VS-05 / `ADR-0015` TurnResultViewModel | ✅ 已修订：档案入口默认折叠；已导出 PNG |
 | `42§4-adoption-card-states` (PZAVY) | `docs/design/ui/42-card-system.md` §4 | `07-workbench-ui-contract.md` / VS-04 / VS-05 | ✅ 已修订：候选选择 / 修改 / 继续讨论文案对齐；已导出 PNG |
 | `43§5-structure-panel-expanded` (ATnmR) | `docs/design/ui/43-structure-panel.md` §5 | `domain/34-novel-element-field-priority.md` / VS-04 | ✅ 已修订：frame 已启用；已导出 PNG |
 | `44§3-reading-mode-stale` (hEGz0) | `docs/design/ui/44-reading-mode.md` §3 | `domain/27-reading-projection.md` / `ADR-0016` | ✅ 已导出 PNG |

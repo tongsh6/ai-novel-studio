@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 目的：定义 [`../00-overview.md`](../00-overview.md) §4.8 Provider 抽象在 Elixir 上的具体实现。本文不是完整设计文档，是技术栈层面的实现选型与关键纪律，详细 contract 待 `../08-provider-abstraction.md` 写完后落地。
+> 目的：定义 [`../foundation/08-provider-abstraction.md`](../foundation/08-provider-abstraction.md) Provider 抽象在 Elixir 上的具体实现。本文不是完整设计文档，是技术栈层面的实现选型与关键纪律，详细 contract 待 `../foundation/08-provider-abstraction.md` 写完后落地。
 
 ---
 
@@ -77,7 +77,7 @@ flowchart LR
 ```elixir
 defmodule AINovelStudio.Foundation.Provider do
   @moduledoc """
-  对应 v2 §4.8 Provider Abstraction。
+  对应 Provider 抽象（[`../foundation/08-provider-abstraction.md`](../foundation/08-provider-abstraction.md)）。
   所有 LLM 调用必须穿过此抽象。
   """
   
@@ -222,7 +222,7 @@ Gateway 根据 Agent ID + capability 路由到对应 provider。
 
 ## 6. Usage 追踪
 
-`usage` 字段标准化（[`../00-overview.md`](../00-overview.md) §4.8）：
+`usage` 字段标准化（[`../foundation/08-provider-abstraction.md`](../foundation/08-provider-abstraction.md)）：
 
 ```elixir
 defmodule AINovelStudio.Foundation.Provider.UsageTracker do

@@ -49,5 +49,5 @@
 ## 4. 修改纪律
 
 - 本目录可以随 Phase 0 实测快速更新。
-- 验证结果若改变技术栈主结论，必须同步更新 `../README.md`、`../13-risks.md`、`../14-roadmap.md`。
+- 验证结果若改变技术栈主结论，必须同步更新 `../README.md`、`../13-risks.md`、`../../00-vision-and-engineering-roadmap.md`。
 - 验证失败不等于立即推翻技术栈；只有影响 Foundation / Domain 核心能力时才升级为 ADR。

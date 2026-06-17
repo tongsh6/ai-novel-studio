@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 目的：把"v2 应该用什么技术栈实现"这个问题从讨论收敛成可执行的工程基线。本文不重复 [`../00-overview.md`](../00-overview.md) 的系统设计语义，只回答语义如何落地。
+> 目的：把"v2 应该用什么技术栈实现"这个问题从讨论收敛成可执行的工程基线。本文不重复 [`../README.md`](../README.md) 的系统设计语义，只回答语义如何落地。
 
 ---
 
@@ -28,7 +28,7 @@
 ### 约束 3：Multi-Agent 在阶段 1 就是核心功能
 
 - 不是"未来扩展点"，是 day-1 产品差异化
-- 对应 [`../00-overview.md`](../00-overview.md) §4.12 子系统 12 多 Agent 组合
+- 对应 [`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) 的多 Agent 组合
 - 不能延后到阶段 2 才上
 
 ### 约束 4：Multi-Agent 是 process-isolated，不是 prompt orchestration
@@ -188,18 +188,18 @@ flowchart TB
 
 | v2 子系统 | 实现位置 |
 |---|---|
-| [`../00-overview.md`](../00-overview.md) §4.1 交互契约 | Phoenix Channels + JSON Schema codegen |
-| §4.2 回合与任务状态 | OTP GenStateMachine + Ecto schemas |
-| §4.3 意图与对话行为 | Domain.Intents 注册表 |
-| §4.4 能力与 Executor | OTP supervision tree per capability |
-| §4.5 记忆体系 | Ecto 多表 + ETS hot tier |
-| §4.6 规划与编排 | Domain.Orchestrator GenServer + Task.Supervisor |
-| §4.7 一致性与并发 | Ecto.Multi + paper_trail + 乐观锁 |
-| §4.8 Provider 抽象 | [`07-provider.md`](./07-provider.md) |
-| §4.9 观测性 | [`10-observability.md`](./10-observability.md) |
-| §4.10 安全、权限与预算 | OTP process authority + Plug pipeline |
-| §4.11 UX 基础语义 | TurnResult.ui_cards → React 组件投影 |
-| §4.12 多 Agent 组合 | [`08-multi-agent.md`](./08-multi-agent.md) |
+| 交互契约 | Phoenix Channels + JSON Schema codegen |
+| 回合与任务状态 | OTP GenStateMachine + Ecto schemas |
+| 意图与对话行为 | Domain.Intents 注册表 |
+| 能力与 Executor | OTP supervision tree per capability |
+| 记忆体系 | Ecto 多表 + ETS hot tier |
+| 规划与编排 | Domain.Orchestrator GenServer + Task.Supervisor |
+| 一致性与并发 | Ecto.Multi + paper_trail + 乐观锁 |
+| Provider 抽象 | [`07-provider.md`](./07-provider.md) |
+| 观测性 | [`10-observability.md`](./10-observability.md) |
+| 安全、权限与预算 | OTP process authority + Plug pipeline |
+| UX 基础语义 | TurnResult.ui_cards → React 组件投影 |
+| 多 Agent 组合 | [`08-multi-agent.md`](./08-multi-agent.md) |
 
 | v2 Domain 模块 | 实现位置 |
 |---|---|
@@ -229,6 +229,6 @@ flowchart TB
 
 - 想知道为什么选这个 → [`01-decision-rationale.md`](./01-decision-rationale.md)
 - 想知道别的为什么不行 → [`02-alternatives.md`](./02-alternatives.md)
-- 想开始动手 → [`14-roadmap.md`](./14-roadmap.md) + [`12-development.md`](./12-development.md)
+- 想开始动手 → [`../00-vision-and-engineering-roadmap.md`](../00-vision-and-engineering-roadmap.md) + [`12-development.md`](./12-development.md)
 - 想看具体子系统怎么落地 → [`07-provider.md`](./07-provider.md) ~ [`10-observability.md`](./10-observability.md)
 - 担心风险 → [`13-risks.md`](./13-risks.md)

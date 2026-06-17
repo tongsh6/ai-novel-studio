@@ -71,7 +71,7 @@ docs/design/             docs/design/tech-stack/
 | [`11-deployment.md`](./11-deployment.md) | 阶段 1 单机 → 阶段 2 B/S 部署形态 |
 | [`12-development.md`](./12-development.md) | Mix umbrella 仓库结构 / 构建 / 测试 / CI |
 | [`13-risks.md`](./13-risks.md) | 已识别风险登记 + 缓解策略 |
-| [`14-roadmap.md`](./14-roadmap.md) | Phase 0 工作分解（第 1 周到第 1 个月）|
+| [`../00-vision-and-engineering-roadmap.md`](../00-vision-and-engineering-roadmap.md) | Phase 0 工作分解（第 1 周到第 1 个月）|
 
 ### 技术验证任务
 
@@ -99,7 +99,7 @@ docs/design/             docs/design/tech-stack/
 
 实施时：
 
-1. `14-roadmap.md` - 路线图
+1. `../00-vision-and-engineering-roadmap.md` - 路线图
 2. `12-development.md` - 仓库结构
 3. `verification/README.md` - 前置技术验证任务
 4. `03`-`06` - 各层栈具体清单
@@ -163,7 +163,7 @@ docs/design/             docs/design/tech-stack/
 | 术语 | 含义 | 出现位置 |
 |---|---|---|
 | **阶段 1 / 阶段 2**（产品形态） | 单机桌面应用 vs B/S 多用户服务 | `00-overview.md` §3-§4、`05-desktop.md`、`11-deployment.md` |
-| **Phase 0 / Phase 1**（工程阶段） | Phase 0 = 脚手架 + 第一份 schema + smoke test（3-4 周）；Phase 1 = 按 v2 README §7 顺序写 Foundation/Domain 子系统 | `14-roadmap.md`、`13-risks.md` |
+| **Phase 0 / Phase 1**（工程阶段） | Phase 0 = 脚手架 + 第一份 schema + smoke test（3-4 周）；Phase 1 = 按 v2 README §7 顺序写 Foundation/Domain 子系统 | `../00-vision-and-engineering-roadmap.md`、`13-risks.md` |
 
 两套术语正交：Phase 0 和 Phase 1 都发生在产品"阶段 1"内。
 

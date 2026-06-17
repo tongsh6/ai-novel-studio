@@ -218,7 +218,7 @@ UI 不得把以下状态只藏在 assistant message 中：
 
 ### 7.2 渐进披露
 
-结构面板遵守 ADR-0015 的 L1-L4 渐进披露：
+结构面板遵守 `43-structure-panel.md` §4 的 L1-L4 渐进披露：
 
 | 层级 | UI 意义 |
 | --- | --- |
@@ -311,7 +311,7 @@ UI 阶段必须遵守：
 | --- | --- |
 | `41-workbench-layout.md` | 对话优先、卡片一等对象、长跑透明、结构默认隐藏 |
 | `42-card-system.md` | 卡片只投影 `VS-05` §4 的 card type，不新增基础语义 |
-| `43-structure-panel.md` | ADR-0015 渐进披露、不做巨型表单、不直写 authoritative state |
+| `43-structure-panel.md` | 渐进披露层级（§4）、不做巨型表单、不直写 authoritative state |
 | `44-reading-mode.md` | accepted projection only、projection 四态、tentative preview 显式化 |
 | `45-guided-conversation-flows.md` | intent / slot 来自 ADR-0008 / ADR-0010，缺 slot 走 clarification；required slot 不等于作者表单 |
 | `46-state-and-feedback.md` | 状态必须来源于 TurnResult / task / artifact / adoption / projection，不只靠颜色表达 |

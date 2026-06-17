@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 目的：定义 SQLite ↔ PostgreSQL 切换策略、Ecto schema 纪律、revision audit、migration 流程。本文档落地 [`../00e-architecture.md`](../00e-architecture.md) 的数据面 + [`../30-contract-glossary.md`](../30-contract-glossary.md) §2 revision 一致性约束。
+> 目的：定义 SQLite ↔ PostgreSQL 切换策略、Ecto schema 纪律、revision audit、migration 流程。本文档落地 [`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) 的数据面 + [`../foundation/30-contract-glossary.md`](../foundation/30-contract-glossary.md) §2 revision 一致性约束。
 
 ---
 
@@ -105,7 +105,7 @@ end
 
 ### 3.2 Adoption Boundary 表
 
-[`../00e-architecture.md`](../00e-architecture.md) §10 反模式 #3："只有 Adoption Boundary 与 Projection Refresher 拥有 `production_write`"。
+[`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) §10 反模式 #3："只有 Adoption Boundary 与 Projection Refresher 拥有 `production_write`"。
 
 物理隔离 tentative 与 accepted：
 

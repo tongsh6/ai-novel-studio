@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 目的：定义 [`../00-overview.md`](../00-overview.md) §4.9 观测性子系统在 Elixir 上的具体落地——OpenTelemetry-erlang + Phoenix.Telemetry。
+> 目的：定义 [`../foundation/09-observability-and-audit.md`](../foundation/09-observability-and-audit.md) 观测性子系统在 Elixir 上的具体落地——OpenTelemetry-erlang + Phoenix.Telemetry。
 
 ---
 
@@ -345,7 +345,7 @@ audit log 必须包含的事件：
 
 ---
 
-## 9. Replay（[`../00-overview.md`](../00-overview.md) §4.9）
+## 9. Replay（[`../foundation/09-observability-and-audit.md`](../foundation/09-observability-and-audit.md)）
 
 每个 turn 可以从 trace 复现：
 
@@ -353,7 +353,7 @@ audit log 必须包含的事件：
 - 用 `interaction_id` 查询 trace
 - 复现时用 stub provider 返回历史响应（如果 `usage.frozen_raw_result` 已保存）
 
-详见 [`../09-observability-and-audit.md`](../09-observability-and-audit.md)。
+详见 [`../foundation/09-observability-and-audit.md`](../foundation/09-observability-and-audit.md)。
 
 ---
 
@@ -378,4 +378,4 @@ audit log 必须包含的事件：
 - 阶段 1 用户对 telemetry 的 opt-in/opt-out 控制
 - Trace context 在 GenStage 数据流中的传播（producer → consumer 跨过 demand）
 
-以上 TBD 在 v2 §4.9 主文档（`../09-observability-and-audit.md`）冻结后落实。
+以上 TBD 在主文档（`../foundation/09-observability-and-audit.md`）冻结后落实。

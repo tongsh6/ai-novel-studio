@@ -24,7 +24,7 @@
 
 **来源**：用户访谈明确表达"单机长期使用，不是 alpha throwaway"。
 
-**对应 v2 文档**：[`../00e-architecture.md`](../00e-architecture.md) §8 部署形态建议（"v2 alpha 单作者本机"），但本约束把它从 alpha 阶段升格为**长期形态**。
+**对应设计文档**：[`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) §8 部署形态建议（"v2 alpha 单作者本机"），但本约束把它从 alpha 阶段升格为**长期形态**。
 
 **含义**：
 
@@ -36,7 +36,7 @@
 
 **来源**：用户访谈明确"两个大的阶段"。
 
-**对应 v2 文档**：[`../00e-architecture.md`](../00e-architecture.md) §8 第三行（"v2 beta：单服务 + PostgreSQL + 多 provider"）。
+**对应设计文档**：[`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) §8 第三行（"v2 beta：单服务 + PostgreSQL + 多 provider"）。
 
 **含义**：
 
@@ -48,7 +48,7 @@
 
 **来源**：用户回答"Multi-Agent 什么时候上 → 阶段 1 就是核心功能"。
 
-**对应 v2 文档**：[`../00-overview.md`](../00-overview.md) §4.12 + [`../12-multi-agent-composition.md`](../12-multi-agent-composition.md)。
+**对应设计文档**：[`../foundation/00e-architecture.md`](../foundation/00e-architecture.md)。
 
 **含义**：
 
@@ -63,7 +63,7 @@
 2. 独立取消：取消一个 Agent 不影响其他
 3. Crash isolation：一个 Agent 崩溃，其他存活
 
-**对应 v2 文档**：[`../00-overview.md`](../00-overview.md) §4.12 硬骨：
+**对应设计文档**：[`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) 的多 Agent 硬骨：
 
 - "Agent identity"
 - "父子 Agent 预算继承（authority/budget 一律收缩）"

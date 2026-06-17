@@ -2,7 +2,7 @@
 
 > 状态：草案
 >
-> 目的：把 [`../00-overview.md`](../00-overview.md) §4.12 + [`../12-multi-agent-composition.md`](../12-multi-agent-composition.md) 的 Multi-Agent 硬骨逐条映射到 OTP 原语。本文是技术栈推荐能否成立的**最关键验证点**。
+> 目的：把 [`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) 的 Multi-Agent 硬骨逐条映射到 OTP 原语。本文是技术栈推荐能否成立的**最关键验证点**。
 
 ---
 
@@ -597,4 +597,4 @@ end
 - Agent lifecycle 的具体状态机（除 :idle / :busy / :paused / :stopping）
 - 与 Reading Projection Refresher 的 GenStage 集成
 
-以上 TBD 在 `../12-multi-agent-composition.md` 主文档完成时同步落实。
+以上 TBD 在 `../foundation/00e-architecture.md` 主文档完成时同步落实。

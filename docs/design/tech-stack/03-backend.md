@@ -35,10 +35,10 @@ release:         Mix Release (单二进制)
 
 | 优势 | 对应本项目硬骨 |
 |---|---|
-| OTP supervision tree | [`../00-overview.md`](../00-overview.md) §4.12 多 Agent 父子关系是基因 |
-| Process isolation + linking + monitoring | §4.12 crash isolation + handoff agent_ref |
-| GenServer + 异步消息 | §4.12 Agent 间消息协议 |
-| Reduction-based scheduling | §4.10 Budget 计量天然 |
+| OTP supervision tree | [`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) 多 Agent 父子关系是基因 |
+| Process isolation + linking + monitoring | crash isolation + handoff agent_ref |
+| GenServer + 异步消息 | Agent 间消息协议 |
+| Reduction-based scheduling | Budget 计量天然 |
 | Distributed Erlang | 阶段 2 跨节点免费 |
 | Mix Release 单二进制 | 阶段 1 桌面应用部署轻 |
 | Hot code swap | 阶段 2 多作者期 0 downtime 升级（可选）|
@@ -60,7 +60,7 @@ release:         Mix Release (单二进制)
 
 **为什么不用 LiveView**：
 
-LiveView 的"server-rendered + WebSocket diff"模式会绑定 UI 状态到服务端，违反 [`../00e-architecture.md`](../00e-architecture.md) §10 反模式 #5 "UI 不能直接读 Domain Stores"。本项目的 UI 复杂度（卡片协议 + 流式 + 结构面板 + 多种 render mode）也超出 LiveView 适用范围。
+LiveView 的"server-rendered + WebSocket diff"模式会绑定 UI 状态到服务端，违反 [`../foundation/00e-architecture.md`](../foundation/00e-architecture.md) §10 反模式 #5 "UI 不能直接读 Domain Stores"。本项目的 UI 复杂度（卡片协议 + 流式 + 结构面板 + 多种 render mode）也超出 LiveView 适用范围。
 
 Phoenix 退化为 API server + WebSocket gateway。
 
@@ -85,7 +85,7 @@ Phoenix 退化为 API server + WebSocket gateway。
 
 > 状态：✅ 基线（已实测，2026-04-26）。详见 [`verification/paper-trail-ecto-compatibility.md`](./verification/paper-trail-ecto-compatibility.md)。
 
-`paper_trail` 是 Elixir 生态的版本历史插件，对应 v2 [`../30-contract-glossary.md`](../30-contract-glossary.md) §2.3 `source_revision_refs` 的硬约束：
+`paper_trail` 是 Elixir 生态的版本历史插件，对应 v2 [`../foundation/30-contract-glossary.md`](../foundation/30-contract-glossary.md) §2.3 `source_revision_refs` 的硬约束：
 
 - 每次写入自动创建 `versions` 表的 audit record
 - 包含 `event` (insert/update/delete) + `item_changes` (jsonb 增量) + `originator_id`
@@ -287,18 +287,18 @@ end
 
 | v2 子系统 | 实现位置 | 依赖 |
 |---|---|---|
-| §4.1 交互契约 | `novel_web/lib/novel_web/controllers/`、Phoenix Channels | phoenix |
-| §4.2 状态机 | `novel_foundation/lib/foundation/state/` | gen_state_machine |
-| §4.3 对话行为 | `novel_domain/lib/domain/conversation/` | - |
-| §4.4 Capability/Intent | `novel_foundation/lib/foundation/registry/` | - |
-| §4.5 记忆体系 | `novel_foundation/lib/foundation/memory/` | ecto + ets |
-| §4.6 规划编排 | `novel_foundation/lib/foundation/orchestrator/` | gen_stage + task |
-| §4.7 一致性 | `novel_persistence/lib/persistence/multi/` | ecto + paper_trail |
-| §4.8 Provider | [`07-provider.md`](./07-provider.md) | langchain + instructor_lite |
-| §4.9 观测性 | [`10-observability.md`](./10-observability.md) | opentelemetry |
-| §4.10 安全/预算 | `novel_foundation/lib/foundation/{authority,budget}/` | - |
-| §4.11 UX 语义 | `novel_web/lib/novel_web/views/turn_result/` | - |
-| §4.12 多 Agent | [`08-multi-agent.md`](./08-multi-agent.md) | core OTP |
+| 交互契约 | `novel_web/lib/novel_web/controllers/`、Phoenix Channels | phoenix |
+| 状态机 | `novel_foundation/lib/foundation/state/` | gen_state_machine |
+| 对话行为 | `novel_domain/lib/domain/conversation/` | - |
+| Capability/Intent | `novel_foundation/lib/foundation/registry/` | - |
+| 记忆体系 | `novel_foundation/lib/foundation/memory/` | ecto + ets |
+| 规划编排 | `novel_foundation/lib/foundation/orchestrator/` | gen_stage + task |
+| 一致性 | `novel_persistence/lib/persistence/multi/` | ecto + paper_trail |
+| Provider | [`07-provider.md`](./07-provider.md) | langchain + instructor_lite |
+| 观测性 | [`10-observability.md`](./10-observability.md) | opentelemetry |
+| 安全/预算 | `novel_foundation/lib/foundation/{authority,budget}/` | - |
+| UX 语义 | `novel_web/lib/novel_web/views/turn_result/` | - |
+| 多 Agent | [`08-multi-agent.md`](./08-multi-agent.md) | core OTP |
 
 ---
 
