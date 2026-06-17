@@ -120,7 +120,7 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 | A3 | 业务日志可按 turn/work/session 回溯 | VS-10 | DecisionTrace / TraceSummaryView | closed | Browser/Tauri verify | `vs10-observability-spine` browser + Tauri evidence 见台账 | 完整运营诊断仍依赖 Journey I。 |
 | A4 | 关闭 Tauri/stage 后由 launcher 清理 Phoenix/Vite 并恢复配置 | VS-11 | TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/desktop-stage-process-ownership-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership` | 证明 dev/stage owner 模型；不声称覆盖生产 sidecar。 |
 | A5 | 配置或切换模型供应商 | SU-01 | AuthorActionInput / TurnResultViewModel | gap | Document only | SU-01 acceptance gaps | 缺 provider 列表、Key/endpoint 设置、安全存储、运行时切换。 |
-| A6 | provider 不可用时看到清晰降级 | SU-01 / AU-01 | OrchestratorDecision / TraceSummaryView | partial | Channel/API automation | provider health controller tests；AU-01 error recovery tests | 缺真实工作台断连、超时、恢复后的 UI walkthrough。 |
+| A6 | provider 不可用时看到清晰降级 | SU-01 / AU-01 | OrchestratorDecision / TraceSummaryView | checkpoint closed / 继续补矩阵 | Tauri automation + Channel/API automation | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；provider health controller tests；AU-01 error recovery tests | provider 不可用后 no-write fallback、loading 清除和恢复后下一轮已由真实工作台证明；缺真实 timeout、乱码、WebSocket 断线和更完整 UI 矩阵。 |
 
 ---
 
@@ -193,7 +193,7 @@ Next Proof：LLM 异常、乱码、超时或恢复后，真实工作台仍能保
 | C4 | 候选卡可点击继续探索 | AU-02 / AU-10 | AvailableAction / AuthorInput | closed | Tauri automation | `bash scripts/tauri_slice_verify.sh au02-candidate-continuation` | 继续探索不等于采纳已验证。 |
 | C5 | frame badge 区分自然回复和探索 | AU-02 / AU-10 | DialogueFrame / TurnResultViewModel | closed | Tauri automation | `au02-candidate-continuation` frame badge evidence | 还缺更多 frame 类型样例。 |
 | C6 | 从候选方向明确进入采纳边界 | AU-02 / AU-05 | AuthorActionInput / AdoptionDecision | closed | Tauri automation | `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` | 已证明 selection / adoption 分离；后续转入 Journey F 安全门禁。 |
-| C7 | LLM 异常、乱码、超时后可继续自然对话 | AU-01 | OrchestratorDecision / TraceSummaryView | partial | Application test | broken provider / garbage JSON tests | 缺真实工作台 UI 恢复验收。 |
+| C7 | LLM 异常、乱码、超时后可继续自然对话 | AU-01 | OrchestratorDecision / TraceSummaryView | checkpoint closed / 继续补矩阵 | Tauri automation + Application test | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；broken provider / garbage JSON tests | provider 不可用恢复已由真实工作台证明；缺乱码、真实 timeout、取消等待和更完整 UI 恢复验收。 |
 
 ---
 
@@ -402,11 +402,11 @@ Next Proof：从一个包含 context/tool/behavior/state 的真实 turn 打开 w
 
 真实消费者：`WorkspaceChat`、ActionPanel、MessageList、StructurePanel、ReadingMode。历史 `历史旁路工作台` 实验组件已退役删除，不再作为当前消费者。
 
-Longest Closed Prefix：J1-J5 是最小真实入口闭环；J8 是 AU-10 baseline matrix checkpoint；J9 task_state checkpoint 已补真实导出动作的任务状态生命周期，但仍不代表完整工作台恢复态闭环。
+Longest Closed Prefix：J1-J5 是最小真实入口闭环；J8 是 AU-10 baseline matrix checkpoint；J9 task_state checkpoint 已补真实导出动作的任务状态生命周期；J10 的 CP1 provider failure recovery 已闭环，但仍不代表完整工作台恢复态闭环。
 
-Current Breakpoint：J10/AU10-workbench-recovery-disconnect-timeout 是当前队首。`WorkspaceChat` 已是唯一生产工作台入口，`au10-workbench-matrix-layout` 已覆盖 1280×800 baseline，`AU10-workbench-recovery-taskstate` 已覆盖真实导出动作的 task_state 可见生命周期；缺断线、超时、取消等待和完整异步 LongRunner 恢复体验验收。
+Current Breakpoint：J10/AU10-workbench-recovery-disconnect-timeout CP2 是当前队首。`WorkspaceChat` 已是唯一生产工作台入口，`au10-workbench-matrix-layout` 已覆盖 1280×800 baseline，`AU10-workbench-recovery-taskstate` 已覆盖真实导出动作的 task_state 可见生命周期，`au10-workbench-recovery-disconnect-timeout` CP1 已覆盖 provider failure 后 no-write、loading 清除和恢复后继续下一轮；仍缺 WebSocket 断线重连、取消等待和完整异步 LongRunner 恢复体验验收。
 
-Next Proof：从真实工作台覆盖 WebSocket 断线重连、LLM 超时/失败后恢复、取消等待和恢复后继续操作的一条综合 walkthrough，并继续复核 1280×800 layout。
+Next Proof：从真实工作台覆盖 WebSocket 断线重连、取消等待、完整异步 LongRunner streaming 和恢复后继续操作的一条综合 walkthrough，并继续复核 1280×800 layout。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -419,7 +419,7 @@ Next Proof：从真实工作台覆盖 WebSocket 断线重连、LLM 超时/失败
 | J7 | trace/why、adoption、projection 在同一工作台主入口协作 | AU-10 / AU-05 / AU-07 / AU-08 | TraceSummaryView / AdoptionDecision / ProjectionHint | partial | Multiple Tauri proofs | 各 journey 有单点 evidence | 缺恢复态和深矩阵。 |
 | J8 | AU-10 baseline matrix 与 1280×800 layout | AU-10 / AU-01 / AU-02 / AU-05 / AU-07 / AU-08 | TurnResultViewModel / AvailableAction / TraceSummaryView / AdoptionDecision / ProjectionHint | checkpoint closed | Tauri automation | `artifacts/slice-verify/au10-workbench-matrix-layout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-matrix-layout` | 已覆盖普通聊天 no-MicroPlan、why、候选授权 action、正文草稿采纳、Reading Projection、task status 首屏基线和 1280×800 无横向溢出；不覆盖长任务、断线、超时。 |
 | J9 | task_state 生命周期可见性 | AU-10 | TurnResultViewModel / task_state | checkpoint closed | Tauri automation + Channel test | `artifacts/slice-verify/au10-workbench-recovery-taskstate-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-taskstate`；`workspace_channel_task_state_test.exs` | 真实“导出全书”动作覆盖 RUNNING/CHECKPOINT/COMPLETED UI，FAILED 由 Channel 回归覆盖；完整异步 LongRunner streaming 未覆盖。 |
-| J10 | 断线、超时、取消等待和恢复后继续操作 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | next | Document only | AU10-GAP-10/11；`AU10-workbench-recovery-disconnect-timeout` | 补 WebSocket 断线重连、LLM timeout/failure recovery、取消等待和 stale/disabled/idempotency UI 的真实工作台 walkthrough。 |
+| J10 | 断线、超时、取消等待和恢复后继续操作 | AU-10 / SU-01 | OrchestratorDecision / TurnResultViewModel | next | Tauri automation | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-disconnect-timeout` | CP1 已证明 provider failure recovery：不可达 provider 后 no-write fallback、loading 清除、恢复 provider 后下一轮完成。下一步补 WebSocket 断线重连、取消等待、完整异步 LongRunner streaming 和 stale/disabled/idempotency UI。 |
 
 ---
 
@@ -436,15 +436,15 @@ Next Proof：从真实工作台覆盖 WebSocket 断线重连、LLM 超时/失败
 | G 阅读投影 | G1-G2 | G3 refresh state machine | 多个 P0/P1 | Tauri | watch |
 | H 记忆治理 | H1-H2/H4 | H3/H6 management/governed memory | 多个 P0/P1 | Tauri + tests | needs-focus |
 | I Trace/Replay | I1 | I2-I5 trace/replay completeness | 多个 P0/P1 | Tauri + tests | needs-focus |
-| J 工作台体验 | J1-J5 最小闭环 + J8 baseline checkpoint + J9 task_state checkpoint | J10 AU10-workbench-recovery-disconnect-timeout | 多个 P0/P1 | Tauri | next |
+| J 工作台体验 | J1-J5 最小闭环 + J8 baseline checkpoint + J9 task_state checkpoint + J10 CP1 provider failure recovery | J10 CP2 reconnect / cancel / LongRunner | 多个 P0/P1 | Tauri | next |
 
 当前推进锁定：
 
 ```text
 Current Focus: AU10 工作台恢复态与断线/超时恢复
 Current Journey: Journey J 工作台体验
-Current Breakpoint: J10 reconnect / timeout / recovery
-Next Task: AU10-workbench-recovery-disconnect-timeout
+Current Breakpoint: J10 CP2 reconnect / cancel / LongRunner
+Next Task: AU10-workbench-recovery-disconnect-timeout CP2
 ```
 
 ---
@@ -471,7 +471,7 @@ Next Task: AU10-workbench-recovery-disconnect-timeout
 ```text
 Current Focus: AU10 工作台恢复态与断线/超时恢复
 Active Journey: Journey J 工作台体验
-Queue head: AU10-workbench-recovery-disconnect-timeout
+Queue head: AU10-workbench-recovery-disconnect-timeout CP2
 ```
 
 本文对应位置：
@@ -479,8 +479,8 @@ Queue head: AU10-workbench-recovery-disconnect-timeout
 ```text
 Journey J / AU10
 Step: J10 工作台恢复态、断线、超时恢复
-Status: next
-Gap / Next: VS-00C CP0-CP5 与 task_state checkpoint 已闭环；当前继续 AU10 recovery，补 WebSocket 断线重连、LLM 超时/失败恢复、取消等待和真实工作台恢复态 walkthrough。
+Status: checkpoint closed / next CP
+Gap / Next: VS-00C CP0-CP5、task_state checkpoint 与 provider failure recovery CP1 已闭环；当前继续 AU10 recovery，补 WebSocket 断线重连、取消等待、完整异步 LongRunner streaming 和真实工作台恢复态 walkthrough。
 ```
 
 选择规则：

@@ -271,9 +271,9 @@
 - 前端正常显示降级消息，loading 结束；
 - 下一轮仍可继续发送。
 
-**当前证据**：`v3_full_chain_test.exs` “broken provider -> fallback frame -> recovery trace”；`planner_real_llm_test.exs` “handle_input never crashes with broken provider”。
+**当前证据**：`v3_full_chain_test.exs` “broken provider -> fallback frame -> recovery trace”；`planner_real_llm_test.exs` “handle_input never crashes with broken provider”；`au10-workbench-recovery-disconnect-timeout-tauri` 已从真实工作台证明不可达 provider 后显示诚实 no-write fallback、loading 结束、恢复 provider 后下一轮可继续。
 
-**当前状态**：后端/E2E stub 已测试，缺真实工作台 UI 降级验收。
+**当前状态**：provider 不可用真实工作台 checkpoint 已闭环；真实 timeout 与乱码 UI 降级仍未闭环。
 
 ---
 
@@ -329,7 +329,7 @@
 | SC-AU01-C2 | 纯聊天不调用工具、不写入、不采纳 | 后端/Channel 已测试 | 否 |
 | SC-AU01-C3 | 讨论请求不变成表单化追问 | 后端/Channel 已测试 | 否 |
 | SC-AU01-D1 | 普通聊天可追溯且 replay 不调 LLM | 后端已测试 | 否 |
-| SC-AU01-E1 | provider 不可用时优雅降级 | 后端/E2E stub 已测试 | 否 |
+| SC-AU01-E1 | provider 不可用时优雅降级 | 真实工作台 checkpoint 已闭环 | 否（AU-01 完整矩阵仍未闭环） |
 | SC-AU01-E2 | LLM 乱码 JSON 时优雅降级 | 后端/E2E stub 已测试 | 否 |
 | SC-AU01-E3 | frame 校验失败时作者友好提示 | 部分实现 | 否 |
 
@@ -344,7 +344,7 @@
 | AU01-GAP-01 — 缺真实工作台 walkthrough / Playwright 验收 | 后端通过不等于作者能在桌面工作台顺畅聊天 | P0：补“打开工作台 -> 输入 -> 收到回复 -> loading 结束”的场景验收 |
 | AU01-GAP-02 — 普通聊天默认触发 MicroPlan 风险 | 普通聊天若被强制推入 plan/执行链，会偏离 AU-01；当前默认 false 且已有 Tauri 主链证据，但缺 UI 卡片可见断言 | P0：继续补 DOM/截图级验收，确认普通聊天不出现执行/采纳卡 |
 | AU01-GAP-03 — 空消息 / frame validation 错误的作者友好提示不足 | 用户可能看到内部 reason 或无反馈 | P1：统一 Channel fallback/error copy，前端展示友好错误 |
-| AU01-GAP-04 — provider 不可用 / 乱码降级缺 UI 验收 | 已有后端降级证明，但不知道真实工作台是否可恢复 | P1：补 LM Studio 断开、garbage stub 的 UI walkthrough |
+| AU01-GAP-04 — provider 不可用 / 乱码降级缺 UI 验收 | provider 不可用已由 `au10-workbench-recovery-disconnect-timeout-tauri` 证明真实工作台可恢复；乱码 JSON 和真实 timeout 仍缺 UI 验收 | P1：补 garbage stub / timeout 的 UI walkthrough |
 | AU01-GAP-05 — 多轮聊天 UI 顺序和状态缺自动化证明 | 消息顺序、loading、重复发送等体验风险未覆盖 | P1：补多轮 Playwright 或组件级测试 |
 
 ---
