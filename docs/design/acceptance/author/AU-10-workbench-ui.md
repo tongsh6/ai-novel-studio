@@ -399,7 +399,7 @@
 |---|---|---|---|
 | AU10-GAP-01 — 真实入口与 v3 消费者分裂 | **已收口（2026-06-12）**：`WorkspaceChat` 是唯一生产工作台入口；`历史旁路工作台` / `历史旁路 socket helper` 旁路已删除。剩余为 AU-10 matrix 和布局验收 | 补验收/修设计偏差 | P0 |
 | AU10-GAP-02 — 普通聊天默认触发 MicroPlan 风险 | 已由 `au10-ordinary-chat-no-micro-plan-*` 证明当前风险关闭；剩余是把该证据纳入 AU-10 完整矩阵 | 补验收 | P1 |
-| AU10-GAP-03 — 真实入口 action 不走 `author_action` | 当前真实入口已走 `available_actions`/`author_action`；剩余 action_result、stale/idempotency、disabled_reason 的 UI 反馈矩阵 | 补验收 | P0 |
+| AU10-GAP-03 — 真实入口 action 不走 `author_action` | 当前真实入口已走 `available_actions`/`author_action`。后端 stale/invented/disabled 拒绝 + idempotency 去重已实现且 channel/单测覆盖（`workspace_channel_action_idempotency_test` 回 `duplicate:true`、`action_roundtrip_test`）；2026-06-17 补前端 duplicate 可见反馈（`AU10-action-idempotency-stale-disabled` slice / commit `2724653`）。剩余：双击/旧按钮 stale 的**外部真实页面**验收因 UI 竞态 + `source_turn_result/2` 状态依赖判定为非确定性，按 Option A 不纳入 harness（详见 slice §7） | 部分闭环（确定性证据链） | P1 |
 | AU10-GAP-04 — card action 可绕过 `available_actions` | **resolved for current runtime（2026-05-26）**：card 不再构造业务 action；剩余为全 card 视觉和未知类型降级测试 | 补验收 | P1 |
 | AU10-GAP-05 — 候选方向完整体验未入矩阵 | 已由 AU-02 证明候选可继续探索；剩余是多候选、多轮、失败态和 trace 质量 | 补验收 | P1 |
 | AU10-GAP-06 — adoption UI 与后端不匹配 | accept/discard/edit_then_accept 已有真实入口证据；旧 direct helper/handler 兼容路径和 StateTrace/revision/workbox 完整语义仍需治理 | 补集成/补验收 | P0 |

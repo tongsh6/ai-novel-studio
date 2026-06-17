@@ -1,8 +1,8 @@
 # AU10 Action Idempotency / Stale / Disabled / 旧·重复·失效 action 的真实页面验收
 
-- 状态：todo（待用户批准开 CP1）
-- 类型：Acceptance Slice（外部真实页面验收为主 + 必要时最小 UI 反馈补齐）
-- 启动日期：（待批准）
+- 状态：CP1 部分闭环（UI 可见反馈已补 + 后端/单测覆盖；外部真实页面双击/stale 验收按 Option A 不纳入，见 §7）
+- 类型：Acceptance Slice（确定性证据链为主 + 最小 UI 反馈补齐）
+- 启动日期：2026-06-17
 - 所属验收：`docs/design/acceptance/author/AU-10-workbench-ui.md` **AU10-GAP-03（P0）** + SC-AU10-C3 / SC-AU10-C4
 - 所属设计：`00c` §7 不变量 #10（UI 只能提交 action）、`ADR-0007-next-action-available-action-v3.md`（action 必带 idempotency key + trace ref）、`07-workbench-ui-contract.md` §（idempotency_key 防重复提交）、`contracts/VS-05-ui-roundtrip-contract-pack.md`（重复 key → 返回已有结果 / idempotent response）
 
@@ -93,3 +93,8 @@
 ## 7. 决策日志
 
 - 2026-06-17：与用户讨论选定。先做本 slice 而非 CP3C（异步 LongRunner streaming）——因为 LongRunner 异步路径（`TaskRunner.start/resume`/`perform_execution`）**无真实生产消费者**（仅测试 + sleep 桩），CP3C 属投机基建；本 slice 有真实高频消费者（每次 action）、契约已冻结、是 AU10-GAP-03 P0。开工核对发现后端 stale/invented/disabled/idempotency 已实现且有单测，故定位为**承重验收 slice**（外部真实页面 + UI 反馈可见性）。
+- 2026-06-17：**CP1 落账（Option A，用户同意）**。
+  - **已补（确定性、真实改进）**：前端原来对 channel 的 `{:ok, duplicate:true}` 静默 resolve，作者看不到。现 `socket.ts` 透传 `duplicate`、`handleAvailableAction` 在 duplicate 时显示「该操作已处理，系统已避免重复执行」（`copy.ts`），`socket.test` 新增透传断言。commit `2724653`。
+  - **证据链（确定性）**：后端去重 = `workspace_channel_action_idempotency_test`（重复 author_action 回 `duplicate:true` 不重复派发）；stale/invented/disabled 拒绝 = `action_roundtrip_test`（ActionValidator）；disabled 渲染+原因 = 前端 `workbenchActions` + 候选按钮 `disabled_reason`；duplicate 前端可见 = 新增 socket.test + handleAvailableAction。
+  - **不纳入 harness（Option A）**：① 双击同 idempotency_key 的外部真实页面验收 = UI 竞态（按钮点后即 disable），不稳定；② 点旧轮按钮的 stale 外部场景 = 经核查 `WorkspaceChannel.source_turn_result/2` 按 ref 找回，旧轮若仍在 `turn_results_by_id` 则不判 stale 而走幂等去重，stale 分支只在 ref 不在记录时触发——受内部状态保留 + 幂等交织，**非确定性场景**。二者本质都是后端契约（已 channel/单测覆盖），不为不稳定场景污染外部 harness。
+  - **诚实边界**：本 slice **没有专属外部 Tauri 证据文件**；real-page 证据由既有 baseline matrix（action 渲染/授权）+ AU-05 采纳边界 Tauri（拒绝可见）+ 本次确定性证据链共同承担。若后续要专属 real-page 双击/stale 验收，需先让 UI 保留可重复点击入口或加确定性 stale 触发，届时另起 checkpoint。
