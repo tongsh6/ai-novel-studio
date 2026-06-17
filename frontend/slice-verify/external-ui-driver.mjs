@@ -1,6 +1,7 @@
 import { chromium } from "playwright";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 
 const sliceId = process.argv[2];
@@ -230,6 +231,37 @@ async function configureProviderRuntime(attrs) {
     `Failed to configure provider ${attrs.provider}: HTTP ${response.status}`,
   );
   return body;
+}
+
+async function startHangingOpenAiServer() {
+  const sockets = new Set();
+  const server = http.createServer((_request, _response) => {
+    // Intentionally never respond: the real LM Studio adapter must hit its receive timeout.
+  });
+
+  server.on("connection", (socket) => {
+    sockets.add(socket);
+    socket.on("close", () => sockets.delete(socket));
+  });
+
+  await new Promise((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  assert(address && typeof address === "object", "Hanging OpenAI server did not bind a port");
+
+  return {
+    endpoint: `http://127.0.0.1:${address.port}/v1`,
+    close: async () => {
+      for (const socket of sockets) socket.destroy();
+      await new Promise((resolve) => server.close(resolve));
+    },
+  };
 }
 
 async function textContent(page, selector) {
@@ -3583,6 +3615,141 @@ async function driveAu10WorkbenchRecoveryDisconnectTimeout(page) {
   ];
 }
 
+async function driveAu10WorkbenchRecoveryProviderTimeout(page) {
+  const hangingServer = await startHangingOpenAiServer();
+
+  try {
+    await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+      timeout: 30_000,
+    });
+
+    await configureProviderRuntime({
+      provider: "lmstudio",
+      model: "slice-verify-timeout-model",
+      endpoint: hangingServer.endpoint,
+    });
+
+    const nonce = `AU10-PROVIDER-TIMEOUT-${Date.now()}`;
+    const timeoutMessage = `请围绕 ${nonce} 给我一个创作方向。`;
+    await page.locator(chatInputSelector).fill(timeoutMessage);
+    await page.getByRole("button", { name: "发送" }).click();
+
+    const timeoutSentMessage = latestSentUserMessage();
+
+    const timeoutFrame = await waitForFrame(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.turn_id &&
+        String(frame.body?.assistant_message?.text ?? "").includes("响应超时") &&
+        String(frame.body?.assistant_message?.text ?? "").includes("没有写入作品事实") &&
+        frame.body?.truthfulness?.production_write_performed === false,
+      "Provider timeout did not return a recoverable fallback turn_result",
+      60_000,
+    );
+    const timeoutTurnId = timeoutFrame.body.turn_id;
+
+    const providerTimeoutLog = await waitForAppLogRecord(
+      (record) =>
+        record.event === "provider_gateway.complete.error" &&
+        record.provider === "lmstudio" &&
+        record.turn_id === timeoutTurnId &&
+        record.reason_code === "timeout",
+      "No provider_gateway.complete.error log with reason_code=timeout was emitted",
+      30_000,
+    );
+
+    await waitForAppLogRecord(
+      (record) => record.event === "channel.user_message.done" && record.turn_id === timeoutTurnId,
+      "No channel.user_message.done log was emitted for the recoverable timeout turn",
+      30_000,
+    );
+
+    await page.waitForFunction(
+      (selector) => {
+        const input = document.querySelector(selector);
+        const bodyText = document.body.innerText;
+        return (
+          input instanceof HTMLInputElement &&
+          input.disabled === false &&
+          !bodyText.includes("思考中...") &&
+          bodyText.includes("响应超时") &&
+          bodyText.includes("没有写入作品事实")
+        );
+      },
+      chatInputSelector,
+      { timeout: 10_000 },
+    );
+    const timeoutVisibleText = await page.locator("body").innerText();
+
+    await configureProviderRuntime({ provider: "slice_verify" });
+
+    const recoveryMessage = `timeout 恢复后继续围绕 ${nonce} 聊下去。`;
+    await page.locator(chatInputSelector).fill(recoveryMessage);
+    await page.getByRole("button", { name: "发送" }).click();
+
+    const recoveryFrame = await waitForFrame(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.turn_id &&
+        frame.body.turn_id !== timeoutTurnId &&
+        frame.body?.status !== "error" &&
+        String(frame.body?.assistant_message?.text ?? "").length > 0,
+      "Workbench did not recover and complete a following user message after timeout",
+      60_000,
+    );
+
+    await waitForAppLogRecord(
+      (record) =>
+        record.event === "provider_gateway.complete.done" &&
+        record.provider === "slice_verify" &&
+        record.turn_id === recoveryFrame.body.turn_id,
+      "No slice_verify provider_gateway.complete.done log was emitted for the recovery turn",
+      30_000,
+    );
+
+    await waitForAppLogRecord(
+      (record) =>
+        record.event === "channel.user_message.done" &&
+        record.turn_id === recoveryFrame.body.turn_id,
+      "No channel.user_message.done log proved the recovery turn completed after timeout",
+      30_000,
+    );
+
+    const uiState = await commonUiState(page, recoveryFrame.body, latestSentUserMessage());
+
+    return [
+      {
+        ...uiState,
+        event: "slice_verify.ui_state.done",
+        slice_id: "au10-workbench-recovery-provider-timeout",
+        turn_id: recoveryFrame.body.turn_id,
+        turn_ids: [timeoutTurnId, recoveryFrame.body.turn_id],
+        timeout_turn_id: timeoutTurnId,
+        recovery_turn_id: recoveryFrame.body.turn_id,
+        timeout_provider: providerTimeoutLog.provider,
+        timeout_reason_code: providerTimeoutLog.reason_code,
+        timeout_message_visible:
+          timeoutVisibleText.includes("响应超时") &&
+          timeoutVisibleText.includes("没有写入作品事实"),
+        no_production_write_on_timeout:
+          timeoutFrame.body.truthfulness?.production_write_performed === false,
+        no_artifact_adopted_on_timeout: timeoutFrame.body.truthfulness?.artifact_adopted === false,
+        loading_cleared_after_timeout: !timeoutVisibleText.includes("思考中..."),
+        input_enabled_after_timeout: true,
+        recovery_turn_completed: recoveryFrame.body.status !== "error",
+        timeout_prompt_sent: String(timeoutSentMessage?.body?.text ?? "").includes(nonce),
+        recovery_prompt_sent: String(latestSentUserMessage()?.body?.text ?? "").includes(nonce),
+      },
+    ];
+  } finally {
+    await hangingServer.close();
+  }
+}
+
 async function driveAu10WorkbenchRecoveryReconnect(page) {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
@@ -4100,6 +4267,7 @@ const drivers = {
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
   "au10-workbench-recovery-taskstate": driveAu10WorkbenchRecoveryTaskstate,
   "au10-workbench-recovery-disconnect-timeout": driveAu10WorkbenchRecoveryDisconnectTimeout,
+  "au10-workbench-recovery-provider-timeout": driveAu10WorkbenchRecoveryProviderTimeout,
   "au10-workbench-recovery-reconnect": driveAu10WorkbenchRecoveryReconnect,
   "au10-workbench-recovery-cancel-waiting": driveAu10WorkbenchRecoveryCancelWaiting,
   "au12-work-profile-overview": driveAu12WorkProfileOverview,

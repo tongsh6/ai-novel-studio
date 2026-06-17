@@ -23,6 +23,7 @@ export const nativeSliceIds = [
   "au10-workbench-matrix-layout",
   "au10-workbench-recovery-taskstate",
   "au10-workbench-recovery-disconnect-timeout",
+  "au10-workbench-recovery-provider-timeout",
   "au10-workbench-recovery-reconnect",
   "au10-workbench-recovery-cancel-waiting",
   "au10-micro-plan-entry",
@@ -490,6 +491,13 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au10-workbench-recovery-provider-timeout": [
+    "provider_gateway.complete.error",
+    "channel.user_message.done",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au10-workbench-recovery-reconnect": [
     "channel.join.done",
     "channel.user_message.done",
@@ -679,6 +687,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au10-workbench-recovery-disconnect-timeout") {
     return findAu10WorkbenchRecoveryDisconnectTimeoutEvidence(records);
+  }
+
+  if (sliceId === "au10-workbench-recovery-provider-timeout") {
+    return findAu10WorkbenchRecoveryProviderTimeoutEvidence(records);
   }
 
   if (sliceId === "au10-workbench-recovery-reconnect") {
@@ -904,6 +916,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au10-workbench-recovery-disconnect-timeout") {
     return au10WorkbenchRecoveryDisconnectTimeoutBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au10-workbench-recovery-provider-timeout") {
+    return au10WorkbenchRecoveryProviderTimeoutBehavior(records, evidence, options);
   }
 
   if (sliceId === "au10-workbench-recovery-reconnect") {
@@ -2600,6 +2616,62 @@ function findAu10WorkbenchRecoveryDisconnectTimeoutEvidence(records) {
     failure_turn_id: uiState.failure_turn_id,
     recovery_turn_id: uiState.recovery_turn_id,
     failing_provider: providerFailure.provider,
+    recovery_provider: providerRecovery.provider,
+    key_events: keyEvents,
+  };
+}
+
+function findAu10WorkbenchRecoveryProviderTimeoutEvidence(records) {
+  const sliceId = "au10-workbench-recovery-provider-timeout";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.timeout_turn_id &&
+      record.recovery_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.timeout_message_visible !== true) return null;
+  if (uiState.no_production_write_on_timeout !== true) return null;
+  if (uiState.no_artifact_adopted_on_timeout !== true) return null;
+  if (uiState.loading_cleared_after_timeout !== true) return null;
+  if (uiState.input_enabled_after_timeout !== true) return null;
+  if (uiState.recovery_turn_completed !== true) return null;
+  if (uiState.timeout_prompt_sent !== true) return null;
+  if (uiState.recovery_prompt_sent !== true) return null;
+
+  const providerTimeout = records.find(
+    (record) =>
+      record.event === "provider_gateway.complete.error" &&
+      record.provider === "lmstudio" &&
+      record.turn_id === uiState.timeout_turn_id &&
+      record.reason_code === "timeout",
+  );
+  const channelTimeout = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === uiState.timeout_turn_id,
+  );
+  const providerRecovery = records.find(
+    (record) =>
+      record.event === "provider_gateway.complete.done" &&
+      record.provider === "slice_verify" &&
+      record.turn_id === uiState.recovery_turn_id,
+  );
+  const channelRecovery = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === uiState.recovery_turn_id,
+  );
+  if (!providerTimeout || !channelTimeout || !providerRecovery || !channelRecovery) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.recovery_turn_id,
+    turn_ids: [uiState.timeout_turn_id, uiState.recovery_turn_id],
+    timeout_turn_id: uiState.timeout_turn_id,
+    recovery_turn_id: uiState.recovery_turn_id,
+    timeout_provider: providerTimeout.provider,
+    timeout_reason_code: providerTimeout.reason_code,
     recovery_provider: providerRecovery.provider,
     key_events: keyEvents,
   };
@@ -4347,6 +4419,44 @@ function au10WorkbenchRecoveryDisconnectTimeoutBehavior(records, evidence, _opti
       "input_remained_available_after_failure",
       "author_sent_following_message_without_refresh",
       "following_turn_completed_after_provider_recovery",
+    ],
+  };
+}
+
+function au10WorkbenchRecoveryProviderTimeoutBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au10-workbench-recovery-provider-timeout" &&
+      record.timeout_turn_id === evidence.timeout_turn_id &&
+      record.recovery_turn_id === evidence.recovery_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.timeout_message_visible !== true) return null;
+  if (uiState.no_production_write_on_timeout !== true) return null;
+  if (uiState.no_artifact_adopted_on_timeout !== true) return null;
+  if (uiState.loading_cleared_after_timeout !== true) return null;
+  if (uiState.input_enabled_after_timeout !== true) return null;
+  if (uiState.recovery_turn_completed !== true) return null;
+  if (uiState.timeout_prompt_sent !== true) return null;
+  if (uiState.recovery_prompt_sent !== true) return null;
+
+  return {
+    slice_id: "au10-workbench-recovery-provider-timeout",
+    behavior: "provider_timeout_clears_loading_and_allows_following_turn",
+    turn_ids: evidence.turn_ids,
+    timeout_turn_id: evidence.timeout_turn_id,
+    recovery_turn_id: evidence.recovery_turn_id,
+    timeout_provider: evidence.timeout_provider,
+    timeout_reason_code: evidence.timeout_reason_code,
+    recovery_provider: evidence.recovery_provider,
+    assertions: [
+      "provider_timeout_returned_timeout_fallback_turn_result",
+      "timeout_message_told_author_no_artifact_or_production_write_happened",
+      "workspace_loading_indicator_cleared_after_timeout",
+      "input_remained_available_after_timeout",
+      "author_sent_following_message_without_refresh",
+      "following_turn_completed_after_provider_timeout_recovery",
     ],
   };
 }

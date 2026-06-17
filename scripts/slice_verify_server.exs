@@ -30,19 +30,17 @@ repo_config =
 
 Application.put_env(:novel_persistence, NovelPersistence.Repo, repo_config)
 
-if provider == :lmstudio do
-  Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
-    endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
-    model: System.get_env("NOVEL_LMSTUDIO_MODEL", "openai/gpt-oss-120b"),
-    timeout:
-      System.get_env(
-        "NOVEL_LMSTUDIO_TIMEOUT_MS",
-        System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000")
-      )
-      |> String.to_integer(),
-    log_fn: &NovelCommon.LLMLog.record/5
-  )
-end
+Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
+  endpoint: System.get_env("NOVEL_LMSTUDIO_ENDPOINT", "http://localhost:1234/v1"),
+  model: System.get_env("NOVEL_LMSTUDIO_MODEL", "openai/gpt-oss-120b"),
+  timeout:
+    System.get_env(
+      "NOVEL_LMSTUDIO_TIMEOUT_MS",
+      System.get_env("NOVEL_LLM_TIMEOUT_MS", "300000")
+    )
+    |> String.to_integer(),
+  log_fn: &NovelCommon.LLMLog.record/5
+)
 
 if app_log_dir = System.get_env("SLICE_VERIFY_APP_LOG_DIR") do
   Application.put_env(:novel_common, :log_jsonl_enabled, true)

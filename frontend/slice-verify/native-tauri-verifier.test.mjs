@@ -32,6 +32,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au03-context-source-ui");
     expect(nativeSliceIds).toContain("au10-workbench-matrix-layout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-disconnect-timeout");
+    expect(nativeSliceIds).toContain("au10-workbench-recovery-provider-timeout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-reconnect");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-cancel-waiting");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
@@ -1719,6 +1720,49 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("finds AU-10 provider timeout evidence from timeout and following turn", () => {
+    const records = au10WorkbenchRecoveryProviderTimeoutRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-provider-timeout", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au10-workbench-recovery-provider-timeout",
+      turn_id: "turn-after-timeout",
+      turn_ids: ["turn-timeout", "turn-after-timeout"],
+      timeout_turn_id: "turn-timeout",
+      recovery_turn_id: "turn-after-timeout",
+      timeout_provider: "lmstudio",
+      timeout_reason_code: "timeout",
+      recovery_provider: "slice_verify",
+      key_events: keyEventsForSlice("au10-workbench-recovery-provider-timeout"),
+    });
+  });
+
+  it("accepts AU-10 provider timeout behavior when timeout clears loading and recovers", () => {
+    const records = au10WorkbenchRecoveryProviderTimeoutRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-provider-timeout", records);
+
+    expect(
+      findSliceBehaviorEvidence("au10-workbench-recovery-provider-timeout", records, evidence),
+    ).toEqual({
+      slice_id: "au10-workbench-recovery-provider-timeout",
+      behavior: "provider_timeout_clears_loading_and_allows_following_turn",
+      turn_ids: ["turn-timeout", "turn-after-timeout"],
+      timeout_turn_id: "turn-timeout",
+      recovery_turn_id: "turn-after-timeout",
+      timeout_provider: "lmstudio",
+      timeout_reason_code: "timeout",
+      recovery_provider: "slice_verify",
+      assertions: [
+        "provider_timeout_returned_timeout_fallback_turn_result",
+        "timeout_message_told_author_no_artifact_or_production_write_happened",
+        "workspace_loading_indicator_cleared_after_timeout",
+        "input_remained_available_after_timeout",
+        "author_sent_following_message_without_refresh",
+        "following_turn_completed_after_provider_timeout_recovery",
+      ],
+    });
+  });
+
   it("finds AU-10 websocket reconnect evidence from rejoin and following turn", () => {
     const records = au10WorkbenchRecoveryReconnectRecords();
     const evidence = findNativeSliceEvidence("au10-workbench-recovery-reconnect", records);
@@ -2779,6 +2823,49 @@ function au10WorkbenchRecoveryDisconnectTimeoutRecords() {
       following_turn_completed: true,
       can_continue_after_failure: true,
       failure_prompt_sent: true,
+      recovery_prompt_sent: true,
+    },
+  ];
+}
+
+function au10WorkbenchRecoveryProviderTimeoutRecords() {
+  return [
+    {
+      event: "provider_gateway.complete.error",
+      provider: "lmstudio",
+      model: "slice-verify-timeout-model",
+      turn_id: "turn-timeout",
+      reason_code: "timeout",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-timeout",
+    },
+    {
+      event: "provider_gateway.complete.done",
+      provider: "slice_verify",
+      model: "slice_verify",
+      turn_id: "turn-after-timeout",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-after-timeout",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-recovery-provider-timeout",
+      turn_id: "turn-after-timeout",
+      timeout_turn_id: "turn-timeout",
+      recovery_turn_id: "turn-after-timeout",
+      timeout_provider: "lmstudio",
+      timeout_reason_code: "timeout",
+      timeout_message_visible: true,
+      no_production_write_on_timeout: true,
+      no_artifact_adopted_on_timeout: true,
+      loading_cleared_after_timeout: true,
+      input_enabled_after_timeout: true,
+      recovery_turn_completed: true,
+      timeout_prompt_sent: true,
       recovery_prompt_sent: true,
     },
   ];

@@ -8,17 +8,17 @@
 
 ## 1. Current Focus
 
-**AU10 工作台恢复态：task_state、provider failure CP1、WebSocket reconnect CP2 与 cancel waiting CP3A 已闭环，当前队首转向 CP3B timeout / LongRunner 恢复**
+**AU10 工作台恢复态：task_state、provider failure CP1、WebSocket reconnect CP2、cancel waiting CP3A 与 provider timeout CP3B 已闭环，当前队首转向 CP3C LongRunner streaming 恢复**
 
-P1 主链已在 2026-06-12 达成 10 万字狗粮里程碑。2026-06-17 `au10-workbench-matrix-layout` baseline 已闭环，但此前把队首推进到 AU10 recovery 过早；用户明确要求先做完 VS-00C 所有 CP 再转下一个任务。VS-00C 现已完成 CP0（缺章 block）、CP1（策略化省略/同源组装）、CP2（已采纳章节摘要窗口，`AssemblyPolicy.summary_window=15`）、CP3（结构化章节条目进入 prose_writing L2）、CP4（章计划方向结构化，E18-E22 进入 L2）、CP5（ReaderEffectBrief + 非权威 self_report）。`AU10-workbench-recovery-taskstate` 已补真实导出动作的 task_state 可见生命周期：UI/Tauri 覆盖 RUNNING / CHECKPOINT / COMPLETED，Channel 回归覆盖 FAILED；`AU10-workbench-recovery-disconnect-timeout` 已补 CP1 provider failure recovery、CP2 WebSocket service reconnect recovery 与 CP3A cancel waiting recovery。当前队首继续留在 AU10 recovery，但转向真实 timeout、完整异步 LongRunner streaming 和 stale/disabled/idempotency UI。
+P1 主链已在 2026-06-12 达成 10 万字狗粮里程碑。2026-06-17 `au10-workbench-matrix-layout` baseline 已闭环，但此前把队首推进到 AU10 recovery 过早；用户明确要求先做完 VS-00C 所有 CP 再转下一个任务。VS-00C 现已完成 CP0（缺章 block）、CP1（策略化省略/同源组装）、CP2（已采纳章节摘要窗口，`AssemblyPolicy.summary_window=15`）、CP3（结构化章节条目进入 prose_writing L2）、CP4（章计划方向结构化，E18-E22 进入 L2）、CP5（ReaderEffectBrief + 非权威 self_report）。`AU10-workbench-recovery-taskstate` 已补真实导出动作的 task_state 可见生命周期：UI/Tauri 覆盖 RUNNING / CHECKPOINT / COMPLETED，Channel 回归覆盖 FAILED；`AU10-workbench-recovery-disconnect-timeout` 已补 CP1 provider failure recovery、CP2 WebSocket service reconnect recovery、CP3A cancel waiting recovery 与 CP3B provider timeout recovery。当前队首继续留在 AU10 recovery，但转向完整异步 LongRunner streaming 和 stale/disabled/idempotency UI。
 
 用户随后调整队列要求先做 `AU12-work-profile-overview`；该 CP1 已闭环，证明作者可从真实工作台作品档案「概览」核对当前作品的立项字段。AU12 整体仍有 CP2/CP3 缺口；当前队首回到 `AU10-workbench-recovery-disconnect-timeout`。
 
-用户随后要求先推进 AU09 角色主档案 roundtrip；`AU09-character-dossier-roundtrip` CP1 已闭环，证明作者可从真实作品档案「角色」tab 发起角色设计、采纳 `character_seed` 后写入 `Character` 主档案且不写 memory、角色 tab 可见，并在下一次角色设计上下文读到现有角色。AU09 后续 CP2（字段级结构化、关系对象、角色演化 memory）未排为当前队首；当前队首回到 `AU10-workbench-recovery-disconnect-timeout`，其中 CP1 provider failure recovery、CP2 WebSocket service reconnect recovery 与 CP3A cancel waiting recovery 已闭环，下一步继续 CP3B timeout / LongRunner 恢复矩阵。
+用户随后要求先推进 AU09 角色主档案 roundtrip；`AU09-character-dossier-roundtrip` CP1 已闭环，证明作者可从真实作品档案「角色」tab 发起角色设计、采纳 `character_seed` 后写入 `Character` 主档案且不写 memory、角色 tab 可见，并在下一次角色设计上下文读到现有角色。AU09 后续 CP2（字段级结构化、关系对象、角色演化 memory）未排为当前队首；当前队首回到 `AU10-workbench-recovery-disconnect-timeout`，其中 CP1 provider failure recovery、CP2 WebSocket service reconnect recovery、CP3A cancel waiting recovery 与 CP3B provider timeout recovery 已闭环，下一步继续 CP3C LongRunner streaming 恢复矩阵。
 
 ## 2. Why This Focus
 
-P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把“写第 N 章首稿”的上下文质量前置补齐到当前设计要求：CP2 解决“前面已写了什么”，CP3 解决“目标章在计划结构中的位置和摘要”，CP4 解决“目标章承担什么叙事功能和伏笔动作”，CP5 补“希望读者获得什么效果”与非权威自报告质量线索。现在应继续 AU10 recovery，因为工作台是所有作者旅程的主消费者；task_state checkpoint 只覆盖真实导出动作和 Channel 失败分支，provider failure CP1 只覆盖不可达 provider 后可恢复继续，WebSocket reconnect CP2 只覆盖后端服务断开/恢复后的 rejoin 与下一轮继续，cancel waiting CP3A 只覆盖确认等待取消后的 no-write/继续操作，仍不覆盖真实 timeout 和完整异步 LongRunner。
+P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把“写第 N 章首稿”的上下文质量前置补齐到当前设计要求：CP2 解决“前面已写了什么”，CP3 解决“目标章在计划结构中的位置和摘要”，CP4 解决“目标章承担什么叙事功能和伏笔动作”，CP5 补“希望读者获得什么效果”与非权威自报告质量线索。现在应继续 AU10 recovery，因为工作台是所有作者旅程的主消费者；task_state checkpoint 只覆盖真实导出动作和 Channel 失败分支，provider failure CP1 只覆盖不可达 provider 后可恢复继续，WebSocket reconnect CP2 只覆盖后端服务断开/恢复后的 rejoin 与下一轮继续，cancel waiting CP3A 只覆盖确认等待取消后的 no-write/继续操作，provider timeout CP3B 只覆盖真实 LM Studio adapter receive timeout 后的 no-write fallback 与下一轮继续，仍不覆盖完整异步 LongRunner。
 
 已闭环的最近 checkpoint：
 
@@ -47,6 +47,7 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把�
 | AU10 provider failure recovery CP1 | checkpoint closed | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json` |
 | AU10 WebSocket service reconnect CP2 | checkpoint closed | `artifacts/slice-verify/au10-workbench-recovery-reconnect-tauri/summary.json` |
 | AU10 cancel waiting recovery CP3A | checkpoint closed | `artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json` |
+| AU10 provider timeout recovery CP3B | checkpoint closed | `artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json` |
 
 ## 3. Active Journey
 
@@ -61,7 +62,7 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把�
 → 外部 Tauri driver 用真实页面、业务日志和截图验证恢复态
 ```
 
-当前断点：**AU10-workbench-recovery-disconnect-timeout CP3B：真实 timeout / LongRunner 恢复矩阵**。
+当前断点：**AU10-workbench-recovery-disconnect-timeout CP3C：完整异步 LongRunner streaming 恢复矩阵**。
 
 ## 4. Queue
 
@@ -100,7 +101,8 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把�
 | 29 | AU10-workbench-recovery-cancel-waiting CP3A | checkpoint closed | - | CP2 之后补确认等待取消：高风险工具 confirmation 的“拒绝/取消”必须返回 cancelled action_result/TurnResult，关闭 active behavior，不调用工具、不写作品事实，且下一轮可继续。 | `artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`；真实工作台触发高风险重写 confirmation，点击“拒绝”，UI 显示已取消等待、按钮清除、输入可用，并完成后续消息。 |
 | 30 | AU12-work-profile-overview | checkpoint closed | - | 用户调整队列后先做 AU12；CP1 已补作品档案「概览」只读视图，让作者核对已被 AI prompt 消费的 works 立项字段。AU12 整体未 done，CP2/CP3 仍待后续。 | `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`；真实工作台创建带立项字段的作品、打开作品档案概览，验证题材/卖点/目标读者/基调/状态来自 `get_work_profile`，DTO/UI/业务日志不泄漏内部 Work UUID |
 | 31 | AU09-character-dossier-roundtrip | checkpoint closed | - | 用户调整队列后先做 AU09 CP1；角色主档案创建→采纳→展示→上下文链路已闭环。CP2 字段级结构化、关系对象、角色演化 memory 另行排队。 | `artifacts/slice-verify/au09-character-dossier-roundtrip-tauri/summary.json`；真实工作台从作品档案角色 tab 发起角色设计，`character_seed` 采纳写 `Character` 且不写 memory，角色 tab 可见，下一次角色设计上下文含现有 Character |
-| 32 | AU10-workbench-recovery-disconnect-timeout-CP3B | next | - | CP1/CP2/CP3A 已分别覆盖 provider failure、WebSocket service reconnect 和取消等待；仍缺真实 timeout、完整异步 LongRunner streaming 和 stale/disabled/idempotency UI。 | 后续外部 Tauri driver：真实工作台长任务 streaming/恢复或 timeout 后可继续操作；产品代码不得新增验收感知逻辑。 |
+| 32 | AU10-workbench-recovery-provider-timeout CP3B | checkpoint closed | - | CP1/CP2/CP3A 之后补真实 provider receive timeout：外部 driver 启动不响应的 OpenAI-compatible endpoint，真实工作台切到 LM Studio runtime 后触发 `reason_code=timeout` fallback，loading 清除、输入可用、无 production write，恢复 `slice_verify` 后下一轮完成。 | `artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-provider-timeout` |
+| 33 | AU10-workbench-recovery-longrunner-CP3C | next | - | CP3B 已覆盖 provider timeout，但仍缺完整异步 LongRunner streaming 和 stale/disabled/idempotency UI。下一步应证明真实工作台能消费长任务 streaming 状态、恢复后继续操作，并保持 1280×800 布局稳定。 | 后续外部 Tauri driver：真实工作台长任务 streaming/恢复后可继续操作；产品代码不得新增验收感知逻辑。 |
 
 ## 5. Selection Rule
 
@@ -153,6 +155,7 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把�
 | 2026-06-17 | `AU10-workbench-recovery-disconnect-timeout` CP1 provider failure recovery 已闭环，当时队首继续同 slice 的 CP2 reconnect。 | 外部 Tauri driver 通过产品 provider config API 切到不可达 LM Studio endpoint，真实工作台发送消息后收到可恢复 fallback TurnResult，UI 显示无法连接且明确没有写入作品事实，loading 清除、输入可用；恢复 `slice_verify` provider 后下一轮完成。证据 `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`。本 CP 不覆盖 WebSocket 断线重连、取消等待、完整异步 LongRunner streaming 或 stale/disabled/idempotency UI。 |
 | 2026-06-17 | `AU10-workbench-recovery-disconnect-timeout` CP2 WebSocket service reconnect 已闭环，队首当时继续同 slice 的 CP3 cancel / timeout / LongRunner。 | 外部 Tauri driver 停止/重启本次 slice 的 Phoenix 服务，真实工作台在 socket/channel close/error 后显示“同步离线”、禁用输入且清除 loading；服务恢复后自动 rejoin，下一轮消息完成。证据 `artifacts/slice-verify/au10-workbench-recovery-reconnect-tauri/summary.json`。该 CP 当时不覆盖取消等待、真实 timeout、完整异步 LongRunner streaming 或 stale/disabled/idempotency UI；取消等待随后已由 CP3A 闭环。 |
 | 2026-06-17 | `AU10-workbench-recovery-disconnect-timeout` CP3A cancel waiting 已闭环，队首继续同 slice 的 CP3B timeout / LongRunner。 | 外部 Tauri driver 触发真实高风险工具 confirmation 后点击可见“拒绝”，Channel 经 `DialogueGateway.handle_action/3` 返回 cancelled action_result 与 no-write TurnResult，关闭 active behavior；UI 显示已取消等待、清除确认按钮、输入可用，并完成后续消息。证据 `artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`。本 CP 不覆盖真实 timeout、完整异步 LongRunner streaming 或 stale/disabled/idempotency UI。 |
+| 2026-06-17 | `AU10-workbench-recovery-provider-timeout` CP3B provider timeout 已闭环，队首推进到 CP3C LongRunner streaming。 | 外部 Tauri driver 启动一个不响应的 OpenAI-compatible endpoint，通过产品 provider config API 切到 LM Studio runtime，真实工作台发送消息后 Provider Gateway 记录 `provider_gateway.complete.error reason_code=timeout`；Channel 返回 no-write fallback TurnResult，UI 显示响应超时且明确没有写入作品事实，loading 清除、输入可用；恢复 `slice_verify` 后下一轮完成。证据 `artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`。本 CP 不覆盖完整异步 LongRunner streaming 或 stale/disabled/idempotency UI。 |
 | 2026-06-11 | dogfood checkpoint 2：12 章全部跑满（16,734 字、12/12 ≥1000、0 失败、末跑 8 分钟）+ 增量规划 slice `p1-plan-incremental` 两 provider 闭环（**零产品代码**——物化层 title 幂等 + seq 续排本就支持追加，真实 gpt-oss-120b 从已有 12 章正确接续生成第13-19章、采纳追加、原章不动）。10 万字放大跑解锁。 | runner 修两个深层 bug：① 长会话**历史帧误匹配**（帧匹配不限起点 → 第08章误进第03章的确认分支）→ waitForFrame 加 fromIndex 限定本轮；② **waitForFunction(fn, arg, options) 参数顺序坑复发**（两参形式 timeout 被当 arg 从未生效、默认 30s）→ runner 全部改三参——该坑在所有 slice driver 的两参调用里潜伏（条件总在 30s 内满足未暴露），后续宜统一清理。狗粮还实证：覆盖确认/确认执行/失败重试-跳过/`--resume` 三次断点续跑全部工作；确定性 provider 的「改写」关键字误判（planner-keyword 债）只影响离线调试不影响真实跑。增量批量由 AI 自定（实测 7 章），验收下限放宽 >= 5。 |
 | 2026-06-11 | `P1-100k-dogfood-run`（Order 21）checkpoint 1：狗粮长跑 runner 基建落地并真实试跑通过；放大到 10 万字前发现产品缺口「计划无法增量扩展」。 | 新增 `scripts/dogfood_run.sh` + `frontend/slice-verify/dogfood-runner.mjs`（外部 Playwright 像作者一样逐章推进真实工作台：读阅读投影找未达标章 → 首稿/续写自然语言指令 → 确认创建采纳 → 循环 → 导出全书；支持 `--resume` 断点续跑=「重启后继续生成下一章」真实演练、确认卡处理（消费 AU-04 链）、失败重试-跳过、progress.jsonl + milestones §8 产物）。真实试跑（gpt-oss-120b）：第01章 135→642→1101、第02章 137→804→1600，续写衔接自然（nonce 贯通）、~25s/轮。**缺口**：seed 计划仅一卷 12 章（≈1.8 万字），10 万字需 ~70-100 章；增量规划（「继续规划第二卷」→ outline 采纳追加到既有结构）未验证，疑似采纳物化（固定「第一卷」+ seq 从 1 重算）不支持追加——需先以独立 slice 闭环增量规划，或本轮先跑满 12 章并如实报告缺口。 |
 | 2026-06-11 | `P1-export-minimum`（Order 20）闭环，队首推进到 `P1-100k-dogfood-run`。 | 阅读模式新增「导出全书」：channel `export_work` → `ExportService`（复用 `ReadingProjectionService.toc/chapter_content` 单一作品事实源，AU-08 口径——未采纳草稿天然不进导出）→ `NovelDomain.ExportDocument` 纯函数渲染（头部元信息 + 全章按 seq 目录 + 逐卷逐章正文 + 未写章「（本章暂无已采纳正文）」诚实占位）→ 写盘（`:export_dir` config，test=tmp/exports、默认 ~/Documents/AI Novel Studio）→ UI 显示「已导出到 <路径>」。验收 driver 复用采纳-阅读链后点真实导出按钮、从页面路径读真实文件断言 12 章目录有序、已采纳正文在文、占位恰 11；确定性 + `--real-lmstudio` 通过。后端 229+105 测试、I3/I1/I2、前端审计/设计追溯全过。 |

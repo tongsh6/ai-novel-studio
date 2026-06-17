@@ -98,6 +98,7 @@ Implemented external UI driver slice ids:
   au10-workbench-matrix-layout
   au10-workbench-recovery-taskstate
   au10-workbench-recovery-disconnect-timeout
+  au10-workbench-recovery-provider-timeout
   au10-workbench-recovery-reconnect
   au10-workbench-recovery-cancel-waiting
   au12-work-profile-overview
@@ -130,7 +131,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -146,7 +147,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -282,6 +283,9 @@ native_action_description() {
       ;;
     au10-workbench-recovery-disconnect-timeout)
       echo "configure an unreachable provider through the product provider API -> send a real workbench message -> verify recoverable failure clears loading and the following turn succeeds after provider recovery"
+      ;;
+    au10-workbench-recovery-provider-timeout)
+      echo "start a hanging OpenAI-compatible endpoint -> configure LM Studio runtime to it -> send real workbench message -> verify provider timeout clears loading and following turn succeeds after provider recovery"
       ;;
     au10-workbench-recovery-reconnect)
       echo "stop the slice Phoenix service from the external driver -> verify the real workbench disables input and shows offline -> restart the service -> verify websocket rejoins and a following turn succeeds"
@@ -645,12 +649,18 @@ esac
 
 MIX_ENV=test mix run "$SEED_SCRIPT" >"$ARTIFACT_DIR/seed.log" 2>&1
 
+LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-300000}"
+if [[ "$SLICE_ID" == "au10-workbench-recovery-provider-timeout" ]]; then
+  LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-750}"
+fi
+
 MIX_ENV=test \
   PHOENIX_TEST_PORT="$PHOENIX_PORT" \
   PHOENIX_PORT="$PHOENIX_PORT" \
   SLICE_VERIFY_APP_LOG_DIR="$APP_LOG_DIR" \
   SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
   SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \
+  NOVEL_LMSTUDIO_TIMEOUT_MS="$LMSTUDIO_TIMEOUT_MS" \
   AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
 PHX_PID=$!

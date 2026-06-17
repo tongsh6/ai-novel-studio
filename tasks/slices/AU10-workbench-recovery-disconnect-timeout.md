@@ -1,6 +1,6 @@
 # AU10 Workbench Recovery Disconnect / Timeout / 工作台恢复态断线超时
 
-- 状态：checkpoint closed（CP1 provider failure recovery；CP2 WebSocket reconnect recovery；CP3A cancel waiting recovery）
+- 状态：checkpoint closed（CP1 provider failure recovery；CP2 WebSocket reconnect recovery；CP3A cancel waiting recovery；CP3B provider timeout recovery）
 - 类型：UI Contract Slice / Acceptance Slice
 - 启动日期：2026-06-17
 - 来源：`tasks/NEXT.md` Order 27；`docs/design/acceptance/author/AU-10-workbench-ui.md` SC-AU10-A3 / SC-AU10-B1 / AU10-GAP-10 / AU10-GAP-11。
@@ -9,16 +9,16 @@
 
 作者在真实工作台遇到 LLM provider 不可用、超时、断线或取消等待时，界面不能无限 loading，不能暗中写入作品事实，且必须能在恢复后继续下一轮对话。
 
-本 slice 当前已闭环三个 checkpoint：CP1 覆盖 provider 不可用时的可恢复失败说明，明确本轮没有待采纳内容或作品事实写入；loading 清除、输入仍可用；恢复 provider 后下一轮不用刷新即可成功。CP2 覆盖真实 WebSocket 断线/重连：外部 driver 停止并重启本次 slice 的 Phoenix 服务，真实工作台进入同步离线、禁用输入、清除 loading，服务恢复后自动 rejoin，并能继续下一轮。CP3A 覆盖取消等待：作者在真实工作台触发高风险确认后点击可见“拒绝”，`author_action` 返回 cancelled，关闭 active behavior，不调用工具、不写作品事实，输入恢复且下一轮继续完成。真实 timeout、完整异步 LongRunner streaming、stale/disabled/idempotency UI 仍是后续 checkpoint。
+本 slice 当前已闭环四个 checkpoint：CP1 覆盖 provider 不可用时的可恢复失败说明，明确本轮没有待采纳内容或作品事实写入；loading 清除、输入仍可用；恢复 provider 后下一轮不用刷新即可成功。CP2 覆盖真实 WebSocket 断线/重连：外部 driver 停止并重启本次 slice 的 Phoenix 服务，真实工作台进入同步离线、禁用输入、清除 loading，服务恢复后自动 rejoin，并能继续下一轮。CP3A 覆盖取消等待：作者在真实工作台触发高风险确认后点击可见“拒绝”，`author_action` 返回 cancelled，关闭 active behavior，不调用工具、不写作品事实，输入恢复且下一轮继续完成。CP3B 覆盖真实 provider timeout：外部 driver 启动不响应的 OpenAI-compatible endpoint，将真实 runtime 切到 LM Studio 后触发 `reason_code=timeout`，fallback TurnResult 明确 no-write，loading 清除、输入可用，并可恢复 provider 后完成下一轮。完整异步 LongRunner streaming、stale/disabled/idempotency UI 仍是后续 checkpoint。
 
 ## 2. 开工检查
 
-- Contract: Provider Gateway error log、Planner fallback TurnResult、`WorkspaceChannel user_message`、Phoenix socket/channel lifecycle、`available_actions` / `author_action` / `action_result`、TurnResult `truthfulness.production_write_performed=false`、`WorkspaceChat` loading/input state。
-- Invariant: provider 失败不能写 production fact 或产生可采纳 artifact；失败后 UI 不得无限 loading；WebSocket 断开时不能继续发送；重连后作者可继续发送下一轮并穿过真实主链；取消等待必须关闭 active behavior，不调用工具、不写作品事实，并允许作者继续下一轮。
+- Contract: Provider Gateway error log（含 `reason_code=timeout`）、Planner fallback TurnResult、`WorkspaceChannel user_message`、Phoenix socket/channel lifecycle、`available_actions` / `author_action` / `action_result`、TurnResult `truthfulness.production_write_performed=false`、`WorkspaceChat` loading/input state。
+- Invariant: provider 失败或超时不能写 production fact 或产生可采纳 artifact；失败/超时后 UI 不得无限 loading；WebSocket 断开时不能继续发送；重连后作者可继续发送下一轮并穿过真实主链；取消等待必须关闭 active behavior，不调用工具、不写作品事实，并允许作者继续下一轮。
 - Boundary: 涉及 `novel_application`、`novel_web`、`frontend/src/components/WorkspaceChat.tsx`、`frontend/slice-verify`、`scripts/tauri_slice_verify.sh` 和任务/验收文档；不改 persistence schema、不注册验收 provider 到生产 runtime、不新增产品验收 hook。
 - Consumer: 真实 `WorkspaceChat` 输入框、消息流、确认/取消按钮和 provider runtime；外部 Tauri driver 通过真实页面操作。
-- Proof: Application/Channel 回归、native verifier 单元测试、`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-disconnect-timeout`、`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-reconnect`、`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-cancel-waiting`。
-- Acceptance Driver: CP1 driver 通过产品 provider config API 临时切到不可达 LM Studio endpoint，驱动真实工作台发送消息，验证 failure TurnResult、业务日志、UI loading/input 状态；再恢复 `slice_verify` provider 并发送下一轮。CP2 driver 从产品外部停止/重启本次 Phoenix 服务，验证真实 socket/channel 断线、rejoin 和恢复后下一轮完成。CP3A driver 触发真实高风险 confirmation，点击可见“拒绝”，验证 cancelled action_result / TurnResult、no-write truthfulness、按钮清除、输入恢复和后续 turn 完成。产品代码不读取 slice id/env/query/localStorage。
+- Proof: Application/Channel 回归、native verifier 单元测试、`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-disconnect-timeout`、`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-reconnect`、`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-cancel-waiting`、`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-provider-timeout`。
+- Acceptance Driver: CP1 driver 通过产品 provider config API 临时切到不可达 LM Studio endpoint，驱动真实工作台发送消息，验证 failure TurnResult、业务日志、UI loading/input 状态；再恢复 `slice_verify` provider 并发送下一轮。CP2 driver 从产品外部停止/重启本次 Phoenix 服务，验证真实 socket/channel 断线、rejoin 和恢复后下一轮完成。CP3A driver 触发真实高风险 confirmation，点击可见“拒绝”，验证 cancelled action_result / TurnResult、no-write truthfulness、按钮清除、输入恢复和后续 turn 完成。CP3B driver 启动一个不响应的 OpenAI-compatible endpoint，通过产品 provider config API 切到 LM Studio runtime，驱动真实工作台发送消息，验证 `provider_gateway.complete.error reason_code=timeout`、no-write fallback、loading/input 状态，再恢复 `slice_verify` provider 并发送下一轮。产品代码不读取 slice id/env/query/localStorage。
 
 ## 3. 涉及范围
 
@@ -30,7 +30,7 @@
 | novel_application | yes | Planner fallback 文案明确 no artifact / no production write；通用 `reject_or_cancel_confirmation` / `cancel_pending_behavior` 关闭等待并返回 cancelled TurnResult。 |
 | novel_persistence | no | 不写 schema / migration。 |
 | novel_web | yes | Channel 真异常分支补 scoped fallback TurnResult；provider unavailable 主链保持 done + fallback result；author_action 取消等待广播 action_result + TurnResult。 |
-| frontend | yes | `WorkspaceChat` 响应真实 socket/channel close/error；Tauri driver/verifier 增加 provider failure、service reconnect 和 cancel waiting recovery 验收。 |
+| frontend | yes | `WorkspaceChat` 响应真实 socket/channel close/error；Tauri driver/verifier 增加 provider failure、service reconnect、cancel waiting 和 provider timeout recovery 验收。 |
 | docs/design | yes | 同步 AU-10 acceptance 和 Journey J 状态。 |
 | quality | no | 不新增质量运行规则。 |
 
@@ -45,14 +45,16 @@
 | T5 | 文档 / NEXT / ledger 同步 | done | 本 CP 不把 J10 整体标 done。 |
 | T6 | WebSocket 断线/重连 UI 验收 | done | 外部 driver 停止/重启本次 Phoenix 服务，验证离线禁用输入、重连后继续下一轮。 |
 | T7 | 取消等待 UI 与 action_result/TurnResult 闭环 | done | `au10-workbench-recovery-cancel-waiting`：高风险 confirmation 点击“拒绝”后 cancelled、no-write、后续 turn 完成。 |
-| T8 | 真实 timeout 与完整异步 LongRunner streaming | todo | 后续 checkpoint。 |
-| T9 | stale/disabled/idempotency UI 深矩阵 | todo | 后续 checkpoint。 |
+| T8 | 真实 provider timeout recovery | done | `au10-workbench-recovery-provider-timeout`：挂起 OpenAI-compatible endpoint 触发 LM Studio adapter receive timeout，验证 no-write fallback、loading 清除、下一轮恢复。 |
+| T9 | 完整异步 LongRunner streaming | todo | 后续 checkpoint。 |
+| T10 | stale/disabled/idempotency UI 深矩阵 | todo | 后续 checkpoint。 |
 
 ## 5. 验证
 
 - [x] 外部自动化驱动真实页面的场景化验收：`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-disconnect-timeout`（证据：`artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`）
 - [x] 外部自动化驱动真实页面的场景化验收：`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-reconnect`（证据：`artifacts/slice-verify/au10-workbench-recovery-reconnect-tauri/summary.json`）
 - [x] 外部自动化驱动真实页面的场景化验收：`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-cancel-waiting`（证据：`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json`）
+- [x] 外部自动化驱动真实页面的场景化验收：`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-provider-timeout`（证据：`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`）
 - [x] 后端 / Channel / 前端局部验证：`mix test apps/novel_application/test/novel_application/action_roundtrip_test.exs apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs`；`pnpm exec vitest run slice-verify/native-tauri-verifier.test.mjs`
 - [ ] `bash scripts/quality_manifest_check.sh`
 - [ ] `bash scripts/check_design_trace.sh`（本 CP 未改产品组件追溯注释）
@@ -65,6 +67,7 @@
 - 2026-06-17 — CP1 closed：外部 Tauri driver 证明不可达 provider 下真实工作台显示“无法连接到创作引擎 / 没有写入作品事实”，loading 清除，输入可继续；恢复 provider 后下一轮完成。WebSocket 断线、取消等待、完整异步 LongRunner streaming 和 stale/disabled/idempotency UI 保持后续缺口。
 - 2026-06-17 — CP2 closed：外部 Tauri driver 不再依赖浏览器离线模拟，而是停止/重启本次 slice 的 Phoenix 服务，证明真实工作台在 socket/channel close/error 后显示“同步离线”、禁用输入且不残留 loading；服务恢复后观察到 `channel.join.done` rejoin，并完成下一轮 `channel.user_message.done`。该 CP 当时尚未覆盖取消等待、真实 timeout、完整异步 LongRunner streaming 和 stale/disabled/idempotency UI；其中取消等待已由后续 CP3A 闭环。
 - 2026-06-17 — CP3A closed：原先高风险工具 confirmation 的“拒绝”只返回 accepted ack，不广播 cancelled TurnResult，真实页面无法证明等待态关闭。已在 `DialogueGateway.handle_action/3` 为 `reject_or_cancel_confirmation` / `cancel_pending_behavior` 补 cancelled action_result + no-write TurnResult；外部 Tauri driver 证明真实工作台点击“拒绝”后关闭 active behavior、按钮清除、loading 不残留、输入可用，并完成下一轮。真实 timeout、完整异步 LongRunner streaming 和 stale/disabled/idempotency UI 保持后续缺口。
+- 2026-06-17 — CP3B closed：外部 Tauri driver 启动一个不响应的 OpenAI-compatible endpoint，并通过产品 provider config API 把 runtime 切到 LM Studio。真实工作台发送消息后 Provider Gateway 记录 `provider_gateway.complete.error reason_code=timeout`，Channel 返回 no-write fallback TurnResult，UI 显示“响应超时 / 没有写入作品事实”，loading 清除、输入可用；恢复 `slice_verify` 后下一轮完成。完整异步 LongRunner streaming 和 stale/disabled/idempotency UI 保持后续缺口。
 
 ## 7. 试行反馈
 
@@ -72,3 +75,4 @@
 - 验收脚本应验证业务日志和 UI 状态的因果绑定：provider error 属于失败 turn，provider done 属于恢复 turn，不能只看页面上出现错误文字。
 - 浏览器 `context.setOffline(true)` 不一定会及时关闭既有 WebSocket；断线重连验收要从产品外部控制真实后端服务，才能稳定证明真实 socket/channel 生命周期。
 - 高风险工具 confirmation 与采纳 confirmation 不是同一路径：采纳确认取消走 `AdoptionWorkflow.handle_confirmation_reject/2`；工具确认取消必须由 `DialogueGateway.handle_action/3` 生成 cancelled TurnResult，否则 UI 只能收到 accepted ack，等待态不会形成可审计关闭证据。
+- 真实 timeout 不能用不可达端口替代：不可达端口证明 connection failure，provider timeout 需要一个接受连接但不响应的 OpenAI-compatible endpoint，才能稳定触发 adapter receive timeout 并验收 `reason_code=timeout`。
