@@ -23,6 +23,7 @@ export const nativeSliceIds = [
   "au10-workbench-matrix-layout",
   "au10-workbench-recovery-taskstate",
   "au10-workbench-recovery-disconnect-timeout",
+  "au10-workbench-recovery-reconnect",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -488,6 +489,11 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au10-workbench-recovery-reconnect": [
+    "channel.join.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au12-work-profile-overview": ["channel.get_work_profile.done", "slice_verify.ui_state.done"],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
@@ -665,6 +671,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au10-workbench-recovery-disconnect-timeout") {
     return findAu10WorkbenchRecoveryDisconnectTimeoutEvidence(records);
+  }
+
+  if (sliceId === "au10-workbench-recovery-reconnect") {
+    return findAu10WorkbenchRecoveryReconnectEvidence(records);
   }
 
   if (sliceId === "au12-work-profile-overview") {
@@ -882,6 +892,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au10-workbench-recovery-disconnect-timeout") {
     return au10WorkbenchRecoveryDisconnectTimeoutBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au10-workbench-recovery-reconnect") {
+    return au10WorkbenchRecoveryReconnectBehavior(records, evidence, options);
   }
 
   if (sliceId === "au12-work-profile-overview") {
@@ -2575,6 +2589,42 @@ function findAu10WorkbenchRecoveryDisconnectTimeoutEvidence(records) {
   };
 }
 
+function findAu10WorkbenchRecoveryReconnectEvidence(records) {
+  const sliceId = "au10-workbench-recovery-reconnect";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.offline_status_visible !== true) return null;
+  if (uiState.input_disabled_while_offline !== true) return null;
+  if (uiState.loading_cleared_while_offline !== true) return null;
+  if (uiState.reconnected_status_visible !== true) return null;
+  if (uiState.input_enabled_after_reconnect !== true) return null;
+  if (uiState.rejoin_observed !== true) return null;
+  if (uiState.following_turn_completed !== true) return null;
+  if (uiState.recovery_prompt_sent !== true) return null;
+  if (uiState.service_stopped_externally !== true) return null;
+  if (uiState.service_restarted_externally !== true) return null;
+
+  const joinRecords = records.filter((record) => record.event === "channel.join.done");
+  if (joinRecords.length < 2) return null;
+  const channelDone = records.find(
+    (record) => record.event === "channel.user_message.done" && record.turn_id === uiState.turn_id,
+  );
+  if (!channelDone) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    join_count_after_restore: uiState.join_count_after_restore,
+    key_events: keyEvents,
+  };
+}
+
 function findAu12WorkProfileOverviewEvidence(records) {
   const sliceId = "au12-work-profile-overview";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -4218,6 +4268,44 @@ function au10WorkbenchRecoveryDisconnectTimeoutBehavior(records, evidence, _opti
       "input_remained_available_after_failure",
       "author_sent_following_message_without_refresh",
       "following_turn_completed_after_provider_recovery",
+    ],
+  };
+}
+
+function au10WorkbenchRecoveryReconnectBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au10-workbench-recovery-reconnect" &&
+      record.turn_id === evidence.turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.offline_status_visible !== true) return null;
+  if (uiState.input_disabled_while_offline !== true) return null;
+  if (uiState.loading_cleared_while_offline !== true) return null;
+  if (uiState.reconnected_status_visible !== true) return null;
+  if (uiState.input_enabled_after_reconnect !== true) return null;
+  if (uiState.rejoin_observed !== true) return null;
+  if (uiState.following_turn_completed !== true) return null;
+  if (uiState.recovery_prompt_sent !== true) return null;
+  if (uiState.service_stopped_externally !== true) return null;
+  if (uiState.service_restarted_externally !== true) return null;
+
+  return {
+    slice_id: "au10-workbench-recovery-reconnect",
+    behavior: "websocket_disconnect_disables_input_and_reconnect_allows_following_turn",
+    turn_id: evidence.turn_id,
+    join_count_after_restore: evidence.join_count_after_restore,
+    assertions: [
+      "phoenix_service_was_stopped_by_external_driver",
+      "service_disconnect_changed_workbench_status_to_offline",
+      "input_was_disabled_while_socket_was_offline",
+      "loading_indicator_was_not_left_running_while_offline",
+      "phoenix_service_was_restarted_by_external_driver",
+      "websocket_rejoin_was_observed_after_service_recovery",
+      "input_was_enabled_after_reconnect",
+      "author_sent_following_message_after_reconnect",
+      "following_turn_completed_after_reconnect",
     ],
   };
 }

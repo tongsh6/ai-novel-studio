@@ -32,6 +32,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au03-context-source-ui");
     expect(nativeSliceIds).toContain("au10-workbench-matrix-layout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-disconnect-timeout");
+    expect(nativeSliceIds).toContain("au10-workbench-recovery-reconnect");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -1717,6 +1718,43 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("finds AU-10 websocket reconnect evidence from rejoin and following turn", () => {
+    const records = au10WorkbenchRecoveryReconnectRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-reconnect", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au10-workbench-recovery-reconnect",
+      turn_id: "turn-after-reconnect",
+      join_count_after_restore: 2,
+      key_events: keyEventsForSlice("au10-workbench-recovery-reconnect"),
+    });
+  });
+
+  it("accepts AU-10 reconnect behavior when offline disables input and recovery completes", () => {
+    const records = au10WorkbenchRecoveryReconnectRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-reconnect", records);
+
+    expect(
+      findSliceBehaviorEvidence("au10-workbench-recovery-reconnect", records, evidence),
+    ).toEqual({
+      slice_id: "au10-workbench-recovery-reconnect",
+      behavior: "websocket_disconnect_disables_input_and_reconnect_allows_following_turn",
+      turn_id: "turn-after-reconnect",
+      join_count_after_restore: 2,
+      assertions: [
+        "phoenix_service_was_stopped_by_external_driver",
+        "service_disconnect_changed_workbench_status_to_offline",
+        "input_was_disabled_while_socket_was_offline",
+        "loading_indicator_was_not_left_running_while_offline",
+        "phoenix_service_was_restarted_by_external_driver",
+        "websocket_rejoin_was_observed_after_service_recovery",
+        "input_was_enabled_after_reconnect",
+        "author_sent_following_message_after_reconnect",
+        "following_turn_completed_after_reconnect",
+      ],
+    });
+  });
+
   it("finds AU-12 work profile overview evidence from archive UI state", () => {
     const records = au12WorkProfileOverviewRecords();
     const evidence = findNativeSliceEvidence("au12-work-profile-overview", records);
@@ -2694,6 +2732,42 @@ function au10WorkbenchRecoveryDisconnectTimeoutRecords() {
       can_continue_after_failure: true,
       failure_prompt_sent: true,
       recovery_prompt_sent: true,
+    },
+  ];
+}
+
+function au10WorkbenchRecoveryReconnectRecords() {
+  return [
+    {
+      event: "channel.join.done",
+      work_id: "work-au10",
+      session_id: "session-au10",
+    },
+    {
+      event: "channel.join.done",
+      work_id: "work-au10",
+      session_id: "session-au10",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-after-reconnect",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-recovery-reconnect",
+      turn_id: "turn-after-reconnect",
+      initial_join_count: 1,
+      join_count_after_restore: 2,
+      offline_status_visible: true,
+      input_disabled_while_offline: true,
+      loading_cleared_while_offline: true,
+      reconnected_status_visible: true,
+      input_enabled_after_reconnect: true,
+      rejoin_observed: true,
+      following_turn_completed: true,
+      recovery_prompt_sent: true,
+      service_stopped_externally: true,
+      service_restarted_externally: true,
     },
   ];
 }

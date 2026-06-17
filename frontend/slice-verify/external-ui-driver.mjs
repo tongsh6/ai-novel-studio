@@ -1,4 +1,5 @@
 import { chromium } from "playwright";
+import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -40,6 +41,167 @@ function recordFrame(direction, payload) {
 
 function assert(condition, message) {
   if (!condition) throw new Error(message);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForChild(child, label) {
+  return new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(new Error(`${label} exited with code=${code ?? "null"} signal=${signal ?? "null"}`));
+    });
+  });
+}
+
+async function fetchOk(url, timeoutMs = 1_000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    return response.ok;
+  } catch {
+    return false;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function waitForUrlState(url, expectedReachable, message, timeoutMs = 30_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    if ((await fetchOk(url)) === expectedReachable) return;
+    await sleep(500);
+  }
+
+  throw new Error(message);
+}
+
+async function killProcessTree(pid, graceSeconds = 3) {
+  const projectRoot = process.env.SLICE_VERIFY_PROJECT_ROOT;
+  assert(projectRoot, "SLICE_VERIFY_PROJECT_ROOT is required to control Phoenix");
+
+  const killer = spawn(
+    "bash",
+    [
+      "-lc",
+      'source "$PROJECT_ROOT/scripts/lib/process_tree.sh"; kill_process_tree "$TARGET_PID" "$TARGET_GRACE"',
+    ],
+    {
+      cwd: projectRoot,
+      env: {
+        ...process.env,
+        PROJECT_ROOT: projectRoot,
+        TARGET_PID: String(pid),
+        TARGET_GRACE: String(graceSeconds),
+      },
+      stdio: "pipe",
+    },
+  );
+
+  let stderr = "";
+  killer.stderr?.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await waitForChild(killer, "kill_process_tree");
+  } catch (error) {
+    const detail = stderr.trim();
+    throw new Error(`${error.message}${detail ? `: ${detail}` : ""}`);
+  }
+}
+
+function startPhoenixSliceServer() {
+  const projectRoot = process.env.SLICE_VERIFY_PROJECT_ROOT;
+  const phoenixPort = process.env.SLICE_VERIFY_PHOENIX_PORT;
+  const appLogDir = process.env.SLICE_VERIFY_APP_LOG_DIR;
+  const llmLogDir = process.env.SLICE_VERIFY_LLM_LOG_DIR;
+  const provider = process.env.SLICE_VERIFY_PROVIDER ?? "slice_verify";
+  const backendLog = process.env.SLICE_VERIFY_BACKEND_LOG;
+
+  assert(projectRoot, "SLICE_VERIFY_PROJECT_ROOT is required to restart Phoenix");
+  assert(phoenixPort, "SLICE_VERIFY_PHOENIX_PORT is required to restart Phoenix");
+  assert(appLogDir, "SLICE_VERIFY_APP_LOG_DIR is required to restart Phoenix");
+  assert(llmLogDir, "SLICE_VERIFY_LLM_LOG_DIR is required to restart Phoenix");
+  assert(backendLog, "SLICE_VERIFY_BACKEND_LOG is required to restart Phoenix");
+
+  const stdout = fs.openSync(backendLog, "a");
+  const stderr = fs.openSync(backendLog, "a");
+
+  const child = spawn(
+    "mix",
+    ["run", "--no-start", "--no-halt", "scripts/slice_verify_server.exs"],
+    {
+      cwd: projectRoot,
+      detached: true,
+      env: {
+        ...process.env,
+        MIX_ENV: "test",
+        PHOENIX_TEST_PORT: phoenixPort,
+        PHOENIX_PORT: phoenixPort,
+        SLICE_VERIFY_APP_LOG_DIR: appLogDir,
+        SLICE_VERIFY_LLM_LOG_DIR: llmLogDir,
+        SLICE_VERIFY_PROVIDER: provider,
+        AI_NOVEL_DESKTOP_PROFILE: "slice-verify",
+      },
+      stdio: ["ignore", stdout, stderr],
+    },
+  );
+
+  fs.closeSync(stdout);
+  fs.closeSync(stderr);
+
+  child.once("error", (error) => {
+    fs.appendFileSync(backendLog, `\n[slice-verify] failed to restart Phoenix: ${error.message}\n`);
+  });
+
+  return child;
+}
+
+function createPhoenixServiceController() {
+  const originalPid = Number(process.env.SLICE_VERIFY_PHOENIX_PID ?? "");
+  const apiUrl = process.env.SLICE_VERIFY_API_URL;
+  assert(Number.isInteger(originalPid) && originalPid > 0, "SLICE_VERIFY_PHOENIX_PID is required");
+  assert(apiUrl, "SLICE_VERIFY_API_URL is required");
+
+  const healthUrl = `${apiUrl}/health`;
+  let restarted = null;
+
+  return {
+    async stopOriginal() {
+      await killProcessTree(originalPid);
+      await waitForUrlState(
+        healthUrl,
+        false,
+        "Phoenix health stayed reachable after external service stop",
+        20_000,
+      );
+    },
+    async restart() {
+      restarted = startPhoenixSliceServer();
+      await waitForUrlState(
+        healthUrl,
+        true,
+        "Phoenix health did not recover after external service restart",
+        60_000,
+      );
+      return restarted.pid;
+    },
+    async stopRestarted() {
+      if (!restarted?.pid) return;
+      await killProcessTree(restarted.pid);
+      restarted = null;
+    },
+  };
 }
 
 async function createWorkSeed(attrs) {
@@ -156,6 +318,18 @@ async function waitForAppLogRecord(predicate, message, timeoutMs = 60_000) {
   while (Date.now() - started < timeoutMs) {
     const match = readAppLogRecords().find(predicate);
     if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(message);
+}
+
+async function waitForAppLogCount(predicate, minCount, message, timeoutMs = 60_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const count = readAppLogRecords().filter(predicate).length;
+    if (count >= minCount) return count;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
 
@@ -3409,6 +3583,114 @@ async function driveAu10WorkbenchRecoveryDisconnectTimeout(page) {
   ];
 }
 
+async function driveAu10WorkbenchRecoveryReconnect(page) {
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const initialJoinCount = readAppLogRecords().filter(
+    (record) => record.event === "channel.join.done",
+  ).length;
+
+  const service = createPhoenixServiceController();
+
+  try {
+    await service.stopOriginal();
+    await page.waitForFunction(
+      (selector) => {
+        const input = document.querySelector(selector);
+        const bodyText = document.body.innerText;
+        return (
+          input instanceof HTMLInputElement &&
+          input.disabled === true &&
+          bodyText.includes("同步离线") &&
+          !bodyText.includes("思考中...")
+        );
+      },
+      chatInputSelector,
+      { timeout: 45_000 },
+    );
+
+    const offlineText = await page.locator("body").innerText();
+
+    await service.restart();
+    const joinCountAfterRestore = await waitForAppLogCount(
+      (record) => record.event === "channel.join.done",
+      initialJoinCount + 1,
+      "No channel.join.done log proved websocket rejoin after service recovery",
+      60_000,
+    );
+
+    await page.waitForFunction(
+      (selector) => {
+        const input = document.querySelector(selector);
+        const bodyText = document.body.innerText;
+        return (
+          input instanceof HTMLInputElement &&
+          input.disabled === false &&
+          bodyText.includes("同步已连接")
+        );
+      },
+      chatInputSelector,
+      { timeout: 60_000 },
+    );
+
+    const nonce = `AU10-RECONNECT-${Date.now()}`;
+    const recoveryMessage = `断线恢复后继续围绕 ${nonce} 聊下去。`;
+    await page.locator(chatInputSelector).fill(recoveryMessage);
+    await page.getByRole("button", { name: "发送" }).click();
+
+    const recoveryFrame = await waitForFrame(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.turn_id &&
+        frame.body?.status !== "error" &&
+        String(frame.body?.assistant_message?.text ?? "").length > 0,
+      "Workbench did not complete a following turn after websocket reconnect",
+      60_000,
+    );
+
+    await waitForAppLogRecord(
+      (record) =>
+        record.event === "channel.user_message.done" &&
+        record.turn_id === recoveryFrame.body.turn_id,
+      "No channel.user_message.done log proved the following turn completed after reconnect",
+      30_000,
+    );
+
+    const visibleText = await page.locator("body").innerText();
+    const uiState = await commonUiState(page, recoveryFrame.body, latestSentUserMessage());
+
+    return [
+      {
+        ...uiState,
+        event: "slice_verify.ui_state.done",
+        slice_id: "au10-workbench-recovery-reconnect",
+        turn_id: recoveryFrame.body.turn_id,
+        initial_join_count: initialJoinCount,
+        join_count_after_restore: joinCountAfterRestore,
+        offline_status_visible: offlineText.includes("同步离线"),
+        input_disabled_while_offline: true,
+        loading_cleared_while_offline: !offlineText.includes("思考中..."),
+        reconnected_status_visible: visibleText.includes("同步已连接"),
+        input_enabled_after_reconnect: true,
+        rejoin_observed: joinCountAfterRestore > initialJoinCount,
+        following_turn_completed: recoveryFrame.body.status !== "error",
+        recovery_prompt_sent: String(latestSentUserMessage()?.body?.text ?? "").includes(nonce),
+        service_stopped_externally: true,
+        service_restarted_externally: true,
+      },
+    ];
+  } finally {
+    await service.stopRestarted();
+  }
+}
+
 async function driveAu12WorkProfileOverview(page) {
   const nonce = `AU12-${Date.now()}`;
   const seed = {
@@ -3641,6 +3923,7 @@ const drivers = {
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
   "au10-workbench-recovery-taskstate": driveAu10WorkbenchRecoveryTaskstate,
   "au10-workbench-recovery-disconnect-timeout": driveAu10WorkbenchRecoveryDisconnectTimeout,
+  "au10-workbench-recovery-reconnect": driveAu10WorkbenchRecoveryReconnect,
   "au12-work-profile-overview": driveAu12WorkProfileOverview,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,

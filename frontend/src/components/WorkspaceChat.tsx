@@ -623,6 +623,17 @@ export function WorkspaceChat() {
     channelRef.current = channel;
     setChannel(channel);
 
+    const markDisconnected = () => {
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      setSocketConnected(false);
+      setLoading(false);
+    };
+
+    socket.onClose(markDisconnected);
+    socket.onError(markDisconnected);
+    channel.onError(markDisconnected);
+    channel.onClose(markDisconnected);
+
     channel
       .join()
       .receive("ok", (response: { work_id?: string; session_id?: string }) => {
