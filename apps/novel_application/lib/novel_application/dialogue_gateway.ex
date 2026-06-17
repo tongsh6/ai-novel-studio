@@ -17,6 +17,7 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelCommon.LogContext
   alias NovelDomain.AdoptionDecision
   alias NovelDomain.AuthorActionInput
+  alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateSet
   alias NovelDomain.ConfirmationBinding
   alias NovelDomain.DialogueFrame
@@ -421,6 +422,23 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
+  def handle_action(
+        %AuthorActionInput{action_type: action_type} = action_input,
+        source_turn_result,
+        complete_fn
+      )
+      when action_type in ["reject_or_cancel_confirmation", "cancel_pending_behavior"] and
+             is_function(complete_fn, 1) do
+    case ActionValidator.validate(action_input, source_turn_result) do
+      :ok ->
+        {:ok, cancel_waiting_action_result(action_input),
+         cancel_waiting_turn_result(action_input, source_turn_result)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
   def handle_action(%AuthorActionInput{} = action_input, source_turn_result, complete_fn)
       when is_function(complete_fn, 1) do
     case ActionValidator.validate(action_input, source_turn_result) do
@@ -554,6 +572,64 @@ defmodule NovelApplication.DialogueGateway do
     do: "failed"
 
   defp candidate_action_status(_decision), do: "accepted"
+
+  defp cancel_waiting_action_result(%AuthorActionInput{} = action_input) do
+    %{
+      action_id: action_input.action_id,
+      action_type: action_input.action_type,
+      status: "cancelled",
+      idempotency_key: action_input.idempotency_key,
+      behavior_ref: action_input.behavior_ref,
+      target_ref: action_input.target_ref
+    }
+  end
+
+  defp cancel_waiting_turn_result(%AuthorActionInput{} = action_input, source_turn_result) do
+    source_turn_id = map_field(source_turn_result, :turn_id)
+    turn_id = "turn_#{System.unique_integer([:positive, :monotonic])}"
+    target_summary = cancel_target_summary(action_input)
+
+    %{
+      schema_version: "3.0-draft",
+      turn_id: turn_id,
+      parent_turn_id: source_turn_id,
+      frame_ref: "frame_#{turn_id}",
+      assistant_message: %{text: "已取消等待；#{target_summary}不会执行，也没有写入作品事实。"},
+      ui_cards: [],
+      frame_summary: %{
+        frame_type: :confirmation_answer,
+        dialogue_goal: "取消等待中的操作"
+      },
+      trace_summary: %{
+        decision_type: "cancel_waiting",
+        reason_codes: ["author_cancelled_waiting_behavior"],
+        source_turn_ref: source_turn_id,
+        behavior_ref: action_input.behavior_ref,
+        target_ref: action_input.target_ref
+      },
+      phase: "cancelled",
+      status: "cancelled",
+      available_actions: [],
+      behavior_state: BehaviorState.snapshot(nil),
+      projection_refs: [],
+      truthfulness: %{
+        tool_called: false,
+        artifact_adopted: false,
+        production_write_performed: false,
+        state_persisted: false,
+        durable_behavior_opened: false,
+        decision_type: :cancel_waiting,
+        reason_codes: ["author_cancelled_waiting_behavior"]
+      }
+    }
+  end
+
+  defp cancel_target_summary(%AuthorActionInput{target_ref: target_ref})
+       when is_binary(target_ref) and target_ref != "" do
+    "「#{target_ref}」"
+  end
+
+  defp cancel_target_summary(_action_input), do: "这项操作"
 
   defp candidate_turn_result(source_turn_result, chosen_candidate, %AdoptionDecision{} = decision) do
     adopted? = AdoptionDecision.adopted?(decision)

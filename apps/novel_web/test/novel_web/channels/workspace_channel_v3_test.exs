@@ -24,6 +24,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       %{
         action_id: "act-cancel",
         action_type: "cancel_pending_behavior",
+        behavior_ref: "bh-chan-1",
+        target_ref: "text_analysis",
         enabled: true
       }
     ],
@@ -281,7 +283,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       socket = assign_server_turn(socket, @server_turn_result)
 
-      assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+      assert {:reply, {:ok, %{received: true, action_status: "cancelled"}}, _socket} =
                WorkspaceChannel.handle_in(
                  "author_action",
                  %{
@@ -289,11 +291,26 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                      "source_turn_ref" => "turn-action-1",
                      "action_id" => "act-cancel",
                      "action_type" => "cancel_pending_behavior",
+                     "target_ref" => "text_analysis",
+                     "behavior_ref" => "bh-chan-1",
                      "idempotency_key" => "ik-cancel"
                    }
                  },
                  socket
                )
+
+      assert_broadcast("action_result", %{
+        action_id: "act-cancel",
+        action_type: "cancel_pending_behavior",
+        status: "cancelled"
+      })
+
+      assert_broadcast("turn_result", %{
+        phase: "cancelled",
+        status: "cancelled",
+        behavior_state: %{active: nil},
+        truthfulness: %{tool_called: false, production_write_performed: false}
+      })
     end
 
     test "client-provided source_turn_result cannot authorize invented action" do

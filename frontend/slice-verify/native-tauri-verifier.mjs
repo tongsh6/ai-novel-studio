@@ -24,6 +24,7 @@ export const nativeSliceIds = [
   "au10-workbench-recovery-taskstate",
   "au10-workbench-recovery-disconnect-timeout",
   "au10-workbench-recovery-reconnect",
+  "au10-workbench-recovery-cancel-waiting",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -494,6 +495,13 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au10-workbench-recovery-cancel-waiting": [
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au12-work-profile-overview": ["channel.get_work_profile.done", "slice_verify.ui_state.done"],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
@@ -675,6 +683,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au10-workbench-recovery-reconnect") {
     return findAu10WorkbenchRecoveryReconnectEvidence(records);
+  }
+
+  if (sliceId === "au10-workbench-recovery-cancel-waiting") {
+    return findAu10WorkbenchRecoveryCancelWaitingEvidence(records);
   }
 
   if (sliceId === "au12-work-profile-overview") {
@@ -896,6 +908,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au10-workbench-recovery-reconnect") {
     return au10WorkbenchRecoveryReconnectBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au10-workbench-recovery-cancel-waiting") {
+    return au10WorkbenchRecoveryCancelWaitingBehavior(records, evidence, options);
   }
 
   if (sliceId === "au12-work-profile-overview") {
@@ -2625,6 +2641,69 @@ function findAu10WorkbenchRecoveryReconnectEvidence(records) {
   };
 }
 
+function findAu10WorkbenchRecoveryCancelWaitingEvidence(records) {
+  const sliceId = "au10-workbench-recovery-cancel-waiting";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.confirmation_turn_id &&
+      record.cancel_turn_id &&
+      record.following_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.confirmation_card_visible !== true) return null;
+  if (uiState.cancelled_message_visible !== true) return null;
+  if (uiState.confirmation_buttons_cleared !== true) return null;
+  if (uiState.active_behavior_closed !== true) return null;
+  if (uiState.no_tool_called_before_cancel !== true) return null;
+  if (uiState.no_production_write_on_cancel !== true) return null;
+  if (uiState.no_artifact_adopted_on_cancel !== true) return null;
+  if (uiState.loading_cleared_after_cancel !== true) return null;
+  if (uiState.input_enabled_after_cancel !== true) return null;
+  if (uiState.following_turn_completed !== true) return null;
+  if (uiState.prompt_sent !== true) return null;
+  if (uiState.recovery_prompt_sent !== true) return null;
+
+  const promptDone = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.turn_id === uiState.confirmation_turn_id,
+  );
+  const actionStart = records.find(
+    (record) =>
+      record.event === "channel.author_action.start" &&
+      record.turn_id === uiState.confirmation_turn_id &&
+      record.action_type === "reject_or_cancel_confirmation",
+  );
+  const actionDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.turn_id === uiState.confirmation_turn_id &&
+      record.action_status === "cancelled",
+  );
+  const followingDone = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === uiState.following_turn_id,
+  );
+  if (!promptDone || !actionStart || !actionDone || !followingDone) {
+    return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.following_turn_id,
+    turn_ids: [uiState.confirmation_turn_id, uiState.cancel_turn_id, uiState.following_turn_id],
+    confirmation_turn_id: uiState.confirmation_turn_id,
+    cancel_turn_id: uiState.cancel_turn_id,
+    following_turn_id: uiState.following_turn_id,
+    action_id: uiState.action_id,
+    action_type: uiState.action_type,
+    key_events: keyEvents,
+  };
+}
+
 function findAu12WorkProfileOverviewEvidence(records) {
   const sliceId = "au12-work-profile-overview";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -4306,6 +4385,61 @@ function au10WorkbenchRecoveryReconnectBehavior(records, evidence, _options) {
       "input_was_enabled_after_reconnect",
       "author_sent_following_message_after_reconnect",
       "following_turn_completed_after_reconnect",
+    ],
+  };
+}
+
+function au10WorkbenchRecoveryCancelWaitingBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au10-workbench-recovery-cancel-waiting" &&
+      record.confirmation_turn_id === evidence.confirmation_turn_id &&
+      record.cancel_turn_id === evidence.cancel_turn_id &&
+      record.following_turn_id === evidence.following_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.confirmation_card_visible !== true) return null;
+  if (uiState.cancelled_message_visible !== true) return null;
+  if (uiState.confirmation_buttons_cleared !== true) return null;
+  if (uiState.active_behavior_closed !== true) return null;
+  if (uiState.no_tool_called_before_cancel !== true) return null;
+  if (uiState.no_production_write_on_cancel !== true) return null;
+  if (uiState.no_artifact_adopted_on_cancel !== true) return null;
+  if (uiState.loading_cleared_after_cancel !== true) return null;
+  if (uiState.input_enabled_after_cancel !== true) return null;
+  if (uiState.following_turn_completed !== true) return null;
+  if (uiState.prompt_sent !== true) return null;
+  if (uiState.recovery_prompt_sent !== true) return null;
+
+  const actionDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.turn_id === evidence.confirmation_turn_id &&
+      record.action_status === "cancelled",
+  );
+  if (!actionDone) return null;
+
+  return {
+    slice_id: "au10-workbench-recovery-cancel-waiting",
+    behavior: "cancel_waiting_closes_confirmation_without_write_and_allows_following_turn",
+    turn_ids: evidence.turn_ids,
+    confirmation_turn_id: evidence.confirmation_turn_id,
+    cancel_turn_id: evidence.cancel_turn_id,
+    following_turn_id: evidence.following_turn_id,
+    action_id: evidence.action_id,
+    action_type: evidence.action_type,
+    assertions: [
+      "confirmation_waiting_state_was_visible_in_real_workbench",
+      "author_clicked_visible_reject_or_cancel_action",
+      "cancel_action_used_server_authorized_author_action",
+      "cancel_action_result_returned_cancelled",
+      "cancelled_turn_result_closed_active_behavior",
+      "cancel_waiting_did_not_call_tool_or_write_production_state",
+      "workspace_loading_indicator_cleared_after_cancel",
+      "input_was_enabled_after_cancel",
+      "author_sent_following_message_after_cancel",
+      "following_turn_completed_after_cancel",
     ],
   };
 }

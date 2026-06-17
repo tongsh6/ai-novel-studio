@@ -3691,6 +3691,183 @@ async function driveAu10WorkbenchRecoveryReconnect(page) {
   }
 }
 
+async function driveAu10WorkbenchRecoveryCancelWaiting(page) {
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `AU10-CANCEL-WAITING-${Date.now()}`;
+  const requestText = `第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿，保持为待采纳草稿。标记 ${nonce}`;
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: "发送" }).click();
+
+  const promptMessage = latestSentUserMessage();
+  const confirmationFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "needs_confirmation" &&
+      frame.body?.truthfulness?.tool_called === false &&
+      frame.body?.truthfulness?.production_write_performed === false &&
+      (frame.body?.available_actions ?? []).some(
+        (action) => action.action_type === "reject_or_cancel_confirmation",
+      ),
+    "No cancellable confirmation turn_result was received",
+    200_000,
+  );
+  const confirmationTurnResult = confirmationFrame.body;
+  const cancelAction = confirmationTurnResult.available_actions.find(
+    (action) => action.action_type === "reject_or_cancel_confirmation",
+  );
+  assert(cancelAction, "Confirmation turn_result did not include a cancel action");
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    { timeout: 10_000 },
+  );
+  const confirmationVisibleText = await page.locator("body").innerText();
+
+  await page.getByRole("button", { name: "拒绝" }).first().click();
+
+  const cancelActionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "reject_or_cancel_confirmation" &&
+      frame.body?.action?.action_id === cancelAction.action_id,
+    "Real workbench did not send the reject_or_cancel_confirmation author_action",
+  );
+
+  const actionResultFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "cancelled" &&
+      frame.body?.action_type === "reject_or_cancel_confirmation",
+    "No cancelled action_result websocket frame was received",
+    60_000,
+  );
+
+  const cancelTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.phase === "cancelled" &&
+      frame.body?.status === "cancelled" &&
+      frame.body?.truthfulness?.tool_called === false &&
+      frame.body?.truthfulness?.artifact_adopted === false &&
+      frame.body?.truthfulness?.production_write_performed === false &&
+      frame.body?.behavior_state?.active == null,
+    "No cancelled TurnResult closed the pending confirmation",
+    60_000,
+  );
+  const cancelTurnResult = cancelTurnFrame.body;
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.turn_id === confirmationTurnResult.turn_id &&
+      record.action_status === "cancelled",
+    "No channel.author_action.done log proved cancellation completed",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (selector) => {
+      const input = document.querySelector(selector);
+      const bodyText = document.body.innerText;
+      const buttons = [...document.querySelectorAll("button")].map((btn) =>
+        (btn.textContent ?? "").trim(),
+      );
+      return (
+        input instanceof HTMLInputElement &&
+        input.disabled === false &&
+        bodyText.includes("已取消等待") &&
+        bodyText.includes("没有写入作品事实") &&
+        !bodyText.includes("思考中...") &&
+        !buttons.includes("确认执行") &&
+        !buttons.includes("拒绝")
+      );
+    },
+    chatInputSelector,
+    { timeout: 10_000 },
+  );
+  const cancelledVisibleText = await page.locator("body").innerText();
+
+  const followMessage = `取消等待后继续围绕 ${nonce} 聊一个新的方向。`;
+  const framesBeforeFollow = frames.length;
+  await page.locator(chatInputSelector).fill(followMessage);
+  await page.getByRole("button", { name: "发送" }).click();
+
+  const followingFrame = await waitForFrame(
+    (frame) =>
+      frames.indexOf(frame) >= framesBeforeFollow &&
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      frame.body.turn_id !== confirmationTurnResult.turn_id &&
+      frame.body.turn_id !== cancelTurnResult.turn_id &&
+      frame.body?.status !== "error" &&
+      String(frame.body?.assistant_message?.text ?? "").length > 0,
+    "Workbench did not complete a following turn after cancelling the pending confirmation",
+    60_000,
+  );
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.turn_id === followingFrame.body.turn_id,
+    "No channel.user_message.done log proved the following turn completed after cancellation",
+    30_000,
+  );
+
+  const uiState = await commonUiState(page, followingFrame.body, latestSentUserMessage());
+
+  return [
+    {
+      ...uiState,
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-recovery-cancel-waiting",
+      turn_id: followingFrame.body.turn_id,
+      turn_ids: [
+        confirmationTurnResult.turn_id,
+        cancelTurnResult.turn_id,
+        followingFrame.body.turn_id,
+      ],
+      confirmation_turn_id: confirmationTurnResult.turn_id,
+      cancel_turn_id: cancelTurnResult.turn_id,
+      following_turn_id: followingFrame.body.turn_id,
+      action_id: cancelAction.action_id,
+      action_type: cancelAction.action_type,
+      cancel_action_sent: cancelActionFrame.body?.action?.action_type,
+      action_result_status: actionResultFrame.body?.status,
+      confirmation_card_visible:
+        confirmationVisibleText.includes("确认执行") && confirmationVisibleText.includes("拒绝"),
+      cancelled_message_visible:
+        cancelledVisibleText.includes("已取消等待") &&
+        cancelledVisibleText.includes("没有写入作品事实"),
+      confirmation_buttons_cleared: true,
+      active_behavior_closed: cancelTurnResult.behavior_state?.active == null,
+      no_tool_called_before_cancel:
+        confirmationTurnResult.truthfulness?.tool_called === false &&
+        cancelTurnResult.truthfulness?.tool_called === false,
+      no_production_write_on_cancel:
+        confirmationTurnResult.truthfulness?.production_write_performed === false &&
+        cancelTurnResult.truthfulness?.production_write_performed === false,
+      no_artifact_adopted_on_cancel: cancelTurnResult.truthfulness?.artifact_adopted === false,
+      loading_cleared_after_cancel: !cancelledVisibleText.includes("思考中..."),
+      input_enabled_after_cancel: true,
+      following_turn_completed: followingFrame.body.status !== "error",
+      prompt_sent: String(promptMessage?.body?.text ?? "").includes(nonce),
+      recovery_prompt_sent: String(latestSentUserMessage()?.body?.text ?? "").includes(nonce),
+    },
+  ];
+}
+
 async function driveAu12WorkProfileOverview(page) {
   const nonce = `AU12-${Date.now()}`;
   const seed = {
@@ -3924,6 +4101,7 @@ const drivers = {
   "au10-workbench-recovery-taskstate": driveAu10WorkbenchRecoveryTaskstate,
   "au10-workbench-recovery-disconnect-timeout": driveAu10WorkbenchRecoveryDisconnectTimeout,
   "au10-workbench-recovery-reconnect": driveAu10WorkbenchRecoveryReconnect,
+  "au10-workbench-recovery-cancel-waiting": driveAu10WorkbenchRecoveryCancelWaiting,
   "au12-work-profile-overview": driveAu12WorkProfileOverview,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,

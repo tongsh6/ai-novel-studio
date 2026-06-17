@@ -33,6 +33,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-workbench-matrix-layout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-disconnect-timeout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-reconnect");
+    expect(nativeSliceIds).toContain("au10-workbench-recovery-cancel-waiting");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -1755,6 +1756,53 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("finds AU-10 cancel waiting evidence from cancellation and following turn", () => {
+    const records = au10WorkbenchRecoveryCancelWaitingRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-cancel-waiting", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au10-workbench-recovery-cancel-waiting",
+      turn_id: "turn-after-cancel",
+      turn_ids: ["turn-confirm", "turn-cancelled", "turn-after-cancel"],
+      confirmation_turn_id: "turn-confirm",
+      cancel_turn_id: "turn-cancelled",
+      following_turn_id: "turn-after-cancel",
+      action_id: "reject:artifact-1",
+      action_type: "reject_or_cancel_confirmation",
+      key_events: keyEventsForSlice("au10-workbench-recovery-cancel-waiting"),
+    });
+  });
+
+  it("accepts AU-10 cancel waiting behavior when cancellation closes behavior and recovers", () => {
+    const records = au10WorkbenchRecoveryCancelWaitingRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-cancel-waiting", records);
+
+    expect(
+      findSliceBehaviorEvidence("au10-workbench-recovery-cancel-waiting", records, evidence),
+    ).toEqual({
+      slice_id: "au10-workbench-recovery-cancel-waiting",
+      behavior: "cancel_waiting_closes_confirmation_without_write_and_allows_following_turn",
+      turn_ids: ["turn-confirm", "turn-cancelled", "turn-after-cancel"],
+      confirmation_turn_id: "turn-confirm",
+      cancel_turn_id: "turn-cancelled",
+      following_turn_id: "turn-after-cancel",
+      action_id: "reject:artifact-1",
+      action_type: "reject_or_cancel_confirmation",
+      assertions: [
+        "confirmation_waiting_state_was_visible_in_real_workbench",
+        "author_clicked_visible_reject_or_cancel_action",
+        "cancel_action_used_server_authorized_author_action",
+        "cancel_action_result_returned_cancelled",
+        "cancelled_turn_result_closed_active_behavior",
+        "cancel_waiting_did_not_call_tool_or_write_production_state",
+        "workspace_loading_indicator_cleared_after_cancel",
+        "input_was_enabled_after_cancel",
+        "author_sent_following_message_after_cancel",
+        "following_turn_completed_after_cancel",
+      ],
+    });
+  });
+
   it("finds AU-12 work profile overview evidence from archive UI state", () => {
     const records = au12WorkProfileOverviewRecords();
     const evidence = findNativeSliceEvidence("au12-work-profile-overview", records);
@@ -2768,6 +2816,54 @@ function au10WorkbenchRecoveryReconnectRecords() {
       recovery_prompt_sent: true,
       service_stopped_externally: true,
       service_restarted_externally: true,
+    },
+  ];
+}
+
+function au10WorkbenchRecoveryCancelWaitingRecords() {
+  return [
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-confirm",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-confirm",
+      action_id: "reject:artifact-1",
+      action_type: "reject_or_cancel_confirmation",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-confirm",
+      action_id: "reject:artifact-1",
+      action_type: "reject_or_cancel_confirmation",
+      action_status: "cancelled",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-after-cancel",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-recovery-cancel-waiting",
+      turn_id: "turn-after-cancel",
+      confirmation_turn_id: "turn-confirm",
+      cancel_turn_id: "turn-cancelled",
+      following_turn_id: "turn-after-cancel",
+      action_id: "reject:artifact-1",
+      action_type: "reject_or_cancel_confirmation",
+      confirmation_card_visible: true,
+      cancelled_message_visible: true,
+      confirmation_buttons_cleared: true,
+      active_behavior_closed: true,
+      no_tool_called_before_cancel: true,
+      no_production_write_on_cancel: true,
+      no_artifact_adopted_on_cancel: true,
+      loading_cleared_after_cancel: true,
+      input_enabled_after_cancel: true,
+      following_turn_completed: true,
+      prompt_sent: true,
+      recovery_prompt_sent: true,
     },
   ];
 }

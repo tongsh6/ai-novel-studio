@@ -302,6 +302,40 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert {:ok, _ack} = DialogueGateway.handle_action(input, @source_with_plan)
     end
 
+    test "reject_or_cancel_confirmation closes waiting behavior without tool or write" do
+      source =
+        Map.put(@valid_source, :available_actions, [
+          %{
+            action_id: "act-reject",
+            action_type: "reject_or_cancel_confirmation",
+            target_ref: "text_analysis",
+            behavior_ref: "bh-1",
+            enabled: true,
+            idempotency_key: "ik-reject"
+          }
+        ])
+
+      input = %AuthorActionInput{
+        input_id: "in-gw-reject",
+        source_turn_ref: "turn-1",
+        action_id: "act-reject",
+        action_type: "reject_or_cancel_confirmation",
+        target_ref: "text_analysis",
+        behavior_ref: "bh-1",
+        idempotency_key: "ik-reject"
+      }
+
+      assert {:ok, ack, turn_result} = DialogueGateway.handle_action(input, source)
+      assert ack.status == "cancelled"
+      assert ack.action_type == "reject_or_cancel_confirmation"
+      assert turn_result.status == "cancelled"
+      assert turn_result.phase == "cancelled"
+      assert turn_result.behavior_state.active == nil
+      assert turn_result.truthfulness.tool_called == false
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+    end
+
     test "high-risk confirmation re-gates to execution with persisted (string-keyed) source" do
       # 回归（发现2）：resume 后 source_turn_result 经持久化往返为 string-keyed、
       # plan 为 JSON 安全 map；确认必须仍能 rehydrate plan 并 re-gate 放行执行。
