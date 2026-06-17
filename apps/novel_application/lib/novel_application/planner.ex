@@ -754,10 +754,12 @@ defmodule NovelApplication.Planner do
     do: "创作引擎返回的格式不符合工作台契约，请重试。"
 
   defp fallback_message(:invalid_response), do: "创作引擎返回内容为空，请重试。"
-  defp fallback_message(:provider_timeout), do: "创作引擎响应超时，请稍后再试。"
+
+  defp fallback_message(:provider_timeout),
+    do: "创作引擎响应超时。这一轮没有创建待采纳内容，也没有写入作品事实。你可以稍后重试，或继续对话。"
 
   defp fallback_message(_),
-    do: "抱歉，我现在无法连接到创作引擎。请稍后再试。"
+    do: "抱歉，我现在无法连接到创作引擎。这一轮没有创建待采纳内容，也没有写入作品事实。你可以检查模型连接后重试，或继续对话。"
 
   defp error_detail(reason) when is_atom(reason), do: Atom.to_string(reason)
   defp error_detail(reason) when is_binary(reason), do: reason

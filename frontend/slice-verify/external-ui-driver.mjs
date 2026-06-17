@@ -55,6 +55,21 @@ async function createWorkSeed(attrs) {
   return body.work;
 }
 
+async function configureProviderRuntime(attrs) {
+  const response = await fetch(`${baseUrl}/api/provider/config`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(attrs),
+  });
+
+  const body = await response.json().catch(() => ({}));
+  assert(
+    response.ok && body?.ok !== false,
+    `Failed to configure provider ${attrs.provider}: HTTP ${response.status}`,
+  );
+  return body;
+}
+
 async function textContent(page, selector) {
   return page
     .locator(selector)
@@ -3273,6 +3288,127 @@ async function driveAu10WorkbenchRecoveryTaskstate(page) {
   ];
 }
 
+async function driveAu10WorkbenchRecoveryDisconnectTimeout(page) {
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+
+  await configureProviderRuntime({
+    provider: "lmstudio",
+    model: "slice-verify-unreachable-model",
+    endpoint: "http://127.0.0.1:9/v1",
+  });
+
+  const nonce = `AU10-RECOVERY-${Date.now()}`;
+  const failingMessage = `请围绕 ${nonce} 给我一个创作方向。`;
+  await page.locator(chatInputSelector).fill(failingMessage);
+  await page.getByRole("button", { name: "发送" }).click();
+
+  const failingSentMessage = latestSentUserMessage();
+
+  const failureFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      String(frame.body?.assistant_message?.text ?? "").includes("无法连接到创作引擎") &&
+      String(frame.body?.assistant_message?.text ?? "").includes("没有写入作品事实") &&
+      frame.body?.truthfulness?.production_write_performed === false,
+    "Provider failure did not return a recoverable fallback turn_result",
+    60_000,
+  );
+  const failureTurnId = failureFrame.body.turn_id;
+
+  const providerFailureLog = await waitForAppLogRecord(
+    (record) =>
+      record.event === "provider_gateway.complete.error" &&
+      record.provider === "lmstudio" &&
+      record.turn_id === failureTurnId,
+    "No provider_gateway.complete.error log was emitted for the failing turn",
+    30_000,
+  );
+
+  await waitForAppLogRecord(
+    (record) => record.event === "channel.user_message.done" && record.turn_id === failureTurnId,
+    "No channel.user_message.done log was emitted for the recoverable failing turn",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (selector) => {
+      const input = document.querySelector(selector);
+      const bodyText = document.body.innerText;
+      return (
+        input instanceof HTMLInputElement &&
+        input.disabled === false &&
+        !bodyText.includes("思考中...") &&
+        bodyText.includes("无法连接到创作引擎") &&
+        bodyText.includes("没有写入作品事实")
+      );
+    },
+    chatInputSelector,
+    { timeout: 10_000 },
+  );
+
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const recoveryMessage = `恢复后继续围绕 ${nonce} 聊下去。`;
+  await page.locator(chatInputSelector).fill(recoveryMessage);
+  await page.getByRole("button", { name: "发送" }).click();
+
+  const recoveryFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      frame.body.turn_id !== failureTurnId &&
+      frame.body?.status !== "error" &&
+      String(frame.body?.assistant_message?.text ?? "").length > 0,
+    "Workbench did not recover and complete a following user message",
+    60_000,
+  );
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "provider_gateway.complete.done" &&
+      record.provider === "slice_verify" &&
+      record.turn_id === recoveryFrame.body.turn_id,
+    "No provider_gateway.complete.done log proved the following turn recovered",
+    30_000,
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, recoveryFrame.body, latestSentUserMessage());
+
+  return [
+    {
+      ...uiState,
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-recovery-disconnect-timeout",
+      turn_id: recoveryFrame.body.turn_id,
+      turn_ids: [failureTurnId, recoveryFrame.body.turn_id],
+      failure_turn_id: failureTurnId,
+      recovery_turn_id: recoveryFrame.body.turn_id,
+      failing_provider: providerFailureLog.provider,
+      failure_status: failureFrame.body.status,
+      recovery_status: recoveryFrame.body.status,
+      failure_message_visible:
+        visibleText.includes("无法连接到创作引擎") && visibleText.includes("没有写入作品事实"),
+      no_production_write_on_failure:
+        failureFrame.body.truthfulness?.production_write_performed === false,
+      no_artifact_adopted_on_failure: failureFrame.body.truthfulness?.artifact_adopted === false,
+      loading_cleared_after_failure: !visibleText.includes("思考中..."),
+      input_enabled_after_failure: true,
+      following_turn_completed: recoveryFrame.body.status !== "error",
+      can_continue_after_failure: true,
+      failure_prompt_sent: String(failingSentMessage?.body?.text ?? "").includes(nonce),
+      recovery_prompt_sent: String(latestSentUserMessage()?.body?.text ?? "").includes(nonce),
+    },
+  ];
+}
+
 async function driveAu12WorkProfileOverview(page) {
   const nonce = `AU12-${Date.now()}`;
   const seed = {
@@ -3504,6 +3640,7 @@ const drivers = {
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
   "au10-workbench-recovery-taskstate": driveAu10WorkbenchRecoveryTaskstate,
+  "au10-workbench-recovery-disconnect-timeout": driveAu10WorkbenchRecoveryDisconnectTimeout,
   "au12-work-profile-overview": driveAu12WorkProfileOverview,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,

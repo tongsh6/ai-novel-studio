@@ -131,6 +131,29 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert_broadcast("turn_result", %{phase: _, assistant_message: %{text: _}})
     end
 
+    test "broadcasts recoverable fallback turn_result when message processing fails" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      ref = push(socket, "user_message", %{"text" => ""})
+      assert_reply(ref, :ok, %{received: true, note: "fallback"})
+      assert_broadcast("turn_result", result)
+
+      assert is_binary(result.turn_id)
+      assert result.frame_ref == "frame:#{result.turn_id}:fallback"
+      assert result.status == "error"
+      assert result.next_action == "recover"
+      assert result.assistant_message.text =~ "未创建待采纳内容"
+      assert result.assistant_message.text =~ "没有写入作品事实"
+      assert result.truthfulness.tool_called == false
+      assert result.truthfulness.artifact_adopted == false
+      assert result.truthfulness.production_write_performed == false
+      assert [%{reason_code: "turn_processing_failed", message: message}] = result.errors
+      assert message =~ "text is required"
+    end
+
     test "turn_result has required v3 fields" do
       {:ok, _, socket} =
         UserSocket

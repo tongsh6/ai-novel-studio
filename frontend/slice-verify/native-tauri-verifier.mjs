@@ -22,6 +22,7 @@ export const nativeSliceIds = [
   "au07-trace-why-entry",
   "au10-workbench-matrix-layout",
   "au10-workbench-recovery-taskstate",
+  "au10-workbench-recovery-disconnect-timeout",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -480,6 +481,13 @@ const sliceKeyEvents = {
     "channel.export_work.done",
     "slice_verify.ui_state.done",
   ],
+  "au10-workbench-recovery-disconnect-timeout": [
+    "provider_gateway.complete.error",
+    "channel.user_message.done",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au12-work-profile-overview": ["channel.get_work_profile.done", "slice_verify.ui_state.done"],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
@@ -653,6 +661,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au10-workbench-recovery-taskstate") {
     return findAu10WorkbenchRecoveryTaskstateEvidence(records);
+  }
+
+  if (sliceId === "au10-workbench-recovery-disconnect-timeout") {
+    return findAu10WorkbenchRecoveryDisconnectTimeoutEvidence(records);
   }
 
   if (sliceId === "au12-work-profile-overview") {
@@ -866,6 +878,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au10-workbench-recovery-taskstate") {
     return au10WorkbenchRecoveryTaskstateBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au10-workbench-recovery-disconnect-timeout") {
+    return au10WorkbenchRecoveryDisconnectTimeoutBehavior(records, evidence, options);
   }
 
   if (sliceId === "au12-work-profile-overview") {
@@ -2506,6 +2522,59 @@ function findAu10WorkbenchRecoveryTaskstateEvidence(records) {
   };
 }
 
+function findAu10WorkbenchRecoveryDisconnectTimeoutEvidence(records) {
+  const sliceId = "au10-workbench-recovery-disconnect-timeout";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.failure_turn_id &&
+      record.recovery_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.failure_message_visible !== true) return null;
+  if (uiState.no_production_write_on_failure !== true) return null;
+  if (uiState.no_artifact_adopted_on_failure !== true) return null;
+  if (uiState.loading_cleared_after_failure !== true) return null;
+  if (uiState.input_enabled_after_failure !== true) return null;
+  if (uiState.can_continue_after_failure !== true) return null;
+  if (uiState.following_turn_completed !== true) return null;
+
+  const providerFailure = records.find(
+    (record) =>
+      record.event === "provider_gateway.complete.error" &&
+      record.provider === "lmstudio" &&
+      record.turn_id === uiState.failure_turn_id,
+  );
+  const channelFailure = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === uiState.failure_turn_id,
+  );
+  const providerRecovery = records.find(
+    (record) =>
+      record.event === "provider_gateway.complete.done" &&
+      record.provider === "slice_verify" &&
+      record.turn_id === uiState.recovery_turn_id,
+  );
+  const channelRecovery = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === uiState.recovery_turn_id,
+  );
+  if (!providerFailure || !channelFailure || !providerRecovery || !channelRecovery) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.recovery_turn_id,
+    turn_ids: [uiState.failure_turn_id, uiState.recovery_turn_id],
+    failure_turn_id: uiState.failure_turn_id,
+    recovery_turn_id: uiState.recovery_turn_id,
+    failing_provider: providerFailure.provider,
+    recovery_provider: providerRecovery.provider,
+    key_events: keyEvents,
+  };
+}
+
 function findAu12WorkProfileOverviewEvidence(records) {
   const sliceId = "au12-work-profile-overview";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -4112,6 +4181,43 @@ function au10WorkbenchRecoveryTaskstateBehavior(
       "workspace_status_bar_kept_completed_task_visible_after_return",
       "task_state_was_observed_through_websocket_frames",
       "export_result_path_was_visible_to_author",
+    ],
+  };
+}
+
+function au10WorkbenchRecoveryDisconnectTimeoutBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au10-workbench-recovery-disconnect-timeout" &&
+      record.failure_turn_id === evidence.failure_turn_id &&
+      record.recovery_turn_id === evidence.recovery_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.failure_message_visible !== true) return null;
+  if (uiState.no_production_write_on_failure !== true) return null;
+  if (uiState.no_artifact_adopted_on_failure !== true) return null;
+  if (uiState.loading_cleared_after_failure !== true) return null;
+  if (uiState.input_enabled_after_failure !== true) return null;
+  if (uiState.following_turn_completed !== true) return null;
+  if (uiState.failure_prompt_sent !== true) return null;
+  if (uiState.recovery_prompt_sent !== true) return null;
+
+  return {
+    slice_id: "au10-workbench-recovery-disconnect-timeout",
+    behavior: "provider_failure_clears_loading_and_allows_following_turn",
+    turn_ids: evidence.turn_ids,
+    failure_turn_id: evidence.failure_turn_id,
+    recovery_turn_id: evidence.recovery_turn_id,
+    failing_provider: evidence.failing_provider,
+    recovery_provider: evidence.recovery_provider,
+    assertions: [
+      "provider_failure_returned_error_turn_result",
+      "failure_message_told_author_no_artifact_or_production_write_happened",
+      "workspace_loading_indicator_cleared_after_failure",
+      "input_remained_available_after_failure",
+      "author_sent_following_message_without_refresh",
+      "following_turn_completed_after_provider_recovery",
     ],
   };
 }
@@ -6135,6 +6241,7 @@ function fallbackText(text) {
   return (
     text.includes("无法连接") ||
     text.includes("格式不符合工作台契约") ||
+    text.includes("这次处理失败") ||
     text.includes("请稍后再试")
   );
 }

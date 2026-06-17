@@ -68,6 +68,27 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert String.contains?(message, "格式")
     end
 
+    test "provider unavailable fallback is recoverable and truthfully reports no write" do
+      unavailable_fn = fn _prompt ->
+        {:error, %{type: :connection_refused, message: "LM Studio 未启动"}}
+      end
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "普通聊天", workspace_id: "ws-provider-down"},
+          nil,
+          unavailable_fn
+        )
+
+      assert turn_result.status == "conversational"
+      assert turn_result.assistant_message.text =~ "无法连接到创作引擎"
+      assert turn_result.assistant_message.text =~ "没有写入作品事实"
+      assert turn_result.truthfulness.tool_called == false
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+      assert turn_result.truthfulness.durable_behavior_opened == false
+    end
+
     test "frame JSON missing required fields is retried instead of silently defaulting message" do
       malformed_frame_json = """
       {

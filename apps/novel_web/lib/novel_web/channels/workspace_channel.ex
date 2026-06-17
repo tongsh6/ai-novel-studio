@@ -987,7 +987,14 @@ defmodule NovelWeb.WorkspaceChannel do
         {:ok, socket}
 
       {:error, reason} ->
-        broadcast!(socket, "turn_result", fallback_turn_result(inspect(reason)))
+        turn_result =
+          socket
+          |> fallback_turn_result(input, inspect(reason))
+
+        turn_result = scope_turn_result(socket, turn_result)
+
+        broadcast!(socket, "turn_result", turn_result)
+        socket = remember_turn_result(socket, turn_result)
         {:error, reason, socket}
     end
   end
@@ -1210,14 +1217,44 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp map_field(_map, _key), do: nil
 
-  defp fallback_turn_result(reason) do
+  defp fallback_turn_result(socket, input, reason) do
+    turn_id = input[:turn_id] || "turn_#{System.unique_integer([:positive, :monotonic])}"
+
+    work_id =
+      socket.assigns[:work_id] || input[:work_id] || socket.assigns[:workspace_id] || "lobby"
+
+    session_id = socket.assigns[:session_id] || input[:session_id]
+
     %{
       schema_version: "3.0-draft",
-      assistant_message: %{text: "抱歉，处理你的消息时出现了问题。请稍后再试。"},
+      turn_id: turn_id,
+      frame_ref: "frame:#{turn_id}:fallback",
+      trace_ref: "decision_trace:#{turn_id}:fallback",
+      work_id: work_id,
+      current_work_id: work_id,
+      session_id: session_id,
+      assistant_message: %{
+        text: "抱歉，这次处理失败了。未创建待采纳内容，也没有写入作品事实。你可以检查模型连接后重试，或继续对话。"
+      },
       phase: "completed",
       status: "error",
       error: reason,
-      available_actions: []
+      next_action: "recover",
+      available_actions: [],
+      candidate_directions: [],
+      ui_cards: [],
+      truthfulness: %{
+        tool_called: false,
+        artifact_adopted: false,
+        production_write_performed: false,
+        durable_behavior_opened: false
+      },
+      errors: [
+        %{
+          reason_code: "turn_processing_failed",
+          message: reason
+        }
+      ]
     }
   end
 end

@@ -31,6 +31,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au03-long-session-compression");
     expect(nativeSliceIds).toContain("au03-context-source-ui");
     expect(nativeSliceIds).toContain("au10-workbench-matrix-layout");
+    expect(nativeSliceIds).toContain("au10-workbench-recovery-disconnect-timeout");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
@@ -1675,6 +1676,47 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("finds AU-10 recovery provider failure evidence from failure and following turn", () => {
+    const records = au10WorkbenchRecoveryDisconnectTimeoutRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-disconnect-timeout", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au10-workbench-recovery-disconnect-timeout",
+      turn_id: "turn-recovery",
+      turn_ids: ["turn-failure", "turn-recovery"],
+      failure_turn_id: "turn-failure",
+      recovery_turn_id: "turn-recovery",
+      failing_provider: "lmstudio",
+      recovery_provider: "slice_verify",
+      key_events: keyEventsForSlice("au10-workbench-recovery-disconnect-timeout"),
+    });
+  });
+
+  it("accepts AU-10 recovery behavior when provider failure clears loading and recovers", () => {
+    const records = au10WorkbenchRecoveryDisconnectTimeoutRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-disconnect-timeout", records);
+
+    expect(
+      findSliceBehaviorEvidence("au10-workbench-recovery-disconnect-timeout", records, evidence),
+    ).toEqual({
+      slice_id: "au10-workbench-recovery-disconnect-timeout",
+      behavior: "provider_failure_clears_loading_and_allows_following_turn",
+      turn_ids: ["turn-failure", "turn-recovery"],
+      failure_turn_id: "turn-failure",
+      recovery_turn_id: "turn-recovery",
+      failing_provider: "lmstudio",
+      recovery_provider: "slice_verify",
+      assertions: [
+        "provider_failure_returned_error_turn_result",
+        "failure_message_told_author_no_artifact_or_production_write_happened",
+        "workspace_loading_indicator_cleared_after_failure",
+        "input_remained_available_after_failure",
+        "author_sent_following_message_without_refresh",
+        "following_turn_completed_after_provider_recovery",
+      ],
+    });
+  });
+
   it("finds AU-12 work profile overview evidence from archive UI state", () => {
     const records = au12WorkProfileOverviewRecords();
     const evidence = findNativeSliceEvidence("au12-work-profile-overview", records);
@@ -2606,6 +2648,52 @@ function au10WorkbenchRecoveryTaskstateRecords() {
       work_id: "work-au10",
       chapter_count: 1,
       total_word_count: 1200,
+    },
+  ];
+}
+
+function au10WorkbenchRecoveryDisconnectTimeoutRecords() {
+  return [
+    {
+      event: "provider_gateway.complete.error",
+      provider: "lmstudio",
+      model: "slice-verify-unreachable-model",
+      turn_id: "turn-failure",
+      reason_code: "connection_refused",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-failure",
+    },
+    {
+      event: "provider_gateway.complete.done",
+      provider: "slice_verify",
+      model: "slice_verify",
+      turn_id: "turn-recovery",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-recovery",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-recovery-disconnect-timeout",
+      turn_id: "turn-recovery",
+      turn_ids: ["turn-failure", "turn-recovery"],
+      failure_turn_id: "turn-failure",
+      recovery_turn_id: "turn-recovery",
+      failing_provider: "lmstudio",
+      failure_status: "conversational",
+      recovery_status: "conversational",
+      failure_message_visible: true,
+      no_production_write_on_failure: true,
+      no_artifact_adopted_on_failure: true,
+      loading_cleared_after_failure: true,
+      input_enabled_after_failure: true,
+      following_turn_completed: true,
+      can_continue_after_failure: true,
+      failure_prompt_sent: true,
+      recovery_prompt_sent: true,
     },
   ];
 }
