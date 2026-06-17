@@ -726,7 +726,7 @@ chapter_summary 不应直接内嵌在 chapter 中，而是独立连续性 / memo
 
 ## 11. UI 呈现原则
 
-> ADR 冻结：首批结构面板对象、字段优先级、L1-L4 渐进披露与 UI 不得自造 schema 的边界已由 `adr/0015-structure-panel-field-priority.md` 冻结。
+> 冻结口径：本文冻结首批结构面板对象与字段优先级；L1-L4 渐进披露与 UI 不得自造 schema 的边界由 `../ui/43-structure-panel.md` §3-§6 消费。
 
 UI 不应把本文变成一个巨型信息录入页。
 
@@ -744,7 +744,7 @@ UI 不应把本文变成一个巨型信息录入页。
 
 ## 12. 本文冻结的硬骨
 
-> ADR 冻结：本节硬骨中的 UI 前阻塞部分已由 `adr/0015-structure-panel-field-priority.md` 升格冻结。
+> 冻结口径：本节硬骨中的 UI 前阻塞部分已在本文收口，并由 `../ui/43-structure-panel.md` §3-§6 作为结构面板实现边界。
 
 本文正式冻结以下字段优先级硬骨：
 

@@ -17,3 +17,4 @@
 | `AU-09-story-memory.md` | 管理故事设定 |
 | `AU-10-workbench-ui.md` | 工作台实时交互 |
 | `AU-11-ai-guided-authoring.md` | AI 引导式创作会话结构 |
+| `AU-12-work-profile.md` | 查看与核对作品档案（立项设定 + 档案视图；2026-06-17 新立，与 AU-09 边界互斥） |

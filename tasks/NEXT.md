@@ -8,13 +8,17 @@
 
 ## 1. Current Focus
 
-**AU10 工作台恢复态与 task_state：VS-00C CP0-CP5 已闭环，当前队首回到 AU10 recovery**
+**AU10 工作台恢复态：task_state checkpoint 已闭环，当前队首转向断线/超时恢复**
 
-P1 主链已在 2026-06-12 达成 10 万字狗粮里程碑。2026-06-17 `au10-workbench-matrix-layout` baseline 已闭环，但此前把队首推进到 AU10 recovery 过早；用户明确要求先做完 VS-00C 所有 CP 再转下一个任务。VS-00C 现已完成 CP0（缺章 block）、CP1（策略化省略/同源组装）、CP2（已采纳章节摘要窗口，`AssemblyPolicy.summary_window=15`）、CP3（结构化章节条目进入 prose_writing L2）、CP4（章计划方向结构化，E18-E22 进入 L2）、CP5（ReaderEffectBrief + 非权威 self_report）。当前队首恢复到 AU10：补工作台长任务 RUNNING/CHECKPOINT/COMPLETED/FAILED、WebSocket 断线重连、LLM 超时/失败后恢复与 task_state 可见生命周期。
+P1 主链已在 2026-06-12 达成 10 万字狗粮里程碑。2026-06-17 `au10-workbench-matrix-layout` baseline 已闭环，但此前把队首推进到 AU10 recovery 过早；用户明确要求先做完 VS-00C 所有 CP 再转下一个任务。VS-00C 现已完成 CP0（缺章 block）、CP1（策略化省略/同源组装）、CP2（已采纳章节摘要窗口，`AssemblyPolicy.summary_window=15`）、CP3（结构化章节条目进入 prose_writing L2）、CP4（章计划方向结构化，E18-E22 进入 L2）、CP5（ReaderEffectBrief + 非权威 self_report）。`AU10-workbench-recovery-taskstate` 已补真实导出动作的 task_state 可见生命周期：UI/Tauri 覆盖 RUNNING / CHECKPOINT / COMPLETED，Channel 回归覆盖 FAILED。当前队首继续留在 AU10 recovery，但转向 WebSocket 断线重连、LLM 超时/失败后恢复与取消等待。
+
+用户随后调整队列要求先做 `AU12-work-profile-overview`；该 CP1 已闭环，证明作者可从真实工作台作品档案「概览」核对当前作品的立项字段。AU12 整体仍有 CP2/CP3 缺口；当前队首回到 `AU10-workbench-recovery-disconnect-timeout`。
+
+用户随后要求先推进 AU09 角色主档案 roundtrip；`AU09-character-dossier-roundtrip` CP1 已闭环，证明作者可从真实作品档案「角色」tab 发起角色设计、采纳 `character_seed` 后写入 `Character` 主档案且不写 memory、角色 tab 可见，并在下一次角色设计上下文读到现有角色。AU09 后续 CP2（字段级结构化、关系对象、角色演化 memory）未排为当前队首；当前队首仍回到 `AU10-workbench-recovery-disconnect-timeout`。
 
 ## 2. Why This Focus
 
-P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把“写第 N 章首稿”的上下文质量前置补齐到当前设计要求：CP2 解决“前面已写了什么”，CP3 解决“目标章在计划结构中的位置和摘要”，CP4 解决“目标章承担什么叙事功能和伏笔动作”，CP5 补“希望读者获得什么效果”与非权威自报告质量线索。现在应回到 AU10 recovery，因为工作台是所有作者旅程的主消费者，baseline matrix 仍缺长任务、断线、超时和失败恢复。
+P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把“写第 N 章首稿”的上下文质量前置补齐到当前设计要求：CP2 解决“前面已写了什么”，CP3 解决“目标章在计划结构中的位置和摘要”，CP4 解决“目标章承担什么叙事功能和伏笔动作”，CP5 补“希望读者获得什么效果”与非权威自报告质量线索。现在应继续 AU10 recovery，因为工作台是所有作者旅程的主消费者；task_state checkpoint 只覆盖真实导出动作和 Channel 失败分支，仍不覆盖断线、超时、取消等待和完整异步 LongRunner。
 
 已闭环的最近 checkpoint：
 
@@ -37,10 +41,13 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把�
 | VS-00C CP3 structured context | checkpoint closed | `artifacts/slice-verify/vs00c-cp3-structured-context-tauri/summary.json` |
 | VS-00C CP4 chapter plan structure | checkpoint closed | `artifacts/slice-verify/vs00c-cp4-chapter-plan-structure-tauri/summary.json` |
 | VS-00C CP5 reader effect brief | checkpoint closed | `artifacts/slice-verify/vs00c-cp5-reader-effect-brief-tauri/summary.json` |
+| AU10 workbench recovery task_state | checkpoint closed | `artifacts/slice-verify/au10-workbench-recovery-taskstate-tauri/summary.json` |
+| AU12 work profile overview | checkpoint closed | `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json` |
+| AU09 character dossier roundtrip CP1 | checkpoint closed | `artifacts/slice-verify/au09-character-dossier-roundtrip-tauri/summary.json` |
 
 ## 3. Active Journey
 
-来源：`docs/product/user-journeys.md` Journey J；`docs/design/acceptance/author/AU-10-workbench-ui.md`；`tasks/slices/v3/AU10-workbench-matrix-layout.md`。
+来源：`docs/product/user-journeys.md` Journey J；`docs/design/acceptance/author/AU-10-workbench-ui.md`；`tasks/slices/AU10-workbench-recovery-taskstate.md`。
 
 ```text
 作者在真实工作台执行长任务或遇到失败/断线
@@ -51,7 +58,7 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把�
 → 外部 Tauri driver 用真实页面、业务日志和截图验证恢复态
 ```
 
-当前断点：**AU10-workbench-recovery-taskstate**。
+当前断点：**AU10-workbench-recovery-disconnect-timeout**。
 
 ## 4. Queue
 
@@ -84,7 +91,10 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把�
 | 23 | VS-00C-CP3-structured-context | done | - | 结构化章节条目已从 persistence/fetcher 进入 `DialogueContext.structured_chapters`，prose_writing L2 注入目标章计划摘要、seq 与前后章位置；planner 的 `current_chapters` 标题列表保持兼容。 | `artifacts/slice-verify/vs00c-cp3-structured-context-tauri/summary.json`；`apps/novel_application/test/novel_application/cp3_structured_context_test.exs` |
 | 24 | VS-00C-CP4-chapter-plan-structure | done | - | CP4 已把章计划从自由文本摘要升级为 E18-E22 结构方向，并在 prose_writing L2 中优先渲染章功能、目标四件套、情绪定位、断章与字数场次。 | `artifacts/slice-verify/vs00c-cp4-chapter-plan-structure-tauri/summary.json`；`apps/novel_application/test/novel_application/cp4_chapter_plan_direction_test.exs` |
 | 25 | VS-00C-CP5-reader-effect-brief | done | - | CP5 已在 CP4 的结构化方向上补 ReaderEffectBrief，把读者效果、钩子承诺、风险约束前移到写前；AI self_report 只作为质量线索，不进入作品事实。 | `artifacts/slice-verify/vs00c-cp5-reader-effect-brief-tauri/summary.json`；`apps/novel_application/test/novel_application/cp5_reader_effect_brief_test.exs` |
-| 26 | AU10-workbench-recovery-taskstate | next | - | baseline matrix 尚未覆盖长任务 RUNNING/CHECKPOINT/COMPLETED/FAILED、WebSocket 断线重连、LLM 超时/失败后恢复；VS-00C CP0-CP5 已完成，现在回到 AU-10。 | `bash scripts/tauri_slice_verify.sh au10-workbench-recovery-taskstate`（待新增）；真实工作台恢复态 walkthrough + `task_state` 可见生命周期 + 断线/超时 UI 证据 |
+| 26 | AU10-workbench-recovery-taskstate | checkpoint closed | - | baseline matrix 没有覆盖 task_state 生命周期；本 checkpoint 复用真实“导出全书”动作打通 `TaskRunner.track/3`、`LongRunTaskLog`、Channel `task_state` 与 WorkspaceChat 顶部状态。 | `artifacts/slice-verify/au10-workbench-recovery-taskstate-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au10-workbench-recovery-taskstate`；`workspace_channel_task_state_test.exs` 覆盖 FAILED |
+| 27 | AU10-workbench-recovery-disconnect-timeout | next | - | task_state checkpoint 未覆盖 WebSocket 断线重连、LLM 超时/失败后恢复、取消等待、完整异步 LongRunner streaming 和 stale/disabled/idempotency UI。 | 待新增外部 Tauri driver：真实工作台断线/重连、LLM timeout/failure recovery、恢复后可继续操作；产品代码不得新增验收感知逻辑 |
+| 28 | AU12-work-profile-overview | checkpoint closed | - | 用户调整队列后先做 AU12；CP1 已补作品档案「概览」只读视图，让作者核对已被 AI prompt 消费的 works 立项字段。AU12 整体未 done，CP2/CP3 仍待后续。 | `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`；真实工作台创建带立项字段的作品、打开作品档案概览，验证题材/卖点/目标读者/基调/状态来自 `get_work_profile`，DTO/UI/业务日志不泄漏内部 Work UUID |
+| 29 | AU09-character-dossier-roundtrip | checkpoint closed | - | 用户调整队列后先做 AU09 CP1；角色主档案创建→采纳→展示→上下文链路已闭环。CP2 字段级结构化、关系对象、角色演化 memory 另行排队。 | `artifacts/slice-verify/au09-character-dossier-roundtrip-tauri/summary.json`；真实工作台从作品档案角色 tab 发起角色设计，`character_seed` 采纳写 `Character` 且不写 memory，角色 tab 可见，下一次角色设计上下文含现有 Character |
 
 ## 5. Selection Rule
 
@@ -130,6 +140,10 @@ P1 的 10 万字狗粮证明了长篇主链可以跑通；VS-00C CP0-CP5 已把�
 | 2026-06-17 | `VS-00C-CP4-chapter-plan-structure` 已闭环，队首推进到 CP5 ReaderEffectBrief。 | CP4 已把 outline 规划产物解析并物化为 `chapters.plan_direction`，prose_writing 前的 `context.structure.done` 可证明 `has_plan_direction=true`；下一步补读者效果目标和自报告质量线索。 |
 | 2026-06-17 | `VS-00C-CP5-reader-effect-brief` 已闭环，队首回到 `AU10-workbench-recovery-taskstate`。 | CP5 的 Tauri 证据证明 ReaderEffectBrief 在 provider 调用前形成，prose_writing 输出携带非权威 self_report 且不进入作品事实；VS-00C CP0-CP5 序列已完成，按用户要求转回下一个任务 AU10 recovery。 |
 | 2026-06-17 | 插队修复续写阅读面泄漏系统场景占位标题，队首仍保持 `AU10-workbench-recovery-taskstate`。 | 用户指出续写章节出现“场景 2 / 场景 3”。根因是续写 append 的内部 scene title `场景 #{seq}` 被 ReadingMode 展示；修复为隐藏系统占位标题、保留有意义场景标题，并收紧 prose_writing prompt 禁止正文元标签。Tauri 复验 `p1-chapter-expansion` 已通过，证据 `artifacts/slice-verify/p1-chapter-expansion-tauri/summary.json` 包含 `scene_placeholder_titles_hidden=true` / `reading_mode_hides_generated_scene_placeholder_titles`，不改变当前功能队列。 |
+| 2026-06-17 | `AU10-workbench-recovery-taskstate` checkpoint 已闭环，队首推进到 `AU10-workbench-recovery-disconnect-timeout`。 | 原生 Tauri 外部 driver 通过真实工作台生成并采纳正文、进入阅读模式点击“导出全书”，证明 websocket `task_state` RUNNING / CHECKPOINT / COMPLETED 到达 UI 且返回工作台后“任务完成”可见；Channel 回归覆盖导出失败时 FAILED 广播。该 checkpoint 不覆盖 WebSocket 断线重连、LLM 超时/取消等待或完整异步 LongRunner streaming。 |
+| 2026-06-17 | `AU12-work-profile-overview` 当时暂登记为 AU10 recovery 之后的后续项。 | AU-12 设计指出 `works` 立项字段已进入 prompt 但作者无法在作品档案核对；当时用户决策是不插队 AU10 recovery。该决策已被下一行“先完成 AU12”的队列调整覆盖。 |
+| 2026-06-17 | 用户调整任务队列，先完成 `AU12-work-profile-overview`；队首随后回到 AU10 recovery。 | 新增 `WorkArchiveService.profile/1` / Channel `get_work_profile` / StructurePanel「概览」tab / 外部 Tauri driver。证据 `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json` 证明真实工作台作品档案可显示 works 立项字段、状态为待确认，且 DTO/UI/业务日志不泄漏内部 Work UUID。AU12 整体仍未完成 CP2 accepted-artifact 类立项要素和 CP3 correction 修订入口。 |
+| 2026-06-17 | 用户调整任务队列，先完成 `AU09-character-dossier-roundtrip` CP1；队首随后回到 AU10 recovery。 | 角色主档案断链已收口：`CreativeProvider.Real` 角色设计专用 prompt；`character_seed` 采纳写 `Character` accepted 且不写 memory；采纳 state ref 指向 `character_id`；作品档案角色 tab 非空仍可创建；下一次角色设计上下文读到 Character 主档案。证据 `artifacts/slice-verify/au09-character-dossier-roundtrip-tauri/summary.json`。CP2 字段级结构化、关系对象和演化 memory 未完成。 |
 | 2026-06-11 | dogfood checkpoint 2：12 章全部跑满（16,734 字、12/12 ≥1000、0 失败、末跑 8 分钟）+ 增量规划 slice `p1-plan-incremental` 两 provider 闭环（**零产品代码**——物化层 title 幂等 + seq 续排本就支持追加，真实 gpt-oss-120b 从已有 12 章正确接续生成第13-19章、采纳追加、原章不动）。10 万字放大跑解锁。 | runner 修两个深层 bug：① 长会话**历史帧误匹配**（帧匹配不限起点 → 第08章误进第03章的确认分支）→ waitForFrame 加 fromIndex 限定本轮；② **waitForFunction(fn, arg, options) 参数顺序坑复发**（两参形式 timeout 被当 arg 从未生效、默认 30s）→ runner 全部改三参——该坑在所有 slice driver 的两参调用里潜伏（条件总在 30s 内满足未暴露），后续宜统一清理。狗粮还实证：覆盖确认/确认执行/失败重试-跳过/`--resume` 三次断点续跑全部工作；确定性 provider 的「改写」关键字误判（planner-keyword 债）只影响离线调试不影响真实跑。增量批量由 AI 自定（实测 7 章），验收下限放宽 >= 5。 |
 | 2026-06-11 | `P1-100k-dogfood-run`（Order 21）checkpoint 1：狗粮长跑 runner 基建落地并真实试跑通过；放大到 10 万字前发现产品缺口「计划无法增量扩展」。 | 新增 `scripts/dogfood_run.sh` + `frontend/slice-verify/dogfood-runner.mjs`（外部 Playwright 像作者一样逐章推进真实工作台：读阅读投影找未达标章 → 首稿/续写自然语言指令 → 确认创建采纳 → 循环 → 导出全书；支持 `--resume` 断点续跑=「重启后继续生成下一章」真实演练、确认卡处理（消费 AU-04 链）、失败重试-跳过、progress.jsonl + milestones §8 产物）。真实试跑（gpt-oss-120b）：第01章 135→642→1101、第02章 137→804→1600，续写衔接自然（nonce 贯通）、~25s/轮。**缺口**：seed 计划仅一卷 12 章（≈1.8 万字），10 万字需 ~70-100 章；增量规划（「继续规划第二卷」→ outline 采纳追加到既有结构）未验证，疑似采纳物化（固定「第一卷」+ seq 从 1 重算）不支持追加——需先以独立 slice 闭环增量规划，或本轮先跑满 12 章并如实报告缺口。 |
 | 2026-06-11 | `P1-export-minimum`（Order 20）闭环，队首推进到 `P1-100k-dogfood-run`。 | 阅读模式新增「导出全书」：channel `export_work` → `ExportService`（复用 `ReadingProjectionService.toc/chapter_content` 单一作品事实源，AU-08 口径——未采纳草稿天然不进导出）→ `NovelDomain.ExportDocument` 纯函数渲染（头部元信息 + 全章按 seq 目录 + 逐卷逐章正文 + 未写章「（本章暂无已采纳正文）」诚实占位）→ 写盘（`:export_dir` config，test=tmp/exports、默认 ~/Documents/AI Novel Studio）→ UI 显示「已导出到 <路径>」。验收 driver 复用采纳-阅读链后点真实导出按钮、从页面路径读真实文件断言 12 章目录有序、已采纳正文在文、占位恰 11；确定性 + `--real-lmstudio` 通过。后端 229+105 测试、I3/I1/I2、前端审计/设计追溯全过。 |

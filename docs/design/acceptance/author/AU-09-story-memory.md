@@ -60,6 +60,9 @@
 | `frontend/src/lib/memoryApi.ts` | 记忆管理前端 API client | client 存在，后端 REST 契约已补；真实页面仍未挂入 App |
 | `MemoryListPage` / `MemoryCreateDialog` / `MemoryDetailDrawer` | Phase 0 记忆管理 UI | 组件存在，无设计原型、无 app 路由入口；现在可消费后端 REST，但未形成真实前端入口闭环 |
 | `StructurePanel` | 作品档案 UI | 面板存在，archive 列表已来自真实 Channel/read model；待采纳区仍来自当前 turn 的 pendingAdoptions |
+| `docs/design/domain/21-novel-object-model.md` §7.2/§12.5 | character 资产层核心对象 / 主档案层（相对稳定人物档案 + 时序变化走连续性对象） | 设计冻结；CP1 已收口 `character_seed` 采纳写 `Character` 主档案且不写 memory |
+| `NovelPersistence.Schemas.Character` / `WorkArchiveRepo.characters` | 角色主档案表（写/读路径）+ 角色 tab 展示 | `AdoptionRepository` 已写入 accepted Character；角色 tab 可通过真实工作台读取；CP2 待做字段级结构化与演化层 |
+| `tasks/slices/AU09-character-dossier-roundtrip.md` | 角色主档案采纳回写 + AI 引导设计样板 | CP1 已闭环（两层模型 + 专用 capability，非独立 Agent）；证据 `artifacts/slice-verify/au09-character-dossier-roundtrip-tauri/summary.json` |
 
 ---
 
@@ -96,6 +99,8 @@
 **当前证据**：`StructurePanel` 有四个 tab；大纲 `get_toc` 已在 AU-08 改为真实读取 accepted draft 投影；`get_characters` / `get_foreshadowing` / `get_rules` 已改为通过 `WorkArchiveService` 读取当前 Work 的已采纳角色和已确认可召回记忆；`lobby` / 无效 Work 返回空态，不再返回固定 `char_1`、`mem_1`、`rule_1`。2026-05-19 补充：角色/伏笔/规则 DTO 已携带只读详情字段，`StructurePanel` 使用 Radix Tabs，列表项可选中显示 L3 详情，且 Memory enum 在 UI 中映射为作者可读标签。
 
 **当前状态**：部分实现 / 最小真实前端闭环已补。仍缺跨作品切换的 UI 级隔离验收和记忆管理页。
+
+> 角色 CP1（2026-06-17）：`get_characters` 读 `Character` 表；真实角色创建已改为 `character_seed → Character(accepted)`，创建阶段不写 `MemoryItem(CHARACTER_PROFILE)`。外部 Tauri 验收 `au09-character-dossier-roundtrip` 已证明：作品档案角色 tab 可见已采纳角色，且下一次角色设计 turn 可收到 Character 主档案上下文。字段级拆列、关系对象和角色演化 memory 仍属 CP2。
 
 ---
 
@@ -339,6 +344,7 @@
 | AU09-GAP-10 — 作者可见溯源缺失 | 最小闭环已补：真实工作台“为什么”面板展示本轮召回的记忆来源摘要；剩余 trace/replay 聚合、历史旧 turn 查询和更细粒度引用原因 | 最小闭环已补 / 继续补集成 | P1 |
 | AU09-GAP-11 — 管理页面无正式设计与路由入口 | Phase 0 组件未挂到 App，设计原型为 N/A | 修设计偏差/补实现 | P2 |
 | AU09-GAP-12 — 与 AU-03 会话模型未对齐 | 无作品内 session，记忆无法按 active/historical session 分层 | 补集成/新增 | P0/P1 |
+| AU09-GAP-13 — 角色主档案 roundtrip 断链 | **CP1 已闭环**：`character_seed` 采纳写 `Character` accepted 主档案并且不写 memory；角色 tab 可见；下一次角色设计/正文上下文可读 Character。证据：`bash scripts/tauri_slice_verify.sh au09-character-dossier-roundtrip`，summary 中 `archive_character_count=1`、`context_character_count=1`、`adopted_state_ref=<character_id>`。剩余 CP2：字段级结构化、关系对象、角色演化 memory 与双层上下文协同。 | CP1 done / CP2 待拆 | P0 |
 
 ---
 
@@ -369,6 +375,7 @@ mix test apps/novel_web/test/novel_web/controllers/memories_controller_test.exs
 mix test apps/novel_application/test/novel_application/context_grounding_test.exs
 mix test apps/novel_persistence/test/novel_persistence/workspace_context_test.exs
 bash scripts/tauri_slice_verify.sh au09-memory-recall-context
+bash scripts/tauri_slice_verify.sh au09-character-dossier-roundtrip
 ```
 
 后续真正闭环后至少需要新增：
