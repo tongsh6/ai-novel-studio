@@ -772,6 +772,7 @@ defmodule NovelApplication.DialogueGateway do
           complete_fn: complete_fn,
           chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
           chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
+          character_reader: NovelApplication.persistence_character_reader(),
           idempotency_suffix: "_confirmed"
         })
 
@@ -892,7 +893,8 @@ defmodule NovelApplication.DialogueGateway do
         author_input: author_input,
         complete_fn: complete_fn,
         chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
-        chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader()
+        chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
+        character_reader: NovelApplication.persistence_character_reader()
       })
 
     {:ok, turn_result, trace, candidates, context}

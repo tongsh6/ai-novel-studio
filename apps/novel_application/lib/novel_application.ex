@@ -162,6 +162,17 @@ defmodule NovelApplication do
     if inject_persistence?(), do: NovelPersistence.WorkspaceContext.chapter_summary_reader()
   end
 
+  @doc """
+  返回角色主档案读端口：`(work_id) -> 当前作品已采纳角色列表`（设计 21 §7.2 主档案层）。
+
+  供创作/角色设计上下文注入"现有角色"（VS-00C 同向 / AU09-character-dossier-roundtrip I-c）：
+  停掉角色 memory 误路由后，AI 写作与设计新角色时改从 Character 主档案看见现有阵容，不回退。
+  未启用真实持久化时返回 nil（无角色注入）。
+  """
+  def persistence_character_reader do
+    if inject_persistence?(), do: &NovelPersistence.WorkArchiveRepo.characters/1
+  end
+
   defp inject_persistence? do
     Application.get_env(:novel_web, :persistence, [])
     |> Keyword.get(:inject_real_persistence, false)

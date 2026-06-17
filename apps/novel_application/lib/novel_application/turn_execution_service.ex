@@ -39,6 +39,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:complete_fn) => function(),
           optional(:chapter_prose_reader) => function(),
           optional(:chapter_summary_reader) => map() | nil,
+          optional(:character_reader) => function() | nil,
           optional(:source_turn_ref) => String.t(),
           optional(:idempotency_suffix) => String.t()
         }
@@ -99,6 +100,11 @@ defmodule NovelApplication.TurnExecutionService do
         summary_reader
       )
 
+    # I-c（AU09 角色主档案）：从 Character 主档案注入"现有角色"，让 AI 写作保持一致、
+    # 设计新角色时看得见现有阵容（停角色 memory 后不回退角色感知）。
+    character_roster =
+      existing_characters_section(frame, action, input[:character_reader])
+
     maybe_emit_target_word_count(frame, action)
 
     req =
@@ -110,7 +116,8 @@ defmodule NovelApplication.TurnExecutionService do
         action,
         resolved_chapter,
         prior_prose,
-        prior_summaries
+        prior_summaries,
+        character_roster
       )
 
     tool_result = dispatch_tool(req, input[:complete_fn])
@@ -209,7 +216,8 @@ defmodule NovelApplication.TurnExecutionService do
          action,
          resolved_chapter,
          prior_prose,
-         prior_summaries
+         prior_summaries,
+         character_roster
        ) do
     tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"
     entry = CapabilityRegistry.get(tool_name)
@@ -230,7 +238,8 @@ defmodule NovelApplication.TurnExecutionService do
           input[:context],
           resolved_chapter,
           prior_prose,
-          prior_summaries
+          prior_summaries,
+          character_roster
         ),
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
@@ -247,15 +256,17 @@ defmodule NovelApplication.TurnExecutionService do
          context,
          resolved_chapter,
          prior_prose,
-         prior_summaries
+         prior_summaries,
+         character_roster
        ) do
     text = author_input_text(frame, author_input)
 
-    # 顺序：目标章结构对象（L2 设计态）→ 前文各章摘要（L3a 跨章实现态）→
-    # 本章已采纳正文（L5 衔接）→ 当前作者输入。
+    # 顺序：目标章结构对象（L2 设计态）→ 现有角色主档案（作品级阵容）→ 前文各章摘要
+    # （L3a 跨章实现态）→ 本章已采纳正文（L5 衔接）→ 当前作者输入。
     context_text =
       [
         target_structure_section(frame, action, context, resolved_chapter),
+        character_roster,
         prior_summaries,
         prior_prose_section(action, prior_prose),
         tool_context_text(context, text)
@@ -527,6 +538,60 @@ defmodule NovelApplication.TurnExecutionService do
   defp prose_writing_action?(action) do
     (action[:target_ref] || action[:capability_name]) == "prose_writing"
   end
+
+  # I-c（AU09 角色主档案）：从 Character 主档案读现有角色，注入创作/角色设计上下文。
+  # 仅对会用到角色的能力注入：character_design（设计新角色看现有阵容）、prose_writing（写作保持一致）。
+  defp existing_characters_section(frame, action, reader) when is_function(reader, 1) do
+    if character_context_action?(action) do
+      frame.workspace_id
+      |> reader.()
+      |> build_characters_section(frame)
+    else
+      ""
+    end
+  end
+
+  defp existing_characters_section(_frame, _action, _reader), do: ""
+
+  defp character_context_action?(action) do
+    (action[:target_ref] || action[:capability_name]) in ["character_design", "prose_writing"]
+  end
+
+  defp build_characters_section([], _frame), do: ""
+
+  defp build_characters_section(characters, frame) when is_list(characters) do
+    LogEmit.emit(:context, :characters, :done, %{
+      turn_id: frame.turn_id,
+      source_type: "character_dossier",
+      character_count: length(characters)
+    })
+
+    body = Enum.map_join(characters, "\n", &character_roster_line/1)
+
+    "## 现有角色（作品已确认角色主档案；设计新角色时避免重名/冲突并融入关系，写作时保持一致）\n" <>
+      body
+  end
+
+  defp build_characters_section(_characters, _frame), do: ""
+
+  defp character_roster_line(character) when is_map(character) do
+    name = character |> Map.get(:name) |> to_string()
+    role = character_role_suffix(Map.get(character, :role))
+    summary = character_summary_suffix(Map.get(character, :summary))
+    "- #{name}#{role}#{summary}"
+  end
+
+  defp character_role_suffix(role) when is_binary(role) and role != "", do: "（#{role}）"
+  defp character_role_suffix(_role), do: ""
+
+  defp character_summary_suffix(summary) when is_binary(summary) do
+    case String.trim(summary) do
+      "" -> ""
+      trimmed -> "：" <> trimmed
+    end
+  end
+
+  defp character_summary_suffix(_summary), do: ""
 
   # CP3（G6/G1）：tool 侧独立 L2 结构对象。current_chapters 标题列表仍保留给 planner；
   # prose_writing 额外拿到目标章计划摘要、顺序和前后章位置。
