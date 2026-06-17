@@ -86,10 +86,38 @@ defmodule NovelApplication.WorkArchiveServiceTest do
     assert word_count > 0
   end
 
+  test "profile exposes work seed fields without internal ids" do
+    {:ok, work} =
+      WorkService.create(%{
+        "title" => "灵源纪元",
+        "genre" => "东方玄幻",
+        "core_selling_point" => "灵源矿区真相",
+        "target_reader" => "喜欢升级悬疑的读者",
+        "tone_preference" => "紧张热血"
+      })
+
+    assert %{
+             title: "灵源纪元",
+             genre: "东方玄幻",
+             core_selling_point: "灵源矿区真相",
+             target_reader: "喜欢升级悬疑的读者",
+             tone_preference: "紧张热血",
+             status: "TENTATIVE",
+             revision: revision,
+             updated_at: updated_at
+           } = WorkArchiveService.profile(work.id)
+
+    assert is_integer(revision)
+    assert is_binary(updated_at)
+    refute Map.has_key?(WorkArchiveService.profile(work.id), :id)
+    refute inspect(WorkArchiveService.profile(work.id)) =~ work.id
+  end
+
   test "placeholder work ids return empty archive data instead of examples" do
     assert [] = WorkArchiveService.characters("lobby")
     assert [] = WorkArchiveService.foreshadowing("lobby")
     assert [] = WorkArchiveService.rules("lobby")
+    assert WorkArchiveService.profile("lobby") == %{}
 
     assert %{
              volumes: 0,

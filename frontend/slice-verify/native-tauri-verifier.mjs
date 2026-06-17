@@ -21,6 +21,7 @@ export const nativeSliceIds = [
   "au03-context-source-ui",
   "au07-trace-why-entry",
   "au10-workbench-matrix-layout",
+  "au10-workbench-recovery-taskstate",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
@@ -48,6 +49,7 @@ export const nativeSliceIds = [
   "vs00c-cp5-reader-effect-brief",
   "au09-memory-create-recall",
   "au09-adopt-setting-recall",
+  "au09-character-dossier-roundtrip",
   "au09-validity-window-recall",
   "vs10-observability-spine",
 ];
@@ -334,6 +336,17 @@ const sliceKeyEvents = {
     "context.assemble.done",
     "slice_verify.ui_state.done",
   ],
+  "au09-character-dossier-roundtrip": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_characters.done",
+    "context.characters.done",
+    "slice_verify.ui_state.done",
+  ],
   "au09-validity-window-recall": [
     "channel.user_message.start",
     "context.assemble.done",
@@ -462,6 +475,12 @@ const sliceKeyEvents = {
     "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
+  "au10-workbench-recovery-taskstate": [
+    "channel.task_state.done",
+    "channel.export_work.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au12-work-profile-overview": ["channel.get_work_profile.done", "slice_verify.ui_state.done"],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
@@ -632,6 +651,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu10WorkbenchMatrixLayoutEvidence(records);
   }
 
+  if (sliceId === "au10-workbench-recovery-taskstate") {
+    return findAu10WorkbenchRecoveryTaskstateEvidence(records);
+  }
+
+  if (sliceId === "au12-work-profile-overview") {
+    return findAu12WorkProfileOverviewEvidence(records);
+  }
+
   if (sliceId === "au10-micro-plan-entry") {
     return findAu10UserMessageEvidence(records, true, "au10-micro-plan-entry");
   }
@@ -740,6 +767,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu09AdoptSettingRecallEvidence(records);
   }
 
+  if (sliceId === "au09-character-dossier-roundtrip") {
+    return findAu09CharacterDossierRoundtripEvidence(records);
+  }
+
   if (sliceId === "au09-validity-window-recall") {
     return findAu09ValidityWindowRecallEvidence(records);
   }
@@ -833,6 +864,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return au10WorkbenchMatrixLayoutBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "au10-workbench-recovery-taskstate") {
+    return au10WorkbenchRecoveryTaskstateBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au12-work-profile-overview") {
+    return au12WorkProfileOverviewBehavior(records, evidence, options);
+  }
+
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
 
   if (sliceId === "au02-candidate-adoption-bridge") {
@@ -901,6 +940,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au09-adopt-setting-recall") {
     return au09AdoptSettingRecallBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-character-dossier-roundtrip") {
+    return au09CharacterDossierRoundtripBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "au09-validity-window-recall") {
@@ -2421,6 +2464,85 @@ function findAu10WorkbenchMatrixLayoutEvidence(records) {
     viewport_width: uiState.viewport_width,
     viewport_height: uiState.viewport_height,
     matrix_phases: uiState.matrix_phases,
+    key_events: keyEvents,
+  };
+}
+
+function findAu10WorkbenchRecoveryTaskstateEvidence(records) {
+  const sliceId = "au10-workbench-recovery-taskstate";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      Array.isArray(record.task_state_phases),
+  );
+  if (!uiState) return null;
+
+  const phases = uiState.task_state_phases;
+  for (const phase of ["RUNNING", "CHECKPOINT", "COMPLETED"]) {
+    if (!phases.includes(phase)) return null;
+  }
+  if (!uiState.task_id) return null;
+  if (uiState.export_success_visible !== true) return null;
+  if (uiState.real_workbench_completed_status_visible !== true) return null;
+  if (uiState.adoption_reading_completed !== true) return null;
+
+  const turnIds = [uiState.draft_turn_id, uiState.adoption_turn_id].filter(Boolean);
+  if (turnIds.length < 2) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.draft_turn_id,
+    turn_ids: turnIds,
+    draft_turn_id: uiState.draft_turn_id,
+    adoption_turn_id: uiState.adoption_turn_id,
+    artifact_id: uiState.artifact_id,
+    task_id: uiState.task_id,
+    task_type: uiState.task_type,
+    task_state_phases: phases,
+    task_state_count: Number(uiState.task_state_count ?? phases.length),
+    key_events: keyEvents,
+  };
+}
+
+function findAu12WorkProfileOverviewEvidence(records) {
+  const sliceId = "au12-work-profile-overview";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.profile_fields_visible === true &&
+      record.profile_status_visible === true &&
+      record.profile_request_sent === true &&
+      record.profile_reply_has_title === true &&
+      record.profile_reply_omits_id === true &&
+      record.profile_reply_omits_work_uuid === true &&
+      record.profile_ui_omits_work_uuid === true &&
+      record.profile_log_emitted === true &&
+      record.profile_log_omits_work_uuid === true &&
+      record.readonly_hint_visible === true &&
+      record.real_archive_opened === true &&
+      record.overview_tab_clicked === true,
+  );
+  if (!uiState) return null;
+  if (!uiState.work_id || !uiState.work_title) return null;
+
+  const profileLog = records.find(
+    (record) =>
+      record.event === "channel.get_work_profile.done" &&
+      record.has_title === true &&
+      record.status === uiState.profile_status,
+  );
+  if (!profileLog) return null;
+
+  return {
+    slice_id: sliceId,
+    work_id: uiState.work_id,
+    work_title: uiState.work_title,
+    profile_status: uiState.profile_status,
+    profile_revision: uiState.profile_revision,
     key_events: keyEvents,
   };
 }
@@ -3950,6 +4072,88 @@ function au10WorkbenchMatrixLayoutBehavior(_turnIds, _turnRecords, records, evid
   };
 }
 
+function au10WorkbenchRecoveryTaskstateBehavior(
+  _turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  _options,
+) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au10-workbench-recovery-taskstate" &&
+      record.task_id === evidence.task_id,
+  );
+  if (!uiState) return null;
+  if (uiState.export_success_visible !== true) return null;
+  if (uiState.export_path_visible !== true) return null;
+  if (uiState.real_export_button_clicked !== true) return null;
+  if (uiState.real_workbench_completed_status_visible !== true) return null;
+
+  const phases = uiState.task_state_phases ?? [];
+  for (const phase of ["RUNNING", "CHECKPOINT", "COMPLETED"]) {
+    if (!phases.includes(phase)) return null;
+  }
+
+  return {
+    slice_id: "au10-workbench-recovery-taskstate",
+    behavior: "export_action_streams_task_state_lifecycle_to_real_workbench",
+    turn_ids: evidence.turn_ids,
+    task_id: evidence.task_id,
+    task_type: evidence.task_type,
+    artifact_id: evidence.artifact_id,
+    task_state_phases: phases,
+    assertions: [
+      "author_clicked_real_export_button_from_reading_mode",
+      "export_action_broadcast_running_task_state",
+      "export_action_broadcast_checkpoint_task_state",
+      "export_action_broadcast_completed_task_state",
+      "workspace_status_bar_kept_completed_task_visible_after_return",
+      "task_state_was_observed_through_websocket_frames",
+      "export_result_path_was_visible_to_author",
+    ],
+  };
+}
+
+function au12WorkProfileOverviewBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au12-work-profile-overview" &&
+      record.work_id === evidence.work_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_fields_visible !== true) return null;
+  if (uiState.profile_status_visible !== true) return null;
+  if (uiState.profile_reply_omits_id !== true) return null;
+  if (uiState.profile_reply_omits_work_uuid !== true) return null;
+  if (uiState.profile_ui_omits_work_uuid !== true) return null;
+  if (uiState.profile_log_omits_work_uuid !== true) return null;
+  if (uiState.readonly_hint_visible !== true) return null;
+
+  return {
+    slice_id: "au12-work-profile-overview",
+    behavior: "author_opens_work_profile_overview_from_real_archive",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    work_title: evidence.work_title,
+    profile_status: evidence.profile_status,
+    profile_revision: evidence.profile_revision,
+    assertions: [
+      "real_work_created_with_profile_fields",
+      "author_opened_real_workbench_archive",
+      "author_clicked_profile_overview_tab",
+      "profile_fields_rendered_from_get_work_profile",
+      "profile_status_distinguishes_tentative_work",
+      "profile_dto_omitted_internal_work_id",
+      "profile_ui_did_not_show_internal_work_uuid",
+      "profile_log_did_not_emit_work_uuid",
+      "profile_view_remained_readonly",
+    ],
+  };
+}
+
 function findP1ChapterExpansionEvidence(records) {
   const sliceId = "p1-chapter-expansion";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -4580,6 +4784,121 @@ function au09AdoptSettingRecallBehavior(turnIds, _turnRecords, records, evidence
       options.provider === "lmstudio"
         ? "lmstudio_prompt_included_adopted_setting"
         : "deterministic_context_assembled_with_adopted_setting",
+    ],
+  };
+}
+
+function findAu09CharacterDossierRoundtripEvidence(records) {
+  const sliceId = "au09-character-dossier-roundtrip";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.character_artifact_type === "character_seed" &&
+      record.create_prompt_is_character_design === true &&
+      record.character_visible_in_archive === true &&
+      record.create_entry_visible_after_character === true &&
+      String(record.adopted_state_ref ?? "").length > 0 &&
+      Number(record.archive_character_count ?? 0) >= 1 &&
+      Number(record.context_character_count ?? 0) >= 1,
+  );
+  if (!uiState) return null;
+
+  const turnIds = [uiState.creation_turn_id, uiState.context_turn_id].filter(Boolean);
+  if (turnIds.length < 2) return null;
+
+  const characterGenerated = records.some(
+    (record) =>
+      record.turn_id === uiState.creation_turn_id &&
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_design" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!characterGenerated) return null;
+
+  const adopted = records.some(
+    (record) =>
+      record.turn_id === uiState.creation_turn_id &&
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!adopted) return null;
+
+  const charactersLoaded = records.some(
+    (record) =>
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) >= 1,
+  );
+  if (!charactersLoaded) return null;
+
+  const charactersInContext = records.some(
+    (record) =>
+      record.turn_id === uiState.context_turn_id &&
+      record.event === "context.characters.done" &&
+      Number(record.character_count ?? 0) >= 1,
+  );
+  if (!charactersInContext) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.context_turn_id,
+    turn_ids: turnIds,
+    character_artifact_id: uiState.character_artifact_id,
+    character_title: uiState.character_title,
+    adoption_turn_id: uiState.adoption_turn_id,
+    adopted_state_ref: uiState.adopted_state_ref,
+    archive_character_count: uiState.archive_character_count,
+    context_character_count: uiState.context_character_count,
+    key_events: keyEvents,
+  };
+}
+
+function au09CharacterDossierRoundtripBehavior(turnIds, _turnRecords, records, evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-character-dossier-roundtrip",
+  );
+  if (!uiState) return null;
+  if (uiState.character_artifact_type !== "character_seed") return null;
+  if (uiState.create_prompt_is_character_design !== true) return null;
+  if (uiState.character_visible_in_archive !== true) return null;
+  if (uiState.create_entry_visible_after_character !== true) return null;
+  if (Number(uiState.archive_character_count ?? 0) < 1) return null;
+  if (Number(uiState.context_character_count ?? 0) < 1) return null;
+  if (String(uiState.adopted_state_ref ?? "").length === 0) return null;
+
+  if (options.provider === "lmstudio") {
+    const title = String(uiState.character_title ?? "");
+    const promptIncludedCharacter =
+      title.length > 0 &&
+      (options.llmRecords ?? []).some(
+        (record) =>
+          record.turn_id === evidence.turn_id &&
+          JSON.stringify(record.request?.body ?? "").includes(title),
+      );
+    if (!promptIncludedCharacter) return null;
+  }
+
+  return {
+    slice_id: "au09-character-dossier-roundtrip",
+    behavior: "character_seed_adoption_writes_character_dossier_and_reaches_next_context",
+    turn_ids: turnIds,
+    character_title: uiState.character_title,
+    adopted_state_ref: uiState.adopted_state_ref,
+    assertions: [
+      "archive_create_character_sends_role_design_prompt_not_foreshadowing",
+      "character_design_generated_character_seed_from_real_workbench",
+      "author_adopted_character_seed_through_adoption_boundary",
+      "adopted_state_ref_points_to_persisted_character_state",
+      "archive_character_tab_loaded_adopted_character",
+      "character_tab_kept_create_entry_after_character_exists",
+      "next_character_design_turn_received_character_dossier_context",
+      options.provider === "lmstudio"
+        ? "lmstudio_prompt_included_adopted_character_context"
+        : "deterministic_context_logged_character_dossier",
     ],
   };
 }

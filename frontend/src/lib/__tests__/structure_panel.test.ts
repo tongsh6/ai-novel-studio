@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { StructurePanel } from "../../components/StructurePanel";
 import type { ArtifactEntry } from "../../components/WorkspaceChat";
+import { STRUCTURE_PANEL } from "../copy";
 import { useAppStore } from "../store";
 
 const artifact: ArtifactEntry = {
@@ -50,6 +51,11 @@ function renderPanel(
 }
 
 describe("StructurePanel available action contract", () => {
+  it("keeps character creation as a role-design intent instead of foreshadowing copy", () => {
+    expect(STRUCTURE_PANEL.createCharacterPrompt).toContain("角色");
+    expect(STRUCTURE_PANEL.createCharacterPrompt).not.toContain("伏笔");
+  });
+
   it("disables pending artifact business buttons when no server action exists", () => {
     const html = renderPanel(() => ({
       enabled: false,
@@ -57,6 +63,7 @@ describe("StructurePanel available action contract", () => {
     }));
 
     expect(html).toContain("候选角色");
+    expect(html).toContain("概览");
     expect(html).toContain("采纳设定");
     expect(html).toContain("提出修改");
     expect(html).toContain("disabled");

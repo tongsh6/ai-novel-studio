@@ -419,6 +419,31 @@ defmodule NovelAgent.Provider.GatewayTest do
       refute item["body"] =~ "## 当前作品上下文"
       refute item["body"] =~ "用户创作简述"
     end
+
+    test "stub character_seed returns a role dossier instead of prose-shaped filler" do
+      prompt = """
+      你是小说角色设计助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
+
+      capability：character_design
+      artifact_type：character_seed
+      用户创作简述：请设计一个稽查官 CHAR9X7
+      上下文：## 现有角色
+      - 白露：黑市掮客
+
+      重要：如果用户输入或上下文中出现任意随机标识符串（字母数字组合），
+      必须在至少一个条目的 title/body/rationale 中原样保留。
+
+      只返回 JSON 数组。
+      """
+
+      assert {:ok, %{content: content}} = Gateway.complete(prompt)
+      assert {:ok, [item]} = Jason.decode(content)
+      assert item["title"] =~ "沈砚"
+      assert item["body"] =~ "定位："
+      assert item["body"] =~ "语言风格："
+      assert item["body"] =~ "CHAR9X7"
+      refute item["body"] =~ "夜色压在"
+    end
   end
 
   describe "complete/2 with deepseek provider" do

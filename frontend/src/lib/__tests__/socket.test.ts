@@ -13,6 +13,7 @@ import {
   getCharacters,
   getForeshadowing,
   getRules,
+  getWorkProfile,
   getWorkStats,
   LLM_TURN_TIMEOUT_MS,
 } from "../socket";
@@ -176,6 +177,14 @@ describe("getRules", () => {
     const ch = mockChannel();
     getRules(ch, "work-2");
     expect(ch.push).toHaveBeenCalledWith("get_rules", { work_id: "work-2" });
+  });
+});
+
+describe("getWorkProfile", () => {
+  it("pushes get_work_profile with work_id", () => {
+    const ch = mockChannel();
+    getWorkProfile(ch, "work-profile-1");
+    expect(ch.push).toHaveBeenCalledWith("get_work_profile", { work_id: "work-profile-1" });
   });
 });
 

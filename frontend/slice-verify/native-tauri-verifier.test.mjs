@@ -24,6 +24,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au08-adoption-reading-projection");
     expect(nativeSliceIds).toContain("au09-archive-real-data");
     expect(nativeSliceIds).toContain("au09-memory-recall-context");
+    expect(nativeSliceIds).toContain("au09-character-dossier-roundtrip");
     expect(nativeSliceIds).toContain("au03-branch-from-history");
     expect(nativeSliceIds).toContain("au03-archive-session-filter");
     expect(nativeSliceIds).toContain("au03-current-work-context-ssot");
@@ -1038,6 +1039,111 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("accepts AU-09 character dossier roundtrip evidence", () => {
+    const records = [
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-char-create",
+        work_id: "work-char",
+        generate_micro_plan: true,
+      },
+      {
+        event: "toolbox.execute.done",
+        turn_id: "turn-char-create",
+        work_id: "work-char",
+        tool_name: "character_design",
+        tool_outcome: "succeeded",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-char-create",
+        work_id: "work-char",
+      },
+      {
+        event: "channel.author_action.start",
+        turn_id: "turn-char-create",
+        work_id: "work-char",
+        action_type: "accept",
+      },
+      {
+        event: "adoption.evaluate.done",
+        turn_id: "turn-char-create",
+        work_id: "work-char",
+        decision_type: "adopt_tentative",
+      },
+      {
+        event: "channel.author_action.done",
+        turn_id: "turn-char-create",
+        work_id: "work-char",
+        action_type: "accept",
+        action_status: "accepted",
+      },
+      {
+        event: "channel.get_characters.done",
+        work_id: "work-char",
+        character_count: 1,
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-char-context",
+        work_id: "work-char",
+        generate_micro_plan: true,
+      },
+      {
+        event: "context.characters.done",
+        turn_id: "turn-char-context",
+        work_id: "work-char",
+        character_count: 1,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-character-dossier-roundtrip",
+        turn_id: "turn-char-context",
+        creation_turn_id: "turn-char-create",
+        adoption_turn_id: "turn-char-adopt",
+        context_turn_id: "turn-char-context",
+        character_artifact_id: "as-char",
+        character_artifact_type: "character_seed",
+        character_title: "沈砚",
+        adopted_state_ref: "character-1",
+        archive_character_count: 1,
+        context_character_count: 1,
+        character_visible_in_archive: true,
+        create_entry_visible_after_character: true,
+        create_prompt_is_character_design: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-character-dossier-roundtrip", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au09-character-dossier-roundtrip",
+      turn_id: "turn-char-context",
+      character_artifact_id: "as-char",
+      adopted_state_ref: "character-1",
+      archive_character_count: 1,
+      context_character_count: 1,
+    });
+    expect(
+      findSliceBehaviorEvidence("au09-character-dossier-roundtrip", records, evidence),
+    ).toEqual({
+      slice_id: "au09-character-dossier-roundtrip",
+      behavior: "character_seed_adoption_writes_character_dossier_and_reaches_next_context",
+      turn_ids: ["turn-char-create", "turn-char-context"],
+      character_title: "沈砚",
+      adopted_state_ref: "character-1",
+      assertions: [
+        "archive_create_character_sends_role_design_prompt_not_foreshadowing",
+        "character_design_generated_character_seed_from_real_workbench",
+        "author_adopted_character_seed_through_adoption_boundary",
+        "adopted_state_ref_points_to_persisted_character_state",
+        "archive_character_tab_loaded_adopted_character",
+        "character_tab_kept_create_entry_after_character_exists",
+        "next_character_design_turn_received_character_dossier_context",
+        "deterministic_context_logged_character_dossier",
+      ],
+    });
+  });
+
   it("accepts AU-09 memory recall evidence when a workbench turn attaches memory context", () => {
     const records = [
       {
@@ -1520,6 +1626,91 @@ describe("native Tauri slice verifier", () => {
         "prose_draft_accept_used_adoption_boundary",
         "reading_projection_loaded_adopted_prose_and_word_counts",
         "task_status_baseline_visible_in_first_viewport",
+      ],
+    });
+  });
+
+  it("finds AU-10 recovery task_state evidence from export-driven UI state", () => {
+    const records = au10WorkbenchRecoveryTaskstateRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-taskstate", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au10-workbench-recovery-taskstate",
+      turn_id: "turn-au10-draft",
+      turn_ids: ["turn-au10-draft", "turn-au10-adoption"],
+      draft_turn_id: "turn-au10-draft",
+      adoption_turn_id: "turn-au10-adoption",
+      artifact_id: "artifact-au10",
+      task_id: "task-export-1",
+      task_type: "export_work",
+      task_state_phases: ["RUNNING", "CHECKPOINT", "COMPLETED"],
+      task_state_count: 3,
+      key_events: keyEventsForSlice("au10-workbench-recovery-taskstate"),
+    });
+  });
+
+  it("accepts AU-10 recovery task_state behavior when export streams visible lifecycle", () => {
+    const records = au10WorkbenchRecoveryTaskstateRecords();
+    const evidence = findNativeSliceEvidence("au10-workbench-recovery-taskstate", records);
+
+    expect(
+      findSliceBehaviorEvidence("au10-workbench-recovery-taskstate", records, evidence),
+    ).toEqual({
+      slice_id: "au10-workbench-recovery-taskstate",
+      behavior: "export_action_streams_task_state_lifecycle_to_real_workbench",
+      turn_ids: ["turn-au10-draft", "turn-au10-adoption"],
+      task_id: "task-export-1",
+      task_type: "export_work",
+      artifact_id: "artifact-au10",
+      task_state_phases: ["RUNNING", "CHECKPOINT", "COMPLETED"],
+      assertions: [
+        "author_clicked_real_export_button_from_reading_mode",
+        "export_action_broadcast_running_task_state",
+        "export_action_broadcast_checkpoint_task_state",
+        "export_action_broadcast_completed_task_state",
+        "workspace_status_bar_kept_completed_task_visible_after_return",
+        "task_state_was_observed_through_websocket_frames",
+        "export_result_path_was_visible_to_author",
+      ],
+    });
+  });
+
+  it("finds AU-12 work profile overview evidence from archive UI state", () => {
+    const records = au12WorkProfileOverviewRecords();
+    const evidence = findNativeSliceEvidence("au12-work-profile-overview", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au12-work-profile-overview",
+      work_id: "work-au12",
+      work_title: "AU12档案作品",
+      profile_status: "TENTATIVE",
+      profile_revision: 2,
+      key_events: keyEventsForSlice("au12-work-profile-overview"),
+    });
+  });
+
+  it("accepts AU-12 work profile overview behavior when profile is visible and readonly", () => {
+    const records = au12WorkProfileOverviewRecords();
+    const evidence = findNativeSliceEvidence("au12-work-profile-overview", records);
+
+    expect(findSliceBehaviorEvidence("au12-work-profile-overview", records, evidence)).toEqual({
+      slice_id: "au12-work-profile-overview",
+      behavior: "author_opens_work_profile_overview_from_real_archive",
+      turn_ids: [],
+      work_id: "work-au12",
+      work_title: "AU12档案作品",
+      profile_status: "TENTATIVE",
+      profile_revision: 2,
+      assertions: [
+        "real_work_created_with_profile_fields",
+        "author_opened_real_workbench_archive",
+        "author_clicked_profile_overview_tab",
+        "profile_fields_rendered_from_get_work_profile",
+        "profile_status_distinguishes_tentative_work",
+        "profile_dto_omitted_internal_work_id",
+        "profile_ui_did_not_show_internal_work_uuid",
+        "profile_log_did_not_emit_work_uuid",
+        "profile_view_remained_readonly",
       ],
     });
   });
@@ -2361,6 +2552,91 @@ function au10WorkbenchMatrixRecords(options = {}) {
       event: "channel.get_chapter_content.done",
       work_id: "work-au10",
       content_chars: 42,
+    },
+  ];
+}
+
+function au10WorkbenchRecoveryTaskstateRecords() {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-recovery-taskstate",
+      turn_id: "turn-au10-draft",
+      draft_turn_id: "turn-au10-draft",
+      adoption_turn_id: "turn-au10-adoption",
+      artifact_id: "artifact-au10",
+      task_id: "task-export-1",
+      task_type: "export_work",
+      task_state_phases: ["RUNNING", "CHECKPOINT", "COMPLETED"],
+      task_state_count: 3,
+      task_status_after_return: "任务完成",
+      export_success_visible: true,
+      export_path_visible: true,
+      real_export_button_clicked: true,
+      real_workbench_completed_status_visible: true,
+      adoption_reading_completed: true,
+    },
+    {
+      event: "channel.task_state.done",
+      task_id: "task-export-1",
+      task_type: "export_work",
+      phase: "RUNNING",
+      status: "RUNNING",
+      progress: 10,
+    },
+    {
+      event: "channel.task_state.done",
+      task_id: "task-export-1",
+      task_type: "export_work",
+      phase: "CHECKPOINT",
+      status: "PAUSED",
+      progress: 50,
+    },
+    {
+      event: "channel.task_state.done",
+      task_id: "task-export-1",
+      task_type: "export_work",
+      phase: "COMPLETED",
+      status: "DONE",
+      progress: 100,
+    },
+    {
+      event: "channel.export_work.done",
+      task_id: "task-export-1",
+      work_id: "work-au10",
+      chapter_count: 1,
+      total_word_count: 1200,
+    },
+  ];
+}
+
+function au12WorkProfileOverviewRecords() {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au12-work-profile-overview",
+      work_id: "work-au12",
+      work_title: "AU12档案作品",
+      profile_status: "TENTATIVE",
+      profile_revision: 2,
+      profile_fields_visible: true,
+      profile_status_visible: true,
+      profile_request_sent: true,
+      profile_reply_has_title: true,
+      profile_reply_omits_id: true,
+      profile_reply_omits_work_uuid: true,
+      profile_ui_omits_work_uuid: true,
+      profile_log_emitted: true,
+      profile_log_omits_work_uuid: true,
+      readonly_hint_visible: true,
+      real_archive_opened: true,
+      overview_tab_clicked: true,
+    },
+    {
+      event: "channel.get_work_profile.done",
+      has_title: true,
+      field_count: 8,
+      status: "TENTATIVE",
     },
   ];
 }

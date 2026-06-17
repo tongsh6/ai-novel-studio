@@ -18,11 +18,32 @@ defmodule NovelPersistence.WorkArchiveRepo do
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.Schemas.Volume
+  alias NovelPersistence.Schemas.Work
 
   @accepted_adoption_statuses [AdoptionStatus.accepted(), AdoptionStatus.edited_accepted()]
   @confirmed_memory_statuses [MemoryStatus.confirmed(), MemoryStatus.stabilized()]
   @foreshadowing_types [MemoryType.foreshadowing(), MemoryType.plot_fact()]
   @rule_types [MemoryType.world_rule(), MemoryType.constraint(), MemoryType.style_rule()]
+
+  @spec profile(String.t()) :: map()
+  def profile(work_id) when is_binary(work_id) do
+    with_uuid(work_id, %{}, fn uuid ->
+      Work
+      |> where([w], w.id == ^uuid)
+      |> select([w], %{
+        title: w.title,
+        genre: w.genre,
+        core_selling_point: w.core_selling_point,
+        target_reader: w.target_reader,
+        tone_preference: w.tone_preference,
+        status: w.status,
+        revision: w.revision,
+        updated_at: w.updated_at
+      })
+      |> Repo.one()
+      |> normalize_profile()
+    end)
+  end
 
   @spec characters(String.t()) :: [map()]
   def characters(work_id) when is_binary(work_id) do
@@ -155,6 +176,15 @@ defmodule NovelPersistence.WorkArchiveRepo do
       drafts_total: 0,
       drafts_accepted: 0
     }
+  end
+
+  defp normalize_profile(nil), do: %{}
+
+  defp normalize_profile(profile) do
+    profile
+    |> Map.put(:updated_at, datetime_to_iso8601(profile.updated_at))
+    |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+    |> Map.new()
   end
 
   defp normalize_character(character) do

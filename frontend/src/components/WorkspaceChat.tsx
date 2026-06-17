@@ -85,7 +85,7 @@ import {
   type ProviderModelOption,
   type ProviderId,
 } from "../lib/modelProvider";
-import { BUTTON, CARD, TRACE, WORKBENCH } from "../lib/copy";
+import { BUTTON, CARD, STRUCTURE_PANEL, TRACE, WORKBENCH } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import { toAuthorTraceSummary, type TraceSummaryView } from "../lib/traceSummaryView";
 import { framePresentationForSummary } from "../lib/framePresentation";
@@ -518,7 +518,7 @@ export function WorkspaceChat() {
 
     if (state.phase === "COMPLETED" || state.phase === "CANCELLED") {
       setLongRun({
-        status: "idle",
+        status: "completed",
         budgetUsed: typeof state.progress === "number" ? state.progress : longRun.budgetUsed,
         checkpointReason: null,
       });
@@ -1448,9 +1448,11 @@ export function WorkspaceChat() {
       ? WORKBENCH.taskRunningLabel(longRun.budgetUsed)
       : longRun.status === "checkpoint"
         ? WORKBENCH.taskCheckpointLabel
-        : longRun.status === "failed"
-          ? WORKBENCH.taskFailedLabel
-          : WORKBENCH.taskIdleLabel;
+        : longRun.status === "completed"
+          ? WORKBENCH.taskCompletedLabel
+          : longRun.status === "failed"
+            ? WORKBENCH.taskFailedLabel
+            : WORKBENCH.taskIdleLabel;
   const modelStatusLabel =
     llmConnected === null
       ? WORKBENCH.modelCheckingLabel
@@ -2286,7 +2288,7 @@ export function WorkspaceChat() {
               });
             }}
             onCreateCharacter={() => {
-              void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
+              void handleSend(STRUCTURE_PANEL.createCharacterPrompt, { generateMicroPlan: true });
             }}
             onDraftChapter={(chapterBrief) => {
               void handleSend(

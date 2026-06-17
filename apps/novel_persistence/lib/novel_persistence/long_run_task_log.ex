@@ -45,6 +45,14 @@ defmodule NovelPersistence.LongRunTaskLog do
     |> Repo.update()
   end
 
+  @doc "Mark task as failed in DB."
+  @spec fail(LongRunTask.t(), term()) :: {:ok, LongRunTask.t()} | {:error, Ecto.Changeset.t()}
+  def fail(%LongRunTask{} = task, reason) do
+    task
+    |> LongRunTask.failed_changeset(reason)
+    |> Repo.update()
+  end
+
   @doc "Mark task as resumed in DB."
   @spec resume(LongRunTask.t()) :: {:ok, LongRunTask.t()} | {:error, Ecto.Changeset.t()}
   def resume(%LongRunTask{} = task) do

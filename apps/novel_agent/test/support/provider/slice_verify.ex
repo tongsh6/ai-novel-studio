@@ -145,9 +145,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
       item = %{
         item_id: "slice_item_#{fingerprint}_1",
-        title: creative_title(brief, fingerprint),
-        body: creative_body(brief, context),
-        rationale: creative_rationale(brief)
+        title: creative_title(prompt, brief, fingerprint),
+        body: creative_body(prompt, brief, context),
+        rationale: creative_rationale(prompt, brief)
       }
 
       if prose_fragment_prompt?(prompt) do
@@ -159,6 +159,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp outline_plan_prompt?(prompt), do: String.contains?(prompt, "artifact_type：outline_draft")
+
+  defp character_seed_prompt?(prompt),
+    do: String.contains?(prompt, "artifact_type：character_seed")
 
   defp prose_fragment_prompt?(prompt),
     do: String.contains?(prompt, "artifact_type：prose_fragment")
@@ -480,19 +483,59 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 章节正文 item 标题取章节计划标题（"第N章：标题"，止于下一个分隔符），让采纳后的章节名
   # 是真实章名而非占位。无法识别章号时回退占位标题。
-  defp creative_title(brief, fingerprint) do
-    case Regex.run(~r/第\d+章[：:]\s*[^：:。\n]+/u, brief) do
-      [chapter_title] -> String.trim(chapter_title)
-      _ -> "待确认正文草稿 #{fingerprint}"
+  defp creative_title(prompt, brief, fingerprint) do
+    if character_seed_prompt?(prompt) do
+      "沈砚 #{String.slice(fingerprint, 0, 4)}"
+    else
+      case Regex.run(~r/第\d+章[：:]\s*[^：:。\n]+/u, brief) do
+        [chapter_title] -> String.trim(chapter_title)
+        _ -> "待确认正文草稿 #{fingerprint}"
+      end
     end
   end
 
-  defp creative_body(brief, context) do
+  defp creative_body(prompt, brief, context) do
+    if character_seed_prompt?(prompt) do
+      character_body(brief, context)
+    else
+      prose_body(brief, context)
+    end
+  end
+
+  defp prose_body(brief, context) do
     case {continuation_brief?(brief), target_word_count_in_brief(brief)} do
       {true, _} -> continuation_body(brief, context)
       {false, n} when is_integer(n) -> length_targeted_body(n, brief, context)
       {false, _} -> opening_body(brief, context)
     end
+  end
+
+  defp character_body(brief, context) do
+    nonce_text =
+      [brief, context]
+      |> Enum.join("\n")
+      |> random_identifier_tokens()
+      |> Enum.take(3)
+      |> Enum.join("、")
+
+    nonce_line =
+      if nonce_text == "",
+        do: "校验标识：（无）",
+        else: "校验标识：#{nonce_text}"
+
+    [
+      "定位：灵气交易所稽查官，适合作为主角阵营的冷峻调查者。",
+      "动机：查清灵气账单异常背后的权力交易，同时保护被系统规则压迫的普通修士。",
+      "背景：出身底层账务区，曾因旧阵芯事故失去重要同伴，因此对交易所内部黑账格外敏感。",
+      "关系：会主动避开与现有角色重名，并与黑市、交易所、巡检车势力形成可冲突关系。",
+      "弧光：从只相信证据的孤立稽查者，逐步学会把他人托付纳入自己的判断。",
+      "外貌：身形瘦削，常穿磨旧的深色制服，左腕嵌着会短暂发光的旧阵芯。",
+      "语言风格：短句、克制、带审计式追问，很少表达情绪。",
+      "能力体系绑定：擅长读取灵气账单、追踪阵纹流水和识别伪造功法凭证。",
+      nonce_line,
+      "作品专属维度：可围绕作者请求继续补足境界、功法、社会关系和关键弱点。请求摘要：#{String.slice(brief, 0, 80)}"
+    ]
+    |> Enum.join("\n")
   end
 
   # 目标字数槽（Slice B）：作者明确篇幅诉求时，确定性产出有效字数贴近 N 的正文。
@@ -593,11 +636,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp creative_rationale(brief) do
-    if String.contains?(brief, "正文草稿") do
-      "根据作者指定章节生成待确认正文片段，未写入作品事实。"
-    else
-      "根据本次作者输入生成待确认创作素材，未写入作品事实。"
+  defp creative_rationale(prompt, brief) do
+    cond do
+      character_seed_prompt?(prompt) ->
+        "基于当前作品背景、设定与现有角色入口生成角色主档案草稿，未写入作品事实。"
+
+      String.contains?(brief, "正文草稿") ->
+        "根据作者指定章节生成待确认正文片段，未写入作品事实。"
+
+      true ->
+        "根据本次作者输入生成待确认创作素材，未写入作品事实。"
     end
   end
 

@@ -164,6 +164,14 @@ describe("WorkspaceRuntimeState", () => {
     ).toBe("failed");
   });
 
+  it("keeps completed task state visible instead of collapsing it to idle", () => {
+    const state = deriveWorkspaceRuntimeState({
+      task: { status: "COMPLETED" },
+    });
+
+    expect(state.task.status).toBe("completed");
+  });
+
   it("does not expose internal ids as visible work titles", () => {
     const state = deriveWorkspaceRuntimeState({
       work: {

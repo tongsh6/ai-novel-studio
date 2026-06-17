@@ -114,10 +114,12 @@ defmodule NovelApplication.TurnExecutionService do
         decision,
         input,
         action,
-        resolved_chapter,
-        prior_prose,
-        prior_summaries,
-        character_roster
+        %{
+          resolved_chapter: resolved_chapter,
+          prior_prose: prior_prose,
+          prior_summaries: prior_summaries,
+          character_roster: character_roster
+        }
       )
 
     tool_result = dispatch_tool(req, input[:complete_fn])
@@ -214,10 +216,7 @@ defmodule NovelApplication.TurnExecutionService do
          decision,
          input,
          action,
-         resolved_chapter,
-         prior_prose,
-         prior_summaries,
-         character_roster
+         sections
        ) do
     tool_name = action[:target_ref] || action[:capability_name] || "text_analysis"
     entry = CapabilityRegistry.get(tool_name)
@@ -236,10 +235,10 @@ defmodule NovelApplication.TurnExecutionService do
           action,
           input[:author_input],
           input[:context],
-          resolved_chapter,
-          prior_prose,
-          prior_summaries,
-          character_roster
+          sections.resolved_chapter,
+          sections.prior_prose,
+          sections.prior_summaries,
+          sections.character_roster
         ),
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],

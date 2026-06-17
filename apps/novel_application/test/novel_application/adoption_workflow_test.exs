@@ -70,6 +70,40 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert turn_result.truthfulness.state_persisted == true
     end
 
+    test "uses character_id as adopted state ref for character_seed persistence" do
+      source_turn = source_turn_result()
+
+      writer = fn attrs ->
+        assert attrs.artifact_type == :character_seed
+
+        {:ok,
+         %{
+           mutation_id: "mutation-1",
+           mutation_status: "APPLIED",
+           character_id: "character-1",
+           character_status: "ACCEPTED",
+           source_revision_ref: "mutation:mutation-1",
+           reading_projection: nil
+         }}
+      end
+
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_adopt(
+                 source_turn,
+                 %{"artifact_id" => "as-1", "work_id" => "work-1"},
+                 writer
+               )
+
+      assert action_result.persistence.persisted == true
+      assert action_result.persistence.character_id == "character-1"
+
+      assert [%{adopted_state_ref: "character-1", mutation_ref: "mutation-1"}] =
+               turn_result.adoption_state.resolved
+
+      assert turn_result.truthfulness.adopted_state_ref == "character-1"
+      assert turn_result.projection_refs == []
+    end
+
     test "reading projection refs are emitted only after prose artifacts materialize reading content" do
       source_turn = source_turn_result(%{artifact_type: :prose_fragment})
 

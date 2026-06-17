@@ -10,6 +10,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelApplication.TaskRunner
   alias NovelApplication.WorkSessionService
   alias NovelCommon.LogContext
   alias NovelDomain.AuthorActionInput
@@ -402,10 +403,43 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, data}, socket}
   end
 
-  def handle_in("export_work", payload, socket) do
-    work_id = Map.get(payload, "work_id") || socket.assigns[:work_id] || "lobby"
+  def handle_in("get_work_profile", payload, socket) do
+    work_id = archive_work_id(payload, socket)
+    data = NovelApplication.WorkArchiveService.profile(work_id)
 
-    case NovelApplication.ExportService.export(work_id) do
+    LogEmit.emit(:channel, :get_work_profile, :done, %{
+      workspace_id: "current_workspace",
+      work_id: "current_work",
+      field_count: map_size(data),
+      has_title: Map.has_key?(data, :title),
+      status: data[:status]
+    })
+
+    {:reply, {:ok, data}, socket}
+  end
+
+  def handle_in("export_work", payload, socket) do
+    work_id = socket.assigns[:work_id] || Map.get(payload, "work_id") || "lobby"
+
+    task_attrs = %{
+      workspace_id: work_id,
+      task_type: "export_work",
+      status: "READY",
+      phase: "PLANNED",
+      goal: "导出全书"
+    }
+
+    result =
+      TaskRunner.track(
+        task_attrs,
+        [
+          checkpoint_data: %{"progress" => 50, "step" => "导出内容已形成检查点"},
+          on_state_change: fn task -> broadcast_task_state(socket, task) end
+        ],
+        fn -> NovelApplication.ExportService.export(work_id) end
+      )
+
+    case result do
       {:ok, result} ->
         LogEmit.emit(:channel, :export_work, :done, %{
           work_id: work_id,
@@ -423,7 +457,7 @@ defmodule NovelWeb.WorkspaceChannel do
           reason_code: reason
         })
 
-        {:reply, {:error, %{reason: to_string(reason)}}, socket}
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
 
@@ -508,6 +542,60 @@ defmodule NovelWeb.WorkspaceChannel do
 
     {:reply, {:ok, data}, socket}
   end
+
+  defp broadcast_task_state(socket, task) do
+    payload = task_state_payload(task)
+    broadcast!(socket, "task_state", payload)
+
+    LogEmit.emit(:channel, :task_state, :done, %{
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id],
+      task_id: payload.task_id,
+      task_type: payload.task_type,
+      phase: payload.phase,
+      status: payload.status,
+      progress: payload.progress,
+      step: payload.step
+    })
+  end
+
+  defp task_state_payload(task) do
+    checkpoint_data = task.checkpoint_data || %{}
+    phase = task.phase || "RUNNING"
+
+    %{
+      task_id: task.id,
+      task_type: task.task_type,
+      phase: phase,
+      status: task.status,
+      progress: task_progress(phase, checkpoint_data),
+      step: task_step(task, checkpoint_data),
+      updated_at: timestamp_iso(task.updated_at)
+    }
+  end
+
+  defp task_progress("RUNNING", _checkpoint_data), do: 10
+  defp task_progress("COMPLETED", _checkpoint_data), do: 100
+  defp task_progress("FAILED", _checkpoint_data), do: 100
+
+  defp task_progress(_phase, checkpoint_data) do
+    case checkpoint_data["progress"] || checkpoint_data[:progress] do
+      value when is_number(value) -> value
+      _ -> 50
+    end
+  end
+
+  defp task_step(task, checkpoint_data) do
+    checkpoint_data["step"] || checkpoint_data[:step] || task.goal || task.task_type
+  end
+
+  defp timestamp_iso(%DateTime{} = timestamp), do: DateTime.to_iso8601(timestamp)
+  defp timestamp_iso(_), do: nil
+
+  defp reason_text(reason) when is_binary(reason), do: reason
+  defp reason_text(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp reason_text(%{__exception__: true} = reason), do: Exception.message(reason)
+  defp reason_text(reason), do: inspect(reason)
 
   defp handle_author_action(
          socket,
@@ -749,7 +837,7 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp archive_work_id(payload, socket) do
-    Map.get(payload, "work_id") || socket.assigns[:work_id] || "lobby"
+    socket.assigns[:work_id] || Map.get(payload, "work_id") || "lobby"
   end
 
   defp handle_adopt_result(result, socket, artifact_id, t0) do

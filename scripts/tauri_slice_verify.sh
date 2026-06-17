@@ -91,10 +91,13 @@ Implemented external UI driver slice ids:
   vs00c-cp5-reader-effect-brief
   au09-memory-create-recall
   au09-adopt-setting-recall
+  au09-character-dossier-roundtrip
   au09-validity-window-recall
   au03-long-session-compression
   au03-context-source-ui
   au10-workbench-matrix-layout
+  au10-workbench-recovery-taskstate
+  au12-work-profile-overview
   desktop-stage-process-ownership
 
 Legacy slice ids must get an external driver before this script can run them.
@@ -124,7 +127,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -140,7 +143,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" ]]; then
+if [[ "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au12-work-profile-overview" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -271,6 +274,12 @@ native_action_description() {
     au10-workbench-matrix-layout)
       echo "seed adopted chapter plan -> launch real workbench at 1280x800 -> verify top/status/input/rail layout -> send ordinary message and open why -> drive candidate authorized action -> save prose draft -> read adopted projection"
       ;;
+    au10-workbench-recovery-taskstate)
+      echo "seed adopted chapter plan -> generate and adopt prose from real workbench -> click real export button -> verify task_state RUNNING/CHECKPOINT/COMPLETED streams to the workbench status bar"
+      ;;
+    au12-work-profile-overview)
+      echo "create a real work with seed profile fields -> open real workbench archive -> click profile overview -> verify work genre/selling point/target reader/tone render from get_work_profile without leaking internal ids"
+      ;;
     vs00c-cp0-missing-chapter-block)
       echo "seed adopted chapter plan (has chapter 1, no chapter 99) -> type a natural-language continuation request for a non-existent chapter -> planner names the chapter but cannot match it -> WritingCoordinate + MissingPolicyResult block before tool dispatch -> honest 'chapter not found' reply with no provider call and no creative card"
       ;;
@@ -306,6 +315,9 @@ native_action_description() {
       ;;
     au09-adopt-setting-recall)
       echo "generate an AI setting (world_setting) from the archive -> adopt it into a confirmed recallable governed memory -> send a related message -> setting recalled into context/prompt -> why panel shows it as an author-safe source"
+      ;;
+    au09-character-dossier-roundtrip)
+      echo "open real archive character tab -> click create character -> generate character_seed -> adopt through the adoption boundary -> reopen character tab and verify the Character dossier is visible -> click create again and verify the next role-design turn receives existing Character context"
       ;;
     au09-validity-window-recall)
       echo "seed current position=chapter 5 + an out-of-window memory (ch1-2) + an unwindowed memory -> send a message matching both -> only the in-window memory recalls -> why panel shows the in-window source and excludes the out-of-window one"
@@ -576,6 +588,9 @@ case "$SLICE_ID" in
   au10-workbench-matrix-layout)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
+  au10-workbench-recovery-taskstate)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
   vs00c-cp0-missing-chapter-block)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
@@ -592,6 +607,9 @@ case "$SLICE_ID" in
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   au09-adopt-setting-recall)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  au09-character-dossier-roundtrip)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   au09-validity-window-recall)
@@ -617,6 +635,7 @@ wait_for_url "$API_URL/health" "Phoenix"
 
 cd "$PROJECT_ROOT/frontend"
 HOME="$TAURI_SLICE_HOME" \
+COREPACK_HOME="${COREPACK_HOME:-${ORIGINAL_HOME}/.cache/node/corepack}" \
 AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
 CARGO_HOME="${CARGO_HOME:-${ORIGINAL_HOME}/.cargo}" \
 RUSTUP_HOME="${RUSTUP_HOME:-${ORIGINAL_HOME}/.rustup}" \

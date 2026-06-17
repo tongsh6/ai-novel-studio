@@ -42,6 +42,19 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+async function createWorkSeed(attrs) {
+  const response = await fetch(`${baseUrl}/api/works`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(attrs),
+  });
+
+  assert(response.ok, `Failed to create work seed: HTTP ${response.status}`);
+  const body = await response.json();
+  assert(body?.work?.id, "Created work seed response did not include work id");
+  return body.work;
+}
+
 async function textContent(page, selector) {
   return page
     .locator(selector)
@@ -75,6 +88,15 @@ function latestActionResult() {
   return frames
     .filter((frame) => frame.direction === "received" && frame.event === "action_result")
     .at(-1)?.body;
+}
+
+function receivedTaskStateFrames(taskId) {
+  return frames.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "task_state" &&
+      (!taskId || frame.body?.task_id === taskId),
+  );
 }
 
 async function waitForFrame(predicate, message, timeoutMs = 60_000) {
@@ -2775,8 +2797,7 @@ async function driveAu09MemoryCreateRecall(page) {
 async function driveAu09AdoptSettingRecall(page) {
   // ── 从作品档案触发 AI 生成一条设定（world_setting）。
   await page.getByText("打开档案").first().click();
-  await page.getByRole("tab", { name: "角色" }).click();
-  await page.getByRole("button", { name: "创建角色" }).click();
+  await page.getByRole("button", { name: "发起新操作" }).click();
 
   // 设定类创作 artifact（非正文）：world_setting / outline_draft / character_seed 等。
   // 真实 LLM 可能为同一档案按钮选择不同创作工具，故只要求"非正文且需采纳"。
@@ -2880,6 +2901,133 @@ async function driveAu09AdoptSettingRecall(page) {
       setting_adopted: adoptFrame.body.truthfulness?.artifact_adopted === true,
       why_shows_memory_source: whyShowsMemorySource,
       message_text: message,
+    },
+  ];
+}
+
+async function driveAu09CharacterDossierRoundtrip(page) {
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "角色" }).click();
+  await page.getByRole("button", { name: "创建角色" }).first().click();
+
+  const createMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("角色") &&
+      !String(frame.body?.text ?? "").includes("伏笔"),
+    "Real archive character action did not send a role-design user_message with micro plan enabled",
+    20_000,
+  );
+
+  const draftFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.adoption_state?.pending?.[0]?.requires_adoption === true &&
+      frame.body.adoption_state.pending[0].artifact_type === "character_seed",
+    "No tentative character_seed artifact websocket frame was received",
+    170_000,
+  );
+  const artifact = draftFrame.body.adoption_state.pending[0];
+  const characterTitle = String(
+    artifact.payload?.items?.[0]?.title ?? artifact.payload?.title ?? "角色设定草稿",
+  );
+
+  const closeArchive = page.getByRole("button", { name: "关闭档案" });
+  if ((await closeArchive.count()) > 0) {
+    await closeArchive
+      .first()
+      .click()
+      .catch(() => {});
+  }
+
+  const acceptDraftButton = page.getByRole("button", { name: acceptDraftButtonPattern }).first();
+  await acceptDraftButton.waitFor({ timeout: 10_000 });
+  await acceptDraftButton.click();
+
+  const adoptFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === artifact.artifact_id,
+      ),
+    "No character adoption resolved turn_result websocket frame was received",
+    120_000,
+  );
+
+  const adoptedStateRef = String(adoptFrame.body.truthfulness?.adopted_state_ref ?? "");
+  assert(adoptedStateRef.length > 0, "Character adoption did not expose adopted_state_ref");
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "角色" }).click();
+  const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
+  await archivePanel.getByText(characterTitle).first().waitFor({ timeout: 10_000 });
+
+  const charactersLoaded = await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      record.work_id === createMessageFrame.body?.work_id &&
+      Number(record.character_count ?? 0) >= 1,
+    "No channel.get_characters.done log loaded the adopted Character dossier",
+    20_000,
+  );
+
+  const createEntryVisibleAfterCharacter =
+    (await archivePanel.getByRole("button", { name: "创建角色" }).count()) >= 1;
+  assert(
+    createEntryVisibleAfterCharacter,
+    "Character tab did not keep a visible create entry after a character exists",
+  );
+
+  await archivePanel.getByRole("button", { name: "创建角色" }).first().click();
+
+  const secondDraftFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      frame.body.turn_id !== draftFrame.body.turn_id &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "character_seed",
+    "No second character design turn_result was received after archive create entry",
+    170_000,
+  );
+
+  const characterContext = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.characters.done" &&
+      record.turn_id === secondDraftFrame.body.turn_id &&
+      Number(record.character_count ?? 0) >= 1,
+    "No context.characters.done log proved Character dossier reached the next character design turn",
+    20_000,
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, secondDraftFrame.body, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: secondDraftFrame.body.turn_id,
+      turn_ids: [draftFrame.body.turn_id, adoptFrame.body.turn_id, secondDraftFrame.body.turn_id],
+      creation_turn_id: draftFrame.body.turn_id,
+      adoption_turn_id: adoptFrame.body.turn_id,
+      context_turn_id: secondDraftFrame.body.turn_id,
+      character_artifact_id: artifact.artifact_id,
+      character_artifact_type: artifact.artifact_type,
+      character_title: characterTitle,
+      adopted_state_ref: adoptedStateRef,
+      character_visible_in_archive: true,
+      archive_character_count: charactersLoaded.character_count,
+      create_entry_visible_after_character: createEntryVisibleAfterCharacter,
+      context_character_count: characterContext.character_count,
+      create_prompt_text: createMessageFrame.body?.text,
+      create_prompt_is_character_design:
+        String(createMessageFrame.body?.text ?? "").includes("角色") &&
+        !String(createMessageFrame.body?.text ?? "").includes("伏笔"),
     },
   ];
 }
@@ -3050,6 +3198,209 @@ async function driveAu10WorkbenchMatrixLayout(page) {
   ];
 }
 
+async function driveAu10WorkbenchRecoveryTaskstate(page) {
+  const [adoptionRecord] = await driveP1ChapterAdoptionReading(page);
+
+  await page.getByRole("button", { name: "导出全书" }).click();
+
+  const runningFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "task_state" &&
+      frame.body?.phase === "RUNNING",
+    "Export did not broadcast RUNNING task_state",
+    30_000,
+  );
+  const taskId = runningFrame.body.task_id;
+
+  await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "task_state" &&
+      frame.body?.task_id === taskId &&
+      frame.body?.phase === "CHECKPOINT",
+    "Export did not broadcast CHECKPOINT task_state",
+    30_000,
+  );
+
+  await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "task_state" &&
+      frame.body?.task_id === taskId &&
+      frame.body?.phase === "COMPLETED",
+    "Export did not broadcast COMPLETED task_state",
+    30_000,
+  );
+
+  await page.waitForFunction(() => document.body.innerText.includes("已导出到"), {
+    timeout: 10_000,
+  });
+  const exportText = await page.locator("body").innerText();
+
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("任务完成"), {
+    timeout: 10_000,
+  });
+  const workbenchText = await page.locator("body").innerText();
+  const taskFrames = receivedTaskStateFrames(taskId);
+  const taskPhases = taskFrames.map((frame) => frame.body?.phase).filter(Boolean);
+
+  assert(taskPhases.includes("RUNNING"), "RUNNING task state was not observed");
+  assert(taskPhases.includes("CHECKPOINT"), "CHECKPOINT task state was not observed");
+  assert(taskPhases.includes("COMPLETED"), "COMPLETED task state was not observed");
+  assert(workbenchText.includes("任务完成"), "Workbench did not keep the completed task visible");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au10-workbench-recovery-taskstate",
+      turn_id: adoptionRecord.draft_turn_id,
+      draft_turn_id: adoptionRecord.draft_turn_id,
+      adoption_turn_id: adoptionRecord.adopt_turn_id,
+      artifact_id: adoptionRecord.artifact_id,
+      task_id: taskId,
+      task_type: runningFrame.body.task_type,
+      task_state_phases: taskPhases,
+      task_state_count: taskFrames.length,
+      task_status_after_return: "任务完成",
+      export_success_visible: exportText.includes("已导出到"),
+      export_path_visible: exportText.includes("已导出到") && exportText.includes(".md"),
+      real_export_button_clicked: true,
+      real_workbench_completed_status_visible: true,
+      adoption_reading_completed: adoptionRecord.reading_mode_populated_after_adoption === true,
+    },
+  ];
+}
+
+async function driveAu12WorkProfileOverview(page) {
+  const nonce = `AU12-${Date.now()}`;
+  const seed = {
+    title: `AU12档案作品-${nonce}`,
+    genre: "都市异能",
+    core_selling_point: `灵气交易所黑幕-${nonce}`,
+    target_reader: "喜欢强剧情反转的读者",
+    tone_preference: "冷峻克制",
+  };
+  const work = await createWorkSeed(seed);
+
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+
+  await workTitle(page).click();
+  const refreshWorks = page.locator('button[title="刷新作品列表"]').first();
+  if ((await refreshWorks.count()) > 0) {
+    await refreshWorks.click();
+  }
+  await page.getByText(seed.title, { exact: true }).click();
+  await page.waitForFunction((title) => document.body.innerText.includes(title), seed.title, {
+    timeout: 15_000,
+  });
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+
+  await waitForFrame(
+    (frame) => frame.direction === "sent" && frame.event === "get_work_profile",
+    "Profile tab did not request get_work_profile over the real websocket",
+    30_000,
+  );
+
+  const profileReply = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.title === seed.title,
+    "Profile websocket reply did not include the seeded work profile",
+    30_000,
+  );
+  const profile = profileReply.body.response ?? {};
+
+  const profileLog = await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.get_work_profile.done" &&
+      record.has_title === true &&
+      record.status === "TENTATIVE",
+    "Profile channel log was not emitted",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (expected) => expected.every((value) => document.body.innerText.includes(String(value))),
+    [
+      seed.title,
+      seed.genre,
+      seed.core_selling_point,
+      seed.target_reader,
+      seed.tone_preference,
+      String(profile.revision),
+      "待确认",
+    ],
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const profileText = visibleText.slice(
+    Math.max(0, visibleText.indexOf("立项设定")),
+    Math.max(visibleText.indexOf("立项设定") + 800, 800),
+  );
+  const profileJson = JSON.stringify(profile);
+  const profileLogJson = JSON.stringify(profileLog);
+
+  assert(profile.genre === seed.genre, "Profile genre does not match persisted work seed");
+  assert(
+    profile.core_selling_point === seed.core_selling_point,
+    "Profile core selling point does not match persisted work seed",
+  );
+  assert(
+    profile.target_reader === seed.target_reader,
+    "Profile target reader does not match persisted work seed",
+  );
+  assert(
+    profile.tone_preference === seed.tone_preference,
+    "Profile tone preference does not match persisted work seed",
+  );
+  assert(profile.status === "TENTATIVE", "Profile did not expose tentative status");
+  assert(!Object.prototype.hasOwnProperty.call(profile, "id"), "Profile DTO exposed work id");
+  assert(!profileJson.includes(work.id), "Profile DTO leaked work UUID");
+  assert(!profileText.includes(work.id), "Profile UI leaked work UUID");
+  assert(!profileLogJson.includes(work.id), "Profile log leaked work UUID");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au12-work-profile-overview",
+      work_id: work.id,
+      work_title: seed.title,
+      profile_status: profile.status,
+      profile_revision: profile.revision,
+      profile_fields_visible: [
+        seed.title,
+        seed.genre,
+        seed.core_selling_point,
+        seed.target_reader,
+        seed.tone_preference,
+        String(profile.revision),
+      ].every((value) => visibleText.includes(value)),
+      profile_status_visible: visibleText.includes("待确认"),
+      profile_request_sent: true,
+      profile_reply_has_title: profile.title === seed.title,
+      profile_reply_omits_id: !Object.prototype.hasOwnProperty.call(profile, "id"),
+      profile_reply_omits_work_uuid: !profileJson.includes(work.id),
+      profile_ui_omits_work_uuid: !profileText.includes(work.id),
+      profile_log_emitted: true,
+      profile_log_omits_work_uuid: !profileLogJson.includes(work.id),
+      readonly_hint_visible: visibleText.includes("只读展示"),
+      real_archive_opened: true,
+      overview_tab_clicked: true,
+    },
+  ];
+}
+
 async function driveCp0MissingChapterBlock(page) {
   // VS-00C CP0：作品里有第01章计划，但没有第99章。作者用自然语言「续写第99章」→
   // Planner 识别 continuation 意图 + 把作者点名的「第99章」原样放进 requested_chapter_raw，
@@ -3152,6 +3503,8 @@ async function driveCp0MissingChapterBlock(page) {
 const drivers = {
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
+  "au10-workbench-recovery-taskstate": driveAu10WorkbenchRecoveryTaskstate,
+  "au12-work-profile-overview": driveAu12WorkProfileOverview,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
@@ -3175,6 +3528,7 @@ const drivers = {
   "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,
+  "au09-character-dossier-roundtrip": driveAu09CharacterDossierRoundtrip,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,

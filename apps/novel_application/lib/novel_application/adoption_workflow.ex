@@ -536,6 +536,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp build_turn_result(source_turn_result, %AdoptionDecision{} = decision, artifact, persisted) do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
+    adopted_state_ref = adopted_state_ref(persisted, decision)
 
     %{
       schema_version: "3.0-draft",
@@ -563,7 +564,7 @@ defmodule NovelApplication.AdoptionWorkflow do
             adoption_status: AdoptionStatus.accepted(),
             requires_adoption: false,
             source_artifact_ref: artifact_id,
-            adopted_state_ref: persisted[:memory_item_id] || decision.adopted_state_ref,
+            adopted_state_ref: adopted_state_ref,
             state_trace_ref:
               "mutation:#{persisted[:mutation_id] || decision.adoption_decision_id}",
             decision_trace_ref: decision.decision_trace_ref,
@@ -579,7 +580,7 @@ defmodule NovelApplication.AdoptionWorkflow do
         production_write_performed: persisted[:persisted] == true,
         state_persisted: persisted[:persisted] == true,
         mutation_ref: persisted[:mutation_id],
-        adopted_state_ref: persisted[:memory_item_id],
+        adopted_state_ref: adopted_state_ref,
         durable_behavior_opened: false,
         decision_type: decision.decision_type,
         reason_codes: decision.reason_codes
@@ -758,6 +759,7 @@ defmodule NovelApplication.AdoptionWorkflow do
        ) do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
+    adopted_state_ref = adopted_state_ref(persisted, decision)
 
     %{
       schema_version: "3.0-draft",
@@ -783,7 +785,7 @@ defmodule NovelApplication.AdoptionWorkflow do
             adoption_status: AdoptionStatus.edited_accepted(),
             requires_adoption: false,
             source_artifact_ref: artifact_id,
-            adopted_state_ref: persisted[:memory_item_id] || decision.adopted_state_ref,
+            adopted_state_ref: adopted_state_ref,
             state_trace_ref:
               "mutation:#{persisted[:mutation_id] || decision.adoption_decision_id}",
             decision_trace_ref: decision.decision_trace_ref,
@@ -799,7 +801,7 @@ defmodule NovelApplication.AdoptionWorkflow do
         production_write_performed: persisted[:persisted] == true,
         state_persisted: persisted[:persisted] == true,
         mutation_ref: persisted[:mutation_id],
-        adopted_state_ref: persisted[:memory_item_id],
+        adopted_state_ref: adopted_state_ref,
         durable_behavior_opened: false,
         decision_type: :edit_then_accept,
         reason_codes: ["author_edited_pending_artifact", "candidate_adopted_as_tentative"]
@@ -830,6 +832,19 @@ defmodule NovelApplication.AdoptionWorkflow do
     else
       []
     end
+  end
+
+  defp adopted_state_ref(persisted, %AdoptionDecision{} = decision) when is_map(persisted) do
+    persisted_value(persisted, :character_id) ||
+      persisted_value(persisted, :memory_item_id) ||
+      decision.adopted_state_ref
+  end
+
+  defp adopted_state_ref(_persisted, %AdoptionDecision{} = decision),
+    do: decision.adopted_state_ref
+
+  defp persisted_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, to_string(key))
   end
 
   defp decision_payload(%AdoptionDecision{} = decision) do

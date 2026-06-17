@@ -8,6 +8,9 @@ defmodule NovelApplication.WorkArchiveService do
 
   alias NovelPersistence.WorkArchiveRepo
 
+  @spec profile(String.t()) :: map()
+  def profile(work_id) when is_binary(work_id), do: WorkArchiveRepo.profile(work_id)
+
   @spec characters(String.t()) :: [map()]
   def characters(work_id) when is_binary(work_id), do: WorkArchiveRepo.characters(work_id)
 

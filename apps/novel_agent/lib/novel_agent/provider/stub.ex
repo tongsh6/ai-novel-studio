@@ -80,9 +80,9 @@ defmodule NovelAgent.Provider.Stub do
     Jason.encode!([
       %{
         "item_id" => "stub_item_" <> fp <> "_1",
-        "title" => stub_creative_title(brief, fp),
-        "body" => stub_creative_body(brief, context),
-        "rationale" => "离线 fixture provider 生成的待保存草稿，未写入作品事实。"
+        "title" => stub_creative_title(prompt_text, brief, fp),
+        "body" => stub_creative_body(prompt_text, brief, context),
+        "rationale" => stub_creative_rationale(prompt_text)
       }
     ])
   end
@@ -159,14 +159,29 @@ defmodule NovelAgent.Provider.Stub do
     end
   end
 
-  defp stub_creative_title(brief, fp) do
-    case Regex.run(~r/第\d+章[：:]\s*([^。\n]+?)(?:正文草稿|$)/u, brief) do
-      [_, chapter_title] -> String.trim(chapter_title) <> " 草稿"
-      _ -> "离线待确认素材 " <> fp
+  defp character_seed_prompt?(prompt_text),
+    do: String.contains?(prompt_text, "artifact_type：character_seed")
+
+  defp stub_creative_title(prompt_text, brief, fp) do
+    if character_seed_prompt?(prompt_text) do
+      "沈砚 " <> String.slice(fp, 0, 4)
+    else
+      case Regex.run(~r/第\d+章[：:]\s*([^。\n]+?)(?:正文草稿|$)/u, brief) do
+        [_, chapter_title] -> String.trim(chapter_title) <> " 草稿"
+        _ -> "离线待确认素材 " <> fp
+      end
     end
   end
 
-  defp stub_creative_body(brief, context) do
+  defp stub_creative_body(prompt_text, brief, context) do
+    if character_seed_prompt?(prompt_text) do
+      stub_character_body(brief, context)
+    else
+      stub_prose_body(brief, context)
+    end
+  end
+
+  defp stub_prose_body(brief, context) do
     nonce_text =
       context
       |> random_identifier_tokens()
@@ -183,6 +198,42 @@ defmodule NovelAgent.Provider.Stub do
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n")
+  end
+
+  defp stub_character_body(brief, context) do
+    nonce_text =
+      [brief, context]
+      |> Enum.join("\n")
+      |> random_identifier_tokens()
+      |> Enum.take(3)
+      |> Enum.join("、")
+
+    nonce_line =
+      if nonce_text == "",
+        do: "校验标识：（无）",
+        else: "校验标识：#{nonce_text}"
+
+    [
+      "定位：灵气交易所稽查官，负责追查灵气账单异常。",
+      "动机：查清公司黑账，保护被规则压迫的底层修士。",
+      "背景：出身账务区，左腕旧阵芯记录着一次未公开事故。",
+      "关系：可与现有角色形成调查、互信或对抗关系，避免重名与设定冲突。",
+      "弧光：从只相信账面证据，转向理解人的选择与牺牲。",
+      "外貌：瘦削、深色旧制服、左腕阵芯微光。",
+      "语言风格：短句、克制、审计式追问。",
+      "能力体系绑定：读取灵气流水、识别伪造功法凭证、追踪阵纹残留。",
+      nonce_line,
+      "作品专属维度：可继续补足境界、功法、社会关系和关键弱点。请求摘要：#{String.slice(brief, 0, 80)}"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp stub_creative_rationale(prompt_text) do
+    if character_seed_prompt?(prompt_text) do
+      "离线 fixture provider 生成的角色主档案草稿，未写入作品事实。"
+    else
+      "离线 fixture provider 生成的待保存草稿，未写入作品事实。"
+    end
   end
 
   defp random_identifier_tokens(text) do

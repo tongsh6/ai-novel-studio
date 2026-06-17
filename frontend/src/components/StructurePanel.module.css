@@ -314,6 +314,47 @@
   font-weight: 600;
 }
 
+.profileTitle {
+  color: var(--foreground-primary);
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.profileStatusBadge {
+  align-self: flex-start;
+  border: 1px solid var(--border-subtle);
+  color: var(--foreground-secondary);
+  font-size: 10px;
+  padding: 4px 8px;
+  border-radius: var(--rounded-sm);
+}
+
+.profileRows {
+  display: grid;
+  grid-template-columns: 96px 1fr;
+  gap: 10px 12px;
+  margin: 0;
+}
+
+.profileRow {
+  display: contents;
+}
+
+.profileRow dt {
+  color: var(--foreground-secondary);
+  font-size: 12px;
+}
+
+.profileRow dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--foreground-primary);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
 /* Empty state */
 .emptySection {
   display: flex;

@@ -352,6 +352,27 @@ export function getRules(channel: Channel, workId: string): Promise<MemoryItemDa
   });
 }
 
+export interface WorkProfile {
+  title?: string;
+  genre?: string;
+  core_selling_point?: string;
+  target_reader?: string;
+  tone_preference?: string;
+  status?: string;
+  revision?: number;
+  updated_at?: string | null;
+}
+
+export function getWorkProfile(channel: Channel, workId: string): Promise<WorkProfile> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("get_work_profile", { work_id: workId })
+      .receive("ok", (response) => resolve(response as WorkProfile))
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("get_work_profile timeout")));
+  });
+}
+
 export interface WorkStats {
   words_total: number;
   words_today: number;

@@ -16,7 +16,7 @@ export type WorkspaceSessionStatus = "idle" | "resuming" | "active" | "failed";
 
 export type WorkspaceReadingProjectionStatus = "unknown" | "empty" | "ready" | "stale" | "failed";
 
-export type WorkspaceTaskStatus = "idle" | "running" | "checkpoint" | "failed";
+export type WorkspaceTaskStatus = "idle" | "running" | "checkpoint" | "completed" | "failed";
 
 export interface WorkspaceAdoptionArtifact {
   artifact_id: string;
@@ -316,7 +316,12 @@ function deriveReadingProjectionState(
 
 function deriveTaskState(task: WorkspaceRuntimeInput["task"]): WorkspaceRuntimeState["task"] {
   const status = normalizeString(task?.status)?.toLowerCase();
-  if (status === "running" || status === "checkpoint" || status === "failed") {
+  if (
+    status === "running" ||
+    status === "checkpoint" ||
+    status === "completed" ||
+    status === "failed"
+  ) {
     return { status };
   }
   return { status: "idle" };

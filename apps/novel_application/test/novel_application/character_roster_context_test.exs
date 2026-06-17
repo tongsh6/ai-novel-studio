@@ -96,7 +96,8 @@ defmodule NovelApplication.CharacterRosterContextTest do
       complete_fn: complete
     }
 
-    input = if character_reader, do: Map.put(input, :character_reader, character_reader), else: input
+    input =
+      if character_reader, do: Map.put(input, :character_reader, character_reader), else: input
 
     {_turn_result, _trace} = TurnExecutionService.execute(input)
     agent |> Agent.get(& &1) |> Enum.join("\n\n")
@@ -127,15 +128,15 @@ defmodule NovelApplication.CharacterRosterContextTest do
   end
 
   test "未注入 character_reader 时无现有角色段（行为不变）" do
-    refute run("character_design", nil) =~ "现有角色"
+    refute run("character_design", nil) =~ "## 现有角色"
   end
 
   test "现有角色为空时无现有角色段" do
-    refute run("character_design", roster([])) =~ "现有角色"
+    refute run("character_design", roster([])) =~ "## 现有角色"
   end
 
   test "非角色/正文能力（plot_outline）不注入现有角色" do
     prompts = run("plot_outline", roster([%{name: "沈砚", role: "主角", summary: "x"}]))
-    refute prompts =~ "现有角色"
+    refute prompts =~ "## 现有角色"
   end
 end

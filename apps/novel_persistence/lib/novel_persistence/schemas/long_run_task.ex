@@ -121,6 +121,16 @@ defmodule NovelPersistence.Schemas.LongRunTask do
     )
   end
 
+  @doc "Mark task as failed. status=ERROR, phase=FAILED (ADR-0002 §4)."
+  def failed_changeset(task, reason) do
+    task
+    |> change(
+      status: Status.error(),
+      phase: TaskPhase.failed(),
+      failure_ref: inspect(reason)
+    )
+  end
+
   @doc "Resume from checkpoint. status=WAITING_SYSTEM, phase=RESUMING (ADR-0002 §4)."
   def resume_changeset(task) do
     task

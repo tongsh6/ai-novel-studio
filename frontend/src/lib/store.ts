@@ -14,7 +14,7 @@ export interface SystemContext {
 }
 
 export interface LongRunState {
-  status: "idle" | "running" | "checkpoint" | "failed";
+  status: "idle" | "running" | "checkpoint" | "completed" | "failed";
   budgetUsed: number;
   budgetTotal: number;
   checkpointReason: string | null;

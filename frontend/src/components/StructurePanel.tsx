@@ -12,8 +12,15 @@ import {
 import type { ArchiveDetailItem } from "../lib/archiveDetail";
 import { STRUCTURE_PANEL } from "../lib/copy";
 import { useAppStore } from "../lib/store";
-import { getToc, getCharacters, getForeshadowing, getRules, getWorkStats } from "../lib/socket";
-import type { TocData, CharacterData, MemoryItemData, WorkStats } from "../lib/socket";
+import {
+  getToc,
+  getCharacters,
+  getForeshadowing,
+  getRules,
+  getWorkStats,
+  getWorkProfile,
+} from "../lib/socket";
+import type { TocData, CharacterData, MemoryItemData, WorkStats, WorkProfile } from "../lib/socket";
 import styles from "./StructurePanel.module.css";
 import type { ArtifactEntry } from "./WorkspaceChat";
 
@@ -39,13 +46,45 @@ interface Props {
   onNewAction: () => void;
 }
 
-type TabType = "outline" | "character" | "foreshadowing" | "rule";
+type TabType = "overview" | "outline" | "character" | "foreshadowing" | "rule";
 type SelectedArchiveItem = { kind: "character"; id: string } | { kind: "memory"; id: string };
 
 function payloadText(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value;
   if (typeof value === "number" || typeof value === "boolean") return String(value);
   return fallback;
+}
+
+function profileText(value: unknown): string {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return payloadText(value, STRUCTURE_PANEL.profile.emptyValue);
+}
+
+function profileStatusLabel(status?: string): string {
+  switch (status) {
+    case "ACCEPTED":
+      return STRUCTURE_PANEL.profile.statusAccepted;
+    case "TENTATIVE":
+      return STRUCTURE_PANEL.profile.statusTentative;
+    case "DISCARDED":
+      return STRUCTURE_PANEL.profile.statusDiscarded;
+    default:
+      return STRUCTURE_PANEL.profile.statusUnknown;
+  }
+}
+
+function profileRows(profile: WorkProfile | null): { label: string; value: string }[] {
+  return [
+    { label: STRUCTURE_PANEL.profile.genre, value: profileText(profile?.genre) },
+    {
+      label: STRUCTURE_PANEL.profile.coreSellingPoint,
+      value: profileText(profile?.core_selling_point),
+    },
+    { label: STRUCTURE_PANEL.profile.targetReader, value: profileText(profile?.target_reader) },
+    { label: STRUCTURE_PANEL.profile.tonePreference, value: profileText(profile?.tone_preference) },
+    { label: STRUCTURE_PANEL.profile.revision, value: profileText(profile?.revision) },
+    { label: STRUCTURE_PANEL.profile.updatedAt, value: profileText(profile?.updated_at) },
+  ];
 }
 
 export function StructurePanel({
@@ -65,9 +104,11 @@ export function StructurePanel({
   const [foreshadowing, setForeshadowing] = useState<MemoryItemData[]>([]);
   const [rules, setRules] = useState<MemoryItemData[]>([]);
   const [stats, setStats] = useState<WorkStats | null>(null);
+  const [profile, setProfile] = useState<WorkProfile | null>(null);
   const [selectedArchiveItem, setSelectedArchiveItem] = useState<SelectedArchiveItem | null>(null);
   const context = useAppStore((s) => s.context);
   const channel = useAppStore((s) => s.channel);
+  const pendingAdoptionCount = pendingAdoptions.length;
 
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
@@ -83,10 +124,13 @@ export function StructurePanel({
     getRules(channel, context.workId)
       .then((data) => setRules(data))
       .catch(() => setRules([]));
+    getWorkProfile(channel, context.workId)
+      .then((data) => setProfile(data))
+      .catch(() => setProfile(null));
     getWorkStats(channel, context.workId)
       .then((data) => setStats(data))
       .catch(() => setStats(null));
-  }, [isOpen, channel, context.workId]);
+  }, [isOpen, channel, context.workId, pendingAdoptionCount]);
 
   if (!isOpen) return null;
 
@@ -179,6 +223,9 @@ export function StructurePanel({
         className={styles.tabsRoot}
       >
         <Tabs.List className={styles.tabs}>
+          <Tabs.Trigger className={styles.tabBtn} value="overview">
+            {STRUCTURE_PANEL.tabs.overview}
+          </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabBtn} value="outline">
             {STRUCTURE_PANEL.tabs.outline}
           </Tabs.Trigger>
@@ -197,6 +244,29 @@ export function StructurePanel({
         </Tabs.List>
 
         <div className={styles.content}>
+          <Tabs.Content value="overview" className={styles.tabContent}>
+            <div className={styles.section}>
+              <div className={styles.secHeader}>
+                <span className={styles.secTitle}>{STRUCTURE_PANEL.profile.sectionTitle}</span>
+                <span className={styles.profileStatusBadge}>
+                  {profileStatusLabel(profile?.status)}
+                </span>
+              </div>
+              <div className={styles.profileTitle}>
+                {profileText(profile?.title ?? context.workTitle)}
+              </div>
+              <dl className={styles.profileRows}>
+                {profileRows(profile).map((row) => (
+                  <div className={styles.profileRow} key={row.label}>
+                    <dt>{row.label}</dt>
+                    <dd>{row.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              <div className={styles.detailHint}>{STRUCTURE_PANEL.profile.readonlyHint}</div>
+            </div>
+          </Tabs.Content>
+
           <Tabs.Content value="foreshadowing" className={styles.tabContent}>
             {pendingAdoptions.length > 0 && (
               <div className={styles.section}>
@@ -337,6 +407,21 @@ export function StructurePanel({
           <Tabs.Content value="character" className={styles.tabContent}>
             {characters.length > 0 ? (
               <div className={styles.section}>
+                <div className={styles.secHeader}>
+                  <span className={styles.secTitle}>
+                    {STRUCTURE_PANEL.acceptedCharactersSection}
+                    {` · ${characters.length}${STRUCTURE_PANEL.characterCountUnit}`}
+                  </span>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => {
+                      onCreateCharacter();
+                      onClose();
+                    }}
+                  >
+                    {STRUCTURE_PANEL.createCharacter}
+                  </button>
+                </div>
                 {characters.map((char) => (
                   <div
                     key={char.id}
