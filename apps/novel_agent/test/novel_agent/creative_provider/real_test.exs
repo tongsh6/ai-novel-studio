@@ -111,4 +111,42 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "上下文："
     assert prompt =~ "重要："
   end
+
+  test "character design prompt 走专用分支：骨架维度 + 开放框架 + 上下文 grounding + 保留三锚点" do
+    {:ok, agent} = Agent.start_link(fn -> nil end)
+
+    complete_fn = fn prompt ->
+      Agent.update(agent, fn _ -> prompt end)
+      {:ok, %{content: Jason.encode!([%{item_id: "c1", title: "沈砚", body: "定位：主角", rationale: nil}])}}
+    end
+
+    request = %CreativeRequest{
+      request_id: "req-char",
+      tool_name: "character_design",
+      artifact_type: "character_seed",
+      creative_brief: "设计一个稽查官 NONCE7Q",
+      source_turn_ref: "turn-char",
+      context_text: "## 现有角色\n- 白露（对手）：黑市掮客",
+      provider_hints: %{}
+    }
+
+    assert %{status: :ok} = Real.generate(request, complete_fn)
+
+    prompt = Agent.get(agent, & &1)
+    # 角色对象模型核心骨架维度（21 §7.2）
+    assert prompt =~ "定位："
+    assert prompt =~ "动机："
+    assert prompt =~ "语言风格："
+    assert prompt =~ "能力体系绑定："
+    # 开放框架（I-g）：可据作品自行推断补充维度
+    assert prompt =~ "自行推断补充本作特有的维度"
+    # 上下文 grounding：看得见现有角色、不凭空
+    assert prompt =~ "基于上下文中的作品背景、世界观、设定与现有角色"
+    assert prompt =~ "## 现有角色"
+    # 三锚点 + I3 nonce 指令保留
+    assert prompt =~ "用户创作简述："
+    assert prompt =~ "上下文："
+    assert prompt =~ "重要："
+    assert prompt =~ "原样保留"
+  end
 end
