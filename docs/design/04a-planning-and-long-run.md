@@ -172,6 +172,8 @@ RUNNING/CHECKPOINT/RESUMING → COMPLETED | CANCELLED | FAILED | BRANCHED
   同时给 §6 task_state 进度与 §7 检查点恢复一个真实验收目标。
 - 在此之前，不应单独实现"完整异步 LongRunner streaming 恢复"——会变成给桩加功能（YAGNI / 承重竖切面禁止
   "只创建未来会用的模块"）。
+- **决策（用户 2026-06-17）**：批量生成在当前阶段价值不高，**先把产品功能广度铺起来，再回来做长跑/批量生成**。
+  本文已把设计收口冻结，待广度就绪后按 §11 起承重竖切面，无需重新分析。
 
 ---
 
