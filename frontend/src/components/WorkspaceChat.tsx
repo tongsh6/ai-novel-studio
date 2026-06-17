@@ -2309,6 +2309,14 @@ export function WorkspaceChat() {
                 },
               );
             }}
+            onNewForeshadowing={() => {
+              void handleSend(STRUCTURE_PANEL.newForeshadowingPrompt, {
+                generateMicroPlan: true,
+              });
+            }}
+            onNewRule={() => {
+              void handleSend(STRUCTURE_PANEL.newRulePrompt, { generateMicroPlan: true });
+            }}
             onNewAction={() => {
               void handleSend(STRUCTURE_PANEL.newActionPrompt, { generateMicroPlan: true });
               setIsPanelOpen(false);

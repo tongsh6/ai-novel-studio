@@ -45,6 +45,8 @@ function renderPanel(
       onStartPlanning: () => undefined,
       onCreateCharacter: () => undefined,
       onDraftChapter: () => undefined,
+      onNewForeshadowing: () => undefined,
+      onNewRule: () => undefined,
       onNewAction: () => undefined,
     }),
   );

@@ -43,6 +43,8 @@ interface Props {
   onStartPlanning: () => void;
   onCreateCharacter: () => void;
   onDraftChapter: (chapterBrief: string) => void;
+  onNewForeshadowing: () => void;
+  onNewRule: () => void;
   onNewAction: () => void;
 }
 
@@ -96,6 +98,8 @@ export function StructurePanel({
   onStartPlanning,
   onCreateCharacter,
   onDraftChapter,
+  onNewForeshadowing,
+  onNewRule,
   onNewAction,
 }: Props) {
   const [activeTab, setActiveTab] = useState<TabType>("foreshadowing");
@@ -317,7 +321,17 @@ export function StructurePanel({
                 <div className={styles.secHeader}>
                   <span className={styles.secTitle}>
                     {STRUCTURE_PANEL.confirmedForeshadowingSection}
+                    {` · ${foreshadowing.length}`}
                   </span>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => {
+                      onNewForeshadowing();
+                      onClose();
+                    }}
+                  >
+                    {STRUCTURE_PANEL.newForeshadowing}
+                  </button>
                 </div>
                 {foreshadowing.map((item) => (
                   <div
@@ -350,6 +364,11 @@ export function StructurePanel({
               <EmptyState
                 title={STRUCTURE_PANEL.foreshadowingEmptyTitle}
                 description={STRUCTURE_PANEL.foreshadowingEmptyDesc}
+                actionLabel={STRUCTURE_PANEL.newForeshadowing}
+                onAction={() => {
+                  onNewForeshadowing();
+                  onClose();
+                }}
               />
             )}
           </Tabs.Content>
@@ -474,6 +493,21 @@ export function StructurePanel({
           <Tabs.Content value="rule" className={styles.tabContent}>
             {rules.length > 0 ? (
               <div className={styles.section}>
+                <div className={styles.secHeader}>
+                  <span className={styles.secTitle}>
+                    {STRUCTURE_PANEL.confirmedRulesSection}
+                    {` · ${rules.length}${STRUCTURE_PANEL.ruleCountUnit}`}
+                  </span>
+                  <button
+                    className={styles.btnSecondary}
+                    onClick={() => {
+                      onNewRule();
+                      onClose();
+                    }}
+                  >
+                    {STRUCTURE_PANEL.newRule}
+                  </button>
+                </div>
                 {rules.map((item) => (
                   <div
                     key={item.id}
@@ -503,6 +537,11 @@ export function StructurePanel({
               <EmptyState
                 title={STRUCTURE_PANEL.ruleEmptyTitle}
                 description={STRUCTURE_PANEL.ruleEmptyDesc}
+                actionLabel={STRUCTURE_PANEL.newRule}
+                onAction={() => {
+                  onNewRule();
+                  onClose();
+                }}
               />
             )}
             {selectedDetail && renderDetail(selectedDetail)}
