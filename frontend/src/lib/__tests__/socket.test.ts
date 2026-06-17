@@ -138,6 +138,29 @@ describe("sendAuthorAction", () => {
       LLM_TURN_TIMEOUT_MS,
     );
   });
+
+  it("resolves with duplicate flag passthrough on idempotent ok reply", async () => {
+    const okPush = {
+      receive: vi.fn(function (this: Push, event: string, cb: (r: unknown) => void) {
+        if (event === "ok") cb({ received: true, action_status: "accepted", duplicate: true });
+        return okPush;
+      }),
+    } as unknown as Push;
+    const ch = {
+      push: vi.fn(() => okPush),
+      topic: "workspace:lobby",
+    } as unknown as Channel;
+
+    const result = await sendAuthorAction(ch, {
+      source_turn_ref: "turn-1",
+      action_id: "act-confirm",
+      action_type: "confirm_before_execute",
+      target_ref: "target-1",
+      idempotency_key: "ik-dup",
+    });
+
+    expect(result.duplicate).toBe(true);
+  });
 });
 
 describe("getToc", () => {

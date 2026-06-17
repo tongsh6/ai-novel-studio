@@ -886,10 +886,15 @@ export function WorkspaceChat() {
     if (!channelRef.current || action.enabled === false) return;
 
     try {
-      await sendAuthorAction(
+      const result = await sendAuthorAction(
         channelRef.current,
         toAuthorActionPayload(turnResult.turn_id, action, authorPayload),
       );
+      // 幂等：重复提交（同 idempotency_key）后端不重复执行并回 duplicate=true，
+      // 让作者看见"已处理"，而不是静默无反应。
+      if (result?.duplicate === true) {
+        setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionDuplicate }]);
+      }
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
     }

@@ -85,12 +85,12 @@ export interface AuthorActionPayload {
 export function sendAuthorAction(
   channel: Channel,
   action: AuthorActionPayload,
-): Promise<{ received: boolean; action_status: string }> {
+): Promise<{ received: boolean; action_status: string; duplicate?: boolean }> {
   return new Promise((resolve, reject) => {
     channel
       .push("author_action", { action }, LLM_TURN_TIMEOUT_MS)
       .receive("ok", (response) =>
-        resolve(response as { received: boolean; action_status: string }),
+        resolve(response as { received: boolean; action_status: string; duplicate?: boolean }),
       )
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("author_action timeout")));

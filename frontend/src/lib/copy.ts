@@ -222,6 +222,7 @@ export const WORKBENCH = {
   createWorkFailure: "新建作品失败，请重试。",
   adoptionIncomplete: "采纳未完成，请查看系统提示后重试。",
   actionFailure: "操作失败，请重试。",
+  actionDuplicate: "该操作已处理，系统已避免重复执行。",
   actionUnavailable: "当前动作不可用，请刷新或继续对话。",
   actionConfirm: "确认执行",
   actionReject: "拒绝",

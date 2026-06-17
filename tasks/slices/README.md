@@ -21,6 +21,7 @@
 | `AU10-workbench-recovery-disconnect-timeout.md` | **CP1 checkpoint closed**：provider 不可用时真实工作台返回可恢复 fallback、明确不写作品事实、loading 清除并能在 provider 恢复后继续下一轮；WebSocket 断线重连、取消等待、完整异步 LongRunner streaming 和 stale/disabled/idempotency UI 仍待后续。证据：`artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`。 |
 | `AU12-work-profile-overview.md` | **AU-12 首个切面（checkpoint closed）**：补设计 43 §5① 缺失的「作品档案立项概览」只读视图。用户 2026-06-17 调整队列先做 AU12，CP1 已由 `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json` 证明真实工作台可核对 works 立项字段且不泄漏内部 Work UUID；当前队首回到 AU10 recovery。验收锚点 `docs/design/acceptance/author/AU-12-work-profile.md`。 |
 | `AU09-character-dossier-roundtrip.md` | **CP1 done**：作品档案各 tab「数据展示+操作」端到端可用的第一个样板。已打通角色主档案断链——`character_seed` 采纳回写 `Character` 表（设计 21 §7.2 主档案层，**不写记忆**）+ AI 引导的上下文感知 schema 化角色设计（专用 capability 非独立 Agent）+ 角色 tab 展示 + 上下文读取。证据：`artifacts/slice-verify/au09-character-dossier-roundtrip-tauri/summary.json`；CP2 待做字段级结构化、关系对象和角色演化 memory。 |
+| `AU10-action-idempotency-stale-disabled.md` | **doing**：AU10-GAP-03(P0) 旧·重复·失效 action 真实页面验收。开工核对发现后端 stale/invented/disabled 拒绝 + idempotency 去重已全部实现且 channel 级测过（`workspace_channel_action_idempotency_test` 回 `duplicate:true`）。本 slice 收口 UI 反馈可见性（已补前端 duplicate 提示）+ 外部 Tauri 验收。 |
 
 旧 `VS-001..018` 与旧 `DAG.md` 已删除；它们引用的 phase roadmap、旧 ADR 和 Router-first 语义不再作为有效执行事实。
 
