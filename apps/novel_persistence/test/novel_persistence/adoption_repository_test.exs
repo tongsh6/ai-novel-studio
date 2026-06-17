@@ -14,6 +14,7 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
   alias NovelPersistence.ReadingProjectionRepo
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.Character
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.Schemas.Scene
@@ -29,10 +30,10 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
                  work_id: work_id,
                  source_turn_ref: "turn-adopt-source",
                  artifact_id: "as-adopt-1",
-                 artifact_type: :character_seed,
+                 artifact_type: :plot_direction,
                  base_revision: 1,
-                 content: "主角更果断",
-                 summary: "角色设定"
+                 content: "主线转向复仇",
+                 summary: "剧情方向"
                })
 
       assert persisted.mutation_status == "APPLIED"
@@ -49,9 +50,9 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
 
       memory = Repo.get!(MemoryItem, persisted.memory_item_id)
       assert memory.work_id == work_id
-      assert memory.content == "主角更果断"
-      assert memory.summary == "角色设定"
-      assert memory.type == MemoryType.character_profile()
+      assert memory.content == "主线转向复仇"
+      assert memory.summary == "剧情方向"
+      assert memory.type == MemoryType.plot_fact()
       assert memory.status == MemoryStatus.confirmed()
       assert memory.source_type == MemorySourceType.author_confirmed()
       assert memory.source_id == persisted.mutation_id
@@ -59,6 +60,37 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert memory.recallable == true
 
       assert %{volumes: []} = ReadingProjectionRepo.toc(work_id)
+    end
+
+    test "adopts character_seed into Character dossier (主档案层)，不写记忆" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-char",
+                 artifact_id: "as-char-1",
+                 artifact_type: :character_seed,
+                 base_revision: 1,
+                 content: "冷峻的灵气交易所稽查官，外貌瘦削，语言简短克制",
+                 summary: "沈砚"
+               })
+
+      assert persisted.mutation_status == "APPLIED"
+      # I-b 创建不写记忆：无 memory_item，只落 Character 主档案。
+      refute Map.has_key?(persisted, :memory_item_id)
+      assert Repo.aggregate(MemoryItem, :count, :id) == 0
+      assert persisted.reading_projection == nil
+
+      character = Repo.get!(Character, persisted.character_id)
+      assert character.work_id == work_id
+      assert character.name == "沈砚"
+      assert character.summary == "冷峻的灵气交易所稽查官，外貌瘦削，语言简短克制"
+      assert character.status == AdoptionStatus.accepted()
+
+      # 角色 tab 读路径（accepted Character）能查到该角色。
+      assert [%{name: "沈砚"}] = NovelPersistence.WorkArchiveRepo.characters(work_id)
     end
 
     test "uses accepted artifact item title for reading projection instead of artifact id" do

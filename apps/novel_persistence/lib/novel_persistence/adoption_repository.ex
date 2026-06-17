@@ -3,8 +3,12 @@ defmodule NovelPersistence.AdoptionRepository do
   Persistence boundary for accepted artifact adoption.
 
   AU-05 requires adoption to leave a durable state consequence. This repository
-  records the accepted author action as an applied mutation and stores the
-  adopted creative fact as a confirmed memory item scoped to the current work.
+  records the accepted author action as an applied mutation, then persists the
+  adopted creative fact **by its layer**：
+
+  - `character_seed` → 角色**主档案层** `Character`（已采纳；AU-09 / `21-novel-object-model.md`
+    §7.2 角色资产核心对象），**不写记忆**——角色随作品推进的演化才进 memory（连续性层，CP2）。
+  - 其它创作产物 → 当前作品的 confirmed memory item（设定 / 连续性层）。
   """
 
   alias Ecto.Multi
@@ -22,6 +26,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelPersistence.ChapterPlanParser
   alias NovelPersistence.Repo
   alias NovelPersistence.Schemas.Chapter
+  alias NovelPersistence.Schemas.Character
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.Schemas.Mutation
@@ -45,8 +50,11 @@ defmodule NovelPersistence.AdoptionRepository do
       :mutation,
       Mutation.changeset(%Mutation{}, mutation_attrs) |> Mutation.apply_changeset()
     )
-    |> Multi.insert(:memory_item, fn %{mutation: mutation} ->
-      MemoryItem.changeset(%MemoryItem{}, memory_item_attrs(attrs, mutation.id))
+    |> Multi.run(:memory_item, fn repo, %{mutation: mutation} ->
+      maybe_persist_memory_item(repo, attrs, mutation.id)
+    end)
+    |> Multi.run(:character, fn repo, %{mutation: mutation} ->
+      maybe_persist_character(repo, attrs, mutation.id)
     end)
     |> Multi.run(:reading_projection, fn repo, %{mutation: mutation} ->
       maybe_persist_reading_projection(repo, attrs, mutation.id)
@@ -57,21 +65,97 @@ defmodule NovelPersistence.AdoptionRepository do
     |> Repo.transaction()
     |> case do
       {:ok,
-       %{mutation: mutation, memory_item: memory_item, reading_projection: reading_projection}} ->
-        {:ok,
-         %{
-           mutation_id: mutation.id,
-           mutation_status: mutation.status,
-           memory_item_id: memory_item.id,
-           memory_status: memory_item.status,
-           source_revision_ref: "mutation:#{mutation.id}",
-           reading_projection: reading_projection
-         }}
+       %{
+         mutation: mutation,
+         memory_item: memory_item,
+         character: character,
+         reading_projection: reading_projection
+       }} ->
+        {:ok, build_persist_result(mutation, memory_item, character, reading_projection)}
 
       {:error, _step, reason, _changes} ->
         {:error, reason}
     end
   end
+
+  # 采纳产物按层落地：character_seed → Character 主档案（不写记忆）；其它 → confirmed memory。
+  defp build_persist_result(mutation, memory_item, character, reading_projection) do
+    %{
+      mutation_id: mutation.id,
+      mutation_status: mutation.status,
+      source_revision_ref: "mutation:#{mutation.id}",
+      reading_projection: reading_projection
+    }
+    |> put_memory_item(memory_item)
+    |> put_character(character)
+  end
+
+  defp put_memory_item(result, nil), do: result
+
+  defp put_memory_item(result, %MemoryItem{} = memory_item) do
+    result
+    |> Map.put(:memory_item_id, memory_item.id)
+    |> Map.put(:memory_status, memory_item.status)
+  end
+
+  defp put_character(result, nil), do: result
+
+  defp put_character(result, %Character{} = character) do
+    result
+    |> Map.put(:character_id, character.id)
+    |> Map.put(:character_status, character.status)
+  end
+
+  # character_seed 是角色主档案层（21 §7.2），不写记忆；其它创作产物落 confirmed memory。
+  defp maybe_persist_memory_item(repo, attrs, mutation_id) do
+    if character_dossier_artifact?(Map.get(attrs, :artifact_type)) do
+      {:ok, nil}
+    else
+      %MemoryItem{}
+      |> MemoryItem.changeset(memory_item_attrs(attrs, mutation_id))
+      |> repo.insert()
+    end
+  end
+
+  # character_seed 采纳 → 结构化 Character 主档案（accepted）。CP1 最小映射：
+  # name ← artifact 标题（attrs.summary），summary ← artifact 正文（attrs.content）；
+  # role/aliases 等结构化字段与演化记忆留 CP2。
+  defp maybe_persist_character(repo, attrs, _mutation_id) do
+    if character_dossier_artifact?(Map.get(attrs, :artifact_type)) do
+      %Character{}
+      |> Character.changeset(character_attrs(attrs))
+      |> repo.insert()
+    else
+      {:ok, nil}
+    end
+  end
+
+  defp character_attrs(attrs) do
+    %{
+      work_id: Map.fetch!(attrs, :work_id),
+      name: character_name(attrs),
+      summary: character_profile(attrs),
+      status: AdoptionStatus.accepted()
+    }
+  end
+
+  defp character_name(attrs) do
+    case attrs |> Map.get(:summary) |> to_string() |> String.trim() do
+      "" -> "未命名角色"
+      name -> name
+    end
+  end
+
+  defp character_profile(attrs) do
+    case attrs |> Map.get(:content) |> to_string() |> String.trim() do
+      "" -> nil
+      profile -> profile
+    end
+  end
+
+  defp character_dossier_artifact?(:character_seed), do: true
+  defp character_dossier_artifact?("character_seed"), do: true
+  defp character_dossier_artifact?(_), do: false
 
   defp mutation_attrs(attrs) do
     %{
@@ -107,8 +191,6 @@ defmodule NovelPersistence.AdoptionRepository do
     }
   end
 
-  defp memory_type(:character_seed), do: MemoryType.character_profile()
-  defp memory_type("character_seed"), do: MemoryType.character_profile()
   defp memory_type(:plot_direction), do: MemoryType.plot_fact()
   defp memory_type("plot_direction"), do: MemoryType.plot_fact()
   defp memory_type(:outline_draft), do: MemoryType.draft_context()
