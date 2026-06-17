@@ -2310,7 +2310,7 @@ export function WorkspaceChat() {
               );
             }}
             onNewAction={() => {
-              void handleSend("我想调整或新增伏笔", { generateMicroPlan: true });
+              void handleSend(STRUCTURE_PANEL.newActionPrompt, { generateMicroPlan: true });
               setIsPanelOpen(false);
             }}
           />
