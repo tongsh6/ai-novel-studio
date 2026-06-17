@@ -2,11 +2,11 @@ defmodule NovelPersistence.Schemas.LongRunTask do
   @moduledoc """
   Ecto schema for `long_run_tasks` table — long-run task 持久化。
 
-  完整 24 字段按 06-planning-and-long-run.md §5 落地。
+  完整 24 字段按 docs/design/04a-planning-and-long-run.md §5 落地。
 
   ## ADR refs
   - ADR-0002 §2 (status family) / §4 (task phase 11 态) — 字段值由 Foundation.Enums 强制
-  - 06-planning-and-long-run §5 — task 最小模型（24 字段）
+  - docs/design/04a-planning-and-long-run.md §5 — task 最小模型（24 字段）
   - ADR-0003 — authority_scope / estimated_budget / consumed_budget 最小结构
   """
 

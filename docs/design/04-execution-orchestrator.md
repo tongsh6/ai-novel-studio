@@ -12,6 +12,7 @@
 > - `01-user-llm-workbench-interaction-model.md` — 用户、LLM、工作台交互模型
 > - `02-dialogue-frame-and-micro-plan.md` — DialogueFrame / MicroPlan 协议草案
 > - `03-capability-toolbox-contract.md` — Capability Toolbox 协议草案
+> - `04a-planning-and-long-run.md` — 长跑任务收口：编排放行后的多单元后台任务生命周期 / 检查点恢复 / 采纳边界
 >
 > 本文不做：
 >

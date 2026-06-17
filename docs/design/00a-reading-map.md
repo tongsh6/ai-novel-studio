@@ -80,6 +80,7 @@ Execution Orchestrator 保留执行硬门禁。
 | 5 | `02-dialogue-frame-and-micro-plan.md` | 草案，已存在 | 准备冻结核心协议 |
 | 6 | `03-capability-toolbox-contract.md` | 草案，已存在 | 设计工具 / capability registry |
 | 7 | `04-execution-orchestrator.md` | 草案，已存在 | 设计执行权、状态机、门禁 |
+| 7a | `04a-planning-and-long-run.md` | 收口（2026-06-17），已存在 | 长跑任务收口：触发 / TaskPhase 11 态 / 逐单元 + artifact / 预算确认 / 检查点恢复 / 采纳边界 |
 | 8 | `05-turn-behavior-and-state-model.md` | 草案，已存在 | 设计 durable behavior 与 phase/status |
 | 9 | `06-memory-context-and-trace.md` | 草案，已存在 | 设计 context、trace、replay |
 | 10 | `07-workbench-ui-contract.md` | 草案，已存在 | 设计 UI 消费 TurnResult 和 trace 摘要 |
