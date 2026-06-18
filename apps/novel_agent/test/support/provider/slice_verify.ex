@@ -54,19 +54,30 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp frame_response(prompt) do
+    quality_diagnosis = quality_diagnosis_prompt?(prompt)
     exploratory = exploratory_prompt?(prompt)
 
     %{
-      frame_type: if(exploratory, do: "creative_exploration", else: "casual_reply"),
-      dialogue_goal_summary: "验证工作台对话主链",
+      frame_type:
+        cond do
+          quality_diagnosis -> "question_answer"
+          exploratory -> "creative_exploration"
+          true -> "casual_reply"
+        end,
+      dialogue_goal_summary: if(quality_diagnosis, do: "诊断章节爽感不足和胜利过轻", else: "验证工作台对话主链"),
       needs_tool: false,
       no_tool_reason: if(exploratory, do: "exploratory_only", else: "no_tool_needed"),
       execution_readiness: "not_applicable",
-      assistant_message: frame_message(exploratory),
+      assistant_message: frame_message(quality_diagnosis, exploratory),
       candidate_directions: candidate_directions(exploratory, prompt),
-      context_used: false,
+      context_used: context_provided?(prompt),
       uncertainty: []
     }
+  end
+
+  defp quality_diagnosis_prompt?(prompt) do
+    text = author_input_text(prompt)
+    contains_any?(text, ["不够爽", "赢得太轻", "爽点", "张力不够", "质量诊断"])
   end
 
   defp exploratory_prompt?(prompt) do
@@ -74,10 +85,21 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     Enum.any?(["生成", "角色", "方向", "怎么切入", "小说创作"], &String.contains?(text, &1))
   end
 
-  defp frame_message(true),
+  defp frame_message(true, _exploratory),
+    do:
+      "这一章的问题不是主角赢，而是阻力、代价和读者回报没有层层加压。可以让林烬赢下局部却失去关键线索，或让胜利暴露更大的矿区代价；这轮只给诊断和结构修订建议，不会改写正文或写入作品事实。"
+
+  defp frame_message(false, true),
     do: "可以先从人物动机、核心冲突和世界规则三个方向拆开看。"
 
-  defp frame_message(false), do: "可以，我们先围绕小说创作方向聊下去。"
+  defp frame_message(false, false), do: "可以，我们先围绕小说创作方向聊下去。"
+
+  defp context_provided?(prompt) do
+    text = prompt_text(prompt)
+
+    String.contains?(text, "当前作品上下文") and
+      not String.contains?(text, "（无——这是新对话或尚未创建作品）")
+  end
 
   defp candidate_directions(true, prompt) do
     author_text = author_input_text(prompt)
@@ -117,6 +139,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     cond do
       String.contains?(prompt, "character_design") ->
         "已生成角色设定草案，你可以查看内容后选择采纳、放弃或修改。"
+
+      String.contains?(prompt, "world_building") ->
+        "已生成世界设定草案，你可以查看内容后决定是否保存到作品档案。"
 
       String.contains?(prompt, "prose_writing") ->
         "已生成正文草稿，请先审阅，采纳后才会进入阅读模式。"
@@ -162,6 +187,16 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp character_seed_prompt?(prompt),
     do: String.contains?(prompt, "artifact_type：character_seed")
+
+  defp world_setting_prompt?(prompt),
+    do:
+      contains_any?(prompt, [
+        "artifact_type：world_setting",
+        "artifact_type：foreshadowing_seed",
+        "artifact_type：world_rule_seed",
+        "artifact_type：style_rule_seed",
+        "artifact_type：constraint_seed"
+      ])
 
   defp prose_fragment_prompt?(prompt),
     do: String.contains?(prompt, "artifact_type：prose_fragment")
@@ -484,22 +519,138 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 章节正文 item 标题取章节计划标题（"第N章：标题"，止于下一个分隔符），让采纳后的章节名
   # 是真实章名而非占位。无法识别章号时回退占位标题。
   defp creative_title(prompt, brief, fingerprint) do
-    if character_seed_prompt?(prompt) do
-      "沈砚 #{String.slice(fingerprint, 0, 4)}"
-    else
-      case Regex.run(~r/第\d+章[：:]\s*[^：:。\n]+/u, brief) do
-        [chapter_title] -> String.trim(chapter_title)
-        _ -> "待确认正文草稿 #{fingerprint}"
-      end
+    cond do
+      character_seed_prompt?(prompt) ->
+        "沈砚 #{String.slice(fingerprint, 0, 4)}"
+
+      world_setting_prompt?(prompt) ->
+        world_setting_title(prompt, brief, fingerprint)
+
+      true ->
+        case Regex.run(~r/第\d+章[：:]\s*[^：:。\n]+/u, brief) do
+          [chapter_title] -> String.trim(chapter_title)
+          _ -> "待确认正文草稿 #{fingerprint}"
+        end
     end
   end
 
   defp creative_body(prompt, brief, context) do
-    if character_seed_prompt?(prompt) do
-      character_body(brief, context)
-    else
-      prose_body(brief, context)
+    cond do
+      character_seed_prompt?(prompt) -> character_body(brief, context)
+      world_setting_prompt?(prompt) -> world_setting_body(prompt, brief, context)
+      true -> prose_body(brief, context)
     end
+  end
+
+  defp world_setting_title(prompt, brief, fingerprint) do
+    suffix = String.slice(fingerprint, 0, 4)
+
+    case world_setting_kind(prompt, brief) do
+      :foreshadowing -> "伏笔：矿区旧账 #{suffix}"
+      :style_rule -> "风格规则：审计式悬疑 #{suffix}"
+      :world_rule -> "规则：灵气账单 #{suffix}"
+      :constraint -> "约束：谜底释放 #{suffix}"
+    end
+  end
+
+  defp world_setting_body(prompt, brief, context) do
+    nonce_line = setting_nonce_line(brief, context)
+
+    lines =
+      case world_setting_kind(prompt, brief) do
+        :foreshadowing ->
+          [
+            "伏笔线索：矿区旧账编号会在主角第一次查看欠费记录时出现。",
+            "首次出现位置：第一卷矿区调查线。",
+            "推进方式：每次出现都揭露一层公司灵气账单黑幕。",
+            "回收方式：第三卷用旧账编号证明真正债主并非主角母亲。",
+            "风险与禁忌：回收前不得提前说破旧账编号的真实归属。"
+          ]
+
+        :style_rule ->
+          [
+            "风格规则：后续写作保持审计式悬疑和赛博修仙质感。",
+            "适用文本范围：公司、灵气账单、矿区调查相关章节。",
+            "禁止事项：不得用旁白提前解释谜底，不得让角色无代价获得答案。",
+            "推荐写法：用账单、阵纹、巡检记录推动冲突。",
+            "后续复核方式：每次采纳正文前检查是否保留悬疑压力。"
+          ]
+
+        :world_rule ->
+          [
+            "世界规则：灵气以公司账单计价，欠费会触发巡检追缴。",
+            "适用范围：城市矿区、修士交易所和低阶居民生活线。",
+            "例外条件：黑市阵芯可以短时绕过追缴，但会留下审计痕迹。",
+            "对人物选择的压力：角色必须在生存、债务和道义之间选择。",
+            "与既有设定的关系：不覆盖已有章节计划，只补充可召回的作品规则。"
+          ]
+
+        :constraint ->
+          [
+            "约束内容：谜底回收前不得直接解释旧账编号真实归属。",
+            "适用范围：矿区旧账、巡检账单和母亲失踪相关章节。",
+            "禁止事项：不得让旁白提前剧透，不得让角色无代价破解账本。",
+            "例外条件：只允许以误导性线索推进读者猜测。",
+            "后续复核方式：采纳正文前检查信息释放是否仍保留悬念。"
+          ]
+      end
+
+    [lines, [nonce_line]]
+    |> List.flatten()
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
+  end
+
+  defp world_setting_kind(prompt, brief),
+    do: prompt_setting_kind(prompt) || brief_setting_kind(brief)
+
+  defp prompt_setting_kind(prompt) do
+    cond do
+      String.contains?(prompt, "artifact_type：foreshadowing_seed") ->
+        :foreshadowing
+
+      String.contains?(prompt, "artifact_type：style_rule_seed") ->
+        :style_rule
+
+      String.contains?(prompt, "artifact_type：world_rule_seed") ->
+        :world_rule
+
+      String.contains?(prompt, "artifact_type：constraint_seed") ->
+        :constraint
+
+      true ->
+        nil
+    end
+  end
+
+  defp brief_setting_kind(brief) do
+    cond do
+      contains_any?(brief, ["伏笔", "悬念", "线索", "回收"]) ->
+        :foreshadowing
+
+      contains_any?(brief, ["风格", "文风", "写作规则"]) ->
+        :style_rule
+
+      contains_any?(brief, ["约束", "限制", "禁止", "不得", "禁忌"]) ->
+        :constraint
+
+      contains_any?(brief, ["规则", "规则体系", "世界规则"]) ->
+        :world_rule
+
+      true ->
+        :world_rule
+    end
+  end
+
+  defp setting_nonce_line(brief, context) do
+    tokens =
+      [brief, context]
+      |> Enum.join("\n")
+      |> random_identifier_tokens()
+      |> Enum.take(3)
+      |> Enum.join("、")
+
+    if tokens == "", do: "", else: "校验标识：#{tokens}"
   end
 
   defp prose_body(brief, context) do
@@ -640,6 +791,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     cond do
       character_seed_prompt?(prompt) ->
         "基于当前作品背景、设定与现有角色入口生成角色主档案草稿，未写入作品事实。"
+
+      world_setting_prompt?(prompt) ->
+        "基于当前作品背景生成可采纳的档案设定草稿，未写入作品事实。"
 
       String.contains?(brief, "正文草稿") ->
         "根据作者指定章节生成待确认正文片段，未写入作品事实。"

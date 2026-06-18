@@ -56,6 +56,29 @@ describe("traceSummaryView", () => {
     expect(JSON.stringify(view)).not.toContain("ctx_1");
   });
 
+  it("renders active session transcript as a distinct author-safe source", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "reply_only",
+      context_refs: [
+        {
+          context_ref: "ctx_session",
+          source_type: "session_transcript",
+          summary: "user: 当前会话确认当前蓝桥计划 assistant: 已记录当前蓝桥计划",
+        },
+      ],
+    });
+
+    expect(view?.contextSources).toEqual([
+      {
+        key: "session_transcript",
+        label: "当前会话记录",
+        summary: "上一轮围绕「当前会话确认当前蓝桥计划」展开，AI 已给出回应。",
+      },
+    ]);
+    expect(JSON.stringify(view)).not.toContain("user:");
+    expect(JSON.stringify(view)).not.toContain("assistant:");
+  });
+
   it("does not expose unknown machine reason codes as primary author text", () => {
     const view = toAuthorTraceSummary({
       decision_type: "downgrade",
@@ -111,6 +134,73 @@ describe("traceSummaryView", () => {
     expect(visibleText).toContain("创作工具");
     expect(visibleText).toContain("已完成");
     expect(visibleText).not.toContain("internal_story_generation_v9");
+  });
+
+  it("renders VS-00D quality diagnosis envelope as author-safe detail lines", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "reply_only",
+      dialogue_goal: "诊断本章爽感不足",
+      no_tool_reason: "no_tool_needed",
+      ai_message_envelope: {
+        novel_layer: {
+          quality_gates: [
+            "conflict_pressure",
+            "cost_visibility",
+            "reader_payoff",
+            "protagonist_agency",
+          ],
+        },
+        work_state_layer: {
+          context_refs: [
+            { source_type: "current_work", summary: "灵源纪元 / 林烬" },
+            { source_type: "memory", summary: "林瑶失踪指向灵源矿区" },
+          ],
+        },
+        turn_guidance_layer: {
+          guidance_mode: "quality",
+          element_focus: [
+            "conflict_pressure",
+            "cost_visibility",
+            "reader_payoff",
+            "protagonist_agency",
+          ],
+          missing_questions: ["缺本章已采纳正文片段，不能逐句诊断。"],
+        },
+      },
+    });
+
+    const visibleText = JSON.stringify(view);
+    expect(view?.detailLines).toContain(
+      "本轮按质量诊断处理，只给诊断和结构修订建议，不会改写或写入作品。",
+    );
+    expect(visibleText).toContain("质量关注点：冲突压力、代价可见、读者回报、主角能动性。");
+    expect(visibleText).toContain("小说层质量门：冲突压力、代价可见、读者回报、主角能动性。");
+    expect(visibleText).toContain("作品层依据来自：当前作品背景、已确认设定。");
+    expect(visibleText).toContain("缺少正文片段时，只能基于摘要或上下文给结构建议。");
+    expect(visibleText).not.toContain("trace_");
+    expect(visibleText).not.toContain("ctx_");
+    expect(visibleText).not.toContain("raw prompt");
+  });
+
+  it("marks missing work state from quality diagnosis envelope", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "reply_only",
+      ai_message_envelope: {
+        work_state_layer: {
+          context_refs: [],
+          snapshot_summary: { status: "missing", reason: "no_current_work_snapshot" },
+          chapter_summary: { status: "missing", reason: "no_chapter_summary" },
+        },
+        turn_guidance_layer: {
+          guidance_mode: "quality",
+          element_focus: ["conflict_pressure"],
+        },
+      },
+    });
+
+    expect(view?.detailLines).toContain(
+      "作品层依据缺失或不足，系统已显式标记缺失，不会编造作品事实。",
+    );
   });
 
   it("returns null when there is no trace summary", () => {

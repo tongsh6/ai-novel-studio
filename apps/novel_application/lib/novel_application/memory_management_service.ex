@@ -10,6 +10,7 @@ defmodule NovelApplication.MemoryManagementService do
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelPersistence.MemoryManagementRepo
+  alias NovelPersistence.MemoryReferenceLog
   alias NovelPersistence.Schemas.MemoryItem
   alias NovelPersistence.WorkRepo
 
@@ -82,8 +83,12 @@ defmodule NovelApplication.MemoryManagementService do
         |> Map.put_new("source_type", MemorySourceType.author_created())
 
       case MemoryManagementRepo.create(work_id, attrs) do
-        {:ok, item} -> {:ok, to_dto(item)}
-        {:error, changeset} -> {:error, changeset}
+        {:ok, item} ->
+          write_lifecycle_trace(:create, nil, item)
+          {:ok, to_dto(item)}
+
+        {:error, changeset} ->
+          {:error, changeset}
       end
     end
   end
@@ -91,29 +96,35 @@ defmodule NovelApplication.MemoryManagementService do
   @spec confirm(String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :not_found | Ecto.Changeset.t()}
   def confirm(work_id, memory_id) do
-    update(work_id, memory_id, %{
-      status: MemoryStatus.confirmed(),
-      source_type: MemorySourceType.author_confirmed()
-    })
+    lifecycle_update(
+      work_id,
+      memory_id,
+      %{
+        status: MemoryStatus.confirmed(),
+        source_type: MemorySourceType.author_confirmed()
+      },
+      :confirm
+    )
   end
 
   @spec lock(String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :not_found | Ecto.Changeset.t()}
-  def lock(work_id, memory_id), do: update(work_id, memory_id, %{locked: true})
+  def lock(work_id, memory_id), do: lifecycle_update(work_id, memory_id, %{locked: true}, :lock)
 
   @spec unlock(String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :not_found | Ecto.Changeset.t()}
-  def unlock(work_id, memory_id), do: update(work_id, memory_id, %{locked: false})
+  def unlock(work_id, memory_id),
+    do: lifecycle_update(work_id, memory_id, %{locked: false}, :unlock)
 
   @spec deprecate(String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :not_found | Ecto.Changeset.t()}
   def deprecate(work_id, memory_id),
-    do: update(work_id, memory_id, %{status: MemoryStatus.deprecated()})
+    do: lifecycle_update(work_id, memory_id, %{status: MemoryStatus.deprecated()}, :deprecate)
 
   @spec archive(String.t(), String.t()) ::
           {:ok, map()} | {:error, :work_not_found | :not_found | Ecto.Changeset.t()}
   def archive(work_id, memory_id),
-    do: update(work_id, memory_id, %{status: MemoryStatus.archived()})
+    do: lifecycle_update(work_id, memory_id, %{status: MemoryStatus.archived()}, :archive)
 
   @spec update_weight(String.t(), String.t(), number()) ::
           {:ok, map()} | {:error, :work_not_found | :not_found | Ecto.Changeset.t()}
@@ -167,6 +178,94 @@ defmodule NovelApplication.MemoryManagementService do
       end
     end
   end
+
+  defp lifecycle_update(work_id, memory_id, attrs, action) do
+    with :ok <- ensure_work(work_id),
+         %MemoryItem{} = before_item <- MemoryManagementRepo.get(work_id, memory_id) do
+      case MemoryManagementRepo.update(work_id, memory_id, attrs) do
+        {:ok, item} ->
+          write_lifecycle_trace(action, before_item, item)
+          {:ok, to_dto(item)}
+
+        {:error, %Ecto.Changeset{} = changeset} ->
+          maybe_write_blocked_lifecycle_trace(action, before_item, changeset)
+          {:error, changeset}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      nil -> {:error, :not_found}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp write_lifecycle_trace(:create, nil, %MemoryItem{} = item) do
+    write_reference_trace(%{
+      memory_id: item.id,
+      work_id: item.work_id,
+      reference_scene: "memory_lifecycle",
+      reference_reason: "作者创建记忆草稿：状态 #{item.status}；类型 #{item.type}；作用域 #{item.scope}。"
+    })
+  end
+
+  defp write_lifecycle_trace(action, %MemoryItem{} = before_item, %MemoryItem{} = item) do
+    write_reference_trace(%{
+      memory_id: item.id,
+      work_id: item.work_id,
+      reference_scene: "memory_lifecycle",
+      reference_reason: lifecycle_reason(action, before_item, item)
+    })
+  end
+
+  defp maybe_write_blocked_lifecycle_trace(action, %MemoryItem{} = item, %Ecto.Changeset{})
+       when action in [:deprecate, :archive] do
+    if item.locked do
+      write_reference_trace(%{
+        memory_id: item.id,
+        work_id: item.work_id,
+        reference_scene: "memory_lifecycle_blocked",
+        reference_reason:
+          "作者尝试#{action_label(action)}被锁定记忆，系统已阻止；原因：锁定记忆不能执行终端治理动作，需先解锁。状态保持 #{item.status}，普通召回保持 #{yes_no(item.recallable)}。"
+      })
+    end
+  end
+
+  defp maybe_write_blocked_lifecycle_trace(_action, _item, _changeset), do: :ok
+
+  defp write_reference_trace(attrs) do
+    case MemoryReferenceLog.write(attrs) do
+      {:ok, _record} -> :ok
+      _ -> :ok
+    end
+  end
+
+  defp lifecycle_reason(action, before_item, item) do
+    base =
+      "#{action_label(action)}：状态 #{before_item.status} -> #{item.status}；锁定 #{yes_no(before_item.locked)} -> #{yes_no(item.locked)}；普通召回 #{yes_no(before_item.recallable)} -> #{yes_no(item.recallable)}。"
+
+    cond do
+      action in [:lock] ->
+        base <> "锁定保护核心内容，但不影响普通召回。"
+
+      action in [:deprecate, :archive] or item.recallable == false ->
+        base <> "后续普通召回会排除这条记忆。"
+
+      true ->
+        base
+    end
+  end
+
+  defp action_label(:confirm), do: "作者确认"
+  defp action_label(:lock), do: "作者锁定"
+  defp action_label(:unlock), do: "作者解锁"
+  defp action_label(:deprecate), do: "作者废弃"
+  defp action_label(:archive), do: "作者归档"
+  defp action_label(_), do: "作者治理"
+
+  defp yes_no(true), do: "是"
+  defp yes_no(false), do: "否"
+  defp yes_no(_), do: "未知"
 
   defp ensure_work(work_id) do
     with {:ok, _uuid} <- Ecto.UUID.cast(work_id),

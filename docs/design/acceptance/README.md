@@ -1,6 +1,6 @@
 # v3 验收场景全景
 
-> 最后更新：2026-06-17
+> 最后更新：2026-06-18
 >
 > 本目录包含 AI Novel Studio v3 的验收场景文档。按两种用户视角组织：**系统用户**（自然人，配置和运行软件）和**作者用户**（核心用户，用 AI 写小说）。
 >
@@ -53,9 +53,9 @@
 | [AU-06](author/AU-06-behavior-lifecycle.md) | 行为生命周期 | 17 | 0/17 完整真实前后端验收；6/17 有局部证据 | 打开行为已部分实现，resolution/history/TTL/replay 未闭环 |
 | [AU-07](author/AU-07-trace-and-replay.md) | 决策溯源透明度 | 16 | 0/16 完整真实前后端验收；why 入口已有最小真实 Tauri 闭环 | 作者 why dialog 已能从真实工作台打开；redaction、developer view、多 trace replay 和持久化查询仍缺 |
 | [AU-08](author/AU-08-reading-mode.md) | 阅读我的作品 | 16 | 0/16 完整真实前后端验收；采纳到阅读投影已有最小真实 Tauri 闭环 | ReadingMode 已能显示已采纳 artifact；projection job、stale/rebuild、跨作品隔离和 no-write refresh 仍缺 |
-| [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 14 | 0/14 完整真实前后端验收；2/14 有最小真实前端闭环；9/14 有局部证据 | 作品档案固定 mock 已移除并接真实 archive 读模型；管理 API、召回主链、溯源和 AU-03 分层仍未闭环；新增 AU09-GAP-13 角色主档案 roundtrip 断链（读 Character 表/采纳写 memory，待 `AU09-character-dossier-roundtrip` slice 收口） |
+| [AU-09](author/AU-09-story-memory.md) | 管理故事设定 | 14 | 0/14 完整真实前后端验收；13/14 有最小真实前端闭环；14/14 有局部证据 | 作品档案固定 mock 已移除并接真实 archive 读模型；角色主档案 CP1、伏笔/规则 adoption roundtrip CP2、正式记忆管理入口、基础生命周期治理、lifecycle/reference author-safe 追溯、有效期窗口召回、跨作品记忆隔离与 AU-03 会话/记忆分层均有真实 Tauri 证据。`world_building` 仍是工具能力名，但伏笔/规则使用 `foreshadowing_seed` / `*_rule_seed` 显式 artifact type，采纳后按 `FORESHADOWING` / `WORLD_RULE` 等治理类型归类；`world_setting` 只保留普通世界观设定和历史兼容。剩余完整独立 MemoryTrace/StateTrace 表、developer replay、Channel 管理入口和历史旧 turn 查询未闭环。 |
 | [AU-10](author/AU-10-workbench-ui.md) | 工作台实时交互 | 17 | 完整 AU-10 工作台矩阵未闭环；baseline matrix、task_state checkpoint 与 provider failure recovery CP1 已有真实 Tauri 证据 | provider health、普通聊天、候选、action、adoption、trace/why、reading projection、MicroPlan/no-MicroPlan 已有分散证据；WebSocket 断线、真实 timeout、取消等待、完整异步 LongRunner、全 action/card 和验收卫生未闭环 |
-| [AU-11](author/AU-11-ai-guided-authoring.md) | AI 引导式创作会话结构 | 4 | 0/4 完整验收；设计入口已补 | VS-00D 已定义三层 + message contract；仍需 AIMessageEnvelope、guidance_mode 过渡 trace、WorkState projection 和 prose_writing envelope proof |
+| [AU-11](author/AU-11-ai-guided-authoring.md) | AI 引导式创作会话结构 | 4 | SC-AU11-01 checkpoint closed；0/4 完整验收 | VS-00D 三层 message 已进入 Planner 质量诊断 trace proof；仍需缺上下文真实验收、guidance_mode schema 冻结、clarify/confirm 和 prose_writing envelope proof |
 | [AU-12](author/AU-12-work-profile.md) | 查看与核对作品档案 | 11 | 5/11 最小真实 Tauri checkpoint；3/11 部分 | 首个切面 `AU12-work-profile-overview` 已闭环：真实工作台作品档案「概览」可显示 works 立项字段，DTO/UI/业务日志不泄漏内部 Work UUID；accepted 状态、缺字段/失败、跨作品矩阵、no-write 计数和 correction 修订入口仍待后续 |
 
 ---
@@ -145,16 +145,16 @@ mix test apps/novel_web/test/novel_web/channels/
 | 采纳到阅读投影与 ProjectionHint adapter | AU-08 AU08-GAP-03~04 | 最小真实 Tauri 闭环已补；projection job/stale/rebuild 待补 | P0 |
 | projection refresh no-write 与跨作品隔离 | AU-08 AU08-GAP-05~06 | 补实现/补测试/补验收 | P0 |
 | 阅读模式错误态与 UI 自动化 | AU-08 AU08-GAP-07~09 | 补实现/补验收/文案同步 | P1/P2 |
-| 记忆管理 REST/Channel 入口与作品档案真实数据 | AU-09 AU09-GAP-01~03 | 档案真实数据最小闭环已补；继续补管理入口/采纳入记忆/完整验收 | P0/P1 |
+| 记忆管理 REST/Channel 入口与作品档案真实数据 | AU-09 AU09-GAP-01~03 | 档案真实数据最小闭环已补；`AU09-archive-memory-roundtrip` CP2 已补显式伏笔/规则 artifact 采纳后的语义归类、伏笔/规则 tab 重开可见和 `au09-adopt-setting-recall` 真实 Tauri adoption/recall/why；`AU09-memory-management-workbench-entry` 已补正式管理入口和基础状态治理；继续补 Channel 管理入口、trace/replay 与设计追溯 | P0/P1 |
 | 记忆召回到 context/prompt 与 recall ranking | AU-09 AU09-GAP-04~05 | 补实现/补集成 | P0 |
-| 记忆状态机、locked 保护、有效期窗口 | AU-09 AU09-GAP-06~08 | 补实现/补测试/补集成 | P0/P1 |
-| 记忆引用日志、作者溯源、AU-03 会话分层 | AU-09 AU09-GAP-09~12 | 补集成/补实现/新增 | P0/P1 |
-| 角色主档案 roundtrip（创建→采纳→Character 主档案→展示→上下文） | AU-09 AU09-GAP-13 | 角色 tab 读 Character 表但生产零写入、采纳写 memory（层级错位）；两层模型 + AI 引导设计样板 `AU09-character-dossier-roundtrip`，待 CP1 | P0 |
-| 真实工作台入口与 v3 action/task_state 消费者分裂 | AU-10 AU10-GAP-01/AU10-GAP-03/AU10-GAP-07 | `WorkspaceChat` 已是唯一生产工作台入口；`历史旁路工作台` / `历史旁路 socket helper` 旁路已退役删除；真实导出 task_state checkpoint 与 provider failure recovery CP1 已闭环，继续补 WebSocket 断线、取消等待与完整异步 LongRunner UI | P0 |
+| 记忆状态机、locked 保护、有效期窗口 | AU-09 AU09-GAP-06~08 | 基础状态机、locked UI/recall、lifecycle blocked trace 和章节有效期窗口 checkpoint 已补；继续补完整 StateTrace/MemoryTrace 表、scene-level 窗口和降权策略 | P0/P1 |
+| 记忆引用日志、作者溯源、AU-03 会话分层 | AU-09 AU09-GAP-09~12 | recall/lifecycle reference log、作者可见追溯与 AU-03 会话/记忆分层已补；继续补 developer replay、历史旧 turn 查询和完整独立 trace 表 | P0/P1 |
+| 角色主档案 roundtrip（创建→采纳→Character 主档案→展示→上下文） | AU-09 AU09-GAP-13 | CP1 已闭环：`character_seed` 采纳写 Character 主档案且不写 memory，角色 tab 可见并进入后续上下文；CP2 字段级结构化/关系/演化待补 | P0 |
+| 真实工作台入口与 v3 action/task_state 消费者分裂 | AU-10 AU10-GAP-01/AU10-GAP-03/AU10-GAP-07 | `WorkspaceChat` 已是唯一生产工作台入口；`历史旁路工作台` / `历史旁路 socket helper` 旁路已退役删除；真实导出 task_state、provider failure CP1、WebSocket reconnect CP2、cancel waiting CP3A 与 provider timeout CP3B checkpoint 已闭环，继续补完整异步 LongRunner UI | P0 |
 | 普通聊天默认 MicroPlan、card action 绕过授权、候选操作 | AU-10 AU10-GAP-02/AU10-GAP-04~05 | 默认 MicroPlan、card action 授权、候选继续探索均已有 Tauri 证据；剩余为完整矩阵归并 | P1 |
-| adoption UI、trace/why、projection、错误恢复 | AU-10 AU10-GAP-06/AU10-GAP-08~10 | adoption/why/projection 最小闭环已有；provider failure recovery CP1 已补；WebSocket 断线、真实 timeout、取消等待和深度状态待补 | P0/P1 |
-| 工作台 UI 自动化与 Tauri/Design 约束 | AU-10 AU10-GAP-11~12 | AU-10 baseline matrix、真实导出 task_state checkpoint 与 provider failure recovery CP1 已补；WebSocket 断线、真实 timeout、取消等待、全 action/card、文案/hidden metadata 卫生待复核 | P0 |
-| AI 引导式创作三层 message 闭环 | AU-11 AU11-GAP-01~05 | 新增验收入口；设计已成文，缺代码对象、trace 重建和真实工作台场景证明 | P0 |
+| adoption UI、trace/why、projection、错误恢复 | AU-10 AU10-GAP-06/AU10-GAP-08~10 | adoption/why/projection 最小闭环已有；provider failure、WebSocket reconnect、cancel waiting 与 provider timeout 均已有 Tauri checkpoint；完整 LongRunner 和深度状态待补 | P0/P1 |
+| 工作台 UI 自动化与 Tauri/Design 约束 | AU-10 AU10-GAP-11~12 | AU-10 baseline matrix、真实导出 task_state、provider failure、WebSocket reconnect、cancel waiting 与 provider timeout checkpoint 已补；完整 LongRunner、全 action/card、文案/hidden metadata 卫生待复核 | P0 |
+| AI 引导式创作三层 message 闭环 | AU-11 AU11-GAP-01~05 | SC-AU11-01 已有真实 Tauri checkpoint；继续补缺上下文真实验收、guidance_mode schema 冻结、clarify/confirm 和 prose_writing envelope proof | P0 |
 | 作品档案立项概览后续矩阵与修订入口 | AU-12 SC-AU12-A4/B1~C2 | works 立项字段只读概览 CP1 已闭环；accepted 状态、缺字段/失败、跨作品切换、no-write 计数、accepted-artifact 类立项要素和 correction 修订入口待补 | P1 |
 | 供应商 health/model/error 补齐 | SU-01 SU01-GAP-01~03 | 补实现/补测试 | P0/P1 |
 | 供应商运行时切换与安全配置 | SU-01 SU01-GAP-04~07 | 补设计/补实现/补集成 | P0 |
@@ -162,7 +162,7 @@ mix test apps/novel_web/test/novel_web/channels/
 | 作品管理 UI 与恢复策略 | SU-02 SU02-GAP-05~09 | 补实现/修设计偏差 | P1/P2 |
 | AI 显示名设置与隔离 | SU-03 SU03-GAP-01~05 | 最小真实前端闭环已补；剩余真实 LLM payload 不变证据 | P2 |
 
-**总缺口：持续重算中。当前 SU-01~03、AU-01~12 已按场景化口径重算或新立；AU-12 work profile overview CP1 已闭环但整体未完成。AU-10 provider failure recovery CP1 已闭环，当前下一步是 WebSocket 断线、真实 timeout、取消等待与完整异步 LongRunner UI；VS-00D / AU-11 的 AIMessageEnvelope 最小 proof 与 AU-12 后续 CP2/CP3 均排在后续队列。**
+**总缺口：持续重算中。当前 SU-01~03、AU-01~12 已按场景化口径重算或新立；AU-12 work profile overview CP1 已闭环但整体未完成。AU-10 baseline/task_state/provider failure/reconnect/cancel/timeout 已有 checkpoint；完整异步 LongRunner 因缺真实生产消费者按 `docs/design/04a-planning-and-long-run.md` 延后。当前继续铺产品功能广度，`AU09-archive-memory-roundtrip` CP2 已由 `au09-adopt-setting-recall` 证明真实页面伏笔/规则生成、adoption、tab 重开可见、recall/why；`AU09-memory-management-workbench-entry` 已由 `au09-memory-management-entry` 证明正式入口与基础生命周期治理；`AU09-memory-trace-roundtrip` 已补 lifecycle/reference author-safe 追溯；`AU09-validity-window-recall` 已补章节有效期窗口；`AU09-cross-work-memory-isolation` 已补跨作品隔离；`AU09-AU03-session-memory-layering` 已补同一作品内 active/historical session 与 governed memory 分层；`AU11-quality-diagnosis-message-envelope` 已补 SC-AU11-01 最小真实工作台 trace proof。**
 
 ---
 

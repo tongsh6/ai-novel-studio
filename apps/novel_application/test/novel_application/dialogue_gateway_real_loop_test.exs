@@ -179,7 +179,8 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
 
       source_types = Enum.map(turn_result.trace_summary.context_refs, & &1.source_type)
       assert :current_work in source_types
-      assert :conversation in source_types
+      assert :session_transcript in source_types
+      refute :conversation in source_types
     end
 
     test "injects latest active session transcript into planner prompt for long sessions" do

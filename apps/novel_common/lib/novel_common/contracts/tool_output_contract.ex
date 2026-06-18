@@ -9,7 +9,11 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
     :outline_draft,
     :scene_draft,
     :prose_fragment,
-    :world_setting
+    :world_setting,
+    :foreshadowing_seed,
+    :world_rule_seed,
+    :style_rule_seed,
+    :constraint_seed
   ]
 
   @spec creative_artifact_types() :: [atom()]

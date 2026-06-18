@@ -9,7 +9,13 @@ defmodule NovelDomain.ContextSourceRef do
   """
 
   @type source_type ::
-          :current_work | :conversation | :memory | :behavior | :policy | :continuity
+          :current_work
+          | :conversation
+          | :session_transcript
+          | :memory
+          | :behavior
+          | :policy
+          | :continuity
 
   @type t :: %__MODULE__{
           context_ref: String.t(),

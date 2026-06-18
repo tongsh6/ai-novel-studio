@@ -42,13 +42,14 @@ defmodule NovelApplication.ContextAssembler do
   def assemble_for_input(workspace_id, author_text, fetcher \\ &default_fetch/1, opts \\ []) do
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:context, :assemble, :start, %{})
+    session_id = Keyword.get(opts, :session_id)
 
     # CP1（关 G10 / AU-03 SC-B3）：fetcher 异常/非 ok 时不让整轮崩溃，降级为**明确**空上下文
     # 并留痕（context.assemble.fallback），后续 Planner 在空上下文下诚实说明读不到，而不是编造。
     {:ok, snapshot, conv_summary, mem_summary, behavior_summary, chapters, structured_chapters} =
-      safe_fetch(fetcher, workspace_id, author_text, Keyword.get(opts, :session_id))
+      safe_fetch(fetcher, workspace_id, author_text, session_id)
 
-    refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary)
+    refs = build_refs(snapshot, conv_summary, mem_summary, behavior_summary, session_id)
 
     duration = System.monotonic_time(:millisecond) - t0
 
@@ -230,13 +231,20 @@ defmodule NovelApplication.ContextAssembler do
     end
   end
 
-  defp build_refs(snapshot, conv_summary, mem_summary, behavior_summary) do
+  defp build_refs(snapshot, conv_summary, mem_summary, behavior_summary, session_id) do
+    {conversation_type, conversation_id} = conversation_ref_identity(session_id)
+
     []
     |> maybe_add_ref(snapshot, :current_work, "current_work_snapshot")
-    |> maybe_add_ref(conv_summary, :conversation, "conversation_summary")
+    |> maybe_add_ref(conv_summary, conversation_type, conversation_id)
     |> maybe_add_ref(mem_summary, :memory, "memory_summary")
     |> maybe_add_ref(behavior_summary, :behavior, "behavior_summary")
   end
+
+  defp conversation_ref_identity(session_id) when is_binary(session_id) and session_id != "",
+    do: {:session_transcript, "active_session_transcript"}
+
+  defp conversation_ref_identity(_session_id), do: {:conversation, "conversation_summary"}
 
   defp maybe_add_ref(refs, nil, _type, _id), do: refs
 
@@ -271,6 +279,10 @@ defmodule NovelApplication.ContextAssembler do
     summarize_conversation(value) || normalize_summary(value)
   end
 
+  defp summarize_context(value, :session_transcript) when is_binary(value) do
+    summarize_conversation(value) || normalize_summary(value)
+  end
+
   defp summarize_context(value, :memory) when is_binary(value) do
     value
     |> String.split("\n")
@@ -285,6 +297,7 @@ defmodule NovelApplication.ContextAssembler do
   defp summarize_context(_value, :current_work), do: nil
   defp summarize_context(_value, :memory), do: "已确认设定"
   defp summarize_context(_value, :conversation), do: "近期对话"
+  defp summarize_context(_value, :session_transcript), do: "当前会话记录"
   defp summarize_context(_value, :behavior), do: "当前待处理动作"
   defp summarize_context(_value, _type), do: "安全上下文摘要"
 

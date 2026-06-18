@@ -106,7 +106,7 @@
 
 ## 6. 落地路线
 
-第一个承重切面：`tasks/slices/AU12-work-profile-overview.md`（CP1 立项档案只读概览）已闭环。用户 2026-06-17 调整任务队列先做 AU12；完成 CP1 后，当前队首回到 `AU10-workbench-recovery-disconnect-timeout`。
+第一个承重切面：`tasks/slices/AU12-work-profile-overview.md`（CP1 立项档案只读概览）已闭环。用户 2026-06-17 调整任务队列先做 AU12；完成 CP1 后，后续队首以 `tasks/NEXT.md` 为准。
 
 后续 checkpoint：
 

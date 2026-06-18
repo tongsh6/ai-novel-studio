@@ -105,12 +105,12 @@
 
 | 场景 | 当前状态 | 当前证据 | 缺口 |
 |---|---|---|---|
-| SC-AU11-01 | 未实现 | `VS-00D` 已定义 contract；现有 Planner frame 较粗 | 需要 AIMessageEnvelope、guidance_mode 过渡 trace、质量诊断 proof |
-| SC-AU11-02 | 部分实现 | AU-03/VS-00B 已有不编造上下文的设计基础 | 需要 WorkStateMessage missing policy 与真实工作台验收 |
+| SC-AU11-01 | checkpoint closed | `NovelApplication.AIMessageEnvelope` 过渡 builder；`trace_summary.ai_message_envelope`；`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json`；`quality_accept` 通过 | 仍是过渡 trace/evidence 字段，`guidance_mode` 尚未冻结进 DialogueFrame schema |
+| SC-AU11-02 | 部分实现 | AU-03/VS-00B 已有不编造上下文的设计基础；后端 envelope 测试覆盖缺 WorkState missing | 需要缺上下文真实工作台验收 |
 | SC-AU11-03 | 部分实现 | ADR-0002/0003/0005/0009 已约束执行边界 | 需要 clarify/confirm guidance_mode 与 behavior/orchestrator 组合 proof |
 | SC-AU11-04 | 未实现 | `VS-00C` 已定义 CreativeDecisionPacket | 需要 prose_writing provider prompt 从 envelope 渲染并进入 trace |
 
-当前结论：AU-11 是 design-ready 验收入口，不代表产品已完成。
+当前结论：AU-11 已完成 SC-AU11-01 最小真实工作台 checkpoint，不代表 AU-11 整体完成。
 
 ---
 
@@ -118,7 +118,7 @@
 
 | 缺口 | 影响 | 建议处理 |
 |---|---|---|
-| `AIMessageEnvelope` 还未成为代码对象或 trace 可重建对象 | 无法证明每次 AI 调用真的按三层组织 | 先做 VS-00D docs-ready slice，再进入最小 Planner proof |
+| `AIMessageEnvelope` 仍是 application 层过渡 builder，尚未冻结为跨调用点 schema | 只能证明 Planner 质量诊断 checkpoint，不能证明所有 AI 调用都按三层组织 | 后续经 ADR/schema/test 冻结正式字段和投影 |
 | `DialogueFrame` 当前代码没有 `guidance_mode` 目标字段 | 本轮引导判断只能落在 evidence / uncertainty / trace | CP1 先过渡，CP2 经 ADR/schema/test 冻结字段 |
 | DialogueContext 当前作品投影较薄 | AI 质量诊断容易缺当前章证据 | 与 VS-00C / AU-03 / AU-09 合并推进 WorkState projection |
 | CreativeProvider prompt 与 Planner 判断仍可能脱节 | 生成正文时丢失本轮引导判断和要素焦点 | prose_writing 调用必须消费 CreativeDecisionPacket |
@@ -144,4 +144,10 @@ rg -n "VS-00D|AIMessageEnvelope|NovelLayerMessage|WorkStateMessage|TurnGuidanceM
 git diff --check
 ```
 
-实现阶段入口待 VS-00D slice 冻结后补充；完成前不得把 AU-11 标记为已验收。
+实现阶段：
+
+```bash
+bash scripts/quality_accept.sh au11-quality-diagnosis-message-envelope --surface tauri
+```
+
+仅完成 SC-AU11-01 不得把 AU-11 整体标记为已验收。

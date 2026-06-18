@@ -381,6 +381,12 @@ defmodule NovelDomain.MemoryItemTest do
   end
 
   describe "status_transition_side_effects/1" do
+    test "identifies terminal statuses" do
+      assert MemoryItem.terminal_status?(MemoryStatus.deprecated())
+      assert MemoryItem.terminal_status?(MemoryStatus.archived())
+      refute MemoryItem.terminal_status?(MemoryStatus.confirmed())
+    end
+
     test "terminal statuses clear recall and lock authority" do
       assert MemoryItem.status_transition_side_effects(MemoryStatus.deprecated()) == %{
                locked: false,

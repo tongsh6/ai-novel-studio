@@ -55,6 +55,22 @@ function artifactDraftCopy(card: UICardData): { title: string; body: string } {
         title: CARD.artifactDraft.worldTitle,
         body: CARD.artifactDraft.archiveDescription,
       };
+    case "foreshadowing_seed":
+      return {
+        title: CARD.artifactDraft.foreshadowingTitle,
+        body: CARD.artifactDraft.archiveDescription,
+      };
+    case "world_rule_seed":
+    case "style_rule_seed":
+      return {
+        title: CARD.artifactDraft.ruleTitle,
+        body: CARD.artifactDraft.archiveDescription,
+      };
+    case "constraint_seed":
+      return {
+        title: CARD.artifactDraft.constraintTitle,
+        body: CARD.artifactDraft.archiveDescription,
+      };
     default:
       return {
         title: CARD.artifactDraft.fallbackTitle,

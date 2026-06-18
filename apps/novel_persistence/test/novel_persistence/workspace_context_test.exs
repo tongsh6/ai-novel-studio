@@ -196,6 +196,43 @@ defmodule NovelPersistence.WorkspaceContextTest do
       refute summary =~ "主角当时叫林烬"
     end
 
+    test "active session transcript and governed memory are fetched separately from historical transcript" do
+      {:ok, work} =
+        WorkRepo.create(%{
+          title: "灵源纪元",
+          genre: "东方奇幻",
+          core_selling_point: "林澈追查灵源矿区真相"
+        })
+
+      {:ok, active_session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})
+      {:ok, history_session} = WorkSessionRepo.create(%{work_id: work.id, title: "历史会话"})
+
+      memory =
+        insert_memory!(
+          work.id,
+          "银槐誓约是林澈追查灵源矿区的已确认设定",
+          MemoryStatus.confirmed(),
+          true
+        )
+
+      record_interaction(work.id, active_session.id, "turn-active", "user", "当前会话确认当前蓝桥计划")
+      record_interaction(work.id, history_session.id, "turn-history", "user", "历史旧稿赤塔设定不能覆盖")
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, snapshot, active_summary, memory_summary, nil, [], []} =
+               fetcher.(work.id, "请结合当前蓝桥计划和银槐誓约继续说明", active_session.id)
+
+      assert snapshot.title == "灵源纪元"
+      assert active_summary =~ "当前蓝桥计划"
+      refute active_summary =~ "旧稿赤塔"
+      assert memory_summary =~ "银槐誓约"
+      refute memory_summary =~ "旧稿赤塔"
+
+      logs = MemoryReferenceLog.by_scene(work.id, "dialogue_context")
+      assert Enum.any?(logs, &(&1.memory_id == memory.id))
+    end
+
     test "query fetcher excludes archived session transcript from ordinary context" do
       {:ok, work} = WorkRepo.create(%{title: "归档上下文过滤"})
       {:ok, active_session} = WorkSessionRepo.create(%{work_id: work.id, title: "当前会话"})

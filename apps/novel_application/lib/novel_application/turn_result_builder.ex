@@ -239,6 +239,21 @@ defmodule NovelApplication.TurnResultBuilder do
        do: "角色设定草稿"
 
   defp artifact_payload_title(%{artifact_type: type})
+       when type in [:foreshadowing_seed, "foreshadowing_seed"],
+       do: "伏笔草稿"
+
+  defp artifact_payload_title(%{artifact_type: type})
+       when type in [
+              :world_rule_seed,
+              "world_rule_seed",
+              :style_rule_seed,
+              "style_rule_seed",
+              :constraint_seed,
+              "constraint_seed"
+            ],
+       do: "规则草稿"
+
+  defp artifact_payload_title(%{artifact_type: type})
        when type in [:world_setting, "world_setting"],
        do: "世界设定草稿"
 
@@ -266,7 +281,20 @@ defmodule NovelApplication.TurnResultBuilder do
     do: "这是待保存大纲草稿。确认保存后会进入作品档案的大纲与结构；未保存前只保留为本轮草稿。"
 
   defp artifact_save_hint(%{artifact_type: type})
-       when type in [:character_seed, "character_seed", :world_setting, "world_setting"],
+       when type in [
+              :character_seed,
+              "character_seed",
+              :world_setting,
+              "world_setting",
+              :foreshadowing_seed,
+              "foreshadowing_seed",
+              :world_rule_seed,
+              "world_rule_seed",
+              :style_rule_seed,
+              "style_rule_seed",
+              :constraint_seed,
+              "constraint_seed"
+            ],
        do: "这是待保存设定草稿。确认保存后会进入作品档案；未保存前不会写入作品事实。"
 
   defp artifact_save_hint(_as),

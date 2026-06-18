@@ -3,6 +3,20 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
 
   alias NovelCommon.Contracts.ToolOutputContract
 
+  test "accepts explicit archive artifact types" do
+    assert {:ok, :foreshadowing_seed} =
+             ToolOutputContract.normalize_artifact_type("foreshadowing_seed")
+
+    assert {:ok, :world_rule_seed} =
+             ToolOutputContract.normalize_artifact_type(:world_rule_seed)
+
+    assert {:ok, :style_rule_seed} =
+             ToolOutputContract.normalize_artifact_type("style_rule_seed")
+
+    assert {:ok, :constraint_seed} =
+             ToolOutputContract.normalize_artifact_type(:constraint_seed)
+  end
+
   test "normalizes creative output self report as non-authoritative signal" do
     assert {:ok,
             %{

@@ -93,6 +93,84 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert [%{name: "沈砚"}] = NovelPersistence.WorkArchiveRepo.characters(work_id)
     end
 
+    test "adopts foreshadowing_seed into governed memory visible in archive tab" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-foreshadowing",
+                 artifact_id: "as-foreshadowing-1",
+                 artifact_type: :foreshadowing_seed,
+                 base_revision: 1,
+                 content: "伏笔线索：矿区旧账编号会在第三卷回收。",
+                 summary: "伏笔：矿区旧账"
+               })
+
+      memory = Repo.get!(MemoryItem, persisted.memory_item_id)
+      assert memory.type == MemoryType.foreshadowing()
+      assert memory.status == MemoryStatus.confirmed()
+      assert memory.recallable == true
+
+      assert [%{content: "伏笔线索：矿区旧账编号会在第三卷回收。"}] =
+               NovelPersistence.WorkArchiveRepo.foreshadowing(work_id)
+
+      assert [] = NovelPersistence.WorkArchiveRepo.rules(work_id)
+    end
+
+    test "adopts style_rule_seed into governed memory visible in archive tab" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-rule",
+                 artifact_id: "as-rule-1",
+                 artifact_type: "style_rule_seed",
+                 base_revision: 1,
+                 content: "风格规则：战斗段落必须用动作和代价推进，不得空喊热血。",
+                 summary: "风格规则：战斗代价"
+               })
+
+      memory = Repo.get!(MemoryItem, persisted.memory_item_id)
+      assert memory.type == MemoryType.style_rule()
+      assert memory.status == MemoryStatus.confirmed()
+
+      assert [%{content: "风格规则：战斗段落必须用动作和代价推进，不得空喊热血。"}] =
+               NovelPersistence.WorkArchiveRepo.rules(work_id)
+
+      assert [] = NovelPersistence.WorkArchiveRepo.foreshadowing(work_id)
+    end
+
+    test "adopts explicit rule artifact types into corresponding governed memory types" do
+      cases = [
+        {:world_rule_seed, MemoryType.world_rule(), "世界规则：灵气账单不能赊欠。"},
+        {"constraint_seed", MemoryType.constraint(), "约束内容：谜底回收前不得提前揭示。"}
+      ]
+
+      for {artifact_type, memory_type, content} <- cases do
+        work_id = Ecto.UUID.generate()
+
+        assert {:ok, persisted} =
+                 AdoptionRepository.persist(%{
+                   actor_ref: "author",
+                   work_id: work_id,
+                   source_turn_ref: "turn-adopt-explicit-rule",
+                   artifact_id: "as-explicit-rule-#{System.unique_integer([:positive])}",
+                   artifact_type: artifact_type,
+                   base_revision: 1,
+                   content: content,
+                   summary: content
+                 })
+
+        memory = Repo.get!(MemoryItem, persisted.memory_item_id)
+        assert memory.type == memory_type
+        assert [%{content: ^content}] = NovelPersistence.WorkArchiveRepo.rules(work_id)
+      end
+    end
+
     test "uses accepted artifact item title for reading projection instead of artifact id" do
       work_id = Ecto.UUID.generate()
 

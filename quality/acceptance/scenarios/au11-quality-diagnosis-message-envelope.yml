@@ -1,0 +1,57 @@
+id: au11-quality-diagnosis-message-envelope
+title: AI 引导式创作质量诊断 Message Envelope
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au11-quality-diagnosis-message-envelope --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md
+  - docs/design/acceptance/author/AU-11-ai-guided-authoring.md
+  - tasks/slices/AU11-quality-diagnosis-message-envelope.md
+
+invariants:
+  - vs00d-three-message-layers-reconstructable
+  - work-state-evidence-or-explicit-missing
+  - quality-diagnosis-does-not-write-production-state
+
+setup:
+  seed: scripts/seed_au11_quality_diagnosis_message_envelope.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 这一章感觉不够爽，主角赢得太轻了。
+  - click: 发送
+  - wait_for: turn result visible
+  - click: 为什么
+  - wait_for: quality diagnosis trace details visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri
+
+assertions:
+  ui:
+    - assistant gives concrete tradeoffs about conflict, cost, reader payoff, and agency
+    - why panel shows quality diagnosis and quality focus
+    - why panel does not expose raw prompt, provider debug, trace id, or context id
+  network:
+    - user_message sent from real workbench
+    - turn_result includes ai_message_envelope trace summary
+  data:
+    - NovelLayer records quality gates
+    - WorkStateLayer references current work and chapter summary or explicit missing
+    - TurnGuidanceLayer records guidance_mode=quality
+    - no tool_result, no adoption_state, no production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

@@ -128,6 +128,9 @@ export const CARD = {
       "这是待保存大纲草稿。保存后会进入作品档案的大纲与结构；未保存前只保留为本轮草稿。",
     characterTitle: "角色设定草稿",
     worldTitle: "世界设定草稿",
+    foreshadowingTitle: "伏笔草稿",
+    ruleTitle: "规则草稿",
+    constraintTitle: "约束草稿",
     archiveDescription: "这是待保存设定草稿。保存后会进入作品档案；未保存前不会写入作品事实。",
     fallbackTitle: "待保存草稿",
     fallbackDescription: "这是待保存草稿。保存后才会进入作品档案；未保存前不会写入作品事实。",
@@ -358,6 +361,14 @@ export const TRACE = {
     sessionTranscript: "当前会话记录",
     other: "其他安全来源",
   },
+  guidance: {
+    qualityDiagnosis: "本轮按质量诊断处理，只给诊断和结构修订建议，不会改写或写入作品。",
+    qualityFocus: (focus: string) => `质量关注点：${focus}。`,
+    qualityGates: (gates: string) => `小说层质量门：${gates}。`,
+    workStateSources: (sources: string) => `作品层依据来自：${sources}。`,
+    workStateMissing: "作品层依据缺失或不足，系统已显式标记缺失，不会编造作品事实。",
+    missingLimit: "缺少正文片段时，只能基于摘要或上下文给结构建议。",
+  },
   recoveryApplied: "系统已使用降级恢复策略。",
   toolUsed: (name: string) => `本轮使用了工具：${name}。`,
   toolWithStatus: (name: string, status: string) =>
@@ -421,7 +432,8 @@ export const STRUCTURE_PANEL = {
   pendingFallbackContent: "等待审核中的内容",
   confirmedForeshadowingSection: "已确认设定",
   newForeshadowing: "新增伏笔",
-  newForeshadowingPrompt: "请基于当前作品背景、设定和剧情走向，帮我想一个能贯穿多章的伏笔或悬念设定。",
+  newForeshadowingPrompt:
+    "请基于当前作品背景、设定和剧情走向，帮我想一个能贯穿多章的伏笔或悬念设定。",
   confirmedRulesSection: "已启用规则",
   ruleCountUnit: "条规则",
   newRule: "新建规则",
@@ -550,6 +562,16 @@ export const MEMORY = {
   archiveAction: "归档",
   weightLabel: "权重",
   validityLabel: "有效范围",
+  traceTitle: "引用与治理追溯",
+  traceLoading: "追溯加载中...",
+  traceEmpty: "暂无引用或治理记录",
+  traceNoReason: "未记录说明",
+  traceSceneLabels: {
+    memory_lifecycle: "治理动作",
+    memory_lifecycle_blocked: "治理阻止",
+    dialogue_context: "对话引用",
+    recall: "召回引用",
+  },
 } as const;
 
 // ============================================================

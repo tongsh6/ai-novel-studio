@@ -264,7 +264,14 @@ function isOutlineArtifact(artifactType?: string): boolean {
 }
 
 function isArchiveArtifact(artifactType?: string): boolean {
-  return artifactType === "character_seed" || artifactType === "world_setting";
+  return (
+    artifactType === "character_seed" ||
+    artifactType === "world_setting" ||
+    artifactType === "foreshadowing_seed" ||
+    artifactType === "world_rule_seed" ||
+    artifactType === "style_rule_seed" ||
+    artifactType === "constraint_seed"
+  );
 }
 
 function acceptActionLabel(artifactType?: string): string {

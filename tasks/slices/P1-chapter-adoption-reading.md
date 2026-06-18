@@ -1,6 +1,6 @@
 # P1 Chapter Adoption Reading / 10 万字最小长篇单章正文采纳与阅读
 
-- 状态：next
+- 状态：checkpoint closed
 - 类型：Product Slice / Novel Output Milestone P1
 - 来源：`docs/product/novel-output-milestones.md` §6-§7；`docs/product/user-journeys.md` Journey D9；`tasks/slices/P1-chapter-draft-generation.md`
 - 当前目标：作者采纳单章正文草稿后，正文进入作品事实和 Reading Projection；阅读模式能从真实 Channel 读取该章正文，未采纳草稿仍不得进入阅读投影。

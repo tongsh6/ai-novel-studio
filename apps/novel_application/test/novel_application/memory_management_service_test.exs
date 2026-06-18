@@ -61,10 +61,29 @@ defmodule NovelApplication.MemoryManagementServiceTest do
     {:ok, locked} = MemoryManagementService.lock(work.id, memory.id)
     assert locked.locked == true
 
+    assert {:error, %Ecto.Changeset{} = changeset} =
+             MemoryManagementService.deprecate(work.id, memory.id)
+
+    assert {"cannot move locked memory item to terminal status", _} =
+             Keyword.fetch!(changeset.errors, :status)
+
+    {:ok, unlocked} = MemoryManagementService.unlock(work.id, memory.id)
+    assert unlocked.locked == false
+
     {:ok, deprecated} = MemoryManagementService.deprecate(work.id, memory.id)
     assert deprecated.status == MemoryStatus.deprecated()
     assert deprecated.locked == false
     assert deprecated.recallable == false
+
+    {:ok, references} = MemoryManagementService.references(work.id, memory.id)
+    reasons = Enum.map(references, & &1.reference_reason)
+
+    assert Enum.any?(reasons, &String.contains?(&1, "作者创建记忆草稿"))
+    assert Enum.any?(reasons, &String.contains?(&1, "作者确认"))
+    assert Enum.any?(reasons, &String.contains?(&1, "作者锁定"))
+    assert Enum.any?(reasons, &String.contains?(&1, "系统已阻止"))
+    assert Enum.any?(reasons, &String.contains?(&1, "作者解锁"))
+    assert Enum.any?(reasons, &String.contains?(&1, "作者废弃"))
   end
 
   test "invalid governance metadata is rejected by the schema boundary", %{work: work} do
@@ -107,8 +126,28 @@ defmodule NovelApplication.MemoryManagementServiceTest do
         reference_reason: "串线记录"
       })
 
-    assert {:ok, [reference]} = MemoryManagementService.references(work.id, memory.id)
-    assert reference.work_id == work.id
-    assert reference.reference_reason == "作者询问矿区"
+    assert {:ok, references} = MemoryManagementService.references(work.id, memory.id)
+    assert Enum.all?(references, &(&1.work_id == work.id))
+    assert Enum.any?(references, &(&1.reference_reason == "作者询问矿区"))
+  end
+
+  test "foreign memory ids cannot be read or governed from the current work", %{
+    work: work,
+    other_work: other_work
+  } do
+    {:ok, foreign} =
+      MemoryManagementService.create(other_work.id, %{
+        "content" => "其他作品专属伏笔",
+        "summary" => "外部伏笔",
+        "type" => MemoryType.foreshadowing(),
+        "scope" => "WORK",
+        "source_type" => MemorySourceType.author_created()
+      })
+
+    assert {:error, :not_found} = MemoryManagementService.get(work.id, foreign.id)
+    assert {:error, :not_found} = MemoryManagementService.confirm(work.id, foreign.id)
+    assert {:error, :not_found} = MemoryManagementService.references(work.id, foreign.id)
+
+    assert {:ok, %{items: []}} = MemoryManagementService.list(work.id, %{"keyword" => "其他作品专属"})
   end
 end

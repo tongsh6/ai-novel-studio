@@ -220,6 +220,29 @@ defmodule NovelPersistence.Schemas.MemoryItemTest do
       assert updated.content == "核心规则不会变"
     end
 
+    test "rejects terminal lifecycle transitions while locked" do
+      {:ok, item} =
+        %MemoryItem{}
+        |> MemoryItem.changeset(%{
+          id: ID.uuid(),
+          work_id: ID.uuid(),
+          content: "锁定的核心伏笔",
+          type: MemoryType.foreshadowing(),
+          scope: MemoryScope.work(),
+          status: MemoryStatus.confirmed(),
+          source_type: MemorySourceType.author_confirmed(),
+          locked: true
+        })
+        |> Repo.insert()
+
+      cs = MemoryItem.update_changeset(item, %{status: MemoryStatus.deprecated()})
+
+      refute cs.valid?
+
+      assert {"cannot move locked memory item to terminal status", _} =
+               Keyword.fetch!(cs.errors, :status)
+    end
+
     test "rejects skipped lifecycle transitions" do
       {:ok, item} =
         %MemoryItem{}
@@ -286,7 +309,12 @@ defmodule NovelPersistence.Schemas.MemoryItemTest do
       assert confirmed.locked == true
       assert confirmed.recallable == true
 
-      cs = MemoryItem.update_changeset(confirmed, %{status: MemoryStatus.deprecated()})
+      {:ok, unlocked} =
+        confirmed
+        |> MemoryItem.update_changeset(%{locked: false})
+        |> Repo.update()
+
+      cs = MemoryItem.update_changeset(unlocked, %{status: MemoryStatus.deprecated()})
       assert cs.valid?
 
       {:ok, deprecated} = Repo.update(cs)

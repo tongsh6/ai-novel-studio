@@ -7,6 +7,7 @@ defmodule NovelApplication.Planner do
   require NovelCommon.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider.Gateway
+  alias NovelApplication.AIMessageEnvelope
   alias NovelApplication.CapabilityRegistry
   alias NovelDomain.CandidateDirection
   alias NovelDomain.DialogueContext
@@ -312,18 +313,20 @@ defmodule NovelApplication.Planner do
   defp build_messages(text, context) do
     conversation = conversation_prompt(context)
 
-    [%{role: "system", content: system_prompt(context, conversation.summary)}] ++
+    [%{role: "system", content: system_prompt(text, context, conversation.summary)}] ++
       conversation.messages ++
       [%{role: "user", content: text}]
   end
 
-  defp system_prompt(context, session_summary) do
+  defp system_prompt(text, context, session_summary) do
     """
     你是一个小说创作 AI。分析用户消息并返回 JSON。
 
     #{non_conversation_context_section(context)}
 
     #{session_summary_section(session_summary)}
+
+    #{AIMessageEnvelope.prompt_section(text, context)}
 
     ## 输出格式（严格 JSON）
     {
@@ -638,8 +641,25 @@ defmodule NovelApplication.Planner do
       execution_readiness:
         parsed_execution_readiness(Map.get(parsed, "execution_readiness"), tool_need.needs_tool),
       author_visible_draft: %{message: Map.get(parsed, "assistant_message", "收到你的消息。")},
-      evidence_summary: %{context_used: Map.get(parsed, "context_used", context != nil)},
+      evidence_summary:
+        evidence_summary(
+          parsed,
+          context,
+          AIMessageEnvelope.quality_diagnosis(text, context, turn_id: turn_id)
+        ),
       uncertainty: Map.get(parsed, "uncertainty", [])
+    }
+  end
+
+  defp evidence_summary(parsed, context, nil) do
+    %{context_used: Map.get(parsed, "context_used", context != nil)}
+  end
+
+  defp evidence_summary(parsed, context, envelope) do
+    %{
+      context_used: Map.get(parsed, "context_used", context != nil),
+      guidance_mode: envelope.turn_guidance_layer.guidance_mode,
+      ai_message_envelope: envelope
     }
   end
 

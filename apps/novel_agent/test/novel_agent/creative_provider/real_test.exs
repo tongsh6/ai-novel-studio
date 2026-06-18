@@ -117,7 +117,9 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     complete_fn = fn prompt ->
       Agent.update(agent, fn _ -> prompt end)
-      {:ok, %{content: Jason.encode!([%{item_id: "c1", title: "沈砚", body: "定位：主角", rationale: nil}])}}
+
+      {:ok,
+       %{content: Jason.encode!([%{item_id: "c1", title: "沈砚", body: "定位：主角", rationale: nil}])}}
     end
 
     request = %CreativeRequest{
@@ -144,6 +146,50 @@ defmodule NovelAgent.CreativeProvider.RealTest do
     assert prompt =~ "基于上下文中的作品背景、世界观、设定与现有角色"
     assert prompt =~ "## 现有角色"
     # 三锚点 + I3 nonce 指令保留
+    assert prompt =~ "用户创作简述："
+    assert prompt =~ "上下文："
+    assert prompt =~ "重要："
+    assert prompt =~ "原样保留"
+  end
+
+  test "world building prompt 按 foreshadowing_seed 输出伏笔结构 + 上下文 grounding + 保留三锚点" do
+    {:ok, agent} = Agent.start_link(fn -> nil end)
+
+    complete_fn = fn prompt ->
+      Agent.update(agent, fn _ -> prompt end)
+
+      {:ok,
+       %{
+         content:
+           Jason.encode!([
+             %{
+               item_id: "w1",
+               title: "伏笔：矿区旧账",
+               body: "伏笔线索：旧账编号",
+               rationale: nil
+             }
+           ])
+       }}
+    end
+
+    request = %CreativeRequest{
+      request_id: "req-world",
+      tool_name: "world_building",
+      artifact_type: "foreshadowing_seed",
+      creative_brief: "设计一个伏笔线索 RULE9Q8",
+      source_turn_ref: "turn-world",
+      context_text: "## 已确认设定\n- 灵源矿区吞掉过失踪者",
+      provider_hints: %{}
+    }
+
+    assert %{status: :ok} = Real.generate(request, complete_fn)
+
+    prompt = Agent.get(agent, & &1)
+    assert prompt =~ "本次草稿类型：foreshadowing_seed"
+    assert prompt =~ "伏笔标题"
+    assert prompt =~ "伏笔线索 / 首次出现位置 / 推进方式 / 回收方式 / 风险与禁忌"
+    assert prompt =~ "基于上下文中的作品背景、世界观、设定、角色和已采纳内容"
+    assert prompt =~ "## 已确认设定"
     assert prompt =~ "用户创作简述："
     assert prompt =~ "上下文："
     assert prompt =~ "重要："

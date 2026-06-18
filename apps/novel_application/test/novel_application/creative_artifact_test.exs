@@ -93,6 +93,26 @@ defmodule NovelApplication.CreativeArtifactTest do
       end
     end
 
+    test "world_building chooses specific archive artifact types from author intent" do
+      cases = [
+        {"设计一个跨三卷回收的伏笔线索", :foreshadowing_seed},
+        {"制定一条后续写作规则，约束战斗段落文风", :style_rule_seed},
+        {"制定一个会持续制造选择压力的世界规则", :world_rule_seed},
+        {"禁止提前揭示矿区旧账谜底", :constraint_seed}
+      ]
+
+      for {brief, artifact_type} <- cases do
+        result =
+          Toolbox.execute(
+            request("world_building", %{"text" => brief, "creative_brief" => brief}),
+            fixed_json_provider([single_item(to_string(artifact_type))])
+          )
+
+        assert result.status == :succeeded
+        assert result.output.artifact_type == artifact_type
+      end
+    end
+
     test "provider failure returns failed ToolResult without artifact output" do
       result =
         Toolbox.execute(request("prose_writing"), fn _prompt -> {:error, %{reason: :down}} end)
@@ -538,8 +558,14 @@ defmodule NovelApplication.CreativeArtifactTest do
     end
   end
 
-  defp request(tool_name) do
+  defp request(tool_name, input_overrides \\ %{}) do
     entry = CapabilityRegistry.get(tool_name)
+
+    input =
+      Map.merge(
+        %{"text" => "fixture text #{tool_name}", "creative_brief" => "brief #{tool_name}"},
+        input_overrides
+      )
 
     %ToolRequest{
       tool_request_id: "tq-#{tool_name}-#{System.unique_integer([:positive, :monotonic])}",
@@ -548,7 +574,7 @@ defmodule NovelApplication.CreativeArtifactTest do
       decision_ref: "decision-#{tool_name}",
       tool_name: tool_name,
       tool_version: (entry && entry.tool_version) || "unknown",
-      input: %{"text" => "fixture text #{tool_name}", "creative_brief" => "brief #{tool_name}"},
+      input: input,
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
       idempotency_key: "idem-#{tool_name}",

@@ -55,8 +55,18 @@ defmodule NovelPersistence.MemoryManagementRepoTest do
     work_id = Ecto.UUID.generate()
     item = insert_memory(work_id, %{locked: true})
 
-    assert {:ok, deprecated} =
+    assert {:error, %Ecto.Changeset{} = changeset} =
              MemoryManagementRepo.update(work_id, item.id, %{status: MemoryStatus.deprecated()})
+
+    assert {"cannot move locked memory item to terminal status", _} =
+             Keyword.fetch!(changeset.errors, :status)
+
+    assert {:ok, unlocked} = MemoryManagementRepo.update(work_id, item.id, %{locked: false})
+
+    assert {:ok, deprecated} =
+             MemoryManagementRepo.update(work_id, unlocked.id, %{
+               status: MemoryStatus.deprecated()
+             })
 
     assert deprecated.status == MemoryStatus.deprecated()
     assert deprecated.locked == false
@@ -85,6 +95,35 @@ defmodule NovelPersistence.MemoryManagementRepoTest do
       })
 
     assert [%{reference_reason: "current"}] = MemoryManagementRepo.references(work_id, item.id)
+  end
+
+  test "get update and references reject memory ids from another work" do
+    work_id = Ecto.UUID.generate()
+    other_work_id = Ecto.UUID.generate()
+
+    foreign =
+      insert_memory(other_work_id, %{
+        content: "只属于其他作品的伏笔",
+        summary: "其他作品伏笔",
+        type: MemoryType.foreshadowing()
+      })
+
+    {:ok, _} =
+      MemoryReferenceLog.write(%{
+        memory_id: foreign.id,
+        work_id: other_work_id,
+        reference_scene: "recall",
+        reference_reason: "其他作品引用"
+      })
+
+    assert MemoryManagementRepo.get(work_id, foreign.id) == nil
+
+    assert {:error, :not_found} =
+             MemoryManagementRepo.update(work_id, foreign.id, %{summary: "串线"})
+
+    assert :not_found = MemoryManagementRepo.references(work_id, foreign.id)
+
+    assert Repo.get!(MemoryItem, foreign.id).summary == "其他作品伏笔"
   end
 
   defp insert_memory(work_id, attrs) do

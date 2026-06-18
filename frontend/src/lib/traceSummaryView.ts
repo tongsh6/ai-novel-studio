@@ -148,7 +148,11 @@ function authorSafeGoal(value: unknown): string | null {
 function authorSafeSummary(value: unknown, sourceType: string): string | null {
   const summary = authorSafeText(value);
   if (!summary) return null;
-  if (sourceType === "conversation" || sourceType === "recent_dialogue") {
+  if (
+    sourceType === "conversation" ||
+    sourceType === "recent_dialogue" ||
+    sourceType === "session_transcript"
+  ) {
     return summarizeConversation(summary);
   }
 
@@ -233,7 +237,92 @@ function detailLines(summary: TraceSummaryLike): string[] {
   const recovery = stringValue(summary.recovery);
   if (recovery) lines.push(TRACE.recoveryApplied);
 
+  lines.push(...aiMessageEnvelopeLines(summary.ai_message_envelope));
+
   return unique(lines);
+}
+
+function aiMessageEnvelopeLines(value: unknown): string[] {
+  const envelope = objectValue(value);
+  if (!envelope) return [];
+
+  const guidance = objectValue(envelope.turn_guidance_layer);
+  const novelLayer = objectValue(envelope.novel_layer);
+  const workState = objectValue(envelope.work_state_layer);
+  const lines: string[] = [];
+
+  const guidanceMode = stringValue(guidance?.guidance_mode);
+  if (guidanceMode === "quality") lines.push(TRACE.guidance.qualityDiagnosis);
+
+  const focus = stringArray(guidance?.element_focus).map(qualityFocusLabel);
+  if (focus.length > 0) lines.push(TRACE.guidance.qualityFocus(focus.join("、")));
+
+  const gates = stringArray(novelLayer?.quality_gates).map(qualityFocusLabel);
+  if (gates.length > 0) lines.push(TRACE.guidance.qualityGates(gates.join("、")));
+
+  const sources = workStateSources(workState?.context_refs);
+  if (sources.length > 0) {
+    lines.push(TRACE.guidance.workStateSources(sources.join("、")));
+  } else if (workStateMissing(workState)) {
+    lines.push(TRACE.guidance.workStateMissing);
+  }
+
+  const missingQuestions = stringArray(guidance?.missing_questions);
+  if (missingQuestions.some((question) => question.includes("正文片段"))) {
+    lines.push(TRACE.guidance.missingLimit);
+  }
+
+  return lines;
+}
+
+function objectValue(value: unknown): TraceSummaryLike | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as TraceSummaryLike;
+}
+
+function stringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  return value.map((item) => stringValue(item)).filter((item): item is string => Boolean(item));
+}
+
+function workStateSources(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const labels: string[] = [];
+  for (const item of value) {
+    const source = objectValue(item);
+    const sourceType = stringValue(source?.source_type);
+    if (!sourceType) continue;
+    labels.push(contextSourceLabels[sourceType] ?? TRACE.contextSources.other);
+  }
+
+  return unique(labels);
+}
+
+function workStateMissing(workState: TraceSummaryLike | null): boolean {
+  if (!workState) return true;
+  return (
+    missingStatus(workState.snapshot_summary) ||
+    missingStatus(workState.chapter_state) ||
+    missingStatus(workState.chapter_summary)
+  );
+}
+
+function missingStatus(value: unknown): boolean {
+  const object = objectValue(value);
+  return stringValue(object?.status) === "missing";
+}
+
+function qualityFocusLabel(value: string): string {
+  const labels: Record<string, string> = {
+    conflict_pressure: "冲突压力",
+    cost_visibility: "代价可见",
+    reader_payoff: "读者回报",
+    protagonist_agency: "主角能动性",
+  };
+
+  return labels[value] ?? "创作质量";
 }
 
 function unique(values: string[]): string[] {

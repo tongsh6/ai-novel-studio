@@ -256,6 +256,11 @@ defmodule NovelDomain.MemoryItem do
 
   def status_transition_allowed?(_, _), do: false
 
+  @doc "Returns whether the status stops ordinary recall and closes the memory lifecycle."
+  @spec terminal_status?(String.t()) :: boolean()
+  def terminal_status?(status) when is_binary(status), do: status in @terminal_statuses
+  def terminal_status?(_), do: false
+
   @doc "Returns side effects that must accompany a governed status transition."
   @spec status_transition_side_effects(String.t()) :: %{optional(atom()) => boolean()}
   def status_transition_side_effects(status) when status in @terminal_statuses do

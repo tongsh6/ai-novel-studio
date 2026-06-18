@@ -491,6 +491,39 @@ async function commonUiState(page, turnResult, sentMessage) {
   };
 }
 
+async function openArchiveTab(page, tabName) {
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: tabName }).click();
+  const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
+  await archivePanel.waitFor({ timeout: 10_000 });
+  return archivePanel;
+}
+
+async function archivePanelSnapshot(archivePanel) {
+  return await archivePanel.evaluate((element) => ({
+    foreshadowing_count: Number(element.getAttribute("data-archive-foreshadowing-count") ?? 0),
+    rule_count: Number(element.getAttribute("data-archive-rule-count") ?? 0),
+    character_count: Number(element.getAttribute("data-archive-character-count") ?? 0),
+    text: element.innerText,
+  }));
+}
+
+async function switchToWorkByTitle(page, title) {
+  await workTitle(page).click();
+  const item = page.getByRole("menuitem").filter({ hasText: title }).first();
+  await item.waitFor({ timeout: 10_000 });
+  await item.click();
+  await page.waitForFunction(
+    (expected) => {
+      const titleButton = document.querySelector('button[title="作品"]');
+      return (titleButton?.textContent ?? "").includes(expected);
+    },
+    title,
+    { timeout: 15_000 },
+  );
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+}
+
 async function driveLongSessionCompression(page) {
   await page.locator(chatInputSelector).fill("继续最新设定");
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -612,10 +645,12 @@ async function driveContextSourceUi(page) {
   const whyText = await openLatestWhyDialog(page);
   const uiState = await commonUiState(page, turnResult, sentMessage);
   const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
+  const hasSessionOrRecentDialogueSource =
+    whyText.includes("当前会话记录") || whyText.includes("近期对话");
 
   assert(whyText.includes("参考来源"), "Why dialog did not show the source section");
   assert(whyText.includes("当前作品背景"), "Why dialog did not show current work source");
-  assert(whyText.includes("近期对话"), "Why dialog did not show recent dialogue source");
+  assert(hasSessionOrRecentDialogueSource, "Why dialog did not show session dialogue source");
   assert(whyText.includes("已确认设定"), "Why dialog did not show memory source");
   assert(whyText.includes("灵源纪元"), "Why dialog did not show work summary text");
   assert(whyText.includes("灵源矿区"), "Why dialog did not show memory or session summary text");
@@ -627,6 +662,271 @@ async function driveContextSourceUi(page) {
       trace_why_dialog_open: true,
       trace_why_text: whyText,
       trace_why_contains_raw_prompt: unsafePattern.test(whyText),
+    },
+  ];
+}
+
+async function driveAu11QualityDiagnosisMessageEnvelope(page) {
+  const message = "这一章感觉不够爽，主角赢得太轻了。";
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const turnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.trace_summary?.ai_message_envelope != null,
+    "No AU11 turn_result with AIMessageEnvelope trace summary",
+    90_000,
+  );
+
+  const turnResult = turnFrame.body;
+  const sentMessage = latestSentUserMessage();
+  assert(sentMessage, "No AU11 user_message websocket frame was sent");
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.has_snapshot === true,
+    "No AU11 context.assemble.done with current work snapshot",
+    30_000,
+  );
+
+  const traceSummary = turnResult.trace_summary ?? {};
+  const envelope = traceSummary.ai_message_envelope ?? {};
+  const novelLayer = envelope.novel_layer ?? {};
+  const workState = envelope.work_state_layer ?? {};
+  const guidance = envelope.turn_guidance_layer ?? {};
+  const qualityGates = Array.isArray(novelLayer.quality_gates) ? novelLayer.quality_gates : [];
+  const focus = Array.isArray(guidance.element_focus) ? guidance.element_focus : [];
+  const chapterSummary = Array.isArray(workState.chapter_summary)
+    ? workState.chapter_summary.join("\n")
+    : "";
+  const contextRefs = Array.isArray(workState.context_refs) ? workState.context_refs : [];
+  const contextSourceTypes = contextRefs.map((ref) => String(ref.source_type ?? ""));
+  const assistantText = String(turnResult.assistant_message?.text ?? "");
+
+  assert(
+    traceSummary.guidance_mode === "quality",
+    "AU11 trace summary did not mark guidance_mode=quality",
+  );
+  assert(guidance.guidance_mode === "quality", "AU11 TurnGuidance layer did not mark quality mode");
+  assert(qualityGates.includes("conflict_pressure"), "AU11 novel layer missed conflict pressure");
+  assert(qualityGates.includes("cost_visibility"), "AU11 novel layer missed cost visibility");
+  assert(qualityGates.includes("reader_payoff"), "AU11 novel layer missed reader payoff");
+  assert(qualityGates.includes("protagonist_agency"), "AU11 novel layer missed protagonist agency");
+  assert(focus.includes("conflict_pressure"), "AU11 guidance layer missed conflict focus");
+  assert(chapterSummary.includes("霓虹地牢"), "AU11 work state layer missed chapter summary");
+  assert(
+    contextSourceTypes.includes("current_work"),
+    "AU11 work state layer missed current work source",
+  );
+  assert(
+    assistantText.includes("代价") && assistantText.includes("读者回报"),
+    "AU11 assistant response did not include concrete quality tradeoffs",
+  );
+  assert(turnResult.tool_result == null, "AU11 quality diagnosis unexpectedly called a tool");
+  assert(turnResult.adoption_state == null, "AU11 quality diagnosis unexpectedly opened adoption");
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "AU11 quality diagnosis reported production write",
+  );
+
+  const whyText = await openLatestWhyDialog(page);
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
+
+  assert(whyText.includes("质量诊断"), "AU11 why dialog did not show quality diagnosis");
+  assert(whyText.includes("冲突压力"), "AU11 why dialog did not show conflict pressure");
+  assert(whyText.includes("代价可见"), "AU11 why dialog did not show visible cost");
+  assert(whyText.includes("当前作品背景"), "AU11 why dialog did not show current work source");
+  assert(!unsafePattern.test(whyText), "AU11 why dialog exposed unsafe trace or prompt text");
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      message_text: message,
+      guidance_mode_quality: traceSummary.guidance_mode === "quality",
+      envelope_has_novel_layer: qualityGates.length >= 4,
+      envelope_has_work_state: chapterSummary.includes("霓虹地牢"),
+      envelope_has_turn_guidance: guidance.guidance_mode === "quality",
+      novel_layer_has_quality_gates:
+        qualityGates.includes("conflict_pressure") &&
+        qualityGates.includes("cost_visibility") &&
+        qualityGates.includes("reader_payoff") &&
+        qualityGates.includes("protagonist_agency"),
+      work_state_has_current_work_source: contextSourceTypes.includes("current_work"),
+      work_state_chapter_summary_mentions_target: chapterSummary.includes("霓虹地牢"),
+      turn_guidance_focuses_quality: focus.includes("conflict_pressure"),
+      assistant_gives_concrete_tradeoff:
+        assistantText.includes("代价") && assistantText.includes("读者回报"),
+      no_tool_result: turnResult.tool_result == null,
+      no_adoption_state: turnResult.adoption_state == null,
+      no_production_write: turnResult.truthfulness?.production_write_performed === false,
+      trace_why_dialog_open: true,
+      trace_why_text: whyText,
+      trace_why_contains_raw_prompt: unsafePattern.test(whyText),
+      why_shows_quality_diagnosis: whyText.includes("质量诊断"),
+      why_shows_quality_focus: whyText.includes("冲突压力") && whyText.includes("代价可见"),
+      why_shows_current_work_source: whyText.includes("当前作品背景"),
+    },
+  ];
+}
+
+async function driveAu09Au03SessionMemoryLayering(page) {
+  const activeToken = "当前蓝桥计划";
+  const memoryToken = "银槐誓约";
+  const historyToken = "旧稿赤塔";
+  const historyTitle = "旧稿赤塔历史会话";
+
+  const sessionSearch = page.getByPlaceholder("搜索会话");
+  await sessionSearch.waitFor({ timeout: 10_000 });
+  await sessionSearch.fill(historyToken);
+
+  const historySessionButton = page.getByRole("button").filter({ hasText: historyTitle }).first();
+  await historySessionButton.waitFor({ timeout: 10_000 });
+  await historySessionButton.click();
+
+  const showRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.read_only === true &&
+      String(record.session_id ?? "").trim().length > 0,
+    "No read-only historical session show record",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (token) =>
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes(token) &&
+      document.body.innerText.includes("正在只读查看历史 transcript"),
+    historyToken,
+    { timeout: 10_000 },
+  );
+
+  const readOnlyText = await page.locator("body").innerText();
+  const readonlyInputDisabled = await page.locator(chatInputSelector).isDisabled();
+  assert(readonlyInputDisabled, "Chat input was not disabled while viewing history session");
+  assert(readOnlyText.includes(historyToken), "Historical transcript was not visible read-only");
+
+  await page.getByRole("button", { name: "返回当前会话" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.body.innerText.includes("正在只读查看历史 transcript") &&
+      document.querySelector('input[placeholder="输入你的想法、问题或指令..."]')?.disabled ===
+        false,
+    undefined,
+    { timeout: 15_000 },
+  );
+
+  const message = `请结合${activeToken}和${memoryToken}，说明主角为什么继续追查灵源矿区。`;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const turnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.trace_summary != null,
+    "No turn_result with trace summary for AU09/AU03 session memory layering",
+    90_000,
+  );
+
+  const turnResult = turnFrame.body;
+  const sentMessage = latestSentUserMessage();
+  assert(sentMessage, "No AU09/AU03 layering user_message websocket frame was sent");
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.has_snapshot === true &&
+      record.has_conversation === true &&
+      record.has_memory === true,
+    "No context.assemble.done with work/session/memory context for AU09/AU03 layering",
+    30_000,
+  );
+
+  const contextRefs = Array.isArray(turnResult.trace_summary?.context_refs)
+    ? turnResult.trace_summary.context_refs
+    : [];
+  const sourceTypes = contextRefs.map((ref) => String(ref.source_type ?? ""));
+  const sessionRef = contextRefs.find(
+    (ref) => String(ref.source_type ?? "") === "session_transcript",
+  );
+  const memoryRef = contextRefs.find((ref) => String(ref.source_type ?? "") === "memory");
+  const currentWorkRef = contextRefs.find(
+    (ref) => String(ref.source_type ?? "") === "current_work",
+  );
+  const sessionSummary = String(sessionRef?.summary ?? "");
+  const memorySummary = String(memoryRef?.summary ?? "");
+
+  assert(currentWorkRef, "Trace context refs did not include current_work");
+  assert(sessionRef, "Trace context refs did not include session_transcript");
+  assert(memoryRef, "Trace context refs did not include memory");
+  assert(
+    !sourceTypes.includes("conversation"),
+    "Active session transcript was still labelled conversation",
+  );
+  assert(
+    sessionSummary.includes(activeToken),
+    "Session transcript summary did not include active session token",
+  );
+  assert(
+    !sessionSummary.includes(historyToken),
+    "Session transcript summary included historical session token",
+  );
+  assert(
+    memorySummary.includes(memoryToken),
+    "Memory summary did not include governed memory token",
+  );
+  assert(!memorySummary.includes(historyToken), "Memory summary included historical session token");
+
+  const whyText = await openLatestWhyDialog(page);
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
+
+  assert(whyText.includes("当前作品背景"), "Why dialog did not show current work source");
+  assert(whyText.includes("当前会话记录"), "Why dialog did not show active session source");
+  assert(whyText.includes("已确认设定"), "Why dialog did not show governed memory source");
+  assert(whyText.includes(activeToken), "Why dialog did not show active session summary");
+  assert(whyText.includes(memoryToken), "Why dialog did not show governed memory summary");
+  assert(!whyText.includes(historyToken), "Why dialog included historical transcript content");
+  assert(!unsafePattern.test(whyText), "Why dialog exposed unsafe trace or prompt text");
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      recall_turn_id: turnResult.turn_id,
+      readonly_session_id: showRecord.session_id,
+      readonly_session_transcript_visible: readOnlyText.includes(historyToken),
+      readonly_input_disabled: readonlyInputDisabled,
+      active_session_restored: true,
+      context_source_types: sourceTypes,
+      context_has_current_work: Boolean(currentWorkRef),
+      context_has_session_transcript: Boolean(sessionRef),
+      context_has_memory: Boolean(memoryRef),
+      context_excludes_conversation_fallback: !sourceTypes.includes("conversation"),
+      context_session_summary_includes_active: sessionSummary.includes(activeToken),
+      context_session_summary_excludes_history: !sessionSummary.includes(historyToken),
+      context_memory_summary_includes_memory: memorySummary.includes(memoryToken),
+      context_memory_summary_excludes_history: !memorySummary.includes(historyToken),
+      trace_why_dialog_open: true,
+      trace_why_text: whyText,
+      trace_why_contains_raw_prompt: unsafePattern.test(whyText),
+      why_shows_current_work_source: whyText.includes("当前作品背景"),
+      why_shows_session_source: whyText.includes("当前会话记录"),
+      why_shows_memory_source: whyText.includes("已确认设定"),
+      why_shows_active_session_summary: whyText.includes(activeToken),
+      why_shows_memory_summary: whyText.includes(memoryToken),
+      why_excludes_historical_transcript: !whyText.includes(historyToken),
+      active_session_token: activeToken,
+      memory_token: memoryToken,
+      historical_session_token: historyToken,
     },
   ];
 }
@@ -2631,7 +2931,9 @@ async function driveP1ChapterExpansionMultichapter(page) {
     { timeout: 15_000 },
   );
   await page
-    .waitForFunction(() => document.body.innerText.includes("本章有效字数"), { timeout: 15_000 })
+    .waitForFunction(() => document.body.innerText.includes("本章有效字数"), undefined, {
+      timeout: 15_000,
+    })
     .catch(() => {});
 
   // 从后端真实 get_toc 投影读各章字数与顺序：这是"多章各归各章、不串"的最可靠证据。
@@ -3015,22 +3317,464 @@ async function driveAu09MemoryCreateRecall(page) {
   ];
 }
 
-async function driveAu09AdoptSettingRecall(page) {
-  // ── 从作品档案触发 AI 生成一条设定（world_setting）。
-  await page.getByText("打开档案").first().click();
-  await page.getByRole("button", { name: "发起新操作" }).click();
+async function driveAu09MemoryManagementEntry(page) {
+  const lockedNonce = "蓝焰税契";
+  const archivedNonce = "暮钟海图";
+  const lockedContent = `${lockedNonce}是九大家族签过血印的税契，任何灵气拍卖都必须先核验蓝焰税契编号。`;
+  const archivedContent = `${archivedNonce}是旧版海图，曾经记录灵气暗港路线，但现在已经被官方作废归档。`;
 
-  // 设定类创作 artifact（非正文）：world_setting / outline_draft / character_seed 等。
-  // 真实 LLM 可能为同一档案按钮选择不同创作工具，故只要求"非正文且需采纳"。
+  async function openMemoryPage() {
+    await page.getByRole("button", { name: /记忆/ }).first().click();
+    await page.waitForFunction(() => document.body.innerText.includes("记忆管理"), undefined, {
+      timeout: 10_000,
+    });
+  }
+
+  async function createMemory(content, nonce) {
+    await page.getByRole("button", { name: "+ 新建记忆" }).click();
+    await page.locator("textarea").first().fill(content);
+    await page.getByRole("button", { name: "创建" }).click();
+    await page.waitForFunction((n) => document.body.innerText.includes(n), nonce, {
+      timeout: 10_000,
+    });
+  }
+
+  async function openMemoryDetail(nonce) {
+    const row = page.locator("tr", { hasText: nonce }).first();
+    await row.waitFor({ timeout: 10_000 });
+    await row.click();
+    await page.waitForFunction(() => document.body.innerText.includes("记忆详情"), undefined, {
+      timeout: 10_000,
+    });
+  }
+
+  async function closeMemoryDetail() {
+    await page.getByRole("button", { name: "×" }).first().click();
+    await page.waitForTimeout(200);
+  }
+
+  await openMemoryPage();
+
+  // ── 创建、确认并锁定一条作者记忆。锁定保护核心事实，但不应阻止普通召回。
+  await createMemory(lockedContent, lockedNonce);
+  await openMemoryDetail(lockedNonce);
+  await page.getByRole("button", { name: "确认" }).click();
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll("button")].some(
+        (btn) => (btn.textContent ?? "").trim() === "确认",
+      ) && document.body.innerText.includes("CONFIRMED"),
+    undefined,
+    { timeout: 10_000 },
+  );
+
+  await page.getByRole("button", { name: "锁定" }).click();
+  await page.waitForFunction(
+    () => document.body.innerText.includes("已锁定") && document.body.innerText.includes("解锁"),
+    undefined,
+    { timeout: 10_000 },
+  );
+
+  const deprecateDisabledWhileLocked = await page
+    .getByRole("button", { name: "废弃" })
+    .isDisabled();
+  const archiveDisabledWhileLocked = await page.getByRole("button", { name: "归档" }).isDisabled();
+  assert(deprecateDisabledWhileLocked, "Locked memory still allowed direct deprecate in UI");
+  assert(archiveDisabledWhileLocked, "Locked memory still allowed direct archive in UI");
+
+  await closeMemoryDetail();
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const lockedRecallMessage = `请围绕${lockedNonce}写一句拍卖行冲突。`;
+  await page.locator(chatInputSelector).fill(lockedRecallMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const lockedRecallFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.assistant_message != null,
+    "No turn_result frame after locked-memory recall message",
+    170_000,
+  );
+  const lockedRecallTurn = lockedRecallFrame.body;
+  const lockedContext = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === lockedRecallTurn.turn_id &&
+      record.has_memory === true,
+    "Locked confirmed memory was not recalled before terminal lifecycle action",
+    20_000,
+  );
+  const lockedWhyText = await openLatestWhyDialog(page);
+  const whyShowsLockedMemorySource = lockedWhyText.includes("已确认设定");
+  assert(whyShowsLockedMemorySource, "Why panel did not show locked confirmed memory source");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("dialog")
+    .first()
+    .waitFor({ state: "detached", timeout: 5_000 })
+    .catch(() => {});
+
+  // ── 回到管理页，解锁后废弃该记忆；废弃必须变成不可召回。
+  await openMemoryPage();
+  await openMemoryDetail(lockedNonce);
+  await page.getByRole("button", { name: "解锁" }).click();
+  await page.waitForFunction(
+    () => {
+      const buttons = [...document.querySelectorAll("button")];
+      const deprecate = buttons.find((btn) => (btn.textContent ?? "").trim() === "废弃");
+      const unlock = buttons.find((btn) => (btn.textContent ?? "").trim() === "解锁");
+      return deprecate != null && deprecate.disabled === false && unlock == null;
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+  assert(
+    !(await page.getByRole("button", { name: "废弃" }).isDisabled()),
+    "Deprecated action stayed disabled after unlocking memory",
+  );
+  await page.getByRole("button", { name: "废弃" }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("DEPRECATED") &&
+      document.body.innerText.includes("不可召回"),
+    undefined,
+    { timeout: 10_000 },
+  );
+  const deprecatedVisible = await page
+    .locator("body")
+    .innerText()
+    .then((text) => text.includes("DEPRECATED") && text.includes("不可召回"));
+  assert(deprecatedVisible, "Deprecated memory did not show terminal non-recallable state");
+  await closeMemoryDetail();
+
+  // ── 第二条走归档路径，覆盖 archived terminal lifecycle。
+  await createMemory(archivedContent, archivedNonce);
+  await openMemoryDetail(archivedNonce);
+  await page.getByRole("button", { name: "确认" }).click();
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll("button")].some(
+        (btn) => (btn.textContent ?? "").trim() === "确认",
+      ) && document.body.innerText.includes("CONFIRMED"),
+    undefined,
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "归档" }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("ARCHIVED") && document.body.innerText.includes("不可召回"),
+    undefined,
+    { timeout: 10_000 },
+  );
+  const archivedVisible = await page
+    .locator("body")
+    .innerText()
+    .then((text) => text.includes("ARCHIVED") && text.includes("不可召回"));
+  assert(archivedVisible, "Archived memory did not show terminal non-recallable state");
+  await closeMemoryDetail();
+
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const seenTurnIdsBeforeTerminalProbe = new Set(
+    frames
+      .filter((frame) => frame.direction === "received" && frame.event === "turn_result")
+      .map((frame) => frame.body?.turn_id)
+      .filter(Boolean),
+  );
+  const terminalRecallMessage = `请同时解释${lockedNonce}和${archivedNonce}还能不能作为后续设定使用。`;
+  await page.locator(chatInputSelector).fill(terminalRecallMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const terminalRecallFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      !seenTurnIdsBeforeTerminalProbe.has(frame.body.turn_id) &&
+      frame.body?.assistant_message != null,
+    "No turn_result frame after terminal-memory recall probe",
+    170_000,
+  );
+  const terminalRecallTurn = terminalRecallFrame.body;
+  const terminalContext = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" && record.turn_id === terminalRecallTurn.turn_id,
+    "No context assembly record was emitted for terminal memory recall probe",
+    20_000,
+  );
+  const terminalMemorySummaries = (terminalRecallTurn.trace_summary?.context_refs ?? [])
+    .filter((ref) => String(ref.source_type) === "memory")
+    .map((ref) => String(ref.summary ?? ""))
+    .join("\n");
+  const terminalManagedMemoryExcluded =
+    !terminalMemorySummaries.includes(lockedNonce) &&
+    !terminalMemorySummaries.includes(archivedNonce);
+  assert(
+    terminalManagedMemoryExcluded,
+    "Deprecated/archived managed memory still entered ordinary dialogue context",
+  );
+  const terminalWhyText = await openLatestWhyDialog(page);
+  const whyExcludesTerminalMemoryContent =
+    !terminalWhyText.includes(lockedContent) && !terminalWhyText.includes(archivedContent);
+  assert(
+    whyExcludesTerminalMemoryContent,
+    "Why panel still showed deprecated/archived managed memory content after terminal actions",
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, terminalRecallTurn, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: terminalRecallTurn.turn_id,
+      turn_ids: [lockedRecallTurn.turn_id, terminalRecallTurn.turn_id],
+      locked_recall_turn_id: lockedRecallTurn.turn_id,
+      terminal_recall_turn_id: terminalRecallTurn.turn_id,
+      memory_nonce: lockedNonce,
+      archived_memory_nonce: archivedNonce,
+      memory_created: true,
+      memory_confirmed: true,
+      memory_locked: true,
+      locked_controls_disabled: deprecateDisabledWhileLocked && archiveDisabledWhileLocked,
+      locked_recalled_before_terminal_action: lockedContext.has_memory === true,
+      why_shows_locked_memory_source: whyShowsLockedMemorySource,
+      memory_deprecated: deprecatedVisible,
+      archived_memory_created: true,
+      archived_memory_confirmed: true,
+      archived_memory_archived: archivedVisible,
+      terminal_context_has_memory: terminalContext.has_memory === true,
+      terminal_managed_memory_excluded: terminalManagedMemoryExcluded,
+      why_excludes_terminal_memory_content: whyExcludesTerminalMemoryContent,
+      message_text: terminalRecallMessage,
+    },
+  ];
+}
+
+async function driveAu09MemoryTraceRoundtrip(page) {
+  const deprecatedNonce = "赤铜回声";
+  const archivedNonce = "银沙旧律";
+  const deprecatedContent = `${deprecatedNonce}是主角在地下拍卖行留下的伏笔，每次钟声响起都会触发旧账追索。`;
+  const archivedContent = `${archivedNonce}是旧版灵气运输禁令，曾约束暗港交易，但现在已被新律取代。`;
+
+  async function openMemoryPage() {
+    await page.getByRole("button", { name: /记忆/ }).first().click();
+    await page.waitForFunction(() => document.body.innerText.includes("记忆管理"), undefined, {
+      timeout: 10_000,
+    });
+  }
+
+  async function createMemory(content, nonce) {
+    await page.getByRole("button", { name: "+ 新建记忆" }).click();
+    await page.locator("textarea").first().fill(content);
+    await page.getByRole("button", { name: "创建" }).click();
+    await page.waitForFunction((n) => document.body.innerText.includes(n), nonce, {
+      timeout: 10_000,
+    });
+  }
+
+  async function openMemoryDetail(nonce) {
+    const row = page.locator("tr", { hasText: nonce }).first();
+    await row.waitFor({ timeout: 10_000 });
+    await row.click();
+    await page.waitForFunction(() => document.body.innerText.includes("记忆详情"), undefined, {
+      timeout: 10_000,
+    });
+  }
+
+  async function closeMemoryDetail() {
+    await page.getByRole("button", { name: "×" }).first().click();
+    await page.waitForTimeout(200);
+  }
+
+  async function waitForTraceText(...needles) {
+    await page.waitForFunction(
+      (expected) => expected.every((needle) => document.body.innerText.includes(String(needle))),
+      needles,
+      { timeout: 10_000 },
+    );
+  }
+
+  await openMemoryPage();
+
+  await createMemory(deprecatedContent, deprecatedNonce);
+  await openMemoryDetail(deprecatedNonce);
+  await waitForTraceText("引用与治理追溯", "作者创建记忆草稿");
+
+  await page.getByRole("button", { name: "确认" }).click();
+  await waitForTraceText("CONFIRMED", "作者确认");
+
+  await page.getByRole("button", { name: "锁定" }).click();
+  await waitForTraceText("已锁定", "作者锁定", "锁定保护核心内容");
+
+  const deprecateDisabledWhileLocked = await page
+    .getByRole("button", { name: "废弃" })
+    .isDisabled();
+  const archiveDisabledWhileLocked = await page.getByRole("button", { name: "归档" }).isDisabled();
+  assert(deprecateDisabledWhileLocked, "Locked memory still allowed direct deprecate in UI");
+  assert(archiveDisabledWhileLocked, "Locked memory still allowed direct archive in UI");
+
+  await closeMemoryDetail();
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const lockedRecallMessage = `请围绕${deprecatedNonce}写一句伏笔回收提示。`;
+  await page.locator(chatInputSelector).fill(lockedRecallMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const lockedRecallFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.assistant_message != null,
+    "No turn_result frame after memory trace locked recall message",
+    170_000,
+  );
+  const lockedRecallTurn = lockedRecallFrame.body;
+  const lockedContext = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === lockedRecallTurn.turn_id &&
+      record.has_memory === true,
+    "Locked memory did not recall before terminal action in trace slice",
+    20_000,
+  );
+  const lockedWhyText = await openLatestWhyDialog(page);
+  const whyShowsLockedMemorySource = lockedWhyText.includes("已确认设定");
+  assert(whyShowsLockedMemorySource, "Why panel did not show locked memory source");
+  await page.keyboard.press("Escape");
+  await page
+    .getByRole("dialog")
+    .first()
+    .waitFor({ state: "detached", timeout: 5_000 })
+    .catch(() => {});
+
+  await openMemoryPage();
+  await openMemoryDetail(deprecatedNonce);
+  await page.getByRole("button", { name: "解锁" }).click();
+  await waitForTraceText("作者解锁");
+  await page.getByRole("button", { name: "废弃" }).click();
+  await waitForTraceText("DEPRECATED", "作者废弃", "后续普通召回会排除");
+  await closeMemoryDetail();
+
+  await createMemory(archivedContent, archivedNonce);
+  await openMemoryDetail(archivedNonce);
+  await waitForTraceText("作者创建记忆草稿");
+  await page.getByRole("button", { name: "确认" }).click();
+  await waitForTraceText("CONFIRMED", "作者确认");
+  await page.getByRole("button", { name: "归档" }).click();
+  await waitForTraceText("ARCHIVED", "作者归档", "后续普通召回会排除");
+  await closeMemoryDetail();
+
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const seenTurnIdsBeforeTerminalProbe = new Set(
+    frames
+      .filter((frame) => frame.direction === "received" && frame.event === "turn_result")
+      .map((frame) => frame.body?.turn_id)
+      .filter(Boolean),
+  );
+  const terminalRecallMessage = `请判断${deprecatedNonce}和${archivedNonce}是否还能作为后续设定使用。`;
+  await page.locator(chatInputSelector).fill(terminalRecallMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const terminalRecallFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      !seenTurnIdsBeforeTerminalProbe.has(frame.body.turn_id) &&
+      frame.body?.assistant_message != null,
+    "No turn_result frame after memory trace terminal probe",
+    170_000,
+  );
+  const terminalRecallTurn = terminalRecallFrame.body;
+  const terminalContext = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" && record.turn_id === terminalRecallTurn.turn_id,
+    "No context assembly record for memory trace terminal probe",
+    20_000,
+  );
+  const terminalMemorySummaries = (terminalRecallTurn.trace_summary?.context_refs ?? [])
+    .filter((ref) => String(ref.source_type) === "memory")
+    .map((ref) => String(ref.summary ?? ""))
+    .join("\n");
+  const terminalManagedMemoryExcluded =
+    !terminalMemorySummaries.includes(deprecatedNonce) &&
+    !terminalMemorySummaries.includes(archivedNonce);
+  assert(
+    terminalManagedMemoryExcluded,
+    "Trace slice terminal memories still entered dialogue context refs",
+  );
+
+  const terminalWhyText = await openLatestWhyDialog(page);
+  const whyExcludesTerminalMemoryContent =
+    !terminalWhyText.includes(deprecatedContent) && !terminalWhyText.includes(archivedContent);
+  assert(
+    whyExcludesTerminalMemoryContent,
+    "Trace slice why panel still showed terminal memory content",
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, terminalRecallTurn, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: terminalRecallTurn.turn_id,
+      turn_ids: [lockedRecallTurn.turn_id, terminalRecallTurn.turn_id],
+      locked_recall_turn_id: lockedRecallTurn.turn_id,
+      terminal_recall_turn_id: terminalRecallTurn.turn_id,
+      memory_nonce: deprecatedNonce,
+      archived_memory_nonce: archivedNonce,
+      lifecycle_trace_visible: true,
+      create_trace_visible: true,
+      confirm_trace_visible: true,
+      lock_trace_visible: true,
+      unlock_trace_visible: true,
+      deprecate_trace_visible: true,
+      archive_trace_visible: true,
+      trace_explains_locked_recall: true,
+      trace_explains_terminal_exclusion: true,
+      locked_controls_disabled: deprecateDisabledWhileLocked && archiveDisabledWhileLocked,
+      locked_recalled_before_terminal_action: lockedContext.has_memory === true,
+      why_shows_locked_memory_source: whyShowsLockedMemorySource,
+      terminal_context_has_memory: terminalContext.has_memory === true,
+      terminal_managed_memory_excluded: terminalManagedMemoryExcluded,
+      why_excludes_terminal_memory_content: whyExcludesTerminalMemoryContent,
+      message_text: terminalRecallMessage,
+    },
+  ];
+}
+
+async function driveAu09AdoptSettingRecall(page) {
+  // ── 从作品档案「伏笔」tab 触发 AI 生成一条伏笔草稿。
+  await openArchiveTab(page, "伏笔");
+  await page.getByRole("button", { name: "新增伏笔" }).first().click();
+
+  const createMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("伏笔"),
+    "Real archive foreshadowing action did not send a foreshadowing user_message with micro plan enabled",
+    20_000,
+  );
+
+  // 伏笔入口必须生成显式 foreshadowing_seed，不再把伏笔装进 world_setting。
   const draftFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
       frame.body?.adoption_state?.pending?.[0]?.requires_adoption === true &&
-      !["prose_fragment", "scene_draft"].includes(
-        frame.body.adoption_state.pending[0].artifact_type,
-      ),
-    "No non-prose setting tentative artifact websocket frame was received",
+      frame.body.adoption_state.pending[0].artifact_type === "foreshadowing_seed",
+    "No foreshadowing_seed tentative artifact websocket frame was received",
     170_000,
   );
   const artifact = draftFrame.body.adoption_state.pending[0];
@@ -3049,12 +3793,21 @@ async function driveAu09AdoptSettingRecall(page) {
       .click()
       .catch(() => {});
   }
-  await page.waitForFunction(() => document.body.innerText.includes("确认创建"), {
-    timeout: 10_000,
-  });
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("保存到作品档案") ||
+      document.body.innerText.includes("确认创建"),
+    undefined,
+    { timeout: 10_000 },
+  );
 
   // ── 采纳该设定 → 进入 confirmed + recallable governed memory。
-  await page.getByRole("button", { name: "确认创建" }).first().click();
+  const saveToArchiveButton = page.getByRole("button", { name: "保存到作品档案" });
+  const acceptSettingButton =
+    (await saveToArchiveButton.count()) > 0
+      ? saveToArchiveButton.first()
+      : page.getByRole("button", { name: "确认创建" }).first();
+  await acceptSettingButton.click();
   const adoptFrame = await waitForFrame(
     (frame) =>
       frame.direction === "received" &&
@@ -3066,6 +3819,129 @@ async function driveAu09AdoptSettingRecall(page) {
     "No adoption resolved turn_result websocket frame was received",
     120_000,
   );
+
+  // ── 采纳后重开「伏笔」tab：同一 work_id 的 archive read model 必须立即可见。
+  const archivePanel = await openArchiveTab(page, "伏笔");
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.get_foreshadowing.done" &&
+      record.work_id === createMessageFrame.body?.work_id &&
+      Number(record.item_count ?? 0) >= 1,
+    "No channel.get_foreshadowing.done record loaded the adopted setting",
+    20_000,
+  );
+  await page.waitForFunction(
+    () => {
+      const panel = [...document.querySelectorAll('[class*="panel"]')].find((element) =>
+        element.innerText.includes("作品档案"),
+      );
+      return Number(panel?.getAttribute("data-archive-foreshadowing-count") ?? 0) >= 1;
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+  const foreshadowingArchiveSnapshot = await archivePanelSnapshot(archivePanel);
+  const archiveTextNormalized = foreshadowingArchiveSnapshot.text.replace(/[^\p{L}\p{N}]/gu, "");
+  const archiveShowsAdoptedSetting = chunk.length > 0 && archiveTextNormalized.includes(chunk);
+  assert(
+    archiveShowsAdoptedSetting,
+    "Archive foreshadowing tab did not show the adopted setting content",
+  );
+
+  // ── 同一矩阵补「经验规则」tab：新建规则、采纳、重开后可见。
+  const seenRuleTurnIds = new Set(
+    frames
+      .filter((frame) => frame.direction === "received" && frame.event === "turn_result")
+      .map((frame) => frame.body?.turn_id),
+  );
+  await page.getByRole("tab", { name: "经验规则" }).click();
+  await page.getByRole("button", { name: "新建规则" }).first().click();
+
+  const createRuleMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("规则"),
+    "Real archive rule action did not send a rule user_message with micro plan enabled",
+    20_000,
+  );
+
+  const ruleArtifactTypes = new Set(["world_rule_seed", "style_rule_seed", "constraint_seed"]);
+  const ruleDraftFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      !seenRuleTurnIds.has(frame.body.turn_id) &&
+      frame.body?.adoption_state?.pending?.[0]?.requires_adoption === true &&
+      ruleArtifactTypes.has(frame.body.adoption_state.pending[0].artifact_type),
+    "No explicit rule tentative artifact websocket frame was received",
+    170_000,
+  );
+  const ruleArtifact = ruleDraftFrame.body.adoption_state.pending[0];
+  const ruleSettingContent =
+    ruleArtifact.payload?.content ??
+    (ruleArtifact.payload?.items ?? []).map((item) => item?.body ?? "").join("") ??
+    "";
+  const ruleChunk = ruleSettingContent.replace(/[^\p{L}\p{N}]/gu, "").slice(0, 8);
+
+  const closeArchiveBeforeRuleAdoption = page.getByRole("button", { name: "关闭档案" });
+  if ((await closeArchiveBeforeRuleAdoption.count()) > 0) {
+    await closeArchiveBeforeRuleAdoption
+      .first()
+      .click()
+      .catch(() => {});
+  }
+  const acceptRuleButton = page.getByRole("button", { name: acceptDraftButtonPattern }).first();
+  await acceptRuleButton.waitFor({ timeout: 10_000 });
+  await acceptRuleButton.click();
+
+  await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === ruleArtifact.artifact_id,
+      ),
+    "No rule adoption resolved turn_result websocket frame was received",
+    120_000,
+  );
+
+  const ruleArchivePanel = await openArchiveTab(page, "经验规则");
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.get_rules.done" &&
+      record.work_id === createRuleMessageFrame.body?.work_id &&
+      Number(record.rule_count ?? 0) >= 1,
+    "No channel.get_rules.done record loaded the adopted rule setting",
+    20_000,
+  );
+  await page.waitForFunction(
+    () => {
+      const panel = [...document.querySelectorAll('[class*="panel"]')].find((element) =>
+        element.innerText.includes("作品档案"),
+      );
+      return Number(panel?.getAttribute("data-archive-rule-count") ?? 0) >= 1;
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+  const ruleArchiveSnapshot = await archivePanelSnapshot(ruleArchivePanel);
+  const ruleArchiveTextNormalized = ruleArchiveSnapshot.text.replace(/[^\p{L}\p{N}]/gu, "");
+  const archiveShowsAdoptedRule =
+    ruleChunk.length > 0 && ruleArchiveTextNormalized.includes(ruleChunk);
+  assert(ruleChunk.length > 0, "Adopted rule setting had no matchable content");
+  assert(archiveShowsAdoptedRule, "Archive rule tab did not show the adopted rule setting content");
+
+  const closeArchiveAfterCheck = page.getByRole("button", { name: "关闭档案" });
+  if ((await closeArchiveAfterCheck.count()) > 0) {
+    await closeArchiveAfterCheck
+      .first()
+      .click()
+      .catch(() => {});
+  }
 
   // ── 发一条带该设定内容的消息 → 召回应命中已采纳设定。
   const seenTurnIds = new Set(
@@ -3120,6 +3996,15 @@ async function driveAu09AdoptSettingRecall(page) {
       setting_artifact_type: artifact.artifact_type,
       setting_chunk: chunk,
       setting_adopted: adoptFrame.body.truthfulness?.artifact_adopted === true,
+      archive_tab_checked: "foreshadowing,rule",
+      archive_visible_after_adoption: true,
+      archive_foreshadowing_count_after_adoption: foreshadowingArchiveSnapshot.foreshadowing_count,
+      archive_rule_count_after_adoption: ruleArchiveSnapshot.rule_count,
+      archive_text_matched_adopted_setting: archiveShowsAdoptedSetting,
+      rule_setting_artifact_id: ruleArtifact.artifact_id,
+      rule_setting_artifact_type: ruleArtifact.artifact_type,
+      rule_setting_chunk: ruleChunk,
+      archive_text_matched_adopted_rule: archiveShowsAdoptedRule,
       why_shows_memory_source: whyShowsMemorySource,
       message_text: message,
     },
@@ -3296,6 +4181,188 @@ async function driveAu09ValidityWindowRecall(page) {
       out_of_window_phrase: outOfWindowPhrase,
       why_shows_in_window: whyShowsInWindow,
       why_excludes_out_of_window: whyExcludesOutOfWindow,
+      message_text: message,
+    },
+  ];
+}
+
+async function driveAu09CrossWorkMemoryIsolation(page) {
+  const workATitle = "AU09 隔离甲作品";
+  const workBTitle = "AU09 隔离乙作品";
+  const foreignToken = "甲界暮钟";
+  const foreignSummaryNeedle = "只属于甲作品";
+  const currentToken = "乙界星钥";
+  const currentSummaryNeedle = "只属于乙作品";
+  const currentRuleNeedle = "真实记忆作为代价";
+
+  // 明确经过真实作品切换：先到甲作品，再切回乙作品，后续所有断言都在乙作品上完成。
+  await switchToWorkByTitle(page, workATitle);
+  await switchToWorkByTitle(page, workBTitle);
+
+  const foreshadowingPanel = await openArchiveTab(page, "伏笔");
+  await page.waitForFunction(
+    ([current, foreign]) => {
+      const panel = [...document.querySelectorAll('[class*="panel"]')].find((element) =>
+        element.innerText.includes("作品档案"),
+      );
+      const text = panel?.innerText ?? "";
+      return text.includes(current) && !text.includes(foreign);
+    },
+    [currentToken, foreignToken],
+    { timeout: 10_000 },
+  );
+  const foreshadowingArchiveSnapshot = await archivePanelSnapshot(foreshadowingPanel);
+  const archiveShowsCurrentForeshadowing = foreshadowingArchiveSnapshot.text.includes(currentToken);
+  const archiveExcludesForeignForeshadowing =
+    !foreshadowingArchiveSnapshot.text.includes(foreignToken) &&
+    !foreshadowingArchiveSnapshot.text.includes(foreignSummaryNeedle);
+  assert(archiveShowsCurrentForeshadowing, "Current work foreshadowing did not appear in archive");
+  assert(
+    archiveExcludesForeignForeshadowing,
+    "Foreign work foreshadowing leaked into current archive",
+  );
+
+  await page.getByRole("tab", { name: "经验规则" }).click();
+  await page.waitForFunction(
+    ([currentRule, foreign]) => {
+      const panel = [...document.querySelectorAll('[class*="panel"]')].find((element) =>
+        element.innerText.includes("作品档案"),
+      );
+      const text = panel?.innerText ?? "";
+      return text.includes(currentRule) && !text.includes(foreign);
+    },
+    [currentRuleNeedle, foreignToken],
+    { timeout: 10_000 },
+  );
+  const ruleArchiveSnapshot = await archivePanelSnapshot(foreshadowingPanel);
+  const archiveShowsCurrentRule = ruleArchiveSnapshot.text.includes(currentRuleNeedle);
+  const archiveExcludesForeignInRuleTab =
+    !ruleArchiveSnapshot.text.includes(foreignToken) &&
+    !ruleArchiveSnapshot.text.includes(foreignSummaryNeedle);
+  assert(archiveShowsCurrentRule, "Current work rule did not appear in archive");
+  assert(archiveExcludesForeignInRuleTab, "Foreign work memory leaked into rule archive tab");
+
+  const closeArchive = page.getByRole("button", { name: "关闭档案" });
+  if ((await closeArchive.count()) > 0) {
+    await closeArchive.first().click();
+  }
+
+  await page.getByRole("button", { name: /记忆/ }).first().click();
+  await page.waitForFunction(() => document.body.innerText.includes("记忆管理"), undefined, {
+    timeout: 10_000,
+  });
+  const memoryTable = page.locator("table").first();
+  await memoryTable.waitFor({ timeout: 10_000 });
+  await page.waitForFunction(
+    ([current, rule]) => {
+      const table = document.querySelector("table");
+      const text = table?.innerText ?? "";
+      return text.includes(current) && text.includes(rule);
+    },
+    [currentToken, currentRuleNeedle],
+    { timeout: 10_000 },
+  );
+  const memoryTableText = await memoryTable.innerText();
+  const memoryPageShowsCurrent =
+    memoryTableText.includes(currentToken) && memoryTableText.includes(currentRuleNeedle);
+  const memoryPageExcludesForeign =
+    !memoryTableText.includes(foreignToken) && !memoryTableText.includes(foreignSummaryNeedle);
+  assert(memoryPageShowsCurrent, "Memory page did not show current work memories");
+  assert(memoryPageExcludesForeign, "Memory page leaked foreign work memories");
+
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const seenTurnIds = new Set(
+    frames
+      .filter((frame) => frame.direction === "received" && frame.event === "turn_result")
+      .map((frame) => frame.body?.turn_id)
+      .filter(Boolean),
+  );
+  const message = `请判断${foreignToken}和${currentToken}哪个能作为当前作品的后续伏笔，并说明星钥规则。`;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const recallFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      !seenTurnIds.has(frame.body.turn_id) &&
+      frame.body?.assistant_message != null,
+    "No turn_result frame after cross-work isolation recall message",
+    170_000,
+  );
+  const recallTurnResult = recallFrame.body;
+  const sentMessage = latestSentUserMessage();
+
+  const contextDone = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === recallTurnResult.turn_id &&
+      record.work_id === sentMessage.body?.work_id &&
+      record.has_memory === true,
+    "Current work memory was not recalled for cross-work isolation probe",
+    20_000,
+  );
+
+  const memorySummaries = (recallTurnResult.trace_summary?.context_refs ?? [])
+    .filter((ref) => String(ref.source_type) === "memory")
+    .map((ref) => String(ref.summary ?? ""))
+    .join("\n");
+  const contextIncludesCurrent =
+    memorySummaries.includes(currentToken) || memorySummaries.includes(currentSummaryNeedle);
+  const contextExcludesForeign =
+    !memorySummaries.includes(foreignToken) &&
+    !memorySummaries.includes(foreignSummaryNeedle) &&
+    !memorySummaries.includes("甲作品");
+  assert(contextIncludesCurrent, "Recalled context did not include the current work memory");
+  assert(contextExcludesForeign, "Recalled context included a foreign work memory");
+
+  const whyText = await openLatestWhyDialog(page);
+  const whyShowsCurrent = whyText.includes(currentToken) || whyText.includes(currentSummaryNeedle);
+  const whyExcludesForeignSummary =
+    !whyText.includes(foreignSummaryNeedle) && !whyText.includes("甲作品");
+  assert(whyShowsCurrent, "Why panel did not show current work memory source");
+  assert(whyExcludesForeignSummary, "Why panel leaked foreign work memory source");
+
+  const joinedWorkIds = [
+    ...new Set(
+      readAppLogRecords()
+        .filter((record) => record.event === "channel.join.done" && record.work_id)
+        .map((record) => String(record.work_id)),
+    ),
+  ];
+  const currentWorkId = String(sentMessage.body?.work_id ?? "");
+  const foreignWorkId = joinedWorkIds.find((workId) => workId !== currentWorkId) ?? null;
+  const switchedThroughForeignWork = Boolean(foreignWorkId && currentWorkId);
+
+  const uiState = await commonUiState(page, recallTurnResult, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: recallTurnResult.turn_id,
+      recall_turn_id: recallTurnResult.turn_id,
+      current_work_title: workBTitle,
+      foreign_work_title: workATitle,
+      current_work_id: currentWorkId,
+      foreign_work_id: foreignWorkId,
+      joined_work_count: joinedWorkIds.length,
+      switched_through_foreign_work: switchedThroughForeignWork,
+      archive_current_only:
+        archiveShowsCurrentForeshadowing &&
+        archiveShowsCurrentRule &&
+        archiveExcludesForeignForeshadowing &&
+        archiveExcludesForeignInRuleTab,
+      memory_page_current_only: memoryPageShowsCurrent && memoryPageExcludesForeign,
+      context_includes_current_work_memory: contextIncludesCurrent,
+      context_excludes_foreign_work_memory: contextExcludesForeign,
+      context_has_memory: contextDone.has_memory === true,
+      why_shows_current_work_memory: whyShowsCurrent,
+      why_excludes_foreign_work_memory: whyExcludesForeignSummary,
+      current_memory_nonce: currentToken,
+      foreign_memory_nonce: foreignToken,
       message_text: message,
     },
   ];
@@ -4293,9 +5360,14 @@ const drivers = {
   "p1-plan-incremental": driveP1PlanIncremental,
   "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
+  "au09-memory-management-entry": driveAu09MemoryManagementEntry,
+  "au09-memory-trace-roundtrip": driveAu09MemoryTraceRoundtrip,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,
   "au09-character-dossier-roundtrip": driveAu09CharacterDossierRoundtrip,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,
+  "au09-cross-work-memory-isolation": driveAu09CrossWorkMemoryIsolation,
+  "au09-au03-session-memory-layering": driveAu09Au03SessionMemoryLayering,
+  "au11-quality-diagnosis-message-envelope": driveAu11QualityDiagnosisMessageEnvelope,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,
 };

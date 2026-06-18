@@ -124,6 +124,31 @@
   font-size: 12px;
 }
 
+.traceList {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.traceItem {
+  color: #d7d7e2;
+}
+
+.traceMeta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.traceReason {
+  margin: 4px 0 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
 .actions {
   display: flex;
   flex-wrap: wrap;

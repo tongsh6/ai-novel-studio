@@ -12,6 +12,10 @@ defmodule NovelDomain.TentativeArtifactSet do
           | :scene_draft
           | :prose_fragment
           | :world_setting
+          | :foreshadowing_seed
+          | :world_rule_seed
+          | :style_rule_seed
+          | :constraint_seed
 
   @type artifact_item :: %{
           required(:item_id) => String.t(),

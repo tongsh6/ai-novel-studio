@@ -148,6 +148,7 @@ defmodule NovelPersistence.Schemas.MemoryItem do
     )
     |> validate_number(:version, greater_than_or_equal_to: 1)
     |> validate_status_transition()
+    |> prevent_locked_terminal_transition()
     |> apply_status_transition_side_effects()
     |> prevent_locked_core_rewrite()
   end
@@ -182,6 +183,22 @@ defmodule NovelPersistence.Schemas.MemoryItem do
         |> Enum.reduce(changeset, fn {field, value}, acc -> put_change(acc, field, value) end)
     end
   end
+
+  defp prevent_locked_terminal_transition(%Ecto.Changeset{data: %{locked: true}} = changeset) do
+    case get_change(changeset, :status) do
+      status when is_binary(status) ->
+        if DomainMemoryItem.terminal_status?(status) do
+          add_error(changeset, :status, "cannot move locked memory item to terminal status")
+        else
+          changeset
+        end
+
+      _ ->
+        changeset
+    end
+  end
+
+  defp prevent_locked_terminal_transition(changeset), do: changeset
 
   defp prevent_locked_core_rewrite(%Ecto.Changeset{data: %{locked: true}} = changeset) do
     Enum.reduce(DomainMemoryItem.locked_protected_fields(), changeset, fn field, acc ->

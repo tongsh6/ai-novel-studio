@@ -25,11 +25,16 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au09-archive-real-data");
     expect(nativeSliceIds).toContain("au09-memory-recall-context");
     expect(nativeSliceIds).toContain("au09-character-dossier-roundtrip");
+    expect(nativeSliceIds).toContain("au09-memory-management-entry");
+    expect(nativeSliceIds).toContain("au09-memory-trace-roundtrip");
+    expect(nativeSliceIds).toContain("au09-cross-work-memory-isolation");
+    expect(nativeSliceIds).toContain("au09-au03-session-memory-layering");
     expect(nativeSliceIds).toContain("au03-branch-from-history");
     expect(nativeSliceIds).toContain("au03-archive-session-filter");
     expect(nativeSliceIds).toContain("au03-current-work-context-ssot");
     expect(nativeSliceIds).toContain("au03-long-session-compression");
     expect(nativeSliceIds).toContain("au03-context-source-ui");
+    expect(nativeSliceIds).toContain("au11-quality-diagnosis-message-envelope");
     expect(nativeSliceIds).toContain("au10-workbench-matrix-layout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-disconnect-timeout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-provider-timeout");
@@ -948,7 +953,7 @@ describe("native Tauri slice verifier", () => {
         active_session_id: "session-source",
         trace_why_dialog_open: true,
         trace_why_text:
-          "自然回复 参考来源 当前作品背景 灵源纪元 / 东方奇幻 / 林烬追查灵源矿区真相 近期对话 上一轮围绕「林烬进入灵源矿区」展开，AI 已给出回应。 已确认设定 林瑶失踪指向灵源矿区，林烬去矿区追查线索。 解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
+          "自然回复 参考来源 当前作品背景 灵源纪元 / 东方奇幻 / 林烬追查灵源矿区真相 当前会话记录 上一轮围绕「林烬进入灵源矿区」展开，AI 已给出回应。 已确认设定 林瑶失踪指向灵源矿区，林烬去矿区追查线索。 解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
         trace_why_contains_raw_prompt: false,
         duration_ms: 0,
         outcome: "done",
@@ -976,12 +981,134 @@ describe("native Tauri slice verifier", () => {
         "current_work_session_and_memory_context_attached",
         "why_entry_clicked_in_message_stream",
         "current_work_source_summary_visible",
-        "recent_dialogue_source_summary_visible",
+        "session_or_recent_dialogue_source_summary_visible",
         "confirmed_memory_source_summary_visible",
         "raw_prompt_provider_debug_not_visible",
         "planner_received_context_before_frame",
         "no_error_events",
         "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("accepts AU-11 quality diagnosis message envelope evidence", () => {
+    const records = [
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au11",
+        session_id: "session-au11",
+      },
+      {
+        event: "channel.join.done",
+        work_id: "work-au11",
+        session_id: "session-au11",
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-au11",
+        workspace_id: "work-au11",
+        work_id: "work-au11",
+        session_id: "session-au11",
+        generate_micro_plan: false,
+        duration_ms: 1,
+        outcome: "start",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-au11",
+        workspace_id: "work-au11",
+        work_id: "work-au11",
+        session_id: "session-au11",
+        has_snapshot: true,
+        has_conversation: false,
+        has_memory: false,
+        context_refs_count: 1,
+        duration_ms: 5,
+        outcome: "done",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-au11",
+        workspace_id: "work-au11",
+        work_id: "work-au11",
+        session_id: "session-au11",
+        duration_ms: 8,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-au11",
+        workspace_id: "work-au11",
+        work_id: "work-au11",
+        session_id: "session-au11",
+        duration_ms: 15,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-au11",
+        workspace_id: "work-au11",
+        work_id: "work-au11",
+        session_id: "session-au11",
+        duration_ms: 18,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au11-quality-diagnosis-message-envelope",
+        turn_id: "turn-au11",
+        workspace_id: "work-au11",
+        work_id: "work-au11",
+        session_id: "session-au11",
+        context_work_id: "work-au11",
+        active_session_id: "session-au11",
+        guidance_mode_quality: true,
+        envelope_has_novel_layer: true,
+        envelope_has_work_state: true,
+        envelope_has_turn_guidance: true,
+        novel_layer_has_quality_gates: true,
+        work_state_has_current_work_source: true,
+        work_state_chapter_summary_mentions_target: true,
+        turn_guidance_focuses_quality: true,
+        assistant_gives_concrete_tradeoff: true,
+        no_tool_result: true,
+        no_adoption_state: true,
+        no_production_write: true,
+        trace_why_dialog_open: true,
+        trace_why_contains_raw_prompt: false,
+        why_shows_quality_diagnosis: true,
+        why_shows_quality_focus: true,
+        why_shows_current_work_source: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au11-quality-diagnosis-message-envelope", records);
+    expect(evidence).toEqual({
+      slice_id: "au11-quality-diagnosis-message-envelope",
+      turn_id: "turn-au11",
+      turn_ids: ["turn-au11"],
+      work_id: "work-au11",
+      session_id: "session-au11",
+      context_refs_count: 1,
+      key_events: keyEventsForSlice("au11-quality-diagnosis-message-envelope"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au11-quality-diagnosis-message-envelope", records, evidence),
+    ).toEqual({
+      slice_id: "au11-quality-diagnosis-message-envelope",
+      behavior: "quality_diagnosis_turn_records_vs00d_three_layer_envelope_without_write",
+      turn_ids: ["turn-au11"],
+      work_id: "work-au11",
+      session_id: "session-au11",
+      assertions: [
+        "message_sent_from_real_workbench",
+        "planner_prompt_and_trace_mark_guidance_mode_quality",
+        "novel_layer_records_quality_gates",
+        "work_state_layer_references_current_work_and_chapter_summary",
+        "turn_guidance_layer_records_quality_focus",
+        "assistant_response_contains_concrete_tradeoffs",
+        "why_panel_shows_quality_diagnosis_without_internal_trace_or_prompt",
+        "no_tool_no_adoption_no_production_write",
       ],
     });
   });
@@ -1039,6 +1166,237 @@ describe("native Tauri slice verifier", () => {
         "stats_loaded_from_persistence",
         "foreshadowing_detail_opened_from_archive_list",
         "no_fixed_mock_archive_items",
+      ],
+    });
+  });
+
+  it("requires AU-09 adopted setting to be visible in the foreshadowing archive tab", () => {
+    const records = [
+      {
+        event: "toolbox.execute.done",
+        turn_id: "turn-create-setting",
+        tool_outcome: "succeeded",
+        tool_name: "world_building",
+      },
+      {
+        event: "channel.author_action.done",
+        turn_id: "turn-adopt-setting",
+        action_type: "accept",
+        action_status: "accepted",
+      },
+      {
+        event: "channel.get_foreshadowing.done",
+        work_id: "work-setting",
+        item_count: 1,
+      },
+      {
+        event: "channel.get_rules.done",
+        work_id: "work-setting",
+        rule_count: 1,
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-recall-setting",
+        has_memory: true,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-adopt-setting-recall",
+        work_id: "work-setting",
+        recall_turn_id: "turn-recall-setting",
+        setting_artifact_id: "setting-1",
+        setting_artifact_type: "foreshadowing_seed",
+        setting_chunk: "伏笔线索矿区旧",
+        setting_adopted: true,
+        why_shows_memory_source: true,
+        archive_tab_checked: "foreshadowing,rule",
+        archive_visible_after_adoption: true,
+        archive_foreshadowing_count_after_adoption: 1,
+        archive_rule_count_after_adoption: 1,
+        archive_text_matched_adopted_setting: true,
+        rule_setting_artifact_id: "rule-setting-1",
+        rule_setting_artifact_type: "style_rule_seed",
+        rule_setting_chunk: "风格规则后续写",
+        archive_text_matched_adopted_rule: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-adopt-setting-recall", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au09-adopt-setting-recall",
+      turn_id: "turn-recall-setting",
+      setting_artifact_type: "foreshadowing_seed",
+      tool_name: "world_building",
+      archive_tab_checked: "foreshadowing,rule",
+      archive_foreshadowing_count_after_adoption: 1,
+      archive_rule_count_after_adoption: 1,
+      rule_setting_artifact_type: "style_rule_seed",
+    });
+    expect(findSliceBehaviorEvidence("au09-adopt-setting-recall", records, evidence)).toEqual({
+      slice_id: "au09-adopt-setting-recall",
+      behavior: "adopted_ai_setting_becomes_governed_memory_and_recalls",
+      turn_ids: ["turn-recall-setting"],
+      setting_artifact_type: "foreshadowing_seed",
+      tool_name: "world_building",
+      setting_chunk: "伏笔线索矿区旧",
+      archive_tab_checked: "foreshadowing,rule",
+      archive_foreshadowing_count_after_adoption: 1,
+      archive_rule_count_after_adoption: 1,
+      rule_setting_artifact_type: "style_rule_seed",
+      rule_setting_chunk: "风格规则后续写",
+      assertions: [
+        "ai_generated_a_setting_artifact_from_real_workbench",
+        "author_adopted_setting_into_confirmed_recallable_governed_memory",
+        "adopted_setting_visible_in_foreshadowing_archive_tab_after_reopen",
+        "adopted_rule_visible_in_rules_archive_tab_after_reopen",
+        "adopted_setting_recalled_into_later_turn_context",
+        "why_panel_shows_confirmed_memory_as_author_safe_source",
+        "deterministic_context_assembled_with_adopted_setting",
+      ],
+    });
+  });
+
+  it("requires AU-09 memory management entry lifecycle evidence", () => {
+    const records = [
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-locked-recall",
+        has_memory: true,
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-locked-recall",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-terminal-probe",
+        has_memory: true,
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-terminal-probe",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-memory-management-entry",
+        locked_recall_turn_id: "turn-locked-recall",
+        terminal_recall_turn_id: "turn-terminal-probe",
+        memory_nonce: "蓝焰税契",
+        archived_memory_nonce: "暮钟海图",
+        memory_created: true,
+        memory_confirmed: true,
+        memory_locked: true,
+        locked_controls_disabled: true,
+        locked_recalled_before_terminal_action: true,
+        why_shows_locked_memory_source: true,
+        memory_deprecated: true,
+        archived_memory_created: true,
+        archived_memory_confirmed: true,
+        archived_memory_archived: true,
+        terminal_context_has_memory: true,
+        terminal_managed_memory_excluded: true,
+        why_excludes_terminal_memory_content: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-memory-management-entry", records);
+    expect(evidence).toEqual({
+      slice_id: "au09-memory-management-entry",
+      turn_id: "turn-terminal-probe",
+      turn_ids: ["turn-locked-recall", "turn-terminal-probe"],
+      memory_nonce: "蓝焰税契",
+      archived_memory_nonce: "暮钟海图",
+      locked_recall_turn_id: "turn-locked-recall",
+      terminal_recall_turn_id: "turn-terminal-probe",
+      key_events: keyEventsForSlice("au09-memory-management-entry"),
+    });
+    expect(findSliceBehaviorEvidence("au09-memory-management-entry", records, evidence)).toEqual({
+      slice_id: "au09-memory-management-entry",
+      behavior: "author_manages_memory_lifecycle_from_workbench_and_terminal_states_stop_recall",
+      turn_ids: ["turn-locked-recall", "turn-terminal-probe"],
+      memory_nonce: "蓝焰税契",
+      archived_memory_nonce: "暮钟海图",
+      assertions: [
+        "author_opened_memory_page_from_real_workbench",
+        "author_created_and_confirmed_governed_memory",
+        "locked_memory_remained_recallable_before_terminal_action",
+        "locked_memory_terminal_actions_were_disabled_until_unlock",
+        "author_deprecated_memory_and_ui_marked_it_non_recallable",
+        "author_archived_memory_and_ui_marked_it_non_recallable",
+        "deprecated_and_archived_managed_memories_excluded_from_later_dialogue_context",
+        "why_panel_excludes_deprecated_and_archived_managed_memory_content",
+      ],
+    });
+  });
+
+  it("requires AU-09 memory trace roundtrip lifecycle and exclusion evidence", () => {
+    const records = [
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-locked-recall",
+        has_memory: true,
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-locked-recall",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-terminal-probe",
+        has_memory: false,
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-terminal-probe",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-memory-trace-roundtrip",
+        locked_recall_turn_id: "turn-locked-recall",
+        terminal_recall_turn_id: "turn-terminal-probe",
+        memory_nonce: "赤铜回声",
+        archived_memory_nonce: "银沙旧律",
+        lifecycle_trace_visible: true,
+        create_trace_visible: true,
+        confirm_trace_visible: true,
+        lock_trace_visible: true,
+        unlock_trace_visible: true,
+        deprecate_trace_visible: true,
+        archive_trace_visible: true,
+        trace_explains_locked_recall: true,
+        trace_explains_terminal_exclusion: true,
+        locked_controls_disabled: true,
+        locked_recalled_before_terminal_action: true,
+        why_shows_locked_memory_source: true,
+        terminal_managed_memory_excluded: true,
+        why_excludes_terminal_memory_content: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-memory-trace-roundtrip", records);
+    expect(evidence).toEqual({
+      slice_id: "au09-memory-trace-roundtrip",
+      turn_id: "turn-terminal-probe",
+      turn_ids: ["turn-locked-recall", "turn-terminal-probe"],
+      memory_nonce: "赤铜回声",
+      archived_memory_nonce: "银沙旧律",
+      locked_recall_turn_id: "turn-locked-recall",
+      terminal_recall_turn_id: "turn-terminal-probe",
+      key_events: keyEventsForSlice("au09-memory-trace-roundtrip"),
+    });
+    expect(findSliceBehaviorEvidence("au09-memory-trace-roundtrip", records, evidence)).toEqual({
+      slice_id: "au09-memory-trace-roundtrip",
+      behavior: "author_views_memory_lifecycle_trace_and_terminal_recall_exclusion",
+      turn_ids: ["turn-locked-recall", "turn-terminal-probe"],
+      memory_nonce: "赤铜回声",
+      archived_memory_nonce: "银沙旧律",
+      assertions: [
+        "memory_detail_reference_view_shows_author_safe_lifecycle_trace",
+        "create_confirm_lock_unlock_deprecate_archive_actions_have_visible_trace",
+        "locked_memory_remains_recallable_and_trace_explains_the_lock",
+        "locked_terminal_controls_are_disabled_in_real_workbench",
+        "deprecated_and_archived_memories_are_excluded_from_later_dialogue_context",
+        "why_panel_excludes_terminal_memory_content",
       ],
     });
   });
@@ -1245,6 +1603,204 @@ describe("native Tauri slice verifier", () => {
         "planner_received_context_before_frame",
         "no_error_events",
         "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("requires AU-09 cross-work memory isolation across archive memory recall and why", () => {
+    const records = [
+      { event: "work_session.resume.done", work_id: "work-b", session_id: "session-b" },
+      { event: "channel.join.done", work_id: "work-a", session_id: "session-a" },
+      { event: "channel.join.done", work_id: "work-b", session_id: "session-b" },
+      { event: "channel.get_foreshadowing.done", work_id: "work-b", item_count: 1 },
+      { event: "channel.get_rules.done", work_id: "work-b", rule_count: 1 },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-isolation",
+        work_id: "work-b",
+        session_id: "session-b",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-isolation",
+        work_id: "work-b",
+        session_id: "session-b",
+        has_memory: true,
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-isolation",
+        work_id: "work-b",
+        session_id: "session-b",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-cross-work-memory-isolation",
+        turn_id: "turn-isolation",
+        recall_turn_id: "turn-isolation",
+        work_id: "work-b",
+        current_work_id: "work-b",
+        foreign_work_id: "work-a",
+        joined_work_count: 2,
+        switched_through_foreign_work: true,
+        archive_current_only: true,
+        memory_page_current_only: true,
+        context_includes_current_work_memory: true,
+        context_excludes_foreign_work_memory: true,
+        why_shows_current_work_memory: true,
+        why_excludes_foreign_work_memory: true,
+        current_memory_nonce: "乙界星钥",
+        foreign_memory_nonce: "甲界暮钟",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-cross-work-memory-isolation", records);
+    expect(evidence).toEqual({
+      slice_id: "au09-cross-work-memory-isolation",
+      turn_id: "turn-isolation",
+      turn_ids: ["turn-isolation"],
+      work_id: "work-b",
+      current_work_id: "work-b",
+      foreign_work_id: "work-a",
+      joined_work_count: 2,
+      current_memory_nonce: "乙界星钥",
+      foreign_memory_nonce: "甲界暮钟",
+      key_events: keyEventsForSlice("au09-cross-work-memory-isolation"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au09-cross-work-memory-isolation", records, evidence),
+    ).toEqual({
+      slice_id: "au09-cross-work-memory-isolation",
+      behavior: "current_work_archive_memory_recall_and_why_exclude_foreign_work_memory",
+      turn_ids: ["turn-isolation"],
+      work_id: "work-b",
+      foreign_work_id: "work-a",
+      current_memory_nonce: "乙界星钥",
+      foreign_memory_nonce: "甲界暮钟",
+      assertions: [
+        "author_switched_between_two_real_works",
+        "archive_foreshadowing_and_rule_tabs_showed_current_work_only",
+        "memory_management_table_showed_current_work_only",
+        "dialogue_input_matched_both_work_keywords",
+        "context_assembly_attached_current_work_memory_only",
+        "why_panel_showed_current_memory_source_without_foreign_work_summary",
+        "deterministic_context_excluded_foreign_work_memory",
+      ],
+    });
+  });
+
+  it("requires AU-09/AU-03 session and memory source layering in the same work", () => {
+    const records = [
+      { event: "work_session.resume.done", work_id: "work-layer", session_id: "session-active" },
+      { event: "channel.join.done", work_id: "work-layer", session_id: "session-active" },
+      {
+        event: "work_session.show.done",
+        work_id: "work-layer",
+        session_id: "session-history",
+        read_only: true,
+        transcript_count: 2,
+        pending_adoption_count: 0,
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-layer",
+        work_id: "work-layer",
+        session_id: "session-active",
+        generate_micro_plan: false,
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-layer",
+        work_id: "work-layer",
+        session_id: "session-active",
+        has_snapshot: true,
+        has_conversation: true,
+        has_memory: true,
+        context_refs_count: 3,
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-layer",
+        work_id: "work-layer",
+        session_id: "session-active",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-layer",
+        work_id: "work-layer",
+        session_id: "session-active",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-au03-session-memory-layering",
+        turn_id: "turn-layer",
+        recall_turn_id: "turn-layer",
+        work_id: "work-layer",
+        session_id: "session-active",
+        active_session_id: "session-active",
+        readonly_session_id: "session-history",
+        readonly_session_transcript_visible: true,
+        readonly_input_disabled: true,
+        active_session_restored: true,
+        context_source_types: ["current_work", "session_transcript", "memory"],
+        context_has_current_work: true,
+        context_has_session_transcript: true,
+        context_has_memory: true,
+        context_excludes_conversation_fallback: true,
+        context_session_summary_includes_active: true,
+        context_session_summary_excludes_history: true,
+        context_memory_summary_includes_memory: true,
+        context_memory_summary_excludes_history: true,
+        trace_why_dialog_open: true,
+        trace_why_contains_raw_prompt: false,
+        why_shows_current_work_source: true,
+        why_shows_session_source: true,
+        why_shows_memory_source: true,
+        why_shows_active_session_summary: true,
+        why_shows_memory_summary: true,
+        why_excludes_historical_transcript: true,
+        active_session_token: "当前蓝桥计划",
+        memory_token: "银槐誓约",
+        historical_session_token: "旧稿赤塔",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-au03-session-memory-layering", records);
+    expect(evidence).toEqual({
+      slice_id: "au09-au03-session-memory-layering",
+      turn_id: "turn-layer",
+      turn_ids: ["turn-layer"],
+      work_id: "work-layer",
+      session_id: "session-active",
+      readonly_session_id: "session-history",
+      context_refs_count: 3,
+      active_session_token: "当前蓝桥计划",
+      memory_token: "银槐誓约",
+      historical_session_token: "旧稿赤塔",
+      key_events: keyEventsForSlice("au09-au03-session-memory-layering"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au09-au03-session-memory-layering", records, evidence),
+    ).toEqual({
+      slice_id: "au09-au03-session-memory-layering",
+      behavior:
+        "active_session_transcript_current_work_and_governed_memory_are_layered_without_history_leak",
+      turn_ids: ["turn-layer"],
+      work_id: "work-layer",
+      session_id: "session-active",
+      readonly_session_id: "session-history",
+      active_session_token: "当前蓝桥计划",
+      memory_token: "银槐誓约",
+      historical_session_token: "旧稿赤塔",
+      assertions: [
+        "historical_session_opened_readonly_from_real_workbench",
+        "readonly_history_input_was_disabled",
+        "active_session_restored_before_author_message",
+        "context_refs_contain_current_work_session_transcript_and_memory",
+        "active_session_transcript_not_labelled_as_generic_conversation",
+        "historical_session_transcript_not_in_session_or_memory_sources",
+        "why_panel_separates_current_work_session_and_memory_sources",
+        "deterministic_trace_refs_layered_session_and_memory_sources",
       ],
     });
   });

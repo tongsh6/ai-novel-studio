@@ -177,7 +177,7 @@ defmodule NovelPersistence.AdoptionRepository do
       work_id: Map.fetch!(attrs, :work_id),
       content: Map.fetch!(attrs, :content),
       summary: Map.get(attrs, :summary),
-      type: memory_type(Map.get(attrs, :artifact_type)),
+      type: memory_type(attrs),
       scope: MemoryScope.work(),
       status: MemoryStatus.confirmed(),
       source_type: MemorySourceType.author_confirmed(),
@@ -191,11 +191,62 @@ defmodule NovelPersistence.AdoptionRepository do
     }
   end
 
-  defp memory_type(:plot_direction), do: MemoryType.plot_fact()
-  defp memory_type("plot_direction"), do: MemoryType.plot_fact()
-  defp memory_type(:outline_draft), do: MemoryType.draft_context()
-  defp memory_type("outline_draft"), do: MemoryType.draft_context()
-  defp memory_type(_), do: MemoryType.draft_context()
+  defp memory_type(%{artifact_type: type})
+       when type in [:plot_direction, "plot_direction"],
+       do: MemoryType.plot_fact()
+
+  defp memory_type(%{artifact_type: type})
+       when type in [:outline_draft, "outline_draft"],
+       do: MemoryType.draft_context()
+
+  defp memory_type(%{artifact_type: type})
+       when type in [:foreshadowing_seed, "foreshadowing_seed"],
+       do: MemoryType.foreshadowing()
+
+  defp memory_type(%{artifact_type: type})
+       when type in [:world_rule_seed, "world_rule_seed"],
+       do: MemoryType.world_rule()
+
+  defp memory_type(%{artifact_type: type})
+       when type in [:style_rule_seed, "style_rule_seed"],
+       do: MemoryType.style_rule()
+
+  defp memory_type(%{artifact_type: type})
+       when type in [:constraint_seed, "constraint_seed"],
+       do: MemoryType.constraint()
+
+  defp memory_type(%{artifact_type: type} = attrs)
+       when type in [:world_setting, "world_setting"],
+       do: world_setting_memory_type(attrs)
+
+  defp memory_type(_attrs), do: MemoryType.draft_context()
+
+  # Legacy compatibility：早期 world_building 统一输出 world_setting。
+  # 新链路应使用 foreshadowing_seed / *_rule_seed / constraint_seed 显式类型。
+  defp world_setting_memory_type(attrs) do
+    text =
+      [Map.get(attrs, :summary), Map.get(attrs, :content)]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map_join("\n", &to_string/1)
+
+    cond do
+      contains_any?(text, ["伏笔", "回收点", "回收方式", "线索"]) ->
+        MemoryType.foreshadowing()
+
+      contains_any?(text, ["风格规则", "文风", "语气", "推荐写法"]) ->
+        MemoryType.style_rule()
+
+      contains_any?(text, ["约束", "限制", "禁止", "不得", "禁忌"]) ->
+        MemoryType.constraint()
+
+      true ->
+        MemoryType.world_rule()
+    end
+  end
+
+  defp contains_any?(text, terms) do
+    Enum.any?(terms, &String.contains?(text, &1))
+  end
 
   defp maybe_persist_reading_projection(repo, attrs, mutation_id) do
     if reading_projection_artifact?(Map.get(attrs, :artifact_type)) do

@@ -52,9 +52,14 @@ export const nativeSliceIds = [
   "vs00c-cp4-chapter-plan-structure",
   "vs00c-cp5-reader-effect-brief",
   "au09-memory-create-recall",
+  "au09-memory-management-entry",
+  "au09-memory-trace-roundtrip",
   "au09-adopt-setting-recall",
   "au09-character-dossier-roundtrip",
   "au09-validity-window-recall",
+  "au09-cross-work-memory-isolation",
+  "au09-au03-session-memory-layering",
+  "au11-quality-diagnosis-message-envelope",
   "vs10-observability-spine",
 ];
 
@@ -330,6 +335,18 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au09-memory-management-entry": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-memory-trace-roundtrip": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au09-adopt-setting-recall": [
     "channel.user_message.start",
     "toolbox.execute.done",
@@ -337,6 +354,8 @@ const sliceKeyEvents = {
     "channel.author_action.start",
     "adoption.evaluate.done",
     "channel.author_action.done",
+    "channel.get_foreshadowing.done",
+    "channel.get_rules.done",
     "context.assemble.done",
     "slice_verify.ui_state.done",
   ],
@@ -354,6 +373,36 @@ const sliceKeyEvents = {
   "au09-validity-window-recall": [
     "channel.user_message.start",
     "context.assemble.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-cross-work-memory-isolation": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.get_foreshadowing.done",
+    "channel.get_rules.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-au03-session-memory-layering": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "work_session.show.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au11-quality-diagnosis-message-envelope": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -809,6 +858,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu09MemoryCreateRecallEvidence(records);
   }
 
+  if (sliceId === "au09-memory-management-entry") {
+    return findAu09MemoryManagementEntryEvidence(records);
+  }
+
+  if (sliceId === "au09-memory-trace-roundtrip") {
+    return findAu09MemoryTraceRoundtripEvidence(records);
+  }
+
   if (sliceId === "au09-adopt-setting-recall") {
     return findAu09AdoptSettingRecallEvidence(records);
   }
@@ -819,6 +876,18 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au09-validity-window-recall") {
     return findAu09ValidityWindowRecallEvidence(records);
+  }
+
+  if (sliceId === "au09-cross-work-memory-isolation") {
+    return findAu09CrossWorkMemoryIsolationEvidence(records);
+  }
+
+  if (sliceId === "au09-au03-session-memory-layering") {
+    return findAu09Au03SessionMemoryLayeringEvidence(records);
+  }
+
+  if (sliceId === "au11-quality-diagnosis-message-envelope") {
+    return findAu11QualityDiagnosisMessageEnvelopeEvidence(records);
   }
 
   if (sliceId === "vs10-observability-spine") {
@@ -1000,6 +1069,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return au09MemoryCreateRecallBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "au09-memory-management-entry") {
+    return au09MemoryManagementEntryBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-memory-trace-roundtrip") {
+    return au09MemoryTraceRoundtripBehavior(turnIds, turnRecords, records, evidence);
+  }
+
   if (sliceId === "au09-adopt-setting-recall") {
     return au09AdoptSettingRecallBehavior(turnIds, turnRecords, records, evidence, options);
   }
@@ -1010,6 +1087,18 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au09-validity-window-recall") {
     return au09ValidityWindowRecallBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-cross-work-memory-isolation") {
+    return au09CrossWorkMemoryIsolationBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-au03-session-memory-layering") {
+    return au09Au03SessionMemoryLayeringBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au11-quality-diagnosis-message-envelope") {
+    return au11QualityDiagnosisMessageEnvelopeBehavior(turnIds, turnRecords, records, evidence);
   }
 
   if (sliceId === "vs00c-cp0-missing-chapter-block") {
@@ -2066,9 +2155,11 @@ function findAu03ContextSourceUiEvidence(records) {
     if (uiState.trace_why_contains_raw_prompt === true) continue;
 
     const traceText = String(uiState.trace_why_text ?? "");
+    const hasSessionOrRecentDialogueSource =
+      traceText.includes("当前会话记录") || traceText.includes("近期对话");
     if (!traceText.includes("参考来源")) continue;
     if (!traceText.includes("当前作品背景")) continue;
-    if (!traceText.includes("近期对话")) continue;
+    if (!hasSessionOrRecentDialogueSource) continue;
     if (!traceText.includes("已确认设定")) continue;
     if (!traceText.includes("灵源纪元")) continue;
     if (!traceText.includes("灵源矿区")) continue;
@@ -5134,6 +5225,187 @@ function au09MemoryCreateRecallBehavior(turnIds, _turnRecords, records, evidence
   };
 }
 
+function findAu09MemoryManagementEntryEvidence(records) {
+  const sliceId = "au09-memory-management-entry";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.memory_created === true &&
+      record.memory_confirmed === true &&
+      record.memory_locked === true &&
+      record.locked_controls_disabled === true &&
+      record.locked_recalled_before_terminal_action === true &&
+      record.why_shows_locked_memory_source === true &&
+      record.memory_deprecated === true &&
+      record.archived_memory_created === true &&
+      record.archived_memory_confirmed === true &&
+      record.archived_memory_archived === true &&
+      record.terminal_managed_memory_excluded === true &&
+      record.why_excludes_terminal_memory_content === true,
+  );
+  if (!uiState) return null;
+
+  const lockedRecallTurnId = String(uiState.locked_recall_turn_id ?? "");
+  const terminalRecallTurnId = String(uiState.terminal_recall_turn_id ?? "");
+  if (!lockedRecallTurnId || !terminalRecallTurnId) return null;
+
+  const lockedContext = records.find(
+    (record) =>
+      record.turn_id === lockedRecallTurnId &&
+      record.event === "context.assemble.done" &&
+      record.has_memory === true,
+  );
+  if (!lockedContext) return null;
+
+  const terminalContext = records.find(
+    (record) => record.turn_id === terminalRecallTurnId && record.event === "context.assemble.done",
+  );
+  if (!terminalContext) return null;
+
+  const completedTurns = new Set(
+    records
+      .filter((record) => record.event === "channel.user_message.done")
+      .map((record) => String(record.turn_id ?? "")),
+  );
+  if (!completedTurns.has(lockedRecallTurnId) || !completedTurns.has(terminalRecallTurnId)) {
+    return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: terminalRecallTurnId,
+    turn_ids: [lockedRecallTurnId, terminalRecallTurnId],
+    memory_nonce: uiState.memory_nonce,
+    archived_memory_nonce: uiState.archived_memory_nonce,
+    locked_recall_turn_id: lockedRecallTurnId,
+    terminal_recall_turn_id: terminalRecallTurnId,
+    key_events: keyEvents,
+  };
+}
+
+function au09MemoryManagementEntryBehavior(turnIds, _turnRecords, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-memory-management-entry",
+  );
+  if (!uiState) return null;
+  if (uiState.terminal_managed_memory_excluded !== true) return null;
+  if (uiState.why_excludes_terminal_memory_content !== true) return null;
+
+  return {
+    slice_id: "au09-memory-management-entry",
+    behavior: "author_manages_memory_lifecycle_from_workbench_and_terminal_states_stop_recall",
+    turn_ids: turnIds,
+    memory_nonce: evidence.memory_nonce,
+    archived_memory_nonce: evidence.archived_memory_nonce,
+    assertions: [
+      "author_opened_memory_page_from_real_workbench",
+      "author_created_and_confirmed_governed_memory",
+      "locked_memory_remained_recallable_before_terminal_action",
+      "locked_memory_terminal_actions_were_disabled_until_unlock",
+      "author_deprecated_memory_and_ui_marked_it_non_recallable",
+      "author_archived_memory_and_ui_marked_it_non_recallable",
+      "deprecated_and_archived_managed_memories_excluded_from_later_dialogue_context",
+      "why_panel_excludes_deprecated_and_archived_managed_memory_content",
+    ],
+  };
+}
+
+function findAu09MemoryTraceRoundtripEvidence(records) {
+  const sliceId = "au09-memory-trace-roundtrip";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.lifecycle_trace_visible === true &&
+      record.create_trace_visible === true &&
+      record.confirm_trace_visible === true &&
+      record.lock_trace_visible === true &&
+      record.unlock_trace_visible === true &&
+      record.deprecate_trace_visible === true &&
+      record.archive_trace_visible === true &&
+      record.trace_explains_locked_recall === true &&
+      record.trace_explains_terminal_exclusion === true &&
+      record.locked_controls_disabled === true &&
+      record.locked_recalled_before_terminal_action === true &&
+      record.terminal_managed_memory_excluded === true &&
+      record.why_excludes_terminal_memory_content === true,
+  );
+  if (!uiState) return null;
+
+  const lockedRecallTurnId = String(uiState.locked_recall_turn_id ?? "");
+  const terminalRecallTurnId = String(uiState.terminal_recall_turn_id ?? "");
+  if (!lockedRecallTurnId || !terminalRecallTurnId) return null;
+
+  const lockedContext = records.find(
+    (record) =>
+      record.turn_id === lockedRecallTurnId &&
+      record.event === "context.assemble.done" &&
+      record.has_memory === true,
+  );
+  if (!lockedContext) return null;
+
+  const terminalContext = records.find(
+    (record) => record.turn_id === terminalRecallTurnId && record.event === "context.assemble.done",
+  );
+  if (!terminalContext) return null;
+
+  const completedTurns = new Set(
+    records
+      .filter((record) => record.event === "channel.user_message.done")
+      .map((record) => String(record.turn_id ?? "")),
+  );
+  if (!completedTurns.has(lockedRecallTurnId) || !completedTurns.has(terminalRecallTurnId)) {
+    return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: terminalRecallTurnId,
+    turn_ids: [lockedRecallTurnId, terminalRecallTurnId],
+    memory_nonce: uiState.memory_nonce,
+    archived_memory_nonce: uiState.archived_memory_nonce,
+    locked_recall_turn_id: lockedRecallTurnId,
+    terminal_recall_turn_id: terminalRecallTurnId,
+    key_events: keyEvents,
+  };
+}
+
+function au09MemoryTraceRoundtripBehavior(turnIds, _turnRecords, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-memory-trace-roundtrip",
+  );
+  if (!uiState) return null;
+  if (uiState.lifecycle_trace_visible !== true) return null;
+  if (uiState.trace_explains_locked_recall !== true) return null;
+  if (uiState.trace_explains_terminal_exclusion !== true) return null;
+  if (uiState.terminal_managed_memory_excluded !== true) return null;
+
+  return {
+    slice_id: "au09-memory-trace-roundtrip",
+    behavior: "author_views_memory_lifecycle_trace_and_terminal_recall_exclusion",
+    turn_ids: turnIds,
+    memory_nonce: evidence.memory_nonce,
+    archived_memory_nonce: evidence.archived_memory_nonce,
+    assertions: [
+      "memory_detail_reference_view_shows_author_safe_lifecycle_trace",
+      "create_confirm_lock_unlock_deprecate_archive_actions_have_visible_trace",
+      "locked_memory_remains_recallable_and_trace_explains_the_lock",
+      "locked_terminal_controls_are_disabled_in_real_workbench",
+      "deprecated_and_archived_memories_are_excluded_from_later_dialogue_context",
+      "why_panel_excludes_terminal_memory_content",
+    ],
+  };
+}
+
 function findAu09AdoptSettingRecallEvidence(records) {
   const sliceId = "au09-adopt-setting-recall";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -5159,12 +5431,21 @@ function findAu09AdoptSettingRecallEvidence(records) {
   );
   if (!contextDone) return null;
 
-  // 设定确实由某个创作工具生成（world_building/plot_outline/character_design 等），并经 accept 采纳。
+  if (uiState.setting_artifact_type !== "foreshadowing_seed") return null;
+  if (
+    !["world_rule_seed", "style_rule_seed", "constraint_seed"].includes(
+      uiState.rule_setting_artifact_type,
+    )
+  ) {
+    return null;
+  }
+
+  // 设定确实由 world_building 生成，并经 accept 采纳。
   const generatedSetting = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_outcome === "succeeded" &&
-      record.tool_name !== "prose_writing",
+      record.tool_name === "world_building",
   );
   if (!generatedSetting) return null;
 
@@ -5176,12 +5457,43 @@ function findAu09AdoptSettingRecallEvidence(records) {
   );
   if (!adoptDone) return null;
 
+  const archiveLoaded = records.find(
+    (record) =>
+      record.event === "channel.get_foreshadowing.done" && Number(record.item_count ?? 0) >= 1,
+  );
+  if (!archiveLoaded) return null;
+  const rulesLoaded = records.find(
+    (record) => record.event === "channel.get_rules.done" && Number(record.rule_count ?? 0) >= 1,
+  );
+  if (!rulesLoaded) return null;
+  if (uiState.archive_visible_after_adoption !== true) return null;
+  if (Number(uiState.archive_foreshadowing_count_after_adoption ?? 0) < 1) return null;
+  if (Number(uiState.archive_rule_count_after_adoption ?? 0) < 1) return null;
+  if (uiState.archive_text_matched_adopted_setting !== true) return null;
+  if (uiState.archive_text_matched_adopted_rule !== true) return null;
+  if (uiState.setting_artifact_type !== "foreshadowing_seed") return null;
+  if (
+    !["world_rule_seed", "style_rule_seed", "constraint_seed"].includes(
+      uiState.rule_setting_artifact_type,
+    )
+  ) {
+    return null;
+  }
+
   return {
     slice_id: sliceId,
     turn_id: recallTurnId,
     turn_ids: [recallTurnId],
     setting_chunk: uiState.setting_chunk,
     setting_artifact_id: uiState.setting_artifact_id,
+    setting_artifact_type: uiState.setting_artifact_type,
+    tool_name: "world_building",
+    archive_tab_checked: uiState.archive_tab_checked,
+    archive_foreshadowing_count_after_adoption: uiState.archive_foreshadowing_count_after_adoption,
+    archive_rule_count_after_adoption: uiState.archive_rule_count_after_adoption,
+    rule_setting_artifact_id: uiState.rule_setting_artifact_id,
+    rule_setting_artifact_type: uiState.rule_setting_artifact_type,
+    rule_setting_chunk: uiState.rule_setting_chunk,
     key_events: keyEvents,
   };
 }
@@ -5195,6 +5507,11 @@ function au09AdoptSettingRecallBehavior(turnIds, _turnRecords, records, evidence
   if (!uiState) return null;
   if (uiState.setting_adopted !== true) return null;
   if (uiState.why_shows_memory_source !== true) return null;
+  if (uiState.archive_visible_after_adoption !== true) return null;
+  if (Number(uiState.archive_foreshadowing_count_after_adoption ?? 0) < 1) return null;
+  if (Number(uiState.archive_rule_count_after_adoption ?? 0) < 1) return null;
+  if (uiState.archive_text_matched_adopted_setting !== true) return null;
+  if (uiState.archive_text_matched_adopted_rule !== true) return null;
 
   // lmstudio：证明被采纳的设定内容真正进入召回轮的 LLM prompt。
   if (options.provider === "lmstudio") {
@@ -5213,10 +5530,19 @@ function au09AdoptSettingRecallBehavior(turnIds, _turnRecords, records, evidence
     slice_id: "au09-adopt-setting-recall",
     behavior: "adopted_ai_setting_becomes_governed_memory_and_recalls",
     turn_ids: turnIds,
+    setting_artifact_type: uiState.setting_artifact_type,
+    tool_name: "world_building",
     setting_chunk: uiState.setting_chunk,
+    archive_tab_checked: uiState.archive_tab_checked,
+    archive_foreshadowing_count_after_adoption: uiState.archive_foreshadowing_count_after_adoption,
+    archive_rule_count_after_adoption: uiState.archive_rule_count_after_adoption,
+    rule_setting_artifact_type: uiState.rule_setting_artifact_type,
+    rule_setting_chunk: uiState.rule_setting_chunk,
     assertions: [
       "ai_generated_a_setting_artifact_from_real_workbench",
       "author_adopted_setting_into_confirmed_recallable_governed_memory",
+      "adopted_setting_visible_in_foreshadowing_archive_tab_after_reopen",
+      "adopted_rule_visible_in_rules_archive_tab_after_reopen",
       "adopted_setting_recalled_into_later_turn_context",
       "why_panel_shows_confirmed_memory_as_author_safe_source",
       options.provider === "lmstudio"
@@ -5415,6 +5741,404 @@ function au09ValidityWindowRecallBehavior(turnIds, _turnRecords, records, eviden
       options.provider === "lmstudio"
         ? "lmstudio_prompt_included_in_window_excluded_out_of_window"
         : "deterministic_why_panel_reflected_window_filtering",
+    ],
+  };
+}
+
+function findAu09CrossWorkMemoryIsolationEvidence(records) {
+  const sliceId = "au09-cross-work-memory-isolation";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.switched_through_foreign_work === true &&
+      record.archive_current_only === true &&
+      record.memory_page_current_only === true &&
+      record.context_includes_current_work_memory === true &&
+      record.context_excludes_foreign_work_memory === true &&
+      record.why_shows_current_work_memory === true &&
+      record.why_excludes_foreign_work_memory === true,
+  );
+  if (!uiState) return null;
+
+  const recallTurnId = String(uiState.recall_turn_id ?? "");
+  const currentWorkId = String(uiState.current_work_id ?? uiState.work_id ?? "");
+  const foreignWorkId = String(uiState.foreign_work_id ?? "");
+  if (!recallTurnId || !currentWorkId || !foreignWorkId || currentWorkId === foreignWorkId) {
+    return null;
+  }
+
+  const joinedWorkIds = new Set(
+    records
+      .filter((record) => record.event === "channel.join.done" && record.work_id)
+      .map((record) => String(record.work_id)),
+  );
+  if (!joinedWorkIds.has(currentWorkId) || !joinedWorkIds.has(foreignWorkId)) return null;
+
+  const contextDone = records.find(
+    (record) =>
+      record.turn_id === recallTurnId &&
+      record.event === "context.assemble.done" &&
+      record.work_id === currentWorkId &&
+      record.has_memory === true,
+  );
+  if (!contextDone) return null;
+
+  const userDone = records.find(
+    (record) =>
+      record.turn_id === recallTurnId &&
+      record.event === "channel.user_message.done" &&
+      record.work_id === currentWorkId,
+  );
+  if (!userDone) return null;
+
+  const archiveLoaded = records.find(
+    (record) =>
+      record.event === "channel.get_foreshadowing.done" &&
+      record.work_id === currentWorkId &&
+      Number(record.item_count ?? 0) >= 1,
+  );
+  if (!archiveLoaded) return null;
+
+  const rulesLoaded = records.find(
+    (record) =>
+      record.event === "channel.get_rules.done" &&
+      record.work_id === currentWorkId &&
+      Number(record.rule_count ?? 0) >= 1,
+  );
+  if (!rulesLoaded) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: recallTurnId,
+    turn_ids: [recallTurnId],
+    work_id: currentWorkId,
+    current_work_id: currentWorkId,
+    foreign_work_id: foreignWorkId,
+    joined_work_count: joinedWorkIds.size,
+    current_memory_nonce: uiState.current_memory_nonce,
+    foreign_memory_nonce: uiState.foreign_memory_nonce,
+    key_events: keyEvents,
+  };
+}
+
+function au09CrossWorkMemoryIsolationBehavior(turnIds, _turnRecords, records, evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-cross-work-memory-isolation",
+  );
+  if (!uiState) return null;
+  if (uiState.archive_current_only !== true) return null;
+  if (uiState.memory_page_current_only !== true) return null;
+  if (uiState.context_includes_current_work_memory !== true) return null;
+  if (uiState.context_excludes_foreign_work_memory !== true) return null;
+  if (uiState.why_excludes_foreign_work_memory !== true) return null;
+  if (String(uiState.current_work_id ?? "") !== evidence.current_work_id) return null;
+  if (String(uiState.foreign_work_id ?? "") !== evidence.foreign_work_id) return null;
+
+  if (options.provider === "lmstudio") {
+    const promptRecords = (options.llmRecords ?? []).filter(
+      (record) => record.turn_id === evidence.turn_id,
+    );
+    const promptText = promptRecords
+      .map((record) => JSON.stringify(record.request?.body ?? ""))
+      .join("\n");
+    if (!promptText.includes("只属于乙作品")) return null;
+    if (promptText.includes("只属于甲作品")) return null;
+  }
+
+  return {
+    slice_id: "au09-cross-work-memory-isolation",
+    behavior: "current_work_archive_memory_recall_and_why_exclude_foreign_work_memory",
+    turn_ids: turnIds,
+    work_id: evidence.current_work_id,
+    foreign_work_id: evidence.foreign_work_id,
+    current_memory_nonce: evidence.current_memory_nonce,
+    foreign_memory_nonce: evidence.foreign_memory_nonce,
+    assertions: [
+      "author_switched_between_two_real_works",
+      "archive_foreshadowing_and_rule_tabs_showed_current_work_only",
+      "memory_management_table_showed_current_work_only",
+      "dialogue_input_matched_both_work_keywords",
+      "context_assembly_attached_current_work_memory_only",
+      "why_panel_showed_current_memory_source_without_foreign_work_summary",
+      options.provider === "lmstudio"
+        ? "lmstudio_prompt_included_current_summary_excluded_foreign_summary"
+        : "deterministic_context_excluded_foreign_work_memory",
+    ],
+  };
+}
+
+function findAu09Au03SessionMemoryLayeringEvidence(records) {
+  const sliceId = "au09-au03-session-memory-layering";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.readonly_session_transcript_visible === true &&
+      record.readonly_input_disabled === true &&
+      record.active_session_restored === true &&
+      record.context_has_current_work === true &&
+      record.context_has_session_transcript === true &&
+      record.context_has_memory === true &&
+      record.context_excludes_conversation_fallback === true &&
+      record.context_session_summary_includes_active === true &&
+      record.context_session_summary_excludes_history === true &&
+      record.context_memory_summary_includes_memory === true &&
+      record.context_memory_summary_excludes_history === true &&
+      record.why_shows_session_source === true &&
+      record.why_shows_memory_source === true &&
+      record.why_excludes_historical_transcript === true,
+  );
+  if (!uiState) return null;
+
+  const turnId = String(uiState.recall_turn_id ?? uiState.turn_id ?? "");
+  const workId = String(uiState.work_id ?? uiState.context_work_id ?? "");
+  const activeSessionId = String(uiState.session_id ?? uiState.active_session_id ?? "");
+  const readonlySessionId = String(uiState.readonly_session_id ?? "");
+  if (!turnId || !workId || !activeSessionId || !readonlySessionId) return null;
+  if (activeSessionId === readonlySessionId) return null;
+
+  const showDone = records.find(
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.work_id === workId &&
+      record.session_id === readonlySessionId &&
+      record.read_only === true,
+  );
+  if (!showDone) return null;
+
+  const contextDone = records.find(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === turnId &&
+      record.work_id === workId &&
+      record.session_id === activeSessionId &&
+      record.has_snapshot === true &&
+      record.has_conversation === true &&
+      record.has_memory === true,
+  );
+  if (!contextDone) return null;
+  if (Number(contextDone.context_refs_count ?? 0) < 3) return null;
+
+  const userDone = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.turn_id === turnId &&
+      record.work_id === workId &&
+      record.session_id === activeSessionId,
+  );
+  if (!userDone) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: workId,
+    session_id: activeSessionId,
+    readonly_session_id: readonlySessionId,
+    context_refs_count: Number(contextDone.context_refs_count ?? 0),
+    active_session_token: uiState.active_session_token,
+    memory_token: uiState.memory_token,
+    historical_session_token: uiState.historical_session_token,
+    key_events: keyEvents,
+  };
+}
+
+function au09Au03SessionMemoryLayeringBehavior(turnIds, _turnRecords, records, evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-au03-session-memory-layering",
+  );
+  if (!uiState) return null;
+  if (uiState.readonly_session_transcript_visible !== true) return null;
+  if (uiState.readonly_input_disabled !== true) return null;
+  if (uiState.active_session_restored !== true) return null;
+  if (uiState.context_has_current_work !== true) return null;
+  if (uiState.context_has_session_transcript !== true) return null;
+  if (uiState.context_has_memory !== true) return null;
+  if (uiState.context_excludes_conversation_fallback !== true) return null;
+  if (uiState.context_session_summary_includes_active !== true) return null;
+  if (uiState.context_session_summary_excludes_history !== true) return null;
+  if (uiState.context_memory_summary_includes_memory !== true) return null;
+  if (uiState.context_memory_summary_excludes_history !== true) return null;
+  if (uiState.why_shows_current_work_source !== true) return null;
+  if (uiState.why_shows_session_source !== true) return null;
+  if (uiState.why_shows_memory_source !== true) return null;
+  if (uiState.why_shows_active_session_summary !== true) return null;
+  if (uiState.why_shows_memory_summary !== true) return null;
+  if (uiState.why_excludes_historical_transcript !== true) return null;
+  if (uiState.trace_why_contains_raw_prompt === true) return null;
+  if (String(uiState.readonly_session_id ?? "") !== evidence.readonly_session_id) return null;
+
+  if (options.provider === "lmstudio") {
+    const promptRecords = (options.llmRecords ?? []).filter(
+      (record) => record.turn_id === evidence.turn_id,
+    );
+    const promptText = promptRecords
+      .map((record) => JSON.stringify(record.request?.body ?? ""))
+      .join("\n");
+    if (!promptText.includes(String(evidence.active_session_token ?? ""))) return null;
+    if (!promptText.includes(String(evidence.memory_token ?? ""))) return null;
+    if (promptText.includes(String(evidence.historical_session_token ?? ""))) return null;
+  }
+
+  return {
+    slice_id: "au09-au03-session-memory-layering",
+    behavior:
+      "active_session_transcript_current_work_and_governed_memory_are_layered_without_history_leak",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    readonly_session_id: evidence.readonly_session_id,
+    active_session_token: evidence.active_session_token,
+    memory_token: evidence.memory_token,
+    historical_session_token: evidence.historical_session_token,
+    assertions: [
+      "historical_session_opened_readonly_from_real_workbench",
+      "readonly_history_input_was_disabled",
+      "active_session_restored_before_author_message",
+      "context_refs_contain_current_work_session_transcript_and_memory",
+      "active_session_transcript_not_labelled_as_generic_conversation",
+      "historical_session_transcript_not_in_session_or_memory_sources",
+      "why_panel_separates_current_work_session_and_memory_sources",
+      options.provider === "lmstudio"
+        ? "lmstudio_prompt_included_active_session_and_memory_excluded_history"
+        : "deterministic_trace_refs_layered_session_and_memory_sources",
+    ],
+  };
+}
+
+function findAu11QualityDiagnosisMessageEnvelopeEvidence(records) {
+  const sliceId = "au11-quality-diagnosis-message-envelope";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.guidance_mode_quality === true &&
+      record.envelope_has_novel_layer === true &&
+      record.envelope_has_work_state === true &&
+      record.envelope_has_turn_guidance === true &&
+      record.novel_layer_has_quality_gates === true &&
+      record.work_state_has_current_work_source === true &&
+      record.work_state_chapter_summary_mentions_target === true &&
+      record.turn_guidance_focuses_quality === true &&
+      record.assistant_gives_concrete_tradeoff === true &&
+      record.no_tool_result === true &&
+      record.no_adoption_state === true &&
+      record.no_production_write === true &&
+      record.trace_why_dialog_open === true &&
+      record.trace_why_contains_raw_prompt !== true &&
+      record.why_shows_quality_diagnosis === true &&
+      record.why_shows_quality_focus === true &&
+      record.why_shows_current_work_source === true,
+  );
+  if (!uiState) return null;
+
+  const turnId = String(uiState.turn_id ?? "");
+  const workId = String(uiState.work_id ?? uiState.context_work_id ?? "");
+  const sessionId = String(uiState.session_id ?? uiState.active_session_id ?? "");
+  if (!turnId || !workId || !sessionId) return null;
+
+  const contextDone = records.find(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === turnId &&
+      record.work_id === workId &&
+      record.session_id === sessionId &&
+      record.has_snapshot === true,
+  );
+  if (!contextDone) return null;
+
+  const userDone = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.turn_id === turnId &&
+      record.work_id === workId &&
+      record.session_id === sessionId,
+  );
+  if (!userDone) return null;
+
+  const hasAllEvents = keyEvents.every((event) => {
+    if (event === "work_session.resume.done" || event === "channel.join.done") {
+      return records.some(
+        (record) =>
+          record.event === event && record.work_id === workId && record.session_id === sessionId,
+      );
+    }
+
+    return records.some(
+      (record) =>
+        record.event === event &&
+        record.turn_id === turnId &&
+        (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
+    );
+  });
+  if (!hasAllEvents) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: workId,
+    session_id: sessionId,
+    context_refs_count: Number(contextDone.context_refs_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function au11QualityDiagnosisMessageEnvelopeBehavior(turnIds, _turnRecords, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au11-quality-diagnosis-message-envelope",
+  );
+  if (!uiState) return null;
+  if (uiState.guidance_mode_quality !== true) return null;
+  if (uiState.envelope_has_novel_layer !== true) return null;
+  if (uiState.envelope_has_work_state !== true) return null;
+  if (uiState.envelope_has_turn_guidance !== true) return null;
+  if (uiState.novel_layer_has_quality_gates !== true) return null;
+  if (uiState.work_state_has_current_work_source !== true) return null;
+  if (uiState.work_state_chapter_summary_mentions_target !== true) return null;
+  if (uiState.turn_guidance_focuses_quality !== true) return null;
+  if (uiState.assistant_gives_concrete_tradeoff !== true) return null;
+  if (uiState.no_tool_result !== true) return null;
+  if (uiState.no_adoption_state !== true) return null;
+  if (uiState.no_production_write !== true) return null;
+  if (uiState.trace_why_dialog_open !== true) return null;
+  if (uiState.trace_why_contains_raw_prompt === true) return null;
+  if (uiState.why_shows_quality_diagnosis !== true) return null;
+  if (uiState.why_shows_quality_focus !== true) return null;
+  if (uiState.why_shows_current_work_source !== true) return null;
+  if (String(uiState.work_id ?? uiState.context_work_id ?? "") !== evidence.work_id) return null;
+  if (String(uiState.session_id ?? uiState.active_session_id ?? "") !== evidence.session_id) {
+    return null;
+  }
+
+  return {
+    slice_id: "au11-quality-diagnosis-message-envelope",
+    behavior: "quality_diagnosis_turn_records_vs00d_three_layer_envelope_without_write",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "message_sent_from_real_workbench",
+      "planner_prompt_and_trace_mark_guidance_mode_quality",
+      "novel_layer_records_quality_gates",
+      "work_state_layer_references_current_work_and_chapter_summary",
+      "turn_guidance_layer_records_quality_focus",
+      "assistant_response_contains_concrete_tradeoffs",
+      "why_panel_shows_quality_diagnosis_without_internal_trace_or_prompt",
+      "no_tool_no_adoption_no_production_write",
     ],
   };
 }
@@ -6273,7 +6997,11 @@ function contextSourceUiBehavior(records, evidence, options) {
   if (Number(contextDone.context_refs_count ?? 0) < 3) return null;
 
   const traceText = String(uiState.trace_why_text ?? "");
-  for (const expected of ["当前作品背景", "近期对话", "已确认设定", "灵源纪元", "灵源矿区"]) {
+  const hasSessionOrRecentDialogueSource =
+    traceText.includes("当前会话记录") || traceText.includes("近期对话");
+  if (!hasSessionOrRecentDialogueSource) return null;
+
+  for (const expected of ["当前作品背景", "已确认设定", "灵源纪元", "灵源矿区"]) {
     if (!traceText.includes(expected)) return null;
   }
 
@@ -6288,7 +7016,7 @@ function contextSourceUiBehavior(records, evidence, options) {
       "current_work_session_and_memory_context_attached",
       "why_entry_clicked_in_message_stream",
       "current_work_source_summary_visible",
-      "recent_dialogue_source_summary_visible",
+      "session_or_recent_dialogue_source_summary_visible",
       "confirmed_memory_source_summary_visible",
       "raw_prompt_provider_debug_not_visible",
       "planner_received_context_before_frame",

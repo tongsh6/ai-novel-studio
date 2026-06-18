@@ -1027,6 +1027,16 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp candidate_type("plot_direction"), do: :direction
   defp candidate_type(:character_seed), do: :setting
   defp candidate_type("character_seed"), do: :setting
+  defp candidate_type(:world_setting), do: :setting
+  defp candidate_type("world_setting"), do: :setting
+  defp candidate_type(:foreshadowing_seed), do: :setting
+  defp candidate_type("foreshadowing_seed"), do: :setting
+  defp candidate_type(:world_rule_seed), do: :setting
+  defp candidate_type("world_rule_seed"), do: :setting
+  defp candidate_type(:style_rule_seed), do: :setting
+  defp candidate_type("style_rule_seed"), do: :setting
+  defp candidate_type(:constraint_seed), do: :setting
+  defp candidate_type("constraint_seed"), do: :setting
   defp candidate_type(:outline_draft), do: :outline
   defp candidate_type("outline_draft"), do: :outline
   defp candidate_type(_), do: :draft_fragment

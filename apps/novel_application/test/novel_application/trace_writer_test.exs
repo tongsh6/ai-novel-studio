@@ -44,6 +44,41 @@ defmodule NovelApplication.TraceWriterTest do
 
       refute TraceRedactor.unsafe?(summary)
     end
+
+    test "projects quality diagnosis envelope into trace summary" do
+      envelope = %{
+        contract_version: "VS-00D-draft",
+        turn_guidance_layer: %{
+          guidance_mode: :quality,
+          element_focus: ["conflict_pressure", "cost_visibility"],
+          output_contract: "quality_diagnosis_with_structural_revision_options_no_write"
+        },
+        novel_layer: %{
+          quality_gates: ["conflict_pressure", "cost_visibility"]
+        },
+        work_state_layer: %{
+          context_refs: [%{source_type: :current_work, summary: "灵源纪元"}]
+        }
+      }
+
+      {_trace, summary} =
+        %{
+          frame()
+          | evidence_summary: %{
+              guidance_mode: :quality,
+              ai_message_envelope: envelope
+            }
+        }
+        |> TraceWriter.record(%{turn_id: "turn-redact"}, nil)
+
+      assert summary.guidance_mode == :quality
+      assert summary.ai_message_envelope.turn_guidance_layer.guidance_mode == :quality
+
+      assert summary.ai_message_envelope.novel_layer.quality_gates == [
+               "conflict_pressure",
+               "cost_visibility"
+             ]
+    end
   end
 
   defp frame do

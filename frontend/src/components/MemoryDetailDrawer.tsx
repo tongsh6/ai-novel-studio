@@ -1,9 +1,11 @@
 // Design: N/A (memory management maintenance page — awaits design spec)
 // Prototype: N/A (Phase 0 memory management maintenance page has no frozen screen frame)
 // NOTE: 此组件为 Phase 0 快速验证产物，待 UI 设计阶段需重新对照原型实现
-import { useState } from "react";
-import type { MemoryItem } from "../lib/memoryApi";
+import { useCallback, useEffect, useState } from "react";
+import { MEMORY } from "../lib/copy";
+import type { MemoryItem, ReferenceLog } from "../lib/memoryApi";
 import {
+  getMemoryReferences,
   confirmMemory,
   lockMemory,
   unlockMemory,
@@ -44,6 +46,26 @@ const STATUS_CLASS: Record<string, string> = {
 
 export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) {
   const [loading, setLoading] = useState<string | null>(null);
+  const [references, setReferences] = useState<ReferenceLog[] | null>(null);
+
+  const loadReferences = useCallback(async () => {
+    const result = await getMemoryReferences(workId, item.id);
+    setReferences(result.ok && result.data ? result.data : []);
+  }, [item.id, workId]);
+
+  useEffect(() => {
+    let active = true;
+
+    void getMemoryReferences(workId, item.id).then((result) => {
+      if (active) {
+        setReferences(result.ok && result.data ? result.data : []);
+      }
+    });
+
+    return () => {
+      active = false;
+    };
+  }, [item.id, item.reference_count, item.updated_at, workId]);
 
   const action = async (
     fn: (w: string, id: string) => Promise<{ ok: boolean; data?: MemoryItem; error?: string }>,
@@ -52,6 +74,7 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
     const result = await fn(workId, item.id);
     if (result.ok && result.data) {
       onUpdated(result.data);
+      await loadReferences();
     }
     setLoading(null);
   };
@@ -138,6 +161,29 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
           </div>
         </section>
 
+        <section className={styles.section}>
+          <label>{MEMORY.traceTitle}</label>
+          {references === null ? (
+            <p className={styles.hint}>{MEMORY.traceLoading}</p>
+          ) : references.length === 0 ? (
+            <p className={styles.hint}>{MEMORY.traceEmpty}</p>
+          ) : (
+            <ol className={styles.traceList}>
+              {references.map((reference) => (
+                <li key={reference.id} className={styles.traceItem}>
+                  <div className={styles.traceMeta}>
+                    <span>{referenceSceneLabel(reference.reference_scene)}</span>
+                    <span>{reference.inserted_at}</span>
+                  </div>
+                  <p className={styles.traceReason}>
+                    {reference.reference_reason || MEMORY.traceNoReason}
+                  </p>
+                </li>
+              ))}
+            </ol>
+          )}
+        </section>
+
         <div className={styles.actions}>
           {item.status === "DRAFT" && (
             <button
@@ -197,4 +243,8 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
       </div>
     </div>
   );
+}
+
+function referenceSceneLabel(scene: string) {
+  return MEMORY.traceSceneLabels[scene as keyof typeof MEMORY.traceSceneLabels] ?? scene;
 }

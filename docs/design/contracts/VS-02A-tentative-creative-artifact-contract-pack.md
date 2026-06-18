@@ -39,7 +39,7 @@ TentativeArtifactSet 表示 AI 生成的待采纳创作材料。
 | 字段 / 语义 | 要求 |
 |---|---|
 | `artifact_set_id` | 可被 TurnResult / trace 引用 |
-| `artifact_type` | `character_seed` / `plot_direction` / `outline_draft` / `scene_draft` / `prose_fragment` / `world_setting` 之一；unknown 必须 validation failure |
+| `artifact_type` | `character_seed` / `plot_direction` / `outline_draft` / `scene_draft` / `prose_fragment` / `world_setting` / `foreshadowing_seed` / `world_rule_seed` / `style_rule_seed` / `constraint_seed` 之一；unknown 必须 validation failure |
 | `items` | 一个或多个草稿项 |
 | `source_turn_ref` | 引用当前 turn |
 | `source_tool_result_ref` | 引用生成它的 ToolResult |
@@ -81,7 +81,7 @@ TentativeArtifactSet 表示 AI 生成的待采纳创作材料。
 
 - production capabilities 只保留具体工具：`character_design`、`plot_outline`、`prose_writing`、`world_building`；泛化 creative capability `creative_generation` 已从 production registry 移除，不可 dispatch，也不得出现在 Planner 可用工具提示中。
 - `Toolbox` 只返回 `ToolResult`；`ArtifactAssembler` 是唯一 `ToolResult -> TentativeArtifactSet` 创建边界。
-- `ToolAdapter` 负责具体工具到 artifact_type 的 contract 映射：`character_design -> character_seed`、`plot_outline -> outline_draft`、`prose_writing -> prose_fragment`、`world_building -> world_setting`。
+- `ToolAdapter` 负责具体工具到 artifact_type 的 contract 映射：`character_design -> character_seed`、`plot_outline -> outline_draft`、`prose_writing -> prose_fragment`；`world_building` 保持工具能力名，但按作者意图输出 `world_setting` / `foreshadowing_seed` / `world_rule_seed` / `style_rule_seed` / `constraint_seed`，其中 `world_setting` 仅表示普通世界观/背景设定草稿，不承载伏笔或规则默认语义。
 - provider failure / invalid output 必须返回 failed `ToolResult`；不得生成 `TentativeArtifactSet`、candidate_set card 或采纳类 action。
 
 ---

@@ -201,6 +201,34 @@ defmodule NovelAgent.CreativeProvider.Real do
     """
   end
 
+  # world_building：作品档案中的世界设定 / 伏笔 / 规则草稿。
+  # 采纳后仍经 AU-09 memory governance；provider 只生成 tentative artifact。
+  defp build_prompt(%CreativeRequest{tool_name: "world_building"} = request) do
+    guidance = world_building_guidance(request.artifact_type)
+
+    """
+    你是小说设定与连续性设计助手。请基于作品上下文为作者生成可采纳的#{guidance.label}，并严格按 JSON 数组格式返回，不要附加任何额外文字。
+
+    本次草稿类型：#{request.artifact_type}
+
+    数组包含 1 个（必要时至多 2 个取向明显不同的）草稿候选，每个条目是 JSON 对象，必须包含以下键：
+    - "item_id"：你生成的短标识符（不含空格）
+    - "title"：#{guidance.title}
+    - "body"：#{guidance.body}
+      缺少上下文支撑的字段写“（待定）”，不要编造既有事实。
+    - "rationale"：一句话说明该草稿如何贴合作品背景、当前剧情或后续创作约束（或 null）
+
+    capability：#{request.tool_name}
+    artifact_type：#{request.artifact_type}
+    用户创作简述：#{request.creative_brief}
+    上下文：#{request.context_text}
+
+    重要：草稿必须基于上下文中的作品背景、世界观、设定、角色和已采纳内容。不要把 tentative 草稿说成已经生效。如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在至少一个条目的 title/body/rationale 中原样保留。
+
+    只返回 JSON 数组。
+    """
+  end
+
   defp build_prompt(%CreativeRequest{} = request) do
     """
     你是创作助手。请严格按 JSON 数组格式返回多个候选条目，不要附加任何额外文字。
@@ -221,6 +249,46 @@ defmodule NovelAgent.CreativeProvider.Real do
 
     只返回 JSON 数组。
     """
+  end
+
+  defp world_building_guidance(type) when type in [:foreshadowing_seed, "foreshadowing_seed"] do
+    %{
+      label: "伏笔草稿",
+      title: "伏笔标题，以“伏笔：”开头",
+      body: "结构化伏笔正文，逐行包含：伏笔线索 / 首次出现位置 / 推进方式 / 回收方式 / 风险与禁忌"
+    }
+  end
+
+  defp world_building_guidance(type) when type in [:world_rule_seed, "world_rule_seed"] do
+    %{
+      label: "世界规则草稿",
+      title: "世界规则标题，以“规则：”或“世界规则：”开头",
+      body: "结构化世界规则正文，逐行包含：世界规则 / 适用范围 / 例外条件 / 对人物选择的压力 / 与既有设定的关系"
+    }
+  end
+
+  defp world_building_guidance(type) when type in [:style_rule_seed, "style_rule_seed"] do
+    %{
+      label: "风格规则草稿",
+      title: "风格规则标题，以“风格规则：”开头",
+      body: "结构化风格规则正文，逐行包含：风格规则 / 适用文本范围 / 禁止事项 / 推荐写法 / 后续复核方式"
+    }
+  end
+
+  defp world_building_guidance(type) when type in [:constraint_seed, "constraint_seed"] do
+    %{
+      label: "创作约束草稿",
+      title: "约束标题，以“约束：”开头",
+      body: "结构化约束正文，逐行包含：约束内容 / 适用范围 / 禁止事项 / 例外条件 / 后续复核方式"
+    }
+  end
+
+  defp world_building_guidance(_type) do
+    %{
+      label: "世界设定草稿",
+      title: "世界设定标题，聚焦世界观、组织、地理、能力体系或背景设定",
+      body: "结构化世界设定正文，逐行包含：设定内容 / 适用范围 / 与既有设定的关系 / 对剧情的影响 / 待作者确认处"
+    }
   end
 
   defp parse_content(content, provider_call_ref) do

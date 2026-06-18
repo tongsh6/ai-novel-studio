@@ -144,4 +144,4 @@ CP2/CP3 是本 slice 完整闭环的计划内后果，不写"范围外"。
 - 2026-06-17：用户决策两项——① **排队位置**：登记到 `tasks/NEXT.md`，但排在当前 AU10 recovery 队首之后，不插队；
   ② **AU 归属**：作品档案立独立 AU = **AU-12**（新建 `docs/design/acceptance/author/AU-12-work-profile.md`），
   与 AU-09（故事设定记忆）边界互斥——立项元数据与档案查看面归 AU-12，故事记忆对象语义归 AU-09。
-- 2026-06-17：用户调整任务队列，先做 AU12。CP1 已闭环：新增 profile read model、Channel `get_work_profile`、StructurePanel「概览」tab 与外部 Tauri driver；证据 `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`。当前队首回到 AU10 recovery；AU12 后续保留 CP2 accepted-artifact 类立项要素与 CP3 correction 修订入口。
+- 2026-06-17：用户调整任务队列，先做 AU12。CP1 已闭环：新增 profile read model、Channel `get_work_profile`、StructurePanel「概览」tab 与外部 Tauri driver；证据 `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`。后续队首以 `tasks/NEXT.md` 为准；AU12 后续保留 CP2 accepted-artifact 类立项要素与 CP3 correction 修订入口。

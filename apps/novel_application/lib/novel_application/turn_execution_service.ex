@@ -804,6 +804,23 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _complete_fn)
+       when type in [:foreshadowing_seed, "foreshadowing_seed"] do
+    "已生成伏笔草稿。请先审阅，保存后会进入作品档案的伏笔；未保存前不会写入作品事实。"
+  end
+
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _complete_fn)
+       when type in [
+              :world_rule_seed,
+              "world_rule_seed",
+              :style_rule_seed,
+              "style_rule_seed",
+              :constraint_seed,
+              "constraint_seed"
+            ] do
+    "已生成规则草稿。请先审阅，保存后会进入作品档案的经验规则；未保存前不会写入作品事实。"
+  end
+
+  defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: type}, _complete_fn)
        when type in [:world_setting, "world_setting"] do
     "已生成世界设定草稿。请先审阅，保存后会进入作品档案；未保存前不会写入作品事实。"
   end

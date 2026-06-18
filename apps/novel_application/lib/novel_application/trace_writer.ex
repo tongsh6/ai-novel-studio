@@ -33,15 +33,17 @@ defmodule NovelApplication.TraceWriter do
       event_order: build_event_order(context)
     }
 
-    summary = %{
-      trace_ref: trace_id,
-      decision_type: trace.decision_type,
-      frame_type: frame.frame_type,
-      dialogue_goal: frame.dialogue_goal.summary,
-      no_tool_reason: trace.no_tool_reason,
-      context_refs: format_context_refs(context_refs),
-      has_context: context != nil and DialogueContext.has_context?(context)
-    }
+    summary =
+      %{
+        trace_ref: trace_id,
+        decision_type: trace.decision_type,
+        frame_type: frame.frame_type,
+        dialogue_goal: frame.dialogue_goal.summary,
+        no_tool_reason: trace.no_tool_reason,
+        context_refs: format_context_refs(context_refs),
+        has_context: context != nil and DialogueContext.has_context?(context)
+      }
+      |> maybe_put_ai_message_envelope(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
@@ -87,18 +89,20 @@ defmodule NovelApplication.TraceWriter do
       ]
     }
 
-    summary = %{
-      trace_ref: trace_id,
-      decision_type: trace.decision_type,
-      frame_type: frame.frame_type,
-      dialogue_goal: frame.dialogue_goal.summary,
-      plan_goal: plan.plan_goal.summary,
-      plan_actions: length(plan.proposed_actions),
-      orchestrator_decision: decision.decision_type,
-      first_blocking_gate: decision.first_blocking_gate,
-      reason_codes: decision.reason_codes,
-      context_refs: format_context_refs(context_refs)
-    }
+    summary =
+      %{
+        trace_ref: trace_id,
+        decision_type: trace.decision_type,
+        frame_type: frame.frame_type,
+        dialogue_goal: frame.dialogue_goal.summary,
+        plan_goal: plan.plan_goal.summary,
+        plan_actions: length(plan.proposed_actions),
+        orchestrator_decision: decision.decision_type,
+        first_blocking_gate: decision.first_blocking_gate,
+        reason_codes: decision.reason_codes,
+        context_refs: format_context_refs(context_refs)
+      }
+      |> maybe_put_ai_message_envelope(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
@@ -163,6 +167,7 @@ defmodule NovelApplication.TraceWriter do
         context_refs: format_context_refs(context_refs)
       }
       |> maybe_put_omissions(turn_result)
+      |> maybe_put_ai_message_envelope(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
   end
@@ -177,6 +182,17 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp maybe_put_omissions(summary, _turn_result), do: summary
+
+  defp maybe_put_ai_message_envelope(summary, %DialogueFrame{
+         evidence_summary: %{ai_message_envelope: envelope}
+       })
+       when is_map(envelope) do
+    summary
+    |> Map.put(:guidance_mode, get_in(envelope, [:turn_guidance_layer, :guidance_mode]))
+    |> Map.put(:ai_message_envelope, envelope)
+  end
+
+  defp maybe_put_ai_message_envelope(summary, _frame), do: summary
 
   @doc "Record recovery trace when plan generation fails."
   @spec record_recovery(DialogueFrame.t(), map(), DialogueContext.t() | nil) ::

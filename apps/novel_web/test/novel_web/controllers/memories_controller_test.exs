@@ -61,6 +61,15 @@ defmodule NovelWeb.MemoriesControllerTest do
     assert json_response(conn, 200)["data"]["locked"] == true
 
     conn = post(build_conn(), "/api/works/#{work.id}/memories/#{memory.id}/deprecate")
+    body = json_response(conn, 422)
+    assert body["ok"] == false
+    assert body["error"] == "validation_failed"
+    assert %{"status" => [_ | _]} = body["errors"]
+
+    conn = post(build_conn(), "/api/works/#{work.id}/memories/#{memory.id}/unlock")
+    assert json_response(conn, 200)["data"]["locked"] == false
+
+    conn = post(build_conn(), "/api/works/#{work.id}/memories/#{memory.id}/deprecate")
     body = json_response(conn, 200)
     assert body["data"]["status"] == MemoryStatus.deprecated()
     assert body["data"]["locked"] == false
@@ -117,7 +126,7 @@ defmodule NovelWeb.MemoriesControllerTest do
 
     conn = get(build_conn(), "/api/works/#{work.id}/memories/#{memory.id}/references")
     body = json_response(conn, 200)
-    assert [%{"reference_reason" => "作者询问矿区动机"}] = body["data"]
+    assert Enum.any?(body["data"], &(&1["reference_reason"] == "作者询问矿区动机"))
   end
 
   test "missing work returns frontend-compatible error shape", %{conn: conn} do
