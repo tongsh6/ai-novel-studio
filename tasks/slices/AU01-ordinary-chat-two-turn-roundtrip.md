@@ -55,4 +55,4 @@
 
 ## 7. 试行反馈
 
-- AU-01 是广义能力，不应因普通聊天 checkpoint 通过而整体标 done。异常降级、空消息作者提示、乱码 JSON 和 frame 校验失败仍应作为后续矩阵处理。
+- AU-01 是广义能力，不应因普通聊天 checkpoint 通过而整体标 done。空消息真实页面 guard 已由 `AU01-empty-message-guard.md` 关闭；异常降级、乱码 JSON 和 frame 校验失败仍应作为后续矩阵处理。

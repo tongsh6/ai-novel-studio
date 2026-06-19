@@ -15,6 +15,8 @@
 > 2026-06-19 对账结论：`su01-provider-endpoint-validation` 已补 `SC-SU01-B3` 的 endpoint URL 校验 checkpoint。`Gateway.configure_provider/1`、`Gateway.test_provider/1`、`Gateway.provider_models/1` 均拒绝非绝对 `http(s)` URL，`ProviderController` 对 config/models/test 三个入口返回 422 和用户可读原因；`WorkspaceChat` 模型设置 Dialog 在输入非法 endpoint 时显示“端点必须是完整的 http(s) URL。”并禁用刷新模型、测试连接、保存切换。外部 Tauri driver 从真实工作台打开模型设置、选择 LM Studio、输入 `localhost:1234/v1`，证明错误可见且没有携带该非法 endpoint 的 `/api/provider/models` 请求。该证据只关闭 URL 校验 checkpoint，不代表供应商实时模型列表成功矩阵、云端 Keychain 端到端或跨平台 secret 策略完成。
 >
 > 2026-06-19 对账结论：`su01-api-key-secret-redaction` 已补 `SC-SU01-B2/C3` 的 secret redaction checkpoint。外部 driver 从真实工作台打开模型设置、选择 DeepSeek、输入 fake API Key，经生产 DeepSeek adapter 的 harnessed HTTP boundary 拉取模型列表并测试连接，保存后证明 provider options 只返回 `api_key_configured=true` 而不回传 secret，浏览器 fallback settings、可见 UI、业务 JSONL 和 Phoenix backend log 都不包含该 fake Key。本 checkpoint 只证明 API Key 配置流的脱敏边界和日志过滤；当前 driver 驱动的是 browser-side workbench，不是 Tauri WebView，因此不证明 macOS Keychain 写入/读回，也不关闭跨平台 secret 策略。
+>
+> 2026-06-19 对账结论：`su01-provider-model-list-success` 已补 `SC-SU01-B3` 的供应商实时模型列表成功 checkpoint。外部 driver 从真实工作台打开模型设置，DeepSeek / Anthropic 经生产 adapter 的 harnessed HTTP boundary 拉取模型列表，LM Studio 经外部 driver 启动的 OpenAI-compatible `/v1/models` endpoint 拉取模型列表，并证明三类 provider 返回的模型都能在可见 Dialog 中选择。该证据证明 UI → ProviderController → Gateway → adapter models boundary 的成功管线，不证明 live vendor 账号可用，也不关闭云端/本地失败矩阵、Keychain WebView 或跨平台 secret 策略。
 
 ---
 
@@ -142,9 +144,9 @@
 | 用户视角 | 我可以把 LM Studio endpoint 指向本地 `localhost:1234/v1` 或自定义端点，并从供应商当前可用模型中选择 |
 | 期望结果 | 每个 provider 有独立 endpoint；模型列表来自供应商实时 API，不手输、不前端写死；非法 URL 有校验 |
 | 当前证据 | `POST /api/provider/models` 经 Gateway 调 DeepSeek `/models`、Anthropic `/v1/models`、LM Studio `/v1/models`；设置弹窗在 endpoint/API Key 之后刷新并选择模型；真实 provider 未加载到模型列表时禁用保存 |
-| 当前证据补充 | `su01-provider-endpoint-validation` 已从真实 Tauri 工作台证明非法 endpoint 可见报错、刷新/测试/保存禁用，且不会触发携带非法 endpoint 的 provider models 请求 |
-| 当前状态 | 局部真实 Tauri checkpoint 已补；实时模型列表成功矩阵未闭环 |
-| 缺口类型 | 补真实 provider 模型列表成功矩阵 + 补云端/本地失败矩阵 |
+| 当前证据补充 | `su01-provider-endpoint-validation` 已从真实 Tauri 工作台证明非法 endpoint 可见报错、刷新/测试/保存禁用，且不会触发携带非法 endpoint 的 provider models 请求；`su01-provider-model-list-success` 已证明 DeepSeek / Anthropic / LM Studio 三类 provider 模型列表成功返回后可在 Dialog 中选择 |
+| 当前状态 | 模型列表成功矩阵与非法 endpoint 校验最小 checkpoint 已补；live vendor 和失败矩阵未闭环 |
+| 缺口类型 | 补 live vendor / 云端本地失败矩阵 |
 | 优先级 | P1 |
 
 #### SC-SU01-B4 — 手动测试连接
@@ -204,13 +206,13 @@
 | SC-SU01-A3 | LM Studio 未启动提示明确 | 最小真实 Tauri 闭环已补 | `LMStudio.health_check/1` 文案映射 + `su01-lmstudio-disconnected-health` | 补完整异常矩阵 |
 | SC-SU01-B1 | 选择不同 provider | 已有最小真实 Tauri 验收 | options API + 工作台设置 Dialog + `su01-model-provider-switching` | 补 DeepSeek/LM Studio 矩阵 |
 | SC-SU01-B2 | 配置 API Key | 局部 redaction checkpoint 已补；Keychain WebView 端到端未闭环 | Tauri Keychain + secret 不回传测试 + `su01-api-key-secret-redaction` | 补真实 Tauri WebView Keychain 验收/跨平台策略 |
-| SC-SU01-B3 | 配置 endpoint/model | 局部真实 Tauri checkpoint 已补 | 运行时 config API + 实时模型列表 API + UI 选择器 + `su01-provider-endpoint-validation` | 补真实 provider 模型列表成功矩阵和失败矩阵 |
+| SC-SU01-B3 | 配置 endpoint/model | 模型列表成功矩阵与非法 endpoint 校验最小 checkpoint 已补 | 运行时 config API + 实时模型列表 API + UI 选择器 + `su01-provider-endpoint-validation` + `su01-provider-model-list-success` | 补 live vendor / 云端本地失败矩阵 |
 | SC-SU01-B4 | 手动测试连接 | 已有最小真实 Tauri 验收 | test API + UI 按钮 + `su01-model-provider-switching` | 补失败态 UI 验收 |
 | SC-SU01-C1 | 切换后下一轮用新 provider | 已有最小真实 Tauri 验收 | Gateway runtime routing 测试 + `provider_gateway.complete.done provider=stub` | 补 DeepSeek/LM Studio 矩阵 |
 | SC-SU01-C2 | 切换不丢对话 | 已有最小真实 Tauri 验收 | `su01-model-provider-switching` 断言切换后消息仍可见 | 补长会话/历史消息矩阵 |
 | SC-SU01-C3 | 配置安全存储 | 局部 redaction checkpoint 已补；Keychain WebView 端到端未闭环 | profile-scoped app config + profile-scoped macOS Keychain + runtime in-memory + `su01-api-key-secret-redaction` | 补真实 Tauri WebView Keychain 验收/跨平台策略 |
 
-**场景化覆盖判断：7/10 已有最小真实 Tauri 证据（A1/A2/A3/B1/B4/C1/C2），B2/C3 已补 secret redaction checkpoint，B3 已补非法 endpoint 校验 checkpoint；这些 checkpoint 不计完整场景闭环，3/10 仍缺真实桌面矩阵（B2/B3/C3）。**
+**场景化覆盖判断：7/10 已有最小真实 Tauri 证据（A1/A2/A3/B1/B4/C1/C2），B2/C3 已补 secret redaction checkpoint，B3 已补非法 endpoint 校验与模型列表成功矩阵 checkpoint；这些 checkpoint 不计完整场景闭环，3/10 仍缺完整真实桌面矩阵（B2/B3/C3）。**
 
 解释：这已经超过“最小可用闭环”：作者入口、后端运行时切换、桌面存储边界、provider/model 审计日志、局部测试和 Stub 切换真实页面验收都已落地。但 SU-01 的全量完成还必须覆盖云端 Key、endpoint 错误、LM Studio 断开、DeepSeek thinking 参数、Keychain 端到端和跨平台 secret 策略。
 
@@ -225,7 +227,7 @@
 | SU01-GAP-03 | provider registry 未暴露 | 已补：`GET /api/provider/options` 返回可选 provider 且不含 secret | 保持 Web/controller/client 测试；补真实页面验收 | P1 |
 | SU01-GAP-04 | 运行时 provider 选择缺失 | 已补：`RuntimeConfig` + `configure_provider` + `Gateway.complete` runtime routing | 补真实页面下一轮 provider 证据 | P0 |
 | SU01-GAP-05 | API Key 安全存储缺设计 | 已补：Tauri app config 保存非 secret 偏好，macOS Keychain 保存 Key，二者按 desktop profile 隔离；后端进程内 runtime；`su01-api-key-secret-redaction` 已证明 fake Key 不进入 options/browser fallback/UI/业务日志/backend log | 补真实 Tauri WebView Keychain 验收；决定非 macOS secret 策略 | P0 |
-| SU01-GAP-06 | endpoint/model UI 缺失 | 已补：模型设置 Dialog 支持 endpoint，并通过供应商实时模型列表选择 model；保存失败的 Tauri payload 命名根因已修；非法 endpoint 校验已由 `su01-provider-endpoint-validation` 证明 | 补真实 provider 模型列表成功矩阵和失败矩阵 | P1 |
+| SU01-GAP-06 | endpoint/model UI 缺失 | 已补：模型设置 Dialog 支持 endpoint，并通过供应商实时模型列表选择 model；保存失败的 Tauri payload 命名根因已修；非法 endpoint 校验已由 `su01-provider-endpoint-validation` 证明；模型列表成功矩阵已由 `su01-provider-model-list-success` 证明 | 补 live vendor / 云端本地失败矩阵 | P1 |
 | SU01-GAP-07 | 切换后 trace/log 不标 provider | 已补：`provider_gateway.complete.start/done/error` 记录 provider/model/duration/error，不含 prompt/secret | 保持 Gateway 日志测试和 `su01-model-provider-switching` 验收 | P1 |
 | SU01-GAP-08 | 缺完整模型切换 Tauri driver | 已补：`su01-model-provider-switching` 覆盖设置、测试连接、保存、下一轮调用和对话保留 | 后续扩展 DeepSeek/LM Studio/API Key/endpoint 失败矩阵 | P0 |
 
@@ -270,7 +272,8 @@ SU-01 完整版必须同时满足：
 | 7 | 已完成：供应商实时模型列表 | `POST /api/provider/models` + 工作台模型选择器 | Gateway/Web/frontend/Rust 局部测试 |
 | 8 | 已完成：LM Studio 断开态最小闭环 | 不可达 LM Studio endpoint -> health disconnected -> 工作台可见 `模型未连接` 和“LM Studio 未启动”原因 | `su01-lmstudio-disconnected-health` |
 | 9 | 已完成：API Key redaction checkpoint | DeepSeek API Key 配置流中 fake Key 不进入 options/browser fallback/UI/业务日志/backend log | `su01-api-key-secret-redaction` |
-| 10 | 下一步：异常矩阵 | Keychain WebView 写读、Key 缺失、endpoint 错误、真实 LM Studio 启停、test connection 失败 | UI 自动化 + controller/client test |
+| 10 | 已完成：模型列表成功矩阵 | DeepSeek / Anthropic / LM Studio provider models 成功路径可在真实设置 Dialog 选择模型 | `su01-provider-model-list-success` |
+| 11 | 下一步：异常矩阵 | Keychain WebView 写读、Key 缺失、endpoint 错误、真实 LM Studio 启停、test connection 失败 | UI 自动化 + controller/client test |
 
 ---
 
@@ -284,6 +287,7 @@ cd frontend && pnpm test -- --run src/lib/__tests__/modelProvider.test.ts
 cd frontend/src-tauri && cargo test decodes_model_provider_settings_from_frontend_camel_case_payload
 bash scripts/tauri_slice_verify.sh su01-model-provider-switching
 bash scripts/tauri_slice_verify.sh su01-lmstudio-disconnected-health
+bash scripts/tauri_slice_verify.sh su01-provider-model-list-success
 bash scripts/tauri_slice_verify.sh su01-api-key-secret-redaction
 
 # 本地手动验证：需 Phoenix/Tauri 服务运行

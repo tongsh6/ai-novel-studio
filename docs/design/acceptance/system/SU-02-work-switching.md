@@ -4,7 +4,7 @@
 >
 > 2026-05-12 对账结论：VS-09 已推进 Work CRUD、启动时选择/创建 work、Channel `work_id` 透传；但“运行时作品切换 + 上下文隔离 + pending 请求隔离 + UI 验收”尚未闭环。不能再按旧文档判断为“仅 mock”，也不能把已有 CRUD 误判为完整作品切换。
 >
-> 2026-06-19 当前 checkout 复核：`WorkspaceChat` 已提供真实作品菜单、快速新建未命名作品、运行时切换、旧 channel leave / 新 `workspace:{work_id}` join，并用 `{token, workId}` 过滤旧连接迟到事件；`su02-work-switching` 外部 Tauri 验收可复跑，证明作者从真实工作台在作品 A 发送消息后，通过可见作品菜单创建/切换到作品 B，UI 上下文与新 channel work_id 一致，且 B 的消息流不显示 A 的消息。同日新增 `su02-work-lifecycle-management` 外部 Tauri 验收，证明作者可从真实作品菜单命名新增作品、重命名当前作品、经二次确认安全移出当前作品，并验证默认列表不再展示已移出作品。上述证据关闭运行时切换和作品生命周期最小闭环，但不等于 SU-02 全量完成：完整跨作品上下文/记忆/产物矩阵、真实迟到 LLM 结果落回原作品、重启恢复和不可用作品 UX 仍需后续场景覆盖。
+> 2026-06-19 当前 checkout 复核：`WorkspaceChat` 已提供真实作品菜单、快速新建未命名作品、运行时切换、旧 channel leave / 新 `workspace:{work_id}` join，并用 `{token, workId}` 过滤旧连接迟到事件；`su02-work-switching` 外部 Tauri 验收可复跑，证明作者从真实工作台在作品 A 发送消息后，通过可见作品菜单创建/切换到作品 B，UI 上下文与新 channel work_id 一致，且 B 的消息流不显示 A 的消息。同日新增 `su02-work-lifecycle-management` 外部 Tauri 验收，证明作者可从真实作品菜单命名新增作品、重命名当前作品、经二次确认安全移出当前作品，并验证默认列表不再展示已移出作品。`su02-work-restart-recovery` 进一步证明 reload 后会恢复仍存在的 lastOpened 作品；当 lastOpened 指向已安全移出的 `DISCARDED` Work 时，工作台回退到真实可用 Work、重新 join 对应 Channel，并替换 stale preference。上述证据关闭运行时切换、作品生命周期和重启恢复最小闭环，但不等于 SU-02 全量完成：完整跨作品上下文/记忆/产物矩阵、真实迟到 LLM 结果落回原作品、后端不可用 UX 和恢复/归档管理入口仍需后续场景覆盖。
 
 ---
 
@@ -47,8 +47,8 @@
 | `NovelApplication.WorkService` | Work list/create/get/mark_opened 用例层 | 已实现并有 application 测试 |
 | `NovelWeb.WorksController` | `GET /api/works`、`POST /api/works`、`GET /api/works/:id` | 已实现，web 层未直接访问 Repo |
 | Work lifecycle API | `PATCH /api/works/:id` 重命名；`POST /api/works/:id/discard` 安全移出作品 | 已实现，经 `NovelWeb.WorksController` → `NovelApplication.WorkService` → `NovelPersistence.WorkRepo`；重命名使用 `revision` 冲突保护，删除首版采用 `DISCARDED` 安全移出而非物理删除 |
-| `frontend/src/lib/works.ts` | 前端 Work API 客户端、lastOpened 选择逻辑 | 已实现，`pickInitialWorkId` 有单测；lastOpened 仍用 `localStorage` |
-| `WorkspaceChat.tsx` 作品运行时 | 启动时 list works、选择 lastOpened/最新、无作品则创建“未命名作品”；作品菜单支持刷新、选择已有作品、快速创建未命名作品、命名新增、重命名和安全移出；`openWork` 关闭旧 socket/channel、重置 work-scoped runtime、恢复目标作品 session 并 join 新 channel | 已有运行时切换和作品生命周期最小真实 Tauri 证据；完整跨作品上下文/产物/pending/restart 矩阵仍缺 |
+| `frontend/src/lib/works.ts` | 前端 Work API 客户端、lastOpened 选择逻辑 | 已实现，`pickInitialWorkId` 有单测；Tauri 下 lastOpened 走 app config preference command，浏览器 fallback 才使用 `localStorage`；`lobby` 不会持久化 |
+| `WorkspaceChat.tsx` 作品运行时 | 启动时 list works、选择 lastOpened/最新、无作品则创建“未命名作品”；作品菜单支持刷新、选择已有作品、快速创建未命名作品、命名新增、重命名和安全移出；`openWork` 关闭旧 socket/channel、重置 work-scoped runtime、恢复目标作品 session 并 join 新 channel | 已有运行时切换、作品生命周期和重启恢复最小真实 Tauri 证据；完整跨作品上下文/产物/pending 矩阵仍缺 |
 | `WorkspaceChannel.join/3` | 从 topic/payload 注入 `workspace_id` 和 `work_id`，best-effort `mark_opened` | 已实现；join 任意 workspace 有测试 |
 | `socket.ts` / socket tests | 前端发送消息和工具请求携带 `work_id` | 部分测试覆盖；历史 `历史旁路 socket helper` 旁路已退役删除 |
 | `docs/project-ledger.md` | VS-09 / GAP-WT-02 / GAP-AC-P0-5 当前状态 | 台账确认 CRUD 与 work_id pass-through 已推进，切换 UI/隔离 E2E 未闭环 |
@@ -303,9 +303,9 @@
 - `mark_opened` 影响排序；
 - 恢复策略可被自动化测试复现。
 
-**当前证据**：`pickInitialWorkId()` 有单测；`WorkspaceChannel.join/3` best-effort `mark_opened`；`setLastOpenedWorkId()` 使用 `localStorage`。
+**当前证据**：`pickInitialWorkId()` 有单测；`WorkspaceChannel.join/3` best-effort `mark_opened`；`setLastOpenedWorkId()` 在 Tauri 下写 app config preference，浏览器 fallback 才写 `localStorage`；`su02-work-restart-recovery` 证明作者从真实工作台选择作品 B 后，reload 会恢复 B 并重新 join `workspace:{work_b}`。
 
-**当前状态**：部分实现。恢复选择逻辑有测试，但存储方式不符合 Desktop-First 约束，缺端到端验收。
+**当前状态**：最小真实前端闭环已补。OS-level preference 文件读写和完整进程重启矩阵仍待后续覆盖。
 
 ---
 
@@ -323,9 +323,9 @@
 - 后端不可用时仍可显示受限工作台状态；
 - 不把 `"lobby"` 持久化为真实作品污染后续恢复。
 
-**当前证据**：`WorkspaceChat.tsx` catch 后以 `workId = "lobby"`、`workTitle = "未连接"` 渲染，并调用 `setLastOpenedWorkId(workId)`。
+**当前证据**：`WorkspaceChat.tsx` 启动失败时使用 `workId = null`、`workTitle = "作品加载失败"`，不会把 `lobby` 写入当前上下文；`shouldPersistLastOpenedWorkId()` 拒绝 `lobby`；`su02-work-restart-recovery` 证明 stale lastOpened 指向 `DISCARDED` Work 时，默认列表过滤该 Work，并回退到真实可用 Work 重新 join。
 
-**当前状态**：未实现验收；存在把 fallback id 写入 lastOpened 的风险。
+**当前状态**：stale/discarded lastOpened 降级最小真实前端闭环已补。后端完全不可用、损坏数据和恢复/归档管理入口仍待后续覆盖。
 
 ---
 
@@ -344,10 +344,10 @@
 | SC-SU02-C2 | 切换时重新加入 Channel | 已有最小真实前端闭环 | 是（最小） |
 | SC-SU02-C3 | 消息和上下文按作品隔离 | 部分验收 | 部分 |
 | SC-SU02-C4 | pending LLM 请求不跨作品污染 | 部分实现/部分验收 | 部分 |
-| SC-SU02-D1 | 重启恢复上次打开作品 | 部分实现 | 否 |
-| SC-SU02-D2 | 上次作品不可用时优雅降级 | 未实现验收 | 否 |
+| SC-SU02-D1 | 重启恢复上次打开作品 | 最小真实前端闭环已补 | 是（最小） |
+| SC-SU02-D2 | 上次作品不可用时优雅降级 | stale/discarded lastOpened 降级最小闭环已补 | 是（最小） |
 
-**覆盖结论：13 个场景；8/13 已有最小真实 Tauri 前端闭环（A1/A2/B1/B3/B4/B5/C1/C2）；4/13 部分实现/部分验收（B2/C3/C4/D1）；1/13 未实现或未完整验收（D2）。这不等于 SU-02 全量完成，完整跨作品上下文、产物、迟到结果和重启恢复矩阵仍需后续补齐。**
+**覆盖结论：13 个场景；10/13 已有最小真实 Tauri 前端闭环（A1/A2/B1/B3/B4/B5/C1/C2/D1/D2）；3/13 部分实现/部分验收（B2/C3/C4）。这不等于 SU-02 全量完成，完整跨作品上下文、产物、真实慢 LLM 迟到结果和恢复/归档管理矩阵仍需后续补齐。**
 
 ---
 
@@ -362,9 +362,9 @@
 | SU02-GAP-05 — 快速创建作品 UI 只到未命名最小闭环 | 已补最小闭环：作品菜单提供“新建作品”命名创建和“快速新建未命名作品”两个入口，创建后进入新作品 | 后续补创建失败、大列表和重启恢复矩阵 |
 | SU02-GAP-06 — 命名新增作品最小闭环 | 已补最小闭环：作品菜单命名新增，保存后进入新 Work | 保持 `su02-work-lifecycle-management` 回归；后续补创建失败/大列表/重启矩阵 |
 | SU02-GAP-07 — 修改作品名最小闭环 | 已补最小闭环：`PATCH /api/works/:id`、WorkService rename、前端重命名入口和真实 Tauri 验收 | 后续补并发冲突 UI、失败态和恢复后标题同步矩阵 |
-| SU02-GAP-08 — 删除或移出作品最小闭环 | 已补最小闭环：安全废弃、二次确认、默认列表过滤和删除当前作品后的 fallback | 后续补 lastOpened 不恢复已移出作品的重启验收、恢复/归档管理入口 |
-| SU02-GAP-09 — lastOpened 使用 `localStorage` | 违反 Desktop-First 方向，Tauri 数据迁移风险已在台账记录 | P1：迁移到 Tauri 合规存储或平台抽象 |
-| SU02-GAP-10 — 不可用作品恢复 UX 不完整 | 后端不可用或旧 id 丢失时可能污染 lastOpened 或体验不明确 | P2：定义 fallback 状态，不持久化临时 `"lobby"` |
+| SU02-GAP-08 — 删除或移出作品最小闭环 | 已补最小闭环：安全废弃、二次确认、默认列表过滤、删除当前作品后的 fallback，以及 stale/discarded lastOpened reload 降级 | 后续补恢复/归档管理入口和异常矩阵 |
+| SU02-GAP-09 — lastOpened 使用 `localStorage` | 已纠偏：Tauri 下使用 app config preference command，浏览器 fallback 才使用 `localStorage`；`su02-work-restart-recovery` 已补 reload 恢复证据 | 后续补 OS-level preference 文件读写/真实进程重启矩阵 |
+| SU02-GAP-10 — 不可用作品恢复 UX 不完整 | stale/discarded lastOpened 已能回退到真实 Work，且不持久化 `lobby`；后端完全不可用/损坏数据 UX 仍未完整覆盖 | P2：定义后端不可用和损坏数据的可见降级状态 |
 | SU02-GAP-11 — 作品详情/归档面板未接入 | Work CRUD 已有，但管理面板未形成完整操作面 | P2：与 GAP-WT-02 合并追踪 |
 
 ---
@@ -375,7 +375,7 @@
 |---|---|---|---|
 | Work 用例层 | `apps/novel_application/lib/novel_application/work_service.ex` | list/create/get/mark_opened/rename/discard | rename/discard 已有局部测试；恢复/归档管理策略待后续 |
 | Work HTTP API | `apps/novel_web/lib/novel_web/controllers/works_controller.ex` | 前端读取、创建、重命名和安全移出作品 | 已有 update/discard 路由和错误形态；归档/恢复不是首版能力 |
-| Work 前端客户端 | `frontend/src/lib/works.ts` | list/create/rename/discard/lastOpened/pickInitial | 已有 title 校验 helper、rename/discard API；lastOpened 仍用 `localStorage` |
+| Work 前端客户端 | `frontend/src/lib/works.ts` | list/create/rename/discard/lastOpened/pickInitial | 已有 title 校验 helper、rename/discard API；Tauri preference command + browser fallback；`lobby` 不持久化 |
 | 启动去 mock | `frontend/src/components/WorkspaceChat.tsx` | 启动解析真实 Work，创建默认 Work，join Channel；已有运行时选择、快速创建、命名新增、重命名、安全移出入口 | 完整失败态和重启恢复矩阵待补 |
 | Channel work_id | `apps/novel_web/lib/novel_web/channels/workspace_channel.ex` | 把 `work_id` 注入主链输入 | 缺切换和双作品隔离验收 |
 | WorkService 测试 | `apps/novel_application/test/novel_application/work_service_test.exs` | CRUD 与 mark_opened 基础证明 | 不覆盖 UI / Channel / E2E |
@@ -404,7 +404,8 @@
 → token + workId 过滤旧连接迟到事件
 → su02-work-switching 已证明最小真实页面闭环
 → su02-work-lifecycle-management 已证明命名新增 / 重命名 / 删除安全流
-→ 完整跨作品上下文/产物/pending/restart 矩阵仍未完成
+→ su02-work-restart-recovery 已证明 reload 恢复 lastOpened 和 stale/discarded lastOpened 降级
+→ 完整跨作品上下文/产物/pending 迟到矩阵仍未完成
 ```
 
 ---
@@ -427,6 +428,9 @@ bash scripts/quality_accept.sh su02-work-switching --surface tauri
 
 bash scripts/tauri_slice_verify.sh su02-work-lifecycle-management
 bash scripts/quality_accept.sh su02-work-lifecycle-management --surface tauri
+
+bash scripts/tauri_slice_verify.sh su02-work-restart-recovery
+bash scripts/quality_accept.sh su02-work-restart-recovery --surface tauri
 ```
 
-> 注意：上述命令只能证明现有基础设施、最小切换闭环和作品生命周期最小闭环，不证明 SU-02 完整验收通过。完整验收仍需补双作品隔离全矩阵、pending 请求归属和重启恢复场景。
+> 注意：上述命令只能证明现有基础设施、最小切换闭环、作品生命周期最小闭环和重启恢复最小闭环，不证明 SU-02 完整验收通过。完整验收仍需补双作品隔离全矩阵、pending 请求归属、后端不可用 UX 和恢复/归档管理入口。

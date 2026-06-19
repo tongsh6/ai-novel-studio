@@ -5,6 +5,8 @@
 > 2026-05-13 场景化对账结论：后端 Orchestrator / Gate / ActionValidator 已覆盖较多执行权不变量，Channel 也已有 `author_action` 局部闭环；但真实前端入口 `App.tsx -> WorkspaceChat` 仍调用旧 `confirm` / `reject` 事件，且主要渲染 `ui_cards` 而不是 `available_actions`。因此 AU-04 不能再按“86% 核心已实现”判断，应改为“后端门禁较强，真实工作台确认闭环不足”。
 >
 > 2026-05-25 纠偏更新：上述 2026-05-13 前端入口描述为 historical/superseded。真实入口已改为从 `available_actions` 渲染可提交动作，并通过 `author_action` 回传；card 不再作为业务 action 来源。
+>
+> 2026-06-19 对账更新：`au04-confirm-before-execute` 已成为质量场景，证明真实 Tauri 工作台从自然语言高风险重写请求进入 `needs_confirmation`，确认前无工具调用/无生产写入，点击“确认执行”发送服务端授权的 `author_action.confirm_before_execute`，确认后重新 gate 并只产出待采纳 `prose_fragment`。AU-04 不能再沿用旧覆盖率口径，但完整重复点击、TTL、跨作品 stale、持久 ConfirmationBinding snapshot 和失败恢复仍未闭环。
 
 ---
 
@@ -77,9 +79,9 @@
 | 前置条件 | 已连接 LM Studio 或 stub provider；已打开某个作品 |
 | 触发 | 输入高风险写入请求 |
 | 期望结果 | AI 不直接声称已替换；系统进入 `needs_confirmation`；作者看到确认对象和影响范围 |
-| 当前证据 | `execution_authority_test.exs` 覆盖 high-risk / production_candidate -> `require_confirmation`；`v3_full_chain_test.exs` 覆盖 stub confirmation chain |
-| 当前状态 | 已测试，未完整真实入口验收 |
-| 当前缺口 | **superseded（2026-05-25）**：真实入口已改为从 `available_actions` 渲染动作；仍缺完整真实 UI 点击验收 |
+| 当前证据 | `execution_authority_test.exs` 覆盖 high-risk / production_candidate -> `require_confirmation`；`v3_full_chain_test.exs` 覆盖 stub confirmation chain；`au04-confirm-before-execute` 真实 Tauri 验收证明 `needs_confirmation` 从真实 websocket 到达、确认前无 tool/no-write |
+| 当前状态 | 已验收 |
+| 当前缺口 | 主路径已闭环；完整 TTL、跨作品 stale 和重复点击矩阵仍归 B4/B5/B6 后续 checkpoint |
 | 优先级 | P0 |
 
 #### SC-AU04-A2 — 低风险单步工具可以执行，但结果仍是草稿
@@ -89,9 +91,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 单步低风险工具通过 gate，返回执行结果；如果产出创作内容，应进入待采纳草稿，不直接写成作品事实 |
-| 当前证据 | `ExecutionOrchestrator.allow_tool`、`DialogueGateway.execute_tool`、`TurnResultBuilder.build_artifact_set/2`；`workspace_channel_v3_test.exs` 覆盖 task_state RUNNING/COMPLETED |
-| 当前状态 | 后端/Channel 局部已测试，真实工作台未验收 |
-| 当前缺口 | `WorkspaceChat` 未订阅 `task_state`，结果状态和 pending adoption 在真实入口的完整体验未验收 |
+| 当前证据 | `ExecutionOrchestrator.allow_tool`、`DialogueGateway.execute_tool`、`TurnResultBuilder.build_artifact_set/2`；`workspace_channel_v3_test.exs` 覆盖 task_state RUNNING/COMPLETED；AU-10 已有真实 task_state/export checkpoint，但不是本场景的低风险工具草稿矩阵 |
+| 当前状态 | 已测试 |
+| 当前缺口 | 低风险工具结果、task 状态和 pending adoption 在本场景真实入口的完整体验未验收 |
 | 优先级 | P1 |
 
 #### SC-AU04-A3 — 过大请求被降级为讨论
@@ -102,7 +104,7 @@
 |---|---|
 | 期望结果 | 系统不执行多步大任务，而是说明范围过大，建议先确定下一步 |
 | 当前证据 | `execution_authority_test.exs` 覆盖 multi-step plan -> `downgrade_to_dialogue` |
-| 当前状态 | 后端已测试，真实工作台文案/体验未验收 |
+| 当前状态 | 已测试 |
 | 当前缺口 | 需要验证 TurnResult 文案不会机械化，也不会显示误导性的执行按钮 |
 | 优先级 | P1 |
 
@@ -113,9 +115,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 系统自然回复，不打开 confirmation，不显示执行卡 |
-| 当前证据 | AU-01 已发现 `WorkspaceChat` 的 `sendMessage` 默认 `generate_micro_plan: true` |
-| 当前状态 | 存在设计偏差风险 |
-| 当前缺口 | 与 AU-01/AU-02 共享：真实入口可能把普通聊天推入计划/执行路径 |
+| 当前证据 | `au01-ordinary-chat-two-turn-roundtrip` 真实 Tauri 证明两轮普通创作聊天 `generate_micro_plan=false`，不出现 MicroPlan、action、candidate 或 adoption UI；`au02-freeform-followup-after-candidate` 证明候选卡出现后手输自由追问仍走普通 `user_message` |
+| 当前状态 | 已验收 |
+| 当前缺口 | 仍需异常矩阵与更多真实 LLM 质量样本；普通聊天误触发确认的主风险已关闭 |
 | 优先级 | P0 |
 
 ### 场景组 B：确认卡片与作者动作
@@ -127,7 +129,7 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | UI 展示 confirmation card 或等价 action panel；包含 target、影响范围、确认、取消 |
-| 当前证据 | `BehaviorState` 有 `prompt_contract` / `available_actions`；`TurnResultBuilder.maybe_add_behavior/2` 通过 `BehaviorState.snapshot/1` 输出 `{active, history}`；`WorkspaceChat` 已从 `available_actions` 渲染可提交动作 |
+| 当前证据 | `BehaviorState` 有 `prompt_contract` / `available_actions`；`TurnResultBuilder.maybe_add_behavior/2` 通过 `BehaviorState.snapshot/1` 输出 `{active, history}`；`WorkspaceChat` 已从 `available_actions` 渲染可提交动作；`au04-confirm-before-execute` 证明真实页面可见“确认执行/拒绝”基础动作 |
 | 当前状态 | 部分实现 |
 | 当前缺口 | 仍缺完整 confirmation card / action matrix 的真实 UI 验收，尤其 disabled/stale/TTL 和 replay 视图 |
 | 优先级 | P0 |
@@ -139,9 +141,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 前端提交 `author_action`，包含 `source_turn_ref`、`action_id`、`action_type`、`behavior_ref`、`idempotency_key` |
-| 当前证据 | `WorkspaceChat` 通过 `available_actions` 匹配后调用 `socket.ts.sendAuthorAction`；`WorkspaceChannel.handle_in("author_action")` 已实现；`ActionValidator` 要求 `behavior_ref` / `target_ref` / `idempotency_key` 等服务端字段精确回传 |
-| 当前状态 | 局部已实现 |
-| 当前缺口 | 仍缺完整真实 UI action matrix，尤其重复点击、disabled/stale、TTL 和跨作品/历史会话矩阵 |
+| 当前证据 | `WorkspaceChat` 通过 `available_actions` 匹配后调用 `socket.ts.sendAuthorAction`；`WorkspaceChannel.handle_in("author_action")` 已实现；`ActionValidator` 要求 `behavior_ref` / `target_ref` / `idempotency_key` 等服务端字段精确回传；`au04-confirm-before-execute` 证明真实页面点击“确认执行”后发送同一 `action_id` 的 `author_action.confirm_before_execute` |
+| 当前状态 | 已验收 |
+| 当前缺口 | 主路径已闭环；重复点击、disabled/stale、TTL 和跨作品/历史会话矩阵仍缺 |
 | 优先级 | P0 |
 
 #### SC-AU04-B3 — 点击取消关闭本次等待态
@@ -152,7 +154,7 @@
 |---|---|
 | 期望结果 | 只取消该 pending confirmation；不会执行工具；输入框恢复自然对话 |
 | 当前证据 | `BehaviorState` / `AvailableAction` 设计包含 `reject_or_cancel_confirmation`、`cancel_pending_behavior`；`ActionValidator` 能验证 cancel 类 action；`DialogueGateway.handle_action/3` 对通用取消/拒绝返回 `cancelled` TurnResult，并把关闭的 behavior 写入 `behavior_state.history`；`AdoptionWorkflow` 对采纳确认 confirm/reject 也输出 `RESOLVED` / `CANCELLED` history；`workspace_channel_v3_test.exs` 和 `au10-workbench-recovery-cancel-waiting` 真实 Tauri 验收覆盖无写入取消路径 |
-| 当前状态 | 通用取消/拒绝与采纳确认 terminal history checkpoint 已实现 |
+| 当前状态 | 已验收 |
 | 当前缺口 | TTL、跨作品/历史会话、持久化 ConfirmationBinding、完整 trace/replay 矩阵仍未闭环 |
 | 优先级 | P0 |
 
@@ -164,7 +166,7 @@
 |---|---|
 | 期望结果 | 同一 `idempotency_key` 只产生一次执行或返回同一结果 |
 | 当前证据 | action envelope 中有 `idempotency_key`；`ActionValidator` 要求客户端回传的 `idempotency_key` 与服务端 available action 精确一致；持久 `author_action_receipts` 按 work/session/source/action/idempotency 去重 |
-| 当前状态 | 局部已实现 |
+| 当前状态 | 已测试 |
 | 当前缺口 | 仍缺真实 UI 重复点击验收、TTL 和完整 ConfirmationBinding |
 | 优先级 | P0 |
 
@@ -176,7 +178,7 @@
 |---|---|
 | 期望结果 | 系统拒绝 stale action，要求重新生成计划或重新确认当前作品状态 |
 | 当前证据 | `ActionValidator.check_not_stale/2`、`workspace_channel_v3_test.exs` stale source_turn_ref rejected |
-| 当前状态 | 当前 Channel 内局部已测试 |
+| 当前状态 | 已测试 |
 | 当前缺口 | 只和 `current_turn_id` 对比，缺跨作品、历史会话、TTL、持久化 ConfirmationBinding 验证 |
 | 优先级 | P0 |
 
@@ -188,7 +190,7 @@
 |---|---|
 | 期望结果 | 系统基于最新作品背景和状态快照重新 gate；若目标已变化，要求重新确认 |
 | 当前证据 | `ADR-0009` 与 VS-03 contract 要求 `rebased_state_snapshot_ref` 和 gate_result_refs |
-| 当前状态 | 设计已冻结，实现不完整 |
+| 当前状态 | 部分实现 |
 | 当前缺口 | `DialogueGateway.frame_from_turn_result/1` 用 source turn 恢复 frame，未看到最新上下文 snapshot rebasing |
 | 优先级 | P0 |
 
@@ -202,7 +204,7 @@
 |---|---|
 | 期望结果 | 后端拒绝 invented action |
 | 当前证据 | `action_roundtrip_test.exs`、`workspace_channel_v3_test.exs` 覆盖 invented action rejected |
-| 当前状态 | 后端/Channel 已测试 |
+| 当前状态 | 已测试 |
 | 当前缺口 | 需要加入真实 UI 回归，确保前端只从服务端 action 渲染按钮 |
 | 优先级 | P1 |
 
@@ -214,7 +216,7 @@
 |---|---|
 | 期望结果 | 系统以 envelope_validation / forbidden semantics 拦截 |
 | 当前证据 | `execution_authority_test.exs` 覆盖 `approved`、`production_write_allowed` |
-| 当前状态 | 后端已测试 |
+| 当前状态 | 已测试 |
 | 当前缺口 | 缺真实 LLM 样本和 UI 友好恢复文案验收 |
 | 优先级 | P1 |
 
@@ -226,7 +228,7 @@
 |---|---|
 | 期望结果 | Orchestrator 根据 write boundary / authority 自行裁决，必要时仍要求确认 |
 | 当前证据 | `execution_authority_test.exs` 覆盖 production_candidate -> require_confirmation |
-| 当前状态 | 后端已测试 |
+| 当前状态 | 已测试 |
 | 当前缺口 | 缺真实 LLM 输出下的端到端验收 |
 | 优先级 | P1 |
 
@@ -240,8 +242,8 @@
 |---|---|
 | 期望结果 | UI 接收并展示 RUNNING / COMPLETED / FAILED 等状态 |
 | 当前证据 | 2026-05-25 起 synthetic task lifecycle 已移除；同步 creative tool 通过 TurnResult phase/status、ToolResult.status 与 trace_summary 表达结果。正式 TaskState / Long-running Creative Job Contract deferred |
-| 当前状态 | 后端/备用前端局部实现 |
-| 当前缺口 | 真实入口 `WorkspaceChat` 未订阅 `task_state`；没有 Playwright/人工 walkthrough 证明 |
+| 当前状态 | 部分实现 |
+| 当前缺口 | AU-10 已证明真实导出 task_state 可见；AU-04 确认后工具执行的 RUNNING/COMPLETED/FAILED 矩阵和完整 LongRunner 仍未验收 |
 | 优先级 | P1 |
 
 #### SC-AU04-D2 — 执行产物默认进入待采纳，不直接写作品事实
@@ -251,9 +253,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | `adoption_state.pending` 有草稿；`production_write_performed=false` |
-| 当前证据 | `TurnResultBuilder.build_artifact_set/2`、`build_truthfulness/3`；E2E 覆盖 pending artifact |
-| 当前状态 | 后端已测试，真实入口体验未完整验收 |
-| 当前缺口 | 与 AU-05/AU-08 联动：采纳到作品事实和阅读投影仍需单独验收 |
+| 当前证据 | `TurnResultBuilder.build_artifact_set/2`、`build_truthfulness/3`；E2E 覆盖 pending artifact；`au04-confirm-before-execute` 证明确认后产出 `prose_fragment` 且仍停留在 `adoption_state.pending`，未自动写作品事实 |
+| 当前状态 | 已验收 |
+| 当前缺口 | 采纳到作品事实和阅读投影属于 AU-05/AU-08 后续矩阵；本场景只证明执行产物默认 pending |
 | 优先级 | P1 |
 
 #### SC-AU04-D3 — AI 回复不能撒谎
@@ -264,7 +266,7 @@
 |---|---|
 | 期望结果 | TurnResult truthfulness 与实际 execution/tool/adoption 状态一致 |
 | 当前证据 | `TurnResultBuilder.build_truthfulness/3`、`execution_authority_test.exs` truthfulness constraints |
-| 当前状态 | 局部已实现 |
+| 当前状态 | 部分实现 |
 | 当前缺口 | 未看到对 assistant_message 文本本身的强约束测试；真实 LLM 可能仍生成误导文案 |
 | 优先级 | P1 |
 
@@ -278,7 +280,7 @@
 |---|---|
 | 期望结果 | trace 包含 decision、behavior、author action、gate result、tool result |
 | 当前证据 | `TraceWriter.record_with_decision/5`、`TraceWriter.record_with_tool/7`；设计文档要求 ConfirmationBinding trace |
-| 当前状态 | 决策/工具 trace 局部存在，confirmation binding trace 不完整 |
+| 当前状态 | 部分实现 |
 | 当前缺口 | 缺 BehaviorTrace / ConfirmationBinding / idempotency trace 端到端验收 |
 | 优先级 | P1 |
 
@@ -300,26 +302,26 @@
 
 | 场景 | 做什么 | 当前状态 | 是否闭环 |
 |---|---|---|---|
-| SC-AU04-A1 | 高风险写入先确认 | 已测试 | 否，真实 UI 入口未闭环 |
+| SC-AU04-A1 | 高风险写入先确认 | 已验收 | 是，`au04-confirm-before-execute` 证明真实入口先确认且 no-tool/no-write |
 | SC-AU04-A2 | 低风险单步执行并产出草稿 | 已测试 | 否，真实 UI/task/adoption 体验未验收 |
 | SC-AU04-A3 | 过大请求降级 | 已测试 | 否，真实 UI 文案未验收 |
-| SC-AU04-A4 | 普通聊天不误触发确认 | 存在风险 | 否 |
+| SC-AU04-A4 | 普通聊天不误触发确认 | 已验收 | 是，`au01-ordinary-chat-two-turn-roundtrip` / `au02-freeform-followup-after-candidate` 证明普通输入不进确认 |
 | SC-AU04-B1 | 确认卡内容完整 | 部分实现 | 否 |
-| SC-AU04-B2 | 点击确认走 `author_action` | 部分实现 | 否，真实入口仍用旧事件 |
-| SC-AU04-B3 | 点击取消关闭等待态 | 部分实现 | 否 |
-| SC-AU04-B4 | 重复确认幂等 | 未实现/未验证 | 否 |
+| SC-AU04-B2 | 点击确认走 `author_action` | 已验收 | 是，`au04-confirm-before-execute` 证明真实页面发送服务端授权 `author_action.confirm_before_execute` |
+| SC-AU04-B3 | 点击取消关闭等待态 | 已验收 | 是，`au10-workbench-recovery-cancel-waiting` 证明真实页面取消等待 no-write、关闭 active behavior 并可继续下一轮 |
+| SC-AU04-B4 | 重复确认幂等 | 已测试 | 否，缺真实 UI 重复点击验收、TTL 和完整 ConfirmationBinding |
 | SC-AU04-B5 | stale confirmation 拒绝 | 已测试 | 否，缺跨作品/TTL/持久化 binding |
-| SC-AU04-B6 | 确认前上下文变化后重新 gate | 已设计 | 否 |
+| SC-AU04-B6 | 确认前上下文变化后重新 gate | 部分实现 | 否 |
 | SC-AU04-C1 | invented action 拒绝 | 已测试 | 局部闭环 |
 | SC-AU04-C2 | AI 自批准语义拦截 | 已测试 | 局部闭环 |
 | SC-AU04-C3 | Planner hint 不授权 | 已测试 | 局部闭环 |
 | SC-AU04-D1 | 确认后任务状态反馈 | 部分实现 | 否 |
-| SC-AU04-D2 | 产物进入待采纳 | 已测试 | 否，真实入口/后续采纳未完整验收 |
+| SC-AU04-D2 | 产物进入待采纳 | 已验收 | 是，`au04-confirm-before-execute` 证明确认后执行结果仍为 pending `prose_fragment` |
 | SC-AU04-D3 | AI 回复不撒谎 | 部分实现 | 否 |
 | SC-AU04-E1 | 确认行为可追溯 | 部分实现 | 否 |
 | SC-AU04-E2 | 执行失败后恢复 | 不确定 | 否 |
 
-**结论：18 个场景；0/18 完整真实前后端验收；11/18 有后端或备用前端局部证据；7/18 属于真实入口、幂等、lifecycle、trace 或异常恢复缺口。**
+**结论：18 个场景；5/18 已有真实 Tauri 页面验收（A1/A4/B2/B3/D2）；7/18 有后端或 Channel 局部测试；6/18 仍是部分实现或不确定。AU-04 本轮 checkpoint 关闭的是高风险确认主路径，不覆盖重复点击、TTL、跨作品 stale、完整 ConfirmationBinding snapshot、trace/replay 或失败恢复。**
 
 ---
 
@@ -327,11 +329,11 @@
 
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
-| AU04-GAP-01 — 真实入口确认动作未接入 `author_action` | **superseded（2026-05-25）**：真实入口已改为通过 `available_actions` + `author_action` 提交；剩余为 UI 点击验收 | 补验收 | P0 |
-| AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | **superseded（2026-05-25）**：真实入口已渲染 available action panel；card 不再承载业务动作 | 补验收 | P0 |
+| AU04-GAP-01 — 真实入口确认动作未接入 `author_action` | **主路径已关闭（2026-06-19）**：`au04-confirm-before-execute` 证明真实入口通过 `available_actions` + `author_action.confirm_before_execute` 提交；剩余重复点击/stale/TTL 归 GAP-03/GAP-06 | 补验收 | closed |
+| AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | **部分关闭（2026-06-19）**：真实入口已渲染并可点击“确认执行/拒绝”；完整 card/action matrix、disabled/stale、TTL 和 replay 仍缺 | 补验收 | P0 |
 | AU04-GAP-03 — 确认幂等未完整闭环 | **局部已补**：`ActionValidator` 要求 `idempotency_key` 与服务端 action 精确一致，持久 `author_action_receipts` 以 `work_id/session_id/source_turn/action/idempotency_key` 去重，重复确认不会二次 dispatch；仍缺真实 UI 重复点击验收和 TTL | 继续补验收/TTL | P0 |
 | AU04-GAP-04 — ConfirmationBinding 未完整实现 | **局部已补**：`ActionValidator` 已要求 `behavior_ref`、`target_ref`、`candidate_*`、`idempotency_key` 与服务端 action 精确一致；仍缺 rebased snapshot、gate result 和持久 ConfirmationBinding | 补实现/补集成 | P0 |
-| AU04-GAP-05 — 取消/拒绝 lifecycle 未闭环 | cancel/reject 可被 validation，但未证明 behavior 关闭、trace 写入、UI 恢复 | 补集成/补验收 | P0 |
+| AU04-GAP-05 — 取消/拒绝 lifecycle 未闭环 | **主路径已补**：`au10-workbench-recovery-cancel-waiting` 证明真实页面取消等待 no-write、active behavior 关闭和下一轮恢复；trace/replay、TTL、跨作品/历史会话矩阵仍缺 | 补集成/补验收 | P0 |
 | AU04-GAP-06 — 过期/跨作品/历史确认验证不足 | 只覆盖 current turn stale，缺 TTL、跨作品、历史会话只读态 | 补实现/补验收 | P0/P1 |
 | AU04-GAP-07 — task_state 真实入口完整展示不足 | Channel 可广播，`WorkspaceChat` 已订阅并映射到 longRun store；仍缺长跑全过程 UI 验收 | 补验收 | P1 |
 | AU04-GAP-08 — assistant_message 文本真值约束不足 | truthfulness map 存在，但缺 LLM 文案不撒谎测试 | 补测试 | P1 |
@@ -346,7 +348,7 @@
 | `ExecutionOrchestrator.decide/2` | 已能根据 GateOrder 产生 allow/downgrade/confirm/recovery | 不等于真实 UI 确认闭环 |
 | `ActionValidator.validate/2` | 能拒绝 missing/stale/invented/disabled action，并校验 `target_ref` / `behavior_ref` / `candidate_*` / `idempotency_key` 与服务端 action 精确一致 | 不等于 TTL、rebased snapshot 或完整持久 ConfirmationBinding |
 | `DialogueGateway.handle_action/3` | `confirm_before_execute` 可 re-gate 并在 allow_tool 时 dispatch | 不等于 ConfirmationBinding 完整实现 |
-| `WorkspaceChannel.handle_in("author_action")` | Channel 层 action roundtrip 已有测试 | 不等于当前 App 入口已经使用 |
+| `WorkspaceChannel.handle_in("author_action")` | Channel 层 action roundtrip 已有测试，`au04-confirm-before-execute` 已证明当前 App 入口使用 `author_action` | 不等于重复点击、stale、TTL 或完整 ConfirmationBinding 已完成 |
 | `WorkspaceChat` + `socket.ts` | 当前真实入口已接 `available_actions` / `author_action` / `task_state`；真实导出 task_state checkpoint 已补 | 缺完整 action_result、完整异步 LongRunner、断线/超时恢复 UI 验收 |
 | `workspace_channel_v3_test.exs` | 覆盖 task_state、stale/invented action 等局部链路 | 不等于 Playwright/真人工作台验收 |
 
@@ -365,9 +367,16 @@ mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
 完整 AU-04 验收还需要补充：
 
 ```text
-1. 真实工作台 walkthrough：高风险请求 -> 确认卡/动作可见 -> 点击确认 -> task_state -> 结果/待采纳。
+1. 已补：真实工作台高风险请求 -> 确认卡/动作可见 -> 点击确认 -> re-gate -> 待采纳结果（`au04-confirm-before-execute`）。
 2. 重复点击确认：同一 idempotency_key 只执行一次。
 3. stale / expired / cross-work confirmation：旧动作不能确认当前作品任务。
-4. cancel/reject：关闭 pending confirmation，trace 可回放，UI 恢复自然对话。
+4. 已补主路径：cancel/reject 关闭 pending confirmation，UI 恢复自然对话（`au10-workbench-recovery-cancel-waiting`）；trace/replay 矩阵仍缺。
 5. failure recovery：确认后工具失败时，UI 显示可恢复路径且无半写入。
+```
+
+当前最小真实页面 checkpoint：
+
+```bash
+bash scripts/tauri_slice_verify.sh au04-confirm-before-execute
+bash scripts/quality_accept.sh au04-confirm-before-execute --surface tauri
 ```
