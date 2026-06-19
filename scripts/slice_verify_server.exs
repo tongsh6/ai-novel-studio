@@ -42,12 +42,14 @@ Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
   log_fn: &NovelCommon.LLMLog.record/5
 )
 
-if System.get_env("SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE") == "1" do
+if System.get_env("SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE") == "1" or
+     System.get_env("SLICE_VERIFY_PROVIDER_MODELS_FIXTURE") == "1" do
   deepseek_get_fn = fn _url, _opts ->
     {:ok, 200,
      %{
        "data" => [
-         %{"id" => "deepseek-slice-keychain", "owned_by" => "deepseek"}
+         %{"id" => "deepseek-slice-keychain", "owned_by" => "deepseek"},
+         %{"id" => "deepseek-slice-model-list", "owned_by" => "deepseek"}
        ]
      }}
   end
@@ -68,6 +70,23 @@ if System.get_env("SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE") == "1" do
     model: "deepseek-slice-keychain",
     get_fn: deepseek_get_fn,
     http_fn: deepseek_http_fn,
+    log_fn: nil
+  )
+end
+
+if System.get_env("SLICE_VERIFY_PROVIDER_MODELS_FIXTURE") == "1" do
+  anthropic_get_fn = fn _url, _opts ->
+    {:ok, 200,
+     %{
+       "data" => [
+         %{"id" => "claude-slice-sonnet", "display_name" => "Claude Slice Sonnet"}
+       ]
+     }}
+  end
+
+  Application.put_env(:novel_agent, NovelAgent.Provider.Anthropic,
+    model: "claude-slice-sonnet",
+    get_fn: anthropic_get_fn,
     log_fn: nil
   )
 end

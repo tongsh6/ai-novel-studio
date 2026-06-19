@@ -14,6 +14,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("su02-work-switching");
     expect(nativeSliceIds).toContain("su01-provider-health-model");
     expect(nativeSliceIds).toContain("su01-api-key-secret-redaction");
+    expect(nativeSliceIds).toContain("su01-provider-model-list-success");
     expect(nativeSliceIds).toContain("su01-model-provider-switching");
     expect(nativeSliceIds).toContain("su03-assistant-display-name");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
@@ -46,7 +47,9 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
+    expect(nativeSliceIds).toContain("au01-empty-message-guard");
     expect(nativeSliceIds).toContain("au02-candidate-continuation");
+    expect(nativeSliceIds).toContain("au02-freeform-followup-after-candidate");
     expect(nativeSliceIds).toContain("au02-candidate-adoption-bridge");
     expect(nativeSliceIds).toContain("au05-adoption-safety-freshness");
     expect(nativeSliceIds).toContain("au05-stale-conflict-cross-work-freshness");
@@ -157,6 +160,66 @@ describe("native Tauri slice verifier", () => {
     ).toBeNull();
   });
 
+  it("accepts SU-01 provider model list evidence only when provider models are selectable", () => {
+    const records = [
+      {
+        event: "channel.join.done",
+        work_id: "work-su01-models",
+        session_id: "session-su01-models",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su01-provider-model-list-success",
+        work_id: "work-su01-models",
+        context_work_id: "work-su01-models",
+        socket_connected: true,
+        deepseek_models_loaded: true,
+        deepseek_model_selected: "deepseek-slice-model-list",
+        anthropic_models_loaded: true,
+        anthropic_model_selected: "claude-slice-sonnet",
+        lmstudio_models_loaded: true,
+        lmstudio_model_selected: "local-slice-model",
+        lmstudio_fixture_endpoint: "http://127.0.0.1:5555/v1",
+        models_came_from_backend: true,
+        model_inputs_allowed_selection: true,
+        visible_text_omits_api_keys: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("su01-provider-model-list-success", records);
+    expect(evidence).toEqual({
+      slice_id: "su01-provider-model-list-success",
+      turn_ids: [],
+      work_id: "work-su01-models",
+      deepseek_model_selected: "deepseek-slice-model-list",
+      anthropic_model_selected: "claude-slice-sonnet",
+      lmstudio_model_selected: "local-slice-model",
+      lmstudio_fixture_endpoint: "http://127.0.0.1:5555/v1",
+      key_events: keyEventsForSlice("su01-provider-model-list-success"),
+    });
+    expect(
+      findSliceBehaviorEvidence("su01-provider-model-list-success", records, evidence),
+    ).toEqual({
+      slice_id: "su01-provider-model-list-success",
+      behavior: "provider_model_lists_load_through_backend_adapter_boundaries",
+      turn_ids: [],
+      work_id: "work-su01-models",
+      deepseek_model_selected: "deepseek-slice-model-list",
+      anthropic_model_selected: "claude-slice-sonnet",
+      lmstudio_model_selected: "local-slice-model",
+      assertions: [
+        "model_settings_opened_from_real_workbench",
+        "deepseek_model_list_loaded_through_adapter_http_boundary",
+        "anthropic_model_list_loaded_through_adapter_http_boundary",
+        "lmstudio_model_list_loaded_from_openai_compatible_endpoint",
+        "models_were_selectable_in_the_visible_dialog",
+        "api_keys_were_not_exposed_in_visible_text",
+        "channel_joined_current_work",
+        "no_error_events",
+      ],
+    });
+  });
+
   it("accepts SU-01 model provider switching only when the next turn uses the selected provider", () => {
     const records = [
       { event: "channel.join.done", work_id: "work-su01", session_id: "session-su01" },
@@ -264,6 +327,69 @@ describe("native Tauri slice verifier", () => {
     );
 
     expect(findNativeSliceEvidence("au02-candidate-continuation", records)).toBeNull();
+  });
+
+  it("accepts AU-02 freeform follow-up after candidate without candidate selection", () => {
+    const records = au02CandidateFreeformFollowupRecords("turn-source", "turn-freeform");
+
+    const evidence = findNativeSliceEvidence("au02-freeform-followup-after-candidate", records);
+    expect(evidence).toEqual({
+      slice_id: "au02-freeform-followup-after-candidate",
+      turn_id: "turn-freeform",
+      turn_ids: ["turn-freeform"],
+      source_turn_ref: "turn-source",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      frame_badge_label: "探索方向",
+      frame_badge_kind: "exploration",
+      candidate_panel_count_after_source: 1,
+      input_enabled_after_candidate: true,
+      candidate_selection_sent: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      key_events: keyEventsForSlice("au02-freeform-followup-after-candidate"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au02-freeform-followup-after-candidate", records, evidence),
+    ).toEqual({
+      slice_id: "au02-freeform-followup-after-candidate",
+      behavior: "candidate_panel_allows_freeform_followup_without_adoption",
+      turn_ids: ["turn-freeform"],
+      source_turn_ref: "turn-source",
+      candidate_ref: "dir-1",
+      assertions: [
+        "candidate_panel_rendered_before_freeform_followup",
+        "chat_input_remained_enabled_with_candidate_panel",
+        "freeform_followup_sent_plain_user_message",
+        "candidate_selection_not_sent",
+        "author_action_not_sent",
+        "no_adoption_or_projection_events",
+        "production_write_not_claimed",
+        "deterministic_provider_form_frame_called_for_freeform_followup",
+      ],
+    });
+  });
+
+  it("rejects AU-02 freeform follow-up if the sent message carries candidate_selection", () => {
+    const records = au02CandidateFreeformFollowupRecords("turn-source", "turn-freeform").map(
+      (record) => {
+        if (record.event === "channel.user_message.start") {
+          return {
+            ...record,
+            candidate_source_turn_ref: "turn-source",
+            candidate_ref: "dir-1",
+          };
+        }
+        return record.event === "slice_verify.ui_state.done"
+          ? { ...record, candidate_selection_sent: true }
+          : record;
+      },
+    );
+
+    expect(findNativeSliceEvidence("au02-freeform-followup-after-candidate", records)).toBeNull();
   });
 
   it("accepts AU-02 candidate adoption bridge only after authorized action reaches boundary", () => {
@@ -2176,6 +2302,48 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("finds SU-02 restart recovery evidence for last opened work fallback", () => {
+    const records = su02WorkRestartRecoveryRecords();
+    const evidence = findNativeSliceEvidence("su02-work-restart-recovery", records);
+
+    expect(evidence).toEqual({
+      slice_id: "su02-work-restart-recovery",
+      turn_ids: [],
+      work_id: "work-a",
+      source_work_id: "work-a",
+      first_restored_work_id: "work-b",
+      stale_last_opened_work_id: "work-b",
+      discarded_work_id: "work-b",
+      fallback_work_id: "work-a",
+      fallback_work_title: "SU02恢复甲",
+      session_id: "session-a-reload",
+      discarded_status: "DISCARDED",
+      visible_work_ids: ["work-a"],
+      key_events: keyEventsForSlice("su02-work-restart-recovery"),
+    });
+
+    expect(findSliceBehaviorEvidence("su02-work-restart-recovery", records, evidence)).toEqual({
+      slice_id: "su02-work-restart-recovery",
+      behavior: "work_restart_restores_existing_last_opened_and_skips_discarded",
+      turn_ids: [],
+      work_id: "work-a",
+      source_work_id: "work-a",
+      first_restored_work_id: "work-b",
+      discarded_work_id: "work-b",
+      fallback_work_id: "work-a",
+      session_id: "session-a-reload",
+      assertions: [
+        "reload_restored_existing_last_opened_work",
+        "discarded_last_opened_work_was_not_restored",
+        "fallback_joined_real_workspace_channel",
+        "fallback_replaced_stale_last_opened_preference",
+        "discarded_work_hidden_from_default_work_list",
+        "lobby_not_used_as_recovery_work",
+        "no_error_events",
+      ],
+    });
+  });
+
   it("rejects startup context evidence when the restored UI inserted a welcome message", () => {
     const records = stageStartupContextRecords().map((record) =>
       record.event === "slice_verify.ui_state.done"
@@ -2355,6 +2523,61 @@ describe("native Tauri slice verifier", () => {
         "channel.user_message.start",
         "dialogue_gateway.handle_input.done",
         "channel.user_message.done",
+      ],
+    });
+  });
+
+  it("accepts AU-01 empty message guard evidence with a recovery turn", () => {
+    const records = emptyMessageGuardRecords();
+
+    expect(findNativeSliceEvidence("au01-empty-message-guard", records)).toEqual({
+      slice_id: "au01-empty-message-guard",
+      turn_id: "turn-recovery",
+      turn_ids: ["turn-recovery"],
+      recovery_turn_id: "turn-recovery",
+      blank_user_message_frame_count: 0,
+      message_count_unchanged_after_blank: true,
+      input_enabled_after_blank: true,
+      thinking_visible_after_blank: false,
+      recovery_message_visible: true,
+      recovery_assistant_reply_visible: true,
+      key_events: [
+        "channel.user_message.start",
+        "dialogue_gateway.handle_input.done",
+        "channel.user_message.done",
+      ],
+    });
+  });
+
+  it("rejects AU-01 empty message guard if blank input sent a frame", () => {
+    const records = emptyMessageGuardRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, blank_user_message_frame_count: 1 }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au01-empty-message-guard", records)).toBeNull();
+  });
+
+  it("accepts AU-01 empty message behavior only when recovery chat completes", () => {
+    const records = emptyMessageGuardRecords();
+    const evidence = findNativeSliceEvidence("au01-empty-message-guard", records);
+
+    expect(
+      findSliceBehaviorEvidence("au01-empty-message-guard", records, evidence, {
+        provider: "slice_verify",
+      }),
+    ).toEqual({
+      slice_id: "au01-empty-message-guard",
+      behavior: "empty_message_does_not_create_turn_and_recovery_chat_works",
+      turn_ids: ["turn-recovery"],
+      assertions: [
+        "blank_input_sent_no_user_message_frame",
+        "blank_input_did_not_append_visible_messages",
+        "blank_input_left_thinking_hidden",
+        "input_remained_available_after_blank",
+        "following_valid_chat_completed_without_micro_plan",
+        "deterministic_provider_form_frame_called_for_recovery_turn",
       ],
     });
   });
@@ -3383,6 +3606,64 @@ function ordinaryTwoTurnRecords() {
   ];
 }
 
+function emptyMessageGuardRecords() {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-recovery",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 23,
+      generate_micro_plan: false,
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: "turn-recovery",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+      candidate_count: 0,
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: "turn-recovery",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-recovery",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 14,
+      outcome: "ok",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: "turn-recovery",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au01-empty-message-guard",
+      recovery_turn_id: "turn-recovery",
+      blank_attempted: true,
+      blank_user_message_frame_count: 0,
+      message_count_unchanged_after_blank: true,
+      input_enabled_after_blank: true,
+      thinking_visible_after_blank: false,
+      recovery_message_visible: true,
+      recovery_assistant_reply_visible: true,
+      recovery_generate_micro_plan: false,
+    },
+  ];
+}
+
 function ordinarySingleTurnRecords(turnId) {
   return [
     {
@@ -3908,6 +4189,72 @@ function su02WorkSwitchingRecords() {
   ];
 }
 
+function su02WorkRestartRecoveryRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      duration_ms: 2,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-reload",
+      duration_ms: 2,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-reload",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-reload",
+      duration_ms: 0,
+      outcome: "ok",
+      slice_id: "su02-work-restart-recovery",
+      context_work_id: "work-a",
+      source_work_id: "work-a",
+      first_restored_work_id: "work-b",
+      stale_last_opened_work_id: "work-b",
+      discarded_work_id: "work-b",
+      discarded_status: "DISCARDED",
+      fallback_work_id: "work-a",
+      fallback_work_title: "SU02恢复甲",
+      visible_work_ids: ["work-a"],
+      restored_existing_work_after_reload: true,
+      ignored_discarded_last_opened_after_reload: true,
+      fallback_is_real_work: true,
+      stale_preference_replaced_after_reload: true,
+      socket_connected: true,
+      service_status_text: "服务: 已连接",
+      title_text: "SU02恢复甲",
+    },
+  ];
+}
+
 function microPlanTurnRecords(turnId) {
   return [
     {
@@ -3992,6 +4339,86 @@ function au02CandidateContinuationRecords(sourceTurnId, followTurnId) {
       generate_micro_plan: false,
       candidate_source_turn_ref: sourceTurnId,
       candidate_ref: "dir-1",
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+  ];
+}
+
+function au02CandidateFreeformFollowupRecords(sourceTurnId, followTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au02-freeform-followup-after-candidate",
+      source_turn_ref: sourceTurnId,
+      freeform_turn_id: followTurnId,
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      frame_badge_label: "探索方向",
+      frame_badge_kind: "exploration",
+      candidate_panel_count_after_source: 1,
+      input_enabled_after_candidate: true,
+      freeform_user_message_sent: true,
+      candidate_selection_sent: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+      adoption_decision_present: false,
+      freeform_message_visible: true,
+      freeform_assistant_reply_visible: true,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: followTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 31,
+      generate_micro_plan: false,
     },
     {
       event: "dialogue_gateway.handle_input.start",

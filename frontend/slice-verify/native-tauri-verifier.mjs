@@ -2,9 +2,11 @@ export const nativeSliceIds = [
   "workspace-runtime-state",
   "su02-work-switching",
   "su02-work-lifecycle-management",
+  "su02-work-restart-recovery",
   "su01-provider-health-model",
   "su01-lmstudio-disconnected-health",
   "su01-provider-endpoint-validation",
+  "su01-provider-model-list-success",
   "su01-api-key-secret-redaction",
   "su01-model-provider-switching",
   "stage-startup-context-contract",
@@ -34,7 +36,9 @@ export const nativeSliceIds = [
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
+  "au01-empty-message-guard",
   "au02-candidate-continuation",
+  "au02-freeform-followup-after-candidate",
   "au02-candidate-adoption-bridge",
   "au05-adoption-safety-freshness",
   "au05-stale-conflict-cross-work-freshness",
@@ -86,9 +90,15 @@ const sliceKeyEvents = {
     "channel.join.done",
     "slice_verify.ui_state.done",
   ],
+  "su02-work-restart-recovery": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "slice_verify.ui_state.done",
+  ],
   "su01-provider-health-model": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-lmstudio-disconnected-health": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-provider-endpoint-validation": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-provider-model-list-success": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-api-key-secret-redaction": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-model-provider-switching": [
     "channel.join.done",
@@ -609,7 +619,19 @@ const sliceKeyEvents = {
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
   ],
+  "au01-empty-message-guard": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ],
   "au02-candidate-continuation": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ],
+  "au02-freeform-followup-after-candidate": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
     "planner.form_frame.done",
@@ -683,6 +705,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu02WorkLifecycleManagementEvidence(records);
   }
 
+  if (sliceId === "su02-work-restart-recovery") {
+    return findSu02WorkRestartRecoveryEvidence(records);
+  }
+
   if (sliceId === "su01-provider-health-model") {
     return findSu01ProviderHealthEvidence(records);
   }
@@ -693,6 +719,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "su01-provider-endpoint-validation") {
     return findSu01ProviderEndpointValidationEvidence(records);
+  }
+
+  if (sliceId === "su01-provider-model-list-success") {
+    return findSu01ProviderModelListSuccessEvidence(records);
   }
 
   if (sliceId === "su01-api-key-secret-redaction") {
@@ -815,8 +845,16 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findOrdinaryChatTwoTurnEvidence(records);
   }
 
+  if (sliceId === "au01-empty-message-guard") {
+    return findAu01EmptyMessageGuardEvidence(records);
+  }
+
   if (sliceId === "au02-candidate-continuation") {
     return findCandidateContinuationEvidence(records);
+  }
+
+  if (sliceId === "au02-freeform-followup-after-candidate") {
+    return findCandidateFreeformFollowupEvidence(records);
   }
 
   if (sliceId === "au02-candidate-adoption-bridge") {
@@ -961,6 +999,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return su02WorkLifecycleManagementBehavior(records, evidence, options);
   }
 
+  if (sliceId === "su02-work-restart-recovery") {
+    return su02WorkRestartRecoveryBehavior(records, evidence, options);
+  }
+
   if (sliceId === "su01-provider-health-model") {
     return su01ProviderHealthBehavior(records, evidence, options);
   }
@@ -971,6 +1013,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "su01-provider-endpoint-validation") {
     return su01ProviderEndpointValidationBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-provider-model-list-success") {
+    return su01ProviderModelListSuccessBehavior(records, evidence, options);
   }
 
   if (sliceId === "su01-api-key-secret-redaction") {
@@ -1194,8 +1240,16 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return ordinaryChatBehavior(turnIds, turnRecords, options);
   }
 
+  if (sliceId === "au01-empty-message-guard") {
+    return emptyMessageGuardBehavior(turnIds, turnRecords, evidence, options);
+  }
+
   if (sliceId === "au02-candidate-continuation") {
     return candidateContinuationBehavior(turnIds, turnRecords, options);
+  }
+
+  if (sliceId === "au02-freeform-followup-after-candidate") {
+    return candidateFreeformFollowupBehavior(turnIds, turnRecords, evidence, options);
   }
 
   if (sliceId === "au05-adoption-boundary") {
@@ -1717,6 +1771,48 @@ function findSu01ProviderEndpointValidationEvidence(records) {
       provider_selected: uiState.provider_selected,
       invalid_endpoint: uiState.invalid_endpoint,
       invalid_endpoint_hint_text: uiState.invalid_endpoint_hint_text,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01ProviderModelListSuccessEvidence(records) {
+  const sliceId = "su01-provider-model-list-success";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.deepseek_model_selected !== "deepseek-slice-model-list") continue;
+    if (uiState.anthropic_model_selected !== "claude-slice-sonnet") continue;
+    if (uiState.lmstudio_model_selected !== "local-slice-model") continue;
+    if (uiState.deepseek_models_loaded !== true) continue;
+    if (uiState.anthropic_models_loaded !== true) continue;
+    if (uiState.lmstudio_models_loaded !== true) continue;
+    if (uiState.models_came_from_backend !== true) continue;
+    if (uiState.model_inputs_allowed_selection !== true) continue;
+    if (uiState.visible_text_omits_api_keys !== true) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      deepseek_model_selected: uiState.deepseek_model_selected,
+      anthropic_model_selected: uiState.anthropic_model_selected,
+      lmstudio_model_selected: uiState.lmstudio_model_selected,
+      lmstudio_fixture_endpoint: uiState.lmstudio_fixture_endpoint,
       key_events: keyEvents,
     };
   }
@@ -2905,6 +3001,81 @@ function findSu02WorkLifecycleManagementEvidence(records) {
   return null;
 }
 
+function findSu02WorkRestartRecoveryEvidence(records) {
+  const sliceId = "su02-work-restart-recovery";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id &&
+      record.socket_connected === true,
+  );
+
+  for (const uiState of uiStates) {
+    if (!uiState.first_restored_work_id || !uiState.stale_last_opened_work_id) continue;
+    if (!uiState.discarded_work_id || !uiState.fallback_work_id) continue;
+    if (uiState.discarded_status !== "DISCARDED") continue;
+    if (uiState.first_restored_work_id !== uiState.stale_last_opened_work_id) continue;
+    if (uiState.work_id !== uiState.fallback_work_id) continue;
+    if (uiState.work_id === uiState.stale_last_opened_work_id) continue;
+    if (uiState.work_id === "lobby") continue;
+    if (uiState.visible_work_ids?.includes?.(uiState.discarded_work_id)) continue;
+    if (uiState.restored_existing_work_after_reload !== true) continue;
+    if (uiState.ignored_discarded_last_opened_after_reload !== true) continue;
+    if (uiState.fallback_is_real_work !== true) continue;
+    if (uiState.stale_preference_replaced_after_reload !== true) continue;
+
+    const joinedRestored = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === uiState.first_restored_work_id,
+    );
+    if (!joinedRestored) continue;
+
+    const joinedFallback = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === uiState.fallback_work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!joinedFallback) continue;
+
+    const resumedFallback = records.find(
+      (record) =>
+        record.event === "work_session.resume.done" &&
+        record.work_id === uiState.fallback_work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!resumedFallback) continue;
+
+    const serviceStatusText = String(uiState.service_status_text ?? "");
+    if (!serviceStatusText.includes("已连接")) continue;
+
+    const titleText = String(uiState.title_text ?? "");
+    if (!titleText.includes(String(uiState.fallback_work_title ?? ""))) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      source_work_id: uiState.source_work_id,
+      first_restored_work_id: uiState.first_restored_work_id,
+      stale_last_opened_work_id: uiState.stale_last_opened_work_id,
+      discarded_work_id: uiState.discarded_work_id,
+      fallback_work_id: uiState.fallback_work_id,
+      fallback_work_title: uiState.fallback_work_title,
+      session_id: uiState.session_id,
+      discarded_status: uiState.discarded_status,
+      visible_work_ids: uiState.visible_work_ids,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
 function findAu10UserMessageEvidence(records, generateMicroPlan, sliceId) {
   const keyEvents = keyEventsForSlice(sliceId);
   const byTurn = groupByTurn(records);
@@ -3352,6 +3523,69 @@ function findCandidateContinuationEvidence(records) {
   }
 
   return null;
+}
+
+function findCandidateFreeformFollowupEvidence(records) {
+  const sliceId = "au02-freeform-followup-after-candidate";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.frame_badge_kind === "exploration" &&
+      record.frame_badge_label === "探索方向" &&
+      Number(record.candidate_panel_count_after_source ?? 0) > 0,
+  );
+
+  if (!uiState) return null;
+
+  const freeformTurnId = uiState.freeform_turn_id ?? uiState.turn_id;
+  if (!freeformTurnId) return null;
+
+  const turnRecords = byTurn.get(freeformTurnId) ?? [];
+  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+  if (!start || start.generate_micro_plan !== false) return null;
+  if (start.candidate_ref || start.candidate_source_turn_ref) return null;
+  if (!hasRequiredCorrelationFields(start)) return null;
+
+  const hasAllEvents = keyEvents.every((event) =>
+    turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
+  );
+  if (!hasAllEvents) return null;
+
+  if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  if (uiState.input_enabled_after_candidate !== true) return null;
+  if (uiState.freeform_user_message_sent !== true) return null;
+  if (uiState.candidate_selection_sent !== false) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+  if (uiState.adoption_decision_present !== false) return null;
+  if (uiState.freeform_message_visible !== true) return null;
+  if (uiState.freeform_assistant_reply_visible !== true) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: freeformTurnId,
+    turn_ids: [freeformTurnId],
+    source_turn_ref: uiState.source_turn_ref,
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    frame_badge_label: uiState.frame_badge_label,
+    frame_badge_kind: uiState.frame_badge_kind,
+    candidate_panel_count_after_source: Number(uiState.candidate_panel_count_after_source),
+    input_enabled_after_candidate: uiState.input_enabled_after_candidate,
+    candidate_selection_sent: uiState.candidate_selection_sent,
+    no_author_action_sent: uiState.no_author_action_sent,
+    no_action_result_received: uiState.no_action_result_received,
+    candidate_selected: uiState.candidate_selected,
+    candidate_adopted: uiState.candidate_adopted,
+    production_write_performed: uiState.production_write_performed,
+    key_events: keyEvents,
+  };
 }
 
 function findCandidateAdoptionBridgeEvidence(records) {
@@ -3851,6 +4085,47 @@ function candidateContinuationBehavior(turnIds, turnRecords, options) {
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_called_per_turn"
         : "deterministic_provider_form_frame_called_per_turn",
+    ],
+  };
+}
+
+function candidateFreeformFollowupBehavior(turnIds, turnRecords, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+  if (hasEventPrefix(turnRecords, "projection.")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+  if (start?.candidate_ref || start?.candidate_source_turn_ref) return null;
+  if (evidence.input_enabled_after_candidate !== true) return null;
+  if (evidence.candidate_selection_sent !== false) return null;
+  if (evidence.no_author_action_sent !== true) return null;
+  if (evidence.no_action_result_received !== true) return null;
+  if (evidence.candidate_selected !== false) return null;
+  if (evidence.candidate_adopted !== false) return null;
+  if (evidence.production_write_performed !== false) return null;
+
+  return {
+    slice_id: "au02-freeform-followup-after-candidate",
+    behavior: "candidate_panel_allows_freeform_followup_without_adoption",
+    turn_ids: turnIds,
+    source_turn_ref: evidence.source_turn_ref,
+    candidate_ref: evidence.candidate_ref,
+    assertions: [
+      "candidate_panel_rendered_before_freeform_followup",
+      "chat_input_remained_enabled_with_candidate_panel",
+      "freeform_followup_sent_plain_user_message",
+      "candidate_selection_not_sent",
+      "author_action_not_sent",
+      "no_adoption_or_projection_events",
+      "production_write_not_claimed",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_for_freeform_followup"
+        : "deterministic_provider_form_frame_called_for_freeform_followup",
     ],
   };
 }
@@ -7664,6 +7939,36 @@ function su02WorkLifecycleManagementBehavior(records, evidence, _options) {
   };
 }
 
+function su02WorkRestartRecoveryBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  if (evidence.first_restored_work_id !== evidence.stale_last_opened_work_id) return null;
+  if (evidence.work_id !== evidence.fallback_work_id) return null;
+  if (evidence.work_id === evidence.discarded_work_id) return null;
+  if (evidence.work_id === "lobby") return null;
+  if (evidence.visible_work_ids?.includes?.(evidence.discarded_work_id)) return null;
+
+  return {
+    slice_id: "su02-work-restart-recovery",
+    behavior: "work_restart_restores_existing_last_opened_and_skips_discarded",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    source_work_id: evidence.source_work_id,
+    first_restored_work_id: evidence.first_restored_work_id,
+    discarded_work_id: evidence.discarded_work_id,
+    fallback_work_id: evidence.fallback_work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "reload_restored_existing_last_opened_work",
+      "discarded_last_opened_work_was_not_restored",
+      "fallback_joined_real_workspace_channel",
+      "fallback_replaced_stale_last_opened_preference",
+      "discarded_work_hidden_from_default_work_list",
+      "lobby_not_used_as_recovery_work",
+      "no_error_events",
+    ],
+  };
+}
+
 function su03AssistantDisplayNameBehavior(records, evidence, _options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
   if (evidence.sent_payload_includes_display_name !== false) return null;
@@ -7769,6 +8074,30 @@ function su01ProviderEndpointValidationBehavior(records, evidence, _options) {
       "invalid_endpoint_hint_was_visible",
       "refresh_models_test_and_save_were_disabled",
       "invalid_endpoint_did_not_trigger_provider_models_request",
+      "channel_joined_current_work",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01ProviderModelListSuccessBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  return {
+    slice_id: "su01-provider-model-list-success",
+    behavior: "provider_model_lists_load_through_backend_adapter_boundaries",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    deepseek_model_selected: evidence.deepseek_model_selected,
+    anthropic_model_selected: evidence.anthropic_model_selected,
+    lmstudio_model_selected: evidence.lmstudio_model_selected,
+    assertions: [
+      "model_settings_opened_from_real_workbench",
+      "deepseek_model_list_loaded_through_adapter_http_boundary",
+      "anthropic_model_list_loaded_through_adapter_http_boundary",
+      "lmstudio_model_list_loaded_from_openai_compatible_endpoint",
+      "models_were_selectable_in_the_visible_dialog",
+      "api_keys_were_not_exposed_in_visible_text",
       "channel_joined_current_work",
       "no_error_events",
     ],
@@ -8163,6 +8492,83 @@ function ordinaryChatUiState(turnIds, turnRecords) {
   }
 
   return uiState;
+}
+
+function findAu01EmptyMessageGuardEvidence(records) {
+  const sliceId = "au01-empty-message-guard";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!uiState) return null;
+
+  const recoveryTurnId = uiState.recovery_turn_id ?? uiState.turn_id;
+  if (!recoveryTurnId) return null;
+
+  const recoveryRecords = records.filter((record) => record.turn_id === recoveryTurnId);
+  const hasRequiredEvents = keyEvents.every((event) =>
+    recoveryRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
+  );
+  if (!hasRequiredEvents) return null;
+
+  const start = recoveryRecords.find((record) => record.event === "channel.user_message.start");
+  if (!start || start.generate_micro_plan !== false) return null;
+  if (recoveryRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  if (uiState.blank_attempted !== true) return null;
+  if (Number(uiState.blank_user_message_frame_count ?? -1) !== 0) return null;
+  if (uiState.message_count_unchanged_after_blank !== true) return null;
+  if (uiState.input_enabled_after_blank !== true) return null;
+  if (uiState.thinking_visible_after_blank !== false) return null;
+  if (uiState.recovery_message_visible !== true) return null;
+  if (uiState.recovery_assistant_reply_visible !== true) return null;
+  if (uiState.recovery_generate_micro_plan !== false) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: recoveryTurnId,
+    turn_ids: [recoveryTurnId],
+    recovery_turn_id: recoveryTurnId,
+    blank_user_message_frame_count: Number(uiState.blank_user_message_frame_count),
+    message_count_unchanged_after_blank: uiState.message_count_unchanged_after_blank,
+    input_enabled_after_blank: uiState.input_enabled_after_blank,
+    thinking_visible_after_blank: uiState.thinking_visible_after_blank,
+    recovery_message_visible: uiState.recovery_message_visible,
+    recovery_assistant_reply_visible: uiState.recovery_assistant_reply_visible,
+    key_events: keyEvents,
+  };
+}
+
+function emptyMessageGuardBehavior(turnIds, turnRecords, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (Number(evidence.blank_user_message_frame_count ?? -1) !== 0) return null;
+  if (evidence.message_count_unchanged_after_blank !== true) return null;
+  if (evidence.input_enabled_after_blank !== true) return null;
+  if (evidence.thinking_visible_after_blank !== false) return null;
+  if (evidence.recovery_message_visible !== true) return null;
+  if (evidence.recovery_assistant_reply_visible !== true) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.user_message.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  return {
+    slice_id: "au01-empty-message-guard",
+    behavior: "empty_message_does_not_create_turn_and_recovery_chat_works",
+    turn_ids: turnIds,
+    assertions: [
+      "blank_input_sent_no_user_message_frame",
+      "blank_input_did_not_append_visible_messages",
+      "blank_input_left_thinking_hidden",
+      "input_remained_available_after_blank",
+      "following_valid_chat_completed_without_micro_plan",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_for_recovery_turn"
+        : "deterministic_provider_form_frame_called_for_recovery_turn",
+    ],
+  };
 }
 
 function containsRoleOrder(actual, expected) {

@@ -71,14 +71,18 @@ Implemented external UI driver slice ids:
   su01-provider-health-model
   su01-lmstudio-disconnected-health
   su01-provider-endpoint-validation
+  su01-provider-model-list-success
   su01-api-key-secret-redaction
   au02-candidate-continuation
+  au02-freeform-followup-after-candidate
   au02-candidate-adoption-bridge
   su01-model-provider-switching
   su02-work-switching
   su02-work-lifecycle-management
+  su02-work-restart-recovery
   su03-assistant-display-name
   au01-ordinary-chat-two-turn-roundtrip
+  au01-empty-message-guard
   au05-adoption-safety-freshness
   au05-stale-conflict-cross-work-freshness
   au05-conflict-cross-work-recovery
@@ -109,6 +113,7 @@ Implemented external UI driver slice ids:
   au09-au03-session-memory-layering
   au03-session-history-readonly
   au03-session-new-active
+  au03-branch-from-history
   au11-quality-diagnosis-message-envelope
   au03-long-session-compression
   au03-context-source-ui
@@ -148,7 +153,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -164,7 +169,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" ]]; then
+if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -268,6 +273,9 @@ native_action_description() {
     su01-provider-endpoint-validation)
       echo "open model settings from real workbench -> select LM Studio -> enter an invalid endpoint -> verify visible validation and no provider model request"
       ;;
+    su01-provider-model-list-success)
+      echo "open model settings from real workbench -> load selectable model lists for DeepSeek, Anthropic, and LM Studio through provider adapter boundaries"
+      ;;
     su01-api-key-secret-redaction)
       echo "open model settings from real workbench -> select DeepSeek -> enter API key -> load model list through adapter HTTP boundary -> save -> verify provider options, UI, browser settings, business logs, and backend logs do not expose the secret"
       ;;
@@ -280,14 +288,23 @@ native_action_description() {
     su02-work-lifecycle-management)
       echo "select a persisted source work -> create a named work from the visible work menu -> rename it -> delete it with confirmation -> verify fallback work and default list filtering"
       ;;
+    su02-work-restart-recovery)
+      echo "select a persisted work -> reload the workbench and restore it from lastOpened -> make that stored work stale/discarded -> reload again and verify fallback to a real available work"
+      ;;
     su03-assistant-display-name)
       echo "select a persisted work -> set AI display name from the real dialog -> create another work -> verify default name there -> switch back and verify the original work-scoped name is restored"
       ;;
     au01-ordinary-chat-two-turn-roundtrip)
       echo "open real workbench -> send two ordinary creative chat messages -> verify visible user/assistant order, thinking clears, no micro-plan, no action/candidate/adoption cards"
       ;;
+    au01-empty-message-guard)
+      echo "open real workbench -> try to send blank chat input -> verify no user_message frame or visible message is created -> send a valid follow-up chat message successfully"
+      ;;
     au02-candidate-continuation)
       echo "send fuzzy creative input -> click visible candidate continuation -> verify user_message carries candidate_selection without adoption or production write"
+      ;;
+    au02-freeform-followup-after-candidate)
+      echo "send fuzzy creative input -> leave candidate buttons untouched -> type a freeform follow-up -> verify plain user_message without candidate_selection, adoption, or production write"
       ;;
     au02-candidate-adoption-bridge)
       echo "send fuzzy creative input -> click authorized candidate adoption -> verify adoption boundary decision without production write"
@@ -399,6 +416,9 @@ native_action_description() {
       ;;
     au03-session-new-active)
       echo "seed active session -> click new session from real workbench -> verify previous active exits/read-only -> send first new-session turn with empty conversation context"
+      ;;
+    au03-branch-from-history)
+      echo "search historical session from real workbench -> open read-only transcript -> click from-here continue -> verify a new active branch session records source_session_ref/source_turn_ref without copying old transcript"
       ;;
     au11-quality-diagnosis-message-envelope)
       echo "seed work with adopted chapter context -> send a quality diagnosis request from the real workbench -> open why -> verify VS-00D three-layer envelope, concrete tradeoffs, and no tool/adoption/write"
@@ -727,6 +747,9 @@ case "$SLICE_ID" in
   au03-session-new-active)
     SEED_SCRIPT="scripts/seed_au03_session_history_readonly.exs"
     ;;
+  au03-branch-from-history)
+    SEED_SCRIPT="scripts/seed_au03_session_history_readonly.exs"
+    ;;
   au11-quality-diagnosis-message-envelope)
     SEED_SCRIPT="scripts/seed_au11_quality_diagnosis_message_envelope.exs"
     ;;
@@ -749,6 +772,7 @@ MIX_ENV=test \
   SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
   SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \
   SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE="$([[ "$SLICE_ID" == "su01-api-key-secret-redaction" ]] && echo 1 || echo 0)" \
+  SLICE_VERIFY_PROVIDER_MODELS_FIXTURE="$([[ "$SLICE_ID" == "su01-provider-model-list-success" ]] && echo 1 || echo 0)" \
   NOVEL_LMSTUDIO_TIMEOUT_MS="$LMSTUDIO_TIMEOUT_MS" \
   AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
