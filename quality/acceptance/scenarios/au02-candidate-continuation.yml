@@ -1,47 +1,56 @@
 id: au02-candidate-continuation
-title: 浏览器候选方向延续
-tier: known-gap
-status: blocked
-blocked_reason: browser driver currently fails because candidate continuation did not send candidate_selection
-surface: browser
-entrypoint: scripts/quality_accept.sh au02-candidate-continuation --surface browser
+title: 候选方向继续讨论
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au02-candidate-continuation --surface tauri
 
 contract:
   - docs/engineering/scenario-acceptance.md
-  - tasks/slices/AU02-candidate-adoption-bridge.md
+  - docs/design/acceptance/author/AU-02-explore.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
 
 invariants:
-  - server-provided-action-only
+  - candidate-selection-is-user-message-not-adoption-action
   - candidate-continuation-visible
+  - candidate-selected-does-not-imply-candidate-adopted
+  - no-production-write
 
 setup:
   seed: null
   provider: slice_verify
 
 user_flow:
-  - open: real browser workbench
+  - open: real Tauri workbench
   - input: 模糊小说创作方向
   - click: 发送
   - wait_for: candidate direction visible
   - click: 继续聊这个方向
+  - observe: 下一轮自然回复
 
 evidence:
   required:
     - screenshot
     - websocket_frames
     - turn_result
-  artifact_dir: artifacts/slice-verify/au02-candidate-continuation
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au02-candidate-continuation-tauri
 
 assertions:
   ui:
     - candidate direction visible
     - continuation action visible
+    - continuation does not require an adoption action
   network:
-    - user_message sent
+    - user_message sent with candidate_selection
+    - generate_micro_plan remains false
     - turn_result received
-    - author_action sent
+    - author_action is not sent by continuation
   data:
-    - browser smoke proves external driver can use visible semantics
+    - candidate_selection references the source turn and candidate direction
+    - no adoption decision is emitted for continuation
+    - production_write_performed remains false
 
 anti_hooks:
   product_acceptance_logic_added: false

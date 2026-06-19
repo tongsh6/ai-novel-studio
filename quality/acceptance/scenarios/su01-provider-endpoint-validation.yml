@@ -1,0 +1,53 @@
+id: su01-provider-endpoint-validation
+title: 供应商 endpoint URL 校验
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-provider-endpoint-validation --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - invalid-provider-endpoint-blocked-before-runtime
+  - no-provider-request-for-invalid-endpoint
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: model/provider status button
+  - select: LM Studio provider in the real settings dialog
+  - input: invalid endpoint without http(s) scheme
+  - observe: endpoint validation message is visible
+  - observe: refresh models, test connection, and save actions are disabled
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-provider-endpoint-validation-tauri
+
+assertions:
+  ui:
+    - invalid endpoint message is visible in the settings dialog
+    - refresh models action is disabled
+    - test connection action is disabled
+    - save and switch action is disabled
+  network:
+    - workbench joined current work channel
+    - invalid endpoint did not trigger provider models request
+  data:
+    - invalid endpoint was not saved into runtime provider selection
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

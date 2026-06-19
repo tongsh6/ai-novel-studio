@@ -1,0 +1,66 @@
+id: su03-assistant-display-name
+title: AI 显示名按作品隔离
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su03-assistant-display-name --surface tauri
+real_lmstudio_entrypoint: scripts/tauri_slice_verify.sh --real-lmstudio su03-assistant-display-name
+
+contract:
+  - docs/design/acceptance/system/SU-03-model-nickname.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - assistant-display-name-ui-only
+  - canonical-assistant-role-preserved
+  - display-name-is-work-scoped
+
+setup:
+  seed: scripts/seed_au03_long_session_compression.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - select: persisted source work from visible work menu
+  - click: AI display name dialog
+  - input: 创作助手
+  - save: display name
+  - click: new work from visible work menu
+  - observe: new work uses default AI name
+  - select: original work
+  - observe: original display name restored
+  - send: ordinary message after display name change
+  - observe: TurnResult keeps assistant_message contract
+  - inspect: LM Studio request body does not include the UI display name
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - ui_state
+    - summary_json
+  optional_real_lmstudio:
+    - lmstudio_log_json
+    - provider_request_body
+    - matched_turn_id
+  artifact_dir: artifacts/slice-verify/su03-assistant-display-name-tauri
+  real_lmstudio_artifact_dir: artifacts/slice-verify/su03-assistant-display-name-tauri-lmstudio
+
+assertions:
+  ui:
+    - assistant name changes from real dialog
+    - new work falls back to default AI name
+    - switching back restores source work display name
+  network:
+    - channel joins source and created works
+  data:
+    - assistant role remains canonical assistant
+    - websocket user_message payload does not include the UI display name
+    - TurnResult contract keeps assistant_message and no assistant display name field
+    - real LM Studio request body does not include the UI display name
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

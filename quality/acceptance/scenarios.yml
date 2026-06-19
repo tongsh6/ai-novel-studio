@@ -1,4 +1,60 @@
 scenarios:
+  - id: su01-provider-health-model
+    title: "供应商健康状态与模型徽标"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su01-provider-health-model.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su01-provider-health-model --surface tauri
+  - id: su01-lmstudio-disconnected-health
+    title: "LM Studio 未启动时的模型断开态"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su01-lmstudio-disconnected-health.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su01-lmstudio-disconnected-health --surface tauri
+  - id: su01-provider-endpoint-validation
+    title: "供应商 endpoint URL 校验"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su01-provider-endpoint-validation.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su01-provider-endpoint-validation --surface tauri
+  - id: su01-api-key-secret-redaction
+    title: "API Key 配置流与 secret redaction"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su01-api-key-secret-redaction.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su01-api-key-secret-redaction --surface tauri
+  - id: su02-work-switching
+    title: "运行时作品切换与 Channel 重连"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su02-work-switching.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su02-work-switching --surface tauri
+  - id: su02-work-lifecycle-management
+    title: "作品生命周期命名新增、改名与安全移出"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su02-work-lifecycle-management.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su02-work-lifecycle-management --surface tauri
+  - id: su03-assistant-display-name
+    title: "AI 显示名按作品隔离"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su03-assistant-display-name.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su03-assistant-display-name --surface tauri
+  - id: au01-ordinary-chat-two-turn-roundtrip
+    title: "普通聊天两轮真实工作台闭环"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au01-ordinary-chat-two-turn-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au01-ordinary-chat-two-turn-roundtrip --surface tauri
   - id: p1-chapter-plan-minimum
     title: "章节计划最小闭环"
     tier: known-gap
@@ -57,6 +113,20 @@ scenarios:
     manifest: quality/acceptance/scenarios/au03-context-source-ui.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au03-context-source-ui --surface tauri
+  - id: au03-session-history-readonly
+    title: "历史会话只读回看"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au03-session-history-readonly.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au03-session-history-readonly --surface tauri
+  - id: au03-session-new-active
+    title: "新建会话成为当前 ACTIVE，原 ACTIVE 转为只读历史"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au03-session-new-active.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au03-session-new-active --surface tauri
   - id: au11-quality-diagnosis-message-envelope
     title: "AI 引导式创作质量诊断 Message Envelope"
     tier: nightly
@@ -93,14 +163,12 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au05-canon-conflict-recovery --surface tauri
   - id: au02-candidate-continuation
-    title: "浏览器候选方向延续"
-    tier: known-gap
-    status: blocked
-    blocked_reason: "browser driver currently fails because candidate continuation did not send candidate_selection"
-    surface: browser
+    title: "候选方向继续讨论"
+    tier: nightly
+    surface: tauri
     manifest: quality/acceptance/scenarios/au02-candidate-continuation.yml
-    driver: frontend/slice-verify/au02-candidate-continuation.mjs
-    entrypoint: scripts/quality_accept.sh au02-candidate-continuation --surface browser
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au02-candidate-continuation --surface tauri
   - id: au10-micro-plan-entry
     title: "浏览器微计划入口"
     tier: pr-smoke

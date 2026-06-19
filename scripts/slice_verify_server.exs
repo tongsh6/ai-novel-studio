@@ -42,6 +42,36 @@ Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
   log_fn: &NovelCommon.LLMLog.record/5
 )
 
+if System.get_env("SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE") == "1" do
+  deepseek_get_fn = fn _url, _opts ->
+    {:ok, 200,
+     %{
+       "data" => [
+         %{"id" => "deepseek-slice-keychain", "owned_by" => "deepseek"}
+       ]
+     }}
+  end
+
+  deepseek_http_fn = fn _url, body, _opts ->
+    {:ok, 200,
+     %{
+       "choices" => [
+         %{"message" => %{"content" => "DeepSeek slice verify response"}}
+       ],
+       "model" => Map.get(body, :model, "deepseek-slice-keychain"),
+       "usage" => %{}
+     }}
+  end
+
+  Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+    endpoint: "https://api.deepseek.com",
+    model: "deepseek-slice-keychain",
+    get_fn: deepseek_get_fn,
+    http_fn: deepseek_http_fn,
+    log_fn: nil
+  )
+end
+
 if app_log_dir = System.get_env("SLICE_VERIFY_APP_LOG_DIR") do
   Application.put_env(:novel_common, :log_jsonl_enabled, true)
   Application.put_env(:novel_common, :log_jsonl_dir, app_log_dir)

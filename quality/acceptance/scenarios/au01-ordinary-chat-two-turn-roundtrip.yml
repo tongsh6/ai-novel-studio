@@ -1,0 +1,67 @@
+id: au01-ordinary-chat-two-turn-roundtrip
+title: 普通聊天两轮真实工作台闭环
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au01-ordinary-chat-two-turn-roundtrip --surface tauri
+real_lmstudio_entrypoint: scripts/tauri_slice_verify.sh --real-lmstudio au01-ordinary-chat-two-turn-roundtrip
+
+contract:
+  - docs/design/acceptance/author/AU-01-chat.md
+  - docs/design/01-user-llm-workbench-interaction-model.md
+  - docs/design/07-workbench-ui-contract.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - ordinary-chat-defaults-to-reply-only
+  - generate-micro-plan-false-for-natural-chat
+  - turn-result-drives-visible-assistant-message
+  - no-action-candidate-or-adoption-card-for-ordinary-chat
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 我想写一个雨夜开场的悬疑故事，先聊聊气质。
+  - click: 发送
+  - wait_for: assistant reply visible and thinking cleared
+  - input: 继续聊，但先不要写正文，也不要改设定。
+  - click: 发送
+  - wait_for: second assistant reply visible and thinking cleared
+  - observe: no action, candidate, adoption, or execution cards
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  optional_real_lmstudio:
+    - lmstudio_log_json
+    - provider_request_count
+    - matched_turn_ids
+  artifact_dir: artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri
+  real_lmstudio_artifact_dir: artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio
+
+assertions:
+  ui:
+    - two user messages and two assistant replies are visible in order
+    - thinking indicator appears during a turn and clears after replies
+    - input remains usable for the second turn
+    - no action, candidate, adoption, confirmation, or execution card appears
+  network:
+    - each user_message is sent from the real workbench
+    - each user_message preserves generate_micro_plan=false
+    - each turn receives a turn_result
+  data:
+    - each turn completes DialogueGateway handling
+    - no planner.form_micro_plan event is recorded for either turn
+    - real LM Studio mode records one form_frame request per turn
+    - assistant messages are not provider fallback text
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

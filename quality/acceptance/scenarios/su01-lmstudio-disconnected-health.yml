@@ -1,0 +1,52 @@
+id: su01-lmstudio-disconnected-health
+title: LM Studio 未启动时的模型断开态
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-lmstudio-disconnected-health --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-health-from-backend
+  - disconnected-provider-visible-to-user
+  - no-silent-provider-fallback
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - configure: runtime provider to LM Studio with unreachable localhost endpoint through public provider API
+  - reload: real workbench
+  - observe: model status badge visibly shows LM Studio and model disconnected
+  - observe: disconnected reason is author-readable as LM Studio not started
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-lmstudio-disconnected-health-tauri
+
+assertions:
+  ui:
+    - model status badge includes LM Studio
+    - model status badge includes model disconnected
+    - title or health message includes LM Studio not started
+  network:
+    - workbench joined current work channel
+    - provider health response reports connected false for lmstudio
+  data:
+    - no provider fallback marked the system connected
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

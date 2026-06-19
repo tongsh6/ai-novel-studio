@@ -1,7 +1,11 @@
 export const nativeSliceIds = [
   "workspace-runtime-state",
   "su02-work-switching",
+  "su02-work-lifecycle-management",
   "su01-provider-health-model",
+  "su01-lmstudio-disconnected-health",
+  "su01-provider-endpoint-validation",
+  "su01-api-key-secret-redaction",
   "su01-model-provider-switching",
   "stage-startup-context-contract",
   "au03c-work-session-resume",
@@ -14,6 +18,7 @@ export const nativeSliceIds = [
   "au09-archive-real-data",
   "au09-memory-recall-context",
   "au03-session-history-readonly",
+  "au03-session-new-active",
   "au03-branch-from-history",
   "au03-archive-session-filter",
   "au03-current-work-context-ssot",
@@ -76,7 +81,15 @@ const sliceKeyEvents = {
     "channel.user_message.start",
     "slice_verify.ui_state.done",
   ],
+  "su02-work-lifecycle-management": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "slice_verify.ui_state.done",
+  ],
   "su01-provider-health-model": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-lmstudio-disconnected-health": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-provider-endpoint-validation": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-api-key-secret-redaction": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-model-provider-switching": [
     "channel.join.done",
     "channel.user_message.start",
@@ -84,7 +97,13 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
-  "su03-assistant-display-name": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su03-assistant-display-name": [
+    "channel.join.done",
+    "channel.user_message.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "stage-startup-context-contract": [
     "work_session.resume.done",
     "channel.join.done",
@@ -466,6 +485,16 @@ const sliceKeyEvents = {
     "work_session.show.done",
     "slice_verify.ui_state.done",
   ],
+  "au03-session-new-active": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "work_session.create.done",
+    "work_session.show.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au03-branch-from-history": [
     "work_session.resume.done",
     "channel.join.done",
@@ -650,8 +679,24 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu02WorkSwitchingEvidence(records);
   }
 
+  if (sliceId === "su02-work-lifecycle-management") {
+    return findSu02WorkLifecycleManagementEvidence(records);
+  }
+
   if (sliceId === "su01-provider-health-model") {
     return findSu01ProviderHealthEvidence(records);
+  }
+
+  if (sliceId === "su01-lmstudio-disconnected-health") {
+    return findSu01LmstudioDisconnectedHealthEvidence(records);
+  }
+
+  if (sliceId === "su01-provider-endpoint-validation") {
+    return findSu01ProviderEndpointValidationEvidence(records);
+  }
+
+  if (sliceId === "su01-api-key-secret-redaction") {
+    return findSu01ApiKeySecretRedactionEvidence(records);
   }
 
   if (sliceId === "su01-model-provider-switching") {
@@ -700,6 +745,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au03-session-history-readonly") {
     return findAu03SessionHistoryReadonlyEvidence(records);
+  }
+
+  if (sliceId === "au03-session-new-active") {
+    return findAu03SessionNewActiveEvidence(records);
   }
 
   if (sliceId === "au03-branch-from-history") {
@@ -908,8 +957,24 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return su02WorkSwitchingBehavior(records, evidence, options);
   }
 
+  if (sliceId === "su02-work-lifecycle-management") {
+    return su02WorkLifecycleManagementBehavior(records, evidence, options);
+  }
+
   if (sliceId === "su01-provider-health-model") {
     return su01ProviderHealthBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-lmstudio-disconnected-health") {
+    return su01LmstudioDisconnectedHealthBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-provider-endpoint-validation") {
+    return su01ProviderEndpointValidationBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-api-key-secret-redaction") {
+    return su01ApiKeySecretRedactionBehavior(records, evidence, options);
   }
 
   if (sliceId === "su01-model-provider-switching") {
@@ -938,6 +1003,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au03-session-history-readonly") {
     return sessionHistoryReadonlyBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au03-session-new-active") {
+    return sessionNewActiveBehavior(records, evidence, options);
   }
 
   if (sliceId === "au03-branch-from-history") {
@@ -1503,19 +1572,35 @@ function findSu03AssistantDisplayNameEvidence(records) {
     if (uiState.context_work_id !== initialWorkId) continue;
     if (uiState.assistant_name_after_save !== "创作助手") continue;
     if (uiState.assistant_role_after_save !== "创作助手") continue;
+    if (uiState.assistant_label_after_turn !== "创作助手") continue;
     if (uiState.assistant_name_in_created_work !== "AI") continue;
     if (uiState.assistant_name_after_return !== "创作助手") continue;
     if (uiState.assistant_role_after_return !== "创作助手") continue;
     if (uiState.socket_connected !== true) continue;
+    if (uiState.sent_payload_includes_display_name !== false) continue;
+    if (uiState.turn_result_contract_has_assistant_message !== true) continue;
+    if (uiState.turn_result_has_display_name_key !== false) continue;
+
+    const turnId = String(uiState.turn_id ?? "");
+    if (!turnId) continue;
+
+    const turnRecords = records.filter((record) => record.turn_id === turnId);
+    if (!turnRecords.some((record) => record.event === "channel.user_message.start")) continue;
+    if (!turnRecords.some((record) => record.event === "channel.user_message.done")) continue;
 
     return {
       slice_id: sliceId,
-      turn_ids: [],
+      turn_id: turnId,
+      turn_ids: [turnId],
       work_id: initialWorkId,
       created_work_id: createdWorkId,
       assistant_name_after_save: uiState.assistant_name_after_save,
       assistant_name_in_created_work: uiState.assistant_name_in_created_work,
       assistant_name_after_return: uiState.assistant_name_after_return,
+      sent_payload_includes_display_name: uiState.sent_payload_includes_display_name,
+      turn_result_contract_has_assistant_message:
+        uiState.turn_result_contract_has_assistant_message,
+      turn_result_has_display_name_key: uiState.turn_result_has_display_name_key,
       key_events: keyEvents,
     };
   }
@@ -1553,6 +1638,127 @@ function findSu01ProviderHealthEvidence(records) {
       work_id: uiState.work_id,
       llm_status_text: statusText,
       llm_model_label: modelLabel,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01LmstudioDisconnectedHealthEvidence(records) {
+  const sliceId = "su01-lmstudio-disconnected-health";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.llm_connected !== false) continue;
+    if (uiState.provider !== "lmstudio") continue;
+    if (uiState.disconnected_visible !== true) continue;
+    if (uiState.disconnected_reason_visible !== true) continue;
+    if (!String(uiState.message ?? "").includes("LM Studio 未启动")) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      provider: uiState.provider,
+      model: uiState.model,
+      message: uiState.message,
+      detail: uiState.detail,
+      model_button_text: uiState.model_button_text,
+      model_button_title: uiState.model_button_title,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01ProviderEndpointValidationEvidence(records) {
+  const sliceId = "su01-provider-endpoint-validation";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.provider_selected !== "lmstudio") continue;
+    if (uiState.invalid_endpoint !== "localhost:1234/v1") continue;
+    if (uiState.endpoint_invalid_visible !== true) continue;
+    if (uiState.refresh_models_disabled !== true) continue;
+    if (uiState.test_connection_disabled !== true) continue;
+    if (uiState.save_disabled !== true) continue;
+    if (uiState.models_request_after_invalid_count !== 0) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      provider_selected: uiState.provider_selected,
+      invalid_endpoint: uiState.invalid_endpoint,
+      invalid_endpoint_hint_text: uiState.invalid_endpoint_hint_text,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01ApiKeySecretRedactionEvidence(records) {
+  const sliceId = "su01-api-key-secret-redaction";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.provider_selected !== "deepseek") continue;
+    if (uiState.model_selected !== "deepseek-slice-keychain") continue;
+    if (uiState.test_connection_succeeded !== true) continue;
+    if (uiState.provider_switch_saved !== true) continue;
+    if (uiState.provider_options_api_key_configured !== true) continue;
+    if (uiState.provider_options_omits_api_key !== true) continue;
+    if (uiState.browser_settings_omits_api_key !== true) continue;
+    if (uiState.visible_text_omits_api_key !== true) continue;
+    if (uiState.app_log_omits_api_key !== true) continue;
+    if (uiState.backend_log_omits_api_key !== true) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      provider_selected: uiState.provider_selected,
+      model_selected: uiState.model_selected,
+      model_provider_button_text: uiState.model_provider_button_text,
       key_events: keyEvents,
     };
   }
@@ -1865,6 +2071,123 @@ function findAu03SessionHistoryReadonlyEvidence(records) {
       key_events: keyEvents,
       transcript_count: shown.transcript_count,
       pending_adoption_count: shown.pending_adoption_count,
+    };
+  }
+
+  return null;
+}
+
+function findAu03SessionNewActiveEvidence(records) {
+  const sliceId = "au03-session-new-active";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const workId = uiState.work_id;
+    const previousSessionId = String(uiState.previous_active_session_id ?? "");
+    const newSessionId = String(uiState.new_active_session_id ?? "");
+    const turnId = String(uiState.turn_id ?? "");
+    if (!previousSessionId || !newSessionId || !turnId) continue;
+    if (previousSessionId === newSessionId) continue;
+
+    const previousResume = records.find(
+      (record) =>
+        record.event === "work_session.resume.done" &&
+        record.work_id === workId &&
+        record.session_id === previousSessionId,
+    );
+    if (!previousResume || Number(previousResume.transcript_count ?? 0) < 2) continue;
+
+    const created = records.find(
+      (record) =>
+        record.event === "work_session.create.done" &&
+        record.work_id === workId &&
+        record.session_id === newSessionId,
+    );
+    if (!created) continue;
+
+    const newResume = records.find(
+      (record) =>
+        record.event === "work_session.resume.done" &&
+        record.work_id === workId &&
+        record.session_id === newSessionId &&
+        Number(record.transcript_count ?? -1) === 0,
+    );
+    if (!newResume) continue;
+
+    const joinedNew = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === workId &&
+        record.session_id === newSessionId,
+    );
+    if (!joinedNew) continue;
+
+    const shownPrevious = records.find(
+      (record) =>
+        record.event === "work_session.show.done" &&
+        record.work_id === workId &&
+        record.session_id === previousSessionId &&
+        record.read_only === true,
+    );
+    if (!shownPrevious || Number(shownPrevious.transcript_count ?? 0) < 2) continue;
+
+    const userStart = records.find(
+      (record) =>
+        record.event === "channel.user_message.start" &&
+        record.work_id === workId &&
+        record.session_id === newSessionId &&
+        record.turn_id === turnId,
+    );
+    const contextDone = records.find(
+      (record) =>
+        record.event === "context.assemble.done" &&
+        record.turn_id === turnId &&
+        record.has_conversation === false,
+    );
+    const userDone = records.find(
+      (record) =>
+        record.event === "channel.user_message.done" &&
+        record.work_id === workId &&
+        record.session_id === newSessionId &&
+        record.turn_id === turnId,
+    );
+    if (!userStart || !contextDone || !userDone) continue;
+
+    if (uiState.previous_active_status_after_create !== "EXITED") continue;
+    if (uiState.new_session_transcript_empty !== true) continue;
+    if (uiState.new_session_input_enabled !== true) continue;
+    if (uiState.new_session_send_enabled !== true) continue;
+    if (uiState.old_active_visible_initial !== true) continue;
+    if (uiState.old_active_absent_after_create !== true) continue;
+    if (uiState.previous_active_readonly_opened !== true) continue;
+    if (uiState.previous_active_readonly_banner_visible !== true) continue;
+    if (uiState.previous_active_input_disabled !== true) continue;
+    if (uiState.previous_active_send_disabled !== true) continue;
+    if (uiState.previous_active_transcript_visible_readonly !== true) continue;
+    if (uiState.active_session_restored !== true) continue;
+    if (uiState.user_message_session_id !== newSessionId) continue;
+    if (uiState.user_message_work_id !== workId) continue;
+    if (uiState.new_session_message_visible !== true) continue;
+    if (uiState.old_active_text_in_new_session !== false) continue;
+    if (uiState.first_turn_context_has_conversation !== false) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [turnId],
+      work_id: workId,
+      session_id: newSessionId,
+      previous_session_id: previousSessionId,
+      key_events: keyEvents,
+      transcript_count: newResume.transcript_count,
+      previous_transcript_count: shownPrevious.transcript_count,
+      first_turn_context_refs_count: contextDone.context_refs_count,
     };
   }
 
@@ -2506,6 +2829,82 @@ function findSu02WorkSwitchingEvidence(records) {
   return null;
 }
 
+function findSu02WorkLifecycleManagementEvidence(records) {
+  const sliceId = "su02-work-lifecycle-management";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id &&
+      record.socket_connected === true,
+  );
+
+  for (const uiState of uiStates) {
+    if (!uiState.created_work_id || !uiState.renamed_work_id || !uiState.discarded_work_id) {
+      continue;
+    }
+    if (uiState.created_work_id !== uiState.renamed_work_id) continue;
+    if (uiState.renamed_work_id !== uiState.discarded_work_id) continue;
+    if (uiState.discarded_status !== "DISCARDED") continue;
+    if (uiState.discarded_hidden_from_default_list !== true) continue;
+    if (uiState.delete_confirmation_included_title !== true) continue;
+    if (uiState.fallback_is_source_work !== true) continue;
+    if (uiState.fallback_work_id !== uiState.source_work_id) continue;
+    if (uiState.work_id === uiState.discarded_work_id) continue;
+
+    const joinedWorks = records
+      .filter((record) => record.event === "channel.join.done" && record.work_id)
+      .map((record) => record.work_id);
+    const distinctJoinedWorks = [...new Set(joinedWorks)];
+    if (!distinctJoinedWorks.includes(uiState.source_work_id)) continue;
+    if (!distinctJoinedWorks.includes(uiState.created_work_id)) continue;
+    if (distinctJoinedWorks.length < 2) continue;
+
+    const resumedFallback = records.find(
+      (record) =>
+        record.event === "work_session.resume.done" &&
+        record.work_id === uiState.work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!resumedFallback) continue;
+
+    const joinedFallback = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === uiState.work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!joinedFallback) continue;
+
+    const serviceStatusText = String(uiState.service_status_text ?? "");
+    if (!serviceStatusText.includes("已连接")) continue;
+
+    const titleText = String(uiState.title_text ?? "");
+    if (!titleText.includes(String(uiState.source_work_title ?? ""))) continue;
+    if (titleText.includes(String(uiState.renamed_title ?? ""))) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      source_work_id: uiState.source_work_id,
+      source_work_title: uiState.source_work_title,
+      created_work_id: uiState.created_work_id,
+      renamed_work_id: uiState.renamed_work_id,
+      discarded_work_id: uiState.discarded_work_id,
+      session_id: uiState.session_id,
+      fallback_work_id: uiState.fallback_work_id,
+      discarded_status: uiState.discarded_status,
+      visible_work_ids: uiState.visible_work_ids,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
 function findAu10UserMessageEvidence(records, generateMicroPlan, sliceId) {
   const keyEvents = keyEventsForSlice(sliceId);
   const byTurn = groupByTurn(records);
@@ -2962,7 +3361,7 @@ function findCandidateAdoptionBridgeEvidence(records) {
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
-      record.candidate_continue_clicked === true &&
+      record.candidate_adopt_clicked === true &&
       record.visible_adoption_result === true &&
       record.adoption_decision_type === "adopt_tentative" &&
       record.candidate_selected === true &&
@@ -6199,7 +6598,7 @@ function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
 
   return {
     slice_id: "au02-candidate-adoption-bridge",
-    behavior: "candidate_continuation_authorized_by_available_action",
+    behavior: "candidate_adoption_authorized_by_available_action",
     turn_ids: turnIds,
     source_turn_ref: sourceTurnId,
     continuation_turn_id: null,
@@ -6207,7 +6606,7 @@ function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
     candidate_set_ref: uiState.candidate_set_ref,
     assertions: [
       "candidate_panel_rendered_from_turn_result",
-      "candidate_continuation_sent_authorized_choose_candidate_action",
+      "candidate_adoption_sent_authorized_choose_candidate_action",
       "adoption_boundary_returned_adopt_tentative",
       "ui_rendered_candidate_adoption_result",
       "production_write_not_claimed",
@@ -6777,6 +7176,79 @@ function sessionHistoryReadonlyBehavior(records, evidence, _options) {
   };
 }
 
+function sessionNewActiveBehavior(records, evidence, _options) {
+  const turnIds = evidence.turn_ids ?? [];
+  const turnRecords = records.filter((record) => turnIds.includes(record.turn_id));
+  if (hasErrorEvent(turnRecords)) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au03-session-new-active" &&
+      record.new_active_session_id === evidence.session_id &&
+      record.previous_active_session_id === evidence.previous_session_id,
+  );
+  if (!uiState) return null;
+
+  const created = records.find(
+    (record) =>
+      record.event === "work_session.create.done" &&
+      record.work_id === evidence.work_id &&
+      record.session_id === evidence.session_id,
+  );
+  if (!created) return null;
+
+  const shownPrevious = records.find(
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.work_id === evidence.work_id &&
+      record.session_id === evidence.previous_session_id &&
+      record.read_only === true,
+  );
+  if (!shownPrevious) return null;
+
+  const contextDone = records.find(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      turnIds.includes(record.turn_id) &&
+      record.has_conversation === false,
+  );
+  if (!contextDone) return null;
+
+  if (uiState.previous_active_status_after_create !== "EXITED") return null;
+  if (uiState.new_session_transcript_empty !== true) return null;
+  if (uiState.old_active_absent_after_create !== true) return null;
+  if (uiState.previous_active_readonly_opened !== true) return null;
+  if (uiState.previous_active_input_disabled !== true) return null;
+  if (uiState.previous_active_send_disabled !== true) return null;
+  if (uiState.previous_active_transcript_visible_readonly !== true) return null;
+  if (uiState.active_session_restored !== true) return null;
+  if (uiState.user_message_session_id !== evidence.session_id) return null;
+  if (uiState.new_session_message_visible !== true) return null;
+  if (uiState.old_active_text_in_new_session !== false) return null;
+
+  return {
+    slice_id: "au03-session-new-active",
+    behavior: "new_active_session_created_and_previous_active_reopened_readonly",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    previous_session_id: evidence.previous_session_id,
+    assertions: [
+      "new_session_action_started_from_real_workbench",
+      "new_active_session_created_through_web_application_persistence",
+      "previous_active_session_exited_after_create",
+      "workbench_rejoined_new_active_session",
+      "new_active_session_started_with_empty_transcript",
+      "previous_active_session_reopened_as_read_only_history",
+      "next_user_message_scoped_to_new_session",
+      "first_new_session_turn_has_empty_conversation_context",
+      "old_active_transcript_not_copied_into_new_session",
+      "no_error_events",
+    ],
+  };
+}
+
 function branchFromHistoryBehavior(records, evidence, _options) {
   const uiState = records.find(
     (record) =>
@@ -7155,24 +7627,89 @@ function su02WorkSwitchingBehavior(records, evidence, _options) {
   };
 }
 
+function su02WorkLifecycleManagementBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  const sourceWorkRecords = records.filter((record) => record.work_id === evidence.source_work_id);
+  const createdWorkRecords = records.filter(
+    (record) => record.work_id === evidence.created_work_id,
+  );
+  if (sourceWorkRecords.length === 0 || createdWorkRecords.length === 0) return null;
+  if (evidence.work_id !== evidence.source_work_id) return null;
+  if (evidence.discarded_status !== "DISCARDED") return null;
+  if (evidence.visible_work_ids?.includes?.(evidence.discarded_work_id)) return null;
+
+  return {
+    slice_id: "su02-work-lifecycle-management",
+    behavior: "work_lifecycle_named_create_rename_and_safe_discard",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    source_work_id: evidence.source_work_id,
+    source_work_title: evidence.source_work_title,
+    created_work_id: evidence.created_work_id,
+    discarded_work_id: evidence.discarded_work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "named_work_creation_started_from_visible_work_menu",
+      "created_work_joined_real_workspace_channel",
+      "rename_preserved_work_id",
+      "delete_confirmation_included_author_visible_work_title",
+      "safe_delete_marked_work_discarded_without_physical_delete",
+      "discarded_work_hidden_from_default_work_list",
+      "deleting_current_work_switched_to_source_work",
+      "last_opened_not_restored_to_discarded_work",
+      "no_product_acceptance_hooks",
+      "no_error_events",
+    ],
+  };
+}
+
 function su03AssistantDisplayNameBehavior(records, evidence, _options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  if (evidence.sent_payload_includes_display_name !== false) return null;
+  if (evidence.turn_result_contract_has_assistant_message !== true) return null;
+  if (evidence.turn_result_has_display_name_key !== false) return null;
+
+  const assertions = [
+    "assistant_name_changed_from_real_workbench_entry",
+    "assistant_message_role_remained_assistant",
+    "turn_result_preserved_assistant_message_contract",
+    "wire_payload_did_not_include_ui_display_name",
+    "display_name_saved_for_current_work",
+    "new_work_fell_back_to_default_ai_name",
+    "switching_back_restored_original_work_name",
+    "preference_did_not_touch_provider_or_turn_result_contract",
+    "no_error_events",
+  ];
+
+  if (_options.provider === "lmstudio") {
+    const turnIds = evidence.turn_ids ?? [];
+    const relevant = (_options.llmRecords ?? []).filter(
+      (record) =>
+        turnIds.includes(record.turn_id) &&
+        record.provider === "lmstudio" &&
+        record.request?.method === "POST" &&
+        Number(record.response?.status ?? 0) >= 200 &&
+        Number(record.response?.status ?? 0) < 300,
+    );
+    if (relevant.length === 0) return null;
+    if (
+      relevant.some((record) =>
+        JSON.stringify(record.request?.body ?? {}).includes(evidence.assistant_name_after_save),
+      )
+    ) {
+      return null;
+    }
+    assertions.splice(4, 0, "lmstudio_request_did_not_include_ui_display_name");
+  }
 
   return {
     slice_id: "su03-assistant-display-name",
     behavior: "assistant_display_name_is_work_scoped_ui_preference",
-    turn_ids: [],
+    turn_ids: evidence.turn_ids,
     work_id: evidence.work_id,
     created_work_id: evidence.created_work_id,
-    assertions: [
-      "assistant_name_changed_from_real_workbench_entry",
-      "assistant_message_role_remained_assistant",
-      "display_name_saved_for_current_work",
-      "new_work_fell_back_to_default_ai_name",
-      "switching_back_restored_original_work_name",
-      "preference_did_not_touch_provider_or_turn_result_contract",
-      "no_error_events",
-    ],
+    assertions,
   };
 }
 
@@ -7189,6 +7726,76 @@ function su01ProviderHealthBehavior(records, evidence, _options) {
       "llm_badge_connected_state_came_from_backend_health",
       "llm_badge_displays_provider_or_model_label",
       "channel_joined_current_work",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01LmstudioDisconnectedHealthBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  if (evidence.provider !== "lmstudio") return null;
+  if (!String(evidence.message ?? "").includes("LM Studio 未启动")) return null;
+
+  return {
+    slice_id: "su01-lmstudio-disconnected-health",
+    behavior: "lmstudio_disconnected_health_is_visible_and_author_readable",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    provider: evidence.provider,
+    model: evidence.model,
+    assertions: [
+      "provider_health_requested_through_real_workbench",
+      "lmstudio_runtime_config_used_for_health_check",
+      "visible_badge_showed_model_disconnected",
+      "disconnected_reason_was_author_readable",
+      "channel_joined_current_work",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01ProviderEndpointValidationBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  return {
+    slice_id: "su01-provider-endpoint-validation",
+    behavior: "invalid_provider_endpoint_is_blocked_before_runtime_request",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    provider_selected: evidence.provider_selected,
+    invalid_endpoint: evidence.invalid_endpoint,
+    assertions: [
+      "model_settings_opened_from_real_workbench",
+      "invalid_endpoint_hint_was_visible",
+      "refresh_models_test_and_save_were_disabled",
+      "invalid_endpoint_did_not_trigger_provider_models_request",
+      "channel_joined_current_work",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01ApiKeySecretRedactionBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  const serialized = JSON.stringify(records);
+  if (serialized.includes("sk-slice-redaction")) return null;
+
+  return {
+    slice_id: "su01-api-key-secret-redaction",
+    behavior: "provider_api_key_flow_redacts_secret_from_user_visible_and_plain_logs",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    provider_selected: evidence.provider_selected,
+    model_selected: evidence.model_selected,
+    assertions: [
+      "model_settings_opened_from_real_workbench",
+      "deepseek_model_list_loaded_through_adapter_http_boundary",
+      "test_connection_succeeded_before_save",
+      "provider_options_marked_api_key_configured_without_returning_secret",
+      "provider_options_did_not_expose_api_key",
+      "browser_fallback_settings_did_not_expose_api_key",
+      "visible_ui_business_logs_and_backend_logs_did_not_expose_api_key",
       "no_error_events",
     ],
   };

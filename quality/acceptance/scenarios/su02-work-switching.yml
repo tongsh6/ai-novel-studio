@@ -1,0 +1,54 @@
+id: su02-work-switching
+title: 运行时作品切换与 Channel 重连
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su02-work-switching --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - work-id-from-persisted-work
+  - channel-topic-rejoined-on-work-switch
+  - stale-result-not-rendered-in-new-work
+  - fallback-lobby-not-persisted
+
+setup:
+  seed: scripts/seed_au03_long_session_compression.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - select: persisted source work from visible work menu
+  - input: source work message
+  - click: new work from visible work menu
+  - wait_for: new workspace channel joined
+  - observe: new work message stream does not contain previous work message
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su02-work-switching-tauri
+
+assertions:
+  ui:
+    - work menu creates and switches to another persisted work
+    - source work message is not visible after switching
+  network:
+    - channel joins at least two distinct work ids
+    - user message was sent from the source work before switching
+  data:
+    - new work context matches joined channel work id
+    - no fallback assistant error text is shown
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

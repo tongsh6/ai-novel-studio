@@ -12,8 +12,8 @@ active_session_id = active_snapshot.active_session.id
 {:ok, history_session} =
   WorkSessionRepo.create(%{
     work_id: work.id,
-    title: "第三章节奏",
-    summary: "妹妹林瑶的伏笔回收讨论",
+    title: "林瑶旧线索讨论",
+    summary: "上周围绕林瑶失踪和旧线索展开的历史会话。",
     status: "EXITED"
   })
 
@@ -22,9 +22,18 @@ entries = [
     workspace_id: work.id,
     session_id: active_session_id,
     turn_id: "turn_active_seed",
-    role: "assistant",
-    content: %{text: "当前会话已就绪，可以继续创作。"},
+    role: "user",
+    content: %{text: "当前会话继续讨论灵源矿区。"},
     source_ref: "turn_active_seed",
+    scope_ref: work.id
+  },
+  %{
+    workspace_id: work.id,
+    session_id: active_session_id,
+    turn_id: "turn_active_seed_reply",
+    role: "assistant",
+    content: %{text: "当前会话保持活跃，可继续创作。"},
+    source_ref: "turn_active_seed_reply",
     scope_ref: work.id
   },
   %{
@@ -32,7 +41,7 @@ entries = [
     session_id: history_session.id,
     turn_id: "turn_history_1",
     role: "user",
-    content: %{text: "我想回看妹妹林瑶的伏笔怎么安排。"},
+    content: %{text: "林瑶留下的旧线索应该藏在矿区档案室。"},
     source_ref: "turn_history_1",
     scope_ref: work.id
   },
@@ -42,10 +51,10 @@ entries = [
     turn_id: "turn_history_1",
     role: "assistant",
     content: %{
-      text: "林瑶的失踪可以作为第三章的动机线索，但这只是历史会话里的讨论。",
+      text: "这段历史会话只用于回看，不应恢复为当前可写会话。",
       turn_result: %{
         turn_id: "turn_history_1",
-        assistant_message: %{text: "林瑶的失踪可以作为第三章的动机线索。"},
+        assistant_message: %{text: "这段历史会话只用于回看。"},
         adoption_state: %{
           pending: [
             %{

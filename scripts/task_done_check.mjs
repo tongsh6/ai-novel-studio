@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { execSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -81,6 +82,7 @@ function writeManifest() {
     generated_at: new Date().toISOString(),
     git_head: readCommand("git rev-parse HEAD").trim() || null,
     touched_files: touchedFiles,
+    touched_file_hashes: hashTouchedFiles(touchedFiles),
     ui_required: uiRequired,
     ui_touched_files: uiFiles,
     ui: {
@@ -126,7 +128,11 @@ function checkManifest() {
   }
 
   const latestTouched = latestMtime(touchedFiles);
-  if (latestTouched > 0 && generatedAt + staleToleranceMs < latestTouched) {
+  if (
+    latestTouched > 0 &&
+    generatedAt + staleToleranceMs < latestTouched &&
+    !manifestContentMatches(manifest, touchedFiles)
+  ) {
     throw new Error(
       [
         "task-done: manifest is stale.",
@@ -178,6 +184,16 @@ function checkManifest() {
   console.log(`task-done: manifest ok (${normalizePath(manifestPath)})`);
 }
 
+function manifestContentMatches(manifest, touchedFiles) {
+  const recorded = manifest.touched_file_hashes;
+  if (!recorded || typeof recorded !== "object") {
+    return false;
+  }
+
+  const current = hashTouchedFiles(touchedFiles);
+  return JSON.stringify(recorded) === JSON.stringify(current);
+}
+
 function getTouchedFiles() {
   const files = new Set();
 
@@ -194,6 +210,20 @@ function getTouchedFiles() {
   }
 
   return [...files].sort();
+}
+
+function hashTouchedFiles(files) {
+  return Object.fromEntries(
+    files.map((file) => {
+      const absolute = path.resolve(rootDir, file);
+      if (!existsSync(absolute)) {
+        return [file, null];
+      }
+
+      const hash = createHash("sha256").update(readFileSync(absolute)).digest("hex");
+      return [file, hash];
+    }),
+  );
 }
 
 function detectUiRequired(files) {

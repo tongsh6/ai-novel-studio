@@ -218,6 +218,91 @@ async function createWorkSeed(attrs) {
   return body.work;
 }
 
+async function listWorksFromApi() {
+  const response = await fetch(`${baseUrl}/api/works`);
+  assert(response.ok, `Failed to list works: HTTP ${response.status}`);
+  const body = await response.json();
+  return body?.works ?? [];
+}
+
+async function fetchWorkFromApi(id) {
+  const response = await fetch(`${baseUrl}/api/works/${encodeURIComponent(id)}`);
+  assert(response.ok, `Failed to fetch work ${id}: HTTP ${response.status}`);
+  const body = await response.json();
+  assert(body?.work?.id === id, `Fetched work ${id} response did not match requested id`);
+  return body.work;
+}
+
+async function waitForWorkByTitle(title, excludedIds = new Set(), timeoutMs = 10_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const match = (await listWorksFromApi()).find(
+      (work) => work.title === title && !excludedIds.has(work.id),
+    );
+    if (match) return match;
+    await sleep(250);
+  }
+
+  throw new Error(`Work did not appear in API list with title: ${title}`);
+}
+
+async function openWorkMenu(page) {
+  await workTitle(page).click();
+  await page.locator('[class*="workMenu"]').first().waitFor({ timeout: 10_000 });
+}
+
+async function clickWorkMenuItemByExactTitle(page, title) {
+  const items = page.getByRole("menuitem");
+  const count = await items.count();
+
+  for (let index = 0; index < count; index += 1) {
+    const item = items.nth(index);
+    const text = ((await item.textContent()) ?? "").replace(/\s+/g, " ").trim();
+    if (text === title || text === `${title} 当前`) {
+      await item.click();
+      return;
+    }
+  }
+
+  throw new Error(`Work menu item not found: ${title}`);
+}
+
+async function refreshAndSelectWork(page, title) {
+  await openWorkMenu(page);
+  const refresh = page.locator('button[title="刷新作品列表"]').first();
+  if ((await refresh.count()) > 0) {
+    await refresh.click();
+    await sleep(250);
+  }
+  await clickWorkMenuItemByExactTitle(page, title);
+}
+
+async function createWorkFromMenu(page, previousWorkId) {
+  const beforeCount = readAppLogRecords().length;
+  await openWorkMenu(page);
+  await page.getByRole("menuitem", { name: "快速新建未命名作品" }).click();
+
+  return await waitForNewAppLogRecord(
+    beforeCount,
+    (record) =>
+      record.event === "channel.join.done" && record.work_id && record.work_id !== previousWorkId,
+    "Creating a work from the work menu did not join a new workspace channel",
+    30_000,
+  );
+}
+
+async function openNamedCreateWorkDialog(page) {
+  await openWorkMenu(page);
+  await page.getByRole("menuitem", { name: "新建作品" }).click();
+  await page.getByRole("dialog", { name: "新建作品" }).waitFor({ timeout: 10_000 });
+}
+
+async function submitWorkTitleDialog(page, title, buttonName) {
+  await page.locator("#work-title-input").fill(title);
+  await page.getByRole("button", { name: buttonName }).click();
+}
+
 async function configureProviderRuntime(attrs) {
   const response = await fetch(`${baseUrl}/api/provider/config`, {
     method: "PUT",
@@ -287,6 +372,17 @@ function latestSentUserMessage() {
     .at(-1);
 }
 
+function latestChannelJoinReply() {
+  return frames
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        (frame.body?.response?.work_id || frame.body?.work_id),
+    )
+    .at(-1);
+}
+
 function latestTurnResult() {
   return frames
     .filter((frame) => frame.direction === "received" && frame.event === "turn_result")
@@ -313,6 +409,18 @@ async function waitForFrame(predicate, message, timeoutMs = 60_000) {
 
   while (Date.now() - started < timeoutMs) {
     const match = frames.find(predicate);
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(message);
+}
+
+async function waitForNewFrame(afterCount, predicate, message, timeoutMs = 60_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const match = frames.slice(afterCount).find(predicate);
     if (match) return match;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -349,6 +457,18 @@ async function waitForAppLogRecord(predicate, message, timeoutMs = 60_000) {
 
   while (Date.now() - started < timeoutMs) {
     const match = readAppLogRecords().find(predicate);
+    if (match) return match;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(message);
+}
+
+async function waitForNewAppLogRecord(afterCount, predicate, message, timeoutMs = 60_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const match = readAppLogRecords().slice(afterCount).find(predicate);
     if (match) return match;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -491,6 +611,145 @@ async function commonUiState(page, turnResult, sentMessage) {
   };
 }
 
+async function visibleMessageRoleOrder(page) {
+  return await page.evaluate(() => {
+    const userMessages = Array.from(document.querySelectorAll('[class*="userMsg"]')).map(
+      (element) => ({ role: "user", top: element.getBoundingClientRect().top }),
+    );
+    const assistantMessages = Array.from(document.querySelectorAll('[class*="assistantMsg"]')).map(
+      (element) => ({ role: "assistant", top: element.getBoundingClientRect().top }),
+    );
+
+    return [...userMessages, ...assistantMessages]
+      .sort((left, right) => left.top - right.top)
+      .map((entry) => entry.role);
+  });
+}
+
+async function sendOrdinaryChatTurn(page, message, afterFrameCount) {
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const thinkingObserved = await page
+    .waitForFunction(() => document.body.innerText.includes("思考中"), undefined, {
+      timeout: 5_000,
+    })
+    .then(() => true)
+    .catch(() => false);
+
+  const turnFrame = await waitForNewFrame(
+    afterFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.assistant_message?.text,
+    `No ordinary chat turn_result after message: ${message}`,
+    90_000,
+  );
+
+  await page.waitForFunction(
+    (payload) =>
+      document.body.innerText.includes(payload.message) &&
+      document.body.innerText.includes(payload.assistantText) &&
+      !document.body.innerText.includes("思考中"),
+    {
+      message,
+      assistantText: turnFrame.body.assistant_message.text,
+    },
+    { timeout: 30_000 },
+  );
+
+  return { turnResult: turnFrame.body, thinkingObserved };
+}
+
+async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
+  const firstMessage = "我想写一个雨夜开场的悬疑故事，先聊聊气质。";
+  const secondMessage = "继续聊，但先不要写正文，也不要改设定。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  assert((await workTitle(page).count()) > 0, "Real work title button is not visible");
+  assert((await serviceStatus(page).count()) > 0, "Real service status is not visible");
+
+  const firstTurn = await sendOrdinaryChatTurn(page, firstMessage, frames.length);
+  const secondTurn = await sendOrdinaryChatTurn(page, secondMessage, frames.length);
+  const sentMessages = frames.filter(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      [firstMessage, secondMessage].includes(String(frame.body?.text ?? "")),
+  );
+
+  assert(sentMessages.length === 2, "Real workbench did not send two user_message frames");
+  assert(
+    sentMessages.every((frame) => frame.body?.generate_micro_plan === false),
+    "Ordinary chat user_message did not preserve generate_micro_plan=false",
+  );
+  assert(firstTurn.turnResult.turn_id !== secondTurn.turnResult.turn_id, "Turns reused turn_id");
+
+  const uiState = await commonUiState(page, secondTurn.turnResult, sentMessages.at(-1));
+  const visibleText = await page.locator("body").innerText();
+  const messageRoleOrder = await visibleMessageRoleOrder(page);
+  const userMessageCount = await page.locator('[class*="userMsg"]').count();
+  const assistantMessageCount = await page.locator('[class*="assistantMsg"]').count();
+  const availableActionCount = await page.locator('[class*="cardActions"] button').count();
+  const cardActionCount = await page.locator('[class*="cardActions"]').count();
+  const candidatePanelCount = await page.locator("[class*=candidatePanel]").count();
+  const adoptionDecisionCardCount = await page
+    .getByText(/待确认的创作材料|采纳|修改后采纳|放弃/)
+    .count();
+
+  assert(visibleText.includes(firstMessage), "First user message is not visible");
+  assert(visibleText.includes(secondMessage), "Second user message is not visible");
+  assert(
+    visibleText.includes(firstTurn.turnResult.assistant_message.text),
+    "First assistant reply is not visible",
+  );
+  assert(
+    visibleText.includes(secondTurn.turnResult.assistant_message.text),
+    "Second assistant reply is not visible",
+  );
+  assert(
+    firstTurn.thinkingObserved || secondTurn.thinkingObserved,
+    "Thinking indicator was missed",
+  );
+  assert(!visibleText.includes("思考中"), "Thinking indicator stayed visible after replies");
+  assert(availableActionCount === 0, "Ordinary chat rendered available action buttons");
+  assert(cardActionCount === 0, "Ordinary chat rendered card action containers");
+  assert(candidatePanelCount === 0, "Ordinary chat rendered candidate panel");
+  assert(adoptionDecisionCardCount === 0, "Ordinary chat rendered adoption decision controls");
+
+  return [
+    {
+      ...uiState,
+      turn_id: firstTurn.turnResult.turn_id,
+      turn_ids: [firstTurn.turnResult.turn_id, secondTurn.turnResult.turn_id],
+      ui_turn_ids: [firstTurn.turnResult.turn_id, secondTurn.turnResult.turn_id],
+      first_turn_id: firstTurn.turnResult.turn_id,
+      second_turn_id: secondTurn.turnResult.turn_id,
+      user_message_count: userMessageCount,
+      assistant_turn_message_count: Math.max(
+        0,
+        assistantMessageCount - uiState.welcome_message_count,
+      ),
+      message_role_order: messageRoleOrder,
+      thinking_observed: firstTurn.thinkingObserved || secondTurn.thinkingObserved,
+      thinking_visible_after_reply: visibleText.includes("思考中"),
+      available_action_count: availableActionCount,
+      card_action_count: cardActionCount,
+      candidate_panel_count: candidatePanelCount,
+      adoption_decision_card_count: adoptionDecisionCardCount,
+      first_user_message_visible: visibleText.includes(firstMessage),
+      second_user_message_visible: visibleText.includes(secondMessage),
+      first_assistant_reply_visible: visibleText.includes(
+        firstTurn.turnResult.assistant_message.text,
+      ),
+      second_assistant_reply_visible: visibleText.includes(
+        secondTurn.turnResult.assistant_message.text,
+      ),
+    },
+  ];
+}
+
 async function openArchiveTab(page, tabName) {
   await page.getByText("打开档案").first().click();
   await page.getByRole("tab", { name: tabName }).click();
@@ -550,6 +809,388 @@ async function driveLongSessionCompression(page) {
   );
 
   return [uiState];
+}
+
+async function driveAu03SessionHistoryReadonly(page) {
+  const joinReply = latestChannelJoinReply();
+  const workId = joinReply?.body?.response?.work_id ?? joinReply?.body?.work_id ?? null;
+  const activeSessionId =
+    joinReply?.body?.response?.session_id ?? joinReply?.body?.session_id ?? null;
+  assert(workId, "No work_id was available from the real channel join");
+
+  const searchResponse = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions?query=${encodeURIComponent("林瑶旧线索")}`,
+  );
+  assert(searchResponse.ok, `Failed to search seeded history session: HTTP ${searchResponse.status}`);
+  const searchBody = await searchResponse.json();
+  const seededHistorySession = (searchBody.sessions ?? []).find(
+    (session) => session.title === "林瑶旧线索讨论",
+  );
+  assert(seededHistorySession?.id, "Seeded history session was not available through sessions API");
+
+  const searchBox = page.getByPlaceholder("搜索会话");
+  await searchBox.waitFor({ timeout: 10_000 });
+  await searchBox.fill("林瑶旧线索");
+
+  const historySessionButton = page
+    .locator("button")
+    .filter({ hasText: "林瑶旧线索讨论" })
+    .first();
+  await historySessionButton.waitFor({ timeout: 10_000 });
+  await historySessionButton.click();
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("林瑶留下的旧线索") &&
+      document.body.innerText.includes("返回当前会话"),
+    { timeout: 10_000 },
+  );
+
+  const readonlySessionButtonText = (
+    (await page.locator("button").filter({ hasText: "林瑶旧线索讨论" }).first().textContent()) ??
+    ""
+  )
+    .replace(/\s+/g, " ")
+    .trim();
+  const readonlySessionStatus = seededHistorySession.status;
+
+  const readonlySnapshot = await page.evaluate(() => {
+    const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+    const sendButton = [...document.querySelectorAll("button")].find(
+      (button) => (button.textContent ?? "").trim() === "发送",
+    );
+
+    return {
+      visible_text: document.body.innerText,
+      input_disabled: Boolean(input?.disabled),
+      send_disabled: Boolean(sendButton?.disabled),
+    };
+  });
+
+  assert(readonlySessionStatus === "EXITED", "Readonly session status was not EXITED");
+  assert(
+    readonlySessionButtonText.includes("EXITED"),
+    "Readonly session status was not visible in the session list",
+  );
+  assert(readonlySnapshot.input_disabled, "History session input was not disabled");
+  assert(readonlySnapshot.send_disabled, "History session send button was not disabled");
+  assert(
+    readonlySnapshot.visible_text.includes("林瑶留下的旧线索"),
+    "History transcript text was not visible",
+  );
+
+  await page.getByRole("button", { name: "返回当前会话" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.body.innerText.includes("正在只读查看历史 transcript") &&
+      document.body.innerText.includes("当前会话继续讨论灵源矿区"),
+    { timeout: 10_000 },
+  );
+
+  const activeRestored = await page.evaluate(() => {
+    const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+    const sendButton = [...document.querySelectorAll("button")].find(
+      (button) => (button.textContent ?? "").trim() === "发送",
+    );
+    return {
+      visible_text: document.body.innerText,
+      input_disabled: Boolean(input?.disabled),
+      send_disabled: Boolean(sendButton?.disabled),
+    };
+  });
+
+  assert(!activeRestored.input_disabled, "Active session input stayed disabled after restore");
+  assert(!activeRestored.send_disabled, "Active session send stayed disabled after restore");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: workId,
+      context_work_id: workId,
+      session_id: activeSessionId,
+      readonly_session_id: seededHistorySession.id,
+      readonly_session_status: readonlySessionStatus,
+      readonly_session_button_text: readonlySessionButtonText,
+      readonly_banner_visible: true,
+      readonly_input_disabled: readonlySnapshot.input_disabled,
+      readonly_send_disabled: readonlySnapshot.send_disabled,
+      active_session_restored: true,
+      readonly_visible_text: readonlySnapshot.visible_text,
+      active_visible_text: activeRestored.visible_text,
+      socket_connected: true,
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
+async function driveAu03SessionNewActive(page) {
+  const previousActiveToken = "当前会话继续讨论灵源矿区";
+  const newMessage = `AU03 新会话闭环 ${Date.now()}：请只回应本轮新会话。`;
+  const joinReply = latestChannelJoinReply();
+  const workId = joinReply?.body?.response?.work_id ?? joinReply?.body?.work_id ?? null;
+  const previousActiveSessionId =
+    joinReply?.body?.response?.session_id ?? joinReply?.body?.session_id ?? null;
+  assert(workId, "No work_id was available from the real channel join");
+  assert(previousActiveSessionId, "No active session_id was available from the real channel join");
+
+  await page.waitForFunction((token) => document.body.innerText.includes(token), previousActiveToken, {
+    timeout: 10_000,
+  });
+
+  const beforeCreateCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: "新建会话" }).click();
+
+  const created = await waitForNewAppLogRecord(
+    beforeCreateCount,
+    (record) =>
+      record.event === "work_session.create.done" &&
+      record.work_id === workId &&
+      record.session_id &&
+      record.session_id !== previousActiveSessionId,
+    "No AU-03 new active work_session.create.done record",
+    30_000,
+  );
+
+  const newActiveSessionId = created.session_id;
+  const resumed = await waitForNewAppLogRecord(
+    beforeCreateCount,
+    (record) =>
+      record.event === "work_session.resume.done" &&
+      record.work_id === workId &&
+      record.session_id === newActiveSessionId &&
+      Number(record.transcript_count ?? -1) === 0,
+    "New AU-03 active session did not resume with an empty transcript",
+    30_000,
+  );
+
+  await waitForNewAppLogRecord(
+    beforeCreateCount,
+    (record) =>
+      record.event === "channel.join.done" &&
+      record.work_id === workId &&
+      record.session_id === newActiveSessionId,
+    "Workbench did not rejoin the new AU-03 active session",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (token) =>
+      document.body.innerText.includes("欢迎使用 AI Novel Studio") &&
+      !document.body.innerText.includes(token),
+    previousActiveToken,
+    { timeout: 10_000 },
+  );
+
+  const previousSessionResponse = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions?query=${encodeURIComponent("默认会话")}`,
+  );
+  assert(
+    previousSessionResponse.ok,
+    `Failed to search previous active session: HTTP ${previousSessionResponse.status}`,
+  );
+  const previousSessionBody = await previousSessionResponse.json();
+  const previousSessionAfterCreate = (previousSessionBody.sessions ?? []).find(
+    (session) => session.id === previousActiveSessionId,
+  );
+  assert(previousSessionAfterCreate?.status === "EXITED", "Previous active session was not EXITED");
+
+  const newSessionSnapshot = await page.evaluate((token) => {
+    const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+    const sendButton = [...document.querySelectorAll("button")].find(
+      (button) => (button.textContent ?? "").trim() === "发送",
+    );
+    const text = document.body.innerText;
+
+    return {
+      visible_text: text,
+      input_disabled: Boolean(input?.disabled),
+      send_disabled: Boolean(sendButton?.disabled),
+      old_token_visible: text.includes(token),
+    };
+  }, previousActiveToken);
+
+  assert(!newSessionSnapshot.input_disabled, "New active session input was disabled");
+  assert(!newSessionSnapshot.send_disabled, "New active session send button was disabled");
+  assert(!newSessionSnapshot.old_token_visible, "Previous active transcript leaked into new session");
+
+  const searchBox = page.getByPlaceholder("搜索会话");
+  await searchBox.waitFor({ timeout: 10_000 });
+  await searchBox.fill("默认会话");
+
+  const previousSessionButton = page.locator("button").filter({ hasText: "默认会话" }).first();
+  await previousSessionButton.waitFor({ timeout: 10_000 });
+  await previousSessionButton.click();
+
+  const shownPrevious = await waitForAppLogRecord(
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.work_id === workId &&
+      record.session_id === previousActiveSessionId &&
+      record.read_only === true,
+    "Previous active session was not reopened as readonly history",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (token) =>
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("正在只读查看历史 transcript") &&
+      document.body.innerText.includes(token),
+    previousActiveToken,
+    { timeout: 10_000 },
+  );
+
+  const previousReadonlySnapshot = await page.evaluate((token) => {
+    const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+    const sendButton = [...document.querySelectorAll("button")].find(
+      (button) => (button.textContent ?? "").trim() === "发送",
+    );
+    const text = document.body.innerText;
+
+    return {
+      visible_text: text,
+      input_disabled: Boolean(input?.disabled),
+      send_disabled: Boolean(sendButton?.disabled),
+      old_token_visible: text.includes(token),
+    };
+  }, previousActiveToken);
+
+  assert(previousReadonlySnapshot.input_disabled, "Previous readonly session input was not disabled");
+  assert(previousReadonlySnapshot.send_disabled, "Previous readonly session send was not disabled");
+  assert(
+    previousReadonlySnapshot.old_token_visible,
+    "Previous active transcript was not visible after reopening as history",
+  );
+
+  await page.getByRole("button", { name: "返回当前会话" }).click();
+  await page.waitForFunction(
+    (token) => {
+      const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+      const sendButton = [...document.querySelectorAll("button")].find(
+        (button) => (button.textContent ?? "").trim() === "发送",
+      );
+      const text = document.body.innerText;
+
+      return (
+        !text.includes("正在只读查看历史 transcript") &&
+        !text.includes(token) &&
+        input?.disabled === false &&
+        sendButton?.disabled === false
+      );
+    },
+    previousActiveToken,
+    { timeout: 10_000 },
+  );
+
+  const sendFrameCount = frames.length;
+  const sendLogCount = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(newMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    sendFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      frame.body?.session_id === newActiveSessionId &&
+      String(frame.body?.text ?? "").includes(newMessage),
+    "No AU-03 new-session user_message websocket frame was sent",
+    30_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    sendFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      frame.body?.status !== "error",
+    "No AU-03 new-session turn_result frame was received",
+    120_000,
+  );
+  const turnId = turnFrame.body.turn_id;
+
+  await waitForNewAppLogRecord(
+    sendLogCount,
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      record.work_id === workId &&
+      record.session_id === newActiveSessionId &&
+      record.turn_id === turnId,
+    "No AU-03 new-session channel.user_message.start log",
+    30_000,
+  );
+
+  const contextRecord = await waitForNewAppLogRecord(
+    sendLogCount,
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === turnId &&
+      record.has_conversation === false,
+    "AU-03 new-session first turn did not assemble an empty conversation context",
+    30_000,
+  );
+
+  await waitForNewAppLogRecord(
+    sendLogCount,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.work_id === workId &&
+      record.session_id === newActiveSessionId &&
+      record.turn_id === turnId,
+    "No AU-03 new-session channel.user_message.done log",
+    30_000,
+  );
+
+  const finalNewSessionText = await page.locator("body").innerText();
+  assert(finalNewSessionText.includes(newMessage), "New session user message was not visible");
+  assert(
+    !finalNewSessionText.includes(previousActiveToken),
+    "Previous active transcript leaked after the new session turn",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: turnId,
+      turn_ids: [turnId],
+      work_id: workId,
+      context_work_id: workId,
+      previous_active_session_id: previousActiveSessionId,
+      new_active_session_id: newActiveSessionId,
+      session_id: newActiveSessionId,
+      created_session_id: created.session_id,
+      previous_active_status_after_create: previousSessionAfterCreate.status,
+      new_session_transcript_empty: Number(resumed.transcript_count ?? -1) === 0,
+      new_session_input_enabled: !newSessionSnapshot.input_disabled,
+      new_session_send_enabled: !newSessionSnapshot.send_disabled,
+      old_active_visible_initial: true,
+      old_active_absent_after_create: !newSessionSnapshot.old_token_visible,
+      previous_active_readonly_opened: true,
+      previous_active_readonly_banner_visible: true,
+      previous_active_input_disabled: previousReadonlySnapshot.input_disabled,
+      previous_active_send_disabled: previousReadonlySnapshot.send_disabled,
+      previous_active_transcript_visible_readonly: previousReadonlySnapshot.old_token_visible,
+      active_session_restored: true,
+      user_message_session_id: sentFrame.body?.session_id,
+      user_message_work_id: sentFrame.body?.work_id,
+      new_session_message_visible: finalNewSessionText.includes(newMessage),
+      old_active_text_in_new_session: finalNewSessionText.includes(previousActiveToken),
+      first_turn_context_has_conversation: contextRecord.has_conversation,
+      first_turn_context_refs_count: contextRecord.context_refs_count,
+      shown_previous_transcript_count: shownPrevious.transcript_count,
+      shown_previous_pending_adoption_count: shownPrevious.pending_adoption_count,
+      socket_connected: true,
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
 }
 
 async function driveSu01ModelProviderSwitching(page) {
@@ -931,7 +1572,7 @@ async function driveAu09Au03SessionMemoryLayering(page) {
   ];
 }
 
-async function driveCandidateAdoptionBridge(page) {
+async function createCandidateSourceTurn(page) {
   await page.locator(chatInputSelector).fill("我想写一个赛博修仙故事，但还没想好小说创作方向。");
   await page.getByRole("button", { name: /^发送$/ }).click();
 
@@ -966,8 +1607,100 @@ async function driveCandidateAdoptionBridge(page) {
     "Candidate turn_result did not include a matching choose_candidate available_action",
   );
 
+  await page.waitForFunction(
+    () =>
+      /继续讨论|继续聊这个方向/.test(document.body.innerText) &&
+      /设为后续方向|采用这个方向/.test(document.body.innerText),
+    { timeout: 10_000 },
+  );
+
+  return { sourceTurnResult, candidate, availableAction };
+}
+
+async function driveCandidateContinuation(page) {
+  const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page);
+  const afterSourceFrameCount = frames.length;
+
   await page
     .getByRole("button", { name: /继续讨论|继续聊这个方向/ })
+    .first()
+    .click();
+
+  const continuationFrame = await waitForNewFrame(
+    afterSourceFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === false &&
+      frame.body?.candidate_selection?.source_turn_ref === sourceTurnResult.turn_id &&
+      frame.body?.candidate_selection?.candidate_set_ref ===
+        `candidate_set:${sourceTurnResult.turn_id}` &&
+      frame.body?.candidate_selection?.candidate_ref === candidate.direction_id,
+    "Real workbench did not send candidate_selection user_message from candidate continuation",
+  );
+
+  const continuationTurnFrame = await waitForNewFrame(
+    afterSourceFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      frame.body.turn_id !== sourceTurnResult.turn_id,
+    "No candidate continuation turn_result websocket frame was received",
+  );
+  const continuationTurnResult = continuationTurnFrame.body;
+
+  const framesAfterContinue = frames.slice(afterSourceFrameCount);
+  assert(
+    !framesAfterContinue.some((frame) => frame.event === "author_action"),
+    "Candidate continuation sent an author_action instead of a user_message",
+  );
+  assert(
+    !framesAfterContinue.some((frame) => frame.event === "action_result"),
+    "Candidate continuation triggered an action_result",
+  );
+  assert(
+    !continuationTurnResult.adoption_decision,
+    "Candidate continuation produced an adoption decision",
+  );
+  assert(
+    continuationTurnResult.truthfulness?.production_write_performed === false,
+    "Candidate continuation claimed a production write",
+  );
+
+  const uiState = await commonUiState(page, continuationTurnResult, continuationFrame);
+
+  return [
+    {
+      ...uiState,
+      source_turn_ref: sourceTurnResult.turn_id,
+      candidate_ref: candidate.direction_id,
+      candidate_set_ref: `candidate_set:${sourceTurnResult.turn_id}`,
+      frame_badge_label: "探索方向",
+      frame_badge_kind: "exploration",
+      frame_badge_goal:
+        continuationTurnResult.frame_summary?.dialogue_goal ??
+        sourceTurnResult.frame_summary?.dialogue_goal ??
+        null,
+      candidate_panel_count: await page.locator("[class*=candidatePanel]").count(),
+      candidate_selection_sent: true,
+      generate_micro_plan: continuationFrame.body.generate_micro_plan,
+      candidate_selected: continuationTurnResult.truthfulness?.candidate_selected ?? false,
+      candidate_adopted: continuationTurnResult.truthfulness?.candidate_adopted ?? false,
+      production_write_performed: continuationTurnResult.truthfulness?.production_write_performed,
+      no_author_action_sent: !framesAfterContinue.some((frame) => frame.event === "author_action"),
+      no_action_result_received: !framesAfterContinue.some(
+        (frame) => frame.event === "action_result",
+      ),
+    },
+  ];
+}
+
+async function driveCandidateAdoptionBridge(page) {
+  const { sourceTurnResult, candidate, availableAction } = await createCandidateSourceTurn(page);
+
+  await page
+    .getByRole("button", { name: /设为后续方向|采用这个方向/ })
     .first()
     .click();
 
@@ -982,7 +1715,7 @@ async function driveCandidateAdoptionBridge(page) {
       frame.body?.action?.target_ref === availableAction.target_ref &&
       frame.body?.action?.candidate_ref === availableAction.candidate_ref &&
       frame.body?.action?.candidate_set_ref === availableAction.candidate_set_ref,
-    "Real workbench did not send server-provided choose_candidate author_action from candidate continuation",
+    "Real workbench did not send server-provided choose_candidate author_action from candidate adoption",
   );
 
   const actionResultFrame = await waitForFrame(
@@ -1045,9 +1778,8 @@ async function driveCandidateAdoptionBridge(page) {
       candidate_ref: availableAction.candidate_ref,
       candidate_set_ref: availableAction.candidate_set_ref,
       candidate_panel_count: await page.locator("[class*=candidatePanel]").count(),
-      candidate_continue_clicked: true,
-      candidate_adopt_clicked: false,
-      continuation_author_action: actionFrame.body.action,
+      candidate_continue_clicked: false,
+      candidate_adopt_clicked: true,
       author_action: actionFrame.body.action,
       action_result_status: actionResultFrame.body.status ?? latestActionResult()?.status,
       adoption_decision_type: adoptionTurnResult.adoption_decision.decision_type,
@@ -3258,7 +3990,7 @@ async function driveAu09MemoryCreateRecall(page) {
   });
 
   // ── 打开详情并确认（CONFIRMED + recallable 才进召回）。
-  await page.getByText(new RegExp(nonce)).first().click();
+  await page.getByText(nonce).first().click();
   await page.getByRole("button", { name: "确认" }).click();
   // 确认后 DRAFT 专属的「确认」按钮消失 → 证明该记忆已转为 CONFIRMED（不依赖 body 里
   // 既有的 CONFIRMED 文本，避免被种子记忆的状态误判）。
@@ -5102,6 +5834,608 @@ async function driveAu10WorkbenchRecoveryCancelWaiting(page) {
   ];
 }
 
+async function driveSu01ProviderHealthModel(page) {
+  const joined = await waitForAppLogRecord(
+    (record) => record.event === "channel.join.done" && record.work_id,
+    "Workbench did not join a work before provider health check",
+    30_000,
+  );
+
+  const modelButton = page.locator('[class*="modelStatusButton"]').first();
+  await modelButton.waitFor({ timeout: 10_000 });
+  await page.waitForFunction(() => document.body.innerText.includes("模型已连接"), {
+    timeout: 30_000,
+  });
+
+  const buttonText = (await modelButton.textContent())?.trim() ?? "";
+  const buttonTitle = (await modelButton.getAttribute("title")) ?? "";
+  const modelLabel =
+    buttonTitle.match(/当前模型：(.+)$/)?.[1]?.trim() ||
+    buttonText.replace(/模型已连接/g, "").trim() ||
+    "slice_verify";
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su01-provider-health-model",
+      work_id: joined.work_id,
+      context_work_id: joined.work_id,
+      session_id: joined.session_id,
+      socket_connected: true,
+      llm_connected: buttonText.includes("模型已连接") || buttonTitle.includes("当前模型："),
+      llm_model_label: modelLabel,
+      llm_status_text: `LLM: 已连接 · ${modelLabel}`,
+      model_button_text: buttonText,
+      model_button_title: buttonTitle,
+    },
+  ];
+}
+
+async function driveSu01LmstudioDisconnectedHealth(page) {
+  await configureProviderRuntime({
+    provider: "lmstudio",
+    endpoint: "http://127.0.0.1:1/v1",
+    model: "missing-local-model",
+  });
+
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await serviceStatus(page).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+
+  const joined = await waitForAppLogRecord(
+    (record) => record.event === "channel.join.done" && record.work_id,
+    "Workbench did not rejoin a work after switching LM Studio runtime config",
+    30_000,
+  );
+
+  const modelButton = page.locator('[class*="modelStatusButton"]').first();
+  await modelButton.waitFor({ timeout: 10_000 });
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("LM Studio") &&
+      document.body.innerText.includes("模型未连接"),
+    { timeout: 30_000 },
+  );
+
+  const response = await fetch(`${baseUrl}/api/provider/health`);
+  assert(
+    response.ok,
+    `Provider health failed after LM Studio disconnect setup: ${response.status}`,
+  );
+  const health = await response.json();
+  const buttonText = (await modelButton.textContent())?.trim() ?? "";
+  const buttonTitle = (await modelButton.getAttribute("title")) ?? "";
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su01-lmstudio-disconnected-health",
+      work_id: joined.work_id,
+      context_work_id: joined.work_id,
+      session_id: joined.session_id,
+      socket_connected: true,
+      llm_connected: health.connected === true,
+      provider: health.provider,
+      model: health.model,
+      message: health.message,
+      detail: health.detail,
+      model_button_text: buttonText,
+      model_button_title: buttonTitle,
+      disconnected_visible: buttonText.includes("LM Studio") && buttonText.includes("模型未连接"),
+      disconnected_reason_visible:
+        buttonTitle.includes("LM Studio 未启动") ||
+        String(health.message ?? "").includes("LM Studio 未启动"),
+    },
+  ];
+}
+
+async function driveSu01ProviderEndpointValidation(page) {
+  const joined = await waitForAppLogRecord(
+    (record) => record.event === "channel.join.done" && record.work_id,
+    "Workbench did not join a work before provider endpoint validation",
+    30_000,
+  );
+
+  await page
+    .getByRole("button", { name: /模型设置|Stub|LM Studio|DeepSeek|Anthropic/ })
+    .first()
+    .click();
+  await page.getByRole("dialog", { name: "模型供应商" }).waitFor({ timeout: 10_000 });
+  await page.locator("#model-provider-select").selectOption("lmstudio");
+  const endpointInput = page.locator("#model-provider-endpoint-input");
+  await endpointInput.waitFor({ timeout: 10_000 });
+  await page.waitForTimeout(750);
+
+  const modelRequestsAfterInvalid = [];
+  const onRequest = (request) => {
+    if (request.url().includes("/api/provider/models")) {
+      modelRequestsAfterInvalid.push({
+        url: request.url(),
+        postData: request.postData() ?? "",
+      });
+    }
+  };
+
+  page.on("request", onRequest);
+
+  try {
+    await endpointInput.fill("localhost:1234/v1");
+    await page.waitForFunction(
+      () => document.body.innerText.includes("端点必须是完整的 http(s) URL。"),
+      { timeout: 10_000 },
+    );
+    await page.waitForTimeout(750);
+  } finally {
+    page.off("request", onRequest);
+  }
+
+  const refreshButton = page.getByRole("button", { name: "刷新模型列表" });
+  const testButton = page.getByRole("button", { name: "测试连接" });
+  const saveButton = page.getByRole("button", { name: "保存并切换" });
+  const refreshDisabled = await refreshButton.isDisabled();
+  const testDisabled = await testButton.isDisabled();
+  const saveDisabled = await saveButton.isDisabled();
+  const visibleText = await page.locator("body").innerText();
+  const invalidModelRequests = modelRequestsAfterInvalid.filter((request) =>
+    request.postData.includes("localhost:1234/v1"),
+  );
+
+  assert(visibleText.includes("端点必须是完整的 http(s) URL。"), "Invalid endpoint hint is hidden");
+  assert(refreshDisabled, "Refresh models button stayed enabled for invalid endpoint");
+  assert(testDisabled, "Test connection button stayed enabled for invalid endpoint");
+  assert(saveDisabled, "Save provider button stayed enabled for invalid endpoint");
+  assert(invalidModelRequests.length === 0, "Invalid endpoint triggered a provider models request");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su01-provider-endpoint-validation",
+      work_id: joined.work_id,
+      context_work_id: joined.work_id,
+      session_id: joined.session_id,
+      socket_connected: true,
+      provider_selected: "lmstudio",
+      invalid_endpoint: "localhost:1234/v1",
+      endpoint_invalid_visible: true,
+      refresh_models_disabled: refreshDisabled,
+      test_connection_disabled: testDisabled,
+      save_disabled: saveDisabled,
+      models_request_after_invalid_count: invalidModelRequests.length,
+      invalid_endpoint_hint_text: "端点必须是完整的 http(s) URL。",
+    },
+  ];
+}
+
+async function driveSu01ApiKeySecretRedaction(page) {
+  const joined = await waitForAppLogRecord(
+    (record) => record.event === "channel.join.done" && record.work_id,
+    "Workbench did not join a work before provider API key redaction verification",
+    30_000,
+  );
+  const provider = "deepseek";
+  const secret = `sk-slice-redaction-${Date.now()}`;
+
+  await page
+    .getByRole("button", { name: /模型设置|Stub|LM Studio|DeepSeek|Anthropic/ })
+    .first()
+    .click();
+  await page.getByRole("dialog", { name: "模型供应商" }).waitFor({ timeout: 10_000 });
+  await page.locator("#model-provider-select").selectOption(provider);
+  await page.locator("#model-provider-api-key-input").fill(secret);
+  await page.getByRole("button", { name: "刷新模型列表" }).click();
+  await page.waitForFunction(
+    () =>
+      Array.from(
+        document.querySelectorAll("#model-provider-model-input option"),
+        (option) => option.value,
+      ).includes("deepseek-slice-keychain"),
+    { timeout: 10_000 },
+  );
+  await page.locator("#model-provider-model-input").selectOption("deepseek-slice-keychain");
+  await page.getByRole("button", { name: "测试连接" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("连接可用。"), {
+    timeout: 10_000,
+  });
+  await page.getByRole("button", { name: "保存并切换" }).click();
+  await page
+    .getByRole("dialog", { name: "模型供应商" })
+    .waitFor({ state: "detached", timeout: 10_000 });
+
+  const providerOptionsResponse = await fetch(`${baseUrl}/api/provider/options`);
+  assert(
+    providerOptionsResponse.ok,
+    `Provider options failed after API key save: ${providerOptionsResponse.status}`,
+  );
+  const providerOptions = await providerOptionsResponse.json();
+  const providerOptionsJson = JSON.stringify(providerOptions);
+  const deepseekOption = (providerOptions.providers ?? []).find((option) => option.id === provider);
+  const browserSettings = await page.evaluate(() =>
+    localStorage.getItem("ans.modelProviderSettings"),
+  );
+  const modelButtonText = await page
+    .getByRole("button", { name: /Stub|LM Studio|DeepSeek|Anthropic|模型设置/ })
+    .first()
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+  const visibleText = await page.locator("body").innerText();
+  const appLogText = JSON.stringify(readAppLogRecords());
+  const backendLogText = fs.existsSync(process.env.SLICE_VERIFY_BACKEND_LOG ?? "")
+    ? fs.readFileSync(process.env.SLICE_VERIFY_BACKEND_LOG, "utf8")
+    : "";
+
+  assert(
+    deepseekOption?.api_key_configured === true,
+    "Provider options did not mark API key configured",
+  );
+  assert(!providerOptionsJson.includes(secret), "Provider options response exposed API key");
+  assert(
+    !String(browserSettings ?? "").includes(secret),
+    "Browser fallback settings exposed API key",
+  );
+  assert(!visibleText.includes(secret), "Visible workbench text exposed API key");
+  assert(!appLogText.includes(secret), "Application JSONL logs exposed API key");
+  assert(!backendLogText.includes(secret), "Backend request logs exposed API key");
+  assert(
+    modelButtonText.includes("DeepSeek") && modelButtonText.includes("deepseek-slice-keychain"),
+    "Model provider button did not show saved DeepSeek model",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su01-api-key-secret-redaction",
+      work_id: joined.work_id,
+      context_work_id: joined.work_id,
+      session_id: joined.session_id,
+      socket_connected: true,
+      provider_selected: provider,
+      model_selected: "deepseek-slice-keychain",
+      test_connection_succeeded: true,
+      provider_switch_saved: true,
+      provider_options_api_key_configured: true,
+      provider_options_omits_api_key: !providerOptionsJson.includes(secret),
+      browser_settings_omits_api_key: !String(browserSettings ?? "").includes(secret),
+      visible_text_omits_api_key: !visibleText.includes(secret),
+      app_log_omits_api_key: !appLogText.includes(secret),
+      backend_log_omits_api_key: !backendLogText.includes(secret),
+      model_provider_button_text: modelButtonText,
+    },
+  ];
+}
+
+async function driveSu02WorkSwitching(page) {
+  const nonce = `SU02-${Date.now()}`;
+  const sourceWork = await createWorkSeed({ title: `SU02甲作品-${nonce}` });
+  const selectCount = readAppLogRecords().length;
+
+  await refreshAndSelectWork(page, sourceWork.title);
+  await waitForNewAppLogRecord(
+    selectCount,
+    (record) => record.event === "channel.join.done" && record.work_id === sourceWork.id,
+    "Selecting the source work did not rejoin its workspace channel",
+    30_000,
+  );
+
+  const message = `SU02 切换前消息 ${nonce}`;
+  const sendLogCount = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes(nonce) &&
+      frame.body?.work_id === sourceWork.id,
+    "Source work message was not sent over the current workspace channel",
+    10_000,
+  );
+
+  await waitForNewAppLogRecord(
+    sendLogCount,
+    (record) => record.event === "channel.user_message.start" && record.work_id === sourceWork.id,
+    "Source work user_message.start log was not emitted",
+    30_000,
+  );
+
+  const joinedTarget = await createWorkFromMenu(page, sourceWork.id);
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+  await page.waitForFunction(
+    (oldMessage) => !document.body.innerText.includes(oldMessage),
+    message,
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const leakedSourceMessage = visibleText.includes(message);
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su02-work-switching",
+      work_id: joinedTarget.work_id,
+      context_work_id: joinedTarget.work_id,
+      previous_work_id: sourceWork.id,
+      session_id: joinedTarget.session_id,
+      socket_connected: true,
+      service_status_text: await serviceStatus(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+      title_text: await workTitle(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+      message_count: leakedSourceMessage ? 3 : 1,
+      source_message_visible_after_switch: leakedSourceMessage,
+      source_message_text: message,
+    },
+  ];
+}
+
+async function driveSu02WorkLifecycleManagement(page) {
+  const nonce = `SU02L-${Date.now()}`;
+  const sourceWork = await createWorkSeed({ title: `SU02源作品-${nonce}` });
+  const createTitle = `SU02新作品-${nonce}`;
+  const renamedTitle = `SU02改名作品-${nonce}`;
+  const selectCount = readAppLogRecords().length;
+  const preCreateWorkIds = new Set((await listWorksFromApi()).map((work) => work.id));
+
+  await refreshAndSelectWork(page, sourceWork.title);
+  await waitForNewAppLogRecord(
+    selectCount,
+    (record) => record.event === "channel.join.done" && record.work_id === sourceWork.id,
+    "Selecting the lifecycle source work did not join its workspace channel",
+    30_000,
+  );
+
+  const createCount = readAppLogRecords().length;
+  await openNamedCreateWorkDialog(page);
+  await submitWorkTitleDialog(page, createTitle, "创建");
+
+  await page.waitForFunction(
+    (title) => {
+      const titleButton = document.querySelector('button[title="作品"]');
+      return (titleButton?.textContent ?? "").includes(title);
+    },
+    createTitle,
+    { timeout: 15_000 },
+  );
+
+  const createdWork = await waitForWorkByTitle(createTitle, preCreateWorkIds);
+  await waitForNewAppLogRecord(
+    createCount,
+    (record) => record.event === "channel.join.done" && record.work_id === createdWork.id,
+    "Named work creation did not join the newly created workspace channel",
+    30_000,
+  );
+
+  await openWorkMenu(page);
+  await page.locator('button[title="重命名"]').first().click();
+  await page.getByRole("dialog", { name: "修改作品名" }).waitFor({ timeout: 10_000 });
+  await submitWorkTitleDialog(page, renamedTitle, "保存");
+
+  await page.waitForFunction(
+    (title) => {
+      const titleButton = document.querySelector('button[title="作品"]');
+      return (titleButton?.textContent ?? "").includes(title);
+    },
+    renamedTitle,
+    { timeout: 15_000 },
+  );
+
+  const renamedWork = await fetchWorkFromApi(createdWork.id);
+  assert(renamedWork.title === renamedTitle, "Renamed work title did not persist through Work API");
+  assert(
+    renamedWork.id === createdWork.id,
+    "Renaming changed the work id instead of preserving identity",
+  );
+
+  const deleteCount = readAppLogRecords().length;
+  await openWorkMenu(page);
+  await page.locator('button[title="删除作品"]').first().click();
+  await page.getByRole("dialog", { name: "删除作品" }).waitFor({ timeout: 10_000 });
+  const deleteDialogText = await page.getByRole("dialog", { name: "删除作品" }).innerText();
+  assert(deleteDialogText.includes(renamedTitle), "Delete confirmation did not include work title");
+  await page.getByRole("button", { name: "删除" }).click();
+
+  const fallbackJoin = await waitForNewAppLogRecord(
+    deleteCount,
+    (record) =>
+      record.event === "channel.join.done" && record.work_id && record.work_id !== renamedWork.id,
+    "Deleting the current work did not switch to another real workspace channel",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (title) => {
+      const titleButton = document.querySelector('button[title="作品"]');
+      return (titleButton?.textContent ?? "").includes(title);
+    },
+    sourceWork.title,
+    { timeout: 15_000 },
+  );
+
+  const discardedWork = await fetchWorkFromApi(renamedWork.id);
+  const visibleWorks = await listWorksFromApi();
+  const visibleWorkIds = visibleWorks.map((work) => work.id);
+  assert(discardedWork.status === "DISCARDED", "Deleted work was not marked DISCARDED");
+  assert(
+    !visibleWorkIds.includes(discardedWork.id),
+    "Discarded work still appeared in the default Work list",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su02-work-lifecycle-management",
+      work_id: fallbackJoin.work_id,
+      context_work_id: fallbackJoin.work_id,
+      created_work_id: createdWork.id,
+      renamed_work_id: renamedWork.id,
+      discarded_work_id: discardedWork.id,
+      source_work_id: sourceWork.id,
+      source_work_title: sourceWork.title,
+      session_id: fallbackJoin.session_id,
+      socket_connected: true,
+      named_create_title: createTitle,
+      renamed_title: renamedTitle,
+      discarded_status: discardedWork.status,
+      fallback_work_id: fallbackJoin.work_id,
+      fallback_is_source_work: fallbackJoin.work_id === sourceWork.id,
+      visible_work_ids: visibleWorkIds,
+      discarded_hidden_from_default_list: !visibleWorkIds.includes(discardedWork.id),
+      delete_confirmation_included_title: deleteDialogText.includes(renamedTitle),
+      title_text: await workTitle(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+      service_status_text: await serviceStatus(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+    },
+  ];
+}
+
+async function driveSu03AssistantDisplayName(page) {
+  const nonce = `SU03-${Date.now()}`;
+  const sourceWork = await createWorkSeed({ title: `SU03甲作品-${nonce}` });
+  const displayName = "创作助手";
+  const boundaryMessage = `SU03显示名边界-${nonce}：请用一句话回应收到。`;
+  const selectCount = readAppLogRecords().length;
+
+  await refreshAndSelectWork(page, sourceWork.title);
+  await waitForNewAppLogRecord(
+    selectCount,
+    (record) => record.event === "channel.join.done" && record.work_id === sourceWork.id,
+    "Selecting the SU-03 source work did not rejoin its workspace channel",
+    30_000,
+  );
+
+  await page
+    .getByRole("button", { name: /AI 名称|AI/ })
+    .first()
+    .click();
+  await page.locator("#assistant-display-name-input").fill(displayName);
+  await page.getByRole("button", { name: "保存名称" }).click();
+  await page.waitForFunction((name) => document.body.innerText.includes(name), displayName, {
+    timeout: 10_000,
+  });
+
+  const assistantRoleAfterSave = await page
+    .locator('[class*="assistantMsg"] [class*="role"]')
+    .first()
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+
+  const messageFrameCount = frames.length;
+  await page.locator(chatInputSelector).fill(boundaryMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    messageFrameCount,
+    (frame) => frame.direction === "sent" && frame.event === "user_message",
+    "No SU-03 user_message frame after assistant display name change",
+    30_000,
+  );
+  const turnFrame = await waitForNewFrame(
+    messageFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.assistant_message?.text,
+    "No SU-03 turn_result frame after assistant display name change",
+    120_000,
+  );
+  const sentPayload = sentFrame.body ?? {};
+  const turnResult = turnFrame.body ?? {};
+  const sentPayloadJson = JSON.stringify(sentPayload);
+  const turnResultJson = JSON.stringify(turnResult);
+  const turnResultHasDisplayNameKey =
+    turnResultJson.includes("assistantDisplayName") ||
+    turnResultJson.includes("assistant_display_name");
+
+  assert(
+    String(sentPayload.text ?? "").includes(boundaryMessage),
+    "SU-03 user message frame did not include the authored boundary message",
+  );
+  assert(
+    !sentPayloadJson.includes(displayName),
+    "SU-03 user_message wire payload leaked the UI-only assistant display name",
+  );
+  assert(
+    typeof turnResult.assistant_message?.text === "string",
+    "SU-03 turn_result did not preserve assistant_message contract",
+  );
+  assert(
+    !turnResultHasDisplayNameKey,
+    "SU-03 turn_result contract grew an assistant display name field",
+  );
+
+  const assistantLabelAfterTurn = await page
+    .locator('[class*="assistantMsg"] [class*="role"]')
+    .last()
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+
+  const joinedCreated = await createWorkFromMenu(page, sourceWork.id);
+  await page.waitForFunction(() => document.body.innerText.includes("AI"), { timeout: 10_000 });
+  const assistantNameInCreatedWork = await page
+    .locator('button[title="AI 名称"]')
+    .first()
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+
+  const returnCount = readAppLogRecords().length;
+  await refreshAndSelectWork(page, sourceWork.title);
+  await waitForNewAppLogRecord(
+    returnCount,
+    (record) => record.event === "channel.join.done" && record.work_id === sourceWork.id,
+    "Switching back to the SU-03 source work did not rejoin its workspace channel",
+    30_000,
+  );
+  await page.waitForFunction(() => document.body.innerText.includes("创作助手"), {
+    timeout: 10_000,
+  });
+
+  const assistantNameAfterReturn = await page
+    .locator('button[title="AI 名称"]')
+    .first()
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+  const assistantRoleAfterReturn = await page
+    .locator('[class*="assistantMsg"] [class*="role"]')
+    .first()
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su03-assistant-display-name",
+      work_id: sourceWork.id,
+      context_work_id: sourceWork.id,
+      initial_work_id: sourceWork.id,
+      created_work_id: joinedCreated.work_id,
+      turn_id: turnResult.turn_id,
+      turn_result_work_id: turnResult.work_id ?? sourceWork.id,
+      socket_connected: true,
+      assistant_name_after_save: displayName,
+      assistant_role_after_save: assistantRoleAfterSave,
+      assistant_label_after_turn: assistantLabelAfterTurn,
+      assistant_name_in_created_work: assistantNameInCreatedWork,
+      assistant_name_after_return: assistantNameAfterReturn,
+      assistant_role_after_return: assistantRoleAfterReturn,
+      sent_payload_includes_display_name: sentPayloadJson.includes(displayName),
+      turn_result_contract_has_assistant_message:
+        typeof turnResult.assistant_message?.text === "string",
+      turn_result_has_display_name_key: turnResultHasDisplayNameKey,
+    },
+  ];
+}
+
 async function driveAu12WorkProfileOverview(page) {
   const nonce = `AU12-${Date.now()}`;
   const seed = {
@@ -5330,7 +6664,15 @@ async function driveCp0MissingChapterBlock(page) {
 }
 
 const drivers = {
+  "su01-provider-health-model": driveSu01ProviderHealthModel,
+  "su01-lmstudio-disconnected-health": driveSu01LmstudioDisconnectedHealth,
+  "su01-provider-endpoint-validation": driveSu01ProviderEndpointValidation,
+  "su01-api-key-secret-redaction": driveSu01ApiKeySecretRedaction,
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
+  "su02-work-switching": driveSu02WorkSwitching,
+  "su02-work-lifecycle-management": driveSu02WorkLifecycleManagement,
+  "su03-assistant-display-name": driveSu03AssistantDisplayName,
+  "au01-ordinary-chat-two-turn-roundtrip": driveAu01OrdinaryChatTwoTurnRoundtrip,
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
   "au10-workbench-recovery-taskstate": driveAu10WorkbenchRecoveryTaskstate,
   "au10-workbench-recovery-disconnect-timeout": driveAu10WorkbenchRecoveryDisconnectTimeout,
@@ -5342,6 +6684,7 @@ const drivers = {
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
+  "au02-candidate-continuation": driveCandidateContinuation,
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,
@@ -5367,6 +6710,8 @@ const drivers = {
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,
   "au09-cross-work-memory-isolation": driveAu09CrossWorkMemoryIsolation,
   "au09-au03-session-memory-layering": driveAu09Au03SessionMemoryLayering,
+  "au03-session-history-readonly": driveAu03SessionHistoryReadonly,
+  "au03-session-new-active": driveAu03SessionNewActive,
   "au11-quality-diagnosis-message-envelope": driveAu11QualityDiagnosisMessageEnvelope,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,

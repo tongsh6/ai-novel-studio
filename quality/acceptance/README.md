@@ -16,7 +16,7 @@ bash scripts/quality_accept.sh --tier nightly --surface tauri
 ## Files
 
 - `scenarios.yml` 是总表。
-- `scenarios/*.yml` 是单场景 manifest。
+- `scenarios/README.md` 是单场景 manifest 索引；`scenarios/*.yml` 是单场景 manifest。
 - `evidence-schema.json` 描述证据字段。
 - `tiers.md` 描述 PR / nightly / release 分层。
 - `known-gaps.md` 登记当前不可作为 gate 执行的 blocked 场景。

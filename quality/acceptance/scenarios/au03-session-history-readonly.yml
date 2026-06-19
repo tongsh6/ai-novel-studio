@@ -1,0 +1,60 @@
+id: au03-session-history-readonly
+title: 历史会话只读回看
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au03-session-history-readonly --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - tasks/slices/AU03-session-history-readonly.md
+
+invariants:
+  - historical-session-is-readonly
+  - pending-adoption-not-restored
+  - active-session-restorable
+  - session-search-is-work-scoped
+
+setup:
+  seed: scripts/seed_au03_session_history_readonly.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - search: 林瑶旧线索
+  - click: 林瑶旧线索讨论
+  - observe: historical transcript is visible with read-only banner
+  - verify: input and send are disabled while viewing history
+  - click: 返回当前会话
+  - observe: active session transcript is restored and input/send are enabled
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au03-session-history-readonly-tauri
+
+assertions:
+  ui:
+    - session search uses visible workbench search box
+    - exited history session opens with historical transcript
+    - read-only banner is visible
+    - chat input and send are disabled while viewing history
+    - active session can be restored
+  network:
+    - channel join resumes active session
+    - sessions API returns current-work historical session
+    - work_session.show returns read_only true
+  data:
+    - old pending adoption state is not restored
+    - transcript rows remain scoped to the same work
+    - active session text remains available after returning
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

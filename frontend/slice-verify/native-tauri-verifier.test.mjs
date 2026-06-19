@@ -13,6 +13,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");
     expect(nativeSliceIds).toContain("su02-work-switching");
     expect(nativeSliceIds).toContain("su01-provider-health-model");
+    expect(nativeSliceIds).toContain("su01-api-key-secret-redaction");
     expect(nativeSliceIds).toContain("su01-model-provider-switching");
     expect(nativeSliceIds).toContain("su03-assistant-display-name");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
@@ -29,6 +30,8 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au09-memory-trace-roundtrip");
     expect(nativeSliceIds).toContain("au09-cross-work-memory-isolation");
     expect(nativeSliceIds).toContain("au09-au03-session-memory-layering");
+    expect(nativeSliceIds).toContain("au03-session-history-readonly");
+    expect(nativeSliceIds).toContain("au03-session-new-active");
     expect(nativeSliceIds).toContain("au03-branch-from-history");
     expect(nativeSliceIds).toContain("au03-archive-session-filter");
     expect(nativeSliceIds).toContain("au03-current-work-context-ssot");
@@ -94,6 +97,64 @@ describe("native Tauri slice verifier", () => {
         "no_error_events",
       ],
     });
+  });
+
+  it("accepts SU-01 API key redaction evidence only when secret surfaces stay clean", () => {
+    const records = [
+      { event: "channel.join.done", work_id: "work-su01-key", session_id: "session-su01-key" },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su01-api-key-secret-redaction",
+        work_id: "work-su01-key",
+        context_work_id: "work-su01-key",
+        socket_connected: true,
+        provider_selected: "deepseek",
+        model_selected: "deepseek-slice-keychain",
+        test_connection_succeeded: true,
+        provider_switch_saved: true,
+        provider_options_api_key_configured: true,
+        provider_options_omits_api_key: true,
+        browser_settings_omits_api_key: true,
+        visible_text_omits_api_key: true,
+        app_log_omits_api_key: true,
+        backend_log_omits_api_key: true,
+        model_provider_button_text: "DeepSeek · deepseek-slice-keychain",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("su01-api-key-secret-redaction", records);
+    expect(evidence).toEqual({
+      slice_id: "su01-api-key-secret-redaction",
+      turn_ids: [],
+      work_id: "work-su01-key",
+      provider_selected: "deepseek",
+      model_selected: "deepseek-slice-keychain",
+      model_provider_button_text: "DeepSeek · deepseek-slice-keychain",
+      key_events: keyEventsForSlice("su01-api-key-secret-redaction"),
+    });
+    expect(findSliceBehaviorEvidence("su01-api-key-secret-redaction", records, evidence)).toEqual({
+      slice_id: "su01-api-key-secret-redaction",
+      behavior: "provider_api_key_flow_redacts_secret_from_user_visible_and_plain_logs",
+      turn_ids: [],
+      work_id: "work-su01-key",
+      provider_selected: "deepseek",
+      model_selected: "deepseek-slice-keychain",
+      assertions: [
+        "model_settings_opened_from_real_workbench",
+        "deepseek_model_list_loaded_through_adapter_http_boundary",
+        "test_connection_succeeded_before_save",
+        "provider_options_marked_api_key_configured_without_returning_secret",
+        "provider_options_did_not_expose_api_key",
+        "browser_fallback_settings_did_not_expose_api_key",
+        "visible_ui_business_logs_and_backend_logs_did_not_expose_api_key",
+        "no_error_events",
+      ],
+    });
+
+    const leakingRecords = [...records, { event: "debug", message: "sk-slice-redaction-leaked" }];
+    expect(
+      findSliceBehaviorEvidence("su01-api-key-secret-redaction", leakingRecords, evidence),
+    ).toBeNull();
   });
 
   it("accepts SU-01 model provider switching only when the next turn uses the selected provider", () => {
@@ -225,7 +286,7 @@ describe("native Tauri slice verifier", () => {
     });
     expect(findSliceBehaviorEvidence("au02-candidate-adoption-bridge", records, evidence)).toEqual({
       slice_id: "au02-candidate-adoption-bridge",
-      behavior: "candidate_continuation_authorized_by_available_action",
+      behavior: "candidate_adoption_authorized_by_available_action",
       turn_ids: ["turn-source", "turn-adoption"],
       source_turn_ref: "turn-source",
       continuation_turn_id: null,
@@ -233,7 +294,7 @@ describe("native Tauri slice verifier", () => {
       candidate_set_ref: "candidate_set:turn-source",
       assertions: [
         "candidate_panel_rendered_from_turn_result",
-        "candidate_continuation_sent_authorized_choose_candidate_action",
+        "candidate_adoption_sent_authorized_choose_candidate_action",
         "adoption_boundary_returned_adopt_tentative",
         "ui_rendered_candidate_adoption_result",
         "production_write_not_claimed",
@@ -393,6 +454,8 @@ describe("native Tauri slice verifier", () => {
     const records = [
       { event: "channel.join.done", work_id: "work-a", session_id: "session-a" },
       { event: "channel.join.done", work_id: "work-b", session_id: "session-b" },
+      { event: "channel.user_message.start", turn_id: "turn-su03", work_id: "work-a" },
+      { event: "channel.user_message.done", turn_id: "turn-su03", work_id: "work-a" },
       {
         event: "slice_verify.ui_state.done",
         slice_id: "su03-assistant-display-name",
@@ -400,39 +463,270 @@ describe("native Tauri slice verifier", () => {
         context_work_id: "work-a",
         initial_work_id: "work-a",
         created_work_id: "work-b",
+        turn_id: "turn-su03",
         socket_connected: true,
         assistant_name_after_save: "创作助手",
         assistant_role_after_save: "创作助手",
+        assistant_label_after_turn: "创作助手",
         assistant_name_in_created_work: "AI",
         assistant_name_after_return: "创作助手",
         assistant_role_after_return: "创作助手",
+        sent_payload_includes_display_name: false,
+        turn_result_contract_has_assistant_message: true,
+        turn_result_has_display_name_key: false,
       },
     ];
 
     const evidence = findNativeSliceEvidence("su03-assistant-display-name", records);
     expect(evidence).toEqual({
       slice_id: "su03-assistant-display-name",
-      turn_ids: [],
+      turn_id: "turn-su03",
+      turn_ids: ["turn-su03"],
       work_id: "work-a",
       created_work_id: "work-b",
       assistant_name_after_save: "创作助手",
       assistant_name_in_created_work: "AI",
       assistant_name_after_return: "创作助手",
+      sent_payload_includes_display_name: false,
+      turn_result_contract_has_assistant_message: true,
+      turn_result_has_display_name_key: false,
       key_events: keyEventsForSlice("su03-assistant-display-name"),
     });
     expect(findSliceBehaviorEvidence("su03-assistant-display-name", records, evidence)).toEqual({
       slice_id: "su03-assistant-display-name",
       behavior: "assistant_display_name_is_work_scoped_ui_preference",
-      turn_ids: [],
+      turn_ids: ["turn-su03"],
       work_id: "work-a",
       created_work_id: "work-b",
       assertions: [
         "assistant_name_changed_from_real_workbench_entry",
         "assistant_message_role_remained_assistant",
+        "turn_result_preserved_assistant_message_contract",
+        "wire_payload_did_not_include_ui_display_name",
         "display_name_saved_for_current_work",
         "new_work_fell_back_to_default_ai_name",
         "switching_back_restored_original_work_name",
         "preference_did_not_touch_provider_or_turn_result_contract",
+        "no_error_events",
+      ],
+    });
+
+    expect(
+      findSliceBehaviorEvidence("su03-assistant-display-name", records, evidence, {
+        provider: "lmstudio",
+        llmRecords: [
+          {
+            turn_id: "turn-su03",
+            provider: "lmstudio",
+            request: {
+              method: "POST",
+              body: { messages: [{ role: "user", content: "SU03显示名边界" }] },
+            },
+            response: { status: 200 },
+          },
+        ],
+      }),
+    ).toEqual({
+      slice_id: "su03-assistant-display-name",
+      behavior: "assistant_display_name_is_work_scoped_ui_preference",
+      turn_ids: ["turn-su03"],
+      work_id: "work-a",
+      created_work_id: "work-b",
+      assertions: [
+        "assistant_name_changed_from_real_workbench_entry",
+        "assistant_message_role_remained_assistant",
+        "turn_result_preserved_assistant_message_contract",
+        "wire_payload_did_not_include_ui_display_name",
+        "lmstudio_request_did_not_include_ui_display_name",
+        "display_name_saved_for_current_work",
+        "new_work_fell_back_to_default_ai_name",
+        "switching_back_restored_original_work_name",
+        "preference_did_not_touch_provider_or_turn_result_contract",
+        "no_error_events",
+      ],
+    });
+
+    expect(
+      findSliceBehaviorEvidence("su03-assistant-display-name", records, evidence, {
+        provider: "lmstudio",
+        llmRecords: [
+          {
+            turn_id: "turn-su03",
+            provider: "lmstudio",
+            request: {
+              method: "POST",
+              body: { messages: [{ role: "system", content: "你叫创作助手" }] },
+            },
+            response: { status: 200 },
+          },
+        ],
+      }),
+    ).toBeNull();
+  });
+
+  it("accepts AU-03 session history readonly evidence when an exited session is opened safely", () => {
+    const records = [
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au03",
+        session_id: "session-active",
+        transcript_count: 2,
+      },
+      { event: "channel.join.done", work_id: "work-au03", session_id: "session-active" },
+      {
+        event: "work_session.show.done",
+        work_id: "work-au03",
+        session_id: "session-history",
+        read_only: true,
+        transcript_count: 2,
+        pending_adoption_count: 0,
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au03-session-history-readonly",
+        work_id: "work-au03",
+        context_work_id: "work-au03",
+        readonly_session_id: "session-history",
+        readonly_banner_visible: true,
+        readonly_input_disabled: true,
+        readonly_send_disabled: true,
+        readonly_visible_text: "林瑶留下的旧线索应该藏在矿区档案室。",
+        active_session_restored: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au03-session-history-readonly", records);
+    expect(evidence).toEqual({
+      slice_id: "au03-session-history-readonly",
+      turn_ids: [],
+      work_id: "work-au03",
+      session_id: "session-history",
+      key_events: keyEventsForSlice("au03-session-history-readonly"),
+      transcript_count: 2,
+      pending_adoption_count: 0,
+    });
+    expect(findSliceBehaviorEvidence("au03-session-history-readonly", records, evidence)).toEqual({
+      slice_id: "au03-session-history-readonly",
+      behavior: "historical_session_transcript_opened_readonly_from_real_workbench",
+      turn_ids: [],
+      work_id: "work-au03",
+      session_id: "session-history",
+      assertions: [
+        "session_search_started_from_real_workbench",
+        "history_session_snapshot_loaded_through_web_application_persistence",
+        "exited_session_opened_as_read_only",
+        "old_pending_adoptions_not_restored",
+        "chat_input_and_send_disabled_while_viewing_history",
+        "active_session_view_can_be_restored",
+      ],
+    });
+  });
+
+  it("accepts AU-03 new active session evidence when the previous active becomes readonly history", () => {
+    const records = [
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au03",
+        session_id: "session-previous-active",
+        transcript_count: 2,
+      },
+      {
+        event: "work_session.create.done",
+        work_id: "work-au03",
+        session_id: "session-new-active",
+      },
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au03",
+        session_id: "session-new-active",
+        transcript_count: 0,
+      },
+      { event: "channel.join.done", work_id: "work-au03", session_id: "session-new-active" },
+      {
+        event: "work_session.show.done",
+        work_id: "work-au03",
+        session_id: "session-previous-active",
+        read_only: true,
+        transcript_count: 2,
+        pending_adoption_count: 0,
+      },
+      {
+        event: "channel.user_message.start",
+        work_id: "work-au03",
+        session_id: "session-new-active",
+        turn_id: "turn-new-active-1",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-new-active-1",
+        has_snapshot: true,
+        has_conversation: false,
+        context_refs_count: 1,
+      },
+      {
+        event: "channel.user_message.done",
+        work_id: "work-au03",
+        session_id: "session-new-active",
+        turn_id: "turn-new-active-1",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au03-session-new-active",
+        turn_id: "turn-new-active-1",
+        turn_ids: ["turn-new-active-1"],
+        work_id: "work-au03",
+        context_work_id: "work-au03",
+        previous_active_session_id: "session-previous-active",
+        new_active_session_id: "session-new-active",
+        previous_active_status_after_create: "EXITED",
+        new_session_transcript_empty: true,
+        new_session_input_enabled: true,
+        new_session_send_enabled: true,
+        old_active_visible_initial: true,
+        old_active_absent_after_create: true,
+        previous_active_readonly_opened: true,
+        previous_active_readonly_banner_visible: true,
+        previous_active_input_disabled: true,
+        previous_active_send_disabled: true,
+        previous_active_transcript_visible_readonly: true,
+        active_session_restored: true,
+        user_message_session_id: "session-new-active",
+        user_message_work_id: "work-au03",
+        new_session_message_visible: true,
+        old_active_text_in_new_session: false,
+        first_turn_context_has_conversation: false,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au03-session-new-active", records);
+    expect(evidence).toEqual({
+      slice_id: "au03-session-new-active",
+      turn_ids: ["turn-new-active-1"],
+      work_id: "work-au03",
+      session_id: "session-new-active",
+      previous_session_id: "session-previous-active",
+      key_events: keyEventsForSlice("au03-session-new-active"),
+      transcript_count: 0,
+      previous_transcript_count: 2,
+      first_turn_context_refs_count: 1,
+    });
+    expect(findSliceBehaviorEvidence("au03-session-new-active", records, evidence)).toEqual({
+      slice_id: "au03-session-new-active",
+      behavior: "new_active_session_created_and_previous_active_reopened_readonly",
+      turn_ids: ["turn-new-active-1"],
+      work_id: "work-au03",
+      session_id: "session-new-active",
+      previous_session_id: "session-previous-active",
+      assertions: [
+        "new_session_action_started_from_real_workbench",
+        "new_active_session_created_through_web_application_persistence",
+        "previous_active_session_exited_after_create",
+        "workbench_rejoined_new_active_session",
+        "new_active_session_started_with_empty_transcript",
+        "previous_active_session_reopened_as_read_only_history",
+        "next_user_message_scoped_to_new_session",
+        "first_new_session_turn_has_empty_conversation_context",
+        "old_active_transcript_not_copied_into_new_session",
         "no_error_events",
       ],
     });
@@ -3755,8 +4049,8 @@ function au02CandidateAdoptionBridgeRecords(sourceTurnId, followTurnId, adoption
       candidate_ref: "dir-1",
       candidate_set_ref: `candidate_set:${sourceTurnId}`,
       candidate_panel_count: 1,
-      candidate_continue_clicked: true,
-      candidate_adopt_clicked: false,
+      candidate_continue_clicked: false,
+      candidate_adopt_clicked: true,
       visible_adoption_result: true,
       adoption_decision_type: "adopt_tentative",
       candidate_selected: true,

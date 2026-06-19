@@ -1,0 +1,67 @@
+id: su02-work-lifecycle-management
+title: 作品生命周期命名新增、改名与安全移出
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su02-work-lifecycle-management --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - tasks/slices/SU02-work-lifecycle-management.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - work-lifecycle-mutations-go-through-application-boundary
+  - rename-preserves-work-id-and-current-channel
+  - discarded-work-not-restored-as-last-opened
+  - deleting-current-work-falls-back-to-real-work-or-new-unnamed-work
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: visible work menu
+  - input: named new work title
+  - observe: new title visible and current work channel joined
+  - click: rename current work
+  - input: renamed work title
+  - observe: title updates without changing work_id
+  - click: delete or move out current work
+  - confirm: dialog includes work title
+  - observe: app switches to another real work or creates a new unnamed work
+  - observe: default work list no longer includes the discarded work
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su02-work-lifecycle-management-tauri
+
+assertions:
+  ui:
+    - named work creation is available from the visible work menu
+    - rename updates the work title in the toolbar and work list
+    - delete or move-out requires confirmation containing the work title
+    - current work fallback is visible after deleting the current work
+  network:
+    - create request sends the author-provided title
+    - rename request targets the current work id
+    - discard or move-out request goes through the work API
+    - channel work id does not change during rename
+  data:
+    - discarded or moved-out work is hidden from the default work list
+    - fallback work id is not the discarded or moved-out work id
+    - source work messages do not appear under the fallback work
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

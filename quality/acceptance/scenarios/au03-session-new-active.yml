@@ -1,0 +1,67 @@
+id: au03-session-new-active
+title: 新建会话成为当前 ACTIVE，原 ACTIVE 转为只读历史
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au03-session-new-active --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - tasks/slices/AU03-session-new-active.md
+
+invariants:
+  - one-active-session-per-work
+  - previous-active-session-exits-on-new-create
+  - new-session-starts-empty
+  - previous-active-transcript-remains-readonly-history
+  - next-user-message-binds-to-new-active-session
+
+setup:
+  seed: scripts/seed_au03_session_history_readonly.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - observe: seeded active transcript is visible
+  - click: 新建会话
+  - observe: workbench rejoins an empty new active session
+  - search: 默认会话
+  - click: previous active session
+  - verify: previous active opens read-only with old transcript
+  - click: 返回当前会话
+  - input: AU03 新会话闭环...
+  - click: 发送
+  - verify: first new-session turn has empty conversation context and no old transcript leak
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au03-session-new-active-tauri
+
+assertions:
+  ui:
+    - new session is created from the visible session toolbar
+    - new active session shows the welcome baseline and keeps input/send enabled
+    - previous active transcript is absent from the new active view
+    - previous active session opens through session search as read-only history
+    - input/send are disabled while viewing the previous active history
+  network:
+    - work_session.create emits a new session id
+    - work_session.resume rejoins the new session with transcript_count=0
+    - channel join uses the new active session id
+    - next user_message uses the new active session id
+  data:
+    - previous active status becomes EXITED
+    - previous active transcript remains readable as history
+    - first new-session turn records has_conversation=false
+    - old active transcript is not copied into the new session
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

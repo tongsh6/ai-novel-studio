@@ -1,0 +1,48 @@
+id: su01-provider-health-model
+title: 供应商健康状态与模型徽标
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-provider-health-model --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-health-from-backend
+  - provider-model-visible-to-user
+  - no-frontend-provider-direct-call
+
+setup:
+  seed: scripts/seed_au03_long_session_compression.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - wait_for: service connected
+  - wait_for: model/provider health badge connected
+  - observe: model/provider label rendered from backend metadata
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-provider-health-model-tauri
+
+assertions:
+  ui:
+    - provider health badge visible
+    - badge displays backend provider or model label
+  network:
+    - workbench joined current work channel
+  data:
+    - provider health metadata is observed from real workbench state
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
