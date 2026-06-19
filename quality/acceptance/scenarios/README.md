@@ -6,13 +6,17 @@
 
 | 文件 | 场景 |
 |---|---|
+| `au01-empty-message-guard.yml` | 空消息不会创建聊天 turn |
 | `au01-ordinary-chat-two-turn-roundtrip.yml` | 普通聊天两轮真实工作台闭环 |
 | `au02-candidate-adoption-bridge.yml` | 候选方向选择与采纳边界 |
 | `au02-candidate-continuation.yml` | 候选方向继续讨论 |
+| `au02-freeform-followup-after-candidate.yml` | 候选卡出现后仍可自由追问 |
+| `au03-branch-from-history.yml` | 从历史会话继续创建新分支会话 |
 | `au03-context-source-ui.yml` | 上下文来源可见解释 |
 | `au03-long-session-compression.yml` | 长会话压缩上下文 |
 | `au03-session-history-readonly.yml` | 历史会话只读回看 |
 | `au03-session-new-active.yml` | 新建会话成为当前 ACTIVE，原 ACTIVE 转为只读历史 |
+| `au04-confirm-before-execute.yml` | 高风险执行先确认并重新 gate |
 | `au05-adoption-safety-freshness.yml` | 采纳安全与新鲜度 |
 | `au05-canon-conflict-recovery.yml` | 正典冲突恢复 |
 | `au05-conflict-cross-work-recovery.yml` | 跨作品冲突恢复 |
@@ -26,7 +30,9 @@
 | `su01-lmstudio-disconnected-health.yml` | LM Studio 未启动时的模型断开态 |
 | `su01-provider-endpoint-validation.yml` | 供应商 endpoint URL 校验 |
 | `su01-provider-health-model.yml` | 供应商健康状态与模型徽标 |
+| `su01-provider-model-list-success.yml` | 供应商实时模型列表成功矩阵 |
 | `su02-work-lifecycle-management.yml` | 作品生命周期命名新增、改名与安全移出 |
+| `su02-work-restart-recovery.yml` | 作品重启恢复与 stale lastOpened 降级 |
 | `su02-work-switching.yml` | 运行时作品切换与 Channel 重连 |
 | `su03-assistant-display-name.yml` | AI 显示名按作品隔离 |
 | `vs00c-cp3-structured-context.yml` | VS-00C CP3 结构化章节上下文 |

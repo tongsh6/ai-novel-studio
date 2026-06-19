@@ -1,0 +1,59 @@
+id: au03-branch-from-history
+title: 从历史会话继续创建新分支会话
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au03-branch-from-history --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - tasks/slices/AU03-branch-from-history.md
+
+invariants:
+  - historical-session-remains-readonly
+  - branch-session-records-source-session-ref
+  - branch-session-records-source-turn-ref
+  - branch-session-starts-empty
+  - old-history-transcript-is-not-mutated-or-copied
+
+setup:
+  seed: scripts/seed_au03_session_history_readonly.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - search: 林瑶旧线索
+  - click: 林瑶旧线索讨论
+  - observe: historical transcript is visible with read-only banner
+  - click: 从这里继续
+  - observe: workbench rejoins a new active branch session
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au03-branch-from-history-tauri
+
+assertions:
+  ui:
+    - history session opens read-only before branching
+    - branch action starts from the visible read-only banner
+    - new branch session is active and writable
+    - old history transcript is absent from the branch transcript
+  network:
+    - work_session.show loads the historical read-only source session
+    - work_session.create is emitted with source_session_ref and source_turn_ref
+    - channel join uses the created branch session id
+  data:
+    - source_session_ref equals the historical session id
+    - source_turn_ref equals the historical turn id
+    - branch session transcript_count is zero after resume
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

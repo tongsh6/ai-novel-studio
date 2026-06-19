@@ -1,0 +1,62 @@
+id: au02-freeform-followup-after-candidate
+title: 候选卡出现后仍可自由追问
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au02-freeform-followup-after-candidate --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-02-explore.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+
+invariants:
+  - candidate-card-is-not-a-forced-action
+  - freeform-follow-up-is-plain-user-message
+  - candidate-selection-is-not-implied
+  - no-author-action-or-adoption-boundary
+  - no-production-write
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 模糊小说创作方向
+  - click: 发送
+  - wait_for: candidate direction visible
+  - do_not_click: 继续聊这个方向 / 设为后续方向
+  - input: 针对候选内容继续自由追问
+  - observe: 下一轮自然回复
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au02-freeform-followup-after-candidate-tauri
+
+assertions:
+  ui:
+    - candidate direction visible before freeform follow-up
+    - chat input remains enabled while candidate card is visible
+    - freeform follow-up message and assistant reply are visible
+  network:
+    - user_message sent without candidate_selection
+    - generate_micro_plan remains false
+    - author_action is not sent
+    - action_result is not received
+  data:
+    - no adoption decision is emitted
+    - candidate_selected remains false
+    - candidate_adopted remains false
+    - production_write_performed remains false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

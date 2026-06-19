@@ -1,0 +1,61 @@
+id: su02-work-restart-recovery
+title: 作品重启恢复与 stale lastOpened 降级
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su02-work-restart-recovery --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - tasks/slices/SU02-work-restart-recovery.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - last-opened-restores-only-existing-real-work
+  - discarded-work-is-not-restored-as-current-work
+  - recovery-never-persists-lobby-as-work-id
+  - work-recovery-rejoins-real-workspace-channel
+  - no-product-acceptance-hooks
+
+setup:
+  seed: external driver creates two persisted works
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: visible work menu
+  - select: a persisted target work
+  - reload: workbench
+  - observe: target work is restored from lastOpened and rejoins its workspace channel
+  - setup: external harness makes that stored work stale by safely discarding it
+  - reload: workbench again
+  - observe: app opens a real available work, not the discarded work or lobby
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - persistence_snapshot
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su02-work-restart-recovery-tauri
+
+assertions:
+  ui:
+    - reload restores an existing last opened work
+    - reload with stale lastOpened falls back to a real available work
+    - toolbar title matches the fallback work
+  network:
+    - restored work joins workspace:{work_id}
+    - fallback work joins workspace:{work_id}
+  data:
+    - discarded work is hidden from default work list
+    - stale lastOpened preference is replaced by the fallback real work id
+    - fallback work id is not lobby and not the discarded work id
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

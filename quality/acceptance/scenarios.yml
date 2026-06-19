@@ -20,6 +20,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/su01-provider-endpoint-validation.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh su01-provider-endpoint-validation --surface tauri
+  - id: su01-provider-model-list-success
+    title: "供应商实时模型列表成功矩阵"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su01-provider-model-list-success.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su01-provider-model-list-success --surface tauri
   - id: su01-api-key-secret-redaction
     title: "API Key 配置流与 secret redaction"
     tier: nightly
@@ -41,6 +48,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/su02-work-lifecycle-management.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh su02-work-lifecycle-management --surface tauri
+  - id: su02-work-restart-recovery
+    title: "作品重启恢复与 stale lastOpened 降级"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su02-work-restart-recovery.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su02-work-restart-recovery --surface tauri
   - id: su03-assistant-display-name
     title: "AI 显示名按作品隔离"
     tier: nightly
@@ -55,6 +69,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au01-ordinary-chat-two-turn-roundtrip.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au01-ordinary-chat-two-turn-roundtrip --surface tauri
+  - id: au01-empty-message-guard
+    title: "空消息不会创建聊天 turn"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au01-empty-message-guard.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au01-empty-message-guard --surface tauri
   - id: p1-chapter-plan-minimum
     title: "章节计划最小闭环"
     tier: known-gap
@@ -99,6 +120,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au02-candidate-adoption-bridge.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au02-candidate-adoption-bridge --surface tauri
+  - id: au02-freeform-followup-after-candidate
+    title: "候选卡出现后仍可自由追问"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au02-freeform-followup-after-candidate.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au02-freeform-followup-after-candidate --surface tauri
   - id: au05-adoption-safety-freshness
     title: "采纳安全与新鲜度"
     tier: nightly
@@ -127,6 +155,20 @@ scenarios:
     manifest: quality/acceptance/scenarios/au03-session-new-active.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au03-session-new-active --surface tauri
+  - id: au03-branch-from-history
+    title: "从历史会话继续创建新分支会话"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au03-branch-from-history.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au03-branch-from-history --surface tauri
+  - id: au04-confirm-before-execute
+    title: "高风险执行先确认并重新 gate"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-confirm-before-execute.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-confirm-before-execute --surface tauri
   - id: au11-quality-diagnosis-message-envelope
     title: "AI 引导式创作质量诊断 Message Envelope"
     tier: nightly

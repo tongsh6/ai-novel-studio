@@ -1,0 +1,59 @@
+id: au01-empty-message-guard
+title: 空消息不会创建聊天 turn
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au01-empty-message-guard --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-01-chat.md
+  - docs/design/01-user-llm-workbench-interaction-model.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - blank-chat-input-does-not-create-business-turn
+  - chat-input-remains-usable-after-blank-submit
+  - recovery-chat-still-defaults-to-reply-only
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: blank spaces in the real chat box
+  - click: 发送
+  - observe: no visible user or assistant message is appended
+  - inspect: no websocket user_message frame is sent for the blank input
+  - observe: input remains enabled and thinking indicator is not visible
+  - input: a normal creative chat message
+  - click: 发送
+  - observe: assistant reply visible and thinking cleared
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au01-empty-message-guard-tauri
+
+assertions:
+  ui:
+    - blank input does not append a visible user message
+    - blank input does not append an assistant message
+    - thinking indicator stays hidden after blank submit
+    - input remains enabled after blank submit
+    - following normal chat message completes visibly
+  network:
+    - blank submit sends no user_message frame
+    - following normal chat sends user_message with generate_micro_plan=false
+    - following normal chat receives turn_result
+  data:
+    - following normal chat completes DialogueGateway handling
+    - no planner.form_micro_plan event is recorded for the recovery turn
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

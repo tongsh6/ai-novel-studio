@@ -1,0 +1,64 @@
+id: au04-confirm-before-execute
+title: 高风险执行先确认并重新 gate
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-confirm-before-execute --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0009-confirmation-binding-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - high-risk-production-write-requires-confirmation
+  - confirmation-action-comes-from-server-available-actions
+  - confirmation-action-binds-open-behavior
+  - confirmation-answer-re-gates-before-dispatch
+  - executed-output-remains-tentative-pending-adoption
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with an adopted chapter plan
+  - type: high-risk rewrite request in the real chat input
+  - observe: needs_confirmation turn_result arrives over the real websocket
+  - observe: visible confirm and reject actions are shown before execution
+  - click: 确认执行
+  - observe: real workbench sends author_action confirm_before_execute
+  - observe: re-gate allows prose_writing and returns tentative prose_fragment
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-confirm-before-execute-tauri
+
+assertions:
+  ui:
+    - confirmation action is visible before execution
+    - tentative prose draft is visible after confirmation
+    - pending adoption remains visible after execution
+  network:
+    - needs_confirmation turn_result includes confirm_before_execute
+    - author_action carries the same server action_id
+    - confirmation turn_result carries a plan over the wire
+  data:
+    - no tool call happens before confirmation
+    - no production write happens before confirmation
+    - confirm_before_execute references an open confirmation behavior
+    - prose_writing dispatch happens only after re-gate
+    - resulting artifact_type is prose_fragment and remains pending
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -1,0 +1,63 @@
+id: su01-provider-model-list-success
+title: 供应商实时模型列表成功矩阵
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-provider-model-list-success --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-models-come-from-backend-adapter-boundary
+  - frontend-does-not-hardcode-provider-model-list
+  - provider-api-key-not-visible-in-ui
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real workbench model settings
+  - select: DeepSeek provider
+  - refresh: model list through the production DeepSeek adapter with a harnessed external HTTP boundary
+  - select: DeepSeek model returned by backend
+  - select: Anthropic provider
+  - refresh: model list through the production Anthropic adapter with a harnessed external HTTP boundary
+  - select: Anthropic model returned by backend
+  - select: LM Studio provider
+  - input: OpenAI-compatible local /v1/models endpoint started by the external driver
+  - refresh: LM Studio model list
+  - select: LM Studio model returned by backend
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-provider-model-list-success-tauri
+
+assertions:
+  ui:
+    - model settings opens from the visible workbench provider button
+    - DeepSeek, Anthropic, and LM Studio models are selectable in the model select
+    - visible text does not contain cloud provider API keys
+  network:
+    - DeepSeek model list is loaded through the adapter HTTP boundary
+    - Anthropic model list is loaded through the adapter HTTP boundary
+    - LM Studio model list is loaded from an OpenAI-compatible /v1/models endpoint
+  data:
+    - selected model ids in ui_state match backend-returned model ids
+
+known_limits:
+  - Cloud provider responses are supplied by the external harness through adapter HTTP boundaries; this proves UI/backend success plumbing, not live vendor account availability.
+  - This scenario does not close the macOS Keychain WebView write/read gap.
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
