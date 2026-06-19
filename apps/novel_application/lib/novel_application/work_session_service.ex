@@ -79,9 +79,13 @@ defmodule NovelApplication.WorkSessionService do
       |> stringify_keys()
       |> Map.put("work_id", work_id)
 
-    case WorkSessionRepo.create(attrs) do
-      {:ok, session} -> {:ok, session_dto(session)}
-      {:error, _changeset} = err -> err
+    with work when not is_nil(work) <- WorkService.get(work_id),
+         {:ok, session} <- WorkSessionRepo.create_active(attrs) do
+      {:ok, session_dto(session)}
+    else
+      nil -> {:error, :work_not_found}
+      {:error, %Ecto.Changeset{}} = err -> err
+      {:error, reason} -> {:error, reason}
     end
   end
 

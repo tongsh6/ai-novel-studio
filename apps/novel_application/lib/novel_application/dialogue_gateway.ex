@@ -610,7 +610,7 @@ defmodule NovelApplication.DialogueGateway do
       phase: "cancelled",
       status: "cancelled",
       available_actions: [],
-      behavior_state: BehaviorState.snapshot(nil),
+      behavior_state: cancel_waiting_behavior_state(action_input, source_turn_result, turn_id),
       projection_refs: [],
       truthfulness: %{
         tool_called: false,
@@ -630,6 +630,96 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   defp cancel_target_summary(_action_input), do: "这项操作"
+
+  defp cancel_waiting_behavior_state(
+         %AuthorActionInput{} = action_input,
+         source_turn_result,
+         closed_turn_id
+       ) do
+    active_behavior =
+      source_turn_result
+      |> map_field(:behavior_state)
+      |> map_field(:active)
+
+    source_decision = map_field(source_turn_result, :orchestrator_decision)
+    source_plan = map_field(source_turn_result, :plan)
+    source_trace = map_field(source_turn_result, :trace_summary)
+
+    %BehaviorState{
+      behavior_id:
+        first_present([
+          action_input.behavior_ref,
+          map_field(active_behavior, :behavior_id),
+          "behavior:#{action_input.action_id}"
+        ]),
+      behavior_type: cancelled_behavior_type(active_behavior),
+      lifecycle_status: :cancelled,
+      blocking_actor: :author,
+      opened_at_turn_ref:
+        first_present([
+          map_field(active_behavior, :opened_at_turn_ref),
+          map_field(source_turn_result, :turn_id)
+        ]),
+      opened_by_decision_ref:
+        first_present([
+          map_field(active_behavior, :opened_by_decision_ref),
+          map_field(source_decision, :decision_id),
+          "decision:#{action_input.action_id}"
+        ]),
+      frame_ref:
+        first_present([
+          map_field(active_behavior, :frame_ref),
+          map_field(source_turn_result, :frame_ref),
+          "frame:#{map_field(source_turn_result, :turn_id)}"
+        ]),
+      plan_ref:
+        first_present([
+          map_field(active_behavior, :plan_ref),
+          map_field(source_plan, :plan_id),
+          map_field(source_decision, :plan_ref)
+        ]),
+      target_ref:
+        first_present([action_input.target_ref, map_field(active_behavior, :target_ref)]),
+      required_next_action:
+        first_present([
+          map_field(active_behavior, :required_next_action),
+          action_input.action_type
+        ]),
+      available_actions: [],
+      prompt_contract: map_field(active_behavior, :prompt_contract) || %{},
+      constraints: map_field(active_behavior, :constraints) || %{},
+      resolution: %{
+        ref: "behavior_resolution:#{closed_turn_id}",
+        status: "cancelled",
+        action_id: action_input.action_id,
+        action_type: action_input.action_type,
+        source_turn_ref: action_input.source_turn_ref,
+        idempotency_key: action_input.idempotency_key
+      },
+      closed_at_turn_ref: closed_turn_id,
+      trace_ref:
+        first_present([
+          map_field(source_trace, :trace_ref),
+          map_field(source_trace, :trace_id),
+          "behavior_trace:#{closed_turn_id}"
+        ])
+    }
+    |> BehaviorState.snapshot()
+  end
+
+  defp cancelled_behavior_type(active_behavior) do
+    case map_field(active_behavior, :behavior_type) do
+      :clarification -> :clarification
+      "clarification" -> :clarification
+      :recovery -> :recovery
+      "recovery" -> :recovery
+      _ -> :confirmation
+    end
+  end
+
+  defp first_present(values) do
+    Enum.find(values, &(not blank?(&1)))
+  end
 
   defp candidate_turn_result(source_turn_result, chosen_candidate, %AdoptionDecision{} = decision) do
     adopted? = AdoptionDecision.adopted?(decision)

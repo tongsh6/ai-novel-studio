@@ -8,6 +8,7 @@ export interface ProviderHealth {
   provider?: string;
   model?: string;
   message?: string;
+  detail?: string;
 }
 
 const PROVIDER_HEALTH_PATH = "/api/provider/health";

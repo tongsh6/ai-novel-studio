@@ -261,6 +261,18 @@ export function providerNeedsApiKey(option: Pick<ProviderOption, "requires_api_k
   return option.requires_api_key;
 }
 
+export function isValidProviderEndpoint(endpoint: string): boolean {
+  const normalized = normalizeOptionalText(endpoint);
+  if (!normalized) return true;
+
+  try {
+    const parsed = new URL(normalized);
+    return (parsed.protocol === "http:" || parsed.protocol === "https:") && parsed.hostname !== "";
+  } catch {
+    return false;
+  }
+}
+
 function toBackendPayload(input: ProviderConfigInput): Record<string, unknown> {
   return {
     provider: input.provider,

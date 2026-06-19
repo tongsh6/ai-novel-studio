@@ -192,7 +192,15 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert {:ok, action_result, turn_result} =
                AdoptionWorkflow.handle_adopt(
                  source_turn_result(%{risk_hint: :high}),
-                 %{"artifact_id" => "as-1", "confirmation_satisfied" => true},
+                 %{
+                   "artifact_id" => "as-1",
+                   "confirmation_satisfied" => true,
+                   "action_id" => "confirm:as-1",
+                   "action_type" => "confirm_before_execute",
+                   "behavior_ref" => "bh_confirm_as-1",
+                   "source_turn_ref" => "turn-confirm-source",
+                   "idempotency_key" => "idem:confirm:as-1"
+                 },
                  writer
                )
 
@@ -201,6 +209,50 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert turn_result.truthfulness.artifact_adopted == true
       # 采纳完成后关闭 confirmation behavior
       assert turn_result.behavior_state.active == nil
+
+      assert [
+               %{
+                 behavior_id: "bh_confirm_as-1",
+                 status: "RESOLVED",
+                 target_ref: "as-1",
+                 closed_at_turn_ref: closed_turn_ref,
+                 resolution_ref: resolution_ref
+               }
+             ] = turn_result.behavior_state.history
+
+      assert closed_turn_ref == turn_result.turn_id
+      assert resolution_ref == "behavior_resolution:#{turn_result.turn_id}"
+    end
+
+    test "confirmation reject closes adoption confirmation behavior without writing" do
+      assert {:ok, action_result, turn_result} =
+               AdoptionWorkflow.handle_confirmation_reject(source_turn_result(), %{
+                 "artifact_id" => "as-1",
+                 "action_id" => "reject:as-1",
+                 "action_type" => "reject_or_cancel_confirmation",
+                 "behavior_ref" => "bh_confirm_as-1",
+                 "source_turn_ref" => "turn-confirm-source",
+                 "idempotency_key" => "idem:reject:as-1"
+               })
+
+      assert action_result.status == "cancelled"
+      assert turn_result.status == "cancelled"
+      assert turn_result.truthfulness.artifact_adopted == false
+      assert turn_result.truthfulness.production_write_performed == false
+      assert turn_result.behavior_state.active == nil
+
+      assert [
+               %{
+                 behavior_id: "bh_confirm_as-1",
+                 status: "CANCELLED",
+                 target_ref: "as-1",
+                 closed_at_turn_ref: closed_turn_ref,
+                 resolution_ref: resolution_ref
+               }
+             ] = turn_result.behavior_state.history
+
+      assert closed_turn_ref == turn_result.turn_id
+      assert resolution_ref == "behavior_resolution:#{turn_result.turn_id}"
     end
 
     test "rejects stale revision base" do

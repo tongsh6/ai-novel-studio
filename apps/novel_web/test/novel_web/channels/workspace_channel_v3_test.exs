@@ -26,7 +26,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         action_type: "cancel_pending_behavior",
         behavior_ref: "bh-chan-1",
         target_ref: "text_analysis",
-        enabled: true
+        enabled: true,
+        idempotency_key: "ik-cancel"
       }
     ],
     plan: %NovelDomain.MicroPlan{
@@ -308,9 +309,22 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert_broadcast("turn_result", %{
         phase: "cancelled",
         status: "cancelled",
-        behavior_state: %{active: nil},
+        behavior_state: %{
+          active: nil,
+          history: [
+            %{
+              behavior_id: "bh-chan-1",
+              status: "CANCELLED",
+              closed_at_turn_ref: closed_turn_ref,
+              resolution_ref: resolution_ref
+            }
+          ]
+        },
         truthfulness: %{tool_called: false, production_write_performed: false}
       })
+
+      assert closed_turn_ref != nil
+      assert resolution_ref == "behavior_resolution:#{closed_turn_ref}"
     end
 
     test "client-provided source_turn_result cannot authorize invented action" do
@@ -345,6 +359,61 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                )
 
       assert String.contains?(reason, "invented")
+    end
+
+    test "author_action missing behavior_ref cannot close a server-scoped behavior" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @server_turn_result)
+
+      assert {:reply, {:error, %{reason: reason}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-action-1",
+                     "action_id" => "act-cancel",
+                     "action_type" => "cancel_pending_behavior",
+                     "target_ref" => "text_analysis",
+                     "idempotency_key" => "ik-cancel"
+                   }
+                 },
+                 socket
+               )
+
+      assert String.contains?(reason, "behavior_ref")
+      refute_broadcast("action_result", %{}, 20)
+    end
+
+    test "author_action idempotency key must match the server-scoped action" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @server_turn_result)
+
+      assert {:reply, {:error, %{reason: reason}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-action-1",
+                     "action_id" => "act-cancel",
+                     "action_type" => "cancel_pending_behavior",
+                     "target_ref" => "text_analysis",
+                     "behavior_ref" => "bh-chan-1",
+                     "idempotency_key" => "other-key"
+                   }
+                 },
+                 socket
+               )
+
+      assert String.contains?(reason, "idempotency_key")
+      refute_broadcast("action_result", %{}, 20)
     end
 
     test "invented action returns error" do
@@ -916,9 +985,22 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       assert_broadcast("turn_result", %{
         adoption_state: %{resolved: [%{artifact_id: "as-adopt-1", adoption_status: "ACCEPTED"}]},
-        behavior_state: %{active: nil},
+        behavior_state: %{
+          active: nil,
+          history: [
+            %{
+              behavior_id: "bh_confirm_as-adopt-1",
+              status: "RESOLVED",
+              closed_at_turn_ref: closed_turn_ref,
+              resolution_ref: resolution_ref
+            }
+          ]
+        },
         truthfulness: %{artifact_adopted: true}
       })
+
+      assert closed_turn_ref != nil
+      assert resolution_ref == "behavior_resolution:#{closed_turn_ref}"
     end
 
     test "reject_or_cancel_confirmation closes the confirmation without writing" do
@@ -957,9 +1039,22 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       assert_broadcast("turn_result", %{
         phase: "cancelled",
-        behavior_state: %{active: nil},
+        behavior_state: %{
+          active: nil,
+          history: [
+            %{
+              behavior_id: "bh_confirm_as-adopt-1",
+              status: "CANCELLED",
+              closed_at_turn_ref: closed_turn_ref,
+              resolution_ref: resolution_ref
+            }
+          ]
+        },
         truthfulness: %{artifact_adopted: false, production_write_performed: false}
       })
+
+      assert closed_turn_ref != nil
+      assert resolution_ref == "behavior_resolution:#{closed_turn_ref}"
     end
 
     test "adopt event rejects invented artifact that is not pending on server turn" do

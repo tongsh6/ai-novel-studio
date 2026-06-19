@@ -127,4 +127,26 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert error_map.type == :provider_internal
     end
   end
+
+  describe "health_check/1" do
+    test "maps connection refused to an author-readable LM Studio message" do
+      get = fn _url, _opts -> {:error, :connection_refused, 0, "tcp connect refused"} end
+
+      state = %LMStudio{endpoint: "http://127.0.0.1:1/v1", timeout: 100, get_fn: get}
+
+      assert {:error, error} = LMStudio.health_check(state)
+      assert error.message == "LM Studio 未启动"
+      assert error.type == :connection_refused
+    end
+
+    test "maps timeout to an author-readable LM Studio message" do
+      get = fn _url, _opts -> {:error, :timeout, 0, "timeout"} end
+
+      state = %LMStudio{endpoint: "http://127.0.0.1:1/v1", timeout: 100, get_fn: get}
+
+      assert {:error, error} = LMStudio.health_check(state)
+      assert error.message == "LM Studio 请求超时"
+      assert error.type == :timeout
+    end
+  end
 end

@@ -16,13 +16,70 @@ defmodule NovelWeb.WorksController do
 
   @doc "POST /api/works — create a new work seed (default tentative)."
   def create(conn, params) do
-    attrs = Map.take(params, ["title", "genre", "core_selling_point", "target_reader", "tone_preference"])
+    attrs =
+      Map.take(params, [
+        "title",
+        "genre",
+        "core_selling_point",
+        "target_reader",
+        "tone_preference"
+      ])
 
     case WorkService.create(attrs) do
       {:ok, work} ->
         conn
         |> put_status(:created)
         |> json(%{work: serialize(work)})
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{errors: changeset_errors(cs)})
+    end
+  end
+
+  @doc "PATCH /api/works/:id — rename a work."
+  def update(conn, %{"id" => id} = params) do
+    attrs = Map.take(params, ["title", "revision"])
+
+    case WorkService.rename(id, attrs) do
+      {:ok, work} ->
+        json(conn, %{work: serialize(work)})
+
+      :not_found ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "work_not_found", id: id})
+
+      {:error, :revision_conflict} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{error: "revision_conflict", id: id})
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{errors: changeset_errors(cs)})
+    end
+  end
+
+  @doc "POST /api/works/:id/discard — safely move a work out of the default list."
+  def discard(conn, %{"id" => id} = params) do
+    attrs = Map.take(params, ["revision"])
+
+    case WorkService.discard(id, attrs) do
+      {:ok, work} ->
+        json(conn, %{work: serialize(work)})
+
+      :not_found ->
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "work_not_found", id: id})
+
+      {:error, :revision_conflict} ->
+        conn
+        |> put_status(:conflict)
+        |> json(%{error: "revision_conflict", id: id})
 
       {:error, %Ecto.Changeset{} = cs} ->
         conn
@@ -50,6 +107,7 @@ defmodule NovelWeb.WorksController do
       title: work.title,
       genre: work.genre,
       status: work.status,
+      revision: work.revision,
       updated_at: work.updated_at && DateTime.to_iso8601(work.updated_at),
       inserted_at: work.inserted_at && DateTime.to_iso8601(work.inserted_at)
     }

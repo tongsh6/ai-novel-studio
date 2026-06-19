@@ -44,7 +44,8 @@ defmodule NovelApplication.ActionRoundtripTest do
         action_id: "act-confirm",
         action_type: "confirm_before_execute",
         target_ref: "text_analysis",
-        behavior_ref: "bh-1"
+        behavior_ref: "bh-1",
+        idempotency_key: "ik1"
       }
 
       assert :ok = ActionValidator.validate(input, @valid_source)
@@ -114,6 +115,35 @@ defmodule NovelApplication.ActionRoundtripTest do
 
       assert {:error, reason} = ActionValidator.validate(input, @valid_source)
       assert String.contains?(reason, "target_ref")
+    end
+
+    test "missing behavior_ref is rejected when available action carries one" do
+      input = %AuthorActionInput{
+        input_id: "in-behavior-missing",
+        source_turn_ref: "turn-1",
+        action_id: "act-confirm",
+        action_type: "confirm_before_execute",
+        target_ref: "text_analysis",
+        idempotency_key: "ik1"
+      }
+
+      assert {:error, reason} = ActionValidator.validate(input, @valid_source)
+      assert String.contains?(reason, "behavior_ref")
+    end
+
+    test "idempotency_key mismatch rejected" do
+      input = %AuthorActionInput{
+        input_id: "in-idempotency-mismatch",
+        source_turn_ref: "turn-1",
+        action_id: "act-confirm",
+        action_type: "confirm_before_execute",
+        target_ref: "text_analysis",
+        behavior_ref: "bh-1",
+        idempotency_key: "other-key"
+      }
+
+      assert {:error, reason} = ActionValidator.validate(input, @valid_source)
+      assert String.contains?(reason, "idempotency_key")
     end
 
     test "missing target_ref is rejected when available action carries one" do
@@ -282,7 +312,8 @@ defmodule NovelApplication.ActionRoundtripTest do
         action_id: "act-confirm",
         action_type: "confirm_before_execute",
         target_ref: "text_analysis",
-        behavior_ref: "bh-1"
+        behavior_ref: "bh-1",
+        idempotency_key: "ik1"
       }
 
       assert {:error, reason} = DialogueGateway.handle_action(input, @valid_source)
@@ -296,7 +327,8 @@ defmodule NovelApplication.ActionRoundtripTest do
         action_id: "act-confirm",
         action_type: "confirm_before_execute",
         target_ref: "text_analysis",
-        behavior_ref: "bh-1"
+        behavior_ref: "bh-1",
+        idempotency_key: "ik1"
       }
 
       assert {:ok, _ack} = DialogueGateway.handle_action(input, @source_with_plan)
@@ -331,6 +363,20 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert turn_result.status == "cancelled"
       assert turn_result.phase == "cancelled"
       assert turn_result.behavior_state.active == nil
+
+      assert [
+               %{
+                 behavior_id: "bh-1",
+                 behavior_type: "confirmation",
+                 status: "CANCELLED",
+                 target_ref: "text_analysis",
+                 closed_at_turn_ref: closed_turn_ref,
+                 resolution_ref: resolution_ref
+               }
+             ] = turn_result.behavior_state.history
+
+      assert closed_turn_ref == turn_result.turn_id
+      assert resolution_ref == "behavior_resolution:#{turn_result.turn_id}"
       assert turn_result.truthfulness.tool_called == false
       assert turn_result.truthfulness.artifact_adopted == false
       assert turn_result.truthfulness.production_write_performed == false

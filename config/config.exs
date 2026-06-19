@@ -75,7 +75,9 @@ config :novel_web, NovelWeb.Endpoint,
   render_errors: [formats: [json: NovelWeb.ErrorJSON], layout: false],
   secret_key_base: "dev_only_64_byte_secret_replaceme_dev_only_64_byte_secret_replaceme"
 
-config :phoenix, :json_library, Jason
+config :phoenix,
+  json_library: Jason,
+  filter_parameters: ["password", "api_key", "apiKey", "authorization", "secret"]
 
 # Ecto: novel_persistence Repo 注册 + 默认 migrations 路径。
 # 数据库连接细节按环境拆到 dev.exs / test.exs / runtime.exs。

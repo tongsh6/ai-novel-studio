@@ -617,7 +617,11 @@ defmodule NovelWeb.WorkspaceChannel do
           "artifact_id" => action_input.target_ref,
           "work_id" => socket.assigns[:work_id],
           "session_id" => socket.assigns[:session_id],
-          "source_turn_ref" => action_input.source_turn_ref
+          "source_turn_ref" => action_input.source_turn_ref,
+          "action_id" => action_input.action_id,
+          "action_type" => action_input.action_type,
+          "behavior_ref" => action_input.behavior_ref,
+          "idempotency_key" => action_input.idempotency_key
         }
 
         result =

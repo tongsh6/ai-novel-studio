@@ -39,10 +39,25 @@ defmodule NovelDomain.BehaviorStateTest do
     end
 
     test "closed behavior → 进 history，active 为 nil（终态不许留在 active）" do
-      snapshot = BehaviorState.snapshot(%{open_behavior() | lifecycle_status: :resolved})
+      snapshot =
+        BehaviorState.snapshot(%{
+          open_behavior()
+          | lifecycle_status: :resolved,
+            resolution: %{ref: "resolution_1"},
+            closed_at_turn_ref: "turn_2",
+            trace_ref: "trace_1"
+        })
 
       assert snapshot.active == nil
-      assert [%{status: "RESOLVED"}] = snapshot.history
+
+      assert [
+               %{
+                 status: "RESOLVED",
+                 resolution_ref: "resolution_1",
+                 closed_at_turn_ref: "turn_2",
+                 trace_ref: "trace_1"
+               }
+             ] = snapshot.history
     end
   end
 

@@ -53,6 +53,83 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert turn_result.truthfulness.durable_behavior_opened == false
     end
 
+    test "explicit no-write discussion overrides provider execution frame" do
+      execution_frame_json = """
+      {
+        "frame_type": "execution_candidate",
+        "dialogue_goal_summary": "继续讨论但不要写正文或改设定",
+        "needs_tool": true,
+        "no_tool_reason": "tool_needed",
+        "execution_readiness": "ready",
+        "assistant_message": "可以，我们继续聊方向，不会写正文或改设定。",
+        "candidate_directions": [],
+        "context_used": false,
+        "uncertainty": []
+      }
+      """
+
+      {:ok, calls} = Agent.start_link(fn -> 0 end)
+
+      complete_fn = fn _prompt ->
+        Agent.update(calls, &(&1 + 1))
+        {:ok, %{content: execution_frame_json}}
+      end
+
+      {:ok, turn_result, trace, candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "继续聊，但先不要写正文，也不要改设定。", workspace_id: "ws-no-write"},
+          nil,
+          complete_fn
+        )
+
+      assert Agent.get(calls, & &1) == 1
+      assert turn_result.frame_summary.frame_type == :casual_reply
+      assert trace.decision_type == :reply_only
+      assert candidates == []
+      refute Map.has_key?(turn_result, :micro_plan)
+      refute Map.has_key?(turn_result, :tool_result)
+      assert turn_result.ui_cards == []
+      assert turn_result.available_actions == []
+      assert turn_result.truthfulness.tool_called == false
+      assert turn_result.truthfulness.production_write_performed == false
+      assert turn_result.truthfulness.artifact_adopted == false
+    end
+
+    test "explicit discussion suppresses provider candidate exploration frame" do
+      exploration_frame_json = """
+      {
+        "frame_type": "creative_exploration",
+        "dialogue_goal_summary": "讨论雨夜开场的气质",
+        "needs_tool": false,
+        "no_tool_reason": "exploratory_only",
+        "execution_readiness": "not_applicable",
+        "assistant_message": "可以，我们只聊气质，不生成候选卡。",
+        "candidate_directions": [
+          {"title": "幽暗压抑", "pitch": "从压迫感切入。", "tone_tags": ["悬疑"]},
+          {"title": "冷峻孤寂", "pitch": "从孤独感切入。", "tone_tags": ["悬疑"]}
+        ],
+        "context_used": false,
+        "uncertainty": []
+      }
+      """
+
+      complete_fn = fn _prompt -> {:ok, %{content: exploration_frame_json}} end
+
+      {:ok, turn_result, trace, candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "我想写一个雨夜开场的悬疑故事，先聊聊气质。", workspace_id: "ws-chat"},
+          nil,
+          complete_fn
+        )
+
+      assert turn_result.frame_summary.frame_type == :casual_reply
+      assert trace.decision_type == :reply_only
+      assert candidates == []
+      refute Map.has_key?(turn_result, :candidate_directions)
+      assert turn_result.available_actions == []
+      assert turn_result.truthfulness.tool_called == false
+    end
+
     test "malformed provider JSON does not report the LLM as disconnected" do
       broken_json_fn = fn _prompt -> {:ok, %{content: "not-json"}} end
 

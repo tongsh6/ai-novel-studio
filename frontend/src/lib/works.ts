@@ -1,7 +1,7 @@
 // Design: tasks/slices/v3/VS-09-work-management.md §6 (frontend)
 // Contract: backend GET /api/works / POST /api/works (NovelWeb.WorksController)
 //
-// 最小作品 API 客户端：list / create / lastOpened（Tauri preference command）。
+// 作品 API 客户端：list / create / rename / discard / lastOpened（Tauri preference command）。
 
 import { apiBaseUrl, isTauri } from "./env";
 
@@ -10,6 +10,7 @@ export interface WorkDto {
   title: string;
   genre: string | null;
   status: string;
+  revision: number;
   updated_at: string | null;
   inserted_at: string | null;
 }
@@ -36,6 +37,40 @@ export async function createWork(input: { title: string; genre?: string }): Prom
   if (!res.ok) throw new Error(`createWork failed: HTTP ${res.status}`);
   const body = (await res.json()) as { work: WorkDto };
   return body.work;
+}
+
+export async function renameWork(
+  id: string,
+  input: { title: string; revision?: number },
+): Promise<WorkDto> {
+  const res = await fetch(url(`/api/works/${encodeURIComponent(id)}`), {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`renameWork failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { work: WorkDto };
+  return body.work;
+}
+
+export async function discardWork(id: string, input: { revision?: number } = {}): Promise<WorkDto> {
+  const res = await fetch(url(`/api/works/${encodeURIComponent(id)}/discard`), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`discardWork failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { work: WorkDto };
+  return body.work;
+}
+
+export function normalizeWorkTitle(title: string): string {
+  return title.trim();
+}
+
+export function isValidWorkTitle(title: string): boolean {
+  const normalized = normalizeWorkTitle(title);
+  return normalized.length > 0 && normalized.length <= 120;
 }
 
 type BrowserStorage = Pick<Storage, "getItem" | "setItem">;

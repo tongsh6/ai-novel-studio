@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   configureProvider,
   getProviderOptions,
+  isValidProviderEndpoint,
   listProviderModels,
   saveAndApplyModelProviderConfig,
   testProviderConnection,
@@ -72,6 +73,17 @@ describe("model provider API client", () => {
   afterEach(() => {
     vi.restoreAllMocks();
     Reflect.deleteProperty(globalThis, "localStorage");
+  });
+
+  it("validates optional provider endpoints as absolute http(s) URLs", () => {
+    expect(isValidProviderEndpoint("")).toBe(true);
+    expect(isValidProviderEndpoint("   ")).toBe(true);
+    expect(isValidProviderEndpoint("https://api.deepseek.com")).toBe(true);
+    expect(isValidProviderEndpoint("http://127.0.0.1:1234/v1")).toBe(true);
+
+    expect(isValidProviderEndpoint("localhost:1234/v1")).toBe(false);
+    expect(isValidProviderEndpoint("ftp://example.com/v1")).toBe(false);
+    expect(isValidProviderEndpoint("not a url")).toBe(false);
   });
 
   it("normalizes provider options and filters duplicate provider ids", async () => {

@@ -140,7 +140,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
     case get.(url, receive_timeout: timeout || 5_000) do
       {:ok, status, _body} when status in 200..299 -> :ok
-      {:error, reason, _status, msg} -> {:error, %{message: msg, reason: reason}}
+      {:error, reason, _status, msg} -> {:error, health_error(reason, msg)}
     end
   end
 
@@ -204,4 +204,13 @@ defmodule NovelAgent.Provider.LMStudio do
 
   defp normalize_owned_by(owner) when is_binary(owner) and owner != "", do: owner
   defp normalize_owned_by(_owner), do: nil
+
+  defp health_error(:connection_refused, _message),
+    do: %{message: "LM Studio 未启动", type: :connection_refused, reason: :connection_refused}
+
+  defp health_error(:timeout, _message),
+    do: %{message: "LM Studio 请求超时", type: :timeout, reason: :timeout}
+
+  defp health_error(reason, message),
+    do: %{message: message, type: reason, reason: reason}
 end

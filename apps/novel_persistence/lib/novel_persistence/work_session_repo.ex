@@ -11,6 +11,8 @@ defmodule NovelPersistence.WorkSessionRepo do
   alias NovelPersistence.Schemas.WorkSession
 
   @archived_status StructureStatus.archived()
+  @active_status "ACTIVE"
+  @exited_status "EXITED"
 
   @doc "Create a work session."
   @spec create(map()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
@@ -18,12 +20,34 @@ defmodule NovelPersistence.WorkSessionRepo do
     attrs =
       attrs
       |> stringify_keys()
-      |> Map.put_new("title", "默认会话")
-      |> Map.put_new("status", "ACTIVE")
+      |> default_session_attrs()
 
     %WorkSession{}
     |> WorkSession.changeset(attrs)
     |> Repo.insert()
+  end
+
+  @doc "Create a new active session and mark existing active sessions in the same work as exited."
+  @spec create_active(map()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t() | term()}
+  def create_active(attrs) when is_map(attrs) do
+    attrs =
+      attrs
+      |> stringify_keys()
+      |> default_session_attrs()
+      |> Map.put("status", @active_status)
+
+    work_id = Map.get(attrs, "work_id")
+
+    Ecto.Multi.new()
+    |> Ecto.Multi.update_all(:exit_existing_active, active_sessions_query(work_id),
+      set: [status: @exited_status, updated_at: DateTime.utc_now()]
+    )
+    |> Ecto.Multi.insert(:session, WorkSession.changeset(%WorkSession{}, attrs))
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{session: session}} -> {:ok, session}
+      {:error, _step, reason, _changes} -> {:error, reason}
+    end
   end
 
   @doc "Return the newest active session for a work, creating one when missing."
@@ -103,11 +127,16 @@ defmodule NovelPersistence.WorkSessionRepo do
   end
 
   defp latest_active(work_id) do
-    WorkSession
-    |> where([s], s.work_id == ^work_id and s.status == "ACTIVE")
+    work_id
+    |> active_sessions_query()
     |> order_by([s], desc: s.last_opened_at, desc: s.updated_at)
     |> limit(1)
     |> Repo.one()
+  end
+
+  defp active_sessions_query(work_id) do
+    WorkSession
+    |> where([s], s.work_id == ^work_id and s.status == @active_status)
   end
 
   defp maybe_exclude_archived(query, true), do: query
@@ -143,5 +172,11 @@ defmodule NovelPersistence.WorkSessionRepo do
       {key, value} when is_atom(key) -> {Atom.to_string(key), value}
       {key, value} -> {key, value}
     end)
+  end
+
+  defp default_session_attrs(attrs) do
+    attrs
+    |> Map.put_new("title", "默认会话")
+    |> Map.put_new("status", @active_status)
   end
 end

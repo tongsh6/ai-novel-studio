@@ -344,6 +344,7 @@ defmodule NovelApplication.Planner do
     ## 规则
     - 作者要求“写/生成/产出/描写/续写/规划/安排/整理/开篇场景/正文/章节草稿/具体片段”时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
     - 作者要求“大纲/卷数/章节数/角色成长路线/势力结构/角色设定/世界观设定/剧情设计”等具体交付物时，也属于创作产出请求，needs_tool 必须为 true
+    - 如果作者显式说“先聊/只聊/讨论/不要写/不要改/别生成/不保存”，必须按普通对话处理：needs_tool=false，frame_type 不得为 execution_candidate，不能调用工具或写入作品事实
     - 创作产出请求的 frame_type 使用 "execution_candidate"，不要使用 "creative_exploration"
     - 只有作者还在比较方向、头脑风暴、问“怎么切入/几个方案”，且没有要求立刻产出具体文本或设定时，才使用 creative_exploration + needs_tool=false
     - frame_type == "creative_exploration" 且 needs_tool == false 时，candidate_directions 必须包含 2-3 个方向对象
@@ -619,10 +620,11 @@ defmodule NovelApplication.Planner do
   defp build_frame(parsed, text, turn_id, frame_id, ws_id, context) do
     context_ref = context && context.workspace_id && "context:#{context.workspace_id}"
     production_intent? = concrete_production_author_input?(text)
+    discussion_only? = explicit_discussion_only?(text)
 
     tool_need = %{
-      needs_tool: parsed_needs_tool?(parsed, production_intent?),
-      reason_code: parsed_reason_code(parsed, production_intent?)
+      needs_tool: parsed_needs_tool?(parsed, production_intent?, discussion_only?),
+      reason_code: parsed_reason_code(parsed, production_intent?, discussion_only?)
     }
 
     %DialogueFrame{
@@ -631,7 +633,7 @@ defmodule NovelApplication.Planner do
       turn_id: turn_id,
       workspace_id: ws_id,
       primary: true,
-      frame_type: normalized_frame_type(parsed, text, production_intent?),
+      frame_type: normalized_frame_type(parsed, text, production_intent?, discussion_only?),
       source_refs: %{
         author_input_ref: "author_input:#{turn_id}",
         dialogue_context_ref: context_ref
@@ -803,23 +805,42 @@ defmodule NovelApplication.Planner do
   defp to_frame_type("meta_discussion"), do: :meta_discussion
   defp to_frame_type(_), do: :casual_reply
 
-  defp normalized_frame_type(parsed, text, production_intent?) do
+  defp normalized_frame_type(parsed, text, production_intent?, discussion_only?) do
     raw_type = to_frame_type(Map.get(parsed, "frame_type", "casual_reply"))
 
     cond do
-      production_intent? and raw_type in [:casual_reply, :creative_exploration] ->
+      force_casual_reply?(raw_type, discussion_only?) ->
+        :casual_reply
+
+      force_execution_candidate?(parsed, raw_type, production_intent?, discussion_only?) ->
         :execution_candidate
 
-      Map.get(parsed, "needs_tool", false) == true and raw_type == :creative_exploration ->
-        :execution_candidate
-
-      raw_type == :casual_reply and exploratory_author_input?(text) ->
+      force_creative_exploration?(raw_type, text, discussion_only?) ->
         :creative_exploration
 
       true ->
         raw_type
     end
   end
+
+  defp force_casual_reply?(raw_type, true),
+    do: raw_type in [:creative_exploration, :execution_candidate]
+
+  defp force_casual_reply?(_raw_type, _discussion_only?), do: false
+
+  defp force_execution_candidate?(_parsed, raw_type, true, _discussion_only?),
+    do: raw_type in [:casual_reply, :creative_exploration]
+
+  defp force_execution_candidate?(parsed, :creative_exploration, false, false),
+    do: Map.get(parsed, "needs_tool", false) == true
+
+  defp force_execution_candidate?(_parsed, _raw_type, _production_intent?, _discussion_only?),
+    do: false
+
+  defp force_creative_exploration?(:casual_reply, text, false),
+    do: exploratory_author_input?(text)
+
+  defp force_creative_exploration?(_raw_type, _text, _discussion_only?), do: false
 
   defp exploratory_author_input?(text) when is_binary(text) do
     if concrete_production_author_input?(text), do: false, else: exploratory_markers?(text)
@@ -885,17 +906,41 @@ defmodule NovelApplication.Planner do
   defp concrete_production_author_input?(_text), do: false
 
   defp explicit_discussion_only?(text) do
-    contains_any?(text, ["先别写", "不写正文", "纯交流", "先聊", "只聊", "讨论一下"])
+    contains_any?(text, [
+      "先别写",
+      "别写",
+      "不要写",
+      "不写正文",
+      "先不写",
+      "不要生成",
+      "别生成",
+      "不生成",
+      "不要产出",
+      "别产出",
+      "不要改",
+      "别改",
+      "不改设定",
+      "不要保存",
+      "不保存",
+      "纯交流",
+      "先聊",
+      "只聊",
+      "继续聊",
+      "聊聊",
+      "讨论一下"
+    ])
   end
 
   defp contains_any?(text, terms), do: Enum.any?(terms, &String.contains?(text, &1))
 
-  defp parsed_needs_tool?(_parsed, true), do: true
-  defp parsed_needs_tool?(parsed, false), do: Map.get(parsed, "needs_tool", false)
+  defp parsed_needs_tool?(_parsed, _production_intent?, true), do: false
+  defp parsed_needs_tool?(_parsed, true, false), do: true
+  defp parsed_needs_tool?(parsed, false, false), do: Map.get(parsed, "needs_tool", false)
 
-  defp parsed_reason_code(_parsed, true), do: :tool_needed
+  defp parsed_reason_code(_parsed, _production_intent?, true), do: :user_requested_discussion
+  defp parsed_reason_code(_parsed, true, false), do: :tool_needed
 
-  defp parsed_reason_code(parsed, false),
+  defp parsed_reason_code(parsed, false, false),
     do: to_reason_code(Map.get(parsed, "no_tool_reason", "no_tool_needed"))
 
   defp parsed_execution_readiness(_raw, true), do: :ready

@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createWorkSession,
   createSessionPath,
   archiveSessionPath,
   sessionSnapshotPath,
@@ -10,6 +11,11 @@ import {
   transcriptToMessages,
   type SessionTranscriptEntry,
 } from "../sessions";
+import { WORKBENCH } from "../copy";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("session API helpers", () => {
   it("builds resume path for a work", () => {
@@ -30,6 +36,38 @@ describe("session API helpers", () => {
 
   it("builds create session path", () => {
     expect(createSessionPath("work 1")).toBe("/api/works/work%201/sessions");
+  });
+
+  it("creates a work session through the sessions API", async () => {
+    const response = {
+      session: {
+        id: "session-1",
+        work_id: "work-1",
+        title: WORKBENCH.sessionNewTitle,
+        summary: null,
+        status: "ACTIVE",
+        source_session_ref: null,
+        source_turn_ref: null,
+        last_opened_at: null,
+        updated_at: null,
+        inserted_at: null,
+      },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(response),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      createWorkSession("work-1", { title: WORKBENCH.sessionNewTitle }),
+    ).resolves.toEqual(response.session);
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/works/work-1/sessions"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: WORKBENCH.sessionNewTitle }),
+    });
   });
 
   it("builds archive session path", () => {

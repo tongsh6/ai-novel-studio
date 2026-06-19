@@ -200,6 +200,21 @@ defmodule NovelAgent.Provider.GatewayTest do
         end
       end
     end
+
+    test "rejects invalid endpoint without switching runtime provider" do
+      assert {:error,
+              %{
+                type: :invalid_endpoint,
+                message: "端点必须是完整的 http(s) URL。"
+              }} =
+               Gateway.configure_provider(%{
+                 "provider" => "lmstudio",
+                 "endpoint" => "localhost:1234/v1",
+                 "model" => "local-model"
+               })
+
+      assert Gateway.provider_metadata() == %{provider: :stub, model: nil}
+    end
   end
 
   describe "test_provider/1" do
@@ -228,6 +243,21 @@ defmodule NovelAgent.Provider.GatewayTest do
       after
         Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio, old_lmstudio)
       end
+    end
+
+    test "rejects invalid endpoint before health check" do
+      assert {:error,
+              %{
+                type: :invalid_endpoint,
+                message: "端点必须是完整的 http(s) URL。"
+              }} =
+               Gateway.test_provider(%{
+                 "provider" => "lmstudio",
+                 "endpoint" => "localhost:1234/v1",
+                 "model" => "test-model"
+               })
+
+      assert Gateway.provider_metadata() == %{provider: :stub, model: nil}
     end
   end
 
@@ -338,6 +368,37 @@ defmodule NovelAgent.Provider.GatewayTest do
 
         assert Enum.map(models, & &1.id) == ["qwen/qwen3.6-35b-a3b", "mistral/local"]
         assert_receive {:lmstudio_models_request, "http://127.0.0.1:1234/v1/models"}
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio, old_lmstudio)
+      end
+    end
+
+    test "rejects invalid endpoint without requesting provider models" do
+      old_lmstudio = Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio)
+      test_pid = self()
+
+      mock = fn url, _opts ->
+        send(test_pid, {:unexpected_lmstudio_models_request, url})
+        {:ok, 200, %{"data" => [%{"id" => "local-model"}]}}
+      end
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio,
+        endpoint: "http://127.0.0.1:1234/v1",
+        get_fn: mock
+      )
+
+      try do
+        assert {:error,
+                %{
+                  type: :invalid_endpoint,
+                  message: "端点必须是完整的 http(s) URL。"
+                }} =
+                 Gateway.provider_models(%{
+                   "provider" => "lmstudio",
+                   "endpoint" => "localhost:1234/v1"
+                 })
+
+        refute_receive {:unexpected_lmstudio_models_request, _url}, 50
       after
         Application.put_env(:novel_agent, NovelAgent.Provider.LMStudio, old_lmstudio)
       end

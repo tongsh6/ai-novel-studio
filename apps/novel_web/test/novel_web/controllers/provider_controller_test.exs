@@ -107,6 +107,21 @@ defmodule NovelWeb.ProviderControllerTest do
       assert body["ok"] == true
       assert body["provider"] == "stub"
     end
+
+    test "rejects invalid provider endpoint" do
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> put("/api/provider/config", %{
+          provider: "lmstudio",
+          endpoint: "localhost:1234/v1",
+          model: "local-model"
+        })
+
+      body = json_response(conn, 422)
+      assert body["ok"] == false
+      assert body["message"] == "端点必须是完整的 http(s) URL。"
+    end
   end
 
   describe "POST /api/provider/models" do
@@ -141,6 +156,21 @@ defmodule NovelWeb.ProviderControllerTest do
         Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
       end
     end
+
+    test "rejects invalid provider endpoint" do
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/provider/models", %{
+          provider: "lmstudio",
+          endpoint: "localhost:1234/v1"
+        })
+
+      body = json_response(conn, 422)
+      assert body["ok"] == false
+      assert body["models"] == []
+      assert body["message"] == "端点必须是完整的 http(s) URL。"
+    end
   end
 
   describe "POST /api/provider/test" do
@@ -153,6 +183,22 @@ defmodule NovelWeb.ProviderControllerTest do
       body = json_response(conn, 200)
       assert body["connected"] == true
       assert body["provider"] == "stub"
+    end
+
+    test "rejects invalid provider endpoint" do
+      conn =
+        build_conn()
+        |> put_req_header("content-type", "application/json")
+        |> post("/api/provider/test", %{
+          provider: "lmstudio",
+          endpoint: "localhost:1234/v1",
+          model: "local-model"
+        })
+
+      body = json_response(conn, 422)
+      assert body["ok"] == false
+      assert body["connected"] == false
+      assert body["message"] == "端点必须是完整的 http(s) URL。"
     end
   end
 end

@@ -170,9 +170,8 @@ defmodule NovelAgent.Provider.Gateway do
           {:ok, %{provider: atom(), model: String.t() | nil}} | {:error, map()}
   def configure_provider(attrs) when is_map(attrs) do
     with {:ok, provider} <- fetch_provider(attrs),
-         {:ok, module} <- fetch_module(provider) do
-      config = normalize_provider_config(provider, attrs)
-
+         {:ok, module} <- fetch_module(provider),
+         {:ok, config} <- normalize_provider_config(provider, attrs) do
       merged_config =
         merged_config(provider, module, config, clear_api_key?: clear_api_key?(attrs))
 
@@ -189,8 +188,8 @@ defmodule NovelAgent.Provider.Gateway do
           {:ok, %{provider: atom(), model: String.t() | nil}} | {:error, map()}
   def test_provider(attrs) when is_map(attrs) do
     with {:ok, provider} <- fetch_provider(attrs),
-         {:ok, module} <- fetch_module(provider) do
-      config = normalize_provider_config(provider, attrs)
+         {:ok, module} <- fetch_module(provider),
+         {:ok, config} <- normalize_provider_config(provider, attrs) do
       state = build_state(provider, module, config, clear_api_key?: clear_api_key?(attrs))
       metadata = %{provider: provider, model: normalize_model(Map.get(state, :model))}
 
@@ -215,9 +214,10 @@ defmodule NovelAgent.Provider.Gateway do
 
   defp provider_models(provider, module, attrs) do
     if Code.ensure_loaded?(module) and function_exported?(module, :list_models, 1) do
-      config = normalize_provider_config(provider, attrs)
-      state = build_state(provider, module, config, clear_api_key?: clear_api_key?(attrs))
-      provider_models_result(provider, module.list_models(state))
+      with {:ok, config} <- normalize_provider_config(provider, attrs) do
+        state = build_state(provider, module, config, clear_api_key?: clear_api_key?(attrs))
+        provider_models_result(provider, module.list_models(state))
+      end
     else
       {:ok, %{provider: provider, models: []}}
     end
@@ -404,18 +404,47 @@ defmodule NovelAgent.Provider.Gateway do
     ArgumentError -> {:error, :invalid_provider}
   end
 
-  defp normalize_provider_config(_provider, attrs) do
-    [
-      model: optional_string(attrs, :model),
-      endpoint: optional_string(attrs, :endpoint),
-      api_key: optional_string(attrs, :api_key),
-      thinking: normalize_thinking(optional_string(attrs, :thinking)),
-      reasoning_effort: optional_string(attrs, :reasoning_effort)
-    ]
-    |> Enum.reject(fn
-      {_key, nil} -> true
-      _entry -> false
-    end)
+  defp normalize_provider_config(provider, attrs) do
+    endpoint = optional_string(attrs, :endpoint)
+
+    with :ok <- validate_endpoint(provider, endpoint) do
+      config =
+        [
+          model: optional_string(attrs, :model),
+          endpoint: endpoint,
+          api_key: optional_string(attrs, :api_key),
+          thinking: normalize_thinking(optional_string(attrs, :thinking)),
+          reasoning_effort: optional_string(attrs, :reasoning_effort)
+        ]
+        |> Enum.reject(fn
+          {_key, nil} -> true
+          _entry -> false
+        end)
+
+      {:ok, config}
+    end
+  end
+
+  defp validate_endpoint(_provider, nil), do: :ok
+
+  defp validate_endpoint(provider, endpoint) do
+    descriptor = Map.get(@provider_descriptors, provider, %{})
+
+    if Map.get(descriptor, :supports_endpoint, false) do
+      case URI.parse(endpoint) do
+        %URI{scheme: scheme, host: host} when scheme in ["http", "https"] and is_binary(host) ->
+          :ok
+
+        _ ->
+          {:error,
+           %{
+             message: "端点必须是完整的 http(s) URL。",
+             type: :invalid_endpoint
+           }}
+      end
+    else
+      :ok
+    end
   end
 
   defp optional_string(attrs, key) do

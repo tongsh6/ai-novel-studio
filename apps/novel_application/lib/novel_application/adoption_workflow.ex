@@ -132,7 +132,7 @@ defmodule NovelApplication.AdoptionWorkflow do
           )
 
           {:ok, build_action_result(decision, artifact, persisted),
-           build_turn_result(source_turn_result, decision, artifact, persisted)}
+           build_turn_result(source_turn_result, decision, artifact, persisted, params)}
 
         {:error, reason} ->
           {:error, reason}
@@ -229,11 +229,11 @@ defmodule NovelApplication.AdoptionWorkflow do
           {:ok, map(), map()} | {:error, String.t()}
   def handle_confirmation_reject(nil, _params), do: {:error, "source_turn_result not available"}
 
-  def handle_confirmation_reject(source_turn_result, %{"artifact_id" => artifact_id})
+  def handle_confirmation_reject(source_turn_result, %{"artifact_id" => artifact_id} = params)
       when is_binary(artifact_id) do
     with {:ok, artifact} <- find_pending_artifact(source_turn_result, artifact_id) do
       {:ok, build_cancel_confirmation_action_result(artifact),
-       build_cancel_confirmation_turn_result(source_turn_result, artifact)}
+       build_cancel_confirmation_turn_result(source_turn_result, artifact, params)}
     end
   end
 
@@ -477,12 +477,13 @@ defmodule NovelApplication.AdoptionWorkflow do
   end
 
   # 取消确认：关闭 confirmation behavior（active: nil），artifact 仍 pending，不写库。
-  defp build_cancel_confirmation_turn_result(source_turn_result, _artifact) do
+  defp build_cancel_confirmation_turn_result(source_turn_result, artifact, params) do
     source_turn_id = turn_id(source_turn_result)
+    turn_id = "turn_adopt_#{System.unique_integer([:positive, :monotonic])}"
 
     %{
       schema_version: "3.0-draft",
-      turn_id: "turn_adopt_#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: turn_id,
       parent_turn_id: source_turn_id,
       assistant_message: %{text: "已取消采纳；未覆盖正文，草稿仍保留为待采纳。"},
       ui_cards: [],
@@ -495,7 +496,14 @@ defmodule NovelApplication.AdoptionWorkflow do
       phase: "cancelled",
       status: "cancelled",
       available_actions: [],
-      behavior_state: BehaviorState.snapshot(nil),
+      behavior_state:
+        terminal_confirmation_behavior_state(
+          source_turn_result,
+          artifact,
+          params,
+          :cancelled,
+          turn_id
+        ),
       projection_refs: [],
       truthfulness: %{
         tool_called: false,
@@ -533,14 +541,21 @@ defmodule NovelApplication.AdoptionWorkflow do
     }
   end
 
-  defp build_turn_result(source_turn_result, %AdoptionDecision{} = decision, artifact, persisted) do
+  defp build_turn_result(
+         source_turn_result,
+         %AdoptionDecision{} = decision,
+         artifact,
+         persisted,
+         params
+       ) do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
     adopted_state_ref = adopted_state_ref(persisted, decision)
+    turn_id = "turn_adopt_#{System.unique_integer([:positive, :monotonic])}"
 
     %{
       schema_version: "3.0-draft",
-      turn_id: "turn_adopt_#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: turn_id,
       parent_turn_id: source_turn_id,
       assistant_message: %{text: "已通过采纳边界，采纳内容已进入已决状态。"},
       ui_cards: [],
@@ -554,7 +569,19 @@ defmodule NovelApplication.AdoptionWorkflow do
       status: "conversational",
       available_actions: [],
       # 关闭任何 open confirmation behavior（确认后采纳完成）。
-      behavior_state: BehaviorState.snapshot(nil),
+      behavior_state:
+        if truthy?(Map.get(params, "confirmation_satisfied")) do
+          terminal_confirmation_behavior_state(
+            source_turn_result,
+            artifact,
+            params,
+            :resolved,
+            turn_id,
+            decision
+          )
+        else
+          BehaviorState.snapshot(nil)
+        end,
       adoption_state: %{
         pending: [],
         resolved: [
@@ -587,6 +614,95 @@ defmodule NovelApplication.AdoptionWorkflow do
       }
     }
   end
+
+  defp terminal_confirmation_behavior_state(
+         source_turn_result,
+         artifact,
+         params,
+         lifecycle_status,
+         closed_turn_id,
+         decision \\ nil
+       ) do
+    active_behavior = get_in_any(source_turn_result, [:behavior_state, :active])
+    artifact_id = artifact_field(artifact, :artifact_id)
+
+    %BehaviorState{
+      behavior_id:
+        first_present([
+          map_field(params, :behavior_ref),
+          map_field(active_behavior, :behavior_id),
+          "bh_confirm_#{artifact_id}"
+        ]),
+      behavior_type: :confirmation,
+      lifecycle_status: lifecycle_status,
+      blocking_actor: :author,
+      opened_at_turn_ref:
+        first_present([
+          map_field(active_behavior, :opened_at_turn_ref),
+          turn_id(source_turn_result)
+        ]),
+      opened_by_decision_ref:
+        first_present([
+          map_field(active_behavior, :opened_by_decision_ref),
+          adoption_decision_ref(decision),
+          "adoption_confirmation:#{artifact_id}"
+        ]),
+      frame_ref:
+        first_present([
+          map_field(active_behavior, :frame_ref),
+          map_field(source_turn_result, :frame_ref),
+          turn_id(source_turn_result)
+        ]),
+      plan_ref: map_field(active_behavior, :plan_ref),
+      target_ref: artifact_id,
+      required_next_action:
+        first_present([
+          map_field(active_behavior, :required_next_action),
+          "confirm_before_execute"
+        ]),
+      available_actions: [],
+      prompt_contract: map_field(active_behavior, :prompt_contract) || %{},
+      constraints: map_field(active_behavior, :constraints) || %{},
+      resolution: %{
+        ref: "behavior_resolution:#{closed_turn_id}",
+        status: terminal_resolution_status(lifecycle_status),
+        action_id: map_field(params, :action_id),
+        action_type: terminal_action_type(lifecycle_status, params),
+        source_turn_ref: map_field(params, :source_turn_ref),
+        idempotency_key: map_field(params, :idempotency_key),
+        artifact_id: artifact_id
+      },
+      closed_at_turn_ref: closed_turn_id,
+      trace_ref:
+        first_present([
+          map_field(active_behavior, :trace_ref),
+          adoption_decision_trace_ref(decision),
+          trace_ref(source_turn_result),
+          "behavior_trace:#{closed_turn_id}"
+        ])
+    }
+    |> BehaviorState.snapshot()
+  end
+
+  defp terminal_resolution_status(:resolved), do: "resolved"
+  defp terminal_resolution_status(:cancelled), do: "cancelled"
+  defp terminal_resolution_status(_), do: "closed"
+
+  defp terminal_action_type(:resolved, params),
+    do: map_field(params, :action_type) || "confirm_before_execute"
+
+  defp terminal_action_type(:cancelled, params),
+    do: map_field(params, :action_type) || "reject_or_cancel_confirmation"
+
+  defp terminal_action_type(_status, params), do: map_field(params, :action_type)
+
+  defp adoption_decision_ref(%AdoptionDecision{} = decision), do: decision.adoption_decision_id
+  defp adoption_decision_ref(_), do: nil
+
+  defp adoption_decision_trace_ref(%AdoptionDecision{} = decision),
+    do: decision.decision_trace_ref
+
+  defp adoption_decision_trace_ref(_), do: nil
 
   defp build_discard_turn_result(source_turn_result, artifact) do
     source_turn_id = turn_id(source_turn_result)
@@ -1061,6 +1177,8 @@ defmodule NovelApplication.AdoptionWorkflow do
   defp map_field(map, key) when is_map(map),
     do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
+  defp map_field(_, _), do: nil
+
   defp artifact_field(map, key) when is_map(map) do
     map_field(map, key)
   end
@@ -1069,6 +1187,10 @@ defmodule NovelApplication.AdoptionWorkflow do
     if Map.has_key?(map, key),
       do: Map.put(map, key, value),
       else: Map.put(map, Atom.to_string(key), value)
+  end
+
+  defp first_present(values) do
+    Enum.find(values, &(not blank?(&1)))
   end
 
   defp blank?(value), do: is_nil(value) or value == ""

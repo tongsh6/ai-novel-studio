@@ -23,6 +23,8 @@ defmodule NovelWeb.Router do
 
     get("/works", WorksController, :index)
     post("/works", WorksController, :create)
+    patch("/works/:id", WorksController, :update)
+    post("/works/:id/discard", WorksController, :discard)
     get("/works/:work_id/memories", MemoriesController, :index)
     post("/works/:work_id/memories", MemoriesController, :create)
     post("/works/:work_id/memories/recall", MemoriesController, :recall)

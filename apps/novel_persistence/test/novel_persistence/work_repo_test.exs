@@ -7,6 +7,8 @@ defmodule NovelPersistence.WorkRepoTest do
 
   setup do
     :ok = Sandbox.checkout(Repo)
+    Repo.delete_all(NovelPersistence.Schemas.WorkSession)
+    Repo.delete_all(NovelPersistence.Schemas.Work)
     :ok
   end
 
@@ -23,6 +25,18 @@ defmodule NovelPersistence.WorkRepoTest do
       ids = WorkRepo.list() |> Enum.map(& &1.id)
       assert ids == [b.id, a.id]
     end
+
+    test "hides discarded and archived works by default" do
+      {:ok, active} = WorkRepo.create(%{title: "Active"})
+      {:ok, discarded} = WorkRepo.create(%{title: "Discarded"})
+      {:ok, archived} = WorkRepo.create(%{title: "Archived", status: "ARCHIVED"})
+      {:ok, _} = WorkRepo.discard(discarded)
+
+      assert WorkRepo.list() |> Enum.map(& &1.id) == [active.id]
+
+      ids = WorkRepo.list(include_inactive: true) |> Enum.map(& &1.id) |> MapSet.new()
+      assert MapSet.subset?(MapSet.new([active.id, discarded.id, archived.id]), ids)
+    end
   end
 
   describe "create/1" do
@@ -30,11 +44,20 @@ defmodule NovelPersistence.WorkRepoTest do
       assert {:ok, work} = WorkRepo.create(%{title: "Hello"})
       assert work.title == "Hello"
       assert work.status == "TENTATIVE"
+      assert work.revision == 1
       assert is_binary(work.id)
     end
 
     test "rejects missing title" do
       assert {:error, changeset} = WorkRepo.create(%{})
+      assert "can't be blank" in errors_on(changeset, :title)
+    end
+
+    test "trims and rejects blank titles" do
+      assert {:ok, work} = WorkRepo.create(%{title: "  灵源纪元  "})
+      assert work.title == "灵源纪元"
+
+      assert {:error, changeset} = WorkRepo.create(%{title: "   "})
       assert "can't be blank" in errors_on(changeset, :title)
     end
   end
@@ -58,8 +81,39 @@ defmodule NovelPersistence.WorkRepoTest do
       assert WorkRepo.list() |> Enum.map(& &1.id) == [b.id, a.id]
 
       Process.sleep(5)
-      {:ok, _} = WorkRepo.touch(a)
+      {:ok, touched} = WorkRepo.touch(a)
+      assert touched.revision == a.revision
       assert WorkRepo.list() |> Enum.map(& &1.id) == [a.id, b.id]
+    end
+  end
+
+  describe "rename/2" do
+    test "renames title and increments revision without changing id" do
+      {:ok, work} = WorkRepo.create(%{title: "未命名作品"})
+
+      assert {:ok, renamed} = WorkRepo.rename(work, "  灵源纪元  ")
+      assert renamed.id == work.id
+      assert renamed.title == "灵源纪元"
+      assert renamed.revision == work.revision + 1
+    end
+
+    test "rejects blank rename" do
+      {:ok, work} = WorkRepo.create(%{title: "未命名作品"})
+
+      assert {:error, changeset} = WorkRepo.rename(work, "   ")
+      assert "can't be blank" in errors_on(changeset, :title)
+    end
+  end
+
+  describe "discard/1" do
+    test "marks a work discarded without physical deletion" do
+      {:ok, work} = WorkRepo.create(%{title: "误建作品"})
+
+      assert {:ok, discarded} = WorkRepo.discard(work)
+      assert discarded.status == "DISCARDED"
+      assert discarded.revision == work.revision + 1
+      assert WorkRepo.get(work.id).id == work.id
+      assert WorkRepo.list() == []
     end
   end
 

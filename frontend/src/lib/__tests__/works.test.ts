@@ -2,9 +2,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  discardWork,
   getLastOpenedWorkId,
   isCurrentWorkConnection,
+  isValidWorkTitle,
+  normalizeWorkTitle,
   pickInitialWorkId,
+  renameWork,
   setLastOpenedWorkId,
   shouldPersistLastOpenedWorkId,
   type WorkDto,
@@ -15,6 +19,7 @@ const work = (id: string): WorkDto => ({
   title: id,
   genre: null,
   status: "TENTATIVE",
+  revision: 1,
   updated_at: null,
   inserted_at: null,
 });
@@ -101,5 +106,56 @@ describe("work connection identity", () => {
     expect(shouldPersistLastOpenedWorkId("lobby")).toBe(false);
     expect(shouldPersistLastOpenedWorkId("")).toBe(false);
     expect(shouldPersistLastOpenedWorkId(null)).toBe(false);
+  });
+});
+
+describe("work lifecycle API", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("renames a work through PATCH /api/works/:id", async () => {
+    const renamed = { work: { ...work("work/1"), title: "灵源纪元", revision: 2 } };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(renamed),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(renameWork("work/1", { title: "灵源纪元", revision: 1 })).resolves.toEqual(
+      renamed.work,
+    );
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/works/work%2F1"), {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "灵源纪元", revision: 1 }),
+    });
+  });
+
+  it("safely discards a work through POST /api/works/:id/discard", async () => {
+    const discarded = { work: { ...work("work-1"), status: "DISCARDED", revision: 2 } };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(discarded),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(discardWork("work-1", { revision: 1 })).resolves.toEqual(discarded.work);
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/works/work-1/discard"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ revision: 1 }),
+    });
+  });
+});
+
+describe("work title helpers", () => {
+  it("normalizes and validates work titles", () => {
+    expect(normalizeWorkTitle("  灵源纪元  ")).toBe("灵源纪元");
+    expect(isValidWorkTitle("灵源纪元")).toBe(true);
+    expect(isValidWorkTitle("   ")).toBe(false);
+    expect(isValidWorkTitle("x".repeat(121))).toBe(false);
   });
 });

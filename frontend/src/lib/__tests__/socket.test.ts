@@ -110,6 +110,31 @@ describe("sendMessage", () => {
       LLM_TURN_TIMEOUT_MS,
     );
   });
+
+  it("passes candidate_selection without requesting a micro plan", () => {
+    const ch = mockChannel();
+    sendMessage(ch, "继续聊这个方向", "work-123", undefined, "session-123", false, {
+      source_turn_ref: "turn-1",
+      candidate_set_ref: "candidate_set:turn-1",
+      candidate_ref: "dir-1",
+    });
+    expect(ch.push).toHaveBeenCalledWith(
+      "user_message",
+      {
+        text: "继续聊这个方向",
+        work_id: "work-123",
+        session_id: "session-123",
+        behavior_id: undefined,
+        generate_micro_plan: false,
+        candidate_selection: {
+          source_turn_ref: "turn-1",
+          candidate_set_ref: "candidate_set:turn-1",
+          candidate_ref: "dir-1",
+        },
+      },
+      LLM_TURN_TIMEOUT_MS,
+    );
+  });
 });
 
 describe("sendAuthorAction", () => {

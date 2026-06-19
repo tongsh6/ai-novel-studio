@@ -12,10 +12,12 @@ import {
   ChevronDown,
   CircleHelp,
   MessageCircle,
+  Pencil,
   Plus,
   RefreshCw,
   RotateCcw,
   Settings2,
+  Trash2,
 } from "lucide-react";
 
 import {
@@ -29,6 +31,10 @@ import {
 import {
   listWorks,
   createWork,
+  renameWork,
+  discardWork,
+  normalizeWorkTitle,
+  isValidWorkTitle,
   pickInitialWorkId,
   getLastOpenedWorkId,
   setLastOpenedWorkId,
@@ -75,6 +81,7 @@ import { useAppStore } from "../lib/store";
 import { getProviderHealth, providerHealthName } from "../lib/providerHealth";
 import {
   getStoredProviderApiKey,
+  isValidProviderEndpoint,
   listProviderModels,
   loadAndSyncModelProviderState,
   providerDisplayName,
@@ -85,7 +92,14 @@ import {
   type ProviderModelOption,
   type ProviderId,
 } from "../lib/modelProvider";
-import { BUTTON, CARD, STRUCTURE_PANEL, TRACE, WORKBENCH } from "../lib/copy";
+import {
+  BUTTON,
+  CARD,
+  STRUCTURE_PANEL,
+  TRACE,
+  WORKBENCH,
+  candidateContinuationText,
+} from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import { toAuthorTraceSummary, type TraceSummaryView } from "../lib/traceSummaryView";
 import { framePresentationForSummary } from "../lib/framePresentation";
@@ -203,7 +217,7 @@ export function WorkspaceCandidatePanel({
             sourceTurnRef: turnResult.turn_id,
           });
           const unavailableReason = candidateAction?.disabled_reason ?? WORKBENCH.actionUnavailable;
-          const actionUnavailable =
+          const adoptionUnavailable =
             !candidateAction || candidateAction.enabled === false || !socketConnected;
 
           return (
@@ -222,10 +236,14 @@ export function WorkspaceCandidatePanel({
               <div className={styles.candidateActions}>
                 <button
                   className={styles.candidateButton}
-                  disabled={loading || actionUnavailable}
-                  title={actionUnavailable ? unavailableReason : WORKBENCH.candidateContinueTitle}
+                  disabled={loading || !socketConnected}
+                  title={
+                    !socketConnected
+                      ? WORKBENCH.actionUnavailable
+                      : WORKBENCH.candidateContinueTitle
+                  }
                   onClick={() => {
-                    if (!candidateAction || candidateAction.enabled === false) return;
+                    if (!socketConnected) return;
                     onCandidateContinue(turnResult, candidate);
                   }}
                 >
@@ -235,8 +253,8 @@ export function WorkspaceCandidatePanel({
                 {candidateAction && (
                   <button
                     className={styles.candidateButton}
-                    disabled={loading || !socketConnected || candidateAction.enabled === false}
-                    title={candidateAction.disabled_reason ?? WORKBENCH.candidateAdoptTitle}
+                    disabled={loading || adoptionUnavailable}
+                    title={adoptionUnavailable ? unavailableReason : WORKBENCH.candidateAdoptTitle}
                     onClick={() => {
                       if (candidateAction.enabled === false) return;
                       onCandidateAdopt(turnResult, candidateAction);
@@ -251,6 +269,78 @@ export function WorkspaceCandidatePanel({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+export interface WorkspaceSessionListProps {
+  sessions: WorkSessionDto[];
+  activeSessionId: string | null;
+  sessionSearch: string;
+  canCreateSession: boolean;
+  creatingSession: boolean;
+  onSessionSearch: (query: string) => void;
+  onOpenSession: (session: WorkSessionDto) => void;
+  onCreateSession: () => void;
+  onArchiveSession: (session: WorkSessionDto) => void;
+}
+
+export function WorkspaceSessionList({
+  sessions,
+  activeSessionId,
+  sessionSearch,
+  canCreateSession,
+  creatingSession,
+  onSessionSearch,
+  onOpenSession,
+  onCreateSession,
+  onArchiveSession,
+}: WorkspaceSessionListProps) {
+  return (
+    <div className={styles.sessionList}>
+      <div className={styles.sessionTools}>
+        <input
+          className={styles.sessionSearch}
+          value={sessionSearch}
+          onChange={(event) => onSessionSearch(event.target.value)}
+          placeholder={WORKBENCH.sessionSearchPlaceholder}
+        />
+        <button
+          type="button"
+          className={styles.sessionIconAction}
+          aria-label={WORKBENCH.sessionCreate}
+          title={WORKBENCH.sessionCreate}
+          disabled={!canCreateSession || creatingSession}
+          onClick={onCreateSession}
+        >
+          <Plus size={14} aria-hidden="true" />
+        </button>
+      </div>
+      {sessions.slice(0, 5).map((session) => (
+        <div key={session.id} className={styles.sessionItemShell}>
+          <button
+            type="button"
+            className={
+              session.id === activeSessionId ? styles.sessionItemActive : styles.sessionItem
+            }
+            onClick={() => onOpenSession(session)}
+          >
+            <span className={styles.sessionTitle}>{session.title}</span>
+            <span className={styles.sessionStatus}>{session.status}</span>
+          </button>
+          {session.status !== "ACTIVE" && session.status !== "ARCHIVED" && (
+            <button
+              type="button"
+              className={styles.sessionIconAction}
+              aria-label={WORKBENCH.sessionArchive}
+              title={WORKBENCH.sessionArchive}
+              onClick={() => onArchiveSession(session)}
+            >
+              <Archive size={14} aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -340,11 +430,24 @@ function modelProviderDraftForProvider(
   };
 }
 
+function modelProviderDraftHasInvalidEndpoint(
+  draft: ModelProviderDraft,
+  state: ModelProviderRuntimeState | null,
+): boolean {
+  const option = state ? providerOption(state.options, draft.provider) : undefined;
+  return Boolean(option?.supports_endpoint) && !isValidProviderEndpoint(draft.endpoint);
+}
+
 function errorDetail(error: unknown): string | null {
   if (error instanceof Error && error.message.trim()) return error.message.trim();
   if (typeof error === "string" && error.trim()) return error.trim();
   return null;
 }
+
+type WorkLifecycleDialog =
+  | { mode: "create"; title: string; error: string | null; submitting: boolean }
+  | { mode: "rename"; work: WorkDto; title: string; error: string | null; submitting: boolean }
+  | { mode: "discard"; work: WorkDto; error: string | null; submitting: boolean };
 
 export function WorkspaceChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -353,6 +456,7 @@ export function WorkspaceChat() {
   const [isPanelOpen, setIsPanelOpen] = useState(false);
   const [llmConnected, setLlmConnected] = useState<boolean | null>(null);
   const [llmModel, setLlmModel] = useState<string>("");
+  const [llmMessage, setLlmMessage] = useState<string>("");
   const [modelProviderState, setModelProviderState] = useState<ModelProviderRuntimeState | null>(
     null,
   );
@@ -379,6 +483,7 @@ export function WorkspaceChat() {
   const [sessionSearch, setSessionSearch] = useState("");
   const [readOnlySession, setReadOnlySession] = useState<WorkSessionDto | null>(null);
   const [readOnlySourceTurnRef, setReadOnlySourceTurnRef] = useState<string | null>(null);
+  const [creatingSession, setCreatingSession] = useState(false);
   const [branchingSession, setBranchingSession] = useState(false);
   const [resumePendingAdoptions, setResumePendingAdoptions] = useState<ArtifactEntry[]>([]);
   const [resumeResolvedAdoptions, setResumeResolvedAdoptions] = useState<ArtifactEntry[]>([]);
@@ -386,6 +491,7 @@ export function WorkspaceChat() {
   const [works, setWorks] = useState<WorkDto[]>([]);
   const [workMenuOpen, setWorkMenuOpen] = useState(false);
   const [workSwitchingId, setWorkSwitchingId] = useState<string | null>(null);
+  const [workDialog, setWorkDialog] = useState<WorkLifecycleDialog | null>(null);
   const [assistantDisplayName, setAssistantDisplayNameState] = useState<string>(
     DEFAULT_ASSISTANT_DISPLAY_NAME,
   );
@@ -420,6 +526,8 @@ export function WorkspaceChat() {
   const resumeRestoredTranscriptRef = useRef(false);
   const connectionTokenRef = useRef(0);
   const openWorkRef = useRef<(work: WorkDto) => Promise<void>>(() => Promise.resolve());
+  const currentWorkRef = useRef<WorkDto | null>(null);
+  const previousWorkRef = useRef<WorkDto | null>(null);
   const activeConnectionRef = useRef<{ token: number; workId: string | null }>({
     token: 0,
     workId: null,
@@ -432,9 +540,11 @@ export function WorkspaceChat() {
       const data = await getProviderHealth();
       setLlmConnected(data.connected);
       setLlmModel(providerHealthName(data));
+      setLlmMessage(data.message ?? "");
       return data;
     } catch {
       setLlmConnected(false);
+      setLlmMessage(WORKBENCH.modelDisconnectedTitle);
       return null;
     }
   }, []);
@@ -551,6 +661,7 @@ export function WorkspaceChat() {
     setActiveSessionId(null);
     setReadOnlySession(null);
     setReadOnlySourceTurnRef(null);
+    setCreatingSession(false);
     setBranchingSession(false);
     setSessions([]);
     setSessionSearch("");
@@ -578,6 +689,7 @@ export function WorkspaceChat() {
   async function openWork(work: WorkDto) {
     const token = connectionTokenRef.current + 1;
     connectionTokenRef.current = token;
+    const previousWork = currentWorkRef.current?.id === work.id ? null : currentWorkRef.current;
     activeConnectionRef.current = { token, workId: work.id };
     setWorkSwitchingId(work.id);
     closeWorkspaceConnection();
@@ -689,6 +801,10 @@ export function WorkspaceChat() {
           assistantDisplayName: activeAssistantDisplayName,
           volumeTitle: "未定卷",
         });
+        if (previousWork) {
+          previousWorkRef.current = previousWork;
+        }
+        currentWorkRef.current = { ...work, id: joinedWorkId, title: workTitle };
       })
       .receive("error", () => {
         if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id }))
@@ -858,31 +974,21 @@ export function WorkspaceChat() {
 
   const handleCandidateContinue = async (turnResult: TurnResult, candidate: CandidateDirection) => {
     if (!channelRef.current) return;
-    const turnCandidates = turnResult.candidate_directions ?? [];
-    const candidateIndex = turnCandidates.findIndex(
-      (item) => item.direction_id === candidate.direction_id,
-    );
-    const action = findCandidateAvailableAction({
-      availableActions: turnResult.available_actions ?? [],
-      candidate,
-      candidateIndex: candidateIndex >= 0 ? candidateIndex : undefined,
-      candidateCount: turnCandidates.length,
-      sourceTurnRef: turnResult.turn_id,
-    });
 
-    if (!action || action.enabled === false) {
-      console.warn("Available action unavailable for candidate continuation", {
-        candidateLookupId: candidate.direction_id,
-        turnId: turnResult.turn_id,
+    const text = candidateContinuationText(candidate.title, candidate.pitch);
+    setMessages((prev) => [...prev, { role: "user", text }]);
+    setLoading(true);
+
+    try {
+      await sendMessage(channelRef.current, text, context.workId, null, activeSessionId, false, {
+        source_turn_ref: turnResult.turn_id,
+        candidate_set_ref: `candidate_set:${turnResult.turn_id}`,
+        candidate_ref: candidate.direction_id,
       });
-      setMessages((prev) => [
-        ...prev,
-        { role: "assistant", text: action?.disabled_reason ?? WORKBENCH.actionUnavailable },
-      ]);
-      return;
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
+      setLoading(false);
     }
-
-    await handleAvailableAction(turnResult, action);
   };
 
   const handleAvailableAction = async (
@@ -1084,6 +1190,24 @@ export function WorkspaceChat() {
     }
   };
 
+  const currentWorkForOpen = (): WorkDto | null => {
+    if (!context.workId || context.workId === "lobby") return null;
+
+    const currentWork = works.find((work) => work.id === context.workId);
+
+    return (
+      currentWork ?? {
+        id: context.workId,
+        title: visibleWorkTitle,
+        genre: null,
+        status: "TENTATIVE",
+        revision: 1,
+        updated_at: null,
+        inserted_at: null,
+      }
+    );
+  };
+
   const restoreActiveSessionView = async () => {
     if (!context.workId || context.workId === "lobby") return;
 
@@ -1101,6 +1225,21 @@ export function WorkspaceChat() {
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionOpenFailure }]);
+    }
+  };
+
+  const handleCreateSession = async () => {
+    if (!context.workId || context.workId === "lobby" || creatingSession) return;
+
+    setCreatingSession(true);
+    try {
+      await createWorkSession(context.workId, { title: WORKBENCH.sessionNewTitle });
+      const currentWork = currentWorkForOpen();
+      if (currentWork) await openWorkRef.current(currentWork);
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionCreateFailure }]);
+    } finally {
+      setCreatingSession(false);
     }
   };
 
@@ -1149,14 +1288,8 @@ export function WorkspaceChat() {
         ...(readOnlySourceTurnRef ? { source_turn_ref: readOnlySourceTurnRef } : {}),
       });
       setSessions((prev) => [created, ...prev.filter((session) => session.id !== created.id)]);
-      await openWorkRef.current({
-        id: context.workId,
-        title: visibleWorkTitle,
-        genre: null,
-        status: "ACTIVE",
-        updated_at: null,
-        inserted_at: null,
-      });
+      const currentWork = currentWorkForOpen();
+      if (currentWork) await openWorkRef.current(currentWork);
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionBranchFailure }]);
     } finally {
@@ -1208,7 +1341,7 @@ export function WorkspaceChat() {
     await openWork(work);
   };
 
-  const handleCreateWork = async () => {
+  const handleCreateUnnamedWork = async () => {
     if (workSwitchingId) return;
     try {
       const created = await createWork({ title: WORKBENCH.unnamedWorkTitle });
@@ -1217,6 +1350,128 @@ export function WorkspaceChat() {
       await openWork(created);
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.createWorkFailure }]);
+    }
+  };
+
+  const openCreateWorkDialog = () => {
+    if (workSwitchingId) return;
+    setWorkMenuOpen(false);
+    setWorkDialog({ mode: "create", title: "", error: null, submitting: false });
+  };
+
+  const openRenameWorkDialog = (work: WorkDto) => {
+    if (workSwitchingId) return;
+    setWorkMenuOpen(false);
+    setWorkDialog({ mode: "rename", work, title: work.title, error: null, submitting: false });
+  };
+
+  const openDiscardWorkDialog = (work: WorkDto) => {
+    if (workSwitchingId) return;
+    setWorkMenuOpen(false);
+    setWorkDialog({ mode: "discard", work, error: null, submitting: false });
+  };
+
+  const updateWorkDialogTitle = (title: string) => {
+    setWorkDialog((prev) => {
+      if (!prev || prev.mode === "discard") return prev;
+      return { ...prev, title, error: null };
+    });
+  };
+
+  const setWorkDialogError = (message: string) => {
+    setWorkDialog((prev) => (prev ? { ...prev, error: message, submitting: false } : prev));
+  };
+
+  const setWorkDialogSubmitting = (submitting: boolean) => {
+    setWorkDialog((prev) => (prev ? { ...prev, submitting } : prev));
+  };
+
+  const handleSubmitWorkDialog = async () => {
+    if (!workDialog || workDialog.submitting || workSwitchingId) return;
+
+    if (workDialog.mode === "create") {
+      const title = normalizeWorkTitle(workDialog.title);
+      if (!isValidWorkTitle(title)) {
+        setWorkDialogError(WORKBENCH.workTitleRequired);
+        return;
+      }
+
+      setWorkDialogSubmitting(true);
+      try {
+        const created = await createWork({ title });
+        setWorks((prev) => [created, ...prev.filter((item) => item.id !== created.id)]);
+        setWorkDialog(null);
+        await openWork(created);
+      } catch {
+        setWorkDialogError(WORKBENCH.createWorkFailure);
+      }
+      return;
+    }
+
+    if (workDialog.mode === "rename") {
+      const title = normalizeWorkTitle(workDialog.title);
+      if (!isValidWorkTitle(title)) {
+        setWorkDialogError(WORKBENCH.workTitleRequired);
+        return;
+      }
+
+      setWorkDialogSubmitting(true);
+      try {
+        const renamed = await renameWork(workDialog.work.id, {
+          title,
+          revision: workDialog.work.revision,
+        });
+        setWorks((prev) => prev.map((item) => (item.id === renamed.id ? renamed : item)));
+        if (currentWorkRef.current?.id === renamed.id) {
+          currentWorkRef.current = renamed;
+        }
+        if (previousWorkRef.current?.id === renamed.id) {
+          previousWorkRef.current = renamed;
+        }
+        if (context.workId === renamed.id) {
+          setContext({ workTitle: renamed.title });
+        }
+        setWorkDialog(null);
+      } catch {
+        setWorkDialogError(WORKBENCH.workUpdateFailure);
+      }
+      return;
+    }
+
+    setWorkDialogSubmitting(true);
+    try {
+      const discarded = await discardWork(workDialog.work.id, {
+        revision: workDialog.work.revision,
+      });
+      let remainingWorks = works.filter((item) => item.id !== discarded.id);
+      try {
+        remainingWorks = (await listWorks()).filter((item) => item.id !== discarded.id);
+      } catch {
+        // The discard already succeeded; keep the UI moving with the locally known list.
+      }
+      setWorks(remainingWorks);
+      setWorkDialog(null);
+      if (previousWorkRef.current?.id === discarded.id) {
+        previousWorkRef.current = null;
+      }
+      if (currentWorkRef.current?.id === discarded.id) {
+        currentWorkRef.current = null;
+      }
+
+      if (context.workId === discarded.id) {
+        const previousWork = previousWorkRef.current;
+        const preferredFallback = previousWork
+          ? remainingWorks.find((item) => item.id === previousWork.id)
+          : null;
+        const nextWork =
+          preferredFallback ??
+          remainingWorks[0] ??
+          (await createWork({ title: WORKBENCH.unnamedWorkTitle }));
+        setWorks((prev) => [nextWork, ...prev.filter((item) => item.id !== nextWork.id)]);
+        await openWork(nextWork);
+      }
+    } catch {
+      setWorkDialogError(WORKBENCH.workDeleteFailure);
     }
   };
 
@@ -1338,6 +1593,12 @@ export function WorkspaceChat() {
       return;
     }
 
+    if (modelProviderDraftHasInvalidEndpoint(draft, state)) {
+      setModelProviderModelsLoading(false);
+      setModelProviderModelsMessage(WORKBENCH.modelProviderEndpointInvalid);
+      return;
+    }
+
     setModelProviderModelsLoading(true);
 
     try {
@@ -1381,6 +1642,11 @@ export function WorkspaceChat() {
 
   const handleModelProviderTest = async () => {
     if (modelProviderTesting) return;
+    if (modelProviderDraftHasInvalidEndpoint(modelProviderDraft, modelProviderState)) {
+      setModelProviderMessage(WORKBENCH.modelProviderEndpointInvalid);
+      return;
+    }
+
     setModelProviderTesting(true);
     setModelProviderMessage(null);
 
@@ -1414,6 +1680,11 @@ export function WorkspaceChat() {
 
   const handleModelProviderSave = async () => {
     if (modelProviderSaving) return;
+    if (modelProviderDraftHasInvalidEndpoint(modelProviderDraft, modelProviderState)) {
+      setModelProviderMessage(WORKBENCH.modelProviderEndpointInvalid);
+      return;
+    }
+
     setModelProviderSaving(true);
     setModelProviderMessage(null);
 
@@ -1482,10 +1753,16 @@ export function WorkspaceChat() {
       : llmConnected
         ? WORKBENCH.modelConnectedLabel
         : WORKBENCH.modelDisconnectedLabel;
+  const modelStatusValue =
+    llmConnected === null
+      ? WORKBENCH.modelCheckingLabel
+      : llmConnected
+        ? llmModel || WORKBENCH.modelConnectedLabel
+        : WORKBENCH.modelDisconnectedLabel;
   const modelStatusTitle =
     llmConnected && llmModel
       ? WORKBENCH.modelStatusTitle(llmModel)
-      : WORKBENCH.modelDisconnectedTitle;
+      : llmMessage || WORKBENCH.modelDisconnectedTitle;
   const selectedProviderOption = modelProviderState
     ? providerOption(modelProviderState.options, modelProviderState.selectedProvider)
     : null;
@@ -1493,17 +1770,22 @@ export function WorkspaceChat() {
     ? providerOption(modelProviderState.options, modelProviderDraft.provider)
     : null;
   const modelProviderStatusLabel = selectedProviderOption
-    ? selectedProviderOption.label
+    ? `${providerDisplayName(selectedProviderOption)} · ${modelStatusValue}`
     : modelStatusLabel;
   const modelProviderStatusTitle = selectedProviderOption
     ? `${providerDisplayName(selectedProviderOption)} · ${modelStatusTitle}`
     : modelStatusTitle;
   const modelProviderRequiresModel = modelProviderDraft.provider !== "stub";
+  const modelProviderEndpointInvalid = modelProviderDraftHasInvalidEndpoint(
+    modelProviderDraft,
+    modelProviderState,
+  );
   const modelProviderSaveDisabled =
     !modelProviderState ||
     modelProviderSaving ||
     modelProviderTesting ||
     modelProviderModelsLoading ||
+    modelProviderEndpointInvalid ||
     (modelProviderRequiresModel &&
       (modelProviderDraft.model.trim() === "" || modelProviderModels.length === 0));
 
@@ -1546,22 +1828,41 @@ export function WorkspaceChat() {
                   works.map((work) => {
                     const isCurrent = work.id === context.workId;
                     return (
-                      <DropdownMenu.Item
-                        key={work.id}
-                        className={isCurrent ? styles.workMenuItemActive : styles.workMenuItem}
-                        disabled={workSwitchingId !== null}
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          void handleSelectWork(work);
-                        }}
-                      >
-                        <span className={styles.workMenuItemTitle}>{work.title}</span>
-                        {isCurrent && (
-                          <span className={styles.workMenuCurrent}>
-                            {WORKBENCH.workMenuCurrent}
-                          </span>
-                        )}
-                      </DropdownMenu.Item>
+                      <div key={work.id} className={styles.workMenuRow}>
+                        <DropdownMenu.Item
+                          className={isCurrent ? styles.workMenuItemActive : styles.workMenuItem}
+                          disabled={workSwitchingId !== null}
+                          onSelect={(event) => {
+                            event.preventDefault();
+                            void handleSelectWork(work);
+                          }}
+                        >
+                          <span className={styles.workMenuItemTitle}>{work.title}</span>
+                          {isCurrent && (
+                            <span className={styles.workMenuCurrent}>
+                              {WORKBENCH.workMenuCurrent}
+                            </span>
+                          )}
+                        </DropdownMenu.Item>
+                        <button
+                          className={styles.workMenuIconButton}
+                          type="button"
+                          title={WORKBENCH.workMenuRename}
+                          disabled={workSwitchingId !== null}
+                          onClick={() => openRenameWorkDialog(work)}
+                        >
+                          <Pencil size={13} aria-hidden="true" />
+                        </button>
+                        <button
+                          className={styles.workMenuIconButton}
+                          type="button"
+                          title={WORKBENCH.workMenuDelete}
+                          disabled={workSwitchingId !== null}
+                          onClick={() => openDiscardWorkDialog(work)}
+                        >
+                          <Trash2 size={13} aria-hidden="true" />
+                        </button>
+                      </div>
                     );
                   })
                 )}
@@ -1571,15 +1872,113 @@ export function WorkspaceChat() {
                   disabled={workSwitchingId !== null}
                   onSelect={(event) => {
                     event.preventDefault();
-                    void handleCreateWork();
+                    openCreateWorkDialog();
                   }}
                 >
                   <Plus size={14} aria-hidden="true" />
                   <span>{WORKBENCH.workMenuCreate}</span>
                 </DropdownMenu.Item>
+                <DropdownMenu.Item
+                  className={styles.workMenuCreate}
+                  disabled={workSwitchingId !== null}
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    void handleCreateUnnamedWork();
+                  }}
+                >
+                  <Plus size={14} aria-hidden="true" />
+                  <span>{WORKBENCH.workMenuQuickCreate}</span>
+                </DropdownMenu.Item>
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+          <Dialog.Root
+            open={workDialog !== null}
+            onOpenChange={(open) => {
+              if (!open && !workDialog?.submitting) setWorkDialog(null);
+            }}
+          >
+            <Dialog.Portal>
+              <Dialog.Overlay className={styles.dialogOverlay} />
+              <Dialog.Content className={styles.dialogContent}>
+                {workDialog && (
+                  <>
+                    <Dialog.Title className={styles.dialogTitle}>
+                      {workDialog.mode === "create"
+                        ? WORKBENCH.workCreateDialogTitle
+                        : workDialog.mode === "rename"
+                          ? WORKBENCH.workRenameDialogTitle
+                          : WORKBENCH.workDeleteDialogTitle}
+                    </Dialog.Title>
+                    <Dialog.Description className={styles.dialogDescription}>
+                      {workDialog.mode === "discard"
+                        ? WORKBENCH.workDeleteDescription(workDialog.work.title)
+                        : WORKBENCH.workTitleField}
+                    </Dialog.Description>
+                    {workDialog.mode === "discard" ? (
+                      <>
+                        <div className={styles.dialogStatus}>
+                          {WORKBENCH.workDeleteDescription(workDialog.work.title)}
+                        </div>
+                        <div className={styles.dialogHint}>{WORKBENCH.workDeleteDetail}</div>
+                      </>
+                    ) : (
+                      <>
+                        <label className={styles.dialogLabel} htmlFor="work-title-input">
+                          {WORKBENCH.workTitleField}
+                        </label>
+                        <input
+                          id="work-title-input"
+                          className={styles.dialogInput}
+                          value={workDialog.title}
+                          maxLength={120}
+                          placeholder={WORKBENCH.workTitlePlaceholder}
+                          disabled={workDialog.submitting}
+                          onChange={(event) => updateWorkDialogTitle(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") {
+                              event.preventDefault();
+                              void handleSubmitWorkDialog();
+                            }
+                          }}
+                        />
+                      </>
+                    )}
+                    {workDialog.error && (
+                      <div className={styles.dialogError}>{workDialog.error}</div>
+                    )}
+                    <div className={styles.dialogActions}>
+                      <button
+                        className={styles.btnSecondary}
+                        type="button"
+                        onClick={() => setWorkDialog(null)}
+                        disabled={workDialog.submitting}
+                      >
+                        {BUTTON.cancel}
+                      </button>
+                      <button
+                        className={
+                          workDialog.mode === "discard" ? styles.btnDanger : styles.btnPrimary
+                        }
+                        type="button"
+                        onClick={() => void handleSubmitWorkDialog()}
+                        disabled={
+                          workDialog.submitting ||
+                          (workDialog.mode !== "discard" && !isValidWorkTitle(workDialog.title))
+                        }
+                      >
+                        {workDialog.mode === "create"
+                          ? BUTTON.create
+                          : workDialog.mode === "rename"
+                            ? BUTTON.save
+                            : BUTTON.delete}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </Dialog.Content>
+            </Dialog.Portal>
+          </Dialog.Root>
           <Dialog.Root open={assistantNameDialogOpen} onOpenChange={setAssistantNameDialogOpen}>
             <Dialog.Trigger asChild>
               <button
@@ -1730,6 +2129,7 @@ export function WorkspaceChat() {
                           onChange={(event) => {
                             setModelProviderModels([]);
                             setModelProviderModelsMessage(null);
+                            setModelProviderMessage(null);
                             setModelProviderDraft((prev) => ({
                               ...prev,
                               endpoint: event.target.value,
@@ -1737,6 +2137,11 @@ export function WorkspaceChat() {
                             }));
                           }}
                         />
+                        {modelProviderEndpointInvalid && (
+                          <div className={styles.dialogHint}>
+                            {WORKBENCH.modelProviderEndpointInvalid}
+                          </div>
+                        )}
                       </>
                     )}
 
@@ -1842,7 +2247,10 @@ export function WorkspaceChat() {
                         aria-label={WORKBENCH.modelProviderRefreshModels}
                         title={WORKBENCH.modelProviderRefreshModels}
                         disabled={
-                          modelProviderSaving || modelProviderTesting || modelProviderModelsLoading
+                          modelProviderSaving ||
+                          modelProviderTesting ||
+                          modelProviderModelsLoading ||
+                          modelProviderEndpointInvalid
                         }
                         onClick={() => {
                           void loadModelProviderModels(modelProviderDraft, modelProviderState);
@@ -1918,7 +2326,12 @@ export function WorkspaceChat() {
                   <button
                     className={styles.btnSecondary}
                     type="button"
-                    disabled={!modelProviderState || modelProviderSaving || modelProviderTesting}
+                    disabled={
+                      !modelProviderState ||
+                      modelProviderSaving ||
+                      modelProviderTesting ||
+                      modelProviderEndpointInvalid
+                    }
                     onClick={() => {
                       void handleModelProviderTest();
                     }}
@@ -2250,49 +2663,27 @@ export function WorkspaceChat() {
                   {WORKBENCH.pendingAdoptionsPrefix} {pendingAdoptionsCount}
                 </div>
               )}
-              <div className={styles.sessionList}>
-                <input
-                  className={styles.sessionSearch}
-                  value={sessionSearch}
-                  onChange={(event) => {
-                    void handleSessionSearch(event.target.value);
-                  }}
-                  placeholder={WORKBENCH.sessionSearchPlaceholder}
-                />
-                {sessions.slice(0, 5).map((session) => (
-                  <div key={session.id} className={styles.sessionItemShell}>
-                    <button
-                      type="button"
-                      className={
-                        session.id === activeSessionId
-                          ? styles.sessionItemActive
-                          : styles.sessionItem
-                      }
-                      data-session-status={session.status}
-                      data-readonly-open={readOnlySession?.id === session.id ? "true" : "false"}
-                      onClick={() => {
-                        void handleOpenSession(session);
-                      }}
-                    >
-                      <span className={styles.sessionTitle}>{session.title}</span>
-                      <span className={styles.sessionStatus}>{session.status}</span>
-                    </button>
-                    {session.status !== "ACTIVE" && session.status !== "ARCHIVED" && (
-                      <button
-                        type="button"
-                        className={styles.sessionIconAction}
-                        aria-label={WORKBENCH.sessionArchive}
-                        title={WORKBENCH.sessionArchive}
-                        onClick={() => {
-                          void handleArchiveSession(session);
-                        }}
-                      >
-                        <Archive size={14} aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <WorkspaceSessionList
+                sessions={sessions}
+                activeSessionId={activeSessionId}
+                sessionSearch={sessionSearch}
+                canCreateSession={
+                  socketConnected && Boolean(context.workId) && context.workId !== "lobby"
+                }
+                creatingSession={creatingSession}
+                onSessionSearch={(query) => {
+                  void handleSessionSearch(query);
+                }}
+                onOpenSession={(session) => {
+                  void handleOpenSession(session);
+                }}
+                onCreateSession={() => {
+                  void handleCreateSession();
+                }}
+                onArchiveSession={(session) => {
+                  void handleArchiveSession(session);
+                }}
+              />
             </div>
           </div>
         ) : (

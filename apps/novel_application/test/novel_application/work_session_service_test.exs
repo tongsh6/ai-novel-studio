@@ -142,6 +142,33 @@ defmodule NovelApplication.WorkSessionServiceTest do
     end
   end
 
+  describe "create/2" do
+    test "creates a new active session and exits the previous active session", %{work: work} do
+      {:ok, previous} = WorkSessionRepo.ensure_active_for_work(work.id)
+      record(work.id, previous.id, "turn-old", "user", "旧会话内容")
+
+      assert {:ok, created} =
+               WorkSessionService.create(work.id, %{"title" => "新会话"})
+
+      assert created.status == "ACTIVE"
+      assert created.title == "新会话"
+      assert WorkSessionRepo.get_by_work(work.id, previous.id).status == "EXITED"
+
+      assert {:ok, previous_snapshot} = WorkSessionService.show(work.id, previous.id)
+      assert previous_snapshot.read_only == true
+      assert Enum.map(previous_snapshot.transcript, & &1.text) == ["旧会话内容"]
+
+      assert {:ok, active_snapshot} = WorkSessionService.resume(work.id)
+      assert active_snapshot.active_session.id == created.id
+      assert active_snapshot.transcript == []
+    end
+
+    test "rejects missing work ids" do
+      assert {:error, :work_not_found} =
+               WorkSessionService.create(Ecto.UUID.generate(), %{"title" => "孤儿会话"})
+    end
+  end
+
   describe "archive/2" do
     test "archives an exited session", %{work: work} do
       {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "旧会话", status: "EXITED"})

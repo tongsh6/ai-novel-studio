@@ -80,7 +80,7 @@ defmodule NovelApplication.ActionValidator do
 
   defp check_scoped_refs(input, action) do
     cond do
-      target_ref_mismatch?(input.target_ref, action_field(action, :target_ref)) ->
+      ref_mismatch?(input.target_ref, action_field(action, :target_ref)) ->
         {:error, "action scope mismatch: target_ref does not match available action"}
 
       ref_mismatch?(input.behavior_ref, action_field(action, :behavior_ref)) ->
@@ -92,17 +92,24 @@ defmodule NovelApplication.ActionValidator do
       ref_mismatch?(input.candidate_ref, action_field(action, :candidate_ref)) ->
         {:error, "action scope mismatch: candidate_ref does not match available action"}
 
+      ref_mismatch?(input.idempotency_key, action_field(action, :idempotency_key)) ->
+        {:error, "action scope mismatch: idempotency_key does not match available action"}
+
       true ->
         :ok
     end
   end
 
-  defp ref_mismatch?(nil, _expected), do: false
-  defp ref_mismatch?(_actual, nil), do: false
-  defp ref_mismatch?(actual, expected), do: actual != expected
+  defp ref_mismatch?(actual, expected), do: normalize_ref(actual) != normalize_ref(expected)
 
-  defp target_ref_mismatch?(nil, nil), do: false
-  defp target_ref_mismatch?(actual, expected), do: actual != expected
+  defp normalize_ref(value) when is_binary(value) do
+    case String.trim(value) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp normalize_ref(value), do: value
 
   defp action_field(action, key) do
     string_key = Atom.to_string(key)

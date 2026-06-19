@@ -173,6 +173,16 @@ defmodule NovelWeb.WorkSessionsControllerTest do
     assert body["session"]["status"] == "ACTIVE"
     assert body["session"]["source_session_ref"] == source_session.id
     assert body["session"]["source_turn_ref"] == "turn-history-1"
+    assert WorkSessionRepo.get_by_work(work.id, source_session.id).status == "EXITED"
+  end
+
+  test "POST /api/works/:work_id/sessions rejects missing works", %{conn: conn} do
+    missing_work_id = Ecto.UUID.generate()
+
+    conn = post(conn, "/api/works/#{missing_work_id}/sessions", %{"title" => "孤儿会话"})
+
+    assert %{"error" => "work_not_found", "work_id" => ^missing_work_id} =
+             json_response(conn, 404)
   end
 
   test "POST /api/works/:work_id/sessions/:id/archive archives an exited session", %{

@@ -106,10 +106,17 @@ defmodule NovelDomain.BehaviorState do
       behavior_id: behavior.behavior_id,
       behavior_type: Atom.to_string(behavior.behavior_type),
       status: status_enum(behavior.lifecycle_status),
+      blocking_actor: Atom.to_string(behavior.blocking_actor),
+      opened_at_turn_ref: behavior.opened_at_turn_ref,
+      opened_by_decision_ref: behavior.opened_by_decision_ref,
+      frame_ref: behavior.frame_ref,
+      plan_ref: behavior.plan_ref,
       required_next_action: behavior.required_next_action,
       target_ref: behavior.target_ref,
       prompt_contract: behavior.prompt_contract,
       available_actions: behavior.available_actions,
+      closed_at_turn_ref: behavior.closed_at_turn_ref,
+      trace_ref: behavior.trace_ref,
       resolution_ref: resolution_ref(behavior)
     }
   end

@@ -105,6 +105,17 @@ defmodule NovelWeb.WorkSessionsController do
         |> put_status(:created)
         |> json(%{session: serialize_session(session)})
 
+      {:error, :work_not_found} ->
+        LogEmit.emit(:work_session, :create, :error, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          reason_code: :work_not_found
+        })
+
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: "work_not_found", work_id: work_id})
+
       {:error, %Ecto.Changeset{} = changeset} ->
         LogEmit.emit(:work_session, :create, :error, %{
           duration_ms: System.monotonic_time(:millisecond) - t0,

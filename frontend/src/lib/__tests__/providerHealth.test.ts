@@ -29,6 +29,29 @@ describe("provider health API client", () => {
     expect(fetchMock).toHaveBeenCalledWith(providerHealthUrl());
   });
 
+  it("keeps disconnected provider message metadata", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.resolve({
+          connected: false,
+          provider: "lmstudio",
+          model: "local-model",
+          message: "LLM 未连接：LM Studio 未启动",
+          detail: "connection_refused",
+        }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getProviderHealth()).resolves.toEqual({
+      connected: false,
+      provider: "lmstudio",
+      model: "local-model",
+      message: "LLM 未连接：LM Studio 未启动",
+      detail: "connection_refused",
+    });
+  });
+
   it("fails on non-2xx provider health responses", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503 }));
 

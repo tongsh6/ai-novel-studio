@@ -49,6 +49,7 @@ export function sendMessage(
   behaviorId?: string | null,
   sessionId?: string | null,
   generateMicroPlan = false,
+  candidateSelection?: CandidateSelectionPayload | null,
 ): Promise<{ received: boolean }> {
   return new Promise((resolve, reject) => {
     channel
@@ -60,6 +61,7 @@ export function sendMessage(
           session_id: sessionId,
           behavior_id: behaviorId,
           generate_micro_plan: generateMicroPlan,
+          ...(candidateSelection ? { candidate_selection: candidateSelection } : {}),
         },
         LLM_TURN_TIMEOUT_MS,
       )
@@ -67,6 +69,12 @@ export function sendMessage(
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("send timeout")));
   });
+}
+
+export interface CandidateSelectionPayload {
+  source_turn_ref: string;
+  candidate_set_ref?: string;
+  candidate_ref: string;
 }
 
 export interface AuthorActionPayload {

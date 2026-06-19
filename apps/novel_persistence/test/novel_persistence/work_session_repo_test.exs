@@ -34,6 +34,23 @@ defmodule NovelPersistence.WorkSessionRepoTest do
     end
   end
 
+  describe "create_active/1" do
+    test "creates one active session and exits previous active sessions in the same work", %{
+      work: work
+    } do
+      {:ok, other_work} = WorkRepo.create(%{title: "另一个作品"})
+      {:ok, previous} = WorkSessionRepo.create(%{work_id: work.id, title: "角色动机讨论"})
+      {:ok, other_active} = WorkSessionRepo.create(%{work_id: other_work.id, title: "其他作品会话"})
+
+      assert {:ok, created} =
+               WorkSessionRepo.create_active(%{work_id: work.id, title: "第三章节奏"})
+
+      assert created.status == "ACTIVE"
+      assert WorkSessionRepo.get_by_work(work.id, previous.id).status == "EXITED"
+      assert WorkSessionRepo.get_by_work(other_work.id, other_active.id).status == "ACTIVE"
+    end
+  end
+
   describe "list_by_work/1" do
     test "lists only sessions from the requested work newest-first", %{work: work} do
       {:ok, other_work} = WorkRepo.create(%{title: "另一个作品"})

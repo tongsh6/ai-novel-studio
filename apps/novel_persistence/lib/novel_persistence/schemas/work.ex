@@ -44,8 +44,10 @@ defmodule NovelPersistence.Schemas.Work do
       :adopted_at,
       :revision
     ])
-    |> optimistic_lock(:revision)
+    |> update_change(:title, &trim_title/1)
+    |> maybe_optimistic_lock(work)
     |> validate_required([:title, :status])
+    |> validate_length(:title, min: 1, max: 120)
     |> validate_inclusion(:status, AdoptionStatus.values())
   end
 
@@ -62,4 +64,10 @@ defmodule NovelPersistence.Schemas.Work do
     |> change(status: AdoptionStatus.discarded())
     |> optimistic_lock(:revision)
   end
+
+  defp trim_title(title) when is_binary(title), do: String.trim(title)
+  defp trim_title(title), do: title
+
+  defp maybe_optimistic_lock(changeset, %__MODULE__{__meta__: %{state: :built}}), do: changeset
+  defp maybe_optimistic_lock(changeset, _work), do: optimistic_lock(changeset, :revision)
 end
