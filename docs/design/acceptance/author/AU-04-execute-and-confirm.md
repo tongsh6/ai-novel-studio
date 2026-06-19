@@ -127,9 +127,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | UI 展示 confirmation card 或等价 action panel；包含 target、影响范围、确认、取消 |
-| 当前证据 | `BehaviorState` 有 `prompt_contract` / `available_actions`；`TurnResultBuilder.maybe_add_behavior/2` 输出 behavior_state |
+| 当前证据 | `BehaviorState` 有 `prompt_contract` / `available_actions`；`TurnResultBuilder.maybe_add_behavior/2` 通过 `BehaviorState.snapshot/1` 输出 `{active, history}`；`WorkspaceChat` 已从 `available_actions` 渲染可提交动作 |
 | 当前状态 | 部分实现 |
-| 当前缺口 | `TurnResultBuilder` 未生成 `confirmation_card`；真实入口 `WorkspaceChat` 不渲染 `available_actions` 面板 |
+| 当前缺口 | 仍缺完整 confirmation card / action matrix 的真实 UI 验收，尤其 disabled/stale/TTL 和 replay 视图 |
 | 优先级 | P0 |
 
 #### SC-AU04-B2 — 点击确认必须走 `author_action`
@@ -139,9 +139,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 前端提交 `author_action`，包含 `source_turn_ref`、`action_id`、`action_type`、`behavior_ref`、`idempotency_key` |
-| 当前证据 | `WorkspaceChat` 通过 `available_actions` 匹配后调用 `socket.ts.sendAuthorAction`；`WorkspaceChannel.handle_in("author_action")` 已实现 |
-| 当前状态 | 备用前端已实现，真实 App 入口未接入 |
-| 当前缺口 | `App.tsx` 当前渲染 `WorkspaceChat`；`WorkspaceChat` 的确认按钮调用旧 `confirm` 事件，但 `WorkspaceChannel` 未实现 `handle_in("confirm")` |
+| 当前证据 | `WorkspaceChat` 通过 `available_actions` 匹配后调用 `socket.ts.sendAuthorAction`；`WorkspaceChannel.handle_in("author_action")` 已实现；`ActionValidator` 要求 `behavior_ref` / `target_ref` / `idempotency_key` 等服务端字段精确回传 |
+| 当前状态 | 局部已实现 |
+| 当前缺口 | 仍缺完整真实 UI action matrix，尤其重复点击、disabled/stale、TTL 和跨作品/历史会话矩阵 |
 | 优先级 | P0 |
 
 #### SC-AU04-B3 — 点击取消关闭本次等待态
@@ -151,9 +151,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 只取消该 pending confirmation；不会执行工具；输入框恢复自然对话 |
-| 当前证据 | `BehaviorState` / `AvailableAction` 设计包含 `reject_or_cancel_confirmation`、`cancel_pending_behavior`；`ActionValidator` 能验证 cancel 类 action |
-| 当前状态 | 局部 action validation 已测试，关闭 lifecycle 未闭环 |
-| 当前缺口 | 缺 behavior resolved/cancelled 状态更新、trace、UI 关闭验证 |
+| 当前证据 | `BehaviorState` / `AvailableAction` 设计包含 `reject_or_cancel_confirmation`、`cancel_pending_behavior`；`ActionValidator` 能验证 cancel 类 action；`DialogueGateway.handle_action/3` 对通用取消/拒绝返回 `cancelled` TurnResult，并把关闭的 behavior 写入 `behavior_state.history`；`AdoptionWorkflow` 对采纳确认 confirm/reject 也输出 `RESOLVED` / `CANCELLED` history；`workspace_channel_v3_test.exs` 和 `au10-workbench-recovery-cancel-waiting` 真实 Tauri 验收覆盖无写入取消路径 |
+| 当前状态 | 通用取消/拒绝与采纳确认 terminal history checkpoint 已实现 |
+| 当前缺口 | TTL、跨作品/历史会话、持久化 ConfirmationBinding、完整 trace/replay 矩阵仍未闭环 |
 | 优先级 | P0 |
 
 #### SC-AU04-B4 — 重复点击确认不重复执行
@@ -163,9 +163,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 同一 `idempotency_key` 只产生一次执行或返回同一结果 |
-| 当前证据 | action envelope 中有 `idempotency_key`；测试使用该字段 |
-| 当前状态 | 未实现完整幂等 |
-| 当前缺口 | 持久 author action receipt 已补；仍缺真实 UI 重复点击验收、TTL 和完整 ConfirmationBinding |
+| 当前证据 | action envelope 中有 `idempotency_key`；`ActionValidator` 要求客户端回传的 `idempotency_key` 与服务端 available action 精确一致；持久 `author_action_receipts` 按 work/session/source/action/idempotency 去重 |
+| 当前状态 | 局部已实现 |
+| 当前缺口 | 仍缺真实 UI 重复点击验收、TTL 和完整 ConfirmationBinding |
 | 优先级 | P0 |
 
 #### SC-AU04-B5 — 旧 turn / 旧作品的确认被拒绝
@@ -329,8 +329,8 @@
 |---|---|---|---|
 | AU04-GAP-01 — 真实入口确认动作未接入 `author_action` | **superseded（2026-05-25）**：真实入口已改为通过 `available_actions` + `author_action` 提交；剩余为 UI 点击验收 | 补验收 | P0 |
 | AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | **superseded（2026-05-25）**：真实入口已渲染 available action panel；card 不再承载业务动作 | 补验收 | P0 |
-| AU04-GAP-03 — 确认幂等未闭环 | **局部已补**：持久 `author_action_receipts` 以 `work_id/session_id/source_turn/action/idempotency_key` 去重，重复确认不会二次 dispatch；仍缺真实 UI 重复点击验收和 TTL | 继续补验收/TTL | P0 |
-| AU04-GAP-04 — ConfirmationBinding 未完整实现 | 缺 `behavior_ref` + `target_ref` + rebased snapshot + gate result 的持久绑定 | 补实现/补集成 | P0 |
+| AU04-GAP-03 — 确认幂等未完整闭环 | **局部已补**：`ActionValidator` 要求 `idempotency_key` 与服务端 action 精确一致，持久 `author_action_receipts` 以 `work_id/session_id/source_turn/action/idempotency_key` 去重，重复确认不会二次 dispatch；仍缺真实 UI 重复点击验收和 TTL | 继续补验收/TTL | P0 |
+| AU04-GAP-04 — ConfirmationBinding 未完整实现 | **局部已补**：`ActionValidator` 已要求 `behavior_ref`、`target_ref`、`candidate_*`、`idempotency_key` 与服务端 action 精确一致；仍缺 rebased snapshot、gate result 和持久 ConfirmationBinding | 补实现/补集成 | P0 |
 | AU04-GAP-05 — 取消/拒绝 lifecycle 未闭环 | cancel/reject 可被 validation，但未证明 behavior 关闭、trace 写入、UI 恢复 | 补集成/补验收 | P0 |
 | AU04-GAP-06 — 过期/跨作品/历史确认验证不足 | 只覆盖 current turn stale，缺 TTL、跨作品、历史会话只读态 | 补实现/补验收 | P0/P1 |
 | AU04-GAP-07 — task_state 真实入口完整展示不足 | Channel 可广播，`WorkspaceChat` 已订阅并映射到 longRun store；仍缺长跑全过程 UI 验收 | 补验收 | P1 |
@@ -344,7 +344,7 @@
 | 基础设施 | 当前价值 | 不应误判 |
 |---|---|---|
 | `ExecutionOrchestrator.decide/2` | 已能根据 GateOrder 产生 allow/downgrade/confirm/recovery | 不等于真实 UI 确认闭环 |
-| `ActionValidator.validate/2` | 能拒绝 missing/stale/invented/disabled action | 不等于幂等、TTL、跨作品安全完成 |
+| `ActionValidator.validate/2` | 能拒绝 missing/stale/invented/disabled action，并校验 `target_ref` / `behavior_ref` / `candidate_*` / `idempotency_key` 与服务端 action 精确一致 | 不等于 TTL、rebased snapshot 或完整持久 ConfirmationBinding |
 | `DialogueGateway.handle_action/3` | `confirm_before_execute` 可 re-gate 并在 allow_tool 时 dispatch | 不等于 ConfirmationBinding 完整实现 |
 | `WorkspaceChannel.handle_in("author_action")` | Channel 层 action roundtrip 已有测试 | 不等于当前 App 入口已经使用 |
 | `WorkspaceChat` + `socket.ts` | 当前真实入口已接 `available_actions` / `author_action` / `task_state`；真实导出 task_state checkpoint 已补 | 缺完整 action_result、完整异步 LongRunner、断线/超时恢复 UI 验收 |

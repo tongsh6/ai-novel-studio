@@ -178,7 +178,7 @@
 - 候选与 adoption 状态保持分离；
 - 真实工作台 walkthrough 证明可见。
 
-**当前证据**：`WorkspaceChat` 能渲染 candidates；`au02-candidate-continuation-tauri`、`au02-candidate-adoption-bridge-tauri` 已从真实工作台候选卡进入继续探索/授权 action 链路；类型测试仍只作为局部证据。
+**当前证据**：`WorkspaceChat` 能渲染 candidates；`au02-candidate-continuation-tauri` 已从真实工作台候选卡进入 `user_message.candidate_selection` 继续探索链路；`au02-candidate-adoption-bridge-tauri` 已从真实工作台候选卡进入授权 `author_action.choose_candidate` 采纳链路；类型测试仍只作为局部证据。
 
 **当前状态**：最小闭环 / 候选长链路质量仍需补矩阵。
 
@@ -190,11 +190,11 @@
 
 **期望结果**：
 - 候选卡可点击或有明确 action；
-- 提交 `candidate_ref` / `candidate_set_ref` 或等价 author action；
+- 提交带 `candidate_ref` / `candidate_set_ref` 的 `user_message.candidate_selection`；
 - selection 产生 trace；
 - 不进入作品事实。
 
-**当前证据**：`WorkspaceChat` 候选卡通过服务器 `available_actions` 匹配候选 continuation action，`au02-candidate-continuation-tauri` 已证明点击候选继续讨论不会直接采纳，且继续围绕候选方向对话。
+**当前证据**：`WorkspaceChat` 候选卡“继续讨论”直接发送带 `candidate_selection` 的普通 `user_message`，不提交 `choose_candidate`；`au02-candidate-continuation-tauri` 已证明点击候选继续讨论不会直接采纳，且继续围绕候选方向对话。明确“设为后续方向”才使用服务器授权 `available_actions` 并提交 `author_action.choose_candidate`，由 `au02-candidate-adoption-bridge-tauri` 覆盖。
 
 **当前状态**：最小闭环。
 

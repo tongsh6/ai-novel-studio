@@ -112,9 +112,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | `WorkspaceChat` 能从 TurnResult 识别 active behavior，并渲染可用动作 |
-| 当前证据 | `WorkspaceChat` 读取 `result.behavior_state?.active`；`TurnResultBuilder.maybe_add_behavior/2` 当前输出扁平 `behavior_state` |
-| 当前状态 | 存在契约不匹配风险 |
-| 当前缺口 | 前端期望 `{active: ...}`，后端 v3 输出 `{behavior_id, behavior_type, lifecycle_status...}`；真实入口可能识别不到 pending behavior |
+| 当前证据 | `WorkspaceChat` 读取 `result.behavior_state?.active`；`TurnResultBuilder.maybe_add_behavior/2` 通过 `BehaviorState.snapshot/1` 输出 `{active, history}`；`BehaviorStateTest` 防止扁平形状回归 |
+| 当前状态 | 后端/前端 behavior_state 基础形状已对齐 |
+| 当前缺口 | 仍缺完整真实 UI action matrix，尤其 clarification、disabled/stale、TTL、跨作品/历史会话和 replay 视图 |
 | 优先级 | P0 |
 
 ### 场景组 B：作者动作能正确关闭或推进等待态
@@ -126,9 +126,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | action 包含 `source_turn_ref`、`action_id`、`action_type`、`behavior_ref`、`target_ref`、`idempotency_key`；系统验证并进入 resolving |
-| 当前证据 | `ActionValidator` 能检查 action 来自 server-held TurnResult；`DialogueGateway.handle_action/3` 对 `confirm_before_execute` 做 re-gate |
+| 当前证据 | `ActionValidator` 能检查 action 来自 server-held TurnResult，并要求 `behavior_ref`、`target_ref`、`candidate_*`、`idempotency_key` 与服务端 available action 精确一致；`DialogueGateway.handle_action/3` 对 `confirm_before_execute` 做 re-gate |
 | 当前状态 | 部分实现 |
-| 当前缺口 | `ActionValidator` 只匹配 action_id/type，不校验 `behavior_ref`/`target_ref`/idempotency 与 available action 一致；也不更新 behavior lifecycle |
+| 当前缺口 | 已补 action 绑定校验；确认 re-gate 仍未持久化 ConfirmationBinding 的 state snapshot / gate result，也未输出完整 resolving lifecycle |
 | 优先级 | P0 |
 
 #### SC-AU06-B2 — 点击取消/拒绝关闭 behavior
@@ -138,9 +138,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | behavior 进入 `cancelled` 或 `resolved(rejected)`；写入 resolution、closed_at_turn_ref、trace_ref；不执行工具或生产写入 |
-| 当前证据 | Orchestrator 生成 `reject_or_cancel_confirmation` / `cancel_pending_behavior`；ActionValidator 可接受 cancel 类 action |
-| 当前状态 | 验证存在，关闭缺失 |
-| 当前缺口 | `DialogueGateway.handle_action/3` 对非 confirm action 只返回 accepted ack，不关闭 behavior、不广播新的 TurnResult |
+| 当前证据 | Orchestrator 生成 `reject_or_cancel_confirmation` / `cancel_pending_behavior`；ActionValidator 可接受 cancel 类 action；`DialogueGateway.handle_action/3` 对通用取消/拒绝生成 `cancelled` TurnResult，`behavior_state.active=nil` 且 `history[]` 包含 `CANCELLED`、`closed_at_turn_ref`、`resolution_ref`；`AdoptionWorkflow` 对采纳确认 confirm/reject 输出 `RESOLVED` / `CANCELLED` history；`WorkspaceChannel` 会广播这些 TurnResult；`au10-workbench-recovery-cancel-waiting` 已通过真实 Tauri 验收 |
+| 当前状态 | 通用取消/拒绝与采纳确认 terminal history checkpoint 已实现 |
+| 当前缺口 | clarification answer、TTL、跨作品/历史会话、完整 trace/replay 仍未闭环 |
 | 优先级 | P0 |
 
 #### SC-AU06-B3 — 回答澄清后重新评估
@@ -188,9 +188,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | active behavior 关闭；history 追加 resolved/cancelled 项；closed_at_turn_ref 和 resolution 非空 |
-| 当前证据 | `BehaviorState` struct 有 resolution / closed_at_turn_ref；Foundation v2 validator 要求 terminal active 只能进 history |
-| 当前状态 | 设计/字段存在，v3 主链未闭环 |
-| 当前缺口 | `TurnResultBuilder.maybe_add_behavior/2` 不输出 active/history envelope；没有 resolution builder |
+| 当前证据 | `BehaviorState.snapshot/1` 输出 `{active, history}`；通用取消/拒绝和采纳确认 confirm/reject 都能在 TurnResult 中产生 terminal history，包含 `closed_at_turn_ref` / `resolution_ref` |
+| 当前状态 | 主链 terminal history checkpoint 已实现 |
+| 当前缺口 | behavior history 持久化、developer replay、clarification resolving 和完整跨作品/历史会话矩阵仍未闭环 |
 | 优先级 | P0 |
 
 #### SC-AU06-C2 — 确认后重新 gate，不直接执行
@@ -290,11 +290,11 @@
 | SC-AU06-A3 | 普通讨论不打开等待态 | 局部已测试 | 否 |
 | SC-AU06-A4 | 真实工作台识别 active behavior | 存在契约偏差 | 否 |
 | SC-AU06-B1 | 点击确认绑定 open behavior | 部分实现 | 否 |
-| SC-AU06-B2 | 取消/拒绝关闭 behavior | 验证存在，关闭缺失 | 否 |
+| SC-AU06-B2 | 取消/拒绝关闭 behavior | terminal history checkpoint 已补 | 否，完整矩阵未闭环 |
 | SC-AU06-B3 | 回答澄清后重新评估 | 未实现/未验收 | 否 |
 | SC-AU06-B4 | 等待期间继续聊天不误执行 | 未实现/未验收 | 否 |
 | SC-AU06-B5 | stale/invented/disabled action 拒绝 | 局部已测试 | 否，缺 TTL/跨作品/持久化 |
-| SC-AU06-C1 | open 到 closed 进入 history | 字段存在 | 否 |
+| SC-AU06-C1 | open 到 closed 进入 history | terminal history checkpoint 已补 | 否，缺持久化/replay |
 | SC-AU06-C2 | 确认后重新 gate | 部分实现 | 否 |
 | SC-AU06-C3 | 单一活跃 behavior | 已设计 | 否 |
 | SC-AU06-C4 | TTL / expires_at | 已设计 | 否 |
@@ -303,7 +303,7 @@
 | SC-AU06-D2 | 跨作品/跨会话隔离 | 未实现/未验收 | 否 |
 | SC-AU06-D3 | 前端不本地改 lifecycle | 部分符合 | 否 |
 
-**结论：17 个场景；0/17 完整真实前后端验收；6/17 有 domain/application/channel/front-end 局部证据；11/17 的关键缺口集中在真实 UI 消费、resolution/history、ConfirmationBinding、TTL、幂等、单活跃 behavior 和 replay。**
+**结论：17 个场景；0/17 完整真实前后端验收；7/17 有 domain/application/channel/front-end 局部证据；10/17 的关键缺口集中在真实 UI action matrix、clarification、ConfirmationBinding state snapshot / gate result、TTL、幂等、单活跃 behavior、持久化 history 和 replay。**
 
 ---
 
@@ -315,7 +315,7 @@
 | AU06-GAP-02 — 真实入口不渲染 available_actions | **superseded（2026-05-25）**：`WorkspaceChat` 已改为从 `available_actions` 显示 v3 action panel；card 不承载业务动作。剩余为真实 UI 点击验收 | 补验收 | P0 |
 | AU06-GAP-03 — cancel/reject/clarification resolution 未实现 | 非 confirm action 只 ack，不关闭 behavior；`behavior_id` 随 user_message 发送后后端不处理 | 补实现/补集成 | P0 |
 | AU06-GAP-04 — open -> resolving -> resolved/history 未闭环 | 无 resolution builder、closed_at_turn_ref、history 输出和持久化 | 补实现/补测试 | P0 |
-| AU06-GAP-05 — ConfirmationBinding 未完整实现 | 未绑定 behavior_ref/target_ref/state snapshot/gate result | 补实现/补集成 | P0 |
+| AU06-GAP-05 — ConfirmationBinding 未完整实现 | **局部已补**：`behavior_ref`、`target_ref`、`candidate_*`、`idempotency_key` 已在 action validation 层与服务端 available action 精确绑定；仍缺 state snapshot / gate result / 持久 ConfirmationBinding | 补实现/补集成 | P0 |
 | AU06-GAP-06 — 单一活跃 behavior 未强制 | 打开新 behavior 前不检查已有 open behavior | 补实现/补测试 | P0 |
 | AU06-GAP-07 — TTL / expires_at 缺失 | available_actions 无 expires_at，无时间过期判断 | 补实现/补测试 | P1 |
 | AU06-GAP-08 — 幂等 ledger 缺失 | **局部已补**：持久 `author_action_receipts` 可按 `idempotency_key` 去重；仍缺真实 UI 重复点击验收和 behavior resolution 结合 | 继续补验收/behavior 绑定 | P0 |
@@ -332,7 +332,7 @@
 | `BehaviorState` struct | 字段覆盖 lifecycle 设计 | 不是状态机，没有 transition guard |
 | `BehaviorState.open?/closed?` | 能判断 open/closed 终态 | 不会自动关闭或写 history |
 | `ExecutionOrchestrator.open_behavior/5` | 能打开 confirmation 并生成 actions | 不检查已有 open behavior、TTL、trace_ref |
-| `ActionValidator` | 拒绝 stale/invented/disabled action | 不验证 behavior_ref/target_ref/idempotency 绑定 |
+| `ActionValidator` | 拒绝 stale/invented/disabled action，并校验 `behavior_ref` / `target_ref` / `candidate_*` / `idempotency_key` 绑定 | 不实现 TTL、state snapshot 或 behavior history |
 | `DialogueGateway.handle_action/3` | confirm 有 re-gate / dispatch 局部路径 | cancel/reject/clarification resolution 未实现 |
 | `WorkspaceChat` | 当前真实工作台 action panel 实现 | 缺完整 behavior lifecycle 和长跑状态矩阵 |
 

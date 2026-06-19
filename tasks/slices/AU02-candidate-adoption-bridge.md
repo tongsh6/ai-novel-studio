@@ -26,7 +26,7 @@
 - Boundary: 切过 `frontend`、`novel_web`、`novel_application`、必要的 `novel_domain` 纯规则；不让 `frontend` 直接写作品事实，不让 `novel_web` 直接访问 Repo，不让 `novel_agent` 直接越过 adoption boundary。
 - Consumer: 真实 Tauri 工作台 `WorkspaceChat` 的候选卡、available action、why/trace 面板。
 - Proof: 后端 adoption boundary / author action 测试、前端候选 action 测试、真实 Tauri 外部自动化验收。
-- Acceptance Driver: `bash scripts/tauri_slice_verify.sh au02-candidate-adoption-bridge`，外部 Playwright 打开真实 Tauri 工作台，通过可见输入、候选按钮、采纳动作完成验证；产品代码未新增 slice id、autorun、隐藏 DOM hook 或验收专用 Channel/API。
+- Acceptance Driver: `bash scripts/tauri_slice_verify.sh au02-candidate-continuation` 验证“继续讨论”是 `user_message.candidate_selection` 且不进入 adoption；`bash scripts/tauri_slice_verify.sh au02-candidate-adoption-bridge` 验证“设为后续方向”提交服务端授权 `author_action.choose_candidate` 并进入 adoption boundary。两个 driver 都由外部 Playwright 打开真实 Tauri 工作台，通过可见输入和按钮完成验证；产品代码未新增 slice id、autorun、隐藏 DOM hook 或验收专用 Channel/API。
 
 ---
 
@@ -37,9 +37,9 @@
 → Planner 返回 candidate_directions
 → UI 展示候选方向
 → 点击候选继续探索
-→ 系统生成围绕该候选的下一轮回复，且不写作品事实
+→ 系统发送 `user_message.candidate_selection` 并生成围绕该候选的下一轮回复，且不写作品事实
 → 作者明确采纳候选
-→ 服务端校验候选来源 / available action
+→ 前端提交服务端授权 `choose_candidate` available action
 → AdoptionBoundary 产生 AdoptionDecision
 → TurnResult / trace 返回作者可见结果
 ```
@@ -50,10 +50,10 @@
 
 | 能力 | 当前状态 |
 |---|---|
-| 候选方向生成 | 已有 `au02-candidate-continuation` Tauri 证据 |
-| 候选继续探索 | 已有真实工作台候选点击证据；本 slice 复验“继续探索不等于采纳” |
+| 候选方向生成 | 已有 `au02-candidate-continuation` / `au02-candidate-adoption-bridge` Tauri 证据 |
+| 候选继续探索 | 已有真实工作台候选点击证据；`au02-candidate-continuation` 证明 continuation 是 `user_message.candidate_selection`，不是 adoption action |
 | AdoptionBoundary | application/domain 局部测试存在 |
-| 采纳 UI / Channel | 候选卡现在展示服务端授权的“采用这个方向”动作，`author_action` 进入 `AdoptionBoundary` |
+| 采纳 UI / Channel | 候选卡展示服务端授权的“设为后续方向”动作，`author_action` 进入 `AdoptionBoundary` |
 | 关键缺口 | 已闭环；后续转入 AU-05 高风险 / stale / conflict / cross-work 安全加固 |
 
 ---
@@ -62,21 +62,26 @@
 
 - 真实 Tauri 工作台中可从模糊创意生成候选方向。
 - 点击候选继续探索时，trace 或外部证据证明没有 production write / adoption。
-- 明确采纳候选时，前端提交服务端授权动作或可验证的作者意图，不自行发明 adopted state。
+- 明确采纳候选时，前端提交服务端授权动作，不自行发明 adopted state。
 - 服务端返回 adoption boundary 裁决，UI 展示采纳结果、等待确认或拒绝原因。
 - why/trace 能说明候选来源、作者动作和裁决结果。
 - 外部验收脚本收集截图、WebSocket frame、app JSONL 和 summary 到 `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/`。
 
 已通过证据：
 
+- Tauri 外部验收：`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json`
 - Tauri 外部验收：`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json`
+- UI frame / state：`artifacts/slice-verify/au02-candidate-continuation-tauri/ui-frames.json`、`ui-state.json`
 - UI frame / state：`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/ui-frames.json`、`ui-state.json`
+- 截图：`artifacts/slice-verify/au02-candidate-continuation-tauri/au02-candidate-continuation-external-ui.png`
 - 截图：`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/au02-candidate-adoption-bridge-external-ui.png`
 
 验收断言：
 
 - `candidate_panel_rendered_from_turn_result`
-- `candidate_continuation_sent_candidate_selection_without_adoption`
+- `candidate_ref_sent_from_real_workbench`
+- `micro_plan_not_requested`
+- `no_adoption_or_projection_events`
 - `candidate_adoption_sent_authorized_choose_candidate_action`
 - `adoption_boundary_returned_adopt_tentative`
 - `ui_rendered_candidate_adoption_result`

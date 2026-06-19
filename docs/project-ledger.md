@@ -1,6 +1,6 @@
 # Project Ledger / 项目事实台账
 
-> 最后更新：2026-06-18（VS-00C CP0-CP5 已完成；AU-10 baseline matrix/layout、真实导出 task_state checkpoint、provider failure recovery CP1、WebSocket service reconnect CP2、cancel waiting CP3A 与 provider timeout CP3B 已有 Tauri 证据；LongRunner CP3C 因缺真实生产消费者按 `04a-planning-and-long-run.md` 延后；AU09 archive memory roundtrip CP2 已补，`au09-adopt-setting-recall` 证明真实页面伏笔/规则生成、adoption、tab 重开可见、recall/why；AU09 memory management entry 已补正式入口和基础生命周期治理；AU09 memory trace roundtrip 已补 lifecycle/reference author-safe 追溯；AU09 validity window recall、cross-work memory isolation 与 AU09/AU03 session memory layering 均已闭环；AU11 质量诊断 Message Envelope checkpoint 已闭环，当前队首转向 AU11 Missing WorkState policy）
+> 最后更新：2026-06-19（SU-01 provider health / LM Studio disconnected / endpoint validation / API key redaction、SU-02 work switching / lifecycle、SU-03 assistant display name、AU-01 ordinary chat、AU-02 candidate continuation/adoption bridge、AU-03 session history readonly / new active、AU-04/AU-06 author action binding 等 checkpoint 已按当前 checkout 重新对账并补 quality manifest / slice 记录；`au03-session-new-active` 已由真实 Tauri 工作台证明新 active 空 transcript、旧 active 转 `EXITED` 只读、首轮新 session `has_conversation=false`；静态扫描剩历史 gitleaks accepted_risk，不在 touched files）
 >
 > 角色：新会话 AI 或新贡献者在 10 分钟内恢复项目状态基线。本文是权威事实来源，设计文档和代码可能滞后于本文，但本文不应滞后于设计和代码。
 >
@@ -20,6 +20,16 @@ v3 设计体系已闭环，目前处于特性增强期：
 - **VS-06 后续（Task Lifecycle）：已交付（重建 TaskRunner，支持 SQLite 持久化，已通过 3 轮 Review 加固）**
 - **QP-Workbench（UI Enhancement）：已交付（实现 Frame Insight 认知洞察可视化，已完成 UI 组件解耦与类型加固）**
 - **VS-10（Observability Spine）：已交付（ADR-0018 业务日志 schema + LogContext/LogEmit + 三源回溯工具 + 操作手册）**
+
+### 当前重点推进事项（2026-06-19）
+
+SCENARIO-BLUEPRINT 与 AU/SU 验收状态重算（2026-06-19）：本轮按当前 checkout 重新整理 SU-01~SU-03、AU-01/AU-02/AU-03/AU-04/AU-06/AU-10 的真实实现与验收口径，原则是“最小实现就是最小，按真实状态反映”，不把局部测试冒充完整闭环，也不因文档旧口径继续写“未实现”。新增或登记的 quality manifest 包括 provider health、LM Studio disconnected、endpoint validation、API key redaction、work switching、work lifecycle、assistant display name、ordinary chat、AU-03 history readonly / new active 等当前可复跑 Tauri checkpoint；`quality/acceptance/scenarios/README.md` 已作为目录索引，避免新增场景 manifest 成为孤岛。`tasks/slices/README.md` 同步作为当前 slice 索引，明确哪些是 checkpoint closed、哪些仍是 doing。
+
+AU-03 session new active checkpoint（2026-06-19）：`WorkSessionRepo.create_active/1` / `WorkSessionService.create/2` / `WorkSessionsController.create/2` / `WorkspaceChat` 新建会话入口已经形成真实闭环。外部 Tauri driver `au03-session-new-active` 从真实工作台点击“新建会话”，验证新 active session 以 `transcript_count=0` rejoin，旧 active session 变为 `EXITED` 且可只读打开；返回新 active 后发送首轮消息，`channel.user_message.start/done` 绑定新 session，`context.assemble.done.has_conversation=false`，旧 transcript 没带入新会话。证据：`artifacts/slice-verify/au03-session-new-active-tauri/summary.json`，`turn_id=turn_3`。AU-03 当前口径为 5/20 最小真实 Tauri checkpoint；若计入 AU09/AU03 联动则 6 条真实前端证据。剩余缺口仍包括从历史会话分支继续、搜索命中 turn 定位/高亮、归档过滤当前入口复跑、最新作品背景 SSOT 和完整 replay 页面。
+
+系统与自然对话 checkpoint 状态（2026-06-19）：SU-01 当前有 provider health、LM Studio disconnected、endpoint validation、API key redaction 等 7/10 最小真实 Tauri 证据，但 Keychain WebView 端到端、真实 provider 模型列表成功矩阵和跨平台 secret 策略仍缺；SU-02 已有 work switching 与 work lifecycle 最小闭环，仍缺 pending 迟到结果、重启恢复和完整隔离矩阵；SU-03 assistant display name 已闭环并有真实 LM Studio payload 边界证据。AU-01 普通聊天两轮真实工作台闭环已闭，仍缺异常矩阵；AU-02 candidate continuation/adoption bridge 已闭，continuation 是 `user_message.candidate_selection`，adoption bridge 是服务端授权 `author_action.choose_candidate` 进入 AdoptionBoundary，仍缺直接手输追问反证、多轮质量与真实 LLM 质量复验。
+
+AU-04/AU-06 author action binding checkpoint（2026-06-19）：`ActionValidator` 已收紧 `behavior_ref` / `target_ref` / `candidate_*` / `idempotency_key` 与服务端 available action 的精确绑定；Channel 已覆盖漏传/错配拒绝。当前仍是 backend/channel checkpoint，不是完整 UI 重复点击、TTL、ConfirmationBinding state snapshot 或 behavior history 闭环。
 
 ### 当前重点推进事项（2026-06-17）
 

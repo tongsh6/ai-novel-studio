@@ -2,7 +2,7 @@
 
 > 系统用户视角：我可以给 AI 助手起一个显示名，让对话更像与固定创作搭档协作。这个名字只影响界面展示，不影响 LLM provider、消息 role、TurnResult 契约或 AI 行为能力。
 >
-> 2026-05-19 对账结论：最小真实前端闭环已补齐。`WorkspaceChat` 提供 work-scoped AI 显示名设置入口，Tauri 桌面偏好持久化到 app config `preferences.json`，不同作品互相隔离；消息流、欢迎消息、历史 transcript 和思考态统一消费显示名 helper。该能力只影响 UI label，不改变 provider、prompt、role 或 TurnResult。历史旁路 `历史旁路工作台` 已退役删除，不再作为当前展示面。
+> 2026-06-19 复核结论：真实 Tauri 前端闭环已补齐。`WorkspaceChat` 提供 work-scoped AI 显示名设置入口，Tauri 桌面偏好持久化到 app config `preferences.json`，不同作品互相隔离；消息流、欢迎消息、历史 transcript 和思考态统一消费显示名 helper。`su03-assistant-display-name` 已在默认 provider 与 `--real-lmstudio` 两种模式下通过：改名后发送真实消息，TurnResult 仍保持 `assistant_message` 契约，websocket payload 不携带 UI 显示名，LM Studio `/v1/chat/completions` request body 不包含“创作助手”。该能力只影响 UI label，不改变 provider、prompt、role 或 TurnResult。历史旁路 `历史旁路工作台` 已退役删除，不再作为当前展示面。
 
 ---
 
@@ -165,9 +165,9 @@
 - LLM 请求不因显示名自动改写系统提示词或 provider 参数；
 - trace / replay 不依赖显示名识别 assistant。
 
-**当前证据**：实现只落在 UI preference/helper 与 Tauri preferences，不改 provider/gateway/planner/TurnResult schema；`su03-assistant-display-name` 验证 DOM `data-role="assistant"` 保持 canonical role，label 显示“创作助手”。未用真实 LLM 请求日志单独证明 prompt/provider payload 不变。
+**当前证据**：实现只落在 UI preference/helper 与 Tauri preferences，不改 provider/gateway/planner/TurnResult schema；`su03-assistant-display-name` 在改名后发送真实消息，验证前端 label 显示“创作助手”、websocket `user_message` payload 不包含显示名、TurnResult 仍使用 `assistant_message` 且没有新增显示名字段；`bash scripts/tauri_slice_verify.sh --real-lmstudio su03-assistant-display-name` 进一步验证同一 `turn_id` 的 LM Studio `/v1/chat/completions` request body 不包含“创作助手”。
 
-**当前状态**：部分验收。UI/role 边界已验证；真实 LLM payload 不变仍缺独立日志证据。
+**当前状态**：已实现并通过真实 Tauri + LM Studio payload 验收。
 
 ---
 
@@ -180,9 +180,9 @@
 | SC-SU03-B1 | 设置显示名并即时生效 | 已实现：真实工作台 Dialog 保存后即时更新 | 是 |
 | SC-SU03-B2 | 名称校验、空白回退和重置默认 | 已实现：trim、20 字符上限、空白/reset 回默认 | 是 |
 | SC-SU03-C1 | 按作品隔离显示名 | 已实现：Tauri/browser work-scoped preference，原生验证覆盖切换 | 是 |
-| SC-SU03-C2 | 只影响 UI，不影响 LLM 请求和 TurnResult | 部分验收：canonical role/UI 边界已验证，真实 LLM payload 日志未覆盖 | 部分 |
+| SC-SU03-C2 | 只影响 UI，不影响 LLM 请求和 TurnResult | 已实现：canonical role/UI 边界、websocket payload、TurnResult 契约和真实 LM Studio request body 均已验证 | 是 |
 
-**覆盖结论：6 个场景；5/6 已通过最小真实前端验收；1/6 部分验收（缺真实 LLM payload 日志证据）。**
+**覆盖结论：6 个场景；6/6 已通过真实 Tauri 验收，其中 SC-SU03-C2 额外通过 LM Studio request log 证明显示名不进入 provider payload。**
 
 ---
 
@@ -194,7 +194,7 @@
 | SU03-GAP-02 — 设置入口缺失 | 已解决 | `WorkspaceChat` 顶部 Radix Dialog 设置入口 |
 | SU03-GAP-03 — 持久化与按作品隔离缺失 | 已解决 | Tauri/browser work-scoped preference |
 | SU03-GAP-04 — 展示面硬编码散落 | 已解决 | `assistantRoleLabel` 统一渲染 |
-| SU03-GAP-05 — 行为边界缺验收 | 部分解决 | 已验证 UI label 与 canonical role；仍缺真实 LLM payload 日志证据 |
+| SU03-GAP-05 — 行为边界缺验收 | 已解决 | 已验证 UI label、canonical role、websocket payload、TurnResult 契约与真实 LM Studio request body |
 
 ---
 
@@ -215,6 +215,7 @@
 ```bash
 pnpm --dir frontend test -- assistantDisplayName
 bash scripts/tauri_slice_verify.sh su03-assistant-display-name
+bash scripts/tauri_slice_verify.sh --real-lmstudio su03-assistant-display-name
 ```
 
 > 注意：SU-03 是体验增强项，不阻塞当前主链；实现时必须避免把显示名混入 provider/model 配置或 LLM prompt 语义。

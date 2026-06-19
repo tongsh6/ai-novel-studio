@@ -2,7 +2,7 @@
 
 > 作者视角：我有一个模糊的创作想法但还没想清楚，AI 应该像创作伙伴一样帮我展开思路、给出几个可能方向，并允许我选择某个方向继续探索。候选方向是灵感入口，不应自动写入作品事实；若要采纳为正式方向，必须经过明确的 adoption boundary。
 >
-> 2026-05-12 对账结论：后端 creative exploration、candidate fallback、malformed candidate 修复已有较强证据；`WorkspaceChat` 已能渲染候选卡。但按真实用户场景看，候选卡曾缺“点选继续探索/明确采纳”的操作闭环，且真实入口曾有默认 MicroPlan 风险。后续已补 `au02-candidate-continuation` 与 `au02-candidate-adoption-bridge` 真实 Tauri 证据；历史旁路 `历史旁路工作台` 已退役删除，不再作为当前证据。
+> 2026-06-19 对账结论：后端 creative exploration、candidate fallback、malformed candidate 修复已有较强证据；真实 `WorkspaceChat` 已能渲染候选卡，并区分“继续讨论”和“设为后续方向”。`au02-candidate-continuation` 证明继续讨论发送 `user_message.candidate_selection`，不提交 `author_action`、不触发 adoption、不写作品事实；`au02-candidate-adoption-bridge` 证明明确采纳才提交服务端授权 `author_action.choose_candidate` 并进入 `AdoptionBoundary`。历史旁路工作台已退役删除，不再作为当前证据。
 
 ---
 
@@ -45,10 +45,10 @@
 | `DialogueFrame.frame_type == :creative_exploration` | 标记探索型对话 | 已有后端测试 |
 | `CandidateDirection` | 候选方向结构：title / pitch / tone_tags / adoption_status | 已有后端构造和 fallback 测试 |
 | `TurnResultBuilder.maybe_add_candidates/3` | 把 candidates 写入 TurnResult，并为每个候选生成服务端授权 `choose_candidate` action | `au02-candidate-adoption-bridge` Tauri 证据 |
-| `WorkspaceChat.tsx` candidate panel | 当前真实入口渲染候选方向、继续探索和授权采纳按钮 | `au02-candidate-continuation` / `au02-candidate-adoption-bridge` Tauri 证据 |
-| `turn_result_candidates.test.ts` | 前端候选字段契约测试 | 有测试，但样例 `adoption_status: "tentative"` 与业务期望 `not_adopted` 存在口径风险 |
+| `WorkspaceChat.tsx` candidate panel | 当前真实入口渲染候选方向；继续讨论走 `user_message.candidate_selection`，明确采纳走授权 `author_action.choose_candidate` | `au02-candidate-continuation` / `au02-candidate-adoption-bridge` Tauri 证据 |
+| `turn_result_candidates.test.ts` | 前端候选字段契约测试 | 样例已使用 `adoption_status: "not_adopted"` |
 | `AdoptionBoundary.evaluate/3` | 候选采纳边界 | 已接入 AU-02 候选卡授权采纳闭环；后续需补高风险/stale/conflict/cross-work |
-| `frontend/src/lib/socket.ts` `sendMessage` | 当前真实入口发送 user_message | 普通探索默认不生成 MicroPlan；候选继续探索携带 `candidate_selection` |
+| `frontend/src/lib/socket.ts` `sendMessage` | 当前真实入口发送 user_message | 普通探索默认 `generate_micro_plan=false`；候选继续探索携带 `candidate_selection` 且不请求 MicroPlan |
 
 ---
 
@@ -107,9 +107,9 @@
 - 候选数量合理，通常 2-3 个；
 - 卡片不被误显示为正式设定或已采纳内容。
 
-**当前证据**：`WorkspaceChat.tsx` 渲染 `msg.turnResult.candidate_directions`；`turn_result_candidates.test.ts` 覆盖字段存在时可渲染。
+**当前证据**：`WorkspaceChat.tsx` 渲染 `msg.turnResult.candidate_directions`；`turn_result_candidates.test.ts` 覆盖字段存在时可渲染；`au02-candidate-continuation` 和 `au02-candidate-adoption-bridge` 都从真实 Tauri 工作台观察到候选卡。
 
-**当前状态**：部分实现。前端有渲染代码，缺真实 UI walkthrough。
+**当前状态**：Tauri 已验收。
 
 ---
 
@@ -126,9 +126,9 @@
 - 阅读模式 / 作品事实中看不到未采纳候选；
 - 前端文案不暗示“已采用”。
 
-**当前证据**：`dialogue_gateway_test.exs` candidate directions marked not_adopted；ledger 记录 GAP-WT-01 后端闭环。
+**当前证据**：`dialogue_gateway_test.exs` candidate directions marked not_adopted；`au02-candidate-continuation` 证明点击继续讨论后 `candidate_adopted=false`、`production_write_performed=false` 且没有 adoption/action_result；ledger 记录 GAP-WT-01 后端闭环。
 
-**当前状态**：后端已测试，缺 UI/阅读模式反证验收。
+**当前状态**：Tauri 最小闭环已验收；阅读模式/作品事实反证仍需与 AU-05/AU-08 联动补矩阵。
 
 ---
 
@@ -163,7 +163,7 @@
 - AI 继续自然探索，不写入作品事实；
 - trace 记录 candidate selection 来源。
 
-**当前证据**：`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` 与 `artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` 均证明真实工作台候选卡可点击继续探索，并发送带 `candidate_selection` 的 user_message。
+**当前证据**：`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` 证明真实工作台候选卡“继续聊这个方向”发送带 `candidate_selection` 的 `user_message`，`generate_micro_plan=false`，没有 `author_action` / `action_result` / adoption decision / production write。
 
 **当前状态**：已闭环。
 
@@ -183,7 +183,7 @@
 - trace 记录采纳来源；
 - 阅读模式/作品事实只展示已采纳结果，不展示未采纳候选。
 
-**当前证据**：`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` 证明真实工作台点击“采用这个方向”后发送服务端授权 `author_action.choose_candidate`，`AdoptionBoundary` 返回 `adopt_tentative`，UI 显示采纳结果且 `production_write_performed=false`。
+**当前证据**：`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json` 证明真实工作台点击“设为后续方向”后发送服务端授权 `author_action.choose_candidate`，`AdoptionBoundary` 返回 `adopt_tentative`，UI 显示采纳结果且 `production_write_performed=false`。
 
 **当前状态**：最小闭环已完成。该场景和 AU-05 有交叉，AU-02 负责“候选方向的用户入口”，AU-05 后续继续负责高风险、stale/conflict/cross-work 采纳安全，以及真正进入作品事实/投影的完整链路。
 
@@ -203,9 +203,9 @@
 - 不打开 durable behavior；
 - 不强迫我点击 action。
 
-**当前证据**：`dialogue_gateway_test.exs` 只覆盖多输入每轮有 frame；缺基于 candidate 的多轮上下文验证。
+**当前证据**：`au02-candidate-continuation` 已覆盖“候选卡 -> 点击继续讨论 -> 下一轮自然回复”的一轮真实工作台 checkpoint；`dialogue_gateway_test.exs` 覆盖多输入每轮有 frame。
 
-**当前状态**：未完整验收。
+**当前状态**：最小 Tauri checkpoint 已闭环；多轮连续追问、真实 LLM 质量和上下文引用质量仍未完整验收。
 
 ---
 
@@ -221,9 +221,9 @@
 - 候选卡不是强制选择；
 - 不选择候选也能继续对话。
 
-**当前证据**：`creative_exploration_loop_test.exs` 断言 `available_actions` 为空；前端输入框是否受影响缺 walkthrough。
+**当前证据**：`creative_exploration_loop_test.exs` 断言探索阶段不需要强制 action；`WorkspaceCandidatePanel` 测试证明没有 matching `available_action` 时仍可继续讨论；真实工作台 continuation 证明候选卡不阻塞下一轮消息。
 
-**当前状态**：后端已测试，缺真实 UI 验收。
+**当前状态**：部分闭环；仍缺“候选卡出现后作者不点按钮、直接手输追问”的真实 UI 反证。
 
 ---
 
@@ -239,9 +239,9 @@
 - 不出现工具/确认/采纳卡；
 - truthfulness 仍显示未调用工具、未写入。
 
-**当前证据**：后端支持 reply-only/exploration；但真实入口 `WorkspaceChat -> socket.ts sendMessage` 默认 `generate_micro_plan: true`。
+**当前证据**：`frontend/src/lib/socket.ts` 默认 `generate_micro_plan=false`，`socket.test.ts` 覆盖默认 no-MicroPlan 和 candidate continuation no-MicroPlan；`au02-candidate-continuation` 证明真实候选继续路径发送 `generate_micro_plan=false` 且没有 planner micro plan 事件。
 
-**当前状态**：存在真实入口偏差风险。
+**当前状态**：入口偏差已修正并有最小 Tauri 证据；仍缺真实 LLM 下所有探索变体的质量复验。
 
 ---
 
@@ -277,9 +277,9 @@
 - 前端卡片按这些字段渲染；
 - 测试样例不能使用与业务语义冲突的状态。
 
-**当前证据**：后端构造 `adoption_status: :not_adopted`；`turn_result_candidates.test.ts` 有字段契约测试，但样例写 `adoption_status: "tentative"`。
+**当前证据**：后端构造 `adoption_status: :not_adopted`；`turn_result_candidates.test.ts` 样例使用 `adoption_status: "not_adopted"`；`WorkspaceChat.availableActions.test.tsx` 区分 continuation 与 adoption 按钮。
 
-**当前状态**：部分实现，存在测试样例语义偏差。
+**当前状态**：局部契约已修正；仍需随 codegen/contract pack 做统一 schema 回归。
 
 ---
 
@@ -294,13 +294,13 @@
 | SC-AU02-B3 | 候选缺失或格式坏时 fallback | 后端已测试 | 否 |
 | SC-AU02-B4 | 点选候选方向继续探索 | Tauri 已验收 | 是 |
 | SC-AU02-B5 | 明确采纳候选方向 | Tauri 最小闭环已验收 | 是 |
-| SC-AU02-C1 | 追问一个方向后继续自然展开 | 未完整验收 | 否 |
-| SC-AU02-C2 | 探索阶段始终可自由输入 | 后端已测试 | 否 |
-| SC-AU02-C3 | 探索阶段不误触发执行计划 | 存在真实入口偏差风险 | 否 |
+| SC-AU02-C1 | 追问一个方向后继续自然展开 | 最小 Tauri checkpoint 已验收 | 是（单轮） |
+| SC-AU02-C2 | 探索阶段始终可自由输入 | 部分闭环 | 否 |
+| SC-AU02-C3 | 探索阶段不误触发执行计划 | 最小 Tauri checkpoint 已验收 | 是（候选继续路径） |
 | SC-AU02-D1 | 本地 LM Studio 产生质量可用中文探索 | real LLM 局部测试 | 否 |
-| SC-AU02-D2 | 前后端候选契约一致 | 部分实现 | 否 |
+| SC-AU02-D2 | 前后端候选契约一致 | 局部契约已修正 | 否 |
 
-**覆盖结论：12 个用户场景；4/12 已有真实 Tauri 前后端验收；6/12 有后端/前端局部证据；剩余缺口集中在多轮追问、异常恢复、真实 LMStudio 质量复验和未采纳候选不进入阅读/事实的反证。**
+**覆盖结论：12 个用户场景；6/12 已有最小真实 Tauri 前后端验收；5/12 有后端/前端局部证据；剩余缺口集中在直接手输追问反证、多轮上下文质量、异常恢复、真实 LMStudio 质量复验和未采纳候选不进入阅读/事实的反证。**
 
 ---
 
@@ -310,10 +310,10 @@
 |---|---|---|
 | AU02-GAP-01 — 候选卡缺点选继续探索 | 已闭环：真实工作台可点击“继续聊这个方向”，发送 `candidate_selection` 且不采纳 | 证据：`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` |
 | AU02-GAP-02 — 候选采纳入口未接 adoption boundary | 已闭环：真实工作台点击“采用这个方向”后发送授权 `choose_candidate` action 并进入 `AdoptionBoundary` | 证据：`artifacts/slice-verify/au02-candidate-adoption-bridge-tauri/summary.json`；后续转 AU05 safety/freshness |
-| AU02-GAP-03 — 真实入口默认 `generate_micro_plan: true` | 探索可能误入执行计划，破坏“不强制 action”体验 | P0：与 AU-01 同源修正，普通聊天/探索默认不生成计划 |
-| AU02-GAP-04 — 缺真实 UI walkthrough | 后端能产候选不等于作者能看到、理解、继续操作 | P1：补“输入模糊创意 -> 看到候选 -> 点选继续聊”的 UI 验收 |
-| AU02-GAP-05 — 多轮追问缺验收 | 无法证明探索能持续，而不是一次性候选展示 | P1：补 candidate follow-up 多轮测试 |
-| AU02-GAP-06 — 候选状态契约测试样例偏差 | 前端测试用 `"tentative"` 可能误导候选默认状态 | P1：改为 `not_adopted`，并补 UI 文案不暗示已采纳 |
+| AU02-GAP-03 — 真实入口默认 `generate_micro_plan: true` | 已修正：普通探索默认 no-MicroPlan，候选继续路径也不请求 MicroPlan | 证据：`socket.test.ts`、`artifacts/slice-verify/au02-candidate-continuation-tauri/summary.json` |
+| AU02-GAP-04 — 缺真实 UI walkthrough | 已闭环：真实工作台可见候选卡、点击继续讨论、点击明确采纳 | 证据：`au02-candidate-continuation`、`au02-candidate-adoption-bridge` |
+| AU02-GAP-05 — 多轮追问缺验收 | 仍需证明连续多轮候选上下文质量，而不是只证明单次 continuation | P1：补 candidate follow-up 多轮测试，最好包含 real LMStudio |
+| AU02-GAP-06 — 候选状态契约测试样例偏差 | 已修正：前端候选契约样例为 `not_adopted`，继续/采纳按钮语义分离 | 证据：`turn_result_candidates.test.ts`、`WorkspaceChat.availableActions.test.tsx` |
 | AU02-GAP-07 — 未采纳候选不进入阅读/事实缺反证 | 只证明后端状态，不证明 UI/投影没有误收录 | P1：与 AU-05/AU-08 联动补反证 |
 
 ---
@@ -325,9 +325,11 @@
 | `dialogue_gateway_test.exs` | exploration、candidate fallback、not_adopted、无表单 | 真实工作台是否可见/可点/可继续 |
 | `creative_exploration_loop_test.exs` | partner-like exploration、available_actions 空 | 前端输入框和候选卡交互 |
 | `planner_real_llm_test.exs` | LM Studio 下可解析 exploration | 人工体验质量和 UI 渲染 |
-| `WorkspaceChat.tsx` | 候选卡渲染代码存在 | 选择/采纳候选的用户操作闭环 |
-| `turn_result_candidates.test.ts` | TS 字段形状与渲染门禁 | adoption_status 语义样例目前不准 |
+| `WorkspaceChat.tsx` | 候选卡渲染、继续讨论、授权采纳入口存在 | 多轮质量和异常恢复 |
+| `turn_result_candidates.test.ts` | TS 字段形状、`not_adopted` 状态与渲染门禁 | 真实工作台用户操作 |
 | `AdoptionBoundaryTest` | 候选采纳规则 | AU-02 候选卡是否能进入采纳边界 |
+| `au02-candidate-continuation` | 真实工作台候选继续讨论不进入采纳边界 | 直接手输追问、多轮质量 |
+| `au02-candidate-adoption-bridge` | 真实工作台明确采纳进入授权 action / adoption boundary | 高风险、stale、conflict、cross-work 完整矩阵 |
 
 ---
 
@@ -340,12 +342,20 @@ mix test apps/novel_application/test/novel_application/creative_exploration_loop
 
 # 前端候选字段契约
 cd frontend && pnpm test -- turn_result_candidates.test.ts
+cd frontend && pnpm test -- socket WorkspaceChat.availableActions native-tauri-verifier
+
+# 真实 Tauri 外部验收
+bash scripts/tauri_slice_verify.sh au02-candidate-continuation
+bash scripts/tauri_slice_verify.sh au02-candidate-adoption-bridge
+
+# 质量入口（沙箱外或 CI 中执行；本地受 Mix.PubSub 权限影响时以 tauri_slice_verify 证据为准）
+bash scripts/quality_accept.sh au02-candidate-continuation --surface tauri
+bash scripts/quality_accept.sh au02-candidate-adoption-bridge --surface tauri
 
 # 真实 LM Studio 局部证据
 mix test --include real_llm apps/novel_application/test/novel_application/planner_real_llm_test.exs
 
-# 仍需补：真实 UI walkthrough
-# 目标：输入模糊创意 -> 看到候选卡 -> 点选一个候选继续探索 -> 明确采纳时进入 adoption boundary
+# 仍需补：多轮候选追问 + 直接手输追问 + 未采纳候选不进入阅读/事实反证
 ```
 
 > 注意：AU-02 的完整验收不能停在“后端产生 candidate_directions”。必须证明作者在真实工作台能看到候选、操作候选，并且 selection / adoption 边界清楚。
