@@ -70,4 +70,29 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert followup_body["assistant_message"] =~ nonce
     assert followup_body["candidate_directions"] == []
   end
+
+  test "AU04FAILTOOL marker fails only at creative tool provider stage" do
+    plan_prompt = """
+    proposed_actions
+    当前作者输入：AU04FAILTOOL 请推翻重写第01章正文草稿。
+    """
+
+    assert {:ok, plan_result} =
+             SliceVerify.complete(%SliceVerify{}, nil, plan_prompt, %InferenceParams{})
+
+    plan_body = Jason.decode!(plan_result.content)
+    assert [action] = plan_body["proposed_actions"]
+    assert action["summary"] =~ "AU04FAILTOOL"
+
+    creative_prompt = """
+    JSON 数组
+    artifact_type：prose_fragment
+    创作简述：AU04FAILTOOL 生成一段正文草稿
+    """
+
+    assert {:error, %{type: :provider_error, message: message}} =
+             SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
+
+    assert message == "AU04FAILTOOL fixture provider failure"
+  end
 end

@@ -68,6 +68,7 @@ export const nativeSliceIds = [
   "p1-export-minimum",
   "p1-plan-incremental",
   "au04-confirm-before-execute",
+  "au04-confirmation-tool-failure-recovery",
   "au04-confirm-idempotency-ui",
   "au04-stale-confirmation-ui",
   "au04-confirmation-ttl-ui",
@@ -330,6 +331,16 @@ const sliceKeyEvents = {
     "channel.author_action.start",
     "channel.author_action.done",
     "toolbox.execute.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-confirmation-tool-failure-recovery": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "orchestrator.decide.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "provider_gateway.complete.error",
+    "toolbox.execute.error",
     "slice_verify.ui_state.done",
   ],
   "au04-stale-confirmation-ui": [
@@ -1096,6 +1107,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu04ConfirmBeforeExecuteEvidence(records);
   }
 
+  if (sliceId === "au04-confirmation-tool-failure-recovery") {
+    return findAu04ConfirmationToolFailureRecoveryEvidence(records);
+  }
+
   if (sliceId === "au04-confirm-idempotency-ui") {
     return findAu04ConfirmIdempotencyUiEvidence(records);
   }
@@ -1389,6 +1404,16 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au04-stale-confirmation-ui") {
     return au04StaleConfirmationUiBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-confirmation-tool-failure-recovery") {
+    return au04ConfirmationToolFailureRecoveryBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "au04-confirmation-ttl-ui") {
@@ -5953,6 +5978,95 @@ function findAu04ConfirmIdempotencyUiEvidence(records) {
   };
 }
 
+function findAu04ConfirmationToolFailureRecoveryEvidence(records) {
+  const sliceId = "au04-confirmation-tool-failure-recovery";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.confirmation_card_received === true &&
+      r.plan_carried_over_wire === true &&
+      r.tool_called_before_confirm === false &&
+      r.production_write_before_confirm === false &&
+      r.confirm_action_sent === true &&
+      r.confirm_action_acknowledged === true &&
+      r.confirmed_dispatch_attempted === true &&
+      r.confirmed_turn_failed === true &&
+      r.failure_message_visible === true &&
+      r.no_pending_artifact_after_failure === true &&
+      r.no_production_write_after_failure === true &&
+      r.no_successful_tool_dispatch_after_failure === true &&
+      Number(r.provider_error_count ?? 0) >= 1 &&
+      Number(r.toolbox_execute_error_count ?? 0) >= 1 &&
+      Number(r.toolbox_execute_success_count ?? -1) === 0 &&
+      Number(r.pending_prose_fragment_after_failure_count ?? -1) === 0 &&
+      String(r.confirm_action_behavior_ref ?? "") !== "",
+  );
+  if (!uiState) return null;
+
+  const confirmTurnId = String(uiState.confirm_turn_id ?? "");
+  const failedTurnId = String(uiState.failed_turn_id ?? "");
+  if (!confirmTurnId || !failedTurnId) return null;
+
+  const turnRecords = records.filter((r) => String(r.turn_id ?? "") === confirmTurnId);
+
+  const start = turnRecords.find(
+    (r) => r.event === "channel.user_message.start" && r.generate_micro_plan === false,
+  );
+  if (!start) return null;
+
+  const decisions = turnRecords.filter((r) => r.event === "orchestrator.decide.done");
+  const blockedFirst = decisions.some((r) => r.decision_type === "require_confirmation");
+  const allowedAfterConfirm = decisions.some((r) => r.decision_type === "allow_tool");
+  if (!blockedFirst || !allowedAfterConfirm) return null;
+
+  const confirmDone = records.find(
+    (r) =>
+      r.event === "channel.author_action.done" &&
+      r.turn_id === confirmTurnId &&
+      r.action_type === "confirm_before_execute" &&
+      r.action_status === "accepted",
+  );
+  if (!confirmDone) return null;
+
+  const providerError = turnRecords.find(
+    (r) =>
+      r.event === "provider_gateway.complete.error" &&
+      r.provider === "slice_verify" &&
+      String(r.outcome_detail ?? "").includes("AU04FAILTOOL fixture provider failure"),
+  );
+  if (!providerError) return null;
+
+  const toolboxError = turnRecords.find(
+    (r) =>
+      r.event === "toolbox.execute.error" &&
+      r.tool_name === "prose_writing" &&
+      String(r.tool_outcome ?? "").includes("failed") &&
+      r.reason_code === "provider_error",
+  );
+  if (!toolboxError) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: confirmTurnId,
+    turn_ids: [confirmTurnId],
+    confirm_turn_id: confirmTurnId,
+    failed_turn_id: failedTurnId,
+    confirm_action_behavior_ref: uiState.confirm_action_behavior_ref,
+    confirm_action_id: uiState.confirm_action_id,
+    failed_tool_name: uiState.failed_tool_name,
+    failed_tool_status: uiState.failed_tool_status,
+    provider_error_count: Number(uiState.provider_error_count ?? 0),
+    toolbox_execute_error_count: Number(uiState.toolbox_execute_error_count ?? 0),
+    pending_prose_fragment_after_failure_count: Number(
+      uiState.pending_prose_fragment_after_failure_count ?? 0,
+    ),
+    key_events: keyEvents,
+  };
+}
+
 function findAu04StaleConfirmationUiEvidence(records) {
   const sliceId = "au04-stale-confirmation-ui";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -6897,6 +7011,53 @@ function au04ConfirmationTtlUiBehavior(turnIds, _turnRecords, records, evidence,
       "action_boundary_rejected_expired_confirmation",
       "expired_confirmation_did_not_dispatch_prose_writing",
       "expired_confirmation_did_not_create_pending_prose_fragment",
+    ],
+  };
+}
+
+function au04ConfirmationToolFailureRecoveryBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  _options,
+) {
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === "au04-confirmation-tool-failure-recovery",
+  );
+  if (!uiState) return null;
+  if (uiState.confirmation_card_received !== true) return null;
+  if (uiState.confirm_action_sent !== true) return null;
+  if (uiState.confirm_action_acknowledged !== true) return null;
+  if (uiState.confirmed_dispatch_attempted !== true) return null;
+  if (uiState.confirmed_turn_failed !== true) return null;
+  if (uiState.failure_message_visible !== true) return null;
+  if (uiState.no_pending_artifact_after_failure !== true) return null;
+  if (uiState.no_production_write_after_failure !== true) return null;
+  if (uiState.no_successful_tool_dispatch_after_failure !== true) return null;
+  if (Number(uiState.provider_error_count ?? 0) < 1) return null;
+  if (Number(uiState.toolbox_execute_error_count ?? 0) < 1) return null;
+  if (Number(uiState.pending_prose_fragment_after_failure_count ?? 0) !== 0) return null;
+
+  return {
+    slice_id: "au04-confirmation-tool-failure-recovery",
+    behavior: "confirmed_tool_failure_recovers_without_pending_draft_or_production_write",
+    turn_ids: turnIds,
+    confirm_action_behavior_ref: evidence.confirm_action_behavior_ref,
+    failed_tool_name: evidence.failed_tool_name,
+    failed_tool_status: evidence.failed_tool_status,
+    provider_error_count: evidence.provider_error_count,
+    toolbox_execute_error_count: evidence.toolbox_execute_error_count,
+    assertions: [
+      "real_workbench_received_high_risk_confirmation_card",
+      "confirm_before_execute_was_sent_as_author_action",
+      "confirmation_re_gate_attempted_tool_dispatch",
+      "provider_failure_returned_failed_tool_result",
+      "ui_rendered_author_readable_failure_message",
+      "failed_confirmation_execution_created_no_pending_draft",
+      "failed_confirmation_execution_claimed_no_production_write",
     ],
   };
 }

@@ -16,6 +16,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @invalid_frame_marker "AU01BADFRAME"
   @malformed_candidates_marker "AU02BADCANDIDATES"
   @candidate_context_marker "AU02CTX"
+  @tool_failure_marker "AU04FAILTOOL"
 
   defstruct []
 
@@ -24,31 +25,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     prompt_text = prompt_text(prompt)
     maybe_delay_su02_slow_work_switch(prompt_text)
 
-    content =
-      cond do
-        garbage_json_prompt?(prompt) ->
-          "not valid json {{{ AU01GARBAGE raw provider payload"
+    case maybe_fail_tool_failure_prompt(prompt_text) do
+      :ok ->
+        {:ok, Result.new(response_content(prompt, prompt_text))}
 
-        invalid_frame_prompt?(prompt) ->
-          invalid_frame_response() |> Jason.encode!()
-
-        malformed_candidates_prompt?(prompt) ->
-          malformed_candidates_response() |> Jason.encode!()
-
-        creative_items_prompt?(prompt_text) ->
-          creative_items_response(prompt_text) |> Jason.encode!()
-
-        plan_prompt?(prompt_text) ->
-          plan_response(prompt_text) |> Jason.encode!()
-
-        tool_narration_prompt?(prompt_text) ->
-          tool_narration_response(prompt_text)
-
-        true ->
-          frame_response(prompt) |> Jason.encode!()
-      end
-
-    {:ok, Result.new(content)}
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @impl true
@@ -68,6 +51,43 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp tool_narration_prompt?(prompt) do
     String.contains?(prompt, "## 工具执行结果") and
       String.contains?(prompt, "请用 1-2 句自然中文")
+  end
+
+  defp maybe_fail_tool_failure_prompt(prompt_text) do
+    if tool_failure_prompt?(prompt_text) and creative_items_prompt?(prompt_text) do
+      {:error,
+       %{
+         type: :provider_error,
+         message: "AU04FAILTOOL fixture provider failure"
+       }}
+    else
+      :ok
+    end
+  end
+
+  defp response_content(prompt, prompt_text) do
+    cond do
+      garbage_json_prompt?(prompt) ->
+        "not valid json {{{ AU01GARBAGE raw provider payload"
+
+      invalid_frame_prompt?(prompt) ->
+        invalid_frame_response() |> Jason.encode!()
+
+      malformed_candidates_prompt?(prompt) ->
+        malformed_candidates_response() |> Jason.encode!()
+
+      creative_items_prompt?(prompt_text) ->
+        creative_items_response(prompt_text) |> Jason.encode!()
+
+      plan_prompt?(prompt_text) ->
+        plan_response(prompt_text) |> Jason.encode!()
+
+      tool_narration_prompt?(prompt_text) ->
+        tool_narration_response(prompt_text)
+
+      true ->
+        frame_response(prompt) |> Jason.encode!()
+    end
   end
 
   defp frame_response(prompt) do
@@ -132,6 +152,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp malformed_candidates_prompt?(prompt) do
     prompt |> author_input_text() |> String.contains?(@malformed_candidates_marker)
   end
+
+  defp tool_failure_prompt?(prompt), do: String.contains?(prompt, @tool_failure_marker)
 
   defp invalid_frame_response do
     %{
@@ -417,7 +439,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       %{
         action_id: "act-slice-verify",
         action_type: "capability_invocation",
-        summary: action_summary(tool_name),
+        summary: action_summary(tool_name, author_text),
         target_ref: tool_name,
         write_intent: if(rewrite?, do: "production_candidate", else: "tentative"),
         risk_hint: if(rewrite?, do: "high", else: "low")
@@ -592,11 +614,22 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp action_summary("prose_writing"), do: "生成一段正文草稿"
-  defp action_summary("character_design"), do: "生成一个角色设定草案"
-  defp action_summary("plot_outline"), do: "生成一份大纲草案"
-  defp action_summary("world_building"), do: "生成一组世界设定草案"
-  defp action_summary(_), do: "生成一组可供作者继续选择的创作方向"
+  defp action_summary(tool_name, author_text) do
+    summary =
+      case tool_name do
+        "prose_writing" -> "生成一段正文草稿"
+        "character_design" -> "生成一个角色设定草案"
+        "plot_outline" -> "生成一份大纲草案"
+        "world_building" -> "生成一组世界设定草案"
+        _ -> "生成一组可供作者继续选择的创作方向"
+      end
+
+    if String.contains?(author_text, @tool_failure_marker) do
+      "#{@tool_failure_marker} #{summary}"
+    else
+      summary
+    end
+  end
 
   defp contains_any?(text, terms) do
     Enum.any?(terms, &String.contains?(text, &1))

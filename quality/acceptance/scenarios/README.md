@@ -26,6 +26,7 @@
 | `au03-session-history-readonly.yml` | 历史会话只读回看 |
 | `au03-session-new-active.yml` | 新建会话成为当前 ACTIVE，原 ACTIVE 转为只读历史 |
 | `au04-confirm-before-execute.yml` | 高风险执行先确认并重新 gate |
+| `au04-confirmation-tool-failure-recovery.yml` | 确认后工具失败可恢复且不生成待采纳草稿 |
 | `au04-confirm-idempotency-ui.yml` | 高风险确认重复点击不重复执行 |
 | `au04-stale-confirmation-ui.yml` | 旧确认在上下文推进后不能执行 |
 | `au04-confirmation-ttl-ui.yml` | 过期确认不能执行 |

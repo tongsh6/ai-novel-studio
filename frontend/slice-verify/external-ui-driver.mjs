@@ -4707,6 +4707,197 @@ async function driveAu04ConfirmBeforeExecute(page) {
   ];
 }
 
+async function driveAu04ConfirmationToolFailureRecovery(page) {
+  const requestText =
+    "AU04FAILTOOL 第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿；如果模型执行失败，必须显示失败并保持无待采纳草稿状态。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const confirmTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "needs_confirmation" &&
+      (frame.body?.available_actions ?? []).some(
+        (action) => action.action_type === "confirm_before_execute",
+      ),
+    "No needs_confirmation turn_result with confirm_before_execute action was received",
+    200_000,
+  );
+  const confirmTurnResult = confirmTurnFrame.body;
+  const confirmAction = confirmTurnResult.available_actions.find(
+    (action) => action.action_type === "confirm_before_execute",
+  );
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    { timeout: 10_000 },
+  );
+
+  const beforeConfirmFrameCount = frames.length;
+  const beforeConfirmLogCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: "确认执行" }).first().click();
+
+  const confirmActionFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === confirmAction.action_id,
+    "Real workbench did not send the confirm_before_execute author_action",
+  );
+
+  const actionResultFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.action_id === confirmAction.action_id &&
+      frame.body?.status === "accepted",
+    "Confirmation action was not acknowledged before tool failure recovery",
+  );
+
+  const failedTurnFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      String(frame.body?.tool_result?.status ?? "").includes("failed") &&
+      frame.body?.status === "failed",
+    "No failed prose_writing turn_result was received after confirm_before_execute",
+    200_000,
+  );
+  const failedTurnResult = failedTurnFrame.body;
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("这次没有生成创作草稿") &&
+      document.body.innerText.includes("工具执行失败") &&
+      document.body.innerText.includes("未创建待采纳内容") &&
+      document.body.innerText.includes("没有写入作品事实"),
+    { timeout: 10_000 },
+  );
+  await sleep(1_000);
+
+  const framesAfterConfirm = frames.slice(beforeConfirmFrameCount);
+  const logsAfterConfirm = readAppLogRecords().slice(beforeConfirmLogCount);
+  const providerErrorRecords = logsAfterConfirm.filter(
+    (record) =>
+      record.event === "provider_gateway.complete.error" &&
+      record.provider === "slice_verify" &&
+      String(record.outcome_detail ?? "").includes("AU04FAILTOOL fixture provider failure"),
+  );
+  const toolboxExecuteErrorRecords = logsAfterConfirm.filter(
+    (record) =>
+      record.event === "toolbox.execute.error" &&
+      record.tool_name === "prose_writing" &&
+      String(record.tool_outcome ?? "").includes("failed") &&
+      record.reason_code === "provider_error",
+  );
+  const toolboxExecuteSucceededRecords = logsAfterConfirm.filter(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  const pendingProseFragmentCount = framesAfterConfirm.reduce((count, frame) => {
+    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
+    return (
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "prose_fragment",
+      ).length
+    );
+  }, 0);
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, failedTurnResult, sentMessage);
+
+  assert(
+    confirmTurnResult.truthfulness?.tool_called === false,
+    "Confirmation turn_result claimed tool execution before author confirmed",
+  );
+  assert(
+    confirmTurnResult.truthfulness?.production_write_performed === false,
+    "Confirmation turn_result claimed a production write before author confirmed",
+  );
+  assert(
+    failedTurnResult.truthfulness?.tool_called === true,
+    "Failed turn_result did not record that a tool execution was attempted",
+  );
+  assert(
+    String(failedTurnResult.truthfulness?.tool_status ?? "").includes("failed"),
+    "Failed turn_result did not carry failed tool_status in truthfulness",
+  );
+  assert(
+    failedTurnResult.truthfulness?.production_write_performed === false,
+    "Failed tool turn_result claimed a production write",
+  );
+  assert(
+    (failedTurnResult.adoption_state?.pending ?? []).length === 0,
+    "Failed tool turn_result produced pending adoption entries",
+  );
+  assert(
+    providerErrorRecords.length >= 1,
+    "No provider_gateway.complete.error log recorded the fixture provider failure",
+  );
+  assert(
+    toolboxExecuteErrorRecords.length >= 1,
+    "No toolbox.execute.error log recorded failed prose_writing",
+  );
+  assert(
+    toolboxExecuteSucceededRecords.length === 0,
+    `Expected no successful prose_writing dispatch after failure, got ${toolboxExecuteSucceededRecords.length}`,
+  );
+  assert(
+    pendingProseFragmentCount === 0,
+    `Expected no pending prose_fragment after failed confirmation execution, got ${pendingProseFragmentCount}`,
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: confirmTurnResult.turn_id,
+      confirm_turn_id: confirmTurnResult.turn_id,
+      failed_turn_id: failedTurnResult.turn_id,
+      confirmation_card_received: true,
+      confirmation_card_visible: true,
+      plan_carried_over_wire: confirmTurnResult.plan != null,
+      confirm_action_behavior_ref: confirmAction.behavior_ref ?? "",
+      confirm_action_id: confirmAction.action_id,
+      confirm_action_sent:
+        confirmActionFrame.body?.action?.action_type === "confirm_before_execute",
+      confirm_action_acknowledged: actionResultFrame.body?.status === "accepted",
+      tool_called_before_confirm: confirmTurnResult.truthfulness?.tool_called === true,
+      production_write_before_confirm:
+        confirmTurnResult.truthfulness?.production_write_performed === true,
+      confirmed_dispatch_attempted: failedTurnResult.truthfulness?.tool_called === true,
+      confirmed_turn_failed: failedTurnResult.status === "failed",
+      failed_tool_name: failedTurnResult.tool_result?.tool_name,
+      failed_tool_status: failedTurnResult.tool_result?.status,
+      truthfulness_tool_status: failedTurnResult.truthfulness?.tool_status,
+      production_write_after_failure:
+        failedTurnResult.truthfulness?.production_write_performed === true,
+      pending_prose_fragment_after_failure_count: pendingProseFragmentCount,
+      provider_error_count: providerErrorRecords.length,
+      toolbox_execute_error_count: toolboxExecuteErrorRecords.length,
+      toolbox_execute_success_count: toolboxExecuteSucceededRecords.length,
+      failure_message_visible:
+        visibleText.includes("这次没有生成创作草稿") &&
+        visibleText.includes("工具执行失败"),
+      no_pending_artifact_after_failure: pendingProseFragmentCount === 0,
+      no_successful_tool_dispatch_after_failure: toolboxExecuteSucceededRecords.length === 0,
+      no_production_write_after_failure:
+        failedTurnResult.truthfulness?.production_write_performed === false,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 async function driveAu04ConfirmIdempotencyUi(page) {
   const requestText =
     "第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿，保持为待采纳草稿。";
@@ -10282,6 +10473,7 @@ const drivers = {
   "p1-export-minimum": driveP1ExportMinimum,
   "p1-plan-incremental": driveP1PlanIncremental,
   "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
+  "au04-confirmation-tool-failure-recovery": driveAu04ConfirmationToolFailureRecovery,
   "au04-confirm-idempotency-ui": driveAu04ConfirmIdempotencyUi,
   "au04-stale-confirmation-ui": driveAu04StaleConfirmationUi,
   "au04-confirmation-ttl-ui": driveAu04ConfirmationTtlUi,

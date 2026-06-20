@@ -69,6 +69,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
     expect(nativeSliceIds).toContain("au04-confirm-before-execute");
+    expect(nativeSliceIds).toContain("au04-confirmation-tool-failure-recovery");
     expect(nativeSliceIds).toContain("au04-confirm-idempotency-ui");
     expect(nativeSliceIds).toContain("au04-stale-confirmation-ui");
     expect(nativeSliceIds).toContain("au04-confirmation-ttl-ui");
@@ -118,6 +119,47 @@ describe("native Tauri slice verifier", () => {
         "duplicate_confirm_was_suppressed_or_reported_as_duplicate",
         "re_gate_dispatched_prose_writing_exactly_once",
         "executed_output_stayed_single_tentative_pending_artifact",
+      ],
+    });
+  });
+
+  it("accepts AU-04 confirmation tool failure evidence only when recovery is visible and no draft is produced", () => {
+    const records = au04ConfirmationToolFailureRecoveryRecords();
+
+    const evidence = findNativeSliceEvidence("au04-confirmation-tool-failure-recovery", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au04-confirmation-tool-failure-recovery",
+      turn_id: "turn-au04-tool-failure",
+      confirm_turn_id: "turn-au04-tool-failure",
+      failed_turn_id: "turn-au04-tool-failure",
+      confirm_action_behavior_ref: "behavior-au04-tool-failure",
+      confirm_action_id: "confirm-au04-tool-failure",
+      failed_tool_name: "prose_writing",
+      failed_tool_status: "failed",
+      provider_error_count: 1,
+      toolbox_execute_error_count: 1,
+      pending_prose_fragment_after_failure_count: 0,
+      key_events: keyEventsForSlice("au04-confirmation-tool-failure-recovery"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au04-confirmation-tool-failure-recovery", records, evidence),
+    ).toEqual({
+      slice_id: "au04-confirmation-tool-failure-recovery",
+      behavior: "confirmed_tool_failure_recovers_without_pending_draft_or_production_write",
+      turn_ids: ["turn-au04-tool-failure"],
+      confirm_action_behavior_ref: "behavior-au04-tool-failure",
+      failed_tool_name: "prose_writing",
+      failed_tool_status: "failed",
+      provider_error_count: 1,
+      toolbox_execute_error_count: 1,
+      assertions: [
+        "real_workbench_received_high_risk_confirmation_card",
+        "confirm_before_execute_was_sent_as_author_action",
+        "confirmation_re_gate_attempted_tool_dispatch",
+        "provider_failure_returned_failed_tool_result",
+        "ui_rendered_author_readable_failure_message",
+        "failed_confirmation_execution_created_no_pending_draft",
+        "failed_confirmation_execution_claimed_no_production_write",
       ],
     });
   });
@@ -7888,6 +7930,105 @@ function au04ConfirmIdempotencyUiRecords() {
       no_duplicate_tool_dispatch: true,
       single_pending_artifact_after_confirm: true,
       artifact_pending_after_confirm: true,
+    },
+  ];
+}
+
+function au04ConfirmationToolFailureRecoveryRecords() {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      generate_micro_plan: false,
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      decision_type: "require_confirmation",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-tool-failure",
+      action_type: "confirm_before_execute",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-tool-failure",
+      action_type: "confirm_before_execute",
+      action_status: "accepted",
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      decision_type: "allow_tool",
+    },
+    {
+      event: "provider_gateway.complete.error",
+      turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      provider: "slice_verify",
+      reason_code: "provider_error",
+      outcome_detail: "AU04FAILTOOL fixture provider failure",
+    },
+    {
+      event: "toolbox.execute.error",
+      turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      tool_name: "prose_writing",
+      tool_outcome: "failed",
+      reason_code: "provider_error",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-confirmation-tool-failure-recovery",
+      turn_id: "turn-au04-tool-failure",
+      confirm_turn_id: "turn-au04-tool-failure",
+      failed_turn_id: "turn-au04-tool-failure",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      confirmation_card_received: true,
+      confirmation_card_visible: true,
+      plan_carried_over_wire: true,
+      confirm_action_behavior_ref: "behavior-au04-tool-failure",
+      confirm_action_id: "confirm-au04-tool-failure",
+      confirm_action_sent: true,
+      confirm_action_acknowledged: true,
+      tool_called_before_confirm: false,
+      production_write_before_confirm: false,
+      confirmed_dispatch_attempted: true,
+      confirmed_turn_failed: true,
+      failed_tool_name: "prose_writing",
+      failed_tool_status: "failed",
+      truthfulness_tool_status: "failed",
+      production_write_after_failure: false,
+      pending_prose_fragment_after_failure_count: 0,
+      provider_error_count: 1,
+      toolbox_execute_error_count: 1,
+      toolbox_execute_success_count: 0,
+      failure_message_visible: true,
+      no_pending_artifact_after_failure: true,
+      no_successful_tool_dispatch_after_failure: true,
+      no_production_write_after_failure: true,
     },
   ];
 }

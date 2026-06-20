@@ -267,6 +267,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au04-confirm-before-execute.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au04-confirm-before-execute --surface tauri
+  - id: au04-confirmation-tool-failure-recovery
+    title: "确认后工具失败可恢复且不生成待采纳草稿"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-confirmation-tool-failure-recovery.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-confirmation-tool-failure-recovery --surface tauri
   - id: au04-confirm-idempotency-ui
     title: "高风险确认重复点击不重复执行"
     tier: nightly

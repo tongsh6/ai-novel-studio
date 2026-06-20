@@ -1,0 +1,63 @@
+id: au04-confirmation-tool-failure-recovery
+title: 确认后工具失败可恢复且不生成待采纳草稿
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-confirmation-tool-failure-recovery --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0009-confirmation-binding-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - confirmed-tool-failure-is-rendered-as-author-readable-failure
+  - failed-confirmation-execution-does-not-create-pending-draft
+  - failed-confirmation-execution-does-not-claim-production-write
+  - confirmation-answer-re-gates-before-dispatch
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with an adopted chapter plan
+  - type: high-risk rewrite request that will fail at the confirmed prose_writing provider stage
+  - observe: needs_confirmation turn_result arrives over the real websocket
+  - click: 确认执行
+  - observe: real workbench sends author_action confirm_before_execute
+  - observe: confirmed execution returns a failed turn_result and visible failure copy
+  - observe: no pending prose draft or production write is produced after the failure
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-confirmation-tool-failure-recovery-tauri
+
+assertions:
+  ui:
+    - confirmation action is visible before execution
+    - author-readable failure message is visible after confirmation
+    - no pending draft card is visible after the failed confirmed execution
+  network:
+    - needs_confirmation turn_result includes confirm_before_execute
+    - author_action carries the same server action_id
+    - confirmed execution returns a failed turn_result with prose_writing tool_result
+  data:
+    - no tool call happens before confirmation
+    - prose_writing dispatch is attempted only after re-gate
+    - failed tool_result status is preserved through TurnResult and UI state
+    - no pending prose_fragment is emitted after failure
+    - production_write_performed remains false after failure
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
