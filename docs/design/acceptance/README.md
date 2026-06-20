@@ -1,6 +1,6 @@
 # v3 验收场景全景
 
-> 最后更新：2026-06-19
+> 最后更新：2026-06-20
 >
 > 本目录包含 AI Novel Studio v3 的验收场景文档。按两种用户视角组织：**系统用户**（自然人，配置和运行软件）和**作者用户**（核心用户，用 AI 写小说）。
 >
@@ -37,17 +37,17 @@
 
 | 文档 | 能力 | 场景 | 覆盖率 | 状态 |
 |------|------|------|--------|------|
-| [SU-01](system/SU-01-model-provider.md) | 切换模型供应商 | 10 | 7/10 最小真实 Tauri 证据；B2/C3 已补 secret redaction checkpoint，B3 已补非法 endpoint 校验与模型列表成功矩阵 checkpoint；3/10 仍缺完整真实桌面矩阵 | DeepSeek、运行时切换 API、供应商实时模型列表、工作台模型设置 UI、Tauri 偏好/Keychain、provider/model 审计日志已实现；`su01-model-provider-switching` 已验收 Stub 切换主路径，`su01-lmstudio-disconnected-health` 已验收 LM Studio 未启动断开态，`su01-provider-endpoint-validation` 已验收非法 endpoint 阻断，`su01-provider-model-list-success` 已验收 DeepSeek/Anthropic/LM Studio 模型列表成功管线，`su01-api-key-secret-redaction` 已验收 API Key 配置流脱敏边界；仍缺 Keychain WebView 端到端、live vendor/云端本地失败矩阵与跨平台 secret 策略 |
-| [SU-02](system/SU-02-work-switching.md) | 作品空间管理 | 13 | 10/13 已有最小真实 Tauri 前端闭环；3/13 部分 | 运行时作品菜单、快速未命名创建、命名新增、改名、安全移出、leave/join、消息流隔离和 reload 恢复已有最小证据；真实慢 LLM 迟到结果归属、artifact/projection/trace 全矩阵、恢复/归档管理和后端不可用 UX 仍缺 |
-| [SU-03](system/SU-03-model-nickname.md) | 给模型起名 | 6 | 6/6 真实 Tauri 验收；SC-SU03-C2 有 LM Studio payload 证据 | work-scoped UI 显示名已补；真实消息、TurnResult、websocket payload 和 LM Studio request body 均证明显示名只影响 UI；后续只需随工作台重构做回归 |
+| [SU-01](system/SU-01-model-provider.md) | 切换模型供应商 | 10 | 8/10 已验收；1/10 已实现未验收（C3，外部平台 blocker）；1/10 部分实现（B3）；当前可进入 SU-02 | DeepSeek、运行时切换 API、供应商实时模型列表、工作台模型设置 UI、Tauri 偏好/Keychain、provider/model 审计日志已实现；`su01-model-provider-switching` 已验收 Stub 切换主路径，`su01-lmstudio-disconnected-health` 已验收 LM Studio 未启动断开态，`su01-provider-endpoint-validation` 已验收非法 endpoint 阻断，`su01-provider-model-list-success` 已验收 DeepSeek/Anthropic/LM Studio 模型列表成功管线，`su01-provider-test-failure-ui` 已验收测试连接失败反馈与恢复，`su01-api-key-secret-redaction` 已验收 API Key 配置流脱敏边界；`su01-keychain-webview-roundtrip` 已验收真实 macOS Tauri WebView 保存 Keychain、重启读回与脱敏边界；非 macOS secret 产品口径已实现为 unsupported capability + UI 禁止输入/清除 Key，`tauri-platform-smoke` CI matrix 已补真实平台 Rust contract 与 summary artifact 入口，Windows/Linux 真实页面证据仍登记为外部平台 blocker，P1 仍缺 live vendor/云端供应商真实失败矩阵 |
+| [SU-02](system/SU-02-work-switching.md) | 作品空间管理 | 13 | 13/13 已验收；当前可进入 SU-03 | 运行时作品菜单、空库自动未命名作品、快速未命名创建、命名新增、改名、安全移出、leave/join、消息流隔离、慢回复迟到归属、reload 恢复和 artifact/projection/trace 隔离已有真实 Tauri 证据；恢复/归档管理、后端不可用 UX、大列表和异常矩阵为 P2 后续 |
+| [SU-03](system/SU-03-model-nickname.md) | 给模型起名 | 6 | 6/6 真实 Tauri 验收；SC-SU03-C2 有 LM Studio payload 证据；当前可进入 AU-01 | work-scoped UI 显示名已补；真实消息、TurnResult、websocket payload 和 LM Studio request body 均证明显示名只影响 UI；后续只需随工作台重构做回归 |
 
 ### 作者用户验收（12 文档）
 
 | 文档 | 能力 | 场景 | 覆盖率 | 状态 |
 |------|------|------|--------|------|
-| [AU-01](author/AU-01-chat.md) | 与 AI 聊创作 | 13 | 7/13 已有最小真实 Tauri 前后端 checkpoint；其余仍为局部测试或待补验收 | 普通聊天两轮真实工作台闭环已补，含可见 user/assistant 顺序、thinking 清退、`generate_micro_plan=false`、无 MicroPlan、无 action/candidate/adoption UI；`--real-lmstudio` 证明真实 provider 两轮 form_frame 请求。空消息 guard 已补真实页面验收；乱码、frame validation、replay UI 和异常矩阵仍缺 |
-| [AU-02](author/AU-02-explore.md) | 探索创作方向 | 12 | 7/12 已有最小真实 Tauri 前后端 checkpoint；5/12 有局部证据 | 候选生成、继续探索、候选卡后自由追问、明确采纳桥接、候选 no-MicroPlan 已补；多轮追问、异常恢复、真实 LLM 质量和未采纳反证仍缺 |
-| [AU-03](author/AU-03-context.md) | AI 了解我的作品 | 20 | 6/20 最小真实 Tauri checkpoint；若计入 AU09-AU03 联动则 7 条真实前端证据 | 新建会话、历史会话只读回看、从历史继续创建新分支会话、上下文来源 UI、长会话压缩已有当前可复跑入口；会话搜索命中定位、归档过滤当前入口复跑、最新作品背景 SSOT、完整 replay 页面仍缺 |
+| [AU-01](author/AU-01-chat.md) | 与 AI 聊创作 | 13 | 11/13 有真实页面外部自动化证据；2/13 已测试；文件级可进入 AU-02 | 普通聊天两轮真实工作台闭环已补，含可见 user/assistant 顺序、thinking 清退、`generate_micro_plan=false`、无 MicroPlan、无 action/candidate/adoption UI；`--real-lmstudio` 证明真实 provider 两轮 form_frame 请求。空消息 guard、provider recovery、乱码 JSON 友好降级、frame validation 友好错误和 TurnResult/recorder/UI 同源对账已补真实页面验收；剩余 P1 为 trace/replay UI cross-reference（owner：AU-07），P2 为 no-slot-form UI 反证 |
+| [AU-02](author/AU-02-explore.md) | 探索创作方向 | 12 | 11/12 已有真实 Tauri 前后端 checkpoint；1/12 schema/codegen 契约已测试；当前可进入 AU-03 | 模糊创意自然探索/no-slot-form、真实 LMStudio 中文探索质量、坏候选 fallback UI、候选生成、继续探索、继续讨论后的多轮上下文、候选卡后自由追问、未采纳候选不进阅读/事实、明确采纳桥接、候选 no-MicroPlan 已补；D2 候选方向 schema/codegen 回归已闭环 |
+| [AU-03](author/AU-03-context.md) | AI 了解我的作品 | 20 | 12/20 已验收；2/20 已测试；3/20 部分实现；1/20 已实现未验收；1/20 未实现；1/20 不确定；当前可进入 AU-04 | 新建会话、历史会话只读回看、从历史继续创建新分支会话、归档过滤、最新 Work 背景 SSOT、active transcript 分层、上下文来源 UI、长会话压缩和跨作品/记忆分层已有当前可复跑真实 Tauri 证据；`au03-current-work-context-ssot --real-lmstudio` 证明最新 Work 与 active transcript 进入真实 provider prompt；剩余 P1/P2 为 behavior summary、empty/work-only/failure UI、显式 archived source、AU-07 replay/trace、搜索命中定位和压缩策略细化 |
 | [AU-04](author/AU-04-execute-and-confirm.md) | 执行任务与确认 | 18 | 5/18 最小真实 Tauri checkpoint；7/18 有局部测试；6/18 部分实现或不确定 | `au04-confirm-before-execute` 已证明真实高风险确认主链：needs_confirmation、确认前 no-tool/no-write、点击“确认执行”走 `author_action`、重新 gate 后只产出待采纳草稿；普通聊天不误触发确认和取消等待也有真实证据。剩余重点是重复点击、TTL、stale/cross-work、完整 ConfirmationBinding snapshot、trace/replay 和失败恢复 |
 | [AU-05](author/AU-05-artifact-adoption.md) | 采纳创作产物 | 18 | 0/18 完整真实前后端验收；采纳/放弃/修改后采用与采纳后阅读投影已有最小真实 Tauri 闭环 | 真实采纳入口已接主链；StateTrace、revision/workbox、完整 freshness/conflict 矩阵仍缺 |
 | [AU-06](author/AU-06-behavior-lifecycle.md) | 行为生命周期 | 17 | 0/17 完整真实前后端验收；6/17 有局部证据 | 打开行为已部分实现，resolution/history/TTL/replay 未闭环 |
@@ -119,13 +119,13 @@ mix test apps/novel_web/test/novel_web/channels/
 |------|---------|------|--------|
 | 普通聊天真实工作台验收 | AU-01 AU01-GAP-01 | 已补普通聊天两轮 checkpoint，后续补异常矩阵 | P1 |
 | 普通聊天误触发 MicroPlan 风险 | AU-01 AU01-GAP-02 | 已补两轮 no-MicroPlan + no action/candidate/adoption UI checkpoint | P1 |
-| 聊天异常与降级 UI 体验 | AU-01 AU01-GAP-03~05 | 空消息 guard 已补真实页面验收；继续补乱码/frame validation/replay UI | P1 |
+| 聊天异常与降级 UI 体验 | AU-01 AU01-GAP-06 | 空消息 guard、乱码 JSON recovery、frame validation friendly error 与 TurnResult/recorder/UI 同源对账已补真实页面验收；继续补 replay/trace UI | P1 |
 | 候选卡点选继续探索 | AU-02 AU02-GAP-01 | 已闭环：`au02-candidate-continuation` | closed |
 | 候选采纳桥接 adoption boundary | AU-02 AU02-GAP-02 | 已闭环：`au02-candidate-adoption-bridge` | closed |
-| 探索阶段真实入口与多轮体验 | AU-02 AU02-GAP-03~07 | no-MicroPlan 入口偏差、候选 continuation/freeform follow-up/adoption walkthrough 和候选状态样例已修正；仍补多轮/反证矩阵 | P1 |
-| 作品内会话模型与管理 | AU-03 AU03-GAP-01~03 | 历史只读回看、新建会话和从历史继续分支 checkpoint 已补；继续补搜索命中定位和归档过滤当前入口复跑 | P0/P1 |
-| 最新作品背景接入 context | AU-03 AU03-GAP-04 | 修正/补集成 | P0 |
-| 记忆/行为/来源摘要上下文 | AU-03 AU03-GAP-05~10 | 补集成/补验收 | P1/P2 |
+| 探索阶段真实入口与多轮体验 | AU-02 AU02-GAP-03~10 | 模糊创意自然探索/no-slot-form、真实 LMStudio 中文质量、坏候选 fallback UI、no-MicroPlan 入口偏差、候选 continuation/multiturn context/freeform follow-up/adoption walkthrough、未采纳候选阅读/事实反证和候选 schema/codegen 均已闭环 | done |
+| 作品内会话模型与管理 | AU-03 AU03-GAP-01~03 | 新建会话、历史只读回看、从历史继续分支和归档过滤当前入口均已补真实 Tauri 证据；继续补搜索命中定位/高亮和完整 replay | closed/P2 |
+| 最新作品背景接入 context | AU-03 AU03-GAP-04 | 已闭环：`au03-current-work-context-ssot` 与 `--real-lmstudio` 证明最新 Work snapshot 和 active session transcript 进入真实 provider prompt | closed |
+| 记忆/行为/来源摘要上下文 | AU-03 AU03-GAP-05~10 | memory recall、author-safe 来源摘要、归档过滤和长会话 checkpoint 已补；behavior summary、显式 archived source、真实故障 UI 和 AU-07 replay/trace 继续补 | P1/P2 |
 | 真实入口确认动作接入 `author_action` | AU-04 AU04-GAP-01~02 | 主路径已补：`au04-confirm-before-execute`；完整 card/action matrix 继续补 | P0 |
 | 确认幂等、Binding、取消 lifecycle | AU-04 AU04-GAP-03~06 | 取消等待主路径已补；重复点击、TTL、stale/cross-work 和完整 ConfirmationBinding snapshot 仍需补实现/补验收 | P0 |
 | 确认后任务反馈、真值文案、失败恢复 | AU-04 AU04-GAP-07~09 | 补集成/补测试/补验收 | P1 |
@@ -156,14 +156,14 @@ mix test apps/novel_web/test/novel_web/channels/
 | 工作台 UI 自动化与 Tauri/Design 约束 | AU-10 AU10-GAP-11~12 | AU-10 baseline matrix、真实导出 task_state、provider failure、WebSocket reconnect、cancel waiting 与 provider timeout checkpoint 已补；完整 LongRunner、全 action/card、文案/hidden metadata 卫生待复核 | P0 |
 | AI 引导式创作三层 message 闭环 | AU-11 AU11-GAP-01~05 | SC-AU11-01 已有真实 Tauri checkpoint；继续补缺上下文真实验收、guidance_mode schema 冻结、clarify/confirm 和 prose_writing envelope proof | P0 |
 | 作品档案立项概览后续矩阵与修订入口 | AU-12 SC-AU12-A4/B1~C2 | works 立项字段只读概览 CP1 已闭环；accepted 状态、缺字段/失败、跨作品切换、no-write 计数、accepted-artifact 类立项要素和 correction 修订入口待补 | P1 |
-| 供应商 health/model/error 补齐 | SU-01 SU01-GAP-01~03 | 已补 health connected/disconnected 与 LM Studio 未启动最小真实 Tauri 证据；继续补返回乱码/启动关闭/云端失败矩阵 | P0/P1 |
-| 供应商运行时切换与安全配置 | SU-01 SU01-GAP-04~07 | 已补 Stub 切换主路径、endpoint URL 校验、模型列表成功矩阵、API Key redaction checkpoint、profile-scoped Tauri 偏好与 macOS Keychain 基础实现；继续补 Keychain WebView 端到端、live vendor/失败矩阵和跨平台 secret 验收 | P0 |
-| 作品切换主闭环与隔离 | SU-02 SU02-GAP-01~04 | 最小真实 Tauri 闭环已补；继续补真实慢 LLM 迟到结果、artifact/projection/trace 全矩阵 | P0 |
-| 作品生命周期命名新增、改名、删除或移出 | SU-02 SU02-GAP-06~08 | 最小真实 Tauri 闭环已补；stale/discarded lastOpened reload 降级已补；异常矩阵待补 | P0/P1 |
+| 供应商 health/model/error 补齐 | SU-01 SU01-GAP-01~03 | 已补 health connected/disconnected、LM Studio 未启动、测试连接失败和 AU-01 乱码 JSON recovery 真实 Tauri 证据；继续补启动关闭/云端失败矩阵 | P0/P1 |
+| 供应商运行时切换与安全配置 | SU-01 SU01-GAP-04~07 | 已补 Stub 切换主路径、endpoint URL 校验、模型列表成功矩阵、测试连接失败反馈与恢复、API Key redaction checkpoint、profile-scoped Tauri 偏好与 macOS Keychain 基础实现；`su01-keychain-webview-roundtrip` 已补真实 macOS Tauri WebView Keychain 写读；非 macOS secret 产品口径已实现为 unsupported capability + UI 禁止输入/清除 Key；继续补 live vendor/失败矩阵和非 macOS 真实页面 / 平台矩阵 | P0/P1 |
+| 作品切换主闭环与隔离 | SU-02 SU02-GAP-01~04 | 运行时切换、空库启动、慢回复迟到归属和 artifact/projection/trace 隔离真实 Tauri 闭环已补；角色/统计扩展矩阵后续 | done/P2 |
+| 作品生命周期命名新增、改名、删除或移出 | SU-02 SU02-GAP-06~08 | 最小真实 Tauri 闭环已补；stale/discarded lastOpened reload 降级已补；异常矩阵待补 | done/P2 |
 | 作品管理 UI 与恢复策略 | SU-02 SU02-GAP-09~11 | Tauri preference / browser fallback 口径已纠偏并有 reload checkpoint；恢复/归档管理入口、后端不可用 UX 待补 | P1/P2 |
 | AI 显示名设置与隔离 | SU-03 SU03-GAP-01~05 | 已闭环：默认名、设置/重置、按作品隔离、websocket/TurnResult/LM Studio payload 边界均有真实 Tauri 证据 | done |
 
-**总缺口：持续重算中。当前 SU-01~03、AU-01~12 已按场景化口径重算或新立；SU-01 B3 模型列表成功矩阵已由 `su01-provider-model-list-success` 补最小真实工作台 checkpoint，但 Keychain WebView、live vendor/失败矩阵和跨平台 secret 策略仍未完成；SU-02 作品生命周期命名新增/改名/安全移出和重启恢复已有最小真实 Tauri checkpoint，但真实慢 LLM 迟到结果、artifact/projection/trace 全隔离矩阵、恢复/归档管理和后端不可用 UX 未完成；AU-01 普通聊天两轮与空消息 guard 真实工作台 checkpoint 已补，但乱码/frame validation 异常矩阵和 replay/trace UI 未完成；AU-04 高风险确认主链已由 `au04-confirm-before-execute` 登记为质量场景，但重复点击、TTL、stale/cross-work 和完整 ConfirmationBinding 仍未闭环；AU-12 work profile overview CP1 已闭环但整体未完成。AU-10 baseline/task_state/provider failure/reconnect/cancel/timeout 已有 checkpoint；完整异步 LongRunner 因缺真实生产消费者按 `docs/design/04a-planning-and-long-run.md` 延后。当前继续铺产品功能广度，`AU09-archive-memory-roundtrip` CP2 已由 `au09-adopt-setting-recall` 证明真实页面伏笔/规则生成、adoption、tab 重开可见、recall/why；`AU09-memory-management-workbench-entry` 已由 `au09-memory-management-entry` 证明正式入口与基础生命周期治理；`AU09-memory-trace-roundtrip` 已补 lifecycle/reference author-safe 追溯；`AU09-validity-window-recall` 已补章节有效期窗口；`AU09-cross-work-memory-isolation` 已补跨作品隔离；`AU09-AU03-session-memory-layering` 已补同一作品内 active/historical session 与 governed memory 分层；`AU11-quality-diagnosis-message-envelope` 已补 SC-AU11-01 最小真实工作台 trace proof。**
+**总缺口：持续重算中。当前 SU-01~03、AU-01~12 已按场景化口径重算或新立；SU-01 B3 模型列表成功矩阵已由 `su01-provider-model-list-success` 补最小真实工作台 checkpoint，B4 测试连接失败反馈与恢复已由 `su01-provider-test-failure-ui` 补真实 Tauri 证据，macOS Keychain WebView 写读已由 `su01-keychain-webview-roundtrip` 补真实 Tauri 证据，非 macOS secret 产品口径已实现为 unsupported capability + UI 禁止输入/清除 Key，`tauri-platform-smoke` CI matrix 已补真实平台 Rust contract 与 summary artifact 入口；live vendor/失败矩阵仍是 P1，非 macOS 真实页面证据仍登记为外部平台 blocker。SU-02 空库启动未命名作品、作品生命周期命名新增/改名/安全移出、慢回复迟到归属、重启恢复和 artifact/projection/trace 隔离已有真实 Tauri checkpoint，P0/P1 已闭环，恢复/归档管理、后端不可用 UX、大列表和异常矩阵为 P2 后续；SU-03 work-scoped AI 显示名、默认回退、作品隔离和 UI-only provider 边界已闭环，当前可进入 AU-01。AU-01 普通聊天两轮、空消息 guard、乱码 JSON recovery、frame validation friendly error 和 TurnResult/recorder/UI 同源对账真实工作台 checkpoint 已补，文件级可进入 AU-02；剩余 replay/trace UI 登记为 AU-07 cross-reference，C3 no-slot-form UI 反证为 P2。AU-02 模糊创意自然探索/no-slot-form、真实 LMStudio 中文质量、坏候选 fallback UI、候选 continuation/multiturn context/freeform follow-up/adoption bridge、未采纳阅读/事实反证和 D2 候选 schema/codegen 回归已闭环，文件级可进入 AU-03。AU-03 新建会话、历史只读、从历史继续、归档过滤、最新 Work 背景 SSOT、active transcript 分层、上下文来源、长会话和跨作品/记忆分层已补当前可复跑真实 Tauri 证据，`au03-current-work-context-ssot --real-lmstudio` 已证明真实 provider prompt 分层，P0 已关闭，文件级可进入 AU-04；剩余 behavior summary、显式 archived source、failure UI、AU-07 replay/trace 和搜索/压缩细化登记为 P1/P2。AU-04 高风险确认主链已由 `au04-confirm-before-execute` 登记为质量场景，但重复点击、TTL、stale/cross-work 和完整 ConfirmationBinding 仍未闭环；AU-12 work profile overview CP1 已闭环但整体未完成。AU-10 baseline/task_state/provider failure/reconnect/cancel/timeout 已有 checkpoint；完整异步 LongRunner 因缺真实生产消费者按 `docs/design/04a-planning-and-long-run.md` 延后。当前继续铺产品功能广度，`AU09-archive-memory-roundtrip` CP2 已由 `au09-adopt-setting-recall` 证明真实页面伏笔/规则生成、adoption、tab 重开可见、recall/why；`AU09-memory-management-workbench-entry` 已由 `au09-memory-management-entry` 证明正式入口与基础生命周期治理；`AU09-memory-trace-roundtrip` 已补 lifecycle/reference author-safe 追溯；`AU09-validity-window-recall` 已补章节有效期窗口；`AU09-cross-work-memory-isolation` 已补跨作品隔离；`AU09-AU03-session-memory-layering` 已补同一作品内 active/historical session 与 governed memory 分层；`AU11-quality-diagnosis-message-envelope` 已补 SC-AU11-01 最小真实工作台 trace proof。**
 
 ---
 
