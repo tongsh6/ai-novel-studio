@@ -233,6 +233,14 @@ async function fetchWorkFromApi(id) {
   return body.work;
 }
 
+async function fetchSessionSnapshotFromApi(workId, sessionId) {
+  const response = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}`,
+  );
+  assert(response.ok, `Failed to fetch session snapshot ${sessionId}: HTTP ${response.status}`);
+  return await response.json();
+}
+
 async function discardWorkFromApi(work) {
   const response = await fetch(`${baseUrl}/api/works/${encodeURIComponent(work.id)}/discard`, {
     method: "POST",
@@ -257,6 +265,27 @@ async function waitForWorkByTitle(title, excludedIds = new Set(), timeoutMs = 10
   }
 
   throw new Error(`Work did not appear in API list with title: ${title}`);
+}
+
+async function waitForTranscriptTurn(workId, sessionId, turnId, timeoutMs = 30_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const snapshot = await fetchSessionSnapshotFromApi(workId, sessionId);
+    const transcript = Array.isArray(snapshot.transcript) ? snapshot.transcript : [];
+    const assistantRow = transcript.find(
+      (entry) => entry.turn_id === turnId && entry.role === "assistant",
+    );
+    const userRow = transcript.find((entry) => entry.turn_id === turnId && entry.role === "user");
+
+    if (assistantRow && userRow) {
+      return { snapshot, assistantRow, userRow };
+    }
+
+    await sleep(250);
+  }
+
+  throw new Error(`Transcript did not persist turn ${turnId} for session ${sessionId}`);
 }
 
 async function openWorkMenu(page) {
@@ -288,6 +317,35 @@ async function refreshAndSelectWork(page, title) {
     await sleep(250);
   }
   await clickWorkMenuItemByExactTitle(page, title);
+}
+
+async function ensureWorkSelectedByTitle(page, title, expectedWorkId, timeoutMs = 30_000) {
+  const currentTitle = ((await workTitle(page).textContent()) ?? "").replace(/\s+/g, " ").trim();
+  if (currentTitle.includes(title)) {
+    const existingJoin = readAppLogRecords()
+      .filter((record) => record.event === "channel.join.done" && record.work_id === expectedWorkId)
+      .at(-1);
+    if (existingJoin) return existingJoin;
+
+    const joinReply =
+      latestChannelJoinReply()?.body?.response ?? latestChannelJoinReply()?.body ?? {};
+    return {
+      event: "channel.join.done",
+      workspace_id: expectedWorkId,
+      work_id: expectedWorkId,
+      session_id: joinReply.session_id ?? null,
+      outcome: "ok",
+    };
+  }
+
+  const beforeCount = readAppLogRecords().length;
+  await switchToWorkByTitle(page, title);
+  return await waitForNewAppLogRecord(
+    beforeCount,
+    (record) => record.event === "channel.join.done" && record.work_id === expectedWorkId,
+    `Selecting ${title} did not join expected work channel`,
+    timeoutMs,
+  );
 }
 
 async function waitForVisibleWorkTitle(page, title, timeoutMs = 15_000) {
@@ -856,6 +914,326 @@ async function driveAu01EmptyMessageGuard(page) {
   ];
 }
 
+async function driveAu01GarbageJsonRecovery(page) {
+  const garbageMessage = "AU01GARBAGE：请模拟创作引擎返回格式错误，工作台应显示友好降级。";
+  const recoveryMessage = "乱码降级后继续聊一个雨夜开场的悬疑气质。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  assert((await workTitle(page).count()) > 0, "Real work title button is not visible");
+  assert((await serviceStatus(page).count()) > 0, "Real service status is not visible");
+
+  const garbageTurn = await sendOrdinaryChatTurn(page, garbageMessage, frames.length);
+  const sentGarbageMessage = frames.find(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === garbageMessage,
+  );
+  assert(sentGarbageMessage, "Garbage-triggering message was not sent");
+  assert(
+    sentGarbageMessage.body?.generate_micro_plan === false,
+    "Garbage-triggering ordinary chat did not preserve generate_micro_plan=false",
+  );
+
+  const fallbackText = garbageTurn.turnResult.assistant_message?.text ?? "";
+  assert(
+    fallbackText.includes("格式不符合") && fallbackText.includes("请重试"),
+    `Malformed provider JSON did not render a friendly fallback: ${fallbackText}`,
+  );
+
+  const visibleTextAfterGarbage = await page.locator("body").innerText();
+  const inputEnabledAfterGarbage = await page.locator(chatInputSelector).isEnabled();
+  const serviceStatusTextAfterGarbage = await serviceStatus(page)
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+  const rawProviderPayloadVisible =
+    visibleTextAfterGarbage.includes("not valid json") ||
+    visibleTextAfterGarbage.includes("raw provider payload") ||
+    visibleTextAfterGarbage.includes("{{{");
+
+  assert(!rawProviderPayloadVisible, "Raw malformed provider payload became visible");
+  assert(!visibleTextAfterGarbage.includes("思考中"), "Thinking stayed visible after fallback");
+  assert(inputEnabledAfterGarbage, "Chat input became disabled after malformed provider JSON");
+
+  const recoveryTurn = await sendOrdinaryChatTurn(page, recoveryMessage, frames.length);
+  const sentRecoveryMessage = frames.find(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === recoveryMessage,
+  );
+  assert(sentRecoveryMessage, "Recovery message was not sent after malformed provider JSON");
+  assert(
+    sentRecoveryMessage.body?.generate_micro_plan === false,
+    "Recovery ordinary chat did not preserve generate_micro_plan=false",
+  );
+  assert(
+    !String(recoveryTurn.turnResult.assistant_message?.text ?? "").includes("格式不符合"),
+    "Recovery turn still rendered the malformed JSON fallback",
+  );
+
+  const uiState = await commonUiState(page, recoveryTurn.turnResult, sentRecoveryMessage);
+  const visibleText = await page.locator("body").innerText();
+
+  return [
+    {
+      ...uiState,
+      turn_id: garbageTurn.turnResult.turn_id,
+      turn_ids: [garbageTurn.turnResult.turn_id, recoveryTurn.turnResult.turn_id],
+      ui_turn_ids: [garbageTurn.turnResult.turn_id, recoveryTurn.turnResult.turn_id],
+      garbage_turn_id: garbageTurn.turnResult.turn_id,
+      recovery_turn_id: recoveryTurn.turnResult.turn_id,
+      fallback_message_visible: visibleTextAfterGarbage.includes(fallbackText),
+      raw_provider_payload_visible: rawProviderPayloadVisible,
+      input_enabled_after_garbage: inputEnabledAfterGarbage,
+      thinking_visible_after_garbage: visibleTextAfterGarbage.includes("思考中"),
+      service_status_text_after_garbage: serviceStatusTextAfterGarbage,
+      channel_connected_after_garbage: !serviceStatusTextAfterGarbage.includes("未连接"),
+      garbage_generate_micro_plan: sentGarbageMessage.body?.generate_micro_plan,
+      recovery_generate_micro_plan: sentRecoveryMessage.body?.generate_micro_plan,
+      recovery_message_visible: visibleText.includes(recoveryMessage),
+      recovery_assistant_reply_visible: visibleText.includes(
+        recoveryTurn.turnResult.assistant_message.text,
+      ),
+      recovery_assistant_is_fallback: String(
+        recoveryTurn.turnResult.assistant_message?.text ?? "",
+      ).includes("格式不符合"),
+    },
+  ];
+}
+
+async function driveAu01FrameValidationFriendlyError(page) {
+  const invalidFrameMessage =
+    "AU01BADFRAME：请模拟创作引擎产出带禁止语义的 frame，工作台应拦截并友好提示。";
+  const recoveryMessage = "frame 校验失败后继续聊一个雨夜开场的悬疑气质。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  assert((await workTitle(page).count()) > 0, "Real work title button is not visible");
+  assert((await serviceStatus(page).count()) > 0, "Real service status is not visible");
+
+  const invalidTurn = await sendOrdinaryChatTurn(page, invalidFrameMessage, frames.length);
+  const sentInvalidFrameMessage = frames.find(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === invalidFrameMessage,
+  );
+  assert(sentInvalidFrameMessage, "Invalid-frame-triggering message was not sent");
+  assert(
+    sentInvalidFrameMessage.body?.generate_micro_plan === false,
+    "Invalid-frame ordinary chat did not preserve generate_micro_plan=false",
+  );
+
+  const fallbackText = invalidTurn.turnResult.assistant_message?.text ?? "";
+  assert(
+    fallbackText.includes("这次处理失败") &&
+      fallbackText.includes("未创建待采纳内容") &&
+      fallbackText.includes("没有写入作品事实"),
+    `Frame validation failure did not render the generic friendly fallback: ${fallbackText}`,
+  );
+
+  const serializedTurnResult = JSON.stringify(invalidTurn.turnResult);
+  const visibleTextAfterInvalidFrame = await page.locator("body").innerText();
+  const inputEnabledAfterInvalidFrame = await page.locator(chatInputSelector).isEnabled();
+  const serviceStatusTextAfterInvalidFrame = await serviceStatus(page)
+    .textContent()
+    .then((value) => value?.trim() ?? "");
+  const internalValidationReasonVisible =
+    visibleTextAfterInvalidFrame.includes("frame validation failed") ||
+    visibleTextAfterInvalidFrame.includes("forbidden semantics") ||
+    visibleTextAfterInvalidFrame.includes("ready_to_execute") ||
+    visibleTextAfterInvalidFrame.includes("approved and ready_to_execute") ||
+    visibleTextAfterInvalidFrame.includes("slice_verify raw provider payload");
+  const internalValidationReasonInTurnResult =
+    serializedTurnResult.includes("frame validation failed") ||
+    serializedTurnResult.includes("forbidden semantics") ||
+    serializedTurnResult.includes("ready_to_execute") ||
+    serializedTurnResult.includes("approved and ready_to_execute") ||
+    serializedTurnResult.includes("slice_verify raw provider payload");
+
+  assert(!internalValidationReasonVisible, "Internal frame validation reason became visible");
+  assert(
+    !internalValidationReasonInTurnResult,
+    "Internal frame validation reason leaked into turn_result payload",
+  );
+  assert(
+    !visibleTextAfterInvalidFrame.includes("思考中"),
+    "Thinking stayed visible after fallback",
+  );
+  assert(
+    inputEnabledAfterInvalidFrame,
+    "Chat input became disabled after frame validation failure",
+  );
+
+  const recoveryTurn = await sendOrdinaryChatTurn(page, recoveryMessage, frames.length);
+  const sentRecoveryMessage = frames.find(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === recoveryMessage,
+  );
+  assert(sentRecoveryMessage, "Recovery message was not sent after frame validation failure");
+  assert(
+    sentRecoveryMessage.body?.generate_micro_plan === false,
+    "Recovery ordinary chat did not preserve generate_micro_plan=false",
+  );
+  assert(
+    !String(recoveryTurn.turnResult.assistant_message?.text ?? "").includes("这次处理失败"),
+    "Recovery turn still rendered the frame validation fallback",
+  );
+
+  const uiState = await commonUiState(page, recoveryTurn.turnResult, sentRecoveryMessage);
+  const visibleText = await page.locator("body").innerText();
+
+  return [
+    {
+      ...uiState,
+      turn_id: invalidTurn.turnResult.turn_id,
+      turn_ids: [invalidTurn.turnResult.turn_id, recoveryTurn.turnResult.turn_id],
+      ui_turn_ids: [invalidTurn.turnResult.turn_id, recoveryTurn.turnResult.turn_id],
+      invalid_frame_turn_id: invalidTurn.turnResult.turn_id,
+      recovery_turn_id: recoveryTurn.turnResult.turn_id,
+      fallback_message_visible: visibleTextAfterInvalidFrame.includes(fallbackText),
+      internal_validation_reason_visible: internalValidationReasonVisible,
+      internal_validation_reason_in_turn_result: internalValidationReasonInTurnResult,
+      input_enabled_after_invalid_frame: inputEnabledAfterInvalidFrame,
+      thinking_visible_after_invalid_frame: visibleTextAfterInvalidFrame.includes("思考中"),
+      service_status_text_after_invalid_frame: serviceStatusTextAfterInvalidFrame,
+      channel_connected_after_invalid_frame: !serviceStatusTextAfterInvalidFrame.includes("未连接"),
+      invalid_frame_generate_micro_plan: sentInvalidFrameMessage.body?.generate_micro_plan,
+      recovery_generate_micro_plan: sentRecoveryMessage.body?.generate_micro_plan,
+      recovery_message_visible: visibleText.includes(recoveryMessage),
+      recovery_assistant_reply_visible: visibleText.includes(
+        recoveryTurn.turnResult.assistant_message.text,
+      ),
+      recovery_assistant_is_fallback: String(
+        recoveryTurn.turnResult.assistant_message?.text ?? "",
+      ).includes("这次处理失败"),
+    },
+  ];
+}
+
+async function driveAu01TurnresultRecorderUiConsistency(page) {
+  const message = "请只和我聊雨夜悬疑开场的氛围，不写正文也不改设定。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  const turn = await sendOrdinaryChatTurn(page, message, frames.length);
+  const turnResult = turn.turnResult;
+  const sentMessage = latestSentUserMessage();
+  assert(sentMessage, "No user_message websocket frame was sent for AU-01 recorder check");
+
+  const workId = sentMessage.body?.work_id;
+  const sessionId = sentMessage.body?.session_id;
+  assert(workId, "AU-01 recorder check did not have work_id in user_message");
+  assert(sessionId, "AU-01 recorder check did not have session_id in user_message");
+
+  const assistantText = String(turnResult.assistant_message?.text ?? "");
+  assert(assistantText.length > 0, "TurnResult did not include assistant_message.text");
+
+  const visibleTextBeforeReload = await page.locator("body").innerText();
+  assert(visibleTextBeforeReload.includes(message), "Current UI did not show the user message");
+  assert(visibleTextBeforeReload.includes(assistantText), "Current UI did not show assistant text");
+
+  const { snapshot, assistantRow, userRow } = await waitForTranscriptTurn(
+    workId,
+    sessionId,
+    turnResult.turn_id,
+  );
+  const transcriptTurnResult = assistantRow.turn_result ?? {};
+  const transcriptAssistantText = String(transcriptTurnResult.assistant_message?.text ?? "");
+
+  assert(snapshot.read_only === false, "Active session snapshot was unexpectedly read-only");
+  assert(userRow.text === message, "Recorder user row text did not match the UI input");
+  assert(assistantRow.text === assistantText, "Recorder assistant row text did not match UI text");
+  assert(
+    transcriptTurnResult.turn_id === turnResult.turn_id,
+    "Recorder turn_result turn_id did not match websocket turn_result",
+  );
+  assert(
+    transcriptAssistantText === assistantText,
+    "Recorder turn_result assistant_message.text did not match websocket turn_result",
+  );
+
+  const appLogCountBeforeReload = readAppLogRecords().length;
+  await page.reload({ waitUntil: "domcontentloaded" });
+  await page.locator(chatInputSelector).waitFor({ timeout: 20_000 });
+
+  const resumedAfterReload = await waitForNewAppLogRecord(
+    appLogCountBeforeReload,
+    (record) =>
+      record.event === "work_session.resume.done" &&
+      record.work_id === workId &&
+      record.session_id === sessionId &&
+      Number(record.transcript_count ?? 0) >= Number(snapshot.transcript?.length ?? 2),
+    "Reload did not resume the active session transcript",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (payload) =>
+      document.body.innerText.includes(payload.message) &&
+      document.body.innerText.includes(payload.assistantText) &&
+      !document.body.innerText.includes("思考中"),
+    { message, assistantText },
+    { timeout: 30_000 },
+  );
+
+  const restoredSnapshot = await page.evaluate(() => {
+    const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+    const sendButton = [...document.querySelectorAll("button")].find(
+      (button) => (button.textContent ?? "").trim() === "发送",
+    );
+
+    return {
+      visible_text: document.body.innerText,
+      input_disabled: Boolean(input?.disabled),
+      send_disabled: Boolean(sendButton?.disabled),
+    };
+  });
+
+  assert(!restoredSnapshot.input_disabled, "Chat input was disabled after transcript restore");
+  assert(!restoredSnapshot.send_disabled, "Send button was disabled after transcript restore");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: turnResult.turn_id,
+      turn_ids: [turnResult.turn_id],
+      work_id: workId,
+      workspace_id: workId,
+      context_work_id: workId,
+      session_id: sessionId,
+      active_session_id: sessionId,
+      sent_message_text: message,
+      assistant_text: assistantText,
+      current_ui_user_message_visible: visibleTextBeforeReload.includes(message),
+      current_ui_assistant_visible: visibleTextBeforeReload.includes(assistantText),
+      transcript_user_row_found: Boolean(userRow),
+      transcript_assistant_row_found: Boolean(assistantRow),
+      transcript_user_text_matches_ui: userRow.text === message,
+      transcript_assistant_text_matches_ui: assistantRow.text === assistantText,
+      transcript_turn_result_turn_id_matches_websocket:
+        transcriptTurnResult.turn_id === turnResult.turn_id,
+      transcript_turn_result_assistant_text_matches_websocket:
+        transcriptAssistantText === assistantText,
+      transcript_turn_result_assistant_text: transcriptAssistantText,
+      transcript_count: snapshot.transcript.length,
+      session_snapshot_read_only: snapshot.read_only,
+      reload_resume_transcript_count: resumedAfterReload.transcript_count,
+      restored_ui_user_message_visible: restoredSnapshot.visible_text.includes(message),
+      restored_ui_assistant_visible: restoredSnapshot.visible_text.includes(assistantText),
+      restored_input_enabled: !restoredSnapshot.input_disabled,
+      restored_send_enabled: !restoredSnapshot.send_disabled,
+      generate_micro_plan: sentMessage.body?.generate_micro_plan,
+      thinking_observed: turn.thinkingObserved,
+      socket_connected: true,
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
 async function openArchiveTab(page, tabName) {
   await page.getByText("打开档案").first().click();
   await page.getByRole("tab", { name: tabName }).click();
@@ -871,6 +1249,14 @@ async function archivePanelSnapshot(archivePanel) {
     character_count: Number(element.getAttribute("data-archive-character-count") ?? 0),
     text: element.innerText,
   }));
+}
+
+async function closeArchiveIfOpen(page) {
+  const closeArchive = page.getByRole("button", { name: "关闭档案" });
+  if ((await closeArchive.count()) > 0) {
+    await closeArchive.first().click();
+    await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  }
 }
 
 async function switchToWorkByTitle(page, title) {
@@ -927,7 +1313,10 @@ async function driveAu03SessionHistoryReadonly(page) {
   const searchResponse = await fetch(
     `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions?query=${encodeURIComponent("林瑶旧线索")}`,
   );
-  assert(searchResponse.ok, `Failed to search seeded history session: HTTP ${searchResponse.status}`);
+  assert(
+    searchResponse.ok,
+    `Failed to search seeded history session: HTTP ${searchResponse.status}`,
+  );
   const searchBody = await searchResponse.json();
   const seededHistorySession = (searchBody.sessions ?? []).find(
     (session) => session.title === "林瑶旧线索讨论",
@@ -938,10 +1327,7 @@ async function driveAu03SessionHistoryReadonly(page) {
   await searchBox.waitFor({ timeout: 10_000 });
   await searchBox.fill("林瑶旧线索");
 
-  const historySessionButton = page
-    .locator("button")
-    .filter({ hasText: "林瑶旧线索讨论" })
-    .first();
+  const historySessionButton = page.locator("button").filter({ hasText: "林瑶旧线索讨论" }).first();
   await historySessionButton.waitFor({ timeout: 10_000 });
   await historySessionButton.click();
 
@@ -954,8 +1340,7 @@ async function driveAu03SessionHistoryReadonly(page) {
   );
 
   const readonlySessionButtonText = (
-    (await page.locator("button").filter({ hasText: "林瑶旧线索讨论" }).first().textContent()) ??
-    ""
+    (await page.locator("button").filter({ hasText: "林瑶旧线索讨论" }).first().textContent()) ?? ""
   )
     .replace(/\s+/g, " ")
     .trim();
@@ -1041,7 +1426,10 @@ async function driveAu03BranchFromHistory(page) {
   const searchResponse = await fetch(
     `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions?query=${encodeURIComponent("林瑶旧线索")}`,
   );
-  assert(searchResponse.ok, `Failed to search seeded history session: HTTP ${searchResponse.status}`);
+  assert(
+    searchResponse.ok,
+    `Failed to search seeded history session: HTTP ${searchResponse.status}`,
+  );
   const searchBody = await searchResponse.json();
   const seededHistorySession = (searchBody.sessions ?? []).find(
     (session) => session.title === "林瑶旧线索讨论",
@@ -1053,10 +1441,7 @@ async function driveAu03BranchFromHistory(page) {
   await searchBox.waitFor({ timeout: 10_000 });
   await searchBox.fill("林瑶旧线索");
 
-  const historySessionButton = page
-    .locator("button")
-    .filter({ hasText: "林瑶旧线索讨论" })
-    .first();
+  const historySessionButton = page.locator("button").filter({ hasText: "林瑶旧线索讨论" }).first();
   await historySessionButton.waitFor({ timeout: 10_000 });
   await historySessionButton.click();
 
@@ -1188,6 +1573,210 @@ async function driveAu03BranchFromHistory(page) {
   ];
 }
 
+async function driveAu03ArchiveSessionFilter(page) {
+  const joinReply = latestChannelJoinReply();
+  const workId = joinReply?.body?.response?.work_id ?? joinReply?.body?.work_id ?? null;
+  assert(workId, "No work_id was available from the real channel join");
+
+  const searchResponse = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions?query=${encodeURIComponent("林瑶旧线索")}`,
+  );
+  assert(
+    searchResponse.ok,
+    `Failed to search seeded archive candidate session: HTTP ${searchResponse.status}`,
+  );
+  const searchBody = await searchResponse.json();
+  const seededHistorySession = (searchBody.sessions ?? []).find(
+    (session) => session.title === "林瑶旧线索讨论",
+  );
+  assert(seededHistorySession?.id, "Seeded history session was not available through sessions API");
+
+  const searchBox = page.getByPlaceholder("搜索会话");
+  await searchBox.waitFor({ timeout: 10_000 });
+  await searchBox.fill("林瑶旧线索");
+
+  const historySessionButton = page.locator("button").filter({ hasText: "林瑶旧线索讨论" }).first();
+  await historySessionButton.waitFor({ timeout: 10_000 });
+  await historySessionButton.click();
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("林瑶留下的旧线索"),
+    { timeout: 10_000 },
+  );
+
+  const archiveButton = page.getByRole("button", { name: "归档会话" }).first();
+  await archiveButton.waitFor({ timeout: 10_000 });
+  const archiveButtonVisible = await archiveButton.isVisible();
+  assert(archiveButtonVisible, "Archive button was not visible for the exited history session");
+
+  const archiveCount = readAppLogRecords().length;
+  await archiveButton.click();
+
+  await waitForNewAppLogRecord(
+    archiveCount,
+    (record) =>
+      record.event === "work_session.archive.done" &&
+      record.work_id === workId &&
+      record.session_id === seededHistorySession.id &&
+      record.status === "ARCHIVED",
+    "AU-03 archive session did not persist ARCHIVED status",
+    30_000,
+  );
+
+  await searchBox.fill("");
+  await page.waitForFunction(
+    () =>
+      Array.from(document.querySelectorAll("button")).every(
+        (button) => !(button.textContent ?? "").includes("林瑶旧线索讨论"),
+      ),
+    { timeout: 10_000 },
+  );
+  const defaultHistoryButtonCount = await page
+    .locator("button")
+    .filter({ hasText: "林瑶旧线索讨论" })
+    .count();
+
+  await searchBox.fill("林瑶旧线索");
+  const archivedSessionButton = page
+    .locator("button")
+    .filter({ hasText: "林瑶旧线索讨论" })
+    .first();
+  await archivedSessionButton.waitFor({ timeout: 10_000 });
+  const archivedButtonText = ((await archivedSessionButton.textContent()) ?? "")
+    .replace(/\s+/g, " ")
+    .trim();
+  await archivedSessionButton.click();
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("林瑶留下的旧线索") &&
+      document.body.innerText.includes("正在只读查看历史 transcript"),
+    { timeout: 10_000 },
+  );
+
+  const archivedSnapshot = await page.evaluate(() => ({
+    visible_text: document.body.innerText,
+    readonly_banner_visible:
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("正在只读查看历史 transcript"),
+  }));
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: workId,
+      context_work_id: workId,
+      readonly_session_id: seededHistorySession.id,
+      archive_button_visible: archiveButtonVisible,
+      archived_hidden_default: defaultHistoryButtonCount === 0,
+      archived_search_found: archivedButtonText.includes("ARCHIVED"),
+      archived_banner_visible: archivedSnapshot.readonly_banner_visible,
+      archived_visible_text: archivedSnapshot.visible_text,
+      socket_connected: true,
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
+async function driveAu03CurrentWorkContextSsot(page) {
+  const joinReply = latestChannelJoinReply();
+  const workId = joinReply?.body?.response?.work_id ?? joinReply?.body?.work_id ?? null;
+  const activeSessionId =
+    joinReply?.body?.response?.session_id ?? joinReply?.body?.session_id ?? null;
+  assert(workId, "No work_id was available from the real channel join");
+  assert(activeSessionId, "No active session_id was available from the real channel join");
+
+  const searchResponse = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions?query=${encodeURIComponent("旧主角命名")}`,
+  );
+  assert(
+    searchResponse.ok,
+    `Failed to search seeded current-work history session: HTTP ${searchResponse.status}`,
+  );
+  const searchBody = await searchResponse.json();
+  const historySession = (searchBody.sessions ?? []).find(
+    (session) => session.title === "旧主角命名讨论",
+  );
+  assert(historySession?.id, "Seeded current-work history session was not available");
+
+  const searchBox = page.getByPlaceholder("搜索会话");
+  await searchBox.waitFor({ timeout: 10_000 });
+  await searchBox.fill("旧主角命名");
+
+  const historySessionButton = page.locator("button").filter({ hasText: "旧主角命名讨论" }).first();
+  await historySessionButton.waitFor({ timeout: 10_000 });
+  await historySessionButton.click();
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("主角当时叫林烬") &&
+      document.body.innerText.includes("返回当前会话"),
+    { timeout: 10_000 },
+  );
+  const readonlySnapshot = await page.evaluate(() => ({
+    visible_text: document.body.innerText,
+    readonly_banner_visible:
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("正在只读查看历史 transcript"),
+  }));
+  assert(readonlySnapshot.readonly_banner_visible, "Current-work history session was not read-only");
+
+  await page.getByRole("button", { name: "返回当前会话" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.body.innerText.includes("正在只读查看历史 transcript") &&
+      document.body.innerText.includes("当前会话确认：主角现在叫林澈"),
+    { timeout: 10_000 },
+  );
+
+  const message = "主角现在的核心动机是什么？";
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  await page.waitForFunction(
+    (text) => document.body.innerText.includes(text) && !document.body.innerText.includes("思考中"),
+    message,
+    { timeout: 90_000 },
+  );
+  for (let attempt = 0; attempt < 120 && !latestTurnResult(); attempt += 1) {
+    await page.waitForTimeout(500);
+  }
+
+  const sentMessage = latestSentUserMessage();
+  const turnResult = latestTurnResult();
+  assert(sentMessage, "No current-work user_message websocket frame was sent");
+  assert(turnResult, "No current-work turn_result websocket frame was received");
+
+  const restoredSnapshot = await page.evaluate(() => ({
+    visible_text: document.body.innerText,
+    readonly_banner_visible:
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("正在只读查看历史 transcript"),
+  }));
+  assert(!restoredSnapshot.readonly_banner_visible, "Active session stayed in read-only mode");
+
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      readonly_session_id: historySession.id,
+      active_session_restored: true,
+      readonly_banner_visible: restoredSnapshot.readonly_banner_visible,
+      readonly_visible_text: readonlySnapshot.visible_text,
+      active_visible_text: restoredSnapshot.visible_text,
+      sent_message_text: message,
+    },
+  ];
+}
+
 async function driveAu03SessionNewActive(page) {
   const previousActiveToken = "当前会话继续讨论灵源矿区";
   const newMessage = `AU03 新会话闭环 ${Date.now()}：请只回应本轮新会话。`;
@@ -1198,9 +1787,13 @@ async function driveAu03SessionNewActive(page) {
   assert(workId, "No work_id was available from the real channel join");
   assert(previousActiveSessionId, "No active session_id was available from the real channel join");
 
-  await page.waitForFunction((token) => document.body.innerText.includes(token), previousActiveToken, {
-    timeout: 10_000,
-  });
+  await page.waitForFunction(
+    (token) => document.body.innerText.includes(token),
+    previousActiveToken,
+    {
+      timeout: 10_000,
+    },
+  );
 
   const beforeCreateCount = readAppLogRecords().length;
   await page.getByRole("button", { name: "新建会话" }).click();
@@ -1276,7 +1869,10 @@ async function driveAu03SessionNewActive(page) {
 
   assert(!newSessionSnapshot.input_disabled, "New active session input was disabled");
   assert(!newSessionSnapshot.send_disabled, "New active session send button was disabled");
-  assert(!newSessionSnapshot.old_token_visible, "Previous active transcript leaked into new session");
+  assert(
+    !newSessionSnapshot.old_token_visible,
+    "Previous active transcript leaked into new session",
+  );
 
   const searchBox = page.getByPlaceholder("搜索会话");
   await searchBox.waitFor({ timeout: 10_000 });
@@ -1320,7 +1916,10 @@ async function driveAu03SessionNewActive(page) {
     };
   }, previousActiveToken);
 
-  assert(previousReadonlySnapshot.input_disabled, "Previous readonly session input was not disabled");
+  assert(
+    previousReadonlySnapshot.input_disabled,
+    "Previous readonly session input was not disabled",
+  );
   assert(previousReadonlySnapshot.send_disabled, "Previous readonly session send was not disabled");
   assert(
     previousReadonlySnapshot.old_token_visible,
@@ -1833,8 +2432,11 @@ async function driveAu09Au03SessionMemoryLayering(page) {
   ];
 }
 
-async function createCandidateSourceTurn(page) {
-  await page.locator(chatInputSelector).fill("我想写一个赛博修仙故事，但还没想好小说创作方向。");
+async function createCandidateSourceTurn(
+  page,
+  promptText = "我想写一个赛博修仙故事，但还没想好小说创作方向。",
+) {
+  await page.locator(chatInputSelector).fill(promptText);
   await page.getByRole("button", { name: /^发送$/ }).click();
 
   const sourceTurnFrame = await waitForFrame(
@@ -1957,6 +2559,396 @@ async function driveCandidateContinuation(page) {
   ];
 }
 
+async function driveCandidateMultiturnContext(page) {
+  const nonce = `AU02CTX${Date.now().toString(36).toUpperCase()}`;
+  const sourcePrompt = `${nonce} 我想写一个赛博修仙故事，但还没想好小说创作方向。`;
+  const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page, sourcePrompt);
+  assert(
+    String(candidate.title ?? "").includes(nonce),
+    "Source candidate did not carry the AU02 context nonce",
+  );
+
+  const afterSourceFrameCount = frames.length;
+  await page
+    .getByRole("button", { name: /继续讨论|继续聊这个方向/ })
+    .first()
+    .click();
+
+  const continuationFrame = await waitForNewFrame(
+    afterSourceFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === false &&
+      frame.body?.candidate_selection?.source_turn_ref === sourceTurnResult.turn_id &&
+      frame.body?.candidate_selection?.candidate_ref === candidate.direction_id,
+    "Real workbench did not send candidate_selection for multiturn context setup",
+  );
+
+  const continuationTurnFrame = await waitForNewFrame(
+    afterSourceFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      frame.body.turn_id !== sourceTurnResult.turn_id,
+    "No candidate continuation turn_result was received for multiturn context setup",
+  );
+  const continuationTurnResult = continuationTurnFrame.body;
+
+  const afterContinuationFrameCount = frames.length;
+  const followupText = "这个方向的开场冲突应该怎么设计？不要写正文，只继续聊。";
+  await page.locator(chatInputSelector).fill(followupText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const followupFrame = await waitForNewFrame(
+    afterContinuationFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === followupText &&
+      frame.body?.generate_micro_plan === false &&
+      !frame.body?.candidate_selection,
+    "Real workbench did not send a plain follow-up user_message for candidate context",
+  );
+
+  const followupTurnFrame = await waitForNewFrame(
+    afterContinuationFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id &&
+      ![sourceTurnResult.turn_id, continuationTurnResult.turn_id].includes(frame.body.turn_id),
+    "No candidate context follow-up turn_result was received",
+  );
+  const followupTurnResult = followupTurnFrame.body;
+
+  const followupContext = await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === followupTurnResult.turn_id &&
+      record.has_conversation === true &&
+      record.has_session_summary === true,
+    "Candidate context follow-up did not assemble session conversation context",
+    30_000,
+  );
+
+  const followupReply = followupTurnResult.assistant_message?.text ?? "";
+  assert(
+    followupReply.includes(nonce),
+    "Candidate context follow-up reply did not reflect the prior candidate nonce",
+  );
+  assert(
+    followupTurnResult.truthfulness?.production_write_performed === false,
+    "Candidate context follow-up claimed a production write",
+  );
+  assert(!followupTurnResult.tool_result, "Candidate context follow-up produced a tool result");
+  assert(
+    !followupTurnResult.adoption_decision,
+    "Candidate context follow-up produced an adoption decision",
+  );
+
+  const framesAfterSource = frames.slice(afterSourceFrameCount);
+  assert(
+    !framesAfterSource.some((frame) => frame.event === "author_action"),
+    "Candidate multiturn context sent an author_action",
+  );
+  assert(
+    !framesAfterSource.some((frame) => frame.event === "action_result"),
+    "Candidate multiturn context triggered an action_result",
+  );
+
+  await page.waitForFunction(
+    ({ followup, reply }) =>
+      document.body.innerText.includes(followup) &&
+      document.body.innerText.includes(reply) &&
+      !document.body.innerText.includes("思考中"),
+    { followup: followupText, reply: followupReply },
+    { timeout: 30_000 },
+  );
+
+  const uiState = await commonUiState(page, followupTurnResult, followupFrame);
+  const visibleText = await page.locator("body").innerText();
+
+  return [
+    {
+      ...uiState,
+      source_turn_id: sourceTurnResult.turn_id,
+      continuation_turn_id: continuationTurnResult.turn_id,
+      followup_turn_id: followupTurnResult.turn_id,
+      candidate_ref: candidate.direction_id,
+      candidate_title: candidate.title,
+      candidate_set_ref: `candidate_set:${sourceTurnResult.turn_id}`,
+      context_nonce: nonce,
+      candidate_title_visible: visibleText.includes(candidate.title),
+      continuation_candidate_selection_sent: Boolean(
+        continuationFrame.body?.candidate_selection,
+      ),
+      followup_plain_user_message_sent: !followupFrame.body?.candidate_selection,
+      followup_context_has_conversation: followupContext.has_conversation,
+      followup_context_has_session_summary: followupContext.has_session_summary,
+      followup_reply_contains_context_nonce: followupReply.includes(nonce),
+      followup_message_visible: visibleText.includes(followupText),
+      followup_reply_visible: visibleText.includes(followupReply),
+      generate_micro_plan: followupFrame.body?.generate_micro_plan,
+      tool_result_present: Boolean(followupTurnResult.tool_result),
+      adoption_decision_present: Boolean(followupTurnResult.adoption_decision),
+      candidate_selected: followupTurnResult.truthfulness?.candidate_selected ?? false,
+      candidate_adopted: followupTurnResult.truthfulness?.candidate_adopted ?? false,
+      production_write_performed: followupTurnResult.truthfulness?.production_write_performed,
+      no_author_action_sent: !framesAfterSource.some((frame) => frame.event === "author_action"),
+      no_action_result_received: !framesAfterSource.some(
+        (frame) => frame.event === "action_result",
+      ),
+    },
+  ];
+}
+
+function countChineseCharacters(value) {
+  return (String(value ?? "").match(/[\u4e00-\u9fff]/g) ?? []).length;
+}
+
+function hasJsonCodeShape(value) {
+  return /```|"\s*frame_type"|candidate_directions|assistant_message|\{\s*"/i.test(
+    String(value ?? ""),
+  );
+}
+
+function isCandidateSemanticallyRelevantToCyberCultivation(candidate) {
+  const text = [
+    candidate?.title,
+    candidate?.pitch,
+    ...(Array.isArray(candidate?.tone_tags) ? candidate.tone_tags : []),
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const relevanceTerms = [
+    "赛博",
+    "修仙",
+    "灵根",
+    "灵气",
+    "机甲",
+    "数据",
+    "网络",
+    "芯片",
+    "云端",
+    "心法",
+    "功法",
+    "道场",
+    "神祇",
+    "未来",
+    "机械",
+    "全息",
+  ];
+
+  return relevanceTerms.some((term) => text.includes(term));
+}
+
+async function driveNaturalExplorationNoSlotForm(page) {
+  const beforeSourceFrameCount = frames.length;
+  const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page);
+  const sourceMessage = latestSentUserMessage();
+  assert(sourceMessage, "No source user_message was captured for natural exploration");
+
+  const frameRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "planner.form_frame.done" &&
+      record.turn_id === sourceTurnResult.turn_id &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_count ?? 0) > 0,
+    "Natural exploration turn did not produce a creative_exploration frame",
+    30_000,
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const forbiddenSlotKeys = ["required_slots", "missing_slots", "slot_schema", "slot_form"];
+  const forbiddenSlotFieldsAbsent = forbiddenSlotKeys.every((key) => sourceTurnResult[key] == null);
+  const slotFormPattern = /必填字段|字段表单|请填写字段|slot_schema|required_slots|missing_slots/i;
+  const executionCardPattern = /确认执行|待确认的创作材料|保存为章节正文|工具执行|MicroPlan/i;
+  const framesAfterSource = frames.slice(beforeSourceFrameCount);
+  const naturalReplyText = sourceTurnResult.assistant_message?.text ?? "";
+  const naturalCandidates = sourceTurnResult.candidate_directions ?? [];
+  const lmstudioQualityChecksRequired = process.env.SLICE_VERIFY_PROVIDER === "lmstudio";
+  const naturalReplyChinese = countChineseCharacters(naturalReplyText) >= 8;
+  const naturalReplyNoJsonCode = !hasJsonCodeShape(naturalReplyText);
+  const candidatesNoJsonCode = naturalCandidates.every(
+    (item) =>
+      !hasJsonCodeShape(
+        [
+          item.title,
+          item.pitch,
+          ...(Array.isArray(item.tone_tags) ? item.tone_tags : []),
+        ].join(" "),
+      ),
+  );
+  const candidateSemanticallyRelevant =
+    naturalCandidates.length >= 2 &&
+    naturalCandidates.every(isCandidateSemanticallyRelevantToCyberCultivation);
+
+  assert(
+    visibleText.includes(naturalReplyText),
+    "Natural exploration assistant reply was not visible",
+  );
+  assert(visibleText.includes(candidate.title), "Candidate title was not visible");
+  assert(forbiddenSlotFieldsAbsent, "TurnResult exposed slot form fields for natural exploration");
+  assert(!slotFormPattern.test(visibleText), "Mechanical slot form text was visible");
+  assert(!executionCardPattern.test(visibleText), "Execution or confirmation card was visible");
+  assert(
+    sourceMessage.body?.generate_micro_plan === false,
+    "Natural exploration requested a micro plan",
+  );
+  assert(
+    sourceTurnResult.truthfulness?.production_write_performed === false,
+    "Natural exploration claimed a production write",
+  );
+  assert(!sourceTurnResult.tool_result, "Natural exploration produced a tool result");
+  assert(!sourceTurnResult.adoption_decision, "Natural exploration produced an adoption decision");
+  assert(
+    !framesAfterSource.some((frame) => frame.event === "author_action"),
+    "Natural exploration sent an author_action",
+  );
+  assert(
+    !framesAfterSource.some((frame) => frame.event === "action_result"),
+    "Natural exploration triggered an action_result",
+  );
+  if (lmstudioQualityChecksRequired) {
+    assert(naturalReplyChinese, "LM Studio exploration reply was not a natural Chinese response");
+    assert(naturalReplyNoJsonCode, "LM Studio exploration reply exposed JSON/code shape");
+    assert(candidatesNoJsonCode, "LM Studio exploration candidates exposed JSON/code shape");
+    assert(
+      candidateSemanticallyRelevant,
+      "LM Studio exploration candidates were not semantically tied to cyber cultivation",
+    );
+  }
+
+  const uiState = await commonUiState(page, sourceTurnResult, sourceMessage);
+
+  return [
+    {
+      ...uiState,
+      source_turn_id: sourceTurnResult.turn_id,
+      frame_type: frameRecord.frame_type,
+      candidate_count: Number(frameRecord.candidate_count ?? 0),
+      candidate_ref: candidate.direction_id,
+      candidate_title: candidate.title,
+      candidate_titles: naturalCandidates.map((item) => item.title),
+      candidate_pitches: naturalCandidates.map((item) => item.pitch),
+      candidate_set_ref: `candidate_set:${sourceTurnResult.turn_id}`,
+      natural_reply_visible: visibleText.includes(naturalReplyText),
+      lmstudio_quality_checks_required: lmstudioQualityChecksRequired,
+      natural_reply_chinese: naturalReplyChinese,
+      natural_reply_no_json_code: naturalReplyNoJsonCode,
+      candidates_no_json_code: candidatesNoJsonCode,
+      candidate_semantically_relevant: candidateSemanticallyRelevant,
+      candidate_panel_rendered: await page.locator("[class*=candidatePanel]").count(),
+      slot_form_visible: slotFormPattern.test(visibleText),
+      forbidden_slot_fields_absent: forbiddenSlotFieldsAbsent,
+      durable_clarification_opened: false,
+      execution_card_visible: executionCardPattern.test(visibleText),
+      generate_micro_plan: sourceMessage.body?.generate_micro_plan,
+      tool_result_present: Boolean(sourceTurnResult.tool_result),
+      adoption_decision_present: Boolean(sourceTurnResult.adoption_decision),
+      candidate_selected: sourceTurnResult.truthfulness?.candidate_selected ?? false,
+      candidate_adopted: sourceTurnResult.truthfulness?.candidate_adopted ?? false,
+      production_write_performed: sourceTurnResult.truthfulness?.production_write_performed,
+      no_author_action_sent: !framesAfterSource.some((frame) => frame.event === "author_action"),
+      no_action_result_received: !framesAfterSource.some(
+        (frame) => frame.event === "action_result",
+      ),
+    },
+  ];
+}
+
+async function driveCandidateFallbackUi(page) {
+  const beforeSourceFrameCount = frames.length;
+  const promptText =
+    "AU02BADCANDIDATES 我想写赛博修仙方向，但上游候选格式坏了时也要给可用方向。";
+  const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page, promptText);
+  const sourceMessage = latestSentUserMessage();
+  assert(sourceMessage, "No source user_message was captured for candidate fallback");
+
+  const frameRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "planner.form_frame.done" &&
+      record.turn_id === sourceTurnResult.turn_id &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_count ?? 0) >= 2,
+    "Candidate fallback turn did not produce a creative_exploration frame with candidates",
+    30_000,
+  );
+
+  const candidates = sourceTurnResult.candidate_directions ?? [];
+  const fallbackCandidateTitles = candidates.map((item) => item.title);
+  const fallbackCandidatePitches = candidates.map((item) => item.pitch);
+  const hasKnownFallbackCandidate = fallbackCandidateTitles.includes("矛盾切入");
+  const candidateFieldsNonempty = candidates.every(
+    (item) => String(item.title ?? "").trim() !== "" && String(item.pitch ?? "").trim() !== "",
+  );
+  const candidateStatusesNotAdopted = candidates.every(
+    (item) => item.adoption_status === "not_adopted",
+  );
+  const visibleText = await page.locator("body").innerText();
+  const framesAfterSource = frames.slice(beforeSourceFrameCount);
+
+  assert(
+    sourceMessage.body?.text === promptText &&
+      sourceMessage.body?.generate_micro_plan === false,
+    "Real workbench did not send the malformed-candidate prompt as a no-MicroPlan user_message",
+  );
+  assert(candidates.length >= 2, "Fallback candidate list was not populated");
+  assert(hasKnownFallbackCandidate, "TurnResult did not contain the known Planner fallback candidate");
+  assert(candidateFieldsNonempty, "Fallback candidates contained empty title or pitch");
+  assert(candidateStatusesNotAdopted, "Fallback candidates were not marked not_adopted");
+  assert(visibleText.includes("矛盾切入"), "Fallback candidate title was not visible in UI");
+  assert(
+    sourceTurnResult.truthfulness?.production_write_performed === false,
+    "Candidate fallback turn claimed a production write",
+  );
+  assert(!sourceTurnResult.tool_result, "Candidate fallback turn produced a tool result");
+  assert(!sourceTurnResult.adoption_decision, "Candidate fallback turn produced an adoption decision");
+  assert(
+    !framesAfterSource.some((frame) => frame.event === "author_action"),
+    "Candidate fallback sent an author_action",
+  );
+  assert(
+    !framesAfterSource.some((frame) => frame.event === "action_result"),
+    "Candidate fallback triggered an action_result",
+  );
+
+  const uiState = await commonUiState(page, sourceTurnResult, sourceMessage);
+
+  return [
+    {
+      ...uiState,
+      source_turn_id: sourceTurnResult.turn_id,
+      provider_candidate_payload: "malformed_candidates",
+      frame_type: frameRecord.frame_type,
+      frame_candidate_count: Number(frameRecord.candidate_count ?? 0),
+      turn_result_candidate_count: candidates.length,
+      fallback_candidate_titles: fallbackCandidateTitles,
+      fallback_candidate_pitches: fallbackCandidatePitches,
+      fallback_candidate_visible: visibleText.includes("矛盾切入"),
+      has_known_fallback_candidate: hasKnownFallbackCandidate,
+      candidate_fields_nonempty: candidateFieldsNonempty,
+      candidate_statuses_not_adopted: candidateStatusesNotAdopted,
+      candidate_ref: candidate.direction_id,
+      candidate_set_ref: `candidate_set:${sourceTurnResult.turn_id}`,
+      candidate_panel_rendered: await page.locator("[class*=candidatePanel]").count(),
+      malformed_candidate_prompt_sent: sourceMessage.body?.text === promptText,
+      generate_micro_plan: sourceMessage.body?.generate_micro_plan,
+      tool_result_present: Boolean(sourceTurnResult.tool_result),
+      adoption_decision_present: Boolean(sourceTurnResult.adoption_decision),
+      candidate_selected: sourceTurnResult.truthfulness?.candidate_selected ?? false,
+      candidate_adopted: sourceTurnResult.truthfulness?.candidate_adopted ?? false,
+      production_write_performed: sourceTurnResult.truthfulness?.production_write_performed,
+      no_author_action_sent: !framesAfterSource.some((frame) => frame.event === "author_action"),
+      no_action_result_received: !framesAfterSource.some(
+        (frame) => frame.event === "action_result",
+      ),
+    },
+  ];
+}
+
 async function driveCandidateFreeformFollowup(page) {
   const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page);
   const afterSourceFrameCount = frames.length;
@@ -2062,6 +3054,104 @@ async function driveCandidateFreeformFollowup(page) {
         (frame) => frame.event === "action_result",
       ),
       adoption_decision_present: Boolean(freeformTurnResult.adoption_decision),
+    },
+  ];
+}
+
+async function driveUnadoptedCandidateNoReadingFact(page) {
+  const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page);
+  const sourceMessage = latestSentUserMessage();
+  assert(sourceMessage, "No source user_message was captured for candidate turn");
+
+  const afterSourceFrameCount = frames.length;
+  const beforeReadingLogCount = readAppLogRecords().length;
+  const candidatePitch = candidate.pitch ?? "";
+  const candidateSetRef = `candidate_set:${sourceTurnResult.turn_id}`;
+  const textBeforeReading = await page.locator("body").innerText();
+
+  assert(
+    textBeforeReading.includes(candidate.title),
+    "Candidate title was not visible before reading mode",
+  );
+  assert(
+    candidatePitch === "" || textBeforeReading.includes(candidatePitch),
+    "Candidate pitch was not visible before reading mode",
+  );
+  assert(
+    sourceTurnResult.truthfulness?.production_write_performed === false,
+    "Source candidate turn claimed a production write",
+  );
+
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
+
+  const tocRecord = await waitForNewAppLogRecord(
+    beforeReadingLogCount,
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === sourceMessage.body?.work_id &&
+      Number(record.chapter_count ?? -1) === 0 &&
+      Number(record.total_word_count ?? -1) === 0,
+    "Reading mode did not read an empty TOC after unadopted candidate presentation",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    ({ title, pitch }) =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("暂无已采纳的章节内容") &&
+      !document.body.innerText.includes(title) &&
+      (pitch === "" || !document.body.innerText.includes(pitch)),
+    { title: candidate.title, pitch: candidatePitch },
+    { timeout: 15_000 },
+  );
+
+  const readingText = await page.locator("body").innerText();
+  const framesAfterSource = frames.slice(afterSourceFrameCount);
+  assert(
+    !framesAfterSource.some((frame) => frame.event === "author_action"),
+    "Unadopted candidate check sent an author_action",
+  );
+  assert(
+    !framesAfterSource.some((frame) => frame.event === "action_result"),
+    "Unadopted candidate check triggered an action_result",
+  );
+  assert(
+    !sourceTurnResult.adoption_decision,
+    "Source candidate turn produced an adoption decision",
+  );
+
+  const uiState = await commonUiState(page, sourceTurnResult, sourceMessage);
+
+  return [
+    {
+      ...uiState,
+      source_turn_id: sourceTurnResult.turn_id,
+      candidate_ref: candidate.direction_id,
+      candidate_title: candidate.title,
+      candidate_pitch: candidatePitch,
+      candidate_set_ref: candidateSetRef,
+      frame_badge_label: "探索方向",
+      frame_badge_kind: "exploration",
+      candidate_panel_rendered_before_reading: true,
+      reading_mode_opened: true,
+      reading_empty_state_visible: readingText.includes("暂无已采纳的章节内容"),
+      reading_toc_chapter_count: Number(tocRecord.chapter_count ?? -1),
+      reading_total_word_count: Number(tocRecord.total_word_count ?? -1),
+      candidate_title_visible_in_reading: readingText.includes(candidate.title),
+      candidate_pitch_visible_in_reading:
+        candidatePitch !== "" && readingText.includes(candidatePitch),
+      candidate_selected: sourceTurnResult.truthfulness?.candidate_selected ?? false,
+      candidate_adopted: sourceTurnResult.truthfulness?.candidate_adopted ?? false,
+      production_write_performed: sourceTurnResult.truthfulness?.production_write_performed,
+      adoption_decision_present: Boolean(sourceTurnResult.adoption_decision),
+      generate_micro_plan: sourceMessage.body?.generate_micro_plan,
+      no_author_action_sent: !framesAfterSource.some((frame) => frame.event === "author_action"),
+      no_action_result_received: !framesAfterSource.some(
+        (frame) => frame.event === "action_result",
+      ),
+      no_projection_events: !readAppLogRecords()
+        .slice(beforeReadingLogCount)
+        .some((record) => String(record.event ?? "").startsWith("projection.")),
     },
   ];
 }
@@ -3559,9 +4649,7 @@ async function driveAu04ConfirmBeforeExecute(page) {
       /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(
         document.body.innerText,
       ) &&
-      /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
-        document.body.innerText,
-      ),
+      /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(document.body.innerText),
     { timeout: 10_000 },
   );
 
@@ -3621,9 +4709,7 @@ async function driveAu04ConfirmBeforeExecute(page) {
 
 function visibleTextIncludesPendingDraft(visibleText) {
   // 确认后页面已进入待采纳态；确认卡可见性在点击前已由 waitForFunction 证明。
-  return /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(
-    visibleText,
-  );
+  return /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(visibleText);
 }
 
 async function driveP1ChapterWordCountTarget(page) {
@@ -6532,6 +7618,116 @@ async function driveSu01ProviderModelListSuccess(page) {
   }
 }
 
+async function driveSu01ProviderTestFailureUi(page) {
+  const joined = await waitForAppLogRecord(
+    (record) => record.event === "channel.join.done" && record.work_id,
+    "Workbench did not join a work before provider test failure verification",
+    30_000,
+  );
+  const lmstudioServer = await startOpenAiModelsFixtureServer([
+    { id: "local-slice-failure-recovery", owned_by: "lmstudio" },
+  ]);
+  const failingEndpoint = "http://127.0.0.1:1/v1";
+
+  try {
+    await page
+      .getByRole("button", { name: /模型设置|Stub|LM Studio|DeepSeek|Anthropic/ })
+      .first()
+      .click();
+    await page.getByRole("dialog", { name: "模型供应商" }).waitFor({ timeout: 10_000 });
+
+    const loaded = await loadAndSelectProviderModel(page, {
+      provider: "lmstudio",
+      endpoint: lmstudioServer.endpoint,
+      expectedModel: "local-slice-failure-recovery",
+    });
+
+    await page.locator("#model-provider-endpoint-input").fill(failingEndpoint);
+    await page.getByRole("button", { name: "测试连接" }).click();
+    await page.waitForFunction(
+      () =>
+        document.body.innerText.includes("连接不可用") ||
+        document.body.innerText.includes("LM Studio 未启动"),
+      {
+        timeout: 10_000,
+      },
+    );
+
+    const failureVisibleText = await page.locator("body").innerText();
+    const dialogStillOpen = (await page.getByRole("dialog", { name: "模型供应商" }).count()) > 0;
+    const providerAfterFailure = await page.locator("#model-provider-select").inputValue();
+    const endpointAfterFailure = await page.locator("#model-provider-endpoint-input").inputValue();
+    const appLogCountAfterFailure = readAppLogRecords().length;
+
+    await page.locator("#model-provider-endpoint-input").fill(lmstudioServer.endpoint);
+    await page.getByRole("button", { name: "测试连接" }).click();
+    await page.waitForFunction(() => document.body.innerText.includes("连接可用。"), {
+      timeout: 10_000,
+    });
+
+    const successVisibleText = await page.locator("body").innerText();
+    const providerAfterRecovery = await page.locator("#model-provider-select").inputValue();
+    const endpointAfterRecovery = await page.locator("#model-provider-endpoint-input").inputValue();
+    const appLogCountAfterRecovery = readAppLogRecords().length;
+
+    assert(
+      loaded.selected === "local-slice-failure-recovery",
+      "LM Studio fixture model was not selected before failure test",
+    );
+    assert(dialogStillOpen, "Model provider dialog closed after failed test connection");
+    assert(
+      providerAfterFailure === "lmstudio" && providerAfterRecovery === "lmstudio",
+      "Provider draft was not preserved across failed and recovered test connection",
+    );
+    assert(
+      endpointAfterFailure === failingEndpoint,
+      "Failed endpoint was not preserved after failed test connection",
+    );
+    assert(
+      endpointAfterRecovery === lmstudioServer.endpoint,
+      "Recovered endpoint was not preserved after successful retry",
+    );
+    assert(
+      failureVisibleText.includes("LM Studio 未启动") || failureVisibleText.includes("连接不可用"),
+      "Failed test connection did not show an author-readable reason",
+    );
+    assert(successVisibleText.includes("连接可用。"), "Recovered test connection did not succeed");
+    assert(
+      appLogCountAfterRecovery === appLogCountAfterFailure,
+      "Testing provider connection created application JSONL turn events",
+    );
+
+    return [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su01-provider-test-failure-ui",
+        work_id: joined.work_id,
+        context_work_id: joined.work_id,
+        session_id: joined.session_id,
+        socket_connected: true,
+        provider_selected: providerAfterFailure,
+        model_selected_before_failure: loaded.selected,
+        failing_endpoint: failingEndpoint,
+        recovered_endpoint: endpointAfterRecovery,
+        failure_message_visible:
+          failureVisibleText.includes("连接不可用") ||
+          failureVisibleText.includes("LM Studio 未启动"),
+        failure_reason_visible:
+          failureVisibleText.includes("LM Studio 未启动") ||
+          failureVisibleText.includes("连接不可用"),
+        dialog_stayed_open_after_failure: dialogStillOpen,
+        provider_draft_preserved_after_failure: providerAfterFailure === "lmstudio",
+        endpoint_draft_preserved_after_failure: endpointAfterFailure === failingEndpoint,
+        recovery_test_succeeded: successVisibleText.includes("连接可用。"),
+        no_turn_events_created_by_test_connection:
+          appLogCountAfterRecovery === appLogCountAfterFailure,
+      },
+    ];
+  } finally {
+    await lmstudioServer.close();
+  }
+}
+
 async function driveSu01ApiKeySecretRedaction(page) {
   const joined = await waitForAppLogRecord(
     (record) => record.event === "channel.join.done" && record.work_id,
@@ -6699,6 +7895,577 @@ async function driveSu02WorkSwitching(page) {
   ];
 }
 
+async function driveSu02ArtifactProjectionTraceIsolation(page) {
+  const nonce = `SU02APT${Date.now()}`;
+  const sourceTitle = "P1 单章正文草稿验证作品";
+  const targetTitle = `SU02隔离乙-${nonce}`;
+  const chapterTitle = "第01章：底层灵气账单";
+  const sourceWork = await waitForWorkByTitle(sourceTitle);
+
+  const sourceJoin = await ensureWorkSelectedByTitle(page, sourceTitle, sourceWork.id);
+  await waitForVisibleWorkTitle(page, sourceTitle);
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    (title) =>
+      document.body.innerText.includes("已采纳章节计划") && document.body.innerText.includes(title),
+    chapterTitle,
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "生成正文草稿" }).first().click();
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.work_id === sourceWork.id &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No source work prose_fragment turn_result websocket frame was received",
+    170_000,
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+  const draftBody = String(pendingArtifact.payload?.items?.[0]?.body ?? "");
+  const draftNeedle = draftBody.includes("灵气账单") ? "灵气账单" : chapterTitle;
+  assert(pendingArtifact.artifact_id, "Source draft did not include an artifact id");
+  assert(draftTurnResult.trace_summary?.trace_ref, "Source draft turn did not include trace_ref");
+
+  await page.waitForFunction(
+    (needle) =>
+      /待确认的创作材料|正文草稿|待保存章节草稿/.test(document.body.innerText) &&
+      document.body.innerText.includes(needle),
+    draftNeedle,
+    { timeout: 10_000 },
+  );
+  const pendingVisibleInSourceBeforeSwitch =
+    (await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) > 0;
+  assert(
+    pendingVisibleInSourceBeforeSwitch,
+    "Source pending artifact accept action is not visible",
+  );
+  await closeArchiveIfOpen(page);
+
+  const worksBeforeTargetCreate = new Set((await listWorksFromApi()).map((work) => work.id));
+  const targetCreateLogCount = readAppLogRecords().length;
+  await openNamedCreateWorkDialog(page);
+  await submitWorkTitleDialog(page, targetTitle, "创建");
+  const targetWork = await waitForWorkByTitle(targetTitle, worksBeforeTargetCreate);
+  const targetJoin = await waitForNewAppLogRecord(
+    targetCreateLogCount,
+    (record) => record.event === "channel.join.done" && record.work_id === targetWork.id,
+    "Creating target work did not join its workspace channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, targetTitle);
+
+  const targetTextAfterPendingSwitch = await page.locator("body").innerText();
+  const pendingArtifactVisibleInTarget =
+    targetTextAfterPendingSwitch.includes("待确认的创作材料") ||
+    targetTextAfterPendingSwitch.includes("待保存章节草稿") ||
+    targetTextAfterPendingSwitch.includes(pendingArtifact.artifact_id) ||
+    targetTextAfterPendingSwitch.includes(draftNeedle);
+  assert(!pendingArtifactVisibleInTarget, "Source pending artifact leaked into target work UI");
+
+  const targetTocBeforeAdoptionCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
+  const targetEmptyTocBeforeAdoption = await waitForNewAppLogRecord(
+    targetTocBeforeAdoptionCount,
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === targetWork.id &&
+      Number(record.chapter_count ?? -1) === 0 &&
+      Number(record.total_word_count ?? -1) === 0,
+    "Target work did not read an empty TOC before source adoption",
+    30_000,
+  );
+  await page.waitForFunction(
+    (needle) =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("暂无已采纳的章节内容") &&
+      !document.body.innerText.includes(needle),
+    draftNeedle,
+    { timeout: 15_000 },
+  );
+  const targetReadingTextBeforeAdoption = await page.locator("body").innerText();
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const sourceReturnJoin = await ensureWorkSelectedByTitle(page, sourceTitle, sourceWork.id);
+  await waitForVisibleWorkTitle(page, sourceTitle);
+  await page.waitForFunction(
+    (needle) =>
+      /待确认的创作材料|正文草稿|待保存章节草稿/.test(document.body.innerText) &&
+      document.body.innerText.includes(needle),
+    draftNeedle,
+    { timeout: 15_000 },
+  );
+  const sourceTextAfterReturn = await page.locator("body").innerText();
+  const pendingRestoredInSource =
+    sourceTextAfterReturn.includes(draftNeedle) &&
+    (await page.getByRole("button", { name: acceptDraftButtonPattern }).count()) > 0;
+  assert(pendingRestoredInSource, "Source pending artifact was not restored after switching back");
+
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+  const acceptActionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.topic === `workspace:${sourceWork.id}` &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === pendingArtifact.artifact_id,
+    "Real workbench did not send source-scoped accept author_action",
+    10_000,
+  );
+  const adoptTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.work_id === sourceWork.id &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some(
+        (entry) => entry.artifact_id === pendingArtifact.artifact_id,
+      ),
+    "No source-scoped artifact adoption turn_result websocket frame was received",
+    120_000,
+  );
+  const adoptTurnResult = adoptTurnFrame.body;
+
+  const sourceTocAfterAdoptionCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
+  const sourceTocAfterAdoption = await waitForNewAppLogRecord(
+    sourceTocAfterAdoptionCount,
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === sourceWork.id &&
+      Number(record.chapter_count ?? 0) >= 1 &&
+      Number(record.total_word_count ?? 0) > 0,
+    "Source work did not read a populated TOC after adoption",
+    30_000,
+  );
+  const sourceChapterContent = await waitForNewAppLogRecord(
+    sourceTocAfterAdoptionCount,
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.work_id === sourceWork.id &&
+      Number(record.content_chars ?? 0) > 0,
+    "Source work did not read adopted chapter content after adoption",
+    30_000,
+  );
+  await page.waitForFunction(
+    (needle) =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("全书有效字数") &&
+      document.body.innerText.includes("本章有效字数") &&
+      document.body.innerText.includes(needle) &&
+      !document.body.innerText.includes("暂无已采纳的章节内容"),
+    draftNeedle,
+    { timeout: 15_000 },
+  );
+  const sourceReadingTextAfterAdoption = await page.locator("body").innerText();
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const targetReturnJoin = await ensureWorkSelectedByTitle(page, targetTitle, targetWork.id);
+  await waitForVisibleWorkTitle(page, targetTitle);
+
+  const targetTocAfterAdoptionCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
+  const targetEmptyTocAfterAdoption = await waitForNewAppLogRecord(
+    targetTocAfterAdoptionCount,
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === targetWork.id &&
+      Number(record.chapter_count ?? -1) === 0 &&
+      Number(record.total_word_count ?? -1) === 0,
+    "Target work did not stay empty after source adoption",
+    30_000,
+  );
+  await page.waitForFunction(
+    (needle) =>
+      document.body.innerText.includes("阅读模式") &&
+      document.body.innerText.includes("暂无已采纳的章节内容") &&
+      !document.body.innerText.includes(needle),
+    draftNeedle,
+    { timeout: 15_000 },
+  );
+  const targetReadingTextAfterAdoption = await page.locator("body").innerText();
+  await page.getByRole("button", { name: "返回工作台" }).click();
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const targetTraceMessage = `请用一句话说明当前作品 ${targetTitle} 的创作状态。`;
+  const targetTraceFrameCount = frames.length;
+  await page.locator(chatInputSelector).fill(targetTraceMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+  const targetSentFrame = await waitForNewFrame(
+    targetTraceFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === targetWork.id &&
+      String(frame.body?.text ?? "").includes(targetTitle),
+    "Target trace probe was not sent with target work id",
+    10_000,
+  );
+  const targetTraceTurnFrame = await waitForNewFrame(
+    targetTraceFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.work_id === targetWork.id &&
+      frame.body?.assistant_message != null &&
+      frame.body?.trace_summary?.trace_ref,
+    "No target work turn_result with trace summary was received",
+    120_000,
+  );
+  const targetTraceTurnResult = targetTraceTurnFrame.body;
+  await page.waitForFunction(
+    (message) =>
+      document.body.innerText.includes(message) && !document.body.innerText.includes("思考中"),
+    targetTraceMessage,
+    { timeout: 30_000 },
+  );
+  const whyText = await openLatestWhyDialog(page);
+  const targetContextRefs = targetTraceTurnResult.trace_summary?.context_refs ?? [];
+  const targetTraceExcludesSource =
+    !JSON.stringify(targetContextRefs).includes(sourceWork.id) &&
+    !JSON.stringify(targetContextRefs).includes(sourceTitle) &&
+    !JSON.stringify(targetContextRefs).includes(chapterTitle) &&
+    !whyText.includes(sourceTitle) &&
+    !whyText.includes(chapterTitle) &&
+    !whyText.includes(draftNeedle);
+  assert(targetTraceExcludesSource, "Target trace/why included source work artifact context");
+
+  const targetVisibleAfterTrace = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, targetTraceTurnResult, targetSentFrame);
+  const joinedWorkIds = [
+    ...new Set(
+      readAppLogRecords()
+        .filter((record) => record.event === "channel.join.done" && record.work_id)
+        .map((record) => String(record.work_id)),
+    ),
+  ];
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      turn_ids: [
+        draftTurnResult.turn_id,
+        adoptTurnResult.turn_id,
+        targetTraceTurnResult.turn_id,
+      ].filter(Boolean),
+      draft_turn_id: draftTurnResult.turn_id,
+      adopt_turn_id: adoptTurnResult.turn_id,
+      target_trace_turn_id: targetTraceTurnResult.turn_id,
+      work_id: targetWork.id,
+      context_work_id: targetWork.id,
+      source_work_id: sourceWork.id,
+      target_work_id: targetWork.id,
+      source_session_id: sourceJoin.session_id,
+      target_session_id: targetReturnJoin.session_id ?? targetJoin.session_id,
+      source_return_session_id: sourceReturnJoin.session_id,
+      joined_work_count: joinedWorkIds.length,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      chapter_title: chapterTitle,
+      draft_needled_text: draftNeedle,
+      source_trace_ref: draftTurnResult.trace_summary.trace_ref,
+      target_trace_ref: targetTraceTurnResult.trace_summary.trace_ref,
+      accept_event_sent: true,
+      accept_action_type: acceptActionFrame.body?.action?.action_type,
+      source_pending_visible_before_switch: pendingVisibleInSourceBeforeSwitch,
+      pending_artifact_visible_in_target: pendingArtifactVisibleInTarget,
+      target_projection_empty_before_source_adoption:
+        Number(targetEmptyTocBeforeAdoption.chapter_count ?? -1) === 0 &&
+        Number(targetEmptyTocBeforeAdoption.total_word_count ?? -1) === 0 &&
+        targetReadingTextBeforeAdoption.includes("暂无已采纳的章节内容"),
+      pending_restored_in_source: pendingRestoredInSource,
+      artifact_adopted_in_source: adoptTurnResult.truthfulness?.artifact_adopted === true,
+      source_projection_populated_after_adoption:
+        Number(sourceTocAfterAdoption.chapter_count ?? 0) >= 1 &&
+        Number(sourceTocAfterAdoption.total_word_count ?? 0) > 0 &&
+        Number(sourceChapterContent.content_chars ?? 0) > 0 &&
+        sourceReadingTextAfterAdoption.includes(draftNeedle),
+      target_projection_empty_after_source_adoption:
+        Number(targetEmptyTocAfterAdoption.chapter_count ?? -1) === 0 &&
+        Number(targetEmptyTocAfterAdoption.total_word_count ?? -1) === 0 &&
+        targetReadingTextAfterAdoption.includes("暂无已采纳的章节内容") &&
+        !targetReadingTextAfterAdoption.includes(draftNeedle),
+      target_trace_excludes_source_artifact: targetTraceExcludesSource,
+      target_why_excludes_source_artifact: !whyText.includes(draftNeedle),
+      source_artifact_visible_in_target_after_trace: targetVisibleAfterTrace.includes(draftNeedle),
+      target_message_text: targetTraceMessage,
+    },
+  ];
+}
+
+async function driveSu02EmptyStartUnnamedWork(page) {
+  const nonce = `SU02EMPTY${Date.now()}`;
+  const message = `空库启动后保留消息 ${nonce}`;
+  const renamedTitle = `SU02空库改名-${nonce}`;
+  const seedLogText = fs.existsSync(path.join(artifactDir, "seed.log"))
+    ? fs.readFileSync(path.join(artifactDir, "seed.log"), "utf8")
+    : "";
+  const backendLogText = fs.existsSync(process.env.SLICE_VERIFY_BACKEND_LOG ?? "")
+    ? fs.readFileSync(process.env.SLICE_VERIFY_BACKEND_LOG, "utf8")
+    : "";
+
+  const initialJoin = await waitForNewAppLogRecord(
+    0,
+    (record) =>
+      record.event === "channel.join.done" && record.work_id && record.work_id !== "lobby",
+    "Empty start did not join an auto-created real work",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, "未命名作品");
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const worksAfterStart = await listWorksFromApi();
+  const initialWork = worksAfterStart.find((work) => work.id === initialJoin.work_id);
+  assert(initialWork, "Auto-created unnamed work was not returned by the Work API");
+  assert(initialWork.title === "未命名作品", "Auto-created work did not use the unnamed title");
+  assert(worksAfterStart.length === 1, "Empty start produced more than one initial work");
+
+  const sendCount = readAppLogRecords().length;
+  const frameCount = frames.length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes(nonce) &&
+      frame.body?.work_id === initialWork.id,
+    "Message after empty start was not sent with the auto-created work id",
+    10_000,
+  );
+  const turnDone = await waitForNewAppLogRecord(
+    sendCount,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.work_id === initialWork.id &&
+      record.turn_id,
+    "Message after empty start did not complete under the auto-created work id",
+    60_000,
+  );
+  await page.waitForFunction(
+    (text) => document.body.innerText.includes(text) && !document.body.innerText.includes("思考中"),
+    message,
+    { timeout: 30_000 },
+  );
+
+  await openWorkMenu(page);
+  await page.locator('button[title="重命名"]').first().click();
+  await page.getByRole("dialog", { name: "修改作品名" }).waitFor({ timeout: 10_000 });
+  await submitWorkTitleDialog(page, renamedTitle, "保存");
+  await waitForVisibleWorkTitle(page, renamedTitle);
+
+  const renamedWork = await fetchWorkFromApi(initialWork.id);
+  assert(renamedWork.id === initialWork.id, "Renaming the auto-created work changed its id");
+  assert(renamedWork.title === renamedTitle, "Renamed title did not persist");
+
+  const visibleAfterRename = await page.locator("body").innerText();
+  assert(visibleAfterRename.includes(message), "Message disappeared after renaming the work");
+
+  const secondJoin = await createWorkFromMenu(page, renamedWork.id);
+  await waitForVisibleWorkTitle(page, "未命名作品");
+  const thirdJoin = await createWorkFromMenu(page, secondJoin.work_id);
+  await waitForVisibleWorkTitle(page, "未命名作品");
+
+  const finalWorks = await listWorksFromApi();
+  const unnamedWorks = finalWorks.filter((work) => work.title.trim() === "未命名作品");
+  assert(unnamedWorks.length >= 2, "Two duplicate unnamed works were not created");
+  assert(
+    secondJoin.work_id !== thirdJoin.work_id,
+    "Duplicate unnamed works reused the same work id",
+  );
+
+  await openWorkMenu(page);
+  const menuText = await page.locator('[class*="workMenu"]').first().innerText();
+  const duplicateLabelsVisible = menuText.includes("第 1 个") && menuText.includes("第 2 个");
+  assert(duplicateLabelsVisible, "Duplicate unnamed works are not visually distinguished");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su02-empty-start-unnamed-work",
+      turn_id: turnDone.turn_id,
+      work_id: initialWork.id,
+      context_work_id: initialWork.id,
+      session_id: initialJoin.session_id,
+      socket_connected: true,
+      backend_default_seed_skipped: backendLogText.includes("skipped default work seed"),
+      seed_script_none: seedLogText.includes("seed: none"),
+      initial_join_work_id: initialJoin.work_id,
+      initial_work_title: initialWork.title,
+      works_after_start_count: worksAfterStart.length,
+      sent_frame_work_id: sentFrame.body?.work_id,
+      turn_done_work_id: turnDone.work_id,
+      renamed_work_id: renamedWork.id,
+      renamed_title: renamedWork.title,
+      message_visible_after_rename: visibleAfterRename.includes(message),
+      duplicate_unnamed_count: unnamedWorks.length,
+      duplicate_unnamed_labels_visible: duplicateLabelsVisible,
+      duplicate_unnamed_work_ids: unnamedWorks.map((work) => work.id),
+      second_unnamed_work_id: secondJoin.work_id,
+      third_unnamed_work_id: thirdJoin.work_id,
+      title_text: await workTitle(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+      service_status_text: await serviceStatus(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+    },
+  ];
+}
+
+async function driveSu02PendingResultWorkIsolation(page) {
+  const nonce = `SU02SLOW${Date.now()}`;
+  const sourceWork = await createWorkSeed({ title: `SU02慢回复甲-${nonce}` });
+  const targetWork = await createWorkSeed({ title: `SU02慢回复乙-${nonce}` });
+  const message = `慢回复跨作品归属校验 ${nonce}：请回一句收到。`;
+  const assistantText = `慢回复归属校验完成：${nonce} 只属于原作品。`;
+
+  const selectSourceCount = readAppLogRecords().length;
+  await refreshAndSelectWork(page, sourceWork.title);
+  const sourceJoin = await waitForNewAppLogRecord(
+    selectSourceCount,
+    (record) => record.event === "channel.join.done" && record.work_id === sourceWork.id,
+    "Selecting the source work did not join its workspace channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, sourceWork.title);
+
+  const sendLogCount = readAppLogRecords().length;
+  const sendFrameCount = frames.length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    sendFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes(nonce) &&
+      frame.body?.work_id === sourceWork.id,
+    "Slow source work message was not sent from the source workspace channel",
+    10_000,
+  );
+
+  const sourceStart = await waitForNewAppLogRecord(
+    sendLogCount,
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      record.work_id === sourceWork.id &&
+      record.turn_id,
+    "Slow source work user_message.start log was not emitted",
+    30_000,
+  );
+
+  const switchTargetCount = readAppLogRecords().length;
+  await refreshAndSelectWork(page, targetWork.title);
+  const targetJoin = await waitForNewAppLogRecord(
+    switchTargetCount,
+    (record) => record.event === "channel.join.done" && record.work_id === targetWork.id,
+    "Switching to target work did not join its workspace channel while source turn was pending",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, targetWork.title);
+
+  const sourceDone = await waitForNewAppLogRecord(
+    sendLogCount,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.work_id === sourceWork.id &&
+      record.turn_id === sourceStart.turn_id,
+    "Source work slow turn did not complete under the original work id",
+    90_000,
+  );
+
+  await sleep(500);
+  const targetVisibleAfterSourceDone = await page.locator("body").innerText();
+  const sourceUserVisibleInTarget = targetVisibleAfterSourceDone.includes(message);
+  const sourceAssistantVisibleInTarget = targetVisibleAfterSourceDone.includes(assistantText);
+  const targetLoadingAfterSourceDone = targetVisibleAfterSourceDone.includes("思考中");
+
+  assert(!sourceUserVisibleInTarget, "Source user message leaked into target work after slow turn");
+  assert(
+    !sourceAssistantVisibleInTarget,
+    "Source assistant result leaked into target work after slow turn",
+  );
+  assert(!targetLoadingAfterSourceDone, "Target work remained in loading state after source turn");
+
+  const returnSourceCount = readAppLogRecords().length;
+  await refreshAndSelectWork(page, sourceWork.title);
+  const sourceReturnResume = await waitForNewAppLogRecord(
+    returnSourceCount,
+    (record) =>
+      record.event === "work_session.resume.done" &&
+      record.work_id === sourceWork.id &&
+      Number(record.transcript_count ?? 0) >= 1,
+    "Switching back to source work did not resume the completed slow turn transcript",
+    30_000,
+  );
+  const sourceReturnJoin = await waitForNewAppLogRecord(
+    returnSourceCount,
+    (record) =>
+      record.event === "channel.join.done" &&
+      record.work_id === sourceWork.id &&
+      record.session_id === sourceReturnResume.session_id,
+    "Switching back to source work did not join the source workspace channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, sourceWork.title);
+  await page.waitForFunction(
+    (payload) =>
+      document.body.innerText.includes(payload.message) &&
+      document.body.innerText.includes(payload.assistantText),
+    { message, assistantText },
+    { timeout: 30_000 },
+  );
+
+  const sourceVisibleAfterReturn = await page.locator("body").innerText();
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su02-pending-result-work-isolation",
+      turn_id: sourceStart.turn_id,
+      work_id: sourceWork.id,
+      context_work_id: sourceWork.id,
+      source_work_id: sourceWork.id,
+      target_work_id: targetWork.id,
+      source_session_id: sourceJoin.session_id,
+      target_session_id: targetJoin.session_id,
+      session_id: sourceReturnJoin.session_id,
+      socket_connected: true,
+      source_message_text: message,
+      source_assistant_text: assistantText,
+      sent_frame_work_id: sentFrame.body?.work_id,
+      source_turn_completed_work_id: sourceDone.work_id,
+      target_visible_after_source_done:
+        !sourceUserVisibleInTarget && !sourceAssistantVisibleInTarget,
+      target_loading_after_source_done: targetLoadingAfterSourceDone,
+      source_user_visible_in_target: sourceUserVisibleInTarget,
+      source_assistant_visible_in_target: sourceAssistantVisibleInTarget,
+      source_user_visible_after_return: sourceVisibleAfterReturn.includes(message),
+      source_assistant_visible_after_return: sourceVisibleAfterReturn.includes(assistantText),
+      source_return_transcript_count: sourceReturnResume.transcript_count,
+      title_text: await workTitle(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+      service_status_text: await serviceStatus(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+    },
+  ];
+}
+
 async function driveSu02WorkLifecycleManagement(page) {
   const nonce = `SU02L-${Date.now()}`;
   const sourceWork = await createWorkSeed({ title: `SU02源作品-${nonce}` });
@@ -6837,7 +8604,9 @@ async function driveSu02WorkRestartRecovery(page) {
   );
   await waitForVisibleWorkTitle(page, targetWork.title);
 
-  const storedBeforeReload = await page.evaluate(() => localStorage.getItem("ans.lastOpenedWorkId"));
+  const storedBeforeReload = await page.evaluate(() =>
+    localStorage.getItem("ans.lastOpenedWorkId"),
+  );
   assert(
     storedBeforeReload === targetWork.id,
     "Selecting a real work did not persist it as lastOpened before reload",
@@ -6902,7 +8671,8 @@ async function driveSu02WorkRestartRecovery(page) {
       stale_preference_replaced_after_reload: staleStoredAfterReload === fallbackWork.id,
       restored_existing_work_after_reload: restoredJoin.work_id === targetWork.id,
       ignored_discarded_last_opened_after_reload: fallbackJoin.work_id !== targetWork.id,
-      fallback_is_real_work: fallbackJoin.work_id === fallbackWork.id && fallbackJoin.work_id !== "lobby",
+      fallback_is_real_work:
+        fallbackJoin.work_id === fallbackWork.id && fallbackJoin.work_id !== "lobby",
       title_text: await workTitle(page)
         .textContent()
         .then((value) => value?.trim() ?? ""),
@@ -7282,14 +9052,21 @@ const drivers = {
   "su01-lmstudio-disconnected-health": driveSu01LmstudioDisconnectedHealth,
   "su01-provider-endpoint-validation": driveSu01ProviderEndpointValidation,
   "su01-provider-model-list-success": driveSu01ProviderModelListSuccess,
+  "su01-provider-test-failure-ui": driveSu01ProviderTestFailureUi,
   "su01-api-key-secret-redaction": driveSu01ApiKeySecretRedaction,
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
   "su02-work-switching": driveSu02WorkSwitching,
+  "su02-artifact-projection-trace-isolation": driveSu02ArtifactProjectionTraceIsolation,
+  "su02-empty-start-unnamed-work": driveSu02EmptyStartUnnamedWork,
+  "su02-pending-result-work-isolation": driveSu02PendingResultWorkIsolation,
   "su02-work-lifecycle-management": driveSu02WorkLifecycleManagement,
   "su02-work-restart-recovery": driveSu02WorkRestartRecovery,
   "su03-assistant-display-name": driveSu03AssistantDisplayName,
   "au01-ordinary-chat-two-turn-roundtrip": driveAu01OrdinaryChatTwoTurnRoundtrip,
   "au01-empty-message-guard": driveAu01EmptyMessageGuard,
+  "au01-garbage-json-recovery": driveAu01GarbageJsonRecovery,
+  "au01-frame-validation-friendly-error": driveAu01FrameValidationFriendlyError,
+  "au01-turnresult-recorder-ui-consistency": driveAu01TurnresultRecorderUiConsistency,
   "au10-workbench-matrix-layout": driveAu10WorkbenchMatrixLayout,
   "au10-workbench-recovery-taskstate": driveAu10WorkbenchRecoveryTaskstate,
   "au10-workbench-recovery-disconnect-timeout": driveAu10WorkbenchRecoveryDisconnectTimeout,
@@ -7301,8 +9078,12 @@ const drivers = {
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
   "vs00c-cp5-reader-effect-brief": driveVs00cCp4ChapterPlanStructure,
+  "au02-natural-exploration-no-slot-form": driveNaturalExplorationNoSlotForm,
   "au02-candidate-continuation": driveCandidateContinuation,
+  "au02-candidate-multiturn-context": driveCandidateMultiturnContext,
+  "au02-candidate-fallback-ui": driveCandidateFallbackUi,
   "au02-freeform-followup-after-candidate": driveCandidateFreeformFollowup,
+  "au02-unadopted-candidate-no-reading-fact": driveUnadoptedCandidateNoReadingFact,
   "au02-candidate-adoption-bridge": driveCandidateAdoptionBridge,
   "au05-adoption-safety-freshness": driveAdoptionSafetyFreshness,
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,
@@ -7331,6 +9112,8 @@ const drivers = {
   "au03-session-history-readonly": driveAu03SessionHistoryReadonly,
   "au03-session-new-active": driveAu03SessionNewActive,
   "au03-branch-from-history": driveAu03BranchFromHistory,
+  "au03-archive-session-filter": driveAu03ArchiveSessionFilter,
+  "au03-current-work-context-ssot": driveAu03CurrentWorkContextSsot,
   "au11-quality-diagnosis-message-envelope": driveAu11QualityDiagnosisMessageEnvelope,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,

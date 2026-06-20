@@ -12,9 +12,13 @@ describe("native Tauri slice verifier", () => {
   it("lists native slice ids including AU-10 micro plan entry", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");
     expect(nativeSliceIds).toContain("su02-work-switching");
+    expect(nativeSliceIds).toContain("su02-artifact-projection-trace-isolation");
+    expect(nativeSliceIds).toContain("su02-empty-start-unnamed-work");
     expect(nativeSliceIds).toContain("su01-provider-health-model");
     expect(nativeSliceIds).toContain("su01-api-key-secret-redaction");
+    expect(nativeSliceIds).toContain("su01-keychain-webview-roundtrip");
     expect(nativeSliceIds).toContain("su01-provider-model-list-success");
+    expect(nativeSliceIds).toContain("su01-provider-test-failure-ui");
     expect(nativeSliceIds).toContain("su01-model-provider-switching");
     expect(nativeSliceIds).toContain("su03-assistant-display-name");
     expect(nativeSliceIds).toContain("stage-startup-context-contract");
@@ -48,8 +52,15 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("au01-empty-message-guard");
+    expect(nativeSliceIds).toContain("au01-garbage-json-recovery");
+    expect(nativeSliceIds).toContain("au01-frame-validation-friendly-error");
+    expect(nativeSliceIds).toContain("au01-turnresult-recorder-ui-consistency");
+    expect(nativeSliceIds).toContain("au02-natural-exploration-no-slot-form");
+    expect(nativeSliceIds).toContain("au02-candidate-fallback-ui");
     expect(nativeSliceIds).toContain("au02-candidate-continuation");
+    expect(nativeSliceIds).toContain("au02-candidate-multiturn-context");
     expect(nativeSliceIds).toContain("au02-freeform-followup-after-candidate");
+    expect(nativeSliceIds).toContain("au02-unadopted-candidate-no-reading-fact");
     expect(nativeSliceIds).toContain("au02-candidate-adoption-bridge");
     expect(nativeSliceIds).toContain("au05-adoption-safety-freshness");
     expect(nativeSliceIds).toContain("au05-stale-conflict-cross-work-freshness");
@@ -160,6 +171,82 @@ describe("native Tauri slice verifier", () => {
     ).toBeNull();
   });
 
+  it("accepts SU-01 Keychain WebView roundtrip only with native driver and reload evidence", () => {
+    const records = [
+      { event: "channel.join.done", work_id: "work-su01-keychain", session_id: "session-su01" },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su01-keychain-webview-roundtrip",
+        work_id: "work-su01-keychain",
+        context_work_id: "work-su01-keychain",
+        session_id: "session-su01",
+        socket_connected: true,
+        driver: "macos-cgevent",
+        provider_selected: "deepseek",
+        model_selected: "deepseek-slice-keychain",
+        provider_switch_saved: true,
+        webview_reload_performed: true,
+        runtime_reset_before_reload: true,
+        post_reload_provider: "deepseek",
+        post_reload_api_key_configured: true,
+        keychain_service: "com.ai-novel-studio.app.model-provider.slice-verify",
+        keychain_item_found: true,
+        keychain_secret_read_skipped: true,
+        preferences_file_exists: true,
+        preferences_selected_provider: true,
+        preferences_model_saved: true,
+        preferences_omits_api_key: true,
+        provider_options_omits_api_key: true,
+        app_log_omits_api_key: true,
+        backend_log_omits_api_key: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("su01-keychain-webview-roundtrip", records);
+    expect(evidence).toEqual({
+      slice_id: "su01-keychain-webview-roundtrip",
+      turn_ids: [],
+      work_id: "work-su01-keychain",
+      provider_selected: "deepseek",
+      model_selected: "deepseek-slice-keychain",
+      driver: "macos-cgevent",
+      keychain_service: "com.ai-novel-studio.app.model-provider.slice-verify",
+      key_events: keyEventsForSlice("su01-keychain-webview-roundtrip"),
+    });
+    expect(findSliceBehaviorEvidence("su01-keychain-webview-roundtrip", records, evidence)).toEqual(
+      {
+        slice_id: "su01-keychain-webview-roundtrip",
+        behavior: "keychain_write_read_roundtrip_from_real_tauri_webview",
+        turn_ids: [],
+        work_id: "work-su01-keychain",
+        provider_selected: "deepseek",
+        model_selected: "deepseek-slice-keychain",
+        driver: "macos-cgevent",
+        assertions: [
+          "model_settings_opened_from_real_tauri_webview_by_external_cgevent_driver",
+          "deepseek_api_key_saved_through_tauri_webview_command",
+          "macos_keychain_item_exists_without_reading_plain_secret",
+          "backend_runtime_was_reset_then_webview_reload_restored_provider_from_tauri_storage",
+          "provider_options_marked_api_key_configured_after_reload_without_returning_secret",
+          "preferences_saved_non_secret_provider_state_without_api_key",
+          "application_and_backend_logs_did_not_expose_api_key",
+          "product_code_added_no_acceptance_hooks",
+          "no_error_events",
+        ],
+      },
+    );
+
+    const browserOnlyRecords = [
+      {
+        ...records[1],
+        driver: "playwright-browser",
+      },
+    ];
+    expect(
+      findNativeSliceEvidence("su01-keychain-webview-roundtrip", browserOnlyRecords),
+    ).toBeNull();
+  });
+
   it("accepts SU-01 provider model list evidence only when provider models are selectable", () => {
     const records = [
       {
@@ -218,6 +305,72 @@ describe("native Tauri slice verifier", () => {
         "no_error_events",
       ],
     });
+  });
+
+  it("accepts SU-01 provider test failure evidence only when the draft is preserved and recoverable", () => {
+    const records = [
+      {
+        event: "channel.join.done",
+        work_id: "work-su01-test-failure",
+        session_id: "session-su01-test-failure",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su01-provider-test-failure-ui",
+        work_id: "work-su01-test-failure",
+        context_work_id: "work-su01-test-failure",
+        socket_connected: true,
+        provider_selected: "lmstudio",
+        model_selected_before_failure: "local-slice-failure-recovery",
+        failing_endpoint: "http://127.0.0.1:1/v1",
+        recovered_endpoint: "http://127.0.0.1:5555/v1",
+        failure_message_visible: true,
+        failure_reason_visible: true,
+        dialog_stayed_open_after_failure: true,
+        provider_draft_preserved_after_failure: true,
+        endpoint_draft_preserved_after_failure: true,
+        recovery_test_succeeded: true,
+        no_turn_events_created_by_test_connection: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("su01-provider-test-failure-ui", records);
+    expect(evidence).toEqual({
+      slice_id: "su01-provider-test-failure-ui",
+      turn_ids: [],
+      work_id: "work-su01-test-failure",
+      provider_selected: "lmstudio",
+      model_selected_before_failure: "local-slice-failure-recovery",
+      failing_endpoint: "http://127.0.0.1:1/v1",
+      recovered_endpoint: "http://127.0.0.1:5555/v1",
+      key_events: keyEventsForSlice("su01-provider-test-failure-ui"),
+    });
+    expect(findSliceBehaviorEvidence("su01-provider-test-failure-ui", records, evidence)).toEqual({
+      slice_id: "su01-provider-test-failure-ui",
+      behavior: "provider_test_connection_failure_keeps_draft_and_recovers",
+      turn_ids: [],
+      work_id: "work-su01-test-failure",
+      provider_selected: "lmstudio",
+      model_selected_before_failure: "local-slice-failure-recovery",
+      assertions: [
+        "model_settings_opened_from_real_workbench",
+        "failed_test_connection_showed_author_readable_reason",
+        "provider_and_endpoint_draft_were_preserved_after_failure",
+        "dialog_remained_open_for_correction",
+        "test_connection_did_not_create_turn_or_switch_runtime",
+        "corrected_endpoint_test_connection_succeeded",
+        "channel_joined_current_work",
+        "no_error_events",
+      ],
+    });
+
+    const incompleteRecords = [
+      {
+        ...records[1],
+        endpoint_draft_preserved_after_failure: false,
+      },
+    ];
+    expect(findNativeSliceEvidence("su01-provider-test-failure-ui", incompleteRecords)).toBeNull();
   });
 
   it("accepts SU-01 model provider switching only when the next turn uses the selected provider", () => {
@@ -329,6 +482,79 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("au02-candidate-continuation", records)).toBeNull();
   });
 
+  it("accepts AU-02 candidate multi-turn context evidence", () => {
+    const records = au02CandidateMultiturnContextRecords(
+      "turn-source",
+      "turn-continuation",
+      "turn-followup",
+    );
+
+    const evidence = findNativeSliceEvidence("au02-candidate-multiturn-context", records);
+    expect(evidence).toEqual({
+      slice_id: "au02-candidate-multiturn-context",
+      turn_id: "turn-followup",
+      turn_ids: ["turn-source", "turn-continuation", "turn-followup"],
+      source_turn_ref: "turn-source",
+      continuation_turn_id: "turn-continuation",
+      followup_turn_id: "turn-followup",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      context_nonce: "AU02CTX123456",
+      candidate_title_visible: true,
+      continuation_candidate_selection_sent: true,
+      followup_plain_user_message_sent: true,
+      followup_context_has_conversation: true,
+      followup_context_has_session_summary: true,
+      followup_reply_contains_context_nonce: true,
+      generate_micro_plan: false,
+      tool_result_present: false,
+      adoption_decision_present: false,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+      key_events: keyEventsForSlice("au02-candidate-multiturn-context"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au02-candidate-multiturn-context", records, evidence),
+    ).toEqual({
+      slice_id: "au02-candidate-multiturn-context",
+      behavior: "candidate_context_survives_continuation_and_plain_followup",
+      turn_ids: ["turn-source", "turn-continuation", "turn-followup"],
+      source_turn_ref: "turn-source",
+      continuation_turn_id: "turn-continuation",
+      followup_turn_id: "turn-followup",
+      candidate_ref: "dir-1",
+      context_nonce: "AU02CTX123456",
+      assertions: [
+        "source_turn_rendered_nonce_candidate",
+        "candidate_continuation_sent_candidate_selection",
+        "plain_followup_did_not_send_candidate_selection",
+        "followup_context_assembled_session_conversation",
+        "assistant_reply_reflected_prior_candidate_context",
+        "micro_plan_not_requested",
+        "no_author_action_or_adoption_events",
+        "production_write_not_claimed",
+        "deterministic_provider_form_frame_called_for_multiturn_context",
+      ],
+    });
+  });
+
+  it("rejects AU-02 candidate multi-turn context without nonce-backed reply", () => {
+    const records = au02CandidateMultiturnContextRecords(
+      "turn-source",
+      "turn-continuation",
+      "turn-followup",
+    ).map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, followup_reply_contains_context_nonce: false }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au02-candidate-multiturn-context", records)).toBeNull();
+  });
+
   it("accepts AU-02 freeform follow-up after candidate without candidate selection", () => {
     const records = au02CandidateFreeformFollowupRecords("turn-source", "turn-freeform");
 
@@ -390,6 +616,218 @@ describe("native Tauri slice verifier", () => {
     );
 
     expect(findNativeSliceEvidence("au02-freeform-followup-after-candidate", records)).toBeNull();
+  });
+
+  it("accepts AU-02 natural exploration without slot form evidence", () => {
+    const records = au02NaturalExplorationNoSlotFormRecords("turn-source");
+
+    const evidence = findNativeSliceEvidence("au02-natural-exploration-no-slot-form", records);
+    expect(evidence).toEqual({
+      slice_id: "au02-natural-exploration-no-slot-form",
+      turn_id: "turn-source",
+      turn_ids: ["turn-source"],
+      work_id: "work-1",
+      source_turn_ref: "turn-source",
+      frame_type: "creative_exploration",
+      candidate_count: 2,
+      candidate_ref: "dir-1",
+      candidate_titles: ["数字灵根", "机甲道场"],
+      candidate_pitches: ["灵根芯片与云端神祇", "机甲炼体与数据心法"],
+      candidate_set_ref: "candidate_set:turn-source",
+      natural_reply_visible: true,
+      lmstudio_quality_checks_required: false,
+      natural_reply_chinese: true,
+      natural_reply_no_json_code: true,
+      candidates_no_json_code: true,
+      candidate_semantically_relevant: true,
+      candidate_panel_rendered: 1,
+      slot_form_visible: false,
+      forbidden_slot_fields_absent: true,
+      execution_card_visible: false,
+      generate_micro_plan: false,
+      tool_result_present: false,
+      adoption_decision_present: false,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+      key_events: keyEventsForSlice("au02-natural-exploration-no-slot-form"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au02-natural-exploration-no-slot-form", records, evidence),
+    ).toEqual({
+      slice_id: "au02-natural-exploration-no-slot-form",
+      behavior: "fuzzy_idea_gets_natural_exploration_without_slot_form_or_execution",
+      turn_ids: ["turn-source"],
+      source_turn_ref: "turn-source",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      assertions: [
+        "real_workbench_sent_fuzzy_creative_input",
+        "planner_returned_creative_exploration_frame",
+        "natural_assistant_reply_visible",
+        "candidate_panel_rendered_from_turn_result",
+        "required_slot_fields_absent",
+        "mechanical_slot_form_not_rendered",
+        "durable_clarification_not_opened",
+        "micro_plan_not_requested",
+        "no_tool_confirmation_or_adoption_cards",
+        "candidate_not_selected_or_adopted",
+        "production_write_not_claimed",
+        "deterministic_provider_form_frame_called_for_source_candidate_turn",
+      ],
+    });
+  });
+
+  it("rejects AU-02 natural exploration if a slot form is visible", () => {
+    const records = au02NaturalExplorationNoSlotFormRecords("turn-source").map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, slot_form_visible: true }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au02-natural-exploration-no-slot-form", records)).toBeNull();
+  });
+
+  it("rejects AU-02 natural exploration in LM Studio mode if quality checks fail", () => {
+    const records = au02NaturalExplorationNoSlotFormRecords("turn-source").map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            lmstudio_quality_checks_required: true,
+            candidate_semantically_relevant: false,
+          }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au02-natural-exploration-no-slot-form", records)).toBeNull();
+  });
+
+  it("accepts AU-02 candidate fallback UI evidence from malformed provider candidates", () => {
+    const records = au02CandidateFallbackUiRecords("turn-source");
+
+    const evidence = findNativeSliceEvidence("au02-candidate-fallback-ui", records);
+    expect(evidence).toEqual({
+      slice_id: "au02-candidate-fallback-ui",
+      turn_id: "turn-source",
+      turn_ids: ["turn-source"],
+      work_id: "work-1",
+      source_turn_ref: "turn-source",
+      provider_candidate_payload: "malformed_candidates",
+      frame_type: "creative_exploration",
+      frame_candidate_count: 3,
+      turn_result_candidate_count: 3,
+      fallback_candidate_titles: ["矛盾切入", "人物切入", "世界规则切入"],
+      fallback_candidate_visible: true,
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      candidate_panel_rendered: 1,
+      candidate_fields_nonempty: true,
+      candidate_statuses_not_adopted: true,
+      generate_micro_plan: false,
+      tool_result_present: false,
+      adoption_decision_present: false,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+      key_events: keyEventsForSlice("au02-candidate-fallback-ui"),
+    });
+    expect(findSliceBehaviorEvidence("au02-candidate-fallback-ui", records, evidence)).toEqual({
+      slice_id: "au02-candidate-fallback-ui",
+      behavior: "malformed_candidate_payload_renders_fallback_candidate_cards",
+      turn_ids: ["turn-source"],
+      source_turn_ref: "turn-source",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      fallback_candidate_titles: ["矛盾切入", "人物切入", "世界规则切入"],
+      assertions: [
+        "real_workbench_sent_malformed_candidate_prompt",
+        "planner_returned_creative_exploration_frame",
+        "malformed_provider_candidates_were_replaced",
+        "fallback_candidate_cards_visible",
+        "candidate_fields_are_nonempty",
+        "candidate_statuses_remain_not_adopted",
+        "micro_plan_not_requested",
+        "no_tool_confirmation_or_adoption_cards",
+        "production_write_not_claimed",
+        "deterministic_provider_form_frame_called_for_candidate_fallback",
+      ],
+    });
+  });
+
+  it("rejects AU-02 candidate fallback UI evidence if fallback fields are empty", () => {
+    const records = au02CandidateFallbackUiRecords("turn-source").map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, candidate_fields_nonempty: false }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au02-candidate-fallback-ui", records)).toBeNull();
+  });
+
+  it("accepts AU-02 unadopted candidate reading/fact exclusion evidence", () => {
+    const records = au02UnadoptedCandidateNoReadingFactRecords("turn-source");
+
+    const evidence = findNativeSliceEvidence("au02-unadopted-candidate-no-reading-fact", records);
+    expect(evidence).toEqual({
+      slice_id: "au02-unadopted-candidate-no-reading-fact",
+      turn_id: "turn-source",
+      turn_ids: ["turn-source"],
+      work_id: "work-1",
+      source_turn_ref: "turn-source",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      frame_badge_label: "探索方向",
+      frame_badge_kind: "exploration",
+      reading_mode_opened: true,
+      reading_empty_state_visible: true,
+      reading_toc_chapter_count: 0,
+      reading_total_word_count: 0,
+      candidate_title_visible_in_reading: false,
+      candidate_pitch_visible_in_reading: false,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+      no_projection_events: true,
+      key_events: keyEventsForSlice("au02-unadopted-candidate-no-reading-fact"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au02-unadopted-candidate-no-reading-fact", records, evidence),
+    ).toEqual({
+      slice_id: "au02-unadopted-candidate-no-reading-fact",
+      behavior: "unadopted_candidate_stays_out_of_reading_and_work_facts",
+      turn_ids: ["turn-source"],
+      source_turn_ref: "turn-source",
+      candidate_ref: "dir-1",
+      candidate_set_ref: "candidate_set:turn-source",
+      assertions: [
+        "candidate_panel_rendered_from_turn_result",
+        "author_did_not_click_candidate_actions",
+        "reading_mode_loaded_empty_toc",
+        "candidate_title_not_visible_in_reading_mode",
+        "candidate_pitch_not_visible_in_reading_mode",
+        "no_author_action_or_action_result",
+        "no_adoption_decision_or_projection_events",
+        "candidate_not_selected_or_adopted",
+        "production_write_not_claimed",
+        "deterministic_provider_form_frame_called_for_source_candidate_turn",
+      ],
+    });
+  });
+
+  it("rejects AU-02 unadopted candidate evidence if candidate text leaks into reading", () => {
+    const records = au02UnadoptedCandidateNoReadingFactRecords("turn-source").map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, candidate_title_visible_in_reading: true }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au02-unadopted-candidate-no-reading-fact", records)).toBeNull();
   });
 
   it("accepts AU-02 candidate adoption bridge only after authorized action reaches boundary", () => {
@@ -2302,6 +2740,146 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("finds SU-02 artifact/projection/trace isolation evidence", () => {
+    const records = su02ArtifactProjectionTraceIsolationRecords();
+    const evidence = findNativeSliceEvidence("su02-artifact-projection-trace-isolation", records);
+
+    expect(evidence).toEqual({
+      slice_id: "su02-artifact-projection-trace-isolation",
+      turn_id: "turn-draft-a",
+      turn_ids: ["turn-draft-a", "turn-adopt-a", "turn-trace-b"],
+      draft_turn_id: "turn-draft-a",
+      adopt_turn_id: "turn-adopt-a",
+      target_trace_turn_id: "turn-trace-b",
+      source_work_id: "work-a",
+      target_work_id: "work-b",
+      work_id: "work-b",
+      artifact_id: "artifact-prose-a",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      source_trace_ref: "trace-source-draft",
+      target_trace_ref: "trace-target-b",
+      source_chapter_count: 1,
+      source_content_chars: 42,
+      target_empty_toc_reads: 2,
+      joined_work_count: 2,
+      key_events: keyEventsForSlice("su02-artifact-projection-trace-isolation"),
+    });
+
+    expect(
+      findSliceBehaviorEvidence("su02-artifact-projection-trace-isolation", records, evidence),
+    ).toEqual({
+      slice_id: "su02-artifact-projection-trace-isolation",
+      behavior: "artifact_projection_and_trace_are_scoped_to_current_work",
+      turn_ids: ["turn-draft-a", "turn-adopt-a", "turn-trace-b"],
+      draft_turn_id: "turn-draft-a",
+      adopt_turn_id: "turn-adopt-a",
+      target_trace_turn_id: "turn-trace-b",
+      work_id: "work-b",
+      source_work_id: "work-a",
+      target_work_id: "work-b",
+      artifact_id: "artifact-prose-a",
+      artifact_type: "prose_fragment",
+      source_trace_ref: "trace-source-draft",
+      target_trace_ref: "trace-target-b",
+      assertions: [
+        "source_pending_artifact_visible_before_switch",
+        "target_work_did_not_render_source_pending_artifact",
+        "target_reading_projection_empty_before_source_adoption",
+        "switching_back_restored_source_pending_artifact",
+        "source_accept_action_used_source_workspace_topic",
+        "source_adoption_materialized_source_reading_projection",
+        "target_reading_projection_remained_empty_after_source_adoption",
+        "target_trace_and_why_excluded_source_artifact_context",
+        "source_and_target_work_ids_are_distinct",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("finds SU-02 pending result work isolation evidence after returning to source", () => {
+    const records = su02PendingResultWorkIsolationRecords();
+    const evidence = findNativeSliceEvidence("su02-pending-result-work-isolation", records);
+
+    expect(evidence).toEqual({
+      slice_id: "su02-pending-result-work-isolation",
+      turn_id: "turn-slow-a",
+      turn_ids: ["turn-slow-a"],
+      work_id: "work-a",
+      source_work_id: "work-a",
+      target_work_id: "work-b",
+      session_id: "session-a-return",
+      source_session_id: "session-a",
+      target_session_id: "session-b",
+      source_return_transcript_count: 1,
+      key_events: keyEventsForSlice("su02-pending-result-work-isolation"),
+    });
+
+    expect(
+      findSliceBehaviorEvidence("su02-pending-result-work-isolation", records, evidence),
+    ).toEqual({
+      slice_id: "su02-pending-result-work-isolation",
+      behavior: "slow_source_turn_result_does_not_pollute_target_work_and_restores_on_return",
+      turn_ids: ["turn-slow-a"],
+      work_id: "work-a",
+      source_work_id: "work-a",
+      target_work_id: "work-b",
+      session_id: "session-a-return",
+      assertions: [
+        "slow_message_sent_from_source_work",
+        "target_work_joined_while_source_turn_pending",
+        "source_turn_completed_under_original_work_id",
+        "source_user_message_not_visible_in_target_work",
+        "source_assistant_result_not_visible_in_target_work",
+        "target_loading_not_polluted_by_source_completion",
+        "switching_back_to_source_restored_completed_turn",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
+  it("finds SU-02 empty start unnamed work evidence", () => {
+    const records = su02EmptyStartUnnamedWorkRecords();
+    const evidence = findNativeSliceEvidence("su02-empty-start-unnamed-work", records);
+
+    expect(evidence).toEqual({
+      slice_id: "su02-empty-start-unnamed-work",
+      turn_id: "turn-empty-start",
+      turn_ids: ["turn-empty-start"],
+      work_id: "work-auto",
+      session_id: "session-auto",
+      renamed_title: "SU02空库改名-123",
+      duplicate_unnamed_count: 2,
+      duplicate_unnamed_work_ids: ["work-unnamed-1", "work-unnamed-2"],
+      second_unnamed_work_id: "work-unnamed-1",
+      third_unnamed_work_id: "work-unnamed-2",
+      key_events: keyEventsForSlice("su02-empty-start-unnamed-work"),
+    });
+
+    expect(findSliceBehaviorEvidence("su02-empty-start-unnamed-work", records, evidence)).toEqual({
+      slice_id: "su02-empty-start-unnamed-work",
+      behavior: "empty_database_bootstrap_creates_renamable_unnamed_work",
+      turn_ids: ["turn-empty-start"],
+      work_id: "work-auto",
+      session_id: "session-auto",
+      renamed_title: "SU02空库改名-123",
+      assertions: [
+        "default_seed_and_seed_script_skipped_for_empty_start",
+        "empty_start_created_single_persisted_unnamed_work",
+        "auto_created_work_joined_real_workspace_channel",
+        "message_after_empty_start_used_auto_created_work_id",
+        "rename_preserved_auto_created_work_id",
+        "message_remained_visible_after_rename",
+        "duplicate_unnamed_works_have_visible_disambiguation",
+        "lobby_not_used_as_current_work",
+        "no_error_events",
+        "assistant_messages_not_fallback",
+      ],
+    });
+  });
+
   it("finds SU-02 restart recovery evidence for last opened work fallback", () => {
     const records = su02WorkRestartRecoveryRecords();
     const evidence = findNativeSliceEvidence("su02-work-restart-recovery", records);
@@ -2580,6 +3158,191 @@ describe("native Tauri slice verifier", () => {
         "deterministic_provider_form_frame_called_for_recovery_turn",
       ],
     });
+  });
+
+  it("accepts AU-01 garbage JSON recovery evidence with fallback and recovery turns", () => {
+    const records = garbageJsonRecoveryRecords();
+
+    expect(findNativeSliceEvidence("au01-garbage-json-recovery", records)).toEqual({
+      slice_id: "au01-garbage-json-recovery",
+      turn_id: "turn-garbage",
+      turn_ids: ["turn-garbage", "turn-recovery"],
+      garbage_turn_id: "turn-garbage",
+      recovery_turn_id: "turn-recovery",
+      fallback_message_visible: true,
+      raw_provider_payload_visible: false,
+      input_enabled_after_garbage: true,
+      thinking_visible_after_garbage: false,
+      channel_connected_after_garbage: true,
+      recovery_message_visible: true,
+      recovery_assistant_reply_visible: true,
+      recovery_assistant_is_fallback: false,
+      key_events: [
+        "channel.user_message.start",
+        "dialogue_gateway.handle_input.done",
+        "channel.user_message.done",
+      ],
+    });
+  });
+
+  it("accepts AU-01 garbage JSON recovery behavior only when the following chat completes", () => {
+    const records = garbageJsonRecoveryRecords();
+    const evidence = findNativeSliceEvidence("au01-garbage-json-recovery", records);
+
+    expect(
+      findSliceBehaviorEvidence("au01-garbage-json-recovery", records, evidence, {
+        provider: "slice_verify",
+      }),
+    ).toEqual({
+      slice_id: "au01-garbage-json-recovery",
+      behavior: "malformed_provider_json_falls_back_without_leaking_payload_and_recovers",
+      turn_ids: ["turn-garbage", "turn-recovery"],
+      assertions: [
+        "malformed_provider_json_rendered_friendly_fallback",
+        "raw_provider_payload_not_visible",
+        "input_remained_available_after_malformed_json",
+        "channel_remained_connected_after_malformed_json",
+        "following_valid_chat_completed_without_micro_plan",
+        "deterministic_provider_recovery_turn_completed",
+      ],
+    });
+  });
+
+  it("rejects AU-01 garbage JSON recovery if raw provider payload is visible", () => {
+    const records = garbageJsonRecoveryRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, raw_provider_payload_visible: true }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au01-garbage-json-recovery", records)).toBeNull();
+  });
+
+  it("accepts AU-01 frame validation friendly error evidence with recovery turn", () => {
+    const records = frameValidationFriendlyErrorRecords();
+
+    expect(findNativeSliceEvidence("au01-frame-validation-friendly-error", records)).toEqual({
+      slice_id: "au01-frame-validation-friendly-error",
+      turn_id: "turn-invalid-frame",
+      turn_ids: ["turn-invalid-frame", "turn-recovery"],
+      invalid_frame_turn_id: "turn-invalid-frame",
+      recovery_turn_id: "turn-recovery",
+      fallback_message_visible: true,
+      internal_validation_reason_visible: false,
+      internal_validation_reason_in_turn_result: false,
+      input_enabled_after_invalid_frame: true,
+      thinking_visible_after_invalid_frame: false,
+      channel_connected_after_invalid_frame: true,
+      recovery_message_visible: true,
+      recovery_assistant_reply_visible: true,
+      recovery_assistant_is_fallback: false,
+      key_events: [
+        "channel.user_message.start",
+        "dialogue_gateway.handle_input.error",
+        "channel.user_message.error",
+        "dialogue_gateway.handle_input.done",
+        "channel.user_message.done",
+      ],
+    });
+  });
+
+  it("accepts AU-01 frame validation friendly error behavior only when recovery chat completes", () => {
+    const records = frameValidationFriendlyErrorRecords();
+    const evidence = findNativeSliceEvidence("au01-frame-validation-friendly-error", records);
+
+    expect(
+      findSliceBehaviorEvidence("au01-frame-validation-friendly-error", records, evidence, {
+        provider: "slice_verify",
+      }),
+    ).toEqual({
+      slice_id: "au01-frame-validation-friendly-error",
+      behavior: "forbidden_frame_semantics_are_blocked_without_leaking_internal_reason",
+      turn_ids: ["turn-invalid-frame", "turn-recovery"],
+      assertions: [
+        "forbidden_frame_semantics_blocked_at_gateway",
+        "author_visible_fallback_is_friendly",
+        "internal_validation_reason_not_visible",
+        "internal_validation_reason_not_in_turn_result",
+        "input_remained_available_after_frame_validation_failure",
+        "following_valid_chat_completed_without_micro_plan",
+        "deterministic_provider_recovery_turn_completed",
+      ],
+    });
+  });
+
+  it("rejects AU-01 frame validation evidence if internal reason leaks into turn result", () => {
+    const records = frameValidationFriendlyErrorRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, internal_validation_reason_in_turn_result: true }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au01-frame-validation-friendly-error", records)).toBeNull();
+  });
+
+  it("accepts AU-01 turn result recorder UI consistency evidence", () => {
+    const records = turnresultRecorderUiConsistencyRecords();
+
+    expect(findNativeSliceEvidence("au01-turnresult-recorder-ui-consistency", records)).toEqual({
+      slice_id: "au01-turnresult-recorder-ui-consistency",
+      turn_id: "turn-recorder",
+      turn_ids: ["turn-recorder"],
+      work_id: "work-chat",
+      session_id: "session-chat",
+      transcript_count: 4,
+      reload_resume_transcript_count: 4,
+      current_ui_assistant_visible: true,
+      transcript_assistant_text_matches_ui: true,
+      transcript_turn_result_assistant_text_matches_websocket: true,
+      restored_ui_assistant_visible: true,
+      key_events: [
+        "work_session.resume.done",
+        "channel.join.done",
+        "channel.user_message.start",
+        "dialogue_gateway.handle_input.done",
+        "channel.user_message.done",
+        "work_session.show.done",
+        "slice_verify.ui_state.done",
+      ],
+    });
+  });
+
+  it("accepts AU-01 turn result recorder UI behavior when transcript and restored UI match", () => {
+    const records = turnresultRecorderUiConsistencyRecords();
+    const evidence = findNativeSliceEvidence("au01-turnresult-recorder-ui-consistency", records);
+
+    expect(
+      findSliceBehaviorEvidence("au01-turnresult-recorder-ui-consistency", records, evidence, {
+        provider: "slice_verify",
+      }),
+    ).toEqual({
+      slice_id: "au01-turnresult-recorder-ui-consistency",
+      behavior: "turn_result_assistant_message_matches_recorder_transcript_and_restored_ui",
+      turn_ids: ["turn-recorder"],
+      work_id: "work-chat",
+      session_id: "session-chat",
+      assertions: [
+        "ordinary_chat_sent_from_real_workbench",
+        "visible_assistant_text_came_from_websocket_turn_result",
+        "interaction_recorder_persisted_user_and_assistant_rows",
+        "assistant_transcript_text_matches_visible_ui",
+        "assistant_transcript_turn_result_matches_websocket_turn_result",
+        "active_session_snapshot_loaded_through_web_application_persistence",
+        "webview_reload_restored_the_same_transcript_text",
+        "ordinary_chat_did_not_request_micro_plan",
+        "deterministic_provider_form_frame_called_for_recorder_turn",
+      ],
+    });
+  });
+
+  it("rejects AU-01 recorder consistency evidence if transcript turn_result diverges", () => {
+    const records = turnresultRecorderUiConsistencyRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, transcript_turn_result_assistant_text_matches_websocket: false }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au01-turnresult-recorder-ui-consistency", records)).toBeNull();
   });
 
   it("rejects ordinary two-turn evidence if a micro plan event appears", () => {
@@ -3664,6 +4427,266 @@ function emptyMessageGuardRecords() {
   ];
 }
 
+function garbageJsonRecoveryRecords() {
+  const records = ["turn-garbage", "turn-recovery"].flatMap((turnId) => [
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: turnId === "turn-garbage" ? 36 : 22,
+      generate_micro_plan: false,
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+      candidate_count: 0,
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: turnId,
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 14,
+      outcome: "ok",
+    },
+  ]);
+
+  return [
+    ...records,
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: "turn-garbage",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au01-garbage-json-recovery",
+      garbage_turn_id: "turn-garbage",
+      recovery_turn_id: "turn-recovery",
+      fallback_message_visible: true,
+      raw_provider_payload_visible: false,
+      input_enabled_after_garbage: true,
+      thinking_visible_after_garbage: false,
+      channel_connected_after_garbage: true,
+      garbage_generate_micro_plan: false,
+      recovery_generate_micro_plan: false,
+      recovery_message_visible: true,
+      recovery_assistant_reply_visible: true,
+      recovery_assistant_is_fallback: false,
+    },
+  ];
+}
+
+function frameValidationFriendlyErrorRecords() {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-invalid-frame",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 42,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.error",
+      turn_id: "turn-invalid-frame",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "error",
+      reason_code: "frame_validation_failed",
+      outcome_detail: "forbidden semantics found: approved",
+    },
+    {
+      event: "channel.user_message.error",
+      turn_id: "turn-invalid-frame",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 14,
+      outcome: "error",
+      reason_code: "frame validation failed: forbidden semantics found: approved",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-recovery",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 24,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: "turn-recovery",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-recovery",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 14,
+      outcome: "ok",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: "turn-invalid-frame",
+      workspace_id: "ws-chat",
+      work_id: "work-chat",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au01-frame-validation-friendly-error",
+      invalid_frame_turn_id: "turn-invalid-frame",
+      recovery_turn_id: "turn-recovery",
+      fallback_message_visible: true,
+      internal_validation_reason_visible: false,
+      internal_validation_reason_in_turn_result: false,
+      input_enabled_after_invalid_frame: true,
+      thinking_visible_after_invalid_frame: false,
+      channel_connected_after_invalid_frame: true,
+      invalid_frame_generate_micro_plan: false,
+      recovery_generate_micro_plan: false,
+      recovery_message_visible: true,
+      recovery_assistant_reply_visible: true,
+      recovery_assistant_is_fallback: false,
+    },
+  ];
+}
+
+function turnresultRecorderUiConsistencyRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      session_id: "session-chat",
+      transcript_count: 2,
+      pending_adoption_count: 0,
+      duration_ms: 8,
+      outcome: "ok",
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      session_id: "session-chat",
+      duration_ms: 3,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-recorder",
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 30,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: "turn-recorder",
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      duration_ms: 12,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-recorder",
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      duration_ms: 14,
+      outcome: "ok",
+    },
+    {
+      event: "work_session.show.done",
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      session_id: "session-chat",
+      read_only: false,
+      transcript_count: 4,
+      pending_adoption_count: 0,
+      duration_ms: 5,
+      outcome: "ok",
+    },
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      session_id: "session-chat",
+      transcript_count: 4,
+      pending_adoption_count: 0,
+      duration_ms: 7,
+      outcome: "ok",
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      session_id: "session-chat",
+      duration_ms: 3,
+      outcome: "ok",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: "turn-recorder",
+      turn_ids: ["turn-recorder"],
+      workspace_id: "work-chat",
+      work_id: "work-chat",
+      context_work_id: "work-chat",
+      session_id: "session-chat",
+      active_session_id: "session-chat",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au01-turnresult-recorder-ui-consistency",
+      sent_message_text: "请只和我聊雨夜悬疑开场的氛围，不写正文也不改设定。",
+      assistant_text: "可以，我们先把雨夜开场的悬疑气质定成潮湿、克制、慢慢逼近。",
+      current_ui_user_message_visible: true,
+      current_ui_assistant_visible: true,
+      transcript_user_row_found: true,
+      transcript_assistant_row_found: true,
+      transcript_user_text_matches_ui: true,
+      transcript_assistant_text_matches_ui: true,
+      transcript_turn_result_turn_id_matches_websocket: true,
+      transcript_turn_result_assistant_text_matches_websocket: true,
+      transcript_turn_result_assistant_text:
+        "可以，我们先把雨夜开场的悬疑气质定成潮湿、克制、慢慢逼近。",
+      transcript_count: 4,
+      session_snapshot_read_only: false,
+      reload_resume_transcript_count: 4,
+      restored_ui_user_message_visible: true,
+      restored_ui_assistant_visible: true,
+      restored_input_enabled: true,
+      restored_send_enabled: true,
+      generate_micro_plan: false,
+      thinking_observed: true,
+      socket_connected: true,
+    },
+  ];
+}
+
 function ordinarySingleTurnRecords(turnId) {
   return [
     {
@@ -4189,6 +5212,352 @@ function su02WorkSwitchingRecords() {
   ];
 }
 
+function su02ArtifactProjectionTraceIsolationRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-draft-a",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      generate_micro_plan: true,
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: "turn-draft-a",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+    },
+    {
+      event: "channel.get_toc.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      chapter_count: 0,
+      total_word_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-return",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-draft-a",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-return",
+      action_type: "accept",
+      action_status: "accepted",
+    },
+    {
+      event: "channel.get_toc.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-return",
+      chapter_count: 1,
+      total_word_count: 42,
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-return",
+      content_chars: 42,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b-return",
+    },
+    {
+      event: "channel.get_toc.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b-return",
+      chapter_count: 0,
+      total_word_count: 0,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-trace-b",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b-return",
+      generate_micro_plan: false,
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-trace-b",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b-return",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "su02-artifact-projection-trace-isolation",
+      turn_id: "turn-draft-a",
+      turn_ids: ["turn-draft-a", "turn-adopt-a", "turn-trace-b"],
+      draft_turn_id: "turn-draft-a",
+      adopt_turn_id: "turn-adopt-a",
+      target_trace_turn_id: "turn-trace-b",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      context_work_id: "work-b",
+      source_work_id: "work-a",
+      target_work_id: "work-b",
+      source_session_id: "session-a",
+      target_session_id: "session-b-return",
+      joined_work_count: 2,
+      socket_connected: true,
+      artifact_id: "artifact-prose-a",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      source_trace_ref: "trace-source-draft",
+      target_trace_ref: "trace-target-b",
+      source_pending_visible_before_switch: true,
+      pending_artifact_visible_in_target: false,
+      target_projection_empty_before_source_adoption: true,
+      pending_restored_in_source: true,
+      artifact_adopted_in_source: true,
+      source_projection_populated_after_adoption: true,
+      target_projection_empty_after_source_adoption: true,
+      target_trace_excludes_source_artifact: true,
+      target_why_excludes_source_artifact: true,
+      source_artifact_visible_in_target_after_trace: false,
+      service_status_text: "服务: 已连接",
+      title_text: "SU02隔离乙",
+    },
+  ];
+}
+
+function su02PendingResultWorkIsolationRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      duration_ms: 3,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-slow-a",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 35,
+      generate_micro_plan: false,
+    },
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      duration_ms: 2,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-b",
+      work_id: "work-b",
+      session_id: "session-b",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-slow-a",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a",
+      duration_ms: 2510,
+      outcome: "ok",
+    },
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-return",
+      duration_ms: 2,
+      outcome: "ok",
+      transcript_count: 1,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      session_id: "session-a-return",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      workspace_id: "work-a",
+      work_id: "work-a",
+      context_work_id: "work-a",
+      source_work_id: "work-a",
+      target_work_id: "work-b",
+      session_id: "session-a-return",
+      source_session_id: "session-a",
+      target_session_id: "session-b",
+      duration_ms: 0,
+      outcome: "ok",
+      slice_id: "su02-pending-result-work-isolation",
+      turn_id: "turn-slow-a",
+      socket_connected: true,
+      sent_frame_work_id: "work-a",
+      source_turn_completed_work_id: "work-a",
+      target_visible_after_source_done: true,
+      target_loading_after_source_done: false,
+      source_user_visible_in_target: false,
+      source_assistant_visible_in_target: false,
+      source_user_visible_after_return: true,
+      source_assistant_visible_after_return: true,
+      source_return_transcript_count: 1,
+      service_status_text: "服务: 已连接",
+      title_text: "SU02慢回复甲",
+    },
+  ];
+}
+
+function su02EmptyStartUnnamedWorkRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      workspace_id: "work-auto",
+      work_id: "work-auto",
+      session_id: "session-auto",
+      duration_ms: 3,
+      outcome: "ok",
+      transcript_count: 0,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-auto",
+      work_id: "work-auto",
+      session_id: "session-auto",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-empty-start",
+      workspace_id: "work-auto",
+      work_id: "work-auto",
+      session_id: "session-auto",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 32,
+      generate_micro_plan: false,
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-empty-start",
+      workspace_id: "work-auto",
+      work_id: "work-auto",
+      session_id: "session-auto",
+      duration_ms: 80,
+      outcome: "ok",
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-unnamed-1",
+      work_id: "work-unnamed-1",
+      session_id: "session-unnamed-1",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "channel.join.done",
+      workspace_id: "work-unnamed-2",
+      work_id: "work-unnamed-2",
+      session_id: "session-unnamed-2",
+      duration_ms: 1,
+      outcome: "ok",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      workspace_id: "work-auto",
+      work_id: "work-auto",
+      context_work_id: "work-auto",
+      session_id: "session-auto",
+      duration_ms: 0,
+      outcome: "ok",
+      slice_id: "su02-empty-start-unnamed-work",
+      turn_id: "turn-empty-start",
+      socket_connected: true,
+      backend_default_seed_skipped: true,
+      seed_script_none: true,
+      initial_join_work_id: "work-auto",
+      initial_work_title: "未命名作品",
+      works_after_start_count: 1,
+      sent_frame_work_id: "work-auto",
+      turn_done_work_id: "work-auto",
+      renamed_work_id: "work-auto",
+      renamed_title: "SU02空库改名-123",
+      message_visible_after_rename: true,
+      duplicate_unnamed_count: 2,
+      duplicate_unnamed_labels_visible: true,
+      duplicate_unnamed_work_ids: ["work-unnamed-1", "work-unnamed-2"],
+      second_unnamed_work_id: "work-unnamed-1",
+      third_unnamed_work_id: "work-unnamed-2",
+      service_status_text: "服务: 已连接",
+      title_text: "未命名作品",
+    },
+  ];
+}
+
 function su02WorkRestartRecoveryRecords() {
   return [
     {
@@ -4379,6 +5748,168 @@ function au02CandidateContinuationRecords(sourceTurnId, followTurnId) {
   ];
 }
 
+function au02CandidateMultiturnContextRecords(sourceTurnId, continuationTurnId, followupTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: followupTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au02-candidate-multiturn-context",
+      source_turn_id: sourceTurnId,
+      continuation_turn_id: continuationTurnId,
+      followup_turn_id: followupTurnId,
+      candidate_ref: "dir-1",
+      candidate_title: "人物动机 AU02CTX123456",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      context_nonce: "AU02CTX123456",
+      candidate_title_visible: true,
+      continuation_candidate_selection_sent: true,
+      followup_plain_user_message_sent: true,
+      followup_context_has_conversation: true,
+      followup_context_has_session_summary: true,
+      followup_reply_contains_context_nonce: true,
+      followup_message_visible: true,
+      followup_reply_visible: true,
+      generate_micro_plan: false,
+      tool_result_present: false,
+      adoption_decision_present: false,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 45,
+      generate_micro_plan: false,
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      frame_type: "creative_exploration",
+      candidate_count: 2,
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: continuationTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 33,
+      generate_micro_plan: false,
+      candidate_source_turn_ref: sourceTurnId,
+      candidate_ref: "dir-1",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: continuationTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      frame_type: "casual_reply",
+      candidate_count: 0,
+      duration_ms: 18,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: continuationTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 25,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: followupTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 30,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: followupTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "context.assemble.done",
+      turn_id: followupTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 4,
+      outcome: "ok",
+      has_conversation: true,
+      has_session_summary: true,
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: followupTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      frame_type: "casual_reply",
+      candidate_count: 0,
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: followupTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: followupTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+  ];
+}
+
 function au02CandidateFreeformFollowupRecords(sourceTurnId, followTurnId) {
   return [
     {
@@ -4455,6 +5986,276 @@ function au02CandidateFreeformFollowupRecords(sourceTurnId, followTurnId) {
       session_id: "session-1",
       duration_ms: 33,
       outcome: "ok",
+    },
+  ];
+}
+
+function au02NaturalExplorationNoSlotFormRecords(sourceTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au02-natural-exploration-no-slot-form",
+      source_turn_id: sourceTurnId,
+      frame_type: "creative_exploration",
+      candidate_count: 2,
+      candidate_ref: "dir-1",
+      candidate_titles: ["数字灵根", "机甲道场"],
+      candidate_pitches: ["灵根芯片与云端神祇", "机甲炼体与数据心法"],
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      natural_reply_visible: true,
+      lmstudio_quality_checks_required: false,
+      natural_reply_chinese: true,
+      natural_reply_no_json_code: true,
+      candidates_no_json_code: true,
+      candidate_semantically_relevant: true,
+      candidate_panel_rendered: 1,
+      slot_form_visible: false,
+      forbidden_slot_fields_absent: true,
+      durable_clarification_opened: false,
+      execution_card_visible: false,
+      generate_micro_plan: false,
+      tool_result_present: false,
+      adoption_decision_present: false,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 29,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      frame_type: "creative_exploration",
+      candidate_count: 2,
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+  ];
+}
+
+function au02CandidateFallbackUiRecords(sourceTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au02-candidate-fallback-ui",
+      source_turn_id: sourceTurnId,
+      provider_candidate_payload: "malformed_candidates",
+      frame_type: "creative_exploration",
+      frame_candidate_count: 3,
+      turn_result_candidate_count: 3,
+      fallback_candidate_titles: ["矛盾切入", "人物切入", "世界规则切入"],
+      fallback_candidate_pitches: [
+        "先抓住作品里最有冲突感的设定，让主角从压力中心进入故事。",
+        "从一个有强烈欲望或困境的角色出发，用他的选择带出世界观。",
+        "先定义一个反常但有吸引力的世界规则，再让剧情围绕它展开。",
+      ],
+      fallback_candidate_visible: true,
+      has_known_fallback_candidate: true,
+      candidate_fields_nonempty: true,
+      candidate_statuses_not_adopted: true,
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      candidate_panel_rendered: 1,
+      malformed_candidate_prompt_sent: true,
+      generate_micro_plan: false,
+      tool_result_present: false,
+      adoption_decision_present: false,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 55,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      frame_type: "creative_exploration",
+      candidate_count: 3,
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+  ];
+}
+
+function au02UnadoptedCandidateNoReadingFactRecords(sourceTurnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 1,
+      outcome: "ok",
+      slice_id: "au02-unadopted-candidate-no-reading-fact",
+      source_turn_id: sourceTurnId,
+      candidate_ref: "dir-1",
+      candidate_set_ref: `candidate_set:${sourceTurnId}`,
+      frame_badge_label: "探索方向",
+      frame_badge_kind: "exploration",
+      candidate_panel_rendered_before_reading: true,
+      reading_mode_opened: true,
+      reading_empty_state_visible: true,
+      reading_toc_chapter_count: 0,
+      reading_total_word_count: 0,
+      candidate_title_visible_in_reading: false,
+      candidate_pitch_visible_in_reading: false,
+      candidate_selected: false,
+      candidate_adopted: false,
+      production_write_performed: false,
+      adoption_decision_present: false,
+      no_author_action_sent: true,
+      no_action_result_received: true,
+      no_projection_events: true,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+      text_len: 29,
+      generate_micro_plan: false,
+    },
+    {
+      event: "dialogue_gateway.handle_input.start",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 0,
+      outcome: "start",
+    },
+    {
+      event: "planner.form_frame.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 20,
+      outcome: "ok",
+    },
+    {
+      event: "dialogue_gateway.handle_input.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 32,
+      outcome: "ok",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: sourceTurnId,
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+    {
+      event: "channel.get_toc.done",
+      workspace_id: "ws-1",
+      work_id: "work-1",
+      session_id: "session-1",
+      chapter_count: 0,
+      total_word_count: 0,
     },
   ];
 }

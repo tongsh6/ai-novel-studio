@@ -72,17 +72,29 @@ Implemented external UI driver slice ids:
   su01-lmstudio-disconnected-health
   su01-provider-endpoint-validation
   su01-provider-model-list-success
+  su01-provider-test-failure-ui
   su01-api-key-secret-redaction
+  su01-keychain-webview-roundtrip
   au02-candidate-continuation
+  au02-natural-exploration-no-slot-form
+  au02-candidate-fallback-ui
+  au02-candidate-multiturn-context
   au02-freeform-followup-after-candidate
+  au02-unadopted-candidate-no-reading-fact
   au02-candidate-adoption-bridge
   su01-model-provider-switching
   su02-work-switching
+  su02-artifact-projection-trace-isolation
+  su02-empty-start-unnamed-work
+  su02-pending-result-work-isolation
   su02-work-lifecycle-management
   su02-work-restart-recovery
   su03-assistant-display-name
   au01-ordinary-chat-two-turn-roundtrip
   au01-empty-message-guard
+  au01-garbage-json-recovery
+  au01-frame-validation-friendly-error
+  au01-turnresult-recorder-ui-consistency
   au05-adoption-safety-freshness
   au05-stale-conflict-cross-work-freshness
   au05-conflict-cross-work-recovery
@@ -114,6 +126,8 @@ Implemented external UI driver slice ids:
   au03-session-history-readonly
   au03-session-new-active
   au03-branch-from-history
+  au03-archive-session-filter
+  au03-current-work-context-ssot
   au11-quality-diagnosis-message-envelope
   au03-long-session-compression
   au03-context-source-ui
@@ -125,6 +139,9 @@ Implemented external UI driver slice ids:
   au10-workbench-recovery-cancel-waiting
   au12-work-profile-overview
   desktop-stage-process-ownership
+
+Native capability probes:
+  su01-keychain-webview-capability
 
 Legacy slice ids must get an external driver before this script can run them.
 Do not add product-code autorun hooks to make a slice pass.
@@ -153,7 +170,7 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-keychain-webview-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
@@ -169,7 +186,7 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" ]]; then
+if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-keychain-webview-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
@@ -186,6 +203,161 @@ LLM_LOG_DIR="$ARTIFACT_DIR/llm-calls"
 TAURI_SLICE_HOME="$ARTIFACT_DIR/tauri-home"
 rm -rf "$ARTIFACT_DIR"
 mkdir -p "$APP_LOG_DIR" "$LLM_LOG_DIR" "$TAURI_SLICE_HOME"
+
+run_capability_command() {
+  local label="$1"
+  local seconds="$2"
+  shift 2
+
+  local stdout_file="$ARTIFACT_DIR/${label}.stdout"
+  local stderr_file="$ARTIFACT_DIR/${label}.stderr"
+  local status_file="$ARTIFACT_DIR/${label}.exit-code"
+  local timeout_file="$ARTIFACT_DIR/${label}.timeout"
+
+  rm -f "$stdout_file" "$stderr_file" "$status_file" "$timeout_file"
+
+  "$@" >"$stdout_file" 2>"$stderr_file" &
+  local cmd_pid=$!
+
+  (
+    sleep "$seconds"
+    if kill -0 "$cmd_pid" 2>/dev/null; then
+      echo "timed_out_after_${seconds}s" >"$timeout_file"
+      kill "$cmd_pid" 2>/dev/null || true
+    fi
+  ) &
+  local watchdog_pid=$!
+
+  set +e
+  wait "$cmd_pid"
+  local status=$?
+  set -e
+
+  kill "$watchdog_pid" 2>/dev/null || true
+  wait "$watchdog_pid" 2>/dev/null || true
+
+  if [[ -f "$timeout_file" ]]; then
+    status=124
+  fi
+
+  printf '%s\n' "$status" >"$status_file"
+}
+
+run_keychain_webview_capability_probe() {
+  echo "[tauri-slice-verify] native capability probe: $SLICE_ID"
+
+  run_capability_command "tauri-cli-version" 5 "$PROJECT_ROOT/frontend/node_modules/.bin/tauri" --version
+  run_capability_command "tauri-cli-driver-help" 5 "$PROJECT_ROOT/frontend/node_modules/.bin/tauri" driver --help
+  run_capability_command "tauri-driver-version" 5 tauri-driver --version
+  run_capability_command "safaridriver-version" 5 safaridriver --version
+  run_capability_command "security-cli-help" 5 /usr/bin/security -h
+  run_capability_command "system-events-count" 6 osascript -e 'tell application "System Events" to count processes'
+  run_capability_command "swift-ax-trusted" 8 env CLANG_MODULE_CACHE_PATH=/private/tmp/ans-keychain-probe-clang swift -e 'import ApplicationServices; print(AXIsProcessTrusted())'
+
+  node --input-type=module - "$ARTIFACT_DIR" <<'NODE'
+import fs from "node:fs";
+import path from "node:path";
+
+const artifactDir = process.argv[2];
+
+function readText(filePath) {
+  return fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+}
+
+function readExitCode(label) {
+  const raw = readText(path.join(artifactDir, `${label}.exit-code`)).trim();
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
+function command(label, commandLine) {
+  const stdout = readText(path.join(artifactDir, `${label}.stdout`));
+  const stderr = readText(path.join(artifactDir, `${label}.stderr`));
+  const timeout = readText(path.join(artifactDir, `${label}.timeout`)).trim();
+  const exitCode = readExitCode(label);
+
+  return {
+    command: commandLine,
+    exit_code: exitCode,
+    timed_out: Boolean(timeout),
+    timeout,
+    stdout: stdout.trim().slice(0, 2000),
+    stderr: stderr.trim().slice(0, 2000),
+  };
+}
+
+const checks = {
+  tauri_cli_version: command("tauri-cli-version", "frontend/node_modules/.bin/tauri --version"),
+  tauri_cli_driver_help: command("tauri-cli-driver-help", "frontend/node_modules/.bin/tauri driver --help"),
+  tauri_driver_binary: command("tauri-driver-version", "tauri-driver --version"),
+  safaridriver: command("safaridriver-version", "safaridriver --version"),
+  security_cli: command("security-cli-help", "/usr/bin/security -h"),
+  system_events: command("system-events-count", "osascript System Events count processes"),
+  swift_ax: command("swift-ax-trusted", "swift AXIsProcessTrusted"),
+};
+
+const tauriCliDriverAvailable = checks.tauri_cli_driver_help.exit_code === 0;
+const tauriDriverAvailable = checks.tauri_driver_binary.exit_code === 0;
+const tauriDriverBinaryFound =
+  checks.tauri_driver_binary.exit_code !== 127 &&
+  !/command not found|No such file or directory/i.test(
+    `${checks.tauri_driver_binary.stdout}\n${checks.tauri_driver_binary.stderr}`,
+  );
+const tauriDriverPlatformSupported =
+  tauriDriverAvailable &&
+  !/not supported on this platform/i.test(checks.tauri_driver_binary.stdout);
+const systemEventsResponsive = checks.system_events.exit_code === 0;
+const swiftAxTrusted = checks.swift_ax.exit_code === 0 && checks.swift_ax.stdout.trim() === "true";
+const nativeSystemUiAvailable = systemEventsResponsive && swiftAxTrusted;
+const canDriveTauriWebview =
+  tauriCliDriverAvailable || tauriDriverPlatformSupported || nativeSystemUiAvailable;
+
+const summary = {
+  slice_id: "su01-keychain-webview-capability",
+  target_slice_id: "su01-keychain-webview-roundtrip",
+  surface: "tauri",
+  target_surface: "tauri-native-webview",
+  status: canDriveTauriWebview ? "available" : "blocked",
+  can_verify_keychain_webview_roundtrip: canDriveTauriWebview,
+  product_code_acceptance_hooks_added: false,
+  acceptance_evidence: false,
+  checked_at: new Date().toISOString(),
+  capability_decision: {
+    tauri_cli_driver_available: tauriCliDriverAvailable,
+    tauri_driver_binary_found: tauriDriverBinaryFound,
+    tauri_driver_binary_available: tauriDriverAvailable,
+    tauri_driver_platform_supported: tauriDriverPlatformSupported,
+    system_events_responsive: systemEventsResponsive,
+    swift_ax_trusted: swiftAxTrusted,
+    native_system_ui_available: nativeSystemUiAvailable,
+    safaridriver_available: checks.safaridriver.exit_code === 0,
+    safaridriver_usable_for_tauri_webview: false,
+    security_cli_available: checks.security_cli.exit_code === 0,
+  },
+  blocker_reason: canDriveTauriWebview
+    ? null
+    : "No approved native WebView automation path is currently available. Browser Playwright can exercise the Vite DOM but cannot prove isTauri=true, @tauri-apps/api/core.invoke, or macOS Keychain write/read from the Tauri WebView. tauri-driver may be installed but is only usable here if it reports platform support; macOS support is not available in tauri-driver 2.0.6.",
+  required_next_steps: canDriveTauriWebview
+    ? [
+        "Add an external native WebView driver that opens the real Tauri window, performs the model settings API key save/read flow, and records Keychain and UI/log redaction evidence without product hooks.",
+      ]
+    : [
+        "Install or enable an approved native driver such as tauri-driver/Appium, or grant a responsive macOS Accessibility/System Events path for this runner.",
+        "Then implement su01-keychain-webview-roundtrip as a real Tauri WebView scenario, not as a browser-side Playwright scenario.",
+      ],
+  checks,
+};
+
+fs.writeFileSync(path.join(artifactDir, "summary.json"), JSON.stringify(summary, null, 2));
+console.log(`[tauri-slice-verify] capability status=${summary.status}`);
+console.log(`[tauri-slice-verify] summary=${path.join(artifactDir, "summary.json")}`);
+NODE
+}
+
+if [[ "$SLICE_ID" == "su01-keychain-webview-capability" ]]; then
+  run_keychain_webview_capability_probe
+  exit 0
+fi
 
 PHX_PID=""
 TAURI_PID=""
@@ -214,6 +386,29 @@ reset_test_db() {
   MIX_ENV=test mix ecto.drop --quiet >/dev/null 2>&1 || true
   MIX_ENV=test mix ecto.create --quiet >/dev/null 2>&1 || true
   MIX_ENV=test mix ecto.migrate --quiet >/dev/null
+}
+
+setup_isolated_macos_keychain() {
+  if [[ "$SLICE_ID" != "su01-keychain-webview-roundtrip" ]]; then
+    return 0
+  fi
+  if [[ "$(uname -s)" != "Darwin" ]]; then
+    return 0
+  fi
+
+  local keychain_dir="$TAURI_SLICE_HOME/Library/Keychains"
+  local keychain_path="$keychain_dir/login.keychain-db"
+  local log_path="$ARTIFACT_DIR/keychain-setup.log"
+  mkdir -p "$keychain_dir"
+
+  {
+    echo "[tauri-slice-verify] creating isolated macOS keychain: $keychain_path"
+    HOME="$TAURI_SLICE_HOME" security create-keychain -p "" "$keychain_path" 2>/dev/null || true
+    HOME="$TAURI_SLICE_HOME" security list-keychains -d user -s "$keychain_path"
+    HOME="$TAURI_SLICE_HOME" security default-keychain -d user -s "$keychain_path"
+    HOME="$TAURI_SLICE_HOME" security unlock-keychain -p "" "$keychain_path"
+    HOME="$TAURI_SLICE_HOME" security set-keychain-settings -lut 21600 "$keychain_path"
+  } >"$log_path" 2>&1
 }
 
 cleanup() {
@@ -262,6 +457,26 @@ wait_for_tauri_dev_app() {
   return 1
 }
 
+start_tauri_app() {
+  local log_file="$1"
+
+  cd "$PROJECT_ROOT/frontend"
+  HOME="$TAURI_SLICE_HOME" \
+  COREPACK_HOME="${COREPACK_HOME:-${ORIGINAL_HOME}/.cache/node/corepack}" \
+  AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
+  CARGO_HOME="${CARGO_HOME:-${ORIGINAL_HOME}/.cargo}" \
+  RUSTUP_HOME="${RUSTUP_HOME:-${ORIGINAL_HOME}/.rustup}" \
+  VITE_API_ENDPOINT="" \
+    VITE_PROXY_TARGET="$API_URL" \
+    VITE_WS_ENDPOINT="$VITE_WS_URL" \
+    VITE_DEV_PORT="$VITE_PORT" \
+    pnpm tauri dev >"$log_file" 2>&1 &
+  TAURI_PID=$!
+
+  wait_for_tauri_dev_app "$log_file" 120
+  wait_for_url "http://127.0.0.1:${VITE_PORT}" "Vite"
+}
+
 native_action_description() {
   case "$SLICE_ID" in
     su01-provider-health-model)
@@ -276,14 +491,29 @@ native_action_description() {
     su01-provider-model-list-success)
       echo "open model settings from real workbench -> load selectable model lists for DeepSeek, Anthropic, and LM Studio through provider adapter boundaries"
       ;;
+    su01-provider-test-failure-ui)
+      echo "open model settings from real workbench -> load an LM Studio model -> test an unreachable endpoint -> verify author-readable failure, preserved draft, and successful retry"
+      ;;
     su01-api-key-secret-redaction)
       echo "open model settings from real workbench -> select DeepSeek -> enter API key -> load model list through adapter HTTP boundary -> save -> verify provider options, UI, browser settings, business logs, and backend logs do not expose the secret"
+      ;;
+    su01-keychain-webview-roundtrip)
+      echo "drive the real Tauri WebView with macOS CGEvent -> select DeepSeek -> save a fake API key -> verify macOS Keychain storage, reload readback, and redaction without product hooks"
       ;;
     su01-model-provider-switching)
       echo "open model settings from real workbench -> select Stub provider -> test connection -> save -> send the next message -> verify provider_gateway routed that turn through stub without losing the dialogue"
       ;;
     su02-work-switching)
       echo "select a persisted source work -> send a message -> create a second work from the visible work menu -> verify the workbench rejoins the new workspace channel and does not show the previous work message"
+      ;;
+    su02-artifact-projection-trace-isolation)
+      echo "seed an adopted chapter plan -> generate a source-work prose artifact -> switch to a second work -> verify pending artifact, reading projection, and trace/why stay scoped to their work_id"
+      ;;
+    su02-empty-start-unnamed-work)
+      echo "start from an empty Work database -> verify the real workbench creates an unnamed work, keeps its messages through rename, and distinguishes duplicate unnamed works"
+      ;;
+    su02-pending-result-work-isolation)
+      echo "select a persisted source work -> send a deliberately slow message -> switch to a second work before completion -> verify the delayed result does not pollute the target work and is restored when returning to the source"
       ;;
     su02-work-lifecycle-management)
       echo "select a persisted source work -> create a named work from the visible work menu -> rename it -> delete it with confirmation -> verify fallback work and default list filtering"
@@ -300,11 +530,32 @@ native_action_description() {
     au01-empty-message-guard)
       echo "open real workbench -> try to send blank chat input -> verify no user_message frame or visible message is created -> send a valid follow-up chat message successfully"
       ;;
+    au01-garbage-json-recovery)
+      echo "open real workbench -> trigger malformed provider frame JSON -> verify friendly fallback, no raw payload, input/channel recovery, and a following ordinary chat turn"
+      ;;
+    au01-frame-validation-friendly-error)
+      echo "open real workbench -> trigger provider frame with forbidden execution semantics -> verify friendly fallback, no internal validation reason in UI or turn_result, and a following ordinary chat turn"
+      ;;
+    au01-turnresult-recorder-ui-consistency)
+      echo "open real workbench -> send ordinary chat -> verify websocket turn_result, interaction recorder transcript, and reloaded UI all show the same assistant text"
+      ;;
     au02-candidate-continuation)
       echo "send fuzzy creative input -> click visible candidate continuation -> verify user_message carries candidate_selection without adoption or production write"
       ;;
+    au02-natural-exploration-no-slot-form)
+      echo "send fuzzy creative input -> verify natural creative_exploration reply, candidate panel, no slot form, no MicroPlan, and no execution/adoption write"
+      ;;
+    au02-candidate-fallback-ui)
+      echo "send malformed candidate exploration prompt -> verify Planner fallback candidates render as not_adopted cards without action/adoption/write"
+      ;;
+    au02-candidate-multiturn-context)
+      echo "send nonce candidate prompt -> click candidate continuation -> type a plain follow-up -> verify the reply reflects prior candidate context without action/adoption/write"
+      ;;
     au02-freeform-followup-after-candidate)
       echo "send fuzzy creative input -> leave candidate buttons untouched -> type a freeform follow-up -> verify plain user_message without candidate_selection, adoption, or production write"
+      ;;
+    au02-unadopted-candidate-no-reading-fact)
+      echo "send fuzzy creative input -> do not click candidate actions -> open reading mode -> verify empty TOC and candidate text stays out of reading/work facts"
       ;;
     au02-candidate-adoption-bridge)
       echo "send fuzzy creative input -> click authorized candidate adoption -> verify adoption boundary decision without production write"
@@ -420,6 +671,12 @@ native_action_description() {
     au03-branch-from-history)
       echo "search historical session from real workbench -> open read-only transcript -> click from-here continue -> verify a new active branch session records source_session_ref/source_turn_ref without copying old transcript"
       ;;
+    au03-archive-session-filter)
+      echo "search historical session from real workbench -> open read-only transcript -> archive it -> verify default list hides archived session while explicit search can reopen it read-only"
+      ;;
+    au03-current-work-context-ssot)
+      echo "open a historical read-only session, return to active session, send a work-fact question -> verify latest Work snapshot and active session transcript enter prompt without historical transcript leakage"
+      ;;
     au11-quality-diagnosis-message-envelope)
       echo "seed work with adopted chapter context -> send a quality diagnosis request from the real workbench -> open why -> verify VS-00D three-layer envelope, concrete tradeoffs, and no tool/adoption/write"
       ;;
@@ -434,6 +691,48 @@ native_action_description() {
 
 drive_external_ui() {
   cd "$PROJECT_ROOT/frontend"
+  if [[ "$SLICE_ID" == "su01-keychain-webview-roundtrip" ]]; then
+    CLANG_MODULE_CACHE_PATH=/private/tmp/ans-keychain-probe-clang \
+      HOME="$TAURI_SLICE_HOME" \
+      SLICE_VERIFY_KEYCHAIN_PHASE="save" \
+      SLICE_VERIFY_BASE_URL="http://127.0.0.1:${VITE_PORT}" \
+      SLICE_VERIFY_API_URL="$API_URL" \
+      SLICE_VERIFY_ARTIFACT_DIR="$ARTIFACT_DIR" \
+      SLICE_VERIFY_PROJECT_ROOT="$PROJECT_ROOT" \
+      SLICE_VERIFY_PHOENIX_PID="$PHX_PID" \
+      SLICE_VERIFY_PHOENIX_PORT="$PHOENIX_PORT" \
+      SLICE_VERIFY_APP_LOG_DIR="$APP_LOG_DIR" \
+      SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
+      SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \
+      SLICE_VERIFY_TAURI_HOME="$TAURI_SLICE_HOME" \
+      SLICE_VERIFY_BACKEND_LOG="$ARTIFACT_DIR/backend.log" \
+      AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
+      swift "$PROJECT_ROOT/scripts/macos_cgevent_keychain_webview_driver.swift"
+
+    echo "[tauri-slice-verify] Restarting Tauri app to verify Keychain readback."
+    kill_process_tree "$TAURI_PID" || true
+    wait "$TAURI_PID" 2>/dev/null || true
+    start_tauri_app "$ARTIFACT_DIR/tauri-restart.log"
+
+    CLANG_MODULE_CACHE_PATH=/private/tmp/ans-keychain-probe-clang \
+      HOME="$TAURI_SLICE_HOME" \
+      SLICE_VERIFY_KEYCHAIN_PHASE="readback" \
+      SLICE_VERIFY_BASE_URL="http://127.0.0.1:${VITE_PORT}" \
+      SLICE_VERIFY_API_URL="$API_URL" \
+      SLICE_VERIFY_ARTIFACT_DIR="$ARTIFACT_DIR" \
+      SLICE_VERIFY_PROJECT_ROOT="$PROJECT_ROOT" \
+      SLICE_VERIFY_PHOENIX_PID="$PHX_PID" \
+      SLICE_VERIFY_PHOENIX_PORT="$PHOENIX_PORT" \
+      SLICE_VERIFY_APP_LOG_DIR="$APP_LOG_DIR" \
+      SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
+      SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \
+      SLICE_VERIFY_TAURI_HOME="$TAURI_SLICE_HOME" \
+      SLICE_VERIFY_BACKEND_LOG="$ARTIFACT_DIR/backend.log" \
+      AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
+      swift "$PROJECT_ROOT/scripts/macos_cgevent_keychain_webview_driver.swift"
+    return
+  fi
+
   SLICE_VERIFY_BASE_URL="http://127.0.0.1:${VITE_PORT}" \
     SLICE_VERIFY_API_URL="$API_URL" \
     SLICE_VERIFY_ARTIFACT_DIR="$ARTIFACT_DIR" \
@@ -657,6 +956,12 @@ cp -p "$TAURI_CONF" "$TAURI_CONF_BACKUP"
 sync_tauri_conf "$VITE_PORT" "$PHOENIX_PORT"
 
 case "$SLICE_ID" in
+  su02-empty-start-unnamed-work)
+    SEED_SCRIPT=""
+    ;;
+  su02-artifact-projection-trace-isolation)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
   au03-context-source-ui)
     SEED_SCRIPT="scripts/seed_au03_context_source_ui.exs"
     ;;
@@ -750,6 +1055,12 @@ case "$SLICE_ID" in
   au03-branch-from-history)
     SEED_SCRIPT="scripts/seed_au03_session_history_readonly.exs"
     ;;
+  au03-archive-session-filter)
+    SEED_SCRIPT="scripts/seed_au03_session_history_readonly.exs"
+    ;;
+  au03-current-work-context-ssot)
+    SEED_SCRIPT="scripts/seed_au03_current_work_context_ssot.exs"
+    ;;
   au11-quality-diagnosis-message-envelope)
     SEED_SCRIPT="scripts/seed_au11_quality_diagnosis_message_envelope.exs"
     ;;
@@ -758,7 +1069,11 @@ case "$SLICE_ID" in
     ;;
 esac
 
-MIX_ENV=test mix run "$SEED_SCRIPT" >"$ARTIFACT_DIR/seed.log" 2>&1
+if [[ -n "$SEED_SCRIPT" ]]; then
+  MIX_ENV=test mix run "$SEED_SCRIPT" >"$ARTIFACT_DIR/seed.log" 2>&1
+else
+  echo "[tauri-slice-verify] seed: none" >"$ARTIFACT_DIR/seed.log"
+fi
 
 LMSTUDIO_TIMEOUT_MS="${NOVEL_LMSTUDIO_TIMEOUT_MS:-300000}"
 if [[ "$SLICE_ID" == "au10-workbench-recovery-provider-timeout" ]]; then
@@ -771,8 +1086,9 @@ MIX_ENV=test \
   SLICE_VERIFY_APP_LOG_DIR="$APP_LOG_DIR" \
   SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
   SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \
-  SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE="$([[ "$SLICE_ID" == "su01-api-key-secret-redaction" ]] && echo 1 || echo 0)" \
-  SLICE_VERIFY_PROVIDER_MODELS_FIXTURE="$([[ "$SLICE_ID" == "su01-provider-model-list-success" ]] && echo 1 || echo 0)" \
+  SLICE_VERIFY_SKIP_DEFAULT_WORK_SEED="$([[ "$SLICE_ID" == "su02-empty-start-unnamed-work" ]] && echo 1 || echo 0)" \
+  SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE="$([[ "$SLICE_ID" == "su01-api-key-secret-redaction" || "$SLICE_ID" == "su01-keychain-webview-roundtrip" ]] && echo 1 || echo 0)" \
+  SLICE_VERIFY_PROVIDER_MODELS_FIXTURE="$([[ "$SLICE_ID" == "su01-provider-model-list-success" || "$SLICE_ID" == "su01-provider-test-failure-ui" ]] && echo 1 || echo 0)" \
   NOVEL_LMSTUDIO_TIMEOUT_MS="$LMSTUDIO_TIMEOUT_MS" \
   AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
   mix run --no-start --no-halt scripts/slice_verify_server.exs >"$ARTIFACT_DIR/backend.log" 2>&1 &
@@ -780,20 +1096,8 @@ PHX_PID=$!
 wait_for_url "$API_URL/health" "Phoenix"
 
 cd "$PROJECT_ROOT/frontend"
-HOME="$TAURI_SLICE_HOME" \
-COREPACK_HOME="${COREPACK_HOME:-${ORIGINAL_HOME}/.cache/node/corepack}" \
-AI_NOVEL_DESKTOP_PROFILE="slice-verify" \
-CARGO_HOME="${CARGO_HOME:-${ORIGINAL_HOME}/.cargo}" \
-RUSTUP_HOME="${RUSTUP_HOME:-${ORIGINAL_HOME}/.rustup}" \
-VITE_API_ENDPOINT="" \
-  VITE_PROXY_TARGET="$API_URL" \
-  VITE_WS_ENDPOINT="$VITE_WS_URL" \
-  VITE_DEV_PORT="$VITE_PORT" \
-  pnpm tauri dev >"$ARTIFACT_DIR/tauri.log" 2>&1 &
-TAURI_PID=$!
-
-wait_for_tauri_dev_app "$ARTIFACT_DIR/tauri.log" 120
-wait_for_url "http://127.0.0.1:${VITE_PORT}" "Vite"
+setup_isolated_macos_keychain
+start_tauri_app "$ARTIFACT_DIR/tauri.log"
 
 cat <<EOF
 [tauri-slice-verify] Native window is starting.

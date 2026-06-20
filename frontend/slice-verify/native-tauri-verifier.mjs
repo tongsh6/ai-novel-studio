@@ -1,13 +1,18 @@
 export const nativeSliceIds = [
   "workspace-runtime-state",
   "su02-work-switching",
+  "su02-artifact-projection-trace-isolation",
+  "su02-empty-start-unnamed-work",
+  "su02-pending-result-work-isolation",
   "su02-work-lifecycle-management",
   "su02-work-restart-recovery",
   "su01-provider-health-model",
   "su01-lmstudio-disconnected-health",
   "su01-provider-endpoint-validation",
   "su01-provider-model-list-success",
+  "su01-provider-test-failure-ui",
   "su01-api-key-secret-redaction",
+  "su01-keychain-webview-roundtrip",
   "su01-model-provider-switching",
   "stage-startup-context-contract",
   "au03c-work-session-resume",
@@ -37,8 +42,15 @@ export const nativeSliceIds = [
   "au10-ordinary-chat-no-micro-plan",
   "au01-ordinary-chat-two-turn-roundtrip",
   "au01-empty-message-guard",
+  "au01-garbage-json-recovery",
+  "au01-frame-validation-friendly-error",
+  "au01-turnresult-recorder-ui-consistency",
+  "au02-natural-exploration-no-slot-form",
+  "au02-candidate-fallback-ui",
   "au02-candidate-continuation",
+  "au02-candidate-multiturn-context",
   "au02-freeform-followup-after-candidate",
+  "au02-unadopted-candidate-no-reading-fact",
   "au02-candidate-adoption-bridge",
   "au05-adoption-safety-freshness",
   "au05-stale-conflict-cross-work-freshness",
@@ -85,6 +97,30 @@ const sliceKeyEvents = {
     "channel.user_message.start",
     "slice_verify.ui_state.done",
   ],
+  "su02-artifact-projection-trace-isolation": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
+    "slice_verify.ui_state.done",
+  ],
+  "su02-empty-start-unnamed-work": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "su02-pending-result-work-isolation": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "su02-work-lifecycle-management": [
     "work_session.resume.done",
     "channel.join.done",
@@ -99,7 +135,9 @@ const sliceKeyEvents = {
   "su01-lmstudio-disconnected-health": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-provider-endpoint-validation": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-provider-model-list-success": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-provider-test-failure-ui": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-api-key-secret-redaction": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-keychain-webview-roundtrip": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-model-provider-switching": [
     "channel.join.done",
     "channel.user_message.start",
@@ -624,6 +662,43 @@ const sliceKeyEvents = {
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
   ],
+  "au01-garbage-json-recovery": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ],
+  "au01-frame-validation-friendly-error": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.error",
+    "channel.user_message.error",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ],
+  "au01-turnresult-recorder-ui-consistency": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "work_session.show.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au02-natural-exploration-no-slot-form": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au02-candidate-fallback-ui": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au02-candidate-continuation": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
@@ -631,12 +706,30 @@ const sliceKeyEvents = {
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
   ],
+  "au02-candidate-multiturn-context": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au02-freeform-followup-after-candidate": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
     "planner.form_frame.done",
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
+  ],
+  "au02-unadopted-candidate-no-reading-fact": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "channel.get_toc.done",
+    "slice_verify.ui_state.done",
   ],
   "au02-candidate-adoption-bridge": [
     "channel.user_message.start",
@@ -701,6 +794,18 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu02WorkSwitchingEvidence(records);
   }
 
+  if (sliceId === "su02-artifact-projection-trace-isolation") {
+    return findSu02ArtifactProjectionTraceIsolationEvidence(records);
+  }
+
+  if (sliceId === "su02-empty-start-unnamed-work") {
+    return findSu02EmptyStartUnnamedWorkEvidence(records);
+  }
+
+  if (sliceId === "su02-pending-result-work-isolation") {
+    return findSu02PendingResultWorkIsolationEvidence(records);
+  }
+
   if (sliceId === "su02-work-lifecycle-management") {
     return findSu02WorkLifecycleManagementEvidence(records);
   }
@@ -725,8 +830,16 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu01ProviderModelListSuccessEvidence(records);
   }
 
+  if (sliceId === "su01-provider-test-failure-ui") {
+    return findSu01ProviderTestFailureUiEvidence(records);
+  }
+
   if (sliceId === "su01-api-key-secret-redaction") {
     return findSu01ApiKeySecretRedactionEvidence(records);
+  }
+
+  if (sliceId === "su01-keychain-webview-roundtrip") {
+    return findSu01KeychainWebviewRoundtripEvidence(records);
   }
 
   if (sliceId === "su01-model-provider-switching") {
@@ -849,12 +962,40 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu01EmptyMessageGuardEvidence(records);
   }
 
+  if (sliceId === "au01-garbage-json-recovery") {
+    return findAu01GarbageJsonRecoveryEvidence(records);
+  }
+
+  if (sliceId === "au01-frame-validation-friendly-error") {
+    return findAu01FrameValidationFriendlyErrorEvidence(records);
+  }
+
+  if (sliceId === "au01-turnresult-recorder-ui-consistency") {
+    return findAu01TurnresultRecorderUiConsistencyEvidence(records);
+  }
+
+  if (sliceId === "au02-natural-exploration-no-slot-form") {
+    return findNaturalExplorationNoSlotFormEvidence(records);
+  }
+
+  if (sliceId === "au02-candidate-fallback-ui") {
+    return findCandidateFallbackUiEvidence(records);
+  }
+
   if (sliceId === "au02-candidate-continuation") {
     return findCandidateContinuationEvidence(records);
   }
 
+  if (sliceId === "au02-candidate-multiturn-context") {
+    return findCandidateMultiturnContextEvidence(records);
+  }
+
   if (sliceId === "au02-freeform-followup-after-candidate") {
     return findCandidateFreeformFollowupEvidence(records);
+  }
+
+  if (sliceId === "au02-unadopted-candidate-no-reading-fact") {
+    return findUnadoptedCandidateNoReadingFactEvidence(records);
   }
 
   if (sliceId === "au02-candidate-adoption-bridge") {
@@ -995,6 +1136,18 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return su02WorkSwitchingBehavior(records, evidence, options);
   }
 
+  if (sliceId === "su02-artifact-projection-trace-isolation") {
+    return su02ArtifactProjectionTraceIsolationBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su02-empty-start-unnamed-work") {
+    return su02EmptyStartUnnamedWorkBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su02-pending-result-work-isolation") {
+    return su02PendingResultWorkIsolationBehavior(records, evidence, options);
+  }
+
   if (sliceId === "su02-work-lifecycle-management") {
     return su02WorkLifecycleManagementBehavior(records, evidence, options);
   }
@@ -1019,8 +1172,16 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return su01ProviderModelListSuccessBehavior(records, evidence, options);
   }
 
+  if (sliceId === "su01-provider-test-failure-ui") {
+    return su01ProviderTestFailureUiBehavior(records, evidence, options);
+  }
+
   if (sliceId === "su01-api-key-secret-redaction") {
     return su01ApiKeySecretRedactionBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-keychain-webview-roundtrip") {
+    return su01KeychainWebviewRoundtripBehavior(records, evidence, options);
   }
 
   if (sliceId === "su01-model-provider-switching") {
@@ -1116,6 +1277,32 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au12-work-profile-overview") {
     return au12WorkProfileOverviewBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au01-garbage-json-recovery") {
+    return garbageJsonRecoveryBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au01-frame-validation-friendly-error") {
+    return frameValidationFriendlyErrorBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au01-turnresult-recorder-ui-consistency") {
+    return turnresultRecorderUiConsistencyBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
+  }
+
+  if (sliceId === "au02-natural-exploration-no-slot-form") {
+    return naturalExplorationNoSlotFormBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au02-candidate-fallback-ui") {
+    return candidateFallbackUiBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
@@ -1248,8 +1435,22 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return candidateContinuationBehavior(turnIds, turnRecords, options);
   }
 
+  if (sliceId === "au02-candidate-multiturn-context") {
+    return candidateMultiturnContextBehavior(turnIds, turnRecords, evidence, options);
+  }
+
   if (sliceId === "au02-freeform-followup-after-candidate") {
     return candidateFreeformFollowupBehavior(turnIds, turnRecords, evidence, options);
+  }
+
+  if (sliceId === "au02-unadopted-candidate-no-reading-fact") {
+    return unadoptedCandidateNoReadingFactBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "au05-adoption-boundary") {
@@ -1820,6 +2021,49 @@ function findSu01ProviderModelListSuccessEvidence(records) {
   return null;
 }
 
+function findSu01ProviderTestFailureUiEvidence(records) {
+  const sliceId = "su01-provider-test-failure-ui";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.provider_selected !== "lmstudio") continue;
+    if (uiState.model_selected_before_failure !== "local-slice-failure-recovery") continue;
+    if (uiState.failing_endpoint !== "http://127.0.0.1:1/v1") continue;
+    if (uiState.failure_message_visible !== true) continue;
+    if (uiState.failure_reason_visible !== true) continue;
+    if (uiState.dialog_stayed_open_after_failure !== true) continue;
+    if (uiState.provider_draft_preserved_after_failure !== true) continue;
+    if (uiState.endpoint_draft_preserved_after_failure !== true) continue;
+    if (uiState.recovery_test_succeeded !== true) continue;
+    if (uiState.no_turn_events_created_by_test_connection !== true) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      provider_selected: uiState.provider_selected,
+      model_selected_before_failure: uiState.model_selected_before_failure,
+      failing_endpoint: uiState.failing_endpoint,
+      recovered_endpoint: uiState.recovered_endpoint,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
 function findSu01ApiKeySecretRedactionEvidence(records) {
   const sliceId = "su01-api-key-secret-redaction";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -1855,6 +2099,56 @@ function findSu01ApiKeySecretRedactionEvidence(records) {
       provider_selected: uiState.provider_selected,
       model_selected: uiState.model_selected,
       model_provider_button_text: uiState.model_provider_button_text,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01KeychainWebviewRoundtripEvidence(records) {
+  const sliceId = "su01-keychain-webview-roundtrip";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.driver !== "macos-cgevent") continue;
+    if (uiState.provider_selected !== "deepseek") continue;
+    if (uiState.model_selected !== "deepseek-slice-keychain") continue;
+    if (uiState.provider_switch_saved !== true) continue;
+    if (uiState.webview_reload_performed !== true) continue;
+    if (uiState.runtime_reset_before_reload !== true) continue;
+    if (uiState.post_reload_provider !== "deepseek") continue;
+    if (uiState.post_reload_api_key_configured !== true) continue;
+    if (uiState.keychain_item_found !== true) continue;
+    if (uiState.keychain_secret_read_skipped !== true) continue;
+    if (uiState.preferences_file_exists !== true) continue;
+    if (uiState.preferences_selected_provider !== true) continue;
+    if (uiState.preferences_model_saved !== true) continue;
+    if (uiState.preferences_omits_api_key !== true) continue;
+    if (uiState.provider_options_omits_api_key !== true) continue;
+    if (uiState.app_log_omits_api_key !== true) continue;
+    if (uiState.backend_log_omits_api_key !== true) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      provider_selected: uiState.provider_selected,
+      model_selected: uiState.model_selected,
+      driver: uiState.driver,
+      keychain_service: uiState.keychain_service,
       key_events: keyEvents,
     };
   }
@@ -2925,6 +3219,318 @@ function findSu02WorkSwitchingEvidence(records) {
   return null;
 }
 
+function findSu02ArtifactProjectionTraceIsolationEvidence(records) {
+  const sliceId = "su02-artifact-projection-trace-isolation";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.source_work_id &&
+      record.target_work_id &&
+      record.source_work_id !== record.target_work_id &&
+      record.work_id === record.target_work_id &&
+      record.context_work_id === record.target_work_id &&
+      record.socket_connected === true,
+  );
+
+  for (const uiState of uiStates) {
+    if (uiState.source_pending_visible_before_switch !== true) continue;
+    if (uiState.pending_artifact_visible_in_target !== false) continue;
+    if (uiState.target_projection_empty_before_source_adoption !== true) continue;
+    if (uiState.pending_restored_in_source !== true) continue;
+    if (uiState.artifact_adopted_in_source !== true) continue;
+    if (uiState.source_projection_populated_after_adoption !== true) continue;
+    if (uiState.target_projection_empty_after_source_adoption !== true) continue;
+    if (uiState.target_trace_excludes_source_artifact !== true) continue;
+    if (uiState.target_why_excludes_source_artifact !== true) continue;
+    if (uiState.source_artifact_visible_in_target_after_trace !== false) continue;
+    if (!uiState.artifact_id || uiState.artifact_type !== "prose_fragment") continue;
+    if (!uiState.source_trace_ref || !uiState.target_trace_ref) continue;
+
+    const sourceJoin = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.source_work_id,
+    );
+    const targetJoin = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.target_work_id,
+    );
+    if (!sourceJoin || !targetJoin) continue;
+
+    const draftTurnId = String(uiState.draft_turn_id ?? "");
+    const targetTraceTurnId = String(uiState.target_trace_turn_id ?? "");
+    if (!draftTurnId || !targetTraceTurnId) continue;
+
+    const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+    const sourceStart = draftRecords.find(
+      (record) =>
+        record.event === "channel.user_message.start" &&
+        record.work_id === uiState.source_work_id &&
+        record.generate_micro_plan === true,
+    );
+    if (!sourceStart) continue;
+
+    const generatedByTool = draftRecords.some(
+      (record) =>
+        record.event === "toolbox.execute.done" &&
+        record.work_id === uiState.source_work_id &&
+        record.tool_name === "prose_writing" &&
+        record.tool_outcome === "succeeded",
+    );
+    if (!generatedByTool) continue;
+
+    const sourceAdoptDone = records.find(
+      (record) =>
+        record.event === "channel.author_action.done" &&
+        record.work_id === uiState.source_work_id &&
+        record.turn_id === draftTurnId &&
+        record.action_type === "accept" &&
+        record.action_status === "accepted",
+    );
+    if (!sourceAdoptDone) continue;
+
+    const sourceToc = records.find(
+      (record) =>
+        record.event === "channel.get_toc.done" &&
+        record.work_id === uiState.source_work_id &&
+        Number(record.chapter_count ?? 0) >= 1 &&
+        Number(record.total_word_count ?? 0) > 0,
+    );
+    if (!sourceToc) continue;
+
+    const sourceChapterContent = records.find(
+      (record) =>
+        record.event === "channel.get_chapter_content.done" &&
+        record.work_id === uiState.source_work_id &&
+        Number(record.content_chars ?? 0) > 0,
+    );
+    if (!sourceChapterContent) continue;
+
+    const targetEmptyTocReads = records.filter(
+      (record) =>
+        record.event === "channel.get_toc.done" &&
+        record.work_id === uiState.target_work_id &&
+        Number(record.chapter_count ?? -1) === 0 &&
+        Number(record.total_word_count ?? -1) === 0,
+    );
+    if (targetEmptyTocReads.length < 2) continue;
+
+    const targetTraceRecords = records.filter((record) => record.turn_id === targetTraceTurnId);
+    const targetTraceStart = targetTraceRecords.find(
+      (record) =>
+        record.event === "channel.user_message.start" &&
+        record.work_id === uiState.target_work_id &&
+        record.generate_micro_plan === false,
+    );
+    if (!targetTraceStart) continue;
+
+    const targetTraceDone = targetTraceRecords.find(
+      (record) =>
+        record.event === "channel.user_message.done" && record.work_id === uiState.target_work_id,
+    );
+    if (!targetTraceDone) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: draftTurnId,
+      turn_ids: [draftTurnId, uiState.adopt_turn_id, targetTraceTurnId].filter(Boolean),
+      draft_turn_id: draftTurnId,
+      adopt_turn_id: uiState.adopt_turn_id,
+      target_trace_turn_id: targetTraceTurnId,
+      source_work_id: uiState.source_work_id,
+      target_work_id: uiState.target_work_id,
+      work_id: uiState.target_work_id,
+      artifact_id: uiState.artifact_id,
+      artifact_type: uiState.artifact_type,
+      chapter_title: uiState.chapter_title,
+      source_trace_ref: uiState.source_trace_ref,
+      target_trace_ref: uiState.target_trace_ref,
+      source_chapter_count: sourceToc.chapter_count,
+      source_content_chars: sourceChapterContent.content_chars,
+      target_empty_toc_reads: targetEmptyTocReads.length,
+      joined_work_count: uiState.joined_work_count,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu02EmptyStartUnnamedWorkEvidence(records) {
+  const sliceId = "su02-empty-start-unnamed-work";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id &&
+      record.socket_connected === true,
+  );
+
+  for (const uiState of uiStates) {
+    if (uiState.work_id === "lobby") continue;
+    if (uiState.backend_default_seed_skipped !== true) continue;
+    if (uiState.seed_script_none !== true) continue;
+    if (uiState.initial_join_work_id !== uiState.work_id) continue;
+    if (uiState.initial_work_title !== "未命名作品") continue;
+    if (Number(uiState.works_after_start_count ?? 0) !== 1) continue;
+    if (uiState.sent_frame_work_id !== uiState.work_id) continue;
+    if (uiState.turn_done_work_id !== uiState.work_id) continue;
+    if (uiState.renamed_work_id !== uiState.work_id) continue;
+    if (!String(uiState.renamed_title ?? "").startsWith("SU02空库改名-")) continue;
+    if (uiState.message_visible_after_rename !== true) continue;
+    if (Number(uiState.duplicate_unnamed_count ?? 0) < 2) continue;
+    if (uiState.duplicate_unnamed_labels_visible !== true) continue;
+    if (uiState.second_unnamed_work_id === uiState.third_unnamed_work_id) continue;
+
+    const initialJoin = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === uiState.work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!initialJoin) continue;
+
+    const initialResume = records.find(
+      (record) =>
+        record.event === "work_session.resume.done" &&
+        record.work_id === uiState.work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!initialResume) continue;
+
+    const turnStart = records.find(
+      (record) =>
+        record.event === "channel.user_message.start" &&
+        record.turn_id === uiState.turn_id &&
+        record.work_id === uiState.work_id,
+    );
+    if (!turnStart) continue;
+
+    const turnDone = records.find(
+      (record) =>
+        record.event === "channel.user_message.done" &&
+        record.turn_id === uiState.turn_id &&
+        record.work_id === uiState.work_id,
+    );
+    if (!turnDone) continue;
+
+    const serviceStatusText = String(uiState.service_status_text ?? "");
+    if (!serviceStatusText.includes("已连接")) continue;
+
+    const titleText = String(uiState.title_text ?? "");
+    if (!titleText.includes("未命名作品")) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: uiState.turn_id,
+      turn_ids: [uiState.turn_id].filter(Boolean),
+      work_id: uiState.work_id,
+      session_id: uiState.session_id,
+      renamed_title: uiState.renamed_title,
+      duplicate_unnamed_count: uiState.duplicate_unnamed_count,
+      duplicate_unnamed_work_ids: uiState.duplicate_unnamed_work_ids,
+      second_unnamed_work_id: uiState.second_unnamed_work_id,
+      third_unnamed_work_id: uiState.third_unnamed_work_id,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu02PendingResultWorkIsolationEvidence(records) {
+  const sliceId = "su02-pending-result-work-isolation";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.source_work_id &&
+      record.target_work_id &&
+      record.context_work_id === record.source_work_id &&
+      record.socket_connected === true,
+  );
+
+  for (const uiState of uiStates) {
+    if (uiState.work_id !== uiState.source_work_id) continue;
+    if (uiState.source_work_id === uiState.target_work_id) continue;
+    if (uiState.sent_frame_work_id !== uiState.source_work_id) continue;
+    if (uiState.source_turn_completed_work_id !== uiState.source_work_id) continue;
+    if (uiState.target_visible_after_source_done !== true) continue;
+    if (uiState.target_loading_after_source_done !== false) continue;
+    if (uiState.source_user_visible_in_target !== false) continue;
+    if (uiState.source_assistant_visible_in_target !== false) continue;
+    if (uiState.source_user_visible_after_return !== true) continue;
+    if (uiState.source_assistant_visible_after_return !== true) continue;
+    if (Number(uiState.source_return_transcript_count ?? 0) < 1) continue;
+
+    const sourceStart = records.find(
+      (record) =>
+        record.event === "channel.user_message.start" &&
+        record.turn_id === uiState.turn_id &&
+        record.work_id === uiState.source_work_id,
+    );
+    if (!sourceStart) continue;
+
+    const sourceDone = records.find(
+      (record) =>
+        record.event === "channel.user_message.done" &&
+        record.turn_id === uiState.turn_id &&
+        record.work_id === uiState.source_work_id,
+    );
+    if (!sourceDone) continue;
+
+    const targetJoin = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === uiState.target_work_id &&
+        record.session_id === uiState.target_session_id,
+    );
+    if (!targetJoin) continue;
+
+    const sourceReturnResume = records.find(
+      (record) =>
+        record.event === "work_session.resume.done" &&
+        record.work_id === uiState.source_work_id &&
+        record.session_id === uiState.session_id &&
+        Number(record.transcript_count ?? 0) >= 1,
+    );
+    if (!sourceReturnResume) continue;
+
+    const sourceReturnJoin = records.find(
+      (record) =>
+        record.event === "channel.join.done" &&
+        record.work_id === uiState.source_work_id &&
+        record.session_id === uiState.session_id,
+    );
+    if (!sourceReturnJoin) continue;
+
+    const serviceStatusText = String(uiState.service_status_text ?? "");
+    if (!serviceStatusText.includes("已连接")) continue;
+
+    const titleText = String(uiState.title_text ?? "");
+    if (!authorFacingTitle(titleText)) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_id: uiState.turn_id,
+      turn_ids: [uiState.turn_id].filter(Boolean),
+      work_id: uiState.source_work_id,
+      source_work_id: uiState.source_work_id,
+      target_work_id: uiState.target_work_id,
+      session_id: uiState.session_id,
+      source_session_id: uiState.source_session_id,
+      target_session_id: uiState.target_session_id,
+      source_return_transcript_count: uiState.source_return_transcript_count,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
 function findSu02WorkLifecycleManagementEvidence(records) {
   const sliceId = "su02-work-lifecycle-management";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -3029,8 +3635,7 @@ function findSu02WorkRestartRecoveryEvidence(records) {
 
     const joinedRestored = records.find(
       (record) =>
-        record.event === "channel.join.done" &&
-        record.work_id === uiState.first_restored_work_id,
+        record.event === "channel.join.done" && record.work_id === uiState.first_restored_work_id,
     );
     if (!joinedRestored) continue;
 
@@ -3478,6 +4083,202 @@ function findAu12WorkProfileOverviewEvidence(records) {
   };
 }
 
+function findNaturalExplorationNoSlotFormEvidence(records) {
+  const sliceId = "au02-natural-exploration-no-slot-form";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.frame_type === "creative_exploration" &&
+      record.natural_reply_visible === true &&
+      Number(record.candidate_panel_rendered ?? 0) > 0 &&
+      record.slot_form_visible === false &&
+      record.forbidden_slot_fields_absent === true &&
+      record.execution_card_visible === false,
+  );
+
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? uiState.turn_id ?? "");
+  if (!sourceTurnId) return null;
+
+  const turnRecords = byTurn.get(sourceTurnId) ?? [];
+  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+  if (!start || start.generate_micro_plan !== false) return null;
+  if (start.candidate_ref || start.candidate_source_turn_ref) return null;
+  if (!hasRequiredCorrelationFields(start)) return null;
+
+  const frame = turnRecords.find(
+    (record) =>
+      record.event === "planner.form_frame.done" &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_count ?? 0) > 0,
+  );
+  if (!frame) return null;
+
+  for (const event of [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ]) {
+    if (
+      !turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record))
+    ) {
+      return null;
+    }
+  }
+
+  if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  if (uiState.durable_clarification_opened !== false) return null;
+  if (uiState.tool_result_present !== false) return null;
+  if (uiState.adoption_decision_present !== false) return null;
+  if (uiState.candidate_selected !== false) return null;
+  if (uiState.candidate_adopted !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+  const lmstudioQualityChecksRequired = uiState.lmstudio_quality_checks_required === true;
+  if (lmstudioQualityChecksRequired) {
+    if (uiState.natural_reply_chinese !== true) return null;
+    if (uiState.natural_reply_no_json_code !== true) return null;
+    if (uiState.candidates_no_json_code !== true) return null;
+    if (uiState.candidate_semantically_relevant !== true) return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: sourceTurnId,
+    turn_ids: [sourceTurnId],
+    work_id: uiState.work_id,
+    source_turn_ref: sourceTurnId,
+    frame_type: uiState.frame_type,
+    candidate_count: Number(uiState.candidate_count),
+    candidate_ref: uiState.candidate_ref,
+    candidate_titles: uiState.candidate_titles ?? [],
+    candidate_pitches: uiState.candidate_pitches ?? [],
+    candidate_set_ref: uiState.candidate_set_ref,
+    natural_reply_visible: uiState.natural_reply_visible,
+    lmstudio_quality_checks_required: lmstudioQualityChecksRequired,
+    natural_reply_chinese: uiState.natural_reply_chinese === true,
+    natural_reply_no_json_code: uiState.natural_reply_no_json_code === true,
+    candidates_no_json_code: uiState.candidates_no_json_code === true,
+    candidate_semantically_relevant: uiState.candidate_semantically_relevant === true,
+    candidate_panel_rendered: Number(uiState.candidate_panel_rendered),
+    slot_form_visible: uiState.slot_form_visible,
+    forbidden_slot_fields_absent: uiState.forbidden_slot_fields_absent,
+    execution_card_visible: uiState.execution_card_visible,
+    generate_micro_plan: uiState.generate_micro_plan,
+    tool_result_present: uiState.tool_result_present,
+    adoption_decision_present: uiState.adoption_decision_present,
+    candidate_selected: uiState.candidate_selected,
+    candidate_adopted: uiState.candidate_adopted,
+    production_write_performed: uiState.production_write_performed,
+    no_author_action_sent: uiState.no_author_action_sent,
+    no_action_result_received: uiState.no_action_result_received,
+    key_events: keyEvents,
+  };
+}
+
+function findCandidateFallbackUiEvidence(records) {
+  const sliceId = "au02-candidate-fallback-ui";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.provider_candidate_payload === "malformed_candidates" &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_panel_rendered ?? 0) > 0 &&
+      Number(record.turn_result_candidate_count ?? 0) >= 2 &&
+      record.fallback_candidate_visible === true &&
+      record.has_known_fallback_candidate === true &&
+      record.candidate_fields_nonempty === true &&
+      record.candidate_statuses_not_adopted === true,
+  );
+
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? uiState.turn_id ?? "");
+  if (!sourceTurnId) return null;
+
+  const turnRecords = byTurn.get(sourceTurnId) ?? [];
+  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+  if (!start || start.generate_micro_plan !== false) return null;
+  if (start.candidate_ref || start.candidate_source_turn_ref) return null;
+  if (!hasRequiredCorrelationFields(start)) return null;
+
+  const frame = turnRecords.find(
+    (record) =>
+      record.event === "planner.form_frame.done" &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_count ?? 0) >= 2,
+  );
+  if (!frame) return null;
+
+  for (const event of [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ]) {
+    if (
+      !turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record))
+    ) {
+      return null;
+    }
+  }
+
+  if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  if (uiState.malformed_candidate_prompt_sent !== true) return null;
+  if (uiState.tool_result_present !== false) return null;
+  if (uiState.adoption_decision_present !== false) return null;
+  if (uiState.candidate_selected !== false) return null;
+  if (uiState.candidate_adopted !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: sourceTurnId,
+    turn_ids: [sourceTurnId],
+    work_id: uiState.work_id,
+    source_turn_ref: sourceTurnId,
+    provider_candidate_payload: uiState.provider_candidate_payload,
+    frame_type: uiState.frame_type,
+    frame_candidate_count: Number(uiState.frame_candidate_count),
+    turn_result_candidate_count: Number(uiState.turn_result_candidate_count),
+    fallback_candidate_titles: uiState.fallback_candidate_titles,
+    fallback_candidate_visible: uiState.fallback_candidate_visible,
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    candidate_panel_rendered: Number(uiState.candidate_panel_rendered),
+    candidate_fields_nonempty: uiState.candidate_fields_nonempty,
+    candidate_statuses_not_adopted: uiState.candidate_statuses_not_adopted,
+    generate_micro_plan: uiState.generate_micro_plan,
+    tool_result_present: uiState.tool_result_present,
+    adoption_decision_present: uiState.adoption_decision_present,
+    candidate_selected: uiState.candidate_selected,
+    candidate_adopted: uiState.candidate_adopted,
+    production_write_performed: uiState.production_write_performed,
+    no_author_action_sent: uiState.no_author_action_sent,
+    no_action_result_received: uiState.no_action_result_received,
+    key_events: keyEvents,
+  };
+}
+
 function findCandidateContinuationEvidence(records) {
   const sliceId = "au02-candidate-continuation";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -3523,6 +4324,119 @@ function findCandidateContinuationEvidence(records) {
   }
 
   return null;
+}
+
+function findCandidateMultiturnContextEvidence(records) {
+  const sliceId = "au02-candidate-multiturn-context";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.context_nonce &&
+      record.candidate_title_visible === true &&
+      record.continuation_candidate_selection_sent === true &&
+      record.followup_plain_user_message_sent === true &&
+      record.followup_context_has_conversation === true &&
+      record.followup_context_has_session_summary === true &&
+      record.followup_reply_contains_context_nonce === true &&
+      record.followup_message_visible === true &&
+      record.followup_reply_visible === true,
+  );
+
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? "");
+  const continuationTurnId = String(uiState.continuation_turn_id ?? "");
+  const followupTurnId = String(uiState.followup_turn_id ?? uiState.turn_id ?? "");
+  if (!sourceTurnId || !continuationTurnId || !followupTurnId) return null;
+
+  const sourceRecords = byTurn.get(sourceTurnId) ?? [];
+  const continuationRecords = byTurn.get(continuationTurnId) ?? [];
+  const followupRecords = byTurn.get(followupTurnId) ?? [];
+
+  const sourceFrame = sourceRecords.find(
+    (record) =>
+      record.event === "planner.form_frame.done" &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_count ?? 0) > 0,
+  );
+  if (!sourceFrame) return null;
+
+  const continuationStart = continuationRecords.find(
+    (record) => record.event === "channel.user_message.start",
+  );
+  if (
+    !continuationStart ||
+    continuationStart.generate_micro_plan !== false ||
+    continuationStart.candidate_source_turn_ref !== sourceTurnId ||
+    continuationStart.candidate_ref !== uiState.candidate_ref
+  ) {
+    return null;
+  }
+
+  const followupStart = followupRecords.find(
+    (record) => record.event === "channel.user_message.start",
+  );
+  if (!followupStart || followupStart.generate_micro_plan !== false) return null;
+  if (followupStart.candidate_ref || followupStart.candidate_source_turn_ref) return null;
+
+  const contextDone = followupRecords.find(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.has_conversation === true &&
+      record.has_session_summary === true,
+  );
+  if (!contextDone) return null;
+
+  for (const event of keyEvents.filter((item) => item !== "slice_verify.ui_state.done")) {
+    if (
+      !followupRecords.some(
+        (record) => record.event === event && hasRequiredCorrelationFields(record),
+      )
+    ) {
+      return null;
+    }
+  }
+
+  if (records.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+  if (uiState.tool_result_present !== false) return null;
+  if (uiState.adoption_decision_present !== false) return null;
+  if (uiState.candidate_selected !== false) return null;
+  if (uiState.candidate_adopted !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: followupTurnId,
+    turn_ids: [sourceTurnId, continuationTurnId, followupTurnId],
+    source_turn_ref: sourceTurnId,
+    continuation_turn_id: continuationTurnId,
+    followup_turn_id: followupTurnId,
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    context_nonce: uiState.context_nonce,
+    candidate_title_visible: uiState.candidate_title_visible,
+    continuation_candidate_selection_sent: uiState.continuation_candidate_selection_sent,
+    followup_plain_user_message_sent: uiState.followup_plain_user_message_sent,
+    followup_context_has_conversation: uiState.followup_context_has_conversation,
+    followup_context_has_session_summary: uiState.followup_context_has_session_summary,
+    followup_reply_contains_context_nonce: uiState.followup_reply_contains_context_nonce,
+    generate_micro_plan: uiState.generate_micro_plan,
+    tool_result_present: uiState.tool_result_present,
+    adoption_decision_present: uiState.adoption_decision_present,
+    candidate_selected: uiState.candidate_selected,
+    candidate_adopted: uiState.candidate_adopted,
+    production_write_performed: uiState.production_write_performed,
+    no_author_action_sent: uiState.no_author_action_sent,
+    no_action_result_received: uiState.no_action_result_received,
+    key_events: keyEvents,
+  };
 }
 
 function findCandidateFreeformFollowupEvidence(records) {
@@ -3584,6 +4498,97 @@ function findCandidateFreeformFollowupEvidence(records) {
     candidate_selected: uiState.candidate_selected,
     candidate_adopted: uiState.candidate_adopted,
     production_write_performed: uiState.production_write_performed,
+    key_events: keyEvents,
+  };
+}
+
+function findUnadoptedCandidateNoReadingFactEvidence(records) {
+  const sliceId = "au02-unadopted-candidate-no-reading-fact";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const byTurn = groupByTurn(records);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.frame_badge_kind === "exploration" &&
+      record.frame_badge_label === "探索方向" &&
+      record.candidate_panel_rendered_before_reading === true &&
+      record.reading_mode_opened === true &&
+      record.reading_empty_state_visible === true,
+  );
+
+  if (!uiState) return null;
+
+  const sourceTurnId = String(uiState.source_turn_id ?? uiState.turn_id ?? "");
+  if (!sourceTurnId) return null;
+
+  const turnRecords = byTurn.get(sourceTurnId) ?? [];
+  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+  if (!start || start.generate_micro_plan !== false) return null;
+  if (start.candidate_ref || start.candidate_source_turn_ref) return null;
+  if (!hasRequiredCorrelationFields(start)) return null;
+
+  for (const event of [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ]) {
+    if (
+      !turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record))
+    ) {
+      return null;
+    }
+  }
+
+  if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? -1) === 0 &&
+      Number(record.total_word_count ?? -1) === 0,
+  );
+  if (!tocRead) return null;
+
+  if (Number(uiState.reading_toc_chapter_count ?? -1) !== 0) return null;
+  if (Number(uiState.reading_total_word_count ?? -1) !== 0) return null;
+  if (uiState.candidate_title_visible_in_reading !== false) return null;
+  if (uiState.candidate_pitch_visible_in_reading !== false) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+  if (uiState.no_projection_events !== true) return null;
+  if (uiState.adoption_decision_present !== false) return null;
+  if (uiState.candidate_selected !== false) return null;
+  if (uiState.candidate_adopted !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: sourceTurnId,
+    turn_ids: [sourceTurnId],
+    work_id: uiState.work_id,
+    source_turn_ref: sourceTurnId,
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    frame_badge_label: uiState.frame_badge_label,
+    frame_badge_kind: uiState.frame_badge_kind,
+    reading_mode_opened: uiState.reading_mode_opened,
+    reading_empty_state_visible: uiState.reading_empty_state_visible,
+    reading_toc_chapter_count: Number(uiState.reading_toc_chapter_count),
+    reading_total_word_count: Number(uiState.reading_total_word_count),
+    candidate_title_visible_in_reading: uiState.candidate_title_visible_in_reading,
+    candidate_pitch_visible_in_reading: uiState.candidate_pitch_visible_in_reading,
+    candidate_selected: uiState.candidate_selected,
+    candidate_adopted: uiState.candidate_adopted,
+    production_write_performed: uiState.production_write_performed,
+    no_author_action_sent: uiState.no_author_action_sent,
+    no_action_result_received: uiState.no_action_result_received,
+    no_projection_events: uiState.no_projection_events,
     key_events: keyEvents,
   };
 }
@@ -4057,6 +5062,151 @@ function ordinaryChatBehavior(turnIds, turnRecords, options) {
   };
 }
 
+function naturalExplorationNoSlotFormBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  const frame = turnRecords.find(
+    (record) =>
+      record.event === "planner.form_frame.done" &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_count ?? 0) > 0,
+  );
+  if (!frame) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au02-natural-exploration-no-slot-form" &&
+      record.source_turn_id === turnIds[0],
+  );
+  if (!uiState) return null;
+
+  if (uiState.natural_reply_visible !== true) return null;
+  if (Number(uiState.candidate_panel_rendered ?? 0) <= 0) return null;
+  if (uiState.slot_form_visible !== false) return null;
+  if (uiState.forbidden_slot_fields_absent !== true) return null;
+  if (uiState.durable_clarification_opened !== false) return null;
+  if (uiState.execution_card_visible !== false) return null;
+  if (uiState.tool_result_present !== false) return null;
+  if (uiState.adoption_decision_present !== false) return null;
+  if (uiState.candidate_selected !== false) return null;
+  if (uiState.candidate_adopted !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+  const lmstudioQualityChecksRequired = uiState.lmstudio_quality_checks_required === true;
+  if (lmstudioQualityChecksRequired) {
+    if (uiState.natural_reply_chinese !== true) return null;
+    if (uiState.natural_reply_no_json_code !== true) return null;
+    if (uiState.candidates_no_json_code !== true) return null;
+    if (uiState.candidate_semantically_relevant !== true) return null;
+  }
+
+  return {
+    slice_id: "au02-natural-exploration-no-slot-form",
+    behavior: "fuzzy_idea_gets_natural_exploration_without_slot_form_or_execution",
+    turn_ids: turnIds,
+    source_turn_ref: turnIds[0],
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    assertions: [
+      "real_workbench_sent_fuzzy_creative_input",
+      "planner_returned_creative_exploration_frame",
+      "natural_assistant_reply_visible",
+      "candidate_panel_rendered_from_turn_result",
+      "required_slot_fields_absent",
+      "mechanical_slot_form_not_rendered",
+      "durable_clarification_not_opened",
+      "micro_plan_not_requested",
+      "no_tool_confirmation_or_adoption_cards",
+      "candidate_not_selected_or_adopted",
+      "production_write_not_claimed",
+      ...(lmstudioQualityChecksRequired
+        ? [
+            "lmstudio_reply_is_chinese_and_not_json",
+            "lmstudio_candidates_are_semantically_relevant",
+          ]
+        : []),
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_for_source_candidate_turn"
+        : "deterministic_provider_form_frame_called_for_source_candidate_turn",
+    ],
+  };
+}
+
+function candidateFallbackUiBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  const frame = turnRecords.find(
+    (record) =>
+      record.event === "planner.form_frame.done" &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_count ?? 0) >= 2,
+  );
+  if (!frame) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au02-candidate-fallback-ui" &&
+      record.source_turn_id === turnIds[0],
+  );
+  if (!uiState) return null;
+
+  if (uiState.provider_candidate_payload !== "malformed_candidates") return null;
+  if (uiState.malformed_candidate_prompt_sent !== true) return null;
+  if (uiState.fallback_candidate_visible !== true) return null;
+  if (uiState.has_known_fallback_candidate !== true) return null;
+  if (uiState.candidate_fields_nonempty !== true) return null;
+  if (uiState.candidate_statuses_not_adopted !== true) return null;
+  if (Number(uiState.candidate_panel_rendered ?? 0) <= 0) return null;
+  if (uiState.tool_result_present !== false) return null;
+  if (uiState.adoption_decision_present !== false) return null;
+  if (uiState.candidate_selected !== false) return null;
+  if (uiState.candidate_adopted !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+
+  return {
+    slice_id: "au02-candidate-fallback-ui",
+    behavior: "malformed_candidate_payload_renders_fallback_candidate_cards",
+    turn_ids: turnIds,
+    source_turn_ref: turnIds[0],
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    fallback_candidate_titles: uiState.fallback_candidate_titles,
+    assertions: [
+      "real_workbench_sent_malformed_candidate_prompt",
+      "planner_returned_creative_exploration_frame",
+      "malformed_provider_candidates_were_replaced",
+      "fallback_candidate_cards_visible",
+      "candidate_fields_are_nonempty",
+      "candidate_statuses_remain_not_adopted",
+      "micro_plan_not_requested",
+      "no_tool_confirmation_or_adoption_cards",
+      "production_write_not_claimed",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_for_candidate_fallback"
+        : "deterministic_provider_form_frame_called_for_candidate_fallback",
+    ],
+  };
+}
+
 function candidateContinuationBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 1) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
@@ -4085,6 +5235,88 @@ function candidateContinuationBehavior(turnIds, turnRecords, options) {
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_called_per_turn"
         : "deterministic_provider_form_frame_called_per_turn",
+    ],
+  };
+}
+
+function candidateMultiturnContextBehavior(turnIds, turnRecords, evidence, options) {
+  if (turnIds.length !== 3) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  const [sourceTurnId, continuationTurnId, followupTurnId] = turnIds;
+  const sourceRecords = turnRecords.filter((record) => record.turn_id === sourceTurnId);
+  const continuationRecords = turnRecords.filter((record) => record.turn_id === continuationTurnId);
+  const followupRecords = turnRecords.filter((record) => record.turn_id === followupTurnId);
+
+  const sourceFrame = sourceRecords.find(
+    (record) =>
+      record.event === "planner.form_frame.done" &&
+      record.frame_type === "creative_exploration" &&
+      Number(record.candidate_count ?? 0) > 0,
+  );
+  if (!sourceFrame) return null;
+
+  const continuationStart = continuationRecords.find(
+    (record) => record.event === "channel.user_message.start",
+  );
+  if (
+    !continuationStart?.candidate_ref ||
+    continuationStart.candidate_source_turn_ref !== sourceTurnId ||
+    continuationStart.generate_micro_plan !== false
+  ) {
+    return null;
+  }
+
+  const followupStart = followupRecords.find(
+    (record) => record.event === "channel.user_message.start",
+  );
+  if (!followupStart || followupStart.generate_micro_plan !== false) return null;
+  if (followupStart.candidate_ref || followupStart.candidate_source_turn_ref) return null;
+
+  const followupContext = followupRecords.find(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.has_conversation === true &&
+      record.has_session_summary === true,
+  );
+  if (!followupContext) return null;
+
+  if (evidence.followup_reply_contains_context_nonce !== true) return null;
+  if (evidence.followup_plain_user_message_sent !== true) return null;
+  if (evidence.continuation_candidate_selection_sent !== true) return null;
+  if (evidence.tool_result_present !== false) return null;
+  if (evidence.adoption_decision_present !== false) return null;
+  if (evidence.no_author_action_sent !== true) return null;
+  if (evidence.no_action_result_received !== true) return null;
+  if (evidence.candidate_selected !== false) return null;
+  if (evidence.candidate_adopted !== false) return null;
+  if (evidence.production_write_performed !== false) return null;
+
+  return {
+    slice_id: "au02-candidate-multiturn-context",
+    behavior: "candidate_context_survives_continuation_and_plain_followup",
+    turn_ids: turnIds,
+    source_turn_ref: sourceTurnId,
+    continuation_turn_id: continuationTurnId,
+    followup_turn_id: followupTurnId,
+    candidate_ref: evidence.candidate_ref,
+    context_nonce: evidence.context_nonce,
+    assertions: [
+      "source_turn_rendered_nonce_candidate",
+      "candidate_continuation_sent_candidate_selection",
+      "plain_followup_did_not_send_candidate_selection",
+      "followup_context_assembled_session_conversation",
+      "assistant_reply_reflected_prior_candidate_context",
+      "micro_plan_not_requested",
+      "no_author_action_or_adoption_events",
+      "production_write_not_claimed",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_for_multiturn_context"
+        : "deterministic_provider_form_frame_called_for_multiturn_context",
     ],
   };
 }
@@ -4126,6 +5358,71 @@ function candidateFreeformFollowupBehavior(turnIds, turnRecords, evidence, optio
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_called_for_freeform_followup"
         : "deterministic_provider_form_frame_called_for_freeform_followup",
+    ],
+  };
+}
+
+function unadoptedCandidateNoReadingFactBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au02-unadopted-candidate-no-reading-fact" &&
+      record.source_turn_id === turnIds[0],
+  );
+  if (!uiState) return null;
+
+  if (uiState.reading_mode_opened !== true) return null;
+  if (uiState.reading_empty_state_visible !== true) return null;
+  if (Number(uiState.reading_toc_chapter_count ?? -1) !== 0) return null;
+  if (Number(uiState.reading_total_word_count ?? -1) !== 0) return null;
+  if (uiState.candidate_title_visible_in_reading !== false) return null;
+  if (uiState.candidate_pitch_visible_in_reading !== false) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_action_result_received !== true) return null;
+  if (uiState.no_projection_events !== true) return null;
+  if (uiState.adoption_decision_present !== false) return null;
+  if (uiState.candidate_selected !== false) return null;
+  if (uiState.candidate_adopted !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.chapter_count ?? -1) === 0 &&
+      Number(record.total_word_count ?? -1) === 0,
+  );
+  if (!tocRead) return null;
+
+  return {
+    slice_id: "au02-unadopted-candidate-no-reading-fact",
+    behavior: "unadopted_candidate_stays_out_of_reading_and_work_facts",
+    turn_ids: turnIds,
+    source_turn_ref: turnIds[0],
+    candidate_ref: uiState.candidate_ref,
+    candidate_set_ref: uiState.candidate_set_ref,
+    assertions: [
+      "candidate_panel_rendered_from_turn_result",
+      "author_did_not_click_candidate_actions",
+      "reading_mode_loaded_empty_toc",
+      "candidate_title_not_visible_in_reading_mode",
+      "candidate_pitch_not_visible_in_reading_mode",
+      "no_author_action_or_action_result",
+      "no_adoption_decision_or_projection_events",
+      "candidate_not_selected_or_adopted",
+      "production_write_not_claimed",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_for_source_candidate_turn"
+        : "deterministic_provider_form_frame_called_for_source_candidate_turn",
     ],
   };
 }
@@ -7902,6 +9199,110 @@ function su02WorkSwitchingBehavior(records, evidence, _options) {
   };
 }
 
+function su02ArtifactProjectionTraceIsolationBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  if (evidence.source_work_id === evidence.target_work_id) return null;
+  if (evidence.artifact_type !== "prose_fragment") return null;
+  if (Number(evidence.source_chapter_count ?? 0) < 1) return null;
+  if (Number(evidence.source_content_chars ?? 0) < 1) return null;
+  if (Number(evidence.target_empty_toc_reads ?? 0) < 2) return null;
+
+  const sourceRecords = records.filter((record) => record.work_id === evidence.source_work_id);
+  const targetRecords = records.filter((record) => record.work_id === evidence.target_work_id);
+  if (sourceRecords.length === 0 || targetRecords.length === 0) return null;
+
+  return {
+    slice_id: "su02-artifact-projection-trace-isolation",
+    behavior: "artifact_projection_and_trace_are_scoped_to_current_work",
+    turn_ids: evidence.turn_ids,
+    draft_turn_id: evidence.draft_turn_id,
+    adopt_turn_id: evidence.adopt_turn_id,
+    target_trace_turn_id: evidence.target_trace_turn_id,
+    work_id: evidence.work_id,
+    source_work_id: evidence.source_work_id,
+    target_work_id: evidence.target_work_id,
+    artifact_id: evidence.artifact_id,
+    artifact_type: evidence.artifact_type,
+    source_trace_ref: evidence.source_trace_ref,
+    target_trace_ref: evidence.target_trace_ref,
+    assertions: [
+      "source_pending_artifact_visible_before_switch",
+      "target_work_did_not_render_source_pending_artifact",
+      "target_reading_projection_empty_before_source_adoption",
+      "switching_back_restored_source_pending_artifact",
+      "source_accept_action_used_source_workspace_topic",
+      "source_adoption_materialized_source_reading_projection",
+      "target_reading_projection_remained_empty_after_source_adoption",
+      "target_trace_and_why_excluded_source_artifact_context",
+      "source_and_target_work_ids_are_distinct",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function su02EmptyStartUnnamedWorkBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+  if (evidence.work_id === "lobby") return null;
+  if (Number(evidence.duplicate_unnamed_count ?? 0) < 2) return null;
+  if (evidence.second_unnamed_work_id === evidence.third_unnamed_work_id) return null;
+
+  const workRecords = records.filter((record) => record.work_id === evidence.work_id);
+  if (workRecords.length === 0) return null;
+
+  return {
+    slice_id: "su02-empty-start-unnamed-work",
+    behavior: "empty_database_bootstrap_creates_renamable_unnamed_work",
+    turn_ids: evidence.turn_ids,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    renamed_title: evidence.renamed_title,
+    assertions: [
+      "default_seed_and_seed_script_skipped_for_empty_start",
+      "empty_start_created_single_persisted_unnamed_work",
+      "auto_created_work_joined_real_workspace_channel",
+      "message_after_empty_start_used_auto_created_work_id",
+      "rename_preserved_auto_created_work_id",
+      "message_remained_visible_after_rename",
+      "duplicate_unnamed_works_have_visible_disambiguation",
+      "lobby_not_used_as_current_work",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
+function su02PendingResultWorkIsolationBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  const sourceWorkRecords = records.filter((record) => record.work_id === evidence.source_work_id);
+  const targetWorkRecords = records.filter((record) => record.work_id === evidence.target_work_id);
+  if (sourceWorkRecords.length === 0 || targetWorkRecords.length === 0) return null;
+  if (evidence.source_work_id === evidence.target_work_id) return null;
+  if (Number(evidence.source_return_transcript_count ?? 0) < 1) return null;
+
+  return {
+    slice_id: "su02-pending-result-work-isolation",
+    behavior: "slow_source_turn_result_does_not_pollute_target_work_and_restores_on_return",
+    turn_ids: evidence.turn_ids,
+    work_id: evidence.work_id,
+    source_work_id: evidence.source_work_id,
+    target_work_id: evidence.target_work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "slow_message_sent_from_source_work",
+      "target_work_joined_while_source_turn_pending",
+      "source_turn_completed_under_original_work_id",
+      "source_user_message_not_visible_in_target_work",
+      "source_assistant_result_not_visible_in_target_work",
+      "target_loading_not_polluted_by_source_completion",
+      "switching_back_to_source_restored_completed_turn",
+      "no_error_events",
+      "assistant_messages_not_fallback",
+    ],
+  };
+}
+
 function su02WorkLifecycleManagementBehavior(records, evidence, _options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
 
@@ -8104,6 +9505,29 @@ function su01ProviderModelListSuccessBehavior(records, evidence, _options) {
   };
 }
 
+function su01ProviderTestFailureUiBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  return {
+    slice_id: "su01-provider-test-failure-ui",
+    behavior: "provider_test_connection_failure_keeps_draft_and_recovers",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    provider_selected: evidence.provider_selected,
+    model_selected_before_failure: evidence.model_selected_before_failure,
+    assertions: [
+      "model_settings_opened_from_real_workbench",
+      "failed_test_connection_showed_author_readable_reason",
+      "provider_and_endpoint_draft_were_preserved_after_failure",
+      "dialog_remained_open_for_correction",
+      "test_connection_did_not_create_turn_or_switch_runtime",
+      "corrected_endpoint_test_connection_succeeded",
+      "channel_joined_current_work",
+      "no_error_events",
+    ],
+  };
+}
+
 function su01ApiKeySecretRedactionBehavior(records, evidence, _options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
 
@@ -8125,6 +9549,34 @@ function su01ApiKeySecretRedactionBehavior(records, evidence, _options) {
       "provider_options_did_not_expose_api_key",
       "browser_fallback_settings_did_not_expose_api_key",
       "visible_ui_business_logs_and_backend_logs_did_not_expose_api_key",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01KeychainWebviewRoundtripBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  const serialized = JSON.stringify(records);
+  if (serialized.includes("sk-slice-keychain-webview")) return null;
+
+  return {
+    slice_id: "su01-keychain-webview-roundtrip",
+    behavior: "keychain_write_read_roundtrip_from_real_tauri_webview",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    provider_selected: evidence.provider_selected,
+    model_selected: evidence.model_selected,
+    driver: evidence.driver,
+    assertions: [
+      "model_settings_opened_from_real_tauri_webview_by_external_cgevent_driver",
+      "deepseek_api_key_saved_through_tauri_webview_command",
+      "macos_keychain_item_exists_without_reading_plain_secret",
+      "backend_runtime_was_reset_then_webview_reload_restored_provider_from_tauri_storage",
+      "provider_options_marked_api_key_configured_after_reload_without_returning_secret",
+      "preferences_saved_non_secret_provider_state_without_api_key",
+      "application_and_backend_logs_did_not_expose_api_key",
+      "product_code_added_no_acceptance_hooks",
       "no_error_events",
     ],
   };
@@ -8507,7 +9959,9 @@ function findAu01EmptyMessageGuardEvidence(records) {
 
   const recoveryRecords = records.filter((record) => record.turn_id === recoveryTurnId);
   const hasRequiredEvents = keyEvents.every((event) =>
-    recoveryRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
+    recoveryRecords.some(
+      (record) => record.event === event && hasRequiredCorrelationFields(record),
+    ),
   );
   if (!hasRequiredEvents) return null;
 
@@ -8541,6 +9995,68 @@ function findAu01EmptyMessageGuardEvidence(records) {
   };
 }
 
+function findAu01GarbageJsonRecoveryEvidence(records) {
+  const sliceId = "au01-garbage-json-recovery";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!uiState) return null;
+
+  const garbageTurnId = uiState.garbage_turn_id;
+  const recoveryTurnId = uiState.recovery_turn_id;
+  if (!garbageTurnId || !recoveryTurnId || garbageTurnId === recoveryTurnId) return null;
+
+  const turnIds = [garbageTurnId, recoveryTurnId];
+  const allTurnRecords = records.filter((record) => turnIds.includes(record.turn_id));
+
+  for (const turnId of turnIds) {
+    const currentTurnRecords = allTurnRecords.filter((record) => record.turn_id === turnId);
+    const hasRequiredEvents = keyEvents.every((event) =>
+      currentTurnRecords.some(
+        (record) => record.event === event && hasRequiredCorrelationFields(record),
+      ),
+    );
+    if (!hasRequiredEvents) return null;
+
+    const start = currentTurnRecords.find(
+      (record) => record.event === "channel.user_message.start",
+    );
+    if (!start || start.generate_micro_plan !== false) return null;
+    if (currentTurnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+      return null;
+    }
+  }
+
+  if (uiState.fallback_message_visible !== true) return null;
+  if (uiState.raw_provider_payload_visible !== false) return null;
+  if (uiState.input_enabled_after_garbage !== true) return null;
+  if (uiState.thinking_visible_after_garbage !== false) return null;
+  if (uiState.channel_connected_after_garbage !== true) return null;
+  if (uiState.garbage_generate_micro_plan !== false) return null;
+  if (uiState.recovery_generate_micro_plan !== false) return null;
+  if (uiState.recovery_message_visible !== true) return null;
+  if (uiState.recovery_assistant_reply_visible !== true) return null;
+  if (uiState.recovery_assistant_is_fallback !== false) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: garbageTurnId,
+    turn_ids: turnIds,
+    garbage_turn_id: garbageTurnId,
+    recovery_turn_id: recoveryTurnId,
+    fallback_message_visible: uiState.fallback_message_visible,
+    raw_provider_payload_visible: uiState.raw_provider_payload_visible,
+    input_enabled_after_garbage: uiState.input_enabled_after_garbage,
+    thinking_visible_after_garbage: uiState.thinking_visible_after_garbage,
+    channel_connected_after_garbage: uiState.channel_connected_after_garbage,
+    recovery_message_visible: uiState.recovery_message_visible,
+    recovery_assistant_reply_visible: uiState.recovery_assistant_reply_visible,
+    recovery_assistant_is_fallback: uiState.recovery_assistant_is_fallback,
+    key_events: keyEvents,
+  };
+}
+
 function emptyMessageGuardBehavior(turnIds, turnRecords, evidence, options) {
   if (turnIds.length !== 1) return null;
   if (Number(evidence.blank_user_message_frame_count ?? -1) !== 0) return null;
@@ -8569,6 +10085,299 @@ function emptyMessageGuardBehavior(turnIds, turnRecords, evidence, options) {
         : "deterministic_provider_form_frame_called_for_recovery_turn",
     ],
   };
+}
+
+function garbageJsonRecoveryBehavior(turnIds, turnRecords, _records, evidence, options) {
+  if (turnIds.length !== 2) return null;
+  if (evidence.fallback_message_visible !== true) return null;
+  if (evidence.raw_provider_payload_visible !== false) return null;
+  if (evidence.input_enabled_after_garbage !== true) return null;
+  if (evidence.thinking_visible_after_garbage !== false) return null;
+  if (evidence.channel_connected_after_garbage !== true) return null;
+  if (evidence.recovery_message_visible !== true) return null;
+  if (evidence.recovery_assistant_reply_visible !== true) return null;
+  if (evidence.recovery_assistant_is_fallback !== false) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "channel.user_message.done")) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  return {
+    slice_id: "au01-garbage-json-recovery",
+    behavior: "malformed_provider_json_falls_back_without_leaking_payload_and_recovers",
+    turn_ids: turnIds,
+    assertions: [
+      "malformed_provider_json_rendered_friendly_fallback",
+      "raw_provider_payload_not_visible",
+      "input_remained_available_after_malformed_json",
+      "channel_remained_connected_after_malformed_json",
+      "following_valid_chat_completed_without_micro_plan",
+      options.provider === "lmstudio"
+        ? "lmstudio_recovery_turn_completed"
+        : "deterministic_provider_recovery_turn_completed",
+    ],
+  };
+}
+
+function findAu01FrameValidationFriendlyErrorEvidence(records) {
+  const sliceId = "au01-frame-validation-friendly-error";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!uiState) return null;
+
+  const invalidTurnId = uiState.invalid_frame_turn_id;
+  const recoveryTurnId = uiState.recovery_turn_id;
+  if (!invalidTurnId || !recoveryTurnId || invalidTurnId === recoveryTurnId) return null;
+
+  const invalidRecords = records.filter((record) => record.turn_id === invalidTurnId);
+  const recoveryRecords = records.filter((record) => record.turn_id === recoveryTurnId);
+
+  const invalidRequiredEvents = [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.error",
+    "channel.user_message.error",
+  ];
+  const recoveryRequiredEvents = [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+  ];
+
+  if (!eventsPresentWithCorrelation(invalidRecords, invalidRequiredEvents)) return null;
+  if (!eventsPresentWithCorrelation(recoveryRecords, recoveryRequiredEvents)) return null;
+
+  const invalidStart = invalidRecords.find(
+    (record) => record.event === "channel.user_message.start",
+  );
+  const recoveryStart = recoveryRecords.find(
+    (record) => record.event === "channel.user_message.start",
+  );
+  if (!invalidStart || invalidStart.generate_micro_plan !== false) return null;
+  if (!recoveryStart || recoveryStart.generate_micro_plan !== false) return null;
+  if (
+    [...invalidRecords, ...recoveryRecords].some((record) =>
+      record.event?.startsWith("planner.form_micro_plan."),
+    )
+  ) {
+    return null;
+  }
+
+  if (uiState.fallback_message_visible !== true) return null;
+  if (uiState.internal_validation_reason_visible !== false) return null;
+  if (uiState.internal_validation_reason_in_turn_result !== false) return null;
+  if (uiState.input_enabled_after_invalid_frame !== true) return null;
+  if (uiState.thinking_visible_after_invalid_frame !== false) return null;
+  if (uiState.channel_connected_after_invalid_frame !== true) return null;
+  if (uiState.invalid_frame_generate_micro_plan !== false) return null;
+  if (uiState.recovery_generate_micro_plan !== false) return null;
+  if (uiState.recovery_message_visible !== true) return null;
+  if (uiState.recovery_assistant_reply_visible !== true) return null;
+  if (uiState.recovery_assistant_is_fallback !== false) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: invalidTurnId,
+    turn_ids: [invalidTurnId, recoveryTurnId],
+    invalid_frame_turn_id: invalidTurnId,
+    recovery_turn_id: recoveryTurnId,
+    fallback_message_visible: uiState.fallback_message_visible,
+    internal_validation_reason_visible: uiState.internal_validation_reason_visible,
+    internal_validation_reason_in_turn_result: uiState.internal_validation_reason_in_turn_result,
+    input_enabled_after_invalid_frame: uiState.input_enabled_after_invalid_frame,
+    thinking_visible_after_invalid_frame: uiState.thinking_visible_after_invalid_frame,
+    channel_connected_after_invalid_frame: uiState.channel_connected_after_invalid_frame,
+    recovery_message_visible: uiState.recovery_message_visible,
+    recovery_assistant_reply_visible: uiState.recovery_assistant_reply_visible,
+    recovery_assistant_is_fallback: uiState.recovery_assistant_is_fallback,
+    key_events: keyEvents,
+  };
+}
+
+function frameValidationFriendlyErrorBehavior(turnIds, turnRecords, _records, evidence, options) {
+  if (turnIds.length !== 2) return null;
+  const [invalidTurnId, recoveryTurnId] = turnIds;
+  const invalidRecords = turnRecords.filter((record) => record.turn_id === invalidTurnId);
+  const recoveryRecords = turnRecords.filter((record) => record.turn_id === recoveryTurnId);
+
+  if (evidence.fallback_message_visible !== true) return null;
+  if (evidence.internal_validation_reason_visible !== false) return null;
+  if (evidence.internal_validation_reason_in_turn_result !== false) return null;
+  if (evidence.input_enabled_after_invalid_frame !== true) return null;
+  if (evidence.thinking_visible_after_invalid_frame !== false) return null;
+  if (evidence.channel_connected_after_invalid_frame !== true) return null;
+  if (evidence.recovery_message_visible !== true) return null;
+  if (evidence.recovery_assistant_reply_visible !== true) return null;
+  if (evidence.recovery_assistant_is_fallback !== false) return null;
+  if (
+    !eventsPresentWithCorrelation(invalidRecords, [
+      "dialogue_gateway.handle_input.error",
+      "channel.user_message.error",
+    ])
+  ) {
+    return null;
+  }
+  if (
+    !eventsPresentWithCorrelation(recoveryRecords, [
+      "dialogue_gateway.handle_input.done",
+      "channel.user_message.done",
+    ])
+  ) {
+    return null;
+  }
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  return {
+    slice_id: "au01-frame-validation-friendly-error",
+    behavior: "forbidden_frame_semantics_are_blocked_without_leaking_internal_reason",
+    turn_ids: turnIds,
+    assertions: [
+      "forbidden_frame_semantics_blocked_at_gateway",
+      "author_visible_fallback_is_friendly",
+      "internal_validation_reason_not_visible",
+      "internal_validation_reason_not_in_turn_result",
+      "input_remained_available_after_frame_validation_failure",
+      "following_valid_chat_completed_without_micro_plan",
+      options.provider === "lmstudio"
+        ? "lmstudio_recovery_turn_completed"
+        : "deterministic_provider_recovery_turn_completed",
+    ],
+  };
+}
+
+function findAu01TurnresultRecorderUiConsistencyEvidence(records) {
+  const sliceId = "au01-turnresult-recorder-ui-consistency";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) => record.event === "slice_verify.ui_state.done" && record.slice_id === sliceId,
+  );
+  if (!uiState) return null;
+
+  const turnId = uiState.turn_id;
+  const workId = uiState.work_id;
+  const sessionId = uiState.session_id;
+  if (!turnId || !workId || !sessionId) return null;
+
+  const turnRecords = records.filter((record) => record.turn_id === turnId);
+  if (
+    !eventsPresentWithCorrelation(turnRecords, [
+      "channel.user_message.start",
+      "dialogue_gateway.handle_input.done",
+      "channel.user_message.done",
+    ])
+  ) {
+    return null;
+  }
+
+  const joined = records.find(
+    (record) =>
+      record.event === "channel.join.done" &&
+      record.work_id === workId &&
+      record.session_id === sessionId,
+  );
+  const shown = records.find(
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.work_id === workId &&
+      record.session_id === sessionId &&
+      record.read_only === false,
+  );
+  const resumed = records.find(
+    (record) =>
+      record.event === "work_session.resume.done" &&
+      record.work_id === workId &&
+      record.session_id === sessionId &&
+      Number(record.transcript_count ?? 0) >= Number(uiState.reload_resume_transcript_count ?? 0),
+  );
+  if (!joined || !shown || !resumed) return null;
+  if (Number(shown.transcript_count ?? 0) < 2) return null;
+
+  if (uiState.current_ui_user_message_visible !== true) return null;
+  if (uiState.current_ui_assistant_visible !== true) return null;
+  if (uiState.transcript_user_row_found !== true) return null;
+  if (uiState.transcript_assistant_row_found !== true) return null;
+  if (uiState.transcript_user_text_matches_ui !== true) return null;
+  if (uiState.transcript_assistant_text_matches_ui !== true) return null;
+  if (uiState.transcript_turn_result_turn_id_matches_websocket !== true) return null;
+  if (uiState.transcript_turn_result_assistant_text_matches_websocket !== true) return null;
+  if (uiState.session_snapshot_read_only !== false) return null;
+  if (uiState.restored_ui_user_message_visible !== true) return null;
+  if (uiState.restored_ui_assistant_visible !== true) return null;
+  if (uiState.restored_input_enabled !== true) return null;
+  if (uiState.restored_send_enabled !== true) return null;
+  if (uiState.generate_micro_plan !== false) return null;
+  if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: workId,
+    session_id: sessionId,
+    transcript_count: shown.transcript_count,
+    reload_resume_transcript_count: uiState.reload_resume_transcript_count,
+    current_ui_assistant_visible: uiState.current_ui_assistant_visible,
+    transcript_assistant_text_matches_ui: uiState.transcript_assistant_text_matches_ui,
+    transcript_turn_result_assistant_text_matches_websocket:
+      uiState.transcript_turn_result_assistant_text_matches_websocket,
+    restored_ui_assistant_visible: uiState.restored_ui_assistant_visible,
+    key_events: keyEvents,
+  };
+}
+
+function turnresultRecorderUiConsistencyBehavior(
+  turnIds,
+  turnRecords,
+  _records,
+  evidence,
+  options,
+) {
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (turnRecords.some((record) => record.event?.startsWith("planner.form_micro_plan."))) {
+    return null;
+  }
+  if (evidence.current_ui_assistant_visible !== true) return null;
+  if (evidence.transcript_assistant_text_matches_ui !== true) return null;
+  if (evidence.transcript_turn_result_assistant_text_matches_websocket !== true) return null;
+  if (evidence.restored_ui_assistant_visible !== true) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame"])) return null;
+
+  return {
+    slice_id: "au01-turnresult-recorder-ui-consistency",
+    behavior: "turn_result_assistant_message_matches_recorder_transcript_and_restored_ui",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "ordinary_chat_sent_from_real_workbench",
+      "visible_assistant_text_came_from_websocket_turn_result",
+      "interaction_recorder_persisted_user_and_assistant_rows",
+      "assistant_transcript_text_matches_visible_ui",
+      "assistant_transcript_turn_result_matches_websocket_turn_result",
+      "active_session_snapshot_loaded_through_web_application_persistence",
+      "webview_reload_restored_the_same_transcript_text",
+      "ordinary_chat_did_not_request_micro_plan",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_called_for_recorder_turn"
+        : "deterministic_provider_form_frame_called_for_recorder_turn",
+    ],
+  };
+}
+
+function eventsPresentWithCorrelation(records, events) {
+  return events.every((event) =>
+    records.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
+  );
 }
 
 function containsRoleOrder(actual, expected) {

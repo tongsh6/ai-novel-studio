@@ -10,14 +10,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   alias NovelAgent.Provider.Result
 
+  @slow_work_switch_delay_ms 2_500
+  @slow_work_switch_marker "SU02SLOW"
+  @garbage_json_marker "AU01GARBAGE"
+  @invalid_frame_marker "AU01BADFRAME"
+  @malformed_candidates_marker "AU02BADCANDIDATES"
+  @candidate_context_marker "AU02CTX"
+
   defstruct []
 
   @impl true
   def complete(_state, _model, prompt, _params) do
     prompt_text = prompt_text(prompt)
+    maybe_delay_su02_slow_work_switch(prompt_text)
 
     content =
       cond do
+        garbage_json_prompt?(prompt) ->
+          "not valid json {{{ AU01GARBAGE raw provider payload"
+
+        invalid_frame_prompt?(prompt) ->
+          invalid_frame_response() |> Jason.encode!()
+
+        malformed_candidates_prompt?(prompt) ->
+          malformed_candidates_response() |> Jason.encode!()
+
         creative_items_prompt?(prompt_text) ->
           creative_items_response(prompt_text) |> Jason.encode!()
 
@@ -54,23 +71,93 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp frame_response(prompt) do
-    quality_diagnosis = quality_diagnosis_prompt?(prompt)
-    exploratory = exploratory_prompt?(prompt)
+    flags = frame_flags(prompt)
 
     %{
-      frame_type:
-        cond do
-          quality_diagnosis -> "question_answer"
-          exploratory -> "creative_exploration"
-          true -> "casual_reply"
-        end,
-      dialogue_goal_summary: if(quality_diagnosis, do: "诊断章节爽感不足和胜利过轻", else: "验证工作台对话主链"),
+      frame_type: frame_type(flags),
+      dialogue_goal_summary: dialogue_goal_summary(flags),
       needs_tool: false,
-      no_tool_reason: if(exploratory, do: "exploratory_only", else: "no_tool_needed"),
+      no_tool_reason: no_tool_reason(flags),
       execution_readiness: "not_applicable",
-      assistant_message: frame_message(quality_diagnosis, exploratory),
-      candidate_directions: candidate_directions(exploratory, prompt),
+      assistant_message:
+        frame_message(flags.slow_work_switch, flags.quality_diagnosis, flags.exploratory, prompt),
+      candidate_directions:
+        candidate_directions(flags.exploratory and not flags.candidate_context_followup, prompt),
       context_used: context_provided?(prompt),
+      uncertainty: []
+    }
+  end
+
+  defp frame_flags(prompt) do
+    %{
+      quality_diagnosis: quality_diagnosis_prompt?(prompt),
+      exploratory: exploratory_prompt?(prompt),
+      slow_work_switch: slow_work_switch_prompt?(prompt),
+      candidate_context_followup: candidate_context_followup_prompt?(prompt)
+    }
+  end
+
+  defp frame_type(%{slow_work_switch: true}), do: "casual_reply"
+  defp frame_type(%{candidate_context_followup: true}), do: "casual_reply"
+  defp frame_type(%{quality_diagnosis: true}), do: "question_answer"
+  defp frame_type(%{exploratory: true}), do: "creative_exploration"
+  defp frame_type(_flags), do: "casual_reply"
+
+  defp dialogue_goal_summary(%{slow_work_switch: true}), do: "验证慢回复跨作品归属"
+  defp dialogue_goal_summary(%{candidate_context_followup: true}), do: "围绕已选候选方向继续探索"
+  defp dialogue_goal_summary(%{quality_diagnosis: true}), do: "诊断章节爽感不足和胜利过轻"
+  defp dialogue_goal_summary(_flags), do: "验证工作台对话主链"
+
+  defp no_tool_reason(%{exploratory: true}), do: "exploratory_only"
+  defp no_tool_reason(_flags), do: "no_tool_needed"
+
+  defp maybe_delay_su02_slow_work_switch(prompt_text) do
+    if String.contains?(prompt_text, @slow_work_switch_marker) do
+      Process.sleep(@slow_work_switch_delay_ms)
+    end
+  end
+
+  defp slow_work_switch_prompt?(prompt) do
+    prompt |> author_input_text() |> String.contains?(@slow_work_switch_marker)
+  end
+
+  defp garbage_json_prompt?(prompt) do
+    prompt |> author_input_text() |> String.contains?(@garbage_json_marker)
+  end
+
+  defp invalid_frame_prompt?(prompt) do
+    prompt |> author_input_text() |> String.contains?(@invalid_frame_marker)
+  end
+
+  defp malformed_candidates_prompt?(prompt) do
+    prompt |> author_input_text() |> String.contains?(@malformed_candidates_marker)
+  end
+
+  defp invalid_frame_response do
+    %{
+      frame_type: "casual_reply",
+      dialogue_goal_summary: "验证 frame validation 禁止语义边界",
+      needs_tool: false,
+      no_tool_reason: "no_tool_needed",
+      execution_readiness: "not_applicable",
+      assistant_message:
+        "slice_verify raw provider payload: approved and ready_to_execute should be blocked.",
+      candidate_directions: [],
+      context_used: false,
+      uncertainty: []
+    }
+  end
+
+  defp malformed_candidates_response do
+    %{
+      frame_type: "creative_exploration",
+      dialogue_goal_summary: "验证候选方向坏格式 fallback",
+      needs_tool: false,
+      no_tool_reason: "exploratory_only",
+      execution_readiness: "not_applicable",
+      assistant_message: "上游候选结构不可用时，也应该继续给作者可选方向。",
+      candidate_directions: %{title: "", pitch: ""},
+      context_used: false,
       uncertainty: []
     }
   end
@@ -80,19 +167,50 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     contains_any?(text, ["不够爽", "赢得太轻", "爽点", "张力不够", "质量诊断"])
   end
 
+  defp candidate_context_followup_prompt?(prompt) do
+    author_text = author_input_text(prompt)
+
+    contains_any?(author_text, ["开场冲突", "继续沿着这个方向", "沿着这个方向"]) and
+      candidate_context_nonce(prompt) != nil
+  end
+
   defp exploratory_prompt?(prompt) do
     text = author_input_text(prompt)
     Enum.any?(["生成", "角色", "方向", "怎么切入", "小说创作"], &String.contains?(text, &1))
   end
 
-  defp frame_message(true, _exploratory),
+  defp frame_message(true, _quality_diagnosis, _exploratory, prompt) do
+    nonce =
+      prompt
+      |> author_input_text()
+      |> random_identifier_tokens()
+      |> Enum.find(&String.starts_with?(&1, @slow_work_switch_marker))
+
+    "慢回复归属校验完成：#{nonce || @slow_work_switch_marker} 只属于原作品。"
+  end
+
+  defp frame_message(false, true, _exploratory, _prompt),
     do:
       "这一章的问题不是主角赢，而是阻力、代价和读者回报没有层层加压。可以让林烬赢下局部却失去关键线索，或让胜利暴露更大的矿区代价；这轮只给诊断和结构修订建议，不会改写正文或写入作品事实。"
 
-  defp frame_message(false, true),
-    do: "可以先从人物动机、核心冲突和世界规则三个方向拆开看。"
+  defp frame_message(false, false, true, prompt) do
+    case candidate_context_nonce(prompt) do
+      nil ->
+        "可以先从人物动机、核心冲突和世界规则三个方向拆开看。"
 
-  defp frame_message(false, false), do: "可以，我们先围绕小说创作方向聊下去。"
+      nonce ->
+        "可以先从人物动机 #{nonce}、核心冲突和世界规则三个方向拆开看。"
+    end
+  end
+
+  defp frame_message(false, false, false, prompt) do
+    if candidate_context_followup_prompt?(prompt) do
+      nonce = candidate_context_nonce(prompt)
+      "沿着人物动机 #{nonce} 这个方向，开场冲突可以从主角想要突破规则、却必须先承受代价开始。"
+    else
+      "可以，我们先围绕小说创作方向聊下去。"
+    end
+  end
 
   defp context_provided?(prompt) do
     text = prompt_text(prompt)
@@ -105,6 +223,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     author_text = author_input_text(prompt)
     high_risk? = contains_any?(author_text, ["高风险", "覆盖主线", "重写设定", "推翻设定"])
 
+    context_nonce =
+      author_text
+      |> random_identifier_tokens()
+      |> Enum.find(&String.starts_with?(&1, @candidate_context_marker))
+
     first =
       if high_risk? do
         %{
@@ -115,7 +238,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         }
       else
         %{
-          title: "人物动机",
+          title: if(context_nonce, do: "人物动机 #{context_nonce}", else: "人物动机"),
           pitch: "从主角最想得到但最难承受的东西切入。",
           tone_tags: ["人物", "冲突"],
           risk_hint: "low"
@@ -134,6 +257,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp candidate_directions(false, _prompt), do: []
+
+  defp candidate_context_nonce(prompt) do
+    prompt
+    |> prompt_text()
+    |> random_identifier_tokens()
+    |> Enum.find(&String.starts_with?(&1, @candidate_context_marker))
+  end
 
   defp tool_narration_response(prompt) do
     cond do

@@ -102,12 +102,17 @@ end
 
 {:ok, _started} = Application.ensure_all_started(:novel_web)
 
-case NovelApplication.WorkService.list() do
-  [] ->
+skip_default_work_seed = System.get_env("SLICE_VERIFY_SKIP_DEFAULT_WORK_SEED") == "1"
+
+case {NovelApplication.WorkService.list(), skip_default_work_seed} do
+  {[], true} ->
+    IO.puts("[slice-verify-server] skipped default work seed")
+
+  {[], false} ->
     {:ok, work} = NovelApplication.WorkService.create(%{"title" => "Slice Verify Work"})
     IO.puts("[slice-verify-server] seeded work #{work.id}")
 
-  _ ->
+  {_works, _skip} ->
     :ok
 end
 
