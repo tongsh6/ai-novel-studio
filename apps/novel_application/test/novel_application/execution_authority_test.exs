@@ -307,7 +307,9 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           target_ref: "prose_writing",
           author_input_ref: "in-1",
           answer_type: :confirm,
-          idempotency_key: "ik-1"
+          idempotency_key: "ik-1",
+          rebased_state_snapshot_ref: "state_snapshot:work-1:turn-1:plan-1",
+          gate_result_refs: ["gate_result:turn-1:plan-1:confirm"]
         })
 
       {decision, behavior} =
@@ -316,6 +318,8 @@ defmodule NovelApplication.ExecutionAuthorityTest do
       assert decision.decision_type == :allow_tool
       assert behavior == nil
       assert Enum.any?(decision.reason_codes, &String.starts_with?(&1, "confirmed_by:"))
+      assert "rebased_state_snapshot:state_snapshot:work-1:turn-1:plan-1" in decision.reason_codes
+      assert "gate_result_ref:gate_result:turn-1:plan-1:confirm" in decision.reason_codes
     end
 
     test "reject binding does not unlock high-risk plan" do
@@ -342,7 +346,9 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           behavior_ref: "bh-1",
           target_ref: "prose_writing",
           author_input_ref: "in-1",
-          answer_type: :reject
+          answer_type: :reject,
+          rebased_state_snapshot_ref: "state_snapshot:work-1:turn-1:plan-1",
+          gate_result_refs: ["gate_result:turn-1:plan-1:reject"]
         })
 
       {decision, _behavior} =
@@ -376,7 +382,9 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           behavior_ref: "bh-1",
           target_ref: "prose_writing",
           author_input_ref: "in-1",
-          answer_type: :confirm
+          answer_type: :confirm,
+          rebased_state_snapshot_ref: "state_snapshot:work-1:turn-1:plan-1",
+          gate_result_refs: ["gate_result:turn-1:plan-1:confirm"]
         })
 
       {decision, _behavior} =

@@ -70,8 +70,15 @@ defmodule NovelApplication.ExecutionOrchestrator do
   # binding 可经 trace 追溯），只标记携带了有效确认的裁决。
   defp mark_confirmed_by({decision, behavior}, %ConfirmationBinding{} = binding) do
     if ConfirmationBinding.confirm?(binding) do
-      {%{decision | reason_codes: decision.reason_codes ++ ["confirmed_by:#{binding.binding_id}"]},
-       behavior}
+      reason_codes =
+        decision.reason_codes ++
+          [
+            "confirmed_by:#{binding.binding_id}",
+            "rebased_state_snapshot:#{binding.rebased_state_snapshot_ref}"
+          ] ++
+          Enum.map(binding.gate_result_refs, &"gate_result_ref:#{&1}")
+
+      {%{decision | reason_codes: reason_codes}, behavior}
     else
       {decision, behavior}
     end

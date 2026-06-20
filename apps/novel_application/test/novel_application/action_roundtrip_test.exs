@@ -445,6 +445,16 @@ defmodule NovelApplication.ActionRoundtripTest do
 
       assert {:ok, ack, turn_result} = DialogueGateway.handle_action(input, source, complete_fn)
       assert ack.status == "accepted"
+      assert ack.confirmation_binding.behavior_ref == "bh-p1"
+      assert ack.confirmation_binding.target_ref == "prose_writing"
+      assert ack.confirmation_binding.idempotency_key == "ik-p"
+      assert ack.confirmation_binding.rebased_state_snapshot_ref =~ "state_snapshot:"
+      assert ack.confirmation_binding.rebased_state_snapshot_ref =~ "turn-persist-1"
+
+      assert ack.confirmation_binding.gate_result_refs == [
+               "gate_result:confirmation_re_gate:turn-persist-1:plan-persist-1:act-confirm-p"
+             ]
+
       assert turn_result.tool_result.tool_name == "prose_writing"
       assert turn_result.truthfulness.tool_called == true
     end

@@ -893,11 +893,16 @@ defmodule NovelApplication.DialogueGateway do
       |> Enum.find(%{}, &(map_field(&1, :action_id) == action_input.action_id))
 
     ConfirmationBinding.build(%{
+      binding_id: confirmation_binding_id(action_input),
       behavior_ref: map_field(source_action, :behavior_ref) || action_input.behavior_ref,
       target_ref: map_field(source_action, :target_ref) || action_input.target_ref,
       author_input_ref: action_input.input_id,
       answer_type: :confirm,
-      idempotency_key: map_field(source_action, :idempotency_key) || action_input.idempotency_key
+      idempotency_key: map_field(source_action, :idempotency_key) || action_input.idempotency_key,
+      rebased_state_snapshot_ref:
+        confirmation_rebased_state_snapshot_ref(action_input, source_turn_result),
+      gate_result_refs: confirmation_gate_result_refs(action_input, source_turn_result),
+      trace_ref: trace_ref(source_turn_result)
     })
   end
 
@@ -911,7 +916,8 @@ defmodule NovelApplication.DialogueGateway do
       action_id: action_input.action_id,
       action_type: action_input.action_type,
       status: "accepted",
-      idempotency_key: action_input.idempotency_key
+      idempotency_key: action_input.idempotency_key,
+      confirmation_binding: confirmation_binding_view(binding)
     }
 
     if decision.decision_type == :allow_tool do
@@ -953,6 +959,70 @@ defmodule NovelApplication.DialogueGateway do
     else
       {:ok, Map.put(ack, :status, "confirmed_but_blocked")}
     end
+  end
+
+  defp confirmation_binding_id(%AuthorActionInput{input_id: input_id}) when is_binary(input_id),
+    do: "cb_#{input_id}"
+
+  defp confirmation_binding_id(_), do: nil
+
+  defp confirmation_rebased_state_snapshot_ref(action_input, source_turn_result) do
+    [
+      "state_snapshot",
+      map_field(source_turn_result, :current_work_id) || map_field(source_turn_result, :work_id),
+      map_field(source_turn_result, :current_session_id) ||
+        map_field(source_turn_result, :session_id),
+      map_field(source_turn_result, :turn_id),
+      source_plan_id(source_turn_result),
+      action_input.input_id
+    ]
+    |> compact_ref_parts()
+    |> Enum.join(":")
+  end
+
+  defp confirmation_gate_result_refs(action_input, source_turn_result) do
+    [
+      [
+        "gate_result",
+        "confirmation_re_gate",
+        map_field(source_turn_result, :turn_id),
+        source_plan_id(source_turn_result),
+        action_input.action_id
+      ]
+      |> compact_ref_parts()
+      |> Enum.join(":")
+    ]
+  end
+
+  defp source_plan_id(source_turn_result) do
+    source_turn_result
+    |> map_field(:plan)
+    |> map_field(:plan_id)
+  end
+
+  defp compact_ref_parts(parts) do
+    parts
+    |> Enum.map(&ref_part/1)
+    |> Enum.reject(&blank?/1)
+  end
+
+  defp ref_part(value) when is_binary(value), do: String.trim(value)
+  defp ref_part(value) when is_atom(value), do: Atom.to_string(value)
+  defp ref_part(nil), do: nil
+  defp ref_part(value), do: to_string(value)
+
+  defp confirmation_binding_view(%ConfirmationBinding{} = binding) do
+    %{
+      binding_id: binding.binding_id,
+      behavior_ref: binding.behavior_ref,
+      target_ref: binding.target_ref,
+      author_input_ref: binding.author_input_ref,
+      answer_type: to_string(binding.answer_type),
+      idempotency_key: binding.idempotency_key,
+      rebased_state_snapshot_ref: binding.rebased_state_snapshot_ref,
+      gate_result_refs: binding.gate_result_refs,
+      trace_ref: binding.trace_ref
+    }
   end
 
   defp frame_from_turn_result(tr) do
