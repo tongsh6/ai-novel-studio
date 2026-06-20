@@ -70,6 +70,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
     expect(nativeSliceIds).toContain("au04-confirm-before-execute");
     expect(nativeSliceIds).toContain("au04-confirm-idempotency-ui");
+    expect(nativeSliceIds).toContain("au04-stale-confirmation-ui");
     expect(nativeSliceIds).toContain("vs00c-cp3-structured-context");
     expect(nativeSliceIds).toContain("vs00c-cp4-chapter-plan-structure");
     expect(nativeSliceIds).toContain("vs00c-cp5-reader-effect-brief");
@@ -112,6 +113,45 @@ describe("native Tauri slice verifier", () => {
         "duplicate_confirm_was_suppressed_or_reported_as_duplicate",
         "re_gate_dispatched_prose_writing_exactly_once",
         "executed_output_stayed_single_tentative_pending_artifact",
+      ],
+    });
+  });
+
+  it("accepts AU-04 stale confirmation evidence only when old confirm cannot execute", () => {
+    const records = au04StaleConfirmationUiRecords();
+
+    const evidence = findNativeSliceEvidence("au04-stale-confirmation-ui", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au04-stale-confirmation-ui",
+      turn_id: "turn-au04-stale-confirm",
+      confirm_turn_id: "turn-au04-stale-confirm",
+      followup_turn_id: "turn-au04-followup",
+      confirm_action_behavior_ref: "behavior-au04-stale",
+      stale_confirm_visible: true,
+      stale_confirm_click_attempted: true,
+      stale_confirm_action_sent: true,
+      stale_confirm_rejected: true,
+      author_action_error_count: 1,
+      toolbox_execute_after_stale_count: 0,
+      pending_prose_fragment_after_stale_count: 0,
+      key_events: keyEventsForSlice("au04-stale-confirmation-ui"),
+    });
+    expect(findSliceBehaviorEvidence("au04-stale-confirmation-ui", records, evidence)).toEqual({
+      slice_id: "au04-stale-confirmation-ui",
+      behavior: "stale_confirmation_after_context_change_cannot_execute_tool_or_create_draft",
+      turn_ids: ["turn-au04-stale-confirm", "turn-au04-followup"],
+      confirm_action_behavior_ref: "behavior-au04-stale",
+      stale_confirm_visible: true,
+      stale_confirm_click_attempted: true,
+      stale_confirm_action_sent: true,
+      stale_confirm_rejected: true,
+      author_action_error_count: 1,
+      assertions: [
+        "real_workbench_received_high_risk_confirmation_card",
+        "a_followup_user_message_advanced_the_current_turn_before_confirmation",
+        "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
+        "stale_confirmation_did_not_dispatch_prose_writing",
+        "stale_confirmation_did_not_create_pending_prose_fragment",
       ],
     });
   });
@@ -7658,6 +7698,91 @@ function au04ConfirmIdempotencyUiRecords() {
       no_duplicate_tool_dispatch: true,
       single_pending_artifact_after_confirm: true,
       artifact_pending_after_confirm: true,
+    },
+  ];
+}
+
+function au04StaleConfirmationUiRecords() {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au04-stale-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      generate_micro_plan: false,
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au04-stale-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      decision_type: "require_confirmation",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au04-stale-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au04-followup",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      generate_micro_plan: false,
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au04-followup",
+      work_id: "work-au04",
+      session_id: "session-au04",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-au04-stale-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-stale",
+      action_type: "confirm_before_execute",
+    },
+    {
+      event: "channel.author_action.error",
+      turn_id: "turn-au04-stale-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-stale",
+      action_type: "confirm_before_execute",
+      reason_code: "dialogue_gateway_rejected",
+      outcome_detail: "stale action source_turn_ref",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-stale-confirmation-ui",
+      turn_id: "turn-au04-stale-confirm",
+      confirm_turn_id: "turn-au04-stale-confirm",
+      followup_turn_id: "turn-au04-followup",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      confirmation_card_received: true,
+      confirmation_card_visible: true,
+      plan_carried_over_wire: true,
+      confirm_action_behavior_ref: "behavior-au04-stale",
+      tool_called_before_confirm: false,
+      production_write_before_confirm: false,
+      followup_turn_completed: true,
+      followup_advanced_current_turn: true,
+      stale_confirm_visible: true,
+      stale_confirm_disabled: false,
+      stale_confirm_click_attempted: true,
+      stale_confirm_action_sent: true,
+      stale_confirm_rejected: true,
+      stale_confirm_prevented: true,
+      author_action_error_count: 1,
+      toolbox_execute_after_stale_count: 0,
+      pending_prose_fragment_after_stale_count: 0,
+      no_tool_dispatch_after_stale: true,
+      no_pending_artifact_after_stale: true,
+      action_failure_visible: true,
     },
   ];
 }

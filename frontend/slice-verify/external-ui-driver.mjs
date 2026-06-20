@@ -4916,6 +4916,203 @@ async function driveAu04ConfirmIdempotencyUi(page) {
   ];
 }
 
+async function driveAu04StaleConfirmationUi(page) {
+  const requestText =
+    "第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿，保持为待采纳草稿。";
+  const followupText = "先普通聊一句：我们暂时只讨论节奏和读者感受。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const confirmTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "needs_confirmation" &&
+      (frame.body?.available_actions ?? []).some(
+        (action) => action.action_type === "confirm_before_execute",
+      ),
+    "No needs_confirmation turn_result with confirm_before_execute action was received",
+    200_000,
+  );
+  const confirmTurnResult = confirmTurnFrame.body;
+  const confirmAction = confirmTurnResult.available_actions.find(
+    (action) => action.action_type === "confirm_before_execute",
+  );
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    { timeout: 10_000 },
+  );
+
+  const beforeFollowFrameCount = frames.length;
+  await page.locator(chatInputSelector).fill(followupText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  await waitForNewFrame(
+    beforeFollowFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === followupText,
+    "Real workbench did not send the follow-up message that advances the current turn",
+  );
+
+  const followupTurnFrame = await waitForNewFrame(
+    beforeFollowFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id !== confirmTurnResult.turn_id &&
+      frame.body?.status !== "needs_confirmation",
+    "No follow-up turn_result advanced the current turn after the confirmation card",
+    200_000,
+  );
+  const followupTurnResult = followupTurnFrame.body;
+
+  const beforeStaleFrameCount = frames.length;
+  const beforeStaleLogCount = readAppLogRecords().length;
+  const staleConfirmButton = page.getByRole("button", { name: "确认执行" }).first();
+  const staleConfirmButtonCount = await page.getByRole("button", { name: "确认执行" }).count();
+  const staleConfirmVisible =
+    staleConfirmButtonCount > 0 ? await staleConfirmButton.isVisible().catch(() => false) : false;
+  const staleConfirmDisabled =
+    staleConfirmVisible ? await staleConfirmButton.isDisabled().catch(() => false) : false;
+
+  let staleClickAttempted = false;
+  let staleActionSent = false;
+  let staleActionRejected = false;
+  let staleRejectionReason = "";
+
+  if (staleConfirmVisible && !staleConfirmDisabled) {
+    staleClickAttempted = true;
+    await staleConfirmButton.click();
+
+    await waitForNewFrame(
+      beforeStaleFrameCount,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "author_action" &&
+        frame.body?.action?.action_type === "confirm_before_execute" &&
+        frame.body?.action?.action_id === confirmAction.action_id,
+      "Real workbench did not send the stale confirm author_action",
+    );
+    staleActionSent = true;
+
+    const staleErrorFrame = await waitForNewFrame(
+      beforeStaleFrameCount,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "error" &&
+        JSON.stringify(frame.body).includes("stale"),
+      "Stale confirm author_action was not rejected by the channel",
+    );
+    staleActionRejected = true;
+    staleRejectionReason = JSON.stringify(staleErrorFrame.body);
+
+    await page.waitForFunction(() => document.body.innerText.includes("操作失败，请重试。"), {
+      timeout: 10_000,
+    });
+  }
+
+  await sleep(1_000);
+
+  const framesAfterStale = frames.slice(beforeStaleFrameCount);
+  const logsAfterStale = readAppLogRecords().slice(beforeStaleLogCount);
+  const sentStaleConfirmActionFrames = framesAfterStale.filter(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === confirmAction.action_id,
+  );
+  const authorActionErrorRecords = logsAfterStale.filter(
+    (record) =>
+      record.event === "channel.author_action.error" &&
+      record.action_type === "confirm_before_execute" &&
+      record.action_id === confirmAction.action_id &&
+      String(record.outcome_detail ?? "").includes("stale"),
+  );
+  const toolboxExecuteAfterStaleRecords = logsAfterStale.filter(
+    (record) => record.event === "toolbox.execute.done",
+  );
+  const pendingProseFragmentAfterStaleCount = framesAfterStale.reduce((count, frame) => {
+    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
+    return (
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "prose_fragment",
+      ).length
+    );
+  }, 0);
+
+  const staleConfirmPrevented =
+    (!staleConfirmVisible && sentStaleConfirmActionFrames.length === 0) ||
+    staleConfirmDisabled ||
+    staleActionRejected ||
+    authorActionErrorRecords.length >= 1;
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, followupTurnResult, sentMessage);
+
+  assert(
+    confirmTurnResult.truthfulness?.tool_called === false,
+    "Confirmation turn_result claimed tool execution before author confirmed",
+  );
+  assert(
+    confirmTurnResult.truthfulness?.production_write_performed === false,
+    "Confirmation turn_result claimed a production write before author confirmed",
+  );
+  assert(
+    followupTurnResult.turn_id !== confirmTurnResult.turn_id,
+    "Follow-up turn did not advance current turn",
+  );
+  assert(staleConfirmPrevented, "Stale confirmation was neither hidden, disabled, nor rejected");
+  assert(
+    toolboxExecuteAfterStaleRecords.length === 0,
+    `Expected no toolbox execution after stale confirm, got ${toolboxExecuteAfterStaleRecords.length}`,
+  );
+  assert(
+    pendingProseFragmentAfterStaleCount === 0,
+    `Expected no pending prose_fragment after stale confirm, got ${pendingProseFragmentAfterStaleCount}`,
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: confirmTurnResult.turn_id,
+      confirm_turn_id: confirmTurnResult.turn_id,
+      followup_turn_id: followupTurnResult.turn_id,
+      confirmation_card_received: true,
+      confirmation_card_visible: true,
+      plan_carried_over_wire: confirmTurnResult.plan != null,
+      confirm_action_behavior_ref: confirmAction.behavior_ref ?? "",
+      tool_called_before_confirm: confirmTurnResult.truthfulness?.tool_called === true,
+      production_write_before_confirm:
+        confirmTurnResult.truthfulness?.production_write_performed === true,
+      followup_turn_completed: true,
+      followup_advanced_current_turn: followupTurnResult.turn_id !== confirmTurnResult.turn_id,
+      stale_confirm_visible: staleConfirmVisible,
+      stale_confirm_disabled: staleConfirmDisabled,
+      stale_confirm_click_attempted: staleClickAttempted,
+      stale_confirm_action_sent: staleActionSent || sentStaleConfirmActionFrames.length >= 1,
+      stale_confirm_rejected: staleActionRejected || authorActionErrorRecords.length >= 1,
+      stale_confirm_prevented: staleConfirmPrevented,
+      stale_rejection_reason: staleRejectionReason,
+      author_action_error_count: authorActionErrorRecords.length,
+      toolbox_execute_after_stale_count: toolboxExecuteAfterStaleRecords.length,
+      pending_prose_fragment_after_stale_count: pendingProseFragmentAfterStaleCount,
+      no_tool_dispatch_after_stale: toolboxExecuteAfterStaleRecords.length === 0,
+      no_pending_artifact_after_stale: pendingProseFragmentAfterStaleCount === 0,
+      action_failure_visible: visibleText.includes("操作失败，请重试。"),
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 function visibleTextIncludesPendingDraft(visibleText) {
   // 确认后页面已进入待采纳态；确认卡可见性在点击前已由 waitForFunction 证明。
   return /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(visibleText);
@@ -9311,6 +9508,7 @@ const drivers = {
   "p1-plan-incremental": driveP1PlanIncremental,
   "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
   "au04-confirm-idempotency-ui": driveAu04ConfirmIdempotencyUi,
+  "au04-stale-confirmation-ui": driveAu04StaleConfirmationUi,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-memory-management-entry": driveAu09MemoryManagementEntry,
   "au09-memory-trace-roundtrip": driveAu09MemoryTraceRoundtrip,

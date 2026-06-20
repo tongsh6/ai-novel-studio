@@ -1,0 +1,63 @@
+id: au04-stale-confirmation-ui
+title: 旧确认在上下文推进后不能执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-stale-confirmation-ui --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0007-next-action-available-action-v3.md
+  - docs/design/adr/ADR-0009-confirmation-binding-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - confirmation-action-comes-from-server-available-actions
+  - confirmation-action-binds-open-behavior
+  - stale-confirmation-does-not-cross-current-turn
+  - stale-confirmation-does-not-dispatch-tool
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with an adopted chapter plan
+  - type: high-risk rewrite request in the real chat input
+  - observe: needs_confirmation turn_result arrives over the real websocket
+  - type: an ordinary follow-up message before confirming
+  - observe: current turn advances past the old confirmation turn
+  - click: old 确认执行 button if it is still visible and enabled
+  - observe: old confirmation is hidden, disabled, or rejected as stale
+  - observe: no prose_writing dispatch and no pending prose_fragment are created from the old confirmation
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-stale-confirmation-ui-tauri
+
+assertions:
+  ui:
+    - confirmation action is visible before context changes
+    - follow-up turn completes before the stale confirmation attempt
+    - stale confirmation cannot create a pending draft
+  network:
+    - real workbench sends the follow-up message through the current channel
+    - stale confirm action is either not sent or is rejected by the channel
+  data:
+    - initial confirmation turn has no tool call and no production write
+    - current turn advances before the old confirmation is attempted
+    - no prose_writing dispatch happens after the stale confirmation attempt
+    - no pending prose_fragment is produced after the stale confirmation attempt
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

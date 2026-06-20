@@ -69,6 +69,7 @@ export const nativeSliceIds = [
   "p1-plan-incremental",
   "au04-confirm-before-execute",
   "au04-confirm-idempotency-ui",
+  "au04-stale-confirmation-ui",
   "vs00c-cp0-missing-chapter-block",
   "vs00c-cp3-structured-context",
   "vs00c-cp4-chapter-plan-structure",
@@ -324,6 +325,14 @@ const sliceKeyEvents = {
     "channel.author_action.start",
     "channel.author_action.done",
     "toolbox.execute.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-stale-confirmation-ui": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "orchestrator.decide.done",
+    "channel.author_action.start",
+    "channel.author_action.error",
     "slice_verify.ui_state.done",
   ],
   // CP0：续写不存在的章 → 执行前 block。要求坐标与缺失决策业务日志出现，
@@ -1056,6 +1065,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu04ConfirmIdempotencyUiEvidence(records);
   }
 
+  if (sliceId === "au04-stale-confirmation-ui") {
+    return findAu04StaleConfirmationUiEvidence(records);
+  }
+
   if (sliceId === "vs00c-cp0-missing-chapter-block") {
     return findVs00cMissingChapterBlockEvidence(records);
   }
@@ -1317,6 +1330,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au02-candidate-fallback-ui") {
     return candidateFallbackUiBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-stale-confirmation-ui") {
+    return au04StaleConfirmationUiBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
@@ -5855,6 +5872,75 @@ function findAu04ConfirmIdempotencyUiEvidence(records) {
   };
 }
 
+function findAu04StaleConfirmationUiEvidence(records) {
+  const sliceId = "au04-stale-confirmation-ui";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.confirmation_card_received === true &&
+      r.plan_carried_over_wire === true &&
+      r.tool_called_before_confirm === false &&
+      r.production_write_before_confirm === false &&
+      r.followup_turn_completed === true &&
+      r.followup_advanced_current_turn === true &&
+      r.stale_confirm_prevented === true &&
+      r.no_tool_dispatch_after_stale === true &&
+      r.no_pending_artifact_after_stale === true &&
+      Number(r.toolbox_execute_after_stale_count ?? 0) === 0 &&
+      Number(r.pending_prose_fragment_after_stale_count ?? 0) === 0 &&
+      String(r.confirm_action_behavior_ref ?? "") !== "",
+  );
+  if (!uiState) return null;
+
+  const confirmTurnId = String(uiState.confirm_turn_id ?? "");
+  const followupTurnId = String(uiState.followup_turn_id ?? "");
+  if (!confirmTurnId || !followupTurnId || confirmTurnId === followupTurnId) return null;
+
+  const turnRecords = records.filter((r) => String(r.turn_id ?? "") === confirmTurnId);
+  const start = turnRecords.find(
+    (r) => r.event === "channel.user_message.start" && r.generate_micro_plan === false,
+  );
+  if (!start) return null;
+
+  const decisions = turnRecords.filter((r) => r.event === "orchestrator.decide.done");
+  const blockedFirst = decisions.some((r) => r.decision_type === "require_confirmation");
+  if (!blockedFirst) return null;
+
+  const preventedByUi =
+    uiState.stale_confirm_visible === false || uiState.stale_confirm_disabled === true;
+  const rejectedByChannel = records.some(
+    (r) =>
+      r.event === "channel.author_action.error" &&
+      r.turn_id === confirmTurnId &&
+      r.action_type === "confirm_before_execute" &&
+      String(r.outcome_detail ?? "").includes("stale"),
+  );
+  if (!preventedByUi && !rejectedByChannel) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: confirmTurnId,
+    turn_ids: [confirmTurnId, followupTurnId],
+    confirm_turn_id: confirmTurnId,
+    followup_turn_id: followupTurnId,
+    confirm_action_behavior_ref: uiState.confirm_action_behavior_ref,
+    stale_confirm_visible: uiState.stale_confirm_visible,
+    stale_confirm_disabled: uiState.stale_confirm_disabled,
+    stale_confirm_click_attempted: uiState.stale_confirm_click_attempted,
+    stale_confirm_action_sent: uiState.stale_confirm_action_sent,
+    stale_confirm_rejected: uiState.stale_confirm_rejected,
+    author_action_error_count: Number(uiState.author_action_error_count ?? 0),
+    toolbox_execute_after_stale_count: Number(uiState.toolbox_execute_after_stale_count ?? 0),
+    pending_prose_fragment_after_stale_count: Number(
+      uiState.pending_prose_fragment_after_stale_count ?? 0,
+    ),
+    key_events: keyEvents,
+  };
+}
+
 function findP1PlanIncrementalEvidence(records) {
   const sliceId = "p1-plan-incremental";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -6362,6 +6448,38 @@ function au04ConfirmIdempotencyUiBehavior(turnIds, turnRecords, records, evidenc
       "duplicate_confirm_was_suppressed_or_reported_as_duplicate",
       "re_gate_dispatched_prose_writing_exactly_once",
       "executed_output_stayed_single_tentative_pending_artifact",
+    ],
+  };
+}
+
+function au04StaleConfirmationUiBehavior(turnIds, _turnRecords, records, evidence, _options) {
+  const uiState = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "au04-stale-confirmation-ui",
+  );
+  if (!uiState) return null;
+  if (uiState.followup_advanced_current_turn !== true) return null;
+  if (uiState.stale_confirm_prevented !== true) return null;
+  if (uiState.no_tool_dispatch_after_stale !== true) return null;
+  if (uiState.no_pending_artifact_after_stale !== true) return null;
+  if (Number(uiState.toolbox_execute_after_stale_count ?? 0) !== 0) return null;
+  if (Number(uiState.pending_prose_fragment_after_stale_count ?? 0) !== 0) return null;
+
+  return {
+    slice_id: "au04-stale-confirmation-ui",
+    behavior: "stale_confirmation_after_context_change_cannot_execute_tool_or_create_draft",
+    turn_ids: turnIds,
+    confirm_action_behavior_ref: evidence.confirm_action_behavior_ref,
+    stale_confirm_visible: evidence.stale_confirm_visible,
+    stale_confirm_click_attempted: evidence.stale_confirm_click_attempted,
+    stale_confirm_action_sent: evidence.stale_confirm_action_sent,
+    stale_confirm_rejected: evidence.stale_confirm_rejected,
+    author_action_error_count: evidence.author_action_error_count,
+    assertions: [
+      "real_workbench_received_high_risk_confirmation_card",
+      "a_followup_user_message_advanced_the_current_turn_before_confirmation",
+      "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
+      "stale_confirmation_did_not_dispatch_prose_writing",
+      "stale_confirmation_did_not_create_pending_prose_fragment",
     ],
   };
 }

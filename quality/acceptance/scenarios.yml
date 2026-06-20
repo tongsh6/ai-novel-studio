@@ -274,6 +274,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au04-confirm-idempotency-ui.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au04-confirm-idempotency-ui --surface tauri
+  - id: au04-stale-confirmation-ui
+    title: "旧确认在上下文推进后不能执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-stale-confirmation-ui.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-stale-confirmation-ui --surface tauri
   - id: au11-quality-diagnosis-message-envelope
     title: "AI 引导式创作质量诊断 Message Envelope"
     tier: nightly
