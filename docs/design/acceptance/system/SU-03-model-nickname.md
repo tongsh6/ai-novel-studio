@@ -2,7 +2,7 @@
 
 > 系统用户视角：我可以给 AI 助手起一个显示名，让对话更像与固定创作搭档协作。这个名字只影响界面展示，不影响 LLM provider、消息 role、TurnResult 契约或 AI 行为能力。
 >
-> 2026-06-19 复核结论：真实 Tauri 前端闭环已补齐。`WorkspaceChat` 提供 work-scoped AI 显示名设置入口，Tauri 桌面偏好持久化到 app config `preferences.json`，不同作品互相隔离；消息流、欢迎消息、历史 transcript 和思考态统一消费显示名 helper。`su03-assistant-display-name` 已在默认 provider 与 `--real-lmstudio` 两种模式下通过：改名后发送真实消息，TurnResult 仍保持 `assistant_message` 契约，websocket payload 不携带 UI 显示名，LM Studio `/v1/chat/completions` request body 不包含“创作助手”。该能力只影响 UI label，不改变 provider、prompt、role 或 TurnResult。历史旁路 `历史旁路工作台` 已退役删除，不再作为当前展示面。
+> 2026-06-20 复核结论：真实 Tauri 前端闭环已补齐且当前 checkout 可复跑。`WorkspaceChat` 提供 work-scoped AI 显示名设置入口，Tauri 桌面偏好持久化到 app config `preferences.json`，不同作品互相隔离；消息流、欢迎消息、历史 transcript 和思考态统一消费显示名 helper。`su03-assistant-display-name` 已在默认 provider 与 `--real-lmstudio` 两种模式下通过：改名后发送真实消息，TurnResult 仍保持 `assistant_message` 契约，websocket payload 不携带 UI 显示名，LM Studio `/v1/chat/completions` request body 不包含“创作助手”。该能力只影响 UI label，不改变 provider、prompt、role 或 TurnResult。历史旁路 `历史旁路工作台` 已退役删除，不再作为当前展示面。
 
 ---
 
@@ -62,7 +62,7 @@
 
 **当前证据**：`frontend/src/lib/assistantDisplayName.ts` 提供默认值与统一 label helper；`WorkspaceChat.tsx` 消息 label 不再硬编码 `"AI"`；`bash scripts/tauri_slice_verify.sh su03-assistant-display-name` 覆盖真实工作台默认/切换路径。
 
-**当前状态**：已实现并通过最小真实前端验收。
+**当前状态**：已验收。
 
 ---
 
@@ -82,7 +82,7 @@
 
 **当前证据**：`assistantRoleLabel(role, assistantDisplayName)` 被 `WorkspaceChat.tsx` 消费；`WorkspaceChat` 的欢迎消息、历史 transcript、新消息和 thinking 状态按当前显示名渲染。
 
-**当前状态**：已实现并通过最小真实前端验收。
+**当前状态**：已验收。
 
 ---
 
@@ -104,7 +104,7 @@
 
 **当前证据**：`WorkspaceChat` 顶部 `assistant-name-trigger` 打开 Radix Dialog；保存后立即更新当前工作台 label；Tauri 命令写入 app config preferences；`su03-assistant-display-name` 原生验证覆盖保存和切换后恢复。
 
-**当前状态**：已实现并通过最小真实前端验收。
+**当前状态**：已验收。
 
 ---
 
@@ -124,7 +124,7 @@
 
 **当前证据**：`normalizeAssistantDisplayName/1` 前端 helper 和 Tauri command 均执行 trim、空白重置、20 字符上限；单测覆盖默认、截断、reset。
 
-**当前状态**：已实现并有单测覆盖。
+**当前状态**：已验收。
 
 ---
 
@@ -146,7 +146,7 @@
 
 **当前证据**：`assistant_display_names` 以 work_id 为 key 存储；`su03-assistant-display-name` 原生验证在作品 A 保存“创作助手”，创建作品 B 后显示默认 `AI`，再切回 A 恢复“创作助手”。
 
-**当前状态**：已实现并通过最小真实前端验收。
+**当前状态**：已验收。
 
 ---
 
@@ -167,7 +167,7 @@
 
 **当前证据**：实现只落在 UI preference/helper 与 Tauri preferences，不改 provider/gateway/planner/TurnResult schema；`su03-assistant-display-name` 在改名后发送真实消息，验证前端 label 显示“创作助手”、websocket `user_message` payload 不包含显示名、TurnResult 仍使用 `assistant_message` 且没有新增显示名字段；`bash scripts/tauri_slice_verify.sh --real-lmstudio su03-assistant-display-name` 进一步验证同一 `turn_id` 的 LM Studio `/v1/chat/completions` request body 不包含“创作助手”。
 
-**当前状态**：已实现并通过真实 Tauri + LM Studio payload 验收。
+**当前状态**：已验收。
 
 ---
 
@@ -183,6 +183,17 @@
 | SC-SU03-C2 | 只影响 UI，不影响 LLM 请求和 TurnResult | 已实现：canonical role/UI 边界、websocket payload、TurnResult 契约和真实 LM Studio request body 均已验证 | 是 |
 
 **覆盖结论：6 个场景；6/6 已通过真实 Tauri 验收，其中 SC-SU03-C2 额外通过 LM Studio request log 证明显示名不进入 provider payload。**
+
+### 5.1 文件级对账矩阵
+
+| 场景 ID / 名称 | 设计期望 | Contract / invariant | 相关实现入口 | 局部测试证据 | 真实页面外部自动化验收证据 | 当前状态 | 设计偏差 | 缺口类型 | 优先级 | 建议 checkpoint / slice |
+|---|---|---|---|---|---|---|---|---|---|---|
+| SC-SU03-A1 默认显示名 | 未设置时 AI 消息、欢迎消息和 thinking 使用稳定默认名 `AI` | SU03-I4 | `assistantDisplayName.ts`、`WorkspaceChat.tsx` | `assistantDisplayName.test.ts` | `su03-assistant-display-name` summary | 已验收 | 无 | 无 | P0 | 保持回归 |
+| SC-SU03-A2 所有 AI 展示面统一使用显示名 | 主工作台、历史消息、thinking 同步使用同一显示名；canonical role 不变 | SU03-I2 | `assistantRoleLabel`、`WorkspaceChat` message/thinking render | `assistantDisplayName.test.ts`、`native-tauri-verifier.test.mjs` | `su03-assistant-display-name` summary | 已验收 | 无 | 无 | P0 | 保持回归 |
+| SC-SU03-B1 设置显示名并即时生效 | 从真实入口保存显示名后当前工作台立即更新，刷新/切换后恢复 | SU03-I3/I4 | `WorkspaceChat` Radix Dialog、Tauri preferences command | `assistantDisplayName.test.ts` | `su03-assistant-display-name` summary | 已验收 | 无 | 无 | P0 | 保持回归 |
+| SC-SU03-B2 名称校验、空白回退和重置默认 | trim、空白回默认、20 字符上限、reset 不污染其它作品 | SU03-I4 | `normalizeAssistantDisplayName`、`set/resetAssistantDisplayName`、Tauri/browser preference | `assistantDisplayName.test.ts` | `su03-assistant-display-name` 通过真实设置/切换验证默认回退 | 已验收 | 无 | 无 | P1 | 保持回归 |
+| SC-SU03-C1 按作品隔离显示名 | A/B 作品各自有显示名；切换作品时显示名跟随 work_id | SU03-I3 | `assistant_display_names` work_id map、`get/setAssistantDisplayName`、`WorkspaceChat.openWork` | `assistantDisplayName.test.ts` | `su03-assistant-display-name` summary | 已验收 | 无 | 无 | P0 | 保持回归 |
+| SC-SU03-C2 只影响 UI，不影响 LLM 请求和 TurnResult | UI label 可变，但 websocket payload、canonical role、TurnResult、LM Studio request body 不带显示名 | SU03-I1/I2 | UI preference/helper；不改 provider/gateway/planner/TurnResult schema | `native-tauri-verifier.test.mjs` | `su03-assistant-display-name`、`su03-assistant-display-name --real-lmstudio` summary 与 `lmstudio-log.json` | 已验收 | 无 | 无 | P0 | `SU03-assistant-display-name-boundary` |
 
 ---
 
