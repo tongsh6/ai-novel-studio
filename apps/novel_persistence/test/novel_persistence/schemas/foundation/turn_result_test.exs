@@ -56,6 +56,22 @@ defmodule NovelPersistence.Schemas.Foundation.TurnResultTest do
     assert cs.valid?, inspect(cs.errors)
   end
 
+  test "candidate_directions casts as optional semantic exploration payload" do
+    payload =
+      Map.put(@minimal_valid, "candidate_directions", [
+        %{
+          "direction_id" => "cand-1",
+          "title" => "雨夜误会",
+          "pitch" => "从一次错认开始推进关系",
+          "adoption_status" => "not_adopted"
+        }
+      ])
+
+    cs = TurnResult.changeset(%TurnResult{}, payload)
+    assert cs.valid?, inspect(cs.errors)
+    assert [%{"direction_id" => "cand-1"}] = Ecto.Changeset.get_field(cs, :candidate_directions)
+  end
+
   test "invalid adoption_status value rejected" do
     payload =
       put_in(@minimal_valid, ["adoption_state", "pending"], [

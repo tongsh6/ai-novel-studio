@@ -45,6 +45,7 @@ defmodule NovelPersistence.Schemas.Foundation.TurnResult do
     :task_id,
     :agent_id,
     :parent_turn_id,
+    :candidate_directions,
     :warnings,
     :errors
   ]
@@ -61,6 +62,7 @@ defmodule NovelPersistence.Schemas.Foundation.TurnResult do
     field(:next_action, :string)
     field(:assistant_message, :map)
     field(:ui_cards, {:array, :map}, default: [])
+    field(:candidate_directions, {:array, :map}, default: [])
     field(:behavior_state, :map)
     field(:projection_refs, {:array, :map}, default: [])
     field(:validation, :map)
