@@ -129,6 +129,71 @@ jobs:
 
       - run: pnpm build
 
+  tauri-platform-smoke:
+    name: Tauri platform smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Linux Tauri dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Tauri Rust contract tests
+        working-directory: frontend/src-tauri
+        shell: bash
+        run: |
+          set +e
+          cargo test --locked
+          status=$?
+          set -e
+
+          evidence_dir="$GITHUB_WORKSPACE/artifacts/platform-smoke/tauri-${{ matrix.os }}"
+          mkdir -p "$evidence_dir"
+
+          json_escape() {
+            printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'
+          }
+
+          generated_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          uname_value="$(uname -a 2>/dev/null || true)"
+          rustc_value="$(rustc --version 2>/dev/null || true)"
+          cargo_value="$(cargo --version 2>/dev/null || true)"
+
+          cat >"$evidence_dir/summary.json" <<EOF
+          {
+            "slice_id": "su01-c3-non-macos-platform-runner",
+            "runner_os": "${{ matrix.os }}",
+            "generated_at": "$(json_escape "$generated_at")",
+            "command": "cargo test --locked",
+            "exit_code": $status,
+            "uname": "$(json_escape "$uname_value")",
+            "rustc": "$(json_escape "$rustc_value")",
+            "cargo": "$(json_escape "$cargo_value")",
+            "scope": "Tauri Rust contract tests for platform secret storage capability branches",
+            "real_page_acceptance": false
+          }
+          EOF
+
+          exit "$status"
+
+      - name: Upload Tauri platform smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tauri-platform-smoke-${{ matrix.os }}
+          path: artifacts/platform-smoke/tauri-${{ matrix.os }}/summary.json
+
   static-scan:
     name: AI static scan closure
     runs-on: ubuntu-latest

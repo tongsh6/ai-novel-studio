@@ -1,0 +1,66 @@
+id: su01-keychain-webview-roundtrip
+title: 真实 Tauri WebView Keychain 写读与脱敏
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-keychain-webview-roundtrip --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-api-key-written-through-tauri-webview-command
+  - macos-keychain-item-exists-without-reading-plain-secret
+  - provider-api-key-not-returned-by-options
+  - provider-api-key-not-visible-in-ui-or-logs
+  - product-code-added-no-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+  desktop_profile: slice-verify
+  keychain_scope: isolated-runner-home
+
+user_flow:
+  - open: real Tauri WebView workbench model settings
+  - select: DeepSeek provider
+  - input: fake API key into password field
+  - refresh: model list through the production DeepSeek adapter with a harnessed external HTTP boundary
+  - save: provider selection and API key through Tauri command
+  - restart: Tauri app after backend runtime reset
+  - observe: new WebView restores DeepSeek provider from Tauri preferences plus macOS Keychain
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - backend_log
+    - ui_state
+    - keychain_metadata
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-keychain-webview-roundtrip-tauri
+
+assertions:
+  ui:
+    - model settings opens from the real Tauri WebView
+    - saved provider badge shows DeepSeek and selected model after restart
+    - visible text does not contain the API key
+  native:
+    - macOS Keychain item exists for the selected provider in the isolated runner HOME
+    - plain Keychain secret is not read by the verifier
+    - Tauri restart restores provider runtime from preferences plus Keychain
+  data:
+    - provider options marks api_key_configured true without returning the secret
+    - preferences file stores non-secret provider state only
+    - business JSONL logs and backend logs do not contain the API key
+
+known_limits:
+  - This scenario proves the macOS Tauri WebView and Keychain path. It does not close the non-macOS secret storage product policy.
+  - The external driver uses macOS CGEvent and Accessibility APIs because tauri-driver 2.0.6 does not support macOS.
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

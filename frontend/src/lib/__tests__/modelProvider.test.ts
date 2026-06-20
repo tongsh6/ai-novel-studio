@@ -3,9 +3,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   configureProvider,
+  getProviderSecretStorageStatus,
   getProviderOptions,
   isValidProviderEndpoint,
   listProviderModels,
+  providerApiKeyStorageUnavailable,
   saveAndApplyModelProviderConfig,
   testProviderConnection,
 } from "../modelProvider";
@@ -84,6 +86,35 @@ describe("model provider API client", () => {
     expect(isValidProviderEndpoint("localhost:1234/v1")).toBe(false);
     expect(isValidProviderEndpoint("ftp://example.com/v1")).toBe(false);
     expect(isValidProviderEndpoint("not a url")).toBe(false);
+  });
+
+  it("reports browser fallback secret storage as runtime-only", async () => {
+    await expect(getProviderSecretStorageStatus()).resolves.toEqual({
+      available: true,
+      kind: "browser_memory",
+      platform: "browser",
+    });
+  });
+
+  it("marks api key storage unavailable only for providers that support keys", () => {
+    expect(
+      providerApiKeyStorageUnavailable(
+        { supports_api_key: true },
+        { available: false },
+      ),
+    ).toBe(true);
+    expect(
+      providerApiKeyStorageUnavailable(
+        { supports_api_key: false },
+        { available: false },
+      ),
+    ).toBe(false);
+    expect(
+      providerApiKeyStorageUnavailable(
+        { supports_api_key: true },
+        { available: true },
+      ),
+    ).toBe(false);
   });
 
   it("normalizes provider options and filters duplicate provider ids", async () => {

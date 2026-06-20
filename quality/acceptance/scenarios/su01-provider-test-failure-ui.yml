@@ -1,0 +1,58 @@
+id: su01-provider-test-failure-ui
+title: 模型测试连接失败反馈与恢复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-provider-test-failure-ui --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-test-does-not-switch-runtime
+  - failed-provider-test-keeps-editable-draft
+  - failed-provider-test-shows-author-readable-reason
+  - corrected-provider-test-can-recover-without-reload
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real workbench model settings
+  - select: LM Studio provider
+  - refresh: model list from an OpenAI-compatible /v1/models endpoint started by the external driver
+  - select: model returned by backend
+  - edit: endpoint to an unreachable local URL
+  - test: click visible test connection button
+  - observe: author-readable failure while dialog and draft remain editable
+  - recover: restore working endpoint and test connection again successfully
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-provider-test-failure-ui-tauri
+
+assertions:
+  ui:
+    - failed test connection shows author-readable failure text
+    - model settings dialog remains open after failure
+    - selected provider and endpoint draft are preserved after failure
+    - corrected endpoint can pass test connection without reloading
+  data:
+    - test connection does not create a dialogue turn
+    - test connection does not save or switch runtime provider
+
+known_limits:
+  - This scenario uses a local unreachable endpoint and a local OpenAI-compatible /v1/models fixture. It proves failure/recovery UI plumbing, not live vendor account behavior.
+  - Non-macOS secret storage remains a platform-runner evidence gap.
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

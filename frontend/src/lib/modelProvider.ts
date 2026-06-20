@@ -4,7 +4,7 @@
 // Provider settings are split deliberately:
 // - backend runtime config is in-memory only;
 // - non-secret desktop preferences live in Tauri app config;
-// - API keys live in macOS Keychain via Tauri commands.
+// - API keys live in OS-backed secret storage when this desktop build supports it.
 
 import { apiBaseUrl, isTauri } from "./env";
 
@@ -55,6 +55,14 @@ export interface StoredProviderSettings {
   providers: Record<string, StoredProviderPreference>;
 }
 
+export type ProviderSecretStorageKind = "macos_keychain" | "browser_memory" | "unsupported";
+
+export interface ProviderSecretStorageStatus {
+  available: boolean;
+  kind: ProviderSecretStorageKind;
+  platform: string;
+}
+
 export interface ProviderConfigInput {
   provider: ProviderId;
   model?: string | null;
@@ -77,6 +85,7 @@ export interface ProviderConnectionResult {
 export interface ModelProviderRuntimeState {
   options: ProviderOptionsResponse;
   stored: StoredProviderSettings;
+  secretStorage: ProviderSecretStorageStatus;
   selectedProvider: ProviderId;
 }
 
@@ -155,6 +164,16 @@ export async function getStoredProviderSettings(): Promise<StoredProviderSetting
   return readBrowserSettings();
 }
 
+export async function getProviderSecretStorageStatus(): Promise<ProviderSecretStorageStatus> {
+  if (isTauri) {
+    return normalizeSecretStorageStatus(
+      await invokeTauri<ProviderSecretStorageStatus>("get_model_provider_secret_storage_status"),
+    );
+  }
+
+  return { available: true, kind: "browser_memory", platform: "browser" };
+}
+
 export async function saveStoredProviderSettings(
   input: ProviderConfigInput,
 ): Promise<StoredProviderSettings> {
@@ -205,7 +224,11 @@ export async function getStoredProviderApiKey(provider: ProviderId): Promise<str
 }
 
 export async function loadAndSyncModelProviderState(): Promise<ModelProviderRuntimeState> {
-  const [options, stored] = await Promise.all([getProviderOptions(), getStoredProviderSettings()]);
+  const [options, stored, secretStorage] = await Promise.all([
+    getProviderOptions(),
+    getStoredProviderSettings(),
+    getProviderSecretStorageStatus(),
+  ]);
 
   const selectedProvider = stored.selected_provider ?? options.current_provider;
   const preference = stored.providers[selectedProvider] ?? {};
@@ -224,6 +247,7 @@ export async function loadAndSyncModelProviderState(): Promise<ModelProviderRunt
   return {
     options: await getProviderOptions(),
     stored,
+    secretStorage,
     selectedProvider,
   };
 }
@@ -242,6 +266,7 @@ export async function saveAndApplyModelProviderConfig(
   return {
     options: await getProviderOptions(),
     stored,
+    secretStorage: await getProviderSecretStorageStatus(),
     selectedProvider: input.provider,
   };
 }
@@ -259,6 +284,13 @@ export function providerDisplayName(option: Pick<ProviderOption, "label" | "mode
 
 export function providerNeedsApiKey(option: Pick<ProviderOption, "requires_api_key">): boolean {
   return option.requires_api_key;
+}
+
+export function providerApiKeyStorageUnavailable(
+  option: Pick<ProviderOption, "supports_api_key"> | undefined,
+  secretStorage: Pick<ProviderSecretStorageStatus, "available">,
+): boolean {
+  return Boolean(option?.supports_api_key) && !secretStorage.available;
 }
 
 export function isValidProviderEndpoint(endpoint: string): boolean {
@@ -348,6 +380,19 @@ function normalizeStoredSettings(raw: StoredProviderSettings): StoredProviderSet
   }
 
   return { selected_provider: selectedProvider, providers };
+}
+
+function normalizeSecretStorageStatus(raw: ProviderSecretStorageStatus): ProviderSecretStorageStatus {
+  const kind =
+    raw.kind === "macos_keychain" || raw.kind === "browser_memory" || raw.kind === "unsupported"
+      ? raw.kind
+      : "unsupported";
+
+  return {
+    available: Boolean(raw.available),
+    kind,
+    platform: normalizeOptionalText(raw.platform) ?? "unknown",
+  };
 }
 
 function normalizeProviderId(value: unknown): ProviderId | null {
