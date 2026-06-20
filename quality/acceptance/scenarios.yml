@@ -267,6 +267,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au04-confirm-before-execute.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au04-confirm-before-execute --surface tauri
+  - id: au04-confirm-idempotency-ui
+    title: "高风险确认重复点击不重复执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-confirm-idempotency-ui.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-confirm-idempotency-ui --surface tauri
   - id: au11-quality-diagnosis-message-envelope
     title: "AI 引导式创作质量诊断 Message Envelope"
     tier: nightly

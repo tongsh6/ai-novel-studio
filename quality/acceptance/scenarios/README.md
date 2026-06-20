@@ -26,6 +26,7 @@
 | `au03-session-history-readonly.yml` | 历史会话只读回看 |
 | `au03-session-new-active.yml` | 新建会话成为当前 ACTIVE，原 ACTIVE 转为只读历史 |
 | `au04-confirm-before-execute.yml` | 高风险执行先确认并重新 gate |
+| `au04-confirm-idempotency-ui.yml` | 高风险确认重复点击不重复执行 |
 | `au05-adoption-safety-freshness.yml` | 采纳安全与新鲜度 |
 | `au05-canon-conflict-recovery.yml` | 正典冲突恢复 |
 | `au05-conflict-cross-work-recovery.yml` | 跨作品冲突恢复 |

@@ -1,0 +1,63 @@
+id: au04-confirm-idempotency-ui
+title: 高风险确认重复点击不重复执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-confirm-idempotency-ui --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0007-next-action-available-action-v3.md
+  - docs/design/adr/ADR-0009-confirmation-binding-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - confirmation-action-comes-from-server-available-actions
+  - confirmation-action-binds-open-behavior
+  - duplicate-confirm-action-does-not-duplicate-dispatch
+  - executed-output-remains-tentative-pending-adoption
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with an adopted chapter plan
+  - type: high-risk rewrite request in the real chat input
+  - observe: needs_confirmation turn_result arrives over the real websocket
+  - observe: visible confirm and reject actions are shown before execution
+  - double_click: 确认执行
+  - observe: author_action is either sent once or duplicate-confirm is reported as duplicate
+  - observe: prose_writing dispatch count remains one
+  - observe: exactly one tentative prose_fragment remains pending adoption
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-confirm-idempotency-ui-tauri
+
+assertions:
+  ui:
+    - confirmation action is visible before the rapid confirm attempt
+    - tentative prose draft is visible after confirmation
+    - pending adoption remains visible after execution
+  network:
+    - real workbench attempts confirm from the visible button
+    - duplicate confirm is suppressed by UI or reported as duplicate by action_result
+  data:
+    - exactly one non-duplicate confirm receipt is accepted
+    - exactly one prose_writing dispatch happens after re-gate
+    - exactly one pending prose_fragment is produced
+    - no tool call or production write happens before confirmation
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

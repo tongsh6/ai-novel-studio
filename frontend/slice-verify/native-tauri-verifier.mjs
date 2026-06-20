@@ -68,6 +68,7 @@ export const nativeSliceIds = [
   "p1-export-minimum",
   "p1-plan-incremental",
   "au04-confirm-before-execute",
+  "au04-confirm-idempotency-ui",
   "vs00c-cp0-missing-chapter-block",
   "vs00c-cp3-structured-context",
   "vs00c-cp4-chapter-plan-structure",
@@ -308,6 +309,15 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "au04-confirm-before-execute": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "orchestrator.decide.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "toolbox.execute.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-confirm-idempotency-ui": [
     "channel.user_message.start",
     "channel.user_message.done",
     "orchestrator.decide.done",
@@ -1042,6 +1052,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu04ConfirmBeforeExecuteEvidence(records);
   }
 
+  if (sliceId === "au04-confirm-idempotency-ui") {
+    return findAu04ConfirmIdempotencyUiEvidence(records);
+  }
+
   if (sliceId === "vs00c-cp0-missing-chapter-block") {
     return findVs00cMissingChapterBlockEvidence(records);
   }
@@ -1341,6 +1355,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au04-confirm-before-execute") {
     return au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-confirm-idempotency-ui") {
+    return au04ConfirmIdempotencyUiBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "p1-export-minimum") {
@@ -5756,6 +5774,87 @@ function findAu04ConfirmBeforeExecuteEvidence(records) {
   };
 }
 
+function findAu04ConfirmIdempotencyUiEvidence(records) {
+  const sliceId = "au04-confirm-idempotency-ui";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.confirmation_card_received === true &&
+      r.plan_carried_over_wire === true &&
+      r.tool_called_before_confirm === false &&
+      r.production_write_before_confirm === false &&
+      r.confirm_double_click_attempted === true &&
+      r.confirm_action_sent === true &&
+      Number(r.sent_confirm_action_count ?? 0) >= 1 &&
+      Number(r.non_duplicate_author_action_done_count ?? 0) === 1 &&
+      r.duplicate_suppressed_or_deduped === true &&
+      r.confirmed_dispatch === true &&
+      Number(r.toolbox_execute_count ?? 0) === 1 &&
+      r.no_duplicate_tool_dispatch === true &&
+      Number(r.pending_prose_fragment_count ?? 0) === 1 &&
+      r.single_pending_artifact_after_confirm === true &&
+      r.artifact_pending_after_confirm === true &&
+      String(r.confirm_action_behavior_ref ?? "") !== "",
+  );
+  if (!uiState) return null;
+
+  const confirmTurnId = String(uiState.confirm_turn_id ?? "");
+  if (!confirmTurnId) return null;
+
+  const turnRecords = records.filter((r) => String(r.turn_id ?? "") === confirmTurnId);
+
+  const start = turnRecords.find(
+    (r) => r.event === "channel.user_message.start" && r.generate_micro_plan === false,
+  );
+  if (!start) return null;
+
+  const decisions = turnRecords.filter((r) => r.event === "orchestrator.decide.done");
+  const blockedFirst = decisions.some((r) => r.decision_type === "require_confirmation");
+  const allowedAfterConfirm = decisions.some((r) => r.decision_type === "allow_tool");
+  if (!blockedFirst || !allowedAfterConfirm) return null;
+
+  const confirmDoneRecords = records.filter(
+    (r) =>
+      r.event === "channel.author_action.done" &&
+      r.turn_id === confirmTurnId &&
+      r.action_type === "confirm_before_execute" &&
+      r.action_status === "accepted",
+  );
+  const nonDuplicateDoneRecords = confirmDoneRecords.filter((r) => r.duplicate !== true);
+  if (nonDuplicateDoneRecords.length !== 1) return null;
+
+  const executedRecords = turnRecords.filter(
+    (r) =>
+      r.event === "toolbox.execute.done" &&
+      r.tool_name === "prose_writing" &&
+      r.tool_outcome === "succeeded",
+  );
+  if (executedRecords.length !== 1) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: confirmTurnId,
+    turn_ids: [confirmTurnId],
+    confirm_turn_id: confirmTurnId,
+    executed_turn_id: uiState.executed_turn_id,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    confirm_action_behavior_ref: uiState.confirm_action_behavior_ref,
+    confirm_action_id: uiState.confirm_action_id,
+    confirm_action_idempotency_key: uiState.confirm_action_idempotency_key,
+    sent_confirm_action_count: Number(uiState.sent_confirm_action_count ?? 0),
+    author_action_done_count: Number(uiState.author_action_done_count ?? 0),
+    duplicate_author_action_done_count: Number(uiState.duplicate_author_action_done_count ?? 0),
+    duplicate_action_result_count: Number(uiState.duplicate_action_result_count ?? 0),
+    toolbox_execute_count: Number(uiState.toolbox_execute_count ?? 0),
+    pending_prose_fragment_count: Number(uiState.pending_prose_fragment_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
 function findP1PlanIncrementalEvidence(records) {
   const sliceId = "p1-plan-incremental";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -6227,6 +6326,42 @@ function au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidenc
       "confirm_action_bound_to_open_confirmation_behavior",
       "re_gate_allows_and_dispatches_prose_writing_same_turn",
       "executed_output_stays_tentative_pending_adoption",
+    ],
+  };
+}
+
+function au04ConfirmIdempotencyUiBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (!turnsHaveEvent([evidence.confirm_turn_id], turnRecords, "toolbox.execute.done")) {
+    return null;
+  }
+
+  const uiState = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "au04-confirm-idempotency-ui",
+  );
+  if (!uiState) return null;
+  if (uiState.confirm_double_click_attempted !== true) return null;
+  if (uiState.duplicate_suppressed_or_deduped !== true) return null;
+  if (Number(uiState.non_duplicate_author_action_done_count ?? 0) !== 1) return null;
+  if (Number(uiState.toolbox_execute_count ?? 0) !== 1) return null;
+  if (Number(uiState.pending_prose_fragment_count ?? 0) !== 1) return null;
+  if (uiState.no_duplicate_tool_dispatch !== true) return null;
+  if (uiState.single_pending_artifact_after_confirm !== true) return null;
+
+  return {
+    slice_id: "au04-confirm-idempotency-ui",
+    behavior: "rapid_confirm_click_is_suppressed_or_deduped_without_duplicate_execution",
+    turn_ids: turnIds,
+    artifact_id: evidence.artifact_id,
+    confirm_action_behavior_ref: evidence.confirm_action_behavior_ref,
+    sent_confirm_action_count: evidence.sent_confirm_action_count,
+    duplicate_author_action_done_count: evidence.duplicate_author_action_done_count,
+    duplicate_action_result_count: evidence.duplicate_action_result_count,
+    assertions: [
+      "real_workbench_attempted_rapid_confirm_from_visible_confirmation_card",
+      "action_boundary_accepted_exactly_one_non_duplicate_confirmation",
+      "duplicate_confirm_was_suppressed_or_reported_as_duplicate",
+      "re_gate_dispatched_prose_writing_exactly_once",
+      "executed_output_stayed_single_tentative_pending_artifact",
     ],
   };
 }

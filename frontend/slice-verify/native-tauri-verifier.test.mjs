@@ -9,7 +9,7 @@ import {
 } from "./native-tauri-verifier.mjs";
 
 describe("native Tauri slice verifier", () => {
-  it("lists native slice ids including AU-10 micro plan entry", () => {
+  it("lists native slice ids including AU-04 confirmation idempotency UI", () => {
     expect(nativeSliceIds).toContain("workspace-runtime-state");
     expect(nativeSliceIds).toContain("su02-work-switching");
     expect(nativeSliceIds).toContain("su02-artifact-projection-trace-isolation");
@@ -68,10 +68,52 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-canon-conflict-recovery");
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
+    expect(nativeSliceIds).toContain("au04-confirm-before-execute");
+    expect(nativeSliceIds).toContain("au04-confirm-idempotency-ui");
     expect(nativeSliceIds).toContain("vs00c-cp3-structured-context");
     expect(nativeSliceIds).toContain("vs00c-cp4-chapter-plan-structure");
     expect(nativeSliceIds).toContain("vs00c-cp5-reader-effect-brief");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("accepts AU-04 rapid confirm click evidence only when execution stays single-shot", () => {
+    const records = au04ConfirmIdempotencyUiRecords();
+
+    const evidence = findNativeSliceEvidence("au04-confirm-idempotency-ui", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au04-confirm-idempotency-ui",
+      turn_id: "turn-au04-idem",
+      confirm_turn_id: "turn-au04-idem",
+      artifact_id: "artifact-au04-idem",
+      artifact_type: "prose_fragment",
+      confirm_action_behavior_ref: "behavior-au04-idem",
+      confirm_action_id: "confirm-au04-idem",
+      confirm_action_idempotency_key: "idem-au04-idem",
+      sent_confirm_action_count: 2,
+      author_action_done_count: 2,
+      duplicate_author_action_done_count: 1,
+      duplicate_action_result_count: 1,
+      toolbox_execute_count: 1,
+      pending_prose_fragment_count: 1,
+      key_events: keyEventsForSlice("au04-confirm-idempotency-ui"),
+    });
+    expect(findSliceBehaviorEvidence("au04-confirm-idempotency-ui", records, evidence)).toEqual({
+      slice_id: "au04-confirm-idempotency-ui",
+      behavior: "rapid_confirm_click_is_suppressed_or_deduped_without_duplicate_execution",
+      turn_ids: ["turn-au04-idem"],
+      artifact_id: "artifact-au04-idem",
+      confirm_action_behavior_ref: "behavior-au04-idem",
+      sent_confirm_action_count: 2,
+      duplicate_author_action_done_count: 1,
+      duplicate_action_result_count: 1,
+      assertions: [
+        "real_workbench_attempted_rapid_confirm_from_visible_confirmation_card",
+        "action_boundary_accepted_exactly_one_non_duplicate_confirmation",
+        "duplicate_confirm_was_suppressed_or_reported_as_duplicate",
+        "re_gate_dispatched_prose_writing_exactly_once",
+        "executed_output_stayed_single_tentative_pending_artifact",
+      ],
+    });
   });
 
   it("accepts SU-01 provider health evidence from the real workbench badge", () => {
@@ -7518,4 +7560,104 @@ function lmRecord(turnId, step, assistantMessage) {
       }),
     },
   };
+}
+
+function au04ConfirmIdempotencyUiRecords() {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      generate_micro_plan: false,
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      decision_type: "require_confirmation",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-idem",
+      action_type: "confirm_before_execute",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-idem",
+      action_type: "confirm_before_execute",
+      action_status: "accepted",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-idem",
+      action_type: "confirm_before_execute",
+      action_status: "accepted",
+      duplicate: true,
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      decision_type: "allow_tool",
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-confirm-idempotency-ui",
+      turn_id: "turn-au04-idem",
+      confirm_turn_id: "turn-au04-idem",
+      executed_turn_id: "turn-au04-idem",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      artifact_id: "artifact-au04-idem",
+      artifact_type: "prose_fragment",
+      confirmation_card_received: true,
+      confirmation_card_visible: true,
+      plan_carried_over_wire: true,
+      confirm_action_behavior_ref: "behavior-au04-idem",
+      confirm_action_id: "confirm-au04-idem",
+      confirm_action_idempotency_key: "idem-au04-idem",
+      tool_called_before_confirm: false,
+      production_write_before_confirm: false,
+      confirm_double_click_attempted: true,
+      confirm_action_sent: true,
+      sent_confirm_action_count: 2,
+      author_action_done_count: 2,
+      non_duplicate_author_action_done_count: 1,
+      duplicate_author_action_done_count: 1,
+      duplicate_action_result_count: 1,
+      duplicate_suppressed_or_deduped: true,
+      confirmed_dispatch: true,
+      toolbox_execute_count: 1,
+      pending_prose_fragment_count: 1,
+      no_duplicate_tool_dispatch: true,
+      single_pending_artifact_after_confirm: true,
+      artifact_pending_after_confirm: true,
+    },
+  ];
 }

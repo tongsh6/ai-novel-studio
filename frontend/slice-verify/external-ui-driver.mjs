@@ -4707,6 +4707,215 @@ async function driveAu04ConfirmBeforeExecute(page) {
   ];
 }
 
+async function driveAu04ConfirmIdempotencyUi(page) {
+  const requestText =
+    "第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿，保持为待采纳草稿。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const confirmTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "needs_confirmation" &&
+      (frame.body?.available_actions ?? []).some(
+        (action) => action.action_type === "confirm_before_execute",
+      ),
+    "No needs_confirmation turn_result with confirm_before_execute action was received",
+    200_000,
+  );
+  const confirmTurnResult = confirmTurnFrame.body;
+  const confirmAction = confirmTurnResult.available_actions.find(
+    (action) => action.action_type === "confirm_before_execute",
+  );
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    { timeout: 10_000 },
+  );
+
+  const confirmButton = page.getByRole("button", { name: "确认执行" }).first();
+  await confirmButton.waitFor({ timeout: 10_000 });
+  const buttonBox = await confirmButton.boundingBox();
+  assert(buttonBox, "Confirm button was not visible enough to receive pointer input");
+
+  const beforeConfirmFrameCount = frames.length;
+  const beforeConfirmLogCount = readAppLogRecords().length;
+  await page.mouse.dblclick(buttonBox.x + buttonBox.width / 2, buttonBox.y + buttonBox.height / 2, {
+    delay: 20,
+  });
+
+  const confirmActionFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === confirmAction.action_id,
+    "Real workbench did not send the confirm_before_execute author_action",
+  );
+
+  const executedTurnFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No prose_fragment turn_result was received after confirm_before_execute",
+    200_000,
+  );
+  const executedTurnResult = executedTurnFrame.body;
+
+  await waitForAppLogCount(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.turn_id === executedTurnResult.turn_id &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+    1,
+    "No toolbox.execute.done log proved prose_writing ran after confirmation",
+    30_000,
+  );
+
+  await sleep(1_000);
+
+  const framesAfterConfirm = frames.slice(beforeConfirmFrameCount);
+  const logsAfterConfirm = readAppLogRecords().slice(beforeConfirmLogCount);
+  const sentConfirmActionFrames = framesAfterConfirm.filter(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === confirmAction.action_id,
+  );
+  const duplicateActionResultFrames = framesAfterConfirm.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.duplicate === true &&
+      frame.body?.idempotency_key === confirmAction.idempotency_key,
+  );
+  const authorActionDoneRecords = logsAfterConfirm.filter(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.turn_id === confirmTurnResult.turn_id &&
+      record.action_type === "confirm_before_execute" &&
+      record.action_id === confirmAction.action_id,
+  );
+  const nonDuplicateAuthorActionDoneRecords = authorActionDoneRecords.filter(
+    (record) => record.duplicate !== true,
+  );
+  const duplicateAuthorActionDoneRecords = authorActionDoneRecords.filter(
+    (record) => record.duplicate === true,
+  );
+  const toolboxExecuteRecords = logsAfterConfirm.filter(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.turn_id === executedTurnResult.turn_id &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  const executedTurnFrames = framesAfterConfirm.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id === executedTurnResult.turn_id &&
+      frame.body?.tool_result?.tool_name === "prose_writing",
+  );
+  const pendingProseFragmentCount = executedTurnFrames.reduce(
+    (count, frame) =>
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "prose_fragment",
+      ).length,
+    0,
+  );
+  const duplicateSuppressedOrDeduped =
+    sentConfirmActionFrames.length === 1 ||
+    duplicateActionResultFrames.length >= 1 ||
+    duplicateAuthorActionDoneRecords.length >= 1;
+
+  await page.waitForFunction(
+    () =>
+      /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(
+        document.body.innerText,
+      ) &&
+      /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(document.body.innerText),
+    { timeout: 10_000 },
+  );
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, executedTurnResult, sentMessage);
+  const pendingArtifact = executedTurnResult.adoption_state.pending[0];
+
+  assert(
+    confirmTurnResult.truthfulness?.tool_called === false,
+    "Confirmation turn_result claimed tool execution before author confirmed",
+  );
+  assert(
+    confirmTurnResult.truthfulness?.production_write_performed === false,
+    "Confirmation turn_result claimed a production write before author confirmed",
+  );
+  assert(sentConfirmActionFrames.length >= 1, "Rapid confirm did not send any author_action");
+  assert(
+    nonDuplicateAuthorActionDoneRecords.length === 1,
+    `Expected exactly one non-duplicate confirm receipt, got ${nonDuplicateAuthorActionDoneRecords.length}`,
+  );
+  assert(
+    duplicateSuppressedOrDeduped,
+    "Rapid confirm was neither suppressed by the UI nor deduplicated by the action boundary",
+  );
+  assert(
+    toolboxExecuteRecords.length === 1,
+    `Expected exactly one prose_writing dispatch after rapid confirm, got ${toolboxExecuteRecords.length}`,
+  );
+  assert(
+    pendingProseFragmentCount === 1,
+    `Expected exactly one pending prose_fragment after rapid confirm, got ${pendingProseFragmentCount}`,
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: confirmTurnResult.turn_id,
+      confirm_turn_id: confirmTurnResult.turn_id,
+      executed_turn_id: executedTurnResult.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      confirmation_card_received: true,
+      confirmation_card_visible: true,
+      pending_draft_visible: visibleTextIncludesPendingDraft(visibleText),
+      plan_carried_over_wire: confirmTurnResult.plan != null,
+      confirm_action_behavior_ref: confirmAction.behavior_ref ?? "",
+      confirm_action_id: confirmAction.action_id,
+      confirm_action_idempotency_key: confirmAction.idempotency_key,
+      tool_called_before_confirm: confirmTurnResult.truthfulness?.tool_called === true,
+      production_write_before_confirm:
+        confirmTurnResult.truthfulness?.production_write_performed === true,
+      confirm_double_click_attempted: true,
+      confirm_action_sent:
+        confirmActionFrame.body?.action?.action_type === "confirm_before_execute",
+      sent_confirm_action_count: sentConfirmActionFrames.length,
+      author_action_done_count: authorActionDoneRecords.length,
+      non_duplicate_author_action_done_count: nonDuplicateAuthorActionDoneRecords.length,
+      duplicate_author_action_done_count: duplicateAuthorActionDoneRecords.length,
+      duplicate_action_result_count: duplicateActionResultFrames.length,
+      duplicate_suppressed_or_deduped: duplicateSuppressedOrDeduped,
+      confirmed_dispatch: executedTurnResult.truthfulness?.tool_called === true,
+      toolbox_execute_count: toolboxExecuteRecords.length,
+      executed_turn_result_count: executedTurnFrames.length,
+      pending_prose_fragment_count: pendingProseFragmentCount,
+      no_duplicate_tool_dispatch: toolboxExecuteRecords.length === 1,
+      single_pending_artifact_after_confirm: pendingProseFragmentCount === 1,
+      artifact_pending_after_confirm: pendingArtifact.artifact_type === "prose_fragment",
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
 function visibleTextIncludesPendingDraft(visibleText) {
   // 确认后页面已进入待采纳态；确认卡可见性在点击前已由 waitForFunction 证明。
   return /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(visibleText);
@@ -9101,6 +9310,7 @@ const drivers = {
   "p1-export-minimum": driveP1ExportMinimum,
   "p1-plan-incremental": driveP1PlanIncremental,
   "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
+  "au04-confirm-idempotency-ui": driveAu04ConfirmIdempotencyUi,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-memory-management-entry": driveAu09MemoryManagementEntry,
   "au09-memory-trace-roundtrip": driveAu09MemoryTraceRoundtrip,
