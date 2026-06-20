@@ -70,6 +70,10 @@ export const nativeSliceIds = [
   "au04-confirm-before-execute",
   "au04-confirm-idempotency-ui",
   "au04-stale-confirmation-ui",
+  "au04-confirmation-ttl-ui",
+  "au04-history-confirmation-readonly",
+  "au04-cross-work-confirmation-guard",
+  "au04-latest-context-rebase-confirmation",
   "vs00c-cp0-missing-chapter-block",
   "vs00c-cp3-structured-context",
   "vs00c-cp4-chapter-plan-structure",
@@ -333,6 +337,31 @@ const sliceKeyEvents = {
     "orchestrator.decide.done",
     "channel.author_action.start",
     "channel.author_action.error",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-confirmation-ttl-ui": [
+    "channel.join.done",
+    "channel.author_action.start",
+    "channel.author_action.error",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-history-confirmation-readonly": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "work_session.show.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-cross-work-confirmation-guard": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-latest-context-rebase-confirmation": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "toolbox.execute.done",
     "slice_verify.ui_state.done",
   ],
   // CP0：续写不存在的章 → 执行前 block。要求坐标与缺失决策业务日志出现，
@@ -1069,6 +1098,22 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu04StaleConfirmationUiEvidence(records);
   }
 
+  if (sliceId === "au04-confirmation-ttl-ui") {
+    return findAu04ConfirmationTtlUiEvidence(records);
+  }
+
+  if (sliceId === "au04-history-confirmation-readonly") {
+    return findAu04HistoryConfirmationReadonlyEvidence(records);
+  }
+
+  if (sliceId === "au04-cross-work-confirmation-guard") {
+    return findAu04CrossWorkConfirmationGuardEvidence(records);
+  }
+
+  if (sliceId === "au04-latest-context-rebase-confirmation") {
+    return findAu04LatestContextRebaseConfirmationEvidence(records);
+  }
+
   if (sliceId === "vs00c-cp0-missing-chapter-block") {
     return findVs00cMissingChapterBlockEvidence(records);
   }
@@ -1334,6 +1379,28 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au04-stale-confirmation-ui") {
     return au04StaleConfirmationUiBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-confirmation-ttl-ui") {
+    return au04ConfirmationTtlUiBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-history-confirmation-readonly") {
+    return au04HistoryConfirmationReadonlyBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-cross-work-confirmation-guard") {
+    return au04CrossWorkConfirmationGuardBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-latest-context-rebase-confirmation") {
+    return au04LatestContextRebaseConfirmationBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
@@ -5941,6 +6008,253 @@ function findAu04StaleConfirmationUiEvidence(records) {
   };
 }
 
+function findAu04ConfirmationTtlUiEvidence(records) {
+  const sliceId = "au04-confirmation-ttl-ui";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.confirmation_card_restored === true &&
+      r.confirmation_card_visible === true &&
+      r.expired_confirm_click_attempted === true &&
+      r.expired_confirm_action_sent === true &&
+      r.expired_confirm_rejected === true &&
+      r.no_tool_dispatch_after_expired === true &&
+      r.no_pending_artifact_after_expired === true &&
+      Number(r.toolbox_execute_after_expired_count ?? 0) === 0 &&
+      Number(r.pending_prose_fragment_after_expired_count ?? 0) === 0,
+  );
+  if (!uiState) return null;
+
+  const turnId = String(uiState.turn_id ?? "");
+  if (!turnId) return null;
+
+  const rejectedByChannel = records.some(
+    (r) =>
+      r.event === "channel.author_action.error" &&
+      r.turn_id === turnId &&
+      r.action_type === "confirm_before_execute" &&
+      String(r.outcome_detail ?? "").includes("expired action"),
+  );
+  if (!rejectedByChannel) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    expired_confirm_action_sent: uiState.expired_confirm_action_sent,
+    expired_confirm_rejected: uiState.expired_confirm_rejected,
+    author_action_error_count: Number(uiState.author_action_error_count ?? 0),
+    toolbox_execute_after_expired_count: Number(uiState.toolbox_execute_after_expired_count ?? 0),
+    pending_prose_fragment_after_expired_count: Number(
+      uiState.pending_prose_fragment_after_expired_count ?? 0,
+    ),
+    key_events: keyEvents,
+  };
+}
+
+function findAu04HistoryConfirmationReadonlyEvidence(records) {
+  const sliceId = "au04-history-confirmation-readonly";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.readonly_opened_from_real_workbench === true &&
+      r.history_confirmation_transcript_visible === true &&
+      r.history_confirmation_actions_hidden === true &&
+      r.readonly_input_disabled === true &&
+      r.readonly_send_disabled === true &&
+      r.no_author_action_sent === true &&
+      r.no_channel_author_action_log === true &&
+      r.no_tool_dispatch_from_history === true &&
+      r.no_pending_artifact_from_history === true &&
+      r.active_session_restored === true &&
+      Number(r.history_confirmation_confirm_button_count ?? -1) === 0 &&
+      Number(r.history_confirmation_reject_button_count ?? -1) === 0 &&
+      Number(r.author_action_sent_count ?? -1) === 0 &&
+      Number(r.channel_author_action_log_count ?? -1) === 0 &&
+      Number(r.toolbox_execute_after_history_open_count ?? -1) === 0 &&
+      Number(r.pending_prose_fragment_after_history_open_count ?? -1) === 0,
+  );
+  if (!uiState) return null;
+
+  const workId = String(uiState.work_id ?? "");
+  const readonlySessionId = String(uiState.readonly_session_id ?? "");
+  const turnId = String(uiState.turn_id ?? "");
+  if (!workId || !readonlySessionId || !turnId) return null;
+
+  const shown = records.find(
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.work_id === workId &&
+      record.session_id === readonlySessionId &&
+      record.read_only === true &&
+      Number(record.transcript_count ?? 0) >= 2,
+  );
+  if (!shown) return null;
+
+  const authorActionRecords = records.filter((record) =>
+    String(record.event ?? "").startsWith("channel.author_action."),
+  );
+  if (authorActionRecords.length > 0) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: workId,
+    session_id: readonlySessionId,
+    readonly_transcript_count: shown.transcript_count,
+    history_confirmation_actions_hidden: uiState.history_confirmation_actions_hidden,
+    no_author_action_sent: uiState.no_author_action_sent,
+    no_tool_dispatch_from_history: uiState.no_tool_dispatch_from_history,
+    no_pending_artifact_from_history: uiState.no_pending_artifact_from_history,
+    key_events: keyEvents,
+  };
+}
+
+function findAu04CrossWorkConfirmationGuardEvidence(records) {
+  const sliceId = "au04-cross-work-confirmation-guard";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.source_confirmation_visible_before_switch === true &&
+      r.target_work_selected_from_real_menu === true &&
+      r.target_transcript_visible === true &&
+      r.source_confirmation_hidden_in_target === true &&
+      r.no_author_action_sent_after_cross_work_switch === true &&
+      r.no_channel_author_action_log_after_cross_work_switch === true &&
+      r.no_tool_dispatch_after_cross_work_switch === true &&
+      r.no_pending_artifact_after_cross_work_switch === true &&
+      r.source_confirmation_restored_after_return === true &&
+      Number(r.target_confirm_button_count ?? -1) === 0 &&
+      Number(r.target_reject_button_count ?? -1) === 0 &&
+      Number(r.author_action_sent_count ?? -1) === 0 &&
+      Number(r.channel_author_action_log_count ?? -1) === 0 &&
+      Number(r.toolbox_execute_after_cross_work_switch_count ?? -1) === 0 &&
+      Number(r.pending_prose_fragment_after_cross_work_switch_count ?? -1) === 0,
+  );
+  if (!uiState) return null;
+
+  const turnId = String(uiState.turn_id ?? "");
+  const sourceWorkId = String(uiState.source_work_id ?? "");
+  const targetWorkId = String(uiState.target_work_id ?? "");
+  if (!turnId || !sourceWorkId || !targetWorkId || sourceWorkId === targetWorkId) return null;
+
+  const joinedSource = records.some(
+    (record) => record.event === "channel.join.done" && record.work_id === sourceWorkId,
+  );
+  const joinedTarget = records.some(
+    (record) => record.event === "channel.join.done" && record.work_id === targetWorkId,
+  );
+  if (!joinedSource || !joinedTarget) return null;
+
+  const authorActionRecords = records.filter((record) =>
+    String(record.event ?? "").startsWith("channel.author_action."),
+  );
+  if (authorActionRecords.length > 0) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: sourceWorkId,
+    source_work_id: sourceWorkId,
+    target_work_id: targetWorkId,
+    source_session_id: uiState.source_session_id,
+    target_session_id: uiState.target_session_id,
+    source_confirmation_hidden_in_target: uiState.source_confirmation_hidden_in_target,
+    target_confirm_button_count: Number(uiState.target_confirm_button_count ?? 0),
+    target_reject_button_count: Number(uiState.target_reject_button_count ?? 0),
+    author_action_sent_count: Number(uiState.author_action_sent_count ?? 0),
+    toolbox_execute_after_cross_work_switch_count: Number(
+      uiState.toolbox_execute_after_cross_work_switch_count ?? 0,
+    ),
+    pending_prose_fragment_after_cross_work_switch_count: Number(
+      uiState.pending_prose_fragment_after_cross_work_switch_count ?? 0,
+    ),
+    key_events: keyEvents,
+  };
+}
+
+function findAu04LatestContextRebaseConfirmationEvidence(records) {
+  const sliceId = "au04-latest-context-rebase-confirmation";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.real_work_renamed_before_confirm === true &&
+      r.confirm_action_sent === true &&
+      r.binding_ref_includes_source_work === true &&
+      r.binding_ref_includes_latest_revision === true &&
+      r.gate_result_ref_present === true &&
+      r.trace_context_includes_renamed_title === true &&
+      r.reason_codes_include_rebased_ref === true &&
+      r.reason_codes_include_gate_ref === true &&
+      r.confirmed_dispatch === true &&
+      r.artifact_pending_after_confirm === true &&
+      r.artifact_type === "character_seed" &&
+      Number(r.toolbox_execute_count ?? 0) >= 1 &&
+      Number(r.pending_character_seed_count ?? 0) >= 1,
+  );
+  if (!uiState) return null;
+
+  const turnId = String(uiState.turn_id ?? "");
+  const workId = String(uiState.work_id ?? "");
+  const renamedTitle = String(uiState.renamed_title ?? "");
+  const renamedRevision = Number(uiState.renamed_revision ?? 0);
+  const bindingRef = String(uiState.confirmation_binding_ref ?? "");
+  if (!turnId || !workId || !renamedTitle || renamedRevision <= 0 || !bindingRef) return null;
+
+  const joined = records.some(
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+  );
+  if (!joined) return null;
+
+  const confirmed = records.some(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.turn_id === turnId &&
+      record.action_type === "confirm_before_execute" &&
+      record.action_status === "accepted",
+  );
+  if (!confirmed) return null;
+
+  const toolExecuted = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.turn_id === turnId &&
+      record.work_id === workId &&
+      record.tool_name === "character_design" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!toolExecuted) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: workId,
+    session_id: uiState.session_id,
+    renamed_title: renamedTitle,
+    renamed_revision: renamedRevision,
+    confirmation_binding_ref: bindingRef,
+    trace_current_work_summary: uiState.trace_current_work_summary,
+    toolbox_execute_count: Number(uiState.toolbox_execute_count ?? 0),
+    pending_character_seed_count: Number(uiState.pending_character_seed_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
 function findP1PlanIncrementalEvidence(records) {
   const sliceId = "p1-plan-incremental";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -6480,6 +6794,161 @@ function au04StaleConfirmationUiBehavior(turnIds, _turnRecords, records, evidenc
       "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
       "stale_confirmation_did_not_dispatch_prose_writing",
       "stale_confirmation_did_not_create_pending_prose_fragment",
+    ],
+  };
+}
+
+function au04ConfirmationTtlUiBehavior(turnIds, _turnRecords, records, evidence, _options) {
+  const uiState = records.find(
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "au04-confirmation-ttl-ui",
+  );
+  if (!uiState) return null;
+  if (uiState.confirmation_card_restored !== true) return null;
+  if (uiState.expired_confirm_click_attempted !== true) return null;
+  if (uiState.expired_confirm_action_sent !== true) return null;
+  if (uiState.expired_confirm_rejected !== true) return null;
+  if (uiState.no_tool_dispatch_after_expired !== true) return null;
+  if (uiState.no_pending_artifact_after_expired !== true) return null;
+  if (Number(uiState.toolbox_execute_after_expired_count ?? 0) !== 0) return null;
+  if (Number(uiState.pending_prose_fragment_after_expired_count ?? 0) !== 0) return null;
+
+  return {
+    slice_id: "au04-confirmation-ttl-ui",
+    behavior: "expired_confirmation_cannot_execute_tool_or_create_draft",
+    turn_ids: turnIds,
+    expired_confirm_action_sent: evidence.expired_confirm_action_sent,
+    expired_confirm_rejected: evidence.expired_confirm_rejected,
+    author_action_error_count: evidence.author_action_error_count,
+    assertions: [
+      "expired_confirmation_card_restored_in_real_workbench",
+      "real_workbench_sent_expired_confirm_author_action",
+      "action_boundary_rejected_expired_confirmation",
+      "expired_confirmation_did_not_dispatch_prose_writing",
+      "expired_confirmation_did_not_create_pending_prose_fragment",
+    ],
+  };
+}
+
+function au04HistoryConfirmationReadonlyBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  _options,
+) {
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === "au04-history-confirmation-readonly",
+  );
+  if (!uiState) return null;
+  if (uiState.readonly_opened_from_real_workbench !== true) return null;
+  if (uiState.history_confirmation_transcript_visible !== true) return null;
+  if (uiState.history_confirmation_actions_hidden !== true) return null;
+  if (uiState.readonly_input_disabled !== true) return null;
+  if (uiState.readonly_send_disabled !== true) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_channel_author_action_log !== true) return null;
+  if (uiState.no_tool_dispatch_from_history !== true) return null;
+  if (uiState.no_pending_artifact_from_history !== true) return null;
+  if (uiState.active_session_restored !== true) return null;
+
+  return {
+    slice_id: "au04-history-confirmation-readonly",
+    behavior: "history_confirmation_readonly_cannot_execute_tool_or_create_draft",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    readonly_transcript_count: evidence.readonly_transcript_count,
+    assertions: [
+      "historical_confirmation_transcript_opened_from_real_workbench",
+      "exited_session_opened_as_read_only",
+      "confirmation_actions_hidden_in_history_view",
+      "readonly_history_did_not_send_author_action",
+      "readonly_history_did_not_dispatch_tool",
+      "readonly_history_did_not_create_pending_draft",
+      "active_session_view_can_be_restored",
+    ],
+  };
+}
+
+function au04CrossWorkConfirmationGuardBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  _options,
+) {
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === "au04-cross-work-confirmation-guard",
+  );
+  if (!uiState) return null;
+  if (uiState.source_confirmation_visible_before_switch !== true) return null;
+  if (uiState.target_work_selected_from_real_menu !== true) return null;
+  if (uiState.source_confirmation_hidden_in_target !== true) return null;
+  if (uiState.no_author_action_sent_after_cross_work_switch !== true) return null;
+  if (uiState.no_channel_author_action_log_after_cross_work_switch !== true) return null;
+  if (uiState.no_tool_dispatch_after_cross_work_switch !== true) return null;
+  if (uiState.no_pending_artifact_after_cross_work_switch !== true) return null;
+  if (uiState.source_confirmation_restored_after_return !== true) return null;
+
+  return {
+    slice_id: "au04-cross-work-confirmation-guard",
+    behavior: "cross_work_switch_hides_source_confirmation_without_action_or_draft",
+    turn_ids: turnIds,
+    source_work_id: evidence.source_work_id,
+    target_work_id: evidence.target_work_id,
+    assertions: [
+      "source_work_confirmation_card_visible_before_switch",
+      "target_work_selected_through_real_work_menu",
+      "source_confirmation_not_visible_or_actionable_in_target_work",
+      "cross_work_switch_did_not_send_author_action",
+      "cross_work_switch_did_not_dispatch_tool",
+      "cross_work_switch_did_not_create_pending_draft",
+      "source_confirmation_restored_when_returning_to_source_work",
+    ],
+  };
+}
+
+function au04LatestContextRebaseConfirmationBehavior(
+  turnIds,
+  turnRecords,
+  records,
+  evidence,
+  _options,
+) {
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === "au04-latest-context-rebase-confirmation",
+  );
+  if (!uiState) return null;
+  if (uiState.real_work_renamed_before_confirm !== true) return null;
+  if (uiState.binding_ref_includes_latest_revision !== true) return null;
+  if (uiState.trace_context_includes_renamed_title !== true) return null;
+  if (uiState.reason_codes_include_rebased_ref !== true) return null;
+  if (uiState.reason_codes_include_gate_ref !== true) return null;
+  if (uiState.confirmed_dispatch !== true) return null;
+  if (uiState.artifact_pending_after_confirm !== true) return null;
+  if (!turnsHaveEvent([evidence.turn_id], turnRecords, "toolbox.execute.done")) return null;
+
+  return {
+    slice_id: "au04-latest-context-rebase-confirmation",
+    behavior: "confirmation_re_gate_rebases_against_latest_work_snapshot",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    renamed_title: evidence.renamed_title,
+    renamed_revision: evidence.renamed_revision,
+    confirmation_binding_ref: evidence.confirmation_binding_ref,
+    assertions: [
+      "real_workbench_restored_confirmation_card",
+      "work_was_renamed_through_real_work_menu_before_confirmation",
+      "confirmation_binding_ref_included_latest_work_revision",
+      "confirmed_turn_trace_current_work_summary_included_renamed_title",
+      "confirmed_turn_reason_codes_recorded_rebased_snapshot_and_gate_ref",
+      "re_gate_dispatched_tool_and_left_output_pending_adoption",
     ],
   };
 }

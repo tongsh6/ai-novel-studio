@@ -1,0 +1,62 @@
+id: au04-history-confirmation-readonly
+title: 历史确认只读不可执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-history-confirmation-readonly --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0007-next-action-available-action-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - historical-confirmation-is-readonly
+  - readonly-history-does-not-send-author-action
+  - readonly-history-does-not-dispatch-tool
+  - readonly-history-does-not-create-pending-draft
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au04_history_confirmation_readonly.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with an active session and an exited historical session
+  - search: seeded AU-04 historical confirmation session
+  - click: historical session in the real session list
+  - observe: history transcript opens read-only and shows the old confirmation text
+  - observe: confirm/reject actions are not executable from history
+  - observe: no author_action, prose_writing dispatch, or pending prose_fragment is produced
+  - click: return to the active session
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-history-confirmation-readonly-tauri
+
+assertions:
+  ui:
+    - exited historical session opens as read-only from the real workbench
+    - historical confirmation transcript is visible
+    - confirm/reject controls are hidden in readonly history
+    - chat input and send are disabled while viewing history
+    - active session can be restored
+  network:
+    - no author_action websocket frame is sent from history
+  data:
+    - no channel.author_action log is produced
+    - no toolbox.execute.done log is produced
+    - no pending prose_fragment is produced
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

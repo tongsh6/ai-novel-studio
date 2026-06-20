@@ -281,6 +281,34 @@ scenarios:
     manifest: quality/acceptance/scenarios/au04-stale-confirmation-ui.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au04-stale-confirmation-ui --surface tauri
+  - id: au04-confirmation-ttl-ui
+    title: "过期确认不能执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-confirmation-ttl-ui.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-confirmation-ttl-ui --surface tauri
+  - id: au04-history-confirmation-readonly
+    title: "历史确认只读不可执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-history-confirmation-readonly.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-history-confirmation-readonly --surface tauri
+  - id: au04-cross-work-confirmation-guard
+    title: "跨作品切换后源作品确认不可执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-cross-work-confirmation-guard.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-cross-work-confirmation-guard --surface tauri
+  - id: au04-latest-context-rebase-confirmation
+    title: "确认执行前作品变化会被重新组装进 re-gate"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-latest-context-rebase-confirmation.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-latest-context-rebase-confirmation --surface tauri
   - id: au11-quality-diagnosis-message-envelope
     title: "AI 引导式创作质量诊断 Message Envelope"
     tier: nightly

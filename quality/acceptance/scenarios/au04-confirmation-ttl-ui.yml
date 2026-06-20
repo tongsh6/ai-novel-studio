@@ -1,0 +1,58 @@
+id: au04-confirmation-ttl-ui
+title: 过期确认不能执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-confirmation-ttl-ui --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0007-next-action-available-action-v3.md
+  - docs/design/adr/ADR-0009-confirmation-binding-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - confirmation-action-comes-from-server-available-actions
+  - confirmation-action-binds-open-behavior
+  - expired-confirmation-must-not-re-gate-or-dispatch
+  - expired-confirmation-does-not-create-pending-draft
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au04_confirmation_ttl_ui.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with a restored expired confirmation turn_result
+  - observe: expired confirmation card is visible from persisted transcript
+  - click: visible 确认执行 button
+  - observe: Channel rejects the action as expired
+  - observe: no prose_writing dispatch and no pending prose_fragment are created
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-confirmation-ttl-ui-tauri
+
+assertions:
+  ui:
+    - expired confirmation is restored in the real workbench
+    - real user-visible confirm button is clicked
+    - action failure feedback is visible after rejection
+  network:
+    - real workbench sends confirm_before_execute through author_action
+    - Channel returns an expired action rejection
+  data:
+    - no prose_writing dispatch happens after expired confirmation
+    - no pending prose_fragment is produced after expired confirmation
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

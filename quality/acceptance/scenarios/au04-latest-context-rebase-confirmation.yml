@@ -1,0 +1,62 @@
+id: au04-latest-context-rebase-confirmation
+title: 确认执行前作品变化会被重新组装进 re-gate
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-latest-context-rebase-confirmation --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0009-confirmation-binding-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - confirmation-re-gate-consumes-current-work-snapshot
+  - confirmation-binding-records-rebased-state-snapshot-ref
+  - confirmed-turn-trace-records-current-work-context-ref
+  - confirmed-output-stays-pending-adoption
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au04_latest_context_rebase_confirmation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with a restored confirmation turn_result
+  - select: seeded source work through the real work menu
+  - observe: confirmation card and confirm/reject actions are visible
+  - rename: current work through the real work menu before confirming
+  - confirm: click the visible confirm action
+  - observe: action_result ConfirmationBinding includes the renamed work revision
+  - observe: confirmed turn trace current_work summary includes the renamed title
+  - observe: confirmed output remains a pending character_seed artifact
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-latest-context-rebase-confirmation-tauri
+
+assertions:
+  ui:
+    - restored confirmation card is visible in the real workbench
+    - work is renamed through the visible work menu before confirmation
+    - pending character draft is visible only after confirmation
+  network:
+    - confirm_before_execute is sent through the real author_action websocket boundary
+    - action_result carries ConfirmationBinding.rebased_state_snapshot_ref
+  data:
+    - rebased_state_snapshot_ref includes the latest work revision
+    - gate_result_refs includes confirmation_re_gate proof
+    - confirmed turn trace current_work summary includes the renamed title
+    - confirmed output stays pending adoption and does not perform production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

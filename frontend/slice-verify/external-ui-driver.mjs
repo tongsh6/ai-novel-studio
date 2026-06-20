@@ -5113,6 +5113,659 @@ async function driveAu04StaleConfirmationUi(page) {
   ];
 }
 
+async function driveAu04ConfirmationTtlUi(page) {
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("已经过期的确认") &&
+      document.body.innerText.includes("确认执行") &&
+      document.body.innerText.includes("拒绝"),
+    { timeout: 20_000 },
+  );
+
+  const beforeConfirmFrameCount = frames.length;
+  const beforeConfirmLogCount = readAppLogRecords().length;
+  const visibleBeforeClick = await page.locator("body").innerText();
+
+  await page.getByRole("button", { name: "确认执行" }).first().click();
+
+  const actionFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === "act_au04_expired_confirm" &&
+      frame.body?.action?.source_turn_ref === "turn_au04_expired_confirmation_seed",
+    "Real workbench did not send the expired confirm author_action",
+  );
+
+  const errorFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "error" &&
+      JSON.stringify(frame.body).includes("expired action"),
+    "Expired confirm author_action was not rejected by the channel",
+  );
+
+  await page.waitForFunction(() => document.body.innerText.includes("操作失败，请重试。"), {
+    timeout: 10_000,
+  });
+  await sleep(1_000);
+
+  const framesAfterConfirm = frames.slice(beforeConfirmFrameCount);
+  const logsAfterConfirm = readAppLogRecords().slice(beforeConfirmLogCount);
+  const authorActionErrorRecords = logsAfterConfirm.filter(
+    (record) =>
+      record.event === "channel.author_action.error" &&
+      record.turn_id === "turn_au04_expired_confirmation_seed" &&
+      record.action_type === "confirm_before_execute" &&
+      record.action_id === "act_au04_expired_confirm" &&
+      String(record.outcome_detail ?? "").includes("expired action"),
+  );
+  const toolboxExecuteRecords = logsAfterConfirm.filter(
+    (record) => record.event === "toolbox.execute.done",
+  );
+  const pendingProseFragmentCount = framesAfterConfirm.reduce((count, frame) => {
+    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
+    return (
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "prose_fragment",
+      ).length
+    );
+  }, 0);
+  const visibleAfterClick = await page.locator("body").innerText();
+  const joinRecord = readAppLogRecords().find(
+    (record) => record.event === "channel.join.done" && record.work_id,
+  );
+
+  assert(
+    authorActionErrorRecords.length >= 1,
+    "No channel.author_action.error log recorded expired action rejection",
+  );
+  assert(
+    toolboxExecuteRecords.length === 0,
+    `Expected no toolbox execution after expired confirm, got ${toolboxExecuteRecords.length}`,
+  );
+  assert(
+    pendingProseFragmentCount === 0,
+    `Expected no pending prose_fragment after expired confirm, got ${pendingProseFragmentCount}`,
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: "turn_au04_expired_confirmation_seed",
+      work_id: joinRecord?.work_id,
+      workspace_id: joinRecord?.work_id,
+      session_id: joinRecord?.session_id,
+      confirmation_card_restored: true,
+      confirmation_card_visible:
+        visibleBeforeClick.includes("确认执行") && visibleBeforeClick.includes("拒绝"),
+      expired_confirm_click_attempted: true,
+      expired_confirm_action_sent:
+        actionFrame.body?.action?.action_type === "confirm_before_execute",
+      expired_confirm_rejected: true,
+      expired_rejection_reason: JSON.stringify(errorFrame.body),
+      author_action_error_count: authorActionErrorRecords.length,
+      toolbox_execute_after_expired_count: toolboxExecuteRecords.length,
+      pending_prose_fragment_after_expired_count: pendingProseFragmentCount,
+      no_tool_dispatch_after_expired: toolboxExecuteRecords.length === 0,
+      no_pending_artifact_after_expired: pendingProseFragmentCount === 0,
+      action_failure_visible: visibleAfterClick.includes("操作失败，请重试。"),
+      outcome: "done",
+    },
+  ];
+}
+
+async function driveAu04HistoryConfirmationReadonly(page) {
+  const joinReply = latestChannelJoinReply();
+  const workId = joinReply?.body?.response?.work_id ?? joinReply?.body?.work_id ?? null;
+  const activeSessionId =
+    joinReply?.body?.response?.session_id ?? joinReply?.body?.session_id ?? null;
+  assert(workId, "No work_id was available from the real channel join");
+
+  const searchResponse = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions?query=${encodeURIComponent("AU04 历史确认")}`,
+  );
+  assert(
+    searchResponse.ok,
+    `Failed to search seeded AU-04 history confirmation session: HTTP ${searchResponse.status}`,
+  );
+  const searchBody = await searchResponse.json();
+  const seededHistorySession = (searchBody.sessions ?? []).find(
+    (session) => session.title === "AU04 历史确认只读",
+  );
+  assert(
+    seededHistorySession?.id,
+    "Seeded AU-04 history confirmation session was not available through sessions API",
+  );
+
+  const beforeOpenFrameCount = frames.length;
+  const beforeOpenLogCount = readAppLogRecords().length;
+  const searchBox = page.getByPlaceholder("搜索会话");
+  await searchBox.waitFor({ timeout: 10_000 });
+  await searchBox.fill("AU04 历史确认");
+
+  const historySessionButton = page
+    .locator("button")
+    .filter({ hasText: "AU04 历史确认只读" })
+    .first();
+  await historySessionButton.waitFor({ timeout: 10_000 });
+  await historySessionButton.click();
+
+  const shownHistory = await waitForNewAppLogRecord(
+    beforeOpenLogCount,
+    (record) =>
+      record.event === "work_session.show.done" &&
+      record.work_id === workId &&
+      record.session_id === seededHistorySession.id &&
+      record.read_only === true &&
+      Number(record.transcript_count ?? 0) >= 2,
+    "AU-04 history confirmation session was not opened read-only",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("历史会话") &&
+      document.body.innerText.includes("这是历史会话里的待确认执行") &&
+      document.body.innerText.includes("返回当前会话"),
+    { timeout: 10_000 },
+  );
+
+  await sleep(1_000);
+
+  const readonlySnapshot = await page.evaluate(() => {
+    const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+    const sendButton = [...document.querySelectorAll("button")].find(
+      (button) => (button.textContent ?? "").trim() === "发送",
+    );
+    const buttons = [...document.querySelectorAll("button")].map((button) =>
+      (button.textContent ?? "").replace(/\s+/g, " ").trim(),
+    );
+
+    return {
+      visible_text: document.body.innerText,
+      input_disabled: Boolean(input?.disabled),
+      send_disabled: Boolean(sendButton?.disabled),
+      confirm_button_count: buttons.filter((text) => text === "确认执行").length,
+      reject_button_count: buttons.filter((text) => text === "拒绝").length,
+      branch_button_visible: buttons.some((text) => text.includes("从这里继续")),
+      back_button_visible: buttons.some((text) => text.includes("返回当前会话")),
+    };
+  });
+
+  const framesAfterOpen = frames.slice(beforeOpenFrameCount);
+  const logsAfterOpen = readAppLogRecords().slice(beforeOpenLogCount);
+  const sentAuthorActions = framesAfterOpen.filter(
+    (frame) => frame.direction === "sent" && frame.event === "author_action",
+  );
+  const channelAuthorActionRecords = logsAfterOpen.filter((record) =>
+    String(record.event ?? "").startsWith("channel.author_action."),
+  );
+  const toolboxExecuteRecords = logsAfterOpen.filter(
+    (record) => record.event === "toolbox.execute.done",
+  );
+  const pendingProseFragmentCount = framesAfterOpen.reduce((count, frame) => {
+    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
+    return (
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "prose_fragment",
+      ).length
+    );
+  }, 0);
+
+  assert(seededHistorySession.status === "EXITED", "Seeded history session status was not EXITED");
+  assert(readonlySnapshot.input_disabled, "History confirmation input was not disabled");
+  assert(readonlySnapshot.send_disabled, "History confirmation send button was not disabled");
+  assert(
+    readonlySnapshot.visible_text.includes("这是历史会话里的待确认执行"),
+    "History confirmation transcript was not visible",
+  );
+  assert(
+    readonlySnapshot.confirm_button_count === 0,
+    `History confirmation exposed ${readonlySnapshot.confirm_button_count} confirm buttons`,
+  );
+  assert(
+    readonlySnapshot.reject_button_count === 0,
+    `History confirmation exposed ${readonlySnapshot.reject_button_count} reject buttons`,
+  );
+  assert(sentAuthorActions.length === 0, "Readonly history session sent an author_action");
+  assert(
+    channelAuthorActionRecords.length === 0,
+    "Readonly history session produced channel.author_action logs",
+  );
+  assert(
+    toolboxExecuteRecords.length === 0,
+    `Readonly history confirmation executed tools ${toolboxExecuteRecords.length} times`,
+  );
+  assert(
+    pendingProseFragmentCount === 0,
+    `Readonly history confirmation created ${pendingProseFragmentCount} pending prose fragments`,
+  );
+
+  await page.getByRole("button", { name: "返回当前会话" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.body.innerText.includes("正在只读查看历史 transcript") &&
+      document.body.innerText.includes("当前会话继续创作"),
+    { timeout: 10_000 },
+  );
+
+  const activeRestored = await page.evaluate(() => {
+    const input = document.querySelector('input[placeholder="输入你的想法、问题或指令..."]');
+    const sendButton = [...document.querySelectorAll("button")].find(
+      (button) => (button.textContent ?? "").trim() === "发送",
+    );
+    return {
+      visible_text: document.body.innerText,
+      input_disabled: Boolean(input?.disabled),
+      send_disabled: Boolean(sendButton?.disabled),
+    };
+  });
+
+  assert(!activeRestored.input_disabled, "Active session input stayed disabled after restore");
+  assert(!activeRestored.send_disabled, "Active session send stayed disabled after restore");
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: "turn_au04_history_confirmation_seed",
+      turn_ids: ["turn_au04_history_confirmation_seed"],
+      work_id: workId,
+      workspace_id: workId,
+      context_work_id: workId,
+      session_id: activeSessionId,
+      readonly_session_id: seededHistorySession.id,
+      readonly_session_status: seededHistorySession.status,
+      readonly_opened_from_real_workbench: true,
+      readonly_transcript_count: shownHistory.transcript_count,
+      readonly_banner_visible: true,
+      history_confirmation_transcript_visible: true,
+      history_confirmation_confirm_button_count: readonlySnapshot.confirm_button_count,
+      history_confirmation_reject_button_count: readonlySnapshot.reject_button_count,
+      history_confirmation_actions_hidden:
+        readonlySnapshot.confirm_button_count === 0 && readonlySnapshot.reject_button_count === 0,
+      readonly_input_disabled: readonlySnapshot.input_disabled,
+      readonly_send_disabled: readonlySnapshot.send_disabled,
+      readonly_branch_available: readonlySnapshot.branch_button_visible,
+      readonly_back_available: readonlySnapshot.back_button_visible,
+      author_action_sent_count: sentAuthorActions.length,
+      channel_author_action_log_count: channelAuthorActionRecords.length,
+      toolbox_execute_after_history_open_count: toolboxExecuteRecords.length,
+      pending_prose_fragment_after_history_open_count: pendingProseFragmentCount,
+      no_author_action_sent: sentAuthorActions.length === 0,
+      no_channel_author_action_log: channelAuthorActionRecords.length === 0,
+      no_tool_dispatch_from_history: toolboxExecuteRecords.length === 0,
+      no_pending_artifact_from_history: pendingProseFragmentCount === 0,
+      active_session_restored: true,
+      active_input_enabled_after_restore: !activeRestored.input_disabled,
+      active_send_enabled_after_restore: !activeRestored.send_disabled,
+      socket_connected: true,
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
+async function driveAu04CrossWorkConfirmationGuard(page) {
+  const sourceTitle = "AU04 跨作品确认源作品";
+  const targetTitle = "AU04 跨作品确认目标作品";
+  const sourceNeedle = "AU04跨作品旧确认源文本";
+  const targetNeedle = "目标作品当前会话继续创作";
+  const sourceWork = await waitForWorkByTitle(sourceTitle);
+  const targetWork = await waitForWorkByTitle(targetTitle);
+
+  const sourceJoin = await ensureWorkSelectedByTitle(page, sourceTitle, sourceWork.id);
+  await waitForVisibleWorkTitle(page, sourceTitle);
+  await page.waitForFunction(
+    (needle) =>
+      document.body.innerText.includes(needle) &&
+      document.body.innerText.includes("确认执行") &&
+      document.body.innerText.includes("拒绝"),
+    sourceNeedle,
+    { timeout: 15_000 },
+  );
+
+  const sourceBeforeSwitch = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll("button")].map((button) =>
+      (button.textContent ?? "").replace(/\s+/g, " ").trim(),
+    );
+
+    return {
+      visible_text: document.body.innerText,
+      confirm_button_count: buttons.filter((text) => text === "确认执行").length,
+      reject_button_count: buttons.filter((text) => text === "拒绝").length,
+    };
+  });
+
+  const beforeSwitchFrameCount = frames.length;
+  const beforeSwitchLogCount = readAppLogRecords().length;
+  const targetJoin = await ensureWorkSelectedByTitle(page, targetTitle, targetWork.id);
+  await waitForVisibleWorkTitle(page, targetTitle);
+  await page.waitForFunction(
+    (needle) => document.body.innerText.includes(needle),
+    targetNeedle,
+    { timeout: 15_000 },
+  );
+  await sleep(1_000);
+
+  const targetAfterSwitch = await page.evaluate(
+    ({ sourceNeedle: source, targetNeedle: target }) => {
+      const buttons = [...document.querySelectorAll("button")].map((button) =>
+        (button.textContent ?? "").replace(/\s+/g, " ").trim(),
+      );
+      const visibleText = document.body.innerText;
+
+      return {
+        visible_text: visibleText,
+        source_text_visible: visibleText.includes(source),
+        target_text_visible: visibleText.includes(target),
+        confirm_button_count: buttons.filter((text) => text === "确认执行").length,
+        reject_button_count: buttons.filter((text) => text === "拒绝").length,
+      };
+    },
+    { sourceNeedle, targetNeedle },
+  );
+
+  const framesAfterSwitch = frames.slice(beforeSwitchFrameCount);
+  const logsAfterSwitch = readAppLogRecords().slice(beforeSwitchLogCount);
+  const sentAuthorActions = framesAfterSwitch.filter(
+    (frame) => frame.direction === "sent" && frame.event === "author_action",
+  );
+  const channelAuthorActionRecords = logsAfterSwitch.filter((record) =>
+    String(record.event ?? "").startsWith("channel.author_action."),
+  );
+  const toolboxExecuteRecords = logsAfterSwitch.filter(
+    (record) => record.event === "toolbox.execute.done",
+  );
+  const pendingProseFragmentCount = framesAfterSwitch.reduce((count, frame) => {
+    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
+    return (
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "prose_fragment",
+      ).length
+    );
+  }, 0);
+
+  assert(sourceBeforeSwitch.confirm_button_count >= 1, "Source confirmation button was not visible");
+  assert(sourceBeforeSwitch.reject_button_count >= 1, "Source reject button was not visible");
+  assert(targetAfterSwitch.target_text_visible, "Target work transcript was not visible");
+  assert(!targetAfterSwitch.source_text_visible, "Source confirmation transcript leaked into target work");
+  assert(
+    targetAfterSwitch.confirm_button_count === 0,
+    `Target work exposed ${targetAfterSwitch.confirm_button_count} source confirm buttons`,
+  );
+  assert(
+    targetAfterSwitch.reject_button_count === 0,
+    `Target work exposed ${targetAfterSwitch.reject_button_count} source reject buttons`,
+  );
+  assert(sentAuthorActions.length === 0, "Switching work sent an author_action unexpectedly");
+  assert(
+    channelAuthorActionRecords.length === 0,
+    "Switching work produced channel.author_action logs unexpectedly",
+  );
+  assert(
+    toolboxExecuteRecords.length === 0,
+    `Cross-work switch executed tools ${toolboxExecuteRecords.length} times`,
+  );
+  assert(
+    pendingProseFragmentCount === 0,
+    `Cross-work switch created ${pendingProseFragmentCount} pending prose fragments`,
+  );
+
+  const sourceReturnJoin = await ensureWorkSelectedByTitle(page, sourceTitle, sourceWork.id);
+  await waitForVisibleWorkTitle(page, sourceTitle);
+  await page.waitForFunction(
+    (needle) =>
+      document.body.innerText.includes(needle) &&
+      document.body.innerText.includes("确认执行") &&
+      document.body.innerText.includes("拒绝"),
+    sourceNeedle,
+    { timeout: 15_000 },
+  );
+
+  const sourceAfterReturn = await page.evaluate(() => {
+    const buttons = [...document.querySelectorAll("button")].map((button) =>
+      (button.textContent ?? "").replace(/\s+/g, " ").trim(),
+    );
+
+    return {
+      visible_text: document.body.innerText,
+      confirm_button_count: buttons.filter((text) => text === "确认执行").length,
+      reject_button_count: buttons.filter((text) => text === "拒绝").length,
+    };
+  });
+
+  assert(
+    sourceAfterReturn.confirm_button_count >= 1,
+    "Source confirmation was not restored after returning to source work",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: "turn_au04_cross_work_confirmation_seed",
+      turn_ids: ["turn_au04_cross_work_confirmation_seed"],
+      work_id: sourceWork.id,
+      workspace_id: sourceWork.id,
+      context_work_id: sourceWork.id,
+      session_id: sourceJoin.session_id,
+      source_work_id: sourceWork.id,
+      target_work_id: targetWork.id,
+      source_session_id: sourceJoin.session_id,
+      target_session_id: targetJoin.session_id,
+      source_return_session_id: sourceReturnJoin.session_id,
+      source_confirmation_visible_before_switch: true,
+      source_confirm_button_count_before_switch: sourceBeforeSwitch.confirm_button_count,
+      source_reject_button_count_before_switch: sourceBeforeSwitch.reject_button_count,
+      target_work_selected_from_real_menu: true,
+      target_transcript_visible: targetAfterSwitch.target_text_visible,
+      source_confirmation_hidden_in_target:
+        !targetAfterSwitch.source_text_visible &&
+        targetAfterSwitch.confirm_button_count === 0 &&
+        targetAfterSwitch.reject_button_count === 0,
+      target_confirm_button_count: targetAfterSwitch.confirm_button_count,
+      target_reject_button_count: targetAfterSwitch.reject_button_count,
+      author_action_sent_count: sentAuthorActions.length,
+      channel_author_action_log_count: channelAuthorActionRecords.length,
+      toolbox_execute_after_cross_work_switch_count: toolboxExecuteRecords.length,
+      pending_prose_fragment_after_cross_work_switch_count: pendingProseFragmentCount,
+      no_author_action_sent_after_cross_work_switch: sentAuthorActions.length === 0,
+      no_channel_author_action_log_after_cross_work_switch: channelAuthorActionRecords.length === 0,
+      no_tool_dispatch_after_cross_work_switch: toolboxExecuteRecords.length === 0,
+      no_pending_artifact_after_cross_work_switch: pendingProseFragmentCount === 0,
+      source_confirmation_restored_after_return: sourceAfterReturn.confirm_button_count >= 1,
+      socket_connected: true,
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
+async function driveAu04LatestContextRebaseConfirmation(page) {
+  const originalTitle = "AU04 最新上下文确认源作品";
+  const sourceNeedle = "AU04最新上下文旧确认文本";
+  const renamedTitle = `AU04 最新上下文已改名-${Date.now()}`;
+  const work = await waitForWorkByTitle(originalTitle);
+
+  const join = await ensureWorkSelectedByTitle(page, originalTitle, work.id);
+  await waitForVisibleWorkTitle(page, originalTitle);
+  await page.waitForFunction(
+    (needle) =>
+      document.body.innerText.includes(needle) &&
+      document.body.innerText.includes("确认执行") &&
+      document.body.innerText.includes("拒绝"),
+    sourceNeedle,
+    { timeout: 15_000 },
+  );
+
+  await openWorkMenu(page);
+  await page.locator('button[title="重命名"]').first().click();
+  await page.getByRole("dialog", { name: "修改作品名" }).waitFor({ timeout: 10_000 });
+  await submitWorkTitleDialog(page, renamedTitle, "保存");
+  await waitForVisibleWorkTitle(page, renamedTitle);
+
+  const renamedWork = await fetchWorkFromApi(work.id);
+  assert(renamedWork.title === renamedTitle, "Work rename did not persist before confirmation");
+  assert(
+    Number(renamedWork.revision ?? 0) > Number(work.revision ?? 0),
+    "Work rename did not advance revision before confirmation",
+  );
+
+  const beforeConfirmFrameCount = frames.length;
+  const beforeConfirmLogCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: "确认执行" }).first().click();
+
+  const confirmActionFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.source_turn_ref === "turn_au04_latest_context_rebase_seed" &&
+      frame.body?.action?.action_type === "confirm_before_execute",
+    "Real workbench did not send the latest-context confirm_before_execute author_action",
+    10_000,
+  );
+
+  const actionResultFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "accepted" &&
+      frame.body?.action_type === "confirm_before_execute" &&
+      frame.body?.confirmation_binding?.rebased_state_snapshot_ref,
+    "No accepted action_result with ConfirmationBinding was received after latest-context confirm",
+    30_000,
+  );
+
+  const binding = actionResultFrame.body.confirmation_binding;
+  const rebasedRef = String(binding.rebased_state_snapshot_ref ?? "");
+  assert(rebasedRef.includes(work.id), "ConfirmationBinding did not reference source work id");
+  assert(
+    rebasedRef.includes(`revision:${renamedWork.revision}`),
+    "ConfirmationBinding did not include the renamed work revision",
+  );
+
+  const executedTurnFrame = await waitForNewFrame(
+    beforeConfirmFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "character_design" &&
+      (frame.body?.adoption_state?.pending ?? []).some(
+        (artifact) => artifact.artifact_type === "character_seed",
+      ),
+    "No character_seed turn_result was received after latest-context confirmation",
+    200_000,
+  );
+  const executedTurnResult = executedTurnFrame.body;
+  const currentWorkRef = (executedTurnResult.trace_summary?.context_refs ?? []).find(
+    (ref) =>
+      ref.source_type === "current_work" &&
+      String(ref.summary ?? "").includes(renamedTitle),
+  );
+  assert(currentWorkRef, "Confirmed turn trace did not include renamed current work summary");
+
+  const reasonCodes = executedTurnResult.truthfulness?.reason_codes ?? [];
+  assert(
+    reasonCodes.includes(`rebased_state_snapshot:${rebasedRef}`),
+    "Confirmed turn did not carry rebased_state_snapshot reason code",
+  );
+  assert(
+    reasonCodes.some((code) =>
+      String(code).includes("gate_result_ref:gate_result:confirmation_re_gate"),
+    ),
+    "Confirmed turn did not carry confirmation re-gate result ref",
+  );
+
+  await page.waitForFunction(() => document.body.innerText.includes("角色设定草稿"), {
+    timeout: 10_000,
+  });
+
+  const framesAfterConfirm = frames.slice(beforeConfirmFrameCount);
+  const logsAfterConfirm = readAppLogRecords().slice(beforeConfirmLogCount);
+  const toolboxExecuteRecords = logsAfterConfirm.filter(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.turn_id === executedTurnResult.turn_id &&
+      record.tool_name === "character_design" &&
+      record.tool_outcome === "succeeded",
+  );
+  const pendingCharacterSeedCount = framesAfterConfirm.reduce((count, frame) => {
+    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
+    return (
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "character_seed",
+      ).length
+    );
+  }, 0);
+
+  assert(toolboxExecuteRecords.length >= 1, "Latest-context confirm did not dispatch tool once");
+  assert(
+    pendingCharacterSeedCount >= 1,
+    "Latest-context confirm did not create a pending character_seed artifact",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: "turn_au04_latest_context_rebase_seed",
+      turn_ids: ["turn_au04_latest_context_rebase_seed"],
+      work_id: work.id,
+      workspace_id: work.id,
+      context_work_id: work.id,
+      session_id: join.session_id,
+      source_work_id: work.id,
+      original_title: originalTitle,
+      renamed_title: renamedTitle,
+      original_revision: work.revision,
+      renamed_revision: renamedWork.revision,
+      real_work_renamed_before_confirm: true,
+      confirm_action_sent: confirmActionFrame.body?.action?.action_type === "confirm_before_execute",
+      confirmation_binding_ref: rebasedRef,
+      binding_ref_includes_source_work: rebasedRef.includes(work.id),
+      binding_ref_includes_latest_revision: rebasedRef.includes(`revision:${renamedWork.revision}`),
+      gate_result_refs: binding.gate_result_refs ?? [],
+      gate_result_ref_present: (binding.gate_result_refs ?? []).some((ref) =>
+        String(ref).includes("gate_result:confirmation_re_gate"),
+      ),
+      trace_context_includes_renamed_title: String(currentWorkRef.summary ?? "").includes(
+        renamedTitle,
+      ),
+      trace_current_work_summary: currentWorkRef.summary,
+      reason_codes_include_rebased_ref: reasonCodes.includes(
+        `rebased_state_snapshot:${rebasedRef}`,
+      ),
+      reason_codes_include_gate_ref: reasonCodes.some((code) =>
+        String(code).includes("gate_result_ref:gate_result:confirmation_re_gate"),
+      ),
+      confirmed_dispatch: executedTurnResult.truthfulness?.tool_called === true,
+      artifact_pending_after_confirm: true,
+      artifact_type:
+        (executedTurnResult.adoption_state?.pending ?? []).find(
+          (artifact) => artifact.artifact_type === "character_seed",
+        )?.artifact_type ?? null,
+      toolbox_execute_count: toolboxExecuteRecords.length,
+      pending_character_seed_count: pendingCharacterSeedCount,
+      socket_connected: true,
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
 function visibleTextIncludesPendingDraft(visibleText) {
   // 确认后页面已进入待采纳态；确认卡可见性在点击前已由 waitForFunction 证明。
   return /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(visibleText);
@@ -9509,6 +10162,10 @@ const drivers = {
   "au04-confirm-before-execute": driveAu04ConfirmBeforeExecute,
   "au04-confirm-idempotency-ui": driveAu04ConfirmIdempotencyUi,
   "au04-stale-confirmation-ui": driveAu04StaleConfirmationUi,
+  "au04-confirmation-ttl-ui": driveAu04ConfirmationTtlUi,
+  "au04-history-confirmation-readonly": driveAu04HistoryConfirmationReadonly,
+  "au04-cross-work-confirmation-guard": driveAu04CrossWorkConfirmationGuard,
+  "au04-latest-context-rebase-confirmation": driveAu04LatestContextRebaseConfirmation,
   "au09-memory-create-recall": driveAu09MemoryCreateRecall,
   "au09-memory-management-entry": driveAu09MemoryManagementEntry,
   "au09-memory-trace-roundtrip": driveAu09MemoryTraceRoundtrip,

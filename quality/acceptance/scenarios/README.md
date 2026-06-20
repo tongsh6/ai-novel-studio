@@ -28,6 +28,10 @@
 | `au04-confirm-before-execute.yml` | 高风险执行先确认并重新 gate |
 | `au04-confirm-idempotency-ui.yml` | 高风险确认重复点击不重复执行 |
 | `au04-stale-confirmation-ui.yml` | 旧确认在上下文推进后不能执行 |
+| `au04-confirmation-ttl-ui.yml` | 过期确认不能执行 |
+| `au04-history-confirmation-readonly.yml` | 历史确认只读不可执行 |
+| `au04-cross-work-confirmation-guard.yml` | 跨作品切换后源作品确认不可执行 |
+| `au04-latest-context-rebase-confirmation.yml` | 确认执行前作品变化会被重新组装进 re-gate |
 | `au05-adoption-safety-freshness.yml` | 采纳安全与新鲜度 |
 | `au05-canon-conflict-recovery.yml` | 正典冲突恢复 |
 | `au05-conflict-cross-work-recovery.yml` | 跨作品冲突恢复 |

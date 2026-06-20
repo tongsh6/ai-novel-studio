@@ -1,0 +1,61 @@
+id: au04-cross-work-confirmation-guard
+title: 跨作品切换后源作品确认不可执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-cross-work-confirmation-guard --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0007-next-action-available-action-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - confirmation-action-is-scoped-to-current-work-session
+  - source-work-confirmation-must-not-leak-into-target-work
+  - cross-work-switch-does-not-send-author-action
+  - cross-work-switch-does-not-dispatch-tool-or-create-draft
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au04_cross_work_confirmation_guard.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with source and target works
+  - select: source work through the real work menu
+  - observe: source work confirmation card and confirm/reject actions are visible
+  - select: target work through the real work menu
+  - observe: source confirmation text and confirm/reject actions are not visible or actionable in target work
+  - observe: no author_action, prose_writing dispatch, or pending prose_fragment is produced
+  - select: source work again and verify its confirmation is still restored under the source work
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-cross-work-confirmation-guard-tauri
+
+assertions:
+  ui:
+    - source confirmation is visible before switching work
+    - target work is selected through the real work menu
+    - source confirmation text and actions are hidden in target work
+    - source confirmation can be restored when returning to source work
+  network:
+    - no author_action websocket frame is sent during cross-work switch
+  data:
+    - no channel.author_action log is produced during cross-work switch
+    - no toolbox.execute.done log is produced during cross-work switch
+    - no pending prose_fragment is produced in target work
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -71,6 +71,10 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au04-confirm-before-execute");
     expect(nativeSliceIds).toContain("au04-confirm-idempotency-ui");
     expect(nativeSliceIds).toContain("au04-stale-confirmation-ui");
+    expect(nativeSliceIds).toContain("au04-confirmation-ttl-ui");
+    expect(nativeSliceIds).toContain("au04-history-confirmation-readonly");
+    expect(nativeSliceIds).toContain("au04-cross-work-confirmation-guard");
+    expect(nativeSliceIds).toContain("au04-latest-context-rebase-confirmation");
     expect(nativeSliceIds).toContain("vs00c-cp3-structured-context");
     expect(nativeSliceIds).toContain("vs00c-cp4-chapter-plan-structure");
     expect(nativeSliceIds).toContain("vs00c-cp5-reader-effect-brief");
@@ -152,6 +156,152 @@ describe("native Tauri slice verifier", () => {
         "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
         "stale_confirmation_did_not_dispatch_prose_writing",
         "stale_confirmation_did_not_create_pending_prose_fragment",
+      ],
+    });
+  });
+
+  it("accepts AU-04 expired confirmation evidence only when it cannot execute", () => {
+    const records = au04ConfirmationTtlUiRecords();
+
+    const evidence = findNativeSliceEvidence("au04-confirmation-ttl-ui", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au04-confirmation-ttl-ui",
+      turn_id: "turn_au04_expired_confirmation_seed",
+      expired_confirm_action_sent: true,
+      expired_confirm_rejected: true,
+      author_action_error_count: 1,
+      toolbox_execute_after_expired_count: 0,
+      pending_prose_fragment_after_expired_count: 0,
+      key_events: keyEventsForSlice("au04-confirmation-ttl-ui"),
+    });
+    expect(findSliceBehaviorEvidence("au04-confirmation-ttl-ui", records, evidence)).toEqual({
+      slice_id: "au04-confirmation-ttl-ui",
+      behavior: "expired_confirmation_cannot_execute_tool_or_create_draft",
+      turn_ids: ["turn_au04_expired_confirmation_seed"],
+      expired_confirm_action_sent: true,
+      expired_confirm_rejected: true,
+      author_action_error_count: 1,
+      assertions: [
+        "expired_confirmation_card_restored_in_real_workbench",
+        "real_workbench_sent_expired_confirm_author_action",
+        "action_boundary_rejected_expired_confirmation",
+        "expired_confirmation_did_not_dispatch_prose_writing",
+        "expired_confirmation_did_not_create_pending_prose_fragment",
+      ],
+    });
+  });
+
+  it("accepts AU-04 history confirmation evidence only when readonly cannot execute", () => {
+    const records = au04HistoryConfirmationReadonlyRecords();
+
+    const evidence = findNativeSliceEvidence("au04-history-confirmation-readonly", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au04-history-confirmation-readonly",
+      turn_id: "turn_au04_history_confirmation_seed",
+      work_id: "work-au04",
+      session_id: "session-history-au04",
+      readonly_transcript_count: 2,
+      history_confirmation_actions_hidden: true,
+      no_author_action_sent: true,
+      no_tool_dispatch_from_history: true,
+      no_pending_artifact_from_history: true,
+      key_events: keyEventsForSlice("au04-history-confirmation-readonly"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au04-history-confirmation-readonly", records, evidence),
+    ).toEqual({
+      slice_id: "au04-history-confirmation-readonly",
+      behavior: "history_confirmation_readonly_cannot_execute_tool_or_create_draft",
+      turn_ids: ["turn_au04_history_confirmation_seed"],
+      work_id: "work-au04",
+      session_id: "session-history-au04",
+      readonly_transcript_count: 2,
+      assertions: [
+        "historical_confirmation_transcript_opened_from_real_workbench",
+        "exited_session_opened_as_read_only",
+        "confirmation_actions_hidden_in_history_view",
+        "readonly_history_did_not_send_author_action",
+        "readonly_history_did_not_dispatch_tool",
+        "readonly_history_did_not_create_pending_draft",
+        "active_session_view_can_be_restored",
+      ],
+    });
+  });
+
+  it("accepts AU-04 cross-work confirmation evidence only when target work cannot execute source action", () => {
+    const records = au04CrossWorkConfirmationGuardRecords();
+
+    const evidence = findNativeSliceEvidence("au04-cross-work-confirmation-guard", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au04-cross-work-confirmation-guard",
+      turn_id: "turn_au04_cross_work_confirmation_seed",
+      source_work_id: "work-au04-source",
+      target_work_id: "work-au04-target",
+      source_confirmation_hidden_in_target: true,
+      target_confirm_button_count: 0,
+      target_reject_button_count: 0,
+      author_action_sent_count: 0,
+      toolbox_execute_after_cross_work_switch_count: 0,
+      pending_prose_fragment_after_cross_work_switch_count: 0,
+      key_events: keyEventsForSlice("au04-cross-work-confirmation-guard"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au04-cross-work-confirmation-guard", records, evidence),
+    ).toEqual({
+      slice_id: "au04-cross-work-confirmation-guard",
+      behavior: "cross_work_switch_hides_source_confirmation_without_action_or_draft",
+      turn_ids: ["turn_au04_cross_work_confirmation_seed"],
+      source_work_id: "work-au04-source",
+      target_work_id: "work-au04-target",
+      assertions: [
+        "source_work_confirmation_card_visible_before_switch",
+        "target_work_selected_through_real_work_menu",
+        "source_confirmation_not_visible_or_actionable_in_target_work",
+        "cross_work_switch_did_not_send_author_action",
+        "cross_work_switch_did_not_dispatch_tool",
+        "cross_work_switch_did_not_create_pending_draft",
+        "source_confirmation_restored_when_returning_to_source_work",
+      ],
+    });
+  });
+
+  it("accepts AU-04 latest-context rebase evidence only when confirm consumes renamed work snapshot", () => {
+    const records = au04LatestContextRebaseConfirmationRecords();
+
+    const evidence = findNativeSliceEvidence(
+      "au04-latest-context-rebase-confirmation",
+      records,
+    );
+    expect(evidence).toMatchObject({
+      slice_id: "au04-latest-context-rebase-confirmation",
+      turn_id: "turn_au04_latest_context_rebase_seed",
+      work_id: "work-au04-rebase",
+      renamed_title: "AU04 最新上下文已改名",
+      renamed_revision: 2,
+      confirmation_binding_ref:
+        "state_snapshot:work-au04-rebase:session-au04-rebase:revision:2:turn_au04_latest_context_rebase_seed:plan_au04_latest_context_rebase:in_1",
+      toolbox_execute_count: 1,
+      pending_character_seed_count: 1,
+      key_events: keyEventsForSlice("au04-latest-context-rebase-confirmation"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au04-latest-context-rebase-confirmation", records, evidence),
+    ).toEqual({
+      slice_id: "au04-latest-context-rebase-confirmation",
+      behavior: "confirmation_re_gate_rebases_against_latest_work_snapshot",
+      turn_ids: ["turn_au04_latest_context_rebase_seed"],
+      work_id: "work-au04-rebase",
+      renamed_title: "AU04 最新上下文已改名",
+      renamed_revision: 2,
+      confirmation_binding_ref:
+        "state_snapshot:work-au04-rebase:session-au04-rebase:revision:2:turn_au04_latest_context_rebase_seed:plan_au04_latest_context_rebase:in_1",
+      assertions: [
+        "real_workbench_restored_confirmation_card",
+        "work_was_renamed_through_real_work_menu_before_confirmation",
+        "confirmation_binding_ref_included_latest_work_revision",
+        "confirmed_turn_trace_current_work_summary_included_renamed_title",
+        "confirmed_turn_reason_codes_recorded_rebased_snapshot_and_gate_ref",
+        "re_gate_dispatched_tool_and_left_output_pending_adoption",
       ],
     });
   });
@@ -7783,6 +7933,236 @@ function au04StaleConfirmationUiRecords() {
       no_tool_dispatch_after_stale: true,
       no_pending_artifact_after_stale: true,
       action_failure_visible: true,
+    },
+  ];
+}
+
+function au04ConfirmationTtlUiRecords() {
+  return [
+    {
+      event: "channel.join.done",
+      turn_id: "turn_au04_expired_confirmation_seed",
+      work_id: "work-au04",
+      session_id: "session-au04",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn_au04_expired_confirmation_seed",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "act_au04_expired_confirm",
+      action_type: "confirm_before_execute",
+    },
+    {
+      event: "channel.author_action.error",
+      turn_id: "turn_au04_expired_confirmation_seed",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "act_au04_expired_confirm",
+      action_type: "confirm_before_execute",
+      reason_code: "dialogue_gateway_rejected",
+      outcome_detail: "expired action: action expired at 2000-01-01T00:00:00Z",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-confirmation-ttl-ui",
+      turn_id: "turn_au04_expired_confirmation_seed",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      confirmation_card_restored: true,
+      confirmation_card_visible: true,
+      expired_confirm_click_attempted: true,
+      expired_confirm_action_sent: true,
+      expired_confirm_rejected: true,
+      author_action_error_count: 1,
+      toolbox_execute_after_expired_count: 0,
+      pending_prose_fragment_after_expired_count: 0,
+      no_tool_dispatch_after_expired: true,
+      no_pending_artifact_after_expired: true,
+      action_failure_visible: true,
+    },
+  ];
+}
+
+function au04HistoryConfirmationReadonlyRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      work_id: "work-au04",
+      session_id: "session-active-au04",
+      transcript_count: 2,
+    },
+    {
+      event: "channel.join.done",
+      work_id: "work-au04",
+      session_id: "session-active-au04",
+    },
+    {
+      event: "work_session.show.done",
+      work_id: "work-au04",
+      session_id: "session-history-au04",
+      read_only: true,
+      transcript_count: 2,
+      pending_adoption_count: 0,
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-history-confirmation-readonly",
+      turn_id: "turn_au04_history_confirmation_seed",
+      work_id: "work-au04",
+      context_work_id: "work-au04",
+      session_id: "session-active-au04",
+      readonly_session_id: "session-history-au04",
+      readonly_session_status: "EXITED",
+      readonly_opened_from_real_workbench: true,
+      readonly_transcript_count: 2,
+      readonly_banner_visible: true,
+      history_confirmation_transcript_visible: true,
+      history_confirmation_confirm_button_count: 0,
+      history_confirmation_reject_button_count: 0,
+      history_confirmation_actions_hidden: true,
+      readonly_input_disabled: true,
+      readonly_send_disabled: true,
+      author_action_sent_count: 0,
+      channel_author_action_log_count: 0,
+      toolbox_execute_after_history_open_count: 0,
+      pending_prose_fragment_after_history_open_count: 0,
+      no_author_action_sent: true,
+      no_channel_author_action_log: true,
+      no_tool_dispatch_from_history: true,
+      no_pending_artifact_from_history: true,
+      active_session_restored: true,
+      active_input_enabled_after_restore: true,
+      active_send_enabled_after_restore: true,
+    },
+  ];
+}
+
+function au04CrossWorkConfirmationGuardRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      work_id: "work-au04-source",
+      session_id: "session-source-au04",
+      transcript_count: 2,
+    },
+    {
+      event: "work_session.resume.done",
+      work_id: "work-au04-target",
+      session_id: "session-target-au04",
+      transcript_count: 2,
+    },
+    {
+      event: "channel.join.done",
+      work_id: "work-au04-source",
+      session_id: "session-source-au04",
+    },
+    {
+      event: "channel.join.done",
+      work_id: "work-au04-target",
+      session_id: "session-target-au04",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-cross-work-confirmation-guard",
+      turn_id: "turn_au04_cross_work_confirmation_seed",
+      work_id: "work-au04-source",
+      context_work_id: "work-au04-source",
+      session_id: "session-source-au04",
+      source_work_id: "work-au04-source",
+      target_work_id: "work-au04-target",
+      source_session_id: "session-source-au04",
+      target_session_id: "session-target-au04",
+      source_confirmation_visible_before_switch: true,
+      source_confirm_button_count_before_switch: 1,
+      source_reject_button_count_before_switch: 1,
+      target_work_selected_from_real_menu: true,
+      target_transcript_visible: true,
+      source_confirmation_hidden_in_target: true,
+      target_confirm_button_count: 0,
+      target_reject_button_count: 0,
+      author_action_sent_count: 0,
+      channel_author_action_log_count: 0,
+      toolbox_execute_after_cross_work_switch_count: 0,
+      pending_prose_fragment_after_cross_work_switch_count: 0,
+      no_author_action_sent_after_cross_work_switch: true,
+      no_channel_author_action_log_after_cross_work_switch: true,
+      no_tool_dispatch_after_cross_work_switch: true,
+      no_pending_artifact_after_cross_work_switch: true,
+      source_confirmation_restored_after_return: true,
+    },
+  ];
+}
+
+function au04LatestContextRebaseConfirmationRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      work_id: "work-au04-rebase",
+      session_id: "session-au04-rebase",
+      transcript_count: 2,
+    },
+    {
+      event: "channel.join.done",
+      work_id: "work-au04-rebase",
+      session_id: "session-au04-rebase",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn_au04_latest_context_rebase_seed",
+      work_id: "work-au04-rebase",
+      session_id: "session-au04-rebase",
+      action_id: "act_au04_latest_context_confirm",
+      action_type: "confirm_before_execute",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn_au04_latest_context_rebase_seed",
+      work_id: "work-au04-rebase",
+      session_id: "session-au04-rebase",
+      action_id: "act_au04_latest_context_confirm",
+      action_type: "confirm_before_execute",
+      action_status: "accepted",
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: "turn_au04_latest_context_rebase_seed",
+      work_id: "work-au04-rebase",
+      session_id: "session-au04-rebase",
+      tool_name: "character_design",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-latest-context-rebase-confirmation",
+      turn_id: "turn_au04_latest_context_rebase_seed",
+      work_id: "work-au04-rebase",
+      context_work_id: "work-au04-rebase",
+      session_id: "session-au04-rebase",
+      source_work_id: "work-au04-rebase",
+      original_title: "AU04 最新上下文确认源作品",
+      renamed_title: "AU04 最新上下文已改名",
+      original_revision: 1,
+      renamed_revision: 2,
+      real_work_renamed_before_confirm: true,
+      confirm_action_sent: true,
+      confirmation_binding_ref:
+        "state_snapshot:work-au04-rebase:session-au04-rebase:revision:2:turn_au04_latest_context_rebase_seed:plan_au04_latest_context_rebase:in_1",
+      binding_ref_includes_source_work: true,
+      binding_ref_includes_latest_revision: true,
+      gate_result_refs: [
+        "gate_result:confirmation_re_gate:turn_au04_latest_context_rebase_seed:plan_au04_latest_context_rebase:act_au04_latest_context_confirm",
+      ],
+      gate_result_ref_present: true,
+      trace_context_includes_renamed_title: true,
+      trace_current_work_summary: "AU04 最新上下文已改名 / 赛博修仙 / 确认前修改作品名后，确认执行必须重新读取最新作品快照",
+      reason_codes_include_rebased_ref: true,
+      reason_codes_include_gate_ref: true,
+      confirmed_dispatch: true,
+      artifact_pending_after_confirm: true,
+      artifact_type: "character_seed",
+      toolbox_execute_count: 1,
+      pending_character_seed_count: 1,
     },
   ];
 }
