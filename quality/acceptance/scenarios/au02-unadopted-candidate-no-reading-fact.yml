@@ -1,0 +1,65 @@
+id: au02-unadopted-candidate-no-reading-fact
+title: 未采纳候选不进入阅读或作品事实
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au02-unadopted-candidate-no-reading-fact --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-02-explore.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md
+
+invariants:
+  - candidate-presented-is-not-candidate-adopted
+  - no-author-action-without-user-click
+  - unadopted-candidate-does-not-materialize-reading-projection
+  - no-production-write
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 模糊小说创作方向
+  - click: 发送
+  - wait_for: candidate direction visible
+  - do_not_click: 继续聊这个方向 / 设为后续方向
+  - click: 阅读
+  - observe: 阅读模式为空，候选标题和简介没有进入阅读内容
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au02-unadopted-candidate-no-reading-fact-tauri
+
+assertions:
+  ui:
+    - candidate direction visible before reading mode
+    - reading mode opens from the real workbench
+    - reading empty state is visible
+    - candidate title and pitch are not visible in reading mode
+  network:
+    - source user_message uses generate_micro_plan false
+    - author_action is not sent
+    - action_result is not received
+    - get_toc returns zero chapters and zero total words
+  data:
+    - candidate_selected remains false
+    - candidate_adopted remains false
+    - no adoption decision is emitted
+    - no projection event is emitted
+    - production_write_performed remains false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -7,7 +7,8 @@ entrypoint: scripts/quality_accept.sh au02-candidate-adoption-bridge --surface t
 contract:
   - docs/engineering/scenario-acceptance.md
   - tasks/slices/AU02-candidate-adoption-bridge.md
-  - docs/design/schemas/turn_result_v2.json
+  - docs/design/schemas/foundation/turn_result_v2.json
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
 
 invariants:
   - server-provided-action-only
@@ -23,7 +24,7 @@ user_flow:
   - input: 模糊小说创作方向
   - click: 发送
   - wait_for: candidate directions visible
-  - click: 继续聊这个方向
+  - click: 设为后续方向
   - wait_for: adoption decision visible
 
 evidence:
@@ -53,4 +54,3 @@ anti_hooks:
   data_testid_required: false
   hidden_dom_metadata_required: false
   product_autorun_required: false
-

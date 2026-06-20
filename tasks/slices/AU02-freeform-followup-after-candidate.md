@@ -56,4 +56,4 @@
 
 ## 7. 试行反馈
 
-- 该 checkpoint 只关闭 `SC-AU02-C2` 的最小真实页面反证。AU-02 仍缺连续多轮候选上下文质量、真实 LM Studio 中文探索质量、异常恢复和未采纳候选不进入阅读/事实的完整反证。
+- 该 checkpoint 只关闭 `SC-AU02-C2` 的最小真实页面反证。AU-02 的未采纳候选阅读/事实反证已由 `au02-unadopted-candidate-no-reading-fact` 后续关闭，candidate fallback UI 反证已由 `au02-candidate-fallback-ui` 后续关闭，连续多轮候选上下文质量已由 `au02-candidate-multiturn-context` 后续关闭；当前仍缺真实 LM Studio 中文探索质量和 D2 schema/codegen 回归。

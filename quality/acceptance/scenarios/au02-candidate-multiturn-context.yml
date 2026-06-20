@@ -1,0 +1,69 @@
+id: au02-candidate-multiturn-context
+title: 候选方向继续讨论后的多轮上下文保持
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au02-candidate-multiturn-context --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-02-explore.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - docs/design/07-workbench-ui-contract.md
+  - docs/design/schemas/foundation/turn_result_v2.json
+
+invariants:
+  - candidate-continuation-is-not-adoption
+  - selected-candidate-context-survives-later-plain-followup
+  - plain-followup-does-not-send-candidate-selection
+  - no-author-action-or-adoption-boundary
+  - no-production-write
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: AU02CTX nonce + 模糊小说创作方向
+  - click: 发送
+  - observe: nonce-backed candidate direction visible
+  - click: 继续讨论候选方向
+  - input: 不带 nonce 的普通后续追问
+  - observe: 回复继续沿着已选候选方向，并反映 prior candidate context
+  - do_not_see: tool result / adoption decision / production write
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au02-candidate-multiturn-context-tauri
+
+assertions:
+  ui:
+    - source candidate direction with context nonce is visible
+    - continuation turn is sent by candidate discussion action
+    - later plain follow-up and assistant reply are visible
+  network:
+    - continuation user_message contains candidate_selection
+    - plain follow-up user_message does not contain candidate_selection
+    - follow-up context.assemble.done has conversation and session summary
+    - generate_micro_plan remains false for follow-up
+    - author_action is not sent
+    - action_result is not received
+  data:
+    - assistant follow-up reply reflects prior candidate context nonce
+    - no tool_result is emitted
+    - no adoption decision is emitted
+    - candidate_selected remains false
+    - candidate_adopted remains false
+    - production_write_performed remains false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

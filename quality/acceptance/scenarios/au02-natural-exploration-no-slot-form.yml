@@ -1,0 +1,75 @@
+id: au02-natural-exploration-no-slot-form
+title: 模糊想法自然探索且不弹机械表单
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au02-natural-exploration-no-slot-form --surface tauri
+real_lmstudio_entrypoint: scripts/tauri_slice_verify.sh --real-lmstudio au02-natural-exploration-no-slot-form
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-02-explore.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - docs/design/07-workbench-ui-contract.md
+
+invariants:
+  - fuzzy-idea-produces-creative-exploration-frame
+  - missing-slots-do-not-force-mechanical-form
+  - exploration-does-not-trigger-micro-plan-or-tool
+  - no-production-write
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 模糊小说创作方向
+  - click: 发送
+  - observe: 自然探索回复和候选方向卡
+  - do_not_see: required slot form / execution card / confirmation card
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+    - app_jsonl
+    - ui_state
+    - summary_json
+  optional_real_lmstudio:
+    - lmstudio_log_json
+    - provider_request_count
+    - matched_turn_ids
+    - natural_reply_chinese
+    - natural_reply_no_json_code
+    - candidates_no_json_code
+    - candidate_semantically_relevant
+  artifact_dir: artifacts/slice-verify/au02-natural-exploration-no-slot-form-tauri
+  real_lmstudio_artifact_dir: artifacts/slice-verify/au02-natural-exploration-no-slot-form-tauri-lmstudio
+
+assertions:
+  ui:
+    - natural assistant reply is visible
+    - candidate direction panel is visible
+    - mechanical slot form is not visible
+    - execution or confirmation card is not visible
+  network:
+    - source user_message uses generate_micro_plan false
+    - planner.form_frame.done has frame_type creative_exploration
+    - author_action is not sent
+    - action_result is not received
+  data:
+    - TurnResult does not expose required_slots / missing_slots / slot_schema / slot_form
+    - no tool_result is emitted
+    - no adoption decision is emitted
+    - candidate_selected remains false
+    - candidate_adopted remains false
+    - production_write_performed remains false
+    - real LM Studio mode records a form_frame request for the source turn
+    - real LM Studio mode verifies Chinese natural reply, no JSON/code-shaped user-visible text, and semantically relevant candidate directions
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

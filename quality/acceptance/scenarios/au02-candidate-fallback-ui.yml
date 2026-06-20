@@ -1,0 +1,66 @@
+id: au02-candidate-fallback-ui
+title: 候选坏格式 fallback 仍渲染可用候选卡
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au02-candidate-fallback-ui --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-02-explore.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - docs/design/07-workbench-ui-contract.md
+  - docs/design/schemas/foundation/turn_result_v2.json
+
+invariants:
+  - malformed-candidates-do-not-break-exploration
+  - fallback-candidates-have-nonempty-title-and-pitch
+  - fallback-candidates-remain-not-adopted
+  - no-production-write
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: AU02BADCANDIDATES 模糊小说创作方向
+  - click: 发送
+  - observe: fallback 候选方向卡正常可见
+  - do_not_see: tool result / adoption decision / production write
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - turn_result
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au02-candidate-fallback-ui-tauri
+
+assertions:
+  ui:
+    - fallback candidate direction panel is visible
+    - known fallback candidate title is visible
+    - candidate cards are not shown as adopted
+  network:
+    - source user_message uses generate_micro_plan false
+    - planner.form_frame.done has frame_type creative_exploration
+    - planner.form_frame.done reports fallback candidate_count >= 2
+    - author_action is not sent
+    - action_result is not received
+  data:
+    - malformed provider candidate payload is replaced
+    - fallback candidates have nonempty title and pitch
+    - fallback candidates have adoption_status not_adopted
+    - no tool_result is emitted
+    - no adoption decision is emitted
+    - candidate_selected remains false
+    - candidate_adopted remains false
+    - production_write_performed remains false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
