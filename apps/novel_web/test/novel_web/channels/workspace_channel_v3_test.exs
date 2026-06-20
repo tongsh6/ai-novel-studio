@@ -588,6 +588,42 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       refute_broadcast("turn_result", %{}, 50)
     end
 
+    test "current confirmation action is rejected after expires_at" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      expired_turn_result =
+        put_in(
+          @server_turn_result,
+          [:available_actions, Access.at(0), :expires_at],
+          "2000-01-01T00:00:00Z"
+        )
+
+      socket = assign_server_turn(socket, expired_turn_result)
+
+      assert {:reply, {:error, %{reason: reason}}, _socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-action-1",
+                     "action_id" => "act-confirm",
+                     "action_type" => "confirm_before_execute",
+                     "target_ref" => "text_analysis",
+                     "behavior_ref" => "bh-chan-1",
+                     "idempotency_key" => "ik-confirm"
+                   }
+                 },
+                 socket
+               )
+
+      assert String.contains?(reason, "expired action")
+      refute_broadcast("action_result", %{}, 20)
+      refute_broadcast("turn_result", %{}, 50)
+    end
+
     test "candidate adoption action goes through adoption boundary and broadcasts decision turn_result" do
       {:ok, _, socket} =
         UserSocket

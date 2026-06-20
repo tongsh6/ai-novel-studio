@@ -51,6 +51,53 @@ defmodule NovelApplication.ActionRoundtripTest do
       assert :ok = ActionValidator.validate(input, @valid_source)
     end
 
+    test "future expires_at action passes validation" do
+      input = %AuthorActionInput{
+        input_id: "in-future-expiry",
+        source_turn_ref: "turn-1",
+        action_id: "act-confirm",
+        action_type: "confirm_before_execute",
+        target_ref: "text_analysis",
+        behavior_ref: "bh-1",
+        idempotency_key: "ik1"
+      }
+
+      now = ~U[2026-06-20 12:00:00Z]
+
+      source =
+        put_in(
+          @valid_source,
+          [:available_actions, Access.at(0), :expires_at],
+          "2026-06-20T12:15:00Z"
+        )
+
+      assert :ok = ActionValidator.validate(input, source, now: now)
+    end
+
+    test "expired available action is rejected" do
+      input = %AuthorActionInput{
+        input_id: "in-expired",
+        source_turn_ref: "turn-1",
+        action_id: "act-confirm",
+        action_type: "confirm_before_execute",
+        target_ref: "text_analysis",
+        behavior_ref: "bh-1",
+        idempotency_key: "ik1"
+      }
+
+      now = ~U[2026-06-20 12:00:00Z]
+
+      source =
+        put_in(
+          @valid_source,
+          [:available_actions, Access.at(0), :expires_at],
+          "2026-06-20T11:59:59Z"
+        )
+
+      assert {:error, reason} = ActionValidator.validate(input, source, now: now)
+      assert String.contains?(reason, "expired action")
+    end
+
     test "stale source_turn_ref rejected" do
       input = %AuthorActionInput{
         input_id: "in-stale",

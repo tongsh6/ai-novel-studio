@@ -272,10 +272,15 @@ defmodule NovelApplication.ExecutionAuthorityTest do
           ]
         )
 
-      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
+      {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
       assert decision.decision_type == :require_confirmation
       assert OrchestratorDecision.blocks_execution?(decision)
+
+      assert Enum.all?(behavior.available_actions, fn action ->
+               {:ok, _expires_at, _offset} = DateTime.from_iso8601(action.expires_at)
+               action.action_type in ["confirm_before_execute", "reject_or_cancel_confirmation"]
+             end)
     end
 
     test "high-risk plan with confirm binding re-gates to allow_tool (ADR-0009)" do

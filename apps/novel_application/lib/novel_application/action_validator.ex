@@ -9,12 +9,14 @@ defmodule NovelApplication.ActionValidator do
   @doc """
   验证 AuthorActionInput 是否合法。返回 :ok 或 {:error, reason}。
   """
-  @spec validate(AuthorActionInput.t(), map()) :: :ok | {:error, String.t()}
-  def validate(%AuthorActionInput{} = input, source_turn_result \\ nil) do
+  @spec validate(AuthorActionInput.t(), map() | nil, keyword()) :: :ok | {:error, String.t()}
+  def validate(%AuthorActionInput{} = input, source_turn_result \\ nil, opts \\ []) do
     with :ok <- check_required(input),
          :ok <- check_not_stale(input, source_turn_result),
-         :ok <- check_action_in_available(input, source_turn_result) do
-      check_not_disabled(input, source_turn_result)
+         {:ok, action} <- available_action(input, source_turn_result),
+         :ok <- check_scoped_refs(input, action),
+         :ok <- check_not_expired(action, opts) do
+      check_not_disabled(action)
     end
   end
 
@@ -39,10 +41,10 @@ defmodule NovelApplication.ActionValidator do
     end
   end
 
-  defp check_action_in_available(_input, nil),
+  defp available_action(_input, nil),
     do: {:error, "no available actions to validate against"}
 
-  defp check_action_in_available(input, source) do
+  defp available_action(input, source) do
     actions = source_field(source, :available_actions) || []
 
     match =
@@ -53,28 +55,38 @@ defmodule NovelApplication.ActionValidator do
       )
 
     if match do
-      check_scoped_refs(input, match)
+      {:ok, match}
     else
       {:error,
        "invented action: #{input.action_type}:#{input.action_id} not in available actions"}
     end
   end
 
-  defp check_not_disabled(input, source) do
-    actions = source_field(source, :available_actions) || []
-
-    match =
-      Enum.find(
-        actions,
-        &(action_field(&1, :action_type) == input.action_type &&
-            action_field(&1, :action_id) == input.action_id)
-      )
-
-    if match && action_field(match, :enabled) == false do
+  defp check_not_disabled(action) do
+    if action_field(action, :enabled) == false do
       {:error,
-       "disabled action: #{action_field(match, :disabled_reason) || "action is not available"}"}
+       "disabled action: #{action_field(action, :disabled_reason) || "action is not available"}"}
     else
       :ok
+    end
+  end
+
+  defp check_not_expired(action, opts) do
+    case normalize_expires_at(action_field(action, :expires_at)) do
+      :missing ->
+        :ok
+
+      {:ok, expires_at} ->
+        now = Keyword.get(opts, :now, DateTime.utc_now())
+
+        if DateTime.compare(expires_at, now) == :gt do
+          :ok
+        else
+          {:error, "expired action: action expired at #{DateTime.to_iso8601(expires_at)}"}
+        end
+
+      :invalid ->
+        {:error, "expired action: invalid expires_at"}
     end
   end
 
@@ -123,4 +135,16 @@ defmodule NovelApplication.ActionValidator do
 
   defp source_field(source, key) when is_map(source), do: action_field(source, key)
   defp source_field(_source, _key), do: nil
+
+  defp normalize_expires_at(nil), do: :missing
+
+  defp normalize_expires_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, expires_at, _offset} -> {:ok, expires_at}
+      _ -> :invalid
+    end
+  end
+
+  defp normalize_expires_at(%DateTime{} = value), do: {:ok, value}
+  defp normalize_expires_at(_value), do: :invalid
 end

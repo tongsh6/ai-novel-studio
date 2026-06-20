@@ -15,6 +15,8 @@ defmodule NovelApplication.ExecutionOrchestrator do
   alias NovelDomain.MicroPlan
   alias NovelDomain.OrchestratorDecision
 
+  @author_action_ttl_seconds 900
+
   @doc """
   裁决 MicroPlan。返回 {decision, behavior}。
 
@@ -154,44 +156,58 @@ defmodule NovelApplication.ExecutionOrchestrator do
   # action.behavior_ref == behavior_state.active.behavior_id 门控确认动作显隐。
   # action_id / idempotency_key 仍以 decision_id 为键（一次决定一组动作）。
   defp behavior_actions(:clarification, d_id, behavior_id, target) do
+    expires_at = author_action_expires_at()
+
     [
       %{
         action_id: "act_answer_#{d_id}",
         action_type: "answer_clarification",
         behavior_ref: behavior_id,
         target_ref: target,
-        idempotency_key: "clarify_#{d_id}"
+        idempotency_key: "clarify_#{d_id}",
+        expires_at: expires_at
       },
       %{
         action_id: "act_cancel_#{d_id}",
         action_type: "cancel_pending_behavior",
         behavior_ref: behavior_id,
         target_ref: target,
-        idempotency_key: "cancel_#{d_id}"
+        idempotency_key: "cancel_#{d_id}",
+        expires_at: expires_at
       }
     ]
   end
 
   defp behavior_actions(:confirmation, d_id, behavior_id, target) do
+    expires_at = author_action_expires_at()
+
     [
       %{
         action_id: "act_confirm_#{d_id}",
         action_type: "confirm_before_execute",
         behavior_ref: behavior_id,
         target_ref: target,
-        idempotency_key: "confirm_#{d_id}"
+        idempotency_key: "confirm_#{d_id}",
+        expires_at: expires_at
       },
       %{
         action_id: "act_reject_#{d_id}",
         action_type: "reject_or_cancel_confirmation",
         behavior_ref: behavior_id,
         target_ref: target,
-        idempotency_key: "reject_#{d_id}"
+        idempotency_key: "reject_#{d_id}",
+        expires_at: expires_at
       }
     ]
   end
 
   defp behavior_actions(_, _, _, _), do: []
+
+  defp author_action_expires_at do
+    DateTime.utc_now()
+    |> DateTime.add(@author_action_ttl_seconds, :second)
+    |> DateTime.to_iso8601()
+  end
 
   # ── VS-02 tool dispatch ───────────────────────
 

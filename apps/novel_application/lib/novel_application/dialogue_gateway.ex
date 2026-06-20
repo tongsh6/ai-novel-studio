@@ -872,9 +872,18 @@ defmodule NovelApplication.DialogueGateway do
   # 确认必须绑定 open confirmation（ADR-0009 / VS-03 §5）：绑定字段取自服务端授权的
   # available_action 条目（AU04-I5：UI 不能自报权限字段）。
   defp confirm_with_plan(plan, action_input, source_turn_result, complete_fn) do
-    case build_confirmation_binding(action_input, source_turn_result) do
+    context = confirmation_rebase_context(source_turn_result)
+
+    case build_confirmation_binding(action_input, source_turn_result, context) do
       {:ok, binding} ->
-        handle_confirmation_dispatch(action_input, source_turn_result, plan, binding, complete_fn)
+        handle_confirmation_dispatch(
+          action_input,
+          source_turn_result,
+          plan,
+          binding,
+          context,
+          complete_fn
+        )
 
       {:error, reason} ->
         {:error, reason}
@@ -885,7 +894,7 @@ defmodule NovelApplication.DialogueGateway do
   # target_ref / idempotency_key 取服务端下发值（ActionValidator 已验证该 action
   # 存在且未过期），author_input_ref 取本次作者动作。缺 behavior_ref 等于没有
   # open confirmation 可绑定 → 拒绝（VS-03 §5 规则 1）。
-  defp build_confirmation_binding(action_input, source_turn_result) do
+  defp build_confirmation_binding(action_input, source_turn_result, context) do
     source_action =
       source_turn_result
       |> map_field(:available_actions)
@@ -900,13 +909,20 @@ defmodule NovelApplication.DialogueGateway do
       answer_type: :confirm,
       idempotency_key: map_field(source_action, :idempotency_key) || action_input.idempotency_key,
       rebased_state_snapshot_ref:
-        confirmation_rebased_state_snapshot_ref(action_input, source_turn_result),
+        confirmation_rebased_state_snapshot_ref(action_input, source_turn_result, context),
       gate_result_refs: confirmation_gate_result_refs(action_input, source_turn_result),
       trace_ref: trace_ref(source_turn_result)
     })
   end
 
-  defp handle_confirmation_dispatch(action_input, source_turn_result, plan, binding, complete_fn) do
+  defp handle_confirmation_dispatch(
+         action_input,
+         source_turn_result,
+         plan,
+         binding,
+         context,
+         complete_fn
+       ) do
     frame = frame_from_turn_result(source_turn_result)
 
     {decision, _behavior} =
@@ -921,17 +937,6 @@ defmodule NovelApplication.DialogueGateway do
     }
 
     if decision.decision_type == :allow_tool do
-      # CP1（关 G9）：确认后的执行与正常路径**同源组装**上下文——重新经 ContextAssembler
-      # 取当前作品 snapshot/章节列表 + 挂组装策略，并注入 chapter_prose_reader。
-      # 否则高风险 rewrite 确认后反而拿不到本章已采纳正文（原 context:nil 会让重写凭空另写）。
-      context =
-        ContextAssembler.assemble_for_input(
-          frame.workspace_id,
-          nil,
-          context_fetcher_or_default(nil),
-          assembly_policy: NovelApplication.current_assembly_policy()
-        )
-
       {turn_result, trace} =
         TurnExecutionService.execute(%{
           frame: frame,
@@ -961,21 +966,41 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
+  # B6：确认后的 re-gate 必须基于确认时的最新上下文，而不是 source turn 创建时的
+  # 旧状态。这里复用生产 persistence fetcher，生成同一份 context 供 binding proof
+  # 与执行服务消费。
+  defp confirmation_rebase_context(source_turn_result) do
+    work_id = source_work_id(source_turn_result)
+    session_id = source_session_id(source_turn_result)
+
+    ContextAssembler.assemble_for_input(
+      work_id,
+      nil,
+      context_fetcher_or_default(nil),
+      session_id: session_id,
+      assembly_policy: NovelApplication.current_assembly_policy()
+    )
+  end
+
   defp confirmation_binding_id(%AuthorActionInput{input_id: input_id}) when is_binary(input_id),
     do: "cb_#{input_id}"
 
   defp confirmation_binding_id(_), do: nil
 
-  defp confirmation_rebased_state_snapshot_ref(action_input, source_turn_result) do
-    [
-      "state_snapshot",
-      map_field(source_turn_result, :current_work_id) || map_field(source_turn_result, :work_id),
-      map_field(source_turn_result, :current_session_id) ||
-        map_field(source_turn_result, :session_id),
-      map_field(source_turn_result, :turn_id),
-      source_plan_id(source_turn_result),
-      action_input.input_id
-    ]
+  defp confirmation_rebased_state_snapshot_ref(action_input, source_turn_result, context) do
+    snapshot = context && context.current_work_snapshot
+
+    ([
+       "state_snapshot",
+       source_work_id(source_turn_result),
+       source_session_id(source_turn_result)
+     ] ++
+       snapshot_revision_ref_parts(snapshot) ++
+       [
+         map_field(source_turn_result, :turn_id),
+         source_plan_id(source_turn_result),
+         action_input.input_id
+       ])
     |> compact_ref_parts()
     |> Enum.join(":")
   end
@@ -998,6 +1023,26 @@ defmodule NovelApplication.DialogueGateway do
     source_turn_result
     |> map_field(:plan)
     |> map_field(:plan_id)
+  end
+
+  defp source_work_id(source_turn_result) do
+    map_field(source_turn_result, :current_work_id) ||
+      map_field(source_turn_result, :work_id) ||
+      map_field(source_turn_result, :workspace_id) ||
+      "recovered"
+  end
+
+  defp source_session_id(source_turn_result) do
+    map_field(source_turn_result, :current_session_id) ||
+      map_field(source_turn_result, :session_id)
+  end
+
+  defp snapshot_revision_ref_parts(snapshot) do
+    case map_field(snapshot, :revision) do
+      nil -> []
+      "" -> []
+      revision -> ["revision", revision]
+    end
   end
 
   defp compact_ref_parts(parts) do
@@ -1031,7 +1076,7 @@ defmodule NovelApplication.DialogueGateway do
       schema_version: "3.0-draft",
       frame_id: map_field(tr, :frame_ref) || "recovered_frame",
       turn_id: map_field(tr, :turn_id) || "recovered_turn",
-      workspace_id: map_field(tr, :workspace_id) || "recovered",
+      workspace_id: source_work_id(tr),
       primary: true,
       frame_type: :confirmation_answer,
       source_refs: %{},
