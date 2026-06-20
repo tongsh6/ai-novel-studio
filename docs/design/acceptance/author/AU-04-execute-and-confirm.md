@@ -11,6 +11,8 @@
 > 2026-06-20 对账更新：`AU04-confirmation-binding-rebase-proof` 已把 `ConfirmationBinding` 的 `rebased_state_snapshot_ref` / `gate_result_refs` 从文档要求推进为 domain 强契约，并在 `DialogueGateway.handle_action/3` 确认 ack 与 `ExecutionOrchestrator.reason_codes` 中留下 re-gate 证明。该 checkpoint 只有局部后端/Channel 证据，不冒充真实页面 context-change 矩阵；B6 当前从“部分实现”推进到“已测试”。
 >
 > 2026-06-20 对账更新：`au04-confirm-idempotency-ui` 已补真实 Tauri 工作台重复确认验收：外部自动化在可见确认卡上快速点击“确认执行”两次，真实 websocket 发送 2 个 confirm action，Channel 将第二个识别为 `duplicate=true`，最终只有 1 次非 duplicate receipt、1 次 `prose_writing` dispatch、1 份 pending `prose_fragment`。该 checkpoint 关闭 B4 的“重复确认不重复执行”用户场景；TTL、跨作品 stale、历史会话只读态和持久 ConfirmationBinding snapshot 仍归后续缺口。
+>
+> 2026-06-20 对账更新：`au04-stale-confirmation-ui` 已补真实 Tauri 工作台旧确认 stale 验收：作者先收到高风险重写确认卡，再发送一条普通 follow-up 推进当前 turn，随后点击旧“确认执行”；真实 websocket 发送旧 confirm action，Channel 返回 `stale action: source_turn_ref turn_3 != current turn_13`，且 stale 后 `toolbox_execute_after_stale_count=0`、`pending_prose_fragment_after_stale_count=0`。该 checkpoint 关闭“当前 turn 已推进时旧确认不能执行”的 B5 主路径；跨作品、TTL、历史只读态和持久 ConfirmationBinding snapshot 仍归 GAP-06 后续矩阵。
 
 ---
 
@@ -181,9 +183,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | 系统拒绝 stale action，要求重新生成计划或重新确认当前作品状态 |
-| 当前证据 | `ActionValidator.check_not_stale/2`、`workspace_channel_v3_test.exs` stale source_turn_ref rejected |
-| 当前状态 | 已测试 |
-| 当前缺口 | 只和 `current_turn_id` 对比，缺跨作品、历史会话、TTL、持久化 ConfirmationBinding 验证 |
+| 当前证据 | `ActionValidator.check_not_stale/2`；`workspace_channel_v3_test.exs` 覆盖 stale source_turn_ref，以及旧确认 turn 仍保存在 socket 但 current turn 已推进时仍拒绝；`au04-stale-confirmation-ui` 证明真实 Tauri 工作台点击旧确认会收到 stale error，且不触发 `prose_writing` / pending `prose_fragment` |
+| 当前状态 | 已验收 |
+| 当前缺口 | 当前 turn 推进后的旧确认已闭环；仍缺跨作品、历史会话只读态、TTL、持久化 ConfirmationBinding 验证 |
 | 优先级 | P0 |
 
 #### SC-AU04-B6 — 确认前上下文变化后必须重新 gate
@@ -315,7 +317,7 @@
 | SC-AU04-B2 | 点击确认走 `author_action` | 已验收 | 是，`au04-confirm-before-execute` 证明真实页面发送服务端授权 `author_action.confirm_before_execute` |
 | SC-AU04-B3 | 点击取消关闭等待态 | 已验收 | 是，`au10-workbench-recovery-cancel-waiting` 证明真实页面取消等待 no-write、关闭 active behavior 并可继续下一轮 |
 | SC-AU04-B4 | 重复确认幂等 | 已验收 | 是，`au04-confirm-idempotency-ui` 证明真实页面快速重复确认只产生 1 次非 duplicate receipt、1 次工具 dispatch 和 1 份 pending artifact |
-| SC-AU04-B5 | stale confirmation 拒绝 | 已测试 | 否，缺跨作品/TTL/持久化 binding |
+| SC-AU04-B5 | stale confirmation 拒绝 | 已验收 | 是，`au04-stale-confirmation-ui` 证明当前 turn 推进后旧确认被 stale 拒绝且 no-tool/no-draft；跨作品/TTL/持久化 binding 仍归 GAP-06 |
 | SC-AU04-B6 | 确认前上下文变化后重新 gate | 已测试 | 否，re-gate refs 已成强契约，缺真实页面 context-change / TTL / 持久 snapshot |
 | SC-AU04-C1 | invented action 拒绝 | 已测试 | 局部闭环 |
 | SC-AU04-C2 | AI 自批准语义拦截 | 已测试 | 局部闭环 |
@@ -326,7 +328,7 @@
 | SC-AU04-E1 | 确认行为可追溯 | 部分实现 | 否 |
 | SC-AU04-E2 | 执行失败后恢复 | 不确定 | 否 |
 
-**结论：18 个场景；6/18 已有真实 Tauri 页面验收（A1/A4/B2/B3/B4/D2）；7/18 有后端或 Channel 局部测试；5/18 仍是部分实现或不确定。AU-04 当前已关闭高风险确认主路径、重复确认不重复执行，并补上 ConfirmationBinding re-gate refs 的局部强契约；仍不覆盖 TTL、跨作品 stale、持久 snapshot、trace/replay 或失败恢复。**
+**结论：18 个场景；7/18 已有真实 Tauri 页面验收（A1/A4/B2/B3/B4/B5/D2）；6/18 有后端或 Channel 局部测试；5/18 仍是部分实现或不确定。AU-04 当前已关闭高风险确认主路径、重复确认不重复执行、当前 turn 推进后的旧确认 stale 拒绝，并补上 ConfirmationBinding re-gate refs 的局部强契约；仍不覆盖 TTL、跨作品 stale、持久 snapshot、trace/replay 或失败恢复。**
 
 ---
 
@@ -335,11 +337,11 @@
 | 缺口 | 具体表现 | 类型 | 优先级 |
 |---|---|---|---|
 | AU04-GAP-01 — 真实入口确认动作未接入 `author_action` | **主路径已关闭（2026-06-19）**：`au04-confirm-before-execute` 证明真实入口通过 `available_actions` + `author_action.confirm_before_execute` 提交；剩余重复点击/stale/TTL 归 GAP-03/GAP-06 | 补验收 | closed |
-| AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | **部分关闭（2026-06-20）**：真实入口已渲染并可点击“确认执行/拒绝”，重复确认真实 UI 已验收；完整 card/action matrix、disabled/stale、TTL 和 replay 仍缺 | 补验收 | P0 |
+| AU04-GAP-02 — 确认卡/动作在真实入口不可见或不可点 | **部分关闭（2026-06-20）**：真实入口已渲染并可点击“确认执行/拒绝”，重复确认与当前 turn 推进后的旧确认 stale 拒绝均已有真实 UI 验收；完整 card/action matrix、disabled、TTL 和 replay 仍缺 | 补验收 | P0 |
 | AU04-GAP-03 — 确认幂等未完整闭环 | **主路径关闭（2026-06-20）**：`ActionValidator` 要求 `idempotency_key` 与服务端 action 精确一致，持久 `author_action_receipts` 以 `work_id/session_id/source_turn/action/idempotency_key` 去重；`au04-confirm-idempotency-ui` 证明真实页面快速重复确认时第二个 confirm 被 `duplicate=true` 处理，且只产生 1 次工具 dispatch / 1 份 pending artifact。TTL、跨作品 stale、历史会话只读态归 GAP-06 | 补验收 | closed |
 | AU04-GAP-04 — ConfirmationBinding 未完整实现 | **局部已补**：`ActionValidator` 已要求 `behavior_ref`、`target_ref`、`candidate_*`、`idempotency_key` 与服务端 action 精确一致；`ConfirmationBinding.build/1` 已强制 `rebased_state_snapshot_ref` / `gate_result_refs`，`DialogueGateway` 确认 ack 与 `ExecutionOrchestrator.reason_codes` 已留下 re-gate proof；仍缺持久 snapshot 实体、TTL、真实页面 context-change 和 replay 解释 | 补实现/补集成/补验收 | P0 |
 | AU04-GAP-05 — 取消/拒绝 lifecycle 未闭环 | **主路径已补**：`au10-workbench-recovery-cancel-waiting` 证明真实页面取消等待 no-write、active behavior 关闭和下一轮恢复；trace/replay、TTL、跨作品/历史会话矩阵仍缺 | 补集成/补验收 | P0 |
-| AU04-GAP-06 — 过期/跨作品/历史确认验证不足 | 只覆盖 current turn stale，缺 TTL、跨作品、历史会话只读态 | 补实现/补验收 | P0/P1 |
+| AU04-GAP-06 — 过期/跨作品/历史确认验证不足 | **部分关闭（2026-06-20）**：`au04-stale-confirmation-ui` 已证明当前 turn 推进后的旧确认被 stale 拒绝且 no-tool/no-draft；仍缺 TTL、跨作品、历史会话只读态和持久 ConfirmationBinding snapshot | 补实现/补验收 | P0/P1 |
 | AU04-GAP-07 — task_state 真实入口完整展示不足 | Channel 可广播，`WorkspaceChat` 已订阅并映射到 longRun store；仍缺长跑全过程 UI 验收 | 补验收 | P1 |
 | AU04-GAP-08 — assistant_message 文本真值约束不足 | truthfulness map 存在，但缺 LLM 文案不撒谎测试 | 补测试 | P1 |
 | AU04-GAP-09 — 确认后失败恢复缺场景 | 缺工具失败、LLM 超时、恢复 action 的 UI/Channel 验收 | 补验收 | P1 |
@@ -375,7 +377,7 @@ mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
 ```text
 1. 已补：真实工作台高风险请求 -> 确认卡/动作可见 -> 点击确认 -> re-gate -> 待采纳结果（`au04-confirm-before-execute`）。
 2. 已补：重复点击确认时同一 idempotency_key 只执行一次（`au04-confirm-idempotency-ui`）。
-3. stale / expired / cross-work confirmation：旧动作不能确认当前作品任务。
+3. 已补当前 turn stale：旧确认不能在 follow-up 推进当前 turn 后继续执行（`au04-stale-confirmation-ui`）；expired / cross-work / 历史会话只读态仍待后续。
 4. 已补主路径：cancel/reject 关闭 pending confirmation，UI 恢复自然对话（`au10-workbench-recovery-cancel-waiting`）；trace/replay 矩阵仍缺。
 5. failure recovery：确认后工具失败时，UI 显示可恢复路径且无半写入。
 ```
@@ -385,6 +387,8 @@ mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
 ```bash
 bash scripts/tauri_slice_verify.sh au04-confirm-before-execute
 bash scripts/tauri_slice_verify.sh au04-confirm-idempotency-ui
+bash scripts/tauri_slice_verify.sh au04-stale-confirmation-ui
 bash scripts/quality_accept.sh au04-confirm-before-execute --surface tauri
 bash scripts/quality_accept.sh au04-confirm-idempotency-ui --surface tauri
+bash scripts/quality_accept.sh au04-stale-confirmation-ui --surface tauri
 ```
