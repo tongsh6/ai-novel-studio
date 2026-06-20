@@ -543,6 +543,51 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                String.contains?(reason, "source_turn_result not available")
     end
 
+    test "retained old confirmation turn is stale after current turn advances" do
+      {:ok, _, socket} =
+        UserSocket
+        |> socket("user_id", %{})
+        |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
+
+      socket = assign_server_turn(socket, @server_turn_result)
+
+      socket =
+        assign_server_turn(socket, %{
+          turn_id: "turn-action-2",
+          frame_ref: "frame-chan-2",
+          available_actions: [],
+          assistant_message: %{text: "新的上下文已经生成"},
+          truthfulness: %{
+            tool_called: false,
+            artifact_adopted: false,
+            production_write_performed: false
+          }
+        })
+
+      assert Map.has_key?(socket.assigns.turn_results_by_id, "turn-action-1")
+      assert socket.assigns.current_turn_id == "turn-action-2"
+
+      assert {:reply, {:error, %{reason: reason}}, socket} =
+               WorkspaceChannel.handle_in(
+                 "author_action",
+                 %{
+                   "action" => %{
+                     "source_turn_ref" => "turn-action-1",
+                     "action_id" => "act-confirm",
+                     "action_type" => "confirm_before_execute",
+                     "target_ref" => "text_analysis",
+                     "behavior_ref" => "bh-chan-1",
+                     "idempotency_key" => "ik-confirm"
+                   }
+                 },
+                 socket
+               )
+
+      assert String.contains?(reason, "stale")
+      assert socket.assigns.current_turn_id == "turn-action-2"
+      refute_broadcast("turn_result", %{}, 50)
+    end
+
     test "candidate adoption action goes through adoption boundary and broadcasts decision turn_result" do
       {:ok, _, socket} =
         UserSocket

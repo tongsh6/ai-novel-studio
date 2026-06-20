@@ -16,6 +16,11 @@ defmodule NovelWeb.WorkspaceChannel do
   alias NovelDomain.AuthorActionInput
 
   @turn_processing_failed_message "抱歉，这次处理失败了。未创建待采纳内容，也没有写入作品事实。你可以检查模型连接后重试，或继续对话。"
+  @current_turn_author_action_types [
+    "confirm_before_execute",
+    "reject_or_cancel_confirmation",
+    "cancel_pending_behavior"
+  ]
 
   @impl true
   def join("workspace:" <> suffix, payload, socket) do
@@ -194,7 +199,9 @@ defmodule NovelWeb.WorkspaceChannel do
     work_id = socket.assigns[:work_id] || ws_id
     session_id = socket.assigns[:session_id]
 
-    source_turn_result = source_turn_result(socket, source_turn_ref)
+    source_turn_result =
+      source_turn_result(socket, source_turn_ref, action_params["action_type"])
+
     LogContext.put_turn(ws_id, work_id, source_turn_ref, session_id)
 
     action_input = %AuthorActionInput{
@@ -739,6 +746,16 @@ defmodule NovelWeb.WorkspaceChannel do
         {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
 
       {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :dialogue_gateway_rejected,
+          outcome_detail: reason
+        })
+
         {:reply, {:error, %{reason: reason}}, socket}
     end
   end
@@ -1157,6 +1174,21 @@ defmodule NovelWeb.WorkspaceChannel do
       true ->
         Map.get(turn_results, source_turn_ref)
     end
+  end
+
+  defp source_turn_result(socket, source_turn_ref, action_type)
+       when action_type in @current_turn_author_action_types do
+    current_turn_id = socket.assigns[:current_turn_id]
+
+    if is_binary(current_turn_id) and source_turn_ref != current_turn_id do
+      %{turn_id: current_turn_id, available_actions: []}
+    else
+      source_turn_result(socket, source_turn_ref)
+    end
+  end
+
+  defp source_turn_result(socket, source_turn_ref, _action_type) do
+    source_turn_result(socket, source_turn_ref)
   end
 
   defp source_turn_for_artifact_action(socket, requested_ref, artifact_id) do
