@@ -5221,6 +5221,128 @@ async function driveAu04ConfirmationTtlUi(page) {
   ];
 }
 
+async function driveAu04DisabledConfirmationActionUi(page) {
+  const title = "AU04 禁用确认动作作品";
+  const disabledReason = "当前作品状态已变化，请重新生成计划后再确认。";
+  const work = await waitForWorkByTitle(title);
+  const joinRecord = await ensureWorkSelectedByTitle(page, title, work.id);
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("AU04禁用确认动作文本") &&
+      document.body.innerText.includes("禁用确认动作") &&
+      document.body.innerText.includes("确认执行") &&
+      document.body.innerText.includes("拒绝"),
+    { timeout: 20_000 },
+  );
+
+  const beforeAttemptFrameCount = frames.length;
+  const beforeAttemptLogCount = readAppLogRecords().length;
+  const visibleBeforeAttempt = await page.locator("body").innerText();
+  const confirmButton = page.getByRole("button", { name: "确认执行" }).first();
+  const rejectButton = page.getByRole("button", { name: "拒绝" }).first();
+  const confirmButtonCount = await page.getByRole("button", { name: "确认执行" }).count();
+  const rejectButtonCount = await page.getByRole("button", { name: "拒绝" }).count();
+  const confirmButtonDisabled = await confirmButton.isDisabled();
+  const rejectButtonDisabled = await rejectButton.isDisabled();
+  const confirmButtonTitle = await confirmButton.getAttribute("title");
+
+  let disabledClickBlockedByBrowser = false;
+  try {
+    await confirmButton.click({ timeout: 1_000 });
+  } catch {
+    disabledClickBlockedByBrowser = true;
+  }
+
+  await sleep(1_000);
+
+  const framesAfterAttempt = frames.slice(beforeAttemptFrameCount);
+  const logsAfterAttempt = readAppLogRecords().slice(beforeAttemptLogCount);
+  const sentAuthorActions = framesAfterAttempt.filter(
+    (frame) => frame.direction === "sent" && frame.event === "author_action",
+  );
+  const disabledConfirmActionFrames = sentAuthorActions.filter(
+    (frame) =>
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === "act_au04_disabled_confirm",
+  );
+  const channelAuthorActionRecords = logsAfterAttempt.filter((record) =>
+    String(record.event ?? "").startsWith("channel.author_action."),
+  );
+  const toolboxExecuteRecords = logsAfterAttempt.filter(
+    (record) => record.event === "toolbox.execute.done",
+  );
+  const pendingProseFragmentCount = framesAfterAttempt.reduce((count, frame) => {
+    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
+    return (
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "prose_fragment",
+      ).length
+    );
+  }, 0);
+
+  assert(confirmButtonCount >= 1, "Disabled confirmation card did not expose confirm action");
+  assert(rejectButtonCount >= 1, "Disabled confirmation card did not expose reject action");
+  assert(confirmButtonDisabled, "Confirm action was not disabled in the real workbench");
+  assert(!rejectButtonDisabled, "Reject action was disabled together with confirm");
+  assert(
+    confirmButtonTitle === disabledReason,
+    `Disabled confirm title did not explain reason: ${confirmButtonTitle ?? "null"}`,
+  );
+  assert(disabledClickBlockedByBrowser, "Disabled confirm click was not blocked by the browser");
+  assert(disabledConfirmActionFrames.length === 0, "Disabled confirm sent an author_action");
+  assert(sentAuthorActions.length === 0, "Disabled confirmation attempt sent an author_action");
+  assert(
+    channelAuthorActionRecords.length === 0,
+    "Disabled confirmation attempt reached the channel author_action boundary",
+  );
+  assert(
+    toolboxExecuteRecords.length === 0,
+    `Disabled confirmation dispatched tools ${toolboxExecuteRecords.length} times`,
+  );
+  assert(
+    pendingProseFragmentCount === 0,
+    `Disabled confirmation created ${pendingProseFragmentCount} pending prose fragments`,
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: "turn_au04_disabled_confirmation_seed",
+      turn_ids: ["turn_au04_disabled_confirmation_seed"],
+      work_id: work.id,
+      workspace_id: work.id,
+      session_id: joinRecord?.session_id,
+      confirmation_card_restored: true,
+      confirmation_card_visible:
+        visibleBeforeAttempt.includes("确认执行") && visibleBeforeAttempt.includes("拒绝"),
+      disabled_confirm_button_count: confirmButtonCount,
+      reject_button_count: rejectButtonCount,
+      disabled_confirm_visible: confirmButtonCount >= 1,
+      disabled_confirm_disabled: confirmButtonDisabled,
+      disabled_confirm_title: confirmButtonTitle,
+      disabled_reason_visible_via_title: confirmButtonTitle === disabledReason,
+      reject_action_still_enabled: !rejectButtonDisabled,
+      disabled_click_attempted: true,
+      disabled_click_blocked_by_browser: disabledClickBlockedByBrowser,
+      author_action_sent_count: sentAuthorActions.length,
+      disabled_confirm_action_sent_count: disabledConfirmActionFrames.length,
+      channel_author_action_log_count: channelAuthorActionRecords.length,
+      toolbox_execute_after_disabled_attempt_count: toolboxExecuteRecords.length,
+      pending_prose_fragment_after_disabled_attempt_count: pendingProseFragmentCount,
+      no_author_action_sent: sentAuthorActions.length === 0,
+      no_channel_author_action_log: channelAuthorActionRecords.length === 0,
+      no_tool_dispatch_after_disabled_attempt: toolboxExecuteRecords.length === 0,
+      no_pending_artifact_after_disabled_attempt: pendingProseFragmentCount === 0,
+      socket_connected: true,
+      duration_ms: 0,
+      outcome: "done",
+    },
+  ];
+}
+
 async function driveAu04HistoryConfirmationReadonly(page) {
   const joinReply = latestChannelJoinReply();
   const workId = joinReply?.body?.response?.work_id ?? joinReply?.body?.work_id ?? null;
@@ -10163,6 +10285,7 @@ const drivers = {
   "au04-confirm-idempotency-ui": driveAu04ConfirmIdempotencyUi,
   "au04-stale-confirmation-ui": driveAu04StaleConfirmationUi,
   "au04-confirmation-ttl-ui": driveAu04ConfirmationTtlUi,
+  "au04-disabled-confirmation-action-ui": driveAu04DisabledConfirmationActionUi,
   "au04-history-confirmation-readonly": driveAu04HistoryConfirmationReadonly,
   "au04-cross-work-confirmation-guard": driveAu04CrossWorkConfirmationGuard,
   "au04-latest-context-rebase-confirmation": driveAu04LatestContextRebaseConfirmation,

@@ -71,6 +71,7 @@ export const nativeSliceIds = [
   "au04-confirm-idempotency-ui",
   "au04-stale-confirmation-ui",
   "au04-confirmation-ttl-ui",
+  "au04-disabled-confirmation-action-ui",
   "au04-history-confirmation-readonly",
   "au04-cross-work-confirmation-guard",
   "au04-latest-context-rebase-confirmation",
@@ -343,6 +344,11 @@ const sliceKeyEvents = {
     "channel.join.done",
     "channel.author_action.start",
     "channel.author_action.error",
+    "slice_verify.ui_state.done",
+  ],
+  "au04-disabled-confirmation-action-ui": [
+    "work_session.resume.done",
+    "channel.join.done",
     "slice_verify.ui_state.done",
   ],
   "au04-history-confirmation-readonly": [
@@ -1102,6 +1108,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu04ConfirmationTtlUiEvidence(records);
   }
 
+  if (sliceId === "au04-disabled-confirmation-action-ui") {
+    return findAu04DisabledConfirmationActionUiEvidence(records);
+  }
+
   if (sliceId === "au04-history-confirmation-readonly") {
     return findAu04HistoryConfirmationReadonlyEvidence(records);
   }
@@ -1383,6 +1393,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au04-confirmation-ttl-ui") {
     return au04ConfirmationTtlUiBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au04-disabled-confirmation-action-ui") {
+    return au04DisabledConfirmationActionUiBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "au04-history-confirmation-readonly") {
@@ -6055,6 +6069,64 @@ function findAu04ConfirmationTtlUiEvidence(records) {
   };
 }
 
+function findAu04DisabledConfirmationActionUiEvidence(records) {
+  const sliceId = "au04-disabled-confirmation-action-ui";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.confirmation_card_restored === true &&
+      r.confirmation_card_visible === true &&
+      r.disabled_confirm_visible === true &&
+      r.disabled_confirm_disabled === true &&
+      r.disabled_reason_visible_via_title === true &&
+      r.reject_action_still_enabled === true &&
+      r.disabled_click_blocked_by_browser === true &&
+      r.no_author_action_sent === true &&
+      r.no_channel_author_action_log === true &&
+      r.no_tool_dispatch_after_disabled_attempt === true &&
+      r.no_pending_artifact_after_disabled_attempt === true &&
+      Number(r.author_action_sent_count ?? -1) === 0 &&
+      Number(r.disabled_confirm_action_sent_count ?? -1) === 0 &&
+      Number(r.channel_author_action_log_count ?? -1) === 0 &&
+      Number(r.toolbox_execute_after_disabled_attempt_count ?? -1) === 0 &&
+      Number(r.pending_prose_fragment_after_disabled_attempt_count ?? -1) === 0,
+  );
+  if (!uiState) return null;
+
+  const workId = String(uiState.work_id ?? "");
+  const sessionId = String(uiState.session_id ?? "");
+  const turnId = String(uiState.turn_id ?? "");
+  if (!workId || !sessionId || !turnId) return null;
+
+  const joined = records.some(
+    (r) => r.event === "channel.join.done" && r.work_id === workId && r.session_id === sessionId,
+  );
+  if (!joined) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: workId,
+    session_id: sessionId,
+    disabled_confirm_button_count: Number(uiState.disabled_confirm_button_count ?? 0),
+    reject_button_count: Number(uiState.reject_button_count ?? 0),
+    disabled_confirm_title: uiState.disabled_confirm_title,
+    author_action_sent_count: Number(uiState.author_action_sent_count ?? 0),
+    channel_author_action_log_count: Number(uiState.channel_author_action_log_count ?? 0),
+    toolbox_execute_after_disabled_attempt_count: Number(
+      uiState.toolbox_execute_after_disabled_attempt_count ?? 0,
+    ),
+    pending_prose_fragment_after_disabled_attempt_count: Number(
+      uiState.pending_prose_fragment_after_disabled_attempt_count ?? 0,
+    ),
+    key_events: keyEvents,
+  };
+}
+
 function findAu04HistoryConfirmationReadonlyEvidence(records) {
   const sliceId = "au04-history-confirmation-readonly";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -6825,6 +6897,53 @@ function au04ConfirmationTtlUiBehavior(turnIds, _turnRecords, records, evidence,
       "action_boundary_rejected_expired_confirmation",
       "expired_confirmation_did_not_dispatch_prose_writing",
       "expired_confirmation_did_not_create_pending_prose_fragment",
+    ],
+  };
+}
+
+function au04DisabledConfirmationActionUiBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  _options,
+) {
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === "au04-disabled-confirmation-action-ui",
+  );
+  if (!uiState) return null;
+  if (uiState.confirmation_card_restored !== true) return null;
+  if (uiState.disabled_confirm_visible !== true) return null;
+  if (uiState.disabled_confirm_disabled !== true) return null;
+  if (uiState.disabled_reason_visible_via_title !== true) return null;
+  if (uiState.reject_action_still_enabled !== true) return null;
+  if (uiState.disabled_click_blocked_by_browser !== true) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_channel_author_action_log !== true) return null;
+  if (uiState.no_tool_dispatch_after_disabled_attempt !== true) return null;
+  if (uiState.no_pending_artifact_after_disabled_attempt !== true) return null;
+  if (Number(uiState.author_action_sent_count ?? 0) !== 0) return null;
+  if (Number(uiState.toolbox_execute_after_disabled_attempt_count ?? 0) !== 0) return null;
+  if (Number(uiState.pending_prose_fragment_after_disabled_attempt_count ?? 0) !== 0) return null;
+
+  return {
+    slice_id: "au04-disabled-confirmation-action-ui",
+    behavior: "disabled_confirmation_action_is_visible_but_not_submittable",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    disabled_confirm_title: evidence.disabled_confirm_title,
+    assertions: [
+      "restored_confirmation_card_visible_in_real_workbench",
+      "confirm_before_execute_button_was_visible_but_disabled",
+      "disabled_reason_was_exposed_on_the_user_visible_action",
+      "reject_action_remained_available",
+      "disabled_confirm_attempt_did_not_send_author_action",
+      "disabled_confirm_attempt_did_not_reach_channel_action_boundary",
+      "disabled_confirm_attempt_did_not_dispatch_tool",
+      "disabled_confirm_attempt_did_not_create_pending_draft",
     ],
   };
 }

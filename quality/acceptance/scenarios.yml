@@ -288,6 +288,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au04-confirmation-ttl-ui.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au04-confirmation-ttl-ui --surface tauri
+  - id: au04-disabled-confirmation-action-ui
+    title: "禁用确认动作不可提交"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au04-disabled-confirmation-action-ui.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au04-disabled-confirmation-action-ui --surface tauri
   - id: au04-history-confirmation-readonly
     title: "历史确认只读不可执行"
     tier: nightly

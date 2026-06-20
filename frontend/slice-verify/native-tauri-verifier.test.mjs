@@ -72,6 +72,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au04-confirm-idempotency-ui");
     expect(nativeSliceIds).toContain("au04-stale-confirmation-ui");
     expect(nativeSliceIds).toContain("au04-confirmation-ttl-ui");
+    expect(nativeSliceIds).toContain("au04-disabled-confirmation-action-ui");
     expect(nativeSliceIds).toContain("au04-history-confirmation-readonly");
     expect(nativeSliceIds).toContain("au04-cross-work-confirmation-guard");
     expect(nativeSliceIds).toContain("au04-latest-context-rebase-confirmation");
@@ -187,6 +188,45 @@ describe("native Tauri slice verifier", () => {
         "action_boundary_rejected_expired_confirmation",
         "expired_confirmation_did_not_dispatch_prose_writing",
         "expired_confirmation_did_not_create_pending_prose_fragment",
+      ],
+    });
+  });
+
+  it("accepts AU-04 disabled confirmation evidence only when UI blocks submission", () => {
+    const records = au04DisabledConfirmationActionUiRecords();
+
+    const evidence = findNativeSliceEvidence("au04-disabled-confirmation-action-ui", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au04-disabled-confirmation-action-ui",
+      turn_id: "turn_au04_disabled_confirmation_seed",
+      work_id: "work-au04-disabled",
+      session_id: "session-au04-disabled",
+      disabled_confirm_button_count: 1,
+      reject_button_count: 1,
+      author_action_sent_count: 0,
+      channel_author_action_log_count: 0,
+      toolbox_execute_after_disabled_attempt_count: 0,
+      pending_prose_fragment_after_disabled_attempt_count: 0,
+      key_events: keyEventsForSlice("au04-disabled-confirmation-action-ui"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au04-disabled-confirmation-action-ui", records, evidence),
+    ).toEqual({
+      slice_id: "au04-disabled-confirmation-action-ui",
+      behavior: "disabled_confirmation_action_is_visible_but_not_submittable",
+      turn_ids: ["turn_au04_disabled_confirmation_seed"],
+      work_id: "work-au04-disabled",
+      session_id: "session-au04-disabled",
+      disabled_confirm_title: "当前作品状态已变化，请重新生成计划后再确认。",
+      assertions: [
+        "restored_confirmation_card_visible_in_real_workbench",
+        "confirm_before_execute_button_was_visible_but_disabled",
+        "disabled_reason_was_exposed_on_the_user_visible_action",
+        "reject_action_remained_available",
+        "disabled_confirm_attempt_did_not_send_author_action",
+        "disabled_confirm_attempt_did_not_reach_channel_action_boundary",
+        "disabled_confirm_attempt_did_not_dispatch_tool",
+        "disabled_confirm_attempt_did_not_create_pending_draft",
       ],
     });
   });
@@ -7980,6 +8020,51 @@ function au04ConfirmationTtlUiRecords() {
       no_tool_dispatch_after_expired: true,
       no_pending_artifact_after_expired: true,
       action_failure_visible: true,
+    },
+  ];
+}
+
+function au04DisabledConfirmationActionUiRecords() {
+  return [
+    {
+      event: "work_session.resume.done",
+      work_id: "work-au04-disabled",
+      session_id: "session-au04-disabled",
+      transcript_count: 2,
+    },
+    {
+      event: "channel.join.done",
+      work_id: "work-au04-disabled",
+      session_id: "session-au04-disabled",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-disabled-confirmation-action-ui",
+      turn_id: "turn_au04_disabled_confirmation_seed",
+      turn_ids: ["turn_au04_disabled_confirmation_seed"],
+      work_id: "work-au04-disabled",
+      workspace_id: "work-au04-disabled",
+      session_id: "session-au04-disabled",
+      confirmation_card_restored: true,
+      confirmation_card_visible: true,
+      disabled_confirm_button_count: 1,
+      reject_button_count: 1,
+      disabled_confirm_visible: true,
+      disabled_confirm_disabled: true,
+      disabled_confirm_title: "当前作品状态已变化，请重新生成计划后再确认。",
+      disabled_reason_visible_via_title: true,
+      reject_action_still_enabled: true,
+      disabled_click_attempted: true,
+      disabled_click_blocked_by_browser: true,
+      author_action_sent_count: 0,
+      disabled_confirm_action_sent_count: 0,
+      channel_author_action_log_count: 0,
+      toolbox_execute_after_disabled_attempt_count: 0,
+      pending_prose_fragment_after_disabled_attempt_count: 0,
+      no_author_action_sent: true,
+      no_channel_author_action_log: true,
+      no_tool_dispatch_after_disabled_attempt: true,
+      no_pending_artifact_after_disabled_attempt: true,
     },
   ];
 }

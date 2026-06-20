@@ -1,0 +1,59 @@
+id: au04-disabled-confirmation-action-ui
+title: 禁用确认动作不可提交
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au04-disabled-confirmation-action-ui --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/07-workbench-ui-contract.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - disabled-available-action-is-visible-but-not-submittable
+  - disabled-confirmation-does-not-send-author-action
+  - disabled-confirmation-does-not-dispatch-tool
+  - disabled-confirmation-does-not-create-pending-draft
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au04_disabled_confirmation_action_ui.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with a restored confirmation turn_result
+  - observe: confirmation card and confirm/reject actions are visible
+  - observe: confirm action is disabled and exposes its disabled reason
+  - attempt: user-like click against the disabled confirm action is blocked by the browser
+  - observe: no author_action websocket frame is sent
+  - observe: no Channel author_action log, toolbox dispatch, or pending draft is produced
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au04-disabled-confirmation-action-ui-tauri
+
+assertions:
+  ui:
+    - restored confirmation card is visible in the real workbench
+    - confirm_before_execute is visible but disabled
+    - disabled reason is exposed on the user-visible action
+    - reject remains available
+  network:
+    - disabled confirm does not send author_action
+    - disabled confirm does not reach Channel author_action boundary
+  data:
+    - no toolbox dispatch happens after disabled confirm attempt
+    - no pending prose_fragment is produced after disabled confirm attempt
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
