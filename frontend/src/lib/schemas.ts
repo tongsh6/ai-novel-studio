@@ -10,6 +10,11 @@ export {
   type ArtifactAdoptionEntry,
 } from "../generated/foundation/artifact_adoption_entry";
 
+export {
+  CandidateDirectionSchema,
+  type CandidateDirection,
+} from "../generated/foundation/candidate_direction";
+
 // 别名：去掉版本后缀，跟 backend 模块路径对齐。
 export { TurnResultV2Schema as TurnResultSchema } from "../generated/foundation/turn_result_v2";
 export type { TurnResultV2 as TurnResult } from "../generated/foundation/turn_result_v2";

@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { CandidateDirection, TurnResult } from "../../components/WorkspaceChat";
+import { CandidateDirectionSchema } from "../schemas";
 
 const baseTurnResult = (candidates: CandidateDirection[] | undefined): TurnResult => ({
   schema_version: "3.0-draft",
@@ -44,6 +45,9 @@ describe("TurnResult.candidate_directions contract", () => {
       },
     ];
     const result = baseTurnResult(candidates);
+    expect(candidates.every((candidate) => CandidateDirectionSchema.safeParse(candidate).success)).toBe(
+      true,
+    );
 
     // 这是 WorkspaceChat.tsx 的渲染门禁条件，必须为真
     expect(result.candidate_directions).toBeDefined();

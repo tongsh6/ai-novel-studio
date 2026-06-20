@@ -8,6 +8,7 @@
 
 | 文件 | 内容 |
 |---|---|
+| `foundation/candidate_direction.json` | 探索候选方向 schema；`adoption_status` 固定为 `not_adopted`，不同于 artifact adoption 7 态 |
 | `foundation/turn_result_v2.json` | TurnResult v2 顶层 schema |
 | `foundation/artifact_adoption_entry.json` | 采纳条目 schema |
 | `foundation/phase_next_action_compat.json` | phase / next_action 兼容 schema |

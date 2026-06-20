@@ -65,6 +65,13 @@
         "$ref": "foundation/ui_card.json"
       }
     },
+    "candidate_directions": {
+      "type": "array",
+      "description": "探索型 turn 的候选方向列表。候选方向是讨论材料，adoption_status 固定为 not_adopted，不使用 artifact adoption 7 态。",
+      "items": {
+        "$ref": "foundation/candidate_direction.json"
+      }
+    },
     "behavior_state": {
       "type": "object",
       "description": "本轮活跃 behavior 的快照。durable / instant 分类见 30 §6。",

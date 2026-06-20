@@ -116,7 +116,7 @@ const candidate = (directionId = "dir-1"): CandidateDirection => ({
   title: "赛博公司垄断流",
   pitch: "底层散修对抗大厂灵气垄断。",
   tone_tags: ["赛博", "修真"],
-  adoption_status: "candidate",
+  adoption_status: "not_adopted",
 });
 
 const turnResult = (overrides: Partial<TurnResult> = {}): TurnResult => ({

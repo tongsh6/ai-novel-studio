@@ -1,0 +1,50 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "foundation/candidate_direction.json",
+  "title": "CandidateDirection",
+  "description": "创作探索候选方向。候选方向是灵感入口，不是 artifact adoption entry；adoption_status 固定为 not_adopted。",
+  "type": "object",
+  "required": [
+    "direction_id",
+    "title",
+    "pitch",
+    "tone_tags",
+    "adoption_status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "direction_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "候选方向在本 TurnResult 内的稳定引用。"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "作者可见候选标题。"
+    },
+    "pitch": {
+      "type": "string",
+      "minLength": 1,
+      "description": "作者可见候选简介。"
+    },
+    "tone_tags": {
+      "type": "array",
+      "description": "作者可见风格标签；没有标签时为空数组。",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "risk_hint": {
+      "type": "string",
+      "description": "候选后续采纳风险提示。缺省按 low 处理。",
+      "enum": ["low", "medium", "high"]
+    },
+    "adoption_status": {
+      "type": "string",
+      "description": "候选方向不是 artifact，探索阶段只能是 not_adopted。",
+      "enum": ["not_adopted"]
+    }
+  }
+}

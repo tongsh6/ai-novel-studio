@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { TurnResultSchema } from "../schemas";
+import { CandidateDirectionSchema, TurnResultSchema } from "../schemas";
 
 const minimalValid = {
   schema_version: "2.0.0",
@@ -90,5 +90,37 @@ describe("TurnResultSchema", () => {
     };
     const result = TurnResultSchema.safeParse(payload);
     expect(result.success).toBe(true);
+  });
+});
+
+describe("CandidateDirectionSchema", () => {
+  const validCandidate = {
+    direction_id: "dir_001",
+    title: "赛博公司垄断流",
+    pitch: "底层散修对抗大厂灵气垄断",
+    tone_tags: ["压抑", "反叛"],
+    risk_hint: "high",
+    adoption_status: "not_adopted",
+  };
+
+  it("接受候选方向 canonical 字段", () => {
+    const parsed = CandidateDirectionSchema.parse(validCandidate);
+    expect(parsed.adoption_status).toBe("not_adopted");
+    expect(parsed.tone_tags).toEqual(["压抑", "反叛"]);
+  });
+
+  it("拒绝把 artifact adoption 状态用于候选方向", () => {
+    const result = CandidateDirectionSchema.safeParse({
+      ...validCandidate,
+      adoption_status: "TENTATIVE",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("拒绝缺失 adoption_status 的候选方向", () => {
+    const { adoption_status: _omit, ...payload } = validCandidate;
+    void _omit;
+    const result = CandidateDirectionSchema.safeParse(payload);
+    expect(result.success).toBe(false);
   });
 });
