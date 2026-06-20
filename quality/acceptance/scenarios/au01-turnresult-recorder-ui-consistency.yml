@@ -1,0 +1,58 @@
+id: au01-turnresult-recorder-ui-consistency
+title: TurnResult、recorder 与恢复 UI 一致
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au01-turnresult-recorder-ui-consistency --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-01-chat.md
+  - docs/design/schemas/foundation/turn_result_v2.json
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - turn-result-is-canonical-output
+  - interaction-recorder-persists-visible-assistant-message
+  - active-session-restore-renders-recorded-turn-result
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: an ordinary creative chat message that explicitly asks for discussion only
+  - click: 发送
+  - observe: the current UI shows the user message and assistant reply from websocket turn_result
+  - inspect: active session transcript through the product session snapshot API
+  - assert: assistant transcript row text equals websocket turn_result.assistant_message.text
+  - assert: assistant transcript row embeds the same turn_result assistant message
+  - reload: the real Tauri webview
+  - observe: startup resume restores the same user and assistant text from persisted transcript
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au01-turnresult-recorder-ui-consistency-tauri
+
+assertions:
+  ui:
+    - current workbench shows the websocket turn_result assistant text
+    - after reload, the workbench restores the same assistant text from active session transcript
+    - input remains enabled after restored transcript
+  network:
+    - ordinary chat sends user_message with generate_micro_plan=false
+    - websocket turn_result contains assistant_message.text
+  data:
+    - interaction recorder persisted user and assistant rows for the same turn_id
+    - assistant transcript text equals visible assistant text
+    - assistant transcript turn_result.assistant_message.text equals websocket turn_result.assistant_message.text
+    - session snapshot is loaded through the web application persistence boundary
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

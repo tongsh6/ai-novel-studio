@@ -1,0 +1,60 @@
+id: au01-garbage-json-recovery
+title: LLM 乱码 JSON 时友好降级并恢复聊天
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au01-garbage-json-recovery --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-01-chat.md
+  - docs/design/01-user-llm-workbench-interaction-model.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - malformed-provider-json-renders-friendly-fallback
+  - raw-provider-output-not-visible
+  - chat-recovers-after-malformed-frame
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: a normal chat message whose author text asks the slice provider to return malformed frame JSON
+  - click: 发送
+  - observe: assistant message shows a friendly contract-format fallback
+  - inspect: raw malformed provider payload is not visible in the page
+  - observe: input remains enabled, thinking clears, and service status does not become disconnected
+  - input: a following normal creative chat message
+  - click: 发送
+  - observe: assistant reply completes normally without a micro-plan
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au01-garbage-json-recovery-tauri
+
+assertions:
+  ui:
+    - malformed provider JSON renders an author-readable fallback
+    - raw provider payload is not visible
+    - thinking indicator clears after fallback
+    - input remains enabled after fallback
+    - following normal chat message completes visibly
+  network:
+    - malformed-triggering chat sends user_message with generate_micro_plan=false
+    - following normal chat sends user_message with generate_micro_plan=false
+    - both turns receive turn_result through the real Channel
+  data:
+    - both turns complete DialogueGateway handling
+    - no planner.form_micro_plan event is recorded for either turn
+    - Channel remains connected after the malformed provider response
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

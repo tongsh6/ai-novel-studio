@@ -15,6 +15,8 @@ defmodule NovelWeb.WorkspaceChannel do
   alias NovelCommon.LogContext
   alias NovelDomain.AuthorActionInput
 
+  @turn_processing_failed_message "抱歉，这次处理失败了。未创建待采纳内容，也没有写入作品事实。你可以检查模型连接后重试，或继续对话。"
+
   @impl true
   def join("workspace:" <> suffix, payload, socket) do
     work_id = resolve_join_work_id(suffix, payload)
@@ -993,7 +995,7 @@ defmodule NovelWeb.WorkspaceChannel do
       {:error, reason} ->
         turn_result =
           socket
-          |> fallback_turn_result(input, inspect(reason))
+          |> fallback_turn_result(input)
 
         turn_result = scope_turn_result(socket, turn_result)
 
@@ -1221,7 +1223,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp map_field(_map, _key), do: nil
 
-  defp fallback_turn_result(socket, input, reason) do
+  defp fallback_turn_result(socket, input) do
     turn_id = input[:turn_id] || "turn_#{System.unique_integer([:positive, :monotonic])}"
 
     work_id =
@@ -1238,11 +1240,11 @@ defmodule NovelWeb.WorkspaceChannel do
       current_work_id: work_id,
       session_id: session_id,
       assistant_message: %{
-        text: "抱歉，这次处理失败了。未创建待采纳内容，也没有写入作品事实。你可以检查模型连接后重试，或继续对话。"
+        text: @turn_processing_failed_message
       },
       phase: "completed",
       status: "error",
-      error: reason,
+      error: "turn_processing_failed",
       next_action: "recover",
       available_actions: [],
       candidate_directions: [],
@@ -1256,7 +1258,7 @@ defmodule NovelWeb.WorkspaceChannel do
       errors: [
         %{
           reason_code: "turn_processing_failed",
-          message: reason
+          message: @turn_processing_failed_message
         }
       ]
     }

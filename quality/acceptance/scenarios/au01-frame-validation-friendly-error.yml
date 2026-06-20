@@ -1,0 +1,60 @@
+id: au01-frame-validation-friendly-error
+title: frame 校验失败时作者友好提示
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au01-frame-validation-friendly-error --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-01-chat.md
+  - docs/design/01-user-llm-workbench-interaction-model.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - forbidden-frame-semantics-blocked
+  - internal-validation-reason-not-user-visible
+  - chat-recovers-after-frame-validation-failure
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: a normal chat message whose author text asks the slice provider to return a frame with forbidden execution semantics
+  - click: 发送
+  - observe: assistant message shows a generic friendly fallback with no tool/write/adoption claim
+  - inspect: page text and websocket turn_result do not expose frame validation internals
+  - observe: input remains enabled, thinking clears, and service status does not become disconnected
+  - input: a following normal creative chat message
+  - click: 发送
+  - observe: assistant reply completes normally without a micro-plan
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au01-frame-validation-friendly-error-tauri
+
+assertions:
+  ui:
+    - frame validation failure renders an author-readable fallback
+    - internal validation reason is not visible
+    - thinking indicator clears after fallback
+    - input remains enabled after fallback
+    - following normal chat message completes visibly
+  network:
+    - invalid-frame-triggering chat sends user_message with generate_micro_plan=false
+    - websocket turn_result does not expose internal validation reason
+    - following normal chat sends user_message with generate_micro_plan=false
+  data:
+    - invalid frame is blocked by DialogueGateway validation
+    - following recovery turn completes DialogueGateway handling
+    - no planner.form_micro_plan event is recorded for either turn
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

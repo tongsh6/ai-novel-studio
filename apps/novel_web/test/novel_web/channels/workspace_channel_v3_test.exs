@@ -154,7 +154,11 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert result.truthfulness.artifact_adopted == false
       assert result.truthfulness.production_write_performed == false
       assert [%{reason_code: "turn_processing_failed", message: message}] = result.errors
-      assert message =~ "text is required"
+      assert message =~ "未创建待采纳内容"
+      assert result.error == "turn_processing_failed"
+      refute message =~ "text is required"
+      refute inspect(result) =~ "frame validation failed"
+      refute inspect(result) =~ "forbidden semantics"
     end
 
     test "turn_result has required v3 fields" do
