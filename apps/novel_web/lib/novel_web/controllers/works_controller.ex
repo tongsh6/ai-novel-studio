@@ -38,6 +38,21 @@ defmodule NovelWeb.WorksController do
     end
   end
 
+  @doc "POST /api/works/ensure-initial — idempotently return or create the startup work."
+  def ensure_initial(conn, params) do
+    attrs = Map.take(params, ["title", "genre"])
+
+    case WorkService.ensure_initial(attrs) do
+      {:ok, work} ->
+        json(conn, %{work: serialize(work)})
+
+      {:error, %Ecto.Changeset{} = cs} ->
+        conn
+        |> put_status(:unprocessable_entity)
+        |> json(%{errors: changeset_errors(cs)})
+    end
+  end
+
   @doc "PATCH /api/works/:id — rename a work."
   def update(conn, %{"id" => id} = params) do
     attrs = Map.take(params, ["title", "revision"])

@@ -42,6 +42,25 @@ defmodule NovelApplication.WorkService do
     end
   end
 
+  @doc """
+  Ensure startup has a real active work. This is intentionally separate from
+  `create/1`: startup should be idempotent, while the author-facing create
+  action must still allow multiple unnamed works.
+  """
+  @spec ensure_initial(map()) :: {:ok, work_dto()} | {:error, Ecto.Changeset.t() | term()}
+  def ensure_initial(attrs \\ %{}) when is_map(attrs) do
+    attrs =
+      attrs
+      |> normalize_attrs()
+      |> Map.put_new("title", "未命名作品")
+      |> Map.drop(["revision"])
+
+    case WorkRepo.ensure_initial(attrs) do
+      {:ok, work} -> {:ok, to_dto(work)}
+      {:error, _reason} = err -> err
+    end
+  end
+
   @doc "Rename an existing work. Returns `:not_found` when id does not exist."
   @spec rename(String.t(), map()) ::
           {:ok, work_dto()} | :not_found | {:error, :revision_conflict | Ecto.Changeset.t()}

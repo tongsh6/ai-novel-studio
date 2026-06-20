@@ -145,8 +145,8 @@ describe("card type contracts", () => {
     expect(getPendingAdoptionCount(state)).toBe(1);
   });
 
-  it("reading mode does not expose internal projection ids as author-facing titles", () => {
-    expect(readingWorkTitle("未命名作品")).toBe("当前作品");
+  it("reading mode keeps real unnamed titles but hides internal projection ids", () => {
+    expect(readingWorkTitle("未命名作品")).toBe("未命名作品");
     expect(readingWorkTitle("作品加载失败")).toBe("当前作品");
     expect(readingWorkTitle("artifact-123")).toBe("当前作品");
 

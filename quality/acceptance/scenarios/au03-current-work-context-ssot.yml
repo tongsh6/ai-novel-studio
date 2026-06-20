@@ -1,0 +1,60 @@
+id: au03-current-work-context-ssot
+title: 最新作品背景与当前会话 transcript 分层
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au03-current-work-context-ssot --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - tasks/slices/AU03-current-work-archive-evidence-entry.md
+
+invariants:
+  - current-work-snapshot-is-latest-work
+  - active-session-transcript-is-current-session-only
+  - historical-session-transcript-does-not-override-current-work
+  - prompt-contains-current-work-and-active-session-context
+
+setup:
+  seed: scripts/seed_au03_current_work_context_ssot.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - search: 旧主角命名
+  - click: 旧主角命名讨论
+  - observe: historical transcript is visible with read-only banner
+  - click: 返回当前会话
+  - input: 主角现在的核心动机是什么？
+  - click: 发送
+  - verify: current Work snapshot and active session transcript are used without historical leak
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au03-current-work-context-ssot-tauri
+
+assertions:
+  ui:
+    - historical session opens read-only before the next turn
+    - active session is restored before sending
+    - active session is writable after restore
+  network:
+    - work_session.show loads the historical read-only source session
+    - user_message is sent from the active session
+    - context.assemble records snapshot and conversation context
+  data:
+    - context contains current Work snapshot
+    - context contains active session transcript
+    - historical session transcript does not replace current Work facts
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

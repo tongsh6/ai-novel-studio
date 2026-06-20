@@ -223,6 +223,7 @@ export const WORKBENCH = {
   workMenuRefresh: "刷新作品列表",
   workMenuSwitching: "切换中",
   workMenuEmpty: "暂无作品",
+  workMenuDuplicateIndex: (index: number) => `第 ${index} 个`,
   unnamedWorkTitle: "未命名作品",
   workCreateDialogTitle: "新建作品",
   workRenameDialogTitle: "修改作品名",
@@ -276,6 +277,8 @@ export const WORKBENCH = {
   modelProviderApiKeyPlaceholder: "保留已保存的 Key",
   modelProviderApiKeyConfigured: "已保存 Key",
   modelProviderClearApiKey: "清除已保存 Key",
+  modelProviderApiKeyStorageUnsupported:
+    "当前系统暂不支持从桌面安全保存 API Key；请使用 macOS 配置 Key，或使用已在后端环境中配置的 Key / 本地 LM Studio。",
   modelProviderThinkingField: "思考模式",
   modelProviderThinkingDisabled: "关闭",
   modelProviderThinkingEnabled: "开启",

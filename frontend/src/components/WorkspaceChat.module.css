@@ -147,10 +147,25 @@
 }
 
 .workMenuItemTitle {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
   flex: 1;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.workMenuItemTitle > span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.workMenuItemMeta {
+  flex: 0 0 auto;
+  color: var(--foreground-secondary);
+  font-family: var(--mono);
+  font-size: 10px;
 }
 
 .workMenuCurrent {

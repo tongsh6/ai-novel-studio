@@ -1,0 +1,61 @@
+id: au03-archive-session-filter
+title: 归档会话默认隐藏且可搜索回看
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au03-archive-session-filter --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - tasks/slices/AU03-current-work-archive-evidence-entry.md
+
+invariants:
+  - archived-session-hidden-from-default-list
+  - archived-session-searchable-for-replay
+  - archived-session-transcript-preserved
+  - ordinary-context-excludes-archived-session
+
+setup:
+  seed: scripts/seed_au03_session_history_readonly.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - search: 林瑶旧线索
+  - click: 林瑶旧线索讨论
+  - observe: historical transcript is visible with read-only banner
+  - click: 归档会话
+  - clear: session search
+  - verify: archived session is hidden from default list
+  - search: 林瑶旧线索
+  - verify: archived session can be found and reopened read-only
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au03-archive-session-filter-tauri
+
+assertions:
+  ui:
+    - archive starts from visible session list control
+    - archived session disappears from default list
+    - explicit search finds archived session
+    - archived transcript opens read-only
+  network:
+    - work_session.show loads the historical source session
+    - work_session.archive persists ARCHIVED status
+    - work_session.show can reload the archived transcript
+  data:
+    - archived transcript is not deleted
+    - ordinary context exclusion is covered by application test
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
+

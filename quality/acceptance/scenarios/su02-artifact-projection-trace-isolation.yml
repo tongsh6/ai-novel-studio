@@ -1,0 +1,76 @@
+id: su02-artifact-projection-trace-isolation
+title: 作品间 artifact / projection / trace 隔离
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su02-artifact-projection-trace-isolation --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - tasks/slices/SU02-artifact-projection-trace-isolation.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - pending-artifact-stays-in-source-work
+  - accepted-artifact-materializes-only-source-reading-projection
+  - target-reading-projection-remains-empty-after-source-adoption
+  - target-trace-and-why-exclude-source-artifact-context
+  - no-product-acceptance-hooks
+
+setup:
+  seed: adopted chapter plan in source work; target work created through visible work menu
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - select: seeded source work from visible work menu
+  - open: archive outline tab
+  - click: generate prose draft for chapter 1
+  - observe: source pending prose artifact is visible
+  - create: named target work through visible work menu
+  - observe: target work does not show source pending artifact
+  - open: target reading mode
+  - observe: target reading projection is empty
+  - select: source work again from visible work menu
+  - observe: source pending artifact is restored
+  - click: save source prose artifact
+  - open: source reading mode
+  - observe: source reading projection contains adopted prose
+  - select: target work again
+  - open: target reading mode
+  - observe: target reading projection remains empty
+  - input: ordinary target-work trace probe
+  - click: send
+  - open: latest why dialog
+  - observe: target trace/why does not include source artifact or source chapter context
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su02-artifact-projection-trace-isolation-tauri
+
+assertions:
+  ui:
+    - source pending artifact disappears after switching to target work
+    - source pending artifact restores after switching back to source work
+    - source reading mode is populated after adoption
+    - target reading mode stays empty before and after source adoption
+    - target why dialog excludes source artifact context
+  network:
+    - source draft generation runs under source work_id
+    - source accept author_action uses the source workspace topic
+    - target trace probe user_message uses target work_id
+  data:
+    - source get_toc and get_chapter_content are populated
+    - target get_toc remains chapter_count=0 and total_word_count=0
+    - source and target work ids are distinct persisted works
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -23,7 +23,6 @@ describe("WorkspaceRuntimeState", () => {
   it("normalizes invalid work titles to current work", () => {
     for (const title of [
       "",
-      "未命名作品",
       "无活跃作品",
       "作品加载失败",
       "未连接",
@@ -39,6 +38,14 @@ describe("WorkspaceRuntimeState", () => {
 
       expect(getVisibleWorkTitle(state)).toBe("当前作品");
     }
+  });
+
+  it("keeps the unnamed work title visible because it is a real persisted work name", () => {
+    const state = deriveWorkspaceRuntimeState({
+      work: { id: "work-1", title: "未命名作品" },
+    });
+
+    expect(getVisibleWorkTitle(state)).toBe("未命名作品");
   });
 
   it("does not show a disconnected badge when socket is connected and work is ready", () => {

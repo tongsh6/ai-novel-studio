@@ -110,7 +110,6 @@ export interface WorkspaceRuntimeState {
 }
 
 const INVALID_WORK_TITLES = new Set([
-  "未命名作品",
   "无活跃作品",
   "作品加载失败",
   "作品上下文加载失败",

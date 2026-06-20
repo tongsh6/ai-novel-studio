@@ -59,6 +59,21 @@ defmodule NovelApplication.WorkServiceTest do
     end
   end
 
+  describe "ensure_initial/1" do
+    test "creates the default unnamed work only when the active list is empty" do
+      assert WorkService.list() == []
+
+      assert {:ok, first} = WorkService.ensure_initial(%{"title" => "未命名作品"})
+      assert first.title == "未命名作品"
+      assert WorkService.list() |> Enum.map(& &1.id) == [first.id]
+
+      assert {:ok, second} = WorkService.ensure_initial(%{"title" => "另一个未命名作品"})
+      assert second.id == first.id
+      assert second.title == "未命名作品"
+      assert WorkService.list() |> Enum.map(& &1.id) == [first.id]
+    end
+  end
+
   describe "get/1" do
     test "nil when missing" do
       assert WorkService.get(Ecto.UUID.generate()) == nil

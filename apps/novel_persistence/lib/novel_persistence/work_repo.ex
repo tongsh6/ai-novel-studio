@@ -33,6 +33,29 @@ defmodule NovelPersistence.WorkRepo do
     |> Repo.insert()
   end
 
+  @doc "Return the newest active work, creating one when the active list is empty."
+  @spec ensure_initial(map()) :: {:ok, Work.t()} | {:error, Ecto.Changeset.t() | term()}
+  def ensure_initial(attrs) when is_map(attrs) do
+    attrs
+    |> transaction_initial_work()
+    |> unwrap_initial_work_transaction()
+  end
+
+  defp transaction_initial_work(attrs) do
+    Repo.transaction(fn -> get_or_create_initial_work(attrs) end)
+  end
+
+  defp get_or_create_initial_work(attrs) do
+    case list() do
+      [work | _] -> {:ok, work}
+      [] -> create(attrs)
+    end
+  end
+
+  defp unwrap_initial_work_transaction({:ok, {:ok, work}}), do: {:ok, work}
+  defp unwrap_initial_work_transaction({:ok, {:error, reason}}), do: {:error, reason}
+  defp unwrap_initial_work_transaction({:error, reason}), do: {:error, reason}
+
   @doc "Get a work by binary_id; nil when missing."
   @spec get(String.t()) :: Work.t() | nil
   def get(id) when is_binary(id) do

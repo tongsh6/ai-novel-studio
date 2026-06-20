@@ -39,6 +39,17 @@ export async function createWork(input: { title: string; genre?: string }): Prom
   return body.work;
 }
 
+export async function ensureInitialWork(input: { title: string; genre?: string }): Promise<WorkDto> {
+  const res = await fetch(url("/api/works/ensure-initial"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input),
+  });
+  if (!res.ok) throw new Error(`ensureInitialWork failed: HTTP ${res.status}`);
+  const body = (await res.json()) as { work: WorkDto };
+  return body.work;
+}
+
 export async function renameWork(
   id: string,
   input: { title: string; revision?: number },
@@ -132,6 +143,15 @@ export function pickInitialWorkId(works: WorkDto[], lastOpened: string | null): 
   if (works.length === 0) return null;
   if (lastOpened && works.some((w) => w.id === lastOpened)) return lastOpened;
   return works[0].id;
+}
+
+export function duplicateWorkTitleIndex(work: WorkDto, works: WorkDto[]): number | null {
+  const title = normalizeWorkTitle(work.title);
+  const sameTitleWorks = works.filter((item) => normalizeWorkTitle(item.title) === title);
+  if (sameTitleWorks.length <= 1) return null;
+
+  const index = sameTitleWorks.findIndex((item) => item.id === work.id);
+  return index === -1 ? null : index + 1;
 }
 
 export function shouldPersistLastOpenedWorkId(id: string | null): id is string {

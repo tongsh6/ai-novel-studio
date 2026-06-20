@@ -31,6 +31,8 @@ import {
 import {
   listWorks,
   createWork,
+  duplicateWorkTitleIndex,
+  ensureInitialWork,
   renameWork,
   discardWork,
   normalizeWorkTitle,
@@ -84,6 +86,7 @@ import {
   isValidProviderEndpoint,
   listProviderModels,
   loadAndSyncModelProviderState,
+  providerApiKeyStorageUnavailable,
   providerDisplayName,
   providerOption,
   saveAndApplyModelProviderConfig,
@@ -101,6 +104,7 @@ import {
   candidateContinuationText,
 } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
+import type { CandidateDirection as CandidateDirectionContract } from "../lib/schemas";
 import { toAuthorTraceSummary, type TraceSummaryView } from "../lib/traceSummaryView";
 import { framePresentationForSummary } from "../lib/framePresentation";
 import {
@@ -148,14 +152,7 @@ export interface AvailableAction extends AvailableActionLike {
   target_ref?: string;
 }
 
-export interface CandidateDirection {
-  direction_id: string;
-  title: string;
-  pitch: string;
-  tone_tags: string[];
-  risk_hint?: "low" | "medium" | "high";
-  adoption_status?: string;
-}
+export type CandidateDirection = CandidateDirectionContract;
 
 export interface ArtifactEntry {
   artifact_id: string;
@@ -438,6 +435,19 @@ function modelProviderDraftHasInvalidEndpoint(
   return Boolean(option?.supports_endpoint) && !isValidProviderEndpoint(draft.endpoint);
 }
 
+function modelProviderNeedsUnavailableApiKeyStorage(
+  draft: ModelProviderDraft,
+  state: ModelProviderRuntimeState | null,
+): boolean {
+  if (!state) return false;
+  const option = state ? providerOption(state.options, draft.provider) : undefined;
+  return Boolean(
+    option?.requires_api_key &&
+      providerApiKeyStorageUnavailable(option, state.secretStorage) &&
+      !draft.apiKeyConfigured,
+  );
+}
+
 function errorDetail(error: unknown): string | null {
   if (error instanceof Error && error.message.trim()) return error.message.trim();
   if (typeof error === "string" && error.trim()) return error.trim();
@@ -448,6 +458,36 @@ type WorkLifecycleDialog =
   | { mode: "create"; title: string; error: string | null; submitting: boolean }
   | { mode: "rename"; work: WorkDto; title: string; error: string | null; submitting: boolean }
   | { mode: "discard"; work: WorkDto; error: string | null; submitting: boolean };
+
+type InitialWorkBootstrap = {
+  availableWorks: WorkDto[];
+  initialId: string;
+};
+
+type WorkbenchGlobal = typeof globalThis & {
+  __aiNovelInitialWorkBootstrapPromise?: Promise<InitialWorkBootstrap> | null;
+};
+
+async function resolveInitialWorkBootstrap(): Promise<InitialWorkBootstrap> {
+  const bootstrapGlobal = globalThis as WorkbenchGlobal;
+  if (!bootstrapGlobal.__aiNovelInitialWorkBootstrapPromise) {
+    bootstrapGlobal.__aiNovelInitialWorkBootstrapPromise = (async () => {
+      let availableWorks = await listWorks();
+      let initialId = pickInitialWorkId(availableWorks, await getLastOpenedWorkId());
+      if (!initialId) {
+        const created = await ensureInitialWork({ title: WORKBENCH.unnamedWorkTitle });
+        availableWorks = [created, ...availableWorks];
+        initialId = created.id;
+      }
+
+      return { availableWorks, initialId };
+    })().finally(() => {
+      bootstrapGlobal.__aiNovelInitialWorkBootstrapPromise = null;
+    });
+  }
+
+  return bootstrapGlobal.__aiNovelInitialWorkBootstrapPromise;
+}
 
 export function WorkspaceChat() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -839,14 +879,7 @@ export function WorkspaceChat() {
 
   async function loadWorksAndOpenInitial() {
     try {
-      let availableWorks = await listWorks();
-      let initialId = pickInitialWorkId(availableWorks, await getLastOpenedWorkId());
-      if (!initialId) {
-        const created = await createWork({ title: WORKBENCH.unnamedWorkTitle });
-        availableWorks = [created, ...availableWorks];
-        initialId = created.id;
-      }
-
+      const { availableWorks, initialId } = await resolveInitialWorkBootstrap();
       setWorks(availableWorks);
       const work = availableWorks.find((item) => item.id === initialId);
       if (!work) throw new Error(`selected work not found: ${initialId}`);
@@ -1599,6 +1632,12 @@ export function WorkspaceChat() {
       return;
     }
 
+    if (modelProviderNeedsUnavailableApiKeyStorage(draft, state)) {
+      setModelProviderModelsLoading(false);
+      setModelProviderModelsMessage(WORKBENCH.modelProviderApiKeyStorageUnsupported);
+      return;
+    }
+
     setModelProviderModelsLoading(true);
 
     try {
@@ -1647,6 +1686,11 @@ export function WorkspaceChat() {
       return;
     }
 
+    if (modelProviderNeedsUnavailableApiKeyStorage(modelProviderDraft, modelProviderState)) {
+      setModelProviderMessage(WORKBENCH.modelProviderApiKeyStorageUnsupported);
+      return;
+    }
+
     setModelProviderTesting(true);
     setModelProviderMessage(null);
 
@@ -1682,6 +1726,11 @@ export function WorkspaceChat() {
     if (modelProviderSaving) return;
     if (modelProviderDraftHasInvalidEndpoint(modelProviderDraft, modelProviderState)) {
       setModelProviderMessage(WORKBENCH.modelProviderEndpointInvalid);
+      return;
+    }
+
+    if (modelProviderNeedsUnavailableApiKeyStorage(modelProviderDraft, modelProviderState)) {
+      setModelProviderMessage(WORKBENCH.modelProviderApiKeyStorageUnsupported);
       return;
     }
 
@@ -1780,12 +1829,19 @@ export function WorkspaceChat() {
     modelProviderDraft,
     modelProviderState,
   );
+  const modelProviderApiKeyStorageBlocked =
+    modelProviderState && draftProviderOption
+      ? providerApiKeyStorageUnavailable(draftProviderOption, modelProviderState.secretStorage)
+      : false;
+  const modelProviderRequiresUnavailableApiKeyStorage =
+    modelProviderNeedsUnavailableApiKeyStorage(modelProviderDraft, modelProviderState);
   const modelProviderSaveDisabled =
     !modelProviderState ||
     modelProviderSaving ||
     modelProviderTesting ||
     modelProviderModelsLoading ||
     modelProviderEndpointInvalid ||
+    modelProviderRequiresUnavailableApiKeyStorage ||
     (modelProviderRequiresModel &&
       (modelProviderDraft.model.trim() === "" || modelProviderModels.length === 0));
 
@@ -1827,6 +1883,7 @@ export function WorkspaceChat() {
                 ) : (
                   works.map((work) => {
                     const isCurrent = work.id === context.workId;
+                    const duplicateIndex = duplicateWorkTitleIndex(work, works);
                     return (
                       <div key={work.id} className={styles.workMenuRow}>
                         <DropdownMenu.Item
@@ -1837,7 +1894,14 @@ export function WorkspaceChat() {
                             void handleSelectWork(work);
                           }}
                         >
-                          <span className={styles.workMenuItemTitle}>{work.title}</span>
+                          <span className={styles.workMenuItemTitle}>
+                            <span>{work.title}</span>
+                            {duplicateIndex !== null && (
+                              <span className={styles.workMenuItemMeta}>
+                                {WORKBENCH.workMenuDuplicateIndex(duplicateIndex)}
+                              </span>
+                            )}
+                          </span>
                           {isCurrent && (
                             <span className={styles.workMenuCurrent}>
                               {WORKBENCH.workMenuCurrent}
@@ -2168,7 +2232,8 @@ export function WorkspaceChat() {
                           disabled={
                             modelProviderSaving ||
                             modelProviderTesting ||
-                            modelProviderDraft.clearApiKey
+                            modelProviderDraft.clearApiKey ||
+                            modelProviderApiKeyStorageBlocked
                           }
                           onChange={(event) => {
                             setModelProviderModels([]);
@@ -2186,12 +2251,21 @@ export function WorkspaceChat() {
                             {WORKBENCH.modelProviderApiKeyConfigured}
                           </div>
                         )}
+                        {modelProviderApiKeyStorageBlocked && (
+                          <div className={styles.dialogHint}>
+                            {WORKBENCH.modelProviderApiKeyStorageUnsupported}
+                          </div>
+                        )}
                         {modelProviderDraft.apiKeyConfigured && (
                           <label className={styles.dialogCheckboxRow}>
                             <input
                               type="checkbox"
                               checked={modelProviderDraft.clearApiKey}
-                              disabled={modelProviderSaving || modelProviderTesting}
+                              disabled={
+                                modelProviderSaving ||
+                                modelProviderTesting ||
+                                modelProviderApiKeyStorageBlocked
+                              }
                               onChange={(event) => {
                                 setModelProviderModels([]);
                                 setModelProviderModelsMessage(null);
@@ -2250,7 +2324,8 @@ export function WorkspaceChat() {
                           modelProviderSaving ||
                           modelProviderTesting ||
                           modelProviderModelsLoading ||
-                          modelProviderEndpointInvalid
+                          modelProviderEndpointInvalid ||
+                          modelProviderRequiresUnavailableApiKeyStorage
                         }
                         onClick={() => {
                           void loadModelProviderModels(modelProviderDraft, modelProviderState);
@@ -2330,7 +2405,8 @@ export function WorkspaceChat() {
                       !modelProviderState ||
                       modelProviderSaving ||
                       modelProviderTesting ||
-                      modelProviderEndpointInvalid
+                      modelProviderEndpointInvalid ||
+                      modelProviderRequiresUnavailableApiKeyStorage
                     }
                     onClick={() => {
                       void handleModelProviderTest();

@@ -21,6 +21,21 @@ defmodule NovelWeb.WorksControllerTest do
     assert is_integer(body["work"]["revision"])
   end
 
+  test "POST /api/works/ensure-initial is idempotent for startup", %{conn: conn} do
+    conn = post(conn, "/api/works/ensure-initial", %{"title" => "未命名作品"})
+    first = json_response(conn, 200)["work"]
+
+    conn = post(build_conn(), "/api/works/ensure-initial", %{"title" => "另一个未命名作品"})
+    second = json_response(conn, 200)["work"]
+
+    assert second["id"] == first["id"]
+    assert second["title"] == "未命名作品"
+
+    conn = get(build_conn(), "/api/works")
+    assert [%{"id" => id}] = json_response(conn, 200)["works"]
+    assert id == first["id"]
+  end
+
   test "PATCH /api/works/:id renames a work without changing identity", %{conn: conn} do
     {:ok, work} = WorkService.create(%{title: "未命名作品"})
 

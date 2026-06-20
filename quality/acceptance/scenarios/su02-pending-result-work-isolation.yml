@@ -1,0 +1,61 @@
+id: su02-pending-result-work-isolation
+title: 慢回复迟到结果按作品归属
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su02-pending-result-work-isolation --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - tasks/slices/SU02-pending-result-work-isolation.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - stale-source-turn-result-not-rendered-in-target-work
+  - source-turn-completion-keeps-original-work-id
+  - switching-back-restores-source-work-transcript
+  - target-loading-not-polluted-by-source-completion
+  - no-product-acceptance-hooks
+
+setup:
+  seed: external driver creates two persisted works
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - select: persisted source work from visible work menu
+  - input: slow source work message
+  - click: send
+  - select: persisted target work from visible work menu while source turn is pending
+  - wait_for: source turn completion in app logs under original work id
+  - observe: target work does not show source user or assistant text and is not loading
+  - select: source work again from visible work menu
+  - observe: source transcript restores the completed slow turn
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su02-pending-result-work-isolation-tauri
+
+assertions:
+  ui:
+    - target work remains free of source user message and delayed assistant result
+    - source work transcript shows the completed turn after switching back
+    - target loading indicator is not left active by the source completion
+  network:
+    - source message is sent with source work_id
+    - target work joins a distinct workspace channel before source completion
+    - source turn done log keeps the original source work_id
+  data:
+    - source resume transcript contains the completed slow turn
+    - source and target work ids are distinct persisted works
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

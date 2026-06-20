@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   discardWork,
+  duplicateWorkTitleIndex,
+  ensureInitialWork,
   getLastOpenedWorkId,
   isCurrentWorkConnection,
   isValidWorkTitle,
@@ -133,6 +135,23 @@ describe("work lifecycle API", () => {
     });
   });
 
+  it("ensures the startup work through the idempotent endpoint", async () => {
+    const ensured = { work: { ...work("work-start"), title: "未命名作品" } };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(ensured),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(ensureInitialWork({ title: "未命名作品" })).resolves.toEqual(ensured.work);
+
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/works/ensure-initial"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "未命名作品" }),
+    });
+  });
+
   it("safely discards a work through POST /api/works/:id/discard", async () => {
     const discarded = { work: { ...work("work-1"), status: "DISCARDED", revision: 2 } };
     const fetchMock = vi.fn().mockResolvedValue({
@@ -157,5 +176,17 @@ describe("work title helpers", () => {
     expect(isValidWorkTitle("灵源纪元")).toBe(true);
     expect(isValidWorkTitle("   ")).toBe(false);
     expect(isValidWorkTitle("x".repeat(121))).toBe(false);
+  });
+
+  it("numbers duplicate work titles without exposing internal ids", () => {
+    const works = [
+      { ...work("work-a"), title: "未命名作品" },
+      { ...work("work-b"), title: "灵源纪元" },
+      { ...work("work-c"), title: " 未命名作品 " },
+    ];
+
+    expect(duplicateWorkTitleIndex(works[0], works)).toBe(1);
+    expect(duplicateWorkTitleIndex(works[1], works)).toBeNull();
+    expect(duplicateWorkTitleIndex(works[2], works)).toBe(2);
   });
 });

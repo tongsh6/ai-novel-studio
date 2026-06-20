@@ -1,0 +1,61 @@
+id: su02-empty-start-unnamed-work
+title: 空工作区自动启动未命名作品
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su02-empty-start-unnamed-work --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - tasks/slices/SU02-empty-start-unnamed-work.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - empty-start-creates-single-persisted-work
+  - auto-created-work-uses-real-work-id-not-lobby
+  - rename-preserves-work-id-and-visible-message
+  - duplicate-unnamed-works-are-visibly-disambiguated
+  - no-product-acceptance-hooks
+
+setup:
+  seed: none; test database starts with no Work rows
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench from an empty Work database
+  - observe: current title is 未命名作品 and channel joins a real work_id
+  - input: ordinary message in the auto-created work
+  - click: send
+  - open: visible work menu and rename the auto-created work
+  - observe: renamed title persists and the message remains visible
+  - click: quick-create two unnamed works from the visible work menu
+  - observe: duplicate unnamed works have visible disambiguation labels
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+    - backend_log
+    - seed_log
+  artifact_dir: artifacts/slice-verify/su02-empty-start-unnamed-work-tauri
+
+assertions:
+  ui:
+    - first visible work title is 未命名作品
+    - rename preserves the existing message in the transcript
+    - duplicate unnamed works show visible disambiguation labels
+  network:
+    - channel joins the auto-created work_id, not lobby
+    - user_message and channel completion keep the same work_id
+  data:
+    - Work API has exactly one Work immediately after empty startup
+    - renamed work keeps the original work_id
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
