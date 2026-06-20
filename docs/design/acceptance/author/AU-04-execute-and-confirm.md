@@ -6,7 +6,7 @@
 >
 > 2026-05-25 纠偏更新：上述 2026-05-13 前端入口描述为 historical/superseded。真实入口已改为从 `available_actions` 渲染可提交动作，并通过 `author_action` 回传；card 不再作为业务 action 来源。
 >
-> 2026-06-19 对账更新：`au04-confirm-before-execute` 已成为质量场景，证明真实 Tauri 工作台从自然语言高风险重写请求进入 `needs_confirmation`，确认前无工具调用/无生产写入，点击“确认执行”发送服务端授权的 `author_action.confirm_before_execute`，确认后重新 gate 并只产出待采纳 `prose_fragment`。AU-04 不能再沿用旧覆盖率口径；后续重复确认、当前-turn stale、expired、history-readonly 和 cross-work confirmation 均已补真实页面验收，持久 ConfirmationBinding snapshot、context-change/replay 和失败恢复仍未闭环。
+> 2026-06-19 对账更新：`au04-confirm-before-execute` 已成为质量场景，证明真实 Tauri 工作台从自然语言高风险重写请求进入 `needs_confirmation`，确认前无工具调用/无生产写入，点击“确认执行”发送服务端授权的 `author_action.confirm_before_execute`，确认后重新 gate 并只产出待采纳 `prose_fragment`。AU-04 不能再沿用旧覆盖率口径；后续重复确认、当前-turn stale、expired、history-readonly 和 cross-work confirmation 均已补真实页面验收，持久 ConfirmationBinding snapshot、context-change/replay 仍未闭环；确认后工具失败主路径已由 2026-06-20 `au04-confirmation-tool-failure-recovery` 补齐。
 >
 > 2026-06-20 对账更新：`AU04-confirmation-binding-rebase-proof` 已把 `ConfirmationBinding` 的 `rebased_state_snapshot_ref` / `gate_result_refs` 从文档要求推进为 domain 强契约，并在 `DialogueGateway.handle_action/3` 确认 ack 与 `ExecutionOrchestrator.reason_codes` 中留下 re-gate 证明。该 checkpoint 只有局部后端/Channel 证据，不冒充真实页面 context-change 矩阵；B6 当前从“部分实现”推进到“已测试”。
 >
@@ -20,9 +20,11 @@
 >
 > 2026-06-20 对账更新：`au04-cross-work-confirmation-guard` 已补真实 Tauri 工作台跨作品确认验收：外部 seed 建立源作品与目标作品，源作品 active transcript 含未过期 confirmation；作者从真实作品菜单打开源作品确认卡，再切到目标作品，目标 UI 中源确认文本和“确认执行/拒绝”均不可见，`author_action_sent_count=0`、`toolbox_execute_after_cross_work_switch_count=0`、`pending_prose_fragment_after_cross_work_switch_count=0`，返回源作品后确认仍在源作品下恢复。该 checkpoint 关闭 B5/GAP-06 的 cross-work visibility/execution 子矩阵；不冒充 B6 的 latest-context rebase、持久 snapshot 或 replay。
 >
-> 2026-06-20 对账更新：`au04-latest-context-rebase-confirmation` 已补真实 Tauri 工作台 latest-context rebase 验收：外部 seed 恢复一个待确认 TurnResult，作者通过真实作品菜单先重命名当前作品，再点击“确认执行”；`summary.json` 证明 `renamed_revision=2`，`ConfirmationBinding.rebased_state_snapshot_ref` 包含 `revision:2`，confirmed turn 的 trace current_work summary 包含改名后的作品标题，且确认后只产生 pending `character_seed`。该 checkpoint 关闭 B6 的真实页面“确认前上下文变化后重新 gate”主路径；持久 ConfirmationBinding snapshot、replay 解释和失败恢复仍未闭环。
+> 2026-06-20 对账更新：`au04-latest-context-rebase-confirmation` 已补真实 Tauri 工作台 latest-context rebase 验收：外部 seed 恢复一个待确认 TurnResult，作者通过真实作品菜单先重命名当前作品，再点击“确认执行”；`summary.json` 证明 `renamed_revision=2`，`ConfirmationBinding.rebased_state_snapshot_ref` 包含 `revision:2`，confirmed turn 的 trace current_work summary 包含改名后的作品标题，且确认后只产生 pending `character_seed`。该 checkpoint 关闭 B6 的真实页面“确认前上下文变化后重新 gate”主路径；持久 ConfirmationBinding snapshot 和 replay 解释仍未闭环；确认后工具失败主路径已由 `au04-confirmation-tool-failure-recovery` 补齐。
 
 > 2026-06-20 对账更新：`au04-disabled-confirmation-action-ui` 已补真实 Tauri 工作台 disabled confirmation action 验收：外部 seed 恢复一个 `confirm_before_execute.enabled=false` 的待确认 TurnResult，真实工作台展示“确认执行”按钮但浏览器层 disabled，按钮 title 暴露 disabled reason，“拒绝”仍可用；外部点击尝试被阻止，且 `author_action_sent_count=0`、`channel_author_action_log_count=0`、`toolbox_execute_after_disabled_attempt_count=0`、`pending_prose_fragment_after_disabled_attempt_count=0`。该 checkpoint 关闭 B1/GAP-02 的 disabled 子矩阵；B1 仍缺 replay 视图和完整 card/action matrix，不标“已验收”。
+
+> 2026-06-20 对账更新：`au04-confirmation-tool-failure-recovery` 已补真实 Tauri 工作台确认后工具失败恢复验收：作者先收到高风险重写确认卡，点击“确认执行”后由 test/support provider 在确认后的 `prose_writing` 阶段返回 provider error；真实 websocket 收到 failed `turn_result`，页面可见“工具执行失败 / 未创建待采纳内容 / 没有写入作品事实”，业务日志有 `provider_gateway.complete.error` 与 `toolbox.execute.error`，且 `pending_prose_fragment_after_failure_count=0`、`production_write_performed=false`、没有成功 `toolbox.execute.done`。该 checkpoint 关闭 E2/GAP-09 的确认后工具失败主路径；LLM timeout、retry action 和完整 replay 解释仍归后续矩阵。
 
 ---
 
@@ -257,9 +259,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | UI 接收并展示 RUNNING / COMPLETED / FAILED 等状态 |
-| 当前证据 | 2026-05-25 起 synthetic task lifecycle 已移除；同步 creative tool 通过 TurnResult phase/status、ToolResult.status 与 trace_summary 表达结果。正式 TaskState / Long-running Creative Job Contract deferred |
+| 当前证据 | 2026-05-25 起 synthetic task lifecycle 已移除；同步 creative tool 通过 TurnResult phase/status、ToolResult.status 与 trace_summary 表达结果；`au04-confirmation-tool-failure-recovery` 已证明确认后的 `prose_writing` provider failure 会以 failed TurnResult 和用户可见失败文案反馈，且不产生 pending draft / production write。正式 TaskState / Long-running Creative Job Contract deferred |
 | 当前状态 | 部分实现 |
-| 当前缺口 | AU-10 已证明真实导出 task_state 可见；AU-04 确认后工具执行的 RUNNING/COMPLETED/FAILED 矩阵和完整 LongRunner 仍未验收 |
+| 当前缺口 | AU-10 已证明真实导出 task_state 可见；AU-04 确认后工具失败 FAILED 子路径已闭环，但 RUNNING/COMPLETED 全矩阵和完整 LongRunner 仍未验收 |
 | 优先级 | P1 |
 
 #### SC-AU04-D2 — 执行产物默认进入待采纳，不直接写作品事实
@@ -307,9 +309,9 @@
 | 字段 | 内容 |
 |---|---|
 | 期望结果 | UI 展示失败/重试/缩小范围/继续对话；不产生半写入 |
-| 当前证据 | 设计有 `fail_with_recovery`、`retry_action`；`Toolbox.execute` 能返回失败状态 |
-| 当前状态 | 不确定 |
-| 当前缺口 | 缺真实确认后工具失败的 Channel + UI 验收 |
+| 当前证据 | 设计有 `fail_with_recovery`、`retry_action`；`Toolbox.execute` 能返回失败状态；`au04-confirmation-tool-failure-recovery` 证明真实 Tauri 工作台中确认后 `prose_writing` provider failure 会返回 failed TurnResult，页面显示工具失败、未创建待采纳内容、没有写入作品事实，业务日志记录 provider/toolbox error，且无 successful toolbox dispatch、无 pending `prose_fragment`、无 production write |
+| 当前状态 | 已验收 |
+| 当前缺口 | 工具失败主路径已闭环；LLM timeout、retry action、缩小范围建议和 replay 解释矩阵仍归后续 P1/P2 |
 | 优先级 | P1 |
 
 ---
@@ -331,13 +333,13 @@
 | SC-AU04-C1 | invented action 拒绝 | 已测试 | 局部闭环 |
 | SC-AU04-C2 | AI 自批准语义拦截 | 已测试 | 局部闭环 |
 | SC-AU04-C3 | Planner hint 不授权 | 已测试 | 局部闭环 |
-| SC-AU04-D1 | 确认后任务状态反馈 | 部分实现 | 否 |
+| SC-AU04-D1 | 确认后任务状态反馈 | 部分实现 | 是，`au04-confirmation-tool-failure-recovery` 已证明 FAILED 子路径；RUNNING/COMPLETED/LongRunner 全矩阵未闭环 |
 | SC-AU04-D2 | 产物进入待采纳 | 已验收 | 是，`au04-confirm-before-execute` 证明确认后执行结果仍为 pending `prose_fragment` |
 | SC-AU04-D3 | AI 回复不撒谎 | 部分实现 | 否 |
 | SC-AU04-E1 | 确认行为可追溯 | 部分实现 | 否 |
-| SC-AU04-E2 | 执行失败后恢复 | 不确定 | 否 |
+| SC-AU04-E2 | 执行失败后恢复 | 已验收 | 是，`au04-confirmation-tool-failure-recovery` 证明确认后工具失败可见、无 pending draft、无 production write |
 
-**结论：18 个场景；8/18 已验收并已有真实 Tauri 页面证据（A1/A4/B2/B3/B4/B5/B6/D2），B1 disabled 子矩阵另有真实 Tauri 证据但 B1 仍未完整验收；5/18 有后端或 Channel 局部测试；5/18 仍是部分实现或不确定。AU-04 当前已关闭高风险确认主路径、重复确认不重复执行、当前 turn 推进后的旧确认 stale 拒绝、expired confirmation 拒绝、disabled confirm 不可提交、历史只读 confirmation 不可执行、跨作品切换后源 confirmation 不泄漏不执行，以及 latest-context rebase 主路径；仍不覆盖持久 ConfirmationBinding snapshot、trace/replay 或失败恢复。**
+**结论：18 个场景；9/18 已验收并已有真实 Tauri 页面证据（A1/A4/B2/B3/B4/B5/B6/D2/E2），B1 disabled 子矩阵另有真实 Tauri 证据但 B1 仍未完整验收；5/18 有后端或 Channel 局部测试；4/18 仍是部分实现。AU-04 当前已关闭高风险确认主路径、重复确认不重复执行、当前 turn 推进后的旧确认 stale 拒绝、expired confirmation 拒绝、disabled confirm 不可提交、历史只读 confirmation 不可执行、跨作品切换后源 confirmation 不泄漏不执行、latest-context rebase 主路径，以及确认后工具失败无半写入主路径；仍不覆盖持久 ConfirmationBinding snapshot、完整 trace/replay、LLM timeout/retry action 或 RUNNING/COMPLETED/LongRunner 全矩阵。**
 
 ---
 
@@ -353,7 +355,7 @@
 | AU04-GAP-06 — 过期/跨作品/历史确认验证不足 | **大部分关闭（2026-06-20）**：`au04-stale-confirmation-ui` 已证明当前 turn 推进后的旧确认被 stale 拒绝且 no-tool/no-draft；`au04-confirmation-ttl-ui` 已证明 expired confirmation 被拒绝且 no-tool/no-draft；`au04-history-confirmation-readonly` 已证明历史只读 confirmation 不可执行且 no-action/no-tool/no-draft；`au04-cross-work-confirmation-guard` 已证明源作品 confirmation 切到目标作品后不泄漏、不发送 action、不触发工具、不产生草稿；latest-context rebase 已由 B6 关闭；仍缺持久 ConfirmationBinding snapshot / replay 解释 | 补实现/补验收 | P1 |
 | AU04-GAP-07 — task_state 真实入口完整展示不足 | Channel 可广播，`WorkspaceChat` 已订阅并映射到 longRun store；仍缺长跑全过程 UI 验收 | 补验收 | P1 |
 | AU04-GAP-08 — assistant_message 文本真值约束不足 | truthfulness map 存在，但缺 LLM 文案不撒谎测试 | 补测试 | P1 |
-| AU04-GAP-09 — 确认后失败恢复缺场景 | 缺工具失败、LLM 超时、恢复 action 的 UI/Channel 验收 | 补验收 | P1 |
+| AU04-GAP-09 — 确认后失败恢复缺场景 | **工具失败主路径已关闭（2026-06-20）**：`au04-confirmation-tool-failure-recovery` 证明真实工作台确认高风险重写后，`prose_writing` provider failure 会显示失败、无 pending draft、无 production write，且日志有 provider/toolbox error；剩余 LLM timeout、retry action、缩小范围建议和 replay 解释矩阵 | 补验收 | P1 |
 
 ---
 
@@ -364,7 +366,7 @@
 | `ExecutionOrchestrator.decide/2` | 已能根据 GateOrder 产生 allow/downgrade/confirm/recovery | 不等于真实 UI 确认闭环 |
 | `ActionValidator.validate/2` | 能拒绝 missing/stale/invented/disabled/expired action，并校验 `target_ref` / `behavior_ref` / `candidate_*` / `idempotency_key` 与服务端 action 精确一致 | 不等于 rebased snapshot 或完整持久 ConfirmationBinding |
 | `DialogueGateway.handle_action/3` | `confirm_before_execute` 可在确认时重新组装当前 context、构造 binding，并在 allow_tool 时 dispatch；确认 ack 带 `confirmation_binding` 视图，reason code 留下 snapshot / gate ref proof | 不等于持久 ConfirmationBinding snapshot 或 replay 已完成 |
-| `WorkspaceChannel.handle_in("author_action")` | Channel 层 action roundtrip 已有测试，`au04-confirm-before-execute` 已证明当前 App 入口使用 `author_action`；`au04-confirm-idempotency-ui` 已证明真实重复确认不会重复 dispatch；`au04-confirmation-ttl-ui` 已证明 expired action 真实拒绝；`au04-history-confirmation-readonly` 已证明历史只读 transcript 不发送 `author_action`；`au04-cross-work-confirmation-guard` 已证明跨作品切换不会发送源 action；`au04-latest-context-rebase-confirmation` 已证明真实页面确认前改名后 binding/trace 消费最新 Work snapshot | 不等于持久 ConfirmationBinding snapshot 或 replay 已完成 |
+| `WorkspaceChannel.handle_in("author_action")` | Channel 层 action roundtrip 已有测试，`au04-confirm-before-execute` 已证明当前 App 入口使用 `author_action`；`au04-confirm-idempotency-ui` 已证明真实重复确认不会重复 dispatch；`au04-confirmation-ttl-ui` 已证明 expired action 真实拒绝；`au04-history-confirmation-readonly` 已证明历史只读 transcript 不发送 `author_action`；`au04-cross-work-confirmation-guard` 已证明跨作品切换不会发送源 action；`au04-latest-context-rebase-confirmation` 已证明真实页面确认前改名后 binding/trace 消费最新 Work snapshot；`au04-confirmation-tool-failure-recovery` 已证明确认后 provider/toolbox failure 会回到 failed TurnResult 且 no-draft/no-write | 不等于持久 ConfirmationBinding snapshot 或 replay 已完成 |
 | `WorkspaceChat` + `socket.ts` | 当前真实入口已接 `available_actions` / `author_action` / `task_state`；真实导出 task_state checkpoint 已补 | 缺完整 action_result、完整异步 LongRunner、断线/超时恢复 UI 验收 |
 | `workspace_channel_v3_test.exs` | 覆盖 task_state、stale/invented action 等局部链路 | 不等于 Playwright/真人工作台验收 |
 
@@ -389,7 +391,7 @@ mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs
 3. 已补当前 turn stale：旧确认不能在 follow-up 推进当前 turn 后继续执行（`au04-stale-confirmation-ui`）；已补 expired：过期确认不能执行（`au04-confirmation-ttl-ui`）；已补 disabled：禁用确认可见但不可提交（`au04-disabled-confirmation-action-ui`）；已补 history readonly：历史 transcript 内旧确认不可执行（`au04-history-confirmation-readonly`）；已补 cross-work：源作品 confirmation 切到目标作品后不可见不可执行（`au04-cross-work-confirmation-guard`）。
 4. 已补 latest-context rebase：确认卡等待期间通过真实作品菜单改名，再确认时 binding/trace 消费最新 Work revision/title（`au04-latest-context-rebase-confirmation`）。
 5. 已补主路径：cancel/reject 关闭 pending confirmation，UI 恢复自然对话（`au10-workbench-recovery-cancel-waiting`）；trace/replay 矩阵仍缺。
-6. failure recovery：确认后工具失败时，UI 显示可恢复路径且无半写入。
+6. 已补 failure recovery：确认后工具失败时，UI 显示失败且无 pending draft / production write（`au04-confirmation-tool-failure-recovery`）；LLM timeout、retry action 和 replay 解释仍缺。
 ```
 
 当前最小真实页面 checkpoint：
@@ -403,6 +405,7 @@ bash scripts/tauri_slice_verify.sh au04-disabled-confirmation-action-ui
 bash scripts/tauri_slice_verify.sh au04-history-confirmation-readonly
 bash scripts/tauri_slice_verify.sh au04-cross-work-confirmation-guard
 bash scripts/tauri_slice_verify.sh au04-latest-context-rebase-confirmation
+bash scripts/tauri_slice_verify.sh au04-confirmation-tool-failure-recovery
 bash scripts/quality_accept.sh au04-confirm-before-execute --surface tauri
 bash scripts/quality_accept.sh au04-confirm-idempotency-ui --surface tauri
 bash scripts/quality_accept.sh au04-stale-confirmation-ui --surface tauri
@@ -411,4 +414,5 @@ bash scripts/quality_accept.sh au04-disabled-confirmation-action-ui --surface ta
 bash scripts/quality_accept.sh au04-history-confirmation-readonly --surface tauri
 bash scripts/quality_accept.sh au04-cross-work-confirmation-guard --surface tauri
 bash scripts/quality_accept.sh au04-latest-context-rebase-confirmation --surface tauri
+bash scripts/quality_accept.sh au04-confirmation-tool-failure-recovery --surface tauri
 ```
