@@ -1,0 +1,55 @@
+id: p1-word-count-audit
+title: 阅读投影短章审计与 P1 进度
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-word-count-audit --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/product/novel-output-milestones.md
+  - tasks/slices/P1-word-count-audit.md
+
+invariants:
+  - reading-projection-counts-accepted-prose-only
+  - short-chapter-audit-visible-to-author
+  - p1-milestone-progress-not-met-for-short-single-chapter
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate: chapter 1 prose draft
+  - click: 保存为章节正文
+  - open: 阅读模式
+  - observe: 短章 badge 与 P1 字数进度可见
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-word-count-audit-tauri
+
+assertions:
+  ui:
+    - short chapter badge is visible in the TOC
+    - P1 progress is visible in the top bar
+    - milestone is not marked complete
+  network:
+    - accepted prose materializes reading projection
+    - get_toc returns audit fields
+  data:
+    - chapter word count is below the P1 minimum
+    - short_chapter_marked is true
+    - milestone_met is false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -27,6 +27,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-adoption-followup-routing");
     expect(nativeSliceIds).toContain("au05-discard-boundary");
     expect(nativeSliceIds).toContain("au05-modify-draft-boundary");
+    expect(nativeSliceIds).toContain("au05-discard-author-action");
     expect(nativeSliceIds).toContain("au08-adoption-reading-projection");
     expect(nativeSliceIds).toContain("au09-archive-real-data");
     expect(nativeSliceIds).toContain("au09-memory-recall-context");
@@ -42,7 +43,11 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au03-current-work-context-ssot");
     expect(nativeSliceIds).toContain("au03-long-session-compression");
     expect(nativeSliceIds).toContain("au03-context-source-ui");
+    expect(nativeSliceIds).toContain("au07-trace-why-entry");
+    expect(nativeSliceIds).toContain("au07-state-trace-adoption-replay");
+    expect(nativeSliceIds).toContain("au07-behavior-trace-terminal-replay");
     expect(nativeSliceIds).toContain("au11-quality-diagnosis-message-envelope");
+    expect(nativeSliceIds).toContain("au11-missing-workstate-policy");
     expect(nativeSliceIds).toContain("au10-workbench-matrix-layout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-disconnect-timeout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-provider-timeout");
@@ -50,6 +55,8 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-workbench-recovery-cancel-waiting");
     expect(nativeSliceIds).toContain("au10-micro-plan-entry");
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
+    expect(nativeSliceIds).toContain("e2e-01-readonly-tool-trace");
+    expect(nativeSliceIds).toContain("e2e-01-replay-report");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("au01-empty-message-guard");
     expect(nativeSliceIds).toContain("au01-garbage-json-recovery");
@@ -81,6 +88,133 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("vs00c-cp4-chapter-plan-structure");
     expect(nativeSliceIds).toContain("vs00c-cp5-reader-effect-brief");
     expect(nativeSliceIds).toContain("vs10-observability-spine");
+  });
+
+  it("accepts AU-04 confirm-before-execute only when the real confirmation card explains the boundary", () => {
+    const records = au04ConfirmBeforeExecuteRecords();
+
+    const evidence = findNativeSliceEvidence("au04-confirm-before-execute", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au04-confirm-before-execute",
+      turn_id: "turn-au04-confirm",
+      confirm_turn_id: "turn-au04-confirm",
+      executed_turn_id: "turn-au04-confirm",
+      artifact_id: "artifact-au04-confirm",
+      artifact_type: "prose_fragment",
+      confirm_action_behavior_ref: "behavior-au04-confirm",
+      confirmation_card_detail_visible: true,
+      confirmation_card_target_visible: true,
+      confirmation_card_no_write_visible: true,
+      confirmation_card_re_gate_visible: true,
+      key_events: keyEventsForSlice("au04-confirm-before-execute"),
+    });
+    expect(findSliceBehaviorEvidence("au04-confirm-before-execute", records, evidence)).toEqual({
+      slice_id: "au04-confirm-before-execute",
+      behavior: "high_risk_user_turn_requires_confirmation_then_binding_re_gate_executes_tentatively",
+      turn_ids: ["turn-au04-confirm"],
+      artifact_id: "artifact-au04-confirm",
+      confirm_action_behavior_ref: "behavior-au04-confirm",
+      assertions: [
+        "high_risk_rewrite_blocked_with_confirmation_card_over_real_wire",
+        "confirmation_card_explains_target_no_write_and_re_gate_in_real_workbench",
+        "no_tool_call_or_production_write_before_confirm",
+        "confirm_action_bound_to_open_confirmation_behavior",
+        "re_gate_allows_and_dispatches_prose_writing_same_turn",
+        "executed_output_stays_tentative_pending_adoption",
+      ],
+    });
+  });
+
+  it("accepts AU-07 why entry when the current author-safe dialog opens without internal trace text", () => {
+    const records = [
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-au07",
+        workspace_id: "work-au07",
+        work_id: "work-au07",
+        session_id: "session-au07",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "dialogue_gateway.handle_input.start",
+        turn_id: "turn-au07",
+        workspace_id: "work-au07",
+        work_id: "work-au07",
+        session_id: "session-au07",
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-au07",
+        workspace_id: "work-au07",
+        work_id: "work-au07",
+        session_id: "session-au07",
+        duration_ms: 3,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-au07",
+        workspace_id: "work-au07",
+        work_id: "work-au07",
+        session_id: "session-au07",
+        duration_ms: 10,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-au07",
+        workspace_id: "work-au07",
+        work_id: "work-au07",
+        session_id: "session-au07",
+        duration_ms: 12,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au07-trace-why-entry",
+        turn_id: "turn-au07",
+        workspace_id: "work-au07",
+        work_id: "work-au07",
+        session_id: "session-au07",
+        trace_why_dialog_open: true,
+        trace_why_text:
+          "自然回复 你提出的是讨论或解释请求，系统没有执行写入动作。参考来源 当前会话记录 解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
+        trace_why_contains_raw_prompt: false,
+        replay_provider_called: false,
+        production_write_performed: false,
+        tool_called: false,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au07-trace-why-entry", records);
+    expect(evidence).toEqual({
+      slice_id: "au07-trace-why-entry",
+      turn_id: "turn-au07",
+      turn_ids: ["turn-au07"],
+      work_id: "work-au07",
+      session_id: "session-au07",
+      key_events: keyEventsForSlice("au07-trace-why-entry"),
+    });
+    expect(findSliceBehaviorEvidence("au07-trace-why-entry", records, evidence)).toEqual({
+      slice_id: "au07-trace-why-entry",
+      behavior: "author_opens_trace_why_dialog_from_real_workbench_message",
+      turn_ids: ["turn-au07"],
+      work_id: "work-au07",
+      assertions: [
+        "message_sent_from_real_workbench",
+        "trace_summary_returned_with_turn_result",
+        "why_entry_clicked_in_message_stream",
+        "author_safe_dialog_rendered",
+        "decision_type_used_as_dialog_title",
+        "audit_style_trace_labels_not_visible",
+        "raw_prompt_provider_debug_not_visible",
+        "explanation_does_not_call_provider_or_write_state",
+      ],
+    });
   });
 
   it("accepts AU-04 rapid confirm click evidence only when execution stays single-shot", () => {
@@ -199,6 +333,45 @@ describe("native Tauri slice verifier", () => {
         "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
         "stale_confirmation_did_not_dispatch_prose_writing",
         "stale_confirmation_did_not_create_pending_prose_fragment",
+      ],
+    });
+  });
+
+  it("accepts AU-06 single active confirmation evidence only when the old behavior cannot execute", () => {
+    const records = au06SingleActiveConfirmationRecords();
+
+    const evidence = findNativeSliceEvidence("au06-single-active-confirmation", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au06-single-active-confirmation",
+      turn_id: "turn-au06-second-confirm",
+      first_confirm_turn_id: "turn-au06-first-confirm",
+      second_confirm_turn_id: "turn-au06-second-confirm",
+      first_confirm_action_behavior_ref: "behavior-au06-first",
+      second_confirm_action_behavior_ref: "behavior-au06-second",
+      old_confirm_prevented: true,
+      old_confirm_rejected: true,
+      old_author_action_error_count: 1,
+      toolbox_execute_after_old_count: 0,
+      pending_prose_fragment_after_old_count: 0,
+      latest_toolbox_execute_count: 1,
+      key_events: keyEventsForSlice("au06-single-active-confirmation"),
+    });
+    expect(findSliceBehaviorEvidence("au06-single-active-confirmation", records, evidence)).toEqual({
+      slice_id: "au06-single-active-confirmation",
+      behavior: "new_confirmation_supersedes_old_author_blocking_behavior_without_old_execution",
+      turn_ids: ["turn-au06-first-confirm", "turn-au06-second-confirm"],
+      first_confirm_action_behavior_ref: "behavior-au06-first",
+      second_confirm_action_behavior_ref: "behavior-au06-second",
+      old_confirm_prevented: true,
+      old_confirm_rejected: true,
+      old_author_action_error_count: 1,
+      latest_toolbox_execute_count: 1,
+      assertions: [
+        "first_high_risk_turn_opened_confirmation_in_real_workbench",
+        "second_high_risk_turn_advanced_to_a_distinct_active_confirmation",
+        "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
+        "old_confirmation_did_not_dispatch_tool_or_create_pending_draft",
+        "latest_confirmation_remained_actionable_and_executed_once",
       ],
     });
   });
@@ -2285,6 +2458,126 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("accepts AU-11 missing WorkState policy evidence", () => {
+    const records = [
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au11-missing",
+        session_id: "session-au11-missing",
+      },
+      {
+        event: "channel.join.done",
+        work_id: "work-au11-missing",
+        session_id: "session-au11-missing",
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-au11-missing",
+        workspace_id: "work-au11-missing",
+        work_id: "work-au11-missing",
+        session_id: "session-au11-missing",
+        generate_micro_plan: false,
+        duration_ms: 1,
+        outcome: "start",
+      },
+      {
+        event: "context.assemble.done",
+        turn_id: "turn-au11-missing",
+        workspace_id: "work-au11-missing",
+        work_id: "work-au11-missing",
+        session_id: "session-au11-missing",
+        has_snapshot: true,
+        has_conversation: false,
+        has_memory: false,
+        context_refs_count: 0,
+        duration_ms: 5,
+        outcome: "done",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-au11-missing",
+        workspace_id: "work-au11-missing",
+        work_id: "work-au11-missing",
+        session_id: "session-au11-missing",
+        duration_ms: 8,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-au11-missing",
+        workspace_id: "work-au11-missing",
+        work_id: "work-au11-missing",
+        session_id: "session-au11-missing",
+        duration_ms: 15,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-au11-missing",
+        workspace_id: "work-au11-missing",
+        work_id: "work-au11-missing",
+        session_id: "session-au11-missing",
+        duration_ms: 18,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au11-missing-workstate-policy",
+        turn_id: "turn-au11-missing",
+        workspace_id: "work-au11-missing",
+        work_id: "work-au11-missing",
+        session_id: "session-au11-missing",
+        context_work_id: "work-au11-missing",
+        active_session_id: "session-au11-missing",
+        guidance_mode_quality: true,
+        work_state_snapshot_mentions_work: true,
+        work_state_chapter_state_missing: true,
+        work_state_chapter_summary_missing: true,
+        work_state_prior_prose_missing: true,
+        work_state_character_state_missing: true,
+        turn_guidance_records_missing_questions: true,
+        assistant_asks_for_target_material: true,
+        assistant_claims_read_chapter: false,
+        assistant_fabricates_seeded_chapter_fact: false,
+        no_tool_result: true,
+        no_adoption_state: true,
+        no_production_write: true,
+        trace_why_dialog_open: true,
+        trace_why_contains_raw_prompt: false,
+        why_shows_quality_diagnosis: true,
+        why_shows_work_state_missing: true,
+        why_shows_missing_limit: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au11-missing-workstate-policy", records);
+    expect(evidence).toEqual({
+      slice_id: "au11-missing-workstate-policy",
+      turn_id: "turn-au11-missing",
+      turn_ids: ["turn-au11-missing"],
+      work_id: "work-au11-missing",
+      session_id: "session-au11-missing",
+      context_refs_count: 0,
+      key_events: keyEventsForSlice("au11-missing-workstate-policy"),
+    });
+    expect(findSliceBehaviorEvidence("au11-missing-workstate-policy", records, evidence)).toEqual({
+      slice_id: "au11-missing-workstate-policy",
+      behavior: "quality_diagnosis_missing_workstate_records_explicit_gaps_without_fabrication",
+      turn_ids: ["turn-au11-missing"],
+      work_id: "work-au11-missing",
+      session_id: "session-au11-missing",
+      assertions: [
+        "message_sent_from_real_workbench",
+        "selected_real_work_has_snapshot_but_missing_chapter_material",
+        "work_state_layer_marks_missing_chapter_summary_prose_and_character_state",
+        "turn_guidance_records_missing_target_chapter_and_prose_questions",
+        "assistant_asks_for_target_material_without_claiming_to_have_read_the_chapter",
+        "why_panel_shows_quality_mode_missing_workstate_and_missing_prose_limit",
+        "no_tool_no_adoption_no_production_write",
+      ],
+    });
+  });
+
   it("accepts AU-09 archive evidence from real scoped archive records", () => {
     const records = [
       { event: "channel.join.done", work_id: "work-au09", session_id: "session-au09" },
@@ -3718,6 +4011,343 @@ describe("native Tauri slice verifier", () => {
     expect(findNativeSliceEvidence("au10-ordinary-chat-no-micro-plan", records)).toBeNull();
   });
 
+  it("accepts E2E-01 readonly tool trace when character_roster is allowed and queryable by turn", () => {
+    const toolTraceRef = {
+      tool_name: "character_roster",
+      tool_request_ref: "tq-e2e-tool",
+      tool_result_ref: "tr-e2e-tool",
+      tool_status: "succeeded",
+    };
+    const records = [
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "dialogue_gateway.handle_input.start",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        duration_ms: 3,
+        outcome: "done",
+      },
+      {
+        event: "planner.form_micro_plan.done",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        duration_ms: 5,
+        outcome: "done",
+      },
+      {
+        event: "orchestrator.decide.done",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        decision_type: "allow_tool",
+        duration_ms: 1,
+        outcome: "done",
+      },
+      {
+        event: "context.characters.done",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        source_type: "character_dossier",
+        character_count: 1,
+        duration_ms: 1,
+        outcome: "done",
+      },
+      {
+        event: "toolbox.execute.done",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        tool_name: "character_roster",
+        tool_outcome: "succeeded",
+        duration_ms: 2,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        duration_ms: 12,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        duration_ms: 13,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "e2e-01-readonly-tool-trace",
+        turn_id: "turn-e2e-tool",
+        workspace_id: "work-e2e-tool",
+        work_id: "work-e2e-tool",
+        session_id: "session-e2e-tool",
+        decision_type: "allow_tool",
+        tool_name: "character_roster",
+        tool_status: "succeeded",
+        tool_called: true,
+        production_write_performed: false,
+        artifact_adopted: false,
+        execution_blocked: false,
+        accepted_character_visible: true,
+        tentative_character_absent: true,
+        foreign_character_absent: true,
+        no_write_statement_visible: true,
+        no_state_delta: true,
+        no_artifact_refs: true,
+        no_author_action_sent: true,
+        no_adoption_event: true,
+        no_execution_controls_visible: true,
+        trace_query_has_tool_trace_ref: true,
+        trace_query_tool_trace_refs: [toolTraceRef],
+        character_names: ["林澈"],
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("e2e-01-readonly-tool-trace", records);
+    expect(evidence).toEqual({
+      slice_id: "e2e-01-readonly-tool-trace",
+      turn_id: "turn-e2e-tool",
+      turn_ids: ["turn-e2e-tool"],
+      decision_type: "allow_tool",
+      tool_name: "character_roster",
+      trace_query_tool_trace_refs: [toolTraceRef],
+      character_names: ["林澈"],
+      key_events: keyEventsForSlice("e2e-01-readonly-tool-trace"),
+    });
+    expect(findSliceBehaviorEvidence("e2e-01-readonly-tool-trace", records, evidence)).toEqual({
+      slice_id: "e2e-01-readonly-tool-trace",
+      behavior: "real_page_readonly_character_roster_tool_persists_queryable_trace",
+      turn_ids: ["turn-e2e-tool"],
+      decision_type: "allow_tool",
+      tool_name: "character_roster",
+      trace_query_tool_trace_refs: [toolTraceRef],
+      assertions: [
+        "real_workbench_sent_readonly_character_roster_request_from_visible_chat_input",
+        "frame_tool_need_triggered_micro_plan_without_product_acceptance_hook",
+        "orchestrator_allowed_low_risk_character_roster_tool",
+        "toolbox_executed_character_roster_successfully",
+        "accepted_character_visible_without_tentative_or_foreign_character_leakage",
+        "turn_result_reported_tool_called_without_adoption_or_production_write",
+        "no_author_action_adoption_or_execution_controls_visible",
+        "trace_repository_list_by_turn_returned_tool_trace_ref",
+        "deterministic_provider_frame_and_micro_plan_called_for_readonly_tool_turn",
+      ],
+    });
+  });
+
+  it("accepts E2E-01 replay report when persisted trace answers the required six questions", () => {
+    const toolTraceRef = {
+      tool_name: "character_roster",
+      tool_request_ref: "tq-e2e-replay",
+      tool_result_ref: "tr-e2e-replay",
+      tool_status: "succeeded",
+    };
+    const replayQuestionStatuses = {
+      decision_reason: "answered",
+      planner_vs_decision: "answered",
+      tool_approval: "answered",
+      adoption_boundary: "answered",
+      behavior_lifecycle: "not_applicable",
+      turn_result_surface: "answered",
+    };
+    const replayChainSteps = ["frame", "plan", "decision", "tool_trace", "turn_result"];
+    const records = [
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "dialogue_gateway.handle_input.start",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        duration_ms: 3,
+        outcome: "done",
+      },
+      {
+        event: "planner.form_micro_plan.done",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        duration_ms: 5,
+        outcome: "done",
+      },
+      {
+        event: "orchestrator.decide.done",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        decision_type: "allow_tool",
+        duration_ms: 1,
+        outcome: "done",
+      },
+      {
+        event: "context.characters.done",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        source_type: "character_dossier",
+        character_count: 1,
+        duration_ms: 1,
+        outcome: "done",
+      },
+      {
+        event: "toolbox.execute.done",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        tool_name: "character_roster",
+        tool_outcome: "succeeded",
+        duration_ms: 2,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        duration_ms: 12,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        duration_ms: 13,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "e2e-01-replay-report",
+        turn_id: "turn-e2e-replay",
+        workspace_id: "work-e2e-replay",
+        work_id: "work-e2e-replay",
+        session_id: "session-e2e-replay",
+        decision_type: "allow_tool",
+        tool_name: "character_roster",
+        tool_status: "succeeded",
+        tool_called: true,
+        production_write_performed: false,
+        artifact_adopted: false,
+        execution_blocked: false,
+        accepted_character_visible: true,
+        tentative_character_absent: true,
+        foreign_character_absent: true,
+        no_write_statement_visible: true,
+        no_state_delta: true,
+        no_artifact_refs: true,
+        no_author_action_sent: true,
+        no_adoption_event: true,
+        no_execution_controls_visible: true,
+        trace_query_has_tool_trace_ref: true,
+        trace_query_tool_trace_refs: [toolTraceRef],
+        replay_report_provider_called: false,
+        replay_report_result_status: "complete",
+        replay_report_missing_trace_refs: [],
+        replay_report_chain_steps: replayChainSteps,
+        replay_report_required_question_count: 6,
+        replay_report_question_statuses: replayQuestionStatuses,
+        replay_report_all_required_questions_answered: true,
+        replay_report_tool_question_answered: true,
+        replay_report_adoption_boundary_answered: true,
+        replay_report_has_frame_plan_decision_tool_turn_result: true,
+        character_names: ["林澈"],
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("e2e-01-replay-report", records);
+    expect(evidence).toEqual({
+      slice_id: "e2e-01-replay-report",
+      turn_id: "turn-e2e-replay",
+      turn_ids: ["turn-e2e-replay"],
+      decision_type: "allow_tool",
+      tool_name: "character_roster",
+      trace_query_tool_trace_refs: [toolTraceRef],
+      replay_report_chain_steps: replayChainSteps,
+      replay_report_question_statuses: replayQuestionStatuses,
+      key_events: keyEventsForSlice("e2e-01-replay-report"),
+    });
+    expect(findSliceBehaviorEvidence("e2e-01-replay-report", records, evidence)).toEqual({
+      slice_id: "e2e-01-replay-report",
+      behavior: "real_page_trace_builds_complete_six_question_replay_report",
+      turn_ids: ["turn-e2e-replay"],
+      decision_type: "allow_tool",
+      tool_name: "character_roster",
+      trace_query_tool_trace_refs: [toolTraceRef],
+      replay_report_chain_steps: replayChainSteps,
+      replay_report_question_statuses: replayQuestionStatuses,
+      assertions: [
+        "real_workbench_sent_readonly_character_roster_request_from_visible_chat_input",
+        "frame_tool_need_triggered_micro_plan_without_product_acceptance_hook",
+        "orchestrator_allowed_low_risk_character_roster_tool",
+        "toolbox_executed_character_roster_successfully",
+        "accepted_character_visible_without_tentative_or_foreign_character_leakage",
+        "turn_result_reported_tool_called_without_adoption_or_production_write",
+        "no_author_action_adoption_or_execution_controls_visible",
+        "trace_repository_list_by_turn_returned_tool_trace_ref",
+        "replay_report_built_from_persisted_trace_without_provider_call",
+        "replay_report_answered_vs06_six_required_questions",
+        "replay_report_chain_includes_frame_plan_decision_tool_and_turn_result",
+        "deterministic_provider_frame_and_micro_plan_called_for_readonly_tool_turn",
+      ],
+    });
+  });
+
   it("finds AU-10 workbench matrix layout evidence from aggregate UI state and correlated events", () => {
     const records = au10WorkbenchMatrixRecords();
     const evidence = findNativeSliceEvidence("au10-workbench-matrix-layout", records);
@@ -3997,6 +4627,68 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("accepts AU-07 behavior terminal replay only with recorded close resolution refs", () => {
+    const records = au07BehaviorTraceTerminalReplayRecords();
+    const evidence = findNativeSliceEvidence("au07-behavior-trace-terminal-replay", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au07-behavior-trace-terminal-replay",
+      turn_id: "turn-cancelled",
+      turn_ids: ["turn-confirm", "turn-cancelled", "turn-after-cancel"],
+      confirmation_turn_id: "turn-confirm",
+      cancel_turn_id: "turn-cancelled",
+      following_turn_id: "turn-after-cancel",
+      action_id: "reject:artifact-1",
+      action_type: "reject_or_cancel_confirmation",
+      cancel_trace_ref: "trace:turn-cancelled",
+      behavior_trace_ref: "bh-terminal",
+      behavior_trace_event_type: "close",
+      behavior_trace_next_status: "CANCELLED",
+      behavior_trace_event_turn_ref: "turn-cancelled",
+      behavior_trace_resolution_ref: "behavior_resolution:turn-cancelled",
+      key_events: keyEventsForSlice("au07-behavior-trace-terminal-replay"),
+    });
+
+    expect(
+      findSliceBehaviorEvidence("au07-behavior-trace-terminal-replay", records, evidence),
+    ).toEqual({
+      slice_id: "au07-behavior-trace-terminal-replay",
+      behavior: "terminal_behavior_replayable_from_recorded_close_resolution_refs",
+      turn_ids: ["turn-confirm", "turn-cancelled", "turn-after-cancel"],
+      confirmation_turn_id: "turn-confirm",
+      cancel_turn_id: "turn-cancelled",
+      following_turn_id: "turn-after-cancel",
+      action_id: "reject:artifact-1",
+      action_type: "reject_or_cancel_confirmation",
+      cancel_trace_ref: "trace:turn-cancelled",
+      behavior_trace_ref: "bh-terminal",
+      behavior_trace_event_type: "close",
+      behavior_trace_next_status: "CANCELLED",
+      behavior_trace_resolution_ref: "behavior_resolution:turn-cancelled",
+      assertions: [
+        "confirmation_waiting_state_was_visible_in_real_workbench",
+        "author_clicked_visible_reject_or_cancel_action",
+        "cancel_action_used_server_authorized_author_action",
+        "cancelled_turn_result_closed_active_behavior",
+        "cancel_turn_result_recorded_behavior_trace_ref",
+        "behavior_trace_ref_is_terminal_close_event",
+        "behavior_trace_ref_carries_resolution_ref",
+        "cancel_waiting_did_not_call_tool_or_write_production_state",
+        "following_turn_completed_after_cancel",
+      ],
+    });
+  });
+
+  it("rejects AU-07 behavior terminal replay without a resolution ref", () => {
+    const records = au07BehaviorTraceTerminalReplayRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {...record, behavior_trace_resolution_ref: ""}
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au07-behavior-trace-terminal-replay", records)).toBeNull();
+  });
+
   it("finds AU-12 work profile overview evidence from archive UI state", () => {
     const records = au12WorkProfileOverviewRecords();
     const evidence = findNativeSliceEvidence("au12-work-profile-overview", records);
@@ -4033,6 +4725,51 @@ describe("native Tauri slice verifier", () => {
         "profile_ui_did_not_show_internal_work_uuid",
         "profile_log_did_not_emit_work_uuid",
         "profile_view_remained_readonly",
+      ],
+    });
+  });
+
+  it("finds AU-12 work profile status and isolation evidence", () => {
+    const records = au12WorkProfileStatusIsolationRecords();
+    const evidence = findNativeSliceEvidence("au12-work-profile-status-isolation", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au12-work-profile-status-isolation",
+      accepted_work_id: "work-accepted",
+      accepted_work_title: "AU12已确认档案作品",
+      empty_work_id: "work-empty",
+      empty_work_title: "AU12空字段档案作品",
+      accepted_profile_status: "ACCEPTED",
+      empty_profile_status: "TENTATIVE",
+      empty_fields_visible_count: 4,
+      key_events: keyEventsForSlice("au12-work-profile-status-isolation"),
+    });
+  });
+
+  it("accepts AU-12 status isolation behavior when archive viewing stays readonly", () => {
+    const records = au12WorkProfileStatusIsolationRecords();
+    const evidence = findNativeSliceEvidence("au12-work-profile-status-isolation", records);
+
+    expect(findSliceBehaviorEvidence("au12-work-profile-status-isolation", records, evidence)).toEqual({
+      slice_id: "au12-work-profile-status-isolation",
+      behavior: "author_checks_profile_status_missing_fields_and_cross_work_archive_isolation",
+      turn_ids: [],
+      accepted_work_id: "work-accepted",
+      accepted_work_title: "AU12已确认档案作品",
+      empty_work_id: "work-empty",
+      empty_work_title: "AU12空字段档案作品",
+      accepted_profile_status: "ACCEPTED",
+      empty_profile_status: "TENTATIVE",
+      empty_fields_visible_count: 4,
+      assertions: [
+        "accepted_profile_status_visible_as_confirmed",
+        "tentative_profile_status_visible_as_pending",
+        "missing_profile_fields_show_explicit_empty_value",
+        "archive_tabs_navigate_from_real_structure_panel",
+        "cross_work_profile_fields_are_isolated",
+        "cross_work_character_foreshadowing_and_rule_items_are_isolated",
+        "profile_dto_and_logs_omit_internal_work_uuid",
+        "archive_viewing_does_not_emit_author_action_user_message_or_write_events",
       ],
     });
   });
@@ -4240,6 +4977,49 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("accepts AU-05 discard author_action behavior when discard does not write reading projection", () => {
+    const records = au05DiscardAuthorActionRecords("turn-discard-source");
+    const evidence = findNativeSliceEvidence("au05-discard-author-action", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au05-discard-author-action",
+      turn_id: "turn-discard-source",
+      turn_ids: ["turn-discard-source"],
+      draft_turn_id: "turn-discard-source",
+      discard_turn_id: "turn-discard-result",
+      artifact_id: "as-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      chapter_count_after_discard: 12,
+      total_word_count_after_discard: 0,
+      empty_chapter_count_after_discard: 12,
+      content_chars_after_discard: 0,
+      key_events: keyEventsForSlice("au05-discard-author-action"),
+    });
+
+    expect(findSliceBehaviorEvidence("au05-discard-author-action", records, evidence)).toEqual({
+      slice_id: "au05-discard-author-action",
+      behavior: "discard_author_action_resolves_pending_artifact_without_production_write",
+      turn_ids: ["turn-discard-source"],
+      artifact_id: "as-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      chapter_count_after_discard: 12,
+      total_word_count_after_discard: 0,
+      content_chars_after_discard: 0,
+      assertions: [
+        "chapter_draft_generated_from_adopted_plan",
+        "author_clicked_discard_from_real_workbench",
+        "discard_author_action_routed_through_adoption_boundary",
+        "discard_resolved_artifact_as_discarded",
+        "discard_did_not_adopt_artifact_or_write_production_state",
+        "discard_button_cleared_after_resolution_no_resubmit",
+        "discarded_draft_did_not_materialize_reading_projection",
+        "reading_mode_loaded_planned_chapter_without_adopted_content_after_discard",
+      ],
+    });
+  });
+
   it("accepts AU-05 modify behavior when workbench edit then accept resolves the artifact", () => {
     const records = au05ModifyDraftRecords("turn-modify");
     const evidence = findNativeSliceEvidence("au05-modify-draft-boundary", records);
@@ -4327,6 +5107,80 @@ describe("native Tauri slice verifier", () => {
         "deterministic_provider_form_frame_and_micro_plan_called",
       ],
     });
+  });
+
+  it("accepts AU-07 state trace adoption replay only when adoption and projection share state trace", () => {
+    const records = au07StateTraceAdoptionReplayRecords("turn-au07-draft", "turn-au07-adopt");
+    const evidence = findNativeSliceEvidence("au07-state-trace-adoption-replay", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au07-state-trace-adoption-replay",
+      turn_id: "turn-au07-adopt",
+      turn_ids: ["turn-au07-draft", "turn-au07-adopt"],
+      draft_turn_id: "turn-au07-draft",
+      adopt_turn_id: "turn-au07-adopt",
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      chapter_count: 12,
+      content_chars: 64,
+      total_word_count: 24,
+      chapter_word_count: 24,
+      expected_word_count: 24,
+      state_trace_ref: "state_trace:ad-au07",
+      adoption_trace_ref: "trace:turn-au07-adopt",
+      projection_source_state_trace_ref: "state_trace:ad-au07",
+      projection_refresh_status: "STALE",
+      projection_stale_banner_visible: true,
+      projection_refresh_button_visible: true,
+      key_events: keyEventsForSlice("au07-state-trace-adoption-replay"),
+    });
+
+    expect(findSliceBehaviorEvidence("au07-state-trace-adoption-replay", records, evidence)).toEqual({
+      slice_id: "au07-state-trace-adoption-replay",
+      behavior: "adoption_and_reading_projection_replayable_from_state_trace_refs",
+      turn_ids: ["turn-au07-draft", "turn-au07-adopt"],
+      artifact_id: "artifact-prose-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      total_word_count: 24,
+      chapter_word_count: 24,
+      expected_word_count: 24,
+      content_chars: 64,
+      adopt_turn_id: "turn-au07-adopt",
+      state_trace_ref: "state_trace:ad-au07",
+      adoption_trace_ref: "trace:turn-au07-adopt",
+      projection_source_state_trace_ref: "state_trace:ad-au07",
+      assertions: [
+        "chapter_draft_generated_from_adopted_plan",
+        "author_clicked_accept_from_real_workbench",
+        "accept_author_action_routed_through_adoption_boundary",
+        "accept_button_cleared_after_adoption_no_resubmit",
+        "adopted_prose_materialized_reading_projection",
+        "reading_mode_loaded_toc_and_chapter_content_from_channel",
+        "book_total_effective_word_count_visible_and_positive",
+        "chapter_effective_word_count_visible_and_positive",
+        "displayed_word_count_equals_effective_count_of_adopted_prose",
+        "projection_ref_emitted_with_stale_refresh_status",
+        "reading_mode_stale_projection_banner_visible",
+        "reading_mode_refresh_button_visible",
+        "adoption_turn_trace_summary_recorded_state_trace_ref",
+        "resolved_adoption_entry_references_same_state_trace",
+        "projection_ref_references_same_source_state_trace",
+        "state_trace_ref_is_bound_to_action_turn_trace_ref",
+      ],
+    });
+  });
+
+  it("rejects AU-07 state trace replay when projection does not point to state trace", () => {
+    const records = au07StateTraceAdoptionReplayRecords("turn-au07-draft", "turn-au07-adopt").map(
+      (record) =>
+        record.event === "slice_verify.ui_state.done"
+          ? { ...record, projection_source_state_trace_ref: "state_trace:other" }
+          : record,
+    );
+
+    expect(findNativeSliceEvidence("au07-state-trace-adoption-replay", records)).toBeNull();
   });
 
   it("rejects P1 chapter draft evidence when unadopted draft leaks into reading mode", () => {
@@ -5423,6 +6277,25 @@ function au10WorkbenchRecoveryCancelWaitingRecords() {
   ];
 }
 
+function au07BehaviorTraceTerminalReplayRecords() {
+  return au10WorkbenchRecoveryCancelWaitingRecords().map((record) => {
+    if (record.event !== "slice_verify.ui_state.done") return record;
+
+    return {
+      ...record,
+      slice_id: "au07-behavior-trace-terminal-replay",
+      turn_id: "turn-after-cancel",
+      cancel_trace_ref: "trace:turn-cancelled",
+      behavior_trace_ref: "bh-terminal",
+      behavior_trace_event_type: "close",
+      behavior_trace_next_status: "CANCELLED",
+      behavior_trace_event_turn_ref: "turn-cancelled",
+      behavior_trace_resolution_ref: "behavior_resolution:turn-cancelled",
+      behavior_trace_refs_count: 1,
+    };
+  });
+}
+
 function au12WorkProfileOverviewRecords() {
   return [
     {
@@ -5449,6 +6322,59 @@ function au12WorkProfileOverviewRecords() {
       event: "channel.get_work_profile.done",
       has_title: true,
       field_count: 8,
+      status: "TENTATIVE",
+    },
+  ];
+}
+
+function au12WorkProfileStatusIsolationRecords() {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au12-work-profile-status-isolation",
+      accepted_work_id: "work-accepted",
+      accepted_work_title: "AU12已确认档案作品",
+      empty_work_id: "work-empty",
+      empty_work_title: "AU12空字段档案作品",
+      accepted_profile_status: "ACCEPTED",
+      empty_profile_status: "TENTATIVE",
+      accepted_status_visible: true,
+      tentative_status_visible: true,
+      empty_fields_visible_count: 4,
+      accepted_profile_fields_visible: true,
+      empty_profile_excludes_accepted_fields: true,
+      accepted_archive_modules_visible: true,
+      accepted_character_visible_before_switch: true,
+      accepted_foreshadowing_visible_before_switch: true,
+      accepted_rule_visible_before_switch: true,
+      empty_archive_excludes_accepted_character: true,
+      empty_archive_excludes_accepted_foreshadowing: true,
+      empty_archive_excludes_accepted_rule: true,
+      overview_navigation_verified: true,
+      outline_navigation_verified: true,
+      character_navigation_verified: true,
+      foreshadowing_navigation_verified: true,
+      rule_navigation_verified: true,
+      accepted_profile_reply_omits_id: true,
+      empty_profile_reply_omits_id: true,
+      profile_replies_omit_work_uuid: true,
+      profile_logs_omit_work_uuid: true,
+      profile_ui_omits_work_uuid: true,
+      readonly_no_write_logs: true,
+      readonly_no_author_action_frames: true,
+      real_archive_opened: true,
+      real_work_switch_performed: true,
+    },
+    {
+      event: "channel.get_work_profile.done",
+      has_title: true,
+      field_count: 8,
+      status: "ACCEPTED",
+    },
+    {
+      event: "channel.get_work_profile.done",
+      has_title: true,
+      field_count: 4,
       status: "TENTATIVE",
     },
   ];
@@ -7178,6 +8104,111 @@ function au05DiscardRecords(turnId) {
   ];
 }
 
+function au05DiscardAuthorActionRecords(turnId) {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au05-discard-author-action",
+      turn_id: turnId,
+      draft_turn_id: turnId,
+      discard_turn_id: "turn-discard-result",
+      workspace_id: "work-adopt",
+      work_id: "work-adopt",
+      session_id: "session-adopt",
+      duration_ms: 1,
+      outcome: "ok",
+      artifact_id: "as-1",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      discard_action_sent: true,
+      discard_action_type: "discard",
+      action_result_status: "discarded",
+      artifact_discarded: true,
+      artifact_adopted: false,
+      production_write_performed: false,
+      discard_button_cleared_after_discard: true,
+      reading_mode_empty_after_discard: true,
+      draft_not_visible_in_reading: true,
+      user_message_text: "生成正文草稿",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: turnId,
+      workspace_id: "work-adopt",
+      work_id: "work-adopt",
+      session_id: "session-adopt",
+      duration_ms: 0,
+      outcome: "start",
+      generate_micro_plan: true,
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: turnId,
+      workspace_id: "work-adopt",
+      work_id: "work-adopt",
+      session_id: "session-adopt",
+      duration_ms: 8,
+      outcome: "ok",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: turnId,
+      workspace_id: "work-adopt",
+      work_id: "work-adopt",
+      session_id: "session-adopt",
+      duration_ms: 33,
+      outcome: "ok",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: turnId,
+      workspace_id: "work-adopt",
+      work_id: "work-adopt",
+      session_id: "session-adopt",
+      duration_ms: 0,
+      outcome: "start",
+      action_type: "discard",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: turnId,
+      workspace_id: "work-adopt",
+      work_id: "work-adopt",
+      session_id: "session-adopt",
+      duration_ms: 7,
+      outcome: "ok",
+      action_type: "discard",
+      action_status: "discarded",
+      artifact_id: "as-1",
+    },
+    {
+      event: "channel.get_toc.done",
+      turn_id: "turn-toc",
+      workspace_id: "work-adopt",
+      work_id: "work-adopt",
+      session_id: "session-adopt",
+      duration_ms: 4,
+      outcome: "ok",
+      total_word_count: 0,
+      empty_chapter_count: 12,
+      chapter_count: 12,
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      turn_id: "turn-toc",
+      workspace_id: "work-adopt",
+      work_id: "work-adopt",
+      session_id: "session-adopt",
+      duration_ms: 4,
+      outcome: "ok",
+      chapter_id: "chapter-1",
+      content_chars: 0,
+    },
+  ];
+}
+
 function au05ModifyDraftRecords(turnId) {
   return [
     ...au05BaseRecords(turnId),
@@ -7360,6 +8391,79 @@ function p1ChapterDraftGenerationRecords(turnId) {
       unadopted_draft_visible_in_reading: false,
       adopt_event_sent: false,
       user_message_text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+    },
+  ];
+}
+
+function au07StateTraceAdoptionReplayRecords(draftTurnId, adoptTurnId) {
+  const stateTraceRef = "state_trace:ad-au07";
+
+  return [
+    ...p1ChapterDraftGenerationRecords(draftTurnId).map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            slice_id: "au07-state-trace-adoption-replay",
+            draft_turn_id: draftTurnId,
+            adopt_turn_id: adoptTurnId,
+            accept_event_sent: true,
+            accept_action_type: "accept",
+            accept_button_cleared_after_adoption: true,
+            artifact_adopted: true,
+            reading_mode_populated_after_adoption: true,
+            total_word_count: 24,
+            chapter_word_count: 24,
+            expected_word_count: 24,
+            word_count_matches_adopted_prose: true,
+            adoption_trace_ref: `trace:${adoptTurnId}`,
+            state_trace_ref: stateTraceRef,
+            resolved_state_trace_ref: stateTraceRef,
+            projection_source_state_trace_ref: stateTraceRef,
+            projection_refresh_status: "STALE",
+            projection_stale_banner_visible: true,
+            projection_refresh_button_visible: true,
+            trace_summary_state_trace_refs_count: 1,
+            projection_refs_count: 1,
+          }
+        : record,
+    ),
+    {
+      event: "channel.author_action.start",
+      turn_id: draftTurnId,
+      work_id: "work-p1",
+      session_id: "session-p1",
+      action_type: "accept",
+      target_ref: "artifact-prose-1",
+    },
+    {
+      event: "adoption.evaluate.done",
+      turn_id: draftTurnId,
+      work_id: "work-p1",
+      session_id: "session-p1",
+      decision_type: "adopt_tentative",
+      reason_codes: ["candidate_adopted_as_tentative", "provenance_verified"],
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: draftTurnId,
+      work_id: "work-p1",
+      session_id: "session-p1",
+      action_type: "accept",
+      action_status: "accepted",
+    },
+    {
+      event: "channel.get_toc.done",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      chapter_count: 12,
+      total_word_count: 24,
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      work_id: "work-p1",
+      session_id: "session-p1",
+      chapter_id: "chapter-1",
+      content_chars: 64,
     },
   ];
 }
@@ -7834,6 +8938,87 @@ function lmRecord(turnId, step, assistantMessage) {
   };
 }
 
+function au04ConfirmBeforeExecuteRecords() {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au04-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      generate_micro_plan: false,
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au04-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      decision_type: "require_confirmation",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au04-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-au04-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-confirm",
+      action_type: "confirm_before_execute",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-au04-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      action_id: "confirm-au04-confirm",
+      action_type: "confirm_before_execute",
+      action_status: "accepted",
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au04-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      decision_type: "allow_tool",
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: "turn-au04-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au04-confirm-before-execute",
+      turn_id: "turn-au04-confirm",
+      confirm_turn_id: "turn-au04-confirm",
+      executed_turn_id: "turn-au04-confirm",
+      work_id: "work-au04",
+      session_id: "session-au04",
+      artifact_id: "artifact-au04-confirm",
+      artifact_type: "prose_fragment",
+      confirmation_card_received: true,
+      confirmation_card_visible: true,
+      confirmation_card_detail_visible: true,
+      confirmation_card_target_visible: true,
+      confirmation_card_no_write_visible: true,
+      confirmation_card_re_gate_visible: true,
+      plan_carried_over_wire: true,
+      confirm_action_behavior_ref: "behavior-au04-confirm",
+      tool_called_before_confirm: false,
+      production_write_before_confirm: false,
+      confirm_action_sent: true,
+      confirmed_dispatch: true,
+      artifact_pending_after_confirm: true,
+    },
+  ];
+}
+
 function au04ConfirmIdempotencyUiRecords() {
   return [
     {
@@ -8114,6 +9299,139 @@ function au04StaleConfirmationUiRecords() {
       no_tool_dispatch_after_stale: true,
       no_pending_artifact_after_stale: true,
       action_failure_visible: true,
+    },
+  ];
+}
+
+function au06SingleActiveConfirmationRecords() {
+  return [
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au06-first-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      generate_micro_plan: false,
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au06-first-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      decision_type: "require_confirmation",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au06-first-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au06-second-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      generate_micro_plan: false,
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au06-second-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      decision_type: "require_confirmation",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au06-second-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-au06-first-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      action_id: "confirm-au06-first",
+      action_type: "confirm_before_execute",
+    },
+    {
+      event: "channel.author_action.error",
+      turn_id: "turn-au06-first-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      action_id: "confirm-au06-first",
+      action_type: "confirm_before_execute",
+      reason_code: "dialogue_gateway_rejected",
+      outcome_detail: "stale action source_turn_ref",
+    },
+    {
+      event: "channel.author_action.start",
+      turn_id: "turn-au06-second-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      action_id: "confirm-au06-second",
+      action_type: "confirm_before_execute",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-au06-second-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      action_id: "confirm-au06-second",
+      action_type: "confirm_before_execute",
+      action_status: "accepted",
+    },
+    {
+      event: "orchestrator.decide.done",
+      turn_id: "turn-au06-second-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      decision_type: "allow_tool",
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: "turn-au06-second-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au06-single-active-confirmation",
+      turn_id: "turn-au06-second-confirm",
+      first_confirm_turn_id: "turn-au06-first-confirm",
+      second_confirm_turn_id: "turn-au06-second-confirm",
+      latest_executed_turn_id: "turn-au06-second-confirm",
+      work_id: "work-au06",
+      session_id: "session-au06",
+      artifact_id: "artifact-au06-second",
+      artifact_type: "prose_fragment",
+      first_confirm_action_id: "confirm-au06-first",
+      second_confirm_action_id: "confirm-au06-second",
+      first_confirm_action_behavior_ref: "behavior-au06-first",
+      second_confirm_action_behavior_ref: "behavior-au06-second",
+      distinct_behavior_refs: true,
+      first_tool_called_before_confirm: false,
+      first_production_write_before_confirm: false,
+      second_tool_called_before_confirm: false,
+      second_production_write_before_confirm: false,
+      second_confirmation_advanced_current_turn: true,
+      confirm_button_count_after_second: 2,
+      old_confirm_visible: true,
+      old_confirm_disabled: false,
+      old_confirm_click_attempted: true,
+      old_confirm_action_sent: true,
+      old_confirm_rejected: true,
+      old_confirm_prevented: true,
+      old_author_action_error_count: 1,
+      toolbox_execute_after_old_count: 0,
+      pending_prose_fragment_after_old_count: 0,
+      no_tool_dispatch_after_old: true,
+      no_pending_artifact_after_old: true,
+      latest_confirm_action_sent: true,
+      latest_confirm_dispatched: true,
+      latest_toolbox_execute_count: 1,
+      latest_pending_artifact_after_confirm: true,
     },
   ];
 }

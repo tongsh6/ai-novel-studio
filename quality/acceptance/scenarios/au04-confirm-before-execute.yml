@@ -10,9 +10,11 @@ contract:
   - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
   - docs/design/adr/ADR-0009-confirmation-binding-v3.md
   - tasks/slices/AU04-AU06-author-action-binding.md
+  - tasks/slices/AU04-file-level-closure.md
 
 invariants:
   - high-risk-production-write-requires-confirmation
+  - confirmation-card-explains-target-no-write-and-re-gate
   - confirmation-action-comes-from-server-available-actions
   - confirmation-action-binds-open-behavior
   - confirmation-answer-re-gates-before-dispatch
@@ -27,6 +29,7 @@ user_flow:
   - open: real Tauri workbench with an adopted chapter plan
   - type: high-risk rewrite request in the real chat input
   - observe: needs_confirmation turn_result arrives over the real websocket
+  - observe: visible confirmation card explains target, no-write-before-confirm, and re-gate-after-confirm
   - observe: visible confirm and reject actions are shown before execution
   - click: 确认执行
   - observe: real workbench sends author_action confirm_before_execute
@@ -43,6 +46,9 @@ evidence:
 
 assertions:
   ui:
+    - confirmation card explains the target object before execution
+    - confirmation card explains no tool call or production write happens before confirmation
+    - confirmation card explains the system re-gates against current state after confirmation
     - confirmation action is visible before execution
     - tentative prose draft is visible after confirmation
     - pending adoption remains visible after execution

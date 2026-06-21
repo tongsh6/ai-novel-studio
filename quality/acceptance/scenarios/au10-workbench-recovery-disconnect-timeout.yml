@@ -1,0 +1,62 @@
+id: au10-workbench-recovery-disconnect-timeout
+title: Provider 不可达后工作台可恢复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au10-workbench-recovery-disconnect-timeout --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - docs/design/07-workbench-ui-contract.md
+  - tasks/slices/AU10-workbench-recovery-disconnect-timeout.md
+  - tasks/slices/AU10-file-level-closure.md
+
+invariants:
+  - provider-failure-returns-author-readable-turn-result
+  - provider-failure-does-not-write-production-content
+  - loading-clears-after-provider-failure
+  - next-turn-can-complete-after-provider-recovery
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - configure: unreachable provider through product provider API
+  - open: real Tauri workbench
+  - input: author message
+  - observe: recoverable provider failure
+  - restore: slice_verify provider
+  - input: following author message
+  - observe: following turn completes without refreshing
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri
+
+assertions:
+  ui:
+    - provider failure message is visible
+    - loading indicator clears after failure
+    - input remains available after failure
+    - following turn completes after recovery
+  network:
+    - provider_gateway.complete.error is recorded
+    - failure turn_result is delivered over the real channel
+    - recovery turn_result is delivered after provider recovery
+  data:
+    - failure creates no adopted artifact
+    - failure performs no production write
+    - failure and recovery prompts are both sent from the real workbench
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

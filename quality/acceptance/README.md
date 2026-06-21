@@ -9,6 +9,7 @@ bash scripts/quality_accept.sh --list
 bash scripts/quality_accept.sh <scenario-id>
 bash scripts/quality_accept.sh <scenario-id> --surface browser
 bash scripts/quality_accept.sh <scenario-id> --surface tauri
+bash scripts/quality_accept.sh e2e-01-full-chain --provider lmstudio
 bash scripts/quality_accept.sh --tier pr-smoke
 bash scripts/quality_accept.sh --tier nightly --surface tauri
 ```

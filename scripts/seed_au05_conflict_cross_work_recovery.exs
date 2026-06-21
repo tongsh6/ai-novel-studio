@@ -51,6 +51,8 @@ turn_result = %{
     %{
       action_id: "choose_candidate:dir_au05_cross_work_1",
       action_type: "choose_candidate",
+      source_turn_ref: turn_id,
+      target_ref: "dir_au05_cross_work_1",
       candidate_set_ref: "candidate_set:#{turn_id}",
       candidate_ref: "dir_au05_cross_work_1",
       enabled: true,

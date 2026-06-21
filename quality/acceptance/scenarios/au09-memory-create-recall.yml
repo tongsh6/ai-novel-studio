@@ -1,0 +1,57 @@
+id: au09-memory-create-recall
+title: 作者创建确认记忆后进入对话召回
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-memory-create-recall --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/06-memory-context-and-trace.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - tasks/slices/AU09-memory-management-workbench-entry.md
+
+invariants:
+  - confirmed-recallable-memory-enters-context-only
+  - memory-recall-is-current-work-scoped
+  - why-panel-shows-author-safe-memory-source
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 记忆
+  - create: governed memory draft
+  - click: 确认
+  - return: workbench
+  - input: related author message
+  - observe: memory enters context and why panel
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-memory-create-recall-tauri
+
+assertions:
+  ui:
+    - memory page is opened from the real workbench
+    - author-created memory is confirmed through the real UI
+    - why panel shows the confirmed memory as an author-safe source
+  network:
+    - user_message is sent from the real workbench after confirmation
+    - turn_result includes memory context refs
+  data:
+    - confirmed memory is recalled into dialogue context
+    - deterministic context assembly contains the memory
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

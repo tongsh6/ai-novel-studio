@@ -1,0 +1,58 @@
+id: e2e-01-full-chain
+title: E2E-01 端到端全链路聚合验收
+tier: nightly
+surface: browser
+runner: e2e_aggregate
+default_provider: lmstudio
+entrypoint: scripts/e2e_01_full_chain_check.sh --provider lmstudio
+contract:
+  - docs/design/acceptance/e2e/E2E-01-full-chain.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - docs/engineering/scenario-acceptance.md
+  - docs/engineering/scenario-invariants.md
+invariants:
+  - E2E 聚合证据必须来自当前真实页面验收 artifact 和现有测试命令，不得把设计文档本身当作验收证据。
+  - 已验收场景必须有外部自动化驱动真实页面的 summary.json。
+  - Provider/runtime 边界保持显式，不能把 slice fixture 或 stub 注册进 production runtime。
+  - 聚合 runner 不改产品代码，不读取产品侧验收 env/query/localStorage，也不要求 DOM hook。
+setup:
+  provider: lmstudio
+  runner: scripts/e2e_01_full_chain_check.sh
+  artifact_dir: artifacts/slice-verify/e2e-01-full-chain
+  prerequisites:
+    - 已存在 AU/SU 真实 Tauri 验收 summary.json。
+    - LM Studio 可用时执行 real_llm 局部链路测试。
+user_flow:
+  - 运行外部聚合 runner。
+  - runner 复核 E2E-01 已验收场景引用的 Tauri summary.json。
+  - runner 复跑 E2E integration、DialogueGateway real-loop、Channel/Replay/Trace tests。
+  - runner 在 artifacts/slice-verify/e2e-01-full-chain/summary.json 输出 E1-E13 对账状态。
+evidence:
+  required:
+    - artifacts/slice-verify/e2e-01-full-chain/summary.json
+    - artifacts/slice-verify/e2e-01-full-chain/mix-e2e-integration.log
+    - artifacts/slice-verify/e2e-01-full-chain/mix-application-real-loop.log
+    - artifacts/slice-verify/e2e-01-full-chain/mix-channel-replay-trace.log
+    - artifacts/slice-verify/e2e-01-full-chain/mix-real-lmstudio.log
+    - artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/au02-natural-exploration-no-slot-form-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/au04-confirm-before-execute-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/p1-chapter-adoption-reading-tauri-lmstudio/summary.json
+assertions:
+  data:
+    - aggregate_runner_executed
+    - local_e2e_and_replay_tests_executed
+    - real_lmstudio_tests_executed
+    - required_true_page_tauri_artifacts_checked
+    - no_product_acceptance_logic_added
+  remaining_gaps:
+    - E8 invented / forged source negative 属恶意 Channel payload，继续由 Channel security regression 覆盖。
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

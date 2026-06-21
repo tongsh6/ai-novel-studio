@@ -1,0 +1,57 @@
+id: p1-export-minimum
+title: 阅读投影导出全书 Markdown
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-export-minimum --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/product/novel-output-milestones.md
+  - docs/design/domain/21-novel-object-model.md
+
+invariants:
+  - export-reads-accepted-work-facts-only
+  - exported-toc-preserves-planned-chapter-order
+  - unwritten-chapters-use-honest-placeholders
+  - export-action-does-not-create-adopted-prose
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate: chapter 1 prose draft
+  - click: 保存为章节正文
+  - open: 阅读模式
+  - click: 导出全书
+  - inspect: exported Markdown file on disk
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - exported_markdown
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-export-minimum-tauri
+
+assertions:
+  ui:
+    - export button in reading mode is clicked by the author flow
+    - export result path is visible
+  network:
+    - channel.export_work.done returns the same export path
+    - export reads current work projection data
+  data:
+    - exported file exists
+    - TOC lists all planned chapters in order
+    - adopted chapter prose is present
+    - unwritten chapters use placeholders instead of fabricated prose
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

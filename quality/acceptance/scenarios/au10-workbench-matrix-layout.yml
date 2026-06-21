@@ -1,0 +1,64 @@
+id: au10-workbench-matrix-layout
+title: 工作台 1280x800 基线矩阵
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au10-workbench-matrix-layout --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - docs/design/07-workbench-ui-contract.md
+  - docs/design/contracts/VS-05-ui-roundtrip-contract-pack.md
+  - tasks/slices/AU10-file-level-closure.md
+
+invariants:
+  - workbench-real-entry-only
+  - turn-result-is-ui-canonical-output
+  - available-actions-are-server-authorized
+  - candidate-selection-is-not-production-write
+  - trace-summary-is-author-safe
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench at 1280x800
+  - input: ordinary author message
+  - click: why entry
+  - click: server-authorized candidate action
+  - click: accept prose draft
+  - open: reading projection
+  - observe: top bar, input, structure rail, task status, trace and projection
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au10-workbench-matrix-layout-tauri
+
+assertions:
+  ui:
+    - real workbench renders at 1280x800 without horizontal overflow
+    - top status bar stays in one row
+    - input area and structure rail remain visible
+    - why dialog opens without raw prompt leakage
+    - reading projection shows adopted prose and matching word count
+  network:
+    - ordinary user_message completes without micro-plan
+    - candidate action uses author_action from available_actions
+    - adoption action returns through the server boundary
+  data:
+    - candidate selection does not write production content
+    - task status baseline is visible in the first viewport
+    - adopted prose is the source for reading projection content
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

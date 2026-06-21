@@ -1,0 +1,58 @@
+id: au11-missing-workstate-policy
+title: AI 引导式创作缺 WorkState 不编造
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md
+  - docs/design/acceptance/author/AU-11-ai-guided-authoring.md
+  - tasks/slices/AU11-missing-workstate-policy.md
+
+invariants:
+  - work-state-evidence-or-explicit-missing
+  - missing-workstate-does-not-fabricate-current-chapter
+  - missing-workstate-diagnosis-does-not-write-production-state
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - create: real work with title only and no chapter/prose/person state
+  - switch: select the created work from the real work menu
+  - input: 帮我看看这一章哪里不成立。
+  - click: 发送
+  - wait_for: turn result visible
+  - click: 为什么
+  - wait_for: missing WorkState trace details visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au11-missing-workstate-policy-tauri
+
+assertions:
+  ui:
+    - assistant asks for target chapter material or prose before specific diagnosis
+    - assistant does not claim it has read the missing chapter
+    - why panel shows quality diagnosis, missing WorkState, and missing prose limitation
+    - why panel does not expose raw prompt, provider debug, trace id, or context id
+  network:
+    - user_message sent from real workbench
+    - turn_result includes ai_message_envelope trace summary
+  data:
+    - WorkStateLayer snapshot references the selected current work and marks chapter summary, prose excerpt, and character state missing
+    - TurnGuidanceLayer records missing target chapter/prose questions
+    - no tool_result, no adoption_state, no production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

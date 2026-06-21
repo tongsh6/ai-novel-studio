@@ -1,0 +1,64 @@
+id: au10-workbench-recovery-cancel-waiting
+title: 取消确认等待后工作台可继续
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au10-workbench-recovery-cancel-waiting --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - docs/design/07-workbench-ui-contract.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - tasks/slices/AU10-workbench-recovery-disconnect-timeout.md
+  - tasks/slices/AU10-file-level-closure.md
+
+invariants:
+  - cancel-action-uses-server-authorized-author-action
+  - cancel-closes-active-behavior-without-tool-call
+  - cancel-does-not-write-production-content
+  - next-turn-can-complete-after-cancel
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with an adopted chapter plan
+  - input: high-risk rewrite request
+  - observe: confirmation waiting state
+  - click: visible reject or cancel action
+  - observe: cancelled TurnResult and cleared confirmation controls
+  - input: following author message
+  - observe: following turn completes
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri
+
+assertions:
+  ui:
+    - confirmation waiting state is visible
+    - cancelled message is visible after cancel
+    - confirmation buttons are cleared after cancel
+    - input is enabled after cancel
+    - following turn completes after cancel
+  network:
+    - cancel action uses the server action_id
+    - author_action returns cancelled action_result
+    - following user_message completes after cancel
+  data:
+    - no tool is called before cancel
+    - cancel performs no production write
+    - active behavior is closed after cancel
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

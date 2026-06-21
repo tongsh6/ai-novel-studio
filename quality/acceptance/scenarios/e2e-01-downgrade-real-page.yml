@@ -1,0 +1,59 @@
+id: e2e-01-downgrade-real-page
+title: E2E-01 真实页面多步 MicroPlan 降级
+tier: nightly
+surface: tauri
+default_provider: lmstudio
+entrypoint: scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio
+
+contract:
+  - docs/design/acceptance/e2e/E2E-01-full-chain.md
+  - docs/design/acceptance/SCENARIO-BLUEPRINT.md
+  - docs/design/contracts/VS-01-execution-authority-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+  - docs/engineering/scenario-invariants.md
+  - tasks/slices/E2E01-file-level-closure.md
+
+invariants:
+  - 明确多动作 MicroPlan 必须由 Orchestrator 在 action_scope gate 降级为对话。
+  - 降级 turn 不得触发 toolbox.execute、author_action、adoption.evaluate 或 production write。
+  - 真实页面验收必须由外部 Tauri driver 点击可见入口完成，不得新增产品验收感知逻辑。
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: lmstudio
+  artifact_dir: artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio
+
+user_flow:
+  - 打开真实 Tauri 工作台。
+  - 打开档案面板。
+  - 点击可见的发起新操作按钮。
+  - 等待真实 LLM 形成 MicroPlan。
+  - 验证 Orchestrator 降级为对话且没有执行、采纳或写入。
+
+evidence:
+  required:
+    - artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/app-log.json
+    - artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/ui-frames.json
+    - artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/lmstudio-log.json
+    - artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/e2e-01-downgrade-real-page-external-ui.png
+
+assertions:
+  ui:
+    - visible_archive_action_clicked
+    - no_execution_or_adoption_controls_visible
+  network:
+    - user_message_generate_micro_plan_true
+    - turn_result_downgrade_to_dialogue_received
+  data:
+    - first_blocking_gate_action_scope
+    - no_toolbox_execute_event
+    - no_author_action_sent
+    - no_production_write
+    - lmstudio_form_frame_and_micro_plan_called
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

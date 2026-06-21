@@ -21,7 +21,12 @@ const baselineFingerprints = new Set((baseline.findings ?? baseline.fingerprints
   return typeof item === "string" ? item : item.fingerprint;
 }).filter(Boolean));
 
-const findings = runs.flatMap((run) => findingsForRun(run, rawDir));
+const findings = runs.flatMap((run) => {
+  return findingsForRun(run, rawDir).map((finding) => ({
+    ...finding,
+    source_run: run.id,
+  }));
+});
 
 for (const finding of findings) {
   finding.fingerprint = fingerprint(finding);
@@ -80,9 +85,18 @@ if (writeBaseline) {
   );
 }
 
-const hasRequiredFailures = runs.some((run) => run.status !== "0" && run.status !== "skipped");
 const hasBlockingFindings = findings.some((finding) => finding.is_blocking);
-process.exit(hasRequiredFailures || hasBlockingFindings ? 1 : 0);
+const failedRunsWithFindings = new Set(
+  findings
+    .filter((finding) => finding.raw_status !== "0")
+    .map((finding) => finding.source_run)
+    .filter(Boolean),
+);
+const hasUnparsedRequiredFailures = runs.some((run) => {
+  return run.status !== "0" && run.status !== "skipped" && !failedRunsWithFindings.has(run.id);
+});
+
+process.exit(hasUnparsedRequiredFailures || hasBlockingFindings ? 1 : 0);
 
 function parseArgs(argv) {
   const parsed = {};

@@ -1,0 +1,58 @@
+id: au10-workbench-recovery-taskstate
+title: 工作台 task_state 生命周期可见
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au10-workbench-recovery-taskstate --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - docs/design/07-workbench-ui-contract.md
+  - tasks/slices/AU10-workbench-recovery-taskstate.md
+  - tasks/slices/AU10-file-level-closure.md
+
+invariants:
+  - task-state-is-broadcast-through-real-channel
+  - workbench-status-consumes-task-state
+  - task-result-remains-author-visible
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with an adopted chapter plan
+  - create: prose draft
+  - click: accept prose draft
+  - open: reading mode
+  - click: real export button
+  - observe: RUNNING, CHECKPOINT and COMPLETED task_state in the workbench
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au10-workbench-recovery-taskstate-tauri
+
+assertions:
+  ui:
+    - author clicks the real export button from reading mode
+    - export path is visible to the author
+    - completed task status remains visible after returning to the workbench
+  network:
+    - task_state RUNNING is observed through websocket frames
+    - task_state CHECKPOINT is observed through websocket frames
+    - task_state COMPLETED is observed through websocket frames
+  data:
+    - export result is associated with the same task id
+    - task state lifecycle is not synthesized by the frontend
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

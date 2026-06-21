@@ -1,0 +1,61 @@
+id: au09-memory-management-entry
+title: 记忆管理入口与生命周期终态不召回
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-memory-management-entry --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/06-memory-context-and-trace.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/AU09-memory-management-workbench-entry.md
+
+invariants:
+  - draft-memory-requires-confirm-before-recall
+  - locked-memory-remains-recallable
+  - deprecated-archived-memory-does-not-recall
+  - memory-management-actions-are-work-scoped
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 记忆
+  - create: first memory
+  - click: 确认
+  - click: 锁定
+  - verify: locked memory still recalls
+  - click: 解锁并废弃
+  - create: second memory and archive it
+  - send: later related message
+  - observe: terminal memories excluded from context and why
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-memory-management-entry-tauri
+
+assertions:
+  ui:
+    - memory page is opened from the real workbench
+    - locked memory terminal controls are disabled until unlock
+    - deprecated and archived memories are marked non-recallable
+  network:
+    - later user_message is sent from the real workbench
+    - later turn_result excludes terminal memory content
+  data:
+    - locked memory remains recallable before terminal action
+    - deprecated and archived memories are excluded from dialogue context and why
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

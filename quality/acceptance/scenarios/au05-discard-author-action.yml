@@ -1,0 +1,59 @@
+id: au05-discard-author-action
+title: 放弃待采纳草稿不写入作品事实
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au05-discard-author-action --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-05-artifact-adoption.md
+  - docs/design/schemas/turn_result_v2.json
+
+invariants:
+  - author-action-authorized-only
+  - discarded-artifact-not-adopted
+  - production-write-blocked-on-discard
+  - reading-projection-excludes-discarded-draft
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案
+  - click: 生成正文草稿
+  - wait_for: pending prose draft visible
+  - click: 不保存
+  - open: 阅读模式
+  - wait_for: planned chapter has no adopted prose
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au05-discard-author-action-tauri
+
+assertions:
+  ui:
+    - discard action visible
+    - discard action clears pending controls
+    - reading mode keeps the planned chapter body empty
+  network:
+    - author_action discard sent
+    - action_result discarded received
+  data:
+    - resolved artifact status is DISCARDED
+    - artifact_adopted remains false
+    - production_write_performed remains false
+    - discarded draft does not materialize as adopted chapter prose
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

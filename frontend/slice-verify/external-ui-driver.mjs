@@ -44,6 +44,48 @@ function assert(condition, message) {
   if (!condition) throw new Error(message);
 }
 
+function isToolTraceRef(ref) {
+  if (typeof ref === "string") return ref.startsWith("tool_trace:");
+  if (!ref || typeof ref !== "object") return false;
+
+  return Boolean(ref.tool_name && ref.tool_request_ref && ref.tool_result_ref);
+}
+
+function assertReplayReportCompleteForReadonlyTool(traceRecord) {
+  const report = traceRecord.replay_report ?? {};
+  const chainSteps = Array.isArray(report.chain_summary)
+    ? report.chain_summary.map((step) => step.step)
+    : [];
+  const questions = Array.isArray(report.required_questions) ? report.required_questions : [];
+  const missingRefs = Array.isArray(report.missing_trace_refs) ? report.missing_trace_refs : [];
+
+  assert(report.provider_called === false, "ReplayReport called or claimed provider recall");
+  assert(report.result_status === "complete", `ReplayReport was not complete: ${report.result_status}`);
+  assert(missingRefs.length === 0, `ReplayReport had missing refs: ${missingRefs.join(", ")}`);
+  assert(chainSteps.includes("frame"), "ReplayReport chain did not include frame");
+  assert(chainSteps.includes("plan"), "ReplayReport chain did not include plan");
+  assert(chainSteps.includes("decision"), "ReplayReport chain did not include decision");
+  assert(chainSteps.includes("tool_trace"), "ReplayReport chain did not include tool trace");
+  assert(chainSteps.includes("turn_result"), "ReplayReport chain did not include TurnResult");
+  assert(questions.length === 6, `ReplayReport did not answer six required questions: ${questions.length}`);
+  assert(
+    questions.every((question) => ["answered", "not_applicable"].includes(question.status)),
+    "ReplayReport had unanswered or missing required questions",
+  );
+  assert(
+    questions.some((question) => question.id === "tool_approval" && question.status === "answered"),
+    "ReplayReport did not answer the tool approval question",
+  );
+  assert(
+    questions.some(
+      (question) => question.id === "adoption_boundary" && question.status === "answered",
+    ),
+    "ReplayReport did not answer why the ToolResult was not adopted",
+  );
+
+  return { report, chainSteps, questions, missingRefs };
+}
+
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -531,6 +573,124 @@ function readAppLogRecords() {
         return [];
       }
     });
+}
+
+function readSeedField(name) {
+  const seedPath = path.join(artifactDir, "seed.log");
+  if (!fs.existsSync(seedPath)) return null;
+
+  const seedLog = fs.readFileSync(seedPath, "utf8");
+  const prefix = `${name}=`;
+  const token = seedLog.split(/\s+/).find((part) => part.startsWith(prefix));
+  return token ? token.slice(prefix.length) : null;
+}
+
+async function queryTraceByTurn(turnId) {
+  const projectRoot = process.env.SLICE_VERIFY_PROJECT_ROOT;
+  assert(projectRoot, "SLICE_VERIFY_PROJECT_ROOT is required to query persisted trace");
+
+  const outputPath = path.join(artifactDir, "trace-query.json");
+  const queryCode = `
+repo_config =
+  :novel_persistence
+  |> Application.get_env(NovelPersistence.Repo, [])
+  |> Keyword.put(:pool, DBConnection.ConnectionPool)
+  |> Keyword.put(:pool_size, 1)
+
+Application.put_env(:novel_persistence, NovelPersistence.Repo, repo_config)
+
+{:ok, _started} = Application.ensure_all_started(:novel_persistence)
+
+turn_id = System.fetch_env!("TRACE_QUERY_TURN_ID")
+
+defmodule SliceVerifyReplayQuery do
+  def trace_from_record(record) do
+    %NovelDomain.DecisionTrace{
+      trace_id: record.trace_id,
+      turn_id: record.turn_id,
+      frame_ref: record.frame_ref,
+      plan_ref: record.plan_ref,
+      decision_type: atomize(record.decision_type),
+      no_tool_reason: record.no_tool_reason,
+      no_behavior_reason: record.no_behavior_reason,
+      no_write_reason: record.no_write_reason,
+      turn_result_ref: record.turn_result_ref,
+      replay_policy: record.replay_policy,
+      redaction_level: atomize(record.redaction_level || "author_safe"),
+      tool_trace_refs: record.tool_trace_refs || [],
+      behavior_trace_refs: record.behavior_trace_refs || [],
+      state_trace_refs: record.state_trace_refs || [],
+      event_order: Enum.map(record.event_order || [], &atomize/1)
+    }
+  end
+
+  def replay_report(record) do
+    record
+    |> trace_from_record()
+    |> NovelApplication.ReplayService.build_report()
+    |> Map.from_struct()
+  end
+
+  defp atomize(value) when is_atom(value), do: value
+  defp atomize(value) when is_binary(value), do: String.to_atom(value)
+  defp atomize(_value), do: nil
+end
+
+traces =
+  turn_id
+  |> NovelPersistence.TraceRepository.list_by_turn()
+  |> Enum.map(fn record ->
+    %{
+      trace_id: record.trace_id,
+      turn_id: record.turn_id,
+      workspace_id: record.workspace_id,
+      frame_ref: record.frame_ref,
+      plan_ref: record.plan_ref,
+      decision_type: record.decision_type,
+      tool_trace_refs: Map.get(record, :tool_trace_refs) || [],
+      behavior_trace_refs: Map.get(record, :behavior_trace_refs) || [],
+      state_trace_refs: Map.get(record, :state_trace_refs) || [],
+      replay_report: SliceVerifyReplayQuery.replay_report(record)
+    }
+  end)
+
+payload = %{turn_id: turn_id, count: length(traces), traces: traces}
+
+File.write!(System.fetch_env!("TRACE_QUERY_OUTPUT"), Jason.encode!(payload) <> "\\n")
+`;
+
+  const child = spawn("mix", ["run", "--no-start", "-e", queryCode], {
+    cwd: projectRoot,
+    env: {
+      ...process.env,
+      MIX_ENV: "test",
+      TRACE_QUERY_TURN_ID: turnId,
+      TRACE_QUERY_OUTPUT: outputPath,
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk) => {
+    stdout += chunk.toString();
+  });
+  child.stderr?.on("data", (chunk) => {
+    stderr += chunk.toString();
+  });
+
+  try {
+    await waitForChild(child, "trace query");
+  } catch (error) {
+    throw new Error(
+      `${error.message}${stderr.trim() ? `: ${stderr.trim()}` : ""}${
+        stdout.trim() ? ` stdout=${stdout.trim()}` : ""
+      }`,
+    );
+  }
+
+  assert(fs.existsSync(outputPath), "Trace query did not write trace-query.json");
+  return JSON.parse(fs.readFileSync(outputPath, "utf8"));
 }
 
 async function waitForAppLogRecord(predicate, message, timeoutMs = 60_000) {
@@ -1237,6 +1397,10 @@ async function driveAu01TurnresultRecorderUiConsistency(page) {
 async function openArchiveTab(page, tabName) {
   await page.getByText("打开档案").first().click();
   await page.getByRole("tab", { name: tabName }).click();
+  return await waitForArchivePanel(page);
+}
+
+async function waitForArchivePanel(page) {
   const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
   await archivePanel.waitFor({ timeout: 10_000 });
   return archivePanel;
@@ -2125,6 +2289,44 @@ async function openLatestWhyDialog(page) {
   return dialog.innerText();
 }
 
+async function driveAu07TraceWhyEntry(page) {
+  const message = "我想写一个雨夜开场的悬疑故事，先聊聊气质。";
+  const beforeFrameCount = frames.length;
+  const { turnResult } = await sendOrdinaryChatTurn(page, message, beforeFrameCount);
+  const sentMessage = latestSentUserMessage();
+
+  assert(sentMessage, "No AU07 user_message websocket frame was sent");
+  assert(turnResult.trace_summary, "AU07 turn_result did not include trace summary");
+  assert(
+    turnResult.truthfulness?.tool_called !== true,
+    "AU07 why entry setup unexpectedly dispatched a tool",
+  );
+  assert(
+    turnResult.truthfulness?.production_write_performed !== true,
+    "AU07 why entry setup unexpectedly wrote production state",
+  );
+
+  const whyText = await openLatestWhyDialog(page);
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
+
+  assert(whyText.includes("不会重新调用模型"), "Why dialog did not state no-provider replay");
+  assert(!unsafePattern.test(whyText), "Why dialog exposed unsafe trace or prompt text");
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      trace_why_dialog_open: true,
+      trace_why_text: whyText,
+      trace_why_contains_raw_prompt: unsafePattern.test(whyText),
+      replay_provider_called: false,
+      production_write_performed: turnResult.truthfulness?.production_write_performed === true,
+      tool_called: turnResult.truthfulness?.tool_called === true,
+    },
+  ];
+}
+
 async function driveContextSourceUi(page) {
   await page.locator(chatInputSelector).fill("林烬为什么要去灵源矿区？");
   await page.getByRole("button", { name: /^发送$/ }).click();
@@ -2272,6 +2474,177 @@ async function driveAu11QualityDiagnosisMessageEnvelope(page) {
       why_shows_quality_diagnosis: whyText.includes("质量诊断"),
       why_shows_quality_focus: whyText.includes("冲突压力") && whyText.includes("代价可见"),
       why_shows_current_work_source: whyText.includes("当前作品背景"),
+    },
+  ];
+}
+
+async function driveAu11MissingWorkstatePolicy(page) {
+  const nonce = `AU11-MISSING-${Date.now()}`;
+  const work = await createWorkSeed({ title: `AU11空白诊断作品-${nonce}` });
+  const beforeJoinCount = readAppLogRecords().length;
+
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    beforeJoinCount,
+    (record) =>
+      record.event === "channel.join.done" &&
+      record.work_id === work.id &&
+      String(record.session_id ?? "").trim().length > 0,
+    "Selecting AU11 missing WorkState work did not join its workspace channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+
+  const message = "帮我看看这一章哪里不成立。";
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const turnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.trace_summary?.ai_message_envelope != null,
+    "No AU11 missing WorkState turn_result with AIMessageEnvelope trace summary",
+    90_000,
+  );
+
+  const turnResult = turnFrame.body;
+  const sentMessage = latestSentUserMessage();
+  assert(sentMessage, "No AU11 missing WorkState user_message websocket frame was sent");
+  assert(sentMessage.body?.work_id === work.id, "AU11 missing WorkState message used wrong work");
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.work_id === work.id &&
+      record.session_id === joinRecord.session_id &&
+      record.has_snapshot === true,
+    "No AU11 missing WorkState context.assemble.done with selected work snapshot",
+    30_000,
+  );
+
+  const traceSummary = turnResult.trace_summary ?? {};
+  const envelope = traceSummary.ai_message_envelope ?? {};
+  const workState = envelope.work_state_layer ?? {};
+  const guidance = envelope.turn_guidance_layer ?? {};
+  const contextRefs = Array.isArray(workState.context_refs) ? workState.context_refs : [];
+  const contextSourceTypes = contextRefs.map((ref) => String(ref.source_type ?? ""));
+  const missingQuestions = Array.isArray(guidance.missing_questions)
+    ? guidance.missing_questions.map(String)
+    : [];
+  const assistantText = String(turnResult.assistant_message?.text ?? "");
+  const missingStatus = (value, reason) =>
+    value?.status === "missing" && (!reason || value?.reason === reason);
+
+  assert(
+    traceSummary.guidance_mode === "quality",
+    "AU11 missing WorkState trace summary did not mark guidance_mode=quality",
+  );
+  assert(
+    guidance.guidance_mode === "quality",
+    "AU11 missing WorkState TurnGuidance did not mark quality mode",
+  );
+  assert(
+    String(workState.snapshot_summary ?? "").includes(work.title),
+    "AU11 missing WorkState snapshot summary did not reference the selected work",
+  );
+  assert(
+    missingStatus(workState.chapter_state, "no_chapter_state"),
+    "AU11 missing WorkState did not mark missing chapter state",
+  );
+  assert(
+    missingStatus(workState.chapter_summary, "no_chapter_summary"),
+    "AU11 missing WorkState did not mark missing chapter summary",
+  );
+  assert(
+    missingStatus(workState.prior_prose_excerpt, "no_prior_prose_excerpt_in_dialogue_context"),
+    "AU11 missing WorkState did not mark missing prose excerpt",
+  );
+  assert(
+    missingStatus(workState.character_state),
+    "AU11 missing WorkState did not mark missing character state",
+  );
+  assert(
+    missingQuestions.some((question) => question.includes("缺目标章节摘要")) &&
+      missingQuestions.some((question) => question.includes("正文片段")),
+    "AU11 missing WorkState guidance did not record missing target chapter/prose questions",
+  );
+  assert(
+    assistantText.includes("缺少当前章节摘要或正文") &&
+      assistantText.includes("不会改写正文或写入作品事实"),
+    "AU11 missing WorkState assistant response did not ask for target material honestly",
+  );
+  assert(!assistantText.includes("已经读过"), "AU11 missing WorkState claimed it read the chapter");
+  assert(!assistantText.includes("林烬"), "AU11 missing WorkState fabricated seeded chapter facts");
+  assert(turnResult.tool_result == null, "AU11 missing WorkState unexpectedly called a tool");
+  assert(turnResult.adoption_state == null, "AU11 missing WorkState unexpectedly opened adoption");
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "AU11 missing WorkState reported production write",
+  );
+
+  const whyText = await openLatestWhyDialog(page);
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const unsafePattern = /raw prompt|provider raw|hidden policy|debug|trace_|ctx_/i;
+
+  assert(whyText.includes("质量诊断"), "AU11 missing WorkState why did not show quality mode");
+  assert(
+    whyText.includes("作品层依据缺失或不足"),
+    "AU11 missing WorkState why did not show missing WorkState",
+  );
+  assert(
+    whyText.includes("缺少正文片段"),
+    "AU11 missing WorkState why did not show missing prose limitation",
+  );
+  assert(!unsafePattern.test(whyText), "AU11 missing WorkState why exposed unsafe trace text");
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      work_id: work.id,
+      workspace_id: work.id,
+      session_id: joinRecord.session_id,
+      context_work_id: work.id,
+      active_session_id: joinRecord.session_id,
+      work_title: work.title,
+      message_text: message,
+      guidance_mode_quality: traceSummary.guidance_mode === "quality",
+      work_state_has_current_work_source: contextSourceTypes.includes("current_work"),
+      work_state_snapshot_mentions_work: String(workState.snapshot_summary ?? "").includes(
+        work.title,
+      ),
+      work_state_chapter_state_missing: missingStatus(
+        workState.chapter_state,
+        "no_chapter_state",
+      ),
+      work_state_chapter_summary_missing: missingStatus(
+        workState.chapter_summary,
+        "no_chapter_summary",
+      ),
+      work_state_prior_prose_missing: missingStatus(
+        workState.prior_prose_excerpt,
+        "no_prior_prose_excerpt_in_dialogue_context",
+      ),
+      work_state_character_state_missing: missingStatus(workState.character_state),
+      turn_guidance_records_missing_questions:
+        missingQuestions.some((question) => question.includes("缺目标章节摘要")) &&
+        missingQuestions.some((question) => question.includes("正文片段")),
+      assistant_asks_for_target_material:
+        assistantText.includes("缺少当前章节摘要或正文") &&
+        assistantText.includes("不会改写正文或写入作品事实"),
+      assistant_claims_read_chapter: assistantText.includes("已经读过"),
+      assistant_fabricates_seeded_chapter_fact: assistantText.includes("林烬"),
+      no_tool_result: turnResult.tool_result == null,
+      no_adoption_state: turnResult.adoption_state == null,
+      no_production_write: turnResult.truthfulness?.production_write_performed === false,
+      trace_why_dialog_open: true,
+      trace_why_text: whyText,
+      trace_why_contains_raw_prompt: unsafePattern.test(whyText),
+      why_shows_quality_diagnosis: whyText.includes("质量诊断"),
+      why_shows_work_state_missing: whyText.includes("作品层依据缺失或不足"),
+      why_shows_missing_limit: whyText.includes("缺少正文片段"),
     },
   ];
 }
@@ -3252,7 +3625,11 @@ async function driveCandidateAdoptionBridge(page) {
 }
 
 async function driveAdoptionSafetyFreshness(page) {
-  await page.locator(chatInputSelector).fill("我想写一个高风险、会覆盖主线设定的小说创作方向。");
+  await page
+    .locator(chatInputSelector)
+    .fill(
+      "我想写一个赛博修仙故事，但还没想好小说创作方向，可以有一个高风险、覆盖主线的方向。",
+    );
   await page.getByRole("button", { name: /^发送$/ }).click();
 
   const sourceTurnFrame = await waitForFrame(
@@ -3269,7 +3646,7 @@ async function driveAdoptionSafetyFreshness(page) {
   assert(candidate, "High-risk candidate was not present in source turn_result");
 
   await page
-    .getByRole("button", { name: /采用这个方向/ })
+    .getByRole("button", { name: /设为后续方向|采用这个方向/ })
     .first()
     .click();
 
@@ -3305,15 +3682,21 @@ async function driveAdoptionSafetyFreshness(page) {
   );
   const confirmationTurnResult = confirmationTurnFrame.body;
 
-  await page.waitForFunction(() => document.body.innerText.includes("候选方向待确认"), {
-    timeout: 10_000,
-  });
+  await page.waitForFunction(
+    () => /候选方向待确认|后续方向待确认|确认回合/.test(document.body.innerText),
+    {
+      timeout: 10_000,
+    },
+  );
 
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, confirmationTurnResult, sentMessage);
   const visibleText = await page.locator("body").innerText();
 
-  assert(visibleText.includes("采用这个方向"), "Candidate adoption button was not rendered");
+  assert(
+    /设为后续方向|采用这个方向/.test(visibleText),
+    "Candidate adoption button was not rendered",
+  );
   assert(
     confirmationTurnResult.truthfulness?.candidate_selected === true,
     "Confirmation turn_result did not mark candidate_selected",
@@ -3343,7 +3726,7 @@ async function driveAdoptionSafetyFreshness(page) {
       candidate_selected: confirmationTurnResult.truthfulness.candidate_selected,
       candidate_adopted: confirmationTurnResult.truthfulness.candidate_adopted,
       production_write_performed: confirmationTurnResult.truthfulness.production_write_performed,
-      visible_confirmation_result: visibleText.includes("候选方向待确认"),
+      visible_confirmation_result: /候选方向待确认|后续方向待确认|确认回合/.test(visibleText),
     },
   ];
 }
@@ -3354,7 +3737,7 @@ async function driveStaleConflictCrossWorkFreshness(page) {
   });
 
   await page
-    .getByRole("button", { name: /采用这个方向/ })
+    .getByRole("button", { name: /设为后续方向|采用这个方向/ })
     .first()
     .click();
 
@@ -3390,9 +3773,12 @@ async function driveStaleConflictCrossWorkFreshness(page) {
   );
   const rejectionTurnResult = rejectionTurnFrame.body;
 
-  await page.waitForFunction(() => document.body.innerText.includes("候选方向未采用"), {
-    timeout: 10_000,
-  });
+  await page.waitForFunction(
+    () => /候选方向未采用|后续方向未设置/.test(document.body.innerText),
+    {
+      timeout: 10_000,
+    },
+  );
 
   const visibleText = await page.locator("body").innerText();
   const topic = actionFrame.topic ?? "";
@@ -3433,7 +3819,7 @@ async function driveStaleConflictCrossWorkFreshness(page) {
       candidate_selected: rejectionTurnResult.truthfulness.candidate_selected,
       candidate_adopted: rejectionTurnResult.truthfulness.candidate_adopted,
       production_write_performed: rejectionTurnResult.truthfulness.production_write_performed,
-      visible_rejection_result: visibleText.includes("候选方向未采用"),
+      visible_rejection_result: /候选方向未采用|后续方向未设置/.test(visibleText),
       restored_stale_candidate_visible: visibleText.includes("旧版主线覆盖"),
       duration_ms: 0,
       outcome: "done",
@@ -3447,7 +3833,7 @@ async function driveConflictCrossWorkRecovery(page) {
   });
 
   await page
-    .getByRole("button", { name: /采用这个方向/ })
+    .getByRole("button", { name: /设为后续方向|采用这个方向/ })
     .first()
     .click();
 
@@ -3483,9 +3869,12 @@ async function driveConflictCrossWorkRecovery(page) {
   );
   const failureTurnResult = failureTurnFrame.body;
 
-  await page.waitForFunction(() => document.body.innerText.includes("候选方向采用失败"), {
-    timeout: 10_000,
-  });
+  await page.waitForFunction(
+    () => /候选方向采用失败|后续方向设置失败/.test(document.body.innerText),
+    {
+      timeout: 10_000,
+    },
+  );
 
   const visibleText = await page.locator("body").innerText();
   const topic = actionFrame.topic ?? "";
@@ -3530,7 +3919,7 @@ async function driveConflictCrossWorkRecovery(page) {
       candidate_selected: failureTurnResult.truthfulness.candidate_selected,
       candidate_adopted: failureTurnResult.truthfulness.candidate_adopted,
       production_write_performed: failureTurnResult.truthfulness.production_write_performed,
-      visible_failure_result: visibleText.includes("候选方向采用失败"),
+      visible_failure_result: /候选方向采用失败|后续方向设置失败/.test(visibleText),
       cross_work_candidate_visible: visibleText.includes("外部作品主线移植"),
       duration_ms: 0,
       outcome: "done",
@@ -3544,7 +3933,7 @@ async function driveCanonConflictRecovery(page) {
   });
 
   await page
-    .getByRole("button", { name: /采用这个方向/ })
+    .getByRole("button", { name: /设为后续方向|采用这个方向/ })
     .first()
     .click();
 
@@ -3581,9 +3970,12 @@ async function driveCanonConflictRecovery(page) {
   );
   const failureTurnResult = failureTurnFrame.body;
 
-  await page.waitForFunction(() => document.body.innerText.includes("候选方向采用失败"), {
-    timeout: 10_000,
-  });
+  await page.waitForFunction(
+    () => /候选方向采用失败|后续方向设置失败/.test(document.body.innerText),
+    {
+      timeout: 10_000,
+    },
+  );
 
   const visibleText = await page.locator("body").innerText();
   const topic = actionFrame.topic ?? "";
@@ -3628,7 +4020,7 @@ async function driveCanonConflictRecovery(page) {
       candidate_selected: failureTurnResult.truthfulness.candidate_selected,
       candidate_adopted: failureTurnResult.truthfulness.candidate_adopted,
       production_write_performed: failureTurnResult.truthfulness.production_write_performed,
-      visible_failure_result: visibleText.includes("候选方向采用失败"),
+      visible_failure_result: /候选方向采用失败|后续方向设置失败/.test(visibleText),
       canon_conflict_candidate_visible: visibleText.includes("年龄设定覆盖"),
       duration_ms: 0,
       outcome: "done",
@@ -4324,8 +4716,31 @@ async function driveP1ChapterAdoptionReading(page) {
       .join("");
   });
   const visibleProseWords = effectiveWordCount(renderedProse);
+  const stateTraceRefs = Array.isArray(adoptTurnResult.trace_summary?.state_trace_refs)
+    ? adoptTurnResult.trace_summary.state_trace_refs
+    : [];
+  const stateTraceRef = stateTraceRefs[0]?.state_trace_ref ?? null;
+  const resolvedStateTraceRef =
+    adoptTurnResult.adoption_state?.resolved?.[0]?.state_trace_ref ?? null;
+  const projectionSourceStateTraceRef =
+    adoptTurnResult.projection_refs?.[0]?.source_state_trace_ref ?? null;
+  const projectionRefreshStatus = adoptTurnResult.projection_refs?.[0]?.refresh_status ?? null;
+  const projectionStaleBannerVisible = visibleText.includes("投影状态：已过期");
+  const projectionRefreshButtonVisible = visibleText.includes("刷新投影");
 
   assert(visibleProseWords > 0, "No visible prose found in reading mode to count");
+  assert(
+    projectionRefreshStatus === "STALE",
+    `Accepted prose did not emit STALE projection_ref refresh status: ${projectionRefreshStatus}`,
+  );
+  assert(
+    projectionStaleBannerVisible,
+    "Reading mode did not show the stale projection banner after adoption",
+  );
+  assert(
+    projectionRefreshButtonVisible,
+    "Reading mode did not show the refresh projection button after adoption",
+  );
   assert(
     Number(totalWords) > 0,
     "Book total effective word count not visible/positive in reading mode",
@@ -4353,6 +4768,15 @@ async function driveP1ChapterAdoptionReading(page) {
       artifact_id: pendingArtifact.artifact_id,
       artifact_type: pendingArtifact.artifact_type,
       chapter_title: "第01章：底层灵气账单",
+      adoption_trace_ref: adoptTurnResult.trace_summary?.trace_ref,
+      state_trace_ref: stateTraceRef,
+      resolved_state_trace_ref: resolvedStateTraceRef,
+      projection_source_state_trace_ref: projectionSourceStateTraceRef,
+      projection_refresh_status: projectionRefreshStatus,
+      projection_stale_banner_visible: projectionStaleBannerVisible,
+      projection_refresh_button_visible: projectionRefreshButtonVisible,
+      trace_summary_state_trace_refs_count: stateTraceRefs.length,
+      projection_refs_count: adoptTurnResult.projection_refs?.length ?? 0,
       accept_event_sent: true,
       accept_action_type: acceptActionFrame.body?.action?.action_type,
       accept_button_cleared_after_adoption: acceptButtonCleared,
@@ -4363,6 +4787,143 @@ async function driveP1ChapterAdoptionReading(page) {
       expected_word_count: visibleProseWords,
       word_count_matches_adopted_prose:
         chapterWords === visibleProseWords && totalWords === chapterWords,
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
+async function driveAu07StateTraceAdoptionReplay(page) {
+  return driveP1ChapterAdoptionReading(page);
+}
+
+async function driveAu05DiscardAuthorAction(page) {
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes("第01章：底层灵气账单"),
+    { timeout: 10_000 },
+  );
+  await page.getByRole("button", { name: "生成正文草稿" }).first().click();
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No AU05 discard prose_fragment turn_result websocket frame was received",
+    170_000,
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+  const draftLeakMarker = String(
+    pendingArtifact.payload?.items?.[0]?.body ?? pendingArtifact.payload?.body ?? "",
+  ).slice(0, 24);
+
+  await page.waitForFunction(
+    () =>
+      /待确认的创作材料|待采纳|正文草稿/.test(document.body.innerText) &&
+      document.body.innerText.includes("不保存"),
+    { timeout: 10_000 },
+  );
+
+  await page.getByRole("button", { name: "不保存" }).first().click();
+
+  const discardActionFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "discard" &&
+      frame.body?.action?.target_ref === pendingArtifact.artifact_id,
+    "Real workbench did not send discard author_action for the prose draft",
+  );
+
+  const actionResultFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "action_result" &&
+      frame.body?.status === "discarded" &&
+      frame.body?.artifact_id === pendingArtifact.artifact_id,
+    "No discarded action_result websocket frame was received for the prose draft",
+    120_000,
+  );
+
+  const discardedTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === false &&
+      frame.body?.truthfulness?.production_write_performed === false &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) =>
+          entry.artifact_id === pendingArtifact.artifact_id &&
+          entry.adoption_status === "DISCARDED",
+      ),
+    "No DISCARDED resolved turn_result websocket frame was received after discard",
+    120_000,
+  );
+  const discardedTurnResult = discardedTurnFrame.body;
+
+  await page.waitForFunction(
+    () =>
+      ![...document.querySelectorAll("button")].some(
+        (btn) => (btn.textContent ?? "").trim() === "不保存",
+      ),
+    { timeout: 10_000 },
+  );
+  const discardButtonCleared = (await page.getByRole("button", { name: "不保存" }).count()) === 0;
+
+  await page.getByRole("button", { name: readingModeButtonPattern }).click();
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("阅读模式") &&
+      /暂无已采纳的章节内容|本章尚无已采纳正文/.test(document.body.innerText),
+    { timeout: 15_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, discardedTurnResult, sentMessage);
+  const draftVisibleInReading = draftLeakMarker !== "" && visibleText.includes(draftLeakMarker);
+
+  assert(
+    !draftVisibleInReading,
+    "Discarded prose draft leaked into reading mode after author discarded it",
+  );
+  assert(
+    discardedTurnResult.truthfulness?.artifact_adopted === false,
+    "Discard turn_result claimed artifact_adopted",
+  );
+  assert(
+    discardedTurnResult.truthfulness?.production_write_performed === false,
+    "Discard turn_result claimed production_write_performed",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      draft_turn_id: draftTurnResult.turn_id,
+      discard_turn_id: discardedTurnResult.turn_id,
+      artifact_id: pendingArtifact.artifact_id,
+      artifact_type: pendingArtifact.artifact_type,
+      chapter_title: "第01章：底层灵气账单",
+      discard_action_sent: true,
+      discard_action_type: discardActionFrame.body?.action?.action_type,
+      action_result_status: actionResultFrame.body?.status,
+      artifact_discarded: (discardedTurnResult.adoption_state?.resolved ?? []).some(
+        (entry) => entry.adoption_status === "DISCARDED",
+      ),
+      artifact_adopted: discardedTurnResult.truthfulness?.artifact_adopted === true,
+      production_write_performed:
+        discardedTurnResult.truthfulness?.production_write_performed === true,
+      discard_button_cleared_after_discard: discardButtonCleared,
+      reading_mode_empty_after_discard: /暂无已采纳的章节内容|本章尚无已采纳正文/.test(
+        visibleText,
+      ),
+      draft_not_visible_in_reading: !draftVisibleInReading,
       user_message_text: sentMessage?.body?.text,
     },
   ];
@@ -4613,10 +5174,30 @@ async function driveAu04ConfirmBeforeExecute(page) {
     (action) => action.action_type === "confirm_before_execute",
   );
 
-  // 确认卡在真实页面可见：确认执行 / 拒绝。
+  // 确认卡在真实页面可见：确认执行 / 拒绝，并说明确认对象、确认前不写入、确认后重新 gate。
   await page.waitForFunction(
-    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    () => {
+      const text = document.body.innerText;
+      return (
+        text.includes("确认执行") &&
+        text.includes("拒绝") &&
+        text.includes("需要确认") &&
+        text.includes("确认对象：正文草稿生成") &&
+        text.includes("确认前不会调用工具或写入作品事实") &&
+        text.includes("确认后系统会重新检查当前作品状态")
+      );
+    },
     { timeout: 10_000 },
+  );
+
+  const confirmationVisibleText = await page.locator("body").innerText();
+  const confirmationCardDetailVisible = confirmationVisibleText.includes("需要确认");
+  const confirmationCardTargetVisible = confirmationVisibleText.includes("确认对象：正文草稿生成");
+  const confirmationCardNoWriteVisible = confirmationVisibleText.includes(
+    "确认前不会调用工具或写入作品事实",
+  );
+  const confirmationCardReGateVisible = confirmationVisibleText.includes(
+    "确认后系统会重新检查当前作品状态",
   );
 
   await page.getByRole("button", { name: "确认执行" }).first().click();
@@ -4692,6 +5273,10 @@ async function driveAu04ConfirmBeforeExecute(page) {
       artifact_type: pendingArtifact.artifact_type,
       confirmation_card_received: true,
       confirmation_card_visible: true,
+      confirmation_card_detail_visible: confirmationCardDetailVisible,
+      confirmation_card_target_visible: confirmationCardTargetVisible,
+      confirmation_card_no_write_visible: confirmationCardNoWriteVisible,
+      confirmation_card_re_gate_visible: confirmationCardReGateVisible,
       pending_draft_visible: visibleTextIncludesPendingDraft(visibleText),
       plan_carried_over_wire: confirmTurnResult.plan != null,
       confirm_action_behavior_ref: confirmAction.behavior_ref ?? "",
@@ -5299,6 +5884,282 @@ async function driveAu04StaleConfirmationUi(page) {
       no_tool_dispatch_after_stale: toolboxExecuteAfterStaleRecords.length === 0,
       no_pending_artifact_after_stale: pendingProseFragmentAfterStaleCount === 0,
       action_failure_visible: visibleText.includes("操作失败，请重试。"),
+      user_message_text: sentMessage?.body?.text,
+    },
+  ];
+}
+
+async function driveAu06SingleActiveConfirmation(page) {
+  const firstRequestText =
+    "第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿，保持为待采纳草稿。";
+  const secondRequestText =
+    "第02章：旧服务器里的残诀 也需要推翻重写正文草稿，保持为待采纳草稿。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  await page.locator(chatInputSelector).fill(firstRequestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const firstConfirmTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.status === "needs_confirmation" &&
+      (frame.body?.available_actions ?? []).some(
+        (action) => action.action_type === "confirm_before_execute",
+      ),
+    "No first needs_confirmation turn_result with confirm_before_execute action was received",
+    200_000,
+  );
+  const firstConfirmTurnResult = firstConfirmTurnFrame.body;
+  const firstConfirmAction = firstConfirmTurnResult.available_actions.find(
+    (action) => action.action_type === "confirm_before_execute",
+  );
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    { timeout: 10_000 },
+  );
+
+  const beforeSecondFrameCount = frames.length;
+  await page.locator(chatInputSelector).fill(secondRequestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  await waitForNewFrame(
+    beforeSecondFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.text === secondRequestText,
+    "Real workbench did not send the second high-risk user_message",
+  );
+
+  const secondConfirmTurnFrame = await waitForNewFrame(
+    beforeSecondFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.turn_id !== firstConfirmTurnResult.turn_id &&
+      frame.body?.status === "needs_confirmation" &&
+      (frame.body?.available_actions ?? []).some(
+        (action) => action.action_type === "confirm_before_execute",
+      ),
+    "No second needs_confirmation turn_result advanced the current turn",
+    200_000,
+  );
+  const secondConfirmTurnResult = secondConfirmTurnFrame.body;
+  const secondConfirmAction = secondConfirmTurnResult.available_actions.find(
+    (action) => action.action_type === "confirm_before_execute",
+  );
+
+  assert(
+    firstConfirmAction.behavior_ref !== secondConfirmAction.behavior_ref,
+    "Second confirmation reused the first behavior_ref; expected a distinct active behavior",
+  );
+  assert(
+    firstConfirmTurnResult.truthfulness?.tool_called === false &&
+      firstConfirmTurnResult.truthfulness?.production_write_performed === false,
+    "First confirmation executed or wrote before author action",
+  );
+  assert(
+    secondConfirmTurnResult.truthfulness?.tool_called === false &&
+      secondConfirmTurnResult.truthfulness?.production_write_performed === false,
+    "Second confirmation executed or wrote before author action",
+  );
+
+  await page.waitForFunction(
+    () => document.body.innerText.includes("确认执行") && document.body.innerText.includes("拒绝"),
+    { timeout: 10_000 },
+  );
+
+  const beforeOldAttemptFrameCount = frames.length;
+  const beforeOldAttemptLogCount = readAppLogRecords().length;
+  const confirmButtons = page.getByRole("button", { name: "确认执行" });
+  const confirmButtonCountAfterSecond = await confirmButtons.count();
+  assert(confirmButtonCountAfterSecond >= 1, "No confirm button remained after the second confirmation");
+
+  const firstVisibleConfirmButton = confirmButtons.first();
+  const oldConfirmVisible =
+    confirmButtonCountAfterSecond > 1
+      ? await firstVisibleConfirmButton.isVisible().catch(() => false)
+      : false;
+  const oldConfirmDisabled =
+    oldConfirmVisible ? await firstVisibleConfirmButton.isDisabled().catch(() => false) : false;
+
+  let oldConfirmClickAttempted = false;
+  let oldConfirmActionSent = false;
+  let oldConfirmRejected = false;
+  let oldRejectionReason = "";
+
+  if (oldConfirmVisible && !oldConfirmDisabled) {
+    oldConfirmClickAttempted = true;
+    await firstVisibleConfirmButton.click();
+
+    await waitForNewFrame(
+      beforeOldAttemptFrameCount,
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "author_action" &&
+        frame.body?.action?.action_type === "confirm_before_execute" &&
+        frame.body?.action?.action_id === firstConfirmAction.action_id,
+      "Real workbench did not send the old confirm author_action",
+    );
+    oldConfirmActionSent = true;
+
+    const oldErrorFrame = await waitForNewFrame(
+      beforeOldAttemptFrameCount,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "error" &&
+        JSON.stringify(frame.body).includes("stale"),
+      "Old confirm author_action was not rejected as stale",
+    );
+    oldConfirmRejected = true;
+    oldRejectionReason = JSON.stringify(oldErrorFrame.body);
+  }
+
+  await sleep(1_000);
+
+  const framesAfterOldAttempt = frames.slice(beforeOldAttemptFrameCount);
+  const logsAfterOldAttempt = readAppLogRecords().slice(beforeOldAttemptLogCount);
+  const sentOldConfirmActionFrames = framesAfterOldAttempt.filter(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === firstConfirmAction.action_id,
+  );
+  const oldAuthorActionErrorRecords = logsAfterOldAttempt.filter(
+    (record) =>
+      record.event === "channel.author_action.error" &&
+      record.action_type === "confirm_before_execute" &&
+      record.action_id === firstConfirmAction.action_id &&
+      String(record.outcome_detail ?? "").includes("stale"),
+  );
+  const toolboxExecuteAfterOldRecords = logsAfterOldAttempt.filter(
+    (record) => record.event === "toolbox.execute.done",
+  );
+  const pendingProseFragmentAfterOldCount = framesAfterOldAttempt.reduce((count, frame) => {
+    if (frame.direction !== "received" || frame.event !== "turn_result") return count;
+    return (
+      count +
+      (frame.body?.adoption_state?.pending ?? []).filter(
+        (artifact) => artifact.artifact_type === "prose_fragment",
+      ).length
+    );
+  }, 0);
+
+  const oldConfirmPrevented =
+    confirmButtonCountAfterSecond === 1 ||
+    oldConfirmDisabled ||
+    oldConfirmRejected ||
+    oldAuthorActionErrorRecords.length >= 1;
+
+  assert(
+    oldConfirmPrevented,
+    "Old confirmation remained executable after a newer confirmation became active",
+  );
+  assert(
+    toolboxExecuteAfterOldRecords.length === 0,
+    `Expected no toolbox execution after old confirm attempt, got ${toolboxExecuteAfterOldRecords.length}`,
+  );
+  assert(
+    pendingProseFragmentAfterOldCount === 0,
+    `Expected no pending prose_fragment after old confirm attempt, got ${pendingProseFragmentAfterOldCount}`,
+  );
+
+  const beforeLatestConfirmFrameCount = frames.length;
+  const beforeLatestConfirmLogCount = readAppLogRecords().length;
+  await page.getByRole("button", { name: "确认执行" }).last().click();
+
+  const latestConfirmActionFrame = await waitForNewFrame(
+    beforeLatestConfirmFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "confirm_before_execute" &&
+      frame.body?.action?.action_id === secondConfirmAction.action_id,
+    "Real workbench did not send the latest confirm author_action",
+  );
+
+  const latestExecutedTurnFrame = await waitForNewFrame(
+    beforeLatestConfirmFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No prose_fragment turn_result was received after confirming the latest behavior",
+    200_000,
+  );
+  const latestExecutedTurnResult = latestExecutedTurnFrame.body;
+
+  await sleep(1_000);
+
+  const logsAfterLatestConfirm = readAppLogRecords().slice(beforeLatestConfirmLogCount);
+  const latestToolboxExecuteRecords = logsAfterLatestConfirm.filter(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.turn_id === latestExecutedTurnResult.turn_id &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, latestExecutedTurnResult, sentMessage);
+  const latestPendingArtifact = latestExecutedTurnResult.adoption_state.pending[0];
+
+  assert(
+    latestToolboxExecuteRecords.length === 1,
+    `Expected latest confirmation to dispatch prose_writing once, got ${latestToolboxExecuteRecords.length}`,
+  );
+  assert(
+    latestExecutedTurnResult.truthfulness?.tool_called === true,
+    "Latest confirmed turn_result did not record tool_called",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: secondConfirmTurnResult.turn_id,
+      first_confirm_turn_id: firstConfirmTurnResult.turn_id,
+      second_confirm_turn_id: secondConfirmTurnResult.turn_id,
+      latest_executed_turn_id: latestExecutedTurnResult.turn_id,
+      artifact_id: latestPendingArtifact.artifact_id,
+      artifact_type: latestPendingArtifact.artifact_type,
+      first_confirm_action_id: firstConfirmAction.action_id,
+      second_confirm_action_id: secondConfirmAction.action_id,
+      first_confirm_action_behavior_ref: firstConfirmAction.behavior_ref ?? "",
+      second_confirm_action_behavior_ref: secondConfirmAction.behavior_ref ?? "",
+      distinct_behavior_refs: firstConfirmAction.behavior_ref !== secondConfirmAction.behavior_ref,
+      first_tool_called_before_confirm: firstConfirmTurnResult.truthfulness?.tool_called === true,
+      first_production_write_before_confirm:
+        firstConfirmTurnResult.truthfulness?.production_write_performed === true,
+      second_tool_called_before_confirm: secondConfirmTurnResult.truthfulness?.tool_called === true,
+      second_production_write_before_confirm:
+        secondConfirmTurnResult.truthfulness?.production_write_performed === true,
+      second_confirmation_advanced_current_turn:
+        secondConfirmTurnResult.turn_id !== firstConfirmTurnResult.turn_id,
+      confirm_button_count_after_second: confirmButtonCountAfterSecond,
+      old_confirm_visible: oldConfirmVisible,
+      old_confirm_disabled: oldConfirmDisabled,
+      old_confirm_click_attempted: oldConfirmClickAttempted,
+      old_confirm_action_sent: oldConfirmActionSent || sentOldConfirmActionFrames.length >= 1,
+      old_confirm_rejected: oldConfirmRejected || oldAuthorActionErrorRecords.length >= 1,
+      old_confirm_prevented: oldConfirmPrevented,
+      old_rejection_reason: oldRejectionReason,
+      old_author_action_error_count: oldAuthorActionErrorRecords.length,
+      toolbox_execute_after_old_count: toolboxExecuteAfterOldRecords.length,
+      pending_prose_fragment_after_old_count: pendingProseFragmentAfterOldCount,
+      no_tool_dispatch_after_old: toolboxExecuteAfterOldRecords.length === 0,
+      no_pending_artifact_after_old: pendingProseFragmentAfterOldCount === 0,
+      latest_confirm_action_sent:
+        latestConfirmActionFrame.body?.action?.action_type === "confirm_before_execute",
+      latest_confirm_dispatched: latestExecutedTurnResult.truthfulness?.tool_called === true,
+      latest_toolbox_execute_count: latestToolboxExecuteRecords.length,
+      latest_pending_artifact_after_confirm:
+        latestPendingArtifact.artifact_type === "prose_fragment",
+      pending_draft_visible: visibleTextIncludesPendingDraft(visibleText),
       user_message_text: sentMessage?.body?.text,
     },
   ];
@@ -6453,10 +7314,12 @@ async function driveP1ChapterExpansionMultichapter(page) {
     );
     const pending = draftFrame.body.adoption_state.pending[0];
 
-    await page.waitForFunction(() => document.body.innerText.includes("确认创建"), {
-      timeout: 10_000,
-    });
-    await page.getByRole("button", { name: "确认创建" }).first().click();
+    await page.waitForFunction(
+      () => /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(document.body.innerText),
+      undefined,
+      { timeout: 10_000 },
+    );
+    await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
 
     const adoptFrame = await waitForFrame(
       (f) =>
@@ -6469,12 +7332,16 @@ async function driveP1ChapterExpansionMultichapter(page) {
     );
     lastAdopt = adoptFrame.body;
 
-    // 采纳后旧草稿卡的「确认创建」必须消失，避免下一章误点到上一张卡。
+    // 采纳后旧草稿卡的保存按钮必须消失，避免下一章误点到上一张卡。
     await page.waitForFunction(
       () =>
         ![...document.querySelectorAll("button")].some(
-          (b) => (b.textContent ?? "").trim() === "确认创建",
+          (b) =>
+            /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+              (b.textContent ?? "").trim(),
+            ),
         ),
+      undefined,
       { timeout: 10_000 },
     );
 
@@ -6535,6 +7402,38 @@ async function driveP1ChapterExpansionMultichapter(page) {
     "Reading mode stayed empty after multi-chapter adoption",
   );
 
+  const clickedChapterTitles = [];
+  for (const ch of written.slice(1)) {
+    await page.getByText(ch.title, { exact: true }).filter({ visible: true }).first().click();
+    await page.waitForFunction(
+      (title) => {
+        const activeHeading = [...document.querySelectorAll("h1")].find((el) =>
+          (el.textContent ?? "").includes(title),
+        );
+        return Boolean(activeHeading) && document.body.innerText.includes("本章有效字数");
+      },
+      ch.title,
+      { timeout: 15_000 },
+    );
+    clickedChapterTitles.push(ch.title);
+  }
+
+  const emptyChapterTitle = "第04章：巡检队的诱捕";
+  await page.getByText(emptyChapterTitle, { exact: true }).filter({ visible: true }).first().click();
+  await page.waitForFunction(
+    (title) => {
+      const activeHeading = [...document.querySelectorAll("h1")].find((el) =>
+        (el.textContent ?? "").includes(title),
+      );
+      return (
+        Boolean(activeHeading) &&
+        document.body.innerText.includes("本章尚无已采纳正文，待补足。")
+      );
+    },
+    emptyChapterTitle,
+    { timeout: 15_000 },
+  );
+
   return [
     {
       ...uiState,
@@ -6547,6 +7446,10 @@ async function driveP1ChapterExpansionMultichapter(page) {
       total_chapter_count: allChapters.length,
       chapter_order_correct: orderCorrect,
       all_chapters_have_prose: allHaveProse,
+      chapter_navigation_verified: clickedChapterTitles.length === written.length - 1,
+      clicked_chapter_titles: clickedChapterTitles,
+      empty_chapter_title: emptyChapterTitle,
+      empty_chapter_empty_state_visible: true,
       all_adopted: written.every((w) => w.adopted),
       user_message_text: sentMessage?.body?.text,
     },
@@ -6578,13 +7481,13 @@ async function driveP1ChapterEditThenAccept(page) {
 
   await page.waitForFunction(
     () =>
-      document.body.innerText.includes("待确认的创作材料") &&
-      document.body.innerText.includes("修改后采纳"),
+      /待确认的创作材料|待保存章节草稿|正文草稿/.test(document.body.innerText) &&
+      /修改后采纳|修改后保存正文/.test(document.body.innerText),
     { timeout: 10_000 },
   );
 
-  // 点「修改后采纳」打开编辑弹窗，作者改写全文后再采纳。
-  await page.getByRole("button", { name: "修改后采纳" }).first().click();
+  // 点「修改后保存正文」打开编辑弹窗，作者改写全文后再保存。
+  await page.getByRole("button", { name: /修改后采纳|修改后保存正文/ }).first().click();
 
   const editedText =
     "林澈在灵气账单的红光里睁开眼，城市在脚下安静地呼吸，他知道反垄断的第一刀终于该落下了。";
@@ -6592,7 +7495,7 @@ async function driveP1ChapterEditThenAccept(page) {
   await textarea.waitFor({ timeout: 10_000 });
   await textarea.fill(editedText);
 
-  await page.getByRole("button", { name: "采纳修改后的版本" }).click();
+  await page.getByRole("button", { name: /采纳修改后的版本|保存修改后的版本/ }).click();
 
   const acceptActionFrame = await waitForFrame(
     (frame) =>
@@ -8492,7 +9395,10 @@ async function driveAu10WorkbenchRecoveryReconnect(page) {
   }
 }
 
-async function driveAu10WorkbenchRecoveryCancelWaiting(page) {
+async function driveAu10WorkbenchRecoveryCancelWaiting(
+  page,
+  sliceId = "au10-workbench-recovery-cancel-waiting",
+) {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
@@ -8567,6 +9473,8 @@ async function driveAu10WorkbenchRecoveryCancelWaiting(page) {
     60_000,
   );
   const cancelTurnResult = cancelTurnFrame.body;
+  const behaviorTraceRefs = cancelTurnResult.trace_summary?.behavior_trace_refs ?? [];
+  const terminalBehaviorTraceRef = behaviorTraceRefs[0] ?? {};
 
   await waitForAppLogRecord(
     (record) =>
@@ -8632,7 +9540,7 @@ async function driveAu10WorkbenchRecoveryCancelWaiting(page) {
     {
       ...uiState,
       event: "slice_verify.ui_state.done",
-      slice_id: "au10-workbench-recovery-cancel-waiting",
+      slice_id: sliceId,
       turn_id: followingFrame.body.turn_id,
       turn_ids: [
         confirmationTurnResult.turn_id,
@@ -8646,6 +9554,13 @@ async function driveAu10WorkbenchRecoveryCancelWaiting(page) {
       action_type: cancelAction.action_type,
       cancel_action_sent: cancelActionFrame.body?.action?.action_type,
       action_result_status: actionResultFrame.body?.status,
+      cancel_trace_ref: cancelTurnResult.trace_summary?.trace_ref ?? "",
+      behavior_trace_ref: terminalBehaviorTraceRef.behavior_ref ?? "",
+      behavior_trace_event_type: terminalBehaviorTraceRef.event_type ?? "",
+      behavior_trace_next_status: terminalBehaviorTraceRef.next_status ?? "",
+      behavior_trace_event_turn_ref: terminalBehaviorTraceRef.event_turn_ref ?? "",
+      behavior_trace_resolution_ref: terminalBehaviorTraceRef.resolution_ref ?? "",
+      behavior_trace_refs_count: behaviorTraceRefs.length,
       confirmation_card_visible:
         confirmationVisibleText.includes("确认执行") && confirmationVisibleText.includes("拒绝"),
       cancelled_message_visible:
@@ -8667,6 +9582,10 @@ async function driveAu10WorkbenchRecoveryCancelWaiting(page) {
       recovery_prompt_sent: String(latestSentUserMessage()?.body?.text ?? "").includes(nonce),
     },
   ];
+}
+
+async function driveAu07BehaviorTraceTerminalReplay(page) {
+  return driveAu10WorkbenchRecoveryCancelWaiting(page, "au07-behavior-trace-terminal-replay");
 }
 
 async function driveSu01ProviderHealthModel(page) {
@@ -10320,6 +11239,278 @@ async function driveAu12WorkProfileOverview(page) {
   ];
 }
 
+async function driveAu12WorkProfileStatusIsolation(page) {
+  const acceptedTitle = "AU12已确认档案作品";
+  const emptyTitle = "AU12空字段档案作品";
+  const acceptedGenre = "都市异能";
+  const acceptedSellingPoint = "灵气交易所黑幕";
+  const acceptedTargetReader = "喜欢强剧情反转的读者";
+  const acceptedTone = "冷峻克制";
+  const acceptedCharacter = "林烬";
+  const acceptedForeshadowing = "只属于已确认作品的黑市账本伏笔。";
+  const acceptedRule = "只属于已确认作品的灵气交易规则。";
+
+  const works = await listWorksFromApi();
+  const acceptedWork = works.find((work) => work.title === acceptedTitle);
+  const emptyWork = works.find((work) => work.title === emptyTitle);
+  assert(acceptedWork?.id, "AU12 accepted work seed was not available");
+  assert(emptyWork?.id, "AU12 empty work seed was not available");
+  assert(acceptedWork.status === "ACCEPTED", "AU12 accepted work seed was not ACCEPTED");
+  assert(emptyWork.status === "TENTATIVE", "AU12 empty work seed was not TENTATIVE");
+
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+
+  const readonlyLogStart = readAppLogRecords().length;
+  const readonlyFrameStart = frames.length;
+
+  await refreshAndSelectWork(page, acceptedTitle);
+  await waitForVisibleWorkTitle(page, acceptedTitle);
+  const acceptedProfileFrameStart = frames.length;
+  const acceptedProfileLogStart = readAppLogRecords().length;
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+
+  const acceptedProfileReply = await waitForNewFrame(
+    acceptedProfileFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.title === acceptedTitle,
+    "Accepted profile websocket reply did not include the accepted work",
+    30_000,
+  );
+  const acceptedProfile = acceptedProfileReply.body.response ?? {};
+  const acceptedProfileLog = await waitForNewAppLogRecord(
+    acceptedProfileLogStart,
+    (record) =>
+      record.event === "channel.get_work_profile.done" &&
+      record.has_title === true &&
+      record.status === "ACCEPTED",
+    "Accepted profile channel log was not emitted",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (expected) => expected.every((value) => document.body.innerText.includes(value)),
+    [
+      acceptedTitle,
+      acceptedGenre,
+      acceptedSellingPoint,
+      acceptedTargetReader,
+      acceptedTone,
+      "已确认",
+    ],
+    { timeout: 10_000 },
+  );
+
+  const acceptedArchive = await waitForArchivePanel(page);
+  const acceptedOverviewText = await acceptedArchive.innerText();
+  assert(acceptedOverviewText.includes("已确认"), "Accepted profile status was not visible");
+  assert(
+    [acceptedGenre, acceptedSellingPoint, acceptedTargetReader, acceptedTone].every((value) =>
+      acceptedOverviewText.includes(value),
+    ),
+    "Accepted profile fields were not visible in the archive overview",
+  );
+
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("开始规划"), {
+    timeout: 10_000,
+  });
+  await page.getByRole("tab", { name: "角色" }).click();
+  await page.waitForFunction((name) => document.body.innerText.includes(name), acceptedCharacter, {
+    timeout: 10_000,
+  });
+  const acceptedCharacterText = await (await waitForArchivePanel(page)).innerText();
+  await page.getByRole("tab", { name: "伏笔" }).click();
+  await page.waitForFunction(
+    (text) => document.body.innerText.includes(text),
+    acceptedForeshadowing,
+    { timeout: 10_000 },
+  );
+  const acceptedForeshadowingText = await (await waitForArchivePanel(page)).innerText();
+  await page.getByRole("tab", { name: "经验规则" }).click();
+  await page.waitForFunction((text) => document.body.innerText.includes(text), acceptedRule, {
+    timeout: 10_000,
+  });
+  const acceptedRuleText = await (await waitForArchivePanel(page)).innerText();
+
+  await closeArchiveIfOpen(page);
+  await refreshAndSelectWork(page, emptyTitle);
+  await waitForVisibleWorkTitle(page, emptyTitle);
+  const emptyProfileFrameStart = frames.length;
+  const emptyProfileLogStart = readAppLogRecords().length;
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+
+  const emptyProfileReply = await waitForNewFrame(
+    emptyProfileFrameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.title === emptyTitle,
+    "Empty profile websocket reply did not include the empty work",
+    30_000,
+  );
+  const emptyProfile = emptyProfileReply.body.response ?? {};
+  const emptyProfileLog = await waitForNewAppLogRecord(
+    emptyProfileLogStart,
+    (record) =>
+      record.event === "channel.get_work_profile.done" &&
+      record.has_title === true &&
+      record.status === "TENTATIVE",
+    "Empty profile channel log was not emitted",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("待确认") &&
+      (document.body.innerText.match(/暂未填写/g) ?? []).length >= 4,
+    { timeout: 10_000 },
+  );
+
+  const emptyArchive = await waitForArchivePanel(page);
+  const emptyOverviewText = await emptyArchive.innerText();
+  const emptyMissingCount = (emptyOverviewText.match(/暂未填写/g) ?? []).length;
+  assert(emptyMissingCount >= 4, "Empty profile did not show missing fields honestly");
+  assert(emptyOverviewText.includes("待确认"), "Empty profile tentative status was not visible");
+  assert(
+    ![acceptedGenre, acceptedSellingPoint, acceptedTargetReader, acceptedTone].some((value) =>
+      emptyOverviewText.includes(value),
+    ),
+    "Accepted work profile fields leaked into the empty work overview",
+  );
+
+  await page.getByRole("tab", { name: "角色" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("角色档案"), {
+    timeout: 10_000,
+  });
+  const emptyCharacterText = await (await waitForArchivePanel(page)).innerText();
+  await page.getByRole("tab", { name: "伏笔" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("暂无伏笔设定"), {
+    timeout: 10_000,
+  });
+  const emptyForeshadowingText = await (await waitForArchivePanel(page)).innerText();
+  await page.getByRole("tab", { name: "经验规则" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("经验规则"), {
+    timeout: 10_000,
+  });
+  const emptyRuleText = await (await waitForArchivePanel(page)).innerText();
+
+  const emptyArchiveText = [emptyCharacterText, emptyForeshadowingText, emptyRuleText].join("\n");
+  assert(!emptyArchiveText.includes(acceptedCharacter), "Accepted character leaked into empty work");
+  assert(
+    !emptyArchiveText.includes(acceptedForeshadowing),
+    "Accepted foreshadowing leaked into empty work",
+  );
+  assert(!emptyArchiveText.includes(acceptedRule), "Accepted rule leaked into empty work");
+
+  const acceptedProfileJson = JSON.stringify(acceptedProfile);
+  const emptyProfileJson = JSON.stringify(emptyProfile);
+  const acceptedProfileLogJson = JSON.stringify(acceptedProfileLog);
+  const emptyProfileLogJson = JSON.stringify(emptyProfileLog);
+  const archiveUiText = [
+    acceptedOverviewText,
+    acceptedCharacterText,
+    acceptedForeshadowingText,
+    acceptedRuleText,
+    emptyOverviewText,
+    emptyArchiveText,
+  ].join("\n");
+  const readonlyLogs = readAppLogRecords().slice(readonlyLogStart);
+  const readonlyFrames = frames.slice(readonlyFrameStart);
+  const writeEventPattern =
+    /author_action|user_message|adoption|tool|prose_writing|production_write|modify_draft/;
+
+  assert(acceptedProfile.status === "ACCEPTED", "Accepted profile reply did not expose ACCEPTED");
+  assert(emptyProfile.status === "TENTATIVE", "Empty profile reply did not expose TENTATIVE");
+  assert(!Object.prototype.hasOwnProperty.call(acceptedProfile, "id"), "Accepted profile exposed id");
+  assert(!Object.prototype.hasOwnProperty.call(emptyProfile, "id"), "Empty profile exposed id");
+  assert(!acceptedProfileJson.includes(acceptedWork.id), "Accepted profile leaked work UUID");
+  assert(!emptyProfileJson.includes(emptyWork.id), "Empty profile leaked work UUID");
+  assert(!acceptedProfileLogJson.includes(acceptedWork.id), "Accepted profile log leaked work UUID");
+  assert(!emptyProfileLogJson.includes(emptyWork.id), "Empty profile log leaked work UUID");
+  assert(!archiveUiText.includes(acceptedWork.id), "UI leaked accepted work UUID");
+  assert(!archiveUiText.includes(emptyWork.id), "UI leaked empty work UUID");
+  assert(
+    readonlyLogs.every((record) => !writeEventPattern.test(String(record.event ?? ""))),
+    "Archive viewing emitted a write/action/tool/adoption app log",
+  );
+  assert(
+    readonlyFrames.every((frame) => frame.event !== "user_message" && frame.event !== "author_action"),
+    "Archive viewing sent user_message or author_action websocket frames",
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au12-work-profile-status-isolation",
+      accepted_work_id: acceptedWork.id,
+      accepted_work_title: acceptedTitle,
+      empty_work_id: emptyWork.id,
+      empty_work_title: emptyTitle,
+      accepted_profile_status: acceptedProfile.status,
+      empty_profile_status: emptyProfile.status,
+      accepted_status_visible: acceptedOverviewText.includes("已确认"),
+      tentative_status_visible: emptyOverviewText.includes("待确认"),
+      empty_fields_visible_count: emptyMissingCount,
+      accepted_profile_fields_visible: [
+        acceptedGenre,
+        acceptedSellingPoint,
+        acceptedTargetReader,
+        acceptedTone,
+      ].every((value) => acceptedOverviewText.includes(value)),
+      empty_profile_excludes_accepted_fields: ![
+        acceptedGenre,
+        acceptedSellingPoint,
+        acceptedTargetReader,
+        acceptedTone,
+      ].some((value) => emptyOverviewText.includes(value)),
+      accepted_archive_modules_visible:
+        acceptedOverviewText.includes("已确认") &&
+        acceptedOverviewText.includes(acceptedTitle) &&
+        emptyArchiveText.length > 0,
+      accepted_character_visible_before_switch: acceptedCharacterText.includes(acceptedCharacter),
+      accepted_foreshadowing_visible_before_switch:
+        acceptedForeshadowingText.includes(acceptedForeshadowing),
+      accepted_rule_visible_before_switch: acceptedRuleText.includes(acceptedRule),
+      empty_archive_excludes_accepted_character: !emptyArchiveText.includes(acceptedCharacter),
+      empty_archive_excludes_accepted_foreshadowing:
+        !emptyArchiveText.includes(acceptedForeshadowing),
+      empty_archive_excludes_accepted_rule: !emptyArchiveText.includes(acceptedRule),
+      overview_navigation_verified: true,
+      outline_navigation_verified: true,
+      character_navigation_verified: true,
+      foreshadowing_navigation_verified: true,
+      rule_navigation_verified: true,
+      accepted_profile_reply_omits_id: !Object.prototype.hasOwnProperty.call(acceptedProfile, "id"),
+      empty_profile_reply_omits_id: !Object.prototype.hasOwnProperty.call(emptyProfile, "id"),
+      profile_replies_omit_work_uuid:
+        !acceptedProfileJson.includes(acceptedWork.id) && !emptyProfileJson.includes(emptyWork.id),
+      profile_logs_omit_work_uuid:
+        !acceptedProfileLogJson.includes(acceptedWork.id) &&
+        !emptyProfileLogJson.includes(emptyWork.id),
+      profile_ui_omits_work_uuid:
+        !archiveUiText.includes(acceptedWork.id) && !archiveUiText.includes(emptyWork.id),
+      readonly_no_write_logs: readonlyLogs.every(
+        (record) => !writeEventPattern.test(String(record.event ?? "")),
+      ),
+      readonly_no_author_action_frames: readonlyFrames.every(
+        (frame) => frame.event !== "user_message" && frame.event !== "author_action",
+      ),
+      real_archive_opened: true,
+      real_work_switch_performed: true,
+    },
+  ];
+}
+
 async function driveCp0MissingChapterBlock(page) {
   // VS-00C CP0：作品里有第01章计划，但没有第99章。作者用自然语言「续写第99章」→
   // Planner 识别 continuation 意图 + 把作者点名的「第99章」原样放进 requested_chapter_raw，
@@ -10419,6 +11610,354 @@ async function driveCp0MissingChapterBlock(page) {
   ];
 }
 
+async function driveE2E01DowngradeRealPage(page) {
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("button", { name: "发起新操作" }).click();
+
+  const sentFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes("同时重写第一章") &&
+      String(frame.body?.text ?? "").includes("主角动机") &&
+      String(frame.body?.text ?? "").includes("伏笔"),
+    "Real workbench did not send the multi-step MicroPlan user_message",
+  );
+
+  const turnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.orchestrator_decision?.decision_type === "downgrade_to_dialogue" &&
+      frame.body?.truthfulness?.execution_blocked === true,
+    "No downgrade_to_dialogue turn_result was received for the multi-step MicroPlan",
+    200_000,
+  );
+  const turnResult = turnFrame.body;
+
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.decision_type === "downgrade_to_dialogue",
+    "No orchestrator.decide.done downgrade log was recorded",
+  );
+
+  const sameTurnRecords = readAppLogRecords().filter(
+    (record) => record.turn_id === turnResult.turn_id,
+  );
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage() ?? sentFrame;
+  const uiState = await commonUiState(page, turnResult, sentMessage);
+  const reasonCodes = Array.isArray(turnResult.truthfulness?.reason_codes)
+    ? turnResult.truthfulness.reason_codes
+    : [];
+  const actionScopeReason = reasonCodes.some((reason) =>
+    String(reason).includes("multi-step plan requires downgrade"),
+  );
+  const downgradeBadgeVisible = visibleText.includes("降级为对话");
+  const executionBadgeHidden = !visibleText.includes("生成草稿");
+
+  assert(
+    turnResult.truthfulness?.tool_called === false,
+    "Downgraded multi-step turn_result claimed a tool call",
+  );
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "Downgraded multi-step turn_result claimed a production write",
+  );
+  assert(
+    turnResult.orchestrator_decision?.first_blocking_gate === "action_scope",
+    "Downgraded multi-step turn_result was not blocked by action_scope",
+  );
+  assert(actionScopeReason, "Downgrade reason did not identify the multi-step action scope block");
+  assert(
+    !sameTurnRecords.some((record) => record.event === "toolbox.execute.done"),
+    "Toolbox executed despite multi-step downgrade",
+  );
+  assert(
+    !frames.some(
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "author_action" &&
+        frame.body?.turn_id === turnResult.turn_id,
+    ),
+    "Author action was sent for a downgraded multi-step turn",
+  );
+  assert(
+    !/确认执行|待确认的创作材料|待保存章节草稿|保存到作品/.test(visibleText),
+    "Downgraded multi-step turn rendered execution/adoption controls",
+  );
+  assert(downgradeBadgeVisible, "Downgraded multi-step turn did not show downgrade badge");
+  assert(executionBadgeHidden, "Downgraded multi-step turn still showed generation badge");
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      downgrade_decision_received: true,
+      generate_micro_plan: sentFrame.body?.generate_micro_plan === true,
+      decision_type: turnResult.orchestrator_decision?.decision_type,
+      first_blocking_gate: turnResult.orchestrator_decision?.first_blocking_gate,
+      execution_blocked: turnResult.truthfulness?.execution_blocked === true,
+      tool_called: turnResult.truthfulness?.tool_called === true,
+      production_write_performed: turnResult.truthfulness?.production_write_performed === true,
+      action_scope_reason_present: actionScopeReason,
+      no_toolbox_execute_event: true,
+      no_author_action_sent: true,
+      no_execution_controls_visible: true,
+      downgrade_badge_visible: downgradeBadgeVisible,
+      generation_badge_absent: executionBadgeHidden,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveE2E01ReadonlyToolTrace(page) {
+  const workId = readSeedField("work_id");
+  const workTitleValue = readSeedField("work_title");
+  assert(workId, "E2E readonly tool seed did not provide work_id");
+  assert(workTitleValue, "E2E readonly tool seed did not provide work_title");
+
+  await ensureWorkSelectedByTitle(page, workTitleValue, workId);
+  await waitForVisibleWorkTitle(page, workTitleValue);
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const requestText = "查看当前角色列表";
+  const frameCount = frames.length;
+  const logCount = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(requestText),
+    "Readonly character roster request was not sent from the target work channel",
+    10_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.work_id === workId &&
+      frame.body?.orchestrator_decision?.decision_type === "allow_tool" &&
+      frame.body?.tool_result?.tool_name === "character_roster" &&
+      String(frame.body?.tool_result?.status ?? "") === "succeeded",
+    "No allow_tool character_roster turn_result was received",
+    200_000,
+  );
+  const turnResult = turnFrame.body;
+
+  const decisionRecord = await waitForNewAppLogRecord(
+    logCount,
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.decision_type === "allow_tool",
+    "No orchestrator.decide.done allow_tool log was recorded",
+    30_000,
+  );
+
+  const charactersRecord = await waitForNewAppLogRecord(
+    logCount,
+    (record) =>
+      record.event === "context.characters.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.source_type === "character_dossier" &&
+      Number(record.character_count ?? 0) >= 1,
+    "No context.characters.done log proved accepted characters entered the tool request",
+    30_000,
+  );
+
+  const toolboxRecord = await waitForNewAppLogRecord(
+    logCount,
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.tool_name === "character_roster" &&
+      record.tool_outcome === "succeeded",
+    "No toolbox.execute.done character_roster success log was recorded",
+    30_000,
+  );
+
+  await waitForNewAppLogRecord(
+    logCount,
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === turnResult.turn_id,
+    "No channel.user_message.done log was recorded for readonly tool turn",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (payload) =>
+      document.body.innerText.includes(payload.requestText) &&
+      document.body.innerText.includes("林澈") &&
+      document.body.innerText.includes("没有写入作品事实") &&
+      !document.body.innerText.includes("思考中"),
+    { requestText },
+    { timeout: 30_000 },
+  );
+
+  const traceQuery = await queryTraceByTurn(turnResult.turn_id);
+  const traceRecord = traceQuery.traces.find(
+    (trace) =>
+      trace.turn_id === turnResult.turn_id &&
+      Array.isArray(trace.tool_trace_refs) &&
+      trace.tool_trace_refs.some(isToolTraceRef),
+	  );
+	  assert(traceRecord, "TraceRepository.list_by_turn did not return a tool trace ref");
+	  const replayReport = traceRecord.replay_report ?? {};
+
+  const visibleText = await page.locator("body").innerText();
+  const sameTurnRecords = readAppLogRecords().filter(
+    (record) => record.turn_id === turnResult.turn_id,
+  );
+  const toolOutput = turnResult.tool_result?.output ?? {};
+  const toolCharacters = Array.isArray(toolOutput.characters) ? toolOutput.characters : [];
+  const uiState = await commonUiState(page, turnResult, sentFrame);
+
+  assert(turnResult.truthfulness?.tool_called === true, "Readonly tool turn did not mark tool_called");
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "Readonly tool turn claimed a production write",
+  );
+  assert(
+    turnResult.truthfulness?.artifact_adopted === false,
+    "Readonly tool turn claimed artifact adoption",
+  );
+  assert(
+    (turnResult.tool_result?.state_delta ?? []).length === 0,
+    "Readonly character_roster returned state_delta",
+  );
+  assert(
+    (turnResult.tool_result?.artifact_refs ?? []).length === 0,
+    "Readonly character_roster returned artifact refs",
+  );
+  assert(
+    toolCharacters.some((character) => character.name === "林澈"),
+    "Readonly character roster output did not include accepted character 林澈",
+  );
+  assert(
+    !JSON.stringify(toolCharacters).includes("未确认影子"),
+    "Readonly character roster leaked a tentative character",
+  );
+  assert(
+    !JSON.stringify(toolCharacters).includes("外部角色"),
+    "Readonly character roster leaked a foreign-work character",
+  );
+  assert(
+    !frames.some(
+      (frame) =>
+        frame.direction === "sent" &&
+        frame.event === "author_action" &&
+        frame.body?.turn_id === turnResult.turn_id,
+    ),
+    "Readonly character roster sent an author_action",
+  );
+  assert(
+    !sameTurnRecords.some((record) => record.event?.startsWith("adoption.evaluate.")),
+    "Readonly character roster triggered adoption evaluation",
+  );
+  assert(
+    !/待确认的创作材料|保存到作品|确认执行/.test(visibleText),
+    "Readonly character roster rendered execution/adoption controls",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnResult.turn_id,
+      work_id: workId,
+      context_work_id: workId,
+      user_message_text: sentFrame.body?.text,
+      generate_micro_plan: sentFrame.body?.generate_micro_plan === true,
+      decision_type: turnResult.orchestrator_decision?.decision_type,
+      first_blocking_gate: turnResult.orchestrator_decision?.first_blocking_gate ?? null,
+      tool_name: turnResult.tool_result?.tool_name,
+      tool_status: String(turnResult.tool_result?.status ?? ""),
+      tool_called: turnResult.truthfulness?.tool_called === true,
+      production_write_performed:
+        turnResult.truthfulness?.production_write_performed === true,
+      artifact_adopted: turnResult.truthfulness?.artifact_adopted === true,
+      execution_blocked: turnResult.truthfulness?.execution_blocked === true,
+      character_count: Number(toolOutput.character_count ?? 0),
+      character_names: toolCharacters.map((character) => character.name),
+      accepted_character_visible: visibleText.includes("林澈"),
+      tentative_character_absent: !visibleText.includes("未确认影子"),
+      foreign_character_absent: !visibleText.includes("外部角色"),
+      no_write_statement_visible: visibleText.includes("没有写入作品事实"),
+      no_state_delta: (turnResult.tool_result?.state_delta ?? []).length === 0,
+      no_artifact_refs: (turnResult.tool_result?.artifact_refs ?? []).length === 0,
+      no_author_action_sent: true,
+      no_adoption_event: true,
+      no_execution_controls_visible: true,
+      context_character_count: Number(charactersRecord.character_count ?? 0),
+      toolbox_tool_name: toolboxRecord.tool_name,
+      toolbox_tool_outcome: toolboxRecord.tool_outcome,
+	      trace_query_count: Number(traceQuery.count ?? 0),
+	      trace_query_turn_id: traceQuery.turn_id,
+	      trace_query_plan_ref: traceRecord.plan_ref,
+	      trace_query_decision_type: traceRecord.decision_type,
+	      trace_query_tool_trace_refs: traceRecord.tool_trace_refs,
+	      trace_query_has_tool_trace_ref: true,
+	      trace_query_replay_report: replayReport,
+	      replay_report_provider_called: replayReport.provider_called,
+	      replay_report_result_status: replayReport.result_status,
+	      replay_report_required_question_count: Array.isArray(replayReport.required_questions)
+	        ? replayReport.required_questions.length
+	        : 0,
+	      decision_record_outcome: decisionRecord.outcome,
+	    },
+	  ];
+	}
+
+async function driveE2E01ReplayReport(page) {
+  const [uiState] = await driveE2E01ReadonlyToolTrace(page);
+  const traceRecord = {
+    plan_ref: uiState.trace_query_plan_ref,
+    tool_trace_refs: uiState.trace_query_tool_trace_refs,
+    replay_report: uiState.trace_query_replay_report,
+  };
+  const { report, chainSteps, questions, missingRefs } =
+    assertReplayReportCompleteForReadonlyTool(traceRecord);
+  const questionStatuses = Object.fromEntries(
+    questions.map((question) => [question.id, question.status]),
+  );
+
+  return [
+    {
+      ...uiState,
+      replay_report_provider_called: report.provider_called,
+      replay_report_result_status: report.result_status,
+      replay_report_missing_trace_refs: missingRefs,
+      replay_report_chain_steps: chainSteps,
+      replay_report_required_question_count: questions.length,
+      replay_report_question_statuses: questionStatuses,
+      replay_report_all_required_questions_answered: questions.every((question) =>
+        ["answered", "not_applicable"].includes(question.status),
+      ),
+      replay_report_tool_question_answered: questionStatuses.tool_approval === "answered",
+      replay_report_adoption_boundary_answered:
+        questionStatuses.adoption_boundary === "answered",
+      replay_report_has_frame_plan_decision_tool_turn_result: [
+        "frame",
+        "plan",
+        "decision",
+        "tool_trace",
+        "turn_result",
+      ].every((step) => chainSteps.includes(step)),
+    },
+  ];
+}
+
 const drivers = {
   "su01-provider-health-model": driveSu01ProviderHealthModel,
   "su01-lmstudio-disconnected-health": driveSu01LmstudioDisconnectedHealth,
@@ -10445,7 +11984,9 @@ const drivers = {
   "au10-workbench-recovery-provider-timeout": driveAu10WorkbenchRecoveryProviderTimeout,
   "au10-workbench-recovery-reconnect": driveAu10WorkbenchRecoveryReconnect,
   "au10-workbench-recovery-cancel-waiting": driveAu10WorkbenchRecoveryCancelWaiting,
+  "au07-behavior-trace-terminal-replay": driveAu07BehaviorTraceTerminalReplay,
   "au12-work-profile-overview": driveAu12WorkProfileOverview,
+  "au12-work-profile-status-isolation": driveAu12WorkProfileStatusIsolation,
   "vs00c-cp0-missing-chapter-block": driveCp0MissingChapterBlock,
   "vs00c-cp3-structured-context": driveVs00cCp3StructuredContext,
   "vs00c-cp4-chapter-plan-structure": driveVs00cCp4ChapterPlanStructure,
@@ -10461,9 +12002,11 @@ const drivers = {
   "au05-stale-conflict-cross-work-freshness": driveStaleConflictCrossWorkFreshness,
   "au05-conflict-cross-work-recovery": driveConflictCrossWorkRecovery,
   "au05-canon-conflict-recovery": driveCanonConflictRecovery,
+  "au05-discard-author-action": driveAu05DiscardAuthorAction,
   "p1-chapter-plan-minimum": driveP1ChapterPlanMinimum,
   "p1-chapter-draft-generation": driveP1ChapterDraftGeneration,
   "p1-chapter-adoption-reading": driveP1ChapterAdoptionReading,
+  "au07-state-trace-adoption-replay": driveAu07StateTraceAdoptionReplay,
   "p1-word-count-audit": driveP1WordCountAudit,
   "p1-chapter-edit-then-accept": driveP1ChapterEditThenAccept,
   "p1-chapter-overwrite-confirm": driveP1ChapterOverwriteConfirm,
@@ -10476,6 +12019,7 @@ const drivers = {
   "au04-confirmation-tool-failure-recovery": driveAu04ConfirmationToolFailureRecovery,
   "au04-confirm-idempotency-ui": driveAu04ConfirmIdempotencyUi,
   "au04-stale-confirmation-ui": driveAu04StaleConfirmationUi,
+  "au06-single-active-confirmation": driveAu06SingleActiveConfirmation,
   "au04-confirmation-ttl-ui": driveAu04ConfirmationTtlUi,
   "au04-disabled-confirmation-action-ui": driveAu04DisabledConfirmationActionUi,
   "au04-history-confirmation-readonly": driveAu04HistoryConfirmationReadonly,
@@ -10495,8 +12039,13 @@ const drivers = {
   "au03-archive-session-filter": driveAu03ArchiveSessionFilter,
   "au03-current-work-context-ssot": driveAu03CurrentWorkContextSsot,
   "au11-quality-diagnosis-message-envelope": driveAu11QualityDiagnosisMessageEnvelope,
+  "au11-missing-workstate-policy": driveAu11MissingWorkstatePolicy,
   "au03-long-session-compression": driveLongSessionCompression,
   "au03-context-source-ui": driveContextSourceUi,
+  "au07-trace-why-entry": driveAu07TraceWhyEntry,
+  "e2e-01-downgrade-real-page": driveE2E01DowngradeRealPage,
+  "e2e-01-readonly-tool-trace": driveE2E01ReadonlyToolTrace,
+  "e2e-01-replay-report": driveE2E01ReplayReport,
 };
 
 const driver = drivers[sliceId];

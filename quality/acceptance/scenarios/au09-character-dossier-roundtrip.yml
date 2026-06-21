@@ -1,0 +1,58 @@
+id: au09-character-dossier-roundtrip
+title: 角色主档案采纳回写并进入后续上下文
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-character-dossier-roundtrip --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/domain/21-novel-object-model.md
+  - docs/design/acceptance/author/AU-05-artifact-adoption.md
+  - tasks/slices/AU09-character-dossier-roundtrip.md
+
+invariants:
+  - character-seed-adoption-writes-character-dossier
+  - character-dossier-is-not-governed-memory
+  - later-role-design-context-reads-character-dossier
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive character tab
+  - click: create character
+  - adopt: generated character_seed
+  - reopen: character tab
+  - click: create character again
+  - observe: next role-design context contains existing character dossier
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-character-dossier-roundtrip-tauri
+
+assertions:
+  ui:
+    - character tab loads adopted character from real archive data
+    - character tab keeps create entry after character exists
+  network:
+    - role design prompt is sent from the archive character action
+    - author_action adoption persists the character state ref
+  data:
+    - character_seed adoption writes accepted Character state
+    - adopted state ref points to persisted character state
+    - next role-design turn receives character dossier context
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

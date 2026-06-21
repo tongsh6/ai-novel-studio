@@ -1,0 +1,61 @@
+id: au07-behavior-trace-terminal-replay
+title: Behavior terminal close/resolution refs 可回放
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au07-behavior-trace-terminal-replay --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/contracts/VS-06-replay-surface-contract-pack.md
+  - docs/design/adr/ADR-0017-replay-report-v3.md
+
+invariants:
+  - terminal-behavior-close-has-behavior-trace-ref
+  - terminal-behavior-resolution-is-replayable
+  - replay-does-not-call-provider
+  - cancel-waiting-does-not-call-tool-or-write
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: high-risk chapter rewrite request
+  - wait_for: confirmation card visible
+  - click: reject/cancel confirmation
+  - wait_for: cancelled turn result visible
+  - input: follow-up ordinary message
+  - wait_for: following turn completes
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au07-behavior-trace-terminal-replay-tauri
+
+assertions:
+  ui:
+    - confirmation waiting state is visible
+    - author clicks a visible reject/cancel action
+    - cancelled message is visible and confirmation buttons are cleared
+    - following turn completes after cancellation
+  network:
+    - reject_or_cancel_confirmation is sent from the real workbench
+    - cancelled turn_result closes active behavior
+    - cancelled turn_result trace_summary.behavior_trace_refs contains a close event
+    - close event has event_turn_ref and behavior_resolution ref for the cancelled turn
+  data:
+    - cancelled behavior replay does not call provider
+    - cancel waiting does not call a tool
+    - cancel waiting does not perform a production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -277,8 +277,17 @@ function findLatestUiSummary() {
     .filter((entry) => entry.endsWith("summary.json"))
     .map((entry) => path.join(sliceVerifyDir, entry))
     .filter(existsSync)
+    .filter(isTauriSummary)
     .sort((left, right) => statSync(right).mtimeMs - statSync(left).mtimeMs)
     .map(normalizePath)[0] ?? null;
+}
+
+function isTauriSummary(file) {
+  try {
+    return readJson(file).surface === "tauri";
+  } catch {
+    return false;
+  }
 }
 
 function readJson(file) {

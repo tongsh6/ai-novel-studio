@@ -20,6 +20,7 @@ Usage:
   bash scripts/quality_accept.sh <scenario-id> --surface tauri
   bash scripts/quality_accept.sh <scenario-id> --provider slice_verify
   bash scripts/quality_accept.sh <scenario-id> --provider lmstudio
+  bash scripts/quality_accept.sh e2e-01-full-chain --provider lmstudio
   bash scripts/quality_accept.sh --tier pr-smoke
   bash scripts/quality_accept.sh --tier nightly --surface tauri
 EOF
@@ -218,6 +219,9 @@ run_scenario() {
     dogfood_run)
       artifact_dir="$PROJECT_ROOT/artifacts/novel-output/p1-100k-dogfood"
       ;;
+    e2e_aggregate)
+      artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/$scenario_id"
+      ;;
     *)
       echo "[quality-accept] Unsupported runner: $scenario_runner" >&2
       exit 64
@@ -278,6 +282,21 @@ EOF
       fi
 
       if ! bash "$PROJECT_ROOT/scripts/dogfood_run.sh" "${dogfood_args[@]}"; then
+        echo "[quality-accept] failed: $scenario_id" >&2
+        echo "[quality-accept] inspect artifacts: $artifact_dir" >&2
+        exit 1
+      fi
+      ;;
+    e2e_aggregate)
+      if [[ "$scenario_surface" != "browser" ]]; then
+        echo "[quality-accept] runner e2e_aggregate requires surface=browser, got $scenario_surface" >&2
+        exit 64
+      fi
+      if [[ "$scenario_provider" != "lmstudio" && "$scenario_provider" != "slice_verify" ]]; then
+        echo "[quality-accept] e2e_aggregate supports provider lmstudio|slice_verify, got $scenario_provider" >&2
+        exit 64
+      fi
+      if ! bash "$PROJECT_ROOT/scripts/e2e_01_full_chain_check.sh" --provider "$scenario_provider"; then
         echo "[quality-accept] failed: $scenario_id" >&2
         echo "[quality-accept] inspect artifacts: $artifact_dir" >&2
         exit 1

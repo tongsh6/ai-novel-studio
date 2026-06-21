@@ -1,0 +1,66 @@
+id: au06-single-active-confirmation
+title: 单一活跃 confirmation 只允许最新等待态执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au06-single-active-confirmation --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-06-behavior-lifecycle.md
+  - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
+  - docs/design/adr/ADR-0007-next-action-available-action-v3.md
+  - docs/design/adr/ADR-0008-behavior-state-v3.md
+  - docs/design/adr/ADR-0009-confirmation-binding-v3.md
+  - tasks/slices/AU04-AU06-author-action-binding.md
+
+invariants:
+  - single-primary-author-blocking-behavior-per-workstream
+  - confirmation-action-comes-from-server-available-actions
+  - old-confirmation-does-not-dispatch-tool
+  - latest-confirmation-remains-actionable
+  - no-product-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench with an adopted chapter plan
+  - type: first high-risk rewrite request in the real chat input
+  - observe: first needs_confirmation turn_result arrives over the real websocket
+  - type: second high-risk rewrite request before acting on the first confirmation
+  - observe: second needs_confirmation turn_result becomes the current active confirmation with a distinct behavior_ref
+  - click: old 确认执行 button if it is still visible and enabled
+  - observe: old confirmation is hidden, disabled, or rejected as stale
+  - click: latest 确认执行 button
+  - observe: only the latest confirmation dispatches prose_writing and creates one pending prose_fragment
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au06-single-active-confirmation-tauri
+
+assertions:
+  ui:
+    - first confirmation is visible before the second request
+    - latest confirmation remains actionable after the old confirmation is prevented
+    - pending draft appears only after the latest confirmation
+  network:
+    - both high-risk requests are sent through the real workspace channel
+    - old confirm action is either not sent or is rejected by the channel as stale
+    - latest confirm action is sent through author_action
+  data:
+    - first and second confirmation actions have distinct behavior_ref values
+    - neither confirmation turn calls a tool or writes production state before author action
+    - old confirmation creates no prose_writing dispatch and no pending prose_fragment
+    - latest confirmation dispatches prose_writing exactly once
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

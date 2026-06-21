@@ -1,0 +1,53 @@
+id: au12-work-profile-overview
+title: 作品档案立项概览只读视图
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au12-work-profile-overview --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-12-work-profile.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/AU12-work-profile-overview.md
+
+invariants:
+  - work-profile-fields-use-works-ssot
+  - profile-view-is-readonly
+  - profile-view-does-not-leak-internal-work-uuid
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - create: real work with title, genre, core selling point, target reader, and tone
+  - switch: select the created work from the real work menu
+  - open: 作品档案
+  - click: 概览
+  - wait_for: profile fields and pending status visible
+
+evidence:
+  required:
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au12-work-profile-overview-tauri
+
+assertions:
+  ui:
+    - title, genre, core selling point, target reader, tone, and revision are visible
+    - tentative status is visible as 待确认
+    - readonly hint is visible
+    - internal Work UUID is not visible
+  network:
+    - real websocket sends get_work_profile
+    - get_work_profile reply omits internal id
+  data:
+    - profile fields match the seeded works row byte-for-byte
+    - channel.get_work_profile.done log omits the internal Work UUID
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

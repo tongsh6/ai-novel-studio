@@ -122,7 +122,7 @@ if (!fs.existsSync(indexPath)) {
     }
 
     const runner = scenario.runner || defaultRunnerForSurface(scenario.surface);
-    if (!["slice_verify", "tauri_slice_verify", "dogfood_run"].includes(runner)) {
+    if (!["slice_verify", "tauri_slice_verify", "dogfood_run", "e2e_aggregate"].includes(runner)) {
       errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} unsupported runner ${runner}`);
     }
 
@@ -157,6 +157,24 @@ if (!fs.existsSync(indexPath)) {
       }
       if (scenario.driver && !scenario.driver.endsWith("/dogfood-runner.mjs")) {
         errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} dogfood_run driver must be dogfood-runner.mjs`);
+      }
+    }
+
+    if (runner === "e2e_aggregate") {
+      if (scenario.surface !== "browser") {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} e2e_aggregate must declare surface browser`);
+      }
+      if (scenario.default_provider !== "lmstudio") {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} e2e_aggregate must declare default_provider lmstudio`);
+      }
+      if (!/scripts\/e2e_01_full_chain_check\.sh\b/.test(scenario.entrypoint ?? "")) {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} e2e_aggregate entrypoint must route to scripts/e2e_01_full_chain_check.sh`);
+      }
+      if (/scripts\/quality_accept\.sh\b/.test(scenario.entrypoint ?? "")) {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} e2e_aggregate entrypoint must not route through quality_accept.sh`);
+      }
+      if (scenario.driver && !/scripts\/e2e_01_full_chain_check\.sh$/.test(scenario.driver)) {
+        errors.push(`quality/acceptance/scenarios.yml: ${scenario.id} e2e_aggregate driver must be scripts/e2e_01_full_chain_check.sh`);
       }
     }
 
@@ -252,6 +270,19 @@ if (!fs.existsSync(indexPath)) {
       }
       if (!/scripts\/dogfood_run\.sh\b/.test(manifestEntrypoint)) {
         errors.push(`${manifestFile}: dogfood entrypoint must route to scripts/dogfood_run.sh`);
+      }
+    }
+
+    if (runner === "e2e_aggregate") {
+      const manifestDefaultProvider = parseScalar(manifestText, "default_provider");
+      if (manifestRunner !== "e2e_aggregate") {
+        errors.push(`${manifestFile}: e2e aggregate scenario must declare runner: e2e_aggregate`);
+      }
+      if (manifestDefaultProvider !== "lmstudio") {
+        errors.push(`${manifestFile}: e2e aggregate scenario must declare default_provider: lmstudio`);
+      }
+      if (!/scripts\/e2e_01_full_chain_check\.sh\b/.test(manifestEntrypoint)) {
+        errors.push(`${manifestFile}: e2e aggregate entrypoint must route to scripts/e2e_01_full_chain_check.sh`);
       }
     }
   }

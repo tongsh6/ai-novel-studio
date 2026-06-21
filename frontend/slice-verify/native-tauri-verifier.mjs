@@ -32,6 +32,8 @@ export const nativeSliceIds = [
   "au03-long-session-compression",
   "au03-context-source-ui",
   "au07-trace-why-entry",
+  "au07-state-trace-adoption-replay",
+  "au07-behavior-trace-terminal-replay",
   "au10-workbench-matrix-layout",
   "au10-workbench-recovery-taskstate",
   "au10-workbench-recovery-disconnect-timeout",
@@ -40,6 +42,9 @@ export const nativeSliceIds = [
   "au10-workbench-recovery-cancel-waiting",
   "au10-micro-plan-entry",
   "au10-ordinary-chat-no-micro-plan",
+  "e2e-01-downgrade-real-page",
+  "e2e-01-readonly-tool-trace",
+  "e2e-01-replay-report",
   "au01-ordinary-chat-two-turn-roundtrip",
   "au01-empty-message-guard",
   "au01-garbage-json-recovery",
@@ -56,6 +61,7 @@ export const nativeSliceIds = [
   "au05-stale-conflict-cross-work-freshness",
   "au05-conflict-cross-work-recovery",
   "au05-canon-conflict-recovery",
+  "au05-discard-author-action",
   "p1-chapter-plan-minimum",
   "p1-chapter-draft-generation",
   "p1-chapter-adoption-reading",
@@ -71,6 +77,7 @@ export const nativeSliceIds = [
   "au04-confirmation-tool-failure-recovery",
   "au04-confirm-idempotency-ui",
   "au04-stale-confirmation-ui",
+  "au06-single-active-confirmation",
   "au04-confirmation-ttl-ui",
   "au04-disabled-confirmation-action-ui",
   "au04-history-confirmation-readonly",
@@ -89,6 +96,7 @@ export const nativeSliceIds = [
   "au09-cross-work-memory-isolation",
   "au09-au03-session-memory-layering",
   "au11-quality-diagnosis-message-envelope",
+  "au11-missing-workstate-policy",
   "vs10-observability-spine",
 ];
 
@@ -261,6 +269,27 @@ const sliceKeyEvents = {
     "channel.get_chapter_content.done",
     "slice_verify.ui_state.done",
   ],
+  "au07-state-trace-adoption-replay": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au05-discard-author-action": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "channel.get_toc.done",
+    "channel.get_chapter_content.done",
+    "slice_verify.ui_state.done",
+  ],
   "p1-word-count-audit": [
     "channel.user_message.start",
     "toolbox.execute.done",
@@ -349,6 +378,16 @@ const sliceKeyEvents = {
     "orchestrator.decide.done",
     "channel.author_action.start",
     "channel.author_action.error",
+    "slice_verify.ui_state.done",
+  ],
+  "au06-single-active-confirmation": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "orchestrator.decide.done",
+    "channel.author_action.error",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "toolbox.execute.done",
     "slice_verify.ui_state.done",
   ],
   "au04-confirmation-ttl-ui": [
@@ -538,6 +577,16 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au11-missing-workstate-policy": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "planner.form_frame.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au05-discard-boundary": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
@@ -701,7 +750,18 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au07-behavior-trace-terminal-replay": [
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "channel.author_action.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
   "au12-work-profile-overview": ["channel.get_work_profile.done", "slice_verify.ui_state.done"],
+  "au12-work-profile-status-isolation": [
+    "channel.get_work_profile.done",
+    "slice_verify.ui_state.done",
+  ],
   "au10-micro-plan-entry": [
     "channel.user_message.start",
     "dialogue_gateway.handle_input.start",
@@ -709,6 +769,40 @@ const sliceKeyEvents = {
     "planner.form_micro_plan.done",
     "dialogue_gateway.handle_input.done",
     "channel.user_message.done",
+  ],
+  "e2e-01-downgrade-real-page": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "orchestrator.decide.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "e2e-01-readonly-tool-trace": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "orchestrator.decide.done",
+    "context.characters.done",
+    "toolbox.execute.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "e2e-01-replay-report": [
+    "channel.user_message.start",
+    "dialogue_gateway.handle_input.start",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "orchestrator.decide.done",
+    "context.characters.done",
+    "toolbox.execute.done",
+    "dialogue_gateway.handle_input.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
   ],
   "au10-ordinary-chat-no-micro-plan": [
     "channel.user_message.start",
@@ -1007,12 +1101,32 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu10WorkbenchRecoveryCancelWaitingEvidence(records);
   }
 
+  if (sliceId === "au07-behavior-trace-terminal-replay") {
+    return findAu07BehaviorTraceTerminalReplayEvidence(records);
+  }
+
   if (sliceId === "au12-work-profile-overview") {
     return findAu12WorkProfileOverviewEvidence(records);
   }
 
+  if (sliceId === "au12-work-profile-status-isolation") {
+    return findAu12WorkProfileStatusIsolationEvidence(records);
+  }
+
   if (sliceId === "au10-micro-plan-entry") {
     return findAu10UserMessageEvidence(records, true, "au10-micro-plan-entry");
+  }
+
+  if (sliceId === "e2e-01-downgrade-real-page") {
+    return findE2E01DowngradeRealPageEvidence(records);
+  }
+
+  if (sliceId === "e2e-01-readonly-tool-trace") {
+    return findE2E01ReadonlyToolTraceEvidence(records);
+  }
+
+  if (sliceId === "e2e-01-replay-report") {
+    return findE2E01ReplayReportEvidence(records);
   }
 
   if (sliceId === "au10-ordinary-chat-no-micro-plan") {
@@ -1099,6 +1213,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ChapterAdoptionReadingEvidence(records);
   }
 
+  if (sliceId === "au07-state-trace-adoption-replay") {
+    return findAu07StateTraceAdoptionReplayEvidence(records);
+  }
+
+  if (sliceId === "au05-discard-author-action") {
+    return findAu05DiscardAuthorActionEvidence(records);
+  }
+
   if (sliceId === "p1-chapter-word-count-target") {
     return findP1ChapterWordCountTargetEvidence(records);
   }
@@ -1117,6 +1239,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au04-stale-confirmation-ui") {
     return findAu04StaleConfirmationUiEvidence(records);
+  }
+
+  if (sliceId === "au06-single-active-confirmation") {
+    return findAu06SingleActiveConfirmationEvidence(records);
   }
 
   if (sliceId === "au04-confirmation-ttl-ui") {
@@ -1213,6 +1339,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "au11-quality-diagnosis-message-envelope") {
     return findAu11QualityDiagnosisMessageEnvelopeEvidence(records);
+  }
+
+  if (sliceId === "au11-missing-workstate-policy") {
+    return findAu11MissingWorkstatePolicyEvidence(records);
   }
 
   if (sliceId === "vs10-observability-spine") {
@@ -1372,8 +1502,16 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return au10WorkbenchRecoveryCancelWaitingBehavior(records, evidence, options);
   }
 
+  if (sliceId === "au07-behavior-trace-terminal-replay") {
+    return au07BehaviorTraceTerminalReplayBehavior(records, evidence, options);
+  }
+
   if (sliceId === "au12-work-profile-overview") {
     return au12WorkProfileOverviewBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "au12-work-profile-status-isolation") {
+    return au12WorkProfileStatusIsolationBehavior(records, evidence, options);
   }
 
   if (sliceId === "au01-garbage-json-recovery") {
@@ -1404,6 +1542,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au04-stale-confirmation-ui") {
     return au04StaleConfirmationUiBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au06-single-active-confirmation") {
+    return au06SingleActiveConfirmationBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "au04-confirmation-tool-failure-recovery") {
@@ -1470,6 +1612,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-chapter-adoption-reading") {
     return p1ChapterAdoptionReadingBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au07-state-trace-adoption-replay") {
+    return au07StateTraceAdoptionReplayBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au05-discard-author-action") {
+    return au05DiscardAuthorActionBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "p1-chapter-word-count-target") {
@@ -1542,6 +1692,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au11-quality-diagnosis-message-envelope") {
     return au11QualityDiagnosisMessageEnvelopeBehavior(turnIds, turnRecords, records, evidence);
+  }
+
+  if (sliceId === "au11-missing-workstate-policy") {
+    return au11MissingWorkstatePolicyBehavior(turnIds, turnRecords, records, evidence);
   }
 
   if (sliceId === "vs00c-cp0-missing-chapter-block") {
@@ -1620,6 +1774,18 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au10-micro-plan-entry") {
     return microPlanBehavior(sliceId, turnIds, turnRecords, options, "micro_plan_entry");
+  }
+
+  if (sliceId === "e2e-01-downgrade-real-page") {
+    return e2e01DowngradeRealPageBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "e2e-01-readonly-tool-trace") {
+    return e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "e2e-01-replay-report") {
+    return e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "vs10-observability-spine") {
@@ -3081,11 +3247,13 @@ function findAu07TraceWhyEvidence(records) {
     if (!uiState?.trace_why_dialog_open) continue;
     if (uiState.trace_why_contains_raw_prompt === true) continue;
     const traceText = String(uiState.trace_why_text ?? "");
-    if (!traceText.includes("探索方向")) continue;
-    if (traceText.includes("本轮解释")) continue;
-    if (traceText.includes("系统判断")) continue;
-    if (traceText.includes("为什么这样做")) continue;
-    if (traceText.includes("本轮目标")) continue;
+    if (!traceText.includes("自然回复") && !traceText.includes("探索方向")) continue;
+    if (traceText.includes("raw prompt")) continue;
+    if (traceText.includes("provider raw")) continue;
+    if (traceText.includes("hidden policy")) continue;
+    if (traceText.includes("debug")) continue;
+    if (traceText.includes("trace_")) continue;
+    if (traceText.includes("ctx_")) continue;
     if (!traceText.includes("不会重新调用模型")) continue;
 
     return {
@@ -3851,6 +4019,189 @@ function findAu10UserMessageEvidence(records, generateMicroPlan, sliceId) {
   return null;
 }
 
+function findE2E01DowngradeRealPageEvidence(records) {
+  const sliceId = "e2e-01-downgrade-real-page";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.generate_micro_plan === true &&
+      record.downgrade_decision_received === true &&
+      record.decision_type === "downgrade_to_dialogue" &&
+      record.first_blocking_gate === "action_scope" &&
+      record.execution_blocked === true &&
+      record.tool_called === false &&
+      record.production_write_performed === false &&
+      record.action_scope_reason_present === true &&
+      record.no_toolbox_execute_event === true &&
+      record.no_author_action_sent === true &&
+      record.no_execution_controls_visible === true &&
+      record.downgrade_badge_visible === true &&
+      record.generation_badge_absent === true,
+  );
+  if (!uiState?.turn_id) return null;
+
+  const turnRecords = records.filter((record) => record.turn_id === uiState.turn_id);
+  if (
+    !eventsPresentWithCorrelation(
+      turnRecords,
+      keyEvents.filter((event) => event !== "slice_verify.ui_state.done"),
+    )
+  ) {
+    return null;
+  }
+
+  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+  if (!start || start.generate_micro_plan !== true) return null;
+
+  const decision = turnRecords.find(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      record.decision_type === "downgrade_to_dialogue",
+  );
+  if (!decision) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: [uiState.turn_id],
+    decision_type: uiState.decision_type,
+    first_blocking_gate: uiState.first_blocking_gate,
+    user_message_text: uiState.user_message_text,
+    key_events: keyEvents,
+  };
+}
+
+function findE2E01ReadonlyToolTraceEvidence(records) {
+  const sliceId = "e2e-01-readonly-tool-trace";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.decision_type === "allow_tool" &&
+      record.tool_name === "character_roster" &&
+      record.tool_status === "succeeded" &&
+      record.tool_called === true &&
+      record.production_write_performed === false &&
+      record.artifact_adopted === false &&
+      record.execution_blocked === false &&
+      record.accepted_character_visible === true &&
+      record.tentative_character_absent === true &&
+      record.foreign_character_absent === true &&
+      record.no_write_statement_visible === true &&
+      record.no_state_delta === true &&
+      record.no_artifact_refs === true &&
+      record.no_author_action_sent === true &&
+      record.no_adoption_event === true &&
+      record.no_execution_controls_visible === true &&
+      record.trace_query_has_tool_trace_ref === true &&
+      hasToolTraceRef(record.trace_query_tool_trace_refs),
+  );
+  if (!uiState?.turn_id) return null;
+
+  const turnRecords = records.filter((record) => record.turn_id === uiState.turn_id);
+  if (
+    !eventsPresentWithCorrelation(
+      turnRecords,
+      keyEvents.filter((event) => event !== "slice_verify.ui_state.done"),
+    )
+  ) {
+    return null;
+  }
+
+  const start = turnRecords.find((record) => record.event === "channel.user_message.start");
+  if (!start || start.generate_micro_plan !== false) return null;
+
+  const decision = turnRecords.find(
+    (record) => record.event === "orchestrator.decide.done" && record.decision_type === "allow_tool",
+  );
+  if (!decision) return null;
+
+  const contextCharacters = turnRecords.find(
+    (record) =>
+      record.event === "context.characters.done" &&
+      record.source_type === "character_dossier" &&
+      Number(record.character_count ?? 0) >= 1,
+  );
+  if (!contextCharacters) return null;
+
+  const toolbox = turnRecords.find(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_roster" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!toolbox) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: [uiState.turn_id],
+    decision_type: uiState.decision_type,
+    tool_name: uiState.tool_name,
+    trace_query_tool_trace_refs: uiState.trace_query_tool_trace_refs,
+    character_names: uiState.character_names,
+    key_events: keyEvents,
+	  };
+	}
+
+function findE2E01ReplayReportEvidence(records) {
+  const sliceId = "e2e-01-replay-report";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.decision_type === "allow_tool" &&
+      record.tool_name === "character_roster" &&
+      record.tool_status === "succeeded" &&
+      record.tool_called === true &&
+      record.production_write_performed === false &&
+      record.artifact_adopted === false &&
+      record.execution_blocked === false &&
+      record.trace_query_has_tool_trace_ref === true &&
+      hasToolTraceRef(record.trace_query_tool_trace_refs) &&
+      record.replay_report_provider_called === false &&
+      record.replay_report_result_status === "complete" &&
+      record.replay_report_required_question_count === 6 &&
+      record.replay_report_all_required_questions_answered === true &&
+      record.replay_report_tool_question_answered === true &&
+      record.replay_report_adoption_boundary_answered === true &&
+      record.replay_report_has_frame_plan_decision_tool_turn_result === true &&
+      Array.isArray(record.replay_report_missing_trace_refs) &&
+      record.replay_report_missing_trace_refs.length === 0 &&
+      Array.isArray(record.replay_report_chain_steps) &&
+      ["frame", "plan", "decision", "tool_trace", "turn_result"].every((step) =>
+        record.replay_report_chain_steps.includes(step),
+      ),
+  );
+  if (!uiState?.turn_id) return null;
+
+  const turnRecords = records.filter((record) => record.turn_id === uiState.turn_id);
+  if (
+    !eventsPresentWithCorrelation(
+      turnRecords,
+      keyEvents.filter((event) => event !== "slice_verify.ui_state.done"),
+    )
+  ) {
+    return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: [uiState.turn_id],
+    decision_type: uiState.decision_type,
+    tool_name: uiState.tool_name,
+    trace_query_tool_trace_refs: uiState.trace_query_tool_trace_refs,
+    replay_report_chain_steps: uiState.replay_report_chain_steps,
+    replay_report_question_statuses: uiState.replay_report_question_statuses,
+    key_events: keyEvents,
+  };
+}
+
 function findAu10WorkbenchMatrixLayoutEvidence(records) {
   const sliceId = "au10-workbench-matrix-layout";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -4183,6 +4534,84 @@ function findAu10WorkbenchRecoveryCancelWaitingEvidence(records) {
   };
 }
 
+function findAu07BehaviorTraceTerminalReplayEvidence(records) {
+  const sliceId = "au07-behavior-trace-terminal-replay";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.confirmation_turn_id &&
+      record.cancel_turn_id &&
+      record.following_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.confirmation_card_visible !== true) return null;
+  if (uiState.cancelled_message_visible !== true) return null;
+  if (uiState.confirmation_buttons_cleared !== true) return null;
+  if (uiState.active_behavior_closed !== true) return null;
+  if (uiState.no_tool_called_before_cancel !== true) return null;
+  if (uiState.no_production_write_on_cancel !== true) return null;
+  if (uiState.no_artifact_adopted_on_cancel !== true) return null;
+  if (uiState.loading_cleared_after_cancel !== true) return null;
+  if (uiState.input_enabled_after_cancel !== true) return null;
+  if (uiState.following_turn_completed !== true) return null;
+  if (uiState.prompt_sent !== true) return null;
+  if (uiState.recovery_prompt_sent !== true) return null;
+  if (uiState.behavior_trace_refs_count < 1) return null;
+  if (String(uiState.behavior_trace_ref ?? "") === "") return null;
+  if (uiState.behavior_trace_event_type !== "close") return null;
+  if (uiState.behavior_trace_next_status !== "CANCELLED") return null;
+  if (uiState.behavior_trace_event_turn_ref !== uiState.cancel_turn_id) return null;
+  if (uiState.behavior_trace_resolution_ref !== `behavior_resolution:${uiState.cancel_turn_id}`) {
+    return null;
+  }
+  if (uiState.cancel_trace_ref !== `trace:${uiState.cancel_turn_id}`) return null;
+
+  const promptDone = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.turn_id === uiState.confirmation_turn_id,
+  );
+  const actionStart = records.find(
+    (record) =>
+      record.event === "channel.author_action.start" &&
+      record.turn_id === uiState.confirmation_turn_id &&
+      record.action_type === "reject_or_cancel_confirmation",
+  );
+  const actionDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.turn_id === uiState.confirmation_turn_id &&
+      record.action_status === "cancelled",
+  );
+  const followingDone = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" && record.turn_id === uiState.following_turn_id,
+  );
+  if (!promptDone || !actionStart || !actionDone || !followingDone) {
+    return null;
+  }
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.cancel_turn_id,
+    turn_ids: [uiState.confirmation_turn_id, uiState.cancel_turn_id, uiState.following_turn_id],
+    confirmation_turn_id: uiState.confirmation_turn_id,
+    cancel_turn_id: uiState.cancel_turn_id,
+    following_turn_id: uiState.following_turn_id,
+    action_id: uiState.action_id,
+    action_type: uiState.action_type,
+    cancel_trace_ref: uiState.cancel_trace_ref,
+    behavior_trace_ref: uiState.behavior_trace_ref,
+    behavior_trace_event_type: uiState.behavior_trace_event_type,
+    behavior_trace_next_status: uiState.behavior_trace_next_status,
+    behavior_trace_event_turn_ref: uiState.behavior_trace_event_turn_ref,
+    behavior_trace_resolution_ref: uiState.behavior_trace_resolution_ref,
+    key_events: keyEvents,
+  };
+}
+
 function findAu12WorkProfileOverviewEvidence(records) {
   const sliceId = "au12-work-profile-overview";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -4220,6 +4649,71 @@ function findAu12WorkProfileOverviewEvidence(records) {
     work_title: uiState.work_title,
     profile_status: uiState.profile_status,
     profile_revision: uiState.profile_revision,
+    key_events: keyEvents,
+  };
+}
+
+function findAu12WorkProfileStatusIsolationEvidence(records) {
+  const sliceId = "au12-work-profile-status-isolation";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.accepted_profile_status === "ACCEPTED" &&
+      record.empty_profile_status === "TENTATIVE" &&
+      record.accepted_status_visible === true &&
+      record.tentative_status_visible === true &&
+      Number(record.empty_fields_visible_count ?? 0) >= 4 &&
+      record.accepted_profile_fields_visible === true &&
+      record.empty_profile_excludes_accepted_fields === true &&
+      record.accepted_character_visible_before_switch === true &&
+      record.accepted_foreshadowing_visible_before_switch === true &&
+      record.accepted_rule_visible_before_switch === true &&
+      record.empty_archive_excludes_accepted_character === true &&
+      record.empty_archive_excludes_accepted_foreshadowing === true &&
+      record.empty_archive_excludes_accepted_rule === true &&
+      record.overview_navigation_verified === true &&
+      record.outline_navigation_verified === true &&
+      record.character_navigation_verified === true &&
+      record.foreshadowing_navigation_verified === true &&
+      record.rule_navigation_verified === true &&
+      record.accepted_profile_reply_omits_id === true &&
+      record.empty_profile_reply_omits_id === true &&
+      record.profile_replies_omit_work_uuid === true &&
+      record.profile_logs_omit_work_uuid === true &&
+      record.profile_ui_omits_work_uuid === true &&
+      record.readonly_no_write_logs === true &&
+      record.readonly_no_author_action_frames === true &&
+      record.real_archive_opened === true &&
+      record.real_work_switch_performed === true,
+  );
+  if (!uiState) return null;
+  if (!uiState.accepted_work_id || !uiState.empty_work_id) return null;
+
+  const acceptedLog = records.find(
+    (record) =>
+      record.event === "channel.get_work_profile.done" &&
+      record.has_title === true &&
+      record.status === "ACCEPTED",
+  );
+  const tentativeLog = records.find(
+    (record) =>
+      record.event === "channel.get_work_profile.done" &&
+      record.has_title === true &&
+      record.status === "TENTATIVE",
+  );
+  if (!acceptedLog || !tentativeLog) return null;
+
+  return {
+    slice_id: sliceId,
+    accepted_work_id: uiState.accepted_work_id,
+    accepted_work_title: uiState.accepted_work_title,
+    empty_work_id: uiState.empty_work_id,
+    empty_work_title: uiState.empty_work_title,
+    accepted_profile_status: uiState.accepted_profile_status,
+    empty_profile_status: uiState.empty_profile_status,
+    empty_fields_visible_count: Number(uiState.empty_fields_visible_count ?? 0),
     key_events: keyEvents,
   };
 }
@@ -5714,6 +6208,9 @@ function findP1ChapterAdoptionReadingEvidence(
       record.artifact_adopted === true &&
       record.reading_mode_populated_after_adoption === true &&
       record.word_count_matches_adopted_prose === true &&
+      record.projection_refresh_status === "STALE" &&
+      record.projection_stale_banner_visible === true &&
+      record.projection_refresh_button_visible === true &&
       Number(record.total_word_count ?? 0) > 0 &&
       Number(record.chapter_word_count ?? 0) > 0,
   );
@@ -5782,7 +6279,43 @@ function findP1ChapterAdoptionReadingEvidence(
     total_word_count: uiState.total_word_count,
     chapter_word_count: uiState.chapter_word_count,
     expected_word_count: uiState.expected_word_count,
+    projection_refresh_status: uiState.projection_refresh_status,
+    projection_stale_banner_visible: uiState.projection_stale_banner_visible,
+    projection_refresh_button_visible: uiState.projection_refresh_button_visible,
     key_events: keyEvents,
+  };
+}
+
+function findAu07StateTraceAdoptionReplayEvidence(records) {
+  const sliceId = "au07-state-trace-adoption-replay";
+  const base = findP1ChapterAdoptionReadingEvidence(records, sliceId, true);
+  if (!base) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.draft_turn_id === base.draft_turn_id,
+  );
+  if (!uiState) return null;
+
+  const stateTraceRef = String(uiState.state_trace_ref ?? "");
+  if (!stateTraceRef) return null;
+  if (uiState.resolved_state_trace_ref !== stateTraceRef) return null;
+  if (uiState.projection_source_state_trace_ref !== stateTraceRef) return null;
+  if (Number(uiState.trace_summary_state_trace_refs_count ?? 0) < 1) return null;
+  if (Number(uiState.projection_refs_count ?? 0) < 1) return null;
+  if (String(uiState.adoption_trace_ref ?? "") !== `trace:${uiState.adopt_turn_id}`) return null;
+
+  return {
+    ...base,
+    slice_id: sliceId,
+    turn_id: uiState.adopt_turn_id,
+    turn_ids: [base.draft_turn_id, uiState.adopt_turn_id],
+    state_trace_ref: stateTraceRef,
+    adoption_trace_ref: uiState.adoption_trace_ref,
+    projection_source_state_trace_ref: uiState.projection_source_state_trace_ref,
+    key_events: keyEventsForSlice(sliceId),
   };
 }
 
@@ -5830,6 +6363,88 @@ function findP1ChapterWordCountTargetEvidence(records) {
   };
 }
 
+function findAu05DiscardAuthorActionEvidence(records) {
+  const sliceId = "au05-discard-author-action";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.discard_action_sent === true &&
+      record.discard_action_type === "discard" &&
+      record.action_result_status === "discarded" &&
+      record.artifact_discarded === true &&
+      record.artifact_adopted === false &&
+      record.production_write_performed === false &&
+      record.discard_button_cleared_after_discard === true &&
+      record.reading_mode_empty_after_discard === true &&
+      record.draft_not_visible_in_reading === true,
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.draft_turn_id ?? "");
+  if (!draftTurnId) return null;
+  if (!String(uiState.user_message_text ?? "").includes("正文草稿")) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+
+  const start = draftRecords.find(
+    (record) =>
+      record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+  );
+  if (!start) return null;
+
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+
+  const discardDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "discard" &&
+      record.action_status === "discarded",
+  );
+  if (!discardDone) return null;
+
+  const tocRead = records.find(
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.total_word_count ?? -1) === 0 &&
+      Number(record.empty_chapter_count ?? 0) >= 1,
+  );
+  if (!tocRead) return null;
+
+  const chapterRead = records.find(
+    (record) =>
+      record.event === "channel.get_chapter_content.done" &&
+      record.work_id === uiState.work_id &&
+      Number(record.content_chars ?? -1) === 0,
+  );
+  if (!chapterRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    discard_turn_id: uiState.discard_turn_id,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    chapter_title: uiState.chapter_title,
+    chapter_count_after_discard: Number(tocRead.chapter_count ?? 0),
+    total_word_count_after_discard: Number(tocRead.total_word_count ?? 0),
+    empty_chapter_count_after_discard: Number(tocRead.empty_chapter_count ?? 0),
+    content_chars_after_discard: Number(chapterRead.content_chars ?? 0),
+    key_events: keyEvents,
+  };
+}
+
 function findAu04ConfirmBeforeExecuteEvidence(records) {
   const sliceId = "au04-confirm-before-execute";
   const keyEvents = keyEventsForSlice(sliceId);
@@ -5839,6 +6454,11 @@ function findAu04ConfirmBeforeExecuteEvidence(records) {
       r.event === "slice_verify.ui_state.done" &&
       r.slice_id === sliceId &&
       r.confirmation_card_received === true &&
+      r.confirmation_card_visible === true &&
+      r.confirmation_card_detail_visible === true &&
+      r.confirmation_card_target_visible === true &&
+      r.confirmation_card_no_write_visible === true &&
+      r.confirmation_card_re_gate_visible === true &&
       r.plan_carried_over_wire === true &&
       r.tool_called_before_confirm === false &&
       r.production_write_before_confirm === false &&
@@ -5893,6 +6513,10 @@ function findAu04ConfirmBeforeExecuteEvidence(records) {
     artifact_id: uiState.artifact_id,
     artifact_type: uiState.artifact_type,
     confirm_action_behavior_ref: uiState.confirm_action_behavior_ref,
+    confirmation_card_detail_visible: uiState.confirmation_card_detail_visible,
+    confirmation_card_target_visible: uiState.confirmation_card_target_visible,
+    confirmation_card_no_write_visible: uiState.confirmation_card_no_write_visible,
+    confirmation_card_re_gate_visible: uiState.confirmation_card_re_gate_visible,
     key_events: keyEvents,
   };
 }
@@ -6132,6 +6756,90 @@ function findAu04StaleConfirmationUiEvidence(records) {
     pending_prose_fragment_after_stale_count: Number(
       uiState.pending_prose_fragment_after_stale_count ?? 0,
     ),
+    key_events: keyEvents,
+  };
+}
+
+function findAu06SingleActiveConfirmationEvidence(records) {
+  const sliceId = "au06-single-active-confirmation";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === sliceId &&
+      r.distinct_behavior_refs === true &&
+      r.first_tool_called_before_confirm === false &&
+      r.first_production_write_before_confirm === false &&
+      r.second_tool_called_before_confirm === false &&
+      r.second_production_write_before_confirm === false &&
+      r.second_confirmation_advanced_current_turn === true &&
+      r.old_confirm_prevented === true &&
+      r.no_tool_dispatch_after_old === true &&
+      r.no_pending_artifact_after_old === true &&
+      r.latest_confirm_action_sent === true &&
+      r.latest_confirm_dispatched === true &&
+      Number(r.latest_toolbox_execute_count ?? 0) === 1 &&
+      r.latest_pending_artifact_after_confirm === true &&
+      String(r.first_confirm_action_behavior_ref ?? "") !== "" &&
+      String(r.second_confirm_action_behavior_ref ?? "") !== "",
+  );
+  if (!uiState) return null;
+
+  const firstTurnId = String(uiState.first_confirm_turn_id ?? "");
+  const secondTurnId = String(uiState.second_confirm_turn_id ?? "");
+  if (!firstTurnId || !secondTurnId || firstTurnId === secondTurnId) return null;
+
+  const firstRecords = records.filter((r) => String(r.turn_id ?? "") === firstTurnId);
+  const secondRecords = records.filter((r) => String(r.turn_id ?? "") === secondTurnId);
+
+  const firstBlocked = firstRecords.some(
+    (r) => r.event === "orchestrator.decide.done" && r.decision_type === "require_confirmation",
+  );
+  const secondBlocked = secondRecords.some(
+    (r) => r.event === "orchestrator.decide.done" && r.decision_type === "require_confirmation",
+  );
+  if (!firstBlocked || !secondBlocked) return null;
+
+  const oldRejectedByChannel = records.some(
+    (r) =>
+      r.event === "channel.author_action.error" &&
+      r.turn_id === firstTurnId &&
+      r.action_type === "confirm_before_execute" &&
+      String(r.outcome_detail ?? "").includes("stale"),
+  );
+  const oldPreventedByUi =
+    uiState.confirm_button_count_after_second === 1 || uiState.old_confirm_disabled === true;
+  if (!oldRejectedByChannel && !oldPreventedByUi) return null;
+
+  const latestConfirmed = records.some(
+    (r) =>
+      r.event === "channel.author_action.done" &&
+      r.turn_id === secondTurnId &&
+      r.action_type === "confirm_before_execute" &&
+      r.action_status === "accepted",
+  );
+  if (!latestConfirmed) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: secondTurnId,
+    turn_ids: [firstTurnId, secondTurnId],
+    first_confirm_turn_id: firstTurnId,
+    second_confirm_turn_id: secondTurnId,
+    latest_executed_turn_id: uiState.latest_executed_turn_id,
+    artifact_id: uiState.artifact_id,
+    artifact_type: uiState.artifact_type,
+    first_confirm_action_behavior_ref: uiState.first_confirm_action_behavior_ref,
+    second_confirm_action_behavior_ref: uiState.second_confirm_action_behavior_ref,
+    old_confirm_prevented: uiState.old_confirm_prevented,
+    old_confirm_rejected: uiState.old_confirm_rejected,
+    old_author_action_error_count: Number(uiState.old_author_action_error_count ?? 0),
+    toolbox_execute_after_old_count: Number(uiState.toolbox_execute_after_old_count ?? 0),
+    pending_prose_fragment_after_old_count: Number(
+      uiState.pending_prose_fragment_after_old_count ?? 0,
+    ),
+    latest_toolbox_execute_count: Number(uiState.latest_toolbox_execute_count ?? 0),
     key_events: keyEvents,
   };
 }
@@ -6897,6 +7605,10 @@ function au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidenc
   if (!uiState) return null;
   if (uiState.tool_called_before_confirm !== false) return null;
   if (uiState.production_write_before_confirm !== false) return null;
+  if (uiState.confirmation_card_detail_visible !== true) return null;
+  if (uiState.confirmation_card_target_visible !== true) return null;
+  if (uiState.confirmation_card_no_write_visible !== true) return null;
+  if (uiState.confirmation_card_re_gate_visible !== true) return null;
   if (uiState.confirmed_dispatch !== true) return null;
   if (uiState.artifact_pending_after_confirm !== true) return null;
 
@@ -6908,6 +7620,7 @@ function au04ConfirmBeforeExecuteBehavior(turnIds, turnRecords, records, evidenc
     confirm_action_behavior_ref: evidence.confirm_action_behavior_ref,
     assertions: [
       "high_risk_rewrite_blocked_with_confirmation_card_over_real_wire",
+      "confirmation_card_explains_target_no_write_and_re_gate_in_real_workbench",
       "no_tool_call_or_production_write_before_confirm",
       "confirm_action_bound_to_open_confirmation_behavior",
       "re_gate_allows_and_dispatches_prose_writing_same_turn",
@@ -6980,6 +7693,43 @@ function au04StaleConfirmationUiBehavior(turnIds, _turnRecords, records, evidenc
       "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
       "stale_confirmation_did_not_dispatch_prose_writing",
       "stale_confirmation_did_not_create_pending_prose_fragment",
+    ],
+  };
+}
+
+function au06SingleActiveConfirmationBehavior(turnIds, _turnRecords, records, evidence, _options) {
+  const uiState = records.find(
+    (r) =>
+      r.event === "slice_verify.ui_state.done" &&
+      r.slice_id === "au06-single-active-confirmation",
+  );
+  if (!uiState) return null;
+  if (uiState.distinct_behavior_refs !== true) return null;
+  if (uiState.second_confirmation_advanced_current_turn !== true) return null;
+  if (uiState.old_confirm_prevented !== true) return null;
+  if (uiState.no_tool_dispatch_after_old !== true) return null;
+  if (uiState.no_pending_artifact_after_old !== true) return null;
+  if (uiState.latest_confirm_dispatched !== true) return null;
+  if (Number(uiState.toolbox_execute_after_old_count ?? 0) !== 0) return null;
+  if (Number(uiState.pending_prose_fragment_after_old_count ?? 0) !== 0) return null;
+  if (Number(uiState.latest_toolbox_execute_count ?? 0) !== 1) return null;
+
+  return {
+    slice_id: "au06-single-active-confirmation",
+    behavior: "new_confirmation_supersedes_old_author_blocking_behavior_without_old_execution",
+    turn_ids: turnIds,
+    first_confirm_action_behavior_ref: evidence.first_confirm_action_behavior_ref,
+    second_confirm_action_behavior_ref: evidence.second_confirm_action_behavior_ref,
+    old_confirm_prevented: evidence.old_confirm_prevented,
+    old_confirm_rejected: evidence.old_confirm_rejected,
+    old_author_action_error_count: evidence.old_author_action_error_count,
+    latest_toolbox_execute_count: evidence.latest_toolbox_execute_count,
+    assertions: [
+      "first_high_risk_turn_opened_confirmation_in_real_workbench",
+      "second_high_risk_turn_advanced_to_a_distinct_active_confirmation",
+      "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
+      "old_confirmation_did_not_dispatch_tool_or_create_pending_draft",
+      "latest_confirmation_remained_actionable_and_executed_once",
     ],
   };
 }
@@ -7353,6 +8103,91 @@ function p1ChapterAdoptionReadingBehavior(
       "book_total_effective_word_count_visible_and_positive",
       "chapter_effective_word_count_visible_and_positive",
       "displayed_word_count_equals_effective_count_of_adopted_prose",
+      "projection_ref_emitted_with_stale_refresh_status",
+      "reading_mode_stale_projection_banner_visible",
+      "reading_mode_refresh_button_visible",
+    ],
+  };
+}
+
+function au07StateTraceAdoptionReplayBehavior(turnIds, turnRecords, records, evidence, options) {
+  const base = p1ChapterAdoptionReadingBehavior(
+    turnIds,
+    turnRecords,
+    records,
+    evidence,
+    options,
+    "au07-state-trace-adoption-replay",
+    true,
+  );
+  if (!base) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au07-state-trace-adoption-replay" &&
+      record.draft_turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+
+  return {
+    ...base,
+    slice_id: "au07-state-trace-adoption-replay",
+    behavior: "adoption_and_reading_projection_replayable_from_state_trace_refs",
+    turn_ids: evidence.turn_ids,
+    adopt_turn_id: evidence.adopt_turn_id,
+    state_trace_ref: evidence.state_trace_ref,
+    adoption_trace_ref: evidence.adoption_trace_ref,
+    projection_source_state_trace_ref: evidence.projection_source_state_trace_ref,
+    assertions: [
+      ...(base.assertions ?? []),
+      "adoption_turn_trace_summary_recorded_state_trace_ref",
+      "resolved_adoption_entry_references_same_state_trace",
+      "projection_ref_references_same_source_state_trace",
+      "state_trace_ref_is_bound_to_action_turn_trace_ref",
+    ],
+  };
+}
+
+function au05DiscardAuthorActionBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au05-discard-author-action" &&
+      record.draft_turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.discard_action_sent !== true) return null;
+  if (uiState.action_result_status !== "discarded") return null;
+  if (uiState.artifact_discarded !== true) return null;
+  if (uiState.artifact_adopted !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.discard_button_cleared_after_discard !== true) return null;
+  if (uiState.reading_mode_empty_after_discard !== true) return null;
+  if (uiState.draft_not_visible_in_reading !== true) return null;
+
+  return {
+    slice_id: "au05-discard-author-action",
+    behavior: "discard_author_action_resolves_pending_artifact_without_production_write",
+    turn_ids: turnIds,
+    artifact_id: evidence.artifact_id,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    chapter_count_after_discard: evidence.chapter_count_after_discard,
+    total_word_count_after_discard: evidence.total_word_count_after_discard,
+    content_chars_after_discard: evidence.content_chars_after_discard,
+    assertions: [
+      "chapter_draft_generated_from_adopted_plan",
+      "author_clicked_discard_from_real_workbench",
+      "discard_author_action_routed_through_adoption_boundary",
+      "discard_resolved_artifact_as_discarded",
+      "discard_did_not_adopt_artifact_or_write_production_state",
+      "discard_button_cleared_after_resolution_no_resubmit",
+      "discarded_draft_did_not_materialize_reading_projection",
+      "reading_mode_loaded_planned_chapter_without_adopted_content_after_discard",
     ],
   };
 }
@@ -7618,6 +8453,68 @@ function au10WorkbenchRecoveryCancelWaitingBehavior(records, evidence, _options)
   };
 }
 
+function au07BehaviorTraceTerminalReplayBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au07-behavior-trace-terminal-replay" &&
+      record.confirmation_turn_id === evidence.confirmation_turn_id &&
+      record.cancel_turn_id === evidence.cancel_turn_id &&
+      record.following_turn_id === evidence.following_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.confirmation_card_visible !== true) return null;
+  if (uiState.cancelled_message_visible !== true) return null;
+  if (uiState.confirmation_buttons_cleared !== true) return null;
+  if (uiState.active_behavior_closed !== true) return null;
+  if (uiState.no_tool_called_before_cancel !== true) return null;
+  if (uiState.no_production_write_on_cancel !== true) return null;
+  if (uiState.no_artifact_adopted_on_cancel !== true) return null;
+  if (uiState.behavior_trace_refs_count < 1) return null;
+  if (uiState.behavior_trace_event_type !== "close") return null;
+  if (uiState.behavior_trace_next_status !== "CANCELLED") return null;
+  if (uiState.behavior_trace_event_turn_ref !== evidence.cancel_turn_id) return null;
+  if (uiState.behavior_trace_resolution_ref !== `behavior_resolution:${evidence.cancel_turn_id}`) {
+    return null;
+  }
+  if (uiState.cancel_trace_ref !== `trace:${evidence.cancel_turn_id}`) return null;
+
+  const actionDone = records.find(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.turn_id === evidence.confirmation_turn_id &&
+      record.action_status === "cancelled",
+  );
+  if (!actionDone) return null;
+
+  return {
+    slice_id: "au07-behavior-trace-terminal-replay",
+    behavior: "terminal_behavior_replayable_from_recorded_close_resolution_refs",
+    turn_ids: evidence.turn_ids,
+    confirmation_turn_id: evidence.confirmation_turn_id,
+    cancel_turn_id: evidence.cancel_turn_id,
+    following_turn_id: evidence.following_turn_id,
+    action_id: evidence.action_id,
+    action_type: evidence.action_type,
+    cancel_trace_ref: evidence.cancel_trace_ref,
+    behavior_trace_ref: evidence.behavior_trace_ref,
+    behavior_trace_event_type: evidence.behavior_trace_event_type,
+    behavior_trace_next_status: evidence.behavior_trace_next_status,
+    behavior_trace_resolution_ref: evidence.behavior_trace_resolution_ref,
+    assertions: [
+      "confirmation_waiting_state_was_visible_in_real_workbench",
+      "author_clicked_visible_reject_or_cancel_action",
+      "cancel_action_used_server_authorized_author_action",
+      "cancelled_turn_result_closed_active_behavior",
+      "cancel_turn_result_recorded_behavior_trace_ref",
+      "behavior_trace_ref_is_terminal_close_event",
+      "behavior_trace_ref_carries_resolution_ref",
+      "cancel_waiting_did_not_call_tool_or_write_production_state",
+      "following_turn_completed_after_cancel",
+    ],
+  };
+}
+
 function au12WorkProfileOverviewBehavior(records, evidence, _options) {
   const uiState = records.find(
     (record) =>
@@ -7652,6 +8549,45 @@ function au12WorkProfileOverviewBehavior(records, evidence, _options) {
       "profile_ui_did_not_show_internal_work_uuid",
       "profile_log_did_not_emit_work_uuid",
       "profile_view_remained_readonly",
+    ],
+  };
+}
+
+function au12WorkProfileStatusIsolationBehavior(records, evidence, _options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au12-work-profile-status-isolation" &&
+      record.accepted_work_id === evidence.accepted_work_id &&
+      record.empty_work_id === evidence.empty_work_id,
+  );
+  if (!uiState) return null;
+  if (uiState.accepted_profile_status !== "ACCEPTED") return null;
+  if (uiState.empty_profile_status !== "TENTATIVE") return null;
+  if (Number(uiState.empty_fields_visible_count ?? 0) < 4) return null;
+  if (uiState.readonly_no_write_logs !== true) return null;
+  if (uiState.readonly_no_author_action_frames !== true) return null;
+
+  return {
+    slice_id: "au12-work-profile-status-isolation",
+    behavior: "author_checks_profile_status_missing_fields_and_cross_work_archive_isolation",
+    turn_ids: [],
+    accepted_work_id: evidence.accepted_work_id,
+    accepted_work_title: evidence.accepted_work_title,
+    empty_work_id: evidence.empty_work_id,
+    empty_work_title: evidence.empty_work_title,
+    accepted_profile_status: evidence.accepted_profile_status,
+    empty_profile_status: evidence.empty_profile_status,
+    empty_fields_visible_count: evidence.empty_fields_visible_count,
+    assertions: [
+      "accepted_profile_status_visible_as_confirmed",
+      "tentative_profile_status_visible_as_pending",
+      "missing_profile_fields_show_explicit_empty_value",
+      "archive_tabs_navigate_from_real_structure_panel",
+      "cross_work_profile_fields_are_isolated",
+      "cross_work_character_foreshadowing_and_rule_items_are_isolated",
+      "profile_dto_and_logs_omit_internal_work_uuid",
+      "archive_viewing_does_not_emit_author_action_user_message_or_write_events",
     ],
   };
 }
@@ -7768,6 +8704,8 @@ function findP1ChapterExpansionMultichapterEvidence(records) {
       r.all_adopted === true &&
       r.all_chapters_have_prose === true &&
       r.chapter_order_correct === true &&
+      r.chapter_navigation_verified === true &&
+      r.empty_chapter_empty_state_visible === true &&
       Number(r.written_chapter_count ?? 0) >= 3 &&
       Array.isArray(r.draft_turn_ids) &&
       r.draft_turn_ids.length >= 3,
@@ -7830,6 +8768,8 @@ function p1ChapterExpansionMultichapterBehavior(turnIds, turnRecords, records, e
   if (!uiState) return null;
   if (uiState.all_chapters_have_prose !== true) return null;
   if (uiState.chapter_order_correct !== true) return null;
+  if (uiState.chapter_navigation_verified !== true) return null;
+  if (uiState.empty_chapter_empty_state_visible !== true) return null;
   if (Number(uiState.written_chapter_count ?? 0) < 3) return null;
 
   return {
@@ -7843,6 +8783,8 @@ function p1ChapterExpansionMultichapterBehavior(turnIds, turnRecords, records, e
       "each_chapter_adopted_via_author_action_accept",
       "each_target_chapter_has_own_prose_no_cross_contamination",
       "reading_toc_shows_full_plan_with_three_written_chapters_in_order",
+      "author_clicked_toc_chapters_and_loaded_each_target_chapter_content",
+      "unwritten_chapter_shows_honest_empty_state",
     ],
   };
 }
@@ -9116,6 +10058,135 @@ function au11QualityDiagnosisMessageEnvelopeBehavior(turnIds, _turnRecords, reco
   };
 }
 
+function findAu11MissingWorkstatePolicyEvidence(records) {
+  const sliceId = "au11-missing-workstate-policy";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.guidance_mode_quality === true &&
+      record.work_state_snapshot_mentions_work === true &&
+      record.work_state_chapter_state_missing === true &&
+      record.work_state_chapter_summary_missing === true &&
+      record.work_state_prior_prose_missing === true &&
+      record.work_state_character_state_missing === true &&
+      record.turn_guidance_records_missing_questions === true &&
+      record.assistant_asks_for_target_material === true &&
+      record.assistant_claims_read_chapter !== true &&
+      record.assistant_fabricates_seeded_chapter_fact !== true &&
+      record.no_tool_result === true &&
+      record.no_adoption_state === true &&
+      record.no_production_write === true &&
+      record.trace_why_dialog_open === true &&
+      record.trace_why_contains_raw_prompt !== true &&
+      record.why_shows_quality_diagnosis === true &&
+      record.why_shows_work_state_missing === true &&
+      record.why_shows_missing_limit === true,
+  );
+  if (!uiState) return null;
+
+  const turnId = String(uiState.turn_id ?? "");
+  const workId = String(uiState.work_id ?? uiState.context_work_id ?? "");
+  const sessionId = String(uiState.session_id ?? uiState.active_session_id ?? "");
+  if (!turnId || !workId || !sessionId) return null;
+
+  const contextDone = records.find(
+    (record) =>
+      record.event === "context.assemble.done" &&
+      record.turn_id === turnId &&
+      record.work_id === workId &&
+      record.session_id === sessionId &&
+      record.has_snapshot === true,
+  );
+  if (!contextDone) return null;
+
+  const userDone = records.find(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.turn_id === turnId &&
+      record.work_id === workId &&
+      record.session_id === sessionId,
+  );
+  if (!userDone) return null;
+
+  const hasAllEvents = keyEvents.every((event) => {
+    if (event === "work_session.resume.done" || event === "channel.join.done") {
+      return records.some(
+        (record) =>
+          record.event === event && record.work_id === workId && record.session_id === sessionId,
+      );
+    }
+
+    return records.some(
+      (record) =>
+        record.event === event &&
+        record.turn_id === turnId &&
+        (event === "slice_verify.ui_state.done" || hasRequiredCorrelationFields(record)),
+    );
+  });
+  if (!hasAllEvents) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: workId,
+    session_id: sessionId,
+    context_refs_count: Number(contextDone.context_refs_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function au11MissingWorkstatePolicyBehavior(turnIds, _turnRecords, records, evidence) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au11-missing-workstate-policy",
+  );
+  if (!uiState) return null;
+  if (uiState.guidance_mode_quality !== true) return null;
+  if (uiState.work_state_snapshot_mentions_work !== true) return null;
+  if (uiState.work_state_chapter_state_missing !== true) return null;
+  if (uiState.work_state_chapter_summary_missing !== true) return null;
+  if (uiState.work_state_prior_prose_missing !== true) return null;
+  if (uiState.work_state_character_state_missing !== true) return null;
+  if (uiState.turn_guidance_records_missing_questions !== true) return null;
+  if (uiState.assistant_asks_for_target_material !== true) return null;
+  if (uiState.assistant_claims_read_chapter === true) return null;
+  if (uiState.assistant_fabricates_seeded_chapter_fact === true) return null;
+  if (uiState.no_tool_result !== true) return null;
+  if (uiState.no_adoption_state !== true) return null;
+  if (uiState.no_production_write !== true) return null;
+  if (uiState.trace_why_dialog_open !== true) return null;
+  if (uiState.trace_why_contains_raw_prompt === true) return null;
+  if (uiState.why_shows_quality_diagnosis !== true) return null;
+  if (uiState.why_shows_work_state_missing !== true) return null;
+  if (uiState.why_shows_missing_limit !== true) return null;
+  if (String(uiState.work_id ?? uiState.context_work_id ?? "") !== evidence.work_id) return null;
+  if (String(uiState.session_id ?? uiState.active_session_id ?? "") !== evidence.session_id) {
+    return null;
+  }
+
+  return {
+    slice_id: "au11-missing-workstate-policy",
+    behavior: "quality_diagnosis_missing_workstate_records_explicit_gaps_without_fabrication",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    assertions: [
+      "message_sent_from_real_workbench",
+      "selected_real_work_has_snapshot_but_missing_chapter_material",
+      "work_state_layer_marks_missing_chapter_summary_prose_and_character_state",
+      "turn_guidance_records_missing_target_chapter_and_prose_questions",
+      "assistant_asks_for_target_material_without_claiming_to_have_read_the_chapter",
+      "why_panel_shows_quality_mode_missing_workstate_and_missing_prose_limit",
+      "no_tool_no_adoption_no_production_write",
+    ],
+  };
+}
+
 function candidateAdoptionBridgeBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 2) return null;
   if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
@@ -9534,6 +10605,161 @@ function microPlanBehavior(sliceId, turnIds, turnRecords, options, behavior) {
       "no_error_events",
       "assistant_messages_not_fallback",
       "lmstudio_frame_and_micro_plan_called",
+    ],
+  };
+}
+
+function e2e01DowngradeRealPageBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, true)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_micro_plan.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "orchestrator.decide.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame", "form_micro_plan"])) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "e2e-01-downgrade-real-page" &&
+      record.turn_id === turnIds[0],
+  );
+  if (!uiState) return null;
+  if (uiState.decision_type !== "downgrade_to_dialogue") return null;
+  if (uiState.first_blocking_gate !== "action_scope") return null;
+  if (uiState.execution_blocked !== true) return null;
+  if (uiState.tool_called !== false) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.action_scope_reason_present !== true) return null;
+  if (uiState.no_toolbox_execute_event !== true) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_execution_controls_visible !== true) return null;
+  if (uiState.downgrade_badge_visible !== true) return null;
+  if (uiState.generation_badge_absent !== true) return null;
+  if (hasEventPrefix(turnRecords, "toolbox.execute.")) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+
+  const decision = turnRecords.find(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      record.decision_type === "downgrade_to_dialogue",
+  );
+  if (!decision) return null;
+
+  return {
+    slice_id: "e2e-01-downgrade-real-page",
+    behavior: "real_page_multi_step_micro_plan_downgrades_without_execution",
+    turn_ids: turnIds,
+    decision_type: evidence.decision_type,
+    first_blocking_gate: evidence.first_blocking_gate,
+    assertions: [
+      "real_workbench_sent_micro_plan_request_from_visible_archive_action",
+      "planner_form_frame_and_micro_plan_completed",
+      "orchestrator_downgraded_multi_step_plan_at_action_scope",
+      "turn_result_reported_execution_blocked",
+      "no_toolbox_execute_event",
+      "no_author_action_sent",
+      "no_adoption_or_execution_controls_visible",
+      "downgrade_badge_visible_without_generation_badge",
+      options.provider === "lmstudio"
+        ? "lmstudio_frame_and_micro_plan_called_for_downgrade_turn"
+        : "deterministic_provider_frame_and_micro_plan_called_for_downgrade_turn",
+    ],
+  };
+}
+
+function e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_micro_plan.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "orchestrator.decide.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "context.characters.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "toolbox.execute.done")) return null;
+  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
+  if (!lmstudioHasSteps(options, turnIds, ["form_frame", "form_micro_plan"])) return null;
+  if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
+  if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
+
+	  const uiState = records.find(
+	    (record) =>
+	      record.event === "slice_verify.ui_state.done" &&
+	      record.slice_id === evidence.slice_id &&
+	      record.turn_id === turnIds[0],
+	  );
+  if (!uiState) return null;
+  if (uiState.decision_type !== "allow_tool") return null;
+  if (uiState.tool_name !== "character_roster") return null;
+  if (uiState.tool_status !== "succeeded") return null;
+  if (uiState.tool_called !== true) return null;
+  if (uiState.production_write_performed !== false) return null;
+  if (uiState.artifact_adopted !== false) return null;
+  if (uiState.execution_blocked !== false) return null;
+  if (uiState.accepted_character_visible !== true) return null;
+  if (uiState.tentative_character_absent !== true) return null;
+  if (uiState.foreign_character_absent !== true) return null;
+  if (uiState.no_write_statement_visible !== true) return null;
+  if (uiState.no_state_delta !== true) return null;
+  if (uiState.no_artifact_refs !== true) return null;
+  if (uiState.no_author_action_sent !== true) return null;
+  if (uiState.no_adoption_event !== true) return null;
+  if (uiState.no_execution_controls_visible !== true) return null;
+  if (uiState.trace_query_has_tool_trace_ref !== true) return null;
+
+  const decision = turnRecords.find(
+    (record) => record.event === "orchestrator.decide.done" && record.decision_type === "allow_tool",
+  );
+  if (!decision) return null;
+
+  const toolbox = turnRecords.find(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_roster" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!toolbox) return null;
+
+  const replayReportEvidence =
+    evidence.slice_id === "e2e-01-replay-report"
+      ? {
+          replay_report_chain_steps: evidence.replay_report_chain_steps,
+          replay_report_question_statuses: evidence.replay_report_question_statuses,
+        }
+      : {};
+
+  return {
+    slice_id: evidence.slice_id,
+    behavior:
+      evidence.slice_id === "e2e-01-replay-report"
+        ? "real_page_trace_builds_complete_six_question_replay_report"
+        : "real_page_readonly_character_roster_tool_persists_queryable_trace",
+    turn_ids: turnIds,
+    decision_type: evidence.decision_type,
+    tool_name: evidence.tool_name,
+    trace_query_tool_trace_refs: evidence.trace_query_tool_trace_refs,
+    ...replayReportEvidence,
+    assertions: [
+      "real_workbench_sent_readonly_character_roster_request_from_visible_chat_input",
+      "frame_tool_need_triggered_micro_plan_without_product_acceptance_hook",
+      "orchestrator_allowed_low_risk_character_roster_tool",
+      "toolbox_executed_character_roster_successfully",
+      "accepted_character_visible_without_tentative_or_foreign_character_leakage",
+      "turn_result_reported_tool_called_without_adoption_or_production_write",
+      "no_author_action_adoption_or_execution_controls_visible",
+      "trace_repository_list_by_turn_returned_tool_trace_ref",
+      ...(evidence.slice_id === "e2e-01-replay-report"
+        ? [
+            "replay_report_built_from_persisted_trace_without_provider_call",
+            "replay_report_answered_vs06_six_required_questions",
+            "replay_report_chain_includes_frame_plan_decision_tool_and_turn_result",
+          ]
+        : []),
+      options.provider === "lmstudio"
+        ? "lmstudio_frame_and_micro_plan_called_for_readonly_tool_turn"
+        : "deterministic_provider_frame_and_micro_plan_called_for_readonly_tool_turn",
     ],
   };
 }
@@ -11380,6 +12606,17 @@ function eventsPresentWithCorrelation(records, events) {
   return events.every((event) =>
     records.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
   );
+}
+
+function hasToolTraceRef(refs) {
+  return Array.isArray(refs) && refs.some(isToolTraceRef);
+}
+
+function isToolTraceRef(ref) {
+  if (typeof ref === "string") return ref.startsWith("tool_trace:");
+  if (!ref || typeof ref !== "object") return false;
+
+  return Boolean(ref.tool_name && ref.tool_request_ref && ref.tool_result_ref);
 }
 
 function containsRoleOrder(actual, expected) {

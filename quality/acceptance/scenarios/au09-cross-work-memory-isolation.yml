@@ -1,0 +1,56 @@
+id: au09-cross-work-memory-isolation
+title: 跨作品记忆与档案隔离
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-cross-work-memory-isolation --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - tasks/slices/AU09-cross-work-memory-isolation.md
+
+invariants:
+  - memory-recall-is-current-work-scoped
+  - archive-tabs-read-current-work-only
+  - why-panel-excludes-foreign-work-memory
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au09_cross_work_memory_isolation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - switch: work A then work B through the real work menu
+  - inspect: archive foreshadowing and rules tabs
+  - inspect: memory management table
+  - input: message matching both work keywords
+  - observe: only current work memory enters context and why
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-cross-work-memory-isolation-tauri
+
+assertions:
+  ui:
+    - author switches between two real works
+    - archive tabs show current-work memories only
+    - memory table shows current-work memories only
+  network:
+    - user_message after switching is sent under the current work
+    - turn_result excludes foreign work memory refs
+  data:
+    - context assembly attaches current work memory only
+    - why panel excludes foreign work memory summary
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

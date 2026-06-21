@@ -1,0 +1,62 @@
+id: p1-chapter-edit-then-accept
+title: 修改后保存正文进入阅读投影
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-chapter-edit-then-accept --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/acceptance/author/AU-05-artifact-adoption.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - tasks/slices/P1-chapter-adoption-reading.md
+
+invariants:
+  - edited-content-is-the-adopted-source
+  - reading-projection-uses-edited-accepted-prose
+  - displayed-word-count-derived-from-edited-visible-prose
+  - edit-then-accept-author-action-authorized-only
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案
+  - click: 生成正文草稿
+  - wait_for: pending prose draft visible
+  - click: 修改后保存正文
+  - edit: 替换为作者改写正文
+  - click: 保存修改后的版本
+  - open: 阅读模式
+  - observe: 阅读正文和字数来自作者编辑后的正文
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-chapter-edit-then-accept-tauri
+
+assertions:
+  ui:
+    - edit dialog accepts author-edited prose
+    - edited prose is visible in reading mode
+    - edit action controls are cleared after adoption
+  network:
+    - author_action edit_then_accept carries edited_content
+    - resolved adoption status is EDITED_ACCEPTED
+    - get_toc and get_chapter_content load edited accepted prose
+  data:
+    - artifact_edited_accepted is true
+    - displayed word count equals effective count of edited prose
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

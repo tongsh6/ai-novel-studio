@@ -1,0 +1,61 @@
+id: p1-chapter-expansion-multichapter
+title: 多章正文各归各章并可导航阅读
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-chapter-expansion-multichapter --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/domain/21-novel-object-model.md
+  - tasks/slices/P1-chapter-expansion.md
+
+invariants:
+  - each-adopted-prose-files-to-target-chapter
+  - reading-toc-order-follows-planned-chapter-sequence
+  - chapter-navigation-loads-selected-chapter-content
+  - unwritten-chapter-shows-honest-empty-state
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate_and_accept: chapter 1 prose
+  - generate_and_accept: chapter 2 prose
+  - generate_and_accept: chapter 3 prose
+  - open: 阅读模式
+  - click: chapter 2 and chapter 3 in the TOC
+  - click: an unwritten chapter
+  - observe: written chapters load their own content and the unwritten chapter shows an empty state
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-chapter-expansion-multichapter-tauri
+
+assertions:
+  ui:
+    - three adopted chapters are visible in reading TOC order
+    - clicking TOC chapters loads selected chapter content
+    - unwritten chapter shows honest empty body
+  network:
+    - each chapter draft uses prose_writing
+    - each accept author_action is accepted
+    - get_toc reports at least three written chapters
+  data:
+    - all target chapters have prose
+    - no cross-chapter contamination is detected
+    - chapter_order_correct is true
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

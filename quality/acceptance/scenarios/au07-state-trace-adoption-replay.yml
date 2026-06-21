@@ -1,0 +1,58 @@
+id: au07-state-trace-adoption-replay
+title: 采纳与阅读投影携带可回放 StateTrace
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au07-state-trace-adoption-replay --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/contracts/VS-06-replay-surface-contract-pack.md
+  - docs/design/adr/ADR-0016-projection-hint-ui-v3.md
+  - docs/design/adr/ADR-0017-replay-report-v3.md
+
+invariants:
+  - production-adoption-write-has-state-trace
+  - projection-hint-references-source-state-trace
+  - replay-does-not-call-provider
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 章节 1 生成正文草稿
+  - wait_for: tentative prose artifact visible
+  - click: 保存为章节正文
+  - open: reading mode
+  - wait_for: adopted prose visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au07-state-trace-adoption-replay-tauri
+
+assertions:
+  ui:
+    - prose draft is accepted from the real workbench action
+    - reading mode shows the adopted prose
+  network:
+    - author_action accept is sent from the real workbench
+    - accepted turn_result includes trace_summary.state_trace_refs
+    - adopted entry references the same state_trace_ref
+    - projection_refs source_state_trace_ref references the same state_trace_ref
+  data:
+    - production_write_performed is true for the accepted prose
+    - adoption trace_ref is bound to the action turn id
+    - StateTrace refs are replayable without recalling the provider
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

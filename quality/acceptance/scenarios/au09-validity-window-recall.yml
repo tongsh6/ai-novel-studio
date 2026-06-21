@@ -1,0 +1,53 @@
+id: au09-validity-window-recall
+title: 章节有效期窗口过滤记忆召回
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-validity-window-recall --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/06-memory-context-and-trace.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - tasks/slices/AU09-validity-window-recall.md
+
+invariants:
+  - validity-window-filters-memory-recall
+  - current-narrative-position-drives-recall-window
+  - why-panel-excludes-out-of-window-memory
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au09_validity_window.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - seed: current position at latest accepted chapter
+  - input: message matching in-window and out-of-window memories
+  - observe: only in-window memory enters context and why
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-validity-window-recall-tauri
+
+assertions:
+  ui:
+    - why panel shows the in-window memory source
+    - why panel does not show the out-of-window memory
+  network:
+    - user_message is sent from the real workbench
+    - turn_result context refs include only in-window memory
+  data:
+    - current position is latest accepted chapter
+    - out-of-window memory is excluded from recall and why
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

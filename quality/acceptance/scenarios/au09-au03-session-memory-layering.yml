@@ -1,0 +1,57 @@
+id: au09-au03-session-memory-layering
+title: AU-03 会话与 AU-09 记忆来源分层
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-au03-session-memory-layering --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - tasks/slices/AU09-AU03-session-memory-layering.md
+
+invariants:
+  - current-work-session-memory-sources-are-layered
+  - historical-readonly-session-does-not-enter-active-context
+  - memory-source-is-not-generic-conversation
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au09_au03_session_memory_layering.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: historical read-only session
+  - verify: input is disabled
+  - return: active session
+  - input: message matching active transcript and confirmed memory
+  - observe: why separates current work, session transcript, and governed memory
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-au03-session-memory-layering-tauri
+
+assertions:
+  ui:
+    - historical session opens read-only from the real workbench
+    - read-only history input is disabled
+    - active session is restored before author message
+    - why panel separates current work, session, and memory sources
+  network:
+    - user_message is sent only after returning to active session
+    - turn_result context refs include current_work, session_transcript, and memory
+  data:
+    - active session transcript is not labelled as generic conversation
+    - historical session transcript is not in session or memory sources
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -1,0 +1,61 @@
+id: au09-memory-trace-roundtrip
+title: 记忆生命周期与引用追溯
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-memory-trace-roundtrip --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/06-memory-context-and-trace.md
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - tasks/slices/AU09-memory-trace-roundtrip.md
+
+invariants:
+  - memory-lifecycle-is-author-safe-traceable
+  - locked-memory-recall-is-explained
+  - terminal-memory-exclusion-is-visible-without-recall
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 记忆
+  - create: governed memory
+  - confirm: memory
+  - lock: memory
+  - open: memory detail references
+  - unlock: memory
+  - deprecate: first memory
+  - archive: second memory
+  - send: later related message
+  - observe: lifecycle trace and terminal exclusion
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-memory-trace-roundtrip-tauri
+
+assertions:
+  ui:
+    - memory detail reference view shows author-safe lifecycle trace
+    - locked terminal controls are disabled in the real workbench
+    - why panel excludes terminal memory content
+  network:
+    - lifecycle actions are performed through real API/UI boundaries
+    - later turn_result omits terminal memories from context refs
+  data:
+    - create confirm lock unlock deprecate archive actions have visible trace
+    - locked memory remains recallable and trace explains the lock
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

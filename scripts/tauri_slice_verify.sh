@@ -99,6 +99,7 @@ Implemented external UI driver slice ids:
   au05-stale-conflict-cross-work-freshness
   au05-conflict-cross-work-recovery
   au05-canon-conflict-recovery
+  au05-discard-author-action
   p1-chapter-plan-minimum
   p1-chapter-draft-generation
   p1-chapter-adoption-reading
@@ -114,6 +115,7 @@ Implemented external UI driver slice ids:
   au04-confirmation-tool-failure-recovery
   au04-confirm-idempotency-ui
   au04-stale-confirmation-ui
+  au06-single-active-confirmation
   au04-confirmation-ttl-ui
   au04-disabled-confirmation-action-ui
   au04-history-confirmation-readonly
@@ -137,15 +139,23 @@ Implemented external UI driver slice ids:
   au03-archive-session-filter
   au03-current-work-context-ssot
   au11-quality-diagnosis-message-envelope
+  au11-missing-workstate-policy
   au03-long-session-compression
   au03-context-source-ui
+  au07-trace-why-entry
+  au07-state-trace-adoption-replay
+  au07-behavior-trace-terminal-replay
   au10-workbench-matrix-layout
   au10-workbench-recovery-taskstate
   au10-workbench-recovery-disconnect-timeout
   au10-workbench-recovery-provider-timeout
   au10-workbench-recovery-reconnect
   au10-workbench-recovery-cancel-waiting
+  e2e-01-downgrade-real-page
+  e2e-01-readonly-tool-trace
+  e2e-01-replay-report
   au12-work-profile-overview
+  au12-work-profile-status-isolation
   desktop-stage-process-ownership
 
 Native capability probes:
@@ -178,10 +188,12 @@ if [[ "$SLICE_ID" == "--list" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-keychain-webview-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
+if [[ "$SLICE_ID" != "au05-discard-author-action" && "$SLICE_ID" != "au06-single-active-confirmation" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "au07-state-trace-adoption-replay" && "$SLICE_ID" != "au07-behavior-trace-terminal-replay" ]]; then
+if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-keychain-webview-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "e2e-01-downgrade-real-page" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "au12-work-profile-status-isolation" && "$SLICE_ID" != "desktop-stage-process-ownership" ]]; then
   echo "Unknown native Tauri slice verification id: $SLICE_ID" >&2
   usage >&2
   exit 64
+fi
 fi
 
 if [[ "$SLICE_VERIFY_PROVIDER" != "slice_verify" && "$SLICE_VERIFY_PROVIDER" != "lmstudio" ]]; then
@@ -194,10 +206,12 @@ if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
   exit 0
 fi
 
-if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-keychain-webview-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "au12-work-profile-overview" ]]; then
+if [[ "$SLICE_ID" != "au05-discard-author-action" && "$SLICE_ID" != "au06-single-active-confirmation" && "$SLICE_ID" != "au07-trace-why-entry" && "$SLICE_ID" != "au07-state-trace-adoption-replay" && "$SLICE_ID" != "au07-behavior-trace-terminal-replay" ]]; then
+if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstudio-disconnected-health" && "$SLICE_ID" != "su01-provider-endpoint-validation" && "$SLICE_ID" != "su01-provider-model-list-success" && "$SLICE_ID" != "su01-provider-test-failure-ui" && "$SLICE_ID" != "su01-api-key-secret-redaction" && "$SLICE_ID" != "su01-keychain-webview-roundtrip" && "$SLICE_ID" != "su01-keychain-webview-capability" && "$SLICE_ID" != "au02-candidate-continuation" && "$SLICE_ID" != "au02-natural-exploration-no-slot-form" && "$SLICE_ID" != "au02-candidate-fallback-ui" && "$SLICE_ID" != "au02-candidate-multiturn-context" && "$SLICE_ID" != "au02-freeform-followup-after-candidate" && "$SLICE_ID" != "au02-unadopted-candidate-no-reading-fact" && "$SLICE_ID" != "au02-candidate-adoption-bridge" && "$SLICE_ID" != "su01-model-provider-switching" && "$SLICE_ID" != "su02-work-switching" && "$SLICE_ID" != "su02-artifact-projection-trace-isolation" && "$SLICE_ID" != "su02-empty-start-unnamed-work" && "$SLICE_ID" != "su02-pending-result-work-isolation" && "$SLICE_ID" != "su02-work-lifecycle-management" && "$SLICE_ID" != "su02-work-restart-recovery" && "$SLICE_ID" != "su03-assistant-display-name" && "$SLICE_ID" != "au01-ordinary-chat-two-turn-roundtrip" && "$SLICE_ID" != "au01-empty-message-guard" && "$SLICE_ID" != "au01-garbage-json-recovery" && "$SLICE_ID" != "au01-frame-validation-friendly-error" && "$SLICE_ID" != "au01-turnresult-recorder-ui-consistency" && "$SLICE_ID" != "au05-adoption-safety-freshness" && "$SLICE_ID" != "au05-stale-conflict-cross-work-freshness" && "$SLICE_ID" != "au05-conflict-cross-work-recovery" && "$SLICE_ID" != "au05-canon-conflict-recovery" && "$SLICE_ID" != "p1-chapter-plan-minimum" && "$SLICE_ID" != "p1-chapter-draft-generation" && "$SLICE_ID" != "p1-chapter-adoption-reading" && "$SLICE_ID" != "p1-word-count-audit" && "$SLICE_ID" != "p1-chapter-edit-then-accept" && "$SLICE_ID" != "p1-chapter-overwrite-confirm" && "$SLICE_ID" != "p1-chapter-expansion" && "$SLICE_ID" != "p1-chapter-expansion-multichapter" && "$SLICE_ID" != "p1-chapter-word-count-target" && "$SLICE_ID" != "p1-export-minimum" && "$SLICE_ID" != "p1-plan-incremental" && "$SLICE_ID" != "au04-confirm-before-execute" && "$SLICE_ID" != "au04-confirmation-tool-failure-recovery" && "$SLICE_ID" != "au04-confirm-idempotency-ui" && "$SLICE_ID" != "au04-stale-confirmation-ui" && "$SLICE_ID" != "au04-confirmation-ttl-ui" && "$SLICE_ID" != "au04-disabled-confirmation-action-ui" && "$SLICE_ID" != "au04-history-confirmation-readonly" && "$SLICE_ID" != "au04-cross-work-confirmation-guard" && "$SLICE_ID" != "au04-latest-context-rebase-confirmation" && "$SLICE_ID" != "vs00c-cp0-missing-chapter-block" && "$SLICE_ID" != "vs00c-cp3-structured-context" && "$SLICE_ID" != "vs00c-cp4-chapter-plan-structure" && "$SLICE_ID" != "vs00c-cp5-reader-effect-brief" && "$SLICE_ID" != "au09-memory-create-recall" && "$SLICE_ID" != "au09-memory-management-entry" && "$SLICE_ID" != "au09-memory-trace-roundtrip" && "$SLICE_ID" != "au09-adopt-setting-recall" && "$SLICE_ID" != "au09-character-dossier-roundtrip" && "$SLICE_ID" != "au09-validity-window-recall" && "$SLICE_ID" != "au09-cross-work-memory-isolation" && "$SLICE_ID" != "au09-au03-session-memory-layering" && "$SLICE_ID" != "au03-session-history-readonly" && "$SLICE_ID" != "au03-session-new-active" && "$SLICE_ID" != "au03-branch-from-history" && "$SLICE_ID" != "au03-archive-session-filter" && "$SLICE_ID" != "au03-current-work-context-ssot" && "$SLICE_ID" != "au11-quality-diagnosis-message-envelope" && "$SLICE_ID" != "au11-missing-workstate-policy" && "$SLICE_ID" != "au03-long-session-compression" && "$SLICE_ID" != "au03-context-source-ui" && "$SLICE_ID" != "au10-workbench-matrix-layout" && "$SLICE_ID" != "au10-workbench-recovery-taskstate" && "$SLICE_ID" != "au10-workbench-recovery-disconnect-timeout" && "$SLICE_ID" != "au10-workbench-recovery-provider-timeout" && "$SLICE_ID" != "au10-workbench-recovery-reconnect" && "$SLICE_ID" != "au10-workbench-recovery-cancel-waiting" && "$SLICE_ID" != "e2e-01-downgrade-real-page" && "$SLICE_ID" != "e2e-01-readonly-tool-trace" && "$SLICE_ID" != "e2e-01-replay-report" && "$SLICE_ID" != "au12-work-profile-overview" && "$SLICE_ID" != "au12-work-profile-status-isolation" ]]; then
   echo "No external UI driver is implemented for: $SLICE_ID" >&2
   echo "Add a Playwright driver in frontend/slice-verify/external-ui-driver.mjs; do not add product-code autorun hooks." >&2
   exit 65
+fi
 fi
 
 ARTIFACT_SUFFIX="-tauri"
@@ -382,11 +396,20 @@ restore_tauri_conf() {
 sync_tauri_conf() {
   local vite_port="$1"
   local phoenix_port="$2"
+  local tmp_conf
+
+  tmp_conf="$(mktemp -t ai-novel-tauri-slice-conf-sync.XXXXXX)"
+  cp -p "$TAURI_CONF" "$tmp_conf"
 
   TAURI_DEV_URL="http://127.0.0.1:${vite_port}" \
   TAURI_CONNECT_SRC="http://localhost:${phoenix_port} http://127.0.0.1:${phoenix_port} ws://localhost:${phoenix_port} ws://127.0.0.1:${phoenix_port}" \
   TAURI_BEFORE_DEV_COMMAND="bash ${PROJECT_ROOT}/scripts/before-tauri-dev.sh" \
-    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g; s#"beforeDevCommand":\s*"[^"]+"#"beforeDevCommand": "$ENV{TAURI_BEFORE_DEV_COMMAND}"#g' "$TAURI_CONF"
+    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g; s#"beforeDevCommand":\s*"[^"]+"#"beforeDevCommand": "$ENV{TAURI_BEFORE_DEV_COMMAND}"#g' "$tmp_conf"
+
+  if ! cmp -s "$tmp_conf" "$TAURI_CONF"; then
+    cp -p "$tmp_conf" "$TAURI_CONF"
+  fi
+  rm -f "$tmp_conf"
 }
 
 reset_test_db() {
@@ -568,6 +591,9 @@ native_action_description() {
     au02-candidate-adoption-bridge)
       echo "send fuzzy creative input -> click authorized candidate adoption -> verify adoption boundary decision without production write"
       ;;
+    au05-adoption-safety-freshness)
+      echo "send high-risk exploratory candidate request -> click visible authorized adoption -> verify AdoptionBoundary returns needs_confirmation without production write"
+      ;;
     au05-stale-conflict-cross-work-freshness)
       echo "seed restored stale candidate -> click visible authorized adoption -> verify adoption boundary rejects without production write"
       ;;
@@ -577,6 +603,9 @@ native_action_description() {
     au05-canon-conflict-recovery)
       echo "seed canon-conflict candidate -> click visible authorized adoption -> verify adoption boundary fails with recovery without production write"
       ;;
+    au05-discard-author-action)
+      echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click visible discard action -> verify author_action discard resolves DISCARDED without reading projection or production write"
+      ;;
     p1-chapter-plan-minimum)
       echo "open real archive outline -> click start planning -> generate 12 chapter plan -> adopt -> reopen archive outline and verify adopted chapter plan"
       ;;
@@ -585,6 +614,12 @@ native_action_description() {
       ;;
     p1-chapter-adoption-reading)
       echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click accept -> open reading mode -> verify chapter prose and effective word counts (book total + chapter) match the visible adopted prose"
+      ;;
+    au07-state-trace-adoption-replay)
+      echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click accept through adoption boundary -> verify adoption/projection carry replayable StateTrace refs"
+      ;;
+    au07-behavior-trace-terminal-replay)
+      echo "seed adopted chapter plan -> request high-risk rewrite -> click visible reject/cancel -> verify cancelled action turn records terminal BehaviorTrace close/resolution refs for replay"
       ;;
     p1-word-count-audit)
       echo "seed adopted chapter plan -> generate and adopt a sub-1000-word chapter -> open reading mode -> verify the chapter is marked 短章 and the P1 milestone progress shows not-met"
@@ -603,6 +638,9 @@ native_action_description() {
       ;;
     au04-stale-confirmation-ui)
       echo "seed adopted chapter plan -> type a high-risk rewrite request in chat -> confirmation card arrives -> send a follow-up message before confirming -> click old confirm if visible -> verify stale confirm cannot dispatch prose_writing or create a pending draft"
+      ;;
+    au06-single-active-confirmation)
+      echo "seed adopted chapter plan -> type two high-risk rewrite requests before confirming -> verify the old confirmation is hidden/disabled/stale and only the latest active confirmation can execute once"
       ;;
     au04-confirmation-ttl-ui)
       echo "seed an expired confirmation turn_result -> restore it in the real workbench -> click visible confirm -> verify expired confirm is rejected without prose_writing or pending draft"
@@ -637,8 +675,20 @@ native_action_description() {
     au10-workbench-recovery-cancel-waiting)
       echo "seed adopted chapter plan -> type a high-risk rewrite request -> verify confirmation waiting state -> click visible reject/cancel -> verify cancelled TurnResult closes behavior without writes and a following turn succeeds"
       ;;
+    e2e-01-downgrade-real-page)
+      echo "seed adopted chapter plan -> open real archive -> click visible new action -> real planner returns a multi-step MicroPlan -> orchestrator downgrades at action_scope with no tool, author_action, adoption, or production write"
+      ;;
+    e2e-01-readonly-tool-trace)
+      echo "seed accepted character dossier -> type a visible read-only character list request -> planner allows character_roster -> toolbox succeeds without writes -> external query proves TraceRepository.list_by_turn contains tool trace refs"
+      ;;
+    e2e-01-replay-report)
+      echo "seed accepted character dossier -> type a visible read-only character list request -> build ReplayReport from persisted trace -> verify no-provider structural replay and VS-06 six required questions"
+      ;;
     au12-work-profile-overview)
       echo "create a real work with seed profile fields -> open real workbench archive -> click profile overview -> verify work genre/selling point/target reader/tone render from get_work_profile without leaking internal ids"
+      ;;
+    au12-work-profile-status-isolation)
+      echo "seed accepted and empty works -> switch through the real work menu -> verify profile status, missing fields, archive tab isolation, UUID redaction, and no-write boundary"
       ;;
     vs00c-cp0-missing-chapter-block)
       echo "seed adopted chapter plan (has chapter 1, no chapter 99) -> type a natural-language continuation request for a non-existent chapter -> planner names the chapter but cannot match it -> WritingCoordinate + MissingPolicyResult block before tool dispatch -> honest 'chapter not found' reply with no provider call and no creative card"
@@ -712,8 +762,14 @@ native_action_description() {
     au11-quality-diagnosis-message-envelope)
       echo "seed work with adopted chapter context -> send a quality diagnosis request from the real workbench -> open why -> verify VS-00D three-layer envelope, concrete tradeoffs, and no tool/adoption/write"
       ;;
+    au11-missing-workstate-policy)
+      echo "create a real work with no chapter/prose/person state -> send missing-context quality diagnosis from the real workbench -> verify explicit WorkState missing, honest assistant response, why summary, and no tool/adoption/write"
+      ;;
     au03-context-source-ui)
       echo "seed work/session/memory context -> send real workbench turn -> open why panel -> verify author-safe source summaries"
+      ;;
+    au07-trace-why-entry)
+      echo "send real workbench discussion turn -> open why panel from the message stream -> verify author-safe trace summary, no provider replay, and no production write"
       ;;
     *)
       echo "seed long active session -> send real workbench turn -> verify prompt uses early summary plus latest transcript window"
@@ -1006,10 +1062,16 @@ case "$SLICE_ID" in
   au05-canon-conflict-recovery)
     SEED_SCRIPT="scripts/seed_au05_canon_conflict_recovery.exs"
     ;;
+  au05-discard-author-action)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
   p1-chapter-draft-generation)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   p1-chapter-adoption-reading)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  au07-state-trace-adoption-replay)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   p1-word-count-audit)
@@ -1042,6 +1104,9 @@ case "$SLICE_ID" in
   au04-stale-confirmation-ui)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
+  au06-single-active-confirmation)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
   au04-confirmation-ttl-ui)
     SEED_SCRIPT="scripts/seed_au04_confirmation_ttl_ui.exs"
     ;;
@@ -1064,6 +1129,18 @@ case "$SLICE_ID" in
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   au10-workbench-recovery-cancel-waiting)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  e2e-01-downgrade-real-page)
+    SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
+    ;;
+  e2e-01-readonly-tool-trace)
+    SEED_SCRIPT="scripts/seed_e2e_01_readonly_tool_trace.exs"
+    ;;
+  e2e-01-replay-report)
+    SEED_SCRIPT="scripts/seed_e2e_01_readonly_tool_trace.exs"
+    ;;
+  au07-behavior-trace-terminal-replay)
     SEED_SCRIPT="scripts/seed_p1_chapter_draft_generation.exs"
     ;;
   vs00c-cp0-missing-chapter-block)
@@ -1119,6 +1196,12 @@ case "$SLICE_ID" in
     ;;
   au11-quality-diagnosis-message-envelope)
     SEED_SCRIPT="scripts/seed_au11_quality_diagnosis_message_envelope.exs"
+    ;;
+  au11-missing-workstate-policy)
+    SEED_SCRIPT=""
+    ;;
+  au12-work-profile-status-isolation)
+    SEED_SCRIPT="scripts/seed_au12_work_profile_status_isolation.exs"
     ;;
   *)
     SEED_SCRIPT="scripts/seed_au03_long_session_compression.exs"

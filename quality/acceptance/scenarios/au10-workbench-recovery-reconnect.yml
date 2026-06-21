@@ -1,0 +1,62 @@
+id: au10-workbench-recovery-reconnect
+title: WebSocket 断线重连后工作台可继续
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au10-workbench-recovery-reconnect --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - docs/design/07-workbench-ui-contract.md
+  - tasks/slices/AU10-workbench-recovery-disconnect-timeout.md
+  - tasks/slices/AU10-file-level-closure.md
+
+invariants:
+  - service-disconnect-disables-author-input
+  - reconnect-restores-channel-through-real-join
+  - loading-is-not-left-running-while-offline
+  - next-turn-can-complete-after-reconnect
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - stop: slice Phoenix service from the external driver
+  - observe: workbench offline state and disabled input
+  - restart: same slice Phoenix service from the external driver
+  - observe: websocket rejoin
+  - input: following author message
+  - observe: following turn completes after reconnect
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au10-workbench-recovery-reconnect-tauri
+
+assertions:
+  ui:
+    - sync offline status is visible after service stop
+    - input is disabled while socket is offline
+    - loading is cleared while offline
+    - sync connected status is visible after service restart
+    - input is enabled after reconnect
+  network:
+    - Phoenix service is stopped by the external driver
+    - Phoenix service is restarted by the external driver
+    - channel rejoin is observed after recovery
+  data:
+    - following user_message completes after reconnect
+    - no product code simulates browser offline mode for acceptance
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

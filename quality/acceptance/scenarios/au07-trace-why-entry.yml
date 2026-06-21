@@ -1,0 +1,57 @@
+id: au07-trace-why-entry
+title: 工作台为什么入口与 author-safe trace 摘要
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au07-trace-why-entry --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - docs/design/contracts/VS-06-replay-surface-contract-pack.md
+  - docs/design/adr/ADR-0014-trace-redaction-v3.md
+  - docs/design/adr/ADR-0017-replay-report-v3.md
+
+invariants:
+  - author-safe-trace-summary
+  - replay-does-not-call-provider
+  - no-production-write-for-why-dialog
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 我想写一个雨夜开场的悬疑故事，先聊聊气质。
+  - click: 发送
+  - wait_for: assistant turn result visible
+  - click: 为什么
+  - wait_for: author-safe trace dialog visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au07-trace-why-entry-tauri
+
+assertions:
+  ui:
+    - why entry is opened from the real message stream
+    - author-safe explanation dialog is visible
+    - raw prompt, provider raw log, hidden policy, debug text, trace ids, and context ids are not visible
+    - dialog states replay does not call the model again
+  network:
+    - user_message sent from real workbench
+    - turn_result received with trace_summary
+  data:
+    - turn is conversational and does not dispatch a tool
+    - turn does not perform a production write
+    - replay_provider_called is false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

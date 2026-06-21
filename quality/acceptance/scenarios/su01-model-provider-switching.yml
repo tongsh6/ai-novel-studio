@@ -1,0 +1,57 @@
+id: su01-model-provider-switching
+title: 模型供应商运行时切换
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-model-provider-switching --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-options-come-from-backend-registry
+  - saved-provider-selection-updates-runtime-gateway
+  - next-turn-uses-switched-provider
+  - provider-switch-does-not-drop-dialogue
+  - provider-options-and-ui-state-do-not-expose-api-key
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real workbench model settings
+  - select: Stub provider from backend provider registry
+  - test: click visible test connection button
+  - save: provider selection
+  - send: next user message from the real workbench composer
+  - observe: new assistant turn is produced by the switched provider and existing dialogue remains visible
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-model-provider-switching-tauri
+
+assertions:
+  ui:
+    - model settings opens from the visible workbench provider button
+    - provider list is rendered from backend registry data
+    - dialogue remains visible after saving provider selection
+    - provider options and visible UI do not expose API keys
+  data:
+    - saved provider selection changes backend runtime provider
+    - next turn emits provider_gateway.complete.done for the switched provider
+
+known_limits:
+  - This scenario proves the runtime switching path with the Stub provider. DeepSeek, Anthropic, LM Studio model-list and failure matrices are covered by separate SU-01 scenarios or follow-up matrix work.
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

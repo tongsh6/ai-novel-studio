@@ -1,0 +1,61 @@
+id: au12-work-profile-status-isolation
+title: 作品档案状态、空字段与跨作品隔离
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au12-work-profile-status-isolation --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-12-work-profile.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/AU12-work-profile-status-isolation.md
+
+invariants:
+  - accepted-and-tentative-profile-status-are-visibly-distinct
+  - missing-profile-fields-render-explicit-empty-value
+  - archive-profile-and-modules-are-current-work-scoped
+  - archive-viewing-does-not-write-production-state
+  - profile-view-does-not-leak-internal-work-uuid
+
+setup:
+  seed: scripts/seed_au12_work_profile_status_isolation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - switch: select seeded accepted work from the real work menu
+  - open: 作品档案
+  - click: 概览 / 大纲与结构 / 角色 / 伏笔 / 经验规则
+  - switch: select seeded empty work from the real work menu
+  - open: 作品档案
+  - click: 概览 / 角色 / 伏笔 / 经验规则
+  - wait_for: status, missing fields, and cross-work isolation visible
+
+evidence:
+  required:
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au12-work-profile-status-isolation-tauri
+
+assertions:
+  ui:
+    - accepted profile shows 已确认
+    - tentative profile shows 待确认
+    - empty profile fields show 暂未填写
+    - accepted character, foreshadowing, and rule are visible before switching
+    - empty work archive excludes accepted work profile fields, character, foreshadowing, and rule
+    - internal Work UUID is not visible
+  network:
+    - real websocket requests get_work_profile for archive views
+    - profile replies omit internal id
+    - archive viewing sends no user_message or author_action frames
+  data:
+    - get_work_profile logs exist for ACCEPTED and TENTATIVE profiles
+    - profile logs omit internal Work UUID
+    - no author_action/user_message/adoption/tool/write events are emitted while only viewing archive
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

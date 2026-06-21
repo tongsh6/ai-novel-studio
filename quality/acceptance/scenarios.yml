@@ -48,6 +48,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/su01-keychain-webview-roundtrip.yml
     driver: scripts/macos_cgevent_keychain_webview_driver.swift
     entrypoint: scripts/quality_accept.sh su01-keychain-webview-roundtrip --surface tauri
+  - id: su01-model-provider-switching
+    title: "模型供应商运行时切换"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su01-model-provider-switching.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su01-model-provider-switching --surface tauri
   - id: su02-work-switching
     title: "运行时作品切换与 Channel 重连"
     tier: nightly
@@ -148,6 +155,41 @@ scenarios:
     manifest: quality/acceptance/scenarios/p1-chapter-draft-generation.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh p1-chapter-draft-generation --surface tauri
+  - id: p1-chapter-adoption-reading
+    title: "已采纳章节正文进入阅读投影"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-chapter-adoption-reading.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-chapter-adoption-reading --surface tauri
+  - id: p1-chapter-edit-then-accept
+    title: "修改后保存正文进入阅读投影"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-chapter-edit-then-accept.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-chapter-edit-then-accept --surface tauri
+  - id: p1-word-count-audit
+    title: "阅读投影短章审计与 P1 进度"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-word-count-audit.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-word-count-audit --surface tauri
+  - id: p1-chapter-expansion-multichapter
+    title: "多章正文各归各章并可导航阅读"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-chapter-expansion-multichapter.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-chapter-expansion-multichapter --surface tauri
+  - id: p1-export-minimum
+    title: "阅读投影导出全书 Markdown"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-export-minimum.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-export-minimum --surface tauri
   - id: vs00c-cp3-structured-context
     title: "VS-00C CP3 结构化章节上下文"
     tier: nightly
@@ -225,6 +267,83 @@ scenarios:
     manifest: quality/acceptance/scenarios/au03-context-source-ui.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au03-context-source-ui --surface tauri
+  - id: au07-trace-why-entry
+    title: "工作台为什么入口与 author-safe trace 摘要"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au07-trace-why-entry.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au07-trace-why-entry --surface tauri
+  - id: au07-state-trace-adoption-replay
+    title: "采纳与阅读投影携带可回放 StateTrace"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au07-state-trace-adoption-replay.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au07-state-trace-adoption-replay --surface tauri
+  - id: au07-behavior-trace-terminal-replay
+    title: "Behavior terminal close/resolution refs 可回放"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au07-behavior-trace-terminal-replay.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au07-behavior-trace-terminal-replay --surface tauri
+  - id: au09-memory-create-recall
+    title: "作者创建确认记忆后进入对话召回"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-memory-create-recall.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-memory-create-recall --surface tauri
+  - id: au09-memory-management-entry
+    title: "记忆管理入口与生命周期终态不召回"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-memory-management-entry.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-memory-management-entry --surface tauri
+  - id: au09-memory-trace-roundtrip
+    title: "记忆生命周期与引用追溯"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-memory-trace-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-memory-trace-roundtrip --surface tauri
+  - id: au09-adopt-setting-recall
+    title: "档案伏笔规则采纳为可召回设定"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-adopt-setting-recall.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-adopt-setting-recall --surface tauri
+  - id: au09-character-dossier-roundtrip
+    title: "角色主档案采纳回写并进入后续上下文"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-character-dossier-roundtrip.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-character-dossier-roundtrip --surface tauri
+  - id: au09-validity-window-recall
+    title: "章节有效期窗口过滤记忆召回"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-validity-window-recall.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-validity-window-recall --surface tauri
+  - id: au09-cross-work-memory-isolation
+    title: "跨作品记忆与档案隔离"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-cross-work-memory-isolation.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-cross-work-memory-isolation --surface tauri
+  - id: au09-au03-session-memory-layering
+    title: "AU-03 会话与 AU-09 记忆来源分层"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-au03-session-memory-layering.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-au03-session-memory-layering --surface tauri
   - id: au03-session-history-readonly
     title: "历史会话只读回看"
     tier: nightly
@@ -288,6 +407,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au04-stale-confirmation-ui.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au04-stale-confirmation-ui --surface tauri
+  - id: au06-single-active-confirmation
+    title: "单一活跃 confirmation 只允许最新等待态执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au06-single-active-confirmation.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au06-single-active-confirmation --surface tauri
   - id: au04-confirmation-ttl-ui
     title: "过期确认不能执行"
     tier: nightly
@@ -330,6 +456,27 @@ scenarios:
     manifest: quality/acceptance/scenarios/au11-quality-diagnosis-message-envelope.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au11-quality-diagnosis-message-envelope --surface tauri
+  - id: au11-missing-workstate-policy
+    title: "AI 引导式创作缺 WorkState 不编造"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au11-missing-workstate-policy.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri
+  - id: au12-work-profile-overview
+    title: "作品档案立项概览只读视图"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au12-work-profile-overview.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au12-work-profile-overview --surface tauri
+  - id: au12-work-profile-status-isolation
+    title: "作品档案状态、空字段与跨作品隔离"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au12-work-profile-status-isolation.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au12-work-profile-status-isolation --surface tauri
   - id: au03-long-session-compression
     title: "长会话压缩上下文"
     tier: nightly
@@ -358,6 +505,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au05-canon-conflict-recovery.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au05-canon-conflict-recovery --surface tauri
+  - id: au05-discard-author-action
+    title: "放弃待采纳草稿不写入作品事实"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au05-discard-author-action.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au05-discard-author-action --surface tauri
   - id: au02-candidate-continuation
     title: "候选方向继续讨论"
     tier: nightly
@@ -372,6 +526,48 @@ scenarios:
     manifest: quality/acceptance/scenarios/au10-micro-plan-entry.yml
     driver: frontend/slice-verify/au10-micro-plan-entry.mjs
     entrypoint: scripts/quality_accept.sh au10-micro-plan-entry --surface browser
+  - id: au10-workbench-matrix-layout
+    title: "工作台 1280x800 基线矩阵"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au10-workbench-matrix-layout.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au10-workbench-matrix-layout --surface tauri
+  - id: au10-workbench-recovery-taskstate
+    title: "工作台 task_state 生命周期可见"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au10-workbench-recovery-taskstate.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au10-workbench-recovery-taskstate --surface tauri
+  - id: au10-workbench-recovery-disconnect-timeout
+    title: "Provider 不可达后工作台可恢复"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au10-workbench-recovery-disconnect-timeout.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au10-workbench-recovery-disconnect-timeout --surface tauri
+  - id: au10-workbench-recovery-provider-timeout
+    title: "Provider 超时后工作台可恢复"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au10-workbench-recovery-provider-timeout.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au10-workbench-recovery-provider-timeout --surface tauri
+  - id: au10-workbench-recovery-reconnect
+    title: "WebSocket 断线重连后工作台可继续"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au10-workbench-recovery-reconnect.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au10-workbench-recovery-reconnect --surface tauri
+  - id: au10-workbench-recovery-cancel-waiting
+    title: "取消确认等待后工作台可继续"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au10-workbench-recovery-cancel-waiting.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au10-workbench-recovery-cancel-waiting --surface tauri
   - id: vs10-observability-spine
     title: "浏览器可观测性主链"
     tier: pr-smoke
@@ -379,6 +575,39 @@ scenarios:
     manifest: quality/acceptance/scenarios/vs10-observability-spine.yml
     driver: frontend/slice-verify/vs10-observability-spine.mjs
     entrypoint: scripts/quality_accept.sh vs10-observability-spine --surface browser
+  - id: e2e-01-full-chain
+    title: "E2E-01 端到端全链路聚合验收"
+    tier: nightly
+    surface: browser
+    runner: e2e_aggregate
+    default_provider: lmstudio
+    manifest: quality/acceptance/scenarios/e2e-01-full-chain.yml
+    driver: scripts/e2e_01_full_chain_check.sh
+    entrypoint: scripts/e2e_01_full_chain_check.sh --provider lmstudio
+  - id: e2e-01-downgrade-real-page
+    title: "E2E-01 真实页面多步 MicroPlan 降级"
+    tier: nightly
+    surface: tauri
+    default_provider: lmstudio
+    manifest: quality/acceptance/scenarios/e2e-01-downgrade-real-page.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio
+  - id: e2e-01-readonly-tool-trace
+    title: "E2E-01 只读工具调度与 trace 回查"
+    tier: nightly
+    surface: tauri
+    default_provider: lmstudio
+    manifest: quality/acceptance/scenarios/e2e-01-readonly-tool-trace.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri --provider lmstudio
+  - id: e2e-01-replay-report
+    title: "E2E-01 ReplayReport 六问结构化回放"
+    tier: nightly
+    surface: tauri
+    default_provider: lmstudio
+    manifest: quality/acceptance/scenarios/e2e-01-replay-report.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh e2e-01-replay-report --surface tauri --provider lmstudio
   - id: dogfood-runner
     title: "P1 长篇狗粮运行器"
     tier: nightly
