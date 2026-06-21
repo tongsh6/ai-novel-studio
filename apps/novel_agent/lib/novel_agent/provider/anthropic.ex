@@ -118,7 +118,7 @@ defmodule NovelAgent.Provider.Anthropic do
   defp handle_http_error(status, message, start_time) do
     duration = System.monotonic_time(:millisecond) - start_time
 
-    type = if status in [401, 403], do: :auth, else: :invalid_response
+    type = http_error_type(status)
     err = UpstreamError.new(type, "Anthropic API: #{message}", name())
     Logger.warning("[Anthropic] #{err.message}")
 
@@ -204,7 +204,8 @@ defmodule NovelAgent.Provider.Anthropic do
 
   defp http_error_type(status) when status in [401, 403], do: :auth
   defp http_error_type(429), do: :rate_limit
-  defp http_error_type(status) when status in [400, 422], do: :invalid_response
+  # 400/422 = 我们发出的请求被拒绝（参数/格式非法），属客户端请求问题，不是上游空响应。
+  defp http_error_type(status) when status in [400, 422], do: :invalid_request
   defp http_error_type(_status), do: :provider_internal
 
   defp models_from_anthropic_list(%{"data" => models}) when is_list(models) do

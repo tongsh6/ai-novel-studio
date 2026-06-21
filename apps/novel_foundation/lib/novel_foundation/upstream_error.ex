@@ -12,6 +12,7 @@ defmodule NovelFoundation.UpstreamError do
   @type error_type ::
           :connection_refused
           | :timeout
+          | :invalid_request
           | :invalid_response
           | :model_not_loaded
           | :auth
@@ -54,6 +55,7 @@ defmodule NovelFoundation.UpstreamError do
   def retryable?(:timeout), do: true
   def retryable?(:rate_limit), do: true
   def retryable?(:provider_internal), do: true
+  def retryable?(:invalid_request), do: false
   def retryable?(:invalid_response), do: false
   def retryable?(:model_not_loaded), do: false
   def retryable?(:auth), do: false

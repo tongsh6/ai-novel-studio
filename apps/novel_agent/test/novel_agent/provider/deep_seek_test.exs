@@ -91,13 +91,13 @@ defmodule NovelAgent.Provider.DeepSeekTest do
         http_fn: mock,
         log_fn: nil,
         thinking: :enabled,
-        reasoning_effort: "max"
+        reasoning_effort: "high"
       }
 
       assert {:ok, _result} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
       assert_receive {:request_body, body}
       assert body.thinking == %{type: "enabled"}
-      assert body.reasoning_effort == "max"
+      assert body.reasoning_effort == "high"
     end
 
     test "returns auth error before HTTP when API key is missing" do
@@ -144,6 +144,29 @@ defmodule NovelAgent.Provider.DeepSeekTest do
 
       assert rate_limit_error.type == :rate_limit
       assert rate_limit_error.retryable == true
+    end
+
+    test "maps HTTP 400 invalid request to :invalid_request (not empty response)" do
+      # DeepSeek 因非法参数（如 reasoning_effort=0.7）返回 400，必须区分于上游空响应
+      bad_request_mock = fn _url, _body, _opts ->
+        {:error, :http_error, 400,
+         "invalid_request_error: reasoning_effort: unknown variant `0.7`"}
+      end
+
+      state = %DeepSeek{
+        api_key: "secret",
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-pro",
+        timeout: 100,
+        http_fn: bad_request_mock,
+        log_fn: nil,
+        thinking: :enabled,
+        reasoning_effort: "0.7"
+      }
+
+      assert {:error, error} = DeepSeek.complete(state, nil, "prompt", %InferenceParams{})
+      assert error.type == :invalid_request
+      assert error.retryable == false
     end
   end
 

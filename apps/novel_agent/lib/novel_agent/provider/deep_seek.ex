@@ -157,7 +157,9 @@ defmodule NovelAgent.Provider.DeepSeek do
 
   defp http_error_type(status) when status in [401, 402, 403], do: :auth
   defp http_error_type(429), do: :rate_limit
-  defp http_error_type(status) when status in [400, 422], do: :invalid_response
+  # 400/422 = DeepSeek 拒绝了我们发出的请求（如非法的 reasoning_effort 参数），
+  # 是客户端请求问题，不是上游空响应；映射为 :invalid_request 让上层给出准确文案。
+  defp http_error_type(status) when status in [400, 422], do: :invalid_request
   defp http_error_type(_status), do: :provider_internal
 
   defp handle_connection_error(:connection_refused, _msg, start_time) do

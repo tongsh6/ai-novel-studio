@@ -173,6 +173,23 @@ interface ChatMessage {
   turnResult?: TurnResult;
 }
 
+// 推理强度只接受供应商认可的枚举值（DeepSeek: high/low/medium），空串表示不指定。
+// 自由文本会被原样发往 provider，导致 HTTP 400（例如误填 0.7），故在表单层即收敛为枚举。
+type ReasoningEffort = "" | "low" | "medium" | "high";
+
+const REASONING_EFFORT_OPTIONS: ReadonlyArray<{ value: ReasoningEffort; label: string }> = [
+  { value: "", label: WORKBENCH.modelProviderReasoningDefault },
+  { value: "low", label: WORKBENCH.modelProviderReasoningLow },
+  { value: "medium", label: WORKBENCH.modelProviderReasoningMedium },
+  { value: "high", label: WORKBENCH.modelProviderReasoningHigh },
+];
+
+function normalizeReasoningEffort(value: string | null | undefined): ReasoningEffort {
+  return REASONING_EFFORT_OPTIONS.some((option) => option.value === value)
+    ? (value as ReasoningEffort)
+    : "";
+}
+
 interface ModelProviderDraft {
   provider: ProviderId;
   model: string;
@@ -181,7 +198,7 @@ interface ModelProviderDraft {
   apiKeyConfigured: boolean;
   clearApiKey: boolean;
   thinking: "enabled" | "disabled";
-  reasoningEffort: string;
+  reasoningEffort: ReasoningEffort;
 }
 
 export interface WorkspaceCandidatePanelProps {
@@ -404,7 +421,7 @@ function modelProviderDraftFromState(state: ModelProviderRuntimeState): ModelPro
     apiKeyConfigured: Boolean(stored.api_key_configured ?? option?.api_key_configured),
     clearApiKey: false,
     thinking: stored.thinking ?? "disabled",
-    reasoningEffort: stored.reasoning_effort ?? "",
+    reasoningEffort: normalizeReasoningEffort(stored.reasoning_effort),
   };
 }
 
@@ -423,7 +440,7 @@ function modelProviderDraftForProvider(
     apiKeyConfigured: Boolean(stored.api_key_configured ?? option?.api_key_configured),
     clearApiKey: false,
     thinking: stored.thinking ?? "disabled",
-    reasoningEffort: stored.reasoning_effort ?? "",
+    reasoningEffort: normalizeReasoningEffort(stored.reasoning_effort),
   };
 }
 
@@ -2367,19 +2384,24 @@ export function WorkspaceChat() {
                             >
                               {WORKBENCH.modelProviderReasoningField}
                             </label>
-                            <input
+                            <select
                               id="model-provider-reasoning-input"
                               className={styles.dialogInput}
                               value={modelProviderDraft.reasoningEffort}
-                              maxLength={200}
                               disabled={modelProviderSaving || modelProviderTesting}
                               onChange={(event) =>
                                 setModelProviderDraft((prev) => ({
                                   ...prev,
-                                  reasoningEffort: event.target.value,
+                                  reasoningEffort: normalizeReasoningEffort(event.target.value),
                                 }))
                               }
-                            />
+                            >
+                              {REASONING_EFFORT_OPTIONS.map((option) => (
+                                <option key={option.value} value={option.value}>
+                                  {option.label}
+                                </option>
+                              ))}
+                            </select>
                           </>
                         )}
                       </>

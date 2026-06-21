@@ -166,6 +166,25 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert turn_result.truthfulness.durable_behavior_opened == false
     end
 
+    test "provider invalid_request fallback points at model params, not empty response" do
+      invalid_request_fn = fn _prompt ->
+        {:error,
+         %{type: :invalid_request, message: "DeepSeek API: HTTP 400: reasoning_effort 非法"}}
+      end
+
+      {:ok, turn_result, _trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "普通聊天", workspace_id: "ws-invalid-request"},
+          nil,
+          invalid_request_fn
+        )
+
+      message = turn_result.assistant_message.text
+      assert message =~ "模型参数"
+      refute message =~ "返回内容为空"
+      assert turn_result.truthfulness.production_write_performed == false
+    end
+
     test "frame JSON missing required fields is retried instead of silently defaulting message" do
       malformed_frame_json = """
       {

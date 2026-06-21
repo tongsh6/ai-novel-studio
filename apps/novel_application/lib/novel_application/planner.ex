@@ -767,6 +767,7 @@ defmodule NovelApplication.Planner do
 
   defp frame_error_reason_code(:json_parse_failed), do: :json_parse_failed
   defp frame_error_reason_code(:frame_contract_invalid), do: :json_parse_failed
+  defp frame_error_reason_code(%{type: :invalid_request}), do: :invalid_request
   defp frame_error_reason_code(%{type: :invalid_response}), do: :invalid_response
   defp frame_error_reason_code(%{type: :timeout}), do: :provider_timeout
   defp frame_error_reason_code(%{type: :connection_refused}), do: :provider_unavailable
@@ -774,6 +775,10 @@ defmodule NovelApplication.Planner do
 
   defp fallback_message(:json_parse_failed),
     do: "创作引擎返回的格式不符合工作台契约，请重试。"
+
+  defp fallback_message(:invalid_request),
+    do:
+      "创作引擎拒绝了这次请求：模型参数可能配置有误（如思考模式、推理强度）。这一轮没有创建待采纳内容，也没有写入作品事实。请在模型设置中检查参数后重试。"
 
   defp fallback_message(:invalid_response), do: "创作引擎返回内容为空，请重试。"
 
