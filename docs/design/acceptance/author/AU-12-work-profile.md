@@ -6,6 +6,8 @@
 >
 > 2026-06-17 CP1 闭环结论：`AU12-work-profile-overview` 已补作品档案「概览」只读视图，真实 Tauri 工作台可打开当前作品档案并显示 works 立项字段，证据 `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`。这只关闭 CP1；accepted-artifact 类立项要素、缺字段/失败矩阵、跨作品切换矩阵和 correction 修订入口仍是后续 checkpoint。
 >
+> 2026-06-21 文件级收口结论：`AU12-work-profile-status-isolation` 已补真实 Tauri / quality acceptance，覆盖 accepted/tentative 状态可辨、空字段诚实显示、概览/大纲/角色/伏笔/经验规则 tab 导航、跨作品概览与档案事实隔离、档案查看 no-write 计数和内部 Work UUID 脱敏。当前 AU-12 口径为 `8/11` 已验收、`1/11` 已测试、`1/11` 部分实现、`1/11` 未实现；P0 已关闭，可进入 E2E-01。剩余 P1 是读取失败时的诚实降级矩阵和 `SC-AU12-C2` correction 修订意图；更丰富的 accepted-artifact / 立项要素字段扩展登记为 P2，不阻塞当前文件退出。
+>
 > **与 AU-09 边界**：AU-09（管理故事设定）负责**故事记忆类**事实——角色卡、世界规则、伏笔、记忆状态机/有效期/采纳入记忆。AU-12 负责**作品立项与档案视图**——works 表立项字段、作品档案面板的概览/导航/状态辨识、以及从档案发起修订意图。两者不重叠：故事设定的对象语义归 AU-09，作品立项元数据与档案查看面归 AU-12。角色 tab 的角色对象 roundtrip（创建→采纳→Character 主档案→展示→上下文）由 AU-09 的 `tasks/slices/AU09-character-dossier-roundtrip.md` 收口，AU-12 只作显示面。
 
 ---
@@ -90,34 +92,39 @@
 
 | 场景 | 做什么 | 当前状态 | 是否闭环 |
 |---|---|---|---|
-| SC-AU12-A1 | 概览看立项设定 | CP1 已实现并有真实 Tauri 证据 | 是 |
-| SC-AU12-A2 | 与 works/prompt 同源一致 | CP1 已证明 DTO 字段来自 `works` 立项字段；prompt 同源由 `work_snapshot/1` 字段口径约束 | 是 |
-| SC-AU12-A3 | 不泄漏 UUID | CP1 已证明 profile DTO、UI 片段和 `channel.get_work_profile.done` 业务日志不含内部 Work UUID | 是 |
-| SC-AU12-A4 | tentative/accepted 可辨 | 部分：CP1 真实 Tauri 覆盖 TENTATIVE「待确认」；ACCEPTED 展示路径已实现但缺独立外部矩阵 | 部分 |
-| SC-AU12-B1 | 档案模块导航 | 部分：已新增「概览」tab 并保留大纲/角色/伏笔/规则；未做完整 tab 切换矩阵 | 部分 |
-| SC-AU12-B2 | 作品隔离 | 部分：Channel 回归证明 join work 优先于 payload work；缺真实 UI 双作品切换矩阵 | 部分 |
-| SC-AU12-B3 | 空字段/失败诚实显示 | 部分：前端空字段显示「暂未填写」；读取失败矩阵未验收 | 部分 |
-| SC-AU12-C1 | 档案只读 no-write | 部分：CP1 只读 view 不提供写入口，Tauri 断言只读提示；未做 production write 计数矩阵 | 部分 |
-| SC-AU12-C2 | 修订走 correction intent | 未实现（编辑 checkpoint） | 否 |
-| SC-AU12-D1 | 作者可发现入口 | CP1 已实现：真实工作台打开作品档案后可点「概览」 | 是 |
-| SC-AU12-D2 | 外部自动化验收 | CP1 已实现：`bash scripts/tauri_slice_verify.sh au12-work-profile-overview` | 是 |
+| SC-AU12-A1 | 概览看立项设定 | 已验收：`au12-work-profile-overview` 从真实工作台打开作品档案「概览」，显示题材/核心卖点/目标读者/基调/修订号 | 是 |
+| SC-AU12-A2 | 与 works/prompt 同源一致 | 已测试：真实页面证明 profile DTO 字段来自 `works` 立项字段；prompt 同源由 `WorkspaceContext.work_snapshot/1` 字段口径和 `WorkArchiveService.profile/1` 同源实现/测试约束，缺同轮 provider prompt 外部证据 | 部分 |
+| SC-AU12-A3 | 不泄漏 UUID | 已验收：两个 Tauri driver 均证明 profile DTO、UI 片段和 `channel.get_work_profile.done` 业务日志不含内部 Work UUID | 是 |
+| SC-AU12-A4 | tentative/accepted 可辨 | 已验收：`au12-work-profile-status-isolation` 同时验证 accepted 作品显示「已确认」、空字段作品显示「待确认」 | 是 |
+| SC-AU12-B1 | 档案模块导航 | 已验收：真实工作台从作品档案切换「概览 / 大纲与结构 / 角色 / 伏笔 / 经验规则」五个 tab | 是 |
+| SC-AU12-B2 | 作品隔离 | 已验收：真实工作台从 accepted 作品切换到空字段作品后，概览字段、角色、伏笔和规则均不显示另一作品数据 | 是 |
+| SC-AU12-B3 | 空字段/失败诚实显示 | 部分实现：空字段「暂未填写」已由 `au12-work-profile-status-isolation` 验收；读取失败的诚实降级矩阵仍缺 | 部分 |
+| SC-AU12-C1 | 档案只读 no-write | 已验收：`au12-work-profile-status-isolation` 统计档案查看期间无 `user_message` / `author_action` / adoption / tool / write 事件 | 是 |
+| SC-AU12-C2 | 修订走 correction intent | 未实现：还没有从档案发起 correction intent 并回到对话流重新过采纳边界 | 否 |
+| SC-AU12-D1 | 作者可发现入口 | 已验收：真实工作台可从作品档案入口进入「概览」并切换各档案模块 | 是 |
+| SC-AU12-D2 | 外部自动化验收 | 已验收：`au12-work-profile-overview` 与 `au12-work-profile-status-isolation` 均已挂入 Tauri driver / quality acceptance | 是 |
 
 ---
 
 ## 6. 落地路线
 
-第一个承重切面：`tasks/slices/AU12-work-profile-overview.md`（CP1 立项档案只读概览）已闭环。用户 2026-06-17 调整任务队列先做 AU12；完成 CP1 后，后续队首以 `tasks/NEXT.md` 为准。
+已闭环 checkpoint：
+
+- `tasks/slices/AU12-work-profile-overview.md`：CP1 立项档案只读概览，证明 works 立项字段可从真实工作台核对且不泄漏内部 Work UUID。
+- `tasks/slices/AU12-work-profile-status-isolation.md`：补 accepted/tentative 状态、空字段、tab 导航、跨作品隔离和只读 no-write 的真实页面矩阵。
+- `tasks/slices/AU12-file-level-closure.md`：记录文件级对账、剩余 P1/P2 和退出结论。
 
 后续 checkpoint：
 
-- CP2 纳入 world_setting/protagonist 等来自**采纳产物**的立项要素，继续保持与 AU-09 故事记忆边界互斥。
-- CP3 从档案发起 correction 编辑意图（场景组 C），修订必须回到工作台对话流并重新过采纳边界。
+- P1：读取失败时的诚实降级 UI / Tauri 矩阵。
+- P1：从档案发起 correction 编辑意图（SC-AU12-C2），修订必须回到工作台对话流并重新过采纳边界。
+- P2：纳入更丰富的 world_setting/protagonist 等来自**采纳产物**的立项要素，继续保持与 AU-09 故事记忆边界互斥。
 
 ## 7. 已知限制
 
-- CP1 是 no-turn read-model / UI 验收，不涉及真实 LLM/provider 调用，也不改变 prompt。
-- CP1 只证明 works 表立项字段的只读核对入口；不证明作品档案 8 模块全齐。
-- ACCEPTED 状态、缺字段/读取失败、跨作品切换、production write 计数和 correction 编辑仍需后续矩阵补证。
+- 当前 AU-12 仍是 no-turn read-model / UI 验收，不涉及真实 LLM/provider 调用，也不改变 prompt。
+- 读取失败降级、correction 编辑意图、完整 8 模块档案扩展未闭环；这些登记为 P1/P2 后续。
+- 当前文件级可交付只表示 P0 已关闭、作者可核对 AI 正在消费的作品立项事实；不能声称作品档案编辑能力完成。
 
 ## 8. 验收命令
 
@@ -125,4 +132,7 @@
 mix test apps/novel_application/test/novel_application/work_archive_service_test.exs apps/novel_web/test/novel_web/channels/workspace_channel_work_profile_test.exs
 pnpm --dir frontend test -- native-tauri-verifier.test.mjs socket.test.ts structure_panel.test.ts
 bash scripts/tauri_slice_verify.sh au12-work-profile-overview
+bash scripts/tauri_slice_verify.sh au12-work-profile-status-isolation
+bash scripts/quality_accept.sh au12-work-profile-overview --surface tauri
+bash scripts/quality_accept.sh au12-work-profile-status-isolation --surface tauri
 ```

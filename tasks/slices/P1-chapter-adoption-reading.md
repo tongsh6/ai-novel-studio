@@ -113,3 +113,8 @@ P1 已证明章节计划能生成待采纳正文草稿。下一步要证明正�
 - P1-word-count-audit：短章 / 空章 / 重复段落 audit。
 - 单章 ≥1000 / 总 ≥100,000 门槛判定与 `artifacts/novel-output/<milestone-id>/word-count.json` 产出。
 - 全书导出。
+
+### AU-08 文件级证据入口同步（2026-06-21）
+
+- `p1-chapter-adoption-reading` 与 `p1-chapter-edit-then-accept` 已补入 `quality/acceptance/scenarios.yml` 和单场景 manifest，成为 AU-08 当前可复跑质量入口。
+- 外部 verifier 补强采纳后 `projection_refs.refresh_status=STALE`、阅读模式“投影状态：已过期” banner 和“刷新投影”按钮断言。该断言只证明 STALE 可见，不代表 projection refresh job/status machine 已完成；专用 refresh/no-write 仍归 AU-08 P1 后续。

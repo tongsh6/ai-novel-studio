@@ -4,7 +4,7 @@
 - 类型：Safety Slice / Adoption Boundary
 - 来源：`tasks/slices/AU05-stale-conflict-cross-work-freshness.md` §5.4；`docs/design/acceptance/author/AU-05-artifact-adoption.md` SC-AU05-C4/C5；AU05-GAP-06
 - 当前目标：在 stale restored candidate 已被真实 Tauri 工作台拒绝后，继续把 canon conflict 与 cross-work action 的拒绝、恢复或覆盖确认做成可复跑的真实产品链路。
-- 本轮 checkpoint：已闭环“来自其它作品的候选不能被静默采纳到当前作品”。真实 Tauri 工作台在当前作品恢复一条 source work 属于外部作品的候选卡，作者点击可见“采用这个方向”，后端通过 `ActionValidator -> DialogueGateway -> AdoptionBoundary` 返回 `fail_with_recovery`，UI 显示“候选方向采用失败”，`production_write_performed=false`。
+- 本轮 checkpoint：已闭环“来自其它作品的候选不能被静默采纳到当前作品”。真实 Tauri 工作台在当前作品恢复一条 source work 属于外部作品的候选卡，作者点击可见“设为后续方向”，后端通过 `ActionValidator -> DialogueGateway -> AdoptionBoundary` 返回 `fail_with_recovery`，UI 显示“后续方向设置失败”，`production_write_performed=false`。
 
 ---
 
@@ -55,11 +55,11 @@
 ```text
 恢复当前作品 active session transcript
 → 外部作品候选卡在真实工作台可见
-→ 作者点击“采用这个方向”
+→ 作者点击“设为后续方向”
 → Channel 提交服务端授权的 author_action.choose_candidate
 → DialogueGateway 将 current_work_id 与 source_work_id 传入 AdoptionBoundary
 → AdoptionBoundary 返回 fail_with_recovery
-→ UI 显示“候选方向采用失败”
+→ UI 显示“后续方向设置失败”
 → truthfulness.candidate_adopted=false
 → truthfulness.production_write_performed=false
 ```

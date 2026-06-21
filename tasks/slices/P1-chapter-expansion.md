@@ -145,3 +145,8 @@ prose_writing 续写/重写时上下文带入**目标章已采纳正文**，基�
 
 - 连续多章（§5 checkpoint 3）未做——队首。目标章确定性解析地基已支撑多章归章。
 - 归后续 P1-export-minimum / 10 万字狗粮 / 独立 creative-quality slice（repetition 等）。
+
+### AU-08 文件级证据入口同步（2026-06-21）
+
+- `p1-chapter-expansion-multichapter` 已补入 `quality/acceptance/scenarios.yml` 和单场景 manifest，作为 AU-08 多章导航与空章诚实显示的当前 quality 入口。
+- 外部 verifier 补强：连续采纳第 1/2/3 章后，真实 ReadingMode 必须点击第 2/3 章并加载对应章节内容；随后点击第 4 个未写章节，页面必须显示“本章尚无已采纳正文，待补足。”。该补强只改外部 harness，不改 production UI。

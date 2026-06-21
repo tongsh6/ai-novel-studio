@@ -96,9 +96,9 @@ novel_web (Phoenix.ChannelTest)
 ```
 
 **验证点**：
-- [ ] `decision.decision_type == :downgrade_to_dialogue`
-- [ ] `OrchestratorDecision.blocks_execution?(decision) == true`
-- [ ] AI 回应解释了为什么不能一次性完成
+- [x] `decision.decision_type == :downgrade_to_dialogue`
+- [x] `OrchestratorDecision.blocks_execution?(decision) == true`
+- [x] AI 回应解释了为什么不能一次性完成
 
 ---
 
@@ -243,25 +243,53 @@ novel_web (Phoenix.ChannelTest)
 
 ---
 
-## 4. 覆盖状态
+## 4. 文件级对账状态
 
-| 场景 | 内容 | 测试文件 | 状态 |
-|------|------|---------|------|
-| E1 | 基础对话 | `apps/novel_e2e/test/novel_e2e/v3_full_chain_test.exs` | ✅ stub integration |
-| E2 | 探索方向 | `planner_real_llm_test.exs` / `dialogue_gateway_test.exs` / `creative_exploration_loop_test.exs` | ✅ application + real LLM 层已测；Channel+真人走查复验仍需补 |
-| E3 | 上下文感知 | `v3_full_chain_test.exs` / `dialogue_gateway_real_loop_test.exs` | ✅ prompt 注入 + SQLite real-loop |
-| E4 | 执行降级 | `v3_full_chain_test.exs` | ✅ stub integration |
-| E5 | 高风险确认 | `v3_full_chain_test.exs` | ✅ stub integration |
-| E6 | 工具调度 | `v3_full_chain_test.exs` | ✅ stub integration |
-| E7 | 创作产出 | `v3_full_chain_test.exs` | ✅ stub integration；2026-05-25 已移除泛化 creative capability，改为具体 creative capability |
-| E8 | Action 校验 | `workspace_channel_v3_test.exs` | ✅ Channel 层 |
-| E9 | 回放审计 | `v3_full_chain_test.exs` | ✅ stub integration |
-| E10 | 持久化闭环 | `dialogue_gateway_real_loop_test.exs` | ⚠️ interaction real-loop 已测，trace repository 查询场景仍需补 |
-| E11 | 错误恢复 | `v3_full_chain_test.exs` | ✅ stub integration |
-| E12 | 真实两轮回路 | `dialogue_gateway_real_loop_test.exs` | ✅ integration |
-| E13 | Action 来源校验 | `workspace_channel_v3_test.exs` | ✅ Channel 层已测试 |
+> 2026-06-21 复核口径：当前 E2E-01 不再沿用旧的“11/13 完整 + 2/13 部分”文案。按场景化验收红线重算后为 **10/13 已验收、2/13 已测试、1/13 部分实现**。没有外部自动化驱动真实 Tauri 页面证据的场景不标“已验收”。同日已补 `e2e-01-full-chain` 外部聚合 runner；E4 真实页面多步 MicroPlan 降级已由 `e2e-01-downgrade-real-page-tauri-lmstudio` 关闭；E6 只读工具调度与 trace 回查已由 `e2e-01-readonly-tool-trace-tauri-lmstudio` 关闭；E9 完整 ReplayReport 六问已由 `e2e-01-replay-report-tauri-lmstudio` 关闭。
 
-**通过率：11/13 完整 + 2/13 部分**。`mix test --include integration` 在 2026-05-12 本地复核为 422 tests / 0 failures（`:real_llm` 仍默认排除）。
+| 场景 | 状态 | 真实页面外部自动化验收证据 | 局部测试证据 | 偏差 / 缺口 | 优先级 / owner |
+|------|------|-----------------------------|--------------|-------------|----------------|
+| E1 基础对话 | 已验收 | `artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio/summary.json`：真实 Tauri 两轮聊天 + LM Studio `form_frame` 两次 2xx | `v3_full_chain_test.exs` reply-only；`planner_real_llm_test.exs` real LLM reply | 无阻塞 | closed |
+| E2 探索方向 | 已验收 | `artifacts/slice-verify/au02-natural-exploration-no-slot-form-tauri-lmstudio/summary.json`：自然探索、候选卡、无机械 slot form | `planner_real_llm_test.exs` exploration real LLM；candidate schema/codegen tests | 无阻塞 | closed |
+| E3 上下文感知 | 已验收 | `artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json`：最新 Work + active transcript 分层进入真实 provider prompt | `dialogue_gateway_real_loop_test.exs` SQLite conversation/memory prompt loop | 无阻塞 | closed |
+| E4 执行降级 | 已验收 | `artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/summary.json`：真实 Tauri 档案面板点击“发起新操作”→ LM Studio 生成 3 action MicroPlan → Orchestrator 在 `action_scope` 降级；无 `toolbox.execute`、无 `author_action`、无执行控件、无 production write；UI badge 显示“降级为对话” | `v3_full_chain_test.exs` multi-step plan → `downgrade_to_dialogue`；`framePresentation.test.ts` 覆盖 downgrade badge | 无阻塞 | closed |
+| E5 高风险确认 | 已验收 | `artifacts/slice-verify/au04-confirm-before-execute-tauri-lmstudio/summary.json`：真实 Tauri + LM Studio 高风险确认、re-gate、tentative output | `v3_full_chain_test.exs` confirmation branch；AU04 channel/action tests | 无阻塞 | closed |
+| E6 工具调度 | 已验收 | `artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json`：真实 Tauri 聊天输入“查看当前角色列表”→ LM Studio frame + MicroPlan → Orchestrator `allow_tool` → `character_roster` 成功；页面显示已确认角色并声明没有写入作品事实；外部查询 `TraceRepository.list_by_turn` 返回结构化 `tool_trace_refs` | `tool_provenance_test.exs` registry/grants/adapter；`dialogue_gateway_real_loop_test.exs` read-only tool trace 持久化回查；`TraceRepository` tests | 无阻塞 | closed |
+| E7 创作产出 | 已验收 | `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json` 与 `p1-chapter-adoption-reading-tauri-lmstudio/summary.json`：章节片段生成后默认 pending/tentative，采纳前不进入阅读投影 | `v3_full_chain_test.exs` creative artifact chain；AU05 adoption boundary tests | 无阻塞 | closed |
+| E8 Action 校验 | 部分实现 | `au04-stale-confirmation-ui`、`au04-disabled-confirmation-action-ui`、`au06-single-active-confirmation` 证明 stale/disabled/old action 在真实页面不可执行或被拒绝 | `workspace_channel_v3_test.exs` invented/stale/source validation | invented action 是恶意客户端输入，真实用户页面无法自然构造；当前 exact negative 仍在 Channel 层 | P2：Channel security regression 保持 |
+| E9 回放审计 | 已验收 | `artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/summary.json`：真实 Tauri 聊天输入触发 `character_roster` 只读工具链，外部查询持久 DecisionTrace 并由 `ReplayService.build_report/1` 生成 ReplayReport；summary 证明 `provider_called=false`、`result_status=complete`、缺失引用为空、包含 frame / plan / decision / tool_trace / turn_result，且 VS-06 六问均为 `answered` 或 `not_applicable` | `replay_service_test.exs`；`trace_repository_test.exs`；`dialogue_gateway_real_loop_test.exs` 验证 `plan_ref`、tool trace refs 与 replay 缺失检测 | 无阻塞 | closed |
+| E10 持久化闭环 | 已测试 | 无真实页面 trace query UI；why/trace UI 证据归 AU-07 | `dialogue_gateway_real_loop_test.exs` 2026-06-21 新增 `handle_input` + `WorkspaceContext.trace_persister` + `TraceRepository.list_by_turn` 回查；`trace_repository_test.exs` | application/persistence 链路已闭合；外部页面按 turn 查询 trace 仍归 AU-07/E2E replay | P1：外部 trace query UI owner AU-07 |
+| E11 错误恢复 | 已验收 | `au01-garbage-json-recovery-tauri`、`au10-workbench-recovery-provider-timeout-tauri`：真实工作台友好降级、loading 清退、可继续输入 | `v3_full_chain_test.exs` broken provider / garbage JSON；`planner_real_llm_test.exs` provider recovery | 无阻塞 | closed |
+| E12 真实两轮回路 | 已验收 | `au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio` 证明真实两轮可见；`au03-current-work-context-ssot-tauri-lmstudio` 证明 active transcript 进入真实 provider prompt | `dialogue_gateway_real_loop_test.exs` SQLite 写入第一轮 interaction，第二轮 prompt/summary 读取 | 无阻塞 | closed |
+| E13 Action 来源校验 | 已测试 | AU04/AU05/AU06 真实页面证明合法 action 走服务端授权；无真实页面伪造 `source_turn_result` 场景 | `workspace_channel_v3_test.exs` exact：客户端伪造 `source_turn_result` 不能授权 invented action | 伪造来源属于恶意 Channel payload，不是正常 UI 操作；保留为 Channel security regression | P2：Channel security regression 保持 |
+
+### 4.1 本轮复核命令
+
+```bash
+bash scripts/tauri_slice_verify.sh --list
+mix test --include integration apps/novel_e2e/test/novel_e2e/v3_full_chain_test.exs
+mix test --include integration apps/novel_application/test/novel_application/dialogue_gateway_real_loop_test.exs
+mix test apps/novel_web/test/novel_web/channels/workspace_channel_v3_test.exs apps/novel_application/test/novel_application/replay_service_test.exs apps/novel_persistence/test/novel_persistence/trace_repository_test.exs
+mix test --include real_llm apps/novel_application/test/novel_application/planner_real_llm_test.exs
+bash scripts/quality_accept.sh e2e-01-full-chain --provider lmstudio
+bash scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio
+bash scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri --provider lmstudio
+bash scripts/quality_accept.sh e2e-01-replay-report --surface tauri --provider lmstudio
+```
+
+2026-06-21 结果：`v3_full_chain_test.exs` 10 tests / 0 failures；`dialogue_gateway_real_loop_test.exs` 8 tests / 0 failures；Channel + ReplayService + TraceRepository 合计 60 tests / 0 failures；`planner_real_llm_test.exs` 13 tests / 0 failures；`quality_accept e2e-01-downgrade-real-page --surface tauri --provider lmstudio` 通过并写入 `artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/summary.json`；`quality_accept e2e-01-readonly-tool-trace --surface tauri --provider lmstudio` 通过并写入 `artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json`；`quality_accept e2e-01-replay-report --surface tauri --provider lmstudio` 通过并写入 `artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/summary.json`；`quality_accept e2e-01-full-chain --provider lmstudio` 通过并写入 `artifacts/slice-verify/e2e-01-full-chain/summary.json`，其中聚合矩阵为 10/13 已验收、2/13 已测试、1/13 部分实现。
+
+### 4.2 当前缺口分级
+
+- P0：已关闭。旧覆盖表把 stub integration 写成“完整 E2E”的偏差已更正；E10 的 trace persister → SQLite → `TraceRepository.list_by_turn/1` 断点已补 integration proof。
+- P1：已关闭。E9 完整 ReplayReport 六问已有独立真实 Tauri / real LM Studio evidence，并被 E2E 聚合 runner 消费。
+- P2：E8/E13 的 invented / forged source negative 是恶意客户端 payload，正常真实 UI 不应提供构造入口；继续由 Channel security regression 覆盖，除非后续新增专门的外部协议 fuzz harness。
+
+### 4.3 质量入口状态
+
+当前 `quality_accept.sh` 已支持 `e2e_aggregate` runner，`quality/acceptance/scenarios/e2e-01-full-chain.yml` 已登记为 `nightly` / `browser` / `default_provider: lmstudio`。该 runner 通过 `scripts/e2e_01_full_chain_check.sh --provider lmstudio` 从外部复跑 E2E integration、DialogueGateway real-loop、Channel/Replay/Trace tests、real LM Studio planner tests，并校验现有真实 Tauri summary；输出 `artifacts/slice-verify/e2e-01-full-chain/summary.json`。
+
+注意：该 runner 是文件级证据聚合器，不是产品页面内逻辑，也不为产品新增验收感知 env/query/localStorage、DOM hook 或自动采纳行为。E4、E6 与 E9 已由独立真实 Tauri checkpoint 升级为“已验收”；E8/E13 forged source negative 继续作为 P2 Channel security regression。
 
 ---
 

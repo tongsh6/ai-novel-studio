@@ -1,8 +1,8 @@
 # AU11 Missing WorkState Policy / 缺当前作品上下文不编造
 
-- 状态：next
+- 状态：done
 - 类型：AI-Guided Authoring Slice + Trace Contract Slice
-- 启动日期：待开工
+- 启动日期：2026-06-21
 - 所属验收：`docs/design/acceptance/author/AU-11-ai-guided-authoring.md` SC-AU11-02。
 - 所属设计：`docs/design/contracts/VS-00D-ai-guided-authoring-contract-pack.md`。
 
@@ -27,20 +27,29 @@
 - **Consumer**：真实工作台普通输入、TurnResult trace summary、why 面板。
 - **Proof**：
   - 后端：缺 work snapshot / 缺 chapter summary / 缺 prose excerpt contract 测试。
-  - 外部 Tauri：seed 空上下文 work 或未选作品；真实工作台输入“帮我看看这一章哪里不成立”；验证 why 显示 WorkState missing，assistant 要求补充目标章或摘要，no write。
+- 外部 Tauri：创建只有标题、没有章节/正文/人物状态的真实 work；从真实工作台输入“帮我看看这一章哪里不成立”；验证 trace/why 显示 WorkState missing，assistant 要求补充目标章或摘要，no write。
 - **Acceptance Driver**：新增真实 Tauri driver；不新增产品验收感知逻辑。
 
 ## 3. 当前缺口
 
-- 现有 AU11 builder 已有后端 missing 测试，但没有真实工作台缺上下文验收。
-- 当前 AU11 Tauri proof 使用有章节计划的作品，只覆盖 SC-AU11-01。
-- why 面板已能显示“作品层依据缺失或不足”，但尚未由真实空上下文场景证明。
+- 2026-06-21 已补 `au11-missing-workstate-policy` 真实 Tauri / quality acceptance。
+- 真实工作台证据证明：selected real work 有 snapshot 但无章节材料；WorkStateLayer 标记 chapter summary / prose excerpt / character state missing；TurnGuidance 记录缺目标章/正文问题；assistant 要求补材料且不声称已读该章；why 显示 quality mode、missing WorkState 和 missing prose limit；无 tool/adoption/write。
+- 实现侧顺带补齐：`AIMessageEnvelope` 识别“哪里不成立”质量诊断原句；缺 `character_state` / `style_intent` 时输出 author-safe missing map；why 面板可同时显示安全来源和缺失提示。
 
 ## 4. 验证计划
 
-- [ ] 后端 missing WorkState contract 测试
-- [ ] 前端 why 缺失摘要测试
-- [ ] `bash scripts/tauri_slice_verify.sh au11-missing-workstate-policy`
-- [ ] `bash scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri`
-- [ ] `bash scripts/ai_static_scan.sh --top 10`
+- [x] 后端 missing WorkState contract 测试
+- [x] 前端 why 缺失摘要测试
+- [x] `bash scripts/tauri_slice_verify.sh au11-missing-workstate-policy`
+- [x] `bash scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri`
+- [x] `bash scripts/ai_static_scan.sh --top 10`（经 `task_done` 执行；Top 10 仅历史 `gitleaks` accepted_risk，0 touched files，blocking=0）
 
+## 5. 证据
+
+- `artifacts/slice-verify/au11-missing-workstate-policy-tauri/summary.json`
+- `quality/acceptance/scenarios/au11-missing-workstate-policy.yml`
+- `bash scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri`
+
+## 6. 决策日志
+
+- 2026-06-21 — SC-AU11-02 真实工作台 proof 闭环。没有向产品代码加入 slice id/env/query/localStorage/DOM hook；新增逻辑均是用户可见的质量诊断语义和 author-safe trace missing 表达。

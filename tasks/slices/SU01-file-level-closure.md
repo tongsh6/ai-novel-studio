@@ -103,7 +103,7 @@
 - [x] `pnpm --dir frontend exec vitest run slice-verify/native-tauri-verifier.test.mjs`
 - [x] 查看 `artifacts/slice-verify/su01-*/summary.json`
 - [x] 审计 `scripts/tauri_slice_verify.sh` / `frontend/slice-verify/external-ui-driver.mjs`
-- [x] `bash scripts/quality_manifest_check.sh`（通过；`su01-keychain-webview-roundtrip` / `su01-provider-test-failure-ui` manifest 已登记；`tauri-platform-smoke` 不登记为 scenario manifest，因为它是 CI 平台合同证据入口，不是外部自动化驱动真实页面的场景验收；剩余 warning 均为既有其它 slice 缺 manifest）
+- [x] `bash scripts/quality_manifest_check.sh`（通过；`su01-model-provider-switching` / `su01-keychain-webview-roundtrip` / `su01-provider-test-failure-ui` manifest 已登记；`tauri-platform-smoke` 不登记为 scenario manifest，因为它是 CI 平台合同证据入口，不是外部自动化驱动真实页面的场景验收；剩余 warning 均为既有其它 slice 缺 manifest）
 - [x] `bash scripts/task_done.sh --skip-static-scan --slice su01-keychain-webview-roundtrip`（`artifacts/task-done/20260619T151655Z/manifest.json`）
 - [x] `bash scripts/task_done.sh --skip-static-scan`（`artifacts/task-done/20260619T153455Z/manifest.json`）
 - [x] `bash scripts/task_done.sh --skip-static-scan --slice su01-provider-test-failure-ui`（`artifacts/task-done/20260619T174608Z/manifest.json`）
@@ -125,6 +125,7 @@
 - 2026-06-20 — `SC-SU01-C3` 剩余 Windows/Linux 真实页面 / 平台矩阵登记为外部平台 blocker；当前 macOS 本机不伪造非 macOS 证据，SU-01 文件级可交付并可进入 SU-02。
 - 2026-06-20 — 为 `SU01-C3-non-macOS-platform-runner` 补最小基础设施入口：`.github/workflows/ci.yml` 新增 `tauri-platform-smoke` matrix，在 macOS / Ubuntu / Windows runner 执行 `frontend/src-tauri` 的 `cargo test --locked`，并上传 `tauri-platform-smoke-<os>` artifact；summary 记录 runner、命令、exit code、Rust/Cargo 版本和 `real_page_acceptance=false`。该入口用于证明 Tauri Rust 壳和 secret capability 平台分支在真实平台可编译并执行 contract tests；这不是真实页面自动化验收，C3 仍保持“已实现未验收”。
 - 2026-06-20 — 复核 quality acceptance manifest 边界：当前 `quality/acceptance/scenarios.yml` 只登记 `browser` / `tauri` surface 下由 `slice_verify` / `tauri_slice_verify` / `dogfood_run` 驱动的场景验收。`tauri-platform-smoke` 是 CI matrix 合同证据入口，summary 显式 `real_page_acceptance=false`；因此本轮不扩展 quality manifest schema，也不把平台 smoke 冒充为真实页面 scenario。后续若要把 Windows/Linux 页面对账纳入 quality manifest，应先实现对应平台真实 Tauri 页面 driver 或跨平台 secret backend 的场景入口。
+- 2026-06-21 — 本轮按文件级审计复核时发现 `su01-model-provider-switching` 虽有 `tauri_slice_verify` 外部真实页面证据，但未登记 quality acceptance manifest；已补 `quality/acceptance/scenarios/su01-model-provider-switching.yml` 和 `quality/acceptance/scenarios.yml` 索引，关闭 SU-01 quality manifest 同步 warning。
 
 ## 9. 试行反馈
 

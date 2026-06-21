@@ -2,7 +2,7 @@
 
 > 作者视角：AI 应该了解当前作品的最新背景、设定、角色、记忆和当前创作状态；同时，一个作品里会有多次会话，每次会话都有自己的历史 transcript。历史会话可以搜索、查看、归档，但重新进入历史会话时应是退出/只读状态，作品背景仍显示最新版本。
 >
-> 2026-06-20 文件级对账结论：当前 checkout 已有 WorkSession、sessions API、会话搜索/只读/归档 UI、最新 Work snapshot、active session transcript、memory recall 和上下文来源摘要基础。当前可从 `bash scripts/tauri_slice_verify.sh --list` 直接复跑的 AU-03 证据包括 `au03-session-new-active`、`au03-session-history-readonly`、`au03-branch-from-history`、`au03-archive-session-filter`、`au03-current-work-context-ssot`、`au03-context-source-ui`、`au03-long-session-compression`，以及跨 AU-09 的 `au09-au03-session-memory-layering`。本轮已把 archive/current-work 从历史 artifact 重新挂回 shell/quality 入口，并补 `au03-current-work-context-ssot --real-lmstudio` 证据；剩余文件级缺口集中在搜索命中 turn 定位/高亮、显式引用 archived source、open behavior summary、完整 replay 页面和 AU-07 developer trace 视图。
+> 2026-06-21 文件级对账结论：当前 checkout 已有 WorkSession、sessions API、会话搜索/只读/归档 UI、最新 Work snapshot、active session transcript、memory recall 和上下文来源摘要基础。当前可从 `bash scripts/tauri_slice_verify.sh --list` 直接复跑的 AU-03 证据包括 `au03-session-new-active`、`au03-session-history-readonly`、`au03-branch-from-history`、`au03-archive-session-filter`、`au03-current-work-context-ssot`、`au03-context-source-ui`、`au03-long-session-compression`，以及跨 AU-09 的 `au09-au03-session-memory-layering`。本轮已复跑上述 8 条默认 Tauri driver、7 条 AU-03 quality acceptance 入口，并补 `au03-current-work-context-ssot --real-lmstudio` / `quality_accept --provider lmstudio` 当前证据；`tasks/slices/AU03-file-level-closure.md` 已补文件级收口记录。剩余文件级缺口集中在搜索命中 turn 定位/高亮、显式引用 archived source、open behavior summary、完整 replay 页面和 AU-07 developer trace 视图。
 
 ---
 
@@ -463,9 +463,9 @@
 | SC-AU03-F1 长会话压缩 | 最近必要上下文进入 prompt，原 transcript 可查看 | `fetch_conversation_summary/1` | `WorkspaceContext` | context tests | `au03-long-session-compression` | 已验收 | 还没有完整 session summary 策略 | 补实现 | P2 | session summary / compression strategy |
 | SC-AU03-F2 replay 不调 LLM | 历史回放使用 TurnResult/trace，不重新创作 | Replay contract；AU03-I5 | `ReplayService` | E2E reply-only replay | 无会话级真实 UI | 已测试 | 会话级 replay UI 未闭环 | 补实现 | P1 | owner: AU-07 replay |
 
-**覆盖结论：20 个用户场景；当前 12/20 已验收，2/20 已测试，3/20 部分实现，1/20 已实现未验收，1/20 未实现，1/20 不确定。新增当前可复跑证据后，AU-03 的 P0 缺口已关闭；剩余 P1 主要是 behavior summary、Work-only/empty/failure 真实验收、显式 archived source、AU-07 trace/replay，P2 是搜索 turn 高亮、完整状态矩阵和压缩策略细化。**
+**覆盖结论：20 个用户场景；当前 12/20 已验收，2/20 已测试，3/20 部分实现，1/20 已实现未验收，1/20 未实现，1/20 不确定。新增当前可复跑证据并补 `tasks/slices/AU03-file-level-closure.md` 后，AU-03 的 P0 缺口已关闭；剩余 P1 主要是 behavior summary、Work-only/empty/failure 真实验收、显式 archived source、AU-07 trace/replay，P2 是搜索 turn 高亮、完整状态矩阵和压缩策略细化。**
 
-当前可复跑证据入口（2026-06-20）：
+当前可复跑证据入口（2026-06-21）：
 
 ```bash
 bash scripts/tauri_slice_verify.sh au03-session-new-active
@@ -556,10 +556,15 @@ mix test --include integration apps/novel_application/test/novel_application/dia
 pnpm --dir frontend test -- native-tauri-verifier.test.mjs
 
 # 文件级质量入口
+bash scripts/quality_accept.sh au03-session-new-active --surface tauri
+bash scripts/quality_accept.sh au03-session-history-readonly --surface tauri
+bash scripts/quality_accept.sh au03-branch-from-history --surface tauri
 bash scripts/quality_accept.sh au03-current-work-context-ssot --surface tauri
 bash scripts/quality_accept.sh au03-archive-session-filter --surface tauri
-bash scripts/task_done.sh --slice au03-current-work-context-ssot --skip-static-scan
-bash scripts/task_done.sh --slice au03-archive-session-filter --skip-static-scan
+bash scripts/quality_accept.sh au03-context-source-ui --surface tauri
+bash scripts/quality_accept.sh au03-long-session-compression --surface tauri
+bash scripts/quality_accept.sh au03-current-work-context-ssot --surface tauri --provider lmstudio
+bash scripts/task_done.sh --skip-static-scan
 bash scripts/ai_static_scan.sh --top 10
 ```
 

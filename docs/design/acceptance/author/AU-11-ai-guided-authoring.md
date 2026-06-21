@@ -103,14 +103,14 @@
 
 ## 5. 场景覆盖状态
 
-| 场景 | 当前状态 | 当前证据 | 缺口 |
-|---|---|---|---|
-| SC-AU11-01 | checkpoint closed | `NovelApplication.AIMessageEnvelope` 过渡 builder；`trace_summary.ai_message_envelope`；`artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json`；`quality_accept` 通过 | 仍是过渡 trace/evidence 字段，`guidance_mode` 尚未冻结进 DialogueFrame schema |
-| SC-AU11-02 | 部分实现 | AU-03/VS-00B 已有不编造上下文的设计基础；后端 envelope 测试覆盖缺 WorkState missing | 需要缺上下文真实工作台验收 |
-| SC-AU11-03 | 部分实现 | ADR-0002/0003/0005/0009 已约束执行边界 | 需要 clarify/confirm guidance_mode 与 behavior/orchestrator 组合 proof |
-| SC-AU11-04 | 未实现 | `VS-00C` 已定义 CreativeDecisionPacket | 需要 prose_writing provider prompt 从 envelope 渲染并进入 trace |
+| 场景 | 当前状态 | 当前证据 | 缺口 | 优先级 |
+|---|---|---|---|---|
+| SC-AU11-01 | 已验收 | `au11-quality-diagnosis-message-envelope` 真实 Tauri / `quality_accept`：质量诊断输入后 trace/why 可重建 NovelLayer / WorkState / TurnGuidance，assistant 给出具体取舍，且 no tool/adoption/write | `guidance_mode` 尚未冻结进 `DialogueFrame` schema，只是过渡 trace/evidence 字段 | P1 |
+| SC-AU11-02 | 已验收 | `au11-missing-workstate-policy` 真实 Tauri / `quality_accept`：真实工作台创建无章节/正文/人物状态的 work，输入“帮我看看这一章哪里不成立”，WorkState 显式标记 chapter/prose/character missing，assistant 要求补材料且不声称已读该章，why 显示缺失，no tool/adoption/write | 仍是 Planner 质量诊断调用点的过渡 envelope，未扩展到所有 AI 调用点 | P1 |
+| SC-AU11-03 | 部分实现 | ADR-0002/0003/0005/0009、AU-04/AU-06 confirmation/behavior 真实 Tauri 证据已约束执行授权边界 | 需要 clarify/confirm `guidance_mode` 与 behavior/orchestrator 组合 proof，证明“引导模式”不等于 durable behavior 授权 | P1 |
+| SC-AU11-04 | 部分实现 | `VS-00C` 已定义 CreativeDecisionPacket，CP0/CP3/CP4/CP5 已有结构化上下文和 prose_writing 前置证据 | `prose_writing` provider prompt 仍未由 `AIMessageEnvelope(call_site=:prose_writing)` 专项投影统一渲染并进入 trace | P1 |
 
-当前结论：AU-11 已完成 SC-AU11-01 最小真实工作台 checkpoint，不代表 AU-11 整体完成。
+当前结论：AU-11 文件级 P0 已关闭，当前口径为 `2/4` 已验收、`2/4` 部分实现；可进入 AU-12。剩余 P1 为 schema 冻结、clarify/confirm 引导证明、prose_writing envelope 投影。
 
 ---
 
@@ -118,11 +118,11 @@
 
 | 缺口 | 影响 | 建议处理 |
 |---|---|---|
-| `AIMessageEnvelope` 仍是 application 层过渡 builder，尚未冻结为跨调用点 schema | 只能证明 Planner 质量诊断 checkpoint，不能证明所有 AI 调用都按三层组织 | 后续经 ADR/schema/test 冻结正式字段和投影 |
-| `DialogueFrame` 当前代码没有 `guidance_mode` 目标字段 | 本轮引导判断只能落在 evidence / uncertainty / trace | CP1 先过渡，CP2 经 ADR/schema/test 冻结字段 |
-| DialogueContext 当前作品投影较薄 | AI 质量诊断容易缺当前章证据 | 与 VS-00C / AU-03 / AU-09 合并推进 WorkState projection |
-| CreativeProvider prompt 与 Planner 判断仍可能脱节 | 生成正文时丢失本轮引导判断和要素焦点 | prose_writing 调用必须消费 CreativeDecisionPacket |
-| 作者可见 why 还不能解释三层 message | 用户无法判断 AI 为什么这样引导 | AU-07 trace summary 需要新增 author-safe envelope 摘要 |
+| `AIMessageEnvelope` 仍是 application 层过渡 builder，尚未冻结为跨调用点 schema | 只能证明 Planner 质量诊断 checkpoint，不能证明所有 AI 调用都按三层组织 | P1：经 ADR/schema/test 冻结正式字段和投影 |
+| `DialogueFrame` 当前代码没有 `guidance_mode` 目标字段 | 本轮引导判断只能落在 evidence / uncertainty / trace | P1：经 ADR/schema/test 冻结字段 |
+| clarify / confirm 仍缺独立引导模式 proof | 目前主要由 AU-04/AU-06 证明执行授权边界，还不能证明 `guidance_mode=clarify/confirm` 的组合关系 | P1：补 clarify/confirm driver 与 behavior/orchestrator 对账 |
+| CreativeProvider prompt 与 Planner 判断仍可能脱节 | 生成正文时丢失本轮引导判断和要素焦点 | P1：prose_writing 调用消费 CreativeDecisionPacket / AIMessageEnvelope 投影 |
+| DialogueContext 当前作品投影仍较薄 | 质量诊断有时只能基于 snapshot 与显式 missing，而不是完整章节/人物态 | P2：与 AU-03 / AU-09 / AU-12 的 WorkState projection 扩展合并推进 |
 
 ---
 
@@ -148,6 +148,7 @@ git diff --check
 
 ```bash
 bash scripts/quality_accept.sh au11-quality-diagnosis-message-envelope --surface tauri
+bash scripts/quality_accept.sh au11-missing-workstate-policy --surface tauri
 ```
 
-仅完成 SC-AU11-01 不得把 AU-11 整体标记为已验收。
+当前文件级收口命令需同时覆盖 SC-AU11-01 和 SC-AU11-02；SC-AU11-03/04 作为 P1 后续登记，不阻塞进入 AU-12。

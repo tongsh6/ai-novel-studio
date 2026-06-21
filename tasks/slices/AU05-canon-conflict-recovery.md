@@ -51,7 +51,7 @@
 - Contract: `AuthorActionInput.choose_candidate`、`CandidateSet.candidates[].canon_conflicts`、`adoption_target_ref`、`AdoptionDecision.reason_codes`。
 - Invariant: 带结构化 canon conflict 的候选不能静默写入作品事实；即使它是低风险候选，也必须先进入恢复失败或后续覆盖确认路径。
 - Boundary: `novel_domain` 补 candidate 契约字段；`novel_application` 在 `DialogueGateway` 重建 candidate 时保留 `canon_conflicts`，并在 `AdoptionBoundary` 统一裁决；`novel_web` 只广播裁决结果；真实 Tauri 工作台只通过可见按钮触发授权 action。
-- Consumer: 真实候选卡的“采用这个方向”按钮。
+- Consumer: 真实候选卡的“设为后续方向”按钮。
 - Proof: application/channel 回归 + 外部 Playwright 驱动真实 Tauri 工作台。
 - Acceptance Driver: `bash scripts/tauri_slice_verify.sh au05-canon-conflict-recovery`，产品代码没有新增验收专用 hook。
 
@@ -66,10 +66,10 @@
 ```text
 seed 当前作品 active session 与已确认 canon basis
 → Tauri 工作台恢复“年龄设定覆盖”候选卡
-→ 外部 Playwright 点击真实“采用这个方向”
+→ 外部 Playwright 点击真实“设为后续方向”
 → Channel 发送服务端授权 author_action.choose_candidate
 → AdoptionBoundary 返回 fail_with_recovery
-→ UI 显示“候选方向采用失败”
+→ UI 显示“后续方向设置失败”
 → truthfulness.candidate_adopted=false
 → truthfulness.production_write_performed=false
 ```

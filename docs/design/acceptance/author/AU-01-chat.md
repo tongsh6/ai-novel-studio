@@ -290,9 +290,9 @@
 - 不暴露 raw LLM 输出；
 - Channel 不断开。
 
-**当前证据**：`Planner.parse_json_retry/3`；`v3_full_chain_test.exs` “garbage JSON -> fallback frame -> never crashes”；`planner_real_llm_test.exs` “Planner falls back when provider returns garbage”。
+**当前证据**：`Planner.parse_json_retry/3`；`v3_full_chain_test.exs` “garbage JSON -> fallback frame -> never crashes”；`planner_real_llm_test.exs` “Planner falls back when provider returns garbage”；`scripts/tauri_slice_verify.sh au01-garbage-json-recovery` 从真实 Tauri 工作台触发 malformed provider frame JSON，证明作者看到友好 fallback、raw provider payload 不可见、输入/Channel 可恢复并能继续普通聊天。
 
-**当前状态**：后端/E2E stub 已测试，缺 UI 降级验收。
+**当前状态**：已验收。
 
 ---
 
@@ -397,4 +397,4 @@ bash scripts/tauri_slice_verify.sh au10-ordinary-chat-no-micro-plan
 # 目标：旧 turn replay 有作者可理解反馈，自由讨论不被表单化有真实 UI 反证
 ```
 
-> 注意：这些命令证明 AU-01 普通聊天主路径、空消息 guard、乱码 JSON 降级、frame validation 友好错误和 TurnResult/recorder/UI 一致性 checkpoint。AU-01 的完整验收仍必须覆盖 trace/replay 矩阵和 C3 no-slot-form UI 反证。
+> 注意：这些命令证明 AU-01 普通聊天主路径、空消息 guard、乱码 JSON 降级、frame validation 友好错误和 TurnResult/recorder/UI 一致性 checkpoint。文件级退出后仍保留 trace/replay 作者 UI 的 AU-07 cross-reference，以及 C3 no-slot-form UI 反证的 P2 后续矩阵。

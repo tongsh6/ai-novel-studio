@@ -138,9 +138,9 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 
 Longest Closed Prefix：B1-B12（B12 为 AU-12 CP1 works 立项档案只读概览 checkpoint）。
 
-Current Breakpoint：Journey B 当前连续前缀已闭环到 B12 CP1。用户 2026-06-17 调整队列先做 AU12，CP1 已闭环；AU09 archive memory roundtrip CP2、memory management workbench entry、memory trace roundtrip、validity window recall、cross-work memory isolation 与 AU09-AU03 session memory layering 均已闭环，当前执行队首转到 AU11 / VS-00D 质量诊断 message envelope。
+Current Breakpoint：Journey B 当前连续前缀已闭环到 B12 CP1。用户 2026-06-17 调整队列先做 AU12，CP1 已闭环；AU-09 文件级收口也已完成，核心记忆治理链 P0 已关闭。本轮执行顺序按用户指定进入 AU-10 文件级审计。
 
-Next Proof：当前队首是 `AU11-quality-diagnosis-message-envelope`。B12 后续 proof 是 CP2 accepted-artifact 类立项要素、缺字段/失败矩阵、跨作品切换矩阵，以及 CP3 correction 修订入口。
+Next Proof：本轮下一 proof 是 AU-10 文件级工作台矩阵。B12 后续 proof 是 CP2 accepted-artifact 类立项要素、缺字段/失败矩阵、跨作品切换矩阵，以及 CP3 correction 修订入口。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -154,7 +154,7 @@ Next Proof：当前队首是 `AU11-quality-diagnosis-message-envelope`。B12 后
 | B8 | 归档旧会话，默认不进入日常 context，仍可搜索/回放 | AU-03 / AU-07 | DialogueContext / ReplayReport | closed | Tauri automation + Application/Persistence test | `artifacts/slice-verify/au03-archive-session-filter-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-archive-session-filter` | 真实工作台可归档历史会话，默认列表隐藏 archived，显式搜索仍可找回并只读打开；普通 context 过滤 archived transcript 由 persistence/application 测试覆盖。 |
 | B9 | 最新 Work 背景与当前 session transcript 分层进入 context | AU-03 / AU-09 | DialogueContext / ContextSourceRef | closed | Tauri/LMStudio + Application/Persistence test | `artifacts/slice-verify/au03-current-work-context-ssot-tauri-lmstudio/summary.json`；`bash scripts/tauri_slice_verify.sh --real-lmstudio au03-current-work-context-ssot` | 已证明历史只读 transcript 打开后返回 active session，下一轮 prompt 使用最新 Work 背景 + 当前 active session transcript，旧历史 session 未覆盖当前作品事实。 |
 | B10 | 作者能在 why 面板看到上下文来源摘要 | AU-03 / AU-07 | TraceSummaryView | closed | Tauri automation | `artifacts/slice-verify/au03-context-source-ui-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-context-source-ui` | 真实工作台普通回复 why 面板显示 current work / recent dialogue / memory 三类 author-safe 来源摘要，不暴露 raw prompt。 |
-| B11 | 长会话压缩，旧 turn 进入 summary，最新 turn 保持顺序 | AU-03 | DialogueContext / DecisionTrace | closed | Tauri/LMStudio + Application/Persistence test | `artifacts/slice-verify/au03-long-session-compression-tauri-lmstudio/summary.json`；`bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression` | 已证明超过窗口的旧 turn 进入 `work_sessions.summary`，Planner request messages 只携带 early summary + 最新 transcript 窗口，不携带旧 turn 原文。 |
+| B11 | 长会话压缩，旧 turn 进入 summary，最新 turn 保持顺序 | AU-03 | DialogueContext / DecisionTrace | closed | Tauri automation + Application/Persistence test | `artifacts/slice-verify/au03-long-session-compression-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au03-long-session-compression` | 已证明超过窗口的旧 turn 进入 `work_sessions.summary`，Planner request messages 只携带 early summary + 最新 transcript 窗口，不携带旧 turn 原文；2026-06-21 额外 real LMStudio 尝试完成 provider 调用但未产出 UI summary，不作为当前验收证据。 |
 | B12 | 作者在作品档案核对 AI 使用的立项设定 | AU-12 / AU-03 | CurrentWorkSnapshot / WorkArchiveView | checkpoint closed | Tauri automation | `artifacts/slice-verify/au12-work-profile-overview-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au12-work-profile-overview` | CP1 已证明真实工作台作品档案「概览」显示 works 立项字段且 DTO/UI/日志不泄漏内部 Work UUID；accepted 状态矩阵、缺字段/失败、跨作品切换、no-write 计数和 correction 修订仍待后续。 |
 
 当前连续断点：
@@ -258,7 +258,7 @@ Next Proof：当前队首是 AU11 / VS-00D 质量诊断 message envelope，先�
 
 Longest Closed Prefix：E1-E2 是局部或最小闭环。
 
-Current Breakpoint：E3 behavior resolution/history/ConfirmationBinding 完整闭环不足。
+Current Breakpoint：E3/E4 confirmation 主链已有多条真实 Tauri checkpoint；cancel waiting terminal BehaviorTrace replay producer 已闭环，完整确认成功 terminal history、blocking clarification 与持久 BehaviorBinding ledger 仍待后续。
 
 Next Proof：真实工作台高风险动作 -> confirmation behavior -> 点击确认 -> 重新 gate -> 幂等执行或拒绝 -> behavior resolution + trace。
 
@@ -269,7 +269,7 @@ Next Proof：真实工作台高风险动作 -> confirmation behavior -> 点击�
 | E3 | 高风险动作打开 confirmation behavior | AU-04 / AU-06 | BehaviorState / AvailableAction | partial | Application/Channel tests | `behavior_lifecycle_test.exs`、`v3_full_chain_test.exs` | 真实 UI 确认卡与 behavior_state 消费仍不足。 |
 | E4 | 点击确认绑定目标并重新 gate | AU-04 / AU-06 | AuthorActionInput / ConfirmationBinding | partial | Channel/API automation | `action_roundtrip_test.exs`、`workspace_channel_v3_test.exs` | behavior resolution/history 仍未完整闭环。 |
 | E5 | 重复点击、旧按钮、伪造按钮被拒绝 | AU-06 / AU-10 | AvailableAction / AuthorActionInput | partial | Channel/API automation | stale/invented/disabled/source missing tests | 缺真实 UI 重复点击和跨 session/work 验收。 |
-| E6 | 取消、拒绝、澄清回答关闭或推进 behavior | AU-06 | BehaviorState / DecisionTrace | gap | Document only | AU06-GAP-03/04/10 | 缺 resolution builder、history、BehaviorTrace/replay。 |
+| E6 | 取消、拒绝、澄清回答关闭或推进 behavior | AU-06 / AU-07 | BehaviorState / DecisionTrace | checkpoint closed / P1 follow-up | Tauri automation + application/channel test | `artifacts/slice-verify/au07-behavior-trace-terminal-replay-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-cancel-waiting-tauri/summary.json` | cancel waiting terminal close/resolution refs 已可回放；confirm success terminal history、blocking clarification 和持久 BehaviorBinding ledger 仍待后续。 |
 | E7 | 长任务 RUNNING/CHECKPOINT/COMPLETED/FAILED 反馈 | AU-10 | ToolRequest / ToolResult / TurnResultViewModel | checkpoint closed | Tauri automation + Channel test | `artifacts/slice-verify/au10-workbench-recovery-taskstate-tauri/summary.json`；`workspace_channel_task_state_test.exs` | 真实“导出全书”动作已证明 RUNNING/CHECKPOINT/COMPLETED UI 可见，FAILED 由 Channel 失败分支覆盖；完整异步 LongRunner streaming 和长任务恢复仍缺。 |
 
 ---
@@ -288,7 +288,7 @@ Next Proof：真实工作台高风险动作 -> confirmation behavior -> 点击�
 
 Longest Closed Prefix：F1-F4 最小闭环。
 
-Current Breakpoint：F8 canon conflict recovery checkpoint 已闭环；完整 context version/revision freshness、覆盖确认和 StateTrace 仍待后续。
+Current Breakpoint：F8 canon conflict recovery checkpoint 已闭环；StateTrace/adoption/projection replay producer 已由 AU-07 checkpoint 补齐；完整 context version/revision freshness、覆盖确认和持久 adoption inbox 仍待后续。
 
 Next Proof：后续 P1 章节计划和正文生产必须继续复用 adoption/canon gate，避免长篇事实被静默污染。
 
@@ -302,7 +302,7 @@ Next Proof：后续 P1 章节计划和正文生产必须继续复用 adoption/ca
 | F6 | stale source 草稿不能采纳 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-stale-conflict-cross-work-freshness-tauri/summary.json`；`tasks/slices/AU05-stale-conflict-cross-work-freshness.md` | stale restored candidate 已证明真实工作台拒绝且不写 production fact；context version 和 revision freshness 仍缺。 |
 | F7 | cross-work 草稿不能采纳到当前作品 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-conflict-cross-work-recovery-tauri/summary.json`；`tasks/slices/AU05-conflict-cross-work-recovery.md` | cross-work candidate 已证明真实工作台 fail_with_recovery 且不写 production fact；完整 work-scoped adoption store 仍缺。 |
 | F8 | canon conflict 采纳恢复 | AU-05 / SU-02 | AdoptionDecision / DecisionTrace | checkpoint closed | Tauri automation + application/channel test | `artifacts/slice-verify/au05-canon-conflict-recovery-tauri/summary.json`；`tasks/slices/AU05-canon-conflict-recovery.md` | 结构化 canon conflict candidate 已证明真实工作台 fail_with_recovery 且不写 production fact；自动读取 canon/revision 计算冲突、覆盖确认、StateTrace 仍缺。 |
-| F9 | 采纳可回放且 AI 不谎报状态 | AU-05 / AU-07 | StateTrace / ReplayReport | partial | Application test | truthfulness/tool result tests | 缺成功/失败文案、StateTrace 聚合和 replay。 |
+| F9 | 采纳可回放且 AI 不谎报状态 | AU-05 / AU-07 | StateTrace / ReplayReport | checkpoint closed / P1 follow-up | Tauri automation + application test | `artifacts/slice-verify/au07-state-trace-adoption-replay-tauri/summary.json`；truthfulness/tool result tests | 采纳正文 action/projection 共用 StateTrace refs 已闭环；成功/失败文案矩阵、旧 turn replay UI 和完整 revision/canon store 仍待后续。 |
 
 ---
 
@@ -318,18 +318,18 @@ Next Proof：后续 P1 章节计划和正文生产必须继续复用 adoption/ca
 
 真实消费者：ReadingMode、TOC、章节正文、projection notice。
 
-Longest Closed Prefix：G1-G2。
+Longest Closed Prefix：G1-G4（核心阅读链）。
 
-Current Breakpoint：G3 projection refresh 状态机和真实卷章归属仍缺。
+Current Breakpoint：G3 projection refresh 状态机仍缺。
 
-Next Proof：采纳多个章节/片段 -> projection hint -> 阅读投影合并/刷新状态可见 -> refresh 失败不回写 production。
+Next Proof：专用 projection refresh action -> no production write -> REBUILDING/FAILED 状态可见 -> refresh 失败不回写 production。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
-| G1 | 采纳章节片段后阅读模式看到 TOC/正文 | AU-08 / AU-05 | ProjectionHint / TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/au08-adoption-reading-projection-tauri/summary.json` | projection refresh 状态机仍缺。 |
-| G2 | 未采纳草稿不进入阅读模式 | AU-05 / AU-08 | TentativeArtifactSet / ProjectionHint | partial | Application/Tauri evidence | adoption-reading projection 最小链路间接覆盖 | 需明确未采纳隔离测试。 |
-| G3 | ProjectionHint adapter 与 stale/refresh UI | AU-08 | ProjectionHint / StateTrace | gap | Document only | AU08-GAP-03~06 | 缺 refresh no-write、失败态和跨作品隔离验收。 |
-| G4 | 真实卷章归属、章节合并、阅读空态/错误态 | AU-08 | TurnResultViewModel | partial | Tauri automation | `workspace-runtime-state-tauri`、reading projection evidence | 仍缺完整阅读产品链。 |
+| G1 | 采纳章节片段后阅读模式看到 TOC/正文 | AU-08 / AU-05 | ProjectionHint / TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-adoption-reading-tauri/summary.json`；`quality_accept.sh p1-chapter-adoption-reading --surface tauri` | projection refresh 状态机仍缺。 |
+| G2 | 未采纳草稿不进入阅读模式 | AU-05 / AU-08 | TentativeArtifactSet / ProjectionHint | closed | Tauri automation | `artifacts/slice-verify/p1-chapter-draft-generation-tauri/summary.json`；`artifacts/slice-verify/au02-unadopted-candidate-no-reading-fact-tauri/summary.json` | 保持 regression。 |
+| G3 | ProjectionHint adapter 与 stale/refresh UI | AU-08 | ProjectionHint / StateTrace | partial | Tauri automation + tests | `p1-chapter-adoption-reading` 断言 STALE banner；`adoption_workflow_test` 覆盖 projection_refs | 缺专用 refresh no-write、REBUILDING/FAILED 真实状态。 |
+| G4 | 真实卷章归属、章节合并、阅读空态/错误态 | AU-08 | TurnResultViewModel | closed | Tauri automation | `p1-chapter-expansion-multichapter` 证明多章归属、TOC 点击和未写章空态 | 离线/加载失败细节待 AU-08 P1。 |
 
 ---
 
@@ -345,19 +345,19 @@ Next Proof：采纳多个章节/片段 -> projection hint -> 阅读投影合并/
 
 真实消费者：作品档案、ContextAssembler、Planner prompt、why 面板、memory REST 管理入口。
 
-Longest Closed Prefix：H1-H4 是档案和记忆管理最小闭环，H6 是 archive memory roundtrip CP2，H7 是基础状态治理 checkpoint，H8 是 lifecycle/reference trace checkpoint，H9 是章节有效期窗口 checkpoint，H10 是跨作品记忆隔离 checkpoint，H11 是同一作品内 session/memory 分层 checkpoint。
+Longest Closed Prefix：Journey H 当前文件级可交付。H3-H4/H6-H11 均有当前可复跑 Tauri / quality 入口；H1/H2 的完整 archive stats/detail 矩阵降为 P1，不再用历史 artifact 直接标当前已验收。
 
-Current Breakpoint：H3 正式记忆管理工作台入口已闭环；H6 adoption -> governed memory 已有 CP2 真实页面证据，覆盖显式伏笔/规则 artifact 采纳后按 `FORESHADOWING` / `WORLD_RULE` 等语义归类、tab 重开可见与 recall/why；H7 基础状态治理已证明 locked/terminal 状态影响 recall/why；H8 已证明 lifecycle/reference author-safe 追溯；H9 已证明章节有效期窗口参与普通召回；H10 已证明真实工作台跨作品切换后档案、记忆页、recall 和 why 不串作品；H11 已证明同一作品内 historical read-only transcript、active session transcript、current work snapshot 与 governed memory 在 context/why 中分层且不互相伪装。
+Current Breakpoint：AU-09 文件级收口已完成，10/14 已验收、1/14 已测试、3/14 部分实现，P0=0。8 个当前 AU-09 quality 入口覆盖记忆创建确认召回、管理入口、生命周期终态排除、lifecycle/reference author-safe 追溯、伏笔/规则 adoption、角色主档案、有效期窗口、跨作品隔离和 AU-03 会话/记忆分层。
 
-Next Proof：Journey H 后续转向 developer replay、历史旧 turn 查询、完整独立 MemoryTrace/StateTrace 表和 Channel 管理入口；当前队首已转到 AU11 / VS-00D 质量诊断 message envelope。
+Next Proof：Journey H 后续转向完整 archive stats current driver、pending inbox、筛选分页真实页面矩阵、developer replay、历史旧 turn 查询、完整独立 MemoryTrace/StateTrace 表和 Channel 管理入口；当前按用户指定顺序进入 AU-10 文件级审计。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
-| H1 | 打开作品档案看到真实角色/伏笔/规则/统计 | AU-09 | TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/au09-archive-real-data-tauri/summary.json` | 跨作品 UI 隔离复验仍可补。 |
-| H2 | 档案 L2 列表到 L3 详情只读查看 | AU-09 | TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/au09-archive-real-data-tauri/summary.json` | L4 lineage 未闭环。 |
+| H1 | 打开作品档案看到真实角色/伏笔/规则/统计 | AU-09 | TurnResultViewModel | partial | Tauri automation + historical artifact | 当前 `au09-character-dossier-roundtrip` / `au09-adopt-setting-recall` / `au09-cross-work-memory-isolation` 覆盖角色、伏笔、规则和跨作品隔离；历史 `au09-archive-real-data` 仅作背景 | 完整 archive stats current driver 是 P1。 |
+| H2 | 档案 L2 列表到 L3 详情只读查看 | AU-09 | TurnResultViewModel | partial | Tauri automation + historical artifact | 当前角色/伏笔/规则 tab 有可复跑入口；历史 `au09-archive-real-data` 仅作背景 | 完整 detail/lineage current driver 是 P1。 |
 | H3 | 记忆 REST 管理入口 | AU-09 | AuthorActionInput / MemoryItem | checkpoint closed | Tauri automation + Application/Persistence test | controller/service/repo 测试和台账记录；`tasks/slices/AU09-memory-management-workbench-entry.md`；`artifacts/slice-verify/au09-memory-management-entry-tauri/summary.json` | 正式工作台入口、创建、确认、锁定、废弃、归档与基础 recall/why 已闭环；仍缺 trace/replay 和正式设计追溯。 |
-| H4 | 已确认记忆召回进 context/prompt | AU-09 / AU-03 | DialogueContext / ContextSourceRef | closed | Tauri automation | `artifacts/slice-verify/au09-memory-recall-context-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au09-memory-recall-context` | AU-03 会话分层已由 H11 补齐；跨作品记忆隔离另列 H10。 |
-| H5 | 作者查看某条记忆为何被引用 | AU-09 / AU-07 | TraceSummaryView | checkpoint closed / 仍待 replay 深化 | Tauri automation | why 面板可显示 memory summary；记忆详情可显示 lifecycle/reference 追溯 | developer replay 与历史旧 turn 查询仍缺。 |
+| H4 | 已确认记忆召回进 context/prompt | AU-09 / AU-03 | DialogueContext / ContextSourceRef | closed | Tauri automation + quality acceptance | `artifacts/slice-verify/au09-memory-create-recall-tauri/summary.json`；`quality/acceptance/scenarios/au09-memory-create-recall.yml` | AU-03 会话分层已由 H11 补齐；跨作品记忆隔离另列 H10。 |
+| H5 | 作者查看某条记忆为何被引用 | AU-09 / AU-07 | TraceSummaryView | partial | Tauri automation + quality acceptance | `au09-memory-trace-roundtrip` 已证明 author-safe lifecycle/reference 追溯；why 面板可显示本轮 memory source | developer replay 与历史旧 turn 查询仍缺。 |
 | H6 | 面板内采纳设定进入 governed memory | AU-09 / AU-05 | AdoptionDecision / MemoryItem | checkpoint closed | Tauri automation + Agent/Persistence tests | `tasks/slices/AU09-archive-memory-roundtrip.md`；`artifacts/slice-verify/au09-adopt-setting-recall-tauri/summary.json`；`world_building -> foreshadowing_seed / *_rule_seed` prompt；`AdoptionRepository` 显式 artifact type memory 分类测试 | CP2 已补：真实页面从伏笔/规则 tab 生成显式 artifact、采纳后按 `FORESHADOWING` / `WORLD_RULE` 等语义分类、对应 tab 重开可见，并在下一轮 recall/why 中解释引用来源。 |
 | H7 | 记忆状态机、locked、terminal 影响召回 | AU-09 | MemoryItem / DialogueContext | checkpoint closed | Tauri automation + Domain/Persistence test | `artifacts/slice-verify/au09-memory-management-entry-tauri/summary.json`；memory status guard tests | locked 可召回且终端动作禁用、deprecated/archived 不再进入后续 memory context/why 已有真实 UI 证据；有效期窗口已由 H9 补齐。 |
 | H8 | 记忆治理 trace / replay | AU-09 / AU-07 | MemoryTrace / StateTrace / TraceSummaryView | checkpoint closed / replay 待深化 | Tauri automation + Application/Persistence test | `artifacts/slice-verify/au09-memory-trace-roundtrip-tauri/summary.json`；`tasks/slices/AU09-memory-trace-roundtrip.md` | lifecycle/reference author-safe 追溯已补；完整 developer replay、独立 trace table 和历史旧 turn 查询仍缺。 |
@@ -379,18 +379,18 @@ Next Proof：Journey H 后续转向 developer replay、历史旧 turn 查询、�
 
 真实消费者：why 面板、ReplayService、developer replay report、业务日志回溯。
 
-Longest Closed Prefix：I1。
+Longest Closed Prefix：I1；I4 的 StateTrace producer 与 Behavior terminal producer 已有 AU-07 文件级 Tauri evidence。
 
-Current Breakpoint：I2-I5 仍是局部证据，缺多 trace 聚合和旧 turn 查询。
+Current Breakpoint：AU-07 文件级 P0 已关闭；I2-I5 的旧 turn 查询、developer 双视图、完整 ToolTrace registry snapshot、六问 report 和 work/session 查询隔离仍是 P1 后续。
 
-Next Proof：从一个包含 context/tool/behavior/state 的真实 turn 打开 why -> author-safe summary；developer replay report 回答六问且不调 LLM。
+Next Proof：从持久旧 turn 查询生成 author-safe replay report；developer replay report 回答六问且不调 LLM，并证明 work/session 授权隔离。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
 | I1 | 当前消息旁打开“为什么”入口 | AU-07 | TraceSummaryView | closed | Tauri automation | `artifacts/slice-verify/au07-trace-why-entry-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh au07-trace-why-entry` | 旧 turn 查询入口仍缺。 |
 | I2 | author-safe trace summary 脱敏 | AU-07 | TraceSummaryView | partial | Application + Tauri evidence | `TraceRedactor` 测试、why UI 最小证据 | developer 双视图权限边界未闭环。 |
 | I3 | replay 不调 LLM | AU-07 / E2E | ReplayReport | partial | Application test | `ReplayService` 单测、E2E replay | 缺持久化 trace 查询到 UI/API 的闭环。 |
-| I4 | ToolTrace / BehaviorTrace / StateTrace 聚合 | AU-07 / AU-06 / AU-05 | ToolTrace / BehaviorTrace / StateTrace | gap | Document only | DecisionTrace 摘要级字段存在 | 完整六问 ReplayReport 未闭环。 |
+| I4 | ToolTrace / BehaviorTrace / StateTrace 聚合 | AU-07 / AU-06 / AU-05 | ToolTrace / BehaviorTrace / StateTrace | checkpoint closed / P1 follow-up | Tauri automation + application/persistence test | `artifacts/slice-verify/au07-state-trace-adoption-replay-tauri/summary.json`；`artifacts/slice-verify/au07-behavior-trace-terminal-replay-tauri/summary.json`；ReplayService / TraceRepository tests | StateTrace producer 与 Behavior terminal producer 已闭环；完整 ToolTrace registry snapshot、旧 turn UI/API 和六问 ReplayReport 仍待后续。 |
 | I5 | 旧 turn 查询、跨 work/session trace 隔离 | AU-07 / SU-02 | DecisionTrace / ReplayReport | gap | Document only | AU07-GAP-09/10 | 缺 trace 查询 API/UI 与隔离验收。 |
 
 ---
@@ -438,18 +438,18 @@ Next Proof：Journey J 后续是完整异步 LongRunner streaming 和恢复后�
 | D 创作生命周期 | D1-D3 + P1 长篇主链 checkpoint + VS-00C CP5 | creative-quality / maintenance 后续 | 多个 | Tauri + tests | closed-prefix |
 | E 执行与行为 | E1-E2 局部 | E3/E4 lifecycle completion | 多个 P0 | Mixed | needs-focus |
 | F 草稿与采纳 | F1-F8 checkpoint | revision/state trace completeness | 多个 P0 | Tauri | watch |
-| G 阅读投影 | G1-G2 | G3 refresh state machine | 多个 P0/P1 | Tauri | watch |
-| H 记忆治理 | H1-H4 + H6 adoption/recall checkpoint + H7 lifecycle checkpoint + H8 trace checkpoint + H9 validity checkpoint + H10 cross-work isolation checkpoint + H11 session memory layering checkpoint | replay / old turn / full trace table | 多个 P0/P1 | Tauri + tests | watch |
-| I Trace/Replay | I1 | I2-I5 trace/replay completeness | 多个 P0/P1 | Tauri + tests | needs-focus |
+| G 阅读投影 | G1-G4 核心链 | G3 refresh state machine | P1 | Tauri | watch |
+| H 记忆治理 | AU-09 文件级可交付：H3-H4/H6-H11 当前 Tauri/quality 闭环，H1/H2 部分实现 | archive stats / pending inbox / replay / old turn / full trace table | P1/P2 | Tauri + tests | watch |
+| I Trace/Replay | I1 + I4 producer checkpoints | I2-I5 old-turn/developer/full-report completeness | 多个 P1 | Tauri + tests | watch |
 | J 工作台体验 | J1-J5 最小闭环 + J8 baseline checkpoint + J9 task_state checkpoint + J10 CP1 provider failure recovery + CP2 service reconnect recovery + CP3A cancel waiting recovery + CP3B provider timeout recovery | LongRunner deferred / 深矩阵待补 | 多个 P0/P1 | Tauri | watch |
 
 当前推进锁定：
 
 ```text
-Current Focus: AU11 / VS-00D 质量诊断 Message Envelope
-Current Journey: Cross Journey C/D/I（自然输入、创作质量判断、trace 解释）
-Current Breakpoint: SC-AU11-01 quality diagnosis message envelope
-Next Task: AU11-quality-diagnosis-message-envelope
+Current Focus: 滚动验收文件级闭环，当前可进入 AU-10 工作台实时交互
+Current Journey: Journey J（工作台体验），同时引用 Journey B/F/G/H/I 的已闭环证据
+Current Breakpoint: AU10-file-level-audit
+Next Task: AU10-file-level-audit
 ```
 
 ---
@@ -476,18 +476,18 @@ Next Task: AU11-quality-diagnosis-message-envelope
 `tasks/NEXT.md` 当前规定：
 
 ```text
-Current Focus: AU11 AI 引导式创作：质量诊断 Message Envelope 最小闭环
-Active Journey: Cross Journey C/D/I
-Queue head: AU11-quality-diagnosis-message-envelope
+Current Focus: 滚动验收文件级闭环，当前可进入 AU-10 工作台实时交互
+Active Journey: Journey J（工作台体验）
+Queue head: AU10-file-level-audit
 ```
 
 本文对应位置：
 
 ```text
-Cross Journey C/D/I / AU11
-Step: SC-AU11-01 质量诊断 Message Envelope
-Status: next
-Gap / Next: VS-00C CP0-CP5、AU10 task_state/provider failure/reconnect/cancel/timeout checkpoint 已闭环；AU09 archive memory roundtrip CP2、memory management entry、memory trace roundtrip、validity window recall、cross-work memory isolation 和 AU09/AU03 session memory layering 均已闭环。当前转向 AU11 / VS-00D，证明质量诊断 turn 能在真实工作台 trace/why 中重建小说层、当前作品层和本轮引导层。
+Journey H / AU-09
+Step: AU09-file-level-closure
+Status: file-level deliverable
+Gap / Next: AU-09 核心记忆治理链 P0 已关闭；8 个 AU-09 quality 入口已挂入当前 Tauri acceptance。完整 archive stats、pending inbox、筛选分页、developer replay、历史旧 turn 查询、Channel 管理入口和完整 MemoryTrace/StateTrace 登记为 P1/P2。下一步按用户指定顺序进入 AU-10。
 ```
 
 选择规则：

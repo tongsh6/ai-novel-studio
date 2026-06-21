@@ -2,7 +2,7 @@
 
 > 作者视角：我有一个模糊的创作想法但还没想清楚，AI 应该像创作伙伴一样帮我展开思路、给出几个可能方向，并允许我选择某个方向继续探索。候选方向是灵感入口，不应自动写入作品事实；若要采纳为正式方向，必须经过明确的 adoption boundary。
 >
-> 2026-06-20 对账结论：后端 creative exploration、candidate fallback、malformed candidate 修复已有较强证据；真实 `WorkspaceChat` 已能渲染候选卡，并区分“继续讨论”“自由追问”和“设为后续方向”。`au02-natural-exploration-no-slot-form` 证明模糊创意从真实工作台进入 `creative_exploration`，自然回复和候选卡可见，且没有机械 slot form、MicroPlan、工具/确认/采纳卡或 production write；同一 driver 的 `--real-lmstudio` 变体进一步证明真实 LM Studio 请求成功，用户可见回复是中文自然语言、没有 JSON/代码块形态，候选方向语义贴合“赛博修仙”。`au02-candidate-fallback-ui` 证明上游候选坏格式时 Planner fallback 候选会以真实候选卡渲染，字段非空、`not_adopted`，且无 action/adoption/write；`au02-candidate-continuation` 证明继续讨论发送 `user_message.candidate_selection`，不提交 `author_action`、不触发 adoption、不写作品事实；`au02-candidate-multiturn-context` 证明点击继续讨论后，再发送不带候选引用的普通追问时，会话上下文仍能沿着已选候选方向继续，且无 action/adoption/write；`au02-freeform-followup-after-candidate` 证明候选卡出现后作者不点候选按钮也能直接手输自由追问，发送无 `candidate_selection` 的普通 `user_message`；`au02-candidate-adoption-bridge` 证明明确采纳才提交服务端授权 `author_action.choose_candidate` 并进入 `AdoptionBoundary`；`au02-unadopted-candidate-no-reading-fact` 证明未点击候选动作时阅读模式仍为空 TOC，候选标题/简介不进入阅读内容，且无 action/adoption/projection/write；`AU02-candidate-schema-codegen` 固化候选方向 schema/codegen，防止 `not_adopted` 再与 artifact adoption 7 态或旧 fixture 混淆。历史旁路工作台已退役删除，不再作为当前证据。
+> 2026-06-21 对账结论：后端 creative exploration、candidate fallback、malformed candidate 修复已有较强证据；真实 `WorkspaceChat` 已能渲染候选卡，并区分“继续讨论”“自由追问”和“设为后续方向”。`au02-natural-exploration-no-slot-form` 证明模糊创意从真实工作台进入 `creative_exploration`，自然回复和候选卡可见，且没有机械 slot form、MicroPlan、工具/确认/采纳卡或 production write；同一 driver 的 `--real-lmstudio` 变体进一步证明真实 LM Studio 请求成功，用户可见回复是中文自然语言、没有 JSON/代码块形态，候选方向语义贴合“赛博修仙”。`au02-candidate-fallback-ui` 证明上游候选坏格式时 Planner fallback 候选会以真实候选卡渲染，字段非空、`not_adopted`，且无 action/adoption/write；`au02-candidate-continuation` 证明继续讨论发送 `user_message.candidate_selection`，不提交 `author_action`、不触发 adoption、不写作品事实；`au02-candidate-multiturn-context` 证明点击继续讨论后，再发送不带候选引用的普通追问时，会话上下文仍能沿着已选候选方向继续，且无 action/adoption/write；`au02-freeform-followup-after-candidate` 证明候选卡出现后作者不点候选按钮也能直接手输自由追问，发送无 `candidate_selection` 的普通 `user_message`；`au02-candidate-adoption-bridge` 证明明确采纳才提交服务端授权 `author_action.choose_candidate` 并进入 `AdoptionBoundary`；`au02-unadopted-candidate-no-reading-fact` 证明未点击候选动作时阅读模式仍为空 TOC，候选标题/简介不进入阅读内容，且无 action/adoption/projection/write；7 个 AU-02 默认 quality acceptance 入口和 `au02-natural-exploration-no-slot-form --provider lmstudio` 均已复跑通过；`AU02-candidate-schema-codegen` 固化候选方向 schema/codegen，防止 `not_adopted` 再与 artifact adoption 7 态或旧 fixture 混淆。历史旁路工作台已退役删除，不再作为当前证据。
 
 ---
 
@@ -300,7 +300,7 @@
 | SC-AU02-D1 | 本地 LM Studio 产生质量可用中文探索 | Tauri + real LMStudio 已验收 | 是 |
 | SC-AU02-D2 | 前后端候选契约一致 | 已测试 | 是（schema/codegen/类型/测试回归） |
 
-**覆盖结论：12 个用户场景；11/12 已有真实 Tauri 前后端验收，其中 A1/A2 由 `au02-natural-exploration-no-slot-form` 补齐，D1 由同一 driver 的 `--real-lmstudio` provider 变体补齐，B2 的未采纳阅读/事实反证由 `au02-unadopted-candidate-no-reading-fact` 补齐，B3 的坏候选 fallback UI 反证由 `au02-candidate-fallback-ui` 补齐，C1 的多轮候选上下文由 `au02-candidate-multiturn-context` 补齐；D2 是 schema/codegen/类型契约回归，已测试。AU-02 当前无 P0/P1 剩余缺口，可进入 AU-03。**
+**覆盖结论：12 个用户场景；11/12 已有真实 Tauri 前后端验收，其中 A1/A2 由 `au02-natural-exploration-no-slot-form` 补齐，D1 由同一 driver 的 `--real-lmstudio` provider 变体补齐，B2 的未采纳阅读/事实反证由 `au02-unadopted-candidate-no-reading-fact` 补齐，B3 的坏候选 fallback UI 反证由 `au02-candidate-fallback-ui` 补齐，C1 的多轮候选上下文由 `au02-candidate-multiturn-context` 补齐；D2 是 schema/codegen/类型契约回归，已测试。`tasks/slices/AU02-file-level-closure.md` 已补文件级对账和收口记录。AU-02 当前无 P0/P1 剩余缺口，可进入 AU-03。**
 
 ---
 

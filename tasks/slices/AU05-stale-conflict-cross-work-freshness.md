@@ -1,10 +1,10 @@
 # AU05 Stale / Conflict / Cross-Work Freshness / 过期、冲突与跨作品采纳安全
 
-- 状态：checkpoint closed（stale source）；conflict / cross-work recovery 仍待后续
+- 状态：checkpoint closed（stale source）；conflict / cross-work / canon recovery 已由后续 checkpoint 闭环
 - 类型：Safety Slice / Adoption Boundary
 - 来源：`tasks/slices/AU05-adoption-safety-freshness.md` §6；`docs/design/acceptance/author/AU-05-artifact-adoption.md` AU05-GAP-06 / SC-AU05-C3~C5
 - 当前目标：在高风险候选 confirmation 已闭环后，继续把 stale source、canon conflict、cross-work action 的拒绝或恢复路径做成真实工作台可验收的产品链路。
-- 本轮 checkpoint：已闭环“从持久化 transcript 恢复出的 stale candidate 不能被静默采纳”。真实 Tauri 工作台恢复旧候选卡，作者点击可见“采用这个方向”，后端通过 `ActionValidator -> DialogueGateway -> AdoptionBoundary` 返回 `reject`，UI 显示拒绝结果，`production_write_performed=false`。
+- 本轮 checkpoint：已闭环“从持久化 transcript 恢复出的 stale candidate 不能被静默采纳”。真实 Tauri 工作台恢复旧候选卡，作者点击可见“设为后续方向”，后端通过 `ActionValidator -> DialogueGateway -> AdoptionBoundary` 返回 `reject`，UI 显示拒绝结果，`production_write_performed=false`。
 
 ---
 
@@ -55,12 +55,12 @@
 ```text
 恢复 active session transcript
 → 旧候选卡在真实工作台可见
-→ 作者点击“采用这个方向”
+→ 作者点击“设为后续方向”
 → Channel 提交服务端授权的 author_action.choose_candidate
 → ActionValidator 接受恢复后的 string-key source 字段
 → DialogueGateway 重建 stale CandidateSet
 → AdoptionBoundary 返回 reject
-→ UI 显示“候选方向未采用”
+→ UI 显示“后续方向未设置”
 → truthfulness.candidate_adopted=false
 → truthfulness.production_write_performed=false
 ```
@@ -87,6 +87,5 @@
 ### 5.4 未闭环缺口
 
 - 后续 cross-work 与 canon conflict checkpoint 已补；仍缺真实 revision/canon store 自动计算、覆盖确认和完整 StateTrace 产品链路。
-- cross-work 仍缺真实工作台跨作品旧 action 的可复跑验收。
 - context version / state snapshot freshness 仍未形成完整持久化 contract。
 - 完整 AU-04 confirmation re-gate 与 StateTrace 持久化仍是后续 slice。
