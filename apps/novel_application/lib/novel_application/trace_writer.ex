@@ -6,6 +6,7 @@ defmodule NovelApplication.TraceWriter do
   alias NovelApplication.TraceRedactor
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
+  alias NovelDomain.BehaviorState
   alias NovelDomain.ContextSourceRef
   alias NovelDomain.DecisionTrace
   alias NovelDomain.DialogueContext
@@ -70,6 +71,7 @@ defmodule NovelApplication.TraceWriter do
       trace_id: trace_id,
       turn_id: frame.turn_id,
       frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
       decision_type: decision_type_for(decision.decision_type),
       no_tool_reason: "micro_plan_evaluated_by_orchestrator",
       no_behavior_reason: no_behavior_reason(frame.frame_type),
@@ -92,6 +94,7 @@ defmodule NovelApplication.TraceWriter do
     summary =
       %{
         trace_ref: trace_id,
+        plan_ref: plan.plan_id,
         decision_type: trace.decision_type,
         frame_type: frame.frame_type,
         dialogue_goal: frame.dialogue_goal.summary,
@@ -119,7 +122,7 @@ defmodule NovelApplication.TraceWriter do
         ) :: {DecisionTrace.t(), map()}
   def record_with_tool(
         %DialogueFrame{} = frame,
-        %MicroPlan{} = _plan,
+        %MicroPlan{} = plan,
         %OrchestratorDecision{} = decision,
         %ToolRequest{} = req,
         %ToolResult{} = result,
@@ -133,6 +136,7 @@ defmodule NovelApplication.TraceWriter do
       trace_id: trace_id,
       turn_id: frame.turn_id,
       frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
       decision_type: :tool_dispatched,
       no_tool_reason: "tool_was_dispatched",
       no_behavior_reason: "tool_execution_completed",
@@ -140,6 +144,7 @@ defmodule NovelApplication.TraceWriter do
       turn_result_ref: turn_result[:turn_id] || frame.turn_id,
       replay_policy: %{use_recorded_frame: true, recall_provider: false},
       redaction_level: :author_safe,
+      tool_trace_refs: [tool_trace_ref(req, result, decision)],
       event_order: [
         :author_input_received,
         :dialogue_frame_validated,
@@ -156,6 +161,7 @@ defmodule NovelApplication.TraceWriter do
     summary =
       %{
         trace_ref: trace_id,
+        plan_ref: plan.plan_id,
         decision_type: :tool_dispatched,
         tool_name: req.tool_name,
         tool_version: req.tool_version,
@@ -170,6 +176,18 @@ defmodule NovelApplication.TraceWriter do
       |> maybe_put_ai_message_envelope(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
+  end
+
+  @doc "Attach a behavior lifecycle ref to an already allocated DecisionTrace."
+  @spec attach_behavior(DecisionTrace.t(), BehaviorState.t(), atom()) :: DecisionTrace.t()
+  def attach_behavior(%DecisionTrace{} = trace, %BehaviorState{} = behavior, event_type \\ :open) do
+    ref = behavior_trace_ref(behavior, event_type)
+
+    %{
+      trace
+      | behavior_trace_refs: trace.behavior_trace_refs ++ [ref],
+        event_order: append_once(trace.event_order, :behavior_trace_recorded)
+    }
   end
 
   # CP1：本轮组装/执行期被省略的材料进入作者可见 trace（`06` §5.3 omission_notes / §7）。
@@ -291,4 +309,34 @@ defmodule NovelApplication.TraceWriter do
   defp author_safe_summary(_ref), do: nil
 
   defp allocate_trace_id, do: "trace_#{System.unique_integer([:positive, :monotonic])}"
+
+  defp tool_trace_ref(%ToolRequest{} = req, %ToolResult{} = result, %OrchestratorDecision{} = d) do
+    %{
+      trace_status: :summary_level,
+      tool_request_ref: req.tool_request_id,
+      tool_result_ref: result.tool_result_id,
+      tool_name: req.tool_name,
+      tool_version: req.tool_version,
+      tool_status: result.status,
+      decision_ref: d.decision_id
+    }
+  end
+
+  defp behavior_trace_ref(%BehaviorState{} = behavior, event_type) do
+    %{
+      trace_status: :summary_level,
+      behavior_ref: behavior.behavior_id,
+      behavior_type: behavior.behavior_type,
+      event_type: event_type,
+      event_turn_ref: behavior.closed_at_turn_ref || behavior.opened_at_turn_ref,
+      decision_ref: behavior.opened_by_decision_ref,
+      target_ref: behavior.target_ref,
+      next_status: behavior.lifecycle_status,
+      required_next_action: behavior.required_next_action
+    }
+  end
+
+  defp append_once(values, value) do
+    if value in values, do: values, else: values ++ [value]
+  end
 end

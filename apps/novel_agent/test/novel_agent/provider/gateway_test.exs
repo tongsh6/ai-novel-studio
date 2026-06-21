@@ -259,6 +259,34 @@ defmodule NovelAgent.Provider.GatewayTest do
 
       assert Gateway.provider_metadata() == %{provider: :stub, model: nil}
     end
+
+    test "performs a real /models network probe instead of only checking key presence" do
+      old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
+      test_pid = self()
+
+      # 有 key 但端点返回 401：真实探测必须失败。
+      # 旧逻辑（仅查 key 是否存在）会在这里误报"连接可用"——这正是被发现的假按钮。
+      mock = fn url, _opts ->
+        send(test_pid, {:models_probe, url})
+        {:error, :http_error, 401, "Unauthorized"}
+      end
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
+        api_key: "configured-but-invalid",
+        endpoint: "https://api.deepseek.com",
+        get_fn: mock
+      )
+
+      try do
+        assert {:error, %{provider: :deepseek, error: %{type: :auth}}} =
+                 Gateway.test_provider(%{"provider" => "deepseek"})
+
+        assert_received {:models_probe, "https://api.deepseek.com/models"}
+        assert Gateway.provider_metadata() == %{provider: :stub, model: nil}
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
   end
 
   describe "provider_models/1" do

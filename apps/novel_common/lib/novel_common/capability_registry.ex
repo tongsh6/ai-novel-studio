@@ -52,6 +52,21 @@ defmodule NovelCommon.CapabilityRegistry do
         supports_retry: false,
         supports_cancellation: false
       },
+      "character_roster" => %CapabilityRegistryEntry{
+        tool_name: "character_roster",
+        tool_version: "1.0.0",
+        tool_layer: :memory,
+        input_contract_ref: "character_roster_query_v1",
+        output_contract_ref: "character_roster_result_v1",
+        read_scopes: ["character_list"],
+        write_scopes: [],
+        risk_class: :low,
+        status: :active,
+        trace_level: :standard,
+        provider_dependency: :none,
+        supports_retry: false,
+        supports_cancellation: false
+      },
       "world_building" => %CapabilityRegistryEntry{
         tool_name: "world_building",
         tool_version: "1.0.0",

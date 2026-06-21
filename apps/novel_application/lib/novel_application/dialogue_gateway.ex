@@ -356,6 +356,7 @@ defmodule NovelApplication.DialogueGateway do
       trace_id: trace.trace_id,
       turn_id: trace.turn_id,
       frame_ref: trace.frame_ref,
+      plan_ref: trace.plan_ref,
       decision_type: to_string(trace.decision_type),
       no_tool_reason: trace.no_tool_reason,
       no_behavior_reason: trace.no_behavior_reason,
@@ -363,6 +364,9 @@ defmodule NovelApplication.DialogueGateway do
       turn_result_ref: trace.turn_result_ref,
       replay_policy: trace.replay_policy,
       redaction_level: to_string(trace.redaction_level),
+      tool_trace_refs: jsonable(trace.tool_trace_refs),
+      behavior_trace_refs: jsonable(trace.behavior_trace_refs),
+      state_trace_refs: jsonable(trace.state_trace_refs),
       event_order: Enum.map(trace.event_order, &to_string/1)
     }
   end
@@ -588,6 +592,8 @@ defmodule NovelApplication.DialogueGateway do
     source_turn_id = map_field(source_turn_result, :turn_id)
     turn_id = "turn_#{System.unique_integer([:positive, :monotonic])}"
     target_summary = cancel_target_summary(action_input)
+    behavior_state = cancel_waiting_behavior_state(action_input, source_turn_result, turn_id)
+    behavior_trace_refs = terminal_behavior_trace_refs(behavior_state, :close)
 
     %{
       schema_version: "3.0-draft",
@@ -601,16 +607,23 @@ defmodule NovelApplication.DialogueGateway do
         dialogue_goal: "取消等待中的操作"
       },
       trace_summary: %{
+        trace_ref: "trace:#{turn_id}",
         decision_type: "cancel_waiting",
         reason_codes: ["author_cancelled_waiting_behavior"],
         source_turn_ref: source_turn_id,
         behavior_ref: action_input.behavior_ref,
-        target_ref: action_input.target_ref
+        target_ref: action_input.target_ref,
+        behavior_trace_refs: behavior_trace_refs,
+        no_tool_reason: "author_action_does_not_call_tool",
+        no_behavior_reason: "author action closed waiting behavior",
+        no_write_reason: "cancel waiting action does not perform production write",
+        replay_policy: %{use_recorded_frame: true, recall_provider: false},
+        event_order: cancel_waiting_event_order(behavior_trace_refs)
       },
       phase: "cancelled",
       status: "cancelled",
       available_actions: [],
-      behavior_state: cancel_waiting_behavior_state(action_input, source_turn_result, turn_id),
+      behavior_state: behavior_state,
       projection_refs: [],
       truthfulness: %{
         tool_called: false,
@@ -707,6 +720,45 @@ defmodule NovelApplication.DialogueGateway do
     |> BehaviorState.snapshot()
   end
 
+  defp terminal_behavior_trace_refs(%{history: [history | _]}, event_type) when is_map(history) do
+    [
+      %{
+        trace_status: :summary_level,
+        behavior_ref: map_field(history, :behavior_id),
+        behavior_type: map_field(history, :behavior_type),
+        event_type: event_type,
+        event_turn_ref: map_field(history, :closed_at_turn_ref),
+        decision_ref: map_field(history, :opened_by_decision_ref),
+        target_ref: map_field(history, :target_ref),
+        next_status: map_field(history, :status),
+        required_next_action: map_field(history, :required_next_action),
+        resolution_ref: map_field(history, :resolution_ref),
+        trace_ref: map_field(history, :trace_ref)
+      }
+      |> reject_blank_values()
+    ]
+  end
+
+  defp terminal_behavior_trace_refs(_behavior_state, _event_type), do: []
+
+  defp cancel_waiting_event_order([_ | _]) do
+    [
+      :author_action_received,
+      :behavior_close_requested,
+      :behavior_trace_recorded,
+      :behavior_resolution_recorded,
+      :turn_result_emitted
+    ]
+  end
+
+  defp cancel_waiting_event_order([]) do
+    [
+      :author_action_received,
+      :behavior_close_requested,
+      :turn_result_emitted
+    ]
+  end
+
   defp cancelled_behavior_type(active_behavior) do
     case map_field(active_behavior, :behavior_type) do
       :clarification -> :clarification
@@ -719,6 +771,10 @@ defmodule NovelApplication.DialogueGateway do
 
   defp first_present(values) do
     Enum.find(values, &(not blank?(&1)))
+  end
+
+  defp reject_blank_values(map) when is_map(map) do
+    Map.reject(map, fn {_key, value} -> blank?(value) end)
   end
 
   defp candidate_turn_result(source_turn_result, chosen_candidate, %AdoptionDecision{} = decision) do
@@ -1149,6 +1205,8 @@ defmodule NovelApplication.DialogueGateway do
   defp handle_behavior_open(frame, plan, decision, behavior, candidates, context) do
     {trace, trace_summary} =
       TraceWriter.record_with_decision(frame, plan, decision, %{turn_id: frame.turn_id}, context)
+
+    trace = TraceWriter.attach_behavior(trace, behavior, :open)
 
     # plan 是确认 re-gate 的载体（ADR-0009），但 TurnResult 要经 channel broadcast（Jason）
     # 与 Interaction 持久化（Ecto :map），raw struct 会 Protocol.UndefinedError /

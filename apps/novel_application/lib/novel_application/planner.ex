@@ -146,13 +146,14 @@ defmodule NovelApplication.Planner do
     - frame_type: #{frame.frame_type}
     - dialogue_goal: #{frame.dialogue_goal.summary}
 
-    ## 当前开放的创作工具 (Capabilities)
+    ## 当前开放的工具 (Capabilities)
     #{Enum.join(tools, ", ")}
 
     ## 工具选择规则
+    - 查看、列出、查询当前角色列表 / 已有角色 / 人物表 → character_roster（只读，不生成新角色）
     - 正文、开篇场景、具体片段、场景描写、动作描写、续写、章节草稿 → prose_writing
     - 大纲、章节规划、分卷、卷数、章节数、剧情走向、角色成长线、势力结构 → plot_outline
-    - 角色、人物、小传、动机、关系 → character_design
+    - 生成或设计新的角色、人物小传、动机、关系 → character_design
     - 世界观、规则体系、门派/组织/地理/设定 → world_building
     #{accepted_chapters_section(context)}
     ## 用户输入
@@ -167,7 +168,7 @@ defmodule NovelApplication.Planner do
           "action_id": "act-1",
           "action_type": "capability_invocation",
           "summary": "人类可读的动作描述",
-          "target_ref": "工具名称 (如 world_building, character_design, plot_outline, prose_writing)",
+          "target_ref": "工具名称 (如 character_roster, world_building, character_design, plot_outline, prose_writing)",
           "write_intent": "none" | "tentative",
           "risk_hint": "low" | "medium" | "high",
           "authoring_intent": "none" | "continuation" | "rewrite",
@@ -197,7 +198,8 @@ defmodule NovelApplication.Planner do
     - proposed_actions 只能包含 capability_invocation 类型的动作
     - 每个 action 的 target_ref 必须指向上面开放工具列表中的一个
     - 不要包含 "approved", "ready_to_execute", "execution_approved" 等批准语义
-    - 只需要 1 个 action，不要建议多个
+    - 默认只建议 1 个下一步 action
+    - 如果用户明确要求多个彼此独立的操作（例如同时重写章节、更新角色、整理伏笔），必须逐项列为多个 proposed_actions；不要把多步请求压缩成一个动作，也不要声称已经执行
     - risk_hint 默认用 "low"
     """
   end
@@ -342,6 +344,7 @@ defmodule NovelApplication.Planner do
     }
 
     ## 规则
+    - 作者要求“查看/列出/查询当前角色列表/已有角色/人物表”时，这是低风险只读工具请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
     - 作者要求“写/生成/产出/描写/续写/规划/安排/整理/开篇场景/正文/章节草稿/具体片段”时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
     - 作者要求“大纲/卷数/章节数/角色成长路线/势力结构/角色设定/世界观设定/剧情设计”等具体交付物时，也属于创作产出请求，needs_tool 必须为 true
     - 如果作者显式说“先聊/只聊/讨论/不要写/不要改/别生成/不保存”，必须按普通对话处理：needs_tool=false，frame_type 不得为 execution_candidate，不能调用工具或写入作品事实
@@ -777,8 +780,7 @@ defmodule NovelApplication.Planner do
     do: "创作引擎返回的格式不符合工作台契约，请重试。"
 
   defp fallback_message(:invalid_request),
-    do:
-      "创作引擎拒绝了这次请求：模型参数可能配置有误（如思考模式、推理强度）。这一轮没有创建待采纳内容，也没有写入作品事实。请在模型设置中检查参数后重试。"
+    do: "创作引擎拒绝了这次请求：模型参数可能配置有误（如思考模式、推理强度）。这一轮没有创建待采纳内容，也没有写入作品事实。请在模型设置中检查参数后重试。"
 
   defp fallback_message(:invalid_response), do: "创作引擎返回内容为空，请重试。"
 
@@ -865,6 +867,10 @@ defmodule NovelApplication.Planner do
     text = String.trim(text)
     has_production_verb? = contains_any?(text, ["写", "生成", "产出", "描写", "续写", "撰写", "创作"])
 
+    has_readonly_character_query? =
+      contains_any?(text, ["查看", "列出", "查询", "看看", "展示"]) and
+        contains_any?(text, ["当前角色列表", "角色列表", "已有角色", "人物表", "角色清单"])
+
     has_planning_verb? =
       contains_any?(text, ["规划", "计划", "安排", "整理", "设计"])
 
@@ -903,7 +909,8 @@ defmodule NovelApplication.Planner do
         "剧情结构"
       ])
 
-    ((has_production_verb? and has_deliverable?) ||
+    (has_readonly_character_query? ||
+       (has_production_verb? and has_deliverable?) ||
        (has_planning_verb? and has_planning_deliverable?)) and
       not explicit_discussion_only?(text)
   end

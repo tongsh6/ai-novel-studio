@@ -16,6 +16,7 @@ defmodule NovelPersistence.TraceRepositoryTest do
         trace_id: "trace-test-#{System.unique_integer([:positive, :monotonic])}",
         turn_id: "turn-test",
         frame_ref: "frame-test",
+        plan_ref: "plan-test",
         decision_type: "reply_only",
         no_tool_reason: "no_tool_needed",
         no_behavior_reason: "reply_only",
@@ -23,12 +24,36 @@ defmodule NovelPersistence.TraceRepositoryTest do
         turn_result_ref: "turn-test",
         replay_policy: %{use_recorded_frame: true, recall_provider: false},
         redaction_level: "author_safe",
-        event_order: ["author_input_received", "turn_result_emitted"]
+        event_order: ["author_input_received", "turn_result_emitted"],
+        tool_trace_refs: [
+          %{
+            "tool_request_ref" => "tool-request-test",
+            "tool_result_ref" => "tool-result-test",
+            "tool_version" => "vs-02"
+          }
+        ],
+        behavior_trace_refs: [
+          %{
+            "behavior_ref" => "behavior-test",
+            "event_type" => "open",
+            "next_status" => "awaiting_author"
+          }
+        ],
+        state_trace_refs: [
+          %{
+            "state_trace_ref" => "state-trace-test",
+            "event_type" => "candidate_adopted"
+          }
+        ]
       }
 
       assert {:ok, record} = TraceRepository.insert(attrs)
       assert record.trace_id == attrs.trace_id
       assert record.decision_type == "reply_only"
+      assert record.plan_ref == "plan-test"
+      assert [%{"tool_result_ref" => "tool-result-test"}] = record.tool_trace_refs
+      assert [%{"behavior_ref" => "behavior-test"}] = record.behavior_trace_refs
+      assert [%{"state_trace_ref" => "state-trace-test"}] = record.state_trace_refs
     end
 
     test "rejects duplicate trace_id" do

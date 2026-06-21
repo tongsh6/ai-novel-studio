@@ -742,6 +742,8 @@ defmodule NovelWeb.WorkspaceChannel do
         broadcast!(socket, "action_result", result)
         broadcast!(socket, "turn_result", turn_result)
         socket = remember_turn_result(socket, turn_result)
+        record_action_turn_result(socket, turn_result)
+        record_action_decision_trace(socket, turn_result)
         log_author_action_done(socket, action_input, result)
         {:reply, {:ok, %{received: true, action_status: result.status}}, socket}
 
@@ -767,6 +769,7 @@ defmodule NovelWeb.WorkspaceChannel do
     broadcast!(socket, "turn_result", turn_result)
     socket = remember_turn_result(socket, turn_result)
     record_action_turn_result(socket, turn_result)
+    record_action_decision_trace(socket, turn_result)
     log_author_action_done(socket, action_input, action_result)
     {:reply, {:ok, %{received: true, action_status: action_result.status}}, socket}
   end
@@ -869,6 +872,7 @@ defmodule NovelWeb.WorkspaceChannel do
         broadcast!(socket, "action_result", action_result)
         broadcast!(socket, "turn_result", turn_result)
         record_action_turn_result(socket, turn_result)
+        record_action_decision_trace(socket, turn_result)
         socket = remember_turn_result(socket, turn_result)
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -905,6 +909,7 @@ defmodule NovelWeb.WorkspaceChannel do
         broadcast!(socket, "action_result", action_result)
         broadcast!(socket, "turn_result", turn_result)
         record_action_turn_result(socket, turn_result)
+        record_action_decision_trace(socket, turn_result)
         socket = remember_turn_result(socket, turn_result)
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -936,6 +941,7 @@ defmodule NovelWeb.WorkspaceChannel do
         broadcast!(socket, "action_result", action_result)
         broadcast!(socket, "turn_result", turn_result)
         record_action_turn_result(socket, turn_result)
+        record_action_decision_trace(socket, turn_result)
         socket = remember_turn_result(socket, turn_result)
         duration = System.monotonic_time(:millisecond) - t0
 
@@ -1156,6 +1162,95 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp record_action_turn_result(_socket, _turn_result), do: :ok
+
+  defp record_action_decision_trace(socket, %{turn_id: turn_id} = turn_result)
+       when is_binary(turn_id) do
+    tracer = NovelApplication.persistence_tracer()
+
+    with true <- is_function(tracer, 2),
+         {:ok, attrs} <- action_trace_attrs(socket, turn_result) do
+      workspace_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby"
+
+      case tracer.(workspace_id, attrs) do
+        :ok ->
+          :ok
+
+        {:error, reason} ->
+          LogEmit.emit(:channel, :persist_trace, :error, %{
+            reason_code: :persistence_failed,
+            outcome_detail: inspect(reason)
+          })
+      end
+    else
+      _ -> :ok
+    end
+  end
+
+  defp record_action_decision_trace(_socket, _turn_result), do: :ok
+
+  defp action_trace_attrs(socket, turn_result) do
+    trace_summary = map_field(turn_result, :trace_summary)
+    trace_ref = map_field(trace_summary, :trace_ref)
+
+    if is_binary(trace_ref) and trace_ref != "" do
+      turn_id = map_field(turn_result, :turn_id)
+
+      {:ok,
+       %{
+         workspace_id: socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby",
+         session_id: socket.assigns[:session_id],
+         trace_id: trace_ref,
+         turn_id: turn_id,
+         frame_ref:
+           map_field(turn_result, :frame_ref) ||
+             map_field(trace_summary, :frame_ref) ||
+             "author_action:#{turn_id}",
+         plan_ref:
+           map_field(turn_result, :plan_ref) ||
+             map_field(trace_summary, :plan_ref),
+         decision_type: string_field(trace_summary, :decision_type, "author_action"),
+         no_tool_reason:
+           string_field(trace_summary, :no_tool_reason, "author_action_does_not_call_tool"),
+         no_behavior_reason:
+           string_field(trace_summary, :no_behavior_reason, "author_action_resolved"),
+         no_write_reason: string_field(trace_summary, :no_write_reason, "no production write"),
+         turn_result_ref: turn_id,
+         replay_policy:
+           map_field(trace_summary, :replay_policy) ||
+             %{use_recorded_frame: true, recall_provider: false},
+         redaction_level: "author_safe",
+         tool_trace_refs: trace_ref_list(trace_summary, :tool_trace_refs),
+         behavior_trace_refs: trace_ref_list(trace_summary, :behavior_trace_refs),
+         state_trace_refs: trace_ref_list(trace_summary, :state_trace_refs),
+         event_order: trace_event_order(trace_summary)
+       }}
+    else
+      :skip
+    end
+  end
+
+  defp trace_ref_list(trace_summary, key) do
+    trace_summary
+    |> map_field(key)
+    |> List.wrap()
+    |> Enum.filter(&is_map/1)
+  end
+
+  defp trace_event_order(trace_summary) do
+    case map_field(trace_summary, :event_order) do
+      [_ | _] = events -> Enum.map(events, &to_string/1)
+      _ -> ["author_action_received", "turn_result_emitted"]
+    end
+  end
+
+  defp string_field(map, key, default) do
+    case map_field(map, key) do
+      value when is_binary(value) and value != "" -> value
+      value when is_atom(value) -> Atom.to_string(value)
+      value when not is_nil(value) -> to_string(value)
+      _ -> default
+    end
+  end
 
   defp source_turn_result(socket, source_turn_ref) do
     current_turn_id = socket.assigns[:current_turn_id]

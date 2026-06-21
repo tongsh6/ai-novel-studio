@@ -18,6 +18,7 @@ defmodule NovelApplication.ToolProvenanceTest do
     test "lists registered tools" do
       tools = CapabilityRegistry.list()
       assert "text_analysis" in tools
+      assert "character_roster" in tools
       assert "disabled_tool" in tools
       refute ("creative_" <> "generation") in tools
     end
@@ -48,11 +49,13 @@ defmodule NovelApplication.ToolProvenanceTest do
 
     test "grants_valid? checks read scopes" do
       assert CapabilityRegistry.grants_valid?("text_analysis", ["author_text"], [])
+      assert CapabilityRegistry.grants_valid?("character_roster", ["character_list"], [])
       refute CapabilityRegistry.grants_valid?("text_analysis", ["admin_access"], [])
     end
 
     test "grants_valid? rejects write scopes for read-only tool" do
       refute CapabilityRegistry.grants_valid?("text_analysis", [], ["production_write"])
+      refute CapabilityRegistry.grants_valid?("character_roster", [], ["character_profile"])
     end
 
     test "grants_valid? returns false for unknown tool" do
@@ -170,6 +173,46 @@ defmodule NovelApplication.ToolProvenanceTest do
       refute Enum.any?(result.state_delta, &(&1[:type] == :production_write))
       # artifact_refs is empty (no artifacts created)
       assert result.artifact_refs == []
+    end
+
+    test "character_roster returns scoped read-only character facts" do
+      req = %ToolRequest{
+        tool_request_id: "tq-character-roster",
+        turn_id: "t",
+        frame_ref: "f",
+        decision_ref: "d",
+        tool_name: "character_roster",
+        tool_version: "1.0.0",
+        input: %{
+          "characters" => [
+            %{
+              id: "internal-id-not-output",
+              name: "林澈",
+              role: "主角",
+              summary: "追查灵源矿区真相",
+              aliases: ["林烬"],
+              status: "ACCEPTED"
+            }
+          ]
+        },
+        read_scope_grants: ["character_list"],
+        write_scope_grants: [],
+        idempotency_key: "idem",
+        created_at: DateTime.utc_now()
+      }
+
+      result = Toolbox.execute(req)
+
+      assert result.status == :succeeded
+      assert result.tool_name == "character_roster"
+      assert result.state_delta == []
+      assert result.artifact_refs == []
+      assert result.output.character_count == 1
+
+      assert [%{name: "林澈", role: "主角", summary: "追查灵源矿区真相"}] =
+               result.output.characters
+
+      refute inspect(result.output) =~ "internal-id-not-output"
     end
   end
 

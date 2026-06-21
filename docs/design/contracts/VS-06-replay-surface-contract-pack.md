@@ -83,6 +83,7 @@ ReplayReport 是 replay 的输出解释。
 | `chain_summary` | array | yes | 按 frame / plan / decision / tool / behavior / state / TurnResult 串起 |
 | `decision_explanations` | array | yes | 为什么执行或不执行 |
 | `state_explanations` | array | yes | candidate / adopted / projection 边界解释 |
+| `required_questions` | array | yes | §5 六问的结构化回答，至少包含 `id` / `question` / `source` / `status` / `answer` |
 | `missing_trace_refs` | array | yes | 缺失或不可解释节点 |
 | `redaction_profile` | enum | yes | 报告可见性 |
 | `provider_called` | boolean | yes | VS-06 必须为 false |

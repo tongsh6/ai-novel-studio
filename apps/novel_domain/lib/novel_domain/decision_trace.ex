@@ -9,6 +9,7 @@ defmodule NovelDomain.DecisionTrace do
           trace_id: String.t(),
           turn_id: String.t(),
           frame_ref: String.t(),
+          plan_ref: String.t() | nil,
           decision_type: atom(),
           no_tool_reason: String.t(),
           no_behavior_reason: String.t(),
@@ -16,6 +17,9 @@ defmodule NovelDomain.DecisionTrace do
           turn_result_ref: String.t(),
           replay_policy: %{use_recorded_frame: boolean(), recall_provider: boolean()},
           redaction_level: :author_safe | :developer,
+          tool_trace_refs: [map()],
+          behavior_trace_refs: [map()],
+          state_trace_refs: [map()],
           event_order: [atom()]
         }
 
@@ -23,6 +27,7 @@ defmodule NovelDomain.DecisionTrace do
     :trace_id,
     :turn_id,
     :frame_ref,
+    :plan_ref,
     :decision_type,
     :no_tool_reason,
     :no_behavior_reason,
@@ -30,6 +35,9 @@ defmodule NovelDomain.DecisionTrace do
     :turn_result_ref,
     :replay_policy,
     :redaction_level,
+    tool_trace_refs: [],
+    behavior_trace_refs: [],
+    state_trace_refs: [],
     event_order: []
   ]
 end

@@ -4,6 +4,7 @@ defmodule NovelAgent.ToolAdapterRegistry do
   """
 
   alias NovelAgent.Tools.CharacterDesignAdapter
+  alias NovelAgent.Tools.CharacterRosterAdapter
   alias NovelAgent.Tools.PlotOutlineAdapter
   alias NovelAgent.Tools.ProseWritingAdapter
   alias NovelAgent.Tools.TextAnalysisAdapter
@@ -11,6 +12,7 @@ defmodule NovelAgent.ToolAdapterRegistry do
 
   @spec adapter_for(String.t()) :: module() | nil
   def adapter_for("text_analysis"), do: TextAnalysisAdapter
+  def adapter_for("character_roster"), do: CharacterRosterAdapter
   def adapter_for("character_design"), do: CharacterDesignAdapter
   def adapter_for("plot_outline"), do: PlotOutlineAdapter
   def adapter_for("prose_writing"), do: ProseWritingAdapter
@@ -19,6 +21,9 @@ defmodule NovelAgent.ToolAdapterRegistry do
 
   def execute("text_analysis", req, complete_fn),
     do: TextAnalysisAdapter.execute(req, complete_fn)
+
+  def execute("character_roster", req, complete_fn),
+    do: CharacterRosterAdapter.execute(req, complete_fn)
 
   def execute("character_design", req, complete_fn),
     do: CharacterDesignAdapter.execute(req, complete_fn)

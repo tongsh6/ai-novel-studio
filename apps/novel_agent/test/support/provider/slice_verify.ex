@@ -96,13 +96,17 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     %{
       frame_type: frame_type(flags),
       dialogue_goal_summary: dialogue_goal_summary(flags),
-      needs_tool: false,
+      needs_tool: flags.readonly_character_query,
       no_tool_reason: no_tool_reason(flags),
-      execution_readiness: "not_applicable",
+      execution_readiness: execution_readiness(flags),
       assistant_message:
         frame_message(flags.slow_work_switch, flags.quality_diagnosis, flags.exploratory, prompt),
       candidate_directions:
-        candidate_directions(flags.exploratory and not flags.candidate_context_followup, prompt),
+        candidate_directions(
+          flags.exploratory and not flags.candidate_context_followup and
+            not flags.readonly_character_query,
+          prompt
+        ),
       context_used: context_provided?(prompt),
       uncertainty: []
     }
@@ -113,23 +117,30 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       quality_diagnosis: quality_diagnosis_prompt?(prompt),
       exploratory: exploratory_prompt?(prompt),
       slow_work_switch: slow_work_switch_prompt?(prompt),
-      candidate_context_followup: candidate_context_followup_prompt?(prompt)
+      candidate_context_followup: candidate_context_followup_prompt?(prompt),
+      readonly_character_query: readonly_character_query_prompt?(prompt)
     }
   end
 
+  defp frame_type(%{readonly_character_query: true}), do: "execution_candidate"
   defp frame_type(%{slow_work_switch: true}), do: "casual_reply"
   defp frame_type(%{candidate_context_followup: true}), do: "casual_reply"
   defp frame_type(%{quality_diagnosis: true}), do: "question_answer"
   defp frame_type(%{exploratory: true}), do: "creative_exploration"
   defp frame_type(_flags), do: "casual_reply"
 
+  defp dialogue_goal_summary(%{readonly_character_query: true}), do: "查看当前作品角色列表"
   defp dialogue_goal_summary(%{slow_work_switch: true}), do: "验证慢回复跨作品归属"
   defp dialogue_goal_summary(%{candidate_context_followup: true}), do: "围绕已选候选方向继续探索"
   defp dialogue_goal_summary(%{quality_diagnosis: true}), do: "诊断章节爽感不足和胜利过轻"
   defp dialogue_goal_summary(_flags), do: "验证工作台对话主链"
 
+  defp no_tool_reason(%{readonly_character_query: true}), do: "tool_needed"
   defp no_tool_reason(%{exploratory: true}), do: "exploratory_only"
   defp no_tool_reason(_flags), do: "no_tool_needed"
+
+  defp execution_readiness(%{readonly_character_query: true}), do: "ready"
+  defp execution_readiness(_flags), do: "not_applicable"
 
   defp maybe_delay_su02_slow_work_switch(prompt_text) do
     if String.contains?(prompt_text, @slow_work_switch_marker) do
@@ -186,7 +197,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp quality_diagnosis_prompt?(prompt) do
     text = author_input_text(prompt)
-    contains_any?(text, ["不够爽", "赢得太轻", "爽点", "张力不够", "质量诊断"])
+    contains_any?(text, ["不够爽", "赢得太轻", "爽点", "张力不够", "质量诊断", "不成立"])
+  end
+
+  defp readonly_character_query_prompt?(prompt) do
+    text = author_input_text(prompt)
+
+    contains_any?(text, ["查看", "列出", "查询", "看看", "展示"]) and
+      contains_any?(text, ["当前角色列表", "角色列表", "已有角色", "人物表", "角色清单"])
   end
 
   defp candidate_context_followup_prompt?(prompt) do
@@ -211,9 +229,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     "慢回复归属校验完成：#{nonce || @slow_work_switch_marker} 只属于原作品。"
   end
 
-  defp frame_message(false, true, _exploratory, _prompt),
-    do:
+  defp frame_message(false, true, _exploratory, prompt) do
+    if quality_context_missing_prompt?(prompt) do
+      "我还缺少当前章节摘要或正文，只能先按通用质量原则判断：需要补充目标章材料，再对冲突压力、代价和读者回报做具体诊断；这轮不会改写正文或写入作品事实。"
+    else
       "这一章的问题不是主角赢，而是阻力、代价和读者回报没有层层加压。可以让林烬赢下局部却失去关键线索，或让胜利暴露更大的矿区代价；这轮只给诊断和结构修订建议，不会改写正文或写入作品事实。"
+    end
+  end
 
   defp frame_message(false, false, true, prompt) do
     case candidate_context_nonce(prompt) do
@@ -232,6 +254,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     else
       "可以，我们先围绕小说创作方向聊下去。"
     end
+  end
+
+  defp quality_context_missing_prompt?(prompt) do
+    prompt
+    |> prompt_text()
+    |> String.contains?("缺章节摘要")
   end
 
   defp context_provided?(prompt) do
@@ -427,6 +455,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp plan_response(prompt) do
     author_text = author_input_text(prompt)
+
+    if multi_step_downgrade_prompt?(author_text) do
+      multi_step_plan_response()
+    else
+      single_action_plan_response(prompt, author_text)
+    end
+  end
+
+  defp single_action_plan_response(prompt, author_text) do
     tool_name = tool_name_for_prompt(author_text)
 
     {authoring_intent, target_chapter, requested_chapter_raw} =
@@ -456,6 +493,61 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       state_changes_requested: [],
       required_capabilities: [tool_name],
       fallback_message: "如果暂时不能生成，就先继续用对话收束方向。"
+    }
+  end
+
+  defp multi_step_downgrade_prompt?(text) do
+    contains_any?(text, ["同时重写", "多个操作", "多步推进"]) and
+      contains_any?(text, ["主角动机", "角色动机"]) and
+      String.contains?(text, "伏笔")
+  end
+
+  defp multi_step_plan_response do
+    %{
+      plan_goal_summary: "拆解作者提出的多项创作操作",
+      risk_hint: "medium",
+      requires_confirmation_hint: false,
+      proposed_actions: [
+        %{
+          action_id: "act-slice-downgrade-prose",
+          action_type: "capability_invocation",
+          summary: "重写第一章正文草稿",
+          target_ref: "prose_writing",
+          write_intent: "tentative",
+          risk_hint: "medium",
+          authoring_intent: "rewrite",
+          target_chapter: nil,
+          requested_chapter_raw: "第一章",
+          target_word_count: nil
+        },
+        %{
+          action_id: "act-slice-downgrade-character",
+          action_type: "capability_invocation",
+          summary: "更新主角动机设定",
+          target_ref: "character_design",
+          write_intent: "tentative",
+          risk_hint: "medium",
+          authoring_intent: "none",
+          target_chapter: nil,
+          requested_chapter_raw: nil,
+          target_word_count: nil
+        },
+        %{
+          action_id: "act-slice-downgrade-foreshadowing",
+          action_type: "capability_invocation",
+          summary: "整理伏笔清单",
+          target_ref: "world_building",
+          write_intent: "tentative",
+          risk_hint: "medium",
+          authoring_intent: "none",
+          target_chapter: nil,
+          requested_chapter_raw: nil,
+          target_word_count: nil
+        }
+      ],
+      state_changes_requested: [],
+      required_capabilities: ["prose_writing", "character_design", "world_building"],
+      fallback_message: "这个请求包含多项独立创作操作，建议先拆成单个步骤逐步推进。"
     }
   end
 
@@ -600,6 +692,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp tool_name_for_prompt(prompt) do
     cond do
+      readonly_character_query_prompt?(prompt) ->
+        "character_roster"
+
       contains_any?(prompt, ["正文", "片段", "开场"]) ->
         "prose_writing"
 
@@ -617,6 +712,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp action_summary(tool_name, author_text) do
     summary =
       case tool_name do
+        "character_roster" -> "查看当前作品已确认角色列表"
         "prose_writing" -> "生成一段正文草稿"
         "character_design" -> "生成一个角色设定草案"
         "plot_outline" -> "生成一份大纲草案"

@@ -95,8 +95,12 @@ defmodule NovelE2E.FullChainTest do
   @broken_plan_json "this is not valid json {{{"
 
   defp sequenced_complete_fn(frame_response, plan_response) do
+    sequenced_complete_fn([frame_response, plan_response])
+  end
+
+  defp sequenced_complete_fn(responses) when is_list(responses) do
     # Agent 持有响应序列。按序 pop，耗尽后返回 :exhausted
-    {:ok, agent} = Agent.start_link(fn -> [frame_response, plan_response] end)
+    {:ok, agent} = Agent.start_link(fn -> responses end)
     fn prompt -> pop_or_exhaust(agent, prompt) end
   end
 
@@ -154,9 +158,10 @@ defmodule NovelE2E.FullChainTest do
 
       # 关键断言：验证 Prompt 包含上下文内容
       assert_receive {:prompt, prompt}
-      assert String.contains?(prompt, "赛博世界")
-      assert String.contains?(prompt, "对话摘要")
-      assert String.contains?(prompt, "记忆摘要")
+      prompt_text = prompt_text(prompt)
+      assert String.contains?(prompt_text, "赛博世界")
+      assert String.contains?(prompt_text, "对话摘要")
+      assert String.contains?(prompt_text, "记忆摘要")
     end
 
     test "replay from reply-only trace never calls provider" do
@@ -295,7 +300,12 @@ defmodule NovelE2E.FullChainTest do
 
   describe "creative artifact chain (stub LLM)" do
     test "creative tool → TentativeArtifactSet → adoption_status tentative" do
-      complete_fn = sequenced_complete_fn(@frame_json, @creative_plan_json)
+      complete_fn =
+        sequenced_complete_fn([
+          @frame_json,
+          @creative_plan_json,
+          character_seed_json()
+        ])
 
       {:ok, turn_result, _trace, _candidates, _context} =
         DialogueGateway.handle_input(
@@ -319,7 +329,7 @@ defmodule NovelE2E.FullChainTest do
       pending_artifact = hd(adoption_state.pending)
       assert pending_artifact.adoption_status == :tentative
       assert pending_artifact.requires_adoption == true
-      assert length(pending_artifact.payload.items) == 3
+      assert length(pending_artifact.payload.items) == 1
     end
   end
 
@@ -363,5 +373,35 @@ defmodule NovelE2E.FullChainTest do
       assert trace.decision_type == :fail_with_recovery
       assert :micro_plan_generation_failed in trace.event_order
     end
+  end
+
+  defp prompt_text(prompt) when is_binary(prompt), do: prompt
+
+  defp prompt_text(prompt) when is_list(prompt) do
+    Enum.map_join(prompt, "\n", fn
+      %{role: role, content: content} -> "#{role}: #{content}"
+      %{"role" => role, "content" => content} -> "#{role}: #{content}"
+      other -> inspect(other)
+    end)
+  end
+
+  defp character_seed_json do
+    Jason.encode!([
+      %{
+        item_id: "char-1",
+        title: "沈砚",
+        body: """
+        定位：灵气交易所稽查官
+        动机：查清账务黑幕
+        背景：出身账务区
+        关系：可与主角形成调查同盟
+        弧光：从只相信证据到理解人的选择
+        外貌：深色旧制服，左腕阵芯微光
+        语言风格：短句、克制
+        能力体系绑定：读取灵气流水
+        """,
+        rationale: "贴合角色设定请求，作为待采纳角色档案草稿。"
+      }
+    ])
   end
 end

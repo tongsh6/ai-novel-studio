@@ -18,6 +18,7 @@ defmodule NovelPersistence.Schemas.DecisionTraceRecord do
     field(:trace_id, :string)
     field(:turn_id, :string)
     field(:frame_ref, :string)
+    field(:plan_ref, :string)
     field(:decision_type, :string)
     field(:no_tool_reason, :string)
     field(:no_behavior_reason, :string)
@@ -27,6 +28,9 @@ defmodule NovelPersistence.Schemas.DecisionTraceRecord do
     field(:redaction_level, :string, default: "author_safe")
     field(:event_order, {:array, :string})
     field(:context_refs, {:array, :map})
+    field(:tool_trace_refs, {:array, :map})
+    field(:behavior_trace_refs, {:array, :map})
+    field(:state_trace_refs, {:array, :map})
 
     timestamps(type: :utc_datetime_usec)
   end
@@ -41,13 +45,17 @@ defmodule NovelPersistence.Schemas.DecisionTraceRecord do
   ]
   @optional_fields [
     :session_id,
+    :plan_ref,
     :no_tool_reason,
     :no_behavior_reason,
     :no_write_reason,
     :turn_result_ref,
     :replay_policy,
     :redaction_level,
-    :context_refs
+    :context_refs,
+    :tool_trace_refs,
+    :behavior_trace_refs,
+    :state_trace_refs
   ]
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()

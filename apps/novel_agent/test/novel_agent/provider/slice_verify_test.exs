@@ -30,6 +30,23 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert Jason.decode!(result.content)["assistant_message"] == "可以，我们先围绕小说创作方向聊下去。"
   end
 
+  test "AU11 missing work state quality diagnosis asks for target chapter material" do
+    prompt = [
+      %{
+        role: "system",
+        content: "## AIMessageEnvelope（VS-00D 质量诊断）\n- WorkState: 来源：current_work；缺章节摘要"
+      },
+      %{role: "user", content: "帮我看看这一章哪里不成立。"}
+    ]
+
+    assert {:ok, result} = SliceVerify.complete(%SliceVerify{}, nil, prompt, %InferenceParams{})
+
+    body = Jason.decode!(result.content)
+    assert body["frame_type"] == "question_answer"
+    assert body["assistant_message"] =~ "缺少当前章节摘要或正文"
+    assert body["assistant_message"] =~ "不会改写正文或写入作品事实"
+  end
+
   test "AU02BADCANDIDATES marker returns malformed candidate payload for fallback verification" do
     prompt = [
       %{role: "user", content: "AU02BADCANDIDATES 我想写赛博修仙方向，请给几个候选。"}

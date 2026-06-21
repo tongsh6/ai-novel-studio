@@ -183,7 +183,14 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
-  @doc "使用传入配置做一次轻量连接测试，不改变当前运行时选择。"
+  @doc """
+  使用传入配置做一次真实连接探测（GET /models），不改变当前运行时选择。
+
+  与轻量的 `health_check/0`（顶栏被动轮询用，仅查本地配置）不同，这里是用户
+  主动点击"测试连接"触发的真实网络请求：验证端点可达 + API key 有效 + 网络通。
+  走 `list_models`（GET /models），不消耗生成 token。无 `list_models` 的 provider
+  （如 stub）回退到本地 `health_check`。
+  """
   @spec test_provider(provider_config()) ::
           {:ok, %{provider: atom(), model: String.t() | nil}} | {:error, map()}
   def test_provider(attrs) when is_map(attrs) do
@@ -193,10 +200,23 @@ defmodule NovelAgent.Provider.Gateway do
       state = build_state(provider, module, config, clear_api_key?: clear_api_key?(attrs))
       metadata = %{provider: provider, model: normalize_model(Map.get(state, :model))}
 
-      case module.health_check(state) do
+      case probe_connection(module, state) do
         :ok -> {:ok, metadata}
         {:error, error} -> {:error, Map.put(metadata, :error, error)}
       end
+    end
+  end
+
+  # 真实连接探测：优先用 list_models（GET /models）发一次真实网络请求，验证
+  # 端点/key/网络且不消耗生成 token。无 list_models 的 provider 回退到 health_check。
+  defp probe_connection(module, state) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :list_models, 1) do
+      case module.list_models(state) do
+        {:ok, _models} -> :ok
+        {:error, error} -> {:error, error}
+      end
+    else
+      module.health_check(state)
     end
   end
 
