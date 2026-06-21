@@ -207,6 +207,7 @@ export const WORKBENCH = {
   frameBadges: {
     creativeExploration: "探索方向",
     executionCandidate: "生成草稿",
+    downgrade: "降级为对话",
     casualReply: "自然回复",
     questionAnswer: "回答问题",
     metaDiscussion: "创作讨论",
@@ -536,7 +537,8 @@ export const STRUCTURE_PANEL = {
   ruleEmptyTitle: "经验规则",
   ruleEmptyDesc: "在对话中说「导入风格样本」或「构建世界观」，AI 会生成写作规则和设定约束。",
   newAction: "发起新操作",
-  newActionPrompt: "我想基于当前作品状态，和 AI 一起推进下一步创作。",
+  newActionPrompt:
+    "我想同时重写第一章、更新主角动机、整理伏笔清单。如果范围太大，请先告诉我如何拆分。",
   actionHint: "如需深度修改，请在工作台对话中提出。",
   aliasPrefix: "别名：",
 } as const;

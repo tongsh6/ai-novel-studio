@@ -23,6 +23,8 @@ defmodule NovelApplication.AIMessageEnvelope do
     "质量",
     "诊断",
     "问题",
+    "不成立",
+    "哪里不成立",
     "哪里不好",
     "不够好",
     "太平",
@@ -117,10 +119,18 @@ defmodule NovelApplication.AIMessageEnvelope do
       prior_prose_excerpt: missing("no_prior_prose_excerpt_in_dialogue_context"),
       chapter_summary: chapter_summary(context.structured_chapters),
       character_state:
-        snapshot_field(context.current_work_snapshot, ["protagonist", :protagonist]),
+        snapshot_field_or_missing(
+          context.current_work_snapshot,
+          ["protagonist", :protagonist],
+          "no_character_state"
+        ),
       continuity_ledgers: context_refs_by_type(context.context_refs, [:memory, :continuity]),
       style_intent:
-        snapshot_field(context.current_work_snapshot, ["tone_preference", :tone_preference]),
+        snapshot_field_or_missing(
+          context.current_work_snapshot,
+          ["tone_preference", :tone_preference],
+          "no_style_intent"
+        ),
       context_refs: context_refs(context.context_refs),
       omission_notes: omission_notes(context),
       freshness_notes: ["dialogue_context_assembled_at:#{context.assembled_at || "unknown"}"]
@@ -326,6 +336,11 @@ defmodule NovelApplication.AIMessageEnvelope do
   end
 
   defp snapshot_field(_snapshot, _keys), do: missing("not_available")
+
+  defp snapshot_field_or_missing(snapshot, keys, reason) do
+    value = snapshot_field(snapshot, keys)
+    if present?(value), do: value, else: missing(reason)
+  end
 
   defp blank_to_nil(value) when is_binary(value) do
     value = String.trim(value)

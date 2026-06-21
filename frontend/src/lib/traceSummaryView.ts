@@ -263,7 +263,8 @@ function aiMessageEnvelopeLines(value: unknown): string[] {
   const sources = workStateSources(workState?.context_refs);
   if (sources.length > 0) {
     lines.push(TRACE.guidance.workStateSources(sources.join("、")));
-  } else if (workStateMissing(workState)) {
+  }
+  if (workStateMissing(workState)) {
     lines.push(TRACE.guidance.workStateMissing);
   }
 

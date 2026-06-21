@@ -75,8 +75,38 @@ defmodule NovelApplication.AIMessageEnvelopeTest do
              }
 
       assert envelope.work_state_layer.context_refs == []
+      assert envelope.work_state_layer.character_state == %{
+               status: :missing,
+               reason: "no_character_state"
+             }
+
+      assert envelope.work_state_layer.style_intent == %{
+               status: :missing,
+               reason: "no_style_intent"
+             }
+
       assert "缺当前作品快照，只能给通用质量诊断。" in envelope.turn_guidance_layer.missing_questions
       assert "缺目标章节摘要或章节列表，需要作者补充要诊断的章节。" in envelope.turn_guidance_layer.missing_questions
+    end
+
+    test "treats not-established wording as quality diagnosis" do
+      envelope =
+        AIMessageEnvelope.quality_diagnosis(
+          "帮我看看这一章哪里不成立。",
+          %DialogueContext{workspace_id: "work-empty"},
+          turn_id: "turn-not-established"
+        )
+
+      assert envelope.turn_guidance_layer.guidance_mode == :quality
+      assert envelope.work_state_layer.chapter_summary == %{
+               status: :missing,
+               reason: "no_chapter_summary"
+             }
+
+      assert envelope.work_state_layer.character_state == %{
+               status: :missing,
+               reason: "no_character_state"
+             }
     end
 
     test "does not build envelope for ordinary chat" do

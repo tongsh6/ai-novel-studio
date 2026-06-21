@@ -2,6 +2,7 @@ defmodule NovelApplication.BehaviorLifecycleTest do
   use ExUnit.Case, async: true
 
   alias NovelApplication.ExecutionOrchestrator
+  alias NovelApplication.TurnResultBuilder
   alias NovelDomain.BehaviorState
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
@@ -184,6 +185,35 @@ defmodule NovelApplication.BehaviorLifecycleTest do
 
       assert behavior.required_next_action != ""
       assert behavior.required_next_action == "confirm_before_execute"
+    end
+
+    test "confirmation behavior renders a user-visible confirmation card" do
+      frame = build_frame()
+      plan = build_confirmation_plan()
+
+      {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
+
+      turn_result =
+        TurnResultBuilder.build(
+          frame,
+          %{trace_ref: "trace-confirmation-card"},
+          [],
+          decision,
+          nil,
+          nil,
+          behavior
+        )
+
+      card = Enum.find(turn_result.ui_cards, &(&1.card_type == "confirmation_card"))
+
+      assert card
+      assert card.title == "需要确认"
+      assert card.behavior_ref == behavior.behavior_id
+      assert card.target_ref == "target-1"
+      assert card.body =~ "检测到高风险行动，需作者确认：危险操作"
+      assert card.body =~ "确认对象：target-1。"
+      assert card.body =~ "确认前不会调用工具或写入作品事实"
+      assert card.body =~ "确认后系统会重新检查当前作品状态"
     end
   end
 end

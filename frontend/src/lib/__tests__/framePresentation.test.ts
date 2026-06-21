@@ -26,6 +26,18 @@ describe("frame presentation", () => {
     expect(presentation.tone).toBe("execution");
   });
 
+  it("lets a downgrade decision override an execution frame badge", () => {
+    const presentation = framePresentationForSummary({
+      frame_type: "execution_candidate",
+      decision_type: "downgrade",
+      dialogue_goal: "拆分过大的多步请求",
+    });
+
+    expect(presentation.visible).toBe(true);
+    expect(presentation.label).toBe("降级为对话");
+    expect(presentation.tone).toBe("reply");
+  });
+
   it("normalizes frame type spelling without exposing raw enums", () => {
     expect(normalizeFrameType("Creative-Exploration")).toBe("creative_exploration");
   });

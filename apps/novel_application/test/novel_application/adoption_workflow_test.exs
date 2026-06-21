@@ -28,6 +28,8 @@ defmodule NovelApplication.AdoptionWorkflowTest do
       assert [%{adoption_status: "ACCEPTED", requires_adoption: false}] =
                turn_result.adoption_state.resolved
 
+      assert turn_result.trace_summary.state_trace_refs == []
+      assert turn_result.trace_summary.state_trace_ref == nil
       assert turn_result.projection_refs == []
     end
 
@@ -63,6 +65,14 @@ defmodule NovelApplication.AdoptionWorkflowTest do
 
       assert [%{mutation_ref: "mutation-1", adopted_state_ref: "memory-1"}] =
                turn_result.adoption_state.resolved
+
+      assert [%{state_trace_ref: state_trace_ref}] = turn_result.trace_summary.state_trace_refs
+      assert turn_result.trace_summary.state_trace_ref == state_trace_ref
+      assert turn_result.trace_summary.trace_ref == "trace:#{turn_result.turn_id}"
+      assert turn_result.trace_summary.source_trace_ref == "trace-source"
+      assert turn_result.trace_summary.no_tool_reason == "author_action_does_not_call_tool"
+
+      assert [%{state_trace_ref: ^state_trace_ref}] = turn_result.adoption_state.resolved
 
       assert turn_result.projection_refs == []
 
@@ -126,8 +136,12 @@ defmodule NovelApplication.AdoptionWorkflowTest do
                  writer
                )
 
+      assert [%{state_trace_ref: state_trace_ref}] = turn_result.trace_summary.state_trace_refs
+
       assert [%{source_revision_refs: ["mutation:mutation-1"], refresh_status: "STALE"}] =
                turn_result.projection_refs
+
+      assert [%{source_state_trace_ref: ^state_trace_ref}] = turn_result.projection_refs
     end
 
     test "accepts restored JSON turn_result with string keys" do

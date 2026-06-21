@@ -2506,7 +2506,10 @@ export function WorkspaceChat() {
                   msg.turnResult?.frame_summary &&
                   (() => {
                     const framePresentation = framePresentationForSummary(
-                      msg.turnResult.frame_summary,
+                      {
+                        ...msg.turnResult.frame_summary,
+                        decision_type: msg.turnResult.trace_summary?.decision_type,
+                      },
                     );
 
                     return framePresentation.visible ? (

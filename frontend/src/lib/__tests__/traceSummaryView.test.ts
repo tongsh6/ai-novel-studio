@@ -203,6 +203,30 @@ describe("traceSummaryView", () => {
     );
   });
 
+  it("keeps visible sources while marking partial WorkState missing", () => {
+    const view = toAuthorTraceSummary({
+      decision_type: "reply_only",
+      ai_message_envelope: {
+        work_state_layer: {
+          context_refs: [{ source_type: "current_work", summary: "空白诊断作品" }],
+          snapshot_summary: "空白诊断作品",
+          chapter_state: { status: "missing", reason: "no_chapter_state" },
+          chapter_summary: { status: "missing", reason: "no_chapter_summary" },
+        },
+        turn_guidance_layer: {
+          guidance_mode: "quality",
+          missing_questions: ["缺本章已采纳正文片段，不能逐句诊断。"],
+        },
+      },
+    });
+
+    expect(view?.detailLines).toContain("作品层依据来自：当前作品背景。");
+    expect(view?.detailLines).toContain(
+      "作品层依据缺失或不足，系统已显式标记缺失，不会编造作品事实。",
+    );
+    expect(view?.detailLines).toContain("缺少正文片段时，只能基于摘要或上下文给结构建议。");
+  });
+
   it("returns null when there is no trace summary", () => {
     expect(toAuthorTraceSummary(null)).toBeNull();
     expect(toAuthorTraceSummary(undefined)).toBeNull();

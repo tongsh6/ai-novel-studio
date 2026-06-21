@@ -105,6 +105,9 @@ defmodule NovelApplication.TurnExecutionService do
     character_roster =
       existing_characters_section(frame, action, input[:character_reader])
 
+    characters =
+      read_character_roster(frame, action, input[:character_reader])
+
     maybe_emit_target_word_count(frame, action)
 
     req =
@@ -118,7 +121,8 @@ defmodule NovelApplication.TurnExecutionService do
           resolved_chapter: resolved_chapter,
           prior_prose: prior_prose,
           prior_summaries: prior_summaries,
-          character_roster: character_roster
+          character_roster: character_roster,
+          characters: characters
         }
       )
 
@@ -235,10 +239,7 @@ defmodule NovelApplication.TurnExecutionService do
           action,
           input[:author_input],
           input[:context],
-          sections.resolved_chapter,
-          sections.prior_prose,
-          sections.prior_summaries,
-          sections.character_roster
+          sections
         ),
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
@@ -253,10 +254,7 @@ defmodule NovelApplication.TurnExecutionService do
          action,
          author_input,
          context,
-         resolved_chapter,
-         prior_prose,
-         prior_summaries,
-         character_roster
+         sections
        ) do
     text = author_input_text(frame, author_input)
 
@@ -264,10 +262,10 @@ defmodule NovelApplication.TurnExecutionService do
     # （L3a 跨章实现态）→ 本章已采纳正文（L5 衔接）→ 当前作者输入。
     context_text =
       [
-        target_structure_section(frame, action, context, resolved_chapter),
-        character_roster,
-        prior_summaries,
-        prior_prose_section(action, prior_prose),
+        target_structure_section(frame, action, context, sections.resolved_chapter),
+        sections.character_roster,
+        sections.prior_summaries,
+        prior_prose_section(action, sections.prior_prose),
         tool_context_text(context, text)
       ]
       |> Enum.reject(&blank?/1)
@@ -281,6 +279,15 @@ defmodule NovelApplication.TurnExecutionService do
         |> Enum.join("\n"),
       "context_text" => context_text
     }
+    |> maybe_put_characters(action, sections.characters)
+  end
+
+  defp maybe_put_characters(input, action, characters) do
+    if (action[:target_ref] || action[:capability_name]) == "character_roster" do
+      Map.put(input, "characters", characters)
+    else
+      input
+    end
   end
 
   # 作者明确篇幅诉求时，把目标字数并入创作简述（走 brief 通道：brief 本就被创作
@@ -551,6 +558,27 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp existing_characters_section(_frame, _action, _reader), do: ""
+
+  defp read_character_roster(frame, action, reader) when is_function(reader, 1) do
+    if (action[:target_ref] || action[:capability_name]) == "character_roster" do
+      characters = frame.workspace_id |> reader.() |> normalize_character_list()
+
+      LogEmit.emit(:context, :characters, :done, %{
+        turn_id: frame.turn_id,
+        source_type: "character_dossier",
+        character_count: length(characters)
+      })
+
+      characters
+    else
+      []
+    end
+  end
+
+  defp read_character_roster(_frame, _action, _reader), do: []
+
+  defp normalize_character_list(characters) when is_list(characters), do: characters
+  defp normalize_character_list(_characters), do: []
 
   defp character_context_action?(action) do
     (action[:target_ref] || action[:capability_name]) in ["character_design", "prose_writing"]
@@ -825,6 +853,24 @@ defmodule NovelApplication.TurnExecutionService do
     "已生成世界设定草稿。请先审阅，保存后会进入作品档案；未保存前不会写入作品事实。"
   end
 
+  defp narrate(
+         %ToolResult{status: :succeeded, tool_name: "character_roster"} = tool_result,
+         nil,
+         _complete_fn
+       ) do
+    characters = get_in(tool_result.output, [:characters]) || []
+
+    case characters do
+      [] ->
+        "当前作品还没有已确认角色。"
+
+      [_ | _] ->
+        names = Enum.map_join(characters, "、", &character_roster_label/1)
+
+        "当前作品已有 #{length(characters)} 个已确认角色：#{names}。这次只是读取角色列表，没有写入作品事实。"
+    end
+  end
+
   defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: _type}, _complete_fn) do
     "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"
   end
@@ -851,4 +897,17 @@ defmodule NovelApplication.TurnExecutionService do
   defp narrate(_tool_result, _artifact_set, _complete_fn) do
     "工具执行未完成。未创建待采纳内容，也没有写入作品事实。"
   end
+
+  defp character_roster_label(character) when is_map(character) do
+    name = Map.get(character, :name) || Map.get(character, "name") || "未命名角色"
+    role = Map.get(character, :role) || Map.get(character, "role")
+
+    if is_binary(role) and role != "" do
+      "#{name}（#{role}）"
+    else
+      name
+    end
+  end
+
+  defp character_roster_label(_character), do: "未命名角色"
 end

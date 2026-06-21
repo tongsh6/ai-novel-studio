@@ -441,6 +441,77 @@ defmodule NovelApplication.DialogueGatewayTest do
       assert String.contains?(reason, "provider complete_fn")
     end
 
+    test "cancel waiting action records terminal behavior trace refs for replay" do
+      input = %AuthorActionInput{
+        input_id: "in-cancel-behavior",
+        source_turn_ref: "turn-behavior-open",
+        action_id: "act-cancel-behavior",
+        action_type: "reject_or_cancel_confirmation",
+        target_ref: "prose_writing",
+        behavior_ref: "bh-behavior-open",
+        idempotency_key: "ik-cancel-behavior"
+      }
+
+      source_turn_result = %{
+        turn_id: "turn-behavior-open",
+        frame_ref: "frame-behavior-open",
+        trace_summary: %{trace_ref: "trace-behavior-open"},
+        available_actions: [
+          %{
+            action_id: "act-cancel-behavior",
+            action_type: "reject_or_cancel_confirmation",
+            target_ref: "prose_writing",
+            behavior_ref: "bh-behavior-open",
+            idempotency_key: "ik-cancel-behavior",
+            enabled: true
+          }
+        ],
+        behavior_state: %{
+          active: %{
+            behavior_id: "bh-behavior-open",
+            behavior_type: "confirmation",
+            opened_at_turn_ref: "turn-behavior-open",
+            opened_by_decision_ref: "decision-behavior-open",
+            frame_ref: "frame-behavior-open",
+            plan_ref: "plan-behavior-open",
+            target_ref: "prose_writing",
+            required_next_action: "confirm_before_execute",
+            prompt_contract: %{},
+            constraints: %{},
+            trace_ref: "trace-behavior-open"
+          },
+          history: []
+        }
+      }
+
+      assert {:ok, action_result, turn_result} =
+               DialogueGateway.handle_action(input, source_turn_result, fn _prompt ->
+                 flunk("cancel waiting must not call provider")
+               end)
+
+      assert action_result.status == "cancelled"
+      assert turn_result.phase == "cancelled"
+      assert turn_result.trace_summary.trace_ref == "trace:#{turn_result.turn_id}"
+
+      assert [
+               %{
+                 behavior_ref: "bh-behavior-open",
+                 behavior_type: "confirmation",
+                 event_type: :close,
+                 event_turn_ref: closed_turn_ref,
+                 decision_ref: "decision-behavior-open",
+                 target_ref: "prose_writing",
+                 next_status: "CANCELLED",
+                 resolution_ref: resolution_ref
+               }
+             ] = turn_result.trace_summary.behavior_trace_refs
+
+      assert closed_turn_ref == turn_result.turn_id
+      assert resolution_ref == "behavior_resolution:#{turn_result.turn_id}"
+      assert :behavior_trace_recorded in turn_result.trace_summary.event_order
+      assert :behavior_resolution_recorded in turn_result.trace_summary.event_order
+    end
+
     test "DialogueFrame validation rejects forbidden semantics" do
       frame = %DialogueFrame{
         schema_version: "3.0-draft",

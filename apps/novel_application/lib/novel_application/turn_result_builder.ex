@@ -311,8 +311,65 @@ defmodule NovelApplication.TurnResultBuilder do
   # active.status 为 BehaviorStatus 枚举）。本 turn 无 behavior 变化时不加该字段，
   # 保持前端「取最近一个携带 behavior_state 的 turn」语义。
   defp maybe_add_behavior(r, %BehaviorState{} = b) do
-    Map.put(r, :behavior_state, BehaviorState.snapshot(b))
+    r
+    |> maybe_add_behavior_card(b)
+    |> Map.put(:behavior_state, BehaviorState.snapshot(b))
   end
+
+  defp maybe_add_behavior_card(
+         r,
+         %BehaviorState{behavior_type: :confirmation, lifecycle_status: status} = behavior
+       )
+       when status in [:open, :awaiting_author] do
+    card = %{
+      card_type: "confirmation_card",
+      priority: "high",
+      visibility: "always",
+      title: "需要确认",
+      body: confirmation_card_body(behavior),
+      behavior_ref: behavior.behavior_id,
+      target_ref: behavior.target_ref
+    }
+
+    Map.update(r, :ui_cards, [card], fn cards -> cards ++ [card] end)
+  end
+
+  defp maybe_add_behavior_card(r, _behavior), do: r
+
+  defp confirmation_card_body(%BehaviorState{} = behavior) do
+    question =
+      behavior.prompt_contract
+      |> prompt_contract_text()
+      |> blank_to_default("此操作需要作者明确确认。")
+
+    target = confirmation_target_label(behavior.target_ref)
+
+    [
+      question,
+      "确认对象：#{target}。",
+      "确认前不会调用工具或写入作品事实；确认后系统会重新检查当前作品状态，再决定是否执行。"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp prompt_contract_text(%{question: question}) when is_binary(question), do: question
+  defp prompt_contract_text(%{"question" => question}) when is_binary(question), do: question
+  defp prompt_contract_text(%{summary: summary}) when is_binary(summary), do: summary
+  defp prompt_contract_text(%{"summary" => summary}) when is_binary(summary), do: summary
+  defp prompt_contract_text(_), do: nil
+
+  defp blank_to_default(value, default) when is_binary(value) do
+    if String.trim(value) == "", do: default, else: value
+  end
+
+  defp blank_to_default(_value, default), do: default
+
+  defp confirmation_target_label("prose_writing"), do: "正文草稿生成"
+  defp confirmation_target_label("character_design"), do: "角色设定草稿生成"
+  defp confirmation_target_label("plot_outline"), do: "大纲草稿生成"
+  defp confirmation_target_label("world_building"), do: "设定草稿生成"
+  defp confirmation_target_label(target) when is_binary(target) and target != "", do: target
+  defp confirmation_target_label(_target), do: "本轮待确认操作"
 
   defp format_candidates(candidates) do
     Enum.map(candidates, fn c ->

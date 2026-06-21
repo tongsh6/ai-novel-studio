@@ -552,6 +552,8 @@ defmodule NovelApplication.AdoptionWorkflow do
     artifact_id = artifact_field(artifact, :artifact_id)
     adopted_state_ref = adopted_state_ref(persisted, decision)
     turn_id = "turn_adopt_#{System.unique_integer([:positive, :monotonic])}"
+    state_trace_refs = state_trace_refs(decision, artifact, persisted, turn_id, source_turn_id)
+    state_trace_ref = primary_state_trace_ref(state_trace_refs)
 
     %{
       schema_version: "3.0-draft",
@@ -560,10 +562,19 @@ defmodule NovelApplication.AdoptionWorkflow do
       assistant_message: %{text: "已通过采纳边界，采纳内容已进入已决状态。"},
       ui_cards: [],
       trace_summary: %{
+        trace_ref: action_trace_ref(turn_id),
         decision_type: to_string(decision.decision_type),
         reason_codes: decision.reason_codes,
+        source_turn_ref: source_turn_id,
+        source_trace_ref: trace_ref(source_turn_result),
         decision_trace_ref: decision.decision_trace_ref,
-        state_trace_ref: decision.state_trace_ref
+        state_trace_ref: state_trace_ref,
+        state_trace_refs: state_trace_refs,
+        no_tool_reason: "author_action_does_not_call_tool",
+        no_behavior_reason: "adoption action resolved through boundary",
+        no_write_reason: adoption_no_write_reason(persisted),
+        replay_policy: %{use_recorded_frame: true, recall_provider: false},
+        event_order: adoption_event_order(state_trace_refs, persisted)
       },
       phase: "completed",
       status: "conversational",
@@ -592,15 +603,15 @@ defmodule NovelApplication.AdoptionWorkflow do
             requires_adoption: false,
             source_artifact_ref: artifact_id,
             adopted_state_ref: adopted_state_ref,
-            state_trace_ref:
-              "mutation:#{persisted[:mutation_id] || decision.adoption_decision_id}",
+            state_trace_ref: state_trace_ref,
             decision_trace_ref: decision.decision_trace_ref,
             mutation_ref: persisted[:mutation_id],
             payload: artifact_field(artifact, :payload) || %{}
           }
         ]
       },
-      projection_refs: projection_refs(decision, persisted, source_turn_id, artifact_id),
+      projection_refs:
+        projection_refs(decision, persisted, source_turn_id, artifact_id, state_trace_ref),
       truthfulness: %{
         tool_called: false,
         artifact_adopted: true,
@@ -876,18 +887,40 @@ defmodule NovelApplication.AdoptionWorkflow do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
     adopted_state_ref = adopted_state_ref(persisted, decision)
+    turn_id = "turn_edit_accept_#{System.unique_integer([:positive, :monotonic])}"
+
+    state_trace_refs =
+      state_trace_refs(
+        decision,
+        artifact,
+        persisted,
+        turn_id,
+        source_turn_id,
+        :artifact_edited_accepted
+      )
+
+    state_trace_ref = primary_state_trace_ref(state_trace_refs)
 
     %{
       schema_version: "3.0-draft",
-      turn_id: "turn_edit_accept_#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: turn_id,
       parent_turn_id: source_turn_id,
       assistant_message: %{text: "已按修改意见采纳该内容。"},
       ui_cards: [],
       trace_summary: %{
+        trace_ref: action_trace_ref(turn_id),
         decision_type: "edit_then_accept",
         reason_codes: ["author_edited_pending_artifact", "candidate_adopted_as_tentative"],
+        source_turn_ref: source_turn_id,
+        source_trace_ref: trace_ref(source_turn_result),
         decision_trace_ref: decision.decision_trace_ref,
-        state_trace_ref: decision.state_trace_ref
+        state_trace_ref: state_trace_ref,
+        state_trace_refs: state_trace_refs,
+        no_tool_reason: "author_action_does_not_call_tool",
+        no_behavior_reason: "edit_then_accept action resolved through boundary",
+        no_write_reason: adoption_no_write_reason(persisted),
+        replay_policy: %{use_recorded_frame: true, recall_provider: false},
+        event_order: adoption_event_order(state_trace_refs, persisted)
       },
       phase: "completed",
       status: "conversational",
@@ -902,15 +935,15 @@ defmodule NovelApplication.AdoptionWorkflow do
             requires_adoption: false,
             source_artifact_ref: artifact_id,
             adopted_state_ref: adopted_state_ref,
-            state_trace_ref:
-              "mutation:#{persisted[:mutation_id] || decision.adoption_decision_id}",
+            state_trace_ref: state_trace_ref,
             decision_trace_ref: decision.decision_trace_ref,
             mutation_ref: persisted[:mutation_id],
             payload: artifact_field(artifact, :payload) || %{}
           }
         ]
       },
-      projection_refs: projection_refs(decision, persisted, source_turn_id, artifact_id),
+      projection_refs:
+        projection_refs(decision, persisted, source_turn_id, artifact_id, state_trace_ref),
       truthfulness: %{
         tool_called: false,
         artifact_adopted: true,
@@ -929,7 +962,8 @@ defmodule NovelApplication.AdoptionWorkflow do
          %AdoptionDecision{projection_hints: hints},
          persisted,
          source_turn_id,
-         artifact_id
+         artifact_id,
+         state_trace_ref
        ) do
     source_revision_ref = persisted[:source_revision_ref] || "#{source_turn_id}:#{artifact_id}"
     reading_projection = persisted[:reading_projection]
@@ -938,8 +972,13 @@ defmodule NovelApplication.AdoptionWorkflow do
       Enum.map(hints, fn hint ->
         %{
           projection_type: "reading_projection_toc",
-          projection_id: to_string(hint[:projection_ref] || "reading_projection"),
+          projection_id:
+            to_string(
+              reading_projection_ref(reading_projection) || hint[:projection_ref] ||
+                "reading_projection"
+            ),
           source_revision_refs: [source_revision_ref],
+          source_state_trace_ref: state_trace_ref,
           refresh_status: "STALE",
           projection_hint_id: hint[:projection_hint_id],
           reason: hint[:reason]
@@ -948,6 +987,108 @@ defmodule NovelApplication.AdoptionWorkflow do
     else
       []
     end
+  end
+
+  defp state_trace_refs(
+         %AdoptionDecision{} = decision,
+         artifact,
+         persisted,
+         turn_id,
+         source_turn_id,
+         event_type \\ :candidate_adopted
+       ) do
+    if persisted?(persisted) do
+      projection_ref = reading_projection_ref(persisted[:reading_projection])
+
+      [
+        %{
+          trace_status: :summary_level,
+          state_trace_ref: decision.state_trace_ref || "state_trace:#{turn_id}",
+          event_type: event_type,
+          action_turn_ref: turn_id,
+          source_turn_ref: source_turn_id,
+          adoption_decision_ref: decision.adoption_decision_id,
+          decision_trace_ref: decision.decision_trace_ref,
+          candidate_ref: decision.candidate_ref,
+          target_ref: decision.target_ref || artifact_field(artifact, :artifact_id),
+          artifact_id: artifact_field(artifact, :artifact_id),
+          artifact_type: artifact_field(artifact, :artifact_type),
+          adopted_state_ref: adopted_state_ref(persisted, decision),
+          mutation_ref: persisted_value(persisted, :mutation_id),
+          source_revision_ref: persisted_value(persisted, :source_revision_ref),
+          production_write_performed: true,
+          projection_ref: projection_ref,
+          projection_hint_refs: projection_hint_refs(decision.projection_hints)
+        }
+        |> reject_nil_values()
+      ]
+    else
+      []
+    end
+  end
+
+  defp persisted?(persisted) when is_map(persisted),
+    do: persisted_value(persisted, :persisted) == true
+
+  defp persisted?(_persisted), do: false
+
+  defp primary_state_trace_ref([ref | _]), do: map_field(ref, :state_trace_ref)
+  defp primary_state_trace_ref(_), do: nil
+
+  defp action_trace_ref(turn_id), do: "trace:#{turn_id}"
+
+  defp adoption_no_write_reason(persisted) do
+    if persisted?(persisted) do
+      "production state changed through adoption boundary with state trace"
+    else
+      "adoption boundary accepted but no persistence writer recorded production state"
+    end
+  end
+
+  defp adoption_event_order([_ | _], persisted) do
+    base = [
+      :author_action_received,
+      :adoption_boundary_evaluated,
+      :candidate_adopted,
+      :production_state_written,
+      :state_trace_recorded
+    ]
+
+    if persisted_value(persisted, :reading_projection) do
+      base ++ [:projection_hint_emitted, :turn_result_emitted]
+    else
+      base ++ [:turn_result_emitted]
+    end
+  end
+
+  defp adoption_event_order([], _persisted),
+    do: [:author_action_received, :adoption_boundary_evaluated, :turn_result_emitted]
+
+  defp projection_hint_refs(hints) when is_list(hints) do
+    hints
+    |> Enum.map(&(map_field(&1, :projection_hint_id) || map_field(&1, :projection_ref)))
+    |> Enum.reject(&blank?/1)
+  end
+
+  defp projection_hint_refs(_hints), do: []
+
+  defp reading_projection_ref(%{} = reading_projection) do
+    cond do
+      persisted_value(reading_projection, :draft_id) ->
+        "reading_projection:draft:#{persisted_value(reading_projection, :draft_id)}"
+
+      persisted_value(reading_projection, :chapter_id) ->
+        "reading_projection:chapter:#{persisted_value(reading_projection, :chapter_id)}"
+
+      true ->
+        nil
+    end
+  end
+
+  defp reading_projection_ref(_reading_projection), do: nil
+
+  defp reject_nil_values(map) when is_map(map) do
+    Map.reject(map, fn {_key, value} -> is_nil(value) or value == [] end)
   end
 
   defp adopted_state_ref(persisted, %AdoptionDecision{} = decision) when is_map(persisted) do

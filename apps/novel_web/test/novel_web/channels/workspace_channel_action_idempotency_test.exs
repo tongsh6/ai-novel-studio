@@ -7,6 +7,7 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
   alias NovelApplication.WorkService
   alias NovelApplication.WorkSessionService
   alias NovelPersistence.Repo
+  alias NovelPersistence.TraceRepository
   alias NovelWeb.UserSocket
   alias NovelWeb.WorkspaceChannel
 
@@ -183,6 +184,212 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
              turn_result.truthfulness.reason_codes,
              &(&1 == "rebased_state_snapshot:#{binding.rebased_state_snapshot_ref}")
            )
+  end
+
+  test "persisted adoption action records state trace refs for replay" do
+    {:ok, work} =
+      WorkService.create(%{
+        "title" => "AU07 state trace work",
+        "genre" => "悬疑",
+        "core_selling_point" => "采纳状态变更必须可回放"
+      })
+
+    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
+
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    source_turn = %{
+      turn_id: "turn-au07-state-source",
+      frame_ref: "frame-au07-state-source",
+      work_id: work.id,
+      trace_summary: %{trace_ref: "trace-au07-state-source"},
+      available_actions: [
+        %{
+          action_id: "accept:as-au07-state-1",
+          action_type: "accept",
+          target_ref: "as-au07-state-1",
+          enabled: true
+        }
+      ],
+      adoption_state: %{
+        pending: [
+          %{
+            artifact_id: "as-au07-state-1",
+            artifact_type: :prose_fragment,
+            adoption_status: :tentative,
+            requires_adoption: true,
+            source_tool_result_ref: "tool-result-au07-state",
+            work_id: work.id,
+            payload: %{
+              title: "第01章：雨夜",
+              items: [
+                %{
+                  title: "第01章：雨夜",
+                  body: "雨夜里，旧钟楼的灯忽明忽暗。"
+                }
+              ]
+            }
+          }
+        ],
+        resolved: []
+      }
+    }
+
+    socket = assign_server_turn(socket, source_turn)
+
+    assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+             WorkspaceChannel.handle_in(
+               "author_action",
+               %{
+                 "action" => %{
+                   "action_id" => "accept:as-au07-state-1",
+                   "action_type" => "accept",
+                   "target_ref" => "as-au07-state-1",
+                   "source_turn_ref" => "turn-au07-state-source"
+                 }
+               },
+               socket
+             )
+
+    assert_broadcast("turn_result", %{
+      turn_id: adopt_turn_id,
+      trace_summary: %{
+        trace_ref: trace_ref,
+        state_trace_refs: [%{state_trace_ref: state_trace_ref}]
+      },
+      adoption_state: %{
+        resolved: [%{state_trace_ref: state_trace_ref}]
+      },
+      projection_refs: [%{source_state_trace_ref: state_trace_ref}],
+      truthfulness: %{artifact_adopted: true, production_write_performed: true}
+    })
+
+    assert trace_ref == "trace:#{adopt_turn_id}"
+
+    assert [trace_record] = TraceRepository.list_by_turn(adopt_turn_id)
+    assert trace_record.trace_id == trace_ref
+    assert trace_record.decision_type == "adopt_tentative"
+    assert [%{"state_trace_ref" => ^state_trace_ref}] = trace_record.state_trace_refs
+    assert "state_trace_recorded" in trace_record.event_order
+    assert "projection_hint_emitted" in trace_record.event_order
+  end
+
+  test "persisted cancel waiting action records terminal behavior trace refs for replay" do
+    {:ok, work} =
+      WorkService.create(%{
+        "title" => "AU07 behavior trace work",
+        "genre" => "悬疑",
+        "core_selling_point" => "行为终态必须可回放"
+      })
+
+    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
+
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    source_turn = %{
+      turn_id: "turn-au07-behavior-open",
+      frame_ref: "frame-au07-behavior-open",
+      work_id: work.id,
+      workspace_id: work.id,
+      session_id: session_id,
+      trace_summary: %{trace_ref: "trace-au07-behavior-open"},
+      available_actions: [
+        %{
+          action_id: "act-cancel-au07-behavior",
+          action_type: "reject_or_cancel_confirmation",
+          target_ref: "prose_writing",
+          behavior_ref: "bh-au07-behavior",
+          idempotency_key: "ik-cancel-au07-behavior",
+          enabled: true
+        }
+      ],
+      behavior_state: %{
+        active: %{
+          behavior_id: "bh-au07-behavior",
+          behavior_type: "confirmation",
+          opened_at_turn_ref: "turn-au07-behavior-open",
+          opened_by_decision_ref: "decision-au07-behavior-open",
+          frame_ref: "frame-au07-behavior-open",
+          plan_ref: "plan-au07-behavior-open",
+          target_ref: "prose_writing",
+          required_next_action: "confirm_before_execute",
+          prompt_contract: %{},
+          constraints: %{},
+          trace_ref: "trace-au07-behavior-open"
+        },
+        history: []
+      }
+    }
+
+    socket = assign_server_turn(socket, source_turn)
+
+    assert {:reply, {:ok, %{received: true, action_status: "cancelled"}}, _socket} =
+             WorkspaceChannel.handle_in(
+               "author_action",
+               %{
+                 "action" => %{
+                   "source_turn_ref" => "turn-au07-behavior-open",
+                   "action_id" => "act-cancel-au07-behavior",
+                   "action_type" => "reject_or_cancel_confirmation",
+                   "target_ref" => "prose_writing",
+                   "behavior_ref" => "bh-au07-behavior",
+                   "idempotency_key" => "ik-cancel-au07-behavior"
+                 }
+               },
+               socket
+             )
+
+    assert_broadcast("turn_result", %{
+      turn_id: cancel_turn_id,
+      trace_summary: %{
+        trace_ref: trace_ref,
+        behavior_trace_refs: [
+          %{
+            behavior_ref: "bh-au07-behavior",
+            event_type: :close,
+            event_turn_ref: cancel_turn_id,
+            resolution_ref: resolution_ref
+          }
+        ]
+      },
+      behavior_state: %{
+        active: nil,
+        history: [%{resolution_ref: resolution_ref}]
+      },
+      truthfulness: %{tool_called: false, production_write_performed: false}
+    })
+
+    assert trace_ref == "trace:#{cancel_turn_id}"
+    assert resolution_ref == "behavior_resolution:#{cancel_turn_id}"
+
+    assert [trace_record] = TraceRepository.list_by_turn(cancel_turn_id)
+    assert trace_record.trace_id == trace_ref
+    assert trace_record.decision_type == "cancel_waiting"
+
+    assert [
+             %{
+               "behavior_ref" => "bh-au07-behavior",
+               "event_type" => "close",
+               "event_turn_ref" => ^cancel_turn_id,
+               "resolution_ref" => ^resolution_ref,
+               "next_status" => "CANCELLED"
+             }
+           ] = trace_record.behavior_trace_refs
+
+    assert "behavior_trace_recorded" in trace_record.event_order
+    assert "behavior_resolution_recorded" in trace_record.event_order
   end
 
   defp assign_server_turn(socket, %{turn_id: turn_id} = turn_result) do
