@@ -67,7 +67,7 @@ try {
     .waitFor({ timeout: 30_000 });
 
   await page.getByText("打开档案", { exact: false }).click();
-  await page.getByRole("button", { name: "发起新操作" }).click();
+  await page.getByRole("button", { name: "发起伏笔调整" }).click();
 
   const lastMessage = await waitForUserMessage(
     (frame) => frame.body?.text === "我想调整或新增伏笔",

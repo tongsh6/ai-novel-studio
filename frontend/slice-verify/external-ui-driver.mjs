@@ -585,6 +585,17 @@ function readSeedField(name) {
   return token ? token.slice(prefix.length) : null;
 }
 
+async function clickVisibleReadingModeButton(page) {
+  const button = page.getByRole("button", { name: /^\s*阅读\s*$/ }).first();
+  await button.waitFor({ state: "visible", timeout: 10_000 });
+  await button.scrollIntoViewIfNeeded();
+
+  const box = await button.boundingBox();
+  assert(box, "Reading mode button did not have a visible bounding box");
+
+  await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+}
+
 async function queryTraceByTurn(turnId) {
   const projectRoot = process.env.SLICE_VERIFY_PROJECT_ROOT;
   assert(projectRoot, "SLICE_VERIFY_PROJECT_ROOT is required to query persisted trace");
@@ -4031,7 +4042,7 @@ async function driveCanonConflictRecovery(page) {
 async function driveP1ChapterPlanMinimum(page) {
   await page.getByText("打开档案").first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
-  await page.getByRole("button", { name: "开始规划" }).click();
+  await page.getByRole("button", { name: "规划卷章结构" }).click();
 
   const planMessageFrame = await waitForFrame(
     (frame) =>
@@ -4204,14 +4215,31 @@ async function driveP1ChapterDraftGeneration(page) {
   const draftLeakMarker = "灵气账单从屋檐下垂落";
 
   await page.waitForFunction(
-    () =>
-      document.body.innerText.includes("待确认的创作材料") &&
-      document.body.innerText.includes("灵气账单从屋檐下垂落") &&
-      document.body.innerText.includes("底层灵气账单"),
+    () => {
+      const text = document.body.innerText;
+      return (
+        /待确认的创作材料|待保存章节草稿|章节正文草稿/.test(text) &&
+        text.includes("灵气账单从屋檐下垂落") &&
+        text.includes("底层灵气账单")
+      );
+    },
     { timeout: 10_000 },
   );
 
-  await page.getByRole("button", { name: readingModeButtonPattern }).click();
+  const beforeReadingLogCount = readAppLogRecords().length;
+
+  await clickVisibleReadingModeButton(page);
+  const tocRecord = await waitForNewAppLogRecord(
+    beforeReadingLogCount,
+    (record) =>
+      record.event === "channel.get_toc.done" &&
+      record.work_id === draftMessageFrame.body?.work_id &&
+      Number(record.total_word_count ?? -1) === 0 &&
+      Number(record.empty_chapter_count ?? 0) > 0,
+    "Reading mode did not read the adopted chapter plan with zero accepted words",
+    30_000,
+  );
+
   // 已采纳的章节计划成为正式目录，阅读模式显示计划全章（待补足）；未采纳的正文草稿不进阅读（AU08-I2）。
   await page.waitForFunction(
     () =>
@@ -4253,6 +4281,9 @@ async function driveP1ChapterDraftGeneration(page) {
       draft_pending: true,
       draft_body_chars: String(draftBody).length,
       draft_card_visible: true,
+      reading_toc_chapter_count: Number(tocRecord.chapter_count ?? 0),
+      reading_total_word_count: Number(tocRecord.total_word_count ?? 0),
+      reading_empty_chapter_count: Number(tocRecord.empty_chapter_count ?? 0),
       reading_plan_visible_before_adoption:
         visibleText.includes("待补足") && !visibleText.includes("暂无已采纳的章节内容"),
       unadopted_draft_visible_in_reading: visibleText.includes(draftLeakMarker),
@@ -4366,7 +4397,7 @@ async function driveVs00cCp3StructuredContext(page) {
 async function driveVs00cCp4ChapterPlanStructure(page) {
   await page.getByText("打开档案").first().click();
   await page.getByRole("tab", { name: "大纲与结构" }).click();
-  await page.getByRole("button", { name: "开始规划" }).click();
+  await page.getByRole("button", { name: "规划卷章结构" }).click();
 
   const planMessageFrame = await waitForFrame(
     (frame) =>
@@ -11319,7 +11350,7 @@ async function driveAu12WorkProfileStatusIsolation(page) {
   );
 
   await page.getByRole("tab", { name: "大纲与结构" }).click();
-  await page.waitForFunction(() => document.body.innerText.includes("开始规划"), {
+  await page.waitForFunction(() => document.body.innerText.includes("规划卷章结构"), {
     timeout: 10_000,
   });
   await page.getByRole("tab", { name: "角色" }).click();
@@ -11612,7 +11643,8 @@ async function driveCp0MissingChapterBlock(page) {
 
 async function driveE2E01DowngradeRealPage(page) {
   await page.getByText("打开档案").first().click();
-  await page.getByRole("button", { name: "发起新操作" }).click();
+  await page.getByRole("tab", { name: "概览" }).click();
+  await page.getByRole("button", { name: "发起综合修订" }).click();
 
   const sentFrame = await waitForFrame(
     (frame) =>

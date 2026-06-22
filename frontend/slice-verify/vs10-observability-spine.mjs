@@ -110,7 +110,7 @@ try {
     .waitFor({ timeout: 30_000 });
 
   await page.getByText("打开档案", { exact: false }).click();
-  await page.getByRole("button", { name: "发起新操作" }).click();
+  await page.getByRole("button", { name: "发起伏笔调整" }).click();
 
   await page.waitForFunction(() => window.__vs10TurnResultReceived === true, { timeout: 30_000 });
 

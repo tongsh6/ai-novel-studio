@@ -12,7 +12,7 @@ export const nativeSliceIds = [
   "su01-provider-model-list-success",
   "su01-provider-test-failure-ui",
   "su01-api-key-secret-redaction",
-  "su01-keychain-webview-roundtrip",
+  "su01-local-secret-file-roundtrip",
   "su01-model-provider-switching",
   "stage-startup-context-contract",
   "au03c-work-session-resume",
@@ -153,7 +153,7 @@ const sliceKeyEvents = {
   "su01-provider-model-list-success": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-provider-test-failure-ui": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-api-key-secret-redaction": ["channel.join.done", "slice_verify.ui_state.done"],
-  "su01-keychain-webview-roundtrip": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-local-secret-file-roundtrip": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-model-provider-switching": [
     "channel.join.done",
     "channel.user_message.start",
@@ -997,8 +997,8 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu01ApiKeySecretRedactionEvidence(records);
   }
 
-  if (sliceId === "su01-keychain-webview-roundtrip") {
-    return findSu01KeychainWebviewRoundtripEvidence(records);
+  if (sliceId === "su01-local-secret-file-roundtrip") {
+    return findSu01LocalSecretFileRoundtripEvidence(records);
   }
 
   if (sliceId === "su01-model-provider-switching") {
@@ -1407,8 +1407,8 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return su01ApiKeySecretRedactionBehavior(records, evidence, options);
   }
 
-  if (sliceId === "su01-keychain-webview-roundtrip") {
-    return su01KeychainWebviewRoundtripBehavior(records, evidence, options);
+  if (sliceId === "su01-local-secret-file-roundtrip") {
+    return su01LocalSecretFileRoundtripBehavior(records, evidence, options);
   }
 
   if (sliceId === "su01-model-provider-switching") {
@@ -2413,8 +2413,8 @@ function findSu01ApiKeySecretRedactionEvidence(records) {
   return null;
 }
 
-function findSu01KeychainWebviewRoundtripEvidence(records) {
-  const sliceId = "su01-keychain-webview-roundtrip";
+function findSu01LocalSecretFileRoundtripEvidence(records) {
+  const sliceId = "su01-local-secret-file-roundtrip";
   const keyEvents = keyEventsForSlice(sliceId);
   const uiStates = records.filter(
     (record) =>
@@ -2432,14 +2432,16 @@ function findSu01KeychainWebviewRoundtripEvidence(records) {
     if (uiState.socket_connected !== true) continue;
     if (uiState.driver !== "macos-cgevent") continue;
     if (uiState.provider_selected !== "deepseek") continue;
-    if (uiState.model_selected !== "deepseek-slice-keychain") continue;
+    if (uiState.model_selected !== "deepseek-slice-local-file") continue;
     if (uiState.provider_switch_saved !== true) continue;
     if (uiState.webview_reload_performed !== true) continue;
     if (uiState.runtime_reset_before_reload !== true) continue;
     if (uiState.post_reload_provider !== "deepseek") continue;
     if (uiState.post_reload_api_key_configured !== true) continue;
-    if (uiState.keychain_item_found !== true) continue;
-    if (uiState.keychain_secret_read_skipped !== true) continue;
+    if (uiState.secret_storage_kind !== "local_file") continue;
+    if (uiState.provider_secrets_file_exists !== true) continue;
+    if (uiState.provider_secrets_file_mode !== "600") continue;
+    if (uiState.provider_secrets_file_contains_expected_key !== true) continue;
     if (uiState.preferences_file_exists !== true) continue;
     if (uiState.preferences_selected_provider !== true) continue;
     if (uiState.preferences_model_saved !== true) continue;
@@ -2455,7 +2457,8 @@ function findSu01KeychainWebviewRoundtripEvidence(records) {
       provider_selected: uiState.provider_selected,
       model_selected: uiState.model_selected,
       driver: uiState.driver,
-      keychain_service: uiState.keychain_service,
+      secret_storage_kind: uiState.secret_storage_kind,
+      provider_secrets_file_mode: uiState.provider_secrets_file_mode,
       key_events: keyEvents,
     };
   }
@@ -11782,15 +11785,15 @@ function su01ApiKeySecretRedactionBehavior(records, evidence, _options) {
   };
 }
 
-function su01KeychainWebviewRoundtripBehavior(records, evidence, _options) {
+function su01LocalSecretFileRoundtripBehavior(records, evidence, _options) {
   if (hasErrorEvent(records) || hasFallbackText(records)) return null;
 
   const serialized = JSON.stringify(records);
-  if (serialized.includes("sk-slice-keychain-webview")) return null;
+  if (serialized.includes("sk-slice-local-secret-file")) return null;
 
   return {
-    slice_id: "su01-keychain-webview-roundtrip",
-    behavior: "keychain_write_read_roundtrip_from_real_tauri_webview",
+    slice_id: "su01-local-secret-file-roundtrip",
+    behavior: "local_secret_file_write_read_roundtrip_from_real_tauri_webview",
     turn_ids: [],
     work_id: evidence.work_id,
     provider_selected: evidence.provider_selected,
@@ -11799,8 +11802,8 @@ function su01KeychainWebviewRoundtripBehavior(records, evidence, _options) {
     assertions: [
       "model_settings_opened_from_real_tauri_webview_by_external_cgevent_driver",
       "deepseek_api_key_saved_through_tauri_webview_command",
-      "macos_keychain_item_exists_without_reading_plain_secret",
-      "backend_runtime_was_reset_then_webview_reload_restored_provider_from_tauri_storage",
+      "provider_secrets_file_written_with_owner_only_permissions",
+      "backend_runtime_was_reset_then_webview_restart_restored_provider_from_local_secret_file",
       "provider_options_marked_api_key_configured_after_reload_without_returning_secret",
       "preferences_saved_non_secret_provider_state_without_api_key",
       "application_and_backend_logs_did_not_expose_api_key",

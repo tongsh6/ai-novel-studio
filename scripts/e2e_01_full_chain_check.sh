@@ -393,7 +393,7 @@ const scenarioMatrix = [
   },
   {
     id: "E12",
-    name: "前端一致性",
+    name: "真实两轮回路",
     status: "已验收",
     evidence: [
       "artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio/summary.json",
@@ -402,7 +402,7 @@ const scenarioMatrix = [
   },
   {
     id: "E13",
-    name: "无 Stub 完成路径",
+    name: "Action 来源校验",
     status: "已测试",
     evidence: ["mix-e2e-integration", "mix-real-lmstudio"],
   },
@@ -440,7 +440,13 @@ const summary = {
     {
       scenario_id: "E8",
       status: "部分实现",
-      gap: "invented / forged source negative 属恶意 Channel payload，正常 UI 不提供构造入口；继续由 Channel security regression 覆盖。",
+      gap: "invented action negative 属恶意 Channel payload，正常 UI 不提供构造入口；继续由 Channel security regression 覆盖。",
+      priority: "P2",
+    },
+    {
+      scenario_id: "E13",
+      status: "已测试",
+      gap: "forged source_turn_result negative 属恶意 Channel payload，正常 UI 不提供构造入口；继续由 Channel security regression 覆盖。",
       priority: "P2",
     },
   ],

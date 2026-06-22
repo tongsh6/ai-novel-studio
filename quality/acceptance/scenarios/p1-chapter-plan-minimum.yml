@@ -24,7 +24,7 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - click: 打开档案
-  - click: 开始规划
+  - click: 规划卷章结构
   - input: 生成 12 章章节计划
   - click: 发送
   - wait_for: candidate_set visible

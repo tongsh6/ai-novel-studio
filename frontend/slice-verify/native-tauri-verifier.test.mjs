@@ -16,7 +16,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("su02-empty-start-unnamed-work");
     expect(nativeSliceIds).toContain("su01-provider-health-model");
     expect(nativeSliceIds).toContain("su01-api-key-secret-redaction");
-    expect(nativeSliceIds).toContain("su01-keychain-webview-roundtrip");
+    expect(nativeSliceIds).toContain("su01-local-secret-file-roundtrip");
     expect(nativeSliceIds).toContain("su01-provider-model-list-success");
     expect(nativeSliceIds).toContain("su01-provider-test-failure-ui");
     expect(nativeSliceIds).toContain("su01-model-provider-switching");
@@ -658,27 +658,28 @@ describe("native Tauri slice verifier", () => {
     ).toBeNull();
   });
 
-  it("accepts SU-01 Keychain WebView roundtrip only with native driver and reload evidence", () => {
+  it("accepts SU-01 local secret file roundtrip only with native driver and restart evidence", () => {
     const records = [
-      { event: "channel.join.done", work_id: "work-su01-keychain", session_id: "session-su01" },
+      { event: "channel.join.done", work_id: "work-su01-secret-file", session_id: "session-su01" },
       {
         event: "slice_verify.ui_state.done",
-        slice_id: "su01-keychain-webview-roundtrip",
-        work_id: "work-su01-keychain",
-        context_work_id: "work-su01-keychain",
+        slice_id: "su01-local-secret-file-roundtrip",
+        work_id: "work-su01-secret-file",
+        context_work_id: "work-su01-secret-file",
         session_id: "session-su01",
         socket_connected: true,
         driver: "macos-cgevent",
         provider_selected: "deepseek",
-        model_selected: "deepseek-slice-keychain",
+        model_selected: "deepseek-slice-local-file",
         provider_switch_saved: true,
         webview_reload_performed: true,
         runtime_reset_before_reload: true,
         post_reload_provider: "deepseek",
         post_reload_api_key_configured: true,
-        keychain_service: "com.ai-novel-studio.app.model-provider.slice-verify",
-        keychain_item_found: true,
-        keychain_secret_read_skipped: true,
+        secret_storage_kind: "local_file",
+        provider_secrets_file_exists: true,
+        provider_secrets_file_mode: "600",
+        provider_secrets_file_contains_expected_key: true,
         preferences_file_exists: true,
         preferences_selected_provider: true,
         preferences_model_saved: true,
@@ -689,31 +690,32 @@ describe("native Tauri slice verifier", () => {
       },
     ];
 
-    const evidence = findNativeSliceEvidence("su01-keychain-webview-roundtrip", records);
+    const evidence = findNativeSliceEvidence("su01-local-secret-file-roundtrip", records);
     expect(evidence).toEqual({
-      slice_id: "su01-keychain-webview-roundtrip",
+      slice_id: "su01-local-secret-file-roundtrip",
       turn_ids: [],
-      work_id: "work-su01-keychain",
+      work_id: "work-su01-secret-file",
       provider_selected: "deepseek",
-      model_selected: "deepseek-slice-keychain",
+      model_selected: "deepseek-slice-local-file",
       driver: "macos-cgevent",
-      keychain_service: "com.ai-novel-studio.app.model-provider.slice-verify",
-      key_events: keyEventsForSlice("su01-keychain-webview-roundtrip"),
+      secret_storage_kind: "local_file",
+      provider_secrets_file_mode: "600",
+      key_events: keyEventsForSlice("su01-local-secret-file-roundtrip"),
     });
-    expect(findSliceBehaviorEvidence("su01-keychain-webview-roundtrip", records, evidence)).toEqual(
+    expect(findSliceBehaviorEvidence("su01-local-secret-file-roundtrip", records, evidence)).toEqual(
       {
-        slice_id: "su01-keychain-webview-roundtrip",
-        behavior: "keychain_write_read_roundtrip_from_real_tauri_webview",
+        slice_id: "su01-local-secret-file-roundtrip",
+        behavior: "local_secret_file_write_read_roundtrip_from_real_tauri_webview",
         turn_ids: [],
-        work_id: "work-su01-keychain",
+        work_id: "work-su01-secret-file",
         provider_selected: "deepseek",
-        model_selected: "deepseek-slice-keychain",
+        model_selected: "deepseek-slice-local-file",
         driver: "macos-cgevent",
         assertions: [
           "model_settings_opened_from_real_tauri_webview_by_external_cgevent_driver",
           "deepseek_api_key_saved_through_tauri_webview_command",
-          "macos_keychain_item_exists_without_reading_plain_secret",
-          "backend_runtime_was_reset_then_webview_reload_restored_provider_from_tauri_storage",
+          "provider_secrets_file_written_with_owner_only_permissions",
+          "backend_runtime_was_reset_then_webview_restart_restored_provider_from_local_secret_file",
           "provider_options_marked_api_key_configured_after_reload_without_returning_secret",
           "preferences_saved_non_secret_provider_state_without_api_key",
           "application_and_backend_logs_did_not_expose_api_key",
@@ -730,7 +732,7 @@ describe("native Tauri slice verifier", () => {
       },
     ];
     expect(
-      findNativeSliceEvidence("su01-keychain-webview-roundtrip", browserOnlyRecords),
+      findNativeSliceEvidence("su01-local-secret-file-roundtrip", browserOnlyRecords),
     ).toBeNull();
   });
 

@@ -41,13 +41,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/su01-api-key-secret-redaction.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh su01-api-key-secret-redaction --surface tauri
-  - id: su01-keychain-webview-roundtrip
-    title: "真实 Tauri WebView Keychain 写读与脱敏"
+  - id: su01-local-secret-file-roundtrip
+    title: "真实 Tauri WebView 本地密钥文件写读与脱敏"
     tier: nightly
     surface: tauri
-    manifest: quality/acceptance/scenarios/su01-keychain-webview-roundtrip.yml
-    driver: scripts/macos_cgevent_keychain_webview_driver.swift
-    entrypoint: scripts/quality_accept.sh su01-keychain-webview-roundtrip --surface tauri
+    manifest: quality/acceptance/scenarios/su01-local-secret-file-roundtrip.yml
+    driver: scripts/macos_cgevent_local_secret_file_driver.swift
+    entrypoint: scripts/quality_accept.sh su01-local-secret-file-roundtrip --surface tauri
   - id: su01-model-provider-switching
     title: "模型供应商运行时切换"
     tier: nightly

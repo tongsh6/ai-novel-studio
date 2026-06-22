@@ -75,7 +75,7 @@
 | `p1-export-minimum.yml` | 阅读投影导出全书 Markdown |
 | `p1-word-count-audit.yml` | 阅读投影短章审计与 P1 进度 |
 | `su01-api-key-secret-redaction.yml` | API Key 配置流与 secret redaction |
-| `su01-keychain-webview-roundtrip.yml` | 真实 Tauri WebView Keychain 写读与脱敏 |
+| `su01-local-secret-file-roundtrip.yml` | 真实 Tauri WebView 本地密钥文件写读与脱敏 |
 | `su01-lmstudio-disconnected-health.yml` | LM Studio 未启动时的模型断开态 |
 | `su01-model-provider-switching.yml` | 模型供应商运行时切换 |
 | `su01-provider-endpoint-validation.yml` | 供应商 endpoint URL 校验 |

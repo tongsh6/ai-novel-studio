@@ -54,7 +54,7 @@ assertions:
 
 known_limits:
   - Cloud provider responses are supplied by the external harness through adapter HTTP boundaries; this proves UI/backend success plumbing, not live vendor account availability.
-  - This scenario does not close the macOS Keychain WebView write/read gap.
+  - This scenario does not prove Tauri WebView local secret file write/read; that boundary is covered by su01-local-secret-file-roundtrip.
 
 anti_hooks:
   product_acceptance_logic_added: false

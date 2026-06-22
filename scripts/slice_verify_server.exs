@@ -47,10 +47,11 @@ if System.get_env("SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE") == "1" or
   deepseek_get_fn = fn _url, _opts ->
     {:ok, 200,
      %{
-       "data" => [
-         %{"id" => "deepseek-slice-keychain", "owned_by" => "deepseek"},
-         %{"id" => "deepseek-slice-model-list", "owned_by" => "deepseek"}
-       ]
+	       "data" => [
+	         %{"id" => "deepseek-slice-local-file", "owned_by" => "deepseek"},
+	         %{"id" => "deepseek-slice-keychain", "owned_by" => "deepseek"},
+	         %{"id" => "deepseek-slice-model-list", "owned_by" => "deepseek"}
+	       ]
      }}
   end
 

@@ -1,7 +1,6 @@
 import AppKit
 import CoreGraphics
 import Foundation
-import Security
 
 struct DriverFailure: Error, CustomStringConvertible {
   let description: String
@@ -28,15 +27,17 @@ let backendLogPath = requiredEnv("SLICE_VERIFY_BACKEND_LOG")
 let apiUrl = requiredEnv("SLICE_VERIFY_API_URL")
 let tauriHome = requiredEnv("SLICE_VERIFY_TAURI_HOME")
 let desktopProfile = ProcessInfo.processInfo.environment["AI_NOVEL_DESKTOP_PROFILE"] ?? "slice-verify"
-let driverPhase = ProcessInfo.processInfo.environment["SLICE_VERIFY_KEYCHAIN_PHASE"] ?? "full"
+let driverPhase = ProcessInfo.processInfo.environment["SLICE_VERIFY_SECRET_FILE_PHASE"] ?? "full"
 let provider = "deepseek"
-let model = "deepseek-slice-keychain"
-let keychainService = "com.ai-novel-studio.app.model-provider.\(desktopProfile)"
-let secretPrefix = "sk-slice-keychain-webview"
+let model = "deepseek-slice-local-file"
+let secretPrefix = "sk-slice-local-secret-file"
 let secret = "\(secretPrefix)-\(Int(Date().timeIntervalSince1970 * 1000))"
+let profileDir = "\(tauriHome)/Library/Application Support/com.ai-novel-studio.app/profiles/\(desktopProfile)"
+let preferencesPath = "\(profileDir)/preferences.json"
+let providerSecretsPath = "\(profileDir)/provider-secrets.json"
 
 var debug: [String: Any] = [
-  "slice_id": "su01-keychain-webview-roundtrip",
+  "slice_id": "su01-local-secret-file-roundtrip",
   "driver": "macos-cgevent",
   "product_code_acceptance_hooks_added": false,
 ]
@@ -47,7 +48,7 @@ do {
     exit(0)
   }
 
-  try removeExistingKeychainItem()
+  try removeExistingProviderSecretsFile()
 
   let window = try waitForTauriWindow(timeout: 30)
   debug["window"] = ["pid": Int(window.pid), "x": window.x, "y": window.y, "width": window.width, "height": window.height]
@@ -66,14 +67,16 @@ do {
     }
   )
 
-  let keychainItemFound = try keychainItemExists()
-  let preferencesPath = "\(tauriHome)/Library/Application Support/com.ai-novel-studio.app/profiles/\(desktopProfile)/preferences.json"
   let preferencesText = (try? String(contentsOfFile: preferencesPath, encoding: .utf8)) ?? ""
+  let providerSecretsText = (try? String(contentsOfFile: providerSecretsPath, encoding: .utf8)) ?? ""
+  let providerSecretsMode = providerSecretsFileMode()
 
   try resetRuntimeToStub()
   if driverPhase == "save" {
     debug["status"] = "save_done"
-    debug["keychain_item_found"] = keychainItemFound
+    debug["provider_secrets_file_exists"] = FileManager.default.fileExists(atPath: providerSecretsPath)
+    debug["provider_secrets_file_mode"] = providerSecretsMode
+    debug["provider_secrets_file_contains_expected_key"] = providerSecretsText.contains(secretPrefix)
     debug["runtime_reset_before_restart"] = true
     debug["preferences_file_exists"] = FileManager.default.fileExists(atPath: preferencesPath)
     debug["preferences_selected_provider"] = preferencesTextContainsSelectedProvider(preferencesText)
@@ -108,7 +111,7 @@ do {
 
   let uiState: [String: Any] = [
     "event": "slice_verify.ui_state.done",
-    "slice_id": "su01-keychain-webview-roundtrip",
+    "slice_id": "su01-local-secret-file-roundtrip",
     "work_id": joinedAfterReload.workId,
     "context_work_id": joinedAfterReload.workId,
     "session_id": joinedAfterReload.sessionId,
@@ -121,9 +124,10 @@ do {
     "runtime_reset_before_reload": true,
     "post_reload_provider": currentProvider(optionsAfterReload) ?? "",
     "post_reload_api_key_configured": providerOption(optionsAfterReload, provider)?["api_key_configured"] as? Bool == true,
-    "keychain_service": keychainService,
-    "keychain_item_found": keychainItemFound,
-    "keychain_secret_read_skipped": true,
+    "secret_storage_kind": "local_file",
+    "provider_secrets_file_exists": FileManager.default.fileExists(atPath: providerSecretsPath),
+    "provider_secrets_file_mode": providerSecretsMode,
+    "provider_secrets_file_contains_expected_key": providerSecretsText.contains(secretPrefix),
     "preferences_file_exists": FileManager.default.fileExists(atPath: preferencesPath),
     "preferences_selected_provider": preferencesTextContainsSelectedProvider(preferencesText),
     "preferences_model_saved": preferencesText.contains(model),
@@ -135,8 +139,9 @@ do {
 
   try writeJson([uiState], to: "\(artifactDir)/ui-state.json")
   debug["status"] = "done"
-  debug["keychain_item_found"] = keychainItemFound
-  debug["keychain_secret_read_skipped"] = true
+  debug["provider_secrets_file_exists"] = FileManager.default.fileExists(atPath: providerSecretsPath)
+  debug["provider_secrets_file_mode"] = providerSecretsMode
+  debug["provider_secrets_file_contains_expected_key"] = providerSecretsText.contains(secretPrefix)
   try writeJson(debug, to: "\(artifactDir)/macos-cgevent-driver.json")
   exit(0)
 } catch {
@@ -295,16 +300,16 @@ func verifyReadbackAfterRestart() throws {
     }
   )
 
-  let keychainItemFound = try keychainItemExists()
-  let preferencesPath = "\(tauriHome)/Library/Application Support/com.ai-novel-studio.app/profiles/\(desktopProfile)/preferences.json"
   let preferencesText = (try? String(contentsOfFile: preferencesPath, encoding: .utf8)) ?? ""
+  let providerSecretsText = (try? String(contentsOfFile: providerSecretsPath, encoding: .utf8)) ?? ""
+  let providerSecretsMode = providerSecretsFileMode()
   let providerOptionsJson = jsonString(optionsAfterRestart)
   let allAppLogs = readAllText(appLogDir)
   let backendLog = (try? String(contentsOfFile: backendLogPath, encoding: .utf8)) ?? ""
 
   let uiState: [String: Any] = [
     "event": "slice_verify.ui_state.done",
-    "slice_id": "su01-keychain-webview-roundtrip",
+    "slice_id": "su01-local-secret-file-roundtrip",
     "work_id": joined.workId,
     "context_work_id": joined.workId,
     "session_id": joined.sessionId,
@@ -317,9 +322,10 @@ func verifyReadbackAfterRestart() throws {
     "runtime_reset_before_reload": true,
     "post_reload_provider": currentProvider(optionsAfterRestart) ?? "",
     "post_reload_api_key_configured": providerOption(optionsAfterRestart, provider)?["api_key_configured"] as? Bool == true,
-    "keychain_service": keychainService,
-    "keychain_item_found": keychainItemFound,
-    "keychain_secret_read_skipped": true,
+    "secret_storage_kind": "local_file",
+    "provider_secrets_file_exists": FileManager.default.fileExists(atPath: providerSecretsPath),
+    "provider_secrets_file_mode": providerSecretsMode,
+    "provider_secrets_file_contains_expected_key": providerSecretsText.contains(secretPrefix),
     "preferences_file_exists": FileManager.default.fileExists(atPath: preferencesPath),
     "preferences_selected_provider": preferencesTextContainsSelectedProvider(preferencesText),
     "preferences_model_saved": preferencesText.contains(model),
@@ -331,8 +337,9 @@ func verifyReadbackAfterRestart() throws {
 
   try writeJson([uiState], to: "\(artifactDir)/ui-state.json")
   debug["status"] = "done"
-  debug["keychain_item_found"] = keychainItemFound
-  debug["keychain_secret_read_skipped"] = true
+  debug["provider_secrets_file_exists"] = FileManager.default.fileExists(atPath: providerSecretsPath)
+  debug["provider_secrets_file_mode"] = providerSecretsMode
+  debug["provider_secrets_file_contains_expected_key"] = providerSecretsText.contains(secretPrefix)
   try writeJson(debug, to: "\(artifactDir)/macos-cgevent-driver.json")
 }
 
@@ -534,19 +541,10 @@ func typeText(_ value: String) {
   }
 }
 
-func removeExistingKeychainItem() throws {
-  guard let item = try findProviderKeychainItem() else {
-    return
+func removeExistingProviderSecretsFile() throws {
+  if FileManager.default.fileExists(atPath: providerSecretsPath) {
+    try FileManager.default.removeItem(atPath: providerSecretsPath)
   }
-
-  let status = SecKeychainItemDelete(item)
-  if status != errSecSuccess && status != errSecItemNotFound {
-    throw DriverFailure(description: "failed to clear existing keychain item: \(status)")
-  }
-}
-
-func keychainItemExists() throws -> Bool {
-  try findProviderKeychainItem() != nil
 }
 
 func preferencesTextContainsSelectedProvider(_ text: String) -> Bool {
@@ -555,31 +553,15 @@ func preferencesTextContainsSelectedProvider(_ text: String) -> Bool {
     text.contains("\"selected_provider\" : \"deepseek\"")
 }
 
-func findProviderKeychainItem() throws -> SecKeychainItem? {
-  var item: SecKeychainItem?
-  let status = keychainService.withCString { servicePointer in
-    provider.withCString { providerPointer in
-      SecKeychainFindGenericPassword(
-        nil,
-        UInt32(keychainService.utf8.count),
-        servicePointer,
-        UInt32(provider.utf8.count),
-        providerPointer,
-        nil,
-        nil,
-        &item
-      )
-    }
+func providerSecretsFileMode() -> String {
+  guard
+    let attributes = try? FileManager.default.attributesOfItem(atPath: providerSecretsPath),
+    let permissions = attributes[.posixPermissions] as? NSNumber
+  else {
+    return ""
   }
 
-  if status == errSecItemNotFound {
-    return nil
-  }
-  if status != errSecSuccess {
-    throw DriverFailure(description: "failed to find provider API key metadata in keychain: \(status)")
-  }
-
-  return item
+  return String(format: "%03o", permissions.intValue & 0o777)
 }
 
 func resetRuntimeToStub() throws {
