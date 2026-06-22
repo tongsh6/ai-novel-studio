@@ -52,3 +52,4 @@
 - 2026-06-19 — 不向生产 DOM 添加 `data-role` 或验收 hook；改由外部 driver 读取 websocket frame、TurnResult 和 LM Studio request log 证明行为边界。
 - 2026-06-19 — 按 `SCENARIO-BLUEPRINT.md` 的 SU-03 顺序复核当前 checkout：6 个场景仍与设计一致，默认 provider、real LM Studio 与 quality acceptance 均通过；未发现需要进入实现的设计偏差或 P0/P1 缺口。
 - 2026-06-20 — 按文件级滚动闭环重新复跑 SU-03：默认 Tauri、real LM Studio、quality acceptance 和局部 verifier/assistantDisplayName 单测均通过；验收文件补入文件级对账矩阵，project ledger 旧 `0/6` 口径已更新为 `6/6`。SU-03 可进入 AU-01。
+- 2026-06-22 — 二轮缺口收敛复跑 `quality_accept` 默认 Tauri 与 `--real-lmstudio`；真实页面仍证明显示名只影响 UI label，不进入 websocket payload、TurnResult 字段或 LM Studio request body。本 checkpoint 保持 closed，无 P0/P1。

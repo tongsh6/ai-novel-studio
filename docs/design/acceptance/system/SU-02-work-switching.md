@@ -5,6 +5,8 @@
 > 2026-05-12 对账结论：VS-09 已推进 Work CRUD、启动时选择/创建 work、Channel `work_id` 透传；但“运行时作品切换 + 上下文隔离 + pending 请求隔离 + UI 验收”尚未闭环。不能再按旧文档判断为“仅 mock”，也不能把已有 CRUD 误判为完整作品切换。
 >
 > 2026-06-20 当前 checkout 复核：`WorkspaceChat` 已提供真实作品菜单、快速新建未命名作品、运行时切换、旧 channel leave / 新 `workspace:{work_id}` join，并用 `{token, workId}` 过滤旧连接迟到事件；`su02-work-switching` 外部 Tauri 验收可复跑，证明作者从真实工作台在作品 A 发送消息后，通过可见作品菜单创建/切换到作品 B，UI 上下文与新 channel work_id 一致，且 B 的消息流不显示 A 的消息。`su02-empty-start-unnamed-work` 证明空 Work 数据库启动会通过幂等 `ensure_initial` 创建单个真实“未命名作品”、join 真实 `work_id`，普通消息和重命名保持同一 Work，且多个未命名作品在菜单里可见区分。`su02-work-lifecycle-management` 外部 Tauri 验收证明作者可从真实作品菜单命名新增作品、重命名当前作品、经二次确认安全移出当前作品，并验证默认列表不再展示已移出作品。`su02-work-restart-recovery` 证明 reload 后会恢复仍存在的 lastOpened 作品；当 lastOpened 指向已安全移出的 `DISCARDED` Work 时，工作台回退到真实可用 Work、重新 join 对应 Channel，并替换 stale preference。`su02-pending-result-work-isolation` 进一步证明作品 A 的慢回复迟到结果不会污染作品 B，切回 A 后可恢复 A 的完成 turn。`su02-artifact-projection-trace-isolation` 证明源作品生成待确认正文草稿后切到目标作品不显示源作品 pending artifact，源作品采纳后阅读投影只出现在源作品，目标作品 TOC 仍为空，目标 why/trace 不带源作品 artifact/chapter 上下文。上述证据关闭 SU-02 的 P0/P1 文件级闭环；后端不可用 UX、恢复/归档管理入口、大列表和异常矩阵作为 P2 后续。
+>
+> 2026-06-22 二轮复核：按 SU-02 文件级滚动方式重新检查剩余缺口，当前未发现需要在 SU-02 内关闭的 P1/P0。已串行复跑 6 个真实 Tauri quality 入口：`su02-work-switching`、`su02-empty-start-unnamed-work`、`su02-work-lifecycle-management`、`su02-work-restart-recovery`、`su02-pending-result-work-isolation`、`su02-artifact-projection-trace-isolation`，全部通过并刷新 `artifacts/slice-verify/su02-*-tauri/summary.json`。二轮剩余项仍为 P2：大列表/失败态、并发冲突 UI、恢复/归档管理入口、后端完全不可用/损坏数据 UX、OS-level preference 进程级矩阵、角色/统计扩展隔离矩阵。SU-02 继续满足进入 SU-03 的二轮退出标准。
 
 ---
 

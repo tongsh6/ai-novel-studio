@@ -338,7 +338,7 @@ const path = await invoke("export_novel", { workId, format: "docx" });
 ```
 <config dir>/
 ├── config.toml               # 用户偏好
-├── credentials.encrypted     # device key + LLM API keys（OS keychain 加密）
+├── provider-secrets.json     # LLM API keys（本地文件，unix 0600 明文；见 SU-01）
 └── logs/                     # JSONL 日志（轮转）
 ```
 
@@ -445,6 +445,7 @@ Tauri dev 会：
 - macOS Apple Developer ID 申请流程（需要个人或公司账户）
 - Windows EV 证书购买
 - 分平台 CI/CD（GitHub Actions matrix build）
-- LLM API key 的安全存储（用 OS Keychain via Tauri Stronghold plugin）
+
+> LLM API key 的存储已决策：本机单用户阶段用本地 `provider-secrets.json`（unix 0600 明文），不使用 OS Keychain/Stronghold。决策与威胁模型见 `docs/design/acceptance/system/SU-01-model-provider.md` 的 2026-06-22 对账结论。
 
 以上在 Phase 0 末期 / 阶段 1 中期处理，不阻塞早期开发。

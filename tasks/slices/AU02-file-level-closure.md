@@ -4,13 +4,15 @@
 - 类型：Author Acceptance File Closure
 - 验收文件：`docs/design/acceptance/author/AU-02-explore.md`
 - 当前结论：12 个场景中 11 个已有真实页面外部自动化证据，D2 为 schema/codegen 契约回归已测试；P0/P1 已关闭，当前可进入 AU-03。
-- 最近复核：2026-06-21
+- 最近复核：2026-06-22
 
 ## 1. 文件级目标
 
 AU-02 验收作者从模糊创意进入自然探索：AI 应给出自然语言讨论和候选方向，作者可以继续聊某个候选、直接自由追问，或明确采纳候选进入 adoption boundary。候选方向只是灵感入口，不得自动写入作品事实、阅读模式或生产投影。
 
-本文件是 AU-02 的文件级收口记录，补齐从验收文档、schema、实现入口、quality manifest 到当前 runnable evidence 的对账链路。本轮只新增文件级记录和索引，不修改 production runtime。
+本文件是 AU-02 的文件级收口记录，补齐从验收文档、schema、实现入口、quality manifest 到当前 runnable evidence 的对账链路。第一轮只新增文件级记录和索引，不修改 production runtime；2026-06-22 二轮复核没有发现需要进入实现的 production 偏差。
+
+2026-06-22 二轮复核：不推翻第一轮 file-level deliverable 结论；本轮只复核已登记剩余 P1/P2、external blocker 和 cross-reference。7 个 AU-02 默认 Tauri quality entry、natural exploration real LM Studio 变体和 D2 schema/codegen 回归均已复跑通过。当前未发现 AU-02 内应关闭的新 P0/P1；高风险/stale/conflict/cross-work 候选采纳安全矩阵继续登记为 AU-05 owner，已采纳候选进入作品事实/阅读投影完整矩阵继续登记为 AU-05/AU-08 owner。
 
 ## 2. 开工检查
 
@@ -90,6 +92,21 @@ bash scripts/ai_static_scan.sh --top 10
 node scripts/task_done_check.mjs
 ```
 
+2026-06-22 二轮复跑：
+
+```bash
+bash scripts/quality_accept.sh au02-natural-exploration-no-slot-form --surface tauri
+bash scripts/quality_accept.sh au02-candidate-fallback-ui --surface tauri
+bash scripts/quality_accept.sh au02-candidate-continuation --surface tauri
+bash scripts/quality_accept.sh au02-candidate-multiturn-context --surface tauri
+bash scripts/quality_accept.sh au02-freeform-followup-after-candidate --surface tauri
+bash scripts/quality_accept.sh au02-unadopted-candidate-no-reading-fact --surface tauri
+bash scripts/quality_accept.sh au02-candidate-adoption-bridge --surface tauri
+bash scripts/quality_accept.sh au02-natural-exploration-no-slot-form --surface tauri --provider lmstudio
+mix codegen.enums --check
+pnpm --dir frontend exec vitest run src/lib/__tests__/schemas.test.ts src/lib/__tests__/turn_result_candidates.test.ts src/lib/__tests__/candidateSelection.test.ts src/components/WorkspaceChat.availableActions.test.tsx src/lib/__tests__/socket.test.ts
+```
+
 结果：
 
 - 后端 AU-02 相关测试：38 tests / 0 failures。
@@ -103,6 +120,7 @@ node scripts/task_done_check.mjs
 - `task_done.sh --skip-static-scan`：manifest ok，UI evidence not required。
 - `task_done_check.mjs`：manifest ok。
 - `ai_static_scan.sh --top 10`：17 passed / 1 failed；唯一 Top 10 是既有 gitleaks `generic-api-key` accepted_risk，`blocking=0`、`touched=0`，不命中本轮文件。
+- 2026-06-22 当前 artifact：`au02-natural-exploration-no-slot-form-tauri-lmstudio/summary.json` 证明 `provider=lmstudio`、`request_count=1`、HTTP 200、中文自然回复、无 JSON/代码块、候选语义相关；`au02-candidate-fallback-ui-tauri/summary.json` 证明 malformed candidate payload 被 fallback 候选替换；`au02-candidate-multiturn-context-tauri/summary.json` 证明普通后续追问沿 prior candidate context 继续且无 action/adoption/write；`au02-unadopted-candidate-no-reading-fact-tauri/summary.json` 证明未采纳候选不进入阅读 TOC/内容；`au02-candidate-adoption-bridge-tauri/summary.json` 证明明确采纳通过授权 `choose_candidate` action 进入 `AdoptionBoundary`。
 
 ## 7. 退出结论
 

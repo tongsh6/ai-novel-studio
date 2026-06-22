@@ -10,6 +10,8 @@
 
 当前结论：SU-02 在当前 checkout 达到文件级可交付状态，可以进入 SU-03。13/13 场景均有真实 Tauri 工作台或等价场景化证据；后端不可用 UX、恢复/归档管理入口、大列表和异常失败态保留为 P2 后续矩阵。
 
+2026-06-22 二轮复核结论：未发现本文件内应关闭的 P1/P0。已串行复跑全部 6 个 SU-02 真实 Tauri quality 入口：`su02-work-switching`、`su02-empty-start-unnamed-work`、`su02-work-lifecycle-management`、`su02-work-restart-recovery`、`su02-pending-result-work-isolation`、`su02-artifact-projection-trace-isolation`，全部通过。当前二轮退出标准仍满足：13/13 已验收；剩余仅 P2 work management / failure / platform preference / extended isolation matrix。
+
 ## 2. 开工检查
 
 - Contract: `docs/design/acceptance/system/SU-02-work-switching.md`；`docs/design/acceptance/SCENARIO-BLUEPRINT.md` 的 SU-02 条目；`NovelApplication.WorkService`；`NovelWeb.WorksController`；`WorkspaceChannel` work_id/session_id join 合同；`quality/acceptance/scenarios/su02-*.yml`。
@@ -51,12 +53,19 @@
 - [x] 本轮复跑质量 manifest：`bash scripts/quality_manifest_check.sh`（通过；剩余 warning 均为既有其它 slice 缺 manifest，SU-02 无缺 manifest warning）
 - [x] 本轮 task_done：`bash scripts/task_done.sh --skip-static-scan --slice SU02-file-level-closure`（`artifacts/task-done/20260620T161425Z/manifest.json`）
 - [x] 本轮统一扫描：`bash scripts/ai_static_scan.sh --top 10`（17/18 pass；唯一 Top 10 为既有 gitleaks `accepted_risk`，0 touched-file finding，blocking=0）
+- [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-work-switching --surface tauri`
+- [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-empty-start-unnamed-work --surface tauri`
+- [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-work-lifecycle-management --surface tauri`
+- [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-work-restart-recovery --surface tauri`
+- [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-pending-result-work-isolation --surface tauri`
+- [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-artifact-projection-trace-isolation --surface tauri`
 
 ## 5. 决策日志
 
 - 2026-06-21 — 按用户指定滚动顺序进入 SU-02 文件级审计，不采用 `tasks/NEXT.md` 队首作为优先级来源。
 - 2026-06-21 — 当前 checkout 的 SU-02 证据链足以支撑 13/13 已验收：运行时切换、空库未命名、生命周期、restart recovery、pending 迟到归属和 artifact/projection/trace 隔离均有真实 Tauri summary；quality manifest 已覆盖全部 `su02-*` 场景。
 - 2026-06-21 — 未发现需要本机实现的 P0/P1。后端完全不可用 UX、恢复/归档管理、大列表、异常失败态和 OS-level preference 进程级矩阵登记为 P2，不阻塞进入 SU-03。
+- 2026-06-22 — 二轮缺口收敛时复核 SU-02 剩余项均为 P2；全部 6 个 SU-02 真实 Tauri quality 入口串行复跑通过，不需要新增实现或改动产品 runtime。SU-02 继续可进入 SU-03。
 
 ## 6. 试行反馈
 

@@ -4,13 +4,15 @@
 - 类型：Author Acceptance File Closure
 - 验收文件：`docs/design/acceptance/author/AU-01-chat.md`
 - 当前结论：13 个场景中 11 个有真实页面外部自动化证据，2 个为已测试并登记后续 owner；P0 已关闭，P1 作为 AU-07 cross-reference 登记，当前可进入 AU-02。
-- 最近复核：2026-06-20
+- 最近复核：2026-06-22
 
 ## 1. 文件级目标
 
 AU-01 验收作者能在真实 Tauri 工作台自然聊天：普通讨论应产生可见 user/assistant 往返，不默认进入 MicroPlan、工具、写入、采纳或表单化流程；异常 provider / frame 输出必须友好降级；TurnResult、recorder 和恢复 UI 必须同源。
 
-本文件是 AU-01 的文件级收口记录，补齐从验收文档到当前 runnable evidence 的对账链路。本轮只修正 integration 测试 fixture 与文件级记录，不修改 production runtime。
+本文件是 AU-01 的文件级收口记录，补齐从验收文档到当前 runnable evidence 的对账链路。第一轮曾只修正 integration 测试 fixture 与文件级记录，不修改 production runtime；2026-06-22 二轮复核没有发现需要进入实现的 production 偏差。
+
+2026-06-22 二轮复核：不推翻第一轮 file-level deliverable 结论；本轮只复核已登记剩余 P1/P2、external blocker 和 cross-reference。5 个 AU-01 quality entry 与 ordinary chat real LM Studio 变体均已串行复跑通过。当前未发现 AU-01 内应关闭的 P0/P1；D1 trace/replay UI 继续登记为 AU-07 owner 的 cross-reference，E1 provider unavailable/timeout 继续引用 AU-10 recovery owner 证据，C3 no-slot-form UI 反证保持 P2 后续。
 
 ## 2. 开工检查
 
@@ -83,6 +85,17 @@ bash scripts/quality_accept.sh au01-frame-validation-friendly-error --surface ta
 bash scripts/quality_accept.sh au01-turnresult-recorder-ui-consistency --surface tauri
 ```
 
+2026-06-22 二轮复跑：
+
+```bash
+bash scripts/quality_accept.sh au01-ordinary-chat-two-turn-roundtrip --surface tauri
+bash scripts/quality_accept.sh au01-empty-message-guard --surface tauri
+bash scripts/quality_accept.sh au01-garbage-json-recovery --surface tauri
+bash scripts/quality_accept.sh au01-frame-validation-friendly-error --surface tauri
+bash scripts/quality_accept.sh au01-turnresult-recorder-ui-consistency --surface tauri
+bash scripts/tauri_slice_verify.sh --real-lmstudio au01-ordinary-chat-two-turn-roundtrip
+```
+
 结果：
 
 - `dialogue_gateway_test.exs` + `workspace_channel_v3_test.exs`：65 tests / 0 failures。
@@ -92,6 +105,7 @@ bash scripts/quality_accept.sh au01-turnresult-recorder-ui-consistency --surface
 - 5 个 AU-01 Tauri driver 均 passed。
 - ordinary chat real LM Studio 变体 passed，summary 记录 `provider=lmstudio`、`request_count=2`、HTTP 200。
 - 5 个 AU-01 quality acceptance 入口均 passed。
+- 2026-06-22 当前 artifact：`artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri/summary.json` 继续证明两轮真实页面普通聊天、thinking 清退、no MicroPlan 和无 action/candidate/adoption UI；`artifacts/slice-verify/au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio/summary.json` 证明 `provider=lmstudio`、`request_count=2`、HTTP 200；`au01-empty-message-guard` summary 证明空白输入 `blank_user_message_frame_count=0`；`au01-garbage-json-recovery` summary 证明 `fallback_message_visible=true` 且 `raw_provider_payload_visible=false`；`au01-frame-validation-friendly-error` summary 证明 `internal_validation_reason_visible=false` 且 `internal_validation_reason_in_turn_result=false`；`au01-turnresult-recorder-ui-consistency` summary 证明 transcript、websocket TurnResult 与 reload UI 文本一致。
 
 ## 7. 退出结论
 

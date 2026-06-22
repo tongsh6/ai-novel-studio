@@ -3,6 +3,8 @@
 > 作者视角：我的小说有大量设定、角色关系、伏笔线索、世界观规则。我需要能管理这些设定，并且 AI 在后续对话中能自动、可追溯地引用已确认设定。
 >
 > 2026-06-21 文件级重算结论：AU-09 当前为 **文件级可交付 / P1 后续登记**。14 个场景中，10/14 已验收、1/14 已测试、3/14 部分实现；P0 缺口已关闭，当前可进入 AU-10。当前“已验收”只以 `scripts/tauri_slice_verify.sh --list` 中可复跑的 AU-09 入口和 quality manifest 为准：`au09-memory-create-recall`、`au09-memory-management-entry`、`au09-memory-trace-roundtrip`、`au09-adopt-setting-recall`、`au09-character-dossier-roundtrip`、`au09-validity-window-recall`、`au09-cross-work-memory-isolation`、`au09-au03-session-memory-layering`。历史 `au09-archive-real-data` / `au09-memory-recall-context` artifact 只作为演进背景，不再单独支撑当前 runnable truth。
+>
+> 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。8 个当前 AU-09 quality/Tauri 入口已串行复跑通过；未发现需要在 AU-09 本轮先改生产代码才能继续 AU-10 的新增 P0/P1。剩余 P1 仍是 SC-AU09-A1 完整 archive stats current driver、SC-AU09-A3 持久 adoption inbox / pending archive view、SC-AU09-B2 筛选分页真实页面矩阵、SC-AU09-D2 developer replay / 历史旧 turn 查询 / 完整 MemoryTrace-StateTrace 聚合；它们继续作为后续 checkpoint 或 AU-05/AU-07 cross-owner 登记。
 
 ---
 
@@ -89,6 +91,7 @@
 - 已测试：SC-AU09-B2。
 - 部分实现：SC-AU09-A1、A3、D2。
 - 未实现 / 不确定：无。
+- 2026-06-22 二轮复核：上述分类保持不变；8 个当前 quality/Tauri 入口复跑通过，没有新增 AU-09 本文件内必须关闭的 blocker。
 
 **P0**
 
@@ -100,6 +103,7 @@
 - SC-AU09-A3：持久 adoption inbox / pending archive view 恢复矩阵。Owner 应归 AU-05 adoption inbox + AU-09 archive pending view，不阻塞当前 governed memory 主链。
 - SC-AU09-B2：筛选、搜索、分页真实页面深矩阵。已有后端测试，缺 Tauri UI driver。
 - SC-AU09-D2：developer replay、历史旧 turn 查询、完整独立 MemoryTrace/StateTrace 表。Owner 与 AU-07 trace/replay 共管。
+- 2026-06-22 二轮判断：以上 P1 均不是本轮进入 AU-10 前必须关闭项；不得把历史 artifact 补写成当前已验收，也不得把 developer replay 缺口误判为当前 AU-09 P0。
 
 **P2**
 

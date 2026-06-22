@@ -1,6 +1,8 @@
 # AU-11 AI 引导式创作会话结构
 
 > 作者视角：我不是在向一个通用聊天模型提问，而是在和一个能理解小说创作原则、当前作品状态和本轮写作问题的 AI 创作伙伴协作。AI 应该能判断本轮是探索、结构化、执行、质量诊断、澄清还是确认，并把判断依据留在 trace 中。
+>
+> 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。`au11-quality-diagnosis-message-envelope` 与 `au11-missing-workstate-policy` 已串行复跑通过；未发现需要在 AU-11 本轮先改生产代码才能继续 AU-12 的新增 P0/P1。剩余 P1 仍是 `guidance_mode` schema 冻结、clarify/confirm 引导 proof、`prose_writing` envelope 投影；这些是跨 contract / Orchestrator / provider 调用点深化，不能把现有质量诊断 proof 写成 VS-00D 全调用点完成。
 
 ---
 
@@ -112,6 +114,8 @@
 
 当前结论：AU-11 文件级 P0 已关闭，当前口径为 `2/4` 已验收、`2/4` 部分实现；可进入 AU-12。剩余 P1 为 schema 冻结、clarify/confirm 引导证明、prose_writing envelope 投影。
 
+2026-06-22 二轮判断：上述状态保持不变；两个当前 quality/Tauri 入口复跑通过，没有新增 AU-11 本文件内必须关闭的 blocker。
+
 ---
 
 ## 6. 缺口
@@ -123,6 +127,8 @@
 | clarify / confirm 仍缺独立引导模式 proof | 目前主要由 AU-04/AU-06 证明执行授权边界，还不能证明 `guidance_mode=clarify/confirm` 的组合关系 | P1：补 clarify/confirm driver 与 behavior/orchestrator 对账 |
 | CreativeProvider prompt 与 Planner 判断仍可能脱节 | 生成正文时丢失本轮引导判断和要素焦点 | P1：prose_writing 调用消费 CreativeDecisionPacket / AIMessageEnvelope 投影 |
 | DialogueContext 当前作品投影仍较薄 | 质量诊断有时只能基于 snapshot 与显式 missing，而不是完整章节/人物态 | P2：与 AU-03 / AU-09 / AU-12 的 WorkState projection 扩展合并推进 |
+
+2026-06-22 二轮判断：以上 P1/P2 均不是本轮进入 AU-12 前必须关闭项。clarify/confirm proof 需要和 Orchestrator/Behavior 边界一起验收；`prose_writing` 投影需要真实 provider prompt/trace 调用点闭环；本轮不通过验收专用分支强行制造 proof。
 
 ---
 

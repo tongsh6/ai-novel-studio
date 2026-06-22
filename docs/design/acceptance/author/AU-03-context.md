@@ -3,6 +3,8 @@
 > 作者视角：AI 应该了解当前作品的最新背景、设定、角色、记忆和当前创作状态；同时，一个作品里会有多次会话，每次会话都有自己的历史 transcript。历史会话可以搜索、查看、归档，但重新进入历史会话时应是退出/只读状态，作品背景仍显示最新版本。
 >
 > 2026-06-21 文件级对账结论：当前 checkout 已有 WorkSession、sessions API、会话搜索/只读/归档 UI、最新 Work snapshot、active session transcript、memory recall 和上下文来源摘要基础。当前可从 `bash scripts/tauri_slice_verify.sh --list` 直接复跑的 AU-03 证据包括 `au03-session-new-active`、`au03-session-history-readonly`、`au03-branch-from-history`、`au03-archive-session-filter`、`au03-current-work-context-ssot`、`au03-context-source-ui`、`au03-long-session-compression`，以及跨 AU-09 的 `au09-au03-session-memory-layering`。本轮已复跑上述 8 条默认 Tauri driver、7 条 AU-03 quality acceptance 入口，并补 `au03-current-work-context-ssot --real-lmstudio` / `quality_accept --provider lmstudio` 当前证据；`tasks/slices/AU03-file-level-closure.md` 已补文件级收口记录。剩余文件级缺口集中在搜索命中 turn 定位/高亮、显式引用 archived source、open behavior summary、完整 replay 页面和 AU-07 developer trace 视图。
+>
+> 2026-06-22 二轮复核结论：本轮按剩余 P1/P2、external blocker 与 cross-reference 重新核对，不回退第一轮 file-level deliverable。已串行复跑 `au03-session-new-active`、`au03-session-history-readonly`、`au03-branch-from-history`、`au03-archive-session-filter`、`au03-current-work-context-ssot`、`au03-context-source-ui`、`au03-long-session-compression`、`au09-au03-session-memory-layering` 的 quality acceptance 入口，以及 `au03-current-work-context-ssot --provider lmstudio`；全部通过。二轮未发现 AU-03 当前文件内必须新增实现后才能进入 AU-04 的 P1：`behavior_summary` 仍归 AU-04/AU-06，显式 archived source、developer trace 与 replay 仍归 AU-07/AU-09，empty/work-only/failure UI/LLM 矩阵登记为 AU-03 后续或 AU-11 missing-context robustness checkpoint。
 
 ---
 

@@ -1,6 +1,6 @@
 # E2E01 File-Level Closure
 
-- 状态：file-level deliverable / P0-P1 closed, P2 Channel security regression registered
+- 状态：file-level deliverable / second-round reviewed / P0-P1 closed, P2 Channel security regression registered
 - 类型：Acceptance Slice
 - 启动日期：2026-06-21
 
@@ -49,6 +49,28 @@
 | E12 真实两轮回路 | 已验收 | `au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio` + `au03-current-work-context-ssot-tauri-lmstudio` + SQLite real-loop tests | 无 |
 | E13 Action 来源校验 | 已测试 | `workspace_channel_v3_test.exs` exact forged `source_turn_result` rejection | P2：保持 Channel security regression |
 
+## 4.1 二轮剩余缺口矩阵（2026-06-22）
+
+二轮复核重新跑了当前 E2E-01 quality 入口：`e2e-01-downgrade-real-page --surface tauri --provider lmstudio`、`e2e-01-readonly-tool-trace --surface tauri --provider lmstudio`、`e2e-01-replay-report --surface tauri --provider lmstudio`、`e2e-01-full-chain --provider lmstudio`。本轮只发现并关闭聚合 artifact 的 cross-reference 漂移：E12/E13 名称已对齐 E2E-01 正文，`remaining_gaps` 已拆分 E8/E13。未发现 E2E-01 内应继续关闭的 P1/P0。
+
+| 场景 ID / 名称 | 第一轮状态 | 剩余缺口描述 | 缺口类型 | 优先级 | 当前证据 | 需要补的实现或验收 driver | 是否应在 E2E-01 内关闭 | 建议 checkpoint / slice | 是否满足本轮二轮退出标准 |
+|---|---|---|---|---|---|---|---|---|---|
+| E1 基础对话 | 已验收 | 无 | closed | closed | `au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio`；`e2e-01-full-chain` 聚合矩阵 | 无 | no | 保持 AU-01 / E2E 聚合回归 | 是 |
+| E2 探索方向 | 已验收 | 无 | closed | closed | `au02-natural-exploration-no-slot-form-tauri-lmstudio`；`e2e-01-full-chain` 聚合矩阵 | 无 | no | 保持 AU-02 / E2E 聚合回归 | 是 |
+| E3 上下文感知 | 已验收 | 无 | closed | closed | `au03-current-work-context-ssot-tauri-lmstudio`；`mix-application-real-loop` | 无 | no | 保持 AU-03 / E2E 聚合回归 | 是 |
+| E4 执行降级 | 已验收 | 无；本轮真实 Tauri + LM Studio 复跑通过 | current evidence refreshed | closed | `e2e-01-downgrade-real-page-tauri-lmstudio/summary.json`：`downgrade_to_dialogue`、`first_blocking_gate=action_scope`、LM Studio request_count=2 | 无 | no | 保持 `e2e-01-downgrade-real-page` | 是 |
+| E5 高风险确认 | 已验收 | 无 | closed | closed | `au04-confirm-before-execute-tauri-lmstudio`；`mix-e2e-integration` | 无 | no | 保持 AU-04 / E2E 聚合回归 | 是 |
+| E6 工具调度 | 已验收 | 无；本轮真实 Tauri + LM Studio 复跑通过 | current evidence refreshed | closed | `e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json`：`allow_tool`、`character_roster`、tool_status succeeded、`TraceRepository.list_by_turn` 返回 tool trace ref | 无 | no | 保持 `e2e-01-readonly-tool-trace` | 是 |
+| E7 创作产出 | 已验收 | 无 | closed | closed | `p1-chapter-draft-generation-tauri`；`p1-chapter-adoption-reading-tauri-lmstudio` | 无 | no | 保持 AU-05/AU-08 cross evidence | 是 |
+| E8 Action 校验 | 部分实现 | invented action exact negative 仍是恶意 Channel payload；正常真实 UI 不应提供构造入口 | security regression / non-user UI path | P2 | stale/disabled/old action 有 Tauri 证据；invented negative 有 `workspace_channel_v3_test.exs` 和 `mix-channel-replay-trace` | 若后续需要外部协议 fuzz harness，可新增 Channel-level external fuzz driver；不应在产品 UI 加构造入口 | no | 后续 Channel security regression / protocol fuzz | 是 |
+| E9 回放审计 | 已验收 | 无；本轮真实 Tauri + LM Studio 复跑通过 | current evidence refreshed | closed | `e2e-01-replay-report-tauri-lmstudio/summary.json`：no-provider ReplayReport、chain steps frame/plan/decision/tool_trace/turn_result、VS-06 六问 answered/not_applicable | 无 | no | 保持 `e2e-01-replay-report` | 是 |
+| E10 持久化闭环 | 已测试 | 无真实页面 trace query UI；application/persistence proof 已闭合，页面查询入口继续归 AU-07 | cross-reference | P1 owner: AU-07 | `dialogue_gateway_real_loop_test.exs`；`trace_repository_test.exs`；`e2e-01-readonly-tool-trace` / `e2e-01-replay-report` 间接证明外部查询可用 | AU-07 若做旧 turn trace query API/UI，再补真实页面 driver | no | AU-07 old-turn trace query / developer replay | 是 |
+| E11 错误恢复 | 已验收 | 无 | closed | closed | `au01-garbage-json-recovery-tauri`；`au10-workbench-recovery-provider-timeout-tauri` | 无 | no | 保持 AU-01/AU-10 recovery 回归 | 是 |
+| E12 真实两轮回路 | 已验收 | 聚合 summary 名称曾漂移为旧标签；本轮已修正并复跑聚合 runner | cross-reference closed | closed | `e2e-01-full-chain/summary.json` 当前输出 `E12 真实两轮回路`；`au01-ordinary-chat-two-turn-roundtrip-tauri-lmstudio`；`au03-current-work-context-ssot-tauri-lmstudio` | 无 | 已关闭 | `e2e-01-full-chain` 聚合 artifact hygiene | 是 |
+| E13 Action 来源校验 | 已测试 | forged `source_turn_result` exact negative 是恶意 Channel payload；正常 UI 不应提供构造入口；聚合 summary 名称与 remaining gaps 曾漂移，本轮已修正 | security regression / cross-reference closed | P2 | `workspace_channel_v3_test.exs`；`mix-e2e-integration`；`mix-real-lmstudio`；`e2e-01-full-chain/summary.json` 当前输出 `E13 Action 来源校验` 并列 remaining gap | 若后续需要外部协议 fuzz harness，可新增 Channel-level external fuzz driver；不应在产品 UI 加构造入口 | no | 后续 Channel security regression / protocol fuzz | 是 |
+
+二轮退出判断：满足。E2E-01 当前仍为 10/13 已验收、2/13 已测试、1/13 部分实现；P0/P1 维持关闭，E8/E13 均明确登记为 P2 Channel security regression，E10 的页面 trace query 为 AU-07 cross-reference owner，不阻塞 E2E-01 本轮退出。
+
 ## 5. 任务清单
 
 | # | 任务 | Status | 备注 |
@@ -63,13 +85,15 @@
 | T8 | E4 真实页面多步 MicroPlan 降级 checkpoint | done | `quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio` 通过；summary 写入 `artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/summary.json` |
 | T9 | E6 指定低风险只读 tool dispatch + trace query checkpoint | done | 从真实工作台“查看当前角色列表”触发 `character_roster`，证明 `allow_tool`、Toolbox success、no-write truthfulness 与 `TraceRepository.list_by_turn` 回查 |
 | T10 | E9 完整 ReplayReport 六问 checkpoint | done | `quality_accept.sh e2e-01-replay-report --surface tauri --provider lmstudio` 通过；E2E 聚合 runner 已消费该 summary 并将 E9 升级为已验收 |
+| T11 | 二轮复跑 E2E-01 当前 quality 入口 | done | 三个真实 Tauri + LM Studio checkpoint 和 `e2e-01-full-chain` 聚合 runner 均于 2026-06-22 复跑通过 |
+| T12 | 修正聚合 artifact cross-reference 漂移 | done | `scripts/e2e_01_full_chain_check.sh` 的 E12/E13 名称与 E8/E13 remaining gaps 已对齐 E2E-01 正文；聚合 summary 已重新生成 |
 
 ## 5.1 E4 真实页面降级 checkpoint 开工检查
 
-- Contract: E2E-01 E4；`MicroPlan.proposed_actions`；`GateOrder.action_scope`；`OrchestratorDecision.decision_type = downgrade_to_dialogue`；TurnResult truthfulness；`STRUCTURE_PANEL.newActionPrompt`；`quality/acceptance/scenarios/e2e-01-downgrade-real-page.yml`。
+- Contract: E2E-01 E4；`MicroPlan.proposed_actions`；`GateOrder.action_scope`；`OrchestratorDecision.decision_type = downgrade_to_dialogue`；TurnResult truthfulness；`STRUCTURE_PANEL.panelActions.overview.prompt`；`quality/acceptance/scenarios/e2e-01-downgrade-real-page.yml`。
 - Invariant: 明确多动作请求必须在 Orchestrator 的 `action_scope` gate 降级为对话；不得触发 `toolbox.execute`、`author_action`、`adoption.evaluate`、确认卡执行或 production write。通过 app log、websocket frame、ui-state summary 与 LM Studio request log 联合验证。
 - Boundary: 切穿真实 Tauri 工作台按钮 → Channel `user_message` → application Planner / Orchestrator → TurnResult → 前端可见反馈 → native verifier。可改 application planner prompt、test/support provider、集中 copy、外部 driver/verifier 和 quality manifest；不改 production provider runtime，不新增产品验收 env/query/localStorage/DOM hook。
-- Consumer: 第一个真实消费者是作者在档案面板点击“发起新操作”；质量消费者是 `scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio`。
+- Consumer: 第一个真实消费者是作者在档案面板概览中点击“发起综合修订”；质量消费者是 `scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio`。
 - Proof: `mix test --include integration apps/novel_e2e/test/novel_e2e/v3_full_chain_test.exs`；`bash scripts/tauri_slice_verify.sh e2e-01-downgrade-real-page`；`bash scripts/tauri_slice_verify.sh --real-lmstudio e2e-01-downgrade-real-page`；`bash scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio`；`quality_manifest_check`、`task_done`、`ai_static_scan`。
 - Acceptance Driver: `frontend/slice-verify/external-ui-driver.mjs` 中的 `e2e-01-downgrade-real-page` 外部 Tauri driver。产品代码新增验收感知逻辑：no。
 
@@ -141,6 +165,10 @@
 - [x] `bash scripts/tauri_slice_verify.sh --real-lmstudio e2e-01-replay-report`
 - [x] `bash scripts/quality_accept.sh e2e-01-replay-report --surface tauri --provider lmstudio`
 - [x] `bash scripts/quality_accept.sh e2e-01-full-chain --provider lmstudio`
+- [x] `bash scripts/quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio`（2026-06-22 二轮复跑）
+- [x] `bash scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri --provider lmstudio`（2026-06-22 二轮复跑）
+- [x] `bash scripts/quality_accept.sh e2e-01-replay-report --surface tauri --provider lmstudio`（2026-06-22 二轮复跑）
+- [x] `bash scripts/quality_accept.sh e2e-01-full-chain --provider lmstudio`（2026-06-22 二轮复跑；聚合 summary 名称和 remaining gaps 已对齐）
 - [x] `bash scripts/quality_manifest_check.sh`
 - [x] `node scripts/task_done_check.mjs --latest-ui-summary`
 - [x] `bash scripts/task_done.sh --top 10`
@@ -155,7 +183,8 @@
 - 2026-06-21 — E4 真实页面 downgrade 已补独立 Tauri driver / quality manifest。实现同时修正 Planner prompt 的设计偏差（显式多动作请求不能被压成单 action）和 UI badge 偏差（降级 turn 不再显示“生成草稿”）。
 - 2026-06-21 — E6 只读工具 dispatch 已补独立 Tauri driver / quality manifest。`character_roster` 是 production registry 中显式低风险 read-only capability，agent adapter 只消费 application 注入的角色列表，不跨边界读 Repo；外部 driver 用 `TraceRepository.list_by_turn` 查询持久 trace，不新增产品验收 hook。
 - 2026-06-21 — E9 完整 ReplayReport 六问已补独立 Tauri driver / quality manifest。实现只扩展持久 trace/ref 与 structural replay report，不调用 provider、不写业务状态、不新增产品验收 hook；E2E 聚合矩阵更新为 10/13 已验收、2/13 已测试、1/13 部分实现。
+- 2026-06-22 — 二轮复跑 E2E-01 当前四个 quality 入口全部通过；本轮只关闭聚合 artifact cross-reference 漂移：E12/E13 名称对齐验收正文，E8/E13 remaining gaps 分开登记。E8/E13 仍是 P2 Channel security regression，E10 页面 trace query 仍归 AU-07 owner，不阻塞 E2E-01 退出。
 
 ## 8. 试行反馈
 
-E2E-01 已具备独立聚合 runner，可作为当前文件级质量入口复跑。E4 真实页面 downgrade、E6 只读 tool trace、E9 完整 ReplayReport 六问 checkpoint 均已关闭；文件级 P0/P1 已关闭，E8/E13 forged source negative 继续作为 P2 Channel security regression，当前文件可进入交付状态。
+E2E-01 已具备独立聚合 runner，可作为当前文件级质量入口复跑。E4 真实页面 downgrade、E6 只读 tool trace、E9 完整 ReplayReport 六问 checkpoint 均已关闭；二轮复跑已确认当前证据仍通过，并修正聚合 artifact 的 E12/E13 cross-reference 漂移。文件级 P0/P1 已关闭，E8/E13 invented / forged source negative 继续作为 P2 Channel security regression，当前文件满足本轮二轮退出标准。

@@ -3,6 +3,8 @@
 > 作者视角：AI 生成的角色设定、剧情方向、大纲、章节片段默认都是草稿或候选，不能自动成为作品事实。只有我明确采纳，并且系统通过 adoption boundary 后，它们才进入作品档案、阅读投影或后续上下文。
 
 > 2026-06-21 文件级审计结论：AU-05 当前按 18 个场景重算为 15 个已验收、3 个部分实现。真实工作台已经通过 `author_action` 主链覆盖候选 adoption boundary、高风险确认、stale 拒绝、cross-work/canon conflict recovery，以及 artifact `accept` / `discard` / `edit_then_accept` 到阅读投影的链路。旧文档里“WorkspaceChannel 缺 adopt/discard/modify_draft handler”的判断已经过期；当前有效入口是服务端下发 `available_actions` 后由前端提交 `author_action`，再经 `ActionValidator -> DialogueGateway/AdoptionWorkflow -> AdoptionBoundary` 裁决。剩余未闭环项集中在持久化待处理箱、完整 ProjectionHint stale/refresh 状态机和 developer replay/StateTrace 聚合，均登记为 P1/P2 跨文件后续，不阻止进入 AU-06。
+>
+> 2026-06-22 二轮缺口收敛更新：本轮不推翻 2026-06-21 文件级可交付结论；已串行复跑 `au05-adoption-safety-freshness`、`au05-stale-conflict-cross-work-freshness`、`au05-conflict-cross-work-recovery`、`au05-canon-conflict-recovery`、`au05-discard-author-action`、`au02-candidate-adoption-bridge`、`au02-unadopted-candidate-no-reading-fact`、`p1-chapter-adoption-reading`、`p1-chapter-edit-then-accept`、`au07-state-trace-adoption-replay` 和 `au09-adopt-setting-recall`，均通过真实 Tauri / quality acceptance。当前无 AU-05 内必须继续关闭的 P1；持久 adoption inbox、ProjectionHint refresh 状态机、完整 replay/旧 turn 查询、canon/revision store 自动计算和人工合并 UX 继续登记到 AU-06/AU-07/AU-08/AU-09/AU-10 后续，不标为已验收。
 
 ---
 

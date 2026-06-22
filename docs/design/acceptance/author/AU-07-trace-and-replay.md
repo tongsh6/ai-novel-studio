@@ -3,6 +3,8 @@
 > 作者视角：我想知道 AI 为什么这样回复、为什么没有执行、为什么要求确认、参考了哪些作品上下文，以及几天后回看时还能不能解释当时发生了什么。解释必须是作者能理解的安全摘要，而不是 raw prompt、debug dump 或英文错误码。
 
 > 2026-06-21 对账结论：`au07-trace-why-entry` 已重新挂回 `scripts/tauri_slice_verify.sh --list` 与 quality manifest，并通过 `bash scripts/quality_accept.sh au07-trace-why-entry --surface tauri` 复跑。作者可从真实工作台消息流打开 author-safe “为什么？”解释，且不展示 raw prompt/provider/debug/trace id/context id。`au07-state-trace-adoption-replay` 已证明真实工作台“保存为章节正文”后的 action turn、采纳 resolved entry 与 reading projection 共用可回放 `state_trace_ref`。`au07-behavior-trace-terminal-replay` 已证明真实工作台高风险 confirmation 被作者拒绝/取消后，cancelled action turn 记录 terminal `behavior_trace_refs` close event、`event_turn_ref` 与 `behavior_resolution` ref，并可由 `ReplayService` 离线解释，不调用 provider、不调工具、不写作品事实。`ReplayService.build_report/1` 已补 Tool / Behavior / State replay refs 的完整性检查：有 refs 时进入 replay chain，关键 refs 缺失时 `missing_trace_refs` 非空且 `result_status=partial`，不会伪造完整 replay。AU-07 文件级 P0 已关闭，当前可进入 AU-08；剩余 P1 为旧 turn trace 查询 API/UI、developer 双视图权限、完整 ToolTrace registry snapshot、ReplayReport 六问真实入口和 work/session trace 查询隔离。
+>
+> 2026-06-22 二轮缺口复核：AU-07 本体 3 个真实 Tauri / quality 入口已串行复跑通过：`au07-trace-why-entry`、`au07-state-trace-adoption-replay`、`au07-behavior-trace-terminal-replay`。同时复跑 E2E cross evidence：`e2e-01-readonly-tool-trace` 与 `e2e-01-replay-report` 的默认 Tauri 和 real LM Studio quality 入口均通过，证明只读 `character_roster` 工具链的持久 `tool_trace_refs` 可由 `TraceRepository.list_by_turn` 回查，且 `ReplayService` 可从持久 trace 生成 no-provider、`result_status=complete`、六问完整的 ReplayReport。AU-07 二轮口径调整为 9/16 已验收、1/16 已测试、6/16 部分实现；剩余 P1 仍是旧 turn trace 查询 API/UI、developer 双视图权限、完整 ToolTrace registry snapshot / redacted I/O、work/session trace 查询隔离和 reason catalog 深化。
 
 ---
 
@@ -282,17 +284,17 @@
 | SC-AU07-B1 | 作者视图不泄露 raw/internal 信息 | AU07-I5/I9；ADR-0014 | `TraceRedactor`；`traceSummaryView.ts`；`WorkspaceChat` | `trace_redactor_test.exs`；`traceSummaryView.test.ts` | `au07-trace-why-entry`、`au03-context-source-ui`、`au11-quality-diagnosis-message-envelope` | 已验收 | developer 视图权限未实现 | 补集成 | P1 | `AU07-developer-view-boundary` |
 | SC-AU07-B2 | author/developer 双视图隔离 | AU07-I6；ADR-0017 | `ReplayReport.redaction_profile` | 无完整双视图测试 | 无 | 部分实现 | `ReplayService` 仍固定 author_safe | 补实现 | P1 | `AU07-developer-view-boundary` |
 | SC-AU07-B3 | 中文业务解释，不把机器码给作者 | AU07-I5/I9 | `frontend/src/lib/copy.ts` TRACE；`traceSummaryView.ts` | `traceSummaryView.test.ts` | `au07-trace-why-entry` | 部分实现 | reason catalog 仍是常见子集 | 文案同步/补验收 | P1 | `AU07-reason-catalog` |
-| SC-AU07-C1 | 离线 replay 不调 LLM | AU07-I7；ADR-0017 | `ReplayService.build_report/1` | `replay_service_test.exs` | why dialog 文案证明打开解释不重调模型；无旧 turn API/UI | 已测试 | 缺持久 trace 查询到 replay report 的 UI/API | 补集成 | P1 | `AU07-persisted-trace-query` |
+| SC-AU07-C1 | 离线 replay 不调 LLM | AU07-I7；ADR-0017 | `ReplayService.build_report/1` | `replay_service_test.exs` | `e2e-01-replay-report` real LM Studio：外部从持久 trace 生成 ReplayReport，`provider_called=false` | 已验收 | 缺产品内旧 turn API/UI；当前证据来自外部 verifier 查询 | 补集成 | P1 | `AU07-persisted-trace-query` |
 | SC-AU07-C2 | 不完整 trace 诚实标 partial | AU07-I8；VS-06 | `ReplayService.find_missing_refs/1` | `replay_service_test.exs` 覆盖 turn_result/tool/behavior/state missing refs | 无真实 partial replay UI | 已测试 | partial 尚未进入作者旧 turn UI | 补验收 | P1 | `AU07-partial-replay-ui` |
-| SC-AU07-C3 | ReplayReport 回答 VS-06 六问 | VS-06 §5 | `ReplayService.build_report/1` | `replay_service_test.exs` 覆盖 tool/behavior/state refs 与缺失 | 无真实完整 replay driver | 部分实现 | plan-vs-decision、TurnResultViewModel 解释仍不足 | 补实现 | P1 | `AU07-six-question-report` |
-| SC-AU07-D1 | ToolTrace 进入 replay | AU07-I2；VS-02 | `DecisionTrace.tool_trace_refs`；`TraceWriter.record_with_tool/7`；`decision_traces.tool_trace_refs` | `replay_service_test.exs`；`trace_repository_test.exs` | 无真实 tool replay UI | 已测试 | summary-level refs，缺独立 ToolTrace / registry snapshot | 补集成 | P1 | `AU07-tool-trace-replay` |
+| SC-AU07-C3 | ReplayReport 回答 VS-06 六问 | VS-06 §5 | `ReplayService.build_report/1` | `replay_service_test.exs` 覆盖 tool/behavior/state refs 与缺失 | `e2e-01-replay-report` real LM Studio：chain 包含 frame/plan/decision/tool_trace/turn_result，六问均 answered 或 not_applicable | 已验收 | 真实旧 turn UI/API、developer view 和多类型组合矩阵仍缺 | 补集成 | P1 | `AU07-persisted-trace-query` / `AU07-developer-view-boundary` |
+| SC-AU07-D1 | ToolTrace 进入 replay | AU07-I2；VS-02 | `DecisionTrace.tool_trace_refs`；`TraceWriter.record_with_tool/7`；`decision_traces.tool_trace_refs` | `replay_service_test.exs`；`trace_repository_test.exs` | `e2e-01-readonly-tool-trace` + `e2e-01-replay-report` real LM Studio：`character_roster` tool refs 可持久回查并进入 ReplayReport chain | 已验收 | 当前仍是 summary-level refs；缺独立 ToolTrace 表、registry snapshot 和 redacted I/O | 补集成 | P1 | `AU07-tool-trace-replay` |
 | SC-AU07-D2 | BehaviorTrace 进入 replay | AU07-I3；VS-03 | `DialogueGateway` cancel waiting terminal refs；`WorkspaceChannel` generic action trace persistence；`DecisionTrace.behavior_trace_refs`；`ReplayService` behavior chain/state explanation | `dialogue_gateway_test.exs`；`workspace_channel_action_idempotency_test.exs`；`replay_service_test.exs`；`trace_repository_test.exs` | `artifacts/slice-verify/au07-behavior-trace-terminal-replay-tauri/summary.json` | 已验收 | 完整旧 turn replay UI/API 归 C3/E2 继续补 | cross-reference | closed | `AU07-behavior-trace-terminal-replay` |
 | SC-AU07-D3 | StateTrace/adoption/projection 进入 replay | AU07-I4；VS-04；ADR-0016 | `AdoptionWorkflow`；`WorkspaceChannel` action trace persistence；`DecisionTrace.state_trace_refs`；`ReplayService` state chain | `adoption_workflow_test.exs`；`workspace_channel_action_idempotency_test.exs`；`replay_service_test.exs`；`trace_repository_test.exs` | `artifacts/slice-verify/au07-state-trace-adoption-replay-tauri/summary.json` | 已验收 | 完整旧 turn replay UI 归 C3/E2 继续补 | cross-reference | closed | `AU07-state-trace-adoption-replay` |
 | SC-AU07-E1 | 工作台有“为什么？”入口 | AU07-I9；ADR-0014 | `WorkspaceChat`；`traceSummaryView.ts` | `native-tauri-verifier.test.mjs` | `au07-trace-why-entry` | 已验收 | 无 | 无 | closed | 保持 current runnable |
 | SC-AU07-E2 | 可从持久化 trace 查询旧 turn | AU07-I1/I7/I8；ADR-0018 | `TraceRepository`；`decision_traces` | `trace_repository_test.exs` 覆盖 DecisionTrace 与 replay refs 持久化 | 无 API/UI | 部分实现 | 缺 Web API / Channel / UI 入口 | 补集成 | P1 | `AU07-persisted-trace-query` |
 | SC-AU07-E3 | 跨作品和历史会话 trace 隔离 | AU07-I1；SU-02/AU-03 cross | `TraceRepository.workspace_id/session_id`；SU-02/AU-03 evidence | `trace_repository_test.exs` 基础查询 | `su02-artifact-projection-trace-isolation` 间接证明 trace 隔离 | 部分实现 | workspace_id/work_id/session_id 语义仍需统一 API 验收 | 修设计偏差/补验收 | P1 | `AU07-trace-query-scope` |
 
-**结论：16 个场景；6/16 已验收，4/16 已测试，6/16 部分实现。`au07-trace-why-entry`、`au07-state-trace-adoption-replay`、`au07-behavior-trace-terminal-replay` 已分别关闭当前消息 why 入口、StateTrace/adoption/projection replay producer、Behavior terminal close/resolution replay producer 三个文件级 P0 证据缺口。AU-07 当前满足文件级退出标准，可进入 AU-08；剩余 P1/P2 已登记为后续 checkpoint。**
+**结论：16 个场景；2026-06-22 二轮重算为 9/16 已验收、1/16 已测试、6/16 部分实现。`au07-trace-why-entry`、`au07-state-trace-adoption-replay`、`au07-behavior-trace-terminal-replay` 已分别关闭当前消息 why 入口、StateTrace/adoption/projection replay producer、Behavior terminal close/resolution replay producer；`e2e-01-readonly-tool-trace` 与 `e2e-01-replay-report` 作为 cross evidence 关闭只读工具链的持久 ToolTrace refs 与 ReplayReport 六问。AU-07 当前满足二轮退出标准，可进入 AU-08；剩余 P1/P2 已登记为后续 checkpoint。**
 
 ---
 
@@ -304,8 +306,8 @@
 | AU07-GAP-02 — reason/gate 作者友好中文映射仍是子集 | 常见 `no_tool_reason` / gate / reason_codes 已映射；完整 reason catalog 和 developer code 双视图未实现 | 补实现/文案同步 | P1 |
 | AU07-GAP-03 — redaction engine 未形成完整闭环 | 已有 `TraceRedactor` application 输出层和测试；仍缺旧 trace 查询、developer 双视图权限、完整 UI/持久化验收 | 补集成/补验收 | P1 |
 | AU07-GAP-04 — author-safe / developer summary 未隔离 | `ReplayService` 固定 author_safe，无 developer path 和权限边界 | 补实现/补集成 | P1 |
-| AU07-GAP-05 — ReplayReport 不能回答 VS-06 六问 | 已补 tool/behavior/state refs chain 与 missing refs partial；plan-vs-decision、TurnResultViewModel、真实旧 turn UI/API 聚合仍不足 | 补实现/补测试 | P1 |
-| AU07-GAP-06 — ToolTrace 未独立持久化/聚合 | `DecisionTrace.tool_trace_refs` 与 `decision_traces.tool_trace_refs` 已能保存 request/result/version summary；仍缺独立 ToolTrace 表和 registry snapshot | 补集成 | P1 |
+| AU07-GAP-05 — ReplayReport 不能回答 VS-06 六问 | 已由 `e2e-01-replay-report` 关闭只读工具链真实六问：frame/plan/decision/tool_trace/turn_result chain、`provider_called=false`、`result_status=complete`；旧 turn UI/API、developer 双视图和多类型组合矩阵仍不足 | 补集成/补验收 | P1 |
+| AU07-GAP-06 — ToolTrace 未独立持久化/聚合 | `e2e-01-readonly-tool-trace` 已证明真实只读工具链 summary-level `tool_trace_refs` 可持久回查；仍缺独立 ToolTrace 表、registry snapshot 和 redacted tool I/O | 补集成 | P1 |
 | AU07-GAP-07 — BehaviorTrace terminal replay | 已关闭：`au07-behavior-trace-terminal-replay` 证明真实工作台 cancel waiting 后的 cancelled action turn 记录 terminal close event、event turn 与 `behavior_resolution` ref，`ReplayService` 可离线解释；完整独立 BehaviorTrace 表和旧 turn UI/API 归后续 P1 | 保持回归 | closed |
 | AU07-GAP-08 — StateTrace/adoption/projection replay 缺失 | 已关闭：`au07-state-trace-adoption-replay` 证明真实采纳正文 action turn、采纳 resolved entry 与 reading projection 共用 `state_trace_ref`，`ReplayService` 已支持 state refs 和缺失 partial | 保持回归 | closed |
 | AU07-GAP-09 — trace 查询 API/UI 缺失 | TraceRepository 存在，但没有作者查看旧 turn 解释的入口 | 补集成/补验收 | P1 |
@@ -340,6 +342,10 @@ bash scripts/tauri_slice_verify.sh au07-state-trace-adoption-replay
 bash scripts/quality_accept.sh au07-state-trace-adoption-replay --surface tauri
 bash scripts/tauri_slice_verify.sh au07-behavior-trace-terminal-replay
 bash scripts/quality_accept.sh au07-behavior-trace-terminal-replay --surface tauri
+bash scripts/tauri_slice_verify.sh e2e-01-readonly-tool-trace
+bash scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri --provider lmstudio
+bash scripts/tauri_slice_verify.sh e2e-01-replay-report
+bash scripts/quality_accept.sh e2e-01-replay-report --surface tauri --provider lmstudio
 ```
 
 AU-07 文件级收口后的 P1/P2 后续还需要补充：
@@ -348,7 +354,7 @@ AU-07 文件级收口后的 P1/P2 后续还需要补充：
 1. 工作台 why walkthrough：每条 assistant 消息可打开 author-safe 解释。
 2. Redaction 测试：raw prompt / hidden policy / sensitive memory / raw tool I/O 不进入作者视图。
 3. Developer report：同一 trace 可生成 developer summary，且权限隔离。
-4. Replay 六问：reply-only、confirmation、tool、adoption、behavior、UI action 都能解释。
+4. Replay 六问：只读 tool turn 已闭；reply-only、confirmation、adoption、behavior、UI action 的产品内查询/开发者视图仍需补矩阵。
 5. Trace API/UI：从持久化 trace 查询旧 turn，离线生成 replay，不调 provider。
 6. Work/session 隔离：只能查看当前作品/会话授权范围内的 trace。
 ```

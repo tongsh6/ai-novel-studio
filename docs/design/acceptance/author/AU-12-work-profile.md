@@ -8,6 +8,8 @@
 >
 > 2026-06-21 文件级收口结论：`AU12-work-profile-status-isolation` 已补真实 Tauri / quality acceptance，覆盖 accepted/tentative 状态可辨、空字段诚实显示、概览/大纲/角色/伏笔/经验规则 tab 导航、跨作品概览与档案事实隔离、档案查看 no-write 计数和内部 Work UUID 脱敏。当前 AU-12 口径为 `8/11` 已验收、`1/11` 已测试、`1/11` 部分实现、`1/11` 未实现；P0 已关闭，可进入 E2E-01。剩余 P1 是读取失败时的诚实降级矩阵和 `SC-AU12-C2` correction 修订意图；更丰富的 accepted-artifact / 立项要素字段扩展登记为 P2，不阻塞当前文件退出。
 >
+> 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。`au12-work-profile-overview` 与 `au12-work-profile-status-isolation` 已串行复跑通过；未发现需要在 AU-12 本轮先改生产代码才能继续 E2E-01 的新增 P0/P1。剩余 P1 仍是读取失败诚实降级矩阵和 correction 修订意图；A2 同轮 provider prompt 字节级 proof 与更丰富 accepted-artifact / 立项要素扩展继续作为 P2 或后续深化。
+>
 > **与 AU-09 边界**：AU-09（管理故事设定）负责**故事记忆类**事实——角色卡、世界规则、伏笔、记忆状态机/有效期/采纳入记忆。AU-12 负责**作品立项与档案视图**——works 表立项字段、作品档案面板的概览/导航/状态辨识、以及从档案发起修订意图。两者不重叠：故事设定的对象语义归 AU-09，作品立项元数据与档案查看面归 AU-12。角色 tab 的角色对象 roundtrip（创建→采纳→Character 主档案→展示→上下文）由 AU-09 的 `tasks/slices/AU09-character-dossier-roundtrip.md` 收口，AU-12 只作显示面。
 
 ---
@@ -104,6 +106,8 @@
 | SC-AU12-D1 | 作者可发现入口 | 已验收：真实工作台可从作品档案入口进入「概览」并切换各档案模块 | 是 |
 | SC-AU12-D2 | 外部自动化验收 | 已验收：`au12-work-profile-overview` 与 `au12-work-profile-status-isolation` 均已挂入 Tauri driver / quality acceptance | 是 |
 
+2026-06-22 二轮判断：上述状态保持不变；两个当前 quality/Tauri 入口复跑通过，没有新增 AU-12 本文件内必须关闭的 blocker。
+
 ---
 
 ## 6. 落地路线
@@ -119,6 +123,8 @@
 - P1：读取失败时的诚实降级 UI / Tauri 矩阵。
 - P1：从档案发起 correction 编辑意图（SC-AU12-C2），修订必须回到工作台对话流并重新过采纳边界。
 - P2：纳入更丰富的 world_setting/protagonist 等来自**采纳产物**的立项要素，继续保持与 AU-09 故事记忆边界互斥。
+
+2026-06-22 二轮判断：读取失败降级和 correction 修订意图不是本轮进入 E2E-01 前必须关闭项；它们需要真实失败注入/修订对话链路，不能用只读档案查看 driver 代替。A2 的同轮 provider prompt proof 仍是加强项，不影响当前作品档案查看面的 P0 退出。
 
 ## 7. 已知限制
 

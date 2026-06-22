@@ -4,13 +4,15 @@
 - 类型：System Acceptance File Closure
 - 验收文件：`docs/design/acceptance/system/SU-03-model-nickname.md`
 - 当前结论：6/6 已验收；无 P0/P1 未闭环缺口；当前可进入 AU-01。
-- 最近复核：2026-06-20
+- 最近复核：2026-06-22
 
 ## 1. 文件级目标
 
 SU-03 验收的是“给 AI 助手起显示名”的系统用户旅程。显示名必须是按作品隔离的 UI preference，只改变工作台 label；不得改变 LLM provider、prompt、canonical role、Channel payload、TurnResult 契约或 trace/replay 识别方式。
 
 本文件是 SU-03 的文件级收口记录，补齐从验收文档到当前 runnable evidence 的对账链路。产品实现已存在，本次不需要修改 production 代码。
+
+2026-06-22 二轮复核：不推翻第一轮 file-level deliverable 结论；本轮只复核已登记剩余 P1/P2、external blocker 和 cross-reference。默认 Tauri quality 入口与真实 LM Studio provider 入口均已复跑通过，未发现本文件内应关闭的 P0/P1。当前剩余仍仅为 P2 回归项：工作台未来新增 assistant 展示面必须继续消费 `assistantRoleLabel`，以及未来若后端 Work profile 接管 UI preference 需另立 ADR/contract。
 
 ## 2. 开工检查
 
@@ -64,6 +66,13 @@ bash scripts/tauri_slice_verify.sh --real-lmstudio su03-assistant-display-name
 bash scripts/quality_accept.sh su03-assistant-display-name --surface tauri
 ```
 
+2026-06-22 二轮复跑：
+
+```bash
+bash scripts/quality_accept.sh su03-assistant-display-name --surface tauri
+bash scripts/tauri_slice_verify.sh --real-lmstudio su03-assistant-display-name
+```
+
 结果：
 
 - `assistantDisplayName.test.ts` + `native-tauri-verifier.test.mjs`：2 files / 133 tests passed。
@@ -71,6 +80,7 @@ bash scripts/quality_accept.sh su03-assistant-display-name --surface tauri
 - 默认 Tauri driver：passed，`provider=slice_verify`，`turn_id=turn_3`。
 - real LM Studio driver：passed，`provider=lmstudio`，`request_count=1`，HTTP 200，request body 不包含“创作助手”。
 - quality acceptance：passed。
+- 2026-06-22 当前 artifact：`artifacts/slice-verify/su03-assistant-display-name-tauri/summary.json` 证明 `sent_payload_includes_display_name=false`、`turn_result_contract_has_assistant_message=true`、`turn_result_has_display_name_key=false`；`artifacts/slice-verify/su03-assistant-display-name-tauri-lmstudio/summary.json` 证明 `provider=lmstudio`、`request_count=1`、HTTP 200，并包含 `lmstudio_request_did_not_include_ui_display_name` 断言。
 
 ## 7. 退出结论
 

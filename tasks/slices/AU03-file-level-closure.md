@@ -4,13 +4,15 @@
 - 类型：Author Acceptance File Closure
 - 验收文件：`docs/design/acceptance/author/AU-03-context.md`
 - 当前结论：20 个场景中 12 个已有真实页面外部自动化证据，2 个已测试，3 个部分实现，1 个已实现未验收，1 个未实现，1 个不确定；P0 已关闭，当前可进入 AU-04。
-- 最近复核：2026-06-21
+- 最近复核：2026-06-22
 
 ## 1. 文件级目标
 
 AU-03 验收作者对“AI 了解我的作品”的基础信任：AI 必须消费当前作品的最新背景、当前 active session transcript、已确认记忆和可解释 context source；历史会话可以搜索、只读回看、归档和从历史继续，但不能把旧 transcript、旧 pending/action/loading 或归档内容默认伪装成当前上下文。
 
 本文件是 AU-03 的文件级收口记录，补齐从验收文档、实现入口、quality manifest、真实 Tauri driver 到剩余 P1/P2 owner 的对账链路。本轮只新增文件级记录和索引，并同步过时证据引用；不修改 production runtime。
+
+2026-06-22 二轮复核：按剩余 P1/P2、external blocker 与 cross-reference 逐项复核第一轮登记项，不回退 file-level deliverable。当前 8 个默认 Tauri quality 入口和 `au03-current-work-context-ssot --provider lmstudio` 已串行复跑通过；未发现需要在 AU-03 当前文件内新增实现后才能进入 AU-04 的 P1。剩余 P1 均保留 owner 或后续 checkpoint：`behavior_summary` 归 AU-04/AU-06，显式 archived/source 与 replay/developer trace 归 AU-07/AU-09，empty/work-only/failure UI/LLM 矩阵归 AU-03 后续或 AU-11 missing-context robustness。
 
 ## 2. 开工检查
 
@@ -46,6 +48,31 @@ AU-03 验收作者对“AI 了解我的作品”的基础信任：AI 必须消�
 | SC-AU03-F1 长会话压缩 | 最近必要上下文进入 prompt，原 transcript 可查看 | summary/window | `WorkspaceContext` | context tests | `au03-long-session-compression` | 已验收 | 完整 summary 策略未冻结 | 补实现 | P2 | session summary strategy |
 | SC-AU03-F2 replay 不调 LLM | 历史回放使用 TurnResult/trace，不重新创作 | Replay contract；AU03-I5 | `ReplayService` | E2E reply-only replay | 无会话级真实 UI | 已测试 | 会话级 replay UI 未闭环 | 补实现 | P1 | AU-07 replay owner |
 
+### 3.1 二轮剩余缺口矩阵（2026-06-22）
+
+| 场景 ID / 名称 | 第一轮状态 | 剩余缺口描述 | 缺口类型 | 优先级 | 当前证据 | 需要补的实现或验收 driver | 是否应在 AU-03 内关闭 | 建议 checkpoint / slice | 是否满足继续 AU-04 的二轮退出标准 |
+|---|---|---|---|---|---|---|---|---|---|
+| SC-AU03-A1 最新作品背景 | 已验收 | 无当前缺口；AU-12 可继续细化档案侧栏展示 | 无 / cross-reference | closed | `au03-current-work-context-ssot`、`--provider lmstudio` | 无 | 否 | 保持回归 | 是 |
+| SC-AU03-A2 当前 active 会话最近对话 | 已验收 | 搜索 turn 定位不属于本场景 | 无 / P2 后续 | closed | `au03-current-work-context-ssot`、`--provider lmstudio` | 无 | 否 | 保持回归 | 是 |
+| SC-AU03-A3 已确认记忆进入 context | 已验收 | 完整 memory lifecycle / developer replay 归 AU-09/AU-07 | cross-reference | P1 | `au03-context-source-ui`、`au09-au03-session-memory-layering` | AU-09/AU-07 继续补 lifecycle/replay | 否 | AU-09 / AU-07 owner | 是，owner 已登记 |
+| SC-AU03-A4 当前开放行为 | 未实现 | `behavior_summary` 未由真实 fetcher 注入 prompt/trace | cross-reference / 补实现 | P1 | 仅 `ContextAssembler` 字段支持 | 在 AU-04/AU-06 行为生命周期内补 open behavior context + trace + UI evidence | 否 | AU-04/AU-06 behavior context | 是，跨文件 owner 已登记 |
+| SC-AU03-B1 空作品诚实不知道 | 已测试 | 缺真实 UI/LLM 验收，需证明空上下文不编造且来源面板不伪造 | 补验收 | P1 | `context_grounding_test.exs` | empty-context real UI/LLM driver | 否，本轮不新增 driver | AU-03 empty-context robustness 或 AU-11 missing context | 是，登记后续 robustness |
+| SC-AU03-B2 有作品背景但无会话 | 不确定 | 缺专属 test/driver，需证明只引用 Work 背景、不伪造“刚才讨论” | 补测试/验收 | P1 | 旧 partial context 记录；当前 work snapshot 主链已由 A1 证明 | work-only context test + real UI driver | 否，本轮不新增 driver | AU-03 work-only context robustness | 是，登记后续 robustness |
+| SC-AU03-B3 fetcher 异常降级 | 已实现未验收 | 缺真实 UI/LLM 故障注入，需证明作者可见恢复文案和下一轮继续 | 补验收 | P1 | `ContextAssembler.safe_fetch/4` 单元证据 | fault-injection UI/LLM driver | 否，本轮不新增 driver | AU-03 context-failure UI 或 AU-11 missing context | 是，登记后续 robustness |
+| SC-AU03-C1 会话列表 | 部分实现 | 完整状态操作矩阵、AU-03 专属跨作品会话列表矩阵不足 | 补验收 | P2 | `au03-session-new-active`、`au03-session-history-readonly`、`au03-archive-session-filter` | session state matrix driver | 否 | AU-03 session-state matrix | 是，P2 后续 |
+| SC-AU03-C2 新建会话 | 已验收 | 无 | 无 | closed | `au03-session-new-active` | 无 | 否 | 保持回归 | 是 |
+| SC-AU03-C3 搜索历史会话 | 部分实现 | 搜索可打开 session，但缺匹配 turn 定位/高亮 | 补实现 | P2 | `au03-session-history-readonly` | search turn positioning/highlight | 否 | AU-03 search turn highlight | 是，P2 后续 |
+| SC-AU03-C4 历史只读回看 | 已验收 | 无 | 无 | closed | `au03-session-history-readonly` | 无 | 否 | 保持回归 | 是 |
+| SC-AU03-C5 归档会话 | 已验收 | 显式 archived source 标注归 D2/E1 | cross-reference | closed/P1 | `au03-archive-session-filter` | 无当前 AU-03 实现 | 否 | AU-07/AU-09 source detail | 是，owner 已登记 |
+| SC-AU03-C6 从历史继续 | 已验收 | 无 | 无 | closed | `au03-branch-from-history` | 无 | 否 | 保持回归 | 是 |
+| SC-AU03-D1 历史冻结，背景最新 | 部分实现 | 同屏 profile/replay 深联动未闭环 | cross-reference / 补验收 | P2 | `au03-session-history-readonly`、`au03-current-work-context-ssot` | AU-12/AU-07 继续补 profile/replay | 否 | AU-12/AU-07 owner | 是，P2 后续 |
+| SC-AU03-D2 archived 不默认进 context | 已验收 | 普通 context 过滤已闭；显式引用 archived source 的 prompt/trace 标注未闭环 | cross-reference / 补实现 | P1 | `au03-archive-session-filter` + context filter tests | 显式 archived source prompt + trace + author-safe summary | 否 | AU-07/AU-09 source detail | 是，owner 已登记 |
+| SC-AU03-D3 切换作品不串上下文 | 已验收 | AU-03 专属会话列表隔离矩阵可细化 | 补验收 | P2 | SU-02 isolation、`au09-cross-work-memory-isolation`、`au09-au03-session-memory-layering` | AU-03 cross-work session matrix | 否 | AU-03 cross-work session matrix | 是，P2 后续 |
+| SC-AU03-E1 作者可见来源 | 已验收 | archived/behavior source 未覆盖 | cross-reference / 补实现 | P1 | `au03-context-source-ui` | AU-07/AU-09 补 source detail；AU-04/AU-06 补 behavior source | 否 | AU-07/AU-09/AU-04 owner | 是，owner 已登记 |
+| SC-AU03-E2 author-safe 摘要 | 已验收 | developer 双视图未闭环 | cross-reference / 补验收 | P1 | `au03-context-source-ui` | AU-07 developer trace/replay UI | 否 | AU-07 developer trace | 是，owner 已登记 |
+| SC-AU03-F1 长会话压缩 | 已验收 | 完整 summary 策略未冻结；real-LMStudio 长会话 UI summary 仍不作为证据 | 补实现 | P2 | `au03-long-session-compression` deterministic Tauri | session summary strategy + optional real provider driver | 否 | AU-03 session summary strategy | 是，P2 后续 |
+| SC-AU03-F2 replay 不调 LLM | 已测试 | 会话级 replay UI 未闭环 | cross-reference / 补实现 | P1 | `ReplayService` / E2E replay 局部证据 | AU-07 replay no-provider UI | 否 | AU-07 replay owner | 是，owner 已登记 |
+
 ## 4. 偏差 review
 
 - Work/session 分层：`WorkspaceContext` 按当前 `work_id` 和 active `session_id` 取最新 Work snapshot 与 recent transcript；`au03-current-work-context-ssot` 的默认和 real LM Studio 证据都证明历史只读回看后不会用旧 transcript 覆盖当前作品事实。
@@ -60,7 +87,7 @@ AU-03 验收作者对“AI 了解我的作品”的基础信任：AI 必须消�
 |---|---|---|
 | P0 | 无 | 最新 Work 背景 SSOT、active/historical session 分层、新建会话、历史只读、从历史继续、归档过滤、上下文来源 UI、长会话压缩和跨作品/记忆分层均有当前真实页面证据或对应局部证据。 |
 | P1 | SC-AU03-A4 behavior summary 未接入 | Owner：AU-04/AU-06。恢复路径：在行为生命周期文件内补 open behavior / pending confirmation context、trace 和真实 UI evidence。 |
-| P1 | SC-AU03-B1/B2/B3 empty/work-only/failure UI/LLM 矩阵不足 | Owner：AU-03 后续或 AU-11 missing context。恢复路径：补 Work-only context test、empty-context real UI、fault-injection UI/LLM driver。 |
+| P1 | SC-AU03-B1/B2/B3 empty/work-only/failure UI/LLM 矩阵不足 | 二轮判定：不推翻当前 file-level deliverable，但保留 P1 后续。Owner：AU-03 后续或 AU-11 missing context。恢复路径：补 Work-only context test、empty-context real UI、fault-injection UI/LLM driver。 |
 | P1 | SC-AU03-D2/E1 显式 archived source 引用与来源标注不足 | Owner：AU-07/AU-09。恢复路径：补显式引用历史/归档 source 的 prompt + trace + author-safe summary。 |
 | P1 | SC-AU03-E2/F2 developer trace 与会话级 replay UI 未闭环 | Owner：AU-07。恢复路径：在 trace/replay 文件内补 author/developer 双视图、旧 turn 查询和 replay no-provider UI。 |
 | P2 | SC-AU03-C1/C3 会话列表状态矩阵与搜索 turn 高亮 | 不阻塞当前文件；后续补 session list state matrix 和 search turn positioning。 |
@@ -99,6 +126,20 @@ bash scripts/ai_static_scan.sh --top 10
 node scripts/task_done_check.mjs
 ```
 
+2026-06-22 二轮复跑：
+
+```bash
+bash scripts/quality_accept.sh au03-session-new-active --surface tauri
+bash scripts/quality_accept.sh au03-session-history-readonly --surface tauri
+bash scripts/quality_accept.sh au03-branch-from-history --surface tauri
+bash scripts/quality_accept.sh au03-archive-session-filter --surface tauri
+bash scripts/quality_accept.sh au03-current-work-context-ssot --surface tauri
+bash scripts/quality_accept.sh au03-context-source-ui --surface tauri
+bash scripts/quality_accept.sh au03-long-session-compression --surface tauri
+bash scripts/quality_accept.sh au09-au03-session-memory-layering --surface tauri
+bash scripts/quality_accept.sh au03-current-work-context-ssot --surface tauri --provider lmstudio
+```
+
 结果：
 
 - 后端 AU-03 相关测试：76 tests / 0 failures。
@@ -108,6 +149,7 @@ node scripts/task_done_check.mjs
 - 8 个默认 Tauri driver 均 passed：`au03-session-new-active`、`au03-session-history-readonly`、`au03-branch-from-history`、`au03-archive-session-filter`、`au03-current-work-context-ssot`、`au03-context-source-ui`、`au03-long-session-compression`、`au09-au03-session-memory-layering`。
 - `au03-current-work-context-ssot --real-lmstudio` passed；quality acceptance 的 LM Studio provider 变体也 passed。
 - 7 个 AU-03 quality acceptance 入口均 passed。
+- 2026-06-22 二轮复跑：上述 9 条 quality acceptance 命令全部 passed；`au03-current-work-context-ssot` 的 LM Studio summary 继续记录 `provider=lmstudio`、`request_count=1`、HTTP 200。
 - 额外尝试的 `au03-long-session-compression --real-lmstudio` 未计入当前验收：本轮真实 provider 调用已完成，但外部 UI evidence 等待 `slice_verify.ui_state.done` 超时，未生成可引用 `summary.json`。当前 AU-03 文件级证据只使用默认 Tauri `au03-long-session-compression`。
 - `git diff --check`：passed。
 - `task_done.sh --skip-static-scan` / `task_done_check.mjs`：manifest ok。
@@ -115,7 +157,7 @@ node scripts/task_done_check.mjs
 
 ## 7. 退出结论
 
-AU-03 满足文件级退出标准：
+AU-03 满足文件级退出标准，2026-06-22 二轮复核后仍可进入 AU-04：
 
 1. 20 个场景均有可信对账矩阵。
 2. P0 已关闭。

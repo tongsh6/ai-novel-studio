@@ -1,6 +1,6 @@
 # SU01 File Level Closure
 
-- 状态：file-level deliverable / platform smoke artifact matrix added / external page evidence pending
+- 状态：file-level deliverable / second-round C3 closed / B3 P1 follow-up
 - 类型：Acceptance Slice / System Slice / Quality Slice
 - 启动日期：2026-06-19
 
@@ -8,16 +8,16 @@
 
 按 `docs/design/acceptance/system/SU-01-model-provider.md` 的完整文件级口径，把模型供应商管理推进到可交付状态，而不是只完成一个 checkpoint 后跳到 SU-02。
 
-当前结论：SU-01 在当前 macOS 本机达到文件级可交付状态，可以进入 SU-02。8/10 场景已验收；`SC-SU01-C3` 已实现未验收，但剩余 Windows/Linux 真实页面证据仍是外部平台 blocker；本轮已新增 `.github/workflows/ci.yml` 的三平台 Tauri Rust smoke matrix，作为 Windows/Linux/macOS runner 入口，用于在真实平台执行 `frontend/src-tauri` contract tests，并上传 `tauri-platform-smoke-<os>` summary artifact。`SC-SU01-B3` 仍为 P1 部分实现，后续补 live vendor / 云端供应商真实失败矩阵。`SC-SU01-B4` 已由 `su01-provider-test-failure-ui` 证明测试连接失败反馈、草稿保留、无 turn/runtime 副作用和恢复成功。
+当前结论：SU-01 二轮在当前 checkout 达到文件级可交付状态，可以进入 SU-02。9/10 场景已验收；`SC-SU01-C3` 已按当前 local-file secret 设计由 `su01-local-secret-file-roundtrip` 补真实 Tauri WebView 保存、重启读回和脱敏证据。`SC-SU01-B3` 仍为 P1 部分实现，后续补 live vendor / 云端供应商真实失败矩阵；该矩阵需要真实供应商账号/额度/错误策略和更广平台资源，不在本轮用 harnessed HTTP 证据冒充关闭。
 
 ## 2. 开工检查
 
-- Contract: `docs/design/acceptance/SCENARIO-BLUEPRINT.md` 的 SU-01 条目；`docs/design/acceptance/system/SU-01-model-provider.md`；`docs/design/tech-stack/05-desktop.md` 桌面/secret 存储口径；`frontend/src-tauri/src/lib.rs` secret storage capability command；`scripts/tauri_slice_verify.sh` native Tauri WebView 与模型设置验收入口。
+- Contract: `docs/design/acceptance/SCENARIO-BLUEPRINT.md` 的 SU-01 条目；`docs/design/acceptance/system/SU-01-model-provider.md`；`docs/design/tech-stack/05-desktop.md` 桌面/secret 存储口径；`frontend/src-tauri/src/lib.rs` local-file secret storage capability command；`scripts/tauri_slice_verify.sh` native Tauri WebView 与模型设置验收入口。
 - Invariant: 没有外部自动化驱动真实页面证据时不能标“已验收”；API Key 不进入普通 UI、provider options response、业务日志、backend log 或项目文件；测试连接失败不得保存/切换 runtime 或创建 turn；产品代码不得新增验收感知逻辑。
-- Boundary: 本 slice 修改验收脚本、native verifier、Tauri macOS Keychain 写入实现、Tauri secret storage capability、前端模型设置 UI、acceptance / task / ledger 记录；`su01-provider-test-failure-ui` 只补外部 driver 和 manifest，不修改 provider runtime，不新增产品验收感知逻辑。
+- Boundary: 本 slice 修改验收脚本、native verifier、Tauri local-file secret 存储实现、Tauri secret storage capability、前端 provider client 类型、acceptance / task / ledger 记录；`su01-local-secret-file-roundtrip` 只补外部 driver 和 manifest，不修改 provider runtime，不新增产品验收感知逻辑。
 - Consumer: 第一个真实消费者是 `WorkspaceChat` 模型设置 Dialog；决策消费者是 acceptance README / SCENARIO-BLUEPRINT / project ledger。
-- Proof: `bash scripts/tauri_slice_verify.sh --list`；`bash scripts/tauri_slice_verify.sh su01-keychain-webview-capability`；`bash scripts/tauri_slice_verify.sh su01-keychain-webview-roundtrip`；`bash scripts/tauri_slice_verify.sh su01-provider-test-failure-ui`；`artifacts/slice-verify/su01-keychain-webview-roundtrip-tauri/summary.json`；`artifacts/slice-verify/su01-provider-test-failure-ui-tauri/summary.json`；Rust `cargo test`；frontend modelProvider test；native verifier test；quality manifest check；`.github/workflows/ci.yml` 的 `tauri-platform-smoke` matrix 与 uploaded summary artifact；静态扫描。
-- Acceptance Driver: `scripts/tauri_slice_verify.sh su01-keychain-webview-roundtrip` 使用外部 macOS CGEvent/Accessibility driver 驱动真实 Tauri WebView；`scripts/tauri_slice_verify.sh su01-provider-test-failure-ui` 使用外部 Playwright driver 操作真实工作台模型设置 Dialog；产品代码新增验收感知逻辑：no。
+- Proof: `bash scripts/tauri_slice_verify.sh --list`；`bash scripts/quality_accept.sh su01-local-secret-file-roundtrip --surface tauri`；`artifacts/slice-verify/su01-local-secret-file-roundtrip-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh su01-provider-test-failure-ui`；`artifacts/slice-verify/su01-provider-test-failure-ui-tauri/summary.json`；Rust `cargo test`；frontend modelProvider test；native verifier test；quality manifest check；task_done；静态扫描。
+- Acceptance Driver: `scripts/quality_accept.sh su01-local-secret-file-roundtrip --surface tauri` 使用外部 macOS CGEvent/Accessibility driver 驱动真实 Tauri WebView；`scripts/tauri_slice_verify.sh su01-provider-test-failure-ui` 使用外部 Playwright driver 操作真实工作台模型设置 Dialog；产品代码新增验收感知逻辑：no。
 
 ## 3. 涉及范围
 
@@ -29,12 +29,12 @@
 | novel_application | no | 不改 application 入口。 |
 | novel_persistence | no | 不涉及 DB。 |
 | novel_web | no | 不改 controller/channel。 |
-| frontend | yes | Tauri macOS Keychain 写入改为 Security.framework，避免 `security -w <secret>` 进程参数泄漏和 SecurityAgent 卡死；新增 secret storage capability command；工作台模型设置在 unsupported capability 下禁用 API Key 输入/清除并显示集中管理文案。 |
-| scripts | yes | 在既有 `tauri_slice_verify.sh` 下新增/启用 `su01-keychain-webview-roundtrip` 两阶段 driver，保存后重启 Tauri 验证读回。 |
+| frontend | yes | Tauri provider secret 改为 profile-scoped `provider-secrets.json`（unix 0600），`modelProvider.ts` 识别 `local_file` capability；旧 unsupported UI 分支不再是当前产品口径。 |
+| scripts | yes | 在既有 `tauri_slice_verify.sh` 下新增/启用 `su01-local-secret-file-roundtrip` 两阶段 driver，保存后重启 Tauri 验证读回。 |
 | docs/design | yes | 回填 SU-01 文件级对账矩阵和退出判断。 |
 | tasks | yes | 登记本文件和索引，提供恢复路径。 |
-| quality | yes | 新增 `quality/acceptance/scenarios/su01-keychain-webview-roundtrip.yml` 与 `su01-provider-test-failure-ui.yml` 并登记到 manifest。 |
-| CI | yes | 新增 `tauri-platform-smoke` job，在 macOS / Ubuntu / Windows runner 执行 `frontend/src-tauri` 的 Rust contract tests，并上传 platform smoke `summary.json`；该入口只证明平台编译和 capability 分支合同，不替代真实页面验收。 |
+| quality | yes | 新增/替换为 `quality/acceptance/scenarios/su01-local-secret-file-roundtrip.yml`，并登记到 manifest。 |
+| CI | no | 本轮不改 CI；既有 `tauri-platform-smoke` 保留为历史平台合同入口，不再是当前 C3 blocker。 |
 
 ## 4. 场景对账结论
 
@@ -44,31 +44,29 @@
 | SC-SU01-A2 | 已验收 | `su01-provider-health-model`、`su01-model-provider-switching` | 非 Stub provider 切换矩阵 | P1 |
 | SC-SU01-A3 | 已验收 | `su01-lmstudio-disconnected-health` | 启停/timeout/错误返回矩阵 | P1 |
 | SC-SU01-B1 | 已验收 | `su01-model-provider-switching` | DeepSeek/Anthropic/LM Studio 保存矩阵 | P1 |
-| SC-SU01-B2 | 已验收 | `su01-api-key-secret-redaction`；`su01-keychain-webview-roundtrip` | 非 macOS 平台矩阵归入 C3 | P1 |
+| SC-SU01-B2 | 已验收 | `su01-api-key-secret-redaction`；`su01-local-secret-file-roundtrip` | live vendor 错误矩阵归入 B3 后续 | P1 |
 | SC-SU01-B3 | 部分实现 | `su01-provider-endpoint-validation`、`su01-provider-model-list-success` | live vendor / 云端供应商真实失败矩阵 | P1 |
 | SC-SU01-B4 | 已验收 | `su01-model-provider-switching`、`su01-provider-endpoint-validation`、`su01-provider-test-failure-ui` | live vendor 错误矩阵归入 B3 后续 | P1 |
 | SC-SU01-C1 | 已验收 | `su01-model-provider-switching` | 非 Stub provider 矩阵 | P1 |
 | SC-SU01-C2 | 已验收 | `su01-model-provider-switching` | 长会话/历史恢复矩阵 | P2 |
-| SC-SU01-C3 | 已实现未验收 | `su01-api-key-secret-redaction`；`su01-keychain-webview-roundtrip`；Rust secret storage capability 测试；frontend unsupported capability helper 测试；`tauri-platform-smoke` CI matrix 与 summary artifact 入口 | `SU01-C3-non-macOS-platform-runner` 外部平台 blocker：缺 Windows/Linux 真实页面执行证据；CI 平台 smoke 需远端 runner 产出结果 | P0 blocker |
+| SC-SU01-C3 | 已验收 | `su01-api-key-secret-redaction`；`su01-local-secret-file-roundtrip`；Rust local-file/0600 测试；frontend `local_file` capability helper 测试；native verifier test | 当前 local-file 设计已闭；Windows/Linux 页面矩阵降为后续平台回归，不阻塞 SU-01 二轮退出 | P2 |
 
 ## 5. 当前完成计划
 
 | # | Checkpoint | Status | 退出条件 |
 |---|---|---|---|
 | CP1 | 文件级审计矩阵与状态枚举收敛 | done | SU-01 文档使用允许状态；README / BLUEPRINT / ledger 同步。 |
-| CP2A | Keychain WebView native 自动化能力探针 | done | `bash scripts/tauri_slice_verify.sh su01-keychain-webview-capability` 生成历史能力探针 summary，明确 Tauri CLI / tauri-driver / System Events 路径不可用，转向 CGEvent/Accessibility driver。 |
-| CP2 | Keychain WebView 端到端验收能力 | done | `su01-keychain-webview-roundtrip` 从真实 Tauri WebView 打开模型设置、输入 fake Key、保存、重启后读回 `api_key_configured=true`，并证明 secret 不进 UI/日志/项目文件。 |
-| CP3 | 跨平台 secret 产品口径 | done / platform smoke artifact matrix added / page evidence pending | 已明确非 macOS 当前行为：unsupported capability + 禁用 API Key 输入/清除 + 用户可理解提示；不得 silent fallback 到浏览器或明文文件。本轮新增三平台 Tauri Rust smoke CI 入口，用真实 Windows/Linux/macOS runner 执行 capability contract tests，并上传 summary artifact；仍缺 Windows/Linux 真实 Tauri 页面或后续 Stronghold/Credential Manager/Secret Service 实现证据。 |
+| CP2A | Keychain WebView native 自动化能力探针 | historical | `bash scripts/tauri_slice_verify.sh su01-keychain-webview-capability` 是历史能力探针；Keychain 机制已被 local-file 决策取代，不再作为当前验收 blocker。 |
+| CP2 | Local-file WebView 端到端验收能力 | done | `su01-local-secret-file-roundtrip` 从真实 Tauri WebView 打开模型设置、输入 fake Key、保存、生成 `provider-secrets.json` 0600、重启后读回 `api_key_configured=true`，并证明 secret 不进 UI/日志/项目文件。 |
+| CP3 | 统一 local-file secret 产品口径 | done | 当前所有桌面平台返回 `available=true/kind=local_file`，使用 profile-scoped `provider-secrets.json`；Windows/Linux 真实页面只作为后续平台回归矩阵，不再是 C3 外部 blocker。 |
 | CP4A | 测试连接失败反馈与恢复 | done | `su01-provider-test-failure-ui` 证明不可达 LM Studio endpoint 显示作者可读失败，Dialog/草稿保留，测试连接不创建 turn 或切换 runtime，修正 endpoint 后可恢复。 |
-| CP4B | live vendor / 平台矩阵 | follow-up | live vendor 错误、云端账号/权限失败、Windows/Linux Tauri secret storage 页面证据；平台 smoke runner 与 summary artifact 入口已补，仍需要远端 CI 结果和真实页面 driver，不阻塞当前 macOS 文件级收口。 |
+| CP4B | live vendor / 平台回归矩阵 | follow-up | live vendor 错误、云端账号/权限失败、Windows/Linux local-file 页面回归证据；需要真实账号策略、远端 runner 结果或真实页面 driver，不阻塞当前文件级二轮收口。 |
 
 ## 6. Native 自动化路径说明
 
-既有 `scripts/tauri_slice_verify.sh` 会启动原生 Tauri 窗口，但通用 `drive_external_ui` 调用 `frontend/slice-verify/external-ui-driver.mjs`，后者通过 Playwright Chromium 打开 `http://127.0.0.1:<vite-port>`。因此通用 browser-side driver 能证明真实工作台 DOM 和后端主链，但不能证明 Tauri WebView 环境中的 `isTauri=true`、`@tauri-apps/api/core.invoke` 和 macOS Keychain command。
+既有 `scripts/tauri_slice_verify.sh` 会启动原生 Tauri 窗口，但通用 `drive_external_ui` 调用 `frontend/slice-verify/external-ui-driver.mjs`，后者通过 Playwright Chromium 打开 `http://127.0.0.1:<vite-port>`。因此通用 browser-side driver 能证明真实工作台 DOM 和后端主链，但不能证明 Tauri WebView 环境中的 `isTauri=true`、`@tauri-apps/api/core.invoke` 和桌面 shell local-file command。
 
-已检查当前仓库和本机可用工具：Tauri CLI 2.10.1 没有 `driver` 子命令；用户同意后已安装 `tauri-driver` 2.0.6，但该二进制在 macOS 返回 `tauri-driver is not supported on this platform`，上游源码也只启用 Linux / Windows target，README 将 macOS Appium Mac2 路径标为 Todo。本机有 `safaridriver` 和 `security`，但 `safaridriver` 不能直接控制 Tauri WebView；Swift AX 当前为 trusted，但 `System Events` 在 runner 中超时，且 AX 审计只能看到 Tauri 窗口 chrome，未暴露 WebView DOM 语义。不能把 browser-side 结论包装成 Keychain WebView 证据。
-
-`su01-keychain-webview-capability` 本轮结论：
+`su01-keychain-webview-capability` 历史结论：
 
 - artifact: `artifacts/slice-verify/su01-keychain-webview-capability-tauri/summary.json`
 - status: `blocked`
@@ -82,14 +80,14 @@
 - `safaridriver_available=true` 但 `safaridriver_usable_for_tauri_webview=false`
 - `security_cli_available=true`
 
-本轮已在 `su01-keychain-webview-roundtrip` 中采用外部 macOS CGEvent/Accessibility driver 绕过 `tauri-driver` macOS 不支持的限制：保存阶段驱动真实 Tauri WebView，读回阶段重启 Tauri 验证新 WebView 从 Tauri 偏好 + Keychain 恢复 provider runtime。runner 在隔离 HOME 内创建临时 macOS Keychain，不污染真实用户 Keychain。`su01-keychain-webview-capability` 保留为历史能力探针，不再代表当前 Keychain WebView blocker。
+二轮已在 `su01-local-secret-file-roundtrip` 中沿用外部 macOS CGEvent/Accessibility driver：保存阶段驱动真实 Tauri WebView，读回阶段重启 Tauri 验证新 WebView 从 Tauri 偏好 + `provider-secrets.json` 恢复 provider runtime。runner 使用隔离 `TAURI_HOME` 和 desktop profile，不污染真实用户配置。`su01-keychain-webview-capability` 保留为历史能力探针，不再代表当前 blocker。
 
 ## 7. 验证记录
 
 - [x] `bash scripts/tauri_slice_verify.sh --list`
 - [x] `bash scripts/tauri_slice_verify.sh su01-keychain-webview-capability`（生成历史能力探针 summary；不是验收证据）
-- [x] `bash scripts/tauri_slice_verify.sh su01-keychain-webview-roundtrip`
-- [x] `artifacts/slice-verify/su01-keychain-webview-roundtrip-tauri/summary.json`
+- [x] `bash scripts/quality_accept.sh su01-local-secret-file-roundtrip --surface tauri`
+- [x] `artifacts/slice-verify/su01-local-secret-file-roundtrip-tauri/summary.json`
 - [x] `bash scripts/tauri_slice_verify.sh su01-provider-test-failure-ui`
 - [x] `artifacts/slice-verify/su01-provider-test-failure-ui-tauri/summary.json`
 - [x] `cd frontend/src-tauri && cargo test`
@@ -103,7 +101,7 @@
 - [x] `pnpm --dir frontend exec vitest run slice-verify/native-tauri-verifier.test.mjs`
 - [x] 查看 `artifacts/slice-verify/su01-*/summary.json`
 - [x] 审计 `scripts/tauri_slice_verify.sh` / `frontend/slice-verify/external-ui-driver.mjs`
-- [x] `bash scripts/quality_manifest_check.sh`（通过；`su01-model-provider-switching` / `su01-keychain-webview-roundtrip` / `su01-provider-test-failure-ui` manifest 已登记；`tauri-platform-smoke` 不登记为 scenario manifest，因为它是 CI 平台合同证据入口，不是外部自动化驱动真实页面的场景验收；剩余 warning 均为既有其它 slice 缺 manifest）
+- [x] `bash scripts/quality_manifest_check.sh`（通过；`su01-model-provider-switching` / `su01-local-secret-file-roundtrip` / `su01-provider-test-failure-ui` manifest 已登记；剩余 warning 均为既有其它 slice 缺 manifest）
 - [x] `bash scripts/task_done.sh --skip-static-scan --slice su01-keychain-webview-roundtrip`（`artifacts/task-done/20260619T151655Z/manifest.json`）
 - [x] `bash scripts/task_done.sh --skip-static-scan`（`artifacts/task-done/20260619T153455Z/manifest.json`）
 - [x] `bash scripts/task_done.sh --skip-static-scan --slice su01-provider-test-failure-ui`（`artifacts/task-done/20260619T174608Z/manifest.json`）
@@ -126,6 +124,7 @@
 - 2026-06-20 — 为 `SU01-C3-non-macOS-platform-runner` 补最小基础设施入口：`.github/workflows/ci.yml` 新增 `tauri-platform-smoke` matrix，在 macOS / Ubuntu / Windows runner 执行 `frontend/src-tauri` 的 `cargo test --locked`，并上传 `tauri-platform-smoke-<os>` artifact；summary 记录 runner、命令、exit code、Rust/Cargo 版本和 `real_page_acceptance=false`。该入口用于证明 Tauri Rust 壳和 secret capability 平台分支在真实平台可编译并执行 contract tests；这不是真实页面自动化验收，C3 仍保持“已实现未验收”。
 - 2026-06-20 — 复核 quality acceptance manifest 边界：当前 `quality/acceptance/scenarios.yml` 只登记 `browser` / `tauri` surface 下由 `slice_verify` / `tauri_slice_verify` / `dogfood_run` 驱动的场景验收。`tauri-platform-smoke` 是 CI matrix 合同证据入口，summary 显式 `real_page_acceptance=false`；因此本轮不扩展 quality manifest schema，也不把平台 smoke 冒充为真实页面 scenario。后续若要把 Windows/Linux 页面对账纳入 quality manifest，应先实现对应平台真实 Tauri 页面 driver 或跨平台 secret backend 的场景入口。
 - 2026-06-21 — 本轮按文件级审计复核时发现 `su01-model-provider-switching` 虽有 `tauri_slice_verify` 外部真实页面证据，但未登记 quality acceptance manifest；已补 `quality/acceptance/scenarios/su01-model-provider-switching.yml` 和 `quality/acceptance/scenarios.yml` 索引，关闭 SU-01 quality manifest 同步 warning。
+- 2026-06-22 — 二轮缺口收敛时将当前产品 secret 机制从 macOS Keychain / non-macOS unsupported 口径切换到统一 profile-scoped local-file 口径，并由 `su01-local-secret-file-roundtrip` 证明真实 Tauri WebView 保存 fake Key、生成 `provider-secrets.json` 0600、重启后读回恢复 runtime 和全链路脱敏；`SC-SU01-C3` 由“已实现未验收 / external blocker”更新为“已验收”，SU-01 当前为 9/10 已验收、B3 1/10 部分实现。
 
 ## 9. 试行反馈
 

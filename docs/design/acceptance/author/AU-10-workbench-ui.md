@@ -3,6 +3,8 @@
 > 作者视角：工作台是我和 AI 协作的主界面。我需要实时知道系统状态、AI 在做什么、现在等我做什么、哪些按钮可以点。界面上的卡片、候选、action、任务状态、trace 和投影状态必须来自真实主链，不能由前端猜测或用 mock 冒充。
 >
 > 2026-06-21 文件级收口结论：AU-10 当前按 17 个场景重算为 **14/17 已验收、1/17 已测试、2/17 部分实现**。当前 6 个可复跑 Tauri 入口已挂入 quality acceptance：`au10-workbench-matrix-layout`、`au10-workbench-recovery-taskstate`、`au10-workbench-recovery-disconnect-timeout`、`au10-workbench-recovery-provider-timeout`、`au10-workbench-recovery-reconnect`、`au10-workbench-recovery-cancel-waiting`。P0 缺口已关闭；完整异步 LongRunner、FAILED task_state 真实页面、全 card/action 深矩阵、projection/trace 深链路和文案/hidden metadata hygiene 登记为 P1/P2。当前文件满足进入 AU-11 的文件级退出标准。
+>
+> 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。6 个当前 AU-10 quality/Tauri 入口已串行复跑通过；未发现需要在 AU-10 本轮先改生产代码才能继续 AU-11 的新增 P0/P1。剩余 P1 仍是完整异步 LongRunner / FAILED task_state 真实页面、全 card/action 深矩阵、projection refresh 和 trace/replay 深链路、UI copy / hidden metadata hygiene；其中 LongRunner 仍等待真实批量生成/推演生产消费者，projection 与 trace 深链路分别归 AU-08 / AU-07 cross-owner。
 
 ---
 
@@ -94,6 +96,8 @@
 | projection refresh/rebuild/failed/no-write 专项 | AU-08 | 已在 AU-08 文件级收口登记 |
 | 深 trace/replay、developer view、旧 turn 查询 | AU-07 | 已在 AU-07 文件级收口登记 |
 | copy 集中、hidden metadata hygiene、更多 viewport | AU-10 | 单独 UI hygiene checkpoint |
+
+2026-06-22 二轮判断：以上 P1 均不是本轮进入 AU-11 前必须关闭项。当前应保持真实入口与外部 driver 边界，不为了 LongRunner 或 card visual matrix 强加验收专用 product hook；FAILED task_state、card/action、UI hygiene 可作为 AU-10 后续 checkpoint 单独关闭。
 
 ### 可登记为后续的 P2
 

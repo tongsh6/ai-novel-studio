@@ -246,6 +246,8 @@ novel_web (Phoenix.ChannelTest)
 ## 4. 文件级对账状态
 
 > 2026-06-21 复核口径：当前 E2E-01 不再沿用旧的“11/13 完整 + 2/13 部分”文案。按场景化验收红线重算后为 **10/13 已验收、2/13 已测试、1/13 部分实现**。没有外部自动化驱动真实 Tauri 页面证据的场景不标“已验收”。同日已补 `e2e-01-full-chain` 外部聚合 runner；E4 真实页面多步 MicroPlan 降级已由 `e2e-01-downgrade-real-page-tauri-lmstudio` 关闭；E6 只读工具调度与 trace 回查已由 `e2e-01-readonly-tool-trace-tauri-lmstudio` 关闭；E9 完整 ReplayReport 六问已由 `e2e-01-replay-report-tauri-lmstudio` 关闭。
+>
+> 2026-06-22 二轮复核口径：不回退 2026-06-21 file-level deliverable 结论。本轮串行复跑 `e2e-01-downgrade-real-page --surface tauri --provider lmstudio`、`e2e-01-readonly-tool-trace --surface tauri --provider lmstudio`、`e2e-01-replay-report --surface tauri --provider lmstudio` 和 `e2e-01-full-chain --provider lmstudio` 均通过；并关闭聚合 artifact cross-reference 漂移，`summary.json` 现在使用 `E12 真实两轮回路`、`E13 Action 来源校验`，且把 E8/E13 的 P2 remaining gaps 分开登记。当前仍为 **10/13 已验收、2/13 已测试、1/13 部分实现**；E2E-01 内无应继续关闭的 P1/P0。
 
 | 场景 | 状态 | 真实页面外部自动化验收证据 | 局部测试证据 | 偏差 / 缺口 | 优先级 / owner |
 |------|------|-----------------------------|--------------|-------------|----------------|
@@ -279,17 +281,19 @@ bash scripts/quality_accept.sh e2e-01-replay-report --surface tauri --provider l
 
 2026-06-21 结果：`v3_full_chain_test.exs` 10 tests / 0 failures；`dialogue_gateway_real_loop_test.exs` 8 tests / 0 failures；Channel + ReplayService + TraceRepository 合计 60 tests / 0 failures；`planner_real_llm_test.exs` 13 tests / 0 failures；`quality_accept e2e-01-downgrade-real-page --surface tauri --provider lmstudio` 通过并写入 `artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/summary.json`；`quality_accept e2e-01-readonly-tool-trace --surface tauri --provider lmstudio` 通过并写入 `artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json`；`quality_accept e2e-01-replay-report --surface tauri --provider lmstudio` 通过并写入 `artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/summary.json`；`quality_accept e2e-01-full-chain --provider lmstudio` 通过并写入 `artifacts/slice-verify/e2e-01-full-chain/summary.json`，其中聚合矩阵为 10/13 已验收、2/13 已测试、1/13 部分实现。
 
+2026-06-22 二轮结果：三条真实 Tauri + LM Studio checkpoint 与 `e2e-01-full-chain` 聚合 runner 均重新通过，当前 summary 写入时间为 2026-06-22 03:49-03:55 +0800。聚合 runner 复跑后 `artifacts/slice-verify/e2e-01-full-chain/summary.json` 的 `scenario_status_counts` 保持 `10/13 已验收、2/13 已测试、1/13 部分实现`，`remaining_gaps` 分别列出 E8 invented action negative 和 E13 forged `source_turn_result` negative，优先级均为 P2。
+
 ### 4.2 当前缺口分级
 
 - P0：已关闭。旧覆盖表把 stub integration 写成“完整 E2E”的偏差已更正；E10 的 trace persister → SQLite → `TraceRepository.list_by_turn/1` 断点已补 integration proof。
 - P1：已关闭。E9 完整 ReplayReport 六问已有独立真实 Tauri / real LM Studio evidence，并被 E2E 聚合 runner 消费。
-- P2：E8/E13 的 invented / forged source negative 是恶意客户端 payload，正常真实 UI 不应提供构造入口；继续由 Channel security regression 覆盖，除非后续新增专门的外部协议 fuzz harness。
+- P2：E8/E13 的 invented / forged source negative 是恶意客户端 payload，正常真实 UI 不应提供构造入口；继续由 Channel security regression 覆盖，除非后续新增专门的外部协议 fuzz harness。本轮已确认它们不应在 E2E-01 内通过产品 UI 关闭。
 
 ### 4.3 质量入口状态
 
-当前 `quality_accept.sh` 已支持 `e2e_aggregate` runner，`quality/acceptance/scenarios/e2e-01-full-chain.yml` 已登记为 `nightly` / `browser` / `default_provider: lmstudio`。该 runner 通过 `scripts/e2e_01_full_chain_check.sh --provider lmstudio` 从外部复跑 E2E integration、DialogueGateway real-loop、Channel/Replay/Trace tests、real LM Studio planner tests，并校验现有真实 Tauri summary；输出 `artifacts/slice-verify/e2e-01-full-chain/summary.json`。
+当前 `quality_accept.sh` 已支持 `e2e_aggregate` runner，`quality/acceptance/scenarios/e2e-01-full-chain.yml` 已登记为 `nightly` / `browser` / `default_provider: lmstudio`。该 runner 通过 `scripts/e2e_01_full_chain_check.sh --provider lmstudio` 从外部复跑 E2E integration、DialogueGateway real-loop、Channel/Replay/Trace tests、real LM Studio planner tests，并校验现有真实 Tauri summary；输出 `artifacts/slice-verify/e2e-01-full-chain/summary.json`。2026-06-22 二轮已修正该 summary 的 E12/E13 名称与 remaining gaps，使聚合 artifact 与本文件场景定义一致。
 
-注意：该 runner 是文件级证据聚合器，不是产品页面内逻辑，也不为产品新增验收感知 env/query/localStorage、DOM hook 或自动采纳行为。E4、E6 与 E9 已由独立真实 Tauri checkpoint 升级为“已验收”；E8/E13 forged source negative 继续作为 P2 Channel security regression。
+注意：该 runner 是文件级证据聚合器，不是产品页面内逻辑，也不为产品新增验收感知 env/query/localStorage、DOM hook 或自动采纳行为。E4、E6 与 E9 已由独立真实 Tauri checkpoint 升级为“已验收”；E8/E13 invented / forged source negative 继续作为 P2 Channel security regression。
 
 ---
 

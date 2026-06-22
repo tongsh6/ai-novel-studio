@@ -3,6 +3,8 @@
 > 系统用户视角：我可以给 AI 助手起一个显示名，让对话更像与固定创作搭档协作。这个名字只影响界面展示，不影响 LLM provider、消息 role、TurnResult 契约或 AI 行为能力。
 >
 > 2026-06-20 复核结论：真实 Tauri 前端闭环已补齐且当前 checkout 可复跑。`WorkspaceChat` 提供 work-scoped AI 显示名设置入口，Tauri 桌面偏好持久化到 app config `preferences.json`，不同作品互相隔离；消息流、欢迎消息、历史 transcript 和思考态统一消费显示名 helper。`su03-assistant-display-name` 已在默认 provider 与 `--real-lmstudio` 两种模式下通过：改名后发送真实消息，TurnResult 仍保持 `assistant_message` 契约，websocket payload 不携带 UI 显示名，LM Studio `/v1/chat/completions` request body 不包含“创作助手”。该能力只影响 UI label，不改变 provider、prompt、role 或 TurnResult。历史旁路 `历史旁路工作台` 已退役删除，不再作为当前展示面。
+>
+> 2026-06-22 二轮复核结论：本文件第一轮 file-level deliverable 不回退。已串行复跑 `bash scripts/quality_accept.sh su03-assistant-display-name --surface tauri` 与 `bash scripts/tauri_slice_verify.sh --real-lmstudio su03-assistant-display-name`，默认 Tauri 和真实 LM Studio 均通过；当前 summary 继续证明显示名按作品隔离、`user_message` wire payload 不含显示名、TurnResult 不新增显示名字段、LM Studio request body 不包含“创作助手”。未发现本文件内应关闭的 P0/P1；剩余仅随工作台新增展示面保持 `assistantRoleLabel` 回归、未来若后端 Work profile 接管偏好需另立 ADR/contract 的 P2 后续项。SU-03 满足二轮退出标准，可继续 AU-01。
 
 ---
 
