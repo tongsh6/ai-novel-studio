@@ -7,7 +7,6 @@ import {
   getProviderOptions,
   isValidProviderEndpoint,
   listProviderModels,
-  providerApiKeyStorageUnavailable,
   saveAndApplyModelProviderConfig,
   testProviderConnection,
 } from "../modelProvider";
@@ -96,25 +95,27 @@ describe("model provider API client", () => {
     });
   });
 
-  it("marks api key storage unavailable only for providers that support keys", () => {
-    expect(
-      providerApiKeyStorageUnavailable(
-        { supports_api_key: true },
-        { available: false },
-      ),
-    ).toBe(true);
-    expect(
-      providerApiKeyStorageUnavailable(
-        { supports_api_key: false },
-        { available: false },
-      ),
-    ).toBe(false);
-    expect(
-      providerApiKeyStorageUnavailable(
-        { supports_api_key: true },
-        { available: true },
-      ),
-    ).toBe(false);
+  it("normalizes local file secret storage reported by the Tauri shell", async () => {
+    vi.resetModules();
+    vi.doMock("../env", () => ({
+      apiBaseUrl: "http://127.0.0.1:4657",
+      isTauri: true,
+    }));
+    vi.doMock("@tauri-apps/api/core", () => ({
+      invoke: vi.fn().mockResolvedValue({
+        available: true,
+        kind: "local_file",
+        platform: "darwin",
+      }),
+    }));
+
+    const { getProviderSecretStorageStatus: getStatus } = await import("../modelProvider");
+
+    await expect(getStatus()).resolves.toEqual({
+      available: true,
+      kind: "local_file",
+      platform: "darwin",
+    });
   });
 
   it("normalizes provider options and filters duplicate provider ids", async () => {

@@ -4,7 +4,7 @@
 // Provider settings are split deliberately:
 // - backend runtime config is in-memory only;
 // - non-secret desktop preferences live in Tauri app config;
-// - API keys live in OS-backed secret storage when this desktop build supports it.
+// - API keys live in profile-scoped local secret storage outside the repo.
 
 import { apiBaseUrl, isTauri } from "./env";
 
@@ -55,7 +55,11 @@ export interface StoredProviderSettings {
   providers: Record<string, StoredProviderPreference>;
 }
 
-export type ProviderSecretStorageKind = "macos_keychain" | "browser_memory" | "unsupported";
+export type ProviderSecretStorageKind =
+  | "local_file"
+  | "macos_keychain"
+  | "browser_memory"
+  | "unsupported";
 
 export interface ProviderSecretStorageStatus {
   available: boolean;
@@ -286,13 +290,6 @@ export function providerNeedsApiKey(option: Pick<ProviderOption, "requires_api_k
   return option.requires_api_key;
 }
 
-export function providerApiKeyStorageUnavailable(
-  option: Pick<ProviderOption, "supports_api_key"> | undefined,
-  secretStorage: Pick<ProviderSecretStorageStatus, "available">,
-): boolean {
-  return Boolean(option?.supports_api_key) && !secretStorage.available;
-}
-
 export function isValidProviderEndpoint(endpoint: string): boolean {
   const normalized = normalizeOptionalText(endpoint);
   if (!normalized) return true;
@@ -384,7 +381,10 @@ function normalizeStoredSettings(raw: StoredProviderSettings): StoredProviderSet
 
 function normalizeSecretStorageStatus(raw: ProviderSecretStorageStatus): ProviderSecretStorageStatus {
   const kind =
-    raw.kind === "macos_keychain" || raw.kind === "browser_memory" || raw.kind === "unsupported"
+    raw.kind === "local_file" ||
+    raw.kind === "macos_keychain" ||
+    raw.kind === "browser_memory" ||
+    raw.kind === "unsupported"
       ? raw.kind
       : "unsupported";
 

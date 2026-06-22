@@ -170,6 +170,7 @@
   font-size: 14px;
   color: var(--foreground-secondary);
   line-height: 1.5;
+  overflow-wrap: break-word;
 }
 
 .cardActions,
@@ -188,6 +189,7 @@
   cursor: pointer;
   font-family: var(--sans);
   border: 1px solid transparent;
+  white-space: nowrap;
 }
 
 .btnPrimary {
@@ -266,9 +268,10 @@
 }
 
 .footerActions {
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: center;
+  gap: 16px;
   padding: 24px;
   border-top: 1px solid var(--border-subtle);
   flex-shrink: 0;
@@ -278,7 +281,8 @@
   font-size: 12px;
   color: var(--foreground-secondary);
   text-align: right;
-  width: 200px;
+  line-height: 1.5;
+  overflow-wrap: break-word;
 }
 
 /* L1 Overview */
@@ -380,5 +384,6 @@
   font-size: 14px;
   color: var(--foreground-secondary);
   line-height: 1.6;
-  max-width: 360px;
+  max-width: 380px;
+  overflow-wrap: break-word;
 }

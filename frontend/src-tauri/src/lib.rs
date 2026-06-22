@@ -1,10 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-#[cfg(target_os = "macos")]
-use std::ffi::c_void;
-use std::path::PathBuf;
-#[cfg(target_os = "macos")]
-use std::ptr;
+use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -35,6 +31,19 @@ struct ModelProviderPreference {
     thinking: Option<String>,
     #[serde(default)]
     reasoning_effort: Option<String>,
+}
+
+/// Provider API keys，存放在与 preferences.json 同目录、但独立的受限文件里。
+///
+/// 这是一个单用户本机桌面工具：密钥是用户自己的 provider key，存在用户自己的机器上。
+/// 我们用一个权限 0600 的本地文件持久化，而不是 macOS Keychain——Keychain 在本场景下
+/// 几乎不增加安全收益（真实风险是泄进 git/日志/备份，靠 .gitignore + 不打日志解决），
+/// 却带来手写 FFI、仅 macOS、依赖稳定代码签名、每次启动弹密码等沉重成本。
+/// 决策与威胁模型见 docs/design/acceptance/system/SU-01-model-provider.md。
+#[derive(Debug, Default, Deserialize, Serialize)]
+struct ProviderSecrets {
+    #[serde(default)]
+    api_keys: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -77,80 +86,10 @@ const MAX_ASSISTANT_DISPLAY_NAME_LENGTH: usize = 20;
 const MAX_PROVIDER_FIELD_LENGTH: usize = 200;
 const MAX_DESKTOP_PROFILE_LENGTH: usize = 40;
 const MODEL_PROVIDER_IDS: [&str; 4] = ["stub", "lmstudio", "anthropic", "deepseek"];
-const MODEL_PROVIDER_KEYCHAIN_SERVICE: &str = "com.ai-novel-studio.app.model-provider";
 const DESKTOP_PROFILE_ENV: &str = "AI_NOVEL_DESKTOP_PROFILE";
+const PROVIDER_SECRETS_FILE: &str = "provider-secrets.json";
 
-#[cfg(target_os = "macos")]
-type OsStatus = i32;
-
-#[cfg(target_os = "macos")]
-type SecKeychainItemRef = *mut c_void;
-
-#[cfg(target_os = "macos")]
-const ERR_SEC_SUCCESS: OsStatus = 0;
-#[cfg(target_os = "macos")]
-const ERR_SEC_ITEM_NOT_FOUND: OsStatus = -25300;
-#[cfg(target_os = "macos")]
-const ERR_SEC_DUPLICATE_ITEM: OsStatus = -25299;
-
-#[cfg(target_os = "macos")]
-#[link(name = "Security", kind = "framework")]
-extern "C" {
-    fn SecKeychainAddGenericPassword(
-        keychain: *mut c_void,
-        service_name_length: u32,
-        service_name: *const i8,
-        account_name_length: u32,
-        account_name: *const i8,
-        password_length: u32,
-        password_data: *const c_void,
-        item_ref: *mut SecKeychainItemRef,
-    ) -> OsStatus;
-
-    fn SecKeychainFindGenericPassword(
-        keychain_or_array: *mut c_void,
-        service_name_length: u32,
-        service_name: *const i8,
-        account_name_length: u32,
-        account_name: *const i8,
-        password_length: *mut u32,
-        password_data: *mut *mut c_void,
-        item_ref: *mut SecKeychainItemRef,
-    ) -> OsStatus;
-
-    fn SecKeychainItemModifyAttributesAndData(
-        item_ref: SecKeychainItemRef,
-        attr_list: *const c_void,
-        length: u32,
-        data: *const c_void,
-    ) -> OsStatus;
-
-    fn SecKeychainItemDelete(item_ref: SecKeychainItemRef) -> OsStatus;
-    fn SecKeychainItemFreeContent(attr_list: *mut c_void, data: *mut c_void) -> OsStatus;
-}
-
-#[cfg(target_os = "macos")]
-#[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
-    fn CFRelease(cf: *const c_void);
-}
-
-#[cfg(target_os = "macos")]
-struct FoundKeychainItem {
-    item: SecKeychainItemRef,
-    password: Option<String>,
-}
-
-#[cfg(target_os = "macos")]
-impl Drop for FoundKeychainItem {
-    fn drop(&mut self) {
-        if !self.item.is_null() {
-            unsafe { CFRelease(self.item.cast()) };
-        }
-    }
-}
-
-fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+fn profiled_config_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     let mut dir = app
         .path()
         .app_config_dir()
@@ -163,7 +102,11 @@ fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
     std::fs::create_dir_all(&dir)
         .map_err(|error| format!("failed to create app config dir: {error}"))?;
 
-    Ok(dir.join("preferences.json"))
+    Ok(dir)
+}
+
+fn preferences_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(profiled_config_dir(app)?.join("preferences.json"))
 }
 
 fn read_preferences(app: &tauri::AppHandle) -> Result<Preferences, String> {
@@ -244,7 +187,7 @@ fn set_assistant_display_name(
 #[tauri::command]
 fn get_model_provider_settings(app: tauri::AppHandle) -> Result<ModelProviderSettings, String> {
     let preferences = read_preferences(&app)?;
-    settings_with_key_state(&preferences.model_provider)
+    settings_with_key_state(&app, &preferences.model_provider)
 }
 
 #[tauri::command]
@@ -257,9 +200,9 @@ fn set_model_provider_settings(
     let api_key = normalize_optional_text(input.api_key, usize::MAX);
 
     if input.clear_api_key {
-        delete_provider_api_key(&provider)?;
+        delete_provider_api_key(&app, &provider)?;
     } else if let Some(key) = api_key {
-        set_provider_api_key(&provider, &key)?;
+        set_provider_api_key(&app, &provider, &key)?;
     }
 
     let mut preferences = read_preferences(&app)?;
@@ -278,13 +221,16 @@ fn set_model_provider_settings(
     );
 
     write_preferences(&app, &preferences)?;
-    settings_with_key_state(&preferences.model_provider)
+    settings_with_key_state(&app, &preferences.model_provider)
 }
 
 #[tauri::command]
-fn get_model_provider_api_key(provider: String) -> Result<Option<String>, String> {
+fn get_model_provider_api_key(
+    app: tauri::AppHandle,
+    provider: String,
+) -> Result<Option<String>, String> {
     let provider = normalize_provider_id(provider)?;
-    get_provider_api_key(&provider)
+    get_provider_api_key(&app, &provider)
 }
 
 #[tauri::command]
@@ -376,8 +322,10 @@ fn normalize_provider_thinking(value: Option<String>) -> Option<String> {
 }
 
 fn settings_with_key_state(
+    app: &tauri::AppHandle,
     preferences: &ModelProviderPreferences,
 ) -> Result<ModelProviderSettings, String> {
+    let secrets = read_provider_secrets(app)?;
     let mut providers = HashMap::new();
 
     for provider in MODEL_PROVIDER_IDS {
@@ -393,7 +341,7 @@ fn settings_with_key_state(
                 endpoint: stored.endpoint,
                 thinking: stored.thinking,
                 reasoning_effort: stored.reasoning_effort,
-                api_key_configured: get_provider_api_key(provider)?.is_some(),
+                api_key_configured: provider_secret_present(&secrets, provider),
             },
         );
     }
@@ -417,184 +365,96 @@ impl ModelProviderSelection for ModelProviderPreferences {
     }
 }
 
-#[cfg(target_os = "macos")]
-fn get_provider_api_key(provider: &str) -> Result<Option<String>, String> {
-    Ok(find_provider_keychain_item(provider, true)?.and_then(|item| item.password.clone()))
+// ── provider API key 本地文件存储（替代 macOS Keychain）──────────────────
+
+fn provider_secrets_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    Ok(profiled_config_dir(app)?.join(PROVIDER_SECRETS_FILE))
 }
 
-#[cfg(target_os = "macos")]
-fn set_provider_api_key(provider: &str, api_key: &str) -> Result<(), String> {
-    let service = model_provider_keychain_service()?;
-    let service_bytes = service.as_bytes();
-    let provider_bytes = provider.as_bytes();
-    let key_bytes = api_key.as_bytes();
-    let key_len = keychain_len(key_bytes)?;
-
-    if let Some(item) = find_provider_keychain_item(provider, false)? {
-        let status = unsafe {
-            SecKeychainItemModifyAttributesAndData(
-                item.item,
-                ptr::null(),
-                key_len,
-                key_bytes.as_ptr().cast(),
-            )
-        };
-
-        return if status == ERR_SEC_SUCCESS {
-            Ok(())
-        } else {
-            Err(keychain_error("update", status))
-        };
-    }
-
-    let mut item_ref: SecKeychainItemRef = ptr::null_mut();
-    let status = unsafe {
-        SecKeychainAddGenericPassword(
-            ptr::null_mut(),
-            keychain_len(service_bytes)?,
-            service_bytes.as_ptr().cast(),
-            keychain_len(provider_bytes)?,
-            provider_bytes.as_ptr().cast(),
-            key_len,
-            key_bytes.as_ptr().cast(),
-            &mut item_ref,
-        )
-    };
-
-    if !item_ref.is_null() {
-        unsafe { CFRelease(item_ref.cast()) };
-    }
-
-    if status == ERR_SEC_SUCCESS {
-        Ok(())
-    } else if status == ERR_SEC_DUPLICATE_ITEM {
-        set_provider_api_key(provider, api_key)
-    } else {
-        Err(keychain_error("write", status))
-    }
+fn read_provider_secrets(app: &tauri::AppHandle) -> Result<ProviderSecrets, String> {
+    read_provider_secrets_at(&provider_secrets_path(app)?)
 }
 
-#[cfg(target_os = "macos")]
-fn delete_provider_api_key(provider: &str) -> Result<(), String> {
-    let Some(item) = find_provider_keychain_item(provider, false)? else {
-        return Ok(());
-    };
-
-    let status = unsafe { SecKeychainItemDelete(item.item) };
-    if status == ERR_SEC_SUCCESS || status == ERR_SEC_ITEM_NOT_FOUND {
-        Ok(())
-    } else {
-        Err(keychain_error("delete", status))
-    }
+fn write_provider_secrets(app: &tauri::AppHandle, secrets: &ProviderSecrets) -> Result<(), String> {
+    write_provider_secrets_at(&provider_secrets_path(app)?, secrets)
 }
 
-#[cfg(target_os = "macos")]
-fn find_provider_keychain_item(
+fn get_provider_api_key(app: &tauri::AppHandle, provider: &str) -> Result<Option<String>, String> {
+    let secrets = read_provider_secrets(app)?;
+    Ok(secrets
+        .api_keys
+        .get(provider)
+        .filter(|value| !value.is_empty())
+        .cloned())
+}
+
+fn set_provider_api_key(
+    app: &tauri::AppHandle,
     provider: &str,
-    read_password: bool,
-) -> Result<Option<FoundKeychainItem>, String> {
-    let service = model_provider_keychain_service()?;
-    let service_bytes = service.as_bytes();
-    let provider_bytes = provider.as_bytes();
-    let mut password_length = 0;
-    let mut password_data: *mut c_void = ptr::null_mut();
-    let mut item_ref: SecKeychainItemRef = ptr::null_mut();
+    api_key: &str,
+) -> Result<(), String> {
+    let mut secrets = read_provider_secrets(app)?;
+    secrets
+        .api_keys
+        .insert(provider.to_string(), api_key.to_string());
+    write_provider_secrets(app, &secrets)
+}
 
-    let status = unsafe {
-        SecKeychainFindGenericPassword(
-            ptr::null_mut(),
-            keychain_len(service_bytes)?,
-            service_bytes.as_ptr().cast(),
-            keychain_len(provider_bytes)?,
-            provider_bytes.as_ptr().cast(),
-            if read_password {
-                &mut password_length
-            } else {
-                ptr::null_mut()
-            },
-            if read_password {
-                &mut password_data
-            } else {
-                ptr::null_mut()
-            },
-            &mut item_ref,
-        )
-    };
-
-    if status == ERR_SEC_ITEM_NOT_FOUND {
-        return Ok(None);
+fn delete_provider_api_key(app: &tauri::AppHandle, provider: &str) -> Result<(), String> {
+    let mut secrets = read_provider_secrets(app)?;
+    if secrets.api_keys.remove(provider).is_some() {
+        write_provider_secrets(app, &secrets)?;
     }
-
-    if status != ERR_SEC_SUCCESS {
-        return Err(keychain_error("read", status));
-    }
-
-    let password = if read_password && !password_data.is_null() {
-        let bytes = unsafe {
-            std::slice::from_raw_parts(password_data.cast::<u8>(), password_length as usize)
-        };
-        let value = String::from_utf8(bytes.to_vec())
-            .map_err(|_| "provider API key in macOS Keychain is not valid UTF-8".to_string())?;
-        unsafe { SecKeychainItemFreeContent(ptr::null_mut(), password_data) };
-        if value.is_empty() {
-            None
-        } else {
-            Some(value)
-        }
-    } else {
-        None
-    };
-
-    Ok(Some(FoundKeychainItem {
-        item: item_ref,
-        password,
-    }))
-}
-
-#[cfg(target_os = "macos")]
-fn keychain_len(bytes: &[u8]) -> Result<u32, String> {
-    u32::try_from(bytes.len()).map_err(|_| "provider API key field is too large".to_string())
-}
-
-#[cfg(target_os = "macos")]
-fn keychain_error(action: &str, status: OsStatus) -> String {
-    format!("failed to {action} provider API key in macOS Keychain (status {status})")
-}
-
-#[cfg(not(target_os = "macos"))]
-fn get_provider_api_key(_provider: &str) -> Result<Option<String>, String> {
-    Ok(None)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn set_provider_api_key(_provider: &str, _api_key: &str) -> Result<(), String> {
-    Err("provider API key storage is only available through macOS Keychain".into())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn delete_provider_api_key(_provider: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn model_provider_keychain_service() -> Result<String, String> {
-    Ok(profiled_keychain_service(desktop_profile()?.as_deref()))
+fn read_provider_secrets_at(path: &Path) -> Result<ProviderSecrets, String> {
+    match std::fs::read_to_string(path) {
+        Ok(contents) if contents.trim().is_empty() => Ok(ProviderSecrets::default()),
+        Ok(contents) => serde_json::from_str(&contents)
+            .map_err(|error| format!("failed to parse provider secrets: {error}")),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Ok(ProviderSecrets::default())
+        }
+        Err(error) => Err(format!("failed to read provider secrets: {error}")),
+    }
 }
 
-fn profiled_keychain_service(profile: Option<&str>) -> String {
-    match profile {
-        Some(profile) => format!("{MODEL_PROVIDER_KEYCHAIN_SERVICE}.{profile}"),
-        None => MODEL_PROVIDER_KEYCHAIN_SERVICE.to_string(),
-    }
+fn write_provider_secrets_at(path: &Path, secrets: &ProviderSecrets) -> Result<(), String> {
+    let contents = serde_json::to_string_pretty(secrets)
+        .map_err(|error| format!("failed to encode provider secrets: {error}"))?;
+
+    std::fs::write(path, contents)
+        .map_err(|error| format!("failed to write provider secrets: {error}"))?;
+
+    restrict_secret_file_permissions(path)
+}
+
+fn provider_secret_present(secrets: &ProviderSecrets, provider: &str) -> bool {
+    secrets
+        .api_keys
+        .get(provider)
+        .map(|value| !value.is_empty())
+        .unwrap_or(false)
+}
+
+#[cfg(unix)]
+fn restrict_secret_file_permissions(path: &Path) -> Result<(), String> {
+    use std::os::unix::fs::PermissionsExt;
+
+    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))
+        .map_err(|error| format!("failed to restrict provider secrets permissions: {error}"))
+}
+
+#[cfg(not(unix))]
+fn restrict_secret_file_permissions(_path: &Path) -> Result<(), String> {
+    Ok(())
 }
 
 fn model_provider_secret_storage_status() -> ModelProviderSecretStorageStatus {
     ModelProviderSecretStorageStatus {
-        available: cfg!(target_os = "macos"),
-        kind: if cfg!(target_os = "macos") {
-            "macos_keychain"
-        } else {
-            "unsupported"
-        },
+        available: true,
+        kind: "local_file",
         platform: std::env::consts::OS,
     }
 }
@@ -602,6 +462,19 @@ fn model_provider_secret_storage_status() -> ModelProviderSecretStorageStatus {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_secrets_path(tag: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock after epoch")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!(
+            "ai-novel-secrets-{tag}-{}-{nanos}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).expect("create temp dir");
+        dir.join(PROVIDER_SECRETS_FILE)
+    }
 
     #[test]
     fn decodes_model_provider_settings_from_frontend_camel_case_payload() {
@@ -638,28 +511,51 @@ mod tests {
     }
 
     #[test]
-    fn scopes_keychain_service_by_desktop_profile() {
-        assert_eq!(
-            profiled_keychain_service(Some("stage")),
-            "com.ai-novel-studio.app.model-provider.stage"
-        );
-        assert_eq!(
-            profiled_keychain_service(None),
-            "com.ai-novel-studio.app.model-provider"
-        );
+    fn reports_local_file_secret_storage_capability() {
+        let status = model_provider_secret_storage_status();
+        assert!(status.available);
+        assert_eq!(status.kind, "local_file");
+        assert!(!status.platform.is_empty());
     }
 
     #[test]
-    fn reports_secret_storage_capability_by_platform() {
-        let status = model_provider_secret_storage_status();
-        if cfg!(target_os = "macos") {
-            assert!(status.available);
-            assert_eq!(status.kind, "macos_keychain");
-        } else {
-            assert!(!status.available);
-            assert_eq!(status.kind, "unsupported");
-        }
-        assert!(!status.platform.is_empty());
+    fn provider_secrets_round_trip_through_local_file() {
+        let path = temp_secrets_path("round-trip");
+
+        // 缺文件视为空：判断"是否已配置"绝不读不存在的密钥，也绝不报错。
+        let empty = read_provider_secrets_at(&path).expect("missing file reads as empty");
+        assert!(!provider_secret_present(&empty, "deepseek"));
+
+        let mut secrets = ProviderSecrets::default();
+        secrets.api_keys.insert("deepseek".into(), "sk-test".into());
+        write_provider_secrets_at(&path, &secrets).expect("write secrets");
+
+        let loaded = read_provider_secrets_at(&path).expect("read secrets");
+        assert_eq!(
+            loaded.api_keys.get("deepseek").map(String::as_str),
+            Some("sk-test")
+        );
+        assert!(provider_secret_present(&loaded, "deepseek"));
+
+        let _ = std::fs::remove_dir_all(path.parent().expect("temp dir"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn secret_file_is_written_with_owner_only_permissions() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let path = temp_secrets_path("perms");
+        write_provider_secrets_at(&path, &ProviderSecrets::default()).expect("write secrets");
+
+        let mode = std::fs::metadata(&path)
+            .expect("metadata")
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+
+        let _ = std::fs::remove_dir_all(path.parent().expect("temp dir"));
     }
 }
 

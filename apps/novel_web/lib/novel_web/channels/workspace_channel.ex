@@ -1165,28 +1165,44 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp record_action_decision_trace(socket, %{turn_id: turn_id} = turn_result)
        when is_binary(turn_id) do
+    if application_persisted_tool_trace?(turn_result) do
+      :ok
+    else
+      persist_action_decision_trace(socket, turn_result)
+    end
+  end
+
+  defp record_action_decision_trace(_socket, _turn_result), do: :ok
+
+  defp persist_action_decision_trace(socket, turn_result) do
     tracer = NovelApplication.persistence_tracer()
 
     with true <- is_function(tracer, 2),
          {:ok, attrs} <- action_trace_attrs(socket, turn_result) do
       workspace_id = socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby"
-
-      case tracer.(workspace_id, attrs) do
-        :ok ->
-          :ok
-
-        {:error, reason} ->
-          LogEmit.emit(:channel, :persist_trace, :error, %{
-            reason_code: :persistence_failed,
-            outcome_detail: inspect(reason)
-          })
-      end
+      persist_action_decision_trace(tracer, workspace_id, attrs)
     else
       _ -> :ok
     end
   end
 
-  defp record_action_decision_trace(_socket, _turn_result), do: :ok
+  defp persist_action_decision_trace(tracer, workspace_id, attrs) do
+    case tracer.(workspace_id, attrs) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        LogEmit.emit(:channel, :persist_trace, :error, %{
+          reason_code: :persistence_failed,
+          outcome_detail: inspect(reason)
+        })
+    end
+  end
+
+  defp application_persisted_tool_trace?(turn_result) do
+    trace_summary = map_field(turn_result, :trace_summary)
+    string_field(trace_summary, :decision_type, "") == "tool_dispatched"
+  end
 
   defp action_trace_attrs(socket, turn_result) do
     trace_summary = map_field(turn_result, :trace_summary)

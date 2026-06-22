@@ -45,11 +45,12 @@ interface Props {
   onDraftChapter: (chapterBrief: string) => void;
   onNewForeshadowing: () => void;
   onNewRule: () => void;
-  onNewAction: () => void;
+  onNewAction: (prompt: string) => void;
 }
 
 type TabType = "overview" | "outline" | "character" | "foreshadowing" | "rule";
 type SelectedArchiveItem = { kind: "character"; id: string } | { kind: "memory"; id: string };
+type PendingTabType = TabType;
 
 function payloadText(value: unknown, fallback: string): string {
   if (typeof value === "string" && value.trim()) return value;
@@ -89,6 +90,133 @@ function profileRows(profile: WorkProfile | null): { label: string; value: strin
   ];
 }
 
+function optionalText(value: unknown): string | null {
+  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return null;
+}
+
+function payloadField(payload: ArtifactEntry["payload"], keys: string[]): string | null {
+  for (const key of keys) {
+    const value = optionalText(payload[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function payloadItems(payload: ArtifactEntry["payload"]): unknown[] {
+  return Array.isArray(payload.items) ? payload.items : [];
+}
+
+function itemField(item: unknown, keys: string[]): string | null {
+  if (!item || typeof item !== "object") return null;
+  const record = item as Record<string, unknown>;
+  for (const key of keys) {
+    const value = optionalText(record[key]);
+    if (value) return value;
+  }
+  return null;
+}
+
+function compactPreview(value: string, maxLength = 150): string {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength)}...`;
+}
+
+function containsAny(value: string, needles: string[]): boolean {
+  return needles.some((needle) => value.includes(needle));
+}
+
+function pendingArtifactTab(artifact: ArtifactEntry): PendingTabType {
+  const artifactType = artifact.artifact_type;
+
+  if (artifactType === "outline_draft" || artifactType === "plot_direction") return "outline";
+  if (artifactType === "prose_fragment" || artifactType === "scene_draft") return "outline";
+  if (artifactType === "character_seed") return "character";
+  if (artifactType === "foreshadowing_seed") return "foreshadowing";
+  if (
+    artifactType === "world_rule_seed" ||
+    artifactType === "style_rule_seed" ||
+    artifactType === "constraint_seed"
+  ) {
+    return "rule";
+  }
+
+  if (artifactType === "world_setting") {
+    const text = [
+      payloadField(artifact.payload, ["title", "summary", "content", "body"]),
+      ...payloadItems(artifact.payload).map((item) =>
+        [itemField(item, ["title", "name"]), itemField(item, ["body", "content", "summary"])]
+          .filter(Boolean)
+          .join(" "),
+      ),
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    if (containsAny(text, ["伏笔", "线索", "回收"])) return "foreshadowing";
+    if (containsAny(text, ["规则", "风格", "约束", "世界观", "设定"])) return "rule";
+  }
+
+  return "overview";
+}
+
+function outlinePreview(payload: ArtifactEntry["payload"]): string | null {
+  const items = payloadItems(payload);
+  const count = optionalText(payload.chapter_count) ?? optionalText(payload.item_count);
+  const titles = items
+    .map((item) => itemField(item, ["title", "name"]))
+    .filter((title): title is string => Boolean(title))
+    .slice(0, 4);
+
+  if (titles.length > 0) {
+    const total = count ?? String(items.length);
+    const suffix = Number(total) > titles.length ? "等" : "";
+    return `共 ${total} 章，包含：${titles.join("、")}${suffix}。`;
+  }
+
+  const content = payloadField(payload, ["content", "body", "summary"]);
+  if (!content) return null;
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 3)
+    .join(" / ");
+  return compactPreview(lines);
+}
+
+function genericArtifactPreview(payload: ArtifactEntry["payload"]): string | null {
+  const direct = payloadField(payload, ["content", "body", "summary", "description"]);
+  if (direct) return compactPreview(direct);
+
+  const items = payloadItems(payload);
+  if (items.length === 0) return null;
+
+  const first = items[0];
+  const title = itemField(first, ["title", "name"]);
+  const body = itemField(first, ["body", "content", "summary", "description"]);
+  const preview = [title, body].filter(Boolean).join("：");
+
+  if (!preview) return null;
+  return items.length > 1 ? `共 ${items.length} 条，首条：${compactPreview(preview)}` : compactPreview(preview);
+}
+
+function pendingArtifactTitle(artifact: ArtifactEntry, tab: PendingTabType): string {
+  return (
+    payloadField(artifact.payload, ["title", "name", "summary"]) ??
+    STRUCTURE_PANEL.pendingFallbackTitles[tab]
+  );
+}
+
+function pendingArtifactDescription(artifact: ArtifactEntry, tab: PendingTabType): string {
+  const preview =
+    tab === "outline" ? outlinePreview(artifact.payload) : genericArtifactPreview(artifact.payload);
+
+  return preview ?? STRUCTURE_PANEL.pendingFallbackContent;
+}
+
 export function StructurePanel({
   isOpen,
   onClose,
@@ -102,7 +230,12 @@ export function StructurePanel({
   onNewRule,
   onNewAction,
 }: Props) {
-  const [activeTab, setActiveTab] = useState<TabType>("foreshadowing");
+  const [activeTab, setActiveTab] = useState<TabType>(
+    () =>
+      pendingAdoptions
+        .map((artifact) => pendingArtifactTab(artifact))
+        .find((tab) => tab !== "overview") ?? "overview",
+  );
   const [toc, setToc] = useState<TocData | null>(null);
   const [characters, setCharacters] = useState<CharacterData[]>([]);
   const [foreshadowing, setForeshadowing] = useState<MemoryItemData[]>([]);
@@ -139,6 +272,22 @@ export function StructurePanel({
   if (!isOpen) return null;
 
   const hasWork = context.workId != null;
+  const footerAction = STRUCTURE_PANEL.panelActions[activeTab];
+  const pendingByTab: Record<PendingTabType, ArtifactEntry[]> = {
+    overview: pendingAdoptions.filter((artifact) => pendingArtifactTab(artifact) === "overview"),
+    outline: pendingAdoptions.filter((artifact) => pendingArtifactTab(artifact) === "outline"),
+    character: pendingAdoptions.filter((artifact) => pendingArtifactTab(artifact) === "character"),
+    foreshadowing: pendingAdoptions.filter(
+      (artifact) => pendingArtifactTab(artifact) === "foreshadowing",
+    ),
+    rule: pendingAdoptions.filter((artifact) => pendingArtifactTab(artifact) === "rule"),
+  };
+  const tabPendingCount = (tab: PendingTabType) => pendingByTab[tab].length;
+  const tabLabel = (tab: PendingTabType, label: string) => {
+    const count = tabPendingCount(tab);
+    if (count === 0) return label;
+    return <span className={styles.tabTextAccent}>{`${label} (${count})`}</span>;
+  };
 
   // 已采纳卷/章结构即大纲（结构携带 summary + 进度），单一数据源，作为面板章节列表。
   const planChapters = (toc?.volumes ?? []).flatMap((vol) => vol.chapters);
@@ -228,22 +377,19 @@ export function StructurePanel({
       >
         <Tabs.List className={styles.tabs}>
           <Tabs.Trigger className={styles.tabBtn} value="overview">
-            {STRUCTURE_PANEL.tabs.overview}
+            {tabLabel("overview", STRUCTURE_PANEL.tabs.overview)}
           </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabBtn} value="outline">
-            {STRUCTURE_PANEL.tabs.outline}
+            {tabLabel("outline", STRUCTURE_PANEL.tabs.outline)}
           </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabBtn} value="character">
-            {STRUCTURE_PANEL.tabs.character}
+            {tabLabel("character", STRUCTURE_PANEL.tabs.character)}
           </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabBtn} value="foreshadowing">
-            <span className={pendingAdoptions.length > 0 ? styles.tabTextAccent : ""}>
-              {STRUCTURE_PANEL.tabs.foreshadowing}
-              {pendingAdoptions.length > 0 ? ` (${pendingAdoptions.length})` : ""}
-            </span>
+            {tabLabel("foreshadowing", STRUCTURE_PANEL.tabs.foreshadowing)}
           </Tabs.Trigger>
           <Tabs.Trigger className={styles.tabBtn} value="rule">
-            {STRUCTURE_PANEL.tabs.rule}
+            {tabLabel("rule", STRUCTURE_PANEL.tabs.rule)}
           </Tabs.Trigger>
         </Tabs.List>
 
@@ -269,52 +415,20 @@ export function StructurePanel({
               </dl>
               <div className={styles.detailHint}>{STRUCTURE_PANEL.profile.readonlyHint}</div>
             </div>
+            {renderPendingSection(
+              "overview",
+              pendingByTab.overview,
+              getArtifactActionState,
+              onArtifactAction,
+            )}
           </Tabs.Content>
 
           <Tabs.Content value="foreshadowing" className={styles.tabContent}>
-            {pendingAdoptions.length > 0 && (
-              <div className={styles.section}>
-                <div className={styles.secHeader}>
-                  <span className={styles.secTitleAccent}>{STRUCTURE_PANEL.pendingSection}</span>
-                </div>
-                {pendingAdoptions.map((artifact) => {
-                  const acceptAction = getArtifactActionState(artifact, "accept");
-                  const editAction = getArtifactActionState(artifact, "edit_then_accept");
-
-                  return (
-                    <div key={artifact.artifact_id} className={styles.cardAccent}>
-                      <div className={styles.cardLabel}>{STRUCTURE_PANEL.pendingLabel}</div>
-                      <div className={styles.cardTitle}>
-                        {payloadText(artifact.payload.title, STRUCTURE_PANEL.pendingFallbackTitle)}
-                      </div>
-                      <div className={styles.cardDesc}>
-                        {payloadText(
-                          artifact.payload.content,
-                          STRUCTURE_PANEL.pendingFallbackContent,
-                        )}
-                      </div>
-                      <div className={styles.cardActions}>
-                        <button
-                          className={styles.btnPrimary}
-                          disabled={!acceptAction.enabled}
-                          title={acceptAction.disabledReason}
-                          onClick={() => onArtifactAction(artifact, "accept")}
-                        >
-                          {STRUCTURE_PANEL.acceptSetting}
-                        </button>
-                        <button
-                          className={styles.btnSecondary}
-                          disabled={!editAction.enabled}
-                          title={editAction.disabledReason}
-                          onClick={() => onArtifactAction(artifact, "edit_then_accept")}
-                        >
-                          {STRUCTURE_PANEL.requestRevision}
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+            {renderPendingSection(
+              "foreshadowing",
+              pendingByTab.foreshadowing,
+              getArtifactActionState,
+              onArtifactAction,
             )}
             {foreshadowing.length > 0 && (
               <div className={styles.section}>
@@ -360,7 +474,7 @@ export function StructurePanel({
               </div>
             )}
             {selectedDetail && renderDetail(selectedDetail)}
-            {pendingAdoptions.length === 0 && foreshadowing.length === 0 && (
+            {pendingByTab.foreshadowing.length === 0 && foreshadowing.length === 0 && (
               <EmptyState
                 title={STRUCTURE_PANEL.foreshadowingEmptyTitle}
                 description={STRUCTURE_PANEL.foreshadowingEmptyDesc}
@@ -375,6 +489,12 @@ export function StructurePanel({
 
           <Tabs.Content value="outline" className={styles.tabContent}>
             {/* 大纲与结构单一数据源：已采纳卷/章结构（结构携带摘要+进度），不再有独立计划视图。 */}
+            {renderPendingSection(
+              "outline",
+              pendingByTab.outline,
+              getArtifactActionState,
+              onArtifactAction,
+            )}
             {planChapters.length > 0 ? (
               <div className={styles.section}>
                 <div className={styles.secHeader}>
@@ -406,7 +526,7 @@ export function StructurePanel({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : pendingByTab.outline.length === 0 ? (
               <EmptyState
                 title={STRUCTURE_PANEL.outlineEmptyTitle}
                 description={
@@ -415,15 +535,22 @@ export function StructurePanel({
                     : STRUCTURE_PANEL.outlineEmptyNoWork
                 }
                 actionLabel={STRUCTURE_PANEL.startPlanning}
+                actionVariant="secondary"
                 onAction={() => {
                   onStartPlanning();
                   onClose();
                 }}
               />
-            )}
+            ) : null}
           </Tabs.Content>
 
           <Tabs.Content value="character" className={styles.tabContent}>
+            {renderPendingSection(
+              "character",
+              pendingByTab.character,
+              getArtifactActionState,
+              onArtifactAction,
+            )}
             {characters.length > 0 ? (
               <div className={styles.section}>
                 <div className={styles.secHeader}>
@@ -472,7 +599,7 @@ export function StructurePanel({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : pendingByTab.character.length === 0 ? (
               <EmptyState
                 title={STRUCTURE_PANEL.characterEmptyTitle}
                 description={
@@ -486,11 +613,17 @@ export function StructurePanel({
                   onClose();
                 }}
               />
-            )}
+            ) : null}
             {selectedDetail && renderDetail(selectedDetail)}
           </Tabs.Content>
 
           <Tabs.Content value="rule" className={styles.tabContent}>
+            {renderPendingSection(
+              "rule",
+              pendingByTab.rule,
+              getArtifactActionState,
+              onArtifactAction,
+            )}
             {rules.length > 0 ? (
               <div className={styles.section}>
                 <div className={styles.secHeader}>
@@ -533,7 +666,7 @@ export function StructurePanel({
                   </div>
                 ))}
               </div>
-            ) : (
+            ) : pendingByTab.rule.length === 0 ? (
               <EmptyState
                 title={STRUCTURE_PANEL.ruleEmptyTitle}
                 description={STRUCTURE_PANEL.ruleEmptyDesc}
@@ -543,18 +676,66 @@ export function StructurePanel({
                   onClose();
                 }}
               />
-            )}
+            ) : null}
             {selectedDetail && renderDetail(selectedDetail)}
           </Tabs.Content>
         </div>
       </Tabs.Root>
 
       <div className={styles.footerActions}>
-        <button className={styles.btnSecondary} onClick={onNewAction}>
-          {STRUCTURE_PANEL.newAction}
+        <button className={styles.btnSecondary} onClick={() => onNewAction(footerAction.prompt)}>
+          {footerAction.label}
         </button>
-        <div className={styles.actionsHint}>{STRUCTURE_PANEL.actionHint}</div>
+        <div className={styles.actionsHint}>{footerAction.hint}</div>
       </div>
+    </div>
+  );
+}
+
+function renderPendingSection(
+  tab: PendingTabType,
+  artifacts: ArtifactEntry[],
+  getArtifactActionState: Props["getArtifactActionState"],
+  onArtifactAction: Props["onArtifactAction"],
+) {
+  if (artifacts.length === 0) return null;
+
+  return (
+    <div className={styles.section}>
+      <div className={styles.secHeader}>
+        <span className={styles.secTitleAccent}>{STRUCTURE_PANEL.pendingSections[tab]}</span>
+      </div>
+      {artifacts.map((artifact) => {
+        const acceptAction = getArtifactActionState(artifact, "accept");
+        const editAction = getArtifactActionState(artifact, "edit_then_accept");
+
+        return (
+          <div key={artifact.artifact_id} className={styles.cardAccent}>
+            <div className={styles.cardLabel}>{STRUCTURE_PANEL.pendingBadges[tab]}</div>
+            <div className={styles.cardTitle}>{pendingArtifactTitle(artifact, tab)}</div>
+            <div className={styles.cardDesc}>{pendingArtifactDescription(artifact, tab)}</div>
+            <div className={styles.cardDesc}>{STRUCTURE_PANEL.pendingDestinations[tab]}</div>
+            <div className={styles.cardActions}>
+              <button
+                className={styles.btnPrimary}
+                disabled={!acceptAction.enabled}
+                title={acceptAction.disabledReason}
+                onClick={() => onArtifactAction(artifact, "accept")}
+              >
+                {STRUCTURE_PANEL.pendingAcceptLabels[tab]}
+              </button>
+              <button
+                className={styles.btnSecondary}
+                disabled={!editAction.enabled}
+                title={editAction.disabledReason}
+                onClick={() => onArtifactAction(artifact, "edit_then_accept")}
+              >
+                {STRUCTURE_PANEL.requestRevision}
+              </button>
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -563,11 +744,13 @@ function EmptyState({
   title,
   description,
   actionLabel,
+  actionVariant = "primary",
   onAction,
 }: {
   title: string;
   description: string;
   actionLabel?: string;
+  actionVariant?: "primary" | "secondary";
   onAction?: () => void;
 }) {
   return (
@@ -575,7 +758,10 @@ function EmptyState({
       <div className={styles.emptyTitle}>{title}</div>
       <div className={styles.emptyDesc}>{description}</div>
       {actionLabel && onAction && (
-        <button className={styles.btnPrimary} onClick={onAction}>
+        <button
+          className={actionVariant === "primary" ? styles.btnPrimary : styles.btnSecondary}
+          onClick={onAction}
+        >
           {actionLabel}
         </button>
       )}

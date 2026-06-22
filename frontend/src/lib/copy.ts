@@ -278,8 +278,6 @@ export const WORKBENCH = {
   modelProviderApiKeyPlaceholder: "保留已保存的 Key",
   modelProviderApiKeyConfigured: "已保存 Key",
   modelProviderClearApiKey: "清除已保存 Key",
-  modelProviderApiKeyStorageUnsupported:
-    "当前系统暂不支持从桌面安全保存 API Key；请使用 macOS 配置 Key，或使用已在后端环境中配置的 Key / 本地 LM Studio。",
   modelProviderThinkingField: "思考模式",
   modelProviderThinkingDisabled: "关闭",
   modelProviderThinkingEnabled: "开启",
@@ -454,7 +452,42 @@ export const STRUCTURE_PANEL = {
   pendingSection: "待采纳内容",
   pendingLabel: "待采纳",
   pendingFallbackTitle: "待审核内容",
-  pendingFallbackContent: "等待审核中的内容",
+  pendingFallbackContent: "这份草稿缺少可预览正文，请回到对话区查看原消息。",
+  pendingSections: {
+    overview: "待处理内容",
+    outline: "待保存大纲",
+    character: "待保存角色",
+    foreshadowing: "待收录伏笔",
+    rule: "待启用规则",
+  },
+  pendingBadges: {
+    overview: "待处理",
+    outline: "大纲草稿",
+    character: "角色草稿",
+    foreshadowing: "伏笔草稿",
+    rule: "规则草稿",
+  },
+  pendingFallbackTitles: {
+    overview: "待保存草稿",
+    outline: "章节大纲草稿",
+    character: "角色草稿",
+    foreshadowing: "伏笔草稿",
+    rule: "规则草稿",
+  },
+  pendingDestinations: {
+    overview: "保存后进入对应作品档案。",
+    outline: "保存后进入作品档案的大纲与结构，并作为后续章节生成依据。",
+    character: "保存后进入角色档案。",
+    foreshadowing: "保存后进入伏笔追踪。",
+    rule: "保存后进入经验规则。",
+  },
+  pendingAcceptLabels: {
+    overview: "保存到作品档案",
+    outline: "保存到大纲",
+    character: "保存角色",
+    foreshadowing: "收入伏笔",
+    rule: "启用规则",
+  },
   confirmedForeshadowingSection: "已确认设定",
   newForeshadowing: "新增伏笔",
   newForeshadowingPrompt:
@@ -520,9 +553,10 @@ export const STRUCTURE_PANEL = {
   chapterPendingBadge: "待补足",
   chapterWrittenPrefix: "已写",
   chapterWordsUnit: "字",
-  outlineEmptyWithWork: "在对话中说「生成章节大纲」或「规划分卷结构」，AI 会帮你整理作品的骨架。",
+  outlineEmptyWithWork: "用于把当前作品整理成卷纲和章纲。点击后会在对话区生成规划请求。",
   outlineEmptyNoWork: "先在工作台创建作品，AI 会帮你搭建大纲和分卷结构。",
-  startPlanning: "开始规划",
+  startPlanning: "规划卷章结构",
+  startPlanningPrompt: "请基于当前作品规划卷章结构，并生成章节大纲。",
   noChapter: "暂无章节",
   acceptedCharactersSection: "已确认角色",
   characterCountUnit: "个角色",
@@ -536,10 +570,34 @@ export const STRUCTURE_PANEL = {
   foreshadowingEmptyDesc: "在对话中说「创建主线大纲」或「构建世界观」，AI 会生成设定内容。",
   ruleEmptyTitle: "经验规则",
   ruleEmptyDesc: "在对话中说「导入风格样本」或「构建世界观」，AI 会生成写作规则和设定约束。",
-  newAction: "发起新操作",
-  newActionPrompt:
-    "我想同时重写第一章、更新主角动机、整理伏笔清单。如果范围太大，请先告诉我如何拆分。",
-  actionHint: "如需深度修改，请在工作台对话中提出。",
+  panelActions: {
+    overview: {
+      label: "发起综合修订",
+      hint: "跨模块调整，转到对话区拆分确认。",
+      prompt:
+        "我想同时重写第一章、更新主角动机、整理伏笔清单。如果范围太大，请先告诉我如何拆分。",
+    },
+    outline: {
+      label: "发起大纲调整",
+      hint: "新增、重排或修改卷章，转到对话区确认。",
+      prompt: "我想调整作品的大纲与卷章结构。请先和我确认要改的范围，再生成方案。",
+    },
+    character: {
+      label: "发起角色调整",
+      hint: "新增或修改角色档案，转到对话区确认。",
+      prompt: "我想新增或调整角色档案。请先根据当前作品设定帮我梳理修改方案。",
+    },
+    foreshadowing: {
+      label: "发起伏笔调整",
+      hint: "新增或调整伏笔，转到对话区确认。",
+      prompt: "我想调整或新增伏笔",
+    },
+    rule: {
+      label: "发起规则修订",
+      hint: "新增或修订经验规则，转到对话区确认。",
+      prompt: "我想新增或修订一条经验规则。请先根据当前作品风格和设定给出建议。",
+    },
+  },
   aliasPrefix: "别名：",
 } as const;
 

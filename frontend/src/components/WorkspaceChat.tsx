@@ -86,7 +86,6 @@ import {
   isValidProviderEndpoint,
   listProviderModels,
   loadAndSyncModelProviderState,
-  providerApiKeyStorageUnavailable,
   providerDisplayName,
   providerOption,
   saveAndApplyModelProviderConfig,
@@ -450,19 +449,6 @@ function modelProviderDraftHasInvalidEndpoint(
 ): boolean {
   const option = state ? providerOption(state.options, draft.provider) : undefined;
   return Boolean(option?.supports_endpoint) && !isValidProviderEndpoint(draft.endpoint);
-}
-
-function modelProviderNeedsUnavailableApiKeyStorage(
-  draft: ModelProviderDraft,
-  state: ModelProviderRuntimeState | null,
-): boolean {
-  if (!state) return false;
-  const option = state ? providerOption(state.options, draft.provider) : undefined;
-  return Boolean(
-    option?.requires_api_key &&
-      providerApiKeyStorageUnavailable(option, state.secretStorage) &&
-      !draft.apiKeyConfigured,
-  );
 }
 
 function errorDetail(error: unknown): string | null {
@@ -1649,12 +1635,6 @@ export function WorkspaceChat() {
       return;
     }
 
-    if (modelProviderNeedsUnavailableApiKeyStorage(draft, state)) {
-      setModelProviderModelsLoading(false);
-      setModelProviderModelsMessage(WORKBENCH.modelProviderApiKeyStorageUnsupported);
-      return;
-    }
-
     setModelProviderModelsLoading(true);
 
     try {
@@ -1703,11 +1683,6 @@ export function WorkspaceChat() {
       return;
     }
 
-    if (modelProviderNeedsUnavailableApiKeyStorage(modelProviderDraft, modelProviderState)) {
-      setModelProviderMessage(WORKBENCH.modelProviderApiKeyStorageUnsupported);
-      return;
-    }
-
     setModelProviderTesting(true);
     setModelProviderMessage(null);
 
@@ -1743,11 +1718,6 @@ export function WorkspaceChat() {
     if (modelProviderSaving) return;
     if (modelProviderDraftHasInvalidEndpoint(modelProviderDraft, modelProviderState)) {
       setModelProviderMessage(WORKBENCH.modelProviderEndpointInvalid);
-      return;
-    }
-
-    if (modelProviderNeedsUnavailableApiKeyStorage(modelProviderDraft, modelProviderState)) {
-      setModelProviderMessage(WORKBENCH.modelProviderApiKeyStorageUnsupported);
       return;
     }
 
@@ -1846,19 +1816,12 @@ export function WorkspaceChat() {
     modelProviderDraft,
     modelProviderState,
   );
-  const modelProviderApiKeyStorageBlocked =
-    modelProviderState && draftProviderOption
-      ? providerApiKeyStorageUnavailable(draftProviderOption, modelProviderState.secretStorage)
-      : false;
-  const modelProviderRequiresUnavailableApiKeyStorage =
-    modelProviderNeedsUnavailableApiKeyStorage(modelProviderDraft, modelProviderState);
   const modelProviderSaveDisabled =
     !modelProviderState ||
     modelProviderSaving ||
     modelProviderTesting ||
     modelProviderModelsLoading ||
     modelProviderEndpointInvalid ||
-    modelProviderRequiresUnavailableApiKeyStorage ||
     (modelProviderRequiresModel &&
       (modelProviderDraft.model.trim() === "" || modelProviderModels.length === 0));
 
@@ -2249,8 +2212,7 @@ export function WorkspaceChat() {
                           disabled={
                             modelProviderSaving ||
                             modelProviderTesting ||
-                            modelProviderDraft.clearApiKey ||
-                            modelProviderApiKeyStorageBlocked
+                            modelProviderDraft.clearApiKey
                           }
                           onChange={(event) => {
                             setModelProviderModels([]);
@@ -2268,21 +2230,12 @@ export function WorkspaceChat() {
                             {WORKBENCH.modelProviderApiKeyConfigured}
                           </div>
                         )}
-                        {modelProviderApiKeyStorageBlocked && (
-                          <div className={styles.dialogHint}>
-                            {WORKBENCH.modelProviderApiKeyStorageUnsupported}
-                          </div>
-                        )}
                         {modelProviderDraft.apiKeyConfigured && (
                           <label className={styles.dialogCheckboxRow}>
                             <input
                               type="checkbox"
                               checked={modelProviderDraft.clearApiKey}
-                              disabled={
-                                modelProviderSaving ||
-                                modelProviderTesting ||
-                                modelProviderApiKeyStorageBlocked
-                              }
+                              disabled={modelProviderSaving || modelProviderTesting}
                               onChange={(event) => {
                                 setModelProviderModels([]);
                                 setModelProviderModelsMessage(null);
@@ -2341,8 +2294,7 @@ export function WorkspaceChat() {
                           modelProviderSaving ||
                           modelProviderTesting ||
                           modelProviderModelsLoading ||
-                          modelProviderEndpointInvalid ||
-                          modelProviderRequiresUnavailableApiKeyStorage
+                          modelProviderEndpointInvalid
                         }
                         onClick={() => {
                           void loadModelProviderModels(modelProviderDraft, modelProviderState);
@@ -2427,8 +2379,7 @@ export function WorkspaceChat() {
                       !modelProviderState ||
                       modelProviderSaving ||
                       modelProviderTesting ||
-                      modelProviderEndpointInvalid ||
-                      modelProviderRequiresUnavailableApiKeyStorage
+                      modelProviderEndpointInvalid
                     }
                     onClick={() => {
                       void handleModelProviderTest();
@@ -2798,7 +2749,7 @@ export function WorkspaceChat() {
               setIsPanelOpen(false);
             }}
             onStartPlanning={() => {
-              void handleSend("我想规划一部 10 万字长篇小说，请生成章节大纲", {
+              void handleSend(STRUCTURE_PANEL.startPlanningPrompt, {
                 generateMicroPlan: true,
               });
             }}
@@ -2821,8 +2772,8 @@ export function WorkspaceChat() {
             onNewRule={() => {
               void handleSend(STRUCTURE_PANEL.newRulePrompt, { generateMicroPlan: true });
             }}
-            onNewAction={() => {
-              void handleSend(STRUCTURE_PANEL.newActionPrompt, { generateMicroPlan: true });
+            onNewAction={(prompt) => {
+              void handleSend(prompt, { generateMicroPlan: true });
               setIsPanelOpen(false);
             }}
           />

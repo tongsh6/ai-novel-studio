@@ -19,8 +19,26 @@ const artifact: ArtifactEntry = {
   },
 };
 
+const outlineArtifact: ArtifactEntry = {
+  artifact_id: "outline-1",
+  artifact_type: "outline_draft",
+  adoption_status: "PENDING",
+  requires_adoption: true,
+  source_turn_ref: "turn-outline",
+  payload: {
+    title: "大纲草稿",
+    chapter_count: 3,
+    items: [
+      { title: "第01章：灵气账单", body: "主角发现灵气账单异常。" },
+      { title: "第02章：旧服务器", body: "主角找到残缺功法。" },
+      { title: "第03章：黑市交易", body: "主角进入黑市。" },
+    ],
+  },
+};
+
 function renderPanel(
   getArtifactActionState: React.ComponentProps<typeof StructurePanel>["getArtifactActionState"],
+  pendingAdoptions: ArtifactEntry[] = [artifact],
 ) {
   useAppStore.setState({
     context: {
@@ -39,7 +57,7 @@ function renderPanel(
     React.createElement(StructurePanel, {
       isOpen: true,
       onClose: () => undefined,
-      pendingAdoptions: [artifact],
+      pendingAdoptions,
       getArtifactActionState,
       onArtifactAction: () => undefined,
       onStartPlanning: () => undefined,
@@ -58,6 +76,33 @@ describe("StructurePanel available action contract", () => {
     expect(STRUCTURE_PANEL.createCharacterPrompt).not.toContain("伏笔");
   });
 
+  it("uses concrete archive action labels instead of the generic operation entry", () => {
+    expect(STRUCTURE_PANEL.startPlanning).toBe("规划卷章结构");
+    expect(STRUCTURE_PANEL.panelActions.outline.label).toBe("发起大纲调整");
+    expect(STRUCTURE_PANEL.panelActions.outline.hint).toContain("对话区");
+    expect(STRUCTURE_PANEL.panelActions.overview.label).toBe("发起综合修订");
+    expect(JSON.stringify(STRUCTURE_PANEL)).not.toContain("发起新操作");
+  });
+
+  it("renders the current module action in the panel footer", () => {
+    const html = renderPanel(() => ({ enabled: true }), []);
+
+    expect(html).toContain("发起综合修订");
+    expect(html).toContain("跨模块调整，转到对话区拆分确认。");
+  });
+
+  it("routes pending outline drafts to the outline tab instead of foreshadowing", () => {
+    const html = renderPanel(() => ({ enabled: true }), [outlineArtifact]);
+
+    expect(html).toContain("大纲与结构 (1)");
+    expect(html).not.toContain("伏笔 (1)");
+    expect(html).toContain("待保存大纲");
+    expect(html).toContain("共 3 章，包含：第01章：灵气账单、第02章：旧服务器、第03章：黑市交易。");
+    expect(html).toContain("保存后进入作品档案的大纲与结构，并作为后续章节生成依据。");
+    expect(html).toContain("保存到大纲");
+    expect(html).not.toContain("等待审核中的内容");
+  });
+
   it("disables pending artifact business buttons when no server action exists", () => {
     const html = renderPanel(() => ({
       enabled: false,
@@ -66,7 +111,7 @@ describe("StructurePanel available action contract", () => {
 
     expect(html).toContain("候选角色");
     expect(html).toContain("概览");
-    expect(html).toContain("采纳设定");
+    expect(html).toContain("保存角色");
     expect(html).toContain("提出修改");
     expect(html).toContain("disabled");
     expect(html).toContain("当前动作不可用，请刷新或继续对话。");
@@ -77,7 +122,7 @@ describe("StructurePanel available action contract", () => {
       enabled: actionType === "accept",
     }));
 
-    expect(html).toContain("采纳设定");
+    expect(html).toContain("保存角色");
     expect(html).toContain("提出修改");
     expect(html).toContain("disabled");
   });

@@ -1,6 +1,7 @@
 defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Phoenix.ChannelTest
 
   alias Ecto.Adapters.SQL.Sandbox
@@ -159,8 +160,13 @@ defmodule NovelWeb.WorkspaceChannelActionIdempotencyTest do
       "idempotency_key" => "ik-confirm-rebase"
     }
 
-    assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
-             WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
+    log =
+      capture_log(fn ->
+        assert {:reply, {:ok, %{received: true, action_status: "accepted"}}, _socket} =
+                 WorkspaceChannel.handle_in("author_action", %{"action" => action}, socket)
+      end)
+
+    refute log =~ "channel.persist_trace | 失败"
 
     assert_broadcast("action_result", %{confirmation_binding: binding})
 
