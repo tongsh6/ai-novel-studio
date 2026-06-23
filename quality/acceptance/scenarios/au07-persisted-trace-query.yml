@@ -1,0 +1,63 @@
+id: au07-persisted-trace-query
+title: 旧 turn 为什么入口通过持久 trace scoped replay 回查
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au07-persisted-trace-query --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - docs/design/contracts/VS-06-replay-surface-contract-pack.md
+  - docs/design/adr/ADR-0014-trace-redaction-v3.md
+  - docs/design/adr/ADR-0017-replay-report-v3.md
+
+invariants:
+  - persisted-trace-query-is-scoped-by-work-session-turn
+  - replay-does-not-call-provider
+  - author-safe-replay-summary
+  - no-production-write-for-why-dialog
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 这一轮请只聊林烬进入灵源矿区前的心理压力，不要写正文。
+  - click: 发送
+  - wait_for: assistant turn result visible and transcript persisted
+  - reload: real workbench restores the old turn from the active session transcript
+  - click: 为什么 on the restored assistant message
+  - wait_for: author-safe trace dialog rendered from scoped persisted replay query
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - replay_api_response
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au07-persisted-trace-query-tauri
+
+assertions:
+  ui:
+    - why entry is opened from the restored real message stream
+    - author-safe explanation dialog is visible
+    - persisted replay detail is visible
+    - raw prompt, provider raw log, hidden policy, debug text, trace ids, and context ids are not visible
+    - dialog states replay does not call the model again
+  network:
+    - user_message sent from real workbench
+    - turn_result received with trace_summary
+    - replay API request uses work_id, session_id, and turn_id scope
+  data:
+    - replay response work/session/turn ids match the visible turn
+    - replay_report.provider_called is false
+    - turn is conversational and does not dispatch a tool
+    - turn does not perform a production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

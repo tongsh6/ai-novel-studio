@@ -1,0 +1,61 @@
+id: au08-reading-return-context
+title: 阅读返回工作台后保持同一上下文
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au08-reading-return-context --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/ui/44-reading-mode.md
+  - docs/design/ui/41-workbench-layout.md
+
+invariants:
+  - reading-return-restores-workbench-input
+  - reading-return-preserves-current-work-id
+  - reading-return-preserves-active-session-id
+  - followup-after-reading-return-uses-same-work-session
+  - return-does-not-create-empty-work-or-session
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate_and_accept: chapter 1 prose
+  - open: 阅读模式
+  - click: 返回工作台
+  - input: 从阅读返回后，请继续聊第01章开场的读者压力，不要写正文。
+  - observe: follow-up user_message and channel completion stay in the same work/session
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au08-reading-return-context-tauri
+
+assertions:
+  ui:
+    - reading mode is visible before returning
+    - return button restores the real workbench
+    - workbench input and send button are enabled after return
+    - follow-up text is visible in the transcript
+    - no new work or session is created after return
+  network:
+    - return itself sends no author_action frame
+    - return itself sends no user_message frame
+    - follow-up user_message uses the pre-return work_id
+    - follow-up user_message uses the pre-return session_id
+  data:
+    - channel.user_message.done for the follow-up uses the same work_id and session_id
+    - follow-up turn_result is received after returning from reading
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

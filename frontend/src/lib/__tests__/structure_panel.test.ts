@@ -81,12 +81,18 @@ describe("StructurePanel available action contract", () => {
     expect(STRUCTURE_PANEL.panelActions.outline.label).toBe("发起大纲调整");
     expect(STRUCTURE_PANEL.panelActions.outline.hint).toContain("对话区");
     expect(STRUCTURE_PANEL.panelActions.overview.label).toBe("发起综合修订");
+    expect(STRUCTURE_PANEL.profile.reviseLabel).toBe("提出立项修订");
+    expect(STRUCTURE_PANEL.profile.revisePrompt).toContain("待采纳的设定修订草稿");
+    expect(STRUCTURE_PANEL.profile.readFailureTitle).toBe("作品档案读取失败");
+    expect(STRUCTURE_PANEL.profile.readFailureDescription).toContain("不会编造档案内容");
+    expect(STRUCTURE_PANEL.profile.readFailureRetryLabel).toBe("重试读取");
     expect(JSON.stringify(STRUCTURE_PANEL)).not.toContain("发起新操作");
   });
 
   it("renders the current module action in the panel footer", () => {
     const html = renderPanel(() => ({ enabled: true }), []);
 
+    expect(html).toContain("提出立项修订");
     expect(html).toContain("发起综合修订");
     expect(html).toContain("跨模块调整，转到对话区拆分确认。");
   });

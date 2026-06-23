@@ -1,0 +1,68 @@
+id: au07-trace-query-scope-negative-matrix
+title: trace 查询跨作品/会话负向矩阵
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au07-trace-query-scope-negative-matrix --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/acceptance/author/AU-03-context.md
+  - docs/design/contracts/VS-06-replay-surface-contract-pack.md
+  - docs/design/adr/ADR-0014-trace-redaction-v3.md
+  - docs/design/adr/ADR-0017-replay-report-v3.md
+
+invariants:
+  - trace-replay-query-is-work-session-turn-scoped
+  - cross-scope-replay-requests-do-not-return-trace
+  - replay-does-not-call-provider
+  - negative-errors-do-not-mutate-ui-or-work-state
+  - author-safe-replay-errors
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 这一轮请只聊林烬进入灵源矿区前的心理压力，不要写正文。
+  - wait_for: assistant turn result visible and transcript persisted
+  - reload: real workbench restores the old turn from the active session transcript
+  - request: valid replay API for the original work/session/turn
+  - request: foreign work with source session replay API
+  - request: source work with foreign session replay API
+  - request: source work with same-work other session replay API
+  - request: source work/source session with missing turn replay API
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - replay_api_response_matrix
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au07-trace-query-scope-negative-matrix-tauri
+
+assertions:
+  ui:
+    - restored old turn remains visible after negative replay requests
+    - session_not_found and trace_not_found are not surfaced into the product UI
+  network:
+    - user_message sent from real workbench
+    - valid replay API request uses the original work_id, session_id, and turn_id scope
+    - negative replay API requests are issued by the external harness, outside product runtime
+  data:
+    - valid replay returns 200 for the original work/session/turn
+    - valid replay response work/session/turn ids match the visible turn
+    - cross-work and cross-session replay requests return 404
+    - same-work other-session and missing-turn replay requests return 404
+    - negative responses do not include trace_summary or replay_report
+    - replay_report.provider_called is false
+    - setup turn is conversational and does not dispatch a tool
+    - setup turn does not perform a production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

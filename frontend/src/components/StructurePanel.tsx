@@ -242,6 +242,8 @@ export function StructurePanel({
   const [rules, setRules] = useState<MemoryItemData[]>([]);
   const [stats, setStats] = useState<WorkStats | null>(null);
   const [profile, setProfile] = useState<WorkProfile | null>(null);
+  const [profileLoadFailed, setProfileLoadFailed] = useState(false);
+  const [profileRetryNonce, setProfileRetryNonce] = useState(0);
   const [selectedArchiveItem, setSelectedArchiveItem] = useState<SelectedArchiveItem | null>(null);
   const context = useAppStore((s) => s.context);
   const channel = useAppStore((s) => s.channel);
@@ -249,6 +251,10 @@ export function StructurePanel({
 
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
+    void Promise.resolve().then(() => {
+      setProfile(null);
+      setProfileLoadFailed(false);
+    });
     getToc(channel, context.workId)
       .then((data) => setToc(data))
       .catch(() => setToc(null));
@@ -262,12 +268,18 @@ export function StructurePanel({
       .then((data) => setRules(data))
       .catch(() => setRules([]));
     getWorkProfile(channel, context.workId)
-      .then((data) => setProfile(data))
-      .catch(() => setProfile(null));
+      .then((data) => {
+        setProfile(data);
+        setProfileLoadFailed(false);
+      })
+      .catch(() => {
+        setProfile(null);
+        setProfileLoadFailed(true);
+      });
     getWorkStats(channel, context.workId)
       .then((data) => setStats(data))
       .catch(() => setStats(null));
-  }, [isOpen, channel, context.workId, pendingAdoptionCount]);
+  }, [isOpen, channel, context.workId, pendingAdoptionCount, profileRetryNonce]);
 
   if (!isOpen) return null;
 
@@ -395,26 +407,45 @@ export function StructurePanel({
 
         <div className={styles.content}>
           <Tabs.Content value="overview" className={styles.tabContent}>
-            <div className={styles.section}>
-              <div className={styles.secHeader}>
-                <span className={styles.secTitle}>{STRUCTURE_PANEL.profile.sectionTitle}</span>
-                <span className={styles.profileStatusBadge}>
-                  {profileStatusLabel(profile?.status)}
-                </span>
+            {profileLoadFailed ? (
+              <EmptyState
+                title={STRUCTURE_PANEL.profile.readFailureTitle}
+                description={STRUCTURE_PANEL.profile.readFailureDescription}
+                actionLabel={STRUCTURE_PANEL.profile.readFailureRetryLabel}
+                actionVariant="secondary"
+                onAction={() => setProfileRetryNonce((value) => value + 1)}
+              />
+            ) : (
+              <div className={styles.section}>
+                <div className={styles.secHeader}>
+                  <span className={styles.secTitle}>{STRUCTURE_PANEL.profile.sectionTitle}</span>
+                  <span className={styles.profileStatusBadge}>
+                    {profileStatusLabel(profile?.status)}
+                  </span>
+                </div>
+                <div className={styles.profileTitle}>
+                  {profileText(profile?.title ?? context.workTitle)}
+                </div>
+                <dl className={styles.profileRows}>
+                  {profileRows(profile).map((row) => (
+                    <div className={styles.profileRow} key={row.label}>
+                      <dt>{row.label}</dt>
+                      <dd>{row.value}</dd>
+                    </div>
+                  ))}
+                </dl>
+                <div className={styles.detailHint}>{STRUCTURE_PANEL.profile.readonlyHint}</div>
+                <div className={styles.cardActions}>
+                  <button
+                    className={styles.btnSecondary}
+                    disabled={!hasWork}
+                    onClick={() => onNewAction(STRUCTURE_PANEL.profile.revisePrompt)}
+                  >
+                    {STRUCTURE_PANEL.profile.reviseLabel}
+                  </button>
+                </div>
               </div>
-              <div className={styles.profileTitle}>
-                {profileText(profile?.title ?? context.workTitle)}
-              </div>
-              <dl className={styles.profileRows}>
-                {profileRows(profile).map((row) => (
-                  <div className={styles.profileRow} key={row.label}>
-                    <dt>{row.label}</dt>
-                    <dd>{row.value}</dd>
-                  </div>
-                ))}
-              </dl>
-              <div className={styles.detailHint}>{STRUCTURE_PANEL.profile.readonlyHint}</div>
-            </div>
+            )}
             {renderPendingSection(
               "overview",
               pendingByTab.overview,

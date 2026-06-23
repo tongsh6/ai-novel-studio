@@ -10,7 +10,7 @@
 
 当前结论：SU-02 在当前 checkout 达到文件级可交付状态，可以进入 SU-03。13/13 场景均有真实 Tauri 工作台或等价场景化证据；后端不可用 UX、恢复/归档管理入口、大列表和异常失败态保留为 P2 后续矩阵。
 
-2026-06-22 二轮复核结论：未发现本文件内应关闭的 P1/P0。已串行复跑全部 6 个 SU-02 真实 Tauri quality 入口：`su02-work-switching`、`su02-empty-start-unnamed-work`、`su02-work-lifecycle-management`、`su02-work-restart-recovery`、`su02-pending-result-work-isolation`、`su02-artifact-projection-trace-isolation`，全部通过。当前二轮退出标准仍满足：13/13 已验收；剩余仅 P2 work management / failure / platform preference / extended isolation matrix。
+2026-06-22 二轮复核结论：未发现本文件内应关闭的 P1/P0。已串行复跑全部 6 个 SU-02 真实 Tauri quality 入口：`su02-work-switching`、`su02-empty-start-unnamed-work`、`su02-work-lifecycle-management`、`su02-work-restart-recovery`、`su02-pending-result-work-isolation`、`su02-artifact-projection-trace-isolation`，全部通过。AU-07 `au07-trace-query-scope-negative-matrix` 已作为 cross evidence 证明 replay API 跨 work/session 负向查询不泄露 trace。当前二轮退出标准仍满足：13/13 已验收；剩余仅 P2 work management / failure / platform preference / extended isolation matrix。
 
 ## 2. 开工检查
 
@@ -34,7 +34,7 @@
 | SC-SU02-B5 删除或移出作品 | 已验收 | `su02-work-lifecycle-management`；`su02-work-restart-recovery` | 恢复/归档管理入口 | P2 |
 | SC-SU02-C1 选择并切换作品 | 已验收 | `su02-work-switching`；`su02-pending-result-work-isolation` | 角色/统计扩展矩阵 | P2 |
 | SC-SU02-C2 切换时重新加入 Channel | 已验收 | `su02-work-switching` | join 失败 UI | P2 |
-| SC-SU02-C3 消息和上下文按作品隔离 | 已验收 | `su02-work-switching`；`au09-cross-work-memory-isolation`；`su02-artifact-projection-trace-isolation` | 角色/统计扩展矩阵 | P2 |
+| SC-SU02-C3 消息和上下文按作品隔离 | 已验收 | `su02-work-switching`；`au09-cross-work-memory-isolation`；`su02-artifact-projection-trace-isolation`；`au07-trace-query-scope-negative-matrix` | 角色/统计扩展矩阵 | P2 |
 | SC-SU02-C4 pending LLM 请求不跨作品污染 | 已验收 | `su02-pending-result-work-isolation` | 无 | P0 closed |
 | SC-SU02-D1 重启恢复上次打开作品 | 已验收 | `su02-work-restart-recovery` | OS-level preference 进程矩阵 | P2 |
 | SC-SU02-D2 上次作品不可用时优雅降级 | 已验收 | `su02-work-restart-recovery` | 后端完全不可用/损坏数据 UX | P2 |
@@ -50,7 +50,7 @@
 - [x] 查看 `artifacts/slice-verify/su02-artifact-projection-trace-isolation-tauri/summary.json`
 - [x] 本轮复跑局部测试：`mix test apps/novel_application/test/novel_application/work_service_test.exs apps/novel_web/test/novel_web/controllers/works_controller_test.exs apps/novel_web/test/novel_web/channels/workspace_channel_test.exs`（27 tests, 0 failures）
 - [x] 本轮复跑前端局部测试：`pnpm --dir frontend exec vitest run src/lib/__tests__/works.test.ts slice-verify/native-tauri-verifier.test.mjs`（140 tests, 0 failures）
-- [x] 本轮复跑质量 manifest：`bash scripts/quality_manifest_check.sh`（通过；剩余 warning 均为既有其它 slice 缺 manifest，SU-02 无缺 manifest warning）
+- [x] 本轮复跑质量 manifest：`bash scripts/quality_manifest_check.sh`（2026-06-22 复跑通过；当前无 manifest warning，SU-02 无缺 manifest warning）
 - [x] 本轮 task_done：`bash scripts/task_done.sh --skip-static-scan --slice SU02-file-level-closure`（`artifacts/task-done/20260620T161425Z/manifest.json`）
 - [x] 本轮统一扫描：`bash scripts/ai_static_scan.sh --top 10`（17/18 pass；唯一 Top 10 为既有 gitleaks `accepted_risk`，0 touched-file finding，blocking=0）
 - [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-work-switching --surface tauri`
@@ -59,6 +59,7 @@
 - [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-work-restart-recovery --surface tauri`
 - [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-pending-result-work-isolation --surface tauri`
 - [x] 二轮复跑真实验收：`bash scripts/quality_accept.sh su02-artifact-projection-trace-isolation --surface tauri`
+- [x] cross evidence：`bash scripts/quality_accept.sh au07-trace-query-scope-negative-matrix --surface tauri`
 
 ## 5. 决策日志
 
@@ -66,6 +67,7 @@
 - 2026-06-21 — 当前 checkout 的 SU-02 证据链足以支撑 13/13 已验收：运行时切换、空库未命名、生命周期、restart recovery、pending 迟到归属和 artifact/projection/trace 隔离均有真实 Tauri summary；quality manifest 已覆盖全部 `su02-*` 场景。
 - 2026-06-21 — 未发现需要本机实现的 P0/P1。后端完全不可用 UX、恢复/归档管理、大列表、异常失败态和 OS-level preference 进程级矩阵登记为 P2，不阻塞进入 SU-03。
 - 2026-06-22 — 二轮缺口收敛时复核 SU-02 剩余项均为 P2；全部 6 个 SU-02 真实 Tauri quality 入口串行复跑通过，不需要新增实现或改动产品 runtime。SU-02 继续可进入 SU-03。
+- 2026-06-22 — AU-07 `au07-trace-query-scope-negative-matrix` 回填 SU-02 C3 trace 查询隔离 cross evidence：valid replay 仅原 work/session/turn 返回 200，跨 work/session 和 missing turn 均 404 且不泄露 trace；SU-02 自身结论不变。
 
 ## 6. 试行反馈
 

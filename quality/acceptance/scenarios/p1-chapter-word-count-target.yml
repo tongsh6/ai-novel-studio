@@ -1,0 +1,58 @@
+id: p1-chapter-word-count-target
+title: 作者目标字数进入正文生成链路
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-chapter-word-count-target --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/product/novel-output-milestones.md
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+  - docs/design/ui/45-guided-conversation-flows.md
+
+invariants:
+  - author-target-word-count-flows-through-execution-chain
+  - adopted-prose-word-count-is-derived-from-visible-text
+  - word-count-target-does-not-create-production-fact-before-adoption
+  - reading-projection-counts-accepted-prose-only
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - request: chapter prose with an explicit target word count
+  - wait_for: tentative prose draft visible
+  - click: 保存为章节正文
+  - open: 阅读模式
+  - observe: effective word count is visible and approaches the requested target
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-chapter-word-count-target-tauri
+
+assertions:
+  ui:
+    - target-count prose draft is accepted from the real workbench
+    - reading mode shows total and chapter effective word counts
+  network:
+    - author target word count flows into the execution chain
+    - accept author_action routes through adoption boundary
+    - get_toc and get_chapter_content return the adopted prose projection
+  data:
+    - requested target_word_count is recorded
+    - displayed word count equals effective count of visible adopted prose
+    - adopted chapter word count approaches the requested target
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

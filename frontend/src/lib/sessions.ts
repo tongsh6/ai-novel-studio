@@ -56,6 +56,14 @@ export interface ChatMessageFromTranscript {
   turnResult?: Record<string, unknown>;
 }
 
+export interface TurnReplaySnapshot {
+  work_id: string;
+  session_id: string;
+  turn_id: string;
+  trace_summary: Record<string, unknown>;
+  replay_report: Record<string, unknown>;
+}
+
 export interface CreateWorkSessionInput {
   title?: string;
   summary?: string;
@@ -88,6 +96,10 @@ export function createSessionPath(workId: string): string {
 
 export function archiveSessionPath(workId: string, sessionId: string): string {
   return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}/archive`;
+}
+
+export function turnReplayPath(workId: string, sessionId: string, turnId: string): string {
+  return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/replay`;
 }
 
 export async function resumeWorkspace(workId: string): Promise<WorkspaceResumeSnapshot> {
@@ -136,6 +148,16 @@ export async function archiveWorkSession(
   if (!res.ok) throw new Error(`archiveWorkSession failed: HTTP ${res.status}`);
   const body = (await res.json()) as { session: WorkSessionDto };
   return body.session;
+}
+
+export async function getTurnReplay(
+  workId: string,
+  sessionId: string,
+  turnId: string,
+): Promise<TurnReplaySnapshot> {
+  const res = await fetch(url(turnReplayPath(workId, sessionId, turnId)));
+  if (!res.ok) throw new Error(`getTurnReplay failed: HTTP ${res.status}`);
+  return (await res.json()) as TurnReplaySnapshot;
 }
 
 export function transcriptToMessages(

@@ -80,6 +80,13 @@ defmodule NovelDomain.DialogueContext do
       end
 
     parts =
+      if ctx.open_behavior_summary do
+        ["## 当前待处理动作\n#{ctx.open_behavior_summary}" | parts]
+      else
+        parts
+      end
+
+    parts =
       case ctx.current_chapters do
         [_ | _] = chapters ->
           listed = Enum.map_join(chapters, "\n", &"- #{&1}")
@@ -101,6 +108,7 @@ defmodule NovelDomain.DialogueContext do
   def has_context?(%__MODULE__{} = ctx) do
     ctx.current_work_snapshot != nil or
       ctx.conversation_summary != nil or
-      ctx.memory_summary != nil
+      ctx.memory_summary != nil or
+      ctx.open_behavior_summary != nil
   end
 end

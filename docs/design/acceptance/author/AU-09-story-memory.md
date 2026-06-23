@@ -2,9 +2,9 @@
 
 > 作者视角：我的小说有大量设定、角色关系、伏笔线索、世界观规则。我需要能管理这些设定，并且 AI 在后续对话中能自动、可追溯地引用已确认设定。
 >
-> 2026-06-21 文件级重算结论：AU-09 当前为 **文件级可交付 / P1 后续登记**。14 个场景中，10/14 已验收、1/14 已测试、3/14 部分实现；P0 缺口已关闭，当前可进入 AU-10。当前“已验收”只以 `scripts/tauri_slice_verify.sh --list` 中可复跑的 AU-09 入口和 quality manifest 为准：`au09-memory-create-recall`、`au09-memory-management-entry`、`au09-memory-trace-roundtrip`、`au09-adopt-setting-recall`、`au09-character-dossier-roundtrip`、`au09-validity-window-recall`、`au09-cross-work-memory-isolation`、`au09-au03-session-memory-layering`。历史 `au09-archive-real-data` / `au09-memory-recall-context` artifact 只作为演进背景，不再单独支撑当前 runnable truth。
+> 2026-06-21 文件级重算结论：AU-09 当时为 **文件级可交付 / P1 后续登记**。14 个场景中，10/14 已验收、1/14 已测试、3/14 部分实现；P0 缺口已关闭，当时可进入 AU-10。2026-06-21 的“已验收”只以 `scripts/tauri_slice_verify.sh --list` 中可复跑的 AU-09 入口和 quality manifest 为准：`au09-memory-create-recall`、`au09-memory-management-entry`、`au09-memory-trace-roundtrip`、`au09-adopt-setting-recall`、`au09-character-dossier-roundtrip`、`au09-validity-window-recall`、`au09-cross-work-memory-isolation`、`au09-au03-session-memory-layering`。历史 `au09-archive-real-data` / `au09-memory-recall-context` artifact 只作为演进背景，不再单独支撑当前 runnable truth。
 >
-> 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。8 个当前 AU-09 quality/Tauri 入口已串行复跑通过；未发现需要在 AU-09 本轮先改生产代码才能继续 AU-10 的新增 P0/P1。剩余 P1 仍是 SC-AU09-A1 完整 archive stats current driver、SC-AU09-A3 持久 adoption inbox / pending archive view、SC-AU09-B2 筛选分页真实页面矩阵、SC-AU09-D2 developer replay / 历史旧 turn 查询 / 完整 MemoryTrace-StateTrace 聚合；它们继续作为后续 checkpoint 或 AU-05/AU-07 cross-owner 登记。
+> 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。10 个当前 AU-09 quality/Tauri 入口已串行复跑通过；`au09-memory-management-filter-matrix` 关闭 SC-AU09-B2 当前可见 keyword/type/scope/status/locked/组合筛选真实页面矩阵，`au09-archive-stats-current` 关闭 SC-AU09-A1 完整 archive stats/detail current driver。AU-09 当前为 12/14 已验收、2/14 部分实现；普通旧 turn scoped query 已由 AU-07 `au07-persisted-trace-query` 回填；剩余 P1 为 SC-AU09-A3 持久 adoption inbox / pending archive view、SC-AU09-D2 developer replay / partial-multi-type replay UI / 完整 MemoryTrace-StateTrace 聚合。SC-AU09-B2 的排序/分页/limit UI 深化降为 P2，不作为本轮 P1 blocker。
 
 ---
 
@@ -12,7 +12,7 @@
 
 | 我能做什么 | 系统怎么回应 |
 |---|---|
-| 打开作品档案面板 | 看到当前作品的真实大纲、角色、伏笔、规则；概览统计已接真实 read model，但完整统计矩阵仍是 P1 |
+| 打开作品档案面板 | 看到当前作品的真实大纲、角色、伏笔、规则；概览统计已由真实 Tauri driver 证明按当前 `work_id` 读取 |
 | 浏览大纲/角色/伏笔/规则 | 每个分类从当前 Work 的持久化事实读取，不展示固定 mock，跨作品切换不串数据 |
 | 看到待采纳设定 | 待采纳内容不自动污染已确认记忆；持久待处理箱和恢复矩阵仍是 P1 |
 | 采纳伏笔/规则设定 | 采纳后进入 confirmed recallable governed memory，并能在后续对话和 why 中出现 |
@@ -20,7 +20,7 @@
 | 管理记忆生命周期 | 状态流转受后端 guard 保护，terminal memory 不再进入普通 recall |
 | 设置章节有效期 | 章节级 `valid_from` / `valid_until` 参与普通 recall，窗口外记忆不进入 context/why |
 | 和 AI 聊天时自动引用设定 | 已确认、可召回、当前 Work 且在有效窗口内的设定进入 context/prompt |
-| 查看 AI 为什么引用设定 | why 面板和记忆详情展示 author-safe 来源/治理追溯；developer replay 与历史旧 turn 查询仍是 P1 |
+| 查看 AI 为什么引用设定 | why 面板和记忆详情展示 author-safe 来源/治理追溯；普通旧 turn scoped query 与 partial replay UI 已由 AU-07 回填，developer replay 与多类型 UI 仍是 P1 |
 
 明确不能做：
 
@@ -58,7 +58,7 @@
 | `MemoryListPage` / `MemoryCreateDialog` / `MemoryDetailDrawer` | 记忆管理 UI | 当前工作台入口、创建确认、生命周期、引用追溯已验收；正式 Pencil 追溯是 P2 |
 | `docs/design/domain/21-novel-object-model.md` §7.2 / `NovelPersistence.Schemas.Character` | 角色主档案层 | `au09-character-dossier-roundtrip` 证明 `character_seed` 采纳写 Character 主档案且进入后续上下文 |
 | `tasks/slices/AU09-*.md` | checkpoint 历史、开工检查和证据记录 | 当前以 `AU09-file-level-closure.md` 作为文件级收口入口 |
-| `quality/acceptance/scenarios/au09-*.yml` | 当前可复跑质量入口 | 8 个 AU-09 driver 已登记为 nightly Tauri acceptance |
+| `quality/acceptance/scenarios/au09-*.yml` | 当前可复跑质量入口 | 10 个 AU-09 driver 已登记为 nightly Tauri acceptance |
 
 ---
 
@@ -66,19 +66,19 @@
 
 | 场景 ID / 名称 | 设计期望 | Contract / invariant | 实现入口 | 局部测试证据 | 真实页面外部自动化验收证据 | 当前状态 | 设计偏差 | 缺口类型 | 优先级 | 建议 checkpoint / slice |
 |---|---|---|---|---|---|---|---|---|---|---|
-| SC-AU09-A1 打开档案看到真实作品全貌 | 当前作品名、卷数、已采纳草稿数、角色数、设定数、待审核数按当前 `work_id` 展示，无数据诚实空态 | Work archive read model；AU09-I5 | `StructurePanel`、`WorkspaceChannel.get_work_stats`、`WorkArchiveService` | archive service / persistence 相关测试；历史 `au09-archive-real-data` 仅作背景 | 当前可复跑 driver 只覆盖角色/伏笔/规则/跨作品隔离，未覆盖完整 stats 矩阵 | 部分实现 | 概览 stats 曾有历史 artifact，但未挂回当前 driver/quality | 验收缺口 | P1 | `AU09-file-level-closure.md` 后续：archive stats current driver |
+| SC-AU09-A1 打开档案看到真实作品全貌 | 当前作品名、卷数、已采纳草稿数、角色数、设定数、待审核数按当前 `work_id` 展示，无数据诚实空态 | Work archive read model；AU09-I5 | `StructurePanel`、`WorkspaceChannel.get_work_stats`、`WorkArchiveService` | archive service / persistence 相关测试；历史 `au09-archive-real-data` 仅作背景 | `au09-archive-stats-current` 真实 Tauri driver：概览 stats、伏笔详情、规则 tab、foreign-work exclusion 均通过 | 已验收 | 待采纳数的持久 inbox 深化仍归 A3，不回写到 A1 | 无 | done | `AU09-archive-stats-current.md` |
 | SC-AU09-A2 分类浏览大纲、角色、伏笔、规则 | 大纲、角色、伏笔、规则均按当前 Work 读取，跨作品隔离，空态不冒充事实 | Work archive read model；AU09-I5 | `get_toc`、`get_characters`、`get_foreshadowing`、`get_rules`、`StructurePanel` | WorkArchive / adoption / reading projection 测试 | `au09-character-dossier-roundtrip`、`au09-adopt-setting-recall`、`au09-cross-work-memory-isolation`、AU-08 reading drivers | 已验收 | 无；大纲证据 cross-reference AU-08 | 无 | done | 已挂入 AU-09 / AU-08 quality |
 | SC-AU09-A3 待采纳设定不混入已确认设定 | pending adoption 与 confirmed memory 分离；采纳前不进入 context recall；刷新恢复或丢失要诚实 | AU09-I2；AU-05 adoption boundary | `StructurePanel.pendingAdoptions`、`AdoptionWorkflow`、`AdoptionRepository` | AU-05 adoption boundary、pending no-write、reading no-fact 测试 | `au09-adopt-setting-recall` 证明采纳后才进入 governed memory；AU-05 drivers 证明未采纳不入事实 | 部分实现 | pending 仍是当前 turn/resume 视图，缺持久 adoption inbox 和恢复矩阵 | 产品/验收缺口 | P1 | Owner: AU-05 持久 adoption inbox + AU-09 pending archive view |
 | SC-AU09-A4 面板内采纳设定进入真实记忆 | 伏笔/规则从档案入口生成 tentative artifact，经 adoption 写入 confirmed memory，后续可 recall/why | AU09-I2/I3；AU-05 adoption boundary | `world_building` prompt、`foreshadowing_seed` / `*_rule_seed`、`AdoptionRepository`、`WorkArchiveRepo` | provider prompt、adoption persistence/read-model 测试 | `au09-adopt-setting-recall` | 已验收 | `world_building` 仍是工具能力名，但 artifact type 已显式化；属文档同步而非代码偏差 | 无 | done | `AU09-archive-memory-roundtrip.md` |
 | SC-AU09-B1 打开记忆管理页面并读取当前作品记忆 | 从真实工作台可发现入口进入当前 Work 记忆列表，失败可恢复 | Memory REST；AU09-I3/I5 | `WorkspaceChat` 记忆入口、`MemoryListPage`、`MemoriesController.index` | controller/service/repo list tests | `au09-memory-create-recall`、`au09-memory-management-entry` | 已验收 | Phase 0 UI 缺正式 Pencil 追溯 | 设计追溯 | P2 | UI design trace follow-up |
-| SC-AU09-B2 筛选、搜索、排序当前作品设定 | 类型、范围、状态、锁定、关键词 AND 过滤，枚举一致，分页/limit 生效 | Memory REST；AU09-I5 | `memoryApi.listMemories`、`MemoryManagementRepo.list/2` | repo 测试覆盖 keyword 先过滤再分页、work 隔离、filter query | 无完整真实页面筛选/分页矩阵 | 已测试 | 前端 filter UI 可用但未做深矩阵验收 | 验收缺口 | P1 | `AU09-memory-management-filter-matrix` |
+| SC-AU09-B2 筛选、搜索、排序当前作品设定 | 类型、范围、状态、锁定、关键词 AND 过滤，枚举一致，分页/limit 生效 | Memory REST；AU09-I5 | `memoryApi.listMemories`、`MemoryManagementRepo.list/2` | repo 测试覆盖 keyword 先过滤再分页、work 隔离、filter query | `au09-memory-management-filter-matrix` 证明真实工作台可从“记忆”入口创建 3 条当前作品记忆，并用可见 keyword/type/scope/status/locked 过滤和组合矩阵隔离匹配行；请求 URL 携带可见过滤参数 | 已验收 | 当前产品 UI 未暴露排序/分页/limit 控件；排序/分页仍只由 repo/API 局部测试覆盖 | 产品深化 | P2 | `AU09-memory-management-sort-pagination-ui` |
 | SC-AU09-B3 作者新建一条设定 | 必填/enum/weight 校验；写入当前 work；默认 DRAFT；动作可追溯 | Memory REST；AU09-I1/I3/I5 | `MemoryCreateDialog`、`MemoriesController.create`、`MemoryManagementService.create` | create/list response、schema validation、cross-work tests | `au09-memory-management-entry`、`au09-memory-create-recall` | 已验收 | 字段校验错误 UX 深矩阵未覆盖 | 验收缺口 | P2 | 管理页错误态矩阵 |
 | SC-AU09-C1 草稿确认后才成为可召回设定 | `DRAFT -> CONFIRMED` 受控；draft 不召回；确认留下来源 | AU09-I1/I3 | `MemoryItem.confirm`、`POST /confirm`、recall fetcher | domain/schema/service tests | `au09-memory-create-recall`、`au09-memory-management-entry`、`au09-memory-trace-roundtrip` | 已验收 | 无 | 无 | done | 已挂入 AU-09 quality |
 | SC-AU09-C2 废弃/归档设定不再召回 | `DEPRECATED` / `ARCHIVED` 同步 `recallable=false`；后续 context/why 排除 | AU09-I1/I3 | `MemoryItem.deprecate/archive`、repo recall filter | domain/schema/repo/service tests | `au09-memory-management-entry`、`au09-memory-trace-roundtrip` | 已验收 | 无 | 无 | done | 已挂入 AU-09 quality |
 | SC-AU09-C3 锁定设定可引用但不可自动改写 | locked 仍可 recall；内容字段不可静默改写；失败原因可追溯 | AU09-I4 | `MemoryItem.lock/unlock`、locked protected fields、service guard、detail references | locked protected fields、blocked lifecycle tests | `au09-memory-management-entry`、`au09-memory-trace-roundtrip` | 已验收 | 自动内容改写生产链路当前不存在，等真实消费者出现再补反证 | 后续深化 | P2 | 自动治理链路出现后补 locked overwrite driver |
 | SC-AU09-C4 章节/场景有效期影响召回 | 当前叙事位置参与 recall，窗口外记忆不召回或降权并解释 | AU09-I6 | `MemoryRecallRepo.recall/3`、accepted chapter seq | `memory_recall_repo_test.exs` | `au09-validity-window-recall` | 已验收 | 当前是章节级过滤；scene-level 和降权策略未做 | 产品深化 | P2 | validity window CP2 |
 | SC-AU09-D1 已确认设定进入主链 context 和 prompt | confirmed/stabilized recallable memory 进入 `memory_summary` / prompt / trace refs，不编造来源 | AU09-I3/I5 | `WorkspaceContext.context_fetcher_with_query/0`、`ContextAssembler`、`DialogueContext`、`TraceWriter` | context grounding、workspace context、dialogue gateway tests | `au09-memory-create-recall`、`au09-adopt-setting-recall`、`au09-validity-window-recall`、`au09-cross-work-memory-isolation` | 已验收 | 无 | 无 | done | 已挂入 AU-09 quality |
-| SC-AU09-D2 记忆引用可溯源 | recall 写 reference log；作者视图可见脱敏来源；开发者视图可看完整 source/reason | AU09-I1；AU-07 trace | `MemoryReferenceLog`、`TraceWriter`、why panel、`MemoryDetailDrawer` references | reference log、trace summary、service tests | `au09-memory-trace-roundtrip`；why 证据来自 `au09-memory-create-recall` / `au09-adopt-setting-recall` | 部分实现 | author-safe 追溯已闭环；developer replay、历史旧 turn 查询、完整独立 MemoryTrace/StateTrace 表未闭环 | Trace/replay 缺口 | P1 | Owner: AU-07 replay + AU-09 trace follow-up |
+| SC-AU09-D2 记忆引用可溯源 | recall 写 reference log；作者视图可见脱敏来源；开发者视图可看完整 source/reason | AU09-I1；AU-07 trace | `MemoryReferenceLog`、`TraceWriter`、why panel、`MemoryDetailDrawer` references | reference log、trace summary、service tests；AU-07 scoped query tests | `au09-memory-trace-roundtrip`；why 证据来自 `au09-memory-create-recall` / `au09-adopt-setting-recall`；`au07-persisted-trace-query` 回填普通旧 turn scoped query；`au07-partial-replay-ui` 回填 partial replay 诚实提示 | 部分实现 | author-safe 追溯已闭环；普通旧 turn query 和 partial 作者提示已闭合；developer replay、多类型 UI、完整独立 MemoryTrace/StateTrace 表未闭环 | Trace/replay 缺口 | P1 | Owner: AU-07 replay + AU-09 trace follow-up |
 | SC-AU09-D3 与 AU-03 最新作品背景和作品内会话分层一致 | Work 最新背景、active session、historical session、memory 分层；archived/history 不污染普通 context | AU09-I5；AU-03 context SSOT | work session resume/show、context fetcher、TraceWriter why refs | AU-03 context tests、session tests | `au09-au03-session-memory-layering`；cross-reference `au03-current-work-context-ssot` | 已验收 | 无 | 无 | done | `AU09-AU03-session-memory-layering.md` |
 
 ---
@@ -87,11 +87,11 @@
 
 **当前审计结论**
 
-- 已验收：SC-AU09-A2、A4、B1、B3、C1、C2、C3、C4、D1、D3。
-- 已测试：SC-AU09-B2。
-- 部分实现：SC-AU09-A1、A3、D2。
+- 已验收：SC-AU09-A1、A2、A4、B1、B2、B3、C1、C2、C3、C4、D1、D3。
+- 已测试：无。
+- 部分实现：SC-AU09-A3、D2。
 - 未实现 / 不确定：无。
-- 2026-06-22 二轮复核：上述分类保持不变；8 个当前 quality/Tauri 入口复跑通过，没有新增 AU-09 本文件内必须关闭的 blocker。
+- 2026-06-22 二轮复核：`au09-memory-management-filter-matrix` 关闭 B2 可见筛选矩阵 P1；`au09-archive-stats-current` 关闭 A1 完整 stats/detail current driver P1；10 个当前 quality/Tauri 入口复跑通过，没有新增 AU-09 本文件内必须关闭的 blocker。
 
 **P0**
 
@@ -99,15 +99,15 @@
 
 **P1**
 
-- SC-AU09-A1：完整档案概览 stats/detail current driver。现有历史 artifact 不再算当前 runnable evidence；恢复路径是新增 `au09-archive-stats-current` quality driver 或把 stats 断言并入现有 cross-work archive driver。
+- SC-AU09-A1：已由 `au09-archive-stats-current` 关闭完整档案概览 stats/detail current driver；历史 artifact 仍只作背景，不作为当前 runnable evidence。
 - SC-AU09-A3：持久 adoption inbox / pending archive view 恢复矩阵。Owner 应归 AU-05 adoption inbox + AU-09 archive pending view，不阻塞当前 governed memory 主链。
-- SC-AU09-B2：筛选、搜索、分页真实页面深矩阵。已有后端测试，缺 Tauri UI driver。
-- SC-AU09-D2：developer replay、历史旧 turn 查询、完整独立 MemoryTrace/StateTrace 表。Owner 与 AU-07 trace/replay 共管。
-- 2026-06-22 二轮判断：以上 P1 均不是本轮进入 AU-10 前必须关闭项；不得把历史 artifact 补写成当前已验收，也不得把 developer replay 缺口误判为当前 AU-09 P0。
+- SC-AU09-D2：普通旧 turn scoped query 与 partial replay UI 已由 AU-07 回填；developer replay、多类型 replay UI、完整独立 MemoryTrace/StateTrace 表仍未闭合。Owner 与 AU-07 trace/replay 共管。
+- 2026-06-22 二轮判断：以上 P1 均不是本轮进入 AU-10 前必须关闭项；B2 可见筛选矩阵已闭合，不得把排序/分页 UI 深化误登记为 P1，也不得把 developer replay 缺口误判为当前 AU-09 P0。
 
 **P2**
 
 - 管理页 Phase 0 UI 的正式 Pencil 追溯和更多错误态。
+- 管理页排序/分页/limit 控件与对应真实页面验收；当前只证明可见过滤矩阵。
 - scene-level validity window、降权策略、story-order 字段深化。
 - locked 自动内容改写反证等未来生产能力出现后的专项验收。
 
@@ -115,7 +115,7 @@
 
 - AU-03：会话/作品背景分层由 `au09-au03-session-memory-layering` 和 `au03-current-work-context-ssot` 共同支撑。
 - AU-05：pending/adoption boundary 和持久 adoption inbox 属跨文件 owner。
-- AU-07：developer replay、历史旧 turn 查询和完整 trace 聚合属跨文件 owner。
+- AU-07：普通旧 turn scoped query 与 partial replay UI 已回填；developer replay、多类型 UI 和完整 trace 聚合属跨文件 owner。
 - AU-08：大纲/TOC 和采纳正文读取证据为档案分类浏览提供 cross-reference。
 - SU-02：跨作品切换/隔离语义由 `au09-cross-work-memory-isolation` 复用。
 
@@ -128,6 +128,7 @@
 | AU09 archive memory roundtrip | 已完成 | `artifacts/slice-verify/au09-adopt-setting-recall-tauri/summary.json` |
 | AU09 character dossier roundtrip CP1 | 已完成 | `artifacts/slice-verify/au09-character-dossier-roundtrip-tauri/summary.json` |
 | AU09 memory management workbench entry | 已完成 | `artifacts/slice-verify/au09-memory-management-entry-tauri/summary.json` |
+| AU09 memory management filter matrix | 已完成 | `artifacts/slice-verify/au09-memory-management-filter-matrix-tauri/summary.json` |
 | AU09 memory create/recall | 已完成 | `artifacts/slice-verify/au09-memory-create-recall-tauri/summary.json` |
 | AU09 memory trace roundtrip | 已完成 | `artifacts/slice-verify/au09-memory-trace-roundtrip-tauri/summary.json` |
 | AU09 validity window recall | 已完成 | `artifacts/slice-verify/au09-validity-window-recall-tauri/summary.json` |
@@ -146,6 +147,7 @@
 bash scripts/tauri_slice_verify.sh --list | rg au09
 bash scripts/quality_accept.sh au09-memory-create-recall --surface tauri
 bash scripts/quality_accept.sh au09-memory-management-entry --surface tauri
+bash scripts/quality_accept.sh au09-memory-management-filter-matrix --surface tauri
 bash scripts/quality_accept.sh au09-memory-trace-roundtrip --surface tauri
 bash scripts/quality_accept.sh au09-adopt-setting-recall --surface tauri
 bash scripts/quality_accept.sh au09-character-dossier-roundtrip --surface tauri
@@ -172,7 +174,7 @@ mix test apps/novel_persistence/test/novel_persistence/workspace_context_test.ex
 pnpm --dir frontend test -- --run frontend/slice-verify/native-tauri-verifier.test.mjs
 ```
 
-本轮只改 docs/quality/tasks，不改 TurnResult / tool / artifact / adoption / 主链代码；因此 I1/I2/I3 scenario invariants 不新增为本 checkpoint 必跑项。若后续 AU-09 P1 改主链，再按项目规则补跑。
+本轮只改外部验收 driver/verifier、quality manifest 和 docs/tasks，不改 TurnResult / tool / artifact / adoption / production 主链代码；因此 I1/I2/I3 scenario invariants 不新增为本 checkpoint 必跑项。若后续 AU-09 P1 改主链，再按项目规则补跑。
 
 ---
 

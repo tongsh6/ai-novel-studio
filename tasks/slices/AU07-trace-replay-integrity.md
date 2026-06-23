@@ -10,7 +10,7 @@
 - Contract：VS-06 ReplayReport、ADR-0014 Trace Redaction、ADR-0017 ReplayReport、`DecisionTrace.event_order`、`tool_trace_refs`、`behavior_trace_refs`、`state_trace_refs`、`ReplayReport.missing_trace_refs/result_status`。
 - Invariant：Replay 不调用 provider；缺关键 Tool / Behavior / State trace refs 时不得标 complete；author-safe surface 不展示 raw prompt / provider raw / hidden policy / debug / trace id / context id。
 - Boundary：本 checkpoint 修改 `novel_domain`、`novel_application`、`novel_persistence` 的 replay/trace refs 与外部 Tauri harness；不修改 production provider runtime，不新增验收感知 UI/后端逻辑。
-- Consumer：`ReplayService.build_report/1`、`TraceRepository`、真实工作台 `WorkspaceChat` why dialog、后续旧 turn trace 查询 API/UI。
+- Consumer：`ReplayService.build_report/1`、`TraceRepository`、`TraceReplayService`、真实工作台 `WorkspaceChat` why dialog、后续 developer/多类型 replay UI。
 - Proof：`mix test apps/novel_application/test/novel_application/replay_service_test.exs ...`、`mix test apps/novel_persistence/test/novel_persistence/trace_repository_test.exs`、`pnpm --dir frontend exec vitest run slice-verify/native-tauri-verifier.test.mjs src/lib/__tests__/traceSummaryView.test.ts`、`bash scripts/quality_accept.sh au07-trace-why-entry --surface tauri`。
 - Acceptance Driver：`bash scripts/tauri_slice_verify.sh au07-trace-why-entry` 从真实 Tauri 工作台发送普通创作讨论并点击消息旁“为什么”，验证 author-safe dialog、不重调模型、不写生产状态。产品代码未新增验收感知逻辑。
 
@@ -31,7 +31,7 @@
 | Behavior terminal replay | 已由 `au07-behavior-trace-terminal-replay` 关闭；旧 turn UI/API 归 P1 后续 |
 | StateTrace / adoption / projection replay | 已由 `au07-state-trace-adoption-replay` 关闭；旧 turn UI/API 归 P1 后续 |
 
-P1：developer 双视图权限、旧 turn trace 查询 API/UI、reason catalog、ToolTrace 独立 registry snapshot、work/session scope 查询。
+P1：developer 双视图权限、多类型 replay UI、reason catalog、ToolTrace 独立 registry snapshot。普通旧 turn trace 查询 API/UI 已由 `au07-persisted-trace-query` 关闭，partial replay UI 已由 `au07-partial-replay-ui` 关闭，work/session/turn scoped negative matrix 已由 `au07-trace-query-scope-negative-matrix` 关闭；旧 workspace_id 迁移细化登记为 P2。
 
 ## 4. 验证
 

@@ -1,0 +1,53 @@
+id: au09-memory-management-filter-matrix
+title: 记忆管理筛选矩阵
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-memory-management-filter-matrix --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/06-memory-context-and-trace.md
+  - tasks/slices/AU09-file-level-closure.md
+
+invariants:
+  - memory-management-list-is-current-work-scoped
+  - keyword-type-scope-status-locked-filters-are-user-visible
+  - filter-values-reach-memory-list-boundary
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 记忆
+  - create: three distinct governed memories from the real memory dialog
+  - confirm_and_lock: one chapter-scoped character memory
+  - filter: keyword, type, scope, status, locked state, and a combined matrix
+  - observe: only the matching current-work memory remains visible for each filter
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-memory-management-filter-matrix-tauri
+
+assertions:
+  ui:
+    - memory page is opened from the real workbench
+    - keyword filter isolates the matching memory row
+    - type, scope, status, and locked filters isolate the matching memory row
+    - combined filter matrix keeps only the matching memory row
+  network:
+    - memory list requests carry the visible keyword and combined filter values
+  data:
+    - filter matrix uses current work memories created through the real UI
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

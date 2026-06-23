@@ -1,5 +1,5 @@
 id: au06-single-active-confirmation
-title: 单一活跃 confirmation 只允许最新等待态执行
+title: 单一活跃 confirmation 只允许最新等待态执行，并回填 AU-03 开放行为上下文
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh au06-single-active-confirmation --surface tauri
@@ -7,10 +7,12 @@ entrypoint: scripts/quality_accept.sh au06-single-active-confirmation --surface 
 contract:
   - docs/engineering/scenario-acceptance.md
   - docs/design/acceptance/author/AU-06-behavior-lifecycle.md
+  - docs/design/acceptance/author/AU-03-context.md
   - docs/design/contracts/VS-03-behavior-lifecycle-contract-pack.md
   - docs/design/adr/ADR-0007-next-action-available-action-v3.md
   - docs/design/adr/ADR-0008-behavior-state-v3.md
   - docs/design/adr/ADR-0009-confirmation-binding-v3.md
+  - tasks/slices/AU03-file-level-closure.md
   - tasks/slices/AU04-AU06-author-action-binding.md
 
 invariants:
@@ -18,6 +20,7 @@ invariants:
   - confirmation-action-comes-from-server-available-actions
   - old-confirmation-does-not-dispatch-tool
   - latest-confirmation-remains-actionable
+  - latest-active-behavior-enters-next-turn-author-safe-context
   - no-product-acceptance-hooks
 
 setup:
@@ -30,6 +33,7 @@ user_flow:
   - observe: first needs_confirmation turn_result arrives over the real websocket
   - type: second high-risk rewrite request before acting on the first confirmation
   - observe: second needs_confirmation turn_result becomes the current active confirmation with a distinct behavior_ref
+  - observe: second needs_confirmation turn_result includes an author-safe behavior context ref from the previous open confirmation
   - click: old 确认执行 button if it is still visible and enabled
   - observe: old confirmation is hidden, disabled, or rejected as stale
   - click: latest 确认执行 button
@@ -58,6 +62,8 @@ assertions:
     - neither confirmation turn calls a tool or writes production state before author action
     - old confirmation creates no prose_writing dispatch and no pending prose_fragment
     - latest confirmation dispatches prose_writing exactly once
+    - second confirmation turn_result contains a behavior context ref with author-safe summary
+    - behavior context summary does not expose behavior_ref or action_id
 
 anti_hooks:
   product_acceptance_logic_added: false

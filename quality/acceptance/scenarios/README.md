@@ -26,21 +26,30 @@
 | `au03-session-history-readonly.yml` | 历史会话只读回看 |
 | `au03-session-new-active.yml` | 新建会话成为当前 ACTIVE，原 ACTIVE 转为只读历史 |
 | `au07-behavior-trace-terminal-replay.yml` | Behavior terminal close/resolution refs 可回放 |
+| `au07-gate-reason-why.yml` | action_scope 降级为什么解释 |
+| `au07-partial-replay-ui.yml` | 旧 turn partial replay 诚实提示 |
+| `au07-persisted-trace-query.yml` | 旧 turn 为什么入口通过持久 trace scoped replay 回查 |
+| `au07-trace-query-scope-negative-matrix.yml` | trace 查询跨作品/会话负向矩阵 |
+| `au07-tooltrace-registry-redacted-io.yml` | ToolTrace registry snapshot 与 redacted I/O |
 | `au07-state-trace-adoption-replay.yml` | 采纳与阅读投影携带可回放 StateTrace |
 | `au07-trace-why-entry.yml` | 工作台为什么入口与 author-safe trace 摘要 |
+| `au08-reading-return-context.yml` | 阅读返回工作台后保持同一 work/session 上下文 |
+| `au08-reading-readonly-no-write.yml` | 阅读模式查看、导出和返回保持只读 |
 | `au09-adopt-setting-recall.yml` | 档案伏笔规则采纳为可召回设定 |
+| `au09-archive-stats-current.yml` | 作品档案概览统计读取当前作品真实事实 |
 | `au09-au03-session-memory-layering.yml` | AU-03 会话与 AU-09 记忆来源分层 |
 | `au09-character-dossier-roundtrip.yml` | 角色主档案采纳回写并进入后续上下文 |
 | `au09-cross-work-memory-isolation.yml` | 跨作品记忆与档案隔离 |
 | `au09-memory-create-recall.yml` | 作者创建确认记忆后进入对话召回 |
 | `au09-memory-management-entry.yml` | 记忆管理入口与生命周期终态不召回 |
+| `au09-memory-management-filter-matrix.yml` | 记忆管理筛选矩阵 |
 | `au09-memory-trace-roundtrip.yml` | 记忆生命周期与引用追溯 |
 | `au09-validity-window-recall.yml` | 章节有效期窗口过滤记忆召回 |
 | `au04-confirm-before-execute.yml` | 高风险执行先确认并重新 gate |
 | `au04-confirmation-tool-failure-recovery.yml` | 确认后工具失败可恢复且不生成待采纳草稿 |
 | `au04-confirm-idempotency-ui.yml` | 高风险确认重复点击不重复执行 |
 | `au04-stale-confirmation-ui.yml` | 旧确认在上下文推进后不能执行 |
-| `au06-single-active-confirmation.yml` | 单一活跃 confirmation 只允许最新等待态执行 |
+| `au06-single-active-confirmation.yml` | 单一活跃 confirmation 只允许最新等待态执行；同时为 AU-03 A4 提供开放 behavior author-safe context ref 证据 |
 | `au04-confirmation-ttl-ui.yml` | 过期确认不能执行 |
 | `au04-disabled-confirmation-action-ui.yml` | 禁用确认动作不可提交 |
 | `au04-history-confirmation-readonly.yml` | 历史确认只读不可执行 |
@@ -61,18 +70,25 @@
 | `au11-quality-diagnosis-message-envelope.yml` | AI 引导式创作质量诊断 message envelope |
 | `au11-missing-workstate-policy.yml` | AI 引导式创作缺 WorkState 不编造 |
 | `au12-work-profile-overview.yml` | 作品档案立项概览只读视图 |
+| `au12-profile-read-failure-degrade.yml` | 作品档案读取失败诚实降级与重试恢复 |
+| `au12-correction-intent-roundtrip.yml` | 作品档案立项修订意图回到对话与采纳边界 |
 | `au12-work-profile-status-isolation.yml` | 作品档案状态、空字段与跨作品隔离 |
 | `dogfood-runner.yml` | P1 长篇狗粮运行器 |
 | `e2e-01-downgrade-real-page.yml` | E2E-01 真实页面多步 MicroPlan 降级 |
 | `e2e-01-full-chain.yml` | E2E-01 端到端全链路聚合验收 |
 | `e2e-01-readonly-tool-trace.yml` | E2E-01 只读工具调度与 trace 回查 |
 | `e2e-01-replay-report.yml` | E2E-01 ReplayReport 六问结构化回放 |
+| `e2e-01-channel-action-security.yml` | E2E-01 Channel action 来源与授权安全回归 |
 | `p1-chapter-adoption-reading.yml` | 已采纳章节正文进入阅读投影 |
 | `p1-chapter-draft-generation.yml` | 章节草稿生成闭环 |
 | `p1-chapter-edit-then-accept.yml` | 修改后保存正文进入阅读投影 |
+| `p1-chapter-expansion.yml` | 自然续写累积单章达标 |
 | `p1-chapter-expansion-multichapter.yml` | 多章正文各归各章并可导航阅读 |
-| `p1-chapter-plan-minimum.yml` | 章节计划最小闭环 known-gap |
+| `p1-chapter-overwrite-confirm.yml` | 覆盖已有章节必须确认并原位替换 |
+| `p1-chapter-plan-minimum.yml` | 章节计划最小闭环 nightly |
+| `p1-chapter-word-count-target.yml` | 作者目标字数进入正文生成链路 |
 | `p1-export-minimum.yml` | 阅读投影导出全书 Markdown |
+| `p1-plan-incremental.yml` | 增量章节规划追加新章且不改旧章 |
 | `p1-word-count-audit.yml` | 阅读投影短章审计与 P1 进度 |
 | `su01-api-key-secret-redaction.yml` | API Key 配置流与 secret redaction |
 | `su01-local-secret-file-roundtrip.yml` | 真实 Tauri WebView 本地密钥文件写读与脱敏 |
@@ -92,4 +108,5 @@
 | `vs00c-cp3-structured-context.yml` | VS-00C CP3 结构化章节上下文 |
 | `vs00c-cp4-chapter-plan-structure.yml` | VS-00C CP4 结构化章方向 |
 | `vs00c-cp5-reader-effect-brief.yml` | VS-00C CP5 读者效果与自报告 |
+| `vs00c-cp0-missing-chapter-block.yml` | VS-00C CP0 缺失目标章阻断写作 |
 | `vs10-observability-spine.yml` | 浏览器可观测性主链 |

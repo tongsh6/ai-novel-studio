@@ -43,6 +43,19 @@ defmodule NovelPersistence.TraceRepository do
     |> Repo.all()
   end
 
+  @doc "List traces for a specific work/session/turn scope, newest first."
+  @spec list_by_scope(String.t(), String.t(), String.t()) :: [struct()]
+  def list_by_scope(workspace_id, session_id, turn_id)
+      when is_binary(workspace_id) and is_binary(session_id) and is_binary(turn_id) do
+    from(t in DecisionTraceRecord,
+      where:
+        t.workspace_id == ^workspace_id and t.session_id == ^session_id and
+          t.turn_id == ^turn_id,
+      order_by: [desc: t.inserted_at]
+    )
+    |> Repo.all()
+  end
+
   @doc """
   Build a persister callback suitable for injection into DialogueGateway.
 

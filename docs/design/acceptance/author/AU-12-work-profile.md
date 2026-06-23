@@ -8,7 +8,11 @@
 >
 > 2026-06-21 文件级收口结论：`AU12-work-profile-status-isolation` 已补真实 Tauri / quality acceptance，覆盖 accepted/tentative 状态可辨、空字段诚实显示、概览/大纲/角色/伏笔/经验规则 tab 导航、跨作品概览与档案事实隔离、档案查看 no-write 计数和内部 Work UUID 脱敏。当前 AU-12 口径为 `8/11` 已验收、`1/11` 已测试、`1/11` 部分实现、`1/11` 未实现；P0 已关闭，可进入 E2E-01。剩余 P1 是读取失败时的诚实降级矩阵和 `SC-AU12-C2` correction 修订意图；更丰富的 accepted-artifact / 立项要素字段扩展登记为 P2，不阻塞当前文件退出。
 >
-> 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。`au12-work-profile-overview` 与 `au12-work-profile-status-isolation` 已串行复跑通过；未发现需要在 AU-12 本轮先改生产代码才能继续 E2E-01 的新增 P0/P1。剩余 P1 仍是读取失败诚实降级矩阵和 correction 修订意图；A2 同轮 provider prompt 字节级 proof 与更丰富 accepted-artifact / 立项要素扩展继续作为 P2 或后续深化。
+> 2026-06-22 二轮缺口收敛结论：不回退 2026-06-21 文件级可交付判断。`au12-work-profile-overview` 与 `au12-work-profile-status-isolation` 已串行复跑通过；未发现需要在 AU-12 当时先改生产代码才能继续 E2E-01 的新增 P0/P1。当时剩余 P1 仍是读取失败诚实降级矩阵和 correction 修订意图；A2 同轮 provider prompt 字节级 proof 与更丰富 accepted-artifact / 立项要素扩展继续作为 P2 或后续深化。
+>
+> 2026-06-22 二轮依赖收敛补充：`au12-correction-intent-roundtrip` 已补真实 Tauri / quality acceptance。作者从作品档案「概览」点击「提出立项修订」后，真实工作台发送 `generate_micro_plan=true` 的 user_message，Planner / MicroPlan / Orchestrator 允许 `world_building`，TurnResult 产生 pending `world_setting` 和保存/修改/放弃动作；作者选择前无 `author_action`、无 adoption evaluation、无 production write。AU-12 当时口径调整为 `9/11` 已验收、`1/11` 已测试、`1/11` 部分实现；剩余 P1 只保留读取失败诚实降级矩阵。accepted `world_setting` 是否进一步物化回 works 立项字段另需 contract，登记为 P2，不在本 checkpoint 中伪关闭。
+>
+> 2026-06-22 二轮依赖收敛补充：`au12-profile-read-failure-degrade` 已补真实 Tauri / quality acceptance。外部 driver 停止 slice Phoenix 服务后，真实作品档案「概览」显示「作品档案读取失败」与「重试读取」，不显示 `状态未明` 或空字段行；服务恢复后点击可见重试动作，`get_work_profile` 重新读出真实 works 立项字段。失败和重试期间无 `user_message`、无 `author_action`、无 adoption/tool/write。AU-12 当前口径调整为 `10/11` 已验收、`1/11` 已测试；P1 已关闭，剩余为 A2 同轮 provider prompt proof、accepted `world_setting` 物化 works 字段和更丰富立项要素扩展等 P2。
 >
 > **与 AU-09 边界**：AU-09（管理故事设定）负责**故事记忆类**事实——角色卡、世界规则、伏笔、记忆状态机/有效期/采纳入记忆。AU-12 负责**作品立项与档案视图**——works 表立项字段、作品档案面板的概览/导航/状态辨识、以及从档案发起修订意图。两者不重叠：故事设定的对象语义归 AU-09，作品立项元数据与档案查看面归 AU-12。角色 tab 的角色对象 roundtrip（创建→采纳→Character 主档案→展示→上下文）由 AU-09 的 `tasks/slices/AU09-character-dossier-roundtrip.md` 收口，AU-12 只作显示面。
 
@@ -23,7 +27,7 @@
 | 看到尚未确认的立项 | 区分 tentative（待确认）与 accepted（已确认）状态，不把未确认立项当成既定事实 |
 | 看到空字段 | 立项字段缺失时明确显示「暂未填写」，不编造、不留空白歧义 |
 | 在档案各模块间导航 | 概览 / 大纲与结构 / 角色 / 伏笔 / 经验规则之间切换，按当前 work_id 隔离 |
-| 想修改立项设定 | 从档案发起 correction（修订）意图，抛回工作台对话流由 Agent 处理，重新过采纳边界（后续 checkpoint） |
+| 想修改立项设定 | 从档案发起 correction（修订）意图，抛回工作台对话流由 Agent 处理，重新过采纳边界 |
 | 返回工作台 | 回到对话，作品上下文与会话输入不丢失 |
 
 明确不能做的：
@@ -100,13 +104,13 @@
 | SC-AU12-A4 | tentative/accepted 可辨 | 已验收：`au12-work-profile-status-isolation` 同时验证 accepted 作品显示「已确认」、空字段作品显示「待确认」 | 是 |
 | SC-AU12-B1 | 档案模块导航 | 已验收：真实工作台从作品档案切换「概览 / 大纲与结构 / 角色 / 伏笔 / 经验规则」五个 tab | 是 |
 | SC-AU12-B2 | 作品隔离 | 已验收：真实工作台从 accepted 作品切换到空字段作品后，概览字段、角色、伏笔和规则均不显示另一作品数据 | 是 |
-| SC-AU12-B3 | 空字段/失败诚实显示 | 部分实现：空字段「暂未填写」已由 `au12-work-profile-status-isolation` 验收；读取失败的诚实降级矩阵仍缺 | 部分 |
+| SC-AU12-B3 | 空字段/失败诚实显示 | 已验收：`au12-work-profile-status-isolation` 验证空字段「暂未填写」；`au12-profile-read-failure-degrade` 证明读取失败显示诚实错误态、隐藏空档案字段、可重试恢复且 no-write | 是 |
 | SC-AU12-C1 | 档案只读 no-write | 已验收：`au12-work-profile-status-isolation` 统计档案查看期间无 `user_message` / `author_action` / adoption / tool / write 事件 | 是 |
-| SC-AU12-C2 | 修订走 correction intent | 未实现：还没有从档案发起 correction intent 并回到对话流重新过采纳边界 | 否 |
+| SC-AU12-C2 | 修订走 correction intent | 已验收：`au12-correction-intent-roundtrip` 从真实档案概览点击「提出立项修订」，回到对话主链并生成 pending `world_setting`，作者选择前无直接写入 | 是 |
 | SC-AU12-D1 | 作者可发现入口 | 已验收：真实工作台可从作品档案入口进入「概览」并切换各档案模块 | 是 |
-| SC-AU12-D2 | 外部自动化验收 | 已验收：`au12-work-profile-overview` 与 `au12-work-profile-status-isolation` 均已挂入 Tauri driver / quality acceptance | 是 |
+| SC-AU12-D2 | 外部自动化验收 | 已验收：`au12-work-profile-overview`、`au12-work-profile-status-isolation`、`au12-correction-intent-roundtrip` 与 `au12-profile-read-failure-degrade` 均已挂入 Tauri driver / quality acceptance | 是 |
 
-2026-06-22 二轮判断：上述状态保持不变；两个当前 quality/Tauri 入口复跑通过，没有新增 AU-12 本文件内必须关闭的 blocker。
+2026-06-22 二轮判断：`SC-AU12-C2` 已由 `au12-correction-intent-roundtrip` 关闭，`SC-AU12-B3` 读取失败诚实降级已由 `au12-profile-read-failure-degrade` 关闭。当前 AU-12 无剩余 P1；A2 同轮 provider prompt proof、accepted `world_setting` 物化 works 字段和更丰富立项要素扩展为 P2 后续。
 
 ---
 
@@ -116,20 +120,21 @@
 
 - `tasks/slices/AU12-work-profile-overview.md`：CP1 立项档案只读概览，证明 works 立项字段可从真实工作台核对且不泄漏内部 Work UUID。
 - `tasks/slices/AU12-work-profile-status-isolation.md`：补 accepted/tentative 状态、空字段、tab 导航、跨作品隔离和只读 no-write 的真实页面矩阵。
+- `tasks/slices/AU12-correction-intent-roundtrip.md`：补作品档案「提出立项修订」入口回到对话主链和 pending adoption 边界的真实页面矩阵。
+- `tasks/slices/AU12-profile-read-failure-degrade.md`：补作品档案读取失败诚实错误态、重试恢复和 no-write 的真实页面矩阵。
 - `tasks/slices/AU12-file-level-closure.md`：记录文件级对账、剩余 P1/P2 和退出结论。
 
 后续 checkpoint：
 
-- P1：读取失败时的诚实降级 UI / Tauri 矩阵。
-- P1：从档案发起 correction 编辑意图（SC-AU12-C2），修订必须回到工作台对话流并重新过采纳边界。
+- P2：accepted `world_setting` 进一步物化回 works 立项字段时，需要另立 contract 和采纳后回写验收。
 - P2：纳入更丰富的 world_setting/protagonist 等来自**采纳产物**的立项要素，继续保持与 AU-09 故事记忆边界互斥。
 
-2026-06-22 二轮判断：读取失败降级和 correction 修订意图不是本轮进入 E2E-01 前必须关闭项；它们需要真实失败注入/修订对话链路，不能用只读档案查看 driver 代替。A2 的同轮 provider prompt proof 仍是加强项，不影响当前作品档案查看面的 P0 退出。
+2026-06-22 二轮判断：correction 修订意图与读取失败降级均已补真实页面链路。A2 的同轮 provider prompt proof 仍是加强项，不影响当前作品档案查看面的 P0/P1 退出。
 
 ## 7. 已知限制
 
-- 当前 AU-12 仍是 no-turn read-model / UI 验收，不涉及真实 LLM/provider 调用，也不改变 prompt。
-- 读取失败降级、correction 编辑意图、完整 8 模块档案扩展未闭环；这些登记为 P1/P2 后续。
+- 当前 AU-12 的 profile overview/status/isolation 仍是 no-turn read-model / UI 验收；correction intent checkpoint 会进入对话主链，但使用 slice_verify provider，不声称 live vendor prompt proof。
+- accepted `world_setting` 回写 works 立项字段、完整 8 模块档案扩展未闭环；这些登记为 P2 后续。
 - 当前文件级可交付只表示 P0 已关闭、作者可核对 AI 正在消费的作品立项事实；不能声称作品档案编辑能力完成。
 
 ## 8. 验收命令
@@ -139,6 +144,10 @@ mix test apps/novel_application/test/novel_application/work_archive_service_test
 pnpm --dir frontend test -- native-tauri-verifier.test.mjs socket.test.ts structure_panel.test.ts
 bash scripts/tauri_slice_verify.sh au12-work-profile-overview
 bash scripts/tauri_slice_verify.sh au12-work-profile-status-isolation
+bash scripts/tauri_slice_verify.sh au12-correction-intent-roundtrip
+bash scripts/tauri_slice_verify.sh au12-profile-read-failure-degrade
 bash scripts/quality_accept.sh au12-work-profile-overview --surface tauri
 bash scripts/quality_accept.sh au12-work-profile-status-isolation --surface tauri
+bash scripts/quality_accept.sh au12-correction-intent-roundtrip --surface tauri
+bash scripts/quality_accept.sh au12-profile-read-failure-degrade --surface tauri
 ```

@@ -1,0 +1,61 @@
+id: au08-reading-readonly-no-write
+title: 阅读模式查看、导出和返回保持只读
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au08-reading-readonly-no-write --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/adr/ADR-0016-projection-hint-ui-v3.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - docs/design/ui/44-reading-mode.md
+
+invariants:
+  - reading-mode-does-not-expose-write-controls
+  - reading-mode-export-reads-accepted-work-facts-only
+  - reading-mode-export-and-return-send-no-author-action-or-user-message
+  - reading-mode-export-and-return-do-not-trigger-adoption-tool-or-production-write
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate_and_accept: chapter 1 prose
+  - open: 阅读模式
+  - observe: adopted prose is readable
+  - click: 导出全书
+  - click: 返回工作台
+  - observe: workbench input is restored without reading-mode writes
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au08-reading-readonly-no-write-tauri
+
+assertions:
+  ui:
+    - reading mode has no visible adoption, confirmation, discard, edit, or chat input controls
+    - export button is clicked from the real reading mode
+    - workbench input returns enabled after leaving reading mode
+  network:
+    - export uses channel.export_work
+    - no author_action frame is sent while in reading mode
+    - no user_message frame is sent while in reading mode
+  data:
+    - no adoption evaluation happens while in reading mode
+    - no toolbox execution happens while in reading mode
+    - no turn_result claims production_write_performed during reading-mode operations
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

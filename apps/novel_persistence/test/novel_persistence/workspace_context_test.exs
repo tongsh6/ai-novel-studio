@@ -301,6 +301,75 @@ defmodule NovelPersistence.WorkspaceContextTest do
       assert reloaded.summary =~ "会话早期摘要"
       assert reloaded.summary =~ "第1轮设定"
     end
+
+    test "query fetcher returns author-safe summary for the latest active behavior" do
+      {:ok, work} = WorkRepo.create(%{title: "行为上下文"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "确认等待"})
+
+      record_turn_result(
+        work.id,
+        session.id,
+        "turn-confirm",
+        turn_result_with_active_behavior("turn-confirm", "bh-confirm")
+      )
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, _summary, nil, behavior_summary, [], []} =
+               fetcher.(work.id, "继续前要看当前等待态", session.id)
+
+      assert behavior_summary =~ "待作者确认"
+      assert behavior_summary =~ "章节正文草稿"
+      assert behavior_summary =~ "不能执行工具或写入作品事实"
+      refute behavior_summary =~ "bh-confirm"
+      refute behavior_summary =~ "act-confirm"
+    end
+
+    test "query fetcher does not reuse an older behavior after the latest turn clears active state" do
+      {:ok, work} = WorkRepo.create(%{title: "行为清理"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "取消等待"})
+
+      record_turn_result(
+        work.id,
+        session.id,
+        "turn-open",
+        turn_result_with_active_behavior("turn-open", "bh-old")
+      )
+
+      record_turn_result(
+        work.id,
+        session.id,
+        "turn-cancel",
+        %{
+          "turn_id" => "turn-cancel",
+          "assistant_message" => %{"text" => "已取消等待。"},
+          "behavior_state" => %{"active" => nil, "history" => []}
+        }
+      )
+
+      fetcher = WorkspaceContext.context_fetcher_with_query()
+
+      assert {:ok, _snapshot, _summary, nil, nil, [], []} =
+               fetcher.(work.id, "现在还有等待态吗？", session.id)
+    end
+
+    test "workspace fallback excludes active behavior from archived sessions" do
+      {:ok, work} = WorkRepo.create(%{title: "归档行为过滤"})
+
+      {:ok, archived_session} =
+        WorkSessionRepo.create(%{work_id: work.id, title: "旧确认", status: "ARCHIVED"})
+
+      record_turn_result(
+        work.id,
+        archived_session.id,
+        "turn-archived-confirm",
+        turn_result_with_active_behavior("turn-archived-confirm", "bh-archived")
+      )
+
+      fetcher = WorkspaceContext.context_fetcher()
+
+      assert {:ok, _snapshot, _summary, nil, nil, [], []} = fetcher.(work.id)
+    end
   end
 
   describe "interaction_recorder/0" do
@@ -340,6 +409,17 @@ defmodule NovelPersistence.WorkspaceContextTest do
     assert {:ok, _interaction} = MemoryLog.record(attrs)
   end
 
+  defp record_turn_result(ws_id, session_id, turn_id, turn_result) do
+    attrs =
+      ws_id
+      |> interaction_attrs(turn_id, "assistant", turn_result["assistant_message"]["text"])
+      |> Map.put(:workspace_id, ws_id)
+      |> Map.put(:session_id, session_id)
+      |> put_in([:content, :turn_result], turn_result)
+
+    assert {:ok, _interaction} = MemoryLog.record(attrs)
+  end
+
   defp interaction_attrs(turn_id, role, text) do
     %{
       turn_id: turn_id,
@@ -361,6 +441,31 @@ defmodule NovelPersistence.WorkspaceContextTest do
     turn_id
     |> interaction_attrs(role, text)
     |> Map.put(:scope_ref, ws_id)
+  end
+
+  defp turn_result_with_active_behavior(turn_id, behavior_id) do
+    %{
+      "turn_id" => turn_id,
+      "assistant_message" => %{"text" => "需要你确认是否继续。"},
+      "behavior_state" => %{
+        "active" => %{
+          "behavior_id" => behavior_id,
+          "behavior_type" => "confirmation",
+          "status" => "WAITING_USER",
+          "required_next_action" => "confirm_before_execute",
+          "target_ref" => "prose_writing",
+          "available_actions" => [
+            %{
+              "action_id" => "act-confirm",
+              "action_type" => "confirm_before_execute",
+              "behavior_ref" => behavior_id,
+              "target_ref" => "prose_writing"
+            }
+          ]
+        },
+        "history" => []
+      }
+    }
   end
 
   defp insert_memory!(work_id, content, status, recallable) do

@@ -206,8 +206,13 @@ defmodule NovelApplication.ReplayService do
   end
 
   defp tool_approval_answer(%DecisionTrace{tool_trace_refs: [ref | _]}) do
+    registry = ref_value(ref, :registry_snapshot) || %{}
+    contracts = ref_value(ref, :contract_refs) || %{}
+    grants = ref_value(ref, :grant_summary) || %{}
+    result = ref_value(ref, :result_summary) || %{}
+
     {:answered,
-     "tool=#{ref_value(ref, :tool_name)}; version=#{ref_value(ref, :tool_version)}; status=#{ref_value(ref, :tool_status)}"}
+     "tool=#{ref_value(ref, :tool_name)}; version=#{ref_value(ref, :tool_version)}; status=#{ref_value(ref, :tool_status)}; registry_status=#{ref_value(registry, :status)}; input_contract=#{ref_value(contracts, :input_contract_ref)}; output_contract=#{ref_value(contracts, :output_contract_ref)}; grants_within_registry=#{ref_value(grants, :grants_within_registry)}; output_keys=#{join_keys(ref_value(result, :keys))}; raw_io_stored=false"}
   end
 
   defp tool_approval_answer(%DecisionTrace{} = trace) do
@@ -270,6 +275,13 @@ defmodule NovelApplication.ReplayService do
 
   defp tool_chain_steps(%DecisionTrace{} = trace) do
     Enum.map(trace.tool_trace_refs, fn ref ->
+      registry = ref_value(ref, :registry_snapshot) || %{}
+      contracts = ref_value(ref, :contract_refs) || %{}
+      grants = ref_value(ref, :grant_summary) || %{}
+      request = ref_value(ref, :request_summary) || %{}
+      result = ref_value(ref, :result_summary) || %{}
+      redaction = ref_value(ref, :io_redaction) || %{}
+
       %{
         step: "tool_trace",
         ref: ref_value(ref, :tool_result_ref),
@@ -277,6 +289,12 @@ defmodule NovelApplication.ReplayService do
         tool_name: ref_value(ref, :tool_name),
         tool_version: ref_value(ref, :tool_version),
         status: ref_value(ref, :tool_status),
+        registry_snapshot: registry,
+        contract_refs: contracts,
+        grant_summary: grants,
+        request_summary: request,
+        result_summary: result,
+        io_redaction: redaction,
         note: "Tool request/result summary is available for replay"
       }
     end)
@@ -386,4 +404,7 @@ defmodule NovelApplication.ReplayService do
 
   defp ref_value(ref, key) when is_map(ref), do: Map.get(ref, key) || Map.get(ref, to_string(key))
   defp ref_value(_ref, _key), do: nil
+
+  defp join_keys(keys) when is_list(keys), do: Enum.join(keys, ",")
+  defp join_keys(_keys), do: ""
 end

@@ -1,0 +1,54 @@
+id: vs00c-cp0-missing-chapter-block
+title: VS-00C CP0 缺失目标章阻断写作
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh vs00c-cp0-missing-chapter-block --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+  - tasks/slices/v3/VS-00C-creative-context-assembly.md
+
+invariants:
+  - missing-target-chapter-blocks-before-provider-dispatch
+  - blocked-turn-does-not-create-tool-result-or-adoption-card
+  - author-facing-reply-is-honest-about-missing-chapter
+  - writing-coordinate-records-requested-chapter
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - request: write a nonexistent chapter
+  - wait_for: honest missing-chapter reply
+  - verify: no creative tool or adoption card is produced
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/vs00c-cp0-missing-chapter-block-tauri
+
+assertions:
+  ui:
+    - honest chapter-not-found message is visible
+    - no creative or adoption card is rendered
+  network:
+    - user_message is sent from the real workbench
+    - toolbox.execute is not called
+    - turn_result reports the blocked writing coordinate
+  data:
+    - requested missing chapter is recorded
+    - provider dispatch is blocked before prose_writing
+    - production_write_performed is false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

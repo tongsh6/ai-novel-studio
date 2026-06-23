@@ -1,0 +1,66 @@
+id: au07-gate-reason-why
+title: action_scope 降级为什么解释
+tier: nightly
+surface: tauri
+default_provider: lmstudio
+entrypoint: scripts/quality_accept.sh au07-gate-reason-why --surface tauri --provider lmstudio
+
+contract:
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - docs/design/acceptance/e2e/E2E-01-full-chain.md
+  - docs/design/contracts/VS-06-replay-surface-contract-pack.md
+  - docs/design/adr/ADR-0014-trace-redaction-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - action-scope-downgrade-is-author-explainable
+  - author-safe-trace-summary
+  - replay-does-not-call-provider
+  - no-production-write-for-why-dialog
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: lmstudio
+  artifact_dir: artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio
+
+user_flow:
+  - open: real Tauri workbench
+  - click: 打开档案
+  - click: 概览
+  - click: 发起综合修订
+  - wait_for: multi-step MicroPlan is downgraded by action_scope
+  - click: 为什么
+  - wait_for: author-safe gate/reason explanation visible
+
+evidence:
+  required:
+    - artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio/summary.json
+    - artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio/app-log.json
+    - artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio/ui-frames.json
+    - artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio/lmstudio-log.json
+    - artifacts/slice-verify/au07-gate-reason-why-tauri-lmstudio/au07-gate-reason-why-external-ui.png
+
+assertions:
+  ui:
+    - visible_archive_action_clicked
+    - why_dialog_explains_downgrade_decision
+    - why_dialog_explains_action_scope_boundary
+    - why_dialog_explains_micro_plan_evaluation
+    - raw prompt, provider raw log, hidden policy, debug text, internal gate codes, trace ids, and context ids are not visible
+    - dialog states replay does not call the model again
+  network:
+    - user_message_generate_micro_plan_true
+    - turn_result_downgrade_to_dialogue_received
+  data:
+    - first_blocking_gate_action_scope
+    - no_toolbox_execute_event
+    - no_author_action_sent
+    - no_production_write
+    - replay_provider_called is false
+    - lmstudio_form_frame_and_micro_plan_called
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -1,0 +1,57 @@
+id: au09-archive-stats-current
+title: 作品档案概览统计读取当前作品真实事实
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-archive-stats-current --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/acceptance/system/SU-02-work-switching.md
+  - docs/design/acceptance/author/AU-12-author-profile.md
+  - tasks/slices/AU09-archive-stats-current.md
+
+invariants:
+  - archive-overview-reads-current-work-facts
+  - accepted-and-confirmed-facts-only
+  - foreign-work-archive-facts-excluded
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_au09_archive_stats_current.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - switch: seeded current work through the real work menu
+  - open: work archive overview
+  - inspect: volume/chapter/draft/character/memory stats
+  - inspect: foreshadowing detail
+  - inspect: rule tab
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-archive-stats-current-tauri
+
+assertions:
+  ui:
+    - archive overview renders seeded current work title
+    - archive overview shows volume/chapter/draft/character/memory counts
+    - foreshadowing detail opens from the archive list
+    - rule tab shows current-work rule only
+  network:
+    - current work channel is joined before archive reads
+    - get_work_stats/get_characters/get_foreshadowing/get_rules all use the current work_id
+  data:
+    - accepted character is counted and visible
+    - confirmed recallable foreshadowing/rule memories are visible
+    - non-recallable and foreign-work records do not appear in current archive
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

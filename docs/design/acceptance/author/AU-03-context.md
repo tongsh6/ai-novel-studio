@@ -4,7 +4,7 @@
 >
 > 2026-06-21 文件级对账结论：当前 checkout 已有 WorkSession、sessions API、会话搜索/只读/归档 UI、最新 Work snapshot、active session transcript、memory recall 和上下文来源摘要基础。当前可从 `bash scripts/tauri_slice_verify.sh --list` 直接复跑的 AU-03 证据包括 `au03-session-new-active`、`au03-session-history-readonly`、`au03-branch-from-history`、`au03-archive-session-filter`、`au03-current-work-context-ssot`、`au03-context-source-ui`、`au03-long-session-compression`，以及跨 AU-09 的 `au09-au03-session-memory-layering`。本轮已复跑上述 8 条默认 Tauri driver、7 条 AU-03 quality acceptance 入口，并补 `au03-current-work-context-ssot --real-lmstudio` / `quality_accept --provider lmstudio` 当前证据；`tasks/slices/AU03-file-level-closure.md` 已补文件级收口记录。剩余文件级缺口集中在搜索命中 turn 定位/高亮、显式引用 archived source、open behavior summary、完整 replay 页面和 AU-07 developer trace 视图。
 >
-> 2026-06-22 二轮复核结论：本轮按剩余 P1/P2、external blocker 与 cross-reference 重新核对，不回退第一轮 file-level deliverable。已串行复跑 `au03-session-new-active`、`au03-session-history-readonly`、`au03-branch-from-history`、`au03-archive-session-filter`、`au03-current-work-context-ssot`、`au03-context-source-ui`、`au03-long-session-compression`、`au09-au03-session-memory-layering` 的 quality acceptance 入口，以及 `au03-current-work-context-ssot --provider lmstudio`；全部通过。二轮未发现 AU-03 当前文件内必须新增实现后才能进入 AU-04 的 P1：`behavior_summary` 仍归 AU-04/AU-06，显式 archived source、developer trace 与 replay 仍归 AU-07/AU-09，empty/work-only/failure UI/LLM 矩阵登记为 AU-03 后续或 AU-11 missing-context robustness checkpoint。
+> 2026-06-22 二轮复核结论：本轮按剩余 P1/P2、external blocker 与 cross-reference 重新核对，不回退第一轮 file-level deliverable。已串行复跑 `au03-session-new-active`、`au03-session-history-readonly`、`au03-branch-from-history`、`au03-archive-session-filter`、`au03-current-work-context-ssot`、`au03-context-source-ui`、`au03-long-session-compression`、`au09-au03-session-memory-layering` 的 quality acceptance 入口，以及 `au03-current-work-context-ssot --provider lmstudio`；全部通过。后续依赖复核确认 `au11-missing-workstate-policy` 可作为 SC-AU03-B1 的 missing WorkState cross evidence：真实 Tauri 工作台在仅有标题、缺章节/正文/人物状态的 work 下显式记录 missing 且不编造当前章。依赖 checkpoint 已关闭 SC-AU03-A4：`WorkspaceContext` 现在从最新 assistant TurnResult 的 active behavior 生成 author-safe `behavior_summary`，`DialogueContext.to_prompt_text/1` 写入“当前待处理动作”，`au06-single-active-confirmation` 真实 Tauri driver 证明第二个高风险 confirmation turn 消费了上一轮开放 confirmation context ref，且不泄漏 behavior/action id。显式 archived source、developer trace 与 replay 仍归 AU-07/AU-09，完整 empty/work-only/failure UI/LLM 矩阵仍登记为 AU-03 后续或 AU-11 missing-context robustness checkpoint。
 
 ---
 
@@ -51,9 +51,9 @@
 | `works` / `WorkService` | 当前作品实体与最新作品背景入口 | 已接入 `WorkspaceContext.fetch_workspace_info/1`；snapshot 进入 `DialogueContext.current_work_snapshot` 与 provider prompt，并由 `au03-current-work-context-ssot` / `--real-lmstudio` 复跑证明 |
 | `workspaces` | 旧 UI workspace 表 | 仅保留 legacy 非 UUID `workspace_id` fallback；正式 work/session 主链使用 VS-09 `works.id` |
 | `interactions` | turn 级 user/assistant 日志 | 已实现；可作为 transcript 底层材料 |
-| `WorkspaceContext.context_fetcher/0` / `context_fetcher_with_query/0` | 真实 persistence context fetcher | 返回最新 Work snapshot、会话 summary、memory summary、章节结构；active session 按 `session_id` 取最近 transcript，默认排除 archived session；`behavior_summary` 仍未接入 |
+| `WorkspaceContext.context_fetcher/0` / `context_fetcher_with_query/0` | 真实 persistence context fetcher | 返回最新 Work snapshot、会话 summary、memory summary、章节结构和最新 active behavior summary；active session 按 `session_id` 取最近 transcript，默认排除 archived session；已测试 latest-turn-cleared 和 archived session 不复活旧等待态 |
 | `ContextAssembler` | 组装 DialogueContext | 已有 `safe_fetch` 降级为空上下文，支持 `current_work` / `session_transcript` / `memory` / `behavior` context refs 和 author-safe summary |
-| `DialogueContext.to_prompt_text/1` | 把上下文写入 LLM prompt | 有单测覆盖非空段落 |
+| `DialogueContext.to_prompt_text/1` | 把上下文写入 LLM prompt | 有单测覆盖非空段落和当前待处理动作段落 |
 | `TraceWriter` / `TraceSummaryView` | 记录和展示 context_refs | 已记录 author-safe context refs；`au03-context-source-ui` 证明 why 面板可展示 current work / session or recent dialogue / memory，并排除 raw prompt/provider debug |
 | 会话 Session / Conversation 表 | 作品内多会话、会话状态、归档、搜索 | 已补 `WorkSession`、resume/show/search/create/archive API 和工作台 UI；`au03-session-history-readonly`、`au03-session-new-active`、`au03-branch-from-history`、`au03-archive-session-filter` 已接当前可复跑入口；仍缺搜索命中 turn 定位/高亮、显式引用 archived source 和完整 replay 页面 |
 | `memory_items.conversation_id` | 记忆可关联 conversation 的设计痕迹 | 存在字段迹象，但会话管理闭环未接入 |
@@ -133,9 +133,9 @@
 - AI 不丢失等待态；
 - 历史会话中的旧 waiting 状态不会在重新查看时恢复。
 
-**当前证据**：`ContextAssembler` 字段支持 `open_behavior_summary`。
+**当前证据**：`WorkspaceContext.context_fetcher/0` / `context_fetcher_with_query/0` 会从最新 assistant TurnResult 的 `behavior_state.active` 生成 author-safe `behavior_summary`，只暴露“当前有待作者确认的操作/章节正文草稿/确认或取消前不能执行工具或写入作品事实”这类作者可读摘要，不暴露 behavior_id/action_id；`DialogueContext.to_prompt_text/1` 会写入 `## 当前待处理动作`。`workspace_context_test.exs` 覆盖 latest active behavior、latest turn cleared 后不复用旧 behavior、archived session active behavior 不进入 fallback；`context_grounding_test.exs` 覆盖 behavior summary 进入 prompt 和 author-safe context refs；`au06-single-active-confirmation` 真实 Tauri / quality acceptance 已证明第二个高风险 confirmation turn 的 `trace_summary.context_refs` 包含 behavior source，且 summary 不泄漏上一轮 behavior/action id。
 
-**当前状态**：未实现。真实 fetcher 返回 `behavior_summary = nil`。
+**当前状态**：已验收。该证据关闭 AU-03 A4 当前开放行为上下文；完整 confirmation terminal replay、blocking clarification 和持久 BehaviorBinding ledger 仍归 AU-06/AU-07 后续 owner。
 
 ---
 
@@ -379,7 +379,7 @@
 
 **当前证据**：`ContextSourceRef` 有 source_type；`ContextAssembler` 会从真实 Work snapshot、recent dialogue、memory summary 生成 author-safe summary；`TraceWriter` 输出 refs；真实 Tauri 工作台通过 `bash scripts/tauri_slice_verify.sh au03-context-source-ui` 证明普通回复 why 面板展示 current work / recent dialogue / memory 三类来源摘要。
 
-**当前状态**：最小真实前端闭环已补。证据：`artifacts/slice-verify/au03-context-source-ui-tauri/summary.json`。剩余未覆盖：显式引用 archived source、历史旧 turn 查询和 developer 双视图。
+**当前状态**：最小真实前端闭环已补。证据：`artifacts/slice-verify/au03-context-source-ui-tauri/summary.json`。普通旧 turn scoped query 已由 AU-07 `au07-persisted-trace-query` 回填，partial replay 作者提示已由 `au07-partial-replay-ui` 回填；剩余未覆盖：显式引用 archived source、完整会话级 replay / developer / 多类型 UI。
 
 ---
 
@@ -434,9 +434,9 @@
 - 如果缺历史数据，明确说明缺哪一层；
 - 不改变当前作品状态。
 
-**当前证据**：`ReplayService` 和 E2E reply-only replay 证明“不重新调用 provider”的后端基础。
+**当前证据**：`ReplayService` 和 E2E reply-only replay 证明“不重新调用 provider”的后端基础；`au07-persisted-trace-query` 证明真实 Tauri reload 后旧 turn “为什么”可按 work/session/turn scope 查询持久 trace 并渲染 no-provider replay；`au07-trace-query-scope-negative-matrix` 证明跨 work、跨 session、same-work other session 和 missing turn replay 查询均返回 404 且不泄露 trace。
 
-**当前状态**：后端局部有证据，缺会话级 UI/数据模型闭环。
+**当前状态**：普通旧 turn 最小 UI/API、partial replay 作者提示和 scoped negative matrix 证据已由 AU-07 回填；会话级完整 replay、developer view、多类型 UI 仍未闭环。
 
 ---
 
@@ -447,8 +447,8 @@
 | SC-AU03-A1 最新基础背景 | 使用当前 Work 最新 title/genre/设定，不用旧 Workspace | `WorkService`；`WorkspaceContext`；AU03-I4 | `WorkspaceContext.fetch_workspace_info/1` | `dialogue_gateway_real_loop_test.exs` | `au03-current-work-context-ssot`；`--real-lmstudio` 同 slice | 已验收 | 无 | 无 | closed | `AU03-current-work-archive-evidence-entry` |
 | SC-AU03-A2 当前会话最近对话 | active session 第二轮可引用第一轮 | `interactions`；`session_id` transcript；AU03-I4 | `context_fetcher_with_query/0` | `dialogue_gateway_real_loop_test.exs` | `au03-current-work-context-ssot` | 已验收 | 无 | 无 | closed | 同上 |
 | SC-AU03-A3 已确认记忆/伏笔 | confirmed memory 进入 prompt/trace，历史 transcript 不伪装成 memory | `MemoryRecallRepo`；`ContextSourceRef`；AU03-I3 | `WorkspaceContext.context_fetcher_with_query/0` | `workspace_context_test.exs` | `au03-context-source-ui`；`au09-au03-session-memory-layering` | 已验收 | 无 | 无 | closed | AU-09 lifecycle 继续覆盖完整记忆状态机 |
-| SC-AU03-A4 当前开放行为 | open behavior / pending confirmation 进入上下文 | `behavior_summary`；AU03-I4 | `ContextAssembler` 字段存在 | 无 | 无 | 未实现 | fetcher 未接行为摘要 | 补实现 | P1 | owner: AU-04/AU-06 behavior summary checkpoint |
-| SC-AU03-B1 空作品诚实不知道 | 无 context 时不编造事实 | AU03-I2 | `ContextAssembler` / prompt builder | `context_grounding_test.exs` | 无 | 已测试 | 无 | 补验收 | P1 | 空作品真实 LLM 反证 |
+| SC-AU03-A4 当前开放行为 | open behavior / pending confirmation 进入上下文 | `behavior_summary`；AU03-I4 | `WorkspaceContext.fetch_behavior_summary/2`；`DialogueContext.to_prompt_text/1` | `workspace_context_test.exs`；`context_grounding_test.exs` | `au06-single-active-confirmation` | 已验收 | 完整 terminal replay/ledger 归 AU-06/AU-07 | closed / cross-reference | closed | 保持 AU-06 回归；terminal replay 走 AU-07 owner |
+| SC-AU03-B1 空作品诚实不知道 | 无 context 时不编造事实 | AU03-I2 | `ContextAssembler` / prompt builder | `context_grounding_test.exs` | `au11-missing-workstate-policy` 作为 missing WorkState cross evidence | 已测试 | 完整 empty/no-facts 真实 UI/LLM 反证仍不足 | 补验收（完整矩阵） | P1 | 空作品真实 LLM 反证 |
 | SC-AU03-B2 有背景无会话 | 只引用 Work 背景，不伪造“刚才讨论” | `current_work_snapshot`；AU03-I2 | `WorkspaceContext.fetch_workspace_info/1` | 无专属测试 | 无 | 不确定 | 证据不足 | 补测试 | P1 | Work-only context test + Tauri 验收 |
 | SC-AU03-B3 fetcher 异常降级 | context 读取失败时 empty context + warning，不阻断 turn | `ContextAssembler.safe_fetch/4` | `ContextAssembler` | safe_fetch 单元覆盖 | 无 | 已实现未验收 | 无 | 补验收 | P1 | 真实 UI/LLM 故障注入 |
 | SC-AU03-C1 会话列表 | work-scoped N 个会话、状态可见、不串作品 | `WorkSession`；AU03-I5/I7 | `WorkSessionService.resume/1`；`WorkspaceChat` 会话区 | service/controller/component tests | `au03-session-new-active`；`au03-session-history-readonly`；`au03-archive-session-filter` | 部分实现 | 状态矩阵和跨作品细化不足 | 补验收 | P2 | 会话列表状态矩阵 |
@@ -463,9 +463,9 @@
 | SC-AU03-E1 作者可见来源 | why 中区分 Work/session/memory/archived/behavior 来源 | `ContextSourceRef`；AU03-I3 | `TraceWriter` / `TraceSummaryView` | trace summary tests | `au03-context-source-ui` | 已验收 | archived/behavior 来源未覆盖 | 补实现 | P1 | AU-07 source detail |
 | SC-AU03-E2 author-safe 摘要 | 不暴露 raw prompt/provider/debug/跨作品数据 | `redaction_level`；AU03-I3 | `TraceSummaryView` | author-safe 过滤测试 | `au03-context-source-ui` | 已验收 | developer 双视图未闭环 | 补验收 | P1 | AU-07 developer trace |
 | SC-AU03-F1 长会话压缩 | 最近必要上下文进入 prompt，原 transcript 可查看 | `fetch_conversation_summary/1` | `WorkspaceContext` | context tests | `au03-long-session-compression` | 已验收 | 还没有完整 session summary 策略 | 补实现 | P2 | session summary / compression strategy |
-| SC-AU03-F2 replay 不调 LLM | 历史回放使用 TurnResult/trace，不重新创作 | Replay contract；AU03-I5 | `ReplayService` | E2E reply-only replay | 无会话级真实 UI | 已测试 | 会话级 replay UI 未闭环 | 补实现 | P1 | owner: AU-07 replay |
+| SC-AU03-F2 replay 不调 LLM | 历史回放使用 TurnResult/trace，不重新创作 | Replay contract；AU03-I5 | `ReplayService`；`TraceReplayService` | E2E reply-only replay；AU-07 scoped query tests | `au07-persisted-trace-query` 作为普通旧 turn scoped query / no-provider replay cross evidence；`au07-partial-replay-ui` 作为 partial replay 诚实提示 cross evidence；`au07-trace-query-scope-negative-matrix` 作为 scoped negative matrix cross evidence | 已测试 | 完整会话级 replay、developer view、多类型 UI 未闭环 | 补实现 | P1 | owner: AU-07 replay |
 
-**覆盖结论：20 个用户场景；当前 12/20 已验收，2/20 已测试，3/20 部分实现，1/20 已实现未验收，1/20 未实现，1/20 不确定。新增当前可复跑证据并补 `tasks/slices/AU03-file-level-closure.md` 后，AU-03 的 P0 缺口已关闭；剩余 P1 主要是 behavior summary、Work-only/empty/failure 真实验收、显式 archived source、AU-07 trace/replay，P2 是搜索 turn 高亮、完整状态矩阵和压缩策略细化。**
+**覆盖结论：20 个用户场景；当前 13/20 已验收，2/20 已测试，3/20 部分实现，1/20 已实现未验收，0/20 未实现，1/20 不确定。新增当前可复跑证据并补 `tasks/slices/AU03-file-level-closure.md` 后，AU-03 的 P0 缺口已关闭；`au11-missing-workstate-policy` 已补 SC-AU03-B1 的 missing WorkState cross evidence，`au06-single-active-confirmation` 已补 SC-AU03-A4 的开放 behavior context evidence，`au07-persisted-trace-query` 已补 SC-AU03-F2 普通旧 turn no-provider replay cross evidence，`au07-partial-replay-ui` 已补 partial replay 诚实提示 cross evidence，`au07-trace-query-scope-negative-matrix` 已补 scoped negative matrix cross evidence；这些不等同完整 empty/work-only/failure、terminal replay 或会话级完整 replay/developer/多类型矩阵闭环。剩余 P1 主要是 Work-only/empty/failure 真实验收、显式 archived source、AU-07 完整 trace/replay，P2 是搜索 turn 高亮、完整状态矩阵和压缩策略细化。**
 
 当前可复跑证据入口（2026-06-21）：
 
@@ -499,11 +499,11 @@ bash scripts/tauri_slice_verify.sh au09-au03-session-memory-layering
 |---|---|---|
 | AU03-GAP-01 — 作品内会话模型 | WorkSession、历史只读、新建空白会话、从历史继续分支、归档状态流均已形成真实入口 | closed；P2 后续补完整状态矩阵 |
 | AU03-GAP-02 — 会话列表/搜索/归档 UI 与 API | 会话列表/搜索/打开历史/归档最小真实入口已补；匹配 turn 定位未闭环 | P2：补搜索结果定位和高亮 |
-| AU03-GAP-03 — 历史会话退出/只读状态 | C4 只读回看、C6 从历史继续、C5 归档回看均已有真实 Tauri 证据 | closed；P1/P2：完整 replay 由 AU-07 owner |
+| AU03-GAP-03 — 历史会话退出/只读状态 | C4 只读回看、C6 从历史继续、C5 归档回看均已有真实 Tauri 证据；普通旧 turn scoped replay query 与 partial replay UI 已由 AU-07 回填 | closed；P1/P2：完整会话级 replay/developer/多类型 UI 由 AU-07 owner |
 | AU03-GAP-04 — Work 最新背景接入 context snapshot | 已由 `WorkspaceContext.fetch_workspace_info/1` 和 `au03-current-work-context-ssot --real-lmstudio` 证明 | closed |
 | AU03-GAP-05 — memory_summary 接入 | 已由 memory recall、why 面板与 AU09-AU03 layering 证明 AU-03 视角的 recall-to-context | closed；完整生命周期归 AU-09 |
-| AU03-GAP-06 — behavior_summary 接入 | open behavior / 等待确认可能丢失上下文 | P1：owner AU-04/AU-06 |
-| AU03-GAP-07 — ContextSourceRef.summary 占位 | Work / recent dialogue / memory author-safe summary 已由真实 Tauri why 面板验收 | closed；archived/behavior 来源归 AU-07/AU-09 |
+| AU03-GAP-06 — behavior_summary 接入 | 最新 active behavior / 等待确认已进入 author-safe context summary 和 prompt | closed；由 AU-03 依赖 checkpoint + `au06-single-active-confirmation` 证明，terminal replay/ledger 仍归 AU-06/AU-07 |
+| AU03-GAP-07 — ContextSourceRef.summary 占位 | Work / recent dialogue / memory author-safe summary 已由真实 Tauri why 面板验收，behavior context ref 已由 AU-06 driver 证明 | closed；显式 archived source 和 developer 双视图归 AU-07/AU-09 |
 | AU03-GAP-08 — context fetcher 异常保护 | `ContextAssembler.safe_fetch/4` 已降级为空上下文并记录 error | 已实现未验收；P1 补真实故障 UI/LLM 验收 |
 | AU03-GAP-09 — 归档会话过滤 | 默认列表隐藏和普通 context 排除 archived 已闭环 | closed；P1 补显式 archived source 引用与 trace |
 | AU03-GAP-10 — 长会话只有最近 10 条硬截断 | 当前有真实 long-session checkpoint；完整 session summary 策略未补 | P2：session summary/压缩策略 |
@@ -514,7 +514,7 @@ bash scripts/tauri_slice_verify.sh au09-au03-session-memory-layering
 | 类型 | 项目 | Owner / 恢复路径 |
 |---|---|---|
 | 必须关闭的 P0 | Work 最新背景 SSOT、归档过滤当前入口、active/historical session 分层 | 本轮关闭；证据为 `au03-current-work-context-ssot`、`--real-lmstudio`、`au03-archive-session-filter` |
-| 应关闭的 P1 | behavior summary、empty/work-only/failure UI、显式 archived source、完整 replay/trace | 登记为 AU-04/AU-06、AU-07、AU-09 cross-reference；不会阻塞 AU-03 文件级进入 AU-04 |
+| 应关闭的 P1 | empty/work-only/failure UI、显式 archived source、完整 replay/trace | `behavior_summary` 已由本轮依赖 checkpoint 关闭；其余登记为 AU-03 后续、AU-07、AU-09 cross-reference。SC-AU03-B1 的 missing WorkState 子证据已由 `au11-missing-workstate-policy` 补强，但完整 empty/work-only/failure 矩阵仍不阻塞 AU-03 文件级进入 AU-04 |
 | 可登记 P2 | 搜索 turn 定位/高亮、会话列表状态矩阵、session summary 策略、AU-03 专属跨作品会话列表矩阵 | 后续 checkpoint 按对应 owner 文件恢复 |
 
 ---
@@ -524,6 +524,7 @@ bash scripts/tauri_slice_verify.sh au09-au03-session-memory-layering
 | 证据 | 证明了什么 | 不能证明什么 |
 |---|---|---|
 | `context_grounding_test.exs` | ContextAssembler 可组装 snapshot/conversation/memory stub；空 context 不编造 stub 事实 | 真实 UI/LLM 空作品文案 |
+| `au11-missing-workstate-policy` | 真实 Tauri 工作台在仅有标题、缺章节/正文/人物状态的 work 下显式记录 WorkState missing，assistant 要求补材料且不声称已读当前章，why 可见 missing，no tool/adoption/write | 完整 empty/no-facts、work-only 和 fetcher failure UI/LLM 矩阵 |
 | `workspace_context_test.exs` | interactions 可形成 conversation_summary；active session transcript 隔离；archived session transcript 默认不进 ordinary context；memory recall 可进入 context | 显式引用 archived source 的产品路径 |
 | `dialogue_gateway_real_loop_test.exs` | 最新 Work snapshot、同 session 最近对话和跨 session transcript 隔离进入 provider prompt | 会话级 replay UI |
 | `ReplayService` / E2E replay | replay 可不调 provider | 会话级 UI 和 trace 页面 |
@@ -533,6 +534,7 @@ bash scripts/tauri_slice_verify.sh au09-au03-session-memory-layering
 | `au03-session-history-readonly` | 历史只读 transcript、旧 pending adoption 不恢复、输入/发送禁用、可返回 active session | 归档过滤和 branch 来源说明 |
 | `au03-branch-from-history` | 从历史只读会话创建新 active branch，记录 `source_session_ref` / `source_turn_ref`，旧 transcript 不复制 | 作者 why 中解释引用历史 source |
 | `au03-context-source-ui` | why 面板展示 current work / recent dialogue / memory 来源摘要，并排除 raw prompt/provider debug | archived/behavior/developer trace |
+| `au06-single-active-confirmation` | 真实工作台连续两个高风险 confirmation 时，第二个 confirmation turn 消费上一轮开放 behavior context ref，summary author-safe 且不泄漏 behavior/action id | confirmation terminal replay、blocking clarification、持久 BehaviorBinding ledger |
 | `au03-long-session-compression` | 长会话最近窗口与 transcript 可查看的真实工作台证据 | 完整 session summary/压缩策略 |
 
 ---
@@ -566,6 +568,7 @@ bash scripts/quality_accept.sh au03-archive-session-filter --surface tauri
 bash scripts/quality_accept.sh au03-context-source-ui --surface tauri
 bash scripts/quality_accept.sh au03-long-session-compression --surface tauri
 bash scripts/quality_accept.sh au03-current-work-context-ssot --surface tauri --provider lmstudio
+bash scripts/quality_accept.sh au06-single-active-confirmation --surface tauri
 bash scripts/task_done.sh --skip-static-scan
 bash scripts/ai_static_scan.sh --top 10
 ```

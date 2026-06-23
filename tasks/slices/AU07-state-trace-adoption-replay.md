@@ -14,7 +14,7 @@
 - Contract：VS-04 AdoptionDecision / ProjectionHint、VS-06 ReplayReport、ADR-0016 ProjectionHint UI、ADR-0017 ReplayReport、`DecisionTrace.state_trace_refs`、`TurnResult.adoption_state`、`TurnResult.projection_refs`。
 - Invariant：生产采纳写入必须留下 StateTrace；ProjectionHint 必须引用本次采纳写入的 StateTrace；Replay 不允许重调 provider，缺 trace refs 时必须 partial 而不是伪造完整回放。
 - Boundary：切穿 `novel_application` 的 AdoptionWorkflow、`novel_web` 的真实 Channel action turn、外部 Tauri harness 和 quality manifest；不修改 `novel_agent` provider runtime，不把 fixture provider 注册进 production，不新增产品验收感知逻辑。
-- Consumer：真实工作台保存正文后的 ReadingMode、`ReplayService.build_report/1`、后续旧 turn trace 查询 API/UI。
+- Consumer：真实工作台保存正文后的 ReadingMode、`ReplayService.build_report/1`、`TraceReplayService`、后续完整 StateTrace/adoption replay / developer / 多类型 UI。
 - Proof：`mix test apps/novel_application/test/novel_application/adoption_workflow_test.exs apps/novel_web/test/novel_web/channels/workspace_channel_action_idempotency_test.exs`、`pnpm --dir frontend exec vitest run slice-verify/native-tauri-verifier.test.mjs`、`bash scripts/tauri_slice_verify.sh au07-state-trace-adoption-replay`、`bash scripts/quality_accept.sh au07-state-trace-adoption-replay --surface tauri`。
 - Acceptance Driver：`bash scripts/tauri_slice_verify.sh au07-state-trace-adoption-replay` 使用外部 Playwright/Tauri driver 从真实工作台点击生成正文草稿、保存为章节正文、打开阅读模式并核对 StateTrace refs。产品代码不新增验收感知逻辑。
 

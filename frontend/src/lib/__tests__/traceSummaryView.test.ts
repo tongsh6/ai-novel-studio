@@ -136,6 +136,20 @@ describe("traceSummaryView", () => {
     expect(visibleText).not.toContain("internal_story_generation_v9");
   });
 
+  it("adds persisted replay integrity without exposing trace ids", () => {
+    const view = toAuthorTraceSummary({
+      trace_ref: "trace_secret",
+      decision_type: "reply_only",
+      no_tool_reason: "no_tool_needed",
+      replay_result_status: "complete",
+      replay_provider_called: false,
+    });
+
+    expect(view?.detailLines).toContain("已从持久 trace 生成结构化回放。");
+    expect(view?.detailLines).toContain("回放只读取已保存记录，不会重新调用模型。");
+    expect(JSON.stringify(view)).not.toContain("trace_secret");
+  });
+
   it("renders VS-00D quality diagnosis envelope as author-safe detail lines", () => {
     const view = toAuthorTraceSummary({
       decision_type: "reply_only",

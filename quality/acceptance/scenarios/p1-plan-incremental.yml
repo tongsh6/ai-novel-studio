@@ -1,0 +1,58 @@
+id: p1-plan-incremental
+title: 增量章节规划追加新章且不改旧章
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-plan-incremental --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/product/novel-output-milestones.md
+  - docs/design/domain/21-novel-object-model.md
+  - docs/design/contracts/VS-00C-creative-context-assembly-contract-pack.md
+
+invariants:
+  - incremental-outline-appends-new-planned-chapters
+  - existing-chapter-title-seq-and-word-count-remain-untouched
+  - new-planned-chapter-titles-do-not-collide
+  - outline-adoption-does-not-materialize-reading-prose
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - adopt: baseline 12 chapter plan
+  - request: continue the outline with additional planned chapters
+  - accept: incremental outline draft
+  - reopen: archive outline
+  - observe: new planned chapters appended after existing chapters without changing old chapter facts
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-plan-incremental-tauri
+
+assertions:
+  ui:
+    - incremental outline draft is visible and accepted
+    - archive outline shows appended planned chapters
+  network:
+    - natural-language outline continuation produces outline_draft
+    - accept author_action routes through adoption boundary
+  data:
+    - baseline_chapter_count is preserved
+    - appended_chapter_count is positive
+    - existing chapters are not rewritten
+    - new titles do not collide with existing chapters
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -14,7 +14,7 @@
 - Contract：VS-03 Behavior lifecycle、VS-06 ReplayReport、ADR-0017 ReplayReport、`DecisionTrace.behavior_trace_refs`、TurnResult `behavior_state.history[].resolution_ref`。
 - Invariant：terminal behavior close/resolution 必须可追溯；Replay 不调用 provider；cancel waiting 不调用工具、不写 production state、不采纳 artifact。
 - Boundary：切穿 `novel_application` 的 `DialogueGateway`/`ReplayService`、`novel_web` 的真实 Channel action turn persistence、外部 Tauri harness 和 quality manifest；不修改 `novel_agent` provider runtime，不新增产品验收感知逻辑。
-- Consumer：真实工作台取消等待后的 action TurnResult、`TraceRepository`、`ReplayService.build_report/1`、后续旧 turn trace 查询 API/UI。
+- Consumer：真实工作台取消等待后的 action TurnResult、`TraceRepository`、`ReplayService.build_report/1`、`TraceReplayService`、后续完整 BehaviorTrace replay / developer / 多类型 UI。
 - Proof：`mix test apps/novel_application/test/novel_application/dialogue_gateway_test.exs apps/novel_application/test/novel_application/replay_service_test.exs apps/novel_web/test/novel_web/channels/workspace_channel_action_idempotency_test.exs`、`pnpm --dir frontend exec vitest run slice-verify/native-tauri-verifier.test.mjs`、`bash scripts/tauri_slice_verify.sh au07-behavior-trace-terminal-replay`、`bash scripts/quality_accept.sh au07-behavior-trace-terminal-replay --surface tauri`。
 - Acceptance Driver：`bash scripts/tauri_slice_verify.sh au07-behavior-trace-terminal-replay` 使用外部 Playwright/Tauri driver 从真实工作台发起高风险重写请求、点击可见拒绝/取消动作、验证 cancelled turn 的 terminal BehaviorTrace refs。产品代码不新增验收感知逻辑。
 

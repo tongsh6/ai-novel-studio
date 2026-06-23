@@ -1,0 +1,62 @@
+id: p1-chapter-expansion
+title: 自然续写累积单章达标
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-chapter-expansion --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/product/novel-output-milestones.md
+  - docs/design/domain/21-novel-object-model.md
+  - docs/design/domain/28-authoring-lifecycle.md
+  - docs/design/02-dialogue-frame-and-micro-plan.md
+  - tasks/slices/P1-chapter-expansion.md
+
+invariants:
+  - continuation-appends-new-scene-to-same-chapter
+  - continuation-does-not-supersede-existing-accepted-prose
+  - p1-word-count-audit-flips-short-to-ok-after-accepted-prose-accumulates
+  - prose-writing-consumes-prior-accepted-chapter-prose
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate_and_accept: first short chapter prose
+  - input: natural-language continuation for the same chapter
+  - input: second natural-language continuation for the same chapter
+  - accept: each continuation draft
+  - open: 阅读模式
+  - observe: one chapter contains accumulated scenes and passes the P1 word threshold
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-chapter-expansion-tauri
+
+assertions:
+  ui:
+    - continuation drafts are visible and accepted from the real workbench
+    - reading mode shows one accumulated chapter
+    - generated scene placeholder titles are hidden from the author view
+  network:
+    - planner recognizes continuation intent for each follow-up
+    - prose_writing receives prior accepted chapter prose
+    - each accept author_action succeeds
+  data:
+    - chapter_count remains 1
+    - continuation_count is at least 2
+    - final_chapter_word_count exceeds the P1 minimum
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

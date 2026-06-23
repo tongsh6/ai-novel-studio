@@ -1,0 +1,59 @@
+id: au12-profile-read-failure-degrade
+title: 作品档案读取失败诚实降级与重试恢复
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au12-profile-read-failure-degrade --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-12-work-profile.md
+  - docs/design/ui/43-structure-panel.md
+  - tasks/slices/AU12-profile-read-failure-degrade.md
+
+invariants:
+  - profile-read-failure-is-visible-and-honest
+  - failure-state-does-not-render-empty-profile-fields
+  - retry-recovers-real-profile-after-service-reconnect
+  - profile-view-remains-readonly-during-failure-and-retry
+
+setup:
+  seed: none
+  provider: slice_verify
+  artifact_dir: artifacts/slice-verify/au12-profile-read-failure-degrade-tauri
+
+user_flow:
+  - create: real work with profile fields
+  - open: real Tauri workbench
+  - switch: select the created work from the real work menu
+  - stop: slice Phoenix service from the external driver
+  - open: 作品档案
+  - click: 概览
+  - observe: 作品档案读取失败 and 重试读取 are visible
+  - restart: slice Phoenix service from the external driver
+  - click: 重试读取
+  - observe: real profile fields return and failure state clears
+
+evidence:
+  required:
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au12-profile-read-failure-degrade-tauri
+
+assertions:
+  ui:
+    - profile read failure copy is visible in the real archive overview
+    - failure state does not show 状态未明, 暂未填写, or profile rows as if data were empty
+    - retry action is visible and recovers seeded profile fields
+  network:
+    - websocket rejoins after external service restart
+    - profile retry emits get_work_profile.done
+    - failure and retry send no user_message or author_action frames
+  data:
+    - profile retry reads persisted work fields after service recovery
+    - no author_action, adoption, tool, prose_writing, or production write events occur while viewing/retrying profile
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

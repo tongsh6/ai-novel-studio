@@ -2,6 +2,7 @@ defmodule NovelApplication.ReplayServiceTest do
   use ExUnit.Case, async: true
 
   alias NovelApplication.ReplayService
+  alias NovelApplication.TraceRedactor
   alias NovelDomain.DecisionTrace
   alias NovelDomain.ReplayReport
 
@@ -117,6 +118,96 @@ defmodule NovelApplication.ReplayServiceTest do
 
       assert hd(report.decision_explanations).tool_chain_step ==
                "tool dispatch was recorded without tool trace refs"
+    end
+
+    test "tool replay exposes registry snapshot and redacted IO summaries" do
+      trace = %DecisionTrace{
+        trace_id: "tr-tool-redacted",
+        turn_id: "t-tool-redacted",
+        frame_ref: "f-tool-redacted",
+        plan_ref: "plan-tool-redacted",
+        decision_type: :tool_dispatched,
+        no_tool_reason: "tool_was_dispatched",
+        no_behavior_reason: "tool_execution_completed",
+        no_write_reason: "tool_result_not_adoption",
+        turn_result_ref: "turn_result:t-tool-redacted",
+        tool_trace_refs: [
+          %{
+            tool_request_ref: "tool_request:t-tool-redacted",
+            tool_result_ref: "tool_result:t-tool-redacted",
+            tool_name: "character_roster",
+            tool_version: "1.0.0",
+            tool_status: :succeeded,
+            registry_snapshot: %{
+              tool_name: "character_roster",
+              tool_version: "1.0.0",
+              tool_layer: :memory,
+              input_contract_ref: "character_roster_query_v1",
+              output_contract_ref: "character_roster_result_v1",
+              status: :active
+            },
+            contract_refs: %{
+              input_contract_ref: "character_roster_query_v1",
+              output_contract_ref: "character_roster_result_v1"
+            },
+            grant_summary: %{
+              requested_read_scopes: ["character_list"],
+              requested_write_scopes: [],
+              grants_within_registry: true
+            },
+            request_summary: %{
+              payload_type: :map,
+              key_count: 1,
+              keys: ["characters"],
+              redacted_key_count: 0,
+              payload_stored: false
+            },
+            result_summary: %{
+              payload_type: :map,
+              key_count: 2,
+              keys: ["character_count", "characters"],
+              redacted_key_count: 0,
+              payload_stored: false,
+              status: :succeeded,
+              state_delta_count: 0,
+              artifact_ref_count: 0
+            },
+            io_redaction: %{
+              profile: :author_safe,
+              input_payload_stored: false,
+              output_payload_stored: false
+            }
+          }
+        ],
+        event_order: [
+          :author_input_received,
+          :micro_plan_generated,
+          :tool_dispatched,
+          :tool_trace_recorded,
+          :turn_result_emitted
+        ]
+      }
+
+      report = ReplayService.build_report(trace)
+      tool_step = Enum.find(report.chain_summary, &(&1.step == "tool_trace"))
+      tool_question = Enum.find(report.required_questions, &(&1.id == :tool_approval))
+
+      assert report.result_status == :complete
+      assert tool_step.registry_snapshot.tool_name == "character_roster"
+      assert tool_step.registry_snapshot.tool_layer == :memory
+      assert tool_step.contract_refs.input_contract_ref == "character_roster_query_v1"
+      assert tool_step.contract_refs.output_contract_ref == "character_roster_result_v1"
+      assert tool_step.grant_summary.grants_within_registry == true
+      assert tool_step.request_summary.payload_stored == false
+      assert tool_step.result_summary.payload_stored == false
+      assert tool_step.io_redaction.input_payload_stored == false
+      assert tool_step.io_redaction.output_payload_stored == false
+      assert tool_question.status == :answered
+      assert tool_question.answer =~ "registry_status=active"
+      assert tool_question.answer =~ "input_contract=character_roster_query_v1"
+      assert tool_question.answer =~ "output_contract=character_roster_result_v1"
+      assert tool_question.answer =~ "raw_io_stored=false"
+      refute TraceRedactor.unsafe?(Map.from_struct(report))
     end
 
     test "replay report does not call provider" do

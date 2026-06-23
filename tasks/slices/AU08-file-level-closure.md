@@ -52,6 +52,8 @@
 - [x] 外部自动化驱动真实页面：`bash scripts/quality_accept.sh p1-chapter-expansion-multichapter --surface tauri`
 - [x] 外部自动化驱动真实页面：`bash scripts/quality_accept.sh p1-export-minimum --surface tauri`
 - [x] 二轮外部自动化驱动真实页面：`bash scripts/quality_accept.sh p1-chapter-draft-generation --surface tauri`
+- [x] 二轮外部自动化驱动真实页面：`bash scripts/quality_accept.sh au08-reading-readonly-no-write --surface tauri`
+- [x] 二轮外部自动化驱动真实页面：`bash scripts/quality_accept.sh au08-reading-return-context --surface tauri`
 - [x] 二轮 cross evidence：`bash scripts/quality_accept.sh au02-unadopted-candidate-no-reading-fact --surface tauri`
 - [x] 二轮 cross evidence：`bash scripts/quality_accept.sh su02-artifact-projection-trace-isolation --surface tauri`
 - [x] `bash scripts/quality_manifest_check.sh`
@@ -60,7 +62,7 @@
 
 ## 6. 二轮缺口矩阵（2026-06-22）
 
-二轮复核范围只处理第一轮已登记的剩余 P1/P2、external blocker 或 cross-reference，不回退 AU-08 的文件级可交付结论。本轮发现并关闭 1 个 AU-08 cross-reference driver 漂移：`p1-chapter-draft-generation` 旧等待条件仍依赖“待确认的创作材料”文案，当前真实 UI 已展示“待保存章节草稿/章节正文草稿”。修复仅在外部 driver，生产 `frontend/src` 与 umbrella runtime 未改。
+二轮复核范围只处理第一轮已登记的剩余 P1/P2、external blocker 或 cross-reference，不回退 AU-08 的文件级可交付结论。本轮已关闭 3 个 AU-08 剩余缺口：`p1-chapter-draft-generation` cross-reference driver 漂移、`SC-AU08-D1` 阅读模式查看/导出/返回 no-write 专项验收，以及 `SC-AU08-B4` 返回工作台后继续同一 work/session 上下文专项验收。三处修复仅在外部 driver / verifier / quality manifest，生产 `frontend/src` 与 umbrella runtime 未改。AU-08 当前口径重算为 12/16 已验收、2/16 已实现未验收、2/16 部分实现。
 
 | 场景 ID / 名称 | 第一轮状态 | 剩余缺口描述 | 缺口类型 | 优先级 | 当前证据 | 需要补的实现或验收 driver | 是否应在 AU-08 内关闭 | 建议 checkpoint / slice | 是否满足继续到 AU-09 |
 |---|---|---|---|---|---|---|---|---|---|
@@ -71,17 +73,17 @@
 | SC-AU08-B1 点击目录切换章节 | 已验收 | 无 | 无 | - | `p1-chapter-expansion-multichapter` 二轮通过：第 1/2/3 章分别写入并从目录点击加载 | 保持多章导航 regression | 否 | keep regression | 是 |
 | SC-AU08-B2 章节内容缺失时诚实显示 | 已验收 | 无 | 无 | - | `p1-chapter-expansion-multichapter` 二轮通过：未写章节显示 honest empty state | 保持空章 regression | 否 | keep regression | 是 |
 | SC-AU08-B3 作品切换后阅读内容隔离 | 已验收 | 无 | 无 | - | `su02-artifact-projection-trace-isolation` 二轮通过：source/target `work_id` 不同，目标作品 TOC 4 次保持空，目标 trace/why 排除源作品 artifact/chapter | 保持 SU-02 cross regression | 否 | SU-02 artifact/projection/trace isolation | 是 |
-| SC-AU08-B4 返回工作台不丢上下文 | 已实现未验收 | 缺“阅读返回后继续输入/同 work/session”专项真实页面断言 | 验收缺口 | P1 | 当前多个 reading driver 可进入阅读；尚无 return-context driver | 补返回工作台后继续输入、work/session 不丢的 Tauri driver | 否，本轮不扩产品面 | `au08-reading-return-context` | 是，已登记后续 |
+| SC-AU08-B4 返回工作台不丢上下文 | 已实现未验收 | 第一轮缺“阅读返回后继续输入/同 work/session”专项真实页面断言 | 验收缺口 | P1 | `au08-reading-return-context` 二轮通过：真实工作台生成并采纳正文后进入阅读，点击“返回工作台”，继续发送 follow-up；summary 记录 `followup_turn_id=turn_19`，同一 `work_id=3b6f31bf-ad3e-4126-98d3-5e5aa9d198f6`、`session_id=c9553054-ce18-472f-9d07-3357d7930a0e`，且返回动作 no `author_action` / no `user_message` | 已补外部 driver/verifier 与 quality manifest；不改产品 runtime | 是，已关闭 B4 | `au08-reading-return-context` | 是 |
 | SC-AU08-C1 已采纳内容变化后提示 stale | 已验收 | STALE banner 已有证据；完整 refresh job 不在本场景闭环 | 后续增强 | P1 | `p1-chapter-adoption-reading`、`p1-word-count-audit` 二轮均记录 `projection_refresh_status=STALE` | Projection job/status machine 后续补 | 否 | `au08-projection-refresh-no-write` / status machine | 是 |
 | SC-AU08-C2 刷新投影不写入作品事实 | 部分实现 | 当前 refresh/retry 仍转普通聊天文本，不是专用 projection refresh action；缺 no-write driver | 设计偏差 / 验收缺口 | P1 | ADR-0016/VS-04 已冻结边界；暂无专用真实 driver | 新增专用 Channel/Application refresh action 或显式 no-op refresh，并证明 no production write | 否，需单独产品设计与 driver | `au08-projection-refresh-no-write` | 是，已登记后续 |
 | SC-AU08-C3 重建中状态可见 | 已实现未验收 | UI banner 存在，缺真实 REBUILDING 状态来源 | 产品能力缺口 | P1 | runtime 派生测试；无真实状态 producer | Projection job/status machine 产生 REBUILDING 并补 Tauri driver | 否 | Projection job/status machine | 是，已登记后续 |
 | SC-AU08-C4 重建失败可重试且不丢旧内容 | 已实现未验收 | UI banner/retry 存在，缺真实 FAILED 状态来源，retry 仍非专用 refresh action | 产品能力缺口 / 设计偏差 | P1 | runtime 派生测试；无真实 failure driver | Projection job/status machine 产生 FAILED，补保留旧内容/重试 no-write driver | 否 | Projection job/status machine | 是，已登记后续 |
-| SC-AU08-D1 阅读模式不能编辑或采纳 | 已实现未验收 | 核心 reading drivers 无写入，但缺“阅读模式内无 author_action/write”专项断言；refresh 后续仍待专用化 | 验收缺口 | P1 | `p1-chapter-draft-generation` 二轮证明未采纳草稿阅读反证中 no adopt；`au02-unadopted-candidate-no-reading-fact` 证明 no action/projection/write | 补阅读模式内 no-author-action/no-write 专项 driver，可与 refresh no-write 合并 | 否 | `au08-reading-readonly-no-write` | 是，已登记后续 |
+| SC-AU08-D1 阅读模式不能编辑或采纳 | 已实现未验收 | 第一轮缺“阅读模式内无 author_action/write”专项断言；refresh 后续仍待专用化 | 验收缺口 | P1 | `au08-reading-readonly-no-write` 二轮通过：真实工作台生成并采纳正文后进入阅读，点击“导出全书”和“返回工作台”，期间 `author_action`、`user_message`、adoption、toolbox execution、production write claim 均为 0，返回后输入/发送可用 | 已补外部 driver/verifier 与 quality manifest；refresh 专用 no-write 另归 SC-AU08-C2 | 是，已关闭 D1 | `au08-reading-readonly-no-write` | 是 |
 | SC-AU08-D2 无服务或 Channel 未就绪时诚实降级 | 部分实现 | 缺真实断网/Channel failure reading driver；失败态文案/空态区分仍可更清晰 | UX / 验收缺口 | P1 | runtime state 测试；真实 failure driver 无 | 与 AU-10 recovery 合并补 service disconnect / Channel failure reading driver | 否 | AU-10 recovery / AU-08 failure follow-up | 是，已登记后续 |
 | SC-AU08-D3 阅读模式真实入口可被作者发现 | 已验收 | 无 | 无 | - | 本轮 8 个 AU-08/cross evidence 均从真实工作台可见入口进入阅读或读取投影 | 保持 regression | 否 | keep regression | 是 |
-| SC-AU08-D4 阅读模式有自动化验收 | 已验收 | 二轮发现单个 cross driver 文案等待漂移；已修复并复跑 | quality harness drift | P1 | 本轮通过 `p1-chapter-adoption-reading`、`p1-chapter-edit-then-accept`、`p1-word-count-audit`、`p1-chapter-expansion-multichapter`、`p1-export-minimum`、`p1-chapter-draft-generation`、`au02-unadopted-candidate-no-reading-fact`、`su02-artifact-projection-trace-isolation` | 已补 `p1-chapter-draft-generation` 外部 driver；后续保持 nightly | 是，已关闭 | AU-08 quality regression | 是 |
+| SC-AU08-D4 阅读模式有自动化验收 | 已验收 | 二轮发现单个 cross driver 文案等待漂移；已修复并复跑。D1 no-write 与 B4 return-context 专项已补真实 Tauri driver | quality harness drift / 验收补强 | P1 | 本轮通过 `p1-chapter-adoption-reading`、`p1-chapter-edit-then-accept`、`p1-word-count-audit`、`p1-chapter-expansion-multichapter`、`p1-export-minimum`、`p1-chapter-draft-generation`、`au02-unadopted-candidate-no-reading-fact`、`su02-artifact-projection-trace-isolation`、`au08-reading-readonly-no-write`、`au08-reading-return-context` | 已补 `p1-chapter-draft-generation` 外部 driver、`au08-reading-readonly-no-write` 与 `au08-reading-return-context` 外部 driver/verifier；后续保持 nightly | 是，已关闭 | AU-08 quality regression | 是 |
 
-二轮退出判断：AU-08 当前没有未关闭的本文件内 P0；唯一应在本轮关闭的 P1/cross-reference driver 漂移已关闭并复跑通过。剩余 P1 都需要新的 projection refresh/status 产品能力或专项异常 driver，不应以当前核心阅读链路证据冒充完整状态机闭环。满足进入 AU-09 的二轮退出标准。
+二轮退出判断：AU-08 当前没有未关闭的本文件内 P0；本轮应关闭的 P1/cross-reference driver 漂移、D1 no-write 专项和 B4 return-context 专项均已关闭并复跑通过。剩余 P1 都需要新的 projection refresh/status 产品能力或异常降级 driver，不应以当前核心阅读链路证据冒充完整状态机闭环。满足进入 AU-09 的二轮退出标准。
 
 ## 7. 决策日志
 
@@ -90,6 +92,8 @@
 - 2026-06-21 — 本 checkpoint 只补外部 harness/quality/docs/tasks，不改产品代码，因此没有新增产品验收感知逻辑。
 - 2026-06-21 — `scripts/tauri_slice_verify.sh` 的 `sync_tauri_conf` 改为幂等覆盖，避免目标内容不变时仅因重写 `tauri.conf.json` 触发 Tauri watcher 重建；这是验收 harness 稳定性修复，不改变产品 runtime。
 - 2026-06-22 — 二轮复核发现 `p1-chapter-draft-generation` 旧 driver 仍等待“待确认的创作材料”文案，当前真实 UI 已是“待保存章节草稿/章节正文草稿”。修复只在外部 driver：点击可见“阅读”按钮后等待新的 `channel.get_toc.done`，并继续断言未采纳 prose 不进阅读。生产 runtime 未改。
+- 2026-06-22 — 二轮补 `au08-reading-readonly-no-write` 关闭 `SC-AU08-D1` no-write 专项。外部 Tauri driver 从真实工作台生成/采纳正文后进入阅读模式，点击真实导出和返回，verifier 只消费 UI frames / app JSONL / `slice_verify.ui_state.done` 证据，断言无 `author_action`、无 `user_message`、无 adoption、无 tool dispatch、无 production write claim，且返回工作台后输入/发送恢复可用。生产 runtime 未改，refresh 专用 no-write 仍归 C2 后续。
+- 2026-06-22 — 二轮补 `au08-reading-return-context` 关闭 `SC-AU08-B4` 返回上下文专项。外部 Tauri driver 从真实工作台生成/采纳正文后进入阅读模式，点击真实返回，再发送 follow-up，verifier 断言返回动作本身无 `author_action` / `user_message`，follow-up 的 websocket `channel.user_message.start/done` 与 `turn_result` 保持同一 `work_id` / `session_id`。生产 runtime 未改。
 
 ## 8. 试行反馈
 

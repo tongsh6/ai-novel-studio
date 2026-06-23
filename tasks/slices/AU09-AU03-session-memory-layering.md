@@ -44,7 +44,7 @@
 ## 4. 当前缺口
 
 - `au09-au03-session-memory-layering` 已证明真实工作台打开历史只读会话后，返回 active session 的下一轮 `trace_summary.context_refs` 同时包含 `current_work`、`session_transcript` 和 `memory`，并排除 historical transcript。
-- 本 checkpoint 不补完整 developer replay、历史旧 turn 查询、Channel 管理入口或独立 StateTrace/MemoryTrace 表。
+- 本 checkpoint 不补完整 developer replay、多类型 replay UI、Channel 管理入口或独立 StateTrace/MemoryTrace 表；普通旧 turn scoped query 与 partial replay UI 已由 AU-07 回填。
 
 ## 5. 验证计划
 

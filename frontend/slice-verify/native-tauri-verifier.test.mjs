@@ -30,9 +30,11 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-discard-author-action");
     expect(nativeSliceIds).toContain("au08-adoption-reading-projection");
     expect(nativeSliceIds).toContain("au09-archive-real-data");
+    expect(nativeSliceIds).toContain("au09-archive-stats-current");
     expect(nativeSliceIds).toContain("au09-memory-recall-context");
     expect(nativeSliceIds).toContain("au09-character-dossier-roundtrip");
     expect(nativeSliceIds).toContain("au09-memory-management-entry");
+    expect(nativeSliceIds).toContain("au09-memory-management-filter-matrix");
     expect(nativeSliceIds).toContain("au09-memory-trace-roundtrip");
     expect(nativeSliceIds).toContain("au09-cross-work-memory-isolation");
     expect(nativeSliceIds).toContain("au09-au03-session-memory-layering");
@@ -44,10 +46,16 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au03-long-session-compression");
     expect(nativeSliceIds).toContain("au03-context-source-ui");
     expect(nativeSliceIds).toContain("au07-trace-why-entry");
+    expect(nativeSliceIds).toContain("au07-gate-reason-why");
+    expect(nativeSliceIds).toContain("au07-persisted-trace-query");
+    expect(nativeSliceIds).toContain("au07-partial-replay-ui");
+    expect(nativeSliceIds).toContain("au07-trace-query-scope-negative-matrix");
+    expect(nativeSliceIds).toContain("au07-tooltrace-registry-redacted-io");
     expect(nativeSliceIds).toContain("au07-state-trace-adoption-replay");
     expect(nativeSliceIds).toContain("au07-behavior-trace-terminal-replay");
     expect(nativeSliceIds).toContain("au11-quality-diagnosis-message-envelope");
     expect(nativeSliceIds).toContain("au11-missing-workstate-policy");
+    expect(nativeSliceIds).toContain("au12-profile-read-failure-degrade");
     expect(nativeSliceIds).toContain("au10-workbench-matrix-layout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-disconnect-timeout");
     expect(nativeSliceIds).toContain("au10-workbench-recovery-provider-timeout");
@@ -57,6 +65,7 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au10-ordinary-chat-no-micro-plan");
     expect(nativeSliceIds).toContain("e2e-01-readonly-tool-trace");
     expect(nativeSliceIds).toContain("e2e-01-replay-report");
+    expect(nativeSliceIds).toContain("e2e-01-channel-action-security");
     expect(nativeSliceIds).toContain("au01-ordinary-chat-two-turn-roundtrip");
     expect(nativeSliceIds).toContain("au01-empty-message-guard");
     expect(nativeSliceIds).toContain("au01-garbage-json-recovery");
@@ -75,6 +84,8 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-canon-conflict-recovery");
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
+    expect(nativeSliceIds).toContain("au08-reading-readonly-no-write");
+    expect(nativeSliceIds).toContain("au08-reading-return-context");
     expect(nativeSliceIds).toContain("au04-confirm-before-execute");
     expect(nativeSliceIds).toContain("au04-confirmation-tool-failure-recovery");
     expect(nativeSliceIds).toContain("au04-confirm-idempotency-ui");
@@ -217,6 +228,479 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("accepts AU-07 gate reason why only when downgrade explanation is author-safe", () => {
+    const records = [
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-au07-gate",
+        workspace_id: "work-au07-gate",
+        work_id: "work-au07-gate",
+        session_id: "session-au07-gate",
+        generate_micro_plan: true,
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "dialogue_gateway.handle_input.start",
+        turn_id: "turn-au07-gate",
+        workspace_id: "work-au07-gate",
+        work_id: "work-au07-gate",
+        session_id: "session-au07-gate",
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-au07-gate",
+        workspace_id: "work-au07-gate",
+        work_id: "work-au07-gate",
+        session_id: "session-au07-gate",
+        duration_ms: 4,
+        outcome: "done",
+      },
+      {
+        event: "planner.form_micro_plan.done",
+        turn_id: "turn-au07-gate",
+        workspace_id: "work-au07-gate",
+        work_id: "work-au07-gate",
+        session_id: "session-au07-gate",
+        duration_ms: 5,
+        outcome: "done",
+      },
+      {
+        event: "orchestrator.decide.done",
+        turn_id: "turn-au07-gate",
+        workspace_id: "work-au07-gate",
+        work_id: "work-au07-gate",
+        session_id: "session-au07-gate",
+        decision_type: "downgrade_to_dialogue",
+        first_blocking_gate: "action_scope",
+        duration_ms: 1,
+        outcome: "done",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-au07-gate",
+        workspace_id: "work-au07-gate",
+        work_id: "work-au07-gate",
+        session_id: "session-au07-gate",
+        duration_ms: 20,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-au07-gate",
+        workspace_id: "work-au07-gate",
+        work_id: "work-au07-gate",
+        session_id: "session-au07-gate",
+        duration_ms: 21,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au07-gate-reason-why",
+        turn_id: "turn-au07-gate",
+        workspace_id: "work-au07-gate",
+        work_id: "work-au07-gate",
+        session_id: "session-au07-gate",
+        generate_micro_plan: true,
+        downgrade_decision_received: true,
+        decision_type: "downgrade_to_dialogue",
+        first_blocking_gate: "action_scope",
+        execution_blocked: true,
+        tool_called: false,
+        production_write_performed: false,
+        action_scope_reason_present: true,
+        no_toolbox_execute_event: true,
+        no_author_action_sent: true,
+        no_execution_controls_visible: true,
+        downgrade_badge_visible: true,
+        generation_badge_absent: true,
+        trace_why_dialog_open: true,
+        trace_why_text:
+          "降级为对话 当前请求超出本轮可执行范围。系统先评估了执行计划，再按权限和范围决定是否继续。参考来源 当前会话记录 回放只读取已保存记录，不会重新调用模型。",
+        trace_why_contains_raw_prompt: false,
+        why_shows_downgrade_decision: true,
+        why_shows_action_scope_gate: true,
+        why_shows_micro_plan_evaluated: true,
+        why_shows_no_provider_replay: true,
+        why_hides_internal_gate_code: true,
+        replay_provider_called: false,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au07-gate-reason-why", records);
+    expect(evidence).toEqual({
+      slice_id: "au07-gate-reason-why",
+      turn_id: "turn-au07-gate",
+      turn_ids: ["turn-au07-gate"],
+      work_id: "work-au07-gate",
+      session_id: "session-au07-gate",
+      decision_type: "downgrade_to_dialogue",
+      first_blocking_gate: "action_scope",
+      key_events: keyEventsForSlice("au07-gate-reason-why"),
+    });
+    expect(findSliceBehaviorEvidence("au07-gate-reason-why", records, evidence)).toEqual({
+      slice_id: "au07-gate-reason-why",
+      behavior: "gate_downgrade_why_explains_action_scope_without_raw_leak",
+      turn_ids: ["turn-au07-gate"],
+      work_id: "work-au07-gate",
+      session_id: "session-au07-gate",
+      decision_type: "downgrade_to_dialogue",
+      first_blocking_gate: "action_scope",
+      assertions: [
+        "real_workbench_sent_multi_step_micro_plan_request",
+        "orchestrator_downgraded_at_action_scope",
+        "author_clicked_visible_why_on_downgraded_message",
+        "why_dialog_explained_downgrade_decision",
+        "why_dialog_explained_action_scope_boundary",
+        "why_dialog_explained_micro_plan_evaluation",
+        "replay_did_not_call_provider_or_write_state",
+        "raw_prompt_provider_debug_and_internal_gate_codes_not_visible",
+      ],
+    });
+  });
+
+  it("accepts AU-07 persisted trace query only with scoped replay API evidence", () => {
+    const records = [
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au07-replay",
+        session_id: "session-au07-replay",
+        transcript_count: 2,
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-au07-replay",
+        workspace_id: "work-au07-replay",
+        work_id: "work-au07-replay",
+        session_id: "session-au07-replay",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-au07-replay",
+        workspace_id: "work-au07-replay",
+        work_id: "work-au07-replay",
+        session_id: "session-au07-replay",
+        duration_ms: 10,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-au07-replay",
+        workspace_id: "work-au07-replay",
+        work_id: "work-au07-replay",
+        session_id: "session-au07-replay",
+        duration_ms: 12,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au07-persisted-trace-query",
+        turn_id: "turn-au07-replay",
+        turn_ids: ["turn-au07-replay"],
+        workspace_id: "work-au07-replay",
+        work_id: "work-au07-replay",
+        session_id: "session-au07-replay",
+        persisted_trace_query_status: 200,
+        persisted_trace_query_scoped: true,
+        restored_after_reload: true,
+        replay_report_provider_called: false,
+        replay_summary_provider_called: false,
+        replay_report_result_status: "complete",
+        persisted_replay_detail_visible: true,
+        replay_no_provider_visible: true,
+        trace_why_dialog_open: true,
+        trace_why_text:
+          "自然回复 已从持久 trace 生成结构化回放。回放只读取已保存记录，不会重新调用模型。参考来源 当前会话记录",
+        trace_why_contains_raw_prompt: false,
+        production_write_performed: false,
+        tool_called: false,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au07-persisted-trace-query", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au07-persisted-trace-query",
+      turn_id: "turn-au07-replay",
+      turn_ids: ["turn-au07-replay"],
+      work_id: "work-au07-replay",
+      session_id: "session-au07-replay",
+      replay_report_result_status: "complete",
+      key_events: keyEventsForSlice("au07-persisted-trace-query"),
+    });
+    expect(findSliceBehaviorEvidence("au07-persisted-trace-query", records, evidence)).toEqual({
+      slice_id: "au07-persisted-trace-query",
+      behavior: "old_turn_why_uses_scoped_persisted_replay_query",
+      turn_ids: ["turn-au07-replay"],
+      work_id: "work-au07-replay",
+      session_id: "session-au07-replay",
+      replay_report_result_status: "complete",
+      assertions: [
+        "message_sent_from_real_workbench",
+        "assistant_turn_persisted_to_session_transcript",
+        "workbench_reloaded_and_restored_old_turn",
+        "author_clicked_visible_why_on_restored_message",
+        "product_api_queried_replay_by_work_session_turn_scope",
+        "persisted_replay_rendered_author_safe_summary",
+        "replay_did_not_call_provider_or_write_state",
+        "raw_prompt_provider_debug_not_visible",
+      ],
+    });
+
+    const unsafeRecords = records.map((record) =>
+      record.slice_id === "au07-persisted-trace-query"
+        ? { ...record, persisted_trace_query_scoped: false }
+        : record,
+    );
+    expect(findNativeSliceEvidence("au07-persisted-trace-query", unsafeRecords)).toBeNull();
+  });
+
+  it("accepts AU-07 partial replay UI only when the old-turn dialog renders partial status", () => {
+    const records = [
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au07-partial",
+        session_id: "session-au07-partial",
+        transcript_count: 2,
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-au07-partial",
+        workspace_id: "work-au07-partial",
+        work_id: "work-au07-partial",
+        session_id: "session-au07-partial",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-au07-partial",
+        workspace_id: "work-au07-partial",
+        work_id: "work-au07-partial",
+        session_id: "session-au07-partial",
+        duration_ms: 10,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-au07-partial",
+        workspace_id: "work-au07-partial",
+        work_id: "work-au07-partial",
+        session_id: "session-au07-partial",
+        duration_ms: 12,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au07-partial-replay-ui",
+        turn_id: "turn-au07-partial",
+        turn_ids: ["turn-au07-partial"],
+        workspace_id: "work-au07-partial",
+        work_id: "work-au07-partial",
+        session_id: "session-au07-partial",
+        persisted_trace_query_status: 200,
+        persisted_trace_query_scoped: true,
+        restored_after_reload: true,
+        replay_report_provider_called: false,
+        replay_summary_provider_called: false,
+        replay_report_result_status: "partial",
+        replay_report_missing_trace_refs: ["turn_result_ref", "tool_trace_refs"],
+        replay_partial_visible: true,
+        replay_no_provider_visible: true,
+        trace_why_dialog_open: true,
+        trace_why_text:
+          "自然回复 这轮 trace 不完整，只展示已保存的部分解释。回放只读取已保存记录，不会重新调用模型。参考来源 当前会话记录",
+        trace_why_contains_raw_prompt: false,
+        production_write_performed: false,
+        tool_called: false,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au07-partial-replay-ui", records);
+    expect(evidence).toMatchObject({
+      slice_id: "au07-partial-replay-ui",
+      turn_id: "turn-au07-partial",
+      turn_ids: ["turn-au07-partial"],
+      work_id: "work-au07-partial",
+      session_id: "session-au07-partial",
+      replay_report_result_status: "partial",
+      replay_report_missing_trace_refs: ["turn_result_ref", "tool_trace_refs"],
+      key_events: keyEventsForSlice("au07-partial-replay-ui"),
+    });
+    expect(findSliceBehaviorEvidence("au07-partial-replay-ui", records, evidence)).toEqual({
+      slice_id: "au07-partial-replay-ui",
+      behavior: "old_turn_partial_replay_is_rendered_honestly_without_provider_or_write",
+      turn_ids: ["turn-au07-partial"],
+      work_id: "work-au07-partial",
+      session_id: "session-au07-partial",
+      replay_report_result_status: "partial",
+      replay_report_missing_trace_refs: ["turn_result_ref", "tool_trace_refs"],
+      assertions: [
+        "message_sent_from_real_workbench",
+        "assistant_turn_persisted_to_session_transcript",
+        "external_harness_inserted_incomplete_trace_for_same_scope",
+        "workbench_reloaded_and_restored_old_turn",
+        "author_clicked_visible_why_on_restored_message",
+        "product_api_returned_partial_replay_with_missing_refs",
+        "partial_replay_warning_rendered_in_author_safe_dialog",
+        "replay_did_not_call_provider_or_write_state",
+        "raw_prompt_provider_debug_not_visible",
+      ],
+    });
+
+    const unsafeRecords = records.map((record) =>
+      record.slice_id === "au07-partial-replay-ui"
+        ? { ...record, replay_report_missing_trace_refs: [] }
+        : record,
+    );
+    expect(findNativeSliceEvidence("au07-partial-replay-ui", unsafeRecords)).toBeNull();
+  });
+
+  it("accepts AU-07 trace query scope negative matrix only when cross-scope requests are rejected", () => {
+    const negativeMatrix = {
+      foreign_work_with_source_session: {
+        status: 404,
+        error: "session_not_found",
+        leaked_trace_summary: false,
+        leaked_replay_report: false,
+      },
+      source_work_with_foreign_session: {
+        status: 404,
+        error: "session_not_found",
+        leaked_trace_summary: false,
+        leaked_replay_report: false,
+      },
+      source_work_with_same_work_other_session: {
+        status: 404,
+        error: "trace_not_found",
+        leaked_trace_summary: false,
+        leaked_replay_report: false,
+      },
+      source_scope_with_missing_turn: {
+        status: 404,
+        error: "trace_not_found",
+        leaked_trace_summary: false,
+        leaked_replay_report: false,
+      },
+    };
+    const records = [
+      {
+        event: "work_session.resume.done",
+        work_id: "work-au07-scope",
+        session_id: "session-au07-scope",
+        transcript_count: 2,
+      },
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-au07-scope",
+        workspace_id: "work-au07-scope",
+        work_id: "work-au07-scope",
+        session_id: "session-au07-scope",
+        generate_micro_plan: false,
+        duration_ms: 0,
+        outcome: "started",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-au07-scope",
+        workspace_id: "work-au07-scope",
+        work_id: "work-au07-scope",
+        session_id: "session-au07-scope",
+        duration_ms: 10,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-au07-scope",
+        workspace_id: "work-au07-scope",
+        work_id: "work-au07-scope",
+        session_id: "session-au07-scope",
+        duration_ms: 12,
+        outcome: "done",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au07-trace-query-scope-negative-matrix",
+        turn_id: "turn-au07-scope",
+        turn_ids: ["turn-au07-scope"],
+        workspace_id: "work-au07-scope",
+        work_id: "work-au07-scope",
+        session_id: "session-au07-scope",
+        valid_replay_status: 200,
+        valid_replay_scoped: true,
+        valid_replay_provider_called: false,
+        restored_after_reload: true,
+        cross_work_replay_rejected: true,
+        cross_session_replay_rejected: true,
+        same_work_other_session_replay_rejected: true,
+        missing_turn_replay_rejected: true,
+        negative_errors_hidden_from_ui: true,
+        negative_responses_leaked_trace: false,
+        negative_replay_matrix: negativeMatrix,
+        foreign_work_id: "work-au07-foreign",
+        foreign_session_id: "session-au07-foreign",
+        same_work_other_session_id: "session-au07-other",
+        production_write_performed: false,
+        tool_called: false,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence(
+      "au07-trace-query-scope-negative-matrix",
+      records,
+    );
+    expect(evidence).toMatchObject({
+      slice_id: "au07-trace-query-scope-negative-matrix",
+      turn_id: "turn-au07-scope",
+      turn_ids: ["turn-au07-scope"],
+      work_id: "work-au07-scope",
+      session_id: "session-au07-scope",
+      foreign_work_id: "work-au07-foreign",
+      foreign_session_id: "session-au07-foreign",
+      same_work_other_session_id: "session-au07-other",
+      negative_replay_matrix: negativeMatrix,
+      key_events: keyEventsForSlice("au07-trace-query-scope-negative-matrix"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au07-trace-query-scope-negative-matrix", records, evidence),
+    ).toEqual({
+      slice_id: "au07-trace-query-scope-negative-matrix",
+      behavior: "trace_replay_query_rejects_cross_scope_without_trace_leak",
+      turn_ids: ["turn-au07-scope"],
+      work_id: "work-au07-scope",
+      session_id: "session-au07-scope",
+      foreign_work_id: "work-au07-foreign",
+      foreign_session_id: "session-au07-foreign",
+      same_work_other_session_id: "session-au07-other",
+      negative_replay_matrix: negativeMatrix,
+      assertions: [
+        "message_sent_from_real_workbench",
+        "assistant_turn_persisted_to_session_transcript",
+        "workbench_reloaded_and_restored_old_turn",
+        "valid_replay_query_succeeded_for_original_work_session_turn",
+        "foreign_work_with_source_session_was_rejected",
+        "source_work_with_foreign_session_was_rejected",
+        "same_work_other_session_with_source_turn_was_rejected",
+        "missing_turn_in_valid_scope_was_rejected",
+        "negative_responses_did_not_include_trace_summary_or_replay_report",
+        "negative_errors_did_not_surface_in_product_ui",
+        "replay_did_not_call_provider_or_write_state",
+      ],
+    });
+
+    const unsafeRecords = records.map((record) =>
+      record.slice_id === "au07-trace-query-scope-negative-matrix"
+        ? { ...record, negative_responses_leaked_trace: true }
+        : record,
+    );
+    expect(findNativeSliceEvidence("au07-trace-query-scope-negative-matrix", unsafeRecords)).toBeNull();
+  });
+
   it("accepts AU-04 rapid confirm click evidence only when execution stays single-shot", () => {
     const records = au04ConfirmIdempotencyUiRecords();
 
@@ -348,6 +832,13 @@ describe("native Tauri slice verifier", () => {
       second_confirm_turn_id: "turn-au06-second-confirm",
       first_confirm_action_behavior_ref: "behavior-au06-first",
       second_confirm_action_behavior_ref: "behavior-au06-second",
+      second_turn_behavior_context_ref_visible: true,
+      second_turn_behavior_context_author_safe: true,
+      second_turn_behavior_context_summary:
+        "当前有待作者确认的操作：章节正文草稿；确认或取消前不能执行工具或写入作品事实。",
+      second_turn_behavior_context_redaction_level: "author_safe",
+      second_turn_behavior_context_ref: "ctx-au06-behavior",
+      second_turn_behavior_context_source_id: "",
       old_confirm_prevented: true,
       old_confirm_rejected: true,
       old_author_action_error_count: 1,
@@ -362,6 +853,13 @@ describe("native Tauri slice verifier", () => {
       turn_ids: ["turn-au06-first-confirm", "turn-au06-second-confirm"],
       first_confirm_action_behavior_ref: "behavior-au06-first",
       second_confirm_action_behavior_ref: "behavior-au06-second",
+      second_turn_behavior_context_ref_visible: true,
+      second_turn_behavior_context_author_safe: true,
+      second_turn_behavior_context_summary:
+        "当前有待作者确认的操作：章节正文草稿；确认或取消前不能执行工具或写入作品事实。",
+      second_turn_behavior_context_redaction_level: "author_safe",
+      second_turn_behavior_context_ref: "ctx-au06-behavior",
+      second_turn_behavior_context_source_id: "",
       old_confirm_prevented: true,
       old_confirm_rejected: true,
       old_author_action_error_count: 1,
@@ -372,6 +870,7 @@ describe("native Tauri slice verifier", () => {
         "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
         "old_confirmation_did_not_dispatch_tool_or_create_pending_draft",
         "latest_confirmation_remained_actionable_and_executed_once",
+        "second_turn_received_author_safe_behavior_context_ref",
       ],
     });
   });
@@ -2581,60 +3080,71 @@ describe("native Tauri slice verifier", () => {
   });
 
   it("accepts AU-09 archive evidence from real scoped archive records", () => {
-    const records = [
-      { event: "channel.join.done", work_id: "work-au09", session_id: "session-au09" },
-      { event: "channel.get_characters.done", work_id: "work-au09", character_count: 1 },
-      { event: "channel.get_foreshadowing.done", work_id: "work-au09", item_count: 1 },
-      { event: "channel.get_rules.done", work_id: "work-au09", rule_count: 1 },
-      {
-        event: "channel.get_work_stats.done",
+    for (const sliceId of ["au09-archive-real-data", "au09-archive-stats-current"]) {
+      const records = [
+        { event: "channel.join.done", work_id: "work-au09", session_id: "session-au09" },
+        { event: "channel.get_characters.done", work_id: "work-au09", character_count: 1 },
+        { event: "channel.get_foreshadowing.done", work_id: "work-au09", item_count: 1 },
+        { event: "channel.get_rules.done", work_id: "work-au09", rule_count: 1 },
+        {
+          event: "channel.get_work_stats.done",
+          work_id: "work-au09",
+          volumes: 1,
+          chapters: 1,
+          memory_items: 2,
+          drafts_accepted: 1,
+        },
+        {
+          event: "slice_verify.ui_state.done",
+          slice_id: sliceId,
+          work_id: "work-au09",
+          context_work_id: "work-au09",
+          archive_character_count: 1,
+          archive_foreshadowing_count: 1,
+          archive_rule_count: 1,
+          archive_volumes: 1,
+          archive_chapters: 1,
+          archive_memory_items: 2,
+          archive_drafts_total: 2,
+          archive_drafts_accepted: 1,
+          archive_detail_kind: "memory",
+          archive_detail_id: "mem-au09",
+          archive_detail_title: "林澈背后的旧伤",
+          archive_foreign_excluded: true,
+        },
+      ];
+
+      const evidence = findNativeSliceEvidence(sliceId, records);
+      expect(evidence).toMatchObject({
+        slice_id: sliceId,
         work_id: "work-au09",
-        volumes: 1,
-        chapters: 1,
-        memory_items: 2,
-        drafts_accepted: 1,
-      },
-      {
-        event: "slice_verify.ui_state.done",
-        slice_id: "au09-archive-real-data",
-        work_id: "work-au09",
-        context_work_id: "work-au09",
         archive_character_count: 1,
         archive_foreshadowing_count: 1,
         archive_rule_count: 1,
         archive_volumes: 1,
-        archive_memory_items: 2,
-        archive_drafts_accepted: 1,
+        archive_chapters: 1,
+        archive_drafts_total: 2,
         archive_detail_kind: "memory",
-        archive_detail_id: "mem-au09",
         archive_detail_title: "林澈背后的旧伤",
-      },
-    ];
-
-    const evidence = findNativeSliceEvidence("au09-archive-real-data", records);
-    expect(evidence).toMatchObject({
-      slice_id: "au09-archive-real-data",
-      work_id: "work-au09",
-      archive_character_count: 1,
-      archive_foreshadowing_count: 1,
-      archive_rule_count: 1,
-      archive_detail_kind: "memory",
-      archive_detail_title: "林澈背后的旧伤",
-    });
-    expect(findSliceBehaviorEvidence("au09-archive-real-data", records, evidence)).toEqual({
-      slice_id: "au09-archive-real-data",
-      behavior: "archive_panel_reads_real_scoped_work_facts_and_detail",
-      work_id: "work-au09",
-      assertions: [
-        "archive_panel_opened_from_real_workbench",
-        "characters_loaded_from_channel",
-        "foreshadowing_loaded_from_confirmed_memory",
-        "rules_loaded_from_confirmed_memory",
-        "stats_loaded_from_persistence",
-        "foreshadowing_detail_opened_from_archive_list",
-        "no_fixed_mock_archive_items",
-      ],
-    });
+      });
+      expect(findSliceBehaviorEvidence(sliceId, records, evidence)).toEqual({
+        slice_id: sliceId,
+        behavior: "archive_panel_reads_real_scoped_work_facts_and_detail",
+        work_id: "work-au09",
+        assertions: [
+          "archive_panel_opened_from_real_workbench",
+          "characters_loaded_from_channel",
+          "foreshadowing_loaded_from_confirmed_memory",
+          "rules_loaded_from_confirmed_memory",
+          "stats_loaded_from_persistence",
+          "foreshadowing_detail_opened_from_archive_list",
+          "no_fixed_mock_archive_items",
+          ...(sliceId === "au09-archive-stats-current"
+            ? ["foreign_work_archive_items_excluded"]
+            : []),
+        ],
+      });
+    }
   });
 
   it("requires AU-09 adopted setting to be visible in the foreshadowing archive tab", () => {
@@ -2794,6 +3304,97 @@ describe("native Tauri slice verifier", () => {
         "why_panel_excludes_deprecated_and_archived_managed_memory_content",
       ],
     });
+  });
+
+  it("accepts AU-09 memory management filter matrix evidence", () => {
+    const records = [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-memory-management-filter-matrix",
+        work_id: "work-filter",
+        session_id: "session-filter",
+        memory_page_opened_from_workbench: true,
+        alpha_nonce: "筛矩灵印",
+        beta_nonce: "筛矩锁印",
+        gamma_nonce: "筛矩外印",
+        baseline_row_count: 3,
+        keyword_filter_visible_count: 1,
+        type_filter_visible_count: 1,
+        scope_filter_visible_count: 1,
+        status_filter_visible_count: 1,
+        locked_filter_visible_count: 1,
+        combined_filter_visible_count: 1,
+        draft_unlocked_filter_visible_count: 1,
+        keyword_filter_isolated_alpha: true,
+        type_filter_isolated_beta: true,
+        scope_filter_isolated_beta: true,
+        status_filter_isolated_beta: true,
+        locked_filter_isolated_beta: true,
+        combined_filter_isolated_beta: true,
+        draft_unlocked_filter_isolated_gamma: true,
+        memory_list_request_count: 8,
+        request_carried_keyword_filter: true,
+        request_carried_combined_filter: true,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("au09-memory-management-filter-matrix", records);
+    expect(evidence).toEqual({
+      slice_id: "au09-memory-management-filter-matrix",
+      turn_id: null,
+      turn_ids: [],
+      work_id: "work-filter",
+      session_id: "session-filter",
+      alpha_nonce: "筛矩灵印",
+      beta_nonce: "筛矩锁印",
+      gamma_nonce: "筛矩外印",
+      memory_list_request_count: 8,
+      key_events: keyEventsForSlice("au09-memory-management-filter-matrix"),
+    });
+    expect(findSliceBehaviorEvidence("au09-memory-management-filter-matrix", records, evidence)).toEqual(
+      {
+        slice_id: "au09-memory-management-filter-matrix",
+        behavior:
+          "author_filters_current_work_memory_list_by_keyword_type_scope_status_and_locked_state",
+        turn_ids: [],
+        work_id: "work-filter",
+        alpha_nonce: "筛矩灵印",
+        beta_nonce: "筛矩锁印",
+        gamma_nonce: "筛矩外印",
+        memory_list_request_count: 8,
+        assertions: [
+          "author_opened_memory_page_from_real_workbench",
+          "author_created_distinct_current_work_memories_from_real_ui",
+          "keyword_filter_isolated_matching_memory",
+          "type_scope_status_and_locked_filters_isolated_matching_memory",
+          "combined_filter_matrix_kept_only_the_matching_memory",
+          "draft_unlocked_filter_kept_only_the_matching_memory",
+          "memory_list_requests_carried_visible_filter_values",
+        ],
+      },
+    );
+  });
+
+  it("rejects AU-09 memory management filter matrix when a filter does not isolate rows", () => {
+    const records = [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au09-memory-management-filter-matrix",
+        memory_page_opened_from_workbench: true,
+        keyword_filter_isolated_alpha: true,
+        type_filter_isolated_beta: true,
+        scope_filter_isolated_beta: true,
+        status_filter_isolated_beta: false,
+        locked_filter_isolated_beta: true,
+        combined_filter_isolated_beta: true,
+        draft_unlocked_filter_isolated_gamma: true,
+        memory_list_request_count: 8,
+        request_carried_keyword_filter: true,
+        request_carried_combined_filter: true,
+      },
+    ];
+
+    expect(findNativeSliceEvidence("au09-memory-management-filter-matrix", records)).toBeNull();
   });
 
   it("requires AU-09 memory trace roundtrip lifecycle and exclusion evidence", () => {
@@ -4350,6 +4951,369 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("accepts AU-07 ToolTrace registry snapshot and redacted IO evidence", () => {
+    const toolTraceRef = {
+      tool_name: "character_roster",
+      tool_request_ref: "tq-au07-tooltrace",
+      tool_result_ref: "tr-au07-tooltrace",
+      tool_status: "succeeded",
+      registry_snapshot: {
+        tool_name: "character_roster",
+        tool_version: "1.0.0",
+        status: "active",
+        tool_layer: "memory",
+      },
+      contract_refs: {
+        input_contract_ref: "character_roster_query_v1",
+        output_contract_ref: "character_roster_result_v1",
+      },
+      grant_summary: {
+        requested_read_scopes: ["character_list"],
+        requested_write_scopes: [],
+        grants_within_registry: true,
+      },
+      request_summary: { payload_stored: false, keys: ["characters"] },
+      result_summary: { payload_stored: false, keys: ["character_count", "characters"] },
+      io_redaction: { input_payload_stored: false, output_payload_stored: false },
+    };
+    const registrySnapshot = toolTraceRef.registry_snapshot;
+    const contractRefs = toolTraceRef.contract_refs;
+    const grantSummary = toolTraceRef.grant_summary;
+    const requestSummary = toolTraceRef.request_summary;
+    const resultSummary = toolTraceRef.result_summary;
+    const ioRedaction = toolTraceRef.io_redaction;
+    const replayQuestionStatuses = {
+      decision_reason: "answered",
+      planner_vs_decision: "answered",
+      tool_approval: "answered",
+      adoption_boundary: "answered",
+      behavior_lifecycle: "not_applicable",
+      turn_result_surface: "answered",
+    };
+    const replayChainSteps = ["frame", "plan", "decision", "tool_trace", "turn_result"];
+    const records = [
+      {
+        event: "channel.user_message.start",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+        generate_micro_plan: false,
+      },
+      {
+        event: "dialogue_gateway.handle_input.start",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+      },
+      {
+        event: "planner.form_frame.done",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+      },
+      {
+        event: "planner.form_micro_plan.done",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+      },
+      {
+        event: "orchestrator.decide.done",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+        decision_type: "allow_tool",
+      },
+      {
+        event: "context.characters.done",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+        source_type: "character_dossier",
+        character_count: 1,
+      },
+      {
+        event: "toolbox.execute.done",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+        tool_name: "character_roster",
+        tool_outcome: "succeeded",
+      },
+      {
+        event: "dialogue_gateway.handle_input.done",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "au07-tooltrace-registry-redacted-io",
+        turn_id: "turn-au07-tooltrace",
+        workspace_id: "work-au07-tooltrace",
+        work_id: "work-au07-tooltrace",
+        session_id: "session-au07-tooltrace",
+        decision_type: "allow_tool",
+        tool_name: "character_roster",
+        tool_status: "succeeded",
+        tool_called: true,
+        production_write_performed: false,
+        artifact_adopted: false,
+        execution_blocked: false,
+        accepted_character_visible: true,
+        tentative_character_absent: true,
+        foreign_character_absent: true,
+        no_write_statement_visible: true,
+        no_state_delta: true,
+        no_artifact_refs: true,
+        no_author_action_sent: true,
+        no_adoption_event: true,
+        no_execution_controls_visible: true,
+        trace_query_has_tool_trace_ref: true,
+        trace_query_tool_trace_refs: [toolTraceRef],
+        tool_trace_registry_snapshot: registrySnapshot,
+        tool_trace_contract_refs: contractRefs,
+        tool_trace_grant_summary: grantSummary,
+        tool_trace_request_summary: requestSummary,
+        tool_trace_result_summary: resultSummary,
+        tool_trace_io_redaction: ioRedaction,
+        tool_trace_registry_snapshot_complete: true,
+        tool_trace_redacted_io_no_raw_payload: true,
+        replay_report_tool_trace_carries_registry_snapshot: true,
+        replay_report_provider_called: false,
+        replay_report_result_status: "complete",
+        replay_report_missing_trace_refs: [],
+        replay_report_chain_steps: replayChainSteps,
+        replay_report_required_question_count: 6,
+        replay_report_question_statuses: replayQuestionStatuses,
+        replay_report_all_required_questions_answered: true,
+        replay_report_tool_question_answered: true,
+        replay_report_adoption_boundary_answered: true,
+        replay_report_has_frame_plan_decision_tool_turn_result: true,
+        au07_tooltrace_registry_snapshot_closed: true,
+        au07_tooltrace_redacted_io_closed: true,
+        au07_tooltrace_replay_report_chain_closed: true,
+      },
+    ];
+
+    const correlatedRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? record
+        : { duration_ms: 1, outcome: "done", ...record },
+    );
+
+    const evidence = findNativeSliceEvidence(
+      "au07-tooltrace-registry-redacted-io",
+      correlatedRecords,
+    );
+    expect(evidence).toEqual({
+      slice_id: "au07-tooltrace-registry-redacted-io",
+      turn_id: "turn-au07-tooltrace",
+      turn_ids: ["turn-au07-tooltrace"],
+      decision_type: "allow_tool",
+      tool_name: "character_roster",
+      trace_query_tool_trace_refs: [toolTraceRef],
+      tool_trace_registry_snapshot: registrySnapshot,
+      tool_trace_contract_refs: contractRefs,
+      tool_trace_grant_summary: grantSummary,
+      tool_trace_request_summary: requestSummary,
+      tool_trace_result_summary: resultSummary,
+      tool_trace_io_redaction: ioRedaction,
+      replay_report_chain_steps: replayChainSteps,
+      replay_report_question_statuses: replayQuestionStatuses,
+      key_events: keyEventsForSlice("au07-tooltrace-registry-redacted-io"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au07-tooltrace-registry-redacted-io", correlatedRecords, evidence),
+    ).toEqual({
+      slice_id: "au07-tooltrace-registry-redacted-io",
+      behavior: "real_page_tooltrace_carries_registry_snapshot_and_redacted_io",
+      turn_ids: ["turn-au07-tooltrace"],
+      decision_type: "allow_tool",
+      tool_name: "character_roster",
+      trace_query_tool_trace_refs: [toolTraceRef],
+      tool_trace_registry_snapshot: registrySnapshot,
+      tool_trace_contract_refs: contractRefs,
+      tool_trace_grant_summary: grantSummary,
+      tool_trace_request_summary: requestSummary,
+      tool_trace_result_summary: resultSummary,
+      tool_trace_io_redaction: ioRedaction,
+      replay_report_chain_steps: replayChainSteps,
+      replay_report_question_statuses: replayQuestionStatuses,
+      assertions: [
+        "real_workbench_sent_readonly_character_roster_request_from_visible_chat_input",
+        "frame_tool_need_triggered_micro_plan_without_product_acceptance_hook",
+        "orchestrator_allowed_low_risk_character_roster_tool",
+        "toolbox_executed_character_roster_successfully",
+        "accepted_character_visible_without_tentative_or_foreign_character_leakage",
+        "turn_result_reported_tool_called_without_adoption_or_production_write",
+        "no_author_action_adoption_or_execution_controls_visible",
+        "trace_repository_list_by_turn_returned_tool_trace_ref",
+        "deterministic_provider_frame_and_micro_plan_called_for_readonly_tool_turn",
+        "tool_trace_recorded_registry_snapshot_name_version_status_layer",
+        "tool_trace_recorded_input_output_contract_refs",
+        "tool_trace_recorded_grants_within_registry_without_write_grants",
+        "tool_trace_recorded_redacted_request_result_summaries_without_raw_payload",
+        "replay_report_tool_trace_chain_preserved_registry_and_redaction_boundary",
+        "replay_report_built_from_persisted_trace_without_provider_call",
+      ],
+    });
+  });
+
+  it("accepts E2E-01 channel action security when forged protocol actions are rejected", () => {
+    const records = [
+      {
+        event: "channel.join.done",
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+      },
+      {
+        event: "channel.join.done",
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-e2e-sec-1",
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+        duration_ms: 10,
+        outcome: "done",
+      },
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-e2e-sec-2",
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+        duration_ms: 11,
+        outcome: "done",
+      },
+      {
+        event: "channel.author_action.start",
+        turn_id: "turn-e2e-sec-1",
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+        action_id: "act-forged-sec",
+        action_type: "confirm_before_execute",
+      },
+      {
+        event: "channel.author_action.error",
+        turn_id: "turn-e2e-sec-1",
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+        action_id: "act-forged-sec",
+        action_type: "confirm_before_execute",
+        reason_code: "dialogue_gateway_rejected",
+        outcome_detail: "invented action: confirm_before_execute:act-forged-sec not in available actions",
+      },
+      {
+        event: "channel.author_action.start",
+        turn_id: "turn-e2e-sec-1",
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+        action_id: "act-stale-sec",
+        action_type: "confirm_before_execute",
+      },
+      {
+        event: "channel.author_action.error",
+        turn_id: "turn-e2e-sec-1",
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+        action_id: "act-stale-sec",
+        action_type: "confirm_before_execute",
+        reason_code: "dialogue_gateway_rejected",
+        outcome_detail: "stale action: source_turn_ref turn-e2e-sec-1 != current turn-e2e-sec-2",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "e2e-01-channel-action-security",
+        turn_id: "turn-e2e-sec-2",
+        turn_ids: ["turn-e2e-sec-1", "turn-e2e-sec-2"],
+        workspace_id: "work-e2e-sec",
+        work_id: "work-e2e-sec",
+        session_id: "session-e2e-sec",
+        real_page_anchor_visible: true,
+        current_turn_advanced: true,
+        invented_action_id: "act-forged-sec",
+        stale_action_id: "act-stale-sec",
+        invented_action_rejected: true,
+        stale_action_rejected: true,
+        invented_error_reason:
+          "invented action: confirm_before_execute:act-forged-sec not in available actions",
+        stale_error_reason:
+          "stale action: source_turn_ref turn-e2e-sec-1 != current turn-e2e-sec-2",
+        client_source_turn_result_ignored: true,
+        forged_stale_source_rejected: true,
+        author_action_error_count: 2,
+        action_result_broadcast_count_after_rejections: 0,
+        author_action_done_count_for_forged_actions: 0,
+        no_action_result_broadcast_after_rejections: true,
+        no_author_action_done_for_forged_actions: true,
+        product_acceptance_logic_added: false,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("e2e-01-channel-action-security", records);
+    expect(evidence).toEqual({
+      slice_id: "e2e-01-channel-action-security",
+      turn_id: "turn-e2e-sec-2",
+      turn_ids: ["turn-e2e-sec-1", "turn-e2e-sec-2"],
+      work_id: "work-e2e-sec",
+      session_id: "session-e2e-sec",
+      invented_action_id: "act-forged-sec",
+      stale_action_id: "act-stale-sec",
+      invented_error_reason:
+        "invented action: confirm_before_execute:act-forged-sec not in available actions",
+      stale_error_reason:
+        "stale action: source_turn_ref turn-e2e-sec-1 != current turn-e2e-sec-2",
+      author_action_error_count: 2,
+      key_events: keyEventsForSlice("e2e-01-channel-action-security"),
+    });
+    expect(findSliceBehaviorEvidence("e2e-01-channel-action-security", records, evidence)).toEqual({
+      slice_id: "e2e-01-channel-action-security",
+      behavior: "external_protocol_forged_author_actions_rejected_by_server_held_turn_result",
+      turn_ids: ["turn-e2e-sec-1", "turn-e2e-sec-2"],
+      work_id: "work-e2e-sec",
+      session_id: "session-e2e-sec",
+      invented_action_id: "act-forged-sec",
+      stale_action_id: "act-stale-sec",
+      assertions: [
+        "real_tauri_page_joined_before_protocol_fuzzing",
+        "external_protocol_socket_joined_same_work_session",
+        "protocol_user_messages_established_server_held_turn_results",
+        "client_supplied_source_turn_result_did_not_authorize_invented_action",
+        "stale_source_turn_ref_rejected_after_current_turn_advanced",
+        "forged_author_actions_emitted_channel_author_action_error",
+        "forged_author_actions_did_not_broadcast_action_result",
+        "forged_author_actions_did_not_log_author_action_done",
+        "no_product_acceptance_logic_added",
+      ],
+    });
+  });
+
   it("finds AU-10 workbench matrix layout evidence from aggregate UI state and correlated events", () => {
     const records = au10WorkbenchMatrixRecords();
     const evidence = findNativeSliceEvidence("au10-workbench-matrix-layout", records);
@@ -4776,6 +5740,53 @@ describe("native Tauri slice verifier", () => {
     });
   });
 
+  it("finds AU-12 profile read failure degradation evidence", () => {
+    const records = au12ProfileReadFailureDegradeRecords();
+    const evidence = findNativeSliceEvidence("au12-profile-read-failure-degrade", records);
+
+    expect(evidence).toEqual({
+      slice_id: "au12-profile-read-failure-degrade",
+      work_id: "work-au12-read-failure",
+      work_title: "AU12读取失败作品",
+      key_events: keyEventsForSlice("au12-profile-read-failure-degrade"),
+    });
+  });
+
+  it("accepts AU-12 profile read failure behavior only after visible retry recovers real fields", () => {
+    const records = au12ProfileReadFailureDegradeRecords();
+    const evidence = findNativeSliceEvidence("au12-profile-read-failure-degrade", records);
+
+    expect(findSliceBehaviorEvidence("au12-profile-read-failure-degrade", records, evidence)).toEqual({
+      slice_id: "au12-profile-read-failure-degrade",
+      behavior: "work_profile_read_failure_degrades_honestly_and_recovers_on_retry",
+      turn_ids: [],
+      work_id: "work-au12-read-failure",
+      work_title: "AU12读取失败作品",
+      assertions: [
+        "external_driver_stopped_slice_phoenix_service",
+        "real_archive_overview_showed_profile_read_failure",
+        "failure_state_did_not_render_unknown_status_or_empty_profile_rows",
+        "failure_copy_stated_no_fabricated_profile_content",
+        "external_driver_restarted_slice_phoenix_service",
+        "author_clicked_visible_retry_action",
+        "retry_loaded_real_work_profile_fields",
+        "failure_state_cleared_after_retry",
+        "profile_failure_and_retry_stayed_readonly",
+        "no_user_message_or_author_action_frame_sent",
+      ],
+    });
+  });
+
+  it("rejects AU-12 profile read failure evidence when the failure renders as empty fields", () => {
+    const records = au12ProfileReadFailureDegradeRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, profile_failure_rows_hidden: false }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au12-profile-read-failure-degrade", records)).toBeNull();
+  });
+
   it("requires all VS-10 key events on one turn", () => {
     const records = keyEventsForSlice("vs10-observability-spine").map((event) => ({
       event,
@@ -5070,6 +6081,95 @@ describe("native Tauri slice verifier", () => {
     );
 
     expect(findNativeSliceEvidence("au08-adoption-reading-projection", records)).toBeNull();
+  });
+
+  it("accepts AU-08 reading readonly no-write when export and return stay readonly", () => {
+    const records = au08ReadingReadonlyNoWriteRecords();
+    const evidence = findNativeSliceEvidence("au08-reading-readonly-no-write", records);
+
+    expect(evidence).toMatchObject({
+      slice_id: "au08-reading-readonly-no-write",
+      turn_id: "turn-au08-readonly-draft",
+      draft_turn_id: "turn-au08-readonly-draft",
+      export_path: "/tmp/au08-readonly.md",
+      export_chapter_count: 1,
+      reading_write_control_count: 0,
+      author_action_sent_count_during_reading: 0,
+      user_message_sent_count_during_reading: 0,
+      toolbox_execute_count_during_reading: 0,
+      key_events: keyEventsForSlice("au08-reading-readonly-no-write"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au08-reading-readonly-no-write", records, evidence),
+    ).toMatchObject({
+      slice_id: "au08-reading-readonly-no-write",
+      behavior: "reading_mode_view_export_and_return_stay_readonly_without_write_controls",
+      turn_ids: ["turn-au08-readonly-draft"],
+      export_path: "/tmp/au08-readonly.md",
+      assertions: expect.arrayContaining([
+        "reading_mode_exposes_no_adoption_confirmation_or_chat_write_controls",
+        "reading_mode_export_and_return_emit_no_author_action_or_user_message",
+        "reading_mode_export_and_return_do_not_trigger_adoption_or_tool_execution",
+        "reading_mode_export_and_return_do_not_claim_production_write",
+        "workbench_context_returns_with_input_enabled_after_reading",
+      ]),
+    });
+  });
+
+  it("rejects AU-08 reading readonly evidence when reading emits author action", () => {
+    const records = au08ReadingReadonlyNoWriteRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            no_author_action_sent_during_reading: false,
+            author_action_sent_count_during_reading: 1,
+          }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au08-reading-readonly-no-write", records)).toBeNull();
+  });
+
+  it("accepts AU-08 reading return context when follow-up stays in the same work/session", () => {
+    const records = au08ReadingReturnContextRecords();
+    const evidence = findNativeSliceEvidence("au08-reading-return-context", records);
+
+    expect(evidence).toMatchObject({
+      slice_id: "au08-reading-return-context",
+      turn_id: "turn-au08-return-followup",
+      draft_turn_id: "turn-au08-readonly-draft",
+      adopt_turn_id: "turn-au08-readonly-adopt",
+      followup_turn_id: "turn-au08-return-followup",
+      work_id: "work-au08-readonly",
+      session_id: "session-au08-readonly",
+      key_events: keyEventsForSlice("au08-reading-return-context"),
+    });
+    expect(
+      findSliceBehaviorEvidence("au08-reading-return-context", records, evidence),
+    ).toMatchObject({
+      slice_id: "au08-reading-return-context",
+      behavior: "reading_return_preserves_workbench_work_and_session_for_followup_turn",
+      followup_turn_id: "turn-au08-return-followup",
+      work_id: "work-au08-readonly",
+      session_id: "session-au08-readonly",
+      assertions: expect.arrayContaining([
+        "reading_mode_return_button_restores_real_workbench",
+        "followup_message_after_return_uses_same_work_id",
+        "followup_message_after_return_uses_same_session_id",
+        "followup_turn_result_received_in_same_session",
+      ]),
+    });
+  });
+
+  it("rejects AU-08 reading return context when follow-up switches session", () => {
+    const records = au08ReadingReturnContextRecords().map((record) =>
+      record.event === "channel.user_message.done" &&
+      record.turn_id === "turn-au08-return-followup"
+        ? { ...record, session_id: "session-other" }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("au08-reading-return-context", records)).toBeNull();
   });
 
   it("accepts P1 chapter draft generation only when draft stays pending outside reading mode", () => {
@@ -6378,6 +7478,45 @@ function au12WorkProfileStatusIsolationRecords() {
       has_title: true,
       field_count: 4,
       status: "TENTATIVE",
+    },
+  ];
+}
+
+function au12ProfileReadFailureDegradeRecords() {
+  return [
+    {
+      event: "channel.join.done",
+      work_id: "work-au12-read-failure",
+      outcome: "ok",
+    },
+    {
+      event: "channel.get_work_profile.done",
+      has_title: true,
+      field_count: 8,
+      status: "TENTATIVE",
+    },
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au12-profile-read-failure-degrade",
+      work_id: "work-au12-read-failure",
+      work_title: "AU12读取失败作品",
+      profile_read_failure_visible: true,
+      profile_retry_visible: true,
+      profile_failure_copy_honest: true,
+      profile_failure_rows_hidden: true,
+      service_stopped_externally: true,
+      offline_status_visible: true,
+      service_restarted_externally: true,
+      rejoin_observed: true,
+      reconnected_status_visible: true,
+      retry_clicked: true,
+      profile_retry_log_emitted: true,
+      profile_retry_recovered_fields: true,
+      failure_cleared_after_retry: true,
+      readonly_no_write_logs: true,
+      readonly_no_author_action_frames: true,
+      real_archive_opened: true,
+      overview_tab_clicked: true,
     },
   ];
 }
@@ -8280,6 +9419,166 @@ function au08ReadingProjectionRecords(turnId) {
   ];
 }
 
+function au08ReadingReadonlyNoWriteRecords() {
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "au08-reading-readonly-no-write",
+      turn_id: "turn-au08-readonly-draft",
+      draft_turn_id: "turn-au08-readonly-draft",
+      adopt_turn_id: "turn-au08-readonly-adopt",
+      workspace_id: "work-au08-readonly",
+      work_id: "work-au08-readonly",
+      session_id: "session-au08-readonly",
+      artifact_id: "artifact-au08-readonly",
+      artifact_type: "prose_fragment",
+      chapter_title: "第01章：底层灵气账单",
+      accept_event_sent: true,
+      accept_button_cleared_after_adoption: true,
+      artifact_adopted: true,
+      reading_mode_populated_after_adoption: true,
+      total_word_count: 120,
+      chapter_word_count: 120,
+      expected_word_count: 120,
+      word_count_matches_adopted_prose: true,
+      projection_refresh_status: "STALE",
+      projection_stale_banner_visible: true,
+      projection_refresh_button_visible: true,
+      user_message_text: "请根据已采纳章节计划生成第01章：底层灵气账单正文草稿",
+      reading_mode_visible_before_export: true,
+      reading_export_button_visible: true,
+      reading_back_button_visible: true,
+      chat_input_absent_in_reading: true,
+      reading_write_control_count: 0,
+      reading_write_controls_hidden: true,
+      real_export_button_clicked: true,
+      export_path: "/tmp/au08-readonly.md",
+      export_done: true,
+      export_chapter_count: 1,
+      author_action_sent_count_during_reading: 0,
+      user_message_sent_count_during_reading: 0,
+      channel_author_action_log_count_during_reading: 0,
+      adoption_event_count_during_reading: 0,
+      toolbox_execute_count_during_reading: 0,
+      production_write_claim_count_during_reading: 0,
+      no_author_action_sent_during_reading: true,
+      no_user_message_sent_during_reading: true,
+      no_channel_author_action_log_during_reading: true,
+      no_adoption_event_during_reading: true,
+      no_tool_dispatch_during_reading: true,
+      no_production_write_claim_during_reading: true,
+      returned_to_workbench: true,
+      chat_input_enabled_after_return: true,
+      send_button_enabled_after_return: true,
+    },
+    {
+      event: "channel.user_message.start",
+      turn_id: "turn-au08-readonly-draft",
+      workspace_id: "work-au08-readonly",
+      work_id: "work-au08-readonly",
+      session_id: "session-au08-readonly",
+      generate_micro_plan: true,
+    },
+    {
+      event: "toolbox.execute.done",
+      turn_id: "turn-au08-readonly-draft",
+      workspace_id: "work-au08-readonly",
+      work_id: "work-au08-readonly",
+      tool_name: "prose_writing",
+      tool_outcome: "succeeded",
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: "turn-au08-readonly-draft",
+      workspace_id: "work-au08-readonly",
+      work_id: "work-au08-readonly",
+      session_id: "session-au08-readonly",
+    },
+    {
+      event: "channel.author_action.done",
+      turn_id: "turn-au08-readonly-adopt",
+      workspace_id: "work-au08-readonly",
+      work_id: "work-au08-readonly",
+      action_type: "accept",
+      action_status: "accepted",
+    },
+    {
+      event: "channel.get_toc.done",
+      work_id: "work-au08-readonly",
+      chapter_count: 1,
+    },
+    {
+      event: "channel.get_chapter_content.done",
+      work_id: "work-au08-readonly",
+      content_chars: 120,
+    },
+    {
+      event: "channel.export_work.done",
+      work_id: "work-au08-readonly",
+      export_path: "/tmp/au08-readonly.md",
+      chapter_count: 1,
+      total_word_count: 120,
+    },
+  ];
+}
+
+function au08ReadingReturnContextRecords() {
+  const followupTurnId = "turn-au08-return-followup";
+  const followupText = "从阅读返回后，请继续聊第01章开场的读者压力，不要写正文。";
+  const records = au08ReadingReadonlyNoWriteRecords()
+    .filter((record) => record.event !== "channel.export_work.done")
+    .map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            slice_id: "au08-reading-return-context",
+            turn_id: followupTurnId,
+            followup_turn_id: followupTurnId,
+            original_work_id: "work-au08-readonly",
+            original_session_id: "session-au08-readonly",
+            returned_to_workbench: true,
+            workbench_visible_after_return: true,
+            chat_input_enabled_after_return: true,
+            send_button_enabled_after_return: true,
+            no_author_action_sent_on_return: true,
+            no_user_message_sent_on_return: true,
+            welcome_count_before_return: 1,
+            welcome_count_after_return: 1,
+            no_new_welcome_after_return: true,
+            followup_user_message_sent: true,
+            followup_turn_result_received: true,
+            followup_channel_done_same_scope: true,
+            followup_visible_in_transcript: true,
+            followup_user_message_text: followupText,
+            work_id_preserved_after_return: true,
+            session_id_preserved_after_return: true,
+            followup_done_work_id: "work-au08-readonly",
+            followup_done_session_id: "session-au08-readonly",
+          }
+        : record,
+    );
+
+  return [
+    ...records,
+    {
+      event: "channel.user_message.start",
+      turn_id: followupTurnId,
+      workspace_id: "work-au08-readonly",
+      work_id: "work-au08-readonly",
+      session_id: "session-au08-readonly",
+      generate_micro_plan: false,
+      text: followupText,
+    },
+    {
+      event: "channel.user_message.done",
+      turn_id: followupTurnId,
+      workspace_id: "work-au08-readonly",
+      work_id: "work-au08-readonly",
+      session_id: "session-au08-readonly",
+    },
+  ];
+}
+
 function p1ChapterDraftGenerationRecords(turnId) {
   return [
     {
@@ -9412,6 +10711,13 @@ function au06SingleActiveConfirmationRecords() {
       second_confirm_action_id: "confirm-au06-second",
       first_confirm_action_behavior_ref: "behavior-au06-first",
       second_confirm_action_behavior_ref: "behavior-au06-second",
+      second_turn_behavior_context_ref_visible: true,
+      second_turn_behavior_context_author_safe: true,
+      second_turn_behavior_context_summary:
+        "当前有待作者确认的操作：章节正文草稿；确认或取消前不能执行工具或写入作品事实。",
+      second_turn_behavior_context_redaction_level: "author_safe",
+      second_turn_behavior_context_ref: "ctx-au06-behavior",
+      second_turn_behavior_context_source_id: "",
       distinct_behavior_refs: true,
       first_tool_called_before_confirm: false,
       first_production_write_before_confirm: false,

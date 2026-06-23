@@ -1,0 +1,62 @@
+id: au07-partial-replay-ui
+title: 旧 turn partial replay 诚实提示
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au07-partial-replay-ui --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-07-trace-and-replay.md
+  - docs/design/contracts/VS-06-replay-surface-contract-pack.md
+  - docs/design/adr/ADR-0014-trace-redaction-v3.md
+  - docs/design/adr/ADR-0017-replay-report-v3.md
+
+invariants:
+  - incomplete-replay-must-render-partial-status
+  - persisted-trace-query-is-scoped-by-work-session-turn
+  - replay-does-not-call-provider
+  - no-production-write-for-why-dialog
+  - author-safe-replay-summary
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - input: 这一轮请只聊林烬进入灵源矿区前的心理压力，不要写正文。
+  - wait_for: assistant turn result visible and transcript persisted
+  - harness_insert: incomplete persisted trace in the same work/session/turn scope, missing turn_result_ref and tool_trace_refs
+  - reload: real workbench restores the old turn from the active session transcript
+  - click: 为什么 on the restored assistant message
+  - observe: author-safe why dialog shows partial replay warning and no-provider replay text
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - replay_api_response
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au07-partial-replay-ui-tauri
+
+assertions:
+  ui:
+    - why entry is opened from the restored real message stream
+    - partial replay warning is visible
+    - raw prompt, provider raw log, hidden policy, debug text, trace ids, and context ids are not visible
+    - dialog states replay does not call the model again
+  network:
+    - user_message sent from real workbench
+    - replay API request uses work_id, session_id, and turn_id scope
+  data:
+    - replay response work/session/turn ids match the visible turn
+    - replay_report.result_status is partial
+    - replay_report.missing_trace_refs is non-empty
+    - replay_report.provider_called is false
+    - turn does not perform a production write
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

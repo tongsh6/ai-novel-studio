@@ -238,8 +238,21 @@ function detailLines(summary: TraceSummaryLike): string[] {
   if (recovery) lines.push(TRACE.recoveryApplied);
 
   lines.push(...aiMessageEnvelopeLines(summary.ai_message_envelope));
+  lines.push(...replayIntegrityLines(summary));
 
   return unique(lines);
+}
+
+function replayIntegrityLines(summary: TraceSummaryLike): string[] {
+  const lines: string[] = [];
+  const replayStatus = stringValue(summary.replay_result_status);
+  const providerCalled = booleanValue(summary.replay_provider_called);
+
+  if (replayStatus === "complete") lines.push(TRACE.replayComplete);
+  if (replayStatus === "partial") lines.push(TRACE.replayPartial);
+  if (providerCalled === false) lines.push(TRACE.replayNoProvider);
+
+  return lines;
 }
 
 function aiMessageEnvelopeLines(value: unknown): string[] {
@@ -347,4 +360,11 @@ function stringValue(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function booleanValue(value: unknown): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (value === "true") return true;
+  if (value === "false") return false;
+  return null;
 }

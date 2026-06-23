@@ -1,0 +1,47 @@
+id: e2e-01-channel-action-security
+title: E2E-01 Channel action 来源与授权安全回归
+tier: nightly
+surface: tauri
+runner: tauri_slice_verify
+default_provider: slice_verify
+entrypoint: scripts/quality_accept.sh e2e-01-channel-action-security --surface tauri
+contract:
+  - docs/design/acceptance/e2e/E2E-01-full-chain.md
+  - docs/design/contracts/VS-03-execution-confirmation-contract-pack.md
+  - docs/engineering/scenario-acceptance.md
+invariants:
+  - author_action 只能由服务端保存的 source TurnResult available_actions 授权。
+  - 客户端提交的 source_turn_result 字段不得参与授权。
+  - 当前 turn 推进后，旧 source_turn_ref 的确认类 author_action 必须被判 stale。
+  - 被拒绝的 forged author_action 不得广播 action_result，不得记录 author_action.done，不得触发 adoption 或 production write。
+setup:
+  provider: slice_verify
+  runner: scripts/tauri_slice_verify.sh
+  artifact_dir: artifacts/slice-verify/e2e-01-channel-action-security-tauri
+user_flow:
+  - 打开真实 Tauri workbench 并确认真实 work/session 已连接。
+  - 外部协议 socket 加入同一个 work/session。
+  - 外部协议 socket 发送两轮普通 user_message，建立服务端持有的 source TurnResult 并推进 current turn。
+  - 外部协议 socket 发送包含伪造 source_turn_result 的 invented author_action。
+  - 外部协议 socket 发送旧 source_turn_ref 的 forged author_action。
+evidence:
+  required:
+    - artifacts/slice-verify/e2e-01-channel-action-security-tauri/summary.json
+    - artifacts/slice-verify/e2e-01-channel-action-security-tauri/app-log
+    - artifacts/slice-verify/e2e-01-channel-action-security-tauri/ui-state.json
+assertions:
+  data:
+    - real_tauri_page_joined_before_protocol_fuzzing
+    - external_protocol_socket_joined_same_work_session
+    - protocol_user_messages_established_server_held_turn_results
+    - client_supplied_source_turn_result_did_not_authorize_invented_action
+    - stale_source_turn_ref_rejected_after_current_turn_advanced
+    - forged_author_actions_emitted_channel_author_action_error
+    - forged_author_actions_did_not_broadcast_action_result
+    - forged_author_actions_did_not_log_author_action_done
+    - no_product_acceptance_logic_added
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

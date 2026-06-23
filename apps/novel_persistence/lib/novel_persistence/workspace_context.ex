@@ -42,8 +42,9 @@ defmodule NovelPersistence.WorkspaceContext do
 
       structured_chapters = fetch_structured_chapters(workspace_id)
 
-      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, nil), nil,
-       titles_from_structured_chapters(structured_chapters), structured_chapters}
+      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, nil),
+       fetch_behavior_summary(workspace_id), titles_from_structured_chapters(structured_chapters),
+       structured_chapters}
     end
   end
 
@@ -61,7 +62,8 @@ defmodule NovelPersistence.WorkspaceContext do
 
       structured_chapters = fetch_structured_chapters(workspace_id)
 
-      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, author_text), nil,
+      {:ok, snapshot, conv_summary, fetch_memory_summary(workspace_id, author_text),
+       fetch_behavior_summary(workspace_id, session_id),
        titles_from_structured_chapters(structured_chapters), structured_chapters}
     end
   end
@@ -256,6 +258,97 @@ defmodule NovelPersistence.WorkspaceContext do
 
   defp fetch_conversation_summary(workspace_id, _session_id),
     do: fetch_conversation_summary(workspace_id)
+
+  defp fetch_behavior_summary(workspace_id), do: fetch_behavior_summary(workspace_id, nil)
+
+  defp fetch_behavior_summary(workspace_id, session_id)
+       when is_binary(session_id) and session_id != "" do
+    from(i in Interaction,
+      join: s in WorkSession,
+      on: i.session_id == s.id,
+      where:
+        i.workspace_id == ^workspace_id and i.session_id == ^session_id and
+          s.status != ^@archived_status and i.role == "assistant",
+      order_by: [desc: i.inserted_at, desc: i.id],
+      limit: 1
+    )
+    |> Repo.one()
+    |> latest_active_behavior_summary()
+  end
+
+  defp fetch_behavior_summary(workspace_id, _session_id) do
+    from(i in Interaction,
+      left_join: s in WorkSession,
+      on: i.session_id == s.id,
+      where:
+        i.workspace_id == ^workspace_id and i.role == "assistant" and
+          (is_nil(i.session_id) or s.status != ^@archived_status),
+      order_by: [desc: i.inserted_at, desc: i.id],
+      limit: 1
+    )
+    |> Repo.one()
+    |> latest_active_behavior_summary()
+  end
+
+  defp latest_active_behavior_summary(%Interaction{content: content}) when is_map(content) do
+    content
+    |> map_field(:turn_result)
+    |> map_field(:behavior_state)
+    |> map_field(:active)
+    |> active_behavior_summary()
+  end
+
+  defp latest_active_behavior_summary(_interaction), do: nil
+
+  defp active_behavior_summary(active) when is_map(active) do
+    behavior_type = active |> map_field(:behavior_type) |> normalize_behavior_token()
+    target_label = active |> map_field(:target_ref) |> behavior_target_label()
+
+    case behavior_type do
+      "confirmation" ->
+        "当前有待作者确认的操作#{target_label}；确认或取消前不能执行工具或写入作品事实。"
+
+      "clarification" ->
+        "当前有待作者补充信息的追问；收到回答前不能继续执行。"
+
+      "recovery" ->
+        "当前有待作者处理的恢复步骤；完成前不要假设系统已继续执行。"
+
+      nil ->
+        nil
+
+      _ ->
+        "当前有待作者处理的动作#{target_label}；收到下一步前不能视为已完成。"
+    end
+  end
+
+  defp active_behavior_summary(_active), do: nil
+
+  defp behavior_target_label(value) do
+    case normalize_behavior_token(value) do
+      "prose_writing" -> "：章节正文草稿"
+      "world_building" -> "：作品设定"
+      "outline" -> "：大纲"
+      "candidate_direction" -> "：候选方向"
+      _ -> ""
+    end
+  end
+
+  defp normalize_behavior_token(value) when is_atom(value), do: Atom.to_string(value)
+
+  defp normalize_behavior_token(value) when is_binary(value) do
+    value
+    |> String.trim()
+    |> blank_to_nil()
+  end
+
+  defp normalize_behavior_token(_value), do: nil
+
+  defp map_field(map, field) when is_map(map) do
+    Map.get(map, field) || Map.get(map, to_string(field))
+  end
+
+  defp map_field(_map, _field), do: nil
 
   defp fetch_active_session(workspace_id, session_id) do
     from(s in WorkSession,

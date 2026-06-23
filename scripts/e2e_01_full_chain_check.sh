@@ -223,6 +223,19 @@ const requiredArtifacts = [
     ],
   },
   {
+    scenario_ids: ["E8", "E13"],
+    rel_path: "artifacts/slice-verify/e2e-01-channel-action-security-tauri/summary.json",
+    slice_id: "e2e-01-channel-action-security",
+    provider: "slice_verify",
+    assertions: [
+      "client_supplied_source_turn_result_did_not_authorize_invented_action",
+      "stale_source_turn_ref_rejected_after_current_turn_advanced",
+      "forged_author_actions_emitted_channel_author_action_error",
+      "forged_author_actions_did_not_broadcast_action_result",
+      "forged_author_actions_did_not_log_author_action_done",
+    ],
+  },
+  {
     scenario_ids: ["E11"],
     rel_path: "artifacts/slice-verify/au01-garbage-json-recovery-tauri/summary.json",
     slice_id: "au01-garbage-json-recovery",
@@ -364,8 +377,11 @@ const scenarioMatrix = [
   {
     id: "E8",
     name: "幂等与安全",
-    status: "部分实现",
-    evidence: ["mix-channel-replay-trace"],
+    status: "已验收",
+    evidence: [
+      "artifacts/slice-verify/e2e-01-channel-action-security-tauri/summary.json",
+      "mix-channel-replay-trace",
+    ],
   },
   {
     id: "E9",
@@ -403,8 +419,12 @@ const scenarioMatrix = [
   {
     id: "E13",
     name: "Action 来源校验",
-    status: "已测试",
-    evidence: ["mix-e2e-integration", "mix-real-lmstudio"],
+    status: "已验收",
+    evidence: [
+      "artifacts/slice-verify/e2e-01-channel-action-security-tauri/summary.json",
+      "mix-e2e-integration",
+      "mix-real-lmstudio",
+    ],
   },
 ];
 
@@ -438,16 +458,10 @@ const summary = {
   ],
   remaining_gaps: [
     {
-      scenario_id: "E8",
-      status: "部分实现",
-      gap: "invented action negative 属恶意 Channel payload，正常 UI 不提供构造入口；继续由 Channel security regression 覆盖。",
-      priority: "P2",
-    },
-    {
-      scenario_id: "E13",
+      scenario_id: "E10",
       status: "已测试",
-      gap: "forged source_turn_result negative 属恶意 Channel payload，正常 UI 不提供构造入口；继续由 Channel security regression 覆盖。",
-      priority: "P2",
+      gap: "application/persistence trace roundtrip 已闭合；普通旧 turn / developer / 多类型 trace query UI 继续归 AU-07 cross-reference owner。",
+      priority: "cross-reference",
     },
   ],
 };

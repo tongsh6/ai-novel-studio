@@ -47,6 +47,7 @@ import {
   resumeWorkspace,
   searchSessions,
   getSessionSnapshot,
+  getTurnReplay,
   createWorkSession,
   archiveWorkSession,
   transcriptToMessages,
@@ -1751,10 +1752,33 @@ export function WorkspaceChat() {
     }
   };
 
-  const openTraceDialog = (turnId: string, traceSummary?: Record<string, unknown>) => {
-    const summary = toAuthorTraceSummary(traceSummary);
-    if (!summary) return;
-    setTraceDialog({ turnId, summary });
+  const traceUnavailableSummary = (): TraceSummaryView => ({
+    primaryReason: TRACE.replayUnavailable,
+    decisionLabel: TRACE.decisions.unknown,
+    goal: null,
+    contextSources: [],
+    detailLines: [],
+    integrityNote: TRACE.integrityNote,
+  });
+
+  const openTraceDialog = async (turnId: string, traceSummary?: Record<string, unknown>) => {
+    const fallbackSummary = toAuthorTraceSummary(traceSummary);
+    if (fallbackSummary) setTraceDialog({ turnId, summary: fallbackSummary });
+
+    const workId = context.workId;
+    const sessionId = readOnlySession?.id ?? activeSessionIdRef.current;
+    if (!workId || workId === "lobby" || !sessionId) {
+      if (!fallbackSummary) setTraceDialog({ turnId, summary: traceUnavailableSummary() });
+      return;
+    }
+
+    try {
+      const replay = await getTurnReplay(workId, sessionId, turnId);
+      const replaySummary = toAuthorTraceSummary(replay.trace_summary);
+      if (replaySummary) setTraceDialog({ turnId, summary: replaySummary });
+    } catch {
+      if (!fallbackSummary) setTraceDialog({ turnId, summary: traceUnavailableSummary() });
+    }
   };
 
   const llmBadgeClassName = [
@@ -2475,13 +2499,13 @@ export function WorkspaceChat() {
                   })()}
                 <div className={styles.text}>{msg.text}</div>
 
-                {msg.role === "assistant" && msg.turnResult?.trace_summary && (
+                {msg.role === "assistant" && msg.turnResult && (
                   <button
                     className={styles.traceWhyButton}
                     type="button"
                     title={TRACE.actionTitle}
                     onClick={() =>
-                      openTraceDialog(msg.turnResult!.turn_id, msg.turnResult!.trace_summary)
+                      void openTraceDialog(msg.turnResult!.turn_id, msg.turnResult!.trace_summary)
                     }
                   >
                     <CircleHelp size={14} aria-hidden="true" />

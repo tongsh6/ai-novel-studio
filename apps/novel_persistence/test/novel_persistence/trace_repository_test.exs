@@ -3,7 +3,9 @@ defmodule NovelPersistence.TraceRepositoryTest do
 
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelPersistence.Repo
+  alias NovelPersistence.Schemas.Work
   alias NovelPersistence.TraceRepository
+  alias NovelPersistence.WorkSessionRepo
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -112,6 +114,40 @@ defmodule NovelPersistence.TraceRepositoryTest do
 
       traces = TraceRepository.list_by_turn(turn_id)
       assert length(traces) == 1
+    end
+  end
+
+  describe "list_by_scope/3" do
+    test "returns only traces matching work, session, and turn" do
+      turn_id = "turn-scope-#{System.unique_integer([:positive, :monotonic])}"
+      {:ok, work} = %Work{} |> Work.changeset(%{title: "scope work"}) |> Repo.insert()
+      {:ok, miss_session} = WorkSessionRepo.create(%{work_id: work.id, title: "miss session"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "hit session"})
+
+      TraceRepository.insert(%{
+        workspace_id: work.id,
+        session_id: miss_session.id,
+        trace_id: "trace-scope-miss-#{System.unique_integer([:positive, :monotonic])}",
+        turn_id: turn_id,
+        frame_ref: "frame-scope-miss",
+        decision_type: "reply_only",
+        event_order: ["turn_result_emitted"]
+      })
+
+      trace_id = "trace-scope-hit-#{System.unique_integer([:positive, :monotonic])}"
+
+      TraceRepository.insert(%{
+        workspace_id: work.id,
+        session_id: session.id,
+        trace_id: trace_id,
+        turn_id: turn_id,
+        frame_ref: "frame-scope-hit",
+        decision_type: "reply_only",
+        event_order: ["turn_result_emitted"]
+      })
+
+      assert [%{trace_id: ^trace_id}] =
+               TraceRepository.list_by_scope(work.id, session.id, turn_id)
     end
   end
 

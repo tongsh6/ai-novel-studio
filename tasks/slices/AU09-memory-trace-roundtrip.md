@@ -43,7 +43,7 @@
 
 ## 4. 当前缺口
 
-- 本 checkpoint 用现有 `memory_reference_logs` 承载 author-safe lifecycle/reference 追溯；完整独立 `MemoryTrace` / `StateTrace` 表、developer replay 和历史旧 turn 查询仍属于后续 trace/replay 深化。
+- 本 checkpoint 用现有 `memory_reference_logs` 承载 author-safe lifecycle/reference 追溯；普通旧 turn scoped query 与 partial replay UI 已由 AU-07 回填；完整独立 `MemoryTrace` / `StateTrace` 表、developer replay 和多类型 replay UI 仍属于后续 trace/replay 深化。
 - blocked locked terminal action 已有 service/schema 测试和 blocked trace；真实页面侧因为按钮禁用，不产生一次作者失败提交。
 - 有效期窗口、跨作品 UI 隔离、AU-03 historical/active session 分层仍是后续 checkpoint，不在本 slice 中冒充完成。
 

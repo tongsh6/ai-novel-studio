@@ -1,8 +1,6 @@
 id: p1-chapter-plan-minimum
 title: 章节计划最小闭环
-tier: known-gap
-status: blocked
-blocked_reason: actual turn_result currently reports chapter_count=1 while manifest/driver expect chapter_count=12
+tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh p1-chapter-plan-minimum --surface tauri
 

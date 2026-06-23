@@ -12,7 +12,7 @@
 
 PR smoke 不应把所有 Tauri 场景塞进 blocking job。它只用于防止 manifest 漏登记和最核心路径回归。
 
-Tauri PR smoke scenario gate is not yet PR-blocking because no stable passing Tauri scenario is registered. 已知失败场景不得保留在 `pr-smoke` 中；例如 `p1-chapter-plan-minimum` 当前登记为 `known-gap`。
+Tauri PR smoke scenario gate 是否 blocking 由当前 CI 配置决定；已知失败场景不得保留在 `pr-smoke` 中。2026-06-22 复核：`p1-chapter-plan-minimum` 已由真实 Tauri 12 章证据恢复为 `nightly`，不再是 known gap 示例。
 
 ## Nightly
 

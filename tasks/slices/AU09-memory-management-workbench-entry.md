@@ -46,7 +46,7 @@
 
 - 作品档案伏笔/规则 roundtrip 已闭环；正式工作台记忆入口、创建/确认/锁定/废弃/归档与 recall/why 基础生命周期也已闭环。
 - `frontend/src/lib/memoryApi.ts`、后端 REST 与真实工作台入口当前可达；本 checkpoint 复用真实 REST/API/UI，不新增生产验收钩子。
-- AU-09 整体仍不能标 done：lifecycle/reference 最小 trace、章节有效期窗口、跨作品隔离和 AU-03 会话分层后续已补；管理页仍是 Phase 0 UI，缺正式设计原型/追溯、完整 MemoryTrace/StateTrace/replay、历史旧 turn 查询和 Channel 管理入口。
+- AU-09 整体仍不能标 done：lifecycle/reference 最小 trace、章节有效期窗口、跨作品隔离和 AU-03 会话分层后续已补；普通旧 turn scoped query 与 partial replay UI 已由 AU-07 回填；管理页仍是 Phase 0 UI，缺正式设计原型/追溯、完整 MemoryTrace/StateTrace/replay、多类型 replay UI 和 Channel 管理入口。
 
 ## 5. 验证
 

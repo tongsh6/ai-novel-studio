@@ -1,0 +1,62 @@
+id: p1-chapter-overwrite-confirm
+title: 覆盖已有章节必须确认并原位替换
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-chapter-overwrite-confirm --surface tauri
+
+contract:
+  - docs/engineering/scenario-acceptance.md
+  - docs/design/acceptance/author/AU-04-execute-and-confirm.md
+  - docs/design/acceptance/author/AU-05-artifact-adoption.md
+  - docs/design/acceptance/author/AU-08-reading-mode.md
+  - docs/design/contracts/VS-04-adoption-boundary-contract-pack.md
+  - tasks/slices/P1-chapter-adoption-reading.md
+
+invariants:
+  - overwrite-existing-prose-requires-confirmation
+  - confirmation-re-gates-before-production-write
+  - reading-projection-replaces-in-place-without-duplicate-chapter
+  - author-action-must-be-server-authorized
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate_and_accept: chapter 1 prose
+  - generate_again: same chapter prose
+  - observe: overwrite confirmation required before write
+  - click: 确认执行
+  - open: 阅读模式
+  - observe: chapter count remains 1 and content is replaced in place
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-chapter-overwrite-confirm-tauri
+
+assertions:
+  ui:
+    - overwrite confirmation card is visible before the second write
+    - confirm action is clicked from the real workbench
+    - reading mode shows a single chapter after overwrite
+  network:
+    - author_action confirm is sent only for the server-authorized action
+    - confirmation re-gate completes before adoption write
+    - get_toc reports one final chapter
+  data:
+    - no production write occurs before confirmation
+    - final_chapter_count is 1
+    - old accepted draft is superseded rather than duplicated
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

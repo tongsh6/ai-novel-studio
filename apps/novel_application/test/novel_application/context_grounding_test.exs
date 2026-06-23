@@ -198,6 +198,24 @@ defmodule NovelApplication.ContextGroundingTest do
 
       assert String.contains?(text, "无")
     end
+
+    test "assembles behavior summary into prompt text and author-safe context refs" do
+      fetcher = fn _ws_id ->
+        {:ok, nil, nil, nil, "当前有待作者确认的操作：章节正文草稿；确认或取消前不能执行工具或写入作品事实。"}
+      end
+
+      ctx = ContextAssembler.assemble("ws-behavior", fetcher)
+      ref = Enum.find(ctx.context_refs, &(&1.source_type == :behavior))
+      text = DialogueContext.to_prompt_text(ctx)
+
+      assert DialogueContext.has_context?(ctx)
+      assert ctx.open_behavior_summary =~ "待作者确认"
+      assert ref.summary =~ "待作者确认"
+      assert ref.source_id == "behavior_summary"
+      assert ref.redaction_level == :author_safe
+      assert text =~ "## 当前待处理动作"
+      assert text =~ "不能执行工具或写入作品事实"
+    end
   end
 
   # ── Grounded vs Ungrounded Turn ──────────────

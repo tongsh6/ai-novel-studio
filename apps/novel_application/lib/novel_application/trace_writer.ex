@@ -3,6 +3,7 @@ defmodule NovelApplication.TraceWriter do
   v3 trace 写入。覆盖 reply_only、decision、tool、recovery 全部 trace 类型。
   """
 
+  alias NovelApplication.CapabilityRegistry
   alias NovelApplication.TraceRedactor
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
@@ -311,16 +312,167 @@ defmodule NovelApplication.TraceWriter do
   defp allocate_trace_id, do: "trace_#{System.unique_integer([:positive, :monotonic])}"
 
   defp tool_trace_ref(%ToolRequest{} = req, %ToolResult{} = result, %OrchestratorDecision{} = d) do
+    registry_snapshot = tool_registry_snapshot(req.tool_name)
+
     %{
-      trace_status: :summary_level,
+      trace_status: :registry_snapshot,
       tool_request_ref: req.tool_request_id,
       tool_result_ref: result.tool_result_id,
       tool_name: req.tool_name,
       tool_version: req.tool_version,
       tool_status: result.status,
-      decision_ref: d.decision_id
+      decision_ref: d.decision_id,
+      registry_snapshot: registry_snapshot,
+      contract_refs: %{
+        input_contract_ref: registry_snapshot.input_contract_ref,
+        output_contract_ref: registry_snapshot.output_contract_ref
+      },
+      grant_summary: %{
+        requested_read_scopes: req.read_scope_grants,
+        requested_write_scopes: req.write_scope_grants,
+        registry_read_scopes: registry_snapshot.read_scopes,
+        registry_write_scopes: registry_snapshot.write_scopes,
+        grants_within_registry:
+          CapabilityRegistry.grants_valid?(
+            req.tool_name,
+            req.read_scope_grants,
+            req.write_scope_grants
+          )
+      },
+      request_summary: redacted_payload_summary(req.input),
+      result_summary: tool_result_summary(result),
+      io_redaction: %{
+        profile: :author_safe,
+        input_payload_stored: false,
+        output_payload_stored: false
+      }
     }
   end
+
+  defp tool_registry_snapshot(tool_name) do
+    case CapabilityRegistry.get(tool_name) do
+      nil ->
+        %{
+          tool_name: tool_name,
+          tool_version: "unknown",
+          tool_layer: :unknown,
+          input_contract_ref: "unknown",
+          output_contract_ref: "unknown",
+          read_scopes: [],
+          write_scopes: [],
+          risk_class: :unknown,
+          status: :unknown,
+          trace_level: :minimal,
+          provider_dependency: :unknown,
+          supports_retry: false,
+          supports_cancellation: false,
+          budget_profile_ref: nil
+        }
+
+      entry ->
+        %{
+          tool_name: entry.tool_name,
+          tool_version: entry.tool_version,
+          tool_layer: entry.tool_layer,
+          input_contract_ref: entry.input_contract_ref,
+          output_contract_ref: entry.output_contract_ref,
+          read_scopes: entry.read_scopes,
+          write_scopes: entry.write_scopes,
+          risk_class: entry.risk_class,
+          status: entry.status,
+          trace_level: entry.trace_level,
+          provider_dependency: entry.provider_dependency,
+          supports_retry: entry.supports_retry,
+          supports_cancellation: entry.supports_cancellation,
+          budget_profile_ref: entry.budget_profile_ref
+        }
+    end
+  end
+
+  defp tool_result_summary(%ToolResult{} = result) do
+    result.output
+    |> redacted_payload_summary()
+    |> Map.merge(%{
+      status: result.status,
+      state_delta_count: length(result.state_delta),
+      artifact_ref_count: length(result.artifact_refs),
+      error_count: length(result.errors),
+      warning_count: length(result.warnings),
+      usage_summary: redacted_usage_summary(result.usage)
+    })
+  end
+
+  defp redacted_payload_summary(payload) when is_map(payload) do
+    keys = payload |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+    visible_keys = Enum.reject(keys, &sensitive_payload_key?/1)
+
+    %{
+      payload_type: :map,
+      key_count: length(keys),
+      keys: visible_keys,
+      redacted_key_count: length(keys) - length(visible_keys),
+      payload_stored: false
+    }
+  end
+
+  defp redacted_payload_summary(nil) do
+    %{
+      payload_type: :none,
+      key_count: 0,
+      keys: [],
+      redacted_key_count: 0,
+      payload_stored: false
+    }
+  end
+
+  defp redacted_payload_summary(payload) do
+    %{
+      payload_type: payload |> type_name(),
+      key_count: 0,
+      keys: [],
+      redacted_key_count: 0,
+      payload_stored: false
+    }
+  end
+
+  defp redacted_usage_summary(usage) when is_map(usage) do
+    usage
+    |> Map.take([:duration_ms, :tool, :version, "duration_ms", "tool", "version"])
+    |> TraceRedactor.author_safe()
+  end
+
+  defp redacted_usage_summary(_usage), do: %{}
+
+  defp sensitive_payload_key?(key) do
+    key
+    |> String.downcase()
+    |> then(
+      &(&1 in [
+          "api_key",
+          "authorization",
+          "credential",
+          "hidden_policy",
+          "password",
+          "provider_raw_log",
+          "provider_raw_response",
+          "raw_prompt",
+          "raw_provider_log",
+          "raw_provider_response",
+          "secret",
+          "sensitive_memory",
+          "system_prompt",
+          "tool_input",
+          "tool_output",
+          "unredacted_memory"
+        ])
+    )
+  end
+
+  defp type_name(value) when is_list(value), do: :list
+  defp type_name(value) when is_binary(value), do: :string
+  defp type_name(value) when is_number(value), do: :number
+  defp type_name(value) when is_boolean(value), do: :boolean
+  defp type_name(_value), do: :term
 
   defp behavior_trace_ref(%BehaviorState{} = behavior, event_type) do
     %{

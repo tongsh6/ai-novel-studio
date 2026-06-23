@@ -101,7 +101,7 @@
 - [x] `pnpm --dir frontend exec vitest run slice-verify/native-tauri-verifier.test.mjs`
 - [x] 查看 `artifacts/slice-verify/su01-*/summary.json`
 - [x] 审计 `scripts/tauri_slice_verify.sh` / `frontend/slice-verify/external-ui-driver.mjs`
-- [x] `bash scripts/quality_manifest_check.sh`（通过；`su01-model-provider-switching` / `su01-local-secret-file-roundtrip` / `su01-provider-test-failure-ui` manifest 已登记；剩余 warning 均为既有其它 slice 缺 manifest）
+- [x] `bash scripts/quality_manifest_check.sh`（2026-06-22 复跑通过；`su01-model-provider-switching` / `su01-local-secret-file-roundtrip` / `su01-provider-test-failure-ui` 等 SU-01 manifest 已登记，当前无 manifest warning）
 - [x] `bash scripts/task_done.sh --skip-static-scan --slice su01-keychain-webview-roundtrip`（`artifacts/task-done/20260619T151655Z/manifest.json`）
 - [x] `bash scripts/task_done.sh --skip-static-scan`（`artifacts/task-done/20260619T153455Z/manifest.json`）
 - [x] `bash scripts/task_done.sh --skip-static-scan --slice su01-provider-test-failure-ui`（`artifacts/task-done/20260619T174608Z/manifest.json`）

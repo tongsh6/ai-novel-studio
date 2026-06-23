@@ -1,0 +1,63 @@
+id: au12-correction-intent-roundtrip
+title: 作品档案立项修订意图回到对话与采纳边界
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au12-correction-intent-roundtrip --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-12-work-profile.md
+  - docs/design/ui/43-structure-panel.md
+  - docs/design/domain/24-novel-intent-catalog.md
+  - tasks/slices/AU12-correction-intent-roundtrip.md
+
+invariants:
+  - work-profile-view-remains-readonly
+  - correction-intent-enters-dialogue-main-chain
+  - generated-correction-material-remains-pending-until-author-action
+  - no-direct-production-write-from-archive-panel
+
+setup:
+  seed: none
+  provider: slice_verify
+  artifact_dir: artifacts/slice-verify/au12-correction-intent-roundtrip-tauri
+
+user_flow:
+  - create: real work with profile fields
+  - open: real Tauri workbench
+  - switch: select the created work from the real work menu
+  - open: 作品档案
+  - click: 概览
+  - click: 提出立项修订
+  - observe: real user_message with generate_micro_plan=true
+  - observe: Planner/MicroPlan/Orchestrator allow world_building
+  - observe: TurnResult contains pending world_setting artifact and accept/edit/discard actions
+  - confirm: no author_action, adoption evaluation, or production write happens before author choice
+
+evidence:
+  required:
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au12-correction-intent-roundtrip-tauri
+
+assertions:
+  ui:
+    - profile correction action is visible in the real archive overview
+    - pending correction artifact is visible after the turn
+  network:
+    - user_message is sent from the visible profile action
+    - user_message uses generate_micro_plan=true
+    - turn_result includes pending world_setting adoption state
+  data:
+    - planner frame and micro plan are recorded
+    - orchestrator allows world_building
+    - pending artifact requires adoption
+    - accept, edit_then_accept, and discard actions are available
+    - no author_action is sent before author choice
+    - no adoption evaluation or production write occurs before author choice
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
