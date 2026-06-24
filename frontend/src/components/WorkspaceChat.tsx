@@ -2200,6 +2200,12 @@ export function WorkspaceChat() {
                       ))}
                     </select>
 
+                    {modelProviderDraft.provider === "openai_subscription" && (
+                      <p className={styles.dialogHint}>
+                        {WORKBENCH.modelProviderSubscriptionHint}
+                      </p>
+                    )}
+
                     {draftProviderOption?.supports_endpoint && (
                       <>
                         <label

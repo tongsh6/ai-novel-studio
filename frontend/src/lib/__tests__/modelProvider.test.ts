@@ -166,6 +166,46 @@ describe("model provider API client", () => {
     });
   });
 
+  it("preserves the OpenAI-compatible vendor matrix from the backend registry", async () => {
+    const matrix = [
+      "openai",
+      "openai_subscription",
+      "minimax",
+      "zhipu",
+      "kimi",
+      "gemini",
+    ] as const;
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.resolve({
+          ok: true,
+          json: () =>
+            Promise.resolve({
+              current_provider: "openai",
+              providers: matrix.map((id) => ({
+                id,
+                label: id,
+                current: id === "openai",
+                model: null,
+                endpoint: null,
+                requires_api_key: true,
+                supports_api_key: true,
+                supports_endpoint: true,
+                supports_thinking: false,
+                api_key_configured: false,
+              })),
+            }),
+        }),
+      ),
+    );
+
+    const options = await getProviderOptions();
+    expect(options.current_provider).toBe("openai");
+    expect(options.providers.map((option) => option.id)).toEqual([...matrix]);
+  });
+
   it("sends provider config to the backend using the runtime contract", async () => {
     const bodies: Record<string, unknown>[] = [];
     vi.stubGlobal(

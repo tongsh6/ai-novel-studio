@@ -8,7 +8,30 @@
 
 import { apiBaseUrl, isTauri } from "./env";
 
-export type ProviderId = "stub" | "lmstudio" | "anthropic" | "deepseek";
+export type ProviderId =
+  | "stub"
+  | "lmstudio"
+  | "anthropic"
+  | "deepseek"
+  | "openai"
+  | "openai_subscription"
+  | "minimax"
+  | "zhipu"
+  | "kimi"
+  | "gemini";
+
+export const PROVIDER_IDS: readonly ProviderId[] = [
+  "stub",
+  "lmstudio",
+  "anthropic",
+  "deepseek",
+  "openai",
+  "openai_subscription",
+  "minimax",
+  "zhipu",
+  "kimi",
+  "gemini",
+] as const;
 
 export interface ProviderOption {
   id: ProviderId;
@@ -396,9 +419,7 @@ function normalizeSecretStorageStatus(raw: ProviderSecretStorageStatus): Provide
 }
 
 function normalizeProviderId(value: unknown): ProviderId | null {
-  return value === "stub" || value === "lmstudio" || value === "anthropic" || value === "deepseek"
-    ? value
-    : null;
+  return PROVIDER_IDS.includes(value as ProviderId) ? (value as ProviderId) : null;
 }
 
 function normalizeThinking(value: unknown): "enabled" | "disabled" | null {

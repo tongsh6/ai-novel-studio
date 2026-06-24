@@ -276,6 +276,8 @@ export const WORKBENCH = {
   modelProviderTitle: "模型供应商",
   modelProviderDescription: "选择当前作品对话使用的模型供应商。",
   modelProviderField: "供应商",
+  modelProviderSubscriptionHint:
+    "订阅认证使用 ChatGPT 订阅令牌，与 OpenAI（API Key）是同一供应商的两种认证方式，密钥分别保存。",
   modelProviderModelField: "模型",
   modelProviderEndpointField: "端点",
   modelProviderEndpointInvalid: "端点必须是完整的 http(s) URL。",

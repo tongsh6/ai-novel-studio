@@ -85,7 +85,18 @@ struct ModelProviderSecretStorageStatus {
 const MAX_ASSISTANT_DISPLAY_NAME_LENGTH: usize = 20;
 const MAX_PROVIDER_FIELD_LENGTH: usize = 200;
 const MAX_DESKTOP_PROFILE_LENGTH: usize = 40;
-const MODEL_PROVIDER_IDS: [&str; 4] = ["stub", "lmstudio", "anthropic", "deepseek"];
+const MODEL_PROVIDER_IDS: [&str; 10] = [
+    "stub",
+    "lmstudio",
+    "anthropic",
+    "deepseek",
+    "openai",
+    "openai_subscription",
+    "minimax",
+    "zhipu",
+    "kimi",
+    "gemini",
+];
 const DESKTOP_PROFILE_ENV: &str = "AI_NOVEL_DESKTOP_PROFILE";
 const PROVIDER_SECRETS_FILE: &str = "provider-secrets.json";
 
@@ -536,6 +547,48 @@ mod tests {
             Some("sk-test")
         );
         assert!(provider_secret_present(&loaded, "deepseek"));
+
+        let _ = std::fs::remove_dir_all(path.parent().expect("temp dir"));
+    }
+
+    #[test]
+    fn accepts_openai_compatible_vendor_matrix_and_rejects_unknown() {
+        for vendor in [
+            "openai",
+            "openai_subscription",
+            "minimax",
+            "zhipu",
+            "kimi",
+            "gemini",
+        ] {
+            assert_eq!(
+                normalize_provider_id(vendor.to_string()).expect("vendor should be allowed"),
+                vendor
+            );
+        }
+
+        assert!(normalize_provider_id("not-a-vendor".to_string()).is_err());
+    }
+
+    #[test]
+    fn openai_api_key_and_subscription_secrets_are_isolated_per_auth_method() {
+        let path = temp_secrets_path("openai-auth-methods");
+
+        let mut secrets = ProviderSecrets::default();
+        secrets.api_keys.insert("openai".into(), "sk-api".into());
+        secrets
+            .api_keys
+            .insert("openai_subscription".into(), "tok-sub".into());
+        write_provider_secrets_at(&path, &secrets).expect("write secrets");
+
+        let loaded = read_provider_secrets_at(&path).expect("read secrets");
+        assert_eq!(loaded.api_keys.get("openai").map(String::as_str), Some("sk-api"));
+        assert_eq!(
+            loaded.api_keys.get("openai_subscription").map(String::as_str),
+            Some("tok-sub")
+        );
+        assert!(provider_secret_present(&loaded, "openai"));
+        assert!(provider_secret_present(&loaded, "openai_subscription"));
 
         let _ = std::fs::remove_dir_all(path.parent().expect("temp dir"));
     }
