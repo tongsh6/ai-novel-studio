@@ -70,7 +70,6 @@ htmlcov/
 /log/
 apps/*/log/
 /artifacts/**
-!/artifacts/.gitkeep
 
 # Temporary files
 *.tmp
