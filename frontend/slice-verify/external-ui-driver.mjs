@@ -12540,6 +12540,200 @@ async function driveSu01ApiKeySecretRedaction(page) {
   ];
 }
 
+async function driveSu01ProviderVendorMatrix(page) {
+  const joined = await waitForAppLogRecord(
+    (record) => record.event === "channel.join.done" && record.work_id,
+    "Workbench did not join a work before provider vendor matrix verification",
+    30_000,
+  );
+  // 新增供应商矩阵期望全部来自后端 registry，前端不写死。
+  const expectedVendors = [
+    "openai",
+    "openai_subscription",
+    "minimax",
+    "zhipu",
+    "kimi",
+    "gemini",
+  ];
+  const provider = "openai";
+  const secret = `sk-vendor-matrix-${Date.now()}`;
+  const fixtureModel = "gpt-4o-mini-slice";
+  const fixtureServer = await startOpenAiModelsFixtureServer([
+    { id: fixtureModel, owned_by: "openai" },
+  ]);
+  const failingEndpoint = "http://127.0.0.1:1/v1";
+
+  try {
+    await page
+      .getByRole("button", { name: /模型设置|Stub|LM Studio|DeepSeek|Anthropic/ })
+      .first()
+      .click();
+    await page.getByRole("dialog", { name: "模型供应商" }).waitFor({ timeout: 10_000 });
+
+    // 1) 新增供应商必须出现在后端驱动的下拉中（registry 单一来源）。
+    const dropdownIds = await page
+      .locator("#model-provider-select option")
+      .evaluateAll((nodes) => nodes.map((node) => node.value));
+    const allVendorsListed = expectedVendors.every((id) => dropdownIds.includes(id));
+
+    // 2) OpenAI 两种认证方式在 UI 中清晰区分：选择订阅出现认证方式说明。
+    await page.locator("#model-provider-select").selectOption("openai_subscription");
+    await page.waitForFunction(
+      () => document.body.innerText.includes("订阅认证使用 ChatGPT 订阅令牌"),
+      { timeout: 10_000 },
+    );
+    const subscriptionHintVisible = (await page.locator("body").innerText()).includes(
+      "订阅认证使用 ChatGPT 订阅令牌",
+    );
+
+    // 3) 选 OpenAI（API Key），fake key + 本地 OpenAI 兼容 fixture 加载并选模型。
+    const loaded = await loadAndSelectProviderModel(page, {
+      provider,
+      apiKey: secret,
+      endpoint: fixtureServer.endpoint,
+      expectedModel: fixtureModel,
+    });
+
+    const optionsBeforeResponse = await fetch(`${baseUrl}/api/provider/options`);
+    const optionsBefore = await optionsBeforeResponse.json();
+    const currentProviderBefore = optionsBefore.current_provider;
+    const appLogCountBeforeTest = readAppLogRecords().length;
+
+    // 4) 测试连接失败：不可达 endpoint -> 失败文案、Dialog 保留、runtime 不切换、不建 turn。
+    await page.locator("#model-provider-endpoint-input").fill(failingEndpoint);
+    await page.getByRole("button", { name: "测试连接" }).click();
+    // 失败时 UI 直接展示后端原因文案（connection refused -> "无法连接 OpenAI"），
+    // 与 LM Studio 展示 "LM Studio 未启动" 同理，不一定带 "连接不可用" 前缀。
+    await page.waitForFunction(
+      () =>
+        document.body.innerText.includes("无法连接") ||
+        document.body.innerText.includes("连接不可用"),
+      { timeout: 10_000 },
+    );
+
+    const failureVisibleText = await page.locator("body").innerText();
+    const dialogStillOpen = (await page.getByRole("dialog", { name: "模型供应商" }).count()) > 0;
+    const providerAfterFailure = await page.locator("#model-provider-select").inputValue();
+    const optionsAfterFailureResponse = await fetch(`${baseUrl}/api/provider/options`);
+    const optionsAfterFailure = await optionsAfterFailureResponse.json();
+    const appLogCountAfterTest = readAppLogRecords().length;
+
+    // 5) 恢复 endpoint，重新加载并选择模型（改 endpoint 会清空模型列表），测试成功后保存。
+    const recovered = await loadAndSelectProviderModel(page, {
+      provider,
+      apiKey: secret,
+      endpoint: fixtureServer.endpoint,
+      expectedModel: fixtureModel,
+    });
+    await page.getByRole("button", { name: "测试连接" }).click();
+    await page.waitForFunction(() => document.body.innerText.includes("连接可用。"), {
+      timeout: 10_000,
+    });
+    await page.getByRole("button", { name: "保存并切换" }).click();
+    await page
+      .getByRole("dialog", { name: "模型供应商" })
+      .waitFor({ state: "detached", timeout: 10_000 });
+
+    // 6) 保存后 options 只回传 api_key_configured，不泄漏 secret，且两认证方式独立。
+    const providerOptionsResponse = await fetch(`${baseUrl}/api/provider/options`);
+    const providerOptions = await providerOptionsResponse.json();
+    const providerOptionsJson = JSON.stringify(providerOptions);
+    const openaiOption = (providerOptions.providers ?? []).find((option) => option.id === provider);
+    const subscriptionOption = (providerOptions.providers ?? []).find(
+      (option) => option.id === "openai_subscription",
+    );
+    const browserSettings = await page.evaluate(() =>
+      localStorage.getItem("ans.modelProviderSettings"),
+    );
+    const visibleText = await page.locator("body").innerText();
+    const appLogText = JSON.stringify(readAppLogRecords());
+    const backendLogText = fs.existsSync(process.env.SLICE_VERIFY_BACKEND_LOG ?? "")
+      ? fs.readFileSync(process.env.SLICE_VERIFY_BACKEND_LOG, "utf8")
+      : "";
+
+    assert(allVendorsListed, "Provider dropdown missing OpenAI-compatible vendor matrix");
+    assert(subscriptionHintVisible, "Subscription auth method hint was not visible in the dialog");
+    assert(loaded.selected === fixtureModel, "OpenAI fixture model was not selected");
+    assert(
+      recovered.selected === fixtureModel,
+      "OpenAI fixture model was not re-selected after endpoint recovery",
+    );
+    assert(dialogStillOpen, "Model provider dialog closed after failed test connection");
+    assert(
+      providerAfterFailure === provider,
+      "Provider draft was not preserved after failed test connection",
+    );
+    assert(
+      failureVisibleText.includes("无法连接") || failureVisibleText.includes("连接不可用"),
+      "Failed test connection did not show an author-readable reason",
+    );
+    assert(
+      optionsAfterFailure.current_provider === currentProviderBefore,
+      "Failed test connection switched the runtime provider",
+    );
+    assert(
+      appLogCountAfterTest === appLogCountBeforeTest,
+      "Testing provider connection created application JSONL turn events",
+    );
+    assert(
+      providerOptions.current_provider === provider,
+      "Saving did not switch the runtime provider to openai",
+    );
+    assert(
+      openaiOption?.api_key_configured === true,
+      "Provider options did not mark OpenAI API key configured",
+    );
+    assert(
+      openaiOption?.label === "OpenAI（API Key）" &&
+        subscriptionOption?.label === "OpenAI（订阅）",
+      "OpenAI api_key and subscription auth methods were not distinct entries",
+    );
+    assert(!providerOptionsJson.includes(secret), "Provider options response exposed API key");
+    assert(
+      !String(browserSettings ?? "").includes(secret),
+      "Browser fallback settings exposed API key",
+    );
+    assert(!visibleText.includes(secret), "Visible workbench text exposed API key");
+    assert(!appLogText.includes(secret), "Application JSONL logs exposed API key");
+    assert(!backendLogText.includes(secret), "Backend request logs exposed API key");
+
+    return [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "su01-provider-vendor-matrix",
+        work_id: joined.work_id,
+        context_work_id: joined.work_id,
+        session_id: joined.session_id,
+        socket_connected: true,
+        vendor_matrix_listed: allVendorsListed,
+        listed_vendor_ids: dropdownIds.filter((id) => expectedVendors.includes(id)),
+        subscription_hint_visible: subscriptionHintVisible,
+        provider_selected: provider,
+        model_selected: fixtureModel,
+        test_failure_message_visible:
+          failureVisibleText.includes("无法连接") || failureVisibleText.includes("连接不可用"),
+        dialog_stayed_open_after_failure: dialogStillOpen,
+        provider_draft_preserved_after_failure: providerAfterFailure === provider,
+        runtime_unchanged_after_failure:
+          optionsAfterFailure.current_provider === currentProviderBefore,
+        no_turn_events_created_by_test_connection: appLogCountAfterTest === appLogCountBeforeTest,
+        provider_switch_saved: providerOptions.current_provider === provider,
+        provider_options_api_key_configured: openaiOption?.api_key_configured === true,
+        auth_methods_distinct:
+          openaiOption?.label === "OpenAI（API Key）" &&
+          subscriptionOption?.label === "OpenAI（订阅）",
+        provider_options_omits_api_key: !providerOptionsJson.includes(secret),
+        browser_settings_omits_api_key: !String(browserSettings ?? "").includes(secret),
+        visible_text_omits_api_key: !visibleText.includes(secret),
+        app_log_omits_api_key: !appLogText.includes(secret),
+        backend_log_omits_api_key: !backendLogText.includes(secret),
+      },
+    ];
+  } finally {
+    await fixtureServer.close();
+  }
+}
+
 async function driveSu02WorkSwitching(page) {
   const nonce = `SU02-${Date.now()}`;
   const sourceWork = await createWorkSeed({ title: `SU02甲作品-${nonce}` });
@@ -14961,6 +15155,7 @@ const drivers = {
   "su01-provider-model-list-success": driveSu01ProviderModelListSuccess,
   "su01-provider-test-failure-ui": driveSu01ProviderTestFailureUi,
   "su01-api-key-secret-redaction": driveSu01ApiKeySecretRedaction,
+  "su01-provider-vendor-matrix": driveSu01ProviderVendorMatrix,
   "su01-model-provider-switching": driveSu01ModelProviderSwitching,
   "su02-work-switching": driveSu02WorkSwitching,
   "su02-artifact-projection-trace-isolation": driveSu02ArtifactProjectionTraceIsolation,

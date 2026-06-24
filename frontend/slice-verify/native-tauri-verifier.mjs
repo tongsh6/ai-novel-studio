@@ -12,6 +12,7 @@ export const nativeSliceIds = [
   "su01-provider-model-list-success",
   "su01-provider-test-failure-ui",
   "su01-api-key-secret-redaction",
+  "su01-provider-vendor-matrix",
   "su01-local-secret-file-roundtrip",
   "su01-model-provider-switching",
   "stage-startup-context-contract",
@@ -170,6 +171,7 @@ const sliceKeyEvents = {
   "su01-provider-model-list-success": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-provider-test-failure-ui": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-api-key-secret-redaction": ["channel.join.done", "slice_verify.ui_state.done"],
+  "su01-provider-vendor-matrix": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-local-secret-file-roundtrip": ["channel.join.done", "slice_verify.ui_state.done"],
   "su01-model-provider-switching": [
     "channel.join.done",
@@ -1146,6 +1148,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findSu01ApiKeySecretRedactionEvidence(records);
   }
 
+  if (sliceId === "su01-provider-vendor-matrix") {
+    return findSu01ProviderVendorMatrixEvidence(records);
+  }
+
   if (sliceId === "su01-local-secret-file-roundtrip") {
     return findSu01LocalSecretFileRoundtripEvidence(records);
   }
@@ -1618,6 +1624,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "su01-api-key-secret-redaction") {
     return su01ApiKeySecretRedactionBehavior(records, evidence, options);
+  }
+
+  if (sliceId === "su01-provider-vendor-matrix") {
+    return su01ProviderVendorMatrixBehavior(records, evidence, options);
   }
 
   if (sliceId === "su01-local-secret-file-roundtrip") {
@@ -2653,6 +2663,54 @@ function findSu01ProviderTestFailureUiEvidence(records) {
       model_selected_before_failure: uiState.model_selected_before_failure,
       failing_endpoint: uiState.failing_endpoint,
       recovered_endpoint: uiState.recovered_endpoint,
+      key_events: keyEvents,
+    };
+  }
+
+  return null;
+}
+
+function findSu01ProviderVendorMatrixEvidence(records) {
+  const sliceId = "su01-provider-vendor-matrix";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiStates = records.filter(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.work_id &&
+      record.context_work_id === record.work_id,
+  );
+
+  for (const uiState of uiStates) {
+    const joined = records.find(
+      (record) => record.event === "channel.join.done" && record.work_id === uiState.work_id,
+    );
+    if (!joined) continue;
+    if (uiState.socket_connected !== true) continue;
+    if (uiState.vendor_matrix_listed !== true) continue;
+    if (uiState.subscription_hint_visible !== true) continue;
+    if (uiState.provider_selected !== "openai") continue;
+    if (uiState.test_failure_message_visible !== true) continue;
+    if (uiState.dialog_stayed_open_after_failure !== true) continue;
+    if (uiState.provider_draft_preserved_after_failure !== true) continue;
+    if (uiState.runtime_unchanged_after_failure !== true) continue;
+    if (uiState.no_turn_events_created_by_test_connection !== true) continue;
+    if (uiState.provider_switch_saved !== true) continue;
+    if (uiState.provider_options_api_key_configured !== true) continue;
+    if (uiState.auth_methods_distinct !== true) continue;
+    if (uiState.provider_options_omits_api_key !== true) continue;
+    if (uiState.browser_settings_omits_api_key !== true) continue;
+    if (uiState.visible_text_omits_api_key !== true) continue;
+    if (uiState.app_log_omits_api_key !== true) continue;
+    if (uiState.backend_log_omits_api_key !== true) continue;
+
+    return {
+      slice_id: sliceId,
+      turn_ids: [],
+      work_id: uiState.work_id,
+      provider_selected: uiState.provider_selected,
+      model_selected: uiState.model_selected,
+      listed_vendor_ids: uiState.listed_vendor_ids,
       key_events: keyEvents,
     };
   }
@@ -13676,6 +13734,33 @@ function su01ProviderTestFailureUiBehavior(records, evidence, _options) {
       "test_connection_did_not_create_turn_or_switch_runtime",
       "corrected_endpoint_test_connection_succeeded",
       "channel_joined_current_work",
+      "no_error_events",
+    ],
+  };
+}
+
+function su01ProviderVendorMatrixBehavior(records, evidence, _options) {
+  if (hasErrorEvent(records) || hasFallbackText(records)) return null;
+
+  const serialized = JSON.stringify(records);
+  if (serialized.includes("sk-vendor-matrix")) return null;
+
+  return {
+    slice_id: "su01-provider-vendor-matrix",
+    behavior: "openai_compatible_vendor_matrix_distinguishes_auth_methods_and_redacts_secret",
+    turn_ids: [],
+    work_id: evidence.work_id,
+    provider_selected: evidence.provider_selected,
+    model_selected: evidence.model_selected,
+    listed_vendor_ids: evidence.listed_vendor_ids,
+    assertions: [
+      "openai_minimax_zhipu_kimi_gemini_listed_from_backend_registry",
+      "openai_subscription_auth_method_hint_visible",
+      "failing_test_connection_kept_runtime_unchanged_and_created_no_turn",
+      "save_switched_runtime_to_openai",
+      "openai_api_key_and_subscription_are_distinct_entries",
+      "provider_options_marked_api_key_configured_without_returning_secret",
+      "visible_ui_browser_settings_business_logs_and_backend_logs_did_not_expose_api_key",
       "no_error_events",
     ],
   };

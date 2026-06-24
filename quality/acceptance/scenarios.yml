@@ -41,6 +41,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/su01-api-key-secret-redaction.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh su01-api-key-secret-redaction --surface tauri
+  - id: su01-provider-vendor-matrix
+    title: "供应商矩阵扩展（OpenAI/Minimax/智谱/Kimi/Gemini）与认证方式区分"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/su01-provider-vendor-matrix.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh su01-provider-vendor-matrix --surface tauri
   - id: su01-local-secret-file-roundtrip
     title: "真实 Tauri WebView 本地密钥文件写读与脱敏"
     tier: nightly

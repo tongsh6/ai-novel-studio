@@ -1,0 +1,71 @@
+id: su01-provider-vendor-matrix
+title: 供应商矩阵扩展（OpenAI/Minimax/智谱/Kimi/Gemini）与认证方式区分
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh su01-provider-vendor-matrix --surface tauri
+
+contract:
+  - docs/design/acceptance/system/SU-01-model-provider.md
+  - docs/design/tech-stack/05-desktop.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-matrix-comes-from-backend-registry
+  - openai-api-key-and-subscription-auth-distinct
+  - provider-test-failure-does-not-switch-runtime
+  - provider-api-key-not-returned-by-options
+  - provider-api-key-not-visible-in-ui
+  - provider-api-key-not-leaked-to-business-or-backend-logs
+  - no-product-acceptance-hooks
+
+setup:
+  seed: null
+  provider: slice_verify
+
+user_flow:
+  - open: real workbench model settings
+  - observe: OpenAI/OpenAI（订阅）/Minimax/智谱/Kimi/Gemini all appear from the backend provider registry
+  - select: OpenAI（订阅）and confirm the subscription auth-method hint is visible
+  - select: OpenAI（API Key）provider
+  - input: fake API key into password field
+  - load: model list through a local OpenAI-compatible models server
+  - test: connection against an unreachable endpoint fails
+  - observe: dialog stays open, draft preserved, runtime provider unchanged, no turn created
+  - test: connection against the reachable endpoint succeeds
+  - save: provider selection
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - backend_log
+    - ui_state
+    - summary_json
+  artifact_dir: artifacts/slice-verify/su01-provider-vendor-matrix-tauri
+
+assertions:
+  ui:
+    - all six new vendor ids are present in the backend-driven provider dropdown
+    - subscription auth-method hint is visible for OpenAI（订阅）
+    - failed test connection shows an author-readable reason and keeps the dialog open
+    - visible text does not contain the API key
+  network:
+    - provider options lists openai and openai_subscription as distinct entries with distinct labels
+    - failed test connection does not switch the runtime provider
+    - provider options marks api_key_configured true without returning the secret
+  data:
+    - test connection creates no business JSONL turn events
+    - browser fallback settings do not contain the API key
+    - business JSONL logs do not contain the API key
+    - backend request logs do not contain the API key
+
+known_limits:
+  - This scenario proves the OpenAI-compatible vendor matrix, auth-method distinction, redaction, and test-failure-no-switch on the real browser-side workbench against a local OpenAI-compatible server.
+  - It does not prove live cloud vendor availability or error matrices (needs real accounts; tracked as SC-SU01-B3 P1 follow-up).
+  - It does not exercise the OpenAI subscription OAuth login transport (needs a real ChatGPT subscription account + browser auth flow; tracked as SC-SU01-B3 P1 follow-up).
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
