@@ -32,7 +32,13 @@ defmodule NovelAgent.Provider.Gateway do
     stub: Provider.Stub,
     lmstudio: Provider.LMStudio,
     anthropic: Provider.Anthropic,
-    deepseek: Provider.DeepSeek
+    deepseek: Provider.DeepSeek,
+    openai: Provider.OpenAI,
+    openai_subscription: Provider.OpenAISubscription,
+    minimax: Provider.Minimax,
+    zhipu: Provider.Zhipu,
+    kimi: Provider.Kimi,
+    gemini: Provider.Gemini
   }
 
   @provider_descriptors %{
@@ -63,6 +69,48 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: true
+    },
+    openai: %{
+      label: "OpenAI（API Key）",
+      requires_api_key: true,
+      supports_api_key: true,
+      supports_endpoint: true,
+      supports_thinking: false
+    },
+    openai_subscription: %{
+      label: "OpenAI（订阅）",
+      requires_api_key: true,
+      supports_api_key: true,
+      supports_endpoint: true,
+      supports_thinking: false
+    },
+    minimax: %{
+      label: "Minimax",
+      requires_api_key: true,
+      supports_api_key: true,
+      supports_endpoint: true,
+      supports_thinking: false
+    },
+    zhipu: %{
+      label: "智谱",
+      requires_api_key: true,
+      supports_api_key: true,
+      supports_endpoint: true,
+      supports_thinking: false
+    },
+    kimi: %{
+      label: "Kimi",
+      requires_api_key: true,
+      supports_api_key: true,
+      supports_endpoint: true,
+      supports_thinking: false
+    },
+    gemini: %{
+      label: "Gemini",
+      requires_api_key: true,
+      supports_api_key: true,
+      supports_endpoint: true,
+      supports_thinking: false
     }
   }
 

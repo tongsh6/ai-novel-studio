@@ -66,6 +66,49 @@ config :novel_agent, NovelAgent.Provider.DeepSeek,
   thinking: System.get_env("NOVEL_DEEPSEEK_THINKING", "disabled"),
   reasoning_effort: System.get_env("NOVEL_DEEPSEEK_REASONING_EFFORT")
 
+# ── OpenAI 兼容供应商矩阵 ──
+# OpenAI（API Key / 订阅两种认证方式）、Minimax、智谱、Kimi、Gemini 均经 OpenAI 兼容协议接入。
+# 端点/模型可经 env 覆盖；API Key 由桌面 secret 存储或 env 提供，默认不在仓库内固化 secret。
+config :novel_agent, NovelAgent.Provider.OpenAI,
+  api_key: System.get_env("NOVEL_OPENAI_API_KEY"),
+  endpoint: System.get_env("NOVEL_OPENAI_ENDPOINT", "https://api.openai.com/v1"),
+  model: System.get_env("NOVEL_OPENAI_MODEL", "gpt-4o-mini"),
+  timeout: llm_timeout_ms
+
+config :novel_agent, NovelAgent.Provider.OpenAISubscription,
+  api_key: System.get_env("NOVEL_OPENAI_SUBSCRIPTION_TOKEN"),
+  endpoint: System.get_env("NOVEL_OPENAI_SUBSCRIPTION_ENDPOINT", "https://api.openai.com/v1"),
+  model: System.get_env("NOVEL_OPENAI_SUBSCRIPTION_MODEL", "gpt-4o-mini"),
+  timeout: llm_timeout_ms
+
+config :novel_agent, NovelAgent.Provider.Minimax,
+  api_key: System.get_env("NOVEL_MINIMAX_API_KEY"),
+  endpoint: System.get_env("NOVEL_MINIMAX_ENDPOINT", "https://api.minimaxi.com/v1"),
+  model: System.get_env("NOVEL_MINIMAX_MODEL", "MiniMax-Text-01"),
+  timeout: llm_timeout_ms
+
+config :novel_agent, NovelAgent.Provider.Zhipu,
+  api_key: System.get_env("NOVEL_ZHIPU_API_KEY"),
+  endpoint: System.get_env("NOVEL_ZHIPU_ENDPOINT", "https://open.bigmodel.cn/api/paas/v4"),
+  model: System.get_env("NOVEL_ZHIPU_MODEL", "glm-4"),
+  timeout: llm_timeout_ms
+
+config :novel_agent, NovelAgent.Provider.Kimi,
+  api_key: System.get_env("NOVEL_KIMI_API_KEY"),
+  endpoint: System.get_env("NOVEL_KIMI_ENDPOINT", "https://api.moonshot.cn/v1"),
+  model: System.get_env("NOVEL_KIMI_MODEL", "moonshot-v1-8k"),
+  timeout: llm_timeout_ms
+
+config :novel_agent, NovelAgent.Provider.Gemini,
+  api_key: System.get_env("NOVEL_GEMINI_API_KEY"),
+  endpoint:
+    System.get_env(
+      "NOVEL_GEMINI_ENDPOINT",
+      "https://generativelanguage.googleapis.com/v1beta/openai"
+    ),
+  model: System.get_env("NOVEL_GEMINI_MODEL", "gemini-2.0-flash"),
+  timeout: llm_timeout_ms
+
 config :novel_web, NovelWeb.Endpoint,
   url: [host: "localhost"],
   http: [ip: {127, 0, 0, 1}, port: System.get_env("PHOENIX_PORT", "4657") |> String.to_integer()],

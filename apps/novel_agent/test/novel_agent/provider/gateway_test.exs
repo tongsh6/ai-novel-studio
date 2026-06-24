@@ -32,6 +32,14 @@ defmodule NovelAgent.Provider.GatewayTest do
       assert :anthropic in providers
       assert :deepseek in providers
     end
+
+    test "registers the OpenAI-compatible vendor matrix" do
+      providers = Gateway.registered_providers()
+
+      for vendor <- [:openai, :openai_subscription, :minimax, :zhipu, :kimi, :gemini] do
+        assert vendor in providers
+      end
+    end
   end
 
   describe "provider_metadata/0" do
@@ -109,6 +117,33 @@ defmodule NovelAgent.Provider.GatewayTest do
         assert slice_verify.supports_endpoint == false
       after
         Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
+      end
+    end
+
+    test "distinguishes OpenAI api_key vs subscription and never leaks their keys" do
+      old_openai = Application.get_env(:novel_agent, NovelAgent.Provider.OpenAI)
+      old_sub = Application.get_env(:novel_agent, NovelAgent.Provider.OpenAISubscription)
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.OpenAI, api_key: "sk-api-secret")
+
+      Application.put_env(:novel_agent, NovelAgent.Provider.OpenAISubscription,
+        api_key: "tok-sub-secret"
+      )
+
+      try do
+        options = Gateway.provider_options()
+        openai = Enum.find(options.providers, &(&1.id == :openai))
+        subscription = Enum.find(options.providers, &(&1.id == :openai_subscription))
+
+        assert openai.label == "OpenAI（API Key）"
+        assert subscription.label == "OpenAI（订阅）"
+        assert openai.api_key_configured == true
+        assert subscription.api_key_configured == true
+        refute Map.has_key?(openai, :api_key)
+        refute Map.has_key?(subscription, :api_key)
+      after
+        Application.put_env(:novel_agent, NovelAgent.Provider.OpenAI, old_openai)
+        Application.put_env(:novel_agent, NovelAgent.Provider.OpenAISubscription, old_sub)
       end
     end
   end
