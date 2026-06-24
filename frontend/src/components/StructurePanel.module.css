@@ -267,6 +267,34 @@
   line-height: 1.5;
 }
 
+/* 档案读取状态条：模型执行/并发读取期间显示加载或读取失败，但保留上次快照不空白 */
+.archiveStatusBanner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 24px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--foreground-secondary);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.archiveStatusBannerError {
+  color: var(--foreground);
+}
+
+.archiveStatusRetry {
+  flex-shrink: 0;
+  padding: 2px 10px;
+  font-size: 12px;
+  color: var(--foreground);
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
 .footerActions {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);

@@ -2,7 +2,7 @@
 // Prototype: novel-studio.pen → 43§5-structure-panel-expanded (ATnmR)
 import * as Tabs from "@radix-ui/react-tabs";
 import { X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   archiveDetailRows,
   archiveDetailSummary,
@@ -244,41 +244,99 @@ export function StructurePanel({
   const [profile, setProfile] = useState<WorkProfile | null>(null);
   const [profileLoadFailed, setProfileLoadFailed] = useState(false);
   const [profileRetryNonce, setProfileRetryNonce] = useState(0);
+  const [archiveLoading, setArchiveLoading] = useState(false);
+  const [archiveError, setArchiveError] = useState(false);
   const [selectedArchiveItem, setSelectedArchiveItem] = useState<SelectedArchiveItem | null>(null);
   const context = useAppStore((s) => s.context);
   const channel = useAppStore((s) => s.channel);
   const pendingAdoptionCount = pendingAdoptions.length;
+  const lastWorkIdRef = useRef<string | null>(null);
+  const profileRef = useRef<WorkProfile | null>(null);
+
+  useEffect(() => {
+    profileRef.current = profile;
+  }, [profile]);
+
+  const hasArchiveSnapshot =
+    profile != null ||
+    stats != null ||
+    toc != null ||
+    characters.length > 0 ||
+    foreshadowing.length > 0 ||
+    rules.length > 0;
 
   useEffect(() => {
     if (!isOpen || !channel || !context.workId) return;
+    const workId = context.workId;
+    let cancelled = false;
+    let anyFailed = false;
+
+    // 仅在切换到不同作品时清空快照；同作品的刷新（模型执行/并发读取期间打开档案、待采纳数变化、
+    // 手动重试）保留上次已知快照，绝不把档案清空成空白（AU-12 in-flight turn 不清空快照）。
     void Promise.resolve().then(() => {
-      setProfile(null);
-      setProfileLoadFailed(false);
-    });
-    getToc(channel, context.workId)
-      .then((data) => setToc(data))
-      .catch(() => setToc(null));
-    getCharacters(channel, context.workId)
-      .then((data) => setCharacters(data))
-      .catch(() => setCharacters([]));
-    getForeshadowing(channel, context.workId)
-      .then((data) => setForeshadowing(data))
-      .catch(() => setForeshadowing([]));
-    getRules(channel, context.workId)
-      .then((data) => setRules(data))
-      .catch(() => setRules([]));
-    getWorkProfile(channel, context.workId)
-      .then((data) => {
-        setProfile(data);
-        setProfileLoadFailed(false);
-      })
-      .catch(() => {
+      if (cancelled) return;
+      if (lastWorkIdRef.current !== workId) {
+        lastWorkIdRef.current = workId;
+        setToc(null);
+        setCharacters([]);
+        setForeshadowing([]);
+        setRules([]);
+        setStats(null);
         setProfile(null);
-        setProfileLoadFailed(true);
-      });
-    getWorkStats(channel, context.workId)
-      .then((data) => setStats(data))
-      .catch(() => setStats(null));
+        setProfileLoadFailed(false);
+      }
+      setArchiveLoading(true);
+    });
+
+    // 读失败不把已加载内容清空（不伪装成空档案）；概览只在没有任何已知快照时才降级为读取失败提示。
+    const reads = [
+      getToc(channel, workId)
+        .then((data) => !cancelled && setToc(data))
+        .catch(() => {
+          anyFailed = true;
+        }),
+      getCharacters(channel, workId)
+        .then((data) => !cancelled && setCharacters(data))
+        .catch(() => {
+          anyFailed = true;
+        }),
+      getForeshadowing(channel, workId)
+        .then((data) => !cancelled && setForeshadowing(data))
+        .catch(() => {
+          anyFailed = true;
+        }),
+      getRules(channel, workId)
+        .then((data) => !cancelled && setRules(data))
+        .catch(() => {
+          anyFailed = true;
+        }),
+      getWorkProfile(channel, workId)
+        .then((data) => {
+          if (cancelled) return;
+          setProfile(data);
+          setProfileLoadFailed(false);
+        })
+        .catch(() => {
+          anyFailed = true;
+          // 仅当没有任何已知 profile 快照时才把概览降级为读取失败提示；有快照则保留快照。
+          if (!cancelled) setProfileLoadFailed(profileRef.current == null);
+        }),
+      getWorkStats(channel, workId)
+        .then((data) => !cancelled && setStats(data))
+        .catch(() => {
+          anyFailed = true;
+        }),
+    ];
+
+    void Promise.allSettled(reads).then(() => {
+      if (cancelled) return;
+      setArchiveLoading(false);
+      setArchiveError(anyFailed);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [isOpen, channel, context.workId, pendingAdoptionCount, profileRetryNonce]);
 
   if (!isOpen) return null;
@@ -343,6 +401,28 @@ export function StructurePanel({
           <X size={16} aria-hidden="true" />
         </button>
       </div>
+
+      {archiveLoading && (
+        <div className={styles.archiveStatusBanner} role="status">
+          {hasArchiveSnapshot
+            ? STRUCTURE_PANEL.archiveStatus.refreshing
+            : STRUCTURE_PANEL.archiveStatus.loading}
+        </div>
+      )}
+      {!archiveLoading && archiveError && hasArchiveSnapshot && (
+        <div
+          className={`${styles.archiveStatusBanner} ${styles.archiveStatusBannerError}`}
+          role="status"
+        >
+          <span>{STRUCTURE_PANEL.archiveStatus.readFailed}</span>
+          <button
+            className={styles.archiveStatusRetry}
+            onClick={() => setProfileRetryNonce((value) => value + 1)}
+          >
+            {STRUCTURE_PANEL.archiveStatus.retryLabel}
+          </button>
+        </div>
+      )}
 
       <div className={styles.overview}>
         {stats && (
@@ -588,6 +668,11 @@ export function StructurePanel({
                   <span className={styles.secTitle}>
                     {STRUCTURE_PANEL.acceptedCharactersSection}
                     {` · ${characters.length}${STRUCTURE_PANEL.characterCountUnit}`}
+                    {!characters.some((c) => c.narrative_role === "PROTAGONIST") && (
+                      <span className={styles.cardLabelInline}>
+                        {STRUCTURE_PANEL.protagonistUnsetHint}
+                      </span>
+                    )}
                   </span>
                   <button
                     className={styles.btnSecondary}
@@ -607,6 +692,12 @@ export function StructurePanel({
                   >
                     <div className={styles.cardTitle}>
                       {char.name}
+                      {char.narrative_role &&
+                        STRUCTURE_PANEL.narrativeRoleLabels[char.narrative_role] && (
+                          <span className={styles.cardLabelInline}>
+                            {STRUCTURE_PANEL.narrativeRoleLabels[char.narrative_role]}
+                          </span>
+                        )}
                       {char.role && <span className={styles.cardLabelInline}>{char.role}</span>}
                     </div>
                     {char.summary && <div className={styles.cardDesc}>{char.summary}</div>}

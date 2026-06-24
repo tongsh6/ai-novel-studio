@@ -307,6 +307,8 @@ export interface CharacterData {
   name: string;
   aliases: string[];
   role: string | null;
+  /** 结构化叙事角色分类（PROTAGONIST/ANTAGONIST/SUPPORTING/MINOR/ENSEMBLE_POV）；null 表示尚未标注 */
+  narrative_role: string | null;
   summary: string | null;
   status?: string;
   updated_at?: string | null;

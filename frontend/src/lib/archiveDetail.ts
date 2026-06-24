@@ -72,6 +72,14 @@ export function archiveDetailRows(detail: ArchiveDetailItem): ArchiveDetailRow[]
   const rows: ArchiveDetailRow[] = [];
 
   if (detail.kind === "character") {
+    pushRow(
+      rows,
+      STRUCTURE_PANEL.detailRows.narrativeRole,
+      detail.item.narrative_role
+        ? (STRUCTURE_PANEL.narrativeRoleLabels[detail.item.narrative_role] ??
+            detail.item.narrative_role)
+        : null,
+    );
     pushRow(rows, STRUCTURE_PANEL.detailRows.role, nonEmpty(detail.item.role));
     pushRow(
       rows,

@@ -21,7 +21,8 @@ describe("archiveDetail", () => {
         id: "char-1",
         name: "林澈",
         aliases: ["阿澈"],
-        role: "主角",
+        role: "前企业安全员",
+        narrative_role: "PROTAGONIST",
         summary: "前企业安全员",
         status: "ACCEPTED",
         updated_at: "2026-05-18T12:00:00Z",
@@ -36,13 +37,15 @@ describe("archiveDetail", () => {
           name: "林澈",
           aliases: [],
           role: null,
+          narrative_role: null,
           summary: null,
         },
       }),
     ).toBe("林澈");
     expect(rows).toEqual(
       expect.arrayContaining([
-        { label: "身份", value: "主角" },
+        { label: "叙事角色", value: "主角" },
+        { label: "身份", value: "前企业安全员" },
         { label: "别名", value: "阿澈" },
         { label: "状态", value: "已采纳" },
       ]),

@@ -118,6 +118,8 @@ export const CARD = {
     editPlaceholder: "在此修改正文…",
     editConfirmLabel: "保存修改后的版本",
     editCancelLabel: "取消",
+    // 多个角色候选逐项采纳时，把候选名拼到按钮文案，区分采纳的是哪一个候选。
+    candidateNameSuffix: (label: string, name: string) => `${label}：${name}`,
   },
   artifactDraft: {
     proseTitle: "章节正文草稿",
@@ -459,6 +461,13 @@ export const STRUCTURE_PANEL = {
     readFailureDescription: "当前无法读取作品立项设定。请检查同步状态后重试，失败期间不会编造档案内容。",
     readFailureRetryLabel: "重试读取",
   },
+  // 模型执行/并发读取期间的档案读取状态：显示加载或读取失败，但保留上次已知快照不空白
+  archiveStatus: {
+    loading: "正在读取作品档案…",
+    refreshing: "正在更新作品档案，先显示上次已知内容…",
+    readFailed: "档案读取失败，下面是上次已知内容；模型执行结束后可重试刷新。",
+    retryLabel: "重新读取",
+  },
   pendingSection: "待采纳内容",
   pendingLabel: "待采纳",
   pendingFallbackTitle: "待审核内容",
@@ -514,6 +523,7 @@ export const STRUCTURE_PANEL = {
   selected: "已选中",
   close: "关闭档案",
   detailRows: {
+    narrativeRole: "叙事角色",
     role: "身份",
     aliases: "别名",
     state: "状态",
@@ -570,6 +580,16 @@ export const STRUCTURE_PANEL = {
   noChapter: "暂无章节",
   acceptedCharactersSection: "已确认角色",
   characterCountUnit: "个角色",
+  // 叙事角色分类标签（与后端 NarrativeRole 枚举对齐）
+  narrativeRoleLabels: {
+    PROTAGONIST: "主角",
+    ANTAGONIST: "反派",
+    SUPPORTING: "配角",
+    MINOR: "次要角色",
+    ENSEMBLE_POV: "群像视角",
+  } as Record<string, string>,
+  // 已有角色但无人标记主角时的诚实提示
+  protagonistUnsetHint: "尚未标注主角",
   characterEmptyTitle: "角色档案",
   characterEmptyWithWork:
     "在对话中说「创建角色」或「分析已有角色」，AI 会基于当前作品设计角色草稿。",

@@ -1091,6 +1091,22 @@ export function WorkspaceChat() {
       (entry) => entry.artifact_id === action.target_ref,
     ) ?? null;
 
+  // 同一轮有多个角色候选（≥2 个 character_seed pending）时，返回该候选的角色名，
+  // 用于区分逐项采纳按钮；单候选返回 null（按钮文案不变）。
+  const perCandidateAdoptionName = (
+    turnResult: TurnResult,
+    artifact: ArtifactEntry | null,
+  ): string | null => {
+    if (!artifact || artifact.artifact_type !== "character_seed") return null;
+    const characterPending = (turnResult.adoption_state?.pending ?? []).filter(
+      (entry) => entry.artifact_type === "character_seed",
+    );
+    if (characterPending.length < 2) return null;
+    const items = (artifact.payload as { items?: Array<{ title?: string }> } | undefined)?.items;
+    const title = items?.[0]?.title;
+    return typeof title === "string" && title.trim() !== "" ? title.trim() : null;
+  };
+
   const actionLabel = (turnResult: TurnResult, action: AvailableActionLike) => {
     if (action.action_type === "confirm_before_execute") return WORKBENCH.actionConfirm;
     if (action.action_type === "reject_or_cancel_confirmation") return WORKBENCH.actionReject;
@@ -1098,12 +1114,15 @@ export function WorkspaceChat() {
     if (action.action_type === "answer_clarification") return WORKBENCH.actionAnswer;
     if (action.action_type === "choose_candidate") return WORKBENCH.candidateAdoptLabel;
     const artifact = artifactForAction(turnResult, action);
-    if (action.action_type === "accept") return acceptActionLabel(artifact?.artifact_type);
-    if (action.action_type === "discard") return CARD.tentativeArtifact.discardLabel;
-    if (action.action_type === "edit_then_accept") {
-      return editThenAcceptActionLabel(artifact?.artifact_type);
-    }
-    return action.action_type;
+    let base: string;
+    if (action.action_type === "accept") base = acceptActionLabel(artifact?.artifact_type);
+    else if (action.action_type === "discard") base = CARD.tentativeArtifact.discardLabel;
+    else if (action.action_type === "edit_then_accept")
+      base = editThenAcceptActionLabel(artifact?.artifact_type);
+    else return action.action_type;
+    // 同一轮存在多个角色候选时，把候选名拼到逐项按钮，避免“两个候选共用一个采纳按钮”。
+    const name = perCandidateAdoptionName(turnResult, artifact);
+    return name ? CARD.tentativeArtifact.candidateNameSuffix(base, name) : base;
   };
 
   const handleVisibleAvailableAction = (turnResult: TurnResult, action: AvailableAction) => {
@@ -2723,7 +2742,7 @@ export function WorkspaceChat() {
         </div>
 
         {/* 结构与长跑收纳面板 (Structure Rail) */}
-        {!isPanelOpen ? (
+        {!isPanelOpen && (
           <div className={styles.structureRailCollapsed}>
             <div className={styles.spTitle}>{WORKBENCH.archiveRailTitle}</div>
             <div className={styles.railSummary}>
@@ -2762,9 +2781,11 @@ export function WorkspaceChat() {
               />
             </div>
           </div>
-        ) : (
-          <StructurePanel
-            isOpen={isPanelOpen}
+        )}
+        {/* StructurePanel 常驻挂载（关闭时自身渲染 null），使作品档案快照在关闭/重开间保留，
+            模型执行期间打开档案能立刻显示上次已知快照而不是空白。 */}
+        <StructurePanel
+          isOpen={isPanelOpen}
             onClose={() => setIsPanelOpen(false)}
             pendingAdoptions={allPendingAdoptions}
             getArtifactActionState={artifactActionState}
@@ -2801,7 +2822,6 @@ export function WorkspaceChat() {
               setIsPanelOpen(false);
             }}
           />
-        )}
       </div>
     </div>
   );
