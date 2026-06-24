@@ -21,7 +21,9 @@ jobs:
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux
-          - os: windows-latest
+          # 固定 windows-2022：windows-latest 现为 win25-vs2026 镜像，erlef/setup-beam@v1
+          # 无法识别该 ImageOS（"got win25-vs2026, but failed"）。win22 受支持。
+          - os: windows-2022
             target: x86_64-pc-windows-msvc
             platform: windows
 
