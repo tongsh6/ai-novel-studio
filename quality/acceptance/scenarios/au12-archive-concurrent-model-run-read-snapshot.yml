@@ -1,0 +1,59 @@
+id: au12-archive-concurrent-model-run-read-snapshot
+title: 模型执行期间作品档案可读快照：不空白、诚实加载、只读不写
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au12-archive-concurrent-model-run-read-snapshot --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-12-work-profile.md
+  - docs/design/acceptance/author/AU-10-workbench-ui.md
+  - tasks/slices/AU12-archive-concurrent-model-run-read-snapshot.md
+
+invariants:
+  - archive-read-is-readonly-and-independent-of-turn-completion
+  - in-flight-turn-does-not-clear-loaded-archive-snapshot
+  - archive-read-failure-shows-honest-error-and-retry-not-blank
+  - opening-archive-during-execution-performs-no-write
+  - no-production-acceptance-hooks
+
+setup:
+  seed: ""
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - load: the work archive once so a snapshot is known
+  - send: a deliberately slow chat turn (do not wait for completion)
+  - open: the work archive during model execution
+  - observe: overview keeps the last-known work profile snapshot, not blank
+  - observe: an honest loading/refresh indicator is shown
+  - observe: opening the archive sends no extra user_message or author_action
+  - wait: the slow turn completes
+  - observe: the archive refreshes to the full snapshot
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au12-archive-concurrent-model-run-read-snapshot-tauri
+
+assertions:
+  ui:
+    - archive overview keeps the work profile snapshot during the in-flight turn
+    - archive shows an honest loading or refresh indicator during execution
+    - archive refreshes to the full snapshot after the turn completes
+  network:
+    - the slow turn runs the real main chain (user_message start and done)
+    - a read-only get_work_profile request is issued for the current work
+  data:
+    - opening the archive during execution sends no extra user_message
+    - opening the archive during execution sends no author_action
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

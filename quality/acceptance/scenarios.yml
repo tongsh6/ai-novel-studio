@@ -419,6 +419,20 @@ scenarios:
     manifest: quality/acceptance/scenarios/au09-character-dossier-roundtrip.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au09-character-dossier-roundtrip --surface tauri
+  - id: au09-character-role-taxonomy-protagonist-policy
+    title: "角色类型与主角语义：诚实缺口 + 结构化主角采纳 + 可校验回答"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-character-role-taxonomy-protagonist-policy.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-character-role-taxonomy-protagonist-policy --surface tauri
+  - id: au09-character-candidate-per-item-adoption
+    title: "角色候选逐项采纳：每个候选独立授权，采纳一个只写一个角色"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-character-candidate-per-item-adoption.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-character-candidate-per-item-adoption --surface tauri
   - id: au09-validity-window-recall
     title: "章节有效期窗口过滤记忆召回"
     tier: nightly
@@ -587,6 +601,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/au12-work-profile-status-isolation.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au12-work-profile-status-isolation --surface tauri
+  - id: au12-archive-concurrent-model-run-read-snapshot
+    title: "模型执行期间作品档案可读快照：不空白、诚实加载、只读不写"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au12-archive-concurrent-model-run-read-snapshot.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au12-archive-concurrent-model-run-read-snapshot --surface tauri
   - id: au03-long-session-compression
     title: "长会话压缩上下文"
     tier: nightly

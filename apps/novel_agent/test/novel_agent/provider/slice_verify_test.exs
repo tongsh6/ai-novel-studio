@@ -88,6 +88,108 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
     assert followup_body["candidate_directions"] == []
   end
 
+  describe "AU09 角色类型/主角语义路由" do
+    test "问'主角是谁'是只读查询：frame 需要工具，plan 路由到 character_roster" do
+      frame_prompt = [%{role: "user", content: "现在这部作品的主角是谁，叫什么名字？"}]
+
+      assert {:ok, frame_result} =
+               SliceVerify.complete(%SliceVerify{}, nil, frame_prompt, %InferenceParams{})
+
+      frame_body = Jason.decode!(frame_result.content)
+      assert frame_body["needs_tool"] == true
+      assert frame_body["frame_type"] == "execution_candidate"
+
+      plan_prompt = "proposed_actions\n## 用户输入\n现在这部作品的主角是谁？\n## 输出格式"
+
+      assert {:ok, plan_result} =
+               SliceVerify.complete(%SliceVerify{}, nil, plan_prompt, %InferenceParams{})
+
+      assert [action] = Jason.decode!(plan_result.content)["proposed_actions"]
+      assert action["target_ref"] == "character_roster"
+    end
+
+    test "'设计一个主角'是创建意图：frame 需要工具，plan 路由到 character_design" do
+      frame_prompt = [%{role: "user", content: "帮我设计一个主角，名字就叫林烬，是灵气稽查官。"}]
+
+      assert {:ok, frame_result} =
+               SliceVerify.complete(%SliceVerify{}, nil, frame_prompt, %InferenceParams{})
+
+      assert Jason.decode!(frame_result.content)["needs_tool"] == true
+
+      plan_prompt = "proposed_actions\n## 用户输入\n帮我设计一个主角，名字就叫林烬。\n## 输出格式"
+
+      assert {:ok, plan_result} =
+               SliceVerify.complete(%SliceVerify{}, nil, plan_prompt, %InferenceParams{})
+
+      assert [action] = Jason.decode!(plan_result.content)["proposed_actions"]
+      assert action["target_ref"] == "character_design"
+    end
+
+    test "设计主角的 character_seed 携带结构化 narrative_role=PROTAGONIST" do
+      creative_prompt = """
+      JSON 数组
+      artifact_type：character_seed
+      用户创作简述：帮我设计一个主角，名字就叫林烬，是灵气稽查官。
+      上下文：当前作品背景。
+      重要：保留随机标识符。
+      """
+
+      assert {:ok, result} =
+               SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
+
+      assert [item] = Jason.decode!(result.content)
+      assert item["narrative_role"] == "PROTAGONIST"
+    end
+
+    test "设计反派的 character_seed 携带 narrative_role=ANTAGONIST" do
+      creative_prompt = """
+      JSON 数组
+      artifact_type：character_seed
+      用户创作简述：再设计一个反派。
+      上下文：当前作品背景。
+      重要：保留随机标识符。
+      """
+
+      assert {:ok, result} =
+               SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
+
+      assert [item] = Jason.decode!(result.content)
+      assert item["narrative_role"] == "ANTAGONIST"
+    end
+
+    test "要求多个角色候选时确定性产出 2 条独立候选（item_id/标题互不相同）" do
+      creative_prompt = """
+      JSON 数组
+      artifact_type：character_seed
+      用户创作简述：请给我设计两个不同方向的新角色候选，让我挑一个。
+      上下文：当前作品背景。
+      重要：保留随机标识符。
+      """
+
+      assert {:ok, result} =
+               SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
+
+      assert [a, b] = Jason.decode!(result.content)
+      assert a["item_id"] != b["item_id"]
+      assert a["title"] != b["title"]
+    end
+
+    test "设计单个角色时仍只产出 1 条候选（向后兼容 dossier / 主角语义 slice）" do
+      creative_prompt = """
+      JSON 数组
+      artifact_type：character_seed
+      用户创作简述：和我一起设计一个新角色。
+      上下文：当前作品背景。
+      重要：保留随机标识符。
+      """
+
+      assert {:ok, result} =
+               SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
+
+      assert [_only] = Jason.decode!(result.content)
+    end
+  end
+
   test "AU04FAILTOOL marker fails only at creative tool provider stage" do
     plan_prompt = """
     proposed_actions

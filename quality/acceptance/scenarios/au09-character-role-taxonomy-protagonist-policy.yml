@@ -1,0 +1,64 @@
+id: au09-character-role-taxonomy-protagonist-policy
+title: 角色类型与主角语义：诚实缺口 + 结构化主角采纳 + 可校验回答
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-character-role-taxonomy-protagonist-policy --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/domain/21-novel-object-model.md
+  - docs/design/domain/34-novel-element-field-priority.md
+  - docs/design/schemas/foundation/enums/narrative_role.json
+  - tasks/slices/AU09-character-role-taxonomy-protagonist-policy.md
+
+invariants:
+  - protagonist-is-structured-verifiable-fact-not-default-first-character
+  - protagonist-query-is-read-only-no-production-write
+  - protagonist-design-enters-adoption-boundary-into-character-dossier
+  - character-narrative-role-single-source-across-roster-archive-and-narration
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - ask: who is the protagonist (before any protagonist exists)
+  - observe: assistant honestly reports a missing protagonist with no write
+  - design: a protagonist character with structured narrative_role
+  - adopt: generated character_seed through the adoption boundary
+  - open: archive character tab
+  - observe: character shows the 主角 narrative-role label
+  - ask: who is the protagonist again
+  - observe: assistant answers the protagonist name, still read-only
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-character-role-taxonomy-protagonist-policy-tauri
+
+assertions:
+  ui:
+    - protagonist query before design honestly reports a missing protagonist
+    - character archive tab shows the structured 主角 narrative-role label
+    - protagonist query after design answers the protagonist name
+  network:
+    - protagonist query dispatches the read-only character_roster tool
+    - protagonist design dispatches the character_design tool with structured narrative_role
+    - author_action adoption persists the protagonist character state ref
+  data:
+    - designed character_seed carries structured narrative_role PROTAGONIST
+    - protagonist queries perform no production write
+    - adopted protagonist is visible to the character roster and archive
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

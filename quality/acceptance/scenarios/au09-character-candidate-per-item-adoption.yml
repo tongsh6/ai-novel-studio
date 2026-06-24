@@ -1,0 +1,60 @@
+id: au09-character-candidate-per-item-adoption
+title: 角色候选逐项采纳：每个候选独立授权，采纳一个只写一个角色
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-character-candidate-per-item-adoption --surface tauri
+
+contract:
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - docs/design/acceptance/author/AU-05-artifact-adoption.md
+  - docs/design/domain/21-novel-object-model.md
+  - tasks/slices/AU09-character-candidate-per-item-adoption.md
+
+invariants:
+  - each-character-candidate-has-stable-item-identity-and-adopt-action
+  - adopting-one-candidate-writes-only-that-character
+  - unadopted-candidate-never-enters-work-fact-archive-memory-or-context
+  - no-set-level-button-replaces-per-candidate-authorization
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - design: two character candidates in one turn
+  - observe: each candidate has its own adopt button
+  - adopt: only the second candidate
+  - observe: the first candidate keeps its adopt button and is not written
+  - open: archive character tab
+  - observe: only the adopted candidate is present
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-character-candidate-per-item-adoption-tauri
+
+assertions:
+  ui:
+    - two character candidates render two distinct adopt buttons
+    - adopting one candidate removes only its button and keeps the other
+    - archive character tab shows only the adopted candidate
+  network:
+    - character_design returns two independent candidate items
+    - author_action adoption resolves only the adopted candidate artifact id
+  data:
+    - each candidate has its own adoptable artifact id
+    - adopting one candidate persists exactly one Character
+    - the unadopted candidate does not enter the character archive
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

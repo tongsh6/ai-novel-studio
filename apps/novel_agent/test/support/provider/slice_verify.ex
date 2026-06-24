@@ -12,6 +12,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   @slow_work_switch_delay_ms 2_500
   @slow_work_switch_marker "SU02SLOW"
+  # AU-12 档案并发读取：让一次普通对话 turn 故意慢，使外部 driver 能在执行期间打开作品档案。
+  # 仅 test-support 慢延迟（不改生产 provider runtime），产出普通回复、不触发 slow_work_switch 语义。
+  @archive_slow_delay_ms 6_000
+  @archive_slow_marker "AU12SLOW"
   @garbage_json_marker "AU01GARBAGE"
   @invalid_frame_marker "AU01BADFRAME"
   @malformed_candidates_marker "AU02BADCANDIDATES"
@@ -24,6 +28,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   def complete(_state, _model, prompt, _params) do
     prompt_text = prompt_text(prompt)
     maybe_delay_su02_slow_work_switch(prompt_text)
+    maybe_delay_archive_slow(prompt_text)
 
     case maybe_fail_tool_failure_prompt(prompt_text) do
       :ok ->
@@ -96,7 +101,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     %{
       frame_type: frame_type(flags),
       dialogue_goal_summary: dialogue_goal_summary(flags),
-      needs_tool: flags.readonly_character_query,
+      needs_tool: flags.readonly_character_query or flags.character_design_request,
       no_tool_reason: no_tool_reason(flags),
       execution_readiness: execution_readiness(flags),
       assistant_message:
@@ -118,11 +123,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       exploratory: exploratory_prompt?(prompt),
       slow_work_switch: slow_work_switch_prompt?(prompt),
       candidate_context_followup: candidate_context_followup_prompt?(prompt),
-      readonly_character_query: readonly_character_query_prompt?(prompt)
+      readonly_character_query: readonly_character_query_prompt?(prompt),
+      character_design_request: character_design_request_prompt?(prompt)
     }
   end
 
   defp frame_type(%{readonly_character_query: true}), do: "execution_candidate"
+  defp frame_type(%{character_design_request: true}), do: "execution_candidate"
   defp frame_type(%{slow_work_switch: true}), do: "casual_reply"
   defp frame_type(%{candidate_context_followup: true}), do: "casual_reply"
   defp frame_type(%{quality_diagnosis: true}), do: "question_answer"
@@ -130,21 +137,30 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp frame_type(_flags), do: "casual_reply"
 
   defp dialogue_goal_summary(%{readonly_character_query: true}), do: "查看当前作品角色列表"
+  defp dialogue_goal_summary(%{character_design_request: true}), do: "按作者意图设计新角色"
   defp dialogue_goal_summary(%{slow_work_switch: true}), do: "验证慢回复跨作品归属"
   defp dialogue_goal_summary(%{candidate_context_followup: true}), do: "围绕已选候选方向继续探索"
   defp dialogue_goal_summary(%{quality_diagnosis: true}), do: "诊断章节爽感不足和胜利过轻"
   defp dialogue_goal_summary(_flags), do: "验证工作台对话主链"
 
   defp no_tool_reason(%{readonly_character_query: true}), do: "tool_needed"
+  defp no_tool_reason(%{character_design_request: true}), do: "tool_needed"
   defp no_tool_reason(%{exploratory: true}), do: "exploratory_only"
   defp no_tool_reason(_flags), do: "no_tool_needed"
 
   defp execution_readiness(%{readonly_character_query: true}), do: "ready"
+  defp execution_readiness(%{character_design_request: true}), do: "ready"
   defp execution_readiness(_flags), do: "not_applicable"
 
   defp maybe_delay_su02_slow_work_switch(prompt_text) do
     if String.contains?(prompt_text, @slow_work_switch_marker) do
       Process.sleep(@slow_work_switch_delay_ms)
+    end
+  end
+
+  defp maybe_delay_archive_slow(prompt_text) do
+    if String.contains?(prompt_text, @archive_slow_marker) do
+      Process.sleep(@archive_slow_delay_ms)
     end
   end
 
@@ -203,8 +219,27 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp readonly_character_query_prompt?(prompt) do
     text = author_input_text(prompt)
 
-    contains_any?(text, ["查看", "列出", "查询", "看看", "展示"]) and
-      contains_any?(text, ["当前角色列表", "角色列表", "已有角色", "人物表", "角色清单"])
+    roster_query =
+      contains_any?(text, ["查看", "列出", "查询", "看看", "展示"]) and
+        contains_any?(text, ["当前角色列表", "角色列表", "已有角色", "人物表", "角色清单"])
+
+    roster_query or protagonist_query?(text)
+  end
+
+  # "主角是谁/谁是主角/主角叫啥/有没有主角" 是只读查询；"设计/设定主角" 是创建，不在此命中。
+  defp protagonist_query?(text) do
+    String.contains?(text, "主角") and
+      contains_any?(text, ["是谁", "谁是", "叫啥", "叫什么", "有没有", "有无", "是不是", "有谁"]) and
+      not contains_any?(text, ["设计", "设定", "创建", "新增", "塑造", "加个", "加一个"])
+  end
+
+  # "设计/设定/创建一个主角/反派/配角/角色" 是创建意图，需要 character_design 工具。
+  defp character_design_request_prompt?(prompt) do
+    text = author_input_text(prompt)
+
+    contains_any?(text, ["设计", "设定", "创建", "新增", "塑造", "加个", "加一个", "写一个"]) and
+      contains_any?(text, ["主角", "反派", "配角", "角色", "人物"]) and
+      not protagonist_query?(text)
   end
 
   defp candidate_context_followup_prompt?(prompt) do
@@ -340,33 +375,101 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp creative_items_response(prompt) do
     {brief, context} = creative_prompt_parts(prompt)
 
-    # 章节计划（plot_outline -> outline_draft）确定性产出多章，让 plan-minimum 等 slice
-    # 在离线 provider 下也能演练「生成结构化章节计划」；其余 artifact_type 仍单条。
-    if outline_plan_prompt?(prompt) do
-      outline_chapter_items(brief, context)
-    else
-      text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
-      fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
+    cond do
+      # 章节计划（plot_outline -> outline_draft）确定性产出多章，让 plan-minimum 等 slice
+      # 在离线 provider 下也能演练「生成结构化章节计划」。
+      outline_plan_prompt?(prompt) ->
+        outline_chapter_items(brief, context)
 
-      item = %{
-        item_id: "slice_item_#{fingerprint}_1",
-        title: creative_title(prompt, brief, fingerprint),
-        body: creative_body(prompt, brief, context),
-        rationale: creative_rationale(prompt, brief)
-      }
+      # AU-09：作者明确要多个角色候选（“两个/几个/候选/不同方向”）时确定性产出 2 条独立候选，
+      # 让逐候选采纳 slice 在离线 provider 下也能演练；普通“设计一个角色”仍单条。
+      multi_character_candidate_prompt?(prompt, brief) ->
+        character_candidate_items(brief, context)
 
-      if prose_fragment_prompt?(prompt) do
-        %{items: [item], self_report: creative_self_report(context)}
-      else
-        [item]
-      end
+      true ->
+        text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
+        fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
+
+        item =
+          %{
+            item_id: "slice_item_#{fingerprint}_1",
+            title: creative_title(prompt, brief, fingerprint),
+            body: creative_body(prompt, brief, context),
+            rationale: creative_rationale(prompt, brief)
+          }
+          |> maybe_put_narrative_role(prompt, brief)
+
+        if prose_fragment_prompt?(prompt) do
+          %{items: [item], self_report: creative_self_report(context)}
+        else
+          [item]
+        end
     end
+  end
+
+  defp multi_character_candidate_prompt?(prompt, brief) do
+    character_seed_prompt?(prompt) and
+      contains_any?(to_string(brief), [
+        "两个",
+        "二个",
+        "两位",
+        "几个",
+        "多个",
+        "数个",
+        "多位",
+        "候选",
+        "不同方向"
+      ])
+  end
+
+  # 两条取向明显不同、各自独立可采纳的角色候选（item_id/标题各不相同，便于逐项采纳断言）。
+  defp character_candidate_items(brief, context) do
+    fingerprint = [brief, context] |> Enum.join("\n") |> :erlang.phash2() |> Integer.to_string(36)
+    suffix = String.slice(fingerprint, 0, 4)
+
+    [
+      %{
+        item_id: "slice_char_#{fingerprint}_1",
+        title: "沈砚 #{suffix}",
+        body: character_body(brief, context),
+        rationale: "候选一：冷峻克制的稽查官方向。"
+      },
+      %{
+        item_id: "slice_char_#{fingerprint}_2",
+        title: "云栖 #{suffix}",
+        body: character_body(brief, context),
+        rationale: "候选二：游离于秩序之外的线人方向。"
+      }
+    ]
   end
 
   defp outline_plan_prompt?(prompt), do: String.contains?(prompt, "artifact_type：outline_draft")
 
   defp character_seed_prompt?(prompt),
     do: String.contains?(prompt, "artifact_type：character_seed")
+
+  # character_seed 草稿按 user brief 中的角色类型词派生结构化叙事角色（确定性 fixture）。
+  defp maybe_put_narrative_role(item, prompt, brief) do
+    if character_seed_prompt?(prompt) do
+      case brief_narrative_role(to_string(brief)) do
+        nil -> item
+        role -> Map.put(item, :narrative_role, role)
+      end
+    else
+      item
+    end
+  end
+
+  defp brief_narrative_role(text) do
+    cond do
+      String.contains?(text, "反派") -> "ANTAGONIST"
+      String.contains?(text, "配角") -> "SUPPORTING"
+      String.contains?(text, "次要") or String.contains?(text, "龙套") -> "MINOR"
+      String.contains?(text, "群像") -> "ENSEMBLE_POV"
+      String.contains?(text, "主角") or String.contains?(text, "主人公") -> "PROTAGONIST"
+      true -> nil
+    end
+  end
 
   defp world_setting_prompt?(prompt),
     do:

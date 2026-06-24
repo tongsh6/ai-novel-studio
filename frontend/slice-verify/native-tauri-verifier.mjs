@@ -102,6 +102,9 @@ export const nativeSliceIds = [
   "au09-memory-trace-roundtrip",
   "au09-adopt-setting-recall",
   "au09-character-dossier-roundtrip",
+  "au09-character-role-taxonomy-protagonist-policy",
+  "au09-character-candidate-per-item-adoption",
+  "au12-archive-concurrent-model-run-read-snapshot",
   "au09-validity-window-recall",
   "au09-cross-work-memory-isolation",
   "au09-au03-session-memory-layering",
@@ -573,6 +576,31 @@ const sliceKeyEvents = {
     "channel.author_action.done",
     "channel.get_characters.done",
     "context.characters.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-character-role-taxonomy-protagonist-policy": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_characters.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-character-candidate-per-item-adoption": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "channel.get_characters.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au12-archive-concurrent-model-run-read-snapshot": [
+    "channel.user_message.start",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "au09-validity-window-recall": [
@@ -1478,6 +1506,18 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu09CharacterDossierRoundtripEvidence(records);
   }
 
+  if (sliceId === "au09-character-role-taxonomy-protagonist-policy") {
+    return findAu09CharacterRoleTaxonomyEvidence(records);
+  }
+
+  if (sliceId === "au09-character-candidate-per-item-adoption") {
+    return findAu09CharacterCandidatePerItemAdoptionEvidence(records);
+  }
+
+  if (sliceId === "au12-archive-concurrent-model-run-read-snapshot") {
+    return findAu12ArchiveConcurrentModelRunReadSnapshotEvidence(records);
+  }
+
   if (sliceId === "au09-validity-window-recall") {
     return findAu09ValidityWindowRecallEvidence(records);
   }
@@ -1869,6 +1909,30 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "au09-character-dossier-roundtrip") {
     return au09CharacterDossierRoundtripBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-character-role-taxonomy-protagonist-policy") {
+    return au09CharacterRoleTaxonomyBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-character-candidate-per-item-adoption") {
+    return au09CharacterCandidatePerItemAdoptionBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
+  }
+
+  if (sliceId === "au12-archive-concurrent-model-run-read-snapshot") {
+    return au12ArchiveConcurrentModelRunReadSnapshotBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "au09-validity-window-recall") {
@@ -10659,6 +10723,310 @@ function au09CharacterDossierRoundtripBehavior(turnIds, _turnRecords, records, e
       options.provider === "lmstudio"
         ? "lmstudio_prompt_included_adopted_character_context"
         : "deterministic_context_logged_character_dossier",
+    ],
+  };
+}
+
+function findAu09CharacterRoleTaxonomyEvidence(records) {
+  const sliceId = "au09-character-role-taxonomy-protagonist-policy";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.pre_design_answer_honest_missing === true &&
+      record.pre_query_no_write === true &&
+      record.designed_narrative_role === "PROTAGONIST" &&
+      record.post_design_answer_names_protagonist === true &&
+      record.post_query_no_write === true &&
+      record.archive_shows_protagonist_label === true &&
+      String(record.adopted_state_ref ?? "").length > 0 &&
+      Number(record.archive_character_count ?? 0) >= 1,
+  );
+  if (!uiState) return null;
+
+  const turnIds = [
+    uiState.pre_query_turn_id,
+    uiState.design_turn_id,
+    uiState.adoption_turn_id,
+    uiState.post_query_turn_id,
+  ].filter(Boolean);
+  if (turnIds.length < 4) return null;
+
+  // 设计轮真实调用 character_design 工具。
+  const designGenerated = records.some(
+    (record) =>
+      record.turn_id === uiState.design_turn_id &&
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_design" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!designGenerated) return null;
+
+  // 两次"主角是谁"都走只读 character_roster 工具。
+  const preQueryReadOnly = records.some(
+    (record) =>
+      record.turn_id === uiState.pre_query_turn_id &&
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_roster" &&
+      record.tool_outcome === "succeeded",
+  );
+  const postQueryReadOnly = records.some(
+    (record) =>
+      record.turn_id === uiState.post_query_turn_id &&
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_roster" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!preQueryReadOnly || !postQueryReadOnly) return null;
+
+  // 采纳经采纳边界写入。
+  const adopted = records.some(
+    (record) =>
+      record.turn_id === uiState.design_turn_id &&
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!adopted) return null;
+
+  const charactersLoaded = records.some(
+    (record) =>
+      record.event === "channel.get_characters.done" && Number(record.character_count ?? 0) >= 1,
+  );
+  if (!charactersLoaded) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.post_query_turn_id,
+    turn_ids: turnIds,
+    protagonist_name: uiState.protagonist_name,
+    designed_narrative_role: uiState.designed_narrative_role,
+    adopted_state_ref: uiState.adopted_state_ref,
+    archive_character_count: uiState.archive_character_count,
+    key_events: keyEvents,
+  };
+}
+
+function au09CharacterRoleTaxonomyBehavior(turnIds, _turnRecords, records, _evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-character-role-taxonomy-protagonist-policy",
+  );
+  if (!uiState) return null;
+  if (uiState.pre_design_answer_honest_missing !== true) return null;
+  if (uiState.designed_narrative_role !== "PROTAGONIST") return null;
+  if (uiState.post_design_answer_names_protagonist !== true) return null;
+  if (uiState.archive_shows_protagonist_label !== true) return null;
+  if (uiState.pre_query_no_write !== true) return null;
+  if (uiState.post_query_no_write !== true) return null;
+
+  return {
+    slice_id: "au09-character-role-taxonomy-protagonist-policy",
+    behavior:
+      "protagonist_query_honest_when_missing_then_answered_after_structured_narrative_role_designed_and_adopted",
+    turn_ids: turnIds,
+    protagonist_name: uiState.protagonist_name,
+    designed_narrative_role: uiState.designed_narrative_role,
+    adopted_state_ref: uiState.adopted_state_ref,
+    assertions: [
+      "protagonist_query_before_design_honestly_reports_missing_protagonist",
+      "protagonist_query_before_design_performs_no_production_write",
+      "protagonist_design_produces_structured_narrative_role_protagonist_character_seed",
+      "adoption_boundary_writes_protagonist_into_character_dossier",
+      "archive_character_tab_shows_structured_protagonist_label",
+      "protagonist_query_after_design_answers_protagonist_name",
+      "protagonist_query_after_design_performs_no_production_write",
+      options.provider === "lmstudio"
+        ? "lmstudio_real_provider_drove_protagonist_taxonomy_roundtrip"
+        : "deterministic_provider_drove_protagonist_taxonomy_roundtrip",
+    ],
+  };
+}
+
+function findAu12ArchiveConcurrentModelRunReadSnapshotEvidence(records) {
+  const sliceId = "au12-archive-concurrent-model-run-read-snapshot";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.snapshot_visible_during_execution === true &&
+      record.loading_indicator_during_execution === true &&
+      record.turn_in_flight_when_opened === true &&
+      record.archive_refreshed_after_execution === true &&
+      Number(record.user_messages_sent ?? 0) === 1 &&
+      Number(record.author_actions_sent ?? 0) === 0,
+  );
+  if (!uiState) return null;
+
+  const turnId = String(uiState.turn_id ?? "");
+  if (!turnId) return null;
+
+  // 慢对话 turn 真实跑过主链（start/done），不是被档案读取替代。
+  const turnStarted = records.some(
+    (record) => record.turn_id === turnId && record.event === "channel.user_message.start",
+  );
+  const turnDone = records.some(
+    (record) => record.turn_id === turnId && record.event === "channel.user_message.done",
+  );
+  if (!turnStarted || !turnDone) return null;
+
+  // 执行/刷新期间真实发生过只读档案读取（get_work_profile），证明是只读读取而非写入。
+  // 注：该 channel 读取按当前作品上下文记录 work_id（"current_work"），不带 work UUID。
+  const archiveRead = records.some(
+    (record) => record.event === "channel.get_work_profile.done",
+  );
+  if (!archiveRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: turnId,
+    turn_ids: [turnId],
+    work_id: uiState.work_id,
+    profile_genre: uiState.profile_genre,
+    profile_selling_point: uiState.profile_selling_point,
+    key_events: keyEvents,
+  };
+}
+
+function au12ArchiveConcurrentModelRunReadSnapshotBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  _evidence,
+  options,
+) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au12-archive-concurrent-model-run-read-snapshot",
+  );
+  if (!uiState) return null;
+  if (uiState.snapshot_visible_during_execution !== true) return null;
+  if (uiState.loading_indicator_during_execution !== true) return null;
+  if (uiState.turn_in_flight_when_opened !== true) return null;
+  if (uiState.archive_refreshed_after_execution !== true) return null;
+  if (Number(uiState.user_messages_sent ?? 0) !== 1) return null;
+  if (Number(uiState.author_actions_sent ?? 0) !== 0) return null;
+
+  return {
+    slice_id: "au12-archive-concurrent-model-run-read-snapshot",
+    behavior:
+      "opening_work_archive_during_model_execution_keeps_last_known_snapshot_with_honest_loading_and_no_write",
+    turn_ids: turnIds,
+    work_id: uiState.work_id,
+    assertions: [
+      "archive_overview_kept_work_profile_snapshot_during_in_flight_turn",
+      "archive_showed_honest_loading_or_refresh_indicator_during_execution",
+      "model_turn_was_still_in_flight_when_archive_opened",
+      "archive_refreshed_to_full_snapshot_after_turn_completed",
+      "opening_archive_during_execution_sent_no_extra_user_message",
+      "opening_archive_during_execution_sent_no_author_action",
+      options.provider === "lmstudio"
+        ? "lmstudio_real_provider_drove_concurrent_archive_read"
+        : "deterministic_provider_drove_concurrent_archive_read",
+    ],
+  };
+}
+
+function findAu09CharacterCandidatePerItemAdoptionEvidence(records) {
+  const sliceId = "au09-character-candidate-per-item-adoption";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      Number(record.candidate_count ?? 0) >= 2 &&
+      Number(record.accept_button_count ?? 0) >= 2 &&
+      record.archive_has_adopted === true &&
+      record.archive_excludes_unadopted === true &&
+      record.unadopted_still_pending === true &&
+      record.adopted_button_gone === true &&
+      Number(record.archive_character_count ?? 0) === 1 &&
+      String(record.adopted_state_ref ?? "").length > 0,
+  );
+  if (!uiState) return null;
+
+  const turnIds = [uiState.design_turn_id, uiState.adoption_turn_id].filter(Boolean);
+  if (turnIds.length < 2) return null;
+
+  // 设计轮真实调用 character_design 工具产出候选。
+  const designGenerated = records.some(
+    (record) =>
+      record.turn_id === uiState.design_turn_id &&
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_design" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!designGenerated) return null;
+
+  // 采纳经采纳边界（author_action accept accepted）。
+  const adopted = records.some(
+    (record) =>
+      record.turn_id === uiState.design_turn_id &&
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!adopted) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.adoption_turn_id,
+    turn_ids: turnIds,
+    candidate_count: uiState.candidate_count,
+    accept_button_count: uiState.accept_button_count,
+    adopted_candidate_name: uiState.adopted_candidate_name,
+    unadopted_candidate_name: uiState.unadopted_candidate_name,
+    adopted_state_ref: uiState.adopted_state_ref,
+    archive_character_count: uiState.archive_character_count,
+    key_events: keyEvents,
+  };
+}
+
+function au09CharacterCandidatePerItemAdoptionBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  _evidence,
+  options,
+) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-character-candidate-per-item-adoption",
+  );
+  if (!uiState) return null;
+  if (Number(uiState.candidate_count ?? 0) < 2) return null;
+  if (Number(uiState.accept_button_count ?? 0) < 2) return null;
+  if (uiState.archive_has_adopted !== true) return null;
+  if (uiState.archive_excludes_unadopted !== true) return null;
+  if (uiState.unadopted_still_pending !== true) return null;
+  if (Number(uiState.archive_character_count ?? 0) !== 1) return null;
+
+  return {
+    slice_id: "au09-character-candidate-per-item-adoption",
+    behavior:
+      "each_character_candidate_has_its_own_adopt_action_and_adopting_one_writes_only_that_character",
+    turn_ids: turnIds,
+    adopted_candidate_name: uiState.adopted_candidate_name,
+    unadopted_candidate_name: uiState.unadopted_candidate_name,
+    assertions: [
+      "character_design_returned_two_independent_candidates",
+      "each_candidate_has_its_own_adopt_button",
+      "adopting_one_candidate_resolves_only_that_candidate",
+      "unadopted_candidate_keeps_its_adopt_button",
+      "adopted_candidate_written_to_character_dossier",
+      "unadopted_candidate_excluded_from_character_dossier",
+      "only_one_character_persisted_to_production_fact",
+      options.provider === "lmstudio"
+        ? "lmstudio_real_provider_drove_per_item_adoption"
+        : "deterministic_provider_drove_per_item_adoption",
     ],
   };
 }

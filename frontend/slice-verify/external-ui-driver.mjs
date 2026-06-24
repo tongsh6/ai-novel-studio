@@ -10325,6 +10325,429 @@ async function driveAu09CharacterDossierRoundtrip(page) {
   ];
 }
 
+async function driveAu09CharacterRoleTaxonomyProtagonistPolicy(page) {
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  // Phase A：还没有主角时问"主角是谁" → 诚实报缺口，不臆造主角，只读不写。
+  const preQuery = await sendOrdinaryChatTurn(
+    page,
+    "现在这部作品的主角是谁，叫什么名字？",
+    frames.length,
+  );
+  const preAnswer = String(preQuery.turnResult.assistant_message?.text ?? "");
+  const preDesignAnswerHonestMissing =
+    preAnswer.includes("还没有") &&
+    preAnswer.includes("主角") &&
+    !preAnswer.includes("当前作品的主角是");
+  assert(
+    preDesignAnswerHonestMissing,
+    `Protagonist query before any protagonist did not honestly report a missing protagonist: ${preAnswer}`,
+  );
+  const preQueryNoWrite = preQuery.turnResult.truthfulness?.production_write_performed === false;
+  assert(preQueryNoWrite, "Protagonist read-only query performed a production write");
+  assert(
+    preQuery.turnResult.truthfulness?.artifact_adopted === false,
+    "Protagonist read-only query adopted an artifact",
+  );
+
+  // Phase B：按作者意图设计一个"主角" → character_seed 带结构化 narrative_role=PROTAGONIST。
+  // 角色名由 provider 生成（作者不预设），后续断言一律使用实际生成的主角名。
+  const designBefore = frames.length;
+  const design = await sendOrdinaryChatTurn(
+    page,
+    "帮我设计一个主角，作为这部作品的核心人物。",
+    designBefore,
+  );
+  const pending = design.turnResult.adoption_state?.pending?.[0];
+  assert(
+    pending && pending.artifact_type === "character_seed",
+    "Protagonist design did not produce a tentative character_seed artifact",
+  );
+  const designedNarrativeRole = String(pending.payload?.items?.[0]?.narrative_role ?? "");
+  assert(
+    designedNarrativeRole === "PROTAGONIST",
+    `Designed protagonist character_seed missing structured narrative_role PROTAGONIST: ${designedNarrativeRole}`,
+  );
+  const protagonistName = String(pending.payload?.items?.[0]?.title ?? "").trim();
+  assert(protagonistName.length > 0, "Designed protagonist character_seed has no name");
+
+  // 采纳：经采纳边界写入 Character 主档案。
+  const acceptButton = page.getByRole("button", { name: acceptDraftButtonPattern }).first();
+  await acceptButton.waitFor({ timeout: 10_000 });
+  await acceptButton.click();
+
+  const adoptFrame = await waitForNewFrame(
+    designBefore,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === pending.artifact_id,
+      ),
+    "No protagonist character adoption resolved turn_result websocket frame was received",
+    120_000,
+  );
+  const adoptedStateRef = String(adoptFrame.body.truthfulness?.adopted_state_ref ?? "");
+  assert(adoptedStateRef.length > 0, "Protagonist adoption did not expose adopted_state_ref");
+
+  // Phase C：作品档案角色 tab 展示该角色，并以结构化"主角"叙事角色标注，缺口提示消失。
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "角色" }).click();
+  const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
+  await archivePanel.getByText(protagonistName).first().waitFor({ timeout: 10_000 });
+
+  const charactersLoaded = await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      record.work_id === design.turnResult.work_id &&
+      Number(record.character_count ?? 0) >= 1,
+    "No channel.get_characters.done log loaded the adopted protagonist Character",
+    20_000,
+  );
+
+  const archiveText = await archivePanel.innerText();
+  const archiveShowsProtagonistLabel =
+    archiveText.includes("主角") && !archiveText.includes("尚未标注主角");
+  assert(
+    archiveShowsProtagonistLabel,
+    "Character archive tab did not show the structured 主角 narrative-role label",
+  );
+
+  const closeArchive = page.getByRole("button", { name: "关闭档案" });
+  if ((await closeArchive.count()) > 0) {
+    await closeArchive
+      .first()
+      .click()
+      .catch(() => {});
+  }
+
+  // Phase D：再问"主角是谁" → 结构化叙事角色让回答有可校验主角姓名，仍然只读不写。
+  const postBefore = frames.length;
+  const postQuery = await sendOrdinaryChatTurn(page, "那现在主角是谁？", postBefore);
+  const postAnswer = String(postQuery.turnResult.assistant_message?.text ?? "");
+  const postDesignAnswerNamesProtagonist = postAnswer.includes(`主角是 ${protagonistName}`);
+  assert(
+    postDesignAnswerNamesProtagonist,
+    `Protagonist query after design did not name the protagonist: ${postAnswer}`,
+  );
+  const postQueryNoWrite = postQuery.turnResult.truthfulness?.production_write_performed === false;
+  assert(postQueryNoWrite, "Protagonist read-only query (after design) performed a production write");
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, postQuery.turnResult, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: postQuery.turnResult.turn_id,
+      turn_ids: [
+        preQuery.turnResult.turn_id,
+        design.turnResult.turn_id,
+        adoptFrame.body.turn_id,
+        postQuery.turnResult.turn_id,
+      ],
+      pre_query_turn_id: preQuery.turnResult.turn_id,
+      design_turn_id: design.turnResult.turn_id,
+      adoption_turn_id: adoptFrame.body.turn_id,
+      post_query_turn_id: postQuery.turnResult.turn_id,
+      protagonist_name: protagonistName,
+      designed_narrative_role: designedNarrativeRole,
+      adopted_state_ref: adoptedStateRef,
+      pre_design_answer_honest_missing: preDesignAnswerHonestMissing,
+      pre_query_no_write: preQueryNoWrite,
+      post_design_answer_names_protagonist: postDesignAnswerNamesProtagonist,
+      post_query_no_write: postQueryNoWrite,
+      archive_shows_protagonist_label: archiveShowsProtagonistLabel,
+      archive_character_count: charactersLoaded.character_count,
+      pre_design_answer_text: preAnswer,
+      post_design_answer_text: postAnswer,
+    },
+  ];
+}
+
+async function driveAu09CharacterCandidatePerItemAdoption(page) {
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  // 设计两个不同方向的角色候选 → character_design 返回两条独立候选。
+  const designBefore = frames.length;
+  const design = await sendOrdinaryChatTurn(
+    page,
+    "请给我设计两个不同方向的新角色候选，让我挑一个。",
+    designBefore,
+  );
+
+  const pending = (design.turnResult.adoption_state?.pending ?? []).filter(
+    (entry) => entry.artifact_type === "character_seed",
+  );
+  assert(pending.length === 2, `Expected 2 character candidates, got ${pending.length}`);
+
+  const nameOf = (entry) =>
+    String(entry.payload?.items?.[0]?.title ?? "").trim();
+  const candidateNames = pending.map(nameOf);
+  assert(
+    candidateNames.every((name) => name.length > 0) &&
+      candidateNames[0] !== candidateNames[1],
+    `Character candidates must have distinct names: ${JSON.stringify(candidateNames)}`,
+  );
+  assert(
+    pending[0].artifact_id !== pending[1].artifact_id,
+    "Character candidates must have distinct adoptable artifact ids",
+  );
+
+  // 选定要采纳的候选 B（云栖方向）与保持未采纳的候选 A。
+  const candidateB = pending.find((entry) => nameOf(entry).includes("云栖")) ?? pending[1];
+  const candidateA = pending.find((entry) => entry.artifact_id !== candidateB.artifact_id);
+  const candidateBName = nameOf(candidateB);
+  const candidateAName = nameOf(candidateA);
+
+  // 每个候选都有自己的"采纳"按钮：统计 accept 按钮数量恰为候选数。
+  // accept 按钮文案统一以"保存到作品档案："开头（character_seed=档案类），逐候选附候选名。
+  // 用子串/精确名匹配（不用动态 RegExp），既能逐项点击也避免 ReDoS 风险。
+  const acceptPrefix = "保存到作品档案：";
+  const acceptButtons = page.getByRole("button", { name: acceptPrefix });
+  await acceptButtons.first().waitFor({ timeout: 10_000 });
+  const acceptButtonCount = await acceptButtons.count();
+  assert(
+    acceptButtonCount === 2,
+    `Each character candidate must have its own adopt button; found ${acceptButtonCount}`,
+  );
+
+  const acceptButtonFor = (name) =>
+    page.getByRole("button", { name: `${acceptPrefix}${name}`, exact: true });
+
+  await acceptButtonFor(candidateBName).first().click();
+
+  // 采纳候选 B：resolved 包含 B 的 artifact_id。
+  const adoptFrame = await waitForNewFrame(
+    designBefore,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === candidateB.artifact_id,
+      ),
+    "No per-item character adoption resolved turn_result was received for candidate B",
+    120_000,
+  );
+  const adoptedStateRef = String(adoptFrame.body.truthfulness?.adopted_state_ref ?? "");
+  assert(adoptedStateRef.length > 0, "Candidate B adoption did not expose adopted_state_ref");
+
+  // 候选 A 仍可采纳：A 的采纳按钮仍在；B 的采纳按钮已消失。
+  const unadoptedStillPending = (await acceptButtonFor(candidateAName).count()) >= 1;
+  assert(unadoptedStillPending, "Unadopted candidate A lost its adopt button after adopting B");
+  const adoptedButtonGone = (await acceptButtonFor(candidateBName).count()) === 0;
+  assert(adoptedButtonGone, "Adopted candidate B adopt button should disappear after adoption");
+
+  // 作品档案角色 tab：只显示已采纳的候选 B，未采纳的候选 A 不进入作品事实。
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "角色" }).click();
+  const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
+  await archivePanel.getByText(candidateBName).first().waitFor({ timeout: 10_000 });
+
+  const charactersLoaded = await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.get_characters.done" &&
+      record.work_id === design.turnResult.work_id &&
+      Number(record.character_count ?? 0) >= 1,
+    "No channel.get_characters.done log loaded the adopted character",
+    20_000,
+  );
+
+  // 只检查"已确认角色"段（作品事实）。未采纳候选 A 仍出现在档案的"待采纳"段是正确产品行为
+  // （作者可稍后从档案采纳它），但绝不能进入已确认角色（accepted Character）。
+  const acceptedSection = archivePanel
+    .locator("div")
+    .filter({ hasText: "已确认角色" })
+    .filter({ hasText: candidateBName })
+    .last();
+  await acceptedSection.waitFor({ timeout: 10_000 });
+  const acceptedText = await acceptedSection.innerText();
+  const archiveHasAdopted = acceptedText.includes(candidateBName);
+  const archiveExcludesUnadopted = !acceptedText.includes(candidateAName);
+  assert(archiveHasAdopted, "Adopted candidate B is not an accepted character in the archive");
+  assert(
+    archiveExcludesUnadopted,
+    "Unadopted candidate A leaked into accepted characters (production fact)",
+  );
+  // 作品事实只新增了一个角色（已采纳的 B）。
+  assert(
+    Number(charactersLoaded.character_count ?? 0) === 1,
+    `Adopting one candidate must persist exactly one Character, got ${charactersLoaded.character_count}`,
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, adoptFrame.body, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: adoptFrame.body.turn_id,
+      turn_ids: [design.turnResult.turn_id, adoptFrame.body.turn_id],
+      design_turn_id: design.turnResult.turn_id,
+      adoption_turn_id: adoptFrame.body.turn_id,
+      candidate_count: pending.length,
+      accept_button_count: acceptButtonCount,
+      adopted_candidate_name: candidateBName,
+      unadopted_candidate_name: candidateAName,
+      adopted_state_ref: adoptedStateRef,
+      unadopted_still_pending: unadoptedStillPending,
+      adopted_button_gone: adoptedButtonGone,
+      archive_has_adopted: archiveHasAdopted,
+      archive_excludes_unadopted: archiveExcludesUnadopted,
+      archive_character_count: charactersLoaded.character_count,
+    },
+  ];
+}
+
+async function driveAu12ArchiveConcurrentModelRunReadSnapshot(page) {
+  const nonce = `AU12CONC-${Date.now()}`;
+  const seed = {
+    title: `AU12并发档案作品-${nonce}`,
+    genre: "悬疑仙侠",
+    core_selling_point: `执行期可读档案-${nonce}`,
+    target_reader: "在创作中核对档案的作者",
+    tone_preference: "冷静克制",
+  };
+  const work = await createWorkSeed(seed);
+
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+    timeout: 30_000,
+  });
+  await ensureWorkSelectedByTitle(page, seed.title, work.id);
+  await waitForVisibleWorkTitle(page, seed.title);
+
+  // Phase 1：执行前先正常加载一次档案 → 概览显示立项快照（题材 / 卖点）。
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+  let archivePanel = await waitForArchivePanel(page);
+  await archivePanel.getByText(seed.genre).first().waitFor({ timeout: 15_000 });
+  await archivePanel.getByText(seed.core_selling_point).first().waitFor({ timeout: 15_000 });
+  await page.getByRole("button", { name: "关闭档案" }).first().click();
+
+  // Phase 2：发送一个故意慢的普通对话 turn（不等待完成），让模型执行期间占住通道。
+  const sendBefore = frames.length;
+  const slowMessage = `AU12SLOW 帮我顺一下 ${nonce} 后面的剧情走向，慢慢来。`;
+  await page.locator(chatInputSelector).fill(slowMessage);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+  await waitForNewFrame(
+    sendBefore,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("AU12SLOW"),
+    "Slow user_message was not sent",
+    10_000,
+  );
+
+  // Phase 3：模型执行期间打开档案 → 概览仍显示立项快照（非空白）+ 诚实加载/更新指示；turn 尚未完成。
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+  archivePanel = await waitForArchivePanel(page);
+  await page.waitForFunction(
+    () => {
+      const panel = [...document.querySelectorAll('[class*="panel"]')].find((element) =>
+        element.innerText.includes("作品档案"),
+      );
+      const text = panel?.innerText ?? "";
+      return text.includes("正在读取作品档案") || text.includes("正在更新作品档案");
+    },
+    undefined,
+    { timeout: 5_000 },
+  );
+  const duringSnapshot = await archivePanelSnapshot(archivePanel);
+  const snapshotVisibleDuringExecution =
+    duringSnapshot.text.includes(seed.genre) && duringSnapshot.text.includes(seed.core_selling_point);
+  const loadingIndicatorDuringExecution =
+    duringSnapshot.text.includes("正在读取作品档案") ||
+    duringSnapshot.text.includes("正在更新作品档案");
+  const turnInFlightWhenOpened = !frames
+    .slice(sendBefore)
+    .some((frame) => frame.direction === "received" && frame.event === "turn_result");
+
+  assert(
+    snapshotVisibleDuringExecution,
+    "Archive overview blanked the work profile snapshot during model execution",
+  );
+  assert(
+    loadingIndicatorDuringExecution,
+    "Archive did not show an honest loading/refresh indicator during model execution",
+  );
+  assert(
+    turnInFlightWhenOpened,
+    "Slow turn completed before the archive was opened during execution (delay too short)",
+  );
+
+  // Phase 4：等待慢 turn 完成（本轮第一条 turn_result 即慢消息的结果，档案读取不产生 turn_result）。
+  const turnFrame = await waitForNewFrame(
+    sendBefore,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.assistant_message != null,
+    "Slow turn never completed",
+    30_000,
+  );
+
+  // Phase 5：执行结束后档案刷新，仍显示完整立项快照（不空白）。
+  await page.waitForFunction(
+    (needle) => {
+      const panel = [...document.querySelectorAll('[class*="panel"]')].find((element) =>
+        element.innerText.includes("作品档案"),
+      );
+      return panel?.innerText.includes(needle) ?? false;
+    },
+    seed.core_selling_point,
+    { timeout: 15_000 },
+  );
+  const afterSnapshot = await archivePanelSnapshot(archivePanel);
+  const archiveRefreshedAfterExecution =
+    afterSnapshot.text.includes(seed.genre) && afterSnapshot.text.includes(seed.core_selling_point);
+  assert(
+    archiveRefreshedAfterExecution,
+    "Archive did not show the profile snapshot after the slow turn completed",
+  );
+
+  // no-write：打开档案期间不得产生新的 user_message / author_action（只有那条慢消息）。
+  const userMessagesSent = frames
+    .slice(sendBefore)
+    .filter((frame) => frame.direction === "sent" && frame.event === "user_message").length;
+  const authorActionsSent = frames
+    .slice(sendBefore)
+    .filter((frame) => frame.direction === "sent" && frame.event === "author_action").length;
+  assert(
+    userMessagesSent === 1,
+    `Opening the archive during execution must not send extra user_message; got ${userMessagesSent}`,
+  );
+  assert(
+    authorActionsSent === 0,
+    `Opening the archive during execution must not send author_action; got ${authorActionsSent}`,
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, turnFrame.body, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: turnFrame.body.turn_id,
+      turn_ids: [turnFrame.body.turn_id],
+      work_id: work.id,
+      snapshot_visible_during_execution: snapshotVisibleDuringExecution,
+      loading_indicator_during_execution: loadingIndicatorDuringExecution,
+      turn_in_flight_when_opened: turnInFlightWhenOpened,
+      archive_refreshed_after_execution: archiveRefreshedAfterExecution,
+      user_messages_sent: userMessagesSent,
+      author_actions_sent: authorActionsSent,
+      profile_genre: seed.genre,
+      profile_selling_point: seed.core_selling_point,
+    },
+  ];
+}
+
 async function driveAu09ValidityWindowRecall(page) {
   // 种子：当前位置=第5章；窗口外设定「盘古碑（仅序章设定）」(1-2章)；无窗口设定「玄铁令（全书核心信物）」。
   const inWindowPhrase = "全书核心信物";
@@ -14325,6 +14748,11 @@ const drivers = {
   "au09-memory-trace-roundtrip": driveAu09MemoryTraceRoundtrip,
   "au09-adopt-setting-recall": driveAu09AdoptSettingRecall,
   "au09-character-dossier-roundtrip": driveAu09CharacterDossierRoundtrip,
+  "au09-character-role-taxonomy-protagonist-policy":
+    driveAu09CharacterRoleTaxonomyProtagonistPolicy,
+  "au09-character-candidate-per-item-adoption": driveAu09CharacterCandidatePerItemAdoption,
+  "au12-archive-concurrent-model-run-read-snapshot":
+    driveAu12ArchiveConcurrentModelRunReadSnapshot,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,
   "au09-cross-work-memory-isolation": driveAu09CrossWorkMemoryIsolation,
   "au09-au03-session-memory-layering": driveAu09Au03SessionMemoryLayering,
