@@ -174,6 +174,39 @@ defmodule NovelAgent.Provider.SliceVerifyTest do
       assert a["title"] != b["title"]
     end
 
+    test "'更新角色当前状态/关系'是演化意图：frame 需要工具，plan 路由到 character_evolution" do
+      frame_prompt = [%{role: "user", content: "更新一下林烬的当前状态，他在这一章右臂重伤了。"}]
+
+      assert {:ok, frame_result} =
+               SliceVerify.complete(%SliceVerify{}, nil, frame_prompt, %InferenceParams{})
+
+      assert Jason.decode!(frame_result.content)["needs_tool"] == true
+
+      plan_prompt = "proposed_actions\n## 用户输入\n更新林烬的当前状态，他右臂重伤了。\n## 输出格式"
+
+      assert {:ok, plan_result} =
+               SliceVerify.complete(%SliceVerify{}, nil, plan_prompt, %InferenceParams{})
+
+      assert [action] = Jason.decode!(plan_result.content)["proposed_actions"]
+      assert action["target_ref"] == "character_evolution"
+    end
+
+    test "角色演化 character_evolution_seed 携带 memory_subtype（关系→RELATIONSHIP）" do
+      creative_prompt = """
+      JSON 数组
+      artifact_type：character_evolution_seed
+      用户创作简述：林烬和苏晚的关系从结盟转为反目。
+      上下文：当前作品背景。
+      重要：保留随机标识符。
+      """
+
+      assert {:ok, result} =
+               SliceVerify.complete(%SliceVerify{}, nil, creative_prompt, %InferenceParams{})
+
+      assert [item] = Jason.decode!(result.content)
+      assert item["memory_subtype"] == "RELATIONSHIP"
+    end
+
     test "设计单个角色时仍只产出 1 条候选（向后兼容 dossier / 主角语义 slice）" do
       creative_prompt = """
       JSON 数组

@@ -9242,7 +9242,7 @@ async function driveAu09MemoryManagementFilterMatrix(page) {
   }
 
   async function waitForNotLoading() {
-    await page.waitForFunction(() => !document.body.innerText.includes("加载中..."), {
+    await page.waitForFunction(() => !document.body.innerText.includes("加载中…"), {
       timeout: 10_000,
     });
   }
@@ -9297,7 +9297,7 @@ async function driveAu09MemoryManagementFilterMatrix(page) {
   }
 
   async function applyFilters({ keyword = "", type = "", scope = "", status = "", locked = "" }) {
-    await page.getByPlaceholder("搜索关键词...").fill(keyword);
+    await page.getByPlaceholder("搜索记忆…").fill(keyword);
     const filters = page.locator("select");
     await filters.nth(0).selectOption(type);
     await filters.nth(1).selectOption(scope);
@@ -10744,6 +10744,290 @@ async function driveAu12ArchiveConcurrentModelRunReadSnapshot(page) {
       author_actions_sent: authorActionsSent,
       profile_genre: seed.genre,
       profile_selling_point: seed.core_selling_point,
+    },
+  ];
+}
+
+async function driveAu09MemoryTaxonomyWritePolicy(page) {
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+
+  const adopt = async (beforeCount, pending, label) => {
+    await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+    return await waitForNewFrame(
+      beforeCount,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.truthfulness?.artifact_adopted === true &&
+        (frame.body?.adoption_state?.resolved ?? []).some(
+          (entry) => entry.artifact_id === pending.artifact_id,
+        ),
+      `${label} adoption frame was not received`,
+      120_000,
+    );
+  };
+
+  const openMemoryPage = async () => {
+    await page.getByRole("button", { name: /记忆/ }).first().click();
+    await page.waitForFunction(() => document.body.innerText.includes("记忆管理"), undefined, {
+      timeout: 10_000,
+    });
+  };
+  const closeMemoryPage = async () => {
+    await page
+      .getByRole("button", { name: "返回工作台" })
+      .first()
+      .click()
+      .catch(() => {});
+    await page
+      .waitForFunction(() => !document.body.innerText.includes("记忆管理"), undefined, {
+        timeout: 10_000,
+      })
+      .catch(() => {});
+  };
+
+  // Phase A — 角色主体写主档案、不写记忆。
+  const designBefore = frames.length;
+  const design = await sendOrdinaryChatTurn(page, "帮我设计一个主角，叫林烬。", designBefore);
+  const seedPending = design.turnResult.adoption_state?.pending?.[0];
+  assert(
+    seedPending && seedPending.artifact_type === "character_seed",
+    `character design did not produce a character_seed (got ${seedPending?.artifact_type})`,
+  );
+  await adopt(designBefore, seedPending, "character_seed");
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "角色" }).click();
+  const archivePanel = page.locator('[class*="panel"]').filter({ hasText: "作品档案" }).first();
+  await archivePanel.getByText("林烬").first().waitFor({ timeout: 10_000 });
+  const characterDossierVisible = (await archivePanel.getByText("林烬").count()) >= 1;
+  const closeArchive = page.getByRole("button", { name: "关闭档案" });
+  if ((await closeArchive.count()) > 0) {
+    await closeArchive
+      .first()
+      .click()
+      .catch(() => {});
+  }
+
+  // 记忆页：角色主档案不写记忆（无角色记忆、无主档案名作为记忆泄漏）。
+  await openMemoryPage();
+  const tbodyAfterSeed = await page.locator("table tbody").innerText();
+  const noCharacterMemoryAfterSeed =
+    !tbodyAfterSeed.includes("林烬") && !/当前状态|人物设定|人物关系/.test(tbodyAfterSeed);
+  assert(
+    noCharacterMemoryAfterSeed,
+    `character_seed adoption leaked into memory: ${tbodyAfterSeed.slice(0, 160)}`,
+  );
+  await closeMemoryPage();
+
+  // Phase B — 角色演化采纳写角色记忆（CURRENT_STATE），含本轮输入 nonce。
+  // nonce 必须同时含字母与数字（slice_verify 的 random_identifier_tokens 要求），故用 EVOK+纯数字时间戳。
+  const evoNonce = `EVOK${Date.now()}`;
+  const evoBefore = frames.length;
+  const evolution = await sendOrdinaryChatTurn(
+    page,
+    `更新林烬的当前状态（标记 ${evoNonce}）：他在这一章右臂重伤了。`,
+    evoBefore,
+  );
+  const evoPending = evolution.turnResult.adoption_state?.pending?.[0];
+  assert(
+    evoPending && evoPending.artifact_type === "character_evolution_seed",
+    `character evolution did not produce a character_evolution_seed (got ${evoPending?.artifact_type})`,
+  );
+  const evoAdopt = await adopt(evoBefore, evoPending, "character_evolution_seed");
+  const adoptedStateRef = String(evoAdopt.body.truthfulness?.adopted_state_ref ?? "");
+  assert(adoptedStateRef.length > 0, "character evolution adoption did not expose adopted_state_ref");
+
+  // 记忆页：该角色记忆以「当前状态」类型展示，且内容保留本轮 nonce（因果绑定）。
+  await openMemoryPage();
+  const evoRow = page.locator("table tbody tr").filter({ hasText: evoNonce }).first();
+  await evoRow.waitFor({ timeout: 15_000 });
+  const evoRowText = await evoRow.innerText();
+  const evolutionMemoryWritten = evoRowText.includes(evoNonce);
+  const evolutionMemoryTypeShown = evoRowText.includes("当前状态");
+  assert(evolutionMemoryWritten, "adopted character evolution memory was not found in the memory page");
+  assert(
+    evolutionMemoryTypeShown,
+    `adopted character memory did not show 当前状态 type label: ${evoRowText}`,
+  );
+
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, evoAdopt.body, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: evoAdopt.body.turn_id,
+      turn_ids: [design.turnResult.turn_id, evolution.turnResult.turn_id, evoAdopt.body.turn_id],
+      design_turn_id: design.turnResult.turn_id,
+      evolution_turn_id: evolution.turnResult.turn_id,
+      adoption_turn_id: evoAdopt.body.turn_id,
+      seed_artifact_type: seedPending.artifact_type,
+      evolution_artifact_type: evoPending.artifact_type,
+      character_dossier_visible: characterDossierVisible,
+      no_character_memory_after_seed: noCharacterMemoryAfterSeed,
+      evolution_memory_written: evolutionMemoryWritten,
+      evolution_memory_type_shown: evolutionMemoryTypeShown,
+      evolution_nonce: evoNonce,
+      adopted_state_ref: adoptedStateRef,
+    },
+  ];
+}
+
+async function driveAu09MemoryListUxRedesign(page) {
+  const activeNonce = "UX记忆甲7K3";
+  const terminalNonce = "UX记忆乙9M2";
+  const activeContent = `${activeNonce}是主角的人物设定演化，应作为可召回的已确认记忆显示。`;
+  const terminalContent = `${terminalNonce}是一条被废弃的伏笔线索，应作为终态记忆弱化显示且不召回。`;
+
+  const openMemoryPage = async () => {
+    await page.getByRole("button", { name: /记忆/ }).first().click();
+    await page.waitForFunction(() => document.body.innerText.includes("记忆管理"), undefined, {
+      timeout: 10_000,
+    });
+  };
+
+  const createMemory = async (content, type) => {
+    await page.getByRole("button", { name: "+ 新建记忆" }).click();
+    await page.locator("textarea").first().fill(content);
+    const allSelects = page.locator("select");
+    await allSelects.nth(4).selectOption(type);
+    await allSelects.nth(5).selectOption("WORK");
+    await page.getByRole("button", { name: "创建" }).click();
+    await page.waitForFunction((needle) => document.body.innerText.includes(needle), content, {
+      timeout: 10_000,
+    });
+  };
+
+  const openDetail = async (nonce) => {
+    const row = page.locator("tbody tr").filter({ hasText: nonce }).first();
+    await row.waitFor({ timeout: 10_000 });
+    await row.click();
+    await page.waitForFunction(() => document.body.innerText.includes("记忆详情"), undefined, {
+      timeout: 10_000,
+    });
+  };
+  const closeDetail = async () => {
+    await page.getByRole("button", { name: "×" }).first().click();
+    await page.waitForFunction(() => !document.body.innerText.includes("记忆详情"), undefined, {
+      timeout: 10_000,
+    });
+  };
+
+  await openMemoryPage();
+
+  // 造两条不同类型/状态的记忆：甲=已确认人物设定（可召回），乙=废弃伏笔（终态、不召回）。
+  await createMemory(activeContent, "CHARACTER_PROFILE");
+  await createMemory(terminalContent, "FORESHADOWING");
+
+  await openDetail(activeNonce);
+  await page.getByRole("button", { name: "确认" }).click();
+  await page.waitForFunction(
+    () =>
+      !document.body.innerText.includes("记忆详情") ||
+      ![...document.querySelectorAll("button")].some((b) => (b.textContent ?? "").trim() === "确认"),
+    undefined,
+    { timeout: 10_000 },
+  );
+  await closeDetail();
+
+  await openDetail(terminalNonce);
+  await page.getByRole("button", { name: "废弃" }).click();
+  await page.waitForFunction(() => document.body.innerText.includes("DEPRECATED"), undefined, {
+    timeout: 10_000,
+  });
+  await closeDetail();
+
+  // 列表（抽屉关闭后）抓行级语义快照。
+  const snapshot = await page.evaluate(
+    ({ activeNeedle, terminalNeedle }) => {
+      const container = [...document.querySelectorAll('[class*="container"]')].find((el) =>
+        el.innerText.includes("记忆管理"),
+      );
+      const containerBg = container
+        ? getComputedStyle(container).backgroundColor
+        : getComputedStyle(document.body).backgroundColor;
+      const rows = [...document.querySelectorAll("tbody tr")];
+      const readRow = (needle) => {
+        const row = rows.find((r) => (r.innerText ?? "").includes(needle));
+        if (!row) return null;
+        const cells = [...row.querySelectorAll("td")].map((c) => c.innerText.trim());
+        const rect = row.getBoundingClientRect();
+        return {
+          text: row.innerText.replace(/\s+/g, " ").trim(),
+          cells,
+          className: row.className,
+          top: rect.top,
+          height: rect.height,
+          contentColor: getComputedStyle(row.querySelector("td")).color,
+        };
+      };
+      const tbodyText = document.querySelector("table tbody")?.innerText ?? "";
+      return {
+        containerBg,
+        tbodyText,
+        active: readRow(activeNeedle),
+        terminal: readRow(terminalNeedle),
+        rowCount: rows.length,
+      };
+    },
+    { activeNeedle: activeNonce, terminalNeedle: terminalNonce },
+  );
+
+  assert(snapshot.active && snapshot.terminal, "memory list rows for both memories were not found");
+
+  // 状态/类型/召回以中文标签呈现，列表不再出现原始枚举。
+  const statusesAsLabels =
+    snapshot.tbodyText.includes("已确认") &&
+    snapshot.tbodyText.includes("已弃用") &&
+    !snapshot.tbodyText.includes("CONFIRMED") &&
+    !snapshot.tbodyText.includes("DEPRECATED");
+  const typesAsLabels =
+    snapshot.tbodyText.includes("人物设定") && snapshot.tbodyText.includes("伏笔");
+  const recallShown =
+    snapshot.active.text.includes("可召回") && snapshot.terminal.text.includes("不召回");
+  // 终态行被语义弱化（rowTerminal class），活跃行不弱化。
+  const terminalRowStyled =
+    snapshot.terminal.className.includes("rowTerminal") &&
+    !snapshot.active.className.includes("rowTerminal");
+  // 行不重叠：两行有正高度且 top 不同。
+  const noOverlap =
+    snapshot.active.height > 0 &&
+    snapshot.terminal.height > 0 &&
+    Math.abs(snapshot.active.top - snapshot.terminal.top) >= snapshot.active.height - 1;
+  // 浅色调：容器背景不是旧的深色（rgb 三通道都偏亮，> 200）。
+  const bgMatch = /rgba?\((\d+),\s*(\d+),\s*(\d+)/.exec(snapshot.containerBg);
+  const lightTheme = bgMatch
+    ? Number(bgMatch[1]) > 200 && Number(bgMatch[2]) > 200 && Number(bgMatch[3]) > 200
+    : false;
+
+  assert(statusesAsLabels, `status not shown as labels: ${snapshot.tbodyText.slice(0, 200)}`);
+  assert(typesAsLabels, "memory types not shown as labels in the list");
+  assert(recallShown, "recall value (可召回/不召回) not shown per row");
+  assert(terminalRowStyled, "terminal memory row was not visually de-emphasized");
+  assert(noOverlap, "memory list rows overlap or have zero height");
+  assert(lightTheme, `memory page is not on the global light theme: ${snapshot.containerBg}`);
+
+  // 本 slice 是纯记忆页 UI 验收，无对话 turn；直接构造 ui_state（不依赖 user_message 帧）。
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      socket_connected: true,
+      outcome: "done",
+      duration_ms: 0,
+      turn_id: "memory_list_ux",
+      turn_ids: [],
+      statuses_as_labels: statusesAsLabels,
+      types_as_labels: typesAsLabels,
+      recall_shown: recallShown,
+      terminal_row_styled: terminalRowStyled,
+      no_row_overlap: noOverlap,
+      light_theme: lightTheme,
+      container_bg: snapshot.containerBg,
+      active_nonce: activeNonce,
+      terminal_nonce: terminalNonce,
+      row_count: snapshot.rowCount,
     },
   ];
 }
@@ -14753,6 +15037,8 @@ const drivers = {
   "au09-character-candidate-per-item-adoption": driveAu09CharacterCandidatePerItemAdoption,
   "au12-archive-concurrent-model-run-read-snapshot":
     driveAu12ArchiveConcurrentModelRunReadSnapshot,
+  "au09-memory-taxonomy-write-policy": driveAu09MemoryTaxonomyWritePolicy,
+  "au09-memory-list-ux-redesign": driveAu09MemoryListUxRedesign,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,
   "au09-cross-work-memory-isolation": driveAu09CrossWorkMemoryIsolation,
   "au09-au03-session-memory-layering": driveAu09Au03SessionMemoryLayering,

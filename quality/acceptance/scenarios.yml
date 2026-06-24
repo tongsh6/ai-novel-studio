@@ -433,6 +433,20 @@ scenarios:
     manifest: quality/acceptance/scenarios/au09-character-candidate-per-item-adoption.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh au09-character-candidate-per-item-adoption --surface tauri
+  - id: au09-memory-taxonomy-write-policy
+    title: "记忆类型与写入治理：主体不写记忆、角色演化写有类型的角色记忆"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-memory-taxonomy-write-policy.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-memory-taxonomy-write-policy --surface tauri
+  - id: au09-memory-list-ux-redesign
+    title: "记忆列表 UX 重构：全局浅色调 + 可扫读语义状态/类型/召回"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/au09-memory-list-ux-redesign.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh au09-memory-list-ux-redesign --surface tauri
   - id: au09-validity-window-recall
     title: "章节有效期窗口过滤记忆召回"
     tier: nightly

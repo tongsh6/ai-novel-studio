@@ -101,7 +101,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     %{
       frame_type: frame_type(flags),
       dialogue_goal_summary: dialogue_goal_summary(flags),
-      needs_tool: flags.readonly_character_query or flags.character_design_request,
+      needs_tool:
+        flags.readonly_character_query or flags.character_design_request or
+          flags.character_evolution_request,
       no_tool_reason: no_tool_reason(flags),
       execution_readiness: execution_readiness(flags),
       assistant_message:
@@ -124,12 +126,14 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       slow_work_switch: slow_work_switch_prompt?(prompt),
       candidate_context_followup: candidate_context_followup_prompt?(prompt),
       readonly_character_query: readonly_character_query_prompt?(prompt),
-      character_design_request: character_design_request_prompt?(prompt)
+      character_design_request: character_design_request_prompt?(prompt),
+      character_evolution_request: character_evolution_request_prompt?(prompt)
     }
   end
 
   defp frame_type(%{readonly_character_query: true}), do: "execution_candidate"
   defp frame_type(%{character_design_request: true}), do: "execution_candidate"
+  defp frame_type(%{character_evolution_request: true}), do: "execution_candidate"
   defp frame_type(%{slow_work_switch: true}), do: "casual_reply"
   defp frame_type(%{candidate_context_followup: true}), do: "casual_reply"
   defp frame_type(%{quality_diagnosis: true}), do: "question_answer"
@@ -138,6 +142,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp dialogue_goal_summary(%{readonly_character_query: true}), do: "查看当前作品角色列表"
   defp dialogue_goal_summary(%{character_design_request: true}), do: "按作者意图设计新角色"
+  defp dialogue_goal_summary(%{character_evolution_request: true}), do: "记录已有角色的演化事件"
   defp dialogue_goal_summary(%{slow_work_switch: true}), do: "验证慢回复跨作品归属"
   defp dialogue_goal_summary(%{candidate_context_followup: true}), do: "围绕已选候选方向继续探索"
   defp dialogue_goal_summary(%{quality_diagnosis: true}), do: "诊断章节爽感不足和胜利过轻"
@@ -145,11 +150,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp no_tool_reason(%{readonly_character_query: true}), do: "tool_needed"
   defp no_tool_reason(%{character_design_request: true}), do: "tool_needed"
+  defp no_tool_reason(%{character_evolution_request: true}), do: "tool_needed"
   defp no_tool_reason(%{exploratory: true}), do: "exploratory_only"
   defp no_tool_reason(_flags), do: "no_tool_needed"
 
   defp execution_readiness(%{readonly_character_query: true}), do: "ready"
   defp execution_readiness(%{character_design_request: true}), do: "ready"
+  defp execution_readiness(%{character_evolution_request: true}), do: "ready"
   defp execution_readiness(_flags), do: "not_applicable"
 
   defp maybe_delay_su02_slow_work_switch(prompt_text) do
@@ -239,7 +246,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     contains_any?(text, ["设计", "设定", "创建", "新增", "塑造", "加个", "加一个", "写一个"]) and
       contains_any?(text, ["主角", "反派", "配角", "角色", "人物"]) and
-      not protagonist_query?(text)
+      not protagonist_query?(text) and
+      not character_evolution_request?(text)
+  end
+
+  # "更新/演化/推进已有角色的成长/当前状态/关系变化" 是演化意图，需要 character_evolution 工具。
+  defp character_evolution_request_prompt?(prompt) do
+    prompt |> author_input_text() |> character_evolution_request?()
+  end
+
+  defp character_evolution_request?(text) do
+    contains_any?(text, [
+      "更新",
+      "演化",
+      "推进",
+      "黑化",
+      "觉醒",
+      "蜕变",
+      "成长转变",
+      "当前状态",
+      "现状",
+      "结盟",
+      "反目",
+      "决裂",
+      "关系变化"
+    ]) and contains_any?(text, ["角色", "人物", "主角", "林烬", "他", "她"])
   end
 
   defp candidate_context_followup_prompt?(prompt) do
@@ -386,6 +417,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       multi_character_candidate_prompt?(prompt, brief) ->
         character_candidate_items(brief, context)
 
+      # AU-09：角色演化记忆草稿（采纳后写角色记忆，非主档案）。
+      character_evolution_seed_prompt?(prompt) ->
+        [character_evolution_item(brief, context)]
+
       true ->
         text = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
         fingerprint = text |> :erlang.phash2() |> Integer.to_string(36)
@@ -405,6 +440,38 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           [item]
         end
     end
+  end
+
+  defp character_evolution_seed_prompt?(prompt),
+    do: String.contains?(prompt, "artifact_type：character_evolution_seed")
+
+  # 角色演化记忆草稿：从 brief 派生 memory_subtype（关系/当前状态/演化），采纳后写对应角色 MemoryType。
+  defp character_evolution_item(brief, context) do
+    fingerprint = [brief, context] |> Enum.join("\n") |> :erlang.phash2() |> Integer.to_string(36)
+    text = to_string(brief)
+
+    subtype =
+      cond do
+        contains_any?(text, ["关系", "结盟", "反目", "决裂", "敌对", "背叛", "联手"]) -> "RELATIONSHIP"
+        contains_any?(text, ["当前状态", "现状", "此刻", "目前", "伤势", "处境", "所在"]) -> "CURRENT_STATE"
+        true -> "CHARACTER_PROFILE"
+      end
+
+    # 保留 user 输入中的随机标识符（nonce），证明采纳的角色记忆来自本轮输入而非 fixture。
+    nonces =
+      (random_identifier_tokens(text) ++ random_identifier_tokens(context))
+      |> Enum.take(2)
+      |> Enum.join("、")
+
+    body_nonce = if nonces == "", do: "", else: "（线索：#{nonces}）"
+
+    %{
+      item_id: "slice_evo_#{fingerprint}_1",
+      title: "林烬：演化事件 #{String.slice(fingerprint, 0, 4)}",
+      body: "林烬随剧情发生演化#{body_nonce}。本条只记录该演化事实，不重写角色主档案。",
+      rationale: "记录角色随剧情的连续性变化，供后续创作召回。",
+      memory_subtype: subtype
+    }
   end
 
   defp multi_character_candidate_prompt?(prompt, brief) do
@@ -797,6 +864,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     cond do
       readonly_character_query_prompt?(prompt) ->
         "character_roster"
+
+      character_evolution_request_prompt?(prompt) ->
+        "character_evolution"
 
       contains_any?(prompt, ["正文", "片段", "开场"]) ->
         "prose_writing"

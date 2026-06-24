@@ -1,0 +1,50 @@
+id: au09-memory-list-ux-redesign
+title: 记忆列表 UX 重构：全局浅色调 + 可扫读语义状态/类型/召回
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-memory-list-ux-redesign --surface tauri
+
+contract:
+  - docs/design/ui/40-ui-overview.md
+  - docs/design/06-memory-context-and-trace.md
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - tasks/slices/AU09-memory-list-ux-redesign.md
+
+invariants:
+  - memory-list-uses-global-design-tokens-not-off-theme-colors
+  - status-color-serves-real-status-semantics-not-decoration
+  - terminal-and-recall-status-are-scannable
+  - copy-centralized-and-component-design-traceable
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench memory page
+  - create: memories of different types
+  - confirm: one memory and deprecate another
+  - observe: the list renders on the global light theme
+  - observe: status shows semantic labels (已确认/已弃用) not raw enums
+  - observe: each row shows type label and recall value
+  - observe: terminal (deprecated) rows are visually de-emphasized without overlap
+
+evidence:
+  required:
+    - screenshot
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-memory-list-ux-redesign-tauri
+
+assertions:
+  ui:
+    - the memory list is on the global light theme, not off-theme dark
+    - memory status is shown as a semantic label, not a raw enum
+    - each memory row shows its type label and recall value
+    - terminal memory rows are visually de-emphasized and rows do not overlap
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -105,6 +105,8 @@ export const nativeSliceIds = [
   "au09-character-role-taxonomy-protagonist-policy",
   "au09-character-candidate-per-item-adoption",
   "au12-archive-concurrent-model-run-read-snapshot",
+  "au09-memory-taxonomy-write-policy",
+  "au09-memory-list-ux-redesign",
   "au09-validity-window-recall",
   "au09-cross-work-memory-isolation",
   "au09-au03-session-memory-layering",
@@ -603,6 +605,16 @@ const sliceKeyEvents = {
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
+  "au09-memory-taxonomy-write-policy": [
+    "channel.user_message.start",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  "au09-memory-list-ux-redesign": ["slice_verify.ui_state.done"],
   "au09-validity-window-recall": [
     "channel.user_message.start",
     "context.assemble.done",
@@ -1518,6 +1530,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAu12ArchiveConcurrentModelRunReadSnapshotEvidence(records);
   }
 
+  if (sliceId === "au09-memory-taxonomy-write-policy") {
+    return findAu09MemoryTaxonomyWritePolicyEvidence(records);
+  }
+
+  if (sliceId === "au09-memory-list-ux-redesign") {
+    return findAu09MemoryListUxRedesignEvidence(records);
+  }
+
   if (sliceId === "au09-validity-window-recall") {
     return findAu09ValidityWindowRecallEvidence(records);
   }
@@ -1933,6 +1953,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
       evidence,
       options,
     );
+  }
+
+  if (sliceId === "au09-memory-taxonomy-write-policy") {
+    return au09MemoryTaxonomyWritePolicyBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "au09-memory-list-ux-redesign") {
+    return au09MemoryListUxRedesignBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "au09-validity-window-recall") {
@@ -10842,6 +10870,158 @@ function au09CharacterRoleTaxonomyBehavior(turnIds, _turnRecords, records, _evid
       options.provider === "lmstudio"
         ? "lmstudio_real_provider_drove_protagonist_taxonomy_roundtrip"
         : "deterministic_provider_drove_protagonist_taxonomy_roundtrip",
+    ],
+  };
+}
+
+function findAu09MemoryListUxRedesignEvidence(records) {
+  const sliceId = "au09-memory-list-ux-redesign";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.statuses_as_labels === true &&
+      record.types_as_labels === true &&
+      record.recall_shown === true &&
+      record.terminal_row_styled === true &&
+      record.no_row_overlap === true &&
+      record.light_theme === true,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.turn_id,
+    turn_ids: [],
+    container_bg: uiState.container_bg,
+    row_count: uiState.row_count,
+    key_events: keyEvents,
+  };
+}
+
+function au09MemoryListUxRedesignBehavior(_turnIds, _turnRecords, records, _evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-memory-list-ux-redesign",
+  );
+  if (!uiState) return null;
+  if (uiState.statuses_as_labels !== true) return null;
+  if (uiState.types_as_labels !== true) return null;
+  if (uiState.recall_shown !== true) return null;
+  if (uiState.terminal_row_styled !== true) return null;
+  if (uiState.no_row_overlap !== true) return null;
+  if (uiState.light_theme !== true) return null;
+
+  return {
+    slice_id: "au09-memory-list-ux-redesign",
+    behavior: "memory_list_uses_global_light_tokens_with_scannable_semantic_status_type_and_recall",
+    turn_ids: [],
+    container_bg: uiState.container_bg,
+    assertions: [
+      "memory_list_on_global_light_theme_not_off_theme_dark",
+      "status_shown_as_semantic_label_not_raw_enum",
+      "memory_type_shown_as_label",
+      "recall_value_shown_per_row",
+      "terminal_memory_row_visually_de_emphasized",
+      "rows_readable_without_overlap",
+      options.provider === "lmstudio"
+        ? "lmstudio_real_provider_session"
+        : "deterministic_provider_session",
+    ],
+  };
+}
+
+function findAu09MemoryTaxonomyWritePolicyEvidence(records) {
+  const sliceId = "au09-memory-taxonomy-write-policy";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.seed_artifact_type === "character_seed" &&
+      record.evolution_artifact_type === "character_evolution_seed" &&
+      record.character_dossier_visible === true &&
+      record.no_character_memory_after_seed === true &&
+      record.evolution_memory_written === true &&
+      record.evolution_memory_type_shown === true &&
+      String(record.adopted_state_ref ?? "").length > 0,
+  );
+  if (!uiState) return null;
+
+  const turnIds = [uiState.design_turn_id, uiState.evolution_turn_id].filter(Boolean);
+  if (turnIds.length < 2) return null;
+
+  // 角色主体设计走 character_design 工具。
+  const designedViaCharacterDesign = records.some(
+    (record) =>
+      record.turn_id === uiState.design_turn_id &&
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_design" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!designedViaCharacterDesign) return null;
+
+  // 角色演化走 character_evolution 工具。
+  const evolvedViaCharacterEvolution = records.some(
+    (record) =>
+      record.turn_id === uiState.evolution_turn_id &&
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_evolution" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!evolvedViaCharacterEvolution) return null;
+
+  // 演化采纳经采纳边界。
+  const adopted = records.some(
+    (record) =>
+      record.turn_id === uiState.evolution_turn_id &&
+      record.event === "channel.author_action.done" &&
+      record.action_type === "accept" &&
+      record.action_status === "accepted",
+  );
+  if (!adopted) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: uiState.adoption_turn_id,
+    turn_ids: turnIds,
+    evolution_nonce: uiState.evolution_nonce,
+    adopted_state_ref: uiState.adopted_state_ref,
+    key_events: keyEvents,
+  };
+}
+
+function au09MemoryTaxonomyWritePolicyBehavior(turnIds, _turnRecords, records, _evidence, options) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "au09-memory-taxonomy-write-policy",
+  );
+  if (!uiState) return null;
+  if (uiState.no_character_memory_after_seed !== true) return null;
+  if (uiState.evolution_memory_written !== true) return null;
+  if (uiState.evolution_memory_type_shown !== true) return null;
+  if (uiState.character_dossier_visible !== true) return null;
+
+  return {
+    slice_id: "au09-memory-taxonomy-write-policy",
+    behavior:
+      "character_dossier_writes_no_memory_while_character_evolution_adoption_writes_typed_character_memory",
+    turn_ids: turnIds,
+    evolution_nonce: uiState.evolution_nonce,
+    assertions: [
+      "character_seed_adoption_wrote_character_dossier_not_memory",
+      "memory_page_had_no_character_memory_after_character_seed",
+      "character_evolution_adoption_wrote_typed_character_memory",
+      "adopted_character_memory_shown_with_current_state_type",
+      "adopted_character_memory_preserved_input_nonce",
+      options.provider === "lmstudio"
+        ? "lmstudio_real_provider_drove_memory_write_policy"
+        : "deterministic_provider_drove_memory_write_policy",
     ],
   };
 }

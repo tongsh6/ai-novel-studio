@@ -1,0 +1,60 @@
+id: au09-memory-taxonomy-write-policy
+title: 记忆类型与写入治理：主体不写记忆、角色演化写有类型的角色记忆
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh au09-memory-taxonomy-write-policy --surface tauri
+
+contract:
+  - docs/design/06-memory-context-and-trace.md
+  - docs/design/domain/21-novel-object-model.md
+  - docs/design/acceptance/author/AU-09-story-memory.md
+  - tasks/slices/AU09-memory-taxonomy-write-policy.md
+
+invariants:
+  - character-subject-writes-dossier-not-memory
+  - character-evolution-adoption-writes-typed-character-memory
+  - adopted-memory-preserves-source-and-type
+  - deprecated-archived-memory-excluded-from-recall
+  - no-production-acceptance-hooks
+
+setup:
+  seed: scripts/seed_p1_chapter_draft_generation.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - design: a character and adopt it into the Character dossier
+  - observe: the memory page has no character memory after the dossier write
+  - update: the character's current state and adopt the character_evolution_seed
+  - observe: a typed character memory (当前状态) appears in the memory page
+  - observe: the adopted character memory preserves the input nonce
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - turn_result
+    - action_result
+    - summary_json
+  artifact_dir: artifacts/slice-verify/au09-memory-taxonomy-write-policy-tauri
+
+assertions:
+  ui:
+    - adopted character dossier is visible in the archive character tab
+    - the memory page has no character memory after the character dossier write
+    - the adopted character evolution memory is shown with the 当前状态 type
+  network:
+    - character design dispatches the character_design tool
+    - character evolution dispatches the character_evolution tool
+    - author_action adoption of the evolution memory is accepted
+  data:
+    - character_seed adoption writes the Character dossier and no memory
+    - character_evolution_seed adoption writes a typed character memory
+    - the adopted character memory preserves the input nonce
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
