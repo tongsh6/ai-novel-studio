@@ -116,7 +116,7 @@ defmodule NovelAgent.Provider.DeepSeek do
   defp handle_success(state, resp_body, start_time) do
     content = get_in(resp_body, ["choices", Access.at(0), "message", "content"]) || ""
     latency = System.monotonic_time(:millisecond) - start_time
-    usage = usage_from_response(state, resp_body, latency)
+    usage = Usage.from_openai_response(resp_body, state.model, latency)
 
     if is_binary(content) and content != "" do
       Logger.debug(
@@ -132,17 +132,6 @@ defmodule NovelAgent.Provider.DeepSeek do
       {:error, UpstreamError.to_error_tuple(err),
        %{status: 200, usage: usage, duration: latency, resp_body: Jason.encode!(resp_body)}}
     end
-  end
-
-  defp usage_from_response(state, resp_body, latency) do
-    usage = resp_body["usage"] || %{}
-
-    %Usage{
-      input_tokens: usage["prompt_tokens"] || 0,
-      output_tokens: usage["completion_tokens"] || 0,
-      model: resp_body["model"] || state.model,
-      latency_ms: latency
-    }
   end
 
   defp handle_http_error(status, message, start_time) do

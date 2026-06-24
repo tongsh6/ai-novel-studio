@@ -11,6 +11,7 @@ defmodule NovelApplication.ChapterSummaryGenerator do
   """
 
   alias NovelAgent.Provider.Gateway
+  alias NovelCommon.LogContext
   alias NovelDomain.ChapterSummary
 
   @doc "从 maintenance 输入生成四栏摘要 map；失败返回 `{:error, reason}`。"
@@ -21,10 +22,12 @@ defmodule NovelApplication.ChapterSummaryGenerator do
     if prose == "" do
       {:error, :empty_prose}
     else
-      prose
-      |> build_prompt()
-      |> Gateway.complete()
-      |> handle_completion(prose)
+      LogContext.with_step("chapter_summary", fn ->
+        prose
+        |> build_prompt()
+        |> Gateway.complete()
+        |> handle_completion(prose)
+      end)
     end
   end
 

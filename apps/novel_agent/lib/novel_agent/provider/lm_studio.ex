@@ -9,6 +9,7 @@ defmodule NovelAgent.Provider.LMStudio do
 
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.Result
+  alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
 
   defstruct [:endpoint, :model, :timeout, :http_fn, :get_fn, :log_fn, :json_mode]
@@ -48,7 +49,7 @@ defmodule NovelAgent.Provider.LMStudio do
     result =
       case post.(url, body, receive_timeout: state.timeout) do
         {:ok, status, resp_body} when status in 200..299 ->
-          handle_success(resp_body, start_time)
+          handle_success(state, resp_body, start_time)
 
         {:error, reason, _status, message} ->
           handle_error(reason, message, start_time)
@@ -66,15 +67,15 @@ defmodule NovelAgent.Provider.LMStudio do
 
   # ── response handlers ────────────────────────
 
-  defp handle_success(resp_body, start_time) do
+  defp handle_success(state, resp_body, start_time) do
     content = get_in(resp_body, ["choices", Access.at(0), "message", "content"])
     duration = System.monotonic_time(:millisecond) - start_time
-    usage = resp_body["usage"] || %{}
+    usage = Usage.from_openai_response(resp_body, state.model, duration)
 
     if content && content != "" do
       Logger.debug("[LMStudio] 调用成功，返回 #{byte_size(content)} 字节")
 
-      {:ok, Result.new(content),
+      {:ok, Result.new(content, usage),
        %{status: 200, usage: usage, duration: duration, resp_body: Jason.encode!(resp_body)}}
     else
       err = UpstreamError.new(:invalid_response, "响应内容为空", name())

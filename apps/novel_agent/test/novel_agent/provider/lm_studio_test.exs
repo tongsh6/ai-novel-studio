@@ -3,6 +3,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.LMStudio
+  alias NovelAgent.Provider.Usage
 
   describe "name/0" do
     test "returns lmstudio identifier" do
@@ -125,6 +126,63 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
       assert {:error, error_map} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
       assert error_map.type == :provider_internal
+    end
+  end
+
+  describe "complete/4 usage accounting" do
+    test "success carries a %Usage{} with token counts (not dropped)" do
+      mock = fn _url, _body, _opts ->
+        {:ok, 200,
+         %{
+           "choices" => [%{"message" => %{"content" => "正文"}}],
+           "model" => "local-model",
+           "usage" => %{"prompt_tokens" => 42, "completion_tokens" => 9}
+         }}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: nil
+      }
+
+      assert {:ok, result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert %Usage{} = result.usage
+      assert result.usage.input_tokens == 42
+      assert result.usage.output_tokens == 9
+      assert result.usage.model == "local-model"
+    end
+
+    test "usage handed to log_fn is JSON-encodable (no silent drop)" do
+      test_pid = self()
+
+      mock = fn _url, _body, _opts ->
+        {:ok, 200,
+         %{
+           "choices" => [%{"message" => %{"content" => "正文"}}],
+           "usage" => %{"prompt_tokens" => 3, "completion_tokens" => 1}
+         }}
+      end
+
+      log_fn = fn _provider, _url, _body, result, _start ->
+        send(test_pid, {:logged_result, result})
+        :ok
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "t",
+        timeout: 100,
+        http_fn: mock,
+        log_fn: log_fn
+      }
+
+      assert {:ok, _result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
+      assert_receive {:logged_result, {:ok, _ok, attrs}}
+      # %Usage{} 必须能被 JSON 序列化（@derive Jason.Encoder），否则日志会被静默丢弃。
+      assert {:ok, _json} = Jason.encode(attrs.usage)
     end
   end
 

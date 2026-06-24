@@ -64,6 +64,38 @@ defmodule NovelCommon.LogContext do
   end
 
   @doc """
+  Set `current_step` — 当前 LLM 调用所属的语义步骤（如 `form_frame` / `form_micro_plan`
+  / `tool.plot_outline` / `chapter_summary`）。被 `LLMLog.record/5` 读取，用来区分
+  一次 provider 调用是哪一步发起的。
+
+  写入 `Logger.metadata` 而非进程字典，因此能随 `snapshot/0` + `restore/1` 或 OTP Task
+  继承跨进程传递——工具执行常在 `Task` 中发生，这是 `step` 不丢失的关键。
+  """
+  @spec put_step(String.t()) :: :ok
+  def put_step(step) when is_binary(step) do
+    Logger.metadata(current_step: step)
+  end
+
+  @doc "Clear `current_step`（步骤结束后）。"
+  @spec clear_step() :: :ok
+  def clear_step do
+    Logger.metadata(current_step: nil)
+  end
+
+  @doc "在 `step` 上下文中执行 `fun`，结束后恢复上一个 step（支持嵌套）。"
+  @spec with_step(String.t(), (-> result)) :: result when result: var
+  def with_step(step, fun) when is_binary(step) and is_function(fun, 0) do
+    previous = Logger.metadata()[:current_step]
+    put_step(step)
+
+    try do
+      fun.()
+    after
+      Logger.metadata(current_step: previous)
+    end
+  end
+
+  @doc """
   Snapshot current metadata into a kw list that can be `restore/1`d in a
   plain `spawn`-ed process (not `Task` — Elixir Task already inherits parent
   metadata automatically since OTP 25).  Use only for `Kernel.spawn/1` or

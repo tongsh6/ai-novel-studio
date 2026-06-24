@@ -48,7 +48,7 @@ defmodule NovelAgent.Toolbox do
           failed(req, "grant_scope_violation", "requested grants exceed registry scopes")
 
         true ->
-          dispatch(req, complete_fn)
+          LogContext.with_step("tool.#{req.tool_name}", fn -> dispatch(req, complete_fn) end)
       end
 
     emit_done(req, result, System.monotonic_time(:millisecond) - t0)

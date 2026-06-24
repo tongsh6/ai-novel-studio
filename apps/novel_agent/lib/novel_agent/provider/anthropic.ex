@@ -100,12 +100,7 @@ defmodule NovelAgent.Provider.Anthropic do
     content = get_in(resp_body, ["content", Access.at(0), "text"]) || ""
     latency = System.monotonic_time(:millisecond) - start_time
 
-    usage = %Usage{
-      input_tokens: get_in(resp_body, ["usage", "input_tokens"]) || 0,
-      output_tokens: get_in(resp_body, ["usage", "output_tokens"]) || 0,
-      model: state.model,
-      latency_ms: latency
-    }
+    usage = Usage.from_anthropic_response(resp_body, state.model, latency)
 
     Logger.debug(
       "[Anthropic] 调用成功，输入 #{usage.input_tokens} tokens，输出 #{usage.output_tokens} tokens"

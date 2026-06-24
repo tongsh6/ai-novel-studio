@@ -18,7 +18,8 @@ config :logger,
     frame_id: nil,
     behavior_id: nil,
     decision_id: nil,
-    tool_request_id: nil
+    tool_request_id: nil,
+    current_step: nil
   ]
 
 config :logger, :default_formatter,
@@ -30,7 +31,8 @@ config :logger, :default_formatter,
     :frame_id,
     :behavior_id,
     :decision_id,
-    :tool_request_id
+    :tool_request_id,
+    :current_step
   ]
 
 # ── Provider 通用配置 ──────────────────────────

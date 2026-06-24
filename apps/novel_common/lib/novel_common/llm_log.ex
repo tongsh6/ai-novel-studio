@@ -6,6 +6,7 @@ defmodule NovelCommon.LLMLog do
   """
 
   require Logger
+  require NovelCommon.LogEmit, as: LogEmit
 
   # 从源文件向上查找 mix.exs 定位项目根。有停止条件，不会无限循环
   @project_root_dir __DIR__
@@ -22,7 +23,7 @@ defmodule NovelCommon.LLMLog do
     {status, usage, duration, resp_body} = extract_attrs(result, start_time)
 
     append(%{
-      step: Process.get(:current_step, "unknown"),
+      step: current_step(),
       provider: provider,
       request: %{method: "POST", url: url, body: req_body},
       response: %{
@@ -89,16 +90,53 @@ defmodule NovelCommon.LLMLog do
 
     case Jason.encode(record) do
       {:ok, json} ->
-        line = "[#{ts}] #{json}\n"
-        File.mkdir_p!(dir)
-
-        case File.write(path, line, [:append]) do
-          :ok -> :ok
-          {:error, reason} -> Logger.warning("[LLMLog] 写入失败: #{inspect(reason)}")
-        end
+        write_line(dir, path, ts, json)
 
       {:error, reason} ->
-        Logger.warning("[LLMLog] JSON 编码失败: #{inspect(reason)}")
+        # 不静默丢：发结构化告警（进 app 日志），并退化写入一条可编码的占位，
+        # 保证"发生过一次调用"这件事不丢失。
+        emit_append_error(:encode_failed, reason)
+        write_fallback(dir, path, ts, turn_id, record, reason)
+    end
+  end
+
+  defp write_line(dir, path, ts, json) do
+    line = "[#{ts}] #{json}\n"
+    File.mkdir_p!(dir)
+
+    case File.write(path, line, [:append]) do
+      :ok -> :ok
+      {:error, reason} -> emit_append_error(:write_failed, reason)
+    end
+  end
+
+  defp write_fallback(dir, path, ts, turn_id, record, reason) do
+    fallback = %{
+      ts: ts,
+      turn_id: turn_id,
+      encode_error: inspect(reason),
+      record_inspect: inspect(record)
+    }
+
+    case Jason.encode(fallback) do
+      {:ok, json} -> write_line(dir, path, ts, json)
+      {:error, _reason} -> :ok
+    end
+  end
+
+  defp emit_append_error(reason_code, reason) do
+    LogEmit.emit(:llm_log, :append, :error, %{
+      reason_code: reason_code,
+      outcome_detail: inspect(reason)
+    })
+  end
+
+  # step 与 turn_id 同样优先读 Logger.metadata（随 Task 继承 / snapshot 传递），
+  # 进程字典仅作兼容回退。读不到则 "unknown"。
+  defp current_step do
+    case Keyword.fetch(Logger.metadata(), :current_step) do
+      {:ok, val} when is_binary(val) -> val
+      _ -> Process.get(:current_step) || "unknown"
     end
   end
 
@@ -133,10 +171,15 @@ defmodule NovelCommon.LLMLog do
       status: Map.get(resp, :status, 0),
       body: Map.get(resp, :body, ""),
       model: Map.get(resp, :model, ""),
-      usage: Map.get(resp, :usage, %{}),
+      usage: normalize_term(Map.get(resp, :usage, %{})),
       duration_ms: Map.get(resp, :duration_ms, 0)
     }
   end
+
+  # 日志层不依赖任何业务结构体类型（umbrella 依赖方向约束），
+  # 但要对结构体免疫：任何结构体一律转成 plain map，保证可序列化。
+  defp normalize_term(term) when is_struct(term), do: Map.from_struct(term)
+  defp normalize_term(term), do: term
 
   defp maybe_put_from_meta(map, key, metadata) do
     case Keyword.get(metadata, key) do

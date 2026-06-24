@@ -9,6 +9,7 @@ defmodule NovelApplication.Planner do
   alias NovelAgent.Provider.Gateway
   alias NovelApplication.AIMessageEnvelope
   alias NovelApplication.CapabilityRegistry
+  alias NovelCommon.LogContext
   alias NovelDomain.CandidateDirection
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
@@ -257,7 +258,7 @@ defmodule NovelApplication.Planner do
   def narrate_tool_result(tool_result, complete_fn \\ &Gateway.complete/1) do
     prompt = tool_narration_prompt(tool_result)
 
-    case complete_fn.(prompt) do
+    case LogContext.with_step("narrate_tool_result", fn -> complete_fn.(prompt) end) do
       {:ok, %{content: content}} ->
         String.trim(content)
 
@@ -800,11 +801,11 @@ defmodule NovelApplication.Planner do
 
   defp with_turn_context(turn_id, step, fun) do
     Process.put(:current_turn_id, turn_id)
-    Process.put(:current_step, step)
+    LogContext.put_step(step)
     fun.()
   after
     Process.delete(:current_turn_id)
-    Process.delete(:current_step)
+    LogContext.clear_step()
   end
 
   defp to_frame_type("creative_exploration"), do: :creative_exploration
