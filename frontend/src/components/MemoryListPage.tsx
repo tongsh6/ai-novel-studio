@@ -1,31 +1,34 @@
-// Design: N/A (memory management maintenance page — awaits design spec)
-// Prototype: N/A (Phase 0 memory management maintenance page has no frozen screen frame)
-// NOTE: 此页面为 Phase 0 快速验证产物，待 UI 设计阶段需重新对照原型实现
+// Design: docs/design/ui/40-ui-overview.md §design tokens
+// Prototype: novel-studio.pen → memory-management（无冻结 screen frame；对齐全局浅色 token 与状态语义）
 import { useEffect, useState, useCallback } from "react";
 import { listMemories } from "../lib/memoryApi";
 import type { MemoryItem, SearchParams } from "../lib/memoryApi";
 import { MemoryCreateDialog } from "./MemoryCreateDialog";
 import { MemoryDetailDrawer } from "./MemoryDetailDrawer";
 import { MEMORY } from "../lib/copy";
+import {
+  memoryTypeLabel,
+  memoryStatusLabel,
+  memoryScopeLabel,
+  memoryStatusTone,
+  isTerminalMemory,
+  memoryRecallLabel,
+  isMemoryRecalled,
+  type MemoryStatusTone,
+} from "../lib/memoryListView";
 import styles from "./MemoryListPage.module.css";
 
-const TYPE_LABELS: Record<string, string> = {
-  WORLD_RULE: "世界观规则",
-  CHARACTER_PROFILE: "人物设定",
-  CURRENT_STATE: "当前状态",
-  RELATIONSHIP: "人物关系",
-  PLOT_FACT: "剧情事实",
-  FORESHADOWING: "伏笔",
-  STYLE_RULE: "写作风格",
-  CONSTRAINT: "创作约束",
-  AUTHOR_PREFERENCE: "作者偏好",
-  IDEA: "灵感",
-  DRAFT_CONTEXT: "草稿上下文",
-};
-
-const MEMORY_TYPES = ["", ...Object.keys(TYPE_LABELS)];
+const MEMORY_TYPES = ["", ...Object.keys(MEMORY.typeLabels)];
 const SCOPES = ["", "GLOBAL", "WORK", "VOLUME", "ARC", "CHAPTER", "SESSION"];
 const STATUSES = ["", "DRAFT", "CONFIRMED", "STABILIZED", "CONFLICTED", "DEPRECATED", "ARCHIVED"];
+
+const STATUS_TONE_CLASS: Record<MemoryStatusTone, string> = {
+  confirmed: styles.statusConfirmed,
+  stabilized: styles.statusStabilized,
+  draft: styles.statusDraft,
+  conflicted: styles.statusConflicted,
+  terminal: styles.statusTerminal,
+};
 
 interface Props {
   workId: string;
@@ -100,7 +103,7 @@ export function MemoryListPage({ workId, onBack }: Props) {
       <div className={styles.filters}>
         <input
           type="text"
-          placeholder="搜索关键词..."
+          placeholder={MEMORY.list.keywordPlaceholder}
           value={filterKeyword}
           onChange={(e) => setFilterKeyword(e.target.value)}
           className={styles.searchInput}
@@ -108,28 +111,28 @@ export function MemoryListPage({ workId, onBack }: Props) {
         <select value={filterType} onChange={(e) => setFilterType(e.target.value)}>
           {MEMORY_TYPES.map((t) => (
             <option key={t} value={t}>
-              {t || "全部类型"}
+              {t ? memoryTypeLabel(t) : MEMORY.list.allTypes}
             </option>
           ))}
         </select>
         <select value={filterScope} onChange={(e) => setFilterScope(e.target.value)}>
           {SCOPES.map((s) => (
             <option key={s} value={s}>
-              {s || "全部范围"}
+              {s ? memoryScopeLabel(s) : MEMORY.list.allScopes}
             </option>
           ))}
         </select>
         <select value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
           {STATUSES.map((s) => (
             <option key={s} value={s}>
-              {s || "全部状态"}
+              {s ? memoryStatusLabel(s) : MEMORY.list.allStatuses}
             </option>
           ))}
         </select>
         <select value={filterLocked} onChange={(e) => setFilterLocked(e.target.value)}>
-          <option value="">锁定状态</option>
-          <option value="true">已锁定</option>
-          <option value="false">未锁定</option>
+          <option value="">{MEMORY.list.lockedAll}</option>
+          <option value="true">{MEMORY.list.lockedYes}</option>
+          <option value="false">{MEMORY.list.lockedNo}</option>
         </select>
       </div>
 
@@ -139,35 +142,60 @@ export function MemoryListPage({ workId, onBack }: Props) {
         <table className={styles.table}>
           <thead>
             <tr>
-              <th>内容</th>
-              <th>类型</th>
-              <th>范围</th>
-              <th>状态</th>
-              <th>权重</th>
-              <th>锁定</th>
+              <th>{MEMORY.list.columns.content}</th>
+              <th>{MEMORY.list.columns.type}</th>
+              <th>{MEMORY.list.columns.scope}</th>
+              <th>{MEMORY.list.columns.status}</th>
+              <th>{MEMORY.list.columns.recall}</th>
+              <th>{MEMORY.list.columns.locked}</th>
             </tr>
           </thead>
           <tbody>
-            {memories.map((m) => (
-              <tr key={m.id} onClick={() => setSelected(m)} className={styles.row}>
-                <td className={styles.contentCell}>
-                  <div className={styles.contentPreview}>
-                    {m.content.length > 60 ? m.content.slice(0, 60) + "..." : m.content}
-                  </div>
-                </td>
-                <td>
-                  <span className={styles.badge}>{TYPE_LABELS[m.type] ?? m.type}</span>
-                </td>
-                <td>{m.scope}</td>
-                <td>{m.status}</td>
-                <td>{m.weight}</td>
-                <td>{m.locked ? "🔒" : "—"}</td>
-              </tr>
-            ))}
+            {memories.map((m) => {
+              const terminal = isTerminalMemory(m.status);
+              const recalled = isMemoryRecalled(m);
+              return (
+                <tr
+                  key={m.id}
+                  onClick={() => setSelected(m)}
+                  className={`${styles.row} ${terminal ? styles.rowTerminal : ""}`}
+                >
+                  <td className={styles.contentCell}>
+                    <div className={styles.contentPreview}>
+                      {m.content.length > 60 ? m.content.slice(0, 60) + "..." : m.content}
+                    </div>
+                  </td>
+                  <td>
+                    <span className={styles.typeBadge}>{memoryTypeLabel(m.type)}</span>
+                  </td>
+                  <td>
+                    <span className={styles.scope}>{memoryScopeLabel(m.scope)}</span>
+                  </td>
+                  <td>
+                    <span
+                      className={`${styles.statusBadge} ${STATUS_TONE_CLASS[memoryStatusTone(m.status)]}`}
+                    >
+                      <span className={styles.statusDot} aria-hidden="true" />
+                      {memoryStatusLabel(m.status)}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`${styles.recall} ${recalled ? styles.recallActive : ""}`}>
+                      {memoryRecallLabel(m)}
+                    </span>
+                  </td>
+                  <td>
+                    <span className={`${styles.locked} ${m.locked ? styles.lockedActive : ""}`}>
+                      {m.locked ? MEMORY.list.lockedIcon : MEMORY.list.unlockedMark}
+                    </span>
+                  </td>
+                </tr>
+              );
+            })}
             {!loading && memories.length === 0 && (
               <tr>
                 <td colSpan={6} className={styles.empty}>
-                  暂无记忆，点击"新建记忆"开始。
+                  {MEMORY.list.empty}
                 </td>
               </tr>
             )}
@@ -175,7 +203,7 @@ export function MemoryListPage({ workId, onBack }: Props) {
         </table>
       </div>
 
-      {loading && <div className={styles.loading}>加载中...</div>}
+      {loading && <div className={styles.loading}>{MEMORY.list.loading}</div>}
 
       {showCreate && (
         <MemoryCreateDialog

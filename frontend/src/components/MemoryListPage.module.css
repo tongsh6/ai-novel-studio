@@ -1,21 +1,31 @@
+/* Design: docs/design/ui/40-ui-overview.md §design tokens
+   记忆列表：对齐全局浅色调（surface/foreground/accent/border token），状态颜色服务真实语义不做装饰。 */
+
 .container {
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px;
-  color: #eee;
+  color: var(--foreground-primary);
+  background-color: var(--surface-primary);
+  font-family: var(--sans);
+  min-height: 100%;
 }
 
 .toolbar {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 16px;
 }
 
 .toolbar h2 {
   margin: 0;
+  font-family: var(--heading);
   font-size: 20px;
+  font-weight: 600;
+  color: var(--foreground-primary);
 }
 
 .filters {
@@ -27,12 +37,19 @@
 
 .filters input,
 .filters select {
-  padding: 8px 10px;
-  background: #2a2a3c;
-  border: 1px solid #444;
-  border-radius: 6px;
-  color: #eee;
+  padding: 7px 10px;
+  background: var(--surface-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
+  color: var(--foreground-primary);
   font-size: 13px;
+  font-family: var(--sans);
+}
+
+.filters input:focus,
+.filters select:focus {
+  outline: none;
+  border-color: var(--accent-border);
 }
 
 .searchInput {
@@ -42,6 +59,8 @@
 
 .tableWrap {
   overflow-x: auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
 }
 
 .table {
@@ -53,30 +72,41 @@
 .table th {
   text-align: left;
   padding: 10px 12px;
-  background: #2a2a3c;
-  color: #aaa;
+  color: var(--foreground-secondary);
   font-weight: 500;
   font-size: 12px;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  border-bottom: 1px solid var(--border-subtle);
+  white-space: nowrap;
 }
 
 .table td {
   padding: 10px 12px;
-  border-bottom: 1px solid #2a2a3c;
+  border-bottom: 1px solid var(--border-subtle);
   vertical-align: middle;
+  color: var(--foreground-primary);
+}
+
+.table tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .row {
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.12s ease;
 }
 
 .row:hover {
-  background: #2a2a3c;
+  background: var(--accent-bg);
+}
+
+/* 终态记忆（已弃用 / 已归档）整行降权：不再进入召回，视觉上明显弱化但仍可读、可治理。 */
+.rowTerminal td {
+  color: var(--foreground-secondary);
 }
 
 .contentCell {
-  max-width: 400px;
+  max-width: 420px;
 }
 
 .contentPreview {
@@ -85,55 +115,137 @@
   white-space: nowrap;
 }
 
-.badge {
+.typeBadge {
+  display: inline-block;
   padding: 2px 8px;
-  background: #333;
-  border-radius: 4px;
+  background: var(--accent-bg);
+  color: var(--foreground-primary);
+  border-radius: var(--rounded-sm);
   font-size: 12px;
+  white-space: nowrap;
+}
+
+.scope {
+  color: var(--foreground-secondary);
+  font-size: 13px;
+}
+
+/* 状态徽标：颜色按真实状态语义分配（确认/稳定=实，草稿=弱，冲突=警示，终态=弱化）。 */
+.statusBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--rounded-sm);
+  font-size: 12px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.statusDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+
+.statusConfirmed {
+  color: var(--foreground-primary);
+  background: var(--border-subtle);
+}
+
+.statusStabilized {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: var(--accent-border);
+}
+
+.statusDraft {
+  color: var(--foreground-secondary);
+  background: transparent;
+  border-color: var(--border-subtle);
+}
+
+.statusConflicted {
+  color: var(--accent);
+  background: var(--accent-bg);
+  border-color: var(--accent);
+}
+
+.statusTerminal {
+  color: var(--foreground-secondary);
+  background: transparent;
+  border-color: var(--border-subtle);
+}
+
+/* 召回价值：可召回=实，不召回=弱。帮助作者快速判断该记忆是否仍在影响上下文。 */
+.recall {
+  font-size: 12px;
+  color: var(--foreground-secondary);
+}
+
+.recallActive {
+  color: var(--foreground-primary);
+  font-weight: 500;
+}
+
+.locked {
+  font-size: 13px;
+}
+
+.lockedActive {
+  color: var(--accent);
 }
 
 .empty {
   text-align: center;
-  color: #666;
+  color: var(--foreground-secondary);
   padding: 40px 0;
 }
 
 .loading {
   text-align: center;
-  color: #888;
+  color: var(--foreground-secondary);
   padding: 20px;
 }
 
 .error {
-  color: #f87171;
+  color: var(--accent);
   font-size: 13px;
   margin-bottom: 12px;
+  padding: 8px 12px;
+  background: var(--accent-bg);
+  border: 1px solid var(--accent-border);
+  border-radius: var(--rounded-sm);
 }
 
 .btnPrimary {
-  padding: 8px 20px;
-  background: #7c3aed;
-  color: #fff;
-  border: none;
-  border-radius: 6px;
+  padding: 8px 18px;
+  background: var(--accent);
+  color: var(--surface-primary);
+  border: 1px solid var(--accent);
+  border-radius: var(--rounded-sm);
   cursor: pointer;
   font-size: 14px;
+  font-family: var(--sans);
 }
 
 .btnPrimary:hover {
-  background: #6d28d9;
+  background: var(--accent-border);
 }
 
 .btnSecondary {
   padding: 8px 16px;
   background: transparent;
-  color: #374151;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
+  color: var(--foreground-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--rounded-sm);
   cursor: pointer;
   font-size: 14px;
+  font-family: var(--sans);
 }
 
 .btnSecondary:hover {
-  background: #f3f4f6;
+  background: var(--accent-bg);
 }

@@ -133,7 +133,8 @@ function pendingArtifactTab(artifact: ArtifactEntry): PendingTabType {
 
   if (artifactType === "outline_draft" || artifactType === "plot_direction") return "outline";
   if (artifactType === "prose_fragment" || artifactType === "scene_draft") return "outline";
-  if (artifactType === "character_seed") return "character";
+  if (artifactType === "character_seed" || artifactType === "character_evolution_seed")
+    return "character";
   if (artifactType === "foreshadowing_seed") return "foreshadowing";
   if (
     artifactType === "world_rule_seed" ||

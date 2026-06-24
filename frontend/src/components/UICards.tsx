@@ -50,6 +50,11 @@ function artifactDraftCopy(card: UICardData): { title: string; body: string } {
         title: CARD.artifactDraft.characterTitle,
         body: CARD.artifactDraft.archiveDescription,
       };
+    case "character_evolution_seed":
+      return {
+        title: CARD.artifactDraft.characterEvolutionTitle,
+        body: CARD.artifactDraft.characterEvolutionDescription,
+      };
     case "world_setting":
       return {
         title: CARD.artifactDraft.worldTitle,
