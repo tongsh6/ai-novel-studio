@@ -9,7 +9,30 @@ defmodule AiNovelStudio.MixProject do
       test_coverage: [tool: ExCoveralls],
       start_permanent: Mix.env() == :prod,
       aliases: aliases(),
-      deps: deps()
+      deps: deps(),
+      releases: releases()
+    ]
+  end
+
+  # 桌面应用 sidecar 后端：把整条 umbrella 生产链路（novel_web 顶层入口 + 全部
+  # downstream app + ERTS）组装成一个自包含 release，由 Tauri 作为 sidecar 启动。
+  # 用 `MIX_ENV=prod mix release sidecar` 构建，产物在 _build/prod/rel/sidecar。
+  # 详见 docs/design/tech-stack/05-desktop.md。
+  defp releases do
+    [
+      sidecar: [
+        applications: [
+          novel_foundation: :permanent,
+          novel_common: :permanent,
+          novel_domain: :permanent,
+          novel_persistence: :permanent,
+          novel_agent: :permanent,
+          novel_application: :permanent,
+          novel_web: :permanent
+        ],
+        include_executables_for: [:unix, :windows],
+        strip_beams: true
+      ]
     ]
   end
 

@@ -18,6 +18,7 @@
 
 | 文件 | 角色 |
 |---|---|
+| `SU04-desktop-sidecar-packaging.md` | **active / 桌面打包承重 slice**：落地 `docs/design/tech-stack/05-desktop.md` 的 Tauri + Mix Release sidecar，让下载的桌面应用自带并自动拉起 Phoenix 后端（修「下载即模型未连接 / 同步离线」）。本机 macOS arm64 真实 `.app` 已验证冷启动 4s 内后端在 4658 服务、退出无孤儿。后续：代码签名+公证（下载双击即开）、Intel Mac、CI tag 真跑通。 |
 | `SU01-file-level-closure.md` | **file-level deliverable / second-round C3 closed / B3 P1 follow-up**：SU-01 已按文件级二轮口径重算为 10 个场景：9/10 已验收、1/10 部分实现。2026-06-22 二轮关闭旧 Keychain / non-macOS external blocker：当前产品口径为统一 profile-scoped local file secret，`su01-local-secret-file-roundtrip` 已证明真实 Tauri WebView 保存 fake Key、重启后从 `provider-secrets.json` 恢复 DeepSeek runtime、0600 权限和 UI/日志/偏好脱敏边界；`su01-provider-test-failure-ui` 已证明测试连接失败反馈、草稿保留、无 turn/runtime 副作用和恢复成功。live vendor / 云端供应商真实失败矩阵仍为 B3/P1 后续，Windows/Linux local-file 页面矩阵为 P2 平台回归；当前可进入 SU-02。 |
 | `SU02-file-level-closure.md` | **file-level deliverable / P2 follow-up matrix registered**：SU-02 已按文件级闭环口径复核为 13/13 已验收。运行时作品菜单、空库自动未命名作品、快速未命名创建、命名新增、改名、安全移出、leave/join、消息流隔离、慢回复迟到归属、reload 恢复和 artifact/projection/trace 隔离均有真实 Tauri summary 与 quality manifest；后端不可用 UX、恢复/归档管理入口、大列表和异常失败态为 P2 后续；当前可进入 SU-03。 |
 | `SU03-file-level-closure.md` | **file-level deliverable / keep regression**：SU-03 已按文件级闭环口径复核为 6/6 已验收。work-scoped AI 显示名、默认名、设置/重置、按作品隔离、canonical role / TurnResult / websocket payload 边界和 LM Studio request body 反证均有当前真实 Tauri / real LM Studio 证据；无 P0/P1 缺口，后续只需随工作台重构保持回归；当前可进入 AU-01。 |

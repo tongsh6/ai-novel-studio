@@ -11,9 +11,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # 原生 Mix release 只含本机 arch 的 ERTS，故不做 universal：macos-latest
+          # 为 Apple Silicon，产出 arm64 应用，内嵌的 sidecar ERTS 与之匹配。
+          # Intel Mac 支持需另加 x86_64 runner 矩阵项（后续）。
           - os: macos-latest
-            target: universal-apple-darwin
-            rust-targets: aarch64-apple-darwin,x86_64-apple-darwin
+            target: aarch64-apple-darwin
+            rust-targets: aarch64-apple-darwin
             platform: darwin
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
@@ -49,6 +52,16 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
+      # 后端 sidecar：在本平台原生构建 Mix release（含本机 ERTS），暂存到
+      # frontend/src-tauri/resources/sidecar，供下一步 tauri build 打包进应用。
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: Build backend sidecar (Mix release)
+        run: bash scripts/build_sidecar.sh
+
       - name: Build Tauri
         working-directory: frontend
         run: pnpm exec tauri build --target ${{ matrix.target }}
@@ -58,29 +71,35 @@ jobs:
 
       - name: Collect artifacts (macOS)
         if: matrix.os == 'macos-latest'
+        env:
+          VERSION: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
         run: |
-          VERSION="${{ github.ref_name }}"
           mkdir -p artifacts
-          cp frontend/src-tauri/target/${{ matrix.target }}/release/bundle/dmg/*.dmg "artifacts/AI-Novel-Studio_${VERSION}_macos_universal.dmg" 2>/dev/null || true
-          cp frontend/src-tauri/target/${{ matrix.target }}/release/bundle/macos/*.app.tar.gz "artifacts/AI-Novel-Studio_${VERSION}_macos_universal.app.tar.gz" 2>/dev/null || true
+          cp "frontend/src-tauri/target/${TARGET}/release/bundle/dmg/"*.dmg "artifacts/AI-Novel-Studio_${VERSION}_macos_arm64.dmg" 2>/dev/null || true
+          cp "frontend/src-tauri/target/${TARGET}/release/bundle/macos/"*.app.tar.gz "artifacts/AI-Novel-Studio_${VERSION}_macos_arm64.app.tar.gz" 2>/dev/null || true
           ls -la artifacts/ || echo "No macOS artifacts found"
 
       - name: Collect artifacts (Linux)
         if: matrix.os == 'ubuntu-latest'
+        env:
+          VERSION: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
         run: |
-          VERSION="${{ github.ref_name }}"
           mkdir -p artifacts
-          cp frontend/src-tauri/target/${{ matrix.target }}/release/bundle/deb/*.deb "artifacts/AI-Novel-Studio_${VERSION}_linux_amd64.deb" 2>/dev/null || true
-          cp frontend/src-tauri/target/${{ matrix.target }}/release/bundle/appimage/*.AppImage "artifacts/AI-Novel-Studio_${VERSION}_linux_amd64.AppImage" 2>/dev/null || true
+          cp "frontend/src-tauri/target/${TARGET}/release/bundle/deb/"*.deb "artifacts/AI-Novel-Studio_${VERSION}_linux_amd64.deb" 2>/dev/null || true
+          cp "frontend/src-tauri/target/${TARGET}/release/bundle/appimage/"*.AppImage "artifacts/AI-Novel-Studio_${VERSION}_linux_amd64.AppImage" 2>/dev/null || true
           ls -la artifacts/ || echo "No Linux artifacts found"
 
       - name: Collect artifacts (Windows)
         if: matrix.os == 'windows-latest'
+        env:
+          VERSION: ${{ github.ref_name }}
+          TARGET: ${{ matrix.target }}
         run: |
-          $VERSION = "${{ github.ref_name }}"
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          Copy-Item "frontend\src-tauri\target\${{ matrix.target }}\release\bundle\msi\*.msi" "artifacts\AI-Novel-Studio_${VERSION}_windows_x64.msi" -ErrorAction SilentlyContinue
-          Copy-Item "frontend\src-tauri\target\${{ matrix.target }}\release\bundle\nsis\*.exe" "artifacts\AI-Novel-Studio_${VERSION}_windows_x64_setup.exe" -ErrorAction SilentlyContinue
+          Copy-Item "frontend\src-tauri\target\$($env:TARGET)\release\bundle\msi\*.msi" "artifacts\AI-Novel-Studio_$($env:VERSION)_windows_x64.msi" -ErrorAction SilentlyContinue
+          Copy-Item "frontend\src-tauri\target\$($env:TARGET)\release\bundle\nsis\*.exe" "artifacts\AI-Novel-Studio_$($env:VERSION)_windows_x64_setup.exe" -ErrorAction SilentlyContinue
           Get-ChildItem artifacts\
 
       - name: Upload artifacts

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
 use tauri::Manager;
 
 #[derive(Debug, Default, Deserialize, Serialize)]
@@ -470,6 +472,141 @@ fn model_provider_secret_storage_status() -> ModelProviderSecretStorageStatus {
     }
 }
 
+// ── Phoenix sidecar 后端进程管理 ───────────────────────────────────────────
+//
+// 打包后端是一个完整的 Mix release（目录树，非单文件），随应用以 Tauri resource
+// 形式分发。首启时把它从只读 bundle 拷到可写的用户数据目录并补可执行位，再以
+// 子进程方式 `bin/sidecar start` 拉起；应用退出时杀掉该子进程。
+// 端口 / 数据目录与 config/runtime.exs、tauri.conf.json CSP 对齐。
+// 详见 docs/design/tech-stack/05-desktop.md。
+
+const SIDECAR_PORT: &str = "4658";
+
+struct SidecarChild(Mutex<Option<Child>>);
+
+fn profiled_data_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let mut dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data dir: {error}"))?;
+
+    if let Some(profile) = desktop_profile()? {
+        dir = dir.join("profiles").join(profile);
+    }
+
+    std::fs::create_dir_all(&dir)
+        .map_err(|error| format!("failed to create app data dir: {error}"))?;
+
+    Ok(dir)
+}
+
+fn sidecar_bin_path(install_dir: &Path) -> PathBuf {
+    if cfg!(windows) {
+        install_dir.join("bin").join("sidecar.bat")
+    } else {
+        install_dir.join("bin").join("sidecar")
+    }
+}
+
+// 首启把 release tarball 从只读 resource 目录解包到可写数据目录（按版本隔离，
+// 升级自动重解），返回安装目录；已安装则直接复用。tar 保留权限与可执行位。
+fn ensure_sidecar_installed(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|error| format!("failed to resolve resource dir: {error}"))?;
+
+    let install_dir = profiled_data_dir(app)?
+        .join("runtime")
+        .join(format!("sidecar-{}", env!("CARGO_PKG_VERSION")));
+
+    if sidecar_bin_path(&install_dir).exists() {
+        return Ok(install_dir);
+    }
+
+    // Tauri 资源放置位置随映射写法不同（Resources/ 或 Resources/resources/），两处都探。
+    let archive = ["sidecar.tar.gz", "resources/sidecar.tar.gz"]
+        .iter()
+        .map(|rel| resource_dir.join(rel))
+        .find(|candidate| candidate.exists())
+        .ok_or_else(|| {
+            format!(
+                "sidecar archive not bundled under {}",
+                resource_dir.display()
+            )
+        })?;
+
+    // 干净重解：清掉同版本残留半成品，避免坏状态。
+    let _ = std::fs::remove_dir_all(&install_dir);
+    std::fs::create_dir_all(&install_dir)
+        .map_err(|error| format!("failed to create {}: {error}", install_dir.display()))?;
+
+    let status = Command::new("tar")
+        .arg("-xzf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(&install_dir)
+        .status()
+        .map_err(|error| format!("failed to run tar: {error}"))?;
+
+    if !status.success() {
+        return Err(format!("tar extraction failed with status {status}"));
+    }
+
+    Ok(install_dir)
+}
+
+fn spawn_sidecar(app: &tauri::AppHandle) -> Result<Child, String> {
+    let install_dir = ensure_sidecar_installed(app)?;
+    let data_dir = profiled_data_dir(app)?;
+    let bin = sidecar_bin_path(&install_dir);
+
+    // sidecar 输出落到数据目录日志文件——GUI（LaunchServices）启动时 stderr
+    // 无处可去，否则后端启动失败将完全不可见。
+    let log_dir = data_dir.join("log");
+    std::fs::create_dir_all(&log_dir)
+        .map_err(|error| format!("failed to create sidecar log dir: {error}"))?;
+    let log_path = log_dir.join("sidecar.out");
+    let stdout = std::fs::File::create(&log_path)
+        .map_err(|error| format!("failed to create sidecar log: {error}"))?;
+    let stderr = stdout
+        .try_clone()
+        .map_err(|error| format!("failed to clone sidecar log handle: {error}"))?;
+
+    // GUI 启动的进程 PATH 被精简，bin/sidecar 引导脚本依赖 awk/cut/readlink 等，
+    // 显式补上标准系统目录，保证脚本可用。
+    let path = match std::env::var("PATH") {
+        Ok(existing) => format!("/usr/bin:/bin:/usr/sbin:/sbin:{existing}"),
+        Err(_) => "/usr/bin:/bin:/usr/sbin:/sbin".to_string(),
+    };
+
+    // 本机单实例 sidecar，不需要 Erlang 分布式 / epmd。
+    // cwd 设为可写数据目录：GUI（LaunchServices）启动时 cwd 是只读的 "/"，
+    // 任何 cwd 相对路径写入都会 erofs 崩溃。
+    Command::new(&bin)
+        .arg("start")
+        .current_dir(&data_dir)
+        .env("PATH", path)
+        .env("NOVEL_DATA_DIR", &data_dir)
+        .env("PHOENIX_PORT", SIDECAR_PORT)
+        .env("RELEASE_DISTRIBUTION", "none")
+        .stdout(Stdio::from(stdout))
+        .stderr(Stdio::from(stderr))
+        .spawn()
+        .map_err(|error| format!("failed to spawn sidecar: {error}"))
+}
+
+fn shutdown_sidecar(app: &tauri::AppHandle) {
+    if let Some(state) = app.try_state::<SidecarChild>() {
+        if let Ok(mut guard) = state.0.lock() {
+            if let Some(mut child) = guard.take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -614,7 +751,7 @@ mod tests {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             get_last_opened_work_id,
             set_last_opened_work_id,
@@ -627,11 +764,21 @@ pub fn run() {
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {
+                // 开发态：后端由 scripts/dev.sh 的 `mix phx.server` 提供，不在此拉起 sidecar。
                 app.handle().plugin(
                     tauri_plugin_log::Builder::default()
                         .level(log::LevelFilter::Info)
                         .build(),
                 )?;
+            } else {
+                // 打包态：拉起自包含的 Phoenix sidecar 后端。失败不阻断窗口启动——
+                // 前端会显示「同步离线 / 模型未连接」，用户至少能看到界面与错误。
+                match spawn_sidecar(&app.handle().clone()) {
+                    Ok(child) => {
+                        app.manage(SidecarChild(Mutex::new(Some(child))));
+                    }
+                    Err(error) => eprintln!("[sidecar] 启动失败: {error}"),
+                }
             }
             Ok(())
         })
@@ -640,6 +787,12 @@ pub fn run() {
                 window.app_handle().exit(0);
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(|app_handle, event| {
+        if let tauri::RunEvent::Exit = event {
+            shutdown_sidecar(app_handle);
+        }
+    });
 }
