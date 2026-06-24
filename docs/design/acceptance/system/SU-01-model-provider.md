@@ -29,6 +29,8 @@
 > 2026-06-22 对账结论（密钥存储简化，取代 macOS Keychain 机制）：经产品判断，本机单用户桌面工具阶段不需要 OS Keychain 级别的密钥托管——密钥是用户自己的 provider key、存在用户自己的机器上，真实风险是泄进 git/日志/备份（靠 `.gitignore` + 不打日志解决），而手写 `SecKeychain*` FFI 带来仅 macOS、依赖稳定代码签名、每次启动弹登录密码、跨平台 unsupported 分支等沉重成本。决策：删除 `frontend/src-tauri/src/lib.rs` 中全部 Keychain FFI，改为把 provider API Key 写入与 `preferences.json` 同目录、按 desktop profile 隔离的独立文件 `provider-secrets.json`（unix 权限 `0600`，明文）。后果：(1) 启动不再触发 macOS 钥匙串授权弹窗；(2) `get_model_provider_secret_storage_status` 在所有平台返回 `available=true / kind="local_file"`，**C3 的"非 macOS unsupported"产品口径与跨平台 blocker `SU01-C3-non-macOS-platform-runner` 随之消解**——所有桌面平台一致用本地受限文件；(3) 前端删除"存储不可用/unsupported"的禁用输入与提示分支（`providerApiKeyStorageUnavailable` / `modelProviderApiKeyStorageUnsupported` 等）。**保持不变的不变量**：SU-I3 仍成立（密钥不入 git、不回传 options、不进日志/UI/截图）。**被取代的证据**：`su01-keychain-webview-roundtrip`、`SU01-cross-platform-secret-policy` 中以 macOS Keychain 为机制的部分不再代表当前实现；其"重启后从本地持久化读回并恢复 runtime"的链路语义仍适用，只是后端从 Keychain 换成本地文件。**安全权衡明确登记**：密钥在本机以明文文件存储，安全边界等同于用户自己（与产品其余数据一致），这是 dev 阶段单用户桌面的有意取舍。Rust 侧以 `provider_secrets_round_trip_through_local_file` 与 `secret_file_is_written_with_owner_only_permissions`（0600）单测锁定；真实页面"保存→重启不弹密码→Key 仍生效"验收待补。
 >
 > 2026-06-22 二轮收口：`su01-local-secret-file-roundtrip` 已补当前实现的真实 Tauri WebView 验收。外部 macOS CGEvent/Accessibility driver 从真实 Tauri WebView 打开模型设置、选择 DeepSeek、输入 fake API Key、保存，验证隔离 desktop profile 下生成 `provider-secrets.json` 且 unix 权限为 `0600`；随后重置 backend runtime、重启 Tauri，新 WebView 从 `preferences.json` + `provider-secrets.json` 恢复 DeepSeek runtime，并证明 provider options 只返回 `api_key_configured=true`，偏好文件、可见 UI、业务 JSONL 和 backend log 不包含 fake Key。证据：`artifacts/slice-verify/su01-local-secret-file-roundtrip-tauri/summary.json`。因此 `SC-SU01-C3` 按当前 local-file 设计已验收；旧 Keychain 和 non-macOS unsupported blocker 只保留为历史机制，不再作为 SU-01 当前退出 blocker。`SC-SU01-B3` 的 live vendor / 云端供应商真实失败矩阵仍是 P1 后续，不在本轮用 harnessed HTTP 证据冒充 live vendor 可用性。
+>
+> 2026-06-24 对账结论（供应商矩阵扩展，来源用户反馈 15）：`su01-provider-vendor-matrix` 已把 `SC-SU01-B1` 的 provider 列表从 DeepSeek/Anthropic/LM Studio/Stub 扩展到 OpenAI（API Key）、OpenAI（订阅）、Minimax、智谱、Kimi、Gemini。后端新增 `NovelAgent.Provider.OpenAICompatible` 共享基类（`__using__` 宏）与 6 个薄 vendor adapter，统一 Bearer 鉴权、`/chat/completions`、`/models` 与错误归一；`Gateway.@provider_modules/@provider_descriptors` 注册新矩阵；`config/config.exs` 提供按 env 覆盖的默认 endpoint/model。OpenAI 的 API Key 与订阅以两个独立 vendor id 区分（独立 secret、独立 endpoint、独立 label、独立 redaction）。前端 `modelProvider.ts` 扩展 ProviderId 联合与归一化，模型设置 Dialog 从后端 registry 自动渲染新供应商（前端不写死），订阅认证方式有可见 hint；Rust `MODEL_PROVIDER_IDS` 扩展到 10 个 id 并以单测锁定两认证方式 secret 隔离。外部 Playwright driver 从真实 browser-side 工作台证明：6 个新供应商来自后端 registry、订阅 hint 可见、对不可达 endpoint 测试连接失败时 runtime 不切换且不创建 turn、保存后 provider options 把 `openai`/`openai_subscription` 列为两个独立 label 条目并只回传 `api_key_configured=true`，fake Key 不进入 options、可见 UI、浏览器 fallback settings、业务 JSONL 或 backend log。证据：`artifacts/slice-verify/su01-provider-vendor-matrix-tauri/summary.json`。**仍未闭环（登记为 `SC-SU01-B3` P1 后续，与既有 live vendor 后续合并）**：① live vendor 真实云端账号/权限/错误矩阵（无真实账号，本轮不冒充）；② OpenAI 订阅 OAuth 登录与 ChatGPT backend 专用传输（需真实订阅账号 + 浏览器授权流程），CP1 仅建模订阅认证方式区分与离线脱敏/重启/test-fail 不变量。
 
 ---
 
@@ -156,9 +158,9 @@
 | 用户视角 | 我可以把 LM Studio endpoint 指向本地 `localhost:1234/v1` 或自定义端点，并从供应商当前可用模型中选择 |
 | 期望结果 | 每个 provider 有独立 endpoint；模型列表来自供应商实时 API，不手输、不前端写死；非法 URL 有校验 |
 | 当前证据 | `POST /api/provider/models` 经 Gateway 调 DeepSeek `/models`、Anthropic `/v1/models`、LM Studio `/v1/models`；设置弹窗在 endpoint/API Key 之后刷新并选择模型；真实 provider 未加载到模型列表时禁用保存 |
-| 当前证据补充 | `su01-provider-endpoint-validation` 已从真实 Tauri 工作台证明非法 endpoint 可见报错、刷新/测试/保存禁用，且不会触发携带非法 endpoint 的 provider models 请求；`su01-provider-model-list-success` 已证明 DeepSeek / Anthropic / LM Studio 三类 provider 模型列表成功返回后可在 Dialog 中选择 |
+| 当前证据补充 | `su01-provider-endpoint-validation` 已从真实 Tauri 工作台证明非法 endpoint 可见报错、刷新/测试/保存禁用，且不会触发携带非法 endpoint 的 provider models 请求；`su01-provider-model-list-success` 已证明 DeepSeek / Anthropic / LM Studio 三类 provider 模型列表成功返回后可在 Dialog 中选择；`su01-provider-vendor-matrix` 已把矩阵扩展到 OpenAI（API Key/订阅）、Minimax、智谱、Kimi、Gemini，并证明新供应商来自后端 registry、可配 endpoint、经本地 OpenAI 兼容 `/models` 选模型、test-fail 不切换 runtime、保存后脱敏 |
 | 当前状态 | 部分实现 |
-| 缺口类型 | 补 live vendor / 云端本地失败矩阵 |
+| 缺口类型 | 补 live vendor / 云端真实失败矩阵；OpenAI 订阅 OAuth 登录传输 |
 | 优先级 | P1 |
 
 #### SC-SU01-B4 — 手动测试连接
@@ -319,6 +321,7 @@ bash scripts/tauri_slice_verify.sh su01-provider-endpoint-validation
 bash scripts/tauri_slice_verify.sh su01-provider-model-list-success
 bash scripts/tauri_slice_verify.sh su01-provider-test-failure-ui
 bash scripts/tauri_slice_verify.sh su01-api-key-secret-redaction
+bash scripts/tauri_slice_verify.sh su01-provider-vendor-matrix
 bash scripts/tauri_slice_verify.sh su01-local-secret-file-roundtrip
 
 # 本地手动验证：需 Phoenix/Tauri 服务运行

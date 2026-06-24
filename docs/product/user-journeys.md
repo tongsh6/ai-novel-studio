@@ -109,9 +109,9 @@ DecisionTrace / TraceSummaryView / ReplayReport
 
 Longest Closed Prefix：A1-A4。
 
-Current Breakpoint：A5 运行时切换 provider 尚未闭环。
+Current Breakpoint：A5 provider 配置/切换主路径已闭环（含 OpenAI〔API Key/订阅〕、Minimax、智谱、Kimi、Gemini 供应商矩阵）；剩余仅 live vendor 真实云端失败矩阵与 OpenAI 订阅 OAuth 登录传输（需真实账号，SC-SU01-B3 P1 后续）。
 
-Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用新 provider/model -> 日志可追踪。
+Next Proof：有真实供应商账号后，从真实工作台配置 live vendor / 订阅令牌 -> 下一轮请求使用新 provider/model -> 日志可追踪。
 
 | Step | 用户动作 / 体验节点 | AU/SU | v3 主链对象 | Status | Evidence Grade | Evidence / Command | Gap / Next |
 |---:|---|---|---|---|---|---|---|
@@ -119,7 +119,7 @@ Next Proof：后续应从真实工作台配置 provider -> 下一轮请求使用
 | A2 | 看到 LLM/provider/model 状态 | SU-01 | TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/su01-provider-health-model-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh su01-provider-health-model` | 只覆盖 health/model 展示，不覆盖切换配置。 |
 | A3 | 业务日志可按 turn/work/session 回溯 | VS-10 | DecisionTrace / TraceSummaryView | closed | Browser/Tauri verify | `vs10-observability-spine` browser + Tauri evidence 见台账 | 完整运营诊断仍依赖 Journey I。 |
 | A4 | 关闭 Tauri/stage 后由 launcher 清理 Phoenix/Vite 并恢复配置 | VS-11 | TurnResultViewModel | closed | Tauri automation | `artifacts/slice-verify/desktop-stage-process-ownership-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership` | 证明 dev/stage owner 模型；不声称覆盖生产 sidecar。 |
-| A5 | 配置或切换模型供应商 | SU-01 | AuthorActionInput / TurnResultViewModel | gap | Document only | SU-01 acceptance gaps | 缺 provider 列表、Key/endpoint 设置、安全存储、运行时切换。 |
+| A5 | 配置或切换模型供应商 | SU-01 | AuthorActionInput / TurnResultViewModel | checkpoint closed / live vendor 后续 | Tauri automation | `artifacts/slice-verify/su01-model-provider-switching-tauri/summary.json`；`artifacts/slice-verify/su01-provider-vendor-matrix-tauri/summary.json`；`bash scripts/tauri_slice_verify.sh su01-provider-vendor-matrix` | provider 列表（含 OpenAI〔API Key/订阅〕、Minimax、智谱、Kimi、Gemini 矩阵）、Key/endpoint 设置、local-file 安全存储、runtime 切换、test-fail 不切换、secret 脱敏均已由真实工作台证明；剩 live vendor 真实云端失败矩阵 + 订阅 OAuth 登录传输（SC-SU01-B3 P1）。 |
 | A6 | provider 不可用时看到清晰降级 | SU-01 / AU-01 | OrchestratorDecision / TraceSummaryView | checkpoint closed / 继续补矩阵 | Tauri automation + Channel/API automation | `artifacts/slice-verify/au10-workbench-recovery-disconnect-timeout-tauri/summary.json`；`artifacts/slice-verify/au10-workbench-recovery-provider-timeout-tauri/summary.json`；provider health controller tests；AU-01 error recovery tests | provider 不可用和真实 provider timeout 后 no-write fallback、loading 清除、恢复后下一轮已由真实工作台证明；缺乱码和更完整 UI 矩阵。 |
 
 ---
