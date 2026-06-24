@@ -410,6 +410,25 @@ function startupFailureMessage(detail: string): ChatMessage {
   };
 }
 
+function startupConnectingMessage(): ChatMessage {
+  return { role: "assistant", text: WORKBENCH.startupConnecting };
+}
+
+// 桌面端后端是随应用启动的 sidecar，需数秒完成解包/启动；webview 秒开后首批请求会
+// 先于后端就绪而失败。这类「连接尚未就绪」的失败在启动期应静默重试，而不是直接报错。
+const STARTUP_MAX_ATTEMPTS = 30;
+const STARTUP_RETRY_MS = 1000;
+
+function isConnectivityFailure(detail: string): boolean {
+  const normalized = detail.toLowerCase();
+  return (
+    normalized.includes("load failed") ||
+    normalized.includes("failed to fetch") ||
+    normalized.includes("networkerror") ||
+    normalized.includes("fetch")
+  );
+}
+
 function modelProviderDraftFromState(state: ModelProviderRuntimeState): ModelProviderDraft {
   const option = providerOption(state.options, state.selectedProvider);
   const stored = state.stored.providers[state.selectedProvider] ?? {};
@@ -577,6 +596,7 @@ export function WorkspaceChat() {
     token: 0,
     workId: null,
   });
+  const startupRetryRef = useRef<number | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
   const modelProviderModelsRequestRef = useRef(0);
 
@@ -882,7 +902,7 @@ export function WorkspaceChat() {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
 
-  async function loadWorksAndOpenInitial() {
+  async function loadWorksAndOpenInitial(attempt = 0) {
     try {
       const { availableWorks, initialId } = await resolveInitialWorkBootstrap();
       setWorks(availableWorks);
@@ -891,6 +911,17 @@ export function WorkspaceChat() {
       await openWork(work);
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error);
+
+      // 启动期后端 sidecar 尚未就绪时静默重试，避免把「还没启动完」误报成「未连接」。
+      if (isConnectivityFailure(detail) && attempt < STARTUP_MAX_ATTEMPTS) {
+        setSocketConnected(false);
+        setMessages([startupConnectingMessage()]);
+        startupRetryRef.current = window.setTimeout(() => {
+          void loadWorksAndOpenInitial(attempt + 1);
+        }, STARTUP_RETRY_MS);
+        return;
+      }
+
       activeConnectionRef.current = { token: connectionTokenRef.current + 1, workId: null };
       setSocketConnected(false);
       setContext({
@@ -910,6 +941,10 @@ export function WorkspaceChat() {
 
     return () => {
       window.clearTimeout(startupTimer);
+      if (startupRetryRef.current !== null) {
+        window.clearTimeout(startupRetryRef.current);
+        startupRetryRef.current = null;
+      }
       activeConnectionRef.current = {
         token: connectionTokenRef.current + 1,
         workId: null,

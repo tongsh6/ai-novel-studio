@@ -199,6 +199,7 @@ export const WORKBENCH = {
   emptyState: "开始对话，创作你的作品",
   welcomeMessage:
     "欢迎使用 AI Novel Studio！\n\n本产品需要连接大语言模型（LLM）才能工作。\n请确保 LM Studio 已启动并加载模型（默认端口 1234）。\n\n你可以这样开始：\n• 「我想创建一部玄幻小说」\n• 「写一本都市小说，核心卖点是商战复仇」\n• 「帮我创作一部科幻小说，目标读者是大学生」\n\n输入你的想法，我们开始创作吧！",
+  startupConnecting: "正在连接工作台，请稍候…",
   startupFailurePrefix: "作品上下文加载失败，工作台未连接。",
   startupFailureLoadWork: "无法获取或创建作品：",
   startupFailureResumeSession: "无法恢复作品会话：",
