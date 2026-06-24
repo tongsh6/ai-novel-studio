@@ -55,6 +55,7 @@ defmodule NovelPersistence.WorkArchiveRepo do
         id: c.id,
         name: c.name,
         role: c.role,
+        narrative_role: c.narrative_role,
         summary: c.summary,
         aliases: c.aliases,
         status: c.status,

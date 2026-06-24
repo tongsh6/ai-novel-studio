@@ -424,6 +424,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       base_revision: normalized_base_revision(artifact_field(artifact, :revision_base)),
       content: artifact_content(artifact),
       summary: adoption_chapter_title(artifact),
+      narrative_role: artifact_narrative_role(artifact),
       mode: adoption_mode(artifact),
       decision_id: decision.adoption_decision_id
     }
@@ -1175,6 +1176,24 @@ defmodule NovelApplication.AdoptionWorkflow do
 
   defp item_title(item) when is_map(item), do: Map.get(item, :title) || Map.get(item, "title")
   defp item_title(_), do: nil
+
+  # 叙事角色（主角/反派/...）来自 artifact item 的结构化字段，落到角色主档案。
+  # 取第一个带 narrative_role 的 item（CP1 单角色采纳；逐项采纳归 per-item slice）。
+  defp artifact_narrative_role(artifact) do
+    payload = artifact_field(artifact, :payload) || %{}
+    items = payload[:items] || payload["items"]
+
+    if is_list(items) do
+      items
+      |> Enum.map(&item_narrative_role/1)
+      |> Enum.find(&is_binary/1)
+    end
+  end
+
+  defp item_narrative_role(item) when is_map(item),
+    do: Map.get(item, :narrative_role) || Map.get(item, "narrative_role")
+
+  defp item_narrative_role(_), do: nil
 
   defp meaningful_title?(title, artifact) when is_binary(title) do
     trimmed = String.trim(title)

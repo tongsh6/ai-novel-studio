@@ -58,4 +58,44 @@ defmodule NovelDomain.TentativeArtifactSet do
   @spec tentative?(t()) :: boolean()
   def tentative?(%__MODULE__{adoption_status: :tentative}), do: true
   def tentative?(_), do: false
+
+  @typedoc """
+  可独立采纳的单元：把候选集分解成作者能逐项授权的最小采纳目标。
+  `artifact_id` 是该单元在 pending / available_action / 采纳中的稳定标识。
+  """
+  @type adoptable_unit :: %{
+          artifact_id: String.t(),
+          item_id: String.t() | nil,
+          items: [artifact_item()]
+        }
+
+  @doc """
+  把候选集分解为可独立采纳的单元（AU-09 角色候选逐项采纳）。
+
+  当候选集是“逐候选独立”类型（如 `character_seed`）且含多个候选条目时，每个条目成为
+  一个独立可采纳单元，拥有自己的 `artifact_id`（`<set_id>::<item_id>`）；作者据此对每个
+  角色候选单独授权，采纳一个只写入对应 Character，其它候选保持未采纳。
+
+  其它类型（如 `outline_draft` 的多章属于同一份大纲）或单条候选集整体作为一个单元，
+  保持既有 set 级采纳语义不变。
+  """
+  @spec adoptable_units(t()) :: [adoptable_unit()]
+  def adoptable_units(%__MODULE__{} = set) do
+    if per_candidate_type?(set.artifact_type) and length(set.items) > 1 do
+      Enum.map(set.items, fn item ->
+        item_id = item_field(item, :item_id)
+        %{artifact_id: "#{set.artifact_set_id}::#{item_id}", item_id: item_id, items: [item]}
+      end)
+    else
+      [%{artifact_id: set.artifact_set_id, item_id: nil, items: set.items}]
+    end
+  end
+
+  # 逐候选独立采纳的类型：每个 item 是一个独立的作品资产候选。
+  defp per_candidate_type?(type), do: type in [:character_seed, "character_seed"]
+
+  defp item_field(item, key) when is_map(item),
+    do: Map.get(item, key) || Map.get(item, Atom.to_string(key))
+
+  defp item_field(_item, _key), do: nil
 end

@@ -3,6 +3,8 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   Validation helpers for creative tool output contracts.
   """
 
+  alias NovelFoundation.Enums.NarrativeRole
+
   @creative_artifact_types [
     :character_seed,
     :plot_direction,
@@ -154,6 +156,14 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
           item
         end
 
+      # narrative_role（可选）：角色设计候选的结构化叙事角色分类。非 I1 约束字段
+      # （I1 只校验 title/body/rationale），仅在合法枚举值时保留，否则丢弃为 nil。
+      item =
+        case normalize_narrative_role(map_get(raw, :narrative_role)) do
+          nil -> item
+          narrative_role -> Map.put(item, :narrative_role, narrative_role)
+        end
+
       {:ok, item}
     end
   end
@@ -161,6 +171,36 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   defp normalize_item(_raw) do
     {:error, %{code: "invalid_item", message: "creative item must be a map"}}
   end
+
+  # 把 provider 输出的叙事角色规范化到 NarrativeRole 契约枚举。
+  # 接受 canonical 枚举值（大小写不敏感）与常见中文同义词；无法识别返回 nil
+  # （角色不带主角标记，召回时诚实报缺口，不臆造主角）。
+  @spec normalize_narrative_role(term()) :: NovelCommon.Contracts.ToolOutputContract.narrative_role()
+  def normalize_narrative_role(value) when is_binary(value) do
+    trimmed = value |> String.trim()
+    upcased = String.upcase(trimmed)
+
+    cond do
+      NarrativeRole.valid?(upcased) -> upcased
+      protagonist_label?(trimmed) -> NarrativeRole.protagonist()
+      antagonist_label?(trimmed) -> NarrativeRole.antagonist()
+      ensemble_label?(trimmed) -> NarrativeRole.ensemble_pov()
+      supporting_label?(trimmed) -> NarrativeRole.supporting()
+      minor_label?(trimmed) -> NarrativeRole.minor()
+      true -> nil
+    end
+  end
+
+  def normalize_narrative_role(_value), do: nil
+
+  @typedoc "规范化后的叙事角色枚举值或 nil。"
+  @type narrative_role :: String.t() | nil
+
+  defp protagonist_label?(text), do: contains_any?(text, ["主角", "主人公", "男主", "女主", "第一主角"])
+  defp antagonist_label?(text), do: contains_any?(text, ["反派", "反一", "反角", "大反派", "对手"])
+  defp ensemble_label?(text), do: contains_any?(text, ["群像", "POV", "视角人物", "多主角"])
+  defp supporting_label?(text), do: contains_any?(text, ["配角", "辅助", "帮手"])
+  defp minor_label?(text), do: contains_any?(text, ["次要", "龙套", "路人", "群演"])
 
   defp fetch_string(map, key) do
     case map_get(map, key) do

@@ -150,7 +150,8 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       |> Character.changeset(%{
         work_id: work.id,
         name: "林澈",
-        role: "主角",
+        role: "稽查官",
+        narrative_role: "PROTAGONIST",
         summary: "追查灵源矿区真相",
         status: AdoptionStatus.accepted()
       })
@@ -175,12 +176,15 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       assert turn_result.tool_result.tool_name == "character_roster"
       assert turn_result.tool_result.status == :succeeded
       assert turn_result.tool_result.output.character_count == 1
-      assert [%{name: "林澈", role: "主角"}] = turn_result.tool_result.output.characters
+      assert [%{name: "林澈", narrative_role: "PROTAGONIST"}] =
+               turn_result.tool_result.output.characters
+
       assert turn_result.truthfulness.tool_called == true
       assert turn_result.truthfulness.production_write_performed == false
       assert turn_result.truthfulness.artifact_adopted == false
       refute Map.has_key?(turn_result, :adoption_state)
-      assert turn_result.assistant_message.text =~ "当前作品已有 1 个已确认角色"
+      # 主角感知叙述：结构化 narrative_role 让"主角是谁"有可校验答案，不再机械列名单
+      assert turn_result.assistant_message.text =~ "当前作品的主角是 林澈"
       assert turn_result.assistant_message.text =~ "没有写入作品事实"
 
       assert trace.decision_type == :tool_dispatched

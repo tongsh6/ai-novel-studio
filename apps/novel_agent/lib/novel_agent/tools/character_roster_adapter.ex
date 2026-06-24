@@ -44,6 +44,7 @@ defmodule NovelAgent.Tools.CharacterRosterAdapter do
       %{
         name: name,
         role: field(character, :role),
+        narrative_role: field(character, :narrative_role),
         summary: field(character, :summary),
         aliases: aliases(field(character, :aliases)),
         status: field(character, :status)

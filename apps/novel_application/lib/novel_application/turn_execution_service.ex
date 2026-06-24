@@ -12,6 +12,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelAgent.Toolbox
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
+  alias NovelApplication.CharacterRosterNarration
   alias NovelApplication.Planner
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
@@ -859,16 +860,7 @@ defmodule NovelApplication.TurnExecutionService do
          _complete_fn
        ) do
     characters = get_in(tool_result.output, [:characters]) || []
-
-    case characters do
-      [] ->
-        "当前作品还没有已确认角色。"
-
-      [_ | _] ->
-        names = Enum.map_join(characters, "、", &character_roster_label/1)
-
-        "当前作品已有 #{length(characters)} 个已确认角色：#{names}。这次只是读取角色列表，没有写入作品事实。"
-    end
+    CharacterRosterNarration.message(characters)
   end
 
   defp narrate(%ToolResult{status: :succeeded}, %{artifact_type: _type}, _complete_fn) do
@@ -898,16 +890,4 @@ defmodule NovelApplication.TurnExecutionService do
     "工具执行未完成。未创建待采纳内容，也没有写入作品事实。"
   end
 
-  defp character_roster_label(character) when is_map(character) do
-    name = Map.get(character, :name) || Map.get(character, "name") || "未命名角色"
-    role = Map.get(character, :role) || Map.get(character, "role")
-
-    if is_binary(role) and role != "" do
-      "#{name}（#{role}）"
-    else
-      name
-    end
-  end
-
-  defp character_roster_label(_character), do: "未命名角色"
 end

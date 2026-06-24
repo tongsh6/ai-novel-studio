@@ -172,21 +172,13 @@ defmodule NovelApplication.TurnResultBuilder do
   defp maybe_add_artifacts(r, nil), do: r
 
   defp maybe_add_artifacts(r, as) do
-    payload = artifact_payload(as)
+    # AU-09：逐候选独立采纳——多候选 character_seed 每条候选成为独立 pending 条目，
+    # 拥有自己的 artifact_id（与 available_actions 的 target_ref 一致），作者逐项授权；
+    # 采纳一个只物化该条目对应的 item，其它候选保持 pending、不进入作品事实。
+    units = TentativeArtifactSet.adoptable_units(as)
 
     adoption_state = %{
-      pending: [
-        %{
-          artifact_id: as.artifact_set_id,
-          artifact_type: as.artifact_type,
-          requires_adoption: true,
-          payload: payload,
-          adoption_status: as.adoption_status,
-          source_tool_result_ref: as.source_tool_result_ref,
-          authoring_intent: as.authoring_intent,
-          target_chapter: as.target_chapter
-        }
-      ],
+      pending: Enum.map(units, &unit_pending_entry(as, &1)),
       resolved: []
     }
 
@@ -208,11 +200,26 @@ defmodule NovelApplication.TurnResultBuilder do
     |> Map.update(:ui_cards, [candidate_set_card], fn cards -> cards ++ [candidate_set_card] end)
   end
 
-  defp artifact_payload(%TentativeArtifactSet{} = as) do
+  defp unit_pending_entry(%TentativeArtifactSet{} = as, unit) do
     %{
-      items: as.items,
+      artifact_id: unit.artifact_id,
+      artifact_type: as.artifact_type,
+      requires_adoption: true,
+      payload: unit_payload(as, unit),
+      adoption_status: as.adoption_status,
+      source_tool_result_ref: as.source_tool_result_ref,
+      authoring_intent: as.authoring_intent,
+      target_chapter: as.target_chapter
+    }
+  end
+
+  # 单元 payload 只含该候选的 item，使采纳层（artifact_content/summary/narrative_role）
+  # 只看到目标候选，且前端可从 payload.items 取候选名标注逐项按钮。
+  defp unit_payload(%TentativeArtifactSet{} = as, %{items: items}) do
+    %{
+      items: items,
       title: artifact_payload_title(as),
-      item_count: length(as.items)
+      item_count: length(items)
     }
     |> maybe_put_chapter_count(as)
   end

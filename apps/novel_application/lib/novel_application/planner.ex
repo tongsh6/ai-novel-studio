@@ -150,10 +150,10 @@ defmodule NovelApplication.Planner do
     #{Enum.join(tools, ", ")}
 
     ## 工具选择规则
-    - 查看、列出、查询当前角色列表 / 已有角色 / 人物表 → character_roster（只读，不生成新角色）
+    - 查看、列出、查询当前角色列表 / 已有角色 / 人物表，或询问"主角是谁 / 有没有主角 / 主角叫什么 / 谁是主角" → character_roster（只读查询，不生成新角色）
     - 正文、开篇场景、具体片段、场景描写、动作描写、续写、章节草稿 → prose_writing
     - 大纲、章节规划、分卷、卷数、章节数、剧情走向、角色成长线、势力结构 → plot_outline
-    - 生成或设计新的角色、人物小传、动机、关系 → character_design
+    - 设计 / 设定 / 创建一个新角色（含"设计主角""设定主角""加个反派/配角"）、人物小传、动机、关系 → character_design（生成待采纳候选）
     - 世界观、规则体系、门派/组织/地理/设定 → world_building
     #{accepted_chapters_section(context)}
     ## 用户输入

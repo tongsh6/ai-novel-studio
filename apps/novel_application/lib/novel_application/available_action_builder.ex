@@ -47,23 +47,28 @@ defmodule NovelApplication.AvailableActionBuilder do
   def artifact_actions(nil), do: []
 
   def artifact_actions(%TentativeArtifactSet{} = artifact_set) do
-    [
-      artifact_action(artifact_set, "accept", "artifact.accept"),
-      artifact_action(artifact_set, "discard", "artifact.discard"),
-      artifact_action(artifact_set, "edit_then_accept", "artifact.edit_then_accept")
-    ]
+    # AU-09：逐候选独立采纳——多候选 character_seed 拆成每条候选各自的
+    # accept/discard/edit，target_ref 指向该候选单元的稳定 artifact_id，作者逐项授权。
+    artifact_set
+    |> TentativeArtifactSet.adoptable_units()
+    |> Enum.flat_map(fn unit ->
+      [
+        artifact_action(artifact_set, unit, "accept", "artifact.accept"),
+        artifact_action(artifact_set, unit, "discard", "artifact.discard"),
+        artifact_action(artifact_set, unit, "edit_then_accept", "artifact.edit_then_accept")
+      ]
+    end)
   end
 
-  defp artifact_action(%TentativeArtifactSet{} = artifact_set, action_type, label_key) do
+  defp artifact_action(%TentativeArtifactSet{} = artifact_set, unit, action_type, label_key) do
     %{
-      action_id: "#{action_type}:#{artifact_set.artifact_set_id}",
+      action_id: "#{action_type}:#{unit.artifact_id}",
       action_type: action_type,
       label_key: label_key,
       source_turn_ref: artifact_set.source_turn_ref,
-      target_ref: artifact_set.artifact_set_id,
+      target_ref: unit.artifact_id,
       enabled: true,
-      idempotency_key:
-        "idem:#{artifact_set.source_turn_ref}:#{action_type}:#{artifact_set.artifact_set_id}",
+      idempotency_key: "idem:#{artifact_set.source_turn_ref}:#{action_type}:#{unit.artifact_id}",
       trace_ref: artifact_set.source_tool_result_ref
     }
   end

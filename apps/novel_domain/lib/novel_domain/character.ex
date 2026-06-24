@@ -7,6 +7,7 @@ defmodule NovelDomain.Character do
   """
 
   alias NovelDomain.Types
+  alias NovelFoundation.Enums.NarrativeRole
 
   defstruct [
     :id,
@@ -14,6 +15,7 @@ defmodule NovelDomain.Character do
     :name,
     :aliases,
     :role,
+    :narrative_role,
     :summary,
     :status,
     :created_at,
@@ -26,6 +28,7 @@ defmodule NovelDomain.Character do
           name: String.t(),
           aliases: [String.t()],
           role: String.t() | nil,
+          narrative_role: NarrativeRole.t() | nil,
           summary: String.t() | nil,
           status: Types.work_status(),
           created_at: DateTime.t(),
@@ -61,11 +64,39 @@ defmodule NovelDomain.Character do
     %__MODULE__{character | aliases: aliases, updated_at: next_updated_at(character)}
   end
 
-  @doc "更新角色定位。"
+  @doc "更新角色定位（自由文本，承载具体身份/职能描述）。"
   @spec update_role(t(), String.t() | nil) :: t()
   def update_role(%__MODULE__{} = character, role) do
     %__MODULE__{character | role: role, updated_at: next_updated_at(character)}
   end
+
+  @doc """
+  更新叙事角色分类（主角/反派/配角/次要/群像 POV）。
+
+  叙事角色是 Character 的结构化分类（叙事功能层），不是自由文本 role。
+  传入 nil 表示尚未标注叙事角色；非法值会 raise，保证主角是可校验事实。
+  """
+  @spec update_narrative_role(t(), NarrativeRole.t() | nil) :: t()
+  def update_narrative_role(%__MODULE__{} = character, nil) do
+    %__MODULE__{character | narrative_role: nil, updated_at: next_updated_at(character)}
+  end
+
+  def update_narrative_role(%__MODULE__{} = character, narrative_role) do
+    unless NarrativeRole.valid?(narrative_role) do
+      raise ArgumentError, "invalid narrative_role: #{inspect(narrative_role)}"
+    end
+
+    %__MODULE__{
+      character
+      | narrative_role: narrative_role,
+        updated_at: next_updated_at(character)
+    }
+  end
+
+  @doc "该角色是否被标记为主角（叙事角色 = PROTAGONIST）。无标记不默认为主角。"
+  @spec protagonist?(t() | NarrativeRole.t() | nil) :: boolean()
+  def protagonist?(%__MODULE__{narrative_role: narrative_role}), do: protagonist?(narrative_role)
+  def protagonist?(narrative_role), do: narrative_role == NarrativeRole.protagonist()
 
   @doc "更新人物摘要。"
   @spec update_summary(t(), String.t() | nil) :: t()

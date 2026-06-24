@@ -77,14 +77,41 @@ defmodule NovelAgent.Provider.Stub do
     user_excerpt = [brief, context] |> Enum.reject(&(&1 == "")) |> Enum.join("\n")
     fp = input_fingerprint(user_excerpt)
 
-    Jason.encode!([
+    item =
       %{
         "item_id" => "stub_item_" <> fp <> "_1",
         "title" => stub_creative_title(prompt_text, brief, fp),
         "body" => stub_creative_body(prompt_text, brief, context),
         "rationale" => stub_creative_rationale(prompt_text)
       }
-    ])
+      |> maybe_put_narrative_role(prompt_text, brief)
+
+    Jason.encode!([item])
+  end
+
+  # character_seed 时按 user brief 中的角色类型词派生结构化叙事角色（fixture 确定性）。
+  defp maybe_put_narrative_role(item, prompt_text, brief) do
+    if character_seed_prompt?(prompt_text) do
+      case stub_narrative_role(brief) do
+        nil -> item
+        role -> Map.put(item, "narrative_role", role)
+      end
+    else
+      item
+    end
+  end
+
+  defp stub_narrative_role(brief) do
+    text = to_string(brief)
+
+    cond do
+      String.contains?(text, "反派") -> "ANTAGONIST"
+      String.contains?(text, "配角") -> "SUPPORTING"
+      String.contains?(text, "次要") or String.contains?(text, "龙套") -> "MINOR"
+      String.contains?(text, "群像") -> "ENSEMBLE_POV"
+      String.contains?(text, "主角") or String.contains?(text, "主人公") -> "PROTAGONIST"
+      true -> nil
+    end
   end
 
   defp input_fingerprint(text) do

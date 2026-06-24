@@ -178,6 +178,9 @@ defmodule NovelAgent.CreativeProvider.Real do
     数组包含 1 个（必要时至多 2 个取向明显不同的）角色设计候选，每个条目是 JSON 对象，必须包含以下键：
     - "item_id"：你生成的短标识符（不含空格）
     - "title"：角色名（只给一个名字，简洁，不要罗列备选）
+    - "narrative_role"：该角色的叙事功能分类，必须从下列枚举里选一个（按作者意图与该角色定位判断）：
+      PROTAGONIST（主角/主人公，故事核心视角）、ANTAGONIST（反派/主要对手）、SUPPORTING（配角/重要辅助）、MINOR（次要/龙套）、ENSEMBLE_POV（群像中的并列视角主角）。
+      作者明确要"设计主角/设定主角"时用 PROTAGONIST；要"加个反派"用 ANTAGONIST；无法判断时省略该键或给 null，不要硬塞。
     - "body"：结构化角色档案。先逐行覆盖以下核心骨架维度（缺上下文支撑的写“（待定）”，不要编造）：
       定位：角色在故事中的功能与重要性
       动机：核心欲望、目标与恐惧

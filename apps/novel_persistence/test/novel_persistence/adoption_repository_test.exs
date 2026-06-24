@@ -91,6 +91,51 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
 
       # 角色 tab 读路径（accepted Character）能查到该角色。
       assert [%{name: "沈砚"}] = NovelPersistence.WorkArchiveRepo.characters(work_id)
+      # 未带叙事角色时 narrative_role 为 nil（不臆造主角）。
+      assert [%{narrative_role: nil}] = NovelPersistence.WorkArchiveRepo.characters(work_id)
+    end
+
+    test "character_seed 携带 narrative_role 时落到 Character 主档案并经 roster 读出（AU-09 主角语义）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-protagonist",
+                 artifact_id: "as-char-protagonist",
+                 artifact_type: :character_seed,
+                 base_revision: 1,
+                 content: "稽查官，追查灵源矿区真相",
+                 summary: "林烬",
+                 narrative_role: "PROTAGONIST"
+               })
+
+      character = Repo.get!(Character, persisted.character_id)
+      assert character.narrative_role == "PROTAGONIST"
+
+      assert [%{name: "林烬", narrative_role: "PROTAGONIST"}] =
+               NovelPersistence.WorkArchiveRepo.characters(work_id)
+    end
+
+    test "非法 narrative_role 不写入（保持主角为可校验事实）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-bad-role",
+                 artifact_id: "as-char-bad-role",
+                 artifact_type: :character_seed,
+                 base_revision: 1,
+                 content: "身份不明",
+                 summary: "无名",
+                 narrative_role: "NOT_A_ROLE"
+               })
+
+      character = Repo.get!(Character, persisted.character_id)
+      assert character.narrative_role == nil
     end
 
     test "adopts foreshadowing_seed into governed memory visible in archive tab" do

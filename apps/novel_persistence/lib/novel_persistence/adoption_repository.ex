@@ -20,6 +20,7 @@ defmodule NovelPersistence.AdoptionRepository do
   alias NovelFoundation.Enums.MemorySourceType
   alias NovelFoundation.Enums.MemoryStatus
   alias NovelFoundation.Enums.MemoryType
+  alias NovelFoundation.Enums.NarrativeRole
   alias NovelFoundation.Enums.SourceType
   alias NovelFoundation.Enums.StructureStatus
   alias NovelFoundation.ID
@@ -117,9 +118,10 @@ defmodule NovelPersistence.AdoptionRepository do
     end
   end
 
-  # character_seed 采纳 → 结构化 Character 主档案（accepted）。CP1 最小映射：
-  # name ← artifact 标题（attrs.summary），summary ← artifact 正文（attrs.content）；
-  # role/aliases 等结构化字段与演化记忆留 CP2。
+  # character_seed 采纳 → 结构化 Character 主档案（accepted）。
+  # name ← artifact 标题（attrs.summary），summary ← artifact 正文（attrs.content），
+  # narrative_role ← artifact item 的结构化叙事角色（缺省 nil，使主角成为可校验事实而非默认）；
+  # aliases 等其它结构化字段与演化记忆留 CP2。
   defp maybe_persist_character(repo, attrs, _mutation_id) do
     if character_dossier_artifact?(Map.get(attrs, :artifact_type)) do
       %Character{}
@@ -135,8 +137,19 @@ defmodule NovelPersistence.AdoptionRepository do
       work_id: Map.fetch!(attrs, :work_id),
       name: character_name(attrs),
       summary: character_profile(attrs),
+      narrative_role: character_narrative_role(attrs),
       status: AdoptionStatus.accepted()
     }
+  end
+
+  defp character_narrative_role(attrs) do
+    case Map.get(attrs, :narrative_role) do
+      value when is_binary(value) ->
+        if NarrativeRole.valid?(value), do: value, else: nil
+
+      _ ->
+        nil
+    end
   end
 
   defp character_name(attrs) do
