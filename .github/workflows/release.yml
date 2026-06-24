@@ -84,6 +84,7 @@ jobs:
           Get-ChildItem artifacts\
 
       - name: Clean up repo placeholders
+        shell: bash
         run: rm -f artifacts/.gitkeep
 
       - name: Upload artifacts
