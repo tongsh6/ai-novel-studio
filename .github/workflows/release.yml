@@ -11,13 +11,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # 原生 Mix release 只含本机 arch 的 ERTS，故不做 universal：macos-latest
-          # 为 Apple Silicon，产出 arm64 应用，内嵌的 sidecar ERTS 与之匹配。
-          # Intel Mac 支持需另加 x86_64 runner 矩阵项（后续）。
+          # 原生 Mix release 只含本机 arch 的 ERTS，故不做 universal 单包，而是每个
+          # arch 各出一个 dmg、各带匹配的 ERTS：macos-latest=Apple Silicon(arm64)，
+          # macos-13=Intel(x86_64)。
           - os: macos-latest
             target: aarch64-apple-darwin
             rust-targets: aarch64-apple-darwin
             platform: darwin
+            arch: arm64
+          - os: macos-13
+            target: x86_64-apple-darwin
+            rust-targets: x86_64-apple-darwin
+            platform: darwin
+            arch: x64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux
@@ -76,10 +82,11 @@ jobs:
         env:
           VERSION: ${{ github.ref_name }}
           TARGET: ${{ matrix.target }}
+          ARCH: ${{ matrix.arch }}
         run: |
           mkdir -p artifacts
-          cp "frontend/src-tauri/target/${TARGET}/release/bundle/dmg/"*.dmg "artifacts/AI-Novel-Studio_${VERSION}_macos_arm64.dmg" 2>/dev/null || true
-          cp "frontend/src-tauri/target/${TARGET}/release/bundle/macos/"*.app.tar.gz "artifacts/AI-Novel-Studio_${VERSION}_macos_arm64.app.tar.gz" 2>/dev/null || true
+          cp "frontend/src-tauri/target/${TARGET}/release/bundle/dmg/"*.dmg "artifacts/AI-Novel-Studio_${VERSION}_macos_${ARCH}.dmg" 2>/dev/null || true
+          cp "frontend/src-tauri/target/${TARGET}/release/bundle/macos/"*.app.tar.gz "artifacts/AI-Novel-Studio_${VERSION}_macos_${ARCH}.app.tar.gz" 2>/dev/null || true
           ls -la artifacts/ || echo "No macOS artifacts found"
 
       - name: Collect artifacts (Linux)
@@ -105,9 +112,11 @@ jobs:
           Get-ChildItem artifacts\
 
       - name: Upload artifacts
+        # 按 target 命名，保证唯一：darwin 现有 arm64 + x64 两个 job，若都用
+        # release-darwin 会与 upload-artifact@v4 的同名不可变约束冲突。
         uses: actions/upload-artifact@v4
         with:
-          name: release-${{ matrix.platform }}
+          name: release-${{ matrix.target }}
           path: artifacts/
           if-no-files-found: warn
 
@@ -139,8 +148,9 @@ jobs:
             ## AI Novel Studio ${{ github.ref_name }}
 
             ### macOS
-            - 下载 `.dmg` 文件，双击拖拽安装
-            - 首次打开如提示"无法验证开发者"，请在「系统偏好设置 → 安全性与隐私」中点击"仍要打开"
+            - Apple Silicon（M 系列）下载 `..._macos_arm64.dmg`；Intel Mac 下载 `..._macos_x64.dmg`
+            - 拖入「应用程序」后**右键点应用 → 打开 → 再点「打开」**（应用为 ad-hoc 签名、未公证）
+            - 若提示"已损坏"，在终端执行：`xattr -dr com.apple.quarantine "/Applications/AI Novel Studio.app"` 后再打开
 
             ### Windows
             - 下载 `.msi` 文件双击安装，或 `.exe` 安装向导

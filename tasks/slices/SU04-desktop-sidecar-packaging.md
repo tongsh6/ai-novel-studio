@@ -62,10 +62,11 @@ curl -s http://127.0.0.1:4658/api/provider/health    # → {"connected":...}
 
 ## 未闭环 / 后续
 
-- **代码签名 + 公证（P1，需 Apple Developer 证书）**：本机自构建 `.app` 无 quarantine 可直接运行；
-  从 GitHub 下载的 `.app` 内嵌未签名 BEAM 二进制会被 Gatekeeper 拦截。需对整包 codesign + notarize
-  才能「下载双击即开」。这是独立 slice，依赖证书。
-- **Intel Mac（P2）**：当前 macOS 只产 arm64（原生 release 不交叉编译 ERTS）。需另加 x86_64 runner 矩阵项。
+- **代码签名 + 公证（P1，需 Apple Developer 证书）**：已加 ad-hoc 签名（`bundle.macOS.signingIdentity="-"`），
+  把「已损坏」硬拦截降级为「未验证开发者」（右键→打开即可）。真正「下载双击零提示」仍需 Developer ID
+  签名 + 公证（付费证书），属独立后续。
+- **Intel Mac**：✅ 已加 `macos-13`(Intel) 矩阵项 → 产出 `..._macos_x64.dmg`；Apple Silicon 为 `..._macos_arm64.dmg`。
+  每 arch 各带匹配 ERTS（原生 release 不交叉编译，不做 universal 单包）。
 - **首启无 LM Studio**：health 会显示「模型未连接」属预期；用户在设置里配置 DeepSeek 等会经 Tauri
   偏好/密钥回写后端（`loadAndSyncModelProviderState`）恢复。
 - **CI 真实验证**：`release.yml` 已加各 OS `setup-beam` + `build_sidecar.sh`；首个 tag 触发的真实
