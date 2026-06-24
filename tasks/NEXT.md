@@ -1,12 +1,18 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-06-21
+> 最后更新：2026-06-23
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 
 ---
 
 ## 1. Current Focus
+
+**用户反馈产品问题队列：角色类型、角色候选采纳、作品档案并发读取、记忆治理、记忆 UX、供应商矩阵**
+
+2026-06-23 用户新增 9 条产品问题（编号 9-17）。本轮不按旧 E2E replay 队首继续，而是把这些反馈按现有任务体系登记为 6 个可执行 slice：`AU09-character-role-taxonomy-protagonist-policy`、`AU09-character-candidate-per-item-adoption`、`AU12-archive-concurrent-model-run-read-snapshot`、`AU09-memory-taxonomy-write-policy`、`AU09-memory-list-ux-redesign`、`SU01-provider-vendor-matrix-openai-minimax-zhipu-kimi-gemini`。当前唯一队首为角色类型与主角语义规范，因为它同时解释“主角设定 / 主角是谁”两类错误响应，并影响后续角色候选、角色记忆和上下文组装边界。
+
+历史 focus（保留，不作为本轮优先级来源）：
 
 **滚动验收文件级闭环：SU-01 → E2E-01 已完成本轮文件级可交付收口**
 
@@ -28,7 +34,7 @@ CP3C LongRunner streaming 经 `docs/design/04a-planning-and-long-run.md` 收口�
 
 ## 2. Why This Focus
 
-AU-12 已把作品档案概览显示侧、状态、空字段、导航、跨作品隔离、no-write 和 UUID 脱敏压到真实页面证据，并把当前 2 个 AU-12 Tauri 入口挂入 quality acceptance；A2 prompt 同源为实现/测试约束，读取失败诚实降级和 correction 修订意图已登记为 P1/P2。E2E-01 本轮已纠正旧“11/13 完整 + 2/13 部分”的文档偏差，补齐 E10 trace persister 持久化回查证据、新增可复跑的 `e2e_aggregate` runner，并把 E6 指定低风险只读 tool trace 与 E9 ReplayReport 六问压到真实 Tauri + real LM Studio 证据。本轮用户指定的 SU-01 → E2E-01 文件级闭环目标已完成当前交付状态；下一步应由用户选择是继续处理 P2/security fuzz、回到历史队列，还是进入提交拆分。
+这批反馈来自真实产品使用路径，不是抽象 backlog。用户连续指出角色类型/主角语义、角色候选采纳按钮、模型执行期间档案空白、记忆页面 UX、供应商矩阵、记忆类型和写入治理等问题；它们分别落在 AU-09、AU-12、SU-01 和 AU-10 交叉边界。队首先做 `AU09-character-role-taxonomy-protagonist-policy`，因为“主角设定 / 主角是谁”两类错误响应说明当前角色主体、角色类型、只读查询、创建/修订和上下文消费还没有统一 contract；若不先收敛，后续角色候选采纳和角色记忆也会继续漂移。
 
 已闭环的最近 checkpoint：
 
@@ -69,6 +75,9 @@ AU-12 已把作品档案概览显示侧、状态、空字段、导航、跨作�
 | AU09 validity window recall | checkpoint closed | `artifacts/slice-verify/au09-validity-window-recall-tauri/summary.json` |
 | AU09 cross-work memory isolation | checkpoint closed | `artifacts/slice-verify/au09-cross-work-memory-isolation-tauri/summary.json` |
 | AU09 / AU03 session memory layering | checkpoint closed | `artifacts/slice-verify/au09-au03-session-memory-layering-tauri/summary.json` |
+| AU09 character role taxonomy / protagonist policy CP1 | checkpoint closed | `artifacts/slice-verify/au09-character-role-taxonomy-protagonist-policy-tauri/summary.json` |
+| AU09 character candidate per-item adoption | closed | `artifacts/slice-verify/au09-character-candidate-per-item-adoption-tauri/summary.json` |
+| AU12 archive concurrent model-run read snapshot | closed | `artifacts/slice-verify/au12-archive-concurrent-model-run-read-snapshot-tauri/summary.json` |
 | AU11 quality diagnosis message envelope | checkpoint closed | `artifacts/slice-verify/au11-quality-diagnosis-message-envelope-tauri/summary.json` |
 | AU11 missing WorkState policy | checkpoint closed | `artifacts/slice-verify/au11-missing-workstate-policy-tauri/summary.json` |
 | AU11 file-level closure | file-level closed | `tasks/slices/AU11-file-level-closure.md` |
@@ -79,17 +88,19 @@ AU-12 已把作品档案概览显示侧、状态、空字段、导航、跨作�
 
 ## 3. Active Journey
 
-来源：`docs/design/acceptance/e2e/E2E-01-full-chain.md`；`docs/design/acceptance/SCENARIO-BLUEPRINT.md`；`tasks/slices/E2E01-file-level-closure.md`。
+来源：用户反馈 9-17；`docs/design/acceptance/author/AU-09-story-memory.md`；`docs/design/acceptance/author/AU-12-work-profile.md`；`docs/design/acceptance/system/SU-01-model-provider.md`；`tasks/slices/AU09-character-role-taxonomy-protagonist-policy.md`。
 
 ```text
-作者从真实 Tauri 工作台完成一条端到端创作主链
-→ 配置/选择可用模型与当前作品
-→ 自然对话探索、确认执行、生成候选/草稿、采纳入作品事实
-→ 阅读投影、作品档案、记忆/trace/why/replay 可核对
-→ 外部 Tauri driver / real LLM 证据证明主链可复跑
+作者在真实 Tauri 工作台推进作品设定和创作
+→ 询问或创建主角/角色，系统能区分已确认角色、主角缺失和待采纳设定
+→ 多候选角色有逐项采纳授权，不把未采纳候选写入作品事实
+→ 模型执行期间仍可核对作品档案快照
+→ 记忆按类型、状态、有效性和来源治理，UI 可扫读且不污染上下文
+→ 模型供应商配置扩展到明确的多 vendor / 多认证方式矩阵
+→ 每个修复都由外部 Tauri driver 证明真实页面行为
 ```
 
-当前断点：**SU-01 → E2E-01 本轮文件级闭环已完成当前交付状态。E2E-01 聚合矩阵为 10/13 已验收、2/13 已测试、1/13 部分实现，P0/P1 已关闭；剩余 P2 是 E8/E13 invented/forged source 恶意 payload 的 Channel security regression。**
+当前断点：**`AU12-archive-concurrent-model-run-read-snapshot` 已闭环（模型执行期间打开档案保留快照+诚实加载+只读不写）。队首推进到 `AU09-memory-taxonomy-write-policy`（用户反馈 16/17：记忆类型与写入治理），随后处理记忆 UX 和新增供应商矩阵。**
 
 ## 4. Queue
 
@@ -147,7 +158,13 @@ AU-12 已把作品档案概览显示侧、状态、空字段、导航、跨作�
 | 48 | AU12-file-level-closure | done | - | AU-12 作品档案文件级闭环已完成：8/11 已验收、1/11 已测试、1/11 部分实现、1/11 未实现，P0=0；2 个 AU-12 当前 Tauri 入口已挂入 quality acceptance。 | `docs/design/acceptance/author/AU-12-work-profile.md`；`tasks/slices/AU12-file-level-closure.md`；`bash scripts/quality_accept.sh au12-work-profile-status-isolation --surface tauri`。 |
 | 49 | E2E01-file-level-closure | file-level deliverable / P0-P1 closed | - | E2E-01 已按真实证据完成文件级可交付收口：10/13 已验收、2/13 已测试、1/13 部分实现；E10 trace persister → SQLite → `TraceRepository.list_by_turn` proof 已补；E6 指定低风险只读 tool dispatch + trace query 已有真实 Tauri / LM Studio 证据；E9 ReplayReport 六问已有真实 Tauri / LM Studio 证据；`e2e-01-full-chain` 聚合 runner、`e2e-01-downgrade-real-page`、`e2e-01-readonly-tool-trace` 与 `e2e-01-replay-report` 已挂入 quality acceptance 并通过。 | `docs/design/acceptance/e2e/E2E-01-full-chain.md`；`tasks/slices/E2E01-file-level-closure.md`；`artifacts/slice-verify/e2e-01-downgrade-real-page-tauri-lmstudio/summary.json`；`artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json`；`artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/summary.json`；`artifacts/slice-verify/e2e-01-full-chain/summary.json`。 |
 | 50 | E2E01-p1-readonly-tool-trace | done | - | E6 已闭环：真实工作台自然语言发起 `character_roster` 低风险只读 tool，结果只含当前作品 accepted character，不含 tentative/foreign character，且 `TraceRepository.list_by_turn` 可回查结构化 `tool_trace_refs`。 | `artifacts/slice-verify/e2e-01-readonly-tool-trace-tauri-lmstudio/summary.json`；`bash scripts/quality_accept.sh e2e-01-readonly-tool-trace --surface tauri --provider lmstudio`。 |
-| 51 | E2E01-p1-replay-report | next | - | 若继续沿本目标推进，留在 E2E-01 内补 E9 完整 ReplayReport 六问 checkpoint，再重新评估文件级退出标准。 | `tasks/slices/E2E01-file-level-closure.md` §4/§8；`docs/design/acceptance/e2e/E2E-01-full-chain.md` §4.2/§4.3。 |
+| 51 | E2E01-p1-replay-report | done | - | E9 完整 ReplayReport 六问已由 `e2e-01-replay-report` 真实 Tauri + LM Studio checkpoint 关闭；E2E-01 后续 P2 security regression 也已由 `e2e-01-channel-action-security` 关闭，旧 `next` 已被后续文件级记录覆盖。 | `tasks/slices/E2E01-file-level-closure.md`；`artifacts/slice-verify/e2e-01-replay-report-tauri-lmstudio/summary.json`；`artifacts/slice-verify/e2e-01-channel-action-security-tauri/summary.json`。 |
+| 52 | AU09-character-role-taxonomy-protagonist-policy | checkpoint closed | - | 用户反馈 9/12/13：角色类型尤其“主角”的定义和使用不清；“主角设定”“主角是谁，叫啥”被普通角色列表读取吞掉。CP1 已闭环：`NarrativeRole` 枚举落 Character，主角感知 narration（无主角诚实缺口、不默认第一个、群像聚合），planner/provider 区分查询 vs 设计，真实 Tauri 验收通过。 | `artifacts/slice-verify/au09-character-role-taxonomy-protagonist-policy-tauri/summary.json`；`bash scripts/quality_accept.sh au09-character-role-taxonomy-protagonist-policy --surface tauri`。 |
+| 53 | AU09-character-candidate-per-item-adoption | closed | - | 用户反馈 10：设计新角色返回两个候选但只有一个待采纳按钮。已闭环：`TentativeArtifactSet.adoptable_units/1` 把多候选 character_seed 拆成逐候选独立采纳单元，每候选有独立 accept/discard/edit；采纳一个只写对应 Character，其它候选保持 pending 但不入已确认角色。真实 Tauri 验收通过。 | `artifacts/slice-verify/au09-character-candidate-per-item-adoption-tauri/summary.json`；`bash scripts/quality_accept.sh au09-character-candidate-per-item-adoption --surface tauri`。 |
+| 54 | AU12-archive-concurrent-model-run-read-snapshot | closed | - | 用户反馈 11：模型执行期间打开作品档案没有内容。已闭环：StructurePanel 常驻挂载保留快照 + workId 变才重置 + loading/error 状态条 + 读失败保留上次内容；执行期间打开档案显示立项快照（非空白）+诚实加载，且只读 no-write。真实 Tauri 验收通过。 | `artifacts/slice-verify/au12-archive-concurrent-model-run-read-snapshot-tauri/summary.json`；`bash scripts/quality_accept.sh au12-archive-concurrent-model-run-read-snapshot --surface tauri`。 |
+| 55 | AU09-memory-taxonomy-write-policy | next | - | 用户反馈 16/17：记忆类型、角色记忆、写入时机、写入内容、更新/废弃策略需要澄清。先冻结 taxonomy 和写入治理，再改召回/UI。 | `tasks/slices/AU09-memory-taxonomy-write-policy.md`；目标 driver 覆盖角色主档案不写记忆、角色演化写角色记忆、过时记忆不召回。 |
+| 56 | AU09-memory-list-ux-redesign | todo | AU09-memory-taxonomy-write-policy | 用户反馈 14：记忆页面列表字体颜色、行颜色和整体扫描体验需要按全局 UX 调性重构。依赖记忆类型/状态语义先明确。 | `tasks/slices/AU09-memory-list-ux-redesign.md`；目标 driver `au09-memory-list-ux-redesign`。 |
+| 57 | SU01-provider-vendor-matrix-openai-minimax-zhipu-kimi-gemini | todo | - | 用户反馈 15：新增 OpenAI（`api_key` / `subscription`）、Minimax、智谱、Kimi、Gemini 供应商矩阵；保持 secret redaction、测试失败不切换 runtime、live vendor evidence 边界。 | `tasks/slices/SU01-provider-vendor-matrix-openai-minimax-zhipu-kimi-gemini.md`；目标 driver `su01-provider-vendor-matrix` 系列。 |
 
 ## 5. Selection Rule
 
@@ -163,6 +180,10 @@ AU-12 已把作品档案概览显示侧、状态、空字段、导航、跨作�
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-06-24 | `AU12-archive-concurrent-model-run-read-snapshot` 闭环，队首推进到 `AU09-memory-taxonomy-write-policy`。 | 用户反馈 11（模型执行期间打开作品档案空白）双重根因：① StructurePanel 被条件渲染（`{!isPanelOpen ? rail : panel}`）→关闭即卸载→重开 state 重置丢快照；② 打开即 `setProfile(null)`、读失败 `setBlank`、无 loading 指示；③ Phoenix channel 串行，`user_message` 同步跑模型 turn 阻塞 archive 读。前端修复=StructurePanel 常驻挂载（关闭自渲染 null，state 跨开/关保留）+ 只在 workId 变才清空 + `archiveLoading`/`archiveError` 诚实状态条 + 读失败保留上次内容（概览仅无快照时降级为读取失败提示，保留 `au12-profile-read-failure-degrade`）。真实 Tauri 证明执行期间打开档案显示「题材/核心卖点」立项快照（非空白）+「正在更新作品档案」诚实指示，开档案不产生 user_message/author_action（只读 no-write），turn 完成后刷新。channel 并发实时刷新（后端异步化）与 AU-10 异步 LongRunner 同属已延后后端项，诚实登记为后续。后端全门禁 + I1/I2/I3 绿。 |
+| 2026-06-24 | `AU09-character-candidate-per-item-adoption` 闭环，队首推进到 `AU12-archive-concurrent-model-run-read-snapshot`。 | 用户反馈 10 的根因是采纳授权粒度 bug：`AvailableActionBuilder`/`turn_result_builder` 按 artifact_set 生成单一 accept（target_ref=artifact_set_id），2 候选只有 1 个采纳按钮，采纳时合并成一个 Character。新增纯函数 `TentativeArtifactSet.adoptable_units/1` 把多候选 `character_seed` 分解为逐候选独立采纳单元（artifact_id=`set::item`），builder/available_actions 逐单元生成 pending + accept/discard/edit，前端按钮文案附候选名区分；`AdoptionWorkflow`/`AdoptionRepository` 采纳契约零改动（按 artifact_id 查 pending，条目现含单 item）。`outline_draft` 等多 item 属同一产物保持整体采纳。真实 Tauri 证明一轮 2 候选→2 采纳按钮→采纳第二个只写第二个 Character、第一个保留按钮且未入已确认角色、档案仅 1 个已确认角色。后端逐候选采纳测试 + slice_verify 2 候选测试 + I1/I2/I3 + 全门禁绿。 |
+| 2026-06-23 | `AU09-character-role-taxonomy-protagonist-policy` CP1 闭环，队首推进到 `AU09-character-candidate-per-item-adoption`。 | 契约门定案：主角 = Character 的结构化叙事角色（`narrative_role` 枚举，用户确认，支持群像），不是立项字段也不只是关系。落地全链路：`NarrativeRole` codegen 枚举 + Character domain/schema/migration + item→artifact→adoption→Character→roster；`CharacterRosterNarration` 主角感知（无主角诚实报缺口、不把第一个角色默认当主角、群像聚合）；planner 与 slice_verify/stub/real provider 区分“主角是谁”只读查询 vs “设计主角”创建。真实 Tauri driver 证明：无主角→诚实缺口且 no-write；设计主角→结构化 PROTAGONIST 经采纳边界写 Character；档案角色 tab 显示“主角”标签；再问主角→可校验回答且 no-write。后端四类覆盖 + I1/I2/I3 + 全门禁绿。 |
+| 2026-06-23 | 登记用户反馈 9-17 为 6 个 slice，并将队首切到 `AU09-character-role-taxonomy-protagonist-policy`。 | 这些反馈跨 AU-09、AU-12、SU-01 和 AU-10，但共同指向当前真实产品体验缺口。角色类型/主角语义影响“主角设定”“主角是谁”两类错误响应，也会影响后续角色候选采纳和角色记忆边界，因此作为第一队首；旧 `E2E01-p1-replay-report` 已由 `E2E01-file-level-closure` 后续记录证明关闭，不再保留 `next`。 |
 | 2026-06-21 | `E2E01-p1-replay-report` checkpoint 闭环，本轮 SU-01 → E2E-01 文件级闭环达到当前交付状态。 | E2E-01 当前为 10/13 已验收、2/13 已测试、1/13 部分实现。E9 通过真实 Tauri 工作台发起 `character_roster` 低风险只读 tool，外部查询持久 `DecisionTrace` 并由 `ReplayService.build_report/1` 生成 no-provider ReplayReport；summary 证明 frame/plan/decision/tool_trace/turn_result 链与 VS-06 六问完整。`quality_accept.sh e2e-01-replay-report --surface tauri --provider lmstudio` 与 `quality_accept.sh e2e-01-full-chain --provider lmstudio` 均通过；剩余为 P2 Channel security regression。 |
 | 2026-06-21 | `E2E01-p1-readonly-tool-trace` checkpoint 闭环；后续队首曾为 `E2E01-p1-replay-report`。 | E2E-01 当时为 9/13 已验收、2/13 已测试、2/13 部分实现。E6 通过真实 Tauri 工作台发起 `character_roster` 低风险只读 tool，证明 orchestrator allow、toolbox succeeded、UI no-write/no-action、当前作品 accepted character 可见、tentative/foreign character 不泄漏，并经 `TraceRepository.list_by_turn/1` 回查结构化 `tool_trace_refs`。`quality_accept.sh e2e-01-readonly-tool-trace --surface tauri --provider lmstudio` 与 `quality_accept.sh e2e-01-full-chain --provider lmstudio` 均通过；后续 E9 已在同日闭环。 |
 | 2026-06-21 | `E2E01-file-level-closure` 完成文件级对账、E10 checkpoint、聚合 runner checkpoint 与 E4 真实页面 downgrade checkpoint；当时后续队首为 `E2E01-p1-readonly-tool-trace`。 | E2E-01 旧“11/13 完整 + 2/13 部分”已更正为当时的 8/13 已验收、2/13 已测试、3/13 部分实现；E10 由 `DialogueGateway.handle_input` 注入真实 `WorkspaceContext.trace_persister/0` 后经 SQLite `TraceRepository.list_by_turn/1` 回查闭环。`e2e_aggregate` 已通过 `quality_accept.sh e2e-01-full-chain --provider lmstudio`，E4 通过 `quality_accept.sh e2e-01-downgrade-real-page --surface tauri --provider lmstudio`；当时剩余 P1 为指定低风险只读 tool dispatch + trace query、完整 ReplayReport 六问，后续 E6/E9 已在同日闭环。 |
