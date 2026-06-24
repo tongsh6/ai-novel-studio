@@ -76,6 +76,27 @@ defmodule NovelCommon.Contracts.ToolOutputContractTest do
       refute Map.has_key?(item, :narrative_role)
     end
 
+    test "memory_subtype 归一化到角色 MemoryType 子集并保留到 item（AU-09 §4.5）" do
+      assert ToolOutputContract.normalize_memory_subtype("relationship") == "RELATIONSHIP"
+      assert ToolOutputContract.normalize_memory_subtype("结盟反目") == "RELATIONSHIP"
+      assert ToolOutputContract.normalize_memory_subtype("当前状态") == "CURRENT_STATE"
+      assert ToolOutputContract.normalize_memory_subtype("黑化") == "CHARACTER_PROFILE"
+      assert ToolOutputContract.normalize_memory_subtype("不知道") == nil
+      assert ToolOutputContract.normalize_memory_subtype(nil) == nil
+
+      assert {:ok, [item]} =
+               ToolOutputContract.validate_creative_items([
+                 %{
+                   item_id: "evo1",
+                   title: "林烬：演化",
+                   body: "黑化转向",
+                   memory_subtype: "CHARACTER_PROFILE"
+                 }
+               ])
+
+      assert item.memory_subtype == "CHARACTER_PROFILE"
+    end
+
     test "narrative_role 不影响 I1（title/body/rationale）契约校验" do
       assert {:ok, [item]} =
                ToolOutputContract.validate_creative_items([

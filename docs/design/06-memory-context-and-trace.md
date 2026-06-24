@@ -203,6 +203,61 @@ stateDiagram-v2
 4. `Canonical` 的撤销必须走 revision / compensation，而不是删除 trace。
 5. 每次状态变化必须留下 MemoryTrace 或 DecisionTrace 引用。
 
+### 4.5 记忆写入治理策略（实现层契约，AU-09 反馈 16/17）
+
+§4.2 是设计层抽象分类；本节冻结**实现层**写入治理，落到 `NovelFoundation.Enums.MemoryType` 枚举与采纳链路，回答“写什么类型、何时写、不写什么、如何更新/废弃、召回是否消费”。这是 `AU09-memory-taxonomy-write-policy` 的冻结契约。
+
+#### 4.5.1 实现层 MemoryType 与归属层
+
+| MemoryType | 含义 | 归属层 |
+|---|---|---|
+| `CHARACTER_PROFILE` | 角色长期演化设定（核心欲望/缺陷/弧光变化等，**超出主档案的演化事实**） | 角色记忆 |
+| `CURRENT_STATE` | 角色/世界**当前状态**（伤势、所在、知道什么、此刻处境） | 角色记忆 |
+| `RELATIONSHIP` | 角色间关系**变化**（结盟、敌对、背叛） | 角色记忆 |
+| `WORLD_RULE` | 世界硬规则 | 设定记忆 |
+| `STYLE_RULE` | 文风/语气规则 | 风格记忆 |
+| `CONSTRAINT` | 创作约束 | 约束记忆 |
+| `FORESHADOWING` | 伏笔/线索与回收 | 伏笔记忆 |
+| `PLOT_FACT` | 已确认剧情方向事实 | 剧情记忆 |
+| `DRAFT_CONTEXT` | 大纲/草稿上下文 | 草稿记忆 |
+| `AUTHOR_PREFERENCE` | 作者长期偏好 | 偏好记忆 |
+| `IDEA` | 未定型灵感 | 灵感记忆 |
+
+**角色主档案 ≠ 角色记忆**：角色的**主体身份**（姓名、别名、叙事角色 `narrative_role`、长期设定底座）写 `Character` 主档案（`character_seed` 采纳，**不写记忆**，见 `21-novel-object-model §7.2` 与 `AU09-character-dossier-roundtrip`）。角色的**演化/当前状态/关系变化**写**角色记忆**（`character_evolution_seed` 采纳 → `CHARACTER_PROFILE`/`CURRENT_STATE`/`RELATIONSHIP`）。两者互补：主档案是稳定底座、单一源；角色记忆是随剧情累积、可召回、可废弃的连续性事实。
+
+#### 4.5.2 采纳写入映射（artifact_type → 落位）
+
+| 采纳的 artifact_type | 落位 | MemoryType |
+|---|---|---|
+| `character_seed` | `Character` 主档案 | —（不写记忆） |
+| `character_evolution_seed` | 角色记忆 | `CHARACTER_PROFILE` / `CURRENT_STATE` / `RELATIONSHIP`（按内容分类，默认 `CHARACTER_PROFILE`） |
+| `foreshadowing_seed` | 记忆 | `FORESHADOWING` |
+| `world_rule_seed` | 记忆 | `WORLD_RULE` |
+| `style_rule_seed` | 记忆 | `STYLE_RULE` |
+| `constraint_seed` | 记忆 | `CONSTRAINT` |
+| `plot_direction` | 记忆 | `PLOT_FACT` |
+| `outline_draft` | 记忆 | `DRAFT_CONTEXT` |
+| `world_setting`（历史兼容） | 记忆 | 按内容分类 |
+| `prose_fragment` / `scene_draft` | Reading Projection（作品事实） | —（不写记忆） |
+
+#### 4.5.3 写入时机与“不写”边界
+
+写入记忆（status=`CONFIRMED`、source=`AUTHOR_CONFIRMED`、scope=`WORK`、`recallable=true`）**仅在作者经采纳边界采纳上述记忆类 artifact 之后**。以下一律**不写记忆**：
+
+- 只读查询（如“主角是谁”“列出角色”“查看伏笔”）。
+- 普通对话/解释/探索候选（未采纳）。
+- 失败 turn、provider 错误、工具失败。
+- 角色主体创建（`character_seed`）——只写主档案。
+
+“少写、写准、可解释、可废弃”：若某类记忆不能改善创作上下文，不默认写入。
+
+#### 4.5.4 更新、废弃与召回过滤
+
+- **更新/修订**：经新的采纳 revision，旧记忆 `supersedes_ref` / `DEPRECATED`；不静默覆盖 `locked` 或高风险事实。
+- **废弃/归档**：作者经记忆管理入口将记忆置 `DEPRECATED` / `ARCHIVED`（终态）。
+- **召回过滤**（`MemoryRecallRepo`，已实现）：普通召回只消费 **当前 work + status∈{`CONFIRMED`,`STABILIZED`} + `recallable=true` + 有效期窗口匹配** 的记忆；`DRAFT`/`CONFLICTED`/`DEPRECATED`/`ARCHIVED` 与窗口外记忆**不进入** context/why。
+- **来源可解释**：每条记忆带 `source_type` / `source_id` / trace；why 面板按记忆类型与来源展示，不把主档案伪装成角色记忆。
+
 ---
 
 ## 5. Context Layer

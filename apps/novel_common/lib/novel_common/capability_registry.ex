@@ -97,6 +97,23 @@ defmodule NovelCommon.CapabilityRegistry do
         supports_retry: true,
         supports_cancellation: false
       },
+      # AU-09 角色演化记忆：更新已有角色的演化/当前状态/关系变化，采纳后写角色记忆
+      # （CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP），区别于 character_design 写主档案。
+      "character_evolution" => %CapabilityRegistryEntry{
+        tool_name: "character_evolution",
+        tool_version: "1.0.0",
+        tool_layer: :creative,
+        input_contract_ref: "character_evolution_v1",
+        output_contract_ref: "tentative_artifact_v1",
+        read_scopes: ["author_text", "character_list", "relationship_map"],
+        write_scopes: ["character_profile", "current_state", "relationship"],
+        risk_class: :medium,
+        status: :active,
+        trace_level: :standard,
+        provider_dependency: :llm_provider,
+        supports_retry: true,
+        supports_cancellation: false
+      },
       "plot_outline" => %CapabilityRegistryEntry{
         tool_name: "plot_outline",
         tool_version: "1.0.0",

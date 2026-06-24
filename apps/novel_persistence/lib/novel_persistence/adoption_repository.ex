@@ -204,6 +204,12 @@ defmodule NovelPersistence.AdoptionRepository do
     }
   end
 
+  # character_evolution_seed → 角色记忆（CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）。
+  # 优先用 provider 给的结构化 memory_subtype，否则按内容兜底分类，默认 CHARACTER_PROFILE。
+  defp memory_type(%{artifact_type: type} = attrs)
+       when type in [:character_evolution_seed, "character_evolution_seed"],
+       do: character_evolution_memory_type(attrs)
+
   defp memory_type(%{artifact_type: type})
        when type in [:plot_direction, "plot_direction"],
        do: MemoryType.plot_fact()
@@ -254,6 +260,31 @@ defmodule NovelPersistence.AdoptionRepository do
 
       true ->
         MemoryType.world_rule()
+    end
+  end
+
+  # 角色演化记忆分类（AU-09 §4.5）：结构化 memory_subtype 优先，否则按标题/正文内容兜底。
+  defp character_evolution_memory_type(attrs) do
+    case Map.get(attrs, :memory_subtype) do
+      subtype when subtype in ["CHARACTER_PROFILE", "CURRENT_STATE", "RELATIONSHIP"] ->
+        subtype
+
+      _ ->
+        text =
+          [Map.get(attrs, :summary), Map.get(attrs, :content)]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.map_join("\n", &to_string/1)
+
+        cond do
+          contains_any?(text, ["关系", "结盟", "敌对", "背叛", "决裂", "联手"]) ->
+            MemoryType.relationship()
+
+          contains_any?(text, ["当前状态", "现状", "此刻", "目前", "伤势", "处境", "所在"]) ->
+            MemoryType.current_state()
+
+          true ->
+            MemoryType.character_profile()
+        end
     end
   end
 

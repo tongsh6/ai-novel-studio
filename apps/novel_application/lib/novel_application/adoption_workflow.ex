@@ -425,6 +425,7 @@ defmodule NovelApplication.AdoptionWorkflow do
       content: artifact_content(artifact),
       summary: adoption_chapter_title(artifact),
       narrative_role: artifact_narrative_role(artifact),
+      memory_subtype: artifact_memory_subtype(artifact),
       mode: adoption_mode(artifact),
       decision_id: decision.adoption_decision_id
     }
@@ -1194,6 +1195,23 @@ defmodule NovelApplication.AdoptionWorkflow do
     do: Map.get(item, :narrative_role) || Map.get(item, "narrative_role")
 
   defp item_narrative_role(_), do: nil
+
+  # 角色演化记忆子类（CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）来自 artifact item。
+  defp artifact_memory_subtype(artifact) do
+    payload = artifact_field(artifact, :payload) || %{}
+    items = payload[:items] || payload["items"]
+
+    if is_list(items) do
+      items
+      |> Enum.map(&item_memory_subtype/1)
+      |> Enum.find(&is_binary/1)
+    end
+  end
+
+  defp item_memory_subtype(item) when is_map(item),
+    do: Map.get(item, :memory_subtype) || Map.get(item, "memory_subtype")
+
+  defp item_memory_subtype(_), do: nil
 
   defp meaningful_title?(title, artifact) when is_binary(title) do
     trimmed = String.trim(title)

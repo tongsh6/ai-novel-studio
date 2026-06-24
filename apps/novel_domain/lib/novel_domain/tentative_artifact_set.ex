@@ -7,6 +7,7 @@ defmodule NovelDomain.TentativeArtifactSet do
 
   @type artifact_type ::
           :character_seed
+          | :character_evolution_seed
           | :plot_direction
           | :outline_draft
           | :scene_draft

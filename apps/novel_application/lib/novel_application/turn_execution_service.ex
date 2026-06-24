@@ -28,7 +28,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelDomain.ReaderEffectBrief
   alias NovelDomain.WritingCoordinate
 
-  @creative_tools ~w(world_building character_design plot_outline prose_writing)
+  @creative_tools ~w(world_building character_design character_evolution plot_outline prose_writing)
 
   @type execution_input :: %{
           required(:frame) => DialogueFrame.t(),
@@ -582,7 +582,11 @@ defmodule NovelApplication.TurnExecutionService do
   defp normalize_character_list(_characters), do: []
 
   defp character_context_action?(action) do
-    (action[:target_ref] || action[:capability_name]) in ["character_design", "prose_writing"]
+    (action[:target_ref] || action[:capability_name]) in [
+      "character_design",
+      "character_evolution",
+      "prose_writing"
+    ]
   end
 
   defp build_characters_section([], _frame), do: ""

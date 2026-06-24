@@ -138,6 +138,64 @@ defmodule NovelPersistence.AdoptionRepositoryTest do
       assert character.narrative_role == nil
     end
 
+    test "character_evolution_seed 采纳写角色记忆（非主档案），按 memory_subtype 分类（AU-09 §4.5）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, persisted} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-adopt-evolution",
+                 artifact_id: "as-evolution-1",
+                 artifact_type: :character_evolution_seed,
+                 base_revision: 1,
+                 content: "林烬与苏晚从结盟转为敌对。",
+                 summary: "林烬与苏晚：关系变化",
+                 memory_subtype: "RELATIONSHIP"
+               })
+
+      # 写角色记忆，不写 Character 主档案。
+      refute Map.has_key?(persisted, :character_id)
+      assert NovelPersistence.WorkArchiveRepo.characters(work_id) == []
+
+      memory = Repo.get!(MemoryItem, persisted.memory_item_id)
+      assert memory.type == MemoryType.relationship()
+      assert memory.status == MemoryStatus.confirmed()
+      assert memory.recallable == true
+    end
+
+    test "character_evolution_seed 无 memory_subtype 时按内容兜底分类（默认 CHARACTER_PROFILE）" do
+      work_id = Ecto.UUID.generate()
+
+      assert {:ok, current} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-evo-state",
+                 artifact_id: "as-evo-state",
+                 artifact_type: :character_evolution_seed,
+                 base_revision: 1,
+                 content: "林烬当前状态：右臂重伤，暂时无法动用灵气。",
+                 summary: "林烬：当前状态"
+               })
+
+      assert Repo.get!(MemoryItem, current.memory_item_id).type == MemoryType.current_state()
+
+      assert {:ok, profile} =
+               AdoptionRepository.persist(%{
+                 actor_ref: "author",
+                 work_id: work_id,
+                 source_turn_ref: "turn-evo-profile",
+                 artifact_id: "as-evo-profile",
+                 artifact_type: :character_evolution_seed,
+                 base_revision: 1,
+                 content: "林烬完成一次性格蜕变，从被动忍耐转为主动追查。",
+                 summary: "林烬：成长转变"
+               })
+
+      assert Repo.get!(MemoryItem, profile.memory_item_id).type == MemoryType.character_profile()
+    end
+
     test "adopts foreshadowing_seed into governed memory visible in archive tab" do
       work_id = Ecto.UUID.generate()
 

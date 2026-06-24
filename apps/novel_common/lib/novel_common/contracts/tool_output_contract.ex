@@ -7,6 +7,7 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
 
   @creative_artifact_types [
     :character_seed,
+    :character_evolution_seed,
     :plot_direction,
     :outline_draft,
     :scene_draft,
@@ -164,6 +165,13 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
           narrative_role -> Map.put(item, :narrative_role, narrative_role)
         end
 
+      # memory_subtype（可选）：角色演化记忆的角色 MemoryType 子类。同样非 I1 约束字段。
+      item =
+        case normalize_memory_subtype(map_get(raw, :memory_subtype)) do
+          nil -> item
+          subtype -> Map.put(item, :memory_subtype, subtype)
+        end
+
       {:ok, item}
     end
   end
@@ -195,6 +203,33 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
 
   @typedoc "规范化后的叙事角色枚举值或 nil。"
   @type narrative_role :: String.t() | nil
+
+  # 把 provider 输出的角色演化 memory_subtype 规范化到角色 MemoryType 子集
+  # （CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）。接受 canonical 值与中文同义词；
+  # 无法识别返回 nil（采纳层再按内容兜底分类）。
+  @spec normalize_memory_subtype(term()) :: String.t() | nil
+  def normalize_memory_subtype(value) when is_binary(value) do
+    trimmed = String.trim(value)
+    upcased = String.upcase(trimmed)
+
+    cond do
+      upcased in ["CHARACTER_PROFILE", "CURRENT_STATE", "RELATIONSHIP"] -> upcased
+      relationship_label?(trimmed) -> "RELATIONSHIP"
+      current_state_label?(trimmed) -> "CURRENT_STATE"
+      character_profile_label?(trimmed) -> "CHARACTER_PROFILE"
+      true -> nil
+    end
+  end
+
+  def normalize_memory_subtype(_value), do: nil
+
+  defp relationship_label?(text), do: contains_any?(text, ["关系", "结盟", "敌对", "背叛", "决裂", "联手"])
+
+  defp current_state_label?(text),
+    do: contains_any?(text, ["当前状态", "现状", "此刻", "目前", "伤势", "处境", "所在"])
+
+  defp character_profile_label?(text),
+    do: contains_any?(text, ["演化", "成长", "转变", "弧光", "黑化", "觉醒", "蜕变"])
 
   defp protagonist_label?(text), do: contains_any?(text, ["主角", "主人公", "男主", "女主", "第一主角"])
   defp antagonist_label?(text), do: contains_any?(text, ["反派", "反一", "反角", "大反派", "对手"])

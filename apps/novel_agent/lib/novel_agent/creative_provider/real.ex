@@ -204,6 +204,30 @@ defmodule NovelAgent.CreativeProvider.Real do
     """
   end
 
+  # character_evolution：更新已有角色的演化 / 当前状态 / 关系变化（AU-09 §4.5 角色记忆）。
+  # 不是创建新角色，也不改主档案底座；采纳后写角色记忆（CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）。
+  defp build_prompt(%CreativeRequest{tool_name: "character_evolution"} = request) do
+    """
+    你是小说角色连续性助手。作者要记录一个已有角色随剧情发生的**演化事件**（成长/转变、当前状态变化、或与其他角色的关系变化），不是创建新角色。请基于作品上下文与现有角色，生成 1 条可采纳的角色演化记忆草稿，并严格按 JSON 数组格式返回，不要附加任何额外文字。
+
+    条目是 JSON 对象，必须包含以下键：
+    - "item_id"：你生成的短标识符（不含空格）
+    - "title"：一句话标题，点明是哪个角色的什么演化（如“林烬：黑化转向”“林烬与苏晚：结盟转敌对”）
+    - "body"：具体演化事实。说明发生了什么变化、触发原因、对后续的影响；只写这次演化，不要重写整份角色档案
+    - "memory_subtype"：从下列三选一——CHARACTER_PROFILE（长期设定/弧光演化）、CURRENT_STATE（当前处境/伤势/所知/所在）、RELATIONSHIP（角色间关系变化）。无法判断时省略或给 null
+    - "rationale"：一句话说明该演化如何贴合剧情（或 null）
+
+    capability：#{request.tool_name}
+    artifact_type：#{request.artifact_type}
+    用户创作简述：#{request.creative_brief}
+    上下文：#{request.context_text}
+
+    重要：必须基于上下文中的现有角色与剧情，不要脱离本作凭空生成；只记录演化事件，不重建主档案。如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在 title/body/rationale 中原样保留。
+
+    只返回 JSON 数组。
+    """
+  end
+
   # world_building：作品档案中的世界设定 / 伏笔 / 规则草稿。
   # 采纳后仍经 AU-09 memory governance；provider 只生成 tentative artifact。
   defp build_prompt(%CreativeRequest{tool_name: "world_building"} = request) do

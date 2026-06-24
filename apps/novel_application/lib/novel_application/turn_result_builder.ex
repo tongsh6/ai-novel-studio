@@ -246,6 +246,10 @@ defmodule NovelApplication.TurnResultBuilder do
        do: "角色设定草稿"
 
   defp artifact_payload_title(%{artifact_type: type})
+       when type in [:character_evolution_seed, "character_evolution_seed"],
+       do: "角色演化记忆草稿"
+
+  defp artifact_payload_title(%{artifact_type: type})
        when type in [:foreshadowing_seed, "foreshadowing_seed"],
        do: "伏笔草稿"
 

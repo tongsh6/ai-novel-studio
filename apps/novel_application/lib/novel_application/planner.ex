@@ -154,6 +154,7 @@ defmodule NovelApplication.Planner do
     - 正文、开篇场景、具体片段、场景描写、动作描写、续写、章节草稿 → prose_writing
     - 大纲、章节规划、分卷、卷数、章节数、剧情走向、角色成长线、势力结构 → plot_outline
     - 设计 / 设定 / 创建一个新角色（含"设计主角""设定主角""加个反派/配角"）、人物小传、动机、关系 → character_design（生成待采纳候选）
+    - 更新 / 演化 / 推进**已有角色**的成长转变、当前状态、关系变化（含"林烬黑化了""更新主角当前状态""谁和谁结盟/反目"）→ character_evolution（生成角色演化记忆草稿，不改主档案）
     - 世界观、规则体系、门派/组织/地理/设定 → world_building
     #{accepted_chapters_section(context)}
     ## 用户输入
@@ -168,7 +169,7 @@ defmodule NovelApplication.Planner do
           "action_id": "act-1",
           "action_type": "capability_invocation",
           "summary": "人类可读的动作描述",
-          "target_ref": "工具名称 (如 character_roster, world_building, character_design, plot_outline, prose_writing)",
+          "target_ref": "工具名称 (如 character_roster, world_building, character_design, character_evolution, plot_outline, prose_writing)",
           "write_intent": "none" | "tentative",
           "risk_hint": "low" | "medium" | "high",
           "authoring_intent": "none" | "continuation" | "rewrite",
