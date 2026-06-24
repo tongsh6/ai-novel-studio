@@ -1,6 +1,6 @@
 # AU09 Memory Taxonomy Write Policy / 记忆类型与写入治理
 
-- 状态：todo
+- 状态：CP1 闭环（冻结写入治理契约 + 角色演化记忆写入路径 + 真实页面验收）
 - 类型：Memory Governance Slice + Domain Contract Slice
 - 启动日期：2026-06-23
 - 来源反馈：用户问题 16、17
@@ -50,26 +50,28 @@
 
 | # | 任务 | Status | 备注 |
 |---|---|---|---|
-| T1 | 审计现有 MemoryType、写入入口、召回策略和角色相关路径 | todo | 区分当前事实与历史文档 |
-| T2 | 定义 memory taxonomy 与角色记忆边界 | todo | 主档案 vs 演化记忆必须明确 |
-| T3 | 定义写入/不写入/更新/废弃/移除策略 | todo | 包含来源、有效期、supersession |
-| T4 | 对齐 application/persistence/frontend 行为 | todo | 最小实现，不提前造复杂治理系统 |
-| T5 | 补真实 Tauri 验收和局部测试 | todo | 重点证明记忆不会污染创作上下文 |
+| T1 | 审计现有 MemoryType、写入入口、召回策略和角色相关路径 | done | taxonomy 已丰富（11 MemoryType）；adoption 按 artifact_type→MemoryType 映射；召回过滤 CONFIRMED/STABILIZED+recallable+窗口；character_seed→主档案不写记忆；缺：角色演化记忆写入路径 + 成文写入策略 |
+| T2 | 定义 memory taxonomy 与角色记忆边界 | done | `06-memory-context-and-trace.md §4.5` 冻结：主档案（character_seed）vs 角色演化记忆（character_evolution_seed → CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP）边界 |
+| T3 | 定义写入/不写入/更新/废弃/移除策略 | done | §4.5.3 写入时机与不写边界（只读/失败/未采纳不写）；§4.5.4 更新/supersede/deprecate/archive + 召回过滤 |
+| T4 | 对齐 application/persistence/frontend 行为 | done | 新增 `character_evolution` 能力 + `character_evolution_seed` artifact + 采纳写角色记忆（memory_subtype 或内容分类）；前端卡/标签/记忆类型展示 |
+| T5 | 补真实 Tauri 验收和局部测试 | done | domain/contract/persistence/agent 测试；`au09-memory-taxonomy-write-policy` Tauri driver 通过 |
 
 ## 5. 验证
 
-- [ ] 外部自动化驱动真实页面的场景化验收
-- [ ] 后端 / Channel / frontend 局部验证
-- [ ] `MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs`
-- [ ] `MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs`
-- [ ] `MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs`
-- [ ] `bash scripts/quality_manifest_check.sh`
-- [ ] `bash scripts/ai_static_scan.sh --top 10`
+- [x] 外部自动化驱动真实页面的场景化验收（`artifacts/slice-verify/au09-memory-taxonomy-write-policy-tauri/summary.json`；`scripts/quality_accept.sh au09-memory-taxonomy-write-policy --surface tauri` 通过）
+- [x] 后端 / Channel / frontend 局部验证（持久化/契约/provider 测试 + 前端 typecheck/lint/test 全绿）
+- [x] `MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs`
+- [x] `MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs`
+- [x] `MIX_ENV=test mix run scripts/scenario_invariants/run_i2_variation.exs`
+- [x] `bash scripts/quality_manifest_check.sh`
+- [x] `bash scripts/ai_static_scan.sh --top 10`（剩余 gitleaks ProjectGod 既有 accepted_risk）
 
 ## 6. 决策日志
 
 - 2026-06-23 — 登记用户反馈 16/17。现有 AU-09 已证明基础记忆生命周期和召回，但类型语义、角色记忆边界、写入时机与后续治理仍需单独收敛。
+- 2026-06-24 — CP1 闭环（用户确认范围：冻结契约 + 角色演化记忆写入路径 + Tauri 验收）。`06 §4.5` 冻结实现层写入治理；新增 `character_evolution` 能力/`character_evolution_seed` artifact，采纳写角色记忆（CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP，按 memory_subtype 或内容分类）非主档案；planner/provider 区分“设计角色”vs“更新/演化角色”。真实 Tauri 证明：设计角色→主档案不写记忆、记忆页无角色记忆；更新当前状态→采纳写「当前状态」角色记忆、记忆页按类型展示且保留本轮 nonce。坑：`@creative_tools` 白名单（turn_execution_service）漏 character_evolution 致工具拿不到 provider（complete_fn_required）；driver nonce 须同时含字母数字（random_identifier_tokens 要求）。
 
 ## 7. 试行反馈
 
-- 本 slice 应先收敛“少写、写准、可解释、可废弃”的策略。若无法证明某类记忆会改善创作上下文，就不要默认写入。
+- 策略落「少写、写准、可解释、可废弃」：写入只在采纳后；只读/失败/未采纳不写；召回过滤终态与窗口外。
+- CP2 后续：角色记忆与角色主档案的双向引用/演化时间线、supersede 旧角色记忆的显式入口、角色记忆参与召回的真实页面证据（本 CP 证写入与展示，召回过滤复用既有 `MemoryRecallRepo` 及 `au09-validity-window-recall`/`au09-memory-trace-roundtrip`）。

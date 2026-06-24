@@ -1,6 +1,6 @@
 # AU09 Memory List UX Redesign / 记忆列表视觉与交互重构
 
-- 状态：todo
+- 状态：闭环（全局浅色 token + 语义状态/类型/召回 + 真实页面截图验收）
 - 类型：UI Contract Slice + Memory Governance Slice
 - 启动日期：2026-06-23
 - 来源反馈：用户问题 14
@@ -44,24 +44,25 @@
 
 | # | 任务 | Status | 备注 |
 |---|---|---|---|
-| T1 | 截取并审计当前记忆页面列表 UX | todo | 字体、行色、状态、密度、扫描路径 |
-| T2 | 对齐全局 token 和状态语义映射 | todo | 避免一页多套色彩语言 |
-| T3 | 重构列表、筛选、状态和空/错/loading 态 | todo | 桌面 1280x800 优先 |
-| T4 | 补设计追溯、前端测试和 Tauri 截图验收 | todo | `check_design_trace.sh` 必须通过 |
+| T1 | 截取并审计当前记忆页面列表 UX | done | 现状：CSS 硬编码深色 hex（off-theme，全局是浅色 token），返回按钮浅主题贴深色页；状态/范围渲染原始枚举无标签无语义色；类型 badge 单色；硬编码中文未进 copy.ts；无 recallable 指示 |
+| T2 | 对齐全局 token 和状态语义映射 | done | `MemoryListPage.module.css` 全部改用 `var(--surface/foreground/accent/border/rounded/sans)`；`memoryListView.ts` 纯函数定状态 tone（confirmed/stabilized/draft/conflicted/terminal） |
+| T3 | 重构列表、筛选、状态和空/错/loading 态 | done | 状态/范围/类型用中文标签；状态语义徽标+点；新增「召回」列（可召回/不召回，终态强制不召回与 §4.5 一致）；终态行降权；筛选/空/loading 文案进 `copy.ts`；1280x800 可读无重叠 |
+| T4 | 补设计追溯、前端测试和 Tauri 截图验收 | done | header 引用 `40-ui-overview`；`memoryListView` 前端单测；`au09-memory-list-ux-redesign` Tauri driver + 截图通过；修既有 `au09-memory-management-filter-matrix` driver 的 placeholder/loading 断言（复跑通过） |
 
 ## 5. 验证
 
-- [ ] 外部自动化驱动真实页面的场景化验收
-- [ ] `cd frontend && pnpm typecheck && pnpm lint && pnpm test`
-- [ ] `bash scripts/frontend_audit.sh`
-- [ ] `bash scripts/check_design_trace.sh`
-- [ ] `bash scripts/quality_manifest_check.sh`
-- [ ] `bash scripts/ai_static_scan.sh --top 10`
+- [x] 外部自动化驱动真实页面的场景化验收（`artifacts/slice-verify/au09-memory-list-ux-redesign-tauri/summary.json` + 截图；`scripts/quality_accept.sh au09-memory-list-ux-redesign --surface tauri` 通过；`container_bg=rgb(252,250,247)` 即全局浅色 token）
+- [x] `cd frontend && pnpm typecheck && pnpm lint && pnpm test`
+- [x] `bash scripts/frontend_audit.sh`
+- [x] `bash scripts/check_design_trace.sh`
+- [x] `bash scripts/quality_manifest_check.sh`
+- [x] `bash scripts/ai_static_scan.sh --top 10`（剩余 gitleaks ProjectGod 既有 accepted_risk）
 
 ## 6. 决策日志
 
 - 2026-06-23 — 登记用户反馈 14。当前问题不是单个颜色 bug，而是 memory list 的信息架构和视觉语义需要按全局 UI 调性重构；应在 memory taxonomy 明确后推进。
+- 2026-06-24 — 闭环：根因是记忆页整页用硬编码深色 hex（与全局浅色 workbench 调性冲突），状态/范围/类型显示原始枚举。改：CSS 全量改用全局 token；`memoryListView.ts` 把状态映射成语义 tone（颜色服务真实状态非装饰）；列表用中文标签 + 状态徽标 + 召回列 + 终态行降权；文案集中 `copy.ts`；设计追溯 header 指向 `40-ui-overview`。真实 Tauri 截图证明：浅色调（bg=rgb(252,250,247)）、状态显示「已确认/已弃用」非枚举、类型/范围标签、逐行召回值、终态行弱化、无重叠。坑：copy 改 placeholder/loading 文案破坏既有 filter-matrix driver 的 `getByPlaceholder("搜索关键词…")`/`加载中...` 断言，已同步修正并复跑通过（详情抽屉仍显示原始 status，trace/entry driver 不受影响）。
 
 ## 7. 试行反馈
 
-- 实现前若需要查看 `.pen` 原型，必须使用 Pencil MCP，不直接读取 `.pen` 文件。
+- 颜色服务真实状态语义而非装饰：confirmed/stabilized=实、draft=弱、conflicted=警示色、terminal=弱化+不召回。详情抽屉（`MemoryDetailDrawer`）仍是独立的旧深色样式与原始 status 展示，本 slice 未纳入（聚焦列表）；CP2 可把抽屉与创建对话框一并对齐全局 token，并统一「不召回/不可召回」措辞。
