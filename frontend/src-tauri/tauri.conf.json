@@ -36,6 +36,9 @@
     ],
     "resources": {
       "resources/sidecar.tar.gz": "sidecar.tar.gz"
+    },
+    "macOS": {
+      "signingIdentity": "-"
     }
   }
 }
