@@ -69,6 +69,7 @@ import {
   ClarificationCard,
   ConfirmationCard,
   WarningCard,
+  QualityReviewCard,
   ProgressCard,
   CheckpointCard,
   ResultCard,
@@ -145,7 +146,26 @@ export interface TurnResult {
     source_revision_refs: string[];
     refresh_status?: string | null;
   }[];
+  quality_review?: QualityReview;
   produced_at: string;
+}
+
+export interface QualityFindingView {
+  quality_gate: string;
+  validator: string;
+  severity: string;
+  action: string;
+  summary: string;
+  evidence_spans?: { text?: string }[];
+  brief_field_refs?: string[];
+  can_override?: boolean;
+}
+
+export interface QualityReview {
+  status: string;
+  policy_action: string;
+  review_status: string;
+  findings: QualityFindingView[];
 }
 
 export interface AvailableAction extends AvailableActionLike {
@@ -2599,6 +2619,10 @@ export function WorkspaceChat() {
                         return <DefaultCard key={ci} card={card} />;
                     }
                   })}
+
+                {!isReadOnlySessionView && msg.turnResult?.quality_review && (
+                  <QualityReviewCard review={msg.turnResult.quality_review} />
+                )}
 
                 {!isReadOnlySessionView &&
                   msg.turnResult?.candidate_directions &&

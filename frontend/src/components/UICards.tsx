@@ -120,6 +120,69 @@ export function WarningCard({ card }: Props) {
   );
 }
 
+// VS-00E CP2：正文质量复核摘要。复用 warning 视觉，不新增 Card taxonomy 状态机。
+// finding 仅供作者审阅，不代表作品事实，不改变可采纳性。
+export interface QualityFindingView {
+  quality_gate: string;
+  validator: string;
+  severity: string;
+  action: string;
+  summary: string;
+  evidence_spans?: { text?: string }[];
+  brief_field_refs?: string[];
+  can_override?: boolean;
+}
+
+export interface QualityReviewView {
+  status: string;
+  policy_action: string;
+  review_status: string;
+  findings: QualityFindingView[];
+}
+
+export function QualityReviewCard({ review }: { review: QualityReviewView }) {
+  if (review.review_status === "unavailable") {
+    return (
+      <div className={`${styles.card} ${styles.warningCard}`}>
+        <div className={styles.header}>
+          <div className={styles.warningIcon}>!</div>
+          <div className={styles.title}>{CARD.qualityReview.unavailableTitle}</div>
+        </div>
+        <div className={styles.body}>{CARD.qualityReview.unavailableBody}</div>
+      </div>
+    );
+  }
+
+  if (!review.findings || review.findings.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className={`${styles.card} ${styles.warningCard}`}>
+      <div className={styles.header}>
+        <div className={styles.warningIcon}>!</div>
+        <div className={styles.title}>{CARD.qualityReview.title(review.findings.length)}</div>
+      </div>
+      <ol className={styles.body}>
+        {review.findings.map((finding, index) => {
+          const evidence = displayText(finding.evidence_spans?.[0]?.text);
+          return (
+            <li key={index}>
+              <span>{finding.summary}</span>
+              {evidence && (
+                <div className={styles.qualityEvidence}>
+                  {CARD.qualityReview.evidencePrefix}
+                  {evidence}
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ol>
+    </div>
+  );
+}
+
 export function ProgressCard({ card }: Props) {
   return (
     <div className={`${styles.card} ${styles.progressCard}`}>

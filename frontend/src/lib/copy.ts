@@ -85,6 +85,12 @@ export const CARD = {
     title: "需要澄清",
     description: "AI 需要更多信息才能继续",
   },
+  qualityReview: {
+    title: (count: number) => `质量复核：发现 ${count} 项可改进问题`,
+    evidencePrefix: "正文证据：",
+    unavailableTitle: "本次质量复核未完成",
+    unavailableBody: "质量评审未能完成，以下原稿仍可由你审阅与采纳；系统不会据此自动改写或判定通过。",
+  },
   confirmation: {
     title: "请确认",
     description: "请确认以下内容是否符合预期",
