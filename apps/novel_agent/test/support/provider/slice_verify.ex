@@ -70,8 +70,30 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  @quality_eval_fail_marker "VS00EEVALFAIL"
+
+  defp quality_evaluator_prompt?(prompt) do
+    String.contains?(prompt, "质量评审") and String.contains?(prompt, "findings")
+  end
+
+  # 默认空 findings（评审完成、无语义问题）；正文含 fail-marker 时返回非法 JSON →
+  # evaluator 两次解析失败 → review_status unavailable（复现诚实降级）。
+  defp quality_evaluator_response(prompt) do
+    if String.contains?(prompt, @quality_eval_fail_marker) do
+      "evaluator 故意返回的非 JSON 文本 #{@quality_eval_fail_marker}"
+    else
+      Jason.encode!(%{"findings" => []})
+    end
+  end
+
   defp response_content(prompt, prompt_text) do
     cond do
+      # VS-00E：独立质量 evaluator 的 prompt（含「质量评审」+「findings」，无正文三锚点）。
+      # 默认返回空 findings（确定性 validator 仍可命中）；带 fail-marker 时返回非法 JSON 以
+      # 复现 evaluator 降级。仅 test-support，不进生产 runtime。
+      quality_evaluator_prompt?(prompt_text) ->
+        quality_evaluator_response(prompt_text)
+
       garbage_json_prompt?(prompt) ->
         "not valid json {{{ AU01GARBAGE raw provider payload"
 

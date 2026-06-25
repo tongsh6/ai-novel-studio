@@ -1003,6 +1003,7 @@ defmodule NovelApplication.DialogueGateway do
           author_input: %{text: frame.author_visible_draft.message},
           source_turn_ref: map_field(source_turn_result, :turn_id),
           complete_fn: complete_fn,
+          quality_complete_fn: complete_fn,
           chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
           chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
           character_reader: NovelApplication.persistence_character_reader(),
@@ -1231,6 +1232,7 @@ defmodule NovelApplication.DialogueGateway do
         context: context,
         author_input: author_input,
         complete_fn: complete_fn,
+        quality_complete_fn: complete_fn,
         chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
         chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
         character_reader: NovelApplication.persistence_character_reader()
