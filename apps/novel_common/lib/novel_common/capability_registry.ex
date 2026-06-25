@@ -135,7 +135,17 @@ defmodule NovelCommon.CapabilityRegistry do
         tool_layer: :creative,
         input_contract_ref: "prose_writing_v1",
         output_contract_ref: "tentative_artifact_v1",
-        read_scopes: ["author_text", "chapter_draft", "prose_style_guide"],
+        # VS-00E §14：补齐 prose_writing 实际读取的范围（目标章结构/方向、章摘要、
+        # 前文 excerpt、现有角色主档案），而非仅 author_text/chapter_draft/style。
+        read_scopes: [
+          "author_text",
+          "chapter_structure",
+          "chapter_summary",
+          "chapter_draft",
+          "character_dossier",
+          "prose_excerpt",
+          "prose_style_guide"
+        ],
         write_scopes: ["prose_fragment", "scene_draft"],
         risk_class: :medium,
         status: :active,

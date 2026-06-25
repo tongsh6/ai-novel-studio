@@ -13,7 +13,9 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.CharacterRosterNarration
+  alias NovelApplication.CreativeDecisionPacketBuilder
   alias NovelApplication.Planner
+  alias NovelApplication.ProseExecutionBriefBuilder
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolRequest
@@ -25,6 +27,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelDomain.MissingPolicyResult
   alias NovelDomain.OmissionNote
   alias NovelDomain.OrchestratorDecision
+  alias NovelDomain.ProseExecutionBrief
   alias NovelDomain.ReaderEffectBrief
   alias NovelDomain.WritingCoordinate
 
@@ -111,6 +114,20 @@ defmodule NovelApplication.TurnExecutionService do
 
     maybe_emit_target_word_count(frame, action)
 
+    # VS-00E CP1：把章级方向展开为场级执行简述，渲染进 provider 请求并记入 trace。
+    # 仅 prose_writing 路径生成；缺结构化章方向时降级（不伪造场级因果）。brief 是设计态、
+    # 非作品事实。
+    brief_result =
+      prose_execution_brief(
+        frame,
+        action,
+        input[:context],
+        resolved_chapter,
+        author_input_text(frame, input[:author_input])
+      )
+
+    emit_execution_brief(frame, brief_result)
+
     req =
       build_tool_request(
         frame,
@@ -123,7 +140,8 @@ defmodule NovelApplication.TurnExecutionService do
           prior_prose: prior_prose,
           prior_summaries: prior_summaries,
           character_roster: character_roster,
-          characters: characters
+          characters: characters,
+          execution_brief: render_execution_brief(brief_result)
         }
       )
 
@@ -137,7 +155,11 @@ defmodule NovelApplication.TurnExecutionService do
         decision,
         req,
         tool_result,
-        %{turn_id: frame.turn_id, omission_notes: omission_notes},
+        %{
+          turn_id: frame.turn_id,
+          omission_notes: omission_notes,
+          brief_ref: execution_brief_ref(brief_result)
+        },
         input[:context]
       )
 
@@ -281,7 +303,17 @@ defmodule NovelApplication.TurnExecutionService do
       "context_text" => context_text
     }
     |> maybe_put_characters(action, sections.characters)
+    |> maybe_put_execution_brief(sections)
   end
+
+  # VS-00E：把已渲染的场级执行简述文本放入工具输入，由 CreativeToolAdapter 透传给
+  # provider（仅 prose_writing 路径非空）。
+  defp maybe_put_execution_brief(input, %{execution_brief: text})
+       when is_binary(text) and text != "" do
+    Map.put(input, "execution_brief", text)
+  end
+
+  defp maybe_put_execution_brief(input, _sections), do: input
 
   defp maybe_put_characters(input, action, characters) do
     if (action[:target_ref] || action[:capability_name]) == "character_roster" do
@@ -640,6 +672,63 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp target_structure_section(_frame, _action, _context, _resolved_chapter), do: ""
+
+  # VS-00E CP1：仅 prose_writing 路径，从目标章方向 + 读者效果确定性投影出场级执行简述。
+  # 章窗口与 target_structure_section 同源（context.structured_chapters）。
+  defp prose_execution_brief(frame, action, %DialogueContext{} = context, resolved_chapter, author_text) do
+    if prose_writing_action?(action) do
+      target = structure_target_title(action, resolved_chapter)
+      window = structured_chapter_window(context.structured_chapters, target)
+      current = window && Map.get(window, :current)
+
+      direction =
+        current && current |> Map.get(:plan_direction) |> ChapterPlanDirection.from_storage()
+
+      reader_effect = ReaderEffectBrief.from_plan_direction(direction)
+
+      %{
+        chapter_direction: direction,
+        reader_effect_brief: reader_effect,
+        chapter: current_chapter_map(current),
+        author_input: author_text,
+        source_turn_ref: frame.turn_id
+      }
+      |> CreativeDecisionPacketBuilder.build()
+      |> ProseExecutionBriefBuilder.build()
+    end
+  end
+
+  defp prose_execution_brief(_frame, _action, _context, _resolved_chapter, _author_text), do: nil
+
+  defp current_chapter_map(current) when is_map(current) do
+    %{
+      "id" => Map.get(current, :id),
+      "title" => Map.get(current, :title),
+      "seq" => Map.get(current, :seq),
+      "summary" => Map.get(current, :summary)
+    }
+  end
+
+  defp current_chapter_map(_current), do: %{}
+
+  defp render_execution_brief({brief, _meta}), do: ProseExecutionBrief.to_prompt_section(brief)
+  defp render_execution_brief(_), do: nil
+
+  defp execution_brief_ref({brief, _meta}), do: ProseExecutionBrief.ref(brief)
+  defp execution_brief_ref(_), do: nil
+
+  defp emit_execution_brief(frame, {brief, meta}) do
+    LogEmit.emit(:creative_decision_packet, :built, :done, %{turn_id: frame.turn_id})
+
+    LogEmit.emit(:prose_execution_brief, :built, :done, %{
+      turn_id: frame.turn_id,
+      brief_ref: ProseExecutionBrief.ref(brief),
+      scene_unit_count: length(brief.scene_units),
+      degraded: meta.degraded
+    })
+  end
+
+  defp emit_execution_brief(_frame, _brief_result), do: :ok
 
   defp structure_target_title(_action, resolved_chapter)
        when is_binary(resolved_chapter) and resolved_chapter != "",

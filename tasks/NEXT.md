@@ -13,7 +13,7 @@
 2026-06-25 启动 VS-00E：补齐「章级方向 → 场级执行简述(ProseExecutionBriefV1) → 正文生成 → 独立质量评估(ProseQualityService/QualityFinding) → 修订候选(revise_from_findings) → 作者采纳」主链。沿现有体系补齐，不新建平行叙事动力架构。
 
 - **CP0 已完成（本次）**：契约冻结 `docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md` + `docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md`；新增 `quality_gate.style_fit`（quality/31 §6.11）；建立确定性质量基线 fixture `quality/acceptance/fixtures/prose-quality/`。**仅设计冻结，未实现运行时代码。**
-- **CP1（下一队首）**：`ProseExecutionBriefV1` 成为运行时对象（domain + `ProseExecutionBriefBuilder` + `CreativeDecisionPacketBuilder`），扩展 `CreativeRequest` 进入 provider message，trace 记 brief_ref；acceptance `p1-prose-execution-brief`。不破坏三锚点。
+- **CP1 已实现并应用层验证（2026-06-25）**：`ProseExecutionBrief` 域对象 + `CreativeDecisionPacketBuilder` + `ProseExecutionBriefBuilder` + `CreativeRequest.execution_brief` + provider 管线（三锚点之后）+ `TurnExecutionService` 接线 + trace `prose_execution_brief_ref` + `prose_writing` read_scopes 补齐。集成测试证：章方向→场级 brief 进 prompt、brief_ref 进 trace、不写作品事实、无方向降级不伪造因果。**真实页面 Tauri 驱动 `p1-prose-execution-brief` 未实现（下一队首）。** 不破坏三锚点（I3 通过）。
 - **CP2**：独立 `ProseQualityService` + writer/evaluator 分离 + 确定性/语义 validator + `ProseQualityPolicy`；evaluator 失败诚实降级；acceptance `p1-prose-quality-finding-roundtrip` / `p1-prose-quality-evaluator-degrade`。
 - **CP3**：`revise_from_findings` 产 sibling tentative revision，原稿保留、独立采纳；前端 finding 展示 + 重写动作；acceptance `p1-prose-revision-candidate` / `p1-prose-quality-adoption-boundary`。
 - 不变量见 VS-00E §12 / ADR-0020 I1–I10。真实文学收益须人工盲评（I10），fixture 不得冒充。

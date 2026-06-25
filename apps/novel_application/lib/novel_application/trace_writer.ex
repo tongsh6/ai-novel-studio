@@ -174,6 +174,7 @@ defmodule NovelApplication.TraceWriter do
         context_refs: format_context_refs(context_refs)
       }
       |> maybe_put_omissions(turn_result)
+      |> maybe_put_brief_ref(turn_result)
       |> maybe_put_ai_message_envelope(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
@@ -201,6 +202,13 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp maybe_put_omissions(summary, _turn_result), do: summary
+
+  # VS-00E CP1：场级执行简述引用进作者可见 trace summary（来源留痕，非作品事实）。
+  defp maybe_put_brief_ref(summary, %{brief_ref: ref}) when is_binary(ref) and ref != "" do
+    Map.put(summary, :prose_execution_brief_ref, ref)
+  end
+
+  defp maybe_put_brief_ref(summary, _turn_result), do: summary
 
   defp maybe_put_ai_message_envelope(summary, %DialogueFrame{
          evidence_summary: %{ai_message_envelope: envelope}
