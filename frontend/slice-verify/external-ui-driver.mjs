@@ -15148,7 +15148,128 @@ async function driveE2E01ChannelActionSecurity(page) {
   }
 }
 
+// VS-00E CP1：从真实工作台为带结构化方向的第 02 章生成正文草稿，验证场级执行简述
+// （ProseExecutionBriefV1）确定性投影自章方向、进入正文生成链路与 trace，且不写作品事实。
+// 外部证据：app 日志 context.structure.done(has_plan_direction) + prose_execution_brief.built
+// (degraded=false, brief_ref, scene_unit_count)；wire trace_summary 软记录。
+async function driveP1ProseExecutionBrief(page) {
+  const targetChapterTitle = "第02章：旧服务器里的残诀";
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    (targetTitle) =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert(
+    (await draftButtons.count()) >= 2,
+    "Archive outline did not render a draft action for chapter 2",
+  );
+  await draftButtons.nth(1).click();
+
+  const draftMessageFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.generate_micro_plan === true &&
+      String(frame.body?.text ?? "").includes(targetChapterTitle) &&
+      String(frame.body?.text ?? "").includes("正文草稿"),
+    "Real workbench did not send chapter-2 draft user_message with micro plan enabled",
+  );
+
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.tool_result?.output?.artifact_type === "prose_fragment" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No prose_fragment turn_result websocket frame was received",
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const pendingArtifact = draftTurnResult.adoption_state.pending[0];
+  const draftBody = pendingArtifact.payload?.items?.[0]?.body ?? "";
+
+  // 外部证据 1：结构化章方向被读取
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.turn_id === draftTurnResult.turn_id &&
+      record.target_chapter === targetChapterTitle &&
+      record.has_plan_direction === true,
+    "No structured chapter direction (has_plan_direction) app log for chapter 2",
+  );
+
+  // 外部证据 2：场级执行简述被构建并进入链路，且非降级（确定性投影自章方向）
+  const briefRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "prose_execution_brief.built.done" &&
+      record.turn_id === draftTurnResult.turn_id,
+    "No prose_execution_brief.built app log for the prose turn",
+  );
+  assert(
+    briefRecord.degraded === false,
+    `Execution brief degraded unexpectedly: ${JSON.stringify(briefRecord)}`,
+  );
+  assert(
+    typeof briefRecord.brief_ref === "string" && briefRecord.brief_ref.startsWith("brief:"),
+    "Execution brief log missing stable brief_ref",
+  );
+  assert(
+    Number(briefRecord.scene_unit_count ?? 0) >= 1,
+    "Execution brief had no scene units",
+  );
+
+  await page.waitForFunction(
+    (targetTitle) =>
+      /待保存章节草稿|章节正文草稿|待确认的创作材料/.test(document.body.innerText) &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, draftTurnResult, sentMessage);
+
+  // brief 不是作品事实：待采纳产物正文不含执行简述结构标签，且未触发采纳
+  assert(!draftBody.includes("场级执行简述"), "Execution brief leaked into draft body");
+  assert(
+    !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
+    "Brief turn unexpectedly submitted an adopt event",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      chapter_title: targetChapterTitle,
+      draft_generated: true,
+      draft_pending: true,
+      draft_card_visible: /待保存章节草稿|章节正文草稿|待确认的创作材料/.test(visibleText),
+      execution_brief_built: true,
+      execution_brief_degraded: briefRecord.degraded === true,
+      execution_brief_ref: briefRecord.brief_ref,
+      execution_brief_scene_units: Number(briefRecord.scene_unit_count ?? 0),
+      trace_prose_execution_brief_ref:
+        draftTurnResult?.trace_summary?.prose_execution_brief_ref ?? null,
+      has_plan_direction_context: true,
+      brief_in_draft_body: draftBody.includes("场级执行简述"),
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
+      user_message_text: draftMessageFrame.body?.text,
+    },
+  ];
+}
+
 const drivers = {
+  "p1-prose-execution-brief": driveP1ProseExecutionBrief,
   "su01-provider-health-model": driveSu01ProviderHealthModel,
   "su01-lmstudio-disconnected-health": driveSu01LmstudioDisconnectedHealth,
   "su01-provider-endpoint-validation": driveSu01ProviderEndpointValidation,

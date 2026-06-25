@@ -1,0 +1,50 @@
+id: p1-prose-execution-brief
+title: 场级执行简述进入正文生成链路（VS-00E CP1）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-prose-execution-brief --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - I3-nonce-propagation
+  - tentative-artifact-not-production
+
+setup:
+  seed: scripts/seed_p1_prose_execution_brief.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline (大纲与结构)
+  - click: 生成正文草稿 for chapter 02 (carries structured plan_direction)
+  - wait_for: tentative prose draft visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-prose-execution-brief-tauri
+
+assertions:
+  ui:
+    - chapter 2 draft action visible
+    - tentative prose draft visible (not adopted)
+  network:
+    - user_message sent with generate_micro_plan
+    - prose_writing prose_fragment turn_result received
+  data:
+    - structured chapter direction read (context.structure.done has_plan_direction=true)
+    - prose_execution_brief.built emitted, degraded=false, stable brief_ref, scene_unit_count>=1
+    - execution brief not written as production fact (draft stays tentative, brief absent from draft body)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -72,6 +72,7 @@ export const nativeSliceIds = [
   "au05-discard-author-action",
   "p1-chapter-plan-minimum",
   "p1-chapter-draft-generation",
+  "p1-prose-execution-brief",
   "p1-chapter-adoption-reading",
   "p1-word-count-audit",
   "p1-chapter-edit-then-accept",
@@ -275,6 +276,20 @@ const sliceKeyEvents = {
     "toolbox.execute.done",
     "channel.user_message.done",
     "channel.get_toc.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-prose-execution-brief": [
+    "work_session.resume.done",
+    "channel.join.done",
+    "channel.user_message.start",
+    "context.assemble.done",
+    "context.structure.done",
+    "planner.form_frame.done",
+    "planner.form_micro_plan.done",
+    "creative_decision_packet.built.done",
+    "prose_execution_brief.built.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-adoption-reading": [
@@ -1460,6 +1475,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findVs00cCp3StructuredContextEvidence(records);
   }
 
+  if (sliceId === "p1-prose-execution-brief") {
+    return findP1ProseExecutionBriefEvidence(records);
+  }
+
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
     return findVs00cCp4ChapterPlanStructureEvidence(records);
   }
@@ -2001,6 +2020,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "p1-prose-execution-brief") {
+    return p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
     return vs00cCp4ChapterPlanStructureBehavior(turnIds, turnRecords, records, evidence, options);
   }
@@ -2291,6 +2314,85 @@ function findVs00cCp3StructuredContextEvidence(records) {
   };
 }
 
+function findP1ProseExecutionBriefEvidence(records) {
+  const sliceId = "p1-prose-execution-brief";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const targetChapterTitle = "第02章：旧服务器里的残诀";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.draft_generated === true &&
+      record.draft_pending === true &&
+      record.execution_brief_built === true &&
+      record.execution_brief_degraded === false &&
+      typeof record.execution_brief_ref === "string" &&
+      record.execution_brief_ref.startsWith("brief:") &&
+      record.brief_in_draft_body === false &&
+      record.adopt_event_sent === false &&
+      record.chapter_title === targetChapterTitle,
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.turn_id ?? "");
+  if (!draftTurnId) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+
+  const start = draftRecords.find(
+    (record) =>
+      record.event === "channel.user_message.start" &&
+      record.generate_micro_plan === true &&
+      String(uiState.user_message_text ?? "").includes(targetChapterTitle) &&
+      String(uiState.user_message_text ?? "").includes("正文草稿"),
+  );
+  if (!start) return null;
+
+  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+
+  const structure = draftRecords.find(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.target_chapter === targetChapterTitle &&
+      record.has_plan_direction === true,
+  );
+  if (!structure) return null;
+
+  const briefBuilt = draftRecords.find(
+    (record) =>
+      record.event === "prose_execution_brief.built.done" &&
+      record.degraded === false &&
+      typeof record.brief_ref === "string" &&
+      record.brief_ref.startsWith("brief:") &&
+      Number(record.scene_unit_count ?? 0) >= 1,
+  );
+  if (!briefBuilt) return null;
+
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+
+  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    artifact_type: "prose_fragment",
+    chapter_title: targetChapterTitle,
+    brief_ref: briefBuilt.brief_ref,
+    scene_unit_count: Number(briefBuilt.scene_unit_count ?? 0),
+    has_plan_direction: structure.has_plan_direction,
+    key_events: keyEvents,
+  };
+}
+
 function vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 1) return null;
   if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
@@ -2351,6 +2453,73 @@ function vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, eviden
       "previous_and_next_chapter_position_available",
       "prose_writing_generated_pending_draft_without_adoption",
       "adopted_plan_remained_toc_source_before_prose_adoption",
+      options.provider === "lmstudio"
+        ? "lmstudio_form_frame_and_micro_plan_called"
+        : "deterministic_provider_form_frame_and_micro_plan_called",
+    ],
+  };
+}
+
+function p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.structure.done")) return null;
+  if (
+    !turnsHaveEvent([evidence.draft_turn_id], turnRecords, "prose_execution_brief.built.done")
+  ) {
+    return null;
+  }
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+  if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
+  if (!lmstudioHasSteps(options, [evidence.draft_turn_id], ["form_frame", "form_micro_plan"])) {
+    return null;
+  }
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-prose-execution-brief" &&
+      record.turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.adopt_event_sent !== false) return null;
+  if (uiState.execution_brief_degraded !== false) return null;
+  if (uiState.brief_in_draft_body !== false) return null;
+
+  const briefBuilt = turnRecords.find(
+    (record) =>
+      record.event === "prose_execution_brief.built.done" &&
+      record.degraded === false &&
+      typeof record.brief_ref === "string" &&
+      record.brief_ref.startsWith("brief:"),
+  );
+  if (!briefBuilt) return null;
+
+  const structure = turnRecords.find(
+    (record) =>
+      record.event === "context.structure.done" &&
+      record.target_chapter === evidence.chapter_title &&
+      record.has_plan_direction === true,
+  );
+  if (!structure) return null;
+
+  return {
+    slice_id: "p1-prose-execution-brief",
+    behavior: "chapter_direction_projected_into_scene_execution_brief_for_prose_writing",
+    turn_ids: turnIds,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    brief_ref: briefBuilt.brief_ref,
+    scene_unit_count: Number(briefBuilt.scene_unit_count ?? 0),
+    assertions: [
+      "real_archive_outline_chapter_2_draft_action_clicked",
+      "micro_plan_requested_from_real_workbench",
+      "structured_chapter_direction_read_has_plan_direction",
+      "scene_execution_brief_built_non_degraded_with_stable_ref",
+      "execution_brief_entered_prose_request_and_trace",
+      "execution_brief_not_written_as_production_fact",
+      "prose_writing_generated_pending_draft_without_adoption",
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_and_micro_plan_called"
         : "deterministic_provider_form_frame_and_micro_plan_called",

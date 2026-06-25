@@ -160,6 +160,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/p1-chapter-draft-generation.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh p1-chapter-draft-generation --surface tauri
+  - id: p1-prose-execution-brief
+    title: "场级执行简述进入正文生成链路（VS-00E CP1）"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-prose-execution-brief.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-prose-execution-brief --surface tauri
   - id: p1-chapter-adoption-reading
     title: "已采纳章节正文进入阅读投影"
     tier: nightly
