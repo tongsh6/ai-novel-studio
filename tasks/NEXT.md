@@ -1,12 +1,24 @@
 # NEXT / 当前推进队列
 
-> 最后更新：2026-06-23
+> 最后更新：2026-06-25
 >
 > 角色：本文件是 AI 和人类维护者选择下一项工作的唯一入口。台账记录事实，acceptance 记录验收口径，用户旅行图记录连续体验；本文件把它们压缩成当前可执行队列。
 
 ---
 
 ## 1. Current Focus
+
+**VS-00E 正文场级执行简述与质量闭环（CP0–CP3，逐 checkpoint 交付）**
+
+2026-06-25 启动 VS-00E：补齐「章级方向 → 场级执行简述(ProseExecutionBriefV1) → 正文生成 → 独立质量评估(ProseQualityService/QualityFinding) → 修订候选(revise_from_findings) → 作者采纳」主链。沿现有体系补齐，不新建平行叙事动力架构。
+
+- **CP0 已完成（本次）**：契约冻结 `docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md` + `docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md`；新增 `quality_gate.style_fit`（quality/31 §6.11）；建立确定性质量基线 fixture `quality/acceptance/fixtures/prose-quality/`。**仅设计冻结，未实现运行时代码。**
+- **CP1（下一队首）**：`ProseExecutionBriefV1` 成为运行时对象（domain + `ProseExecutionBriefBuilder` + `CreativeDecisionPacketBuilder`），扩展 `CreativeRequest` 进入 provider message，trace 记 brief_ref；acceptance `p1-prose-execution-brief`。不破坏三锚点。
+- **CP2**：独立 `ProseQualityService` + writer/evaluator 分离 + 确定性/语义 validator + `ProseQualityPolicy`；evaluator 失败诚实降级；acceptance `p1-prose-quality-finding-roundtrip` / `p1-prose-quality-evaluator-degrade`。
+- **CP3**：`revise_from_findings` 产 sibling tentative revision，原稿保留、独立采纳；前端 finding 展示 + 重写动作；acceptance `p1-prose-revision-candidate` / `p1-prose-quality-adoption-boundary`。
+- 不变量见 VS-00E §12 / ADR-0020 I1–I10。真实文学收益须人工盲评（I10），fixture 不得冒充。
+
+历史 focus（保留，不作为本轮优先级来源）：
 
 **用户反馈产品问题队列：角色类型、角色候选采纳、作品档案并发读取、记忆治理、记忆 UX、供应商矩阵**
 

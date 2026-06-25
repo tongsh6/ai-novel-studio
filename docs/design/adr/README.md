@@ -271,6 +271,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0017 | `ADR-0017-replay-report-v3.md` | Accepted | ReplayReport v3 | `06`, `00c`, `contracts/VS-06-replay-surface-contract-pack.md` | replay explanation slice |
 | ADR-0018 | `ADR-0018-business-log-schema-v3.md` | Accepted | 业务日志 Schema v3 | `06`, `engineering/quality-gates.md`, 既有 `llm_log.ex` / `trace_repository.ex` | VS-10 Observability Spine |
 | ADR-0019 | `ADR-0019-adoption-status-transition-v3.md` | Accepted | Adoption Status 转换矩阵 v3 | `foundation/30 §3.2.1`, `domain/22`, ADR-0001/0002/0010 | adoption 状态流转 enforcement slice |
+| ADR-0020 | `ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md` | Accepted | Prose Quality Finding 与 Revision Candidate 边界 v3 | `contracts/VS-00E`, `quality/31`, ADR-0010/0012/0017 | VS-00E CP1–CP3 prose 执行与质量闭环 slice |
 
 ---
 

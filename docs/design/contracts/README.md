@@ -13,6 +13,7 @@
 | `VS-00B-dialogue-context-grounding-contract-pack.md` | 带作品上下文回应（DialogueContext 最小来源） |
 | `VS-00C-creative-context-assembly-contract-pack.md` | 创作上下文组装（分层 / 预算 profile / 省略可解释；上游 `../08-novel-element-model.md`） |
 | `VS-00D-ai-guided-authoring-contract-pack.md` | AI 引导式创作三层 + Message 契约 |
+| `VS-00E-prose-execution-quality-contract-pack.md` | 正文场级执行简述 + 独立质量评估 + 修订候选（ProseExecutionBriefV1 / QualityFinding / revise_from_findings；ADR-0020；CP0–CP3） |
 | `VS-01-execution-authority-contract-pack.md` | 执行权与降级确认 |
 | `VS-02-tool-provenance-contract-pack.md` | 工具调用溯源（ToolRequest/Result/Trace） |
 | `VS-02A-tentative-creative-artifact-contract-pack.md` | 试探性创作产物 |

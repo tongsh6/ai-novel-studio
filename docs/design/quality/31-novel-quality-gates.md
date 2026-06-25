@@ -313,6 +313,22 @@ v2 小说层默认至少保留以下质量门。
 - 关键商业节点偏弱：`ADOPTION_REVIEW`
 - 与作者定位冲突：`CONFIRM`
 
+### 6.11 风格与句式检查
+
+`quality_gate.style_fit`
+
+目标（承载 VS-00E `validator.prose_pattern_repetition` / `validator.emotion_expression_balance` 等正文风格类 validator；§7.1 已引用该门）：
+
+- 检查行文是否模板化：连续句首重复、句式重复、段落长度过度均匀、高频身体反应模板、高频 AI 套话、短距离重复短语
+- 检查情绪表达是否失衡：关键情绪被直接声明而非戏剧化（show/tell 平衡——仅关键转折/关键选择要求戏剧化，过渡与非关键状态允许概述）
+- 检查正文实际读者效果是否偏离 `ReaderEffectBrief` / `ProseExecutionBriefV1`
+
+默认动作：
+
+- 文学类问题以 `WARN` / `ADOPTION_REVIEW` 为主，**默认不硬阻断作者采纳**（ADR-0020 I7）
+- 确定性句式/模板命中：`WARN`
+- 不得仅凭关键字命中直接判定语义质量失败
+
 ---
 
 ## 7. 阶段默认门禁

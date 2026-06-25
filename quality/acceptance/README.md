@@ -21,6 +21,7 @@ bash scripts/quality_accept.sh --tier nightly --surface tauri
 - `evidence-schema.json` 描述证据字段。
 - `tiers.md` 描述 PR / nightly / release 分层。
 - `known-gaps.md` 登记当前不可作为 gate 执行的 blocked 场景。
+- `fixtures/prose-quality/` 是 VS-00E 质量基线坏样本（CP0 建立），供 CP2 validator / acceptance 对照固定输入衡量质量；见该目录 `README.md`。
 
 ## Anti Hooks
 

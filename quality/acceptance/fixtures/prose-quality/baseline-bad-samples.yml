@@ -1,0 +1,143 @@
+# VS-00E 质量基线坏样本（CP0）
+#
+# 每条：固定的坏正文 + 它违反什么 + 预期触发的 validator / quality_gate / severity。
+# 确定性样本（det=true）由非 LLM validator 直接命中；语义样本（det=false）由独立
+# evaluator 判定，CP2 在测试中用 stub 注入预期 finding，不依赖真实云端模型。
+#
+# 这些样本不是作品事实。真实文学收益由人工盲评验证（ADR-0020 I10）。
+
+version: prose_quality_baseline_v1
+
+samples:
+  - id: bad_emotion_declared
+    violation: 直接声明情绪而非戏剧化
+    target_validator: validator.emotion_expression_balance
+    quality_gate: quality_gate.style_fit
+    expected_severity: warn
+    det: false
+    scene_mode: reaction
+    stage: 首次成稿
+    prose: |
+      他感到非常愤怒。他也感到很悲伤，同时还有一点点害怕。
+      她感到很幸福。两个人都觉得这一刻非常感人。
+
+  - id: bad_emotion_no_trigger
+    violation: 情绪突变缺少触发事件
+    target_validator: validator.emotional_transition
+    quality_gate: quality_gate.pacing
+    expected_severity: warn
+    det: false
+    scene_mode: relationship
+    stage: 首次成稿
+    prose: |
+      他们正平静地喝着茶，聊着今天的天气。
+      突然他暴怒起来，掀翻了桌子，转身夺门而出。茶还温着。
+
+  - id: bad_uniform_paragraphs
+    violation: 所有段落结构与长度高度雷同
+    target_validator: validator.prose_pattern_repetition
+    quality_gate: quality_gate.style_fit
+    expected_severity: warn
+    det: true
+    scene_mode: transition
+    stage: 首次成稿
+    prose: |
+      他走进房间，看了看四周，坐了下来。
+      他拿起书本，翻了翻几页，放了下来。
+      他望向窗外，看了看天色，叹了口气。
+      他端起茶杯，喝了一小口，搁了回去。
+
+  - id: bad_dialogue_exposition
+    violation: 对话只是互相解释设定，无潜台词无冲突
+    target_validator: validator.dialogue_intent_fit
+    quality_gate: quality_gate.character_logic
+    expected_severity: warn
+    det: false
+    scene_mode: relationship
+    stage: 首次成稿
+    prose: |
+      “正如你所知，我们的宗门三百年前由开山祖师创立。”
+      “是的，而且我们宗门的核心功法是《玄天诀》，分为九重。”
+      “没错，你现在是第三重，需要灵石才能突破到第四重。”
+      “我明白了，谢谢你向我解释这些我本来就知道的事。”
+
+  - id: bad_protagonist_no_agency
+    violation: 主角没有目标，只被剧情推动
+    target_validator: validator.character_agency
+    quality_gate: quality_gate.character_logic
+    expected_severity: adoption_review
+    det: false
+    scene_mode: action
+    stage: 首次成稿
+    prose: |
+      命运的安排让他被卷入了这场纷争。
+      他被人群推着向前走，被带到了长老面前，又被告知必须参加比试。
+      他什么也没想，也没做任何选择，事情就这样发生了。
+
+  - id: bad_no_scene_change
+    violation: 场景结束后目标/关系/局势均无变化
+    target_validator: validator.scene_change
+    quality_gate: quality_gate.payoff_validity
+    expected_severity: adoption_review
+    det: false
+    scene_mode: relationship
+    stage: 首次成稿
+    prose: |
+      他们见了面，寒暄了几句，谁也没说真正想说的话。
+      告别时，关系没有变近也没有变远，谁都没有得到新信息，
+      谁的目标都没有推进。一切和见面前完全一样。
+
+  - id: bad_turn_no_consequence
+    violation: 转折发生但没有任何后果
+    target_validator: validator.setup_turn_consequence
+    quality_gate: quality_gate.payoff_validity
+    expected_severity: warn
+    det: false
+    scene_mode: revelation
+    stage: 首次成稿
+    prose: |
+      就在此时，她终于揭开了那个惊天秘密：师父其实是仇人之子。
+      然后众人点了点头，继续吃饭。第二天，没有人再提起这件事，
+      也没有任何人因此改变任何决定。
+
+  - id: bad_body_reaction_template
+    violation: 身体反应模板高频重复
+    target_validator: validator.prose_pattern_repetition
+    quality_gate: quality_gate.style_fit
+    expected_severity: warn
+    det: true
+    scene_mode: action
+    stage: 续写
+    prose: |
+      他的心脏猛地一跳。她的心脏也猛地一跳。
+      他的瞳孔骤然收缩。她的瞳孔也骤然收缩。
+      他的拳头不自觉握紧。她的拳头也不自觉握紧。
+      他的后背渗出一层冷汗。她的后背也渗出一层冷汗。
+
+  - id: bad_brief_misalignment
+    violation: 正文实际读者效果明显偏离 ReaderEffectBrief / 执行简述
+    target_validator: validator.brief_alignment
+    quality_gate: quality_gate.pacing
+    expected_severity: adoption_review
+    det: false
+    scene_mode: revelation
+    stage: 重写
+    # 设定：brief 要求「克制的悬疑、信息只露一半、结尾留钩」；正文却一次说尽且轻松收尾
+    prose: |
+      他笑着把所有谜底一口气全说了出来：凶手是谁、动机是什么、
+      接下来会发生什么，一个不留。大家哈哈大笑，皆大欢喜，
+      再无任何悬念，故事就此圆满结束。
+
+  - id: bad_knowledge_boundary
+    violation: 角色得知其认知范围外的信息（认知越界）
+    target_validator: validator.character_knowledge_boundary
+    quality_gate: quality_gate.knowledge_boundary
+    expected_severity: block
+    det: false
+    scene_mode: revelation
+    stage: 续写
+    # 设定：主角从未参与过密室对话，作品事实中无任何途径得知其内容
+    prose: |
+      尽管从头到尾都不在场，主角却准确说出了反派在密室里
+      对心腹低声交代的每一个字，仿佛亲耳听见。他还知道了
+      只有反派本人才掌握的暗号。
