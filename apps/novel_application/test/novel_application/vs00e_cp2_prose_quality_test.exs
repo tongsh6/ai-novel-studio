@@ -34,7 +34,44 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     assert body == @bad_prose
   end
 
-  defp run do
+  test "semantic evaluator findings merge into quality_review (writer/evaluator separated)" do
+    semantic = fn _prompt ->
+      {:ok,
+       %{
+         content:
+           Jason.encode!(%{
+             "findings" => [
+               %{
+                 "quality_gate_ref" => "quality_gate.character_logic",
+                 "validator_ref" => "validator.character_agency",
+                 "severity" => "warn",
+                 "action" => "adoption_review",
+                 "summary" => "主角缺乏目标"
+               }
+             ]
+           })
+       }}
+    end
+
+    {turn_result, _} = run(semantic)
+    review = turn_result.quality_review
+    assert review.review_status == "completed"
+    assert review.policy_action == "adoption_review"
+    refs = Enum.map(review.findings, & &1["validator"])
+    assert "validator.character_agency" in refs
+    assert "validator.prose_pattern_repetition" in refs
+  end
+
+  test "evaluator failure → quality_review unavailable, never faked pass" do
+    failing = fn _prompt -> {:error, :timeout} end
+    {turn_result, _} = run(failing)
+    review = turn_result.quality_review
+    assert review.review_status == "unavailable"
+    assert review.policy_action == "quality_review_unavailable"
+    assert review.status == "unavailable"
+  end
+
+  defp run(quality_complete_fn \\ nil) do
     complete = fn _prompt ->
       {:ok,
        %{
@@ -53,7 +90,8 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        complete_fn: complete
+        complete_fn: complete,
+        quality_complete_fn: quality_complete_fn
       })
 
     {turn_result, nil}

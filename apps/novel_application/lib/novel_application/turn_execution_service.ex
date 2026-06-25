@@ -9,6 +9,7 @@ defmodule NovelApplication.TurnExecutionService do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelAgent.ProseQualityEvaluator
   alias NovelAgent.Toolbox
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
@@ -19,6 +20,8 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.ProseQualityService
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
+  alias NovelCommon.Contracts.QualityEvaluationRequest
+  alias NovelCommon.Contracts.QualityEvaluationResult
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.ChapterPlanDirection
@@ -152,7 +155,14 @@ defmodule NovelApplication.TurnExecutionService do
 
     # VS-00E CP2：正文生成后运行独立质量评估（与 writer 逻辑分离），产出 QualityFinding +
     # 策略。只读，不改 artifact / 作品事实；evaluator 失败诚实降级为 quality_review_unavailable。
-    quality = run_prose_quality(frame, action, tool_result)
+    quality =
+      run_prose_quality(
+        frame,
+        action,
+        tool_result,
+        input[:quality_complete_fn],
+        render_execution_brief(brief_result)
+      )
 
     {trace, trace_summary} =
       TraceWriter.record_with_tool(
@@ -743,7 +753,13 @@ defmodule NovelApplication.TurnExecutionService do
 
   # 仅 prose_writing 成功路径评估。CP2 当前接入确定性 validator（无 semantic_fn，
   # review_status=completed）；语义 evaluator 作为可注入 semantic_fn 在后续接 Gateway。
-  defp run_prose_quality(frame, action, %ToolResult{status: :succeeded} = tool_result) do
+  defp run_prose_quality(
+         frame,
+         action,
+         %ToolResult{status: :succeeded} = tool_result,
+         quality_complete_fn,
+         brief_text
+       ) do
     if prose_writing_action?(action) do
       ctx = %{
         source_ref: List.first(tool_result.artifact_refs || []),
@@ -751,13 +767,39 @@ defmodule NovelApplication.TurnExecutionService do
         source_type: :prose_fragment
       }
 
-      result = ProseQualityService.evaluate(prose_body(tool_result), ctx)
+      opts = semantic_opts(quality_complete_fn, frame, brief_text)
+      result = ProseQualityService.evaluate(prose_body(tool_result), ctx, opts)
       emit_quality(frame, result)
       result
     end
   end
 
-  defp run_prose_quality(_frame, _action, _tool_result), do: nil
+  defp run_prose_quality(_frame, _action, _tool_result, _quality_complete_fn, _brief_text), do: nil
+
+  # 独立 evaluator 通过单独的 quality_complete_fn 调用（与 writer 的 complete_fn 分离的
+  # provider 调用 + 独立 prompt）。未注入时为确定性评估。
+  defp semantic_opts(quality_complete_fn, frame, brief_text)
+       when is_function(quality_complete_fn, 1) do
+    semantic_fn = fn text, ctx ->
+      request = %QualityEvaluationRequest{
+        request_id: "qer_#{frame.turn_id}",
+        source_turn_ref: frame.turn_id,
+        source_ref: Map.get(ctx, :source_ref),
+        source_type: :prose_fragment,
+        prose_text: text,
+        execution_brief: brief_text
+      }
+
+      case ProseQualityEvaluator.evaluate(request, quality_complete_fn) do
+        %QualityEvaluationResult{status: :ok, findings: findings} -> {:ok, findings}
+        %QualityEvaluationResult{status: :error, error: error} -> {:error, error}
+      end
+    end
+
+    [semantic_fn: semantic_fn]
+  end
+
+  defp semantic_opts(_quality_complete_fn, _frame, _brief_text), do: []
 
   defp prose_body(%ToolResult{output: %{items: [item | _]}}) when is_map(item) do
     clean_text(Map.get(item, :body) || Map.get(item, "body"))
