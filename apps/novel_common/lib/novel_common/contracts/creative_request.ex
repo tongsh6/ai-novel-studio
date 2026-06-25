@@ -14,6 +14,8 @@ defmodule NovelCommon.Contracts.CreativeRequest do
           creative_brief: String.t(),
           context_text: String.t(),
           source_turn_ref: String.t(),
+          decision_packet: map() | nil,
+          execution_brief: String.t() | nil,
           provider_hints: map()
         }
 
@@ -25,6 +27,11 @@ defmodule NovelCommon.Contracts.CreativeRequest do
     :creative_brief,
     :source_turn_ref,
     context_text: "",
+    # VS-00E：execution_brief 为已渲染的场级执行简述文本（进 provider message），
+    # decision_packet 为决策包摘要（trace 用）。默认 nil，向后兼容现有 provider /
+    # stub / slice_verify 与「用户创作简述：/上下文：/重要：」三锚点解析。
+    decision_packet: nil,
+    execution_brief: nil,
     provider_hints: %{}
   ]
 end

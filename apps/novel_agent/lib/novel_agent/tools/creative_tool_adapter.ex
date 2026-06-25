@@ -43,9 +43,18 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       creative_brief: Map.get(req.input, "creative_brief") || Map.get(req.input, "text", ""),
       context_text: Map.get(req.input, "context_text", ""),
       source_turn_ref: req.turn_id,
+      # VS-00E：application 把已渲染的场级执行简述文本放入 input["execution_brief"]，
+      # 透传给 provider；缺省 nil 时 provider message 不变（兼容三锚点）。
+      execution_brief: optional_text(Map.get(req.input, "execution_brief")),
       provider_hints: Map.get(req.input, "provider_hints", %{})
     }
   end
+
+  defp optional_text(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
+  end
+
+  defp optional_text(_value), do: nil
 
   defp succeeded_tool_result(req, result_id, now, artifact_type, items, self_report) do
     %ToolResult{

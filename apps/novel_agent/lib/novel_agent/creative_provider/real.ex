@@ -130,7 +130,7 @@ defmodule NovelAgent.CreativeProvider.Real do
     上下文：#{request.context_text}
 
     重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在该条目的 body 或 rationale 中原样保留至少一处。
-
+    #{execution_brief_section(request)}
     #{@prose_writing_guidelines}
     只返回 JSON 对象。
     """
@@ -277,6 +277,15 @@ defmodule NovelAgent.CreativeProvider.Real do
     只返回 JSON 数组。
     """
   end
+
+  # VS-00E：场级执行简述（已由 application 渲染成文本）追加在 prose 三锚点之后，
+  # 不污染 stub/slice_verify 的「用户创作简述：/上下文：/重要：」捕获。缺省为空。
+  defp execution_brief_section(%CreativeRequest{execution_brief: brief})
+       when is_binary(brief) and brief != "" do
+    "\n#{brief}\n"
+  end
+
+  defp execution_brief_section(_request), do: ""
 
   defp world_building_guidance(type) when type in [:foreshadowing_seed, "foreshadowing_seed"] do
     %{
