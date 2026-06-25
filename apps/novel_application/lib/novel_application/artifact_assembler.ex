@@ -31,6 +31,9 @@ defmodule NovelApplication.ArtifactAssembler do
          source_tool_result_ref: tool_result.tool_result_id,
          authoring_intent: normalize_authoring_intent(Map.get(provenance, :authoring_intent)),
          target_chapter: normalize_target_chapter(Map.get(provenance, :target_chapter)),
+         revision_base: normalize_target_chapter(Map.get(provenance, :revision_base)),
+         revision_reason: normalize_target_chapter(Map.get(provenance, :revision_reason)),
+         quality_finding_refs: normalize_refs(Map.get(provenance, :quality_finding_refs)),
          adoption_status: :tentative
        }}
     end
@@ -59,4 +62,12 @@ defmodule NovelApplication.ArtifactAssembler do
   end
 
   defp normalize_target_chapter(_), do: nil
+
+  defp normalize_refs(list) when is_list(list) do
+    list
+    |> Enum.map(&normalize_target_chapter/1)
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp normalize_refs(_), do: []
 end

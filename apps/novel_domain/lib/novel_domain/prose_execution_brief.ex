@@ -101,7 +101,7 @@ defmodule NovelDomain.ProseExecutionBrief do
   def to_prompt_section(%__MODULE__{} = brief) do
     header = "## 场级执行简述（写前执行结构，按场推进）"
     chapter_line = chapter_context_line(brief.chapter_context)
-    scenes = brief.scene_units |> Enum.map(&scene_unit_lines/1) |> Enum.join("\n")
+    scenes = Enum.map_join(brief.scene_units, "\n", &scene_unit_lines/1)
 
     [header, chapter_line, scenes]
     |> Enum.reject(&blank?/1)
@@ -213,12 +213,10 @@ defmodule NovelDomain.ProseExecutionBrief do
 
   defp agendas_line(list) when is_list(list) and list != [] do
     text =
-      list
-      |> Enum.map(fn a ->
+      Enum.map_join(list, "，", fn a ->
         a = to_string_keyed_map(a)
         "#{a["character_ref"]}（要：#{a["wants"]}；藏：#{a["hides"]}）"
       end)
-      |> Enum.join("，")
 
     sub("人物议程", text)
   end

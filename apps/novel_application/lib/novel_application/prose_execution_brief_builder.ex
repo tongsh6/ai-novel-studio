@@ -32,7 +32,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
     {scene_units, degraded?, source} =
       scene_units(direction, chapter, author_input)
 
-    source = source ++ if(not is_nil(reader_effect), do: ["reader_effect_brief"], else: [])
+    source = source ++ if(is_nil(reader_effect), do: [], else: ["reader_effect_brief"])
 
     brief =
       ProseExecutionBrief.new(%{
@@ -100,7 +100,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
   defp chapter_context(direction, reader_effect) do
     %{
       "chapter_role" => direction_role(direction),
-      "reader_effect_ref" => if(not is_nil(reader_effect), do: "reader_effect_brief", else: nil)
+      "reader_effect_ref" => if(is_nil(reader_effect), do: nil, else: "reader_effect_brief")
     }
     |> drop_blank()
   end

@@ -30,6 +30,9 @@ defmodule NovelDomain.TentativeArtifactSet do
   # 以及归属哪一章。采纳层据此映射 append/overwrite + 归章；nil 表示非章节续写/重写。
   @type authoring_intent :: :continuation | :rewrite | nil
 
+  # VS-00E CP3：修订候选 provenance（不是采纳决策）。当这批草稿是“针对质量发现重写某个
+  # tentative 草稿”而生成时记录：被修订的原草稿、修订原因、所针对的质量发现引用。原草稿保留、
+  # 修订草稿同样是 tentative、不自动采纳（ADR-0020）。非修订路径全部为 nil/[]。
   @type t :: %__MODULE__{
           artifact_set_id: String.t(),
           artifact_type: artifact_type(),
@@ -39,6 +42,9 @@ defmodule NovelDomain.TentativeArtifactSet do
           context_refs: [String.t()],
           authoring_intent: authoring_intent(),
           target_chapter: String.t() | nil,
+          revision_base: String.t() | nil,
+          revision_reason: String.t() | nil,
+          quality_finding_refs: [String.t()],
           adoption_status: :tentative
         }
 
@@ -52,6 +58,9 @@ defmodule NovelDomain.TentativeArtifactSet do
     context_refs: [],
     authoring_intent: nil,
     target_chapter: nil,
+    revision_base: nil,
+    revision_reason: nil,
+    quality_finding_refs: [],
     adoption_status: :tentative
   ]
 
@@ -59,6 +68,11 @@ defmodule NovelDomain.TentativeArtifactSet do
   @spec tentative?(t()) :: boolean()
   def tentative?(%__MODULE__{adoption_status: :tentative}), do: true
   def tentative?(_), do: false
+
+  @doc "Whether this artifact set was generated as a quality-finding revision of an earlier draft."
+  @spec revision?(t()) :: boolean()
+  def revision?(%__MODULE__{revision_base: base}) when is_binary(base) and base != "", do: true
+  def revision?(_), do: false
 
   @typedoc """
   可独立采纳的单元：把候选集分解成作者能逐项授权的最小采纳目标。

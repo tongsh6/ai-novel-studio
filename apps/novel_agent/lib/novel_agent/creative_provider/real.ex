@@ -131,6 +131,7 @@ defmodule NovelAgent.CreativeProvider.Real do
 
     重要：如果用户创作简述中出现任意随机标识符串（字母数字组合），必须在该条目的 body 或 rationale 中原样保留至少一处。
     #{execution_brief_section(request)}
+    #{revision_section(request)}
     #{@prose_writing_guidelines}
     只返回 JSON 对象。
     """
@@ -286,6 +287,15 @@ defmodule NovelAgent.CreativeProvider.Real do
   end
 
   defp execution_brief_section(_request), do: ""
+
+  # VS-00E CP3：按质量发现重写要求（已由 application 渲染成文本）追加在 prose 三锚点 +
+  # execution_brief 之后，不污染锚点捕获。仅 revise_from_findings 路径非空，缺省为空。
+  defp revision_section(%CreativeRequest{revision: revision})
+       when is_binary(revision) and revision != "" do
+    "\n#{revision}\n"
+  end
+
+  defp revision_section(_request), do: ""
 
   defp world_building_guidance(type) when type in [:foreshadowing_seed, "foreshadowing_seed"] do
     %{

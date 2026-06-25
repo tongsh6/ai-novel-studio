@@ -182,22 +182,82 @@ defmodule NovelApplication.TurnResultBuilder do
       resolved: []
     }
 
-    candidate_set_card = %{
-      card_type: "candidate_set",
-      priority: "high",
-      visibility: "always",
-      title: artifact_payload_title(as),
-      body: artifact_card_body(as),
-      artifact_refs: [as.artifact_set_id],
-      candidate_set_ref: as.artifact_set_id,
-      artifact_type: as.artifact_type,
-      items: as.items,
-      tentative: true
-    }
+    candidate_set_card =
+      %{
+        card_type: "candidate_set",
+        priority: "high",
+        visibility: "always",
+        title: artifact_card_title(as),
+        body: artifact_card_body(as),
+        artifact_refs: [as.artifact_set_id],
+        candidate_set_ref: as.artifact_set_id,
+        artifact_type: as.artifact_type,
+        items: as.items,
+        tentative: true
+      }
+      |> maybe_put_revision_provenance(as)
 
     r
     |> Map.put(:adoption_state, adoption_state)
     |> Map.update(:ui_cards, [candidate_set_card], fn cards -> cards ++ [candidate_set_card] end)
+  end
+
+  @doc """
+  VS-00E CP3：为“按质量发现重写”产出的修订草稿构建 TurnResult。
+
+  修订草稿与普通待采纳草稿走同一套采纳卡 + available_actions（accept/discard/edit），
+  作者照常逐项采纳；同时携带 revision provenance 供前端标注“这是针对质量问题的修订草稿”，
+  并明确原草稿保留、未写入作品事实（ADR-0020）。
+  """
+  @spec revision_turn_result(String.t(), TentativeArtifactSet.t(), keyword()) :: map()
+  def revision_turn_result(parent_turn_ref, %TentativeArtifactSet{} = artifact_set, opts \\ []) do
+    turn_id = artifact_set.source_turn_ref
+
+    base = %{
+      schema_version: "3.0-draft",
+      turn_id: turn_id,
+      parent_turn_id: parent_turn_ref,
+      frame_ref: "frame_#{turn_id}",
+      assistant_message: %{
+        text:
+          opts[:message] ||
+            "已根据所选质量问题生成修订草稿，供你对比后再决定是否采纳；原草稿保留，未写入作品事实。"
+      },
+      ui_cards: [],
+      frame_summary: %{frame_type: :revision, dialogue_goal: "根据质量发现生成修订草稿"},
+      trace_summary: opts[:trace_summary] || %{},
+      phase: "completed",
+      status: "conversational",
+      available_actions: AvailableActionBuilder.artifact_actions(artifact_set),
+      truthfulness: %{
+        tool_called: true,
+        tool_status: :succeeded,
+        tool_name: "prose_writing",
+        artifact_adopted: false,
+        production_write_performed: false,
+        durable_behavior_opened: false
+      }
+    }
+
+    maybe_add_artifacts(base, artifact_set)
+  end
+
+  defp artifact_card_title(%TentativeArtifactSet{} = as) do
+    if TentativeArtifactSet.revision?(as),
+      do: "修订草稿：#{artifact_payload_title(as)}",
+      else: artifact_payload_title(as)
+  end
+
+  defp maybe_put_revision_provenance(card, %TentativeArtifactSet{} = as) do
+    if TentativeArtifactSet.revision?(as) do
+      Map.merge(card, %{
+        revision_of: as.revision_base,
+        revision_reason: as.revision_reason,
+        quality_finding_refs: as.quality_finding_refs
+      })
+    else
+      card
+    end
   end
 
   defp unit_pending_entry(%TentativeArtifactSet{} = as, unit) do

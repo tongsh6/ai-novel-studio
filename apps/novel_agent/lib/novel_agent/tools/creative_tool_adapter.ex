@@ -46,6 +46,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
       # VS-00E：application 把已渲染的场级执行简述文本放入 input["execution_brief"]，
       # 透传给 provider；缺省 nil 时 provider message 不变（兼容三锚点）。
       execution_brief: optional_text(Map.get(req.input, "execution_brief")),
+      # VS-00E CP3：按质量发现重写的要求文本放入 input["revision"]，同样透传给 provider。
+      revision: optional_text(Map.get(req.input, "revision")),
       provider_hints: Map.get(req.input, "provider_hints", %{})
     }
   end

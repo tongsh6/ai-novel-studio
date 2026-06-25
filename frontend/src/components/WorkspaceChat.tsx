@@ -170,6 +170,7 @@ export interface QualityReview {
 
 export interface AvailableAction extends AvailableActionLike {
   target_ref?: string;
+  quality_finding_refs?: string[];
 }
 
 export type CandidateDirection = CandidateDirectionContract;
@@ -1104,6 +1105,18 @@ export function WorkspaceChat() {
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
     }
+  };
+
+  // VS-00E CP3：按质量发现重写——从本轮 available_actions 取出 revise_from_findings 动作，
+  // 携带要处理的发现引用提交。后端会另生成一份 tentative 修订草稿（原草稿保留、不自动采纳）。
+  const handleReviseFromFindings = async (turnResult: TurnResult) => {
+    const action = (turnResult.available_actions ?? []).find(
+      (candidate) => candidate.action_type === "revise_from_findings",
+    );
+    if (!action) return;
+    await handleAvailableAction(turnResult, action, {
+      quality_finding_refs: action.quality_finding_refs ?? [],
+    });
   };
 
   // 从待采纳 artifact 取出可编辑的正文（payload.content 优先，否则拼接 items 正文）。
@@ -2621,7 +2634,19 @@ export function WorkspaceChat() {
                   })}
 
                 {!isReadOnlySessionView && msg.turnResult?.quality_review && (
-                  <QualityReviewCard review={msg.turnResult.quality_review} />
+                  <QualityReviewCard
+                    review={msg.turnResult.quality_review}
+                    onRevise={
+                      (msg.turnResult.available_actions ?? []).some(
+                        (action) => action.action_type === "revise_from_findings",
+                      )
+                        ? () => {
+                            void handleReviseFromFindings(msg.turnResult!);
+                          }
+                        : undefined
+                    }
+                    revising={loading}
+                  />
                 )}
 
                 {!isReadOnlySessionView &&

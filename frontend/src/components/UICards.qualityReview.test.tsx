@@ -77,4 +77,29 @@ describe("QualityReviewCard", () => {
 
     expect(render(review)).toBeNull();
   });
+
+  it("shows the 按这些问题重写 affordance only when a revise handler is provided", () => {
+    const review: QualityReviewView = {
+      status: "warnings",
+      policy_action: "proceed_with_warning",
+      review_status: "completed",
+      findings: [
+        {
+          quality_gate: "quality_gate.style_fit",
+          validator: "validator.prose_pattern_repetition",
+          severity: "warn",
+          action: "warn",
+          summary: "身体反应模板高频重复",
+        },
+      ],
+    };
+
+    // 无修订入口（例如阅读态）→ 不渲染重写按钮
+    expect(collectText(QualityReviewCard({ review }))).not.toContain(CARD.qualityReview.reviseButton);
+
+    // 有修订入口 → 渲染“按这些问题重写”
+    const withRevise = collectText(QualityReviewCard({ review, onRevise: () => {} }));
+    expect(withRevise).toContain(CARD.qualityReview.reviseButton);
+    expect(withRevise).toContain(CARD.qualityReview.reviseHint);
+  });
 });

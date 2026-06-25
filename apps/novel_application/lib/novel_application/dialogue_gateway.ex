@@ -11,6 +11,7 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelApplication.ContextAssembler
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.Planner
+  alias NovelApplication.ProseRevisionService
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnExecutionService
   alias NovelApplication.TurnResultBuilder
@@ -440,6 +441,20 @@ defmodule NovelApplication.DialogueGateway do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  def handle_action(
+        %AuthorActionInput{action_type: "revise_from_findings"} = action_input,
+        source_turn_result,
+        complete_fn
+      )
+      when is_function(complete_fn, 1) do
+    # VS-00E CP3：按质量发现重写——校验动作非 stale/invented 后，由 ProseRevisionService
+    # 调用 prose writer 产出新的 tentative 修订草稿（原草稿保留、不自动采纳，不自我递归评估）。
+    case ActionValidator.validate(action_input, source_turn_result) do
+      :ok -> ProseRevisionService.revise(source_turn_result, action_input, complete_fn)
+      {:error, reason} -> {:error, reason}
     end
   end
 

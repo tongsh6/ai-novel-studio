@@ -827,12 +827,52 @@ defmodule NovelApplication.TurnExecutionService do
   defp maybe_put_quality_review(turn_result, nil), do: turn_result
 
   defp maybe_put_quality_review(turn_result, %{findings: findings, review_status: status, policy: policy}) do
-    Map.put(turn_result, :quality_review, %{
+    turn_result
+    |> Map.put(:quality_review, %{
       status: quality_status(policy.action),
       policy_action: Atom.to_string(policy.action),
       review_status: Atom.to_string(status),
       findings: Enum.map(findings, &QualityFinding.author_safe_summary/1)
     })
+    |> maybe_add_revise_action(findings)
+  end
+
+  # VS-00E CP3：本轮有质量发现且存在待采纳正文草稿时，暴露 revise_from_findings 可用动作。
+  # ActionValidator 反“凭空发明动作”，故修订入口必须在 source TurnResult 的 available_actions
+  # 中先登记，作者才能据此触发“按这些问题重写”。无发现或无正文草稿时不暴露。
+  defp maybe_add_revise_action(turn_result, []), do: turn_result
+
+  defp maybe_add_revise_action(turn_result, findings) do
+    case prose_pending_artifact_id(turn_result) do
+      nil ->
+        turn_result
+
+      artifact_id ->
+        action = %{
+          action_id: "revise_from_findings:#{artifact_id}",
+          action_type: "revise_from_findings",
+          label_key: "quality.revise_from_findings",
+          source_turn_ref: turn_result.turn_id,
+          target_ref: artifact_id,
+          enabled: true,
+          idempotency_key: "idem:#{turn_result.turn_id}:revise_from_findings:#{artifact_id}",
+          quality_finding_refs:
+            findings |> Enum.map(& &1.validator_ref) |> Enum.reject(&is_nil/1) |> Enum.uniq()
+        }
+
+        Map.update(turn_result, :available_actions, [action], fn actions -> actions ++ [action] end)
+    end
+  end
+
+  defp prose_pending_artifact_id(turn_result) do
+    turn_result
+    |> Map.get(:adoption_state, %{})
+    |> Map.get(:pending, [])
+    |> Enum.find(fn p -> Map.get(p, :artifact_type) in [:prose_fragment, "prose_fragment"] end)
+    |> case do
+      nil -> nil
+      entry -> Map.get(entry, :artifact_id)
+    end
   end
 
   defp quality_status(:proceed), do: "passed"

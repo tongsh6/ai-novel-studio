@@ -90,6 +90,8 @@ export const CARD = {
     evidencePrefix: "正文证据：",
     unavailableTitle: "本次质量复核未完成",
     unavailableBody: "质量评审未能完成，以下原稿仍可由你审阅与采纳；系统不会据此自动改写或判定通过。",
+    reviseButton: "按这些问题重写",
+    reviseHint: "重写会另生成一份修订草稿供你对比；原草稿保留，不会自动采纳。",
   },
   confirmation: {
     title: "请确认",

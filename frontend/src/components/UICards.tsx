@@ -140,7 +140,15 @@ export interface QualityReviewView {
   findings: QualityFindingView[];
 }
 
-export function QualityReviewCard({ review }: { review: QualityReviewView }) {
+export function QualityReviewCard({
+  review,
+  onRevise,
+  revising = false,
+}: {
+  review: QualityReviewView;
+  onRevise?: () => void;
+  revising?: boolean;
+}) {
   if (review.review_status === "unavailable") {
     return (
       <div className={`${styles.card} ${styles.warningCard}`}>
@@ -179,6 +187,21 @@ export function QualityReviewCard({ review }: { review: QualityReviewView }) {
           );
         })}
       </ol>
+      {onRevise && (
+        <>
+          <div className={styles.qualityEvidence}>{CARD.qualityReview.reviseHint}</div>
+          <div className={styles.actions}>
+            <button
+              type="button"
+              className={styles.btnSecondary}
+              onClick={onRevise}
+              disabled={revising}
+            >
+              {CARD.qualityReview.reviseButton}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

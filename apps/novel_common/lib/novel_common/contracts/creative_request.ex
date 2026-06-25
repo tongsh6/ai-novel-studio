@@ -16,6 +16,7 @@ defmodule NovelCommon.Contracts.CreativeRequest do
           source_turn_ref: String.t(),
           decision_packet: map() | nil,
           execution_brief: String.t() | nil,
+          revision: String.t() | nil,
           provider_hints: map()
         }
 
@@ -32,6 +33,9 @@ defmodule NovelCommon.Contracts.CreativeRequest do
     # stub / slice_verify 与「用户创作简述：/上下文：/重要：」三锚点解析。
     decision_packet: nil,
     execution_brief: nil,
+    # VS-00E CP3：revision 为已渲染的“按质量发现重写”要求文本（进 provider message），
+    # 追加在三锚点之后，仅 revise_from_findings 路径非空。默认 nil 时 prose prompt 不变。
+    revision: nil,
     provider_hints: %{}
   ]
 end
