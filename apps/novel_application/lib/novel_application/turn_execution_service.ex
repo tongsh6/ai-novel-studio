@@ -16,6 +16,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelApplication.CreativeDecisionPacketBuilder
   alias NovelApplication.Planner
   alias NovelApplication.ProseExecutionBriefBuilder
+  alias NovelApplication.ProseQualityService
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolRequest
@@ -28,6 +29,7 @@ defmodule NovelApplication.TurnExecutionService do
   alias NovelDomain.OmissionNote
   alias NovelDomain.OrchestratorDecision
   alias NovelDomain.ProseExecutionBrief
+  alias NovelDomain.QualityFinding
   alias NovelDomain.ReaderEffectBrief
   alias NovelDomain.WritingCoordinate
 
@@ -148,6 +150,10 @@ defmodule NovelApplication.TurnExecutionService do
     tool_result = dispatch_tool(req, input[:complete_fn])
     artifact_set = assemble_artifact(tool_result, frame.turn_id, plan, resolved_chapter)
 
+    # VS-00E CP2：正文生成后运行独立质量评估（与 writer 逻辑分离），产出 QualityFinding +
+    # 策略。只读，不改 artifact / 作品事实；evaluator 失败诚实降级为 quality_review_unavailable。
+    quality = run_prose_quality(frame, action, tool_result)
+
     {trace, trace_summary} =
       TraceWriter.record_with_tool(
         frame,
@@ -158,7 +164,9 @@ defmodule NovelApplication.TurnExecutionService do
         %{
           turn_id: frame.turn_id,
           omission_notes: omission_notes,
-          brief_ref: execution_brief_ref(brief_result)
+          brief_ref: execution_brief_ref(brief_result),
+          quality_policy_action: quality_policy_action(quality),
+          quality_review_status: quality_review_status(quality)
         },
         input[:context]
       )
@@ -175,6 +183,7 @@ defmodule NovelApplication.TurnExecutionService do
         artifact_set
       )
       |> Map.put(:assistant_message, %{text: assistant_message})
+      |> maybe_put_quality_review(quality)
 
     {turn_result, trace}
   end
@@ -729,6 +738,74 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp emit_execution_brief(_frame, _brief_result), do: :ok
+
+  # ── VS-00E CP2：独立质量评估 ──────────────────────
+
+  # 仅 prose_writing 成功路径评估。CP2 当前接入确定性 validator（无 semantic_fn，
+  # review_status=completed）；语义 evaluator 作为可注入 semantic_fn 在后续接 Gateway。
+  defp run_prose_quality(frame, action, %ToolResult{status: :succeeded} = tool_result) do
+    if prose_writing_action?(action) do
+      ctx = %{
+        source_ref: List.first(tool_result.artifact_refs || []),
+        source_turn_ref: frame.turn_id,
+        source_type: :prose_fragment
+      }
+
+      result = ProseQualityService.evaluate(prose_body(tool_result), ctx)
+      emit_quality(frame, result)
+      result
+    end
+  end
+
+  defp run_prose_quality(_frame, _action, _tool_result), do: nil
+
+  defp prose_body(%ToolResult{output: %{items: [item | _]}}) when is_map(item) do
+    clean_text(Map.get(item, :body) || Map.get(item, "body"))
+  end
+
+  defp prose_body(_tool_result), do: ""
+
+  defp clean_text(value) when is_binary(value), do: value
+  defp clean_text(_value), do: ""
+
+  defp emit_quality(frame, %{findings: findings, review_status: status, policy: policy}) do
+    LogEmit.emit(:prose_quality, :evaluated, :done, %{
+      turn_id: frame.turn_id,
+      finding_count: length(findings),
+      review_status: status
+    })
+
+    LogEmit.emit(:quality_policy, :decided, :done, %{
+      turn_id: frame.turn_id,
+      policy_action: policy.action,
+      review_status: status
+    })
+  end
+
+  defp maybe_put_quality_review(turn_result, nil), do: turn_result
+
+  defp maybe_put_quality_review(turn_result, %{findings: findings, review_status: status, policy: policy}) do
+    Map.put(turn_result, :quality_review, %{
+      status: quality_status(policy.action),
+      policy_action: Atom.to_string(policy.action),
+      review_status: Atom.to_string(status),
+      findings: Enum.map(findings, &QualityFinding.author_safe_summary/1)
+    })
+  end
+
+  defp quality_status(:proceed), do: "passed"
+  defp quality_status(:proceed_with_warning), do: "warnings"
+  defp quality_status(:adoption_review), do: "adoption_review"
+  defp quality_status(:confirm), do: "adoption_review"
+  defp quality_status(:block), do: "blocked"
+  defp quality_status(:quality_review_unavailable), do: "unavailable"
+  defp quality_status(_action), do: "passed"
+
+  defp quality_policy_action(%{policy: %{action: action}}), do: Atom.to_string(action)
+  defp quality_policy_action(_quality), do: nil
+
+  defp quality_review_status(%{review_status: status}), do: Atom.to_string(status)
+  defp quality_review_status(_quality), do: nil
 
   defp structure_target_title(_action, resolved_chapter)
        when is_binary(resolved_chapter) and resolved_chapter != "",

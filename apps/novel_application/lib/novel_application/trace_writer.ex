@@ -175,6 +175,7 @@ defmodule NovelApplication.TraceWriter do
       }
       |> maybe_put_omissions(turn_result)
       |> maybe_put_brief_ref(turn_result)
+      |> maybe_put_quality(turn_result)
       |> maybe_put_ai_message_envelope(frame)
 
     {trace, TraceRedactor.author_safe(summary)}
@@ -209,6 +210,16 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp maybe_put_brief_ref(summary, _turn_result), do: summary
+
+  # VS-00E CP2：质量策略与复核状态进作者可见 trace summary（finding 非作品事实，仅留痕）。
+  defp maybe_put_quality(summary, %{quality_policy_action: action} = meta)
+       when is_binary(action) and action != "" do
+    summary
+    |> Map.put(:quality_policy_action, action)
+    |> Map.put(:quality_review_status, Map.get(meta, :quality_review_status))
+  end
+
+  defp maybe_put_quality(summary, _turn_result), do: summary
 
   defp maybe_put_ai_message_envelope(summary, %DialogueFrame{
          evidence_summary: %{ai_message_envelope: envelope}
