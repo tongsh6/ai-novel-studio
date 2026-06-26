@@ -669,6 +669,14 @@ export const READING = {
   exportInProgress: "导出中…",
   exportSuccessPrefix: "已导出到",
   exportFailurePrefix: "导出失败：",
+  exportDialogTitle: "导出全书",
+  exportSelectDirectoryLabel: "选择导出目录",
+  exportSelectDirectoryPrompt: "请选择保存导出文件的文件夹",
+  exportProgressLabel: "导出进度",
+  exportSuccessTitle: "导出完成",
+  exportErrorTitle: "导出失败",
+  exportCloseLabel: "关闭",
+  exportConfirmLabel: "确定",
 } as const;
 
 // ============================================================

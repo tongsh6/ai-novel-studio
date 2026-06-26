@@ -1,9 +1,12 @@
 // Design: docs/design/ui/44-reading-mode.md §3
 // Prototype: novel-studio.pen → 44§3-reading-mode-stale (hEGz0)
 import { useEffect, useState } from "react";
+import * as Dialog from "@radix-ui/react-dialog";
 import { useAppStore } from "../lib/store";
-import { getToc, getChapterContent, exportWork } from "../lib/socket";
-import type { TocData, ChapterContent, ExportResult } from "../lib/socket";
+import { isTauri } from "../lib/env";
+import { getToc, getChapterContent } from "../lib/socket";
+import type { TocData, ChapterContent, ExportResult, ExportProgress } from "../lib/socket";
+import { exportBook, pickExportDirectory } from "../lib/export";
 import {
   formatWordCount,
   normalizeChapterContentTitle,
@@ -24,7 +27,9 @@ export function ReadingMode() {
   const [tocError, setTocError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
   const [chapterContent, setChapterContent] = useState<ChapterContent | null>(null);
-  const [exporting, setExporting] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [exportProgress, setExportProgress] = useState<number>(0);
+  const [exportStep, setExportStep] = useState<string>("");
   const [exportResult, setExportResult] = useState<ExportResult | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
 
@@ -83,15 +88,45 @@ export function ReadingMode() {
     setMode("workbench");
   };
 
-  // 导出全书：后端从已采纳作品事实组装 Markdown 并落盘，这里只展示结果路径。
-  const handleExport = () => {
-    if (!channel || !context.workId || exporting) return;
-    setExporting(true);
+  const resetExportDialog = () => {
+    setExportProgress(0);
+    setExportStep("");
+    setExportResult(null);
     setExportError(null);
-    exportWork(channel, context.workId)
-      .then((result) => setExportResult(result))
-      .catch((error) => setExportError(error instanceof Error ? error.message : String(error)))
-      .finally(() => setExporting(false));
+  };
+
+  const handleExportProgress = (progress: ExportProgress) => {
+    setExportProgress(progress.progress);
+    setExportStep(progress.step);
+  };
+
+  // 导出全书：先让用户选择保存目录（Tauri 桌面端），再显示进度弹窗，最后展示结果。
+  const handleExport = async () => {
+    if (!channel || !context.workId || exportDialogOpen) return;
+
+    resetExportDialog();
+    const exportDir = await pickExportDirectory();
+    if (exportDir === null && isTauri) {
+      // 用户在 Tauri 目录选择器中取消，静默放弃。
+      return;
+    }
+
+    setExportDialogOpen(true);
+
+    try {
+      const result = await exportBook(channel, context.workId, {
+        exportDir,
+        onProgress: handleExportProgress,
+      });
+      setExportResult(result);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const handleCloseExportDialog = () => {
+    setExportDialogOpen(false);
+    resetExportDialog();
   };
 
   const handleRetryProjection = () => {
@@ -165,8 +200,12 @@ export function ReadingMode() {
           )}
         </div>
         {hasContent && (
-          <button className={styles.exportBtn} onClick={handleExport} disabled={exporting}>
-            {exporting ? READING.exportInProgress : READING.exportLabel}
+          <button
+            className={styles.exportBtn}
+            onClick={() => void handleExport()}
+            disabled={exportDialogOpen}
+          >
+            {exportDialogOpen ? READING.exportInProgress : READING.exportLabel}
           </button>
         )}
         <button className={styles.backBtn} onClick={() => setMode("workbench")}>
@@ -174,13 +213,64 @@ export function ReadingMode() {
         </button>
       </div>
 
-      {(exportResult || exportError) && (
-        <div className={styles.exportNotice}>
-          {exportResult
-            ? `${READING.exportSuccessPrefix} ${exportResult.path}`
-            : `${READING.exportFailurePrefix}${exportError}`}
-        </div>
-      )}
+      <Dialog.Root
+        open={exportDialogOpen}
+        onOpenChange={(open) => {
+          // 导出进行中禁止通过 Esc / 点击遮罩 / 关闭按钮关闭弹窗。
+          if (!open && !exportResult && !exportError) return;
+          setExportDialogOpen(open);
+          if (!open) resetExportDialog();
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className={styles.dialogOverlay} />
+          <Dialog.Content className={styles.dialogContent} aria-describedby="export-dialog-description">
+            <Dialog.Title className={styles.dialogTitle}>
+              {exportError ? READING.exportErrorTitle : exportResult ? READING.exportSuccessTitle : READING.exportDialogTitle}
+            </Dialog.Title>
+            <p id="export-dialog-description" className={styles.dialogDescription}>
+              {exportError
+                ? `${READING.exportFailurePrefix}${exportError}`
+                : exportResult
+                  ? `${READING.exportSuccessPrefix} ${exportResult.path}`
+                  : exportStep || READING.exportInProgress}
+            </p>
+            {!exportResult && !exportError && (
+              <>
+                <div className={styles.progressBarTrack} aria-label={READING.exportProgressLabel}>
+                  <div
+                    className={styles.progressBarFill}
+                    style={{ width: `${Math.max(0, Math.min(100, exportProgress))}%` }}
+                  />
+                </div>
+                <div className={styles.dialogProgressMeta}>
+                  {READING.exportProgressLabel} {exportProgress}%
+                </div>
+              </>
+            )}
+            <div className={styles.dialogActions}>
+              <button
+                className={styles.dialogPrimaryBtn}
+                onClick={handleCloseExportDialog}
+                disabled={!exportResult && !exportError}
+              >
+                {READING.exportCloseLabel}
+              </button>
+            </div>
+            {(exportResult || exportError) && (
+              <Dialog.Close asChild>
+                <button
+                  className={styles.dialogCloseBtn}
+                  onClick={handleCloseExportDialog}
+                  aria-label={READING.exportCloseLabel}
+                >
+                  ×
+                </button>
+              </Dialog.Close>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       {/* Main reading area */}
       <div className={styles.mainArea}>

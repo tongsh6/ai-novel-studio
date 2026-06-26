@@ -60,10 +60,13 @@ defmodule NovelApplication.TaskRunner do
 
   该入口用于已经有可见 UI 触发点、但仍需要向工作台广播任务生命周期的动作。
   调用方通过 `:on_state_change` 接收持久化后的 task 快照并负责转成所在边界的事件。
+
+  被执行的 `fun` 接收当前 `task` 快照作为参数，便于在动作执行过程中通过
+  `checkpoint/2` 更新进度并触发状态广播。
   """
-  @spec track(map(), keyword(), (-> {:ok, term()} | {:error, term()})) ::
+  @spec track(map(), keyword(), (map() -> {:ok, term()} | {:error, term()})) ::
           {:ok, term()} | {:error, term()}
-  def track(attrs, opts \\ [], fun) when is_function(fun, 0) do
+  def track(attrs, opts \\ [], fun) when is_function(fun, 1) do
     on_state_change = Keyword.get(opts, :on_state_change, fn _task -> :ok end)
     checkpoint_data = Keyword.get(opts, :checkpoint_data, %{"progress" => 50})
 
@@ -73,8 +76,18 @@ defmodule NovelApplication.TaskRunner do
          :ok <- notify_state_change(on_state_change, task),
          {:ok, task} <- LongRunTaskLog.checkpoint(task, checkpoint_data),
          :ok <- notify_state_change(on_state_change, task) do
-      finalize_tracked_run(task, run_tracked_fun(fun), on_state_change)
+      finalize_tracked_run(task, run_tracked_fun(fn -> fun.(task) end), on_state_change)
     end
+  end
+
+  @doc """
+  更新已存在 task 的 checkpoint_data。
+
+  由 `track/3` 的 `fun` 内部调用，用于向工作台广播增量进度。
+  """
+  @spec checkpoint(map(), map()) :: {:ok, map()} | {:error, term()}
+  def checkpoint(task, data) when is_map(task) and is_map(data) do
+    LongRunTaskLog.checkpoint(task, data)
   end
 
   # ── Execution Core ────────────────────────────

@@ -2,6 +2,7 @@
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
 import { CARD } from "../lib/copy";
 import styles from "./UICards.module.css";
+import { AlertTriangle } from "lucide-react";
 
 // Basic interface for UI cards, shared across v2 and v3 implementations
 export interface UICardData {
@@ -112,7 +113,7 @@ export function WarningCard({ card }: Props) {
   return (
     <div className={`${styles.card} ${styles.warningCard}`}>
       <div className={styles.header}>
-        <div className={styles.warningIcon}>!</div>
+        <AlertTriangle className={styles.warningIconLucide} size={16} />
         <div className={styles.title}>{card.title || "警告"}</div>
       </div>
       {card.body && <div className={styles.body}>{card.body}</div>}
@@ -159,7 +160,7 @@ export function QualityReviewCard({
     return (
       <div className={`${styles.card} ${styles.warningCard}`}>
         <div className={styles.header}>
-          <div className={styles.warningIcon}>!</div>
+          <AlertTriangle className={styles.warningIconLucide} size={16} />
           <div className={styles.title}>{CARD.qualityReview.unavailableTitle}</div>
         </div>
         <div className={styles.body}>{CARD.qualityReview.unavailableBody}</div>
@@ -176,7 +177,7 @@ export function QualityReviewCard({
   return (
     <div className={`${styles.card} ${styles.warningCard}`}>
       <div className={styles.header}>
-        <div className={styles.warningIcon}>!</div>
+        <AlertTriangle className={styles.warningIconLucide} size={16} />
         <div className={styles.title}>{CARD.qualityReview.title(review.findings.length)}</div>
       </div>
 
@@ -216,24 +217,25 @@ export function QualityReviewCard({
                       className={styles.findingCheckbox}
                     />
                   ) : null}
-                  <div className={styles.findingCardMeta}>
-                    {gateLabel && (
-                      <span className={styles.findingCategoryBadge}>
-                        {gateLabel}
-                      </span>
+                  <div className={styles.findingCardContent}>
+                    <div className={styles.findingSummaryContainer}>
+                      {gateLabel && (
+                        <span className={styles.findingCategoryBadge}>
+                          {gateLabel}
+                        </span>
+                      )}
+                      <span className={styles.findingSummary}>{finding.summary}</span>
+                    </div>
+                    {evidence && (
+                      <blockquote className={styles.evidenceQuote}>
+                        <span className={styles.evidencePrefix}>
+                          {CARD.qualityReview.evidencePrefix}
+                        </span>
+                        {evidence}
+                      </blockquote>
                     )}
-                    <span className={styles.findingSummary}>{finding.summary}</span>
                   </div>
                 </div>
-
-                {evidence && (
-                  <blockquote className={styles.evidenceQuote}>
-                    <span className={styles.evidencePrefix}>
-                      {CARD.qualityReview.evidencePrefix}
-                    </span>
-                    {evidence}
-                  </blockquote>
-                )}
               </div>
             );
           })}

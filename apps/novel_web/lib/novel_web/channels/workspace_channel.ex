@@ -429,6 +429,7 @@ defmodule NovelWeb.WorkspaceChannel do
 
   def handle_in("export_work", payload, socket) do
     work_id = socket.assigns[:work_id] || Map.get(payload, "work_id") || "lobby"
+    export_dir = Map.get(payload, "export_dir")
 
     task_attrs = %{
       workspace_id: work_id,
@@ -442,10 +443,21 @@ defmodule NovelWeb.WorkspaceChannel do
       TaskRunner.track(
         task_attrs,
         [
-          checkpoint_data: %{"progress" => 50, "step" => "导出内容已形成检查点"},
+          checkpoint_data: %{"progress" => 10, "step" => "正在准备导出"},
           on_state_change: fn task -> broadcast_task_state(socket, task) end
         ],
-        fn -> NovelApplication.ExportService.export(work_id) end
+        fn task ->
+          NovelApplication.ExportService.export(
+            work_id,
+            export_dir: export_dir,
+            on_progress: fn progress, step ->
+              case TaskRunner.checkpoint(task, %{"progress" => progress, "step" => step}) do
+                {:ok, updated_task} -> broadcast_task_state(socket, updated_task)
+                _ -> :ok
+              end
+            end
+          )
+        end
       )
 
     case result do

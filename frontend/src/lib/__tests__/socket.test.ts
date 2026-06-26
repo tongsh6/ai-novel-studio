@@ -15,6 +15,7 @@ import {
   getRules,
   getWorkProfile,
   getWorkStats,
+  exportWork,
   LLM_TURN_TIMEOUT_MS,
 } from "../socket";
 
@@ -32,6 +33,8 @@ function mockPush(): Push {
 function mockChannel(): Channel {
   return {
     push: vi.fn((_event: string, _payload: Record<string, unknown>) => mockPush()),
+    on: vi.fn(() => 42),
+    off: vi.fn(),
     topic: "workspace:lobby",
   } as unknown as Channel;
 }
@@ -241,5 +244,93 @@ describe("getWorkStats", () => {
     const ch = mockChannel();
     getWorkStats(ch, "work-3");
     expect(ch.push).toHaveBeenCalledWith("get_work_stats", { work_id: "work-3" });
+  });
+});
+
+describe("exportWork", () => {
+  it("pushes export_work with work_id only when no directory is provided", () => {
+    const ch = mockChannel();
+    exportWork(ch, "work-1");
+    expect(ch.push).toHaveBeenCalledWith("export_work", { work_id: "work-1" });
+  });
+
+  it("pushes export_work with work_id and export_dir when directory is provided", () => {
+    const ch = mockChannel();
+    exportWork(ch, "work-1", { exportDir: "/tmp/exports" });
+    expect(ch.push).toHaveBeenCalledWith("export_work", {
+      work_id: "work-1",
+      export_dir: "/tmp/exports",
+    });
+  });
+
+  it("delivers progress updates from task_state events", async () => {
+    const onProgress = vi.fn();
+    const listeners = new Map<string, Array<(payload: unknown) => void>>();
+
+    const ch = {
+      push: vi.fn(() => ({
+        receive: vi.fn(function (this: unknown, event: string, cb: (r: unknown) => void) {
+          if (event === "ok") {
+            // 模拟 task_state 先到达，ok 回复后到。
+            const taskStates = [
+              { task_id: "t1", task_type: "export_work", phase: "RUNNING", progress: 10, step: "准备" },
+              { task_id: "t1", task_type: "export_work", phase: "CHECKPOINT", progress: 50, step: "导出中" },
+            ];
+            setTimeout(() => {
+              for (const state of taskStates) {
+                listeners.get("task_state")?.forEach((handler) => handler(state));
+              }
+              cb({ path: "/tmp/export.md", format: "markdown" });
+            }, 0);
+          }
+          return this;
+        }),
+      })),
+      on: vi.fn((event: string, handler: (payload: unknown) => void) => {
+        const existing = listeners.get(event) ?? [];
+        listeners.set(event, [...existing, handler]);
+        return 42;
+      }),
+      off: vi.fn(),
+    } as unknown as import("phoenix").Channel;
+
+    const result = await exportWork(ch, "work-1", { onProgress });
+
+    expect(onProgress).toHaveBeenCalledWith({ phase: "RUNNING", progress: 10, step: "准备" });
+    expect(onProgress).toHaveBeenCalledWith({ phase: "CHECKPOINT", progress: 50, step: "导出中" });
+    expect(result.path).toBe("/tmp/export.md");
+    expect(ch.off).toHaveBeenCalledWith("task_state", 42);
+  });
+
+  it("ignores task_state events from other task types", async () => {
+    const onProgress = vi.fn();
+    const listeners = new Map<string, Array<(payload: unknown) => void>>();
+
+    const ch = {
+      push: vi.fn(() => ({
+        receive: vi.fn(function (this: unknown, event: string, cb: (r: unknown) => void) {
+          if (event === "ok") {
+            setTimeout(() => {
+              listeners
+                .get("task_state")
+                ?.forEach((handler) =>
+                  handler({ task_id: "t1", task_type: "world_building", phase: "RUNNING", progress: 10 }),
+                );
+              cb({ path: "/tmp/export.md", format: "markdown" });
+            }, 0);
+          }
+          return this;
+        }),
+      })),
+      on: vi.fn((event: string, handler: (payload: unknown) => void) => {
+        const existing = listeners.get(event) ?? [];
+        listeners.set(event, [...existing, handler]);
+        return 7;
+      }),
+      off: vi.fn(),
+    } as unknown as import("phoenix").Channel;
+
+    await exportWork(ch, "work-1", { onProgress });
+    expect(onProgress).not.toHaveBeenCalled();
   });
 });

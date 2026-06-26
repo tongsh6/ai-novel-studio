@@ -24,6 +24,7 @@
     "@tailwindcss/vite": "^4.2.4",
     "@tanstack/react-query": "^5.100.6",
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "^2.2.0",
     "lucide-react": "^1.14.0",
     "phoenix": "^1.8.5",
     "react": "^19.2.5",

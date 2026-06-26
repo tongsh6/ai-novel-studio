@@ -97,8 +97,15 @@ describe("QualityReviewCard", () => {
     // 无修订入口（例如阅读态）→ 不渲染重写按钮
     expect(collectText(QualityReviewCard({ review }))).not.toContain(CARD.qualityReview.reviseButton);
 
-    // 有修订入口 → 渲染“按这些问题重写”
-    const withRevise = collectText(QualityReviewCard({ review, onRevise: () => {} }));
+    // 有修订入口且已全选 → 渲染“按这些问题重写”
+    const withRevise = collectText(
+      QualityReviewCard({
+        review,
+        selectedFindingIds: ["validator.prose_pattern_repetition"],
+        onToggleFinding: () => {},
+        onRevise: () => {},
+      }),
+    );
     expect(withRevise).toContain(CARD.qualityReview.reviseButton);
     expect(withRevise).toContain(CARD.qualityReview.reviseHint);
   });

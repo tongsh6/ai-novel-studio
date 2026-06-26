@@ -98,4 +98,58 @@ defmodule NovelApplication.ExportServiceTest do
     {p2, _} = :binary.match(doc, "## 第02章：旧服务器里的残诀")
     assert p1 < p2
   end
+
+  test "writes to the caller-supplied export_dir and reports progress" do
+    {:ok, work} = WorkService.create(%{"title" => "指定目录导出作品"})
+
+    volume =
+      %Volume{}
+      |> Volume.changeset(%{work_id: work.id, title: "第一卷", seq: 1})
+      |> Repo.insert!()
+
+    chapter =
+      %Chapter{}
+      |> Chapter.changeset(%{
+        work_id: work.id,
+        volume_id: volume.id,
+        title: "第01章：指定目录",
+        seq: 1
+      })
+      |> Repo.insert!()
+
+    scene =
+      %Scene{}
+      |> Scene.changeset(%{work_id: work.id, chapter_id: chapter.id, title: "第一场", seq: 1})
+      |> Repo.insert!()
+
+    %Draft{}
+    |> Draft.changeset(%{
+      work_id: work.id,
+      scene_id: scene.id,
+      content: "指定目录测试正文。",
+      status: AdoptionStatus.accepted(),
+      revision: 1
+    })
+    |> Repo.insert!()
+
+    custom_dir = Path.join(System.tmp_dir!(), "export_service_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(custom_dir)
+
+    assert {:ok, result} =
+             ExportService.export(work.id,
+               export_dir: custom_dir,
+               on_progress: fn progress, step ->
+                 send(self(), {:export_progress, progress, step})
+               end
+             )
+
+    assert String.starts_with?(result.path, custom_dir)
+    assert File.exists?(result.path)
+
+    assert_received {:export_progress, 25, "正在读取章节内容"}
+    assert_received {:export_progress, 60, "正在渲染全书 Markdown"}
+    assert_received {:export_progress, 80, "正在写入文件"}
+
+    File.rm_rf!(custom_dir)
+  end
 end

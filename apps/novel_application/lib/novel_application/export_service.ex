@@ -7,8 +7,13 @@ defmodule NovelApplication.ExportService do
   结构与已采纳正文），经 `NovelDomain.ExportDocument` 纯函数渲染后写入导出目录，
   返回文件路径与可验证的目录/字数元信息。未采纳草稿不在该口径内，天然不进导出。
 
-  导出目录：`config :novel_application, :export_dir`（test 环境指向项目 tmp），
-  默认 `~/Documents/AI Novel Studio`（Tauri 桌面阶段后端 sidecar 与作者同机）。
+  导出目录：
+  - 优先使用调用方通过 `:export_dir` 指定的目录（Tauri 桌面端由用户通过文件对话框选择）；
+  - 未指定时回退到 `config :novel_application, :export_dir`（test 环境指向项目 tmp），
+    默认 `~/Documents/AI Novel Studio`。
+
+  进度回调：调用方可传入 `:on_progress`（`fn progress, step -> ... end`），在读取结构、
+  读取章节、渲染文档、写入文件等阶段收到增量进度，用于前端进度弹窗展示。
   """
 
   alias NovelApplication.ReadingProjectionService
@@ -24,29 +29,40 @@ defmodule NovelApplication.ExportService do
           exported_at: String.t()
         }
 
-  @spec export(String.t()) :: {:ok, export_result()} | {:error, term()}
-  def export(work_id) when is_binary(work_id) do
+  @type progress_callback :: (non_neg_integer(), String.t() -> any())
+
+  @spec export(String.t(), keyword()) :: {:ok, export_result()} | {:error, term()}
+  def export(work_id, opts \\ []) when is_binary(work_id) and is_list(opts) do
     toc = ReadingProjectionService.toc(work_id)
     chapters = Enum.flat_map(toc.volumes, & &1.chapters)
 
     if chapters == [] do
       {:error, :nothing_to_export}
     else
-      {:ok, do_export(work_id, toc, chapters)}
+      {:ok, do_export(work_id, toc, chapters, opts)}
     end
   end
 
-  defp do_export(work_id, toc, chapters) do
+  defp do_export(work_id, toc, chapters, opts) do
+    export_dir = Keyword.get(opts, :export_dir)
+    on_progress = Keyword.get(opts, :on_progress, fn _progress, _step -> :ok end)
+
     work_title = work_title(work_id)
     exported_at = DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601()
 
+    on_progress.(25, "正在读取章节内容")
+    scenes_by_chapter = scenes_by_chapter(work_id, chapters)
+
+    on_progress.(60, "正在渲染全书 Markdown")
+
     markdown =
-      ExportDocument.render(work_title, toc.volumes, scenes_by_chapter(work_id, chapters), %{
+      ExportDocument.render(work_title, toc.volumes, scenes_by_chapter, %{
         exported_at: exported_at,
         total_word_count: toc.total_word_count
       })
 
-    path = write_export!(work_title, markdown)
+    on_progress.(80, "正在写入文件")
+    path = write_export!(work_title, markdown, export_dir)
 
     %{
       path: path,
@@ -74,15 +90,15 @@ defmodule NovelApplication.ExportService do
     end
   end
 
-  defp write_export!(work_title, markdown) do
-    dir = export_dir()
+  defp write_export!(work_title, markdown, export_dir) do
+    dir = export_dir || export_dir_default()
     File.mkdir_p!(dir)
     path = Path.join(dir, ExportDocument.filename(work_title) <> ".md")
     File.write!(path, markdown)
     Path.expand(path)
   end
 
-  defp export_dir do
+  defp export_dir_default do
     Application.get_env(:novel_application, :export_dir) ||
       Path.join(System.user_home!(), "Documents/AI Novel Studio")
   end

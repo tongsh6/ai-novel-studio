@@ -47,7 +47,32 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
       task_type: "export_work",
       phase: "CHECKPOINT",
       status: "PAUSED",
-      progress: 50
+      progress: 10,
+      step: "正在准备导出"
+    })
+
+    assert_broadcast("task_state", %{
+      task_id: ^task_id,
+      task_type: "export_work",
+      phase: "CHECKPOINT",
+      progress: 25,
+      step: "正在读取章节内容"
+    })
+
+    assert_broadcast("task_state", %{
+      task_id: ^task_id,
+      task_type: "export_work",
+      phase: "CHECKPOINT",
+      progress: 60,
+      step: "正在渲染全书 Markdown"
+    })
+
+    assert_broadcast("task_state", %{
+      task_id: ^task_id,
+      task_type: "export_work",
+      phase: "CHECKPOINT",
+      progress: 80,
+      step: "正在写入文件"
     })
 
     assert_broadcast("task_state", %{
@@ -76,7 +101,9 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     assert_broadcast("task_state", %{
       task_id: ^task_id,
       task_type: "export_work",
-      phase: "CHECKPOINT"
+      phase: "CHECKPOINT",
+      progress: 10,
+      step: "正在准备导出"
     })
 
     assert_broadcast("task_state", %{
@@ -109,6 +136,24 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
 
     assert_broadcast("task_state", %{task_id: ^task_id, phase: "CHECKPOINT"})
     assert_broadcast("task_state", %{task_id: ^task_id, phase: "COMPLETED"})
+  end
+
+  test "export_work writes to the provided export_dir" do
+    work = seed_exportable_work!()
+    custom_dir = Path.join(System.tmp_dir!(), "channel_export_test_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(custom_dir)
+
+    {:ok, _, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{"work_id" => work.id})
+
+    ref = push(socket, "export_work", %{"work_id" => work.id, "export_dir" => custom_dir})
+
+    assert_reply(ref, :ok, %{format: "markdown", path: path})
+    assert String.starts_with?(path, custom_dir)
+
+    File.rm_rf!(custom_dir)
   end
 
   defp seed_exportable_work! do

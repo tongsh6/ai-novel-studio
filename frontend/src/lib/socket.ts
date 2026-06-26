@@ -274,15 +274,59 @@ export interface ExportResult {
   exported_at: string;
 }
 
-export function exportWork(channel: Channel, workId: string): Promise<ExportResult> {
+export interface ExportProgress {
+  phase: string;
+  progress: number;
+  step: string;
+}
+
+export interface ExportWorkOptions {
+  exportDir?: string | null;
+  onProgress?: (progress: ExportProgress) => void;
+}
+
+export function exportWork(
+  channel: Channel,
+  workId: string,
+  options: ExportWorkOptions = {},
+): Promise<ExportResult> {
   return new Promise((resolve, reject) => {
+    const { exportDir, onProgress } = options;
+
+    const handleTaskState = (state: TaskStateData) => {
+      if (state.task_type !== "export_work") return;
+      onProgress?.({
+        phase: state.phase,
+        progress: state.progress ?? 0,
+        step: state.step ?? "",
+      });
+    };
+
+    const ref = channel.on("task_state", handleTaskState);
+
+    const cleanup = () => {
+      channel.off("task_state", ref);
+    };
+
+    const payload: Record<string, unknown> = { work_id: workId };
+    if (exportDir) {
+      payload.export_dir = exportDir;
+    }
+
     channel
-      .push("export_work", { work_id: workId })
-      .receive("ok", (response) => resolve(response as ExportResult))
-      .receive("error", (error) =>
-        reject(new Error(String((error as { reason?: string })?.reason ?? error))),
-      )
-      .receive("timeout", () => reject(new Error("export_work timeout")));
+      .push("export_work", payload)
+      .receive("ok", (response) => {
+        cleanup();
+        resolve(response as ExportResult);
+      })
+      .receive("error", (error) => {
+        cleanup();
+        reject(new Error(String((error as { reason?: string })?.reason ?? error)));
+      })
+      .receive("timeout", () => {
+        cleanup();
+        reject(new Error("export_work timeout"));
+      });
   });
 }
 
