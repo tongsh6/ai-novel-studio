@@ -122,10 +122,10 @@ jobs:
       - run: pnpm test
 
       - name: Frontend audit (deps + Tauri config)
-        run: bash scripts/frontend_audit.sh --quick
+        run: bash ../scripts/frontend_audit.sh --quick
 
       - name: Design trace check
-        run: bash scripts/check_design_trace.sh
+        run: bash ../scripts/check_design_trace.sh
 
       - run: pnpm build
 
@@ -148,6 +148,12 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev patchelf
+
+      - name: Create dummy sidecar for tests
+        working-directory: frontend/src-tauri
+        run: |
+          mkdir -p resources
+          touch resources/sidecar.tar.gz
 
       - name: Tauri Rust contract tests
         working-directory: frontend/src-tauri
@@ -247,7 +253,7 @@ jobs:
       - name: Install scan tools
         run: |
           python -m pip install --user semgrep==1.157.0
-          go install github.com/gitleaks/gitleaks/v8@v8.30.1
+          go install github.com/zricethezav/gitleaks/v8@v8.30.1
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
