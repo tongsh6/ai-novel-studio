@@ -202,7 +202,8 @@ export function QualityReviewCard({
             const findingId = finding.validator || `${index}`;
             const isSelected = selectedFindingIds.includes(findingId);
             const gateLabel = finding.quality_gate
-              ? finding.quality_gate.replace("quality_gate.", "").toUpperCase()
+              ? CARD.qualityReview.gateLabels[finding.quality_gate] ||
+                finding.quality_gate.replace("quality_gate.", "").toUpperCase()
               : "";
 
             return (
