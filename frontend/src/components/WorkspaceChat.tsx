@@ -1093,6 +1093,8 @@ export function WorkspaceChat() {
   ) => {
     if (!channelRef.current || action.enabled === false) return;
 
+    setLoading(true);
+
     try {
       const result = await sendAuthorAction(
         channelRef.current,
@@ -1102,9 +1104,11 @@ export function WorkspaceChat() {
       // 让作者看见"已处理"，而不是静默无反应。
       if (result?.duplicate === true) {
         setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionDuplicate }]);
+        setLoading(false);
       }
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
+      setLoading(false);
     }
   };
 
