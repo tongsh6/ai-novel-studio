@@ -5,25 +5,69 @@ on:
     tags: ["v*"]
 
 jobs:
+  pre-release-checks:
+    name: Pre-release checks
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Frontend typecheck / lint / test
+        working-directory: frontend
+        run: pnpm typecheck && pnpm lint && pnpm test -- --run
+
+      - name: Setup Beam
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.19"
+
+      - name: Cache Mix deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      - name: Install Mix dependencies
+        run: mix deps.get
+
+      - name: Mix compile (warnings as errors)
+        run: mix compile --warnings-as-errors
+
+      - name: Mix test
+        run: mix test
+
   build:
     name: Build (${{ matrix.target }})
+    needs: pre-release-checks
     strategy:
       fail-fast: false
       matrix:
         include:
-          # 原生 Mix release 只含本机 arch 的 ERTS，故不做 universal 单包，而是每个
-          # arch 各出一个 dmg、各带匹配的 ERTS：macos-latest=Apple Silicon(arm64)，
-          # macos-13=Intel(x86_64)。
+          # 原生 Mix release 只含本机 arch 的 ERTS，不做交叉编译。macOS 仅保留
+          # Apple Silicon 产物；Intel Mac 产物已放弃。
           - os: macos-latest
             target: aarch64-apple-darwin
-            rust-targets: aarch64-apple-darwin
             platform: darwin
             arch: arm64
-          - os: macos-13
-            target: x86_64-apple-darwin
-            rust-targets: x86_64-apple-darwin
-            platform: darwin
-            arch: x64
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             platform: linux
@@ -40,15 +84,20 @@ jobs:
 
       - uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11
 
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+          cache: "pnpm"
+          cache-dependency-path: frontend/pnpm-lock.yaml
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
         with:
-          targets: ${{ matrix.rust-targets || '' }}
+          workspaces: frontend/src-tauri
 
       - name: Install Linux dependencies
         if: matrix.platform == 'linux'
@@ -60,13 +109,24 @@ jobs:
         working-directory: frontend
         run: pnpm install --frozen-lockfile
 
-      # 后端 sidecar：在本平台原生构建 Mix release（含本机 ERTS），暂存到
-      # frontend/src-tauri/resources/sidecar，供下一步 tauri build 打包进应用。
-      - uses: erlef/setup-beam@v1
+      - name: Setup Beam
+        uses: erlef/setup-beam@v1
         with:
           otp-version: "28"
           elixir-version: "1.19"
 
+      - name: Cache Mix deps + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+
+      # 后端 sidecar：在本平台原生构建 Mix release（含本机 ERTS），暂存到
+      # frontend/src-tauri/resources/sidecar，供下一步 tauri build 打包进应用。
       - name: Build backend sidecar (Mix release)
         run: bash scripts/build_sidecar.sh
 
@@ -84,10 +144,19 @@ jobs:
           TARGET: ${{ matrix.target }}
           ARCH: ${{ matrix.arch }}
         run: |
+          set -euo pipefail
           mkdir -p artifacts
-          cp "frontend/src-tauri/target/${TARGET}/release/bundle/dmg/"*.dmg "artifacts/AI-Novel-Studio_${VERSION}_macos_${ARCH}.dmg" 2>/dev/null || true
-          cp "frontend/src-tauri/target/${TARGET}/release/bundle/macos/"*.app.tar.gz "artifacts/AI-Novel-Studio_${VERSION}_macos_${ARCH}.app.tar.gz" 2>/dev/null || true
-          ls -la artifacts/ || echo "No macOS artifacts found"
+          dmg_src=(frontend/src-tauri/target/${TARGET}/release/bundle/dmg/*.dmg)
+          app_src=(frontend/src-tauri/target/${TARGET}/release/bundle/macos/*.app.tar.gz)
+          if [[ ! -f "${dmg_src[0]}" ]]; then
+            echo "::error::DMG artifact not found for ${TARGET}"
+            exit 1
+          fi
+          cp "${dmg_src[0]}" "artifacts/AI-Novel-Studio_${VERSION}_macos_${ARCH}.dmg"
+          if [[ -f "${app_src[0]}" ]]; then
+            cp "${app_src[0]}" "artifacts/AI-Novel-Studio_${VERSION}_macos_${ARCH}.app.tar.gz"
+          fi
+          ls -la artifacts/
 
       - name: Collect artifacts (Linux)
         if: matrix.platform == 'linux'
@@ -95,30 +164,56 @@ jobs:
           VERSION: ${{ github.ref_name }}
           TARGET: ${{ matrix.target }}
         run: |
+          set -euo pipefail
           mkdir -p artifacts
-          cp "frontend/src-tauri/target/${TARGET}/release/bundle/deb/"*.deb "artifacts/AI-Novel-Studio_${VERSION}_linux_amd64.deb" 2>/dev/null || true
-          cp "frontend/src-tauri/target/${TARGET}/release/bundle/appimage/"*.AppImage "artifacts/AI-Novel-Studio_${VERSION}_linux_amd64.AppImage" 2>/dev/null || true
-          ls -la artifacts/ || echo "No Linux artifacts found"
+          deb_src=(frontend/src-tauri/target/${TARGET}/release/bundle/deb/*.deb)
+          appimage_src=(frontend/src-tauri/target/${TARGET}/release/bundle/appimage/*.AppImage)
+          found=0
+          if [[ -f "${deb_src[0]}" ]]; then
+            cp "${deb_src[0]}" "artifacts/AI-Novel-Studio_${VERSION}_linux_amd64.deb"
+            found=1
+          fi
+          if [[ -f "${appimage_src[0]}" ]]; then
+            cp "${appimage_src[0]}" "artifacts/AI-Novel-Studio_${VERSION}_linux_amd64.AppImage"
+            found=1
+          fi
+          if [[ "$found" -eq 0 ]]; then
+            echo "::error::No Linux artifact found for ${TARGET}"
+            exit 1
+          fi
+          ls -la artifacts/
 
       - name: Collect artifacts (Windows)
         if: matrix.platform == 'windows'
         env:
           VERSION: ${{ github.ref_name }}
           TARGET: ${{ matrix.target }}
+        shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path artifacts | Out-Null
-          Copy-Item "frontend\src-tauri\target\$($env:TARGET)\release\bundle\msi\*.msi" "artifacts\AI-Novel-Studio_$($env:VERSION)_windows_x64.msi" -ErrorAction SilentlyContinue
-          Copy-Item "frontend\src-tauri\target\$($env:TARGET)\release\bundle\nsis\*.exe" "artifacts\AI-Novel-Studio_$($env:VERSION)_windows_x64_setup.exe" -ErrorAction SilentlyContinue
+          $msi = Get-Item "frontend\src-tauri\target\$($env:TARGET)\release\bundle\msi\*.msi" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $exe = Get-Item "frontend\src-tauri\target\$($env:TARGET)\release\bundle\nsis\*.exe" -ErrorAction SilentlyContinue | Select-Object -First 1
+          $found = $false
+          if ($msi) {
+            Copy-Item $msi.FullName "artifacts\AI-Novel-Studio_$($env:VERSION)_windows_x64.msi"
+            $found = $true
+          }
+          if ($exe) {
+            Copy-Item $exe.FullName "artifacts\AI-Novel-Studio_$($env:VERSION)_windows_x64_setup.exe"
+            $found = $true
+          }
+          if (-not $found) {
+            Write-Error "No Windows artifact found for $($env:TARGET)"
+            exit 1
+          }
           Get-ChildItem artifacts\
 
       - name: Upload artifacts
-        # 按 target 命名，保证唯一：darwin 现有 arm64 + x64 两个 job，若都用
-        # release-darwin 会与 upload-artifact@v4 的同名不可变约束冲突。
         uses: actions/upload-artifact@v4
         with:
           name: release-${{ matrix.target }}
           path: artifacts/
-          if-no-files-found: warn
+          if-no-files-found: error
 
   release:
     name: Create Release
@@ -148,7 +243,7 @@ jobs:
             ## AI Novel Studio ${{ github.ref_name }}
 
             ### macOS
-            - Apple Silicon（M 系列）下载 `..._macos_arm64.dmg`；Intel Mac 下载 `..._macos_x64.dmg`
+            - 仅提供 Apple Silicon（M 系列）版本：下载 `..._macos_arm64.dmg`
             - 拖入「应用程序」后**右键点应用 → 打开 → 再点「打开」**（应用为 ad-hoc 签名、未公证）
             - 若提示"已损坏"，在终端执行：`xattr -dr com.apple.quarantine "/Applications/AI Novel Studio.app"` 后再打开
 
