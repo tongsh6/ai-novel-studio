@@ -594,6 +594,7 @@ export function WorkspaceChat() {
     text: string;
   } | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
+  const [selectedFindingIdsMap, setSelectedFindingIdsMap] = useState<Record<string, string[]>>({});
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore((state) => state.socketConnected);
@@ -1109,13 +1110,13 @@ export function WorkspaceChat() {
 
   // VS-00E CP3：按质量发现重写——从本轮 available_actions 取出 revise_from_findings 动作，
   // 携带要处理的发现引用提交。后端会另生成一份 tentative 修订草稿（原草稿保留、不自动采纳）。
-  const handleReviseFromFindings = async (turnResult: TurnResult) => {
+  const handleReviseFromFindings = async (turnResult: TurnResult, selectedFindingIds?: string[]) => {
     const action = (turnResult.available_actions ?? []).find(
       (candidate) => candidate.action_type === "revise_from_findings",
     );
     if (!action) return;
     await handleAvailableAction(turnResult, action, {
-      quality_finding_refs: action.quality_finding_refs ?? [],
+      quality_finding_refs: selectedFindingIds ?? action.quality_finding_refs ?? [],
     });
   };
 
@@ -2633,21 +2634,49 @@ export function WorkspaceChat() {
                     }
                   })}
 
-                {!isReadOnlySessionView && msg.turnResult?.quality_review && (
-                  <QualityReviewCard
-                    review={msg.turnResult.quality_review}
-                    onRevise={
-                      (msg.turnResult.available_actions ?? []).some(
-                        (action) => action.action_type === "revise_from_findings",
-                      )
-                        ? () => {
-                            void handleReviseFromFindings(msg.turnResult!);
-                          }
-                        : undefined
-                    }
-                    revising={loading}
-                  />
-                )}
+                {(() => {
+                  const turnResult = msg.turnResult;
+                  if (!isReadOnlySessionView && turnResult && turnResult.quality_review) {
+                    const qr = turnResult.quality_review;
+                    const turnId = turnResult.turn_id;
+                    const defaultIds = qr.findings.map((f) => f.validator || "");
+
+                    return (
+                      <QualityReviewCard
+                        review={qr}
+                        selectedFindingIds={selectedFindingIdsMap[turnId] ?? defaultIds}
+                        onToggleFinding={(findingId) => {
+                          setSelectedFindingIdsMap((prev) => {
+                            const current = prev[turnId] ?? defaultIds;
+                            const next = current.includes(findingId)
+                              ? current.filter((id) => id !== findingId)
+                              : [...current, findingId];
+                            return { ...prev, [turnId]: next };
+                          });
+                        }}
+                        onToggleAllFindings={() => {
+                          setSelectedFindingIdsMap((prev) => {
+                            const current = prev[turnId] ?? defaultIds;
+                            const next = current.length === defaultIds.length ? [] : defaultIds;
+                            return { ...prev, [turnId]: next };
+                          });
+                        }}
+                        onRevise={
+                          (turnResult.available_actions ?? []).some(
+                            (action) => action.action_type === "revise_from_findings",
+                          )
+                            ? () => {
+                                const selected = selectedFindingIdsMap[turnId] ?? defaultIds;
+                                void handleReviseFromFindings(turnResult, selected);
+                              }
+                            : undefined
+                        }
+                        revising={loading}
+                      />
+                    );
+                  }
+                  return null;
+                })()}
 
                 {!isReadOnlySessionView &&
                   msg.turnResult?.candidate_directions &&

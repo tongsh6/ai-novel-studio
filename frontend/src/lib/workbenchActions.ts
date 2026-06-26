@@ -56,6 +56,7 @@ export function filterVisibleAvailableActions<T extends AvailableActionLike>(
   const pending = new Set(pendingArtifactIds);
   return availableActions.filter((action) => {
     if (action.action_type === "choose_candidate") return false;
+    if (action.action_type === "revise_from_findings") return false;
     if (ARTIFACT_ADOPTION_ACTION_TYPES.includes(action.action_type) && action.target_ref) {
       return pending.has(action.target_ref);
     }

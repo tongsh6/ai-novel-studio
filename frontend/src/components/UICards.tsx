@@ -142,10 +142,16 @@ export interface QualityReviewView {
 
 export function QualityReviewCard({
   review,
+  selectedFindingIds = [],
+  onToggleFinding,
+  onToggleAllFindings,
   onRevise,
   revising = false,
 }: {
   review: QualityReviewView;
+  selectedFindingIds?: string[];
+  onToggleFinding?: (findingId: string) => void;
+  onToggleAllFindings?: () => void;
   onRevise?: () => void;
   revising?: boolean;
 }) {
@@ -165,39 +171,90 @@ export function QualityReviewCard({
     return null;
   }
 
+  const allSelected = selectedFindingIds.length === review.findings.length;
+
   return (
     <div className={`${styles.card} ${styles.warningCard}`}>
       <div className={styles.header}>
         <div className={styles.warningIcon}>!</div>
         <div className={styles.title}>{CARD.qualityReview.title(review.findings.length)}</div>
       </div>
-      <ol className={styles.body}>
-        {review.findings.map((finding, index) => {
-          const evidence = displayText(finding.evidence_spans?.[0]?.text);
-          return (
-            <li key={index}>
-              <span>{finding.summary}</span>
-              {evidence && (
-                <div className={styles.qualityEvidence}>
-                  {CARD.qualityReview.evidencePrefix}
-                  {evidence}
+
+      <div className={styles.findingsContainer}>
+        {onRevise && review.findings.length > 1 && onToggleAllFindings && (
+          <div className={styles.selectAllRow}>
+            <label className={styles.selectAllLabel}>
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={onToggleAllFindings}
+                disabled={revising}
+              />
+              <span>全选所有可改进问题</span>
+            </label>
+          </div>
+        )}
+
+        <div className={styles.findingsList}>
+          {review.findings.map((finding, index) => {
+            const evidence = displayText(finding.evidence_spans?.[0]?.text);
+            const findingId = finding.validator || `${index}`;
+            const isSelected = selectedFindingIds.includes(findingId);
+            const gateLabel = finding.quality_gate
+              ? finding.quality_gate.replace("quality_gate.", "").toUpperCase()
+              : "";
+
+            return (
+              <div key={index} className={styles.findingCard}>
+                <div className={styles.findingCardHeader}>
+                  {onRevise && onToggleFinding ? (
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      disabled={revising}
+                      onChange={() => onToggleFinding(findingId)}
+                      className={styles.findingCheckbox}
+                    />
+                  ) : null}
+                  <div className={styles.findingCardMeta}>
+                    {gateLabel && (
+                      <span className={styles.findingCategoryBadge}>
+                        {gateLabel}
+                      </span>
+                    )}
+                    <span className={styles.findingSummary}>{finding.summary}</span>
+                  </div>
                 </div>
-              )}
-            </li>
-          );
-        })}
-      </ol>
+
+                {evidence && (
+                  <blockquote className={styles.evidenceQuote}>
+                    <span className={styles.evidencePrefix}>
+                      {CARD.qualityReview.evidencePrefix}
+                    </span>
+                    {evidence}
+                  </blockquote>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
       {onRevise && (
         <>
-          <div className={styles.qualityEvidence}>{CARD.qualityReview.reviseHint}</div>
+          <div className={styles.qualityHintText}>{CARD.qualityReview.reviseHint}</div>
           <div className={styles.actions}>
             <button
               type="button"
               className={styles.btnSecondary}
               onClick={onRevise}
-              disabled={revising}
+              disabled={revising || selectedFindingIds.length === 0}
             >
-              {CARD.qualityReview.reviseButton}
+              {selectedFindingIds.length === 0
+                ? "请选择要重写的问题"
+                : selectedFindingIds.length === review.findings.length
+                ? CARD.qualityReview.reviseButton
+                : `按所选 ${selectedFindingIds.length} 项问题重写`}
             </button>
           </div>
         </>
