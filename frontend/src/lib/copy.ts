@@ -92,6 +92,8 @@ export const CARD = {
     unavailableBody: "质量评审未能完成，以下原稿仍可由你审阅与采纳；系统不会据此自动改写或判定通过。",
     reviseButton: "按这些问题重写",
     reviseHint: "重写会另生成一份修订草稿供你对比；原草稿保留，不会自动采纳。",
+    revisingButton: "正在生成修订草稿...",
+    revisingButtonPartial: (count: number) => `正在按所选 ${count} 项问题重写...`,
     gateLabels: {
       "quality_gate.worldrule_conflict": "设定冲突",
       "quality_gate.character_logic": "人物逻辑",

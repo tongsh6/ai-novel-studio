@@ -2,7 +2,7 @@
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
 import { CARD } from "../lib/copy";
 import styles from "./UICards.module.css";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 
 // Basic interface for UI cards, shared across v2 and v3 implementations
 export interface UICardData {
@@ -181,7 +181,7 @@ export function QualityReviewCard({
         <div className={styles.title}>{CARD.qualityReview.title(review.findings.length)}</div>
       </div>
 
-      <div className={styles.findingsContainer}>
+      <div className={`${styles.findingsContainer} ${revising ? styles.revisingContainer : ""}`}>
         {onRevise && review.findings.length > 1 && onToggleAllFindings && (
           <div className={styles.selectAllRow}>
             <label className={styles.selectAllLabel}>
@@ -253,11 +253,22 @@ export function QualityReviewCard({
               onClick={onRevise}
               disabled={revising || selectedFindingIds.length === 0}
             >
-              {selectedFindingIds.length === 0
-                ? "请选择要重写的问题"
-                : selectedFindingIds.length === review.findings.length
-                ? CARD.qualityReview.reviseButton
-                : `按所选 ${selectedFindingIds.length} 项问题重写`}
+              {revising ? (
+                <span className={styles.buttonIconText}>
+                  <Loader2 className={styles.spinner} size={14} />
+                  <span>
+                    {selectedFindingIds.length === review.findings.length
+                      ? CARD.qualityReview.revisingButton
+                      : CARD.qualityReview.revisingButtonPartial(selectedFindingIds.length)}
+                  </span>
+                </span>
+              ) : selectedFindingIds.length === 0 ? (
+                "请选择要重写的问题"
+              ) : selectedFindingIds.length === review.findings.length ? (
+                CARD.qualityReview.reviseButton
+              ) : (
+                `按所选 ${selectedFindingIds.length} 项问题重写`
+              )}
             </button>
           </div>
         </>
