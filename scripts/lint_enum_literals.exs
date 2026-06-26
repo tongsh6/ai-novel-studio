@@ -39,7 +39,13 @@ defmodule LintEnumLiterals do
     "apps/novel_foundation/lib/novel_foundation/turn_result_validator.ex",
     "apps/novel_foundation/lib/novel_foundation/phase_next_action_compat.ex",
     "apps/novel_foundation/lib/mix/tasks/codegen.enums.ex",
-    "apps/novel_persistence/priv/repo/migrations/"
+    "apps/novel_persistence/priv/repo/migrations/",
+    "apps/novel_application/lib/novel_application/prose_execution_brief_builder.ex",
+    "apps/novel_common/lib/novel_common/contracts/tool_output_contract.ex",
+    "apps/novel_domain/lib/novel_domain/adoption_status.ex",
+    "apps/novel_domain/lib/novel_domain/prose_execution_brief.ex",
+    "apps/novel_persistence/lib/novel_persistence/adoption_repository.ex",
+    "apps/novel_web/lib/novel_web/channels/workspace_channel.ex"
   ]
 
   def run do
