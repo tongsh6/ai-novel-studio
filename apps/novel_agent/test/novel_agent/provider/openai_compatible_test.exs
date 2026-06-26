@@ -5,6 +5,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Kimi
   alias NovelAgent.Provider.Minimax
+  alias NovelAgent.Provider.MinimaxCN
   alias NovelAgent.Provider.OpenAI
   alias NovelAgent.Provider.OpenAISubscription
   alias NovelAgent.Provider.Zhipu
@@ -18,7 +19,10 @@ defmodule NovelAgent.Provider.OpenAICompatibleTest do
       assert OpenAISubscription.from_config().endpoint == "https://api.openai.com/v1"
 
       assert Minimax.name() == "minimax"
-      assert Minimax.from_config().endpoint == "https://api.minimaxi.com/v1"
+      assert Minimax.from_config().endpoint == "https://api.minimax.io/v1"
+
+      assert MinimaxCN.name() == "minimax_cn"
+      assert MinimaxCN.from_config().endpoint == "https://api.minimaxi.com/v1"
 
       assert Zhipu.name() == "zhipu"
       assert Zhipu.from_config().endpoint == "https://open.bigmodel.cn/api/paas/v4"

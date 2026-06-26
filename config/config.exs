@@ -85,8 +85,14 @@ config :novel_agent, NovelAgent.Provider.OpenAISubscription,
 
 config :novel_agent, NovelAgent.Provider.Minimax,
   api_key: System.get_env("NOVEL_MINIMAX_API_KEY"),
-  endpoint: System.get_env("NOVEL_MINIMAX_ENDPOINT", "https://api.minimaxi.com/v1"),
+  endpoint: System.get_env("NOVEL_MINIMAX_ENDPOINT", "https://api.minimax.io/v1"),
   model: System.get_env("NOVEL_MINIMAX_MODEL", "MiniMax-Text-01"),
+  timeout: llm_timeout_ms
+
+config :novel_agent, NovelAgent.Provider.MinimaxCN,
+  api_key: System.get_env("NOVEL_MINIMAX_CN_API_KEY"),
+  endpoint: System.get_env("NOVEL_MINIMAX_CN_ENDPOINT", "https://api.minimaxi.com/v1"),
+  model: System.get_env("NOVEL_MINIMAX_CN_MODEL", "MiniMax-Text-01"),
   timeout: llm_timeout_ms
 
 config :novel_agent, NovelAgent.Provider.Zhipu,

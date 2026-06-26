@@ -36,7 +36,7 @@ defmodule NovelAgent.Provider.GatewayTest do
     test "registers the OpenAI-compatible vendor matrix" do
       providers = Gateway.registered_providers()
 
-      for vendor <- [:openai, :openai_subscription, :minimax, :zhipu, :kimi, :gemini] do
+      for vendor <- [:openai, :openai_subscription, :minimax, :minimax_cn, :zhipu, :kimi, :gemini] do
         assert vendor in providers
       end
     end

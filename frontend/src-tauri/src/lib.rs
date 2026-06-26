@@ -87,7 +87,7 @@ struct ModelProviderSecretStorageStatus {
 const MAX_ASSISTANT_DISPLAY_NAME_LENGTH: usize = 20;
 const MAX_PROVIDER_FIELD_LENGTH: usize = 200;
 const MAX_DESKTOP_PROFILE_LENGTH: usize = 40;
-const MODEL_PROVIDER_IDS: [&str; 10] = [
+const MODEL_PROVIDER_IDS: [&str; 11] = [
     "stub",
     "lmstudio",
     "anthropic",
@@ -95,6 +95,7 @@ const MODEL_PROVIDER_IDS: [&str; 10] = [
     "openai",
     "openai_subscription",
     "minimax",
+    "minimax_cn",
     "zhipu",
     "kimi",
     "gemini",
@@ -694,6 +695,7 @@ mod tests {
             "openai",
             "openai_subscription",
             "minimax",
+            "minimax_cn",
             "zhipu",
             "kimi",
             "gemini",

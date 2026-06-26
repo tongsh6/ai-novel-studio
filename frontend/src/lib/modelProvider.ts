@@ -16,6 +16,7 @@ export type ProviderId =
   | "openai"
   | "openai_subscription"
   | "minimax"
+  | "minimax_cn"
   | "zhipu"
   | "kimi"
   | "gemini";
@@ -28,6 +29,7 @@ export const PROVIDER_IDS: readonly ProviderId[] = [
   "openai",
   "openai_subscription",
   "minimax",
+  "minimax_cn",
   "zhipu",
   "kimi",
   "gemini",

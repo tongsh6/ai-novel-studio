@@ -36,6 +36,7 @@ defmodule NovelAgent.Provider.Gateway do
     openai: Provider.OpenAI,
     openai_subscription: Provider.OpenAISubscription,
     minimax: Provider.Minimax,
+    minimax_cn: Provider.MinimaxCN,
     zhipu: Provider.Zhipu,
     kimi: Provider.Kimi,
     gemini: Provider.Gemini
@@ -85,7 +86,14 @@ defmodule NovelAgent.Provider.Gateway do
       supports_thinking: false
     },
     minimax: %{
-      label: "Minimax",
+      label: "Minimax (国际版)",
+      requires_api_key: true,
+      supports_api_key: true,
+      supports_endpoint: true,
+      supports_thinking: false
+    },
+    minimax_cn: %{
+      label: "Minimax (国内版)",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,

@@ -171,6 +171,7 @@ describe("model provider API client", () => {
       "openai",
       "openai_subscription",
       "minimax",
+      "minimax_cn",
       "zhipu",
       "kimi",
       "gemini",
