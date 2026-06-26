@@ -1068,7 +1068,7 @@ export function WorkspaceChat() {
   }
 
   const handleCandidateContinue = async (turnResult: TurnResult, candidate: CandidateDirection) => {
-    if (!channelRef.current) return;
+    if (!channelRef.current || loading) return;
 
     const text = candidateContinuationText(candidate.title, candidate.pitch);
     setMessages((prev) => [...prev, { role: "user", text }]);
@@ -1091,7 +1091,7 @@ export function WorkspaceChat() {
     action: AvailableActionLike,
     authorPayload?: Record<string, unknown>,
   ) => {
-    if (!channelRef.current || action.enabled === false) return;
+    if (!channelRef.current || action.enabled === false || loading) return;
 
     setLoading(true);
 
