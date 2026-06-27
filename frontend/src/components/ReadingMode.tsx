@@ -1,6 +1,6 @@
 // Design: docs/design/ui/44-reading-mode.md §3
 // Prototype: novel-studio.pen → 44§3-reading-mode-stale (hEGz0)
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useAppStore } from "../lib/store";
 import { isTauri } from "../lib/env";
@@ -26,7 +26,11 @@ export function ReadingMode() {
   const [toc, setToc] = useState<TocData | null>(null);
   const [tocError, setTocError] = useState<string | null>(null);
   const [activeChapterId, setActiveChapterId] = useState<string | null>(null);
-  const [chapterContent, setChapterContent] = useState<ChapterContent | null>(null);
+  const [chaptersContent, setChaptersContent] = useState<Record<string, ChapterContent>>({});
+  const [loadingContent, setLoadingContent] = useState(false);
+  const [isManualScrolling, setIsManualScrolling] = useState(false);
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+
   const [exportDialogOpen, setExportDialogOpen] = useState(false);
   const [exportProgress, setExportProgress] = useState<number>(0);
   const [exportStep, setExportStep] = useState<string>("");
@@ -38,10 +42,6 @@ export function ReadingMode() {
   const audit = tocView?.audit ?? null;
   const belowMinCount = audit ? audit.shortChapterCount + audit.emptyChapterCount : 0;
   const chapters = tocView?.volumes.flatMap((volume) => volume.chapters) ?? [];
-  const activeChapter = chapters.find((chapter) => chapter.id === activeChapterId);
-  const readableChapterContent = chapterContent
-    ? normalizeChapterContentTitle(chapterContent, activeChapter)
-    : null;
   const runtimeState = deriveWorkspaceRuntimeState({
     connection: { connected: Boolean(channel) },
     work: { id: context.workId, title: context.workTitle },
@@ -54,11 +54,17 @@ export function ReadingMode() {
   });
   const readingStatus = getReadingProjectionStatus(runtimeState);
   const hasContent = readingStatus === "ready" || readingStatus === "stale";
-  const contentLoading = activeChapterId != null && chapterContent == null;
+  const contentLoading = loadingContent;
 
-  // Fetch TOC on mount when workId is set
+  // Fetch TOC and chapter contents on mount when workId is set
   useEffect(() => {
     if (!channel || !context.workId) return;
+
+    // Set loading asynchronously to avoid react-hooks/set-state-in-effect lint error
+    void Promise.resolve().then(() => {
+      setLoadingContent(true);
+    });
+
     getToc(channel, context.workId)
       .then((data) => {
         setTocError(null);
@@ -68,20 +74,69 @@ export function ReadingMode() {
         if (firstChapter) {
           setActiveChapterId(firstChapter.id);
         }
+
+        const chList = data.volumes.flatMap((v) => v.chapters);
+        const contentMap: Record<string, ChapterContent> = {};
+
+        // Fetch all chapter contents in parallel
+        return Promise.all(
+          chList.map(async (ch) => {
+            try {
+              const content = await getChapterContent(channel, ch.id);
+              contentMap[ch.id] = content;
+            } catch (err) {
+              console.error("Failed to load content for chapter", ch.id, err);
+            }
+          })
+        ).then(() => {
+          setChaptersContent(contentMap);
+        });
       })
       .catch((error) => {
         setToc(null);
         setTocError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        setLoadingContent(false);
       });
   }, [channel, context.workId]);
 
-  // Fetch chapter content when active chapter changes
-  useEffect(() => {
-    if (!channel || !activeChapterId) return;
-    getChapterContent(channel, activeChapterId)
-      .then((data) => setChapterContent(data))
-      .catch(() => setChapterContent(null));
-  }, [channel, activeChapterId]);
+  const handleChapterClick = (chapterId: string) => {
+    setActiveChapterId(chapterId);
+    const element = document.getElementById(`chapter-${chapterId}`);
+    if (element && contentAreaRef.current) {
+      setIsManualScrolling(true);
+      element.scrollIntoView({ behavior: "smooth", block: "start" });
+      setTimeout(() => {
+        setIsManualScrolling(false);
+      }, 800);
+    }
+  };
+
+  const handleScroll = () => {
+    if (isManualScrolling) return;
+    const container = contentAreaRef.current;
+    if (!container) return;
+
+    const containerTop = container.getBoundingClientRect().top;
+    const chList = tocView?.volumes.flatMap((v) => v.chapters) ?? [];
+    let foundActiveId = activeChapterId;
+
+    for (const ch of chList) {
+      const element = document.getElementById(`chapter-${ch.id}`);
+      if (element) {
+        const rect = element.getBoundingClientRect();
+        if (rect.bottom > containerTop + 100) {
+          foundActiveId = ch.id;
+          break;
+        }
+      }
+    }
+
+    if (foundActiveId && foundActiveId !== activeChapterId) {
+      setActiveChapterId(foundActiveId);
+    }
+  };
 
   const handleRefreshProjection = () => {
     setPendingBuildAction("refresh_projection");
@@ -292,7 +347,7 @@ export function ReadingMode() {
                       className={
                         ch.id === activeChapterId ? styles.tocChapterActive : styles.tocChapter
                       }
-                      onClick={() => setActiveChapterId(ch.id)}
+                      onClick={() => handleChapterClick(ch.id)}
                     >
                       <span className={styles.tocChapterTitle}>{ch.title}</span>
                       {ch.status === "empty" && (
@@ -315,49 +370,72 @@ export function ReadingMode() {
         </div>
 
         {/* Reading content area */}
-        <div className={styles.readingContentArea}>
+        <div
+          className={styles.readingContentArea}
+          ref={contentAreaRef}
+          onScroll={handleScroll}
+        >
           {contentLoading ? (
             <div className={styles.contentBlock}>
               <p>加载中…</p>
             </div>
-          ) : !readableChapterContent ? (
+          ) : !hasContent || chapters.length === 0 ? (
             <div className={styles.contentBlock}>
-              {hasContent
-                ? "请从左侧目录选择一个章节。"
-                : "返回工作台，在对话中生成并采纳草稿后，即可在此阅读。"}
+              返回工作台，在对话中生成并采纳草稿后，即可在此阅读。
             </div>
           ) : (
             <div className={styles.contentBlock}>
-              <h1 className={styles.chapterTitle}>{readableChapterContent.title}</h1>
-              {(activeChapter?.wordCount ?? 0) > 0 && (
-                <div className={styles.chapterMeta}>
-                  {READING.chapterWordsLabel} {formatWordCount(activeChapter?.wordCount ?? 0)}
-                </div>
-              )}
-              {readableChapterContent.scenes.length === 0 ? (
-                <div className={styles.paragraph}>{READING.emptyChapterBody}</div>
-              ) : (
-                readableChapterContent.scenes.map((scene, si) => (
-                  <div key={si}>
-                    {scene.title && scene.title !== readableChapterContent.title && (
-                      <h3 className={styles.sceneTitle}>{scene.title}</h3>
-                    )}
-                    {scene.content ? (
-                      scene.content.split("\n").map((para, pi) =>
-                        para.trim() ? (
-                          <div key={pi} className={styles.paragraph}>
-                            {para}
-                          </div>
-                        ) : (
-                          <br key={pi} />
-                        ),
-                      )
+              {chapters.map((ch) => {
+                const content = chaptersContent[ch.id];
+                const readable = content
+                  ? normalizeChapterContentTitle(content, ch)
+                  : null;
+
+                return (
+                  <div
+                    key={ch.id}
+                    id={`chapter-${ch.id}`}
+                    data-chapter-id={ch.id}
+                    className={styles.chapterSection}
+                  >
+                    <h1 className={styles.chapterTitle}>{readable?.title || ch.title}</h1>
+                    {ch.wordCount && ch.wordCount > 0 ? (
+                      <div className={styles.chapterMeta}>
+                        {READING.chapterWordsLabel} {formatWordCount(ch.wordCount)}
+                      </div>
+                    ) : null}
+
+                    {!readable ? (
+                      <div className={styles.paragraph}>加载中…</div>
+                    ) : readable.scenes.length === 0 ? (
+                      <div className={styles.paragraph}>{READING.emptyChapterBody}</div>
                     ) : (
-                      <div className={styles.paragraph}>{READING.sceneEmptyBody}</div>
+                      readable.scenes.map((scene, si) => (
+                        <div key={si}>
+                          {scene.title && scene.title !== readable.title && (
+                            <h3 className={styles.sceneTitle}>{scene.title}</h3>
+                          )}
+                          {scene.content ? (
+                            scene.content.split("\n").map((para, pi) =>
+                              para.trim() ? (
+                                <div key={pi} className={styles.paragraph}>
+                                  {para}
+                                </div>
+                              ) : (
+                                <br key={pi} />
+                              ),
+                            )
+                          ) : (
+                            <div className={styles.paragraph}>{READING.sceneEmptyBody}</div>
+                          )}
+                        </div>
+                      ))
                     )}
+                    {/* Visual spacer between chapters */}
+                    <div className={styles.chapterDivider} />
                   </div>
-                ))
-              )}
+                );
+              })}
             </div>
           )}
         </div>

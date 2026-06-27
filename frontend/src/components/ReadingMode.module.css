@@ -381,3 +381,22 @@
     opacity: 1;
   }
 }
+
+.chapterSection {
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+  margin-bottom: 64px;
+}
+
+.chapterSection:last-child {
+  padding-bottom: 80vh;
+}
+
+.chapterDivider {
+  height: 1px;
+  background-color: var(--border-subtle);
+  margin-top: 48px;
+  opacity: 0.5;
+}
+
