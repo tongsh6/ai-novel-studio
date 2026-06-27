@@ -107,7 +107,7 @@ export function MemoryDetailDrawer({ workId, item, onUpdated, onClose }: Props) 
         {item.summary && (
           <section className={styles.section}>
             <label>摘要</label>
-            <p>{item.summary}</p>
+            <p className={styles.content}>{item.summary}</p>
           </section>
         )}
 
