@@ -77,6 +77,7 @@ defmodule LintEnumLiterals do
       |> Map.fetch!("enum")
     end)
     |> Enum.uniq()
+
     # 去掉过短或与英文常用词冲突的值（如 "READY" / "RUNNING" 在 docstring 里很常见）
     # 保留完整白名单进 grep；命中后让人审。这里不去掉。
   end
@@ -103,7 +104,9 @@ defmodule LintEnumLiterals do
     else
       Enum.flat_map(forbidden, fn value ->
         if String.contains?(line, ~s("#{value}")) do
-          ["#{file}:#{lineno}: forbidden literal \"#{value}\" — use Enums.*.#{String.downcase(value)}()"]
+          [
+            "#{file}:#{lineno}: forbidden literal \"#{value}\" — use Enums.*.#{String.downcase(value)}()"
+          ]
         else
           []
         end
