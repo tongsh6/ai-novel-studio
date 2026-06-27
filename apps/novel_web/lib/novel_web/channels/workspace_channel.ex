@@ -26,7 +26,10 @@ defmodule NovelWeb.WorkspaceChannel do
   def join("workspace:" <> suffix, payload, socket) do
     work_id = resolve_join_work_id(suffix, payload)
     session_id = resolve_join_session_id(work_id, payload)
-    restored_turn_results = restored_turn_results(work_id, session_id)
+    restored_list = restored_turn_results_list(work_id, session_id)
+    restored_map = Map.new(restored_list, fn tr ->
+      {tr[:turn_id] || tr["turn_id"], tr}
+    end)
 
     LogContext.put_turn(suffix, work_id, nil, session_id)
 
@@ -35,8 +38,9 @@ defmodule NovelWeb.WorkspaceChannel do
       |> assign(:workspace_id, suffix)
       |> assign(:work_id, work_id)
       |> assign(:session_id, session_id)
-      |> assign(:turn_results_by_id, restored_turn_results)
-      |> assign(:current_turn_id, latest_turn_id(restored_turn_results))
+      |> assign(:turn_results_list, restored_list)
+      |> assign(:turn_results_by_id, restored_map)
+      |> assign(:current_turn_id, latest_turn_id(restored_map))
       |> assign(:action_idempotency_ledger, %{})
 
     # Best-effort touch so the most-recently-opened work surfaces first in
@@ -79,40 +83,33 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
-  defp restored_turn_results(work_id, session_id) do
+  defp restored_turn_results_list(work_id, session_id) do
     if valid_uuid?(work_id) and valid_uuid?(session_id) do
-      turn_results_from_resume(work_id, session_id)
+      case WorkSessionService.resume(work_id) do
+        {:ok, %{transcript: transcript}} ->
+          LogEmit.emit(:work_session, :resume, :done, %{
+            work_id: work_id,
+            session_id: session_id,
+            transcript_count: length(transcript),
+            pending_adoption_count: count_pending_adoptions_in_list(transcript)
+          })
+
+          transcript
+          |> Enum.map(& &1.turn_result)
+          |> Enum.reject(&is_nil/1)
+
+        _ ->
+          []
+      end
     else
-      %{}
-    end
-  end
-
-  defp turn_results_from_resume(work_id, session_id) do
-    case WorkSessionService.resume(work_id) do
-      {:ok, %{transcript: transcript}} ->
-        LogEmit.emit(:work_session, :resume, :done, %{
-          work_id: work_id,
-          session_id: session_id,
-          transcript_count: length(transcript),
-          pending_adoption_count: count_pending_adoptions(transcript)
-        })
-
-        transcript
-        |> Enum.map(& &1.turn_result)
-        |> Enum.reject(&is_nil/1)
-        |> Map.new(fn turn_result ->
-          {turn_result[:turn_id] || turn_result["turn_id"], turn_result}
-        end)
-
-      _ ->
-        %{}
+      []
     end
   end
 
   defp latest_turn_id(turn_results) when map_size(turn_results) == 0, do: nil
   defp latest_turn_id(turn_results), do: turn_results |> Map.keys() |> List.last()
 
-  defp count_pending_adoptions(transcript) do
+  defp count_pending_adoptions_in_list(transcript) do
     transcript
     |> Enum.flat_map(fn entry ->
       turn_result = entry.turn_result || %{}
@@ -200,7 +197,12 @@ defmodule NovelWeb.WorkspaceChannel do
     session_id = socket.assigns[:session_id]
 
     source_turn_result =
-      source_turn_result(socket, source_turn_ref, action_params["action_type"])
+      source_turn_result(
+        socket,
+        source_turn_ref,
+        action_params["action_type"],
+        action_params["target_ref"]
+      )
 
     LogContext.put_turn(ws_id, work_id, source_turn_ref, session_id)
 
@@ -1107,9 +1109,11 @@ defmodule NovelWeb.WorkspaceChannel do
 
   defp remember_turn_result(socket, %{turn_id: turn_id} = turn_result) when is_binary(turn_id) do
     turn_result = scope_turn_result(socket, turn_result)
+    list = [turn_result | socket.assigns[:turn_results_list] || []]
     turn_results = Map.put(socket.assigns[:turn_results_by_id] || %{}, turn_id, turn_result)
 
     socket
+    |> assign(:turn_results_list, list)
     |> assign(:turn_results_by_id, turn_results)
     |> assign(:current_turn_id, turn_id)
   end
@@ -1280,38 +1284,45 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
-  defp source_turn_result(socket, source_turn_ref) do
-    current_turn_id = socket.assigns[:current_turn_id]
-    turn_results = Map.get(socket.assigns, :turn_results_by_id, %{})
+  defp source_turn_result(socket, source_turn_ref, target_ref) do
+    list =
+      case socket.assigns[:turn_results_list] do
+        [_ | _] = list -> list
+        _ -> Map.values(socket.assigns[:turn_results_by_id] || %{})
+      end
 
-    cond do
-      is_map_key(turn_results, source_turn_ref) ->
-        Map.get(turn_results, source_turn_ref)
+    find_matching_turn_result(list, source_turn_ref, target_ref)
+  end
 
-      is_nil(current_turn_id) ->
-        nil
+  defp find_matching_turn_result(list, source_turn_ref, target_ref) do
+    match =
+      if is_binary(target_ref) and target_ref != "" do
+        Enum.find(list, fn tr ->
+          tid = tr[:turn_id] || tr["turn_id"]
+          tid == source_turn_ref and pending_artifact?(tr, target_ref)
+        end)
+      end
 
-      source_turn_ref != current_turn_id ->
+    match || Enum.find(list, &((&1[:turn_id] || &1["turn_id"]) == source_turn_ref))
+  end
+
+  defp source_turn_result(socket, source_turn_ref),
+    do: source_turn_result(socket, source_turn_ref, nil)
+
+  defp source_turn_result(socket, source_turn_ref, action_type, target_ref) do
+    result = source_turn_result(socket, source_turn_ref, target_ref)
+
+    if action_type in @current_turn_author_action_types do
+      current_turn_id = socket.assigns[:current_turn_id]
+
+      if is_binary(current_turn_id) and source_turn_ref != current_turn_id do
         %{turn_id: current_turn_id, available_actions: []}
-
-      true ->
-        Map.get(turn_results, source_turn_ref)
-    end
-  end
-
-  defp source_turn_result(socket, source_turn_ref, action_type)
-       when action_type in @current_turn_author_action_types do
-    current_turn_id = socket.assigns[:current_turn_id]
-
-    if is_binary(current_turn_id) and source_turn_ref != current_turn_id do
-      %{turn_id: current_turn_id, available_actions: []}
+      else
+        result
+      end
     else
-      source_turn_result(socket, source_turn_ref)
+      result
     end
-  end
-
-  defp source_turn_result(socket, source_turn_ref, _action_type) do
-    source_turn_result(socket, source_turn_ref)
   end
 
   defp source_turn_for_artifact_action(socket, requested_ref, artifact_id) do
