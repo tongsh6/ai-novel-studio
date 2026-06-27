@@ -1298,6 +1298,15 @@ export function WorkspaceChat() {
       return;
     }
 
+    if (actionType === "edit_then_accept") {
+      setEditDialog({
+        turnResult: match.turnResult,
+        action: match.action,
+        text: draftProseForAction(match.turnResult, match.action),
+      });
+      return;
+    }
+
     void handleAvailableAction(match.turnResult, match.action);
   };
 
