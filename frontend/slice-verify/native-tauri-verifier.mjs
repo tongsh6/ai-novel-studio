@@ -73,6 +73,7 @@ export const nativeSliceIds = [
   "p1-chapter-plan-minimum",
   "p1-chapter-draft-generation",
   "p1-prose-execution-brief",
+  "p1-prose-revision-candidate",
   "p1-chapter-adoption-reading",
   "p1-word-count-audit",
   "p1-chapter-edit-then-accept",
@@ -290,6 +291,19 @@ const sliceKeyEvents = {
     "prose_execution_brief.built.done",
     "toolbox.execute.done",
     "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-prose-revision-candidate": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "context.structure.done",
+    "prose_quality.evaluated.done",
+    "quality_policy.decided.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "prose_revision.generated.done",
+    "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-adoption-reading": [
@@ -1479,6 +1493,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ProseExecutionBriefEvidence(records);
   }
 
+  if (sliceId === "p1-prose-revision-candidate") {
+    return findP1ProseRevisionCandidateEvidence(records);
+  }
+
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
     return findVs00cCp4ChapterPlanStructureEvidence(records);
   }
@@ -2024,6 +2042,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "p1-prose-revision-candidate") {
+    return p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
     return vs00cCp4ChapterPlanStructureBehavior(turnIds, turnRecords, records, evidence, options);
   }
@@ -2523,6 +2545,147 @@ function p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, 
       options.provider === "lmstudio"
         ? "lmstudio_form_frame_and_micro_plan_called"
         : "deterministic_provider_form_frame_and_micro_plan_called",
+    ],
+  };
+}
+
+function findP1ProseRevisionCandidateEvidence(records) {
+  const sliceId = "p1-prose-revision-candidate";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const targetChapterTitle = "第02章：矿区追击战";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.draft_generated === true &&
+      record.draft_pending === true &&
+      record.revise_action_available === true &&
+      record.revise_action_sent === true &&
+      record.quality_review_card_visible === true &&
+      record.revision_card_visible === true &&
+      record.revision_body_differs === true &&
+      record.revision_pending === true &&
+      record.adopt_event_sent === false &&
+      record.chapter_title === targetChapterTitle,
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.turn_id ?? "");
+  const originalArtifactId = String(uiState.original_artifact_id ?? "");
+  if (!draftTurnId || !originalArtifactId) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+
+  if (!draftRecords.some((record) => record.event === "channel.user_message.start")) return null;
+  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+
+  const structure = draftRecords.find(
+    (record) =>
+      record.event === "context.structure.done" && record.target_chapter === targetChapterTitle,
+  );
+  if (!structure) return null;
+
+  // 本轮跑了独立质量评估并命中至少一项发现（finding 非作品事实）
+  const quality = draftRecords.find(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" && Number(record.finding_count ?? 0) >= 1,
+  );
+  if (!quality) return null;
+
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
+
+  // revise_from_findings 作者动作进入链路
+  if (
+    !records.some(
+      (record) =>
+        record.event === "channel.author_action.start" &&
+        record.action_type === "revise_from_findings",
+    )
+  ) {
+    return null;
+  }
+
+  // 修订候选被独立生成，provenance 精确指向被修订原稿
+  const revision = records.find(
+    (record) =>
+      record.event === "prose_revision.generated.done" &&
+      record.revision_base === originalArtifactId,
+  );
+  if (!revision) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    artifact_type: "prose_fragment",
+    chapter_title: targetChapterTitle,
+    original_artifact_id: originalArtifactId,
+    revision_artifact_ref: revision.revision_artifact_ref ?? uiState.revision_artifact_id ?? null,
+    revision_base: revision.revision_base,
+    finding_count: Number(quality.finding_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  const draftTurnId = evidence.draft_turn_id;
+
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.structure.done")) return null;
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "prose_quality.evaluated.done")) return null;
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "toolbox.execute.done")) return null;
+
+  // 修订候选生成（provenance 指向原稿），整个流程未触发采纳（不自动采纳）
+  const revision = records.find(
+    (record) =>
+      record.event === "prose_revision.generated.done" &&
+      record.revision_base === evidence.original_artifact_id,
+  );
+  if (!revision) return null;
+  if (hasEventPrefix(records, "channel.adopt.")) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-prose-revision-candidate" &&
+      record.turn_id === draftTurnId,
+  );
+  if (!uiState) return null;
+  if (uiState.revise_action_sent !== true) return null;
+  if (uiState.revision_card_visible !== true) return null;
+  if (uiState.revision_body_differs !== true) return null;
+  if (uiState.adopt_event_sent !== false) return null;
+  if (uiState.quality_review_card_visible !== true) return null;
+
+  return {
+    slice_id: "p1-prose-revision-candidate",
+    behavior:
+      "quality_findings_drove_revise_from_findings_into_sibling_tentative_revision_draft",
+    turn_ids: turnIds,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    original_artifact_id: evidence.original_artifact_id,
+    revision_base: revision.revision_base,
+    revision_artifact_ref: revision.revision_artifact_ref ?? null,
+    finding_count: evidence.finding_count,
+    assertions: [
+      "real_archive_outline_action_chapter_draft_clicked",
+      "independent_quality_review_found_at_least_one_finding",
+      "quality_review_card_and_revise_action_visible_on_real_page",
+      "author_clicked_revise_from_findings_on_real_page",
+      "sibling_tentative_revision_draft_generated_with_provenance_to_original",
+      "revision_draft_body_differs_from_original",
+      "revision_draft_not_auto_adopted",
     ],
   };
 }

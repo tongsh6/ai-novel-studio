@@ -167,6 +167,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/p1-prose-execution-brief.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh p1-prose-execution-brief --surface tauri
+  - id: p1-prose-revision-candidate
+    title: "质量发现后按问题重写为修订候选（VS-00E CP3）"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-prose-revision-candidate.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-prose-revision-candidate --surface tauri
   - id: p1-chapter-adoption-reading
     title: "已采纳章节正文进入阅读投影"
     tier: nightly

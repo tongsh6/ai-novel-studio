@@ -15268,8 +15268,153 @@ async function driveP1ProseExecutionBrief(page) {
   ];
 }
 
+async function driveP1ProseRevisionCandidate(page) {
+  const targetChapterTitle = "第02章：矿区追击战";
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    (targetTitle) =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert(
+    (await draftButtons.count()) >= 2,
+    "Archive outline did not render a draft action for the action chapter",
+  );
+  await draftButtons.nth(1).click();
+
+  // 正文草稿 turn：携带质量复核发现 + revise_from_findings 可用动作（节奏单调动作段被
+  // 确定性 validator 命中）。
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
+      Array.isArray(frame.body?.quality_review?.findings) &&
+      frame.body.quality_review.findings.length > 0 &&
+      (frame.body?.available_actions ?? []).some(
+        (action) => action.action_type === "revise_from_findings",
+      ),
+    "No prose_fragment turn_result with quality findings + revise action was received",
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const originalArtifactId = draftTurnResult.adoption_state.pending[0].artifact_id;
+  const originalBody = draftTurnResult.adoption_state.pending[0].payload?.items?.[0]?.body ?? "";
+
+  // 外部证据：本轮跑了独立质量评估并产出发现（finding 不是作品事实，仅供作者审阅）
+  const qualityRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" &&
+      record.turn_id === draftTurnResult.turn_id &&
+      Number(record.finding_count ?? 0) >= 1,
+    "No prose_quality.evaluated app log with findings for the draft turn",
+  );
+
+  // 真实页面可见：质量复核卡 + 「按这些问题重写」入口
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("质量复核") &&
+      document.body.innerText.includes("按这些问题重写"),
+    undefined,
+    { timeout: 10_000 },
+  );
+
+  const beforeReviseFrameCount = frames.length;
+  await page.getByRole("button", { name: "按这些问题重写" }).first().click();
+
+  // revise_from_findings 作者动作被真实工作台发出
+  const reviseActionFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "revise_from_findings" &&
+      frame.body?.action?.target_ref === originalArtifactId,
+    "Real workbench did not send a revise_from_findings author_action",
+  );
+
+  // 修订草稿 turn：一份新的 tentative 正文草稿，provenance 指向被修订原稿
+  const revisionTurnFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.trace_summary?.decision_type === "revise_from_findings" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No revision turn_result (decision_type revise_from_findings) was received",
+    90_000,
+  );
+  const revisionTurnResult = revisionTurnFrame.body;
+  const revisionArtifact = revisionTurnResult.adoption_state.pending[0];
+  const revisionBody = revisionArtifact.payload?.items?.[0]?.body ?? "";
+  const revisionCard = (revisionTurnResult.ui_cards ?? []).find(
+    (card) => card.card_type === "candidate_set",
+  );
+
+  // 外部证据：修订候选被独立生成，provenance 指向原稿；不自我递归评估
+  const revisionRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "prose_revision.generated.done" &&
+      record.revision_base === originalArtifactId,
+    "No prose_revision.generated app log pointing at the original draft",
+  );
+
+  // 真实页面可见：修订草稿卡片
+  await page.waitForFunction(
+    () => document.body.innerText.includes("修订草稿"),
+    undefined,
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, draftTurnResult, sentMessage);
+
+  // 不变量：原稿保留（与修订稿不同），修订稿是 tentative、未触发采纳
+  assert(revisionBody !== "", "Revision draft has no prose body");
+  assert(revisionBody !== originalBody, "Revision draft is byte-identical to the original draft");
+  assert(
+    !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
+    "Revision flow unexpectedly submitted an adopt event",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      chapter_title: targetChapterTitle,
+      draft_generated: true,
+      draft_pending: true,
+      quality_findings_count: draftTurnResult.quality_review.findings.length,
+      quality_finding_count_logged: Number(qualityRecord.finding_count ?? 0),
+      revise_action_available: true,
+      revise_action_clicked: true,
+      revise_action_sent: true,
+      original_artifact_id: originalArtifactId,
+      revision_turn_id: revisionTurnResult.turn_id,
+      revision_artifact_id: revisionArtifact.artifact_id,
+      revision_base: revisionCard?.revision_of ?? revisionRecord.revision_base ?? null,
+      revision_card_visible: visibleText.includes("修订草稿"),
+      quality_review_card_visible:
+        visibleText.includes("质量复核") && visibleText.includes("按这些问题重写"),
+      revision_body_differs: revisionBody !== originalBody,
+      revision_pending: true,
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
+    },
+  ];
+}
+
 const drivers = {
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,
+  "p1-prose-revision-candidate": driveP1ProseRevisionCandidate,
   "su01-provider-health-model": driveSu01ProviderHealthModel,
   "su01-lmstudio-disconnected-health": driveSu01LmstudioDisconnectedHealth,
   "su01-provider-endpoint-validation": driveSu01ProviderEndpointValidation,

@@ -1108,11 +1108,48 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp prose_body(brief, context) do
-    case {continuation_brief?(brief), target_word_count_in_brief(brief)} do
-      {true, _} -> continuation_body(brief, context)
-      {false, n} when is_integer(n) -> length_targeted_body(n, brief, context)
-      {false, _} -> opening_body(brief, context)
+    cond do
+      # VS-00E：短促动作场面（作者要求“短促 + 动作/打斗/追击”）确定性产出句首/结构高度雷同
+      # 的短句正文。这是“模型写出了节奏单调的动作段”这一真实情况的离线复刻：产品侧
+      # 确定性 validator（uniform_line / sentence_start_repetition）会如实命中，作者据此
+      # 可走 revise_from_findings。仅在写新正文（非修订/续写）时生效，避免污染其它 slice。
+      action_beat_prose?(brief, context) and not revision_brief?(brief) ->
+        action_beat_body(brief, context)
+
+      continuation_brief?(brief) ->
+        continuation_body(brief, context)
+
+      is_integer(target_word_count_in_brief(brief)) ->
+        length_targeted_body(target_word_count_in_brief(brief), brief, context)
+
+      true ->
+        opening_body(brief, context)
     end
+  end
+
+  # 作者要“短促 + 动作/打斗/追击”才命中（两类词同时出现），其它正文 slice 不受影响。
+  defp action_beat_prose?(brief, context) do
+    text = "#{brief}\n#{context}"
+    contains_any?(text, ["短促", "短句", "快节奏"]) and contains_any?(text, ["动作", "打斗", "追击", "缠斗"])
+  end
+
+  # revision_section 由 application 渲染为「[质量修订要求]…」追加在锚点之后；修订轮即便
+  # 上文动作场面雷同，也产出节奏有变化的新稿，证明“按问题重写”确实换了一稿。
+  defp revision_brief?(brief), do: String.contains?(to_string(brief), "[质量修订要求]")
+
+  # 句首与行结构高度雷同的短促动作段：5 行皆以「他」开头、无逗号 → 命中 uniform_line。
+  defp action_beat_body(brief, context) do
+    nonce_text = "#{brief}\n#{context}" |> random_identifier_tokens() |> Enum.take(1) |> Enum.join("、")
+    nonce_line = if nonce_text == "", do: "他咬住暗号继续逼近。", else: "他咬住暗号#{nonce_text}继续逼近。"
+
+    [
+      "他猛地侧身。",
+      "他一刀劈下。",
+      "他反手格挡。",
+      "他迈步逼近。",
+      nonce_line
+    ]
+    |> Enum.join("\n")
   end
 
   defp character_body(brief, context) do

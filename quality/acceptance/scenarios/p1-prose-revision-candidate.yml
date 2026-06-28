@@ -1,0 +1,57 @@
+id: p1-prose-revision-candidate
+title: 质量发现后按问题重写为修订候选（VS-00E CP3）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-prose-revision-candidate --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - tentative-artifact-not-production
+  - finding-is-not-a-story-fact
+  - revision-not-auto-adopted
+
+setup:
+  seed: scripts/seed_p1_prose_revision_candidate.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline (大纲与结构)
+  - click: 生成正文草稿 for the action chapter (节奏单调动作段)
+  - wait_for: quality review card with a finding + 按这些问题重写 action
+  - click: 按这些问题重写
+  - wait_for: sibling tentative revision draft visible (修订草稿)
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-prose-revision-candidate-tauri
+
+assertions:
+  ui:
+    - quality review card visible with at least one finding
+    - 按这些问题重写 action visible on the real page
+    - sibling revision draft card (修订草稿) visible after clicking
+    - original draft retained, nothing auto-adopted
+  network:
+    - prose_writing prose_fragment turn_result carrying quality_review.findings received
+    - revise_from_findings author_action sent (target_ref = original artifact)
+    - revision turn_result received (trace_summary.decision_type = revise_from_findings)
+  data:
+    - prose_quality.evaluated emitted with finding_count>=1 (finding is not a story fact)
+    - prose_revision.generated emitted with revision_base pointing at the original draft
+    - revision draft body differs from original draft body
+    - no adopt event (revision is tentative, not auto-adopted)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false
