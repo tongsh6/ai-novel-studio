@@ -331,6 +331,57 @@ v2 小说层默认至少保留以下质量门。
 
 ---
 
+### 6.12 实现状态对照（machine-checked，截至 2026-06-28）
+
+> 本节状态以 **production lib（`apps/*/lib`）实际代码**为准核对，不以本目录的设计意图为准。
+> 本目录 §6 是"应该有哪些门"，本节是"现在真有什么"。两者会漂移，改动质量门实现后请同步本表。
+>
+> 复核命令（可重跑）：
+> ```bash
+> grep -rhoE "quality_gate\.[a-z_]+" apps/*/lib | sort | uniq -c        # 哪些门在代码里被引用
+> grep -oE "validator\.[a-z_]+" apps/novel_application/lib/novel_application/prose_quality_validators.ex | sort -u
+> ```
+>
+> 三档：
+> - 🟢 **确定性已实现 + 真实页面验收**：有非 LLM validator，且被外部自动化真实页面验收覆盖。
+> - 🟡 **仅 LLM、未验证**：只在独立 evaluator（`prose_quality_evaluator.ex`）的 prompt 里被列为可用 ref，**从未用真实模型跑过**（CP2/CP3 验收全程 slice_verify，对评审 prompt 默认返回空 findings），准确度未知。
+> - 🔴 **仅设计**：production lib 零引用，只存在于本目录。
+
+| # | 质量门 | §7.3 产出期默认 | 确定性 validator | LLM evaluator prompt | 真实模型验证过 | 状态 |
+|---|---|:--:|:--:|:--:|:--:|---|
+| 6.11 | `style_fit` 风格与句式 | ✅ | ✅ 6 函数→2 ref | ✅ | ✅ slice_verify | 🟢 已实现 + 验收 |
+| 6.2 | `character_logic` 人物逻辑 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
+| 6.5 | `knowledge_boundary` 信息越界 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
+| 6.6 | `pacing` 节奏 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
+| 6.7 | `payoff_validity` 爽点成立 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
+| 6.8 | `web_hook_strength` Hook 强度 | ✅ | ❌ | ❌ | ❌ | 🔴 仅设计（产出期门缺口） |
+| 6.9 | `power_scaling` 战力膨胀 | ✅ | ❌ | ❌ | ❌ | 🔴 仅设计（产出期门缺口） |
+| 6.1 | `worldrule_conflict` 设定冲突 | （建立期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
+| 6.3 | `timeline_and_state` 时间线与状态 | （维护期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
+| 6.4 | `foreshadowing` 伏笔 | （规划期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
+| 6.10 | `serialization_retention` 网文留存 | （建立/规划期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
+
+分布：🟢 1 / 🟡 4 / 🔴 6。
+
+**确定性实现细节**（`apps/novel_application/lib/novel_application/prose_quality_validators.ex`，全部归 `style_fit`）：
+
+| validator_ref | 检查 | 触发阈值 | 默认 action |
+|---|---|---|---|
+| `emotion_expression_balance` | 直接情绪声明（show/tell 失衡） | ≥2 处 | `warn` |
+| `prose_pattern_repetition` | 身体反应模板 | ≥3 处 | `warn` |
+| `prose_pattern_repetition` | AI 套话（随着/仿佛/一阵/微微/缓缓/一丝） | ≥4 处 | `warn` |
+| `prose_pattern_repetition` | 连续句首雷同（≥3 句句首 2 字相同） | ≥3 句 | `warn` |
+| `prose_pattern_repetition` | 行结构过度均匀（同首字+同逗号数） | ≥3 行 | `warn` |
+| `prose_pattern_repetition` | 结构元标签混入正文（场景N/第N场/标题：） | ≥1 处 | `warn` |
+
+**已知缺口与债务**：
+
+1. **产出期硬缺口**：§7.3 产出期本应启用 7 个门，其中 `web_hook_strength` / `power_scaling` 连 LLM 钩子都没有（production lib 零引用）。这两个是"独立质量评估"阶段（正文生成后）影响最大的未覆盖门。
+2. **🟡 四门有效性未证**：`character_logic / knowledge_boundary / pacing / payoff_validity` 只靠独立 evaluator 的 LLM 自评，且从未用真实模型验证——属 ADR-0020 **I10（真实文学收益须人工盲评）**未闭环范围，不得用脚本冒充。
+3. **术语未对账**：独立 evaluator 的 prompt 还引用了一组**不在本目录 11 门**的 VS-00E 场级 validator（`scene_change / emotional_transition / character_agency / causal_progression / setup_turn_consequence / brief_alignment / dialogue_intent_fit`，对照 `ProseExecutionBriefV1` 评"正文 vs 执行简述对齐"）。这组与 11 门目录是两套并存术语，需要在后续 slice 里归一。
+
+---
+
 ## 7. 阶段默认门禁
 
 ### 7.1 建立期
