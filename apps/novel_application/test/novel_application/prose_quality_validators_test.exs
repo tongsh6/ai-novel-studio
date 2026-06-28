@@ -72,4 +72,40 @@ defmodule NovelApplication.ProseQualityValidatorsTest do
     assert finding.action == :warn
     assert finding.can_override == true
   end
+
+  test "long dialogue-free narration → pacing dialogue_density (overridable warn)" do
+    # 8 句、首字各异（不触发 uniform_line / sentence_start）、无对白引号
+    text =
+      "矿道一路向下延伸，碎石在脚底咯咯作响。墙壁上的旧阵纹早已熄灭，只剩潮湿的灵气贴着石面流动。" <>
+        "远处隐约传来巡检车低沉的嗡鸣。他停下脚步，借着护身符的微光辨认岔路。" <>
+        "头顶的支架发出不堪重负的呻吟。空气里混着铁锈与霉味，呛得人喉咙发紧。" <>
+        "脊背的冷汗一层层沁出。前方的黑暗深不见底，却又像在等他自己走进去。"
+
+    findings = V.evaluate(text, %{})
+    refs = validator_refs(findings)
+    assert "validator.dialogue_density" in refs
+
+    pacing = Enum.find(findings, &(&1.validator_ref == "validator.dialogue_density"))
+    assert pacing.quality_gate_ref == "quality_gate.pacing"
+    assert pacing.action == :warn
+    assert pacing.can_override == true
+  end
+
+  test "long narration that contains dialogue → no dialogue_density finding" do
+    text =
+      "矿道一路向下延伸，碎石在脚底咯咯作响。墙壁上的旧阵纹早已熄灭。" <>
+        "「谁在那儿？」他压低声音问。远处传来巡检车低沉的嗡鸣。" <>
+        "他停下脚步，借着护身符的微光辨认岔路。空气里混着铁锈与霉味。" <>
+        "脊背的冷汗一层层沁出。前方的黑暗深不见底。"
+
+    refs = V.evaluate(text, %{}) |> validator_refs()
+    refute "validator.dialogue_density" in refs
+  end
+
+  test "short dialogue-free beat (below threshold) → no dialogue_density finding" do
+    text = "他猛地侧身。刀光擦着肩头掠过。他反手扣住对方手腕。"
+
+    refs = V.evaluate(text, %{}) |> validator_refs()
+    refute "validator.dialogue_density" in refs
+  end
 end

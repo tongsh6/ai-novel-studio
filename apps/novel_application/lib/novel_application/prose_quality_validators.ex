@@ -12,6 +12,13 @@ defmodule NovelApplication.ProseQualityValidators do
   alias NovelDomain.QualityFinding
 
   @style_gate "quality_gate.style_fit"
+  @pacing_gate "quality_gate.pacing"
+
+  # 对白触发标记（中文小说对白引号；直引号兼容）。出现任意一种即视为该段含对白。
+  @dialogue_open_markers ["「", "『", "“", "\"", "”"]
+  # 「长段落零对白」判定阈值：句子数 ≥ 此值且全段无对白标记 → 偏叙述、节奏可能拖慢。
+  # 保守取值，避免误伤短促动作 beat（少于该句数）与正常含对白段落。
+  @dialogue_free_sentence_threshold 8
 
   # 高频身体反应模板（≥ 阈值视为模板化）
   @body_reaction_patterns [
@@ -67,7 +74,8 @@ defmodule NovelApplication.ProseQualityValidators do
       ai_cliche_finding(text, ctx),
       sentence_start_repetition_finding(text, ctx),
       uniform_line_finding(text, ctx),
-      meta_label_leak_finding(text, ctx)
+      meta_label_leak_finding(text, ctx),
+      dialogue_density_finding(text, ctx)
     ]
     |> Enum.reject(&is_nil/1)
   end
@@ -176,6 +184,31 @@ defmodule NovelApplication.ProseQualityValidators do
         hits
       )
     end
+  end
+
+  # ── 长段落零对白 → pacing（节奏偏叙述） ──────────────
+  # §6.6 节奏检查的确定性兜底：一段足够长的正文若完全没有对白，往往叙述/描写密度过高、
+  # 推进偏慢（网文场景尤甚）。这是建议性 WARN、作者可越过（ADR-0020 I7）；语义层的节奏判断
+  # （是否拖慢主目标、是否连续疲劳）仍由独立 evaluator 负责，这里只抓"整段无对白"这一确定性信号。
+  defp dialogue_density_finding(text, ctx) do
+    sentence_count = text |> split_sentences() |> length()
+
+    if sentence_count >= @dialogue_free_sentence_threshold and dialogue_marker_count(text) == 0 do
+      finding(
+        ctx,
+        "validator.dialogue_density",
+        @pacing_gate,
+        "整段正文（#{sentence_count} 句）完全没有对白，叙述/描写密度偏高，节奏可能偏慢——" <>
+          "如本就是纯叙述过场可忽略，否则考虑加入对白或人物互动提速。",
+        []
+      )
+    end
+  end
+
+  defp dialogue_marker_count(text) do
+    Enum.reduce(@dialogue_open_markers, 0, fn marker, acc ->
+      acc + (text |> String.split(marker) |> length() |> Kernel.-(1))
+    end)
   end
 
   # ── helpers ────────────────────────────────────────

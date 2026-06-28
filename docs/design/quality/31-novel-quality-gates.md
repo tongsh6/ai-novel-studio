@@ -352,7 +352,7 @@ v2 小说层默认至少保留以下质量门。
 | 6.11 | `style_fit` 风格与句式 | ✅ | ✅ 6 函数→2 ref | ✅ | ✅ slice_verify | 🟢 已实现 + 验收 |
 | 6.2 | `character_logic` 人物逻辑 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
 | 6.5 | `knowledge_boundary` 信息越界 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
-| 6.6 | `pacing` 节奏 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
+| 6.6 | `pacing` 节奏 | ✅ | ✅ 1 函数 | ✅ | ❌ 语义部分 | 🟢 确定性已实现（real-page 验收待补） |
 | 6.7 | `payoff_validity` 爽点成立 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
 | 6.8 | `web_hook_strength` Hook 强度 | ✅ | ❌ | ❌ | ❌ | 🔴 仅设计（产出期门缺口） |
 | 6.9 | `power_scaling` 战力膨胀 | ✅ | ❌ | ❌ | ❌ | 🔴 仅设计（产出期门缺口） |
@@ -361,23 +361,26 @@ v2 小说层默认至少保留以下质量门。
 | 6.4 | `foreshadowing` 伏笔 | （规划期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
 | 6.10 | `serialization_retention` 网文留存 | （建立/规划期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
 
-分布：🟢 1 / 🟡 4 / 🔴 6。
+分布：🟢 2（`style_fit` 确定性+真实页面验收；`pacing` 确定性已实现、real-page 验收待补） / 🟡 3 / 🔴 6。
 
-**确定性实现细节**（`apps/novel_application/lib/novel_application/prose_quality_validators.ex`，全部归 `style_fit`）：
+**确定性实现细节**（`apps/novel_application/lib/novel_application/prose_quality_validators.ex`）：
 
-| validator_ref | 检查 | 触发阈值 | 默认 action |
-|---|---|---|---|
-| `emotion_expression_balance` | 直接情绪声明（show/tell 失衡） | ≥2 处 | `warn` |
-| `prose_pattern_repetition` | 身体反应模板 | ≥3 处 | `warn` |
-| `prose_pattern_repetition` | AI 套话（随着/仿佛/一阵/微微/缓缓/一丝） | ≥4 处 | `warn` |
-| `prose_pattern_repetition` | 连续句首雷同（≥3 句句首 2 字相同） | ≥3 句 | `warn` |
-| `prose_pattern_repetition` | 行结构过度均匀（同首字+同逗号数） | ≥3 行 | `warn` |
-| `prose_pattern_repetition` | 结构元标签混入正文（场景N/第N场/标题：） | ≥1 处 | `warn` |
+| 归属门 | validator_ref | 检查 | 触发阈值 | 默认 action |
+|---|---|---|---|---|
+| `style_fit` | `emotion_expression_balance` | 直接情绪声明（show/tell 失衡） | ≥2 处 | `warn` |
+| `style_fit` | `prose_pattern_repetition` | 身体反应模板 | ≥3 处 | `warn` |
+| `style_fit` | `prose_pattern_repetition` | AI 套话（随着/仿佛/一阵/微微/缓缓/一丝） | ≥4 处 | `warn` |
+| `style_fit` | `prose_pattern_repetition` | 连续句首雷同（≥3 句句首 2 字相同） | ≥3 句 | `warn` |
+| `style_fit` | `prose_pattern_repetition` | 行结构过度均匀（同首字+同逗号数） | ≥3 行 | `warn` |
+| `style_fit` | `prose_pattern_repetition` | 结构元标签混入正文（场景N/第N场/标题：） | ≥1 处 | `warn` |
+| `pacing` | `dialogue_density` | 长段落零对白（叙述密度偏高、节奏偏慢） | 句数 ≥8 且无对白引号 | `warn` |
+
+> `dialogue_density` 是 §6.6 节奏门的确定性兜底：只抓"整段无对白"这一确定性信号（保守阈值，避免误伤短促动作 beat 与纯叙述过场）；节奏的语义判断（是否拖慢主目标、连续疲劳）仍由独立 evaluator 负责。建议性 WARN、作者可越过。
 
 **已知缺口与债务**：
 
-1. **产出期硬缺口**：§7.3 产出期本应启用 7 个门，其中 `web_hook_strength` / `power_scaling` 连 LLM 钩子都没有（production lib 零引用）。这两个是"独立质量评估"阶段（正文生成后）影响最大的未覆盖门。
-2. **🟡 四门有效性未证**：`character_logic / knowledge_boundary / pacing / payoff_validity` 只靠独立 evaluator 的 LLM 自评，且从未用真实模型验证——属 ADR-0020 **I10（真实文学收益须人工盲评）**未闭环范围，不得用脚本冒充。
+1. **产出期硬缺口**：§7.3 产出期本应启用 7 个门，其中 `web_hook_strength` / `power_scaling` 连 LLM 钩子都没有（production lib 零引用）。这两个是"独立质量评估"阶段（正文生成后）影响最大的未覆盖门。`pacing` 已补确定性 `dialogue_density` 兜底（2026-06-28），但其 real-page Tauri 验收待补。
+2. **🟡 三门有效性未证**：`character_logic / knowledge_boundary / payoff_validity` 只靠独立 evaluator 的 LLM 自评，且从未用真实模型验证——属 ADR-0020 **I10（真实文学收益须人工盲评）**未闭环范围，不得用脚本冒充。
 3. **术语未对账**：独立 evaluator 的 prompt 还引用了一组**不在本目录 11 门**的 VS-00E 场级 validator（`scene_change / emotional_transition / character_agency / causal_progression / setup_turn_consequence / brief_alignment / dialogue_intent_fit`，对照 `ProseExecutionBriefV1` 评"正文 vs 执行简述对齐"）。这组与 11 门目录是两套并存术语，需要在后续 slice 里归一。
 
 ---
