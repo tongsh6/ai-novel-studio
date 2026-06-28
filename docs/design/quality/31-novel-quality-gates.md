@@ -354,14 +354,14 @@ v2 小说层默认至少保留以下质量门。
 | 6.5 | `knowledge_boundary` 信息越界 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
 | 6.6 | `pacing` 节奏 | ✅ | ✅ 1 函数 | ✅ | ❌ 语义部分 | 🟢 确定性已实现（real-page 验收待补） |
 | 6.7 | `payoff_validity` 爽点成立 | ✅ | ❌ | ✅ | ❌ | 🟡 仅 LLM、未验证 |
-| 6.8 | `web_hook_strength` Hook 强度 | ✅ | ❌ | ❌ | ❌ | 🔴 仅设计（产出期门缺口） |
-| 6.9 | `power_scaling` 战力膨胀 | ✅ | ❌ | ❌ | ❌ | 🔴 仅设计（产出期门缺口） |
+| 6.8 | `web_hook_strength` Hook 强度 | ✅ | ❌ 语义、不宜确定性 | ✅ | ❌ | 🟡 仅 LLM、未验证 |
+| 6.9 | `power_scaling` 战力膨胀 | ✅ | ❌ 需规则模型 | ✅ | ❌ | 🟡 仅 LLM、未验证 |
 | 6.1 | `worldrule_conflict` 设定冲突 | （建立期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
 | 6.3 | `timeline_and_state` 时间线与状态 | （维护期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
 | 6.4 | `foreshadowing` 伏笔 | （规划期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
 | 6.10 | `serialization_retention` 网文留存 | （建立/规划期） | ❌ | ❌ | ❌ | 🔴 仅设计 |
 
-分布：🟢 2（`style_fit` 确定性+真实页面验收；`pacing` 确定性已实现、real-page 验收待补） / 🟡 3 / 🔴 6。
+分布：🟢 2（`style_fit` 确定性+真实页面验收；`pacing` 确定性已实现、real-page 验收待补） / 🟡 5 / 🔴 4。
 
 **确定性实现细节**（`apps/novel_application/lib/novel_application/prose_quality_validators.ex`）：
 
@@ -379,9 +379,10 @@ v2 小说层默认至少保留以下质量门。
 
 **已知缺口与债务**：
 
-1. **产出期硬缺口**：§7.3 产出期本应启用 7 个门，其中 `web_hook_strength` / `power_scaling` 连 LLM 钩子都没有（production lib 零引用）。这两个是"独立质量评估"阶段（正文生成后）影响最大的未覆盖门。`pacing` 已补确定性 `dialogue_density` 兜底（2026-06-28），但其 real-page Tauri 验收待补。
-2. **🟡 三门有效性未证**：`character_logic / knowledge_boundary / payoff_validity` 只靠独立 evaluator 的 LLM 自评，且从未用真实模型验证——属 ADR-0020 **I10（真实文学收益须人工盲评）**未闭环范围，不得用脚本冒充。
-3. **术语未对账**：独立 evaluator 的 prompt 还引用了一组**不在本目录 11 门**的 VS-00E 场级 validator（`scene_change / emotional_transition / character_agency / causal_progression / setup_turn_consequence / brief_alignment / dialogue_intent_fit`，对照 `ProseExecutionBriefV1` 评"正文 vs 执行简述对齐"）。这组与 11 门目录是两套并存术语，需要在后续 slice 里归一。
+1. **产出期门已全部至少有评估钩子（2026-06-28）**：§7.3 产出期 7 门——`style_fit`（🟢 确定性+验收）、`pacing`（🟢 确定性 `dialogue_density`，验收待补）、`character_logic` / `knowledge_boundary` / `payoff_validity` / `web_hook_strength` / `power_scaling`（🟡 独立 evaluator rubric）。其中 `web_hook_strength`（需"章尾驱动力"语境）与 `power_scaling`（需既有功法/境界规则模型）**本质语义、确定性化不成立**（强行关键字会误报，违反 §6.6/§6.11 与 prose-ai-taste-findings），故只落 LLM evaluator，待 I10 真实模型验证。
+2. **🟡 五门有效性未证**：`character_logic / knowledge_boundary / payoff_validity / web_hook_strength / power_scaling` 只靠独立 evaluator 的 LLM 自评，且从未用真实模型验证——属 ADR-0020 **I10（真实文学收益须人工盲评）**未闭环范围，不得用脚本冒充。
+3. **非产出期四门无运行钩子（🔴）**：`worldrule_conflict`（建立期）/`timeline_and_state`（维护期）/`foreshadowing`（规划期）/`serialization_retention`（建立/规划期）属其它阶段，当前质量评估只在产出期跑，这四门需各自阶段的运行钩子 + 读模型（世界规则注册表 / 跨章连续性 / 伏笔生命周期 / 章节群留存结构），是独立 slice 的基建活，不应塞进 prose 产出期评估硬凑。
+4. **术语未对账**：独立 evaluator 的 prompt 还引用了一组**不在本目录 11 门**的 VS-00E 场级 validator（`scene_change / emotional_transition / character_agency / causal_progression / setup_turn_consequence / brief_alignment / dialogue_intent_fit`，对照 `ProseExecutionBriefV1` 评"正文 vs 执行简述对齐"）。这组与 11 门目录是两套并存术语，需要在后续 slice 里归一。
 
 ---
 

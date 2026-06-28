@@ -104,13 +104,16 @@ defmodule NovelAgent.ProseQualityEvaluator do
     顶层对象必须包含 "findings"：JSON 数组，每个元素是一个发现项（只列真实存在的问题，
     没有问题则返回空数组）。每个发现项包含：
     - "quality_gate_ref"：如 quality_gate.character_logic / quality_gate.pacing /
-      quality_gate.payoff_validity / quality_gate.style_fit / quality_gate.knowledge_boundary
+      quality_gate.payoff_validity / quality_gate.style_fit / quality_gate.knowledge_boundary /
+      quality_gate.web_hook_strength / quality_gate.power_scaling
     - "validator_ref"：如 validator.scene_change / validator.emotional_transition /
       validator.character_agency / validator.causal_progression /
-      validator.setup_turn_consequence / validator.brief_alignment / validator.dialogue_intent_fit
+      validator.setup_turn_consequence / validator.brief_alignment / validator.dialogue_intent_fit /
+      validator.chapter_end_hook / validator.power_curve_consistency
     - "severity"：info | warn | high
     - "action"：warn | adoption_review | block | confirm（文学类问题用 warn/adoption_review，
-      只有高置信事实冲突/认知越界才用 block/confirm）
+      只有高置信事实冲突/认知越界才用 block/confirm；战力膨胀仅当与既有规则硬冲突才 block，
+      成长过快用 confirm/adoption_review）
     - "summary"：一句话说明问题
     - "evidence_spans"：数组，每项 {"text": "正文中的证据片段"}
     - "brief_field_refs"：数组，关联的执行简述字段（如 scene_1.emotion_transition），没有则 []
@@ -118,7 +121,8 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
     评审维度：场景是否产生变化、情绪转向是否有触发、人物是否有明确目标与阻力、人物行动是否
     来自选择、转折是否导致后果、信息释放是否符合执行简述、实际读者效果是否偏离目标、对话是否
-    服务冲突/潜台词。不要仅凭关键字命中就判失败。
+    服务冲突/潜台词、结尾是否留下继续阅读的驱动力（hook，且不是虚假承诺）、能力/境界/资源/代价
+    与成长路径是否符合既有规则（不跳过必要铺垫、强度不失衡）。不要仅凭关键字命中就判失败。
 
     #{brief_section(request)}#{reader_effect_section(request)}待评审正文：
     #{request.prose_text}
