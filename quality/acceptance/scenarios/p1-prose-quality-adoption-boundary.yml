@@ -1,0 +1,54 @@
+id: p1-prose-quality-adoption-boundary
+title: 修订稿与原稿各自独立走采纳边界（VS-00E CP3）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-prose-quality-adoption-boundary --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - tentative-artifact-not-production
+  - revision-and-original-adopt-independently
+
+setup:
+  seed: scripts/seed_p1_prose_revision_candidate.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline (大纲与结构)
+  - click: 生成正文草稿 for the action chapter (finding)
+  - click: 按这些问题重写 to generate a sibling revision draft
+  - with both drafts pending, adopt the revision draft through the adoption boundary
+  - verify the original draft is not auto-resolved and stays independently tentative
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-prose-quality-adoption-boundary-tauri
+
+assertions:
+  ui:
+    - both original and revision drafts show an independent 保存为章节正文 action (>=2 before adopt)
+    - adopting the revision leaves exactly one accept action (the original) on the page
+  network:
+    - revision turn_result (decision_type=revise_from_findings) received
+    - accept author_action sent with target_ref = revision artifact id
+    - resolved adoption turn_result with artifact_adopted=true contains the revision artifact id
+    - the resolved turn_result does NOT contain the original artifact id
+  data:
+    - prose_revision.generated emitted with revision_base = original artifact id
+    - adoption.evaluate emitted (revision adopted through real adoption boundary)
+    - adopting the revision did not resolve/discard the original (boundary holds)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

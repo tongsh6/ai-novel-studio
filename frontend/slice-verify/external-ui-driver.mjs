@@ -15603,11 +15603,144 @@ async function driveP1ProseQualityEvaluatorDegrade(page) {
   ];
 }
 
+async function driveP1ProseQualityAdoptionBoundary(page) {
+  const targetChapterTitle = "第02章：矿区追击战";
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    (targetTitle) =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert((await draftButtons.count()) >= 2, "Archive outline did not render the action-chapter draft action");
+  await draftButtons.nth(1).click();
+
+  // 原始草稿 turn（含质量发现 + 重写入口）
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
+      Array.isArray(frame.body?.quality_review?.findings) &&
+      frame.body.quality_review.findings.length > 0 &&
+      (frame.body?.available_actions ?? []).some((a) => a.action_type === "revise_from_findings"),
+    "No prose draft turn_result with quality findings + revise action",
+  );
+  const originalArtifactId = draftTurnFrame.body.adoption_state.pending[0].artifact_id;
+
+  // 重写 → 修订候选 turn（sibling tentative 草稿）
+  const beforeRevise = frames.length;
+  await page.getByRole("button", { name: "按这些问题重写" }).first().click();
+  const revisionTurnFrame = await waitForNewFrame(
+    beforeRevise,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.trace_summary?.decision_type === "revise_from_findings" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
+    "No revision turn_result was received",
+    90_000,
+  );
+  const revisionArtifactId = revisionTurnFrame.body.adoption_state.pending[0].artifact_id;
+  assert(revisionArtifactId !== originalArtifactId, "Revision and original share an artifact_id");
+
+  // 两份 sibling 草稿都可独立采纳：页面上应有两个「保存为章节正文」按钮
+  await page.waitForFunction(
+    () =>
+      [...document.querySelectorAll("button")].filter((b) =>
+        /保存为章节正文/.test((b.textContent ?? "").trim()),
+      ).length >= 2,
+    undefined,
+    { timeout: 10_000 },
+  );
+  const acceptButtonsBefore = await page
+    .getByRole("button", { name: acceptDraftButtonPattern })
+    .count();
+
+  // 采纳修订稿（最新的卡 = 最后一个保存按钮）
+  const beforeAdopt = frames.length;
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).last().click();
+
+  const acceptActionFrame = await waitForNewFrame(
+    beforeAdopt,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "author_action" &&
+      frame.body?.action?.action_type === "accept" &&
+      frame.body?.action?.target_ref === revisionArtifactId,
+    "Real workbench did not send an accept author_action for the revision draft",
+  );
+
+  const adoptTurnFrame = await waitForNewFrame(
+    beforeAdopt,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      Array.isArray(frame.body?.adoption_state?.resolved) &&
+      frame.body.adoption_state.resolved.some((entry) => entry.artifact_id === revisionArtifactId),
+    "No resolved adoption turn_result for the revision draft",
+    120_000,
+  );
+  const adoptTurnResult = adoptTurnFrame.body;
+
+  // 边界：采纳修订稿不影响原稿——原稿没进 resolved，且仍保留一个独立的采纳入口
+  const originalResolvedByRevisionAdopt = (adoptTurnResult.adoption_state.resolved ?? []).some(
+    (entry) => entry.artifact_id === originalArtifactId,
+  );
+  assert(
+    !originalResolvedByRevisionAdopt,
+    "Adopting the revision unexpectedly resolved the original draft (boundary violated)",
+  );
+
+  await page.waitForFunction(
+    () =>
+      [...document.querySelectorAll("button")].filter((b) =>
+        /保存为章节正文/.test((b.textContent ?? "").trim()),
+      ).length === 1,
+    undefined,
+    { timeout: 10_000 },
+  );
+  const acceptButtonsAfter = await page
+    .getByRole("button", { name: acceptDraftButtonPattern })
+    .count();
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, adoptTurnResult, sentMessage);
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnFrame.body.turn_id,
+      chapter_title: targetChapterTitle,
+      original_artifact_id: originalArtifactId,
+      revision_artifact_id: revisionArtifactId,
+      revision_turn_id: revisionTurnFrame.body.turn_id,
+      adopt_turn_id: adoptTurnResult.turn_id,
+      both_drafts_adoptable: acceptButtonsBefore >= 2,
+      accept_buttons_before: acceptButtonsBefore,
+      accept_buttons_after: acceptButtonsAfter,
+      revision_adopted: true,
+      original_still_tentative: acceptButtonsAfter === 1,
+      original_resolved_by_revision_adopt: originalResolvedByRevisionAdopt,
+      adopt_action_target_ref: acceptActionFrame.body.action.target_ref,
+      reading_mode_visible: visibleText.includes("阅读模式"),
+    },
+  ];
+}
+
 const drivers = {
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,
   "p1-prose-revision-candidate": driveP1ProseRevisionCandidate,
   "p1-prose-quality-finding-roundtrip": driveP1ProseQualityFindingRoundtrip,
   "p1-prose-quality-evaluator-degrade": driveP1ProseQualityEvaluatorDegrade,
+  "p1-prose-quality-adoption-boundary": driveP1ProseQualityAdoptionBoundary,
   "su01-provider-health-model": driveSu01ProviderHealthModel,
   "su01-lmstudio-disconnected-health": driveSu01LmstudioDisconnectedHealth,
   "su01-provider-endpoint-validation": driveSu01ProviderEndpointValidation,

@@ -188,6 +188,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/p1-prose-quality-evaluator-degrade.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh p1-prose-quality-evaluator-degrade --surface tauri
+  - id: p1-prose-quality-adoption-boundary
+    title: "修订稿与原稿各自独立走采纳边界（VS-00E CP3）"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/p1-prose-quality-adoption-boundary.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh p1-prose-quality-adoption-boundary --surface tauri
   - id: p1-chapter-adoption-reading
     title: "已采纳章节正文进入阅读投影"
     tier: nightly

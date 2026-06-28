@@ -76,6 +76,7 @@ export const nativeSliceIds = [
   "p1-prose-revision-candidate",
   "p1-prose-quality-finding-roundtrip",
   "p1-prose-quality-evaluator-degrade",
+  "p1-prose-quality-adoption-boundary",
   "p1-chapter-adoption-reading",
   "p1-word-count-audit",
   "p1-chapter-edit-then-accept",
@@ -325,6 +326,17 @@ const sliceKeyEvents = {
     "quality_policy.decided.done",
     "toolbox.execute.done",
     "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-prose-quality-adoption-boundary": [
+    "channel.user_message.start",
+    "prose_quality.evaluated.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.author_action.start",
+    "prose_revision.generated.done",
+    "adoption.evaluate.done",
+    "channel.author_action.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-adoption-reading": [
@@ -1526,6 +1538,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ProseQualityEvaluatorDegradeEvidence(records);
   }
 
+  if (sliceId === "p1-prose-quality-adoption-boundary") {
+    return findP1ProseQualityAdoptionBoundaryEvidence(records);
+  }
+
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
     return findVs00cCp4ChapterPlanStructureEvidence(records);
   }
@@ -2081,6 +2097,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-prose-quality-evaluator-degrade") {
     return p1ProseQualityEvaluatorDegradeBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-prose-quality-adoption-boundary") {
+    return p1ProseQualityAdoptionBoundaryBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
@@ -2943,6 +2963,117 @@ function p1ProseQualityEvaluatorDegradeBehavior(turnIds, turnRecords, records, e
       "no_findings_fabricated_under_degraded_review",
       "degrade_marker_not_leaked_into_prose_body",
       "draft_stays_tentative_review_failure_does_not_block_or_adopt",
+    ],
+  };
+}
+
+function findP1ProseQualityAdoptionBoundaryEvidence(records) {
+  const sliceId = "p1-prose-quality-adoption-boundary";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const targetChapterTitle = "第02章：矿区追击战";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.both_drafts_adoptable === true &&
+      record.revision_adopted === true &&
+      record.original_still_tentative === true &&
+      record.original_resolved_by_revision_adopt === false &&
+      Number(record.accept_buttons_before ?? 0) >= 2 &&
+      Number(record.accept_buttons_after ?? 0) === 1 &&
+      record.chapter_title === targetChapterTitle,
+  );
+  if (!uiState) return null;
+
+  const originalArtifactId = String(uiState.original_artifact_id ?? "");
+  const revisionArtifactId = String(uiState.revision_artifact_id ?? "");
+  if (!originalArtifactId || !revisionArtifactId || originalArtifactId === revisionArtifactId) {
+    return null;
+  }
+  if (String(uiState.adopt_action_target_ref ?? "") !== revisionArtifactId) return null;
+
+  // 修订候选生成（provenance 指向原稿）
+  const revision = records.find(
+    (record) =>
+      record.event === "prose_revision.generated.done" &&
+      record.revision_base === originalArtifactId,
+  );
+  if (!revision) return null;
+
+  // 修订稿采纳走真实采纳边界
+  if (
+    !records.some(
+      (record) =>
+        record.event === "channel.author_action.start" && record.action_type === "accept",
+    )
+  ) {
+    return null;
+  }
+  if (!records.some((record) => record.event === "adoption.evaluate.done")) return null;
+
+  const draftTurnId = String(uiState.turn_id ?? "");
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    artifact_type: "prose_fragment",
+    chapter_title: targetChapterTitle,
+    original_artifact_id: originalArtifactId,
+    revision_artifact_id: revisionArtifactId,
+    adopt_turn_id: String(uiState.adopt_turn_id ?? ""),
+    key_events: keyEvents,
+  };
+}
+
+function p1ProseQualityAdoptionBoundaryBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+
+  // 修订候选生成 + 修订稿走真实采纳边界
+  const revision = records.find(
+    (record) =>
+      record.event === "prose_revision.generated.done" &&
+      record.revision_base === evidence.original_artifact_id,
+  );
+  if (!revision) return null;
+  if (!records.some((record) => record.event === "adoption.evaluate.done")) return null;
+  if (
+    !records.some(
+      (record) =>
+        record.event === "channel.author_action.start" && record.action_type === "accept",
+    )
+  ) {
+    return null;
+  }
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-prose-quality-adoption-boundary" &&
+      record.turn_id === evidence.draft_turn_id,
+  );
+  if (!uiState) return null;
+  if (uiState.both_drafts_adoptable !== true) return null;
+  if (uiState.revision_adopted !== true) return null;
+  if (uiState.original_still_tentative !== true) return null;
+  if (uiState.original_resolved_by_revision_adopt !== false) return null;
+  if (Number(uiState.accept_buttons_after ?? 0) !== 1) return null;
+
+  return {
+    slice_id: "p1-prose-quality-adoption-boundary",
+    behavior: "revision_and_original_drafts_each_adopt_independently_through_their_own_adoption_states",
+    turn_ids: turnIds,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    original_artifact_id: evidence.original_artifact_id,
+    revision_artifact_id: evidence.revision_artifact_id,
+    assertions: [
+      "both_original_and_revision_were_independently_adoptable_two_accept_actions",
+      "adopting_revision_went_through_real_adoption_boundary",
+      "adopting_revision_did_not_resolve_or_discard_the_original",
+      "original_draft_remains_independently_tentative_one_accept_action_left",
     ],
   };
 }
