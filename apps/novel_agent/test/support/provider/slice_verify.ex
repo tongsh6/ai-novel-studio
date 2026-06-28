@@ -71,15 +71,19 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   @quality_eval_fail_marker "VS00EEVALFAIL"
+  # 中文降级标记：放进章节摘要时不会被 opening_body 的随机标识符回显（random_identifier_tokens
+  # 只取字母数字混合 token），因此能进入 evaluator prompt 触发降级，却不污染用户可见正文。
+  @quality_eval_fail_marker_cn "评审故障演练"
 
   defp quality_evaluator_prompt?(prompt) do
     String.contains?(prompt, "质量评审") and String.contains?(prompt, "findings")
   end
 
-  # 默认空 findings（评审完成、无语义问题）；正文含 fail-marker 时返回非法 JSON →
+  # 默认空 findings（评审完成、无语义问题）；prompt 含 fail-marker（英文或中文）时返回非法 JSON →
   # evaluator 两次解析失败 → review_status unavailable（复现诚实降级）。
   defp quality_evaluator_response(prompt) do
-    if String.contains?(prompt, @quality_eval_fail_marker) do
+    if String.contains?(prompt, @quality_eval_fail_marker) or
+         String.contains?(prompt, @quality_eval_fail_marker_cn) do
       "evaluator 故意返回的非 JSON 文本 #{@quality_eval_fail_marker}"
     else
       Jason.encode!(%{"findings" => []})

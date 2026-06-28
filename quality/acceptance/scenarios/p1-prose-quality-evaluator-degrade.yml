@@ -1,0 +1,53 @@
+id: p1-prose-quality-evaluator-degrade
+title: 质量评审失败诚实降级为未完成，绝不伪装通过（VS-00E CP2）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-prose-quality-evaluator-degrade --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - tentative-artifact-not-production
+  - evaluator-failure-never-faked-pass
+
+setup:
+  seed: scripts/seed_p1_prose_quality_evaluator_degrade.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline (大纲与结构)
+  - click: 生成正文草稿 for the degrade chapter (summary carries a CN degrade marker)
+  - wait_for: 本次质量复核未完成 notice on the real page
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-prose-quality-evaluator-degrade-tauri
+
+assertions:
+  ui:
+    - 本次质量复核未完成 notice visible on the real page
+    - no faked completed/passed verdict (no 质量复核：发现 title)
+    - degrade marker never visible in the prose draft body
+    - draft stays tentative (review failure does not block or auto-adopt)
+  network:
+    - prose_writing prose_fragment turn_result received
+    - quality_review.review_status = unavailable, policy_action = quality_review_unavailable
+    - quality_review.findings = [] (no fabricated findings)
+  data:
+    - prose_quality.evaluated emitted with review_status=unavailable
+    - quality_policy.decided emitted with policy_action=quality_review_unavailable
+    - no adopt event
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

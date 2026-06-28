@@ -1,0 +1,52 @@
+id: p1-prose-quality-finding-roundtrip
+title: 正文质量发现忠实展示且不成为作品事实（VS-00E CP2）
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh p1-prose-quality-finding-roundtrip --surface tauri
+
+contract:
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - tentative-artifact-not-production
+  - finding-is-not-a-story-fact
+
+setup:
+  seed: scripts/seed_p1_prose_revision_candidate.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - open: archive outline (大纲与结构)
+  - click: 生成正文草稿 for the action chapter (节奏单调动作段)
+  - wait_for: quality review card with at least one finding summary visible
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/p1-prose-quality-finding-roundtrip-tauri
+
+assertions:
+  ui:
+    - quality review card visible (质量复核)
+    - backend finding summary text displayed verbatim on the real page
+    - finding summary does not appear inside the prose draft body
+    - draft stays tentative, no adoption triggered
+  network:
+    - prose_writing prose_fragment turn_result carrying quality_review.findings received
+    - quality_review.review_status = completed (not unavailable)
+  data:
+    - prose_quality.evaluated emitted with finding_count>=1
+    - quality_policy.decided emitted with review_status=completed
+    - finding is not a story fact (absent from draft body, no adopt event)
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

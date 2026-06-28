@@ -74,6 +74,8 @@ export const nativeSliceIds = [
   "p1-chapter-draft-generation",
   "p1-prose-execution-brief",
   "p1-prose-revision-candidate",
+  "p1-prose-quality-finding-roundtrip",
+  "p1-prose-quality-evaluator-degrade",
   "p1-chapter-adoption-reading",
   "p1-word-count-audit",
   "p1-chapter-edit-then-accept",
@@ -304,6 +306,25 @@ const sliceKeyEvents = {
     "channel.author_action.start",
     "prose_revision.generated.done",
     "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-prose-quality-finding-roundtrip": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "context.structure.done",
+    "prose_quality.evaluated.done",
+    "quality_policy.decided.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "p1-prose-quality-evaluator-degrade": [
+    "channel.user_message.start",
+    "context.assemble.done",
+    "prose_quality.evaluated.done",
+    "quality_policy.decided.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-adoption-reading": [
@@ -1497,6 +1518,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ProseRevisionCandidateEvidence(records);
   }
 
+  if (sliceId === "p1-prose-quality-finding-roundtrip") {
+    return findP1ProseQualityFindingRoundtripEvidence(records);
+  }
+
+  if (sliceId === "p1-prose-quality-evaluator-degrade") {
+    return findP1ProseQualityEvaluatorDegradeEvidence(records);
+  }
+
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
     return findVs00cCp4ChapterPlanStructureEvidence(records);
   }
@@ -2044,6 +2073,14 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-prose-revision-candidate") {
     return p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-prose-quality-finding-roundtrip") {
+    return p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "p1-prose-quality-evaluator-degrade") {
+    return p1ProseQualityEvaluatorDegradeBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
@@ -2686,6 +2723,226 @@ function p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidenc
       "sibling_tentative_revision_draft_generated_with_provenance_to_original",
       "revision_draft_body_differs_from_original",
       "revision_draft_not_auto_adopted",
+    ],
+  };
+}
+
+function findP1ProseQualityFindingRoundtripEvidence(records) {
+  const sliceId = "p1-prose-quality-finding-roundtrip";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const targetChapterTitle = "第02章：矿区追击战";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.draft_generated === true &&
+      record.draft_pending === true &&
+      record.quality_review_status === "completed" &&
+      record.quality_review_card_visible === true &&
+      record.finding_summary_displayed === true &&
+      record.finding_in_draft_body === false &&
+      record.adopt_event_sent === false &&
+      Number(record.quality_findings_count ?? 0) >= 1 &&
+      record.chapter_title === targetChapterTitle,
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.turn_id ?? "");
+  if (!draftTurnId) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+
+  if (!draftRecords.some((record) => record.event === "channel.user_message.start")) return null;
+  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+  if (
+    !draftRecords.some(
+      (record) =>
+        record.event === "context.structure.done" && record.target_chapter === targetChapterTitle,
+    )
+  ) {
+    return null;
+  }
+
+  const quality = draftRecords.find(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" && Number(record.finding_count ?? 0) >= 1,
+  );
+  if (!quality) return null;
+
+  // 评审完成态（review_status completed）经策略事件确认，不是降级
+  const policy = draftRecords.find(
+    (record) =>
+      record.event === "quality_policy.decided.done" && record.review_status === "completed",
+  );
+  if (!policy) return null;
+
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    artifact_type: "prose_fragment",
+    chapter_title: targetChapterTitle,
+    finding_validator: String(uiState.finding_validator ?? ""),
+    finding_count: Number(quality.finding_count ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  const draftTurnId = evidence.draft_turn_id;
+
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.structure.done")) return null;
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "prose_quality.evaluated.done")) return null;
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "toolbox.execute.done")) return null;
+  if (hasEventPrefix(records, "channel.adopt.")) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-prose-quality-finding-roundtrip" &&
+      record.turn_id === draftTurnId,
+  );
+  if (!uiState) return null;
+  if (uiState.quality_review_status !== "completed") return null;
+  if (uiState.quality_review_card_visible !== true) return null;
+  if (uiState.finding_summary_displayed !== true) return null;
+  if (uiState.finding_in_draft_body !== false) return null;
+  if (uiState.adopt_event_sent !== false) return null;
+
+  return {
+    slice_id: "p1-prose-quality-finding-roundtrip",
+    behavior: "independent_quality_review_finding_faithfully_displayed_without_becoming_story_fact",
+    turn_ids: turnIds,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    finding_validator: evidence.finding_validator,
+    finding_count: evidence.finding_count,
+    assertions: [
+      "real_archive_outline_action_chapter_draft_clicked",
+      "independent_quality_review_completed_with_at_least_one_finding",
+      "finding_summary_text_displayed_verbatim_on_real_page",
+      "finding_not_leaked_into_prose_draft_body",
+      "draft_stays_tentative_no_adoption_triggered_by_finding",
+    ],
+  };
+}
+
+function findP1ProseQualityEvaluatorDegradeEvidence(records) {
+  const sliceId = "p1-prose-quality-evaluator-degrade";
+  const keyEvents = keyEventsForSlice(sliceId);
+  const targetChapterTitle = "第02章：评审降级章";
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.draft_generated === true &&
+      record.draft_pending === true &&
+      record.quality_review_status === "unavailable" &&
+      record.quality_policy_action === "quality_review_unavailable" &&
+      record.unavailable_card_visible === true &&
+      record.faked_completed_title_visible === false &&
+      record.degrade_marker_in_body === false &&
+      Number(record.quality_findings_count ?? 0) === 0 &&
+      record.adopt_event_sent === false &&
+      record.chapter_title === targetChapterTitle,
+  );
+  if (!uiState) return null;
+
+  const draftTurnId = String(uiState.turn_id ?? "");
+  if (!draftTurnId) return null;
+
+  const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+
+  if (!draftRecords.some((record) => record.event === "channel.user_message.start")) return null;
+  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+
+  // 评审降级被如实记录：review_status=unavailable，策略=quality_review_unavailable
+  const quality = draftRecords.find(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" && record.review_status === "unavailable",
+  );
+  if (!quality) return null;
+
+  const policy = draftRecords.find(
+    (record) =>
+      record.event === "quality_policy.decided.done" &&
+      record.policy_action === "quality_review_unavailable",
+  );
+  if (!policy) return null;
+
+  // 草稿仍然生成（降级不阻断 tentative 草稿）
+  const generatedByTool = draftRecords.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!generatedByTool) return null;
+  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: draftTurnId,
+    turn_ids: [draftTurnId],
+    draft_turn_id: draftTurnId,
+    artifact_type: "prose_fragment",
+    chapter_title: targetChapterTitle,
+    review_status: "unavailable",
+    key_events: keyEvents,
+  };
+}
+
+function p1ProseQualityEvaluatorDegradeBehavior(turnIds, turnRecords, records, evidence, options) {
+  if (turnIds.length !== 1) return null;
+  const draftTurnId = evidence.draft_turn_id;
+
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.assemble.done")) return null;
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "prose_quality.evaluated.done")) return null;
+  if (!turnsHaveEvent([draftTurnId], turnRecords, "toolbox.execute.done")) return null;
+  if (hasEventPrefix(records, "channel.adopt.")) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "p1-prose-quality-evaluator-degrade" &&
+      record.turn_id === draftTurnId,
+  );
+  if (!uiState) return null;
+  if (uiState.quality_review_status !== "unavailable") return null;
+  if (uiState.unavailable_card_visible !== true) return null;
+  if (uiState.faked_completed_title_visible !== false) return null;
+  if (uiState.degrade_marker_in_body !== false) return null;
+  if (Number(uiState.quality_findings_count ?? 0) !== 0) return null;
+  if (uiState.adopt_event_sent !== false) return null;
+
+  return {
+    slice_id: "p1-prose-quality-evaluator-degrade",
+    behavior: "evaluator_failure_honestly_degraded_to_quality_review_unavailable_never_faked_pass",
+    turn_ids: turnIds,
+    artifact_type: evidence.artifact_type,
+    chapter_title: evidence.chapter_title,
+    review_status: evidence.review_status,
+    assertions: [
+      "real_archive_outline_degrade_chapter_draft_clicked",
+      "independent_quality_review_failed_and_marked_unavailable",
+      "unavailable_notice_shown_on_real_page_not_a_faked_completed_title",
+      "no_findings_fabricated_under_degraded_review",
+      "degrade_marker_not_leaked_into_prose_body",
+      "draft_stays_tentative_review_failure_does_not_block_or_adopt",
     ],
   };
 }

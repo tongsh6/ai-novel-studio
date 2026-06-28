@@ -15412,9 +15412,202 @@ async function driveP1ProseRevisionCandidate(page) {
   ];
 }
 
+async function driveP1ProseQualityFindingRoundtrip(page) {
+  const targetChapterTitle = "第02章：矿区追击战";
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    (targetTitle) =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert(
+    (await draftButtons.count()) >= 2,
+    "Archive outline did not render a draft action for the action chapter",
+  );
+  await draftButtons.nth(1).click();
+
+  // 正文草稿 turn：携带质量复核发现（节奏单调动作段被确定性 validator 命中）
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
+      Array.isArray(frame.body?.quality_review?.findings) &&
+      frame.body.quality_review.findings.length > 0,
+    "No prose_fragment turn_result with quality findings was received",
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const review = draftTurnResult.quality_review;
+  const finding = review.findings[0];
+  const findingSummary = String(finding.summary ?? "");
+  const draftBody = draftTurnResult.adoption_state.pending[0].payload?.items?.[0]?.body ?? "";
+
+  // 复核完成（非降级）：评审完成态而非「未完成」
+  assert(
+    review.review_status === "completed",
+    `Expected completed review_status, got ${review.review_status}`,
+  );
+  assert(findingSummary !== "", "Backend finding has empty summary");
+
+  // 外部证据：本轮跑了独立质量评估并命中发现
+  const qualityRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" &&
+      record.turn_id === draftTurnResult.turn_id &&
+      Number(record.finding_count ?? 0) >= 1,
+    "No prose_quality.evaluated app log with findings for the draft turn",
+  );
+
+  // 真实页面忠实展示：质量复核卡 + 后端发现摘要原文逐字可见
+  await page.waitForFunction(
+    (summary) =>
+      document.body.innerText.includes("质量复核") && document.body.innerText.includes(summary),
+    findingSummary,
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, draftTurnResult, sentMessage);
+
+  // finding 不是作品事实：发现摘要不混进正文草稿，且未触发采纳
+  assert(
+    !draftBody.includes(findingSummary),
+    "Quality finding summary leaked into the prose draft body",
+  );
+  assert(
+    !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
+    "Finding-roundtrip turn unexpectedly submitted an adopt event",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      chapter_title: targetChapterTitle,
+      draft_generated: true,
+      draft_pending: true,
+      quality_review_status: review.review_status,
+      quality_findings_count: review.findings.length,
+      quality_finding_count_logged: Number(qualityRecord.finding_count ?? 0),
+      finding_validator: String(finding.validator ?? ""),
+      finding_summary_displayed: visibleText.includes(findingSummary),
+      quality_review_card_visible: visibleText.includes("质量复核"),
+      finding_in_draft_body: draftBody.includes(findingSummary),
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
+    },
+  ];
+}
+
+async function driveP1ProseQualityEvaluatorDegrade(page) {
+  const targetChapterTitle = "第02章：评审降级章";
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "大纲与结构" }).click();
+  await page.waitForFunction(
+    (targetTitle) =>
+      document.body.innerText.includes("已采纳章节计划") &&
+      document.body.innerText.includes(targetTitle),
+    targetChapterTitle,
+    { timeout: 10_000 },
+  );
+
+  const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
+  assert(
+    (await draftButtons.count()) >= 2,
+    "Archive outline did not render a draft action for the degrade chapter",
+  );
+  await draftButtons.nth(1).click();
+
+  // 正文草稿 turn：草稿仍生成（tentative），但质量评审降级为 unavailable（绝不伪装通过）
+  const draftTurnFrame = await waitForFrame(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
+      frame.body?.quality_review?.review_status === "unavailable",
+    "No prose_fragment turn_result with unavailable quality review was received",
+  );
+  const draftTurnResult = draftTurnFrame.body;
+  const review = draftTurnResult.quality_review;
+  const draftBody = draftTurnResult.adoption_state.pending[0].payload?.items?.[0]?.body ?? "";
+
+  // 降级语义：不伪装通过、不伪造发现
+  assert(review.review_status === "unavailable", `review_status=${review.review_status}`);
+  assert(review.policy_action === "quality_review_unavailable", `policy=${review.policy_action}`);
+  assert(
+    (review.findings ?? []).length === 0,
+    "Degraded review must not fabricate findings",
+  );
+
+  // 外部证据：评审降级被如实记录
+  const qualityRecord = await waitForAppLogRecord(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" &&
+      record.turn_id === draftTurnResult.turn_id &&
+      record.review_status === "unavailable",
+    "No prose_quality.evaluated app log with review_status=unavailable",
+  );
+
+  // 真实页面：显示「本次质量复核未完成」，且不出现完成态「质量复核：发现」标题
+  await page.waitForFunction(
+    () => document.body.innerText.includes("本次质量复核未完成"),
+    undefined,
+    { timeout: 10_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const sentMessage = latestSentUserMessage();
+  const uiState = await commonUiState(page, draftTurnResult, sentMessage);
+
+  // 草稿仍可由作者审阅（tentative，未被降级阻断），降级标记不污染正文
+  assert(draftBody !== "", "Draft body should still be produced under degraded review");
+  assert(
+    !draftBody.includes("评审故障演练") && !draftBody.includes("VS00EEVALFAIL"),
+    "Degrade marker leaked into the prose draft body",
+  );
+  assert(
+    !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
+    "Degrade turn unexpectedly submitted an adopt event",
+  );
+
+  return [
+    {
+      ...uiState,
+      turn_id: draftTurnResult.turn_id,
+      chapter_title: targetChapterTitle,
+      draft_generated: true,
+      draft_pending: true,
+      quality_review_status: review.review_status,
+      quality_policy_action: review.policy_action,
+      quality_findings_count: (review.findings ?? []).length,
+      quality_review_logged_status: String(qualityRecord.review_status ?? ""),
+      unavailable_card_visible: visibleText.includes("本次质量复核未完成"),
+      faked_completed_title_visible: visibleText.includes("质量复核：发现"),
+      degrade_marker_in_body:
+        draftBody.includes("评审故障演练") || draftBody.includes("VS00EEVALFAIL"),
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
+    },
+  ];
+}
+
 const drivers = {
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,
   "p1-prose-revision-candidate": driveP1ProseRevisionCandidate,
+  "p1-prose-quality-finding-roundtrip": driveP1ProseQualityFindingRoundtrip,
+  "p1-prose-quality-evaluator-degrade": driveP1ProseQualityEvaluatorDegrade,
   "su01-provider-health-model": driveSu01ProviderHealthModel,
   "su01-lmstudio-disconnected-health": driveSu01LmstudioDisconnectedHealth,
   "su01-provider-endpoint-validation": driveSu01ProviderEndpointValidation,
