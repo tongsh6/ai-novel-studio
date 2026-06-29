@@ -1,0 +1,50 @@
+id: agent-archive-read-during-run
+title: AgentRun 运行中作品档案仍可读取
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-archive-read-during-run --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - archive-read-does-not-block-on-agent-run
+  - archive-read-is-readonly
+  - bounded-run-remains-scoped-to-work
+
+setup:
+  seed: none
+  provider: slice_verify
+  slow_marker: SU02SLOW
+
+user_flow:
+  - open: real Tauri workbench
+  - send: slow bounded roster-to-character-design AgentRun request
+  - open: work archive overview before final AgentRun TurnResult arrives
+  - verify: work profile snapshot remains visible and archive read does not submit author actions
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-archive-read-during-run-tauri
+
+assertions:
+  ui:
+    - archive overview is readable while AgentRun is active
+    - work profile genre and core selling point remain visible
+  network:
+    - archive read uses product channel/API evidence
+    - no extra user_message or author_action is sent for archive read
+  data:
+    - final AgentRun result arrives after archive read
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

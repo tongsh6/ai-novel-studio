@@ -8,6 +8,9 @@ import {
   joinWorkspace,
   sendMessage,
   sendAuthorAction,
+  sendAgentCommand,
+  onAgentEvent,
+  onAgentRunState,
   getToc,
   getChapterContent,
   getCharacters,
@@ -188,6 +191,43 @@ describe("sendAuthorAction", () => {
     });
 
     expect(result.duplicate).toBe(true);
+  });
+});
+
+describe("agent run socket helpers", () => {
+  it("registers agent event and state listeners", () => {
+    const ch = mockChannel();
+    const eventCallback = vi.fn();
+    const stateCallback = vi.fn();
+
+    onAgentEvent(ch, eventCallback);
+    onAgentRunState(ch, stateCallback);
+
+    expect(ch.on).toHaveBeenCalledWith("agent_event", expect.any(Function));
+    expect(ch.on).toHaveBeenCalledWith("agent_run_state", expect.any(Function));
+  });
+
+  it("pushes agent_command with run id and command", () => {
+    const ch = mockChannel();
+
+    sendAgentCommand(ch, "run-1", "pause");
+
+    expect(ch.push).toHaveBeenCalledWith("agent_command", {
+      run_id: "run-1",
+      command: "pause",
+    });
+  });
+
+  it("pushes steer text when provided", () => {
+    const ch = mockChannel();
+
+    sendAgentCommand(ch, "run-1", "steer", "改成更冷静的反派");
+
+    expect(ch.push).toHaveBeenCalledWith("agent_command", {
+      run_id: "run-1",
+      command: "steer",
+      text: "改成更冷静的反派",
+    });
   });
 });
 

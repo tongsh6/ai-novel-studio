@@ -1,0 +1,47 @@
+id: agent-provider-call-budget
+title: AgentRun step/tool/provider 调用预算可追踪
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-provider-call-budget --surface tauri
+canonical_driver: ua01-agent-bounded-roster-to-character-design
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - loop-is-budget-limited
+  - provider-calls-are-counted-separately-from-tool-calls
+  - bounded-run-does-not-force-durable-task
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: compound roster then character design request
+  - wait_for: completed agent_run_state
+  - verify: consumed_budget reports steps=2, tool_calls=2 and provider_calls=1
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-provider-call-budget-tauri
+
+assertions:
+  data:
+    - completed run state includes consumed_budget
+    - consumed steps equals 2
+    - consumed tool calls equals 2
+    - consumed provider calls equals 1
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

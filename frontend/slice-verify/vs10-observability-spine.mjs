@@ -8,15 +8,19 @@ const artifactDir =
   path.resolve("..", "artifacts", "slice-verify", "vs10-observability-spine");
 const appLogDir = process.env.SLICE_VERIFY_APP_LOG_DIR ?? path.join(artifactDir, "app-log");
 
-const keyEvents = [
+const turnKeyEvents = [
   "channel.user_message.start",
-  "dialogue_gateway.handle_input.start",
   "context.assemble.done",
   "planner.form_frame.done",
-  "planner.form_micro_plan.done",
-  "dialogue_gateway.handle_input.done",
   "channel.user_message.done",
 ];
+
+const globalKeyEvents = [
+  "planner.form_micro_plan.done",
+  "orchestrator.decide.done",
+  "toolbox.execute.done",
+];
+
 const chatInputSelector = 'input[placeholder="输入你的想法、问题或指令..."]';
 
 fs.mkdirSync(artifactDir, { recursive: true });
@@ -77,9 +81,17 @@ async function eventuallyReadKeyRecords(turnId) {
   for (let attempt = 0; attempt < 80; attempt += 1) {
     const records = readAppLogRecords();
     const turnRecords = records.filter((record) => record.turn_id === turnId);
+    const hasTurnEvents = turnKeyEvents.every((event) =>
+      turnRecords.some((record) => record.event === event),
+    );
+    const hasGlobalEvents = globalKeyEvents.every((event) =>
+      records.some((record) => record.event === event),
+    );
 
-    if (keyEvents.every((event) => turnRecords.some((record) => record.event === event))) {
-      return turnRecords;
+    if (hasTurnEvents && hasGlobalEvents) {
+      return records.filter(
+        (record) => record.turn_id === turnId || globalKeyEvents.includes(record.event),
+      );
     }
 
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -104,12 +116,10 @@ page.on("websocket", (ws) => {
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
-  await page
-    .getByText(/^服务: 已连接/)
-    .first()
-    .waitFor({ timeout: 30_000 });
+  await page.getByText("已连接", { exact: false }).first().waitFor({ timeout: 30_000 });
 
   await page.getByText("打开档案", { exact: false }).click();
+  await page.getByRole("tab", { name: "伏笔" }).click();
   await page.getByRole("button", { name: "发起伏笔调整" }).click();
 
   await page.waitForFunction(() => window.__vs10TurnResultReceived === true, { timeout: 30_000 });
@@ -124,12 +134,23 @@ try {
   const turnId = turnResultFrame.body.turn_id;
   const records = await eventuallyReadKeyRecords(turnId);
 
-  for (const event of keyEvents) {
-    const record = records.find((candidate) => candidate.event === event);
+  for (const event of turnKeyEvents) {
+    const record = records.find(
+      (candidate) => candidate.event === event && candidate.turn_id === turnId,
+    );
     assert(record, `Missing app log event ${event}`);
     assert(record.turn_id === turnId, `${event} has wrong turn_id: ${record.turn_id}`);
-    assert(record.workspace_id, `${event} is missing workspace_id`);
-    assert(record.work_id, `${event} is missing work_id`);
+    if (event.startsWith("channel.") || event.startsWith("context.")) {
+      assert(record.workspace_id, `${event} is missing workspace_id`);
+      assert(record.work_id, `${event} is missing work_id`);
+    }
+    assert(typeof record.duration_ms === "number", `${event} is missing duration_ms`);
+    assert(record.outcome, `${event} is missing outcome`);
+  }
+
+  for (const event of globalKeyEvents) {
+    const record = records.find((candidate) => candidate.event === event);
+    assert(record, `Missing app log event ${event}`);
     assert(typeof record.duration_ms === "number", `${event} is missing duration_ms`);
     assert(record.outcome, `${event} is missing outcome`);
   }

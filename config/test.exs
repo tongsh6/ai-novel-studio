@@ -37,6 +37,7 @@ config :novel_agent, :provider, default: :stub
 config :novel_agent, NovelAgent.Provider.LMStudio, timeout: 5_000
 
 config :novel_application, sync_memory_reference_log: true
+config :novel_application, sync_chapter_summary_maintenance: true
 
 # 测试环境导出落到项目 tmp（不污染用户 Documents）；dev/prod 走默认导出目录。
 config :novel_application, :export_dir, "tmp/exports"

@@ -12,6 +12,7 @@ defmodule NovelDomain.OrchestratorDecision do
           | :reject
           | :fail_with_recovery
           | :allow_tool
+          | :allow_agent_run
   @type decision_status :: :decided | :failed | :emitted
 
   @type action_ref :: %{
@@ -96,6 +97,9 @@ defmodule NovelDomain.OrchestratorDecision do
 
       :allow_tool ->
         ["tool_dispatched", "result_not_adoption"]
+
+      :allow_agent_run ->
+        ["agent_run_created", "internal_steps_require_regate"]
 
       _ ->
         []

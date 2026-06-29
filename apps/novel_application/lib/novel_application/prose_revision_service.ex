@@ -17,41 +17,148 @@ defmodule NovelApplication.ProseRevisionService do
   - 每次动作只产出**一个**修订候选；
   - 修订路径**不再自动触发质量评估**（不自我递归），避免 evaluator 无限重写。
 
-  本服务只做编排：prose 生成走 `NovelAgent.Toolbox`（与正常写作同一 provider 边界），
-  组装走 `ArtifactAssembler`，不直接写作品事实、不调用 Repo。
+  本服务只做编排：修订动作先构造 revision MicroPlan 并重新经过 ExecutionOrchestrator，
+  再把带真实 decision_ref 的 ToolRequest 交给 agent 侧执行边界；组装走
+  `ArtifactAssembler`，不直接写作品事实、不调用 Repo。
   """
 
   require NovelCommon.LogEmit, as: LogEmit
 
-  alias NovelAgent.Toolbox
+  alias NovelAgent.AuthorizedToolExecutor
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
+  alias NovelApplication.ExecutionOrchestrator
+  alias NovelApplication.TraceWriter
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.AuthorActionInput
+  alias NovelDomain.DialogueFrame
+  alias NovelDomain.MicroPlan
+  alias NovelDomain.OrchestratorDecision
 
   @prose_tool "prose_writing"
 
   @spec revise(map(), AuthorActionInput.t(), (String.t() -> tuple()) | nil) ::
           {:ok, map(), map()} | {:error, String.t()}
-  def revise(_source_turn_result, %AuthorActionInput{}, complete_fn) when not is_function(complete_fn, 1),
-    do: {:error, "revise_from_findings requires a provider connection"}
+  def revise(_source_turn_result, %AuthorActionInput{}, complete_fn)
+      when not is_function(complete_fn, 1),
+      do: {:error, "revise_from_findings requires a provider connection"}
 
   def revise(source_turn_result, %AuthorActionInput{} = action_input, complete_fn) do
-    with {:ok, original} <- original_prose(source_turn_result, action_input.target_ref),
-         findings <- selected_findings(source_turn_result, action_input),
-         {:ok, artifact_set} <- generate_revision(source_turn_result, original, findings, complete_fn) do
+    with {:ok, prepared} <- prepare_revision(source_turn_result, action_input),
+         {:ok, execution} <- plan_revision(source_turn_result, action_input),
+         {:ok, result} <-
+           execute_revision(source_turn_result, action_input, prepared, execution, complete_fn) do
+      {:ok, result.action_result, result.turn_result}
+    end
+  end
+
+  @doc """
+  Extracts the original prose draft and selected visible quality findings.
+  """
+  @spec prepare_revision(map(), AuthorActionInput.t()) :: {:ok, map()} | {:error, String.t()}
+  def prepare_revision(source_turn_result, %AuthorActionInput{} = action_input) do
+    with {:ok, original} <- original_prose(source_turn_result, action_input.target_ref) do
+      findings = selected_findings(source_turn_result, action_input)
+
+      {:ok,
+       %{
+         original: original,
+         findings: findings
+       }}
+    end
+  end
+
+  @doc """
+  Builds the revision frame/plan and re-enters ExecutionOrchestrator.
+  """
+  @spec plan_revision(map(), AuthorActionInput.t()) :: {:ok, map()} | {:error, String.t()}
+  def plan_revision(source_turn_result, %AuthorActionInput{} = action_input) do
+    turn_id = "turn_rev_#{System.unique_integer([:positive, :monotonic])}"
+    frame = revision_frame(source_turn_result, action_input, turn_id)
+    plan = revision_plan(frame, action_input)
+    {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
+
+    if OrchestratorDecision.blocks_execution?(decision) do
+      {:error, "revision generation blocked by orchestrator: #{blocked_reason(decision)}"}
+    else
+      {:ok,
+       %{
+         turn_id: turn_id,
+         frame: frame,
+         plan: plan,
+         decision: decision,
+         behavior: behavior
+       }}
+    end
+  end
+
+  @doc """
+  Executes the authorized revision tool call and returns action_result + TurnResult.
+  """
+  @spec execute_revision(
+          map(),
+          AuthorActionInput.t(),
+          map(),
+          map(),
+          (String.t() -> tuple()) | nil
+        ) ::
+          {:ok, map()} | {:error, String.t()}
+  def execute_revision(
+        _source_turn_result,
+        %AuthorActionInput{},
+        _prepared,
+        _execution,
+        complete_fn
+      )
+      when not is_function(complete_fn, 1),
+      do: {:error, "revise_from_findings requires a provider connection"}
+
+  def execute_revision(
+        source_turn_result,
+        %AuthorActionInput{} = action_input,
+        %{original: original, findings: findings},
+        %{frame: frame, plan: plan, decision: decision} = execution,
+        complete_fn
+      ) do
+    req = build_request(frame, plan, decision, original, findings)
+    result = AuthorizedToolExecutor.execute(req, complete_fn)
+
+    with {:ok, execution} <-
+           assemble_revision_artifact(
+             result,
+             frame.turn_id,
+             source_turn_result,
+             original,
+             findings,
+             %{
+               frame: frame,
+               plan: plan,
+               decision: decision,
+               behavior: Map.get(execution, :behavior),
+               req: req,
+               result: result
+             }
+           ) do
+      artifact_set = execution.artifact_set
       emit_revised(source_turn_result, action_input, artifact_set, findings)
 
       turn_result =
         TurnResultBuilder.revision_turn_result(
           field(source_turn_result, :turn_id) || action_input.source_turn_ref,
           artifact_set,
-          trace_summary: revision_trace_summary(source_turn_result, action_input, artifact_set)
+          trace_summary: revision_trace_summary(source_turn_result, action_input, execution)
         )
 
-      {:ok, revise_action_result(action_input, artifact_set), turn_result}
+      {:ok,
+       %{
+         artifact_set: artifact_set,
+         action_result: revise_action_result(action_input, artifact_set),
+         turn_result: turn_result,
+         execution: execution,
+         findings: findings
+       }}
     end
   end
 
@@ -59,7 +166,8 @@ defmodule NovelApplication.ProseRevisionService do
 
   # 修订对象 = 作者动作的 target_ref（指向待采纳正文草稿的 artifact_id）。从 source
   # TurnResult 的 adoption_state.pending 取该草稿的正文 item 与归章 provenance。
-  defp original_prose(source_turn_result, target_ref) when is_binary(target_ref) and target_ref != "" do
+  defp original_prose(source_turn_result, target_ref)
+       when is_binary(target_ref) and target_ref != "" do
     pending =
       source_turn_result
       |> field(:adoption_state)
@@ -143,28 +251,87 @@ defmodule NovelApplication.ProseRevisionService do
 
   # ── 修订生成 ───────────────────────────────────────────────
 
-  defp generate_revision(source_turn_result, original, findings, complete_fn) do
-    turn_id = "turn_rev_#{System.unique_integer([:positive, :monotonic])}"
-    req = build_request(turn_id, original, findings)
-    result = Toolbox.execute(req, complete_fn)
-
-    case ArtifactAssembler.assemble(result, turn_id, provenance(source_turn_result, original, findings)) do
+  defp assemble_revision_artifact(
+         result,
+         turn_id,
+         source_turn_result,
+         original,
+         findings,
+         execution
+       ) do
+    case ArtifactAssembler.assemble(
+           result,
+           turn_id,
+           provenance(source_turn_result, original, findings)
+         ) do
       {:ok, artifact_set} ->
-        {:ok, artifact_set}
+        {:ok, Map.put(execution, :artifact_set, artifact_set)}
 
       {:error, _reason} ->
         {:error, revision_error_message(result)}
     end
   end
 
-  defp build_request(turn_id, original, findings) do
+  defp revision_frame(source_turn_result, %AuthorActionInput{} = action_input, turn_id) do
+    %DialogueFrame{
+      schema_version: "3.0-draft",
+      frame_id: "frame_#{turn_id}",
+      turn_id: turn_id,
+      workspace_id: workspace_ref(source_turn_result),
+      primary: true,
+      frame_type: :execution_candidate,
+      source_refs: %{
+        author_action_ref: action_input.action_id,
+        source_turn_ref: field(source_turn_result, :turn_id) || action_input.source_turn_ref
+      },
+      dialogue_goal: %{summary: "按质量发现重写正文草稿"},
+      tool_need: %{needs_tool: true, reason_code: :tool_needed},
+      execution_readiness: :ready,
+      author_visible_draft: %{message: "按质量复核结果生成一个修订草稿。"},
+      evidence_summary: %{revision_action: "revise_from_findings"},
+      uncertainty: []
+    }
+  end
+
+  defp revision_plan(%DialogueFrame{} = frame, %AuthorActionInput{} = action_input) do
+    %MicroPlan{
+      plan_id: "plan_#{frame.turn_id}",
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      primary: false,
+      plan_goal: %{summary: "生成一个 tentative 修订草稿"},
+      risk_hint: :low,
+      proposed_actions: [
+        %{
+          action_id: "act_revision_#{frame.turn_id}",
+          action_type: :capability_invocation,
+          summary: "基于质量发现重写正文草稿",
+          target_ref: @prose_tool,
+          write_intent: :tentative,
+          risk_hint: :low,
+          authoring_intent: :rewrite,
+          target_chapter: action_input.target_ref
+        }
+      ],
+      stop_after_next_action: true
+    }
+  end
+
+  defp build_request(
+         %DialogueFrame{} = frame,
+         %MicroPlan{} = plan,
+         %OrchestratorDecision{} = decision,
+         original,
+         findings
+       ) do
     entry = CapabilityRegistry.get(@prose_tool)
 
     %ToolRequest{
       tool_request_id: "tq_rev_#{System.unique_integer([:positive, :monotonic])}",
-      turn_id: turn_id,
-      frame_ref: "frame_#{turn_id}",
-      decision_ref: "decision_rev_#{turn_id}",
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
+      decision_ref: decision.decision_id,
       tool_name: @prose_tool,
       tool_version: (entry && entry.tool_version) || "unknown",
       input: %{
@@ -174,7 +341,7 @@ defmodule NovelApplication.ProseRevisionService do
       },
       read_scope_grants: (entry && entry.read_scopes) || [],
       write_scope_grants: [],
-      idempotency_key: "idem_#{turn_id}_revise",
+      idempotency_key: "idem_#{frame.turn_id}_revise",
       trace_policy: %{level: "standard"},
       created_at: DateTime.utc_now()
     }
@@ -256,19 +423,64 @@ defmodule NovelApplication.ProseRevisionService do
     }
   end
 
-  defp revision_trace_summary(source_turn_result, %AuthorActionInput{} = action_input, artifact_set) do
-    %{
-      trace_ref: "trace:#{artifact_set.source_turn_ref}",
+  defp revision_trace_summary(source_turn_result, %AuthorActionInput{} = action_input, execution) do
+    artifact_set = execution.artifact_set
+
+    {_trace, tool_trace_summary} =
+      TraceWriter.record_with_tool(
+        execution.frame,
+        execution.plan,
+        execution.decision,
+        execution.req,
+        execution.result,
+        %{turn_id: execution.frame.turn_id},
+        nil
+      )
+
+    tool_trace_summary
+    |> Map.merge(%{
       decision_type: "revise_from_findings",
+      orchestrator_decision: execution.decision.decision_type,
       source_turn_ref: field(source_turn_result, :turn_id) || action_input.source_turn_ref,
       revision_base: artifact_set.revision_base,
+      revision_artifact_ref: artifact_set.artifact_set_id,
       quality_finding_refs: artifact_set.quality_finding_refs,
+      revision_provider_call_ref: provider_call_ref(artifact_set),
       no_write_reason: "revision draft is tentative and not auto-adopted",
-      replay_policy: %{use_recorded_frame: true, recall_provider: true}
-    }
+      replay_policy: %{use_recorded_frame: true, recall_provider: false},
+      provider_call_budget: %{
+        revision_writer: if(provider_call_ref(artifact_set), do: 1, else: 0)
+      }
+    })
   end
 
-  defp emit_revised(source_turn_result, %AuthorActionInput{} = action_input, artifact_set, findings) do
+  defp workspace_ref(source_turn_result) do
+    field(source_turn_result, :workspace_id) ||
+      field(source_turn_result, :work_id) ||
+      "workspace_revision_unknown"
+  end
+
+  defp blocked_reason(%OrchestratorDecision{} = decision) do
+    [
+      decision.first_blocking_gate,
+      List.first(decision.reason_codes)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(":")
+  end
+
+  defp provider_call_ref(artifact_set) do
+    artifact_set.items
+    |> List.wrap()
+    |> Enum.find_value(fn item -> field(item, :provider_call_ref) end)
+  end
+
+  defp emit_revised(
+         source_turn_result,
+         %AuthorActionInput{} = action_input,
+         artifact_set,
+         findings
+       ) do
     LogEmit.emit(:prose_revision, :generated, :done, %{
       source_turn_ref: field(source_turn_result, :turn_id) || action_input.source_turn_ref,
       revision_base: artifact_set.revision_base,

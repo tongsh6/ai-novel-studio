@@ -38,6 +38,7 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     semantic = fn _prompt ->
       {:ok,
        %{
+         provider_call_ref: "pc-cp2-evaluator",
          content:
            Jason.encode!(%{
              "findings" => [
@@ -60,6 +61,10 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     refs = Enum.map(review.findings, & &1["validator"])
     assert "validator.character_agency" in refs
     assert "validator.prose_pattern_repetition" in refs
+    assert turn_result.trace_summary.writer_provider_call_ref == "pc-cp2-writer"
+    assert turn_result.trace_summary.evaluator_provider_call_ref == "pc-cp2-evaluator"
+    assert turn_result.trace_summary.provider_call_budget.writer == 1
+    assert turn_result.trace_summary.provider_call_budget.evaluator == 1
   end
 
   test "evaluator failure → quality_review unavailable, never faked pass" do
@@ -75,10 +80,16 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     complete = fn _prompt ->
       {:ok,
        %{
+         provider_call_id: "pc-cp2-writer",
          content:
            Jason.encode!(%{
              items: [%{item_id: "cp2-item", title: "第01章", body: @bad_prose, rationale: nil}],
-             self_report: %{assumptions: [], intended_reader_effect: nil, used_context_refs: [], risk_flags: []}
+             self_report: %{
+               assumptions: [],
+               intended_reader_effect: nil,
+               used_context_refs: [],
+               risk_flags: []
+             }
            })
        }}
     end

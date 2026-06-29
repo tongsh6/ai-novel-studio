@@ -16,27 +16,30 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
 
   test "execution brief is projected from chapter direction, enters prompt + trace, not a story fact" do
     {turn_result, prompt} =
-      run(%DialogueContext{
-        workspace_id: @work,
-        current_chapters: ["第02章：旧服务器里的残诀"],
-        structured_chapters: [
-          %{
-            title: "第02章：旧服务器里的残诀",
-            seq: 2,
-            summary: "主角进入旧服务器。",
-            has_prose: false,
-            plan_direction: %{
-              "chapter_role" => "铺垫章",
-              "plot_progress" => "主角进入旧服务器并发现残缺功法",
-              "character_change" => "主角第一次主动冒险",
-              "information_release" => "残诀来源指向公司旧实验",
-              "foreshadowing_action" => "残诀尾页缺失",
-              "emotion" => "紧张中带兴奋"
+      run(
+        %DialogueContext{
+          workspace_id: @work,
+          current_chapters: ["第02章：旧服务器里的残诀"],
+          structured_chapters: [
+            %{
+              title: "第02章：旧服务器里的残诀",
+              seq: 2,
+              summary: "主角进入旧服务器。",
+              has_prose: false,
+              plan_direction: %{
+                "chapter_role" => "铺垫章",
+                "plot_progress" => "主角进入旧服务器并发现残缺功法",
+                "character_change" => "主角第一次主动冒险",
+                "information_release" => "残诀来源指向公司旧实验",
+                "foreshadowing_action" => "残诀尾页缺失",
+                "emotion" => "紧张中带兴奋"
+              }
             }
-          }
-        ],
-        assembly_policy: AssemblyPolicy.for_tier(:floor)
-      }, "第02章：旧服务器里的残诀")
+          ],
+          assembly_policy: AssemblyPolicy.for_tier(:floor)
+        },
+        "第02章：旧服务器里的残诀"
+      )
 
     # 1. 章方向被展开为场级执行简述并进入 provider 请求（在三锚点之后）
     assert prompt =~ "## 场级执行简述"
@@ -52,6 +55,10 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
     # 3. brief 来源进入 trace（稳定 ref）
     ref = turn_result.trace_summary[:prose_execution_brief_ref]
     assert is_binary(ref) and String.starts_with?(ref, "brief:")
+    assert turn_result.trace_summary[:creative_decision_packet_ref] == "cdp_turn-cp1"
+    assert turn_result.trace_summary[:writer_provider_call_ref] == "pc-cp1-writer"
+    assert turn_result.trace_summary[:provider_call_budget].writer == 1
+    assert turn_result.trace_summary[:provider_call_budget].evaluator == 0
 
     # 4. brief 不是作品事实：待采纳产物正文是模型内容，不含执行简述结构
     assert [pending] = turn_result.adoption_state.pending
@@ -62,14 +69,17 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
 
   test "no structured chapter direction → degraded brief, still enters request without fabricating causal detail" do
     {_turn_result, prompt} =
-      run(%DialogueContext{
-        workspace_id: @work,
-        current_chapters: ["第05章"],
-        structured_chapters: [
-          %{title: "第05章", seq: 5, summary: "主角与师父对峙。", has_prose: false}
-        ],
-        assembly_policy: AssemblyPolicy.for_tier(:floor)
-      }, "第05章")
+      run(
+        %DialogueContext{
+          workspace_id: @work,
+          current_chapters: ["第05章"],
+          structured_chapters: [
+            %{title: "第05章", seq: 5, summary: "主角与师父对峙。", has_prose: false}
+          ],
+          assembly_policy: AssemblyPolicy.for_tier(:floor)
+        },
+        "第05章"
+      )
 
     assert prompt =~ "## 场级执行简述"
     assert prompt =~ "主角与师父对峙"
@@ -85,6 +95,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
 
       {:ok,
        %{
+         provider_call_id: "pc-cp1-writer",
          content:
            Jason.encode!(%{
              items: [%{item_id: "cp1-item", title: "第02章", body: "正文", rationale: nil}],

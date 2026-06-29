@@ -1,0 +1,47 @@
+id: agent-tentative-boundary
+title: Agent 产物保持 tentative，不自动采纳或写主档案
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-tentative-boundary --surface tauri
+canonical_driver: ua01-agent-bounded-roster-to-character-design
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - creative-artifacts-default-to-tentative
+  - agent-does-not-autonomously-adopt
+  - agent-does-not-write-production-archive
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: compound roster then character design request
+  - wait_for: final character_design TurnResult
+  - verify: generated character_seed remains a pending adoption candidate
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-tentative-boundary-tauri
+
+assertions:
+  data:
+    - pending artifact type is character_seed
+    - pending artifact requires adoption
+    - adoption_status is tentative
+    - artifact_adopted and production_write_performed are false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

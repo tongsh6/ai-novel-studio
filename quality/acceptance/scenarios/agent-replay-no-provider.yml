@@ -1,0 +1,52 @@
+id: agent-replay-no-provider
+title: Agent/修订 replay policy 不重新调用 provider
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-replay-no-provider --surface tauri
+canonical_driver: p1-prose-revision-candidate
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - revise-from-findings-runs-as-bounded-agent-run
+  - replay-does-not-recall-provider
+  - revision-draft-remains-tentative
+  - trace-policy-is-author-safe
+
+setup:
+  seed: scripts/seed_p1_prose_revision_candidate.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate: prose draft with a quality finding
+  - click: 按这些问题重写
+  - verify: revision author_action fast-acks with bounded AgentRun
+  - verify: revision AgentRun completes before replay policy is asserted
+  - verify: revision TurnResult trace_summary.replay_policy uses recorded frame and recall_provider=false
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-replay-no-provider-tauri
+
+assertions:
+  data:
+    - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
+    - revision agent_run_state completes with 4 steps, 1 tool call, 1 provider call
+    - revision replay_policy.use_recorded_frame is true
+    - revision replay_policy.recall_provider is false
+    - revision draft remains tentative and is not auto-adopted
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

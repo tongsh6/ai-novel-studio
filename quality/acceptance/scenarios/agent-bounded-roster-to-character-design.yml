@@ -1,0 +1,46 @@
+id: agent-bounded-roster-to-character-design
+title: AgentRun 角色阵容 Observation 传递到角色设计
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-bounded-roster-to-character-design --surface tauri
+canonical_driver: ua01-agent-bounded-roster-to-character-design
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - agent-plan-is-not-micro-plan
+  - observation-handoff-before-dependent-step
+  - tentative-artifact-not-production
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: compound author request asking to inspect roster and design a mirrored antagonist
+  - observe: roster observation event before final character_design result
+  - wait_for: tentative character_seed artifact
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-bounded-roster-to-character-design-tauri
+
+assertions:
+  data:
+    - character_design_with_context_v1 profile selected
+    - readonly roster observation is visible before character_design completes
+    - final character_design TurnResult carries a tentative character_seed
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

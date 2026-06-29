@@ -1,0 +1,50 @@
+id: agent-work-isolation
+title: 源作品 AgentRun 迟到输出不污染切换后的目标作品
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-work-isolation --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - stale-state-does-not-silently-continue
+  - agent-events-are-work-scoped
+  - switched-work-is-not-polluted-by-late-source-output
+
+setup:
+  seed: none
+  provider: slice_verify
+  slow_marker: SU02SLOW
+
+user_flow:
+  - open: real Tauri workbench
+  - send: slow bounded AgentRun request in source work
+  - switch: target work before source character_design completes
+  - wait_for: source character_design completion in app log
+  - verify: target work UI does not show source user message, nonce or generated draft
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-work-isolation-tauri
+
+assertions:
+  ui:
+    - target work remains selected after source run finishes
+    - source message, nonce and draft are not visible in target work
+    - target work is not left in loading state
+  network:
+    - source run started from source work channel
+    - target work channel joined before source tool completion
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

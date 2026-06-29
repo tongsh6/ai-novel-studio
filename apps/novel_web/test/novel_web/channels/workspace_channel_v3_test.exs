@@ -121,7 +121,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
       ref = push(socket, "user_message", %{"text" => "你好，我想聊聊创作"})
-      assert_reply(ref, :ok, %{received: true})
+      assert_reply(ref, :ok, %{received: true, run_id: run_id, run_mode: "bounded"}, 1_000)
+      assert is_binary(run_id)
     end
 
     test "broadcasts turn_result after user_message" do
@@ -131,34 +132,20 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
       push(socket, "user_message", %{"text" => "聊聊赛博朋克方向"})
-      assert_broadcast("turn_result", %{phase: _, assistant_message: %{text: _}})
+      assert_broadcast("agent_event", %{event_type: "run_started"}, 1_000)
+      assert_broadcast("agent_run_state", %{run_mode: "bounded"}, 1_000)
+      assert_broadcast("turn_result", %{phase: _, assistant_message: %{text: _}}, 1_000)
     end
 
-    test "broadcasts recoverable fallback turn_result when message processing fails" do
+    test "rejects invalid user_message without synthetic fallback turn_result" do
       {:ok, _, socket} =
         UserSocket
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
       ref = push(socket, "user_message", %{"text" => ""})
-      assert_reply(ref, :ok, %{received: true, note: "fallback"})
-      assert_broadcast("turn_result", result)
-
-      assert is_binary(result.turn_id)
-      assert result.frame_ref == "frame:#{result.turn_id}:fallback"
-      assert result.status == "error"
-      assert result.next_action == "recover"
-      assert result.assistant_message.text =~ "未创建待采纳内容"
-      assert result.assistant_message.text =~ "没有写入作品事实"
-      assert result.truthfulness.tool_called == false
-      assert result.truthfulness.artifact_adopted == false
-      assert result.truthfulness.production_write_performed == false
-      assert [%{reason_code: "turn_processing_failed", message: message}] = result.errors
-      assert message =~ "未创建待采纳内容"
-      assert result.error == "turn_processing_failed"
-      refute message =~ "text is required"
-      refute inspect(result) =~ "frame validation failed"
-      refute inspect(result) =~ "forbidden semantics"
+      assert_reply(ref, :error, %{reason: "empty_text"})
+      refute_broadcast("turn_result", %{}, 50)
     end
 
     test "turn_result has required v3 fields" do
@@ -168,7 +155,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
       push(socket, "user_message", %{"text" => "你好"})
-      assert_broadcast("turn_result", result)
+      assert_broadcast("turn_result", result, 1_000)
 
       assert result.schema_version == "3.0-draft"
       assert result.turn_id != nil
@@ -185,7 +172,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
       push(socket, "user_message", %{"text" => "先聊方向不写正文"})
-      assert_broadcast("turn_result", result)
+      assert_broadcast("turn_result", result, 1_000)
 
       assert result.truthfulness.tool_called == false
       assert result.truthfulness.artifact_adopted == false
@@ -199,7 +186,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
       push(socket, "user_message", %{"text" => "我想写小说但没想好"})
-      assert_broadcast("turn_result", result)
+      assert_broadcast("turn_result", result, 1_000)
 
       refute Map.has_key?(result, :required_slots)
       refute Map.has_key?(result, :missing_slots)
@@ -215,7 +202,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       socket = assign_server_turn(socket, @candidate_turn_result)
 
-      assert {:reply, {:ok, %{received: true}}, socket} =
+      assert {:reply, {:ok, %{received: true, run_id: run_id, run_mode: "bounded"}}, socket} =
                WorkspaceChannel.handle_in(
                  "user_message",
                  %{
@@ -229,6 +216,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                  socket
                )
 
+      assert is_binary(run_id)
+      socket = pump_agent_events(socket)
       assert_broadcast("turn_result", result)
       assert result.truthfulness.artifact_adopted == false
       assert result.truthfulness.production_write_performed == false
@@ -1451,5 +1440,15 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
     socket
     |> Phoenix.Socket.assign(:current_turn_id, turn_id)
     |> Phoenix.Socket.assign(:turn_results_by_id, turn_results)
+  end
+
+  defp pump_agent_events(socket) do
+    receive do
+      {:agent_event, event} ->
+        {:noreply, socket} = WorkspaceChannel.handle_info({:agent_event, event}, socket)
+        pump_agent_events(socket)
+    after
+      20 -> socket
+    end
   end
 end

@@ -1,0 +1,49 @@
+id: agent-steer-replan
+title: AgentRun steer 绑定 active run_id 并广播重规划状态
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-steer-replan --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - author-can-steer-agent-run
+  - stale-run-command-does-not-silently-continue
+  - frontend-does-not-own-run-state
+
+setup:
+  seed: none
+  provider: slice_verify
+  slow_marker: SU02SLOW
+
+user_flow:
+  - open: real Tauri workbench
+  - send: slow bounded roster-to-character-design AgentRun request
+  - submit: visible steer control in AgentRun panel
+  - wait_for: agent_command ack, plan_adjusted event and adjusted agent_run_state for the same run_id
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-steer-replan-tauri
+
+assertions:
+  network:
+    - agent_command steer is sent from the real page with active run_id
+    - command ack returns the same run_id
+    - plan_adjusted is broadcast for the same run_id
+  data:
+    - adjusted agent_run_state carries goal version >= 2
+    - frontend does not mark the run adjusted without backend ack
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

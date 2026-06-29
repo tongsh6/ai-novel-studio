@@ -1,3 +1,70 @@
+const ua01AgentScenarioIds = [
+  "ua01-agent-bounded-roster-to-character-design",
+  "agent-bounded-roster-to-character-design",
+  "agent-step-regate",
+  "agent-no-multistep-plan-bypass",
+  "agent-event-author-safe",
+  "agent-channel-fast-ack",
+  "agent-tentative-boundary",
+  "agent-provider-call-budget",
+];
+
+const ua01AgentInterruptScenarioIds = ["agent-interrupt-safe-point", "agent-cancel-target-binding"];
+
+const ua01AgentSteerScenarioIds = ["agent-steer-replan"];
+const ua01AgentStopScenarioIds = ["agent-loop-budget-limit", "agent-no-progress-stop"];
+const ua01AgentArchiveScenarioIds = ["agent-archive-read-during-run"];
+const ua01AgentIsolationScenarioIds = ["agent-work-isolation"];
+const ua01AgentDurableScenarioIds = ["agent-durable-resume-long-run-task"];
+const ua01AgentCp6ScenarioIds = [
+  "agent-provider-streaming-progress",
+  "agent-provider-cancel-honest-boundary",
+  "agent-readonly-batch-profile",
+];
+
+const ua01AgentCanonicalSliceId = "ua01-agent-bounded-roster-to-character-design";
+
+function isUa01AgentScenario(sliceId) {
+  return ua01AgentScenarioIds.includes(sliceId);
+}
+
+function isUa01AgentInterruptScenario(sliceId) {
+  return ua01AgentInterruptScenarioIds.includes(sliceId);
+}
+
+function isUa01AgentSteerScenario(sliceId) {
+  return ua01AgentSteerScenarioIds.includes(sliceId);
+}
+
+function isUa01AgentStopScenario(sliceId) {
+  return ua01AgentStopScenarioIds.includes(sliceId);
+}
+
+function isUa01AgentArchiveScenario(sliceId) {
+  return ua01AgentArchiveScenarioIds.includes(sliceId);
+}
+
+function isUa01AgentIsolationScenario(sliceId) {
+  return ua01AgentIsolationScenarioIds.includes(sliceId);
+}
+
+function isUa01AgentDurableScenario(sliceId) {
+  return ua01AgentDurableScenarioIds.includes(sliceId);
+}
+
+function boolValue(value) {
+  if (value === true || value === "true") return true;
+  if (value === false || value === "false") return false;
+  return value;
+}
+
+function canonicalSliceId(sliceId) {
+  if (isUa01AgentScenario(sliceId)) return ua01AgentCanonicalSliceId;
+  if (sliceId === "agent-revision-orchestrator-boundary") return "p1-prose-revision-candidate";
+  if (sliceId === "agent-replay-no-provider") return "p1-prose-revision-candidate";
+  return sliceId;
+}
+
 export const nativeSliceIds = [
   "workspace-runtime-state",
   "su02-work-switching",
@@ -77,6 +144,18 @@ export const nativeSliceIds = [
   "p1-prose-quality-finding-roundtrip",
   "p1-prose-quality-evaluator-degrade",
   "p1-prose-quality-adoption-boundary",
+  "agent-prose-drafting-with-quality",
+  "agent-conversation-turn",
+  ...ua01AgentScenarioIds,
+  ...ua01AgentInterruptScenarioIds,
+  ...ua01AgentSteerScenarioIds,
+  ...ua01AgentStopScenarioIds,
+  ...ua01AgentArchiveScenarioIds,
+  ...ua01AgentIsolationScenarioIds,
+  ...ua01AgentDurableScenarioIds,
+  ...ua01AgentCp6ScenarioIds,
+  "agent-revision-orchestrator-boundary",
+  "agent-replay-no-provider",
   "p1-chapter-adoption-reading",
   "p1-word-count-audit",
   "p1-chapter-edit-then-accept",
@@ -337,6 +416,102 @@ const sliceKeyEvents = {
     "prose_revision.generated.done",
     "adoption.evaluate.done",
     "channel.author_action.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-prose-drafting-with-quality": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "prose_quality.evaluated.done",
+    "quality_policy.decided.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-conversation-turn": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-durable-resume-long-run-task": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "channel.agent_run_recover.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-provider-streaming-progress": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-provider-cancel-honest-boundary": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-readonly-batch-profile": [
+    "channel.user_message.start",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "ua01-agent-bounded-roster-to-character-design": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-interrupt-safe-point": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-cancel-target-binding": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-steer-replan": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-loop-budget-limit": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-no-progress-stop": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-archive-read-during-run": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "channel.get_work_profile.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-work-isolation": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "channel.join.done",
+    "toolbox.execute.done",
     "slice_verify.ui_state.done",
   ],
   "p1-chapter-adoption-reading": [
@@ -1126,7 +1301,7 @@ const sliceKeyEvents = {
 };
 
 export function keyEventsForSlice(sliceId) {
-  return sliceKeyEvents[sliceId] ?? [];
+  return sliceKeyEvents[canonicalSliceId(sliceId)] ?? [];
 }
 
 export function findLmStudioEvidence(turnIds, records) {
@@ -1530,6 +1705,13 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findP1ProseRevisionCandidateEvidence(records);
   }
 
+  if (
+    sliceId === "agent-revision-orchestrator-boundary" ||
+    sliceId === "agent-replay-no-provider"
+  ) {
+    return findP1ProseRevisionCandidateEvidence(records, sliceId);
+  }
+
   if (sliceId === "p1-prose-quality-finding-roundtrip") {
     return findP1ProseQualityFindingRoundtripEvidence(records);
   }
@@ -1540,6 +1722,54 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "p1-prose-quality-adoption-boundary") {
     return findP1ProseQualityAdoptionBoundaryEvidence(records);
+  }
+
+  if (sliceId === "agent-prose-drafting-with-quality") {
+    return findAgentProseDraftingWithQualityEvidence(records);
+  }
+
+  if (sliceId === "agent-conversation-turn") {
+    return findAgentConversationTurnEvidence(records);
+  }
+
+  if (isUa01AgentScenario(sliceId)) {
+    return findUa01AgentBoundedRosterToCharacterDesignEvidence(records, sliceId);
+  }
+
+  if (isUa01AgentInterruptScenario(sliceId)) {
+    return findUa01AgentInterruptEvidence(records, sliceId);
+  }
+
+  if (isUa01AgentSteerScenario(sliceId)) {
+    return findUa01AgentSteerEvidence(records, sliceId);
+  }
+
+  if (isUa01AgentStopScenario(sliceId)) {
+    return findUa01AgentStopEvidence(records, sliceId);
+  }
+
+  if (isUa01AgentArchiveScenario(sliceId)) {
+    return findUa01AgentArchiveReadEvidence(records, sliceId);
+  }
+
+  if (isUa01AgentIsolationScenario(sliceId)) {
+    return findUa01AgentWorkIsolationEvidence(records, sliceId);
+  }
+
+  if (isUa01AgentDurableScenario(sliceId)) {
+    return findAgentDurableResumeLongRunTaskEvidence(records);
+  }
+
+  if (sliceId === "agent-provider-streaming-progress") {
+    return findAgentProviderStreamingProgressEvidence(records);
+  }
+
+  if (sliceId === "agent-provider-cancel-honest-boundary") {
+    return findAgentProviderCancelHonestBoundaryEvidence(records);
+  }
+
+  if (sliceId === "agent-readonly-batch-profile") {
+    return findAgentReadonlyBatchProfileEvidence(records);
   }
 
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
@@ -1892,11 +2122,23 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
   }
 
   if (sliceId === "au04-disabled-confirmation-action-ui") {
-    return au04DisabledConfirmationActionUiBehavior(turnIds, turnRecords, records, evidence, options);
+    return au04DisabledConfirmationActionUiBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "au04-history-confirmation-readonly") {
-    return au04HistoryConfirmationReadonlyBehavior(turnIds, turnRecords, records, evidence, options);
+    return au04HistoryConfirmationReadonlyBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "au04-cross-work-confirmation-guard") {
@@ -2091,6 +2333,20 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (
+    sliceId === "agent-revision-orchestrator-boundary" ||
+    sliceId === "agent-replay-no-provider"
+  ) {
+    return p1ProseRevisionCandidateBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+      sliceId,
+    );
+  }
+
   if (sliceId === "p1-prose-quality-finding-roundtrip") {
     return p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, evidence, options);
   }
@@ -2101,6 +2357,61 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "p1-prose-quality-adoption-boundary") {
     return p1ProseQualityAdoptionBoundaryBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "agent-prose-drafting-with-quality") {
+    return agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "agent-conversation-turn") {
+    return agentConversationTurnBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (isUa01AgentScenario(sliceId)) {
+    return ua01AgentBoundedRosterToCharacterDesignBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+      sliceId,
+    );
+  }
+
+  if (isUa01AgentInterruptScenario(sliceId)) {
+    return ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId);
+  }
+
+  if (isUa01AgentSteerScenario(sliceId)) {
+    return ua01AgentSteerBehavior(turnIds, records, evidence, sliceId);
+  }
+
+  if (isUa01AgentStopScenario(sliceId)) {
+    return ua01AgentStopBehavior(turnIds, records, evidence, sliceId);
+  }
+
+  if (isUa01AgentArchiveScenario(sliceId)) {
+    return ua01AgentArchiveReadBehavior(turnIds, records, evidence, sliceId);
+  }
+
+  if (isUa01AgentIsolationScenario(sliceId)) {
+    return ua01AgentWorkIsolationBehavior(turnIds, records, evidence, sliceId);
+  }
+
+  if (isUa01AgentDurableScenario(sliceId)) {
+    return agentDurableResumeLongRunTaskBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-provider-streaming-progress") {
+    return agentProviderStreamingProgressBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-provider-cancel-honest-boundary") {
+    return agentProviderCancelHonestBoundaryBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-readonly-batch-profile") {
+    return agentReadonlyBatchProfileBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "vs00c-cp4-chapter-plan-structure") {
@@ -2186,7 +2497,13 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
   }
 
   if (sliceId === "au07-tooltrace-registry-redacted-io") {
-    return au07TooltraceRegistryRedactedIoBehavior(turnIds, turnRecords, records, evidence, options);
+    return au07TooltraceRegistryRedactedIoBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
   }
 
   if (sliceId === "vs10-observability-spine") {
@@ -2330,7 +2647,7 @@ function findVs00cCp3StructuredContextEvidence(records) {
   if (!draftTurnId) return null;
 
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
-  const start = draftRecords.find(
+  const start = records.find(
     (record) =>
       record.event === "channel.user_message.start" &&
       record.generate_micro_plan === true &&
@@ -2353,7 +2670,7 @@ function findVs00cCp3StructuredContextEvidence(records) {
   );
   if (!structure) return null;
 
-  const generatedByTool = draftRecords.some(
+  const generatedByTool = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
@@ -2419,7 +2736,7 @@ function findP1ProseExecutionBriefEvidence(records) {
 
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
 
-  const start = draftRecords.find(
+  const start = records.find(
     (record) =>
       record.event === "channel.user_message.start" &&
       record.generate_micro_plan === true &&
@@ -2428,7 +2745,8 @@ function findP1ProseExecutionBriefEvidence(records) {
   );
   if (!start) return null;
 
-  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+  const contextTurnId = contextAssembleTurnIdForDraftTurn(records, draftTurnId);
+  if (!contextTurnId) return null;
 
   const structure = draftRecords.find(
     (record) =>
@@ -2448,7 +2766,7 @@ function findP1ProseExecutionBriefEvidence(records) {
   );
   if (!briefBuilt) return null;
 
-  const generatedByTool = draftRecords.some(
+  const generatedByTool = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
@@ -2456,13 +2774,12 @@ function findP1ProseExecutionBriefEvidence(records) {
   );
   if (!generatedByTool) return null;
 
-  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
-
   return {
     slice_id: sliceId,
     turn_id: draftTurnId,
     turn_ids: [draftTurnId],
     draft_turn_id: draftTurnId,
+    context_turn_id: contextTurnId,
     artifact_type: "prose_fragment",
     chapter_title: targetChapterTitle,
     brief_ref: briefBuilt.brief_ref,
@@ -2475,7 +2792,7 @@ function findP1ProseExecutionBriefEvidence(records) {
 function vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 1) return null;
   if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.assemble.done")) return null;
+  if (!contextAssembleTurnIdForDraftTurn(records, evidence.draft_turn_id)) return null;
   if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.structure.done")) return null;
   if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "planner.form_micro_plan.done")) {
     return null;
@@ -2541,15 +2858,28 @@ function vs00cCp3StructuredContextBehavior(turnIds, turnRecords, records, eviden
 
 function p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, options) {
   if (turnIds.length !== 1) return null;
-  if (!turnsHaveGenerateMicroPlan([evidence.draft_turn_id], turnRecords, true)) return null;
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.assemble.done")) return null;
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.structure.done")) return null;
   if (
-    !turnsHaveEvent([evidence.draft_turn_id], turnRecords, "prose_execution_brief.built.done")
+    !records.some(
+      (record) => record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+    )
   ) {
     return null;
   }
-  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "toolbox.execute.done")) return null;
+  if (!contextAssembleTurnIdForDraftTurn(records, evidence.draft_turn_id)) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "context.structure.done")) return null;
+  if (!turnsHaveEvent([evidence.draft_turn_id], turnRecords, "prose_execution_brief.built.done")) {
+    return null;
+  }
+  if (
+    !records.some(
+      (record) =>
+        record.event === "toolbox.execute.done" &&
+        record.tool_name === "prose_writing" &&
+        record.tool_outcome === "succeeded",
+    )
+  ) {
+    return null;
+  }
   if (hasEventPrefix(turnRecords, "channel.adopt.")) return null;
   if (!lmstudioHasSteps(options, [evidence.draft_turn_id], ["form_frame", "form_micro_plan"])) {
     return null;
@@ -2606,15 +2936,18 @@ function p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, 
   };
 }
 
-function findP1ProseRevisionCandidateEvidence(records) {
+function findP1ProseRevisionCandidateEvidence(
+  records,
+  requestedSliceId = "p1-prose-revision-candidate",
+) {
   const sliceId = "p1-prose-revision-candidate";
-  const keyEvents = keyEventsForSlice(sliceId);
+  const keyEvents = keyEventsForSlice(requestedSliceId);
   const targetChapterTitle = "第02章：矿区追击战";
 
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === sliceId &&
+      record.slice_id === requestedSliceId &&
       record.draft_generated === true &&
       record.draft_pending === true &&
       record.revise_action_available === true &&
@@ -2623,6 +2956,13 @@ function findP1ProseRevisionCandidateEvidence(records) {
       record.revision_card_visible === true &&
       record.revision_body_differs === true &&
       record.revision_pending === true &&
+      record.revision_run_mode === "bounded" &&
+      record.revision_profile_ref === "prose_revision_from_findings_v1" &&
+      record.revision_parent_fast_ack_before_final_turn_result === true &&
+      record.revision_agent_stage_events_visible === true &&
+      Number(record.revision_consumed_steps ?? 0) === 4 &&
+      Number(record.revision_consumed_tool_calls ?? 0) === 1 &&
+      Number(record.revision_consumed_provider_calls ?? 0) === 1 &&
       record.adopt_event_sent === false &&
       record.chapter_title === targetChapterTitle,
   );
@@ -2633,15 +2973,20 @@ function findP1ProseRevisionCandidateEvidence(records) {
   if (!draftTurnId || !originalArtifactId) return null;
 
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
+  const requiresDraftContext = requestedSliceId === "p1-prose-revision-candidate";
 
-  if (!draftRecords.some((record) => record.event === "channel.user_message.start")) return null;
-  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+  if (
+    requiresDraftContext &&
+    !contextAssembleTurnIdForDraftTurn(records, draftTurnId)
+  ) {
+    return null;
+  }
 
   const structure = draftRecords.find(
     (record) =>
       record.event === "context.structure.done" && record.target_chapter === targetChapterTitle,
   );
-  if (!structure) return null;
+  if (requiresDraftContext && !structure) return null;
 
   // 本轮跑了独立质量评估并命中至少一项发现（finding 非作品事实）
   const quality = draftRecords.find(
@@ -2650,14 +2995,13 @@ function findP1ProseRevisionCandidateEvidence(records) {
   );
   if (!quality) return null;
 
-  const generatedByTool = draftRecords.some(
+  const generatedByTool = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
       record.tool_outcome === "succeeded",
   );
   if (!generatedByTool) return null;
-  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
 
   // revise_from_findings 作者动作进入链路
   if (
@@ -2679,7 +3023,8 @@ function findP1ProseRevisionCandidateEvidence(records) {
   if (!revision) return null;
 
   return {
-    slice_id: sliceId,
+    slice_id: requestedSliceId,
+    canonical_slice_id: requestedSliceId === sliceId ? undefined : sliceId,
     turn_id: draftTurnId,
     turn_ids: [draftTurnId],
     draft_turn_id: draftTurnId,
@@ -2688,19 +3033,57 @@ function findP1ProseRevisionCandidateEvidence(records) {
     original_artifact_id: originalArtifactId,
     revision_artifact_ref: revision.revision_artifact_ref ?? uiState.revision_artifact_id ?? null,
     revision_base: revision.revision_base,
+    revision_run_id: uiState.revision_run_id ?? null,
+    revision_run_mode: uiState.revision_run_mode,
+    revision_profile_ref: uiState.revision_profile_ref,
+    revision_consumed_steps: Number(uiState.revision_consumed_steps ?? 0),
+    revision_consumed_tool_calls: Number(uiState.revision_consumed_tool_calls ?? 0),
+    revision_consumed_provider_calls: Number(uiState.revision_consumed_provider_calls ?? 0),
+    replay_policy: {
+      recall_provider: uiState.revision_replay_recall_provider,
+      use_recorded_frame: uiState.revision_replay_use_recorded_frame,
+    },
     finding_count: Number(quality.finding_count ?? 0),
     key_events: keyEvents,
   };
 }
 
-function p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidence, options) {
+function p1ProseRevisionCandidateBehavior(
+  turnIds,
+  turnRecords,
+  records,
+  evidence,
+  options,
+  requestedSliceId = "p1-prose-revision-candidate",
+) {
   if (turnIds.length !== 1) return null;
   const draftTurnId = evidence.draft_turn_id;
+  const requiresDraftContext = requestedSliceId === "p1-prose-revision-candidate";
 
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.assemble.done")) return null;
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.structure.done")) return null;
+  if (
+    requiresDraftContext &&
+    !contextAssembleTurnIdForDraftTurn(records, draftTurnId)
+  ) {
+    return null;
+  }
+
+  if (
+    requiresDraftContext &&
+    !turnsHaveEvent([draftTurnId], turnRecords, "context.structure.done")
+  ) {
+    return null;
+  }
   if (!turnsHaveEvent([draftTurnId], turnRecords, "prose_quality.evaluated.done")) return null;
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "toolbox.execute.done")) return null;
+  if (
+    !records.some(
+      (record) =>
+        record.event === "toolbox.execute.done" &&
+        record.tool_name === "prose_writing" &&
+        record.tool_outcome === "succeeded",
+    )
+  ) {
+    return null;
+  }
 
   // 修订候选生成（provenance 指向原稿），整个流程未触发采纳（不自动采纳）
   const revision = records.find(
@@ -2714,7 +3097,7 @@ function p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidenc
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
-      record.slice_id === "p1-prose-revision-candidate" &&
+      record.slice_id === requestedSliceId &&
       record.turn_id === draftTurnId,
   );
   if (!uiState) return null;
@@ -2723,27 +3106,81 @@ function p1ProseRevisionCandidateBehavior(turnIds, turnRecords, records, evidenc
   if (uiState.revision_body_differs !== true) return null;
   if (uiState.adopt_event_sent !== false) return null;
   if (uiState.quality_review_card_visible !== true) return null;
+  if (uiState.revision_run_mode !== "bounded") return null;
+  if (uiState.revision_profile_ref !== "prose_revision_from_findings_v1") return null;
+  if (uiState.revision_parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.revision_agent_stage_events_visible !== true) return null;
+  if (Number(uiState.revision_consumed_steps ?? 0) !== 4) return null;
+  if (Number(uiState.revision_consumed_tool_calls ?? 0) !== 1) return null;
+  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 1) return null;
+  if (
+    requestedSliceId === "agent-replay-no-provider" &&
+    (evidence.replay_policy?.recall_provider !== false ||
+      evidence.replay_policy?.use_recorded_frame !== true)
+  ) {
+    return null;
+  }
+
+  const behavior =
+    requestedSliceId === "agent-revision-orchestrator-boundary"
+      ? "revision_author_action_regated_through_orchestrator_before_tool_execution"
+      : requestedSliceId === "agent-replay-no-provider"
+        ? "revision_replay_policy_uses_recorded_frame_without_provider_recall"
+        : "quality_findings_drove_revise_from_findings_into_sibling_tentative_revision_draft";
+  const assertions =
+    requestedSliceId === "agent-revision-orchestrator-boundary"
+      ? [
+          "revise_from_findings_author_action_was_sent_from_real_page",
+          "revision_author_action_fast_acked_with_bounded_agent_run",
+          "revision_agent_run_exposed_source_plan_tool_and_finalization_steps",
+          "revision_path_used_real_orchestrator_decision_ref",
+          "revision_path_created_tool_request_ref_before_toolbox_execution",
+          "sibling_tentative_revision_draft_generated_with_provenance_to_original",
+          "revision_draft_not_auto_adopted",
+        ]
+      : requestedSliceId === "agent-replay-no-provider"
+        ? [
+            "revision_author_action_fast_acked_with_bounded_agent_run",
+            "revision_agent_run_completed_before_replay_evidence",
+            "revision_turn_result_replay_policy_uses_recorded_frame",
+            "revision_turn_result_replay_policy_recall_provider_false",
+            "revision_draft_not_auto_adopted",
+            "revision_provider_is_not_recalled_by_replay_policy",
+          ]
+        : [
+            "real_archive_outline_action_chapter_draft_clicked",
+            "independent_quality_review_found_at_least_one_finding",
+            "quality_review_card_and_revise_action_visible_on_real_page",
+            "author_clicked_revise_from_findings_on_real_page",
+            "revision_author_action_fast_acked_with_bounded_agent_run",
+            "revision_agent_run_exposed_source_plan_tool_and_finalization_steps",
+            "sibling_tentative_revision_draft_generated_with_provenance_to_original",
+            "revision_draft_body_differs_from_original",
+            "revision_draft_not_auto_adopted",
+          ];
 
   return {
-    slice_id: "p1-prose-revision-candidate",
-    behavior:
-      "quality_findings_drove_revise_from_findings_into_sibling_tentative_revision_draft",
+    slice_id: requestedSliceId,
+    canonical_slice_id:
+      requestedSliceId === "p1-prose-revision-candidate"
+        ? undefined
+        : "p1-prose-revision-candidate",
+    behavior,
     turn_ids: turnIds,
     artifact_type: evidence.artifact_type,
     chapter_title: evidence.chapter_title,
     original_artifact_id: evidence.original_artifact_id,
     revision_base: revision.revision_base,
     revision_artifact_ref: revision.revision_artifact_ref ?? null,
+    revision_run_id: evidence.revision_run_id,
+    revision_run_mode: evidence.revision_run_mode,
+    revision_profile_ref: evidence.revision_profile_ref,
+    revision_consumed_steps: evidence.revision_consumed_steps,
+    revision_consumed_tool_calls: evidence.revision_consumed_tool_calls,
+    revision_consumed_provider_calls: evidence.revision_consumed_provider_calls,
     finding_count: evidence.finding_count,
-    assertions: [
-      "real_archive_outline_action_chapter_draft_clicked",
-      "independent_quality_review_found_at_least_one_finding",
-      "quality_review_card_and_revise_action_visible_on_real_page",
-      "author_clicked_revise_from_findings_on_real_page",
-      "sibling_tentative_revision_draft_generated_with_provenance_to_original",
-      "revision_draft_body_differs_from_original",
-      "revision_draft_not_auto_adopted",
-    ],
+    replay_policy: evidence.replay_policy,
+    assertions,
   };
 }
 
@@ -2773,8 +3210,8 @@ function findP1ProseQualityFindingRoundtripEvidence(records) {
 
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
 
-  if (!draftRecords.some((record) => record.event === "channel.user_message.start")) return null;
-  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+  const contextTurnId = contextAssembleTurnIdForDraftTurn(records, draftTurnId);
+  if (!contextTurnId) return null;
   if (
     !draftRecords.some(
       (record) =>
@@ -2797,20 +3234,20 @@ function findP1ProseQualityFindingRoundtripEvidence(records) {
   );
   if (!policy) return null;
 
-  const generatedByTool = draftRecords.some(
+  const generatedByTool = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
       record.tool_outcome === "succeeded",
   );
   if (!generatedByTool) return null;
-  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
 
   return {
     slice_id: sliceId,
     turn_id: draftTurnId,
     turn_ids: [draftTurnId],
     draft_turn_id: draftTurnId,
+    context_turn_id: contextTurnId,
     artifact_type: "prose_fragment",
     chapter_title: targetChapterTitle,
     finding_validator: String(uiState.finding_validator ?? ""),
@@ -2823,10 +3260,19 @@ function p1ProseQualityFindingRoundtripBehavior(turnIds, turnRecords, records, e
   if (turnIds.length !== 1) return null;
   const draftTurnId = evidence.draft_turn_id;
 
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.assemble.done")) return null;
+  if (!contextAssembleTurnIdForDraftTurn(records, draftTurnId)) return null;
   if (!turnsHaveEvent([draftTurnId], turnRecords, "context.structure.done")) return null;
   if (!turnsHaveEvent([draftTurnId], turnRecords, "prose_quality.evaluated.done")) return null;
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "toolbox.execute.done")) return null;
+  if (
+    !records.some(
+      (record) =>
+        record.event === "toolbox.execute.done" &&
+        record.tool_name === "prose_writing" &&
+        record.tool_outcome === "succeeded",
+    )
+  ) {
+    return null;
+  }
   if (hasEventPrefix(records, "channel.adopt.")) return null;
 
   const uiState = records.find(
@@ -2887,8 +3333,8 @@ function findP1ProseQualityEvaluatorDegradeEvidence(records) {
 
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
 
-  if (!draftRecords.some((record) => record.event === "channel.user_message.start")) return null;
-  if (!draftRecords.some((record) => record.event === "context.assemble.done")) return null;
+  const contextTurnId = contextAssembleTurnIdForDraftTurn(records, draftTurnId);
+  if (!contextTurnId) return null;
 
   // 评审降级被如实记录：review_status=unavailable，策略=quality_review_unavailable
   const quality = draftRecords.find(
@@ -2905,20 +3351,20 @@ function findP1ProseQualityEvaluatorDegradeEvidence(records) {
   if (!policy) return null;
 
   // 草稿仍然生成（降级不阻断 tentative 草稿）
-  const generatedByTool = draftRecords.some(
+  const generatedByTool = records.some(
     (record) =>
       record.event === "toolbox.execute.done" &&
       record.tool_name === "prose_writing" &&
       record.tool_outcome === "succeeded",
   );
   if (!generatedByTool) return null;
-  if (!draftRecords.some((record) => record.event === "channel.user_message.done")) return null;
 
   return {
     slice_id: sliceId,
     turn_id: draftTurnId,
     turn_ids: [draftTurnId],
     draft_turn_id: draftTurnId,
+    context_turn_id: contextTurnId,
     artifact_type: "prose_fragment",
     chapter_title: targetChapterTitle,
     review_status: "unavailable",
@@ -2930,9 +3376,18 @@ function p1ProseQualityEvaluatorDegradeBehavior(turnIds, turnRecords, records, e
   if (turnIds.length !== 1) return null;
   const draftTurnId = evidence.draft_turn_id;
 
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "context.assemble.done")) return null;
+  if (!contextAssembleTurnIdForDraftTurn(records, draftTurnId)) return null;
   if (!turnsHaveEvent([draftTurnId], turnRecords, "prose_quality.evaluated.done")) return null;
-  if (!turnsHaveEvent([draftTurnId], turnRecords, "toolbox.execute.done")) return null;
+  if (
+    !records.some(
+      (record) =>
+        record.event === "toolbox.execute.done" &&
+        record.tool_name === "prose_writing" &&
+        record.tool_outcome === "succeeded",
+    )
+  ) {
+    return null;
+  }
   if (hasEventPrefix(records, "channel.adopt.")) return null;
 
   const uiState = records.find(
@@ -3004,8 +3459,7 @@ function findP1ProseQualityAdoptionBoundaryEvidence(records) {
   // 修订稿采纳走真实采纳边界
   if (
     !records.some(
-      (record) =>
-        record.event === "channel.author_action.start" && record.action_type === "accept",
+      (record) => record.event === "channel.author_action.start" && record.action_type === "accept",
     )
   ) {
     return null;
@@ -3041,8 +3495,7 @@ function p1ProseQualityAdoptionBoundaryBehavior(turnIds, turnRecords, records, e
   if (!records.some((record) => record.event === "adoption.evaluate.done")) return null;
   if (
     !records.some(
-      (record) =>
-        record.event === "channel.author_action.start" && record.action_type === "accept",
+      (record) => record.event === "channel.author_action.start" && record.action_type === "accept",
     )
   ) {
     return null;
@@ -3063,7 +3516,8 @@ function p1ProseQualityAdoptionBoundaryBehavior(turnIds, turnRecords, records, e
 
   return {
     slice_id: "p1-prose-quality-adoption-boundary",
-    behavior: "revision_and_original_drafts_each_adopt_independently_through_their_own_adoption_states",
+    behavior:
+      "revision_and_original_drafts_each_adopt_independently_through_their_own_adoption_states",
     turn_ids: turnIds,
     artifact_type: evidence.artifact_type,
     chapter_title: evidence.chapter_title,
@@ -3074,6 +3528,1402 @@ function p1ProseQualityAdoptionBoundaryBehavior(turnIds, turnRecords, records, e
       "adopting_revision_went_through_real_adoption_boundary",
       "adopting_revision_did_not_resolve_or_discard_the_original",
       "original_draft_remains_independently_tentative_one_accept_action_left",
+    ],
+  };
+}
+
+function findAgentProseDraftingWithQualityEvidence(records) {
+  const sliceId = "agent-prose-drafting-with-quality";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.direct_prose_request_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "prose_drafting_with_quality_v1" &&
+      record.artifact_event_visible === true &&
+      record.final_turn_broadcast === true &&
+      record.final_tool_name === "prose_writing" &&
+      record.final_tool_status === "succeeded" &&
+      record.pending_artifact_type === "prose_fragment" &&
+      record.pending_artifact_requires_adoption === true &&
+      record.pending_artifact_tentative === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      record.agent_stage_events_visible === true &&
+      record.context_step_visible === true &&
+      record.context_event_visible === true &&
+      record.context_observation_visible === true &&
+      record.strategy_step_visible === true &&
+      record.plan_event_visible === true &&
+      record.gate_event_visible === true &&
+      record.tool_started_visible === true &&
+      record.quality_observation_visible === true &&
+      record.finalization_step_visible === true &&
+      record.prose_step_visible === true &&
+      record.artifact_observation_visible === true &&
+      record.ui_strategy_step_visible === true &&
+      record.ui_prose_step_visible === true &&
+      record.ui_finalization_step_visible === true &&
+      Number(record.completed_step_count ?? 0) === 4 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
+      Number(record.consumed_tool_calls ?? 0) === 1 &&
+      Number(record.consumed_provider_calls ?? 0) === 2 &&
+      record.quality_review_status === "completed" &&
+      Number(record.quality_findings_count ?? -1) >= 0 &&
+      record.finding_summary_displayed === true &&
+      record.finding_in_draft_body === false &&
+      record.ui_agent_panel_visible === true &&
+      record.ui_agent_completed_visible === true &&
+      record.ui_prose_draft_visible === true &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_allow_tool_count ?? 0) >= 1 &&
+      record.log_prose_tool_done === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  const artifactId = String(uiState.pending_artifact_id ?? "");
+  if (!runId || !finalTurnId || !artifactId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  const allowToolCount = records.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  ).length;
+  if (allowToolCount < 1) return null;
+
+  const proseTool = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "prose_writing" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!proseTool) return null;
+
+  const quality = records.find(
+    (record) =>
+      record.event === "prose_quality.evaluated.done" &&
+      record.turn_id === finalTurnId &&
+      record.review_status === "completed" &&
+      Number(record.finding_count ?? -1) >= 0,
+  );
+  if (!quality) return null;
+
+  const policy = records.find(
+    (record) =>
+      record.event === "quality_policy.decided.done" &&
+      record.turn_id === finalTurnId &&
+      record.review_status === "completed",
+  );
+  if (!policy) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: finalTurnId,
+    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    pending_artifact_id: artifactId,
+    pending_artifact_type: uiState.pending_artifact_type,
+    quality_findings_count: Number(uiState.quality_findings_count ?? 0),
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, evidence, _options) {
+  if (turnIds.length < 1) return null;
+  const finalTurnId = evidence.final_turn_id;
+
+  if (
+    !turnRecords.some(
+      (record) => record.turn_id === finalTurnId && record.event === "prose_quality.evaluated.done",
+    )
+  ) {
+    return null;
+  }
+  if (
+    !turnRecords.some(
+      (record) => record.turn_id === finalTurnId && record.event === "quality_policy.decided.done",
+    )
+  ) {
+    return null;
+  }
+  if (
+    !records.some(
+      (record) => record.event === "toolbox.execute.done" && record.tool_name === "prose_writing",
+    )
+  ) {
+    return null;
+  }
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-prose-drafting-with-quality" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "prose_drafting_with_quality_v1") return null;
+  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.final_tool_name !== "prose_writing") return null;
+  if (uiState.pending_artifact_type !== "prose_fragment") return null;
+  if (uiState.pending_artifact_tentative !== true) return null;
+  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (uiState.agent_stage_events_visible !== true) return null;
+  if (uiState.context_step_visible !== true) return null;
+  if (uiState.context_event_visible !== true) return null;
+  if (uiState.context_observation_visible !== true) return null;
+  if (uiState.strategy_step_visible !== true) return null;
+  if (uiState.plan_event_visible !== true) return null;
+  if (uiState.gate_event_visible !== true) return null;
+  if (uiState.tool_started_visible !== true) return null;
+  if (uiState.quality_observation_visible !== true) return null;
+  if (uiState.finalization_step_visible !== true) return null;
+  if (uiState.prose_step_visible !== true) return null;
+  if (uiState.artifact_observation_visible !== true) return null;
+  if (uiState.ui_strategy_step_visible !== true) return null;
+  if (uiState.ui_prose_step_visible !== true) return null;
+  if (uiState.ui_finalization_step_visible !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
+  if (uiState.quality_review_status !== "completed") return null;
+  if (Number(uiState.quality_findings_count ?? -1) < 0) return null;
+  if (uiState.finding_in_draft_body !== false) return null;
+  if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
+
+  return {
+    slice_id: "agent-prose-drafting-with-quality",
+    behavior:
+      "bounded_agent_run_prose_profile_reused_existing_prose_quality_chain_without_auto_adoption",
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    final_turn_id: evidence.final_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    pending_artifact_id: evidence.pending_artifact_id,
+    pending_artifact_type: evidence.pending_artifact_type,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    quality_findings_count: evidence.quality_findings_count,
+    assertions: [
+      "direct_prose_request_was_sent_from_real_tauri_workbench",
+      "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
+      "prose_drafting_with_quality_profile_was_selected",
+      "prose_context_assembly_was_visible_inside_agent_run",
+      "prose_strategy_step_reentered_orchestrator_allow_tool_gate",
+      "prose_generation_quality_and_finalization_steps_were_visible",
+      "prose_writing_tool_produced_tentative_prose_fragment",
+      "existing_quality_review_completed_without_forcing_findings",
+      "quality_finding_did_not_become_story_fact_or_auto_adopt_the_draft",
+      "writer_and_evaluator_provider_calls_were_counted_separately",
+    ],
+  };
+}
+
+function findAgentConversationTurnEvidence(records) {
+  const sliceId = "agent-conversation-turn";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "conversation_turn_v1" &&
+      record.final_turn_broadcast === true &&
+      record.no_tool_called === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      record.agent_stage_events_visible === true &&
+      record.context_step_visible === true &&
+      record.frame_step_visible === true &&
+      record.strategy_step_visible === true &&
+      record.finalize_step_visible === true &&
+      record.context_observation_visible === true &&
+      record.frame_observation_visible === true &&
+      record.strategy_observation_visible === true &&
+      record.ui_context_step_visible === true &&
+      record.ui_frame_step_visible === true &&
+      record.ui_strategy_step_visible === true &&
+      record.ui_finalize_step_visible === true &&
+      Number(record.completed_step_count ?? 0) === 4 &&
+      Number(record.consumed_steps ?? 0) === 4 &&
+      Number(record.consumed_tool_calls ?? -1) === 0 &&
+      Number(record.consumed_provider_calls ?? 0) === 1 &&
+      record.ui_agent_panel_visible === true &&
+      record.ui_agent_completed_visible === true &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_toolbox_execute_count ?? 0) === 0,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  if (!runId || !finalTurnId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: finalTurnId,
+    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence, _options) {
+  if (turnIds.length < 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-conversation-turn" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.no_tool_called !== true) return null;
+  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (uiState.agent_stage_events_visible !== true) return null;
+  if (uiState.context_step_visible !== true) return null;
+  if (uiState.frame_step_visible !== true) return null;
+  if (uiState.strategy_step_visible !== true) return null;
+  if (uiState.finalize_step_visible !== true) return null;
+  if (uiState.context_observation_visible !== true) return null;
+  if (uiState.frame_observation_visible !== true) return null;
+  if (uiState.strategy_observation_visible !== true) return null;
+  if (uiState.ui_context_step_visible !== true) return null;
+  if (uiState.ui_frame_step_visible !== true) return null;
+  if (uiState.ui_strategy_step_visible !== true) return null;
+  if (uiState.ui_finalize_step_visible !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 1) return null;
+  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
+  if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
+
+  return {
+    slice_id: "agent-conversation-turn",
+    behavior: "plain_conversation_input_runs_through_conversation_agent_run_without_fallback",
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    final_turn_id: evidence.final_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    assertions: [
+      "plain_test_input_was_sent_from_real_tauri_workbench",
+      "parent_user_message_returned_bounded_run_id_before_final_turn_result",
+      "conversation_turn_profile_was_selected",
+      "final_turn_result_carried_the_same_agent_run_id",
+      "context_frame_strategy_and_finalize_steps_were_author_visible",
+      "context_frame_and_strategy_observations_were_author_visible",
+      "reply_only_turn_called_no_tool_and_performed_no_write",
+      "channel_did_not_use_dialogue_fallback_main_chain",
+    ],
+  };
+}
+
+function findAgentDurableResumeLongRunTaskEvidence(records) {
+  const sliceId = "agent-durable-resume-long-run-task";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.durable_request_sent_from_real_workbench === true &&
+      record.parent_fast_ack_with_long_run_task_ref === true &&
+      record.run_mode === "durable" &&
+      typeof record.long_run_task_ref === "string" &&
+      record.long_run_task_ref !== "" &&
+      record.checkpoint_status_before_restart === "awaiting_author" &&
+      Number(record.checkpoint_completed_step_count ?? 0) === 1 &&
+      Number(record.checkpoint_consumed_steps ?? 0) === 1 &&
+      record.recovery_event_type === "run_resumed" &&
+      Array.isArray(record.recovery_reason_codes) &&
+      record.recovery_reason_codes.includes("durable_recovered") &&
+      record.recovery_reason_codes.includes("stale_resume") &&
+      record.recovery_reason_codes.includes("runtime_not_live") &&
+      record.recovered === true &&
+      record.runtime_live_after_restart === false &&
+      record.recovered_status === "awaiting_author" &&
+      record.recovered_long_run_task_phase === "CHECKPOINT" &&
+      record.recovered_long_run_task_status === "PAUSED" &&
+      Number(record.completed_step_count_after_recovery ?? 0) === 1 &&
+      Number(record.repeated_toolbox_after_recovery_count ?? -1) === 0 &&
+      record.stale_resume_visible === true &&
+      record.long_run_task_ref_visible === true &&
+      record.service_restarted_externally === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const longRunTaskRef = String(uiState.long_run_task_ref ?? "");
+  if (!runId || !longRunTaskRef) return null;
+
+  const durableAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "durable",
+  );
+  if (!durableAck) return null;
+
+  const recoveryLog = records.some(
+    (record) =>
+      record.event === "channel.agent_run_recover.done" &&
+      record.run_id === runId &&
+      record.recovered === true &&
+      record.runtime_live === false,
+  );
+  if (!recoveryLog) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.turn_id ?? ""),
+    turn_ids: [String(uiState.turn_id ?? "")].filter(Boolean),
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    long_run_task_ref: longRunTaskRef,
+    checkpoint_completed_step_count: Number(uiState.checkpoint_completed_step_count ?? 0),
+    completed_step_count_after_recovery: Number(uiState.completed_step_count_after_recovery ?? 0),
+    recovery_reason_codes: uiState.recovery_reason_codes,
+    key_events: keyEvents,
+  };
+}
+
+function agentDurableResumeLongRunTaskBehavior(turnIds, records, evidence) {
+  if (!evidence?.run_id || !evidence?.long_run_task_ref) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-durable-resume-long-run-task" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.run_mode !== "durable") return null;
+  if (uiState.parent_fast_ack_with_long_run_task_ref !== true) return null;
+  if (Number(uiState.checkpoint_completed_step_count ?? 0) !== 1) return null;
+  if (uiState.recovered !== true) return null;
+  if (uiState.runtime_live_after_restart !== false) return null;
+  if (uiState.recovered_status !== "awaiting_author") return null;
+  if (Number(uiState.repeated_toolbox_after_recovery_count ?? -1) !== 0) return null;
+  if (uiState.stale_resume_visible !== true) return null;
+  if (uiState.long_run_task_ref_visible !== true) return null;
+
+  return {
+    slice_id: "agent-durable-resume-long-run-task",
+    behavior: "durable_agent_run_recovers_long_run_task_checkpoint_after_backend_restart",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    long_run_task_ref: evidence.long_run_task_ref,
+    checkpoint_completed_step_count: evidence.checkpoint_completed_step_count,
+    completed_step_count_after_recovery: evidence.completed_step_count_after_recovery,
+    recovery_reason_codes: evidence.recovery_reason_codes,
+    assertions: [
+      "visible_author_request_started_a_durable_agent_run",
+      "fast_ack_returned_run_id_and_long_run_task_ref",
+      "durable_run_checkpointed_at_one_step_budget_before_backend_restart",
+      "backend_restart_removed_live_runtime_and_recovery_marked_stale_resume",
+      "recovered_agent_run_state_remained_awaiting_author_with_long_run_task_ref",
+      "recovery_did_not_repeat_toolbox_execution_for_completed_steps",
+      "restored_state_was_visible_in_the_agent_run_panel",
+    ],
+  };
+}
+
+function findAgentProviderStreamingProgressEvidence(records) {
+  const sliceId = "agent-provider-streaming-progress";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.request_sent_from_real_workbench === true &&
+      record.parent_fast_ack_with_run_id === true &&
+      record.profile_ref === "provider_progress_v1" &&
+      Number(record.progress_event_count ?? 0) >= 3 &&
+      boolValue(record.progress_visibility_author) === true &&
+      boolValue(record.progress_has_step_ref) === true &&
+      boolValue(record.raw_prompt_leaked_in_progress_events) === false &&
+      boolValue(record.provider_streaming_degraded_honestly) === true &&
+      Number(record.consumed_provider_calls ?? 0) === 1 &&
+      record.final_turn_result_run_id === record.run_id &&
+      record.ui_progress_visible === true,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.turn_id ?? ""),
+    turn_ids: [String(uiState.turn_id ?? "")].filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    progress_event_count: Number(uiState.progress_event_count ?? 0),
+    progress_reason_codes: uiState.progress_reason_codes ?? [],
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
+  if (!evidence?.run_id) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-provider-streaming-progress" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (boolValue(uiState.raw_prompt_leaked_in_progress_events) !== false) return null;
+  if (boolValue(uiState.provider_streaming_degraded_honestly) !== true) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 1) return null;
+
+  return {
+    slice_id: "agent-provider-streaming-progress",
+    behavior: "provider_progress_events_are_author_safe_and_scoped_to_agent_run",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    progress_event_count: evidence.progress_event_count,
+    progress_reason_codes: evidence.progress_reason_codes,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    assertions: [
+      "visible_author_request_started_provider_progress_profile",
+      "provider_progress_events_carried_run_id_step_ref_and_author_visibility",
+      "progress_events_did_not_expose_raw_prompt",
+      "provider_without_streaming_support_was_honestly_reported_as_checkpoint_progress",
+      "final_run_state_recorded_one_provider_call",
+    ],
+  };
+}
+
+function findAgentProviderCancelHonestBoundaryEvidence(records) {
+  const sliceId = "agent-provider-cancel-honest-boundary";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.request_sent_from_real_workbench === true &&
+      record.command_sent_from_real_button === true &&
+      record.command_target_bound_to_active_run === true &&
+      record.profile_ref === "provider_progress_v1" &&
+      Array.isArray(record.interrupt_reason_codes) &&
+      record.interrupt_reason_codes.includes("cooperative_cancel") &&
+      record.interrupt_reason_codes.includes("provider_hard_cancel_unsupported") &&
+      record.cancel_strategy === "cooperative_safe_point" &&
+      boolValue(record.supports_cancellation) === false &&
+      boolValue(record.provider_call_active_during_cancel) === true &&
+      boolValue(record.cancelling_status_visible_before_safe_point) === true &&
+      boolValue(record.cancelling_current_task) === true &&
+      record.terminal_event_type === "run_cancelled" &&
+      record.terminal_status === "cancelled" &&
+      boolValue(record.hard_cancel_claimed_without_evidence) === false &&
+      boolValue(record.cooperative_cancel_visible) === true,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.turn_id ?? ""),
+    turn_ids: [String(uiState.turn_id ?? "")].filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    interrupt_reason_codes: uiState.interrupt_reason_codes,
+    cancel_strategy: uiState.cancel_strategy,
+    terminal_status: uiState.terminal_status,
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function agentProviderCancelHonestBoundaryBehavior(turnIds, records, evidence) {
+  if (!evidence?.run_id) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-provider-cancel-honest-boundary" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.command_run_id !== evidence.run_id) return null;
+  if (uiState.cancel_strategy !== "cooperative_safe_point") return null;
+  if (boolValue(uiState.supports_cancellation) !== false) return null;
+  if (boolValue(uiState.hard_cancel_claimed_without_evidence) !== false) return null;
+
+  return {
+    slice_id: "agent-provider-cancel-honest-boundary",
+    behavior: "provider_cancel_reports_cooperative_waiting_until_safe_point_without_fake_hard_cancel",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    interrupt_reason_codes: evidence.interrupt_reason_codes,
+    cancel_strategy: evidence.cancel_strategy,
+    terminal_status: evidence.terminal_status,
+    assertions: [
+      "cancel_command_was_bound_to_active_run_id",
+      "unsupported_provider_hard_cancel_was_reported_as_cooperative_safe_point",
+      "ui_exposed_cancelling_before_final_cancelled_state",
+      "final_state_was_cancelled_only_after_safe_point",
+      "trace_did_not_claim_hard_cancel_without_evidence",
+    ],
+  };
+}
+
+function findAgentReadonlyBatchProfileEvidence(records) {
+  const sliceId = "agent-readonly-batch-profile";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.request_sent_from_real_workbench === true &&
+      record.parent_fast_ack_with_run_id === true &&
+      record.profile_ref === "readonly_batch_context_v1" &&
+      Number(record.readonly_batch_item_event_count ?? 0) >= 4 &&
+      boolValue(record.readonly_events_author_visible) === true &&
+      boolValue(record.readonly_events_production_write_false) === true &&
+      record.final_turn_result_run_id === record.run_id &&
+      boolValue(record.replay_recall_provider) === false &&
+      Number(record.consumed_provider_calls ?? -1) === 0 &&
+      Number(record.consumed_tool_calls ?? 0) >= 4 &&
+      Number(record.pending_artifact_count ?? -1) === 0 &&
+      Number(record.artifact_event_count ?? -1) === 0 &&
+      boolValue(record.no_adoption_or_write) === true,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.turn_id ?? ""),
+    turn_ids: [String(uiState.turn_id ?? "")].filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    readonly_item_refs: uiState.readonly_item_refs ?? [],
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function agentReadonlyBatchProfileBehavior(turnIds, records, evidence) {
+  if (!evidence?.run_id) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-readonly-batch-profile" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (boolValue(uiState.replay_recall_provider) !== false) return null;
+  if (Number(uiState.consumed_provider_calls ?? -1) !== 0) return null;
+  if (Number(uiState.pending_artifact_count ?? -1) !== 0) return null;
+  if (Number(uiState.artifact_event_count ?? -1) !== 0) return null;
+
+  return {
+    slice_id: "agent-readonly-batch-profile",
+    behavior: "readonly_batch_profile_reads_context_without_provider_or_production_write",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    readonly_item_refs: evidence.readonly_item_refs,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    assertions: [
+      "visible_author_request_started_readonly_batch_profile",
+      "batch_item_events_were_author_visible_and_scoped_to_run",
+      "readonly_batch_events_declared_production_write_false",
+      "final_turn_result_declared_replay_recall_provider_false",
+      "run_finished_without_provider_calls_artifacts_or_adoption",
+    ],
+  };
+}
+
+function findUa01AgentBoundedRosterToCharacterDesignEvidence(
+  records,
+  requestedSliceId = ua01AgentCanonicalSliceId,
+) {
+  const sliceId = "ua01-agent-bounded-roster-to-character-design";
+  const keyEvents = keyEventsForSlice(requestedSliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.compound_request_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "character_design_with_context_v1" &&
+      record.roster_observation_visible === true &&
+      typeof record.roster_observation_summary === "string" &&
+      record.roster_observation_summary.length > 0 &&
+      record.artifact_event_visible === true &&
+      record.final_turn_broadcast === true &&
+      record.final_tool_name === "character_design" &&
+      record.final_tool_status === "succeeded" &&
+      record.pending_artifact_type === "character_seed" &&
+      record.pending_artifact_requires_adoption === true &&
+      record.pending_artifact_tentative === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      Number(record.completed_step_count ?? 0) === 2 &&
+      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.consumed_tool_calls ?? 0) === 2 &&
+      Number(record.consumed_provider_calls ?? 0) === 1 &&
+      record.ui_agent_panel_visible === true &&
+      record.ui_agent_completed_visible === true &&
+      record.ui_artifact_event_visible === true &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_allow_tool_count ?? 0) >= 2 &&
+      record.log_roster_tool_done === true &&
+      record.log_character_design_tool_done === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  const artifactId = String(uiState.pending_artifact_id ?? "");
+  if (!runId || !finalTurnId || !artifactId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  const allowToolCount = records.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  ).length;
+  if (allowToolCount < 2) return null;
+
+  const rosterTool = records.some(
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_roster",
+  );
+  const designTool = records.some(
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_design",
+  );
+  if (!rosterTool || !designTool) return null;
+
+  return {
+    slice_id: requestedSliceId,
+    canonical_slice_id: requestedSliceId === sliceId ? undefined : sliceId,
+    turn_id: finalTurnId,
+    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    pending_artifact_id: artifactId,
+    pending_artifact_type: uiState.pending_artifact_type,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
+  const providerAssertion =
+    provider === "lmstudio"
+      ? "lmstudio_provider_drove_character_design_step"
+      : "deterministic_provider_drove_character_design_step";
+
+  switch (requestedSliceId) {
+    case "agent-bounded-roster-to-character-design":
+      return {
+        behavior: "bounded_agent_run_roster_observation_handoff_to_character_design",
+        assertions: [
+          "compound_author_request_was_sent_from_real_tauri_workbench",
+          "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
+          "character_design_with_context_profile_was_selected",
+          "readonly_character_roster_observation_was_author_visible_before_character_design",
+          "character_design_broadcast_a_final_turn_result_and_agent_event",
+          "generated_character_seed_remained_tentative_pending_author_adoption",
+          providerAssertion,
+        ],
+      };
+
+    case "agent-step-regate":
+      return {
+        behavior: "each_agent_step_crossed_orchestrator_allow_tool_gate",
+        assertions: [
+          "parent_user_message_returned_bounded_run_id_without_sync_turn_fallback",
+          "internal_roster_step_crossed_allow_tool_gate",
+          "internal_character_design_step_crossed_allow_tool_gate",
+          "character_roster_tool_executed_after_gate",
+          "character_design_tool_executed_after_gate",
+        ],
+      };
+
+    case "agent-no-multistep-plan-bypass":
+      return {
+        behavior: "agent_run_did_not_execute_multistep_plan_as_tool_batch",
+        assertions: [
+          "parent_user_message_did_not_execute_tool_batch_before_agent_run",
+          "two_internal_steps_were_counted_individually",
+          "two_tool_calls_were_counted_individually",
+          "internal_steps_each_reentered_orchestrator",
+          "no_production_write_or_auto_adoption_occurred",
+        ],
+      };
+
+    case "agent-event-author-safe":
+      return {
+        behavior: "agent_activity_events_used_author_safe_summaries_and_refs",
+        assertions: [
+          "run_started_event_was_author_visible",
+          "observation_recorded_event_used_author_safe_summary",
+          "artifact_created_event_used_refs_not_raw_generation_payload",
+          "run_completed_event_was_author_visible",
+          "agent_event_payloads_did_not_expose_prompt_or_chain_of_thought",
+        ],
+      };
+
+    case "agent-channel-fast-ack":
+      return {
+        behavior: "channel_returned_run_id_before_final_turn_result",
+        assertions: [
+          "user_message_reply_included_bounded_run_id",
+          "fast_ack_arrived_before_final_turn_result",
+          "agent_event_stream_was_broadcast_for_same_run_id",
+          "agent_run_state_stream_was_broadcast_for_same_run_id",
+        ],
+      };
+
+    case "agent-tentative-boundary":
+      return {
+        behavior: "agent_result_remained_tentative_without_auto_adoption",
+        assertions: [
+          "character_seed_artifact_requires_author_adoption",
+          "character_seed_artifact_status_is_tentative",
+          "agent_run_did_not_auto_adopt_artifact",
+          "agent_run_did_not_write_character_archive",
+        ],
+      };
+
+    case "agent-provider-call-budget":
+      return {
+        behavior: "agent_run_provider_and_tool_budget_matched_executed_steps",
+        assertions: [
+          "bounded_run_consumed_two_steps",
+          "bounded_run_consumed_two_tool_calls",
+          "bounded_run_consumed_one_provider_call",
+          "provider_call_budget_was_reported_in_agent_run_state",
+        ],
+      };
+
+    default:
+      return {
+        behavior:
+          "bounded_agent_run_fast_ack_then_roster_observation_regated_character_design_tentative_artifact",
+        assertions: [
+          "compound_author_request_was_sent_from_real_tauri_workbench",
+          "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
+          "agent_run_started_from_channel_without_sync_turn_fallback",
+          "internal_roster_and_character_design_steps_each_crossed_allow_tool_gate",
+          "readonly_character_roster_observation_was_author_visible",
+          "character_design_broadcast_a_final_turn_result_and_agent_event",
+          "generated_character_seed_remained_tentative_pending_author_adoption",
+          "no_production_write_or_auto_adoption_occurred",
+          providerAssertion,
+        ],
+      };
+  }
+}
+
+function ua01AgentBoundedRosterToCharacterDesignBehavior(
+  _turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  options,
+  requestedSliceId = ua01AgentCanonicalSliceId,
+) {
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "ua01-agent-bounded-roster-to-character-design" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.roster_observation_visible !== true) return null;
+  if (typeof uiState.roster_observation_summary !== "string") return null;
+  if (uiState.roster_observation_summary.length === 0) return null;
+  if (uiState.artifact_event_visible !== true) return null;
+  if (uiState.pending_artifact_tentative !== true) return null;
+  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (Number(uiState.log_allow_tool_count ?? 0) < 2) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_tool_calls ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 1) return null;
+  if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
+    return null;
+  }
+
+  const eventTypes = Array.isArray(uiState.agent_event_types) ? uiState.agent_event_types : [];
+  for (const eventType of [
+    "run_started",
+    "observation_recorded",
+    "artifact_created",
+    "run_completed",
+  ]) {
+    if (!eventTypes.includes(eventType)) return null;
+  }
+
+  const descriptor = ua01AgentBehaviorDescriptor(requestedSliceId, options.provider);
+
+  return {
+    slice_id: requestedSliceId,
+    canonical_slice_id:
+      requestedSliceId === ua01AgentCanonicalSliceId ? undefined : ua01AgentCanonicalSliceId,
+    behavior: descriptor.behavior,
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    pending_artifact_id: evidence.pending_artifact_id,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    assertions: descriptor.assertions,
+  };
+}
+
+function expectedInterruptCommand(sliceId) {
+  if (sliceId === "agent-interrupt-safe-point") return "pause";
+  if (sliceId === "agent-cancel-target-binding") return "cancel";
+  return null;
+}
+
+function expectedInterruptTerminalStatus(sliceId) {
+  if (sliceId === "agent-interrupt-safe-point") return "paused";
+  if (sliceId === "agent-cancel-target-binding") return "cancelled";
+  return null;
+}
+
+function findUa01AgentInterruptEvidence(records, sliceId) {
+  const command = expectedInterruptCommand(sliceId);
+  const terminalStatus = expectedInterruptTerminalStatus(sliceId);
+  const keyEvents = keyEventsForSlice(sliceId);
+  if (!command || !terminalStatus) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      record.command === command &&
+      record.command_sent_from_real_button === true &&
+      record.command_ack_received === true &&
+      record.command_target_bound_to_active_run === true &&
+      record.no_cross_run_command === true &&
+      record.terminal_status === terminalStatus &&
+      record.provider_hard_cancel_claimed === false,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+  if (String(uiState.command_run_id ?? "") !== runId) return null;
+  if (String(uiState.command_ack_run_id ?? "") !== runId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    command,
+    terminal_status: terminalStatus,
+    interrupt_state_status: uiState.interrupt_state_status,
+    key_events: keyEvents,
+  };
+}
+
+function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
+  if (turnIds.length !== 1) return null;
+
+  const command = expectedInterruptCommand(sliceId);
+  const terminalStatus = expectedInterruptTerminalStatus(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.command !== command) return null;
+  if (uiState.terminal_status !== terminalStatus) return null;
+  if (uiState.command_target_bound_to_active_run !== true) return null;
+  if (uiState.command_ack_received !== true) return null;
+  if (uiState.provider_hard_cancel_claimed !== false) return null;
+
+  if (sliceId === "agent-interrupt-safe-point") {
+    if (uiState.interrupt_event_type !== "interrupt_requested") return null;
+    if (uiState.terminal_event_type !== "run_paused") return null;
+
+    return {
+      slice_id: sliceId,
+      behavior: "pause_command_stops_bounded_agent_run_at_cooperative_safe_point",
+      turn_ids: evidence.turn_ids,
+      run_id: evidence.run_id,
+      command,
+      terminal_status: terminalStatus,
+      assertions: [
+        "pause_command_was_sent_from_real_agent_run_control",
+        "pause_command_targeted_active_run_id_and_received_ack",
+        "interrupt_requested_event_was_broadcast_before_safe_point_stop",
+        "run_paused_state_was_broadcast_for_same_run_id",
+        "provider_hard_cancellation_was_not_claimed",
+      ],
+    };
+  }
+
+  if (sliceId === "agent-cancel-target-binding") {
+    if (uiState.interrupt_event_type !== "interrupt_requested") return null;
+    if (uiState.terminal_event_type !== "run_cancelled") return null;
+
+    return {
+      slice_id: sliceId,
+      behavior: "cancel_command_is_bound_to_active_run_and_cooperatively_cancels",
+      turn_ids: evidence.turn_ids,
+      run_id: evidence.run_id,
+      command,
+      terminal_status: terminalStatus,
+      assertions: [
+        "cancel_command_was_sent_from_real_agent_run_control",
+        "cancel_command_targeted_active_run_id_and_received_ack",
+        "cross_run_cancel_was_not_accepted_by_the_driver_evidence",
+        "run_cancelled_state_was_broadcast_for_same_run_id",
+        "provider_hard_cancellation_was_not_claimed",
+      ],
+    };
+  }
+
+  return null;
+}
+
+function findUa01AgentSteerEvidence(records, sliceId) {
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      record.command === "steer" &&
+      record.command_sent_from_real_button === true &&
+      record.command_ack_received === true &&
+      record.command_target_bound_to_active_run === true &&
+      record.no_cross_run_command === true &&
+      record.plan_adjusted_event_type === "plan_adjusted" &&
+      Number(record.adjusted_goal_version ?? 0) >= 2 &&
+      record.steer_control_visible === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    command: "steer",
+    adjusted_goal_version: Number(uiState.adjusted_goal_version ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
+  if (turnIds.length !== 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.command !== "steer") return null;
+  if (uiState.command_ack_received !== true) return null;
+  if (uiState.command_target_bound_to_active_run !== true) return null;
+  if (uiState.plan_adjusted_event_type !== "plan_adjusted") return null;
+  if (Number(uiState.adjusted_goal_version ?? 0) < 2) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "steer_command_updates_bounded_agent_run_goal_and_emits_plan_adjusted",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    command: "steer",
+    adjusted_goal_version: evidence.adjusted_goal_version,
+    assertions: [
+      "steer_command_was_sent_from_visible_agent_run_control",
+      "steer_command_targeted_active_run_id_and_received_ack",
+      "plan_adjusted_agent_event_was_broadcast",
+      "agent_run_state_broadcast_adjusted_goal_version",
+      "frontend_did_not_mutate_run_state_without_backend_ack",
+    ],
+  };
+}
+
+function expectedAgentStopReason(sliceId) {
+  if (sliceId === "agent-loop-budget-limit") return "budget_exhausted";
+  if (sliceId === "agent-no-progress-stop") return "no_progress";
+  return null;
+}
+
+function findUa01AgentStopEvidence(records, sliceId) {
+  const reason = expectedAgentStopReason(sliceId);
+  const keyEvents = keyEventsForSlice(sliceId);
+  if (!reason) return null;
+
+  const uiState = records.find((record) => {
+    if (
+      record.event !== "slice_verify.ui_state.done" ||
+      record.slice_id !== sliceId ||
+      record.run_mode !== "bounded" ||
+      record.terminal_status !== "awaiting_author" ||
+      !Array.isArray(record.awaiting_reason_codes) ||
+      !record.awaiting_reason_codes.includes(reason) ||
+      record.character_design_executed !== false ||
+      record.final_turn_result_arrived !== false
+    ) {
+      return false;
+    }
+
+    if (sliceId === "agent-loop-budget-limit") {
+      return Number(record.consumed_steps ?? 0) === 1;
+    }
+
+    return (
+      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.consumed_provider_calls ?? 0) === 0 &&
+      Number(record.roster_tool_count ?? 0) >= 2
+    );
+  });
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    stop_reason: reason,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function ua01AgentStopBehavior(turnIds, records, evidence, sliceId) {
+  if (turnIds.length !== 1) return null;
+
+  const reason = expectedAgentStopReason(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!reason || !uiState) return null;
+  if (uiState.terminal_status !== "awaiting_author") return null;
+  if (!Array.isArray(uiState.awaiting_reason_codes)) return null;
+  if (!uiState.awaiting_reason_codes.includes(reason)) return null;
+  if (uiState.character_design_executed !== false) return null;
+  if (uiState.final_turn_result_arrived !== false) return null;
+
+  if (sliceId === "agent-loop-budget-limit") {
+    if (Number(uiState.consumed_steps ?? 0) !== 1) return null;
+
+    return {
+      slice_id: sliceId,
+      behavior: "bounded_agent_run_stops_at_author_step_budget_before_next_tool",
+      turn_ids: evidence.turn_ids,
+      run_id: evidence.run_id,
+      stop_reason: reason,
+      consumed_steps: evidence.consumed_steps,
+      assertions: [
+        "author_budget_phrase_was_sent_from_real_workbench",
+        "agent_run_stopped_as_awaiting_author_with_budget_exhausted",
+        "only_one_agent_step_was_consumed",
+        "character_design_tool_did_not_execute_after_budget_stop",
+        "no_final_character_turn_result_was_broadcast",
+      ],
+    };
+  }
+
+  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 0) return null;
+  if (Number(uiState.roster_tool_count ?? 0) < 2) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "bounded_agent_run_stops_when_repeated_roster_steps_make_no_progress",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    stop_reason: reason,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    assertions: [
+      "repeated_roster_request_was_sent_from_real_workbench",
+      "agent_run_executed_two_readonly_roster_steps",
+      "agent_run_stopped_as_awaiting_author_with_no_progress",
+      "character_design_provider_was_not_called_after_no_progress",
+      "no_final_character_turn_result_was_broadcast",
+    ],
+  };
+}
+
+function findUa01AgentArchiveReadEvidence(records, sliceId) {
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      record.archive_opened_while_run_active === true &&
+      record.archive_snapshot_visible_during_run === true &&
+      record.final_turn_arrived_before_archive === false &&
+      record.terminal_state_before_archive === false &&
+      record.final_run_completed_after_archive === true &&
+      record.no_extra_user_message_for_archive === true &&
+      record.no_author_action_for_archive_read === true &&
+      record.archive_genre_visible === true &&
+      record.archive_core_selling_point_visible === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  const archiveRead = records.some(
+    (record) =>
+      record.event === "channel.get_work_profile.done" &&
+      (record.work_id === uiState.work_id || record.work_id === "current_work"),
+  );
+  if (!archiveRead) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    archive_loading_indicator_during_run: uiState.archive_loading_indicator_during_run,
+    key_events: keyEvents,
+  };
+}
+
+function ua01AgentArchiveReadBehavior(turnIds, records, evidence, sliceId) {
+  if (turnIds.length !== 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.archive_opened_while_run_active !== true) return null;
+  if (uiState.archive_snapshot_visible_during_run !== true) return null;
+  if (uiState.final_turn_arrived_before_archive !== false) return null;
+  if (uiState.terminal_state_before_archive !== false) return null;
+  if (uiState.no_author_action_for_archive_read !== true) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "archive_profile_remains_readable_while_bounded_agent_run_is_active",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    archive_loading_indicator_during_run: evidence.archive_loading_indicator_during_run,
+    assertions: [
+      "archive_was_opened_from_real_workbench_while_agent_run_was_active",
+      "archive_profile_snapshot_remained_visible_during_agent_execution",
+      "archive_read_did_not_submit_extra_user_message_or_author_action",
+      "agent_run_completed_after_archive_read",
+      "archive_read_used_product_channel_without_acceptance_hooks",
+    ],
+  };
+}
+
+function findUa01AgentWorkIsolationEvidence(records, sliceId) {
+  const keyEvents = keyEventsForSlice(sliceId);
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_mode === "bounded" &&
+      record.sent_frame_work_id === record.source_work_id &&
+      record.source_work_id &&
+      record.target_work_id &&
+      record.source_work_id !== record.target_work_id &&
+      record.target_visible_after_source_done === true &&
+      record.source_user_visible_in_target === false &&
+      record.source_marker_visible_in_target === false &&
+      record.source_draft_visible_in_target === false &&
+      record.target_loading_after_source_done === false,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? uiState.turn_id ?? "");
+  if (!runId || !parentTurnId) return null;
+
+  const parentAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!parentAck) return null;
+
+  const targetJoined = records.some(
+    (record) => record.event === "channel.join.done" && record.work_id === uiState.target_work_id,
+  );
+  if (!targetJoined) return null;
+
+  const characterDesignDone = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_design" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!characterDesignDone) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: parentTurnId,
+    turn_ids: [parentTurnId],
+    parent_turn_id: parentTurnId,
+    run_id: runId,
+    source_work_id: uiState.source_work_id,
+    target_work_id: uiState.target_work_id,
+    key_events: keyEvents,
+  };
+}
+
+function ua01AgentWorkIsolationBehavior(turnIds, records, evidence, sliceId) {
+  if (turnIds.length !== 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.target_visible_after_source_done !== true) return null;
+  if (uiState.source_user_visible_in_target !== false) return null;
+  if (uiState.source_marker_visible_in_target !== false) return null;
+  if (uiState.source_draft_visible_in_target !== false) return null;
+  if (uiState.target_loading_after_source_done !== false) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: "late_source_agent_run_output_does_not_pollute_switched_target_work",
+    turn_ids: evidence.turn_ids,
+    run_id: evidence.run_id,
+    source_work_id: evidence.source_work_id,
+    target_work_id: evidence.target_work_id,
+    assertions: [
+      "slow_agent_run_started_from_source_work_channel",
+      "target_work_joined_before_source_character_design_finished",
+      "source_user_message_and_nonce_not_visible_in_target_work",
+      "source_agent_draft_not_visible_in_target_work",
+      "target_work_not_left_loading_after_source_run_finished",
     ],
   };
 }
@@ -4325,7 +6175,7 @@ function findAu07TraceWhyEvidence(records) {
     if (!uiState?.trace_why_dialog_open) continue;
     if (uiState.trace_why_contains_raw_prompt === true) continue;
     const traceText = String(uiState.trace_why_text ?? "");
-    if (!traceText.includes("自然回复") && !traceText.includes("探索方向")) continue;
+    if (!traceText.includes("AI 回应") && !traceText.includes("探索方向")) continue;
     if (traceText.includes("raw prompt")) continue;
     if (traceText.includes("provider raw")) continue;
     if (traceText.includes("hidden policy")) continue;
@@ -5396,7 +7246,8 @@ function findE2E01ReadonlyToolTraceEvidence(records) {
   if (!start || start.generate_micro_plan !== false) return null;
 
   const decision = turnRecords.find(
-    (record) => record.event === "orchestrator.decide.done" && record.decision_type === "allow_tool",
+    (record) =>
+      record.event === "orchestrator.decide.done" && record.decision_type === "allow_tool",
   );
   if (!decision) return null;
 
@@ -5425,8 +7276,8 @@ function findE2E01ReadonlyToolTraceEvidence(records) {
     trace_query_tool_trace_refs: uiState.trace_query_tool_trace_refs,
     character_names: uiState.character_names,
     key_events: keyEvents,
-	  };
-	}
+  };
+}
 
 function findE2E01ReplayReportEvidence(records) {
   const sliceId = "e2e-01-replay-report";
@@ -9283,8 +11134,7 @@ function au08ReadingReadonlyNoWriteBehavior(turnIds, turnRecords, records, evide
 
   const uiState = records.find(
     (r) =>
-      r.event === "slice_verify.ui_state.done" &&
-      r.slice_id === "au08-reading-readonly-no-write",
+      r.event === "slice_verify.ui_state.done" && r.slice_id === "au08-reading-readonly-no-write",
   );
   if (!uiState) return null;
   if (uiState.reading_write_controls_hidden !== true) return null;
@@ -9328,9 +11178,7 @@ function au08ReadingReturnContextBehavior(turnIds, turnRecords, records, evidenc
   if (!base) return null;
 
   const uiState = records.find(
-    (r) =>
-      r.event === "slice_verify.ui_state.done" &&
-      r.slice_id === "au08-reading-return-context",
+    (r) => r.event === "slice_verify.ui_state.done" && r.slice_id === "au08-reading-return-context",
   );
   if (!uiState) return null;
   if (uiState.returned_to_workbench !== true) return null;
@@ -9465,8 +11313,7 @@ function au04StaleConfirmationUiBehavior(turnIds, _turnRecords, records, evidenc
 function au06SingleActiveConfirmationBehavior(turnIds, _turnRecords, records, evidence, _options) {
   const uiState = records.find(
     (r) =>
-      r.event === "slice_verify.ui_state.done" &&
-      r.slice_id === "au06-single-active-confirmation",
+      r.event === "slice_verify.ui_state.done" && r.slice_id === "au06-single-active-confirmation",
   );
   if (!uiState) return null;
   if (uiState.distinct_behavior_refs !== true) return null;
@@ -11162,7 +13009,8 @@ function au09MemoryManagementFilterMatrixBehavior(records, evidence) {
 
   return {
     slice_id: "au09-memory-management-filter-matrix",
-    behavior: "author_filters_current_work_memory_list_by_keyword_type_scope_status_and_locked_state",
+    behavior:
+      "author_filters_current_work_memory_list_by_keyword_type_scope_status_and_locked_state",
     turn_ids: [],
     work_id: evidence.work_id,
     alpha_nonce: evidence.alpha_nonce,
@@ -11835,9 +13683,7 @@ function findAu12ArchiveConcurrentModelRunReadSnapshotEvidence(records) {
 
   // 执行/刷新期间真实发生过只读档案读取（get_work_profile），证明是只读读取而非写入。
   // 注：该 channel 读取按当前作品上下文记录 work_id（"current_work"），不带 work UUID。
-  const archiveRead = records.some(
-    (record) => record.event === "channel.get_work_profile.done",
-  );
+  const archiveRead = records.some((record) => record.event === "channel.get_work_profile.done");
   if (!archiveRead) return null;
 
   return {
@@ -13091,12 +14937,12 @@ function e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence,
   if (hasEventPrefix(turnRecords, "channel.author_action.")) return null;
   if (hasEventPrefix(turnRecords, "adoption.evaluate.")) return null;
 
-	  const uiState = records.find(
-	    (record) =>
-	      record.event === "slice_verify.ui_state.done" &&
-	      record.slice_id === evidence.slice_id &&
-	      record.turn_id === turnIds[0],
-	  );
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === evidence.slice_id &&
+      record.turn_id === turnIds[0],
+  );
   if (!uiState) return null;
   if (uiState.decision_type !== "allow_tool") return null;
   if (uiState.tool_name !== "character_roster") return null;
@@ -13117,7 +14963,8 @@ function e2e01ReadonlyToolTraceBehavior(turnIds, turnRecords, records, evidence,
   if (uiState.trace_query_has_tool_trace_ref !== true) return null;
 
   const decision = turnRecords.find(
-    (record) => record.event === "orchestrator.decide.done" && record.decision_type === "allow_tool",
+    (record) =>
+      record.event === "orchestrator.decide.done" && record.decision_type === "allow_tool",
   );
   if (!decision) return null;
 
@@ -13413,9 +15260,7 @@ function archiveRealDataBehavior(_records, evidence, _options, sliceId = "au09-a
       "stats_loaded_from_persistence",
       "foreshadowing_detail_opened_from_archive_list",
       "no_fixed_mock_archive_items",
-      ...(sliceId === "au09-archive-stats-current"
-        ? ["foreign_work_archive_items_excluded"]
-        : []),
+      ...(sliceId === "au09-archive-stats-current" ? ["foreign_work_archive_items_excluded"] : []),
     ],
   };
 }
@@ -14773,6 +16618,27 @@ function extractJson(content) {
   const end = content.lastIndexOf("}");
   if (start >= 0 && end > start) return content.slice(start, end + 1);
   return content;
+}
+
+function agentTurnPrefix(turnId) {
+  const match = String(turnId ?? "").match(/^(.*:agent:)\d+$/);
+  return match?.[1] ?? "";
+}
+
+function contextAssembleTurnIdForDraftTurn(records, draftTurnId) {
+  const direct = records.find(
+    (record) => record.turn_id === draftTurnId && record.event === "context.assemble.done",
+  );
+  if (direct) return String(direct.turn_id);
+
+  const prefix = agentTurnPrefix(draftTurnId);
+  if (!prefix) return null;
+
+  const sibling = records.find(
+    (record) =>
+      String(record.turn_id ?? "").startsWith(prefix) && record.event === "context.assemble.done",
+  );
+  return sibling ? String(sibling.turn_id) : null;
 }
 
 function turnsHaveEvent(turnIds, records, event) {

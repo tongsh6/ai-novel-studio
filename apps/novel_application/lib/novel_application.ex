@@ -126,8 +126,10 @@ defmodule NovelApplication do
   @doc """
   返回章摘要 maintainer：正文采纳完成后产连续性摘要（VS-00C CP2.1 / contract §5.3）。
 
-  未启用真实持久化时返回 nil（采纳路径无后续摘要副作用）。默认**异步**执行
-  （`Task.start`，不阻塞作者的采纳响应）且**失败容忍**——绝不抛错、绝不阻断正文采纳主链。
+  未启用真实持久化时返回 nil（采纳路径无后续摘要副作用）。默认通过
+  `NovelApplication.BackgroundTaskSupervisor` **异步**执行，不阻塞作者的采纳响应；
+  测试环境可配置为同步执行，避免 Ecto Sandbox owner 退出后后台任务继续持有连接。
+  **失败容忍**——绝不抛错、绝不阻断正文采纳主链。
   """
   def chapter_summary_maintainer do
     if inject_persistence?() do
@@ -138,7 +140,32 @@ defmodule NovelApplication do
   end
 
   defp run_summary_maintenance_async(input, generator, repo) do
-    Task.start(fn -> NovelApplication.ChapterSummaryMaintenance.run(input, generator, repo) end)
+    task = fn -> NovelApplication.ChapterSummaryMaintenance.run(input, generator, repo) end
+
+    if sync_chapter_summary_maintenance?() do
+      _ = task.()
+      :ok
+    else
+      start_background_task(task)
+    end
+  end
+
+  defp sync_chapter_summary_maintenance? do
+    Application.get_env(:novel_application, :sync_chapter_summary_maintenance, false)
+  end
+
+  defp start_background_task(task) do
+    case Process.whereis(NovelApplication.BackgroundTaskSupervisor) do
+      nil ->
+        _ = task.()
+
+      _pid ->
+        case Task.Supervisor.start_child(NovelApplication.BackgroundTaskSupervisor, task) do
+          {:ok, _pid} -> :ok
+          {:error, _reason} -> :ok
+        end
+    end
+
     :ok
   end
 

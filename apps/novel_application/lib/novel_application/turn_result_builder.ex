@@ -160,6 +160,7 @@ defmodule NovelApplication.TurnResultBuilder do
   defp maybe_add_tool_result(r, tr) do
     Map.put(r, :tool_result, %{
       tool_result_id: tr.tool_result_id,
+      tool_request_ref: tr.tool_request_ref,
       tool_name: tr.tool_name,
       status: tr.status,
       output: tr.output,

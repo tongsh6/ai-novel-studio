@@ -1,0 +1,47 @@
+id: agent-no-multistep-plan-bypass
+title: AgentRun 不把多步计划作为 ToolRequest 批量旁路执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-no-multistep-plan-bypass --surface tauri
+canonical_driver: ua01-agent-bounded-roster-to-character-design
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - agent-plan-is-not-micro-plan
+  - each-agent-step-has-one-micro-plan-action
+  - multi-step-gate-is-not-bypassed
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: compound roster then character design request
+  - wait_for: two-step bounded run completion
+  - verify: step and tool call counters are two independent executions, not a parent tool batch
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-no-multistep-plan-bypass-tauri
+
+assertions:
+  data:
+    - parent user_message starts bounded AgentRun without sync_turn fallback
+    - consumed steps equals 2
+    - consumed tool calls equals 2
+    - internal steps each re-enter Orchestrator
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

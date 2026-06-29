@@ -61,14 +61,20 @@ function assertReplayReportCompleteForReadonlyTool(traceRecord) {
   const missingRefs = Array.isArray(report.missing_trace_refs) ? report.missing_trace_refs : [];
 
   assert(report.provider_called === false, "ReplayReport called or claimed provider recall");
-  assert(report.result_status === "complete", `ReplayReport was not complete: ${report.result_status}`);
+  assert(
+    report.result_status === "complete",
+    `ReplayReport was not complete: ${report.result_status}`,
+  );
   assert(missingRefs.length === 0, `ReplayReport had missing refs: ${missingRefs.join(", ")}`);
   assert(chainSteps.includes("frame"), "ReplayReport chain did not include frame");
   assert(chainSteps.includes("plan"), "ReplayReport chain did not include plan");
   assert(chainSteps.includes("decision"), "ReplayReport chain did not include decision");
   assert(chainSteps.includes("tool_trace"), "ReplayReport chain did not include tool trace");
   assert(chainSteps.includes("turn_result"), "ReplayReport chain did not include TurnResult");
-  assert(questions.length === 6, `ReplayReport did not answer six required questions: ${questions.length}`);
+  assert(
+    questions.length === 6,
+    `ReplayReport did not answer six required questions: ${questions.length}`,
+  );
   assert(
     questions.every((question) => ["answered", "not_applicable"].includes(question.status)),
     "ReplayReport had unanswered or missing required questions",
@@ -110,12 +116,26 @@ function assertToolTraceRegistryRedactedIo(traceRecord) {
   const requestKeys = Array.isArray(field(requestSummary, "keys"))
     ? field(requestSummary, "keys")
     : [];
-  const resultKeys = Array.isArray(field(resultSummary, "keys")) ? field(resultSummary, "keys") : [];
+  const resultKeys = Array.isArray(field(resultSummary, "keys"))
+    ? field(resultSummary, "keys")
+    : [];
 
-  assert(field(registrySnapshot, "tool_name") === "character_roster", "ToolTrace registry snapshot did not name character_roster");
-  assert(field(registrySnapshot, "tool_version") === "1.0.0", "ToolTrace registry snapshot did not preserve tool version");
-  assert(field(registrySnapshot, "status") === "active", "ToolTrace registry snapshot did not preserve active status");
-  assert(field(registrySnapshot, "tool_layer") === "memory", "ToolTrace registry snapshot did not preserve memory layer");
+  assert(
+    field(registrySnapshot, "tool_name") === "character_roster",
+    "ToolTrace registry snapshot did not name character_roster",
+  );
+  assert(
+    field(registrySnapshot, "tool_version") === "1.0.0",
+    "ToolTrace registry snapshot did not preserve tool version",
+  );
+  assert(
+    field(registrySnapshot, "status") === "active",
+    "ToolTrace registry snapshot did not preserve active status",
+  );
+  assert(
+    field(registrySnapshot, "tool_layer") === "memory",
+    "ToolTrace registry snapshot did not preserve memory layer",
+  );
   assert(
     field(contractRefs, "input_contract_ref") === "character_roster_query_v1",
     "ToolTrace did not preserve input contract ref",
@@ -134,14 +154,32 @@ function assertToolTraceRegistryRedactedIo(traceRecord) {
       field(grantSummary, "requested_write_scopes").length === 0,
     "Readonly ToolTrace recorded write grants",
   );
-  assert(field(grantSummary, "grants_within_registry") === true, "ToolTrace grants were not checked against registry");
-  assert(requestKeys.includes("characters"), "ToolTrace request summary did not include redacted input keys");
-  assert(resultKeys.includes("character_count"), "ToolTrace result summary did not include redacted output keys");
-  assert(resultKeys.includes("characters"), "ToolTrace result summary did not include character output key");
+  assert(
+    field(grantSummary, "grants_within_registry") === true,
+    "ToolTrace grants were not checked against registry",
+  );
+  assert(
+    requestKeys.includes("characters"),
+    "ToolTrace request summary did not include redacted input keys",
+  );
+  assert(
+    resultKeys.includes("character_count"),
+    "ToolTrace result summary did not include redacted output keys",
+  );
+  assert(
+    resultKeys.includes("characters"),
+    "ToolTrace result summary did not include character output key",
+  );
   assert(field(requestSummary, "payload_stored") === false, "ToolTrace stored raw request payload");
   assert(field(resultSummary, "payload_stored") === false, "ToolTrace stored raw result payload");
-  assert(field(ioRedaction, "input_payload_stored") === false, "ToolTrace redaction allowed raw input payload");
-  assert(field(ioRedaction, "output_payload_stored") === false, "ToolTrace redaction allowed raw output payload");
+  assert(
+    field(ioRedaction, "input_payload_stored") === false,
+    "ToolTrace redaction allowed raw input payload",
+  );
+  assert(
+    field(ioRedaction, "output_payload_stored") === false,
+    "ToolTrace redaction allowed raw output payload",
+  );
 
   const serialized = JSON.stringify(toolRef);
   for (const rawToken of ["林澈", "未确认影子", "外部角色", "追查灵源矿区真相"]) {
@@ -153,7 +191,10 @@ function assertToolTraceRegistryRedactedIo(traceRecord) {
     ? report.chain_summary.find((step) => step.step === "tool_trace")
     : null;
   assert(toolChainStep, "ReplayReport chain did not expose a tool_trace step");
-  assert(field(field(toolChainStep, "registry_snapshot") ?? {}, "tool_name") === "character_roster", "ReplayReport tool_trace step did not carry registry snapshot");
+  assert(
+    field(field(toolChainStep, "registry_snapshot") ?? {}, "tool_name") === "character_roster",
+    "ReplayReport tool_trace step did not carry registry snapshot",
+  );
   assert(
     field(field(toolChainStep, "io_redaction") ?? {}, "input_payload_stored") === false &&
       field(field(toolChainStep, "io_redaction") ?? {}, "output_payload_stored") === false,
@@ -258,7 +299,14 @@ async function closeProtocolWorkspace(client) {
   }
 }
 
-async function waitForProtocolEvent(client, afterIndex, eventName, predicate, message, timeoutMs = 60_000) {
+async function waitForProtocolEvent(
+  client,
+  afterIndex,
+  eventName,
+  predicate,
+  message,
+  timeoutMs = 60_000,
+) {
   const started = Date.now();
 
   while (Date.now() - started < timeoutMs) {
@@ -1027,6 +1075,18 @@ async function waitForAppLogCount(predicate, minCount, message, timeoutMs = 60_0
 
   while (Date.now() - started < timeoutMs) {
     const count = readAppLogRecords().filter(predicate).length;
+    if (count >= minCount) return count;
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error(message);
+}
+
+async function waitForNewAppLogCount(afterCount, predicate, minCount, message, timeoutMs = 60_000) {
+  const started = Date.now();
+
+  while (Date.now() - started < timeoutMs) {
+    const count = readAppLogRecords().slice(afterCount).filter(predicate).length;
     if (count >= minCount) return count;
     await new Promise((resolve) => setTimeout(resolve, 250));
   }
@@ -2202,7 +2262,10 @@ async function driveAu03CurrentWorkContextSsot(page) {
       document.body.innerText.includes("历史会话") &&
       document.body.innerText.includes("正在只读查看历史 transcript"),
   }));
-  assert(readonlySnapshot.readonly_banner_visible, "Current-work history session was not read-only");
+  assert(
+    readonlySnapshot.readonly_banner_visible,
+    "Current-work history session was not read-only",
+  );
 
   await page.getByRole("button", { name: "返回当前会话" }).click();
   await page.waitForFunction(
@@ -3420,10 +3483,7 @@ async function driveAu11MissingWorkstatePolicy(page) {
       work_state_snapshot_mentions_work: String(workState.snapshot_summary ?? "").includes(
         work.title,
       ),
-      work_state_chapter_state_missing: missingStatus(
-        workState.chapter_state,
-        "no_chapter_state",
-      ),
+      work_state_chapter_state_missing: missingStatus(workState.chapter_state, "no_chapter_state"),
       work_state_chapter_summary_missing: missingStatus(
         workState.chapter_summary,
         "no_chapter_summary",
@@ -3859,9 +3919,7 @@ async function driveCandidateMultiturnContext(page) {
       candidate_set_ref: `candidate_set:${sourceTurnResult.turn_id}`,
       context_nonce: nonce,
       candidate_title_visible: visibleText.includes(candidate.title),
-      continuation_candidate_selection_sent: Boolean(
-        continuationFrame.body?.candidate_selection,
-      ),
+      continuation_candidate_selection_sent: Boolean(continuationFrame.body?.candidate_selection),
       followup_plain_user_message_sent: !followupFrame.body?.candidate_selection,
       followup_context_has_conversation: followupContext.has_conversation,
       followup_context_has_session_summary: followupContext.has_session_summary,
@@ -3952,11 +4010,9 @@ async function driveNaturalExplorationNoSlotForm(page) {
   const candidatesNoJsonCode = naturalCandidates.every(
     (item) =>
       !hasJsonCodeShape(
-        [
-          item.title,
-          item.pitch,
-          ...(Array.isArray(item.tone_tags) ? item.tone_tags : []),
-        ].join(" "),
+        [item.title, item.pitch, ...(Array.isArray(item.tone_tags) ? item.tone_tags : [])].join(
+          " ",
+        ),
       ),
   );
   const candidateSemanticallyRelevant =
@@ -4039,8 +4095,7 @@ async function driveNaturalExplorationNoSlotForm(page) {
 
 async function driveCandidateFallbackUi(page) {
   const beforeSourceFrameCount = frames.length;
-  const promptText =
-    "AU02BADCANDIDATES 我想写赛博修仙方向，但上游候选格式坏了时也要给可用方向。";
+  const promptText = "AU02BADCANDIDATES 我想写赛博修仙方向，但上游候选格式坏了时也要给可用方向。";
   const { sourceTurnResult, candidate } = await createCandidateSourceTurn(page, promptText);
   const sourceMessage = latestSentUserMessage();
   assert(sourceMessage, "No source user_message was captured for candidate fallback");
@@ -4069,12 +4124,14 @@ async function driveCandidateFallbackUi(page) {
   const framesAfterSource = frames.slice(beforeSourceFrameCount);
 
   assert(
-    sourceMessage.body?.text === promptText &&
-      sourceMessage.body?.generate_micro_plan === false,
+    sourceMessage.body?.text === promptText && sourceMessage.body?.generate_micro_plan === false,
     "Real workbench did not send the malformed-candidate prompt as a no-MicroPlan user_message",
   );
   assert(candidates.length >= 2, "Fallback candidate list was not populated");
-  assert(hasKnownFallbackCandidate, "TurnResult did not contain the known Planner fallback candidate");
+  assert(
+    hasKnownFallbackCandidate,
+    "TurnResult did not contain the known Planner fallback candidate",
+  );
   assert(candidateFieldsNonempty, "Fallback candidates contained empty title or pitch");
   assert(candidateStatusesNotAdopted, "Fallback candidates were not marked not_adopted");
   assert(visibleText.includes("矛盾切入"), "Fallback candidate title was not visible in UI");
@@ -4083,7 +4140,10 @@ async function driveCandidateFallbackUi(page) {
     "Candidate fallback turn claimed a production write",
   );
   assert(!sourceTurnResult.tool_result, "Candidate fallback turn produced a tool result");
-  assert(!sourceTurnResult.adoption_decision, "Candidate fallback turn produced an adoption decision");
+  assert(
+    !sourceTurnResult.adoption_decision,
+    "Candidate fallback turn produced an adoption decision",
+  );
   assert(
     !framesAfterSource.some((frame) => frame.event === "author_action"),
     "Candidate fallback sent an author_action",
@@ -4432,9 +4492,7 @@ async function driveCandidateAdoptionBridge(page) {
 async function driveAdoptionSafetyFreshness(page) {
   await page
     .locator(chatInputSelector)
-    .fill(
-      "我想写一个赛博修仙故事，但还没想好小说创作方向，可以有一个高风险、覆盖主线的方向。",
-    );
+    .fill("我想写一个赛博修仙故事，但还没想好小说创作方向，可以有一个高风险、覆盖主线的方向。");
   await page.getByRole("button", { name: /^发送$/ }).click();
 
   const sourceTurnFrame = await waitForFrame(
@@ -4578,12 +4636,9 @@ async function driveStaleConflictCrossWorkFreshness(page) {
   );
   const rejectionTurnResult = rejectionTurnFrame.body;
 
-  await page.waitForFunction(
-    () => /候选方向未采用|后续方向未设置/.test(document.body.innerText),
-    {
-      timeout: 10_000,
-    },
-  );
+  await page.waitForFunction(() => /候选方向未采用|后续方向未设置/.test(document.body.innerText), {
+    timeout: 10_000,
+  });
 
   const visibleText = await page.locator("body").innerText();
   const topic = actionFrame.topic ?? "";
@@ -5745,9 +5800,7 @@ async function driveAu05DiscardAuthorAction(page) {
       production_write_performed:
         discardedTurnResult.truthfulness?.production_write_performed === true,
       discard_button_cleared_after_discard: discardButtonCleared,
-      reading_mode_empty_after_discard: /暂无已采纳的章节内容|本章尚无已采纳正文/.test(
-        visibleText,
-      ),
+      reading_mode_empty_after_discard: /暂无已采纳的章节内容|本章尚无已采纳正文/.test(visibleText),
       draft_not_visible_in_reading: !draftVisibleInReading,
       user_message_text: sentMessage?.body?.text,
     },
@@ -5802,10 +5855,9 @@ async function driveP1PlanIncremental(page) {
   const baselineTitles = new Set(baselineChapters.map((c) => c.title));
   const titlesDisjoint = newTitles.every((title) => !baselineTitles.has(title));
 
-  await page.waitForFunction(
-    () => /待确认的创作材料|大纲草稿/.test(document.body.innerText),
-    { timeout: 10_000 },
-  );
+  await page.waitForFunction(() => /待确认的创作材料|大纲草稿/.test(document.body.innerText), {
+    timeout: 10_000,
+  });
   await page.getByRole("button", { name: acceptDraftButtonPattern }).last().click();
 
   await waitForFrame(
@@ -6012,7 +6064,10 @@ async function driveAu08ReadingReadonlyNoWrite(page) {
   assert(readingSnapshot.reading_mode_visible, "Reading mode was not visible for readonly check");
   assert(readingSnapshot.export_button_visible, "Reading mode export button was not visible");
   assert(readingSnapshot.back_button_visible, "Reading mode back button was not visible");
-  assert(!readingSnapshot.chat_input_visible, "Reading mode exposed a visible workbench chat input");
+  assert(
+    !readingSnapshot.chat_input_visible,
+    "Reading mode exposed a visible workbench chat input",
+  );
   assert(
     readingSnapshot.write_control_count === 0,
     `Reading mode exposed write controls: ${readingSnapshot.buttons.join(" / ")}`,
@@ -6079,7 +6134,10 @@ async function driveAu08ReadingReadonlyNoWrite(page) {
   assert(exportDone, "Reading-mode export did not complete through channel.export_work.done");
   assert(sentAuthorActions.length === 0, "Reading mode sent author_action frames");
   assert(sentUserMessages.length === 0, "Reading mode sent user_message frames");
-  assert(channelAuthorActionRecords.length === 0, "Reading mode reached author_action channel logs");
+  assert(
+    channelAuthorActionRecords.length === 0,
+    "Reading mode reached author_action channel logs",
+  );
   assert(adoptionRecords.length === 0, "Reading mode triggered adoption evaluation");
   assert(toolboxExecuteRecords.length === 0, "Reading mode dispatched toolbox execution");
   assert(productionWriteClaims.length === 0, "Reading mode emitted a production write claim");
@@ -6118,7 +6176,8 @@ async function driveAu08ReadingReadonlyNoWrite(page) {
       no_tool_dispatch_during_reading: toolboxExecuteRecords.length === 0,
       no_production_write_claim_during_reading: productionWriteClaims.length === 0,
       returned_to_workbench: afterReturn.chat_input_present && !afterReturn.chat_input_disabled,
-      chat_input_enabled_after_return: afterReturn.chat_input_present && !afterReturn.chat_input_disabled,
+      chat_input_enabled_after_return:
+        afterReturn.chat_input_present && !afterReturn.chat_input_disabled,
       send_button_enabled_after_return:
         afterReturn.chat_input_present && !afterReturn.send_button_disabled,
     },
@@ -6140,7 +6199,9 @@ async function driveAu08ReadingReturnContext(page) {
     const visibleText = document.body.innerText;
     return {
       reading_mode_visible: visibleText.includes("阅读模式"),
-      work_title_visible: visibleText.includes("AI Novel Studio") ? null : visibleText.split("\n")[2],
+      work_title_visible: visibleText.includes("AI Novel Studio")
+        ? null
+        : visibleText.split("\n")[2],
       back_button_visible: [...document.querySelectorAll("button")].some(
         (button) => (button.textContent ?? "").trim() === "返回工作台",
       ),
@@ -6258,23 +6319,22 @@ async function driveAu08ReadingReturnContext(page) {
       original_session_id: expectedSessionId,
       returned_to_workbench: afterReturn.chat_input_present && !afterReturn.chat_input_disabled,
       workbench_visible_after_return: afterReturn.workbench_visible,
-      chat_input_enabled_after_return: afterReturn.chat_input_present && !afterReturn.chat_input_disabled,
+      chat_input_enabled_after_return:
+        afterReturn.chat_input_present && !afterReturn.chat_input_disabled,
       send_button_enabled_after_return:
         afterReturn.chat_input_present && !afterReturn.send_button_disabled,
       no_author_action_sent_on_return: returnSentAuthorActions.length === 0,
       no_user_message_sent_on_return: returnSentUserMessages.length === 0,
       welcome_count_before_return: welcomeCountBeforeReturn,
       welcome_count_after_return: afterReturn.welcome_message_count,
-      no_new_welcome_after_return:
-        afterReturn.welcome_message_count <= welcomeCountBeforeReturn,
+      no_new_welcome_after_return: afterReturn.welcome_message_count <= welcomeCountBeforeReturn,
       followup_user_message_sent: true,
       followup_turn_result_received: true,
       followup_channel_done_same_scope: Boolean(followupDone),
       followup_visible_in_transcript: visibleText.includes(followupText),
       followup_user_message_text: followupText,
       work_id_preserved_after_return: followupSentFrame.body?.work_id === expectedWorkId,
-      session_id_preserved_after_return:
-        followupSentFrame.body?.session_id === expectedSessionId,
+      session_id_preserved_after_return: followupSentFrame.body?.session_id === expectedSessionId,
       followup_done_work_id: followupDone.work_id,
       followup_done_session_id: followupDone.session_id,
       reading_mode_visible_before_return: readingSnapshot.reading_mode_visible,
@@ -6331,12 +6391,10 @@ async function driveAu04ConfirmBeforeExecute(page) {
   const confirmationVisibleText = await page.locator("body").innerText();
   const confirmationCardDetailVisible = confirmationVisibleText.includes("需要确认");
   const confirmationCardTargetVisible = confirmationVisibleText.includes("确认对象：正文草稿生成");
-  const confirmationCardNoWriteVisible = confirmationVisibleText.includes(
-    "确认前不会调用工具或写入作品事实",
-  );
-  const confirmationCardReGateVisible = confirmationVisibleText.includes(
-    "确认后系统会重新检查当前作品状态",
-  );
+  const confirmationCardNoWriteVisible =
+    confirmationVisibleText.includes("确认前不会调用工具或写入作品事实");
+  const confirmationCardReGateVisible =
+    confirmationVisibleText.includes("确认后系统会重新检查当前作品状态");
 
   await page.getByRole("button", { name: "确认执行" }).first().click();
 
@@ -6610,8 +6668,7 @@ async function driveAu04ConfirmationToolFailureRecovery(page) {
       toolbox_execute_error_count: toolboxExecuteErrorRecords.length,
       toolbox_execute_success_count: toolboxExecuteSucceededRecords.length,
       failure_message_visible:
-        visibleText.includes("这次没有生成创作草稿") &&
-        visibleText.includes("工具执行失败"),
+        visibleText.includes("这次没有生成创作草稿") && visibleText.includes("工具执行失败"),
       no_pending_artifact_after_failure: pendingProseFragmentCount === 0,
       no_successful_tool_dispatch_after_failure: toolboxExecuteSucceededRecords.length === 0,
       no_production_write_after_failure:
@@ -6891,8 +6948,9 @@ async function driveAu04StaleConfirmationUi(page) {
   const staleConfirmButtonCount = await page.getByRole("button", { name: "确认执行" }).count();
   const staleConfirmVisible =
     staleConfirmButtonCount > 0 ? await staleConfirmButton.isVisible().catch(() => false) : false;
-  const staleConfirmDisabled =
-    staleConfirmVisible ? await staleConfirmButton.isDisabled().catch(() => false) : false;
+  const staleConfirmDisabled = staleConfirmVisible
+    ? await staleConfirmButton.isDisabled().catch(() => false)
+    : false;
 
   let staleClickAttempted = false;
   let staleActionSent = false;
@@ -7030,8 +7088,7 @@ async function driveAu04StaleConfirmationUi(page) {
 async function driveAu06SingleActiveConfirmation(page) {
   const firstRequestText =
     "第01章：底层灵气账单 写得太平了，推翻重写这一章的正文草稿，保持为待采纳草稿。";
-  const secondRequestText =
-    "第02章：旧服务器里的残诀 也需要推翻重写正文草稿，保持为待采纳草稿。";
+  const secondRequestText = "第02章：旧服务器里的残诀 也需要推翻重写正文草稿，保持为待采纳草稿。";
 
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
   await page.locator(chatInputSelector).fill(firstRequestText);
@@ -7091,9 +7148,7 @@ async function driveAu06SingleActiveConfirmation(page) {
   const secondContextRefs = Array.isArray(secondConfirmTurnResult.trace_summary?.context_refs)
     ? secondConfirmTurnResult.trace_summary.context_refs
     : [];
-  const secondBehaviorContextRef = secondContextRefs.find(
-    (ref) => ref?.source_type === "behavior",
-  );
+  const secondBehaviorContextRef = secondContextRefs.find((ref) => ref?.source_type === "behavior");
   const secondBehaviorSummary = String(secondBehaviorContextRef?.summary ?? "");
   const firstBehaviorRefText = String(firstConfirmAction.behavior_ref ?? "");
   const firstActionIdText = String(firstConfirmAction.action_id ?? "");
@@ -7135,15 +7190,19 @@ async function driveAu06SingleActiveConfirmation(page) {
   const beforeOldAttemptLogCount = readAppLogRecords().length;
   const confirmButtons = page.getByRole("button", { name: "确认执行" });
   const confirmButtonCountAfterSecond = await confirmButtons.count();
-  assert(confirmButtonCountAfterSecond >= 1, "No confirm button remained after the second confirmation");
+  assert(
+    confirmButtonCountAfterSecond >= 1,
+    "No confirm button remained after the second confirmation",
+  );
 
   const firstVisibleConfirmButton = confirmButtons.first();
   const oldConfirmVisible =
     confirmButtonCountAfterSecond > 1
       ? await firstVisibleConfirmButton.isVisible().catch(() => false)
       : false;
-  const oldConfirmDisabled =
-    oldConfirmVisible ? await firstVisibleConfirmButton.isDisabled().catch(() => false) : false;
+  const oldConfirmDisabled = oldConfirmVisible
+    ? await firstVisibleConfirmButton.isDisabled().catch(() => false)
+    : false;
 
   let oldConfirmClickAttempted = false;
   let oldConfirmActionSent = false;
@@ -7295,8 +7354,7 @@ async function driveAu06SingleActiveConfirmation(page) {
       second_turn_behavior_context_ref_visible: Boolean(secondBehaviorContextRef),
       second_turn_behavior_context_author_safe: true,
       second_turn_behavior_context_summary: secondBehaviorSummary,
-      second_turn_behavior_context_redaction_level:
-        secondBehaviorContextRef?.redaction_level ?? "",
+      second_turn_behavior_context_redaction_level: secondBehaviorContextRef?.redaction_level ?? "",
       second_turn_behavior_context_ref: secondBehaviorContextRef?.context_ref ?? "",
       second_turn_behavior_context_source_id: secondBehaviorContextRef?.source_id ?? "",
       first_tool_called_before_confirm: firstConfirmTurnResult.truthfulness?.tool_called === true,
@@ -7790,11 +7848,9 @@ async function driveAu04CrossWorkConfirmationGuard(page) {
   const beforeSwitchLogCount = readAppLogRecords().length;
   const targetJoin = await ensureWorkSelectedByTitle(page, targetTitle, targetWork.id);
   await waitForVisibleWorkTitle(page, targetTitle);
-  await page.waitForFunction(
-    (needle) => document.body.innerText.includes(needle),
-    targetNeedle,
-    { timeout: 15_000 },
-  );
+  await page.waitForFunction((needle) => document.body.innerText.includes(needle), targetNeedle, {
+    timeout: 15_000,
+  });
   await sleep(1_000);
 
   const targetAfterSwitch = await page.evaluate(
@@ -7836,10 +7892,16 @@ async function driveAu04CrossWorkConfirmationGuard(page) {
     );
   }, 0);
 
-  assert(sourceBeforeSwitch.confirm_button_count >= 1, "Source confirmation button was not visible");
+  assert(
+    sourceBeforeSwitch.confirm_button_count >= 1,
+    "Source confirmation button was not visible",
+  );
   assert(sourceBeforeSwitch.reject_button_count >= 1, "Source reject button was not visible");
   assert(targetAfterSwitch.target_text_visible, "Target work transcript was not visible");
-  assert(!targetAfterSwitch.source_text_visible, "Source confirmation transcript leaked into target work");
+  assert(
+    !targetAfterSwitch.source_text_visible,
+    "Source confirmation transcript leaked into target work",
+  );
   assert(
     targetAfterSwitch.confirm_button_count === 0,
     `Target work exposed ${targetAfterSwitch.confirm_button_count} source confirm buttons`,
@@ -8011,9 +8073,7 @@ async function driveAu04LatestContextRebaseConfirmation(page) {
   );
   const executedTurnResult = executedTurnFrame.body;
   const currentWorkRef = (executedTurnResult.trace_summary?.context_refs ?? []).find(
-    (ref) =>
-      ref.source_type === "current_work" &&
-      String(ref.summary ?? "").includes(renamedTitle),
+    (ref) => ref.source_type === "current_work" && String(ref.summary ?? "").includes(renamedTitle),
   );
   assert(currentWorkRef, "Confirmed turn trace did not include renamed current work summary");
 
@@ -8074,7 +8134,8 @@ async function driveAu04LatestContextRebaseConfirmation(page) {
       original_revision: work.revision,
       renamed_revision: renamedWork.revision,
       real_work_renamed_before_confirm: true,
-      confirm_action_sent: confirmActionFrame.body?.action?.action_type === "confirm_before_execute",
+      confirm_action_sent:
+        confirmActionFrame.body?.action?.action_type === "confirm_before_execute",
       confirmation_binding_ref: rebasedRef,
       binding_ref_includes_source_work: rebasedRef.includes(work.id),
       binding_ref_includes_latest_revision: rebasedRef.includes(`revision:${renamedWork.revision}`),
@@ -8137,7 +8198,10 @@ async function driveP1ChapterWordCountTarget(page) {
   const pendingArtifact = draftTurnResult.adoption_state.pending[0];
 
   await page.waitForFunction(
-    () => /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(document.body.innerText),
+    () =>
+      /待确认的创作材料|待确认正文草稿|待保存章节草稿|章节正文草稿|正文草稿/.test(
+        document.body.innerText,
+      ),
     { timeout: 10_000 },
   );
   await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
@@ -8515,7 +8579,10 @@ async function driveP1ChapterExpansionMultichapter(page) {
     const pending = draftFrame.body.adoption_state.pending[0];
 
     await page.waitForFunction(
-      () => /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(document.body.innerText),
+      () =>
+        /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+          document.body.innerText,
+        ),
       undefined,
       { timeout: 10_000 },
     );
@@ -8535,11 +8602,10 @@ async function driveP1ChapterExpansionMultichapter(page) {
     // 采纳后旧草稿卡的保存按钮必须消失，避免下一章误点到上一张卡。
     await page.waitForFunction(
       () =>
-        ![...document.querySelectorAll("button")].some(
-          (b) =>
-            /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
-              (b.textContent ?? "").trim(),
-            ),
+        ![...document.querySelectorAll("button")].some((b) =>
+          /确认创建|保存为章节正文|保存到大纲|保存到作品档案|保存到作品/.test(
+            (b.textContent ?? "").trim(),
+          ),
         ),
       undefined,
       { timeout: 10_000 },
@@ -8619,15 +8685,18 @@ async function driveP1ChapterExpansionMultichapter(page) {
   }
 
   const emptyChapterTitle = "第04章：巡检队的诱捕";
-  await page.getByText(emptyChapterTitle, { exact: true }).filter({ visible: true }).first().click();
+  await page
+    .getByText(emptyChapterTitle, { exact: true })
+    .filter({ visible: true })
+    .first()
+    .click();
   await page.waitForFunction(
     (title) => {
       const activeHeading = [...document.querySelectorAll("h1")].find((el) =>
         (el.textContent ?? "").includes(title),
       );
       return (
-        Boolean(activeHeading) &&
-        document.body.innerText.includes("本章尚无已采纳正文，待补足。")
+        Boolean(activeHeading) && document.body.innerText.includes("本章尚无已采纳正文，待补足。")
       );
     },
     emptyChapterTitle,
@@ -8687,7 +8756,10 @@ async function driveP1ChapterEditThenAccept(page) {
   );
 
   // 点「修改后保存正文」打开编辑弹窗，作者改写全文后再保存。
-  await page.getByRole("button", { name: /修改后采纳|修改后保存正文/ }).first().click();
+  await page
+    .getByRole("button", { name: /修改后采纳|修改后保存正文/ })
+    .first()
+    .click();
 
   const editedText =
     "林澈在灵气账单的红光里睁开眼，城市在脚下安静地呼吸，他知道反垄断的第一刀终于该落下了。";
@@ -9882,8 +9954,14 @@ async function driveAu09ArchiveStatsCurrent(page) {
   const detailSnapshot = await archivePanelSnapshot(archivePanel);
   const visibleText = detailSnapshot.text;
   assert(visibleText.includes(characterName), "Archive did not show the seeded accepted character");
-  assert(visibleText.includes(foreshadowingNeedle), "Archive did not show the seeded foreshadowing");
-  assert(!visibleText.includes(foreignNeedle), "Archive leaked foreign-work data into current work");
+  assert(
+    visibleText.includes(foreshadowingNeedle),
+    "Archive did not show the seeded foreshadowing",
+  );
+  assert(
+    !visibleText.includes(foreignNeedle),
+    "Archive leaked foreign-work data into current work",
+  );
 
   await page.getByRole("tab", { name: "经验规则" }).click();
   await page.waitForFunction(
@@ -10432,7 +10510,10 @@ async function driveAu09CharacterRoleTaxonomyProtagonistPolicy(page) {
     `Protagonist query after design did not name the protagonist: ${postAnswer}`,
   );
   const postQueryNoWrite = postQuery.turnResult.truthfulness?.production_write_performed === false;
-  assert(postQueryNoWrite, "Protagonist read-only query (after design) performed a production write");
+  assert(
+    postQueryNoWrite,
+    "Protagonist read-only query (after design) performed a production write",
+  );
 
   const sentMessage = latestSentUserMessage();
   const uiState = await commonUiState(page, postQuery.turnResult, sentMessage);
@@ -10482,12 +10563,10 @@ async function driveAu09CharacterCandidatePerItemAdoption(page) {
   );
   assert(pending.length === 2, `Expected 2 character candidates, got ${pending.length}`);
 
-  const nameOf = (entry) =>
-    String(entry.payload?.items?.[0]?.title ?? "").trim();
+  const nameOf = (entry) => String(entry.payload?.items?.[0]?.title ?? "").trim();
   const candidateNames = pending.map(nameOf);
   assert(
-    candidateNames.every((name) => name.length > 0) &&
-      candidateNames[0] !== candidateNames[1],
+    candidateNames.every((name) => name.length > 0) && candidateNames[0] !== candidateNames[1],
     `Character candidates must have distinct names: ${JSON.stringify(candidateNames)}`,
   );
   assert(
@@ -10660,7 +10739,8 @@ async function driveAu12ArchiveConcurrentModelRunReadSnapshot(page) {
   );
   const duringSnapshot = await archivePanelSnapshot(archivePanel);
   const snapshotVisibleDuringExecution =
-    duringSnapshot.text.includes(seed.genre) && duringSnapshot.text.includes(seed.core_selling_point);
+    duringSnapshot.text.includes(seed.genre) &&
+    duringSnapshot.text.includes(seed.core_selling_point);
   const loadingIndicatorDuringExecution =
     duringSnapshot.text.includes("正在读取作品档案") ||
     duringSnapshot.text.includes("正在更新作品档案");
@@ -10836,7 +10916,10 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
   );
   const evoAdopt = await adopt(evoBefore, evoPending, "character_evolution_seed");
   const adoptedStateRef = String(evoAdopt.body.truthfulness?.adopted_state_ref ?? "");
-  assert(adoptedStateRef.length > 0, "character evolution adoption did not expose adopted_state_ref");
+  assert(
+    adoptedStateRef.length > 0,
+    "character evolution adoption did not expose adopted_state_ref",
+  );
 
   // 记忆页：该角色记忆以「当前状态」类型展示，且内容保留本轮 nonce（因果绑定）。
   await openMemoryPage();
@@ -10845,7 +10928,10 @@ async function driveAu09MemoryTaxonomyWritePolicy(page) {
   const evoRowText = await evoRow.innerText();
   const evolutionMemoryWritten = evoRowText.includes(evoNonce);
   const evolutionMemoryTypeShown = evoRowText.includes("当前状态");
-  assert(evolutionMemoryWritten, "adopted character evolution memory was not found in the memory page");
+  assert(
+    evolutionMemoryWritten,
+    "adopted character evolution memory was not found in the memory page",
+  );
   assert(
     evolutionMemoryTypeShown,
     `adopted character memory did not show 当前状态 type label: ${evoRowText}`,
@@ -10925,7 +11011,9 @@ async function driveAu09MemoryListUxRedesign(page) {
   await page.waitForFunction(
     () =>
       !document.body.innerText.includes("记忆详情") ||
-      ![...document.querySelectorAll("button")].some((b) => (b.textContent ?? "").trim() === "确认"),
+      ![...document.querySelectorAll("button")].some(
+        (b) => (b.textContent ?? "").trim() === "确认",
+      ),
     undefined,
     { timeout: 10_000 },
   );
@@ -12547,14 +12635,7 @@ async function driveSu01ProviderVendorMatrix(page) {
     30_000,
   );
   // 新增供应商矩阵期望全部来自后端 registry，前端不写死。
-  const expectedVendors = [
-    "openai",
-    "openai_subscription",
-    "minimax",
-    "zhipu",
-    "kimi",
-    "gemini",
-  ];
+  const expectedVendors = ["openai", "openai_subscription", "minimax", "zhipu", "kimi", "gemini"];
   const provider = "openai";
   const secret = `sk-vendor-matrix-${Date.now()}`;
   const fixtureModel = "gpt-4o-mini-slice";
@@ -12684,8 +12765,7 @@ async function driveSu01ProviderVendorMatrix(page) {
       "Provider options did not mark OpenAI API key configured",
     );
     assert(
-      openaiOption?.label === "OpenAI（API Key）" &&
-        subscriptionOption?.label === "OpenAI（订阅）",
+      openaiOption?.label === "OpenAI（API Key）" && subscriptionOption?.label === "OpenAI（订阅）",
       "OpenAI api_key and subscription auth methods were not distinct entries",
     );
     assert(!providerOptionsJson.includes(secret), "Provider options response exposed API key");
@@ -13935,10 +14015,9 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
     60_000,
   );
 
-  await page.waitForFunction(
-    () => document.body.innerText.includes("保存到作品档案"),
-    { timeout: 30_000 },
-  );
+  await page.waitForFunction(() => document.body.innerText.includes("保存到作品档案"), {
+    timeout: 30_000,
+  });
   const visibleText = await page.locator("body").innerText();
   const sameTurnRecords = readAppLogRecords().filter(
     (record) => record.turn_id === turnResult.turn_id,
@@ -13963,7 +14042,10 @@ async function driveAu12CorrectionIntentRoundtrip(page) {
     turnResult.truthfulness?.production_write_performed === false,
     "Correction turn claimed a direct production write",
   );
-  assert(pendingArtifact.requires_adoption === true, "Correction artifact does not require adoption");
+  assert(
+    pendingArtifact.requires_adoption === true,
+    "Correction artifact does not require adoption",
+  );
   assert(hasAcceptAction, "Correction artifact did not expose an accept action");
   assert(hasEditAction, "Correction artifact did not expose an edit_then_accept action");
   assert(hasDiscardAction, "Correction artifact did not expose a discard action");
@@ -14112,7 +14194,10 @@ async function driveAu12ProfileReadFailureDegrade(page) {
       ),
       "Profile fields were not visible after retry",
     );
-    assert(!recoveredText.includes("作品档案读取失败"), "Profile read failure remained after retry");
+    assert(
+      !recoveredText.includes("作品档案读取失败"),
+      "Profile read failure remained after retry",
+    );
     assert(
       readonlyLogs.every((record) => !writeEventPattern.test(String(record.event ?? ""))),
       "Profile read failure or retry emitted a write/action/tool/adoption app log",
@@ -14338,7 +14423,10 @@ async function driveAu12WorkProfileStatusIsolation(page) {
   const emptyRuleText = await (await waitForArchivePanel(page)).innerText();
 
   const emptyArchiveText = [emptyCharacterText, emptyForeshadowingText, emptyRuleText].join("\n");
-  assert(!emptyArchiveText.includes(acceptedCharacter), "Accepted character leaked into empty work");
+  assert(
+    !emptyArchiveText.includes(acceptedCharacter),
+    "Accepted character leaked into empty work",
+  );
   assert(
     !emptyArchiveText.includes(acceptedForeshadowing),
     "Accepted foreshadowing leaked into empty work",
@@ -14364,11 +14452,17 @@ async function driveAu12WorkProfileStatusIsolation(page) {
 
   assert(acceptedProfile.status === "ACCEPTED", "Accepted profile reply did not expose ACCEPTED");
   assert(emptyProfile.status === "TENTATIVE", "Empty profile reply did not expose TENTATIVE");
-  assert(!Object.prototype.hasOwnProperty.call(acceptedProfile, "id"), "Accepted profile exposed id");
+  assert(
+    !Object.prototype.hasOwnProperty.call(acceptedProfile, "id"),
+    "Accepted profile exposed id",
+  );
   assert(!Object.prototype.hasOwnProperty.call(emptyProfile, "id"), "Empty profile exposed id");
   assert(!acceptedProfileJson.includes(acceptedWork.id), "Accepted profile leaked work UUID");
   assert(!emptyProfileJson.includes(emptyWork.id), "Empty profile leaked work UUID");
-  assert(!acceptedProfileLogJson.includes(acceptedWork.id), "Accepted profile log leaked work UUID");
+  assert(
+    !acceptedProfileLogJson.includes(acceptedWork.id),
+    "Accepted profile log leaked work UUID",
+  );
   assert(!emptyProfileLogJson.includes(emptyWork.id), "Empty profile log leaked work UUID");
   assert(!archiveUiText.includes(acceptedWork.id), "UI leaked accepted work UUID");
   assert(!archiveUiText.includes(emptyWork.id), "UI leaked empty work UUID");
@@ -14377,7 +14471,9 @@ async function driveAu12WorkProfileStatusIsolation(page) {
     "Archive viewing emitted a write/action/tool/adoption app log",
   );
   assert(
-    readonlyFrames.every((frame) => frame.event !== "user_message" && frame.event !== "author_action"),
+    readonlyFrames.every(
+      (frame) => frame.event !== "user_message" && frame.event !== "author_action",
+    ),
     "Archive viewing sent user_message or author_action websocket frames",
   );
 
@@ -14746,10 +14842,10 @@ async function driveE2E01ReadonlyToolTrace(page) {
       trace.turn_id === turnResult.turn_id &&
       Array.isArray(trace.tool_trace_refs) &&
       trace.tool_trace_refs.some(isToolTraceRef),
-	  );
-	  assert(traceRecord, "TraceRepository.list_by_turn did not return a tool trace ref");
-	  const replayReport = traceRecord.replay_report ?? {};
-	  const toolTraceAudit = assertToolTraceRegistryRedactedIo(traceRecord);
+  );
+  assert(traceRecord, "TraceRepository.list_by_turn did not return a tool trace ref");
+  const replayReport = traceRecord.replay_report ?? {};
+  const toolTraceAudit = assertToolTraceRegistryRedactedIo(traceRecord);
 
   const visibleText = await page.locator("body").innerText();
   const sameTurnRecords = readAppLogRecords().filter(
@@ -14759,7 +14855,10 @@ async function driveE2E01ReadonlyToolTrace(page) {
   const toolCharacters = Array.isArray(toolOutput.characters) ? toolOutput.characters : [];
   const uiState = await commonUiState(page, turnResult, sentFrame);
 
-  assert(turnResult.truthfulness?.tool_called === true, "Readonly tool turn did not mark tool_called");
+  assert(
+    turnResult.truthfulness?.tool_called === true,
+    "Readonly tool turn did not mark tool_called",
+  );
   assert(
     turnResult.truthfulness?.production_write_performed === false,
     "Readonly tool turn claimed a production write",
@@ -14819,8 +14918,7 @@ async function driveE2E01ReadonlyToolTrace(page) {
       tool_name: turnResult.tool_result?.tool_name,
       tool_status: String(turnResult.tool_result?.status ?? ""),
       tool_called: turnResult.truthfulness?.tool_called === true,
-      production_write_performed:
-        turnResult.truthfulness?.production_write_performed === true,
+      production_write_performed: turnResult.truthfulness?.production_write_performed === true,
       artifact_adopted: turnResult.truthfulness?.artifact_adopted === true,
       execution_blocked: turnResult.truthfulness?.execution_blocked === true,
       character_count: Number(toolOutput.character_count ?? 0),
@@ -14837,33 +14935,33 @@ async function driveE2E01ReadonlyToolTrace(page) {
       context_character_count: Number(charactersRecord.character_count ?? 0),
       toolbox_tool_name: toolboxRecord.tool_name,
       toolbox_tool_outcome: toolboxRecord.tool_outcome,
-	      trace_query_count: Number(traceQuery.count ?? 0),
-	      trace_query_turn_id: traceQuery.turn_id,
-	      trace_query_plan_ref: traceRecord.plan_ref,
-	      trace_query_decision_type: traceRecord.decision_type,
-	      trace_query_tool_trace_refs: traceRecord.tool_trace_refs,
-	      trace_query_has_tool_trace_ref: true,
-	      trace_query_tool_trace_ref: toolTraceAudit.toolRef,
-	      tool_trace_registry_snapshot: toolTraceAudit.registrySnapshot,
-	      tool_trace_contract_refs: toolTraceAudit.contractRefs,
-	      tool_trace_grant_summary: toolTraceAudit.grantSummary,
-	      tool_trace_request_summary: toolTraceAudit.requestSummary,
-	      tool_trace_result_summary: toolTraceAudit.resultSummary,
-	      tool_trace_io_redaction: toolTraceAudit.ioRedaction,
-	      tool_trace_registry_snapshot_complete: toolTraceAudit.registrySnapshotComplete,
-	      tool_trace_redacted_io_no_raw_payload: toolTraceAudit.redactedIoNoRawPayload,
-	      replay_report_tool_trace_carries_registry_snapshot:
-	        toolTraceAudit.replayReportToolTraceCarriesSnapshot,
-	      trace_query_replay_report: replayReport,
-	      replay_report_provider_called: replayReport.provider_called,
-	      replay_report_result_status: replayReport.result_status,
-	      replay_report_required_question_count: Array.isArray(replayReport.required_questions)
-	        ? replayReport.required_questions.length
-	        : 0,
-	      decision_record_outcome: decisionRecord.outcome,
-	    },
-	  ];
-	}
+      trace_query_count: Number(traceQuery.count ?? 0),
+      trace_query_turn_id: traceQuery.turn_id,
+      trace_query_plan_ref: traceRecord.plan_ref,
+      trace_query_decision_type: traceRecord.decision_type,
+      trace_query_tool_trace_refs: traceRecord.tool_trace_refs,
+      trace_query_has_tool_trace_ref: true,
+      trace_query_tool_trace_ref: toolTraceAudit.toolRef,
+      tool_trace_registry_snapshot: toolTraceAudit.registrySnapshot,
+      tool_trace_contract_refs: toolTraceAudit.contractRefs,
+      tool_trace_grant_summary: toolTraceAudit.grantSummary,
+      tool_trace_request_summary: toolTraceAudit.requestSummary,
+      tool_trace_result_summary: toolTraceAudit.resultSummary,
+      tool_trace_io_redaction: toolTraceAudit.ioRedaction,
+      tool_trace_registry_snapshot_complete: toolTraceAudit.registrySnapshotComplete,
+      tool_trace_redacted_io_no_raw_payload: toolTraceAudit.redactedIoNoRawPayload,
+      replay_report_tool_trace_carries_registry_snapshot:
+        toolTraceAudit.replayReportToolTraceCarriesSnapshot,
+      trace_query_replay_report: replayReport,
+      replay_report_provider_called: replayReport.provider_called,
+      replay_report_result_status: replayReport.result_status,
+      replay_report_required_question_count: Array.isArray(replayReport.required_questions)
+        ? replayReport.required_questions.length
+        : 0,
+      decision_record_outcome: decisionRecord.outcome,
+    },
+  ];
+}
 
 async function driveE2E01ReplayReport(page) {
   const [uiState] = await driveE2E01ReadonlyToolTrace(page);
@@ -14891,8 +14989,7 @@ async function driveE2E01ReplayReport(page) {
         ["answered", "not_applicable"].includes(question.status),
       ),
       replay_report_tool_question_answered: questionStatuses.tool_approval === "answered",
-      replay_report_adoption_boundary_answered:
-        questionStatuses.adoption_boundary === "answered",
+      replay_report_adoption_boundary_answered: questionStatuses.adoption_boundary === "answered",
       replay_report_has_frame_plan_decision_tool_turn_result: [
         "frame",
         "plan",
@@ -14997,7 +15094,10 @@ async function driveE2E01ChannelActionSecurity(page) {
     const inventedReply = await pushProtocolAuthorAction(client, inventedAction);
     const inventedReason = String(inventedReply.payload?.reason ?? "");
     assert(inventedReply.status === "error", "Forged source_turn_result action was not rejected");
-    assert(inventedReason.includes("invented"), `Invented action reason was not explicit: ${inventedReason}`);
+    assert(
+      inventedReason.includes("invented"),
+      `Invented action reason was not explicit: ${inventedReason}`,
+    );
     const inventedErrorLog = await waitForNewAppLogRecord(
       beforeInventedLogCount,
       (record) =>
@@ -15078,7 +15178,10 @@ async function driveE2E01ChannelActionSecurity(page) {
         record.event === "channel.author_action.done" &&
         [inventedAction.action_id, staleAction.action_id].includes(record.action_id),
     );
-    assert(afterSecondTurnRecords.length === 0, "Rejected forged actions logged author_action.done");
+    assert(
+      afterSecondTurnRecords.length === 0,
+      "Rejected forged actions logged author_action.done",
+    );
 
     const visibleText = await page.locator("body").innerText();
     assert(
@@ -15220,10 +15323,7 @@ async function driveP1ProseExecutionBrief(page) {
     typeof briefRecord.brief_ref === "string" && briefRecord.brief_ref.startsWith("brief:"),
     "Execution brief log missing stable brief_ref",
   );
-  assert(
-    Number(briefRecord.scene_unit_count ?? 0) >= 1,
-    "Execution brief had no scene units",
-  );
+  assert(Number(briefRecord.scene_unit_count ?? 0) >= 1, "Execution brief had no scene units");
 
   await page.waitForFunction(
     (targetTitle) =>
@@ -15339,12 +15439,173 @@ async function driveP1ProseRevisionCandidate(page) {
     "Real workbench did not send a revise_from_findings author_action",
   );
 
+  const revisionAckFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        response.profile_ref === "prose_revision_from_findings_v1" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "Revision author_action did not fast-ack with bounded AgentRun run_id",
+    30_000,
+  );
+  const revisionRunId = revisionAckFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "run_started",
+    "Revision AgentRun run_started event was not broadcast",
+    30_000,
+  );
+
+  const revisionSourceStepFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("读取待修订草稿"),
+    "Revision source-loading step_proposed event was not broadcast",
+    30_000,
+  );
+
+  const revisionSourceEventFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "goal_understood" &&
+      String(frame.body?.summary ?? "").includes("待修订草稿"),
+    "Revision source-loaded AgentEvent was not broadcast",
+    30_000,
+  );
+
+  const revisionPlanStepFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("制定修订执行策略"),
+    "Revision plan step_proposed event was not broadcast",
+    30_000,
+  );
+
+  const revisionPlanEventFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "plan_created",
+    "Revision plan_created event was not broadcast",
+    30_000,
+  );
+
+  const revisionGateEventFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "gate_decided",
+    "Revision gate_decided event was not broadcast",
+    30_000,
+  );
+
+  const revisionExecuteStepFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("生成修订候选"),
+    "Revision execution step_proposed event was not broadcast",
+    30_000,
+  );
+
+  const revisionToolStartedFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "tool_started",
+    "Revision tool_started event was not broadcast",
+    30_000,
+  );
+
+  const revisionToolCompletedFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "tool_completed",
+    "Revision tool_completed event was not broadcast",
+    120_000,
+  );
+
+  const revisionToolObservationFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("不自动采纳"),
+    "Revision tool observation was not broadcast with an author-safe summary",
+    120_000,
+  );
+
+  const revisionFinalStepFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("汇总修订候选给作者"),
+    "Revision finalization step_proposed event was not broadcast",
+    30_000,
+  );
+
+  const revisionArtifactEventFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "artifact_created" &&
+      Array.isArray(frame.body?.refs) &&
+      frame.body.refs.length > 0,
+    "Revision artifact_created event was not broadcast",
+    120_000,
+  );
+
   // 修订草稿 turn：一份新的 tentative 正文草稿，provenance 指向被修订原稿
   const revisionTurnFrame = await waitForNewFrame(
     beforeReviseFrameCount,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === revisionRunId &&
       frame.body?.trace_summary?.decision_type === "revise_from_findings" &&
       frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment",
     "No revision turn_result (decision_type revise_from_findings) was received",
@@ -15357,6 +15618,31 @@ async function driveP1ProseRevisionCandidate(page) {
     (card) => card.card_type === "candidate_set",
   );
 
+  await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === revisionRunId &&
+      frame.body?.event_type === "run_completed",
+    "Revision AgentRun run_completed event was not broadcast",
+    60_000,
+  );
+
+  const revisionCompletedStateFrame = await waitForNewFrame(
+    beforeReviseFrameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === revisionRunId &&
+      frame.body?.status === "completed" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
+      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 1,
+    "Revision AgentRun state did not finish with expected step/tool/provider counters",
+    60_000,
+  );
+
   // 外部证据：修订候选被独立生成，provenance 指向原稿；不自我递归评估
   const revisionRecord = await waitForAppLogRecord(
     (record) =>
@@ -15365,12 +15651,19 @@ async function driveP1ProseRevisionCandidate(page) {
     "No prose_revision.generated app log pointing at the original draft",
   );
 
-  // 真实页面可见：修订草稿卡片
-  await page.waitForFunction(
-    () => document.body.innerText.includes("修订草稿"),
-    undefined,
-    { timeout: 10_000 },
+  await waitForAppLogRecord(
+    (record) =>
+      record.event === "channel.author_action.done" &&
+      record.action_type === "revise_from_findings" &&
+      record.run_id === revisionRunId &&
+      String(record.run_mode ?? "") === "bounded",
+    "Revision author_action did not log bounded AgentRun ack",
   );
+
+  // 真实页面可见：修订草稿卡片
+  await page.waitForFunction(() => document.body.innerText.includes("修订草稿"), undefined, {
+    timeout: 10_000,
+  });
 
   const visibleText = await page.locator("body").innerText();
   const sentMessage = latestSentUserMessage();
@@ -15382,6 +15675,12 @@ async function driveP1ProseRevisionCandidate(page) {
   assert(
     !frames.some((frame) => frame.direction === "sent" && frame.event === "adopt"),
     "Revision flow unexpectedly submitted an adopt event",
+  );
+  const revisionAckIndex = frames.findIndex((frame) => frame === revisionAckFrame);
+  const revisionTurnIndex = frames.findIndex((frame) => frame === revisionTurnFrame);
+  assert(
+    revisionAckIndex >= 0 && revisionTurnIndex > revisionAckIndex,
+    "Revision TurnResult arrived before bounded AgentRun ack",
   );
 
   return [
@@ -15396,10 +15695,54 @@ async function driveP1ProseRevisionCandidate(page) {
       revise_action_available: true,
       revise_action_clicked: true,
       revise_action_sent: true,
+      revision_run_id: revisionRunId,
+      revision_run_mode: revisionAckFrame.body.response.run_mode,
+      revision_profile_ref: revisionCompletedStateFrame.body.profile_ref,
+      revision_parent_fast_ack_before_final_turn_result:
+        revisionAckIndex >= 0 && revisionTurnIndex > revisionAckIndex,
+      revision_agent_stage_events_visible:
+        revisionSourceStepFrame.body?.event_type === "step_proposed" &&
+        revisionSourceEventFrame.body?.event_type === "goal_understood" &&
+        revisionPlanStepFrame.body?.event_type === "step_proposed" &&
+        revisionPlanEventFrame.body?.event_type === "plan_created" &&
+        revisionGateEventFrame.body?.event_type === "gate_decided" &&
+        revisionExecuteStepFrame.body?.event_type === "step_proposed" &&
+        revisionToolStartedFrame.body?.event_type === "tool_started" &&
+        revisionToolCompletedFrame.body?.event_type === "tool_completed" &&
+        revisionToolObservationFrame.body?.event_type === "observation_recorded" &&
+        revisionFinalStepFrame.body?.event_type === "step_proposed" &&
+        revisionArtifactEventFrame.body?.event_type === "artifact_created",
+      revision_source_step_visible: revisionSourceStepFrame.body?.event_type === "step_proposed",
+      revision_source_event_visible: revisionSourceEventFrame.body?.event_type === "goal_understood",
+      revision_plan_step_visible: revisionPlanStepFrame.body?.event_type === "step_proposed",
+      revision_plan_event_visible: revisionPlanEventFrame.body?.event_type === "plan_created",
+      revision_gate_event_visible: revisionGateEventFrame.body?.event_type === "gate_decided",
+      revision_execute_step_visible: revisionExecuteStepFrame.body?.event_type === "step_proposed",
+      revision_tool_started_visible: revisionToolStartedFrame.body?.event_type === "tool_started",
+      revision_tool_completed_visible:
+        revisionToolCompletedFrame.body?.event_type === "tool_completed",
+      revision_tool_observation_visible:
+        revisionToolObservationFrame.body?.event_type === "observation_recorded",
+      revision_finalization_step_visible:
+        revisionFinalStepFrame.body?.event_type === "step_proposed",
+      revision_artifact_event_visible:
+        revisionArtifactEventFrame.body?.event_type === "artifact_created",
+      revision_completed_step_count:
+        revisionCompletedStateFrame.body.completed_step_refs?.length ?? 0,
+      revision_consumed_steps: revisionCompletedStateFrame.body.consumed_budget?.steps,
+      revision_consumed_tool_calls:
+        revisionCompletedStateFrame.body.consumed_budget?.tool_calls,
+      revision_consumed_provider_calls:
+        revisionCompletedStateFrame.body.consumed_budget?.provider_calls,
+      revision_turn_agent_run_id: revisionTurnResult.agent_run?.run_id ?? null,
       original_artifact_id: originalArtifactId,
       revision_turn_id: revisionTurnResult.turn_id,
       revision_artifact_id: revisionArtifact.artifact_id,
       revision_base: revisionCard?.revision_of ?? revisionRecord.revision_base ?? null,
+      revision_replay_recall_provider:
+        revisionTurnResult.trace_summary?.replay_policy?.recall_provider,
+      revision_replay_use_recorded_frame:
+        revisionTurnResult.trace_summary?.replay_policy?.use_recorded_frame,
       revision_card_visible: visibleText.includes("修订草稿"),
       quality_review_card_visible:
         visibleText.includes("质量复核") && visibleText.includes("按这些问题重写"),
@@ -15545,10 +15888,7 @@ async function driveP1ProseQualityEvaluatorDegrade(page) {
   // 降级语义：不伪装通过、不伪造发现
   assert(review.review_status === "unavailable", `review_status=${review.review_status}`);
   assert(review.policy_action === "quality_review_unavailable", `policy=${review.policy_action}`);
-  assert(
-    (review.findings ?? []).length === 0,
-    "Degraded review must not fabricate findings",
-  );
+  assert((review.findings ?? []).length === 0, "Degraded review must not fabricate findings");
 
   // 外部证据：评审降级被如实记录
   const qualityRecord = await waitForAppLogRecord(
@@ -15617,7 +15957,10 @@ async function driveP1ProseQualityAdoptionBoundary(page) {
   );
 
   const draftButtons = page.getByRole("button", { name: "生成正文草稿" });
-  assert((await draftButtons.count()) >= 2, "Archive outline did not render the action-chapter draft action");
+  assert(
+    (await draftButtons.count()) >= 2,
+    "Archive outline did not render the action-chapter draft action",
+  );
   await draftButtons.nth(1).click();
 
   // 原始草稿 turn（含质量发现 + 重写入口）
@@ -15735,9 +16078,2822 @@ async function driveP1ProseQualityAdoptionBoundary(page) {
   ];
 }
 
+async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01-${Date.now().toString(36)}`;
+  const work = await createWorkSeed({
+    title: `UA01 AgentRun ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: "验证 bounded AgentRun 从角色阵容读取到角色设计的真实工作台链路",
+    target_reader: "需要可打断多步创作过程的作者",
+    tone_preference: "冷静、清晰",
+  });
+  const workId = work.id;
+  const workTitleValue = work.title;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, workTitleValue);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the UA-01 generated work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, workTitleValue);
+  await sleep(750);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const message = `先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派，标记${nonce}。`;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "UA-01 did not send the compound author request through the real user_message channel",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "UA-01 did not receive a fast bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_started",
+    "UA-01 AgentRun start event was not broadcast to the real workbench",
+    30_000,
+  );
+
+  const rosterEvent = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").trim() !== "",
+    "UA-01 roster observation event was not broadcast with an author-safe summary",
+    60_000,
+  );
+
+  const artifactEvent = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "artifact_created" &&
+      Array.isArray(frame.body?.refs) &&
+      frame.body.refs.length > 0,
+    "UA-01 artifact-created event was not visible",
+    120_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.tool_result?.tool_name === "character_design" &&
+      frame.body?.tool_result?.status === "succeeded" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "character_seed",
+    "UA-01 bounded run did not broadcast the final character_design TurnResult",
+    120_000,
+  );
+  const turnResult = turnFrame.body;
+  const pendingArtifact = turnResult.adoption_state.pending[0];
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "UA-01 AgentRun completion event was not broadcast",
+    60_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 1,
+    "UA-01 AgentRun state did not finish with the expected bounded budget counters",
+    60_000,
+  );
+
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+    "UA-01 parent user_message did not log bounded run ack",
+    30_000,
+  );
+  await waitForNewAppLogCount(
+    logStart,
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+    2,
+    "UA-01 internal AgentSteps were not both re-gated by the orchestrator",
+    60_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_roster",
+    "UA-01 did not execute the readonly character_roster step",
+    60_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_design",
+    "UA-01 did not execute the character_design step",
+    60_000,
+  );
+
+  const ackIndex = frames.findIndex((frame) => frame === ackFrame);
+  const turnIndex = frames.findIndex((frame) => frame === turnFrame);
+  assert(ackIndex >= 0 && turnIndex > ackIndex, "UA-01 final TurnResult arrived before fast ack");
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "UA-01 character design performed a production write",
+  );
+  assert(turnResult.truthfulness?.artifact_adopted === false, "UA-01 artifact was auto-adopted");
+  assert(
+    pendingArtifact.requires_adoption === true &&
+      String(pendingArtifact.adoption_status ?? "") === "tentative",
+    "UA-01 character artifact was not a tentative adoption candidate",
+  );
+
+  await page.waitForFunction(
+    (expected) => expected.every((value) => document.body.innerText.includes(value)),
+    ["创作执行", "状态：已完成", "已生成待采纳候选"],
+    { timeout: 30_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, turnResult, sentFrame);
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const agentEventFrames = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId,
+    );
+  const agentEvents = agentEventFrames.map((frame) => frame.body?.event_type);
+  const forbiddenAgentEventText = [
+    "chain_of_thought",
+    "system_prompt",
+    "developer_prompt",
+    "raw_prompt",
+    "tool_input",
+    message,
+  ];
+  const agentEventsAuthorSafe = agentEventFrames.every((frame) => {
+    const body = frame.body ?? {};
+    const payload = body.payload ?? {};
+    const summary = String(body.summary ?? "");
+    const serialized = JSON.stringify(body);
+
+    return (
+      body.visibility === "author" &&
+      summary.trim() !== "" &&
+      Object.keys(payload).length === 0 &&
+      !forbiddenAgentEventText.some((text) => serialized.includes(text))
+    );
+  });
+  const agentStates = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId,
+    )
+    .map((frame) => frame.body?.status);
+
+  return [
+    {
+      ...uiState,
+      slice_id: "ua01-agent-bounded-roster-to-character-design",
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: workTitleValue,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      final_turn_id: turnResult.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      profile_ref: completedStateFrame.body.profile_ref,
+      parent_fast_ack_before_final_turn_result: ackIndex >= 0 && turnIndex > ackIndex,
+      compound_request_sent_from_real_workbench: true,
+      agent_event_types: agentEvents,
+      agent_events_author_safe: agentEventsAuthorSafe,
+      agent_state_statuses: agentStates,
+      roster_observation_visible: String(rosterEvent.body?.summary ?? "").trim() !== "",
+      roster_observation_summary: rosterEvent.body?.summary ?? "",
+      artifact_event_visible: artifactEvent.body?.event_type === "artifact_created",
+      final_turn_broadcast: true,
+      final_tool_name: turnResult.tool_result?.tool_name,
+      final_tool_status: turnResult.tool_result?.status,
+      pending_artifact_id: pendingArtifact.artifact_id,
+      pending_artifact_type: pendingArtifact.artifact_type,
+      pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
+      no_production_write: turnResult.truthfulness?.production_write_performed === false,
+      completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
+      consumed_steps: completedStateFrame.body.consumed_budget?.steps,
+      consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
+      consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
+      ui_agent_panel_visible: visibleText.includes("创作执行"),
+      ui_agent_completed_visible: visibleText.includes("状态：已完成"),
+      ui_artifact_event_visible: visibleText.includes("已生成待采纳候选"),
+      log_sync_turn_count: logsAfter.filter(
+        (record) =>
+          record.event === "channel.user_message.done" &&
+          String(record.run_mode ?? "") === "sync_turn",
+      ).length,
+      log_allow_tool_count: logsAfter.filter(
+        (record) =>
+          record.event === "orchestrator.decide.done" &&
+          String(record.decision_type ?? "") === "allow_tool",
+      ).length,
+      log_roster_tool_done: logsAfter.some(
+        (record) =>
+          record.event === "toolbox.execute.done" && record.tool_name === "character_roster",
+      ),
+      log_character_design_tool_done: logsAfter.some(
+        (record) =>
+          record.event === "toolbox.execute.done" && record.tool_name === "character_design",
+      ),
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentProseDraftingWithQuality(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = "写下一章";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes(message),
+    "Agent prose request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "Agent prose request did not fast-ack with bounded run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_started",
+    "Agent prose run_started event was not broadcast",
+    30_000,
+  );
+
+  const contextStepFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("组装正文写作上下文"),
+    "Agent prose context step_proposed event was not broadcast",
+    30_000,
+  );
+
+  const contextEventFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "goal_understood" &&
+      String(frame.body?.summary ?? "").includes("正文写作上下文"),
+    "Agent prose context assembly event was not broadcast",
+    30_000,
+  );
+
+  const contextObservationFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("已组装正文写作上下文"),
+    "Agent prose context observation was not broadcast with an author-safe summary",
+    30_000,
+  );
+
+  const strategyStepFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("制定正文执行策略"),
+    "Agent prose strategy step_proposed event was not broadcast",
+    30_000,
+  );
+
+  const planEventFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_created",
+    "Agent prose plan_created event was not broadcast",
+    30_000,
+  );
+
+  const gateEventFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "gate_decided",
+    "Agent prose gate_decided event was not broadcast",
+    30_000,
+  );
+
+  const proseStepFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("生成正文草稿"),
+    "Agent prose drafting step_proposed event was not broadcast",
+    30_000,
+  );
+
+  const toolStartedFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "tool_started",
+    "Agent prose tool_started event was not broadcast",
+    30_000,
+  );
+
+  const qualityObservationFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("质量复核"),
+    "Agent prose quality observation was not broadcast with an author-safe summary",
+    120_000,
+  );
+
+  const finalStepFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("汇总结果给作者"),
+    "Agent prose finalization step_proposed event was not broadcast",
+    30_000,
+  );
+
+  const observationFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("正文草稿"),
+    "Agent prose artifact observation was not broadcast with an author-safe summary",
+    120_000,
+  );
+
+  const artifactEventFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "artifact_created" &&
+      Array.isArray(frame.body?.refs) &&
+      frame.body.refs.length > 0,
+    "Agent prose artifact_created event was not broadcast",
+    120_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.tool_result?.tool_name === "prose_writing" &&
+      frame.body?.tool_result?.status === "succeeded" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment" &&
+      Array.isArray(frame.body?.quality_review?.findings) &&
+      frame.body?.quality_review?.review_status === "completed",
+    "Agent prose run did not broadcast prose_writing TurnResult with completed quality review",
+    120_000,
+  );
+  const turnResult = turnFrame.body;
+  const pendingArtifact = turnResult.adoption_state.pending[0];
+  const review = turnResult.quality_review ?? {};
+  const finding = review.findings?.[0] ?? {};
+  const findingSummary = String(finding.summary ?? "");
+  const draftBody = pendingArtifact.payload?.items?.[0]?.body ?? "";
+  const findingInDraftBody = findingSummary !== "" && draftBody.includes(findingSummary);
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Agent prose run_completed event was not broadcast",
+    60_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
+      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 2,
+    "Agent prose run state did not finish with expected step/tool/provider counters",
+    60_000,
+  );
+
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+    "Agent prose parent user_message did not log bounded run ack",
+    30_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+    "Agent prose internal step was not re-gated by the orchestrator",
+    60_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "prose_writing",
+    "Agent prose run did not execute prose_writing",
+    60_000,
+  );
+  const qualityRecord = await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "prose_quality.evaluated.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.review_status === "completed" &&
+      Number(record.finding_count ?? -1) >= 0,
+    "Agent prose run did not emit completed prose_quality.evaluated",
+    60_000,
+  );
+  const policyRecord = await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "quality_policy.decided.done" &&
+      record.turn_id === turnResult.turn_id &&
+      record.review_status === "completed",
+    "Agent prose run did not emit completed quality_policy decision",
+    60_000,
+  );
+
+  const ackIndex = frames.findIndex((frame) => frame === ackFrame);
+  const turnIndex = frames.findIndex((frame) => frame === turnFrame);
+  assert(ackIndex >= 0 && turnIndex > ackIndex, "Agent prose final TurnResult arrived before ack");
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "Agent prose run performed a production write",
+  );
+  assert(turnResult.truthfulness?.artifact_adopted === false, "Agent prose artifact was adopted");
+  assert(
+    pendingArtifact.requires_adoption === true &&
+      String(pendingArtifact.adoption_status ?? "") === "tentative",
+    "Agent prose artifact was not a tentative adoption candidate",
+  );
+  assert(!findingInDraftBody, "Agent prose quality finding leaked into the prose draft body");
+
+  await page.waitForFunction(
+    (summary) =>
+      document.body.innerText.includes("创作执行") &&
+      document.body.innerText.includes("状态：已完成") &&
+      (summary === "" || document.body.innerText.includes(summary)),
+    findingSummary,
+    { timeout: 30_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, turnResult, sentFrame);
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-prose-drafting-with-quality",
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      final_turn_id: turnResult.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      profile_ref: completedStateFrame.body.profile_ref,
+      parent_fast_ack_before_final_turn_result: ackIndex >= 0 && turnIndex > ackIndex,
+      direct_prose_request_sent_from_real_workbench: true,
+      observation_summary: observationFrame.body?.summary ?? "",
+      artifact_event_visible: artifactEventFrame.body?.event_type === "artifact_created",
+      final_turn_broadcast: true,
+      final_tool_name: turnResult.tool_result?.tool_name,
+      final_tool_status: turnResult.tool_result?.status,
+      pending_artifact_id: pendingArtifact.artifact_id,
+      pending_artifact_type: pendingArtifact.artifact_type,
+      pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
+      no_production_write: turnResult.truthfulness?.production_write_performed === false,
+      completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
+      consumed_steps: completedStateFrame.body.consumed_budget?.steps,
+      consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
+      consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
+      agent_stage_events_visible:
+        contextStepFrame.body?.event_type === "step_proposed" &&
+        contextEventFrame.body?.event_type === "goal_understood" &&
+        strategyStepFrame.body?.event_type === "step_proposed" &&
+        planEventFrame.body?.event_type === "plan_created" &&
+        gateEventFrame.body?.event_type === "gate_decided" &&
+        proseStepFrame.body?.event_type === "step_proposed" &&
+        toolStartedFrame.body?.event_type === "tool_started" &&
+        qualityObservationFrame.body?.event_type === "observation_recorded" &&
+        finalStepFrame.body?.event_type === "step_proposed",
+      context_step_visible: contextStepFrame.body?.event_type === "step_proposed",
+      context_event_visible: contextEventFrame.body?.event_type === "goal_understood",
+      context_observation_visible:
+        contextObservationFrame.body?.event_type === "observation_recorded",
+      strategy_step_visible: strategyStepFrame.body?.event_type === "step_proposed",
+      plan_event_visible: planEventFrame.body?.event_type === "plan_created",
+      gate_event_visible: gateEventFrame.body?.event_type === "gate_decided",
+      tool_started_visible: toolStartedFrame.body?.event_type === "tool_started",
+      quality_observation_visible:
+        qualityObservationFrame.body?.event_type === "observation_recorded",
+      finalization_step_visible: finalStepFrame.body?.event_type === "step_proposed",
+      prose_step_visible: proseStepFrame.body?.event_type === "step_proposed",
+      artifact_observation_visible: observationFrame.body?.event_type === "observation_recorded",
+      ui_context_step_visible: visibleText.includes("正在组装正文写作上下文"),
+      ui_strategy_step_visible: visibleText.includes("正在制定正文执行策略并完成授权判断"),
+      ui_prose_step_visible: visibleText.includes("正在生成正文草稿并完成质量复核"),
+      ui_finalization_step_visible: visibleText.includes("正在汇总结果给作者"),
+      quality_review_status: review.review_status,
+      quality_policy_action: review.policy_action,
+      quality_findings_count: review.findings?.length ?? 0,
+      quality_finding_count_logged: Number(qualityRecord.finding_count ?? 0),
+      quality_policy_logged_status: String(policyRecord.review_status ?? ""),
+      revise_action_available: (turnResult.available_actions ?? []).some(
+        (action) => action.action_type === "revise_from_findings",
+      ),
+      finding_summary_displayed: findingSummary === "" || visibleText.includes(findingSummary),
+      finding_in_draft_body: findingInDraftBody,
+      ui_agent_panel_visible: visibleText.includes("创作执行"),
+      ui_agent_completed_visible: visibleText.includes("状态：已完成"),
+      ui_prose_draft_visible: visibleText.includes("章节正文草稿"),
+      ui_quality_review_visible: visibleText.includes("质量复核"),
+      ui_revision_action_visible: visibleText.includes("按这些问题重写"),
+      log_sync_turn_count: logsAfter.filter(
+        (record) =>
+          record.event === "channel.user_message.done" &&
+          String(record.run_mode ?? "") === "sync_turn",
+      ).length,
+      log_allow_tool_count: logsAfter.filter(
+        (record) =>
+          record.event === "orchestrator.decide.done" &&
+          String(record.decision_type ?? "") === "allow_tool",
+      ).length,
+      log_prose_tool_done: logsAfter.some(
+        (record) => record.event === "toolbox.execute.done" && record.tool_name === "prose_writing",
+      ),
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentConversationTurn(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = "测试";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "Conversation AgentRun request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "Conversation turn did not fast-ack with bounded run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_started",
+    "Conversation AgentRun run_started event was not broadcast",
+    30_000,
+  );
+
+  const contextStepFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("组装创作上下文"),
+    "Conversation AgentRun did not propose the context assembly step",
+    30_000,
+  );
+
+  const contextObservationFrame = await waitForNewFrame(
+    frames.indexOf(contextStepFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("已组装本轮创作上下文"),
+    "Conversation AgentRun did not publish the context observation",
+    30_000,
+  );
+
+  const frameStepFrame = await waitForNewFrame(
+    frames.indexOf(contextObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("形成对话认知帧"),
+    "Conversation AgentRun did not propose the frame formation step",
+    30_000,
+  );
+
+  const frameObservationFrame = await waitForNewFrame(
+    frames.indexOf(frameStepFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("已形成对话认知帧"),
+    "Conversation AgentRun did not publish the frame observation",
+    30_000,
+  );
+
+  const strategyStepFrame = await waitForNewFrame(
+    frames.indexOf(frameObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("制定执行策略"),
+    "Conversation AgentRun did not propose the strategy/gate step",
+    30_000,
+  );
+
+  const strategyObservationFrame = await waitForNewFrame(
+    frames.indexOf(strategyStepFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("无需工具"),
+    "Conversation AgentRun did not publish the no-tool strategy observation",
+    30_000,
+  );
+
+  const finalizeStepFrame = await waitForNewFrame(
+    frames.indexOf(strategyObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("生成本轮回应"),
+    "Conversation AgentRun did not propose the final response step",
+    30_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.profile_ref === "conversation_turn_v1" &&
+      frame.body?.truthfulness?.tool_called === false &&
+      frame.body?.truthfulness?.artifact_adopted === false &&
+      frame.body?.truthfulness?.production_write_performed === false,
+    "Conversation AgentRun did not broadcast no-tool TurnResult",
+    60_000,
+  );
+  const turnResult = turnFrame.body;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Conversation AgentRun run_completed event was not broadcast",
+    30_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      frame.body?.profile_ref === "conversation_turn_v1" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
+      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 0 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 1,
+    "Conversation AgentRun state did not complete with the expected bounded counters",
+    30_000,
+  );
+
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+    "Conversation user_message did not log bounded run ack",
+    30_000,
+  );
+  const ackIndex = frames.findIndex((frame) => frame === ackFrame);
+  const turnIndex = frames.findIndex((frame) => frame === turnFrame);
+  assert(
+    ackIndex >= 0 && turnIndex > ackIndex,
+    "Conversation final TurnResult arrived before fast ack",
+  );
+
+  await page.waitForFunction(
+    (expected) => expected.every((value) => document.body.innerText.includes(value)),
+    [
+      message,
+      "创作执行",
+      "状态：已完成",
+      "正在组装创作上下文",
+      "正在形成对话认知帧",
+      "正在制定执行策略并完成授权判断",
+      "正在生成本轮回应并写入可回放留痕",
+    ],
+    { timeout: 30_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, turnResult, sentFrame);
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const agentEventFrames = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId,
+    );
+  const stepProposedFrames = agentEventFrames.filter(
+    (frame) => frame.body?.event_type === "step_proposed",
+  );
+  const observationFrames = agentEventFrames.filter(
+    (frame) => frame.body?.event_type === "observation_recorded",
+  );
+  const stepSummaries = stepProposedFrames.map((frame) => frame.body?.summary ?? "");
+  const observationSummaries = observationFrames.map((frame) => frame.body?.summary ?? "");
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-conversation-turn",
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      final_turn_id: turnResult.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      profile_ref: completedStateFrame.body.profile_ref,
+      parent_fast_ack_before_final_turn_result: ackIndex >= 0 && turnIndex > ackIndex,
+      plain_input_sent_from_real_workbench: true,
+      final_turn_broadcast: true,
+      final_tool_called: turnResult.truthfulness?.tool_called === true,
+      no_tool_called: turnResult.truthfulness?.tool_called === false,
+      no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
+      no_production_write: turnResult.truthfulness?.production_write_performed === false,
+      completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
+      consumed_steps: completedStateFrame.body.consumed_budget?.steps,
+      consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
+      consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
+      agent_stage_events_visible: true,
+      context_step_visible: contextStepFrame.body?.event_type === "step_proposed",
+      frame_step_visible: frameStepFrame.body?.event_type === "step_proposed",
+      strategy_step_visible: strategyStepFrame.body?.event_type === "step_proposed",
+      finalize_step_visible: finalizeStepFrame.body?.event_type === "step_proposed",
+      context_observation_visible:
+        contextObservationFrame.body?.event_type === "observation_recorded",
+      frame_observation_visible: frameObservationFrame.body?.event_type === "observation_recorded",
+      strategy_observation_visible:
+        strategyObservationFrame.body?.event_type === "observation_recorded",
+      agent_step_summaries: stepSummaries,
+      agent_observation_summaries: observationSummaries,
+      agent_stage_event_types: agentEventFrames.map((frame) => frame.body?.event_type),
+      ui_context_step_visible: visibleText.includes("正在组装创作上下文"),
+      ui_frame_step_visible: visibleText.includes("正在形成对话认知帧"),
+      ui_strategy_step_visible: visibleText.includes("正在制定执行策略并完成授权判断"),
+      ui_finalize_step_visible: visibleText.includes("正在生成本轮回应并写入可回放留痕"),
+      ui_agent_panel_visible: visibleText.includes("创作执行"),
+      ui_agent_completed_visible: visibleText.includes("状态：已完成"),
+      ui_reply_visible: visibleText.includes(message),
+      log_sync_turn_count: logsAfter.filter(
+        (record) =>
+          record.event === "channel.user_message.done" &&
+          String(record.run_mode ?? "") === "sync_turn",
+      ).length,
+      log_toolbox_execute_count: logsAfter.filter(
+        (record) => record.event === "toolbox.execute.done",
+      ).length,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentDurableResumeLongRunTask(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const requestText =
+    "请作为可恢复长任务执行：先看看现有角色阵容，然后设计一个反派，最多一步，允许断点续跑。";
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === requestText,
+    "Durable AgentRun request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "durable" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== "" &&
+        typeof response.long_run_task_ref === "string" &&
+        response.long_run_task_ref !== ""
+      );
+    },
+    "Durable AgentRun did not fast-ack with durable run_id and LongRunTask ref",
+    30_000,
+  );
+  const ack = ackFrame.body.response;
+  const runId = ack.run_id;
+  const longRunTaskRef = ack.long_run_task_ref;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_started",
+    "Durable AgentRun did not emit run_started",
+    30_000,
+  );
+
+  const checkpointStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.run_mode === "durable" &&
+      frame.body?.long_run_task_ref === longRunTaskRef &&
+      frame.body?.status === "awaiting_author" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 1 &&
+      Array.isArray(frame.body?.completed_step_refs) &&
+      frame.body.completed_step_refs.length === 1,
+    "Durable AgentRun did not checkpoint at the one-step budget limit",
+    60_000,
+  );
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "awaiting_author" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("budget_exhausted"),
+    "Durable AgentRun did not publish the budget checkpoint event",
+    60_000,
+  );
+
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "durable",
+    "Durable AgentRun user_message did not log durable ack",
+    30_000,
+  );
+
+  const textBeforeRestart = await page.locator("body").innerText();
+  assert(textBeforeRestart.includes("可恢复长任务"), "Durable AgentRun label was not visible");
+  assert(textBeforeRestart.includes("等待你确认"), "Durable checkpoint status was not visible");
+
+  const service = createPhoenixServiceController();
+  const recoverFrameStart = frames.length;
+  const recoverLogStart = readAppLogRecords().length;
+  let restarted = false;
+
+  try {
+    await service.stopOriginal();
+    await service.restart();
+    restarted = true;
+
+    await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+    await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+    await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
+      timeout: 60_000,
+    });
+
+    const recoveryEventFrame = await waitForNewFrame(
+      recoverFrameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "run_resumed" &&
+        Array.isArray(frame.body?.reason_codes) &&
+        frame.body.reason_codes.includes("durable_recovered") &&
+        frame.body.reason_codes.includes("stale_resume") &&
+        frame.body.reason_codes.includes("runtime_not_live") &&
+        frame.body?.payload?.long_run_task_ref === longRunTaskRef,
+      "Durable AgentRun did not recover from LongRunTask checkpoint after backend restart",
+      60_000,
+    );
+
+    const recoveredStateFrame = await waitForNewFrame(
+      recoverFrameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        frame.body?.run_mode === "durable" &&
+        frame.body?.long_run_task_ref === longRunTaskRef &&
+        frame.body?.status === "awaiting_author" &&
+        frame.body?.recovered === true &&
+        frame.body?.runtime_live === false &&
+        frame.body?.long_run_task?.phase === "CHECKPOINT" &&
+        frame.body?.long_run_task?.status === "PAUSED",
+      "Recovered durable AgentRun state did not include stale checkpoint metadata",
+      60_000,
+    );
+
+    await waitForNewAppLogRecord(
+      recoverLogStart,
+      (record) =>
+        record.event === "channel.agent_run_recover.done" &&
+        record.run_id === runId &&
+        record.runtime_live === false &&
+        record.recovered === true,
+      "Channel did not log durable AgentRun recovery after reconnect",
+      60_000,
+    );
+
+    await page.waitForFunction(
+      (expected) =>
+        expected.every((value) => document.body.innerText.includes(value)),
+      ["创作执行", "已恢复检查点", "等待你确认", longRunTaskRef],
+      { timeout: 30_000 },
+    );
+
+    await page.screenshot({
+      path: path.join(artifactDir, `${sliceId}-recovered-before-cleanup.png`),
+      fullPage: true,
+    });
+
+    const visibleText = await page.locator("body").innerText();
+    const logsAfterRecovery = readAppLogRecords().slice(recoverLogStart);
+    const toolboxAfterRecovery = logsAfterRecovery.filter(
+      (record) => record.event === "toolbox.execute.done",
+    );
+
+    return [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-durable-resume-long-run-task",
+        turn_id: ack.turn_id,
+        workspace_id: sentFrame.body?.work_id,
+        work_id: sentFrame.body?.work_id,
+        session_id: sentFrame.body?.session_id,
+        run_id: runId,
+        run_mode: ack.run_mode,
+        long_run_task_ref: longRunTaskRef,
+        profile_ref: ack.profile_ref,
+        durable_request_sent_from_real_workbench: true,
+        parent_fast_ack_with_long_run_task_ref: true,
+        checkpoint_status_before_restart: checkpointStateFrame.body?.status,
+        checkpoint_completed_step_count: checkpointStateFrame.body?.completed_step_refs?.length ?? 0,
+        checkpoint_consumed_steps: checkpointStateFrame.body?.consumed_budget?.steps,
+        recovery_event_type: recoveryEventFrame.body?.event_type,
+        recovery_reason_codes: recoveryEventFrame.body?.reason_codes ?? [],
+        recovered_status: recoveredStateFrame.body?.status,
+        recovered: recoveredStateFrame.body?.recovered === true,
+        runtime_live_after_restart: recoveredStateFrame.body?.runtime_live,
+        recovered_long_run_task_phase: recoveredStateFrame.body?.long_run_task?.phase,
+        recovered_long_run_task_status: recoveredStateFrame.body?.long_run_task?.status,
+        completed_step_count_after_recovery:
+          recoveredStateFrame.body?.completed_step_refs?.length ?? 0,
+        repeated_toolbox_after_recovery_count: toolboxAfterRecovery.length,
+        stale_resume_visible:
+          visibleText.includes("已恢复检查点") && visibleText.includes("等待你确认"),
+        long_run_task_ref_visible: visibleText.includes(longRunTaskRef),
+        service_restarted_externally: restarted,
+        user_message_text: sentFrame.body?.text,
+      },
+    ];
+  } finally {
+    if (restarted) {
+      await service.stopRestarted();
+    }
+  }
+}
+
+async function driveAgentProviderStreamingProgress(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const frameStart = frames.length;
+  const requestText = "请展示 provider 进度：用流式进度说明模型执行，不要写入作品事实。";
+
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("provider 进度"),
+    "Provider progress request was not sent from the real workbench",
+    10_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.profile_ref === "provider_progress_v1" &&
+      typeof frame.body?.response?.run_id === "string",
+    "Provider progress AgentRun did not fast-ack with provider_progress_v1",
+    10_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const progressEvents = [];
+  for (const reason of [
+    "provider_call_started",
+    "provider_streaming_unavailable",
+    "provider_call_completed",
+  ]) {
+    const eventFrame = await waitForNewFrame(
+      frameStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "provider_progress" &&
+        Array.isArray(frame.body?.reason_codes) &&
+        frame.body.reason_codes.includes(reason) &&
+        frame.body?.visibility === "author",
+      `Provider progress event ${reason} was not author-visible`,
+      30_000,
+    );
+    progressEvents.push(eventFrame);
+  }
+
+  const turnResultFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      String(frame.body?.assistant_message?.text ?? "").includes("模型调用已完成"),
+    "Provider progress did not emit final TurnResult",
+    30_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 1,
+    "Provider progress run state did not record provider call budget",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("供应商") &&
+      document.body.innerText.includes("模型调用已完成"),
+    { timeout: 20_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const rawPromptLeaked = progressEvents.some((frame) =>
+    JSON.stringify(frame.body ?? {}).includes(requestText),
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "agent-provider-streaming-progress",
+      turn_id: ackFrame.body.response.turn_id,
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+      run_id: runId,
+      profile_ref: ackFrame.body.response.profile_ref,
+      request_sent_from_real_workbench: true,
+      parent_fast_ack_with_run_id: true,
+      progress_event_count: progressEvents.length,
+      progress_event_types: progressEvents.map((frame) => frame.body?.event_type),
+      progress_reason_codes: progressEvents.flatMap((frame) => frame.body?.reason_codes ?? []),
+      progress_visibility_author: progressEvents.every((frame) => frame.body?.visibility === "author"),
+      progress_has_step_ref: progressEvents.every((frame) => typeof frame.body?.step_ref === "string"),
+      raw_prompt_leaked_in_progress_events: rawPromptLeaked,
+      provider_streaming_degraded_honestly: progressEvents.some((frame) =>
+        (frame.body?.reason_codes ?? []).includes("provider_streaming_unavailable"),
+      ),
+      consumed_provider_calls: completedStateFrame.body?.consumed_budget?.provider_calls,
+      final_turn_result_run_id: turnResultFrame.body?.agent_run?.run_id,
+      ui_progress_visible: visibleText.includes("供应商") && visibleText.includes("模型调用已完成"),
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentProviderCancelHonestBoundary(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const frameStart = frames.length;
+  const requestText =
+    "请展示 provider 进度和取消边界：UA01CP6SLOW，保持较长 provider 调用以便我点击取消。";
+
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("UA01CP6SLOW"),
+    "Provider cancel request was not sent from the real workbench",
+    10_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.profile_ref === "provider_progress_v1" &&
+      typeof frame.body?.response?.run_id === "string",
+    "Provider cancel AgentRun did not fast-ack with provider_progress_v1",
+    10_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "provider_progress" &&
+      (frame.body?.reason_codes ?? []).includes("provider_call_started"),
+    "Provider cancel scenario did not enter provider progress step",
+    20_000,
+  );
+
+  await page.getByRole("button", { name: /^取消$/ }).click();
+
+  const commandFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "agent_command" &&
+      frame.body?.run_id === runId &&
+      frame.body?.command === "cancel",
+    "Cancel command was not sent for the active provider run_id",
+    10_000,
+  );
+
+  const interruptFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "interrupt_requested" &&
+      (frame.body?.reason_codes ?? []).includes("provider_hard_cancel_unsupported") &&
+      (frame.body?.reason_codes ?? []).includes("cooperative_cancel"),
+    "Cancel boundary did not report cooperative cancel without hard-cancel support",
+    20_000,
+  );
+
+  const cancellingStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "cancelling" &&
+      frame.body?.current_task === true,
+    "Provider cancel did not expose a running cancelling state",
+    20_000,
+  );
+
+  await page.waitForFunction(() => document.body.innerText.includes("正在协作取消"), {
+    timeout: 20_000,
+  });
+
+  const cancelledEventFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_cancelled" &&
+      (frame.body?.reason_codes ?? []).includes("cooperative_cancel"),
+    "Provider cancel did not finish at a cooperative safe point",
+    60_000,
+  );
+
+  const cancelledStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "cancelled",
+    "Provider cancel did not broadcast final cancelled state",
+    60_000,
+  );
+
+  const visibleText = await page.locator("body").innerText();
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "agent-provider-cancel-honest-boundary",
+      turn_id: ackFrame.body.response.turn_id,
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+      run_id: runId,
+      profile_ref: ackFrame.body.response.profile_ref,
+      request_sent_from_real_workbench: true,
+      command_sent_from_real_button: true,
+      command_run_id: commandFrame.body?.run_id,
+      command_target_bound_to_active_run: commandFrame.body?.run_id === runId,
+      interrupt_event_type: interruptFrame.body?.event_type,
+      interrupt_reason_codes: interruptFrame.body?.reason_codes ?? [],
+      cancel_strategy: interruptFrame.body?.payload?.cancel_strategy,
+      supports_cancellation: interruptFrame.body?.payload?.supports_cancellation,
+      provider_call_active_during_cancel: interruptFrame.body?.payload?.provider_call_active,
+      cancelling_status_visible_before_safe_point: cancellingStateFrame.body?.status === "cancelling",
+      cancelling_current_task: cancellingStateFrame.body?.current_task,
+      terminal_event_type: cancelledEventFrame.body?.event_type,
+      terminal_status: cancelledStateFrame.body?.status,
+      hard_cancel_claimed_without_evidence: false,
+      cooperative_cancel_visible: visibleText.includes("正在协作取消") || visibleText.includes("已取消"),
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentReadonlyBatchProfile(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const frameStart = frames.length;
+  const requestText =
+    "请只读批量读取作品上下文、角色档案、规则档案和作品统计，不要写入作品事实，也不要生成候选。";
+
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes("只读批量"),
+    "Readonly batch request was not sent from the real workbench",
+    10_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.profile_ref === "readonly_batch_context_v1" &&
+      typeof frame.body?.response?.run_id === "string",
+    "Readonly batch AgentRun did not fast-ack with readonly_batch_context_v1",
+    10_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const batchItemEvents = [];
+  let batchSearchStart = frameStart;
+  for (let index = 0; index < 4; index += 1) {
+    const eventFrame = await waitForNewFrame(
+      batchSearchStart,
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "tool_completed" &&
+        (frame.body?.reason_codes ?? []).includes("readonly_batch_item_read") &&
+        frame.body?.payload?.production_write === false,
+      "Readonly batch item event was not visible and read-only",
+      30_000,
+    );
+    batchItemEvents.push(eventFrame);
+    batchSearchStart = frames.indexOf(eventFrame) + 1;
+  }
+
+  const turnResultFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.trace_summary?.readonly_batch === true &&
+      frame.body?.trace_summary?.production_write === false &&
+      frame.body?.trace_summary?.replay_policy?.recall_provider === false,
+    "Readonly batch did not emit a read-only TurnResult",
+    30_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? -1) === 0 &&
+      Number(frame.body?.pending_artifact_refs?.length ?? -1) === 0,
+    "Readonly batch final state was not provider-free and artifact-free",
+    30_000,
+  );
+
+  await page.waitForFunction(() => document.body.innerText.includes("未写入作品事实"), {
+    timeout: 20_000,
+  });
+
+  const artifactEvents = frames
+    .slice(frameStart)
+    .filter(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_event" &&
+        frame.body?.run_ref === runId &&
+        frame.body?.event_type === "artifact_created",
+    );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "agent-readonly-batch-profile",
+      turn_id: ackFrame.body.response.turn_id,
+      work_id: sentFrame.body?.work_id,
+      session_id: sentFrame.body?.session_id,
+      run_id: runId,
+      profile_ref: ackFrame.body.response.profile_ref,
+      request_sent_from_real_workbench: true,
+      parent_fast_ack_with_run_id: true,
+      readonly_batch_item_event_count: batchItemEvents.length,
+      readonly_item_refs: batchItemEvents.map((frame) => frame.body?.payload?.item_ref),
+      readonly_events_author_visible: batchItemEvents.every(
+        (frame) => frame.body?.visibility === "author",
+      ),
+      readonly_events_production_write_false: batchItemEvents.every(
+        (frame) => frame.body?.payload?.production_write === false,
+      ),
+      final_turn_result_run_id: turnResultFrame.body?.agent_run?.run_id,
+      replay_recall_provider: turnResultFrame.body?.trace_summary?.replay_policy?.recall_provider,
+      consumed_provider_calls: completedStateFrame.body?.consumed_budget?.provider_calls,
+      consumed_tool_calls: completedStateFrame.body?.consumed_budget?.tool_calls,
+      pending_artifact_count: completedStateFrame.body?.pending_artifact_refs?.length ?? 0,
+      artifact_event_count: artifactEvents.length,
+      no_adoption_or_write: artifactEvents.length === 0,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveUa01AgentBoundedRosterToCharacterDesignSeeded(page) {
+  const requestText = "先看看现有角色阵容，然后设计一个反派，要求避开林澈重名并形成长期冲突。";
+  const seededCharacterName = "林澈";
+  const workId = readSeedField("work_id");
+  const workTitleValue = readSeedField("work_title");
+  assert(workId, "UA-01 AgentRun seed did not provide work_id");
+  assert(workTitleValue, "UA-01 AgentRun seed did not provide work_title");
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
+  assert((await workTitle(page).count()) > 0, "Real work title button is not visible");
+  assert((await serviceStatus(page).count()) > 0, "Real service status is not visible");
+  await ensureWorkSelectedByTitle(page, workTitleValue, workId);
+  await waitForVisibleWorkTitle(page, workTitleValue);
+
+  const frameCount = frames.length;
+  await page.locator(chatInputSelector).fill(requestText);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes("先看看现有角色阵容") &&
+      String(frame.body?.text ?? "").includes("设计一个反派"),
+    "AgentRun request was not sent from the real workbench input",
+    10_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameCount,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "AgentRun user_message did not fast-ack with bounded run_id",
+    10_000,
+  );
+  const ackResponse = ackFrame.body.response;
+  const runId = ackResponse.run_id;
+
+  const runStartedFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_started",
+    "AgentRun did not emit run_started",
+    10_000,
+  );
+
+  await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed",
+    "AgentRun did not propose the first step",
+    20_000,
+  );
+
+  const rosterObservationFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("已读取当前角色阵容") &&
+      String(frame.body?.summary ?? "").includes(seededCharacterName),
+    "AgentRun did not publish a roster observation containing the seeded character",
+    30_000,
+  );
+
+  await waitForNewFrame(
+    frames.indexOf(rosterObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed",
+    "AgentRun did not start a second step after the roster observation",
+    30_000,
+  );
+
+  const artifactEventFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "artifact_created" &&
+      Array.isArray(frame.body?.refs) &&
+      frame.body.refs.length >= 1,
+    "AgentRun did not emit artifact_created",
+    90_000,
+  );
+
+  const finalTurnFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.tool_result?.tool_name === "character_design" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "character_seed",
+    "AgentRun final character_seed turn_result was not broadcast",
+    90_000,
+  );
+  const finalTurnResult = finalTurnFrame.body;
+  const pendingArtifact = finalTurnResult.adoption_state.pending[0];
+
+  const runCompletedFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "AgentRun did not emit run_completed",
+    20_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameCount,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      Array.isArray(frame.body?.completed_step_refs) &&
+      frame.body.completed_step_refs.length >= 2,
+    "AgentRun state did not report completed two-step run",
+    20_000,
+  );
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("创作执行") &&
+      document.body.innerText.includes("状态：已完成") &&
+      document.body.innerText.includes("已读取当前角色阵容") &&
+      document.body.innerText.includes("已生成待采纳候选") &&
+      document.body.innerText.includes("保存到作品档案") &&
+      !document.body.innerText.includes("思考中"),
+    undefined,
+    { timeout: 30_000 },
+  );
+
+  const agentEvents = frames.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId,
+  );
+  const stepProposedFrames = agentEvents.filter(
+    (frame) => frame.body?.event_type === "step_proposed",
+  );
+  const observationFrames = agentEvents.filter(
+    (frame) => frame.body?.event_type === "observation_recorded",
+  );
+  const agentRunStates = frames.filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId,
+  );
+  const completedState = completedStateFrame.body;
+  const visibleText = await page.locator("body").innerText();
+  const eventPayload = artifactEventFrame.body?.payload ?? {};
+  const artifactPayload = pendingArtifact.payload ?? {};
+  const item = Array.isArray(artifactPayload.items) ? (artifactPayload.items[0] ?? {}) : {};
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: sliceId,
+      turn_id: completedState.parent_turn_ref,
+      parent_turn_id: completedState.parent_turn_ref,
+      agent_turn_id: finalTurnResult.turn_id,
+      turn_ids: [completedState.parent_turn_ref, finalTurnResult.turn_id].filter(Boolean),
+      workspace_id: sentFrame.body?.work_id,
+      work_id: workId,
+      session_id: sentFrame.body?.session_id,
+      work_title: workTitleValue,
+      run_id: runId,
+      run_mode: ackResponse.run_mode,
+      profile_ref: completedState.profile_ref,
+      fast_ack_received: true,
+      ack_received_before_final_turn:
+        frames.indexOf(ackFrame) >= 0 && frames.indexOf(ackFrame) < frames.indexOf(finalTurnFrame),
+      run_started_event: runStartedFrame.body?.event_type === "run_started",
+      run_completed_event: runCompletedFrame.body?.event_type === "run_completed",
+      agent_event_count: agentEvents.length,
+      agent_run_state_count: agentRunStates.length,
+      step_proposed_count: stepProposedFrames.length,
+      observation_count: observationFrames.length,
+      completed_step_count: completedState.completed_step_refs.length,
+      completed_step_refs: completedState.completed_step_refs,
+      current_step_ref_after_complete: completedState.current_step_ref ?? null,
+      consumed_steps: completedState.consumed_budget?.steps ?? 0,
+      consumed_tool_calls: completedState.consumed_budget?.tool_calls ?? 0,
+      consumed_provider_calls: completedState.consumed_budget?.provider_calls ?? 0,
+      remaining_steps: completedState.remaining_steps,
+      final_status: completedState.status,
+      final_phase: completedState.phase,
+      roster_observation_summary: rosterObservationFrame.body?.summary,
+      roster_observation_mentions_seed: String(rosterObservationFrame.body?.summary ?? "").includes(
+        seededCharacterName,
+      ),
+      second_step_after_roster_observation:
+        stepProposedFrames.length >= 2 &&
+        frames.indexOf(stepProposedFrames[1]) > frames.indexOf(rosterObservationFrame),
+      artifact_created_event: artifactEventFrame.body?.event_type === "artifact_created",
+      artifact_event_payload_redacted: !Object.prototype.hasOwnProperty.call(
+        eventPayload,
+        "turn_result",
+      ),
+      final_turn_result_received: true,
+      final_turn_agent_run_ref: finalTurnResult.agent_run?.run_id ?? null,
+      final_tool_name: finalTurnResult.tool_result?.tool_name ?? null,
+      pending_artifact_count: finalTurnResult.adoption_state?.pending?.length ?? 0,
+      pending_artifact_id: pendingArtifact.artifact_id,
+      pending_artifact_type: pendingArtifact.artifact_type,
+      pending_artifact_status: pendingArtifact.adoption_status,
+      pending_artifact_title: item.title ?? "",
+      pending_artifact_body_chars: String(item.body ?? "").length,
+      artifact_adopted: finalTurnResult.truthfulness?.artifact_adopted === true,
+      production_write_performed: finalTurnResult.truthfulness?.production_write_performed === true,
+      agent_panel_visible: visibleText.includes("创作执行"),
+      agent_completed_status_visible: visibleText.includes("状态：已完成"),
+      roster_activity_visible: visibleText.includes("已读取当前角色阵容"),
+      artifact_activity_visible: visibleText.includes("已生成待采纳候选"),
+      save_archive_action_visible: visibleText.includes("保存到作品档案"),
+      pause_control_visible: visibleText.includes("暂停"),
+      cancel_control_visible: visibleText.includes("取消"),
+      adopt_event_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "adopt",
+      ),
+      author_action_sent: frames.some(
+        (frame) => frame.direction === "sent" && frame.event === "author_action",
+      ),
+      message_text: requestText,
+      service_status_text: await serviceStatus(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+      title_text: await workTitle(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+      outcome: "done",
+    },
+  ];
+}
+
+async function driveUa01AgentInterruptCommand(page, command) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01-SU02SLOW-${Date.now().toString(36)}`;
+  const work = await createWorkSeed({
+    title: `UA01 AgentRun Interrupt ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: "验证 bounded AgentRun 运行中命令绑定与协作式中断",
+    target_reader: "需要可打断多步创作过程的作者",
+    tone_preference: "冷静、清晰",
+  });
+  const workId = work.id;
+  const workTitleValue = work.title;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, workTitleValue);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the UA-01 interrupt work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, workTitleValue);
+  await sleep(750);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const message = `先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派；标记${nonce}，慢速执行以便我测试中断。`;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "UA-01 interrupt scenario did not send the author request through the real channel",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "UA-01 interrupt scenario did not receive a bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_started",
+    "UA-01 interrupt scenario did not broadcast run_started",
+    30_000,
+  );
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed",
+    "UA-01 interrupt scenario did not broadcast any step_proposed event",
+    30_000,
+  );
+
+  const buttonName = command === "pause" ? /^暂停$/ : /^取消$/;
+  await page.getByRole("button", { name: buttonName }).click();
+
+  const commandFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "agent_command" &&
+      frame.body?.run_id === runId &&
+      frame.body?.command === command,
+    `UA-01 did not send ${command} agent_command for the active run_id`,
+    30_000,
+  );
+
+  const commandAckFrame = await waitForNewFrame(
+    frames.indexOf(commandFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.run_id === runId &&
+      frame.body?.response?.command === command,
+    `UA-01 did not receive ack for ${command} agent_command`,
+    30_000,
+  );
+
+  const interruptEvent = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "interrupt_requested" &&
+      String(frame.body?.summary ?? "").includes(command === "pause" ? "暂停" : "取消"),
+    `UA-01 ${command} did not broadcast interrupt_requested`,
+    30_000,
+  );
+
+  const terminalStatus = command === "pause" ? "paused" : "cancelled";
+  const terminalEventType = command === "pause" ? "run_paused" : "run_cancelled";
+  const terminalSummary = command === "pause" ? "已暂停" : "已取消";
+
+  const terminalEvent = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === terminalEventType &&
+      String(frame.body?.summary ?? "").includes(terminalSummary),
+    `UA-01 ${command} did not stop at the cooperative safe point`,
+    60_000,
+  );
+
+  const terminalState = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === terminalStatus,
+    `UA-01 ${command} did not broadcast ${terminalStatus} run state`,
+    60_000,
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentUserMessageLog?.turn_id ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: sliceId,
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: workTitleValue,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      command,
+      command_sent_from_real_button: true,
+      command_run_id: commandFrame.body?.run_id,
+      command_ack_run_id: commandAckFrame.body?.response?.run_id,
+      command_ack_received: true,
+      command_target_bound_to_active_run: commandFrame.body?.run_id === runId,
+      interrupt_event_type: interruptEvent.body?.event_type,
+      interrupt_summary: interruptEvent.body?.summary,
+      terminal_event_type: terminalEvent.body?.event_type,
+      terminal_status: terminalState.body?.status,
+      terminal_phase: terminalState.body?.phase,
+      interrupt_state_status: terminalState.body?.interrupt_state?.status ?? null,
+      provider_hard_cancel_claimed: false,
+      cooperative_interrupt_visible:
+        visibleText.includes("正在请求暂停") ||
+        visibleText.includes("正在取消 AgentRun") ||
+        visibleText.includes(terminalSummary),
+      no_cross_run_command: commandFrame.body?.run_id === runId,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentInterruptSafePoint(page) {
+  return driveUa01AgentInterruptCommand(page, "pause");
+}
+
+async function driveAgentCancelTargetBinding(page) {
+  return driveUa01AgentInterruptCommand(page, "cancel");
+}
+
+async function driveAgentArchiveReadDuringRun(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01-ARCH-${Date.now().toString(36)}`;
+  const seed = {
+    title: `UA01 运行中档案读取 ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: `运行中档案可读 ${nonce}`,
+    target_reader: "需要边创作边核对档案的作者",
+    tone_preference: "冷静、清晰",
+  };
+  const work = await createWorkSeed(seed);
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, seed.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the UA-01 archive-read work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, seed.title);
+
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+  let archivePanel = await waitForArchivePanel(page);
+  await archivePanel.getByText(seed.genre).first().waitFor({ timeout: 15_000 });
+  await archivePanel.getByText(seed.core_selling_point).first().waitFor({ timeout: 15_000 });
+  await page.getByRole("button", { name: "关闭档案" }).first().click();
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const message = `先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派；标记SU02SLOW-${nonce}，慢速执行时我会查看作品档案。`;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "UA-01 archive-read scenario did not send the author request through the real channel",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "UA-01 archive-read scenario did not receive a bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed",
+    "UA-01 archive-read scenario did not start an AgentStep",
+    30_000,
+  );
+
+  const archiveOpenFrameCount = frames.length;
+  await page.getByText("打开档案").first().click();
+  await page.getByRole("tab", { name: "概览" }).click();
+  archivePanel = await waitForArchivePanel(page);
+  const duringSnapshot = await archivePanelSnapshot(archivePanel);
+  const snapshotVisibleDuringRun =
+    duringSnapshot.text.includes(seed.genre) &&
+    duringSnapshot.text.includes(seed.core_selling_point);
+  const finalTurnArrivedBeforeArchive = frames
+    .slice(frameStart, archiveOpenFrameCount)
+    .some(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId,
+    );
+  const terminalStateBeforeArchive = frames
+    .slice(frameStart, archiveOpenFrameCount)
+    .some(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "agent_run_state" &&
+        frame.body?.run_id === runId &&
+        ["completed", "failed", "cancelled", "paused"].includes(String(frame.body?.status ?? "")),
+    );
+
+  assert(snapshotVisibleDuringRun, "Archive overview blanked during active AgentRun");
+  assert(!finalTurnArrivedBeforeArchive, "AgentRun completed before archive was opened during run");
+  assert(!terminalStateBeforeArchive, "AgentRun reached terminal state before archive was opened");
+
+  const completedState = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed",
+    "UA-01 archive-read AgentRun did not complete after archive read",
+    90_000,
+  );
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const userMessagesSent = frames
+    .slice(frameStart)
+    .filter((frame) => frame.direction === "sent" && frame.event === "user_message").length;
+  const authorActionsSent = frames
+    .slice(frameStart)
+    .filter((frame) => frame.direction === "sent" && frame.event === "author_action").length;
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentUserMessageLog?.turn_id ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-archive-read-during-run",
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: seed.title,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      archive_opened_while_run_active: true,
+      archive_snapshot_visible_during_run: snapshotVisibleDuringRun,
+      archive_loading_indicator_during_run:
+        duringSnapshot.text.includes("正在读取作品档案") ||
+        duringSnapshot.text.includes("正在更新作品档案"),
+      final_turn_arrived_before_archive: finalTurnArrivedBeforeArchive,
+      terminal_state_before_archive: terminalStateBeforeArchive,
+      final_run_completed_after_archive: completedState.body?.status === "completed",
+      no_extra_user_message_for_archive: userMessagesSent === 1,
+      no_author_action_for_archive_read: authorActionsSent === 0,
+      archive_genre_visible: duringSnapshot.text.includes(seed.genre),
+      archive_core_selling_point_visible: duringSnapshot.text.includes(seed.core_selling_point),
+    },
+  ];
+}
+
+async function driveAgentWorkIsolation(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01-WISO-${Date.now().toString(36)}`;
+  const sourceWork = await createWorkSeed({
+    title: `UA01 隔离源作品 ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: `源作品慢 AgentRun ${nonce}`,
+    target_reader: "需要跨作品并行安全的作者",
+    tone_preference: "冷静、清晰",
+  });
+  const targetWork = await createWorkSeed({
+    title: `UA01 隔离目标作品 ${nonce}`,
+    genre: "都市异能",
+    core_selling_point: `目标作品不可被源 AgentRun 污染 ${nonce}`,
+    target_reader: "需要跨作品切换的作者",
+    tone_preference: "克制",
+  });
+  const sourceMarker = `SU02SLOW-${nonce}-SOURCE`;
+  const message = `先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派；标记${sourceMarker}。`;
+
+  const sourceJoinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, sourceWork.title);
+  const sourceJoin = await waitForNewAppLogRecord(
+    sourceJoinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === sourceWork.id,
+    "Selecting the source work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, sourceWork.title);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === sourceWork.id &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "Agent work-isolation source message was not sent from the source work",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "Agent work-isolation source message did not fast-ack a bounded run",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed",
+    "Agent work-isolation run did not start before switching work",
+    30_000,
+  );
+
+  const targetJoinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, targetWork.title);
+  const targetJoin = await waitForNewAppLogRecord(
+    targetJoinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === targetWork.id,
+    "Switching to target work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, targetWork.title);
+
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_design" &&
+      record.tool_outcome === "succeeded",
+    "Source AgentRun character_design did not finish while target work was open",
+    90_000,
+  );
+  await sleep(750);
+
+  const targetVisibleAfterSourceDone = await page.locator("body").innerText();
+  const sourceUserVisibleInTarget = targetVisibleAfterSourceDone.includes(message);
+  const sourceMarkerVisibleInTarget = targetVisibleAfterSourceDone.includes(sourceMarker);
+  const sourceDraftVisibleInTarget =
+    targetVisibleAfterSourceDone.includes("角色设定草稿") ||
+    targetVisibleAfterSourceDone.includes("保存到作品档案");
+  const targetLoadingAfterSourceDone = targetVisibleAfterSourceDone.includes("思考中");
+
+  assert(!sourceUserVisibleInTarget, "Source AgentRun user message leaked into target work");
+  assert(!sourceMarkerVisibleInTarget, "Source AgentRun marker leaked into target work");
+  assert(!sourceDraftVisibleInTarget, "Source AgentRun draft leaked into target work");
+  assert(
+    !targetLoadingAfterSourceDone,
+    "Target work remained loading after source AgentRun finished",
+  );
+
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+
+  return [
+    {
+      event: "slice_verify.ui_state.done",
+      slice_id: "agent-work-isolation",
+      turn_id: parentUserMessageLog?.turn_id,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      work_id: sourceWork.id,
+      context_work_id: sourceWork.id,
+      source_work_id: sourceWork.id,
+      target_work_id: targetWork.id,
+      source_session_id: sourceJoin.session_id,
+      target_session_id: targetJoin.session_id,
+      session_id: sourceJoin.session_id,
+      socket_connected: true,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      source_message_text: message,
+      sent_frame_work_id: sentFrame.body?.work_id,
+      source_user_visible_in_target: sourceUserVisibleInTarget,
+      source_marker_visible_in_target: sourceMarkerVisibleInTarget,
+      source_draft_visible_in_target: sourceDraftVisibleInTarget,
+      target_visible_after_source_done:
+        !sourceUserVisibleInTarget && !sourceMarkerVisibleInTarget && !sourceDraftVisibleInTarget,
+      target_loading_after_source_done: targetLoadingAfterSourceDone,
+      target_title_text: await workTitle(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+      service_status_text: await serviceStatus(page)
+        .textContent()
+        .then((value) => value?.trim() ?? ""),
+    },
+  ];
+}
+
+async function driveAgentSteerReplan(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01-STEER-${Date.now().toString(36)}`;
+  const steerText = `把后续角色方向调整为克制、冷静、长期博弈，标记${nonce}`;
+  const work = await createWorkSeed({
+    title: `UA01 AgentRun Steer ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: "验证运行中的 bounded AgentRun 接受作者 steer 并广播重规划事件",
+    target_reader: "需要在多步创作中途调整方向的作者",
+    tone_preference: "冷静、清晰",
+  });
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the UA-01 steer work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+  await sleep(750);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const message = `先看看当前已有角色阵容，然后设计一个与主角形成镜像冲突的主要反派；标记SU02SLOW-${nonce}，慢速执行以便我调整方向。`;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "UA-01 steer scenario did not send the author request through the real channel",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "UA-01 steer scenario did not receive a bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed",
+    "UA-01 steer scenario did not start an AgentStep",
+    30_000,
+  );
+
+  await page.getByLabel("调整方向").fill(steerText);
+  await page.getByRole("button", { name: /^调整方向$/ }).click();
+
+  const commandFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "agent_command" &&
+      frame.body?.run_id === runId &&
+      frame.body?.command === "steer" &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "UA-01 steer command was not sent from the real AgentRun control",
+    30_000,
+  );
+
+  const commandAckFrame = await waitForNewFrame(
+    frames.indexOf(commandFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      frame.body?.response?.run_id === runId &&
+      frame.body?.response?.command === "steer",
+    "UA-01 steer command did not ack for the same run_id",
+    30_000,
+  );
+
+  const planAdjustedFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_adjusted",
+    "UA-01 steer did not broadcast a plan_adjusted AgentEvent",
+    30_000,
+  );
+
+  const adjustedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      String(frame.body?.goal?.text ?? "").includes(nonce) &&
+      Number(frame.body?.goal?.version ?? 0) >= 2,
+    "UA-01 steer did not broadcast adjusted run goal state",
+    30_000,
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentUserMessageLog?.turn_id ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-steer-replan",
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: work.title,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      command: "steer",
+      command_text: commandFrame.body?.text,
+      command_sent_from_real_button: true,
+      command_ack_received: commandAckFrame.body?.response?.received === true,
+      command_target_bound_to_active_run: commandFrame.body?.run_id === runId,
+      plan_adjusted_event_type: planAdjustedFrame.body?.event_type,
+      adjusted_goal_text: adjustedStateFrame.body?.goal?.text ?? "",
+      adjusted_goal_version: adjustedStateFrame.body?.goal?.version ?? null,
+      steer_control_visible: visibleText.includes("调整方向"),
+      no_cross_run_command: commandFrame.body?.run_id === runId,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentLoopBudgetLimit(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01-BUDGET-${Date.now().toString(36)}`;
+  const work = await createWorkSeed({
+    title: `UA01 AgentRun Budget ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: "验证 bounded AgentRun 受作者预算限制停止",
+    target_reader: "需要限制自动执行步数的作者",
+    tone_preference: "冷静、清晰",
+  });
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the UA-01 budget work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const message = `先看看当前已有角色阵容，然后设计一个主要反派；最多一步，标记${nonce}。`;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "UA-01 budget scenario did not send the bounded author request",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "UA-01 budget scenario did not receive bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded",
+    "UA-01 budget scenario did not complete the roster observation step",
+    60_000,
+  );
+
+  const awaitingFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "awaiting_author" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("budget_exhausted"),
+    "UA-01 budget scenario did not stop at the step budget limit",
+    60_000,
+  );
+
+  const awaitingState = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "awaiting_author" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 1,
+    "UA-01 budget scenario did not broadcast awaiting_author state with one consumed step",
+    60_000,
+  );
+
+  await sleep(750);
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const characterDesignExecuted = logsAfter.some(
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_design",
+  );
+  const finalTurnResultArrived = frames
+    .slice(frameStart)
+    .some(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId,
+    );
+  assert(!characterDesignExecuted, "Budget-limited AgentRun still executed character_design");
+  assert(
+    !finalTurnResultArrived,
+    "Budget-limited AgentRun still emitted final character TurnResult",
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentUserMessageLog?.turn_id ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-loop-budget-limit",
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: work.title,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      awaiting_event_type: awaitingFrame.body?.event_type,
+      awaiting_reason_codes: awaitingFrame.body?.reason_codes ?? [],
+      terminal_status: awaitingState.body?.status,
+      consumed_steps: awaitingState.body?.consumed_budget?.steps,
+      consumed_tool_calls: awaitingState.body?.consumed_budget?.tool_calls,
+      consumed_provider_calls: awaitingState.body?.consumed_budget?.provider_calls,
+      remaining_steps: awaitingState.body?.remaining_steps,
+      character_design_executed: characterDesignExecuted,
+      final_turn_result_arrived: finalTurnResultArrived,
+      budget_stop_visible: visibleText.includes("预算上限") || visibleText.includes("等待你确认"),
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentNoProgressStop(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const nonce = `UA01-NOPROG-${Date.now().toString(36)}`;
+  const work = await createWorkSeed({
+    title: `UA01 AgentRun No Progress ${nonce}`,
+    genre: "赛博修仙",
+    core_selling_point: "验证 bounded AgentRun 重复无进展时停止等待作者",
+    target_reader: "需要避免自动循环空转的作者",
+    tone_preference: "冷静、清晰",
+  });
+  const workId = work.id;
+
+  const joinStart = readAppLogRecords().length;
+  await refreshAndSelectWork(page, work.title);
+  const joinRecord = await waitForNewAppLogRecord(
+    joinStart,
+    (record) => record.event === "channel.join.done" && record.work_id === workId,
+    "Selecting the UA-01 no-progress work did not join expected work channel",
+    30_000,
+  );
+  await waitForVisibleWorkTitle(page, work.title);
+
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+  const message = `先重复读取角色阵容直到没有新信息，然后再设计一个主要反派，标记${nonce}。`;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      frame.body?.work_id === workId &&
+      String(frame.body?.text ?? "").includes(nonce),
+    "UA-01 no-progress scenario did not send the repeated roster request",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "phx_reply" &&
+      frame.body?.status === "ok" &&
+      frame.body?.response?.received === true &&
+      typeof frame.body?.response?.run_id === "string" &&
+      frame.body?.response?.run_mode === "bounded",
+    "UA-01 no-progress scenario did not receive bounded AgentRun ack",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewAppLogCount(
+    logStart,
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_roster",
+    2,
+    "UA-01 no-progress scenario did not execute two roster reads",
+    60_000,
+  );
+
+  const awaitingFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "awaiting_author" &&
+      Array.isArray(frame.body?.reason_codes) &&
+      frame.body.reason_codes.includes("no_progress"),
+    "UA-01 no-progress scenario did not stop on repeated progress signature",
+    60_000,
+  );
+
+  const awaitingState = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "awaiting_author" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 0,
+    "UA-01 no-progress scenario did not broadcast stopped state without provider calls",
+    60_000,
+  );
+
+  await sleep(750);
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const rosterToolCount = logsAfter.filter(
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_roster",
+  ).length;
+  const characterDesignExecuted = logsAfter.some(
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "character_design",
+  );
+  const finalTurnResultArrived = frames
+    .slice(frameStart)
+    .some(
+      (frame) =>
+        frame.direction === "received" &&
+        frame.event === "turn_result" &&
+        frame.body?.agent_run?.run_id === runId,
+    );
+  assert(!characterDesignExecuted, "No-progress AgentRun still executed character_design");
+  assert(!finalTurnResultArrived, "No-progress AgentRun still emitted final character TurnResult");
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(
+    page,
+    { turn_id: parentUserMessageLog?.turn_id ?? "" },
+    sentFrame,
+  );
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-no-progress-stop",
+      work_id: workId,
+      workspace_id: workId,
+      session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
+      work_title: work.title,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      awaiting_event_type: awaitingFrame.body?.event_type,
+      awaiting_reason_codes: awaitingFrame.body?.reason_codes ?? [],
+      terminal_status: awaitingState.body?.status,
+      consumed_steps: awaitingState.body?.consumed_budget?.steps,
+      consumed_tool_calls: awaitingState.body?.consumed_budget?.tool_calls,
+      consumed_provider_calls: awaitingState.body?.consumed_budget?.provider_calls,
+      roster_tool_count: rosterToolCount,
+      character_design_executed: characterDesignExecuted,
+      final_turn_result_arrived: finalTurnResultArrived,
+      no_progress_stop_visible:
+        visibleText.includes("未取得新进展") || visibleText.includes("等待你确认"),
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
 const drivers = {
+  "ua01-agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
+  "agent-bounded-roster-to-character-design": driveUa01AgentBoundedRosterToCharacterDesign,
+  "agent-step-regate": driveUa01AgentBoundedRosterToCharacterDesign,
+  "agent-no-multistep-plan-bypass": driveUa01AgentBoundedRosterToCharacterDesign,
+  "agent-event-author-safe": driveUa01AgentBoundedRosterToCharacterDesign,
+  "agent-channel-fast-ack": driveUa01AgentBoundedRosterToCharacterDesign,
+  "agent-interrupt-safe-point": driveAgentInterruptSafePoint,
+  "agent-cancel-target-binding": driveAgentCancelTargetBinding,
+  "agent-archive-read-during-run": driveAgentArchiveReadDuringRun,
+  "agent-work-isolation": driveAgentWorkIsolation,
+  "agent-tentative-boundary": driveUa01AgentBoundedRosterToCharacterDesign,
+  "agent-provider-call-budget": driveUa01AgentBoundedRosterToCharacterDesign,
+  "agent-prose-drafting-with-quality": driveAgentProseDraftingWithQuality,
+  "agent-conversation-turn": driveAgentConversationTurn,
+  "agent-durable-resume-long-run-task": driveAgentDurableResumeLongRunTask,
+  "agent-provider-streaming-progress": driveAgentProviderStreamingProgress,
+  "agent-provider-cancel-honest-boundary": driveAgentProviderCancelHonestBoundary,
+  "agent-readonly-batch-profile": driveAgentReadonlyBatchProfile,
+  "agent-steer-replan": driveAgentSteerReplan,
+  "agent-loop-budget-limit": driveAgentLoopBudgetLimit,
+  "agent-no-progress-stop": driveAgentNoProgressStop,
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,
   "p1-prose-revision-candidate": driveP1ProseRevisionCandidate,
+  "agent-revision-orchestrator-boundary": driveP1ProseRevisionCandidate,
+  "agent-replay-no-provider": driveP1ProseRevisionCandidate,
   "p1-prose-quality-finding-roundtrip": driveP1ProseQualityFindingRoundtrip,
   "p1-prose-quality-evaluator-degrade": driveP1ProseQualityEvaluatorDegrade,
   "p1-prose-quality-adoption-boundary": driveP1ProseQualityAdoptionBoundary,
@@ -15822,8 +18978,7 @@ const drivers = {
   "au09-character-role-taxonomy-protagonist-policy":
     driveAu09CharacterRoleTaxonomyProtagonistPolicy,
   "au09-character-candidate-per-item-adoption": driveAu09CharacterCandidatePerItemAdoption,
-  "au12-archive-concurrent-model-run-read-snapshot":
-    driveAu12ArchiveConcurrentModelRunReadSnapshot,
+  "au12-archive-concurrent-model-run-read-snapshot": driveAu12ArchiveConcurrentModelRunReadSnapshot,
   "au09-memory-taxonomy-write-policy": driveAu09MemoryTaxonomyWritePolicy,
   "au09-memory-list-ux-redesign": driveAu09MemoryListUxRedesign,
   "au09-validity-window-recall": driveAu09ValidityWindowRecall,

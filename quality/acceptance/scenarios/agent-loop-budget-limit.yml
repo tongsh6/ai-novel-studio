@@ -1,0 +1,46 @@
+id: agent-loop-budget-limit
+title: AgentRun 受作者预算限制停止等待作者
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-loop-budget-limit --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - loop-is-budget-limited
+  - bounded-run-stops-before-next-step-when-budget-exhausted
+  - no-provider-call-after-budget-stop
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: compound AgentRun request with an explicit one-step author budget
+  - wait_for: roster observation followed by awaiting_author budget_exhausted
+  - verify: character_design does not execute after the budget stop
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-loop-budget-limit-tauri
+
+assertions:
+  data:
+    - run state reaches awaiting_author with reason budget_exhausted
+    - consumed steps equals 1
+    - character_design tool does not execute
+    - no final character TurnResult is broadcast
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

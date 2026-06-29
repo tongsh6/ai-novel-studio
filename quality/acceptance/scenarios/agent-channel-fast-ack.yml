@@ -1,0 +1,46 @@
+id: agent-channel-fast-ack
+title: Channel 快速返回 bounded run_id 后异步广播结果
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-channel-fast-ack --surface tauri
+canonical_driver: ua01-agent-bounded-roster-to-character-design
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - user-message-does-not-block-on-full-agent-run
+  - agent-events-stream-after-fast-ack
+  - stale-run-id-filtering-available
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: compound roster then character design request
+  - verify: phx_reply includes received=true, run_mode=bounded and run_id before final TurnResult
+  - observe: agent_event and agent_run_state frames for the same run_id
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-channel-fast-ack-tauri
+
+assertions:
+  network:
+    - user_message receives bounded run_id quickly
+    - final turn_result arrives after ack
+    - agent_event and agent_run_state are scoped to the same run_id
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

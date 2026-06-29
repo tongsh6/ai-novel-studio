@@ -175,6 +175,8 @@ defmodule NovelApplication.TraceWriter do
       }
       |> maybe_put_omissions(turn_result)
       |> maybe_put_brief_ref(turn_result)
+      |> maybe_put_decision_packet_ref(turn_result)
+      |> maybe_put_provider_refs(turn_result)
       |> maybe_put_quality(turn_result)
       |> maybe_put_ai_message_envelope(frame)
 
@@ -211,6 +213,24 @@ defmodule NovelApplication.TraceWriter do
 
   defp maybe_put_brief_ref(summary, _turn_result), do: summary
 
+  # VS-00E CP0/CP1：CreativeDecisionPacket 是一次 turn 的决策载体，不是作品事实；
+  # trace 只暴露 author-safe ref，完整 packet 留在 ToolRequest/CreativeRequest 边界。
+  defp maybe_put_decision_packet_ref(summary, %{decision_packet_ref: ref})
+       when is_binary(ref) and ref != "" do
+    Map.put(summary, :creative_decision_packet_ref, ref)
+  end
+
+  defp maybe_put_decision_packet_ref(summary, _turn_result), do: summary
+
+  defp maybe_put_provider_refs(summary, meta) when is_map(meta) do
+    summary
+    |> maybe_put(:writer_provider_call_ref, Map.get(meta, :writer_provider_call_ref))
+    |> maybe_put(:evaluator_provider_call_ref, Map.get(meta, :evaluator_provider_call_ref))
+    |> maybe_put(:provider_call_budget, Map.get(meta, :provider_call_budget))
+  end
+
+  defp maybe_put_provider_refs(summary, _meta), do: summary
+
   # VS-00E CP2：质量策略与复核状态进作者可见 trace summary（finding 非作品事实，仅留痕）。
   defp maybe_put_quality(summary, %{quality_policy_action: action} = meta)
        when is_binary(action) and action != "" do
@@ -220,6 +240,10 @@ defmodule NovelApplication.TraceWriter do
   end
 
   defp maybe_put_quality(summary, _turn_result), do: summary
+
+  defp maybe_put(summary, _key, nil), do: summary
+  defp maybe_put(summary, _key, ""), do: summary
+  defp maybe_put(summary, key, value), do: Map.put(summary, key, value)
 
   defp maybe_put_ai_message_envelope(summary, %DialogueFrame{
          evidence_summary: %{ai_message_envelope: envelope}
@@ -281,6 +305,7 @@ defmodule NovelApplication.TraceWriter do
   defp decision_type_for(:reject), do: :rejected
   defp decision_type_for(:fail_with_recovery), do: :recovery
   defp decision_type_for(:allow_tool), do: :tool_allowed
+  defp decision_type_for(:allow_agent_run), do: :agent_run_allowed
 
   defp no_behavior_reason(:creative_exploration), do: "exploration stays conversational"
 

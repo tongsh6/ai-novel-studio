@@ -42,6 +42,16 @@ export function ping(channel: Channel, payload: Record<string, unknown>): Promis
   });
 }
 
+export interface SendMessageResult {
+  received: boolean;
+  run_id?: string;
+  run_mode?: string;
+  long_run_task_ref?: string | null;
+  turn_id?: string;
+  profile_ref?: string;
+  goal?: { text?: string; version?: number };
+}
+
 export function sendMessage(
   channel: Channel,
   text: string,
@@ -50,7 +60,7 @@ export function sendMessage(
   sessionId?: string | null,
   generateMicroPlan = false,
   candidateSelection?: CandidateSelectionPayload | null,
-): Promise<{ received: boolean }> {
+): Promise<SendMessageResult> {
   return new Promise((resolve, reject) => {
     channel
       .push(
@@ -65,9 +75,88 @@ export function sendMessage(
         },
         LLM_TURN_TIMEOUT_MS,
       )
-      .receive("ok", (response) => resolve(response as { received: boolean }))
+      .receive("ok", (response) => resolve(response as SendMessageResult))
       .receive("error", (error) => reject(new Error(String(error))))
       .receive("timeout", () => reject(new Error("send timeout")));
+  });
+}
+
+export interface AgentEventData {
+  event_id: string;
+  run_id?: string;
+  run_ref: string;
+  step_ref?: string | null;
+  sequence: number;
+  event_type: string;
+  visibility: string;
+  summary: string;
+  reason_codes?: string[];
+  refs?: string[];
+  payload?: Record<string, unknown>;
+  emitted_at?: string | null;
+}
+
+export interface AgentRunStateData {
+  run_id: string;
+  run_mode: string;
+  status: string;
+  phase: string;
+  long_run_task_ref?: string | null;
+  work_id?: string | null;
+  session_id?: string | null;
+  parent_turn_ref?: string | null;
+  origin_frame_ref?: string | null;
+  profile_ref?: string | null;
+  goal?: { text?: string; version?: number };
+  current_step_ref?: string | null;
+  completed_step_refs?: string[];
+  pending_artifact_refs?: string[];
+  interrupt_state?: Record<string, unknown>;
+  current_task?: boolean;
+  remaining_steps?: number;
+  recovered?: boolean;
+  runtime_live?: boolean;
+  long_run_task?: {
+    task_id?: string;
+    status?: string;
+    phase?: string;
+    current_unit_ref?: string | null;
+    completed_unit_refs?: string[];
+    pending_artifact_refs?: string[];
+    progress?: number;
+    step?: string;
+    checkpoint_data?: Record<string, unknown>;
+    updated_at?: string | null;
+  } | null;
+}
+
+export type AgentCommand = "pause" | "resume" | "cancel" | "steer";
+
+export function onAgentEvent(channel: Channel, callback: (event: AgentEventData) => void): void {
+  channel.on("agent_event", (payload: AgentEventData) => callback(payload));
+}
+
+export function onAgentRunState(
+  channel: Channel,
+  callback: (state: AgentRunStateData) => void,
+): void {
+  channel.on("agent_run_state", (payload: AgentRunStateData) => callback(payload));
+}
+
+export function sendAgentCommand(
+  channel: Channel,
+  runId: string,
+  command: AgentCommand,
+  text?: string,
+): Promise<{ received: boolean; run_id: string; command: string }> {
+  return new Promise((resolve, reject) => {
+    channel
+      .push("agent_command", { run_id: runId, command, ...(text ? { text } : {}) })
+      .receive("ok", (response) =>
+        resolve(response as { received: boolean; run_id: string; command: string }),
+      )
+      .receive("error", (error) => reject(new Error(String(error))))
+      .receive("timeout", () => reject(new Error("agent command timeout")));
   });
 }
 

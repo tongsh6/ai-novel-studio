@@ -5,11 +5,13 @@ surface: tauri
 entrypoint: scripts/quality_accept.sh p1-prose-revision-candidate --surface tauri
 
 contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
   - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
   - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
   - docs/engineering/scenario-acceptance.md
 
 invariants:
+  - revise-from-findings-runs-as-bounded-agent-run
   - tentative-artifact-not-production
   - finding-is-not-a-story-fact
   - revision-not-auto-adopted
@@ -24,6 +26,8 @@ user_flow:
   - click: 生成正文草稿 for the action chapter (节奏单调动作段)
   - wait_for: quality review card with a finding + 按这些问题重写 action
   - click: 按这些问题重写
+  - verify: revision author_action fast-acks with bounded AgentRun
+  - verify: revision AgentRun exposes source, plan, gate, tool, and finalization events
   - wait_for: sibling tentative revision draft visible (修订草稿)
 
 evidence:
@@ -43,6 +47,9 @@ assertions:
   network:
     - prose_writing prose_fragment turn_result carrying quality_review.findings received
     - revise_from_findings author_action sent (target_ref = original artifact)
+    - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
+    - revision agent_event stream contains source, plan, gate, tool, and finalization events
+    - revision agent_run_state completes with 4 steps, 1 tool call, 1 provider call
     - revision turn_result received (trace_summary.decision_type = revise_from_findings)
   data:
     - prose_quality.evaluated emitted with finding_count>=1 (finding is not a story fact)

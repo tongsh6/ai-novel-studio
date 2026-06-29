@@ -1,0 +1,65 @@
+id: agent-prose-drafting-with-quality
+title: AgentRun 正文草稿 Profile 复用正文质量复核链路
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-prose-drafting-with-quality --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - agent-step-regated-before-tool-dispatch
+  - prose-quality-review-is-not-story-fact
+  - tentative-artifact-not-production
+  - writer-and-evaluator-provider-calls-counted-separately
+
+setup:
+  seed: scripts/seed_p1_prose_revision_candidate.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: direct prose writing request "写下一章"
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: author-safe context, strategy/gate, prose/quality, and finalization step events
+  - wait_for: completed agent_run_state
+  - verify: final TurnResult is prose_writing with prose_fragment and completed quality_review
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-prose-drafting-with-quality-tauri
+
+assertions:
+  ui:
+    - AgentRun panel reaches completed state
+    - AgentRun panel shows the prose context assembly step summary
+    - AgentRun panel shows the prose strategy and finalization step summaries
+    - AgentRun panel shows the prose drafting step summary
+    - prose draft card remains visible as a tentative artifact
+  network:
+    - parent user_message receives bounded run_id before final TurnResult
+    - agent_event includes step_proposed for context, strategy, prose drafting, and finalization
+    - agent_event includes goal_understood and context observation for prose context assembly
+    - agent_event includes plan_created, gate_decided, tool_started, quality observation, and tentative draft observation
+    - final TurnResult carries agent_run.run_id and tool_result.tool_name=prose_writing
+    - pending artifact is prose_fragment and remains tentative
+  data:
+    - parent user_message starts bounded AgentRun without sync_turn fallback
+    - internal prose step is allow_tool before toolbox execution
+    - prose_quality.evaluated emits review_status=completed
+    - quality_policy.decided emits review_status=completed
+    - consumed_budget reports steps=4, tool_calls=1, provider_calls=2
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

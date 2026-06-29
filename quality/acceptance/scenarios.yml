@@ -195,6 +195,171 @@ scenarios:
     manifest: quality/acceptance/scenarios/p1-prose-quality-adoption-boundary.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh p1-prose-quality-adoption-boundary --surface tauri
+  - id: agent-prose-drafting-with-quality
+    title: "AgentRun 正文草稿 Profile 复用正文质量复核链路"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-prose-drafting-with-quality.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-prose-drafting-with-quality --surface tauri
+  - id: agent-conversation-turn
+    title: "普通对话输入统一进入 AgentRun"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-conversation-turn.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-conversation-turn --surface tauri
+  - id: ua01-agent-bounded-roster-to-character-design
+    title: "复合角色任务启动 bounded AgentRun 并产出待采纳角色草稿"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/ua01-agent-bounded-roster-to-character-design.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh ua01-agent-bounded-roster-to-character-design --surface tauri
+  - id: agent-bounded-roster-to-character-design
+    title: "AgentRun 角色阵容 Observation 传递到角色设计"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-bounded-roster-to-character-design.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-bounded-roster-to-character-design --surface tauri
+  - id: agent-step-regate
+    title: "每个 AgentStep 重新经过 Orchestrator gate"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-step-regate.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-step-regate --surface tauri
+  - id: agent-no-multistep-plan-bypass
+    title: "AgentRun 不把多步计划作为 ToolRequest 批量旁路执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-no-multistep-plan-bypass.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-no-multistep-plan-bypass --surface tauri
+  - id: agent-event-author-safe
+    title: "AgentEvent 只暴露作者安全摘要和引用"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-event-author-safe.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-event-author-safe --surface tauri
+  - id: agent-channel-fast-ack
+    title: "Channel 快速返回 bounded run_id 后异步广播结果"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-channel-fast-ack.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-channel-fast-ack --surface tauri
+  - id: agent-interrupt-safe-point
+    title: "AgentRun pause 在协作式 safe point 停止"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-interrupt-safe-point.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-interrupt-safe-point --surface tauri
+  - id: agent-cancel-target-binding
+    title: "AgentRun cancel 绑定 active run_id 并协作式取消"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-cancel-target-binding.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-cancel-target-binding --surface tauri
+  - id: agent-steer-replan
+    title: "AgentRun steer 绑定 active run_id 并广播重规划状态"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-steer-replan.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-steer-replan --surface tauri
+  - id: agent-loop-budget-limit
+    title: "AgentRun 受作者预算限制停止等待作者"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-loop-budget-limit.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-loop-budget-limit --surface tauri
+  - id: agent-no-progress-stop
+    title: "AgentRun 重复无进展时停止等待作者"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-no-progress-stop.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-no-progress-stop --surface tauri
+  - id: agent-archive-read-during-run
+    title: "AgentRun 运行中作品档案仍可读取"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-archive-read-during-run.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-archive-read-during-run --surface tauri
+  - id: agent-tentative-boundary
+    title: "Agent 产物保持 tentative，不自动采纳或写主档案"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-tentative-boundary.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-tentative-boundary --surface tauri
+  - id: agent-revision-orchestrator-boundary
+    title: "修订候选动作重新经过 Orchestrator 后再执行"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-revision-orchestrator-boundary.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-revision-orchestrator-boundary --surface tauri
+  - id: agent-replay-no-provider
+    title: "Agent/修订 replay policy 不重新调用 provider"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-replay-no-provider.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-replay-no-provider --surface tauri
+  - id: agent-work-isolation
+    title: "源作品 AgentRun 迟到输出不污染切换后的目标作品"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-work-isolation.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-work-isolation --surface tauri
+  - id: agent-provider-call-budget
+    title: "AgentRun step/tool/provider 调用预算可追踪"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-provider-call-budget.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-provider-call-budget --surface tauri
+  - id: agent-durable-resume-long-run-task
+    title: "Durable AgentRun 关联 LongRunTask 并可恢复"
+    tier: nightly
+    status: active
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-durable-resume-long-run-task.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-durable-resume-long-run-task --surface tauri
+  - id: agent-provider-streaming-progress
+    title: "Provider streaming progress 进入 AgentRun author-safe 事件流"
+    tier: nightly
+    status: active
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-provider-streaming-progress.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-provider-streaming-progress --surface tauri
+  - id: agent-provider-cancel-honest-boundary
+    title: "Provider cancel 诚实区分硬取消与协作式 safe point"
+    tier: nightly
+    status: active
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-provider-cancel-honest-boundary.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-provider-cancel-honest-boundary --surface tauri
+  - id: agent-readonly-batch-profile
+    title: "AgentRun 只读 batch profile 可并行读取且不写作品事实"
+    tier: nightly
+    status: active
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-readonly-batch-profile.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-readonly-batch-profile --surface tauri
   - id: p1-chapter-adoption-reading
     title: "已采纳章节正文进入阅读投影"
     tier: nightly

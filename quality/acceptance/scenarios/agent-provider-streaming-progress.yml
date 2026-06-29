@@ -1,0 +1,48 @@
+id: agent-provider-streaming-progress
+title: Provider streaming progress 进入 AgentRun author-safe 事件流
+tier: nightly
+status: active
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-provider-streaming-progress --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-02-tool-provenance-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - streaming-event-is-author-safe
+  - streaming-does-not-expose-raw-prompt
+  - streaming-progress-belongs-to-agent-run
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: request that triggers a streaming provider step
+  - wait_for: fast ack with run_id
+  - verify: agent_event stream shows provider progress without raw prompt or secret
+  - verify: final TurnResult is consistent with completed provider output
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-provider-streaming-progress-tauri
+
+assertions:
+  data:
+    - streaming events carry run_id and step_ref
+    - streaming events are visibility=author
+    - final agent_run_state records provider call budget
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

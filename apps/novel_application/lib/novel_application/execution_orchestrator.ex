@@ -89,17 +89,22 @@ defmodule NovelApplication.ExecutionOrchestrator do
   defp mark_confirmed_by(result, _binding), do: result
 
   defp decision_from_gate_result({:pass, _results}, decision_id, frame, plan, binding) do
-    if allow_tool_dispatch?(plan, binding) do
-      {build_allow_decision(decision_id, frame, plan), nil}
-    else
-      {build_decision(
-         :downgrade_to_dialogue,
-         decision_id,
-         frame,
-         plan,
-         "gates passed but plan requires confirmation or is multi-step",
-         "action_scope"
-       ), nil}
+    cond do
+      allow_tool_dispatch?(plan, binding) ->
+        {build_allow_decision(decision_id, frame, plan), nil}
+
+      allow_agent_run_start?(plan, binding) ->
+        {build_allow_agent_run_decision(decision_id, frame, plan), nil}
+
+      true ->
+        {build_decision(
+           :downgrade_to_dialogue,
+           decision_id,
+           frame,
+           plan,
+           "gates passed but plan requires confirmation or is multi-step",
+           "action_scope"
+         ), nil}
     end
   end
 
@@ -221,6 +226,14 @@ defmodule NovelApplication.ExecutionOrchestrator do
       length(actions) == 1 and tool_dispatchable?(hd(actions))
   end
 
+  defp allow_agent_run_start?(%MicroPlan{} = plan, binding) do
+    actions = plan.proposed_actions
+
+    not MicroPlan.multi_step?(plan) and
+      (not MicroPlan.high_risk?(plan) or confirmed?(binding)) and
+      length(actions) == 1 and agent_run_start?(hd(actions))
+  end
+
   defp confirmed?(%ConfirmationBinding{} = binding), do: ConfirmationBinding.confirm?(binding)
   defp confirmed?(_binding), do: false
 
@@ -234,6 +247,9 @@ defmodule NovelApplication.ExecutionOrchestrator do
   end
 
   defp tool_name_from_action(_), do: nil
+
+  defp agent_run_start?(%{action_type: :agent_run_start}), do: true
+  defp agent_run_start?(_action), do: false
 
   # ── decision builders ─────────────────────────
 
@@ -255,6 +271,34 @@ defmodule NovelApplication.ExecutionOrchestrator do
       first_blocking_gate: nil,
       reason_codes: ["gates_passed", "single_step_low_risk", "tool:#{tool_name}"],
       turn_result_policy: %{truthfulness_constraints: ["tool_dispatched", "result_not_adoption"]}
+    }
+  end
+
+  defp build_allow_agent_run_decision(decision_id, frame, plan) do
+    action = hd(plan.proposed_actions)
+    profile_ref = action[:target_ref] || action[:profile_ref]
+
+    %OrchestratorDecision{
+      decision_id: decision_id,
+      turn_id: frame.turn_id,
+      frame_ref: frame.frame_id,
+      plan_ref: plan.plan_id,
+      decision_type: :allow_agent_run,
+      decision_status: :decided,
+      approved_actions: action_refs(plan.proposed_actions),
+      rejected_actions: [],
+      downgraded_actions: [],
+      required_author_action: nil,
+      first_blocking_gate: nil,
+      reason_codes: [
+        "gates_passed",
+        "agent_run_start",
+        "profile:#{profile_ref}",
+        "internal_steps_require_regate"
+      ],
+      turn_result_policy: %{
+        truthfulness_constraints: ["agent_run_created", "internal_steps_require_regate"]
+      }
     }
   end
 

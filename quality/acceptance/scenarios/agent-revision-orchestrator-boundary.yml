@@ -1,0 +1,54 @@
+id: agent-revision-orchestrator-boundary
+title: 修订候选动作重新经过 Orchestrator 后再执行
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-revision-orchestrator-boundary --surface tauri
+canonical_driver: p1-prose-revision-candidate
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-00E-prose-execution-quality-contract-pack.md
+  - docs/design/adr/ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - revise-from-findings-runs-as-bounded-agent-run
+  - prose-revision-service-does-not-bypass-orchestrator
+  - revise-from-findings-creates-real-tool-request
+  - revision-replay-does-not-recall-provider
+
+setup:
+  seed: scripts/seed_p1_prose_revision_candidate.exs
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - generate: prose draft with quality finding
+  - click: 按这些问题重写
+  - verify: revision author_action fast-acks with bounded AgentRun
+  - verify: revision AgentRun exposes source, plan, gate, tool, and finalization events
+  - verify: revision uses real OrchestratorDecision and ToolRequest before Toolbox execution
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-revision-orchestrator-boundary-tauri
+
+assertions:
+  data:
+    - revise_from_findings author_action is sent from the real page
+    - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
+    - revision agent_event stream exposes source, plan, gate, tool, and finalization events
+    - revision agent_run_state completes with 4 steps, 1 tool call, 1 provider call
+    - revision path uses non-fabricated decision_ref
+    - revision path creates tool_request_ref before Toolbox execution
+    - sibling revision draft remains tentative and points to revision_base
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

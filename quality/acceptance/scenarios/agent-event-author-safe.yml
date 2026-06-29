@@ -1,0 +1,47 @@
+id: agent-event-author-safe
+title: AgentEvent 只暴露作者安全摘要和引用
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-event-author-safe --surface tauri
+canonical_driver: ua01-agent-bounded-roster-to-character-design
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - agent-event-is-not-turn-result
+  - activity-does-not-expose-chain-of-thought
+  - internal-agent-steps-do-not-forge-author-turns
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: compound roster then character design request
+  - observe: agent activity timeline
+  - verify: event payloads use author visibility, summaries and refs without raw prompt or chain-of-thought
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-event-author-safe-tauri
+
+assertions:
+  network:
+    - agent_event frames include run_started, observation_recorded, artifact_created and run_completed
+    - event payloads are author visible and redacted
+  ui:
+    - activity panel renders summaries, not internal prompts
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

@@ -24,8 +24,8 @@ describe("traceSummaryView", () => {
       ],
     });
 
-    expect(view?.decisionLabel).toBe("自然回复");
-    expect(view?.primaryReason).toContain("自然语言回应");
+    expect(view?.decisionLabel).toBe("AI 回应");
+    expect(view?.primaryReason).toContain("AgentRun 对话模式");
     expect(view?.goal).toBe("讨论角色动机");
     expect(view?.contextSources.map((source) => source.label)).toEqual([
       "当前作品背景",

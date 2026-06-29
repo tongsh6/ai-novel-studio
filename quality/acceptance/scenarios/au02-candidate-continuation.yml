@@ -25,7 +25,7 @@ user_flow:
   - click: 发送
   - wait_for: candidate direction visible
   - click: 继续聊这个方向
-  - observe: 下一轮自然回复
+  - observe: 下一轮 AI 回应
 
 evidence:
   required:

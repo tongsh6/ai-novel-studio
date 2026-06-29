@@ -13,6 +13,7 @@ defmodule NovelDomain.MicroPlan do
           | :clarification_request
           | :confirmation_request
           | :capability_invocation
+          | :agent_run_start
   @type write_intent :: :none | :tentative | :production_candidate
   @type risk_hint :: :low | :medium | :high
   # 生成意图 provenance（续写/重写 + 目标章），由 Planner 识别填充，经 ArtifactAssembler
@@ -224,7 +225,8 @@ defmodule NovelDomain.MicroPlan do
     :state_change_request,
     :clarification_request,
     :confirmation_request,
-    :capability_invocation
+    :capability_invocation,
+    :agent_run_start
   ]
 
   defp to_action_type(value) when value in @action_types, do: value

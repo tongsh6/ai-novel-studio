@@ -18,6 +18,9 @@
 
 | 文件 | 角色 |
 |---|---|
+| `UA01-unified-agent-run-mainchain-closure.md` | **doing / UA-01 主链收口**：按 2026-06-29 收紧后的验收口径审计并推进 CP4/CP5/CP6 及后续 CP。CP2 普通对话已从 `conversation_turn_v1` 单 step 黑盒拆为 context / frame / strategy / finalize 四阶段 AgentRun，并由真实 Tauri `agent-conversation-turn` 验证；CP4 已补正文草稿四步 profile 与修订四步 profile，并完成 fresh Tauri summary；CP5 durable AgentRun + LongRunTask 已通过 backend restart 恢复验收；CP6 provider progress / cooperative cancel / readonly batch 已通过真实 Tauri。当前剩余全量回归、task_done/static scan 与台账收口。 |
+| `UA01-CP5-durable-agent-run-resume.md` | **done / verified**：CP5 durable AgentRun + LongRunTask 恢复闭环子 slice。已实现 durable profile 分账、LongRunTask 关联、checkpoint/recovery/stale policy、Channel join recovery 与 UI 恢复面板；`agent-durable-resume-long-run-task` 已转 active/nightly 并通过真实 Tauri 验收。 |
+| `UA01-CP6-stream-cancel-readonly-batch.md` | **done / verified**：CP6 provider progress、provider cancel 诚实边界、只读 batch profile 子 slice。三条 scenarios 已 active/nightly 并通过真实 Tauri：`agent-provider-streaming-progress`、`agent-provider-cancel-honest-boundary`、`agent-readonly-batch-profile`。当前 provider 不支持硬取消时诚实降级为 cooperative safe-point cancel。 |
 | `SU04-desktop-sidecar-packaging.md` | **active / 桌面打包承重 slice**：落地 `docs/design/tech-stack/05-desktop.md` 的 Tauri + Mix Release sidecar，让下载的桌面应用自带并自动拉起 Phoenix 后端（修「下载即模型未连接 / 同步离线」）。本机 macOS arm64 真实 `.app` 已验证冷启动 4s 内后端在 4658 服务、退出无孤儿。后续：代码签名+公证（下载双击即开）、Intel Mac、CI tag 真跑通。 |
 | `SU01-file-level-closure.md` | **file-level deliverable / second-round C3 closed / B3 P1 follow-up**：SU-01 已按文件级二轮口径重算为 10 个场景：9/10 已验收、1/10 部分实现。2026-06-22 二轮关闭旧 Keychain / non-macOS external blocker：当前产品口径为统一 profile-scoped local file secret，`su01-local-secret-file-roundtrip` 已证明真实 Tauri WebView 保存 fake Key、重启后从 `provider-secrets.json` 恢复 DeepSeek runtime、0600 权限和 UI/日志/偏好脱敏边界；`su01-provider-test-failure-ui` 已证明测试连接失败反馈、草稿保留、无 turn/runtime 副作用和恢复成功。live vendor / 云端供应商真实失败矩阵仍为 B3/P1 后续，Windows/Linux local-file 页面矩阵为 P2 平台回归；当前可进入 SU-02。 |
 | `SU02-file-level-closure.md` | **file-level deliverable / P2 follow-up matrix registered**：SU-02 已按文件级闭环口径复核为 13/13 已验收。运行时作品菜单、空库自动未命名作品、快速未命名创建、命名新增、改名、安全移出、leave/join、消息流隔离、慢回复迟到归属、reload 恢复和 artifact/projection/trace 隔离均有真实 Tauri summary 与 quality manifest；后端不可用 UX、恢复/归档管理入口、大列表和异常失败态为 P2 后续；当前可进入 SU-03。 |
@@ -92,6 +95,7 @@
 | `AU09-AU03-session-memory-layering.md` | **checkpoint closed**：同一作品内 active session、historical session、current work memory 在 context/why 中分层且不互相伪装，已由 `au09-au03-session-memory-layering` 真实 Tauri 证据证明。 |
 | `AU11-quality-diagnosis-message-envelope.md` | **checkpoint closed**：SC-AU11-01 质量诊断引导已把 VS-00D 三层 message / AIMessageEnvelope 从 docs-ready 推进到真实工作台 trace proof；AU11 整体仍有缺上下文真实验收、clarify/confirm guidance_mode、prose_writing envelope 投影缺口。 |
 | `AU11-missing-workstate-policy.md` | **checkpoint closed / AU-11 file-level closed**：SC-AU11-02 缺当前作品上下文不编造已由 `au11-missing-workstate-policy` 真实 Tauri / quality acceptance 证明。真实工作台创建无章节/正文/人物状态的 work 后，输入“帮我看看这一章哪里不成立”，trace/why 显式记录 chapter/prose/character missing，assistant 要求补材料且 no tool/adoption/write。 |
+| `AU11-creative-partner-conversational-voice.md` | **设计（backlog，未开工）/ NEXT Order 60**：trivial/模糊输入（如「测试」）的对话回应偏系统诊断腔（「系统运行正常」），偏离愿景 `00` §2/§2.2「作者面对可感知的创作伙伴」。提示词/persona 层（`planner.ex` `form_frame` system_prompt 增补创作伙伴口吻约束），只改 `assistant_message` 语气，不改路由/AgentRun 主链/UI 阶段流/写入边界。分析性验收（非 0/1 不变量，参 memory `prose-ai-taste-findings`）；地板模型下收益有限，待排期。 |
 
 旧 `VS-001..018` 与旧 `DAG.md` 已删除；它们引用的 phase roadmap、旧 ADR 和 Router-first 语义不再作为有效执行事实。
 

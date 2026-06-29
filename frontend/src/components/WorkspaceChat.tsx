@@ -12,12 +12,15 @@ import {
   ChevronDown,
   CircleHelp,
   MessageCircle,
+  Pause,
   Pencil,
+  Play,
   Plus,
   RefreshCw,
   RotateCcw,
   Settings2,
   Trash2,
+  CircleX,
 } from "lucide-react";
 
 import {
@@ -25,7 +28,14 @@ import {
   joinWorkspace,
   sendMessage,
   sendAuthorAction,
+  sendAgentCommand,
+  onAgentEvent,
+  onAgentRunState,
   onTaskState,
+  type AgentEventData,
+  type AgentCommand,
+  type AgentRunStateData,
+  type SendMessageResult,
   type TaskStateData,
 } from "../lib/socket";
 import {
@@ -439,6 +449,7 @@ function startupConnectingMessage(): ChatMessage {
 // 先于后端就绪而失败。这类「连接尚未就绪」的失败在启动期应静默重试，而不是直接报错。
 const STARTUP_MAX_ATTEMPTS = 30;
 const STARTUP_RETRY_MS = 1000;
+const AGENT_RUN_EVENT_VISIBLE_LIMIT = 24;
 
 function isConnectivityFailure(detail: string): boolean {
   const normalized = detail.toLowerCase();
@@ -595,6 +606,9 @@ export function WorkspaceChat() {
   } | null>(null);
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [selectedFindingIdsMap, setSelectedFindingIdsMap] = useState<Record<string, string[]>>({});
+  const [agentRunStates, setAgentRunStates] = useState<Record<string, AgentRunStateData>>({});
+  const [agentEvents, setAgentEvents] = useState<AgentEventData[]>([]);
+  const [agentSteerText, setAgentSteerText] = useState("");
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore((state) => state.socketConnected);
@@ -757,6 +771,9 @@ export function WorkspaceChat() {
     setTranscriptRestored(false);
     resumeRestoredTranscriptRef.current = false;
     setMessages([]);
+    setAgentRunStates({});
+    setAgentEvents([]);
+    setAgentSteerText("");
     setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
     setAssistantNameDraft("");
     setAssistantNameError(null);
@@ -914,6 +931,22 @@ export function WorkspaceChat() {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
       handleTaskState(state);
     });
+    onAgentEvent(channel, (event) => {
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      setAgentEvents((prev) => [...prev.filter((item) => item.event_id !== event.event_id), event]);
+      if (event.event_type === "run_completed" || event.event_type === "run_failed") {
+        setLoading(false);
+      }
+    });
+    onAgentRunState(channel, (state) => {
+      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+      setAgentRunStates((prev) => ({ ...prev, [state.run_id]: state }));
+      if (
+        ["completed", "failed", "cancelled", "paused", "awaiting_author"].includes(state.status)
+      ) {
+        setLoading(false);
+      }
+    });
   }
 
   useEffect(() => {
@@ -1016,6 +1049,57 @@ export function WorkspaceChat() {
   const visibleWorkTitle = getVisibleWorkTitle(runtimeState);
   const hasValidRuntimeWork = runtimeState.work.hasValidWork;
   const connectionLabel = runtimeState.ui.connectionLabel;
+  const visibleAgentRuns = Object.values(agentRunStates);
+  const latestAgentRun = visibleAgentRuns.at(-1) ?? null;
+  const latestAgentRunEvents = latestAgentRun
+    ? agentEvents
+        .filter((event) => event.run_ref === latestAgentRun.run_id)
+        .slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT)
+    : [];
+  const agentRunStatusLabel = (status: string) => WORKBENCH.agentRunStatusLabels[status] ?? status;
+  const canPauseAgentRun =
+    latestAgentRun?.status === "running" || latestAgentRun?.status === "pausing";
+  const canResumeAgentRun =
+    latestAgentRun?.status === "paused" || latestAgentRun?.status === "awaiting_author";
+  const canCancelAgentRun =
+    latestAgentRun !== null &&
+    !["completed", "cancelled", "failed"].includes(latestAgentRun.status);
+  const canSteerAgentRun =
+    latestAgentRun !== null &&
+    !["completed", "cancelled", "failed"].includes(latestAgentRun.status) &&
+    agentSteerText.trim().length > 0;
+  const hasActiveAgentRun =
+    latestAgentRun !== null &&
+    !["completed", "cancelled", "failed"].includes(latestAgentRun.status);
+
+  const rememberAgentRunAck = useCallback(
+    (response: SendMessageResult, text: string) => {
+      if (!response.run_id) return;
+
+      const acknowledgedState: AgentRunStateData = {
+        run_id: response.run_id,
+        run_mode: response.run_mode ?? "bounded",
+        status: "running",
+        phase: "executing",
+        long_run_task_ref: response.long_run_task_ref ?? null,
+        work_id: context.workId,
+        session_id: activeSessionId,
+        parent_turn_ref: response.turn_id ?? null,
+        profile_ref: response.profile_ref ?? null,
+        goal: response.goal ?? { text, version: 1 },
+        completed_step_refs: [],
+        pending_artifact_refs: [],
+        interrupt_state: { status: "none", requested_at: null },
+        current_task: true,
+      };
+
+      setAgentRunStates((prev) => ({
+        ...prev,
+        [response.run_id!]: prev[response.run_id!] ?? acknowledgedState,
+      }));
+    },
+    [activeSessionId, context.workId],
+  );
 
   // ... (rest of the component)
 
@@ -1033,10 +1117,25 @@ export function WorkspaceChat() {
 
     // Clear pending action and send
     useAppStore.getState().setPendingBuildAction(null);
-    void sendMessage(channelRef.current, text, context.workId, null, activeSessionId).then(() =>
-      setLoading(true),
-    );
-  }, [activeSessionId, context.workId]);
+    setLoading(true);
+    void sendMessage(channelRef.current, text, context.workId, null, activeSessionId)
+      .then((response) => rememberAgentRunAck(response, text))
+      .catch(() => {
+        setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
+        setLoading(false);
+      });
+  }, [activeSessionId, context.workId, rememberAgentRunAck]);
+
+  async function handleAgentCommand(command: AgentCommand, text?: string) {
+    if (!channelRef.current || !latestAgentRun) return;
+
+    try {
+      await sendAgentCommand(channelRef.current, latestAgentRun.run_id, command, text);
+      if (command === "steer") setAgentSteerText("");
+    } catch {
+      setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
+    }
+  }
 
   async function handleSend(
     messageText: string = inputText,
@@ -1053,7 +1152,7 @@ export function WorkspaceChat() {
     setPendingAnswerBid(null);
 
     try {
-      await sendMessage(
+      const response = await sendMessage(
         channelRef.current,
         text,
         context.workId,
@@ -1061,6 +1160,7 @@ export function WorkspaceChat() {
         activeSessionId,
         options.generateMicroPlan ?? false,
       );
+      rememberAgentRunAck(response, text);
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
       setLoading(false);
@@ -1075,11 +1175,20 @@ export function WorkspaceChat() {
     setLoading(true);
 
     try {
-      await sendMessage(channelRef.current, text, context.workId, null, activeSessionId, false, {
-        source_turn_ref: turnResult.turn_id,
-        candidate_set_ref: `candidate_set:${turnResult.turn_id}`,
-        candidate_ref: candidate.direction_id,
-      });
+      const response = await sendMessage(
+        channelRef.current,
+        text,
+        context.workId,
+        null,
+        activeSessionId,
+        false,
+        {
+          source_turn_ref: turnResult.turn_id,
+          candidate_set_ref: `candidate_set:${turnResult.turn_id}`,
+          candidate_ref: candidate.direction_id,
+        },
+      );
+      rememberAgentRunAck(response, text);
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
       setLoading(false);
@@ -1114,7 +1223,10 @@ export function WorkspaceChat() {
 
   // VS-00E CP3：按质量发现重写——从本轮 available_actions 取出 revise_from_findings 动作，
   // 携带要处理的发现引用提交。后端会另生成一份 tentative 修订草稿（原草稿保留、不自动采纳）。
-  const handleReviseFromFindings = async (turnResult: TurnResult, selectedFindingIds?: string[]) => {
+  const handleReviseFromFindings = async (
+    turnResult: TurnResult,
+    selectedFindingIds?: string[],
+  ) => {
     const action = (turnResult.available_actions ?? []).find(
       (candidate) => candidate.action_type === "revise_from_findings",
     );
@@ -2283,9 +2395,7 @@ export function WorkspaceChat() {
                     </select>
 
                     {modelProviderDraft.provider === "openai_subscription" && (
-                      <p className={styles.dialogHint}>
-                        {WORKBENCH.modelProviderSubscriptionHint}
-                      </p>
+                      <p className={styles.dialogHint}>{WORKBENCH.modelProviderSubscriptionHint}</p>
                     )}
 
                     {draftProviderOption?.supports_endpoint && (
@@ -2588,12 +2698,10 @@ export function WorkspaceChat() {
                 {msg.role === "assistant" &&
                   msg.turnResult?.frame_summary &&
                   (() => {
-                    const framePresentation = framePresentationForSummary(
-                      {
-                        ...msg.turnResult.frame_summary,
-                        decision_type: msg.turnResult.trace_summary?.decision_type,
-                      },
-                    );
+                    const framePresentation = framePresentationForSummary({
+                      ...msg.turnResult.frame_summary,
+                      decision_type: msg.turnResult.trace_summary?.decision_type,
+                    });
 
                     return framePresentation.visible ? (
                       <div
@@ -2732,12 +2840,119 @@ export function WorkspaceChat() {
               </div>
             ))}
 
-            {loading && (
-              <div className={styles.assistantMsg}>
-                <div className={styles.role}>
-                  {assistantRoleLabel("assistant", assistantDisplayName)}
+            {latestAgentRun && (
+              <div className={styles.agentRunPanel}>
+                <div className={styles.agentRunHeader}>
+                  <div>
+                    <div className={styles.agentRunTitle}>{WORKBENCH.agentRunTitle}</div>
+                    <div className={styles.agentRunStatus}>
+                      {WORKBENCH.agentRunStatus(agentRunStatusLabel(latestAgentRun.status))}
+                    </div>
+                    {latestAgentRun.run_mode === "durable" && (
+                      <div className={styles.agentRunStatus}>
+                        {latestAgentRun.recovered
+                          ? WORKBENCH.agentRunRecoveredLabel
+                          : WORKBENCH.agentRunDurableLabel}
+                        {latestAgentRun.long_run_task_ref
+                          ? ` · ${WORKBENCH.agentRunLongTaskRef(latestAgentRun.long_run_task_ref)}`
+                          : ""}
+                      </div>
+                    )}
+                  </div>
+                  <div className={styles.agentRunActions}>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      title={WORKBENCH.agentRunPause}
+                      disabled={!canPauseAgentRun}
+                      onClick={() => {
+                        void handleAgentCommand("pause");
+                      }}
+                    >
+                      <Pause size={14} aria-hidden="true" />
+                      <span>{WORKBENCH.agentRunPause}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      title={WORKBENCH.agentRunResume}
+                      disabled={!canResumeAgentRun}
+                      onClick={() => {
+                        void handleAgentCommand("resume");
+                      }}
+                    >
+                      <Play size={14} aria-hidden="true" />
+                      <span>{WORKBENCH.agentRunResume}</span>
+                    </button>
+                    <button
+                      type="button"
+                      className={styles.iconBtn}
+                      title={WORKBENCH.agentRunCancel}
+                      disabled={!canCancelAgentRun}
+                      onClick={() => {
+                        void handleAgentCommand("cancel");
+                      }}
+                    >
+                      <CircleX size={14} aria-hidden="true" />
+                      <span>{WORKBENCH.agentRunCancel}</span>
+                    </button>
+                  </div>
                 </div>
-                <div className={styles.text}>{WORKBENCH.thinking}</div>
+                <form
+                  className={styles.agentRunSteer}
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    if (!canSteerAgentRun) return;
+                    void handleAgentCommand("steer", agentSteerText.trim());
+                  }}
+                >
+                  <input
+                    className={styles.agentRunSteerInput}
+                    value={agentSteerText}
+                    aria-label={WORKBENCH.agentRunSteer}
+                    placeholder={WORKBENCH.agentRunSteerPlaceholder}
+                    disabled={
+                      !latestAgentRun ||
+                      ["completed", "cancelled", "failed"].includes(latestAgentRun.status)
+                    }
+                    onChange={(event) => setAgentSteerText(event.target.value)}
+                  />
+                  <button
+                    type="submit"
+                    className={styles.iconBtn}
+                    title={WORKBENCH.agentRunSteer}
+                    disabled={!canSteerAgentRun}
+                  >
+                    <Pencil size={14} aria-hidden="true" />
+                    <span>{WORKBENCH.agentRunSteer}</span>
+                  </button>
+                </form>
+                <div className={styles.agentRunEvents}>
+                  {(latestAgentRunEvents.length > 0
+                    ? latestAgentRunEvents
+                    : [{ event_id: "agent-empty", summary: WORKBENCH.agentRunEmptyEvent }]
+                  ).map((event) => (
+                    <div key={event.event_id} className={styles.agentRunEvent}>
+                      {event.summary}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {loading && !hasActiveAgentRun && (
+              <div className={styles.agentRunPanel}>
+                <div className={styles.agentRunHeader}>
+                  <div>
+                    <div className={styles.agentRunTitle}>{WORKBENCH.agentRunTitle}</div>
+                    <div className={styles.agentRunStatus}>
+                      {WORKBENCH.agentRunStatus(WORKBENCH.agentRunPreparingStatus)}
+                    </div>
+                  </div>
+                </div>
+                <div className={styles.agentRunEvents}>
+                  <div className={styles.agentRunEvent}>{WORKBENCH.agentRunPreparingEvent}</div>
+                </div>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -2919,42 +3134,39 @@ export function WorkspaceChat() {
             模型执行期间打开档案能立刻显示上次已知快照而不是空白。 */}
         <StructurePanel
           isOpen={isPanelOpen}
-            onClose={() => setIsPanelOpen(false)}
-            pendingAdoptions={allPendingAdoptions}
-            getArtifactActionState={artifactActionState}
-            onArtifactAction={(artifact, actionType) => {
-              submitArtifactAvailableAction(artifact, actionType);
-              setIsPanelOpen(false);
-            }}
-            onStartPlanning={() => {
-              void handleSend(STRUCTURE_PANEL.startPlanningPrompt, {
-                generateMicroPlan: true,
-              });
-            }}
-            onCreateCharacter={() => {
-              void handleSend(STRUCTURE_PANEL.createCharacterPrompt, { generateMicroPlan: true });
-            }}
-            onDraftChapter={(chapterBrief) => {
-              void handleSend(
-                `请根据已采纳章节计划生成${chapterBrief}正文草稿，保持为待采纳草稿。`,
-                {
-                  generateMicroPlan: true,
-                },
-              );
-            }}
-            onNewForeshadowing={() => {
-              void handleSend(STRUCTURE_PANEL.newForeshadowingPrompt, {
-                generateMicroPlan: true,
-              });
-            }}
-            onNewRule={() => {
-              void handleSend(STRUCTURE_PANEL.newRulePrompt, { generateMicroPlan: true });
-            }}
-            onNewAction={(prompt) => {
-              void handleSend(prompt, { generateMicroPlan: true });
-              setIsPanelOpen(false);
-            }}
-          />
+          onClose={() => setIsPanelOpen(false)}
+          pendingAdoptions={allPendingAdoptions}
+          getArtifactActionState={artifactActionState}
+          onArtifactAction={(artifact, actionType) => {
+            submitArtifactAvailableAction(artifact, actionType);
+            setIsPanelOpen(false);
+          }}
+          onStartPlanning={() => {
+            void handleSend(STRUCTURE_PANEL.startPlanningPrompt, {
+              generateMicroPlan: true,
+            });
+          }}
+          onCreateCharacter={() => {
+            void handleSend(STRUCTURE_PANEL.createCharacterPrompt, { generateMicroPlan: true });
+          }}
+          onDraftChapter={(chapterBrief) => {
+            void handleSend(`请根据已采纳章节计划生成${chapterBrief}正文草稿，保持为待采纳草稿。`, {
+              generateMicroPlan: true,
+            });
+          }}
+          onNewForeshadowing={() => {
+            void handleSend(STRUCTURE_PANEL.newForeshadowingPrompt, {
+              generateMicroPlan: true,
+            });
+          }}
+          onNewRule={() => {
+            void handleSend(STRUCTURE_PANEL.newRulePrompt, { generateMicroPlan: true });
+          }}
+          onNewAction={(prompt) => {
+            void handleSend(prompt, { generateMicroPlan: true });
+            setIsPanelOpen(false);
+          }}
+        />
       </div>
     </div>
   );

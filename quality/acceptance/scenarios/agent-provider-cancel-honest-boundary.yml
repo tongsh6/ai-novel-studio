@@ -1,0 +1,47 @@
+id: agent-provider-cancel-honest-boundary
+title: Provider cancel 诚实区分硬取消与协作式 safe point
+tier: nightly
+status: active
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-provider-cancel-honest-boundary --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - cancel-command-is-bound-to-run-id
+  - unsupported-hard-cancel-is-not-faked
+  - completed-output-is-not-deleted-or-adopted
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: request that starts a long provider step
+  - click: cancel current AgentRun
+  - verify: cancel event binds the active run_id
+  - verify: UI and trace distinguish hard_cancelled, cooperative_waiting, or already_completed
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-provider-cancel-honest-boundary-tauri
+
+assertions:
+  data:
+    - cancel command includes run_id
+    - provider capability determines hard cancel vs cooperative cancel wording
+    - final state does not claim hard cancel without provider evidence
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

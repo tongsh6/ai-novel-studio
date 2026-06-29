@@ -72,7 +72,17 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
     # 5. 不自我递归：修订轮自身不再触发质量评估
     refute Map.has_key?(revision_turn, :quality_review)
 
-    # 6. 原草稿保留：source turn 未被修订动作改写
+    # 6. 修订动作必须有真实 OrchestratorDecision / ToolRequest trace，replay 不重调 provider
+    assert revision_turn.trace_summary.decision_type == "revise_from_findings"
+    assert revision_turn.trace_summary.orchestrator_decision == :allow_tool
+    assert String.starts_with?(revision_turn.trace_summary.decision_ref, "decision_")
+    assert String.starts_with?(revision_turn.trace_summary.tool_request_id, "tq_rev_")
+    assert String.starts_with?(revision_turn.trace_summary.tool_result_id, "tr_")
+    assert revision_turn.trace_summary.replay_policy.recall_provider == false
+    assert revision_turn.trace_summary.revision_provider_call_ref == "pc-revision"
+    assert revision_turn.trace_summary.provider_call_budget.revision_writer == 1
+
+    # 7. 原草稿保留：source turn 未被修订动作改写
     assert hd(source.adoption_state.pending).payload.items |> hd() |> Map.get(:body) == @bad_prose
   end
 
@@ -147,10 +157,18 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
 
       {:ok,
        %{
+         provider_call_id: "pc-revision",
          content:
            Jason.encode!(%{
-             items: [%{item_id: "rev-item", title: "第01章（修订）", body: @revised_body, rationale: nil}],
-             self_report: %{assumptions: [], intended_reader_effect: nil, used_context_refs: [], risk_flags: []}
+             items: [
+               %{item_id: "rev-item", title: "第01章（修订）", body: @revised_body, rationale: nil}
+             ],
+             self_report: %{
+               assumptions: [],
+               intended_reader_effect: nil,
+               used_context_refs: [],
+               risk_flags: []
+             }
            })
        }}
     end
@@ -163,7 +181,12 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
          content:
            Jason.encode!(%{
              items: [%{item_id: "cp3-item", title: "第01章", body: @bad_prose, rationale: nil}],
-             self_report: %{assumptions: [], intended_reader_effect: nil, used_context_refs: [], risk_flags: []}
+             self_report: %{
+               assumptions: [],
+               intended_reader_effect: nil,
+               used_context_refs: [],
+               risk_flags: []
+             }
            })
        }}
     end

@@ -20,6 +20,7 @@ defmodule NovelApplication.ProseQualityService do
   @type result :: %{
           findings: [QualityFinding.t()],
           review_status: :completed | :unavailable,
+          evaluator_provider_call_ref: String.t() | nil,
           policy: ProseQualityPolicy.t()
         }
 
@@ -30,33 +31,48 @@ defmodule NovelApplication.ProseQualityService do
   @spec evaluate(String.t() | nil, map(), keyword()) :: result()
   def evaluate(prose_text, ctx \\ %{}, opts \\ []) do
     deterministic = ProseQualityValidators.evaluate(prose_text, ctx)
-    {semantic, review_status} = run_semantic(Keyword.get(opts, :semantic_fn), prose_text, ctx)
+
+    {semantic, review_status, evaluator_provider_call_ref} =
+      run_semantic(Keyword.get(opts, :semantic_fn), prose_text, ctx)
 
     findings = deterministic ++ semantic
     policy = ProseQualityPolicy.decide(findings, review_status: review_status)
 
-    %{findings: findings, review_status: review_status, policy: policy}
+    %{
+      findings: findings,
+      review_status: review_status,
+      evaluator_provider_call_ref: evaluator_provider_call_ref,
+      policy: policy
+    }
   end
 
-  defp run_semantic(nil, _text, _ctx), do: {[], :completed}
+  defp run_semantic(nil, _text, _ctx), do: {[], :completed, nil}
 
   defp run_semantic(fun, text, ctx) when is_function(fun, 2) do
     case safe_call(fun, text, ctx) do
-      {:ok, finding_maps} when is_list(finding_maps) ->
-        findings =
-          finding_maps
-          |> Enum.map(fn map -> QualityFinding.new(decorate(map, ctx)) end)
-          |> Enum.reject(&is_nil/1)
+      {:ok, finding_maps, provider_call_ref} when is_list(finding_maps) ->
+        {normalize_findings(finding_maps, ctx), :completed, provider_call_ref}
 
-        {findings, :completed}
+      {:ok, %{findings: finding_maps, provider_call_ref: provider_call_ref}}
+      when is_list(finding_maps) ->
+        {normalize_findings(finding_maps, ctx), :completed, provider_call_ref}
+
+      {:ok, finding_maps} when is_list(finding_maps) ->
+        {normalize_findings(finding_maps, ctx), :completed, nil}
 
       _ ->
         # evaluator 失败/非法返回 → 质量复核未完成，不伪造通过
-        {[], :unavailable}
+        {[], :unavailable, nil}
     end
   end
 
-  defp run_semantic(_fun, _text, _ctx), do: {[], :completed}
+  defp run_semantic(_fun, _text, _ctx), do: {[], :completed, nil}
+
+  defp normalize_findings(finding_maps, ctx) do
+    finding_maps
+    |> Enum.map(fn map -> QualityFinding.new(decorate(map, ctx)) end)
+    |> Enum.reject(&is_nil/1)
+  end
 
   defp safe_call(fun, text, ctx) do
     fun.(text, ctx)

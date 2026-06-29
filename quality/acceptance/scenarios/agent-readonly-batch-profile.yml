@@ -1,0 +1,50 @@
+id: agent-readonly-batch-profile
+title: AgentRun 只读 batch profile 可并行读取且不写作品事实
+tier: nightly
+status: active
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-readonly-batch-profile --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/contracts/VS-02-tool-provenance-contract-pack.md
+  - docs/design/contracts/VS-06-replay-surface-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - readonly-batch-does-not-write-production-facts
+  - each-batch-item-is-regated-or-readonly-authorized
+  - replay-does-not-recall-provider
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: request that reads multiple independent context sources
+  - wait_for: bounded AgentRun fast ack
+  - verify: readonly batch item events are visible and scoped to the run
+  - verify: no adoption, no production write, no artifact mutation
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-readonly-batch-profile-tauri
+
+assertions:
+  data:
+    - batch profile authority_scope.production_write=false
+    - batch item observations have evidence refs
+    - final TurnResult is read-only explanation or context summary
+    - replay uses recorded refs without provider recall
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

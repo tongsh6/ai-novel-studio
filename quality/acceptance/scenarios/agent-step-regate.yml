@@ -1,0 +1,46 @@
+id: agent-step-regate
+title: 每个 AgentStep 重新经过 Orchestrator gate
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-step-regate --surface tauri
+canonical_driver: ua01-agent-bounded-roster-to-character-design
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - each-agent-step-re-enters-orchestrator
+  - agent-does-not-directly-call-toolbox
+  - planner-does-not-approve-its-own-execution
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: compound roster then character design request
+  - wait_for: bounded run completion
+  - verify: parent user_message returns bounded run_id and app log records allow_tool for both internal steps
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-step-regate-tauri
+
+assertions:
+  data:
+    - parent user_message starts bounded AgentRun without sync_turn fallback
+    - character_roster step has allow_tool decision before Toolbox execution
+    - character_design step has allow_tool decision before Toolbox execution
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

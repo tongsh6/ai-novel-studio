@@ -101,6 +101,74 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("vs10-observability-spine");
   });
 
+  it("requires author-visible AgentRun stages for ordinary conversation turns", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        run_id: "run-conversation",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-conversation-turn",
+        turn_id: "turn-conversation",
+        parent_turn_id: "turn-conversation",
+        final_turn_id: "turn-conversation",
+        run_id: "run-conversation",
+        plain_input_sent_from_real_workbench: true,
+        parent_fast_ack_before_final_turn_result: true,
+        run_mode: "bounded",
+        profile_ref: "conversation_turn_v1",
+        final_turn_broadcast: true,
+        no_tool_called: true,
+        no_auto_adoption: true,
+        no_production_write: true,
+        agent_stage_events_visible: true,
+        context_step_visible: true,
+        frame_step_visible: true,
+        strategy_step_visible: true,
+        finalize_step_visible: true,
+        context_observation_visible: true,
+        frame_observation_visible: true,
+        strategy_observation_visible: true,
+        ui_context_step_visible: true,
+        ui_frame_step_visible: true,
+        ui_strategy_step_visible: true,
+        ui_finalize_step_visible: true,
+        completed_step_count: 4,
+        consumed_steps: 4,
+        consumed_tool_calls: 0,
+        consumed_provider_calls: 1,
+        ui_agent_panel_visible: true,
+        ui_agent_completed_visible: true,
+        log_sync_turn_count: 0,
+        log_toolbox_execute_count: 0,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-conversation-turn", records);
+    expect(evidence).toMatchObject({
+      slice_id: "agent-conversation-turn",
+      run_id: "run-conversation",
+      profile_ref: "conversation_turn_v1",
+    });
+    expect(findSliceBehaviorEvidence("agent-conversation-turn", records, evidence)).toMatchObject({
+      slice_id: "agent-conversation-turn",
+      assertions: expect.arrayContaining([
+        "context_frame_strategy_and_finalize_steps_were_author_visible",
+        "context_frame_and_strategy_observations_were_author_visible",
+      ]),
+    });
+
+    const missingStageRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, finalize_step_visible: false }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("agent-conversation-turn", missingStageRecords)).toBeNull();
+  });
+
   it("accepts AU-04 confirm-before-execute only when the real confirmation card explains the boundary", () => {
     const records = au04ConfirmBeforeExecuteRecords();
 
@@ -121,7 +189,8 @@ describe("native Tauri slice verifier", () => {
     });
     expect(findSliceBehaviorEvidence("au04-confirm-before-execute", records, evidence)).toEqual({
       slice_id: "au04-confirm-before-execute",
-      behavior: "high_risk_user_turn_requires_confirmation_then_binding_re_gate_executes_tentatively",
+      behavior:
+        "high_risk_user_turn_requires_confirmation_then_binding_re_gate_executes_tentatively",
       turn_ids: ["turn-au04-confirm"],
       artifact_id: "artifact-au04-confirm",
       confirm_action_behavior_ref: "behavior-au04-confirm",
@@ -193,7 +262,7 @@ describe("native Tauri slice verifier", () => {
         session_id: "session-au07",
         trace_why_dialog_open: true,
         trace_why_text:
-          "自然回复 你提出的是讨论或解释请求，系统没有执行写入动作。参考来源 当前会话记录 解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
+          "AI 回应 你提出的是讨论或解释请求，系统没有执行写入动作。参考来源 当前会话记录 解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
         trace_why_contains_raw_prompt: false,
         replay_provider_called: false,
         production_write_performed: false,
@@ -415,7 +484,7 @@ describe("native Tauri slice verifier", () => {
         replay_no_provider_visible: true,
         trace_why_dialog_open: true,
         trace_why_text:
-          "自然回复 已从持久 trace 生成结构化回放。回放只读取已保存记录，不会重新调用模型。参考来源 当前会话记录",
+          "AI 回应 已从持久 trace 生成结构化回放。回放只读取已保存记录，不会重新调用模型。参考来源 当前会话记录",
         trace_why_contains_raw_prompt: false,
         production_write_performed: false,
         tool_called: false,
@@ -514,7 +583,7 @@ describe("native Tauri slice verifier", () => {
         replay_no_provider_visible: true,
         trace_why_dialog_open: true,
         trace_why_text:
-          "自然回复 这轮 trace 不完整，只展示已保存的部分解释。回放只读取已保存记录，不会重新调用模型。参考来源 当前会话记录",
+          "AI 回应 这轮 trace 不完整，只展示已保存的部分解释。回放只读取已保存记录，不会重新调用模型。参考来源 当前会话记录",
         trace_why_contains_raw_prompt: false,
         production_write_performed: false,
         tool_called: false,
@@ -650,10 +719,7 @@ describe("native Tauri slice verifier", () => {
       },
     ];
 
-    const evidence = findNativeSliceEvidence(
-      "au07-trace-query-scope-negative-matrix",
-      records,
-    );
+    const evidence = findNativeSliceEvidence("au07-trace-query-scope-negative-matrix", records);
     expect(evidence).toMatchObject({
       slice_id: "au07-trace-query-scope-negative-matrix",
       turn_id: "turn-au07-scope",
@@ -698,7 +764,9 @@ describe("native Tauri slice verifier", () => {
         ? { ...record, negative_responses_leaked_trace: true }
         : record,
     );
-    expect(findNativeSliceEvidence("au07-trace-query-scope-negative-matrix", unsafeRecords)).toBeNull();
+    expect(
+      findNativeSliceEvidence("au07-trace-query-scope-negative-matrix", unsafeRecords),
+    ).toBeNull();
   });
 
   it("accepts AU-04 rapid confirm click evidence only when execution stays single-shot", () => {
@@ -847,32 +915,34 @@ describe("native Tauri slice verifier", () => {
       latest_toolbox_execute_count: 1,
       key_events: keyEventsForSlice("au06-single-active-confirmation"),
     });
-    expect(findSliceBehaviorEvidence("au06-single-active-confirmation", records, evidence)).toEqual({
-      slice_id: "au06-single-active-confirmation",
-      behavior: "new_confirmation_supersedes_old_author_blocking_behavior_without_old_execution",
-      turn_ids: ["turn-au06-first-confirm", "turn-au06-second-confirm"],
-      first_confirm_action_behavior_ref: "behavior-au06-first",
-      second_confirm_action_behavior_ref: "behavior-au06-second",
-      second_turn_behavior_context_ref_visible: true,
-      second_turn_behavior_context_author_safe: true,
-      second_turn_behavior_context_summary:
-        "当前有待作者确认的操作：章节正文草稿；确认或取消前不能执行工具或写入作品事实。",
-      second_turn_behavior_context_redaction_level: "author_safe",
-      second_turn_behavior_context_ref: "ctx-au06-behavior",
-      second_turn_behavior_context_source_id: "",
-      old_confirm_prevented: true,
-      old_confirm_rejected: true,
-      old_author_action_error_count: 1,
-      latest_toolbox_execute_count: 1,
-      assertions: [
-        "first_high_risk_turn_opened_confirmation_in_real_workbench",
-        "second_high_risk_turn_advanced_to_a_distinct_active_confirmation",
-        "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
-        "old_confirmation_did_not_dispatch_tool_or_create_pending_draft",
-        "latest_confirmation_remained_actionable_and_executed_once",
-        "second_turn_received_author_safe_behavior_context_ref",
-      ],
-    });
+    expect(findSliceBehaviorEvidence("au06-single-active-confirmation", records, evidence)).toEqual(
+      {
+        slice_id: "au06-single-active-confirmation",
+        behavior: "new_confirmation_supersedes_old_author_blocking_behavior_without_old_execution",
+        turn_ids: ["turn-au06-first-confirm", "turn-au06-second-confirm"],
+        first_confirm_action_behavior_ref: "behavior-au06-first",
+        second_confirm_action_behavior_ref: "behavior-au06-second",
+        second_turn_behavior_context_ref_visible: true,
+        second_turn_behavior_context_author_safe: true,
+        second_turn_behavior_context_summary:
+          "当前有待作者确认的操作：章节正文草稿；确认或取消前不能执行工具或写入作品事实。",
+        second_turn_behavior_context_redaction_level: "author_safe",
+        second_turn_behavior_context_ref: "ctx-au06-behavior",
+        second_turn_behavior_context_source_id: "",
+        old_confirm_prevented: true,
+        old_confirm_rejected: true,
+        old_author_action_error_count: 1,
+        latest_toolbox_execute_count: 1,
+        assertions: [
+          "first_high_risk_turn_opened_confirmation_in_real_workbench",
+          "second_high_risk_turn_advanced_to_a_distinct_active_confirmation",
+          "old_confirmation_was_hidden_disabled_or_rejected_as_stale",
+          "old_confirmation_did_not_dispatch_tool_or_create_pending_draft",
+          "latest_confirmation_remained_actionable_and_executed_once",
+          "second_turn_received_author_safe_behavior_context_ref",
+        ],
+      },
+    );
   });
 
   it("accepts AU-04 expired confirmation evidence only when it cannot execute", () => {
@@ -1022,10 +1092,7 @@ describe("native Tauri slice verifier", () => {
   it("accepts AU-04 latest-context rebase evidence only when confirm consumes renamed work snapshot", () => {
     const records = au04LatestContextRebaseConfirmationRecords();
 
-    const evidence = findNativeSliceEvidence(
-      "au04-latest-context-rebase-confirmation",
-      records,
-    );
+    const evidence = findNativeSliceEvidence("au04-latest-context-rebase-confirmation", records);
     expect(evidence).toMatchObject({
       slice_id: "au04-latest-context-rebase-confirmation",
       turn_id: "turn_au04_latest_context_rebase_seed",
@@ -1201,28 +1268,28 @@ describe("native Tauri slice verifier", () => {
       provider_secrets_file_mode: "600",
       key_events: keyEventsForSlice("su01-local-secret-file-roundtrip"),
     });
-    expect(findSliceBehaviorEvidence("su01-local-secret-file-roundtrip", records, evidence)).toEqual(
-      {
-        slice_id: "su01-local-secret-file-roundtrip",
-        behavior: "local_secret_file_write_read_roundtrip_from_real_tauri_webview",
-        turn_ids: [],
-        work_id: "work-su01-secret-file",
-        provider_selected: "deepseek",
-        model_selected: "deepseek-slice-local-file",
-        driver: "macos-cgevent",
-        assertions: [
-          "model_settings_opened_from_real_tauri_webview_by_external_cgevent_driver",
-          "deepseek_api_key_saved_through_tauri_webview_command",
-          "provider_secrets_file_written_with_owner_only_permissions",
-          "backend_runtime_was_reset_then_webview_restart_restored_provider_from_local_secret_file",
-          "provider_options_marked_api_key_configured_after_reload_without_returning_secret",
-          "preferences_saved_non_secret_provider_state_without_api_key",
-          "application_and_backend_logs_did_not_expose_api_key",
-          "product_code_added_no_acceptance_hooks",
-          "no_error_events",
-        ],
-      },
-    );
+    expect(
+      findSliceBehaviorEvidence("su01-local-secret-file-roundtrip", records, evidence),
+    ).toEqual({
+      slice_id: "su01-local-secret-file-roundtrip",
+      behavior: "local_secret_file_write_read_roundtrip_from_real_tauri_webview",
+      turn_ids: [],
+      work_id: "work-su01-secret-file",
+      provider_selected: "deepseek",
+      model_selected: "deepseek-slice-local-file",
+      driver: "macos-cgevent",
+      assertions: [
+        "model_settings_opened_from_real_tauri_webview_by_external_cgevent_driver",
+        "deepseek_api_key_saved_through_tauri_webview_command",
+        "provider_secrets_file_written_with_owner_only_permissions",
+        "backend_runtime_was_reset_then_webview_restart_restored_provider_from_local_secret_file",
+        "provider_options_marked_api_key_configured_after_reload_without_returning_secret",
+        "preferences_saved_non_secret_provider_state_without_api_key",
+        "application_and_backend_logs_did_not_expose_api_key",
+        "product_code_added_no_acceptance_hooks",
+        "no_error_events",
+      ],
+    });
 
     const browserOnlyRecords = [
       {
@@ -2799,7 +2866,7 @@ describe("native Tauri slice verifier", () => {
         active_session_id: "session-source",
         trace_why_dialog_open: true,
         trace_why_text:
-          "自然回复 参考来源 当前作品背景 灵源纪元 / 东方奇幻 / 林烬追查灵源矿区真相 当前会话记录 上一轮围绕「林烬进入灵源矿区」展开，AI 已给出回应。 已确认设定 林瑶失踪指向灵源矿区，林烬去矿区追查线索。 解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
+          "AI 回应 参考来源 当前作品背景 灵源纪元 / 东方奇幻 / 林烬追查灵源矿区真相 当前会话记录 上一轮围绕「林烬进入灵源矿区」展开，AI 已给出回应。 已确认设定 林瑶失踪指向灵源矿区，林烬去矿区追查线索。 解释来自本轮已保存的 trace 摘要，不会重新调用模型或改写作品。",
         trace_why_contains_raw_prompt: false,
         duration_ms: 0,
         outcome: "done",
@@ -3351,28 +3418,28 @@ describe("native Tauri slice verifier", () => {
       memory_list_request_count: 8,
       key_events: keyEventsForSlice("au09-memory-management-filter-matrix"),
     });
-    expect(findSliceBehaviorEvidence("au09-memory-management-filter-matrix", records, evidence)).toEqual(
-      {
-        slice_id: "au09-memory-management-filter-matrix",
-        behavior:
-          "author_filters_current_work_memory_list_by_keyword_type_scope_status_and_locked_state",
-        turn_ids: [],
-        work_id: "work-filter",
-        alpha_nonce: "筛矩灵印",
-        beta_nonce: "筛矩锁印",
-        gamma_nonce: "筛矩外印",
-        memory_list_request_count: 8,
-        assertions: [
-          "author_opened_memory_page_from_real_workbench",
-          "author_created_distinct_current_work_memories_from_real_ui",
-          "keyword_filter_isolated_matching_memory",
-          "type_scope_status_and_locked_filters_isolated_matching_memory",
-          "combined_filter_matrix_kept_only_the_matching_memory",
-          "draft_unlocked_filter_kept_only_the_matching_memory",
-          "memory_list_requests_carried_visible_filter_values",
-        ],
-      },
-    );
+    expect(
+      findSliceBehaviorEvidence("au09-memory-management-filter-matrix", records, evidence),
+    ).toEqual({
+      slice_id: "au09-memory-management-filter-matrix",
+      behavior:
+        "author_filters_current_work_memory_list_by_keyword_type_scope_status_and_locked_state",
+      turn_ids: [],
+      work_id: "work-filter",
+      alpha_nonce: "筛矩灵印",
+      beta_nonce: "筛矩锁印",
+      gamma_nonce: "筛矩外印",
+      memory_list_request_count: 8,
+      assertions: [
+        "author_opened_memory_page_from_real_workbench",
+        "author_created_distinct_current_work_memories_from_real_ui",
+        "keyword_filter_isolated_matching_memory",
+        "type_scope_status_and_locked_filters_isolated_matching_memory",
+        "combined_filter_matrix_kept_only_the_matching_memory",
+        "draft_unlocked_filter_kept_only_the_matching_memory",
+        "memory_list_requests_carried_visible_filter_values",
+      ],
+    });
   });
 
   it("rejects AU-09 memory management filter matrix when a filter does not isolate rows", () => {
@@ -5225,7 +5292,8 @@ describe("native Tauri slice verifier", () => {
         action_id: "act-forged-sec",
         action_type: "confirm_before_execute",
         reason_code: "dialogue_gateway_rejected",
-        outcome_detail: "invented action: confirm_before_execute:act-forged-sec not in available actions",
+        outcome_detail:
+          "invented action: confirm_before_execute:act-forged-sec not in available actions",
       },
       {
         event: "channel.author_action.start",
@@ -5287,8 +5355,7 @@ describe("native Tauri slice verifier", () => {
       stale_action_id: "act-stale-sec",
       invented_error_reason:
         "invented action: confirm_before_execute:act-forged-sec not in available actions",
-      stale_error_reason:
-        "stale action: source_turn_ref turn-e2e-sec-1 != current turn-e2e-sec-2",
+      stale_error_reason: "stale action: source_turn_ref turn-e2e-sec-1 != current turn-e2e-sec-2",
       author_action_error_count: 2,
       key_events: keyEventsForSlice("e2e-01-channel-action-security"),
     });
@@ -5648,7 +5715,7 @@ describe("native Tauri slice verifier", () => {
   it("rejects AU-07 behavior terminal replay without a resolution ref", () => {
     const records = au07BehaviorTraceTerminalReplayRecords().map((record) =>
       record.event === "slice_verify.ui_state.done"
-        ? {...record, behavior_trace_resolution_ref: ""}
+        ? { ...record, behavior_trace_resolution_ref: "" }
         : record,
     );
 
@@ -5716,7 +5783,9 @@ describe("native Tauri slice verifier", () => {
     const records = au12WorkProfileStatusIsolationRecords();
     const evidence = findNativeSliceEvidence("au12-work-profile-status-isolation", records);
 
-    expect(findSliceBehaviorEvidence("au12-work-profile-status-isolation", records, evidence)).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au12-work-profile-status-isolation", records, evidence),
+    ).toEqual({
       slice_id: "au12-work-profile-status-isolation",
       behavior: "author_checks_profile_status_missing_fields_and_cross_work_archive_isolation",
       turn_ids: [],
@@ -5756,7 +5825,9 @@ describe("native Tauri slice verifier", () => {
     const records = au12ProfileReadFailureDegradeRecords();
     const evidence = findNativeSliceEvidence("au12-profile-read-failure-degrade", records);
 
-    expect(findSliceBehaviorEvidence("au12-profile-read-failure-degrade", records, evidence)).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au12-profile-read-failure-degrade", records, evidence),
+    ).toEqual({
       slice_id: "au12-profile-read-failure-degrade",
       behavior: "work_profile_read_failure_degrades_honestly_and_recovers_on_retry",
       turn_ids: [],
@@ -6163,8 +6234,7 @@ describe("native Tauri slice verifier", () => {
 
   it("rejects AU-08 reading return context when follow-up switches session", () => {
     const records = au08ReadingReturnContextRecords().map((record) =>
-      record.event === "channel.user_message.done" &&
-      record.turn_id === "turn-au08-return-followup"
+      record.event === "channel.user_message.done" && record.turn_id === "turn-au08-return-followup"
         ? { ...record, session_id: "session-other" }
         : record,
     );
@@ -6238,7 +6308,9 @@ describe("native Tauri slice verifier", () => {
       key_events: keyEventsForSlice("au07-state-trace-adoption-replay"),
     });
 
-    expect(findSliceBehaviorEvidence("au07-state-trace-adoption-replay", records, evidence)).toEqual({
+    expect(
+      findSliceBehaviorEvidence("au07-state-trace-adoption-replay", records, evidence),
+    ).toEqual({
       slice_id: "au07-state-trace-adoption-replay",
       behavior: "adoption_and_reading_projection_replayable_from_state_trace_refs",
       turn_ids: ["turn-au07-draft", "turn-au07-adopt"],
@@ -11007,7 +11079,8 @@ function au04LatestContextRebaseConfirmationRecords() {
       ],
       gate_result_ref_present: true,
       trace_context_includes_renamed_title: true,
-      trace_current_work_summary: "AU04 最新上下文已改名 / 赛博修仙 / 确认前修改作品名后，确认执行必须重新读取最新作品快照",
+      trace_current_work_summary:
+        "AU04 最新上下文已改名 / 赛博修仙 / 确认前修改作品名后，确认执行必须重新读取最新作品快照",
       reason_codes_include_rebased_ref: true,
       reason_codes_include_gate_ref: true,
       confirmed_dispatch: true,

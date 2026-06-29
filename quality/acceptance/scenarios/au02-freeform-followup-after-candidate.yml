@@ -27,7 +27,7 @@ user_flow:
   - wait_for: candidate direction visible
   - do_not_click: 继续聊这个方向 / 设为后续方向
   - input: 针对候选内容继续自由追问
-  - observe: 下一轮自然回复
+  - observe: 下一轮 AI 回应
 
 evidence:
   required:

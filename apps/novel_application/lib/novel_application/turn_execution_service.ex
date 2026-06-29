@@ -9,8 +9,8 @@ defmodule NovelApplication.TurnExecutionService do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.ProseQualityEvaluator
-  alias NovelAgent.Toolbox
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.CharacterRosterNarration
@@ -146,7 +146,8 @@ defmodule NovelApplication.TurnExecutionService do
           prior_summaries: prior_summaries,
           character_roster: character_roster,
           characters: characters,
-          execution_brief: render_execution_brief(brief_result)
+          execution_brief: render_execution_brief(brief_result),
+          decision_packet: decision_packet(brief_result)
         }
       )
 
@@ -175,6 +176,11 @@ defmodule NovelApplication.TurnExecutionService do
           turn_id: frame.turn_id,
           omission_notes: omission_notes,
           brief_ref: execution_brief_ref(brief_result),
+          decision_packet_ref: decision_packet_ref(brief_result),
+          writer_provider_call_ref: writer_provider_call_ref(tool_result),
+          evaluator_provider_call_ref: evaluator_provider_call_ref(quality),
+          provider_call_budget:
+            provider_call_budget(input[:complete_fn], input[:quality_complete_fn], nil),
           quality_policy_action: quality_policy_action(quality),
           quality_review_status: quality_review_status(quality)
         },
@@ -323,6 +329,7 @@ defmodule NovelApplication.TurnExecutionService do
     }
     |> maybe_put_characters(action, sections.characters)
     |> maybe_put_execution_brief(sections)
+    |> maybe_put_decision_packet(sections)
   end
 
   # VS-00E：把已渲染的场级执行简述文本放入工具输入，由 CreativeToolAdapter 透传给
@@ -333,6 +340,12 @@ defmodule NovelApplication.TurnExecutionService do
   end
 
   defp maybe_put_execution_brief(input, _sections), do: input
+
+  defp maybe_put_decision_packet(input, %{decision_packet: packet}) when is_map(packet) do
+    Map.put(input, "decision_packet", packet)
+  end
+
+  defp maybe_put_decision_packet(input, _sections), do: input
 
   defp maybe_put_characters(input, action, characters) do
     if (action[:target_ref] || action[:capability_name]) == "character_roster" do
@@ -694,7 +707,13 @@ defmodule NovelApplication.TurnExecutionService do
 
   # VS-00E CP1：仅 prose_writing 路径，从目标章方向 + 读者效果确定性投影出场级执行简述。
   # 章窗口与 target_structure_section 同源（context.structured_chapters）。
-  defp prose_execution_brief(frame, action, %DialogueContext{} = context, resolved_chapter, author_text) do
+  defp prose_execution_brief(
+         frame,
+         action,
+         %DialogueContext{} = context,
+         resolved_chapter,
+         author_text
+       ) do
     if prose_writing_action?(action) do
       target = structure_target_title(action, resolved_chapter)
       window = structured_chapter_window(context.structured_chapters, target)
@@ -705,15 +724,23 @@ defmodule NovelApplication.TurnExecutionService do
 
       reader_effect = ReaderEffectBrief.from_plan_direction(direction)
 
-      %{
-        chapter_direction: direction,
-        reader_effect_brief: reader_effect,
-        chapter: current_chapter_map(current),
-        author_input: author_text,
-        source_turn_ref: frame.turn_id
-      }
-      |> CreativeDecisionPacketBuilder.build()
-      |> ProseExecutionBriefBuilder.build()
+      packet =
+        %{
+          chapter_direction: direction,
+          reader_effect_brief: reader_effect,
+          chapter: current_chapter_map(current),
+          author_input: author_text,
+          source_turn_ref: frame.turn_id
+        }
+        |> CreativeDecisionPacketBuilder.build()
+
+      {brief, meta} = ProseExecutionBriefBuilder.build(packet)
+
+      {brief,
+       Map.merge(meta, %{
+         decision_packet: packet,
+         decision_packet_ref: "cdp_#{frame.turn_id}"
+       })}
     end
   end
 
@@ -735,6 +762,12 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp execution_brief_ref({brief, _meta}), do: ProseExecutionBrief.ref(brief)
   defp execution_brief_ref(_), do: nil
+
+  defp decision_packet({_, %{decision_packet: packet}}) when is_map(packet), do: packet
+  defp decision_packet(_), do: nil
+
+  defp decision_packet_ref({_, %{decision_packet_ref: ref}}) when is_binary(ref), do: ref
+  defp decision_packet_ref(_), do: nil
 
   defp emit_execution_brief(frame, {brief, meta}) do
     LogEmit.emit(:creative_decision_packet, :built, :done, %{turn_id: frame.turn_id})
@@ -774,7 +807,8 @@ defmodule NovelApplication.TurnExecutionService do
     end
   end
 
-  defp run_prose_quality(_frame, _action, _tool_result, _quality_complete_fn, _brief_text), do: nil
+  defp run_prose_quality(_frame, _action, _tool_result, _quality_complete_fn, _brief_text),
+    do: nil
 
   # 独立 evaluator 通过单独的 quality_complete_fn 调用（与 writer 的 complete_fn 分离的
   # provider 调用 + 独立 prompt）。未注入时为确定性评估。
@@ -791,8 +825,11 @@ defmodule NovelApplication.TurnExecutionService do
       }
 
       case ProseQualityEvaluator.evaluate(request, quality_complete_fn) do
-        %QualityEvaluationResult{status: :ok, findings: findings} -> {:ok, findings}
-        %QualityEvaluationResult{status: :error, error: error} -> {:error, error}
+        %QualityEvaluationResult{status: :ok, findings: findings, provider_call_ref: ref} ->
+          {:ok, findings, ref}
+
+        %QualityEvaluationResult{status: :error, error: error} ->
+          {:error, error}
       end
     end
 
@@ -826,7 +863,11 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp maybe_put_quality_review(turn_result, nil), do: turn_result
 
-  defp maybe_put_quality_review(turn_result, %{findings: findings, review_status: status, policy: policy}) do
+  defp maybe_put_quality_review(turn_result, %{
+         findings: findings,
+         review_status: status,
+         policy: policy
+       }) do
     turn_result
     |> Map.put(:quality_review, %{
       status: quality_status(policy.action),
@@ -860,7 +901,9 @@ defmodule NovelApplication.TurnExecutionService do
             findings |> Enum.map(& &1.validator_ref) |> Enum.reject(&is_nil/1) |> Enum.uniq()
         }
 
-        Map.update(turn_result, :available_actions, [action], fn actions -> actions ++ [action] end)
+        Map.update(turn_result, :available_actions, [action], fn actions ->
+          actions ++ [action]
+        end)
     end
   end
 
@@ -888,6 +931,39 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp quality_review_status(%{review_status: status}), do: Atom.to_string(status)
   defp quality_review_status(_quality), do: nil
+
+  defp evaluator_provider_call_ref(%{evaluator_provider_call_ref: ref})
+       when is_binary(ref) and ref != "",
+       do: ref
+
+  defp evaluator_provider_call_ref(_quality), do: nil
+
+  defp writer_provider_call_ref(%ToolResult{output: %{items: items}}) when is_list(items) do
+    Enum.find_value(items, fn item -> map_value(item, :provider_call_ref) end)
+  end
+
+  defp writer_provider_call_ref(_tool_result), do: nil
+
+  defp provider_call_budget(writer_fn, evaluator_fn, revision_fn) do
+    %{
+      frame_planning: 0,
+      micro_planning: 0,
+      writer: provider_call_count(writer_fn),
+      evaluator: provider_call_count(evaluator_fn),
+      revision_writer: provider_call_count(revision_fn),
+      step_planning: 0,
+      final_synthesizer: 0
+    }
+  end
+
+  defp provider_call_count(fun) when is_function(fun, 1), do: 1
+  defp provider_call_count(_fun), do: 0
+
+  defp map_value(map, key) when is_map(map) do
+    Map.get(map, key) || Map.get(map, Atom.to_string(key))
+  end
+
+  defp map_value(_map, _key), do: nil
 
   defp structure_target_title(_action, resolved_chapter)
        when is_binary(resolved_chapter) and resolved_chapter != "",
@@ -1025,10 +1101,10 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp dispatch_tool(%ToolRequest{tool_name: tool_name} = req, complete_fn)
        when tool_name in @creative_tools do
-    Toolbox.execute(req, complete_fn)
+    AuthorizedToolExecutor.execute(req, complete_fn)
   end
 
-  defp dispatch_tool(%ToolRequest{} = req, _complete_fn), do: Toolbox.execute(req)
+  defp dispatch_tool(%ToolRequest{} = req, _complete_fn), do: AuthorizedToolExecutor.execute(req)
 
   defp assemble_artifact(
          %ToolResult{tool_name: tool_name} = result,
@@ -1141,5 +1217,4 @@ defmodule NovelApplication.TurnExecutionService do
   defp narrate(_tool_result, _artifact_set, _complete_fn) do
     "工具执行未完成。未创建待采纳内容，也没有写入作品事实。"
   end
-
 end

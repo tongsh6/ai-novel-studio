@@ -1,0 +1,47 @@
+id: agent-no-progress-stop
+title: AgentRun 重复无进展时停止等待作者
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-no-progress-stop --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - loop-stops-when-no-progress
+  - repeated-readonly-observation-does-not-call-provider
+  - no-final-artifact-after-no-progress-stop
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: repeated roster-read AgentRun request
+  - wait_for: two readonly character_roster steps
+  - verify: AgentRun stops awaiting_author with no_progress before character_design
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-no-progress-stop-tauri
+
+assertions:
+  data:
+    - run state reaches awaiting_author with reason no_progress
+    - consumed steps equals 2
+    - consumed provider calls equals 0
+    - character_design tool does not execute
+    - no final character TurnResult is broadcast
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

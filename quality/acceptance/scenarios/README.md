@@ -11,6 +11,29 @@
 | `au01-garbage-json-recovery.yml` | LLM 乱码 JSON 时友好降级并恢复聊天 |
 | `au01-ordinary-chat-two-turn-roundtrip.yml` | 普通聊天两轮真实工作台闭环 |
 | `au01-turnresult-recorder-ui-consistency.yml` | TurnResult、recorder 与恢复 UI 一致 |
+| `ua01-agent-bounded-roster-to-character-design.yml` | 复合角色任务启动 bounded AgentRun 并产出待采纳角色草稿 |
+| `agent-bounded-roster-to-character-design.yml` | AgentRun 角色阵容 Observation 传递到角色设计 |
+| `agent-step-regate.yml` | 每个 AgentStep 重新经过 Orchestrator gate |
+| `agent-no-multistep-plan-bypass.yml` | AgentRun 不把多步计划作为 ToolRequest 批量旁路执行 |
+| `agent-event-author-safe.yml` | AgentEvent 只暴露作者安全摘要和引用 |
+| `agent-channel-fast-ack.yml` | Channel 快速返回 bounded run_id 后异步广播结果 |
+| `agent-interrupt-safe-point.yml` | AgentRun pause 在协作式 safe point 停止 |
+| `agent-cancel-target-binding.yml` | AgentRun cancel 绑定 active run_id 并协作式取消 |
+| `agent-steer-replan.yml` | AgentRun steer 绑定 active run_id 并广播重规划状态 |
+| `agent-loop-budget-limit.yml` | AgentRun 受作者预算限制停止等待作者 |
+| `agent-no-progress-stop.yml` | AgentRun 重复无进展时停止等待作者 |
+| `agent-archive-read-during-run.yml` | AgentRun 运行中作品档案仍可读取 |
+| `agent-tentative-boundary.yml` | Agent 产物保持 tentative，不自动采纳或写主档案 |
+| `agent-revision-orchestrator-boundary.yml` | 修订候选动作重新经过 Orchestrator 后再执行 |
+| `agent-replay-no-provider.yml` | Agent/修订 replay policy 不重新调用 provider |
+| `agent-work-isolation.yml` | 源作品 AgentRun 迟到输出不污染切换后的目标作品 |
+| `agent-provider-call-budget.yml` | AgentRun step/tool/provider 调用预算可追踪 |
+| `agent-durable-resume-long-run-task.yml` | Durable AgentRun 关联 LongRunTask 并可恢复（CP5，active/nightly） |
+| `agent-provider-streaming-progress.yml` | Provider streaming/progress 进入 AgentRun author-safe 事件流（CP6，nightly active） |
+| `agent-provider-cancel-honest-boundary.yml` | Provider cancel 诚实区分硬取消与协作式 safe point（CP6，nightly active） |
+| `agent-readonly-batch-profile.yml` | AgentRun 只读 batch profile 可并行读取且不写作品事实（CP6，nightly active） |
+| `agent-prose-drafting-with-quality.yml` | AgentRun 正文草稿 Profile 复用正文质量复核链路 |
+| `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun |
 | `au02-candidate-adoption-bridge.yml` | 候选方向选择与采纳边界 |
 | `au02-candidate-continuation.yml` | 候选方向继续讨论 |
 | `au02-candidate-fallback-ui.yml` | 候选坏格式 fallback 仍渲染可用候选卡 |

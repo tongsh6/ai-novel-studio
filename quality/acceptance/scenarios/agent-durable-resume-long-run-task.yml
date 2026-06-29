@@ -1,0 +1,51 @@
+id: agent-durable-resume-long-run-task
+title: Durable AgentRun 关联 LongRunTask 并可恢复
+tier: nightly
+status: active
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-durable-resume-long-run-task --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/design/04a-planning-and-long-run.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - durable-agent-run-must-link-long-run-task
+  - bounded-run-does-not-force-long-run-task
+  - stale-resume-does-not-silently-continue
+  - recovered-run-state-is-author-visible
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: visible request that starts a durable AgentRun with a one-step budget checkpoint
+  - wait_for: fast ack with run_id and long_run_task_ref
+  - interrupt: restart backend, then reload the real workbench
+  - verify: UI recovers active run state from persisted checkpoint
+  - verify: stale snapshot waits for author instead of silently continuing
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-durable-resume-long-run-task-tauri
+
+assertions:
+  data:
+    - durable AgentRun has long_run_task_ref
+    - completed steps are not repeated after resume
+    - agent_run_state after backend restart includes recovered status and checkpoint refs
+    - stale resume produces awaiting_author with runtime_not_live reason
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

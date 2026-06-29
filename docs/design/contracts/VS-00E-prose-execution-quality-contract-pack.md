@@ -11,22 +11,22 @@
 
 ## 0. 现状基线（以实际分支 `develop/dialogue-based-novel-workbench` 为准）
 
-已存在（代码）：
+2026-06-25 CP0 冻结时已存在（代码）：
 
 - `NovelDomain.ChapterPlanDirection`、`NovelDomain.ReaderEffectBrief`（章级读者效果，从 `ChapterPlanDirection` 投影）、`NovelDomain.WritingCoordinate`、`NovelDomain.MissingPolicyResult`、`NovelDomain.TentativeArtifactSet`。
-- `NovelCommon.Contracts.CreativeRequest`：当前字段 `request_id / tool_name / artifact_type / creative_brief / context_text / source_turn_ref / provider_hints`（**无** `decision_packet` / `execution_brief`）。
+- `NovelCommon.Contracts.CreativeRequest`：当时仅有 `request_id / tool_name / artifact_type / creative_brief / context_text / source_turn_ref / provider_hints`，尚未接入 `decision_packet` / `execution_brief`。
 - `prose_writing` capability：read_scopes = `["author_text", "chapter_draft", "prose_style_guide"]`，write_scopes = `["prose_fragment", "scene_draft"]`，provider_dependency = `:llm_provider`。
-- 正文链：`TurnExecutionService` → `Toolbox.execute` → `prose_writing_adapter` → `CreativeProvider.Real` → Provider Gateway。
+- 正文链：`TurnExecutionService` → agent 侧授权工具执行边界 → `prose_writing_adapter` → `CreativeProvider.Real` → Provider Gateway。
 - `CreativeOutputSelfReport`（writer 自报告，非权威）。
 
-仅存在于设计文档（**无代码模块**）：
+2026-06-28 当前实现事实：
 
-- `CreativeDecisionPacket`（VS-00C/VS-00D 设计态）。
-- `quality_gate.*` / `QualityFinding`（`../quality/31-novel-quality-gates.md` 设计态）。
+- 已落地：`NovelDomain.ProseExecutionBrief`、`NovelDomain.QualityFinding`、`NovelApplication.CreativeDecisionPacketBuilder`、`NovelApplication.ProseExecutionBriefBuilder`、`NovelApplication.ProseQualityService`、`NovelApplication.ProseQualityPolicy`、`NovelAgent.ProseQualityEvaluator`、`QualityEvaluationRequest`、`QualityEvaluationResult`、`CreativeRequest.execution_brief`、`CreativeRequest.decision_packet`、`TurnResult.quality_review`、`QualityReviewCard`、`revise_from_findings`、`TentativeArtifactSet.revision_base/revision_reason/quality_finding_refs`。
+- VS-00E 全部 4 个真实页面 Tauri 验收已闭环：`p1-prose-quality-finding-roundtrip`、`p1-prose-quality-evaluator-degrade`、`p1-prose-revision-candidate`、`p1-prose-quality-adoption-boundary`。
+- `revise_from_findings` 当前链路为：作者 action → `ActionValidator` → revision `DialogueFrame` / 单动作 `MicroPlan` → `ExecutionOrchestrator.decide` → 带真实 `decision_ref` 的 `ToolRequest` → agent 侧授权执行边界 → `ArtifactAssembler` → sibling tentative revision `TurnResult`。修订 trace 默认 `replay_policy.recall_provider=false`。
+- `trace_summary` 当前记录 `creative_decision_packet_ref`、`prose_execution_brief_ref`、`writer_provider_call_ref`、`evaluator_provider_call_ref`、`revision_provider_call_ref` 与 `provider_call_budget`，用于 replay 与 author-safe 解释；不把完整 prompt 或原始 provider payload 暴露给 UI。
 
-不存在（CP1–CP3 新建）：`ProseExecutionBrief`、`QualityFinding`（代码）、`ProseQualityService` / `ProseQualityPolicy`、`CreativeDecisionPacketBuilder` / `ProseExecutionBriefBuilder`、writer/evaluator 分离、`revise_from_findings`、质量 validator、`prose_quality_evaluation` capability。
-
-准确缺口：**章级目标已存在，但未展开为可执行的场级因果与情绪结构；且正文生成后没有独立验证正文是否真正实现这些目标。** 本 pack 不新建平行的「叙事动力架构」，而是沿现有体系补齐这条主链。
+剩余非自动化闭环：真实文学收益 I10 仍需人工盲评，不得用 fixture 或 deterministic validator 冒充。
 
 ---
 
@@ -74,7 +74,7 @@ ChapterPlanDirection (章级 E18–E22：目标/情绪/伏笔/信息释放/钩�
 
 ## 4. 它如何进入 `CreativeDecisionPacket`
 
-CP1 引入 `CreativeDecisionPacket`（代码态，map/struct，由 `CreativeDecisionPacketBuilder` 组装），它聚合一次创作决策的全部输入：`coordinate / context / structure / continuity / style_intent / author_input / reader_effect_brief / execution_brief`。`ProseExecutionBriefBuilder.build(packet)` 消费 packet 产出 `ProseExecutionBriefV1`，并回填到 packet 的 `execution_brief` 字段。packet 不是作品事实，是一次 turn 的决策载体。
+CP1 引入 `CreativeDecisionPacket`（代码态 plain map，由 `CreativeDecisionPacketBuilder` 组装），它聚合一次创作决策的输入：`coordinate / chapter_direction / reader_effect_brief / chapter / author_input / source_turn_ref`。`ProseExecutionBriefBuilder.build(packet)` 消费 packet 产出 `ProseExecutionBriefV1`。packet 不是作品事实，是一次 turn 的决策载体；当前进入 `ToolRequest.input["decision_packet"]` → `CreativeRequest.decision_packet`，trace 只记录 author-safe `creative_decision_packet_ref`。
 
 ## 5. 它如何进入 provider 可见 message
 
@@ -122,11 +122,11 @@ validator → quality gate 映射（**不为每个问题新建顶级 gate**；�
 evaluator 失败                     → quality_review_unavailable
 ```
 
-`TurnResultBuilder` 在 TurnResult 增加 `quality_findings` 与 `quality_policy`。前端（§15）在正文草稿卡下展示 `quality_review`（status + findings + policy_action），复用 `WarningCard` / `CandidateSetCard` 与现有 available actions，**不新建平行 Card 状态机**，**不提升 finding 严重级别**，**不隐藏原始正文**。
+`TurnResultBuilder` 在 TurnResult 增加 `quality_review`（status + findings + policy_action / review_status）。前端（§15）在正文草稿卡下展示 `QualityReviewCard`，复用现有 available actions，**不新建平行 Card 状态机**，**不提升 finding 严重级别**，**不隐藏原始正文**。
 
 ## 8. 修订候选如何保持 tentative/adoption 边界
 
-新增作者动作 `revise_from_findings`（§12）：基于选定 findings 调用正文 writer，产出 **sibling tentative artifact**（新 artifact id），设置 `revision_base = 原 artifact id` / `revision_reason = findings` / `quality_finding_refs`。原稿继续保留、不被覆盖；修订稿不自动采纳、不自动进入阅读投影；原稿与修订稿都各自走现有 adoption 七态；一次动作最多一个候选；evaluator 不得自动递归触发下一次修订。`TentativeArtifactSet` provenance 扩展 `brief_ref / context_refs / quality_finding_refs / revision_base / revision_reason`，不破坏现有 artifact type 与 adoption 七态。
+新增作者动作 `revise_from_findings`（§12）：基于选定 findings 调用正文 writer，产出 **sibling tentative artifact**（新 artifact id），设置 `revision_base = 原 artifact id` / `revision_reason = findings` / `quality_finding_refs`。原稿继续保留、不被覆盖；修订稿不自动采纳、不自动进入阅读投影；原稿与修订稿都各自走现有 adoption 七态；一次动作最多一个候选；evaluator 不得自动递归触发下一次修订。修订调用必须重新经过 `ExecutionOrchestrator`，不得伪造 `decision_ref` 或从 application 编排直接绕过 gate 调用 toolbox。`TentativeArtifactSet` provenance 扩展 `quality_finding_refs / revision_base / revision_reason`，不破坏现有 artifact type 与 adoption 七态。
 
 ## 9. evaluator 失败如何降级
 
@@ -147,10 +147,10 @@ replay **默认不重新调用**正文生成模型或质量评估模型（沿 VS
 ## 11. 冻结的新增 / 扩展对象（实现由 CP1–CP3 落地）
 
 - Domain：`NovelDomain.ProseExecutionBrief`（§1/§7.1）、`NovelDomain.QualityFinding`（§7.3）；`TentativeArtifactSet` provenance 扩展（§8）。
-- Common：`CreativeRequest` 扩展 `decision_packet` / `execution_brief`（兼容，默认 nil）；新增 `QualityEvaluationRequest` / `QualityEvaluationResult`（**不复用** `CreativeOutputSelfReport` 作为权威结果）。
+- Common：`CreativeRequest` 扩展 `decision_packet` / `execution_brief` / `revision`（兼容，默认 nil）；新增 `QualityEvaluationRequest` / `QualityEvaluationResult`（**不复用** `CreativeOutputSelfReport` 作为权威结果）。
 - Application：`CreativeDecisionPacketBuilder`、`ProseExecutionBriefBuilder`、`ProseQualityService`、`ProseQualityPolicy`。
 - Agent：writer / evaluator 职责分离（`ProseWriter` / `ProseQualityEvaluator`），可复用 Provider Gateway 但用不同 request contract 与 prompt。
-- Capability：`prose_writing` read_scopes 扩展至实际使用范围（§14）；新增只读 `prose_quality_evaluation` 能力（无 write scope、不产作品事实、输出 QualityFinding、支持失败降级）。
+- Capability：`prose_writing` read_scopes 扩展至实际使用范围（§14）；质量 evaluator 通过独立 request/prompt 与独立 provider call 运行，不产作品事实、输出 QualityFinding、支持失败降级。
 - Trace：新增事件 `creative_decision_packet_built / prose_execution_brief_built / prose_generated / prose_quality_evaluated / quality_policy_decided / revision_candidate_generated`。
 
 ## 12. 不变量（与 ADR-0020 一致）
@@ -181,8 +181,8 @@ I10 真实质量收益必须通过人工盲评验证（不得用 fixture 假装�
 
 ## 15. checkpoint 边界
 
-- **CP0（本 pack + ADR-0020 + 基线 fixture + ledger/NEXT）**：冻结对象与边界，建立可复现质量基线。
-- **CP1**：`ProseExecutionBriefV1` 成为运行时对象，进入正文生成请求，trace 记 brief_ref（不新增情绪表）。
-- **CP2**：独立 `ProseQualityService`，产 `QualityFinding`，evaluator 与 writer 分离，evaluator 失败诚实降级。
-- **CP3**：`revise_from_findings` 产 sibling tentative revision，原稿保留，修订稿独立采纳。
+- **CP0（本 pack + ADR-0020 + 基线 fixture + ledger/NEXT）**：冻结对象与边界，建立可复现质量基线；2026-06-28 追加收敛 revision Orchestrator 边界、provider call refs / budget 与 decision_packet trace ref。
+- **CP1（已闭环）**：`ProseExecutionBriefV1` 成为运行时对象，进入正文生成请求，trace 记 `prose_execution_brief_ref` / `creative_decision_packet_ref`（不新增情绪表）。
+- **CP2（已闭环）**：独立 `ProseQualityService`，产 `QualityFinding`，evaluator 与 writer 分离，evaluator 失败诚实降级；writer/evaluator provider call ref 独立追踪。
+- **CP3（已闭环）**：`revise_from_findings` 重新经过 Orchestrator，产 sibling tentative revision，原稿保留，修订稿独立采纳，revision replay 不重调 provider。
 - 非目标（设计预留，不在 VS-00E 实现）：完整 E36 情绪曲线账 / E37 承诺账 / 自动永久 experience rule / 全量风格对象库 / 自动无限改写 / 多轮自主批量润色。

@@ -45,11 +45,12 @@ defmodule NovelApplication.ProseQualityServiceTest do
            "summary" => "主角缺乏目标",
            "action" => "adoption_review"
          }
-       ]}
+       ], "pc-quality-evaluator"}
     end
 
     result = ProseQualityService.evaluate(@clean, %{source_turn_ref: "t2"}, semantic_fn: semantic)
     assert result.review_status == :completed
+    assert result.evaluator_provider_call_ref == "pc-quality-evaluator"
     refs = Enum.map(result.findings, & &1.validator_ref)
     assert "validator.character_agency" in refs
     # semantic finding 溯源字段由服务用 ctx 补齐

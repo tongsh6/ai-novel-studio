@@ -10,12 +10,14 @@ defmodule NovelWeb.WorkspaceChannel do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelApplication.AgentRunService
+  alias NovelApplication.DialoguePlanningService
   alias NovelApplication.TaskRunner
   alias NovelApplication.WorkSessionService
+  alias NovelCommon.Contracts.AgentEvent
   alias NovelCommon.LogContext
   alias NovelDomain.AuthorActionInput
 
-  @turn_processing_failed_message "抱歉，这次处理失败了。未创建待采纳内容，也没有写入作品事实。你可以检查模型连接后重试，或继续对话。"
   @current_turn_author_action_types [
     "confirm_before_execute",
     "reject_or_cancel_confirmation",
@@ -27,9 +29,11 @@ defmodule NovelWeb.WorkspaceChannel do
     work_id = resolve_join_work_id(suffix, payload)
     session_id = resolve_join_session_id(work_id, payload)
     restored_list = restored_turn_results_list(work_id, session_id)
-    restored_map = Map.new(restored_list, fn tr ->
-      {tr[:turn_id] || tr["turn_id"], tr}
-    end)
+
+    restored_map =
+      Map.new(restored_list, fn tr ->
+        {tr[:turn_id] || tr["turn_id"], tr}
+      end)
 
     LogContext.put_turn(suffix, work_id, nil, session_id)
 
@@ -61,6 +65,8 @@ defmodule NovelWeb.WorkspaceChannel do
       work_id: work_id,
       session_id: session_id
     })
+
+    send(self(), :recover_durable_agent_runs)
 
     {:ok, %{joined: true, work_id: work_id, session_id: session_id}, socket}
   end
@@ -395,6 +401,17 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, %{event: "pong", echo: payload}}, socket}
   end
 
+  def handle_in("agent_command", %{"run_id" => run_id, "command" => command} = payload, socket) do
+    case dispatch_agent_command(socket, run_id, command, payload) do
+      :ok -> {:reply, {:ok, %{received: true, run_id: run_id, command: command}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
+  end
+
+  def handle_in("agent_command", _payload, socket) do
+    {:reply, {:error, %{reason: "agent_command requires run_id and command"}}, socket}
+  end
+
   # --- Structure Panel / Reading Mode data handlers ---
 
   def handle_in("get_toc", payload, socket) do
@@ -566,6 +583,204 @@ defmodule NovelWeb.WorkspaceChannel do
     {:reply, {:ok, data}, socket}
   end
 
+  @impl true
+  def handle_info(:recover_durable_agent_runs, socket) do
+    recover_durable_agent_runs(socket)
+    {:noreply, socket}
+  end
+
+  def handle_info({:agent_event, %AgentEvent{} = event}, socket) do
+    if AgentEvent.author_visible?(event) do
+      broadcast!(socket, "agent_event", agent_event_payload(event, socket))
+    end
+
+    socket = maybe_broadcast_agent_turn_result(socket, event)
+
+    socket =
+      case AgentRunService.state(event.run_ref) do
+        {:ok, state} ->
+          broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+          socket
+
+        {:error, _reason} ->
+          socket
+      end
+
+    {:noreply, socket}
+  end
+
+  defp recover_durable_agent_runs(socket) do
+    work_id = socket.assigns[:work_id]
+    session_id = socket.assigns[:session_id]
+
+    if is_binary(work_id) and is_binary(session_id) do
+      channel_pid = self()
+
+      {:ok, recovered} =
+        AgentRunService.recover_durable(
+          work_id,
+          session_id,
+          event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
+        )
+
+      Enum.each(recovered, &broadcast_recovered_agent_run(socket, &1))
+    end
+  end
+
+  defp broadcast_recovered_agent_run(socket, %{recovery_event: %AgentEvent{} = event} = state) do
+    if AgentEvent.author_visible?(event) do
+      broadcast!(socket, "agent_event", agent_event_payload(event, socket, state.run.session_id))
+    end
+
+    broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+
+    LogEmit.emit(:channel, :agent_run_recover, :done, %{
+      work_id: socket.assigns[:work_id],
+      session_id: socket.assigns[:session_id],
+      run_id: event.run_ref,
+      runtime_live: Map.get(state, :runtime_live?),
+      recovered: Map.get(state, :recovered?, false)
+    })
+  end
+
+  defp broadcast_recovered_agent_run(_socket, _state), do: :ok
+
+  defp dispatch_agent_command(socket, run_id, command, payload) when is_binary(run_id) do
+    with :ok <- ensure_run_belongs_to_socket(socket, run_id) do
+      case command do
+        "pause" -> AgentRunService.pause(run_id)
+        "resume" -> AgentRunService.resume(run_id)
+        "cancel" -> AgentRunService.cancel(run_id)
+        "steer" -> AgentRunService.steer(run_id, Map.get(payload, "text", ""))
+        _ -> {:error, :unknown_command}
+      end
+    end
+  end
+
+  defp dispatch_agent_command(_socket, _run_id, _command, _payload),
+    do: {:error, :unknown_command}
+
+  defp ensure_run_belongs_to_socket(socket, run_id) do
+    case AgentRunService.state(run_id) do
+      {:ok, %{run: run}} ->
+        session_id = socket.assigns[:session_id]
+
+        if run.work_id == socket.assigns[:work_id] and
+             (is_nil(session_id) or run.session_id == session_id) do
+          :ok
+        else
+          {:error, :run_scope_mismatch}
+        end
+
+      error ->
+        error
+    end
+  end
+
+  defp agent_event_payload(%AgentEvent{} = event, socket) do
+    agent_event_payload(event, socket, socket.assigns[:session_id])
+  end
+
+  defp agent_event_payload(%AgentEvent{} = event, socket, session_id) do
+    %{
+      event_id: event.event_id,
+      run_ref: event.run_ref,
+      run_id: event.run_ref,
+      step_ref: event.step_ref,
+      sequence: event.sequence,
+      event_type: Atom.to_string(event.event_type),
+      visibility: Atom.to_string(event.visibility),
+      summary: event.summary,
+      reason_codes: event.reason_codes,
+      refs: event.refs,
+      payload: author_safe_agent_payload(event.payload),
+      workspace_id: socket.assigns[:workspace_id],
+      work_id: socket.assigns[:work_id],
+      session_id: session_id,
+      emitted_at: timestamp_iso(event.emitted_at)
+    }
+  end
+
+  defp author_safe_agent_payload(payload) when is_map(payload) do
+    payload
+    |> Map.drop([:turn_result, "turn_result"])
+    |> stringify_atom_values()
+  end
+
+  defp author_safe_agent_payload(_payload), do: %{}
+
+  defp stringify_atom_values(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {key, stringify_atom_values(item)} end)
+  end
+
+  defp stringify_atom_values(value) when is_list(value),
+    do: Enum.map(value, &stringify_atom_values/1)
+
+  defp stringify_atom_values(value) when is_boolean(value), do: value
+  defp stringify_atom_values(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringify_atom_values(value), do: value
+
+  defp agent_run_state_payload(%{run: run} = state, socket) do
+    %{
+      run_id: run.run_id,
+      run_mode: Atom.to_string(run.run_mode),
+      status: Atom.to_string(run.status),
+      phase: Atom.to_string(run.phase),
+      long_run_task_ref: run.long_run_task_ref,
+      workspace_id: socket.assigns[:workspace_id],
+      work_id: run.work_id,
+      session_id: run.session_id,
+      parent_turn_ref: run.parent_turn_ref,
+      origin_frame_ref: run.origin_frame_ref,
+      profile_ref: run.profile_ref,
+      goal: run.goal,
+      plan_ref: run.plan_ref,
+      plan_version: run.plan_version,
+      current_step_ref: run.current_step_ref,
+      completed_step_refs: run.completed_step_refs,
+      pending_artifact_refs: run.pending_artifact_refs,
+      interrupt_state: stringify_atom_values(run.interrupt_state),
+      budget: run.budget,
+      consumed_budget: run.consumed_budget,
+      current_task: Map.get(state, :current_task?),
+      remaining_steps: Map.get(state, :remaining_steps),
+      recovered: Map.get(state, :recovered?, false),
+      runtime_live: Map.get(state, :runtime_live?),
+      long_run_task: long_run_task_payload(Map.get(state, :long_run_task))
+    }
+  end
+
+  defp long_run_task_payload(nil), do: nil
+
+  defp long_run_task_payload(task) do
+    checkpoint_data = task.checkpoint_data || %{}
+
+    %{
+      task_id: task.id,
+      status: task.status,
+      phase: task.phase,
+      current_unit_ref: task.current_unit_ref,
+      completed_unit_refs: task.completed_unit_refs || [],
+      pending_artifact_refs: task.pending_artifact_refs || [],
+      progress: task_progress(task.phase, checkpoint_data),
+      step: task_step(task, checkpoint_data),
+      checkpoint_data: author_safe_agent_payload(checkpoint_data),
+      updated_at: timestamp_iso(task.updated_at)
+    }
+  end
+
+  defp maybe_broadcast_agent_turn_result(socket, %AgentEvent{} = event) do
+    case Map.get(event.payload, :turn_result) || Map.get(event.payload, "turn_result") do
+      turn_result when is_map(turn_result) ->
+        turn_result = scope_turn_result(socket, turn_result)
+        broadcast!(socket, "turn_result", turn_result)
+        remember_turn_result(socket, turn_result)
+
+      _ ->
+        socket
+    end
+  end
+
   defp broadcast_task_state(socket, task) do
     payload = task_state_payload(task)
     broadcast!(socket, "task_state", payload)
@@ -688,6 +903,22 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
+  defp handle_author_action(
+         socket,
+         %AuthorActionInput{action_type: "revise_from_findings"} = action_input,
+         source_turn_result
+       ) do
+    source_turn_result = scope_source_turn_result(socket, source_turn_result)
+
+    case NovelApplication.ActionValidator.validate(action_input, source_turn_result) do
+      {:error, reason} ->
+        {:reply, {:error, %{reason: reason}}, socket}
+
+      :ok ->
+        start_revision_agent_run(socket, action_input, source_turn_result)
+    end
+  end
+
   defp handle_author_action(socket, action_input, source_turn_result) do
     handle_dialogue_gateway_action(socket, action_input, source_turn_result)
   end
@@ -773,6 +1004,70 @@ defmodule NovelWeb.WorkspaceChannel do
         })
 
         {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  defp start_revision_agent_run(socket, action_input, source_turn_result) do
+    input = %{
+      text: "按质量发现重写正文草稿",
+      workspace_id: socket.assigns[:workspace_id] || "lobby",
+      work_id: socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby",
+      session_id: socket.assigns[:session_id],
+      turn_id: action_input.source_turn_ref,
+      origin_frame_ref: "frame_#{action_input.source_turn_ref}_revision",
+      source_turn_result: source_turn_result,
+      action_input: action_input
+    }
+
+    spec =
+      NovelApplication.DialoguePlanningService.run_spec_for_profile(
+        :prose_revision_from_findings,
+        input,
+        nil
+      )
+
+    case start_agent_run(spec.run_attrs, spec.steps) do
+      {:agent_run_started, run_id, attrs} ->
+        run_mode = run_mode_string(attrs)
+
+        LogEmit.emit(:channel, :author_action, :done, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          action_status: :running,
+          run_id: run_id,
+          run_mode: run_mode,
+          candidate_ref: action_input.candidate_ref,
+          candidate_set_ref: action_input.candidate_set_ref
+        })
+
+        {:reply,
+         {:ok,
+          %{
+            received: true,
+            action_status: "running",
+            run_id: run_id,
+            run_mode: run_mode,
+            long_run_task_ref: Map.get(attrs, :long_run_task_ref),
+            turn_id: Map.get(attrs, :parent_turn_ref),
+            profile_ref: Map.get(attrs, :profile_ref),
+            goal: Map.get(attrs, :goal)
+          }}, socket}
+
+      {:error, reason} ->
+        LogEmit.emit(:channel, :author_action, :error, %{
+          work_id: socket.assigns[:work_id],
+          session_id: socket.assigns[:session_id],
+          turn_id: action_input.source_turn_ref,
+          action_id: action_input.action_id,
+          action_type: action_input.action_type,
+          reason_code: :agent_run_start_failed,
+          outcome_detail: inspect(reason)
+        })
+
+        {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
 
@@ -1006,49 +1301,105 @@ defmodule NovelWeb.WorkspaceChannel do
       text_len: byte_size(params.text)
     })
 
-    result = dispatch_user_message(socket, input)
+    result =
+      case plan_agent_run(input) do
+        {:agent_run_started, run_id, attrs} -> {:agent_run_started, run_id, attrs, socket}
+        {:error, reason} -> {:error, reason, socket}
+      end
+
     duration = System.monotonic_time(:millisecond) - t0
 
     reply_user_message_result(result, params.session_id, duration)
   end
 
-  defp dispatch_user_message(socket, input) do
+  defp plan_agent_run(input) do
     fetcher = NovelApplication.persistence_fetcher()
     persister = NovelApplication.persistence_tracer()
     recorder = NovelApplication.persistence_interaction_recorder()
 
-    case NovelApplication.DialogueGateway.handle_input_with_gateway(
-           input,
-           fetcher,
-           persister,
-           recorder
-         ) do
-      {:ok, turn_result, _trace, _candidates, _context} ->
-        turn_result = scope_turn_result(socket, turn_result)
-        broadcast!(socket, "turn_result", turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        {:ok, socket}
+    input =
+      input
+      |> Map.put(:trace_persister, persister)
+      |> Map.put(:memory_recorder, recorder)
+
+    case DialoguePlanningService.plan_agent_run(input, fetcher) do
+      {:ok, %{decision: %{decision_type: :allow_agent_run}, run_attrs: attrs, steps: steps}} ->
+        start_agent_run(attrs, steps)
+
+      {:ok, _planned} ->
+        {:error, :agent_run_not_allowed}
 
       {:error, reason} ->
-        turn_result =
-          socket
-          |> fallback_turn_result(input)
-
-        turn_result = scope_turn_result(socket, turn_result)
-
-        broadcast!(socket, "turn_result", turn_result)
-        socket = remember_turn_result(socket, turn_result)
-        {:error, reason, socket}
+        {:error, reason}
     end
   end
 
-  defp reply_user_message_result({:ok, socket}, session_id, duration) do
+  defp start_agent_run(attrs, steps) do
+    channel_pid = self()
+    run_mode = normalize_run_mode(Map.get(attrs, :run_mode) || Map.get(attrs, "run_mode"))
+
+    start_fun =
+      if run_mode == :durable,
+        do: &AgentRunService.start_durable/2,
+        else: &AgentRunService.start_bounded/2
+
+    case start_fun.(
+           Map.put(attrs, :run_mode, run_mode),
+           steps: steps,
+           event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
+         ) do
+      {:ok, run_id} ->
+        attrs =
+          attrs
+          |> Map.put(:run_mode, run_mode)
+          |> put_runtime_agent_refs(run_id)
+
+        {:agent_run_started, run_id, attrs}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp normalize_run_mode(:durable), do: :durable
+  defp normalize_run_mode("durable"), do: :durable
+  defp normalize_run_mode(_mode), do: :bounded
+
+  defp put_runtime_agent_refs(attrs, run_id) do
+    case AgentRunService.state(run_id) do
+      {:ok, %{run: run}} ->
+        Map.put(attrs, :long_run_task_ref, run.long_run_task_ref)
+
+      {:error, _reason} ->
+        attrs
+    end
+  end
+
+  defp reply_user_message_result(
+         {:agent_run_started, run_id, attrs, socket},
+         session_id,
+         duration
+       ) do
     LogEmit.emit(:channel, :user_message, :done, %{
       duration_ms: duration,
-      session_id: session_id
+      session_id: session_id,
+      run_id: run_id,
+      run_mode: Map.get(attrs, :run_mode, :bounded)
     })
 
-    {:reply, {:ok, %{received: true}}, socket}
+    run_mode = run_mode_string(attrs)
+
+    {:reply,
+     {:ok,
+      %{
+        received: true,
+        run_id: run_id,
+        run_mode: run_mode,
+        long_run_task_ref: Map.get(attrs, :long_run_task_ref),
+        turn_id: Map.get(attrs, :parent_turn_ref),
+        profile_ref: Map.get(attrs, :profile_ref),
+        goal: Map.get(attrs, :goal)
+      }}, socket}
   end
 
   defp reply_user_message_result({:error, reason, socket}, _session_id, duration) do
@@ -1057,7 +1408,14 @@ defmodule NovelWeb.WorkspaceChannel do
       reason_code: reason
     })
 
-    {:reply, {:ok, %{received: true, note: "fallback"}}, socket}
+    {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+  end
+
+  defp run_mode_string(attrs) do
+    attrs
+    |> Map.get(:run_mode, :bounded)
+    |> normalize_run_mode()
+    |> Atom.to_string()
   end
 
   defp validate_candidate_selection(_socket, nil), do: {:ok, nil}
@@ -1285,13 +1643,11 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp source_turn_result(socket, source_turn_ref, target_ref) do
-    list =
-      case socket.assigns[:turn_results_list] do
-        [_ | _] = list -> list
-        _ -> Map.values(socket.assigns[:turn_results_by_id] || %{})
-      end
+    list = socket.assigns[:turn_results_list] || []
+    by_id_list = Map.values(socket.assigns[:turn_results_by_id] || %{})
 
-    find_matching_turn_result(list, source_turn_ref, target_ref)
+    find_matching_turn_result(list, source_turn_ref, target_ref) ||
+      find_matching_turn_result(by_id_list, source_turn_ref, target_ref)
   end
 
   defp find_matching_turn_result(list, source_turn_ref, target_ref) do
@@ -1388,45 +1744,4 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp map_field(_map, _key), do: nil
-
-  defp fallback_turn_result(socket, input) do
-    turn_id = input[:turn_id] || "turn_#{System.unique_integer([:positive, :monotonic])}"
-
-    work_id =
-      socket.assigns[:work_id] || input[:work_id] || socket.assigns[:workspace_id] || "lobby"
-
-    session_id = socket.assigns[:session_id] || input[:session_id]
-
-    %{
-      schema_version: "3.0-draft",
-      turn_id: turn_id,
-      frame_ref: "frame:#{turn_id}:fallback",
-      trace_ref: "decision_trace:#{turn_id}:fallback",
-      work_id: work_id,
-      current_work_id: work_id,
-      session_id: session_id,
-      assistant_message: %{
-        text: @turn_processing_failed_message
-      },
-      phase: "completed",
-      status: "error",
-      error: "turn_processing_failed",
-      next_action: "recover",
-      available_actions: [],
-      candidate_directions: [],
-      ui_cards: [],
-      truthfulness: %{
-        tool_called: false,
-        artifact_adopted: false,
-        production_write_performed: false,
-        durable_behavior_opened: false
-      },
-      errors: [
-        %{
-          reason_code: "turn_processing_failed",
-          message: @turn_processing_failed_message
-        }
-      ]
-    }
-  end
 end

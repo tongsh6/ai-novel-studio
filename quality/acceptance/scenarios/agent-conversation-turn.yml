@@ -1,0 +1,57 @@
+id: agent-conversation-turn
+title: 普通对话输入统一进入 AgentRun
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-conversation-turn --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - every-user-message-starts-agent-run
+  - conversation-main-stages-are-author-visible-agent-events
+  - reply-only-turn-does-not-call-tool-or-write
+  - channel-has-no-dialogue-fallback-main-chain
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: plain conversation input "测试"
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: author-safe AgentRun context/frame/strategy/finalize step events
+  - wait_for: author-safe context/frame/strategy observations
+  - wait_for: final TurnResult for the same run_id
+  - verify: profile_ref is conversation_turn_v1 and no tool/write/adoption happened
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-conversation-turn-tauri
+
+assertions:
+  ui:
+    - AI reply is visible in the real workbench
+    - AgentRun panel reaches completed state
+  network:
+    - parent user_message receives bounded run_id before final TurnResult
+    - agent_event includes step_proposed for context, frame, strategy, and finalize stages for the same run_id
+    - agent_event includes observation_recorded summaries for context, frame, and no-tool strategy
+    - agent_run_state completed budget reports steps=4, tool_calls=0, provider_calls=1
+    - final TurnResult carries agent_run.run_id and profile_ref=conversation_turn_v1
+  data:
+    - channel logs bounded run ack and never logs sync_turn fallback
+    - no toolbox.execute event is emitted for the plain conversation turn
+    - truthfulness reports tool_called=false, artifact_adopted=false, production_write_performed=false
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

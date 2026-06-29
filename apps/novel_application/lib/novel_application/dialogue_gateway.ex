@@ -21,6 +21,7 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelDomain.BehaviorState
   alias NovelDomain.CandidateSet
   alias NovelDomain.ConfirmationBinding
+  alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
 
@@ -104,6 +105,7 @@ defmodule NovelApplication.DialogueGateway do
     session_id = Map.get(input, :session_id) || Map.get(input, "session_id")
     generate_plan = Map.get(input, :generate_micro_plan, false)
     turn_id = Map.get(input, :turn_id) || Map.get(input, "turn_id") || allocate_turn_id()
+    stage_sink = stage_sink(input)
 
     t0 = System.monotonic_time(:millisecond)
     LogContext.put_turn(ws_id, work_id, turn_id, session_id)
@@ -124,16 +126,56 @@ defmodule NovelApplication.DialogueGateway do
         assembly_policy: NovelApplication.current_assembly_policy()
       )
 
+    emit_agent_stage(
+      stage_sink,
+      :goal_understood,
+      "已组装当前作品上下文。",
+      [
+        "context_assembled"
+      ],
+      [],
+      %{
+        stage: :context_assembled,
+        has_context: DialogueContext.has_context?(context),
+        context_ref_count: context_ref_count(context)
+      }
+    )
+
     frame_input = %{text: text, workspace_id: ws_id, turn_id: turn_id}
     {frame, candidates} = Planner.form_frame(frame_input, context, complete_fn)
 
     # Update metadata now that Planner has generated frame_id.
     LogContext.put_frame(frame.frame_id)
 
+    emit_agent_stage(
+      stage_sink,
+      :plan_created,
+      dialogue_frame_summary(frame),
+      [
+        "dialogue_frame_formed"
+      ],
+      [frame.frame_id],
+      %{
+        stage: :dialogue_frame_formed,
+        frame_ref: frame.frame_id,
+        frame_type: frame.frame_type,
+        needs_tool: frame.tool_need.needs_tool,
+        candidate_count: length(candidates)
+      }
+    )
+
     case DialogueFrame.validate(frame) do
       :ok ->
         result =
-          handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn)
+          handle_valid_frame(
+            generate_plan,
+            frame,
+            candidates,
+            context,
+            input,
+            complete_fn,
+            stage_sink
+          )
           |> scope_turn_result(ws_id, work_id, session_id)
 
         persist_turn_side_effects(
@@ -210,22 +252,31 @@ defmodule NovelApplication.DialogueGateway do
     |> Map.put_new(:session_id, session_id)
   end
 
-  defp handle_valid_frame(generate_plan, frame, candidates, context, input, complete_fn) do
+  defp handle_valid_frame(
+         generate_plan,
+         frame,
+         candidates,
+         context,
+         input,
+         complete_fn,
+         stage_sink
+       ) do
     if needs_micro_plan?(frame, generate_plan) do
-      handle_with_plan(frame, candidates, context, input, complete_fn)
+      handle_with_plan(frame, candidates, context, input, complete_fn, stage_sink)
     else
-      handle_reply_only(frame, candidates, context)
+      handle_reply_only(frame, candidates, context, stage_sink)
     end
   end
 
-  defp persist_turn_side_effects(
-         result,
-         ws_id,
-         session_id,
-         text,
-         trace_persister,
-         memory_recorder
-       ) do
+  @doc false
+  def persist_turn_side_effects(
+        result,
+        ws_id,
+        session_id,
+        text,
+        trace_persister,
+        memory_recorder
+      ) do
     maybe_persist_trace(
       result,
       ws_id,
@@ -1163,8 +1214,25 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── reply-only ────────────────────────────────
 
-  defp handle_reply_only(frame, candidates, context) do
+  defp handle_reply_only(frame, candidates, context, stage_sink) do
     {trace, trace_summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
+
+    emit_agent_stage(
+      stage_sink,
+      :gate_decided,
+      "本轮裁决为直接回复，不调用工具。",
+      [
+        "reply_only_no_tool"
+      ],
+      [trace.trace_id],
+      %{
+        stage: :reply_only_gate,
+        trace_ref: trace.trace_id,
+        decision_type: trace.decision_type,
+        no_tool_reason: trace.no_tool_reason
+      }
+    )
+
     turn_result = TurnResultBuilder.build(frame, trace_summary, candidates)
     {:ok, turn_result, trace, candidates, context}
   end
@@ -1177,12 +1245,46 @@ defmodule NovelApplication.DialogueGateway do
     generate_plan || frame.tool_need.needs_tool
   end
 
-  defp handle_with_plan(frame, candidates, context, author_input, complete_fn) do
+  defp handle_with_plan(frame, candidates, context, author_input, complete_fn, stage_sink) do
     case Planner.form_micro_plan(frame, author_input, complete_fn, context) do
       {:ok, plan} ->
+        emit_agent_stage(
+          stage_sink,
+          :plan_created,
+          "已生成单步执行计划。",
+          [
+            "micro_plan_created"
+          ],
+          [plan.plan_id],
+          %{
+            stage: :micro_plan_created,
+            plan_ref: plan.plan_id,
+            action_count: length(plan.proposed_actions)
+          }
+        )
+
         {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
+        emit_agent_stage(
+          stage_sink,
+          :gate_decided,
+          orchestrator_decision_summary(decision),
+          [
+            "orchestrator_decision_recorded"
+          ],
+          [decision.decision_id],
+          %{
+            stage: :orchestrator_decision_recorded,
+            decision_ref: decision.decision_id,
+            decision_type: decision.decision_type,
+            first_blocking_gate: decision.first_blocking_gate
+          }
+        )
+
         cond do
+          decision.decision_type == :allow_agent_run ->
+            {:start_agent_run, agent_run_launch(frame, plan, context, author_input)}
+
           decision.decision_type == :allow_tool ->
             handle_tool_dispatch(
               frame,
@@ -1191,7 +1293,8 @@ defmodule NovelApplication.DialogueGateway do
               candidates,
               context,
               author_input,
-              complete_fn
+              complete_fn,
+              stage_sink
             )
 
           behavior != nil ->
@@ -1235,9 +1338,51 @@ defmodule NovelApplication.DialogueGateway do
     {:ok, turn_result, trace, candidates, context}
   end
 
+  # ── agent run launch ──────────────────────────
+  # allow_agent_run 时不在此同步执行，而是把启动 bounded run 所需的最小信息上交给调用方
+  # （DialoguePlanningService），由其复用 AgentRun runtime 启动多步可打断 run。profile_ref 复用
+  # MicroPlan action 的 target_ref（Orchestrator.build_allow_agent_run_decision 同源读取）。
+  defp agent_run_launch(frame, plan, context, author_input) do
+    action =
+      Enum.find(plan.proposed_actions, &(Map.get(&1, :action_type) == :agent_run_start)) ||
+        hd(plan.proposed_actions)
+
+    %{
+      profile_ref: Map.get(action, :target_ref) || Map.get(action, :profile_ref),
+      goal_text: Map.get(author_input, :text) || Map.get(author_input, "text"),
+      frame: frame,
+      plan: plan,
+      context: context
+    }
+  end
+
   # ── tool dispatch ─────────────────────────────
 
-  defp handle_tool_dispatch(frame, plan, decision, candidates, context, author_input, complete_fn) do
+  defp handle_tool_dispatch(
+         frame,
+         plan,
+         decision,
+         candidates,
+         context,
+         author_input,
+         complete_fn,
+         stage_sink
+       ) do
+    emit_agent_stage(
+      stage_sink,
+      :tool_started,
+      "已开始执行授权工具。",
+      [
+        "tool_started"
+      ],
+      [decision.decision_id],
+      %{
+        stage: :tool_started,
+        tool_name: tool_name(plan),
+        decision_ref: decision.decision_id
+      }
+    )
+
     {turn_result, trace} =
       TurnExecutionService.execute(%{
         frame: frame,
@@ -1253,7 +1398,76 @@ defmodule NovelApplication.DialogueGateway do
         character_reader: NovelApplication.persistence_character_reader()
       })
 
+    emit_agent_stage(
+      stage_sink,
+      :tool_completed,
+      "授权工具执行完成。",
+      [
+        "tool_completed"
+      ],
+      [trace.trace_id],
+      %{
+        stage: :tool_completed,
+        tool_name: tool_name(plan),
+        trace_ref: trace.trace_id
+      }
+    )
+
     {:ok, turn_result, trace, candidates, context}
+  end
+
+  defp stage_sink(input) do
+    case Map.get(input, :agent_stage_sink) || Map.get(input, "agent_stage_sink") do
+      fun when is_function(fun, 1) -> fun
+      _other -> nil
+    end
+  end
+
+  defp emit_agent_stage(nil, _event_type, _summary, _reason_codes, _refs, _payload), do: :ok
+
+  defp emit_agent_stage(stage_sink, event_type, summary, reason_codes, refs, payload)
+       when is_function(stage_sink, 1) do
+    stage_sink.(%{
+      event_type: event_type,
+      summary: summary,
+      reason_codes: reason_codes,
+      refs: refs,
+      payload: payload
+    })
+
+    :ok
+  end
+
+  defp context_ref_count(%DialogueContext{context_refs: refs}) when is_list(refs),
+    do: length(refs)
+
+  defp context_ref_count(_context), do: 0
+
+  defp dialogue_frame_summary(%DialogueFrame{} = frame) do
+    "已形成对话认知帧：#{frame.dialogue_goal.summary}"
+    |> ensure_sentence()
+  end
+
+  defp orchestrator_decision_summary(decision) do
+    case decision.decision_type do
+      :allow_tool -> "Orchestrator 已授权单个工具动作。"
+      :allow_agent_run -> "Orchestrator 已授权启动 AgentRun。"
+      :needs_confirmation -> "Orchestrator 要求作者确认。"
+      :needs_clarification -> "Orchestrator 要求补充信息。"
+      :reject -> "Orchestrator 已拒绝执行。"
+      other -> "Orchestrator 已记录裁决：#{other}。"
+    end
+  end
+
+  defp tool_name(%MicroPlan{proposed_actions: [action | _]}), do: Map.get(action, :target_ref)
+  defp tool_name(_plan), do: nil
+
+  defp ensure_sentence(summary) do
+    if String.ends_with?(summary, ["。", ".", "！", "!", "？", "?"]) do
+      summary
+    else
+      summary <> "。"
+    end
   end
 
   defp changeset_error_summary(%Ecto.Changeset{errors: errors}) when errors != [] do

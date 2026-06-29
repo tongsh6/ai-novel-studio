@@ -8,8 +8,10 @@ defmodule NovelApplication.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: NovelApplication.Worker.start_link(arg)
-      # {NovelApplication.Worker, arg}
+      {Registry, keys: :unique, name: NovelApplication.AgentRunRegistry},
+      {DynamicSupervisor, strategy: :one_for_one, name: NovelApplication.AgentRunSupervisor},
+      {Task.Supervisor, name: NovelApplication.AgentStepTaskSupervisor},
+      {Task.Supervisor, name: NovelApplication.BackgroundTaskSupervisor}
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html

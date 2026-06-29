@@ -16,6 +16,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   # 仅 test-support 慢延迟（不改生产 provider runtime），产出普通回复、不触发 slow_work_switch 语义。
   @archive_slow_delay_ms 6_000
   @archive_slow_marker "AU12SLOW"
+  @agent_cancel_slow_delay_ms 3_000
+  @agent_cancel_slow_marker "UA01CP6SLOW"
   @garbage_json_marker "AU01GARBAGE"
   @invalid_frame_marker "AU01BADFRAME"
   @malformed_candidates_marker "AU02BADCANDIDATES"
@@ -29,6 +31,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     prompt_text = prompt_text(prompt)
     maybe_delay_su02_slow_work_switch(prompt_text)
     maybe_delay_archive_slow(prompt_text)
+    maybe_delay_agent_cancel(prompt_text)
 
     case maybe_fail_tool_failure_prompt(prompt_text) do
       :ok ->
@@ -194,6 +197,12 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   defp maybe_delay_archive_slow(prompt_text) do
     if String.contains?(prompt_text, @archive_slow_marker) do
       Process.sleep(@archive_slow_delay_ms)
+    end
+  end
+
+  defp maybe_delay_agent_cancel(prompt_text) do
+    if String.contains?(prompt_text, @agent_cancel_slow_marker) do
+      Process.sleep(@agent_cancel_slow_delay_ms)
     end
   end
 
@@ -1143,7 +1152,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   # 句首与行结构高度雷同的短促动作段：5 行皆以「他」开头、无逗号 → 命中 uniform_line。
   defp action_beat_body(brief, context) do
-    nonce_text = "#{brief}\n#{context}" |> random_identifier_tokens() |> Enum.take(1) |> Enum.join("、")
+    nonce_text =
+      "#{brief}\n#{context}" |> random_identifier_tokens() |> Enum.take(1) |> Enum.join("、")
+
     nonce_line = if nonce_text == "", do: "他咬住暗号继续逼近。", else: "他咬住暗号#{nonce_text}继续逼近。"
 
     [

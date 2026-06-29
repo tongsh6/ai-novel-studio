@@ -157,6 +157,11 @@ defmodule NovelApplication.Planner do
     - 设计 / 设定 / 创建一个新角色（含"设计主角""设定主角""加个反派/配角"）、人物小传、动机、关系 → character_design（生成待采纳候选）
     - 更新 / 演化 / 推进**已有角色**的成长转变、当前状态、关系变化（含"林烬黑化了""更新主角当前状态""谁和谁结盟/反目"）→ character_evolution（生成角色演化记忆草稿，不改主档案）
     - 世界观、规则体系、门派/组织/地理/设定 → world_building
+
+    ## 是否需要多步 AgentRun
+    - 绝大多数请求是单步：输出一个 action_type="capability_invocation" 的动作，target_ref 为上面某个工具。
+    - 仅当作者要求“先观察现状、再据此产出”的复合创作（典型：先查看现有角色阵容，再设计一个与某角色形成对照/镜像/冲突的新角色）时，输出**单个** action_type="agent_run_start"、target_ref="character_design_with_context_v1" 的动作；不要拆成多个 capability_invocation，也不要直接用 character_design 单步。
+    - 纯问答 / 闲聊 / 询问进度或状态 / 只是讨论方向时，proposed_actions 输出空数组（不产出动作，由系统降级为对话）。
     #{accepted_chapters_section(context)}
     ## 用户输入
     #{author_input.text}
@@ -197,8 +202,8 @@ defmodule NovelApplication.Planner do
     - 只有 prose_writing（正文类）才考虑篇幅；大纲、角色、设定一律 null
 
     ## 重要
-    - proposed_actions 只能包含 capability_invocation 类型的动作
-    - 每个 action 的 target_ref 必须指向上面开放工具列表中的一个
+    - proposed_actions 的 action_type 只能是 capability_invocation 或 agent_run_start；不需要工具时输出空数组
+    - capability_invocation 的 target_ref 必须指向上面开放工具列表中的一个；agent_run_start 的 target_ref 填 profile_ref（当前仅 "character_design_with_context_v1"）
     - 不要包含 "approved", "ready_to_execute", "execution_approved" 等批准语义
     - 默认只建议 1 个下一步 action
     - 如果用户明确要求多个彼此独立的操作（例如同时重写章节、更新角色、整理伏笔），必须逐项列为多个 proposed_actions；不要把多步请求压缩成一个动作，也不要声称已经执行
@@ -347,7 +352,8 @@ defmodule NovelApplication.Planner do
 
     ## 规则
     - 作者要求“查看/列出/查询当前角色列表/已有角色/人物表”时，这是低风险只读工具请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
-    - 作者要求“写/生成/产出/描写/续写/规划/安排/整理/开篇场景/正文/章节草稿/具体片段”时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组
+    - 作者询问作品当前状态或进度（例如“写了多少章 / 已经写到第几章 / 现在进展如何 / 还差多少 / 下一章从哪里开始 / 接下来该写哪一章 / 现在到哪了”），这是对**已有状态的提问**，不是创作产出请求：frame_type="question_answer"，needs_tool=false，no_tool_reason="no_tool_needed"，execution_readiness="not_applicable"，candidate_directions 为空数组；请依据“当前作品上下文 / 已写章节”里的章节顺序和数量直接回答
+    - 作者要求**实际产出**新文本或新设定（祈使语气，例如“写第3章正文 / 续写这一段 / 生成开篇场景 / 设计一个反派 / 列一个大纲”）时，这是创作产出请求，needs_tool 必须为 true，execution_readiness 必须为 "ready"，no_tool_reason 使用 "tool_needed"，candidate_directions 必须为空数组；注意：句中出现“写”字并不等于创作请求——若作者是在询问进度或状态（见上一条），按 question_answer 处理
     - 作者要求“大纲/卷数/章节数/角色成长路线/势力结构/角色设定/世界观设定/剧情设计”等具体交付物时，也属于创作产出请求，needs_tool 必须为 true
     - 如果作者显式说“先聊/只聊/讨论/不要写/不要改/别生成/不保存”，必须按普通对话处理：needs_tool=false，frame_type 不得为 execution_candidate，不能调用工具或写入作品事实
     - 创作产出请求的 frame_type 使用 "execution_candidate"，不要使用 "creative_exploration"
@@ -374,6 +380,12 @@ defmodule NovelApplication.Planner do
     parts = [current_work_section(context.current_work_snapshot)]
 
     parts =
+      case context.current_chapters do
+        [_ | _] = chapters -> [chapters_progress_section(chapters) | parts]
+        _ -> parts
+      end
+
+    parts =
       if context.memory_summary do
         ["## 相关记忆\n#{context.memory_summary}" | parts]
       else
@@ -387,6 +399,13 @@ defmodule NovelApplication.Planner do
 
   defp non_conversation_context_section(_context),
     do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
+
+  defp chapters_progress_section(chapters) do
+    listed = Enum.map_join(chapters, "\n", &"- #{&1}")
+
+    "## 已写章节（共 #{length(chapters)} 章，按顺序）\n#{listed}\n" <>
+      "（回答“写了多少章 / 下一章从哪里开始 / 接下来写哪一章”等进度问题时，依据这里的章节顺序和数量。）"
+  end
 
   defp current_work_section(nil),
     do: "## 当前作品上下文\n（无——这是新对话或尚未创建作品）"
@@ -968,6 +987,7 @@ defmodule NovelApplication.Planner do
   defp to_reason_code(_), do: :no_tool_needed
 
   defp to_action_type("capability_invocation"), do: :capability_invocation
+  defp to_action_type("agent_run_start"), do: :agent_run_start
   defp to_action_type(_), do: :capability_invocation
 
   defp to_write_intent("tentative"), do: :tentative

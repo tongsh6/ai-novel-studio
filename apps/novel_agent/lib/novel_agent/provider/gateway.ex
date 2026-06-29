@@ -48,77 +48,99 @@ defmodule NovelAgent.Provider.Gateway do
       requires_api_key: false,
       supports_api_key: false,
       supports_endpoint: false,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     lmstudio: %{
       label: "LM Studio",
       requires_api_key: false,
       supports_api_key: false,
       supports_endpoint: true,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     anthropic: %{
       label: "Anthropic",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: false,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     deepseek: %{
       label: "DeepSeek",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,
-      supports_thinking: true
+      supports_thinking: true,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     openai: %{
       label: "OpenAI（API Key）",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     openai_subscription: %{
       label: "OpenAI（订阅）",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     minimax: %{
       label: "Minimax (国际版)",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     minimax_cn: %{
       label: "Minimax (国内版)",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     zhipu: %{
       label: "智谱",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     kimi: %{
       label: "Kimi",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     },
     gemini: %{
       label: "Gemini",
       requires_api_key: true,
       supports_api_key: true,
       supports_endpoint: true,
-      supports_thinking: false
+      supports_thinking: false,
+      supports_streaming: false,
+      supports_cancellation: false
     }
   }
 
@@ -206,6 +228,24 @@ defmodule NovelAgent.Provider.Gateway do
   @doc "返回当前已注册的 provider 列表。"
   @spec registered_providers() :: [atom()]
   def registered_providers, do: provider_modules() |> Map.keys()
+
+  @doc "返回当前 provider 对 AgentRun runtime 可声明的执行能力。"
+  @spec provider_capabilities() :: map()
+  def provider_capabilities do
+    provider = default_provider()
+    descriptor = provider_descriptor(provider)
+
+    %{
+      provider: provider,
+      supports_streaming: Map.get(descriptor, :supports_streaming, false),
+      supports_cancellation: Map.get(descriptor, :supports_cancellation, false),
+      cancel_strategy:
+        if(Map.get(descriptor, :supports_cancellation, false),
+          do: :hard_cancel,
+          else: :cooperative_safe_point
+        )
+    }
+  end
 
   @doc "返回 provider 设置页所需的只读选项；不会返回 secret。"
   @spec provider_options() :: %{current_provider: atom(), providers: [map()]}
@@ -390,7 +430,9 @@ defmodule NovelAgent.Provider.Gateway do
         requires_api_key: false,
         supports_api_key: false,
         supports_endpoint: false,
-        supports_thinking: false
+        supports_thinking: false,
+        supports_streaming: false,
+        supports_cancellation: false
       }
       |> Map.merge(Map.get(@provider_descriptors, provider, %{}))
 
@@ -422,6 +464,14 @@ defmodule NovelAgent.Provider.Gateway do
       |> Map.new()
 
     Map.merge(@provider_modules, extra)
+  end
+
+  defp provider_descriptor(provider) do
+    %{
+      supports_streaming: false,
+      supports_cancellation: false
+    }
+    |> Map.merge(Map.get(@provider_descriptors, provider, %{}))
   end
 
   defp default_provider do
