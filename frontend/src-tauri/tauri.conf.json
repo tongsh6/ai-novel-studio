@@ -6,7 +6,7 @@
   "build": {
     "frontendDist": "../dist",
     "devUrl": "http://127.0.0.1:5769",
-    "beforeDevCommand": "bash /Users/loong/workspace/novel/ai-novel-studio/scripts/before-tauri-dev.sh",
+    "beforeDevCommand": "bash ../scripts/before-tauri-dev.sh",
     "beforeBuildCommand": "pnpm build"
   },
   "app": {
