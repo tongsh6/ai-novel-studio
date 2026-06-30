@@ -10,6 +10,8 @@ defmodule NovelAgent.Provider.HTTP do
 
   @typedoc "Unified HTTP result"
   @type http_result :: {:ok, pos_integer(), map()} | {:error, atom(), pos_integer(), String.t()}
+  @type event_stream_result ::
+          {:ok, pos_integer(), term()} | {:error, atom(), pos_integer(), String.t()}
 
   @doc """
   JSON POST 请求。返回：
@@ -48,6 +50,58 @@ defmodule NovelAgent.Provider.HTTP do
 
       {:error, other} ->
         Logger.warning("[Provider.HTTP] 未知错误: #{inspect(other)}")
+        {:error, :unknown, 0, "请求失败: #{inspect(other)}"}
+    end
+  end
+
+  @doc """
+  JSON POST request for server-sent event responses.
+
+  Chunks are delivered to `on_data` as they arrive. The returned tuple keeps the
+  same success/error shape as `post/3`; generated text must be parsed and
+  materialized by the adapter execution layer.
+  """
+  @spec post_event_stream(String.t(), map(), keyword(), (binary() -> term())) ::
+          event_stream_result()
+  def post_event_stream(url, json_body, opts, on_data) when is_function(on_data, 1) do
+    headers =
+      [
+        {"content-type", "application/json"},
+        {"accept", "text/event-stream"}
+        | Keyword.get(opts, :headers, [])
+      ]
+
+    receive_timeout = Keyword.get(opts, :receive_timeout, 300_000)
+    connect_timeout = Keyword.get(opts, :connect_timeout, 15_000)
+
+    case Req.post(url,
+           json: json_body,
+           headers: headers,
+           retry: false,
+           receive_timeout: receive_timeout,
+           connect_options: [timeout: connect_timeout],
+           into: fn {:data, data}, {req, resp} ->
+             case on_data.(data) do
+               :halt -> {:halt, {req, resp}}
+               {:halt, _reason} -> {:halt, {req, resp}}
+               _other -> {:cont, {req, resp}}
+             end
+           end
+         ) do
+      {:ok, %{status: status, body: body}} when status in 200..299 ->
+        {:ok, status, body}
+
+      {:ok, %{status: status, body: body}} ->
+        {:error, :http_error, status, "HTTP #{status}: #{truncate_body(body)}"}
+
+      {:error, %{reason: reason}} when reason in [:econnrefused, :nxdomain] ->
+        {:error, :connection_refused, 0, "连接被拒绝: #{reason}"}
+
+      {:error, %{reason: :timeout}} ->
+        {:error, :timeout, 0, "请求超时"}
+
+      {:error, other} ->
+        Logger.warning("[Provider.HTTP] SSE 未知错误: #{inspect(other)}")
         {:error, :unknown, 0, "请求失败: #{inspect(other)}"}
     end
   end

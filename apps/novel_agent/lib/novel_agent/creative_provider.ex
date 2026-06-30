@@ -6,5 +6,6 @@ defmodule NovelAgent.CreativeProvider do
   alias NovelCommon.Contracts.CreativeProviderResult
   alias NovelCommon.Contracts.CreativeRequest
 
-  @callback generate(CreativeRequest.t(), (String.t() -> tuple())) :: CreativeProviderResult.t()
+  @callback generate(CreativeRequest.t(), NovelAgent.Provider.Execution.dependency()) ::
+              CreativeProviderResult.t()
 end

@@ -1,37 +1,33 @@
 defmodule NovelAgent.Tools.CreativeToolAdapter do
   @moduledoc false
 
+  alias NovelAgent.Provider.Execution
   alias NovelCommon.Contracts.CreativeProviderResult
   alias NovelCommon.Contracts.CreativeRequest
   alias NovelCommon.Contracts.ToolOutputContract
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
 
-  @spec execute(ToolRequest.t(), atom(), (String.t() -> tuple()) | nil, module()) ::
+  @spec execute(ToolRequest.t(), atom(), Execution.dependency(), module()) ::
           ToolResult.t()
-  def execute(%ToolRequest{} = req, artifact_type, complete_fn, provider_module) do
+  def execute(%ToolRequest{} = req, artifact_type, provider_execution, provider_module) do
     result_id = "tr_#{System.unique_integer([:positive, :monotonic])}"
     now = DateTime.utc_now()
 
-    with {:ok, normalized_type} <- ToolOutputContract.normalize_artifact_type(artifact_type),
-         true <- is_function(complete_fn, 1) do
-      request = creative_request(req, normalized_type)
+    case ToolOutputContract.normalize_artifact_type(artifact_type) do
+      {:ok, normalized_type} ->
+        request = creative_request(req, normalized_type)
 
-      case provider_module.generate(request, complete_fn) do
-        %CreativeProviderResult{status: :ok, items: items, self_report: self_report} ->
-          succeeded_tool_result(req, result_id, now, normalized_type, items, self_report)
+        case provider_module.generate(request, provider_execution) do
+          %CreativeProviderResult{status: :ok, items: items, self_report: self_report} ->
+            succeeded_tool_result(req, result_id, now, normalized_type, items, self_report)
 
-        %CreativeProviderResult{status: :error, errors: errors} ->
-          failed_tool_result(req, result_id, now, errors)
-      end
-    else
+          %CreativeProviderResult{status: :error, errors: errors} ->
+            failed_tool_result(req, result_id, now, errors)
+        end
+
       {:error, %{code: code, message: message}} ->
         failed_tool_result(req, result_id, now, [%{code: code, message: message}])
-
-      false ->
-        failed_tool_result(req, result_id, now, [
-          %{code: "complete_fn_required", message: "LLM-dependent tool requires provider"}
-        ])
     end
   end
 

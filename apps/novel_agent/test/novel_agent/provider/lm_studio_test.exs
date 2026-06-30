@@ -14,6 +14,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
   describe "behaviour conformance" do
     test "exports required callbacks" do
       assert function_exported?(LMStudio, :complete, 4)
+      assert function_exported?(LMStudio, :execute, 5)
       assert function_exported?(LMStudio, :name, 0)
     end
   end
@@ -38,6 +39,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert Map.has_key?(state, :model)
       assert Map.has_key?(state, :timeout)
       assert Map.has_key?(state, :http_fn)
+      assert Map.has_key?(state, :eventsource_fn)
       assert Map.has_key?(state, :log_fn)
       assert Map.has_key?(state, :json_mode)
     end
@@ -45,6 +47,7 @@ defmodule NovelAgent.Provider.LMStudioTest do
     test "http_fn and log_fn default to nil when not set" do
       state = %LMStudio{}
       assert state.http_fn == nil
+      assert state.eventsource_fn == nil
       assert state.log_fn == nil
     end
   end
@@ -181,8 +184,56 @@ defmodule NovelAgent.Provider.LMStudioTest do
 
       assert {:ok, _result} = LMStudio.complete(state, nil, "prompt", %InferenceParams{})
       assert_receive {:logged_result, {:ok, _ok, attrs}}
+
       # %Usage{} 必须能被 JSON 序列化（@derive Jason.Encoder），否则日志会被静默丢弃。
       assert {:ok, _json} = Jason.encode(attrs.usage)
+    end
+  end
+
+  describe "execute/5" do
+    test "streams local OpenAI-compatible chunks through provider execution facts" do
+      test_pid = self()
+
+      eventsource = fn url, body, opts, on_data ->
+        send(test_pid, {:stream_request, url, body, opts})
+
+        on_data.(sse_delta("本", "local-model"))
+
+        on_data.(
+          sse_delta("地", "local-model", %{
+            "prompt_tokens" => 3,
+            "completion_tokens" => 2
+          })
+        )
+
+        on_data.("data: [DONE]\n\n")
+
+        {:ok, 200, ""}
+      end
+
+      state = %LMStudio{
+        endpoint: "http://localhost/v1",
+        model: "local-model",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil
+      }
+
+      assert {:ok, %{events: events, result: result}} =
+               LMStudio.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx())
+
+      assert result.content == "本地"
+      assert result.usage.input_tokens == 3
+      assert result.usage.output_tokens == 2
+
+      assert_receive {:stream_request, "http://localhost/v1/chat/completions", body, opts}
+      assert body.stream == true
+      assert body.messages == [%{role: "user", content: "prompt"}]
+      assert Keyword.fetch!(opts, :receive_timeout) == 100
+
+      chunk_events = Enum.filter(events, &(&1.event_type == :chunk))
+      assert length(chunk_events) == 2
+      refute Enum.any?(chunk_events, &Map.has_key?(&1.payload, :content))
     end
   end
 
@@ -207,4 +258,29 @@ defmodule NovelAgent.Provider.LMStudioTest do
       assert error.type == :timeout
     end
   end
+
+  defp provider_ctx do
+    %{
+      provider_name: :lmstudio,
+      model_name: "local-model",
+      provider_call_ref: "pcall_lmstudio_stream_test",
+      provider_run_id: "prun_lmstudio_stream_test",
+      purpose: :conversation,
+      owner_refs: %{}
+    }
+  end
+
+  defp sse_delta(content, model, usage \\ nil) do
+    payload =
+      %{
+        "choices" => [%{"delta" => %{"content" => content}}],
+        "model" => model
+      }
+      |> maybe_put_usage(usage)
+
+    "data: #{Jason.encode!(payload)}\n\n"
+  end
+
+  defp maybe_put_usage(payload, nil), do: payload
+  defp maybe_put_usage(payload, usage), do: Map.put(payload, "usage", usage)
 end

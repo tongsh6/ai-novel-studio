@@ -3,6 +3,7 @@ defmodule NovelAgent.ToolAdapterRegistry do
   Agent-side adapter registry for dispatchable tools.
   """
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Tools.CharacterDesignAdapter
   alias NovelAgent.Tools.CharacterEvolutionAdapter
   alias NovelAgent.Tools.CharacterRosterAdapter
@@ -21,24 +22,26 @@ defmodule NovelAgent.ToolAdapterRegistry do
   def adapter_for("world_building"), do: WorldBuildingAdapter
   def adapter_for(_tool_name), do: nil
 
-  def execute("text_analysis", req, complete_fn),
-    do: TextAnalysisAdapter.execute(req, complete_fn)
+  @spec execute(String.t(), NovelCommon.Contracts.ToolRequest.t(), Execution.dependency()) ::
+          NovelCommon.Contracts.ToolResult.t()
+  def execute("text_analysis", req, provider_execution),
+    do: TextAnalysisAdapter.execute(req, provider_execution)
 
-  def execute("character_roster", req, complete_fn),
-    do: CharacterRosterAdapter.execute(req, complete_fn)
+  def execute("character_roster", req, provider_execution),
+    do: CharacterRosterAdapter.execute(req, provider_execution)
 
-  def execute("character_design", req, complete_fn),
-    do: CharacterDesignAdapter.execute(req, complete_fn)
+  def execute("character_design", req, provider_execution),
+    do: CharacterDesignAdapter.execute(req, provider_execution)
 
-  def execute("character_evolution", req, complete_fn),
-    do: CharacterEvolutionAdapter.execute(req, complete_fn)
+  def execute("character_evolution", req, provider_execution),
+    do: CharacterEvolutionAdapter.execute(req, provider_execution)
 
-  def execute("plot_outline", req, complete_fn),
-    do: PlotOutlineAdapter.execute(req, complete_fn)
+  def execute("plot_outline", req, provider_execution),
+    do: PlotOutlineAdapter.execute(req, provider_execution)
 
-  def execute("prose_writing", req, complete_fn),
-    do: ProseWritingAdapter.execute(req, complete_fn)
+  def execute("prose_writing", req, provider_execution),
+    do: ProseWritingAdapter.execute(req, provider_execution)
 
-  def execute("world_building", req, complete_fn),
-    do: WorldBuildingAdapter.execute(req, complete_fn)
+  def execute("world_building", req, provider_execution),
+    do: WorldBuildingAdapter.execute(req, provider_execution)
 end

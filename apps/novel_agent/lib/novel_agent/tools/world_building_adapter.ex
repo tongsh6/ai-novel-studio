@@ -2,13 +2,14 @@ defmodule NovelAgent.Tools.WorldBuildingAdapter do
   @moduledoc false
 
   alias NovelAgent.CreativeProvider.Real
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Tools.CreativeToolAdapter
   alias NovelCommon.Contracts.ToolRequest
 
-  @spec execute(ToolRequest.t(), (String.t() -> tuple()) | nil) ::
+  @spec execute(ToolRequest.t(), Execution.dependency()) ::
           NovelCommon.Contracts.ToolResult.t()
-  def execute(%ToolRequest{} = req, complete_fn),
-    do: CreativeToolAdapter.execute(req, artifact_type(req), complete_fn, Real)
+  def execute(%ToolRequest{} = req, provider_execution),
+    do: CreativeToolAdapter.execute(req, artifact_type(req), provider_execution, Real)
 
   defp artifact_type(%ToolRequest{input: input}) when is_map(input) do
     text =

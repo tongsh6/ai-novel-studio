@@ -16,7 +16,9 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   live 可用性。
   """
 
+  alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
+  alias NovelAgent.Provider.OpenAICompatibleStream
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
@@ -59,6 +61,7 @@ defmodule NovelAgent.Provider.OpenAICompatible do
         :model,
         :timeout,
         :http_fn,
+        :eventsource_fn,
         :get_fn,
         :log_fn,
         :json_mode,
@@ -72,6 +75,10 @@ defmodule NovelAgent.Provider.OpenAICompatible do
               model: String.t(),
               timeout: pos_integer(),
               http_fn: (String.t(), map(), keyword() -> HTTP.http_result()) | nil,
+              eventsource_fn:
+                (String.t(), map(), keyword(), (binary() -> term()) ->
+                   HTTP.event_stream_result())
+                | nil,
               get_fn: (String.t(), keyword() -> HTTP.http_result()) | nil,
               log_fn: (String.t(), String.t(), map(), term(), integer() -> :ok) | nil,
               json_mode: boolean(),
@@ -85,6 +92,10 @@ defmodule NovelAgent.Provider.OpenAICompatible do
       @impl true
       def complete(state, model, prompt, params),
         do: OpenAICompatible.complete(oac_meta(), state, model, prompt, params)
+
+      @impl true
+      def execute(state, model, prompt, params, ctx),
+        do: OpenAICompatible.execute(oac_meta(), state, model, prompt, params, ctx)
 
       @impl true
       def health_check(state), do: OpenAICompatible.health_check(oac_meta(), state)
@@ -101,10 +112,12 @@ defmodule NovelAgent.Provider.OpenAICompatible do
           model: Keyword.get(config, :model, @oac_default_model),
           timeout: Keyword.get(config, :timeout, 300_000),
           http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
+          eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
           get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
           log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5),
           json_mode: Keyword.get(config, :json_mode, false),
-          thinking: OpenAICompatible.normalize_thinking(Keyword.get(config, :thinking, :disabled)),
+          thinking:
+            OpenAICompatible.normalize_thinking(Keyword.get(config, :thinking, :disabled)),
           reasoning_effort: Keyword.get(config, :reasoning_effort)
         }
       end
@@ -157,6 +170,36 @@ defmodule NovelAgent.Provider.OpenAICompatible do
   def complete(meta, _state, _model, _prompt, _params) do
     err = UpstreamError.new(:auth, "#{meta.label} API key 未配置", meta.vendor)
     UpstreamError.to_error_tuple(err)
+  end
+
+  @doc false
+  @spec execute(meta(), struct(), String.t() | nil, term(), term(), AdapterExecution.context()) ::
+          AdapterExecution.execution_result()
+  def execute(meta, %{api_key: key} = state, _model, prompt, params, ctx)
+      when (is_binary(prompt) or is_list(prompt)) and is_binary(key) and key != "" do
+    body =
+      %{
+        model: state.model,
+        messages: NovelAgent.Provider.normalize_messages(prompt),
+        stream: true
+      }
+      |> HTTP.apply_params(params)
+      |> maybe_json_mode(state.json_mode)
+      |> maybe_thinking(meta.supports_thinking, state.thinking, state.reasoning_effort)
+
+    url = endpoint_url(state.endpoint)
+    headers = [{"authorization", "Bearer #{key}"}]
+    request_opts = [headers: headers, receive_timeout: state.timeout]
+
+    OpenAICompatibleStream.execute(meta, state, url, body, request_opts, ctx)
+  end
+
+  def execute(meta, _state, _model, _prompt, _params, ctx) do
+    err = UpstreamError.new(:auth, "#{meta.label} API key 未配置", meta.vendor)
+
+    err
+    |> UpstreamError.to_error_tuple()
+    |> AdapterExecution.materialize_result(ctx)
   end
 
   @doc false
@@ -230,8 +273,11 @@ defmodule NovelAgent.Provider.OpenAICompatible do
     |> Map.put(:reasoning_effort, effort)
   end
 
-  defp maybe_thinking(body, true, :enabled, _effort), do: Map.put(body, :thinking, %{type: "enabled"})
-  defp maybe_thinking(body, true, _thinking, _effort), do: Map.put(body, :thinking, %{type: "disabled"})
+  defp maybe_thinking(body, true, :enabled, _effort),
+    do: Map.put(body, :thinking, %{type: "enabled"})
+
+  defp maybe_thinking(body, true, _thinking, _effort),
+    do: Map.put(body, :thinking, %{type: "disabled"})
 
   defp strip_attrs({:ok, result, _attrs}), do: {:ok, result}
   defp strip_attrs({:error, {:error, map}, _attrs}), do: {:error, map}

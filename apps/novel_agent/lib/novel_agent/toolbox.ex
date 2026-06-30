@@ -9,6 +9,7 @@ defmodule NovelAgent.Toolbox do
 
   require NovelCommon.LogEmit, as: LogEmit
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.ToolAdapterRegistry
   alias NovelCommon.CapabilityRegistry
   alias NovelCommon.Contracts.ToolRequest
@@ -18,12 +19,12 @@ defmodule NovelAgent.Toolbox do
   @spec execute(ToolRequest.t()) :: ToolResult.t()
   def execute(%ToolRequest{} = req), do: execute_impl(req, nil)
 
-  @spec execute(ToolRequest.t(), (String.t() -> tuple())) :: ToolResult.t()
-  def execute(%ToolRequest{} = req, complete_fn) when is_function(complete_fn, 1) do
-    execute_impl(req, complete_fn)
+  @spec execute(ToolRequest.t(), Execution.dependency()) :: ToolResult.t()
+  def execute(%ToolRequest{} = req, provider_execution) do
+    execute_impl(req, provider_execution)
   end
 
-  defp execute_impl(%ToolRequest{} = req, complete_fn) do
+  defp execute_impl(%ToolRequest{} = req, provider_execution) do
     t0 = System.monotonic_time(:millisecond)
     LogContext.put_tool_request(req.tool_request_id)
 
@@ -48,17 +49,19 @@ defmodule NovelAgent.Toolbox do
           failed(req, "grant_scope_violation", "requested grants exceed registry scopes")
 
         true ->
-          LogContext.with_step("tool.#{req.tool_name}", fn -> dispatch(req, complete_fn) end)
+          LogContext.with_step("tool.#{req.tool_name}", fn ->
+            dispatch(req, provider_execution)
+          end)
       end
 
     emit_done(req, result, System.monotonic_time(:millisecond) - t0)
     result
   end
 
-  defp dispatch(%ToolRequest{} = req, complete_fn) do
+  defp dispatch(%ToolRequest{} = req, provider_execution) do
     case ToolAdapterRegistry.adapter_for(req.tool_name) do
       nil -> failed(req, "no_handler", "no adapter registered for tool")
-      _adapter -> ToolAdapterRegistry.execute(req.tool_name, req, complete_fn)
+      _adapter -> ToolAdapterRegistry.execute(req.tool_name, req, provider_execution)
     end
   end
 

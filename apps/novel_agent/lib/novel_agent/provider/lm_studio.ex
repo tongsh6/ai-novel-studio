@@ -7,14 +7,18 @@ defmodule NovelAgent.Provider.LMStudio do
 
   require Logger
 
+  alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
+  alias NovelAgent.Provider.OpenAICompatibleStream
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
 
-  defstruct [:endpoint, :model, :timeout, :http_fn, :get_fn, :log_fn, :json_mode]
+  defstruct [:endpoint, :model, :timeout, :http_fn, :eventsource_fn, :get_fn, :log_fn, :json_mode]
 
   @type http_fn :: (String.t(), map(), keyword() -> {:ok, integer(), map()} | {:error, atom()})
+  @type eventsource_fn ::
+          (String.t(), map(), keyword(), (binary() -> term()) -> HTTP.event_stream_result())
   @type get_fn :: (String.t(), keyword() -> HTTP.http_result())
   @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
 
@@ -23,6 +27,7 @@ defmodule NovelAgent.Provider.LMStudio do
           model: String.t(),
           timeout: pos_integer(),
           http_fn: http_fn(),
+          eventsource_fn: eventsource_fn(),
           get_fn: get_fn(),
           log_fn: log_fn(),
           json_mode: boolean()
@@ -63,6 +68,34 @@ defmodule NovelAgent.Provider.LMStudio do
 
     {:error,
      %{type: err.type, message: err.message, provider: err.provider, retryable: err.retryable}}
+  end
+
+  @impl true
+  def execute(%__MODULE__{endpoint: endpoint} = state, _model, prompt, params, ctx)
+      when (is_binary(prompt) or is_list(prompt)) and not is_nil(endpoint) do
+    body =
+      HTTP.apply_params(
+        %{
+          model: state.model,
+          messages: NovelAgent.Provider.normalize_messages(prompt),
+          stream: true
+        },
+        params
+      )
+      |> maybe_json_mode(state.json_mode)
+
+    url = Path.join(endpoint, "chat/completions")
+    request_opts = [receive_timeout: state.timeout]
+
+    OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
+  end
+
+  def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
+    err = UpstreamError.new(:provider_internal, "LM Studio endpoint not configured", name())
+
+    err
+    |> UpstreamError.to_error_tuple()
+    |> AdapterExecution.materialize_result(ctx)
   end
 
   # ── response handlers ────────────────────────
@@ -177,6 +210,7 @@ defmodule NovelAgent.Provider.LMStudio do
       model: Keyword.get(config, :model, "qwen/qwen3.6-35b-a3b"),
       timeout: Keyword.get(config, :timeout, 300_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
+      eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
       get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
       log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5),
       json_mode: Keyword.get(config, :json_mode, false)
@@ -214,4 +248,6 @@ defmodule NovelAgent.Provider.LMStudio do
 
   defp health_error(reason, message),
     do: %{message: message, type: reason, reason: reason}
+
+  defp stream_meta, do: %{vendor: name(), label: "LM Studio"}
 end

@@ -2,11 +2,12 @@ defmodule NovelAgent.Tools.ProseWritingAdapter do
   @moduledoc false
 
   alias NovelAgent.CreativeProvider.Real
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Tools.CreativeToolAdapter
   alias NovelCommon.Contracts.ToolRequest
 
-  @spec execute(ToolRequest.t(), (String.t() -> tuple()) | nil) ::
+  @spec execute(ToolRequest.t(), Execution.dependency()) ::
           NovelCommon.Contracts.ToolResult.t()
-  def execute(%ToolRequest{} = req, complete_fn),
-    do: CreativeToolAdapter.execute(req, :prose_fragment, complete_fn, Real)
+  def execute(%ToolRequest{} = req, provider_execution),
+    do: CreativeToolAdapter.execute(req, :prose_fragment, provider_execution, Real)
 end

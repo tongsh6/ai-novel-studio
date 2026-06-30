@@ -8,6 +8,7 @@ defmodule NovelAgent.CreativeProvider.Real do
 
   @behaviour NovelAgent.CreativeProvider
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelCommon.Contracts.CreativeProviderResult
   alias NovelCommon.Contracts.CreativeRequest
@@ -28,20 +29,25 @@ defmodule NovelAgent.CreativeProvider.Real do
   """
 
   @impl true
-  def generate(%CreativeRequest{} = request, complete_fn) when is_function(complete_fn, 1) do
-    request
-    |> build_prompt()
-    |> do_generate(complete_fn, _retry? = true)
-  end
+  def generate(%CreativeRequest{} = request, provider_execution) do
+    case Execution.complete_fn(provider_execution) do
+      complete_fn when is_function(complete_fn, 1) ->
+        request
+        |> build_prompt()
+        |> do_generate(complete_fn, _retry? = true)
 
-  def generate(%CreativeRequest{}, _complete_fn) do
-    provider_error("complete_fn_required", "creative provider requires an injected complete_fn")
+      _ ->
+        provider_error(
+          "provider_execution_required",
+          "creative provider requires provider execution"
+        )
+    end
   end
 
   defp do_generate(prompt, complete_fn, retry?) do
     case complete_fn.(prompt) do
-      {:ok, %ProviderResult{content: content}} when is_binary(content) ->
-        parse_or_retry(content, nil, prompt, complete_fn, retry?)
+      {:ok, %ProviderResult{content: content} = result} when is_binary(content) ->
+        parse_or_retry(content, provider_call_ref(result), prompt, complete_fn, retry?)
 
       {:ok, %{content: content} = result} when is_binary(content) ->
         parse_or_retry(content, provider_call_ref(result), prompt, complete_fn, retry?)
@@ -379,7 +385,8 @@ defmodule NovelAgent.CreativeProvider.Real do
   end
 
   defp provider_call_ref(result) when is_map(result) do
-    Map.get(result, :provider_call_id) || Map.get(result, "provider_call_id")
+    Map.get(result, :provider_call_ref) || Map.get(result, "provider_call_ref") ||
+      Map.get(result, :provider_call_id) || Map.get(result, "provider_call_id")
   end
 
   defp provider_call_ref(_), do: nil

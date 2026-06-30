@@ -18,14 +18,18 @@ defmodule NovelAgent.Provider.Anthropic do
 
   require Logger
 
+  alias NovelAgent.Provider.AdapterExecution
+  alias NovelAgent.Provider.AnthropicStream
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
 
-  defstruct [:api_key, :model, :timeout, :http_fn, :get_fn, :log_fn]
+  defstruct [:api_key, :model, :timeout, :http_fn, :eventsource_fn, :get_fn, :log_fn]
 
   @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
+  @type eventsource_fn ::
+          (String.t(), map(), keyword(), (binary() -> term()) -> HTTP.event_stream_result())
   @type get_fn :: (String.t(), keyword() -> HTTP.http_result())
   @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
 
@@ -34,6 +38,7 @@ defmodule NovelAgent.Provider.Anthropic do
           model: String.t(),
           timeout: pos_integer(),
           http_fn: http_fn(),
+          eventsource_fn: eventsource_fn(),
           get_fn: get_fn(),
           log_fn: log_fn()
         }
@@ -68,6 +73,32 @@ defmodule NovelAgent.Provider.Anthropic do
 
     if log = state.log_fn, do: log.(name(), url, body, result, start_time)
     strip_attrs(result)
+  end
+
+  @impl true
+  def execute(%__MODULE__{api_key: key} = state, _model, prompt, params, ctx)
+      when is_binary(key) and key != "" and (is_binary(prompt) or is_list(prompt)) do
+    {system_prompt, messages} = anthropic_messages(prompt)
+    body = %{model: state.model, max_tokens: 4096, messages: messages, stream: true}
+    body = if system_prompt, do: Map.put(body, :system, system_prompt), else: body
+    body = HTTP.apply_params(body, params)
+    url = Path.join(@api_base, "messages")
+
+    request_opts = [
+      headers: [{"x-api-key", key}, {"anthropic-version", @api_version}],
+      receive_timeout: state.timeout
+    ]
+
+    AnthropicStream.execute(state, url, body, request_opts, ctx)
+  end
+
+  def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
+    {:error, error} =
+      :auth
+      |> UpstreamError.new("Anthropic API key 未配置", name())
+      |> UpstreamError.to_error_tuple()
+
+    AdapterExecution.materialize_result({:error, error}, ctx)
   end
 
   defp anthropic_messages(prompt) do
@@ -192,6 +223,7 @@ defmodule NovelAgent.Provider.Anthropic do
       model: Keyword.get(config, :model, "claude-sonnet-4-6"),
       timeout: Keyword.get(config, :timeout, 300_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
+      eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
       get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
       log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5)
     }
@@ -199,6 +231,7 @@ defmodule NovelAgent.Provider.Anthropic do
 
   defp http_error_type(status) when status in [401, 403], do: :auth
   defp http_error_type(429), do: :rate_limit
+
   # 400/422 = 我们发出的请求被拒绝（参数/格式非法），属客户端请求问题，不是上游空响应。
   defp http_error_type(status) when status in [400, 422], do: :invalid_request
   defp http_error_type(_status), do: :provider_internal

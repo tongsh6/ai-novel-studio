@@ -25,6 +25,7 @@ defmodule NovelAgent.Provider.Stub do
 
   @behaviour NovelAgent.Provider
 
+  alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
 
   defstruct []
@@ -38,6 +39,39 @@ defmodule NovelAgent.Provider.Stub do
   end
 
   @impl true
+  def execute(_state, _model, prompt, _params, ctx) do
+    if AdapterExecution.cancelled?(ctx) do
+      AdapterExecution.materialize_cancelled(ctx)
+    else
+      execute_uncancelled(prompt, ctx)
+    end
+  end
+
+  defp execute_uncancelled(prompt, ctx) do
+    text = prompt_text(prompt)
+    content = infer_response(text)
+    initial_events = AdapterExecution.initial_events(ctx)
+    chunk_events = AdapterExecution.text_chunk_events(ctx, content, length(initial_events) + 1)
+
+    AdapterExecution.emit_events(ctx, initial_events, :running)
+    AdapterExecution.emit_events(ctx, chunk_events, :running)
+
+    if AdapterExecution.cancelled?(ctx) do
+      AdapterExecution.materialize_cancelled(ctx,
+        initial_events: initial_events ++ chunk_events,
+        emit: :terminal
+      )
+    else
+      {:ok, Result.new(content)}
+      |> AdapterExecution.materialize_result(
+        ctx,
+        initial_events: initial_events ++ chunk_events,
+        emit: :terminal
+      )
+    end
+  end
+
+  @impl true
   def name, do: "stub"
 
   @impl true
@@ -48,6 +82,7 @@ defmodule NovelAgent.Provider.Stub do
   defp infer_response(text) do
     cond do
       creative_items_prompt?(text) -> creative_items_json(text)
+      agent_next_step_decision_prompt?(text) -> agent_next_step_decision_json(text)
       plan_prompt?(text) -> plan_json()
       frame_prompt?(text) -> frame_json(text)
       true -> "[stub] echo: " <> text
@@ -62,8 +97,129 @@ defmodule NovelAgent.Provider.Stub do
     String.contains?(text, "plan_goal_summary") and String.contains?(text, "proposed_actions")
   end
 
+  defp agent_next_step_decision_prompt?(text) do
+    String.contains?(text, "AgentRun 下一步规划器") and
+      String.contains?(text, "\"decision_type\"")
+  end
+
   defp frame_prompt?(text) do
     String.contains?(text, "frame_type") and String.contains?(text, "assistant_message")
+  end
+
+  defp agent_next_step_decision_json(prompt_text) do
+    cond do
+      String.contains?(prompt_text, "profile_ref: conversation_turn_v1") ->
+        prompt_text
+        |> conversation_next_step_decision()
+        |> Jason.encode!()
+
+      String.contains?(prompt_text, "/ artifact_created:") ->
+        Jason.encode!(%{
+          "decision_type" => "goal_satisfied",
+          "summary" => "[stub] 已生成待采纳角色候选，本轮目标已满足。",
+          "target_tool_ref" => nil,
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["goal_satisfied"],
+          "confidence" => 1.0
+        })
+
+      String.contains?(prompt_text, "/ character_roster:") ->
+        Jason.encode!(%{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 基于角色阵容设计新角色。",
+          "target_tool_ref" => "character_design",
+          "write_intent" => "tentative",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        })
+
+      true ->
+        Jason.encode!(%{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 先读取当前角色阵容。",
+          "target_tool_ref" => "character_roster",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        })
+    end
+  end
+
+  defp conversation_next_step_decision(prompt_text) do
+    observations = existing_observation_section(prompt_text)
+
+    cond do
+      String.contains?(observations, "已生成本轮回应") ->
+        %{
+          "decision_type" => "goal_satisfied",
+          "summary" => "[stub] 本轮回应已生成，目标已满足。",
+          "target_tool_ref" => nil,
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["goal_satisfied"],
+          "confidence" => 1.0
+        }
+
+      conversation_strategy_observation?(observations) ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 根据系统裁决生成本轮回应。",
+          "target_tool_ref" => "response_finalize",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(observations, "对话认知帧") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 基于对话认知帧完成执行策略与系统裁决。",
+          "target_tool_ref" => "strategy_gate",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(observations, "创作上下文") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 基于已组装上下文形成对话认知帧。",
+          "target_tool_ref" => "dialogue_frame",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        }
+
+      true ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 先组装当前作品上下文。",
+          "target_tool_ref" => "context_assemble",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        }
+    end
+  end
+
+  defp existing_observation_section(prompt_text) do
+    prompt_text
+    |> String.split("## 决策规则", parts: 2)
+    |> hd()
+  end
+
+  defp conversation_strategy_observation?(observations) do
+    Enum.any?(
+      ["无需工具", "工具执行授权", "执行策略生成失败", "作者确认", "授权判断"],
+      &String.contains?(observations, &1)
+    )
   end
 
   # ── 最小合法响应 ──

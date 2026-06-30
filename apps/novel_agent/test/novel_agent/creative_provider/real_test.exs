@@ -2,6 +2,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.CreativeProvider.Real
+  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelCommon.Contracts.CreativeRequest
 
   @request %CreativeRequest{
@@ -67,6 +69,35 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
     assert result.status == :ok
     assert Agent.get(agent, & &1) == 1
+  end
+
+  test "preserves provider_call_ref from unified provider execution result" do
+    result =
+      Real.generate(@request, fn _prompt ->
+        {:ok, %ProviderResult{content: @good_json, provider_call_ref: "pcall-writer-execution"}}
+      end)
+
+    assert result.status == :ok
+    assert result.provider_call_ref == "pcall-writer-execution"
+    assert [%{provider_call_ref: "pcall-writer-execution"}] = result.items
+  end
+
+  test "accepts provider execution dependency" do
+    provider_execution = %Execution{
+      complete_fn: fn _prompt ->
+        {:ok,
+         %ProviderResult{
+           content: @good_json,
+           provider_call_ref: "pcall-writer-dependency"
+         }}
+      end
+    }
+
+    result = Real.generate(@request, provider_execution)
+
+    assert result.status == :ok
+    assert result.provider_call_ref == "pcall-writer-dependency"
+    assert [%{provider_call_ref: "pcall-writer-dependency"}] = result.items
   end
 
   test "accepts top-level items with creative output self report" do

@@ -2,7 +2,34 @@ defmodule NovelAgent.Provider.GatewayTest do
   use ExUnit.Case, async: false
 
   alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.RuntimeConfig
+  alias NovelCommon.Contracts.ProviderEvent
+
+  defmodule ExecuteOnlyProvider do
+    @behaviour NovelAgent.Provider
+
+    alias NovelAgent.Provider.AdapterExecution
+    alias NovelAgent.Provider.Result
+
+    defstruct []
+
+    @impl true
+    def execute(_state, _model, prompt, _params, ctx) do
+      AdapterExecution.materialize_result({:ok, Result.new("adapter execute: #{prompt}")}, ctx)
+    end
+
+    @impl true
+    def complete(_state, _model, _prompt, _params) do
+      raise "Gateway must enter provider execution through execute/5 when the adapter exports it"
+    end
+
+    @impl true
+    def health_check(_state), do: :ok
+
+    @impl true
+    def name, do: "execute_only_provider"
+  end
 
   setup do
     old_extra = Application.get_env(:novel_agent, :extra_providers)
@@ -105,11 +132,15 @@ defmodule NovelAgent.Provider.GatewayTest do
       try do
         options = Gateway.provider_options()
         deepseek = Enum.find(options.providers, &(&1.id == :deepseek))
+        anthropic = Enum.find(options.providers, &(&1.id == :anthropic))
         slice_verify = Enum.find(options.providers, &(&1.id == :slice_verify))
 
         assert options.current_provider == :stub
+        assert anthropic.label == "Anthropic"
+        assert anthropic.supports_streaming == true
         assert deepseek.label == "DeepSeek"
         assert deepseek.supports_api_key == true
+        assert deepseek.supports_streaming == true
         assert deepseek.api_key_configured == true
         refute Map.has_key?(deepseek, :api_key)
         assert slice_verify.label == "slice_verify"
@@ -153,20 +184,20 @@ defmodule NovelAgent.Provider.GatewayTest do
       old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
       test_pid = self()
 
-      mock = fn _url, body, _opts ->
+      mock = fn _url, body, _opts, on_data ->
         send(test_pid, {:body, body})
 
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "runtime deepseek"}}],
-           "model" => "deepseek-v4-pro",
-           "usage" => %{}
-         }}
+        on_data.(sse_delta("runtime ", "deepseek-v4-pro"))
+        on_data.(sse_delta("deepseek", "deepseek-v4-pro", %{}))
+
+        on_data.("data: [DONE]\n\n")
+
+        {:ok, 200, ""}
       end
 
       Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek,
         endpoint: "https://api.deepseek.com",
-        http_fn: mock,
+        eventsource_fn: mock,
         log_fn: nil
       )
 
@@ -183,6 +214,7 @@ defmodule NovelAgent.Provider.GatewayTest do
         assert {:ok, %{content: "runtime deepseek"}} = Gateway.complete("hello")
         assert_receive {:body, body}
         assert body.model == "deepseek-v4-pro"
+        assert body.stream == true
         assert body.thinking == %{type: "enabled"}
       after
         Application.put_env(:novel_agent, NovelAgent.Provider.DeepSeek, old_deepseek)
@@ -469,6 +501,118 @@ defmodule NovelAgent.Provider.GatewayTest do
   end
 
   describe "complete/2 with test env (stub default)" do
+    test "execute materializes the unified provider execution stream" do
+      assert {:ok,
+              %{
+                provider_run: provider_run,
+                events: events,
+                output: output,
+                result: result
+              }} =
+               Gateway.execute("hello novel", nil, %InferenceParams{},
+                 purpose: :writer,
+                 provider_call_ref: "pcall_gateway_test",
+                 owner_refs: %{"run_ref" => "run_gateway_test", "step_ref" => "step_gateway_test"}
+               )
+
+      assert provider_run.execution_mode == :event_stream
+      assert provider_run.status == :completed
+      assert provider_run.purpose == :writer
+      assert provider_run.provider_call_ref == "pcall_gateway_test"
+      assert provider_run.owner_refs["run_ref"] == "run_gateway_test"
+
+      started_event = Enum.find(events, &(&1.event_type == :started))
+      chunk_event = Enum.find(events, &(&1.event_type == :chunk))
+      final_event = Enum.find(events, &(&1.event_type == :final_output))
+
+      progress_phases =
+        events
+        |> Enum.filter(&(&1.event_type == :progress))
+        |> Enum.map(& &1.payload[:phase])
+
+      assert started_event
+      assert final_event
+      assert progress_phases == [:request_prepared, :request_dispatched, :response_received]
+      assert ProviderEvent.author_safe?(started_event)
+      assert ProviderEvent.author_safe?(chunk_event)
+      assert chunk_event.payload[:chunk_index] == 1
+      assert is_integer(chunk_event.payload[:content_length])
+      assert is_integer(chunk_event.payload[:accumulated_content_length])
+      refute Map.has_key?(chunk_event.payload, :text_delta)
+      assert final_event.visibility == :developer
+
+      assert output.status == :ok
+      assert output.provider_run_ref == provider_run.provider_run_id
+      assert output.provider_call_ref == "pcall_gateway_test"
+      assert output.content.text == result.content
+      assert result.content =~ "[stub]"
+    end
+
+    test "execute materializes provider failures without using fallback event types" do
+      assert {:error,
+              %{
+                provider_run: provider_run,
+                events: events,
+                output: output,
+                error: error
+              }} =
+               Gateway.execute("hello novel", nil, %InferenceParams{},
+                 provider: :missing_provider,
+                 provider_call_ref: "pcall_gateway_error"
+               )
+
+      assert provider_run.execution_mode == :event_stream
+      assert provider_run.status == :failed
+      started_event = Enum.find(events, &(&1.event_type == :started))
+      error_event = Enum.find(events, &(&1.event_type == :error))
+      assert started_event.event_type == :started
+      assert error_event.event_type == :error
+      refute error_event.event_type in [:streaming_unsupported, :fallback]
+
+      assert output.status == :error
+      assert output.output_type == :empty
+      assert output.provider_call_ref == "pcall_gateway_error"
+      assert error.type == :provider_internal
+    end
+
+    test "execute uses adapter execute/5 as the provider execution boundary when available" do
+      Application.put_env(:novel_agent, :extra_providers,
+        execute_only: __MODULE__.ExecuteOnlyProvider,
+        slice_verify: NovelAgent.Test.Provider.SliceVerify
+      )
+
+      assert {:ok,
+              %{
+                provider_run: provider_run,
+                events: events,
+                output: output,
+                result: result
+              }} =
+               Gateway.execute("adapter boundary", nil, %InferenceParams{},
+                 provider: :execute_only,
+                 purpose: :tool,
+                 provider_call_ref: "pcall_execute_only"
+               )
+
+      assert result.content == "adapter execute: adapter boundary"
+      assert provider_run.execution_mode == :event_stream
+      assert provider_run.status == :completed
+      assert provider_run.provider_id == "execute_only"
+      assert provider_run.purpose == :tool
+
+      started_event = Enum.find(events, &(&1.event_type == :started))
+      final_event = Enum.find(events, &(&1.event_type == :final_output))
+
+      assert started_event.event_type == :started
+      assert ProviderEvent.author_safe?(started_event)
+      assert final_event.event_type == :final_output
+      assert final_event.visibility == :developer
+
+      assert output.status == :ok
+      assert output.provider_call_ref == "pcall_execute_only"
+      assert output.content.text == result.content
+    end
+
     test "returns echo content from stub" do
       assert {:ok, %{content: content}} = Gateway.complete("hello novel")
       assert content =~ "[stub]"
@@ -576,15 +720,15 @@ defmodule NovelAgent.Provider.GatewayTest do
       old_deepseek = Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek)
       test_pid = self()
 
-      mock = fn _url, body, _opts ->
+      mock = fn _url, body, _opts, on_data ->
         send(test_pid, {:deepseek_body, body})
 
-        {:ok, 200,
-         %{
-           "choices" => [%{"message" => %{"content" => "deepseek ok"}}],
-           "model" => "deepseek-v4-flash",
-           "usage" => %{}
-         }}
+        on_data.(sse_delta("deepseek ", "deepseek-v4-flash"))
+        on_data.(sse_delta("ok", "deepseek-v4-flash", %{}))
+
+        on_data.("data: [DONE]\n\n")
+
+        {:ok, 200, ""}
       end
 
       Application.put_env(:novel_agent, :provider, default: :deepseek)
@@ -594,7 +738,7 @@ defmodule NovelAgent.Provider.GatewayTest do
         endpoint: "https://api.deepseek.com",
         model: "deepseek-v4-flash",
         timeout: 100,
-        http_fn: mock,
+        eventsource_fn: mock,
         log_fn: nil
       )
 
@@ -602,6 +746,7 @@ defmodule NovelAgent.Provider.GatewayTest do
         assert {:ok, %{content: "deepseek ok"}} = Gateway.complete("hello")
         assert_receive {:deepseek_body, body}
         assert body.model == "deepseek-v4-flash"
+        assert body.stream == true
         assert body.messages == [%{role: "user", content: "hello"}]
       after
         Application.put_env(:novel_agent, :provider, old_provider)
@@ -814,4 +959,18 @@ defmodule NovelAgent.Provider.GatewayTest do
 
   defp restore_common_env(key, nil), do: Application.delete_env(:novel_common, key)
   defp restore_common_env(key, value), do: Application.put_env(:novel_common, key, value)
+
+  defp sse_delta(content, model, usage \\ nil) do
+    payload =
+      %{
+        "choices" => [%{"delta" => %{"content" => content}}],
+        "model" => model
+      }
+      |> maybe_put_usage(usage)
+
+    "data: #{Jason.encode!(payload)}\n\n"
+  end
+
+  defp maybe_put_usage(payload, nil), do: payload
+  defp maybe_put_usage(payload, usage), do: Map.put(payload, "usage", usage)
 end

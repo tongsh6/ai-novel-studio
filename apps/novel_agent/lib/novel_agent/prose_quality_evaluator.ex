@@ -4,31 +4,36 @@ defmodule NovelAgent.ProseQualityEvaluator do
 
   与正文 writer **职责分离**：writer 写正文，本 evaluator 只读地评审正文是否实现场级目标，
   输出**严格 JSON** 的 `QualityFinding` 列表，绝不生成修订正文、绝不修改作品事实。
-  可复用 Provider Gateway（注入 `complete_fn`），但用独立 request contract 与独立 prompt
-  （不含正文三锚点）。非法 JSON 重试一次，二次失败诚实返回 error（上层降级，不当通过）。
+  可复用 Provider Gateway（注入 provider execution），但用独立 request contract 与独立 prompt
+  （不含正文三锚点）。非法 JSON 重试一次，二次失败诚实返回 error（上层记录不可用，不当通过）。
   """
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
 
-  @spec evaluate(QualityEvaluationRequest.t(), (String.t() -> tuple())) ::
+  @spec evaluate(QualityEvaluationRequest.t(), Execution.dependency()) ::
           QualityEvaluationResult.t()
-  def evaluate(%QualityEvaluationRequest{} = request, complete_fn)
-      when is_function(complete_fn, 1) do
-    request
-    |> build_prompt()
-    |> do_evaluate(complete_fn, _retry? = true)
-  end
+  def evaluate(%QualityEvaluationRequest{} = request, provider_execution) do
+    case Execution.complete_fn(provider_execution) do
+      complete_fn when is_function(complete_fn, 1) ->
+        request
+        |> build_prompt()
+        |> do_evaluate(complete_fn, _retry? = true)
 
-  def evaluate(%QualityEvaluationRequest{}, _complete_fn) do
-    QualityEvaluationResult.error(%{code: "complete_fn_required", message: "evaluator requires provider"})
+      _ ->
+        QualityEvaluationResult.error(%{
+          code: "provider_execution_required",
+          message: "evaluator requires provider execution"
+        })
+    end
   end
 
   defp do_evaluate(prompt, complete_fn, retry?) do
     case complete_fn.(prompt) do
-      {:ok, %ProviderResult{content: content}} when is_binary(content) ->
-        parse_or_retry(content, nil, prompt, complete_fn, retry?)
+      {:ok, %ProviderResult{content: content} = result} when is_binary(content) ->
+        parse_or_retry(content, provider_call_ref(result), prompt, complete_fn, retry?)
 
       {:ok, %{content: content} = result} when is_binary(content) ->
         parse_or_retry(content, provider_call_ref(result), prompt, complete_fn, retry?)
@@ -37,7 +42,10 @@ defmodule NovelAgent.ProseQualityEvaluator do
         parse_or_retry(content, nil, prompt, complete_fn, retry?)
 
       {:error, error} ->
-        QualityEvaluationResult.error(%{code: "evaluator_provider_error", message: inspect(error)})
+        QualityEvaluationResult.error(%{
+          code: "evaluator_provider_error",
+          message: inspect(error)
+        })
 
       other ->
         QualityEvaluationResult.error(%{code: "evaluator_unexpected", message: inspect(other)})

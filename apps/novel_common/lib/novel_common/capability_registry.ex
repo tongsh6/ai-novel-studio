@@ -80,7 +80,7 @@ defmodule NovelCommon.CapabilityRegistry do
         trace_level: :standard,
         provider_dependency: :llm_provider,
         supports_retry: true,
-        supports_cancellation: false
+        supports_cancellation: true
       },
       "character_design" => %CapabilityRegistryEntry{
         tool_name: "character_design",
@@ -95,7 +95,7 @@ defmodule NovelCommon.CapabilityRegistry do
         trace_level: :standard,
         provider_dependency: :llm_provider,
         supports_retry: true,
-        supports_cancellation: false
+        supports_cancellation: true
       },
       # AU-09 角色演化记忆：更新已有角色的演化/当前状态/关系变化，采纳后写角色记忆
       # （CHARACTER_PROFILE/CURRENT_STATE/RELATIONSHIP），区别于 character_design 写主档案。
@@ -112,7 +112,7 @@ defmodule NovelCommon.CapabilityRegistry do
         trace_level: :standard,
         provider_dependency: :llm_provider,
         supports_retry: true,
-        supports_cancellation: false
+        supports_cancellation: true
       },
       "plot_outline" => %CapabilityRegistryEntry{
         tool_name: "plot_outline",
@@ -127,7 +127,7 @@ defmodule NovelCommon.CapabilityRegistry do
         trace_level: :standard,
         provider_dependency: :llm_provider,
         supports_retry: true,
-        supports_cancellation: false
+        supports_cancellation: true
       },
       "prose_writing" => %CapabilityRegistryEntry{
         tool_name: "prose_writing",
@@ -152,7 +152,7 @@ defmodule NovelCommon.CapabilityRegistry do
         trace_level: :standard,
         provider_dependency: :llm_provider,
         supports_retry: true,
-        supports_cancellation: false
+        supports_cancellation: true
       },
       "disabled_tool" => %CapabilityRegistryEntry{
         tool_name: "disabled_tool",

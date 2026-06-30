@@ -170,11 +170,89 @@ defmodule NovelAgent.Provider.DeepSeekTest do
     end
   end
 
+  describe "execute/5" do
+    test "streams DeepSeek chunks and keeps thinking request fields" do
+      test_pid = self()
+
+      eventsource = fn url, body, opts, on_data ->
+        send(test_pid, {:stream_request, url, body, opts})
+
+        on_data.(sse_delta("深", "deepseek-v4-pro"))
+
+        on_data.(
+          sse_delta("思", "deepseek-v4-pro", %{
+            "prompt_tokens" => 8,
+            "completion_tokens" => 2
+          })
+        )
+
+        on_data.("data: [DONE]\n\n")
+
+        {:ok, 200, ""}
+      end
+
+      state = %DeepSeek{
+        api_key: "secret",
+        endpoint: "https://api.deepseek.com",
+        model: "deepseek-v4-pro",
+        timeout: 100,
+        eventsource_fn: eventsource,
+        log_fn: nil,
+        thinking: :enabled,
+        reasoning_effort: "high"
+      }
+
+      assert {:ok, %{events: events, result: result}} =
+               DeepSeek.execute(state, nil, "prompt", %InferenceParams{}, provider_ctx())
+
+      assert result.content == "深思"
+      assert result.usage.input_tokens == 8
+      assert result.usage.output_tokens == 2
+
+      assert_receive {:stream_request, url, body, opts}
+      assert url == "https://api.deepseek.com/chat/completions"
+      assert body.stream == true
+      assert body.thinking == %{type: "enabled"}
+      assert body.reasoning_effort == "high"
+      assert {"authorization", "Bearer secret"} in Keyword.fetch!(opts, :headers)
+
+      chunk_events = Enum.filter(events, &(&1.event_type == :chunk))
+      assert length(chunk_events) == 2
+      refute Enum.any?(chunk_events, &Map.has_key?(&1.payload, :text_delta))
+    end
+  end
+
   describe "behaviour conformance" do
     test "exports required callbacks" do
       assert function_exported?(DeepSeek, :complete, 4)
+      assert function_exported?(DeepSeek, :execute, 5)
       assert function_exported?(DeepSeek, :name, 0)
       assert function_exported?(DeepSeek, :from_config, 0)
     end
   end
+
+  defp provider_ctx do
+    %{
+      provider_name: :deepseek,
+      model_name: "deepseek-v4-pro",
+      provider_call_ref: "pcall_deepseek_stream_test",
+      provider_run_id: "prun_deepseek_stream_test",
+      purpose: :conversation,
+      owner_refs: %{}
+    }
+  end
+
+  defp sse_delta(content, model, usage \\ nil) do
+    payload =
+      %{
+        "choices" => [%{"delta" => %{"content" => content}}],
+        "model" => model
+      }
+      |> maybe_put_usage(usage)
+
+    "data: #{Jason.encode!(payload)}\n\n"
+  end
+
+  defp maybe_put_usage(payload, nil), do: payload
+  defp maybe_put_usage(payload, usage), do: Map.put(payload, "usage", usage)
 end

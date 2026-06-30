@@ -1,6 +1,8 @@
 defmodule NovelAgent.Tools.CreativeToolAdapterTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelAgent.Tools.CreativeToolAdapter
   alias NovelCommon.Contracts.ToolRequest
 
@@ -32,6 +34,33 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
     end
   end
 
+  defmodule ExecutionBackedProvider do
+    @behaviour NovelAgent.CreativeProvider
+
+    alias NovelAgent.Provider.Execution
+    alias NovelCommon.Contracts.CreativeProviderResult
+
+    @impl true
+    def generate(_request, provider_execution) do
+      complete_fn = Execution.complete_fn(provider_execution)
+      {:ok, result} = complete_fn.("creative tool prompt")
+
+      %CreativeProviderResult{
+        status: :ok,
+        provider_call_ref: result.provider_call_ref,
+        items: [
+          %{
+            item_id: "item-exec",
+            title: "正文草稿",
+            body: "正文内容",
+            rationale: nil,
+            provider_call_ref: result.provider_call_ref
+          }
+        ]
+      }
+    end
+  end
+
   test "passes creative self_report as observation and non-authoritative warning" do
     result =
       CreativeToolAdapter.execute(
@@ -56,6 +85,25 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
                risk_flags: ["章尾钩子需作者确认"]
              }
            ] = result.warnings
+  end
+
+  test "passes provider execution dependency through creative tool adapter" do
+    provider_execution = %Execution{
+      complete_fn: fn _prompt ->
+        {:ok, %ProviderResult{content: "unused", provider_call_ref: "pcall-tool-execution"}}
+      end
+    }
+
+    result =
+      CreativeToolAdapter.execute(
+        request(),
+        :prose_fragment,
+        provider_execution,
+        ExecutionBackedProvider
+      )
+
+    assert result.status == :succeeded
+    assert [%{provider_call_ref: "pcall-tool-execution"}] = result.output.items
   end
 
   defp request do

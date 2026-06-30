@@ -2,6 +2,8 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
   use ExUnit.Case, async: true
 
   alias NovelAgent.ProseQualityEvaluator
+  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelCommon.Contracts.QualityEvaluationRequest
   alias NovelCommon.Contracts.QualityEvaluationResult
 
@@ -42,9 +44,38 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     assert parsed["validator_ref"] == "validator.character_agency"
   end
 
+  test "preserves provider_call_ref from unified provider execution result" do
+    complete = fn _prompt ->
+      {:ok,
+       %ProviderResult{content: findings_json([]), provider_call_ref: "pcall-evaluator-execution"}}
+    end
+
+    assert %QualityEvaluationResult{status: :ok, provider_call_ref: "pcall-evaluator-execution"} =
+             ProseQualityEvaluator.evaluate(request(), complete)
+  end
+
+  test "accepts provider execution dependency" do
+    provider_execution = %Execution{
+      complete_fn: fn _prompt ->
+        {:ok,
+         %ProviderResult{
+           content: findings_json([]),
+           provider_call_ref: "pcall-evaluator-dependency"
+         }}
+      end
+    }
+
+    assert %QualityEvaluationResult{
+             status: :ok,
+             provider_call_ref: "pcall-evaluator-dependency"
+           } = ProseQualityEvaluator.evaluate(request(), provider_execution)
+  end
+
   test "accepts bare JSON array of findings" do
-    complete = fn _prompt -> {:ok, %{content: Jason.encode!([%{"validator_ref" => "v"}])} } end
-    assert %QualityEvaluationResult{status: :ok, findings: [_]} = ProseQualityEvaluator.evaluate(request(), complete)
+    complete = fn _prompt -> {:ok, %{content: Jason.encode!([%{"validator_ref" => "v"}])}} end
+
+    assert %QualityEvaluationResult{status: :ok, findings: [_]} =
+             ProseQualityEvaluator.evaluate(request(), complete)
   end
 
   test "retries once on invalid JSON then succeeds" do
@@ -55,17 +86,23 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
       if n == 0, do: {:ok, %{content: "这不是 JSON"}}, else: {:ok, %{content: findings_json([])}}
     end
 
-    assert %QualityEvaluationResult{status: :ok} = ProseQualityEvaluator.evaluate(request(), complete)
+    assert %QualityEvaluationResult{status: :ok} =
+             ProseQualityEvaluator.evaluate(request(), complete)
+
     assert Agent.get(counter, & &1) == 2
   end
 
   test "double invalid JSON → honest error (not faked ok)" do
     complete = fn _prompt -> {:ok, %{content: "still not json"}} end
-    assert %QualityEvaluationResult{status: :error} = ProseQualityEvaluator.evaluate(request(), complete)
+
+    assert %QualityEvaluationResult{status: :error} =
+             ProseQualityEvaluator.evaluate(request(), complete)
   end
 
   test "provider error → error result" do
     complete = fn _prompt -> {:error, :timeout} end
-    assert %QualityEvaluationResult{status: :error} = ProseQualityEvaluator.evaluate(request(), complete)
+
+    assert %QualityEvaluationResult{status: :error} =
+             ProseQualityEvaluator.evaluate(request(), complete)
   end
 end

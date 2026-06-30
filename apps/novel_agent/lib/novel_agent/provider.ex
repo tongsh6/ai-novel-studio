@@ -2,10 +2,13 @@ defmodule NovelAgent.Provider do
   @moduledoc """
   Provider behaviour — LLM 能力提供者的统一抽象。
 
-  定义 complete/3 的最小接口。每个 adapter 返回 `{:ok, %Result{}}` 或 `{:error, reason}`。
-  Gateway 负责将旧版 `{:ok, content_string}` 自动包装为 Result。
+  Adapter 统一接入 provider execution stream。底层供应商即使只提供 final
+  response，也必须在 adapter execution boundary 物化为同一套 ProviderRun /
+  ProviderEvent / ProviderOutput 事实。兼容 `complete/3` 只能消费 stream 的
+  final Result；应用层不应直接把 adapter callback 当作第二套执行体系。
   """
 
+  alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
 
@@ -24,6 +27,7 @@ defmodule NovelAgent.Provider do
   一次性请求并返回完整结果。
 
   params 为跨 provider 通用的推理参数，各 adapter 负责映射为自身 API 字段。
+  该回调是 final-only adapter 的底层实现细节，不是应用层 provider 执行入口。
   """
   @callback complete(
               state :: term(),
@@ -31,6 +35,21 @@ defmodule NovelAgent.Provider do
               prompt :: prompt(),
               params :: InferenceParams.t()
             ) :: result()
+
+  @doc """
+  通过 provider execution stream 执行一次 provider 调用。
+
+  支持底层分段事件的 adapter 可以实现该回调；final-only adapter 不实现时，
+  Gateway 会通过 `NovelAgent.Provider.AdapterExecution.execute/6` 将 `complete/4`
+  的终态结果投影进同一 execution stream。
+  """
+  @callback execute(
+              state :: term(),
+              model :: model() | nil,
+              prompt :: prompt(),
+              params :: InferenceParams.t(),
+              ctx :: AdapterExecution.context()
+            ) :: AdapterExecution.execution_result()
 
   @doc """
   轻量健康检查——不调用 LLM，不消耗 token。
@@ -54,7 +73,7 @@ defmodule NovelAgent.Provider do
   """
   @callback name() :: String.t()
 
-  @optional_callbacks list_models: 1
+  @optional_callbacks list_models: 1, execute: 5
 
   @doc """
   Normalize legacy string prompts and chat prompts into OpenAI-compatible

@@ -11,7 +11,9 @@ defmodule NovelAgent.Provider.DeepSeek do
 
   require Logger
 
+  alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.HTTP
+  alias NovelAgent.Provider.OpenAICompatibleStream
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.Usage
   alias NovelFoundation.UpstreamError
@@ -22,6 +24,7 @@ defmodule NovelAgent.Provider.DeepSeek do
     :model,
     :timeout,
     :http_fn,
+    :eventsource_fn,
     :get_fn,
     :log_fn,
     :json_mode,
@@ -30,6 +33,8 @@ defmodule NovelAgent.Provider.DeepSeek do
   ]
 
   @type http_fn :: (String.t(), map(), keyword() -> HTTP.http_result())
+  @type eventsource_fn ::
+          (String.t(), map(), keyword(), (binary() -> term()) -> HTTP.event_stream_result())
   @type get_fn :: (String.t(), keyword() -> HTTP.http_result())
   @type log_fn :: (String.t(), String.t(), map(), term(), integer() -> :ok)
   @type thinking :: :enabled | :disabled
@@ -40,6 +45,7 @@ defmodule NovelAgent.Provider.DeepSeek do
           model: String.t(),
           timeout: pos_integer(),
           http_fn: http_fn() | nil,
+          eventsource_fn: eventsource_fn() | nil,
           get_fn: get_fn() | nil,
           log_fn: log_fn() | nil,
           json_mode: boolean(),
@@ -88,6 +94,34 @@ defmodule NovelAgent.Provider.DeepSeek do
   def complete(%__MODULE__{}, _model, _prompt, _params) do
     err = UpstreamError.new(:auth, "DeepSeek API key 未配置", name())
     UpstreamError.to_error_tuple(err)
+  end
+
+  @impl true
+  def execute(%__MODULE__{api_key: key} = state, _model, prompt, params, ctx)
+      when (is_binary(prompt) or is_list(prompt)) and is_binary(key) and key != "" do
+    body =
+      %{
+        model: state.model,
+        messages: NovelAgent.Provider.normalize_messages(prompt),
+        stream: true
+      }
+      |> HTTP.apply_params(params)
+      |> maybe_json_mode(state.json_mode)
+      |> maybe_thinking(state.thinking, state.reasoning_effort)
+
+    url = endpoint_url(state.endpoint)
+    headers = [{"authorization", "Bearer #{key}"}]
+    request_opts = [headers: headers, receive_timeout: state.timeout]
+
+    OpenAICompatibleStream.execute(stream_meta(), state, url, body, request_opts, ctx)
+  end
+
+  def execute(%__MODULE__{}, _model, _prompt, _params, ctx) do
+    err = UpstreamError.new(:auth, "DeepSeek API key 未配置", name())
+
+    err
+    |> UpstreamError.to_error_tuple()
+    |> AdapterExecution.materialize_result(ctx)
   end
 
   defp endpoint_url(endpoint) do
@@ -223,6 +257,7 @@ defmodule NovelAgent.Provider.DeepSeek do
       model: Keyword.get(config, :model, @default_model),
       timeout: Keyword.get(config, :timeout, 300_000),
       http_fn: Keyword.get(config, :http_fn, &HTTP.post/3),
+      eventsource_fn: Keyword.get(config, :eventsource_fn, &HTTP.post_event_stream/4),
       get_fn: Keyword.get(config, :get_fn, &HTTP.get/2),
       log_fn: Keyword.get(config, :log_fn, &NovelCommon.LLMLog.record/5),
       json_mode: Keyword.get(config, :json_mode, false),
@@ -233,6 +268,8 @@ defmodule NovelAgent.Provider.DeepSeek do
 
   defp normalize_thinking(value) when value in [:enabled, "enabled", true], do: :enabled
   defp normalize_thinking(_value), do: :disabled
+
+  defp stream_meta, do: %{vendor: name(), label: "DeepSeek"}
 
   defp models_url(endpoint) do
     endpoint

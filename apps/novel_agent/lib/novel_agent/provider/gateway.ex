@@ -6,7 +6,7 @@ defmodule NovelAgent.Provider.Gateway do
   不直接依赖具体 adapter。Gateway 负责：
 
   1. 按配置选择 adapter
-  2. 调用失败时直接返回错误——不做降级（产品不应在 LLM 不可用时冒充可用）
+  2. 调用失败时直接返回错误——不切换到替代执行路径（产品不应在 LLM 不可用时冒充可用）
   3. 将旧版 `{:ok, content_string}` 自动包装为 `{:ok, %Result{}}`
 
   ## 配置
@@ -23,9 +23,13 @@ defmodule NovelAgent.Provider.Gateway do
   require NovelCommon.LogEmit, as: LogEmit
 
   alias NovelAgent.Provider
+  alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.Result
   alias NovelAgent.Provider.RuntimeConfig
+  alias NovelCommon.Contracts.ProviderEvent
+  alias NovelCommon.Contracts.ProviderOutput
+  alias NovelCommon.Contracts.ProviderRun
   alias NovelFoundation.UpstreamError
 
   @provider_modules %{
@@ -49,8 +53,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: false,
       supports_endpoint: false,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     lmstudio: %{
       label: "LM Studio",
@@ -58,8 +62,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: false,
       supports_endpoint: true,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     anthropic: %{
       label: "Anthropic",
@@ -67,8 +71,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: false,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     deepseek: %{
       label: "DeepSeek",
@@ -76,8 +80,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: true,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     openai: %{
       label: "OpenAI（API Key）",
@@ -85,8 +89,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     openai_subscription: %{
       label: "OpenAI（订阅）",
@@ -94,8 +98,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     minimax: %{
       label: "Minimax (国际版)",
@@ -103,8 +107,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     minimax_cn: %{
       label: "Minimax (国内版)",
@@ -112,8 +116,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     zhipu: %{
       label: "智谱",
@@ -121,8 +125,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     kimi: %{
       label: "Kimi",
@@ -130,8 +134,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     },
     gemini: %{
       label: "Gemini",
@@ -139,12 +143,25 @@ defmodule NovelAgent.Provider.Gateway do
       supports_api_key: true,
       supports_endpoint: true,
       supports_thinking: false,
-      supports_streaming: false,
-      supports_cancellation: false
+      supports_streaming: true,
+      supports_cancellation: true
     }
   }
 
   @type result :: {:ok, Result.t()} | {:error, map()}
+  @type execution_success :: %{
+          provider_run: ProviderRun.t(),
+          events: [ProviderEvent.t()],
+          output: ProviderOutput.t(),
+          result: Result.t()
+        }
+  @type execution_error :: %{
+          provider_run: ProviderRun.t(),
+          events: [ProviderEvent.t()],
+          output: ProviderOutput.t(),
+          error: map()
+        }
+  @type execution_result :: {:ok, execution_success()} | {:error, execution_error()}
   @type provider_config :: %{
           optional(:provider) => atom() | String.t(),
           optional(:model) => String.t() | nil,
@@ -156,27 +173,63 @@ defmodule NovelAgent.Provider.Gateway do
         }
 
   @doc """
+  通过统一 provider execution stream 执行一次 provider 调用。
+
+  Gateway 只负责选择 adapter、生成 provider execution context、记录入口日志。
+  底层 adapter 目前仍可能只提供一次性 `complete/4` 回调，但 final-only 结果由
+  adapter execution boundary 物化为同一套 ProviderRun / ProviderEvent /
+  ProviderOutput 事实。应用层不得在这里之外再新增 complete-vs-stream 分支。
+  """
+  @spec execute(Provider.prompt(), String.t() | nil, InferenceParams.t(), keyword()) ::
+          execution_result()
+  def execute(prompt, model \\ nil, params \\ %InferenceParams{}, opts \\ []) do
+    provider_name = Keyword.get(opts, :provider, default_provider())
+    model_name = model || Keyword.get(opts, :model) || default_model()
+    provider_call_ref = Keyword.get(opts, :provider_call_ref) || provider_call_ref()
+    provider_run_id = Keyword.get(opts, :provider_run_id) || provider_run_id()
+    purpose = Keyword.get(opts, :purpose, :conversation)
+    owner_refs = Keyword.get(opts, :owner_refs, %{})
+    event_sink = Keyword.get(opts, :event_sink)
+    cancellation_token = Keyword.get(opts, :cancellation_token)
+    started = System.monotonic_time(:millisecond)
+
+    LogEmit.emit(:provider_gateway, :complete, :start, %{
+      provider: provider_name,
+      model: model_name
+    })
+
+    execution =
+      execute_provider(provider_name, model_name, prompt, params, %{
+        provider_name: provider_name,
+        model_name: model_name,
+        provider_call_ref: provider_call_ref,
+        provider_run_id: provider_run_id,
+        purpose: purpose,
+        owner_refs: owner_refs,
+        event_sink: event_sink,
+        cancellation_token: cancellation_token
+      })
+
+    emit_provider_execution_result(provider_name, model_name, execution, started)
+    execution
+  end
+
+  @doc """
   调用当前默认 provider 执行 complete。
 
   可传入 InferenceParams 覆盖默认推理参数（temperature / max_tokens 等）。
   返回 `{:ok, %Result{content: content, usage: usage}}`。
-  LLM 不可用时返回 `{:error, error}`——不做降级，让上层告知用户。
+  LLM 不可用时返回 `{:error, error}`——不切换到替代执行路径，让上层告知用户。
   """
   @spec complete(String.t(), String.t() | nil, InferenceParams.t()) :: result()
   def complete(prompt, model \\ nil, params \\ %InferenceParams{}) do
-    provider_name = default_provider()
-    model_name = model || default_model()
-
-    case do_complete(provider_name, model_name, prompt, params) do
-      {:ok, %Result{} = result} ->
+    case execute(prompt, model, params) do
+      {:ok, %{result: %Result{} = result}} ->
         {:ok, result}
 
-      {:ok, content} when is_binary(content) ->
-        {:ok, Result.new(content)}
-
-      {:error, error} ->
+      {:error, %{error: error}} ->
         Logger.warning(
-          "[提供者网关] #{provider_name} 调用失败：#{get_in(error, [:message]) || inspect(error)}"
+          "[提供者网关] #{default_provider()} 调用失败：#{get_in(error, [:message]) || inspect(error)}"
         )
 
         {:error, if(is_map(error), do: error, else: %{message: inspect(error)})}
@@ -241,8 +294,8 @@ defmodule NovelAgent.Provider.Gateway do
       supports_cancellation: Map.get(descriptor, :supports_cancellation, false),
       cancel_strategy:
         if(Map.get(descriptor, :supports_cancellation, false),
-          do: :hard_cancel,
-          else: :cooperative_safe_point
+          do: :provider_execution_cancel,
+          else: :not_available
         )
     }
   end
@@ -352,50 +405,45 @@ defmodule NovelAgent.Provider.Gateway do
      }}
   end
 
-  defp do_complete(provider_name, model, prompt, params) do
-    started = System.monotonic_time(:millisecond)
-
-    LogEmit.emit(:provider_gateway, :complete, :start, %{
-      provider: provider_name,
-      model: model
-    })
-
+  defp execute_provider(provider_name, model, prompt, params, ctx) do
     case Map.fetch(provider_modules(), provider_name) do
       {:ok, module} ->
         state = build_state(provider_name, module)
-        result = module.complete(state, model, prompt, params)
-        emit_provider_complete_result(provider_name, model, result, started)
-        result
+        execute_adapter(module, state, model, prompt, params, ctx)
 
       :error ->
         err =
           UpstreamError.new(:provider_internal, "unknown provider: #{provider_name}", "gateway")
 
-        result = UpstreamError.to_error_tuple(err)
-        emit_provider_complete_result(provider_name, model, result, started)
-        result
+        err
+        |> UpstreamError.to_error_tuple()
+        |> AdapterExecution.materialize_result(ctx)
     end
   end
 
-  defp emit_provider_complete_result(provider_name, model, result, started) do
+  defp execute_adapter(module, state, model, prompt, params, ctx) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :execute, 5) do
+      module.execute(state, model, prompt, params, ctx)
+    else
+      AdapterExecution.execute(module, state, model, prompt, params, ctx)
+    end
+  end
+
+  defp provider_run_id, do: "prun_#{System.unique_integer([:positive, :monotonic])}"
+  defp provider_call_ref, do: "pcall_#{System.unique_integer([:positive, :monotonic])}"
+
+  defp emit_provider_execution_result(provider_name, model, execution, started) do
     duration = System.monotonic_time(:millisecond) - started
 
-    case result do
-      {:ok, %Result{} = provider_result} ->
+    case execution do
+      {:ok, %{result: %Result{} = provider_result}} ->
         LogEmit.emit(:provider_gateway, :complete, :done, %{
           provider: provider_name,
           model: result_model(provider_result, model),
           duration_ms: duration
         })
 
-      {:ok, _content} ->
-        LogEmit.emit(:provider_gateway, :complete, :done, %{
-          provider: provider_name,
-          model: model,
-          duration_ms: duration
-        })
-
-      {:error, error} ->
+      {:error, %{error: error}} ->
         LogEmit.emit(:provider_gateway, :complete, :error, %{
           provider: provider_name,
           model: model,

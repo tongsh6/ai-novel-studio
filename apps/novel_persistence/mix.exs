@@ -39,6 +39,7 @@ defmodule NovelPersistence.MixProject do
   defp deps do
     [
       {:novel_foundation, in_umbrella: true},
+      {:novel_common, in_umbrella: true},
       {:novel_domain, in_umbrella: true},
       {:decimal, "~> 3.0", override: true},
       {:ecto, "~> 3.13"},

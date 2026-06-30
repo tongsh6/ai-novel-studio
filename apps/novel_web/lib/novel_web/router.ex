@@ -49,6 +49,12 @@ defmodule NovelWeb.Router do
       :show
     )
 
+    get(
+      "/works/:work_id/sessions/:session_id/turns/:turn_id/provider-runs",
+      ProviderActivityController,
+      :show
+    )
+
     get("/works/:work_id/sessions/:id", WorkSessionsController, :show)
     get("/works/:id", WorksController, :show)
   end
