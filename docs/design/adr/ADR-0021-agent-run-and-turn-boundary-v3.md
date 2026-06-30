@@ -32,7 +32,7 @@
 ## 非目标
 
 - 不实现 durable checkpoint/resume。
-- 不声明 provider hard cancellation。
+- 不新增 ProviderExecution 之外的取消体系。
 - 不允许以固定 workflow 冒充通用 Agent。
 
 ## 考虑过的方案
@@ -101,12 +101,12 @@ UI 订阅 author-safe `AgentEvent` 和 `AgentRunState`，发送 `agent_command`�
 
 ## 迁移与兼容
 
-普通 reply-only、direct_tool、author_action 兼容路径保留。VS-00E 正文链已迁入 AgentRun profile：`prose_drafting_with_quality_v1` 拆为正文上下文组装、策略/授权、正文生成+质量复核、最终汇总四个显式 AgentStep；`prose_revision_from_findings_v1` 拆为读取/校验修订对象、修订计划与授权、工具执行、最终候选汇总四个显式 AgentStep。CP4 fresh Tauri summary 仍按剩余缺口跟进。
+普通 reply-only、direct_tool、author_action 兼容路径保留。VS-00E 正文链已迁入 AgentRun profile：`prose_drafting_with_quality_v1` 当前为 observation-led next-step loop，先记录正文上下文 observation，再由 planner 选择 `prose_writing` 工具 step；工具 step 内重新构造单动作 MicroPlan、重新经过 Orchestrator gate，并保留 writer/evaluator ProviderExecution activity 与 usage UI；最后由 completion decision 收束。`prose_revision_from_findings_v1` 拆为读取/校验修订对象、修订计划与授权、工具执行、最终候选汇总四个显式 AgentStep。当前正文草稿 next-step 版本的 fresh Tauri summary 已通过。
 
 ## 后续工作
 
 - UA-CP2：supervised bounded runtime（2026-06-28 已落地）。
 - UA-CP3：角色阵容读取 → 角色设计真实页面验收（2026-06-28 已通过 `ua01-agent-bounded-roster-to-character-design`）。
-- UA-CP4：正文 Profile 迁移并复用 VS-00E（正文草稿四步 profile 与修订四步 profile 已实现；fresh Tauri summary 仍需补齐）。
+- UA-CP4：正文 Profile 迁移并复用 VS-00E（修订四步 profile 已实现并有 fresh Tauri summary；正文草稿已从旧四步 workflow 继续纯化为 next-step planner loop，fresh Tauri summary 已通过）。
 - UA-CP5：durable AgentRun + LongRunTask 真实消费者。
 - UA-CP6：streaming / provider cancel / read-only batch。

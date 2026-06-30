@@ -30,7 +30,7 @@
 
 非目标：
 
-- 不声明 provider hard cancellation。
+- 不新增 ProviderExecution 之外的取消体系。
 - 不把 CP6 streaming 或 read-only batch 合并进 CP5。
 - 不绕过现有 `AgentRunLog` / `LongRunTask` / trace 体系自建持久化。
 
