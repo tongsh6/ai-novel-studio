@@ -6,6 +6,7 @@ import type { AgentEventData } from "../lib/socket";
 import {
   agentRunEventDetailItems,
   agentRunExecutionBrief,
+  agentRunProviderFlowSummary,
   agentRunProviderRunDetailItems,
   agentRunProviderRunReplayDetails,
 } from "../lib/agentRunTimeline";
@@ -86,6 +87,134 @@ describe("AgentRun activity timeline details", () => {
     expect(rendered).toContain("片段长度：18 字");
     expect(rendered).toContain("已接收：37 字");
     expect(rendered).not.toContain("不应展示的模型片段");
+  });
+
+  it("summarizes live provider execution flow without exposing text deltas", () => {
+    const events: AgentEventData[] = [
+      {
+        event_id: "evt_run_flow_1",
+        run_ref: "run_flow",
+        step_ref: "step_run_flow_1",
+        sequence: 1,
+        event_type: "provider_progress",
+        visibility: "author",
+        summary: "对话判断已准备模型请求。",
+        reason_codes: ["provider_execution_stream", "provider_request_prepared"],
+        refs: ["provider_run:prun_flow", "provider_call:pcall_flow"],
+        payload: {
+          provider_event_type: "progress",
+          provider_run_ref: "prun_flow",
+          provider_call_ref: "pcall_flow",
+          purpose: "conversation",
+          status: "running",
+          provider_progress_phase: "request_prepared",
+          raw_prompt: "不应展示的 prompt",
+        },
+      },
+      {
+        event_id: "evt_run_flow_2",
+        run_ref: "run_flow",
+        step_ref: "step_run_flow_1",
+        sequence: 2,
+        event_type: "provider_progress",
+        visibility: "author",
+        summary: "对话判断已发送模型请求。",
+        reason_codes: ["provider_execution_stream", "provider_request_dispatched"],
+        refs: ["provider_run:prun_flow", "provider_call:pcall_flow"],
+        payload: {
+          provider_event_type: "progress",
+          provider_run_ref: "prun_flow",
+          provider_call_ref: "pcall_flow",
+          purpose: "conversation",
+          status: "running",
+          provider_progress_phase: "request_dispatched",
+        },
+      },
+      {
+        event_id: "evt_run_flow_3",
+        run_ref: "run_flow",
+        step_ref: "step_run_flow_1",
+        sequence: 3,
+        event_type: "provider_progress",
+        visibility: "author",
+        summary: "对话判断正在接收模型片段。",
+        reason_codes: ["provider_execution_stream", "provider_chunk"],
+        refs: ["provider_run:prun_flow", "provider_call:pcall_flow"],
+        payload: {
+          provider_event_type: "chunk",
+          provider_run_ref: "prun_flow",
+          provider_call_ref: "pcall_flow",
+          purpose: "conversation",
+          status: "running",
+          output_type: "text",
+          chunk_index: 2,
+          chunk_content_length: 17,
+          accumulated_content_length: 41,
+          text_delta: "不应展示的模型增量",
+        },
+      },
+    ];
+
+    const summary = agentRunProviderFlowSummary(events);
+    const rendered = `${summary?.headline} ${summary?.details.join(" ")} ${summary?.phases
+      .map((phase) => `${phase.label}:${phase.status}`)
+      .join(" ")}`;
+
+    expect(summary?.headline).toBe("正在接收模型输出：2 段，41 字。");
+    expect(summary?.details).toEqual([
+      "用途：对话判断",
+      "调用：pcall_flow",
+      "接收片段：2 段",
+      "已接收：41 字",
+    ]);
+    expect(summary?.phases).toEqual([
+      { key: "prepared", label: "整理请求", status: "done" },
+      { key: "dispatched", label: "发送请求", status: "done" },
+      { key: "receiving", label: "接收输出", status: "active" },
+      { key: "finalized", label: "形成结果", status: "pending" },
+    ]);
+    expect(rendered).not.toContain("不应展示的 prompt");
+    expect(rendered).not.toContain("不应展示的模型增量");
+  });
+
+  it("summarizes persisted provider execution flow from ProviderRun facts", () => {
+    const summary = agentRunProviderFlowSummary([], [
+      {
+        provider_run_ref: "prun_persisted",
+        provider_call_ref: "pcall_persisted",
+        purpose: "planner",
+        status: "ok",
+        output_type: "text",
+        content_length: 64,
+        usage: { total_tokens: 21 },
+        model: "stub-model",
+        output: {
+          usage: { total_tokens: 21 },
+          content_summary: {
+            content_length: 64,
+            raw_output: "不应展示的输出原文",
+          },
+        },
+      },
+    ]);
+    const rendered = `${summary?.headline} ${summary?.details.join(" ")} ${summary?.phases
+      .map((phase) => `${phase.label}:${phase.status}`)
+      .join(" ")}`;
+
+    expect(summary?.headline).toBe("模型输出已进入本轮执行轨迹。");
+    expect(summary?.details).toEqual([
+      "用途：步骤规划",
+      "调用：pcall_persisted",
+      "结果：64 字",
+      "用量：21 tokens",
+      "模型：stub-model",
+    ]);
+    expect(summary?.phases.at(-1)).toEqual({
+      key: "finalized",
+      label: "形成结果",
+      status: "done",
+    });
+    expect(rendered).not.toContain("不应展示的输出原文");
   });
 
   it("presents planning and gate details from author-safe payload", () => {

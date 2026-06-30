@@ -44,6 +44,7 @@ assertions:
     - provider_progress events include provider_started, provider_request_prepared, provider_request_dispatched, provider_chunk, provider_response_received, and provider_final_output reason codes
     - provider chunk payload carries chunk index, chunk length, and accumulated length, but no generated text delta
     - provider progress UI shows prepared request, dispatched request, chunk receiving, and response received before final output
+    - dialogue flow UI shows a model execution flow with request preparation, dispatch, output receiving, and result boundary phases
     - provider_progress payload does not expose raw prompt, system prompt, frame JSON, or assistant_message content
     - provider_progress purposes include planner and conversation
     - completed agent_run_state records six provider calls

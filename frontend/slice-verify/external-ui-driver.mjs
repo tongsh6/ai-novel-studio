@@ -17267,6 +17267,14 @@ async function driveAgentProviderExecutionStreamUnified(page) {
         visibleText.includes("模型事件：收到结果") &&
         visibleText.includes("运行编号：") &&
         visibleText.includes("调用编号："),
+      ui_provider_execution_flow_visible:
+        visibleText.includes("模型执行流") &&
+        visibleText.includes("模型输出已进入本轮执行轨迹") &&
+        visibleText.includes("整理请求") &&
+        visibleText.includes("发送请求") &&
+        visibleText.includes("接收输出") &&
+        visibleText.includes("形成结果") &&
+        visibleText.includes("已完成"),
       ui_agent_execution_brief_visible:
         visibleText.includes("调用步骤规划模型") &&
         visibleText.includes("模型判断") &&

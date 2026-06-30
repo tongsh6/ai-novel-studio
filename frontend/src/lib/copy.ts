@@ -317,6 +317,39 @@ export const WORKBENCH = {
   agentRunBriefProviderChars: (count: number) => `结果 ${count} 字`,
   agentRunBriefProviderTokens: (count: number) => `用量 ${count} tokens`,
   agentRunBriefProviderCallRef: (ref: string) => `调用 ${ref}`,
+  agentRunProviderFlowLabel: "模型执行流",
+  agentRunProviderFlowStarted: "正在建立模型调用。",
+  agentRunProviderFlowPrepared: "已整理请求边界，准备发送给模型。",
+  agentRunProviderFlowDispatched: "请求已发送，正在等待模型回应。",
+  agentRunProviderFlowReceiving: (chunks: number, length: number) =>
+    chunks > 0 && length > 0
+      ? `正在接收模型输出：${chunks} 段，${length} 字。`
+      : "正在接收模型输出。",
+  agentRunProviderFlowCompleted: "模型输出已进入本轮执行轨迹。",
+  agentRunProviderFlowFailed: "模型调用失败，已进入安全边界。",
+  agentRunProviderFlowCancelled: "模型调用已取消，已记录停止边界。",
+  agentRunProviderFlowActive: "模型调用正在推进。",
+  agentRunProviderFlowPurposes: (purposes: string) => `用途：${purposes}`,
+  agentRunProviderFlowCalls: (count: number, firstRef: string) =>
+    count > 1 ? `调用：${count} 次，首个 ${firstRef}` : `调用：${firstRef}`,
+  agentRunProviderFlowChunks: (count: number) => `接收片段：${count} 段`,
+  agentRunProviderFlowReceivedLength: (length: number) => `已接收：${length} 字`,
+  agentRunProviderFlowResultLength: (length: number) => `结果：${length} 字`,
+  agentRunProviderFlowUsage: (tokens: number) => `用量：${tokens} tokens`,
+  agentRunProviderFlowModels: (models: string) => `模型：${models}`,
+  agentRunProviderFlowPhaseStatusLabels: {
+    pending: "等待",
+    active: "进行中",
+    done: "已完成",
+    failed: "已停止",
+  } as Record<string, string>,
+  agentRunProviderFlowPhaseLabels: {
+    prepared: "整理请求",
+    dispatched: "发送请求",
+    receiving: "接收输出",
+    finalized: "形成结果",
+    boundary: "安全边界",
+  } as Record<string, string>,
   agentRunBriefPathLabels: {
     context: "读取上下文",
     providerConversation: "调用模型",

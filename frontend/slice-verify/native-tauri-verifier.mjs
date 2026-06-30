@@ -4464,6 +4464,7 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       boolValue(record.provider_chunk_raw_content_leaked) === false &&
       boolValue(record.ui_provider_execution_visible) === true &&
       boolValue(record.ui_provider_execution_details_visible) === true &&
+      boolValue(record.ui_provider_execution_flow_visible) === true &&
       boolValue(record.ui_agent_execution_brief_visible) === true &&
       Array.isArray(record.provider_run_refs) &&
       record.provider_run_refs.length >= 1 &&
@@ -4516,6 +4517,7 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
   if (boolValue(uiState.provider_progress_raw_content_leaked) !== false) return null;
   if (boolValue(uiState.provider_chunk_raw_content_leaked) !== false) return null;
   if (boolValue(uiState.ui_provider_execution_details_visible) !== true) return null;
+  if (boolValue(uiState.ui_provider_execution_flow_visible) !== true) return null;
   if (boolValue(uiState.ui_agent_execution_brief_visible) !== true) return null;
   if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1) return null;
   if (!Array.isArray(uiState.provider_call_refs) || uiState.provider_call_refs.length < 1) {
@@ -4552,6 +4554,7 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
       "provider_execution_final_output_event_was_projected_to_author_safe_agent_activity",
       "provider_activity_carried_provider_run_and_call_refs",
       "provider_activity_rendered_event_and_ref_details_in_dialogue_flow",
+      "provider_execution_flow_rendered_live_phase_summary_in_dialogue_flow",
       "agent_execution_brief_summarized_path_and_provider_call_count",
       "provider_activity_did_not_expose_raw_prompt_or_provider_output_content",
       "final_run_state_recorded_planner_and_conversation_provider_calls",

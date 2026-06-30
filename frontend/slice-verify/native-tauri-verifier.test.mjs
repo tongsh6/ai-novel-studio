@@ -216,6 +216,7 @@ describe("native Tauri slice verifier", () => {
         provider_chunk_raw_content_leaked: false,
         ui_provider_execution_visible: true,
         ui_provider_execution_details_visible: true,
+        ui_provider_execution_flow_visible: true,
         ui_agent_execution_brief_visible: true,
         provider_run_refs: ["prun-planner", "prun-conversation"],
         provider_call_refs: ["pcall-planner", "pcall-conversation"],
@@ -240,6 +241,7 @@ describe("native Tauri slice verifier", () => {
         "provider_execution_response_received_progress_was_projected",
         "provider_execution_chunk_events_were_projected",
         "provider_execution_chunk_payload_was_author_safe_metadata",
+        "provider_execution_flow_rendered_live_phase_summary_in_dialogue_flow",
       ]),
     });
 
@@ -259,6 +261,15 @@ describe("native Tauri slice verifier", () => {
 
     expect(
       findNativeSliceEvidence("agent-provider-execution-stream-unified", missingChunkProgress),
+    ).toBeNull();
+
+    const missingFlowSummary = records.map((record) => ({
+      ...record,
+      ui_provider_execution_flow_visible: false,
+    }));
+
+    expect(
+      findNativeSliceEvidence("agent-provider-execution-stream-unified", missingFlowSummary),
     ).toBeNull();
   });
 

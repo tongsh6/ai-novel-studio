@@ -607,6 +607,91 @@
   gap: 6px;
 }
 
+.agentRunProviderFlow {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 14px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.agentRunProviderFlowHeader {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agentRunProviderFlowLabel {
+  color: var(--foreground-secondary);
+}
+
+.agentRunProviderFlowDetails {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.agentRunProviderFlowDetails span {
+  overflow-wrap: anywhere;
+}
+
+.agentRunProviderFlowPhases {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agentRunProviderFlowPhase {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  padding-top: 6px;
+  border-top: 2px solid var(--border-subtle);
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.agentRunProviderFlowPhase span {
+  overflow-wrap: anywhere;
+}
+
+.agentRunProviderFlowPhaseActive {
+  border-top-color: var(--accent);
+  color: var(--foreground-primary);
+}
+
+.agentRunProviderFlowPhaseDone {
+  border-top-color: var(--accent-border);
+  color: var(--foreground-primary);
+}
+
+.agentRunProviderFlowPhaseFailed {
+  border-top-color: var(--accent);
+  color: var(--foreground-primary);
+}
+
+.agentRunProviderFlowPhasePending {
+  color: var(--foreground-secondary);
+}
+
 .agentRunDetails {
   display: flex;
   flex-direction: column;

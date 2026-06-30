@@ -30,5 +30,12 @@
     "updated_at": "2026-06-01",
     "handling": "该 generic-api-key 位于 ProjectGod 线历史 commit 0234860（作者 jasperyang，2026-05-27），不在当前 idea/dialogue-based-novel-workbench/v3 分支历史，也不在工作树（tools/ 仅余 .gitkeep）。v3 开发分支内不重写历史，确认接受现状。",
     "recommendation": "凭证作废由 token 所有者在 MiniMax 控制台轮换/吊销；如需从仓库历史彻底清除该文件，由用户在 ProjectGod 线用 git filter-repo 重写并 force-push（属 ProjectGod 维护范围，不在 v3 dev scope，见 dev-branch-scope 约束）。"
+  },
+  "gitleaks|generic-api-key|docs/design/ui/novel-studio.pen|5739|generic-api-key": {
+    "status": "false_positive",
+    "owner": "codex",
+    "updated_at": "2026-07-01",
+    "handling": "gitleaks generic-api-key 命中 Pencil .pen 文件内部 fileToken 元数据。扫描报告为 redacted match，未指向产品 provider/API 配置、运行密钥或用户可用凭证；.pen 文件按项目规则只能通过 Pencil MCP 编辑，不做 shell 文本改写。",
+    "recommendation": "继续保留 gitleaks 扫描。若 Pencil 后续生成新的 token 字段或位置导致新 fingerprint，需要重新按 .pen/Pencil MCP 语义复核；若确认是外部可用凭证，再由凭证所有者轮换并通过 Pencil 源文件流程清除。"
   }
 }

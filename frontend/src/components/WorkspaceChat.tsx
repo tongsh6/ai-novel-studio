@@ -80,6 +80,7 @@ import {
 import {
   agentRunEventDetailItems,
   agentRunExecutionBrief,
+  agentRunProviderFlowSummary,
   agentRunProviderRunDetailItems,
   agentRunProviderRunReplayDetails,
   type AgentRunProviderUsageData,
@@ -654,6 +655,7 @@ function AgentRunDialogueFlow({
     (WORKBENCH.agentRunStatusLabels[run.status] ?? (run.status || WORKBENCH.agentRunPreparingStatus));
   const statusSummary = latestAgentRunSummary(run, visibleEvents, preparing);
   const executionBrief = agentRunExecutionBrief(visibleEvents, providerRuns);
+  const providerFlowSummary = agentRunProviderFlowSummary(events, providerRuns);
   const showControls = run !== null && onCommand !== undefined && !TERMINAL_AGENT_RUN_STATUSES.has(run.status);
 
   return (
@@ -684,6 +686,44 @@ function AgentRunDialogueFlow({
             {executionBrief.facts.length > 0 && (
               <span className={styles.agentRunBriefFacts}>{executionBrief.facts.join(" · ")}</span>
             )}
+          </div>
+        )}
+
+        {providerFlowSummary && (
+          <div
+            className={styles.agentRunProviderFlow}
+            aria-label={WORKBENCH.agentRunProviderFlowLabel}
+          >
+            <div className={styles.agentRunProviderFlowHeader}>
+              <span className={styles.agentRunProviderFlowLabel}>
+                {WORKBENCH.agentRunProviderFlowLabel}
+              </span>
+              <span>{providerFlowSummary.headline}</span>
+            </div>
+            {providerFlowSummary.details.length > 0 && (
+              <div className={styles.agentRunProviderFlowDetails}>
+                {providerFlowSummary.details.map((detail) => (
+                  <span key={detail}>{detail}</span>
+                ))}
+              </div>
+            )}
+            <ol className={styles.agentRunProviderFlowPhases}>
+              {providerFlowSummary.phases.map((phase) => (
+                <li
+                  key={phase.key}
+                  className={`${styles.agentRunProviderFlowPhase} ${
+                    styles[
+                      `agentRunProviderFlowPhase${phase.status[0].toUpperCase()}${phase.status.slice(
+                        1,
+                      )}` as keyof typeof styles
+                    ]
+                  }`}
+                >
+                  <span>{phase.label}</span>
+                  <span>{WORKBENCH.agentRunProviderFlowPhaseStatusLabels[phase.status]}</span>
+                </li>
+              ))}
+            </ol>
           </div>
         )}
 

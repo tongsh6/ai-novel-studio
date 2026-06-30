@@ -6,6 +6,20 @@ export interface AgentRunExecutionBrief {
   facts: string[];
 }
 
+export type AgentRunProviderFlowPhaseStatus = "pending" | "active" | "done" | "failed";
+
+export interface AgentRunProviderFlowPhase {
+  key: string;
+  label: string;
+  status: AgentRunProviderFlowPhaseStatus;
+}
+
+export interface AgentRunProviderFlowSummary {
+  headline: string;
+  details: string[];
+  phases: AgentRunProviderFlowPhase[];
+}
+
 export interface AgentRunProviderUsageData {
   run_id?: string;
   provider_run_ref?: string;
@@ -196,6 +210,79 @@ export function agentRunExecutionBrief(
   return {
     path: WORKBENCH.agentRunBriefPath(path.join(" → ")),
     facts,
+  };
+}
+
+export function agentRunProviderFlowSummary(
+  events: AgentEventData[],
+  providerRuns: AgentRunProviderUsageData[] = [],
+): AgentRunProviderFlowSummary | null {
+  const providerEvents = events
+    .filter((event) => event.event_type === "provider_progress")
+    .sort((a, b) => a.sequence - b.sequence);
+
+  if (providerEvents.length === 0 && providerRuns.length === 0) return null;
+
+  const eventTypes = providerEvents
+    .map((event) => stringPayloadValue(event.payload, "provider_event_type"))
+    .filter((value): value is string => value !== null);
+  const latestProviderEvent = providerEvents.at(-1) ?? null;
+  const latestEventType = latestProviderEvent
+    ? stringPayloadValue(latestProviderEvent.payload, "provider_event_type")
+    : null;
+  const latestPhase = latestProviderEvent
+    ? stringPayloadValue(latestProviderEvent.payload, "provider_progress_phase")
+    : null;
+  const latestStatus = latestProviderEvent
+    ? stringPayloadValue(latestProviderEvent.payload, "status")
+    : null;
+
+  const chunkEvents = providerEvents.filter(
+    (event) =>
+      stringPayloadValue(event.payload, "provider_event_type") === "chunk" ||
+      hasReasonCode(event, "provider_chunk"),
+  );
+  const chunkCount = providerChunkCount(chunkEvents);
+  const accumulatedLength = maxNumbers(
+    chunkEvents.map((event) => numberPayloadValue(event.payload, "accumulated_content_length")),
+  );
+  const finalLength = providerFinalContentLength(providerEvents, providerRuns);
+  const totalTokens = providerTotalTokens(providerEvents, providerRuns);
+  const providerCallRefs = providerFlowCallRefs(providerEvents, providerRuns);
+  const purposes = providerFlowPurposes(providerEvents, providerRuns);
+  const models = uniqueStrings(
+    providerRuns.map((run) => (typeof run.model === "string" && run.model.trim() !== "" ? run.model : null)),
+  );
+  const failed = providerFlowFailed(eventTypes, latestStatus, providerRuns);
+  const cancelled = providerFlowCancelled(eventTypes, latestStatus, providerRuns);
+  const completed = providerFlowCompleted(eventTypes, providerRuns);
+
+  return {
+    headline: providerFlowHeadline({
+      latestEventType,
+      latestPhase,
+      chunkCount,
+      accumulatedLength,
+      failed,
+      cancelled,
+      completed,
+    }),
+    details: providerFlowDetailItems({
+      purposes,
+      providerCallRefs,
+      chunkCount,
+      accumulatedLength,
+      finalLength,
+      totalTokens,
+      models,
+    }),
+    phases: providerFlowPhases(providerEvents, providerRuns, {
+      failed,
+      cancelled,
+      completed,
+      latestEventType,
+      latestPhase,
+    }),
   };
 }
 
@@ -508,6 +595,270 @@ function hasReasonCode(event: AgentEventData, reasonCode: string): boolean {
   return (event.reason_codes ?? []).includes(reasonCode);
 }
 
+function providerFlowHeadline({
+  latestEventType,
+  latestPhase,
+  chunkCount,
+  accumulatedLength,
+  failed,
+  cancelled,
+  completed,
+}: {
+  latestEventType: string | null;
+  latestPhase: string | null;
+  chunkCount: number;
+  accumulatedLength: number;
+  failed: boolean;
+  cancelled: boolean;
+  completed: boolean;
+}): string {
+  if (failed) return WORKBENCH.agentRunProviderFlowFailed;
+  if (cancelled) return WORKBENCH.agentRunProviderFlowCancelled;
+  if (latestEventType === "chunk" && !completed) {
+    return WORKBENCH.agentRunProviderFlowReceiving(chunkCount, accumulatedLength);
+  }
+  if (latestPhase === "response_received" && !completed) {
+    return WORKBENCH.agentRunProviderFlowReceiving(chunkCount, accumulatedLength);
+  }
+  if (latestPhase === "request_dispatched" && !completed) {
+    return WORKBENCH.agentRunProviderFlowDispatched;
+  }
+  if (latestPhase === "request_prepared" && !completed) {
+    return WORKBENCH.agentRunProviderFlowPrepared;
+  }
+  if (latestEventType === "started" && !completed) return WORKBENCH.agentRunProviderFlowStarted;
+  if (completed) return WORKBENCH.agentRunProviderFlowCompleted;
+
+  return WORKBENCH.agentRunProviderFlowActive;
+}
+
+function providerFlowDetailItems({
+  purposes,
+  providerCallRefs,
+  chunkCount,
+  accumulatedLength,
+  finalLength,
+  totalTokens,
+  models,
+}: {
+  purposes: string[];
+  providerCallRefs: string[];
+  chunkCount: number;
+  accumulatedLength: number;
+  finalLength: number;
+  totalTokens: number;
+  models: string[];
+}): string[] {
+  const details: string[] = [];
+  if (purposes.length > 0) details.push(WORKBENCH.agentRunProviderFlowPurposes(purposes.join(" / ")));
+  if (providerCallRefs.length > 0) {
+    details.push(WORKBENCH.agentRunProviderFlowCalls(providerCallRefs.length, providerCallRefs[0]));
+  }
+  if (chunkCount > 0) details.push(WORKBENCH.agentRunProviderFlowChunks(chunkCount));
+  if (accumulatedLength > 0) {
+    details.push(WORKBENCH.agentRunProviderFlowReceivedLength(accumulatedLength));
+  }
+  if (finalLength > 0) details.push(WORKBENCH.agentRunProviderFlowResultLength(finalLength));
+  if (totalTokens > 0) details.push(WORKBENCH.agentRunProviderFlowUsage(totalTokens));
+  if (models.length > 0) details.push(WORKBENCH.agentRunProviderFlowModels(models.join(" / ")));
+
+  return details;
+}
+
+function providerFlowPhases(
+  providerEvents: AgentEventData[],
+  providerRuns: AgentRunProviderUsageData[],
+  state: {
+    failed: boolean;
+    cancelled: boolean;
+    completed: boolean;
+    latestEventType: string | null;
+    latestPhase: string | null;
+  },
+): AgentRunProviderFlowPhase[] {
+  const prepared = providerEvents.some(
+    (event) =>
+      stringPayloadValue(event.payload, "provider_progress_phase") === "request_prepared" ||
+      hasReasonCode(event, "provider_request_prepared"),
+  );
+  const dispatched = providerEvents.some(
+    (event) =>
+      stringPayloadValue(event.payload, "provider_progress_phase") === "request_dispatched" ||
+      hasReasonCode(event, "provider_request_dispatched"),
+  );
+  const receiving = providerEvents.some(
+    (event) =>
+      stringPayloadValue(event.payload, "provider_event_type") === "chunk" ||
+      stringPayloadValue(event.payload, "provider_progress_phase") === "response_received" ||
+      hasReasonCode(event, "provider_chunk") ||
+      hasReasonCode(event, "provider_response_received"),
+  );
+  const finalized =
+    state.completed ||
+    state.failed ||
+    state.cancelled ||
+    providerRuns.some((run) => typeof run.status === "string" && run.status.trim() !== "");
+
+  const terminalLabel =
+    state.failed || state.cancelled
+      ? WORKBENCH.agentRunProviderFlowPhaseLabels.boundary
+      : WORKBENCH.agentRunProviderFlowPhaseLabels.finalized;
+
+  return [
+    providerFlowPhase("prepared", WORKBENCH.agentRunProviderFlowPhaseLabels.prepared, prepared, state),
+    providerFlowPhase("dispatched", WORKBENCH.agentRunProviderFlowPhaseLabels.dispatched, dispatched, state),
+    providerFlowPhase("receiving", WORKBENCH.agentRunProviderFlowPhaseLabels.receiving, receiving, state),
+    providerFlowPhase("finalized", terminalLabel, finalized, state),
+  ];
+}
+
+function providerFlowPhase(
+  key: string,
+  label: string,
+  reached: boolean,
+  state: {
+    failed: boolean;
+    cancelled: boolean;
+    completed: boolean;
+    latestEventType: string | null;
+    latestPhase: string | null;
+  },
+): AgentRunProviderFlowPhase {
+  if (key === "finalized" && (state.failed || state.cancelled)) {
+    return { key, label, status: reached ? "failed" : "pending" };
+  }
+  if (providerFlowPhaseActive(key, state)) return { key, label, status: "active" };
+  return { key, label, status: reached ? "done" : "pending" };
+}
+
+function providerFlowPhaseActive(
+  key: string,
+  state: {
+    failed: boolean;
+    cancelled: boolean;
+    completed: boolean;
+    latestEventType: string | null;
+    latestPhase: string | null;
+  },
+): boolean {
+  if (state.completed || state.failed || state.cancelled) return false;
+  if (key === "prepared") {
+    return state.latestEventType === "started" || state.latestPhase === "request_prepared";
+  }
+  if (key === "dispatched") return state.latestPhase === "request_dispatched";
+  if (key === "receiving") {
+    return state.latestEventType === "chunk" || state.latestPhase === "response_received";
+  }
+  return false;
+}
+
+function providerChunkCount(chunkEvents: AgentEventData[]): number {
+  const maxChunkIndex = maxNumbers(
+    chunkEvents.map((event) => numberPayloadValue(event.payload, "chunk_index")),
+  );
+
+  return Math.max(chunkEvents.length, maxChunkIndex);
+}
+
+function providerFinalContentLength(
+  providerEvents: AgentEventData[],
+  providerRuns: AgentRunProviderUsageData[],
+): number {
+  if (providerRuns.length > 0) {
+    return sumNumbers(
+      providerRuns.map((run) =>
+        typeof run.content_length === "number" && Number.isFinite(run.content_length)
+          ? run.content_length
+          : null,
+      ),
+    );
+  }
+
+  return sumNumbers(
+    providerEvents
+      .filter((event) => stringPayloadValue(event.payload, "provider_event_type") === "final_output")
+      .map((event) => numberPayloadValue(event.payload, "content_length")),
+  );
+}
+
+function providerTotalTokens(
+  providerEvents: AgentEventData[],
+  providerRuns: AgentRunProviderUsageData[],
+): number {
+  if (providerRuns.length > 0) {
+    return sumNumbers(providerRuns.map(providerRunUsageTokens));
+  }
+
+  return sumNumbers(providerEvents.map((event) => providerUsageTokens(event.payload)));
+}
+
+function providerFlowCallRefs(
+  providerEvents: AgentEventData[],
+  providerRuns: AgentRunProviderUsageData[],
+): string[] {
+  return uniqueStrings([
+    ...providerEvents.map((event) => stringPayloadValue(event.payload, "provider_call_ref")),
+    ...providerRuns.map((run) =>
+      typeof run.provider_call_ref === "string" && run.provider_call_ref.trim() !== ""
+        ? run.provider_call_ref
+        : null,
+    ),
+  ]);
+}
+
+function providerFlowPurposes(
+  providerEvents: AgentEventData[],
+  providerRuns: AgentRunProviderUsageData[],
+): string[] {
+  return uniqueStrings([
+    ...providerEvents.map((event) =>
+      labelForRecord(
+        WORKBENCH.agentRunProviderPurposeLabels,
+        stringPayloadValue(event.payload, "purpose"),
+        null,
+      ),
+    ),
+    ...providerRuns.map((run) =>
+      labelForRecord(WORKBENCH.agentRunProviderPurposeLabels, run.purpose ?? null, null),
+    ),
+  ]);
+}
+
+function providerFlowFailed(
+  eventTypes: string[],
+  latestStatus: string | null,
+  providerRuns: AgentRunProviderUsageData[],
+): boolean {
+  return (
+    eventTypes.includes("error") ||
+    latestStatus === "error" ||
+    latestStatus === "failed" ||
+    providerRuns.some((run) => run.status === "error" || run.status === "failed")
+  );
+}
+
+function providerFlowCancelled(
+  eventTypes: string[],
+  latestStatus: string | null,
+  providerRuns: AgentRunProviderUsageData[],
+): boolean {
+  return (
+    eventTypes.includes("cancelled") ||
+    latestStatus === "cancelled" ||
+    providerRuns.some((run) => run.status === "cancelled")
+  );
+}
+
+function providerFlowCompleted(
+  eventTypes: string[],
+  providerRuns: AgentRunProviderUsageData[],
+): boolean {
+  return (
+    eventTypes.includes("final_output") ||
+    providerRuns.some((run) => run.status === "ok" || run.status === "completed")
+  );
+}
+
 function briefFacts(events: AgentEventData[], providerRuns: AgentRunProviderUsageData[]): string[] {
   if (providerRuns.length > 0) return providerRunFacts(providerRuns);
 
@@ -566,6 +917,10 @@ function uniqueStrings(values: Array<string | null>): string[] {
 
 function sumNumbers(values: Array<number | null>): number {
   return values.reduce<number>((sum, value) => sum + (value ?? 0), 0);
+}
+
+function maxNumbers(values: Array<number | null>): number {
+  return values.reduce<number>((max, value) => Math.max(max, value ?? 0), 0);
 }
 
 function pushPath(path: string[], item: string) {
