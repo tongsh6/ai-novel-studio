@@ -13,8 +13,9 @@ defmodule NovelAgent.Provider.ExecutionTest do
     end)
   end
 
-  test "complete_fn delegates through the unified provider execution gateway" do
-    complete = Execution.complete_fn(purpose: :writer, provider_call_ref: "pcall_execution_test")
+  test "dependency completion delegates through the unified provider execution gateway" do
+    dependency = Execution.dependency(purpose: :writer, provider_call_ref: "pcall_execution_test")
+    complete = Execution.complete_fn(dependency)
 
     assert {:ok, result} = complete.("hello from execution")
     assert %Result{} = result
@@ -52,6 +53,12 @@ defmodule NovelAgent.Provider.ExecutionTest do
     assert result.provider_call_ref == "pcall_dependency_test"
     assert result.provider_run_ref =~ "prun_"
     assert result.provider_output.status == :ok
+  end
+
+  test "raw completion functions are not provider execution dependencies" do
+    raw_complete_fn = fn _prompt -> {:ok, %{content: "legacy"}} end
+
+    assert Execution.complete_fn(raw_complete_fn) == nil
   end
 
   test "execute exposes the unified provider execution result" do

@@ -1,11 +1,11 @@
 defmodule NovelAgent.Provider.Execution do
   @moduledoc """
-  Compatibility boundary for provider execution.
+  Provider execution dependency boundary.
 
-  This module produces the legacy one-argument completion function shape still
-  used by planner/tool callers, but it is not a second provider execution path.
-  Every production call delegates to `Provider.Gateway.execute/4`, which
-  materializes ProviderRun / ProviderEvent / ProviderOutput facts first.
+  Callers pass a `%Provider.Execution{}` dependency instead of a raw completion
+  callback. The dependency still exposes a one-argument completion callback for
+  legacy planner/tool internals, but public dependency inputs stay on the unified
+  ProviderExecution runtime.
   """
 
   alias NovelAgent.Provider
@@ -37,7 +37,7 @@ defmodule NovelAgent.Provider.Execution do
           metadata: map()
         }
 
-  @type dependency :: t() | complete_fun() | nil
+  @type dependency :: t() | nil
 
   @spec execute(Provider.prompt(), keyword()) :: execution_result()
   def execute(prompt, opts \\ []) do
@@ -64,7 +64,7 @@ defmodule NovelAgent.Provider.Execution do
     cancellation_token = Keyword.get(opts, :cancellation_token)
 
     %__MODULE__{
-      complete_fn: complete_fn(opts),
+      complete_fn: fn prompt -> complete(prompt, opts) end,
       execute_fn: fn prompt -> execute(prompt, opts) end,
       purpose: Keyword.get(opts, :purpose),
       gateway_opts: opts,
@@ -129,18 +129,9 @@ defmodule NovelAgent.Provider.Execution do
 
   def with_event_sink(dependency, _event_sink), do: dependency
 
-  @spec complete_fn() :: complete_fun()
-  def complete_fn, do: complete_fn([])
-
-  @spec complete_fn(dependency() | keyword()) :: complete_fun() | nil
+  @spec complete_fn(dependency()) :: complete_fun() | nil
   def complete_fn(%__MODULE__{complete_fn: complete_fn}) when is_function(complete_fn, 1),
     do: complete_fn
-
-  def complete_fn(complete_fn) when is_function(complete_fn, 1), do: complete_fn
-
-  def complete_fn(opts) when is_list(opts) do
-    fn prompt -> complete(prompt, opts) end
-  end
 
   def complete_fn(_dependency), do: nil
 

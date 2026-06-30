@@ -8,7 +8,7 @@
 #   MIX_ENV=test mix run scripts/scenario_invariants/run_i3_nonce.exs
 #
 # 设计：
-# - driver 通过 `&NovelAgent.Provider.Gateway.complete/1` 注入 complete_fn。
+# - driver 通过 provider execution dependency 注入 `&NovelAgent.Provider.Gateway.complete/1`。
 #   MIX_ENV=test 时默认 provider 是 NovelAgent.Provider.Stub（合法 fixture），
 #   它根据 prompt 自动返回最小合法 JSON 并把 user 文本（含 nonce）字节透传。
 # - 通过真实入口 NovelApplication.DialogueGateway.handle_input/3 注入 N 个独立输入
@@ -26,6 +26,7 @@
 defmodule I3NonceDriver do
   @moduledoc false
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Toolbox
   alias NovelApplication.DialogueGateway
@@ -35,8 +36,7 @@ defmodule I3NonceDriver do
     %{
       name: "chapter-plan",
       topic: "10 万字章节计划",
-      instruction:
-        "请基于以下主题生成一份章节计划。请把这串标识符原样嵌入到每个章节的标题或正文中至少一处："
+      instruction: "请基于以下主题生成一份章节计划。请把这串标识符原样嵌入到每个章节的标题或正文中至少一处："
     },
     %{
       name: "character-seed",
@@ -82,7 +82,7 @@ defmodule I3NonceDriver do
 
     layer_a =
       try do
-        case DialogueGateway.handle_input(input, nil, complete_fn) do
+        case DialogueGateway.handle_input(input, nil, provider_execution(complete_fn)) do
           {:ok, turn_result, _trace, _candidates, _context} ->
             {:ok, turn_result}
 
@@ -106,6 +106,8 @@ defmodule I3NonceDriver do
   # ── Layer-B: 直接调 Toolbox.execute，旁路 Planner ──
   # 目的：定向打工具运行时层，验证 Toolbox 是否真的把用户输入透传到 ToolResult。
   # 如果 Toolbox 是 hardcoded 假实现，nonce 永远不会出现在 output.items。
+
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
 
   defp run_layer_b_direct(c, nonce) do
     complete_fn = build_stub_complete_fn(nonce)
@@ -228,8 +230,7 @@ defmodule I3NonceDriver do
 
       %{
         outcome: :fail,
-        detail:
-          "I3 violation on #{layer_label}: 该层产出文本未包含本次 nonce，意味着内容未来自包含 nonce 的用户输入透传链路",
+        detail: "I3 violation on #{layer_label}: 该层产出文本未包含本次 nonce，意味着内容未来自包含 nonce 的用户输入透传链路",
         excerpts: sample
       }
     end
@@ -238,11 +239,11 @@ defmodule I3NonceDriver do
   # ── collect strings from turn_result ──
 
   defp collect_planner_strings(turn_result) do
-    [
-      get_in(turn_result, [:assistant_message, :text]),
-      get_in(turn_result, [:tool_result, :output]) |> stringify_value()
-    ]
-    ++ collect_candidate_strings(turn_result)
+    ([
+       get_in(turn_result, [:assistant_message, :text]),
+       get_in(turn_result, [:tool_result, :output]) |> stringify_value()
+     ] ++
+       collect_candidate_strings(turn_result))
     |> List.flatten()
     |> Enum.reject(&is_nil/1)
   end

@@ -9,6 +9,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   默认排除此测试。
   """
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.DialogueGateway
   alias NovelApplication.Planner
   alias NovelApplication.ReplayService
@@ -21,15 +22,15 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "form_frame with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, complete_fn: ProviderHelpers.lmstudio_complete_fn()}
+      {:ok, provider_execution: %Execution{complete_fn: ProviderHelpers.lmstudio_complete_fn()}}
     end
 
-    test "casual reply produces valid DialogueFrame", %{complete_fn: complete_fn} do
+    test "casual reply produces valid DialogueFrame", %{provider_execution: provider_execution} do
       {frame, _candidates} =
         Planner.form_frame(
           %{text: "你好，我想聊聊小说创作。最近有什么好思路吗？", workspace_id: "ws-real"},
           nil,
-          complete_fn
+          provider_execution
         )
 
       assert frame.schema_version == "3.0-draft"
@@ -48,12 +49,14 @@ defmodule NovelApplication.PlannerRealLLMTest do
       assert is_boolean(frame.tool_need.needs_tool)
     end
 
-    test "creative exploration produces candidate directions", %{complete_fn: complete_fn} do
+    test "creative exploration produces candidate directions", %{
+      provider_execution: provider_execution
+    } do
       {frame, candidates} =
         Planner.form_frame(
           %{text: "我想写一个赛博修仙的故事，但还没想好方向。帮我想想可以怎么切入。", workspace_id: "ws-real"},
           nil,
-          complete_fn
+          provider_execution
         )
 
       assert frame.frame_type in [:creative_exploration, :casual_reply]
@@ -70,12 +73,12 @@ defmodule NovelApplication.PlannerRealLLMTest do
       end
     end
 
-    test "no forbidden semantics in frame", %{complete_fn: complete_fn} do
+    test "no forbidden semantics in frame", %{provider_execution: provider_execution} do
       {frame, _candidates} =
         Planner.form_frame(
           %{text: "帮我写一段小说的开头。", workspace_id: "ws-real"},
           nil,
-          complete_fn
+          provider_execution
         )
 
       message = String.downcase(frame.author_visible_draft.message)
@@ -91,13 +94,13 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "form_micro_plan with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, complete_fn: ProviderHelpers.lmstudio_complete_fn()}
+      {:ok, provider_execution: %Execution{complete_fn: ProviderHelpers.lmstudio_complete_fn()}}
     end
 
-    test "produces valid MicroPlan from real LLM", %{complete_fn: complete_fn} do
+    test "produces valid MicroPlan from real LLM", %{provider_execution: provider_execution} do
       frame = build_exploration_frame()
 
-      case Planner.form_micro_plan(frame, %{text: "聊聊赛博修仙的方向"}, complete_fn) do
+      case Planner.form_micro_plan(frame, %{text: "聊聊赛博修仙的方向"}, provider_execution) do
         {:ok, plan} ->
           assert plan.plan_id != nil
           assert plan.turn_id == frame.turn_id
@@ -113,17 +116,19 @@ defmodule NovelApplication.PlannerRealLLMTest do
       end
     end
 
-    test "MicroPlan does not contain execution authority", %{complete_fn: complete_fn} do
+    test "MicroPlan does not contain execution authority", %{
+      provider_execution: provider_execution
+    } do
       frame = build_exploration_frame()
 
-      assert {:ok, plan} = Planner.form_micro_plan(frame, %{text: "帮我写大纲"}, complete_fn)
+      assert {:ok, plan} = Planner.form_micro_plan(frame, %{text: "帮我写大纲"}, provider_execution)
       assert :ok = plan.__struct__.check_forbidden(plan)
     end
 
-    test "plan actions are suggestions only", %{complete_fn: complete_fn} do
+    test "plan actions are suggestions only", %{provider_execution: provider_execution} do
       frame = build_exploration_frame()
 
-      assert {:ok, plan} = Planner.form_micro_plan(frame, %{text: "我想写角色设定"}, complete_fn)
+      assert {:ok, plan} = Planner.form_micro_plan(frame, %{text: "我想写角色设定"}, provider_execution)
 
       for action <- plan.proposed_actions do
         assert action.action_id != nil
@@ -148,14 +153,14 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "full pipeline with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, complete_fn: ProviderHelpers.lmstudio_complete_fn()}
+      {:ok, provider_execution: %Execution{complete_fn: ProviderHelpers.lmstudio_complete_fn()}}
     end
 
-    test "handle_input reply-only path", %{complete_fn: complete_fn} do
+    test "handle_input reply-only path", %{provider_execution: provider_execution} do
       input = %{text: "你好，我是作者。最近对赛博朋克很感兴趣。", workspace_id: "ws-real"}
 
       {:ok, turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(input, nil, complete_fn)
+        DialogueGateway.handle_input(input, nil, provider_execution)
 
       assert turn_result.schema_version == "3.0-draft"
       assert turn_result.turn_id != nil
@@ -166,29 +171,33 @@ defmodule NovelApplication.PlannerRealLLMTest do
       assert :turn_result_emitted in trace.event_order
     end
 
-    test "handle_input with generate_micro_plan reaches decision", %{complete_fn: complete_fn} do
+    test "handle_input with generate_micro_plan reaches decision", %{
+      provider_execution: provider_execution
+    } do
       input = %{text: "帮我为赛博朋克小说创作角色设定", workspace_id: "ws-real", generate_micro_plan: true}
 
       {:ok, turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(input, nil, complete_fn)
+        DialogueGateway.handle_input(input, nil, provider_execution)
 
       assert turn_result.turn_id != nil
       assert trace.decision_type != nil
       assert length(trace.event_order) >= 4
     end
 
-    test "real LLM output is culturally appropriate (Chinese)", %{complete_fn: complete_fn} do
+    test "real LLM output is culturally appropriate (Chinese)", %{
+      provider_execution: provider_execution
+    } do
       input = %{text: "你好", workspace_id: "ws-real"}
 
       {:ok, turn_result, _trace, _candidates, _context} =
-        DialogueGateway.handle_input(input, nil, complete_fn)
+        DialogueGateway.handle_input(input, nil, provider_execution)
 
       message = turn_result.assistant_message.text
       assert byte_size(message) > 0
       refute String.starts_with?(String.trim(message), "{")
     end
 
-    test "context injection reaches LLM prompt", %{complete_fn: complete_fn} do
+    test "context injection reaches LLM prompt", %{provider_execution: provider_execution} do
       fetcher = fn _ws_id ->
         {:ok, %{title: "赛博朋克世界观", genre: "科幻"}, "用户持续探索赛博朋克主题，偏好科技与人性的冲突", "用户擅长快速回复，对设定有主见", nil}
       end
@@ -196,7 +205,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
       input = %{text: "我想深化义体改造的设定", workspace_id: "ws-real-context"}
 
       {:ok, turn_result, _trace, _candidates, context} =
-        DialogueGateway.handle_input(input, fetcher, complete_fn)
+        DialogueGateway.handle_input(input, fetcher, provider_execution)
 
       assert turn_result.assistant_message.text != ""
       assert context.workspace_id == "ws-real-context"
@@ -205,9 +214,13 @@ defmodule NovelApplication.PlannerRealLLMTest do
       assert context.memory_summary != nil
     end
 
-    test "replay from real trace never calls provider", %{complete_fn: complete_fn} do
+    test "replay from real trace never calls provider", %{provider_execution: provider_execution} do
       {:ok, _turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(%{text: "hi", workspace_id: "ws-real-r"}, nil, complete_fn)
+        DialogueGateway.handle_input(
+          %{text: "hi", workspace_id: "ws-real-r"},
+          nil,
+          provider_execution
+        )
 
       report = ReplayService.build_report(trace)
 
@@ -221,7 +234,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "provider error recovery" do
     setup do
       skip_unless_provider!()
-      {:ok, complete_fn: ProviderHelpers.lmstudio_complete_fn()}
+      {:ok, provider_execution: %Execution{complete_fn: ProviderHelpers.lmstudio_complete_fn()}}
     end
 
     test "Planner falls back when provider returns garbage" do
@@ -229,7 +242,9 @@ defmodule NovelApplication.PlannerRealLLMTest do
       broken_fn = fn _prompt -> {:ok, %{content: "not valid json {{{"}} end
 
       {frame, _candidates} =
-        Planner.form_frame(%{text: "测试降级", workspace_id: "ws-real"}, nil, broken_fn)
+        Planner.form_frame(%{text: "测试降级", workspace_id: "ws-real"}, nil, %Execution{
+          complete_fn: broken_fn
+        })
 
       assert frame.schema_version == "3.0-draft"
       assert frame.frame_id != nil
@@ -243,7 +258,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
         DialogueGateway.handle_input(
           %{text: "测试稳定性", workspace_id: "ws-real"},
           nil,
-          broken_fn
+          %Execution{complete_fn: broken_fn}
         )
 
       assert match?({:ok, _, _, _, _}, result) or match?({:error, _}, result)

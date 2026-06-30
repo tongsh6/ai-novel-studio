@@ -12,6 +12,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
   end
 
   defp findings_json(findings), do: Jason.encode!(%{"findings" => findings})
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
 
   test "prompt is an evaluator prompt (not prose anchors) and never asks to rewrite" do
     test_pid = self()
@@ -21,7 +22,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
       {:ok, %{content: findings_json([])}}
     end
 
-    ProseQualityEvaluator.evaluate(request(), complete)
+    ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
     assert_receive {:prompt, prompt}
     assert prompt =~ "质量评审"
     assert prompt =~ "findings"
@@ -38,7 +39,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     }
 
     complete = fn _prompt -> {:ok, %{content: findings_json([finding])}} end
-    result = ProseQualityEvaluator.evaluate(request(), complete)
+    result = ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
 
     assert %QualityEvaluationResult{status: :ok, findings: [parsed]} = result
     assert parsed["validator_ref"] == "validator.character_agency"
@@ -51,7 +52,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     end
 
     assert %QualityEvaluationResult{status: :ok, provider_call_ref: "pcall-evaluator-execution"} =
-             ProseQualityEvaluator.evaluate(request(), complete)
+             ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
   end
 
   test "accepts provider execution dependency" do
@@ -75,7 +76,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     complete = fn _prompt -> {:ok, %{content: Jason.encode!([%{"validator_ref" => "v"}])}} end
 
     assert %QualityEvaluationResult{status: :ok, findings: [_]} =
-             ProseQualityEvaluator.evaluate(request(), complete)
+             ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
   end
 
   test "retries once on invalid JSON then succeeds" do
@@ -87,7 +88,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     end
 
     assert %QualityEvaluationResult{status: :ok} =
-             ProseQualityEvaluator.evaluate(request(), complete)
+             ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
 
     assert Agent.get(counter, & &1) == 2
   end
@@ -96,13 +97,13 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
     complete = fn _prompt -> {:ok, %{content: "still not json"}} end
 
     assert %QualityEvaluationResult{status: :error} =
-             ProseQualityEvaluator.evaluate(request(), complete)
+             ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
   end
 
   test "provider error → error result" do
     complete = fn _prompt -> {:error, :timeout} end
 
     assert %QualityEvaluationResult{status: :error} =
-             ProseQualityEvaluator.evaluate(request(), complete)
+             ProseQualityEvaluator.evaluate(request(), provider_execution(complete))
   end
 end

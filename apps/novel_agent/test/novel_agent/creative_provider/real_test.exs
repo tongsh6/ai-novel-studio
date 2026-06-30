@@ -23,6 +23,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   # 字符串值内裸换行 → 非法 JSON（gpt-oss-120b 长上下文下的真实坏法）。
   @bad_json ~s([{"item_id": "i1", "title": "开篇", "body": "第一行\n第二行", "rationale": null}])
 
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+
   test "retries once with a correction prompt when provider returns invalid JSON" do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
@@ -36,7 +38,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       end
     end
 
-    result = Real.generate(@request, complete_fn)
+    result = Real.generate(@request, provider_execution(complete_fn))
 
     assert result.status == :ok
     assert [%{body: "夜色压在账单上。"}] = result.items
@@ -51,7 +53,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
   test "fails honestly when retry also returns invalid JSON" do
     complete_fn = fn _prompt -> {:ok, %{content: @bad_json}} end
 
-    result = Real.generate(@request, complete_fn)
+    result = Real.generate(@request, provider_execution(complete_fn))
 
     assert result.status == :error
     assert [%{code: "provider_response_invalid"} | _] = result.errors
@@ -65,7 +67,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       {:ok, %{content: @good_json}}
     end
 
-    result = Real.generate(@request, complete_fn)
+    result = Real.generate(@request, provider_execution(complete_fn))
 
     assert result.status == :ok
     assert Agent.get(agent, & &1) == 1
@@ -73,9 +75,12 @@ defmodule NovelAgent.CreativeProvider.RealTest do
 
   test "preserves provider_call_ref from unified provider execution result" do
     result =
-      Real.generate(@request, fn _prompt ->
-        {:ok, %ProviderResult{content: @good_json, provider_call_ref: "pcall-writer-execution"}}
-      end)
+      Real.generate(
+        @request,
+        provider_execution(fn _prompt ->
+          {:ok, %ProviderResult{content: @good_json, provider_call_ref: "pcall-writer-execution"}}
+        end)
+      )
 
     assert result.status == :ok
     assert result.provider_call_ref == "pcall-writer-execution"
@@ -114,7 +119,8 @@ defmodule NovelAgent.CreativeProvider.RealTest do
         }
       })
 
-    result = Real.generate(@request, fn _prompt -> {:ok, %{content: content}} end)
+    result =
+      Real.generate(@request, provider_execution(fn _prompt -> {:ok, %{content: content}} end))
 
     assert result.status == :ok
     assert [%{item_id: "i1"}] = result.items
@@ -130,7 +136,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       {:ok, %{content: @good_json}}
     end
 
-    assert %{status: :ok} = Real.generate(@request, complete_fn)
+    assert %{status: :ok} = Real.generate(@request, provider_execution(complete_fn))
 
     prompt = Agent.get(agent, & &1)
     assert prompt =~ "self_report"
@@ -163,7 +169,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       provider_hints: %{}
     }
 
-    assert %{status: :ok} = Real.generate(request, complete_fn)
+    assert %{status: :ok} = Real.generate(request, provider_execution(complete_fn))
 
     prompt = Agent.get(agent, & &1)
     # 角色对象模型核心骨架维度（21 §7.2）
@@ -213,7 +219,7 @@ defmodule NovelAgent.CreativeProvider.RealTest do
       provider_hints: %{}
     }
 
-    assert %{status: :ok} = Real.generate(request, complete_fn)
+    assert %{status: :ok} = Real.generate(request, provider_execution(complete_fn))
 
     prompt = Agent.get(agent, & &1)
     assert prompt =~ "本次草稿类型：foreshadowing_seed"

@@ -105,12 +105,12 @@ defmodule NovelApplication.DialogueGateway do
        )
        when is_binary(text) and byte_size(text) > 0 do
     case require_provider_execution(provider_execution) do
-      {:ok, complete_fn} ->
+      :ok ->
         do_handle_input_with_provider(
           input,
           text,
           context_fetcher,
-          complete_fn,
+          provider_execution,
           trace_persister,
           memory_recorder
         )
@@ -139,7 +139,7 @@ defmodule NovelApplication.DialogueGateway do
          input,
          text,
          context_fetcher,
-         complete_fn,
+         provider_execution,
          trace_persister,
          memory_recorder
        ) do
@@ -185,7 +185,7 @@ defmodule NovelApplication.DialogueGateway do
     )
 
     frame_input = %{text: text, workspace_id: ws_id, turn_id: turn_id}
-    {frame, candidates} = Planner.form_frame(frame_input, context, complete_fn)
+    {frame, candidates} = Planner.form_frame(frame_input, context, provider_execution)
 
     # Update metadata now that Planner has generated frame_id.
     LogContext.put_frame(frame.frame_id)
@@ -216,7 +216,7 @@ defmodule NovelApplication.DialogueGateway do
             candidates,
             context,
             input,
-            complete_fn,
+            provider_execution,
             stage_sink
           )
           |> scope_turn_result(ws_id, work_id, session_id)
@@ -260,7 +260,7 @@ defmodule NovelApplication.DialogueGateway do
 
   defp require_provider_execution(provider_execution) do
     case Execution.complete_fn(provider_execution) do
-      complete_fn when is_function(complete_fn, 1) -> {:ok, complete_fn}
+      complete_fn when is_function(complete_fn, 1) -> :ok
       _ -> provider_boundary_error()
     end
   end
@@ -299,11 +299,11 @@ defmodule NovelApplication.DialogueGateway do
          candidates,
          context,
          input,
-         complete_fn,
+         provider_execution,
          stage_sink
        ) do
     if needs_micro_plan?(frame, generate_plan) do
-      handle_with_plan(frame, candidates, context, input, complete_fn, stage_sink)
+      handle_with_plan(frame, candidates, context, input, provider_execution, stage_sink)
     else
       handle_reply_only(frame, candidates, context, stage_sink)
     end
@@ -1023,13 +1023,13 @@ defmodule NovelApplication.DialogueGateway do
 
   # ── confirmation re-gate (Strategy 1 / ADR-0009) ─
 
-  defp confirm_with_plan(nil, _action_input, _source_turn_result, _complete_fn) do
+  defp confirm_with_plan(nil, _action_input, _source_turn_result, _provider_execution) do
     {:error, "confirmation without stored plan — cannot re-gate"}
   end
 
   # 确认必须绑定 open confirmation（ADR-0009 / VS-03 §5）：绑定字段取自服务端授权的
   # available_action 条目（AU04-I5：UI 不能自报权限字段）。
-  defp confirm_with_plan(plan, action_input, source_turn_result, complete_fn) do
+  defp confirm_with_plan(plan, action_input, source_turn_result, provider_execution) do
     context = confirmation_rebase_context(source_turn_result)
 
     case build_confirmation_binding(action_input, source_turn_result, context) do
@@ -1040,7 +1040,7 @@ defmodule NovelApplication.DialogueGateway do
           plan,
           binding,
           context,
-          complete_fn
+          provider_execution
         )
 
       {:error, reason} ->
@@ -1281,8 +1281,8 @@ defmodule NovelApplication.DialogueGateway do
     generate_plan || frame.tool_need.needs_tool
   end
 
-  defp handle_with_plan(frame, candidates, context, author_input, complete_fn, stage_sink) do
-    case Planner.form_micro_plan(frame, author_input, complete_fn, context) do
+  defp handle_with_plan(frame, candidates, context, author_input, provider_execution, stage_sink) do
+    case Planner.form_micro_plan(frame, author_input, provider_execution, context) do
       {:ok, plan} ->
         emit_agent_stage(
           stage_sink,
@@ -1329,7 +1329,7 @@ defmodule NovelApplication.DialogueGateway do
               candidates,
               context,
               author_input,
-              complete_fn,
+              provider_execution,
               stage_sink
             )
 

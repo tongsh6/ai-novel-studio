@@ -68,7 +68,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
         :prose_revision_from_findings,
         input,
         nil,
-        writer
+        %Execution{complete_fn: writer}
       )
 
     assert planned.run_attrs.profile_ref == ProseRevisionFromFindings.profile_ref()

@@ -9,6 +9,7 @@ defmodule NovelApplication.CreativeArtifactTest do
 
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Toolbox
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
@@ -18,6 +19,8 @@ defmodule NovelApplication.CreativeArtifactTest do
   alias NovelCommon.Contracts.ToolRequest
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.TentativeArtifactSet
+
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
 
   describe "production capability registry" do
     test "does not include removed generic creative capability" do
@@ -38,7 +41,11 @@ defmodule NovelApplication.CreativeArtifactTest do
       end
 
       assert {:ok, _plan} =
-               Planner.form_micro_plan(frame("turn-planner"), %{text: "生成角色"}, complete_fn)
+               Planner.form_micro_plan(
+                 frame("turn-planner"),
+                 %{text: "生成角色"},
+                 provider_execution(complete_fn)
+               )
 
       prompts = Agent.get(prompt_agent, & &1)
       refute Enum.any?(prompts, &String.contains?(&1, removed_capability))
@@ -115,7 +122,10 @@ defmodule NovelApplication.CreativeArtifactTest do
 
     test "provider failure returns failed ToolResult without artifact output" do
       result =
-        Toolbox.execute(request("prose_writing"), fn _prompt -> {:error, %{reason: :down}} end)
+        Toolbox.execute(
+          request("prose_writing"),
+          provider_execution(fn _prompt -> {:error, %{reason: :down}} end)
+        )
 
       assert result.status == :failed
       assert result.output == nil
@@ -259,7 +269,7 @@ defmodule NovelApplication.CreativeArtifactTest do
         DialogueGateway.handle_input(
           %{text: "生成角色设定", workspace_id: "ws-gateway", generate_micro_plan: true},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert turn_result.tool_result.tool_name == "character_design"
@@ -310,7 +320,7 @@ defmodule NovelApplication.CreativeArtifactTest do
             workspace_id: "ws-opening-scene"
           },
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert candidates == []
@@ -361,7 +371,7 @@ defmodule NovelApplication.CreativeArtifactTest do
             workspace_id: "ws-outline-planning"
           },
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert candidates == []
@@ -413,7 +423,7 @@ defmodule NovelApplication.CreativeArtifactTest do
         DialogueGateway.handle_input(
           %{text: "继续", workspace_id: "ws-opening-context", session_id: "session-opening"},
           context_fetcher,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       prompts = Agent.get(prompt_agent, &Enum.reverse/1)
@@ -439,7 +449,7 @@ defmodule NovelApplication.CreativeArtifactTest do
         DialogueGateway.handle_input(
           %{text: "生成正文草稿", workspace_id: "ws-failed", generate_micro_plan: true},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert turn_result.phase == "failed"
@@ -458,7 +468,11 @@ defmodule NovelApplication.CreativeArtifactTest do
       end
 
       assert {:ok, plan} =
-               Planner.form_micro_plan(frame("turn-cont"), %{text: "接着第一章往下写"}, complete_fn)
+               Planner.form_micro_plan(
+                 frame("turn-cont"),
+                 %{text: "接着第一章往下写"},
+                 provider_execution(complete_fn)
+               )
 
       action = hd(plan.proposed_actions)
       assert action.authoring_intent == :continuation
@@ -471,7 +485,11 @@ defmodule NovelApplication.CreativeArtifactTest do
       end
 
       assert {:ok, plan} =
-               Planner.form_micro_plan(frame("turn-rw"), %{text: "第一章太平了，推翻重写"}, complete_fn)
+               Planner.form_micro_plan(
+                 frame("turn-rw"),
+                 %{text: "第一章太平了，推翻重写"},
+                 provider_execution(complete_fn)
+               )
 
       action = hd(plan.proposed_actions)
       assert action.authoring_intent == :rewrite
@@ -482,7 +500,11 @@ defmodule NovelApplication.CreativeArtifactTest do
       complete_fn = fn _prompt -> {:ok, %{content: plan_json("prose_writing")}} end
 
       assert {:ok, plan} =
-               Planner.form_micro_plan(frame("turn-new"), %{text: "写新一章正文"}, complete_fn)
+               Planner.form_micro_plan(
+                 frame("turn-new"),
+                 %{text: "写新一章正文"},
+                 provider_execution(complete_fn)
+               )
 
       action = hd(plan.proposed_actions)
       assert action.authoring_intent == nil
@@ -503,7 +525,12 @@ defmodule NovelApplication.CreativeArtifactTest do
       }
 
       assert {:ok, _plan} =
-               Planner.form_micro_plan(frame("turn-ctx"), %{text: "接着写"}, complete_fn, context)
+               Planner.form_micro_plan(
+                 frame("turn-ctx"),
+                 %{text: "接着写"},
+                 provider_execution(complete_fn),
+                 context
+               )
 
       [prompt] = Agent.get(prompt_agent, & &1)
       assert prompt =~ "作品章节"
@@ -540,7 +567,7 @@ defmodule NovelApplication.CreativeArtifactTest do
             generate_micro_plan: true
           },
           context_fetcher,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       # 计划 prompt（第 2 次 LLM 调用）带上作品章节列表，供 LLM 解析目标章
@@ -593,7 +620,7 @@ defmodule NovelApplication.CreativeArtifactTest do
 
   defp fixed_json_provider(items) do
     json = Jason.encode!(items)
-    fn _prompt -> {:ok, %{content: json}} end
+    provider_execution(fn _prompt -> {:ok, %{content: json}} end)
   end
 
   defp frame(turn_id) do

@@ -799,7 +799,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           end
         },
         nil,
-        complete_fn
+        %Execution{complete_fn: complete_fn}
       )
 
     assert spec.run_attrs.profile_ref == "provider_progress_v1"
@@ -955,7 +955,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           turn_id: "turn-progress"
         },
         nil,
-        complete_fn
+        %Execution{complete_fn: complete_fn}
       )
 
     assert {:ok, run_id} =
@@ -1218,13 +1218,15 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   defp fixed_json_provider(items) do
     json = Jason.encode!(items)
 
-    fn prompt ->
-      if agent_next_step_prompt?(prompt) do
-        {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
-      else
-        {:ok, %{content: json}}
+    %Execution{
+      complete_fn: fn prompt ->
+        if agent_next_step_prompt?(prompt) do
+          {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+        else
+          {:ok, %{content: json}}
+        end
       end
-    end
+    }
   end
 
   defp agent_next_step_prompt?(prompt) when is_binary(prompt),
@@ -1361,16 +1363,18 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   end
 
   defp reply_only_provider do
-    fn prompt ->
-      content =
-        if agent_next_step_prompt?(prompt) do
-          Jason.encode!(next_step_decision(prompt))
-        else
-          reply_only_frame_json()
-        end
+    %Execution{
+      complete_fn: fn prompt ->
+        content =
+          if agent_next_step_prompt?(prompt) do
+            Jason.encode!(next_step_decision(prompt))
+          else
+            reply_only_frame_json()
+          end
 
-      {:ok, %{content: content}}
-    end
+        {:ok, %{content: content}}
+      end
+    }
   end
 
   defp reply_only_frame_json do

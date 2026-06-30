@@ -7,6 +7,7 @@ defmodule NovelTest.ProviderHelpers do
     LMSTUDIO_ENDPOINT — 端点地址
   """
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.HTTP
   alias NovelAgent.Provider.InferenceParams
   alias NovelAgent.Provider.LMStudio
@@ -36,6 +37,13 @@ defmodule NovelTest.ProviderHelpers do
     end
   end
 
+  @doc """
+  Wraps a deterministic completion callback as a provider execution dependency for tests.
+  """
+  @spec provider_execution(function()) :: Execution.t()
+  def provider_execution(complete_fn) when is_function(complete_fn, 1),
+    do: %Execution{complete_fn: complete_fn}
+
   @doc "返回系统配置的模型名。"
   def default_model, do: LMStudio.from_config().model
 
@@ -52,5 +60,4 @@ defmodule NovelTest.ProviderHelpers do
       _ -> false
     end
   end
-
 end

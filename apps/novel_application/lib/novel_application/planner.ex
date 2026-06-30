@@ -28,7 +28,6 @@ defmodule NovelApplication.Planner do
   ]
 
   @type provider_execution :: Execution.dependency()
-  @type complete_fn :: (String.t() -> {:ok, map()} | {:error, term()})
 
   @doc """
   根据 AuthorInput 和 DialogueContext 形成 DialogueFrame 和候选方向。

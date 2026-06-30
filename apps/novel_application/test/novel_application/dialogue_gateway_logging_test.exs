@@ -1,6 +1,7 @@
 defmodule NovelApplication.DialogueGatewayLoggingTest do
   use ExUnit.Case, async: false
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.DialogueGateway
 
   @frame_json """
@@ -86,7 +87,7 @@ defmodule NovelApplication.DialogueGatewayLoggingTest do
                  generate_micro_plan: true
                },
                nil,
-               complete_fn()
+               provider_execution(complete_fn())
              )
 
     assert turn_result.turn_id == turn_id
@@ -113,6 +114,8 @@ defmodule NovelApplication.DialogueGatewayLoggingTest do
       end
     end
   end
+
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
 
   defp prompt_text(prompt) when is_binary(prompt), do: prompt
 

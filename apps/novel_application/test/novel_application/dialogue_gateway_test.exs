@@ -20,6 +20,8 @@ defmodule NovelApplication.DialogueGatewayTest do
   }
   """
 
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+
   # ── VS-00 reply-only tests ──────────────────────────
 
   describe "reply-only turn" do
@@ -80,7 +82,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "继续聊，但先不要写正文，也不要改设定。", workspace_id: "ws-no-write"},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert Agent.get(calls, & &1) == 1
@@ -120,7 +122,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "我想写一个雨夜开场的悬疑故事，先聊聊气质。", workspace_id: "ws-chat"},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert turn_result.frame_summary.frame_type == :casual_reply
@@ -138,7 +140,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "普通聊天", workspace_id: "ws-json-error"},
           nil,
-          broken_json_fn
+          provider_execution(broken_json_fn)
         )
 
       message = turn_result.assistant_message.text
@@ -171,7 +173,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "普通聊天", workspace_id: "ws-provider-down"},
           nil,
-          unavailable_fn
+          provider_execution(unavailable_fn)
         )
 
       assert turn_result.status == "conversational"
@@ -193,7 +195,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "普通聊天", workspace_id: "ws-invalid-request"},
           nil,
-          invalid_request_fn
+          provider_execution(invalid_request_fn)
         )
 
       message = turn_result.assistant_message.text
@@ -243,7 +245,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "继续聊这个方向", workspace_id: "ws-partial-frame"},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert turn_result.assistant_message.text =~ "宿命链"
@@ -323,7 +325,11 @@ defmodule NovelApplication.DialogueGatewayTest do
       complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
 
       {:ok, _turn_result, _trace, candidates, _context} =
-        DialogueGateway.handle_input(%{text: "帮我想几个故事方向", workspace_id: "ws-1"}, nil, complete_fn)
+        DialogueGateway.handle_input(
+          %{text: "帮我想几个故事方向", workspace_id: "ws-1"},
+          nil,
+          provider_execution(complete_fn)
+        )
 
       assert Enum.all?(candidates, &(Map.get(&1, :adoption_status, :not_adopted) == :not_adopted))
     end
@@ -360,7 +366,7 @@ defmodule NovelApplication.DialogueGatewayTest do
       input = %{text: "我想写赛博修仙，但还没想好方向。帮我想想怎么切入。", workspace_id: "ws-1"}
 
       {:ok, turn_result, trace, candidates, _context} =
-        DialogueGateway.handle_input(input, nil, complete_fn)
+        DialogueGateway.handle_input(input, nil, provider_execution(complete_fn))
 
       assert turn_result.frame_summary.frame_type == :creative_exploration
       assert trace.decision_type == :exploration
@@ -390,7 +396,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "赛博修仙怎么切入？帮我想几个方向。", workspace_id: "ws-1"},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert turn_result.frame_summary.frame_type == :creative_exploration
@@ -419,7 +425,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "赛博修仙怎么切入？帮我想几个方向。", workspace_id: "ws-1"},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert turn_result.frame_summary.frame_type == :creative_exploration
@@ -502,9 +508,13 @@ defmodule NovelApplication.DialogueGatewayTest do
       }
 
       assert {:ok, action_result, turn_result} =
-               DialogueGateway.handle_action(input, source_turn_result, fn _prompt ->
-                 flunk("cancel waiting must not call provider")
-               end)
+               DialogueGateway.handle_action(
+                 input,
+                 source_turn_result,
+                 provider_execution(fn _prompt ->
+                   flunk("cancel waiting must not call provider")
+                 end)
+               )
 
       assert action_result.status == "cancelled"
       assert turn_result.phase == "cancelled"
@@ -581,7 +591,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "trace test", workspace_id: ws_id},
           nil,
-          complete_fn,
+          provider_execution(complete_fn),
           persister
         )
 
@@ -613,7 +623,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "记住这轮", workspace_id: ws_id},
           nil,
-          complete_fn,
+          provider_execution(complete_fn),
           nil,
           recorder
         )

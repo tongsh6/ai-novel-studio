@@ -1,6 +1,7 @@
 defmodule NovelApplication.ActionRoundtripTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.ActionValidator
   alias NovelDomain.AuthorActionInput
 
@@ -490,7 +491,9 @@ defmodule NovelApplication.ActionRoundtripTest do
          }}
       end
 
-      assert {:ok, ack, turn_result} = DialogueGateway.handle_action(input, source, complete_fn)
+      assert {:ok, ack, turn_result} =
+               DialogueGateway.handle_action(input, source, %Execution{complete_fn: complete_fn})
+
       assert ack.status == "accepted"
       assert ack.confirmation_binding.behavior_ref == "bh-p1"
       assert ack.confirmation_binding.target_ref == "prose_writing"

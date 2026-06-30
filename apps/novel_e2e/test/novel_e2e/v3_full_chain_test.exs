@@ -8,14 +8,17 @@ defmodule NovelE2E.FullChainTest do
     AuthorInput → Planner → DialogueFrame → MicroPlan → GateOrder
     → OrchestratorDecision → BehaviorState / Toolbox → TurnResult
 
-  使用 stub complete_fn 注入精确的 LLM 响应来触发每条业务路径。
+  使用 provider execution dependency 注入精确的 LLM 响应来触发每条业务路径。
   真实 LLM 解析验证在 novel_application/planner_real_llm_test.exs 中。
   """
 
   alias NovelApplication.DialogueGateway
   alias NovelApplication.ReplayService
+  alias NovelTest.ProviderHelpers
 
   @moduletag :integration
+
+  defp provider_execution(complete_fn), do: ProviderHelpers.provider_execution(complete_fn)
 
   # ═══════════════════════════════════════════════════
   # 工具：sequenced stub complete_fn
@@ -133,7 +136,11 @@ defmodule NovelE2E.FullChainTest do
       complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
 
       {:ok, turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(%{text: "你好", workspace_id: "ws-r1"}, nil, complete_fn)
+        DialogueGateway.handle_input(
+          %{text: "你好", workspace_id: "ws-r1"},
+          nil,
+          provider_execution(complete_fn)
+        )
 
       assert turn_result.schema_version == "3.0-draft"
       assert turn_result.frame_ref != nil
@@ -154,7 +161,11 @@ defmodule NovelE2E.FullChainTest do
       complete_fn = capturing_complete_fn(@frame_json)
 
       {:ok, _turn_result, _trace, _candidates, _context} =
-        DialogueGateway.handle_input(%{text: "你好", workspace_id: "ws-c1"}, fetcher, complete_fn)
+        DialogueGateway.handle_input(
+          %{text: "你好", workspace_id: "ws-c1"},
+          fetcher,
+          provider_execution(complete_fn)
+        )
 
       # 关键断言：验证 Prompt 包含上下文内容
       assert_receive {:prompt, prompt}
@@ -168,7 +179,11 @@ defmodule NovelE2E.FullChainTest do
       complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
 
       {:ok, _turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(%{text: "hi", workspace_id: "ws-r1b"}, nil, complete_fn)
+        DialogueGateway.handle_input(
+          %{text: "hi", workspace_id: "ws-r1b"},
+          nil,
+          provider_execution(complete_fn)
+        )
 
       report = ReplayService.build_report(trace)
 
@@ -190,7 +205,7 @@ defmodule NovelE2E.FullChainTest do
         DialogueGateway.handle_input(
           %{text: "重写第一章+更新角色+整理伏笔", workspace_id: "ws-dg", generate_micro_plan: true},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       # 主链到达了 OrchestratorDecision
@@ -223,7 +238,7 @@ defmodule NovelE2E.FullChainTest do
         DialogueGateway.handle_input(
           %{text: "直接替换正文", workspace_id: "ws-cf", generate_micro_plan: true},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       decision = turn_result.orchestrator_decision
@@ -265,7 +280,7 @@ defmodule NovelE2E.FullChainTest do
         DialogueGateway.handle_input(
           %{text: "分析文本", workspace_id: "ws-tl", generate_micro_plan: true},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       # Orchestrator 放行了工具
@@ -311,7 +326,7 @@ defmodule NovelE2E.FullChainTest do
         DialogueGateway.handle_input(
           %{text: "生成角色设定", workspace_id: "ws-ca", generate_micro_plan: true},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       decision = turn_result.orchestrator_decision
@@ -342,7 +357,11 @@ defmodule NovelE2E.FullChainTest do
       broken_fn = fn _prompt -> {:error, %{code: "timeout", message: "timeout"}} end
 
       {:ok, turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(%{text: "测试", workspace_id: "ws-err"}, nil, broken_fn)
+        DialogueGateway.handle_input(
+          %{text: "测试", workspace_id: "ws-err"},
+          nil,
+          provider_execution(broken_fn)
+        )
 
       assert turn_result.assistant_message.text != ""
       assert turn_result.frame_ref != nil
@@ -353,7 +372,11 @@ defmodule NovelE2E.FullChainTest do
       garbage_fn = fn _prompt -> {:ok, %{content: "not valid json {{{"}} end
 
       {:ok, turn_result, _trace, _candidates, _context} =
-        DialogueGateway.handle_input(%{text: "测试", workspace_id: "ws-garbage"}, nil, garbage_fn)
+        DialogueGateway.handle_input(
+          %{text: "测试", workspace_id: "ws-garbage"},
+          nil,
+          provider_execution(garbage_fn)
+        )
 
       assert turn_result.assistant_message.text != ""
       assert turn_result.frame_ref != nil
@@ -366,7 +389,7 @@ defmodule NovelE2E.FullChainTest do
         DialogueGateway.handle_input(
           %{text: "test", workspace_id: "ws-err3", generate_micro_plan: true},
           nil,
-          complete_fn
+          provider_execution(complete_fn)
         )
 
       assert turn_result.frame_ref != nil

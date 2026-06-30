@@ -1,6 +1,7 @@
 defmodule NovelApplication.DeepExplorationLoopTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.DialogueGateway
 
   @moduledoc """
@@ -44,6 +45,8 @@ defmodule NovelApplication.DeepExplorationLoopTest do
     "fallback_message": "我这就为你构思具体的公司垄断细节。"
   })
 
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+
   # ── Tests ──────────────────────────────────────
 
   describe "VS-00A Deep Exploration Loop (Multi-turn)" do
@@ -54,7 +57,7 @@ defmodule NovelApplication.DeepExplorationLoopTest do
       input_t1 = %{text: "我想写赛博修仙", workspace_id: "ws-deep-1"}
 
       {:ok, turn_result_t1, _trace_t1, _cands_t1, _ctx_t1} =
-        DialogueGateway.handle_input(input_t1, nil, complete_fn_t1)
+        DialogueGateway.handle_input(input_t1, nil, provider_execution(complete_fn_t1))
 
       assert turn_result_t1.frame_summary.frame_type == :creative_exploration
       assert length(turn_result_t1.candidate_directions) == 1
@@ -71,7 +74,7 @@ defmodule NovelApplication.DeepExplorationLoopTest do
       }
 
       {:ok, turn_result_t2, trace_t2, _cands_t2, _ctx_t2} =
-        DialogueGateway.handle_input(input_t2, nil, complete_fn_t2)
+        DialogueGateway.handle_input(input_t2, nil, provider_execution(complete_fn_t2))
 
       # 验证 Planner 现在具有工具认知，并提出了正确的 capability_invocation
       # 由于 risk_hint 为 high，触发了 authority gate，状态变为 needs_confirmation

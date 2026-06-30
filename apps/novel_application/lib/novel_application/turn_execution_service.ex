@@ -824,14 +824,14 @@ defmodule NovelApplication.TurnExecutionService do
   defp semantic_opts(quality_provider_execution, frame, brief_text) do
     case Execution.complete_fn(quality_provider_execution) do
       complete_fn when is_function(complete_fn, 1) ->
-        semantic_opts_from_complete_fn(complete_fn, frame, brief_text)
+        semantic_opts_from_provider_execution(quality_provider_execution, frame, brief_text)
 
       _ ->
         []
     end
   end
 
-  defp semantic_opts_from_complete_fn(complete_fn, frame, brief_text) do
+  defp semantic_opts_from_provider_execution(provider_execution, frame, brief_text) do
     semantic_fn = fn text, ctx ->
       request = %QualityEvaluationRequest{
         request_id: "qer_#{frame.turn_id}",
@@ -842,7 +842,7 @@ defmodule NovelApplication.TurnExecutionService do
         execution_brief: brief_text
       }
 
-      case ProseQualityEvaluator.evaluate(request, complete_fn) do
+      case ProseQualityEvaluator.evaluate(request, provider_execution) do
         %QualityEvaluationResult{status: :ok, findings: findings, provider_call_ref: ref} ->
           {:ok, findings, ref}
 
@@ -1218,7 +1218,7 @@ defmodule NovelApplication.TurnExecutionService do
   defp narrate(%ToolResult{status: :succeeded} = tool_result, _artifact_set, provider_execution) do
     case Execution.complete_fn(provider_execution) do
       complete_fn when is_function(complete_fn, 1) ->
-        Planner.narrate_tool_result(tool_result, complete_fn)
+        Planner.narrate_tool_result(tool_result, provider_execution)
 
       _ ->
         "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"

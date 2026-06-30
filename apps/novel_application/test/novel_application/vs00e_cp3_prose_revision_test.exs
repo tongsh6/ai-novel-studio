@@ -153,26 +153,28 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
   end
 
   defp revise_complete(agent \\ nil) do
-    fn prompt ->
-      if agent, do: Agent.update(agent, &[prompt | &1])
+    %Execution{
+      complete_fn: fn prompt ->
+        if agent, do: Agent.update(agent, &[prompt | &1])
 
-      {:ok,
-       %{
-         provider_call_id: "pc-revision",
-         content:
-           Jason.encode!(%{
-             items: [
-               %{item_id: "rev-item", title: "第01章（修订）", body: @revised_body, rationale: nil}
-             ],
-             self_report: %{
-               assumptions: [],
-               intended_reader_effect: nil,
-               used_context_refs: [],
-               risk_flags: []
-             }
-           })
-       }}
-    end
+        {:ok,
+         %{
+           provider_call_id: "pc-revision",
+           content:
+             Jason.encode!(%{
+               items: [
+                 %{item_id: "rev-item", title: "第01章（修订）", body: @revised_body, rationale: nil}
+               ],
+               self_report: %{
+                 assumptions: [],
+                 intended_reader_effect: nil,
+                 used_context_refs: [],
+                 risk_flags: []
+               }
+             })
+         }}
+      end
+    }
   end
 
   defp run_prose_turn do

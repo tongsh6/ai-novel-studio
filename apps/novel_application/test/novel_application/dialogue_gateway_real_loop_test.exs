@@ -2,6 +2,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.DialogueGateway
   alias NovelFoundation.Enums.AdoptionStatus
   alias NovelFoundation.Enums.MemoryScope
@@ -85,7 +86,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "第一轮要记住：主角叫林烬。", workspace_id: ws_id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  nil,
                  recorder
                )
@@ -94,7 +95,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "第二轮：他现在叫什么？", workspace_id: ws_id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  nil,
                  recorder
                )
@@ -120,7 +121,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "请记录这轮 trace。", workspace_id: ws_id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  trace_persister,
                  nil
                )
@@ -167,7 +168,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "查看当前角色列表", workspace_id: work.id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  trace_persister,
                  nil
                )
@@ -176,6 +177,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       assert turn_result.tool_result.tool_name == "character_roster"
       assert turn_result.tool_result.status == :succeeded
       assert turn_result.tool_result.output.character_count == 1
+
       assert [%{name: "林澈", narrative_role: "PROTAGONIST"}] =
                turn_result.tool_result.output.characters
 
@@ -183,6 +185,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       assert turn_result.truthfulness.production_write_performed == false
       assert turn_result.truthfulness.artifact_adopted == false
       refute Map.has_key?(turn_result, :adoption_state)
+
       # 主角感知叙述：结构化 narrative_role 让"主角是谁"有可校验答案，不再机械列名单
       assert turn_result.assistant_message.text =~ "当前作品的主角是 林澈"
       assert turn_result.assistant_message.text =~ "没有写入作品事实"
@@ -221,7 +224,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "第一轮", workspace_id: work.id, session_id: session.id},
                  nil,
-                 capturing_complete_fn(),
+                 provider_execution(capturing_complete_fn()),
                  nil,
                  recorder
                )
@@ -250,7 +253,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "第一轮要记住：主角叫林烬。", workspace_id: work.id, session_id: session.id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  nil,
                  recorder
                )
@@ -259,7 +262,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "第二轮：他现在叫什么？", workspace_id: work.id, session_id: session.id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  nil,
                  recorder
                )
@@ -297,7 +300,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "主角现在的核心动机是什么？", workspace_id: work.id, session_id: active_session.id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  nil,
                  nil
                )
@@ -339,7 +342,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "继续最新设定", workspace_id: work.id, session_id: session.id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  nil,
                  nil
                )
@@ -371,7 +374,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "林烬为什么要去灵源矿区？", workspace_id: work.id},
                  fetcher,
-                 complete_fn,
+                 provider_execution(complete_fn),
                  nil,
                  nil
                )
@@ -419,6 +422,8 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
         end)
     end
   end
+
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
 
   defp captured_prompts(complete_fn), do: complete_fn.(:captured_prompts)
 

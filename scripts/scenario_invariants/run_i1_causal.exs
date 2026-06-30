@@ -7,7 +7,7 @@
 #   MIX_ENV=test mix run scripts/scenario_invariants/run_i1_causal.exs
 #
 # 设计：
-# - driver 注入 traced complete_fn，包裹 `NovelAgent.Provider.Gateway.complete/1`。
+# - driver 注入 traced provider execution dependency，包裹 `NovelAgent.Provider.Gateway.complete/1`。
 #   每次调用记录 (provider_call_id, prompt, raw_response) 到 Agent。返回 map 附
 #   :provider_call_id —— Toolbox.handle_provider_content 从中取出，写入每个
 #   item 的 :provider_call_ref。
@@ -24,6 +24,7 @@
 defmodule I1CausalDriver do
   @moduledoc false
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelApplication.DialogueGateway
@@ -32,8 +33,7 @@ defmodule I1CausalDriver do
     %{
       name: "chapter-plan",
       topic: "10 万字章节计划",
-      instruction:
-        "请基于以下主题生成一份章节计划。请把这串标识符原样嵌入到每个章节的标题或正文中至少一处："
+      instruction: "请基于以下主题生成一份章节计划。请把这串标识符原样嵌入到每个章节的标题或正文中至少一处："
     },
     %{
       name: "character-seed",
@@ -79,7 +79,7 @@ defmodule I1CausalDriver do
     complete_fn = build_traced_complete_fn(trace_agent)
 
     try do
-      case DialogueGateway.handle_input(input, nil, complete_fn) do
+      case DialogueGateway.handle_input(input, nil, provider_execution(complete_fn)) do
         {:ok, turn_result, _trace, _candidates, _context} ->
           calls = Agent.get(trace_agent, & &1) |> Enum.reverse()
           evaluate(c, nonce, turn_result, calls)
@@ -104,6 +104,8 @@ defmodule I1CausalDriver do
       Agent.stop(trace_agent)
     end
   end
+
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
 
   defp compose_input(c, nonce) do
     "#{c.instruction}#{nonce}。主题：#{c.topic}。要求标识符 #{nonce} 必须原样保留至少一处。"
@@ -277,9 +279,13 @@ defmodule I1CausalDriver do
 
     cond do
       # 两侧都 nil — 相等
-      is_nil(actual) and is_nil(expected) -> nil
+      is_nil(actual) and is_nil(expected) ->
+        nil
+
       # 精确字节相等
-      actual == expected -> nil
+      actual == expected ->
+        nil
+
       # 不等
       true ->
         "#{string_key}: item=#{inspect(actual_excerpt(actual))} vs raw=#{inspect(actual_excerpt(expected))}"

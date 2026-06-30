@@ -1,6 +1,7 @@
 defmodule NovelApplication.ContextGroundingTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.ContextAssembler
   alias NovelApplication.DialogueGateway
   alias NovelDomain.DialogueContext
@@ -20,6 +21,8 @@ defmodule NovelApplication.ContextGroundingTest do
   end
 
   defp empty_fetcher(_ws_id), do: {:ok, nil, nil, nil, nil}
+
+  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
 
   # ── Context Assembly ──────────────────────────
 
@@ -319,7 +322,7 @@ defmodule NovelApplication.ContextGroundingTest do
       input = %{text: "这一章感觉不够爽，主角赢得太轻了。", workspace_id: "ws-au11"}
 
       {:ok, turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(input, &quality_fetcher/2, complete_fn)
+        DialogueGateway.handle_input(input, &quality_fetcher/2, provider_execution(complete_fn))
 
       prompt_text =
         prompts
@@ -374,7 +377,7 @@ defmodule NovelApplication.ContextGroundingTest do
       input = %{text: "这一章不够爽，主角赢得太轻了", workspace_id: "ws-au11-empty"}
 
       {:ok, turn_result, _trace, _candidates, _context} =
-        DialogueGateway.handle_input(input, &empty_fetcher/1, complete_fn)
+        DialogueGateway.handle_input(input, &empty_fetcher/1, provider_execution(complete_fn))
 
       envelope = turn_result.trace_summary.ai_message_envelope
 

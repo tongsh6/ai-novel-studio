@@ -574,7 +574,9 @@ defmodule NovelApplication.ToolProvenanceTest do
          }}
       end
 
-      Planner.form_micro_plan(plan_frame(), %{text: "写约800字的开篇"}, complete_fn)
+      Planner.form_micro_plan(plan_frame(), %{text: "写约800字的开篇"}, %Execution{
+        complete_fn: complete_fn
+      })
     end
 
     defp plan_frame do
