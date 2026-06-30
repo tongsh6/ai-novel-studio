@@ -1,6 +1,7 @@
 // Design: docs/design/ui/41-workbench-layout.md §2 (3-zone workbench)
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
-// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi)
+// Design: docs/design/ui/46-state-and-feedback.md §3.1 (AgentRun dialogue flow)
+// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 46§8-agent-run-dialogue-flow-v4 (kg4wN)
 import { useCallback, useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -58,6 +59,7 @@ import {
   searchSessions,
   getSessionSnapshot,
   getTurnReplay,
+  getTurnProviderRuns,
   createWorkSession,
   archiveWorkSession,
   transcriptToMessages,
@@ -75,6 +77,13 @@ import {
   getVisibleWorkTitle,
   shouldShowWelcomeMessage,
 } from "../lib/workspaceRuntimeState";
+import {
+  agentRunEventDetailItems,
+  agentRunExecutionBrief,
+  agentRunProviderRunDetailItems,
+  agentRunProviderRunReplayDetails,
+  type AgentRunProviderUsageData,
+} from "../lib/agentRunTimeline";
 import {
   ClarificationCard,
   ConfirmationCard,
@@ -115,6 +124,7 @@ import {
   candidateContinuationText,
 } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
+import { shouldRouteInputToAgentSteer } from "../lib/agentRunInputRouting";
 import type { CandidateDirection as CandidateDirectionContract } from "../lib/schemas";
 import { toAuthorTraceSummary, type TraceSummaryView } from "../lib/traceSummaryView";
 import { framePresentationForSummary } from "../lib/framePresentation";
@@ -158,6 +168,16 @@ export interface TurnResult {
   }[];
   quality_review?: QualityReview;
   produced_at: string;
+  agent_run?: {
+    run_id?: string;
+    run_mode?: string;
+    status?: string;
+    phase?: string;
+    profile_ref?: string;
+    long_run_task_ref?: string | null;
+    events?: AgentEventData[];
+    provider_runs?: AgentRunProviderUsageData[];
+  };
 }
 
 export interface QualityFindingView {
@@ -202,6 +222,19 @@ interface ChatMessage {
   role: "user" | "assistant";
   text: string;
   turnResult?: TurnResult;
+}
+
+type AgentRunEventStage =
+  | "understanding"
+  | "context"
+  | "planning"
+  | "authorAdjustment"
+  | "execution"
+  | "result";
+
+interface AgentRunStageView {
+  stage: AgentRunEventStage;
+  events: AgentEventData[];
 }
 
 // 推理强度只接受供应商认可的枚举值（DeepSeek: high/low/medium），空串表示不指定。
@@ -449,7 +482,368 @@ function startupConnectingMessage(): ChatMessage {
 // 先于后端就绪而失败。这类「连接尚未就绪」的失败在启动期应静默重试，而不是直接报错。
 const STARTUP_MAX_ATTEMPTS = 30;
 const STARTUP_RETRY_MS = 1000;
-const AGENT_RUN_EVENT_VISIBLE_LIMIT = 24;
+const AGENT_RUN_EVENT_VISIBLE_LIMIT = 96;
+const TERMINAL_AGENT_RUN_STATUSES = new Set(["completed", "cancelled", "failed"]);
+const AGENT_RUN_STAGE_ORDER: AgentRunEventStage[] = [
+  "understanding",
+  "context",
+  "planning",
+  "authorAdjustment",
+  "execution",
+  "result",
+];
+
+function turnResultAgentRunId(turnResult: TurnResult | undefined): string | null {
+  const runId = turnResult?.agent_run?.run_id;
+  return typeof runId === "string" && runId.trim() !== "" ? runId : null;
+}
+
+function stateFromTurnResult(turnResult: TurnResult): AgentRunStateData | null {
+  const runId = turnResultAgentRunId(turnResult);
+  if (!runId) return null;
+
+  return {
+    run_id: runId,
+    run_mode: turnResult.agent_run?.run_mode ?? "bounded",
+    status: turnResult.agent_run?.status ?? "completed",
+    phase: turnResult.agent_run?.phase ?? "completed",
+    long_run_task_ref: turnResult.agent_run?.long_run_task_ref ?? null,
+    profile_ref: turnResult.agent_run?.profile_ref ?? null,
+  };
+}
+
+function agentRunEventsFromTurnResult(turnResult: TurnResult | undefined): AgentEventData[] {
+  const events = turnResult?.agent_run?.events;
+  if (!Array.isArray(events)) return [];
+
+  return events.filter((event): event is AgentEventData => {
+    return (
+      Boolean(event) &&
+      typeof event.event_id === "string" &&
+      typeof event.run_ref === "string" &&
+      typeof event.event_type === "string" &&
+      typeof event.visibility === "string" &&
+      typeof event.summary === "string" &&
+      typeof event.sequence === "number"
+    );
+  });
+}
+
+function mergeAgentRunEvents(restored: AgentEventData[], live: AgentEventData[]): AgentEventData[] {
+  const byKey = new Map<string, AgentEventData>();
+
+  for (const event of [...restored, ...live]) {
+    byKey.set(event.event_id || `${event.run_ref}:${event.sequence}:${event.event_type}`, event);
+  }
+
+  return Array.from(byKey.values()).sort((a, b) => {
+    if (a.sequence !== b.sequence) return a.sequence - b.sequence;
+    return (a.emitted_at ?? "").localeCompare(b.emitted_at ?? "");
+  });
+}
+
+function agentRunEventStage(eventType: string): AgentRunEventStage {
+  switch (eventType) {
+    case "run_started":
+    case "goal_understood":
+      return "understanding";
+    case "observation_recorded":
+      return "context";
+    case "plan_created":
+    case "step_proposed":
+    case "gate_decided":
+      return "planning";
+    case "plan_adjusted":
+    case "interrupt_requested":
+    case "run_pausing":
+    case "run_paused":
+    case "run_resumed":
+    case "awaiting_author":
+    case "checkpoint_created":
+      return "authorAdjustment";
+    case "tool_started":
+    case "tool_completed":
+    case "provider_progress":
+    case "quality_review_started":
+    case "quality_finding_created":
+    case "turn_result_ready":
+      return "execution";
+    case "artifact_created":
+    case "run_completed":
+    case "run_cancelled":
+    case "run_failed":
+    default:
+      return "result";
+  }
+}
+
+function groupAgentRunEvents(events: AgentEventData[]): AgentRunStageView[] {
+  const groups = new Map<AgentRunEventStage, AgentEventData[]>(
+    AGENT_RUN_STAGE_ORDER.map((stage) => [stage, []]),
+  );
+
+  for (const event of events) {
+    const summary = event.summary?.trim();
+    if (event.visibility !== "author" || !summary) continue;
+    groups.get(agentRunEventStage(event.event_type))?.push(event);
+  }
+
+  return AGENT_RUN_STAGE_ORDER.map((stage) => ({ stage, events: groups.get(stage) ?? [] })).filter(
+    (group) => group.events.length > 0,
+  );
+}
+
+function presentAgentEventSummary(summary: string): string {
+  const trimmed = summary.trim();
+
+  switch (trimmed) {
+    case "AgentRun 已启动。":
+      return WORKBENCH.agentRunStartedSummary;
+    case "AgentRun 已完成。":
+      return WORKBENCH.agentRunCompletedSummary;
+    case "AgentRun 已恢复。":
+      return WORKBENCH.agentRunResumedSummary;
+    case "正在取消 AgentRun。":
+      return WORKBENCH.agentRunCancellingSummary;
+    case "AgentRun 未取得新进展，已停止等待作者确认。":
+      return WORKBENCH.agentRunNoProgressSummary;
+    default:
+      return trimmed.replaceAll("AgentRun", WORKBENCH.agentRunUserFacingName);
+  }
+}
+
+function latestAgentRunSummary(
+  run: AgentRunStateData | null,
+  events: AgentEventData[],
+  preparing: boolean,
+): string {
+  if (preparing) return WORKBENCH.agentRunPreparingEvent;
+
+  const lastSummary = events.at(-1)?.summary?.trim();
+  if (lastSummary) return presentAgentEventSummary(lastSummary);
+
+  if (!run) return WORKBENCH.agentRunEmptyEvent;
+  return WORKBENCH.agentRunFallbackStatus(WORKBENCH.agentRunStatusLabels[run.status] ?? run.status);
+}
+
+interface AgentRunDialogueFlowProps {
+  run: AgentRunStateData | null;
+  events: AgentEventData[];
+  preparing?: boolean;
+  canPause?: boolean;
+  canResume?: boolean;
+  canCancel?: boolean;
+  providerRuns?: AgentRunProviderUsageData[];
+  onCommand?: (command: AgentCommand) => void;
+}
+
+function AgentRunDialogueFlow({
+  run,
+  events,
+  preparing = false,
+  canPause = false,
+  canResume = false,
+  canCancel = false,
+  providerRuns = [],
+  onCommand,
+}: AgentRunDialogueFlowProps) {
+  const visibleEvents = events.slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT);
+  const stages = groupAgentRunEvents(visibleEvents);
+  const statusLabel =
+    run &&
+    (WORKBENCH.agentRunStatusLabels[run.status] ?? (run.status || WORKBENCH.agentRunPreparingStatus));
+  const statusSummary = latestAgentRunSummary(run, visibleEvents, preparing);
+  const executionBrief = agentRunExecutionBrief(visibleEvents, providerRuns);
+  const showControls = run !== null && onCommand !== undefined && !TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+
+  return (
+    <div className={styles.agentRunFlow} aria-label={WORKBENCH.agentRunFlowAriaLabel}>
+      <div className={styles.agentRunFlowRail} aria-hidden="true">
+        <Bot size={15} />
+      </div>
+      <div className={styles.agentRunFlowContent}>
+        <div className={styles.agentRunStatusLine}>
+          <span className={styles.agentRunStatusPulse} aria-hidden="true" />
+          <span>{statusSummary}</span>
+        </div>
+
+        <div className={styles.agentRunMetaRow}>
+          <span>{WORKBENCH.agentRunInlineTitle}</span>
+          {statusLabel && <span>{WORKBENCH.agentRunInlineStatus(statusLabel)}</span>}
+          {run?.run_mode === "durable" && (
+            <span>
+              {run.recovered ? WORKBENCH.agentRunRecoveredLabel : WORKBENCH.agentRunDurableLabel}
+              {run.long_run_task_ref ? ` · ${WORKBENCH.agentRunLongTaskRef(run.long_run_task_ref)}` : ""}
+            </span>
+          )}
+        </div>
+
+        {executionBrief && (
+          <div className={styles.agentRunBrief} aria-label={WORKBENCH.agentRunBriefLabel}>
+            <span className={styles.agentRunBriefPath}>{executionBrief.path}</span>
+            {executionBrief.facts.length > 0 && (
+              <span className={styles.agentRunBriefFacts}>{executionBrief.facts.join(" · ")}</span>
+            )}
+          </div>
+        )}
+
+        {showControls && (
+          <div className={styles.agentRunInlineActions} aria-label={WORKBENCH.agentRunControlsLabel}>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              title={WORKBENCH.agentRunPause}
+              disabled={!canPause}
+              onClick={() => onCommand?.("pause")}
+            >
+              <Pause size={14} aria-hidden="true" />
+              <span>{WORKBENCH.agentRunPause}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              title={WORKBENCH.agentRunResume}
+              disabled={!canResume}
+              onClick={() => onCommand?.("resume")}
+            >
+              <Play size={14} aria-hidden="true" />
+              <span>{WORKBENCH.agentRunResume}</span>
+            </button>
+            <button
+              type="button"
+              className={styles.iconBtn}
+              title={WORKBENCH.agentRunCancel}
+              disabled={!canCancel}
+              onClick={() => onCommand?.("cancel")}
+            >
+              <CircleX size={14} aria-hidden="true" />
+              <span>{WORKBENCH.agentRunCancel}</span>
+            </button>
+          </div>
+        )}
+
+        <details className={styles.agentRunDetails} open>
+          <summary className={styles.agentRunDetailsSummary}>
+            <ChevronDown size={14} aria-hidden="true" />
+            <span>{WORKBENCH.agentRunDetailsSummary}</span>
+            <span className={styles.agentRunDetailsHint}>{WORKBENCH.agentRunDetailsHint}</span>
+          </summary>
+
+          {providerRuns.length > 0 && (
+            <section
+              className={styles.agentRunProviderRuns}
+              aria-label={WORKBENCH.agentRunProviderRunsLabel}
+            >
+              <div className={styles.agentRunTimelineLabel}>
+                {WORKBENCH.agentRunProviderRunsLabel}
+              </div>
+              <div className={styles.agentRunTimelineEvents}>
+                {providerRuns.map((providerRun, index) => {
+                  const detailItems = agentRunProviderRunDetailItems(providerRun);
+                  const replayDetails = agentRunProviderRunReplayDetails(providerRun);
+                  const key =
+                    providerRun.provider_run_ref ?? providerRun.provider_call_ref ?? `${index}`;
+
+                  return (
+                    <details
+                      key={key}
+                      className={styles.agentRunProviderRunDetail}
+                      open={index === 0}
+                    >
+                      <summary className={styles.agentRunProviderRunSummary}>
+                        <ChevronDown size={13} aria-hidden="true" />
+                        <span>
+                          {providerRun.provider_call_ref
+                            ? WORKBENCH.agentRunDetailProviderCallRef(providerRun.provider_call_ref)
+                            : WORKBENCH.agentRunProviderRunsLabel}
+                        </span>
+                      </summary>
+                      {detailItems.length > 0 && (
+                        <div className={styles.agentRunTimelineEventDetails}>
+                          {detailItems.map((item) => (
+                            <span key={item}>{item}</span>
+                          ))}
+                        </div>
+                      )}
+                      <div className={styles.agentRunProviderReplay}>
+                        <section className={styles.agentRunProviderReplaySection}>
+                          <div className={styles.agentRunProviderReplayLabel}>
+                            {WORKBENCH.agentRunProviderReplayEventsLabel}
+                          </div>
+                          <ul className={styles.agentRunProviderReplayList}>
+                            {replayDetails.events.map((event, eventIndex) => (
+                              <li key={`${eventIndex}-${event.title}-${event.details.join("-")}`}>
+                                <div className={styles.agentRunProviderReplayItemTitle}>
+                                  {event.title}
+                                </div>
+                                {event.details.length > 0 && (
+                                  <div className={styles.agentRunTimelineEventDetails}>
+                                    {event.details.map((item) => (
+                                      <span key={item}>{item}</span>
+                                    ))}
+                                  </div>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        </section>
+                        <section className={styles.agentRunProviderReplaySection}>
+                          <div className={styles.agentRunProviderReplayLabel}>
+                            {WORKBENCH.agentRunProviderReplayOutputLabel}
+                          </div>
+                          <div className={styles.agentRunTimelineEventDetails}>
+                            {replayDetails.output.map((item) => (
+                              <span key={item}>{item}</span>
+                            ))}
+                          </div>
+                        </section>
+                        <div className={styles.agentRunProviderReplayBoundary}>
+                          {replayDetails.boundary}
+                        </div>
+                      </div>
+                    </details>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {stages.length > 0 ? (
+            <div className={styles.agentRunTimeline}>
+              {stages.map((group) => (
+                <section key={group.stage} className={styles.agentRunTimelineSection}>
+                  <div className={styles.agentRunTimelineLabel}>
+                    {WORKBENCH.agentRunStageLabels[group.stage]}
+                  </div>
+                  <div className={styles.agentRunTimelineEvents}>
+                    {group.events.map((event) => {
+                      const detailItems = agentRunEventDetailItems(event);
+
+                      return (
+                        <div key={event.event_id} className={styles.agentRunTimelineEvent}>
+                          <div>{presentAgentEventSummary(event.summary)}</div>
+                          {detailItems.length > 0 && (
+                            <div className={styles.agentRunTimelineEventDetails}>
+                              {detailItems.map((item) => (
+                                <span key={item}>{item}</span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+          ) : (
+            <div className={styles.agentRunEmptyEvent}>{WORKBENCH.agentRunEmptyEvent}</div>
+          )}
+        </details>
+      </div>
+    </div>
+  );
+}
 
 function isConnectivityFailure(detail: string): boolean {
   const normalized = detail.toLowerCase();
@@ -608,7 +1002,6 @@ export function WorkspaceChat() {
   const [selectedFindingIdsMap, setSelectedFindingIdsMap] = useState<Record<string, string[]>>({});
   const [agentRunStates, setAgentRunStates] = useState<Record<string, AgentRunStateData>>({});
   const [agentEvents, setAgentEvents] = useState<AgentEventData[]>([]);
-  const [agentSteerText, setAgentSteerText] = useState("");
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore((state) => state.socketConnected);
@@ -674,6 +1067,33 @@ export function WorkspaceChat() {
   }, [refreshLlmHealth]);
 
   // Lift the turn_result handler so the effect below stays focused on connection setup.
+  async function hydrateProviderRunsForTurn(result: TurnResult) {
+    const workId = context.workId;
+    const sessionId = activeSessionIdRef.current;
+    const connection = activeConnectionRef.current;
+    if (!workId || workId === "lobby" || !sessionId || !result.turn_id) return;
+
+    try {
+      const activity = await getTurnProviderRuns(workId, sessionId, result.turn_id);
+      const providerRuns = activity.provider_runs as AgentRunProviderUsageData[];
+      if (providerRuns.length === 0) return;
+      if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
+
+      setMessages((prev) =>
+        prev.map((message) => {
+          if (message.turnResult?.turn_id !== result.turn_id) return message;
+
+          return {
+            ...message,
+            turnResult: putProviderRunsIntoTurnResult(message.turnResult, providerRuns),
+          };
+        }),
+      );
+    } catch {
+      // Provider activity is supplementary author-safe detail; the turn result remains usable.
+    }
+  }
+
   function handleTurnResult(result: TurnResult) {
     setMessages((prev) => [
       ...prev,
@@ -684,6 +1104,7 @@ export function WorkspaceChat() {
       },
     ]);
     setLoading(false);
+    void hydrateProviderRunsForTurn(result);
 
     // Auto-track pending clarification: next user message is treated as answer
     const activeBehavior = result.behavior_state?.active;
@@ -706,6 +1127,19 @@ export function WorkspaceChat() {
         useAppStore.getState().setProjectionStatus(status);
       }
     }
+  }
+
+  function putProviderRunsIntoTurnResult(
+    turnResult: TurnResult,
+    providerRuns: AgentRunProviderUsageData[],
+  ): TurnResult {
+    return {
+      ...turnResult,
+      agent_run: {
+        ...(turnResult.agent_run ?? {}),
+        provider_runs: providerRuns,
+      },
+    };
   }
 
   function handleTaskState(state: TaskStateData) {
@@ -773,7 +1207,6 @@ export function WorkspaceChat() {
     setMessages([]);
     setAgentRunStates({});
     setAgentEvents([]);
-    setAgentSteerText("");
     setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
     setAssistantNameDraft("");
     setAssistantNameError(null);
@@ -1051,26 +1484,32 @@ export function WorkspaceChat() {
   const connectionLabel = runtimeState.ui.connectionLabel;
   const visibleAgentRuns = Object.values(agentRunStates);
   const latestAgentRun = visibleAgentRuns.at(-1) ?? null;
+  const agentRunIdsRenderedInTurns = new Set(
+    messages.map((msg) => turnResultAgentRunId(msg.turnResult)).filter((runId) => runId !== null),
+  );
   const latestAgentRunEvents = latestAgentRun
     ? agentEvents
         .filter((event) => event.run_ref === latestAgentRun.run_id)
         .slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT)
     : [];
-  const agentRunStatusLabel = (status: string) => WORKBENCH.agentRunStatusLabels[status] ?? status;
   const canPauseAgentRun =
     latestAgentRun?.status === "running" || latestAgentRun?.status === "pausing";
   const canResumeAgentRun =
     latestAgentRun?.status === "paused" || latestAgentRun?.status === "awaiting_author";
   const canCancelAgentRun =
     latestAgentRun !== null &&
-    !["completed", "cancelled", "failed"].includes(latestAgentRun.status);
-  const canSteerAgentRun =
-    latestAgentRun !== null &&
-    !["completed", "cancelled", "failed"].includes(latestAgentRun.status) &&
-    agentSteerText.trim().length > 0;
+    !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
   const hasActiveAgentRun =
     latestAgentRun !== null &&
-    !["completed", "cancelled", "failed"].includes(latestAgentRun.status);
+    !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
+  const shouldRenderStandaloneAgentRun =
+    latestAgentRun !== null && !agentRunIdsRenderedInTurns.has(latestAgentRun.run_id);
+  const canRouteMainInputToAgentSteer = shouldRouteInputToAgentSteer({
+    latestAgentRun,
+    pendingAnswerBehaviorId: pendingAnswerBid,
+  });
+  const canSubmitMainInput =
+    socketConnected && !isPanelOpen && !isReadOnlySessionView && (!loading || canRouteMainInputToAgentSteer);
 
   const rememberAgentRunAck = useCallback(
     (response: SendMessageResult, text: string) => {
@@ -1131,7 +1570,6 @@ export function WorkspaceChat() {
 
     try {
       await sendAgentCommand(channelRef.current, latestAgentRun.run_id, command, text);
-      if (command === "steer") setAgentSteerText("");
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
     }
@@ -1144,11 +1582,27 @@ export function WorkspaceChat() {
     const text = messageText.trim();
     if (!text || !channelRef.current || isReadOnlySessionView) return;
 
+    const behaviorId = pendingAnswerBid;
+    if (
+      shouldRouteInputToAgentSteer({
+        latestAgentRun,
+        pendingAnswerBehaviorId: behaviorId,
+        generateMicroPlan: options.generateMicroPlan ?? false,
+      })
+    ) {
+      if (messageText === inputText) setInputText("");
+      try {
+        await sendAgentCommand(channelRef.current, latestAgentRun!.run_id, "steer", text);
+      } catch {
+        setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
+      }
+      return;
+    }
+
     setMessages((prev) => [...prev, { role: "user", text }]);
     if (messageText === inputText) setInputText("");
     setLoading(true);
 
-    const behaviorId = pendingAnswerBid;
     setPendingAnswerBid(null);
 
     try {
@@ -1425,6 +1879,7 @@ export function WorkspaceChat() {
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      if (!canSubmitMainInput) return;
       void handleSend();
     }
   };
@@ -2690,8 +3145,31 @@ export function WorkspaceChat() {
                 </div>
               </div>
             )}
-            {messages.map((msg, i) => (
-              <div key={i} className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
+            {messages.map((msg, i) => {
+              const messageAgentRunId = turnResultAgentRunId(msg.turnResult);
+              const messageAgentRunFromState = messageAgentRunId
+                ? agentRunStates[messageAgentRunId]
+                : null;
+              const messageAgentRunFromTurn = msg.turnResult
+                ? stateFromTurnResult(msg.turnResult)
+                : null;
+              const messageAgentRun =
+                messageAgentRunFromTurn &&
+                messageAgentRunFromState &&
+                TERMINAL_AGENT_RUN_STATUSES.has(messageAgentRunFromTurn.status) &&
+                !TERMINAL_AGENT_RUN_STATUSES.has(messageAgentRunFromState.status)
+                  ? { ...messageAgentRunFromState, ...messageAgentRunFromTurn }
+                  : (messageAgentRunFromState ?? messageAgentRunFromTurn);
+              const messageAgentRunEvents = messageAgentRunId
+                ? mergeAgentRunEvents(
+                    agentRunEventsFromTurnResult(msg.turnResult),
+                    agentEvents.filter((event) => event.run_ref === messageAgentRunId),
+                  ).slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT)
+                : [];
+              const messageRunIsLatest = latestAgentRun?.run_id === messageAgentRunId;
+
+              return (
+                <div key={i} className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
                 <div className={styles.role}>
                   {assistantRoleLabel(msg.role, assistantDisplayName)}
                 </div>
@@ -2714,6 +3192,24 @@ export function WorkspaceChat() {
                     ) : null;
                   })()}
                 <div className={styles.text}>{msg.text}</div>
+
+                {msg.role === "assistant" && messageAgentRun && (
+                  <AgentRunDialogueFlow
+                    run={messageAgentRun}
+                    events={messageAgentRunEvents}
+                    providerRuns={msg.turnResult?.agent_run?.provider_runs ?? []}
+                    canPause={messageRunIsLatest && canPauseAgentRun}
+                    canResume={messageRunIsLatest && canResumeAgentRun}
+                    canCancel={messageRunIsLatest && canCancelAgentRun}
+                    onCommand={
+                      messageRunIsLatest
+                        ? (command) => {
+                            void handleAgentCommand(command);
+                          }
+                        : undefined
+                    }
+                  />
+                )}
 
                 {msg.role === "assistant" && msg.turnResult && (
                   <button
@@ -2837,122 +3333,34 @@ export function WorkspaceChat() {
                       ))}
                     </div>
                   )}
-              </div>
-            ))}
+                </div>
+              );
+            })}
 
-            {latestAgentRun && (
-              <div className={styles.agentRunPanel}>
-                <div className={styles.agentRunHeader}>
-                  <div>
-                    <div className={styles.agentRunTitle}>{WORKBENCH.agentRunTitle}</div>
-                    <div className={styles.agentRunStatus}>
-                      {WORKBENCH.agentRunStatus(agentRunStatusLabel(latestAgentRun.status))}
-                    </div>
-                    {latestAgentRun.run_mode === "durable" && (
-                      <div className={styles.agentRunStatus}>
-                        {latestAgentRun.recovered
-                          ? WORKBENCH.agentRunRecoveredLabel
-                          : WORKBENCH.agentRunDurableLabel}
-                        {latestAgentRun.long_run_task_ref
-                          ? ` · ${WORKBENCH.agentRunLongTaskRef(latestAgentRun.long_run_task_ref)}`
-                          : ""}
-                      </div>
-                    )}
-                  </div>
-                  <div className={styles.agentRunActions}>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      title={WORKBENCH.agentRunPause}
-                      disabled={!canPauseAgentRun}
-                      onClick={() => {
-                        void handleAgentCommand("pause");
-                      }}
-                    >
-                      <Pause size={14} aria-hidden="true" />
-                      <span>{WORKBENCH.agentRunPause}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      title={WORKBENCH.agentRunResume}
-                      disabled={!canResumeAgentRun}
-                      onClick={() => {
-                        void handleAgentCommand("resume");
-                      }}
-                    >
-                      <Play size={14} aria-hidden="true" />
-                      <span>{WORKBENCH.agentRunResume}</span>
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.iconBtn}
-                      title={WORKBENCH.agentRunCancel}
-                      disabled={!canCancelAgentRun}
-                      onClick={() => {
-                        void handleAgentCommand("cancel");
-                      }}
-                    >
-                      <CircleX size={14} aria-hidden="true" />
-                      <span>{WORKBENCH.agentRunCancel}</span>
-                    </button>
-                  </div>
+            {shouldRenderStandaloneAgentRun && (
+              <div className={styles.assistantMsg}>
+                <div className={styles.role}>
+                  {assistantRoleLabel("assistant", assistantDisplayName)}
                 </div>
-                <form
-                  className={styles.agentRunSteer}
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (!canSteerAgentRun) return;
-                    void handleAgentCommand("steer", agentSteerText.trim());
+                <AgentRunDialogueFlow
+                  run={latestAgentRun}
+                  events={latestAgentRunEvents}
+                  canPause={canPauseAgentRun}
+                  canResume={canResumeAgentRun}
+                  canCancel={canCancelAgentRun}
+                  onCommand={(command) => {
+                    void handleAgentCommand(command);
                   }}
-                >
-                  <input
-                    className={styles.agentRunSteerInput}
-                    value={agentSteerText}
-                    aria-label={WORKBENCH.agentRunSteer}
-                    placeholder={WORKBENCH.agentRunSteerPlaceholder}
-                    disabled={
-                      !latestAgentRun ||
-                      ["completed", "cancelled", "failed"].includes(latestAgentRun.status)
-                    }
-                    onChange={(event) => setAgentSteerText(event.target.value)}
-                  />
-                  <button
-                    type="submit"
-                    className={styles.iconBtn}
-                    title={WORKBENCH.agentRunSteer}
-                    disabled={!canSteerAgentRun}
-                  >
-                    <Pencil size={14} aria-hidden="true" />
-                    <span>{WORKBENCH.agentRunSteer}</span>
-                  </button>
-                </form>
-                <div className={styles.agentRunEvents}>
-                  {(latestAgentRunEvents.length > 0
-                    ? latestAgentRunEvents
-                    : [{ event_id: "agent-empty", summary: WORKBENCH.agentRunEmptyEvent }]
-                  ).map((event) => (
-                    <div key={event.event_id} className={styles.agentRunEvent}>
-                      {event.summary}
-                    </div>
-                  ))}
-                </div>
+                />
               </div>
             )}
 
-            {loading && !hasActiveAgentRun && (
-              <div className={styles.agentRunPanel}>
-                <div className={styles.agentRunHeader}>
-                  <div>
-                    <div className={styles.agentRunTitle}>{WORKBENCH.agentRunTitle}</div>
-                    <div className={styles.agentRunStatus}>
-                      {WORKBENCH.agentRunStatus(WORKBENCH.agentRunPreparingStatus)}
-                    </div>
-                  </div>
+            {loading && !hasActiveAgentRun && !shouldRenderStandaloneAgentRun && (
+              <div className={styles.assistantMsg}>
+                <div className={styles.role}>
+                  {assistantRoleLabel("assistant", assistantDisplayName)}
                 </div>
-                <div className={styles.agentRunEvents}>
-                  <div className={styles.agentRunEvent}>{WORKBENCH.agentRunPreparingEvent}</div>
-                </div>
+                <AgentRunDialogueFlow run={null} events={[]} preparing />
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -3074,7 +3482,11 @@ export function WorkspaceChat() {
               value={inputText}
               onChange={(e) => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={WORKBENCH.inputPlaceholder}
+              placeholder={
+                canRouteMainInputToAgentSteer
+                  ? WORKBENCH.agentRunMainInputSteerPlaceholder
+                  : WORKBENCH.inputPlaceholder
+              }
               disabled={!socketConnected || isPanelOpen || isReadOnlySessionView}
             />
             <button
@@ -3082,7 +3494,7 @@ export function WorkspaceChat() {
               onClick={() => {
                 void handleSend();
               }}
-              disabled={loading || !socketConnected || isPanelOpen || isReadOnlySessionView}
+              disabled={!canSubmitMainInput}
             >
               {WORKBENCH.send}
             </button>

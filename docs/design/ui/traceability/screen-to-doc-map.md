@@ -16,5 +16,7 @@
 | `45§3-new-volume-chapter-flow` (sEYft) | `docs/design/ui/45-guided-conversation-flows.md` §4.2 | `domain/24-novel-intent-catalog.md` / `05-turn-behavior-and-state-model.md` | ✅ 已修订：探索式推进方向候选已体现；已导出 PNG |
 | `45§4-long-run-confirmation` (NJnuz) | `docs/design/ui/45-guided-conversation-flows.md` §4 | `07-workbench-ui-contract.md` / `quality/32-human-approval-policy.md` | ✅ 已修订：confirmation request 语义对齐；已导出 PNG |
 | `46§6-checkpoint-feedback` (feymL) | `docs/design/ui/46-state-and-feedback.md` §6 | VS-03 / VS-05 / `quality/31-novel-quality-gates.md` | ✅ 已修订：checkpoint 文案本地化；已导出 PNG |
+| `46§7-inline-interaction-states` (xIVE9) | `docs/design/ui/46-state-and-feedback.md` §7 | `07-workbench-ui-contract.md` / VS-05 AvailableAction roundtrip | ✅ 已修订：按钮交互后的即时反馈；已导出 PNG |
+| `46§8-agent-run-dialogue-flow-v4` (kg4wN) | `docs/design/ui/46-state-and-feedback.md` §3.1 / §8 | UA-01 AgentRun / AgentEvent / provider execution stream contract | ✅ 当前 CP5 视觉依据：主聊天列内连续展示作者消息与同一条 assistant 回复；不使用整块卡片，沿左侧时间线展示目标理解、依据、计划、执行记录、修订候选与采纳边界；右侧作品档案不承载 AgentRun；已导出 PNG，`novel-studio.pen` 已出现 Git diff |
 
-备注：PDF 批量导出在当前 Pencil MCP 链路中超时，本轮静态评审以 `exports/png/` 的 8 张 PNG 为准。
+备注：PDF 批量导出在当前 Pencil MCP 链路中超时，本轮静态评审以 `exports/png/` 的单屏 PNG 为准。

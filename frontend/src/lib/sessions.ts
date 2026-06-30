@@ -64,6 +64,20 @@ export interface TurnReplaySnapshot {
   replay_report: Record<string, unknown>;
 }
 
+export interface ProviderRunActivitySnapshot {
+  work_id: string;
+  session_id: string;
+  turn_id: string;
+  provider_runs: Record<string, unknown>[];
+  agent_runs: Record<string, unknown>[];
+  totals: {
+    provider_run_count?: number;
+    provider_call_refs?: string[];
+    total_tokens?: number;
+    content_length?: number;
+  };
+}
+
 export interface CreateWorkSessionInput {
   title?: string;
   summary?: string;
@@ -100,6 +114,10 @@ export function archiveSessionPath(workId: string, sessionId: string): string {
 
 export function turnReplayPath(workId: string, sessionId: string, turnId: string): string {
   return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/replay`;
+}
+
+export function turnProviderRunsPath(workId: string, sessionId: string, turnId: string): string {
+  return `/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(sessionId)}/turns/${encodeURIComponent(turnId)}/provider-runs`;
 }
 
 export async function resumeWorkspace(workId: string): Promise<WorkspaceResumeSnapshot> {
@@ -158,6 +176,16 @@ export async function getTurnReplay(
   const res = await fetch(url(turnReplayPath(workId, sessionId, turnId)));
   if (!res.ok) throw new Error(`getTurnReplay failed: HTTP ${res.status}`);
   return (await res.json()) as TurnReplaySnapshot;
+}
+
+export async function getTurnProviderRuns(
+  workId: string,
+  sessionId: string,
+  turnId: string,
+): Promise<ProviderRunActivitySnapshot> {
+  const res = await fetch(url(turnProviderRunsPath(workId, sessionId, turnId)));
+  if (!res.ok) throw new Error(`getTurnProviderRuns failed: HTTP ${res.status}`);
+  return (await res.json()) as ProviderRunActivitySnapshot;
 }
 
 export function transcriptToMessages(

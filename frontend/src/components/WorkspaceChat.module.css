@@ -530,79 +530,246 @@
   align-items: flex-start;
 }
 
-.agentRunPanel {
+.agentRunFlow {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-  align-self: flex-start;
   width: min(800px, 100%);
-  padding: 12px 14px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--rounded-sm);
-  background-color: var(--surface-secondary);
+  gap: 10px;
+  color: var(--foreground-primary);
 }
 
-.agentRunHeader {
+.agentRunFlowRail {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: flex-start;
+  justify-content: center;
+  width: 22px;
+  padding-top: 2px;
+  color: var(--foreground-secondary);
+}
+
+.agentRunFlowContent {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agentRunStatusLine {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.agentRunTitle {
+  gap: 8px;
   color: var(--foreground-primary);
   font-family: var(--sans);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  line-height: 1.55;
 }
 
-.agentRunStatus {
-  margin-top: 3px;
+.agentRunStatusPulse {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background-color: var(--foreground-primary);
+}
+
+.agentRunMetaRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 10px;
   color: var(--foreground-secondary);
   font-family: var(--sans);
   font-size: 12px;
 }
 
-.agentRunActions {
+.agentRunBrief {
   display: flex;
-  flex: 0 0 auto;
-  align-items: center;
-  gap: 6px;
-}
-
-.agentRunSteer {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 6px;
-}
-
-.agentRunSteerInput {
-  min-width: 0;
-  min-height: 30px;
-  padding: 5px 8px;
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--rounded-sm);
-  background-color: var(--surface-primary);
-  color: var(--foreground-primary);
-  font-family: var(--sans);
-  font-size: 12px;
-}
-
-.agentRunSteerInput:disabled {
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.agentRunEvents {
-  display: grid;
-  gap: 6px;
-}
-
-.agentRunEvent {
+  flex-wrap: wrap;
+  gap: 5px 10px;
   color: var(--foreground-secondary);
   font-family: var(--sans);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.agentRunBriefPath,
+.agentRunBriefFacts {
+  overflow-wrap: anywhere;
+}
+
+.agentRunBriefPath {
+  color: var(--foreground-primary);
+}
+
+.agentRunInlineActions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.agentRunDetails {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.agentRunDetailsSummary {
+  display: flex;
+  width: fit-content;
+  align-items: center;
+  gap: 6px;
+  color: var(--foreground-secondary);
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.agentRunDetailsSummary::-webkit-details-marker {
+  display: none;
+}
+
+.agentRunDetails[open] .agentRunDetailsSummary svg {
+  transform: rotate(180deg);
+}
+
+.agentRunDetailsHint {
+  color: var(--foreground-secondary);
+}
+
+.agentRunTimeline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.agentRunProviderRuns {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+  padding: 2px 0 2px 14px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.agentRunTimelineSection {
+  display: grid;
+  grid-template-columns: 92px minmax(0, 1fr);
+  gap: 10px;
+}
+
+.agentRunTimelineLabel {
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.agentRunTimelineEvents {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.agentRunTimelineEvent,
+.agentRunEmptyEvent {
+  color: var(--foreground-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.agentRunTimelineEventDetails {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  margin-top: 3px;
+  color: var(--foreground-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.agentRunTimelineEventDetails span {
+  overflow-wrap: anywhere;
+}
+
+.agentRunProviderRunDetail {
+  min-width: 0;
+}
+
+.agentRunProviderRunDetail + .agentRunProviderRunDetail {
+  margin-top: 3px;
+}
+
+.agentRunProviderRunSummary {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  gap: 4px;
+  color: var(--foreground-primary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.agentRunProviderRunSummary::-webkit-details-marker {
+  display: none;
+}
+
+.agentRunProviderRunDetail[open] .agentRunProviderRunSummary svg {
+  transform: rotate(180deg);
+}
+
+.agentRunProviderRunSummary span {
+  overflow-wrap: anywhere;
+}
+
+.agentRunProviderReplay {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 6px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-subtle);
+}
+
+.agentRunProviderReplaySection {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.agentRunProviderReplayLabel {
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.agentRunProviderReplayList {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agentRunProviderReplayItemTitle {
+  color: var(--foreground-primary);
+  overflow-wrap: anywhere;
+}
+
+.agentRunProviderReplayBoundary {
+  color: var(--foreground-secondary);
+  font-family: var(--sans);
+  font-size: 11px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
 }
 
 .iconBtn {

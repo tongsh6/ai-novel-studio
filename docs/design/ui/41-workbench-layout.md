@@ -34,11 +34,11 @@
 | [顶部上下文栏] Work / Volume / Chapter | Mode | Risk / Budget |
 +-----------------------------------------------------------+
 |                                  |                        |
-| [主对话流区域]                   | [结构/长跑收纳面板]    |
+| [主对话流区域]                   | [作品档案/结构面板]    |
 |                                  | (默认折叠)             |
 |  - Assistant Message             |                        |
 |  - 卡片流 (Clarification等)      |  - Structure Panel     |
-|                                  |  - Long-run Tasks      |
+|  - AgentRun 工作态 turn          |  - Work Archive        |
 |                                  |                        |
 |                                  |                        |
 |                                  |                        |
@@ -71,15 +71,16 @@
 - **卡片即内容**：涉及需要确认（Confirmation）、澄清（Clarification）、采纳（Adoption）的状态，必须以卡片形式嵌入对话流中展示，而不是隐藏在纯文本或侧边栏里。
 - **干扰屏蔽**：Debug trace、Provider raw output、系统低级别日志**绝对禁止**作为主消息流的内容出现。
 
-### 4.3 结构与长跑收纳面板 (Structure & Task Panel)
+### 4.3 作品档案与结构面板 (Archive & Structure Panel)
 
-目标：作为“档案柜”，按需提供深度的对象结构和任务管理能力，而不压迫主创作用户体验。
-数据来源：Accepted / Authoritative objects, pending artifacts, long-run tasks, quality/approval refs。
+目标：作为“档案柜”，按需提供作品结构、角色、设定、伏笔、规则和阅读投影等对象视图，而不压迫主创作用户体验。
+数据来源：Accepted / Authoritative objects, pending artifacts, quality/approval refs。
 
 必须遵守：
 - **默认折叠/隐藏**：在普通对话和创作流中，该面板不应抢占主对话区域。仅提供轻量的入口提示（如小红点、数量 badge 提示有待采纳产物或风险）。
-- **按需展开**：当作者需要查看世界观、角色设定、或处理批量的长跑产物时，可以展开面板。
+- **按需展开**：当作者需要查看世界观、角色设定、伏笔、规则或阅读投影时，可以展开面板。
 - **渐进披露**：遵循 `43-structure-panel.md` §4 原则，展开后也不应直接铺满所有字段。
+- **不承载 AgentRun 主反馈**：AgentRun 运行中状态、provider execution stream、pause / steer / cancel 和工作轨迹必须留在主对话流对应的 assistant 工作态 turn 内；右侧面板不得变成 Agent 控制台，也不得替代作品档案区域。
 
 ---
 
@@ -87,7 +88,7 @@
 
 1. 必须明确主入口是对话流。
 2. 结构面板不得默认压过对话。
-3. long-run、checkpoint、budget 必须有明确且稳定的位置（顶部上下文栏及折叠面板）。
+3. AgentRun、long-run、checkpoint、budget 必须有明确且稳定的位置：当前 turn 的工作态、顶部上下文栏和对应卡片；不得默认占用作品档案面板。
 4. debug / trace 绝不进入主消息。
 
 ---
@@ -101,14 +102,14 @@
 ```text
 顶部上下文栏：work / volume / chapter / mode + budget / risk / checkpoint 摘要
 主区域左侧：对话流 + 卡片流 + 输入区
-右侧收纳：结构入口 / 长跑任务 / 维护结果，默认折叠
+右侧收纳：作品档案 / 结构入口，默认折叠，不显示 AgentRun 控制台
 ```
 
 顶部上下文栏字段优先级：
 
 1. 当前作品 / 卷 / 章。
 2. 当前模式：创作态 / 阅读态入口。
-3. 长跑状态：无任务 / 运行中 / checkpoint / failed。
+3. 长跑状态：无任务 / 运行中 / checkpoint / failed；只做宏观摘要，详情回到主对话 turn。
 4. budget 摘要：预计 / 已消耗 / 风险阈值。
 5. risk 摘要：最高 severity 与待处理数量。
 
@@ -120,6 +121,7 @@
 用户输入
 assistant_message
 ui_cards[]（按 TurnResult 顺序嵌入）
+assistant 工作态 turn（active AgentRun，含折叠工作详情）
 下一轮输入区
 ```
 
@@ -128,6 +130,7 @@ ui_cards[]（按 TurnResult 顺序嵌入）
 1. `assistant_message` 不得替代需要操作的 card。
 2. `adoption_card`、`confirmation_card`、`checkpoint_card` 必须占据可见宽度，不藏到右侧面板。
 3. 多张 card 同轮出现时，按 decision urgency 排序：checkpoint / confirmation / adoption / warning / result / progress。
+4. AgentRun 内部状态绑定到同一个 assistant 工作态 turn：运行中显示短状态动词和可展开详情，完成后原地更新为最终回复或结果卡，不追加多条 assistant 消息。
 
 ### 6.3 输入区状态
 
@@ -136,6 +139,7 @@ ui_cards[]（按 TurnResult 顺序嵌入）
 | 普通输入 | 允许自然语言输入 | 无 active blocking behavior |
 | 等待补充 | 输入区提示“补充缺失信息” | `behavior_state.active.type=clarification` |
 | 等待确认 | 输入区弱化，主操作在 confirmation card | `next_action=CONFIRM_BEFORE_EXECUTE` |
+| AgentRun 运行中 | 输入仍可用，提示“调整当前请求”并提交 steering 到当前 `run_id` | `agent_run_state.status=running` |
 | 长跑运行中 | 输入仍可用，但提示“新输入可能影响续跑” | task `RUNNING` |
 | checkpoint | 输入区提示先处理 checkpoint | task `CHECKPOINT` |
 

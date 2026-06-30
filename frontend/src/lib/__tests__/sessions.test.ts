@@ -4,11 +4,13 @@ import {
   createWorkSession,
   createSessionPath,
   archiveSessionPath,
+  getTurnProviderRuns,
   sessionSnapshotPath,
   resumeSessionPath,
   searchSessionsPath,
   shouldInsertWorkspaceWelcome,
   transcriptToMessages,
+  turnProviderRunsPath,
   type SessionTranscriptEntry,
 } from "../sessions";
 import { WORKBENCH } from "../copy";
@@ -31,6 +33,12 @@ describe("session API helpers", () => {
   it("builds encoded session snapshot path", () => {
     expect(sessionSnapshotPath("work 1", "session/1")).toBe(
       "/api/works/work%201/sessions/session%2F1",
+    );
+  });
+
+  it("builds encoded provider run activity path", () => {
+    expect(turnProviderRunsPath("work 1", "session/1", "turn:1")).toBe(
+      "/api/works/work%201/sessions/session%2F1/turns/turn%3A1/provider-runs",
     );
   });
 
@@ -73,6 +81,28 @@ describe("session API helpers", () => {
   it("builds archive session path", () => {
     expect(archiveSessionPath("work 1", "session/1")).toBe(
       "/api/works/work%201/sessions/session%2F1/archive",
+    );
+  });
+
+  it("loads provider run activity through the sessions API", async () => {
+    const response = {
+      work_id: "work-1",
+      session_id: "session-1",
+      turn_id: "turn-1",
+      provider_runs: [{ provider_run_ref: "prun-1", provider_call_ref: "pcall-1" }],
+      agent_runs: [{ run_id: "run-1" }],
+      totals: { provider_run_count: 1, total_tokens: 12 },
+    };
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue(response),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getTurnProviderRuns("work-1", "session-1", "turn-1")).resolves.toEqual(response);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/api/works/work-1/sessions/session-1/turns/turn-1/provider-runs"),
     );
   });
 

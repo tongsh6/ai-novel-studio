@@ -14,6 +14,7 @@
 - `../07-workbench-ui-contract.md`：TurnResultViewModel、`ui_cards`、`available_actions`、projection hints。
 - `../contracts/VS-03-behavior-lifecycle-contract-pack.md`：clarification / confirmation / recovery lifecycle。
 - `../contracts/VS-05-ui-roundtrip-contract-pack.md`：当前 UI card type 与 action roundtrip 边界。
+- `../contracts/UA-01-unified-agent-run-loop-contract-pack.md`：AgentRun、AgentEvent、agent_run_state 与 provider execution stream 的作者可见边界。
 - `../quality/31-novel-quality-gates.md`：质量检查状态投影。
 - `../quality/32-human-approval-policy.md`：审批与人工确认策略。
 
@@ -32,7 +33,58 @@
 
 - **Loading / Thinking**：等待系统处理。展示明确的 Agent 正在思考的提示。
 - **Streaming**：结果逐步返回中。文本应当打字机式平滑输出。
+- **AgentRun Activity**：AgentRun 内部 step、observation、provider execution event 的作者安全工作轨迹。它是运行轨迹，不是聊天消息。
 - **Waiting User (Clarification/Confirmation required)**：交互挂起，等待用户决策。对话流应当停留在对应的 Card 处，并可能在界面底部输入区给予强提示。
+
+### 3.1 AgentRun 与模型执行流反馈
+
+当作者 turn 进入 AgentRun 后，UI 必须把运行反馈放回同一个对话 turn，而不是另开任务面板。目标体验对齐 Codex Desktop 的对话流：简短状态、可展开 details、作者可随时补充方向，最终结果原地落回同一条 assistant 回复。
+
+1. 作者消息之后立即出现一条 assistant 工作态 turn，先用一句短状态说明正在做什么，例如“正在读取角色档案”“正在生成正文草稿”“正在复核质量”。
+2. AgentRun 内部 step、observation、provider execution event 只进入该 turn 的可展开 details；不得追加为多条 assistant message。
+3. Provider execution stream 在 details 中表现为“模型执行流”：开始、正在接收片段、用量待汇总、完成或失败。展开后可以显示用途、模型事件、运行编号、调用编号、状态、输出类型、结果长度和用量计数等作者安全细节，帮助作者理解执行前因后果；不得显示 provider 原文、raw prompt 或私有 payload。
+4. 工作态 turn 可以在 details 前显示一行轻量执行摘要，把已发生的 author-safe event 按真实出现顺序归纳为本轮路径，并汇总模型调用次数、结果长度和用量计数。路径不是固定模板：普通对话可呈现“读取上下文 → 调用模型 → 模型判断 → 系统裁决 → 完成回应”；角色设计可呈现“读取上下文 → 执行创作能力 → 调用写作模型 → 生成待采纳候选 → 完成回应”；正文质量 profile 可呈现“读取上下文 → 制定计划 → 系统裁决 → 执行创作能力 → 调用写作模型 → 调用复核模型 → 质量复核 → 生成待采纳候选 → 完成回应”。该摘要只消费已广播/已恢复的 author-safe events，不重新查询 provider，也不替代完整 timeline。这里的“系统裁决”对应 Orchestrator / gate，不表示模型批准自己的执行；只有真实出现 `provider_progress` 时才显示模型调用节点。
+5. 右侧作品档案 / 结构面板不承载 AgentRun activity，不变成 Agent 控制台，也不被运行轨迹挤占。
+6. active run 期间，主输入框保持可用，但语义切换为“调整当前请求 / 追加要求”，提交后绑定当前 `run_id` 发送 `agent_command steer`，不得创建第二个作者 turn 或新 run。
+7. `pause` / `cancel` / `steer` 控件只提交后端授权的 `agent_command`，前端不得自行修改 run 状态。
+8. 最终正文、修订稿或候选产物仍通过完成态 `TurnResult` / tentative artifact 出口出现，并原地替换或收束同一个 assistant 工作态 turn；中间 provider chunk 不得直接采纳或覆盖产物。
+9. 可见事件只显示作者安全摘要、阶段、进度、预算或风险；不得显示 raw prompt、chain-of-thought、API key、provider 私有 payload 或完整 ToolRequest。
+
+#### 3.1.1 Assistant 工作态 turn
+
+工作态 turn 是 AgentRun 在聊天流中的唯一主呈现。它由三层组成：
+
+| 层级 | 默认可见 | 内容 | 禁止 |
+| --- | --- | --- | --- |
+| Status line | yes | 一个短动词状态 + 当前目标，例如“正在整理章节上下文” | 不显示内部 module / function / provider prompt |
+| Activity details | collapsed | 本轮路径摘要、step 摘要、observation 摘要、provider execution progress、计划/裁决编号、provider run/call refs、预算/用量摘要 | 不显示 chain-of-thought、raw prompt、完整 ToolRequest 或 provider 原文 |
+| Result slot | yes when ready | 最终 assistant text、ui_cards、tentative artifact 摘要 | 不让中间 chunk 静默覆盖原稿或修订稿 |
+
+状态推进示例：
+
+```text
+作者：帮我重写第三章这一段，让节奏更紧。
+
+assistant 工作态 turn：
+  正在读取第三章上下文...
+  [展开工作详情]
+
+状态更新：
+  正在生成修订草稿...
+  已收到模型片段 4 / 用量待汇总
+
+作者在输入框追加：
+  保留原来的冷峻语气，别太热血。
+
+同一 turn 更新：
+  已收到调整，正在按新方向继续...
+
+最终：
+  我给你保留了冷峻语气，并把追击段压短成更密的动作节奏。
+  [修订草稿 tentative card]
+```
+
+这条链路的关键不是把每个 step 显示出来，而是让作者持续知道“当前请求还活着、正在做什么、可以怎样介入”。
 
 ---
 
@@ -78,6 +130,7 @@
 | --- | --- | --- | --- |
 | Loading / Thinking | turn phase / status in TurnResultViewModel | none | 不得伪造 running task |
 | Streaming | streaming event + current turn ref | none / `cancel_behavior`（若 available action 明确提供） | 不得把 partial text 当 accepted artifact |
+| AgentRun Activity | `agent_event` + `agent_run_state` + provider execution event refs | `agent_command` 中后端授权的 pause / cancel / steer | 不得当作 TurnResult；不得放到右侧作品档案面板；不得把内部 step 追加成 assistant message；不得暴露 raw prompt / chain-of-thought |
 | Waiting User - Clarification | active behavior clarification + `primary_next_action=answer_clarification` | `answer_clarification`, `revise_candidate`, `cancel_behavior` | 不得绕过 required slot 执行；也不得把 clarification 简化为必填表单 |
 | Waiting User - Confirmation | active behavior confirmation + `primary_next_action=confirm_before_execute` | `confirm_before_execute`, `cancel_behavior` | 不得用 adoption 文案表达方向确认 |
 | Candidate Presented | `candidate_set` card + candidate available actions | `choose_candidate`, `revise_candidate`, `continue_dialogue` | 不得显示为 authoritative；不得把选择当作采纳 |
@@ -92,3 +145,11 @@
 所有状态都必须有中文文案解释，不能只依赖颜色、图标或英文枚举。
 
 Clarification 等待态还必须解释“为什么需要这一步”，并在作者可能不知道答案时提供候选方向或编辑建议。例如：立项、新卷、新章规划不应只提示“请填写核心目标”，而应说明系统可基于上下文先给几种推进方向供作者选择。
+
+## 8. 对应原型 screen
+
+| Screen frame | 必须体现 |
+| --- | --- |
+| `46§6-checkpoint-feedback` | checkpoint 原因、pending artifacts、恢复/取消/调整动作 |
+| `46§7-inline-interaction-states` | 按钮触发后的即时反馈、主对话不重复追加内部状态 |
+| `46§8-agent-run-dialogue-flow-v4` | Codex Desktop 式聊天流：作者消息和同一条 assistant 回复在主聊天列内连续排列；assistant 回复不渲染为整块卡片，而是沿左侧时间线展示目标理解、上下文依据、计划制定、作者调整影响、执行记录、修订候选与采纳边界；active run 输入框提交 steering；右侧作品档案不变；不展示 raw prompt、provider 术语或私有 chain-of-thought |

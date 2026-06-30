@@ -1,6 +1,6 @@
 # PNG Exports
 
-> 状态：已导出最小 8 屏评审包
+> 状态：已导出当前单屏评审包
 
 从 `../../novel-studio.pen` 导出的单屏 PNG 放在这里。
 
@@ -16,3 +16,5 @@
 | `sEYft.png` | `45§3-new-volume-chapter-flow` | 新卷 / 新章规划流 |
 | `NJnuz.png` | `45§4-long-run-confirmation` | 长跑启动前确认 |
 | `feymL.png` | `46§6-checkpoint-feedback` | 长跑暂停 / checkpoint 反馈 |
+| `xIVE9.png` | `46§7-inline-interaction-states` | 按钮交互后的即时反馈 |
+| `kg4wN.png` | `46§8-agent-run-dialogue-flow-v4` | 当前 CP5 视觉依据：非卡片式对话流，沿同一 assistant 回复展示理解、依据、计划、执行记录与修订候选 |
