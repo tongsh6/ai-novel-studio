@@ -1,0 +1,61 @@
+id: agent-character-evolution-with-context
+title: AgentRun 角色演化 Profile 生成待采纳角色记忆草稿
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-character-evolution-with-context --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/design/06-memory-context-and-trace.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - agent-step-regated-before-tool-dispatch
+  - tentative-artifact-not-production
+  - character-evolution-does-not-write-main-dossier-before-adoption
+  - agent-plan-is-not-micro-plan
+  - agent-event-is-author-safe
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - setup: create and adopt an existing character through the visible workbench
+  - send: character state update request "更新林烬的当前状态：他在这一章右臂重伤了。"
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: author-safe context observation, next-step planner decision, character_evolution tool step, and completion decision events
+  - wait_for: completed agent_run_state
+  - verify: final TurnResult is character_evolution with tentative character_evolution_seed
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-character-evolution-with-context-tauri
+
+assertions:
+  ui:
+    - AgentRun panel reaches completed state
+    - AgentRun panel shows context observation, next-step planning/gate, character evolution, and completion decision summaries
+    - character evolution draft card remains visible as a tentative artifact
+  network:
+    - parent user_message receives bounded run_id before final TurnResult
+    - agent_event includes step_proposed for context, character_evolution execution, and completion decision
+    - agent_event includes plan_created, gate_decided, tool_started, tool_completed, and artifact observation
+    - final TurnResult carries agent_run.run_id and tool_result.tool_name=character_evolution
+    - pending artifact is character_evolution_seed and remains tentative
+  data:
+    - parent user_message starts bounded AgentRun without sync_turn fallback
+    - character_evolution step is allow_tool before toolbox execution
+    - consumed_budget reports steps=2, tool_calls=1, provider_calls=4
+    - no adoption or production write occurs before author action
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

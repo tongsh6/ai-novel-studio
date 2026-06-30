@@ -135,10 +135,18 @@ describe("native Tauri slice verifier", () => {
         ui_frame_step_visible: true,
         ui_strategy_step_visible: true,
         ui_finalize_step_visible: true,
+        planner_provider_activity_visible: true,
+        conversation_provider_activity_visible: true,
+        provider_started_projected: true,
+        provider_final_output_projected: true,
+        ui_planner_provider_visible: true,
+        ui_model_judgment_visible: true,
+        ui_system_gate_visible: true,
+        ui_provider_usage_visible: true,
         completed_step_count: 4,
         consumed_steps: 4,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 1,
+        consumed_provider_calls: 6,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         log_sync_turn_count: 0,
@@ -157,6 +165,7 @@ describe("native Tauri slice verifier", () => {
       assertions: expect.arrayContaining([
         "context_frame_strategy_and_finalize_steps_were_author_visible",
         "context_frame_and_strategy_observations_were_author_visible",
+        "planner_and_conversation_provider_activity_were_author_visible",
       ]),
     });
 
@@ -167,6 +176,174 @@ describe("native Tauri slice verifier", () => {
     );
 
     expect(findNativeSliceEvidence("agent-conversation-turn", missingStageRecords)).toBeNull();
+  });
+
+  it("requires middle provider execution progress for unified provider stream", () => {
+    const records = [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-provider-execution-stream-unified",
+        turn_id: "turn-provider-stream",
+        parent_turn_id: "turn-provider-stream",
+        final_turn_id: "turn-provider-stream",
+        run_id: "run-provider-stream",
+        plain_input_sent_from_real_workbench: true,
+        parent_fast_ack_before_final_turn_result: true,
+        profile_ref: "conversation_turn_v1",
+        final_turn_broadcast: true,
+        final_turn_result_run_id: "run-provider-stream",
+        provider_progress_event_count: 30,
+        provider_progress_reason_codes: [
+          "provider_execution_stream",
+          "provider_started",
+          "provider_request_prepared",
+          "provider_request_dispatched",
+          "provider_response_received",
+          "provider_chunk",
+          "provider_final_output",
+        ],
+        provider_progress_visibility_author: true,
+        provider_progress_has_step_ref: true,
+        provider_started_projected: true,
+        provider_final_output_projected: true,
+        provider_request_prepared_projected: true,
+        provider_request_dispatched_projected: true,
+        provider_response_received_projected: true,
+        provider_chunk_projected: true,
+        provider_chunk_payload_has_lengths: true,
+        provider_execution_stream_projected: true,
+        provider_progress_raw_content_leaked: false,
+        provider_chunk_raw_content_leaked: false,
+        ui_provider_execution_visible: true,
+        ui_provider_execution_details_visible: true,
+        ui_agent_execution_brief_visible: true,
+        provider_run_refs: ["prun-planner", "prun-conversation"],
+        provider_call_refs: ["pcall-planner", "pcall-conversation"],
+        provider_purposes: ["planner", "conversation"],
+        consumed_provider_calls: 6,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-provider-execution-stream-unified", records);
+
+    expect(evidence).toMatchObject({
+      slice_id: "agent-provider-execution-stream-unified",
+      run_id: "run-provider-stream",
+      provider_progress_event_count: 30,
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-provider-execution-stream-unified", records, evidence),
+    ).toMatchObject({
+      assertions: expect.arrayContaining([
+        "provider_execution_request_prepared_progress_was_projected",
+        "provider_execution_request_dispatched_progress_was_projected",
+        "provider_execution_response_received_progress_was_projected",
+        "provider_execution_chunk_events_were_projected",
+        "provider_execution_chunk_payload_was_author_safe_metadata",
+      ]),
+    });
+
+    const missingMiddleProgress = records.map((record) => ({
+      ...record,
+      provider_request_dispatched_projected: false,
+    }));
+
+    expect(
+      findNativeSliceEvidence("agent-provider-execution-stream-unified", missingMiddleProgress),
+    ).toBeNull();
+
+    const missingChunkProgress = records.map((record) => ({
+      ...record,
+      provider_chunk_projected: false,
+    }));
+
+    expect(
+      findNativeSliceEvidence("agent-provider-execution-stream-unified", missingChunkProgress),
+    ).toBeNull();
+  });
+
+  it("requires ProviderRun activity API evidence for restored provider execution activity", () => {
+    const records = [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-provider-execution-activity-restored",
+        turn_id: "turn-provider-activity",
+        parent_turn_id: "turn-provider-activity",
+        final_turn_id: "turn-provider-activity",
+        run_id: "run-provider-activity",
+        plain_input_sent_from_real_workbench: true,
+        profile_ref: "conversation_turn_v1",
+        final_turn_broadcast: true,
+        final_turn_result_run_id: "run-provider-activity",
+        restored_after_reload: true,
+        transcript_agent_run_events_restored: true,
+        transcript_provider_progress_event_count: 4,
+        transcript_provider_started_restored: true,
+        transcript_provider_final_output_restored: true,
+        transcript_provider_activity_raw_content_leaked: false,
+        transcript_provider_run_raw_content_leaked: false,
+        restored_ui_provider_execution_visible: true,
+        restored_ui_provider_execution_details_visible: true,
+        restored_ui_agent_execution_brief_visible: true,
+        restored_ui_agent_flow_visible: true,
+        restored_ui_provider_run_replay_visible: true,
+        restored_ui_provider_run_replay_boundary_visible: true,
+        restored_ui_provider_run_replay_raw_content_leaked: false,
+        transcript_provider_run_summary_count: 6,
+        transcript_provider_run_refs: ["prun-planner", "prun-conversation"],
+        transcript_provider_call_refs: ["pcall-planner", "pcall-conversation"],
+        transcript_provider_run_summary_refs: ["prun-planner", "prun-conversation"],
+        transcript_provider_call_summary_refs: ["pcall-planner", "pcall-conversation"],
+        transcript_provider_run_purposes: ["planner", "conversation"],
+        provider_run_activity_api_status: 200,
+        provider_run_activity_api_count: 6,
+        provider_run_activity_api_refs: ["prun-planner", "prun-conversation"],
+        provider_run_activity_api_call_refs: ["pcall-planner", "pcall-conversation"],
+        provider_run_activity_api_purposes: ["planner", "conversation"],
+        provider_run_activity_api_total_tokens: 42,
+        provider_run_activity_api_raw_content_leaked: false,
+        reload_resume_transcript_count: 2,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence(
+      "agent-provider-execution-activity-restored",
+      records,
+    );
+    expect(evidence).toMatchObject({
+      slice_id: "agent-provider-execution-activity-restored",
+      turn_id: "turn-provider-activity",
+      run_id: "run-provider-activity",
+      profile_ref: "conversation_turn_v1",
+      provider_run_activity_api_count: 6,
+      provider_run_activity_api_refs: ["prun-planner", "prun-conversation"],
+      provider_run_activity_api_call_refs: ["pcall-planner", "pcall-conversation"],
+      provider_run_activity_api_purposes: ["planner", "conversation"],
+      provider_run_activity_api_total_tokens: 42,
+      restored_ui_provider_run_replay_visible: true,
+      restored_ui_provider_run_replay_boundary_visible: true,
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-provider-execution-activity-restored", records, evidence),
+    ).toMatchObject({
+      slice_id: "agent-provider-execution-activity-restored",
+      behavior: "provider_execution_activity_restored_from_persisted_agent_run_events",
+      provider_run_activity_api_count: 6,
+      restored_ui_provider_run_replay_visible: true,
+      assertions: expect.arrayContaining([
+        "provider_run_activity_api_returned_author_safe_usage_without_provider_recall",
+        "restored_provider_run_replay_rendered_event_sequence_and_output_summary",
+        "restored_provider_run_replay_declared_no_provider_recall_boundary",
+      ]),
+    });
+
+    const missingApiRecords = records.map((record) => ({
+      ...record,
+      provider_run_activity_api_status: 404,
+    }));
+    expect(
+      findNativeSliceEvidence("agent-provider-execution-activity-restored", missingApiRecords),
+    ).toBeNull();
   });
 
   it("accepts AU-04 confirm-before-execute only when the real confirmation card explains the boundary", () => {

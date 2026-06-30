@@ -1,5 +1,5 @@
 id: agent-cancel-target-binding
-title: AgentRun cancel 绑定 active run_id 并协作式取消
+title: AgentRun cancel 绑定 active run_id 并请求 ProviderExecution 取消
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agent-cancel-target-binding --surface tauri
@@ -12,7 +12,7 @@ contract:
 invariants:
   - author-can-cancel-agent-run
   - cancel-command-targets-active-run
-  - provider-without-hard-cancel-degrades-honestly
+  - cancel-requests-provider-execution-cancel
 
 setup:
   seed: none
@@ -40,7 +40,7 @@ assertions:
     - run_cancelled is broadcast for the same run_id
   data:
     - cancel does not target a stale or cross-run id
-    - provider_hard_cancel_claimed is false
+    - provider_execution_cancel_requested is true for active cancel
 
 anti_hooks:
   product_acceptance_logic_added: false

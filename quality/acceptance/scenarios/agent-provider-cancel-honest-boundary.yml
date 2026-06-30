@@ -1,5 +1,5 @@
 id: agent-provider-cancel-honest-boundary
-title: Provider cancel 诚实区分硬取消与协作式 safe point
+title: Provider cancel 通过统一 ProviderExecution 取消
 tier: nightly
 status: active
 surface: tauri
@@ -12,7 +12,7 @@ contract:
 
 invariants:
   - cancel-command-is-bound-to-run-id
-  - unsupported-hard-cancel-is-not-faked
+  - provider-execution-cancel-is-single-runtime-path
   - completed-output-is-not-deleted-or-adopted
 
 setup:
@@ -24,7 +24,7 @@ user_flow:
   - send: request that starts a long provider step
   - click: cancel current AgentRun
   - verify: cancel event binds the active run_id
-  - verify: UI and trace distinguish hard_cancelled, cooperative_waiting, or already_completed
+  - verify: UI and trace report provider_execution_cancel until terminal cancelled state
 
 evidence:
   required:
@@ -37,8 +37,9 @@ evidence:
 assertions:
   data:
     - cancel command includes run_id
-    - provider capability determines hard cancel vs cooperative cancel wording
-    - final state does not claim hard cancel without provider evidence
+    - interrupt event records provider_execution_cancel_requested
+    - final state records provider_execution_cancelled
+    - ProviderExecution cancellation stays in one runtime path
 
 anti_hooks:
   product_acceptance_logic_added: false

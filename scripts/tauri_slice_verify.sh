@@ -110,6 +110,8 @@ Implemented external UI driver slice ids:
   p1-prose-quality-adoption-boundary
   agent-prose-drafting-with-quality
   agent-conversation-turn
+  agent-plot-outline-with-context
+  agent-character-evolution-with-context
   ua01-agent-bounded-roster-to-character-design
   agent-bounded-roster-to-character-design
   agent-step-regate
@@ -119,6 +121,7 @@ Implemented external UI driver slice ids:
   agent-interrupt-safe-point
   agent-cancel-target-binding
   agent-steer-replan
+  agent-natural-language-steer
   agent-loop-budget-limit
   agent-no-progress-stop
   agent-archive-read-during-run
@@ -128,6 +131,9 @@ Implemented external UI driver slice ids:
   agent-work-isolation
   agent-provider-call-budget
   agent-durable-resume-long-run-task
+  agent-provider-execution-stream-unified
+  agent-provider-execution-activity-restored
+  agent-provider-execution-error-author-safe
   agent-provider-streaming-progress
   agent-provider-cancel-honest-boundary
   agent-readonly-batch-profile
@@ -234,6 +240,7 @@ is_ua01_acceptance_alias() {
       agent-interrupt-safe-point | \
       agent-cancel-target-binding | \
       agent-steer-replan | \
+      agent-natural-language-steer | \
       agent-loop-budget-limit | \
       agent-no-progress-stop | \
       agent-archive-read-during-run | \
@@ -243,10 +250,15 @@ is_ua01_acceptance_alias() {
       agent-work-isolation | \
       agent-provider-call-budget | \
       agent-durable-resume-long-run-task | \
+      agent-provider-execution-stream-unified | \
+      agent-provider-execution-activity-restored | \
+      agent-provider-execution-error-author-safe | \
       agent-provider-streaming-progress | \
       agent-provider-cancel-honest-boundary | \
       agent-readonly-batch-profile | \
-      agent-conversation-turn)
+      agent-conversation-turn | \
+      agent-plot-outline-with-context | \
+      agent-character-evolution-with-context)
       return 0
       ;;
     *)
@@ -724,13 +736,16 @@ native_action_description() {
       echo "run the UA-01 bounded scene and verify user_message returns run_id before the final TurnResult"
       ;;
     agent-interrupt-safe-point)
-      echo "send a slow bounded AgentRun from the real workbench -> click pause -> verify interrupt_requested and paused state for the same run_id without claiming hard provider cancellation"
+      echo "send a slow bounded AgentRun from the real workbench -> click pause -> verify interrupt_requested and paused state for the same run_id without requesting provider execution cancel"
       ;;
     agent-cancel-target-binding)
-      echo "send a slow bounded AgentRun from the real workbench -> click cancel -> verify the command targets the active run_id and reaches cancelled state cooperatively"
+      echo "send a slow bounded AgentRun from the real workbench -> click cancel -> verify the command targets the active run_id and requests provider execution cancel"
       ;;
     agent-steer-replan)
       echo "send a slow bounded AgentRun from the real workbench -> submit a visible steer command -> verify plan_adjusted and adjusted run goal state for the same run_id"
+      ;;
+    agent-natural-language-steer)
+      echo "send a slow bounded AgentRun from the real workbench -> submit steering text through the main chat input -> verify it becomes agent_command steer for the active run_id without creating a second user_message or run"
       ;;
     agent-loop-budget-limit)
       echo "send a bounded AgentRun request with an explicit one-step author budget -> verify the run stops awaiting_author at budget_exhausted before character_design"
@@ -760,19 +775,34 @@ native_action_description() {
       echo "send a durable AgentRun request from the real workbench -> checkpoint at one-step budget -> restart Phoenix -> verify recovered run_state carries LongRunTask ref and stale resume does not rerun tools"
       ;;
     agent-provider-streaming-progress)
-      echo "send a provider progress AgentRun from the real workbench -> verify author-safe provider_progress events and honest checkpoint degradation when streaming is unsupported"
+      echo "send a provider progress AgentRun from the real workbench -> verify author-safe provider execution progress events on the unified runtime"
+      ;;
+    agent-provider-execution-stream-unified)
+      echo "send a plain conversation AgentRun from the real workbench -> verify provider execution facts project into author-safe activity without using the historical provider_progress profile"
+      ;;
+    agent-provider-execution-activity-restored)
+      echo "send a plain conversation AgentRun -> restore the workbench session -> verify persisted provider execution activity remains visible in the same assistant dialogue flow"
+      ;;
+    agent-provider-execution-error-author-safe)
+      echo "send a plain conversation AgentRun that hits a provider error -> verify provider error facts project into author-safe activity and the final TurnResult stays safe"
       ;;
     agent-provider-cancel-honest-boundary)
-      echo "send a slow provider progress AgentRun -> click cancel -> verify run_id binding, cancelling state, cooperative safe-point cancellation, and no fake hard-cancel claim"
+      echo "send a slow provider progress AgentRun -> click cancel -> verify run_id binding, cancelling state, provider execution cancel request, and terminal cancelled state"
       ;;
     agent-readonly-batch-profile)
       echo "send a readonly batch AgentRun from the real workbench -> verify batch item events, no provider calls, no artifact/adoption, and replay recall_provider=false"
       ;;
     agent-prose-drafting-with-quality)
-      echo "seed chapter plan -> send direct prose request from the real workbench -> verify bounded AgentRun fast ack, visible strategy/prose-quality/finalization steps, completed quality_review, and tentative prose_fragment without production write"
+      echo "seed chapter plan -> send direct prose request from the real workbench -> verify bounded AgentRun fast ack, next-step planning, re-gated prose-quality execution, provider usage UI, and tentative prose_fragment without production write"
       ;;
     agent-conversation-turn)
       echo "send plain conversation input from the real workbench -> verify bounded AgentRun fast ack, conversation_turn_v1 profile, final TurnResult, and no tool/write/adoption"
+      ;;
+    agent-plot-outline-with-context)
+      echo "send a chapter outline request from the real workbench -> verify bounded AgentRun fast ack, plot_outline_with_context_v1 profile, re-gated plot_outline execution, and tentative outline_draft without production write"
+      ;;
+    agent-character-evolution-with-context)
+      echo "create an existing character, then send a character evolution request from the real workbench -> verify bounded AgentRun fast ack, character_evolution_with_context_v1 profile, re-gated character_evolution execution, and tentative character_evolution_seed without production write"
       ;;
     p1-chapter-adoption-reading)
       echo "seed adopted chapter plan -> generate chapter 1 prose draft -> click accept -> open reading mode -> verify chapter prose and effective word counts (book total + chapter) match the visible adopted prose"
@@ -1305,6 +1335,12 @@ case "$SLICE_ID" in
   agent-conversation-turn)
     SEED_SCRIPT=""
     ;;
+  agent-plot-outline-with-context)
+    SEED_SCRIPT=""
+    ;;
+  agent-character-evolution-with-context)
+    SEED_SCRIPT=""
+    ;;
   ua01-agent-bounded-roster-to-character-design)
     SEED_SCRIPT=""
     ;;
@@ -1316,6 +1352,7 @@ case "$SLICE_ID" in
     agent-interrupt-safe-point | \
     agent-cancel-target-binding | \
     agent-steer-replan | \
+    agent-natural-language-steer | \
     agent-loop-budget-limit | \
     agent-no-progress-stop | \
     agent-archive-read-during-run | \
@@ -1323,6 +1360,9 @@ case "$SLICE_ID" in
     agent-tentative-boundary | \
     agent-provider-call-budget | \
     agent-durable-resume-long-run-task | \
+    agent-provider-execution-stream-unified | \
+    agent-provider-execution-activity-restored | \
+    agent-provider-execution-error-author-safe | \
     agent-provider-streaming-progress | \
     agent-provider-cancel-honest-boundary | \
     agent-readonly-batch-profile)

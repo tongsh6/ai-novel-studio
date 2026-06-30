@@ -581,6 +581,16 @@ async function fetchReplayApi(workId, sessionId, turnId) {
   return { status: response.status, body };
 }
 
+async function fetchProviderRunsApi(workId, sessionId, turnId) {
+  const response = await fetch(
+    `${baseUrl}/api/works/${encodeURIComponent(workId)}/sessions/${encodeURIComponent(
+      sessionId,
+    )}/turns/${encodeURIComponent(turnId)}/provider-runs`,
+  );
+  const body = await response.json().catch(() => ({}));
+  return { status: response.status, body };
+}
+
 async function openWorkMenu(page) {
   await workTitle(page).click();
   await page.locator('[class*="workMenu"]').first().waitFor({ timeout: 10_000 });
@@ -16206,7 +16216,7 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       frame.body?.status === "completed" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 2 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 1,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
     "UA-01 AgentRun state did not finish with the expected bounded budget counters",
     60_000,
   );
@@ -16258,7 +16268,21 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
 
   await page.waitForFunction(
     (expected) => expected.every((value) => document.body.innerText.includes(value)),
-    ["创作执行", "状态：已完成", "已生成待采纳候选"],
+    [
+      "创作执行",
+      "工作详情",
+      "当前：已完成",
+      "已生成待采纳候选",
+      "本轮路径：",
+      "读取上下文",
+      "调用步骤规划模型",
+      "制定计划",
+      "系统裁决",
+      "执行创作能力",
+      "调用写作模型",
+      "生成待采纳候选",
+      "完成回应",
+    ],
     { timeout: 30_000 },
   );
 
@@ -16342,9 +16366,22 @@ async function driveUa01AgentBoundedRosterToCharacterDesign(page) {
       consumed_steps: completedStateFrame.body.consumed_budget?.steps,
       consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
       consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
-      ui_agent_panel_visible: visibleText.includes("创作执行"),
-      ui_agent_completed_visible: visibleText.includes("状态：已完成"),
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
+      ui_agent_completed_visible: visibleText.includes("当前：已完成"),
       ui_artifact_event_visible: visibleText.includes("已生成待采纳候选"),
+      ui_execution_brief_path_visible:
+        visibleText.includes("本轮路径：") &&
+        visibleText.includes("读取上下文") &&
+        visibleText.includes("调用步骤规划模型") &&
+        visibleText.includes("制定计划") &&
+        visibleText.includes("系统裁决") &&
+        visibleText.includes("执行创作能力") &&
+        visibleText.includes("调用写作模型") &&
+        visibleText.includes("生成待采纳候选") &&
+        visibleText.includes("完成回应"),
+      ui_execution_brief_did_not_invent_model_call: !visibleText.includes(
+        "本轮路径：读取上下文 → 调用模型 → 执行创作能力",
+      ),
       log_sync_turn_count: logsAfter.filter(
         (record) =>
           record.event === "channel.user_message.done" &&
@@ -16456,15 +16493,15 @@ async function driveAgentProseDraftingWithQuality(page) {
     30_000,
   );
 
-  const strategyStepFrame = await waitForNewFrame(
+  const proseStepFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "step_proposed" &&
-      String(frame.body?.summary ?? "").includes("制定正文执行策略"),
-    "Agent prose strategy step_proposed event was not broadcast",
+      String(frame.body?.summary ?? "").includes("根据观察制定下一步计划"),
+    "Agent prose drafting next-step event was not broadcast",
     30_000,
   );
 
@@ -16487,18 +16524,6 @@ async function driveAgentProseDraftingWithQuality(page) {
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "gate_decided",
     "Agent prose gate_decided event was not broadcast",
-    30_000,
-  );
-
-  const proseStepFrame = await waitForNewFrame(
-    frameStart,
-    (frame) =>
-      frame.direction === "received" &&
-      frame.event === "agent_event" &&
-      frame.body?.run_ref === runId &&
-      frame.body?.event_type === "step_proposed" &&
-      String(frame.body?.summary ?? "").includes("生成正文草稿"),
-    "Agent prose drafting step_proposed event was not broadcast",
     30_000,
   );
 
@@ -16525,15 +16550,15 @@ async function driveAgentProseDraftingWithQuality(page) {
     120_000,
   );
 
-  const finalStepFrame = await waitForNewFrame(
+  const completionDecisionFrame = await waitForNewFrame(
     frameStart,
     (frame) =>
       frame.direction === "received" &&
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "step_proposed" &&
-      String(frame.body?.summary ?? "").includes("汇总结果给作者"),
-    "Agent prose finalization step_proposed event was not broadcast",
+      String(frame.body?.summary ?? "").includes("正文草稿目标"),
+    "Agent prose completion decision event was not broadcast",
     30_000,
   );
 
@@ -16602,9 +16627,9 @@ async function driveAgentProseDraftingWithQuality(page) {
       frame.event === "agent_run_state" &&
       frame.body?.run_id === runId &&
       frame.body?.status === "completed" &&
-      Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 2,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 5,
     "Agent prose run state did not finish with expected step/tool/provider counters",
     60_000,
   );
@@ -16668,10 +16693,29 @@ async function driveAgentProseDraftingWithQuality(page) {
   assert(!findingInDraftBody, "Agent prose quality finding leaked into the prose draft body");
 
   await page.waitForFunction(
-    (summary) =>
-      document.body.innerText.includes("创作执行") &&
-      document.body.innerText.includes("状态：已完成") &&
-      (summary === "" || document.body.innerText.includes(summary)),
+    (summary) => {
+      const text = document.body.innerText;
+      return (
+        text.includes("创作执行") &&
+        text.includes("工作详情") &&
+        text.includes("当前：已完成") &&
+        text.includes("本轮路径：") &&
+        text.includes("读取上下文") &&
+        text.includes("调用步骤规划模型") &&
+        text.includes("制定计划") &&
+        text.includes("系统裁决") &&
+        text.includes("执行创作能力") &&
+        text.includes("调用写作模型") &&
+        text.includes("调用复核模型") &&
+        text.includes("质量复核") &&
+        text.includes("生成待采纳候选") &&
+        text.includes("完成回应") &&
+        text.includes("模型调用 5 次") &&
+        text.includes("运行编号：") &&
+        text.includes("调用编号：") &&
+        (summary === "" || text.includes(summary))
+      );
+    },
     findingSummary,
     { timeout: 30_000 },
   );
@@ -16712,30 +16756,31 @@ async function driveAgentProseDraftingWithQuality(page) {
       agent_stage_events_visible:
         contextStepFrame.body?.event_type === "step_proposed" &&
         contextEventFrame.body?.event_type === "goal_understood" &&
-        strategyStepFrame.body?.event_type === "step_proposed" &&
+        proseStepFrame.body?.event_type === "step_proposed" &&
         planEventFrame.body?.event_type === "plan_created" &&
         gateEventFrame.body?.event_type === "gate_decided" &&
-        proseStepFrame.body?.event_type === "step_proposed" &&
         toolStartedFrame.body?.event_type === "tool_started" &&
         qualityObservationFrame.body?.event_type === "observation_recorded" &&
-        finalStepFrame.body?.event_type === "step_proposed",
+        completionDecisionFrame.body?.event_type === "step_proposed",
       context_step_visible: contextStepFrame.body?.event_type === "step_proposed",
       context_event_visible: contextEventFrame.body?.event_type === "goal_understood",
       context_observation_visible:
         contextObservationFrame.body?.event_type === "observation_recorded",
-      strategy_step_visible: strategyStepFrame.body?.event_type === "step_proposed",
+      strategy_step_visible: false,
       plan_event_visible: planEventFrame.body?.event_type === "plan_created",
       gate_event_visible: gateEventFrame.body?.event_type === "gate_decided",
       tool_started_visible: toolStartedFrame.body?.event_type === "tool_started",
       quality_observation_visible:
         qualityObservationFrame.body?.event_type === "observation_recorded",
-      finalization_step_visible: finalStepFrame.body?.event_type === "step_proposed",
+      finalization_step_visible: false,
+      completion_decision_visible: completionDecisionFrame.body?.event_type === "step_proposed",
       prose_step_visible: proseStepFrame.body?.event_type === "step_proposed",
       artifact_observation_visible: observationFrame.body?.event_type === "observation_recorded",
       ui_context_step_visible: visibleText.includes("正在组装正文写作上下文"),
-      ui_strategy_step_visible: visibleText.includes("正在制定正文执行策略并完成授权判断"),
-      ui_prose_step_visible: visibleText.includes("正在生成正文草稿并完成质量复核"),
-      ui_finalization_step_visible: visibleText.includes("正在汇总结果给作者"),
+      ui_strategy_step_visible: false,
+      ui_prose_step_visible: visibleText.includes("正在根据观察制定下一步计划"),
+      ui_finalization_step_visible: false,
+      ui_completion_decision_visible: visibleText.includes("正文草稿目标"),
       quality_review_status: review.review_status,
       quality_policy_action: review.policy_action,
       quality_findings_count: review.findings?.length ?? 0,
@@ -16746,11 +16791,29 @@ async function driveAgentProseDraftingWithQuality(page) {
       ),
       finding_summary_displayed: findingSummary === "" || visibleText.includes(findingSummary),
       finding_in_draft_body: findingInDraftBody,
-      ui_agent_panel_visible: visibleText.includes("创作执行"),
-      ui_agent_completed_visible: visibleText.includes("状态：已完成"),
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
+      ui_agent_completed_visible: visibleText.includes("当前：已完成"),
       ui_prose_draft_visible: visibleText.includes("章节正文草稿"),
       ui_quality_review_visible: visibleText.includes("质量复核"),
       ui_revision_action_visible: visibleText.includes("按这些问题重写"),
+      ui_provider_execution_details_visible:
+        visibleText.includes("模型事件：开始调用") &&
+        visibleText.includes("模型事件：收到结果") &&
+        visibleText.includes("运行编号：") &&
+        visibleText.includes("调用编号："),
+      ui_execution_brief_path_visible:
+        visibleText.includes("本轮路径：") &&
+        visibleText.includes("读取上下文") &&
+        visibleText.includes("调用步骤规划模型") &&
+        visibleText.includes("制定计划") &&
+        visibleText.includes("系统裁决") &&
+        visibleText.includes("执行创作能力") &&
+        visibleText.includes("调用写作模型") &&
+        visibleText.includes("调用复核模型") &&
+        visibleText.includes("质量复核") &&
+        visibleText.includes("生成待采纳候选") &&
+        visibleText.includes("完成回应") &&
+        visibleText.includes("模型调用 5 次"),
       log_sync_turn_count: logsAfter.filter(
         (record) =>
           record.event === "channel.user_message.done" &&
@@ -16941,7 +17004,7 @@ async function driveAgentConversationTurn(page) {
       frame.body?.profile_ref === "conversation_turn_v1" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 0 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 1,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 6,
     "Conversation AgentRun state did not complete with the expected bounded counters",
     30_000,
   );
@@ -16967,11 +17030,16 @@ async function driveAgentConversationTurn(page) {
     [
       message,
       "创作执行",
-      "状态：已完成",
+      "工作详情",
+      "当前：已完成",
       "正在组装创作上下文",
       "正在形成对话认知帧",
       "正在制定执行策略并完成授权判断",
       "正在生成本轮回应并写入可回放留痕",
+      "调用步骤规划模型",
+      "模型判断",
+      "系统裁决",
+      "模型调用 6 次",
     ],
     { timeout: 30_000 },
   );
@@ -16996,8 +17064,17 @@ async function driveAgentConversationTurn(page) {
   const observationFrames = agentEventFrames.filter(
     (frame) => frame.body?.event_type === "observation_recorded",
   );
+  const providerProgressEvents = agentEventFrames.filter(
+    (frame) => frame.body?.event_type === "provider_progress" && frame.body?.visibility === "author",
+  );
   const stepSummaries = stepProposedFrames.map((frame) => frame.body?.summary ?? "");
   const observationSummaries = observationFrames.map((frame) => frame.body?.summary ?? "");
+  const providerPurposes = [
+    ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.purpose)),
+  ].filter(Boolean);
+  const providerReasonCodes = providerProgressEvents.flatMap(
+    (frame) => frame.body?.reason_codes ?? [],
+  );
 
   return [
     {
@@ -17032,12 +17109,23 @@ async function driveAgentConversationTurn(page) {
       agent_step_summaries: stepSummaries,
       agent_observation_summaries: observationSummaries,
       agent_stage_event_types: agentEventFrames.map((frame) => frame.body?.event_type),
+      provider_progress_event_count: providerProgressEvents.length,
+      provider_progress_reason_codes: providerReasonCodes,
+      provider_progress_purposes: providerPurposes,
+      planner_provider_activity_visible: providerPurposes.includes("planner"),
+      conversation_provider_activity_visible: providerPurposes.includes("conversation"),
+      provider_started_projected: providerReasonCodes.includes("provider_started"),
+      provider_final_output_projected: providerReasonCodes.includes("provider_final_output"),
       ui_context_step_visible: visibleText.includes("正在组装创作上下文"),
       ui_frame_step_visible: visibleText.includes("正在形成对话认知帧"),
       ui_strategy_step_visible: visibleText.includes("正在制定执行策略并完成授权判断"),
       ui_finalize_step_visible: visibleText.includes("正在生成本轮回应并写入可回放留痕"),
-      ui_agent_panel_visible: visibleText.includes("创作执行"),
-      ui_agent_completed_visible: visibleText.includes("状态：已完成"),
+      ui_planner_provider_visible: visibleText.includes("调用步骤规划模型"),
+      ui_model_judgment_visible: visibleText.includes("模型判断"),
+      ui_system_gate_visible: visibleText.includes("系统裁决"),
+      ui_provider_usage_visible: visibleText.includes("模型调用 6 次"),
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
+      ui_agent_completed_visible: visibleText.includes("当前：已完成"),
       ui_reply_visible: visibleText.includes(message),
       log_sync_turn_count: logsAfter.filter(
         (record) =>
@@ -17047,6 +17135,1407 @@ async function driveAgentConversationTurn(page) {
       log_toolbox_execute_count: logsAfter.filter(
         (record) => record.event === "toolbox.execute.done",
       ).length,
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentProviderExecutionStreamUnified(page) {
+  const frameStart = frames.length;
+  const [conversationState] = await driveAgentConversationTurn(page);
+  const runId = conversationState.run_id;
+
+  const providerProgressEvents = frames.slice(frameStart).filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "provider_progress" &&
+      frame.body?.visibility === "author",
+  );
+
+  const providerStartedEvent = providerProgressEvents.find((frame) =>
+    (frame.body?.reason_codes ?? []).includes("provider_started"),
+  );
+  const providerFinalEvent = providerProgressEvents.find((frame) =>
+    (frame.body?.reason_codes ?? []).includes("provider_final_output"),
+  );
+  const providerRequestPreparedEvent = providerProgressEvents.find((frame) =>
+    (frame.body?.reason_codes ?? []).includes("provider_request_prepared"),
+  );
+  const providerRequestDispatchedEvent = providerProgressEvents.find((frame) =>
+    (frame.body?.reason_codes ?? []).includes("provider_request_dispatched"),
+  );
+  const providerResponseReceivedEvent = providerProgressEvents.find((frame) =>
+    (frame.body?.reason_codes ?? []).includes("provider_response_received"),
+  );
+  const providerChunkEvent = providerProgressEvents.find((frame) =>
+    (frame.body?.reason_codes ?? []).includes("provider_chunk"),
+  );
+
+  assert(
+    providerStartedEvent,
+    "Conversation provider execution did not project a provider_started activity event",
+  );
+  assert(
+    providerFinalEvent,
+    "Conversation provider execution did not project a provider_final_output activity event",
+  );
+  assert(
+    providerRequestPreparedEvent,
+    "Conversation provider execution did not project provider_request_prepared progress",
+  );
+  assert(
+    providerRequestDispatchedEvent,
+    "Conversation provider execution did not project provider_request_dispatched progress",
+  );
+  assert(
+    providerResponseReceivedEvent,
+    "Conversation provider execution did not project provider_response_received progress",
+  );
+  assert(
+    providerChunkEvent,
+    "Conversation provider execution did not project provider_chunk progress",
+  );
+
+  const progressJson = JSON.stringify(providerProgressEvents.map((frame) => frame.body ?? {}));
+  const rawProviderContentLeaked =
+    progressJson.includes("assistant_message") ||
+    progressJson.includes("candidate_directions") ||
+    progressJson.includes("raw_prompt") ||
+    progressJson.includes("system_prompt") ||
+    progressJson.includes("text_delta") ||
+    progressJson.includes(String(conversationState.user_message_text ?? ""));
+
+  const visibleText = await page.locator("body").innerText();
+
+  return [
+    {
+      ...conversationState,
+      slice_id: "agent-provider-execution-stream-unified",
+      provider_progress_event_count: providerProgressEvents.length,
+      provider_progress_reason_codes: providerProgressEvents.flatMap(
+        (frame) => frame.body?.reason_codes ?? [],
+      ),
+      provider_progress_visibility_author: providerProgressEvents.every(
+        (frame) => frame.body?.visibility === "author",
+      ),
+      provider_progress_has_step_ref: providerProgressEvents.every(
+        (frame) => typeof frame.body?.step_ref === "string",
+      ),
+      provider_started_projected: Boolean(providerStartedEvent),
+      provider_final_output_projected: Boolean(providerFinalEvent),
+      provider_request_prepared_projected: Boolean(providerRequestPreparedEvent),
+      provider_request_dispatched_projected: Boolean(providerRequestDispatchedEvent),
+      provider_response_received_projected: Boolean(providerResponseReceivedEvent),
+      provider_chunk_projected: Boolean(providerChunkEvent),
+      provider_chunk_payload_has_lengths:
+        typeof providerChunkEvent?.body?.payload?.chunk_index === "number" &&
+        typeof providerChunkEvent?.body?.payload?.chunk_content_length === "number" &&
+        typeof providerChunkEvent?.body?.payload?.accumulated_content_length === "number",
+      provider_chunk_raw_content_leaked: rawProviderContentLeaked,
+      provider_run_refs: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.provider_run_ref)),
+      ].filter(Boolean),
+      provider_call_refs: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.provider_call_ref)),
+      ].filter(Boolean),
+      provider_purposes: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.purpose)),
+      ].filter(Boolean),
+      provider_output_types: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.output_type)),
+      ].filter(Boolean),
+      provider_execution_stream_projected: providerProgressEvents.every((frame) =>
+        (frame.body?.reason_codes ?? []).includes("provider_execution_stream"),
+      ),
+      provider_progress_raw_content_leaked: rawProviderContentLeaked,
+      final_turn_result_run_id: runId,
+      ui_provider_execution_visible:
+        visibleText.includes("步骤规划") &&
+        visibleText.includes("对话判断") &&
+        visibleText.includes("创作模型"),
+      ui_provider_execution_details_visible:
+        visibleText.includes("模型事件：开始调用") &&
+        visibleText.includes("模型事件：接收片段") &&
+        visibleText.includes("片段长度：") &&
+        visibleText.includes("已接收：") &&
+        visibleText.includes("已准备模型请求") &&
+        visibleText.includes("已发送模型请求") &&
+        visibleText.includes("已收到模型响应") &&
+        visibleText.includes("进展阶段：request_dispatched") &&
+        visibleText.includes("模型事件：收到结果") &&
+        visibleText.includes("运行编号：") &&
+        visibleText.includes("调用编号："),
+      ui_agent_execution_brief_visible:
+        visibleText.includes("调用步骤规划模型") &&
+        visibleText.includes("模型判断") &&
+        visibleText.includes("系统裁决") &&
+        visibleText.includes("完成回应") &&
+        visibleText.includes("模型调用 6 次"),
+    },
+  ];
+}
+
+async function driveAgentProviderExecutionActivityRestored(page) {
+  const [providerState] = await driveAgentProviderExecutionStreamUnified(page);
+  const workId = providerState.work_id;
+  const sessionId = providerState.session_id;
+  const turnId = providerState.final_turn_id ?? providerState.turn_id;
+  const runId = providerState.run_id;
+
+  assert(workId, "Provider activity restore scenario did not capture work_id");
+  assert(sessionId, "Provider activity restore scenario did not capture session_id");
+  assert(turnId, "Provider activity restore scenario did not capture final turn_id");
+  assert(runId, "Provider activity restore scenario did not capture run_id");
+
+  const { snapshot, assistantRow } = await waitForTranscriptTurn(workId, sessionId, turnId);
+  const transcriptTurnResult = assistantRow.turn_result ?? {};
+  const restoredEvents = Array.isArray(transcriptTurnResult.agent_run?.events)
+    ? transcriptTurnResult.agent_run.events
+    : [];
+  const restoredProviderRuns = Array.isArray(transcriptTurnResult.agent_run?.provider_runs)
+    ? transcriptTurnResult.agent_run.provider_runs
+    : [];
+  const restoredProviderEvents = restoredEvents.filter(
+    (event) => event.event_type === "provider_progress" && event.visibility === "author",
+  );
+  const restoredStartedEvent = restoredProviderEvents.find((event) =>
+    (event.reason_codes ?? []).includes("provider_started"),
+  );
+  const restoredFinalEvent = restoredProviderEvents.find((event) =>
+    (event.reason_codes ?? []).includes("provider_final_output"),
+  );
+  const restoredProviderRunRefs = [
+    ...new Set(restoredProviderEvents.map((event) => event.payload?.provider_run_ref)),
+  ].filter(Boolean);
+  const restoredProviderCallRefs = [
+    ...new Set(restoredProviderEvents.map((event) => event.payload?.provider_call_ref)),
+  ].filter(Boolean);
+  const restoredProviderRunSummaryRefs = [
+    ...new Set(restoredProviderRuns.map((run) => run.provider_run_ref)),
+  ].filter(Boolean);
+  const restoredProviderCallSummaryRefs = [
+    ...new Set(restoredProviderRuns.map((run) => run.provider_call_ref)),
+  ].filter(Boolean);
+  const restoredProviderRunPurposes = [
+    ...new Set(restoredProviderRuns.map((run) => run.purpose)),
+  ].filter(Boolean);
+  const restoredJson = JSON.stringify(restoredProviderEvents);
+  const restoredProviderRunsJson = JSON.stringify(restoredProviderRuns);
+  const restoredRawProviderContentLeaked =
+    restoredJson.includes("assistant_message") ||
+    restoredJson.includes("candidate_directions") ||
+    restoredJson.includes("raw_prompt") ||
+    restoredJson.includes("system_prompt") ||
+    restoredJson.includes("raw_provider_error") ||
+    restoredJson.includes(String(providerState.user_message_text ?? ""));
+  const restoredProviderRunRawContentLeaked =
+    restoredProviderRunsJson.includes("assistant_message") ||
+    restoredProviderRunsJson.includes("candidate_directions") ||
+    restoredProviderRunsJson.includes("raw_prompt") ||
+    restoredProviderRunsJson.includes("system_prompt") ||
+    restoredProviderRunsJson.includes("raw_provider_error") ||
+    restoredProviderRunsJson.includes(String(providerState.user_message_text ?? ""));
+
+  assert(
+    transcriptTurnResult.agent_run?.run_id === runId,
+    "Persisted transcript turn_result did not carry the same AgentRun id",
+  );
+  assert(
+    restoredProviderEvents.length >= 2,
+    "Persisted transcript turn_result did not restore provider_progress events",
+  );
+  assert(restoredStartedEvent, "Persisted AgentRun activity did not restore provider_started");
+  assert(restoredFinalEvent, "Persisted AgentRun activity did not restore provider_final_output");
+  assert(
+    restoredProviderRunRefs.length >= 1 && restoredProviderCallRefs.length >= 1,
+    "Persisted AgentRun provider activity did not carry provider refs",
+  );
+  assert(
+    !restoredRawProviderContentLeaked,
+    "Persisted AgentRun provider activity leaked raw provider content",
+  );
+  assert(
+    restoredProviderRuns.length >= 6,
+    "Persisted transcript turn_result did not restore ProviderRun usage summaries",
+  );
+  assert(
+    restoredProviderRunSummaryRefs.length >= 1 && restoredProviderCallSummaryRefs.length >= 1,
+    "Persisted ProviderRun usage summaries did not carry provider refs",
+  );
+  assert(
+    restoredProviderRunPurposes.includes("planner") &&
+      restoredProviderRunPurposes.includes("conversation"),
+    "Persisted ProviderRun usage summaries did not preserve planner and conversation purposes",
+  );
+  assert(
+    !restoredProviderRunRawContentLeaked,
+    "Persisted ProviderRun usage summaries leaked raw provider content",
+  );
+
+  const providerRunsApi = await fetchProviderRunsApi(workId, sessionId, turnId);
+  const providerRunsApiBody = providerRunsApi.body ?? {};
+  const queriedProviderRuns = Array.isArray(providerRunsApiBody.provider_runs)
+    ? providerRunsApiBody.provider_runs
+    : [];
+  const queriedProviderRunRefs = [
+    ...new Set(queriedProviderRuns.map((run) => run.provider_run_ref)),
+  ].filter(Boolean);
+  const queriedProviderCallRefs = [
+    ...new Set(queriedProviderRuns.map((run) => run.provider_call_ref)),
+  ].filter(Boolean);
+  const queriedProviderPurposes = [
+    ...new Set(queriedProviderRuns.map((run) => run.purpose)),
+  ].filter(Boolean);
+  const queriedProviderRunsJson = JSON.stringify(queriedProviderRuns);
+  const queriedProviderRunRawContentLeaked =
+    queriedProviderRunsJson.includes("assistant_message") ||
+    queriedProviderRunsJson.includes("candidate_directions") ||
+    queriedProviderRunsJson.includes("raw_prompt") ||
+    queriedProviderRunsJson.includes("system_prompt") ||
+    queriedProviderRunsJson.includes("raw_provider_error") ||
+    queriedProviderRunsJson.includes(String(providerState.user_message_text ?? ""));
+
+  assert(providerRunsApi.status === 200, "ProviderRun activity API did not return HTTP 200");
+  assert(
+    queriedProviderRuns.length >= restoredProviderRuns.length,
+    "ProviderRun activity API did not return persisted provider usage summaries",
+  );
+  assert(
+    queriedProviderRunRefs.length >= 1 && queriedProviderCallRefs.length >= 1,
+    "ProviderRun activity API did not return provider refs",
+  );
+  assert(
+    queriedProviderPurposes.includes("planner") && queriedProviderPurposes.includes("conversation"),
+    "ProviderRun activity API did not preserve planner and conversation purposes",
+  );
+  assert(
+    providerRunsApiBody.totals?.provider_run_count >= queriedProviderRuns.length,
+    "ProviderRun activity API did not return usage totals",
+  );
+  assert(
+    !queriedProviderRunRawContentLeaked,
+    "ProviderRun activity API leaked raw provider content",
+  );
+
+  const appLogCountBeforeReload = readAppLogRecords().length;
+  await page.reload({ waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  const resumedAfterReload = await waitForNewAppLogRecord(
+    appLogCountBeforeReload,
+    (record) =>
+      record.event === "work_session.resume.done" &&
+      record.work_id === workId &&
+      record.session_id === sessionId &&
+      Number(record.transcript_count ?? 0) >= Number(snapshot.transcript?.length ?? 2),
+    "Reload did not resume the session containing restored provider activity",
+    30_000,
+  );
+
+  await page.waitForFunction(
+    (expected) => expected.every((value) => document.body.innerText.includes(value)),
+    [
+      "创作执行",
+      "工作详情",
+      "步骤规划已开始调用创作模型",
+      "步骤规划已收到创作模型结果",
+      "对话判断已开始调用创作模型",
+      "对话判断已收到创作模型结果",
+      "模型事件：开始调用",
+      "模型事件：收到结果",
+      "运行编号：",
+      "调用编号：",
+      "调用步骤规划模型",
+      "模型判断",
+      "系统裁决",
+      "完成回应",
+      "模型调用 6 次",
+      "模型调用明细",
+      "事件序列",
+      "输出摘要",
+      "回放边界",
+      "不会重新调用模型",
+    ],
+    { timeout: 30_000 },
+  );
+
+  const restoredVisibleText = await page.locator("body").innerText();
+  const providerRunReplayUiRawContentLeaked = [
+    "assistant_message",
+    "candidate_directions",
+    "raw_prompt",
+    "system_prompt",
+    "raw_provider_error",
+    "raw_output",
+  ].some((value) => restoredVisibleText.includes(value));
+
+  return [
+    {
+      ...providerState,
+      slice_id: "agent-provider-execution-activity-restored",
+      restored_after_reload: true,
+      reload_resume_transcript_count: resumedAfterReload.transcript_count,
+      transcript_agent_run_events_restored: restoredEvents.length >= 2,
+      transcript_provider_progress_event_count: restoredProviderEvents.length,
+      transcript_provider_run_summary_count: restoredProviderRuns.length,
+      transcript_provider_started_restored: Boolean(restoredStartedEvent),
+      transcript_provider_final_output_restored: Boolean(restoredFinalEvent),
+      transcript_provider_run_refs: restoredProviderRunRefs,
+      transcript_provider_call_refs: restoredProviderCallRefs,
+      transcript_provider_run_summary_refs: restoredProviderRunSummaryRefs,
+      transcript_provider_call_summary_refs: restoredProviderCallSummaryRefs,
+      transcript_provider_run_purposes: restoredProviderRunPurposes,
+      transcript_provider_activity_raw_content_leaked: restoredRawProviderContentLeaked,
+      transcript_provider_run_raw_content_leaked: restoredProviderRunRawContentLeaked,
+      provider_run_activity_api_status: providerRunsApi.status,
+      provider_run_activity_api_count: queriedProviderRuns.length,
+      provider_run_activity_api_refs: queriedProviderRunRefs,
+      provider_run_activity_api_call_refs: queriedProviderCallRefs,
+      provider_run_activity_api_purposes: queriedProviderPurposes,
+      provider_run_activity_api_total_tokens: providerRunsApiBody.totals?.total_tokens ?? null,
+      provider_run_activity_api_raw_content_leaked: queriedProviderRunRawContentLeaked,
+      restored_ui_provider_execution_visible:
+        restoredVisibleText.includes("步骤规划已开始调用创作模型") &&
+        restoredVisibleText.includes("步骤规划已收到创作模型结果") &&
+        restoredVisibleText.includes("对话判断已开始调用创作模型") &&
+        restoredVisibleText.includes("对话判断已收到创作模型结果"),
+      restored_ui_provider_execution_details_visible:
+        restoredVisibleText.includes("模型事件：开始调用") &&
+        restoredVisibleText.includes("模型事件：收到结果") &&
+        restoredVisibleText.includes("运行编号：") &&
+        restoredVisibleText.includes("调用编号："),
+      restored_ui_agent_execution_brief_visible:
+        restoredVisibleText.includes("调用步骤规划模型") &&
+        restoredVisibleText.includes("模型判断") &&
+        restoredVisibleText.includes("系统裁决") &&
+        restoredVisibleText.includes("完成回应") &&
+        restoredVisibleText.includes("模型调用 6 次"),
+      restored_ui_agent_flow_visible:
+        restoredVisibleText.includes("创作执行") && restoredVisibleText.includes("工作详情"),
+      restored_ui_provider_run_replay_visible:
+        restoredVisibleText.includes("模型调用明细") &&
+        restoredVisibleText.includes("事件序列") &&
+        restoredVisibleText.includes("输出摘要"),
+      restored_ui_provider_run_replay_boundary_visible:
+        restoredVisibleText.includes("回放边界") &&
+        restoredVisibleText.includes("不会重新调用模型"),
+      restored_ui_provider_run_replay_raw_content_leaked: providerRunReplayUiRawContentLeaked,
+    },
+  ];
+}
+
+async function driveAgentProviderExecutionErrorAuthorSafe(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = "UA01PROVIDERFAIL 验证 provider 失败事实进入普通对话执行记录";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "Provider error AgentRun request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "Provider error turn did not fast-ack with bounded run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_started",
+    "Provider error AgentRun run_started event was not broadcast",
+    30_000,
+  );
+
+  const providerStartedEvent = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "provider_progress" &&
+      frame.body?.visibility === "author" &&
+      (frame.body?.reason_codes ?? []).includes("provider_started"),
+    "Provider error AgentRun did not project provider_started",
+    30_000,
+  );
+
+  const providerErrorEvent = await waitForNewFrame(
+    frames.indexOf(providerStartedEvent),
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "provider_progress" &&
+      frame.body?.visibility === "author" &&
+      (frame.body?.reason_codes ?? []).includes("provider_error"),
+    "Provider error AgentRun did not project provider_error",
+    30_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.profile_ref === "conversation_turn_v1" &&
+      String(frame.body?.assistant_message?.text ?? "").includes("无法连接到创作引擎") &&
+      frame.body?.truthfulness?.tool_called === false &&
+      frame.body?.truthfulness?.artifact_adopted === false &&
+      frame.body?.truthfulness?.production_write_performed === false,
+    "Provider error AgentRun did not return a safe fallback TurnResult",
+    60_000,
+  );
+  const turnResult = turnFrame.body;
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Provider error AgentRun run_completed event was not broadcast",
+    30_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      frame.body?.profile_ref === "conversation_turn_v1" &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 6,
+    "Provider error AgentRun state did not complete with the expected agentic provider calls",
+    30_000,
+  );
+
+  const providerErrorLog = await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "provider_gateway.complete.error" &&
+      String(record.reason_code ?? "") === "provider_error",
+    "Provider gateway did not log provider_error",
+    30_000,
+  );
+
+  const ackIndex = frames.findIndex((frame) => frame === ackFrame);
+  const turnIndex = frames.findIndex((frame) => frame === turnFrame);
+  assert(ackIndex >= 0 && turnIndex > ackIndex, "Provider error TurnResult arrived before ack");
+
+  await page.waitForFunction(
+    (expected) => expected.every((value) => document.body.innerText.includes(value)),
+    [
+      "创作执行",
+      "工作详情",
+      "步骤规划已开始调用创作模型",
+      "调用步骤规划模型",
+      "调用创作模型失败",
+      "无法连接到创作引擎",
+      "模型调用 6 次",
+    ],
+    { timeout: 30_000 },
+  );
+
+  const providerProgressEvents = frames.slice(frameStart).filter(
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "provider_progress" &&
+      frame.body?.visibility === "author",
+  );
+  const progressJson = JSON.stringify(providerProgressEvents.map((frame) => frame.body ?? {}));
+  const rawProviderContentLeaked =
+    progressJson.includes("UA01PROVIDERFAIL") ||
+    progressJson.includes("raw provider failure payload") ||
+    progressJson.includes("raw_prompt") ||
+    progressJson.includes("system_prompt") ||
+    progressJson.includes("assistant_message");
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, turnResult, sentFrame);
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-provider-execution-error-author-safe",
+      parent_turn_id: providerErrorLog.turn_id,
+      final_turn_id: turnResult.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      profile_ref: completedStateFrame.body.profile_ref,
+      parent_fast_ack_before_final_turn_result: ackIndex >= 0 && turnIndex > ackIndex,
+      plain_input_sent_from_real_workbench: true,
+      final_turn_broadcast: true,
+      final_tool_called: turnResult.truthfulness?.tool_called === true,
+      no_tool_called: turnResult.truthfulness?.tool_called === false,
+      no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
+      no_production_write: turnResult.truthfulness?.production_write_performed === false,
+      consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
+      provider_progress_event_count: providerProgressEvents.length,
+      provider_progress_reason_codes: providerProgressEvents.flatMap(
+        (frame) => frame.body?.reason_codes ?? [],
+      ),
+      provider_progress_visibility_author: providerProgressEvents.every(
+        (frame) => frame.body?.visibility === "author",
+      ),
+      provider_progress_has_step_ref: providerProgressEvents.every(
+        (frame) => typeof frame.body?.step_ref === "string",
+      ),
+      provider_started_projected: Boolean(providerStartedEvent),
+      provider_error_projected: Boolean(providerErrorEvent),
+      provider_run_refs: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.provider_run_ref)),
+      ].filter(Boolean),
+      provider_call_refs: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.provider_call_ref)),
+      ].filter(Boolean),
+      provider_purposes: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.purpose)),
+      ].filter(Boolean),
+      provider_statuses: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.status)),
+      ].filter(Boolean),
+      provider_output_types: [
+        ...new Set(providerProgressEvents.map((frame) => frame.body?.payload?.output_type)),
+      ].filter(Boolean),
+      provider_execution_stream_projected: providerProgressEvents.every((frame) =>
+        (frame.body?.reason_codes ?? []).includes("provider_execution_stream"),
+      ),
+      provider_progress_raw_content_leaked: rawProviderContentLeaked,
+      final_turn_result_run_id: runId,
+      safe_fallback_visible:
+        visibleText.includes("调用创作模型失败") &&
+        visibleText.includes("无法连接到创作引擎"),
+    },
+  ];
+}
+
+async function driveAgentPlotOutlineWithContext(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  const message = "请基于当前作品规划十二章章节大纲。";
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "Plot outline AgentRun request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "Plot outline AgentRun did not fast-ack with bounded run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const contextStepFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("组装章节大纲规划上下文"),
+    "Plot outline AgentRun did not propose the context assembly step",
+    30_000,
+  );
+
+  const contextEventFrame = await waitForNewFrame(
+    frames.indexOf(contextStepFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "goal_understood" &&
+      String(frame.body?.summary ?? "").includes("章节大纲规划上下文"),
+    "Plot outline AgentRun did not publish the context stage event",
+    30_000,
+  );
+
+  const contextObservationFrame = await waitForNewFrame(
+    frames.indexOf(contextEventFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("已组装章节大纲规划上下文"),
+    "Plot outline AgentRun did not publish the context observation",
+    30_000,
+  );
+
+  const strategyStepFrame = await waitForNewFrame(
+    frames.indexOf(contextObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("制定大纲执行策略"),
+    "Plot outline AgentRun did not propose the strategy/gate step",
+    30_000,
+  );
+
+  const planEventFrame = await waitForNewFrame(
+    frames.indexOf(strategyStepFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_created",
+    "Plot outline AgentRun did not publish plan_created",
+    30_000,
+  );
+
+  const gateEventFrame = await waitForNewFrame(
+    frames.indexOf(planEventFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "gate_decided",
+    "Plot outline AgentRun did not publish gate_decided",
+    30_000,
+  );
+
+  const outlineStepFrame = strategyStepFrame;
+
+  const toolStartedFrame = await waitForNewFrame(
+    frames.indexOf(gateEventFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "tool_started",
+    "Plot outline AgentRun did not publish tool_started",
+    30_000,
+  );
+
+  const toolCompletedFrame = await waitForNewFrame(
+    frames.indexOf(toolStartedFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "tool_completed" &&
+      String(frame.body?.payload?.tool_name ?? "") === "plot_outline",
+    "Plot outline AgentRun did not publish tool_completed for plot_outline",
+    120_000,
+  );
+
+  const toolObservationFrame = await waitForNewFrame(
+    frames.indexOf(toolCompletedFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("待采纳大纲草稿"),
+    "Plot outline AgentRun did not publish the tool observation",
+    30_000,
+  );
+
+  const artifactObservationFrame = await waitForNewFrame(
+    frames.indexOf(toolObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("大纲草稿"),
+    "Plot outline AgentRun did not publish the artifact observation",
+    30_000,
+  );
+
+  const artifactEventFrame = await waitForNewFrame(
+    frames.indexOf(artifactObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "artifact_created" &&
+      Array.isArray(frame.body?.refs) &&
+      frame.body.refs.length > 0,
+    "Plot outline AgentRun did not publish artifact_created",
+    30_000,
+  );
+
+  const finalStepFrame = await waitForNewFrame(
+    frames.indexOf(artifactEventFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("确认大纲目标"),
+    "Plot outline AgentRun did not propose the completion decision step",
+    30_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.profile_ref === "plot_outline_with_context_v1" &&
+      frame.body?.tool_result?.tool_name === "plot_outline" &&
+      frame.body?.tool_result?.status === "succeeded" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "outline_draft",
+    "Plot outline AgentRun did not broadcast outline_draft TurnResult",
+    120_000,
+  );
+  const turnResult = turnFrame.body;
+  const pendingArtifact = turnResult.adoption_state.pending[0];
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Plot outline AgentRun did not publish run_completed",
+    60_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      frame.body?.profile_ref === "plot_outline_with_context_v1" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
+    "Plot outline AgentRun state did not complete with expected counters",
+    60_000,
+  );
+
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+    "Plot outline user_message did not log bounded run ack",
+    30_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+    "Plot outline step was not re-gated by the orchestrator",
+    60_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) => record.event === "toolbox.execute.done" && record.tool_name === "plot_outline",
+    "Plot outline run did not execute plot_outline",
+    60_000,
+  );
+
+  const ackIndex = frames.findIndex((frame) => frame === ackFrame);
+  const turnIndex = frames.findIndex((frame) => frame === turnFrame);
+  assert(
+    ackIndex >= 0 && turnIndex > ackIndex,
+    "Plot outline final TurnResult arrived before fast ack",
+  );
+  assert(turnResult.truthfulness?.artifact_adopted === false, "Plot outline artifact was adopted");
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "Plot outline run performed a production write",
+  );
+  assert(
+    pendingArtifact.requires_adoption === true &&
+      String(pendingArtifact.adoption_status ?? "") === "tentative",
+    "Plot outline artifact was not a tentative adoption candidate",
+  );
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("创作执行") && document.body.innerText.includes("工作详情") &&
+      document.body.innerText.includes("当前：已完成") &&
+      document.body.innerText.includes("大纲草稿"),
+    undefined,
+    { timeout: 30_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, turnResult, sentFrame);
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const logAllowToolCount = logsAfter.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  ).length;
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-plot-outline-with-context",
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      final_turn_id: turnResult.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      profile_ref: completedStateFrame.body.profile_ref,
+      parent_fast_ack_before_final_turn_result: ackIndex >= 0 && turnIndex > ackIndex,
+      outline_request_sent_from_real_workbench: true,
+      final_turn_broadcast: true,
+      final_tool_name: turnResult.tool_result?.tool_name,
+      final_tool_status: turnResult.tool_result?.status,
+      pending_artifact_id: pendingArtifact.artifact_id,
+      pending_artifact_type: pendingArtifact.artifact_type,
+      pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
+      no_production_write: turnResult.truthfulness?.production_write_performed === false,
+      completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
+      consumed_steps: completedStateFrame.body.consumed_budget?.steps,
+      consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
+      consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
+      agent_stage_events_visible:
+        contextStepFrame.body?.event_type === "step_proposed" &&
+        contextEventFrame.body?.event_type === "goal_understood" &&
+        strategyStepFrame.body?.event_type === "step_proposed" &&
+        planEventFrame.body?.event_type === "plan_created" &&
+        gateEventFrame.body?.event_type === "gate_decided" &&
+        outlineStepFrame.body?.event_type === "step_proposed" &&
+        toolStartedFrame.body?.event_type === "tool_started" &&
+        toolCompletedFrame.body?.event_type === "tool_completed" &&
+        finalStepFrame.body?.event_type === "step_proposed",
+      context_step_visible: contextStepFrame.body?.event_type === "step_proposed",
+      context_event_visible: contextEventFrame.body?.event_type === "goal_understood",
+      context_observation_visible:
+        contextObservationFrame.body?.event_type === "observation_recorded",
+      strategy_step_visible: strategyStepFrame.body?.event_type === "step_proposed",
+      plan_event_visible: planEventFrame.body?.event_type === "plan_created",
+      gate_event_visible: gateEventFrame.body?.event_type === "gate_decided",
+      strategy_observation_visible: false,
+      outline_step_visible: outlineStepFrame.body?.event_type === "step_proposed",
+      tool_started_visible: toolStartedFrame.body?.event_type === "tool_started",
+      tool_completed_visible: toolCompletedFrame.body?.event_type === "tool_completed",
+      tool_observation_visible: toolObservationFrame.body?.event_type === "observation_recorded",
+      finalization_step_visible: finalStepFrame.body?.event_type === "step_proposed",
+      artifact_observation_visible:
+        artifactObservationFrame.body?.event_type === "observation_recorded",
+      artifact_event_visible: artifactEventFrame.body?.event_type === "artifact_created",
+      ui_context_step_visible: visibleText.includes("正在组装章节大纲规划上下文"),
+      ui_strategy_step_visible: visibleText.includes("正在制定大纲执行策略"),
+      ui_outline_step_visible: visibleText.includes("生成草稿"),
+      ui_finalization_step_visible: visibleText.includes("确认大纲目标"),
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
+      ui_agent_completed_visible: visibleText.includes("当前：已完成"),
+      ui_outline_draft_visible:
+        visibleText.includes("章节大纲草稿") || visibleText.includes("大纲草稿"),
+      log_sync_turn_count: logsAfter.filter(
+        (record) =>
+          record.event === "channel.user_message.done" &&
+          String(record.run_mode ?? "") === "sync_turn",
+      ).length,
+      log_allow_tool_count: logAllowToolCount,
+      log_plot_outline_tool_done: logsAfter.some(
+        (record) =>
+          record.event === "toolbox.execute.done" &&
+          record.tool_name === "plot_outline" &&
+          record.tool_outcome === "succeeded",
+      ),
+      user_message_text: sentFrame.body?.text,
+    },
+  ];
+}
+
+async function driveAgentCharacterEvolutionWithContext(page) {
+  await configureProviderRuntime({ provider: "slice_verify" });
+
+  await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
+
+  const setupBefore = frames.length;
+  await sendOrdinaryChatTurn(
+    page,
+    "先看看现有角色阵容，然后设计一个主角，叫林烬。",
+    setupBefore,
+  );
+  const setupTurnFrame = await waitForNewFrame(
+    setupBefore,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.tool_result?.tool_name === "character_design" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "character_seed",
+    "Character setup did not broadcast a character_seed TurnResult",
+    120_000,
+  );
+  const setupTurnResult = setupTurnFrame.body;
+  const seedPending = setupTurnResult.adoption_state?.pending?.[0];
+  assert(
+    seedPending && seedPending.artifact_type === "character_seed",
+    `character setup did not produce a character_seed (got ${seedPending?.artifact_type})`,
+  );
+
+  const adoptionStart = frames.length;
+  await page.getByRole("button", { name: acceptDraftButtonPattern }).first().click();
+  const adoptionFrame = await waitForNewFrame(
+    adoptionStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.truthfulness?.artifact_adopted === true &&
+      (frame.body?.adoption_state?.resolved ?? []).some(
+        (entry) => entry.artifact_id === seedPending.artifact_id,
+      ),
+    "Character setup adoption frame was not received",
+    120_000,
+  );
+
+  const nonce = `EVOR${Date.now()}`;
+  const message = `更新林烬的当前状态（标记 ${nonce}）：他在这一章右臂重伤了。`;
+  const frameStart = frames.length;
+  const logStart = readAppLogRecords().length;
+
+  await page.locator(chatInputSelector).fill(message);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const sentFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "") === message,
+    "Character evolution AgentRun request was not sent from the real workbench input",
+    30_000,
+  );
+
+  const ackFrame = await waitForNewFrame(
+    frameStart,
+    (frame) => {
+      const response = frame.body?.response ?? {};
+      return (
+        frame.direction === "received" &&
+        frame.event === "phx_reply" &&
+        frame.body?.status === "ok" &&
+        response.received === true &&
+        response.run_mode === "bounded" &&
+        typeof response.run_id === "string" &&
+        response.run_id !== ""
+      );
+    },
+    "Character evolution AgentRun did not fast-ack with bounded run_id",
+    30_000,
+  );
+  const runId = ackFrame.body.response.run_id;
+
+  const contextStepFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("组装角色演化上下文"),
+    "Character evolution AgentRun did not propose the context assembly step",
+    30_000,
+  );
+
+  const contextEventFrame = await waitForNewFrame(
+    frames.indexOf(contextStepFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "goal_understood" &&
+      String(frame.body?.summary ?? "").includes("角色演化上下文"),
+    "Character evolution AgentRun did not publish the context stage event",
+    30_000,
+  );
+
+  const contextObservationFrame = await waitForNewFrame(
+    frames.indexOf(contextEventFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("已组装角色演化上下文"),
+    "Character evolution AgentRun did not publish the context observation",
+    30_000,
+  );
+
+  const strategyStepFrame = await waitForNewFrame(
+    frames.indexOf(contextObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("制定角色演化执行策略"),
+    "Character evolution AgentRun did not propose the strategy/gate step",
+    30_000,
+  );
+
+  const planEventFrame = await waitForNewFrame(
+    frames.indexOf(strategyStepFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "plan_created",
+    "Character evolution AgentRun did not publish plan_created",
+    30_000,
+  );
+
+  const gateEventFrame = await waitForNewFrame(
+    frames.indexOf(planEventFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "gate_decided",
+    "Character evolution AgentRun did not publish gate_decided",
+    30_000,
+  );
+
+  const evolutionStepFrame = strategyStepFrame;
+
+  const toolStartedFrame = await waitForNewFrame(
+    frames.indexOf(gateEventFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "tool_started",
+    "Character evolution AgentRun did not publish tool_started",
+    30_000,
+  );
+
+  const toolCompletedFrame = await waitForNewFrame(
+    frames.indexOf(toolStartedFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "tool_completed" &&
+      String(frame.body?.payload?.tool_name ?? "") === "character_evolution",
+    "Character evolution AgentRun did not publish tool_completed for character_evolution",
+    120_000,
+  );
+
+  const toolObservationFrame = await waitForNewFrame(
+    frames.indexOf(toolCompletedFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("待采纳角色演化记忆草稿"),
+    "Character evolution AgentRun did not publish the tool observation",
+    30_000,
+  );
+
+  const artifactObservationFrame = await waitForNewFrame(
+    frames.indexOf(toolObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "observation_recorded" &&
+      String(frame.body?.summary ?? "").includes("角色演化记忆草稿"),
+    "Character evolution AgentRun did not publish the artifact observation",
+    30_000,
+  );
+
+  const artifactEventFrame = await waitForNewFrame(
+    frames.indexOf(artifactObservationFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "artifact_created" &&
+      Array.isArray(frame.body?.refs) &&
+      frame.body.refs.length > 0,
+    "Character evolution AgentRun did not publish artifact_created",
+    30_000,
+  );
+
+  const finalStepFrame = await waitForNewFrame(
+    frames.indexOf(artifactEventFrame) + 1,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "step_proposed" &&
+      String(frame.body?.summary ?? "").includes("确认角色演化目标"),
+    "Character evolution AgentRun did not propose the completion decision step",
+    30_000,
+  );
+
+  const turnFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "turn_result" &&
+      frame.body?.agent_run?.run_id === runId &&
+      frame.body?.agent_run?.profile_ref === "character_evolution_with_context_v1" &&
+      frame.body?.tool_result?.tool_name === "character_evolution" &&
+      frame.body?.tool_result?.status === "succeeded" &&
+      frame.body?.adoption_state?.pending?.[0]?.artifact_type === "character_evolution_seed",
+    "Character evolution AgentRun did not broadcast character_evolution_seed TurnResult",
+    120_000,
+  );
+  const turnResult = turnFrame.body;
+  const pendingArtifact = turnResult.adoption_state.pending[0];
+  const pendingItem = pendingArtifact.payload?.items?.[0] ?? {};
+
+  await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_event" &&
+      frame.body?.run_ref === runId &&
+      frame.body?.event_type === "run_completed",
+    "Character evolution AgentRun did not publish run_completed",
+    60_000,
+  );
+
+  const completedStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed" &&
+      frame.body?.profile_ref === "character_evolution_with_context_v1" &&
+      Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
+      Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 4,
+    "Character evolution AgentRun state did not complete with expected counters",
+    60_000,
+  );
+
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+    "Character evolution user_message did not log bounded run ack",
+    30_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+    "Character evolution step was not re-gated by the orchestrator",
+    60_000,
+  );
+  await waitForNewAppLogRecord(
+    logStart,
+    (record) =>
+      record.event === "toolbox.execute.done" && record.tool_name === "character_evolution",
+    "Character evolution run did not execute character_evolution",
+    60_000,
+  );
+
+  const ackIndex = frames.findIndex((frame) => frame === ackFrame);
+  const turnIndex = frames.findIndex((frame) => frame === turnFrame);
+  assert(
+    ackIndex >= 0 && turnIndex > ackIndex,
+    "Character evolution final TurnResult arrived before fast ack",
+  );
+  assert(
+    turnResult.truthfulness?.artifact_adopted === false,
+    "Character evolution artifact was adopted",
+  );
+  assert(
+    turnResult.truthfulness?.production_write_performed === false,
+    "Character evolution run performed a production write",
+  );
+  assert(
+    pendingArtifact.requires_adoption === true &&
+      String(pendingArtifact.adoption_status ?? "") === "tentative",
+    "Character evolution artifact was not a tentative adoption candidate",
+  );
+  assert(
+    String(pendingItem.title ?? "").includes("林烬") ||
+      String(pendingItem.body ?? "").includes("林烬"),
+    "Character evolution draft did not preserve the target character name",
+  );
+  assert(
+    String(pendingItem.title ?? "").includes(nonce) ||
+      String(pendingItem.body ?? "").includes(nonce) ||
+      String(pendingItem.rationale ?? "").includes(nonce),
+    "Character evolution draft did not preserve the input nonce",
+  );
+
+  await page.waitForFunction(
+    () =>
+      document.body.innerText.includes("创作执行") && document.body.innerText.includes("工作详情") &&
+      document.body.innerText.includes("当前：已完成") &&
+      document.body.innerText.includes("角色演化记忆草稿"),
+    undefined,
+    { timeout: 30_000 },
+  );
+
+  const visibleText = await page.locator("body").innerText();
+  const uiState = await commonUiState(page, turnResult, sentFrame);
+  const logsAfter = readAppLogRecords().slice(logStart);
+  const parentUserMessageLog = logsAfter.find(
+    (record) => record.event === "channel.user_message.done" && record.run_id === runId,
+  );
+  const logAllowToolCount = logsAfter.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  ).length;
+
+  return [
+    {
+      ...uiState,
+      slice_id: "agent-character-evolution-with-context",
+      setup_character_turn_id: setupTurnResult.turn_id,
+      setup_adoption_turn_id: adoptionFrame.body?.turn_id,
+      setup_character_adopted: adoptionFrame.body?.truthfulness?.artifact_adopted === true,
+      seed_artifact_type: seedPending.artifact_type,
+      parent_turn_id: parentUserMessageLog?.turn_id,
+      final_turn_id: turnResult.turn_id,
+      run_id: runId,
+      run_mode: ackFrame.body.response.run_mode,
+      profile_ref: completedStateFrame.body.profile_ref,
+      parent_fast_ack_before_final_turn_result: ackIndex >= 0 && turnIndex > ackIndex,
+      character_evolution_request_sent_from_real_workbench: true,
+      final_turn_broadcast: true,
+      final_tool_name: turnResult.tool_result?.tool_name,
+      final_tool_status: turnResult.tool_result?.status,
+      pending_artifact_id: pendingArtifact.artifact_id,
+      pending_artifact_type: pendingArtifact.artifact_type,
+      pending_artifact_requires_adoption: pendingArtifact.requires_adoption === true,
+      pending_artifact_tentative: String(pendingArtifact.adoption_status ?? "") === "tentative",
+      pending_memory_subtype: pendingItem.memory_subtype ?? null,
+      pending_item_preserved_character:
+        String(pendingItem.title ?? "").includes("林烬") ||
+        String(pendingItem.body ?? "").includes("林烬"),
+      pending_item_preserved_nonce:
+        String(pendingItem.title ?? "").includes(nonce) ||
+        String(pendingItem.body ?? "").includes(nonce) ||
+        String(pendingItem.rationale ?? "").includes(nonce),
+      no_auto_adoption: turnResult.truthfulness?.artifact_adopted === false,
+      no_production_write: turnResult.truthfulness?.production_write_performed === false,
+      completed_step_count: completedStateFrame.body.completed_step_refs?.length ?? 0,
+      consumed_steps: completedStateFrame.body.consumed_budget?.steps,
+      consumed_tool_calls: completedStateFrame.body.consumed_budget?.tool_calls,
+      consumed_provider_calls: completedStateFrame.body.consumed_budget?.provider_calls,
+      agent_stage_events_visible:
+        contextStepFrame.body?.event_type === "step_proposed" &&
+        contextEventFrame.body?.event_type === "goal_understood" &&
+        strategyStepFrame.body?.event_type === "step_proposed" &&
+        planEventFrame.body?.event_type === "plan_created" &&
+        gateEventFrame.body?.event_type === "gate_decided" &&
+        evolutionStepFrame.body?.event_type === "step_proposed" &&
+        toolStartedFrame.body?.event_type === "tool_started" &&
+        toolCompletedFrame.body?.event_type === "tool_completed" &&
+        finalStepFrame.body?.event_type === "step_proposed",
+      context_step_visible: contextStepFrame.body?.event_type === "step_proposed",
+      context_event_visible: contextEventFrame.body?.event_type === "goal_understood",
+      context_observation_visible:
+        contextObservationFrame.body?.event_type === "observation_recorded",
+      strategy_step_visible: strategyStepFrame.body?.event_type === "step_proposed",
+      plan_event_visible: planEventFrame.body?.event_type === "plan_created",
+      gate_event_visible: gateEventFrame.body?.event_type === "gate_decided",
+      strategy_observation_visible: false,
+      evolution_step_visible: evolutionStepFrame.body?.event_type === "step_proposed",
+      tool_started_visible: toolStartedFrame.body?.event_type === "tool_started",
+      tool_completed_visible: toolCompletedFrame.body?.event_type === "tool_completed",
+      tool_observation_visible: toolObservationFrame.body?.event_type === "observation_recorded",
+      finalization_step_visible: finalStepFrame.body?.event_type === "step_proposed",
+      artifact_observation_visible:
+        artifactObservationFrame.body?.event_type === "observation_recorded",
+      artifact_event_visible: artifactEventFrame.body?.event_type === "artifact_created",
+      ui_context_step_visible: visibleText.includes("正在组装角色演化上下文"),
+      ui_strategy_step_visible: visibleText.includes("正在制定角色演化执行策略"),
+      ui_evolution_step_visible: visibleText.includes("生成草稿"),
+      ui_finalization_step_visible: visibleText.includes("确认角色演化目标"),
+      ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
+      ui_agent_completed_visible: visibleText.includes("当前：已完成"),
+      ui_character_evolution_draft_visible: visibleText.includes("角色演化记忆草稿"),
+      log_sync_turn_count: logsAfter.filter(
+        (record) =>
+          record.event === "channel.user_message.done" &&
+          String(record.run_mode ?? "") === "sync_turn",
+      ).length,
+      log_allow_tool_count: logAllowToolCount,
+      log_character_evolution_tool_done: logsAfter.some(
+        (record) =>
+          record.event === "toolbox.execute.done" &&
+          record.tool_name === "character_evolution" &&
+          record.tool_outcome === "succeeded",
+      ),
+      character_evolution_nonce: nonce,
       user_message_text: sentFrame.body?.text,
     },
   ];
@@ -17213,7 +18702,7 @@ async function driveAgentDurableResumeLongRunTask(page) {
     await page.waitForFunction(
       (expected) =>
         expected.every((value) => document.body.innerText.includes(value)),
-      ["创作执行", "已恢复检查点", "等待你确认", longRunTaskRef],
+      ["创作执行", "工作详情", "已恢复检查点", "等待你确认", longRunTaskRef],
       { timeout: 30_000 },
     );
 
@@ -17305,7 +18794,7 @@ async function driveAgentProviderStreamingProgress(page) {
   const progressEvents = [];
   for (const reason of [
     "provider_call_started",
-    "provider_streaming_unavailable",
+    "provider_execution_stream_active",
     "provider_call_completed",
   ]) {
     const eventFrame = await waitForNewFrame(
@@ -17376,8 +18865,8 @@ async function driveAgentProviderStreamingProgress(page) {
       progress_visibility_author: progressEvents.every((frame) => frame.body?.visibility === "author"),
       progress_has_step_ref: progressEvents.every((frame) => typeof frame.body?.step_ref === "string"),
       raw_prompt_leaked_in_progress_events: rawPromptLeaked,
-      provider_streaming_degraded_honestly: progressEvents.some((frame) =>
-        (frame.body?.reason_codes ?? []).includes("provider_streaming_unavailable"),
+      provider_execution_stream_active: progressEvents.some((frame) =>
+        (frame.body?.reason_codes ?? []).includes("provider_execution_stream_active"),
       ),
       consumed_provider_calls: completedStateFrame.body?.consumed_budget?.provider_calls,
       final_turn_result_run_id: turnResultFrame.body?.agent_run?.run_id,
@@ -17453,9 +18942,8 @@ async function driveAgentProviderCancelHonestBoundary(page) {
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "interrupt_requested" &&
-      (frame.body?.reason_codes ?? []).includes("provider_hard_cancel_unsupported") &&
-      (frame.body?.reason_codes ?? []).includes("cooperative_cancel"),
-    "Cancel boundary did not report cooperative cancel without hard-cancel support",
+      (frame.body?.reason_codes ?? []).includes("provider_execution_cancel_requested"),
+    "Cancel boundary did not report ProviderExecution cancel request",
     20_000,
   );
 
@@ -17471,7 +18959,7 @@ async function driveAgentProviderCancelHonestBoundary(page) {
     20_000,
   );
 
-  await page.waitForFunction(() => document.body.innerText.includes("正在协作取消"), {
+  await page.waitForFunction(() => document.body.innerText.includes("正在取消"), {
     timeout: 20_000,
   });
 
@@ -17482,8 +18970,8 @@ async function driveAgentProviderCancelHonestBoundary(page) {
       frame.event === "agent_event" &&
       frame.body?.run_ref === runId &&
       frame.body?.event_type === "run_cancelled" &&
-      (frame.body?.reason_codes ?? []).includes("cooperative_cancel"),
-    "Provider cancel did not finish at a cooperative safe point",
+      (frame.body?.reason_codes ?? []).includes("provider_execution_cancelled"),
+    "Provider cancel did not finish through ProviderExecution cancel",
     60_000,
   );
 
@@ -17517,13 +19005,14 @@ async function driveAgentProviderCancelHonestBoundary(page) {
       interrupt_reason_codes: interruptFrame.body?.reason_codes ?? [],
       cancel_strategy: interruptFrame.body?.payload?.cancel_strategy,
       supports_cancellation: interruptFrame.body?.payload?.supports_cancellation,
-      provider_call_active_during_cancel: interruptFrame.body?.payload?.provider_call_active,
-      cancelling_status_visible_before_safe_point: cancellingStateFrame.body?.status === "cancelling",
+      current_task_active_during_cancel: interruptFrame.body?.payload?.current_task_active,
+      cancelling_status_visible_before_terminal_state:
+        cancellingStateFrame.body?.status === "cancelling",
       cancelling_current_task: cancellingStateFrame.body?.current_task,
       terminal_event_type: cancelledEventFrame.body?.event_type,
       terminal_status: cancelledStateFrame.body?.status,
-      hard_cancel_claimed_without_evidence: false,
-      cooperative_cancel_visible: visibleText.includes("正在协作取消") || visibleText.includes("已取消"),
+      provider_execution_cancel_visible:
+        visibleText.includes("正在取消") || visibleText.includes("已取消"),
       user_message_text: sentFrame.body?.text,
     },
   ];
@@ -17802,8 +19291,8 @@ async function driveUa01AgentBoundedRosterToCharacterDesignSeeded(page) {
 
   await page.waitForFunction(
     () =>
-      document.body.innerText.includes("创作执行") &&
-      document.body.innerText.includes("状态：已完成") &&
+      document.body.innerText.includes("创作执行") && document.body.innerText.includes("工作详情") &&
+      document.body.innerText.includes("当前：已完成") &&
       document.body.innerText.includes("已读取当前角色阵容") &&
       document.body.innerText.includes("已生成待采纳候选") &&
       document.body.innerText.includes("保存到作品档案") &&
@@ -17892,8 +19381,8 @@ async function driveUa01AgentBoundedRosterToCharacterDesignSeeded(page) {
       pending_artifact_body_chars: String(item.body ?? "").length,
       artifact_adopted: finalTurnResult.truthfulness?.artifact_adopted === true,
       production_write_performed: finalTurnResult.truthfulness?.production_write_performed === true,
-      agent_panel_visible: visibleText.includes("创作执行"),
-      agent_completed_status_visible: visibleText.includes("状态：已完成"),
+      agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
+      agent_completed_status_visible: visibleText.includes("当前：已完成"),
       roster_activity_visible: visibleText.includes("已读取当前角色阵容"),
       artifact_activity_visible: visibleText.includes("已生成待采纳候选"),
       save_archive_action_visible: visibleText.includes("保存到作品档案"),
@@ -18047,7 +19536,7 @@ async function driveUa01AgentInterruptCommand(page, command) {
       frame.body?.run_ref === runId &&
       frame.body?.event_type === terminalEventType &&
       String(frame.body?.summary ?? "").includes(terminalSummary),
-    `UA-01 ${command} did not stop at the cooperative safe point`,
+    `UA-01 ${command} did not reach terminal interrupt state`,
     60_000,
   );
 
@@ -18096,10 +19585,13 @@ async function driveUa01AgentInterruptCommand(page, command) {
       terminal_status: terminalState.body?.status,
       terminal_phase: terminalState.body?.phase,
       interrupt_state_status: terminalState.body?.interrupt_state?.status ?? null,
-      provider_hard_cancel_claimed: false,
-      cooperative_interrupt_visible:
+      provider_execution_cancel_requested: (interruptEvent.body?.reason_codes ?? []).includes(
+        "provider_execution_cancel_requested",
+      ),
+      provider_execution_cancel_strategy: interruptEvent.body?.payload?.cancel_strategy,
+      interrupt_status_visible:
         visibleText.includes("正在请求暂停") ||
-        visibleText.includes("正在取消 AgentRun") ||
+        visibleText.includes("正在取消") ||
         visibleText.includes(terminalSummary),
       no_cross_run_command: commandFrame.body?.run_id === runId,
       user_message_text: sentFrame.body?.text,
@@ -18421,15 +19913,19 @@ async function driveAgentWorkIsolation(page) {
   ];
 }
 
-async function driveAgentSteerReplan(page) {
+async function driveAgentSteerReplan(page, options = {}) {
   await configureProviderRuntime({ provider: "slice_verify" });
 
+  const sliceId = options.sliceId ?? "agent-steer-replan";
+  const useMainInput = options.useMainInput === true;
   const nonce = `UA01-STEER-${Date.now().toString(36)}`;
   const steerText = `把后续角色方向调整为克制、冷静、长期博弈，标记${nonce}`;
   const work = await createWorkSeed({
-    title: `UA01 AgentRun Steer ${nonce}`,
+    title: `${useMainInput ? "UA01 AgentRun Natural Steer" : "UA01 AgentRun Steer"} ${nonce}`,
     genre: "赛博修仙",
-    core_selling_point: "验证运行中的 bounded AgentRun 接受作者 steer 并广播重规划事件",
+    core_selling_point: useMainInput
+      ? "验证运行中的 bounded AgentRun 接受主输入框自然语言 steering"
+      : "验证运行中的 bounded AgentRun 接受作者 steer 并广播重规划事件",
     target_reader: "需要在多步创作中途调整方向的作者",
     tone_preference: "冷静、清晰",
   });
@@ -18489,8 +19985,14 @@ async function driveAgentSteerReplan(page) {
     30_000,
   );
 
-  await page.getByLabel("调整方向").fill(steerText);
-  await page.getByRole("button", { name: /^调整方向$/ }).click();
+  const steerFrameStart = frames.length;
+  if (useMainInput) {
+    await page.locator(chatInputSelector).fill(steerText);
+    await page.getByRole("button", { name: /^发送$/ }).click();
+  } else {
+    await page.getByLabel("调整方向").fill(steerText);
+    await page.getByRole("button", { name: /^调整方向$/ }).click();
+  }
 
   const commandFrame = await waitForNewFrame(
     frameStart,
@@ -18500,7 +20002,9 @@ async function driveAgentSteerReplan(page) {
       frame.body?.run_id === runId &&
       frame.body?.command === "steer" &&
       String(frame.body?.text ?? "").includes(nonce),
-    "UA-01 steer command was not sent from the real AgentRun control",
+    useMainInput
+      ? "UA-01 natural language steer was not sent as an agent_command from the main input"
+      : "UA-01 steer command was not sent from the real AgentRun control",
     30_000,
   );
 
@@ -18541,6 +20045,13 @@ async function driveAgentSteerReplan(page) {
   );
 
   const visibleText = await page.locator("body").innerText();
+  const framesAfterSteer = frames.slice(steerFrameStart);
+  const secondUserMessageForSteer = framesAfterSteer.find(
+    (frame) =>
+      frame.direction === "sent" &&
+      frame.event === "user_message" &&
+      String(frame.body?.text ?? "").includes(nonce),
+  );
   const logsAfter = readAppLogRecords().slice(logStart);
   const parentUserMessageLog = logsAfter.find(
     (record) => record.event === "channel.user_message.done" && record.run_id === runId,
@@ -18554,7 +20065,7 @@ async function driveAgentSteerReplan(page) {
   return [
     {
       ...uiState,
-      slice_id: "agent-steer-replan",
+      slice_id: sliceId,
       work_id: workId,
       workspace_id: workId,
       session_id: sentFrame.body?.session_id ?? joinRecord.session_id,
@@ -18564,7 +20075,9 @@ async function driveAgentSteerReplan(page) {
       run_mode: ackFrame.body.response.run_mode,
       command: "steer",
       command_text: commandFrame.body?.text,
-      command_sent_from_real_button: true,
+      command_sent_from_real_button: !useMainInput,
+      command_sent_from_main_input: useMainInput,
+      no_second_user_message_for_steer: !secondUserMessageForSteer,
       command_ack_received: commandAckFrame.body?.response?.received === true,
       command_target_bound_to_active_run: commandFrame.body?.run_id === runId,
       plan_adjusted_event_type: planAdjustedFrame.body?.event_type,
@@ -18575,6 +20088,13 @@ async function driveAgentSteerReplan(page) {
       user_message_text: sentFrame.body?.text,
     },
   ];
+}
+
+async function driveAgentNaturalLanguageSteer(page) {
+  return driveAgentSteerReplan(page, {
+    sliceId: "agent-natural-language-steer",
+    useMainInput: true,
+  });
 }
 
 async function driveAgentLoopBudgetLimit(page) {
@@ -18883,11 +20403,17 @@ const drivers = {
   "agent-provider-call-budget": driveUa01AgentBoundedRosterToCharacterDesign,
   "agent-prose-drafting-with-quality": driveAgentProseDraftingWithQuality,
   "agent-conversation-turn": driveAgentConversationTurn,
+  "agent-provider-execution-stream-unified": driveAgentProviderExecutionStreamUnified,
+  "agent-provider-execution-activity-restored": driveAgentProviderExecutionActivityRestored,
+  "agent-provider-execution-error-author-safe": driveAgentProviderExecutionErrorAuthorSafe,
+  "agent-plot-outline-with-context": driveAgentPlotOutlineWithContext,
+  "agent-character-evolution-with-context": driveAgentCharacterEvolutionWithContext,
   "agent-durable-resume-long-run-task": driveAgentDurableResumeLongRunTask,
   "agent-provider-streaming-progress": driveAgentProviderStreamingProgress,
   "agent-provider-cancel-honest-boundary": driveAgentProviderCancelHonestBoundary,
   "agent-readonly-batch-profile": driveAgentReadonlyBatchProfile,
   "agent-steer-replan": driveAgentSteerReplan,
+  "agent-natural-language-steer": driveAgentNaturalLanguageSteer,
   "agent-loop-budget-limit": driveAgentLoopBudgetLimit,
   "agent-no-progress-stop": driveAgentNoProgressStop,
   "p1-prose-execution-brief": driveP1ProseExecutionBrief,

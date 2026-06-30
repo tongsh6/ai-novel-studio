@@ -1,0 +1,55 @@
+id: agent-provider-execution-stream-unified
+title: Provider execution facts 进入对话 AgentRun author-safe 工作轨迹
+tier: nightly
+status: active
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-provider-execution-stream-unified --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - provider-execution-has-single-runtime-architecture
+  - provider-execution-facts-project-to-agent-activity
+  - provider-activity-is-author-safe
+  - conversation-profile-does-not-use-historical-provider-progress-profile
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: plain conversation input that routes to conversation_turn_v1
+  - wait_for: fast ack with bounded run_id
+  - verify: provider started, request_prepared, request_dispatched, chunk, response_received, and final_output facts project as provider_progress agent_event entries for the same run_id
+  - verify: provider activity carries provider_run_ref and provider_call_ref
+  - verify: final TurnResult is consistent with the same AgentRun and records planner plus conversation provider calls
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-provider-execution-stream-unified-tauri
+
+assertions:
+  data:
+    - profile_ref is conversation_turn_v1, not provider_progress_v1
+    - provider_progress events are visibility=author
+    - provider_progress events carry run_id, step_ref, provider_run_ref, and provider_call_ref
+    - provider_progress events include provider_started, provider_request_prepared, provider_request_dispatched, provider_chunk, provider_response_received, and provider_final_output reason codes
+    - provider chunk payload carries chunk index, chunk length, and accumulated length, but no generated text delta
+    - provider progress UI shows prepared request, dispatched request, chunk receiving, and response received before final output
+    - provider_progress payload does not expose raw prompt, system prompt, frame JSON, or assistant_message content
+    - provider_progress purposes include planner and conversation
+    - completed agent_run_state records six provider calls
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

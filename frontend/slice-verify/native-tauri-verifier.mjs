@@ -11,12 +11,15 @@ const ua01AgentScenarioIds = [
 
 const ua01AgentInterruptScenarioIds = ["agent-interrupt-safe-point", "agent-cancel-target-binding"];
 
-const ua01AgentSteerScenarioIds = ["agent-steer-replan"];
+const ua01AgentSteerScenarioIds = ["agent-steer-replan", "agent-natural-language-steer"];
 const ua01AgentStopScenarioIds = ["agent-loop-budget-limit", "agent-no-progress-stop"];
 const ua01AgentArchiveScenarioIds = ["agent-archive-read-during-run"];
 const ua01AgentIsolationScenarioIds = ["agent-work-isolation"];
 const ua01AgentDurableScenarioIds = ["agent-durable-resume-long-run-task"];
 const ua01AgentCp6ScenarioIds = [
+  "agent-provider-execution-stream-unified",
+  "agent-provider-execution-activity-restored",
+  "agent-provider-execution-error-author-safe",
   "agent-provider-streaming-progress",
   "agent-provider-cancel-honest-boundary",
   "agent-readonly-batch-profile",
@@ -146,6 +149,8 @@ export const nativeSliceIds = [
   "p1-prose-quality-adoption-boundary",
   "agent-prose-drafting-with-quality",
   "agent-conversation-turn",
+  "agent-plot-outline-with-context",
+  "agent-character-evolution-with-context",
   ...ua01AgentScenarioIds,
   ...ua01AgentInterruptScenarioIds,
   ...ua01AgentSteerScenarioIds,
@@ -429,7 +434,45 @@ const sliceKeyEvents = {
   ],
   "agent-conversation-turn": [
     "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
     "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-provider-execution-stream-unified": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-provider-execution-activity-restored": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "work_session.resume.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-provider-execution-error-author-safe": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.error",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-plot-outline-with-context": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-character-evolution-with-context": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
     "channel.user_message.done",
     "slice_verify.ui_state.done",
   ],
@@ -480,6 +523,12 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "agent-steer-replan": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-natural-language-steer": [
     "channel.user_message.start",
     "orchestrator.decide.done",
     "channel.user_message.done",
@@ -1732,6 +1781,14 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAgentConversationTurnEvidence(records);
   }
 
+  if (sliceId === "agent-plot-outline-with-context") {
+    return findAgentPlotOutlineWithContextEvidence(records);
+  }
+
+  if (sliceId === "agent-character-evolution-with-context") {
+    return findAgentCharacterEvolutionWithContextEvidence(records);
+  }
+
   if (isUa01AgentScenario(sliceId)) {
     return findUa01AgentBoundedRosterToCharacterDesignEvidence(records, sliceId);
   }
@@ -1758,6 +1815,18 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (isUa01AgentDurableScenario(sliceId)) {
     return findAgentDurableResumeLongRunTaskEvidence(records);
+  }
+
+  if (sliceId === "agent-provider-execution-stream-unified") {
+    return findAgentProviderExecutionStreamUnifiedEvidence(records);
+  }
+
+  if (sliceId === "agent-provider-execution-activity-restored") {
+    return findAgentProviderExecutionActivityRestoredEvidence(records);
+  }
+
+  if (sliceId === "agent-provider-execution-error-author-safe") {
+    return findAgentProviderExecutionErrorAuthorSafeEvidence(records);
   }
 
   if (sliceId === "agent-provider-streaming-progress") {
@@ -2159,7 +2228,12 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return e2e01ChannelActionSecurityBehavior(records, evidence, options);
   }
 
-  if (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords)) return null;
+  if (
+    sliceId !== "agent-provider-execution-error-author-safe" &&
+    (hasErrorEvent(turnRecords) || hasFallbackText(turnRecords))
+  ) {
+    return null;
+  }
 
   if (sliceId === "au02-candidate-adoption-bridge") {
     return candidateAdoptionBridgeBehavior(turnIds, turnRecords, options);
@@ -2367,6 +2441,20 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return agentConversationTurnBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (sliceId === "agent-plot-outline-with-context") {
+    return agentPlotOutlineWithContextBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
+  if (sliceId === "agent-character-evolution-with-context") {
+    return agentCharacterEvolutionWithContextBehavior(
+      turnIds,
+      turnRecords,
+      records,
+      evidence,
+      options,
+    );
+  }
+
   if (isUa01AgentScenario(sliceId)) {
     return ua01AgentBoundedRosterToCharacterDesignBehavior(
       turnIds,
@@ -2400,6 +2488,18 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (isUa01AgentDurableScenario(sliceId)) {
     return agentDurableResumeLongRunTaskBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-provider-execution-stream-unified") {
+    return agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-provider-execution-activity-restored") {
+    return agentProviderExecutionActivityRestoredBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-provider-execution-error-author-safe") {
+    return agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-provider-streaming-progress") {
@@ -3557,21 +3657,20 @@ function findAgentProseDraftingWithQualityEvidence(records) {
       record.context_step_visible === true &&
       record.context_event_visible === true &&
       record.context_observation_visible === true &&
-      record.strategy_step_visible === true &&
       record.plan_event_visible === true &&
       record.gate_event_visible === true &&
       record.tool_started_visible === true &&
       record.quality_observation_visible === true &&
-      record.finalization_step_visible === true &&
+      record.completion_decision_visible === true &&
       record.prose_step_visible === true &&
       record.artifact_observation_visible === true &&
-      record.ui_strategy_step_visible === true &&
       record.ui_prose_step_visible === true &&
-      record.ui_finalization_step_visible === true &&
-      Number(record.completed_step_count ?? 0) === 4 &&
-      Number(record.consumed_steps ?? 0) === 4 &&
+      record.ui_completion_decision_visible === true &&
+      record.ui_provider_execution_details_visible === true &&
+      Number(record.completed_step_count ?? 0) === 2 &&
+      Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 2 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.quality_review_status === "completed" &&
       Number(record.quality_findings_count ?? -1) >= 0 &&
       record.finding_summary_displayed === true &&
@@ -3692,20 +3791,19 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
   if (uiState.context_step_visible !== true) return null;
   if (uiState.context_event_visible !== true) return null;
   if (uiState.context_observation_visible !== true) return null;
-  if (uiState.strategy_step_visible !== true) return null;
   if (uiState.plan_event_visible !== true) return null;
   if (uiState.gate_event_visible !== true) return null;
   if (uiState.tool_started_visible !== true) return null;
   if (uiState.quality_observation_visible !== true) return null;
-  if (uiState.finalization_step_visible !== true) return null;
+  if (uiState.completion_decision_visible !== true) return null;
   if (uiState.prose_step_visible !== true) return null;
   if (uiState.artifact_observation_visible !== true) return null;
-  if (uiState.ui_strategy_step_visible !== true) return null;
   if (uiState.ui_prose_step_visible !== true) return null;
-  if (uiState.ui_finalization_step_visible !== true) return null;
-  if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
+  if (uiState.ui_completion_decision_visible !== true) return null;
+  if (uiState.ui_provider_execution_details_visible !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (uiState.quality_review_status !== "completed") return null;
   if (Number(uiState.quality_findings_count ?? -1) < 0) return null;
   if (uiState.finding_in_draft_body !== false) return null;
@@ -3731,12 +3829,12 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
       "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
       "prose_drafting_with_quality_profile_was_selected",
       "prose_context_assembly_was_visible_inside_agent_run",
-      "prose_strategy_step_reentered_orchestrator_allow_tool_gate",
-      "prose_generation_quality_and_finalization_steps_were_visible",
+      "prose_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+      "prose_generation_quality_and_completion_decision_were_visible",
       "prose_writing_tool_produced_tentative_prose_fragment",
       "existing_quality_review_completed_without_forcing_findings",
       "quality_finding_did_not_become_story_fact_or_auto_adopt_the_draft",
-      "writer_and_evaluator_provider_calls_were_counted_separately",
+      "planner_writer_and_evaluator_provider_calls_were_visible_in_usage_ui",
     ],
   };
 }
@@ -3769,10 +3867,18 @@ function findAgentConversationTurnEvidence(records) {
       record.ui_frame_step_visible === true &&
       record.ui_strategy_step_visible === true &&
       record.ui_finalize_step_visible === true &&
+      record.planner_provider_activity_visible === true &&
+      record.conversation_provider_activity_visible === true &&
+      record.provider_started_projected === true &&
+      record.provider_final_output_projected === true &&
+      record.ui_planner_provider_visible === true &&
+      record.ui_model_judgment_visible === true &&
+      record.ui_system_gate_visible === true &&
+      record.ui_provider_usage_visible === true &&
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 1 &&
+      Number(record.consumed_provider_calls ?? 0) === 6 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -3834,9 +3940,17 @@ function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence,
   if (uiState.ui_frame_step_visible !== true) return null;
   if (uiState.ui_strategy_step_visible !== true) return null;
   if (uiState.ui_finalize_step_visible !== true) return null;
+  if (uiState.planner_provider_activity_visible !== true) return null;
+  if (uiState.conversation_provider_activity_visible !== true) return null;
+  if (uiState.provider_started_projected !== true) return null;
+  if (uiState.provider_final_output_projected !== true) return null;
+  if (uiState.ui_planner_provider_visible !== true) return null;
+  if (uiState.ui_model_judgment_visible !== true) return null;
+  if (uiState.ui_system_gate_visible !== true) return null;
+  if (uiState.ui_provider_usage_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
 
@@ -3858,8 +3972,358 @@ function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence,
       "final_turn_result_carried_the_same_agent_run_id",
       "context_frame_strategy_and_finalize_steps_were_author_visible",
       "context_frame_and_strategy_observations_were_author_visible",
+      "planner_and_conversation_provider_activity_were_author_visible",
       "reply_only_turn_called_no_tool_and_performed_no_write",
       "channel_did_not_use_dialogue_fallback_main_chain",
+    ],
+  };
+}
+
+function findAgentPlotOutlineWithContextEvidence(records) {
+  const sliceId = "agent-plot-outline-with-context";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.outline_request_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "plot_outline_with_context_v1" &&
+      record.final_turn_broadcast === true &&
+      record.final_tool_name === "plot_outline" &&
+      record.final_tool_status === "succeeded" &&
+      record.pending_artifact_type === "outline_draft" &&
+      record.pending_artifact_requires_adoption === true &&
+      record.pending_artifact_tentative === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      record.agent_stage_events_visible === true &&
+      record.context_step_visible === true &&
+      record.context_event_visible === true &&
+      record.context_observation_visible === true &&
+      record.strategy_step_visible === true &&
+      record.plan_event_visible === true &&
+      record.gate_event_visible === true &&
+      record.outline_step_visible === true &&
+      record.tool_started_visible === true &&
+      record.tool_completed_visible === true &&
+      record.tool_observation_visible === true &&
+      record.finalization_step_visible === true &&
+      record.artifact_observation_visible === true &&
+      record.artifact_event_visible === true &&
+      record.ui_context_step_visible === true &&
+      record.ui_strategy_step_visible === true &&
+      record.ui_outline_step_visible === true &&
+      record.ui_finalization_step_visible === true &&
+      Number(record.completed_step_count ?? 0) === 2 &&
+      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.consumed_tool_calls ?? 0) === 1 &&
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      record.ui_agent_panel_visible === true &&
+      record.ui_agent_completed_visible === true &&
+      record.ui_outline_draft_visible === true &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_allow_tool_count ?? 0) >= 1 &&
+      record.log_plot_outline_tool_done === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  const artifactId = String(uiState.pending_artifact_id ?? "");
+  if (!runId || !finalTurnId || !artifactId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  const allowToolCount = records.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  ).length;
+  if (allowToolCount < 1) return null;
+
+  const outlineTool = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "plot_outline" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!outlineTool) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: finalTurnId,
+    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    pending_artifact_id: artifactId,
+    pending_artifact_type: uiState.pending_artifact_type,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evidence, _options) {
+  if (turnIds.length < 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-plot-outline-with-context" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "plot_outline_with_context_v1") return null;
+  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.final_tool_name !== "plot_outline") return null;
+  if (uiState.pending_artifact_type !== "outline_draft") return null;
+  if (uiState.pending_artifact_tentative !== true) return null;
+  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (uiState.agent_stage_events_visible !== true) return null;
+  if (uiState.context_step_visible !== true) return null;
+  if (uiState.context_event_visible !== true) return null;
+  if (uiState.context_observation_visible !== true) return null;
+  if (uiState.strategy_step_visible !== true) return null;
+  if (uiState.plan_event_visible !== true) return null;
+  if (uiState.gate_event_visible !== true) return null;
+  if (uiState.outline_step_visible !== true) return null;
+  if (uiState.tool_started_visible !== true) return null;
+  if (uiState.tool_completed_visible !== true) return null;
+  if (uiState.tool_observation_visible !== true) return null;
+  if (uiState.finalization_step_visible !== true) return null;
+  if (uiState.artifact_observation_visible !== true) return null;
+  if (uiState.artifact_event_visible !== true) return null;
+  if (uiState.ui_context_step_visible !== true) return null;
+  if (uiState.ui_strategy_step_visible !== true) return null;
+  if (uiState.ui_outline_step_visible !== true) return null;
+  if (uiState.ui_finalization_step_visible !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
+  if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
+  if (uiState.log_plot_outline_tool_done !== true) return null;
+
+  return {
+    slice_id: "agent-plot-outline-with-context",
+    behavior: "bounded_agent_run_plot_outline_profile_generates_tentative_outline_draft",
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    final_turn_id: evidence.final_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    pending_artifact_id: evidence.pending_artifact_id,
+    pending_artifact_type: evidence.pending_artifact_type,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    assertions: [
+      "outline_request_was_sent_from_real_tauri_workbench",
+      "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
+      "plot_outline_with_context_profile_was_selected",
+      "outline_context_assembly_was_visible_inside_agent_run",
+      "outline_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+      "plot_outline_tool_produced_tentative_outline_draft",
+      "outline_artifact_remained_unadopted_without_production_write",
+      "agent_activity_timeline_exposed_author_safe_stage_events",
+      "run_consumed_two_executed_steps_one_tool_call_and_four_provider_calls",
+    ],
+  };
+}
+
+function findAgentCharacterEvolutionWithContextEvidence(records) {
+  const sliceId = "agent-character-evolution-with-context";
+  const keyEvents = keyEventsForSlice(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.setup_character_adopted === true &&
+      record.seed_artifact_type === "character_seed" &&
+      record.character_evolution_request_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "character_evolution_with_context_v1" &&
+      record.final_turn_broadcast === true &&
+      record.final_tool_name === "character_evolution" &&
+      record.final_tool_status === "succeeded" &&
+      record.pending_artifact_type === "character_evolution_seed" &&
+      record.pending_artifact_requires_adoption === true &&
+      record.pending_artifact_tentative === true &&
+      record.pending_item_preserved_character === true &&
+      record.pending_item_preserved_nonce === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      record.agent_stage_events_visible === true &&
+      record.context_step_visible === true &&
+      record.context_event_visible === true &&
+      record.context_observation_visible === true &&
+      record.strategy_step_visible === true &&
+      record.plan_event_visible === true &&
+      record.gate_event_visible === true &&
+      record.evolution_step_visible === true &&
+      record.tool_started_visible === true &&
+      record.tool_completed_visible === true &&
+      record.tool_observation_visible === true &&
+      record.finalization_step_visible === true &&
+      record.artifact_observation_visible === true &&
+      record.artifact_event_visible === true &&
+      record.ui_context_step_visible === true &&
+      record.ui_strategy_step_visible === true &&
+      record.ui_evolution_step_visible === true &&
+      record.ui_finalization_step_visible === true &&
+      Number(record.completed_step_count ?? 0) === 2 &&
+      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.consumed_tool_calls ?? 0) === 1 &&
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      record.ui_agent_panel_visible === true &&
+      record.ui_agent_completed_visible === true &&
+      record.ui_character_evolution_draft_visible === true &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_allow_tool_count ?? 0) >= 1 &&
+      record.log_character_evolution_tool_done === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  const artifactId = String(uiState.pending_artifact_id ?? "");
+  if (!runId || !finalTurnId || !artifactId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  const allowToolCount = records.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  ).length;
+  if (allowToolCount < 1) return null;
+
+  const evolutionTool = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "character_evolution" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!evolutionTool) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: finalTurnId,
+    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    pending_artifact_id: artifactId,
+    pending_artifact_type: uiState.pending_artifact_type,
+    pending_memory_subtype: uiState.pending_memory_subtype,
+    character_evolution_nonce: uiState.character_evolution_nonce,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEvents,
+  };
+}
+
+function agentCharacterEvolutionWithContextBehavior(
+  turnIds,
+  _turnRecords,
+  records,
+  evidence,
+  _options,
+) {
+  if (turnIds.length < 1) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-character-evolution-with-context" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "character_evolution_with_context_v1") return null;
+  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.final_tool_name !== "character_evolution") return null;
+  if (uiState.pending_artifact_type !== "character_evolution_seed") return null;
+  if (uiState.pending_artifact_tentative !== true) return null;
+  if (uiState.pending_item_preserved_character !== true) return null;
+  if (uiState.pending_item_preserved_nonce !== true) return null;
+  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (uiState.agent_stage_events_visible !== true) return null;
+  if (uiState.context_step_visible !== true) return null;
+  if (uiState.context_event_visible !== true) return null;
+  if (uiState.context_observation_visible !== true) return null;
+  if (uiState.strategy_step_visible !== true) return null;
+  if (uiState.plan_event_visible !== true) return null;
+  if (uiState.gate_event_visible !== true) return null;
+  if (uiState.evolution_step_visible !== true) return null;
+  if (uiState.tool_started_visible !== true) return null;
+  if (uiState.tool_completed_visible !== true) return null;
+  if (uiState.tool_observation_visible !== true) return null;
+  if (uiState.finalization_step_visible !== true) return null;
+  if (uiState.artifact_observation_visible !== true) return null;
+  if (uiState.artifact_event_visible !== true) return null;
+  if (uiState.ui_context_step_visible !== true) return null;
+  if (uiState.ui_strategy_step_visible !== true) return null;
+  if (uiState.ui_evolution_step_visible !== true) return null;
+  if (uiState.ui_finalization_step_visible !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
+  if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
+  if (uiState.log_character_evolution_tool_done !== true) return null;
+
+  return {
+    slice_id: "agent-character-evolution-with-context",
+    behavior:
+      "bounded_agent_run_character_evolution_profile_generates_tentative_character_memory_seed",
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    final_turn_id: evidence.final_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    pending_artifact_id: evidence.pending_artifact_id,
+    pending_artifact_type: evidence.pending_artifact_type,
+    pending_memory_subtype: evidence.pending_memory_subtype,
+    character_evolution_nonce: evidence.character_evolution_nonce,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    assertions: [
+      "existing_character_was_created_and_adopted_through_real_workbench_setup",
+      "character_evolution_request_was_sent_from_real_tauri_workbench",
+      "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
+      "character_evolution_with_context_profile_was_selected",
+      "character_evolution_context_assembly_was_visible_inside_agent_run",
+      "character_evolution_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+      "character_evolution_tool_produced_tentative_character_evolution_seed",
+      "character_evolution_artifact_remained_unadopted_without_production_write",
+      "character_evolution_draft_preserved_target_character_and_nonce",
+      "agent_activity_timeline_exposed_author_safe_stage_events",
+      "run_consumed_two_executed_steps_one_tool_call_and_four_provider_calls",
     ],
   };
 }
@@ -3975,6 +4439,452 @@ function agentDurableResumeLongRunTaskBehavior(turnIds, records, evidence) {
   };
 }
 
+function findAgentProviderExecutionStreamUnifiedEvidence(records) {
+  const sliceId = "agent-provider-execution-stream-unified";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.profile_ref === "conversation_turn_v1" &&
+      record.final_turn_broadcast === true &&
+      Number(record.provider_progress_event_count ?? 0) >= 2 &&
+      boolValue(record.provider_progress_visibility_author) === true &&
+      boolValue(record.provider_progress_has_step_ref) === true &&
+      boolValue(record.provider_started_projected) === true &&
+      boolValue(record.provider_final_output_projected) === true &&
+      boolValue(record.provider_request_prepared_projected) === true &&
+      boolValue(record.provider_request_dispatched_projected) === true &&
+      boolValue(record.provider_response_received_projected) === true &&
+      boolValue(record.provider_chunk_projected) === true &&
+      boolValue(record.provider_chunk_payload_has_lengths) === true &&
+      boolValue(record.provider_execution_stream_projected) === true &&
+      boolValue(record.provider_progress_raw_content_leaked) === false &&
+      boolValue(record.provider_chunk_raw_content_leaked) === false &&
+      boolValue(record.ui_provider_execution_visible) === true &&
+      boolValue(record.ui_provider_execution_details_visible) === true &&
+      boolValue(record.ui_agent_execution_brief_visible) === true &&
+      Array.isArray(record.provider_run_refs) &&
+      record.provider_run_refs.length >= 1 &&
+      Array.isArray(record.provider_call_refs) &&
+      record.provider_call_refs.length >= 1 &&
+      Array.isArray(record.provider_purposes) &&
+      record.provider_purposes.includes("planner") &&
+      record.provider_purposes.includes("conversation") &&
+      Number(record.consumed_provider_calls ?? 0) === 6 &&
+      record.final_turn_result_run_id === record.run_id,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.final_turn_id ?? uiState.turn_id ?? ""),
+    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")]
+      .filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    provider_progress_event_count: Number(uiState.provider_progress_event_count ?? 0),
+    provider_progress_reason_codes: uiState.provider_progress_reason_codes ?? [],
+    provider_run_refs: uiState.provider_run_refs ?? [],
+    provider_call_refs: uiState.provider_call_refs ?? [],
+    provider_purposes: uiState.provider_purposes ?? [],
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence) {
+  if (!evidence?.run_id) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-provider-execution-stream-unified" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (boolValue(uiState.provider_started_projected) !== true) return null;
+  if (boolValue(uiState.provider_final_output_projected) !== true) return null;
+  if (boolValue(uiState.provider_request_prepared_projected) !== true) return null;
+  if (boolValue(uiState.provider_request_dispatched_projected) !== true) return null;
+  if (boolValue(uiState.provider_response_received_projected) !== true) return null;
+  if (boolValue(uiState.provider_chunk_projected) !== true) return null;
+  if (boolValue(uiState.provider_chunk_payload_has_lengths) !== true) return null;
+  if (boolValue(uiState.provider_execution_stream_projected) !== true) return null;
+  if (boolValue(uiState.provider_progress_raw_content_leaked) !== false) return null;
+  if (boolValue(uiState.provider_chunk_raw_content_leaked) !== false) return null;
+  if (boolValue(uiState.ui_provider_execution_details_visible) !== true) return null;
+  if (boolValue(uiState.ui_agent_execution_brief_visible) !== true) return null;
+  if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1) return null;
+  if (!Array.isArray(uiState.provider_call_refs) || uiState.provider_call_refs.length < 1) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.provider_purposes) ||
+    !uiState.provider_purposes.includes("planner") ||
+    !uiState.provider_purposes.includes("conversation")
+  ) {
+    return null;
+  }
+
+  return {
+    slice_id: "agent-provider-execution-stream-unified",
+    behavior: "conversation_provider_execution_facts_projected_to_author_safe_activity",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    provider_progress_event_count: evidence.provider_progress_event_count,
+    provider_progress_reason_codes: evidence.provider_progress_reason_codes,
+    provider_run_refs: evidence.provider_run_refs,
+    provider_call_refs: evidence.provider_call_refs,
+    provider_purposes: evidence.provider_purposes,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    assertions: [
+      "plain_conversation_used_conversation_turn_profile_not_provider_progress_profile",
+      "provider_execution_started_event_was_projected_to_author_safe_agent_activity",
+      "provider_execution_request_prepared_progress_was_projected",
+      "provider_execution_request_dispatched_progress_was_projected",
+      "provider_execution_response_received_progress_was_projected",
+      "provider_execution_chunk_events_were_projected",
+      "provider_execution_chunk_payload_was_author_safe_metadata",
+      "provider_execution_final_output_event_was_projected_to_author_safe_agent_activity",
+      "provider_activity_carried_provider_run_and_call_refs",
+      "provider_activity_rendered_event_and_ref_details_in_dialogue_flow",
+      "agent_execution_brief_summarized_path_and_provider_call_count",
+      "provider_activity_did_not_expose_raw_prompt_or_provider_output_content",
+      "final_run_state_recorded_planner_and_conversation_provider_calls",
+    ],
+  };
+}
+
+function findAgentProviderExecutionActivityRestoredEvidence(records) {
+  const sliceId = "agent-provider-execution-activity-restored";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.profile_ref === "conversation_turn_v1" &&
+      record.final_turn_broadcast === true &&
+      boolValue(record.restored_after_reload) === true &&
+      boolValue(record.transcript_agent_run_events_restored) === true &&
+      Number(record.transcript_provider_progress_event_count ?? 0) >= 2 &&
+      boolValue(record.transcript_provider_started_restored) === true &&
+      boolValue(record.transcript_provider_final_output_restored) === true &&
+      boolValue(record.transcript_provider_activity_raw_content_leaked) === false &&
+      boolValue(record.transcript_provider_run_raw_content_leaked) === false &&
+      boolValue(record.restored_ui_provider_execution_visible) === true &&
+      boolValue(record.restored_ui_provider_execution_details_visible) === true &&
+      boolValue(record.restored_ui_agent_execution_brief_visible) === true &&
+      boolValue(record.restored_ui_agent_flow_visible) === true &&
+      boolValue(record.restored_ui_provider_run_replay_visible) === true &&
+      boolValue(record.restored_ui_provider_run_replay_boundary_visible) === true &&
+      boolValue(record.restored_ui_provider_run_replay_raw_content_leaked) === false &&
+      Number(record.transcript_provider_run_summary_count ?? 0) >= 6 &&
+      Number(record.provider_run_activity_api_status ?? 0) === 200 &&
+      Number(record.provider_run_activity_api_count ?? 0) >=
+        Number(record.transcript_provider_run_summary_count ?? 0) &&
+      Array.isArray(record.provider_run_activity_api_refs) &&
+      record.provider_run_activity_api_refs.length >= 1 &&
+      Array.isArray(record.provider_run_activity_api_call_refs) &&
+      record.provider_run_activity_api_call_refs.length >= 1 &&
+      Array.isArray(record.provider_run_activity_api_purposes) &&
+      record.provider_run_activity_api_purposes.includes("planner") &&
+      record.provider_run_activity_api_purposes.includes("conversation") &&
+      Number(record.provider_run_activity_api_total_tokens ?? -1) >= 0 &&
+      boolValue(record.provider_run_activity_api_raw_content_leaked) === false &&
+      Array.isArray(record.transcript_provider_run_refs) &&
+      record.transcript_provider_run_refs.length >= 1 &&
+      Array.isArray(record.transcript_provider_call_refs) &&
+      record.transcript_provider_call_refs.length >= 1 &&
+      Array.isArray(record.transcript_provider_run_summary_refs) &&
+      record.transcript_provider_run_summary_refs.length >= 1 &&
+      Array.isArray(record.transcript_provider_call_summary_refs) &&
+      record.transcript_provider_call_summary_refs.length >= 1 &&
+      Array.isArray(record.transcript_provider_run_purposes) &&
+      record.transcript_provider_run_purposes.includes("planner") &&
+      record.transcript_provider_run_purposes.includes("conversation") &&
+      Number(record.reload_resume_transcript_count ?? 0) >= 2 &&
+      record.final_turn_result_run_id === record.run_id,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.final_turn_id ?? uiState.turn_id ?? ""),
+    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")]
+      .filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    transcript_provider_progress_event_count: Number(
+      uiState.transcript_provider_progress_event_count ?? 0,
+    ),
+    transcript_provider_run_summary_count: Number(
+      uiState.transcript_provider_run_summary_count ?? 0,
+    ),
+    transcript_provider_run_refs: uiState.transcript_provider_run_refs ?? [],
+    transcript_provider_call_refs: uiState.transcript_provider_call_refs ?? [],
+    transcript_provider_run_summary_refs: uiState.transcript_provider_run_summary_refs ?? [],
+    transcript_provider_call_summary_refs: uiState.transcript_provider_call_summary_refs ?? [],
+    transcript_provider_run_purposes: uiState.transcript_provider_run_purposes ?? [],
+    provider_run_activity_api_count: Number(uiState.provider_run_activity_api_count ?? 0),
+    provider_run_activity_api_refs: uiState.provider_run_activity_api_refs ?? [],
+    provider_run_activity_api_call_refs: uiState.provider_run_activity_api_call_refs ?? [],
+    provider_run_activity_api_purposes: uiState.provider_run_activity_api_purposes ?? [],
+    provider_run_activity_api_total_tokens: Number(
+      uiState.provider_run_activity_api_total_tokens ?? 0,
+    ),
+    restored_ui_provider_run_replay_visible: boolValue(
+      uiState.restored_ui_provider_run_replay_visible,
+    ),
+    restored_ui_provider_run_replay_boundary_visible: boolValue(
+      uiState.restored_ui_provider_run_replay_boundary_visible,
+    ),
+    reload_resume_transcript_count: Number(uiState.reload_resume_transcript_count ?? 0),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function agentProviderExecutionActivityRestoredBehavior(turnIds, records, evidence) {
+  if (!evidence?.run_id) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-provider-execution-activity-restored" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (boolValue(uiState.restored_after_reload) !== true) return null;
+  if (boolValue(uiState.transcript_agent_run_events_restored) !== true) return null;
+  if (boolValue(uiState.transcript_provider_activity_raw_content_leaked) !== false) return null;
+  if (boolValue(uiState.transcript_provider_run_raw_content_leaked) !== false) return null;
+  if (boolValue(uiState.restored_ui_provider_execution_visible) !== true) return null;
+  if (boolValue(uiState.restored_ui_provider_execution_details_visible) !== true) return null;
+  if (boolValue(uiState.restored_ui_agent_execution_brief_visible) !== true) return null;
+  if (boolValue(uiState.restored_ui_agent_flow_visible) !== true) return null;
+  if (boolValue(uiState.restored_ui_provider_run_replay_visible) !== true) return null;
+  if (boolValue(uiState.restored_ui_provider_run_replay_boundary_visible) !== true) return null;
+  if (boolValue(uiState.restored_ui_provider_run_replay_raw_content_leaked) !== false) {
+    return null;
+  }
+  if (Number(uiState.transcript_provider_run_summary_count ?? 0) < 6) return null;
+  if (Number(uiState.provider_run_activity_api_status ?? 0) !== 200) return null;
+  if (
+    Number(uiState.provider_run_activity_api_count ?? 0) <
+    Number(uiState.transcript_provider_run_summary_count ?? 0)
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.provider_run_activity_api_refs) ||
+    uiState.provider_run_activity_api_refs.length < 1
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.provider_run_activity_api_call_refs) ||
+    uiState.provider_run_activity_api_call_refs.length < 1
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.provider_run_activity_api_purposes) ||
+    !uiState.provider_run_activity_api_purposes.includes("planner") ||
+    !uiState.provider_run_activity_api_purposes.includes("conversation")
+  ) {
+    return null;
+  }
+  if (Number(uiState.provider_run_activity_api_total_tokens ?? -1) < 0) return null;
+  if (boolValue(uiState.provider_run_activity_api_raw_content_leaked) !== false) return null;
+  if (
+    !Array.isArray(uiState.transcript_provider_run_refs) ||
+    uiState.transcript_provider_run_refs.length < 1
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.transcript_provider_call_refs) ||
+    uiState.transcript_provider_call_refs.length < 1
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.transcript_provider_run_summary_refs) ||
+    uiState.transcript_provider_run_summary_refs.length < 1
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.transcript_provider_call_summary_refs) ||
+    uiState.transcript_provider_call_summary_refs.length < 1
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.transcript_provider_run_purposes) ||
+    !uiState.transcript_provider_run_purposes.includes("planner") ||
+    !uiState.transcript_provider_run_purposes.includes("conversation")
+  ) {
+    return null;
+  }
+
+  return {
+    slice_id: "agent-provider-execution-activity-restored",
+    behavior: "provider_execution_activity_restored_from_persisted_agent_run_events",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    transcript_provider_progress_event_count: evidence.transcript_provider_progress_event_count,
+    transcript_provider_run_summary_count: evidence.transcript_provider_run_summary_count,
+    transcript_provider_run_refs: evidence.transcript_provider_run_refs,
+    transcript_provider_call_refs: evidence.transcript_provider_call_refs,
+    transcript_provider_run_summary_refs: evidence.transcript_provider_run_summary_refs,
+    transcript_provider_call_summary_refs: evidence.transcript_provider_call_summary_refs,
+    transcript_provider_run_purposes: evidence.transcript_provider_run_purposes,
+    provider_run_activity_api_count: evidence.provider_run_activity_api_count,
+    provider_run_activity_api_refs: evidence.provider_run_activity_api_refs,
+    provider_run_activity_api_call_refs: evidence.provider_run_activity_api_call_refs,
+    provider_run_activity_api_purposes: evidence.provider_run_activity_api_purposes,
+    provider_run_activity_api_total_tokens: evidence.provider_run_activity_api_total_tokens,
+    restored_ui_provider_run_replay_visible: evidence.restored_ui_provider_run_replay_visible,
+    restored_ui_provider_run_replay_boundary_visible:
+      evidence.restored_ui_provider_run_replay_boundary_visible,
+    reload_resume_transcript_count: evidence.reload_resume_transcript_count,
+    assertions: [
+      "provider_activity_was_restored_from_agent_event_log_without_provider_recall",
+      "provider_usage_was_restored_from_provider_run_log_without_provider_recall",
+      "provider_run_activity_api_returned_author_safe_usage_without_provider_recall",
+      "restored_activity_carried_provider_run_and_call_refs",
+      "restored_provider_run_usage_preserved_planner_and_conversation_purposes",
+      "restored_activity_rendered_provider_event_and_ref_details",
+      "restored_agent_execution_brief_summarized_path_and_provider_call_count",
+      "restored_activity_did_not_expose_raw_prompt_or_provider_output_content",
+      "restored_provider_run_replay_rendered_event_sequence_and_output_summary",
+      "restored_provider_run_replay_declared_no_provider_recall_boundary",
+      "reloaded_workbench_showed_provider_activity_inside_the_same_assistant_dialogue_flow",
+    ],
+  };
+}
+
+function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
+  const sliceId = "agent-provider-execution-error-author-safe";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.plain_input_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.profile_ref === "conversation_turn_v1" &&
+      record.final_turn_broadcast === true &&
+      Number(record.provider_progress_event_count ?? 0) >= 2 &&
+      boolValue(record.provider_progress_visibility_author) === true &&
+      boolValue(record.provider_progress_has_step_ref) === true &&
+      boolValue(record.provider_started_projected) === true &&
+      boolValue(record.provider_error_projected) === true &&
+      boolValue(record.provider_execution_stream_projected) === true &&
+      boolValue(record.provider_progress_raw_content_leaked) === false &&
+      boolValue(record.safe_fallback_visible) === true &&
+      Array.isArray(record.provider_run_refs) &&
+      record.provider_run_refs.length >= 1 &&
+      Array.isArray(record.provider_call_refs) &&
+      record.provider_call_refs.length >= 1 &&
+      Array.isArray(record.provider_purposes) &&
+      record.provider_purposes.includes("planner") &&
+      record.provider_purposes.includes("conversation") &&
+      Array.isArray(record.provider_statuses) &&
+      record.provider_statuses.includes("error") &&
+      Array.isArray(record.provider_output_types) &&
+      record.provider_output_types.includes("empty") &&
+      Number(record.consumed_provider_calls ?? 0) === 6 &&
+      record.final_turn_result_run_id === record.run_id &&
+      boolValue(record.no_tool_called) === true &&
+      boolValue(record.no_auto_adoption) === true &&
+      boolValue(record.no_production_write) === true,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.final_turn_id ?? uiState.turn_id ?? ""),
+    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")]
+      .filter(Boolean),
+    run_id: String(uiState.run_id ?? ""),
+    profile_ref: uiState.profile_ref,
+    provider_progress_event_count: Number(uiState.provider_progress_event_count ?? 0),
+    provider_progress_reason_codes: uiState.provider_progress_reason_codes ?? [],
+    provider_run_refs: uiState.provider_run_refs ?? [],
+    provider_call_refs: uiState.provider_call_refs ?? [],
+    provider_purposes: uiState.provider_purposes ?? [],
+    provider_statuses: uiState.provider_statuses ?? [],
+    provider_output_types: uiState.provider_output_types ?? [],
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidence) {
+  if (!evidence?.run_id) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-provider-execution-error-author-safe" &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (boolValue(uiState.provider_started_projected) !== true) return null;
+  if (boolValue(uiState.provider_error_projected) !== true) return null;
+  if (boolValue(uiState.provider_execution_stream_projected) !== true) return null;
+  if (boolValue(uiState.provider_progress_raw_content_leaked) !== false) return null;
+  if (boolValue(uiState.safe_fallback_visible) !== true) return null;
+  if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1) return null;
+  if (!Array.isArray(uiState.provider_call_refs) || uiState.provider_call_refs.length < 1) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.provider_purposes) ||
+    !uiState.provider_purposes.includes("planner") ||
+    !uiState.provider_purposes.includes("conversation")
+  ) {
+    return null;
+  }
+  if (!Array.isArray(uiState.provider_statuses) || !uiState.provider_statuses.includes("error")) {
+    return null;
+  }
+  if (!Array.isArray(uiState.provider_output_types) || !uiState.provider_output_types.includes("empty")) {
+    return null;
+  }
+
+  return {
+    slice_id: "agent-provider-execution-error-author-safe",
+    behavior: "provider_execution_error_facts_projected_to_author_safe_activity",
+    turn_ids: turnIds,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    provider_progress_event_count: evidence.provider_progress_event_count,
+    provider_progress_reason_codes: evidence.provider_progress_reason_codes,
+    provider_run_refs: evidence.provider_run_refs,
+    provider_call_refs: evidence.provider_call_refs,
+    provider_purposes: evidence.provider_purposes,
+    provider_statuses: evidence.provider_statuses,
+    provider_output_types: evidence.provider_output_types,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    assertions: [
+      "plain_conversation_used_conversation_turn_profile_not_provider_progress_profile",
+      "provider_execution_error_event_was_projected_to_author_safe_agent_activity",
+      "provider_activity_carried_provider_run_and_call_refs",
+      "provider_activity_did_not_expose_raw_prompt_or_provider_error_payload",
+      "safe_fallback_turn_result_did_not_call_tool_or_write_artifact",
+      "final_run_state_recorded_planner_and_conversation_provider_calls",
+    ],
+  };
+}
+
 function findAgentProviderStreamingProgressEvidence(records) {
   const sliceId = "agent-provider-streaming-progress";
   const uiState = records.find(
@@ -3988,7 +4898,7 @@ function findAgentProviderStreamingProgressEvidence(records) {
       boolValue(record.progress_visibility_author) === true &&
       boolValue(record.progress_has_step_ref) === true &&
       boolValue(record.raw_prompt_leaked_in_progress_events) === false &&
-      boolValue(record.provider_streaming_degraded_honestly) === true &&
+      boolValue(record.provider_execution_stream_active) === true &&
       Number(record.consumed_provider_calls ?? 0) === 1 &&
       record.final_turn_result_run_id === record.run_id &&
       record.ui_progress_visible === true,
@@ -4019,7 +4929,7 @@ function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
   );
   if (!uiState) return null;
   if (boolValue(uiState.raw_prompt_leaked_in_progress_events) !== false) return null;
-  if (boolValue(uiState.provider_streaming_degraded_honestly) !== true) return null;
+  if (boolValue(uiState.provider_execution_stream_active) !== true) return null;
   if (Number(uiState.consumed_provider_calls ?? 0) !== 1) return null;
 
   return {
@@ -4035,7 +4945,7 @@ function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
       "visible_author_request_started_provider_progress_profile",
       "provider_progress_events_carried_run_id_step_ref_and_author_visibility",
       "progress_events_did_not_expose_raw_prompt",
-      "provider_without_streaming_support_was_honestly_reported_as_checkpoint_progress",
+      "provider_execution_stream_reported_active_progress",
       "final_run_state_recorded_one_provider_call",
     ],
   };
@@ -4052,17 +4962,15 @@ function findAgentProviderCancelHonestBoundaryEvidence(records) {
       record.command_target_bound_to_active_run === true &&
       record.profile_ref === "provider_progress_v1" &&
       Array.isArray(record.interrupt_reason_codes) &&
-      record.interrupt_reason_codes.includes("cooperative_cancel") &&
-      record.interrupt_reason_codes.includes("provider_hard_cancel_unsupported") &&
-      record.cancel_strategy === "cooperative_safe_point" &&
-      boolValue(record.supports_cancellation) === false &&
-      boolValue(record.provider_call_active_during_cancel) === true &&
-      boolValue(record.cancelling_status_visible_before_safe_point) === true &&
+      record.interrupt_reason_codes.includes("provider_execution_cancel_requested") &&
+      record.cancel_strategy === "provider_execution_cancel" &&
+      boolValue(record.supports_cancellation) === true &&
+      boolValue(record.current_task_active_during_cancel) === true &&
+      boolValue(record.cancelling_status_visible_before_terminal_state) === true &&
       boolValue(record.cancelling_current_task) === true &&
       record.terminal_event_type === "run_cancelled" &&
       record.terminal_status === "cancelled" &&
-      boolValue(record.hard_cancel_claimed_without_evidence) === false &&
-      boolValue(record.cooperative_cancel_visible) === true,
+      boolValue(record.provider_execution_cancel_visible) === true,
   );
   if (!uiState) return null;
 
@@ -4090,13 +4998,13 @@ function agentProviderCancelHonestBoundaryBehavior(turnIds, records, evidence) {
   );
   if (!uiState) return null;
   if (uiState.command_run_id !== evidence.run_id) return null;
-  if (uiState.cancel_strategy !== "cooperative_safe_point") return null;
-  if (boolValue(uiState.supports_cancellation) !== false) return null;
-  if (boolValue(uiState.hard_cancel_claimed_without_evidence) !== false) return null;
+  if (uiState.cancel_strategy !== "provider_execution_cancel") return null;
+  if (boolValue(uiState.supports_cancellation) !== true) return null;
+  if (boolValue(uiState.provider_execution_cancel_visible) !== true) return null;
 
   return {
     slice_id: "agent-provider-cancel-honest-boundary",
-    behavior: "provider_cancel_reports_cooperative_waiting_until_safe_point_without_fake_hard_cancel",
+    behavior: "provider_cancel_uses_provider_execution_cancel_until_terminal_cancelled_state",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
@@ -4105,10 +5013,10 @@ function agentProviderCancelHonestBoundaryBehavior(turnIds, records, evidence) {
     terminal_status: evidence.terminal_status,
     assertions: [
       "cancel_command_was_bound_to_active_run_id",
-      "unsupported_provider_hard_cancel_was_reported_as_cooperative_safe_point",
+      "provider_execution_cancel_was_requested_on_active_run",
       "ui_exposed_cancelling_before_final_cancelled_state",
-      "final_state_was_cancelled_only_after_safe_point",
-      "trace_did_not_claim_hard_cancel_without_evidence",
+      "final_state_was_cancelled_through_provider_execution_cancel",
+      "trace_used_single_provider_execution_cancel_strategy",
     ],
   };
 }
@@ -4212,7 +5120,7 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 2 &&
-      Number(record.consumed_provider_calls ?? 0) === 1 &&
+      Number(record.consumed_provider_calls ?? 0) === 4 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_artifact_event_visible === true &&
@@ -4355,7 +5263,7 @@ function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
         assertions: [
           "bounded_run_consumed_two_steps",
           "bounded_run_consumed_two_tool_calls",
-          "bounded_run_consumed_one_provider_call",
+          "bounded_run_consumed_three_planner_calls_and_one_writer_call",
           "provider_call_budget_was_reported_in_agent_run_state",
         ],
       };
@@ -4404,7 +5312,7 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   if (Number(uiState.log_allow_tool_count ?? 0) < 2) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 2) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
   if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
     return null;
   }
@@ -4452,6 +5360,7 @@ function expectedInterruptTerminalStatus(sliceId) {
 function findUa01AgentInterruptEvidence(records, sliceId) {
   const command = expectedInterruptCommand(sliceId);
   const terminalStatus = expectedInterruptTerminalStatus(sliceId);
+  const expectsProviderExecutionCancel = sliceId === "agent-cancel-target-binding";
   const keyEvents = keyEventsForSlice(sliceId);
   if (!command || !terminalStatus) return null;
 
@@ -4466,7 +5375,9 @@ function findUa01AgentInterruptEvidence(records, sliceId) {
       record.command_target_bound_to_active_run === true &&
       record.no_cross_run_command === true &&
       record.terminal_status === terminalStatus &&
-      record.provider_hard_cancel_claimed === false,
+      boolValue(record.provider_execution_cancel_requested) === expectsProviderExecutionCancel &&
+      (!expectsProviderExecutionCancel ||
+        record.provider_execution_cancel_strategy === "provider_execution_cancel"),
   );
   if (!uiState) return null;
 
@@ -4502,6 +5413,7 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
 
   const command = expectedInterruptCommand(sliceId);
   const terminalStatus = expectedInterruptTerminalStatus(sliceId);
+  const expectsProviderExecutionCancel = sliceId === "agent-cancel-target-binding";
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
@@ -4513,7 +5425,15 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
   if (uiState.terminal_status !== terminalStatus) return null;
   if (uiState.command_target_bound_to_active_run !== true) return null;
   if (uiState.command_ack_received !== true) return null;
-  if (uiState.provider_hard_cancel_claimed !== false) return null;
+  if (boolValue(uiState.provider_execution_cancel_requested) !== expectsProviderExecutionCancel) {
+    return null;
+  }
+  if (
+    expectsProviderExecutionCancel &&
+    uiState.provider_execution_cancel_strategy !== "provider_execution_cancel"
+  ) {
+    return null;
+  }
 
   if (sliceId === "agent-interrupt-safe-point") {
     if (uiState.interrupt_event_type !== "interrupt_requested") return null;
@@ -4521,7 +5441,7 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
 
     return {
       slice_id: sliceId,
-      behavior: "pause_command_stops_bounded_agent_run_at_cooperative_safe_point",
+      behavior: "pause_command_stops_bounded_agent_run_without_provider_cancel",
       turn_ids: evidence.turn_ids,
       run_id: evidence.run_id,
       command,
@@ -4529,9 +5449,9 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
       assertions: [
         "pause_command_was_sent_from_real_agent_run_control",
         "pause_command_targeted_active_run_id_and_received_ack",
-        "interrupt_requested_event_was_broadcast_before_safe_point_stop",
+        "interrupt_requested_event_was_broadcast_before_paused_state",
         "run_paused_state_was_broadcast_for_same_run_id",
-        "provider_hard_cancellation_was_not_claimed",
+        "provider_execution_cancel_was_not_requested_for_pause",
       ],
     };
   }
@@ -4542,7 +5462,7 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
 
     return {
       slice_id: sliceId,
-      behavior: "cancel_command_is_bound_to_active_run_and_cooperatively_cancels",
+      behavior: "cancel_command_is_bound_to_active_run_and_requests_provider_execution_cancel",
       turn_ids: evidence.turn_ids,
       run_id: evidence.run_id,
       command,
@@ -4552,7 +5472,7 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
         "cancel_command_targeted_active_run_id_and_received_ack",
         "cross_run_cancel_was_not_accepted_by_the_driver_evidence",
         "run_cancelled_state_was_broadcast_for_same_run_id",
-        "provider_hard_cancellation_was_not_claimed",
+        "provider_execution_cancel_was_requested",
       ],
     };
   }
@@ -4562,19 +5482,22 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
 
 function findUa01AgentSteerEvidence(records, sliceId) {
   const keyEvents = keyEventsForSlice(sliceId);
+  const naturalLanguageSteer = sliceId === "agent-natural-language-steer";
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
       record.run_mode === "bounded" &&
       record.command === "steer" &&
-      record.command_sent_from_real_button === true &&
+      (naturalLanguageSteer
+        ? record.command_sent_from_main_input === true &&
+          record.no_second_user_message_for_steer === true
+        : record.command_sent_from_real_button === true && record.steer_control_visible === true) &&
       record.command_ack_received === true &&
       record.command_target_bound_to_active_run === true &&
       record.no_cross_run_command === true &&
       record.plan_adjusted_event_type === "plan_adjusted" &&
-      Number(record.adjusted_goal_version ?? 0) >= 2 &&
-      record.steer_control_visible === true,
+      Number(record.adjusted_goal_version ?? 0) >= 2,
   );
   if (!uiState) return null;
 
@@ -4597,12 +5520,15 @@ function findUa01AgentSteerEvidence(records, sliceId) {
     parent_turn_id: parentTurnId,
     run_id: runId,
     command: "steer",
+    command_source: naturalLanguageSteer ? "main_input" : "agent_run_control",
     adjusted_goal_version: Number(uiState.adjusted_goal_version ?? 0),
+    no_second_user_message_for_steer: uiState.no_second_user_message_for_steer === true,
     key_events: keyEvents,
   };
 }
 
 function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
+  const naturalLanguageSteer = sliceId === "agent-natural-language-steer";
   if (turnIds.length !== 1) return null;
 
   const uiState = records.find(
@@ -4617,21 +5543,35 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
   if (uiState.command_target_bound_to_active_run !== true) return null;
   if (uiState.plan_adjusted_event_type !== "plan_adjusted") return null;
   if (Number(uiState.adjusted_goal_version ?? 0) < 2) return null;
+  if (naturalLanguageSteer && uiState.no_second_user_message_for_steer !== true) return null;
 
   return {
     slice_id: sliceId,
-    behavior: "steer_command_updates_bounded_agent_run_goal_and_emits_plan_adjusted",
+    behavior: naturalLanguageSteer
+      ? "main_input_natural_language_steer_updates_active_agent_run_without_second_turn"
+      : "steer_command_updates_bounded_agent_run_goal_and_emits_plan_adjusted",
     turn_ids: evidence.turn_ids,
     run_id: evidence.run_id,
     command: "steer",
+    command_source: evidence.command_source,
     adjusted_goal_version: evidence.adjusted_goal_version,
-    assertions: [
-      "steer_command_was_sent_from_visible_agent_run_control",
-      "steer_command_targeted_active_run_id_and_received_ack",
-      "plan_adjusted_agent_event_was_broadcast",
-      "agent_run_state_broadcast_adjusted_goal_version",
-      "frontend_did_not_mutate_run_state_without_backend_ack",
-    ],
+    no_second_user_message_for_steer: evidence.no_second_user_message_for_steer,
+    assertions: naturalLanguageSteer
+      ? [
+          "main_chat_input_text_was_sent_as_agent_command_steer",
+          "natural_language_steer_did_not_create_second_user_message_or_run",
+          "steer_command_targeted_active_run_id_and_received_ack",
+          "plan_adjusted_agent_event_was_broadcast",
+          "agent_run_state_broadcast_adjusted_goal_version",
+          "frontend_did_not_mutate_run_state_without_backend_ack",
+        ]
+      : [
+          "steer_command_was_sent_from_visible_agent_run_control",
+          "steer_command_targeted_active_run_id_and_received_ack",
+          "plan_adjusted_agent_event_was_broadcast",
+          "agent_run_state_broadcast_adjusted_goal_version",
+          "frontend_did_not_mutate_run_state_without_backend_ack",
+        ],
   };
 }
 

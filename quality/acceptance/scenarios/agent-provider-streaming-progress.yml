@@ -1,5 +1,5 @@
 id: agent-provider-streaming-progress
-title: Provider streaming progress 进入 AgentRun author-safe 事件流
+title: Provider execution progress 进入 AgentRun author-safe 事件流
 tier: nightly
 status: active
 surface: tauri
@@ -12,9 +12,9 @@ contract:
   - docs/engineering/scenario-acceptance.md
 
 invariants:
-  - streaming-event-is-author-safe
-  - streaming-does-not-expose-raw-prompt
-  - streaming-progress-belongs-to-agent-run
+  - provider-execution-progress-is-author-safe
+  - provider-execution-progress-does-not-expose-raw-prompt
+  - provider-execution-progress-belongs-to-agent-run
 
 setup:
   seed: none
@@ -22,7 +22,7 @@ setup:
 
 user_flow:
   - open: real Tauri workbench
-  - send: request that triggers a streaming provider step
+  - send: request that triggers a provider execution progress step
   - wait_for: fast ack with run_id
   - verify: agent_event stream shows provider progress without raw prompt or secret
   - verify: final TurnResult is consistent with completed provider output
@@ -37,8 +37,8 @@ evidence:
 
 assertions:
   data:
-    - streaming events carry run_id and step_ref
-    - streaming events are visibility=author
+    - provider execution progress events carry run_id and step_ref
+    - provider execution progress events are visibility=author
     - final agent_run_state records provider call budget
 
 anti_hooks:

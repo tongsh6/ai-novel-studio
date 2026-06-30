@@ -1,0 +1,52 @@
+id: agent-natural-language-steer
+title: 运行中主输入框自然语言 steering 绑定 active AgentRun
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-natural-language-steer --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - author-can-steer-agent-run
+  - natural-language-steer-does-not-create-second-run
+  - frontend-does-not-own-run-state
+  - agent-event-is-not-turn-result
+
+setup:
+  seed: none
+  provider: slice_verify
+  slow_marker: SU02SLOW
+
+user_flow:
+  - open: real Tauri workbench
+  - send: slow bounded roster-to-character-design AgentRun request
+  - wait_for: active run_id and first AgentStep
+  - send: steering text through the main chat input
+  - wait_for: agent_command ack, plan_adjusted event and adjusted agent_run_state for the same run_id
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-natural-language-steer-tauri
+
+assertions:
+  network:
+    - main input steering text is sent as agent_command steer for the active run_id
+    - no second user_message is sent for the steering text
+    - command ack returns the same run_id
+    - plan_adjusted is broadcast for the same run_id
+  data:
+    - adjusted agent_run_state carries goal version >= 2
+    - frontend does not mark the run adjusted without backend ack
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

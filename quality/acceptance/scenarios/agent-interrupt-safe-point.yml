@@ -1,5 +1,5 @@
 id: agent-interrupt-safe-point
-title: AgentRun pause 在协作式 safe point 停止
+title: AgentRun pause 停止当前 bounded run
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agent-interrupt-safe-point --surface tauri
@@ -11,7 +11,7 @@ contract:
 
 invariants:
   - author-can-pause-agent-run
-  - provider-without-hard-cancel-degrades-honestly
+  - pause-does-not-request-provider-execution-cancel
   - stale-run-command-does-not-silently-continue
 
 setup:
@@ -39,8 +39,8 @@ assertions:
     - command ack returns the same run_id
     - interrupt_requested and run_paused are broadcast for the same run_id
   data:
-    - run state reaches paused, not fake hard-stopped
-    - provider_hard_cancel_claimed is false
+    - run state reaches paused
+    - provider_execution_cancel_requested is false for pause
 
 anti_hooks:
   product_acceptance_logic_added: false

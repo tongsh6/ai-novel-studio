@@ -209,6 +209,20 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-conversation-turn.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-conversation-turn --surface tauri
+  - id: agent-plot-outline-with-context
+    title: "AgentRun 章节大纲 Profile 生成待采纳大纲草稿"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-plot-outline-with-context.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-plot-outline-with-context --surface tauri
+  - id: agent-character-evolution-with-context
+    title: "AgentRun 角色演化 Profile 生成待采纳角色记忆草稿"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-character-evolution-with-context.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-character-evolution-with-context --surface tauri
   - id: ua01-agent-bounded-roster-to-character-design
     title: "复合角色任务启动 bounded AgentRun 并产出待采纳角色草稿"
     tier: nightly
@@ -272,6 +286,13 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-steer-replan.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-steer-replan --surface tauri
+  - id: agent-natural-language-steer
+    title: "运行中主输入框自然语言 steering 绑定 active AgentRun"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-natural-language-steer.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-natural-language-steer --surface tauri
   - id: agent-loop-budget-limit
     title: "AgentRun 受作者预算限制停止等待作者"
     tier: nightly
@@ -336,8 +357,32 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-durable-resume-long-run-task.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-durable-resume-long-run-task --surface tauri
+  - id: agent-provider-execution-stream-unified
+    title: "Provider execution facts 进入对话 AgentRun author-safe 工作轨迹"
+    tier: nightly
+    status: active
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-provider-execution-stream-unified.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-provider-execution-stream-unified --surface tauri
+  - id: agent-provider-execution-activity-restored
+    title: "Provider execution activity 从持久 AgentRun events 恢复到对话流并可 scoped 查询 ProviderRun facts"
+    tier: nightly
+    status: active
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-provider-execution-activity-restored.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-provider-execution-activity-restored --surface tauri
+  - id: agent-provider-execution-error-author-safe
+    title: "Provider execution error facts 进入对话 AgentRun author-safe 工作轨迹"
+    tier: nightly
+    status: active
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-provider-execution-error-author-safe.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-provider-execution-error-author-safe --surface tauri
   - id: agent-provider-streaming-progress
-    title: "Provider streaming progress 进入 AgentRun author-safe 事件流"
+    title: "Provider execution progress 进入 AgentRun author-safe 事件流"
     tier: nightly
     status: active
     surface: tauri
@@ -345,7 +390,7 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-provider-streaming-progress --surface tauri
   - id: agent-provider-cancel-honest-boundary
-    title: "Provider cancel 诚实区分硬取消与协作式 safe point"
+    title: "Provider cancel 通过统一 ProviderExecution 取消"
     tier: nightly
     status: active
     surface: tauri

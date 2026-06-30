@@ -20,6 +20,7 @@
 | `agent-interrupt-safe-point.yml` | AgentRun pause 在协作式 safe point 停止 |
 | `agent-cancel-target-binding.yml` | AgentRun cancel 绑定 active run_id 并协作式取消 |
 | `agent-steer-replan.yml` | AgentRun steer 绑定 active run_id 并广播重规划状态 |
+| `agent-natural-language-steer.yml` | 运行中主输入框自然语言 steering 绑定 active AgentRun |
 | `agent-loop-budget-limit.yml` | AgentRun 受作者预算限制停止等待作者 |
 | `agent-no-progress-stop.yml` | AgentRun 重复无进展时停止等待作者 |
 | `agent-archive-read-during-run.yml` | AgentRun 运行中作品档案仍可读取 |
@@ -29,11 +30,16 @@
 | `agent-work-isolation.yml` | 源作品 AgentRun 迟到输出不污染切换后的目标作品 |
 | `agent-provider-call-budget.yml` | AgentRun step/tool/provider 调用预算可追踪 |
 | `agent-durable-resume-long-run-task.yml` | Durable AgentRun 关联 LongRunTask 并可恢复（CP5，active/nightly） |
-| `agent-provider-streaming-progress.yml` | Provider streaming/progress 进入 AgentRun author-safe 事件流（CP6，nightly active） |
-| `agent-provider-cancel-honest-boundary.yml` | Provider cancel 诚实区分硬取消与协作式 safe point（CP6，nightly active） |
+| `agent-provider-execution-stream-unified.yml` | 普通对话 ProviderExecution facts 投影为 author-safe 工作轨迹，并可见 request_prepared / request_dispatched / provider_chunk / response_received 中间进展（CP4D/CP5/CP6，active/nightly） |
+| `agent-provider-execution-activity-restored.yml` | ProviderExecution activity 从持久 AgentRun events 恢复到同一对话流，并通过 scoped ProviderRun API 查询 author-safe usage/event/output summary；加严断言要求 ProviderRun 事件序列、输出摘要和 no-provider-recall 边界在同一 assistant 工作详情中可见（CP6，active/nightly） |
+| `agent-provider-execution-error-author-safe.yml` | 普通对话 ProviderExecution error facts 投影为 author-safe 工作轨迹（CP6，nightly active） |
+| `agent-provider-streaming-progress.yml` | Provider execution progress 进入 AgentRun author-safe 事件流（CP6 历史场景名，nightly active） |
+| `agent-provider-cancel-honest-boundary.yml` | Provider cancel 通过统一 ProviderExecution 取消（CP6，nightly active） |
 | `agent-readonly-batch-profile.yml` | AgentRun 只读 batch profile 可并行读取且不写作品事实（CP6，nightly active） |
 | `agent-prose-drafting-with-quality.yml` | AgentRun 正文草稿 Profile 复用正文质量复核链路 |
 | `agent-conversation-turn.yml` | 普通对话输入统一进入 AgentRun |
+| `agent-plot-outline-with-context.yml` | AgentRun 章节大纲 Profile 生成待采纳大纲草稿 |
+| `agent-character-evolution-with-context.yml` | AgentRun 角色演化 Profile 生成待采纳角色记忆草稿 |
 | `au02-candidate-adoption-bridge.yml` | 候选方向选择与采纳边界 |
 | `au02-candidate-continuation.yml` | 候选方向继续讨论 |
 | `au02-candidate-fallback-ui.yml` | 候选坏格式 fallback 仍渲染可用候选卡 |
