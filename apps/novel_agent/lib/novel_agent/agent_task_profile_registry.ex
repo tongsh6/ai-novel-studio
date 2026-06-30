@@ -26,6 +26,26 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
+  @plot_outline_profile %{
+    profile_id: "plot_outline_with_context_v1",
+    allowed_tools: ["plot_outline"],
+    required_observations: [],
+    completion_conditions: ["tentative_outline_draft_created"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
+  @character_evolution_profile %{
+    profile_id: "character_evolution_with_context_v1",
+    allowed_tools: ["character_evolution"],
+    required_observations: [],
+    completion_conditions: ["tentative_character_evolution_seed_created"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
   @conversation_allowed_tools NovelCommon.CapabilityRegistry.list()
                               |> Enum.filter(&NovelCommon.CapabilityRegistry.dispatchable?/1)
 
@@ -44,7 +64,11 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     allowed_tools: ["provider_complete"],
     required_observations: [],
     completion_conditions: ["provider_progress_recorded"],
-    pause_conditions: ["target_work_missing", "run_budget_exhausted", "cooperative_cancel"],
+    pause_conditions: [
+      "target_work_missing",
+      "run_budget_exhausted",
+      "provider_execution_cancel_requested"
+    ],
     run_policy_ref: "bounded_small_v1",
     durable_eligible: false
   }
@@ -62,6 +86,8 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
   @spec get(String.t()) :: map() | nil
   def get("character_design_with_context_v1"), do: @character_design_profile
   def get("prose_drafting_with_quality_v1"), do: @prose_drafting_profile
+  def get("plot_outline_with_context_v1"), do: @plot_outline_profile
+  def get("character_evolution_with_context_v1"), do: @character_evolution_profile
   def get("conversation_turn_v1"), do: @conversation_turn_profile
   def get("provider_progress_v1"), do: @provider_progress_profile
   def get("readonly_batch_context_v1"), do: @readonly_batch_context_profile

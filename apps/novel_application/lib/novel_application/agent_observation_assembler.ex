@@ -18,6 +18,12 @@ defmodule NovelApplication.AgentObservationAssembler do
       "prose_writing" ->
         [artifact_observation(turn_result, run_id, step_id, "正文草稿")]
 
+      "plot_outline" ->
+        [artifact_observation(turn_result, run_id, step_id, "大纲草稿")]
+
+      "character_evolution" ->
+        [artifact_observation(turn_result, run_id, step_id, "角色演化记忆草稿")]
+
       _ ->
         []
     end

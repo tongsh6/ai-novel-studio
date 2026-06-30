@@ -76,26 +76,34 @@ defmodule NovelWeb.WorkspaceChannel do
 
     cond do
       valid_uuid?(requested) ->
-        requested
+        case WorkSessionService.show(work_id, requested) do
+          {:ok, _snapshot} -> requested
+          _ -> resume_session_id(work_id)
+        end
 
       valid_uuid?(work_id) ->
-        case WorkSessionService.resume(work_id) do
-          {:ok, %{active_session: %{id: id}}} -> id
-          _ -> nil
-        end
+        resume_session_id(work_id)
 
       true ->
         nil
     end
   end
 
+  defp resume_session_id(work_id) do
+    case WorkSessionService.resume(work_id) do
+      {:ok, %{active_session: %{id: id}}} -> id
+      _ -> nil
+    end
+  end
+
   defp restored_turn_results_list(work_id, session_id) do
     if valid_uuid?(work_id) and valid_uuid?(session_id) do
-      case WorkSessionService.resume(work_id) do
-        {:ok, %{transcript: transcript}} ->
+      case WorkSessionService.show(work_id, session_id) do
+        {:ok, %{transcript: transcript, read_only: read_only?}} ->
           LogEmit.emit(:work_session, :resume, :done, %{
             work_id: work_id,
             session_id: session_id,
+            read_only: read_only?,
             transcript_count: length(transcript),
             pending_adoption_count: count_pending_adoptions_in_list(transcript)
           })
@@ -183,15 +191,21 @@ defmodule NovelWeb.WorkspaceChannel do
         {:reply, {:error, %{reason: reason}}, socket}
 
       {:ok, candidate_selection} ->
-        handle_valid_user_message(socket, %{
-          text: text,
-          ws_id: ws_id,
-          work_id: work_id,
-          session_id: session_id,
-          generate_plan: generate_plan,
-          turn_id: turn_id,
-          candidate_selection: candidate_selection
-        })
+        case activate_author_session(work_id, session_id) do
+          {:ok, active_session_id} ->
+            handle_valid_user_message(socket, %{
+              text: text,
+              ws_id: ws_id,
+              work_id: work_id,
+              session_id: active_session_id,
+              generate_plan: generate_plan,
+              turn_id: turn_id,
+              candidate_selection: candidate_selection
+            })
+
+          {:error, reason} ->
+            {:reply, {:error, %{reason: error_reason(reason)}}, socket}
+        end
     end
   end
 
@@ -582,6 +596,20 @@ defmodule NovelWeb.WorkspaceChannel do
 
     {:reply, {:ok, data}, socket}
   end
+
+  defp activate_author_session(work_id, session_id) do
+    if valid_uuid?(work_id) and valid_uuid?(session_id) do
+      case WorkSessionService.activate(work_id, session_id) do
+        {:ok, %{id: id}} -> {:ok, id}
+        {:error, reason} -> {:error, reason}
+      end
+    else
+      {:ok, session_id}
+    end
+  end
+
+  defp error_reason(reason) when is_atom(reason), do: Atom.to_string(reason)
+  defp error_reason(reason), do: inspect(reason)
 
   @impl true
   def handle_info(:recover_durable_agent_runs, socket) do
@@ -1026,7 +1054,7 @@ defmodule NovelWeb.WorkspaceChannel do
         nil
       )
 
-    case start_agent_run(spec.run_attrs, spec.steps) do
+    case start_agent_run(spec.run_attrs, spec) do
       {:agent_run_started, run_id, attrs} ->
         run_mode = run_mode_string(attrs)
 
@@ -1323,8 +1351,8 @@ defmodule NovelWeb.WorkspaceChannel do
       |> Map.put(:memory_recorder, recorder)
 
     case DialoguePlanningService.plan_agent_run(input, fetcher) do
-      {:ok, %{decision: %{decision_type: :allow_agent_run}, run_attrs: attrs, steps: steps}} ->
-        start_agent_run(attrs, steps)
+      {:ok, %{decision: %{decision_type: :allow_agent_run}, run_attrs: attrs} = spec} ->
+        start_agent_run(attrs, spec)
 
       {:ok, _planned} ->
         {:error, :agent_run_not_allowed}
@@ -1334,9 +1362,10 @@ defmodule NovelWeb.WorkspaceChannel do
     end
   end
 
-  defp start_agent_run(attrs, steps) do
+  defp start_agent_run(attrs, spec) when is_map(spec) do
     channel_pid = self()
     run_mode = normalize_run_mode(Map.get(attrs, :run_mode) || Map.get(attrs, "run_mode"))
+    runtime_opts = agent_run_runtime_opts(spec)
 
     start_fun =
       if run_mode == :durable,
@@ -1345,8 +1374,10 @@ defmodule NovelWeb.WorkspaceChannel do
 
     case start_fun.(
            Map.put(attrs, :run_mode, run_mode),
-           steps: steps,
-           event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
+           runtime_opts ++
+             [
+               event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
+             ]
          ) do
       {:ok, run_id} ->
         attrs =
@@ -1364,6 +1395,16 @@ defmodule NovelWeb.WorkspaceChannel do
   defp normalize_run_mode(:durable), do: :durable
   defp normalize_run_mode("durable"), do: :durable
   defp normalize_run_mode(_mode), do: :bounded
+
+  defp agent_run_runtime_opts(%{} = spec) do
+    [
+      next_step_planner: Map.get(spec, :next_step_planner)
+    ]
+    |> Enum.reject(fn
+      {:next_step_planner, nil} -> true
+      {_key, _value} -> false
+    end)
+  end
 
   defp put_runtime_agent_refs(attrs, run_id) do
     case AgentRunService.state(run_id) do

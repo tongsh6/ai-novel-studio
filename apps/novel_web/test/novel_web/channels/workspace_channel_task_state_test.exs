@@ -4,10 +4,11 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
   import Phoenix.ChannelTest
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelApplication.AgentRunService
   alias NovelApplication.WorkService
   alias NovelApplication.WorkSessionService
   alias NovelFoundation.Enums.AdoptionStatus
-  alias NovelPersistence.{AgentRunLog, LongRunTaskLog, Repo}
+  alias NovelPersistence.{AgentRunLog, LongRunTaskLog, MemoryLog, Repo, WorkSessionRepo}
   alias NovelPersistence.Schemas.Chapter
   alias NovelPersistence.Schemas.Draft
   alias NovelPersistence.Schemas.Scene
@@ -21,6 +22,80 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     pid = Sandbox.start_owner!(Repo, shared: true)
     on_exit(fn -> Sandbox.stop_owner(pid) end)
     :ok
+  end
+
+  test "join restores turn results from the requested session rather than work-level resume" do
+    {:ok, work} = WorkService.create(%{"title" => "会话绑定作品"})
+    {:ok, requested} = WorkSessionRepo.create(%{work_id: work.id, title: "目标会话"})
+
+    requested_turn_result = %{
+      turn_id: "turn-requested",
+      assistant_message: %{text: "目标会话回应"}
+    }
+
+    {:ok, _} =
+      MemoryLog.record(%{
+        workspace_id: work.id,
+        session_id: requested.id,
+        turn_id: "turn-requested",
+        role: "assistant",
+        content: %{text: "目标会话回应", turn_result: requested_turn_result}
+      })
+
+    Process.sleep(5)
+    {:ok, other} = WorkSessionRepo.create(%{work_id: work.id, title: "另一个活动会话"})
+
+    {:ok, _} =
+      MemoryLog.record(%{
+        workspace_id: work.id,
+        session_id: other.id,
+        turn_id: "turn-other",
+        role: "assistant",
+        content: %{
+          text: "另一个会话回应",
+          turn_result: %{turn_id: "turn-other", assistant_message: %{text: "另一个会话回应"}}
+        }
+      })
+
+    {:ok, reply, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => requested.id
+      })
+
+    assert reply.session_id == requested.id
+    assert socket.assigns.session_id == requested.id
+    assert Map.has_key?(socket.assigns.turn_results_by_id, "turn-requested")
+    refute Map.has_key?(socket.assigns.turn_results_by_id, "turn-other")
+  end
+
+  test "user_message makes the channel session the resume target" do
+    {:ok, work} = WorkService.create(%{"title" => "作者输入绑定作品"})
+    {:ok, requested} = WorkSessionRepo.create(%{work_id: work.id, title: "作者正在写的会话"})
+    Process.sleep(5)
+    {:ok, other} = WorkSessionRepo.create(%{work_id: work.id, title: "并发启动空会话"})
+
+    {:ok, _reply, socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => requested.id
+      })
+
+    ref = push(socket, "user_message", %{"text" => "继续讨论"})
+
+    assert_reply(ref, :ok, %{received: true, run_id: run_id, run_mode: "bounded"})
+    assert is_binary(run_id)
+    assert WorkSessionRepo.get_by_work(work.id, requested.id).status == "ACTIVE"
+    assert WorkSessionRepo.get_by_work(work.id, other.id).status == "EXITED"
+
+    assert {:ok, %{active_session: %{id: active_id}}} = WorkSessionService.resume(work.id)
+    assert active_id == requested.id
+
+    cancel_and_wait_for_agent_run(run_id)
   end
 
   test "export_work broadcasts persisted task_state lifecycle for a real visible export action" do
@@ -404,5 +479,43 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     |> Repo.insert!()
 
     work
+  end
+
+  defp cancel_and_wait_for_agent_run(run_id) do
+    _ = AgentRunService.cancel(run_id)
+
+    wait_for(fn ->
+      case AgentRunService.state(run_id) do
+        {:ok, %{run: run, current_task?: false}}
+        when run.status in [:completed, :cancelled, :failed, :awaiting_author] ->
+          run.status
+
+        {:error, :not_found} ->
+          :not_found
+
+        _ ->
+          nil
+      end
+    end)
+  end
+
+  defp wait_for(fun, timeout_ms \\ 1_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for(fun, deadline)
+  end
+
+  defp do_wait_for(fun, deadline) do
+    case fun.() do
+      nil ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          flunk("condition was not met before timeout")
+        else
+          Process.sleep(10)
+          do_wait_for(fun, deadline)
+        end
+
+      result ->
+        result
+    end
   end
 end

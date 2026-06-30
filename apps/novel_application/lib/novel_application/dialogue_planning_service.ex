@@ -3,24 +3,31 @@ defmodule NovelApplication.DialoguePlanningService do
   user_message 入口的 AgentRun 启动边界。
 
   UA-01 收口后，作者输入不再先走同步 `DialogueGateway` 再按裁决决定是否起 run。
-  本服务只负责把非空输入固化为 AgentRun 启动载体（run_attrs + steps），
+  本服务只负责把非空输入固化为 AgentRun 启动载体（run_attrs + runtime spec），
   后续 frame / plan / decision / tool / reply 都在 AgentRun lifecycle 内发生，并通过
   author-safe agent_event / agent_run_state 投影给 UI。
   """
 
-  alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.CharacterDesignWithContext
+  alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
   alias NovelApplication.AgentRunFlows.ConversationTurn
+  alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
   alias NovelApplication.AgentRunFlows.ProseDraftingWithQuality
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
   alias NovelApplication.AgentRunFlows.ProviderProgress
   alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
+  alias NovelApplication.AgentRunSequentialPlanner
   alias NovelDomain.AgentPlan
 
   @character_allowed_tools ["character_roster", "character_design"]
   @character_profile_ref CharacterDesignWithContext.profile_ref()
   @prose_allowed_tools ["prose_writing"]
   @prose_profile_ref ProseDraftingWithQuality.profile_ref()
+  @plot_outline_allowed_tools ["plot_outline"]
+  @plot_outline_profile_ref PlotOutlineWithContext.profile_ref()
+  @character_evolution_allowed_tools ["character_evolution"]
+  @character_evolution_profile_ref CharacterEvolutionWithContext.profile_ref()
   @revision_allowed_tools ["prose_writing"]
   @revision_profile_ref ProseRevisionFromFindings.profile_ref()
   @provider_progress_allowed_tools ["provider_complete"]
@@ -33,12 +40,16 @@ defmodule NovelApplication.DialoguePlanningService do
   @explicit_profiles %{
     @character_profile_ref => :character_design_with_context,
     @prose_profile_ref => :prose_drafting_with_quality,
+    @plot_outline_profile_ref => :plot_outline_with_context,
+    @character_evolution_profile_ref => :character_evolution_with_context,
     @revision_profile_ref => :prose_revision_from_findings,
     @provider_progress_profile_ref => :provider_progress,
     @readonly_batch_profile_ref => :readonly_batch_context,
     @conversation_profile_ref => :conversation_turn,
     character_design_with_context: :character_design_with_context,
     prose_drafting_with_quality: :prose_drafting_with_quality,
+    plot_outline_with_context: :plot_outline_with_context,
+    character_evolution_with_context: :character_evolution_with_context,
     prose_revision_from_findings: :prose_revision_from_findings,
     provider_progress: :provider_progress,
     readonly_batch_context: :readonly_batch_context,
@@ -55,15 +66,19 @@ defmodule NovelApplication.DialoguePlanningService do
   @doc """
   user_message 主入口。返回：
 
-    - `{:ok, %{decision: %{decision_type: :allow_agent_run}, run_attrs, steps, ...}}`：起 bounded run
+    - `{:ok, %{decision: %{decision_type: :allow_agent_run}, run_attrs, next_step_planner, ...}}`：起 bounded run
     - `{:error, reason}`
   """
-  @spec plan_agent_run(map(), function() | nil, function()) ::
+  @spec plan_agent_run(map(), function() | nil, Execution.dependency()) ::
           {:ok, map()} | {:error, term()}
-  def plan_agent_run(input, context_fetcher \\ nil, complete_fn \\ &Gateway.complete/1)
+  def plan_agent_run(
+        input,
+        context_fetcher \\ nil,
+        provider_execution \\ Execution.dependency(purpose: :conversation)
+      )
 
-  def plan_agent_run(%{text: text} = input, context_fetcher, complete_fn)
-      when is_binary(text) and is_function(complete_fn, 1) do
+  def plan_agent_run(%{text: text} = input, context_fetcher, provider_execution)
+      when is_binary(text) do
     if String.trim(text) == "" do
       {:error, :empty_text}
     else
@@ -72,31 +87,38 @@ defmodule NovelApplication.DialoguePlanningService do
          profile_for_input(input),
          Map.put(input, :context_fetcher, context_fetcher),
          nil,
-         complete_fn
+         provider_execution
        )}
     end
   end
 
-  def plan_agent_run(_input, _context_fetcher, _complete_fn),
+  def plan_agent_run(_input, _context_fetcher, _provider_execution),
     do: {:error, :invalid_agent_run_input}
 
   @typedoc "AgentRun profile；user_message 默认进入 conversation_turn，显式 flow 测试可直建特定 profile。"
   @type profile ::
           :character_design_with_context
           | :prose_drafting_with_quality
+          | :plot_outline_with_context
+          | :character_evolution_with_context
           | :prose_revision_from_findings
           | :provider_progress
           | :readonly_batch_context
           | :conversation_turn
 
   @doc """
-  为显式 profile 构建 bounded AgentRun 启动 spec（run_attrs + steps）。
+  为显式 profile 构建 bounded AgentRun 启动 spec（run_attrs + next_step_planner）。
 
   `build_agent_run/4`（路由命中 allow_agent_run 时）与直接演练某个 flow 的 flow/runtime 测试共用，
   使测试无需经过 AI 判帧即可演练某一 profile 的运行时。
   """
-  @spec run_spec_for_profile(profile(), map(), term(), function()) :: map()
-  def run_spec_for_profile(profile, input, context, complete_fn \\ &Gateway.complete/1) do
+  @spec run_spec_for_profile(profile(), map(), term(), Execution.dependency()) :: map()
+  def run_spec_for_profile(
+        profile,
+        input,
+        context,
+        provider_execution \\ Execution.dependency(purpose: :conversation)
+      ) do
     ws_id = Map.get(input, :workspace_id, "default")
     work_id = Map.get(input, :work_id) || ws_id
     turn_id = Map.get(input, :turn_id) || Map.get(input, "turn_id") || allocate_turn_id()
@@ -122,14 +144,16 @@ defmodule NovelApplication.DialoguePlanningService do
         agent_plan: agent_plan,
         text: text,
         profile: profile,
-        run_mode: run_mode
+        run_mode: run_mode,
+        input: input
       })
 
     %{
       route: :agent_run_start,
       run_id: run_id,
       run_attrs: attrs,
-      steps: agent_steps(profile, text, context, nil, complete_fn, input),
+      next_step_planner:
+        agent_next_step_planner(profile, text, context, nil, provider_execution, input),
       context: context,
       decision: %{decision_type: :allow_agent_run}
     }
@@ -152,8 +176,14 @@ defmodule NovelApplication.DialoguePlanningService do
       provider_progress_request?(text) ->
         :provider_progress
 
+      character_evolution_request?(text) ->
+        :character_evolution_with_context
+
       character_context_design_request?(text) ->
         :character_design_with_context
+
+      plot_outline_request?(text) ->
+        :plot_outline_with_context
 
       prose_drafting_request?(text) ->
         :prose_drafting_with_quality
@@ -218,18 +248,68 @@ defmodule NovelApplication.DialoguePlanningService do
           success_criteria: ["dialogue_context_attached"]
         },
         %{
-          milestone_id: "plan_and_gate",
-          summary: "制定正文执行策略并完成授权判断",
-          success_criteria: ["prose_micro_plan_exists", "allow_tool_decision_exists"]
-        },
-        %{
-          milestone_id: "draft_prose_with_quality",
-          summary: "生成正文草稿并完成质量复核",
+          milestone_id: "plan_gate_and_draft_prose_with_quality",
+          summary: "根据观察制定下一步计划、完成裁决并生成正文草稿和质量复核",
           success_criteria: ["tentative_prose_fragment_exists", "quality_review_exists"]
         },
         %{
-          milestone_id: "finalize",
-          summary: "汇总结果给作者",
+          milestone_id: "confirm_prose_goal",
+          summary: "确认正文草稿目标已满足",
+          success_criteria: ["turn_result_emitted"]
+        }
+      ]
+    })
+  end
+
+  defp agent_run_agent_plan(run_id, :plot_outline_with_context) do
+    AgentPlan.new(%{
+      plan_id: "ap_#{run_id}",
+      run_ref: run_id,
+      version: 1,
+      goal_version: 1,
+      milestones: [
+        %{
+          milestone_id: "assemble_outline_context",
+          summary: "组装章节大纲规划上下文",
+          success_criteria: ["dialogue_context_attached"]
+        },
+        %{
+          milestone_id: "plan_gate_and_generate_outline",
+          summary: "制定大纲执行策略、完成授权判断并生成草稿",
+          success_criteria: ["outline_micro_plan_exists", "allow_tool_decision_exists"]
+        },
+        %{
+          milestone_id: "confirm_outline_goal",
+          summary: "确认大纲目标已满足并汇总给作者",
+          success_criteria: ["turn_result_emitted"]
+        }
+      ]
+    })
+  end
+
+  defp agent_run_agent_plan(run_id, :character_evolution_with_context) do
+    AgentPlan.new(%{
+      plan_id: "ap_#{run_id}",
+      run_ref: run_id,
+      version: 1,
+      goal_version: 1,
+      milestones: [
+        %{
+          milestone_id: "assemble_character_evolution_context",
+          summary: "组装角色演化上下文",
+          success_criteria: ["dialogue_context_attached"]
+        },
+        %{
+          milestone_id: "plan_gate_and_generate_character_evolution",
+          summary: "制定角色演化执行策略、完成授权判断并生成草稿",
+          success_criteria: [
+            "character_evolution_micro_plan_exists",
+            "allow_tool_decision_exists"
+          ]
+        },
+        %{
+          milestone_id: "confirm_character_evolution_goal",
+          summary: "确认角色演化目标已满足并汇总给作者",
           success_criteria: ["turn_result_emitted"]
         }
       ]
@@ -350,7 +430,8 @@ defmodule NovelApplication.DialoguePlanningService do
          agent_plan: agent_plan,
          text: text,
          profile: profile,
-         run_mode: run_mode
+         run_mode: run_mode,
+         input: input
        }) do
     %{
       run_id: run_id,
@@ -366,7 +447,7 @@ defmodule NovelApplication.DialoguePlanningService do
       plan_version: agent_plan.version,
       goal: %{text: text, version: 1},
       authority_scope: %{production_write: false, allowed_tools: allowed_tools(profile)},
-      budget: run_budget(text, profile)
+      budget: run_budget(text, profile, input)
     }
   end
 
@@ -389,50 +470,15 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp agent_steps(
-         :character_design_with_context,
-         text,
-         context,
-         _context_fetcher,
-         complete_fn,
-         _input
-       ) do
-    CharacterDesignWithContext.steps(%{
-      context: context,
-      complete_fn: complete_fn,
-      flow_variant: flow_variant(text)
-    })
-  end
-
-  defp agent_steps(
-         :prose_drafting_with_quality,
-         _text,
-         context,
-         context_fetcher,
-         complete_fn,
-         input
-       ) do
-    ProseDraftingWithQuality.steps(%{
-      context: context,
-      context_fetcher:
-        context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
-      complete_fn: complete_fn,
-      quality_complete_fn: map_get(input, :quality_complete_fn),
-      chapter_prose_reader: map_get(input, :chapter_prose_reader),
-      chapter_summary_reader: map_get(input, :chapter_summary_reader),
-      character_reader: map_get(input, :character_reader)
-    })
-  end
-
-  defp agent_steps(
          :prose_revision_from_findings,
          _text,
          _context,
          _context_fetcher,
-         complete_fn,
+         provider_execution,
          input
        ) do
     ProseRevisionFromFindings.steps(%{
-      complete_fn: complete_fn,
+      provider_execution: provider_execution,
       source_turn_result: map_get(input, :source_turn_result),
       action_input: map_get(input, :action_input)
     })
@@ -443,12 +489,12 @@ defmodule NovelApplication.DialoguePlanningService do
          text,
          _context,
          _context_fetcher,
-         complete_fn,
+         provider_execution,
          input
        ) do
     ProviderProgress.steps(%{
       text: text,
-      complete_fn: complete_fn,
+      provider_execution: provider_execution,
       provider_capabilities_fn: map_get(input, :provider_capabilities_fn)
     })
   end
@@ -458,7 +504,7 @@ defmodule NovelApplication.DialoguePlanningService do
          _text,
          _context,
          _context_fetcher,
-         _complete_fn,
+         _provider_execution,
          input
        ) do
     ReadonlyBatchContext.steps(%{
@@ -466,29 +512,198 @@ defmodule NovelApplication.DialoguePlanningService do
     })
   end
 
-  defp agent_steps(
+  defp prose_drafting_next_step_planner(context, context_fetcher, provider_execution, input) do
+    ProseDraftingWithQuality.next_step_planner(%{
+      context: context,
+      context_fetcher:
+        context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution),
+      quality_provider_execution: map_get(input, :quality_provider_execution),
+      chapter_prose_reader: map_get(input, :chapter_prose_reader),
+      chapter_summary_reader: map_get(input, :chapter_summary_reader),
+      character_reader: map_get(input, :character_reader)
+    })
+  end
+
+  defp agent_next_step_planner(
+         :character_design_with_context,
+         _text,
+         context,
+         _context_fetcher,
+         provider_execution,
+         input
+       ) do
+    CharacterDesignWithContext.next_step_planner(%{
+      context: context,
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution),
+      character_reader: map_get(input, :character_reader)
+    })
+  end
+
+  defp agent_next_step_planner(
+         :prose_drafting_with_quality,
+         _text,
+         context,
+         context_fetcher,
+         provider_execution,
+         input
+       ) do
+    prose_drafting_next_step_planner(context, context_fetcher, provider_execution, input)
+  end
+
+  defp agent_next_step_planner(
+         :plot_outline_with_context,
+         _text,
+         context,
+         context_fetcher,
+         provider_execution,
+         input
+       ) do
+    PlotOutlineWithContext.next_step_planner(%{
+      context: context,
+      context_fetcher:
+        context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution),
+      chapter_prose_reader: map_get(input, :chapter_prose_reader),
+      chapter_summary_reader: map_get(input, :chapter_summary_reader),
+      character_reader: map_get(input, :character_reader)
+    })
+  end
+
+  defp agent_next_step_planner(
+         :character_evolution_with_context,
+         _text,
+         context,
+         context_fetcher,
+         provider_execution,
+         input
+       ) do
+    CharacterEvolutionWithContext.next_step_planner(%{
+      context: context,
+      context_fetcher:
+        context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution),
+      chapter_prose_reader: map_get(input, :chapter_prose_reader),
+      chapter_summary_reader: map_get(input, :chapter_summary_reader),
+      character_reader: map_get(input, :character_reader)
+    })
+  end
+
+  defp agent_next_step_planner(
+         :prose_revision_from_findings,
+         text,
+         context,
+         context_fetcher,
+         provider_execution,
+         input
+       ),
+       do:
+         fixed_step_profile_planner(
+           :prose_revision_from_findings,
+           text,
+           context,
+           context_fetcher,
+           provider_execution,
+           input
+         )
+
+  defp agent_next_step_planner(
+         :provider_progress,
+         text,
+         context,
+         context_fetcher,
+         provider_execution,
+         input
+       ),
+       do:
+         fixed_step_profile_planner(
+           :provider_progress,
+           text,
+           context,
+           context_fetcher,
+           provider_execution,
+           input
+         )
+
+  defp agent_next_step_planner(
+         :readonly_batch_context,
+         text,
+         context,
+         context_fetcher,
+         provider_execution,
+         input
+       ),
+       do:
+         fixed_step_profile_planner(
+           :readonly_batch_context,
+           text,
+           context,
+           context_fetcher,
+           provider_execution,
+           input
+         )
+
+  defp agent_next_step_planner(
          :conversation_turn,
          _text,
          _context,
          context_fetcher,
-         complete_fn,
+         provider_execution,
          input
        ) do
-    ConversationTurn.steps(%{
+    ConversationTurn.next_step_planner(%{
       input: input,
       context_fetcher:
         context_fetcher_or_default(map_get(input, :context_fetcher) || context_fetcher),
-      complete_fn: complete_fn,
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution),
       trace_persister: map_get(input, :trace_persister),
       memory_recorder: map_get(input, :memory_recorder)
     })
+  end
+
+  defp agent_next_step_planner(
+         _profile,
+         _text,
+         _context,
+         _context_fetcher,
+         _provider_execution,
+         _input
+       ),
+       do: nil
+
+  defp fixed_step_profile_planner(
+         profile,
+         text,
+         context,
+         context_fetcher,
+         provider_execution,
+         input
+       ) do
+    profile
+    |> agent_steps(text, context, context_fetcher, provider_execution, input)
+    |> AgentRunSequentialPlanner.from_steps()
+  end
+
+  defp run_budget(text, profile, input) do
+    case profile do
+      :conversation_turn ->
+        conversation_turn_budget(input)
+
+      _ ->
+        run_budget(text, profile)
+    end
   end
 
   defp run_budget(text, :character_design_with_context) do
     if one_step_budget?(text) do
       %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
     else
-      %{max_steps: 4, max_tool_calls: 4, max_provider_calls: 2, max_replans: 1}
+      %{max_steps: 4, max_tool_calls: 4, max_provider_calls: 4, max_replans: 1}
     end
   end
 
@@ -496,7 +711,23 @@ defmodule NovelApplication.DialoguePlanningService do
     if one_step_budget?(text) do
       %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 2, max_replans: 1}
     else
-      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 3, max_replans: 1}
+      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 5, max_replans: 1}
+    end
+  end
+
+  defp run_budget(text, :plot_outline_with_context) do
+    if one_step_budget?(text) do
+      %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
+    else
+      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 4, max_replans: 1}
+    end
+  end
+
+  defp run_budget(text, :character_evolution_with_context) do
+    if one_step_budget?(text) do
+      %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
+    else
+      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 4, max_replans: 1}
     end
   end
 
@@ -517,11 +748,21 @@ defmodule NovelApplication.DialoguePlanningService do
   end
 
   defp run_budget(_text, :conversation_turn) do
-    %{max_steps: 4, max_tool_calls: 4, max_provider_calls: 6, max_replans: 1}
+    conversation_turn_budget(%{})
+  end
+
+  defp conversation_turn_budget(input) do
+    if map_get(input, :generate_micro_plan) in [true, "true"] do
+      %{max_steps: 5, max_tool_calls: 4, max_provider_calls: 8, max_replans: 1}
+    else
+      %{max_steps: 5, max_tool_calls: 4, max_provider_calls: 6, max_replans: 1}
+    end
   end
 
   defp profile_ref(:character_design_with_context), do: @character_profile_ref
   defp profile_ref(:prose_drafting_with_quality), do: @prose_profile_ref
+  defp profile_ref(:plot_outline_with_context), do: @plot_outline_profile_ref
+  defp profile_ref(:character_evolution_with_context), do: @character_evolution_profile_ref
   defp profile_ref(:prose_revision_from_findings), do: @revision_profile_ref
   defp profile_ref(:provider_progress), do: @provider_progress_profile_ref
   defp profile_ref(:readonly_batch_context), do: @readonly_batch_profile_ref
@@ -529,14 +770,12 @@ defmodule NovelApplication.DialoguePlanningService do
 
   defp allowed_tools(:character_design_with_context), do: @character_allowed_tools
   defp allowed_tools(:prose_drafting_with_quality), do: @prose_allowed_tools
+  defp allowed_tools(:plot_outline_with_context), do: @plot_outline_allowed_tools
+  defp allowed_tools(:character_evolution_with_context), do: @character_evolution_allowed_tools
   defp allowed_tools(:prose_revision_from_findings), do: @revision_allowed_tools
   defp allowed_tools(:provider_progress), do: @provider_progress_allowed_tools
   defp allowed_tools(:readonly_batch_context), do: @readonly_batch_allowed_tools
   defp allowed_tools(:conversation_turn), do: @conversation_allowed_tools
-
-  defp flow_variant(text) do
-    if no_progress_probe?(text), do: :repeat_roster_until_no_progress, else: :default
-  end
 
   defp one_step_budget?(text) do
     normalized = normalize_text(text)
@@ -550,19 +789,6 @@ defmodule NovelApplication.DialoguePlanningService do
       "只执行 1 步",
       "max one step",
       "one step only"
-    ])
-  end
-
-  defp no_progress_probe?(text) do
-    normalized = normalize_text(text)
-
-    contains_any?(normalized, [
-      "重复读取角色阵容",
-      "重复查看角色阵容",
-      "没有新信息",
-      "没有新进展",
-      "无新进展",
-      "no progress"
     ])
   end
 
@@ -599,6 +825,70 @@ defmodule NovelApplication.DialoguePlanningService do
   defp readonly_batch_request?(text) do
     contains_any?(text, ["只读批量", "批量读取", "批量查看", "read-only batch", "readonly batch"]) and
       contains_any?(text, ["上下文", "档案", "角色", "规则", "作品"])
+  end
+
+  defp plot_outline_request?(text) do
+    contains_any?(text, [
+      "章节大纲",
+      "章节计划",
+      "分章大纲",
+      "卷章结构",
+      "卷章规划",
+      "章纲",
+      "plot outline",
+      "outline"
+    ]) and
+      contains_any?(text, [
+        "规划",
+        "计划",
+        "生成",
+        "制定",
+        "设计",
+        "创建",
+        "列出",
+        "补全",
+        "续写",
+        "扩展",
+        "接着"
+      ])
+  end
+
+  defp character_evolution_request?(text) do
+    contains_any?(text, [
+      "角色演化",
+      "角色成长",
+      "角色状态",
+      "当前状态",
+      "关系变化",
+      "角色关系",
+      "人物关系",
+      "character evolution",
+      "黑化",
+      "结盟",
+      "反目",
+      "受伤",
+      "失踪",
+      "身份暴露"
+    ]) and
+      contains_any?(text, [
+        "更新",
+        "记录",
+        "推进",
+        "变化",
+        "变成",
+        "改为",
+        "写入",
+        "整理",
+        "补充",
+        "记一下",
+        "演化",
+        "黑化",
+        "结盟",
+        "反目",
+        "受伤",
+        "失踪",
+        "暴露"
+      ])
   end
 
   defp context_fetcher_or_default(nil), do: fn _ -> {:ok, nil, nil, nil, nil} end

@@ -1,6 +1,7 @@
 defmodule NovelDomain.AgentRunContractTest do
   use ExUnit.Case, async: true
 
+  alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentPlan
   alias NovelDomain.AgentRun
@@ -179,5 +180,36 @@ defmodule NovelDomain.AgentRunContractTest do
              })
 
     assert "evidence_refs must not be empty" in errors
+  end
+
+  test "AgentNextStepDecision proposes loop continuation without approving execution" do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_1",
+        run_ref: "run_1",
+        sequence: 2,
+        decision_type: :execute_step,
+        summary: "基于角色阵容设计新角色",
+        target_tool_ref: "character_design",
+        write_intent: :tentative,
+        risk_hint: :low,
+        reason_codes: ["roster_observation_consumed"],
+        observation_refs: ["obs_1"]
+      })
+
+    assert decision.decision_type == :execute_step
+    assert decision.target_tool_ref == "character_design"
+    refute Map.has_key?(decision, :approved)
+
+    assert {:error, errors} =
+             AgentNextStepDecision.new(%{
+               decision_id: "and_bad",
+               run_ref: "run_1",
+               sequence: 3,
+               decision_type: :execute_step,
+               summary: "缺少工具"
+             })
+
+    assert "target_tool_ref is required for execute_step" in errors
   end
 end

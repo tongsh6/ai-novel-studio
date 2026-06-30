@@ -1,6 +1,7 @@
 defmodule NovelApplication.DialogueGatewayTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.DialogueGateway
   alias NovelDomain.AuthorActionInput
   alias NovelDomain.DialogueFrame
@@ -143,6 +144,22 @@ defmodule NovelApplication.DialogueGatewayTest do
       message = turn_result.assistant_message.text
       refute String.contains?(message, "无法连接")
       assert String.contains?(message, "格式")
+    end
+
+    test "accepts provider execution dependency for conversation turns" do
+      provider_execution = %Execution{
+        complete_fn: fn _prompt -> {:ok, %{content: @frame_json}} end
+      }
+
+      {:ok, turn_result, trace, _candidates, _context} =
+        DialogueGateway.handle_input(
+          %{text: "普通聊天", workspace_id: "ws-provider-execution"},
+          nil,
+          provider_execution
+        )
+
+      assert turn_result.frame_summary.frame_type == :casual_reply
+      assert trace.decision_type == :reply_only
     end
 
     test "provider unavailable fallback is recoverable and truthfully reports no write" do
@@ -421,12 +438,12 @@ defmodule NovelApplication.DialogueGatewayTest do
 
     test "explicit nil provider is rejected instead of falling back to Gateway" do
       assert {:error, reason} = DialogueGateway.handle_input(%{text: "普通聊天"}, nil, nil)
-      assert String.contains?(reason, "provider complete_fn")
+      assert String.contains?(reason, "provider execution")
 
       assert {:error, reason} =
                DialogueGateway.handle_input(%{text: "普通聊天"}, nil, nil, fn _, _ -> :ok end, nil)
 
-      assert String.contains?(reason, "provider complete_fn")
+      assert String.contains?(reason, "provider execution")
     end
 
     test "explicit nil provider is rejected for author actions" do
@@ -438,7 +455,7 @@ defmodule NovelApplication.DialogueGatewayTest do
       }
 
       assert {:error, reason} = DialogueGateway.handle_action(input, %{}, nil)
-      assert String.contains?(reason, "provider complete_fn")
+      assert String.contains?(reason, "provider execution")
     end
 
     test "cancel waiting action records terminal behavior trace refs for replay" do

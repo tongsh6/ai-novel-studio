@@ -9,6 +9,7 @@ defmodule NovelApplication.AgentRunService do
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog}
 
   @type step_fun :: AgentRunServer.step_fun()
+  @type next_step_planner :: AgentRunServer.next_step_planner()
 
   @spec start_bounded(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def start_bounded(attrs, opts \\ []) when is_map(attrs) do
@@ -18,14 +19,15 @@ defmodule NovelApplication.AgentRunService do
       |> Map.put_new(:status, :running)
       |> Map.put_new(:phase, :executing)
 
-    with {:ok, run} <- AgentRun.new(attrs),
+    with {:ok, next_step_planner} <- next_step_planner(opts),
+         {:ok, run} <- AgentRun.new(attrs),
          {:ok, _pid} <-
            DynamicSupervisor.start_child(
              NovelApplication.AgentRunSupervisor,
              {AgentRunServer,
               [
                 run: run,
-                steps: Keyword.get(opts, :steps, []),
+                next_step_planner: next_step_planner,
                 event_sink: Keyword.get(opts, :event_sink)
               ]}
            ) do
@@ -44,6 +46,7 @@ defmodule NovelApplication.AgentRunService do
            |> Map.put(:long_run_task_ref, task.id)
            |> Map.put_new(:status, :running)
            |> Map.put_new(:phase, :executing),
+         {:ok, next_step_planner} <- next_step_planner(opts),
          {:ok, run} <- AgentRun.new(attrs),
          {:ok, _pid} <-
            DynamicSupervisor.start_child(
@@ -51,7 +54,7 @@ defmodule NovelApplication.AgentRunService do
              {AgentRunServer,
               [
                 run: run,
-                steps: Keyword.get(opts, :steps, []),
+                next_step_planner: next_step_planner,
                 event_sink: Keyword.get(opts, :event_sink)
               ]}
            ) do
@@ -122,6 +125,13 @@ defmodule NovelApplication.AgentRunService do
 
       error ->
         error
+    end
+  end
+
+  defp next_step_planner(opts) do
+    case Keyword.get(opts, :next_step_planner) do
+      planner when is_function(planner, 3) -> {:ok, planner}
+      _ -> {:error, :next_step_planner_required}
     end
   end
 

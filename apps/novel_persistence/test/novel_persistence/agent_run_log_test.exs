@@ -108,6 +108,68 @@ defmodule NovelPersistence.AgentRunLogTest do
     assert {:error, _changeset} = AgentRunLog.insert_event(%{attrs | id: "evt-dup-2"})
   end
 
+  test "queries parent-turn scoped runs and author-visible events" do
+    run_id = "run-parent-#{System.unique_integer([:positive, :monotonic])}"
+    other_session_run_id = "run-parent-other-#{System.unique_integer([:positive, :monotonic])}"
+
+    assert {:ok, _run} =
+             AgentRunLog.upsert_run(
+               run_attrs(run_id, %{
+                 parent_turn_ref: "turn-parent",
+                 status: "completed",
+                 phase: "stopped"
+               })
+             )
+
+    assert {:ok, _run} =
+             AgentRunLog.upsert_run(
+               run_attrs(other_session_run_id, %{
+                 session_id: "session-other",
+                 parent_turn_ref: "turn-parent",
+                 status: "completed",
+                 phase: "stopped"
+               })
+             )
+
+    assert [%{id: ^run_id}] =
+             AgentRunLog.list_by_parent_turn("work-active", "session-active", "turn-parent")
+
+    assert {:ok, _event} =
+             AgentRunLog.insert_event(%{
+               id: "evt-provider-author",
+               run_id: run_id,
+               step_id: "step-provider",
+               sequence: 1,
+               event_type: "provider_progress",
+               visibility: "author",
+               summary: "对话判断已开始调用创作模型。",
+               reason_codes: ["provider_execution_stream", "provider_started"],
+               refs: ["provider_run:prun-1", "provider_call:pcall-1"],
+               payload: %{
+                 "stage" => "provider_execution_recorded",
+                 "provider_run_ref" => "prun-1",
+                 "provider_call_ref" => "pcall-1"
+               }
+             })
+
+    assert {:ok, _event} =
+             AgentRunLog.insert_event(%{
+               id: "evt-provider-internal",
+               run_id: run_id,
+               step_id: "step-provider",
+               sequence: 2,
+               event_type: "provider_progress",
+               visibility: "internal",
+               summary: "raw provider detail",
+               reason_codes: ["provider_internal"],
+               refs: [],
+               payload: %{"raw_prompt" => "must not be restored to author"}
+             })
+
+    assert [%{id: "evt-provider-author", payload: %{"provider_run_ref" => "prun-1"}}] =
+             AgentRunLog.list_author_events(run_id)
+  end
+
   test "lists only active durable runs for a work session" do
     active_id = "run-active-durable-#{System.unique_integer([:positive, :monotonic])}"
     completed_id = "run-completed-durable-#{System.unique_integer([:positive, :monotonic])}"

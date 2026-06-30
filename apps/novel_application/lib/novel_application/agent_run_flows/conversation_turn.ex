@@ -8,15 +8,19 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
   fallback; only the existing persistence side-effect helper is reused.
   """
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
+  alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.ContextAssembler
   alias NovelApplication.DialogueGateway
   alias NovelApplication.ExecutionOrchestrator
   alias NovelApplication.Planner
+  alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TraceWriter
   alias NovelApplication.TurnExecutionService
   alias NovelApplication.TurnResultBuilder
   alias NovelCommon.LogContext
+  alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
   alias NovelDomain.BehaviorState
@@ -25,18 +29,35 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
   alias NovelDomain.OrchestratorDecision
 
   @profile_ref "conversation_turn_v1"
+  @context_step_target "context_assemble"
+  @frame_step_target "dialogue_frame"
+  @strategy_step_target "strategy_gate"
+  @response_step_target "response_finalize"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
 
-  @spec steps(map()) :: [NovelApplication.AgentRunService.step_fun()]
-  def steps(spec) when is_map(spec) do
-    [
-      context_step(spec),
-      frame_step(spec),
-      strategy_step(spec),
-      response_step(spec)
-    ]
+  @spec steps(map()) :: no_return()
+  def steps(_spec) do
+    raise ArgumentError, "conversation_turn_v1 requires next_step_planner/1"
+  end
+
+  @spec next_step_planner(map()) :: NovelApplication.AgentRunServer.next_step_planner()
+  def next_step_planner(spec) when is_map(spec) do
+    fn run, sequence, snapshot ->
+      observations = Map.get(snapshot, :observations, [])
+
+      with {:ok, decision} <-
+             AgenticNextStepPlanner.next_decision(
+               run,
+               sequence,
+               observations,
+               planner_provider_execution(spec),
+               snapshot
+             ) do
+        next_step_from_decision(decision, spec)
+      end
+    end
   end
 
   defp context_step(spec) do
@@ -59,12 +80,19 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
           assembly_policy: NovelApplication.current_assembly_policy()
         )
 
-      emit_stage(snapshot, :goal_understood, "已组装当前作品上下文。", ["context_assembled"], [
-        "context:#{turn_id}"
-      ], %{
-        stage: :context_assembled,
-        context_ref_count: context_ref_count(context)
-      })
+      emit_stage(
+        snapshot,
+        :goal_understood,
+        "已组装当前作品上下文。",
+        ["context_assembled"],
+        [
+          "context:#{turn_id}"
+        ],
+        %{
+          stage: :context_assembled,
+          context_ref_count: context_ref_count(context)
+        }
+      )
 
       {:ok,
        %{
@@ -89,7 +117,7 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
         Planner.form_frame(
           %{text: text, workspace_id: ws_id, turn_id: turn_id},
           context,
-          Map.fetch!(spec, :complete_fn)
+          provider_execution(spec, snapshot, :conversation)
         )
 
       LogContext.put_frame(frame.frame_id)
@@ -145,14 +173,21 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
       if needs_micro_plan?(frame, generate_plan) do
         plan_strategy_step(run, sequence, snapshot, spec, input, frame, context)
       else
-        emit_stage(snapshot, :gate_decided, "本轮裁决为直接回复，不调用工具。", [
-          "reply_only_no_tool"
-        ], [frame.frame_id], %{
-          stage: :reply_only_gate,
-          frame_ref: frame.frame_id,
-          decision_type: :reply_only,
-          no_tool_reason: frame.tool_need.reason_code
-        })
+        emit_stage(
+          snapshot,
+          :gate_decided,
+          "本轮裁决为直接回复，不调用工具。",
+          [
+            "reply_only_no_tool"
+          ],
+          [frame.frame_id],
+          %{
+            stage: :reply_only_gate,
+            frame_ref: frame.frame_id,
+            decision_type: :reply_only,
+            no_tool_reason: frame.tool_need.reason_code
+          }
+        )
 
         {:ok,
          %{
@@ -171,7 +206,7 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
     fn run, sequence, snapshot ->
       state = stage_state(snapshot)
 
-      case finalize_turn(state, spec) do
+      case finalize_turn(state, spec, snapshot) do
         {:ok, turn_result, trace, candidates, context} ->
           turn_result =
             turn_result
@@ -192,7 +227,15 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
           {:ok,
            %{
              step: final_step(run, sequence, turn_result),
-             observations: [],
+             observations: [
+               observation(
+                 run,
+                 sequence,
+                 :custom,
+                 "已生成本轮回应。",
+                 "turn_result:#{turn_result.turn_id}"
+               )
+             ],
              artifact_refs: artifact_refs(turn_result),
              turn_result: turn_result,
              tool_call_count: tool_call_count(turn_result),
@@ -207,7 +250,12 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
   end
 
   defp plan_strategy_step(run, sequence, snapshot, spec, input, %DialogueFrame{} = frame, context) do
-    case Planner.form_micro_plan(frame, input, Map.fetch!(spec, :complete_fn), context) do
+    case Planner.form_micro_plan(
+           frame,
+           input,
+           provider_execution(spec, snapshot, :conversation),
+           context
+         ) do
       {:ok, %MicroPlan{} = plan} ->
         {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
         {route, summary} = route_for(decision, behavior)
@@ -272,7 +320,8 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
 
   defp finalize_turn(
          %{route: :reply_only, frame: frame, candidates: candidates, context: context},
-         _spec
+         _spec,
+         _snapshot
        ) do
     {trace, trace_summary} = TraceWriter.record(frame, %{turn_id: frame.turn_id}, context)
     {:ok, TurnResultBuilder.build(frame, trace_summary, candidates), trace, candidates, context}
@@ -280,7 +329,8 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
 
   defp finalize_turn(
          %{route: :planner_recovery, frame: frame, candidates: candidates, context: context},
-         _spec
+         _spec,
+         _snapshot
        ) do
     {trace, trace_summary} =
       TraceWriter.record_recovery(frame, %{turn_id: frame.turn_id}, context)
@@ -298,7 +348,8 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
            context: context,
            input: input
          },
-         spec
+         spec,
+         snapshot
        ) do
     {turn_result, trace} =
       TurnExecutionService.execute(%{
@@ -308,9 +359,8 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
         candidates: candidates,
         context: context,
         author_input: input,
-        complete_fn: Map.fetch!(spec, :complete_fn),
-        quality_complete_fn:
-          map_get(input, :quality_complete_fn) || Map.fetch!(spec, :complete_fn),
+        provider_execution: provider_execution(spec, snapshot, :tool),
+        quality_provider_execution: quality_provider_execution(input, spec, snapshot),
         chapter_prose_reader:
           map_get(input, :chapter_prose_reader) ||
             NovelApplication.persistence_chapter_prose_reader(),
@@ -334,7 +384,8 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
            candidates: candidates,
            context: context
          },
-         _spec
+         _spec,
+         _snapshot
        ) do
     {trace, trace_summary} =
       TraceWriter.record_with_decision(frame, plan, decision, %{turn_id: frame.turn_id}, context)
@@ -358,7 +409,8 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
            candidates: candidates,
            context: context
          },
-         _spec
+         _spec,
+         _snapshot
        )
        when route in [:blocked, :nested_agent_run_blocked] do
     {trace, trace_summary} =
@@ -368,8 +420,29 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
      context}
   end
 
-  defp finalize_turn(state, _spec),
+  defp finalize_turn(state, _spec, _snapshot),
     do: {:error, {:invalid_conversation_stage_state, Map.keys(state)}}
+
+  defp provider_execution(spec, snapshot, purpose) do
+    spec
+    |> provider_execution_base()
+    |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: purpose)
+  end
+
+  defp quality_provider_execution(input, spec, snapshot) do
+    (map_get(input, :quality_provider_execution) || provider_execution_base(spec))
+    |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :evaluator)
+  end
+
+  defp provider_execution_base(spec) do
+    Map.get(spec, :provider_execution) ||
+      Execution.dependency(purpose: :conversation)
+  end
+
+  defp planner_provider_execution(spec) do
+    Map.get(spec, :planner_provider_execution) ||
+      provider_execution_base(spec)
+  end
 
   defp run_input(spec, run) do
     input = Map.fetch!(spec, :input)
@@ -581,6 +654,60 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
       slug -> slug
     end
   end
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @context_step_target
+         } = decision,
+         spec
+       ),
+       do: {:execute, context_step(spec), decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @frame_step_target
+         } = decision,
+         spec
+       ),
+       do: {:execute, frame_step(spec), decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @strategy_step_target
+         } = decision,
+         spec
+       ),
+       do: {:execute, strategy_step(spec), decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @response_step_target
+         } = decision,
+         spec
+       ),
+       do: {:execute, response_step(spec), decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :goal_satisfied} = decision,
+         _spec
+       ),
+       do: {:complete, decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :await_author} = decision,
+         _spec
+       ),
+       do: {:await_author, decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :no_progress} = decision,
+         _spec
+       ),
+       do: {:await_author, decision}
 
   defp blank?(value), do: is_nil(value) or value == ""
 end

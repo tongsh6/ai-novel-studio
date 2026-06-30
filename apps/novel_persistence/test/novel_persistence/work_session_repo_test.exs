@@ -32,6 +32,18 @@ defmodule NovelPersistence.WorkSessionRepoTest do
       assert second.id == first.id
       assert DateTime.compare(second.last_opened_at, first.last_opened_at) in [:gt, :eq]
     end
+
+    test "collapses stale active sessions when resuming a work", %{work: work} do
+      {:ok, old} = WorkSessionRepo.create(%{work_id: work.id, title: "旧活动会话"})
+      Process.sleep(5)
+      {:ok, newest} = WorkSessionRepo.create(%{work_id: work.id, title: "新活动会话"})
+
+      assert {:ok, resumed} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      assert resumed.id == newest.id
+      assert WorkSessionRepo.get_by_work(work.id, newest.id).status == "ACTIVE"
+      assert WorkSessionRepo.get_by_work(work.id, old.id).status == "EXITED"
+    end
   end
 
   describe "create_active/1" do
@@ -48,6 +60,21 @@ defmodule NovelPersistence.WorkSessionRepoTest do
       assert created.status == "ACTIVE"
       assert WorkSessionRepo.get_by_work(work.id, previous.id).status == "EXITED"
       assert WorkSessionRepo.get_by_work(other_work.id, other_active.id).status == "ACTIVE"
+    end
+  end
+
+  describe "activate/2" do
+    test "makes the requested session the only active session for the work", %{work: work} do
+      {:ok, requested} =
+        WorkSessionRepo.create(%{work_id: work.id, title: "作者正在使用的会话", status: "EXITED"})
+
+      {:ok, other_active} = WorkSessionRepo.create(%{work_id: work.id, title: "并发启动会话"})
+
+      assert {:ok, active} = WorkSessionRepo.activate(work.id, requested.id)
+
+      assert active.id == requested.id
+      assert WorkSessionRepo.get_by_work(work.id, requested.id).status == "ACTIVE"
+      assert WorkSessionRepo.get_by_work(work.id, other_active.id).status == "EXITED"
     end
   end
 

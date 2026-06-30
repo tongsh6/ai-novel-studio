@@ -7,6 +7,7 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.AgentObservationAssembler
   alias NovelApplication.ProseRevisionService
+  alias NovelApplication.ProviderActivityProjector
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
   alias NovelDomain.AuthorActionInput
@@ -190,7 +191,14 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
     end
   end
 
-  defp complete_fn(spec), do: Map.get(spec, :complete_fn)
+  defp provider_execution(spec),
+    do: Map.get(spec, :provider_execution)
+
+  defp provider_execution(spec, snapshot) do
+    spec
+    |> provider_execution()
+    |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :revision)
+  end
 
   defp execute_revision_step(
          run,
@@ -207,7 +215,7 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
            action_input,
            prepared,
            execution,
-           complete_fn(spec)
+           provider_execution(spec, snapshot)
          ) do
       {:ok, result} ->
         emit_stage(

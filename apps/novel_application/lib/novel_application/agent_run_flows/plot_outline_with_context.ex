@@ -1,7 +1,7 @@
-defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
+defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
   @moduledoc """
-  Bounded AgentRun flow that drafts prose through the existing prose execution
-  and quality-review chain.
+  Bounded AgentRun flow that plans a chapter outline through the existing
+  plot_outline execution chain.
   """
 
   alias NovelAgent.AgentTaskProfileRegistry
@@ -21,7 +21,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   alias NovelDomain.DialogueFrame
   alias NovelDomain.MicroPlan
 
-  @profile_ref "prose_drafting_with_quality_v1"
+  @profile_ref "plot_outline_with_context_v1"
   @context_step_target "context_assemble"
 
   @spec profile_ref() :: String.t()
@@ -29,7 +29,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
 
   @spec steps(map()) :: no_return()
   def steps(_spec) do
-    raise ArgumentError, "prose_drafting_with_quality_v1 requires next_step_planner/1"
+    raise ArgumentError, "plot_outline_with_context_v1 requires next_step_planner/1"
   end
 
   @spec next_step_planner(map()) :: NovelApplication.AgentRunServer.next_step_planner()
@@ -57,11 +57,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     emit_stage(
       snapshot,
       :goal_understood,
-      "已组装正文写作上下文。",
-      ["prose_context_assembled"],
+      "已组装章节大纲规划上下文。",
+      ["outline_context_assembled"],
       ["context:#{turn_id}"],
       %{
-        stage: :prose_context_assembled,
+        stage: :outline_context_assembled,
         context_ref_count: context_ref_count(context)
       }
     )
@@ -71,7 +71,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
        step: context_step(run, sequence),
        observations: [context_observation(run, sequence, context, turn_id)],
        stage_state: %{context: context},
-       progress_signature: "#{run.run_id}:prose_context:#{turn_id}"
+       progress_signature: "#{run.run_id}:outline_context:#{turn_id}"
      }}
   end
 
@@ -106,11 +106,11 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     emit_stage(
       snapshot,
       :tool_started,
-      "正在调用正文写作能力，随后进行质量复核。",
-      ["prose_writing_started"],
+      "正在调用章节大纲规划能力。",
+      ["plot_outline_started"],
       [plan.plan_id, Map.get(decision, :decision_id)],
       %{
-        stage: :prose_writing_started,
+        stage: :plot_outline_started,
         tool_name: tool_name(plan),
         plan_ref: plan.plan_id,
         decision_ref: Map.get(decision, :decision_id)
@@ -126,8 +126,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         context: execution_context,
         author_input: %{text: author_input_text(run, plan, observations)},
         source_turn_ref: run.parent_turn_ref,
-        provider_execution: provider_execution(spec, snapshot, :writer),
-        quality_provider_execution: quality_provider_execution(spec, snapshot),
+        provider_execution: provider_execution(spec, snapshot),
         chapter_prose_reader:
           Map.get(spec, :chapter_prose_reader) ||
             NovelApplication.persistence_chapter_prose_reader(),
@@ -146,15 +145,14 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
       emit_stage(
         snapshot,
         :tool_completed,
-        "正文草稿已生成，质量复核已完成。",
-        ["prose_writing_completed", "quality_review_completed"],
-        tool_and_quality_refs(turn_result),
+        "章节大纲草稿已生成。",
+        ["plot_outline_completed"],
+        tool_refs(turn_result),
         %{
-          stage: :prose_quality_completed,
+          stage: :plot_outline_completed,
           tool_name: Map.get(tool_result, :tool_name),
           tool_result_ref: Map.get(tool_result, :tool_result_id),
-          review_status: quality_review_status(turn_result),
-          finding_count: quality_finding_count(turn_result)
+          artifact_refs: artifact_refs(turn_result)
         }
       )
 
@@ -166,7 +164,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
        %{
          step: execution_step(run, sequence, plan, turn_result),
          observations:
-           [quality_observation(run, sequence, frame, turn_result)] ++
+           [tool_observation(run, sequence, frame, turn_result)] ++
              AgentObservationAssembler.from_turn_result(turn_result, %{
                run_id: run.run_id,
                step_id: step_id
@@ -180,16 +178,10 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     end
   end
 
-  defp provider_execution(spec, snapshot, purpose) do
+  defp provider_execution(spec, snapshot) do
     (Map.get(spec, :provider_execution) ||
-       Execution.dependency(purpose: :writer))
-    |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: purpose)
-  end
-
-  defp quality_provider_execution(spec, snapshot) do
-    (Map.get(spec, :quality_provider_execution) ||
-       Execution.dependency(purpose: :evaluator))
-    |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :evaluator)
+       Execution.dependency(purpose: :tool))
+    |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :writer)
   end
 
   defp planner_provider_execution(spec) do
@@ -261,10 +253,10 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         run_ref: run.run_id,
         sequence: sequence,
         status: :completed,
-        goal: "组装正文写作上下文",
+        goal: "组装章节大纲规划上下文",
         observation_refs: [context_observation_id(run, sequence)],
-        state_snapshot_ref: state_snapshot_ref(run, sequence, "prose_context"),
-        idempotency_key: "#{run.run_id}:#{sequence}:prose_context:goal_v#{run.goal.version}"
+        state_snapshot_ref: state_snapshot_ref(run, sequence, "outline_context"),
+        idempotency_key: "#{run.run_id}:#{sequence}:outline_context:goal_v#{run.goal.version}"
       })
 
     step
@@ -288,7 +280,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         tool_request_ref: Map.get(trace_summary, :tool_request_id),
         tool_result_ref:
           Map.get(trace_summary, :tool_result_id) || Map.get(tool_result, :tool_result_id),
-        observation_refs: [quality_observation_id(run, sequence)],
+        observation_refs: [tool_observation_id(run, sequence)],
         state_snapshot_ref: state_snapshot_ref(run, sequence, step_tool_name),
         idempotency_key: "#{run.run_id}:#{sequence}:#{step_tool_name}:goal_v#{run.goal.version}"
       })
@@ -304,7 +296,7 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
         step_ref: current_step_ref(run, sequence),
         observation_type: :custom,
         source_ref: "context:#{turn_id}",
-        summary: "已组装正文写作上下文，可用于后续正文策略与执行。",
+        summary: "已组装章节大纲规划上下文，可用于后续大纲策略与执行。",
         structured_payload: %{
           current_chapter_count: length(context.current_chapters || []),
           structured_chapter_count: length(context.structured_chapters || []),
@@ -316,24 +308,19 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
     observation
   end
 
-  defp quality_observation(run, sequence, frame, turn_result) do
-    status = quality_review_status(turn_result)
-    finding_count = quality_finding_count(turn_result)
+  defp tool_observation(run, sequence, frame, turn_result) do
+    refs = artifact_refs(turn_result)
 
     {:ok, observation} =
       AgentObservation.new(%{
-        observation_id: quality_observation_id(run, sequence),
+        observation_id: tool_observation_id(run, sequence),
         run_ref: run.run_id,
         step_ref: current_step_ref(run, sequence),
-        observation_type: :quality_review,
+        observation_type: :custom,
         source_ref: "turn_result:#{frame.turn_id}",
-        summary: quality_summary(status, finding_count),
-        structured_payload: %{
-          review_status: status,
-          finding_count: finding_count,
-          policy_action: quality_policy_action(turn_result)
-        },
-        evidence_refs: ["turn:#{frame.turn_id}" | tool_and_quality_refs(turn_result)]
+        summary: "已生成 #{length(refs)} 个待采纳大纲草稿候选。",
+        structured_payload: %{artifact_refs: refs},
+        evidence_refs: ["turn:#{frame.turn_id}" | tool_refs(turn_result)]
       })
 
     observation
@@ -397,9 +384,9 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp current_step_ref(run, sequence),
     do: run.current_step_ref || "step_#{run.run_id}_#{sequence}"
 
-  defp quality_observation_id(run, sequence), do: "obs_#{run.run_id}_#{sequence}_quality"
+  defp context_observation_id(run, sequence), do: "obs_#{run.run_id}_#{sequence}_outline_context"
 
-  defp context_observation_id(run, sequence), do: "obs_#{run.run_id}_#{sequence}_prose_context"
+  defp tool_observation_id(run, sequence), do: "obs_#{run.run_id}_#{sequence}_outline_tool"
 
   defp tool_name(plan), do: plan.proposed_actions |> hd() |> Map.fetch!(:target_ref)
 
@@ -407,7 +394,8 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
          %AgentNextStepDecision{
            decision_type: :execute_step,
            target_tool_ref: @context_step_target
-         } = decision,
+         } =
+           decision,
          spec
        ) do
     {:execute,
@@ -522,62 +510,26 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp progress_signature(turn_result) do
     tool_result = Map.get(turn_result, :tool_result) || %{}
     output = Map.get(tool_result, :output) || Map.get(tool_result, "output") || %{}
-    quality = Map.get(turn_result, :quality_review) || %{}
 
     [
       Map.get(tool_result, :tool_name),
       stable_signature(output),
-      stable_signature(quality),
       artifact_refs(turn_result) |> Enum.join(",")
     ]
     |> Enum.reject(&blank?/1)
     |> Enum.join(":")
   end
 
-  defp tool_and_quality_refs(turn_result) do
+  defp tool_refs(turn_result) do
     tool_result = Map.get(turn_result, :tool_result) || %{}
     trace_summary = Map.get(turn_result, :trace_summary) || %{}
 
     [
       ref("tool_result", Map.get(tool_result, :tool_result_id)),
-      ref("quality_review", quality_review_status(turn_result)),
-      ref("writer_provider_call", Map.get(trace_summary, :writer_provider_call_ref)),
-      ref("evaluator_provider_call", Map.get(trace_summary, :evaluator_provider_call_ref))
+      ref("writer_provider_call", Map.get(trace_summary, :writer_provider_call_ref))
     ]
     |> Enum.reject(&blank?/1)
   end
-
-  defp quality_review_status(turn_result) do
-    turn_result
-    |> Map.get(:quality_review, %{})
-    |> map_get(:review_status)
-    |> case do
-      status when is_binary(status) and status != "" -> status
-      _ -> "unknown"
-    end
-  end
-
-  defp quality_policy_action(turn_result) do
-    turn_result
-    |> Map.get(:quality_review, %{})
-    |> map_get(:policy_action)
-  end
-
-  defp quality_finding_count(turn_result) do
-    turn_result
-    |> Map.get(:quality_review, %{})
-    |> map_get(:findings)
-    |> case do
-      findings when is_list(findings) -> length(findings)
-      _ -> 0
-    end
-  end
-
-  defp quality_summary("completed", 0), do: "质量复核已完成，暂未记录需关注问题。"
-
-  defp quality_summary("completed", count), do: "质量复核已完成，记录 #{count} 项需关注问题。"
-
-  defp quality_summary(status, count), do: "质量复核状态为 #{status}，记录 #{count} 项需关注问题。"
 
   defp stage_state(snapshot), do: Map.get(snapshot, :stage_state, %{})
 
@@ -599,11 +551,6 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
   defp ref(_prefix, nil), do: nil
   defp ref(_prefix, ""), do: nil
   defp ref(prefix, value), do: "#{prefix}:#{value}"
-
-  defp map_get(map, key) when is_map(map),
-    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
-
-  defp map_get(_map, _key), do: nil
 
   defp stable_signature(value) do
     :crypto.hash(:sha256, :erlang.term_to_binary(value))

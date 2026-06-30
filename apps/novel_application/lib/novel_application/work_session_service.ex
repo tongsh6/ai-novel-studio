@@ -5,6 +5,7 @@ defmodule NovelApplication.WorkSessionService do
 
   alias NovelApplication.TraceSummaryRef
   alias NovelApplication.WorkService
+  alias NovelPersistence.{AgentRunLog, ProviderRunLog}
   alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.Schemas.WorkSession
   alias NovelPersistence.WorkSessionRepo
@@ -15,14 +16,15 @@ defmodule NovelApplication.WorkSessionService do
     with work when not is_nil(work) <- WorkService.get(work_id),
          {:ok, session} <- WorkSessionRepo.ensure_active_for_work(work_id) do
       transcript = WorkSessionRepo.transcript(session.id)
-      turn_results = transcript_turn_results(transcript)
+      transcript_entries = Enum.map(transcript, &interaction_dto(&1, work_id, session.id))
+      turn_results = transcript_turn_results(transcript_entries)
 
       {:ok,
        %{
          work: work,
          active_session: session_dto(session),
          sessions: Enum.map(WorkSessionRepo.list_by_work(work_id), &session_dto/1),
-         transcript: Enum.map(transcript, &interaction_dto/1),
+         transcript: transcript_entries,
          pending_adoptions: pending_adoptions(turn_results),
          resolved_adoptions: resolved_adoptions(turn_results),
          resume_trace_refs: resume_trace_refs(turn_results)
@@ -40,7 +42,8 @@ defmodule NovelApplication.WorkSessionService do
     with work when not is_nil(work) <- WorkService.get(work_id),
          %WorkSession{} = session <- WorkSessionRepo.get_by_work(work_id, session_id) do
       transcript = WorkSessionRepo.transcript(session.id)
-      turn_results = transcript_turn_results(transcript)
+      transcript_entries = Enum.map(transcript, &interaction_dto(&1, work_id, session.id))
+      turn_results = transcript_turn_results(transcript_entries)
       read_only? = session.status != "ACTIVE"
 
       {:ok,
@@ -48,7 +51,7 @@ defmodule NovelApplication.WorkSessionService do
          work: work,
          session: session_dto(session),
          read_only: read_only?,
-         transcript: Enum.map(transcript, &interaction_dto/1),
+         transcript: transcript_entries,
          pending_adoptions: pending_adoptions_for_session(read_only?, turn_results),
          resolved_adoptions: resolved_adoptions(turn_results),
          resume_trace_refs: resume_trace_refs(turn_results)
@@ -85,6 +88,21 @@ defmodule NovelApplication.WorkSessionService do
     else
       nil -> {:error, :work_not_found}
       {:error, %Ecto.Changeset{}} = err -> err
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc "Make one non-archived session the active writable session for a work."
+  @spec activate(String.t(), String.t()) ::
+          {:ok, map()}
+          | {:error,
+             :work_not_found | :session_not_found | :cannot_activate_archived_session | term()}
+  def activate(work_id, session_id) when is_binary(work_id) and is_binary(session_id) do
+    with work when not is_nil(work) <- WorkService.get(work_id),
+         {:ok, session} <- WorkSessionRepo.activate(work_id, session_id) do
+      {:ok, session_dto(session)}
+    else
+      nil -> {:error, :work_not_found}
       {:error, reason} -> {:error, reason}
     end
   end
@@ -133,8 +151,11 @@ defmodule NovelApplication.WorkSessionService do
 
   defp ensure_archivable(%WorkSession{}), do: :ok
 
-  defp interaction_dto(%Interaction{} = interaction) do
-    turn_result = turn_result_from_content(interaction.content)
+  defp interaction_dto(%Interaction{} = interaction, work_id, session_id) do
+    turn_result =
+      interaction.content
+      |> turn_result_from_content()
+      |> attach_agent_run_activity(work_id, session_id)
 
     %{
       id: interaction.id,
@@ -149,7 +170,7 @@ defmodule NovelApplication.WorkSessionService do
 
   defp transcript_turn_results(transcript) do
     transcript
-    |> Enum.map(&turn_result_from_content(&1.content))
+    |> Enum.map(& &1.turn_result)
     |> Enum.reject(&is_nil/1)
   end
 
@@ -190,6 +211,148 @@ defmodule NovelApplication.WorkSessionService do
   defp turn_result_from_content(content) when is_map(content) do
     content["turn_result"] || content[:turn_result]
   end
+
+  defp attach_agent_run_activity(turn_result, work_id, session_id)
+       when is_map(turn_result) and is_binary(work_id) and is_binary(session_id) do
+    case turn_id(turn_result) do
+      turn_id when is_binary(turn_id) and turn_id != "" ->
+        turn_result
+        |> resolve_agent_run(work_id, session_id, turn_id)
+        |> case do
+          nil -> turn_result
+          run -> put_agent_run_activity(turn_result, run)
+        end
+
+      _ ->
+        turn_result
+    end
+  end
+
+  defp attach_agent_run_activity(turn_result, _work_id, _session_id), do: turn_result
+
+  defp resolve_agent_run(turn_result, work_id, session_id, turn_id) do
+    runs = AgentRunLog.list_by_parent_turn(work_id, session_id, turn_id)
+    requested_run_id = get_in_any(turn_result, [:agent_run, :run_id])
+
+    cond do
+      runs == [] ->
+        nil
+
+      is_binary(requested_run_id) and requested_run_id != "" ->
+        Enum.find(runs, &(&1.id == requested_run_id)) || List.last(runs)
+
+      true ->
+        List.last(runs)
+    end
+  end
+
+  defp put_agent_run_activity(turn_result, run) do
+    existing =
+      case get_in_any(turn_result, [:agent_run]) do
+        value when is_map(value) -> value
+        _ -> %{}
+      end
+
+    agent_run =
+      existing
+      |> Map.put(:run_id, run.id)
+      |> Map.put(:run_mode, run.run_mode)
+      |> Map.put(:status, run.status)
+      |> Map.put(:phase, run.phase)
+      |> Map.put(:profile_ref, run.profile_ref)
+      |> Map.put(:long_run_task_ref, run.long_run_task_ref)
+      |> Map.put(:plan_ref, run.plan_ref)
+      |> Map.put(:plan_version, run.plan_version)
+      |> Map.put(
+        :events,
+        Enum.map(AgentRunLog.list_author_events(run.id), &agent_event_dto(&1, run))
+      )
+      |> Map.put(:provider_runs, ProviderRunLog.list_usage_summaries(run.id))
+
+    turn_result
+    |> Map.delete(:agent_run)
+    |> Map.delete("agent_run")
+    |> Map.put(:agent_run, agent_run)
+  end
+
+  defp agent_event_dto(event, run) do
+    %{
+      event_id: event.id,
+      run_ref: event.run_id,
+      run_id: event.run_id,
+      step_ref: event.step_id,
+      sequence: event.sequence,
+      event_type: event.event_type,
+      visibility: event.visibility,
+      summary: event.summary,
+      reason_codes: event.reason_codes || [],
+      refs: event.refs || [],
+      payload: author_safe_event_payload(event.payload),
+      workspace_id: run.workspace_id,
+      work_id: run.work_id,
+      session_id: run.session_id,
+      emitted_at: timestamp_iso(event.inserted_at)
+    }
+  end
+
+  defp author_safe_event_payload(payload) when is_map(payload) do
+    payload
+    |> drop_unsafe_payload_keys()
+    |> stringify_atom_values()
+  end
+
+  defp author_safe_event_payload(_payload), do: %{}
+
+  defp drop_unsafe_payload_keys(payload) when is_map(payload) do
+    payload
+    |> Enum.reject(fn {key, _value} -> unsafe_payload_key?(key) end)
+    |> Map.new(fn {key, value} -> {key, drop_unsafe_payload_keys(value)} end)
+  end
+
+  defp drop_unsafe_payload_keys(values) when is_list(values),
+    do: Enum.map(values, &drop_unsafe_payload_keys/1)
+
+  defp drop_unsafe_payload_keys(value), do: value
+
+  defp unsafe_payload_key?(key) when is_atom(key), do: unsafe_payload_key?(Atom.to_string(key))
+
+  defp unsafe_payload_key?(key) when is_binary(key) do
+    normalized = key |> String.downcase() |> String.replace("-", "_")
+
+    normalized in [
+      "api_key",
+      "assistant_message",
+      "chain_of_thought",
+      "messages",
+      "provider_error_payload",
+      "raw_messages",
+      "raw_prompt",
+      "raw_provider_error",
+      "secret",
+      "system_prompt",
+      "turn_result"
+    ]
+  end
+
+  defp unsafe_payload_key?(_key), do: false
+
+  defp stringify_atom_values(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {key, stringify_atom_values(item)} end)
+  end
+
+  defp stringify_atom_values(value) when is_list(value),
+    do: Enum.map(value, &stringify_atom_values/1)
+
+  defp stringify_atom_values(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringify_atom_values(value), do: value
+
+  defp timestamp_iso(nil), do: nil
+  defp timestamp_iso(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp timestamp_iso(%NaiveDateTime{} = value),
+    do: value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+
+  defp timestamp_iso(value), do: value
 
   defp text_from_content(content) when is_map(content),
     do: to_string(content["text"] || content[:text] || "")

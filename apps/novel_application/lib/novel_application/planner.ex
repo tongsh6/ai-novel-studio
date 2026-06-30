@@ -6,7 +6,7 @@ defmodule NovelApplication.Planner do
 
   require NovelCommon.LogEmit, as: LogEmit
 
-  alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.AIMessageEnvelope
   alias NovelApplication.CapabilityRegistry
   alias NovelCommon.LogContext
@@ -27,20 +27,22 @@ defmodule NovelApplication.Planner do
     {"uncertainty", :list}
   ]
 
+  @type provider_execution :: Execution.dependency()
   @type complete_fn :: (String.t() -> {:ok, map()} | {:error, term()})
 
   @doc """
   根据 AuthorInput 和 DialogueContext 形成 DialogueFrame 和候选方向。
 
-  `complete_fn` 可注入，默认走 Gateway.complete/1。
+  `provider_execution` 可注入，生产默认走统一 provider execution stream。
   """
-  @spec form_frame(map(), DialogueContext.t() | nil, complete_fn()) ::
+  @spec form_frame(map(), DialogueContext.t() | nil, provider_execution()) ::
           {DialogueFrame.t(), [CandidateDirection.t()]}
   def form_frame(
         %{text: text, workspace_id: ws_id} = input,
         context \\ nil,
-        complete_fn \\ &Gateway.complete/1
+        provider_execution \\ Execution.dependency(purpose: :conversation)
       ) do
+    complete_fn = complete_fn(provider_execution)
     turn_id = Map.get(input, :turn_id) || allocate_turn_id()
     frame_id = Map.get(input, :frame_id) || allocate_frame_id()
     Logger.metadata(turn_id: turn_id, frame_id: frame_id)
@@ -93,17 +95,18 @@ defmodule NovelApplication.Planner do
 
   VS-01：Planner 只能建议，不能批准。Orchestrator 裁决所有执行。
 
-  `complete_fn` 可注入，默认走 Gateway.complete/1。
+  `provider_execution` 可注入，生产默认走统一 provider execution stream。
   `context` 携带已采纳章节标题，供 LLM 识别"续写/重写哪一章"并解析目标章。
   """
-  @spec form_micro_plan(DialogueFrame.t(), map(), complete_fn(), DialogueContext.t() | nil) ::
+  @spec form_micro_plan(DialogueFrame.t(), map(), provider_execution(), DialogueContext.t() | nil) ::
           {:ok, MicroPlan.t()} | {:error, term()}
   def form_micro_plan(
         %DialogueFrame{} = frame,
         author_input,
-        complete_fn \\ &Gateway.complete/1,
+        provider_execution \\ Execution.dependency(purpose: :conversation),
         context \\ nil
       ) do
+    complete_fn = complete_fn(provider_execution)
     plan_id = "plan_#{System.unique_integer([:positive, :monotonic])}"
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:planner, :form_micro_plan, :start, %{})
@@ -259,8 +262,12 @@ defmodule NovelApplication.Planner do
   将 ToolResult 综合为自然语言 assistant_message。
   「Planner 负责把工具结果综合成自然语言回应」— 00b §2 主链。
   """
-  @spec narrate_tool_result(map(), complete_fn()) :: String.t()
-  def narrate_tool_result(tool_result, complete_fn \\ &Gateway.complete/1) do
+  @spec narrate_tool_result(map(), provider_execution()) :: String.t()
+  def narrate_tool_result(
+        tool_result,
+        provider_execution \\ Execution.dependency(purpose: :narration)
+      ) do
+    complete_fn = complete_fn(provider_execution)
     prompt = tool_narration_prompt(tool_result)
 
     case LogContext.with_step("narrate_tool_result", fn -> complete_fn.(prompt) end) do
@@ -303,6 +310,16 @@ defmodule NovelApplication.Planner do
   end
 
   # ── shared helpers (from VS-00) ──
+
+  defp complete_fn(provider_execution) do
+    case Execution.complete_fn(provider_execution) do
+      complete_fn when is_function(complete_fn, 1) ->
+        complete_fn
+
+      _ ->
+        fn _prompt -> {:error, :provider_execution_required} end
+    end
+  end
 
   defp call_provider(text, context, complete_fn) do
     prompt = build_messages(text, context)

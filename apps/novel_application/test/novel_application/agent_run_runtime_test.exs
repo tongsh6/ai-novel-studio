@@ -2,11 +2,15 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
+  alias NovelAgent.Provider.Execution
+  alias NovelAgent.Provider.Result
+  alias NovelApplication.AgentRunSequentialPlanner
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
+  alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
-  alias NovelPersistence.{AgentRunLog, LongRunTaskLog, Repo}
+  alias NovelPersistence.{AgentRunLog, LongRunTaskLog, ProviderRunLog, Repo}
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -31,7 +35,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               steps: [step],
+               next_step_planner: AgentRunSequentialPlanner.from_steps([step]),
                event_sink: event_sink(parent)
              )
 
@@ -41,7 +45,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event, :observation_recorded, "第 1 步观察。"}
     assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}
 
-    assert {:ok, %{run: run, remaining_steps: 0}} = AgentRunService.state(run_id)
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
     assert run.phase == :stopped
     assert run.completed_step_refs == ["step_1"]
@@ -68,7 +72,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               steps: [step],
+               next_step_planner: AgentRunSequentialPlanner.from_steps([step]),
                event_sink: event_sink(parent)
              )
 
@@ -123,7 +127,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(spec.run_attrs,
-               steps: spec.steps,
+               next_step_planner: spec.next_step_planner,
                event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
              )
 
@@ -137,6 +141,10 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert_receive {:agent_event, :observation_recorded, context_event}, 500
     assert context_event.summary =~ "已组装本轮创作上下文"
+
+    assert_receive {:agent_event, :plan_created, context_decision}, 500
+    assert "agent_next_step_decided" in context_decision.reason_codes
+    assert "agentic_next_step" in context_decision.reason_codes
 
     assert_receive {:agent_event, :step_proposed, frame_step}, 500
     assert frame_step.summary =~ "形成对话认知帧"
@@ -170,7 +178,194 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.status == :completed
     assert run.consumed_budget.steps == 4
     assert run.consumed_budget.tool_calls == 0
-    assert run.consumed_budget.provider_calls == 1
+    assert run.consumed_budget.provider_calls == 6
+  end
+
+  test "conversation turn projects provider execution facts into author-safe provider progress" do
+    parent = self()
+    frame_json = reply_only_frame_json()
+
+    provider_execution = provider_activity_execution(frame_json)
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :conversation_turn,
+        %{
+          text: "测试 provider execution 可见轨迹",
+          workspace_id: "ws-provider-activity",
+          work_id: "work-provider-activity",
+          session_id: "session-provider-activity",
+          turn_id: "turn-provider-activity"
+        },
+        nil,
+        provider_execution
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:turn_result_ready, 1_000)
+    turn_event = List.last(events)
+
+    provider_progress_events =
+      Enum.filter(events, &(&1.event_type == :provider_progress))
+
+    planner_started_projection =
+      Enum.find(provider_progress_events, fn event ->
+        "provider_started" in event.reason_codes and event.payload.purpose == "planner"
+      end)
+
+    conversation_started_projection =
+      Enum.find(provider_progress_events, fn event ->
+        "provider_started" in event.reason_codes and event.payload.purpose == "conversation"
+      end)
+
+    conversation_chunk_projection =
+      Enum.find(provider_progress_events, fn event ->
+        "provider_chunk" in event.reason_codes and event.payload.purpose == "conversation"
+      end)
+
+    conversation_final_projection =
+      Enum.find(provider_progress_events, fn event ->
+        "provider_final_output" in event.reason_codes and event.payload.purpose == "conversation"
+      end)
+
+    assert planner_started_projection
+    refute Map.has_key?(planner_started_projection.payload, :provider_progress_phase)
+    assert conversation_started_projection
+    assert conversation_started_projection.payload.provider_run_ref == "prun-conversation"
+    assert conversation_started_projection.payload.provider_call_ref == "pcall-conversation"
+    assert conversation_started_projection.payload.status == "ok"
+    refute Map.has_key?(conversation_started_projection.payload, :provider_progress_phase)
+    refute inspect(provider_progress_events) =~ "raw_prompt"
+    refute inspect(provider_progress_events) =~ "must not be projected"
+    refute inspect(provider_progress_events) =~ "assistant_message"
+
+    assert conversation_chunk_projection
+    assert conversation_chunk_projection.summary == "对话判断正在接收模型片段。"
+    assert conversation_chunk_projection.payload.output_type == "text"
+    assert conversation_chunk_projection.payload.chunk_index == 1
+    assert conversation_chunk_projection.payload.chunk_content_length == 7
+    assert conversation_chunk_projection.payload.accumulated_content_length == 7
+    refute Map.has_key?(conversation_chunk_projection.payload, :content_length)
+    refute inspect(conversation_chunk_projection.payload) =~ "收到你的测试消息"
+
+    assert conversation_final_projection
+    assert conversation_final_projection.payload.output_type == "text"
+    assert conversation_final_projection.payload.content_length == String.length(frame_json)
+    assert conversation_final_projection.payload.usage == %{total_tokens: 12}
+    refute Map.has_key?(conversation_final_projection.payload, :provider_progress_phase)
+    refute inspect(conversation_final_projection.payload) =~ "收到你的测试消息"
+
+    persisted_provider_runs =
+      wait_for(fn ->
+        summaries = ProviderRunLog.list_usage_summaries(run_id)
+
+        if Enum.any?(summaries, &(&1.purpose == "planner")) and
+             Enum.any?(summaries, &(&1.purpose == "conversation")) do
+          summaries
+        end
+      end)
+
+    assert Enum.find(persisted_provider_runs, &(&1.provider_call_ref == "pcall-planner")).purpose ==
+             "planner"
+
+    assert %{
+             purpose: "conversation",
+             status: "ok",
+             output_type: "text",
+             usage: %{"total_tokens" => 12}
+           } = Enum.find(persisted_provider_runs, &(&1.provider_call_ref == "pcall-conversation"))
+
+    refute inspect(persisted_provider_runs) =~ "收到你的测试消息"
+
+    assert turn_event.payload.turn_result.agent_run.run_id == run_id
+    assert_receive {:agent_event_full, :run_completed, _}, 500
+  end
+
+  test "conversation turn projects provider execution error facts into author-safe provider progress" do
+    parent = self()
+
+    provider_execution = provider_activity_execution(:conversation_error)
+
+    spec =
+      DialoguePlanningService.run_spec_for_profile(
+        :conversation_turn,
+        %{
+          text: "测试 provider execution 失败轨迹",
+          workspace_id: "ws-provider-error",
+          work_id: "work-provider-error",
+          session_id: "session-provider-error",
+          turn_id: "turn-provider-error"
+        },
+        nil,
+        provider_execution
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(spec.run_attrs,
+               next_step_planner: spec.next_step_planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    events = collect_full_events_until(:turn_result_ready, 1_000)
+    turn_event = List.last(events)
+
+    provider_progress_events =
+      Enum.filter(events, &(&1.event_type == :provider_progress))
+
+    started_projection =
+      Enum.find(provider_progress_events, fn event ->
+        "provider_started" in event.reason_codes and event.payload.purpose == "conversation"
+      end)
+
+    error_projection =
+      Enum.find(provider_progress_events, fn event ->
+        "provider_error" in event.reason_codes and event.payload.purpose == "conversation"
+      end)
+
+    assert started_projection
+    assert started_projection.payload.provider_run_ref == "prun-conversation-error"
+    assert started_projection.payload.provider_call_ref == "pcall-conversation-error"
+    refute inspect(provider_progress_events) =~ "raw provider failure payload"
+    refute inspect(provider_progress_events) =~ "raw_prompt"
+
+    assert error_projection
+    assert error_projection.summary =~ "调用创作模型失败"
+    assert error_projection.payload.status == "error"
+    assert error_projection.payload.output_type == "empty"
+    assert error_projection.payload.provider_run_ref == "prun-conversation-error"
+    assert error_projection.payload.provider_call_ref == "pcall-conversation-error"
+    refute inspect(provider_progress_events) =~ "must not be projected"
+    refute inspect(provider_progress_events) =~ "assistant_message"
+
+    persisted_provider_runs =
+      wait_for(fn ->
+        summaries = ProviderRunLog.list_usage_summaries(run_id)
+
+        if Enum.any?(summaries, &(&1.provider_call_ref == "pcall-conversation-error")) do
+          summaries
+        end
+      end)
+
+    assert %{
+             purpose: "conversation",
+             status: "error",
+             output_type: "empty"
+           } =
+             Enum.find(
+               persisted_provider_runs,
+               &(&1.provider_call_ref == "pcall-conversation-error")
+             )
+
+    refute inspect(persisted_provider_runs) =~ "raw provider failure payload"
+
+    assert turn_event.payload.turn_result.agent_run.run_id == run_id
+    assert turn_event.payload.turn_result.assistant_message.text =~ "无法连接到创作引擎"
+    assert_receive {:agent_event_full, :run_completed, _}, 500
   end
 
   test "pause is cooperative and stops before next step" do
@@ -192,7 +387,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(
                base_run(run_id),
-               steps: [slow_step, fast_step],
+               next_step_planner: AgentRunSequentialPlanner.from_steps([slow_step, fast_step]),
                event_sink: event_sink(parent)
              )
 
@@ -203,13 +398,13 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event, :run_paused, "AgentRun 已暂停。"}, 500
     refute_receive {:step_started, 2}, 120
 
-    assert {:ok, %{run: run, remaining_steps: 1}} = AgentRunService.state(run_id)
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :paused
     assert run.phase == :stopped
     assert run.completed_step_refs == ["step_1"]
   end
 
-  test "cancel during an active provider step waits for cooperative safe point" do
+  test "cancel during an active step requests provider execution cancellation" do
     parent = self()
     run_id = unique_run_id()
 
@@ -221,7 +416,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               steps: [slow_step],
+               next_step_planner: AgentRunSequentialPlanner.from_steps([slow_step]),
                event_sink: event_sink_full(parent)
              )
 
@@ -229,16 +424,17 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert :ok = AgentRunService.cancel(run_id)
 
     assert_receive {:agent_event_full, :interrupt_requested, interrupt_event}, 500
-    assert "cooperative_cancel" in interrupt_event.reason_codes
-    assert "provider_hard_cancel_unsupported" in interrupt_event.reason_codes
-    assert interrupt_event.payload.cancel_strategy == :cooperative_safe_point
+    assert "provider_execution_cancel_requested" in interrupt_event.reason_codes
+    assert interrupt_event.payload.cancel_strategy == :provider_execution_cancel
+    assert interrupt_event.payload.supports_cancellation == true
+    assert interrupt_event.payload.current_task_active == true
 
     assert {:ok, %{run: cancelling_run, current_task?: true}} = AgentRunService.state(run_id)
     assert cancelling_run.status == :cancelling
     assert cancelling_run.interrupt_state.status == :cancel_requested
 
     assert_receive {:agent_event_full, :run_cancelled, cancelled_event}, 500
-    assert "cooperative_cancel" in cancelled_event.reason_codes
+    assert "provider_execution_cancelled" in cancelled_event.reason_codes
 
     assert {:ok, %{run: cancelled_run, current_task?: false}} = AgentRunService.state(run_id)
     assert cancelled_run.status == :cancelled
@@ -264,7 +460,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(attrs,
-               steps: [step, step],
+               next_step_planner: AgentRunSequentialPlanner.from_steps([step, step]),
                event_sink: event_sink(parent)
              )
 
@@ -272,7 +468,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
     refute_receive {:step_started, 2}, 80
 
-    assert {:ok, %{run: run, remaining_steps: 1}} = AgentRunService.state(run_id)
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :awaiting_author
     assert run.completed_step_refs == ["step_1"]
   end
@@ -299,7 +495,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_durable(attrs,
-               steps: [step, step],
+               next_step_planner: AgentRunSequentialPlanner.from_steps([step, step]),
                event_sink: event_sink(parent)
              )
 
@@ -493,7 +689,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               steps: [step, step],
+               next_step_planner: AgentRunSequentialPlanner.from_steps([step, step]),
                event_sink: event_sink(parent)
              )
 
@@ -502,7 +698,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event, :awaiting_author, "AgentRun 未取得新进展，已停止等待作者确认。"}, 500
     refute_receive {:agent_event, :run_completed, _}, 80
 
-    assert {:ok, %{run: run, remaining_steps: 0}} = AgentRunService.state(run_id)
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :awaiting_author
     assert run.completed_step_refs == ["step_1", "step_2"]
   end
@@ -519,7 +715,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               steps: [slow_step],
+               next_step_planner: AgentRunSequentialPlanner.from_steps([slow_step]),
                event_sink: event_sink(parent)
              )
 
@@ -556,7 +752,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(spec.run_attrs,
-               steps: spec.steps,
+               next_step_planner: spec.next_step_planner,
                event_sink: event_sink_with_payload(parent)
              )
 
@@ -571,7 +767,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert_receive {:agent_event, :run_completed, "AgentRun 已完成。", %{}}, 500
 
-    assert {:ok, %{run: run, remaining_steps: 0}} = AgentRunService.state(run_id)
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
     assert run.status == :completed
     assert run.pending_artifact_refs == [artifact_id]
   end
@@ -596,9 +792,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           provider_capabilities_fn: fn ->
             %{
               provider: :stub,
-              supports_streaming: false,
-              supports_cancellation: false,
-              cancel_strategy: :cooperative_safe_point
+              supports_streaming: true,
+              supports_cancellation: true,
+              cancel_strategy: :provider_execution_cancel
             }
           end
         },
@@ -611,7 +807,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(spec.run_attrs,
-               steps: spec.steps,
+               next_step_planner: spec.next_step_planner,
                event_sink: event_sink_full(parent)
              )
 
@@ -620,9 +816,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     refute Map.has_key?(start_event.payload, :prompt)
     refute Map.has_key?(start_event.payload, "prompt")
 
-    assert_receive {:agent_event_full, :provider_progress, degraded_event}, 500
-    assert "provider_streaming_unavailable" in degraded_event.reason_codes
-    assert degraded_event.payload.stream_mode == :checkpoint
+    assert_receive {:agent_event_full, :provider_progress, active_event}, 500
+    assert "provider_execution_stream_active" in active_event.reason_codes
+    assert active_event.payload.stream_mode == :provider_stream
 
     assert_receive {:provider_called, prompt}, 500
     assert prompt =~ "请展示 provider 进度"
@@ -670,7 +866,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(spec.run_attrs,
-               steps: spec.steps,
+               next_step_planner: spec.next_step_planner,
                event_sink: event_sink_full(parent)
              )
 
@@ -724,7 +920,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(spec.run_attrs,
-               steps: spec.steps,
+               next_step_planner: spec.next_step_planner,
                event_sink: event_sink(parent)
              )
 
@@ -739,9 +935,13 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   test "repeated roster request stops at no-progress without character design provider call" do
     parent = self()
 
-    complete_fn = fn _prompt ->
-      send(parent, :provider_called)
-      {:ok, %{content: Jason.encode!([single_item("repeat-antagonist")])}}
+    complete_fn = fn prompt ->
+      if agent_next_step_prompt?(prompt) do
+        {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+      else
+        send(parent, :provider_called)
+        {:ok, %{content: Jason.encode!([single_item("repeat-antagonist")])}}
+      end
     end
 
     spec =
@@ -760,7 +960,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(spec.run_attrs,
-               steps: spec.steps,
+               next_step_planner: spec.next_step_planner,
                event_sink: event_sink(parent)
              )
 
@@ -836,9 +1036,319 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     fn event -> send(parent, {:agent_event_full, event.event_type, event}) end
   end
 
+  defp collect_full_events_until(target_type, timeout_ms, acc \\ []) do
+    receive do
+      {:agent_event_full, ^target_type, event} ->
+        Enum.reverse([event | acc])
+
+      {:agent_event_full, _event_type, event} ->
+        collect_full_events_until(target_type, timeout_ms, [event | acc])
+    after
+      timeout_ms ->
+        flunk("expected agent_event_full #{target_type} before timeout")
+    end
+  end
+
+  defp provider_activity_execution(frame_json) when is_binary(frame_json) do
+    %Execution{
+      purpose: :conversation,
+      execute_fn: fn prompt ->
+        if agent_next_step_prompt?(prompt) do
+          provider_activity_success_result(
+            prompt,
+            :planner,
+            Jason.encode!(next_step_decision(prompt))
+          )
+        else
+          provider_activity_success_result(prompt, :conversation, frame_json)
+        end
+      end
+    }
+  end
+
+  defp provider_activity_execution(:conversation_error) do
+    %Execution{
+      purpose: :conversation,
+      execute_fn: fn prompt ->
+        if agent_next_step_prompt?(prompt) do
+          provider_activity_success_result(
+            prompt,
+            :planner,
+            Jason.encode!(next_step_decision(prompt))
+          )
+        else
+          provider_activity_error_result()
+        end
+      end
+    }
+  end
+
+  defp provider_activity_success_result(_prompt, purpose, content) do
+    {run_ref, call_ref} = provider_refs_for_purpose(purpose)
+
+    {:ok, provider_run} =
+      ProviderRun.new(%{
+        provider_run_id: run_ref,
+        provider_call_ref: call_ref,
+        purpose: purpose,
+        execution_mode: :event_stream,
+        status: :completed,
+        provider_id: "stub",
+        model: "stub-model"
+      })
+
+    {:ok, started_event} =
+      ProviderEvent.new(%{
+        event_id: "pevt-#{purpose}-started",
+        provider_run_ref: run_ref,
+        sequence: 1,
+        event_type: :started,
+        summary: "provider started",
+        refs: [call_ref],
+        payload: %{provider: "stub"}
+      })
+
+    {:ok, final_event} =
+      ProviderEvent.new(%{
+        event_id: "pevt-#{purpose}-final",
+        provider_run_ref: run_ref,
+        sequence: 3,
+        event_type: :final_output,
+        visibility: :developer,
+        summary: "provider final output",
+        refs: [call_ref],
+        payload: %{raw_prompt: "must not be projected"}
+      })
+
+    {:ok, chunk_event} =
+      ProviderEvent.new(%{
+        event_id: "pevt-#{purpose}-chunk",
+        provider_run_ref: run_ref,
+        sequence: 2,
+        event_type: :chunk,
+        summary: "provider chunk",
+        refs: [call_ref],
+        payload: %{
+          output_type: :text,
+          chunk_index: 1,
+          content_length: 7,
+          accumulated_content_length: 7
+        }
+      })
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: run_ref,
+        provider_call_ref: call_ref,
+        status: :ok,
+        output_type: :text,
+        content: %{text: content},
+        usage: %{total_tokens: 12},
+        refs: [call_ref]
+      })
+
+    {:ok,
+     %{
+       provider_run: provider_run,
+       events: [started_event, chunk_event, final_event],
+       output: output,
+       result: Result.new(content)
+     }}
+  end
+
+  defp provider_activity_error_result do
+    raw_failure = "raw provider failure payload must not be projected"
+
+    {:ok, provider_run} =
+      ProviderRun.new(%{
+        provider_run_id: "prun-conversation-error",
+        provider_call_ref: "pcall-conversation-error",
+        purpose: :conversation,
+        execution_mode: :event_stream,
+        status: :failed,
+        provider_id: "stub",
+        model: "stub-model"
+      })
+
+    {:ok, started_event} =
+      ProviderEvent.new(%{
+        event_id: "pevt-conversation-error-started",
+        provider_run_ref: "prun-conversation-error",
+        sequence: 1,
+        event_type: :started,
+        summary: "provider started",
+        refs: ["pcall-conversation-error"],
+        payload: %{provider: "stub"}
+      })
+
+    {:ok, error_event} =
+      ProviderEvent.new(%{
+        event_id: "pevt-conversation-error",
+        provider_run_ref: "prun-conversation-error",
+        sequence: 2,
+        event_type: :error,
+        visibility: :developer,
+        summary: "provider failed",
+        refs: ["pcall-conversation-error"],
+        payload: %{message: raw_failure, raw_prompt: "must not be projected"}
+      })
+
+    {:ok, output} =
+      ProviderOutput.new(%{
+        provider_run_ref: "prun-conversation-error",
+        provider_call_ref: "pcall-conversation-error",
+        status: :error,
+        output_type: :empty,
+        error: %{type: :provider_error, message: raw_failure},
+        refs: ["pcall-conversation-error"]
+      })
+
+    {:error,
+     %{
+       provider_run: provider_run,
+       events: [started_event, error_event],
+       output: output,
+       error: %{type: :provider_error, message: raw_failure}
+     }}
+  end
+
+  defp provider_refs_for_purpose(:planner), do: {"prun-planner", "pcall-planner"}
+  defp provider_refs_for_purpose(:conversation), do: {"prun-conversation", "pcall-conversation"}
+
   defp fixed_json_provider(items) do
     json = Jason.encode!(items)
-    fn _prompt -> {:ok, %{content: json}} end
+
+    fn prompt ->
+      if agent_next_step_prompt?(prompt) do
+        {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+      else
+        {:ok, %{content: json}}
+      end
+    end
+  end
+
+  defp agent_next_step_prompt?(prompt) when is_binary(prompt),
+    do: String.contains?(prompt, "AgentRun 下一步规划器")
+
+  defp agent_next_step_prompt?(_prompt), do: false
+
+  defp next_step_decision(prompt) do
+    cond do
+      String.contains?(prompt, "profile_ref: conversation_turn_v1") ->
+        conversation_next_step_decision(prompt)
+
+      String.contains?(prompt, "/ artifact_created:") ->
+        %{
+          "decision_type" => "goal_satisfied",
+          "summary" => "已生成待采纳角色候选，本轮目标已经满足。",
+          "target_tool_ref" => nil,
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["goal_satisfied"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(prompt, "/ character_roster:") and
+          String.contains?(prompt, "重复读取角色阵容") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "再次读取当前角色阵容，检查是否有新增信息。",
+          "target_tool_ref" => "character_roster",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["repeat_roster_probe"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(prompt, "/ character_roster:") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "基于已读取的角色阵容设计新的主要反派。",
+          "target_tool_ref" => "character_design",
+          "write_intent" => "tentative",
+          "risk_hint" => "low",
+          "reason_codes" => ["roster_observation_consumed"],
+          "confidence" => 1.0
+        }
+
+      true ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "先读取当前作品已确认角色阵容。",
+          "target_tool_ref" => "character_roster",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["missing_roster_observation"],
+          "confidence" => 1.0
+        }
+    end
+  end
+
+  defp conversation_next_step_decision(prompt) do
+    observations = existing_observation_section(prompt)
+
+    cond do
+      String.contains?(observations, "已生成本轮回应") ->
+        %{
+          "decision_type" => "goal_satisfied",
+          "summary" => "已生成本轮回应，本轮目标已经满足。",
+          "target_tool_ref" => nil,
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["goal_satisfied", "conversation_turn_response_created"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(observations, "无需工具") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "根据系统裁决生成本轮回应。",
+          "target_tool_ref" => "response_finalize",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step", "conversation_strategy_consumed"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(observations, "对话认知帧") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "基于对话认知帧完成执行策略与系统裁决。",
+          "target_tool_ref" => "strategy_gate",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step", "dialogue_frame_consumed"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(observations, "创作上下文") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "基于已组装上下文形成对话认知帧。",
+          "target_tool_ref" => "dialogue_frame",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step", "conversation_context_consumed"],
+          "confidence" => 1.0
+        }
+
+      true ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "先组装当前作品的创作上下文。",
+          "target_tool_ref" => "context_assemble",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step", "missing_conversation_context"],
+          "confidence" => 1.0
+        }
+    end
+  end
+
+  defp existing_observation_section(prompt) do
+    prompt
+    |> String.split("## 决策规则", parts: 2)
+    |> hd()
   end
 
   defp single_item(id) do
@@ -851,23 +1361,30 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   end
 
   defp reply_only_provider do
-    fn _prompt ->
-      {:ok,
-       %{
-         content:
-           Jason.encode!(%{
-             frame_type: "casual_reply",
-             dialogue_goal_summary: "回应作者测试输入",
-             needs_tool: false,
-             no_tool_reason: "no_tool_needed",
-             execution_readiness: "not_applicable",
-             assistant_message: "收到你的测试消息。",
-             candidate_directions: [],
-             context_used: true,
-             uncertainty: []
-           })
-       }}
+    fn prompt ->
+      content =
+        if agent_next_step_prompt?(prompt) do
+          Jason.encode!(next_step_decision(prompt))
+        else
+          reply_only_frame_json()
+        end
+
+      {:ok, %{content: content}}
     end
+  end
+
+  defp reply_only_frame_json do
+    Jason.encode!(%{
+      frame_type: "casual_reply",
+      dialogue_goal_summary: "回应作者测试输入",
+      needs_tool: false,
+      no_tool_reason: "no_tool_needed",
+      execution_readiness: "not_applicable",
+      assistant_message: "收到你的测试消息。",
+      candidate_directions: [],
+      context_used: true,
+      uncertainty: []
+    })
   end
 
   defp unique_run_id do

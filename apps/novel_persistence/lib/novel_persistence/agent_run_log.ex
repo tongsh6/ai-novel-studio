@@ -69,6 +69,27 @@ defmodule NovelPersistence.AgentRunLog do
     |> Repo.all()
   end
 
+  @spec list_author_events(String.t()) :: [AgentEventRecord.t()]
+  def list_author_events(run_id) when is_binary(run_id) do
+    from(e in AgentEventRecord,
+      where: e.run_id == ^run_id and e.visibility == "author",
+      order_by: [asc: e.sequence]
+    )
+    |> Repo.all()
+  end
+
+  @spec list_by_parent_turn(String.t(), String.t(), String.t()) :: [AgentRunRecord.t()]
+  def list_by_parent_turn(work_id, session_id, parent_turn_ref)
+      when is_binary(work_id) and is_binary(session_id) and is_binary(parent_turn_ref) do
+    from(r in AgentRunRecord,
+      where:
+        r.work_id == ^work_id and r.session_id == ^session_id and
+          r.parent_turn_ref == ^parent_turn_ref,
+      order_by: [asc: r.inserted_at]
+    )
+    |> Repo.all()
+  end
+
   @spec list_active_durable(String.t(), String.t()) :: [AgentRunRecord.t()]
   def list_active_durable(work_id, session_id)
       when is_binary(work_id) and is_binary(session_id) do

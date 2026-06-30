@@ -11,6 +11,7 @@ defmodule NovelApplication.TurnExecutionService do
 
   alias NovelAgent.AuthorizedToolExecutor
   alias NovelAgent.ProseQualityEvaluator
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.CharacterRosterNarration
@@ -45,7 +46,10 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:candidates) => list(),
           optional(:context) => term(),
           optional(:author_input) => map(),
-          optional(:complete_fn) => function(),
+          optional(:provider_execution) => Execution.dependency(),
+          optional(:complete_fn) => Execution.dependency(),
+          optional(:quality_provider_execution) => Execution.dependency(),
+          optional(:quality_complete_fn) => Execution.dependency(),
           optional(:chapter_prose_reader) => function(),
           optional(:chapter_summary_reader) => map() | nil,
           optional(:character_reader) => function() | nil,
@@ -151,7 +155,10 @@ defmodule NovelApplication.TurnExecutionService do
         }
       )
 
-    tool_result = dispatch_tool(req, input[:complete_fn])
+    provider_execution = provider_execution(input)
+    quality_provider_execution = quality_provider_execution(input)
+
+    tool_result = dispatch_tool(req, provider_execution)
     artifact_set = assemble_artifact(tool_result, frame.turn_id, plan, resolved_chapter)
 
     # VS-00E CP2：正文生成后运行独立质量评估（与 writer 逻辑分离），产出 QualityFinding +
@@ -161,7 +168,7 @@ defmodule NovelApplication.TurnExecutionService do
         frame,
         action,
         tool_result,
-        input[:quality_complete_fn],
+        quality_provider_execution,
         render_execution_brief(brief_result)
       )
 
@@ -180,14 +187,14 @@ defmodule NovelApplication.TurnExecutionService do
           writer_provider_call_ref: writer_provider_call_ref(tool_result),
           evaluator_provider_call_ref: evaluator_provider_call_ref(quality),
           provider_call_budget:
-            provider_call_budget(input[:complete_fn], input[:quality_complete_fn], nil),
+            provider_call_budget(provider_execution, quality_provider_execution, nil),
           quality_policy_action: quality_policy_action(quality),
           quality_review_status: quality_review_status(quality)
         },
         input[:context]
       )
 
-    assistant_message = narrate(tool_result, artifact_set, input[:complete_fn])
+    assistant_message = narrate(tool_result, artifact_set, provider_execution)
 
     turn_result =
       TurnResultBuilder.build(
@@ -782,6 +789,12 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp emit_execution_brief(_frame, _brief_result), do: :ok
 
+  defp provider_execution(input),
+    do: Map.get(input, :provider_execution) || Map.get(input, :complete_fn)
+
+  defp quality_provider_execution(input),
+    do: Map.get(input, :quality_provider_execution) || Map.get(input, :quality_complete_fn)
+
   # ── VS-00E CP2：独立质量评估 ──────────────────────
 
   # 仅 prose_writing 成功路径评估。CP2 当前接入确定性 validator（无 semantic_fn，
@@ -810,10 +823,19 @@ defmodule NovelApplication.TurnExecutionService do
   defp run_prose_quality(_frame, _action, _tool_result, _quality_complete_fn, _brief_text),
     do: nil
 
-  # 独立 evaluator 通过单独的 quality_complete_fn 调用（与 writer 的 complete_fn 分离的
+  # 独立 evaluator 通过单独的 quality provider execution 调用（与 writer 分离的
   # provider 调用 + 独立 prompt）。未注入时为确定性评估。
-  defp semantic_opts(quality_complete_fn, frame, brief_text)
-       when is_function(quality_complete_fn, 1) do
+  defp semantic_opts(quality_provider_execution, frame, brief_text) do
+    case Execution.complete_fn(quality_provider_execution) do
+      complete_fn when is_function(complete_fn, 1) ->
+        semantic_opts_from_complete_fn(complete_fn, frame, brief_text)
+
+      _ ->
+        []
+    end
+  end
+
+  defp semantic_opts_from_complete_fn(complete_fn, frame, brief_text) do
     semantic_fn = fn text, ctx ->
       request = %QualityEvaluationRequest{
         request_id: "qer_#{frame.turn_id}",
@@ -824,7 +846,7 @@ defmodule NovelApplication.TurnExecutionService do
         execution_brief: brief_text
       }
 
-      case ProseQualityEvaluator.evaluate(request, quality_complete_fn) do
+      case ProseQualityEvaluator.evaluate(request, complete_fn) do
         %QualityEvaluationResult{status: :ok, findings: findings, provider_call_ref: ref} ->
           {:ok, findings, ref}
 
@@ -835,8 +857,6 @@ defmodule NovelApplication.TurnExecutionService do
 
     [semantic_fn: semantic_fn]
   end
-
-  defp semantic_opts(_quality_complete_fn, _frame, _brief_text), do: []
 
   defp prose_body(%ToolResult{output: %{items: [item | _]}}) when is_map(item) do
     clean_text(Map.get(item, :body) || Map.get(item, "body"))
@@ -956,8 +976,12 @@ defmodule NovelApplication.TurnExecutionService do
     }
   end
 
-  defp provider_call_count(fun) when is_function(fun, 1), do: 1
-  defp provider_call_count(_fun), do: 0
+  defp provider_call_count(provider_execution) do
+    case Execution.complete_fn(provider_execution) do
+      complete_fn when is_function(complete_fn, 1) -> 1
+      _ -> 0
+    end
+  end
 
   defp map_value(map, key) when is_map(map) do
     Map.get(map, key) || Map.get(map, Atom.to_string(key))
@@ -1195,13 +1219,14 @@ defmodule NovelApplication.TurnExecutionService do
     "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"
   end
 
-  defp narrate(%ToolResult{status: :succeeded} = tool_result, _artifact_set, complete_fn)
-       when is_function(complete_fn, 1) do
-    Planner.narrate_tool_result(tool_result, complete_fn)
-  end
+  defp narrate(%ToolResult{status: :succeeded} = tool_result, _artifact_set, provider_execution) do
+    case Execution.complete_fn(provider_execution) do
+      complete_fn when is_function(complete_fn, 1) ->
+        Planner.narrate_tool_result(tool_result, complete_fn)
 
-  defp narrate(%ToolResult{status: :succeeded}, _artifact_set, _complete_fn) do
-    "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"
+      _ ->
+        "已生成待保存草稿。请先审阅，保存后才会进入作品档案；未保存前不会写入作品事实。"
+    end
   end
 
   defp narrate(%ToolResult{status: :failed} = tool_result, _artifact_set, _complete_fn) do

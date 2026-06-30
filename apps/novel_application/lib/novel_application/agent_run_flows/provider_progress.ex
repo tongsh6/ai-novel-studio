@@ -1,9 +1,10 @@
 defmodule NovelApplication.AgentRunFlows.ProviderProgress do
   @moduledoc """
-  AgentRun flow that exposes provider progress and cancellation capability
-  honestly through author-safe AgentEvent records.
+  AgentRun flow that exposes unified provider execution progress through
+  author-safe AgentEvent records.
   """
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelApplication.AgentFinalizer
@@ -28,20 +29,18 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
         stream_mode: stream_mode(capabilities)
       })
 
-      unless Map.get(capabilities, :supports_streaming, false) do
-        emit_provider_progress(
-          snapshot,
-          "当前 provider 不支持 token 级流式事件，正在以检查点进度展示。",
-          ["provider_streaming_unavailable", "checkpoint_progress"],
-          %{
-            stage: :provider_streaming_degraded,
-            provider_capabilities: capabilities,
-            stream_mode: :checkpoint
-          }
-        )
-      end
+      emit_provider_progress(
+        snapshot,
+        "Provider execution stream 已进入执行中。",
+        ["provider_execution_stream_active"],
+        %{
+          stage: :provider_execution_stream_active,
+          provider_capabilities: capabilities,
+          stream_mode: stream_mode(capabilities)
+        }
+      )
 
-      case complete_fn(spec).(provider_prompt(text)) do
+      case provider_complete(spec).(provider_prompt(text)) do
         {:ok, result} ->
           content = provider_content(result)
 
@@ -106,9 +105,18 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
   end
 
   defp stream_mode(%{supports_streaming: true}), do: :provider_stream
-  defp stream_mode(_capabilities), do: :checkpoint
+  defp stream_mode(_capabilities), do: :provider_execution_stream
 
-  defp complete_fn(spec), do: Map.get(spec, :complete_fn) || (&Gateway.complete/1)
+  defp provider_complete(spec) do
+    spec
+    |> provider_execution()
+    |> Execution.complete_fn()
+  end
+
+  defp provider_execution(spec) do
+    Map.get(spec, :provider_execution) ||
+      Execution.dependency(purpose: :other)
+  end
 
   defp provider_prompt(text) do
     """
@@ -196,8 +204,15 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
     }
   end
 
-  defp cancel_strategy_text(%{supports_cancellation: true}), do: "硬取消"
-  defp cancel_strategy_text(_capabilities), do: "协作式安全点取消"
+  defp cancel_strategy_text(%{cancel_strategy: strategy}) do
+    case strategy do
+      :provider_execution_cancel -> "ProviderExecution 取消"
+      "provider_execution_cancel" -> "ProviderExecution 取消"
+      _ -> "ProviderExecution 取消"
+    end
+  end
+
+  defp cancel_strategy_text(_capabilities), do: "ProviderExecution 取消"
 
   defp capability_ref(%{provider: provider}), do: provider
   defp capability_ref(_capabilities), do: "unknown"

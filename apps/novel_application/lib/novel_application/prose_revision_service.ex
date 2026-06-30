@@ -25,6 +25,7 @@ defmodule NovelApplication.ProseRevisionService do
   require NovelCommon.LogEmit, as: LogEmit
 
   alias NovelAgent.AuthorizedToolExecutor
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.ArtifactAssembler
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.ExecutionOrchestrator
@@ -39,17 +40,20 @@ defmodule NovelApplication.ProseRevisionService do
 
   @prose_tool "prose_writing"
 
-  @spec revise(map(), AuthorActionInput.t(), (String.t() -> tuple()) | nil) ::
+  @spec revise(map(), AuthorActionInput.t(), Execution.dependency()) ::
           {:ok, map(), map()} | {:error, String.t()}
-  def revise(_source_turn_result, %AuthorActionInput{}, complete_fn)
-      when not is_function(complete_fn, 1),
-      do: {:error, "revise_from_findings requires a provider connection"}
-
-  def revise(source_turn_result, %AuthorActionInput{} = action_input, complete_fn) do
-    with {:ok, prepared} <- prepare_revision(source_turn_result, action_input),
+  def revise(source_turn_result, %AuthorActionInput{} = action_input, provider_execution) do
+    with {:ok, provider_execution} <- require_provider_execution(provider_execution),
+         {:ok, prepared} <- prepare_revision(source_turn_result, action_input),
          {:ok, execution} <- plan_revision(source_turn_result, action_input),
          {:ok, result} <-
-           execute_revision(source_turn_result, action_input, prepared, execution, complete_fn) do
+           execute_revision(
+             source_turn_result,
+             action_input,
+             prepared,
+             execution,
+             provider_execution
+           ) do
       {:ok, result.action_result, result.turn_result}
     end
   end
@@ -102,30 +106,20 @@ defmodule NovelApplication.ProseRevisionService do
           AuthorActionInput.t(),
           map(),
           map(),
-          (String.t() -> tuple()) | nil
+          Execution.dependency()
         ) ::
           {:ok, map()} | {:error, String.t()}
-  def execute_revision(
-        _source_turn_result,
-        %AuthorActionInput{},
-        _prepared,
-        _execution,
-        complete_fn
-      )
-      when not is_function(complete_fn, 1),
-      do: {:error, "revise_from_findings requires a provider connection"}
-
   def execute_revision(
         source_turn_result,
         %AuthorActionInput{} = action_input,
         %{original: original, findings: findings},
         %{frame: frame, plan: plan, decision: decision} = execution,
-        complete_fn
+        provider_execution
       ) do
-    req = build_request(frame, plan, decision, original, findings)
-    result = AuthorizedToolExecutor.execute(req, complete_fn)
-
-    with {:ok, execution} <-
+    with {:ok, provider_execution} <- require_provider_execution(provider_execution),
+         req = build_request(frame, plan, decision, original, findings),
+         result = AuthorizedToolExecutor.execute(req, provider_execution),
+         {:ok, execution} <-
            assemble_revision_artifact(
              result,
              frame.turn_id,
@@ -159,6 +153,16 @@ defmodule NovelApplication.ProseRevisionService do
          execution: execution,
          findings: findings
        }}
+    end
+  end
+
+  defp require_provider_execution(provider_execution) do
+    case Execution.complete_fn(provider_execution) do
+      complete_fn when is_function(complete_fn, 1) ->
+        {:ok, provider_execution}
+
+      _ ->
+        {:error, "revise_from_findings requires provider execution"}
     end
   end
 

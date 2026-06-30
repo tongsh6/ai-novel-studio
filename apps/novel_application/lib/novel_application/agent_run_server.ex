@@ -8,8 +8,10 @@ defmodule NovelApplication.AgentRunServer do
 
   use GenServer
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentEventPublisher
   alias NovelCommon.Contracts.AgentEvent
+  alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentRun
   alias NovelDomain.AgentStep
@@ -19,15 +21,26 @@ defmodule NovelApplication.AgentRunServer do
           required(:observations) => [AgentObservation.t()],
           required(:events) => [AgentEvent.t()],
           required(:stage_state) => map(),
+          optional(:provider_cancellation_token) => pid(),
           optional(:stage_sink) => (map() -> :ok)
         }
   @type step_result :: {:ok, map()} | {:error, term()}
   @type step_fun ::
           (AgentRun.t(), pos_integer() -> step_result())
           | (AgentRun.t(), pos_integer(), step_snapshot() -> step_result())
+  @type next_step_result ::
+          {:execute, step_fun(), AgentNextStepDecision.t()}
+          | {:execute, step_fun(), AgentNextStepDecision.t(), map()}
+          | {:complete, AgentNextStepDecision.t()}
+          | {:complete, AgentNextStepDecision.t(), map()}
+          | {:await_author, AgentNextStepDecision.t()}
+          | {:await_author, AgentNextStepDecision.t(), map()}
+          | {:error, term()}
+  @type next_step_planner ::
+          (AgentRun.t(), pos_integer(), step_snapshot() -> next_step_result())
 
   defstruct run: nil,
-            steps: [],
+            next_step_planner: nil,
             next_sequence: 1,
             current_task_ref: nil,
             current_task_pid: nil,
@@ -37,7 +50,8 @@ defmodule NovelApplication.AgentRunServer do
             stage_state: %{},
             progress_signatures: MapSet.new(),
             final_turn_result: nil,
-            event_sink: nil
+            event_sink: nil,
+            provider_cancellation_token: nil
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -70,11 +84,13 @@ defmodule NovelApplication.AgentRunServer do
   @impl true
   def init(opts) do
     run = Keyword.fetch!(opts, :run)
+    {:ok, provider_cancellation_token} = Execution.start_cancellation_token(%{run_id: run.run_id})
 
     state = %__MODULE__{
       run: run,
-      steps: Keyword.get(opts, :steps, []),
-      event_sink: Keyword.get(opts, :event_sink)
+      next_step_planner: Keyword.get(opts, :next_step_planner),
+      event_sink: Keyword.get(opts, :event_sink),
+      provider_cancellation_token: provider_cancellation_token
     }
 
     state =
@@ -128,17 +144,18 @@ defmodule NovelApplication.AgentRunServer do
       state.current_task_ref ->
         state =
           state
+          |> request_provider_cancellation(:author_cancelled)
           |> put_interrupt(:cancel_requested)
           |> put_run_status(:cancelling)
           |> emit(
             :interrupt_requested,
-            "正在协作取消，等待当前 provider 调用到达安全点。",
-            ["cancel_requested", "cooperative_cancel", "provider_hard_cancel_unsupported"],
+            "正在取消当前 AgentRun 执行。",
+            ["cancel_requested", "provider_execution_cancel_requested"],
             [],
             %{
-              cancel_strategy: :cooperative_safe_point,
-              supports_cancellation: false,
-              provider_call_active: true
+              cancel_strategy: :provider_execution_cancel,
+              supports_cancellation: true,
+              current_task_active: true
             }
           )
           |> persist_run_state()
@@ -216,6 +233,9 @@ defmodule NovelApplication.AgentRunServer do
       state.run.status == :awaiting_author ->
         {:noreply, state}
 
+      terminal?(state) ->
+        {:noreply, state}
+
       true ->
         {:noreply, state, {:continue, :run_next_step}}
     end
@@ -255,12 +275,12 @@ defmodule NovelApplication.AgentRunServer do
       blocking_interrupt_requested?(state) ->
         {:noreply, state}
 
-      state.steps == [] ->
+      not is_function(state.next_step_planner, 3) ->
         state =
           state
-          |> put_run_status(:completed)
+          |> put_run_status(:failed)
           |> put_run_phase(:stopped)
-          |> emit(:run_completed, "AgentRun 已完成。")
+          |> emit(:run_failed, "AgentRun 缺少下一步规划器。", ["next_step_planner_required"])
           |> persist_run_state()
 
         {:noreply, state}
@@ -275,41 +295,51 @@ defmodule NovelApplication.AgentRunServer do
 
         {:noreply, state}
 
-      true ->
-        [step_fun | rest] = state.steps
-        sequence = state.next_sequence
-        step_ref = step_ref(state.run.run_id, sequence)
-        run_for_step = %{state.run | current_step_ref: step_ref}
-        server = self()
-
-        task =
-          Task.Supervisor.async_nolink(NovelApplication.AgentStepTaskSupervisor, fn ->
-            execute_step_fun(step_fun, run_for_step, sequence, step_snapshot(state, server))
-          end)
-
-        state =
-          %{
-            state
-            | run: run_for_step,
-              steps: rest,
-              next_sequence: sequence + 1,
-              current_task_ref: task.ref,
-              current_task_pid: task.pid
-          }
-          |> put_run_status(:running)
-          |> put_run_phase(:executing)
-          |> emit(
-            :step_proposed,
-            step_started_summary(run_for_step, sequence),
-            ["step_started"],
-            [
-              step_ref
-            ]
-          )
-          |> persist_run_state()
-
-        {:noreply, state}
+      is_function(state.next_step_planner, 3) ->
+        start_dynamic_next_step(state)
     end
+  end
+
+  defp start_dynamic_next_step(state) do
+    planner = state.next_step_planner
+
+    start_step_task(state, planner, fn planner, run, sequence, snapshot ->
+      execute_dynamic_next_step(planner, run, sequence, snapshot)
+    end)
+  end
+
+  defp start_step_task(state, step_fun, executor) do
+    sequence = state.next_sequence
+    step_ref = step_ref(state.run.run_id, sequence)
+    run_for_step = %{state.run | current_step_ref: step_ref}
+    server = self()
+
+    task =
+      Task.Supervisor.async_nolink(NovelApplication.AgentStepTaskSupervisor, fn ->
+        executor.(step_fun, run_for_step, sequence, step_snapshot(state, server, run_for_step))
+      end)
+
+    state =
+      %{
+        state
+        | run: run_for_step,
+          next_sequence: sequence + 1,
+          current_task_ref: task.ref,
+          current_task_pid: task.pid
+      }
+      |> put_run_status(:running)
+      |> put_run_phase(:executing)
+      |> emit(
+        :step_proposed,
+        step_started_summary(run_for_step, sequence),
+        ["step_started"],
+        [
+          step_ref
+        ]
+      )
+      |> persist_run_state()
+
+    {:noreply, state}
   end
 
   defp step_ref(run_id, sequence), do: "step_#{run_id}_#{sequence}"
@@ -365,8 +395,12 @@ defmodule NovelApplication.AgentRunServer do
       |> merge_stage_state(Map.get(result, :stage_state))
       |> apply_progress_signature(Map.get(result, :progress_signature))
 
-    {artifact_refs, turn_result} =
-      if no_progress_stopped?(state), do: {[], nil}, else: {artifact_refs, turn_result}
+    no_progress_stopped? = no_progress_stopped?(state)
+
+    {artifact_refs, turn_result, loop_status} =
+      if no_progress_stopped?,
+        do: {[], nil, nil},
+        else: {artifact_refs, turn_result, Map.get(result, :loop_status)}
 
     state =
       state
@@ -379,6 +413,8 @@ defmodule NovelApplication.AgentRunServer do
       |> emit_observations(observations)
       |> maybe_emit_artifact_created(artifact_refs, turn_result)
       |> maybe_emit_turn_result(artifact_refs, turn_result)
+      |> maybe_emit_loop_decision(Map.get(result, :loop_decision))
+      |> maybe_apply_loop_status(loop_status, Map.get(result, :loop_decision))
 
     persist_run_state(state)
   end
@@ -393,6 +429,46 @@ defmodule NovelApplication.AgentRunServer do
   defp handle_step_result(state, other) do
     handle_step_result(state, {:error, {:unexpected_step_result, other}})
   end
+
+  defp maybe_emit_loop_decision(state, %AgentNextStepDecision{} = decision) do
+    emit(
+      state,
+      :plan_created,
+      decision.summary,
+      ["agent_next_step_decided" | decision.reason_codes],
+      [decision.decision_id],
+      %{
+        stage: :agent_next_step_decided,
+        loop_decision_ref: decision.decision_id,
+        loop_decision_type: decision.decision_type,
+        target_tool_ref: decision.target_tool_ref,
+        observation_refs: decision.observation_refs,
+        confidence: decision.confidence
+      }
+    )
+  end
+
+  defp maybe_emit_loop_decision(state, _decision), do: state
+
+  defp maybe_apply_loop_status(state, :completed, %AgentNextStepDecision{} = decision) do
+    state
+    |> put_run_status(:completed)
+    |> put_run_phase(:stopped)
+    |> emit(:run_completed, "AgentRun 已完成。", ["goal_satisfied", "agent_loop_completed"], [
+      decision.decision_id
+    ])
+  end
+
+  defp maybe_apply_loop_status(state, :awaiting_author, %AgentNextStepDecision{} = decision) do
+    state
+    |> put_run_status(:awaiting_author)
+    |> put_run_phase(:stopped)
+    |> emit(:awaiting_author, decision.summary, ["agent_loop_awaiting_author"], [
+      decision.decision_id
+    ])
+  end
+
+  defp maybe_apply_loop_status(state, _status, _decision), do: state
 
   defp maybe_mark_step_completed(state, %AgentStep{} = step) do
     consumed = state.run.consumed_budget
@@ -434,7 +510,6 @@ defmodule NovelApplication.AgentRunServer do
       state
       |> put_run_status(:awaiting_author)
       |> put_run_phase(:stopped)
-      |> Map.put(:steps, [])
       |> emit(:awaiting_author, "AgentRun 未取得新进展，已停止等待作者确认。", [
         "no_progress"
       ])
@@ -447,7 +522,7 @@ defmodule NovelApplication.AgentRunServer do
   defp apply_progress_signature(state, _signature), do: state
 
   defp no_progress_stopped?(state) do
-    state.run.status == :awaiting_author and state.run.phase == :stopped and state.steps == []
+    state.run.status == :awaiting_author and state.run.phase == :stopped
   end
 
   defp add_observations(state, observations) when is_list(observations) do
@@ -546,8 +621,16 @@ defmodule NovelApplication.AgentRunServer do
     state
     |> put_run_status(:cancelled)
     |> put_run_phase(:stopped)
-    |> emit(:run_cancelled, "AgentRun 已取消。", ["cancel_completed", "cooperative_cancel"])
+    |> emit(:run_cancelled, "AgentRun 已取消。", [
+      "cancel_completed",
+      "provider_execution_cancelled"
+    ])
     |> persist_run_state()
+  end
+
+  defp request_provider_cancellation(state, reason) do
+    Execution.cancel(state.provider_cancellation_token, reason)
+    state
   end
 
   defp pause_requested?(state), do: state.run.interrupt_state.status == :pause_requested
@@ -620,13 +703,18 @@ defmodule NovelApplication.AgentRunServer do
   defp persist_long_run_checkpoint(_run, _state), do: :ok
 
   defp persist(fun) when is_function(fun, 0) do
-    case fun.() do
-      {:ok, _record} -> :ok
-      {:error, _changeset} -> :ok
-      _other -> :ok
-    end
+    result =
+      case fun.() do
+        {:ok, _record} -> :ok
+        {:error, _changeset} -> :ok
+        _other -> :ok
+      end
+
+    result
   rescue
     _error -> :ok
+  catch
+    :exit, _reason -> :ok
   end
 
   defp long_run_task_update_attrs(%AgentRun{} = run, state) do
@@ -834,7 +922,7 @@ defmodule NovelApplication.AgentRunServer do
       stage_state: state.stage_state,
       final_turn_result: state.final_turn_result,
       current_task?: state.current_task_ref != nil,
-      remaining_steps: length(state.steps)
+      remaining_steps: 0
     }
   end
 
@@ -844,11 +932,88 @@ defmodule NovelApplication.AgentRunServer do
   defp execute_step_fun(step_fun, run, sequence, _snapshot) when is_function(step_fun, 2),
     do: step_fun.(run, sequence)
 
-  defp step_snapshot(state, server) do
+  defp execute_dynamic_next_step(planner, run, sequence, snapshot) when is_function(planner, 3) do
+    case planner.(run, sequence, snapshot) do
+      {:execute, step_fun, %AgentNextStepDecision{} = decision} when is_function(step_fun) ->
+        step_fun
+        |> execute_step_fun(run, sequence, snapshot)
+        |> attach_loop_decision(decision, %{provider_call_count: 1})
+
+      {:execute, step_fun, %AgentNextStepDecision{} = decision, meta}
+      when is_function(step_fun) ->
+        step_fun
+        |> execute_step_fun(run, sequence, snapshot)
+        |> attach_loop_decision(decision, meta)
+
+      {:complete, %AgentNextStepDecision{} = decision} ->
+        {:ok,
+         %{
+           loop_decision: decision,
+           loop_status: :completed,
+           provider_call_count: 1
+         }}
+
+      {:complete, %AgentNextStepDecision{} = decision, meta} ->
+        {:ok,
+         %{
+           loop_decision: decision,
+           loop_status: :completed,
+           provider_call_count: provider_call_count(meta, 0)
+         }}
+
+      {:await_author, %AgentNextStepDecision{} = decision} ->
+        {:ok,
+         %{
+           loop_decision: decision,
+           loop_status: :awaiting_author,
+           provider_call_count: 1
+         }}
+
+      {:await_author, %AgentNextStepDecision{} = decision, meta} ->
+        {:ok,
+         %{
+           loop_decision: decision,
+           loop_status: :awaiting_author,
+           provider_call_count: provider_call_count(meta, 0)
+         }}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:invalid_next_step_result, other}}
+    end
+  end
+
+  defp attach_loop_decision({:ok, result}, %AgentNextStepDecision{} = decision, meta)
+       when is_map(result) do
+    {:ok,
+     result
+     |> Map.put(:loop_decision, decision)
+     |> Map.update(:provider_call_count, provider_call_count(meta, 1), fn count ->
+       count + provider_call_count(meta, 1)
+     end)}
+  end
+
+  defp attach_loop_decision({:error, reason}, _decision, _meta), do: {:error, reason}
+  defp attach_loop_decision(other, _decision, _meta), do: other
+
+  defp provider_call_count(meta, default) when is_map(meta) do
+    case Map.get(meta, :provider_call_count) || Map.get(meta, "provider_call_count") do
+      value when is_integer(value) and value >= 0 -> value
+      _ -> default
+    end
+  end
+
+  defp provider_call_count(_meta, default), do: default
+
+  defp step_snapshot(state, server, run_for_step) do
     %{
+      run: run_for_step,
       observations: state.observations,
       events: state.events,
       stage_state: state.stage_state,
+      provider_cancellation_token: state.provider_cancellation_token,
       stage_sink: fn attrs ->
         send(server, {:agent_stage_event, attrs})
         :ok

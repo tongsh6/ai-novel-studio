@@ -1,6 +1,7 @@
 defmodule NovelApplication.AgentRunProseRevisionFlowTest do
   use ExUnit.Case, async: false
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentRunFlows.ProseRevisionFromFindings
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
@@ -71,11 +72,12 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       )
 
     assert planned.run_attrs.profile_ref == ProseRevisionFromFindings.profile_ref()
-    assert length(planned.steps) == 4
+    assert is_function(planned.next_step_planner, 3)
+    refute Map.has_key?(planned, :steps)
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(planned.run_attrs,
-               steps: planned.steps,
+               next_step_planner: planned.next_step_planner,
                event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
              )
 
@@ -86,6 +88,8 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert context_event.summary =~ "待修订草稿"
     assert_receive {:agent_event, :observation_recorded, source_observation}, 500
     assert source_observation.summary =~ "已读取待修订草稿"
+    assert_receive {:agent_event, :plan_created, source_decision}, 500
+    assert "agent_next_step_decided" in source_decision.reason_codes
 
     assert_receive {:agent_event, :step_proposed, plan_step}, 500
     assert plan_step.summary =~ "制定修订执行策略并完成授权判断"
@@ -161,7 +165,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        complete_fn: complete
+        provider_execution: %Execution{complete_fn: complete}
       })
 
     turn_result

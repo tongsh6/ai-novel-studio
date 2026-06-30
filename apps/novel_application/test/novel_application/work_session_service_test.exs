@@ -4,8 +4,8 @@ defmodule NovelApplication.WorkSessionServiceTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelApplication.WorkService
   alias NovelApplication.WorkSessionService
-  alias NovelPersistence.MemoryLog
-  alias NovelPersistence.Repo
+  alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
+  alias NovelPersistence.{AgentRunLog, MemoryLog, ProviderRunLog, Repo}
   alias NovelPersistence.WorkSessionRepo
 
   setup do
@@ -106,6 +106,153 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
       assert {:ok, snapshot} = WorkSessionService.resume(work.id)
       assert snapshot.resume_trace_refs == ["trace-canonical", "trace-legacy"]
+    end
+
+    test "restores author-safe AgentRun provider activity into persisted assistant turn_result",
+         %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+      run_id = "run-provider-restore-#{System.unique_integer([:positive, :monotonic])}"
+
+      record(work.id, session.id, "turn-provider", "assistant", "模型结果已整理", %{
+        turn_id: "turn-provider",
+        assistant_message: %{text: "模型结果已整理"},
+        agent_run: %{run_id: run_id}
+      })
+
+      assert {:ok, _run} =
+               AgentRunLog.upsert_run(%{
+                 id: run_id,
+                 workspace_id: work.id,
+                 work_id: work.id,
+                 session_id: session.id,
+                 parent_turn_ref: "turn-provider",
+                 origin_frame_ref: "frame-provider",
+                 run_mode: "bounded",
+                 profile_ref: "conversation_turn_v1",
+                 status: "completed",
+                 phase: "stopped",
+                 plan_ref: "ap-provider",
+                 plan_version: 1
+               })
+
+      assert {:ok, _event} =
+               AgentRunLog.insert_event(%{
+                 id: "evt-provider-restored-started",
+                 run_id: run_id,
+                 step_id: "step-provider",
+                 sequence: 1,
+                 event_type: "provider_progress",
+                 visibility: "author",
+                 summary: "对话判断已开始调用创作模型。",
+                 reason_codes: ["provider_execution_stream", "provider_started"],
+                 refs: ["provider_run:prun-restored", "provider_call:pcall-restored"],
+                 payload: %{
+                   "stage" => "provider_execution_recorded",
+                   "provider_run_ref" => "prun-restored",
+                   "provider_call_ref" => "pcall-restored",
+                   "raw_prompt" => "must not be restored",
+                   "turn_result" => %{"assistant_message" => "must not be restored"}
+                 }
+               })
+
+      assert {:ok, _event} =
+               AgentRunLog.insert_event(%{
+                 id: "evt-provider-restored-internal",
+                 run_id: run_id,
+                 step_id: "step-provider",
+                 sequence: 2,
+                 event_type: "provider_progress",
+                 visibility: "internal",
+                 summary: "internal provider payload",
+                 reason_codes: ["provider_internal"],
+                 refs: [],
+                 payload: %{"raw_prompt" => "must not be restored"}
+               })
+
+      {:ok, provider_run} =
+        ProviderRun.new(%{
+          provider_run_id: "prun-restored",
+          provider_call_ref: "pcall-restored",
+          purpose: :conversation,
+          execution_mode: :event_stream,
+          status: :completed,
+          provider_id: "slice_verify",
+          model: "stub-model"
+        })
+
+      {:ok, provider_event} =
+        ProviderEvent.new(%{
+          event_id: "pevt-restored-final",
+          provider_run_ref: "prun-restored",
+          sequence: 2,
+          event_type: :final_output,
+          visibility: :developer,
+          summary: "Provider final output materialized.",
+          payload: %{content_length: 18, raw_prompt: "must not be restored"},
+          refs: ["pcall-restored"]
+        })
+
+      {:ok, provider_output} =
+        ProviderOutput.new(%{
+          provider_run_ref: "prun-restored",
+          provider_call_ref: "pcall-restored",
+          status: :ok,
+          output_type: :text,
+          content: %{text: "raw output must not be restored"},
+          usage: %{total_tokens: 18},
+          refs: ["pcall-restored"]
+        })
+
+      assert :ok =
+               ProviderRunLog.record_execution(
+                 {:ok,
+                  %{provider_run: provider_run, events: [provider_event], output: provider_output}},
+                 %{
+                   agent_run_id: run_id,
+                   workspace_id: work.id,
+                   work_id: work.id,
+                   session_id: session.id,
+                   parent_turn_ref: "turn-provider",
+                   step_id: "step-provider",
+                   purpose: :conversation
+                 }
+               )
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+      [entry] = snapshot.transcript
+      agent_run = entry.turn_result[:agent_run]
+
+      assert agent_run.run_id == run_id
+      assert agent_run.profile_ref == "conversation_turn_v1"
+
+      assert [
+               %{
+                 event_id: "evt-provider-restored-started",
+                 event_type: "provider_progress",
+                 visibility: "author",
+                 payload: payload
+               }
+             ] = agent_run.events
+
+      assert payload["provider_run_ref"] == "prun-restored"
+      assert payload["provider_call_ref"] == "pcall-restored"
+      refute Map.has_key?(payload, "raw_prompt")
+      refute Map.has_key?(payload, "turn_result")
+
+      assert [
+               %{
+                 provider_run_ref: "prun-restored",
+                 provider_call_ref: "pcall-restored",
+                 purpose: "conversation",
+                 status: "ok",
+                 output_type: "text",
+                 content_length: content_length,
+                 usage: %{"total_tokens" => 18}
+               }
+             ] = agent_run.provider_runs
+
+      assert content_length == String.length("raw output must not be restored")
+      refute inspect(agent_run.provider_runs) =~ "raw output must not be restored"
     end
 
     test "does not include archived sessions in the default resume list", %{work: work} do

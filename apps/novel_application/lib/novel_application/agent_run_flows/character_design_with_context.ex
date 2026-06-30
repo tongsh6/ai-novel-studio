@@ -4,44 +4,68 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
   producing a tentative character-design candidate.
   """
 
-  alias NovelAgent.Provider.Gateway
+  alias NovelAgent.AgentTaskProfileRegistry
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentFinalizer
+  alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
-  alias NovelApplication.AgentStepPlanner
   alias NovelApplication.ExecutionOrchestrator
+  alias NovelApplication.ProviderActivityProjector
   alias NovelApplication.TurnExecutionService
+  alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentStep
   alias NovelDomain.DialogueFrame
+  alias NovelDomain.MicroPlan
 
   @profile_ref "character_design_with_context_v1"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
 
-  @spec steps(map()) :: [NovelApplication.AgentRunService.step_fun()]
-  def steps(spec) when is_map(spec), do: [step_fun(spec), step_fun(spec)]
-
-  defp step_fun(spec) do
+  @spec next_step_planner(map()) :: NovelApplication.AgentRunServer.next_step_planner()
+  def next_step_planner(spec) when is_map(spec) do
     fn run, sequence, snapshot ->
-      execute_tool_step(run, sequence, spec, Map.get(snapshot, :observations, []))
-    end
-  end
+      observations = Map.get(snapshot, :observations, [])
 
-  defp execute_tool_step(run, sequence, spec, observations) do
-    with {:ok, plan} <- AgentStepPlanner.next_plan(run, sequence, observations) do
-      frame = frame(run, sequence, plan.plan_goal.summary)
-      plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
-      {decision, _behavior} = ExecutionOrchestrator.decide(frame, plan)
-
-      if decision.decision_type == :allow_tool do
-        do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations)
-      else
-        {:error, {:agent_step_blocked, tool_name(plan), decision.first_blocking_gate}}
+      with {:ok, decision} <-
+             AgenticNextStepPlanner.next_decision(
+               run,
+               sequence,
+               observations,
+               planner_provider_execution(spec),
+               snapshot
+             ) do
+        next_step_from_decision(decision, spec)
       end
     end
   end
 
-  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations) do
+  defp execute_tool_decision_step(run, sequence, spec, decision, observations, snapshot) do
+    with {:ok, plan} <- plan_from_decision(run, sequence, decision) do
+      frame = frame(run, sequence, plan.plan_goal.summary)
+      plan = %{plan | turn_id: frame.turn_id, frame_ref: frame.frame_id}
+      emit_micro_plan(snapshot, plan)
+      {decision_result, _behavior} = ExecutionOrchestrator.decide(frame, plan)
+      emit_gate_decision(snapshot, decision_result)
+
+      if decision_result.decision_type == :allow_tool do
+        do_execute_tool_step(
+          run,
+          sequence,
+          spec,
+          frame,
+          plan,
+          decision_result,
+          observations,
+          snapshot
+        )
+      else
+        {:error, {:agent_step_blocked, tool_name(plan), decision_result.first_blocking_gate}}
+      end
+    end
+  end
+
+  defp do_execute_tool_step(run, sequence, spec, frame, plan, decision, observations, snapshot) do
     tool_name = tool_name(plan)
 
     {turn_result, _trace} =
@@ -53,8 +77,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
         context: Map.get(spec, :context),
         author_input: %{text: author_input_text(run, plan, observations)},
         source_turn_ref: run.parent_turn_ref,
-        complete_fn: complete_fn(tool_name, spec),
-        quality_complete_fn: nil,
+        provider_execution: provider_execution(tool_name, spec, snapshot),
         chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
         chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
         character_reader:
@@ -85,11 +108,19 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
     end
   end
 
-  defp complete_fn("character_design", spec) do
-    Map.get(spec, :complete_fn) || (&Gateway.complete/1)
+  defp provider_execution("character_design", spec, snapshot) do
+    (Map.get(spec, :provider_execution) ||
+       Execution.dependency(purpose: :tool))
+    |> ProviderActivityProjector.with_stage_sink(snapshot, purpose: :writer)
   end
 
-  defp complete_fn(_tool_name, _spec), do: nil
+  defp provider_execution(_tool_name, _spec, _snapshot), do: nil
+
+  defp planner_provider_execution(spec) do
+    Map.get(spec, :planner_provider_execution) ||
+      Map.get(spec, :provider_execution) ||
+      Execution.dependency(purpose: :planner)
+  end
 
   defp author_input_text(run, plan, observations) do
     observation_text =
@@ -130,6 +161,102 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
       uncertainty: []
     }
   end
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :execute_step} = decision,
+         spec
+       ) do
+    {:execute,
+     fn run, sequence, snapshot ->
+       execute_tool_decision_step(
+         run,
+         sequence,
+         spec,
+         decision,
+         Map.get(snapshot, :observations, []),
+         snapshot
+       )
+     end, decision}
+  end
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :goal_satisfied} = decision,
+         _spec
+       ),
+       do: {:complete, decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :await_author} = decision,
+         _spec
+       ),
+       do: {:await_author, decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :no_progress} = decision,
+         _spec
+       ),
+       do: {:await_author, decision}
+
+  defp plan_from_decision(run, sequence, %AgentNextStepDecision{} = decision) do
+    tool_name = decision.target_tool_ref
+
+    if AgentTaskProfileRegistry.allowed_tool?(run.profile_ref, tool_name) do
+      {:ok,
+       %MicroPlan{
+         plan_id: "mp_#{run.run_id}_#{sequence}",
+         turn_id: run.parent_turn_ref,
+         frame_ref: run.origin_frame_ref,
+         plan_goal: %{summary: decision.summary},
+         risk_hint: decision.risk_hint,
+         proposed_actions: [
+           %{
+             action_id: "act_#{run.run_id}_#{sequence}_#{tool_name}",
+             action_type: :capability_invocation,
+             summary: decision.summary,
+             target_ref: tool_name,
+             write_intent: decision.write_intent,
+             risk_hint: decision.risk_hint
+           }
+         ],
+         required_capabilities: [tool_name]
+       }}
+    else
+      {:error, {:tool_not_allowed_by_profile, tool_name}}
+    end
+  end
+
+  defp emit_micro_plan(snapshot, plan) do
+    emit_stage(snapshot, %{
+      event_type: :plan_created,
+      summary: "已根据观察制定下一步计划：#{plan.plan_goal.summary}",
+      reason_codes: ["micro_plan_created", "agentic_loop_step"],
+      refs: [plan.plan_id],
+      payload: %{
+        stage: :micro_plan_created,
+        plan_ref: plan.plan_id,
+        action_count: length(plan.proposed_actions),
+        target_tool_ref: tool_name(plan)
+      }
+    })
+  end
+
+  defp emit_gate_decision(snapshot, decision) do
+    emit_stage(snapshot, %{
+      event_type: :gate_decided,
+      summary: "系统已完成下一步执行裁决。",
+      reason_codes: ["agent_step_regated"],
+      refs: [decision.decision_id],
+      payload: %{
+        stage: :orchestrator_decided,
+        decision_ref: decision.decision_id,
+        decision_type: decision.decision_type,
+        first_blocking_gate: decision.first_blocking_gate
+      }
+    })
+  end
+
+  defp emit_stage(%{stage_sink: sink}, attrs) when is_function(sink, 1), do: sink.(attrs)
+  defp emit_stage(_snapshot, _attrs), do: :ok
 
   defp step(run, sequence, plan, turn_result) do
     action = hd(plan.proposed_actions)

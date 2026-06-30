@@ -5,7 +5,7 @@ defmodule NovelApplication.DialogueGateway do
 
   require NovelCommon.LogEmit, as: LogEmit
 
-  alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.ActionValidator
   alias NovelApplication.AdoptionBoundary
   alias NovelApplication.ContextAssembler
@@ -26,30 +26,35 @@ defmodule NovelApplication.DialogueGateway do
   alias NovelDomain.MicroPlan
 
   @doc "处理作者文本输入；未注入 provider 时显式走真实 Provider Gateway。"
-  @spec handle_input(map(), (String.t() -> tuple()) | nil) ::
+  @spec handle_input(map(), function() | nil) ::
           {:ok, map(), any(), list(), any()} | {:error, term()}
   def handle_input(input, context_fetcher \\ nil) do
-    handle_input_with_provider(input, context_fetcher, &Gateway.complete/1, nil, nil)
+    handle_input_with_provider(
+      input,
+      context_fetcher,
+      Execution.dependency(purpose: :conversation),
+      nil,
+      nil
+    )
   end
 
-  @doc "处理作者文本输入；显式注入 provider complete_fn。"
-  @spec handle_input(map(), (String.t() -> tuple()) | nil, function()) ::
+  @doc "处理作者文本输入；显式注入 provider execution dependency。"
+  @spec handle_input(map(), function() | nil, Execution.dependency()) ::
           {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(input, context_fetcher, complete_fn) when is_function(complete_fn, 1) do
-    handle_input_with_provider(input, context_fetcher, complete_fn, nil, nil)
-  end
-
   def handle_input(_input, _context_fetcher, nil), do: provider_boundary_error()
 
-  @doc "处理作者文本输入；显式注入 provider complete_fn 和 trace persister。"
-  @spec handle_input(map(), (String.t() -> tuple()) | nil, function(), function() | nil) ::
-          {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(input, context_fetcher, complete_fn, trace_persister)
-      when is_function(complete_fn, 1) do
-    handle_input_with_provider(input, context_fetcher, complete_fn, trace_persister, nil)
+  def handle_input(input, context_fetcher, provider_execution) do
+    handle_input_with_provider(input, context_fetcher, provider_execution, nil, nil)
   end
 
+  @doc "处理作者文本输入；显式注入 provider execution dependency 和 trace persister。"
+  @spec handle_input(map(), function() | nil, Execution.dependency(), function() | nil) ::
+          {:ok, map(), any(), list(), any()} | {:error, term()}
   def handle_input(_input, _context_fetcher, nil, _trace_persister), do: provider_boundary_error()
+
+  def handle_input(input, context_fetcher, provider_execution, trace_persister) do
+    handle_input_with_provider(input, context_fetcher, provider_execution, trace_persister, nil)
+  end
 
   @doc "处理作者文本输入；显式走真实 Provider Gateway 并注入持久化回调。"
   @spec handle_input_with_gateway(
@@ -63,43 +68,81 @@ defmodule NovelApplication.DialogueGateway do
     handle_input_with_provider(
       input,
       context_fetcher,
-      &Gateway.complete/1,
+      Execution.dependency(purpose: :conversation),
       trace_persister,
       memory_recorder
     )
   end
 
-  @doc "处理作者文本输入；显式注入 provider complete_fn 和持久化回调。"
+  @doc "处理作者文本输入；显式注入 provider execution dependency 和持久化回调。"
   @spec handle_input(
           map(),
-          (String.t() -> tuple()) | nil,
-          function(),
+          function() | nil,
+          Execution.dependency(),
           function() | nil,
           function() | nil
         ) ::
           {:ok, map(), any(), list(), any()} | {:error, term()}
-  def handle_input(input, context_fetcher, complete_fn, trace_persister, memory_recorder)
-      when is_function(complete_fn, 1) do
+  def handle_input(_input, _context_fetcher, nil, _trace_persister, _memory_recorder),
+    do: provider_boundary_error()
+
+  def handle_input(input, context_fetcher, provider_execution, trace_persister, memory_recorder) do
     handle_input_with_provider(
       input,
       context_fetcher,
-      complete_fn,
+      provider_execution,
       trace_persister,
       memory_recorder
     )
   end
 
-  def handle_input(_input, _context_fetcher, nil, _trace_persister, _memory_recorder),
-    do: provider_boundary_error()
-
   defp handle_input_with_provider(
          %{text: text} = input,
          context_fetcher,
-         complete_fn,
+         provider_execution,
          trace_persister,
          memory_recorder
        )
        when is_binary(text) and byte_size(text) > 0 do
+    case require_provider_execution(provider_execution) do
+      {:ok, complete_fn} ->
+        do_handle_input_with_provider(
+          input,
+          text,
+          context_fetcher,
+          complete_fn,
+          trace_persister,
+          memory_recorder
+        )
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  defp handle_input_with_provider(
+         _,
+         _fetcher,
+         _provider_execution,
+         _trace_persister,
+         _memory_recorder
+       ) do
+    LogEmit.emit(:dialogue_gateway, :handle_input, :error, %{
+      reason_code: :empty_text,
+      outcome_detail: "text is required"
+    })
+
+    {:error, "text is required"}
+  end
+
+  defp do_handle_input_with_provider(
+         input,
+         text,
+         context_fetcher,
+         complete_fn,
+         trace_persister,
+         memory_recorder
+       ) do
     ws_id = Map.get(input, :workspace_id, "default")
     work_id = Map.get(input, :work_id) || ws_id
     session_id = Map.get(input, :session_id) || Map.get(input, "session_id")
@@ -210,18 +253,16 @@ defmodule NovelApplication.DialogueGateway do
     end
   end
 
-  defp handle_input_with_provider(_, _fetcher, _complete_fn, _trace_persister, _memory_recorder) do
-    LogEmit.emit(:dialogue_gateway, :handle_input, :error, %{
-      reason_code: :empty_text,
-      outcome_detail: "text is required"
-    })
-
-    {:error, "text is required"}
-  end
-
   defp provider_boundary_error do
     {:error,
-     "provider complete_fn must be explicit: inject a function or use the real Gateway entry"}
+     "provider execution must be explicit: inject provider execution or use the real Gateway entry"}
+  end
+
+  defp require_provider_execution(provider_execution) do
+    case Execution.complete_fn(provider_execution) do
+      complete_fn when is_function(complete_fn, 1) -> {:ok, complete_fn}
+      _ -> provider_boundary_error()
+    end
   end
 
   defp context_fetcher_or_default(nil),
@@ -432,17 +473,18 @@ defmodule NovelApplication.DialogueGateway do
   @spec handle_action(AuthorActionInput.t(), map()) ::
           {:ok, map()} | {:ok, map(), map()} | {:error, String.t()}
   def handle_action(action_input, source_turn_result) do
-    handle_action(action_input, source_turn_result, &Gateway.complete/1)
+    handle_action(action_input, source_turn_result, Execution.dependency(purpose: :tool))
   end
 
-  @spec handle_action(AuthorActionInput.t(), map(), function() | nil) ::
+  @spec handle_action(AuthorActionInput.t(), map(), Execution.dependency()) ::
           {:ok, map()} | {:ok, map(), map()} | {:error, String.t()}
+  def handle_action(%AuthorActionInput{}, _source_turn_result, nil), do: provider_boundary_error()
+
   def handle_action(
         %AuthorActionInput{action_type: "confirm_before_execute"} = action_input,
         source_turn_result,
-        complete_fn
-      )
-      when is_function(complete_fn, 1) do
+        provider_execution
+      ) do
     case ActionValidator.validate(action_input, source_turn_result) do
       {:error, reason} ->
         {:error, reason}
@@ -452,16 +494,15 @@ defmodule NovelApplication.DialogueGateway do
         # handle_behavior_open）；进程内为 atom key、resume 恢复后为 string key，
         # 统一经 MicroPlan.from_map 恢复 struct 再 re-gate（ADR-0009）。
         plan = MicroPlan.from_map(source_turn_result[:plan] || source_turn_result["plan"])
-        confirm_with_plan(plan, action_input, source_turn_result, complete_fn)
+        confirm_with_plan(plan, action_input, source_turn_result, provider_execution)
     end
   end
 
   def handle_action(
         %AuthorActionInput{action_type: "choose_candidate"} = action_input,
         source_turn_result,
-        complete_fn
-      )
-      when is_function(complete_fn, 1) do
+        _provider_execution
+      ) do
     with :ok <- ActionValidator.validate(action_input, source_turn_result),
          {:ok, candidate_set} <- candidate_set_from_turn_result(source_turn_result, action_input),
          {:ok, chosen_candidate} <- chosen_candidate(candidate_set, action_input.candidate_ref) do
@@ -481,10 +522,9 @@ defmodule NovelApplication.DialogueGateway do
   def handle_action(
         %AuthorActionInput{action_type: action_type} = action_input,
         source_turn_result,
-        complete_fn
+        _provider_execution
       )
-      when action_type in ["reject_or_cancel_confirmation", "cancel_pending_behavior"] and
-             is_function(complete_fn, 1) do
+      when action_type in ["reject_or_cancel_confirmation", "cancel_pending_behavior"] do
     case ActionValidator.validate(action_input, source_turn_result) do
       :ok ->
         {:ok, cancel_waiting_action_result(action_input),
@@ -498,19 +538,17 @@ defmodule NovelApplication.DialogueGateway do
   def handle_action(
         %AuthorActionInput{action_type: "revise_from_findings"} = action_input,
         source_turn_result,
-        complete_fn
-      )
-      when is_function(complete_fn, 1) do
+        provider_execution
+      ) do
     # VS-00E CP3：按质量发现重写——校验动作非 stale/invented 后，由 ProseRevisionService
     # 调用 prose writer 产出新的 tentative 修订草稿（原草稿保留、不自动采纳，不自我递归评估）。
     case ActionValidator.validate(action_input, source_turn_result) do
-      :ok -> ProseRevisionService.revise(source_turn_result, action_input, complete_fn)
+      :ok -> ProseRevisionService.revise(source_turn_result, action_input, provider_execution)
       {:error, reason} -> {:error, reason}
     end
   end
 
-  def handle_action(%AuthorActionInput{} = action_input, source_turn_result, complete_fn)
-      when is_function(complete_fn, 1) do
+  def handle_action(%AuthorActionInput{} = action_input, source_turn_result, _provider_execution) do
     case ActionValidator.validate(action_input, source_turn_result) do
       :ok ->
         {:ok,
@@ -525,8 +563,6 @@ defmodule NovelApplication.DialogueGateway do
         {:error, reason}
     end
   end
-
-  def handle_action(%AuthorActionInput{}, _source_turn_result, nil), do: provider_boundary_error()
 
   defp candidate_set_from_turn_result(source_turn_result, action_input) do
     candidates =
@@ -1043,7 +1079,7 @@ defmodule NovelApplication.DialogueGateway do
          plan,
          binding,
          context,
-         complete_fn
+         provider_execution
        ) do
     frame = frame_from_turn_result(source_turn_result)
 
@@ -1068,8 +1104,8 @@ defmodule NovelApplication.DialogueGateway do
           context: context,
           author_input: %{text: frame.author_visible_draft.message},
           source_turn_ref: map_field(source_turn_result, :turn_id),
-          complete_fn: complete_fn,
-          quality_complete_fn: complete_fn,
+          provider_execution: provider_execution,
+          quality_provider_execution: provider_execution,
           chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
           chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
           character_reader: NovelApplication.persistence_character_reader(),
@@ -1365,7 +1401,7 @@ defmodule NovelApplication.DialogueGateway do
          candidates,
          context,
          author_input,
-         complete_fn,
+         provider_execution,
          stage_sink
        ) do
     emit_agent_stage(
@@ -1391,8 +1427,8 @@ defmodule NovelApplication.DialogueGateway do
         candidates: candidates,
         context: context,
         author_input: author_input,
-        complete_fn: complete_fn,
-        quality_complete_fn: complete_fn,
+        provider_execution: provider_execution,
+        quality_provider_execution: provider_execution,
         chapter_prose_reader: NovelApplication.persistence_chapter_prose_reader(),
         chapter_summary_reader: NovelApplication.persistence_chapter_summary_reader(),
         character_reader: NovelApplication.persistence_character_reader()

@@ -56,7 +56,19 @@ defmodule NovelPersistence.WorkSessionRepo do
   def ensure_active_for_work(work_id) when is_binary(work_id) do
     case latest_active(work_id) do
       nil -> create(%{work_id: work_id, title: "默认会话"})
-      %WorkSession{} = session -> touch(session)
+      %WorkSession{} = session -> keep_only_active(session)
+    end
+  end
+
+  @doc "Mark one session as the active session for its work and exit other active sessions."
+  @spec activate(String.t(), String.t()) ::
+          {:ok, WorkSession.t()}
+          | {:error, :session_not_found | :cannot_activate_archived_session | term()}
+  def activate(work_id, session_id) when is_binary(work_id) and is_binary(session_id) do
+    case get_by_work(work_id, session_id) do
+      nil -> {:error, :session_not_found}
+      %WorkSession{status: @archived_status} -> {:error, :cannot_activate_archived_session}
+      %WorkSession{} = session -> keep_only_active(session)
     end
   end
 
@@ -129,7 +141,7 @@ defmodule NovelPersistence.WorkSessionRepo do
   defp latest_active(work_id) do
     work_id
     |> active_sessions_query()
-    |> order_by([s], desc: s.last_opened_at, desc: s.updated_at)
+    |> order_by([s], desc: s.last_opened_at, desc: s.updated_at, desc: s.inserted_at)
     |> limit(1)
     |> Repo.one()
   end
@@ -137,6 +149,32 @@ defmodule NovelPersistence.WorkSessionRepo do
   defp active_sessions_query(work_id) do
     WorkSession
     |> where([s], s.work_id == ^work_id and s.status == @active_status)
+  end
+
+  defp stale_active_sessions_query(work_id, keep_session_id) do
+    work_id
+    |> active_sessions_query()
+    |> where([s], s.id != ^keep_session_id)
+  end
+
+  defp keep_only_active(%WorkSession{} = session) do
+    now = DateTime.utc_now()
+
+    Ecto.Multi.new()
+    |> Ecto.Multi.update_all(
+      :exit_stale_active,
+      stale_active_sessions_query(session.work_id, session.id),
+      set: [status: @exited_status, updated_at: now]
+    )
+    |> Ecto.Multi.update(
+      :session,
+      WorkSession.changeset(session, %{status: @active_status, last_opened_at: now})
+    )
+    |> Repo.transaction()
+    |> case do
+      {:ok, %{session: session}} -> {:ok, session}
+      {:error, _step, reason, _changes} -> {:error, reason}
+    end
   end
 
   defp maybe_exclude_archived(query, true), do: query

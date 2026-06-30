@@ -2,7 +2,7 @@ defmodule NovelApplication.ChapterSummaryGenerator do
   @moduledoc """
   章摘要默认生成器（VS-00C CP2.1 / contract §6.3）。
 
-  走既有 CreativeProvider 通道（`Gateway.complete/1`）产出四栏摘要文本，再解析回四栏 map
+  走统一 provider execution stream 的兼容消费者产出四栏摘要文本，再解析回四栏 map
   交给 `ChapterSummaryMaintenance` 渲染为 canonical `summary_text`。这是一条**独立摘要 prompt**，
   不复用、不触碰 prose_writing 的 real.ex 三锚点模板（契约 §6 边界）。
 
@@ -10,7 +10,7 @@ defmodule NovelApplication.ChapterSummaryGenerator do
   生成失败一律返回 `{:error, reason}`，由 maintenance 降级，不抛错。
   """
 
-  alias NovelAgent.Provider.Gateway
+  alias NovelAgent.Provider.Execution
   alias NovelCommon.LogContext
   alias NovelDomain.ChapterSummary
 
@@ -25,7 +25,7 @@ defmodule NovelApplication.ChapterSummaryGenerator do
       LogContext.with_step("chapter_summary", fn ->
         prose
         |> build_prompt()
-        |> Gateway.complete()
+        |> Execution.complete(purpose: :narration)
         |> handle_completion(prose)
       end)
     end
