@@ -7,6 +7,7 @@ defmodule NovelApplication.CP3StructuredContextTest do
   """
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
@@ -153,7 +154,7 @@ defmodule NovelApplication.CP3StructuredContextTest do
         decision: allow_decision(),
         context: opts[:context],
         author_input: %{text: author_text},
-        complete_fn: complete
+        provider_execution: %Execution{complete_fn: complete}
       })
 
     {turn_result, agent |> Agent.get(& &1) |> Enum.join("\n\n")}

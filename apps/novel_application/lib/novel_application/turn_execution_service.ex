@@ -47,9 +47,7 @@ defmodule NovelApplication.TurnExecutionService do
           optional(:context) => term(),
           optional(:author_input) => map(),
           optional(:provider_execution) => Execution.dependency(),
-          optional(:complete_fn) => Execution.dependency(),
           optional(:quality_provider_execution) => Execution.dependency(),
-          optional(:quality_complete_fn) => Execution.dependency(),
           optional(:chapter_prose_reader) => function(),
           optional(:chapter_summary_reader) => map() | nil,
           optional(:character_reader) => function() | nil,
@@ -789,11 +787,9 @@ defmodule NovelApplication.TurnExecutionService do
 
   defp emit_execution_brief(_frame, _brief_result), do: :ok
 
-  defp provider_execution(input),
-    do: Map.get(input, :provider_execution) || Map.get(input, :complete_fn)
+  defp provider_execution(input), do: Map.get(input, :provider_execution)
 
-  defp quality_provider_execution(input),
-    do: Map.get(input, :quality_provider_execution) || Map.get(input, :quality_complete_fn)
+  defp quality_provider_execution(input), do: Map.get(input, :quality_provider_execution)
 
   # ── VS-00E CP2：独立质量评估 ──────────────────────
 
@@ -803,7 +799,7 @@ defmodule NovelApplication.TurnExecutionService do
          frame,
          action,
          %ToolResult{status: :succeeded} = tool_result,
-         quality_complete_fn,
+         quality_provider_execution,
          brief_text
        ) do
     if prose_writing_action?(action) do
@@ -813,14 +809,14 @@ defmodule NovelApplication.TurnExecutionService do
         source_type: :prose_fragment
       }
 
-      opts = semantic_opts(quality_complete_fn, frame, brief_text)
+      opts = semantic_opts(quality_provider_execution, frame, brief_text)
       result = ProseQualityService.evaluate(prose_body(tool_result), ctx, opts)
       emit_quality(frame, result)
       result
     end
   end
 
-  defp run_prose_quality(_frame, _action, _tool_result, _quality_complete_fn, _brief_text),
+  defp run_prose_quality(_frame, _action, _tool_result, _quality_provider_execution, _brief_text),
     do: nil
 
   # 独立 evaluator 通过单独的 quality provider execution 调用（与 writer 分离的

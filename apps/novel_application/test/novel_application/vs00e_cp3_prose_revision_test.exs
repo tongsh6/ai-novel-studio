@@ -8,6 +8,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
   """
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.DialogueGateway
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.AssemblyPolicy
@@ -198,7 +199,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        complete_fn: complete
+        provider_execution: %Execution{complete_fn: complete}
       })
 
     turn_result

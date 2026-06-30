@@ -1,6 +1,7 @@
 defmodule NovelApplication.ToolProvenanceTest do
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelAgent.Toolbox
   alias NovelApplication.CapabilityRegistry
   alias NovelApplication.Planner
@@ -369,7 +370,7 @@ defmodule NovelApplication.ToolProvenanceTest do
           decision: allow_decision(),
           context: context,
           author_input: %{text: "接着往下写"},
-          complete_fn: complete_fn,
+          provider_execution: %Execution{complete_fn: complete_fn},
           chapter_prose_reader: reader
         })
 
@@ -433,7 +434,7 @@ defmodule NovelApplication.ToolProvenanceTest do
         plan: plan,
         decision: allow_decision(),
         author_input: %{text: "写约800字的开篇"},
-        complete_fn: complete_fn
+        provider_execution: %Execution{complete_fn: complete_fn}
       })
 
       prompts |> Agent.get(&Enum.reverse/1) |> List.first()
@@ -459,7 +460,7 @@ defmodule NovelApplication.ToolProvenanceTest do
         plan: continuity_plan(intent, chapter),
         decision: allow_decision(),
         author_input: %{text: author_text},
-        complete_fn: complete_fn,
+        provider_execution: %Execution{complete_fn: complete_fn},
         chapter_prose_reader: reader
       })
 

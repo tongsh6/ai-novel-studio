@@ -8,6 +8,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
   """
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.DialogueContext
   alias NovelDomain.DialogueFrame
@@ -99,7 +100,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "重写第99章"},
-          complete_fn: raising_complete_fn()
+          provider_execution: %Execution{complete_fn: raising_complete_fn()}
         })
 
       assert turn_result.assistant_message.text =~ "没有找到"
@@ -117,7 +118,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           decision: allow_decision(),
           context: context(["第一章"]),
           author_input: %{text: "续写番外"},
-          complete_fn: raising_complete_fn()
+          provider_execution: %Execution{complete_fn: raising_complete_fn()}
         })
 
       assert turn_result.assistant_message.text =~ "没有找到"
@@ -136,7 +137,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "重写第一章"},
-          complete_fn: recording_complete_fn(agent),
+          provider_execution: %Execution{complete_fn: recording_complete_fn(agent)},
           chapter_prose_reader: reader
         })
 
@@ -155,7 +156,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "接着往下写"},
-          complete_fn: recording_complete_fn(agent),
+          provider_execution: %Execution{complete_fn: recording_complete_fn(agent)},
           chapter_prose_reader: reader
         })
 
@@ -173,7 +174,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           context: nil,
           author_input: %{text: "确认执行"},
           source_turn_ref: "turn-source",
-          complete_fn: recording_complete_fn(agent)
+          provider_execution: %Execution{complete_fn: recording_complete_fn(agent)}
         })
 
       assert length(Agent.get(agent, & &1)) == 1

@@ -4,6 +4,7 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
   """
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
@@ -101,8 +102,8 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        complete_fn: complete,
-        quality_complete_fn: quality_complete_fn
+        provider_execution: %Execution{complete_fn: complete},
+        quality_provider_execution: %Execution{complete_fn: quality_complete_fn}
       })
 
     {turn_result, nil}

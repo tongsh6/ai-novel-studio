@@ -8,6 +8,7 @@ defmodule NovelApplication.CP2ContinuityContextTest do
   """
   use ExUnit.Case, async: true
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.TurnExecutionService
   alias NovelDomain.AssemblyPolicy
   alias NovelDomain.DialogueContext
@@ -98,7 +99,7 @@ defmodule NovelApplication.CP2ContinuityContextTest do
         assembly_policy: opts[:assembly_policy] || AssemblyPolicy.for_tier(:floor)
       },
       author_input: %{text: "写正文"},
-      complete_fn: complete
+      provider_execution: %Execution{complete_fn: complete}
     }
 
     input =
