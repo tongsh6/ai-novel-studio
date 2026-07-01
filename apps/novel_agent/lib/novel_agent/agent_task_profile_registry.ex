@@ -46,6 +46,16 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
+  @prose_revision_profile %{
+    profile_id: "prose_revision_from_findings_v1",
+    allowed_tools: ["prose_writing"],
+    required_observations: ["revision_source_loaded", "revision_micro_plan_created"],
+    completion_conditions: ["tentative_revision_fragment_created"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
   @conversation_allowed_tools NovelCommon.CapabilityRegistry.list()
                               |> Enum.filter(&NovelCommon.CapabilityRegistry.dispatchable?/1)
 
@@ -88,6 +98,7 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
   def get("prose_drafting_with_quality_v1"), do: @prose_drafting_profile
   def get("plot_outline_with_context_v1"), do: @plot_outline_profile
   def get("character_evolution_with_context_v1"), do: @character_evolution_profile
+  def get("prose_revision_from_findings_v1"), do: @prose_revision_profile
   def get("conversation_turn_v1"), do: @conversation_turn_profile
   def get("provider_progress_v1"), do: @provider_progress_profile
   def get("readonly_batch_context_v1"), do: @readonly_batch_context_profile

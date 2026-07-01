@@ -144,6 +144,25 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
            ] = spec.run_attrs.plan.milestones
   end
 
+  test "正文草稿意图优先于章节计划上下文词" do
+    assert {:ok, spec} =
+             DialoguePlanningService.plan_agent_run(
+               %{
+                 text: "请根据已采纳章节计划生成第02章：矿区追击战：主角在废弃矿区遭遇巡检傀儡。正文草稿，保持为待采纳草稿。",
+                 workspace_id: "ws-prose-from-plan",
+                 work_id: "work-prose-from-plan",
+                 session_id: "session-prose-from-plan",
+                 turn_id: "turn-prose-from-plan"
+               },
+               nil,
+               fn _prompt -> flunk("planning must not call provider before AgentRun starts") end
+             )
+
+    assert spec.run_attrs.profile_ref == "prose_drafting_with_quality_v1"
+    assert spec.run_attrs.authority_scope.allowed_tools == ["prose_writing"]
+    refute Map.has_key?(spec, :steps)
+  end
+
   test "章节大纲规划任务直接选择大纲 AgentRun profile，但不在 run 外调用 provider" do
     assert {:ok, spec} =
              DialoguePlanningService.plan_agent_run(
@@ -284,7 +303,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     assert spec.run_attrs.profile_ref == "prose_revision_from_findings_v1"
     assert spec.run_attrs.parent_turn_ref == "turn-source"
-    assert spec.run_attrs.budget.max_steps == 4
+    assert spec.run_attrs.budget.max_steps == 5
+    assert spec.run_attrs.budget.max_provider_calls == 6
     assert spec.run_attrs.authority_scope.allowed_tools == ["prose_writing"]
     assert is_function(spec.next_step_planner, 3)
     refute Map.has_key?(spec, :steps)

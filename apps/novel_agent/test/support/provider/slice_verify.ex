@@ -793,6 +793,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(prompt, "profile_ref: character_evolution_with_context_v1") ->
         character_evolution_next_step_decision(prompt)
 
+      String.contains?(prompt, "profile_ref: prose_revision_from_findings_v1") ->
+        prose_revision_next_step_decision(prompt)
+
       true ->
         nil
     end
@@ -809,6 +812,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
         String.contains?(prompt, "profile_ref: prose_drafting_with_quality_v1") ->
           {"已生成待采纳正文草稿并完成质量复核，本轮目标已经满足。", "tentative_prose_fragment_created"}
+
+        String.contains?(prompt, "profile_ref: prose_revision_from_findings_v1") ->
+          {"已生成待采纳修订草稿，本轮目标已经满足。", "tentative_revision_fragment_created"}
 
         true ->
           {"已生成待采纳角色候选，本轮目标已经满足。", "tentative_character_seed_created"}
@@ -870,6 +876,56 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       }
     else
       context_assemble_decision("先读取角色演化上下文。", "missing_character_evolution_context")
+    end
+  end
+
+  defp prose_revision_next_step_decision(prompt) do
+    observations = existing_observation_section(prompt)
+
+    cond do
+      String.contains?(observations, "已生成新的修订候选") ->
+        %{
+          decision_type: "execute_step",
+          summary: "汇总修订候选给作者确认。",
+          target_tool_ref: "revision_finalize",
+          write_intent: "none",
+          risk_hint: "low",
+          reason_codes: ["agentic_next_step", "revision_candidate_ready"],
+          confidence: 1.0
+        }
+
+      String.contains?(observations, "重新经过 Orchestrator") ->
+        %{
+          decision_type: "execute_step",
+          summary: "基于修订计划生成正文修订候选。",
+          target_tool_ref: "prose_writing",
+          write_intent: "tentative",
+          risk_hint: "low",
+          reason_codes: ["agentic_next_step", "revision_plan_consumed"],
+          confidence: 1.0
+        }
+
+      String.contains?(observations, "已读取待修订草稿") ->
+        %{
+          decision_type: "execute_step",
+          summary: "制定修订执行策略并重新经过系统裁决。",
+          target_tool_ref: "revision_plan",
+          write_intent: "none",
+          risk_hint: "low",
+          reason_codes: ["agentic_next_step", "revision_source_consumed"],
+          confidence: 1.0
+        }
+
+      true ->
+        %{
+          decision_type: "execute_step",
+          summary: "读取待修订草稿和质量发现。",
+          target_tool_ref: "revision_prepare",
+          write_intent: "none",
+          risk_hint: "low",
+          reason_codes: ["agentic_next_step", "missing_revision_source"],
+          confidence: 1.0
+        }
     end
   end
 

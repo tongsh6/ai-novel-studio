@@ -3,28 +3,47 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
   Bounded AgentRun flow for `revise_from_findings` author actions.
   """
 
+  alias NovelAgent.Provider.Execution
   alias NovelApplication.ActionValidator
   alias NovelApplication.AgentFinalizer
+  alias NovelApplication.AgenticNextStepPlanner
   alias NovelApplication.AgentObservationAssembler
   alias NovelApplication.ProseRevisionService
   alias NovelApplication.ProviderActivityProjector
+  alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
   alias NovelDomain.AuthorActionInput
 
   @profile_ref "prose_revision_from_findings_v1"
+  @prepare_step_target "revision_prepare"
+  @plan_step_target "revision_plan"
+  @finalize_step_target "revision_finalize"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
 
-  @spec steps(map()) :: [NovelApplication.AgentRunService.step_fun()]
-  def steps(spec) when is_map(spec) do
-    [
-      prepare_step_fun(spec),
-      plan_step_fun(spec),
-      execute_step_fun(spec),
-      finalization_step_fun()
-    ]
+  @spec steps(map()) :: no_return()
+  def steps(_spec) do
+    raise ArgumentError, "prose_revision_from_findings_v1 requires next_step_planner/1"
+  end
+
+  @spec next_step_planner(map()) :: NovelApplication.AgentRunServer.next_step_planner()
+  def next_step_planner(spec) when is_map(spec) do
+    fn run, sequence, snapshot ->
+      observations = Map.get(snapshot, :observations, [])
+
+      with {:ok, decision} <-
+             AgenticNextStepPlanner.next_decision(
+               run,
+               sequence,
+               observations,
+               planner_provider_execution(spec),
+               snapshot
+             ) do
+        next_step_from_decision(decision, spec)
+      end
+    end
   end
 
   defp prepare_step_fun(spec) do
@@ -170,10 +189,12 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
           artifact_refs = artifact_refs(final_turn_result)
 
           observations =
-            AgentObservationAssembler.from_turn_result(final_turn_result, %{
+            final_turn_result
+            |> AgentObservationAssembler.from_turn_result(%{
               run_id: run.run_id,
               step_id: step_id
             })
+            |> ensure_revision_final_observation(run, sequence, artifact_refs)
 
           {:ok,
            %{
@@ -193,6 +214,12 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
 
   defp provider_execution(spec),
     do: Map.get(spec, :provider_execution)
+
+  defp planner_provider_execution(spec) do
+    Map.get(spec, :planner_provider_execution) ||
+      Map.get(spec, :provider_execution) ||
+      Execution.dependency(purpose: :planner)
+  end
 
   defp provider_execution(spec, snapshot) do
     spec
@@ -394,6 +421,91 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
     observation
   end
 
+  defp ensure_revision_final_observation(observations, _run, _sequence, []), do: observations
+
+  defp ensure_revision_final_observation(observations, run, sequence, artifact_refs) do
+    if Enum.any?(observations, &(&1.observation_type == :artifact_created)) do
+      observations
+    else
+      observations ++ [revision_final_observation(run, sequence, artifact_refs)]
+    end
+  end
+
+  defp revision_final_observation(run, sequence, artifact_refs) do
+    refs = Enum.map(artifact_refs, &"artifact:#{&1}")
+
+    {:ok, observation} =
+      AgentObservation.new(%{
+        observation_id: final_observation_id(run, sequence),
+        run_ref: run.run_id,
+        step_ref: current_step_ref(run, sequence),
+        observation_type: :artifact_created,
+        source_ref: List.first(refs),
+        summary: "修订候选已汇总给作者，已有 #{length(artifact_refs)} 个待采纳正文草稿。",
+        structured_payload: %{
+          artifact_refs: artifact_refs,
+          revision_finalized: true
+        },
+        evidence_refs: refs
+      })
+
+    observation
+  end
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @prepare_step_target
+         } = decision,
+         spec
+       ),
+       do: {:execute, prepare_step_fun(spec), decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @plan_step_target
+         } = decision,
+         spec
+       ),
+       do: {:execute, plan_step_fun(spec), decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: "prose_writing"
+         } = decision,
+         spec
+       ),
+       do: {:execute, execute_step_fun(spec), decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{
+           decision_type: :execute_step,
+           target_tool_ref: @finalize_step_target
+         } = decision,
+         _spec
+       ),
+       do: {:execute, finalization_step_fun(), decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :goal_satisfied} = decision,
+         _spec
+       ),
+       do: {:complete, decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :await_author} = decision,
+         _spec
+       ),
+       do: {:await_author, decision}
+
+  defp next_step_from_decision(
+         %AgentNextStepDecision{decision_type: :no_progress} = decision,
+         _spec
+       ),
+       do: {:await_author, decision}
+
   defp finalize(turn_result, run) do
     AgentFinalizer.attach_run_summary(turn_result, %{
       run_id: run.run_id,
@@ -452,6 +564,9 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
 
   defp execute_observation_id(run, sequence),
     do: "obs_#{run.run_id}_#{sequence}_revision_execute"
+
+  defp final_observation_id(run, sequence),
+    do: "obs_#{run.run_id}_#{sequence}_revision_finalize"
 
   defp current_step_ref(run, sequence),
     do: run.current_step_ref || "step_#{run.run_id}_#{sequence}"

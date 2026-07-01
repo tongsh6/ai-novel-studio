@@ -182,11 +182,11 @@ defmodule NovelApplication.DialoguePlanningService do
       character_context_design_request?(text) ->
         :character_design_with_context
 
-      plot_outline_request?(text) ->
-        :plot_outline_with_context
-
       prose_drafting_request?(text) ->
         :prose_drafting_with_quality
+
+      plot_outline_request?(text) ->
+        :plot_outline_with_context
 
       true ->
         :conversation_turn
@@ -596,20 +596,19 @@ defmodule NovelApplication.DialoguePlanningService do
   defp agent_next_step_planner(
          :prose_revision_from_findings,
          text,
-         context,
-         context_fetcher,
+         _context,
+         _context_fetcher,
          provider_execution,
          input
-       ),
-       do:
-         fixed_step_profile_planner(
-           :prose_revision_from_findings,
-           text,
-           context,
-           context_fetcher,
-           provider_execution,
-           input
-         )
+       ) do
+    ProseRevisionFromFindings.next_step_planner(%{
+      source_turn_result: map_get(input, :source_turn_result),
+      action_input: map_get(input, :action_input),
+      provider_execution: provider_execution,
+      planner_provider_execution: map_get(input, :planner_provider_execution),
+      author_text: text
+    })
+  end
 
   defp agent_next_step_planner(
          :provider_progress,
@@ -735,7 +734,7 @@ defmodule NovelApplication.DialoguePlanningService do
     if one_step_budget?(text) do
       %{max_steps: 1, max_tool_calls: 1, max_provider_calls: 1, max_replans: 1}
     else
-      %{max_steps: 4, max_tool_calls: 2, max_provider_calls: 2, max_replans: 1}
+      %{max_steps: 5, max_tool_calls: 2, max_provider_calls: 6, max_replans: 1}
     end
   end
 

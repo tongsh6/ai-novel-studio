@@ -49,7 +49,7 @@ assertions:
     - revise_from_findings author_action sent (target_ref = original artifact)
     - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
     - revision agent_event stream contains source, plan, gate, tool, and finalization events
-    - revision agent_run_state completes with 4 steps, 1 tool call, 1 provider call
+    - revision agent_run_state completes with 4 steps, 1 tool call, 6 provider calls
     - revision turn_result received (trace_summary.decision_type = revise_from_findings)
   data:
     - prose_quality.evaluated emitted with finding_count>=1 (finding is not a story fact)

@@ -86,6 +86,9 @@ defmodule NovelApplication.AgenticNextStepPlanner do
   defp internal_observation_steps("character_evolution_with_context_v1"), do: ["context_assemble"]
   defp internal_observation_steps("prose_drafting_with_quality_v1"), do: ["context_assemble"]
 
+  defp internal_observation_steps("prose_revision_from_findings_v1"),
+    do: ["revision_prepare", "revision_plan", "revision_finalize"]
+
   defp internal_observation_steps("conversation_turn_v1"),
     do: ["context_assemble", "dialogue_frame", "strategy_gate", "response_finalize"]
 
@@ -120,6 +123,16 @@ defmodule NovelApplication.AgenticNextStepPlanner do
     - 如果还没有角色演化上下文观察，下一步选择 context_assemble，write_intent 为 none。
     - 如果已经有角色演化上下文观察，但还没有生成角色演化候选，下一步选择 character_evolution，write_intent 为 tentative。
     - 如果已经有待采纳角色演化候选，目标已满足，decision_type 使用 goal_satisfied。
+    """
+  end
+
+  defp profile_rules("prose_revision_from_findings_v1") do
+    """
+    - 如果还没有修订源观察，下一步选择 revision_prepare，write_intent 为 none。
+    - 如果已经有修订源观察，但还没有修订计划和系统裁决观察，下一步选择 revision_plan，write_intent 为 none。
+    - 如果已经有修订计划和系统裁决观察，但还没有生成修订候选，下一步选择 prose_writing，write_intent 为 tentative。
+    - 如果已经有修订候选观察，但还没有汇总给作者，下一步选择 revision_finalize，write_intent 为 none。
+    - 如果已经有待采纳正文草稿观察，目标已满足，decision_type 使用 goal_satisfied。
     """
   end
 

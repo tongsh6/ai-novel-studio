@@ -3062,7 +3062,7 @@ function findP1ProseRevisionCandidateEvidence(
       record.revision_agent_stage_events_visible === true &&
       Number(record.revision_consumed_steps ?? 0) === 4 &&
       Number(record.revision_consumed_tool_calls ?? 0) === 1 &&
-      Number(record.revision_consumed_provider_calls ?? 0) === 1 &&
+      Number(record.revision_consumed_provider_calls ?? 0) === 6 &&
       record.adopt_event_sent === false &&
       record.chapter_title === targetChapterTitle,
   );
@@ -3212,7 +3212,7 @@ function p1ProseRevisionCandidateBehavior(
   if (uiState.revision_agent_stage_events_visible !== true) return null;
   if (Number(uiState.revision_consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.revision_consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 1) return null;
+  if (Number(uiState.revision_consumed_provider_calls ?? 0) !== 6) return null;
   if (
     requestedSliceId === "agent-replay-no-provider" &&
     (evidence.replay_policy?.recall_provider !== false ||

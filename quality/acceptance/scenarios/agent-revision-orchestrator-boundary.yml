@@ -42,7 +42,7 @@ assertions:
     - revise_from_findings author_action is sent from the real page
     - revise_from_findings phx_reply returns run_mode=bounded and profile_ref=prose_revision_from_findings_v1
     - revision agent_event stream exposes source, plan, gate, tool, and finalization events
-    - revision agent_run_state completes with 4 steps, 1 tool call, 1 provider call
+    - revision agent_run_state completes with 4 steps, 1 tool call, 6 provider calls
     - revision path uses non-fabricated decision_ref
     - revision path creates tool_request_ref before Toolbox execution
     - sibling revision draft remains tentative and points to revision_base

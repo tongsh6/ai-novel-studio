@@ -32,25 +32,29 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
       idempotency_key: revise.idempotency_key
     }
 
-    writer = fn prompt ->
-      send(parent, {:revision_prompt, prompt})
+    provider = fn prompt ->
+      if agent_next_step_prompt?(prompt) do
+        {:ok, %{content: Jason.encode!(revision_next_step_decision(prompt))}}
+      else
+        send(parent, {:revision_prompt, prompt})
 
-      {:ok,
-       %{
-         provider_call_id: "pc-agent-revision",
-         content:
-           Jason.encode!(%{
-             items: [
-               %{item_id: "agent-rev-item", title: "第01章（修订）", body: @revised_body}
-             ],
-             self_report: %{
-               assumptions: [],
-               intended_reader_effect: nil,
-               used_context_refs: [],
-               risk_flags: []
-             }
-           })
-       }}
+        {:ok,
+         %{
+           provider_call_id: "pc-agent-revision",
+           content:
+             Jason.encode!(%{
+               items: [
+                 %{item_id: "agent-rev-item", title: "第01章（修订）", body: @revised_body}
+               ],
+               self_report: %{
+                 assumptions: [],
+                 intended_reader_effect: nil,
+                 used_context_refs: [],
+                 risk_flags: []
+               }
+             })
+         }}
+      end
     end
 
     input = %{
@@ -68,7 +72,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
         :prose_revision_from_findings,
         input,
         nil,
-        %Execution{complete_fn: writer}
+        %Execution{complete_fn: provider}
       )
 
     assert planned.run_attrs.profile_ref == ProseRevisionFromFindings.profile_ref()
@@ -122,7 +126,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert length(state.run.completed_step_refs) == 4
     assert state.run.consumed_budget.steps == 4
     assert state.run.consumed_budget.tool_calls == 1
-    assert state.run.consumed_budget.provider_calls == 1
+    assert state.run.consumed_budget.provider_calls == 6
 
     turn_result = artifact_event.payload.turn_result
     assert turn_result.agent_run.run_id == run_id
@@ -139,6 +143,76 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
 
   defp revise_action(turn_result) do
     Enum.find(turn_result.available_actions, &(&1.action_type == "revise_from_findings"))
+  end
+
+  defp agent_next_step_prompt?(prompt) when is_binary(prompt),
+    do: String.contains?(prompt, "AgentRun 下一步规划器")
+
+  defp revision_next_step_decision(prompt) do
+    observations = existing_observation_section(prompt)
+
+    cond do
+      String.contains?(observations, "/ artifact_created:") ->
+        %{
+          decision_type: "goal_satisfied",
+          summary: "已生成待采纳修订草稿，本轮目标已经满足。",
+          target_tool_ref: nil,
+          write_intent: "none",
+          risk_hint: "low",
+          reason_codes: ["goal_satisfied", "tentative_revision_fragment_created"],
+          confidence: 1.0
+        }
+
+      String.contains?(observations, "已生成新的修订候选") ->
+        %{
+          decision_type: "execute_step",
+          summary: "汇总修订候选给作者确认。",
+          target_tool_ref: "revision_finalize",
+          write_intent: "none",
+          risk_hint: "low",
+          reason_codes: ["agentic_next_step", "revision_candidate_ready"],
+          confidence: 1.0
+        }
+
+      String.contains?(observations, "重新经过 Orchestrator") ->
+        %{
+          decision_type: "execute_step",
+          summary: "基于修订计划生成正文修订候选。",
+          target_tool_ref: "prose_writing",
+          write_intent: "tentative",
+          risk_hint: "low",
+          reason_codes: ["agentic_next_step", "revision_plan_consumed"],
+          confidence: 1.0
+        }
+
+      String.contains?(observations, "已读取待修订草稿") ->
+        %{
+          decision_type: "execute_step",
+          summary: "制定修订执行策略并重新经过系统裁决。",
+          target_tool_ref: "revision_plan",
+          write_intent: "none",
+          risk_hint: "low",
+          reason_codes: ["agentic_next_step", "revision_source_consumed"],
+          confidence: 1.0
+        }
+
+      true ->
+        %{
+          decision_type: "execute_step",
+          summary: "读取待修订草稿和质量发现。",
+          target_tool_ref: "revision_prepare",
+          write_intent: "none",
+          risk_hint: "low",
+          reason_codes: ["agentic_next_step", "missing_revision_source"],
+          confidence: 1.0
+        }
+    end
+  end
+
+  defp existing_observation_section(prompt) do
+    prompt
+    |> String.split("## 决策规则", parts: 2)
+    |> hd()
   end
 
   defp run_prose_turn do

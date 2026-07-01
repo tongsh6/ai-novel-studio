@@ -15735,7 +15735,7 @@ async function driveP1ProseRevisionCandidate(page) {
       frame.body?.status === "completed" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 4 &&
       Number(frame.body?.consumed_budget?.tool_calls ?? 0) === 1 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 1,
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 6,
     "Revision AgentRun state did not finish with expected step/tool/provider counters",
     60_000,
   );

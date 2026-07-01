@@ -113,6 +113,11 @@ defmodule NovelAgent.Provider.Stub do
         |> conversation_next_step_decision()
         |> Jason.encode!()
 
+      String.contains?(prompt_text, "profile_ref: prose_revision_from_findings_v1") ->
+        prompt_text
+        |> prose_revision_next_step_decision()
+        |> Jason.encode!()
+
       String.contains?(prompt_text, "/ artifact_created:") ->
         Jason.encode!(%{
           "decision_type" => "goal_satisfied",
@@ -145,6 +150,67 @@ defmodule NovelAgent.Provider.Stub do
           "reason_codes" => ["agentic_next_step"],
           "confidence" => 1.0
         })
+    end
+  end
+
+  defp prose_revision_next_step_decision(prompt_text) do
+    observations = existing_observation_section(prompt_text)
+
+    cond do
+      String.contains?(observations, "/ artifact_created:") ->
+        %{
+          "decision_type" => "goal_satisfied",
+          "summary" => "[stub] 修订草稿已汇总，目标已满足。",
+          "target_tool_ref" => nil,
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["goal_satisfied"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(observations, "已生成新的修订候选") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 汇总修订候选给作者。",
+          "target_tool_ref" => "revision_finalize",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(observations, "重新经过 Orchestrator") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 基于修订计划生成正文修订候选。",
+          "target_tool_ref" => "prose_writing",
+          "write_intent" => "tentative",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        }
+
+      String.contains?(observations, "已读取待修订草稿") ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 制定修订计划并重新经过系统裁决。",
+          "target_tool_ref" => "revision_plan",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        }
+
+      true ->
+        %{
+          "decision_type" => "execute_step",
+          "summary" => "[stub] 读取待修订草稿和质量发现。",
+          "target_tool_ref" => "revision_prepare",
+          "write_intent" => "none",
+          "risk_hint" => "low",
+          "reason_codes" => ["agentic_next_step"],
+          "confidence" => 1.0
+        }
     end
   end
 
