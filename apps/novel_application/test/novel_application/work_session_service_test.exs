@@ -266,6 +266,70 @@ defmodule NovelApplication.WorkSessionServiceTest do
     end
   end
 
+  describe "restore_channel_turn_results/2" do
+    test "restores socket action state without hydrating AgentRun activity", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+      run_id = "run-channel-restore-#{System.unique_integer([:positive, :monotonic])}"
+
+      record(work.id, session.id, "turn-channel", "assistant", "可采纳的设定", %{
+        turn_id: "turn-channel",
+        assistant_message: %{text: "可采纳的设定"},
+        agent_run: %{run_id: run_id},
+        adoption_state: %{
+          pending: [
+            %{artifact_id: "artifact-channel", artifact_type: "plot_direction", payload: %{}}
+          ],
+          resolved: []
+        }
+      })
+
+      assert {:ok, _run} =
+               AgentRunLog.upsert_run(%{
+                 id: run_id,
+                 workspace_id: work.id,
+                 work_id: work.id,
+                 session_id: session.id,
+                 parent_turn_ref: "turn-channel",
+                 origin_frame_ref: "frame-channel",
+                 run_mode: "bounded",
+                 profile_ref: "conversation_turn_v1",
+                 status: "completed",
+                 phase: "stopped",
+                 plan_ref: "ap-channel",
+                 plan_version: 1
+               })
+
+      assert {:ok, _event} =
+               AgentRunLog.insert_event(%{
+                 id: "evt-channel-restore-started",
+                 run_id: run_id,
+                 step_id: "step-channel",
+                 sequence: 1,
+                 event_type: "provider_progress",
+                 visibility: "author",
+                 summary: "对话判断已开始调用创作模型。",
+                 reason_codes: ["provider_execution_stream", "provider_started"],
+                 refs: ["provider_run:prun-channel", "provider_call:pcall-channel"],
+                 payload: %{"provider_run_ref" => "prun-channel"}
+               })
+
+      assert {:ok, state} = WorkSessionService.restore_channel_turn_results(work.id, session.id)
+      assert state.session.id == session.id
+      assert state.read_only == false
+      assert [turn_result] = state.turn_results
+      agent_run = map_field(turn_result, :agent_run)
+
+      assert map_field(agent_run, :run_id) == run_id
+      refute map_has_key?(agent_run, :events)
+      refute map_has_key?(agent_run, :provider_runs)
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+      [entry] = snapshot.transcript
+      hydrated_agent_run = map_field(entry.turn_result, :agent_run)
+      assert [_] = map_field(hydrated_agent_run, :events)
+    end
+  end
+
   describe "search/2" do
     test "searches sessions within the work", %{work: work} do
       {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "第三章节奏"})
@@ -418,4 +482,14 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
   defp maybe_put_turn_result(content, turn_result),
     do: Map.put(content, :turn_result, turn_result)
+
+  defp map_field(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp map_field(_, _key), do: nil
+
+  defp map_has_key?(map, key) when is_map(map),
+    do: Map.has_key?(map, key) or Map.has_key?(map, Atom.to_string(key))
+
+  defp map_has_key?(_, _key), do: false
 end

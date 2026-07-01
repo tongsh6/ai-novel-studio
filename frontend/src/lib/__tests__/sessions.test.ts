@@ -126,10 +126,11 @@ describe("session API helpers", () => {
     ];
 
     expect(transcriptToMessages(transcript)).toEqual([
-      { role: "user", text: "第一句" },
+      { role: "user", text: "第一句", turnId: "turn-1" },
       {
         role: "assistant",
         text: "第二句",
+        turnId: "turn-1",
         turnResult: transcript[1].turn_result,
       },
     ]);

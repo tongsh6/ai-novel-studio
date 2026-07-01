@@ -53,6 +53,7 @@ export interface WorkspaceSessionSnapshot {
 export interface ChatMessageFromTranscript {
   role: "user" | "assistant";
   text: string;
+  turnId?: string | null;
   turnResult?: Record<string, unknown>;
 }
 
@@ -199,6 +200,7 @@ export function transcriptToMessages(
     .map((entry) => ({
       role: entry.role,
       text: entry.text,
+      turnId: entry.turn_id,
       ...(entry.turn_result ? { turnResult: entry.turn_result } : {}),
     }));
 }

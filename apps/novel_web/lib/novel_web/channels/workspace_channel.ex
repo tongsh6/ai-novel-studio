@@ -27,8 +27,7 @@ defmodule NovelWeb.WorkspaceChannel do
   @impl true
   def join("workspace:" <> suffix, payload, socket) do
     work_id = resolve_join_work_id(suffix, payload)
-    session_id = resolve_join_session_id(work_id, payload)
-    restored_list = restored_turn_results_list(work_id, session_id)
+    {session_id, restored_list} = restore_join_turn_results(work_id, payload)
 
     restored_map =
       Map.new(restored_list, fn tr ->
@@ -71,65 +70,80 @@ defmodule NovelWeb.WorkspaceChannel do
     {:ok, %{joined: true, work_id: work_id, session_id: session_id}, socket}
   end
 
-  defp resolve_join_session_id(work_id, payload) do
+  defp restore_join_turn_results(work_id, payload) do
     requested = is_map(payload) && Map.get(payload, "session_id")
 
     cond do
       valid_uuid?(requested) ->
-        case WorkSessionService.show(work_id, requested) do
-          {:ok, _snapshot} -> requested
-          _ -> resume_session_id(work_id)
+        case restore_requested_turn_results(work_id, requested) do
+          {:ok, turn_results} -> {requested, turn_results}
+          _ -> resume_join_turn_results(work_id)
         end
 
       valid_uuid?(work_id) ->
-        resume_session_id(work_id)
+        resume_join_turn_results(work_id)
 
       true ->
-        nil
+        {nil, []}
     end
   end
 
-  defp resume_session_id(work_id) do
+  defp restore_requested_turn_results(work_id, session_id) do
+    t0 = System.monotonic_time(:millisecond)
+
+    case WorkSessionService.restore_channel_turn_results(work_id, session_id) do
+      {:ok, %{turn_results: turn_results, read_only: read_only?}} ->
+        LogEmit.emit(:channel, :join_restore, :done, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session_id,
+          restore_source: :requested_session,
+          read_only: read_only?,
+          turn_result_count: length(turn_results),
+          pending_adoption_count: count_pending_adoptions_in_turn_results(turn_results)
+        })
+
+        {:ok, turn_results}
+
+      error ->
+        error
+    end
+  end
+
+  defp resume_join_turn_results(work_id) do
+    t0 = System.monotonic_time(:millisecond)
+
     case WorkSessionService.resume(work_id) do
-      {:ok, %{active_session: %{id: id}}} -> id
-      _ -> nil
-    end
-  end
-
-  defp restored_turn_results_list(work_id, session_id) do
-    if valid_uuid?(work_id) and valid_uuid?(session_id) do
-      case WorkSessionService.show(work_id, session_id) do
-        {:ok, %{transcript: transcript, read_only: read_only?}} ->
-          LogEmit.emit(:work_session, :resume, :done, %{
-            work_id: work_id,
-            session_id: session_id,
-            read_only: read_only?,
-            transcript_count: length(transcript),
-            pending_adoption_count: count_pending_adoptions_in_list(transcript)
-          })
-
+      {:ok, %{active_session: %{id: id}, transcript: transcript}} ->
+        turn_results =
           transcript
           |> Enum.map(& &1.turn_result)
           |> Enum.reject(&is_nil/1)
 
-        _ ->
-          []
-      end
-    else
-      []
+        LogEmit.emit(:channel, :join_restore, :done, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: id,
+          restore_source: :active_session_resume,
+          turn_result_count: length(turn_results),
+          pending_adoption_count: count_pending_adoptions_in_turn_results(turn_results)
+        })
+
+        {id, turn_results}
+
+      _ ->
+        {nil, []}
     end
   end
 
   defp latest_turn_id(turn_results) when map_size(turn_results) == 0, do: nil
   defp latest_turn_id(turn_results), do: turn_results |> Map.keys() |> List.last()
 
-  defp count_pending_adoptions_in_list(transcript) do
-    transcript
+  defp count_pending_adoptions_in_turn_results(turn_results) do
+    turn_results
     |> Enum.flat_map(fn entry ->
-      turn_result = entry.turn_result || %{}
-
-      get_in(turn_result, [:adoption_state, :pending]) ||
-        get_in(turn_result, ["adoption_state", "pending"]) ||
+      get_in(entry, [:adoption_state, :pending]) ||
+        get_in(entry, ["adoption_state", "pending"]) ||
         []
     end)
     |> length()

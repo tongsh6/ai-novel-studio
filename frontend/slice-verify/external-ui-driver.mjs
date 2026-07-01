@@ -1242,12 +1242,61 @@ async function visibleMessageRoleOrder(page) {
   });
 }
 
+async function visibleMessageTextIndexes(page, snippets) {
+  return await page.evaluate((expectedSnippets) => {
+    const rows = Array.from(document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]'));
+    let searchFrom = 0;
+
+    return expectedSnippets.map((snippet) => {
+      let index =
+        rows.findIndex(
+          (element, rowIndex) => rowIndex >= searchFrom && element.textContent?.includes(snippet),
+        );
+      if (index < 0) {
+        index = rows.findIndex((element) => element.textContent?.includes(snippet));
+      }
+      const element = index >= 0 ? rows[index] : null;
+      if (index >= 0) searchFrom = index + 1;
+
+      return {
+        snippet,
+        index,
+        role:
+          element?.className && String(element.className).includes("userMsg")
+            ? "user"
+            : element?.className && String(element.className).includes("assistantMsg")
+              ? "assistant"
+              : null,
+      };
+    });
+  }, snippets);
+}
+
+async function visibleAgentRunActivityIndexes(page) {
+  return await page.evaluate(() => {
+    const rows = Array.from(document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]'));
+
+    return rows
+      .map((element, index) => ({
+        index,
+        role:
+          element?.className && String(element.className).includes("userMsg")
+            ? "user"
+            : element?.className && String(element.className).includes("assistantMsg")
+              ? "assistant"
+              : null,
+        hasActivity: Boolean(element.textContent?.includes("创作执行")),
+      }))
+      .filter((entry) => entry.role === "assistant" && entry.hasActivity);
+  });
+}
+
 async function sendOrdinaryChatTurn(page, message, afterFrameCount) {
   await page.locator(chatInputSelector).fill(message);
   await page.getByRole("button", { name: /^发送$/ }).click();
 
-  const thinkingObserved = await page
-    .waitForFunction(() => document.body.innerText.includes("思考中"), undefined, {
+  const agentRunActivityObservedPromise = page
+    .waitForFunction(() => document.body.innerText.includes("创作执行"), undefined, {
       timeout: 5_000,
     })
     .then(() => true)
@@ -1275,12 +1324,17 @@ async function sendOrdinaryChatTurn(page, message, afterFrameCount) {
     { timeout: 30_000 },
   );
 
-  return { turnResult: turnFrame.body, thinkingObserved };
+  const agentRunActivityObserved = await agentRunActivityObservedPromise;
+  return {
+    turnResult: turnFrame.body,
+    agentRunActivityObserved,
+    thinkingObserved: agentRunActivityObserved,
+  };
 }
 
 async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
   const firstMessage = "我想写一个雨夜开场的悬疑故事，先聊聊气质。";
-  const secondMessage = "继续聊，但先不要写正文，也不要改设定。";
+  const secondMessage = "这种雨夜气质会让读者产生什么第一印象？";
 
   await page.locator(chatInputSelector).waitFor({ timeout: 10_000 });
   assert((await workTitle(page).count()) > 0, "Real work title button is not visible");
@@ -1305,6 +1359,21 @@ async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
   const uiState = await commonUiState(page, secondTurn.turnResult, sentMessages.at(-1));
   const visibleText = await page.locator("body").innerText();
   const messageRoleOrder = await visibleMessageRoleOrder(page);
+  const messageTextIndexes = await visibleMessageTextIndexes(page, [
+    firstMessage,
+    firstTurn.turnResult.assistant_message.text,
+    secondMessage,
+    secondTurn.turnResult.assistant_message.text,
+  ]);
+  const messageTextOrderAnchored =
+    messageTextIndexes.every((entry) => Number(entry.index) >= 0) &&
+    messageTextIndexes[0].index < messageTextIndexes[1].index &&
+    messageTextIndexes[1].index < messageTextIndexes[2].index &&
+    messageTextIndexes[2].index < messageTextIndexes[3].index;
+  const agentRunActivityIndexes = await visibleAgentRunActivityIndexes(page);
+  const secondAgentRunActivityAnchored = agentRunActivityIndexes.some(
+    (entry) => entry.index > messageTextIndexes[2].index,
+  );
   const userMessageCount = await page.locator('[class*="userMsg"]').count();
   const assistantMessageCount = await page.locator('[class*="assistantMsg"]').count();
   const availableActionCount = await page.locator('[class*="cardActions"] button').count();
@@ -1325,10 +1394,22 @@ async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
     "Second assistant reply is not visible",
   );
   assert(
-    firstTurn.thinkingObserved || secondTurn.thinkingObserved,
-    "Thinking indicator was missed",
+    firstTurn.agentRunActivityObserved || secondTurn.agentRunActivityObserved,
+    "AgentRun activity was missed",
+  );
+  assert(
+    secondAgentRunActivityAnchored,
+    `Second user message did not get its own AgentRun activity flow: ${JSON.stringify(
+      agentRunActivityIndexes,
+    )}`,
   );
   assert(!visibleText.includes("思考中"), "Thinking indicator stayed visible after replies");
+  assert(
+    messageTextOrderAnchored,
+    `Assistant replies were not anchored below their own user messages: ${JSON.stringify(
+      messageTextIndexes,
+    )}`,
+  );
   assert(availableActionCount === 0, "Ordinary chat rendered available action buttons");
   assert(cardActionCount === 0, "Ordinary chat rendered card action containers");
   assert(candidatePanelCount === 0, "Ordinary chat rendered candidate panel");
@@ -1348,7 +1429,13 @@ async function driveAu01OrdinaryChatTwoTurnRoundtrip(page) {
         assistantMessageCount - uiState.welcome_message_count,
       ),
       message_role_order: messageRoleOrder,
-      thinking_observed: firstTurn.thinkingObserved || secondTurn.thinkingObserved,
+      message_text_indexes: messageTextIndexes,
+      message_text_order_anchored: messageTextOrderAnchored,
+      agent_run_activity_indexes: agentRunActivityIndexes,
+      agent_run_activity_count: agentRunActivityIndexes.length,
+      second_agent_run_activity_anchored: secondAgentRunActivityAnchored,
+      agent_run_activity_observed:
+        firstTurn.agentRunActivityObserved || secondTurn.agentRunActivityObserved,
       thinking_visible_after_reply: visibleText.includes("思考中"),
       available_action_count: availableActionCount,
       card_action_count: cardActionCount,
@@ -10701,7 +10788,7 @@ async function driveAu12ArchiveConcurrentModelRunReadSnapshot(page) {
   };
   const work = await createWorkSeed(seed);
 
-  await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
+  await page.goto(baseUrl, { waitUntil: "commit", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
   await page.waitForFunction(() => /服务: 已连接|同步已连接/.test(document.body.innerText), {
     timeout: 30_000,
@@ -18026,7 +18113,10 @@ async function driveAgentPlotOutlineWithContext(page) {
     () =>
       document.body.innerText.includes("创作执行") && document.body.innerText.includes("工作详情") &&
       document.body.innerText.includes("当前：已完成") &&
-      document.body.innerText.includes("大纲草稿"),
+      document.body.innerText.includes("大纲草稿") &&
+      document.body.innerText.includes("本轮路径：") &&
+      document.body.innerText.includes("规划章节大纲") &&
+      document.body.innerText.includes("生成大纲候选"),
     undefined,
     { timeout: 30_000 },
   );
@@ -18101,6 +18191,16 @@ async function driveAgentPlotOutlineWithContext(page) {
       ui_agent_completed_visible: visibleText.includes("当前：已完成"),
       ui_outline_draft_visible:
         visibleText.includes("章节大纲草稿") || visibleText.includes("大纲草稿"),
+      ui_execution_brief_path_visible:
+        visibleText.includes("本轮路径：") &&
+        visibleText.includes("读取上下文") &&
+        visibleText.includes("调用步骤规划模型") &&
+        visibleText.includes("制定计划") &&
+        visibleText.includes("系统裁决") &&
+        visibleText.includes("规划章节大纲") &&
+        visibleText.includes("调用写作模型") &&
+        visibleText.includes("生成大纲候选") &&
+        visibleText.includes("完成回应"),
       log_sync_turn_count: logsAfter.filter(
         (record) =>
           record.event === "channel.user_message.done" &&
@@ -18445,7 +18545,10 @@ async function driveAgentCharacterEvolutionWithContext(page) {
     () =>
       document.body.innerText.includes("创作执行") && document.body.innerText.includes("工作详情") &&
       document.body.innerText.includes("当前：已完成") &&
-      document.body.innerText.includes("角色演化记忆草稿"),
+      document.body.innerText.includes("角色演化记忆草稿") &&
+      document.body.innerText.includes("本轮路径：") &&
+      document.body.innerText.includes("更新角色演化记忆") &&
+      document.body.innerText.includes("生成角色演化候选"),
     undefined,
     { timeout: 30_000 },
   );
@@ -18531,6 +18634,16 @@ async function driveAgentCharacterEvolutionWithContext(page) {
       ui_agent_panel_visible: visibleText.includes("创作执行") && visibleText.includes("工作详情"),
       ui_agent_completed_visible: visibleText.includes("当前：已完成"),
       ui_character_evolution_draft_visible: visibleText.includes("角色演化记忆草稿"),
+      ui_execution_brief_path_visible:
+        visibleText.includes("本轮路径：") &&
+        visibleText.includes("读取上下文") &&
+        visibleText.includes("调用步骤规划模型") &&
+        visibleText.includes("制定计划") &&
+        visibleText.includes("系统裁决") &&
+        visibleText.includes("更新角色演化记忆") &&
+        visibleText.includes("调用写作模型") &&
+        visibleText.includes("生成角色演化候选") &&
+        visibleText.includes("完成回应"),
       log_sync_turn_count: logsAfter.filter(
         (record) =>
           record.event === "channel.user_message.done" &&

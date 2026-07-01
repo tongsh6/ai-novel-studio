@@ -29,6 +29,7 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 ORIGINAL_HOME="${HOME:-}"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
+source "$PROJECT_ROOT/scripts/lib/tauri_dev_config.sh"
 SLICE_ID=""
 SLICE_VERIFY_PROVIDER="${SLICE_VERIFY_PROVIDER:-slice_verify}"
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
@@ -470,34 +471,7 @@ fi
 
 PHX_PID=""
 TAURI_PID=""
-TAURI_CONF="$PROJECT_ROOT/frontend/src-tauri/tauri.conf.json"
-TAURI_CONF_BACKUP=""
-
-restore_tauri_conf() {
-  if [[ -n "$TAURI_CONF_BACKUP" && -f "$TAURI_CONF_BACKUP" ]]; then
-    cp -p "$TAURI_CONF_BACKUP" "$TAURI_CONF" 2>/dev/null || true
-    rm -f "$TAURI_CONF_BACKUP" 2>/dev/null || true
-  fi
-}
-
-sync_tauri_conf() {
-  local vite_port="$1"
-  local phoenix_port="$2"
-  local tmp_conf
-
-  tmp_conf="$(mktemp -t ai-novel-tauri-slice-conf-sync.XXXXXX)"
-  cp -p "$TAURI_CONF" "$tmp_conf"
-
-  TAURI_DEV_URL="http://127.0.0.1:${vite_port}" \
-  TAURI_CONNECT_SRC="http://localhost:${phoenix_port} http://127.0.0.1:${phoenix_port} ws://localhost:${phoenix_port} ws://127.0.0.1:${phoenix_port}" \
-  TAURI_BEFORE_DEV_COMMAND="bash ${PROJECT_ROOT}/scripts/before-tauri-dev.sh" \
-    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g; s#"beforeDevCommand":\s*"[^"]+"#"beforeDevCommand": "$ENV{TAURI_BEFORE_DEV_COMMAND}"#g' "$tmp_conf"
-
-  if ! cmp -s "$tmp_conf" "$TAURI_CONF"; then
-    cp -p "$tmp_conf" "$TAURI_CONF"
-  fi
-  rm -f "$tmp_conf"
-}
+TAURI_CONFIG_OVERRIDE=""
 
 reset_test_db() {
   cd "$PROJECT_ROOT"
@@ -536,7 +510,9 @@ cleanup() {
   wait "$TAURI_PID" 2>/dev/null || true
   kill_process_tree "$PHX_PID" || true
   wait "$PHX_PID" 2>/dev/null || true
-  restore_tauri_conf
+  if [[ -n "$TAURI_CONFIG_OVERRIDE" ]]; then
+    rm -f "$TAURI_CONFIG_OVERRIDE" 2>/dev/null || true
+  fi
   reset_test_db >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -588,7 +564,7 @@ start_tauri_app() {
     VITE_PROXY_TARGET="$API_URL" \
     VITE_WS_ENDPOINT="$VITE_WS_URL" \
     VITE_DEV_PORT="$VITE_PORT" \
-    pnpm tauri dev >"$log_file" 2>&1 &
+    pnpm tauri dev --config "$TAURI_CONFIG_OVERRIDE" >"$log_file" 2>&1 &
   TAURI_PID=$!
 
   wait_for_tauri_dev_app "$log_file" 120
@@ -1285,9 +1261,12 @@ echo "[tauri-slice-verify] isolated Tauri home: $TAURI_SLICE_HOME"
 
 cd "$PROJECT_ROOT"
 reset_test_db
-TAURI_CONF_BACKUP="$(mktemp -t ai-novel-tauri-slice-conf.XXXXXX)"
-cp -p "$TAURI_CONF" "$TAURI_CONF_BACKUP"
-sync_tauri_conf "$VITE_PORT" "$PHOENIX_PORT"
+TAURI_CONFIG_OVERRIDE="$(mktemp -t ai-novel-tauri-slice-conf.XXXXXX.json)"
+write_tauri_dev_config \
+  "$TAURI_CONFIG_OVERRIDE" \
+  "$VITE_PORT" \
+  "$PHOENIX_PORT" \
+  "bash $PROJECT_ROOT/scripts/before-tauri-dev.sh"
 
 case "$SLICE_ID" in
   su02-empty-start-unnamed-work)
@@ -1333,6 +1312,9 @@ case "$SLICE_ID" in
     SEED_SCRIPT="scripts/seed_p1_prose_revision_candidate.exs"
     ;;
   agent-conversation-turn)
+    SEED_SCRIPT=""
+    ;;
+  au01-ordinary-chat-two-turn-roundtrip)
     SEED_SCRIPT=""
     ;;
   agent-plot-outline-with-context)

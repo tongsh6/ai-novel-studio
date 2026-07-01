@@ -41,6 +41,7 @@ assertions:
   ui:
     - AgentRun panel reaches completed state
     - AgentRun panel shows context observation, next-step planning/gate, character evolution, and completion decision summaries
+    - execution brief path shows character-evolution-specific cause labels: updating character evolution memory and generating character evolution candidate
     - character evolution draft card remains visible as a tentative artifact
   network:
     - parent user_message receives bounded run_id before final TurnResult

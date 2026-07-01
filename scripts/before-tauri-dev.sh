@@ -26,7 +26,7 @@ set +a
 if [[ -n "$REQUESTED_VITE_DEV_PORT_SET" ]]; then
   export VITE_DEV_PORT="$REQUESTED_VITE_DEV_PORT"
 else
-  export VITE_DEV_PORT="${VITE_DEV_PORT:-5768}"
+  export VITE_DEV_PORT="${VITE_DEV_PORT:-5769}"
 fi
 
 if [[ -n "$REQUESTED_VITE_API_ENDPOINT_SET" ]]; then

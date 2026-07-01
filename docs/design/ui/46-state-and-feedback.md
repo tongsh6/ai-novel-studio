@@ -40,10 +40,10 @@
 
 当作者 turn 进入 AgentRun 后，UI 必须把运行反馈放回同一个对话 turn，而不是另开任务面板。目标体验对齐 Codex Desktop 的对话流：简短状态、可展开 details、作者可随时补充方向，最终结果原地落回同一条 assistant 回复。
 
-1. 作者消息之后立即出现一条 assistant 工作态 turn，先用一句短状态说明正在做什么，例如“正在读取角色档案”“正在生成正文草稿”“正在复核质量”。
+1. 作者消息之后立即出现一条 assistant 工作态 turn，先用一句短状态说明正在做什么，例如“正在读取角色档案”“正在生成正文草稿”“正在复核质量”。该工作态必须锚定触发它的作者 turn；即使上一轮 final `TurnResult` 或运行事件迟到，也不得漂移到后续作者消息下方。final `TurnResult` 到达后必须把对应 AgentRun 标记为 terminal，下一条普通作者输入不得被旧 run 误判为 steering。
 2. AgentRun 内部 step、observation、provider execution event 只进入该 turn 的可展开 details；不得追加为多条 assistant message。
 3. Provider execution stream 在 details 中表现为“模型执行流”：开始、正在接收片段、用量待汇总、完成或失败。展开后可以显示用途、模型事件、运行编号、调用编号、状态、输出类型、结果长度和用量计数等作者安全细节，帮助作者理解执行前因后果；不得显示 provider 原文、raw prompt 或私有 payload。
-4. 工作态 turn 可以在 details 前显示一行轻量执行摘要，把已发生的 author-safe event 按真实出现顺序归纳为本轮路径，并汇总模型调用次数、结果长度和用量计数。路径不是固定模板：普通对话可呈现“读取上下文 → 调用模型 → 模型判断 → 系统裁决 → 完成回应”；角色设计可呈现“读取上下文 → 执行创作能力 → 调用写作模型 → 生成待采纳候选 → 完成回应”；正文质量 profile 可呈现“读取上下文 → 制定计划 → 系统裁决 → 执行创作能力 → 调用写作模型 → 调用复核模型 → 质量复核 → 生成待采纳候选 → 完成回应”。该摘要只消费已广播/已恢复的 author-safe events，不重新查询 provider，也不替代完整 timeline。这里的“系统裁决”对应 Orchestrator / gate，不表示模型批准自己的执行；只有真实出现 `provider_progress` 时才显示模型调用节点。
+4. 工作态 turn 可以在 details 前显示一行轻量执行摘要，把已发生的 author-safe event 按真实出现顺序归纳为本轮路径，并汇总模型调用次数、结果长度和用量计数。路径不是固定模板：普通对话可呈现“读取上下文 → 调用模型 → 模型判断 → 系统裁决 → 完成回应”；角色设计可呈现“读取上下文 → 执行创作能力 → 调用写作模型 → 生成待采纳候选 → 完成回应”；章节大纲可呈现“读取上下文 → 调用步骤规划模型 → 制定计划 → 系统裁决 → 规划章节大纲 → 调用写作模型 → 生成大纲候选 → 完成回应”；角色演化可呈现“读取上下文 → 调用步骤规划模型 → 制定计划 → 系统裁决 → 更新角色演化记忆 → 调用写作模型 → 生成角色演化候选 → 完成回应”；正文质量 profile 可呈现“读取上下文 → 制定计划 → 系统裁决 → 执行创作能力 → 调用写作模型 → 调用复核模型 → 质量复核 → 生成待采纳候选 → 完成回应”。该摘要只消费已广播/已恢复的 author-safe events，不重新查询 provider，也不替代完整 timeline。这里的“系统裁决”对应 Orchestrator / gate，不表示模型批准自己的执行；只有真实出现 `provider_progress` 时才显示模型调用节点。
 5. 右侧作品档案 / 结构面板不承载 AgentRun activity，不变成 Agent 控制台，也不被运行轨迹挤占。
 6. active run 期间，主输入框保持可用，但语义切换为“调整当前请求 / 追加要求”，提交后绑定当前 `run_id` 发送 `agent_command steer`，不得创建第二个作者 turn 或新 run。
 7. `pause` / `cancel` / `steer` 控件只提交后端授权的 `agent_command`，前端不得自行修改 run 状态。

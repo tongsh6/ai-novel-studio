@@ -656,6 +656,180 @@ describe("AgentRun activity timeline details", () => {
     );
   });
 
+  it("summarizes plot outline profile with profile-specific tool and artifact causes", () => {
+    const events: AgentEventData[] = [
+      {
+        event_id: "evt_outline_1",
+        run_ref: "run_outline",
+        sequence: 1,
+        event_type: "goal_understood",
+        visibility: "author",
+        summary: "已组装章节大纲规划上下文。",
+        payload: { stage: "outline_context_assembled" },
+      },
+      {
+        event_id: "evt_outline_2",
+        run_ref: "run_outline",
+        sequence: 2,
+        event_type: "provider_progress",
+        visibility: "author",
+        summary: "下一步规划已开始调用模型。",
+        payload: { provider_event_type: "started", purpose: "planner" },
+      },
+      {
+        event_id: "evt_outline_3",
+        run_ref: "run_outline",
+        sequence: 3,
+        event_type: "plan_created",
+        visibility: "author",
+        summary: "已生成单步执行计划。",
+        payload: { stage: "micro_plan_created", plan_ref: "mp_outline", action_count: 1 },
+      },
+      {
+        event_id: "evt_outline_4",
+        run_ref: "run_outline",
+        sequence: 4,
+        event_type: "gate_decided",
+        visibility: "author",
+        summary: "已通过工具执行授权：allow_tool。",
+        payload: { decision_type: "allow_tool" },
+      },
+      {
+        event_id: "evt_outline_5",
+        run_ref: "run_outline",
+        sequence: 5,
+        event_type: "tool_started",
+        visibility: "author",
+        summary: "正在调用章节大纲规划能力。",
+        payload: { tool_name: "plot_outline" },
+      },
+      {
+        event_id: "evt_outline_6",
+        run_ref: "run_outline",
+        sequence: 6,
+        event_type: "provider_progress",
+        visibility: "author",
+        summary: "大纲生成已开始调用创作模型。",
+        payload: { provider_event_type: "started", purpose: "writer" },
+      },
+      {
+        event_id: "evt_outline_7",
+        run_ref: "run_outline",
+        sequence: 7,
+        event_type: "observation_recorded",
+        visibility: "author",
+        summary: "已生成 1 个待采纳大纲草稿候选。",
+      },
+      {
+        event_id: "evt_outline_8",
+        run_ref: "run_outline",
+        sequence: 8,
+        event_type: "artifact_created",
+        visibility: "author",
+        summary: "已生成待采纳候选。",
+      },
+      {
+        event_id: "evt_outline_9",
+        run_ref: "run_outline",
+        sequence: 9,
+        event_type: "run_completed",
+        visibility: "author",
+        summary: "AgentRun 已完成。",
+      },
+    ];
+
+    expect(agentRunExecutionBrief(events)?.path).toBe(
+      "本轮路径：读取上下文 → 调用步骤规划模型 → 制定计划 → 系统裁决 → 规划章节大纲 → 调用写作模型 → 生成大纲候选 → 完成回应",
+    );
+  });
+
+  it("summarizes character evolution profile with profile-specific tool and artifact causes", () => {
+    const events: AgentEventData[] = [
+      {
+        event_id: "evt_evolution_1",
+        run_ref: "run_evolution",
+        sequence: 1,
+        event_type: "goal_understood",
+        visibility: "author",
+        summary: "已组装角色演化上下文。",
+        payload: { stage: "character_evolution_context_assembled" },
+      },
+      {
+        event_id: "evt_evolution_2",
+        run_ref: "run_evolution",
+        sequence: 2,
+        event_type: "provider_progress",
+        visibility: "author",
+        summary: "下一步规划已开始调用模型。",
+        payload: { provider_event_type: "started", purpose: "planner" },
+      },
+      {
+        event_id: "evt_evolution_3",
+        run_ref: "run_evolution",
+        sequence: 3,
+        event_type: "plan_created",
+        visibility: "author",
+        summary: "已生成单步执行计划。",
+        payload: { stage: "micro_plan_created", plan_ref: "mp_evolution", action_count: 1 },
+      },
+      {
+        event_id: "evt_evolution_4",
+        run_ref: "run_evolution",
+        sequence: 4,
+        event_type: "gate_decided",
+        visibility: "author",
+        summary: "已通过工具执行授权：allow_tool。",
+        payload: { decision_type: "allow_tool" },
+      },
+      {
+        event_id: "evt_evolution_5",
+        run_ref: "run_evolution",
+        sequence: 5,
+        event_type: "tool_started",
+        visibility: "author",
+        summary: "正在调用角色演化能力。",
+        payload: { tool_name: "character_evolution" },
+      },
+      {
+        event_id: "evt_evolution_6",
+        run_ref: "run_evolution",
+        sequence: 6,
+        event_type: "provider_progress",
+        visibility: "author",
+        summary: "角色演化已开始调用创作模型。",
+        payload: { provider_event_type: "started", purpose: "writer" },
+      },
+      {
+        event_id: "evt_evolution_7",
+        run_ref: "run_evolution",
+        sequence: 7,
+        event_type: "observation_recorded",
+        visibility: "author",
+        summary: "已生成 1 个待采纳角色演化记忆草稿候选。",
+      },
+      {
+        event_id: "evt_evolution_8",
+        run_ref: "run_evolution",
+        sequence: 8,
+        event_type: "artifact_created",
+        visibility: "author",
+        summary: "已生成待采纳候选。",
+      },
+      {
+        event_id: "evt_evolution_9",
+        run_ref: "run_evolution",
+        sequence: 9,
+        event_type: "run_completed",
+        visibility: "author",
+        summary: "AgentRun 已完成。",
+      },
+    ];
+
+    expect(agentRunExecutionBrief(events)?.path).toBe(
+      "本轮路径：读取上下文 → 调用步骤规划模型 → 制定计划 → 系统裁决 → 更新角色演化记忆 → 调用写作模型 → 生成角色演化候选 → 完成回应",
+    );
+  });
+
   it("does not invent model calls when provider events are absent", () => {
     const events: AgentEventData[] = [
       {

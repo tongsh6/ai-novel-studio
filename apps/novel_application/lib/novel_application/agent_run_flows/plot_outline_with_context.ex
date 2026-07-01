@@ -344,6 +344,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     AgentFinalizer.attach_run_summary(turn_result, %{
       run_id: run.run_id,
       run_mode: run.run_mode,
+      parent_turn_ref: run.parent_turn_ref,
       profile_ref: run.profile_ref,
       status: :completed
     })

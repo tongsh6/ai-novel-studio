@@ -66,6 +66,42 @@ defmodule NovelApplication.WorkSessionService do
     end
   end
 
+  @doc """
+  Restore only the persisted turn results needed by WorkspaceChannel action lookup.
+
+  This deliberately does not hydrate AgentRun events or provider usage. The HTTP
+  resume/show snapshots are responsible for user-facing transcript restoration;
+  channel join only needs enough state to validate later author actions.
+  """
+  @spec restore_channel_turn_results(String.t(), String.t()) ::
+          {:ok, map()} | {:error, :work_not_found | :session_not_found}
+  def restore_channel_turn_results(work_id, session_id)
+      when is_binary(work_id) and is_binary(session_id) do
+    with work when not is_nil(work) <- WorkService.get(work_id),
+         %WorkSession{} = session <- WorkSessionRepo.get_by_work(work_id, session_id) do
+      turn_results =
+        session.id
+        |> WorkSessionRepo.transcript()
+        |> Enum.map(&turn_result_from_content(&1.content))
+        |> Enum.reject(&is_nil/1)
+
+      {:ok,
+       %{
+         work: work,
+         session: session_dto(session),
+         read_only: session.status != "ACTIVE",
+         turn_results: turn_results
+       }}
+    else
+      nil ->
+        if WorkService.get(work_id) == nil do
+          {:error, :work_not_found}
+        else
+          {:error, :session_not_found}
+        end
+    end
+  end
+
   @doc "Search sessions in one work."
   @spec search(String.t(), String.t()) :: [map()]
   def search(work_id, query) do

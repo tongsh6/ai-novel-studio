@@ -2,7 +2,7 @@
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
 // Design: docs/design/ui/46-state-and-feedback.md §3.1 (AgentRun dialogue flow)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 46§8-agent-run-dialogue-flow-v4 (kg4wN)
-import { useCallback, useEffect, useState, useRef } from "react";
+import { Fragment, useCallback, useEffect, useState, useRef } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -126,6 +126,12 @@ import {
 } from "../lib/copy";
 import { findCandidateAvailableAction } from "../lib/candidateSelection";
 import { shouldRouteInputToAgentSteer } from "../lib/agentRunInputRouting";
+import {
+  bindAgentRunAckToUserMessage,
+  mergeAgentRunRuntimeState,
+  messageAnchorsAgentRun,
+  upsertAssistantTurnResultMessage,
+} from "../lib/agentRunAnchoring";
 import type { CandidateDirection as CandidateDirectionContract } from "../lib/schemas";
 import { toAuthorTraceSummary, type TraceSummaryView } from "../lib/traceSummaryView";
 import { framePresentationForSummary } from "../lib/framePresentation";
@@ -174,6 +180,7 @@ export interface TurnResult {
     run_mode?: string;
     status?: string;
     phase?: string;
+    parent_turn_ref?: string | null;
     profile_ref?: string;
     long_run_task_ref?: string | null;
     events?: AgentEventData[];
@@ -219,10 +226,27 @@ export interface ArtifactEntry {
   };
 }
 
-interface ChatMessage {
+export interface ChatMessage {
   role: "user" | "assistant";
   text: string;
+  turnId?: string | null;
+  clientMessageId?: string;
+  agentRunId?: string | null;
   turnResult?: TurnResult;
+}
+
+interface PendingAgentRunAnchor {
+  clientMessageId: string;
+  text: string;
+}
+
+function removePendingAgentRunAnchor(
+  anchors: Record<string, PendingAgentRunAnchor>,
+  clientMessageId: string,
+): Record<string, PendingAgentRunAnchor> {
+  const next = { ...anchors };
+  delete next[clientMessageId];
+  return next;
 }
 
 type AgentRunEventStage =
@@ -509,6 +533,7 @@ function stateFromTurnResult(turnResult: TurnResult): AgentRunStateData | null {
     status: turnResult.agent_run?.status ?? "completed",
     phase: turnResult.agent_run?.phase ?? "completed",
     long_run_task_ref: turnResult.agent_run?.long_run_task_ref ?? null,
+    parent_turn_ref: turnResult.agent_run?.parent_turn_ref ?? turnResult.parent_turn_id ?? null,
     profile_ref: turnResult.agent_run?.profile_ref ?? null,
   };
 }
@@ -1042,6 +1067,9 @@ export function WorkspaceChat() {
   const [selectedFindingIdsMap, setSelectedFindingIdsMap] = useState<Record<string, string[]>>({});
   const [agentRunStates, setAgentRunStates] = useState<Record<string, AgentRunStateData>>({});
   const [agentEvents, setAgentEvents] = useState<AgentEventData[]>([]);
+  const [pendingAgentRunAnchors, setPendingAgentRunAnchors] = useState<
+    Record<string, PendingAgentRunAnchor>
+  >({});
 
   // Connect to Zustand Global Store with selectors for stability
   const socketConnected = useAppStore((state) => state.socketConnected);
@@ -1068,6 +1096,7 @@ export function WorkspaceChat() {
   const startupRetryRef = useRef<number | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
   const modelProviderModelsRequestRef = useRef(0);
+  const localMessageSeqRef = useRef(0);
 
   const refreshLlmHealth = useCallback(async () => {
     try {
@@ -1135,14 +1164,17 @@ export function WorkspaceChat() {
   }
 
   function handleTurnResult(result: TurnResult) {
-    setMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        text: result.assistant_message?.text ?? "",
-        turnResult: result,
-      },
-    ]);
+    setMessages((prev) => upsertAssistantTurnResultMessage(prev, result));
+    const resultAgentRunState = stateFromTurnResult(result);
+    if (resultAgentRunState) {
+      setAgentRunStates((prev) => ({
+        ...prev,
+        [resultAgentRunState.run_id]: mergeAgentRunRuntimeState(
+          prev[resultAgentRunState.run_id],
+          resultAgentRunState,
+        ),
+      }));
+    }
     setLoading(false);
     void hydrateProviderRunsForTurn(result);
 
@@ -1247,6 +1279,7 @@ export function WorkspaceChat() {
     setMessages([]);
     setAgentRunStates({});
     setAgentEvents([]);
+    setPendingAgentRunAnchors({});
     setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
     setAssistantNameDraft("");
     setAssistantNameError(null);
@@ -1277,15 +1310,16 @@ export function WorkspaceChat() {
     let activeAssistantDisplayName: string = DEFAULT_ASSISTANT_DISPLAY_NAME;
 
     try {
-      const displayName = await getAssistantDisplayName(work.id);
+      const [displayName, snapshot] = await Promise.all([
+        getAssistantDisplayName(work.id),
+        resumeWorkspace(work.id),
+      ]);
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
+
       activeAssistantDisplayName = displayName;
       setAssistantDisplayNameState(displayName);
       setAssistantNameDraft(displayName === DEFAULT_ASSISTANT_DISPLAY_NAME ? "" : displayName);
       setContext({ assistantDisplayName: displayName });
-
-      const snapshot = await resumeWorkspace(work.id);
-      if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
 
       const restoredMessages = transcriptToMessages(snapshot.transcript) as ChatMessage[];
       sessionId = snapshot.active_session.id;
@@ -1413,7 +1447,10 @@ export function WorkspaceChat() {
     });
     onAgentRunState(channel, (state) => {
       if (!isCurrentWorkConnection(activeConnectionRef.current, { token, workId: work.id })) return;
-      setAgentRunStates((prev) => ({ ...prev, [state.run_id]: state }));
+      setAgentRunStates((prev) => ({
+        ...prev,
+        [state.run_id]: mergeAgentRunRuntimeState(prev[state.run_id], state),
+      }));
       if (
         ["completed", "failed", "cancelled", "paused", "awaiting_author"].includes(state.status)
       ) {
@@ -1488,7 +1525,7 @@ export function WorkspaceChat() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, loading]);
+  }, [messages, loading, agentEvents, agentRunStates]);
 
   const isReadOnlySessionView = readOnlySession !== null;
   const runtimeState = deriveWorkspaceRuntimeState({
@@ -1542,8 +1579,13 @@ export function WorkspaceChat() {
   const hasActiveAgentRun =
     latestAgentRun !== null &&
     !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
+  const latestAgentRunHasMessageAnchor =
+    latestAgentRun !== null && messages.some((message) => messageAnchorsAgentRun(message, latestAgentRun));
   const shouldRenderStandaloneAgentRun =
-    latestAgentRun !== null && !agentRunIdsRenderedInTurns.has(latestAgentRun.run_id);
+    latestAgentRun !== null &&
+    !agentRunIdsRenderedInTurns.has(latestAgentRun.run_id) &&
+    !latestAgentRunHasMessageAnchor;
+  const hasPendingAgentRunAnchor = Object.keys(pendingAgentRunAnchors).length > 0;
   const canRouteMainInputToAgentSteer = shouldRouteInputToAgentSteer({
     latestAgentRun,
     pendingAnswerBehaviorId: pendingAnswerBid,
@@ -1552,8 +1594,13 @@ export function WorkspaceChat() {
     socketConnected && !isPanelOpen && !isReadOnlySessionView && (!loading || canRouteMainInputToAgentSteer);
 
   const rememberAgentRunAck = useCallback(
-    (response: SendMessageResult, text: string) => {
+    (response: SendMessageResult, text: string, clientMessageId: string | null = null) => {
+      if (clientMessageId) {
+        setPendingAgentRunAnchors((prev) => removePendingAgentRunAnchor(prev, clientMessageId));
+      }
       if (!response.run_id) return;
+
+      setMessages((prev) => bindAgentRunAckToUserMessage(prev, response, clientMessageId));
 
       const acknowledgedState: AgentRunStateData = {
         run_id: response.run_id,
@@ -1615,6 +1662,11 @@ export function WorkspaceChat() {
     }
   }
 
+  function nextLocalMessageId(): string {
+    localMessageSeqRef.current += 1;
+    return `local-message-${localMessageSeqRef.current}`;
+  }
+
   async function handleSend(
     messageText: string = inputText,
     options: { generateMicroPlan?: boolean } = {},
@@ -1639,7 +1691,12 @@ export function WorkspaceChat() {
       return;
     }
 
-    setMessages((prev) => [...prev, { role: "user", text }]);
+    const clientMessageId = nextLocalMessageId();
+    setMessages((prev) => [...prev, { role: "user", text, clientMessageId }]);
+    setPendingAgentRunAnchors((prev) => ({
+      ...prev,
+      [clientMessageId]: { clientMessageId, text },
+    }));
     if (messageText === inputText) setInputText("");
     setLoading(true);
 
@@ -1654,8 +1711,9 @@ export function WorkspaceChat() {
         activeSessionId,
         options.generateMicroPlan ?? false,
       );
-      rememberAgentRunAck(response, text);
+      rememberAgentRunAck(response, text, clientMessageId);
     } catch {
+      setPendingAgentRunAnchors((prev) => removePendingAgentRunAnchor(prev, clientMessageId));
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
       setLoading(false);
     }
@@ -1665,7 +1723,12 @@ export function WorkspaceChat() {
     if (!channelRef.current || loading) return;
 
     const text = candidateContinuationText(candidate.title, candidate.pitch);
-    setMessages((prev) => [...prev, { role: "user", text }]);
+    const clientMessageId = nextLocalMessageId();
+    setMessages((prev) => [...prev, { role: "user", text, clientMessageId }]);
+    setPendingAgentRunAnchors((prev) => ({
+      ...prev,
+      [clientMessageId]: { clientMessageId, text },
+    }));
     setLoading(true);
 
     try {
@@ -1682,8 +1745,9 @@ export function WorkspaceChat() {
           candidate_ref: candidate.direction_id,
         },
       );
-      rememberAgentRunAck(response, text);
+      rememberAgentRunAck(response, text, clientMessageId);
     } catch {
+      setPendingAgentRunAnchors((prev) => removePendingAgentRunAnchor(prev, clientMessageId));
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sendFailure }]);
       setLoading(false);
     }
@@ -3187,6 +3251,24 @@ export function WorkspaceChat() {
             )}
             {messages.map((msg, i) => {
               const messageAgentRunId = turnResultAgentRunId(msg.turnResult);
+              const anchoredAgentRun =
+                msg.role === "user"
+                  ? visibleAgentRuns.find((run) => messageAnchorsAgentRun(msg, run)) ?? null
+                  : null;
+              const pendingAgentRunAnchor =
+                msg.role === "user" && msg.clientMessageId
+                  ? pendingAgentRunAnchors[msg.clientMessageId] ?? null
+                  : null;
+              const shouldRenderAnchoredAgentRun =
+                anchoredAgentRun !== null && !agentRunIdsRenderedInTurns.has(anchoredAgentRun.run_id);
+              const shouldRenderPendingAgentRun =
+                pendingAgentRunAnchor !== null && anchoredAgentRun === null;
+              const anchoredAgentRunEvents = anchoredAgentRun
+                ? agentEvents
+                    .filter((event) => event.run_ref === anchoredAgentRun.run_id)
+                    .slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT)
+                : [];
+              const anchoredRunIsLatest = latestAgentRun?.run_id === anchoredAgentRun?.run_id;
               const messageAgentRunFromState = messageAgentRunId
                 ? agentRunStates[messageAgentRunId]
                 : null;
@@ -3207,9 +3289,14 @@ export function WorkspaceChat() {
                   ).slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT)
                 : [];
               const messageRunIsLatest = latestAgentRun?.run_id === messageAgentRunId;
+              const messageIdentity =
+                msg.turnResult?.turn_id ?? msg.turnId ?? msg.clientMessageId ?? String(i);
+              const messageKey =
+                `${msg.role}:${messageIdentity}:${messageAgentRunId ?? msg.agentRunId ?? "none"}`;
 
               return (
-                <div key={i} className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
+                <Fragment key={messageKey}>
+                <div className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
                 <div className={styles.role}>
                   {assistantRoleLabel(msg.role, assistantDisplayName)}
                 </div>
@@ -3374,6 +3461,36 @@ export function WorkspaceChat() {
                     </div>
                   )}
                 </div>
+                {shouldRenderAnchoredAgentRun && (
+                  <div className={styles.assistantMsg}>
+                    <div className={styles.role}>
+                      {assistantRoleLabel("assistant", assistantDisplayName)}
+                    </div>
+                    <AgentRunDialogueFlow
+                      run={anchoredAgentRun}
+                      events={anchoredAgentRunEvents}
+                      canPause={anchoredRunIsLatest && canPauseAgentRun}
+                      canResume={anchoredRunIsLatest && canResumeAgentRun}
+                      canCancel={anchoredRunIsLatest && canCancelAgentRun}
+                      onCommand={
+                        anchoredRunIsLatest
+                          ? (command) => {
+                              void handleAgentCommand(command);
+                            }
+                          : undefined
+                      }
+                    />
+                  </div>
+                )}
+                {shouldRenderPendingAgentRun && (
+                  <div className={styles.assistantMsg}>
+                    <div className={styles.role}>
+                      {assistantRoleLabel("assistant", assistantDisplayName)}
+                    </div>
+                    <AgentRunDialogueFlow run={null} events={[]} preparing />
+                  </div>
+                )}
+                </Fragment>
               );
             })}
 
@@ -3395,7 +3512,10 @@ export function WorkspaceChat() {
               </div>
             )}
 
-            {loading && !hasActiveAgentRun && !shouldRenderStandaloneAgentRun && (
+            {loading &&
+              !hasActiveAgentRun &&
+              !shouldRenderStandaloneAgentRun &&
+              !hasPendingAgentRunAnchor && (
               <div className={styles.assistantMsg}>
                 <div className={styles.role}>
                   {assistantRoleLabel("assistant", assistantDisplayName)}

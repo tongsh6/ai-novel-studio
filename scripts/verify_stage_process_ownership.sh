@@ -5,7 +5,7 @@
 # The check starts the real stage Tauri path on isolated ports, waits for the
 # native app to launch, terminates the Tauri dev process, and asserts that the
 # stage launcher exits, Phoenix is no longer serving health checks, and
-# tauri.conf.json is restored from its temporary mutation.
+# tauri.conf.json was not mutated by the launcher.
 
 set -euo pipefail
 
@@ -94,7 +94,7 @@ if curl -s "http://127.0.0.1:${PHOENIX_PORT}/health" >/dev/null 2>&1; then
 fi
 
 if ! cmp -s "$ORIGINAL_CONF" "$TAURI_CONF"; then
-  echo "[stage-ownership] tauri.conf.json was not restored after stage cleanup" >&2
+  echo "[stage-ownership] tauri.conf.json was mutated by stage launcher" >&2
   exit 1
 fi
 
@@ -113,7 +113,7 @@ const summary = {
   assertions: {
     stage_launcher_exited_after_tauri_exit: true,
     phoenix_health_unreachable_after_cleanup: true,
-    tauri_conf_restored: true,
+    tauri_conf_unchanged: true,
   },
 };
 

@@ -1250,7 +1250,7 @@ const sliceKeyEvents = {
   ],
   "au01-ordinary-chat-two-turn-roundtrip": [
     "channel.user_message.start",
-    "dialogue_gateway.handle_input.done",
+    "planner.form_frame.done",
     "channel.user_message.done",
   ],
   "au01-empty-message-guard": [
@@ -4024,6 +4024,7 @@ function findAgentPlotOutlineWithContextEvidence(records) {
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_outline_draft_visible === true &&
+      record.ui_execution_brief_path_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
       record.log_plot_outline_tool_done === true,
@@ -4110,6 +4111,7 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
   if (uiState.ui_strategy_step_visible !== true) return null;
   if (uiState.ui_outline_step_visible !== true) return null;
   if (uiState.ui_finalization_step_visible !== true) return null;
+  if (uiState.ui_execution_brief_path_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
@@ -4193,6 +4195,7 @@ function findAgentCharacterEvolutionWithContextEvidence(records) {
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_character_evolution_draft_visible === true &&
+      record.ui_execution_brief_path_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
       Number(record.log_allow_tool_count ?? 0) >= 1 &&
       record.log_character_evolution_tool_done === true,
@@ -4289,6 +4292,7 @@ function agentCharacterEvolutionWithContextBehavior(
   if (uiState.ui_strategy_step_visible !== true) return null;
   if (uiState.ui_evolution_step_visible !== true) return null;
   if (uiState.ui_finalization_step_visible !== true) return null;
+  if (uiState.ui_execution_brief_path_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
   if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
@@ -10000,7 +10004,6 @@ function findP1ChapterDraftGenerationEvidence(records) {
 function ordinaryChatBehavior(turnIds, turnRecords, options) {
   if (turnIds.length !== 2) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "planner.form_frame.done")) return null;
-  if (!turnsHaveEvent(turnIds, turnRecords, "dialogue_gateway.handle_input.done")) return null;
   if (!turnsHaveEvent(turnIds, turnRecords, "channel.user_message.done")) return null;
   if (!turnsHaveGenerateMicroPlan(turnIds, turnRecords, false)) return null;
   if (hasEventPrefix(turnRecords, "planner.form_micro_plan.")) return null;
@@ -10016,7 +10019,8 @@ function ordinaryChatBehavior(turnIds, turnRecords, options) {
     assertions: [
       "two_user_turns_completed",
       "real_workbench_rendered_two_user_and_two_assistant_turns_in_order",
-      "thinking_indicator_appeared_then_cleared",
+      "agent_run_activity_appeared_and_legacy_thinking_cleared",
+      "agent_run_activity_anchored_per_turn",
       "micro_plan_not_requested",
       "no_action_candidate_or_adoption_cards_rendered",
       "no_error_events",
@@ -17655,7 +17659,11 @@ function findOrdinaryChatTwoTurnEvidence(records) {
     if (!start || start.generate_micro_plan !== false) continue;
 
     const hasRequiredEvents = keyEvents.every((event) =>
-      turnRecords.some((record) => record.event === event && hasRequiredCorrelationFields(record)),
+      turnRecords.some((record) => {
+        if (record.event !== event) return false;
+        if (event === "planner.form_frame.done") return record.turn_id === turnId;
+        return hasRequiredCorrelationFields(record);
+      }),
     );
     if (!hasRequiredEvents) continue;
 
@@ -17682,7 +17690,12 @@ function findOrdinaryChatTwoTurnEvidence(records) {
     user_message_count: Number(uiState.user_message_count),
     assistant_turn_message_count: Number(uiState.assistant_turn_message_count),
     message_role_order: uiState.message_role_order,
-    thinking_observed: uiState.thinking_observed,
+    message_text_indexes: uiState.message_text_indexes,
+    message_text_order_anchored: uiState.message_text_order_anchored,
+    agent_run_activity_indexes: uiState.agent_run_activity_indexes,
+    agent_run_activity_count: Number(uiState.agent_run_activity_count ?? 0),
+    second_agent_run_activity_anchored: uiState.second_agent_run_activity_anchored,
+    agent_run_activity_observed: uiState.agent_run_activity_observed,
     thinking_visible_after_reply: uiState.thinking_visible_after_reply,
     key_events: keyEvents,
   };
@@ -17700,8 +17713,11 @@ function ordinaryChatUiState(turnIds, turnRecords) {
   if (!uiState) return null;
   if (Number(uiState.user_message_count ?? 0) < 2) return null;
   if (Number(uiState.assistant_turn_message_count ?? 0) < 2) return null;
-  if (uiState.thinking_observed !== true) return null;
+  if (uiState.agent_run_activity_observed !== true) return null;
+  if (Number(uiState.agent_run_activity_count ?? 0) < 2) return null;
+  if (uiState.second_agent_run_activity_anchored !== true) return null;
   if (uiState.thinking_visible_after_reply !== false) return null;
+  if (uiState.message_text_order_anchored !== true) return null;
   if (Number(uiState.available_action_count ?? 0) !== 0) return null;
   if (Number(uiState.card_action_count ?? 0) !== 0) return null;
   if (Number(uiState.candidate_panel_count ?? 0) !== 0) return null;

@@ -4560,11 +4560,24 @@ describe("native Tauri slice verifier", () => {
       user_message_count: 2,
       assistant_turn_message_count: 2,
       message_role_order: ["user", "assistant", "user", "assistant"],
-      thinking_observed: true,
+      message_text_indexes: [
+        { snippet: "first user", index: 0, role: "user" },
+        { snippet: "first assistant", index: 1, role: "assistant" },
+        { snippet: "second user", index: 2, role: "user" },
+        { snippet: "second assistant", index: 3, role: "assistant" },
+      ],
+      message_text_order_anchored: true,
+      agent_run_activity_indexes: [
+        { index: 1, role: "assistant", hasActivity: true },
+        { index: 3, role: "assistant", hasActivity: true },
+      ],
+      agent_run_activity_count: 2,
+      second_agent_run_activity_anchored: true,
+      agent_run_activity_observed: true,
       thinking_visible_after_reply: false,
       key_events: [
         "channel.user_message.start",
-        "dialogue_gateway.handle_input.done",
+        "planner.form_frame.done",
         "channel.user_message.done",
       ],
     });
@@ -4829,6 +4842,21 @@ describe("native Tauri slice verifier", () => {
   it("rejects ordinary two-turn evidence without real workbench UI state", () => {
     const records = ordinaryTwoTurnRecords().filter(
       (record) => record.event !== "slice_verify.ui_state.done",
+    );
+
+    expect(findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records)).toBeNull();
+  });
+
+  it("rejects ordinary two-turn evidence when the second user turn has no AgentRun activity flow", () => {
+    const records = ordinaryTwoTurnRecords().map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            agent_run_activity_indexes: [{ index: 1, role: "assistant", hasActivity: true }],
+            agent_run_activity_count: 1,
+            second_agent_run_activity_anchored: false,
+          }
+        : record,
     );
 
     expect(findNativeSliceEvidence("au01-ordinary-chat-two-turn-roundtrip", records)).toBeNull();
@@ -6120,7 +6148,8 @@ describe("native Tauri slice verifier", () => {
       assertions: [
         "two_user_turns_completed",
         "real_workbench_rendered_two_user_and_two_assistant_turns_in_order",
-        "thinking_indicator_appeared_then_cleared",
+        "agent_run_activity_appeared_and_legacy_thinking_cleared",
+        "agent_run_activity_anchored_per_turn",
         "micro_plan_not_requested",
         "no_action_candidate_or_adoption_cards_rendered",
         "no_error_events",
@@ -6889,7 +6918,20 @@ function ordinaryTwoTurnRecords() {
       user_message_count: 2,
       assistant_turn_message_count: 2,
       message_role_order: ["user", "assistant", "user", "assistant"],
-      thinking_observed: true,
+      message_text_indexes: [
+        { snippet: "first user", index: 0, role: "user" },
+        { snippet: "first assistant", index: 1, role: "assistant" },
+        { snippet: "second user", index: 2, role: "user" },
+        { snippet: "second assistant", index: 3, role: "assistant" },
+      ],
+      message_text_order_anchored: true,
+      agent_run_activity_indexes: [
+        { index: 1, role: "assistant", hasActivity: true },
+        { index: 3, role: "assistant", hasActivity: true },
+      ],
+      agent_run_activity_count: 2,
+      second_agent_run_activity_anchored: true,
+      agent_run_activity_observed: true,
       thinking_visible_after_reply: false,
       available_action_count: 0,
       card_action_count: 0,

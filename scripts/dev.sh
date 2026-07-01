@@ -17,11 +17,11 @@ set -m
 MODE="${1:-tauri}"
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$PROJECT_ROOT/scripts/lib/process_tree.sh"
+source "$PROJECT_ROOT/scripts/lib/tauri_dev_config.sh"
 PHX_PID=""
 VITE_PID=""
 TAURI_PID=""
-TAURI_CONF=""
-TAURI_CONF_BACKUP=""
+TAURI_CONFIG_OVERRIDE=""
 CLEANED_UP=false
 
 terminate_pid() {
@@ -33,22 +33,6 @@ terminate_pid() {
   wait "$pid" 2>/dev/null || true
 }
 
-restore_tauri_conf() {
-  if [[ -n "$TAURI_CONF_BACKUP" && -f "$TAURI_CONF_BACKUP" && -n "$TAURI_CONF" ]]; then
-    cp "$TAURI_CONF_BACKUP" "$TAURI_CONF" 2>/dev/null || true
-    rm -f "$TAURI_CONF_BACKUP" 2>/dev/null || true
-  fi
-}
-
-sync_tauri_conf() {
-  local vite_port="$1"
-  local phoenix_port="$2"
-
-  TAURI_DEV_URL="http://127.0.0.1:${vite_port}" \
-  TAURI_CONNECT_SRC="http://localhost:${phoenix_port} http://127.0.0.1:${phoenix_port} ws://localhost:${phoenix_port} ws://127.0.0.1:${phoenix_port}" \
-    perl -0pi -e 's#"devUrl":\s*"http://(?:localhost|127\.0\.0\.1):[0-9]+"#"devUrl": "$ENV{TAURI_DEV_URL}"#g; s#connect-src '\''self'\''[^"]*"#connect-src '\''self'\'' $ENV{TAURI_CONNECT_SRC}"#g' "$TAURI_CONF"
-}
-
 cleanup() {
   if [[ "$CLEANED_UP" == "true" ]]; then
     return
@@ -58,7 +42,9 @@ cleanup() {
   terminate_pid "$TAURI_PID"
   terminate_pid "$VITE_PID"
   terminate_pid "$PHX_PID"
-  restore_tauri_conf
+  if [[ -n "$TAURI_CONFIG_OVERRIDE" ]]; then
+    rm -f "$TAURI_CONFIG_OVERRIDE" 2>/dev/null || true
+  fi
 }
 
 on_signal() {
@@ -89,6 +75,7 @@ set +a
 
 PHOENIX_PORT="${PHOENIX_PORT:-4657}"
 VITE_PORT="${VITE_DEV_PORT:-5768}"
+export VITE_DEV_PORT="$VITE_PORT"
 
 if [[ -n "$REQUESTED_AI_NOVEL_DESKTOP_PROFILE_SET" ]]; then
   export AI_NOVEL_DESKTOP_PROFILE="$REQUESTED_AI_NOVEL_DESKTOP_PROFILE"
@@ -138,12 +125,12 @@ fi
 
 echo "  桌面端模式 (Phoenix: ${PHOENIX_PORT}, Vite: ${VITE_PORT})"
 
-# 同步 tauri.conf.json（在 Tauri 读取配置之前完成）
-TAURI_CONF="$PROJECT_ROOT/frontend/src-tauri/tauri.conf.json"
-TAURI_CONF_BACKUP="$(mktemp -t ai-novel-tauri-conf.XXXXXX)"
-cp "$TAURI_CONF" "$TAURI_CONF_BACKUP"
-
-sync_tauri_conf "$VITE_PORT" "$PHOENIX_PORT"
+TAURI_CONFIG_OVERRIDE="$(mktemp -t ai-novel-tauri-dev-conf.XXXXXX.json)"
+write_tauri_dev_config \
+  "$TAURI_CONFIG_OVERRIDE" \
+  "$VITE_PORT" \
+  "$PHOENIX_PORT" \
+  "bash $PROJECT_ROOT/scripts/before-tauri-dev.sh"
 
 # 启动 Phoenix
 PHX_URL="http://localhost:${PHOENIX_PORT}"
@@ -171,6 +158,6 @@ fi
 
 # 启动 Tauri（Vite 由 tauri 的 beforeDevCommand 负责）
 cd "$PROJECT_ROOT/frontend"
-pnpm tauri dev </dev/null &
+pnpm tauri dev --config "$TAURI_CONFIG_OVERRIDE" </dev/null &
 TAURI_PID=$!
 wait "$TAURI_PID"

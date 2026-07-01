@@ -425,12 +425,16 @@ function briefPath(events: AgentEventData[]): string[] {
   let sawDialogueFrame = false;
   let sawMicroPlan = false;
   let sawToolExecution = false;
+  let activeToolName: string | null = null;
+  let latestArtifactLabel: string | null = null;
 
   for (const event of events) {
     const providerEventType = stringPayloadValue(event.payload, "provider_event_type");
     const stage = stringPayloadValue(event.payload, "stage");
+    const toolName = stringPayloadValue(event.payload, "tool_name");
 
     if (isTerminalEvent(event)) continue;
+    latestArtifactLabel = artifactPathLabelFromObservation(event.summary) ?? latestArtifactLabel;
 
     if (isContextEvent(event, stage)) {
       pushPath(path, labels.context);
@@ -460,7 +464,9 @@ function briefPath(events: AgentEventData[]): string[] {
     }
 
     if (isToolExecutionEvent(event)) {
-      if (!sawToolExecution) pushPath(path, labels.toolExecution);
+      activeToolName = toolName ?? activeToolName;
+      latestArtifactLabel = artifactPathLabelForTool(activeToolName) ?? latestArtifactLabel;
+      if (!sawToolExecution) pushPath(path, toolExecutionPathLabel(activeToolName));
       sawToolExecution = true;
       if (isQualityReviewEvent(event)) pushPath(path, labels.qualityReview);
       continue;
@@ -473,10 +479,10 @@ function briefPath(events: AgentEventData[]): string[] {
 
     if (event.event_type === "artifact_created") {
       if (!sawToolExecution) {
-        pushPath(path, labels.toolExecution);
+        pushPath(path, toolExecutionPathLabel(activeToolName));
         sawToolExecution = true;
       }
-      pushPath(path, labels.tentativeArtifact);
+      pushPath(path, latestArtifactLabel ?? labels.tentativeArtifact);
     }
   }
 
@@ -484,6 +490,33 @@ function briefPath(events: AgentEventData[]): string[] {
   if (terminal) pushPath(path, terminal);
 
   return path;
+}
+
+function toolExecutionPathLabel(toolName: string | null): string {
+  const labels = WORKBENCH.agentRunBriefPathLabels;
+
+  if (toolName === "plot_outline") return labels.plotOutlineTool;
+  if (toolName === "character_evolution") return labels.characterEvolutionTool;
+
+  return labels.toolExecution;
+}
+
+function artifactPathLabelForTool(toolName: string | null): string | null {
+  const labels = WORKBENCH.agentRunBriefPathLabels;
+
+  if (toolName === "plot_outline") return labels.plotOutlineArtifact;
+  if (toolName === "character_evolution") return labels.characterEvolutionArtifact;
+
+  return null;
+}
+
+function artifactPathLabelFromObservation(summary: string): string | null {
+  const labels = WORKBENCH.agentRunBriefPathLabels;
+
+  if (summary.includes("大纲草稿")) return labels.plotOutlineArtifact;
+  if (summary.includes("角色演化记忆草稿")) return labels.characterEvolutionArtifact;
+
+  return null;
 }
 
 function isContextEvent(event: AgentEventData, stage: string | null): boolean {
