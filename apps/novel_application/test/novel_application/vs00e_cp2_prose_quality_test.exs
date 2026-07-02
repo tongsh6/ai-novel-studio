@@ -77,7 +77,7 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
     assert review.status == "unavailable"
   end
 
-  defp run(quality_complete_fn \\ nil) do
+  defp run(quality_result_fn \\ nil) do
     complete = fn _prompt ->
       {:ok,
        %{
@@ -102,8 +102,8 @@ defmodule NovelApplication.VS00ECP2ProseQualityTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        provider_execution: %Execution{complete_fn: complete},
-        quality_provider_execution: %Execution{complete_fn: quality_complete_fn}
+        provider_execution: %Execution{result_fn: complete},
+        quality_provider_execution: %Execution{result_fn: quality_result_fn}
       })
 
     {turn_result, nil}

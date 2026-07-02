@@ -12,7 +12,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
     alias NovelCommon.Contracts.CreativeProviderResult
 
     @impl true
-    def generate(_request, _complete_fn) do
+    def generate(_request, _result_fn) do
       %CreativeProviderResult{
         status: :ok,
         items: [
@@ -42,8 +42,8 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
 
     @impl true
     def generate(_request, provider_execution) do
-      complete_fn = Execution.complete_fn(provider_execution)
-      {:ok, result} = complete_fn.("creative tool prompt")
+      result_fn = Execution.result_fn(provider_execution)
+      {:ok, result} = result_fn.("creative tool prompt")
 
       %CreativeProviderResult{
         status: :ok,
@@ -89,7 +89,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapterTest do
 
   test "passes provider execution dependency through creative tool adapter" do
     provider_execution = %Execution{
-      complete_fn: fn _prompt ->
+      result_fn: fn _prompt ->
         {:ok, %ProviderResult{content: "unused", provider_call_ref: "pcall-tool-execution"}}
       end
     }

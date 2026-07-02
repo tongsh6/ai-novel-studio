@@ -81,6 +81,31 @@ defmodule NovelPersistence.ProviderRunLog do
     |> Enum.map(&usage_summary(&1, Map.get(outputs_by_run, &1.id)))
   end
 
+  @spec list_usage_summaries_by_agent_run_ids([String.t()]) :: %{String.t() => [map()]}
+  def list_usage_summaries_by_agent_run_ids(agent_run_ids) when is_list(agent_run_ids) do
+    case normalize_ids(agent_run_ids) do
+      [] ->
+        %{}
+
+      ids ->
+        outputs_by_run =
+          from(o in ProviderOutputRecord,
+            where: o.agent_run_id in ^ids
+          )
+          |> Repo.all()
+          |> Map.new(&{&1.provider_run_id, &1})
+
+        from(r in ProviderRunRecord,
+          where: r.agent_run_id in ^ids,
+          order_by: [asc: r.agent_run_id, asc: r.inserted_at, asc: r.id]
+        )
+        |> Repo.all()
+        |> Enum.group_by(& &1.agent_run_id, fn run ->
+          usage_summary(run, Map.get(outputs_by_run, run.id))
+        end)
+    end
+  end
+
   @spec list_activity_summaries(String.t()) :: [map()]
   def list_activity_summaries(agent_run_id) when is_binary(agent_run_id) do
     outputs_by_run =
@@ -234,6 +259,7 @@ defmodule NovelPersistence.ProviderRunLog do
     %{
       provider_run_ref: run.id,
       provider_call_ref: run.provider_call_ref,
+      step_ref: run.step_id,
       purpose: run.purpose,
       status: output_status(output) || run.status,
       output_type: output_type(output),
@@ -386,4 +412,10 @@ defmodule NovelPersistence.ProviderRunLog do
   end
 
   defp parse_datetime(_), do: nil
+
+  defp normalize_ids(ids) do
+    ids
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+    |> Enum.uniq()
+  end
 end

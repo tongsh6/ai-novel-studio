@@ -47,11 +47,11 @@ if System.get_env("SLICE_VERIFY_DEEPSEEK_HTTP_FIXTURE") == "1" or
   deepseek_get_fn = fn _url, _opts ->
     {:ok, 200,
      %{
-	       "data" => [
-	         %{"id" => "deepseek-slice-local-file", "owned_by" => "deepseek"},
-	         %{"id" => "deepseek-slice-keychain", "owned_by" => "deepseek"},
-	         %{"id" => "deepseek-slice-model-list", "owned_by" => "deepseek"}
-	       ]
+       "data" => [
+         %{"id" => "deepseek-slice-local-file", "owned_by" => "deepseek"},
+         %{"id" => "deepseek-slice-keychain", "owned_by" => "deepseek"},
+         %{"id" => "deepseek-slice-model-list", "owned_by" => "deepseek"}
+       ]
      }}
   end
 
@@ -102,6 +102,16 @@ if llm_log_dir = System.get_env("SLICE_VERIFY_LLM_LOG_DIR") do
 end
 
 {:ok, _started} = Application.ensure_all_started(:novel_web)
+
+runtime_provider_config =
+  case provider do
+    :lmstudio -> Application.get_env(:novel_agent, NovelAgent.Provider.LMStudio, [])
+    :deepseek -> Application.get_env(:novel_agent, NovelAgent.Provider.DeepSeek, [])
+    _provider -> []
+  end
+
+NovelAgent.Provider.RuntimeConfig.put_provider_config(provider, runtime_provider_config)
+NovelAgent.Provider.RuntimeConfig.put_current_provider(provider)
 
 skip_default_work_seed = System.get_env("SLICE_VERIFY_SKIP_DEFAULT_WORK_SEED") == "1"
 

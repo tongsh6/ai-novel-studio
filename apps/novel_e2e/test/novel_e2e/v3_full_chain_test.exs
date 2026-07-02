@@ -18,10 +18,10 @@ defmodule NovelE2E.FullChainTest do
 
   @moduletag :integration
 
-  defp provider_execution(complete_fn), do: ProviderHelpers.provider_execution(complete_fn)
+  defp provider_execution(result_fn), do: ProviderHelpers.provider_execution(result_fn)
 
   # ═══════════════════════════════════════════════════
-  # 工具：sequenced stub complete_fn
+  # 工具：sequenced stub result_fn
   # ═══════════════════════════════════════════════════
 
   @frame_json """
@@ -97,11 +97,11 @@ defmodule NovelE2E.FullChainTest do
 
   @broken_plan_json "this is not valid json {{{"
 
-  defp sequenced_complete_fn(frame_response, plan_response) do
-    sequenced_complete_fn([frame_response, plan_response])
+  defp sequenced_result_fn(frame_response, plan_response) do
+    sequenced_result_fn([frame_response, plan_response])
   end
 
-  defp sequenced_complete_fn(responses) when is_list(responses) do
+  defp sequenced_result_fn(responses) when is_list(responses) do
     # Agent 持有响应序列。按序 pop，耗尽后返回 :exhausted
     {:ok, agent} = Agent.start_link(fn -> responses end)
     fn prompt -> pop_or_exhaust(agent, prompt) end
@@ -118,7 +118,7 @@ defmodule NovelE2E.FullChainTest do
     end
   end
 
-  defp capturing_complete_fn(response) do
+  defp capturing_result_fn(response) do
     test_pid = self()
 
     fn prompt ->
@@ -133,13 +133,13 @@ defmodule NovelE2E.FullChainTest do
 
   describe "reply-only chain (stub LLM)" do
     test "full chain: input → frame → turn_result → trace" do
-      complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
+      result_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
 
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "你好", workspace_id: "ws-r1"},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert turn_result.schema_version == "3.0-draft"
@@ -158,13 +158,13 @@ defmodule NovelE2E.FullChainTest do
       end
 
       # 注入支持 prompt 捕获的 stub
-      complete_fn = capturing_complete_fn(@frame_json)
+      result_fn = capturing_result_fn(@frame_json)
 
       {:ok, _turn_result, _trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "你好", workspace_id: "ws-c1"},
           fetcher,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       # 关键断言：验证 Prompt 包含上下文内容
@@ -176,13 +176,13 @@ defmodule NovelE2E.FullChainTest do
     end
 
     test "replay from reply-only trace never calls provider" do
-      complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
+      result_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
 
       {:ok, _turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "hi", workspace_id: "ws-r1b"},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       report = ReplayService.build_report(trace)
@@ -199,13 +199,13 @@ defmodule NovelE2E.FullChainTest do
 
   describe "downgrade chain (stub LLM)" do
     test "multi-step plan → GateOrder blocks → downgrade_to_dialogue → truthful TurnResult" do
-      complete_fn = sequenced_complete_fn(@frame_json, @multi_step_plan_json)
+      result_fn = sequenced_result_fn(@frame_json, @multi_step_plan_json)
 
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "重写第一章+更新角色+整理伏笔", workspace_id: "ws-dg", generate_micro_plan: true},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       # 主链到达了 OrchestratorDecision
@@ -232,13 +232,13 @@ defmodule NovelE2E.FullChainTest do
 
   describe "confirmation chain (stub LLM)" do
     test "high-risk plan → confirmation required → BehaviorState opened → available_actions" do
-      complete_fn = sequenced_complete_fn(@frame_json, @high_risk_plan_json)
+      result_fn = sequenced_result_fn(@frame_json, @high_risk_plan_json)
 
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "直接替换正文", workspace_id: "ws-cf", generate_micro_plan: true},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       decision = turn_result.orchestrator_decision
@@ -274,13 +274,13 @@ defmodule NovelE2E.FullChainTest do
 
   describe "tool dispatch chain (stub LLM)" do
     test "single-step low-risk plan → allow_tool → Toolbox.execute → ToolResult → trace" do
-      complete_fn = sequenced_complete_fn(@frame_json, @tool_dispatch_plan_json)
+      result_fn = sequenced_result_fn(@frame_json, @tool_dispatch_plan_json)
 
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "分析文本", workspace_id: "ws-tl", generate_micro_plan: true},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       # Orchestrator 放行了工具
@@ -315,8 +315,8 @@ defmodule NovelE2E.FullChainTest do
 
   describe "creative artifact chain (stub LLM)" do
     test "creative tool → TentativeArtifactSet → adoption_status tentative" do
-      complete_fn =
-        sequenced_complete_fn([
+      result_fn =
+        sequenced_result_fn([
           @frame_json,
           @creative_plan_json,
           character_seed_json()
@@ -326,7 +326,7 @@ defmodule NovelE2E.FullChainTest do
         DialogueGateway.handle_input(
           %{text: "生成角色设定", workspace_id: "ws-ca", generate_micro_plan: true},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       decision = turn_result.orchestrator_decision
@@ -383,13 +383,13 @@ defmodule NovelE2E.FullChainTest do
     end
 
     test "plan JSON parse failure → recovery → turn_result still valid" do
-      complete_fn = sequenced_complete_fn(@frame_json, @broken_plan_json)
+      result_fn = sequenced_result_fn(@frame_json, @broken_plan_json)
 
       {:ok, turn_result, trace, _candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "test", workspace_id: "ws-err3", generate_micro_plan: true},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert turn_result.frame_ref != nil

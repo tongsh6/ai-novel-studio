@@ -141,6 +141,63 @@ export function messageAnchorsAgentRun(
   return false;
 }
 
+export function shouldRenderUserAgentRunPlaceholder(
+  message: AgentRunAnchorMessage,
+  opts: {
+    anchoredRun: AgentRunAnchorState | null;
+    agentRunIdsRenderedInTurns: Set<string>;
+    hasPendingAnchor: boolean;
+  },
+): boolean {
+  if (message.role !== "user") return false;
+  if (opts.anchoredRun !== null) return false;
+  if (opts.hasPendingAnchor) return true;
+
+  const agentRunId = normalizedString(message.agentRunId);
+  return agentRunId !== null && !opts.agentRunIdsRenderedInTurns.has(agentRunId);
+}
+
+export function shouldRenderAnchoredAgentRunStatus<
+  Run extends AgentRunAnchorState & AgentRunRuntimeStateLike,
+>(
+  run: Run | null,
+  opts: {
+    agentRunIdsRenderedInTurns: Set<string>;
+    messageIsLatest: boolean;
+  },
+): boolean {
+  if (run === null) return false;
+  if (!opts.agentRunIdsRenderedInTurns.has(run.run_id)) return true;
+
+  const runIsTerminal = TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+  return opts.messageIsLatest && !runIsTerminal;
+}
+
+export function shouldRenderStandaloneAgentRunStatus<
+  Run extends AgentRunAnchorState & AgentRunRuntimeStateLike,
+>(
+  run: Run | null,
+  latestMessage: AgentRunAnchorMessage | undefined,
+  opts: {
+    agentRunIdsRenderedInTurns: Set<string>;
+    hasMessageAnchor: boolean;
+  },
+): boolean {
+  if (run === null) return false;
+  const runIsTerminal = TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+  const latestUserMessageDoesNotAnchorRun =
+    latestMessage?.role === "user" && !messageAnchorsAgentRun(latestMessage, run);
+
+  if (opts.agentRunIdsRenderedInTurns.has(run.run_id)) {
+    return !runIsTerminal && latestUserMessageDoesNotAnchorRun;
+  }
+
+  if (!opts.hasMessageAnchor) return true;
+  if (runIsTerminal) return false;
+
+  return latestUserMessageDoesNotAnchorRun;
+}
+
 export function mergeAgentRunRuntimeState<State extends AgentRunRuntimeStateLike>(
   previous: State | undefined,
   incoming: State,

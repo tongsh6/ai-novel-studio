@@ -8,6 +8,8 @@ defmodule NovelApplication.AgentRunService do
   alias NovelDomain.AgentRun
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog}
 
+  @checkpoint_version 2
+
   @type step_fun :: AgentRunServer.step_fun()
   @type next_step_planner :: AgentRunServer.next_step_planner()
 
@@ -37,7 +39,10 @@ defmodule NovelApplication.AgentRunService do
 
   @spec start_durable(map(), keyword()) :: {:ok, String.t()} | {:error, term()}
   def start_durable(attrs, opts \\ []) when is_map(attrs) do
-    attrs = atomize_known(attrs)
+    attrs =
+      attrs
+      |> atomize_known()
+      |> put_durable_fact_scope()
 
     with {:ok, task} <- LongRunTaskLog.create(long_run_task_attrs(attrs)),
          attrs <-
@@ -67,7 +72,11 @@ defmodule NovelApplication.AgentRunService do
   @spec recover_durable(String.t(), String.t(), keyword()) :: {:ok, [map()]}
   def recover_durable(work_id, session_id, opts \\ [])
       when is_binary(work_id) and is_binary(session_id) do
-    recover_opts = Map.new(opts)
+    recover_opts =
+      opts
+      |> Map.new()
+      |> Map.put(:requested_work_id, work_id)
+      |> Map.put(:requested_session_id, session_id)
 
     recovered =
       work_id
@@ -109,12 +118,18 @@ defmodule NovelApplication.AgentRunService do
   @spec steer(String.t(), String.t()) :: :ok | {:error, :not_found}
   def steer(run_id, text) when is_binary(text), do: command(run_id, {:steer, text})
 
-  @spec state(String.t()) :: {:ok, map()} | {:error, :not_found}
-  def state(run_id) do
+  @spec state(String.t(), timeout()) :: {:ok, map()} | {:error, term()}
+  def state(run_id, timeout \\ 5_000) do
     case lookup(run_id) do
-      {:ok, pid} -> {:ok, AgentRunServer.state(pid)}
-      error -> error
+      {:ok, pid} ->
+        {:ok, AgentRunServer.state(pid, timeout)}
+
+      error ->
+        error
     end
+  catch
+    :exit, {:timeout, _call} -> {:error, :state_timeout}
+    :exit, reason -> {:error, {:state_call_exit, reason}}
   end
 
   defp command(run_id, command) do
@@ -163,14 +178,18 @@ defmodule NovelApplication.AgentRunService do
       completed_unit_refs: [],
       pending_artifact_refs: [],
       checkpoint_data: %{
-        "agent_run" => %{
-          "run_id" => run_id,
-          "status" => "created",
-          "phase" => "planning",
-          "goal_version" => get_in_goal(attrs, :version) || 1,
-          "completed_step_refs" => [],
-          "checkpoint_version" => 1
-        },
+        "agent_run" =>
+          Map.merge(
+            %{
+              "run_id" => run_id,
+              "status" => "created",
+              "phase" => "planning",
+              "goal_version" => get_in_goal(attrs, :version) || 1,
+              "completed_step_refs" => [],
+              "checkpoint_version" => @checkpoint_version
+            },
+            durable_fact_checkpoint_data(attrs)
+          ),
         "progress" => 0,
         "step" => "AgentRun 已登记为 durable 长任务"
       }
@@ -197,9 +216,11 @@ defmodule NovelApplication.AgentRunService do
   end
 
   defp recover_live_state(record, %{run: run} = state, task, opts) do
+    stale_reason = stale_recovery_reason(record, task, Map.put(opts, :runtime_live?, true))
+
     {run, task, stale?} =
-      if stale_recovery?(record, task, Map.put(opts, :runtime_live?, true)) do
-        {run, task} = mark_stale_recovery(run, task, "stale_recovery_requires_author")
+      if is_binary(stale_reason) do
+        {run, task} = mark_stale_recovery(run, task, stale_reason)
         {run, task, true}
       else
         {run, task, false}
@@ -216,9 +237,9 @@ defmodule NovelApplication.AgentRunService do
   end
 
   defp recover_checkpoint_state(record, run, task, opts) do
-    stale? = stale_recovery?(record, task, Map.put(opts, :runtime_live?, false))
-    {run, task} = maybe_mark_checkpoint_recovery_stale(run, task, stale?)
-    event = recovery_event(run, task, stale?: true, runtime_live?: false)
+    stale_reason = stale_recovery_reason(record, task, Map.put(opts, :runtime_live?, false))
+    {run, task} = maybe_mark_checkpoint_recovery_stale(run, task, stale_reason)
+    event = recovery_event(run, task, stale?: is_binary(stale_reason), runtime_live?: false)
 
     %{
       run: run,
@@ -261,23 +282,99 @@ defmodule NovelApplication.AgentRunService do
     })
   end
 
-  defp stale_recovery?(record, task, opts) do
+  defp stale_recovery_reason(record, task, opts) do
     forced = Map.get(opts, :force_stale, false)
     runtime_live? = Map.get(opts, :runtime_live?, false)
-    expected_goal_version = Map.get(opts, :goal_version)
-    task_run = task.checkpoint_data && task.checkpoint_data["agent_run"]
-    checkpoint_goal_version = task_run && task_run["goal_version"]
+    ref_reason = stale_ref_mismatch_reason(record, opts)
+    checkpoint_reason = stale_checkpoint_version_reason(task)
+    fact_reason = stale_fact_revision_reason(task, opts)
+    version_reason = stale_version_mismatch_reason(record, task, opts)
 
-    forced or
-      not runtime_live? or
-      (is_integer(expected_goal_version) and expected_goal_version != record.goal_version) or
-      (is_integer(checkpoint_goal_version) and checkpoint_goal_version != record.goal_version)
+    cond do
+      forced ->
+        "forced_stale_recovery"
+
+      is_binary(ref_reason) ->
+        ref_reason
+
+      is_binary(checkpoint_reason) ->
+        checkpoint_reason
+
+      is_binary(fact_reason) ->
+        fact_reason
+
+      is_binary(version_reason) ->
+        version_reason
+
+      not runtime_live? ->
+        "durable_runtime_not_live"
+
+      true ->
+        nil
+    end
   end
 
-  defp maybe_mark_checkpoint_recovery_stale(run, task, true),
-    do: mark_stale_recovery(run, task, "durable_runtime_not_live")
+  defp stale_ref_mismatch_reason(record, opts) do
+    cond do
+      ref_mismatch?(Map.get(opts, :requested_work_id), record.work_id) ->
+        "work_ref_mismatch"
 
-  defp maybe_mark_checkpoint_recovery_stale(run, task, false), do: {run, task}
+      ref_mismatch?(Map.get(opts, :requested_session_id), record.session_id) ->
+        "session_ref_mismatch"
+
+      true ->
+        nil
+    end
+  end
+
+  defp stale_checkpoint_version_reason(task) do
+    task_run = task.checkpoint_data && task.checkpoint_data["agent_run"]
+
+    case task_run && task_run["checkpoint_version"] do
+      @checkpoint_version -> nil
+      nil -> "checkpoint_version_missing"
+      _other -> "checkpoint_version_mismatch"
+    end
+  end
+
+  defp stale_fact_revision_reason(task, opts) do
+    task_run = (task.checkpoint_data && task.checkpoint_data["agent_run"]) || %{}
+
+    cond do
+      version_mismatch?(Map.get(opts, :work_revision), Map.get(task_run, "work_revision")) ->
+        "work_revision_mismatch"
+
+      version_mismatch?(Map.get(opts, :target_revision), Map.get(task_run, "target_revision")) ->
+        "target_revision_mismatch"
+
+      target_ref_missing?(Map.get(task_run, "target_revision_ref"), opts) ->
+        "target_ref_missing"
+
+      true ->
+        nil
+    end
+  end
+
+  defp stale_version_mismatch_reason(record, task, opts) do
+    record_goal_version = record_goal_version(record)
+    task_run = task.checkpoint_data && task.checkpoint_data["agent_run"]
+
+    cond do
+      version_mismatch?(Map.get(opts, :goal_version), record_goal_version) ->
+        "goal_version_mismatch"
+
+      version_mismatch?(task_run && task_run["goal_version"], record_goal_version) ->
+        "checkpoint_goal_version_mismatch"
+
+      true ->
+        nil
+    end
+  end
+
+  defp maybe_mark_checkpoint_recovery_stale(run, task, stale_reason) when is_binary(stale_reason),
+    do: mark_stale_recovery(run, task, stale_reason)
+
+  defp maybe_mark_checkpoint_recovery_stale(run, task, _stale_reason), do: {run, task}
 
   defp mark_stale_recovery(run, task, failure_ref) do
     run = %{run | status: :awaiting_author, phase: :stopped}
@@ -377,8 +474,11 @@ defmodule NovelApplication.AgentRunService do
 
   defp recovery_summary(_task), do: "已恢复 AgentRun 检查点。"
 
-  defp recovery_reason_codes(%{checkpoint_data: %{"stale_resume" => true}}, opts) do
-    ["durable_recovered", "stale_resume", runtime_reason(opts)]
+  defp recovery_reason_codes(
+         %{checkpoint_data: %{"stale_resume" => true, "stale_reason" => reason}},
+         opts
+       ) do
+    ["durable_recovered", "stale_resume", runtime_reason(opts), nonblank(reason)]
     |> Enum.reject(&is_nil/1)
   end
 
@@ -394,7 +494,96 @@ defmodule NovelApplication.AgentRunService do
   defp stale_step_text("durable_runtime_not_live"),
     do: "后端运行进程已不存在，已从检查点恢复并等待作者确认"
 
+  defp stale_step_text("goal_version_mismatch"),
+    do: "恢复目标版本已变化，等待作者确认"
+
+  defp stale_step_text("checkpoint_goal_version_mismatch"),
+    do: "检查点目标版本与运行记录不一致，等待作者确认"
+
+  defp stale_step_text("checkpoint_version_missing"),
+    do: "恢复检查点缺少版本信息，等待作者确认"
+
+  defp stale_step_text("checkpoint_version_mismatch"),
+    do: "恢复检查点版本与当前运行语义不一致，等待作者确认"
+
+  defp stale_step_text("work_revision_mismatch"),
+    do: "恢复时作品事实版本已变化，等待作者确认"
+
+  defp stale_step_text("target_revision_mismatch"),
+    do: "恢复目标版本已变化，等待作者确认"
+
+  defp stale_step_text("target_ref_missing"),
+    do: "恢复目标已不存在，等待作者确认"
+
+  defp stale_step_text("forced_stale_recovery"),
+    do: "恢复状态需要作者重新确认"
+
+  defp stale_step_text("work_ref_mismatch"),
+    do: "恢复目标作品与运行记录不一致，等待作者确认"
+
+  defp stale_step_text("session_ref_mismatch"),
+    do: "恢复目标会话与运行记录不一致，等待作者确认"
+
   defp stale_step_text(_reason), do: "恢复状态已过期，等待作者确认"
+
+  defp record_goal_version(%{goal_version: version}) when is_integer(version), do: version
+
+  defp record_goal_version(%{goal: %{"version" => version}}) when is_integer(version),
+    do: version
+
+  defp record_goal_version(%{goal: %{version: version}}) when is_integer(version), do: version
+  defp record_goal_version(_record), do: nil
+
+  defp version_mismatch?(expected, actual) do
+    case {integer_value(expected), integer_value(actual)} do
+      {expected_int, actual_int} when is_integer(expected_int) and is_integer(actual_int) ->
+        expected_int != actual_int
+
+      _other ->
+        false
+    end
+  end
+
+  defp target_ref_missing?(target_ref, opts) do
+    target_ref = nonblank(target_ref)
+
+    cond do
+      is_nil(target_ref) ->
+        false
+
+      Map.has_key?(opts, :target_ref_exists?) ->
+        Map.get(opts, :target_ref_exists?) == false
+
+      is_list(Map.get(opts, :available_target_refs)) ->
+        target_ref not in Map.get(opts, :available_target_refs)
+
+      true ->
+        false
+    end
+  end
+
+  defp integer_value(value) when is_integer(value), do: value
+
+  defp integer_value(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {parsed, ""} -> parsed
+      _other -> nil
+    end
+  end
+
+  defp integer_value(_value), do: nil
+
+  defp ref_mismatch?(expected, actual)
+       when is_binary(expected) and expected != "" and is_binary(actual) and actual != "",
+       do: expected != actual
+
+  defp ref_mismatch?(_expected, _actual), do: false
+
+  defp nonblank(value) when is_binary(value) do
+    if String.trim(value) == "", do: nil, else: value
+  end
+
+  defp nonblank(_value), do: nil
 
   defp event_attrs(%AgentEvent{} = event) do
     %{
@@ -432,6 +621,9 @@ defmodule NovelApplication.AgentRunService do
   defp known_key("consumed_budget"), do: :consumed_budget
   defp known_key("authority_scope"), do: :authority_scope
   defp known_key("policy"), do: :policy
+  defp known_key("work_revision"), do: :work_revision
+  defp known_key("target_revision_ref"), do: :target_revision_ref
+  defp known_key("target_revision"), do: :target_revision
   defp known_key(key), do: key
 
   defp value(map, key), do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
@@ -444,6 +636,54 @@ defmodule NovelApplication.AgentRunService do
       _ -> nil
     end
   end
+
+  defp put_durable_fact_scope(attrs) do
+    scope = value(attrs, :authority_scope) || %{}
+
+    scope =
+      [:work_revision, :target_revision_ref, :target_revision]
+      |> Enum.reduce(scope, fn key, acc ->
+        case nonblank_value(value(attrs, key) || value(acc, key)) do
+          nil -> acc
+          fact_value -> Map.put(acc, key, fact_value)
+        end
+      end)
+
+    Map.put(attrs, :authority_scope, scope)
+  end
+
+  defp durable_fact_checkpoint_data(attrs) do
+    scope = value(attrs, :authority_scope) || %{}
+
+    %{}
+    |> maybe_put_fact(
+      "work_revision",
+      value(attrs, :work_revision) || value(scope, :work_revision)
+    )
+    |> maybe_put_fact(
+      "target_revision_ref",
+      value(attrs, :target_revision_ref) || value(scope, :target_revision_ref)
+    )
+    |> maybe_put_fact(
+      "target_revision",
+      value(attrs, :target_revision) || value(scope, :target_revision)
+    )
+  end
+
+  defp maybe_put_fact(map, key, value) do
+    case nonblank_value(value) do
+      nil -> map
+      fact_value -> Map.put(map, key, fact_value)
+    end
+  end
+
+  defp nonblank_value(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp nonblank_value(nil), do: nil
+  defp nonblank_value(value), do: value
 
   defp stringify(%_struct{} = struct) do
     struct

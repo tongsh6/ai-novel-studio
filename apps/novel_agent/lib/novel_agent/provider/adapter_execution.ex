@@ -17,6 +17,8 @@ defmodule NovelAgent.Provider.AdapterExecution do
   alias NovelCommon.Contracts.ProviderOutput
   alias NovelCommon.Contracts.ProviderRun
 
+  @author_reasoning_delta_chunk_size 8
+
   @type context :: %{
           required(:provider_name) => atom(),
           required(:model_name) => String.t() | nil,
@@ -92,22 +94,25 @@ defmodule NovelAgent.Provider.AdapterExecution do
   @spec text_chunk_events(context(), String.t(), pos_integer()) :: [ProviderEvent.t()]
   def text_chunk_events(ctx, content, first_sequence) when is_integer(first_sequence) do
     content
-    |> safe_text_chunks()
+    |> text_chunks(ctx)
     |> Enum.with_index(1)
-    |> Enum.map_reduce(0, fn {chunk, index}, accumulated ->
+    |> Enum.reduce({[], 0, true}, fn {chunk, index}, {events, accumulated, author_open?} ->
       length = String.length(chunk)
       next_accumulated = accumulated + length
+      {author_delta, next_author_open?} = author_reasoning_delta(ctx, chunk, author_open?)
 
       event =
         chunk_event!(ctx, first_sequence + index - 1,
           chunk_index: index,
           content_length: length,
-          accumulated_content_length: next_accumulated
+          accumulated_content_length: next_accumulated,
+          author_narrative_delta: author_delta
         )
 
-      {event, next_accumulated}
+      {[event | events], next_accumulated, next_author_open?}
     end)
     |> elem(0)
+    |> Enum.reverse()
   end
 
   @doc "Build one author-safe chunk event without carrying raw generated text."
@@ -117,23 +122,46 @@ defmodule NovelAgent.Provider.AdapterExecution do
     content_length = Keyword.get(attrs, :content_length, 0)
     accumulated_content_length = Keyword.get(attrs, :accumulated_content_length, content_length)
 
-    provider_event!(
-      event_id: provider_event_id(),
-      provider_run_ref: ctx.provider_run_id,
-      sequence: sequence,
-      event_type: :chunk,
-      summary: "Provider output chunk received.",
-      payload: %{
+    payload =
+      %{
         provider: ctx.provider_name,
         model: ctx.model_name,
         output_type: :text,
         chunk_index: chunk_index,
         content_length: content_length,
         accumulated_content_length: accumulated_content_length
-      },
+      }
+      |> maybe_put_payload(:author_narrative_delta, Keyword.get(attrs, :author_narrative_delta))
+
+    provider_event!(
+      event_id: provider_event_id(),
+      provider_run_ref: ctx.provider_run_id,
+      sequence: sequence,
+      event_type: :chunk,
+      summary: "Provider output chunk received.",
+      payload: payload,
       refs: [ctx.provider_call_ref]
     )
   end
+
+  @doc """
+  Extract the author-visible reasoning delta from an `:author_reasoning` chunk.
+
+  Agentic next-step provider output is a two-part stream: author-visible prose
+  followed by a JSON tail. Only prose before the first JSON object boundary may
+  be projected to the UI while the provider is still streaming.
+  """
+  @spec author_reasoning_delta(context(), String.t(), boolean()) ::
+          {String.t() | nil, boolean()}
+  def author_reasoning_delta(ctx, content, author_open?) when is_binary(content) do
+    if author_reasoning_purpose?(ctx) and author_open? do
+      split_author_reasoning_delta(content)
+    else
+      {nil, author_open?}
+    end
+  end
+
+  def author_reasoning_delta(_ctx, _content, author_open?), do: {nil, author_open?}
 
   @doc "Emit a batch of execution events to the optional adapter event sink."
   @spec emit_events(context(), [ProviderEvent.t()], atom(), ProviderOutput.t() | nil, map() | nil) ::
@@ -444,11 +472,64 @@ defmodule NovelAgent.Provider.AdapterExecution do
 
   defp emit_event_batch(_ctx, _events, _status, _output, _error), do: :ok
 
+  defp author_reasoning_purpose?(ctx) when is_map(ctx),
+    do: Map.get(ctx, :purpose) in [:author_reasoning, "author_reasoning"]
+
+  defp author_reasoning_purpose?(_ctx), do: false
+
+  defp split_author_reasoning_delta(content) do
+    case String.split(content, "{", parts: 2) do
+      [before_json, _after_json] -> {non_empty_string(before_json), false}
+      [delta] -> {non_empty_string(delta), true}
+    end
+  end
+
+  defp non_empty_string(""), do: nil
+  defp non_empty_string(value), do: value
+
+  defp maybe_put_payload(payload, _key, nil), do: payload
+  defp maybe_put_payload(payload, _key, ""), do: payload
+  defp maybe_put_payload(payload, key, value), do: Map.put(payload, key, value)
+
   defp safe_text_chunks(content) do
     text = to_string(content)
     length = String.length(text)
     chunk_size = max(ceil_div(length, 3), 1)
 
+    text
+    |> String.graphemes()
+    |> Enum.chunk_every(chunk_size)
+    |> Enum.map(&Enum.join/1)
+    |> Enum.reject(&(&1 == ""))
+  end
+
+  defp text_chunks(content, ctx) do
+    text = to_string(content)
+
+    if author_reasoning_purpose?(ctx) do
+      author_reasoning_text_chunks(text)
+    else
+      safe_text_chunks(text)
+    end
+  end
+
+  defp author_reasoning_text_chunks(content) do
+    {author_prefix, json_tail} = split_before_json_tail(content)
+
+    fixed_text_chunks(author_prefix, @author_reasoning_delta_chunk_size) ++
+      safe_text_chunks(json_tail)
+  end
+
+  defp split_before_json_tail(content) do
+    case String.split(content, "{", parts: 2) do
+      [before_json, after_json] -> {before_json, "{" <> after_json}
+      [text] -> {text, ""}
+    end
+  end
+
+  defp fixed_text_chunks("", _chunk_size), do: []
+
+  defp fixed_text_chunks(text, chunk_size) do
     text
     |> String.graphemes()
     |> Enum.chunk_every(chunk_size)

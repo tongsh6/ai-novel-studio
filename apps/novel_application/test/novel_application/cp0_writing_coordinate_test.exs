@@ -73,11 +73,11 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
   defp context(chapters),
     do: %DialogueContext{workspace_id: "work-cp0", current_chapters: chapters}
 
-  defp raising_complete_fn do
+  defp raising_result_fn do
     fn _prompt -> flunk("provider 不应被调用：hard missing 必须短路") end
   end
 
-  defp recording_complete_fn(agent) do
+  defp recording_result_fn(agent) do
     fn prompt ->
       Agent.update(agent, &[prompt | &1])
 
@@ -100,7 +100,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "重写第99章"},
-          provider_execution: %Execution{complete_fn: raising_complete_fn()}
+          provider_execution: %Execution{result_fn: raising_result_fn()}
         })
 
       assert turn_result.assistant_message.text =~ "没有找到"
@@ -118,7 +118,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           decision: allow_decision(),
           context: context(["第一章"]),
           author_input: %{text: "续写番外"},
-          provider_execution: %Execution{complete_fn: raising_complete_fn()}
+          provider_execution: %Execution{result_fn: raising_result_fn()}
         })
 
       assert turn_result.assistant_message.text =~ "没有找到"
@@ -137,7 +137,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "重写第一章"},
-          provider_execution: %Execution{complete_fn: recording_complete_fn(agent)},
+          provider_execution: %Execution{result_fn: recording_result_fn(agent)},
           chapter_prose_reader: reader
         })
 
@@ -156,7 +156,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           decision: allow_decision(),
           context: context(["第一章", "第二章"]),
           author_input: %{text: "接着往下写"},
-          provider_execution: %Execution{complete_fn: recording_complete_fn(agent)},
+          provider_execution: %Execution{result_fn: recording_result_fn(agent)},
           chapter_prose_reader: reader
         })
 
@@ -174,7 +174,7 @@ defmodule NovelApplication.CP0WritingCoordinateTest do
           context: nil,
           author_input: %{text: "确认执行"},
           source_turn_ref: "turn-source",
-          provider_execution: %Execution{complete_fn: recording_complete_fn(agent)}
+          provider_execution: %Execution{result_fn: recording_result_fn(agent)}
         })
 
       assert length(Agent.get(agent, & &1)) == 1

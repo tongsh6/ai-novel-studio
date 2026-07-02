@@ -22,7 +22,7 @@ defmodule NovelApplication.ContextGroundingTest do
 
   defp empty_fetcher(_ws_id), do: {:ok, nil, nil, nil, nil}
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   # ── Context Assembly ──────────────────────────
 
@@ -314,7 +314,7 @@ defmodule NovelApplication.ContextGroundingTest do
 
       {:ok, prompts} = Agent.start_link(fn -> [] end)
 
-      complete_fn = fn prompt ->
+      result_fn = fn prompt ->
         Agent.update(prompts, &[prompt | &1])
         {:ok, %{content: provider_reply}}
       end
@@ -322,7 +322,7 @@ defmodule NovelApplication.ContextGroundingTest do
       input = %{text: "这一章感觉不够爽，主角赢得太轻了。", workspace_id: "ws-au11"}
 
       {:ok, turn_result, trace, _candidates, _context} =
-        DialogueGateway.handle_input(input, &quality_fetcher/2, provider_execution(complete_fn))
+        DialogueGateway.handle_input(input, &quality_fetcher/2, provider_execution(result_fn))
 
       prompt_text =
         prompts
@@ -373,11 +373,11 @@ defmodule NovelApplication.ContextGroundingTest do
       }
       """
 
-      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+      result_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
       input = %{text: "这一章不够爽，主角赢得太轻了", workspace_id: "ws-au11-empty"}
 
       {:ok, turn_result, _trace, _candidates, _context} =
-        DialogueGateway.handle_input(input, &empty_fetcher/1, provider_execution(complete_fn))
+        DialogueGateway.handle_input(input, &empty_fetcher/1, provider_execution(result_fn))
 
       envelope = turn_result.trace_summary.ai_message_envelope
 

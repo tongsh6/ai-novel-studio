@@ -23,6 +23,7 @@ defmodule NovelWeb.WorkspaceChannel do
     "reject_or_cancel_confirmation",
     "cancel_pending_behavior"
   ]
+  @agent_run_state_snapshot_timeout 5_000
 
   @impl true
   def join("workspace:" <> suffix, payload, socket) do
@@ -632,24 +633,73 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   def handle_info({:agent_event, %AgentEvent{} = event}, socket) do
+    socket = maybe_broadcast_agent_turn_result(socket, event)
+
     if AgentEvent.author_visible?(event) do
       broadcast!(socket, "agent_event", agent_event_payload(event, socket))
     end
 
-    socket = maybe_broadcast_agent_turn_result(socket, event)
-
-    socket =
-      case AgentRunService.state(event.run_ref) do
-        {:ok, state} ->
-          broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
-          socket
-
-        {:error, _reason} ->
-          socket
-      end
+    if agent_event_needs_state_snapshot?(event) do
+      request_agent_run_state_snapshot(event.run_ref)
+    end
 
     {:noreply, socket}
   end
+
+  def handle_info({:agent_run_state_snapshot, _run_ref, {:ok, state}}, socket) do
+    if agent_run_state_belongs_to_socket?(state, socket) do
+      broadcast!(socket, "agent_run_state", agent_run_state_payload(state, socket))
+    end
+
+    {:noreply, socket}
+  end
+
+  def handle_info({:agent_run_state_snapshot, _run_ref, {:error, _reason}}, socket) do
+    {:noreply, socket}
+  end
+
+  defp request_agent_run_state_snapshot(run_ref) when is_binary(run_ref) do
+    channel_pid = self()
+
+    Task.Supervisor.start_child(NovelApplication.BackgroundTaskSupervisor, fn ->
+      result = AgentRunService.state(run_ref, @agent_run_state_snapshot_timeout)
+      send(channel_pid, {:agent_run_state_snapshot, run_ref, result})
+    end)
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  defp request_agent_run_state_snapshot(_run_ref), do: :ok
+
+  defp agent_event_needs_state_snapshot?(%AgentEvent{event_type: event_type}) do
+    event_type in [
+      :run_started,
+      :plan_drafted,
+      :plan_revised,
+      :exploration_observed,
+      :evaluation_made,
+      :interrupt_requested,
+      :run_paused,
+      :run_resumed,
+      :run_cancelled,
+      :run_failed,
+      :run_completed,
+      :awaiting_author
+    ]
+  end
+
+  defp agent_run_state_belongs_to_socket?(%{run: run}, socket) do
+    session_id = socket.assigns[:session_id]
+
+    run.work_id == socket.assigns[:work_id] and
+      (is_nil(session_id) or run.session_id == session_id)
+  end
+
+  defp agent_run_state_belongs_to_socket?(_state, _socket), do: false
 
   defp recover_durable_agent_runs(socket) do
     work_id = socket.assigns[:work_id]
@@ -662,6 +712,7 @@ defmodule NovelWeb.WorkspaceChannel do
         AgentRunService.recover_durable(
           work_id,
           session_id,
+          work_revision: current_work_revision(work_id),
           event_sink: fn event -> send(channel_pid, {:agent_event, event}) end
         )
 
@@ -686,6 +737,19 @@ defmodule NovelWeb.WorkspaceChannel do
   end
 
   defp broadcast_recovered_agent_run(_socket, _state), do: :ok
+
+  defp current_work_revision(work_id) do
+    if valid_uuid?(work_id) do
+      case NovelApplication.WorkService.get(work_id) do
+        %{revision: revision} when is_integer(revision) -> revision
+        _other -> nil
+      end
+    end
+  rescue
+    _error -> nil
+  catch
+    _kind, _reason -> nil
+  end
 
   defp dispatch_agent_command(socket, run_id, command, payload) when is_binary(run_id) do
     with :ok <- ensure_run_belongs_to_socket(socket, run_id) do
@@ -1054,6 +1118,7 @@ defmodule NovelWeb.WorkspaceChannel do
       text: "按质量发现重写正文草稿",
       workspace_id: socket.assigns[:workspace_id] || "lobby",
       work_id: socket.assigns[:work_id] || socket.assigns[:workspace_id] || "lobby",
+      work_revision: current_work_revision(socket.assigns[:work_id]),
       session_id: socket.assigns[:session_id],
       turn_id: action_input.source_turn_ref,
       origin_frame_ref: "frame_#{action_input.source_turn_ref}_revision",
@@ -1325,6 +1390,7 @@ defmodule NovelWeb.WorkspaceChannel do
       text: params.text,
       workspace_id: params.ws_id,
       work_id: params.work_id,
+      work_revision: current_work_revision(params.work_id),
       session_id: params.session_id,
       turn_id: params.turn_id,
       generate_micro_plan: params.generate_plan,

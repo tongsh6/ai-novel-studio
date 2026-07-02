@@ -34,6 +34,11 @@ defmodule NovelWeb.ProviderActivityControllerTest do
     assert body["totals"]["provider_run_count"] == 1
     assert body["totals"]["provider_call_refs"] == ["pcall-api"]
     assert body["totals"]["total_tokens"] == 34
+    assert [%{"run_id" => "run-provider-api", "events" => [agent_event]}] = body["agent_runs"]
+    assert agent_event["event_id"] == "evt-provider-api-context"
+    assert agent_event["payload"]["provider_run_ref"] == "prun-api"
+    refute Map.has_key?(agent_event["payload"], "raw_prompt")
+    refute Map.has_key?(agent_event["payload"], "turn_result")
 
     assert [
              %{
@@ -64,6 +69,31 @@ defmodule NovelWeb.ProviderActivityControllerTest do
     assert %{"error" => "session_not_found"} = json_response(conn, 404)
   end
 
+  test "GET agent-run-activity returns the same scoped activity endpoint", %{
+    conn: conn,
+    work: work,
+    session: session
+  } do
+    seed_provider_activity!(
+      work.id,
+      session.id,
+      "turn-agent-activity-api",
+      "run-agent-activity-api"
+    )
+
+    conn =
+      get(
+        conn,
+        "/api/works/#{work.id}/sessions/#{session.id}/turns/turn-agent-activity-api/agent-run-activity"
+      )
+
+    body = json_response(conn, 200)
+
+    assert body["turn_id"] == "turn-agent-activity-api"
+    assert [%{"run_id" => "run-agent-activity-api", "events" => [_event]}] = body["agent_runs"]
+    assert [%{"provider_run_ref" => "prun-api"}] = body["provider_runs"]
+  end
+
   defp seed_provider_activity!(work_id, session_id, turn_id, run_id) do
     assert {:ok, _run} =
              AgentRunLog.upsert_run(%{
@@ -79,6 +109,25 @@ defmodule NovelWeb.ProviderActivityControllerTest do
                phase: "stopped",
                plan_ref: "ap-provider-api",
                plan_version: 1
+             })
+
+    assert {:ok, _event} =
+             AgentRunLog.insert_event(%{
+               id: "evt-provider-api-context",
+               run_id: run_id,
+               step_id: "step-provider-api",
+               sequence: 1,
+               event_type: "provider_progress",
+               visibility: "author",
+               summary: "模型调用已完成。",
+               reason_codes: ["provider_execution_stream"],
+               refs: ["provider_run:prun-api", "provider_call:pcall-api"],
+               payload: %{
+                 "provider_run_ref" => "prun-api",
+                 "provider_call_ref" => "pcall-api",
+                 "raw_prompt" => "must not leak",
+                 "turn_result" => %{"assistant_message" => "must not leak"}
+               }
              })
 
     {:ok, provider_run} =

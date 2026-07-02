@@ -100,19 +100,6 @@ defmodule NovelApplication.AgentRunFlows.ProseRevisionFromFindings do
 
         emit_stage(
           snapshot,
-          :plan_created,
-          "已生成修订执行计划。",
-          ["revision_micro_plan_created"],
-          [plan.plan_id],
-          %{
-            stage: :revision_micro_plan_created,
-            plan_ref: plan.plan_id,
-            action_count: length(plan.proposed_actions)
-          }
-        )
-
-        emit_stage(
-          snapshot,
           :gate_decided,
           "已通过修订工具执行授权：#{decision.decision_type}。",
           ["revision_orchestrator_decision_recorded"],

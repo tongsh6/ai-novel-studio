@@ -176,6 +176,9 @@ flowchart TB
 | `TurnResult` | `00b`, `04`, `05`, `06`, `07` | TurnResult Builder | UI / Channel / replay | 对外唯一稳定出口 | TurnResult Truthfulness v3 |
 | `TurnResultViewModel` | `07` | API boundary / serializer | Workbench UI | UI 主渲染只消费 view model | TurnResultViewModel v3 |
 | `ProjectionHint` | `07` | TurnResult Builder | UI read model refresh | refresh 不授权写入 | Projection Hint UI v3 |
+| `AgentRun` | `contracts/UA-01`, ADR-0021 | Application AgentRun runtime | AgentEvent / AgentRunState / UI / Trace | AgentRun 不是作者 turn；bounded run 不强制 LongRunTask | AgentRun and Turn Boundary v3 |
+| `AgentPlan` / `PlanStep` | `contracts/UA-01`, ADR-0022 | AgentRun loop / Workbench activity UI / Trace | AgentPlan 不是 MicroPlan；PlanStep 不是运行期 AgentStep | Agentic Loop Plan / Reasoning Authorship v3 |
+| `AgentEvent.author_narrative` | `contracts/UA-01`, ADR-0022 | Workbench activity UI / Trace / Replay | 作者可见过程叙述必须来自模型输出字节 | Agentic Loop Plan / Reasoning Authorship v3 |
 
 ---
 
@@ -318,6 +321,16 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | `TraceSummaryView` | `07` | Workbench UI | trace summary 不泄露 raw prompt |
 | `ProjectionHint` | `07` | frontend read model | projection refresh 不授权写入 |
 
+### 6.7 AgentRun loop contracts
+
+| Contract | 定义位置 | 首个消费者 | 必须证明 |
+|---|---|---|---|
+| `AgentPlan` / `PlanStep` | `contracts/UA-01` §2, `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | AgentRun runtime / Workbench activity UI | `PlanStep` 只表达可见计划：有序、里程碑级（≈3–6，可跨多个运行期 AgentStep）、无 runtime 强制依赖 DAG；不是 `MicroPlan`、不是运行期 `AgentStep`、不能批量转 ToolRequest |
+| `AgentStepEvaluation` 或等价 evaluate 表达 | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | AgentRun loop | evaluate 折进 planner 同一次调用，结构尾巴 `evaluation_of_last {advanced, plan_holds, new_constraint}` 先于 `decision`；只驱动 continue / replan / done / await_author，不批准执行 |
+| `AgentEvent.author_narrative` | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | Workbench activity UI | 作者可见过程叙述来自模型输出，不来自 `ProviderEvent.summary` / `AgentEvent.summary` / copy 常量 |
+| `AgentEvent.author_narrative_source` | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | Trace / replay / N-NARR driver | `author_narrative` 字节能反查同一 run 内 ProviderOutput 的 refs、hash 与 byte range |
+| `:author_reasoning` provider purpose | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | novel_agent provider execution / application projector | 承载作者安全叙事输出，不暴露 provider private reasoning / thinking / chain-of-thought |
+
 ---
 
 ## 7. 全局不变量总账
@@ -339,6 +352,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | 13 | trace summary 必须脱敏 | `06`, `07` | redaction visibility test |
 | 14 | replay 默认不重新调用 LLM | `06` | replay no-provider-call test |
 | 15 | projection hints 只触发刷新，不授权写入 | `07` | projection refresh no-write test |
+| 16 | AgentRun 作者可见过程叙述必须有模型输出字节来源（N-NARR） | `adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md`, `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md` | `author_narrative_source` 与 ProviderOutput 字节绑定 driver |
 
 这些不变量是后续 ADR 和垂直切面的主轴。任何实现计划如果不能指向其中至少一个不变量，就很可能不是承重垂直切面。
 
@@ -379,6 +393,7 @@ UI 消费 trace summary，不直接消费内部 trace schema。
 | TurnResultViewModel v3 | Accepted：`adr/ADR-0015-turn-result-view-model-v3.md`；VS-05 contract pack：`contracts/VS-05-ui-roundtrip-contract-pack.md` | `07` | UI 主消费 envelope 要稳定 | Workbench UI slice |
 | Projection Hint UI v3 | Accepted：`adr/ADR-0016-projection-hint-ui-v3.md`；VS-04 contract pack：`contracts/VS-04-adoption-boundary-contract-pack.md` | `07` | refresh 和 write 边界要分清 | projection refresh slice |
 | ReplayReport v3 | Accepted：`adr/ADR-0017-replay-report-v3.md`；VS-06 contract pack：`contracts/VS-06-replay-surface-contract-pack.md` | `06` | replay 默认不调用 provider | replay explanation slice |
+| Agentic Loop 计划可视化、评估重规划与叙事作者权 | Proposed：`adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md`；来源：`notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`、`contracts/UA-01-unified-agent-run-loop-contract-pack.md` | `UA-01`, `06`, `07`, ADR-0021/0013/0014/0015 | 防止 AgentRun 作者过程叙述继续由 app 模板冒充模型输出，并冻结评估→重规划回路 | `agentic-loop-plan-replan-reasoning` slice；AgentPlan/PlanStep、AgentEvent `author_narrative_source`、`:author_reasoning` provider purpose、N-NARR driver |
 
 ### 8.4 Batch D：AI 引导式创作三层 + Message 契约
 
@@ -546,6 +561,18 @@ ADR 状态建议先使用：
 | Proof | 同一个 turn 可生成 author-safe summary 和 developer replay report |
 
 价值：证明 v3 的审计不是日志堆积，而是可解释、可分层可见的系统能力。
+
+### 9.11 UA-01A：Agentic Loop 计划、评估重规划与作者叙事来源
+
+| 问题 | 回答 |
+|---|---|
+| Contract | `AgentPlan` / `PlanStep`、`AgentStepEvaluation` 或等价 evaluate 表达、`AgentEvent.author_narrative`、`AgentEvent.author_narrative_source`、ProviderOutput author-safe narrative refs |
+| Invariant | AgentPlan 不是 MicroPlan；每个 act step 仍重新经过 Orchestrator；作者可见过程叙述必须有模型输出字节来源（N-NARR）；replay 默认不调用 LLM |
+| Boundary | 切过 application AgentRun loop / novel_agent provider execution / common AgentEvent contract / trace-replay / frontend 工作详情；不让 frontend 拼叙事，不让 provider 遥测进入作者叙事面，不绕过 MicroPlan gate |
+| Consumer | 真实工作台 AgentRun 工作详情、trace/replay driver、后续 `agentic-loop-plan-replan-reasoning` 场景 |
+| Proof | 输入一个计划前提不成立的创作请求，真实页面展示 v1 计划、探索/评估、v2 重规划和完成态；所有作者可见叙述均能通过 `author_narrative_source` 反查同一 run 的 ProviderOutput 字节 |
+
+价值：证明 AgentRun 不只是 observation-led 单步选择器，而是有可检视计划、评估、重规划和模型作者权的创作协作 loop。
 
 ---
 

@@ -1,5 +1,5 @@
 id: agent-provider-execution-error-author-safe
-title: Provider execution error facts 进入对话 AgentRun author-safe 工作轨迹
+title: Provider execution error facts 进入对话 AgentRun developer telemetry
 tier: nightly
 status: active
 surface: tauri
@@ -13,7 +13,7 @@ contract:
 invariants:
   - provider-execution-has-single-runtime-architecture
   - provider-execution-error-is-a-provider-execution-fact
-  - provider-error-activity-is-author-safe
+  - provider-error-activity-is-developer-telemetry
   - conversation-profile-does-not-use-historical-provider-progress-profile
 
 setup:
@@ -39,12 +39,12 @@ evidence:
 assertions:
   data:
     - profile_ref is conversation_turn_v1, not provider_progress_v1
-    - provider_progress events are visibility=author
+    - provider_progress events are visibility=developer
     - provider_progress events carry run_id, step_ref, provider_run_ref, and provider_call_ref
     - provider_progress events include provider_started and provider_error reason codes
     - provider_progress payload does not expose raw prompt, system prompt, provider raw error payload, or assistant_message content
-    - provider_progress purposes include planner and conversation
-    - completed agent_run_state records six provider calls
+    - provider_progress purposes include author_reasoning and conversation
+    - completed agent_run_state records seven provider calls, including the profile routing model call
     - final TurnResult is safe fallback with no tool call, no adoption, and no production write
 
 anti_hooks:

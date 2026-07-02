@@ -1,8 +1,9 @@
 // Design: docs/design/ui/41-workbench-layout.md §2 (3-zone workbench)
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
-// Design: docs/design/ui/46-state-and-feedback.md §3.1 (AgentRun dialogue flow)
-// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 46§8-agent-run-dialogue-flow-v4 (kg4wN)
+// Design: docs/design/ui/46-state-and-feedback.md §9 (Agentic loop reasoning flow)
+// Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 46§9-agentic-loop-reasoning-flow (DM8gx)
 import { Fragment, useCallback, useEffect, useState, useRef } from "react";
+import type { SyntheticEvent } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -58,11 +59,13 @@ import {
   resumeWorkspace,
   searchSessions,
   getSessionSnapshot,
+  getSessionTranscriptPage,
   getTurnReplay,
-  getTurnProviderRuns,
+  getTurnAgentRunActivity,
   createWorkSession,
   archiveWorkSession,
   transcriptToMessages,
+  type SessionTranscriptPageInfo,
   type WorkSessionDto,
 } from "../lib/sessions";
 import {
@@ -79,10 +82,12 @@ import {
 } from "../lib/workspaceRuntimeState";
 import {
   agentRunEventDetailItems,
-  agentRunExecutionBrief,
   agentRunProviderFlowSummary,
   agentRunProviderRunDetailItems,
   agentRunProviderRunReplayDetails,
+  agentRunReasoningFlow,
+  selectAgentRunVisibleEvents,
+  type AgenticLoopReasoningFlow,
   type AgentRunProviderUsageData,
 } from "../lib/agentRunTimeline";
 import {
@@ -130,6 +135,9 @@ import {
   bindAgentRunAckToUserMessage,
   mergeAgentRunRuntimeState,
   messageAnchorsAgentRun,
+  shouldRenderAnchoredAgentRunStatus,
+  shouldRenderStandaloneAgentRunStatus,
+  shouldRenderUserAgentRunPlaceholder,
   upsertAssistantTurnResultMessage,
 } from "../lib/agentRunAnchoring";
 import type { CandidateDirection as CandidateDirectionContract } from "../lib/schemas";
@@ -185,6 +193,7 @@ export interface TurnResult {
     long_run_task_ref?: string | null;
     events?: AgentEventData[];
     provider_runs?: AgentRunProviderUsageData[];
+    activity_loaded?: boolean;
   };
 }
 
@@ -542,17 +551,20 @@ function agentRunEventsFromTurnResult(turnResult: TurnResult | undefined): Agent
   const events = turnResult?.agent_run?.events;
   if (!Array.isArray(events)) return [];
 
-  return events.filter((event): event is AgentEventData => {
-    return (
-      Boolean(event) &&
-      typeof event.event_id === "string" &&
-      typeof event.run_ref === "string" &&
-      typeof event.event_type === "string" &&
-      typeof event.visibility === "string" &&
-      typeof event.summary === "string" &&
-      typeof event.sequence === "number"
-    );
-  });
+  return events.filter(isAgentEventData);
+}
+
+function isAgentEventData(event: unknown): event is AgentEventData {
+  return (
+    Boolean(event) &&
+    typeof event === "object" &&
+    typeof (event as AgentEventData).event_id === "string" &&
+    typeof (event as AgentEventData).run_ref === "string" &&
+    typeof (event as AgentEventData).event_type === "string" &&
+    typeof (event as AgentEventData).visibility === "string" &&
+    typeof (event as AgentEventData).summary === "string" &&
+    typeof (event as AgentEventData).sequence === "number"
+  );
 }
 
 function mergeAgentRunEvents(restored: AgentEventData[], live: AgentEventData[]): AgentEventData[] {
@@ -573,10 +585,11 @@ function agentRunEventStage(eventType: string): AgentRunEventStage {
     case "run_started":
     case "goal_understood":
       return "understanding";
-    case "observation_recorded":
+    case "exploration_observed":
       return "context";
-    case "plan_created":
-    case "step_proposed":
+    case "plan_drafted":
+    case "plan_revised":
+    case "evaluation_made":
     case "gate_decided":
       return "planning";
     case "plan_adjusted":
@@ -610,12 +623,20 @@ function groupAgentRunEvents(events: AgentEventData[]): AgentRunStageView[] {
 
   for (const event of events) {
     const summary = event.summary?.trim();
-    if (event.visibility !== "author" || !summary) continue;
+    if (event.visibility !== "author" || !summary || !isAgenticLoopEventType(event.event_type)) {
+      continue;
+    }
     groups.get(agentRunEventStage(event.event_type))?.push(event);
   }
 
   return AGENT_RUN_STAGE_ORDER.map((stage) => ({ stage, events: groups.get(stage) ?? [] })).filter(
     (group) => group.events.length > 0,
+  );
+}
+
+function isAgenticLoopEventType(eventType: string): boolean {
+  return ["plan_drafted", "plan_revised", "exploration_observed", "evaluation_made"].includes(
+    eventType,
   );
 }
 
@@ -652,6 +673,101 @@ function latestAgentRunSummary(
   return WORKBENCH.agentRunFallbackStatus(WORKBENCH.agentRunStatusLabels[run.status] ?? run.status);
 }
 
+type AgenticLoopPhaseKey =
+  | "plan"
+  | "explore"
+  | "evaluate"
+  | "replan"
+  | "execute"
+  | "review"
+  | "complete";
+type AgenticLoopPhaseStatus = "pending" | "active" | "done";
+
+interface AgenticLoopPhaseChip {
+  key: AgenticLoopPhaseKey;
+  status: AgenticLoopPhaseStatus;
+}
+
+function agenticLoopPhaseStrip(
+  run: AgentRunStateData | null,
+  events: AgentEventData[],
+  reasoningFlow: AgenticLoopReasoningFlow,
+  preparing: boolean,
+): AgenticLoopPhaseChip[] {
+  const hasPlan =
+    reasoningFlow.planSteps.length > 0 ||
+    events.some((event) => event.event_type === "plan_drafted");
+  const explored = events.some((event) => event.event_type === "exploration_observed");
+  const evaluated = events.some((event) => event.event_type === "evaluation_made");
+  const hasNarrative = reasoningFlow.narrativeEvents.length > 0;
+  const replanned = events.some((event) => event.event_type === "plan_revised");
+  const completed =
+    (run !== null && TERMINAL_AGENT_RUN_STATUSES.has(run.status)) ||
+    events.some((event) =>
+      ["run_completed", "run_cancelled", "run_failed", "turn_result_ready"].includes(
+        event.event_type,
+      ),
+    );
+  const executionObserved =
+    completed ||
+    events.some((event) => ["gate_decided", "turn_result_ready"].includes(event.event_type)) ||
+    reasoningFlow.planSteps.some((step) => step.kind === "act" && step.status === "done");
+  const activeKey: AgenticLoopPhaseKey | null = completed
+    ? null
+    : replanned
+      ? "replan"
+      : executionObserved
+        ? "execute"
+        : evaluated
+          ? "evaluate"
+          : explored
+            ? "explore"
+            : hasPlan || hasNarrative || preparing || run !== null
+              ? "plan"
+              : null;
+
+  const phaseStatus = (key: AgenticLoopPhaseKey, done: boolean): AgenticLoopPhaseStatus => {
+    if (done) return "done";
+    if (activeKey === key) return "active";
+    return "pending";
+  };
+
+  return [
+    { key: "plan", status: phaseStatus("plan", hasPlan || completed) },
+    { key: "explore", status: phaseStatus("explore", explored || completed) },
+    { key: "evaluate", status: phaseStatus("evaluate", evaluated || completed) },
+    { key: "replan", status: phaseStatus("replan", replanned) },
+    { key: "execute", status: phaseStatus("execute", executionObserved) },
+    { key: "review", status: phaseStatus("review", completed) },
+    { key: "complete", status: phaseStatus("complete", completed) },
+  ];
+}
+
+function agenticLoopStatusTone(run: AgentRunStateData | null): AgenticLoopPhaseStatus {
+  if (run !== null && TERMINAL_AGENT_RUN_STATUSES.has(run.status)) return "done";
+  if (run?.status === "awaiting_author") return "pending";
+  return "active";
+}
+
+function planStepSymbol(status: string): string {
+  if (status === "done") return "✓";
+  if (status === "active") return "●";
+  return "○";
+}
+
+function narrativeTone(eventType: string): string {
+  if (eventType === "exploration_observed") return "explore";
+  if (eventType === "evaluation_made") return "evaluate";
+  if (eventType === "plan_revised") return "replan";
+  return "neutral";
+}
+
+function planRevisionLabel(events: AgentEventData[], version: number): string {
+  const revised = events.some((event) => event.event_type === "plan_revised");
+  if (revised && version > 1) return `v${version} · 由 v${version - 1} 调整`;
+  return WORKBENCH.agenticLoopPlanVersion(version);
+}
+
 interface AgentRunDialogueFlowProps {
   run: AgentRunStateData | null;
   events: AgentEventData[];
@@ -660,6 +776,9 @@ interface AgentRunDialogueFlowProps {
   canResume?: boolean;
   canCancel?: boolean;
   providerRuns?: AgentRunProviderUsageData[];
+  detailsDefaultOpen?: boolean;
+  detailsLoading?: boolean;
+  onDetailsOpen?: () => void;
   onCommand?: (command: AgentCommand) => void;
 }
 
@@ -671,89 +790,160 @@ function AgentRunDialogueFlow({
   canResume = false,
   canCancel = false,
   providerRuns = [],
+  detailsDefaultOpen = false,
+  detailsLoading = false,
+  onDetailsOpen,
   onCommand,
 }: AgentRunDialogueFlowProps) {
-  const visibleEvents = events.slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT);
+  const [detailsOpen, setDetailsOpen] = useState(detailsDefaultOpen);
+  const visibleEvents = selectAgentRunVisibleEvents(events, AGENT_RUN_EVENT_VISIBLE_LIMIT);
   const stages = groupAgentRunEvents(visibleEvents);
+  const reasoningFlow = agentRunReasoningFlow(events);
+  const phaseStrip = agenticLoopPhaseStrip(run, events, reasoningFlow, preparing);
+  const statusTone = agenticLoopStatusTone(run);
   const statusLabel =
     run &&
-    (WORKBENCH.agentRunStatusLabels[run.status] ?? (run.status || WORKBENCH.agentRunPreparingStatus));
-  const statusSummary = latestAgentRunSummary(run, visibleEvents, preparing);
-  const executionBrief = agentRunExecutionBrief(visibleEvents, providerRuns);
+    (WORKBENCH.agentRunStatusLabels[run.status] ??
+      (run.status || WORKBENCH.agentRunPreparingStatus));
+  const statusSummary =
+    (preparing ? WORKBENCH.agentRunPreparingEvent : reasoningFlow.statusLine) ??
+    latestAgentRunSummary(run, [], false);
   const providerFlowSummary = agentRunProviderFlowSummary(events, providerRuns);
-  const showControls = run !== null && onCommand !== undefined && !TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+  const showControls =
+    run !== null && onCommand !== undefined && !TERMINAL_AGENT_RUN_STATUSES.has(run.status);
+
+  function handleDetailsToggle(event: SyntheticEvent<HTMLDetailsElement>) {
+    const open = event.currentTarget.open;
+    setDetailsOpen(open);
+    if (open) onDetailsOpen?.();
+  }
 
   return (
     <div className={styles.agentRunFlow} aria-label={WORKBENCH.agentRunFlowAriaLabel}>
       <div className={styles.agentRunFlowRail} aria-hidden="true">
-        <Bot size={15} />
+        <span className={styles.agentRunFlowRailDot} />
+        <span className={styles.agentRunFlowRailLine} />
       </div>
       <div className={styles.agentRunFlowContent}>
-        <div className={styles.agentRunStatusLine}>
-          <span className={styles.agentRunStatusPulse} aria-hidden="true" />
-          <span>{statusSummary}</span>
-        </div>
-
-        <div className={styles.agentRunMetaRow}>
-          <span>{WORKBENCH.agentRunInlineTitle}</span>
-          {statusLabel && <span>{WORKBENCH.agentRunInlineStatus(statusLabel)}</span>}
-          {run?.run_mode === "durable" && (
-            <span>
-              {run.recovered ? WORKBENCH.agentRunRecoveredLabel : WORKBENCH.agentRunDurableLabel}
-              {run.long_run_task_ref ? ` · ${WORKBENCH.agentRunLongTaskRef(run.long_run_task_ref)}` : ""}
-            </span>
-          )}
-        </div>
-
-        {executionBrief && (
-          <div className={styles.agentRunBrief} aria-label={WORKBENCH.agentRunBriefLabel}>
-            <span className={styles.agentRunBriefPath}>{executionBrief.path}</span>
-            {executionBrief.facts.length > 0 && (
-              <span className={styles.agentRunBriefFacts}>{executionBrief.facts.join(" · ")}</span>
+        <div className={styles.agenticLoopStatusPanel}>
+          <div className={styles.agenticLoopStatusMeta}>
+            <span className={styles.agentRunStatusPulse} aria-hidden="true" />
+            {statusLabel && (
+              <span className={styles.agenticLoopStatusChip} data-status={statusTone}>
+                {statusLabel}
+              </span>
+            )}
+            <span>{WORKBENCH.agentRunInlineTitle}</span>
+            {run?.run_mode === "durable" && (
+              <span className={styles.agenticLoopStatusChip}>
+                {run.recovered ? WORKBENCH.agentRunRecoveredLabel : WORKBENCH.agentRunDurableLabel}
+                {run.long_run_task_ref
+                  ? ` · ${WORKBENCH.agentRunLongTaskRef(run.long_run_task_ref)}`
+                  : ""}
+              </span>
             )}
           </div>
+          <div className={styles.agenticLoopStatusText}>{statusSummary}</div>
+        </div>
+
+        <ol
+          className={styles.agenticLoopPhaseStrip}
+          aria-label={WORKBENCH.agenticLoopStateTrackLabel}
+        >
+          {phaseStrip.map((phase, index) => (
+            <Fragment key={phase.key}>
+              <li className={styles.agenticLoopPhase} data-status={phase.status}>
+                <span>{WORKBENCH.agenticLoopPhaseLabels[phase.key]}</span>
+              </li>
+              {index < phaseStrip.length - 1 && (
+                <li className={styles.agenticLoopPhaseArrow} aria-hidden="true">
+                  →
+                </li>
+              )}
+            </Fragment>
+          ))}
+        </ol>
+
+        {reasoningFlow.planSteps.length > 0 && (
+          <>
+            <div className={styles.agenticLoopDivider} aria-hidden="true" />
+            <section className={styles.agenticLoopPlan} aria-label={WORKBENCH.agenticLoopPlanLabel}>
+              <div className={styles.agenticLoopSectionHeader}>
+                <span>{WORKBENCH.agenticLoopPlanLabel}</span>
+                {reasoningFlow.planVersion !== null && (
+                  <span className={styles.agenticLoopVersionPill}>
+                    {planRevisionLabel(events, reasoningFlow.planVersion)}
+                  </span>
+                )}
+              </div>
+              <ol className={styles.agenticLoopPlanSteps}>
+                {reasoningFlow.planSteps.map((step) => (
+                  <li
+                    key={step.stepRef}
+                    className={styles.agenticLoopPlanStep}
+                    data-status={step.status}
+                  >
+                    <span className={styles.agenticLoopPlanStepBadge}>
+                      {planStepSymbol(step.status)}
+                    </span>
+                    <span className={styles.agenticLoopPlanStepBody}>
+                      <span className={styles.agenticLoopPlanStepMeta}>
+                        <span className={styles.agenticLoopPlanStepKind}>
+                          {WORKBENCH.agenticLoopPlanStepKindLabels[step.kind]}
+                        </span>
+                        <span>{WORKBENCH.agenticLoopPlanStepStatusLabels[step.status]}</span>
+                      </span>
+                      <span className={styles.agenticLoopPlanStepText}>{step.description}</span>
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          </>
         )}
 
-        {providerFlowSummary && (
-          <div
-            className={styles.agentRunProviderFlow}
-            aria-label={WORKBENCH.agentRunProviderFlowLabel}
-          >
-            <div className={styles.agentRunProviderFlowHeader}>
-              <span className={styles.agentRunProviderFlowLabel}>
-                {WORKBENCH.agentRunProviderFlowLabel}
-              </span>
-              <span>{providerFlowSummary.headline}</span>
-            </div>
-            {providerFlowSummary.details.length > 0 && (
-              <div className={styles.agentRunProviderFlowDetails}>
-                {providerFlowSummary.details.map((detail) => (
-                  <span key={detail}>{detail}</span>
-                ))}
+        {reasoningFlow.narrativeEvents.length > 0 && (
+          <>
+            <div className={styles.agenticLoopDivider} aria-hidden="true" />
+            <section
+              className={styles.agenticLoopReasoning}
+              aria-label={WORKBENCH.agenticLoopReasoningLabel}
+            >
+              <div className={styles.agenticLoopSectionHeader}>
+                <span>{WORKBENCH.agenticLoopReasoningLabel}</span>
               </div>
-            )}
-            <ol className={styles.agentRunProviderFlowPhases}>
-              {providerFlowSummary.phases.map((phase) => (
-                <li
-                  key={phase.key}
-                  className={`${styles.agentRunProviderFlowPhase} ${
-                    styles[
-                      `agentRunProviderFlowPhase${phase.status[0].toUpperCase()}${phase.status.slice(
-                        1,
-                      )}` as keyof typeof styles
-                    ]
-                  }`}
-                >
-                  <span>{phase.label}</span>
-                  <span>{WORKBENCH.agentRunProviderFlowPhaseStatusLabels[phase.status]}</span>
-                </li>
-              ))}
-            </ol>
-          </div>
+              <ol className={styles.agenticLoopNarratives}>
+                {reasoningFlow.narrativeEvents.map((event) => (
+                  <li key={event.key} className={styles.agenticLoopNarrative}>
+                    <span
+                      className={styles.agenticLoopNarrativeLabel}
+                      data-tone={narrativeTone(event.eventType)}
+                    >
+                      {event.label}
+                    </span>
+                    <span className={styles.agenticLoopNarrativeText}>{event.narrative}</span>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          </>
+        )}
+
+        {reasoningFlow.resultLine && (
+          <section
+            className={styles.agenticLoopResult}
+            aria-label={WORKBENCH.agenticLoopResultLabel}
+          >
+            <span className={styles.agenticLoopResultPill}>{WORKBENCH.agenticLoopResultLabel}</span>
+            <span>{reasoningFlow.resultLine}</span>
+          </section>
         )}
 
         {showControls && (
-          <div className={styles.agentRunInlineActions} aria-label={WORKBENCH.agentRunControlsLabel}>
+          <div
+            className={styles.agentRunInlineActions}
+            aria-label={WORKBENCH.agentRunControlsLabel}
+          >
             <button
               type="button"
               className={styles.iconBtn}
@@ -787,106 +977,90 @@ function AgentRunDialogueFlow({
           </div>
         )}
 
-        <details className={styles.agentRunDetails} open>
+        <details
+          className={styles.agentRunDetails}
+          open={detailsOpen}
+          onToggle={handleDetailsToggle}
+        >
           <summary className={styles.agentRunDetailsSummary}>
             <ChevronDown size={14} aria-hidden="true" />
             <span>{WORKBENCH.agentRunDetailsSummary}</span>
-            <span className={styles.agentRunDetailsHint}>{WORKBENCH.agentRunDetailsHint}</span>
+            <span className={styles.agentRunDetailsHint}>
+              {detailsLoading ? WORKBENCH.agentRunDetailsLoading : WORKBENCH.agentRunDetailsHint}
+            </span>
           </summary>
 
-          {providerRuns.length > 0 && (
-            <section
-              className={styles.agentRunProviderRuns}
-              aria-label={WORKBENCH.agentRunProviderRunsLabel}
-            >
-              <div className={styles.agentRunTimelineLabel}>
-                {WORKBENCH.agentRunProviderRunsLabel}
-              </div>
-              <div className={styles.agentRunTimelineEvents}>
-                {providerRuns.map((providerRun, index) => {
-                  const detailItems = agentRunProviderRunDetailItems(providerRun);
-                  const replayDetails = agentRunProviderRunReplayDetails(providerRun);
-                  const key =
-                    providerRun.provider_run_ref ?? providerRun.provider_call_ref ?? `${index}`;
+          {detailsOpen && (
+            <>
+              {providerFlowSummary && (
+                <section
+                  className={styles.agentRunProviderFlow}
+                  aria-label={WORKBENCH.agentRunProviderFlowLabel}
+                >
+                  <div className={styles.agentRunProviderFlowHeader}>
+                    <span className={styles.agentRunProviderFlowLabel}>
+                      {WORKBENCH.agentRunProviderFlowLabel}
+                    </span>
+                    <span>{providerFlowSummary.headline}</span>
+                  </div>
+                  {providerFlowSummary.details.length > 0 && (
+                    <div className={styles.agentRunProviderFlowDetails}>
+                      {providerFlowSummary.details.map((detail) => (
+                        <span key={detail}>{detail}</span>
+                      ))}
+                    </div>
+                  )}
+                  <ol className={styles.agentRunProviderFlowPhases}>
+                    {providerFlowSummary.phases.map((phase) => (
+                      <li
+                        key={phase.key}
+                        className={`${styles.agentRunProviderFlowPhase} ${
+                          styles[
+                            `agentRunProviderFlowPhase${phase.status[0].toUpperCase()}${phase.status.slice(
+                              1,
+                            )}` as keyof typeof styles
+                          ]
+                        }`}
+                      >
+                        <span>{phase.label}</span>
+                        <span>{WORKBENCH.agentRunProviderFlowPhaseStatusLabels[phase.status]}</span>
+                      </li>
+                    ))}
+                  </ol>
+                </section>
+              )}
 
-                  return (
-                    <details
-                      key={key}
-                      className={styles.agentRunProviderRunDetail}
-                      open={index === 0}
-                    >
-                      <summary className={styles.agentRunProviderRunSummary}>
-                        <ChevronDown size={13} aria-hidden="true" />
-                        <span>
-                          {providerRun.provider_call_ref
-                            ? WORKBENCH.agentRunDetailProviderCallRef(providerRun.provider_call_ref)
-                            : WORKBENCH.agentRunProviderRunsLabel}
-                        </span>
-                      </summary>
-                      {detailItems.length > 0 && (
-                        <div className={styles.agentRunTimelineEventDetails}>
-                          {detailItems.map((item) => (
-                            <span key={item}>{item}</span>
-                          ))}
-                        </div>
-                      )}
-                      <div className={styles.agentRunProviderReplay}>
-                        <section className={styles.agentRunProviderReplaySection}>
-                          <div className={styles.agentRunProviderReplayLabel}>
-                            {WORKBENCH.agentRunProviderReplayEventsLabel}
-                          </div>
-                          <ul className={styles.agentRunProviderReplayList}>
-                            {replayDetails.events.map((event, eventIndex) => (
-                              <li key={`${eventIndex}-${event.title}-${event.details.join("-")}`}>
-                                <div className={styles.agentRunProviderReplayItemTitle}>
-                                  {event.title}
-                                </div>
-                                {event.details.length > 0 && (
-                                  <div className={styles.agentRunTimelineEventDetails}>
-                                    {event.details.map((item) => (
-                                      <span key={item}>{item}</span>
-                                    ))}
-                                  </div>
-                                )}
-                              </li>
-                            ))}
-                          </ul>
-                        </section>
-                        <section className={styles.agentRunProviderReplaySection}>
-                          <div className={styles.agentRunProviderReplayLabel}>
-                            {WORKBENCH.agentRunProviderReplayOutputLabel}
-                          </div>
-                          <div className={styles.agentRunTimelineEventDetails}>
-                            {replayDetails.output.map((item) => (
-                              <span key={item}>{item}</span>
-                            ))}
-                          </div>
-                        </section>
-                        <div className={styles.agentRunProviderReplayBoundary}>
-                          {replayDetails.boundary}
-                        </div>
-                      </div>
-                    </details>
-                  );
-                })}
-              </div>
-            </section>
-          )}
-
-          {stages.length > 0 ? (
-            <div className={styles.agentRunTimeline}>
-              {stages.map((group) => (
-                <section key={group.stage} className={styles.agentRunTimelineSection}>
+              {providerRuns.length > 0 && (
+                <section
+                  className={styles.agentRunProviderRuns}
+                  aria-label={WORKBENCH.agentRunProviderRunsLabel}
+                >
                   <div className={styles.agentRunTimelineLabel}>
-                    {WORKBENCH.agentRunStageLabels[group.stage]}
+                    {WORKBENCH.agentRunProviderRunsLabel}
                   </div>
                   <div className={styles.agentRunTimelineEvents}>
-                    {group.events.map((event) => {
-                      const detailItems = agentRunEventDetailItems(event);
+                    {providerRuns.map((providerRun, index) => {
+                      const detailItems = agentRunProviderRunDetailItems(providerRun);
+                      const replayDetails = agentRunProviderRunReplayDetails(providerRun);
+                      const key =
+                        providerRun.provider_run_ref ?? providerRun.provider_call_ref ?? `${index}`;
 
                       return (
-                        <div key={event.event_id} className={styles.agentRunTimelineEvent}>
-                          <div>{presentAgentEventSummary(event.summary)}</div>
+                        <details
+                          key={key}
+                          className={styles.agentRunProviderRunDetail}
+                          open={index === 0}
+                        >
+                          <summary className={styles.agentRunProviderRunSummary}>
+                            <ChevronDown size={13} aria-hidden="true" />
+                            <span>
+                              {providerRun.provider_call_ref
+                                ? WORKBENCH.agentRunDetailProviderCallRef(
+                                    providerRun.provider_call_ref,
+                                  )
+                                : WORKBENCH.agentRunProviderRunsLabel}
+                            </span>
+                          </summary>
                           {detailItems.length > 0 && (
                             <div className={styles.agentRunTimelineEventDetails}>
                               {detailItems.map((item) => (
@@ -894,15 +1068,83 @@ function AgentRunDialogueFlow({
                               ))}
                             </div>
                           )}
-                        </div>
+                          <div className={styles.agentRunProviderReplay}>
+                            <section className={styles.agentRunProviderReplaySection}>
+                              <div className={styles.agentRunProviderReplayLabel}>
+                                {WORKBENCH.agentRunProviderReplayEventsLabel}
+                              </div>
+                              <ul className={styles.agentRunProviderReplayList}>
+                                {replayDetails.events.map((event, eventIndex) => (
+                                  <li
+                                    key={`${eventIndex}-${event.title}-${event.details.join("-")}`}
+                                  >
+                                    <div className={styles.agentRunProviderReplayItemTitle}>
+                                      {event.title}
+                                    </div>
+                                    {event.details.length > 0 && (
+                                      <div className={styles.agentRunTimelineEventDetails}>
+                                        {event.details.map((item) => (
+                                          <span key={item}>{item}</span>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </li>
+                                ))}
+                              </ul>
+                            </section>
+                            <section className={styles.agentRunProviderReplaySection}>
+                              <div className={styles.agentRunProviderReplayLabel}>
+                                {WORKBENCH.agentRunProviderReplayOutputLabel}
+                              </div>
+                              <div className={styles.agentRunTimelineEventDetails}>
+                                {replayDetails.output.map((item) => (
+                                  <span key={item}>{item}</span>
+                                ))}
+                              </div>
+                            </section>
+                            <div className={styles.agentRunProviderReplayBoundary}>
+                              {replayDetails.boundary}
+                            </div>
+                          </div>
+                        </details>
                       );
                     })}
                   </div>
                 </section>
-              ))}
-            </div>
-          ) : (
-            <div className={styles.agentRunEmptyEvent}>{WORKBENCH.agentRunEmptyEvent}</div>
+              )}
+
+              {stages.length > 0 ? (
+                <div className={styles.agentRunTimeline}>
+                  {stages.map((group) => (
+                    <section key={group.stage} className={styles.agentRunTimelineSection}>
+                      <div className={styles.agentRunTimelineLabel}>
+                        {WORKBENCH.agentRunStageLabels[group.stage]}
+                      </div>
+                      <div className={styles.agentRunTimelineEvents}>
+                        {group.events.map((event) => {
+                          const detailItems = agentRunEventDetailItems(event);
+
+                          return (
+                            <div key={event.event_id} className={styles.agentRunTimelineEvent}>
+                              <div>{presentAgentEventSummary(event.summary)}</div>
+                              {detailItems.length > 0 && (
+                                <div className={styles.agentRunTimelineEventDetails}>
+                                  {detailItems.map((item) => (
+                                    <span key={item}>{item}</span>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              ) : (
+                <div className={styles.agentRunEmptyEvent}>{WORKBENCH.agentRunEmptyEvent}</div>
+              )}
+            </>
           )}
         </details>
       </div>
@@ -1038,6 +1280,8 @@ export function WorkspaceChat() {
   const [sessionSearch, setSessionSearch] = useState("");
   const [readOnlySession, setReadOnlySession] = useState<WorkSessionDto | null>(null);
   const [readOnlySourceTurnRef, setReadOnlySourceTurnRef] = useState<string | null>(null);
+  const [transcriptPage, setTranscriptPage] = useState<SessionTranscriptPageInfo | null>(null);
+  const [olderTranscriptLoading, setOlderTranscriptLoading] = useState(false);
   const [creatingSession, setCreatingSession] = useState(false);
   const [branchingSession, setBranchingSession] = useState(false);
   const [resumePendingAdoptions, setResumePendingAdoptions] = useState<ArtifactEntry[]>([]);
@@ -1067,6 +1311,10 @@ export function WorkspaceChat() {
   const [selectedFindingIdsMap, setSelectedFindingIdsMap] = useState<Record<string, string[]>>({});
   const [agentRunStates, setAgentRunStates] = useState<Record<string, AgentRunStateData>>({});
   const [agentEvents, setAgentEvents] = useState<AgentEventData[]>([]);
+  const [agentRunActivityLoading, setAgentRunActivityLoading] = useState<Record<string, boolean>>(
+    {},
+  );
+  const [agentRunActivityLoaded, setAgentRunActivityLoaded] = useState<Record<string, boolean>>({});
   const [pendingAgentRunAnchors, setPendingAgentRunAnchors] = useState<
     Record<string, PendingAgentRunAnchor>
   >({});
@@ -1095,6 +1343,7 @@ export function WorkspaceChat() {
   });
   const startupRetryRef = useRef<number | null>(null);
   const activeSessionIdRef = useRef<string | null>(null);
+  const visibleTranscriptSessionIdRef = useRef<string | null>(null);
   const modelProviderModelsRequestRef = useRef(0);
   const localMessageSeqRef = useRef(0);
 
@@ -1135,18 +1384,62 @@ export function WorkspaceChat() {
     return () => clearInterval(interval);
   }, [refreshLlmHealth]);
 
+  function agentRunActivityKey(result: TurnResult): string | null {
+    const turnId = result.turn_id;
+    const runId = turnResultAgentRunId(result);
+    if (!turnId || !runId) return null;
+    return `${turnId}:${runId}`;
+  }
+
+  function agentRunActivityAgentRun(
+    activity: { agent_runs?: Record<string, unknown>[] },
+    runId: string | null,
+  ): Record<string, unknown> | null {
+    const agentRuns = Array.isArray(activity.agent_runs) ? activity.agent_runs : [];
+    if (agentRuns.length === 0) return null;
+    return agentRuns.find((entry) => entry.run_id === runId) ?? agentRuns[0] ?? null;
+  }
+
+  function agentRunActivityEvents(
+    activity: { agent_runs?: Record<string, unknown>[] },
+    runId: string | null,
+  ): AgentEventData[] {
+    const agentRun = agentRunActivityAgentRun(activity, runId);
+    const events = agentRun?.events;
+    return Array.isArray(events) ? events.filter(isAgentEventData) : [];
+  }
+
+  function agentRunActivityProviderRuns(
+    activity: { provider_runs?: Record<string, unknown>[] },
+    runId: string | null,
+  ): AgentRunProviderUsageData[] {
+    const providerRuns = Array.isArray(activity.provider_runs) ? activity.provider_runs : [];
+    const scopedRuns = runId
+      ? providerRuns.filter((entry) => entry.run_id === undefined || entry.run_id === runId)
+      : providerRuns;
+
+    return scopedRuns;
+  }
+
   // Lift the turn_result handler so the effect below stays focused on connection setup.
-  async function hydrateProviderRunsForTurn(result: TurnResult) {
+  async function hydrateAgentRunActivityForTurn(result: TurnResult) {
     const workId = context.workId;
     const sessionId = activeSessionIdRef.current;
     const connection = activeConnectionRef.current;
-    if (!workId || workId === "lobby" || !sessionId || !result.turn_id) return;
+    const key = agentRunActivityKey(result);
+    if (!workId || workId === "lobby" || !sessionId || !result.turn_id || !key) return;
+    if (agentRunActivityLoaded[key] || agentRunActivityLoading[key]) return;
+
+    setAgentRunActivityLoading((prev) => ({ ...prev, [key]: true }));
 
     try {
-      const activity = await getTurnProviderRuns(workId, sessionId, result.turn_id);
-      const providerRuns = activity.provider_runs as AgentRunProviderUsageData[];
-      if (providerRuns.length === 0) return;
+      const activity = await getTurnAgentRunActivity(workId, sessionId, result.turn_id);
       if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
+
+      const runId = turnResultAgentRunId(result);
+      const providerRuns = agentRunActivityProviderRuns(activity, runId);
+      const events = agentRunActivityEvents(activity, runId);
+      const agentRun = agentRunActivityAgentRun(activity, runId);
 
       setMessages((prev) =>
         prev.map((message) => {
@@ -1154,12 +1447,20 @@ export function WorkspaceChat() {
 
           return {
             ...message,
-            turnResult: putProviderRunsIntoTurnResult(message.turnResult, providerRuns),
+            turnResult: putAgentRunActivityIntoTurnResult(
+              message.turnResult,
+              agentRun,
+              events,
+              providerRuns,
+            ),
           };
         }),
       );
+      setAgentRunActivityLoaded((prev) => ({ ...prev, [key]: true }));
     } catch {
-      // Provider activity is supplementary author-safe detail; the turn result remains usable.
+      // AgentRun activity is supplementary author-safe detail; the turn result remains usable.
+    } finally {
+      setAgentRunActivityLoading((prev) => ({ ...prev, [key]: false }));
     }
   }
 
@@ -1176,7 +1477,7 @@ export function WorkspaceChat() {
       }));
     }
     setLoading(false);
-    void hydrateProviderRunsForTurn(result);
+    void hydrateAgentRunActivityForTurn(result);
 
     // Auto-track pending clarification: next user message is treated as answer
     const activeBehavior = result.behavior_state?.active;
@@ -1201,15 +1502,20 @@ export function WorkspaceChat() {
     }
   }
 
-  function putProviderRunsIntoTurnResult(
+  function putAgentRunActivityIntoTurnResult(
     turnResult: TurnResult,
+    agentRunSummary: Record<string, unknown> | null,
+    events: AgentEventData[],
     providerRuns: AgentRunProviderUsageData[],
   ): TurnResult {
     return {
       ...turnResult,
       agent_run: {
         ...(turnResult.agent_run ?? {}),
+        ...(agentRunSummary ?? {}),
+        events,
         provider_runs: providerRuns,
+        activity_loaded: true,
       },
     };
   }
@@ -1268,6 +1574,8 @@ export function WorkspaceChat() {
     setActiveSessionId(null);
     setReadOnlySession(null);
     setReadOnlySourceTurnRef(null);
+    setTranscriptPage(null);
+    setOlderTranscriptLoading(false);
     setCreatingSession(false);
     setBranchingSession(false);
     setSessions([]);
@@ -1279,6 +1587,8 @@ export function WorkspaceChat() {
     setMessages([]);
     setAgentRunStates({});
     setAgentEvents([]);
+    setAgentRunActivityLoading({});
+    setAgentRunActivityLoaded({});
     setPendingAgentRunAnchors({});
     setAssistantDisplayNameState(DEFAULT_ASSISTANT_DISPLAY_NAME);
     setAssistantNameDraft("");
@@ -1326,6 +1636,7 @@ export function WorkspaceChat() {
       workTitle = snapshot.work.title || workTitle;
       setActiveSessionId(sessionId);
       setSessions(snapshot.sessions);
+      setTranscriptPage(snapshot.transcript_page);
       setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
       setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
       setMessages(restoredMessages);
@@ -1467,6 +1778,10 @@ export function WorkspaceChat() {
     activeSessionIdRef.current = activeSessionId;
   }, [activeSessionId]);
 
+  useEffect(() => {
+    visibleTranscriptSessionIdRef.current = readOnlySession?.id ?? activeSessionId;
+  }, [activeSessionId, readOnlySession]);
+
   async function loadWorksAndOpenInitial(attempt = 0) {
     try {
       const { availableWorks, initialId } = await resolveInitialWorkBootstrap();
@@ -1561,44 +1876,53 @@ export function WorkspaceChat() {
   const connectionLabel = runtimeState.ui.connectionLabel;
   const visibleAgentRuns = Object.values(agentRunStates);
   const latestAgentRun = visibleAgentRuns.at(-1) ?? null;
+  const latestMessage = messages.at(-1);
   const agentRunIdsRenderedInTurns = new Set(
     messages.map((msg) => turnResultAgentRunId(msg.turnResult)).filter((runId) => runId !== null),
   );
   const latestAgentRunEvents = latestAgentRun
-    ? agentEvents
-        .filter((event) => event.run_ref === latestAgentRun.run_id)
-        .slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT)
+    ? selectAgentRunVisibleEvents(
+        agentEvents.filter((event) => event.run_ref === latestAgentRun.run_id),
+        AGENT_RUN_EVENT_VISIBLE_LIMIT,
+      )
     : [];
   const canPauseAgentRun =
     latestAgentRun?.status === "running" || latestAgentRun?.status === "pausing";
   const canResumeAgentRun =
     latestAgentRun?.status === "paused" || latestAgentRun?.status === "awaiting_author";
   const canCancelAgentRun =
-    latestAgentRun !== null &&
-    !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
+    latestAgentRun !== null && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
   const hasActiveAgentRun =
-    latestAgentRun !== null &&
-    !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
+    latestAgentRun !== null && !TERMINAL_AGENT_RUN_STATUSES.has(latestAgentRun.status);
   const latestAgentRunHasMessageAnchor =
-    latestAgentRun !== null && messages.some((message) => messageAnchorsAgentRun(message, latestAgentRun));
-  const shouldRenderStandaloneAgentRun =
     latestAgentRun !== null &&
-    !agentRunIdsRenderedInTurns.has(latestAgentRun.run_id) &&
-    !latestAgentRunHasMessageAnchor;
+    messages.some((message) => messageAnchorsAgentRun(message, latestAgentRun));
+  const shouldRenderStandaloneAgentRun = shouldRenderStandaloneAgentRunStatus(
+    latestAgentRun,
+    latestMessage,
+    {
+      agentRunIdsRenderedInTurns,
+      hasMessageAnchor: latestAgentRunHasMessageAnchor,
+    },
+  );
   const hasPendingAgentRunAnchor = Object.keys(pendingAgentRunAnchors).length > 0;
   const canRouteMainInputToAgentSteer = shouldRouteInputToAgentSteer({
     latestAgentRun,
     pendingAnswerBehaviorId: pendingAnswerBid,
   });
   const canSubmitMainInput =
-    socketConnected && !isPanelOpen && !isReadOnlySessionView && (!loading || canRouteMainInputToAgentSteer);
+    socketConnected &&
+    !isPanelOpen &&
+    !isReadOnlySessionView &&
+    (!loading || canRouteMainInputToAgentSteer);
 
   const rememberAgentRunAck = useCallback(
     (response: SendMessageResult, text: string, clientMessageId: string | null = null) => {
+      if (!response.run_id) return;
+
       if (clientMessageId) {
         setPendingAgentRunAnchors((prev) => removePendingAgentRunAnchor(prev, clientMessageId));
       }
-      if (!response.run_id) return;
 
       setMessages((prev) => bindAgentRunAckToUserMessage(prev, response, clientMessageId));
 
@@ -1621,7 +1945,7 @@ export function WorkspaceChat() {
 
       setAgentRunStates((prev) => ({
         ...prev,
-        [response.run_id!]: prev[response.run_id!] ?? acknowledgedState,
+        [response.run_id!]: mergeAgentRunRuntimeState(prev[response.run_id!], acknowledgedState),
       }));
     },
     [activeSessionId, context.workId],
@@ -1682,11 +2006,23 @@ export function WorkspaceChat() {
         generateMicroPlan: options.generateMicroPlan ?? false,
       })
     ) {
+      const clientMessageId = nextLocalMessageId();
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: "user",
+          text,
+          clientMessageId,
+          agentRunId: latestAgentRun!.run_id,
+        },
+      ]);
       if (messageText === inputText) setInputText("");
+      setLoading(true);
       try {
         await sendAgentCommand(channelRef.current, latestAgentRun!.run_id, "steer", text);
       } catch {
         setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.actionFailure }]);
+        setLoading(false);
       }
       return;
     }
@@ -2028,6 +2364,7 @@ export function WorkspaceChat() {
       setReadOnlySourceTurnRef(null);
       setActiveSessionId(snapshot.active_session.id);
       setSessions(snapshot.sessions);
+      setTranscriptPage(snapshot.transcript_page);
       setResumePendingAdoptions(snapshot.pending_adoptions as unknown as ArtifactEntry[]);
       setResumeResolvedAdoptions(snapshot.resolved_adoptions as unknown as ArtifactEntry[]);
       setMessages(restoredMessages);
@@ -2035,6 +2372,60 @@ export function WorkspaceChat() {
       resumeRestoredTranscriptRef.current = restoredMessages.length > 0;
     } catch {
       setMessages((prev) => [...prev, { role: "assistant", text: WORKBENCH.sessionOpenFailure }]);
+    }
+  };
+
+  function mergeOlderTranscriptMessages(
+    olderMessages: ChatMessage[],
+    currentMessages: ChatMessage[],
+  ): ChatMessage[] {
+    const currentKeys = new Set(currentMessages.map(transcriptMessageKey));
+    return [
+      ...olderMessages.filter((message) => !currentKeys.has(transcriptMessageKey(message))),
+      ...currentMessages,
+    ];
+  }
+
+  function transcriptMessageKey(message: ChatMessage): string {
+    const identity = message.turnResult?.turn_id ?? message.turnId ?? message.clientMessageId ?? "";
+    return `${message.role}:${identity}:${message.text}`;
+  }
+
+  const handleLoadOlderTranscript = async () => {
+    const workId = context.workId;
+    const sessionId = visibleTranscriptSessionIdRef.current;
+    const beforeId = transcriptPage?.before_id;
+    const connection = activeConnectionRef.current;
+
+    if (
+      !workId ||
+      workId === "lobby" ||
+      !sessionId ||
+      !beforeId ||
+      !transcriptPage?.has_more_before ||
+      olderTranscriptLoading
+    ) {
+      return;
+    }
+
+    setOlderTranscriptLoading(true);
+    try {
+      const page = await getSessionTranscriptPage(workId, sessionId, { beforeId });
+      if (!isCurrentWorkConnection(activeConnectionRef.current, connection)) return;
+      if (visibleTranscriptSessionIdRef.current !== sessionId) return;
+
+      const olderMessages = transcriptToMessages(page.transcript) as ChatMessage[];
+      setMessages((prev) => mergeOlderTranscriptMessages(olderMessages, prev));
+      setTranscriptPage(page.transcript_page);
+    } catch {
+      setMessages((prev) => [
+        { role: "assistant", text: WORKBENCH.sessionOlderLoadFailure },
+        ...prev,
+      ]);
+    } finally {
+      if (isCurrentWorkConnection(activeConnectionRef.current, connection)) {
+        setOlderTranscriptLoading(false);
+      }
     }
   };
 
@@ -2072,6 +2463,7 @@ export function WorkspaceChat() {
           ?.turn_id ?? null;
       setReadOnlySession(shouldOpenReadOnly ? snapshot.session : null);
       setReadOnlySourceTurnRef(shouldOpenReadOnly ? sourceTurnRef : null);
+      setTranscriptPage(snapshot.transcript_page);
       setMessages(restoredMessages);
       setResumePendingAdoptions(
         shouldOpenReadOnly ? [] : (snapshot.pending_adoptions as unknown as ArtifactEntry[]),
@@ -3249,24 +3641,49 @@ export function WorkspaceChat() {
                 </div>
               </div>
             )}
+            {transcriptPage?.has_more_before && (
+              <div className={styles.transcriptHistoryLoader}>
+                <button
+                  type="button"
+                  className={styles.btnSecondary}
+                  disabled={olderTranscriptLoading}
+                  onClick={() => {
+                    void handleLoadOlderTranscript();
+                  }}
+                >
+                  {olderTranscriptLoading
+                    ? WORKBENCH.sessionLoadOlderLoading
+                    : WORKBENCH.sessionLoadOlder}
+                </button>
+              </div>
+            )}
             {messages.map((msg, i) => {
               const messageAgentRunId = turnResultAgentRunId(msg.turnResult);
               const anchoredAgentRun =
                 msg.role === "user"
-                  ? visibleAgentRuns.find((run) => messageAnchorsAgentRun(msg, run)) ?? null
+                  ? (visibleAgentRuns.find((run) => messageAnchorsAgentRun(msg, run)) ?? null)
                   : null;
               const pendingAgentRunAnchor =
                 msg.role === "user" && msg.clientMessageId
-                  ? pendingAgentRunAnchors[msg.clientMessageId] ?? null
+                  ? (pendingAgentRunAnchors[msg.clientMessageId] ?? null)
                   : null;
-              const shouldRenderAnchoredAgentRun =
-                anchoredAgentRun !== null && !agentRunIdsRenderedInTurns.has(anchoredAgentRun.run_id);
-              const shouldRenderPendingAgentRun =
-                pendingAgentRunAnchor !== null && anchoredAgentRun === null;
+              const shouldRenderAnchoredAgentRun = shouldRenderAnchoredAgentRunStatus(
+                anchoredAgentRun,
+                {
+                  agentRunIdsRenderedInTurns,
+                  messageIsLatest: i === messages.length - 1,
+                },
+              );
+              const shouldRenderPendingAgentRun = shouldRenderUserAgentRunPlaceholder(msg, {
+                anchoredRun: anchoredAgentRun,
+                agentRunIdsRenderedInTurns,
+                hasPendingAnchor: pendingAgentRunAnchor !== null,
+              });
               const anchoredAgentRunEvents = anchoredAgentRun
-                ? agentEvents
-                    .filter((event) => event.run_ref === anchoredAgentRun.run_id)
-                    .slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT)
+                ? selectAgentRunVisibleEvents(
+                    agentEvents.filter((event) => event.run_ref === anchoredAgentRun.run_id),
+                    AGENT_RUN_EVENT_VISIBLE_LIMIT,
+                  )
                 : [];
               const anchoredRunIsLatest = latestAgentRun?.run_id === anchoredAgentRun?.run_id;
               const messageAgentRunFromState = messageAgentRunId
@@ -3283,213 +3700,232 @@ export function WorkspaceChat() {
                   ? { ...messageAgentRunFromState, ...messageAgentRunFromTurn }
                   : (messageAgentRunFromState ?? messageAgentRunFromTurn);
               const messageAgentRunEvents = messageAgentRunId
-                ? mergeAgentRunEvents(
-                    agentRunEventsFromTurnResult(msg.turnResult),
-                    agentEvents.filter((event) => event.run_ref === messageAgentRunId),
-                  ).slice(-AGENT_RUN_EVENT_VISIBLE_LIMIT)
+                ? selectAgentRunVisibleEvents(
+                    mergeAgentRunEvents(
+                      agentRunEventsFromTurnResult(msg.turnResult),
+                      agentEvents.filter((event) => event.run_ref === messageAgentRunId),
+                    ),
+                    AGENT_RUN_EVENT_VISIBLE_LIMIT,
+                  )
                 : [];
               const messageRunIsLatest = latestAgentRun?.run_id === messageAgentRunId;
+              const messageAgentRunActivityKey = msg.turnResult
+                ? agentRunActivityKey(msg.turnResult)
+                : null;
+              const messageAgentRunDetailsLoading = messageAgentRunActivityKey
+                ? agentRunActivityLoading[messageAgentRunActivityKey] === true
+                : false;
               const messageIdentity =
                 msg.turnResult?.turn_id ?? msg.turnId ?? msg.clientMessageId ?? String(i);
-              const messageKey =
-                `${msg.role}:${messageIdentity}:${messageAgentRunId ?? msg.agentRunId ?? "none"}`;
+              const messageKey = `${msg.role}:${messageIdentity}:${messageAgentRunId ?? msg.agentRunId ?? "none"}`;
 
               return (
                 <Fragment key={messageKey}>
-                <div className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
-                <div className={styles.role}>
-                  {assistantRoleLabel(msg.role, assistantDisplayName)}
-                </div>
-                {msg.role === "assistant" &&
-                  msg.turnResult?.frame_summary &&
-                  (() => {
-                    const framePresentation = framePresentationForSummary({
-                      ...msg.turnResult.frame_summary,
-                      decision_type: msg.turnResult.trace_summary?.decision_type,
-                    });
+                  <div className={msg.role === "user" ? styles.userMsg : styles.assistantMsg}>
+                    <div className={styles.role}>
+                      {assistantRoleLabel(msg.role, assistantDisplayName)}
+                    </div>
+                    {msg.role === "assistant" &&
+                      msg.turnResult?.frame_summary &&
+                      (() => {
+                        const framePresentation = framePresentationForSummary({
+                          ...msg.turnResult.frame_summary,
+                          decision_type: msg.turnResult.trace_summary?.decision_type,
+                        });
 
-                    return framePresentation.visible ? (
-                      <div
-                        className={styles.frameBadge}
-                        data-frame-tone={framePresentation.tone}
-                        title={framePresentation.title}
-                      >
-                        {framePresentation.label}
-                      </div>
-                    ) : null;
-                  })()}
-                <div className={styles.text}>{msg.text}</div>
+                        return framePresentation.visible ? (
+                          <div
+                            className={styles.frameBadge}
+                            data-frame-tone={framePresentation.tone}
+                            title={framePresentation.title}
+                          >
+                            {framePresentation.label}
+                          </div>
+                        ) : null;
+                      })()}
+                    <div className={styles.text}>{msg.text}</div>
 
-                {msg.role === "assistant" && messageAgentRun && (
-                  <AgentRunDialogueFlow
-                    run={messageAgentRun}
-                    events={messageAgentRunEvents}
-                    providerRuns={msg.turnResult?.agent_run?.provider_runs ?? []}
-                    canPause={messageRunIsLatest && canPauseAgentRun}
-                    canResume={messageRunIsLatest && canResumeAgentRun}
-                    canCancel={messageRunIsLatest && canCancelAgentRun}
-                    onCommand={
-                      messageRunIsLatest
-                        ? (command) => {
-                            void handleAgentCommand(command);
-                          }
-                        : undefined
-                    }
-                  />
-                )}
-
-                {msg.role === "assistant" && msg.turnResult && (
-                  <button
-                    className={styles.traceWhyButton}
-                    type="button"
-                    title={TRACE.actionTitle}
-                    onClick={() =>
-                      void openTraceDialog(msg.turnResult!.turn_id, msg.turnResult!.trace_summary)
-                    }
-                  >
-                    <CircleHelp size={14} aria-hidden="true" />
-                    <span>{TRACE.actionLabel}</span>
-                  </button>
-                )}
-
-                {!isReadOnlySessionView &&
-                  msg.turnResult?.ui_cards?.map((card, ci) => {
-                    switch (card.card_type) {
-                      case "clarification_card":
-                        return <ClarificationCard key={ci} card={card} />;
-                      case "confirmation_card":
-                        return <ConfirmationCard key={ci} card={card} />;
-                      case "warning_card":
-                        return <WarningCard key={ci} card={card} />;
-                      case "candidate_set":
-                        return <CandidateSetCard key={ci} card={card} />;
-                      case "progress_card":
-                        return <ProgressCard key={ci} card={card} />;
-                      case "checkpoint_card":
-                        return <CheckpointCard key={ci} card={card} />;
-                      case "result_card":
-                        return <ResultCard key={ci} card={card} />;
-                      case "failure_card":
-                        return <FailureCard key={ci} card={card} />;
-                      case "escalation_card":
-                        return <EscalationCard key={ci} card={card} />;
-                      default:
-                        return <DefaultCard key={ci} card={card} />;
-                    }
-                  })}
-
-                {(() => {
-                  const turnResult = msg.turnResult;
-                  if (!isReadOnlySessionView && turnResult && turnResult.quality_review) {
-                    const qr = turnResult.quality_review;
-                    const turnId = turnResult.turn_id;
-                    const defaultIds = qr.findings.map((f) => f.validator || "");
-
-                    return (
-                      <QualityReviewCard
-                        review={qr}
-                        selectedFindingIds={selectedFindingIdsMap[turnId] ?? defaultIds}
-                        onToggleFinding={(findingId) => {
-                          setSelectedFindingIdsMap((prev) => {
-                            const current = prev[turnId] ?? defaultIds;
-                            const next = current.includes(findingId)
-                              ? current.filter((id) => id !== findingId)
-                              : [...current, findingId];
-                            return { ...prev, [turnId]: next };
-                          });
-                        }}
-                        onToggleAllFindings={() => {
-                          setSelectedFindingIdsMap((prev) => {
-                            const current = prev[turnId] ?? defaultIds;
-                            const next = current.length === defaultIds.length ? [] : defaultIds;
-                            return { ...prev, [turnId]: next };
-                          });
-                        }}
-                        onRevise={
-                          (turnResult.available_actions ?? []).some(
-                            (action) => action.action_type === "revise_from_findings",
-                          )
+                    {msg.role === "assistant" && messageAgentRun && (
+                      <AgentRunDialogueFlow
+                        run={messageAgentRun}
+                        events={messageAgentRunEvents}
+                        providerRuns={msg.turnResult?.agent_run?.provider_runs ?? []}
+                        detailsLoading={messageAgentRunDetailsLoading}
+                        onDetailsOpen={
+                          msg.turnResult
                             ? () => {
-                                const selected = selectedFindingIdsMap[turnId] ?? defaultIds;
-                                void handleReviseFromFindings(turnResult, selected);
+                                void hydrateAgentRunActivityForTurn(msg.turnResult!);
                               }
                             : undefined
                         }
-                        revising={loading}
+                        canPause={messageRunIsLatest && canPauseAgentRun}
+                        canResume={messageRunIsLatest && canResumeAgentRun}
+                        canCancel={messageRunIsLatest && canCancelAgentRun}
+                        onCommand={
+                          messageRunIsLatest
+                            ? (command) => {
+                                void handleAgentCommand(command);
+                              }
+                            : undefined
+                        }
                       />
-                    );
-                  }
-                  return null;
-                })()}
+                    )}
 
-                {!isReadOnlySessionView &&
-                  msg.turnResult?.candidate_directions &&
-                  msg.turnResult.candidate_directions.length > 0 && (
-                    <WorkspaceCandidatePanel
-                      turnResult={msg.turnResult}
-                      candidates={msg.turnResult.candidate_directions}
-                      loading={loading}
-                      socketConnected={socketConnected}
-                      onCandidateContinue={(candidateTurnResult, candidate) => {
-                        void handleCandidateContinue(candidateTurnResult, candidate);
-                      }}
-                      onCandidateAdopt={(candidateTurnResult, action) => {
-                        void handleAvailableAction(candidateTurnResult, action);
-                      }}
-                    />
-                  )}
+                    {msg.role === "assistant" && msg.turnResult && (
+                      <button
+                        className={styles.traceWhyButton}
+                        type="button"
+                        title={TRACE.actionTitle}
+                        onClick={() =>
+                          void openTraceDialog(
+                            msg.turnResult!.turn_id,
+                            msg.turnResult!.trace_summary,
+                          )
+                        }
+                      >
+                        <CircleHelp size={14} aria-hidden="true" />
+                        <span>{TRACE.actionLabel}</span>
+                      </button>
+                    )}
 
-                {!isReadOnlySessionView &&
-                  msg.turnResult &&
-                  visibleAvailableActions(msg.turnResult).length > 0 && (
-                    <div className={styles.cardActions}>
-                      {visibleAvailableActions(msg.turnResult).map((action) => (
-                        <button
-                          key={action.action_id}
-                          className={styles.btnSecondary}
-                          disabled={action.enabled === false}
-                          title={actionTitle(msg.turnResult!, action)}
-                          onClick={() => {
-                            if (msg.turnResult) {
-                              handleVisibleAvailableAction(msg.turnResult, action);
+                    {!isReadOnlySessionView &&
+                      msg.turnResult?.ui_cards?.map((card, ci) => {
+                        switch (card.card_type) {
+                          case "clarification_card":
+                            return <ClarificationCard key={ci} card={card} />;
+                          case "confirmation_card":
+                            return <ConfirmationCard key={ci} card={card} />;
+                          case "warning_card":
+                            return <WarningCard key={ci} card={card} />;
+                          case "candidate_set":
+                            return <CandidateSetCard key={ci} card={card} />;
+                          case "progress_card":
+                            return <ProgressCard key={ci} card={card} />;
+                          case "checkpoint_card":
+                            return <CheckpointCard key={ci} card={card} />;
+                          case "result_card":
+                            return <ResultCard key={ci} card={card} />;
+                          case "failure_card":
+                            return <FailureCard key={ci} card={card} />;
+                          case "escalation_card":
+                            return <EscalationCard key={ci} card={card} />;
+                          default:
+                            return <DefaultCard key={ci} card={card} />;
+                        }
+                      })}
+
+                    {(() => {
+                      const turnResult = msg.turnResult;
+                      if (!isReadOnlySessionView && turnResult && turnResult.quality_review) {
+                        const qr = turnResult.quality_review;
+                        const turnId = turnResult.turn_id;
+                        const defaultIds = qr.findings.map((f) => f.validator || "");
+
+                        return (
+                          <QualityReviewCard
+                            review={qr}
+                            selectedFindingIds={selectedFindingIdsMap[turnId] ?? defaultIds}
+                            onToggleFinding={(findingId) => {
+                              setSelectedFindingIdsMap((prev) => {
+                                const current = prev[turnId] ?? defaultIds;
+                                const next = current.includes(findingId)
+                                  ? current.filter((id) => id !== findingId)
+                                  : [...current, findingId];
+                                return { ...prev, [turnId]: next };
+                              });
+                            }}
+                            onToggleAllFindings={() => {
+                              setSelectedFindingIdsMap((prev) => {
+                                const current = prev[turnId] ?? defaultIds;
+                                const next = current.length === defaultIds.length ? [] : defaultIds;
+                                return { ...prev, [turnId]: next };
+                              });
+                            }}
+                            onRevise={
+                              (turnResult.available_actions ?? []).some(
+                                (action) => action.action_type === "revise_from_findings",
+                              )
+                                ? () => {
+                                    const selected = selectedFindingIdsMap[turnId] ?? defaultIds;
+                                    void handleReviseFromFindings(turnResult, selected);
+                                  }
+                                : undefined
                             }
-                          }}
-                        >
-                          {actionLabel(msg.turnResult!, action)}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                {shouldRenderAnchoredAgentRun && (
-                  <div className={styles.assistantMsg}>
-                    <div className={styles.role}>
-                      {assistantRoleLabel("assistant", assistantDisplayName)}
-                    </div>
-                    <AgentRunDialogueFlow
-                      run={anchoredAgentRun}
-                      events={anchoredAgentRunEvents}
-                      canPause={anchoredRunIsLatest && canPauseAgentRun}
-                      canResume={anchoredRunIsLatest && canResumeAgentRun}
-                      canCancel={anchoredRunIsLatest && canCancelAgentRun}
-                      onCommand={
-                        anchoredRunIsLatest
-                          ? (command) => {
-                              void handleAgentCommand(command);
-                            }
-                          : undefined
+                            revising={loading}
+                          />
+                        );
                       }
-                    />
+                      return null;
+                    })()}
+
+                    {!isReadOnlySessionView &&
+                      msg.turnResult?.candidate_directions &&
+                      msg.turnResult.candidate_directions.length > 0 && (
+                        <WorkspaceCandidatePanel
+                          turnResult={msg.turnResult}
+                          candidates={msg.turnResult.candidate_directions}
+                          loading={loading}
+                          socketConnected={socketConnected}
+                          onCandidateContinue={(candidateTurnResult, candidate) => {
+                            void handleCandidateContinue(candidateTurnResult, candidate);
+                          }}
+                          onCandidateAdopt={(candidateTurnResult, action) => {
+                            void handleAvailableAction(candidateTurnResult, action);
+                          }}
+                        />
+                      )}
+
+                    {!isReadOnlySessionView &&
+                      msg.turnResult &&
+                      visibleAvailableActions(msg.turnResult).length > 0 && (
+                        <div className={styles.cardActions}>
+                          {visibleAvailableActions(msg.turnResult).map((action) => (
+                            <button
+                              key={action.action_id}
+                              className={styles.btnSecondary}
+                              disabled={action.enabled === false}
+                              title={actionTitle(msg.turnResult!, action)}
+                              onClick={() => {
+                                if (msg.turnResult) {
+                                  handleVisibleAvailableAction(msg.turnResult, action);
+                                }
+                              }}
+                            >
+                              {actionLabel(msg.turnResult!, action)}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                   </div>
-                )}
-                {shouldRenderPendingAgentRun && (
-                  <div className={styles.assistantMsg}>
-                    <div className={styles.role}>
-                      {assistantRoleLabel("assistant", assistantDisplayName)}
+                  {shouldRenderAnchoredAgentRun && (
+                    <div className={styles.assistantMsg}>
+                      <div className={styles.role}>
+                        {assistantRoleLabel("assistant", assistantDisplayName)}
+                      </div>
+                      <AgentRunDialogueFlow
+                        run={anchoredAgentRun}
+                        events={anchoredAgentRunEvents}
+                        canPause={anchoredRunIsLatest && canPauseAgentRun}
+                        canResume={anchoredRunIsLatest && canResumeAgentRun}
+                        canCancel={anchoredRunIsLatest && canCancelAgentRun}
+                        onCommand={
+                          anchoredRunIsLatest
+                            ? (command) => {
+                                void handleAgentCommand(command);
+                              }
+                            : undefined
+                        }
+                      />
                     </div>
-                    <AgentRunDialogueFlow run={null} events={[]} preparing />
-                  </div>
-                )}
+                  )}
+                  {shouldRenderPendingAgentRun && (
+                    <div className={styles.assistantMsg}>
+                      <div className={styles.role}>
+                        {assistantRoleLabel("assistant", assistantDisplayName)}
+                      </div>
+                      <AgentRunDialogueFlow run={null} events={[]} preparing />
+                    </div>
+                  )}
                 </Fragment>
               );
             })}
@@ -3516,13 +3952,13 @@ export function WorkspaceChat() {
               !hasActiveAgentRun &&
               !shouldRenderStandaloneAgentRun &&
               !hasPendingAgentRunAnchor && (
-              <div className={styles.assistantMsg}>
-                <div className={styles.role}>
-                  {assistantRoleLabel("assistant", assistantDisplayName)}
+                <div className={styles.assistantMsg}>
+                  <div className={styles.role}>
+                    {assistantRoleLabel("assistant", assistantDisplayName)}
+                  </div>
+                  <AgentRunDialogueFlow run={null} events={[]} preparing />
                 </div>
-                <AgentRunDialogueFlow run={null} events={[]} preparing />
-              </div>
-            )}
+              )}
             <div ref={messagesEndRef} />
           </div>
 
@@ -3678,27 +4114,32 @@ export function WorkspaceChat() {
                   {WORKBENCH.pendingAdoptionsPrefix} {pendingAdoptionsCount}
                 </div>
               )}
-              <WorkspaceSessionList
-                sessions={sessions}
-                activeSessionId={activeSessionId}
-                sessionSearch={sessionSearch}
-                canCreateSession={
-                  socketConnected && Boolean(context.workId) && context.workId !== "lobby"
-                }
-                creatingSession={creatingSession}
-                onSessionSearch={(query) => {
-                  void handleSessionSearch(query);
-                }}
-                onOpenSession={(session) => {
-                  void handleOpenSession(session);
-                }}
-                onCreateSession={() => {
-                  void handleCreateSession();
-                }}
-                onArchiveSession={(session) => {
-                  void handleArchiveSession(session);
-                }}
-              />
+              <details className={styles.sessionRailDetails}>
+                <summary className={styles.sessionRailSummary}>
+                  {WORKBENCH.sessionRailSummary}
+                </summary>
+                <WorkspaceSessionList
+                  sessions={sessions}
+                  activeSessionId={activeSessionId}
+                  sessionSearch={sessionSearch}
+                  canCreateSession={
+                    socketConnected && Boolean(context.workId) && context.workId !== "lobby"
+                  }
+                  creatingSession={creatingSession}
+                  onSessionSearch={(query) => {
+                    void handleSessionSearch(query);
+                  }}
+                  onOpenSession={(session) => {
+                    void handleOpenSession(session);
+                  }}
+                  onCreateSession={() => {
+                    void handleCreateSession();
+                  }}
+                  onArchiveSession={(session) => {
+                    void handleArchiveSession(session);
+                  }}
+                />
+              </details>
             </div>
           </div>
         )}

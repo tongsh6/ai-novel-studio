@@ -7,6 +7,8 @@ defmodule NovelPersistence.MemoryLogTest do
   alias NovelFoundation.Enums.SourceType
   alias NovelPersistence.MemoryLog
   alias NovelPersistence.Repo
+  alias NovelPersistence.WorkRepo
+  alias NovelPersistence.WorkSessionRepo
 
   setup do
     :ok = Sandbox.checkout(Repo)
@@ -98,6 +100,48 @@ defmodule NovelPersistence.MemoryLogTest do
       assert length(MemoryLog.recent("ws-a", 10)) == 1
       assert length(MemoryLog.recent("ws-b", 10)) == 1
       assert MemoryLog.recent("ws-nonexistent", 10) == []
+    end
+  end
+
+  describe "transcript_page/2" do
+    test "returns latest page in chronological order with older cursor" do
+      {:ok, work} = WorkRepo.create(%{title: "分页测试"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "默认会话"})
+
+      for i <- 1..5 do
+        {:ok, _} =
+          MemoryLog.record(
+            %{
+              @valid_entry
+              | turn_id: "turn-#{i}",
+                content: %{text: "第#{i}句"}
+            }
+            |> Map.put(:session_id, session.id)
+          )
+      end
+
+      assert {:ok, page} = MemoryLog.transcript_page(session.id, limit: 3)
+      assert Enum.map(page.entries, & &1.turn_id) == ["turn-3", "turn-4", "turn-5"]
+      assert page.returned_count == 3
+      assert page.has_more_before == true
+      assert page.before_id == List.first(page.entries).id
+
+      assert {:ok, older} =
+               MemoryLog.transcript_page(session.id, limit: 3, before_id: page.before_id)
+
+      assert Enum.map(older.entries, & &1.turn_id) == ["turn-1", "turn-2"]
+      assert older.has_more_before == false
+    end
+
+    test "rejects a cursor outside the session" do
+      {:ok, work} = WorkRepo.create(%{title: "分页测试"})
+      {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "默认会话"})
+      {:ok, other_session} = WorkSessionRepo.create(%{work_id: work.id, title: "其他会话"})
+
+      {:ok, cursor} = MemoryLog.record(Map.put(@valid_entry, :session_id, other_session.id))
+
+      assert {:error, :cursor_not_found} =
+               MemoryLog.transcript_page(session.id, before_id: cursor.id)
     end
   end
 

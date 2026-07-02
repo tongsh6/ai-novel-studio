@@ -12,18 +12,33 @@ defmodule NovelAgent.Tools.WorldBuildingAdapter do
     do: CreativeToolAdapter.execute(req, artifact_type(req), provider_execution, Real)
 
   defp artifact_type(%ToolRequest{input: input}) when is_map(input) do
-    text =
-      [
-        Map.get(input, "artifact_type"),
-        Map.get(input, :artifact_type),
-        Map.get(input, "creative_brief"),
-        Map.get(input, :creative_brief),
-        Map.get(input, "text"),
-        Map.get(input, :text)
-      ]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.map_join("\n", &to_string/1)
+    explicit_artifact_type = first_present(input, ["artifact_type", :artifact_type])
+    author_goal_text = first_present(input, ["author_goal_text", :author_goal_text])
 
+    case artifact_type_ref(explicit_artifact_type) do
+      nil ->
+        author_goal_text
+        |> intent_text_or_fallback(input)
+        |> artifact_type_from_text()
+
+      type ->
+        type
+    end
+  end
+
+  defp artifact_type(_req), do: :world_setting
+
+  defp artifact_type_ref("foreshadowing_seed"), do: :foreshadowing_seed
+  defp artifact_type_ref("world_rule_seed"), do: :world_rule_seed
+  defp artifact_type_ref("style_rule_seed"), do: :style_rule_seed
+  defp artifact_type_ref("constraint_seed"), do: :constraint_seed
+  defp artifact_type_ref("world_setting"), do: :world_setting
+  defp artifact_type_ref(_type), do: nil
+
+  defp intent_text_or_fallback(text, _input) when is_binary(text) and text != "", do: text
+  defp intent_text_or_fallback(_text, input), do: fallback_intent_text(input)
+
+  defp artifact_type_from_text(text) do
     cond do
       contains_any?(text, ["伏笔", "悬念", "线索", "回收"]) ->
         :foreshadowing_seed
@@ -42,7 +57,25 @@ defmodule NovelAgent.Tools.WorldBuildingAdapter do
     end
   end
 
-  defp artifact_type(_req), do: :world_setting
+  defp fallback_intent_text(input) do
+    [
+      Map.get(input, "creative_brief"),
+      Map.get(input, :creative_brief),
+      Map.get(input, "text"),
+      Map.get(input, :text)
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map_join("\n", &to_string/1)
+  end
+
+  defp first_present(input, keys) do
+    case keys |> Enum.map(&Map.get(input, &1)) |> Enum.find(&present?/1) do
+      nil -> ""
+      value -> to_string(value)
+    end
+  end
+
+  defp present?(value), do: is_binary(value) and String.trim(value) != ""
 
   defp contains_any?(text, terms) do
     Enum.any?(terms, &String.contains?(text, &1))

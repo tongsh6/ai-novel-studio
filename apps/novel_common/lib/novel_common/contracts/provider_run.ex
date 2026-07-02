@@ -10,6 +10,7 @@ defmodule NovelCommon.Contracts.ProviderRun do
 
   @type purpose ::
           :conversation
+          | :author_reasoning
           | :planner
           | :writer
           | :evaluator
@@ -42,7 +43,17 @@ defmodule NovelCommon.Contracts.ProviderRun do
           completed_at: DateTime.t() | nil
         }
 
-  @purposes [:conversation, :planner, :writer, :evaluator, :revision, :tool, :narration, :other]
+  @purposes [
+    :conversation,
+    :author_reasoning,
+    :planner,
+    :writer,
+    :evaluator,
+    :revision,
+    :tool,
+    :narration,
+    :other
+  ]
   @statuses [:initialized, :running, :completed, :failed, :cancel_requested, :cancelled]
   @execution_modes [:event_stream]
 

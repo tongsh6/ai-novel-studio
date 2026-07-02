@@ -46,10 +46,20 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
+  @world_building_profile %{
+    profile_id: "world_building_with_context_v1",
+    allowed_tools: ["world_building"],
+    required_observations: [],
+    completion_conditions: ["tentative_world_setting_created"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
   @prose_revision_profile %{
     profile_id: "prose_revision_from_findings_v1",
     allowed_tools: ["prose_writing"],
-    required_observations: ["revision_source_loaded", "revision_micro_plan_created"],
+    required_observations: ["revision_source_loaded", "revision_orchestrator_decision_recorded"],
     completion_conditions: ["tentative_revision_fragment_created"],
     pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
     run_policy_ref: "bounded_small_v1",
@@ -93,11 +103,23 @@ defmodule NovelAgent.AgentTaskProfileRegistry do
     durable_eligible: false
   }
 
+  @profile_routing_profile %{
+    profile_id: "profile_routing_v1",
+    allowed_tools: ["profile_route"],
+    required_observations: [],
+    completion_conditions: ["profile_routed"],
+    pause_conditions: ["target_work_missing", "run_budget_exhausted", "no_progress"],
+    run_policy_ref: "bounded_small_v1",
+    durable_eligible: false
+  }
+
   @spec get(String.t()) :: map() | nil
+  def get("profile_routing_v1"), do: @profile_routing_profile
   def get("character_design_with_context_v1"), do: @character_design_profile
   def get("prose_drafting_with_quality_v1"), do: @prose_drafting_profile
   def get("plot_outline_with_context_v1"), do: @plot_outline_profile
   def get("character_evolution_with_context_v1"), do: @character_evolution_profile
+  def get("world_building_with_context_v1"), do: @world_building_profile
   def get("prose_revision_from_findings_v1"), do: @prose_revision_profile
   def get("conversation_turn_v1"), do: @conversation_turn_profile
   def get("provider_progress_v1"), do: @provider_progress_profile

@@ -90,7 +90,7 @@ defmodule NovelApplication.CP4ChapterPlanDirectionTest do
         decision: allow_decision(),
         context: opts[:context],
         author_input: %{text: "写第二章首稿"},
-        provider_execution: %Execution{complete_fn: complete}
+        provider_execution: %Execution{result_fn: complete}
       })
 
     {turn_result, agent |> Agent.get(& &1) |> Enum.join("\n\n")}

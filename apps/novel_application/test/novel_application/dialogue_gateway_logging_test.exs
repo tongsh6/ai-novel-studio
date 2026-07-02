@@ -87,7 +87,7 @@ defmodule NovelApplication.DialogueGatewayLoggingTest do
                  generate_micro_plan: true
                },
                nil,
-               provider_execution(complete_fn())
+               provider_execution(result_fn())
              )
 
     assert turn_result.turn_id == turn_id
@@ -105,7 +105,7 @@ defmodule NovelApplication.DialogueGatewayLoggingTest do
     end
   end
 
-  defp complete_fn do
+  defp result_fn do
     fn prompt ->
       if prompt |> prompt_text() |> String.contains?("\"proposed_actions\"") do
         {:ok, %{content: @plan_json}}
@@ -115,7 +115,7 @@ defmodule NovelApplication.DialogueGatewayLoggingTest do
     end
   end
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   defp prompt_text(prompt) when is_binary(prompt), do: prompt
 

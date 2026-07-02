@@ -10,14 +10,14 @@ defmodule NovelCommon.Contracts.AgentEventTest do
         "run_ref" => "run_1",
         "step_ref" => "step_1",
         "sequence" => 7,
-        "event_type" => "observation_recorded",
+        "event_type" => "exploration_observed",
         "visibility" => "author",
         "summary" => "已读取当前角色阵容，发现已有 3 个角色。",
         "reason_codes" => ["character_roster_loaded"],
         "refs" => ["obs_1"]
       })
 
-    assert event.event_type == :observation_recorded
+    assert event.event_type == :exploration_observed
     assert event.visibility == :author
     assert AgentEvent.author_visible?(event)
     assert event.refs == ["obs_1"]

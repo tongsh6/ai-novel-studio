@@ -35,7 +35,7 @@ evidence:
 
 assertions:
   network:
-    - agent_event frames include run_started, observation_recorded, artifact_created and run_completed
+    - agent_event frames include run_started, exploration_observed, artifact_created and run_completed
     - event payloads are author visible and redacted
   ui:
     - activity panel renders summaries, not internal prompts

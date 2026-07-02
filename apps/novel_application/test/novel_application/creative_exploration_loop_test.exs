@@ -34,18 +34,18 @@ defmodule NovelApplication.CreativeExplorationLoopTest do
     "uncertainty": ["核心矛盾尚未定死"]
   })
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   describe "VS-00A Creative Exploration Loop" do
     test "fuzzy creative input produces partner-like exploration instead of mechanical forms" do
       # 1. Setup Mock Response
-      complete_fn = fn _prompt -> {:ok, %{content: @exploration_response}} end
+      result_fn = fn _prompt -> {:ok, %{content: @exploration_response}} end
 
       # 2. Execute
       input = %{text: "我想写个赛博修仙，但还没想好。", workspace_id: "ws-vs00a"}
 
       {:ok, turn_result, trace, candidates, _context} =
-        DialogueGateway.handle_input(input, nil, provider_execution(complete_fn))
+        DialogueGateway.handle_input(input, nil, provider_execution(result_fn))
 
       # 3. Proof Assertions (Contract Pack §6)
 

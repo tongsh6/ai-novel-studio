@@ -25,7 +25,13 @@ defmodule NovelDomain.AgentRunContractTest do
         phase: :executing,
         authority_scope: %{
           production_write: false,
-          allowed_tools: ["character_roster", "character_design"]
+          allowed_tools: ["character_roster", "character_design"],
+          profile_selection: %{
+            profile_ref: "character_design_with_context_v1",
+            source: "author_text",
+            reason_codes: ["character_design_context_text_match"],
+            matched_terms: ["角色阵容", "设计", "反派"]
+          }
         },
         consumed_budget: %{steps: 5, tool_calls: 1, provider_calls: 1, replans: 0}
       })
@@ -34,6 +40,9 @@ defmodule NovelDomain.AgentRunContractTest do
     assert AgentRun.budget_exhausted?(run)
     refute AgentRun.interrupt_requested?(run)
     assert AgentRunPolicy.tool_allowed?(run.policy, "character_design")
+    assert run.authority_scope.profile_selection.profile_ref == "character_design_with_context_v1"
+    assert run.authority_scope.profile_selection.source == "author_text"
+    assert run.authority_scope.profile_selection.matched_terms == ["角色阵容", "设计", "反派"]
   end
 
   test "bounded run rejects LongRunTask ownership" do
@@ -76,22 +85,31 @@ defmodule NovelDomain.AgentRunContractTest do
     assert run.long_run_task_ref == "task_1"
   end
 
-  test "AgentPlan is milestone plan, not batch ToolRequest list" do
+  test "AgentPlan is an ordered PlanStep list, not batch ToolRequest list" do
     {:ok, plan} =
       AgentPlan.new(%{
         plan_id: "ap_1",
         run_ref: "run_1",
-        milestones: [
-          %{milestone_id: "inspect_roster", summary: "读取角色阵容", success_criteria: ["observation"]},
+        steps: [
           %{
-            milestone_id: "design_character",
-            summary: "设计反派",
+            step_id: "inspect_roster",
+            kind: :explore,
+            status: :pending,
+            description: "读取角色阵容",
+            success_criteria: ["observation"]
+          },
+          %{
+            step_id: "design_character",
+            kind: :act,
+            status: :pending,
+            description: "设计反派",
             success_criteria: ["tentative_character_seed"]
           }
         ]
       })
 
-    assert AgentPlan.milestone_ids(plan) == ["inspect_roster", "design_character"]
+    assert AgentPlan.step_ids(plan) == ["inspect_roster", "design_character"]
+    assert Enum.map(plan.steps, & &1.kind) == [:explore, :act]
     refute Map.has_key?(plan, :tool_requests)
   end
 

@@ -157,8 +157,8 @@ defmodule NovelApplication.ProseRevisionService do
   end
 
   defp require_provider_execution(provider_execution) do
-    case Execution.complete_fn(provider_execution) do
-      complete_fn when is_function(complete_fn, 1) ->
+    case Execution.result_fn(provider_execution) do
+      result_fn when is_function(result_fn, 1) ->
         {:ok, provider_execution}
 
       _ ->

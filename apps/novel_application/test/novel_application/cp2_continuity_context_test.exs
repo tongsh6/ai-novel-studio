@@ -99,7 +99,7 @@ defmodule NovelApplication.CP2ContinuityContextTest do
         assembly_policy: opts[:assembly_policy] || AssemblyPolicy.for_tier(:floor)
       },
       author_input: %{text: "写正文"},
-      provider_execution: %Execution{complete_fn: complete}
+      provider_execution: %Execution{result_fn: complete}
     }
 
     input =

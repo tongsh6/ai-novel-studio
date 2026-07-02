@@ -1,5 +1,5 @@
 id: agent-steer-replan
-title: AgentRun steer 绑定 active run_id 并广播重规划状态
+title: AgentRun 主输入 steer 绑定 active run_id 并广播模型源重规划状态
 tier: nightly
 surface: tauri
 entrypoint: scripts/quality_accept.sh agent-steer-replan --surface tauri
@@ -7,12 +7,15 @@ entrypoint: scripts/quality_accept.sh agent-steer-replan --surface tauri
 contract:
   - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
   - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/design/adr/ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md
+  - docs/design/ui/46-state-and-feedback.md
   - docs/engineering/scenario-acceptance.md
 
 invariants:
   - author-can-steer-agent-run
   - stale-run-command-does-not-silently-continue
   - frontend-does-not-own-run-state
+  - ui-is-thin-renderer-for-agentic-loop
 
 setup:
   seed: none
@@ -22,8 +25,10 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - send: slow bounded roster-to-character-design AgentRun request
-  - submit: visible steer control in AgentRun panel
-  - wait_for: agent_command ack, plan_adjusted event and adjusted agent_run_state for the same run_id
+  - wait_for: active AgentRun switches the main input placeholder to steering mode
+  - submit: steering text through the main input
+  - verify: steering text remains visible in the transcript as the latest local author message
+  - wait_for: agent_command ack, plan_adjusted, model-sourced plan_revised, and adjusted agent_run_state for the same run_id
 
 evidence:
   required:
@@ -35,12 +40,19 @@ evidence:
 
 assertions:
   network:
-    - agent_command steer is sent from the real page with active run_id
+    - main input steering text is sent as agent_command steer for the active run_id
+    - no second channel user_message is sent for the steering text
     - command ack returns the same run_id
     - plan_adjusted is broadcast for the same run_id
+    - the next planner narrative is broadcast as provider_output-bound plan_revised
   data:
     - adjusted agent_run_state carries goal version >= 2
+    - plan_revised evaluation_of_last.plan_holds is false
     - frontend does not mark the run adjusted without backend ack
+  ui:
+    - active AgentRun shows the steering placeholder before command submission
+    - steering text remains visible as a local author-message anchor
+    - AgentRun evidence renders in the 46§9 thin loop surface
 
 anti_hooks:
   product_acceptance_logic_added: false

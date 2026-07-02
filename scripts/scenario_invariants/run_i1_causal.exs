@@ -76,10 +76,10 @@ defmodule I1CausalDriver do
       generate_micro_plan: true
     }
 
-    complete_fn = build_traced_complete_fn(trace_agent)
+    result_fn = build_traced_result_fn(trace_agent)
 
     try do
-      case DialogueGateway.handle_input(input, nil, provider_execution(complete_fn)) do
+      case DialogueGateway.handle_input(input, nil, provider_execution(result_fn)) do
         {:ok, turn_result, _trace, _candidates, _context} ->
           calls = Agent.get(trace_agent, & &1) |> Enum.reverse()
           evaluate(c, nonce, turn_result, calls)
@@ -105,13 +105,13 @@ defmodule I1CausalDriver do
     end
   end
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   defp compose_input(c, nonce) do
     "#{c.instruction}#{nonce}。主题：#{c.topic}。要求标识符 #{nonce} 必须原样保留至少一处。"
   end
 
-  # ── traced complete_fn ──
+  # ── traced result_fn ──
   #
   # wrap Gateway.complete/1，每次调用：
   # 1. 生成 provider_call_id
@@ -119,7 +119,7 @@ defmodule I1CausalDriver do
   # 3. 记录 (call_id, prompt, raw_response) 到 Agent
   # 4. 返回 map 附 :provider_call_id 让 Toolbox.handle_provider_content 提取写入 items
 
-  defp build_traced_complete_fn(trace_agent) do
+  defp build_traced_result_fn(trace_agent) do
     fn prompt ->
       call_id = "pc_" <> Integer.to_string(System.unique_integer([:positive, :monotonic]))
 
@@ -368,7 +368,7 @@ defmodule I1CausalDriver do
 
     #{summary.line}
 
-    每个 case 跑完整主链（DialogueGateway.handle_input → Planner → Toolbox），driver 注入 traced complete_fn 包裹 `Gateway.complete/1`。对每个 artifact item 做 forall-exists 精确字节判定：
+    每个 case 跑完整主链（DialogueGateway.handle_input → Planner → Toolbox），driver 注入 traced result_fn 包裹 `Gateway.complete/1`。对每个 artifact item 做 forall-exists 精确字节判定：
 
     - `item.provider_call_ref` 必须非 nil 且能在 traced calls 中找到对应 raw_response
     - 该 raw_response 解析得到的同 item_id 的 raw_item 在 `title/body/rationale` 三字段上必须 **精确字节相等**
@@ -432,7 +432,7 @@ defmodule I1CausalDriver do
     - **修复方向**（I1 fail）：产品代码修改了 Provider 响应字节 —
       1. 检查 `NovelApplication.Toolbox.handle_provider_content` 是否对 items 做了任何 transform / 补齐 / 翻译 / 合并
       2. 检查 `NovelApplication.TurnResultBuilder.build_artifact_set` 是否对 items 做了任何字段改写
-      3. 字节透传契约：从 `complete_fn` 返回的 raw_response 解析出 items 后，每个 item 的 title/body/rationale 必须原样进入 artifact，不允许任何中间处理
+      3. 字节透传契约：从 `result_fn` 返回的 raw_response 解析出 items 后，每个 item 的 title/body/rationale 必须原样进入 artifact，不允许任何中间处理
       4. 参考 `docs/engineering/scenario-invariants.md` §2.1
     """
   end

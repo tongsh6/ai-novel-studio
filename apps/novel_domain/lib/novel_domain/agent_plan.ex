@@ -1,15 +1,21 @@
 defmodule NovelDomain.AgentPlan do
   @moduledoc """
-  Milestone plan for an AgentRun.
+  Author-visible plan for an AgentRun.
 
-  AgentPlan describes ordered milestones and stop conditions. It is not a
-  MicroPlan and must not be converted into a batch of ToolRequests.
+  AgentPlan describes ordered PlanSteps and stop conditions. It is not a
+  MicroPlan, and PlanStep is not a runtime AgentStep or tool call.
   """
 
-  @type milestone :: %{
-          milestone_id: String.t(),
-          summary: String.t(),
-          success_criteria: [String.t()]
+  @type step_kind :: :explore | :act
+  @type step_status :: :pending | :active | :done | :skipped
+
+  @type plan_step :: %{
+          step_id: String.t(),
+          kind: step_kind(),
+          status: step_status(),
+          description: String.t(),
+          success_criteria: [String.t()],
+          depends_on: [String.t()]
         }
 
   @type stop_condition ::
@@ -24,7 +30,7 @@ defmodule NovelDomain.AgentPlan do
           run_ref: String.t(),
           version: pos_integer(),
           goal_version: pos_integer(),
-          milestones: [milestone()],
+          steps: [plan_step()],
           stop_conditions: [stop_condition()]
         }
 
@@ -42,7 +48,7 @@ defmodule NovelDomain.AgentPlan do
     :run_ref,
     version: 1,
     goal_version: 1,
-    milestones: [],
+    steps: [],
     stop_conditions: @default_stop_conditions
   ]
 
@@ -63,13 +69,13 @@ defmodule NovelDomain.AgentPlan do
     |> require_present(:run_ref, plan.run_ref)
     |> require_positive(:version, plan.version)
     |> require_positive(:goal_version, plan.goal_version)
-    |> validate_milestones(plan.milestones)
+    |> validate_steps(plan.steps)
     |> validate_stop_conditions(plan.stop_conditions)
   end
 
-  @spec milestone_ids(t()) :: [String.t()]
-  def milestone_ids(%__MODULE__{milestones: milestones}) do
-    Enum.map(milestones, & &1.milestone_id)
+  @spec step_ids(t()) :: [String.t()]
+  def step_ids(%__MODULE__{steps: steps}) do
+    Enum.map(steps, & &1.step_id)
   end
 
   defp normalize(attrs) when is_list(attrs), do: attrs |> Map.new() |> normalize()
@@ -77,7 +83,7 @@ defmodule NovelDomain.AgentPlan do
   defp normalize(attrs) when is_map(attrs) do
     attrs
     |> atomize_known()
-    |> Map.update(:milestones, [], &normalize_milestones/1)
+    |> Map.update(:steps, [], &normalize_steps/1)
     |> Map.update(:stop_conditions, @default_stop_conditions, &normalize_stop_conditions/1)
   end
 
@@ -90,24 +96,45 @@ defmodule NovelDomain.AgentPlan do
   defp known_key("run_ref"), do: :run_ref
   defp known_key("version"), do: :version
   defp known_key("goal_version"), do: :goal_version
-  defp known_key("milestones"), do: :milestones
+  defp known_key("steps"), do: :steps
   defp known_key("stop_conditions"), do: :stop_conditions
   defp known_key(key), do: key
 
-  defp normalize_milestones(items) when is_list(items),
-    do: Enum.map(items, &normalize_milestone/1)
+  defp normalize_steps(items) when is_list(items),
+    do: Enum.map(items, &normalize_step/1)
 
-  defp normalize_milestones(_), do: []
+  defp normalize_steps(_), do: []
 
-  defp normalize_milestone(item) when is_map(item) do
+  defp normalize_step(item) when is_map(item) do
     %{
-      milestone_id: value(item, :milestone_id) |> to_string(),
-      summary: value(item, :summary) |> to_string(),
-      success_criteria: normalize_strings(value(item, :success_criteria))
+      step_id: value(item, :step_id) |> to_string(),
+      kind: normalize_step_kind(value(item, :kind)),
+      status: normalize_step_status(value(item, :status)),
+      description: value(item, :description) |> to_string(),
+      success_criteria: normalize_strings(value(item, :success_criteria)),
+      depends_on: normalize_strings(value(item, :depends_on))
     }
   end
 
-  defp normalize_milestone(_), do: %{milestone_id: "", summary: "", success_criteria: []}
+  defp normalize_step(_),
+    do: %{
+      step_id: "",
+      kind: :explore,
+      status: :pending,
+      description: "",
+      success_criteria: [],
+      depends_on: []
+    }
+
+  defp normalize_step_kind(value) when value in [:explore, :act], do: value
+  defp normalize_step_kind("act"), do: :act
+  defp normalize_step_kind(_), do: :explore
+
+  defp normalize_step_status(value) when value in [:pending, :active, :done, :skipped], do: value
+  defp normalize_step_status("active"), do: :active
+  defp normalize_step_status("done"), do: :done
+  defp normalize_step_status("skipped"), do: :skipped
+  defp normalize_step_status(_), do: :pending
 
   defp normalize_stop_conditions(items) when is_list(items),
     do: Enum.map(items, &normalize_stop_condition/1)
@@ -127,15 +154,15 @@ defmodule NovelDomain.AgentPlan do
 
   defp normalize_strings(_), do: []
 
-  defp validate_milestones(errors, [_ | _] = milestones) do
-    if Enum.all?(milestones, &(present?(&1.milestone_id) and present?(&1.summary))) do
+  defp validate_steps(errors, [_ | _] = steps) do
+    if Enum.all?(steps, &(present?(&1.step_id) and present?(&1.description))) do
       errors
     else
-      ["milestones require milestone_id and summary" | errors]
+      ["steps require step_id and description" | errors]
     end
   end
 
-  defp validate_milestones(errors, _), do: ["milestones must not be empty" | errors]
+  defp validate_steps(errors, _), do: ["steps must not be empty" | errors]
 
   defp validate_stop_conditions(errors, [_ | _] = conditions) do
     if Enum.all?(conditions, &(&1 in @default_stop_conditions)) do

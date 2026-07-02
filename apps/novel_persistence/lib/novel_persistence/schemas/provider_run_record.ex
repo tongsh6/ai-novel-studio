@@ -52,6 +52,7 @@ defmodule NovelPersistence.Schemas.ProviderRunRecord do
     |> validate_required(@required_fields)
     |> validate_inclusion(:purpose, [
       "conversation",
+      "author_reasoning",
       "planner",
       "writer",
       "evaluator",

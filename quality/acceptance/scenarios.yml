@@ -216,6 +216,20 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-plot-outline-with-context.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-plot-outline-with-context --surface tauri
+  - id: agent-world-building-with-context
+    title: "AgentRun 世界设定 Profile 生成待采纳伏笔草稿"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-world-building-with-context.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-world-building-with-context --surface tauri
+  - id: agent-world-building-style-rule-with-context
+    title: "AgentRun 世界设定 Profile 生成待采纳写作规则草稿"
+    tier: nightly
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-world-building-style-rule-with-context.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-world-building-style-rule-with-context --surface tauri
   - id: agent-character-evolution-with-context
     title: "AgentRun 角色演化 Profile 生成待采纳角色记忆草稿"
     tier: nightly
@@ -280,7 +294,7 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-cancel-target-binding --surface tauri
   - id: agent-steer-replan
-    title: "AgentRun steer 绑定 active run_id 并广播重规划状态"
+    title: "AgentRun 主输入 steer 绑定 active run_id 并广播重规划状态"
     tier: nightly
     surface: tauri
     manifest: quality/acceptance/scenarios/agent-steer-replan.yml
@@ -358,7 +372,7 @@ scenarios:
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-durable-resume-long-run-task --surface tauri
   - id: agent-provider-execution-stream-unified
-    title: "Provider execution facts 进入对话 AgentRun author-safe 工作轨迹"
+    title: "Provider execution facts 进入对话 AgentRun developer telemetry"
     tier: nightly
     status: active
     surface: tauri
@@ -373,8 +387,16 @@ scenarios:
     manifest: quality/acceptance/scenarios/agent-provider-execution-activity-restored.yml
     driver: frontend/slice-verify/external-ui-driver.mjs
     entrypoint: scripts/quality_accept.sh agent-provider-execution-activity-restored --surface tauri
+  - id: agent-session-transcript-lazy-page
+    title: "长 session transcript 首屏只恢复最新页，旧消息和旧 assistant 工作详情按作者动作异步加载"
+    tier: nightly
+    status: active
+    surface: tauri
+    manifest: quality/acceptance/scenarios/agent-session-transcript-lazy-page.yml
+    driver: frontend/slice-verify/external-ui-driver.mjs
+    entrypoint: scripts/quality_accept.sh agent-session-transcript-lazy-page --surface tauri
   - id: agent-provider-execution-error-author-safe
-    title: "Provider execution error facts 进入对话 AgentRun author-safe 工作轨迹"
+    title: "Provider execution error facts 进入对话 AgentRun developer telemetry"
     tier: nightly
     status: active
     surface: tauri

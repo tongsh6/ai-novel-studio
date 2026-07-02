@@ -39,7 +39,7 @@ assertions:
   data:
     - provider execution progress events carry run_id and step_ref
     - provider execution progress events are visibility=author
-    - final agent_run_state records provider call budget
+    - final agent_run_state records two provider calls: one profile routing call and one provider progress call
 
 anti_hooks:
   product_acceptance_logic_added: false

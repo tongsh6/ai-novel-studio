@@ -124,7 +124,7 @@ defmodule NovelDomain.AgentRun do
     run.consumed_budget.steps >= run.budget.max_steps or
       run.consumed_budget.tool_calls >= run.budget.max_tool_calls or
       run.consumed_budget.provider_calls >= run.budget.max_provider_calls or
-      run.consumed_budget.replans >= run.budget.max_replans
+      run.consumed_budget.replans > run.budget.max_replans
   end
 
   @spec interrupt_requested?(t()) :: boolean()
@@ -251,13 +251,53 @@ defmodule NovelDomain.AgentRun do
   defp normalize_refs(_), do: []
 
   defp normalize_authority(scope) when is_map(scope) do
-    %{
+    authority = %{
       production_write: value(scope, :production_write) == true,
       allowed_tools: normalize_refs(value(scope, :allowed_tools))
     }
+
+    case normalize_profile_selection(value(scope, :profile_selection)) do
+      nil -> authority
+      selection -> Map.put(authority, :profile_selection, selection)
+    end
+    |> maybe_put_authority_fact(:work_revision, value(scope, :work_revision))
+    |> maybe_put_authority_fact(:target_revision_ref, value(scope, :target_revision_ref))
+    |> maybe_put_authority_fact(:target_revision, value(scope, :target_revision))
   end
 
   defp normalize_authority(_), do: %{production_write: false, allowed_tools: []}
+
+  defp maybe_put_authority_fact(authority, key, value) do
+    case nonblank_authority_fact(value) do
+      nil -> authority
+      fact_value -> Map.put(authority, key, fact_value)
+    end
+  end
+
+  defp nonblank_authority_fact(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp nonblank_authority_fact(nil), do: nil
+  defp nonblank_authority_fact(value), do: value
+
+  defp normalize_profile_selection(selection) when is_map(selection) do
+    %{
+      profile_ref: selection |> value(:profile_ref) |> to_string() |> String.trim(),
+      source: selection |> value(:source) |> to_string() |> String.trim(),
+      reason_codes: normalize_refs(value(selection, :reason_codes)),
+      matched_terms: normalize_refs(value(selection, :matched_terms))
+    }
+    |> Enum.reject(fn {_key, value} -> value in ["", []] end)
+    |> Map.new()
+    |> case do
+      empty when map_size(empty) == 0 -> nil
+      normalized -> normalized
+    end
+  end
+
+  defp normalize_profile_selection(_selection), do: nil
 
   defp normalize_budget(budget) when is_map(budget) do
     %{

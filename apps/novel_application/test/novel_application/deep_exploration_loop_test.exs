@@ -45,7 +45,7 @@ defmodule NovelApplication.DeepExplorationLoopTest do
     "fallback_message": "我这就为你构思具体的公司垄断细节。"
   })
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   # ── Tests ──────────────────────────────────────
 
@@ -53,11 +53,11 @@ defmodule NovelApplication.DeepExplorationLoopTest do
     test "transitions from natural exploration to structured tool invocation plan" do
       # --- Turn 1: Fuzzy Exploration ---
 
-      complete_fn_t1 = fn _prompt -> {:ok, %{content: @exploration_response}} end
+      result_fn_t1 = fn _prompt -> {:ok, %{content: @exploration_response}} end
       input_t1 = %{text: "我想写赛博修仙", workspace_id: "ws-deep-1"}
 
       {:ok, turn_result_t1, _trace_t1, _cands_t1, _ctx_t1} =
-        DialogueGateway.handle_input(input_t1, nil, provider_execution(complete_fn_t1))
+        DialogueGateway.handle_input(input_t1, nil, provider_execution(result_fn_t1))
 
       assert turn_result_t1.frame_summary.frame_type == :creative_exploration
       assert length(turn_result_t1.candidate_directions) == 1
@@ -65,7 +65,7 @@ defmodule NovelApplication.DeepExplorationLoopTest do
       # --- Turn 2: User Choice -> MicroPlan Generation ---
 
       # 模拟用户输入“我选赛博垄断”，并要求生成 MicroPlan (generate_micro_plan: true)
-      complete_fn_t2 = fn _prompt -> {:ok, %{content: @decision_plan_response}} end
+      result_fn_t2 = fn _prompt -> {:ok, %{content: @decision_plan_response}} end
 
       input_t2 = %{
         text: "我选赛博垄断流，帮我开始设定世界观",
@@ -74,7 +74,7 @@ defmodule NovelApplication.DeepExplorationLoopTest do
       }
 
       {:ok, turn_result_t2, trace_t2, _cands_t2, _ctx_t2} =
-        DialogueGateway.handle_input(input_t2, nil, provider_execution(complete_fn_t2))
+        DialogueGateway.handle_input(input_t2, nil, provider_execution(result_fn_t2))
 
       # 验证 Planner 现在具有工具认知，并提出了正确的 capability_invocation
       # 由于 risk_hint 为 high，触发了 authority gate，状态变为 needs_confirmation

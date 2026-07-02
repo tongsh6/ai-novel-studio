@@ -20,6 +20,7 @@ const ua01AgentCp6ScenarioIds = [
   "agent-provider-execution-stream-unified",
   "agent-provider-execution-activity-restored",
   "agent-provider-execution-error-author-safe",
+  "agent-session-transcript-lazy-page",
   "agent-provider-streaming-progress",
   "agent-provider-cancel-honest-boundary",
   "agent-readonly-batch-profile",
@@ -150,6 +151,8 @@ export const nativeSliceIds = [
   "agent-prose-drafting-with-quality",
   "agent-conversation-turn",
   "agent-plot-outline-with-context",
+  "agent-world-building-with-context",
+  "agent-world-building-style-rule-with-context",
   "agent-character-evolution-with-context",
   ...ua01AgentScenarioIds,
   ...ua01AgentInterruptScenarioIds,
@@ -455,6 +458,14 @@ const sliceKeyEvents = {
     "work_session.resume.done",
     "slice_verify.ui_state.done",
   ],
+  "agent-session-transcript-lazy-page": [
+    "channel.user_message.start",
+    "provider_gateway.complete.start",
+    "provider_gateway.complete.done",
+    "work_session.resume.done",
+    "work_session.transcript_page.done",
+    "slice_verify.ui_state.done",
+  ],
   "agent-provider-execution-error-author-safe": [
     "channel.user_message.start",
     "provider_gateway.complete.start",
@@ -463,6 +474,20 @@ const sliceKeyEvents = {
     "slice_verify.ui_state.done",
   ],
   "agent-plot-outline-with-context": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-world-building-with-context": [
+    "channel.user_message.start",
+    "orchestrator.decide.done",
+    "toolbox.execute.done",
+    "channel.user_message.done",
+    "slice_verify.ui_state.done",
+  ],
+  "agent-world-building-style-rule-with-context": [
     "channel.user_message.start",
     "orchestrator.decide.done",
     "toolbox.execute.done",
@@ -1353,13 +1378,15 @@ export function keyEventsForSlice(sliceId) {
   return sliceKeyEvents[canonicalSliceId(sliceId)] ?? [];
 }
 
-export function findLmStudioEvidence(turnIds, records) {
+export function findLiveProviderEvidence(provider, turnIds, records) {
+  if (!["lmstudio", "deepseek"].includes(provider)) return null;
+
   const requiredTurnIds = new Set(turnIds.filter(Boolean));
   if (requiredTurnIds.size === 0) return null;
 
   const matching = records.filter((record) => {
     if (!requiredTurnIds.has(record.turn_id)) return false;
-    if (record.provider !== "lmstudio") return false;
+    if (record.provider !== provider) return false;
     if (record.request?.method !== "POST") return false;
     if (!String(record.request?.url ?? "").includes("/chat/completions")) return false;
 
@@ -1374,11 +1401,16 @@ export function findLmStudioEvidence(turnIds, records) {
   if (missingTurn) return null;
 
   return {
-    provider: "lmstudio",
+    provider,
     turn_ids: [...requiredTurnIds],
     request_count: matching.length,
     status_codes: [...new Set(matching.map((record) => Number(record.response.status)))],
+    urls: [...new Set(matching.map((record) => String(record.request?.url ?? "")))],
   };
+}
+
+export function findLmStudioEvidence(turnIds, records) {
+  return findLiveProviderEvidence("lmstudio", turnIds, records);
 }
 
 export function findNativeSliceEvidence(sliceId, records) {
@@ -1785,6 +1817,10 @@ export function findNativeSliceEvidence(sliceId, records) {
     return findAgentPlotOutlineWithContextEvidence(records);
   }
 
+  if (isAgentWorldBuildingScenario(sliceId)) {
+    return findAgentWorldBuildingWithContextEvidence(records, sliceId);
+  }
+
   if (sliceId === "agent-character-evolution-with-context") {
     return findAgentCharacterEvolutionWithContextEvidence(records);
   }
@@ -1823,6 +1859,10 @@ export function findNativeSliceEvidence(sliceId, records) {
 
   if (sliceId === "agent-provider-execution-activity-restored") {
     return findAgentProviderExecutionActivityRestoredEvidence(records);
+  }
+
+  if (sliceId === "agent-session-transcript-lazy-page") {
+    return findAgentSessionTranscriptLazyPageEvidence(records);
   }
 
   if (sliceId === "agent-provider-execution-error-author-safe") {
@@ -2445,6 +2485,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
     return agentPlotOutlineWithContextBehavior(turnIds, turnRecords, records, evidence, options);
   }
 
+  if (isAgentWorldBuildingScenario(sliceId)) {
+    return agentWorldBuildingWithContextBehavior(turnIds, turnRecords, records, evidence, options);
+  }
+
   if (sliceId === "agent-character-evolution-with-context") {
     return agentCharacterEvolutionWithContextBehavior(
       turnIds,
@@ -2496,6 +2540,10 @@ export function findSliceBehaviorEvidence(sliceId, records, evidence, options = 
 
   if (sliceId === "agent-provider-execution-activity-restored") {
     return agentProviderExecutionActivityRestoredBehavior(turnIds, records, evidence);
+  }
+
+  if (sliceId === "agent-session-transcript-lazy-page") {
+    return agentSessionTranscriptLazyPageBehavior(turnIds, records, evidence);
   }
 
   if (sliceId === "agent-provider-execution-error-author-safe") {
@@ -2960,7 +3008,8 @@ function p1ProseExecutionBriefBehavior(turnIds, turnRecords, records, evidence, 
   if (turnIds.length !== 1) return null;
   if (
     !records.some(
-      (record) => record.event === "channel.user_message.start" && record.generate_micro_plan === true,
+      (record) =>
+        record.event === "channel.user_message.start" && record.generate_micro_plan === true,
     )
   ) {
     return null;
@@ -3075,10 +3124,7 @@ function findP1ProseRevisionCandidateEvidence(
   const draftRecords = records.filter((record) => record.turn_id === draftTurnId);
   const requiresDraftContext = requestedSliceId === "p1-prose-revision-candidate";
 
-  if (
-    requiresDraftContext &&
-    !contextAssembleTurnIdForDraftTurn(records, draftTurnId)
-  ) {
+  if (requiresDraftContext && !contextAssembleTurnIdForDraftTurn(records, draftTurnId)) {
     return null;
   }
 
@@ -3160,10 +3206,7 @@ function p1ProseRevisionCandidateBehavior(
   const draftTurnId = evidence.draft_turn_id;
   const requiresDraftContext = requestedSliceId === "p1-prose-revision-candidate";
 
-  if (
-    requiresDraftContext &&
-    !contextAssembleTurnIdForDraftTurn(records, draftTurnId)
-  ) {
+  if (requiresDraftContext && !contextAssembleTurnIdForDraftTurn(records, draftTurnId)) {
     return null;
   }
 
@@ -3670,7 +3713,7 @@ function findAgentProseDraftingWithQualityEvidence(records) {
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      Number(record.consumed_provider_calls ?? 0) === 7 &&
       record.quality_review_status === "completed" &&
       Number(record.quality_findings_count ?? -1) >= 0 &&
       record.finding_summary_displayed === true &&
@@ -3803,7 +3846,7 @@ function agentProseDraftingWithQualityBehavior(turnIds, turnRecords, records, ev
   if (uiState.ui_provider_execution_details_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
   if (uiState.quality_review_status !== "completed") return null;
   if (Number(uiState.quality_findings_count ?? -1) < 0) return null;
   if (uiState.finding_in_draft_body !== false) return null;
@@ -3855,30 +3898,34 @@ function findAgentConversationTurnEvidence(records) {
       record.no_tool_called === true &&
       record.no_auto_adoption === true &&
       record.no_production_write === true &&
+      boolValue(record.ui_agent_immediate_feedback_visible) === true &&
       record.agent_stage_events_visible === true &&
       record.context_step_visible === true &&
       record.frame_step_visible === true &&
       record.strategy_step_visible === true &&
       record.finalize_step_visible === true &&
-      record.context_observation_visible === true &&
-      record.frame_observation_visible === true &&
-      record.strategy_observation_visible === true &&
+      record.context_result_visible === true &&
+      record.frame_evaluation_visible === true &&
+      record.strategy_decision_visible === true &&
       record.ui_context_step_visible === true &&
       record.ui_frame_step_visible === true &&
       record.ui_strategy_step_visible === true &&
       record.ui_finalize_step_visible === true &&
-      record.planner_provider_activity_visible === true &&
-      record.conversation_provider_activity_visible === true &&
-      record.provider_started_projected === true &&
-      record.provider_final_output_projected === true &&
-      record.ui_planner_provider_visible === true &&
-      record.ui_model_judgment_visible === true &&
-      record.ui_system_gate_visible === true &&
-      record.ui_provider_usage_visible === true &&
+      record.ui_agentic_loop_plan_visible === true &&
+      record.ui_agentic_loop_reasoning_visible === true &&
+      record.ui_agentic_loop_result_visible === true &&
+      Number(record.author_reasoning_delta_event_count ?? 0) >= 2 &&
+      record.author_reasoning_delta_payload_key === "author_narrative_delta" &&
+      boolValue(record.author_reasoning_delta_before_first_plan) === true &&
+      boolValue(record.author_reasoning_second_delta_before_first_plan) === true &&
+      boolValue(record.ui_author_reasoning_delta_visible) === true &&
+      boolValue(record.ui_author_reasoning_cumulative_delta_visible) === true &&
+      Number(record.ui_author_reasoning_stream_sample_count ?? 0) >= 2 &&
+      boolValue(record.ui_author_reasoning_stream_grew) === true &&
       Number(record.completed_step_count ?? 0) === 4 &&
       Number(record.consumed_steps ?? 0) === 4 &&
       Number(record.consumed_tool_calls ?? -1) === 0 &&
-      Number(record.consumed_provider_calls ?? 0) === 6 &&
+      Number(record.consumed_provider_calls ?? 0) === 7 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       Number(record.log_sync_turn_count ?? 0) === 0 &&
@@ -3910,6 +3957,13 @@ function findAgentConversationTurnEvidence(records) {
     consumed_steps: Number(uiState.consumed_steps ?? 0),
     consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    ui_agentic_loop_plan_visible: boolValue(uiState.ui_agentic_loop_plan_visible),
+    ui_agentic_loop_reasoning_visible: boolValue(uiState.ui_agentic_loop_reasoning_visible),
+    ui_agentic_loop_result_visible: boolValue(uiState.ui_agentic_loop_result_visible),
+    author_reasoning_delta_event_count: Number(uiState.author_reasoning_delta_event_count ?? 0),
+    ui_author_reasoning_stream_sample_count: Number(
+      uiState.ui_author_reasoning_stream_sample_count ?? 0,
+    ),
     key_events: keyEvents,
   };
 }
@@ -3928,29 +3982,33 @@ function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence,
   if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
   if (uiState.no_tool_called !== true) return null;
   if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (boolValue(uiState.ui_agent_immediate_feedback_visible) !== true) return null;
   if (uiState.agent_stage_events_visible !== true) return null;
   if (uiState.context_step_visible !== true) return null;
   if (uiState.frame_step_visible !== true) return null;
   if (uiState.strategy_step_visible !== true) return null;
   if (uiState.finalize_step_visible !== true) return null;
-  if (uiState.context_observation_visible !== true) return null;
-  if (uiState.frame_observation_visible !== true) return null;
-  if (uiState.strategy_observation_visible !== true) return null;
+  if (uiState.context_result_visible !== true) return null;
+  if (uiState.frame_evaluation_visible !== true) return null;
+  if (uiState.strategy_decision_visible !== true) return null;
   if (uiState.ui_context_step_visible !== true) return null;
   if (uiState.ui_frame_step_visible !== true) return null;
   if (uiState.ui_strategy_step_visible !== true) return null;
   if (uiState.ui_finalize_step_visible !== true) return null;
-  if (uiState.planner_provider_activity_visible !== true) return null;
-  if (uiState.conversation_provider_activity_visible !== true) return null;
-  if (uiState.provider_started_projected !== true) return null;
-  if (uiState.provider_final_output_projected !== true) return null;
-  if (uiState.ui_planner_provider_visible !== true) return null;
-  if (uiState.ui_model_judgment_visible !== true) return null;
-  if (uiState.ui_system_gate_visible !== true) return null;
-  if (uiState.ui_provider_usage_visible !== true) return null;
+  if (uiState.ui_agentic_loop_plan_visible !== true) return null;
+  if (uiState.ui_agentic_loop_reasoning_visible !== true) return null;
+  if (uiState.ui_agentic_loop_result_visible !== true) return null;
+  if (Number(uiState.author_reasoning_delta_event_count ?? 0) < 2) return null;
+  if (uiState.author_reasoning_delta_payload_key !== "author_narrative_delta") return null;
+  if (boolValue(uiState.author_reasoning_delta_before_first_plan) !== true) return null;
+  if (boolValue(uiState.author_reasoning_second_delta_before_first_plan) !== true) return null;
+  if (boolValue(uiState.ui_author_reasoning_delta_visible) !== true) return null;
+  if (boolValue(uiState.ui_author_reasoning_cumulative_delta_visible) !== true) return null;
+  if (Number(uiState.ui_author_reasoning_stream_sample_count ?? 0) < 2) return null;
+  if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 4) return null;
   if (Number(uiState.consumed_tool_calls ?? -1) !== 0) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 6) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 7) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_toolbox_execute_count ?? 0) !== 0) return null;
 
@@ -3965,14 +4023,22 @@ function agentConversationTurnBehavior(turnIds, _turnRecords, records, evidence,
     consumed_steps: evidence.consumed_steps,
     consumed_tool_calls: evidence.consumed_tool_calls,
     consumed_provider_calls: evidence.consumed_provider_calls,
+    ui_agentic_loop_plan_visible: evidence.ui_agentic_loop_plan_visible,
+    ui_agentic_loop_reasoning_visible: evidence.ui_agentic_loop_reasoning_visible,
+    ui_agentic_loop_result_visible: evidence.ui_agentic_loop_result_visible,
+    author_reasoning_delta_event_count: evidence.author_reasoning_delta_event_count,
+    ui_author_reasoning_stream_sample_count: evidence.ui_author_reasoning_stream_sample_count,
     assertions: [
       "plain_test_input_was_sent_from_real_tauri_workbench",
+      "assistant_work_state_was_visible_immediately_after_send",
       "parent_user_message_returned_bounded_run_id_before_final_turn_result",
       "conversation_turn_profile_was_selected",
       "final_turn_result_carried_the_same_agent_run_id",
-      "context_frame_strategy_and_finalize_steps_were_author_visible",
-      "context_frame_and_strategy_observations_were_author_visible",
-      "planner_and_conversation_provider_activity_were_author_visible",
+      "planner_selected_context_frame_strategy_and_finalize_steps_were_author_visible",
+      "context_frame_and_strategy_results_were_model_sourced_or_system_decisions",
+      "agentic_plan_reasoning_and_result_were_visible_to_author",
+      "author_reasoning_provider_deltas_streamed_before_first_plan",
+      "ui_reasoning_area_grew_from_multiple_provider_deltas",
       "reply_only_turn_called_no_tool_and_performed_no_write",
       "channel_did_not_use_dialogue_fallback_main_chain",
     ],
@@ -4020,7 +4086,7 @@ function findAgentPlotOutlineWithContextEvidence(records) {
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_outline_draft_visible === true &&
@@ -4114,7 +4180,7 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
   if (uiState.ui_execution_brief_path_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_plot_outline_tool_done !== true) return null;
@@ -4141,7 +4207,228 @@ function agentPlotOutlineWithContextBehavior(turnIds, _turnRecords, records, evi
       "plot_outline_tool_produced_tentative_outline_draft",
       "outline_artifact_remained_unadopted_without_production_write",
       "agent_activity_timeline_exposed_author_safe_stage_events",
-      "run_consumed_two_executed_steps_one_tool_call_and_four_provider_calls",
+      "run_consumed_two_executed_steps_one_tool_call_and_five_provider_calls",
+    ],
+  };
+}
+
+function isAgentWorldBuildingScenario(sliceId) {
+  return (
+    sliceId === "agent-world-building-with-context" ||
+    sliceId === "agent-world-building-style-rule-with-context"
+  );
+}
+
+function expectedWorldBuildingArtifactType(sliceId) {
+  if (sliceId === "agent-world-building-style-rule-with-context") {
+    return "style_rule_seed";
+  }
+
+  return "foreshadowing_seed";
+}
+
+function worldBuildingBehaviorName(sliceId, artifactType) {
+  if (sliceId === "agent-world-building-style-rule-with-context") {
+    return "bounded_agent_run_world_building_profile_generates_tentative_style_rule_seed";
+  }
+
+  return `bounded_agent_run_world_building_profile_generates_tentative_${artifactType}`;
+}
+
+function findAgentWorldBuildingWithContextEvidence(
+  records,
+  sliceId = "agent-world-building-with-context",
+) {
+  const keyEvents = keyEventsForSlice(sliceId);
+  const expectedArtifactType = expectedWorldBuildingArtifactType(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.world_building_request_sent_from_real_workbench === true &&
+      record.parent_fast_ack_before_final_turn_result === true &&
+      record.run_mode === "bounded" &&
+      record.profile_ref === "world_building_with_context_v1" &&
+      record.final_turn_broadcast === true &&
+      record.final_tool_name === "world_building" &&
+      record.final_tool_status === "succeeded" &&
+      record.pending_artifact_type === expectedArtifactType &&
+      record.expected_artifact_type === expectedArtifactType &&
+      record.pending_artifact_requires_adoption === true &&
+      record.pending_artifact_tentative === true &&
+      record.pending_item_preserved_nonce === true &&
+      record.no_auto_adoption === true &&
+      record.no_production_write === true &&
+      record.agent_stage_events_visible === true &&
+      record.context_step_visible === true &&
+      record.context_event_visible === true &&
+      record.context_observation_visible === true &&
+      record.strategy_step_visible === true &&
+      record.plan_event_visible === true &&
+      record.gate_event_visible === true &&
+      record.world_step_visible === true &&
+      record.tool_started_visible === true &&
+      record.tool_completed_visible === true &&
+      record.tool_observation_visible === true &&
+      record.finalization_step_visible === true &&
+      record.artifact_observation_visible === true &&
+      record.artifact_event_visible === true &&
+      record.ui_context_step_visible === true &&
+      record.ui_strategy_step_visible === true &&
+      record.ui_world_step_visible === true &&
+      record.ui_finalization_step_visible === true &&
+      Number(record.completed_step_count ?? 0) === 2 &&
+      Number(record.consumed_steps ?? 0) === 2 &&
+      Number(record.consumed_tool_calls ?? 0) === 1 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
+      record.ui_agent_panel_visible === true &&
+      record.ui_agent_completed_visible === true &&
+      record.ui_world_building_draft_visible === true &&
+      record.ui_profile_selection_visible === true &&
+      record.ui_profile_selection_source_visible === true &&
+      record.ui_profile_selection_reason_visible === true &&
+      record.ui_profile_selection_terms_visible === true &&
+      record.ui_profile_selection_path_visible === true &&
+      record.ui_execution_brief_path_visible === true &&
+      Number(record.log_sync_turn_count ?? 0) === 0 &&
+      Number(record.log_allow_tool_count ?? 0) >= 1 &&
+      record.log_world_building_tool_done === true,
+  );
+  if (!uiState) return null;
+
+  const runId = String(uiState.run_id ?? "");
+  const finalTurnId = String(uiState.final_turn_id ?? uiState.turn_id ?? "");
+  const parentTurnId = String(uiState.parent_turn_id ?? "");
+  const artifactId = String(uiState.pending_artifact_id ?? "");
+  if (!runId || !finalTurnId || !artifactId) return null;
+
+  const boundedAck = records.some(
+    (record) =>
+      record.event === "channel.user_message.done" &&
+      record.run_id === runId &&
+      String(record.run_mode ?? "") === "bounded",
+  );
+  if (!boundedAck) return null;
+
+  const allowToolCount = records.filter(
+    (record) =>
+      record.event === "orchestrator.decide.done" &&
+      String(record.decision_type ?? "") === "allow_tool",
+  ).length;
+  if (allowToolCount < 1) return null;
+
+  const worldBuildingTool = records.some(
+    (record) =>
+      record.event === "toolbox.execute.done" &&
+      record.tool_name === "world_building" &&
+      record.tool_outcome === "succeeded",
+  );
+  if (!worldBuildingTool) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: finalTurnId,
+    turn_ids: [parentTurnId, finalTurnId].filter(Boolean),
+    parent_turn_id: parentTurnId,
+    final_turn_id: finalTurnId,
+    run_id: runId,
+    profile_ref: uiState.profile_ref,
+    pending_artifact_id: artifactId,
+    pending_artifact_type: uiState.pending_artifact_type,
+    world_building_nonce: uiState.world_building_nonce,
+    consumed_steps: Number(uiState.consumed_steps ?? 0),
+    consumed_tool_calls: Number(uiState.consumed_tool_calls ?? 0),
+    consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    ui_profile_selection_visible: boolValue(uiState.ui_profile_selection_visible),
+    ui_profile_selection_terms_visible: boolValue(uiState.ui_profile_selection_terms_visible),
+    ui_profile_selection_path_visible: boolValue(uiState.ui_profile_selection_path_visible),
+    ui_execution_brief_path_visible: boolValue(uiState.ui_execution_brief_path_visible),
+    key_events: keyEvents,
+  };
+}
+
+function agentWorldBuildingWithContextBehavior(turnIds, _turnRecords, records, evidence, _options) {
+  if (turnIds.length < 1) return null;
+  const sliceId = evidence.slice_id ?? "agent-world-building-with-context";
+  const expectedArtifactType = expectedWorldBuildingArtifactType(sliceId);
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      record.run_id === evidence.run_id,
+  );
+  if (!uiState) return null;
+  if (uiState.profile_ref !== "world_building_with_context_v1") return null;
+  if (uiState.parent_fast_ack_before_final_turn_result !== true) return null;
+  if (uiState.final_tool_name !== "world_building") return null;
+  if (uiState.pending_artifact_type !== expectedArtifactType) return null;
+  if (uiState.expected_artifact_type !== expectedArtifactType) return null;
+  if (uiState.pending_artifact_tentative !== true) return null;
+  if (uiState.pending_item_preserved_nonce !== true) return null;
+  if (uiState.no_auto_adoption !== true || uiState.no_production_write !== true) return null;
+  if (uiState.agent_stage_events_visible !== true) return null;
+  if (uiState.context_step_visible !== true) return null;
+  if (uiState.context_event_visible !== true) return null;
+  if (uiState.context_observation_visible !== true) return null;
+  if (uiState.strategy_step_visible !== true) return null;
+  if (uiState.plan_event_visible !== true) return null;
+  if (uiState.gate_event_visible !== true) return null;
+  if (uiState.world_step_visible !== true) return null;
+  if (uiState.tool_started_visible !== true) return null;
+  if (uiState.tool_completed_visible !== true) return null;
+  if (uiState.tool_observation_visible !== true) return null;
+  if (uiState.finalization_step_visible !== true) return null;
+  if (uiState.artifact_observation_visible !== true) return null;
+  if (uiState.artifact_event_visible !== true) return null;
+  if (uiState.ui_context_step_visible !== true) return null;
+  if (uiState.ui_strategy_step_visible !== true) return null;
+  if (uiState.ui_world_step_visible !== true) return null;
+  if (uiState.ui_finalization_step_visible !== true) return null;
+  if (uiState.ui_profile_selection_visible !== true) return null;
+  if (uiState.ui_profile_selection_source_visible !== true) return null;
+  if (uiState.ui_profile_selection_reason_visible !== true) return null;
+  if (uiState.ui_profile_selection_terms_visible !== true) return null;
+  if (uiState.ui_profile_selection_path_visible !== true) return null;
+  if (uiState.ui_execution_brief_path_visible !== true) return null;
+  if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
+  if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
+  if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
+  if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
+  if (uiState.log_world_building_tool_done !== true) return null;
+
+  return {
+    slice_id: sliceId,
+    behavior: worldBuildingBehaviorName(sliceId, expectedArtifactType),
+    turn_ids: turnIds,
+    parent_turn_id: evidence.parent_turn_id,
+    final_turn_id: evidence.final_turn_id,
+    run_id: evidence.run_id,
+    profile_ref: evidence.profile_ref,
+    pending_artifact_id: evidence.pending_artifact_id,
+    pending_artifact_type: evidence.pending_artifact_type,
+    world_building_nonce: evidence.world_building_nonce,
+    consumed_steps: evidence.consumed_steps,
+    consumed_tool_calls: evidence.consumed_tool_calls,
+    consumed_provider_calls: evidence.consumed_provider_calls,
+    ui_profile_selection_visible: evidence.ui_profile_selection_visible,
+    ui_profile_selection_terms_visible: evidence.ui_profile_selection_terms_visible,
+    ui_profile_selection_path_visible: evidence.ui_profile_selection_path_visible,
+    ui_execution_brief_path_visible: evidence.ui_execution_brief_path_visible,
+    assertions: [
+      "world_building_request_was_sent_from_real_tauri_workbench",
+      "parent_turn_returned_bounded_agent_run_ack_before_final_turn_result",
+      "world_building_with_context_profile_was_selected",
+      "world_building_profile_selection_causality_was_visible_to_author",
+      "world_building_context_assembly_was_visible_inside_agent_run",
+      "world_building_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+      `world_building_tool_produced_tentative_${expectedArtifactType}`,
+      "world_building_artifact_remained_unadopted_without_production_write",
+      "world_building_draft_preserved_nonce",
+      "agent_activity_timeline_exposed_author_safe_stage_events",
+      "run_consumed_two_executed_steps_one_tool_call_and_five_provider_calls",
     ],
   };
 }
@@ -4191,7 +4478,7 @@ function findAgentCharacterEvolutionWithContextEvidence(records) {
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 1 &&
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_character_evolution_draft_visible === true &&
@@ -4295,7 +4582,7 @@ function agentCharacterEvolutionWithContextBehavior(
   if (uiState.ui_execution_brief_path_visible !== true) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 1) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (Number(uiState.log_sync_turn_count ?? -1) !== 0) return null;
   if (Number(uiState.log_allow_tool_count ?? 0) < 1) return null;
   if (uiState.log_character_evolution_tool_done !== true) return null;
@@ -4327,7 +4614,7 @@ function agentCharacterEvolutionWithContextBehavior(
       "character_evolution_artifact_remained_unadopted_without_production_write",
       "character_evolution_draft_preserved_target_character_and_nonce",
       "agent_activity_timeline_exposed_author_safe_stage_events",
-      "run_consumed_two_executed_steps_one_tool_call_and_four_provider_calls",
+      "run_consumed_two_executed_steps_one_tool_call_and_five_provider_calls",
     ],
   };
 }
@@ -4450,11 +4737,14 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
       record.plain_input_sent_from_real_workbench === true &&
+      boolValue(record.ui_agent_immediate_feedback_visible) === true &&
       record.parent_fast_ack_before_final_turn_result === true &&
       record.profile_ref === "conversation_turn_v1" &&
       record.final_turn_broadcast === true &&
+      Number(record.provider_activity_api_status ?? 0) === 200 &&
+      Number(record.provider_activity_api_agent_run_count ?? 0) >= 1 &&
       Number(record.provider_progress_event_count ?? 0) >= 2 &&
-      boolValue(record.provider_progress_visibility_author) === true &&
+      boolValue(record.provider_progress_visibility_developer) === true &&
       boolValue(record.provider_progress_has_step_ref) === true &&
       boolValue(record.provider_started_projected) === true &&
       boolValue(record.provider_final_output_projected) === true &&
@@ -4466,6 +4756,14 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       boolValue(record.provider_execution_stream_projected) === true &&
       boolValue(record.provider_progress_raw_content_leaked) === false &&
       boolValue(record.provider_chunk_raw_content_leaked) === false &&
+      Number(record.author_reasoning_delta_event_count ?? 0) >= 2 &&
+      record.author_reasoning_delta_payload_key === "author_narrative_delta" &&
+      boolValue(record.author_reasoning_delta_before_first_plan) === true &&
+      boolValue(record.author_reasoning_second_delta_before_first_plan) === true &&
+      boolValue(record.ui_author_reasoning_delta_visible) === true &&
+      boolValue(record.ui_author_reasoning_cumulative_delta_visible) === true &&
+      Number(record.ui_author_reasoning_stream_sample_count ?? 0) >= 2 &&
+      boolValue(record.ui_author_reasoning_stream_grew) === true &&
       boolValue(record.ui_provider_execution_visible) === true &&
       boolValue(record.ui_provider_execution_details_visible) === true &&
       boolValue(record.ui_provider_execution_flow_visible) === true &&
@@ -4475,9 +4773,9 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
       Array.isArray(record.provider_call_refs) &&
       record.provider_call_refs.length >= 1 &&
       Array.isArray(record.provider_purposes) &&
-      record.provider_purposes.includes("planner") &&
+      record.provider_purposes.includes("author_reasoning") &&
       record.provider_purposes.includes("conversation") &&
-      Number(record.consumed_provider_calls ?? 0) === 6 &&
+      Number(record.consumed_provider_calls ?? 0) === 7 &&
       record.final_turn_result_run_id === record.run_id,
   );
   if (!uiState) return null;
@@ -4485,16 +4783,22 @@ function findAgentProviderExecutionStreamUnifiedEvidence(records) {
   return {
     slice_id: sliceId,
     turn_id: String(uiState.final_turn_id ?? uiState.turn_id ?? ""),
-    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")]
-      .filter(Boolean),
+    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")].filter(
+      Boolean,
+    ),
     run_id: String(uiState.run_id ?? ""),
     profile_ref: uiState.profile_ref,
     provider_progress_event_count: Number(uiState.provider_progress_event_count ?? 0),
+    provider_activity_api_status: Number(uiState.provider_activity_api_status ?? 0),
     provider_progress_reason_codes: uiState.provider_progress_reason_codes ?? [],
     provider_run_refs: uiState.provider_run_refs ?? [],
     provider_call_refs: uiState.provider_call_refs ?? [],
     provider_purposes: uiState.provider_purposes ?? [],
     consumed_provider_calls: Number(uiState.consumed_provider_calls ?? 0),
+    author_reasoning_delta_event_count: Number(uiState.author_reasoning_delta_event_count ?? 0),
+    ui_author_reasoning_stream_sample_count: Number(
+      uiState.ui_author_reasoning_stream_sample_count ?? 0,
+    ),
     key_events: keyEventsForSlice(sliceId),
   };
 }
@@ -4510,6 +4814,9 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
   );
   if (!uiState) return null;
   if (uiState.profile_ref !== "conversation_turn_v1") return null;
+  if (boolValue(uiState.ui_agent_immediate_feedback_visible) !== true) return null;
+  if (Number(uiState.provider_activity_api_status ?? 0) !== 200) return null;
+  if (Number(uiState.provider_activity_api_agent_run_count ?? 0) < 1) return null;
   if (boolValue(uiState.provider_started_projected) !== true) return null;
   if (boolValue(uiState.provider_final_output_projected) !== true) return null;
   if (boolValue(uiState.provider_request_prepared_projected) !== true) return null;
@@ -4520,16 +4827,25 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
   if (boolValue(uiState.provider_execution_stream_projected) !== true) return null;
   if (boolValue(uiState.provider_progress_raw_content_leaked) !== false) return null;
   if (boolValue(uiState.provider_chunk_raw_content_leaked) !== false) return null;
+  if (Number(uiState.author_reasoning_delta_event_count ?? 0) < 2) return null;
+  if (uiState.author_reasoning_delta_payload_key !== "author_narrative_delta") return null;
+  if (boolValue(uiState.author_reasoning_delta_before_first_plan) !== true) return null;
+  if (boolValue(uiState.author_reasoning_second_delta_before_first_plan) !== true) return null;
+  if (boolValue(uiState.ui_author_reasoning_delta_visible) !== true) return null;
+  if (boolValue(uiState.ui_author_reasoning_cumulative_delta_visible) !== true) return null;
+  if (Number(uiState.ui_author_reasoning_stream_sample_count ?? 0) < 2) return null;
+  if (boolValue(uiState.ui_author_reasoning_stream_grew) !== true) return null;
   if (boolValue(uiState.ui_provider_execution_details_visible) !== true) return null;
   if (boolValue(uiState.ui_provider_execution_flow_visible) !== true) return null;
   if (boolValue(uiState.ui_agent_execution_brief_visible) !== true) return null;
-  if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1) return null;
+  if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1)
+    return null;
   if (!Array.isArray(uiState.provider_call_refs) || uiState.provider_call_refs.length < 1) {
     return null;
   }
   if (
     !Array.isArray(uiState.provider_purposes) ||
-    !uiState.provider_purposes.includes("planner") ||
+    !uiState.provider_purposes.includes("author_reasoning") ||
     !uiState.provider_purposes.includes("conversation")
   ) {
     return null;
@@ -4537,25 +4853,32 @@ function agentProviderExecutionStreamUnifiedBehavior(turnIds, records, evidence)
 
   return {
     slice_id: "agent-provider-execution-stream-unified",
-    behavior: "conversation_provider_execution_facts_projected_to_author_safe_activity",
+    behavior: "conversation_provider_execution_facts_projected_to_developer_telemetry",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
+    provider_activity_api_status: evidence.provider_activity_api_status,
     provider_progress_event_count: evidence.provider_progress_event_count,
     provider_progress_reason_codes: evidence.provider_progress_reason_codes,
     provider_run_refs: evidence.provider_run_refs,
     provider_call_refs: evidence.provider_call_refs,
     provider_purposes: evidence.provider_purposes,
     consumed_provider_calls: evidence.consumed_provider_calls,
+    author_reasoning_delta_event_count: evidence.author_reasoning_delta_event_count,
+    ui_author_reasoning_stream_sample_count: evidence.ui_author_reasoning_stream_sample_count,
     assertions: [
       "plain_conversation_used_conversation_turn_profile_not_provider_progress_profile",
-      "provider_execution_started_event_was_projected_to_author_safe_agent_activity",
+      "assistant_work_state_was_visible_immediately_after_send",
+      "provider_execution_developer_telemetry_loaded_from_scoped_agent_run_activity_api",
+      "provider_execution_started_event_was_projected_to_developer_telemetry",
       "provider_execution_request_prepared_progress_was_projected",
       "provider_execution_request_dispatched_progress_was_projected",
       "provider_execution_response_received_progress_was_projected",
       "provider_execution_chunk_events_were_projected",
-      "provider_execution_chunk_payload_was_author_safe_metadata",
-      "provider_execution_final_output_event_was_projected_to_author_safe_agent_activity",
+      "provider_execution_chunk_payload_was_redacted_telemetry_metadata",
+      "author_reasoning_provider_deltas_streamed_before_first_plan",
+      "ui_reasoning_area_grew_from_multiple_provider_deltas",
+      "provider_execution_final_output_event_was_projected_to_developer_telemetry",
       "provider_activity_carried_provider_run_and_call_refs",
       "provider_activity_rendered_event_and_ref_details_in_dialogue_flow",
       "provider_execution_flow_rendered_live_phase_summary_in_dialogue_flow",
@@ -4576,43 +4899,41 @@ function findAgentProviderExecutionActivityRestoredEvidence(records) {
       record.profile_ref === "conversation_turn_v1" &&
       record.final_turn_broadcast === true &&
       boolValue(record.restored_after_reload) === true &&
-      boolValue(record.transcript_agent_run_events_restored) === true &&
-      Number(record.transcript_provider_progress_event_count ?? 0) >= 2 &&
-      boolValue(record.transcript_provider_started_restored) === true &&
-      boolValue(record.transcript_provider_final_output_restored) === true &&
-      boolValue(record.transcript_provider_activity_raw_content_leaked) === false &&
-      boolValue(record.transcript_provider_run_raw_content_leaked) === false &&
+      boolValue(record.transcript_agent_run_summary_only) === true &&
+      boolValue(record.transcript_agent_run_activity_loaded) === false &&
+      Number(record.transcript_agent_run_event_count ?? -1) === 0 &&
+      Number(record.transcript_provider_run_summary_count ?? -1) === 0 &&
+      Number(record.agent_run_activity_api_status ?? 0) === 200 &&
+      Number(record.agent_run_activity_api_run_count ?? 0) >= 1 &&
+      Number(record.agent_run_activity_api_provider_progress_event_count ?? 0) >= 2 &&
+      boolValue(record.agent_run_activity_api_started_restored) === true &&
+      boolValue(record.agent_run_activity_api_final_output_restored) === true &&
+      boolValue(record.agent_run_activity_api_raw_content_leaked) === false &&
+      Array.isArray(record.agent_run_activity_api_provider_run_refs) &&
+      record.agent_run_activity_api_provider_run_refs.length >= 1 &&
+      Array.isArray(record.agent_run_activity_api_provider_call_refs) &&
+      record.agent_run_activity_api_provider_call_refs.length >= 1 &&
+      boolValue(record.restored_ui_details_initially_collapsed) === true &&
+      boolValue(record.restored_ui_activity_loaded_after_expand) === true &&
       boolValue(record.restored_ui_provider_execution_visible) === true &&
       boolValue(record.restored_ui_provider_execution_details_visible) === true &&
       boolValue(record.restored_ui_agent_execution_brief_visible) === true &&
+      boolValue(record.restored_ui_provider_usage_breakdown_visible) === true &&
       boolValue(record.restored_ui_agent_flow_visible) === true &&
       boolValue(record.restored_ui_provider_run_replay_visible) === true &&
       boolValue(record.restored_ui_provider_run_replay_boundary_visible) === true &&
       boolValue(record.restored_ui_provider_run_replay_raw_content_leaked) === false &&
-      Number(record.transcript_provider_run_summary_count ?? 0) >= 6 &&
       Number(record.provider_run_activity_api_status ?? 0) === 200 &&
-      Number(record.provider_run_activity_api_count ?? 0) >=
-        Number(record.transcript_provider_run_summary_count ?? 0) &&
+      Number(record.provider_run_activity_api_count ?? 0) >= 6 &&
       Array.isArray(record.provider_run_activity_api_refs) &&
       record.provider_run_activity_api_refs.length >= 1 &&
       Array.isArray(record.provider_run_activity_api_call_refs) &&
       record.provider_run_activity_api_call_refs.length >= 1 &&
       Array.isArray(record.provider_run_activity_api_purposes) &&
-      record.provider_run_activity_api_purposes.includes("planner") &&
+      record.provider_run_activity_api_purposes.includes("author_reasoning") &&
       record.provider_run_activity_api_purposes.includes("conversation") &&
       Number(record.provider_run_activity_api_total_tokens ?? -1) >= 0 &&
       boolValue(record.provider_run_activity_api_raw_content_leaked) === false &&
-      Array.isArray(record.transcript_provider_run_refs) &&
-      record.transcript_provider_run_refs.length >= 1 &&
-      Array.isArray(record.transcript_provider_call_refs) &&
-      record.transcript_provider_call_refs.length >= 1 &&
-      Array.isArray(record.transcript_provider_run_summary_refs) &&
-      record.transcript_provider_run_summary_refs.length >= 1 &&
-      Array.isArray(record.transcript_provider_call_summary_refs) &&
-      record.transcript_provider_call_summary_refs.length >= 1 &&
-      Array.isArray(record.transcript_provider_run_purposes) &&
-      record.transcript_provider_run_purposes.includes("planner") &&
-      record.transcript_provider_run_purposes.includes("conversation") &&
       Number(record.reload_resume_transcript_count ?? 0) >= 2 &&
       record.final_turn_result_run_id === record.run_id,
   );
@@ -4621,21 +4942,22 @@ function findAgentProviderExecutionActivityRestoredEvidence(records) {
   return {
     slice_id: sliceId,
     turn_id: String(uiState.final_turn_id ?? uiState.turn_id ?? ""),
-    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")]
-      .filter(Boolean),
+    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")].filter(
+      Boolean,
+    ),
     run_id: String(uiState.run_id ?? ""),
     profile_ref: uiState.profile_ref,
-    transcript_provider_progress_event_count: Number(
-      uiState.transcript_provider_progress_event_count ?? 0,
-    ),
+    transcript_agent_run_event_count: Number(uiState.transcript_agent_run_event_count ?? 0),
     transcript_provider_run_summary_count: Number(
       uiState.transcript_provider_run_summary_count ?? 0,
     ),
-    transcript_provider_run_refs: uiState.transcript_provider_run_refs ?? [],
-    transcript_provider_call_refs: uiState.transcript_provider_call_refs ?? [],
-    transcript_provider_run_summary_refs: uiState.transcript_provider_run_summary_refs ?? [],
-    transcript_provider_call_summary_refs: uiState.transcript_provider_call_summary_refs ?? [],
-    transcript_provider_run_purposes: uiState.transcript_provider_run_purposes ?? [],
+    agent_run_activity_api_provider_progress_event_count: Number(
+      uiState.agent_run_activity_api_provider_progress_event_count ?? 0,
+    ),
+    agent_run_activity_api_provider_run_refs:
+      uiState.agent_run_activity_api_provider_run_refs ?? [],
+    agent_run_activity_api_provider_call_refs:
+      uiState.agent_run_activity_api_provider_call_refs ?? [],
     provider_run_activity_api_count: Number(uiState.provider_run_activity_api_count ?? 0),
     provider_run_activity_api_refs: uiState.provider_run_activity_api_refs ?? [],
     provider_run_activity_api_call_refs: uiState.provider_run_activity_api_call_refs ?? [],
@@ -4646,10 +4968,91 @@ function findAgentProviderExecutionActivityRestoredEvidence(records) {
     restored_ui_provider_run_replay_visible: boolValue(
       uiState.restored_ui_provider_run_replay_visible,
     ),
+    restored_ui_provider_usage_breakdown_visible: boolValue(
+      uiState.restored_ui_provider_usage_breakdown_visible,
+    ),
     restored_ui_provider_run_replay_boundary_visible: boolValue(
       uiState.restored_ui_provider_run_replay_boundary_visible,
     ),
+    restored_ui_details_initially_collapsed: boolValue(
+      uiState.restored_ui_details_initially_collapsed,
+    ),
+    restored_ui_activity_loaded_after_expand: boolValue(
+      uiState.restored_ui_activity_loaded_after_expand,
+    ),
     reload_resume_transcript_count: Number(uiState.reload_resume_transcript_count ?? 0),
+    key_events: keyEventsForSlice(sliceId),
+  };
+}
+
+function findAgentSessionTranscriptLazyPageEvidence(records) {
+  const sliceId = "agent-session-transcript-lazy-page";
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === sliceId &&
+      Number(record.sent_turn_count ?? 0) >= 16 &&
+      Number(record.persisted_first_page_count ?? 0) === 30 &&
+      boolValue(record.persisted_first_page_has_more_before) === true &&
+      boolValue(record.persisted_first_page_before_id_present) === true &&
+      Number(record.older_transcript_api_status ?? 0) === 200 &&
+      Number(record.older_transcript_api_count ?? 0) >= 1 &&
+      boolValue(record.older_transcript_api_first_message_visible) === true &&
+      Number(record.reload_resume_transcript_count ?? 0) === 30 &&
+      boolValue(record.restored_latest_message_visible) === true &&
+      boolValue(record.restored_oldest_message_hidden_before_load) === true &&
+      boolValue(record.load_older_button_visible) === true &&
+      boolValue(record.older_message_visible_after_load) === true &&
+      boolValue(record.load_older_button_hidden_after_exhausted) === true &&
+      boolValue(record.provider_recalled_during_load_older) === false &&
+      boolValue(record.older_transcript_agent_run_summary_only) === true &&
+      Number(record.older_agent_run_activity_api_status ?? 0) === 200 &&
+      Number(record.older_agent_run_activity_api_run_count ?? 0) >= 1 &&
+      Number(record.older_agent_run_activity_api_provider_progress_event_count ?? 0) >= 2 &&
+      Number(record.older_provider_run_activity_api_count ?? 0) >= 6 &&
+      Array.isArray(record.older_provider_run_activity_api_purposes) &&
+      record.older_provider_run_activity_api_purposes.includes("author_reasoning") &&
+      record.older_provider_run_activity_api_purposes.includes("conversation") &&
+      boolValue(record.older_agent_run_activity_api_raw_content_leaked) === false &&
+      boolValue(record.older_ui_details_initially_collapsed) === true &&
+      boolValue(record.older_ui_activity_loaded_after_expand) === true &&
+      boolValue(record.older_ui_provider_run_replay_boundary_visible) === true &&
+      boolValue(record.older_ui_provider_run_replay_raw_content_leaked) === false &&
+      boolValue(record.provider_recalled_during_older_activity_expand) === false,
+  );
+  if (!uiState) return null;
+
+  return {
+    slice_id: sliceId,
+    turn_id: String(uiState.turn_id ?? ""),
+    turn_ids: Array.isArray(uiState.turn_ids) ? uiState.turn_ids.map(String) : [],
+    work_id: String(uiState.work_id ?? ""),
+    session_id: String(uiState.session_id ?? ""),
+    sent_turn_count: Number(uiState.sent_turn_count ?? 0),
+    persisted_first_page_count: Number(uiState.persisted_first_page_count ?? 0),
+    older_transcript_api_count: Number(uiState.older_transcript_api_count ?? 0),
+    older_assistant_turn_id: String(uiState.older_assistant_turn_id ?? ""),
+    older_agent_run_activity_api_provider_progress_event_count: Number(
+      uiState.older_agent_run_activity_api_provider_progress_event_count ?? 0,
+    ),
+    older_provider_run_activity_api_count: Number(
+      uiState.older_provider_run_activity_api_count ?? 0,
+    ),
+    older_provider_run_activity_api_purposes:
+      uiState.older_provider_run_activity_api_purposes ?? [],
+    reload_resume_transcript_count: Number(uiState.reload_resume_transcript_count ?? 0),
+    restored_oldest_message_hidden_before_load: boolValue(
+      uiState.restored_oldest_message_hidden_before_load,
+    ),
+    older_message_visible_after_load: boolValue(uiState.older_message_visible_after_load),
+    provider_recalled_during_load_older: boolValue(uiState.provider_recalled_during_load_older),
+    older_ui_activity_loaded_after_expand: boolValue(uiState.older_ui_activity_loaded_after_expand),
+    older_ui_provider_run_replay_boundary_visible: boolValue(
+      uiState.older_ui_provider_run_replay_boundary_visible,
+    ),
+    provider_recalled_during_older_activity_expand: boolValue(
+      uiState.provider_recalled_during_older_activity_expand,
+    ),
     key_events: keyEventsForSlice(sliceId),
   };
 }
@@ -4666,26 +5069,42 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
   if (!uiState) return null;
   if (uiState.profile_ref !== "conversation_turn_v1") return null;
   if (boolValue(uiState.restored_after_reload) !== true) return null;
-  if (boolValue(uiState.transcript_agent_run_events_restored) !== true) return null;
-  if (boolValue(uiState.transcript_provider_activity_raw_content_leaked) !== false) return null;
-  if (boolValue(uiState.transcript_provider_run_raw_content_leaked) !== false) return null;
+  if (boolValue(uiState.transcript_agent_run_summary_only) !== true) return null;
+  if (boolValue(uiState.transcript_agent_run_activity_loaded) !== false) return null;
+  if (Number(uiState.transcript_agent_run_event_count ?? -1) !== 0) return null;
+  if (Number(uiState.transcript_provider_run_summary_count ?? -1) !== 0) return null;
+  if (Number(uiState.agent_run_activity_api_status ?? 0) !== 200) return null;
+  if (Number(uiState.agent_run_activity_api_run_count ?? 0) < 1) return null;
+  if (Number(uiState.agent_run_activity_api_provider_progress_event_count ?? 0) < 2) return null;
+  if (boolValue(uiState.agent_run_activity_api_started_restored) !== true) return null;
+  if (boolValue(uiState.agent_run_activity_api_final_output_restored) !== true) return null;
+  if (boolValue(uiState.agent_run_activity_api_raw_content_leaked) !== false) return null;
+  if (
+    !Array.isArray(uiState.agent_run_activity_api_provider_run_refs) ||
+    uiState.agent_run_activity_api_provider_run_refs.length < 1
+  ) {
+    return null;
+  }
+  if (
+    !Array.isArray(uiState.agent_run_activity_api_provider_call_refs) ||
+    uiState.agent_run_activity_api_provider_call_refs.length < 1
+  ) {
+    return null;
+  }
+  if (boolValue(uiState.restored_ui_details_initially_collapsed) !== true) return null;
+  if (boolValue(uiState.restored_ui_activity_loaded_after_expand) !== true) return null;
   if (boolValue(uiState.restored_ui_provider_execution_visible) !== true) return null;
   if (boolValue(uiState.restored_ui_provider_execution_details_visible) !== true) return null;
   if (boolValue(uiState.restored_ui_agent_execution_brief_visible) !== true) return null;
+  if (boolValue(uiState.restored_ui_provider_usage_breakdown_visible) !== true) return null;
   if (boolValue(uiState.restored_ui_agent_flow_visible) !== true) return null;
   if (boolValue(uiState.restored_ui_provider_run_replay_visible) !== true) return null;
   if (boolValue(uiState.restored_ui_provider_run_replay_boundary_visible) !== true) return null;
   if (boolValue(uiState.restored_ui_provider_run_replay_raw_content_leaked) !== false) {
     return null;
   }
-  if (Number(uiState.transcript_provider_run_summary_count ?? 0) < 6) return null;
   if (Number(uiState.provider_run_activity_api_status ?? 0) !== 200) return null;
-  if (
-    Number(uiState.provider_run_activity_api_count ?? 0) <
-    Number(uiState.transcript_provider_run_summary_count ?? 0)
-  ) {
-    return null;
-  }
+  if (Number(uiState.provider_run_activity_api_count ?? 0) < 6) return null;
   if (
     !Array.isArray(uiState.provider_run_activity_api_refs) ||
     uiState.provider_run_activity_api_refs.length < 1
@@ -4700,72 +5119,47 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
   }
   if (
     !Array.isArray(uiState.provider_run_activity_api_purposes) ||
-    !uiState.provider_run_activity_api_purposes.includes("planner") ||
+    !uiState.provider_run_activity_api_purposes.includes("author_reasoning") ||
     !uiState.provider_run_activity_api_purposes.includes("conversation")
   ) {
     return null;
   }
   if (Number(uiState.provider_run_activity_api_total_tokens ?? -1) < 0) return null;
   if (boolValue(uiState.provider_run_activity_api_raw_content_leaked) !== false) return null;
-  if (
-    !Array.isArray(uiState.transcript_provider_run_refs) ||
-    uiState.transcript_provider_run_refs.length < 1
-  ) {
-    return null;
-  }
-  if (
-    !Array.isArray(uiState.transcript_provider_call_refs) ||
-    uiState.transcript_provider_call_refs.length < 1
-  ) {
-    return null;
-  }
-  if (
-    !Array.isArray(uiState.transcript_provider_run_summary_refs) ||
-    uiState.transcript_provider_run_summary_refs.length < 1
-  ) {
-    return null;
-  }
-  if (
-    !Array.isArray(uiState.transcript_provider_call_summary_refs) ||
-    uiState.transcript_provider_call_summary_refs.length < 1
-  ) {
-    return null;
-  }
-  if (
-    !Array.isArray(uiState.transcript_provider_run_purposes) ||
-    !uiState.transcript_provider_run_purposes.includes("planner") ||
-    !uiState.transcript_provider_run_purposes.includes("conversation")
-  ) {
-    return null;
-  }
 
   return {
     slice_id: "agent-provider-execution-activity-restored",
-    behavior: "provider_execution_activity_restored_from_persisted_agent_run_events",
+    behavior: "provider_execution_activity_lazy_loaded_from_persisted_agent_run_events",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
-    transcript_provider_progress_event_count: evidence.transcript_provider_progress_event_count,
+    transcript_agent_run_event_count: evidence.transcript_agent_run_event_count,
     transcript_provider_run_summary_count: evidence.transcript_provider_run_summary_count,
-    transcript_provider_run_refs: evidence.transcript_provider_run_refs,
-    transcript_provider_call_refs: evidence.transcript_provider_call_refs,
-    transcript_provider_run_summary_refs: evidence.transcript_provider_run_summary_refs,
-    transcript_provider_call_summary_refs: evidence.transcript_provider_call_summary_refs,
-    transcript_provider_run_purposes: evidence.transcript_provider_run_purposes,
+    agent_run_activity_api_provider_progress_event_count:
+      evidence.agent_run_activity_api_provider_progress_event_count,
+    agent_run_activity_api_provider_run_refs: evidence.agent_run_activity_api_provider_run_refs,
+    agent_run_activity_api_provider_call_refs: evidence.agent_run_activity_api_provider_call_refs,
     provider_run_activity_api_count: evidence.provider_run_activity_api_count,
     provider_run_activity_api_refs: evidence.provider_run_activity_api_refs,
     provider_run_activity_api_call_refs: evidence.provider_run_activity_api_call_refs,
     provider_run_activity_api_purposes: evidence.provider_run_activity_api_purposes,
     provider_run_activity_api_total_tokens: evidence.provider_run_activity_api_total_tokens,
     restored_ui_provider_run_replay_visible: evidence.restored_ui_provider_run_replay_visible,
+    restored_ui_provider_usage_breakdown_visible:
+      evidence.restored_ui_provider_usage_breakdown_visible,
     restored_ui_provider_run_replay_boundary_visible:
       evidence.restored_ui_provider_run_replay_boundary_visible,
+    restored_ui_details_initially_collapsed: evidence.restored_ui_details_initially_collapsed,
+    restored_ui_activity_loaded_after_expand: evidence.restored_ui_activity_loaded_after_expand,
     reload_resume_transcript_count: evidence.reload_resume_transcript_count,
     assertions: [
-      "provider_activity_was_restored_from_agent_event_log_without_provider_recall",
+      "session_restore_kept_agent_run_activity_summary_only",
+      "agent_run_activity_api_returned_author_safe_events_without_provider_recall",
       "provider_usage_was_restored_from_provider_run_log_without_provider_recall",
       "provider_run_activity_api_returned_author_safe_usage_without_provider_recall",
-      "restored_activity_carried_provider_run_and_call_refs",
+      "author_expanded_work_details_loaded_activity_inside_same_assistant_dialogue_flow",
+      "restored_provider_usage_breakdown_was_visible_to_author",
+      "lazy_loaded_activity_carried_provider_run_and_call_refs",
       "restored_provider_run_usage_preserved_planner_and_conversation_purposes",
       "restored_activity_rendered_provider_event_and_ref_details",
       "restored_agent_execution_brief_summarized_path_and_provider_call_count",
@@ -4773,6 +5167,78 @@ function agentProviderExecutionActivityRestoredBehavior(turnIds, records, eviden
       "restored_provider_run_replay_rendered_event_sequence_and_output_summary",
       "restored_provider_run_replay_declared_no_provider_recall_boundary",
       "reloaded_workbench_showed_provider_activity_inside_the_same_assistant_dialogue_flow",
+    ],
+  };
+}
+
+function agentSessionTranscriptLazyPageBehavior(turnIds, records, evidence) {
+  if (!evidence?.session_id) return null;
+
+  const uiState = records.find(
+    (record) =>
+      record.event === "slice_verify.ui_state.done" &&
+      record.slice_id === "agent-session-transcript-lazy-page" &&
+      record.session_id === evidence.session_id,
+  );
+  if (!uiState) return null;
+  if (Number(uiState.persisted_first_page_count ?? 0) !== 30) return null;
+  if (boolValue(uiState.persisted_first_page_has_more_before) !== true) return null;
+  if (Number(uiState.older_transcript_api_status ?? 0) !== 200) return null;
+  if (boolValue(uiState.restored_oldest_message_hidden_before_load) !== true) return null;
+  if (boolValue(uiState.older_message_visible_after_load) !== true) return null;
+  if (boolValue(uiState.provider_recalled_during_load_older) !== false) return null;
+  if (boolValue(uiState.older_transcript_agent_run_summary_only) !== true) return null;
+  if (Number(uiState.older_agent_run_activity_api_status ?? 0) !== 200) return null;
+  if (Number(uiState.older_agent_run_activity_api_run_count ?? 0) < 1) return null;
+  if (Number(uiState.older_agent_run_activity_api_provider_progress_event_count ?? 0) < 2) {
+    return null;
+  }
+  if (Number(uiState.older_provider_run_activity_api_count ?? 0) < 6) return null;
+  if (
+    !Array.isArray(uiState.older_provider_run_activity_api_purposes) ||
+    !uiState.older_provider_run_activity_api_purposes.includes("author_reasoning") ||
+    !uiState.older_provider_run_activity_api_purposes.includes("conversation")
+  ) {
+    return null;
+  }
+  if (boolValue(uiState.older_agent_run_activity_api_raw_content_leaked) !== false) return null;
+  if (boolValue(uiState.older_ui_details_initially_collapsed) !== true) return null;
+  if (boolValue(uiState.older_ui_activity_loaded_after_expand) !== true) return null;
+  if (boolValue(uiState.older_ui_provider_run_replay_boundary_visible) !== true) return null;
+  if (boolValue(uiState.older_ui_provider_run_replay_raw_content_leaked) !== false) return null;
+  if (boolValue(uiState.provider_recalled_during_older_activity_expand) !== false) return null;
+
+  return {
+    slice_id: "agent-session-transcript-lazy-page",
+    behavior: "session_transcript_restored_as_latest_page_and_older_page_loaded_on_author_action",
+    turn_ids: turnIds,
+    work_id: evidence.work_id,
+    session_id: evidence.session_id,
+    sent_turn_count: evidence.sent_turn_count,
+    persisted_first_page_count: evidence.persisted_first_page_count,
+    older_transcript_api_count: evidence.older_transcript_api_count,
+    older_assistant_turn_id: evidence.older_assistant_turn_id,
+    older_agent_run_activity_api_provider_progress_event_count:
+      evidence.older_agent_run_activity_api_provider_progress_event_count,
+    older_provider_run_activity_api_count: evidence.older_provider_run_activity_api_count,
+    older_provider_run_activity_api_purposes: evidence.older_provider_run_activity_api_purposes,
+    reload_resume_transcript_count: evidence.reload_resume_transcript_count,
+    provider_recalled_during_load_older: evidence.provider_recalled_during_load_older,
+    older_ui_activity_loaded_after_expand: evidence.older_ui_activity_loaded_after_expand,
+    older_ui_provider_run_replay_boundary_visible:
+      evidence.older_ui_provider_run_replay_boundary_visible,
+    provider_recalled_during_older_activity_expand:
+      evidence.provider_recalled_during_older_activity_expand,
+    assertions: [
+      "session_resume_returned_latest_transcript_page_only",
+      "older_transcript_page_was_loaded_by_author_visible_action",
+      "older_transcript_page_preserved_work_session_cursor_scope",
+      "loading_older_transcript_did_not_recall_provider",
+      "oldest_message_was_hidden_before_load_and_visible_after_load",
+      "older_assistant_activity_loaded_from_scoped_agent_run_activity_api",
+      "older_assistant_work_details_expanded_inside_same_dialogue_flow",
+      "older_assistant_provider_run_replay_declared_no_provider_recall_boundary",
+      "expanding_older_assistant_activity_did_not_recall_provider",
     ],
   };
 }
@@ -4788,7 +5254,7 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
       record.profile_ref === "conversation_turn_v1" &&
       record.final_turn_broadcast === true &&
       Number(record.provider_progress_event_count ?? 0) >= 2 &&
-      boolValue(record.provider_progress_visibility_author) === true &&
+      boolValue(record.provider_progress_visibility_developer) === true &&
       boolValue(record.provider_progress_has_step_ref) === true &&
       boolValue(record.provider_started_projected) === true &&
       boolValue(record.provider_error_projected) === true &&
@@ -4800,13 +5266,13 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
       Array.isArray(record.provider_call_refs) &&
       record.provider_call_refs.length >= 1 &&
       Array.isArray(record.provider_purposes) &&
-      record.provider_purposes.includes("planner") &&
+      record.provider_purposes.includes("author_reasoning") &&
       record.provider_purposes.includes("conversation") &&
       Array.isArray(record.provider_statuses) &&
       record.provider_statuses.includes("error") &&
       Array.isArray(record.provider_output_types) &&
       record.provider_output_types.includes("empty") &&
-      Number(record.consumed_provider_calls ?? 0) === 6 &&
+      Number(record.consumed_provider_calls ?? 0) === 7 &&
       record.final_turn_result_run_id === record.run_id &&
       boolValue(record.no_tool_called) === true &&
       boolValue(record.no_auto_adoption) === true &&
@@ -4817,8 +5283,9 @@ function findAgentProviderExecutionErrorAuthorSafeEvidence(records) {
   return {
     slice_id: sliceId,
     turn_id: String(uiState.final_turn_id ?? uiState.turn_id ?? ""),
-    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")]
-      .filter(Boolean),
+    turn_ids: [String(uiState.parent_turn_id ?? ""), String(uiState.final_turn_id ?? "")].filter(
+      Boolean,
+    ),
     run_id: String(uiState.run_id ?? ""),
     profile_ref: uiState.profile_ref,
     provider_progress_event_count: Number(uiState.provider_progress_event_count ?? 0),
@@ -4849,13 +5316,14 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
   if (boolValue(uiState.provider_execution_stream_projected) !== true) return null;
   if (boolValue(uiState.provider_progress_raw_content_leaked) !== false) return null;
   if (boolValue(uiState.safe_fallback_visible) !== true) return null;
-  if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1) return null;
+  if (!Array.isArray(uiState.provider_run_refs) || uiState.provider_run_refs.length < 1)
+    return null;
   if (!Array.isArray(uiState.provider_call_refs) || uiState.provider_call_refs.length < 1) {
     return null;
   }
   if (
     !Array.isArray(uiState.provider_purposes) ||
-    !uiState.provider_purposes.includes("planner") ||
+    !uiState.provider_purposes.includes("author_reasoning") ||
     !uiState.provider_purposes.includes("conversation")
   ) {
     return null;
@@ -4863,13 +5331,16 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
   if (!Array.isArray(uiState.provider_statuses) || !uiState.provider_statuses.includes("error")) {
     return null;
   }
-  if (!Array.isArray(uiState.provider_output_types) || !uiState.provider_output_types.includes("empty")) {
+  if (
+    !Array.isArray(uiState.provider_output_types) ||
+    !uiState.provider_output_types.includes("empty")
+  ) {
     return null;
   }
 
   return {
     slice_id: "agent-provider-execution-error-author-safe",
-    behavior: "provider_execution_error_facts_projected_to_author_safe_activity",
+    behavior: "provider_execution_error_facts_projected_to_developer_telemetry",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
@@ -4883,7 +5354,7 @@ function agentProviderExecutionErrorAuthorSafeBehavior(turnIds, records, evidenc
     consumed_provider_calls: evidence.consumed_provider_calls,
     assertions: [
       "plain_conversation_used_conversation_turn_profile_not_provider_progress_profile",
-      "provider_execution_error_event_was_projected_to_author_safe_agent_activity",
+      "provider_execution_error_event_was_projected_to_developer_telemetry",
       "provider_activity_carried_provider_run_and_call_refs",
       "provider_activity_did_not_expose_raw_prompt_or_provider_error_payload",
       "safe_fallback_turn_result_did_not_call_tool_or_write_artifact",
@@ -4906,7 +5377,7 @@ function findAgentProviderStreamingProgressEvidence(records) {
       boolValue(record.progress_has_step_ref) === true &&
       boolValue(record.raw_prompt_leaked_in_progress_events) === false &&
       boolValue(record.provider_execution_stream_active) === true &&
-      Number(record.consumed_provider_calls ?? 0) === 1 &&
+      Number(record.consumed_provider_calls ?? 0) === 2 &&
       record.final_turn_result_run_id === record.run_id &&
       record.ui_progress_visible === true,
   );
@@ -4937,7 +5408,7 @@ function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
   if (!uiState) return null;
   if (boolValue(uiState.raw_prompt_leaked_in_progress_events) !== false) return null;
   if (boolValue(uiState.provider_execution_stream_active) !== true) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 1) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 2) return null;
 
   return {
     slice_id: "agent-provider-streaming-progress",
@@ -4953,7 +5424,7 @@ function agentProviderStreamingProgressBehavior(turnIds, records, evidence) {
       "provider_progress_events_carried_run_id_step_ref_and_author_visibility",
       "progress_events_did_not_expose_raw_prompt",
       "provider_execution_stream_reported_active_progress",
-      "final_run_state_recorded_one_provider_call",
+      "final_run_state_recorded_profile_route_and_provider_progress_calls",
     ],
   };
 }
@@ -5042,7 +5513,7 @@ function findAgentReadonlyBatchProfileEvidence(records) {
       boolValue(record.readonly_events_production_write_false) === true &&
       record.final_turn_result_run_id === record.run_id &&
       boolValue(record.replay_recall_provider) === false &&
-      Number(record.consumed_provider_calls ?? -1) === 0 &&
+      Number(record.consumed_provider_calls ?? -1) === 1 &&
       Number(record.consumed_tool_calls ?? 0) >= 4 &&
       Number(record.pending_artifact_count ?? -1) === 0 &&
       Number(record.artifact_event_count ?? -1) === 0 &&
@@ -5074,13 +5545,13 @@ function agentReadonlyBatchProfileBehavior(turnIds, records, evidence) {
   );
   if (!uiState) return null;
   if (boolValue(uiState.replay_recall_provider) !== false) return null;
-  if (Number(uiState.consumed_provider_calls ?? -1) !== 0) return null;
+  if (Number(uiState.consumed_provider_calls ?? -1) !== 1) return null;
   if (Number(uiState.pending_artifact_count ?? -1) !== 0) return null;
   if (Number(uiState.artifact_event_count ?? -1) !== 0) return null;
 
   return {
     slice_id: "agent-readonly-batch-profile",
-    behavior: "readonly_batch_profile_reads_context_without_provider_or_production_write",
+    behavior: "readonly_batch_profile_reads_context_without_content_provider_or_production_write",
     turn_ids: turnIds,
     run_id: evidence.run_id,
     profile_ref: evidence.profile_ref,
@@ -5092,7 +5563,7 @@ function agentReadonlyBatchProfileBehavior(turnIds, records, evidence) {
       "batch_item_events_were_author_visible_and_scoped_to_run",
       "readonly_batch_events_declared_production_write_false",
       "final_turn_result_declared_replay_recall_provider_false",
-      "run_finished_without_provider_calls_artifacts_or_adoption",
+      "run_finished_with_only_profile_route_provider_call_and_without_artifacts_or_adoption",
     ],
   };
 }
@@ -5127,7 +5598,7 @@ function findUa01AgentBoundedRosterToCharacterDesignEvidence(
       Number(record.completed_step_count ?? 0) === 2 &&
       Number(record.consumed_steps ?? 0) === 2 &&
       Number(record.consumed_tool_calls ?? 0) === 2 &&
-      Number(record.consumed_provider_calls ?? 0) === 4 &&
+      Number(record.consumed_provider_calls ?? 0) === 5 &&
       record.ui_agent_panel_visible === true &&
       record.ui_agent_completed_visible === true &&
       record.ui_artifact_event_visible === true &&
@@ -5235,7 +5706,7 @@ function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
         behavior: "agent_activity_events_used_author_safe_summaries_and_refs",
         assertions: [
           "run_started_event_was_author_visible",
-          "observation_recorded_event_used_author_safe_summary",
+          "exploration_observed_event_used_author_safe_summary",
           "artifact_created_event_used_refs_not_raw_generation_payload",
           "run_completed_event_was_author_visible",
           "agent_event_payloads_did_not_expose_prompt_or_chain_of_thought",
@@ -5270,7 +5741,7 @@ function ua01AgentBehaviorDescriptor(requestedSliceId, provider) {
         assertions: [
           "bounded_run_consumed_two_steps",
           "bounded_run_consumed_two_tool_calls",
-          "bounded_run_consumed_three_planner_calls_and_one_writer_call",
+          "bounded_run_consumed_profile_routing_three_planner_calls_and_one_writer_call",
           "provider_call_budget_was_reported_in_agent_run_state",
         ],
       };
@@ -5319,7 +5790,7 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   if (Number(uiState.log_allow_tool_count ?? 0) < 2) return null;
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
   if (Number(uiState.consumed_tool_calls ?? 0) !== 2) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 4) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 5) return null;
   if (requestedSliceId === "agent-event-author-safe" && uiState.agent_events_author_safe !== true) {
     return null;
   }
@@ -5327,7 +5798,7 @@ function ua01AgentBoundedRosterToCharacterDesignBehavior(
   const eventTypes = Array.isArray(uiState.agent_event_types) ? uiState.agent_event_types : [];
   for (const eventType of [
     "run_started",
-    "observation_recorded",
+    "exploration_observed",
     "artifact_created",
     "run_completed",
   ]) {
@@ -5489,21 +5960,27 @@ function ua01AgentInterruptBehavior(turnIds, records, evidence, sliceId) {
 
 function findUa01AgentSteerEvidence(records, sliceId) {
   const keyEvents = keyEventsForSlice(sliceId);
-  const naturalLanguageSteer = sliceId === "agent-natural-language-steer";
+  const mainInputSteer = ua01AgentSteerUsesMainInput(sliceId);
   const uiState = records.find(
     (record) =>
       record.event === "slice_verify.ui_state.done" &&
       record.slice_id === sliceId &&
       record.run_mode === "bounded" &&
       record.command === "steer" &&
-      (naturalLanguageSteer
+      (mainInputSteer
         ? record.command_sent_from_main_input === true &&
-          record.no_second_user_message_for_steer === true
+          record.no_second_user_message_for_steer === true &&
+          record.main_input_steer_placeholder_visible === true &&
+          record.active_run_work_state_visible_after_steer === true &&
+          record.main_input_steer_text_visible_after_submit === true
         : record.command_sent_from_real_button === true && record.steer_control_visible === true) &&
       record.command_ack_received === true &&
       record.command_target_bound_to_active_run === true &&
       record.no_cross_run_command === true &&
       record.plan_adjusted_event_type === "plan_adjusted" &&
+      record.plan_revised_event_type === "plan_revised" &&
+      record.plan_revised_author_narrative_source_type === "provider_output" &&
+      record.plan_revised_evaluation_plan_holds === false &&
       Number(record.adjusted_goal_version ?? 0) >= 2,
   );
   if (!uiState) return null;
@@ -5527,15 +6004,19 @@ function findUa01AgentSteerEvidence(records, sliceId) {
     parent_turn_id: parentTurnId,
     run_id: runId,
     command: "steer",
-    command_source: naturalLanguageSteer ? "main_input" : "agent_run_control",
+    command_source: mainInputSteer ? "main_input" : "agent_run_control",
     adjusted_goal_version: Number(uiState.adjusted_goal_version ?? 0),
     no_second_user_message_for_steer: uiState.no_second_user_message_for_steer === true,
     key_events: keyEvents,
   };
 }
 
+function ua01AgentSteerUsesMainInput(sliceId) {
+  return sliceId === "agent-steer-replan" || sliceId === "agent-natural-language-steer";
+}
+
 function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
-  const naturalLanguageSteer = sliceId === "agent-natural-language-steer";
+  const mainInputSteer = ua01AgentSteerUsesMainInput(sliceId);
   if (turnIds.length !== 1) return null;
 
   const uiState = records.find(
@@ -5549,26 +6030,39 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
   if (uiState.command_ack_received !== true) return null;
   if (uiState.command_target_bound_to_active_run !== true) return null;
   if (uiState.plan_adjusted_event_type !== "plan_adjusted") return null;
+  if (uiState.plan_revised_event_type !== "plan_revised") return null;
+  if (uiState.plan_revised_author_narrative_source_type !== "provider_output") return null;
+  if (uiState.plan_revised_evaluation_plan_holds !== false) return null;
   if (Number(uiState.adjusted_goal_version ?? 0) < 2) return null;
-  if (naturalLanguageSteer && uiState.no_second_user_message_for_steer !== true) return null;
+  if (mainInputSteer && uiState.no_second_user_message_for_steer !== true) return null;
+  if (mainInputSteer && uiState.main_input_steer_placeholder_visible !== true) return null;
+  if (mainInputSteer && uiState.active_run_work_state_visible_after_steer !== true) return null;
+  if (mainInputSteer && uiState.main_input_steer_text_visible_after_submit !== true) return null;
 
   return {
     slice_id: sliceId,
-    behavior: naturalLanguageSteer
-      ? "main_input_natural_language_steer_updates_active_agent_run_without_second_turn"
-      : "steer_command_updates_bounded_agent_run_goal_and_emits_plan_adjusted",
+    behavior:
+      sliceId === "agent-natural-language-steer"
+        ? "main_input_natural_language_steer_updates_active_agent_run_without_second_turn"
+        : "main_input_steer_updates_bounded_agent_run_goal_and_emits_model_sourced_plan_revised",
     turn_ids: evidence.turn_ids,
     run_id: evidence.run_id,
     command: "steer",
     command_source: evidence.command_source,
     adjusted_goal_version: evidence.adjusted_goal_version,
     no_second_user_message_for_steer: evidence.no_second_user_message_for_steer,
-    assertions: naturalLanguageSteer
+    assertions: mainInputSteer
       ? [
+          "active_agent_run_switches_main_input_to_steering_placeholder",
+          "main_input_steer_text_stayed_visible_as_local_author_message",
+          "active_agent_run_work_state_remained_visible_after_main_input_steer",
           "main_chat_input_text_was_sent_as_agent_command_steer",
-          "natural_language_steer_did_not_create_second_user_message_or_run",
+          sliceId === "agent-natural-language-steer"
+            ? "natural_language_steer_did_not_create_second_user_message_or_run"
+            : "main_input_steer_did_not_create_second_user_message_or_run",
           "steer_command_targeted_active_run_id_and_received_ack",
           "plan_adjusted_agent_event_was_broadcast",
+          "next_planner_narrative_was_promoted_to_model_sourced_plan_revised",
           "agent_run_state_broadcast_adjusted_goal_version",
           "frontend_did_not_mutate_run_state_without_backend_ack",
         ]

@@ -1,0 +1,64 @@
+id: agent-session-transcript-lazy-page
+title: 长 session transcript 首屏分页恢复与旧消息异步加载
+tier: nightly
+status: active
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-session-transcript-lazy-page --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - session-resume-returns-latest-transcript-page-only
+  - older-transcript-page-is-scoped-by-work-session-cursor
+  - loading-older-transcript-does-not-recall-provider
+  - older-agent-run-details-remain-loaded-through-agent-run-activity-api
+
+setup:
+  seed: none
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: sixteen plain conversation turns from the real chat input
+  - query: real session snapshot for active work/session
+  - verify: snapshot transcript contains only the latest 30 interaction rows and exposes before_id cursor
+  - reload: real workbench
+  - verify: latest turn is visible and the oldest turn is not visible on first paint
+  - click: visible Load older conversation action
+  - verify: oldest turn becomes visible above the current transcript
+  - click: the older assistant turn's visible Work Details disclosure
+  - verify: older assistant AgentRun activity and ProviderRun replay details load in place
+  - verify: loading older transcript does not call provider again
+  - verify: expanding older assistant details does not call provider again
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-session-transcript-lazy-page-tauri
+
+assertions:
+  data:
+    - active session with 16 turns persists 32 interaction rows
+    - resume/show returns 30 transcript rows with has_more_before=true and before_id present
+    - scoped transcript page API returns older rows for the same work/session before_id
+    - cross-session cursor is rejected by controller tests
+    - reload renders latest message and not the oldest message before author action
+    - visible "加载更早对话" action loads the older page into the same conversation flow
+    - after older page is exhausted the load older action disappears
+    - older page load does not create provider_gateway.complete.start logs
+    - older assistant turn_result carries AgentRun summary only until author expands details
+    - scoped agent-run-activity API returns author-safe events and ProviderRun summaries for the older assistant turn
+    - older assistant "工作详情" expands inside the same dialogue flow and shows ProviderRun replay boundary
+    - expanding older assistant details does not create provider_gateway.complete.start logs
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

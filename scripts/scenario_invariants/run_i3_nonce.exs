@@ -78,11 +78,11 @@ defmodule I3NonceDriver do
       generate_micro_plan: true
     }
 
-    complete_fn = build_stub_complete_fn(nonce)
+    result_fn = build_stub_result_fn(nonce)
 
     layer_a =
       try do
-        case DialogueGateway.handle_input(input, nil, provider_execution(complete_fn)) do
+        case DialogueGateway.handle_input(input, nil, provider_execution(result_fn)) do
           {:ok, turn_result, _trace, _candidates, _context} ->
             {:ok, turn_result}
 
@@ -107,10 +107,10 @@ defmodule I3NonceDriver do
   # 目的：定向打工具运行时层，验证 Toolbox 是否真的把用户输入透传到 ToolResult。
   # 如果 Toolbox 是 hardcoded 假实现，nonce 永远不会出现在 output.items。
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   defp run_layer_b_direct(c, nonce) do
-    complete_fn = build_stub_complete_fn(nonce)
+    result_fn = build_stub_result_fn(nonce)
 
     req = %ToolRequest{
       tool_request_id: "tr_i3_#{c.name}_#{:rand.uniform(999_999)}",
@@ -132,7 +132,7 @@ defmodule I3NonceDriver do
       created_at: DateTime.utc_now()
     }
 
-    {:ok, Toolbox.execute(req, complete_fn)}
+    {:ok, Toolbox.execute(req, result_fn)}
   end
 
   defp tool_name_for("character-seed"), do: "character_design"
@@ -305,7 +305,7 @@ defmodule I3NonceDriver do
 
   defp stringify_value(_), do: nil
 
-  # ── complete_fn 注入 ──
+  # ── result_fn 注入 ──
   #
   # SI-002 起：driver 不再自行 mock LLM 响应，而是直接走 `Gateway.complete/1`。
   # 在 MIX_ENV=test 下默认 provider 是 `NovelAgent.Provider.Stub`，它已被升级为合法
@@ -317,7 +317,7 @@ defmodule I3NonceDriver do
   #
   # 注：参数 nonce 保留是为了未来扩展（SI-003/004 可能需要在 closure 里持有 nonce）。
 
-  defp build_stub_complete_fn(_nonce), do: &Gateway.complete/1
+  defp build_stub_result_fn(_nonce), do: &Gateway.complete/1
 
   # ── nonce ──
 
@@ -441,7 +441,7 @@ defmodule I3NonceDriver do
         """
 
         - **修复方向**（两层都 fail）：
-          1. **Layer-B 是根本违规**：`NovelApplication.Toolbox.execute/1` 必须接收 `complete_fn` 参数，creative_generation 路径必须调用 `Gateway.complete`，并把 Provider 响应字节透传到 `ToolResult.output.items`
+          1. **Layer-B 是根本违规**：`NovelApplication.Toolbox.execute/1` 必须接收 `result_fn` 参数，creative_generation 路径必须调用 `Gateway.complete`，并把 Provider 响应字节透传到 `ToolResult.output.items`
           2. 删除 `NovelApplication.Toolbox.generate_creative_items/2` 中的所有 hardcoded items 分支
           3. **Layer-A 是连锁问题**：修好 Layer-B 后，主链才能产出含 nonce 的 artifact
           4. 同时检查 `DialogueGateway.creative_direction/2` 的中文关键词路由 — 应删除，direction 由 frame.tool_need 或 plan 决定
@@ -452,7 +452,7 @@ defmodule I3NonceDriver do
         """
 
         - **修复方向**（Layer-B fail）：Toolbox 工具运行时未透传用户输入到输出 —
-          1. `NovelApplication.Toolbox.execute/1` 接收 `complete_fn`，creative_generation 调用 `Gateway.complete`
+          1. `NovelApplication.Toolbox.execute/1` 接收 `result_fn`，creative_generation 调用 `Gateway.complete`
           2. 解析 Provider 响应，字节透传到 `ToolResult.output.items`
           3. 删除 `generate_creative_items/2` 的 hardcoded 分支
           4. 参考 `docs/engineering/scenario-invariants.md` §2.3

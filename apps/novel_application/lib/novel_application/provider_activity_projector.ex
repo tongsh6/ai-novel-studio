@@ -1,10 +1,12 @@
 defmodule NovelApplication.ProviderActivityProjector do
   @moduledoc """
-  Projects provider execution facts into author-safe AgentRun stage events.
+  Projects provider execution facts into developer AgentRun stage events.
 
   ProviderRun / ProviderEvent / ProviderOutput stay owned by novel_agent and
-  novel_common. The application layer decides how those facts are summarized for
-  authors inside the AgentRun activity stream.
+  novel_common. Ordinary provider facts remain developer telemetry here. The
+  narrow exception is `:author_reasoning` chunk deltas, which are model bytes
+  from the author-visible reasoning segment and are later verified against the
+  terminal ProviderOutput by N-NARR.
   """
 
   alias NovelAgent.Provider.Execution
@@ -24,10 +26,62 @@ defmodule NovelApplication.ProviderActivityProjector do
 
       sink ->
         Execution.with_event_sink(provider_execution, fn execution_result ->
-          record_provider_execution(snapshot, execution_result, opts)
           emit_provider_activity(sink, execution_result, opts)
+          record_provider_execution_async(snapshot, execution_result, opts)
         end)
     end
+  end
+
+  defp record_provider_execution_async(snapshot, execution_result, opts) do
+    cond do
+      not runtime_fact_persistence_enabled?() ->
+        :ok
+
+      not recordable_provider_execution?(execution_result) ->
+        :ok
+
+      async_persistence_enabled?() ->
+        Task.Supervisor.start_child(NovelApplication.BackgroundTaskSupervisor, fn ->
+          record_provider_execution(snapshot, execution_result, opts)
+        end)
+
+        :ok
+
+      true ->
+        record_provider_execution(snapshot, execution_result, opts)
+    end
+  rescue
+    _error ->
+      record_provider_execution(snapshot, execution_result, opts)
+  catch
+    _kind, _reason ->
+      record_provider_execution(snapshot, execution_result, opts)
+  end
+
+  defp runtime_fact_persistence_enabled? do
+    Application.get_env(:novel_application, :agent_run_fact_persistence_enabled, true)
+  end
+
+  defp recordable_provider_execution?(execution_result) do
+    case execution_facts(execution_result) do
+      %{provider_run: %ProviderRun{}} = facts -> provider_execution_has_facts?(facts)
+      _ -> false
+    end
+  end
+
+  defp provider_execution_has_facts?(facts) when is_map(facts) do
+    events? =
+      facts
+      |> Map.get(:events, [])
+      |> Enum.any?(&match?(%ProviderEvent{}, &1))
+
+    events? or match?(%ProviderOutput{}, Map.get(facts, :output))
+  end
+
+  defp async_persistence_enabled? do
+    :novel_persistence
+    |> Application.get_env(NovelPersistence.Repo, [])
+    |> Keyword.get(:pool) != Ecto.Adapters.SQL.Sandbox
   end
 
   defp record_provider_execution(snapshot, execution_result, opts) do
@@ -68,50 +122,40 @@ defmodule NovelApplication.ProviderActivityProjector do
     run = Map.get(facts, :provider_run)
     output = Map.get(facts, :output)
     purpose = Keyword.get(opts, :purpose) || provider_purpose(run)
+    payload = payload(event, run, output, purpose)
 
     stage_sink.(%{
       event_type: :provider_progress,
-      summary: summary(event, purpose, output),
+      visibility: visibility(event, purpose, payload),
+      summary: summary(event, purpose, output, payload),
       reason_codes: reason_codes(event),
       refs: refs(event, run, output),
-      payload: payload(event, run, output, purpose)
+      payload: payload
     })
 
     :ok
   end
 
-  defp summary(%ProviderEvent{event_type: :started}, purpose, _output),
-    do: "#{purpose_label(purpose)}已开始调用创作模型。"
+  defp summary(%ProviderEvent{}, _purpose, _output, %{author_narrative_delta: delta})
+       when is_binary(delta) and delta != "",
+       do: delta
 
-  defp summary(%ProviderEvent{event_type: :progress, payload: payload}, purpose, _output) do
+  defp summary(%ProviderEvent{event_type: :progress, payload: payload}, _purpose, _output, _attrs) do
     case payload_phase(payload) do
-      "request_prepared" -> "#{purpose_label(purpose)}已准备模型请求。"
-      "request_dispatched" -> "#{purpose_label(purpose)}已发送模型请求，等待结果。"
-      "response_received" -> "#{purpose_label(purpose)}已收到模型响应，正在整理输出。"
-      _ -> "#{purpose_label(purpose)}正在接收创作模型进展。"
+      phase when is_binary(phase) -> "provider_event:progress phase=#{phase}"
+      _ -> "provider_event:progress"
     end
   end
 
-  defp summary(%ProviderEvent{event_type: :chunk}, purpose, _output),
-    do: "#{purpose_label(purpose)}正在接收模型片段。"
+  defp summary(%ProviderEvent{event_type: type}, _purpose, _output, _attrs),
+    do: "provider_event:#{type}"
 
-  defp summary(%ProviderEvent{event_type: :final_output}, purpose, %ProviderOutput{status: :ok}),
-    do: "#{purpose_label(purpose)}已收到创作模型结果。"
+  defp visibility(%ProviderEvent{event_type: :chunk}, purpose, %{author_narrative_delta: delta})
+       when purpose in [:author_reasoning, "author_reasoning"] and is_binary(delta) and
+              delta != "",
+       do: :author
 
-  defp summary(%ProviderEvent{event_type: :usage_recorded}, purpose, _output),
-    do: "#{purpose_label(purpose)}已记录模型用量。"
-
-  defp summary(%ProviderEvent{event_type: :error}, purpose, _output),
-    do: "#{purpose_label(purpose)}调用创作模型失败。"
-
-  defp summary(%ProviderEvent{event_type: :cancel_requested}, purpose, _output),
-    do: "#{purpose_label(purpose)}已请求取消模型调用。"
-
-  defp summary(%ProviderEvent{event_type: :cancelled}, purpose, _output),
-    do: "#{purpose_label(purpose)}模型调用已取消。"
-
-  defp summary(_event, purpose, _output),
-    do: "#{purpose_label(purpose)}模型调用状态已更新。"
+  defp visibility(_event, _purpose, _payload), do: :developer
 
   defp reason_codes(%ProviderEvent{} = event) do
     [
@@ -136,6 +180,7 @@ defmodule NovelApplication.ProviderActivityProjector do
       chunk_index: payload_number(event.payload, :chunk_index),
       chunk_content_length: payload_number(event.payload, :content_length),
       accumulated_content_length: payload_number(event.payload, :accumulated_content_length),
+      author_narrative_delta: author_narrative_delta(event, purpose),
       usage: projected_usage(event, output)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
@@ -262,6 +307,21 @@ defmodule NovelApplication.ProviderActivityProjector do
 
   defp payload_number(_payload, _key), do: nil
 
+  defp payload_string(payload, key) when is_map(payload) do
+    case map_get(payload, key) do
+      value when is_binary(value) and value != "" -> value
+      _ -> nil
+    end
+  end
+
+  defp payload_string(_payload, _key), do: nil
+
+  defp author_narrative_delta(%ProviderEvent{event_type: :chunk, payload: payload}, purpose)
+       when purpose in [:author_reasoning, "author_reasoning"],
+       do: payload_string(payload, :author_narrative_delta)
+
+  defp author_narrative_delta(_event, _purpose), do: nil
+
   defp phase_reason_code(%ProviderEvent{event_type: :progress, payload: payload}) do
     case payload_phase(payload) do
       "request_prepared" -> "provider_request_prepared"
@@ -277,15 +337,6 @@ defmodule NovelApplication.ProviderActivityProjector do
     do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
 
   defp map_get(_map, _key), do: nil
-
-  defp purpose_label(:conversation), do: "对话判断"
-  defp purpose_label(:planner), do: "步骤规划"
-  defp purpose_label(:writer), do: "内容生成"
-  defp purpose_label(:evaluator), do: "质量复核"
-  defp purpose_label(:revision), do: "修订生成"
-  defp purpose_label(:tool), do: "工具执行"
-  defp purpose_label(:narration), do: "回应整理"
-  defp purpose_label(_), do: "模型调用"
 
   defp normalize_atom(nil), do: nil
   defp normalize_atom(value) when is_atom(value), do: Atom.to_string(value)

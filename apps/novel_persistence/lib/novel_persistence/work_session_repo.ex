@@ -112,6 +112,11 @@ defmodule NovelPersistence.WorkSessionRepo do
   @spec transcript(String.t()) :: [NovelPersistence.Schemas.Interaction.t()]
   def transcript(session_id) when is_binary(session_id), do: MemoryLog.transcript(session_id)
 
+  @doc "Return one transcript page for a session in insertion order."
+  @spec transcript_page(String.t(), keyword()) :: {:ok, map()} | {:error, :cursor_not_found}
+  def transcript_page(session_id, opts \\ []) when is_binary(session_id),
+    do: MemoryLog.transcript_page(session_id, opts)
+
   @doc "Touch last_opened_at for resume ordering."
   @spec touch(WorkSession.t()) :: {:ok, WorkSession.t()} | {:error, Ecto.Changeset.t()}
   def touch(%WorkSession{} = session) do

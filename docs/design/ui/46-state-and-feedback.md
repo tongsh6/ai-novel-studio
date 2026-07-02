@@ -45,7 +45,7 @@
 3. Provider execution stream 在 details 中表现为“模型执行流”：开始、正在接收片段、用量待汇总、完成或失败。展开后可以显示用途、模型事件、运行编号、调用编号、状态、输出类型、结果长度和用量计数等作者安全细节，帮助作者理解执行前因后果；不得显示 provider 原文、raw prompt 或私有 payload。
 4. 工作态 turn 可以在 details 前显示一行轻量执行摘要，把已发生的 author-safe event 按真实出现顺序归纳为本轮路径，并汇总模型调用次数、结果长度和用量计数。路径不是固定模板：普通对话可呈现“读取上下文 → 调用模型 → 模型判断 → 系统裁决 → 完成回应”；角色设计可呈现“读取上下文 → 执行创作能力 → 调用写作模型 → 生成待采纳候选 → 完成回应”；章节大纲可呈现“读取上下文 → 调用步骤规划模型 → 制定计划 → 系统裁决 → 规划章节大纲 → 调用写作模型 → 生成大纲候选 → 完成回应”；角色演化可呈现“读取上下文 → 调用步骤规划模型 → 制定计划 → 系统裁决 → 更新角色演化记忆 → 调用写作模型 → 生成角色演化候选 → 完成回应”；正文质量 profile 可呈现“读取上下文 → 制定计划 → 系统裁决 → 执行创作能力 → 调用写作模型 → 调用复核模型 → 质量复核 → 生成待采纳候选 → 完成回应”。该摘要只消费已广播/已恢复的 author-safe events，不重新查询 provider，也不替代完整 timeline。这里的“系统裁决”对应 Orchestrator / gate，不表示模型批准自己的执行；只有真实出现 `provider_progress` 时才显示模型调用节点。
 5. 右侧作品档案 / 结构面板不承载 AgentRun activity，不变成 Agent 控制台，也不被运行轨迹挤占。
-6. active run 期间，主输入框保持可用，但语义切换为“调整当前请求 / 追加要求”，提交后绑定当前 `run_id` 发送 `agent_command steer`，不得创建第二个作者 turn 或新 run。
+6. active run 期间，主输入框保持可用，但语义切换为“调整当前请求 / 追加要求”，提交后绑定当前 `run_id` 发送 `agent_command steer`，协议层不得创建第二个 `user_message` / 作者 turn / 新 run；UI 层必须把这条作者补充作为本地作者消息显示在主对话流里，并在其后继续显示同一 active run 的结构工作态。
 7. `pause` / `cancel` / `steer` 控件只提交后端授权的 `agent_command`，前端不得自行修改 run 状态。
 8. 最终正文、修订稿或候选产物仍通过完成态 `TurnResult` / tentative artifact 出口出现，并原地替换或收束同一个 assistant 工作态 turn；中间 provider chunk 不得直接采纳或覆盖产物。
 9. 可见事件只显示作者安全摘要、阶段、进度、预算或风险；不得显示 raw prompt、chain-of-thought、API key、provider 私有 payload 或完整 ToolRequest。
@@ -152,4 +152,46 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 | --- | --- |
 | `46§6-checkpoint-feedback` | checkpoint 原因、pending artifacts、恢复/取消/调整动作 |
 | `46§7-inline-interaction-states` | 按钮触发后的即时反馈、主对话不重复追加内部状态 |
-| `46§8-agent-run-dialogue-flow-v4` | Codex Desktop 式聊天流：作者消息和同一条 assistant 回复在主聊天列内连续排列；assistant 回复不渲染为整块卡片，而是沿左侧时间线展示目标理解、上下文依据、计划制定、作者调整影响、执行记录、修订候选与采纳边界；active run 输入框提交 steering；右侧作品档案不变；不展示 raw prompt、provider 术语或私有 chain-of-thought |
+| `46§9-agentic-loop-reasoning-flow`（探索态 · 未冻结，见 ADR-0022 Proposed 与 `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`） | 同一 assistant 工作态回复内展示 agentic loop 推理流五态（探索中 / 执行中 / 受阻等待作者 / 重规划 v1→v2 / 完成态）：叙事措辞归模型（浅色左橙边条=模型逐字输出）、结构骨架归 app（状态 chip / 版本 / 进度 / 可选 action）；provider 遥测降级为开发者视图；不展示 raw prompt、provider 术语或私有 chain-of-thought。替代已于 2026-07-01 删除的 `46§8-agent-run-dialogue-flow-v4` |
+
+---
+
+## 9. Agentic Loop 推理流（46§9）
+
+> 状态：按 ADR-0022 Proposed 与 `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md` 落地中的 UI 契约。ADR 未 Accepted 前，本文只冻结当前实现边界，不扩大到新语义授权。
+
+### 9.1 根原则
+
+`46§9-agentic-loop-reasoning-flow` 的根原则是：**UI 只渲染模型原话 + 极薄结构骨架，叙事措辞一律不由 app 写。**
+
+| 内容 | 来源 | UI 责任 |
+| --- | --- | --- |
+| 状态行 | app enum / run status / phase | 只显示状态 chip、阶段和短结构状态；不得承载模型长叙事 |
+| 计划 step 描述 | AgentPlan / PlanStep 中的模型输出描述 | 展示文本；只追加 chip、版本号、状态 |
+| 探索发现、评估结论、重规划原因、完成回顾 | 运行中来自 `purpose=author_reasoning` 的 `author_narrative_delta`；完成后来自 `AgentEvent.payload.author_narrative`，且必须绑定 provider output 字节 | 在推理流区域逐条展示，不改写、不补齐；最终 source-bound 事件到达后用结构化事件替换临时流 |
+| 标签、chip、版本、进度、按钮、折叠入口 | app copy / event_type / status enum | 只表达结构，不写“模型发现/模型认为”的叙述句 |
+| 普通 provider run/call ref、chunk、token、phase | provider telemetry | 仅折叠在开发者详情，不进入作者主叙事；`author_reasoning` 的 JSON 前 delta 是唯一例外 |
+
+判定标准：任何一句读起来像在描述模型正在想什么、发现了什么、为什么改计划、为什么完成的中文，必须来自 `author_narrative_delta` 或 `author_narrative`，并通过 N-NARR source binding / streamed-prefix 校验。`AgentEvent.summary`、`ProviderEvent.summary`、前端 copy 常量和结构 JSON tail 都不能作为作者叙述来源。
+
+发送后、模型叙事首个 delta 到达前，UI 必须立即显示同一 assistant turn 的结构性工作态骨架（例如状态 chip、阶段轨道、工作详情入口）。这类即时反馈只能表达“请求已进入工作态/准备中/进行中”等枚举状态，不能补写模型发现或推理内容。
+
+如果一个 active AgentRun 已锚在更早的 assistant turn，而作者又在主输入区补充方向，最新作者输入必须先作为本地作者消息留在 transcript 中；其后仍必须显示当前 run 的结构工作态，作为“系统正在处理这次请求”的位置锚点；这可以重复结构骨架，但不能重复或伪造模型叙事。该本地作者消息不等价于第二个后端 `user_message` / turn / run，外部验收必须同时证明页面有本地锚点且网络层没有第二个 `user_message`。
+
+这里的“逐字流式”不是完成后一次性渲染卡片：`purpose=author_reasoning` 的 provider chunk 到达时，`author_narrative_delta` 必须沿同一 `agent_event.provider_progress` 实时进入 46§9 推理区；外部验收至少观察到多个 delta frame 推动同一 reasoning 文本增长。最终 source-bound `author_narrative` 只能替换临时流，不能作为首个作者可见过程叙事。
+
+### 9.2 层级结构
+
+同一 assistant 工作态 turn 内展示四层：
+
+1. 状态行：只展示同一 run 的结构状态、阶段、状态 chip 和短枚举文案；不得重复推理区里的 `author_narrative_delta` / `author_narrative`。
+2. 计划：显示 `plan_version` 与 `plan_steps`；step 的 `kind/status` 渲染为 chip，step 描述来自模型。
+3. 推理：运行中先聚合 `author_reasoning` delta 为一条持续增长的模型原文；最终按事件顺序展示 `plan_drafted / plan_revised / exploration_observed / evaluation_made` 的 `author_narrative`，并去重同一 provider run 的临时 delta；同一段叙事不得再出现在状态行。
+4. 终态与产物：终态只显示结构标签；最终正文、候选、修订稿仍走既有 `TurnResult` / tentative artifact 出口。
+
+### 9.3 禁止
+
+- 禁止用 `ProviderActivityProjector`、前端 copy 或 `AgentObservation.summary` 拼作者可见过程叙事。
+- 禁止把普通 provider telemetry、raw prompt、provider 私有 reasoning / thinking、完整 ToolRequest 放入作者主视图；`author_reasoning` 只能透出 JSON tail 之前的作者可见模型文本。
+- 禁止把结构 JSON tail 里的字段当作作者叙述渲染；JSON tail 只能驱动 chip、状态、版本、下一步 action。
+- 禁止为了验收给生产 UI 增加专用 hook；场景验证必须从真实页面与真实事件投影观察。

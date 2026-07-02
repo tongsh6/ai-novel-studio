@@ -48,6 +48,21 @@ defmodule NovelPersistence.AgentRunLog do
     |> Repo.insert()
   end
 
+  @spec insert_events([map()]) :: :ok | {:error, term()}
+  def insert_events(attrs_list) when is_list(attrs_list) do
+    Repo.transaction(fn ->
+      Enum.each(attrs_list, fn attrs ->
+        %AgentEventRecord{}
+        |> AgentEventRecord.changeset(attrs)
+        |> Repo.insert(on_conflict: :nothing)
+      end)
+    end)
+    |> case do
+      {:ok, _value} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
   @spec get_run(String.t()) :: AgentRunRecord.t() | nil
   def get_run(run_id) when is_binary(run_id), do: Repo.get(AgentRunRecord, run_id)
 
@@ -78,6 +93,22 @@ defmodule NovelPersistence.AgentRunLog do
     |> Repo.all()
   end
 
+  @spec list_author_events_by_run_ids([String.t()]) :: %{String.t() => [AgentEventRecord.t()]}
+  def list_author_events_by_run_ids(run_ids) when is_list(run_ids) do
+    case normalize_ids(run_ids) do
+      [] ->
+        %{}
+
+      ids ->
+        from(e in AgentEventRecord,
+          where: e.run_id in ^ids and e.visibility == "author",
+          order_by: [asc: e.run_id, asc: e.sequence]
+        )
+        |> Repo.all()
+        |> Enum.group_by(& &1.run_id)
+    end
+  end
+
   @spec list_by_parent_turn(String.t(), String.t(), String.t()) :: [AgentRunRecord.t()]
   def list_by_parent_turn(work_id, session_id, parent_turn_ref)
       when is_binary(work_id) and is_binary(session_id) and is_binary(parent_turn_ref) do
@@ -88,6 +119,24 @@ defmodule NovelPersistence.AgentRunLog do
       order_by: [asc: r.inserted_at]
     )
     |> Repo.all()
+  end
+
+  @spec list_by_parent_turns(String.t(), String.t(), [String.t()]) :: [AgentRunRecord.t()]
+  def list_by_parent_turns(work_id, session_id, parent_turn_refs)
+      when is_binary(work_id) and is_binary(session_id) and is_list(parent_turn_refs) do
+    case normalize_ids(parent_turn_refs) do
+      [] ->
+        []
+
+      refs ->
+        from(r in AgentRunRecord,
+          where:
+            r.work_id == ^work_id and r.session_id == ^session_id and
+              r.parent_turn_ref in ^refs,
+          order_by: [asc: r.parent_turn_ref, asc: r.inserted_at]
+        )
+        |> Repo.all()
+    end
   end
 
   @spec list_active_durable(String.t(), String.t()) :: [AgentRunRecord.t()]
@@ -111,5 +160,11 @@ defmodule NovelPersistence.AgentRunLog do
       order_by: [desc: r.updated_at]
     )
     |> Repo.all()
+  end
+
+  defp normalize_ids(ids) do
+    ids
+    |> Enum.filter(&(is_binary(&1) and String.trim(&1) != ""))
+    |> Enum.uniq()
   end
 end

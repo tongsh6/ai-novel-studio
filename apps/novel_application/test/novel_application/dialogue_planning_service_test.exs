@@ -5,6 +5,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
   alias NovelApplication.AgentRunFlows.CharacterEvolutionWithContext
   alias NovelApplication.AgentRunFlows.ConversationTurn
   alias NovelApplication.AgentRunFlows.PlotOutlineWithContext
+  alias NovelApplication.AgentRunFlows.WorldBuildingWithContext
   alias NovelApplication.DialoguePlanningService
   alias NovelDomain.AgentRun
 
@@ -22,7 +23,7 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
   }
   """
 
-  test "普通用户输入直接规划为 bounded conversation AgentRun，不在 run 外调用 provider" do
+  test "普通用户输入先规划为 bounded profile routing AgentRun，不在 run 外调用 provider" do
     assert {:ok, spec} =
              DialoguePlanningService.plan_agent_run(
                %{
@@ -38,7 +39,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
     assert spec.route == :agent_run_start
     assert spec.decision.decision_type == :allow_agent_run
-    assert spec.run_attrs.profile_ref == ConversationTurn.profile_ref()
+    assert spec.run_attrs.profile_ref == "profile_routing_v1"
+    assert spec.run_attrs.authority_scope.allowed_tools == ["profile_route"]
     assert spec.run_attrs.parent_turn_ref == "turn-agent"
     assert spec.run_attrs.goal.text == "聊聊这个故事的创作方向"
     assert is_function(spec.next_step_planner, 3)
@@ -47,12 +49,19 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
 
   test "规划结果把 provider execution dependency 交给 conversation profile" do
     provider_execution = %Execution{
-      complete_fn: fn prompt ->
+      result_fn: fn prompt ->
         content =
-          if agent_next_step_prompt?(prompt) do
-            Jason.encode!(conversation_next_step_decision(prompt))
-          else
-            @conversation_frame_json
+          cond do
+            profile_route_prompt?(prompt) ->
+              Jason.encode!(profile_route_decision(ConversationTurn.profile_ref()))
+
+            agent_next_step_prompt?(prompt) ->
+              NovelApplication.TestAgenticLoopFixtures.reasoning_tail(
+                conversation_next_step_decision(prompt)
+              )
+
+            true ->
+              @conversation_frame_json
           end
 
         {:ok, %{content: content}}
@@ -75,153 +84,208 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     assert is_function(spec.next_step_planner, 3)
     {:ok, run} = AgentRun.new(spec.run_attrs)
 
-    assert {:execute, context_step, _decision} =
+    assert {:execute, route_step, _route_decision, route_meta} =
              spec.next_step_planner.(run, 1, %{stage_state: %{}, observations: [], events: []})
 
+    assert route_meta.provider_call_count == 1
+
+    assert {:ok, route_result} =
+             route_step.(run, 1, %{stage_state: %{}, observations: [], events: []})
+
+    routed_run = apply_run_patch(run, route_result.run_patch)
+
+    assert routed_run.profile_ref == ConversationTurn.profile_ref()
+    stage_sink = fn _event -> :ok end
+
     assert {:ok, context_result} =
-             context_step.(run, 1, %{stage_state: %{}, observations: [], events: []})
+             route_result
+             |> Map.fetch!(:stage_state)
+             |> then(fn stage_state ->
+               assert {:execute, context_step, _decision} =
+                        spec.next_step_planner.(routed_run, 2, %{
+                          stage_state: stage_state,
+                          observations: route_result.observations,
+                          events: [],
+                          stage_sink: stage_sink
+                        })
+
+               context_step.(routed_run, 2, %{
+                 stage_state: stage_state,
+                 observations: route_result.observations,
+                 events: [],
+                 stage_sink: stage_sink
+               })
+             end)
+
+    merged_stage_state = Map.merge(route_result.stage_state, context_result.stage_state)
 
     assert {:execute, frame_step, _decision} =
-             spec.next_step_planner.(run, 2, %{
-               stage_state: context_result.stage_state,
-               observations: context_result.observations,
-               events: []
+             spec.next_step_planner.(routed_run, 3, %{
+               stage_state: merged_stage_state,
+               observations: route_result.observations ++ context_result.observations,
+               events: [],
+               stage_sink: stage_sink
              })
 
     assert {:ok, frame_result} =
              frame_step.(
-               run,
-               2,
-               %{stage_state: context_result.stage_state}
+               routed_run,
+               3,
+               %{stage_state: merged_stage_state, stage_sink: stage_sink}
              )
 
     assert frame_result.stage_state.frame.frame_type == :casual_reply
   end
 
-  test "复合角色任务直接选择角色 AgentRun profile，但不在 run 外调用 provider" do
-    assert {:ok, spec} =
-             DialoguePlanningService.plan_agent_run(
-               %{
-                 text: "先看看现有角色阵容，然后设计一个反派",
-                 workspace_id: "ws-character",
-                 work_id: "work-character",
-                 session_id: "session-character",
-                 turn_id: "turn-character"
-               },
-               nil,
-               fn _prompt -> flunk("planning must not call provider before AgentRun starts") end
-             )
+  test "复合角色任务在 AgentRun 内路由到角色 profile" do
+    {_spec, routed_run, _route_result} =
+      assert_user_message_routes_to(
+        %{
+          text: "先看看现有角色阵容，然后设计一个反派",
+          workspace_id: "ws-character",
+          work_id: "work-character",
+          session_id: "session-character",
+          turn_id: "turn-character"
+        },
+        "character_design_with_context_v1"
+      )
 
-    assert spec.run_attrs.profile_ref == "character_design_with_context_v1"
-    assert is_function(spec.next_step_planner, 3)
-    refute Map.has_key?(spec, :steps)
+    assert routed_run.authority_scope.allowed_tools == ["character_roster", "character_design"]
   end
 
-  test "正文草稿任务直接选择正文质量 AgentRun profile，但不在 run 外调用 provider" do
-    assert {:ok, spec} =
-             DialoguePlanningService.plan_agent_run(
-               %{
-                 text: "写下一章",
-                 workspace_id: "ws-prose",
-                 work_id: "work-prose",
-                 session_id: "session-prose",
-                 turn_id: "turn-prose"
-               },
-               nil,
-               fn _prompt -> flunk("planning must not call provider before AgentRun starts") end
-             )
+  test "user_message profile 选择不接受客户端 profile_ref 覆盖" do
+    {_spec, routed_run, _route_result} =
+      assert_user_message_routes_to(
+        %{
+          text: "随便聊聊今天的创作节奏",
+          profile_ref: "prose_drafting_with_quality_v1",
+          agent_profile: "character_design_with_context_v1",
+          workspace_id: "ws-profile-causal",
+          work_id: "work-profile-causal",
+          session_id: "session-profile-causal",
+          turn_id: "turn-profile-causal"
+        },
+        ConversationTurn.profile_ref()
+      )
 
-    assert spec.run_attrs.profile_ref == "prose_drafting_with_quality_v1"
-    assert is_function(spec.next_step_planner, 3)
-    refute Map.has_key?(spec, :steps)
-    assert spec.run_attrs.budget.max_steps == 4
-    assert spec.run_attrs.budget.max_provider_calls == 5
+    assert routed_run.profile_ref == ConversationTurn.profile_ref()
+  end
+
+  test "正文草稿任务在 AgentRun 内路由到正文质量 profile" do
+    {_spec, routed_run, _route_result} =
+      assert_user_message_routes_to(
+        %{
+          text: "写下一章",
+          workspace_id: "ws-prose",
+          work_id: "work-prose",
+          session_id: "session-prose",
+          turn_id: "turn-prose"
+        },
+        "prose_drafting_with_quality_v1"
+      )
+
+    assert routed_run.budget.max_steps == 5
+    assert routed_run.budget.max_provider_calls == 6
 
     assert [
-             %{milestone_id: "assemble_prose_context"},
-             %{milestone_id: "plan_gate_and_draft_prose_with_quality"},
-             %{milestone_id: "confirm_prose_goal"}
-           ] = spec.run_attrs.plan.milestones
+             %{step_id: "assemble_prose_context", kind: :explore},
+             %{step_id: "plan_gate_and_draft_prose_with_quality", kind: :act},
+             %{step_id: "confirm_prose_goal", kind: :explore}
+           ] = routed_run.plan.steps
   end
 
   test "正文草稿意图优先于章节计划上下文词" do
-    assert {:ok, spec} =
-             DialoguePlanningService.plan_agent_run(
-               %{
-                 text: "请根据已采纳章节计划生成第02章：矿区追击战：主角在废弃矿区遭遇巡检傀儡。正文草稿，保持为待采纳草稿。",
-                 workspace_id: "ws-prose-from-plan",
-                 work_id: "work-prose-from-plan",
-                 session_id: "session-prose-from-plan",
-                 turn_id: "turn-prose-from-plan"
-               },
-               nil,
-               fn _prompt -> flunk("planning must not call provider before AgentRun starts") end
-             )
+    {_spec, routed_run, _route_result} =
+      assert_user_message_routes_to(
+        %{
+          text: "请根据已采纳章节计划生成第02章：矿区追击战：主角在废弃矿区遭遇巡检傀儡。正文草稿，保持为待采纳草稿。",
+          workspace_id: "ws-prose-from-plan",
+          work_id: "work-prose-from-plan",
+          session_id: "session-prose-from-plan",
+          turn_id: "turn-prose-from-plan"
+        },
+        "prose_drafting_with_quality_v1"
+      )
 
-    assert spec.run_attrs.profile_ref == "prose_drafting_with_quality_v1"
-    assert spec.run_attrs.authority_scope.allowed_tools == ["prose_writing"]
-    refute Map.has_key?(spec, :steps)
+    assert routed_run.authority_scope.allowed_tools == ["prose_writing"]
   end
 
-  test "章节大纲规划任务直接选择大纲 AgentRun profile，但不在 run 外调用 provider" do
-    assert {:ok, spec} =
-             DialoguePlanningService.plan_agent_run(
-               %{
-                 text: "请基于当前作品规划十二章章节大纲",
-                 workspace_id: "ws-outline",
-                 work_id: "work-outline",
-                 session_id: "session-outline",
-                 turn_id: "turn-outline"
-               },
-               nil,
-               fn _prompt -> flunk("planning must not call provider before AgentRun starts") end
-             )
+  test "章节大纲规划任务在 AgentRun 内路由到大纲 profile" do
+    {_spec, routed_run, _route_result} =
+      assert_user_message_routes_to(
+        %{
+          text: "请基于当前作品规划十二章章节大纲",
+          workspace_id: "ws-outline",
+          work_id: "work-outline",
+          session_id: "session-outline",
+          turn_id: "turn-outline"
+        },
+        PlotOutlineWithContext.profile_ref()
+      )
 
-    assert spec.run_attrs.profile_ref == PlotOutlineWithContext.profile_ref()
-    assert spec.run_attrs.authority_scope.allowed_tools == ["plot_outline"]
-    assert spec.run_attrs.budget.max_steps == 4
-    assert spec.run_attrs.budget.max_tool_calls == 2
-    assert spec.run_attrs.budget.max_provider_calls == 4
-    assert is_function(spec.next_step_planner, 3)
-    refute Map.has_key?(spec, :steps)
+    assert routed_run.authority_scope.allowed_tools == ["plot_outline"]
+    assert routed_run.budget.max_steps == 5
+    assert routed_run.budget.max_tool_calls == 2
+    assert routed_run.budget.max_provider_calls == 5
 
     assert [
-             %{milestone_id: "assemble_outline_context"},
-             %{milestone_id: "plan_gate_and_generate_outline"},
-             %{milestone_id: "confirm_outline_goal"}
-           ] = spec.run_attrs.plan.milestones
+             %{step_id: "assemble_outline_context", kind: :explore},
+             %{step_id: "plan_gate_and_generate_outline", kind: :act},
+             %{step_id: "confirm_outline_goal", kind: :explore}
+           ] = routed_run.plan.steps
   end
 
-  test "角色演化任务直接选择角色演化 AgentRun profile，但不在 run 外调用 provider" do
-    assert {:ok, spec} =
-             DialoguePlanningService.plan_agent_run(
-               %{
-                 text: "更新林烬的当前状态：他在这一章右臂重伤了",
-                 workspace_id: "ws-evolution",
-                 work_id: "work-evolution",
-                 session_id: "session-evolution",
-                 turn_id: "turn-evolution"
-               },
-               nil,
-               fn _prompt -> flunk("planning must not call provider before AgentRun starts") end
-             )
+  test "角色演化任务在 AgentRun 内路由到角色演化 profile" do
+    {_spec, routed_run, _route_result} =
+      assert_user_message_routes_to(
+        %{
+          text: "更新林烬的当前状态：他在这一章右臂重伤了",
+          workspace_id: "ws-evolution",
+          work_id: "work-evolution",
+          session_id: "session-evolution",
+          turn_id: "turn-evolution"
+        },
+        CharacterEvolutionWithContext.profile_ref()
+      )
 
-    assert spec.run_attrs.profile_ref == CharacterEvolutionWithContext.profile_ref()
-    assert spec.run_attrs.authority_scope.allowed_tools == ["character_evolution"]
-    assert spec.run_attrs.budget.max_steps == 4
-    assert spec.run_attrs.budget.max_tool_calls == 2
-    assert spec.run_attrs.budget.max_provider_calls == 4
-    assert is_function(spec.next_step_planner, 3)
-    refute Map.has_key?(spec, :steps)
+    assert routed_run.authority_scope.allowed_tools == ["character_evolution"]
+    assert routed_run.budget.max_steps == 5
+    assert routed_run.budget.max_tool_calls == 2
+    assert routed_run.budget.max_provider_calls == 5
 
     assert [
-             %{milestone_id: "assemble_character_evolution_context"},
-             %{milestone_id: "plan_gate_and_generate_character_evolution"},
-             %{milestone_id: "confirm_character_evolution_goal"}
-           ] = spec.run_attrs.plan.milestones
+             %{step_id: "assemble_character_evolution_context", kind: :explore},
+             %{step_id: "plan_gate_and_generate_character_evolution", kind: :act},
+             %{step_id: "confirm_character_evolution_goal", kind: :explore}
+           ] = routed_run.plan.steps
   end
 
-  test "无工具问答也起 conversation AgentRun，不保留同步 TurnResult 回退" do
+  test "世界设定和伏笔任务在 AgentRun 内路由到世界设定 profile" do
+    {_spec, routed_run, _route_result} =
+      assert_user_message_routes_to(
+        %{
+          text: "设计一个跨三卷回收的伏笔线索",
+          workspace_id: "ws-world",
+          work_id: "work-world",
+          session_id: "session-world",
+          turn_id: "turn-world"
+        },
+        WorldBuildingWithContext.profile_ref()
+      )
+
+    assert routed_run.authority_scope.allowed_tools == ["world_building"]
+    assert routed_run.budget.max_steps == 5
+    assert routed_run.budget.max_tool_calls == 2
+    assert routed_run.budget.max_provider_calls == 5
+
+    assert [
+             %{step_id: "assemble_world_building_context", kind: :explore},
+             %{step_id: "plan_gate_and_generate_world_building", kind: :act},
+             %{step_id: "confirm_world_building_goal", kind: :explore}
+           ] = routed_run.plan.steps
+  end
+
+  test "无工具问答也先进入 profile routing AgentRun，不保留同步 TurnResult 回退" do
     assert {:ok, spec} =
              DialoguePlanningService.plan_agent_run(
                %{
@@ -235,7 +299,8 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
                fn _prompt -> flunk("planning must not call provider before AgentRun starts") end
              )
 
-    assert spec.run_attrs.profile_ref == ConversationTurn.profile_ref()
+    assert spec.run_attrs.profile_ref == "profile_routing_v1"
+    assert spec.run_attrs.authority_scope.allowed_tools == ["profile_route"]
     assert spec.run_attrs.parent_turn_ref == "turn-q"
   end
 
@@ -310,6 +375,67 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     refute Map.has_key?(spec, :steps)
   end
 
+  defp assert_user_message_routes_to(input, expected_profile_ref) do
+    provider_execution = %Execution{
+      result_fn: fn prompt ->
+        assert profile_route_prompt?(prompt)
+        {:ok, %{content: Jason.encode!(profile_route_decision(expected_profile_ref))}}
+      end
+    }
+
+    assert {:ok, spec} = DialoguePlanningService.plan_agent_run(input, nil, provider_execution)
+    assert spec.run_attrs.profile_ref == "profile_routing_v1"
+    assert spec.run_attrs.authority_scope.allowed_tools == ["profile_route"]
+    assert is_function(spec.next_step_planner, 3)
+    refute Map.has_key?(spec, :steps)
+
+    {:ok, run} = AgentRun.new(spec.run_attrs)
+
+    assert {:execute, route_step, decision, route_meta} =
+             spec.next_step_planner.(run, 1, %{stage_state: %{}, observations: [], events: []})
+
+    assert decision.target_tool_ref == "profile_route"
+    assert route_meta.provider_call_count == 1
+
+    assert {:ok, route_result} =
+             route_step.(run, 1, %{stage_state: %{}, observations: [], events: []})
+
+    routed_run = apply_run_patch(run, route_result.run_patch)
+    assert routed_run.profile_ref == expected_profile_ref
+    assert routed_run.authority_scope.profile_selection.profile_ref == expected_profile_ref
+    assert routed_run.authority_scope.profile_selection.source == "model_profile_router"
+    assert "model_profile_selected" in routed_run.authority_scope.profile_selection.reason_codes
+
+    {spec, routed_run, route_result}
+  end
+
+  defp apply_run_patch(run, patch) do
+    %{
+      run
+      | profile_ref: patch.profile_ref,
+        authority_scope: patch.authority_scope,
+        plan: patch.plan,
+        plan_ref: patch.plan_ref,
+        plan_version: patch.plan_version,
+        budget: patch.budget
+    }
+  end
+
+  defp profile_route_prompt?(prompt) when is_binary(prompt),
+    do: String.contains?(prompt, "AgentRun profile router")
+
+  defp profile_route_prompt?(_prompt), do: false
+
+  defp profile_route_decision(profile_ref) do
+    %{
+      "profile_ref" => profile_ref,
+      "summary" => "模型选择 #{profile_ref} 工作流。",
+      "reason_codes" => ["model_profile_selected"],
+      "matched_terms" => ["测试"],
+      "confidence" => 1.0
+    }
+  end
+
   defp agent_next_step_prompt?(prompt) when is_binary(prompt),
     do: String.contains?(prompt, "AgentRun 下一步规划器")
 
@@ -319,25 +445,17 @@ defmodule NovelApplication.DialoguePlanningServiceTest do
     observations = existing_observation_section(prompt)
 
     if String.contains?(observations, "创作上下文") do
-      %{
-        "decision_type" => "execute_step",
-        "summary" => "基于已组装上下文形成对话认知帧。",
-        "target_tool_ref" => "dialogue_frame",
-        "write_intent" => "none",
-        "risk_hint" => "low",
-        "reason_codes" => ["agentic_next_step", "conversation_context_consumed"],
-        "confidence" => 1.0
-      }
+      NovelApplication.TestAgenticLoopFixtures.continue_next(
+        "基于已组装上下文形成对话认知帧。",
+        "dialogue_frame",
+        reason_codes: ["agentic_next_step", "conversation_context_consumed"]
+      )
     else
-      %{
-        "decision_type" => "execute_step",
-        "summary" => "先组装当前作品的创作上下文。",
-        "target_tool_ref" => "context_assemble",
-        "write_intent" => "none",
-        "risk_hint" => "low",
-        "reason_codes" => ["agentic_next_step", "missing_conversation_context"],
-        "confidence" => 1.0
-      }
+      NovelApplication.TestAgenticLoopFixtures.continue_next(
+        "先组装当前作品的创作上下文。",
+        "context_assemble",
+        reason_codes: ["agentic_next_step", "missing_conversation_context"]
+      )
     end
   end
 

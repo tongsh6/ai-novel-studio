@@ -14,11 +14,11 @@ defmodule NovelTest.ProviderHelpers do
   alias NovelAgent.Provider.Result
 
   @doc """
-  创建 LM Studio 的 complete_fn，供 Planner 等模块注入使用。
+  创建 LM Studio 的 result_fn，供 Planner 等模块注入使用。
   读取系统配置的 model/endpoint，可 override。
   """
-  @spec lmstudio_complete_fn(String.t(), String.t(), pos_integer()) :: function()
-  def lmstudio_complete_fn(endpoint \\ nil, model \\ nil, timeout \\ 60_000) do
+  @spec lmstudio_result_fn(String.t(), String.t(), pos_integer()) :: function()
+  def lmstudio_result_fn(endpoint \\ nil, model \\ nil, timeout \\ 60_000) do
     base = LMStudio.from_config()
 
     fn prompt ->
@@ -41,8 +41,8 @@ defmodule NovelTest.ProviderHelpers do
   Wraps a deterministic completion callback as a provider execution dependency for tests.
   """
   @spec provider_execution(function()) :: Execution.t()
-  def provider_execution(complete_fn) when is_function(complete_fn, 1),
-    do: %Execution{complete_fn: complete_fn}
+  def provider_execution(result_fn) when is_function(result_fn, 1),
+    do: %Execution{result_fn: result_fn}
 
   @doc "返回系统配置的模型名。"
   def default_model, do: LMStudio.from_config().model

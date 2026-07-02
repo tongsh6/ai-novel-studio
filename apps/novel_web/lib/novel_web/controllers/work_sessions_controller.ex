@@ -87,6 +87,43 @@ defmodule NovelWeb.WorkSessionsController do
     end
   end
 
+  def transcript(conn, %{"work_id" => work_id, "session_id" => session_id} = params) do
+    t0 = System.monotonic_time(:millisecond)
+
+    opts =
+      [
+        before_id: Map.get(params, "before_id"),
+        limit: Map.get(params, "limit")
+      ]
+      |> Enum.reject(fn {_key, value} -> is_nil(value) or value == "" end)
+
+    case WorkSessionService.transcript_page(work_id, session_id, opts) do
+      {:ok, snapshot} ->
+        LogEmit.emit(:work_session, :transcript_page, :done, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session_id,
+          transcript_count: length(snapshot.transcript),
+          has_more_before: snapshot.transcript_page.has_more_before,
+          before_id: snapshot.transcript_page.before_id
+        })
+
+        json(conn, serialize_transcript_page_snapshot(snapshot))
+
+      {:error, reason} when reason in [:work_not_found, :session_not_found, :cursor_not_found] ->
+        LogEmit.emit(:work_session, :transcript_page, :error, %{
+          duration_ms: System.monotonic_time(:millisecond) - t0,
+          work_id: work_id,
+          session_id: session_id,
+          reason_code: reason
+        })
+
+        conn
+        |> put_status(:not_found)
+        |> json(%{error: Atom.to_string(reason), work_id: work_id, session_id: session_id})
+    end
+  end
+
   def create(conn, %{"work_id" => work_id} = params) do
     t0 = System.monotonic_time(:millisecond)
     attrs = Map.take(params, ["title", "summary", "source_session_ref", "source_turn_ref"])
@@ -180,6 +217,7 @@ defmodule NovelWeb.WorkSessionsController do
       active_session: serialize_session(snapshot.active_session),
       sessions: Enum.map(snapshot.sessions, &serialize_session/1),
       transcript: Enum.map(snapshot.transcript, &serialize_interaction/1),
+      transcript_page: serialize_transcript_page(snapshot.transcript_page),
       pending_adoptions: snapshot.pending_adoptions,
       resolved_adoptions: snapshot.resolved_adoptions,
       resume_trace_refs: snapshot.resume_trace_refs
@@ -192,9 +230,30 @@ defmodule NovelWeb.WorkSessionsController do
       session: serialize_session(snapshot.session),
       read_only: snapshot.read_only,
       transcript: Enum.map(snapshot.transcript, &serialize_interaction/1),
+      transcript_page: serialize_transcript_page(snapshot.transcript_page),
       pending_adoptions: snapshot.pending_adoptions,
       resolved_adoptions: snapshot.resolved_adoptions,
       resume_trace_refs: snapshot.resume_trace_refs
+    }
+  end
+
+  defp serialize_transcript_page_snapshot(snapshot) do
+    %{
+      work_id: snapshot.work.id,
+      session: serialize_session(snapshot.session),
+      read_only: snapshot.read_only,
+      transcript: Enum.map(snapshot.transcript, &serialize_interaction/1),
+      transcript_page: serialize_transcript_page(snapshot.transcript_page)
+    }
+  end
+
+  defp serialize_transcript_page(page) do
+    %{
+      limit: page.limit,
+      returned_count: page.returned_count,
+      has_more_before: page.has_more_before,
+      before_id: page.before_id,
+      after_id: page.after_id
     }
   end
 

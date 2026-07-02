@@ -94,7 +94,7 @@ defmodule NovelApplication.CharacterRosterContextTest do
         assembly_policy: AssemblyPolicy.for_tier(:floor)
       },
       author_input: %{text: "创作"},
-      provider_execution: %Execution{complete_fn: complete}
+      provider_execution: %Execution{result_fn: complete}
     }
 
     input =

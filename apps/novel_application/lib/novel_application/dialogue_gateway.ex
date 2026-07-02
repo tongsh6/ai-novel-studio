@@ -190,23 +190,6 @@ defmodule NovelApplication.DialogueGateway do
     # Update metadata now that Planner has generated frame_id.
     LogContext.put_frame(frame.frame_id)
 
-    emit_agent_stage(
-      stage_sink,
-      :plan_created,
-      dialogue_frame_summary(frame),
-      [
-        "dialogue_frame_formed"
-      ],
-      [frame.frame_id],
-      %{
-        stage: :dialogue_frame_formed,
-        frame_ref: frame.frame_id,
-        frame_type: frame.frame_type,
-        needs_tool: frame.tool_need.needs_tool,
-        candidate_count: length(candidates)
-      }
-    )
-
     case DialogueFrame.validate(frame) do
       :ok ->
         result =
@@ -259,8 +242,8 @@ defmodule NovelApplication.DialogueGateway do
   end
 
   defp require_provider_execution(provider_execution) do
-    case Execution.complete_fn(provider_execution) do
-      complete_fn when is_function(complete_fn, 1) -> :ok
+    case Execution.result_fn(provider_execution) do
+      result_fn when is_function(result_fn, 1) -> :ok
       _ -> provider_boundary_error()
     end
   end
@@ -1284,21 +1267,6 @@ defmodule NovelApplication.DialogueGateway do
   defp handle_with_plan(frame, candidates, context, author_input, provider_execution, stage_sink) do
     case Planner.form_micro_plan(frame, author_input, provider_execution, context) do
       {:ok, plan} ->
-        emit_agent_stage(
-          stage_sink,
-          :plan_created,
-          "已生成单步执行计划。",
-          [
-            "micro_plan_created"
-          ],
-          [plan.plan_id],
-          %{
-            stage: :micro_plan_created,
-            plan_ref: plan.plan_id,
-            action_count: length(plan.proposed_actions)
-          }
-        )
-
         {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
 
         emit_agent_stage(
@@ -1479,11 +1447,6 @@ defmodule NovelApplication.DialogueGateway do
 
   defp context_ref_count(_context), do: 0
 
-  defp dialogue_frame_summary(%DialogueFrame{} = frame) do
-    "已形成对话认知帧：#{frame.dialogue_goal.summary}"
-    |> ensure_sentence()
-  end
-
   defp orchestrator_decision_summary(decision) do
     case decision.decision_type do
       :allow_tool -> "Orchestrator 已授权单个工具动作。"
@@ -1497,14 +1460,6 @@ defmodule NovelApplication.DialogueGateway do
 
   defp tool_name(%MicroPlan{proposed_actions: [action | _]}), do: Map.get(action, :target_ref)
   defp tool_name(_plan), do: nil
-
-  defp ensure_sentence(summary) do
-    if String.ends_with?(summary, ["。", ".", "！", "!", "？", "?"]) do
-      summary
-    else
-      summary <> "。"
-    end
-  end
 
   defp changeset_error_summary(%Ecto.Changeset{errors: errors}) when errors != [] do
     errors |> Enum.map_join("; ", fn {field, {msg, _}} -> "#{field}: #{msg}" end)

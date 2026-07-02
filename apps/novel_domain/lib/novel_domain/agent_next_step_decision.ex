@@ -10,6 +10,16 @@ defmodule NovelDomain.AgentNextStepDecision do
   @type decision_type :: :execute_step | :goal_satisfied | :await_author | :no_progress
   @type write_intent :: :none | :tentative
   @type risk_hint :: :low | :medium | :high
+  @type evaluation_of_last :: %{
+          advanced: boolean(),
+          plan_holds: boolean(),
+          new_constraint: String.t() | nil
+        }
+
+  @type plan_revision :: %{
+          plan_version: pos_integer() | nil,
+          revision_reason: String.t() | nil
+        }
 
   @type t :: %__MODULE__{
           decision_id: String.t(),
@@ -22,6 +32,9 @@ defmodule NovelDomain.AgentNextStepDecision do
           risk_hint: risk_hint(),
           reason_codes: [String.t()],
           observation_refs: [String.t()],
+          evaluation_of_last: evaluation_of_last(),
+          plan_revision: plan_revision() | nil,
+          narrative_source: map(),
           confidence: float()
         }
 
@@ -37,6 +50,9 @@ defmodule NovelDomain.AgentNextStepDecision do
     risk_hint: :low,
     reason_codes: [],
     observation_refs: [],
+    evaluation_of_last: %{advanced: false, plan_holds: true, new_constraint: nil},
+    plan_revision: nil,
+    narrative_source: %{},
     confidence: 1.0
   ]
 
@@ -79,6 +95,9 @@ defmodule NovelDomain.AgentNextStepDecision do
       risk_hint: decision.risk_hint,
       reason_codes: decision.reason_codes,
       observation_refs: decision.observation_refs,
+      evaluation_of_last: decision.evaluation_of_last,
+      plan_revision: decision.plan_revision,
+      narrative_source: decision.narrative_source,
       confidence: decision.confidence
     }
   end
@@ -93,6 +112,9 @@ defmodule NovelDomain.AgentNextStepDecision do
     |> Map.update(:risk_hint, :low, &normalize_risk_hint/1)
     |> Map.update(:reason_codes, [], &normalize_strings/1)
     |> Map.update(:observation_refs, [], &normalize_strings/1)
+    |> Map.update(:evaluation_of_last, %{}, &normalize_evaluation/1)
+    |> Map.update(:plan_revision, nil, &normalize_plan_revision/1)
+    |> Map.update(:narrative_source, %{}, &normalize_map/1)
     |> Map.update(:confidence, 1.0, &normalize_confidence/1)
     |> Map.update(:target_tool_ref, nil, &normalize_optional_string/1)
   end
@@ -111,6 +133,9 @@ defmodule NovelDomain.AgentNextStepDecision do
   defp known_key("risk_hint"), do: :risk_hint
   defp known_key("reason_codes"), do: :reason_codes
   defp known_key("observation_refs"), do: :observation_refs
+  defp known_key("evaluation_of_last"), do: :evaluation_of_last
+  defp known_key("plan_revision"), do: :plan_revision
+  defp known_key("narrative_source"), do: :narrative_source
   defp known_key("confidence"), do: :confidence
   defp known_key(key), do: key
 
@@ -139,6 +164,31 @@ defmodule NovelDomain.AgentNextStepDecision do
 
   defp normalize_strings(_), do: []
 
+  defp normalize_evaluation(value) when is_map(value) do
+    %{
+      advanced: boolean_value(value, :advanced, false),
+      plan_holds: boolean_value(value, :plan_holds, true),
+      new_constraint: normalize_optional_string(map_value(value, :new_constraint))
+    }
+  end
+
+  defp normalize_evaluation(_value),
+    do: %{advanced: false, plan_holds: true, new_constraint: nil}
+
+  defp normalize_plan_revision(nil), do: nil
+
+  defp normalize_plan_revision(value) when is_map(value) do
+    %{
+      plan_version: positive_int(map_value(value, :plan_version)),
+      revision_reason: normalize_optional_string(map_value(value, :revision_reason))
+    }
+  end
+
+  defp normalize_plan_revision(_value), do: nil
+
+  defp normalize_map(value) when is_map(value), do: value
+  defp normalize_map(_), do: %{}
+
   defp normalize_optional_string(nil), do: nil
 
   defp normalize_optional_string(value) do
@@ -158,6 +208,26 @@ defmodule NovelDomain.AgentNextStepDecision do
     do: value * 1.0
 
   defp normalize_confidence(_), do: 1.0
+
+  defp boolean_value(map, key, default) do
+    case map_value(map, key) do
+      value when is_boolean(value) -> value
+      "true" -> true
+      "false" -> false
+      _ -> default
+    end
+  end
+
+  defp positive_int(value) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value), do: nil
+
+  defp map_value(map, key) when is_map(map) do
+    cond do
+      Map.has_key?(map, key) -> Map.get(map, key)
+      Map.has_key?(map, Atom.to_string(key)) -> Map.get(map, Atom.to_string(key))
+      true -> nil
+    end
+  end
 
   defp require_present(errors, _field, value) when is_binary(value) and value != "", do: errors
   defp require_present(errors, field, _value), do: ["#{field} is required" | errors]

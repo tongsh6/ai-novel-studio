@@ -25,6 +25,8 @@ user_flow:
   - send: slow bounded roster-to-character-design AgentRun request
   - wait_for: active run_id and first AgentStep
   - send: steering text through the main chat input
+  - verify: steering text remains visible in the transcript as the latest local author message
+  - verify: active AgentRun work-state remains visible after the steering text is submitted
   - wait_for: agent_command ack, plan_adjusted event and adjusted agent_run_state for the same run_id
 
 evidence:
@@ -36,9 +38,12 @@ evidence:
   artifact_dir: artifacts/slice-verify/agent-natural-language-steer-tauri
 
 assertions:
+  ui:
+    - steering text remains visible as a local author-message anchor
+    - active AgentRun work-state remains visible after main-input steering
   network:
     - main input steering text is sent as agent_command steer for the active run_id
-    - no second user_message is sent for the steering text
+    - no second channel user_message is sent for the steering text
     - command ack returns the same run_id
     - plan_adjusted is broadcast for the same run_id
   data:

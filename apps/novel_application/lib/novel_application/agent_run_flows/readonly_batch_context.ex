@@ -8,15 +8,36 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
 
   alias NovelApplication.AgentFinalizer
   alias NovelApplication.WorkArchiveService
-  alias NovelDomain.{AgentObservation, AgentStep}
+  alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
 
   @profile_ref "readonly_batch_context_v1"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
 
-  @spec steps(map()) :: [NovelApplication.AgentRunService.step_fun()]
-  def steps(spec) when is_map(spec), do: [batch_read_step(spec), finalize_step()]
+  @spec steps(map()) :: no_return()
+  def steps(_spec) do
+    raise ArgumentError, "readonly_batch_context_v1 requires next_step_planner/1"
+  end
+
+  @spec next_step_planner(map()) :: NovelApplication.AgentRunServer.next_step_planner()
+  def next_step_planner(spec) when is_map(spec) do
+    fn run, sequence, snapshot ->
+      cond do
+        readonly_batch_finalized?(snapshot) ->
+          {:complete, complete_decision(run, sequence, observation_refs(snapshot)),
+           %{provider_call_count: 0}}
+
+        readonly_batch_read?(snapshot) ->
+          {:execute, finalize_step(), execute_decision(run, sequence, "readonly_batch_finalize"),
+           %{provider_call_count: 0}}
+
+        true ->
+          {:execute, batch_read_step(spec),
+           execute_decision(run, sequence, "readonly_batch_read"), %{provider_call_count: 0}}
+      end
+    end
+  end
 
   defp batch_read_step(spec) do
     fn run, sequence, snapshot ->
@@ -71,9 +92,65 @@ defmodule NovelApplication.AgentRunFlows.ReadonlyBatchContext do
          step: step(run, sequence, "readonly_batch_finalize"),
          observations: [],
          turn_result: turn_result,
+         loop_status: :completed,
+         loop_decision: complete_decision(run, sequence, observation_refs(snapshot)),
          progress_signature: "#{run.run_id}:readonly_batch_finalized:#{length(results)}"
        }}
     end
+  end
+
+  defp readonly_batch_read?(snapshot) do
+    snapshot
+    |> Map.get(:stage_state, %{})
+    |> Map.get(:readonly_batch)
+    |> is_list()
+  end
+
+  defp readonly_batch_finalized?(snapshot), do: is_map(Map.get(snapshot, :final_turn_result))
+
+  defp execute_decision(run, sequence, suffix) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_#{run.run_id}_#{sequence}_#{suffix}",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :execute_step,
+        summary: execute_decision_summary(suffix),
+        target_tool_ref: "readonly_batch",
+        write_intent: :none,
+        risk_hint: :low,
+        reason_codes: ["readonly_batch_next_step", "agentic_loop_profile"]
+      })
+
+    decision
+  end
+
+  defp execute_decision_summary("readonly_batch_read"), do: "并行读取只读上下文。"
+  defp execute_decision_summary(_suffix), do: "汇总只读上下文。"
+
+  defp complete_decision(run, sequence, observation_refs) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_#{run.run_id}_#{sequence}_readonly_batch_complete",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :goal_satisfied,
+        summary: "只读批量上下文已汇总。",
+        reason_codes: ["readonly_batch_finalized", "goal_satisfied"],
+        observation_refs: observation_refs
+      })
+
+    decision
+  end
+
+  defp observation_refs(snapshot) do
+    snapshot
+    |> Map.get(:observations, [])
+    |> Enum.map(fn
+      %AgentObservation{observation_id: id} -> id
+      _ -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp readonly_items(spec, work_id) do

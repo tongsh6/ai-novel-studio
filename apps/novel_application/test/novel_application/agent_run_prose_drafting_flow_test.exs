@@ -16,7 +16,11 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
 
     writer = fn prompt ->
       if String.contains?(prompt, "AgentRun 下一步规划器") do
-        {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+        {:ok,
+         %{
+           content:
+             NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+         }}
       else
         send(parent, {:writer_prompt, prompt})
 
@@ -71,7 +75,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
       work_id: @work,
       session_id: "session-agent-prose-flow",
       turn_id: "turn-agent-prose-flow",
-      quality_provider_execution: %Execution{complete_fn: evaluator},
+      quality_provider_execution: %Execution{result_fn: evaluator},
       chapter_prose_reader: fn _work_id, _chapter -> "" end,
       chapter_summary_reader: %{},
       character_reader: fn _work_id -> [] end
@@ -82,7 +86,7 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
         :prose_drafting_with_quality,
         input,
         context(),
-        %Execution{complete_fn: writer}
+        %Execution{result_fn: writer}
       )
 
     assert planned.run_attrs.profile_ref == ProseDraftingWithQuality.profile_ref()
@@ -94,21 +98,35 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
              )
 
     assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :step_proposed, context_step}
-    assert context_step.summary =~ "组装正文写作上下文"
+    assert_receive {:agent_event, :plan_drafted, context_step}
+    assert context_step.summary =~ "读取正文写作上下文"
+    assert context_step.payload.target_tool_ref == "context_assemble"
+    assert is_list(context_step.payload.plan_steps)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      context_step.payload.author_narrative_source
+    )
+
     assert_receive {:agent_event, :goal_understood, context_event}, 500
     assert context_event.summary =~ "正文写作上下文"
-    assert_receive {:agent_event, :observation_recorded, context_observation}, 500
+    assert_receive {:agent_event, :exploration_observed, context_observation}, 500
     assert context_observation.summary =~ "已组装正文写作上下文"
-    assert_receive {:agent_event, :plan_created, context_decision}, 500
-    assert "agent_next_step_decided" in context_decision.reason_codes
+    assert_receive {:agent_event, :evaluation_made, context_decision}, 500
+    assert "agent_step_evaluated" in context_decision.reason_codes
 
-    assert_receive {:agent_event, :plan_created, plan_event}, 500
-    assert plan_event.summary =~ "已根据观察制定下一步计划"
+    assert_receive {:agent_event, :evaluation_made, plan_event}, 500
+    assert "agent_step_evaluated" in plan_event.reason_codes
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
     assert gate_event.summary =~ "系统已完成下一步执行裁决"
-    assert_receive {:agent_event, :step_proposed, prose_step}, 500
-    assert prose_step.summary =~ "根据观察制定下一步计划"
+    assert_receive {:agent_event, :plan_drafted, prose_step}, 500
+    assert prose_step.summary =~ "生成正文草稿"
+    assert prose_step.payload.target_tool_ref == "prose_writing"
+    assert is_list(prose_step.payload.plan_steps)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      prose_step.payload.author_narrative_source
+    )
+
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "正文写作能力"
     assert_receive {:writer_prompt, writer_prompt}, 500
@@ -119,13 +137,13 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     refute evaluator_prompt =~ "用户创作简述："
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "质量复核已完成"
-    assert_receive {:agent_event, :observation_recorded, quality_event}, 500
+    assert_receive {:agent_event, :exploration_observed, quality_event}, 500
     assert quality_event.summary =~ "质量复核已完成"
-    assert_receive {:agent_event, :observation_recorded, observation_event}, 500
+    assert_receive {:agent_event, :exploration_observed, observation_event}, 500
     assert observation_event.summary =~ "正文草稿"
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
-    assert_receive {:agent_event, :step_proposed, final_step}, 500
-    assert final_step.summary =~ "正文草稿目标"
+    assert_receive {:agent_event, :evaluation_made, prose_decision}, 500
+    assert prose_decision.payload.loop_decision_type == :goal_satisfied
     assert_receive {:agent_event, :run_completed, _}, 500
 
     assert {:ok, state} = AgentRunService.state(run_id)
@@ -159,37 +177,22 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
   defp next_step_decision(prompt) do
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        %{
-          "decision_type" => "goal_satisfied",
-          "summary" => "已生成待采纳正文草稿并完成质量复核，本轮目标已经满足。",
-          "target_tool_ref" => nil,
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["goal_satisfied"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳正文草稿并完成质量复核，本轮目标已经满足。")
 
       String.contains?(prompt, "prose_context /") ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "基于已读取的正文上下文生成正文草稿并完成质量复核。",
-          "target_tool_ref" => "prose_writing",
-          "write_intent" => "tentative",
-          "risk_hint" => "low",
-          "reason_codes" => ["agentic_next_step", "prose_context_consumed"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "基于已读取的正文上下文生成正文草稿并完成质量复核。",
+          "prose_writing",
+          write_intent: "tentative",
+          reason_codes: ["agentic_next_step", "prose_context_consumed"]
+        )
 
       true ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "先读取正文写作上下文。",
-          "target_tool_ref" => "context_assemble",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["agentic_next_step", "missing_prose_context"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "先读取正文写作上下文。",
+          "context_assemble",
+          reason_codes: ["agentic_next_step", "missing_prose_context"]
+        )
     end
   end
 

@@ -257,7 +257,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step-durable-channel-1"],
-            "checkpoint_version" => 1
+            "checkpoint_version" => 2
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -340,6 +340,105 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
     )
   end
 
+  test "join marks durable AgentRun stale when work revision changed" do
+    {:ok, work} = WorkService.create(%{"title" => "恢复前作品"})
+    {:ok, %{active_session: %{id: session_id}}} = WorkSessionService.resume(work.id)
+    run_id = "run-durable-work-revision-#{System.unique_integer([:positive, :monotonic])}"
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: work.id,
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "可恢复长任务",
+        scope_ref: work.id,
+        created_by: "agent_run",
+        parent_turn_ref: "turn-durable-work-revision",
+        checkpoint_policy_ref: "agent_run_step_checkpoint_v1",
+        completed_unit_refs: ["step-durable-work-revision-1"],
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "work_revision" => work.revision,
+            "completed_step_refs" => ["step-durable-work-revision-1"],
+            "checkpoint_version" => 2
+          },
+          "progress" => 50,
+          "step" => "AgentRun 检查点"
+        }
+      })
+
+    assert {:ok, _record} =
+             AgentRunLog.upsert_run(%{
+               id: run_id,
+               workspace_id: work.id,
+               work_id: work.id,
+               session_id: session_id,
+               parent_turn_ref: "turn-durable-work-revision",
+               origin_frame_ref: "frame-durable-work-revision",
+               run_mode: "durable",
+               profile_ref: "character_design_with_context_v1",
+               status: "running",
+               phase: "executing",
+               goal: %{"text" => "作为可恢复长任务设计角色", "version" => 1},
+               goal_version: 1,
+               run_policy: %{"allowed_tool_refs" => ["character_roster"]},
+               authority_scope: %{
+                 "production_write" => false,
+                 "allowed_tools" => ["character_roster"],
+                 "work_revision" => work.revision
+               },
+               budget: %{
+                 "max_steps" => 2,
+                 "max_tool_calls" => 2,
+                 "max_provider_calls" => 1,
+                 "max_replans" => 1
+               },
+               consumed_budget: %{
+                 "steps" => 1,
+                 "tool_calls" => 1,
+                 "provider_calls" => 0,
+                 "replans" => 0
+               },
+               completed_step_refs: ["step-durable-work-revision-1"],
+               interrupt_state: %{"status" => "none"},
+               long_run_task_ref: task.id
+             })
+
+    assert {:ok, changed_work} =
+             WorkService.rename(work.id, %{
+               "title" => "恢复前作品已变化",
+               "revision" => work.revision
+             })
+
+    assert changed_work.revision == work.revision + 1
+
+    {:ok, _, _socket} =
+      UserSocket
+      |> socket("user_id", %{})
+      |> subscribe_and_join(WorkspaceChannel, "workspace:#{work.id}", %{
+        "work_id" => work.id,
+        "session_id" => session_id
+      })
+
+    assert_broadcast(
+      "agent_event",
+      %{
+        run_id: ^run_id,
+        event_type: "run_resumed",
+        reason_codes: reason_codes
+      },
+      1_000
+    )
+
+    assert "durable_recovered" in reason_codes
+    assert "stale_resume" in reason_codes
+    assert "work_revision_mismatch" in reason_codes
+    assert LongRunTaskLog.get(task.id).checkpoint_data["stale_reason"] == "work_revision_mismatch"
+  end
+
   test "join recovers durable AgentRun for same work when current session changed" do
     {:ok, work} = WorkService.create(%{"title" => "恢复中的作品"})
     {:ok, %{active_session: %{id: original_session_id}}} = WorkSessionService.resume(work.id)
@@ -363,7 +462,7 @@ defmodule NovelWeb.WorkspaceChannelTaskStateTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step-durable-session-change-1"],
-            "checkpoint_version" => 1
+            "checkpoint_version" => 2
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"

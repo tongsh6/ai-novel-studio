@@ -1,5 +1,5 @@
 id: agent-provider-execution-activity-restored
-title: Provider execution activity 与 usage 从持久事实恢复到对话流
+title: Provider execution activity 与 usage 从持久事实异步恢复到对话流
 tier: nightly
 status: active
 surface: tauri
@@ -12,9 +12,10 @@ contract:
 
 invariants:
   - provider-execution-has-single-runtime-architecture
-  - provider-activity-is-restored-from-agent-event-log
-  - provider-usage-is-restored-from-provider-run-log
-  - provider-activity-is-author-safe
+  - session-restore-keeps-agent-run-activity-summary-only
+  - provider-activity-is-lazy-loaded-from-agent-event-log
+  - provider-usage-is-lazy-loaded-from-provider-run-log
+  - provider-activity-is-developer-telemetry
   - replay-or-restore-does-not-recall-provider
 
 setup:
@@ -24,14 +25,16 @@ setup:
 user_flow:
   - open: real Tauri workbench
   - send: plain conversation input that routes to conversation_turn_v1
-  - wait_for: provider started and final_output facts project as author-safe provider_progress events
+  - wait_for: provider started and final_output facts project as developer provider_progress events
   - query: real session snapshot for the persisted assistant turn_result
-  - verify: persisted turn_result.agent_run.events carries the same provider_run_ref and provider_call_ref
-  - verify: persisted turn_result.agent_run.provider_runs carries provider usage summaries for planner and conversation calls
-  - query: scoped ProviderRun activity API by work_id / session_id / turn_id
-  - verify: ProviderRun activity API returns the same persisted provider usage summaries without recalling provider
+  - verify: persisted turn_result.agent_run is summary-only and marks activity_loaded=false
+  - query: scoped AgentRun activity API by work_id / session_id / turn_id
+  - verify: AgentRun activity API returns developer provider_progress events without recalling provider
+  - verify: AgentRun activity API returns persisted provider usage summaries for author_reasoning and conversation calls
   - reload: real workbench
-  - verify: restored assistant dialogue flow still shows provider execution activity, ProviderRun event replay, output summary, and no-provider-recall boundary
+  - verify: restored assistant dialogue flow initially keeps work details collapsed
+  - click: work details summary inside the same assistant dialogue flow
+  - verify: expanded work details show provider execution activity, ProviderRun event replay, output summary, and no-provider-recall boundary
 
 evidence:
   required:
@@ -43,18 +46,16 @@ evidence:
 
 assertions:
   data:
-    - restored turn_result.agent_run.events include provider_started and provider_final_output
-    - restored provider activity carries provider_run_ref and provider_call_ref
-    - restored turn_result.agent_run.provider_runs include provider_run_ref, provider_call_ref, purpose, status, output_type, content_length, and usage
-    - restored provider_run usage summaries preserve planner and conversation purposes
-    - scoped ProviderRun activity API returns HTTP 200 for the original work/session/turn
-    - scoped ProviderRun activity API returns provider_run_ref, provider_call_ref, purpose, status, output_type, content_length, events, output summary, and usage totals
-    - scoped ProviderRun activity API preserves planner and conversation purposes
-    - restored provider activity does not expose raw prompt, system prompt, assistant raw content, or provider raw payload
-    - restored provider_run usage summaries do not expose raw prompt, system prompt, assistant raw content, or provider raw payload
-    - scoped ProviderRun activity API does not expose raw prompt, system prompt, assistant raw content, or provider raw payload
-    - page reload restores the same assistant dialogue flow with provider execution activity visible
-    - page reload restores ProviderRun replay UI with event sequence, output summary, and no-provider-recall boundary visible
+    - restored turn_result.agent_run keeps events and provider_runs empty with activity_loaded=false
+    - scoped AgentRun activity API returns HTTP 200 for the original work/session/turn
+    - scoped AgentRun activity API returns provider_started and provider_final_output events
+    - scoped AgentRun activity API carries provider_run_ref and provider_call_ref
+    - scoped AgentRun activity API returns provider_run_ref, provider_call_ref, purpose, status, output_type, content_length, events, output summary, and usage totals
+    - scoped AgentRun activity API preserves author_reasoning and conversation purposes
+    - scoped AgentRun activity API does not expose raw prompt, system prompt, assistant raw content, or provider raw payload
+    - page reload restores the same assistant dialogue flow with work details collapsed
+    - author expansion lazy-loads provider execution activity into the same assistant dialogue flow
+    - expanded work details restore ProviderRun replay UI with event sequence, output summary, and no-provider-recall boundary visible
     - ProviderRun replay UI does not expose raw prompt, system prompt, assistant raw content, or provider raw payload
     - restore reads recorded events and provider run summaries and does not create a second provider execution
 

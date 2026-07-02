@@ -8,15 +8,30 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
   alias NovelAgent.Provider.Gateway
   alias NovelAgent.Provider.Result, as: ProviderResult
   alias NovelApplication.AgentFinalizer
-  alias NovelDomain.{AgentObservation, AgentStep}
+  alias NovelDomain.{AgentNextStepDecision, AgentObservation, AgentStep}
 
   @profile_ref "provider_progress_v1"
 
   @spec profile_ref() :: String.t()
   def profile_ref, do: @profile_ref
 
-  @spec steps(map()) :: [NovelApplication.AgentRunService.step_fun()]
-  def steps(spec) when is_map(spec), do: [provider_step(spec)]
+  @spec steps(map()) :: no_return()
+  def steps(_spec) do
+    raise ArgumentError, "provider_progress_v1 requires next_step_planner/1"
+  end
+
+  @spec next_step_planner(map()) :: NovelApplication.AgentRunServer.next_step_planner()
+  def next_step_planner(spec) when is_map(spec) do
+    fn run, sequence, snapshot ->
+      if provider_progress_recorded?(snapshot) do
+        {:complete, complete_decision(run, sequence, observation_refs(snapshot)),
+         %{provider_call_count: 0}}
+      else
+        {:execute, provider_step(spec), execute_decision(run, sequence),
+         %{provider_call_count: 0}}
+      end
+    end
+  end
 
   defp provider_step(spec) do
     fn run, sequence, snapshot ->
@@ -43,6 +58,7 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
       case provider_complete(spec).(provider_prompt(text)) do
         {:ok, result} ->
           content = provider_content(result)
+          observation = observation(run, sequence, capabilities)
 
           emit_provider_progress(
             snapshot,
@@ -71,9 +87,11 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
           {:ok,
            %{
              step: step(run, sequence),
-             observations: [observation(run, sequence, capabilities)],
+             observations: [observation],
              turn_result: turn_result,
              provider_call_count: 1,
+             loop_status: :completed,
+             loop_decision: complete_decision(run, sequence, [observation.observation_id]),
              progress_signature: "#{run.run_id}:provider_progress:#{run.goal.version}"
            }}
 
@@ -81,6 +99,60 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
           {:error, {:provider_progress_failed, reason}}
       end
     end
+  end
+
+  defp provider_progress_recorded?(snapshot) do
+    snapshot
+    |> Map.get(:observations, [])
+    |> Enum.any?(fn
+      %AgentObservation{structured_payload: payload} ->
+        Map.has_key?(payload, :provider_capabilities)
+
+      _ ->
+        false
+    end)
+  end
+
+  defp execute_decision(run, sequence) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_#{run.run_id}_#{sequence}_provider_progress",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :execute_step,
+        summary: "记录 provider 执行进度边界。",
+        target_tool_ref: "provider_complete",
+        write_intent: :none,
+        risk_hint: :low,
+        reason_codes: ["provider_progress_next_step", "agentic_loop_profile"]
+      })
+
+    decision
+  end
+
+  defp complete_decision(run, sequence, observation_refs) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_#{run.run_id}_#{sequence}_provider_progress_complete",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :goal_satisfied,
+        summary: "Provider 进度边界已记录。",
+        reason_codes: ["provider_progress_recorded", "goal_satisfied"],
+        observation_refs: observation_refs
+      })
+
+    decision
+  end
+
+  defp observation_refs(snapshot) do
+    snapshot
+    |> Map.get(:observations, [])
+    |> Enum.map(fn
+      %AgentObservation{observation_id: id} -> id
+      _ -> nil
+    end)
+    |> Enum.reject(&is_nil/1)
   end
 
   defp emit_provider_progress(snapshot, summary, reason_codes, payload) do
@@ -111,7 +183,7 @@ defmodule NovelApplication.AgentRunFlows.ProviderProgress do
   defp provider_complete(spec) do
     spec
     |> provider_execution()
-    |> Execution.complete_fn()
+    |> Execution.result_fn()
   end
 
   defp provider_execution(spec) do

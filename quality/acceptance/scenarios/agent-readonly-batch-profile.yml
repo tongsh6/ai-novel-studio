@@ -41,6 +41,7 @@ assertions:
     - batch profile authority_scope.production_write=false
     - batch item observations have evidence refs
     - final TurnResult is read-only explanation or context summary
+    - completed agent_run_state records exactly one provider call for profile routing, while the readonly batch profile itself does not call a content provider
     - replay uses recorded refs without provider recall
 
 anti_hooks:

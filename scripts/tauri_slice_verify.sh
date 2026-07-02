@@ -16,6 +16,7 @@
 #   bash scripts/tauri_slice_verify.sh p1-chapter-plan-minimum
 #   bash scripts/tauri_slice_verify.sh p1-chapter-draft-generation
 #   bash scripts/tauri_slice_verify.sh --real-lmstudio au03-long-session-compression
+#   bash scripts/tauri_slice_verify.sh --provider deepseek agent-provider-execution-stream-unified
 #   bash scripts/tauri_slice_verify.sh desktop-stage-process-ownership
 #
 # The script starts a slice backend and a native Tauri dev window. UI actions
@@ -67,6 +68,7 @@ Usage:
   bash scripts/tauri_slice_verify.sh --list
   bash scripts/tauri_slice_verify.sh <slice-id>
   bash scripts/tauri_slice_verify.sh --real-lmstudio <slice-id>
+  bash scripts/tauri_slice_verify.sh --provider deepseek <slice-id>
 
 Implemented external UI driver slice ids:
   su01-provider-health-model
@@ -112,6 +114,8 @@ Implemented external UI driver slice ids:
   agent-prose-drafting-with-quality
   agent-conversation-turn
   agent-plot-outline-with-context
+  agent-world-building-with-context
+  agent-world-building-style-rule-with-context
   agent-character-evolution-with-context
   ua01-agent-bounded-roster-to-character-design
   agent-bounded-roster-to-character-design
@@ -134,6 +138,7 @@ Implemented external UI driver slice ids:
   agent-durable-resume-long-run-task
   agent-provider-execution-stream-unified
   agent-provider-execution-activity-restored
+  agent-session-transcript-lazy-page
   agent-provider-execution-error-author-safe
   agent-provider-streaming-progress
   agent-provider-cancel-honest-boundary
@@ -228,6 +233,11 @@ Real LM Studio mode:
   --real-lmstudio uses NovelAgent.Provider.LMStudio and verifies that the
   correlated turn_id has a POST /v1/chat/completions log with HTTP 2xx under
   artifacts/slice-verify/<slice-id>-tauri-lmstudio/llm-calls/.
+
+Real DeepSeek mode:
+  --provider deepseek uses NovelAgent.Provider.DeepSeek through the same
+  ProviderExecution runtime and verifies a correlated POST /chat/completions
+  log with HTTP 2xx. It requires NOVEL_DEEPSEEK_API_KEY or DEEPSEEK_API_KEY.
 EOF
 }
 
@@ -253,12 +263,15 @@ is_ua01_acceptance_alias() {
       agent-durable-resume-long-run-task | \
       agent-provider-execution-stream-unified | \
       agent-provider-execution-activity-restored | \
+      agent-session-transcript-lazy-page | \
       agent-provider-execution-error-author-safe | \
       agent-provider-streaming-progress | \
       agent-provider-cancel-honest-boundary | \
       agent-readonly-batch-profile | \
       agent-conversation-turn | \
       agent-plot-outline-with-context | \
+      agent-world-building-with-context | \
+      agent-world-building-style-rule-with-context | \
       agent-character-evolution-with-context)
       return 0
       ;;
@@ -285,9 +298,14 @@ if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstud
   exit 64
 fi
 fi
-if [[ "$SLICE_VERIFY_PROVIDER" != "slice_verify" && "$SLICE_VERIFY_PROVIDER" != "lmstudio" ]]; then
+if [[ "$SLICE_VERIFY_PROVIDER" != "slice_verify" && "$SLICE_VERIFY_PROVIDER" != "lmstudio" && "$SLICE_VERIFY_PROVIDER" != "deepseek" ]]; then
   echo "Unsupported slice verify provider: $SLICE_VERIFY_PROVIDER" >&2
   exit 64
+fi
+
+if [[ "$SLICE_VERIFY_PROVIDER" == "deepseek" && -z "${NOVEL_DEEPSEEK_API_KEY:-}${DEEPSEEK_API_KEY:-}" ]]; then
+  echo "DeepSeek live verification requires NOVEL_DEEPSEEK_API_KEY or DEEPSEEK_API_KEY" >&2
+  exit 65
 fi
 
 if [[ "$SLICE_ID" == "desktop-stage-process-ownership" ]]; then
@@ -303,9 +321,14 @@ if [[ "$SLICE_ID" != "su01-provider-health-model" && "$SLICE_ID" != "su01-lmstud
 fi
 fi
 ARTIFACT_SUFFIX="-tauri"
-if [[ "$SLICE_VERIFY_PROVIDER" == "lmstudio" ]]; then
-  ARTIFACT_SUFFIX="-tauri-lmstudio"
-fi
+case "$SLICE_VERIFY_PROVIDER" in
+  lmstudio)
+    ARTIFACT_SUFFIX="-tauri-lmstudio"
+    ;;
+  deepseek)
+    ARTIFACT_SUFFIX="-tauri-deepseek"
+    ;;
+esac
 
 ARTIFACT_DIR="$PROJECT_ROOT/artifacts/slice-verify/${SLICE_ID}${ARTIFACT_SUFFIX}"
 APP_LOG_DIR="$ARTIFACT_DIR/app-log"
@@ -759,6 +782,9 @@ native_action_description() {
     agent-provider-execution-activity-restored)
       echo "send a plain conversation AgentRun -> restore the workbench session -> verify persisted provider execution activity remains visible in the same assistant dialogue flow"
       ;;
+    agent-session-transcript-lazy-page)
+      echo "send a long conversation from the real workbench -> reload -> verify session transcript restores only the latest page and older messages load on author action"
+      ;;
     agent-provider-execution-error-author-safe)
       echo "send a plain conversation AgentRun that hits a provider error -> verify provider error facts project into author-safe activity and the final TurnResult stays safe"
       ;;
@@ -776,6 +802,12 @@ native_action_description() {
       ;;
     agent-plot-outline-with-context)
       echo "send a chapter outline request from the real workbench -> verify bounded AgentRun fast ack, plot_outline_with_context_v1 profile, re-gated plot_outline execution, and tentative outline_draft without production write"
+      ;;
+    agent-world-building-with-context)
+      echo "send a world-building foreshadowing request from the real workbench -> verify bounded AgentRun fast ack, world_building_with_context_v1 profile, re-gated world_building execution, and tentative foreshadowing_seed without production write"
+      ;;
+    agent-world-building-style-rule-with-context)
+      echo "send a writing-rule world-building request from the real workbench -> verify bounded AgentRun fast ack, world_building_with_context_v1 profile, re-gated world_building execution, and tentative style_rule_seed without production write"
       ;;
     agent-character-evolution-with-context)
       echo "create an existing character, then send a character evolution request from the real workbench -> verify bounded AgentRun fast ack, character_evolution_with_context_v1 profile, re-gated character_evolution execution, and tentative character_evolution_seed without production write"
@@ -1062,6 +1094,7 @@ verify_native_slice() {
 import fs from "node:fs";
 import path from "node:path";
 import {
+  findLiveProviderEvidence,
   findLmStudioEvidence,
   findNativeSliceEvidence,
   findSliceBehaviorEvidence,
@@ -1098,9 +1131,10 @@ if (evidence) {
   const keyTurnRecords = allTurnRecords.filter((record) => keyEvents.includes(record.event));
   fs.writeFileSync(path.join(artifactDir, "app-log.json"), JSON.stringify(keyTurnRecords, null, 2));
 
+  let liveProviderEvidence = null;
   let lmstudioEvidence = null;
   let llmRecords = [];
-  if (provider === "lmstudio") {
+  if (["lmstudio", "deepseek"].includes(provider)) {
     const llmPath = path.join(llmLogDir, `${today}.jsonl`);
     if (!fs.existsSync(llmPath)) {
       process.exit(1);
@@ -1112,14 +1146,18 @@ if (evidence) {
       .filter(Boolean)
       .map((line) => JSON.parse(line.replace(/^\[[^\]]+\]\s+/, "")));
 
-    lmstudioEvidence = findLmStudioEvidence(evidenceTurnIds, llmRecords);
-    if (!lmstudioEvidence) {
+    liveProviderEvidence = findLiveProviderEvidence(provider, evidenceTurnIds, llmRecords);
+    if (!liveProviderEvidence) {
       process.exit(1);
+    }
+
+    if (provider === "lmstudio") {
+      lmstudioEvidence = findLmStudioEvidence(evidenceTurnIds, llmRecords);
     }
 
     const matchedRecords = llmRecords.filter((record) => evidenceTurnIds.includes(record.turn_id));
     fs.writeFileSync(
-      path.join(artifactDir, "lmstudio-log.json"),
+      path.join(artifactDir, `${provider}-log.json`),
       JSON.stringify(matchedRecords, null, 2),
     );
   }
@@ -1139,6 +1177,7 @@ if (evidence) {
         ...evidence,
         provider,
         behavior: behaviorEvidence,
+        live_provider: liveProviderEvidence,
         lmstudio: lmstudioEvidence,
         surface: "tauri",
       },
@@ -1243,13 +1282,13 @@ for (const record of records.slice(-20)) {
   );
 }
 
-if (provider === "lmstudio") {
+if (["lmstudio", "deepseek"].includes(provider)) {
   const llmPath = path.join(llmLogDir, `${today}.jsonl`);
   const llmLines = fs.existsSync(llmPath)
     ? fs.readFileSync(llmPath, "utf8").split("\n").filter(Boolean)
     : [];
-  console.error(`  lmstudio_jsonl: ${fs.existsSync(llmPath) ? llmPath : "(missing)"}`);
-  console.error(`  lmstudio_records: ${llmLines.length}`);
+  console.error(`  ${provider}_jsonl: ${fs.existsSync(llmPath) ? llmPath : "(missing)"}`);
+  console.error(`  ${provider}_records: ${llmLines.length}`);
 }
 NODE
 }
@@ -1320,6 +1359,12 @@ case "$SLICE_ID" in
   agent-plot-outline-with-context)
     SEED_SCRIPT=""
     ;;
+  agent-world-building-with-context)
+    SEED_SCRIPT=""
+    ;;
+  agent-world-building-style-rule-with-context)
+    SEED_SCRIPT=""
+    ;;
   agent-character-evolution-with-context)
     SEED_SCRIPT=""
     ;;
@@ -1344,6 +1389,7 @@ case "$SLICE_ID" in
     agent-durable-resume-long-run-task | \
     agent-provider-execution-stream-unified | \
     agent-provider-execution-activity-restored | \
+    agent-session-transcript-lazy-page | \
     agent-provider-execution-error-author-safe | \
     agent-provider-streaming-progress | \
     agent-provider-cancel-honest-boundary | \
@@ -1546,6 +1592,7 @@ fi
 MIX_ENV=test \
   PHOENIX_TEST_PORT="$PHOENIX_PORT" \
   PHOENIX_PORT="$PHOENIX_PORT" \
+  LLM_LOG_DIR="$LLM_LOG_DIR" \
   SLICE_VERIFY_APP_LOG_DIR="$APP_LOG_DIR" \
   SLICE_VERIFY_LLM_LOG_DIR="$LLM_LOG_DIR" \
   SLICE_VERIFY_PROVIDER="$SLICE_VERIFY_PROVIDER" \

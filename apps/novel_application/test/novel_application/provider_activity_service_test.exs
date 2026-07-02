@@ -2,8 +2,10 @@ defmodule NovelApplication.ProviderActivityServiceTest do
   use ExUnit.Case, async: false
 
   alias Ecto.Adapters.SQL.Sandbox
-  alias NovelApplication.{ProviderActivityService, WorkService}
+  alias NovelAgent.Provider.Execution
+  alias NovelApplication.{ProviderActivityProjector, ProviderActivityService, WorkService}
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
+  alias NovelDomain.AgentRun
   alias NovelPersistence.{AgentRunLog, ProviderRunLog, Repo, WorkSessionRepo}
 
   setup do
@@ -37,6 +39,18 @@ defmodule NovelApplication.ProviderActivityServiceTest do
     assert [
              %{
                run_id: "run-provider-query",
+               events: [agent_event]
+             }
+           ] = activity.agent_runs
+
+    assert agent_event.event_id == "evt-provider-query-context"
+    assert agent_event.payload["provider_run_ref"] == "prun-query"
+    refute Map.has_key?(agent_event.payload, "raw_prompt")
+    refute Map.has_key?(agent_event.payload, "turn_result")
+
+    assert [
+             %{
+               run_id: "run-provider-query",
                provider_run_ref: "prun-query",
                provider_call_ref: "pcall-query",
                purpose: "conversation",
@@ -66,6 +80,77 @@ defmodule NovelApplication.ProviderActivityServiceTest do
              )
   end
 
+  test "restores running provider execution facts recorded by the activity projector", %{
+    work: work,
+    session: session
+  } do
+    turn_id = "turn-provider-projector"
+    run_id = "run-provider-projector"
+    step_id = "step-provider-projector"
+
+    assert {:ok, _run_record} =
+             AgentRunLog.upsert_run(%{
+               id: run_id,
+               workspace_id: work.id,
+               work_id: work.id,
+               session_id: session.id,
+               parent_turn_ref: turn_id,
+               origin_frame_ref: "frame-provider-projector",
+               run_mode: "bounded",
+               profile_ref: "conversation_turn_v1",
+               status: "running",
+               phase: "executing",
+               plan_ref: "ap-provider-projector",
+               plan_version: 1
+             })
+
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: run_id,
+        workspace_id: work.id,
+        work_id: work.id,
+        session_id: session.id,
+        parent_turn_ref: turn_id,
+        origin_frame_ref: "frame-provider-projector",
+        profile_ref: "conversation_turn_v1",
+        current_step_ref: step_id,
+        status: :running,
+        phase: :executing,
+        goal: %{text: "provider activity", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["conversation"]}
+      })
+
+    provider_execution =
+      [provider: :stub, provider_run_id: "prun-projector", provider_call_ref: "pcall-projector"]
+      |> Execution.dependency()
+      |> ProviderActivityProjector.with_stage_sink(
+        %{run: run, stage_sink: fn _event -> :ok end},
+        purpose: :conversation
+      )
+
+    complete = Execution.result_fn(provider_execution)
+
+    assert {:ok, result} = complete.("hello provider projector")
+
+    assert result.content =~ "[stub]"
+
+    assert {:ok, activity} =
+             ProviderActivityService.fetch_turn_activity(work.id, session.id, turn_id)
+
+    provider_run =
+      Enum.find(activity.provider_runs, &(&1.provider_run_ref == "prun-projector"))
+
+    assert provider_run
+    assert provider_run.step_ref == step_id
+    assert provider_run.provider_call_ref == "pcall-projector"
+
+    event_types = Enum.map(provider_run.events, & &1.event_type)
+    assert "started" in event_types
+    assert "progress" in event_types
+    assert "chunk" in event_types
+    assert "final_output" in event_types
+  end
+
   defp seed_provider_activity!(work_id, session_id, turn_id, run_id) do
     assert {:ok, _run} =
              AgentRunLog.upsert_run(%{
@@ -81,6 +166,25 @@ defmodule NovelApplication.ProviderActivityServiceTest do
                phase: "stopped",
                plan_ref: "ap-provider-query",
                plan_version: 1
+             })
+
+    assert {:ok, _event} =
+             AgentRunLog.insert_event(%{
+               id: "evt-provider-query-context",
+               run_id: run_id,
+               step_id: "step-provider-query",
+               sequence: 1,
+               event_type: "provider_progress",
+               visibility: "author",
+               summary: "模型调用已完成。",
+               reason_codes: ["provider_execution_stream"],
+               refs: ["provider_run:prun-query", "provider_call:pcall-query"],
+               payload: %{
+                 "provider_run_ref" => "prun-query",
+                 "provider_call_ref" => "pcall-query",
+                 "raw_prompt" => "must not leak",
+                 "turn_result" => %{"assistant_message" => "must not leak"}
+               }
              })
 
     {:ok, provider_run} =

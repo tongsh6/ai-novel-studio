@@ -46,6 +46,7 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
           next_sequence: length(initial_events) + 1,
           chunk_index: 0,
           accumulated_content_length: 0,
+          author_narrative_open?: true,
           usage: nil,
           model: Map.get(state, :model),
           parse_error?: false
@@ -224,11 +225,15 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
     accumulated = acc.accumulated_content_length + content_length
     chunk_index = acc.chunk_index + 1
 
+    {author_delta, author_open?} =
+      AdapterExecution.author_reasoning_delta(ctx, content, acc.author_narrative_open?)
+
     event =
       AdapterExecution.chunk_event!(ctx, acc.next_sequence,
         chunk_index: chunk_index,
         content_length: content_length,
-        accumulated_content_length: accumulated
+        accumulated_content_length: accumulated,
+        author_narrative_delta: author_delta
       )
 
     AdapterExecution.emit_events(ctx, [event], :running)
@@ -239,7 +244,8 @@ defmodule NovelAgent.Provider.OpenAICompatibleStream do
         events: [event | acc.events],
         next_sequence: acc.next_sequence + 1,
         chunk_index: chunk_index,
-        accumulated_content_length: accumulated
+        accumulated_content_length: accumulated,
+        author_narrative_open?: author_open?
     }
   end
 

@@ -99,7 +99,7 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
         decision: allow_decision(),
         context: context(policy),
         author_input: %{text: "接着第一章往下写正文"},
-        provider_execution: %Execution{complete_fn: complete},
+        provider_execution: %Execution{result_fn: complete},
         chapter_prose_reader: reader
       })
 
@@ -172,7 +172,7 @@ defmodule NovelApplication.CP1AssemblyPolicyTest do
       decision: allow_decision(),
       context: ctx,
       author_input: %{text: "接着第一章往下写正文"},
-      provider_execution: %Execution{complete_fn: complete},
+      provider_execution: %Execution{result_fn: complete},
       chapter_prose_reader: reader
     })
 

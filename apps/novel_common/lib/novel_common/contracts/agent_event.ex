@@ -9,13 +9,14 @@ defmodule NovelCommon.Contracts.AgentEvent do
   @type event_type ::
           :run_started
           | :goal_understood
-          | :plan_created
+          | :plan_drafted
+          | :plan_revised
           | :plan_adjusted
-          | :step_proposed
+          | :exploration_observed
+          | :evaluation_made
           | :gate_decided
           | :tool_started
           | :tool_completed
-          | :observation_recorded
           | :artifact_created
           | :turn_result_ready
           | :quality_review_started
@@ -50,13 +51,14 @@ defmodule NovelCommon.Contracts.AgentEvent do
   @event_types [
     :run_started,
     :goal_understood,
-    :plan_created,
+    :plan_drafted,
+    :plan_revised,
     :plan_adjusted,
-    :step_proposed,
+    :exploration_observed,
+    :evaluation_made,
     :gate_decided,
     :tool_started,
     :tool_completed,
-    :observation_recorded,
     :artifact_created,
     :turn_result_ready,
     :quality_review_started,

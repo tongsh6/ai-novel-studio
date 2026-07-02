@@ -10,6 +10,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   alias NovelAgent.Provider.AdapterExecution
   alias NovelAgent.Provider.Result
+  alias NovelAgent.Provider.Usage
 
   @slow_work_switch_delay_ms 2_500
   @slow_work_switch_marker "SU02SLOW"
@@ -19,6 +20,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @archive_slow_marker "AU12SLOW"
   @agent_cancel_slow_delay_ms 3_000
   @agent_cancel_slow_marker "UA01CP6SLOW"
+  @author_reasoning_chunk_delay_ms 25
   @garbage_json_marker "AU01GARBAGE"
   @invalid_frame_marker "AU01BADFRAME"
   @malformed_candidates_marker "AU02BADCANDIDATES"
@@ -44,7 +46,8 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
     |> case do
       :ok ->
-        {:ok, Result.new(response_content(prompt, prompt_text))}
+        content = response_content(prompt, prompt_text)
+        {:ok, Result.new(content, usage_for(prompt_text, content))}
 
       {:error, reason} ->
         {:error, reason}
@@ -61,7 +64,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         chunk_events =
           AdapterExecution.text_chunk_events(ctx, content, length(initial_events) + 1)
 
-        AdapterExecution.emit_events(ctx, chunk_events, :running)
+        emit_chunk_events(ctx, chunk_events)
 
         {:ok, result}
         |> AdapterExecution.materialize_result(
@@ -85,13 +88,31 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   @impl true
   def name, do: "slice_verify"
 
+  defp emit_chunk_events(ctx, events) do
+    Enum.each(events, fn event ->
+      AdapterExecution.emit_events(ctx, [event], :running)
+      maybe_delay_author_reasoning_chunk(ctx, event)
+    end)
+  end
+
+  defp maybe_delay_author_reasoning_chunk(ctx, event) do
+    if Map.get(ctx, :purpose) in [:author_reasoning, "author_reasoning"] and
+         is_binary(event.payload[:author_narrative_delta]) do
+      Process.sleep(@author_reasoning_chunk_delay_ms)
+    end
+  end
+
   defp plan_prompt?(prompt) do
     String.contains?(prompt, "plan_goal_summary") or String.contains?(prompt, "proposed_actions")
   end
 
   defp agent_next_step_decision_prompt?(prompt) do
-    String.contains?(prompt, "AgentRun 下一步规划器") and
-      String.contains?(prompt, "\"decision_type\"")
+    String.contains?(prompt, "AgentRun 下一步规划器")
+  end
+
+  defp profile_routing_prompt?(prompt) do
+    String.contains?(prompt, "AgentRun profile router") and
+      String.contains?(prompt, "\"profile_ref\"")
   end
 
   defp creative_items_prompt?(prompt) do
@@ -126,6 +147,13 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     else
       :ok
     end
+  end
+
+  defp usage_for(prompt_text, content) do
+    input_tokens = prompt_text |> String.length() |> div(8) |> max(1)
+    output_tokens = content |> String.length() |> div(6) |> max(1)
+
+    Usage.new(input_tokens, output_tokens, "slice-verify-model", 0)
   end
 
   @quality_eval_fail_marker "VS00EEVALFAIL"
@@ -175,8 +203,11 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       creative_items_prompt?(prompt_text) ->
         creative_items_response(prompt_text) |> Jason.encode!()
 
+      profile_routing_prompt?(prompt_text) ->
+        profile_routing_response(prompt_text) |> Jason.encode!()
+
       agent_next_step_decision_prompt?(prompt_text) ->
-        agent_next_step_decision_response(prompt_text) |> Jason.encode!()
+        agent_next_step_decision_response(prompt_text)
 
       plan_prompt?(prompt_text) ->
         plan_response(prompt_text) |> Jason.encode!()
@@ -733,49 +764,185 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
+  defp profile_routing_response(prompt) do
+    author_text = author_input_text_from_profile_route_prompt(prompt)
+    normalized = String.downcase(author_text)
+    {profile_ref, summary, reason_codes} = profile_route_match(normalized)
+
+    profile_route_response(profile_ref, summary, reason_codes, author_text)
+  end
+
+  defp profile_route_match(normalized) do
+    Enum.find_value(profile_route_rules(), default_profile_route(), fn
+      {:contains, terms, route} ->
+        if contains_any?(normalized, terms), do: route
+
+      {:conversation_only, route} ->
+        if conversation_only_text?(normalized), do: route
+    end)
+  end
+
+  defp profile_route_rules do
+    [
+      {:contains, ["只读批量", "批量读取", "read-only batch", "readonly batch"],
+       {"readonly_batch_context_v1", "模型选择只读批量上下文工作流。",
+        ["model_profile_selected", "readonly_batch_text_match"]}},
+      {:contains,
+       [
+         "provider 进度",
+         "模型进度",
+         "流式进度",
+         "流式事件",
+         "provider progress",
+         "streaming progress",
+         "UA01CP6SLOW"
+       ],
+       {"provider_progress_v1", "模型选择模型执行进度工作流。",
+        ["model_profile_selected", "provider_progress_text_match"]}},
+      {:contains, ["章节大纲", "章节计划", "分章大纲", "卷纲", "outline"],
+       {"plot_outline_with_context_v1", "模型选择章节大纲工作流。",
+        ["model_profile_selected", "plot_outline_text_match"]}},
+      {:contains, ["角色演化", "角色成长", "当前状态", "关系变化", "受伤", "黑化"],
+       {"character_evolution_with_context_v1", "模型选择角色演化工作流。",
+        ["model_profile_selected", "character_evolution_text_match"]}},
+      {:contains, ["世界观", "世界设定", "世界规则", "伏笔", "悬念", "线索", "写作规则", "风格规则", "文风"],
+       {"world_building_with_context_v1", "模型选择世界设定工作流。",
+        ["model_profile_selected", "world_building_text_match"]}},
+      {:conversation_only, default_profile_route()},
+      {:contains, ["正文草稿", "写下一章", "续写", "正文"],
+       {"prose_drafting_with_quality_v1", "模型选择正文写作工作流。",
+        ["model_profile_selected", "prose_drafting_text_match"]}},
+      {:contains, ["角色阵容", "现有角色", "已有角色", "反派"],
+       {"character_design_with_context_v1", "模型选择角色设计工作流。",
+        ["model_profile_selected", "character_design_context_text_match"]}}
+    ]
+  end
+
+  defp default_profile_route do
+    {"conversation_turn_v1", "模型选择普通对话回应工作流。",
+     ["model_profile_selected", "default_conversation_turn"]}
+  end
+
+  defp profile_route_response(profile_ref, summary, reason_codes, author_text) do
+    %{
+      profile_ref: profile_ref,
+      summary: summary,
+      reason_codes: reason_codes,
+      matched_terms: profile_route_matched_terms(author_text),
+      confidence: 1.0
+    }
+  end
+
   defp agent_next_step_decision_response(prompt) do
     profile_decision = profile_next_step_decision(prompt)
 
-    cond do
-      observation_present?(prompt, "artifact_created") ->
-        agent_goal_satisfied_decision(prompt)
+    decision =
+      cond do
+        observation_present?(prompt, "artifact_created") ->
+          agent_done_packet(prompt)
 
-      not is_nil(profile_decision) ->
-        profile_decision
+        not is_nil(profile_decision) ->
+          profile_decision
 
-      observation_present?(prompt, "character_roster") and
-          String.contains?(prompt, "重复读取角色阵容") ->
-        %{
-          decision_type: "execute_step",
-          summary: "再次读取当前角色阵容，检查是否有新增信息。",
-          target_tool_ref: "character_roster",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "repeat_roster_probe"],
-          confidence: 1.0
-        }
+        observation_present?(prompt, "character_roster") and
+            String.contains?(prompt, "重复读取角色阵容") ->
+          continue_next("再次读取当前角色阵容，检查是否有新增信息。", "character_roster", "none", [
+            "agentic_next_step",
+            "repeat_roster_probe"
+          ])
 
-      observation_present?(prompt, "character_roster") ->
-        %{
-          decision_type: "execute_step",
-          summary: "基于已读取的角色阵容设计新的主要反派。",
-          target_tool_ref: "character_design",
-          write_intent: "tentative",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "roster_observation_consumed"],
-          confidence: 1.0
-        }
+        observation_present?(prompt, "character_roster") ->
+          continue_next("基于已读取的角色阵容设计新的主要反派。", "character_design", "tentative", [
+            "agentic_next_step",
+            "roster_observation_consumed"
+          ])
 
-      true ->
-        %{
-          decision_type: "execute_step",
-          summary: "先读取当前作品已确认角色阵容。",
-          target_tool_ref: "character_roster",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "missing_roster_observation"],
-          confidence: 1.0
-        }
+        true ->
+          continue_next("先读取当前作品已确认角色阵容。", "character_roster", "none", [
+            "agentic_next_step",
+            "missing_roster_observation"
+          ])
+      end
+
+    structured_next_step_decision(decision, prompt)
+  end
+
+  defp structured_next_step_decision(packet, prompt) when is_map(packet) do
+    {advanced, plan_holds, new_constraint} = next_step_evaluation(packet, prompt)
+
+    tail = %{
+      evaluation_of_last: %{
+        advanced: advanced,
+        plan_holds: plan_holds,
+        new_constraint: new_constraint
+      },
+      decision: decision_for_plan_holds(packet, plan_holds),
+      next_action: Map.fetch!(packet, :next_action),
+      plan_revision: plan_revision_for(plan_holds, new_constraint, prompt),
+      reason_codes: Map.get(packet, :reason_codes, []),
+      confidence: Map.get(packet, :confidence, 1.0)
+    }
+
+    Map.fetch!(packet, :reasoning) <> "\n" <> Jason.encode!(tail)
+  end
+
+  defp next_step_evaluation(packet, prompt) do
+    plan_holds = not String.contains?(prompt, "NNARR_REPLAN_PLAN_HOLDS_FALSE")
+    advanced = Map.get(Map.fetch!(packet, :decision), :type) != "no_progress"
+    new_constraint = if plan_holds, do: nil, else: "现有计划前提不成立，需要重排下一步。"
+
+    {advanced, plan_holds, new_constraint}
+  end
+
+  defp decision_for_plan_holds(packet, false) do
+    case Map.fetch!(packet, :decision) do
+      %{type: "continue"} -> %{type: "replan"}
+      %{"type" => "continue"} -> %{type: "replan"}
+      decision -> decision
+    end
+  end
+
+  defp decision_for_plan_holds(packet, _plan_holds), do: Map.fetch!(packet, :decision)
+
+  defp continue_next(reasoning, target_tool_ref, write_intent, reason_codes) do
+    %{
+      reasoning: reasoning,
+      decision: %{type: "continue"},
+      next_action: %{
+        target_tool_ref: target_tool_ref,
+        write_intent: write_intent,
+        risk_hint: "low"
+      },
+      plan_revision: nil,
+      reason_codes: reason_codes,
+      confidence: 1.0
+    }
+  end
+
+  defp done_next(reasoning, reason_codes) do
+    %{
+      reasoning: reasoning,
+      decision: %{type: "done"},
+      next_action: %{target_tool_ref: nil, write_intent: "none", risk_hint: "low"},
+      plan_revision: nil,
+      reason_codes: reason_codes,
+      confidence: 1.0
+    }
+  end
+
+  defp plan_revision_for(false, revision_reason, prompt) do
+    %{
+      plan_version: prompt_plan_version(prompt) + 1,
+      revision_reason: revision_reason
+    }
+  end
+
+  defp plan_revision_for(_plan_holds, _revision_reason, _prompt), do: nil
+
+  defp prompt_plan_version(prompt) do
+    case Regex.run(~r/plan_version:\s*(\d+)/, prompt) do
+      [_, value] -> String.to_integer(value)
+      _ -> 1
     end
   end
 
@@ -793,6 +960,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
       String.contains?(prompt, "profile_ref: character_evolution_with_context_v1") ->
         character_evolution_next_step_decision(prompt)
 
+      String.contains?(prompt, "profile_ref: world_building_with_context_v1") ->
+        world_building_next_step_decision(prompt)
+
       String.contains?(prompt, "profile_ref: prose_revision_from_findings_v1") ->
         prose_revision_next_step_decision(prompt)
 
@@ -801,7 +971,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
     end
   end
 
-  defp agent_goal_satisfied_decision(prompt) do
+  defp agent_done_packet(prompt) do
     {summary, reason_code} =
       cond do
         String.contains?(prompt, "profile_ref: plot_outline_with_context_v1") ->
@@ -809,6 +979,9 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
         String.contains?(prompt, "profile_ref: character_evolution_with_context_v1") ->
           {"已生成待采纳角色演化候选，本轮目标已经满足。", "tentative_character_evolution_seed_created"}
+
+        String.contains?(prompt, "profile_ref: world_building_with_context_v1") ->
+          {"已生成待采纳世界设定候选，本轮目标已经满足。", "tentative_world_building_seed_created"}
 
         String.contains?(prompt, "profile_ref: prose_drafting_with_quality_v1") ->
           {"已生成待采纳正文草稿并完成质量复核，本轮目标已经满足。", "tentative_prose_fragment_created"}
@@ -820,28 +993,15 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           {"已生成待采纳角色候选，本轮目标已经满足。", "tentative_character_seed_created"}
       end
 
-    %{
-      decision_type: "goal_satisfied",
-      summary: summary,
-      target_tool_ref: nil,
-      write_intent: "none",
-      risk_hint: "low",
-      reason_codes: ["goal_satisfied", reason_code],
-      confidence: 1.0
-    }
+    done_next(summary, ["goal_satisfied", reason_code])
   end
 
   defp plot_outline_next_step_decision(prompt) do
     if observation_present?(prompt, "outline_context") do
-      %{
-        decision_type: "execute_step",
-        summary: "基于已读取的章节上下文生成章节大纲草稿。",
-        target_tool_ref: "plot_outline",
-        write_intent: "tentative",
-        risk_hint: "low",
-        reason_codes: ["agentic_next_step", "outline_context_consumed"],
-        confidence: 1.0
-      }
+      continue_next("基于已读取的章节上下文生成章节大纲草稿。", "plot_outline", "tentative", [
+        "agentic_next_step",
+        "outline_context_consumed"
+      ])
     else
       context_assemble_decision("先读取章节大纲规划上下文。", "missing_outline_context")
     end
@@ -849,15 +1009,10 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp prose_drafting_next_step_decision(prompt) do
     if observation_present?(prompt, "prose_context") do
-      %{
-        decision_type: "execute_step",
-        summary: "基于已读取的正文上下文生成正文草稿并完成质量复核。",
-        target_tool_ref: "prose_writing",
-        write_intent: "tentative",
-        risk_hint: "low",
-        reason_codes: ["agentic_next_step", "prose_context_consumed"],
-        confidence: 1.0
-      }
+      continue_next("基于已读取的正文上下文生成正文草稿并完成质量复核。", "prose_writing", "tentative", [
+        "agentic_next_step",
+        "prose_context_consumed"
+      ])
     else
       context_assemble_decision("先读取正文写作上下文。", "missing_prose_context")
     end
@@ -865,17 +1020,23 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
   defp character_evolution_next_step_decision(prompt) do
     if observation_present?(prompt, "character_evolution_context") do
-      %{
-        decision_type: "execute_step",
-        summary: "基于已读取的角色上下文生成角色演化草稿。",
-        target_tool_ref: "character_evolution",
-        write_intent: "tentative",
-        risk_hint: "low",
-        reason_codes: ["agentic_next_step", "character_evolution_context_consumed"],
-        confidence: 1.0
-      }
+      continue_next("基于已读取的角色上下文生成角色演化草稿。", "character_evolution", "tentative", [
+        "agentic_next_step",
+        "character_evolution_context_consumed"
+      ])
     else
       context_assemble_decision("先读取角色演化上下文。", "missing_character_evolution_context")
+    end
+  end
+
+  defp world_building_next_step_decision(prompt) do
+    if observation_present?(prompt, "custom") and String.contains?(prompt, "世界设定上下文") do
+      continue_next("基于已读取的作品设定上下文生成世界设定草稿。", "world_building", "tentative", [
+        "agentic_next_step",
+        "world_building_context_consumed"
+      ])
+    else
+      context_assemble_decision("先读取作品设定上下文。", "missing_world_building_context")
     end
   end
 
@@ -884,63 +1045,38 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
 
     cond do
       String.contains?(observations, "已生成新的修订候选") ->
-        %{
-          decision_type: "execute_step",
-          summary: "汇总修订候选给作者确认。",
-          target_tool_ref: "revision_finalize",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "revision_candidate_ready"],
-          confidence: 1.0
-        }
+        continue_next("汇总修订候选给作者确认。", "revision_finalize", "none", [
+          "agentic_next_step",
+          "revision_candidate_ready"
+        ])
 
       String.contains?(observations, "重新经过 Orchestrator") ->
-        %{
-          decision_type: "execute_step",
-          summary: "基于修订计划生成正文修订候选。",
-          target_tool_ref: "prose_writing",
-          write_intent: "tentative",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "revision_plan_consumed"],
-          confidence: 1.0
-        }
+        continue_next("基于修订计划生成正文修订候选。", "prose_writing", "tentative", [
+          "agentic_next_step",
+          "revision_plan_consumed"
+        ])
 
       String.contains?(observations, "已读取待修订草稿") ->
-        %{
-          decision_type: "execute_step",
-          summary: "制定修订执行策略并重新经过系统裁决。",
-          target_tool_ref: "revision_plan",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "revision_source_consumed"],
-          confidence: 1.0
-        }
+        continue_next("制定修订执行策略并重新经过系统裁决。", "revision_plan", "none", [
+          "agentic_next_step",
+          "revision_source_consumed"
+        ])
 
       true ->
-        %{
-          decision_type: "execute_step",
-          summary: "读取待修订草稿和质量发现。",
-          target_tool_ref: "revision_prepare",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "missing_revision_source"],
-          confidence: 1.0
-        }
+        continue_next("读取待修订草稿和质量发现。", "revision_prepare", "none", [
+          "agentic_next_step",
+          "missing_revision_source"
+        ])
     end
   end
 
   defp conversation_turn_next_step_decision(prompt) do
     cond do
       conversation_observation_present?(prompt, ["已生成本轮回应"]) ->
-        %{
-          decision_type: "goal_satisfied",
-          summary: "已生成本轮回应，本轮目标已经满足。",
-          target_tool_ref: nil,
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["goal_satisfied", "conversation_turn_response_created"],
-          confidence: 1.0
-        }
+        done_next("已生成本轮回应，本轮目标已经满足。", [
+          "goal_satisfied",
+          "conversation_turn_response_created"
+        ])
 
       conversation_observation_present?(prompt, [
         "无需工具",
@@ -949,37 +1085,22 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
         "作者确认",
         "授权判断"
       ]) ->
-        %{
-          decision_type: "execute_step",
-          summary: "根据系统裁决生成本轮回应。",
-          target_tool_ref: "response_finalize",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "conversation_strategy_consumed"],
-          confidence: 1.0
-        }
+        continue_next("根据系统裁决生成本轮回应。", "response_finalize", "none", [
+          "agentic_next_step",
+          "conversation_strategy_consumed"
+        ])
 
       conversation_observation_present?(prompt, ["对话认知帧"]) ->
-        %{
-          decision_type: "execute_step",
-          summary: "基于对话认知帧完成执行策略与系统裁决。",
-          target_tool_ref: "strategy_gate",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "dialogue_frame_consumed"],
-          confidence: 1.0
-        }
+        continue_next("基于对话认知帧完成执行策略与系统裁决。", "strategy_gate", "none", [
+          "agentic_next_step",
+          "dialogue_frame_consumed"
+        ])
 
       conversation_observation_present?(prompt, ["创作上下文"]) ->
-        %{
-          decision_type: "execute_step",
-          summary: "基于已组装上下文形成对话认知帧。",
-          target_tool_ref: "dialogue_frame",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "conversation_context_consumed"],
-          confidence: 1.0
-        }
+        continue_next("基于已组装上下文形成对话认知帧。", "dialogue_frame", "none", [
+          "agentic_next_step",
+          "conversation_context_consumed"
+        ])
 
       true ->
         context_assemble_decision("先组装当前作品的创作上下文。", "missing_conversation_context")
@@ -999,15 +1120,7 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
   end
 
   defp context_assemble_decision(summary, reason_code) do
-    %{
-      decision_type: "execute_step",
-      summary: summary,
-      target_tool_ref: "context_assemble",
-      write_intent: "none",
-      risk_hint: "low",
-      reason_codes: ["agentic_next_step", reason_code],
-      confidence: 1.0
-    }
+    continue_next(summary, "context_assemble", "none", ["agentic_next_step", reason_code])
   end
 
   defp observation_present?(prompt, type) do
@@ -1317,6 +1430,50 @@ defmodule NovelAgent.Test.Provider.SliceVerify do
           _ -> prompt
         end
     end
+  end
+
+  defp author_input_text_from_profile_route_prompt(prompt) do
+    case Regex.run(~r/## 作者输入\s*(.*?)\s*## 可选 profile/su, prompt) do
+      [_, text] -> String.trim(text)
+      _ -> author_input_text_from_prompt(prompt)
+    end
+  end
+
+  defp conversation_only_text?(normalized) do
+    contains_any?(normalized, [
+      "不写正文",
+      "不要写正文",
+      "不用写正文",
+      "先聊方向",
+      "只聊方向",
+      "讨论方向"
+    ])
+  end
+
+  defp profile_route_matched_terms(text) do
+    [
+      "角色阵容",
+      "现有角色",
+      "反派",
+      "正文草稿",
+      "写下一章",
+      "续写",
+      "正文",
+      "章节大纲",
+      "章节计划",
+      "角色演化",
+      "当前状态",
+      "受伤",
+      "世界设定",
+      "伏笔",
+      "线索",
+      "写作规则",
+      "风格规则",
+      "provider 进度",
+      "流式进度",
+      "只读批量"
+    ]
+    |> Enum.filter(&String.contains?(text, &1))
   end
 
   defp creative_prompt_parts(prompt) do

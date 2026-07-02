@@ -453,6 +453,7 @@
 
 .mainArea {
   display: flex;
+  position: relative;
   flex: 1;
   overflow: hidden;
 }
@@ -471,7 +472,7 @@
 
 .chatArea {
   flex: 1;
-  padding: 32px;
+  padding: 32px 144px 32px 32px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -512,39 +513,59 @@
   gap: 8px;
 }
 
+.transcriptHistoryLoader {
+  display: flex;
+  justify-content: center;
+  max-width: 800px;
+}
+
 .userMsg,
 .assistantMsg {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-width: 800px;
 }
 
 .userMsg {
   align-self: flex-end;
   align-items: flex-end;
+  max-width: 920px;
 }
 
 .assistantMsg {
   align-self: flex-start;
   align-items: flex-start;
+  width: min(960px, 100%);
 }
 
 .agentRunFlow {
   display: flex;
-  width: min(800px, 100%);
-  gap: 10px;
+  width: min(960px, 100%);
+  gap: 16px;
   color: var(--foreground-primary);
 }
 
 .agentRunFlowRail {
   display: flex;
   flex: 0 0 auto;
-  align-items: flex-start;
-  justify-content: center;
-  width: 22px;
-  padding-top: 2px;
-  color: var(--foreground-secondary);
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 24px;
+}
+
+.agentRunFlowRailDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: var(--accent);
+}
+
+.agentRunFlowRailLine {
+  width: 1px;
+  min-height: 220px;
+  flex: 1 1 auto;
+  background: #e6ded3;
 }
 
 .agentRunFlowContent {
@@ -552,24 +573,76 @@
   min-width: 0;
   flex: 1;
   flex-direction: column;
-  gap: 8px;
+  gap: 16px;
 }
 
-.agentRunStatusLine {
+.agenticLoopStatusPanel {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  min-width: 0;
+  flex-direction: column;
+  gap: 16px;
   color: var(--foreground-primary);
   font-family: var(--sans);
-  font-size: 14px;
-  line-height: 1.55;
 }
 
 .agentRunStatusPulse {
-  width: 7px;
-  height: 7px;
+  flex: 0 0 auto;
+  width: 9px;
+  height: 9px;
   border-radius: 999px;
-  background-color: var(--foreground-primary);
+  background-color: var(--accent);
+}
+
+.agenticLoopStatusMeta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  color: #9b948a;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 17px;
+}
+
+.agenticLoopStatusChip {
+  display: inline-flex;
+  max-width: 100%;
+  align-items: center;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #f5f2ed;
+  color: #9b948a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.agenticLoopStatusChip[data-status="active"] {
+  background: #fff3db;
+  color: #b46900;
+}
+
+.agenticLoopStatusChip[data-status="done"] {
+  background: #e8f3e7;
+  color: #2f7d32;
+}
+
+.agenticLoopStatusText {
+  min-width: 0;
+  padding: 10px 14px;
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  background: #f7f4ef;
+  color: #151515;
+  font-family: var(--sans);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 23px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .agentRunMetaRow {
@@ -600,11 +673,264 @@
   color: var(--foreground-primary);
 }
 
+.agenticLoopPhaseStrip {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin: 0;
+  padding: 13px 16px;
+  border: 1px solid #e6ded3;
+  border-radius: 8px;
+  background: var(--surface-secondary);
+  list-style: none;
+}
+
+.agenticLoopPhase {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  border-radius: 6px;
+  background: #f5f2ed;
+  color: #9b948a;
+  font-family: var(--sans);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 17px;
+}
+
+.agenticLoopPhase[data-status="done"] {
+  background: #e8f3e7;
+  color: #2f7d32;
+  font-weight: 700;
+}
+
+.agenticLoopPhase[data-status="active"] {
+  background: #fff3db;
+  color: #b46900;
+  font-weight: 700;
+}
+
+.agenticLoopPhaseArrow {
+  flex: 0 0 auto;
+  color: #c9c2b8;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 18px;
+  list-style: none;
+}
+
+.agenticLoopDivider {
+  width: 100%;
+  height: 1px;
+  background: #e6ded3;
+}
+
+.agenticLoopPlan,
+.agenticLoopReasoning {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.agenticLoopSectionHeader {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 10px;
+  color: #151515;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 18px;
+}
+
+.agenticLoopVersionPill {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #fff3db;
+  color: #b46900;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.agenticLoopPlanSteps,
+.agenticLoopNarratives {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.agenticLoopPlanStep {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  gap: 12px;
+  color: #151515;
+}
+
+.agenticLoopPlanStepBadge {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+  background: #f5f2ed;
+  color: #b9b2a8;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 12px;
+}
+
+.agenticLoopPlanStep[data-status="done"] .agenticLoopPlanStepBadge {
+  background: #e8f3e7;
+  color: #2f7d32;
+}
+
+.agenticLoopPlanStep[data-status="active"] .agenticLoopPlanStepBadge {
+  background: #fff3db;
+  color: #b46900;
+}
+
+.agenticLoopPlanStepBody {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.agenticLoopPlanStepMeta {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  color: #9b948a;
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
+.agenticLoopPlanStepKind {
+  max-width: 100%;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #f5f2ed;
+  color: #9b948a;
+  overflow-wrap: anywhere;
+}
+
+.agenticLoopPlanStepText {
+  color: #151515;
+  font-family: var(--sans);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.agenticLoopNarrative {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  color: #151515;
+  font-family: var(--sans);
+}
+
+.agenticLoopNarrativeLabel {
+  display: inline-flex;
+  width: fit-content;
+  max-width: 100%;
+  height: fit-content;
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #f5f2ed;
+  color: #9b948a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.agenticLoopNarrativeLabel[data-tone="explore"] {
+  background: #eaf1f6;
+  color: #3b6e8f;
+}
+
+.agenticLoopNarrativeLabel[data-tone="evaluate"] {
+  background: #f3eef6;
+  color: #6d5a8f;
+}
+
+.agenticLoopNarrativeLabel[data-tone="replan"] {
+  background: #fff3db;
+  color: #b46900;
+}
+
+.agenticLoopNarrativeText {
+  min-width: 0;
+  padding: 10px 14px;
+  border-left: 2px solid var(--accent);
+  border-radius: 3px;
+  background: #f7f4ef;
+  color: #151515;
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 23px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.agenticLoopResult {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 7px;
+  padding: 12px 14px;
+  border: 1px solid #e6ded3;
+  border-radius: 3px;
+  background: #fbf9f5;
+  color: #9b948a;
+  font-family: var(--sans);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.agenticLoopResultPill {
+  padding: 4px 9px;
+  border-radius: 6px;
+  background: #f5f2ed;
+  color: #9b948a;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 16px;
+}
+
 .agentRunInlineActions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 6px;
 }
 
 .agentRunProviderFlow {
@@ -700,13 +1026,18 @@
 
 .agentRunDetailsSummary {
   display: flex;
-  width: fit-content;
+  width: 100%;
   align-items: center;
-  gap: 6px;
-  color: var(--foreground-secondary);
-  color: var(--foreground-secondary);
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid #e6ded3;
+  border-radius: var(--rounded-sm);
+  background: var(--surface-secondary);
+  color: #68625a;
   font-family: var(--sans);
-  font-size: 12px;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 17px;
   cursor: pointer;
   list-style: none;
 }
@@ -720,7 +1051,10 @@
 }
 
 .agentRunDetailsHint {
-  color: var(--foreground-secondary);
+  color: #b9b2a8;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 16px;
 }
 
 .agentRunTimeline {
@@ -1140,7 +1474,7 @@
   display: flex;
   align-items: center;
   height: 72px;
-  padding: 16px 32px;
+  padding: 16px 144px 16px 32px;
   border-top: 1px solid var(--border-subtle);
   gap: 16px;
   flex-shrink: 0;
@@ -1189,12 +1523,17 @@
 }
 
 .structureRailCollapsed {
-  width: 168px;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 5;
+  width: 104px;
   border-left: 1px solid var(--border-subtle);
-  padding: 16px;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 16px;
   background-color: var(--surface-primary);
   flex-shrink: 0;
 }
@@ -1224,6 +1563,48 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+
+.sessionRailDetails {
+  position: relative;
+  width: 100%;
+}
+
+.sessionRailSummary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 6px;
+  color: var(--foreground-primary);
+  background-color: var(--surface-primary);
+  font-family: var(--sans);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sessionRailSummary::-webkit-details-marker {
+  display: none;
+}
+
+.sessionRailDetails[open] .sessionRailSummary {
+  border-color: var(--foreground-primary);
+}
+
+.sessionRailDetails[open] .sessionList {
+  position: absolute;
+  top: 42px;
+  right: 0;
+  z-index: 20;
+  width: 184px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background-color: var(--surface-primary);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.12);
 }
 
 .sessionTools {
@@ -1320,10 +1701,12 @@
 
 .openArchiveEntry {
   border: 1px solid var(--border-subtle);
-  padding: 12px;
+  min-height: 58px;
+  padding: 10px 8px;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   cursor: pointer;
 }

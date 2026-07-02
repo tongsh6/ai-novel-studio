@@ -1,0 +1,64 @@
+id: agent-world-building-style-rule-with-context
+title: AgentRun 世界设定 Profile 生成待采纳写作规则草稿
+tier: nightly
+surface: tauri
+entrypoint: scripts/quality_accept.sh agent-world-building-style-rule-with-context --surface tauri
+
+contract:
+  - docs/design/contracts/UA-01-unified-agent-run-loop-contract-pack.md
+  - docs/design/adr/ADR-0021-agent-run-and-turn-boundary-v3.md
+  - docs/design/06-memory-context-and-trace.md
+  - docs/engineering/scenario-acceptance.md
+
+invariants:
+  - agent-step-regated-before-tool-dispatch
+  - tentative-artifact-not-production
+  - world-building-does-not-write-archive-before-adoption
+  - world-building-intent-keeps-specific-artifact-type
+  - agent-plan-is-not-micro-plan
+  - agent-event-is-author-safe
+
+setup:
+  provider: slice_verify
+
+user_flow:
+  - open: real Tauri workbench
+  - send: world-building style-rule request "请制定一条后续创作必须遵守的写作规则和文风约束。"
+  - wait_for: bounded AgentRun fast ack
+  - wait_for: author-safe context observation, next-step planner decision, world_building tool step, and completion decision events
+  - wait_for: completed agent_run_state
+  - verify: final TurnResult is world_building with tentative style_rule_seed
+
+evidence:
+  required:
+    - screenshot
+    - websocket_frames
+    - app_jsonl
+    - summary_json
+  artifact_dir: artifacts/slice-verify/agent-world-building-style-rule-with-context-tauri
+
+assertions:
+  ui:
+    - AgentRun panel reaches completed state
+    - AgentRun execution brief shows author intent understanding and world-building profile selection causality
+    - AgentRun panel shows context observation, next-step planning/gate, world building, and completion decision summaries
+    - execution brief path shows world-building-specific cause labels: entering the world-building workflow, building world settings, and generating setting candidate
+    - writing rule draft card remains visible as a tentative artifact
+  network:
+    - parent user_message receives bounded run_id before final TurnResult
+    - profile routing emits plan_drafted decision and exploration_observed route observation for world_building_with_context_v1
+    - agent_event includes next-step-selected plan_drafted for context and world_building execution, plus evaluation_made goal_satisfied completion decision
+    - agent_event includes evaluation_made, gate_decided, tool_started, tool_completed, and artifact observation
+    - final TurnResult carries agent_run.run_id and tool_result.tool_name=world_building
+    - pending artifact is style_rule_seed and remains tentative
+  data:
+    - parent user_message starts bounded AgentRun without sync_turn fallback
+    - world_building step is allow_tool before toolbox execution
+    - consumed_budget reports steps=2, tool_calls=1, provider_calls=5, including the profile routing model call
+    - no adoption or production write occurs before author action
+
+anti_hooks:
+  product_acceptance_logic_added: false
+  data_testid_required: false
+  hidden_dom_metadata_required: false
+  product_autorun_required: false

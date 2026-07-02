@@ -5,18 +5,23 @@ defmodule NovelApplication.WorkSessionService do
 
   alias NovelApplication.TraceSummaryRef
   alias NovelApplication.WorkService
-  alias NovelPersistence.{AgentRunLog, ProviderRunLog}
+  alias NovelPersistence.AgentRunLog
   alias NovelPersistence.Schemas.Interaction
   alias NovelPersistence.Schemas.WorkSession
   alias NovelPersistence.WorkSessionRepo
+
+  @default_transcript_page_limit 30
 
   @doc "Resume the last active session for a work, creating one when the work has none."
   @spec resume(String.t()) :: {:ok, map()} | {:error, :work_not_found | term()}
   def resume(work_id) when is_binary(work_id) do
     with work when not is_nil(work) <- WorkService.get(work_id),
-         {:ok, session} <- WorkSessionRepo.ensure_active_for_work(work_id) do
-      transcript = WorkSessionRepo.transcript(session.id)
-      transcript_entries = Enum.map(transcript, &interaction_dto(&1, work_id, session.id))
+         {:ok, session} <- WorkSessionRepo.ensure_active_for_work(work_id),
+         {:ok, transcript_page} <-
+           WorkSessionRepo.transcript_page(session.id, limit: @default_transcript_page_limit) do
+      transcript = transcript_page.entries
+      summaries_by_turn = agent_run_summary_by_turn(work_id, session.id, transcript)
+      transcript_entries = Enum.map(transcript, &interaction_dto(&1, summaries_by_turn))
       turn_results = transcript_turn_results(transcript_entries)
 
       {:ok,
@@ -25,6 +30,7 @@ defmodule NovelApplication.WorkSessionService do
          active_session: session_dto(session),
          sessions: Enum.map(WorkSessionRepo.list_by_work(work_id), &session_dto/1),
          transcript: transcript_entries,
+         transcript_page: transcript_page_dto(transcript_page),
          pending_adoptions: pending_adoptions(turn_results),
          resolved_adoptions: resolved_adoptions(turn_results),
          resume_trace_refs: resume_trace_refs(turn_results)
@@ -40,9 +46,12 @@ defmodule NovelApplication.WorkSessionService do
           {:ok, map()} | {:error, :work_not_found | :session_not_found}
   def show(work_id, session_id) when is_binary(work_id) and is_binary(session_id) do
     with work when not is_nil(work) <- WorkService.get(work_id),
-         %WorkSession{} = session <- WorkSessionRepo.get_by_work(work_id, session_id) do
-      transcript = WorkSessionRepo.transcript(session.id)
-      transcript_entries = Enum.map(transcript, &interaction_dto(&1, work_id, session.id))
+         %WorkSession{} = session <- WorkSessionRepo.get_by_work(work_id, session_id),
+         {:ok, transcript_page} <-
+           WorkSessionRepo.transcript_page(session.id, limit: @default_transcript_page_limit) do
+      transcript = transcript_page.entries
+      summaries_by_turn = agent_run_summary_by_turn(work_id, session.id, transcript)
+      transcript_entries = Enum.map(transcript, &interaction_dto(&1, summaries_by_turn))
       turn_results = transcript_turn_results(transcript_entries)
       read_only? = session.status != "ACTIVE"
 
@@ -52,6 +61,7 @@ defmodule NovelApplication.WorkSessionService do
          session: session_dto(session),
          read_only: read_only?,
          transcript: transcript_entries,
+         transcript_page: transcript_page_dto(transcript_page),
          pending_adoptions: pending_adoptions_for_session(read_only?, turn_results),
          resolved_adoptions: resolved_adoptions(turn_results),
          resume_trace_refs: resume_trace_refs(turn_results)
@@ -63,6 +73,37 @@ defmodule NovelApplication.WorkSessionService do
         else
           {:error, :session_not_found}
         end
+    end
+  end
+
+  @doc "Return an older transcript page scoped to one work/session."
+  @spec transcript_page(String.t(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, :work_not_found | :session_not_found | :cursor_not_found}
+  def transcript_page(work_id, session_id, opts \\ [])
+      when is_binary(work_id) and is_binary(session_id) and is_list(opts) do
+    with work when not is_nil(work) <- WorkService.get(work_id),
+         %WorkSession{} = session <- WorkSessionRepo.get_by_work(work_id, session_id),
+         {:ok, page} <- WorkSessionRepo.transcript_page(session.id, opts) do
+      summaries_by_turn = agent_run_summary_by_turn(work_id, session.id, page.entries)
+
+      {:ok,
+       %{
+         work: work,
+         session: session_dto(session),
+         read_only: session.status != "ACTIVE",
+         transcript: Enum.map(page.entries, &interaction_dto(&1, summaries_by_turn)),
+         transcript_page: transcript_page_dto(page)
+       }}
+    else
+      nil ->
+        if WorkService.get(work_id) == nil do
+          {:error, :work_not_found}
+        else
+          {:error, :session_not_found}
+        end
+
+      {:error, :cursor_not_found} ->
+        {:error, :cursor_not_found}
     end
   end
 
@@ -83,6 +124,7 @@ defmodule NovelApplication.WorkSessionService do
         session.id
         |> WorkSessionRepo.transcript()
         |> Enum.map(&turn_result_from_content(&1.content))
+        |> Enum.map(&strip_agent_run_activity/1)
         |> Enum.reject(&is_nil/1)
 
       {:ok,
@@ -182,16 +224,27 @@ defmodule NovelApplication.WorkSessionService do
     }
   end
 
+  defp transcript_page_dto(page) when is_map(page) do
+    %{
+      limit: page.limit,
+      returned_count: page.returned_count,
+      has_more_before: page.has_more_before,
+      before_id: page.before_id,
+      after_id: page.after_id
+    }
+  end
+
   defp ensure_archivable(%WorkSession{status: "ACTIVE"}),
     do: {:error, :cannot_archive_active_session}
 
   defp ensure_archivable(%WorkSession{}), do: :ok
 
-  defp interaction_dto(%Interaction{} = interaction, work_id, session_id) do
+  defp interaction_dto(%Interaction{} = interaction, summaries_by_turn) do
     turn_result =
       interaction.content
       |> turn_result_from_content()
-      |> attach_agent_run_activity(work_id, session_id)
+      |> strip_agent_run_activity()
+      |> attach_agent_run_summary(summaries_by_turn)
 
     %{
       id: interaction.id,
@@ -248,15 +301,13 @@ defmodule NovelApplication.WorkSessionService do
     content["turn_result"] || content[:turn_result]
   end
 
-  defp attach_agent_run_activity(turn_result, work_id, session_id)
-       when is_map(turn_result) and is_binary(work_id) and is_binary(session_id) do
+  defp attach_agent_run_summary(turn_result, summaries_by_turn)
+       when is_map(turn_result) and is_map(summaries_by_turn) do
     case turn_id(turn_result) do
       turn_id when is_binary(turn_id) and turn_id != "" ->
-        turn_result
-        |> resolve_agent_run(work_id, session_id, turn_id)
-        |> case do
+        case Map.get(summaries_by_turn, turn_id) do
           nil -> turn_result
-          run -> put_agent_run_activity(turn_result, run)
+          run -> put_agent_run_summary(turn_result, run)
         end
 
       _ ->
@@ -264,25 +315,76 @@ defmodule NovelApplication.WorkSessionService do
     end
   end
 
-  defp attach_agent_run_activity(turn_result, _work_id, _session_id), do: turn_result
+  defp attach_agent_run_summary(turn_result, _summaries_by_turn), do: turn_result
 
-  defp resolve_agent_run(turn_result, work_id, session_id, turn_id) do
-    runs = AgentRunLog.list_by_parent_turn(work_id, session_id, turn_id)
-    requested_run_id = get_in_any(turn_result, [:agent_run, :run_id])
+  defp agent_run_summary_by_turn(_work_id, _session_id, []), do: %{}
 
-    cond do
-      runs == [] ->
-        nil
+  defp agent_run_summary_by_turn(work_id, session_id, transcript) do
+    turn_results =
+      transcript
+      |> Enum.map(&turn_result_from_content(&1.content))
+      |> Enum.filter(&is_map/1)
 
-      is_binary(requested_run_id) and requested_run_id != "" ->
-        Enum.find(runs, &(&1.id == requested_run_id)) || List.last(runs)
+    turn_ids =
+      turn_results
+      |> Enum.map(&turn_id/1)
+      |> Enum.filter(&(is_binary(&1) and &1 != ""))
+      |> Enum.uniq()
 
-      true ->
-        List.last(runs)
+    requested_run_ids_by_turn =
+      Enum.reduce(turn_results, %{}, fn turn_result, acc ->
+        case turn_id(turn_result) do
+          turn_id when is_binary(turn_id) and turn_id != "" ->
+            Map.put(acc, turn_id, get_in_any(turn_result, [:agent_run, :run_id]))
+
+          _ ->
+            acc
+        end
+      end)
+
+    work_id
+    |> AgentRunLog.list_by_parent_turns(session_id, turn_ids)
+    |> Enum.group_by(& &1.parent_turn_ref)
+    |> Map.new(fn {turn_id, runs} ->
+      {turn_id, select_agent_run(runs, Map.get(requested_run_ids_by_turn, turn_id))}
+    end)
+    |> Enum.reject(fn {_turn_id, run} -> is_nil(run) end)
+    |> Map.new()
+  end
+
+  defp select_agent_run([], _requested_run_id), do: nil
+
+  defp select_agent_run(runs, requested_run_id)
+       when is_binary(requested_run_id) and requested_run_id != "" do
+    Enum.find(runs, &(&1.id == requested_run_id)) || List.last(runs)
+  end
+
+  defp select_agent_run(runs, _requested_run_id), do: List.last(runs)
+
+  defp strip_agent_run_activity(turn_result) when is_map(turn_result) do
+    case get_in_any(turn_result, [:agent_run]) do
+      agent_run when is_map(agent_run) ->
+        cleaned =
+          agent_run
+          |> Map.delete(:events)
+          |> Map.delete("events")
+          |> Map.delete(:provider_runs)
+          |> Map.delete("provider_runs")
+          |> Map.put(:activity_loaded, false)
+
+        turn_result
+        |> Map.delete(:agent_run)
+        |> Map.delete("agent_run")
+        |> Map.put(:agent_run, cleaned)
+
+      _ ->
+        turn_result
     end
   end
 
-  defp put_agent_run_activity(turn_result, run) do
+  defp strip_agent_run_activity(turn_result), do: turn_result
+
+  defp put_agent_run_summary(turn_result, run) do
     existing =
       case get_in_any(turn_result, [:agent_run]) do
         value when is_map(value) -> value
@@ -291,6 +393,10 @@ defmodule NovelApplication.WorkSessionService do
 
     agent_run =
       existing
+      |> Map.delete(:events)
+      |> Map.delete("events")
+      |> Map.delete(:provider_runs)
+      |> Map.delete("provider_runs")
       |> Map.put(:run_id, run.id)
       |> Map.put(:run_mode, run.run_mode)
       |> Map.put(:status, run.status)
@@ -299,96 +405,13 @@ defmodule NovelApplication.WorkSessionService do
       |> Map.put(:long_run_task_ref, run.long_run_task_ref)
       |> Map.put(:plan_ref, run.plan_ref)
       |> Map.put(:plan_version, run.plan_version)
-      |> Map.put(
-        :events,
-        Enum.map(AgentRunLog.list_author_events(run.id), &agent_event_dto(&1, run))
-      )
-      |> Map.put(:provider_runs, ProviderRunLog.list_usage_summaries(run.id))
+      |> Map.put(:activity_loaded, false)
 
     turn_result
     |> Map.delete(:agent_run)
     |> Map.delete("agent_run")
     |> Map.put(:agent_run, agent_run)
   end
-
-  defp agent_event_dto(event, run) do
-    %{
-      event_id: event.id,
-      run_ref: event.run_id,
-      run_id: event.run_id,
-      step_ref: event.step_id,
-      sequence: event.sequence,
-      event_type: event.event_type,
-      visibility: event.visibility,
-      summary: event.summary,
-      reason_codes: event.reason_codes || [],
-      refs: event.refs || [],
-      payload: author_safe_event_payload(event.payload),
-      workspace_id: run.workspace_id,
-      work_id: run.work_id,
-      session_id: run.session_id,
-      emitted_at: timestamp_iso(event.inserted_at)
-    }
-  end
-
-  defp author_safe_event_payload(payload) when is_map(payload) do
-    payload
-    |> drop_unsafe_payload_keys()
-    |> stringify_atom_values()
-  end
-
-  defp author_safe_event_payload(_payload), do: %{}
-
-  defp drop_unsafe_payload_keys(payload) when is_map(payload) do
-    payload
-    |> Enum.reject(fn {key, _value} -> unsafe_payload_key?(key) end)
-    |> Map.new(fn {key, value} -> {key, drop_unsafe_payload_keys(value)} end)
-  end
-
-  defp drop_unsafe_payload_keys(values) when is_list(values),
-    do: Enum.map(values, &drop_unsafe_payload_keys/1)
-
-  defp drop_unsafe_payload_keys(value), do: value
-
-  defp unsafe_payload_key?(key) when is_atom(key), do: unsafe_payload_key?(Atom.to_string(key))
-
-  defp unsafe_payload_key?(key) when is_binary(key) do
-    normalized = key |> String.downcase() |> String.replace("-", "_")
-
-    normalized in [
-      "api_key",
-      "assistant_message",
-      "chain_of_thought",
-      "messages",
-      "provider_error_payload",
-      "raw_messages",
-      "raw_prompt",
-      "raw_provider_error",
-      "secret",
-      "system_prompt",
-      "turn_result"
-    ]
-  end
-
-  defp unsafe_payload_key?(_key), do: false
-
-  defp stringify_atom_values(value) when is_map(value) do
-    Map.new(value, fn {key, item} -> {key, stringify_atom_values(item)} end)
-  end
-
-  defp stringify_atom_values(value) when is_list(value),
-    do: Enum.map(value, &stringify_atom_values/1)
-
-  defp stringify_atom_values(value) when is_atom(value), do: Atom.to_string(value)
-  defp stringify_atom_values(value), do: value
-
-  defp timestamp_iso(nil), do: nil
-  defp timestamp_iso(%DateTime{} = value), do: DateTime.to_iso8601(value)
-
-  defp timestamp_iso(%NaiveDateTime{} = value),
-    do: value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
-
-  defp timestamp_iso(value), do: value
 
   defp text_from_content(content) when is_map(content),
     do: to_string(content["text"] || content[:text] || "")

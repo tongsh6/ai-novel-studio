@@ -19,9 +19,9 @@
 | `png/NJnuz.png` | `45§4-long-run-confirmation` | 长跑启动前确认 |
 | `png/feymL.png` | `46§6-checkpoint-feedback` | 长跑暂停 / checkpoint 反馈 |
 | `png/xIVE9.png` | `46§7-inline-interaction-states` | 按钮交互后的即时反馈 |
-| `png/kg4wN.png` | `46§8-agent-run-dialogue-flow-v4` | 当前 CP5 视觉依据：非卡片式对话流，沿同一 assistant 回复展示理解、依据、计划、执行记录与修订候选 |
+| `png/kg4wN.png` | `46§8-agent-run-dialogue-flow-v4`（已删除，历史留档） | 历史评审图：非卡片式对话流早期稿；对应 frame 已于 2026-07-01 从 `novel-studio.pen` 删除，改由探索态 `46§9-agentic-loop-reasoning-flow` 替代 |
 
-备注：`46§8-agent-run-dialogue-flow-v4` 已在当前 Pencil 会话生成并导出 `png/kg4wN.png`，`snapshot_layout(parentId=kg4wN, problemsOnly=true)` 返回 `No layout problems`；`novel-studio.pen` 已出现 Git diff，可与 PNG 一起评审。
+备注：`46§8-agent-run-dialogue-flow-v4` 已于 2026-07-01 从 `novel-studio.pen` 删除（改由探索态 `46§9-agentic-loop-reasoning-flow` 替代，见 ADR-0022 Proposed 与 `../../notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`）；`png/kg4wN.png` 仅作历史留档，不再是当前视觉依据。
 
 ## PDF 评审包
 

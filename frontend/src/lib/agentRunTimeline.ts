@@ -1,11 +1,6 @@
 import { WORKBENCH } from "./copy";
 import type { AgentEventData } from "./socket";
 
-export interface AgentRunExecutionBrief {
-  path: string;
-  facts: string[];
-}
-
 export type AgentRunProviderFlowPhaseStatus = "pending" | "active" | "done" | "failed";
 
 export interface AgentRunProviderFlowPhase {
@@ -46,12 +41,79 @@ export interface AgentRunProviderReplayDetails {
   boundary: string;
 }
 
-function stringPayloadValue(payload: Record<string, unknown> | undefined, key: string): string | null {
+export type AgenticLoopPlanStepStatus = "pending" | "active" | "done" | "skipped";
+
+export interface AgenticLoopPlanStep {
+  stepRef: string;
+  kind: "explore" | "act";
+  status: AgenticLoopPlanStepStatus;
+  description: string;
+}
+
+export interface AgenticLoopNarrativeEvent {
+  key: string;
+  eventType: string;
+  label: string;
+  narrative: string;
+  sequence: number;
+}
+
+export interface AgenticLoopReasoningFlow {
+  statusLine: string | null;
+  planRef: string | null;
+  planVersion: number | null;
+  planSteps: AgenticLoopPlanStep[];
+  narrativeEvents: AgenticLoopNarrativeEvent[];
+  resultLine: string | null;
+}
+
+interface ProviderUsageBreakdown {
+  inputTokens: number | null;
+  outputTokens: number | null;
+}
+
+export function selectAgentRunVisibleEvents(
+  events: AgentEventData[],
+  limit: number,
+): AgentEventData[] {
+  const ordered = [...events].sort((a, b) => a.sequence - b.sequence);
+  if (ordered.length <= limit) return ordered;
+
+  const latestChunkByCall = new Map<string, AgentEventData>();
+
+  for (const event of ordered) {
+    if (!isProviderChunkEvent(event)) continue;
+    latestChunkByCall.set(providerChunkGroupKey(event), event);
+  }
+
+  const compacted = ordered.filter((event) => {
+    if (!isProviderChunkEvent(event)) return true;
+    return latestChunkByCall.get(providerChunkGroupKey(event)) === event;
+  });
+
+  return compacted.length <= limit ? compacted : compacted.slice(-limit);
+}
+
+function stringPayloadValue(
+  payload: Record<string, unknown> | undefined,
+  key: string,
+): string | null {
   const value = payload?.[key];
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
-function numberPayloadValue(payload: Record<string, unknown> | undefined, key: string): number | null {
+function rawStringPayloadValue(
+  payload: Record<string, unknown> | undefined,
+  key: string,
+): string | null {
+  const value = payload?.[key];
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+function numberPayloadValue(
+  payload: Record<string, unknown> | undefined,
+  key: string,
+): number | null {
   const value = payload?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
@@ -64,12 +126,209 @@ function booleanPayloadValue(
   return typeof value === "boolean" ? value : null;
 }
 
+export function agentRunReasoningFlow(events: AgentEventData[]): AgenticLoopReasoningFlow {
+  const reasoningEvents = events
+    .filter(isAgenticLoopReasoningEvent)
+    .sort((a, b) => a.sequence - b.sequence);
+  const streamedEvents = streamedAuthorReasoningEvents(
+    events,
+    boundReasoningProviderRuns(reasoningEvents),
+  );
+  const narrativeEvents = compactAdjacentNarrativeEvents(
+    [...streamedEvents, ...narrativeEventsFromReasoning(reasoningEvents)].sort(
+      (a, b) => a.sequence - b.sequence,
+    ),
+  );
+  const latestPlanEvent =
+    [...reasoningEvents]
+      .reverse()
+      .find((event) => planStepsFromPayload(event.payload).length > 0) ?? null;
+  const terminal = [...events]
+    .reverse()
+    .find((event) =>
+      [
+        "turn_result_ready",
+        "run_completed",
+        "run_cancelled",
+        "run_failed",
+        "awaiting_author",
+      ].includes(event.event_type),
+    );
+
+  return {
+    statusLine: null,
+    planRef: latestPlanEvent ? stringPayloadValue(latestPlanEvent.payload, "plan_ref") : null,
+    planVersion: latestPlanEvent
+      ? numberPayloadValue(latestPlanEvent.payload, "plan_version")
+      : null,
+    planSteps: latestPlanEvent ? planStepsFromPayload(latestPlanEvent.payload) : [],
+    narrativeEvents,
+    resultLine: terminal
+      ? (WORKBENCH.agenticLoopTerminalLabels[terminal.event_type] ?? terminal.event_type)
+      : null,
+  };
+}
+
+function isAgenticLoopReasoningEvent(event: AgentEventData): boolean {
+  return (
+    ["plan_drafted", "plan_revised", "exploration_observed", "evaluation_made"].includes(
+      event.event_type,
+    ) && stringPayloadValue(event.payload, "author_narrative") !== null
+  );
+}
+
+function narrativeEventsFromReasoning(events: AgentEventData[]): AgenticLoopNarrativeEvent[] {
+  return events.map((event) => ({
+    key: event.event_id,
+    eventType: event.event_type,
+    label: WORKBENCH.agenticLoopEventLabels[event.event_type] ?? event.event_type,
+    narrative: stringPayloadValue(event.payload, "author_narrative") ?? "",
+    sequence: event.sequence,
+  }));
+}
+
+function compactAdjacentNarrativeEvents(
+  events: AgenticLoopNarrativeEvent[],
+): AgenticLoopNarrativeEvent[] {
+  return events.reduce<AgenticLoopNarrativeEvent[]>((compacted, event) => {
+    const previous = compacted.at(-1);
+
+    if (previous?.narrative === event.narrative) {
+      compacted[compacted.length - 1] = {
+        ...event,
+        key: `${previous.key}:${event.key}`,
+      };
+      return compacted;
+    }
+
+    compacted.push(event);
+    return compacted;
+  }, []);
+}
+
+function streamedAuthorReasoningEvents(
+  events: AgentEventData[],
+  boundProviderRunRefs: Set<string>,
+): AgenticLoopNarrativeEvent[] {
+  const groups = new Map<
+    string,
+    {
+      key: string;
+      sequence: number;
+      parts: string[];
+    }
+  >();
+
+  events
+    .filter(isAuthorReasoningDeltaEvent)
+    .sort((a, b) => a.sequence - b.sequence)
+    .forEach((event) => {
+      const providerRunRef = stringPayloadValue(event.payload, "provider_run_ref");
+      const providerCallRef = stringPayloadValue(event.payload, "provider_call_ref");
+      const groupKey = providerRunRef ?? providerCallRef ?? event.event_id;
+
+      if (providerRunRef && boundProviderRunRefs.has(providerRunRef)) return;
+
+      const delta = rawStringPayloadValue(event.payload, "author_narrative_delta");
+      if (delta === null) return;
+
+      const existing =
+        groups.get(groupKey) ??
+        ({
+          key: `stream:${groupKey}`,
+          sequence: event.sequence,
+          parts: [],
+        } satisfies { key: string; sequence: number; parts: string[] });
+
+      existing.sequence = event.sequence;
+      existing.parts.push(delta);
+      groups.set(groupKey, existing);
+    });
+
+  return [...groups.values()]
+    .map((group) => ({
+      key: group.key,
+      eventType: "provider_progress",
+      label: WORKBENCH.agenticLoopEventLabels.provider_progress ?? "推理",
+      narrative: group.parts.join(""),
+      sequence: group.sequence,
+    }))
+    .filter((event) => event.narrative.trim() !== "");
+}
+
+function isAuthorReasoningDeltaEvent(event: AgentEventData): boolean {
+  return (
+    event.event_type === "provider_progress" &&
+    stringPayloadValue(event.payload, "purpose") === "author_reasoning" &&
+    rawStringPayloadValue(event.payload, "author_narrative_delta") !== null
+  );
+}
+
+function boundReasoningProviderRuns(events: AgentEventData[]): Set<string> {
+  const refs = new Set<string>();
+
+  events.forEach((event) => {
+    const source = recordValue(event.payload?.author_narrative_source);
+    const providerRunRef = stringRecordValue(source, "provider_run_ref");
+    if (providerRunRef) refs.add(providerRunRef);
+  });
+
+  return refs;
+}
+
+function planStepsFromPayload(payload: Record<string, unknown> | undefined): AgenticLoopPlanStep[] {
+  const value = payload?.plan_steps;
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => recordValue(item))
+    .filter((item): item is Record<string, unknown> => item !== null)
+    .map((item) => {
+      const stepRef = stringRecordValue(item, "step_ref");
+      const description = stringRecordValue(item, "description");
+      if (!stepRef || !description) return null;
+
+      return {
+        stepRef,
+        kind: stringRecordValue(item, "kind") === "act" ? "act" : "explore",
+        status: normalizePlanStepStatus(stringRecordValue(item, "status")),
+        description,
+      };
+    })
+    .filter((item): item is AgenticLoopPlanStep => item !== null);
+}
+
+function normalizePlanStepStatus(status: string | null): AgenticLoopPlanStepStatus {
+  if (status === "active" || status === "done" || status === "skipped") return status;
+  return "pending";
+}
+
 function providerUsageTokens(payload: Record<string, unknown> | undefined): number | null {
   const usage = payload?.usage;
   if (!usage || typeof usage !== "object") return null;
 
   const record = usage as Record<string, unknown>;
-  for (const key of ["total_tokens", "total", "tokens"]) {
+  return firstUsageNumber(record, ["total_tokens", "total", "tokens"]);
+}
+
+function providerUsageBreakdown(
+  payload: Record<string, unknown> | undefined,
+): ProviderUsageBreakdown {
+  const usage = payload?.usage;
+  if (!usage || typeof usage !== "object") {
+    return { inputTokens: null, outputTokens: null };
+  }
+
+  const record = usage as Record<string, unknown>;
+
+  return {
+    inputTokens: firstUsageNumber(record, ["input_tokens", "prompt_tokens"]),
+    outputTokens: firstUsageNumber(record, ["output_tokens", "completion_tokens"]),
+  };
+}
+
+function firstUsageNumber(record: Record<string, unknown>, keys: string[]): number | null {
+  for (const key of keys) {
     const value = record[key];
     if (typeof value === "number" && Number.isFinite(value)) return value;
   }
@@ -86,23 +345,41 @@ function providerRunUsageTokens(run: AgentRunProviderUsageData): number | null {
   return providerUsageTokens({ usage: outputUsage ?? run.usage });
 }
 
+function providerRunUsageBreakdown(run: AgentRunProviderUsageData): ProviderUsageBreakdown {
+  const outputUsage =
+    run.output && typeof run.output.usage === "object"
+      ? (run.output.usage as Record<string, unknown>)
+      : null;
+
+  return providerUsageBreakdown({ usage: outputUsage ?? run.usage });
+}
+
 function recordValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
 }
 
-function stringRecordValue(record: Record<string, unknown> | null | undefined, key: string): string | null {
+function stringRecordValue(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+): string | null {
   const value = record?.[key];
   return typeof value === "string" && value.trim() !== "" ? value.trim() : null;
 }
 
-function numberRecordValue(record: Record<string, unknown> | null | undefined, key: string): number | null {
+function numberRecordValue(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+): number | null {
   const value = record?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function stringListValue(record: Record<string, unknown> | null | undefined, key: string): string[] {
+function stringListValue(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+): string[] {
   const value = record?.[key];
   if (!Array.isArray(value)) return [];
 
@@ -144,6 +421,7 @@ export function agentRunEventDetailItems(event: AgentEventData): string[] {
     const chunkContentLength = numberPayloadValue(payload, "chunk_content_length");
     const accumulatedContentLength = numberPayloadValue(payload, "accumulated_content_length");
     const usageTokens = providerUsageTokens(payload);
+    const usageBreakdown = providerUsageBreakdown(payload);
 
     if (providerEvent) details.push(WORKBENCH.agentRunDetailProviderEvent(providerEvent));
     if (purpose) details.push(WORKBENCH.agentRunDetailProviderPurpose(purpose));
@@ -167,6 +445,12 @@ export function agentRunEventDetailItems(event: AgentEventData): string[] {
       details.push(WORKBENCH.agentRunDetailProviderAccumulatedLength(accumulatedContentLength));
     }
     if (usageTokens !== null) details.push(WORKBENCH.agentRunDetailProviderUsage(usageTokens));
+    if (usageBreakdown.inputTokens !== null) {
+      details.push(WORKBENCH.agentRunDetailProviderInputUsage(usageBreakdown.inputTokens));
+    }
+    if (usageBreakdown.outputTokens !== null) {
+      details.push(WORKBENCH.agentRunDetailProviderOutputUsage(usageBreakdown.outputTokens));
+    }
 
     return details;
   }
@@ -180,6 +464,11 @@ export function agentRunEventDetailItems(event: AgentEventData): string[] {
   const decisionRef = stringPayloadValue(payload, "decision_ref");
   const decisionType = stringPayloadValue(payload, "decision_type");
   const firstBlockingGate = stringPayloadValue(payload, "first_blocking_gate");
+  const profileRef = stringPayloadValue(payload, "profile_ref");
+  const profileSelection = recordValue(payload.profile_selection);
+  const profileSource = stringRecordValue(profileSelection, "source");
+  const profileReasonCodes = stringListValue(profileSelection, "reason_codes");
+  const profileMatchedTerms = stringListValue(profileSelection, "matched_terms");
 
   if (contextRefCount !== null) details.push(WORKBENCH.agentRunDetailContextRefs(contextRefCount));
   if (frameType) details.push(WORKBENCH.agentRunDetailFrameType(frameType));
@@ -190,27 +479,16 @@ export function agentRunEventDetailItems(event: AgentEventData): string[] {
   if (decisionRef) details.push(WORKBENCH.agentRunDetailDecisionRef(decisionRef));
   if (decisionType) details.push(WORKBENCH.agentRunDetailDecisionType(decisionType));
   if (firstBlockingGate) details.push(WORKBENCH.agentRunDetailBlockingGate(firstBlockingGate));
+  if (profileRef) details.push(WORKBENCH.agentRunDetailProfileRef(profileRef));
+  if (profileSource) details.push(WORKBENCH.agentRunDetailProfileSource(profileSource));
+  if (profileReasonCodes.length > 0) {
+    details.push(WORKBENCH.agentRunDetailProfileReasons(profileReasonCodes.join(", ")));
+  }
+  if (profileMatchedTerms.length > 0) {
+    details.push(WORKBENCH.agentRunDetailProfileTerms(profileMatchedTerms.join(", ")));
+  }
 
   return details;
-}
-
-export function agentRunExecutionBrief(
-  events: AgentEventData[],
-  providerRuns: AgentRunProviderUsageData[] = [],
-): AgentRunExecutionBrief | null {
-  const authorEvents = events
-    .filter((event) => event.visibility === "author" && event.summary.trim() !== "")
-    .sort((a, b) => a.sequence - b.sequence);
-  if (authorEvents.length === 0) return null;
-
-  const path = briefPath(authorEvents);
-  const facts = briefFacts(authorEvents, providerRuns);
-  if (path.length === 0 && facts.length === 0) return null;
-
-  return {
-    path: WORKBENCH.agentRunBriefPath(path.join(" → ")),
-    facts,
-  };
 }
 
 export function agentRunProviderFlowSummary(
@@ -251,7 +529,9 @@ export function agentRunProviderFlowSummary(
   const providerCallRefs = providerFlowCallRefs(providerEvents, providerRuns);
   const purposes = providerFlowPurposes(providerEvents, providerRuns);
   const models = uniqueStrings(
-    providerRuns.map((run) => (typeof run.model === "string" && run.model.trim() !== "" ? run.model : null)),
+    providerRuns.map((run) =>
+      typeof run.model === "string" && run.model.trim() !== "" ? run.model : null,
+    ),
   );
   const failed = providerFlowFailed(eventTypes, latestStatus, providerRuns);
   const cancelled = providerFlowCancelled(eventTypes, latestStatus, providerRuns);
@@ -294,6 +574,7 @@ export function agentRunProviderRunDetailItems(run: AgentRunProviderUsageData): 
     WORKBENCH.agentRunProviderPurposeLabels.other,
   );
   const tokens = providerRunUsageTokens(run);
+  const usageBreakdown = providerRunUsageBreakdown(run);
   const contentLength =
     typeof run.content_length === "number" && Number.isFinite(run.content_length)
       ? run.content_length
@@ -302,7 +583,8 @@ export function agentRunProviderRunDetailItems(run: AgentRunProviderUsageData): 
   if (purpose) details.push(WORKBENCH.agentRunDetailProviderPurpose(purpose));
   if (run.status) details.push(WORKBENCH.agentRunDetailProviderStatus(run.status));
   if (run.output_type) details.push(WORKBENCH.agentRunDetailProviderOutputType(run.output_type));
-  if (run.provider_run_ref) details.push(WORKBENCH.agentRunDetailProviderRunRef(run.provider_run_ref));
+  if (run.provider_run_ref)
+    details.push(WORKBENCH.agentRunDetailProviderRunRef(run.provider_run_ref));
   if (run.provider_call_ref) {
     details.push(WORKBENCH.agentRunDetailProviderCallRef(run.provider_call_ref));
   }
@@ -310,6 +592,12 @@ export function agentRunProviderRunDetailItems(run: AgentRunProviderUsageData): 
     details.push(WORKBENCH.agentRunDetailProviderContentLength(contentLength));
   }
   if (tokens !== null) details.push(WORKBENCH.agentRunDetailProviderUsage(tokens));
+  if (usageBreakdown.inputTokens !== null) {
+    details.push(WORKBENCH.agentRunDetailProviderInputUsage(usageBreakdown.inputTokens));
+  }
+  if (usageBreakdown.outputTokens !== null) {
+    details.push(WORKBENCH.agentRunDetailProviderOutputUsage(usageBreakdown.outputTokens));
+  }
   if (run.model) details.push(WORKBENCH.agentRunDetailProviderModel(run.model));
 
   return details;
@@ -345,11 +633,13 @@ function providerRunReplayEvent(
   const providerRunRef =
     stringRecordValue(payload, "provider_run_ref") ?? stringRecordValue(event, "provider_run_ref");
   const providerCallRef =
-    stringRecordValue(payload, "provider_call_ref") ?? stringRecordValue(event, "provider_call_ref");
+    stringRecordValue(payload, "provider_call_ref") ??
+    stringRecordValue(event, "provider_call_ref");
   const contentLength = numberRecordValue(payload, "content_length");
   const chunkIndex = numberRecordValue(payload, "chunk_index");
   const accumulatedContentLength = numberRecordValue(payload, "accumulated_content_length");
   const usageTokens = providerUsageTokens(payload ?? undefined);
+  const usageBreakdown = providerUsageBreakdown(payload ?? undefined);
   const emittedAt = stringRecordValue(event, "emitted_at");
   const isChunkEvent = providerEventType === "chunk";
 
@@ -378,6 +668,12 @@ function providerRunReplayEvent(
     details.push(WORKBENCH.agentRunDetailProviderAccumulatedLength(accumulatedContentLength));
   }
   if (usageTokens !== null) details.push(WORKBENCH.agentRunDetailProviderUsage(usageTokens));
+  if (usageBreakdown.inputTokens !== null) {
+    details.push(WORKBENCH.agentRunDetailProviderInputUsage(usageBreakdown.inputTokens));
+  }
+  if (usageBreakdown.outputTokens !== null) {
+    details.push(WORKBENCH.agentRunDetailProviderOutputUsage(usageBreakdown.outputTokens));
+  }
   if (emittedAt) details.push(WORKBENCH.agentRunProviderReplayEmittedAt(emittedAt));
 
   const title =
@@ -403,6 +699,7 @@ function providerRunReplayOutputDetails(
       ? run.content_length
       : null);
   const tokens = providerRunUsageTokens(run);
+  const usageBreakdown = providerRunUsageBreakdown(run);
   const refs = stringListValue(output, "refs");
   const finalizedAt = stringRecordValue(output, "finalized_at");
 
@@ -413,219 +710,38 @@ function providerRunReplayOutputDetails(
     details.push(WORKBENCH.agentRunDetailProviderContentLength(contentLength));
   }
   if (tokens !== null) details.push(WORKBENCH.agentRunDetailProviderUsage(tokens));
+  if (usageBreakdown.inputTokens !== null) {
+    details.push(WORKBENCH.agentRunDetailProviderInputUsage(usageBreakdown.inputTokens));
+  }
+  if (usageBreakdown.outputTokens !== null) {
+    details.push(WORKBENCH.agentRunDetailProviderOutputUsage(usageBreakdown.outputTokens));
+  }
   if (refs.length > 0) details.push(WORKBENCH.agentRunProviderReplayRefs(refs.join(", ")));
   if (finalizedAt) details.push(WORKBENCH.agentRunProviderReplayFinalizedAt(finalizedAt));
 
   return details.length > 0 ? details : [WORKBENCH.agentRunProviderReplayNoOutput];
 }
 
-function briefPath(events: AgentEventData[]): string[] {
-  const path: string[] = [];
-  const labels = WORKBENCH.agentRunBriefPathLabels;
-  let sawDialogueFrame = false;
-  let sawMicroPlan = false;
-  let sawToolExecution = false;
-  let activeToolName: string | null = null;
-  let latestArtifactLabel: string | null = null;
-
-  for (const event of events) {
-    const providerEventType = stringPayloadValue(event.payload, "provider_event_type");
-    const stage = stringPayloadValue(event.payload, "stage");
-    const toolName = stringPayloadValue(event.payload, "tool_name");
-
-    if (isTerminalEvent(event)) continue;
-    latestArtifactLabel = artifactPathLabelFromObservation(event.summary) ?? latestArtifactLabel;
-
-    if (isContextEvent(event, stage)) {
-      pushPath(path, labels.context);
-      continue;
-    }
-
-    if (isProviderStartEvent(event, providerEventType, stage)) {
-      pushPath(path, providerStartLabel(event, sawDialogueFrame, sawMicroPlan));
-      continue;
-    }
-
-    if (isDialogueFrameEvent(event, stage)) {
-      pushPath(path, labels.modelJudgment);
-      sawDialogueFrame = true;
-      continue;
-    }
-
-    if (isMicroPlanEvent(event, stage)) {
-      pushPath(path, labels.planCreated);
-      sawMicroPlan = true;
-      continue;
-    }
-
-    if (isGateEvent(event)) {
-      pushPath(path, labels.systemGate);
-      continue;
-    }
-
-    if (isToolExecutionEvent(event)) {
-      activeToolName = toolName ?? activeToolName;
-      latestArtifactLabel = artifactPathLabelForTool(activeToolName) ?? latestArtifactLabel;
-      if (!sawToolExecution) pushPath(path, toolExecutionPathLabel(activeToolName));
-      sawToolExecution = true;
-      if (isQualityReviewEvent(event)) pushPath(path, labels.qualityReview);
-      continue;
-    }
-
-    if (isQualityReviewEvent(event)) {
-      pushPath(path, labels.qualityReview);
-      continue;
-    }
-
-    if (event.event_type === "artifact_created") {
-      if (!sawToolExecution) {
-        pushPath(path, toolExecutionPathLabel(activeToolName));
-        sawToolExecution = true;
-      }
-      pushPath(path, latestArtifactLabel ?? labels.tentativeArtifact);
-    }
-  }
-
-  const terminal = terminalPathLabel(events);
-  if (terminal) pushPath(path, terminal);
-
-  return path;
+function hasReasonCode(event: AgentEventData, reasonCode: string): boolean {
+  return (event.reason_codes ?? []).includes(reasonCode);
 }
 
-function toolExecutionPathLabel(toolName: string | null): string {
-  const labels = WORKBENCH.agentRunBriefPathLabels;
-
-  if (toolName === "plot_outline") return labels.plotOutlineTool;
-  if (toolName === "character_evolution") return labels.characterEvolutionTool;
-
-  return labels.toolExecution;
-}
-
-function artifactPathLabelForTool(toolName: string | null): string | null {
-  const labels = WORKBENCH.agentRunBriefPathLabels;
-
-  if (toolName === "plot_outline") return labels.plotOutlineArtifact;
-  if (toolName === "character_evolution") return labels.characterEvolutionArtifact;
-
-  return null;
-}
-
-function artifactPathLabelFromObservation(summary: string): string | null {
-  const labels = WORKBENCH.agentRunBriefPathLabels;
-
-  if (summary.includes("大纲草稿")) return labels.plotOutlineArtifact;
-  if (summary.includes("角色演化记忆草稿")) return labels.characterEvolutionArtifact;
-
-  return null;
-}
-
-function isContextEvent(event: AgentEventData, stage: string | null): boolean {
-  if (stage === "context_assembled" || stage?.endsWith("_context_assembled")) return true;
-  if (event.event_type === "goal_understood") return true;
-  if (event.event_type !== "step_proposed") return false;
-
-  return (
-    event.summary.includes("读取") &&
-    (event.summary.includes("上下文") ||
-      event.summary.includes("角色阵容") ||
-      event.summary.includes("作品档案"))
-  );
-}
-
-function isProviderStartEvent(
-  event: AgentEventData,
-  providerEventType: string | null,
-  stage: string | null,
-): boolean {
+function isProviderChunkEvent(event: AgentEventData): boolean {
   if (event.event_type !== "provider_progress") return false;
 
   return (
-    providerEventType === "started" ||
-    stage === "provider_call_started" ||
-    hasReasonCode(event, "provider_call_started")
+    stringPayloadValue(event.payload, "provider_event_type") === "chunk" ||
+    hasReasonCode(event, "provider_chunk")
   );
 }
 
-function providerStartLabel(
-  event: AgentEventData,
-  sawDialogueFrame: boolean,
-  sawMicroPlan: boolean,
-): string {
-  const purpose = stringPayloadValue(event.payload, "purpose");
-  const labels = WORKBENCH.agentRunBriefPathLabels;
-
-  if (purpose === "conversation") {
-    return sawDialogueFrame && !sawMicroPlan
-      ? labels.providerPlanning
-      : labels.providerConversation;
-  }
-  if (purpose === "planner") return labels.providerAgentPlanner;
-  if (purpose === "writer") return labels.providerWriter;
-  if (purpose === "evaluator") return labels.providerEvaluator;
-  if (purpose === "revision") return labels.providerRevision;
-  if (purpose === "tool") return labels.providerTool;
-  if (purpose === "narration") return labels.providerNarration;
-
-  return labels.providerOther;
-}
-
-function isDialogueFrameEvent(event: AgentEventData, stage: string | null): boolean {
+function providerChunkGroupKey(event: AgentEventData): string {
   return (
-    stage === "dialogue_frame_formed" ||
-    (event.event_type === "plan_created" && stringPayloadValue(event.payload, "frame_type") !== null)
+    stringPayloadValue(event.payload, "provider_call_ref") ??
+    stringPayloadValue(event.payload, "provider_run_ref") ??
+    event.step_ref ??
+    event.run_ref
   );
-}
-
-function isMicroPlanEvent(event: AgentEventData, stage: string | null): boolean {
-  return (
-    stage === "micro_plan_created" ||
-    stage === "revision_micro_plan_created" ||
-    hasReasonCode(event, "micro_plan_created") ||
-    hasReasonCode(event, "revision_micro_plan_created") ||
-    (event.event_type === "plan_created" && stringPayloadValue(event.payload, "plan_ref") !== null)
-  );
-}
-
-function isGateEvent(event: AgentEventData): boolean {
-  return (
-    event.event_type === "gate_decided" ||
-    stringPayloadValue(event.payload, "decision_type") !== null
-  );
-}
-
-function isToolExecutionEvent(event: AgentEventData): boolean {
-  if (event.event_type === "tool_started" || event.event_type === "tool_completed") return true;
-  if (stringPayloadValue(event.payload, "tool_name") !== null) return true;
-  return false;
-}
-
-function isQualityReviewEvent(event: AgentEventData): boolean {
-  return (
-    event.event_type === "quality_review_started" ||
-    event.event_type === "quality_finding_created" ||
-    hasReasonCode(event, "quality_review_completed") ||
-    stringPayloadValue(event.payload, "review_status") !== null ||
-    numberPayloadValue(event.payload, "finding_count") !== null
-  );
-}
-
-function isTerminalEvent(event: AgentEventData): boolean {
-  return ["turn_result_ready", "run_completed", "run_cancelled", "run_failed"].includes(
-    event.event_type,
-  );
-}
-
-function terminalPathLabel(events: AgentEventData[]): string | null {
-  const labels = WORKBENCH.agentRunBriefPathLabels;
-  const terminal = [...events].reverse().find(isTerminalEvent);
-  if (!terminal) return null;
-  if (terminal.event_type === "run_cancelled") return labels.cancelled;
-  if (terminal.event_type === "run_failed") return labels.failed;
-  return labels.response;
-}
-
-function hasReasonCode(event: AgentEventData, reasonCode: string): boolean {
-  return (event.reason_codes ?? []).includes(reasonCode);
 }
 
 function providerFlowHeadline({
@@ -683,7 +799,8 @@ function providerFlowDetailItems({
   models: string[];
 }): string[] {
   const details: string[] = [];
-  if (purposes.length > 0) details.push(WORKBENCH.agentRunProviderFlowPurposes(purposes.join(" / ")));
+  if (purposes.length > 0)
+    details.push(WORKBENCH.agentRunProviderFlowPurposes(purposes.join(" / ")));
   if (providerCallRefs.length > 0) {
     details.push(WORKBENCH.agentRunProviderFlowCalls(providerCallRefs.length, providerCallRefs[0]));
   }
@@ -738,9 +855,24 @@ function providerFlowPhases(
       : WORKBENCH.agentRunProviderFlowPhaseLabels.finalized;
 
   return [
-    providerFlowPhase("prepared", WORKBENCH.agentRunProviderFlowPhaseLabels.prepared, prepared, state),
-    providerFlowPhase("dispatched", WORKBENCH.agentRunProviderFlowPhaseLabels.dispatched, dispatched, state),
-    providerFlowPhase("receiving", WORKBENCH.agentRunProviderFlowPhaseLabels.receiving, receiving, state),
+    providerFlowPhase(
+      "prepared",
+      WORKBENCH.agentRunProviderFlowPhaseLabels.prepared,
+      prepared,
+      state,
+    ),
+    providerFlowPhase(
+      "dispatched",
+      WORKBENCH.agentRunProviderFlowPhaseLabels.dispatched,
+      dispatched,
+      state,
+    ),
+    providerFlowPhase(
+      "receiving",
+      WORKBENCH.agentRunProviderFlowPhaseLabels.receiving,
+      receiving,
+      state,
+    ),
     providerFlowPhase("finalized", terminalLabel, finalized, state),
   ];
 }
@@ -809,7 +941,9 @@ function providerFinalContentLength(
 
   return sumNumbers(
     providerEvents
-      .filter((event) => stringPayloadValue(event.payload, "provider_event_type") === "final_output")
+      .filter(
+        (event) => stringPayloadValue(event.payload, "provider_event_type") === "final_output",
+      )
       .map((event) => numberPayloadValue(event.payload, "content_length")),
   );
 }
@@ -892,58 +1026,6 @@ function providerFlowCompleted(
   );
 }
 
-function briefFacts(events: AgentEventData[], providerRuns: AgentRunProviderUsageData[]): string[] {
-  if (providerRuns.length > 0) return providerRunFacts(providerRuns);
-
-  const providerEvents = events.filter((event) => event.event_type === "provider_progress");
-  const providerCallRefs = uniqueStrings(
-    providerEvents.map((event) => stringPayloadValue(event.payload, "provider_call_ref")),
-  );
-  const finalOutputEvents = providerEvents.filter(
-    (event) => stringPayloadValue(event.payload, "provider_event_type") === "final_output",
-  );
-  const totalChars = sumNumbers(
-    finalOutputEvents.map((event) => numberPayloadValue(event.payload, "content_length")),
-  );
-  const totalTokens = sumNumbers(providerEvents.map((event) => providerUsageTokens(event.payload)));
-
-  const facts: string[] = [];
-  if (providerCallRefs.length > 0) {
-    facts.push(WORKBENCH.agentRunBriefProviderCalls(providerCallRefs.length));
-    facts.push(WORKBENCH.agentRunBriefProviderCallRef(providerCallRefs[0]));
-  }
-  if (totalChars > 0) facts.push(WORKBENCH.agentRunBriefProviderChars(totalChars));
-  if (totalTokens > 0) facts.push(WORKBENCH.agentRunBriefProviderTokens(totalTokens));
-
-  return facts;
-}
-
-function providerRunFacts(providerRuns: AgentRunProviderUsageData[]): string[] {
-  const providerCallRefs = uniqueStrings(
-    providerRuns.map((run) => (typeof run.provider_call_ref === "string" ? run.provider_call_ref : null)),
-  );
-  const totalChars = sumNumbers(
-    providerRuns.map((run) =>
-      typeof run.content_length === "number" && Number.isFinite(run.content_length)
-        ? run.content_length
-        : null,
-    ),
-  );
-  const totalTokens = sumNumbers(
-    providerRuns.map((run) => providerUsageTokens(run as Record<string, unknown>)),
-  );
-
-  const facts: string[] = [];
-  if (providerCallRefs.length > 0) {
-    facts.push(WORKBENCH.agentRunBriefProviderCalls(providerCallRefs.length));
-    facts.push(WORKBENCH.agentRunBriefProviderCallRef(providerCallRefs[0]));
-  }
-  if (totalChars > 0) facts.push(WORKBENCH.agentRunBriefProviderChars(totalChars));
-  if (totalTokens > 0) facts.push(WORKBENCH.agentRunBriefProviderTokens(totalTokens));
-
-  return facts;
-}
-
 function uniqueStrings(values: Array<string | null>): string[] {
   return Array.from(new Set(values.filter((value): value is string => value !== null)));
 }
@@ -954,8 +1036,4 @@ function sumNumbers(values: Array<number | null>): number {
 
 function maxNumbers(values: Array<number | null>): number {
   return values.reduce<number>((max, value) => Math.max(max, value ?? 0), 0);
-}
-
-function pushPath(path: string[], item: string) {
-  if (path.at(-1) !== item) path.push(item);
 }

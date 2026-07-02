@@ -10,12 +10,16 @@ defmodule NovelApplication.AgentRunServer do
 
   alias NovelAgent.Provider.Execution
   alias NovelApplication.AgentEventPublisher
+  alias NovelApplication.AgentNarrativeSource
   alias NovelCommon.Contracts.AgentEvent
   alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentRun
+  alias NovelDomain.AgentRunPolicy
   alias NovelDomain.AgentStep
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog}
+
+  @checkpoint_version 2
 
   @type step_snapshot :: %{
           required(:observations) => [AgentObservation.t()],
@@ -78,8 +82,8 @@ defmodule NovelApplication.AgentRunServer do
   @spec command(GenServer.server(), :pause | :resume | :cancel | {:steer, String.t()}) :: :ok
   def command(server, command), do: GenServer.cast(server, {:command, command})
 
-  @spec state(GenServer.server()) :: map()
-  def state(server), do: GenServer.call(server, :state)
+  @spec state(GenServer.server(), timeout()) :: map()
+  def state(server, timeout \\ 5_000), do: GenServer.call(server, :state, timeout)
 
   @impl true
   def init(opts) do
@@ -95,7 +99,13 @@ defmodule NovelApplication.AgentRunServer do
 
     state =
       state
-      |> emit(:run_started, "AgentRun 已启动。")
+      |> emit(
+        :run_started,
+        "AgentRun 已启动。",
+        ["agent_run_started", "profile_selected"],
+        [],
+        run_started_payload(run)
+      )
       |> persist_run_state()
 
     {:ok, state, {:continue, :run_next_step}}
@@ -256,10 +266,11 @@ defmodule NovelApplication.AgentRunServer do
   def handle_info({:agent_stage_event, attrs}, state) when is_map(attrs) do
     state =
       case normalize_stage_event(attrs) do
-        {:ok, type, summary, reason_codes, refs, payload} ->
-          state
-          |> emit(type, summary, reason_codes, refs, payload)
-          |> persist_run_state()
+        {:ok, type, visibility, summary, reason_codes, refs, payload} ->
+          {state, type, reason_codes, payload} =
+            maybe_promote_steer_plan_revision(state, type, summary, reason_codes, payload)
+
+          emit(state, type, visibility, summary, reason_codes, refs, payload)
 
         :ignore ->
           state
@@ -329,60 +340,12 @@ defmodule NovelApplication.AgentRunServer do
       }
       |> put_run_status(:running)
       |> put_run_phase(:executing)
-      |> emit(
-        :step_proposed,
-        step_started_summary(run_for_step, sequence),
-        ["step_started"],
-        [
-          step_ref
-        ]
-      )
       |> persist_run_state()
 
     {:noreply, state}
   end
 
   defp step_ref(run_id, sequence), do: "step_#{run_id}_#{sequence}"
-
-  defp step_started_summary(run, sequence) do
-    case milestone_summary(run.plan, sequence) do
-      summary when is_binary(summary) and summary != "" ->
-        summary
-        |> String.trim()
-        |> prefix_running()
-        |> ensure_sentence()
-
-      _ ->
-        "正在执行第 #{sequence} 步。"
-    end
-  end
-
-  defp milestone_summary(plan, sequence) when is_map(plan) do
-    milestones = Map.get(plan, :milestones) || Map.get(plan, "milestones") || []
-
-    milestones
-    |> Enum.at(sequence - 1)
-    |> case do
-      milestone when is_map(milestone) ->
-        Map.get(milestone, :summary) || Map.get(milestone, "summary")
-
-      _ ->
-        nil
-    end
-  end
-
-  defp milestone_summary(_plan, _sequence), do: nil
-
-  defp prefix_running("正在" <> _rest = summary), do: summary
-  defp prefix_running(summary), do: "正在#{summary}"
-
-  defp ensure_sentence(summary) do
-    if String.ends_with?(summary, ["。", ".", "！", "!", "？", "?"]) do
-      summary
-    else
-      summary <> "。"
-    end
-  end
 
   defp handle_step_result(state, {:ok, result}) when is_map(result) do
     step = Map.get(result, :step)
@@ -404,6 +367,7 @@ defmodule NovelApplication.AgentRunServer do
 
     state =
       state
+      |> apply_run_patch(Map.get(result, :run_patch))
       |> maybe_mark_step_completed(step)
       |> add_consumed_budget(result)
       |> add_observations(observations)
@@ -415,6 +379,7 @@ defmodule NovelApplication.AgentRunServer do
       |> maybe_emit_turn_result(artifact_refs, turn_result)
       |> maybe_emit_loop_decision(Map.get(result, :loop_decision))
       |> maybe_apply_loop_status(loop_status, Map.get(result, :loop_decision))
+      |> maybe_stop_budget_exhausted()
 
     persist_run_state(state)
   end
@@ -433,18 +398,12 @@ defmodule NovelApplication.AgentRunServer do
   defp maybe_emit_loop_decision(state, %AgentNextStepDecision{} = decision) do
     emit(
       state,
-      :plan_created,
+      :evaluation_made,
+      reasoning_visibility(decision),
       decision.summary,
-      ["agent_next_step_decided" | decision.reason_codes],
+      ["agent_step_evaluated" | decision.reason_codes],
       [decision.decision_id],
-      %{
-        stage: :agent_next_step_decided,
-        loop_decision_ref: decision.decision_id,
-        loop_decision_type: decision.decision_type,
-        target_tool_ref: decision.target_tool_ref,
-        observation_refs: decision.observation_refs,
-        confidence: decision.confidence
-      }
+      reasoning_payload(state.run, decision, :evaluation_made)
     )
   end
 
@@ -469,6 +428,101 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp maybe_apply_loop_status(state, _status, _decision), do: state
+
+  defp maybe_stop_budget_exhausted(state) do
+    cond do
+      terminal?(state) or state.run.status == :awaiting_author ->
+        state
+
+      AgentRun.budget_exhausted?(state.run) ->
+        state
+        |> put_run_status(:awaiting_author)
+        |> put_run_phase(:stopped)
+        |> emit(:awaiting_author, "AgentRun 已达到预算上限。", ["budget_exhausted"])
+
+      true ->
+        state
+    end
+  end
+
+  defp apply_run_patch(state, patch) when is_map(patch) do
+    run =
+      state.run
+      |> patch_profile_ref(patch)
+      |> patch_authority_scope(patch)
+      |> patch_plan(patch)
+      |> patch_budget(patch)
+      |> refresh_policy()
+
+    %{state | run: run}
+  end
+
+  defp apply_run_patch(state, _patch), do: state
+
+  defp patch_profile_ref(%AgentRun{} = run, patch) do
+    case Map.get(patch, :profile_ref) || Map.get(patch, "profile_ref") do
+      value when is_binary(value) and value != "" -> %{run | profile_ref: value}
+      _ -> run
+    end
+  end
+
+  defp patch_authority_scope(%AgentRun{} = run, patch) do
+    case Map.get(patch, :authority_scope) || Map.get(patch, "authority_scope") do
+      scope when is_map(scope) -> %{run | authority_scope: scope}
+      _ -> run
+    end
+  end
+
+  defp patch_plan(%AgentRun{} = run, patch) do
+    case plan_from_patch(patch) do
+      plan when is_map(plan) -> patch_plan_map(run, patch, plan)
+      _ -> patch_plan_version(run, patch)
+    end
+  end
+
+  defp patch_plan_map(%AgentRun{} = run, patch, plan) do
+    %{
+      run
+      | plan: plan,
+        plan_ref: plan_ref_from_patch(patch) || run.plan_ref,
+        plan_version: plan_version_from_patch(patch) || run.plan_version
+    }
+  end
+
+  defp patch_plan_version(%AgentRun{} = run, patch) do
+    case plan_version_from_patch(patch) do
+      nil -> run
+      plan_version -> %{run | plan_version: plan_version}
+    end
+  end
+
+  defp plan_from_patch(patch), do: Map.get(patch, :plan) || Map.get(patch, "plan")
+  defp plan_ref_from_patch(patch), do: Map.get(patch, :plan_ref) || Map.get(patch, "plan_ref")
+
+  defp plan_version_from_patch(patch) do
+    positive_int(Map.get(patch, :plan_version) || Map.get(patch, "plan_version"))
+  end
+
+  defp patch_budget(%AgentRun{} = run, patch) do
+    case Map.get(patch, :budget) || Map.get(patch, "budget") do
+      budget when is_map(budget) -> %{run | budget: budget}
+      _ -> run
+    end
+  end
+
+  defp refresh_policy(%AgentRun{} = run) do
+    tools =
+      Map.get(run.authority_scope, :allowed_tools) ||
+        Map.get(run.authority_scope, "allowed_tools") || []
+
+    case AgentRunPolicy.new(allowed_tool_refs: tools) do
+      {:ok, policy} -> %{run | policy: policy}
+      {:error, _errors} -> run
+    end
+  end
+
+  defp positive_int(value) when is_integer(value) and value > 0, do: value
+  defp positive_int(_value), do: nil
 
   defp maybe_mark_step_completed(state, %AgentStep{} = step) do
     consumed = state.run.consumed_budget
@@ -525,6 +579,73 @@ defmodule NovelApplication.AgentRunServer do
     state.run.status == :awaiting_author and state.run.phase == :stopped
   end
 
+  defp maybe_promote_steer_plan_revision(
+         %{run: %AgentRun{interrupt_state: %{status: :steer_requested}} = run} = state,
+         :plan_drafted,
+         summary,
+         reason_codes,
+         payload
+       ) do
+    if provider_output_payload?(payload) do
+      plan_version = next_replan_version(run, payload)
+      consumed = run.consumed_budget
+
+      state = %{
+        state
+        | run: %{
+            run
+            | plan_version: plan_version,
+              consumed_budget: %{consumed | replans: consumed.replans + 1},
+              interrupt_state: %{status: :none, requested_at: nil}
+          }
+      }
+
+      reason_codes =
+        reason_codes
+        |> Enum.reject(&(&1 == "agent_plan_drafted"))
+        |> Kernel.++(["agent_plan_revised", "steer_replan"])
+        |> Enum.uniq()
+
+      payload =
+        payload
+        |> Map.put(:stage, :plan_revised)
+        |> Map.put(:plan_version, plan_version)
+        |> Map.put(:evaluation_of_last, steer_evaluation(run))
+        |> Map.put(:plan_revision, %{plan_version: plan_version, revision_reason: summary})
+        |> Map.put(:revision_reason, summary)
+
+      {state, :plan_revised, reason_codes, payload}
+    else
+      {state, :plan_drafted, reason_codes, payload}
+    end
+  end
+
+  defp maybe_promote_steer_plan_revision(state, type, _summary, reason_codes, payload),
+    do: {state, type, reason_codes, payload}
+
+  defp provider_output_payload?(payload) when is_map(payload) do
+    payload
+    |> map_value(:author_narrative_source)
+    |> AgentNarrativeSource.provider_output_source?()
+  end
+
+  defp provider_output_payload?(_payload), do: false
+
+  defp next_replan_version(%AgentRun{} = run, payload) do
+    payload_version =
+      positive_int(Map.get(payload, :plan_version) || Map.get(payload, "plan_version"))
+
+    max(payload_version || 0, (run.plan_version || 1) + 1)
+  end
+
+  defp steer_evaluation(%AgentRun{} = run) do
+    %{
+      advanced: false,
+      plan_holds: false,
+      new_constraint: run.goal.text
+    }
+  end
+
   defp add_observations(state, observations) when is_list(observations) do
     valid = Enum.filter(observations, &match?(%AgentObservation{}, &1))
     %{state | observations: state.observations ++ valid}
@@ -543,9 +664,22 @@ defmodule NovelApplication.AgentRunServer do
   defp emit_observations(state, observations) when is_list(observations) do
     Enum.reduce(observations, state, fn
       %AgentObservation{} = observation, acc ->
-        emit(acc, :observation_recorded, observation.summary, ["observation_recorded"], [
-          observation.observation_id
-        ])
+        emit(
+          acc,
+          :exploration_observed,
+          :developer,
+          observation.summary,
+          ["exploration_observed", "agent_observation_fact"],
+          [observation.observation_id],
+          %{
+            stage: :exploration_observed,
+            observation_ref: observation.observation_id,
+            observation_type: observation.observation_type,
+            source_ref: observation.source_ref,
+            evidence_refs: observation.evidence_refs,
+            confidence: observation.confidence
+          }
+        )
 
       _observation, acc ->
         acc
@@ -644,7 +778,17 @@ defmodule NovelApplication.AgentRunServer do
 
   defp terminal?(state), do: state.run.status in [:completed, :cancelled, :failed]
 
-  defp emit(state, type, summary, reason_codes \\ [], refs \\ [], payload \\ %{}) do
+  defp emit(state, type, summary, reason_codes),
+    do: emit(state, type, summary, reason_codes, [], %{})
+
+  defp emit(state, type, summary, reason_codes, refs),
+    do: emit(state, type, summary, reason_codes, refs, %{})
+
+  defp emit(state, type, summary, reason_codes, refs, payload) do
+    emit(state, type, :author, summary, reason_codes, refs, payload)
+  end
+
+  defp emit(state, type, visibility, summary, reason_codes, refs, payload) do
     sequence = state.event_sequence + 1
 
     {:ok, event} =
@@ -654,7 +798,7 @@ defmodule NovelApplication.AgentRunServer do
         step_ref: state.run.current_step_ref,
         sequence: sequence,
         event_type: type,
-        visibility: :author,
+        visibility: visibility,
         summary: summary,
         reason_codes: reason_codes,
         refs: refs,
@@ -668,23 +812,83 @@ defmodule NovelApplication.AgentRunServer do
     %{state | event_sequence: sequence, events: state.events ++ [event]}
   end
 
+  defp run_started_payload(%AgentRun{} = run) do
+    %{
+      profile_ref: run.profile_ref,
+      allowed_tools: Map.get(run.authority_scope, :allowed_tools, []),
+      profile_selection:
+        Map.get(run.authority_scope, :profile_selection) ||
+          Map.get(run.authority_scope, "profile_selection") ||
+          %{}
+    }
+  end
+
   defp persist_run_state(%{run: %AgentRun{} = run} = state) do
-    persist(fn -> AgentRunLog.upsert_run(run_attrs(run)) end)
-    persist_long_run_checkpoint(run, state)
+    persist_async(fn ->
+      AgentRunLog.upsert_run(run_attrs(run))
+      persist_events_snapshot(run, state.events)
+      persist_long_run_checkpoint(run, state)
+    end)
+
     state
   end
 
   defp persist_run_state(state), do: state
 
   defp persist_step_result(state, %AgentStep{} = step, observations) do
-    persist(fn -> AgentRunLog.insert_step(step_attrs(step, observations)) end)
+    persist_async(fn -> AgentRunLog.insert_step(step_attrs(step, observations)) end)
     state
   end
 
   defp persist_step_result(state, _step, _observations), do: state
 
-  defp persist_event(%AgentEvent{} = event) do
-    persist(fn -> AgentRunLog.insert_event(event_attrs(event)) end)
+  defp persist_event(%AgentEvent{}), do: :ok
+
+  defp persist_events_snapshot(%AgentRun{} = run, events) when is_list(events) do
+    if persist_events_snapshot?(run) do
+      events
+      |> Enum.reject(&(&1.event_type == :provider_progress))
+      |> Enum.map(&event_attrs/1)
+      |> AgentRunLog.insert_events()
+    else
+      :ok
+    end
+  end
+
+  defp persist_events_snapshot(_run, _events), do: :ok
+
+  defp persist_events_snapshot?(%AgentRun{status: status}),
+    do: status in [:completed, :cancelled, :failed, :awaiting_author, :paused]
+
+  defp persist_async(fun) when is_function(fun, 0) do
+    cond do
+      not runtime_fact_persistence_enabled?() ->
+        :ok
+
+      async_persistence_enabled?() ->
+        Task.Supervisor.start_child(NovelApplication.BackgroundTaskSupervisor, fn ->
+          persist(fun)
+        end)
+
+        :ok
+
+      true ->
+        persist(fun)
+    end
+  rescue
+    _error -> persist(fun)
+  catch
+    _kind, _reason -> persist(fun)
+  end
+
+  defp runtime_fact_persistence_enabled? do
+    Application.get_env(:novel_application, :agent_run_fact_persistence_enabled, true)
+  end
+
+  defp async_persistence_enabled? do
+    :novel_persistence
+    |> Application.get_env(NovelPersistence.Repo, [])
+    |> Keyword.get(:pool) != Ecto.Adapters.SQL.Sandbox
   end
 
   defp persist_long_run_checkpoint(
@@ -748,20 +952,24 @@ defmodule NovelApplication.AgentRunServer do
 
   defp long_run_checkpoint_data(%AgentRun{} = run, state) do
     %{
-      "agent_run" => %{
-        "run_id" => run.run_id,
-        "run_mode" => atom_string(run.run_mode),
-        "status" => atom_string(run.status),
-        "phase" => atom_string(run.phase),
-        "profile_ref" => run.profile_ref,
-        "goal_version" => run.goal.version,
-        "current_step_ref" => run.current_step_ref,
-        "completed_step_refs" => run.completed_step_refs,
-        "pending_artifact_refs" => run.pending_artifact_refs,
-        "consumed_budget" => json_safe(run.consumed_budget),
-        "event_sequence" => state.event_sequence,
-        "checkpoint_version" => 1
-      },
+      "agent_run" =>
+        Map.merge(
+          %{
+            "run_id" => run.run_id,
+            "run_mode" => atom_string(run.run_mode),
+            "status" => atom_string(run.status),
+            "phase" => atom_string(run.phase),
+            "profile_ref" => run.profile_ref,
+            "goal_version" => run.goal.version,
+            "current_step_ref" => run.current_step_ref,
+            "completed_step_refs" => run.completed_step_refs,
+            "pending_artifact_refs" => run.pending_artifact_refs,
+            "consumed_budget" => json_safe(run.consumed_budget),
+            "event_sequence" => state.event_sequence,
+            "checkpoint_version" => @checkpoint_version
+          },
+          durable_fact_checkpoint_data(run.authority_scope)
+        ),
       "progress" => long_run_progress(run),
       "step" => long_run_step_label(run)
     }
@@ -911,6 +1119,33 @@ defmodule NovelApplication.AgentRunServer do
   defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
   defp json_safe(value), do: value
 
+  defp durable_fact_checkpoint_data(authority_scope) do
+    %{}
+    |> maybe_put_fact("work_revision", scope_value(authority_scope, :work_revision))
+    |> maybe_put_fact("target_revision_ref", scope_value(authority_scope, :target_revision_ref))
+    |> maybe_put_fact("target_revision", scope_value(authority_scope, :target_revision))
+  end
+
+  defp maybe_put_fact(map, key, value) do
+    case nonblank_value(value) do
+      nil -> map
+      fact_value -> Map.put(map, key, fact_value)
+    end
+  end
+
+  defp scope_value(scope, key) when is_map(scope),
+    do: Map.get(scope, key) || Map.get(scope, Atom.to_string(key))
+
+  defp scope_value(_scope, _key), do: nil
+
+  defp nonblank_value(value) when is_binary(value) do
+    value = String.trim(value)
+    if value == "", do: nil, else: value
+  end
+
+  defp nonblank_value(nil), do: nil
+  defp nonblank_value(value), do: value
+
   defp atom_string(value) when is_atom(value), do: Atom.to_string(value)
   defp atom_string(value), do: to_string(value)
 
@@ -922,9 +1157,18 @@ defmodule NovelApplication.AgentRunServer do
       stage_state: state.stage_state,
       final_turn_result: state.final_turn_result,
       current_task?: state.current_task_ref != nil,
-      remaining_steps: 0
+      remaining_steps: remaining_steps(state.run)
     }
   end
+
+  defp remaining_steps(%AgentRun{
+         budget: %{max_steps: max_steps},
+         consumed_budget: %{steps: steps}
+       })
+       when is_integer(max_steps) and is_integer(steps),
+       do: max(max_steps - steps, 0)
+
+  defp remaining_steps(_run), do: 0
 
   defp execute_step_fun(step_fun, run, sequence, snapshot) when is_function(step_fun, 3),
     do: step_fun.(run, sequence, snapshot)
@@ -935,12 +1179,16 @@ defmodule NovelApplication.AgentRunServer do
   defp execute_dynamic_next_step(planner, run, sequence, snapshot) when is_function(planner, 3) do
     case planner.(run, sequence, snapshot) do
       {:execute, step_fun, %AgentNextStepDecision{} = decision} when is_function(step_fun) ->
+        emit_agent_plan_drafted(snapshot, decision)
+
         step_fun
         |> execute_step_fun(run, sequence, snapshot)
         |> attach_loop_decision(decision, %{provider_call_count: 1})
 
       {:execute, step_fun, %AgentNextStepDecision{} = decision, meta}
       when is_function(step_fun) ->
+        emit_agent_plan_drafted(snapshot, decision)
+
         step_fun
         |> execute_step_fun(run, sequence, snapshot)
         |> attach_loop_decision(decision, meta)
@@ -985,14 +1233,189 @@ defmodule NovelApplication.AgentRunServer do
     end
   end
 
+  defp emit_agent_plan_drafted(
+         %{stage_sink: stage_sink, run: %AgentRun{} = run},
+         %AgentNextStepDecision{} = decision
+       )
+       when is_function(stage_sink, 1) do
+    event_type = plan_event_type(decision)
+
+    stage_sink.(%{
+      event_type: event_type,
+      visibility: reasoning_visibility(decision),
+      summary: decision.summary,
+      reason_codes: [plan_event_reason_code(event_type) | decision.reason_codes],
+      refs: [decision.decision_id],
+      payload: reasoning_payload(run, decision, event_type)
+    })
+  end
+
+  defp emit_agent_plan_drafted(_snapshot, _decision), do: :ok
+
+  defp plan_event_type(%AgentNextStepDecision{} = decision) do
+    if plan_revised?(decision), do: :plan_revised, else: :plan_drafted
+  end
+
+  defp plan_event_reason_code(:plan_revised), do: "agent_plan_revised"
+  defp plan_event_reason_code(_event_type), do: "agent_plan_drafted"
+
+  defp reasoning_payload(%AgentRun{} = run, %AgentNextStepDecision{} = decision, stage) do
+    steps = plan_steps(run, stage)
+
+    %{
+      stage: stage,
+      plan_ref: run.plan_ref || plan_ref(run.plan),
+      plan_version: payload_plan_version(run, decision),
+      current_plan_step_ref: current_plan_step_ref(steps),
+      plan_steps: steps,
+      loop_decision_ref: decision.decision_id,
+      loop_decision_type: decision.decision_type,
+      target_tool_ref: decision.target_tool_ref,
+      observation_refs: decision.observation_refs,
+      evaluation_of_last: decision.evaluation_of_last,
+      plan_revision: decision.plan_revision,
+      revision_reason: revision_reason(decision),
+      confidence: decision.confidence
+    }
+    |> maybe_put_author_narrative(decision)
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp maybe_put_author_narrative(payload, %AgentNextStepDecision{} = decision) do
+    if AgentNarrativeSource.provider_output_source?(decision.narrative_source) do
+      payload
+      |> Map.put(:author_narrative, decision.summary)
+      |> Map.put(:author_narrative_source, decision.narrative_source)
+    else
+      payload
+    end
+  end
+
+  defp reasoning_visibility(%AgentNextStepDecision{} = decision) do
+    if AgentNarrativeSource.provider_output_source?(decision.narrative_source),
+      do: :author,
+      else: :developer
+  end
+
+  defp plan_revised?(%AgentNextStepDecision{
+         evaluation_of_last: %{plan_holds: false},
+         plan_revision: %{revision_reason: reason}
+       })
+       when is_binary(reason) and reason != "",
+       do: true
+
+  defp plan_revised?(_decision), do: false
+
+  defp revision_reason(%AgentNextStepDecision{plan_revision: %{revision_reason: reason}}),
+    do: reason
+
+  defp revision_reason(_decision), do: nil
+
+  defp payload_plan_version(_run, %AgentNextStepDecision{
+         plan_revision: %{plan_version: version}
+       })
+       when is_integer(version) and version > 0,
+       do: version
+
+  defp payload_plan_version(run, _decision),
+    do: run.plan_version || plan_version(run.plan)
+
+  defp plan_steps(%AgentRun{} = run, stage) do
+    steps = plan_steps_from_plan(run.plan)
+    active_index = active_plan_step_index(run, steps, stage)
+
+    steps
+    |> Enum.with_index()
+    |> Enum.map(fn {step, index} ->
+      %{
+        step_ref: plan_step_ref(step),
+        kind: step |> map_value(:kind) |> atom_string(),
+        status: step_status(index, active_index, stage) |> atom_string(),
+        description: map_value(step, :description),
+        success_criteria: string_list(map_value(step, :success_criteria)),
+        depends_on: string_list(map_value(step, :depends_on))
+      }
+    end)
+  end
+
+  defp plan_steps_from_plan(plan) when is_map(plan) do
+    case Map.get(plan, :steps) || Map.get(plan, "steps") do
+      steps when is_list(steps) -> steps
+      _ -> []
+    end
+  end
+
+  defp plan_steps_from_plan(_plan), do: []
+
+  defp active_plan_step_index(_run, [], _stage), do: nil
+
+  defp active_plan_step_index(
+         %AgentRun{consumed_budget: %{steps: steps}},
+         plan_steps,
+         :plan_drafted
+       )
+       when is_integer(steps) do
+    min(steps, length(plan_steps) - 1)
+  end
+
+  defp active_plan_step_index(%AgentRun{consumed_budget: %{steps: steps}}, plan_steps, _stage)
+       when is_integer(steps) do
+    min(max(steps - 1, 0), length(plan_steps) - 1)
+  end
+
+  defp active_plan_step_index(_run, _plan_steps, _stage), do: 0
+
+  defp step_status(index, active_index, :plan_drafted) do
+    cond do
+      is_nil(active_index) -> :pending
+      index < active_index -> :done
+      index == active_index -> :active
+      true -> :pending
+    end
+  end
+
+  defp step_status(index, active_index, _stage) do
+    cond do
+      is_nil(active_index) -> :pending
+      index <= active_index -> :done
+      true -> :pending
+    end
+  end
+
+  defp current_plan_step_ref(steps) do
+    steps
+    |> Enum.find(fn step -> Map.get(step, :status) == "active" end)
+    |> case do
+      nil -> nil
+      step -> Map.get(step, :step_ref)
+    end
+  end
+
+  defp plan_step_ref(step), do: map_value(step, :step_id) || map_value(step, :step_ref)
+
+  defp plan_ref(plan) when is_map(plan), do: Map.get(plan, :plan_id) || Map.get(plan, "plan_id")
+  defp plan_ref(_plan), do: nil
+
+  defp plan_version(plan) when is_map(plan),
+    do: Map.get(plan, :version) || Map.get(plan, "version")
+
+  defp plan_version(_plan), do: nil
+
+  defp map_value(map, key) when is_map(map),
+    do: Map.get(map, key) || Map.get(map, Atom.to_string(key))
+
+  defp map_value(_map, _key), do: nil
+
   defp attach_loop_decision({:ok, result}, %AgentNextStepDecision{} = decision, meta)
        when is_map(result) do
     {:ok,
      result
-     |> Map.put(:loop_decision, decision)
+     |> Map.put_new(:loop_decision, decision)
      |> Map.update(:provider_call_count, provider_call_count(meta, 1), fn count ->
        count + provider_call_count(meta, 1)
-     end)}
+     end)
+     |> maybe_attach_replan(decision)}
   end
 
   defp attach_loop_decision({:error, reason}, _decision, _meta), do: {:error, reason}
@@ -1006,6 +1429,26 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp provider_call_count(_meta, default), do: default
+
+  defp maybe_attach_replan(result, %AgentNextStepDecision{} = decision) do
+    if plan_revised?(decision) do
+      result
+      |> Map.update(:replan_count, 1, &(&1 + 1))
+      |> Map.update(:run_patch, replan_run_patch(decision), fn patch ->
+        Map.merge(patch || %{}, replan_run_patch(decision))
+      end)
+    else
+      result
+    end
+  end
+
+  defp replan_run_patch(%AgentNextStepDecision{
+         plan_revision: %{plan_version: version}
+       })
+       when is_integer(version) and version > 0,
+       do: %{plan_version: version}
+
+  defp replan_run_patch(_decision), do: %{}
 
   defp step_snapshot(state, server, run_for_step) do
     %{
@@ -1023,7 +1466,10 @@ defmodule NovelApplication.AgentRunServer do
 
   @stage_event_types [
     :goal_understood,
-    :plan_created,
+    :plan_drafted,
+    :plan_revised,
+    :exploration_observed,
+    :evaluation_made,
     :gate_decided,
     :tool_started,
     :tool_completed,
@@ -1034,15 +1480,30 @@ defmodule NovelApplication.AgentRunServer do
 
   defp normalize_stage_event(attrs) do
     type = stage_event_type(Map.get(attrs, :event_type) || Map.get(attrs, "event_type"))
-    summary = Map.get(attrs, :summary) || Map.get(attrs, "summary")
 
-    if type in @stage_event_types and is_binary(summary) and String.trim(summary) != "" do
-      {:ok, type, String.trim(summary),
+    visibility =
+      stage_event_visibility(Map.get(attrs, :visibility) || Map.get(attrs, "visibility"))
+
+    summary = normalized_stage_summary(attrs)
+
+    if type in @stage_event_types and is_binary(summary) do
+      {:ok, type, visibility, summary,
        string_list(Map.get(attrs, :reason_codes) || Map.get(attrs, "reason_codes")),
        string_list(Map.get(attrs, :refs) || Map.get(attrs, "refs")),
        map_payload(Map.get(attrs, :payload) || Map.get(attrs, "payload"))}
     else
       :ignore
+    end
+  end
+
+  defp normalized_stage_summary(attrs) do
+    case Map.get(attrs, :summary) || Map.get(attrs, "summary") do
+      summary when is_binary(summary) ->
+        summary = String.trim(summary)
+        if summary == "", do: nil, else: summary
+
+      _ ->
+        nil
     end
   end
 
@@ -1053,6 +1514,11 @@ defmodule NovelApplication.AgentRunServer do
   end
 
   defp stage_event_type(_value), do: nil
+
+  defp stage_event_visibility(value) when value in [:author, :developer, :internal], do: value
+  defp stage_event_visibility("developer"), do: :developer
+  defp stage_event_visibility("internal"), do: :internal
+  defp stage_event_visibility(_), do: :author
 
   defp string_list(values) when is_list(values) do
     values

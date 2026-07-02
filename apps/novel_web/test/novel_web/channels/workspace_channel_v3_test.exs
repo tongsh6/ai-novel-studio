@@ -1,5 +1,5 @@
 defmodule NovelWeb.WorkspaceChannelContractTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   import Phoenix.ChannelTest
 
@@ -7,6 +7,8 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
   alias NovelWeb.WorkspaceChannel
 
   @endpoint NovelWeb.Endpoint
+  @agent_run_timeout 45_000
+  @agent_run_stopped_events ["run_completed", "awaiting_author", "run_failed", "run_cancelled"]
 
   @server_turn_result %{
     turn_id: "turn-action-1",
@@ -121,8 +123,23 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
       ref = push(socket, "user_message", %{"text" => "你好，我想聊聊创作"})
-      assert_reply(ref, :ok, %{received: true, run_id: run_id, run_mode: "bounded"}, 1_000)
+
+      assert_reply(
+        ref,
+        :ok,
+        %{received: true, run_id: run_id, run_mode: "bounded", turn_id: turn_id},
+        @agent_run_timeout
+      )
+
       assert is_binary(run_id)
+
+      assert_broadcast(
+        "turn_result",
+        %{turn_id: ^turn_id, phase: "completed"},
+        @agent_run_timeout
+      )
+
+      assert_agent_run_stopped(run_id)
     end
 
     test "broadcasts turn_result after user_message" do
@@ -131,10 +148,29 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-      push(socket, "user_message", %{"text" => "聊聊赛博朋克方向"})
-      assert_broadcast("agent_event", %{event_type: "run_started"}, 1_000)
-      assert_broadcast("agent_run_state", %{run_mode: "bounded"}, 1_000)
-      assert_broadcast("turn_result", %{phase: _, assistant_message: %{text: _}}, 1_000)
+      ref = push(socket, "user_message", %{"text" => "聊聊赛博朋克方向"})
+      assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+
+      assert_broadcast(
+        "agent_event",
+        %{run_id: ^run_id, event_type: "run_started"},
+        @agent_run_timeout
+      )
+
+      assert_broadcast(
+        "agent_run_state",
+        %{run_id: ^run_id, run_mode: "bounded"},
+        @agent_run_timeout
+      )
+
+      assert_broadcast(
+        "turn_result",
+        %{turn_id: ^turn_id, phase: _, assistant_message: %{text: _}},
+        @agent_run_timeout
+      )
+
+      assert is_binary(run_id)
+      assert_agent_run_stopped(run_id)
     end
 
     test "rejects invalid user_message without synthetic fallback turn_result" do
@@ -154,8 +190,9 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-      push(socket, "user_message", %{"text" => "你好"})
-      assert_broadcast("turn_result", result, 1_000)
+      ref = push(socket, "user_message", %{"text" => "你好"})
+      assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      assert_broadcast("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
 
       assert result.schema_version == "3.0-draft"
       assert result.turn_id != nil
@@ -163,6 +200,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
       assert result.assistant_message.text != ""
       assert result.phase in ["completed", "awaiting_author"]
       assert result.status in ["conversational", "needs_clarification", "needs_confirmation"]
+      assert_agent_run_stopped(run_id)
     end
 
     test "turn_result truthfulness — no false claims" do
@@ -171,12 +209,14 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-      push(socket, "user_message", %{"text" => "先聊方向不写正文"})
-      assert_broadcast("turn_result", result, 1_000)
+      ref = push(socket, "user_message", %{"text" => "先聊方向不写正文"})
+      assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      assert_broadcast("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
 
       assert result.truthfulness.tool_called == false
       assert result.truthfulness.artifact_adopted == false
       assert result.truthfulness.production_write_performed == false
+      assert_agent_run_stopped(run_id)
     end
 
     test "does not contain forbidden form fields" do
@@ -185,13 +225,15 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-      push(socket, "user_message", %{"text" => "我想写小说但没想好"})
-      assert_broadcast("turn_result", result, 1_000)
+      ref = push(socket, "user_message", %{"text" => "我想写小说但没想好"})
+      assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      assert_broadcast("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
 
       refute Map.has_key?(result, :required_slots)
       refute Map.has_key?(result, :missing_slots)
       refute Map.has_key?(result, :slot_form)
       refute Map.has_key?(result, :slot_schema)
+      assert_agent_run_stopped(run_id)
     end
 
     test "candidate continuation validates source turn and stays a normal dialogue turn" do
@@ -202,7 +244,9 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       socket = assign_server_turn(socket, @candidate_turn_result)
 
-      assert {:reply, {:ok, %{received: true, run_id: run_id, run_mode: "bounded"}}, socket} =
+      assert {:reply,
+              {:ok, %{received: true, run_id: run_id, run_mode: "bounded", turn_id: turn_id}},
+              socket} =
                WorkspaceChannel.handle_in(
                  "user_message",
                  %{
@@ -217,11 +261,12 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
                )
 
       assert is_binary(run_id)
-      socket = pump_agent_events(socket)
-      assert_broadcast("turn_result", result)
+      socket = pump_agent_events_until_turn_result(socket, turn_id)
+      assert_broadcast("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
       assert result.truthfulness.artifact_adopted == false
       assert result.truthfulness.production_write_performed == false
       assert socket.assigns.current_turn_id != "turn-candidates-1"
+      _socket = pump_agent_events_until_stopped(socket, run_id)
     end
 
     test "candidate continuation rejects invented candidate refs" do
@@ -257,12 +302,16 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
         |> socket("user_id", %{})
         |> subscribe_and_join(WorkspaceChannel, "workspace:lobby")
 
-      push(socket, "user_message", %{"text" => "帮我创作角色设定", "generate_micro_plan" => true})
-      assert_broadcast("turn_result", result)
+      ref =
+        push(socket, "user_message", %{"text" => "帮我创作角色设定", "generate_micro_plan" => true})
+
+      assert_reply(ref, :ok, %{run_id: run_id, turn_id: turn_id}, @agent_run_timeout)
+      assert_broadcast("turn_result", %{turn_id: ^turn_id} = result, @agent_run_timeout)
 
       assert result.turn_id != nil
       assert result.phase != nil
       assert result.status != nil
+      assert_agent_run_stopped(run_id)
     end
   end
 
@@ -1379,7 +1428,7 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
 
       ref = push(socket, "get_toc", %{"work_id" => "lobby"})
 
-      assert_reply(ref, :ok, %{work_id: "lobby", volumes: [], audit: audit})
+      assert_reply(ref, :ok, %{work_id: "lobby", volumes: [], audit: audit}, @agent_run_timeout)
       assert audit.stage == :p1
       assert audit.min_chapter_words == 1_000
       assert audit.total_target == 100_000
@@ -1442,13 +1491,115 @@ defmodule NovelWeb.WorkspaceChannelContractTest do
     |> Phoenix.Socket.assign(:turn_results_by_id, turn_results)
   end
 
-  defp pump_agent_events(socket) do
+  defp pump_agent_events_until_turn_result(socket, turn_id) do
+    deadline = System.monotonic_time(:millisecond) + @agent_run_timeout
+    do_pump_agent_events_until_turn_result(socket, turn_id, deadline)
+  end
+
+  defp do_pump_agent_events_until_turn_result(socket, turn_id, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
     receive do
       {:agent_event, event} ->
         {:noreply, socket} = WorkspaceChannel.handle_info({:agent_event, event}, socket)
-        pump_agent_events(socket)
+
+        if agent_event_turn_id(event) == turn_id do
+          socket
+        else
+          do_pump_agent_events_until_turn_result(socket, turn_id, deadline)
+        end
     after
-      20 -> socket
+      remaining ->
+        flunk("expected AgentRun event stream to emit turn_result #{turn_id}")
+    end
+  end
+
+  defp agent_event_turn_id(%{payload: payload}) when is_map(payload) do
+    case Map.get(payload, :turn_result) || Map.get(payload, "turn_result") do
+      %{turn_id: turn_id} -> turn_id
+      %{"turn_id" => turn_id} -> turn_id
+      _ -> nil
+    end
+  end
+
+  defp agent_event_turn_id(_event), do: nil
+
+  defp pump_agent_events_until_stopped(socket, run_id) do
+    deadline = System.monotonic_time(:millisecond) + @agent_run_timeout
+    do_pump_agent_events_until_stopped(socket, run_id, deadline)
+  end
+
+  defp do_pump_agent_events_until_stopped(socket, run_id, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      {:agent_event, event} ->
+        {:noreply, socket} = WorkspaceChannel.handle_info({:agent_event, event}, socket)
+
+        if agent_event_stopped?(event, run_id) do
+          socket
+        else
+          do_pump_agent_events_until_stopped(socket, run_id, deadline)
+        end
+    after
+      remaining ->
+        flunk("expected AgentRun #{run_id} to stop before the test exits")
+    end
+  end
+
+  defp agent_event_stopped?(%{run_ref: run_id, event_type: event_type}, run_id),
+    do: Atom.to_string(event_type) in @agent_run_stopped_events
+
+  defp agent_event_stopped?(_event, _run_id), do: false
+
+  defp assert_agent_run_stopped(run_id) do
+    deadline = System.monotonic_time(:millisecond) + @agent_run_timeout
+    do_assert_agent_run_stopped(run_id, deadline)
+  end
+
+  defp do_assert_agent_run_stopped(run_id, deadline) do
+    remaining = max(deadline - System.monotonic_time(:millisecond), 0)
+
+    receive do
+      %Phoenix.Socket.Broadcast{
+        event: "agent_event",
+        payload: %{run_id: ^run_id, event_type: event_type}
+      }
+      when event_type in @agent_run_stopped_events ->
+        :ok
+
+      %Phoenix.Socket.Message{
+        event: "agent_event",
+        payload: %{run_id: ^run_id, event_type: event_type}
+      }
+      when event_type in @agent_run_stopped_events ->
+        :ok
+
+      %Phoenix.Socket.Broadcast{
+        event: "agent_run_state",
+        payload: %{run_id: ^run_id, status: status}
+      } ->
+        if status in ["completed", "awaiting_author", "failed", "cancelled"] do
+          :ok
+        else
+          do_assert_agent_run_stopped(run_id, deadline)
+        end
+
+      %Phoenix.Socket.Message{
+        event: "agent_run_state",
+        payload: %{run_id: ^run_id, status: status}
+      } ->
+        if status in ["completed", "awaiting_author", "failed", "cancelled"] do
+          :ok
+        else
+          do_assert_agent_run_stopped(run_id, deadline)
+        end
+
+      _other ->
+        do_assert_agent_run_stopped(run_id, deadline)
+    after
+      remaining ->
+        flunk("expected AgentRun #{run_id} to stop before the test exits")
     end
   end
 end

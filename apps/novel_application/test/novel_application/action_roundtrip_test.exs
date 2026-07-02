@@ -481,7 +481,7 @@ defmodule NovelApplication.ActionRoundtripTest do
         idempotency_key: "ik-p"
       }
 
-      complete_fn = fn _prompt ->
+      result_fn = fn _prompt ->
         {:ok,
          %{
            content:
@@ -492,7 +492,7 @@ defmodule NovelApplication.ActionRoundtripTest do
       end
 
       assert {:ok, ack, turn_result} =
-               DialogueGateway.handle_action(input, source, %Execution{complete_fn: complete_fn})
+               DialogueGateway.handle_action(input, source, %Execution{result_fn: result_fn})
 
       assert ack.status == "accepted"
       assert ack.confirmation_binding.behavior_ref == "bh-p1"

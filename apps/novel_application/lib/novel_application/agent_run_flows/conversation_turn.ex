@@ -108,98 +108,108 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
 
   defp frame_step(spec) do
     fn run, sequence, snapshot ->
-      %{input: input, context: context} = stage_state(snapshot)
-      text = Map.fetch!(input, :text)
-      ws_id = Map.fetch!(input, :workspace_id)
-      turn_id = Map.fetch!(input, :turn_id)
-
-      {frame, candidates} =
-        Planner.form_frame(
-          %{text: text, workspace_id: ws_id, turn_id: turn_id},
-          context,
-          provider_execution(spec, snapshot, :conversation)
-        )
-
-      LogContext.put_frame(frame.frame_id)
-
-      case DialogueFrame.validate(frame) do
-        :ok ->
-          emit_stage(
-            snapshot,
-            :plan_created,
-            "已形成对话认知帧：#{frame.frame_type}。",
-            ["dialogue_frame_formed"],
-            [frame.frame_id],
-            %{
-              stage: :dialogue_frame_formed,
-              frame_ref: frame.frame_id,
-              frame_type: frame.frame_type,
-              needs_tool: frame.tool_need.needs_tool,
-              candidate_count: length(candidates)
-            }
-          )
-
-          {:ok,
-           %{
-             step: step(run, sequence, "形成对话认知帧", nil, nil, nil),
-             observations: [
-               observation(
-                 run,
-                 sequence,
-                 :custom,
-                 "已形成对话认知帧：#{frame.frame_type}。",
-                 "frame:#{frame.frame_id}"
-               )
-             ],
-             stage_state: %{frame: frame, candidates: candidates},
-             provider_call_count: 1,
-             progress_signature: "#{run.run_id}:frame:#{frame.frame_id}:#{frame.frame_type}"
-           }}
-
-        {:error, reasons} ->
-          {:error, "frame validation failed: #{Enum.join(reasons, "; ")}"}
+      with {:ok, state} <- require_stage_state(snapshot, @frame_step_target, [:input, :context]) do
+        state
+        |> form_dialogue_frame(spec, snapshot)
+        |> frame_step_result(run, sequence)
       end
     end
   end
 
   defp strategy_step(spec) do
     fn run, sequence, snapshot ->
-      state = stage_state(snapshot)
-      input = Map.fetch!(state, :input)
-      frame = Map.fetch!(state, :frame)
-      context = Map.fetch!(state, :context)
-      generate_plan = Map.get(input, :generate_micro_plan, false)
-
-      if needs_micro_plan?(frame, generate_plan) do
-        plan_strategy_step(run, sequence, snapshot, spec, input, frame, context)
-      else
-        emit_stage(
-          snapshot,
-          :gate_decided,
-          "本轮裁决为直接回复，不调用工具。",
-          [
-            "reply_only_no_tool"
-          ],
-          [frame.frame_id],
-          %{
-            stage: :reply_only_gate,
-            frame_ref: frame.frame_id,
-            decision_type: :reply_only,
-            no_tool_reason: frame.tool_need.reason_code
-          }
-        )
-
-        {:ok,
-         %{
-           step: step(run, sequence, "判断无需工具执行", nil, nil, nil),
-           observations: [
-             observation(run, sequence, :custom, "本轮无需工具执行，进入自然回复。", "frame:#{frame.frame_id}")
-           ],
-           stage_state: %{route: :reply_only},
-           progress_signature: "#{run.run_id}:strategy:reply_only:#{frame.frame_id}"
-         }}
+      with {:ok, state} <-
+             require_stage_state(snapshot, @strategy_step_target, [:input, :frame, :context]) do
+        execute_strategy_step(run, sequence, snapshot, spec, state)
       end
     end
+  end
+
+  defp form_dialogue_frame(state, spec, snapshot) do
+    input = Map.fetch!(state, :input)
+    context = Map.fetch!(state, :context)
+
+    Planner.form_frame(
+      %{
+        text: Map.fetch!(input, :text),
+        workspace_id: Map.fetch!(input, :workspace_id),
+        turn_id: Map.fetch!(input, :turn_id)
+      },
+      context,
+      provider_execution(spec, snapshot, :conversation)
+    )
+  end
+
+  defp frame_step_result({frame, candidates}, run, sequence) do
+    LogContext.put_frame(frame.frame_id)
+
+    case DialogueFrame.validate(frame) do
+      :ok -> valid_frame_step_result(frame, candidates, run, sequence)
+      {:error, reasons} -> {:error, "frame validation failed: #{Enum.join(reasons, "; ")}"}
+    end
+  end
+
+  defp valid_frame_step_result(frame, candidates, run, sequence) do
+    {:ok,
+     %{
+       step: step(run, sequence, "形成对话认知帧", nil, nil, nil),
+       observations: [
+         observation(
+           run,
+           sequence,
+           :custom,
+           "已形成对话认知帧：#{frame.frame_type}。",
+           "frame:#{frame.frame_id}"
+         )
+       ],
+       stage_state: %{frame: frame, candidates: candidates},
+       provider_call_count: 1,
+       progress_signature: "#{run.run_id}:frame:#{frame.frame_id}:#{frame.frame_type}"
+     }}
+  end
+
+  defp execute_strategy_step(run, sequence, snapshot, spec, state) do
+    input = Map.fetch!(state, :input)
+    frame = Map.fetch!(state, :frame)
+    context = Map.fetch!(state, :context)
+
+    if needs_micro_plan?(frame, Map.get(input, :generate_micro_plan, false)) do
+      plan_strategy_step(run, sequence, snapshot, spec, input, frame, context)
+    else
+      reply_only_strategy_step(run, sequence, snapshot, frame)
+    end
+  end
+
+  defp reply_only_strategy_step(run, sequence, snapshot, frame) do
+    emit_stage(
+      snapshot,
+      :gate_decided,
+      "本轮裁决为直接回复，不调用工具。",
+      ["reply_only_no_tool"],
+      [frame.frame_id],
+      %{
+        stage: :reply_only_gate,
+        frame_ref: frame.frame_id,
+        decision_type: :reply_only,
+        no_tool_reason: frame.tool_need.reason_code
+      }
+    )
+
+    {:ok,
+     %{
+       step: step(run, sequence, "判断无需工具执行", nil, nil, nil),
+       observations: [
+         observation(
+           run,
+           sequence,
+           :custom,
+           "本轮无需工具执行，进入自然回复。",
+           "frame:#{frame.frame_id}"
+         )
+       ],
+       stage_state: %{route: :reply_only},
+       progress_signature: "#{run.run_id}:strategy:reply_only:#{frame.frame_id}"
+     }}
   end
 
   defp response_step(spec) do
@@ -259,19 +269,6 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
       {:ok, %MicroPlan{} = plan} ->
         {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
         {route, summary} = route_for(decision, behavior)
-
-        emit_stage(
-          snapshot,
-          :plan_created,
-          "已生成单步执行计划。",
-          ["micro_plan_created"],
-          [plan.plan_id],
-          %{
-            stage: :micro_plan_created,
-            plan_ref: plan.plan_id,
-            action_count: length(plan.proposed_actions)
-          }
-        )
 
         emit_stage(
           snapshot,
@@ -607,6 +604,27 @@ defmodule NovelApplication.AgentRunFlows.ConversationTurn do
   end
 
   defp stage_state(snapshot), do: Map.get(snapshot, :stage_state, %{})
+
+  defp require_stage_state(snapshot, target_tool_ref, required_keys) do
+    state = stage_state(snapshot)
+
+    missing =
+      Enum.reject(required_keys, fn key ->
+        Map.has_key?(state, key) or Map.has_key?(state, Atom.to_string(key))
+      end)
+
+    if missing == [] do
+      {:ok, state}
+    else
+      {:error,
+       %{
+         type: :agent_step_precondition_failed,
+         target_tool_ref: target_tool_ref,
+         missing_stage_state_keys: Enum.map(missing, &to_string/1),
+         available_stage_state_keys: state |> Map.keys() |> Enum.map(&to_string/1) |> Enum.sort()
+       }}
+    end
+  end
 
   defp decision_or_plan_ref(%OrchestratorDecision{decision_id: id}, _plan)
        when is_binary(id) and id != "",

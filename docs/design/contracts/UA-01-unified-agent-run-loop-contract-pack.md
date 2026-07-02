@@ -1,6 +1,6 @@
 # UA-01 — 统一 AgentRun 循环与可打断创作对话流 Contract Pack
 
-> 状态：UA-CP0 至 UA-CP6 已落地；普通 `conversation_turn_v1` 已从固定四阶段 workflow 继续纯化为 observation-led next-step planner loop：planner 根据 observations 选择 `context_assemble`、`dialogue_frame`、`strategy_gate`、`response_finalize`，再由 `goal_satisfied` completion decision 收束，fresh Tauri `agent-conversation-turn` 记录 4 steps / 0 tool / 6 provider calls，并证明 planner/conversation provider activity 可见。UA-CP4 已完成修订四步 profile，并继续纯化为 observation-led next-step planner：`prose_revision_from_findings_v1` 根据 observations 依次选择 `revision_prepare`、`revision_plan`、`prose_writing`、`revision_finalize`，再由 completion decision 收束，工具 step 仍重新构造单动作 MicroPlan 并经过 Orchestrator gate。正文草稿 profile 在旧四步 proof 之后继续纯化为 observation-led next-step planner：`prose_drafting_with_quality_v1` 现在先产生正文 context observation，再由 planner 决定 `prose_writing` 工具 step，工具 step 重新构造单动作 MicroPlan 并经过 Orchestrator gate，writer/evaluator ProviderExecution activity 继续进入 UI usage 轨迹。fresh Tauri `agent-prose-drafting-with-quality` 已通过，summary 记录 2 steps / 1 tool / 5 provider calls，并断言 planner/writer/evaluator provider calls 在 usage UI 可见。章节大纲与角色演化已从固定 steps workflow 纯化为 observation-led next-step planner profile，并有 fresh Tauri summary；UA-CP5 durable AgentRun + LongRunTask 已通过 backend restart 恢复验收；UA-CP6 provider progress / ProviderExecution cancel / readonly batch 已通过真实 Tauri 验收；自然语言 steering 已通过 `agent-natural-language-steer` 真实 Tauri 验收，章节大纲 profile 已通过 `agent-plot-outline-with-context` 真实 Tauri 验收，角色演化 profile 已通过 `agent-character-evolution-with-context` 真实 Tauri 验收（2026-06-30）。provider execution stream 统一架构已推进到 CP4D/CP5/CP6 对话主链活动投影与恢复：`agent-provider-execution-stream-unified` 真实 Tauri 证明普通 `conversation_turn_v1` 的 ProviderRun / ProviderEvent / ProviderOutput success facts 进入 author-safe 工作轨迹，且 provider purposes 覆盖 planner / conversation；同一场景现在还证明 adapter 会在同一 execution stream 内投影 request_prepared / request_dispatched / provider_chunk / response_received 中间进展，其中 chunk payload 只携带序号、片段长度和累计长度，不携带 raw text delta。OpenAI-compatible vendor family、DeepSeek、LM Studio 与 Anthropic 已在同一 ProviderExecution runtime 内接入 wire-level SSE adapter：adapter `execute/5` 发送 `stream: true`，解析 SSE data frames，chunk 只投影为 author-safe metadata，最终文本仍只在 terminal ProviderOutput 物化。`Provider.CancellationToken` 已接入同一 runtime：AgentRun cancel 请求 `provider_execution_cancel`，SSE adapter 停止继续读取并物化 `cancel_requested` / `cancelled` ProviderExecution facts。`agent-provider-execution-error-author-safe` 证明 provider_error facts 也进入同一工作轨迹，并收束为安全 TurnResult；`agent-provider-execution-activity-restored` 证明刷新/恢复后 provider activity 可从持久 AgentRun author-safe events 回到同一 assistant 对话流，且 scoped ProviderRun activity API 可按 work/session/turn 读取同一批 author-safe usage/event/output summary facts。ProviderRun 同一对话流 replay UI 已通过 fresh Tauri：事件序列、输出摘要和 no-provider-recall boundary 从 persisted facts 展示。仍不能以历史 CP6 checkpoint progress、chunk metadata CP 或旧 `complete` 体系冒充 live vendor 真实矩阵已完成。
+> 状态：UA-CP0 至 UA-CP6 已落地；普通 `conversation_turn_v1` 已从固定四阶段 workflow 继续纯化为 observation-led next-step planner loop：planner 根据 observations 选择 `context_assemble`、`dialogue_frame`、`strategy_gate`、`response_finalize`，再由 `goal_satisfied` completion decision 收束，fresh Tauri `agent-conversation-turn` 记录 4 steps / 0 tool / 7 provider calls，并证明 planner/conversation provider activity 可见。UA-CP4 已完成修订四步 profile，并继续纯化为 observation-led next-step planner：`prose_revision_from_findings_v1` 根据 observations 依次选择 `revision_prepare`、`revision_plan`、`prose_writing`、`revision_finalize`，再由 completion decision 收束，工具 step 仍重新构造单动作 MicroPlan 并经过 Orchestrator gate。正文草稿 profile 在旧四步 proof 之后继续纯化为 observation-led next-step planner：`prose_drafting_with_quality_v1` 现在先产生正文 context observation，再由 planner 决定 `prose_writing` 工具 step，工具 step 重新构造单动作 MicroPlan 并经过 Orchestrator gate，writer/evaluator ProviderExecution activity 继续进入 UI usage 轨迹。fresh Tauri `agent-prose-drafting-with-quality` 已通过，summary 记录 2 steps / 1 tool / 5 provider calls，并断言 planner/writer/evaluator provider calls 在 usage UI 可见。章节大纲、角色演化、provider progress 与 readonly batch 均已从固定 steps workflow 纯化为 profile 自身 `next_step_planner/1`，生产 `AgentRunSequentialPlanner` 已删除，现存 profile 的 `steps/1` 仅作为拒绝旧入口的 `no_return()` guard。UA-CP5 durable AgentRun + LongRunTask 已通过 backend restart 恢复验收；UA-CP6 provider progress / ProviderExecution cancel / readonly batch 已通过真实 Tauri 验收；自然语言 steering 已通过 `agent-natural-language-steer` 真实 Tauri 验收，章节大纲 profile 已通过 `agent-plot-outline-with-context` 真实 Tauri 验收，角色演化 profile 已通过 `agent-character-evolution-with-context` 真实 Tauri 验收。AgentRun 工作详情现在消费既有 author-safe `run_started.profile_selection`，在“本轮路径”中显示“理解作者意图 → 进入对应工作流”，但该入口选择只解释 profile 选择，不批准工具执行；后续 step 仍必须由 observation-led planner 选择并重新经过 MicroPlan / `ExecutionOrchestrator` gate。`agent-world-building-with-context` 与 `agent-world-building-style-rule-with-context` 已用真实 Tauri 证明 world-building profile selection 因果、路径摘要与 tentative artifact 边界同时可见。provider execution stream 统一架构已推进到 CP4D/CP5/CP6 对话主链活动投影与恢复：`agent-provider-execution-stream-unified` 真实 Tauri 证明普通 `conversation_turn_v1` 的 ProviderRun / ProviderEvent / ProviderOutput success facts 进入 developer telemetry，且 provider purposes 覆盖 author_reasoning / conversation；同一场景现在还证明 adapter 会在同一 execution stream 内投影 request_prepared / request_dispatched / provider_chunk / response_received 中间进展，其中 chunk payload 只携带序号、片段长度和累计长度，不携带 raw text delta。OpenAI-compatible vendor family、DeepSeek、LM Studio 与 Anthropic 已在同一 ProviderExecution runtime 内接入 wire-level SSE adapter：adapter `execute/5` 发送 `stream: true`，解析 SSE data frames，chunk 只投影为 redacted telemetry metadata，最终文本仍只在 terminal ProviderOutput 物化。`Provider.CancellationToken` 已接入同一 runtime：AgentRun cancel 请求 `provider_execution_cancel`，SSE adapter 停止继续读取并物化 `cancel_requested` / `cancelled` ProviderExecution facts。`Provider.Execution` public dependency 不接受裸函数，内部 final-result callback 字段已从 `complete_fn` 收口为 `result_fn`。`agent-provider-execution-error-author-safe` 证明 provider_error facts 也进入 developer telemetry，并收束为安全 TurnResult；`agent-provider-execution-activity-restored` 证明刷新/恢复后 transcript 只保留 AgentRun summary，作者展开同一 assistant 工作详情时通过 scoped AgentRun activity API 按 work/session/turn 异步读取同一批 developer telemetry 与 ProviderRun usage/event/output summary facts。ProviderRun 同一对话流 replay UI 已通过 fresh Tauri：事件序列、输出摘要和 no-provider-recall boundary 从 persisted facts 展示。当前 live provider matrix 只覆盖本地 LM Studio 与 DeepSeek；LM Studio 已有真实 Tauri + HTTP log 证据，DeepSeek 入口因当前 shell 缺 key 标记凭据阻塞，其他供应商等待用户提供 key 后再进入 CP。仍不能以历史 CP6 checkpoint progress、chunk metadata CP 或旧 `complete` 体系冒充 live vendor 真实矩阵已完成。
 >
 > 角色：冻结 UA-CP1 至 UA-CP6 需要消费的 AgentRun / AgentPlan / AgentStep / AgentObservation / AgentEvent contract，以及 bounded/durable runtime、事件流、打断语义、角色/正文/大纲/角色演化 profile 和 durable resume 的验收边界。
 >
@@ -25,14 +25,14 @@
 - `NovelDomain.AgentRun` / `AgentPlan` / `AgentStep` / `AgentObservation` / `AgentNextStepDecision` / `AgentRunPolicy`、`NovelCommon.Contracts.AgentEvent` 与 `NovelAgent.AgentTaskProfileRegistry`。
 - supervised bounded runtime：`NovelApplication.AgentRunRegistry`、`AgentRunSupervisor`、`AgentStepTaskSupervisor`、`AgentRunServer`、`AgentRunService`。
 - `agent_run_start` primary MicroPlan action 与 `allow_agent_run` 裁决；run 内部 step 仍逐步生成单动作 MicroPlan 并重新经过 `ExecutionOrchestrator`。
-- Channel 快速 ack、`agent_event`、`agent_run_state`、`agent_command`（pause/resume/cancel/steer）协议，以及前端 AgentRun 活动面板。当前真实页面控制已覆盖 pause/resume/cancel/steer；steer 既可由可见“调整方向”输入框提交，也可在 active AgentRun 期间由主聊天输入框自然语言提交，后端 ack 后广播 `plan_adjusted` 与新版 `agent_run_state`，且不创建第二个作者 turn/run。
+- Channel 快速 ack、`agent_event`、`agent_run_state`、`agent_command`（pause/resume/cancel/steer）协议，以及前端 AgentRun 活动面板。当前真实页面控制已覆盖 pause/resume/cancel/steer；steer 既可由可见“调整方向”输入框提交，也可在 active AgentRun 期间由主聊天输入框自然语言提交，后端 ack 后广播 `plan_adjusted` 与新版 `agent_run_state`。主输入 steer 不创建第二个后端 `user_message` / 作者 turn / run，但前端必须把作者补充文本作为本地作者消息锚在同一 active run 的结构工作态之前。
 - `NovelPersistence.AgentRunLog` 与最小持久化表 `agent_runs` / `agent_run_steps` / `agent_events` 已落地；runtime 写入 run/step/event 审计记录，`agent_events` 按 `(run_id, sequence)` 唯一，持久化 payload 会剥离 nested `turn_result`。
 - 首个真实切面：复合作者请求触发 bounded run，依次执行 `character_roster` observation 与消费该 observation 的 `character_design` step，输出 tentative `character_seed`，未采纳不写生产角色档案。
 - 真实 Tauri 验收入口：`ua01-agent-bounded-roster-to-character-design` 及 `agent-*` 场景，证据目录 `artifacts/slice-verify/<scenario-id>-tauri/`。
 
-CP4 已把正文主链迁入 AgentRun lifecycle：`prose_revision_from_findings_v1` 已从四步 fixed profile 继续纯化为 observation-led next-step loop：revision source observation → provider-backed next-step decision → revision MicroPlan / Orchestrator gate observation → provider-backed next-step decision → `prose_writing` tentative revision candidate → finalization observation → completion decision。当前实现保留 revision provider call ref、原稿/修订稿 sibling tentative 边界与 replay no-provider policy；planner provider calls 与 revision writer call 都进入 consumed provider budget。`prose_drafting_with_quality_v1` 已从旧四步 fixed workflow 继续纯化为 observation-led next-step loop：context observation → provider-backed next-step decision → 单动作 MicroPlan → Orchestrator gate → `prose_writing` writer/evaluator provider calls → quality/artifact observations → completion decision。当前实现保留 writer/evaluator provider call refs 与 UI usage/activity 轨迹，fresh Tauri summary 已通过并记录 2 steps / 1 tool / 5 provider calls。正文以外更多创作 profile 已开始从固定 workflow 纯化为真正 loop：`plot_outline_with_context_v1` 先产生 context observation，再由 `next_step_planner` 选择 `plot_outline` 工具 step，工具 step 重新构造单动作 MicroPlan 并经过 Orchestrator gate，最终生成 tentative `outline_draft`，随后由 planner 返回 completion decision；`character_evolution_with_context_v1` 同样通过 context observation → planner 选择 `character_evolution` → MicroPlan/Orchestrator gate → tentative `character_evolution_seed` → completion decision 推进。三者未采纳前均不写作品事实。
+CP4 已把正文主链迁入 AgentRun lifecycle：`prose_revision_from_findings_v1` 已从四步 fixed profile 继续纯化为 observation-led next-step loop：revision source observation → provider-backed next-step decision → revision MicroPlan / Orchestrator gate observation → provider-backed next-step decision → `prose_writing` tentative revision candidate → finalization observation → completion decision。当前实现保留 revision provider call ref、原稿/修订稿 sibling tentative 边界与 replay no-provider policy；planner provider calls 与 revision writer call 都进入 consumed provider budget。`prose_drafting_with_quality_v1` 已从旧四步 fixed workflow 继续纯化为 observation-led next-step loop：context observation → provider-backed next-step decision → 单动作 MicroPlan → Orchestrator gate → `prose_writing` writer/evaluator provider calls → quality/artifact observations → completion decision。当前实现保留 writer/evaluator provider call refs 与 UI usage/activity 轨迹，fresh Tauri summary 已通过并记录 2 steps / 1 tool / 5 provider calls。正文以外更多创作 profile 已开始从固定 workflow 纯化为真正 loop：`plot_outline_with_context_v1` 先产生 context observation，再由 `next_step_planner` 选择 `plot_outline` 工具 step，工具 step 重新构造单动作 MicroPlan 并经过 Orchestrator gate，最终生成 tentative `outline_draft`，随后由 planner 返回 completion decision；`character_evolution_with_context_v1` 同样通过 context observation → planner 选择 `character_evolution` → MicroPlan/Orchestrator gate → tentative `character_evolution_seed` → completion decision 推进；`world_building_with_context_v1` 覆盖伏笔、世界规则、写作/文风规则与创作约束等具体意图，作者原始目标通过 `author_goal_text` 约束 artifact type 判定，内部 observation 不得反向污染为错误类型，已由 `agent-world-building-with-context` 与 `agent-world-building-style-rule-with-context` 真实 Tauri 证明。上述产物未采纳前均不写作品事实。
 
-CP5 已落地 durable AgentRun + LongRunTask 恢复闭环：durable run 创建 `LongRunTask`，runtime checkpoint 同步 run state / completed step refs / budget / pending artifacts；Channel join 可重新绑定 live runtime sink，或在 backend restart 后从 checkpoint 广播 author-safe `run_resumed` 与 `agent_run_state`，stale snapshot 进入 `awaiting_author` 而不是静默继续。CP6 已补 provider progress、ProviderExecution cancel 边界和只读 batch：它证明 author-safe progress、同一 ProviderExecution 取消状态和 read-only batch profile。
+CP5 已落地 durable AgentRun + LongRunTask 恢复闭环：durable run 创建 `LongRunTask`，runtime checkpoint 同步 run state / completed step refs / budget / pending artifacts；Channel join 可重新绑定 live runtime sink，或在 backend restart 后从 checkpoint 广播 author-safe `run_resumed` 与 `agent_run_state`，stale snapshot 进入 `awaiting_author` 而不是静默继续。当前 durable checkpoint contract 为 v2：除 run/checkpoint 自身版本外，启动时的 `work_revision`、`target_revision_ref`、`target_revision` 可作为事实锚点写入 `authority_scope` 与 `checkpoint_data.agent_run`。stale reason 必须进入 `checkpoint_data.stale_reason` 与 run `failure_ref`，当前区分 `goal_version_mismatch`、`checkpoint_goal_version_mismatch`、`checkpoint_version_missing`、`checkpoint_version_mismatch`、`session_ref_mismatch`、`work_ref_mismatch`、`work_revision_mismatch`、`target_revision_mismatch`、`target_ref_missing`、`durable_runtime_not_live`、`forced_stale_recovery`。CP6 已补 provider progress、ProviderExecution cancel 边界和只读 batch：它证明 author-safe progress、同一 ProviderExecution 取消状态和 read-only batch profile。
 
 ## 1. AgentRun
 
@@ -70,7 +70,7 @@ Bounded run 不强制创建 `LongRunTask`。durable run 必须关联 `LongRunTas
 
 ## 2. AgentPlan
 
-`AgentPlan` 是 milestone plan，不是 `MicroPlan` 数组。
+`AgentPlan` 是作者可理解的执行步骤计划，不是 `MicroPlan` 数组。
 
 当前实现中 `AgentRun.plan_ref` 指向 `AgentPlan.plan_id`（`ap_*`），`agent_run_start` 的 primary `MicroPlan`（`mp_agent_run_*`）只负责启动 run 的一次性 gate，不作为 AgentRun 的 plan 身份。
 
@@ -79,13 +79,19 @@ plan_id: ap_xxx
 run_ref: run_xxx
 version: 1
 goal_version: 1
-milestones:
-  - milestone_id: inspect_roster
-    summary: 读取当前角色阵容
+steps:
+  - step_id: inspect_roster
+    kind: explore
+    status: active
+    description: 读取当前角色阵容
     success_criteria: [character_roster_observation_exists]
-  - milestone_id: design_character
-    summary: 设计新的主要反派
+    depends_on: []
+  - step_id: design_character
+    kind: act
+    status: pending
+    description: 设计新的主要反派
     success_criteria: [tentative_character_seed_exists]
+    depends_on: [inspect_roster]
 stop_conditions:
   - author_interrupt
   - confirmation_required
@@ -94,7 +100,7 @@ stop_conditions:
   - goal_satisfied
 ```
 
-禁止把 `AgentPlan.milestones` 直接转成批量 `ToolRequest`。
+禁止把 `AgentPlan.steps` 直接转成批量 `ToolRequest`。
 
 ### 2.1 AgentNextStepDecision 与 next_step_planner
 
@@ -116,7 +122,7 @@ confidence: 0.74
 reason_codes: [roster_observation_available]
 ```
 
-该 decision 不是 `MicroPlan`，也不批准工具执行；当 `decision_type=execute_step` 时，后续仍必须在该 AgentStep 内构造单动作 `MicroPlan` 并重新经过 `ExecutionOrchestrator.decide`。当前 `character_design_with_context_v1`、`prose_drafting_with_quality_v1`、`prose_revision_from_findings_v1`、`plot_outline_with_context_v1` 与 `character_evolution_with_context_v1` 已使用 provider-backed next-step planner，根据 observations 选择上下文/阵容读取、修订源读取、单个创作工具 step、汇总 step 或完成。尚未迁移为观察驱动 planner 的 profile 只能通过显式 fixed-step planner 适配在同一 `next_step_planner` runtime 入口内运行，不得恢复 `steps:` 启动参数或 `planner || steps` 隐式 fallback。
+该 decision 不是 `MicroPlan`，也不批准工具执行；当 `decision_type=execute_step` 时，后续仍必须在该 AgentStep 内构造单动作 `MicroPlan` 并重新经过 `ExecutionOrchestrator.decide`。当前 `character_design_with_context_v1`、`conversation_turn_v1`、`prose_drafting_with_quality_v1`、`prose_revision_from_findings_v1`、`plot_outline_with_context_v1`、`character_evolution_with_context_v1`、`provider_progress_v1` 与 `readonly_batch_context_v1` 均已使用 profile 自身 next-step planner，根据 observations 选择上下文/阵容读取、修订源读取、只读批量读取、provider progress step、单个创作工具 step、汇总 step 或完成。不得恢复 `steps:` 启动参数、`planner || steps` 隐式 fallback，或把 profile `steps/1` 从拒绝旧入口的 guard 改回可执行 workflow。
 
 ## 3. AgentStep
 
@@ -144,7 +150,7 @@ idempotency_key: run_xxx:2:character_design:input_hash
 MicroPlan → PlannerBoundary → GateOrder → ExecutionOrchestrator → ToolRequest → ToolResult
 ```
 
-每一步还必须记录可审计的 `state_snapshot_ref` 与 `idempotency_key`，至少绑定 `work_id`、`session_id`、`run_id`、step sequence、tool name 和 goal version；更完整的 work revision/target revision stale 检查属于 UA-CP4+ 的 durable/resume 深化。
+每一步还必须记录可审计的 `state_snapshot_ref` 与 `idempotency_key`，至少绑定 `work_id`、`session_id`、`run_id`、step sequence、tool name 和 goal version。durable run 的 checkpoint v2 还可绑定 `work_revision`、`target_revision_ref`、`target_revision`；恢复入口拿当前事实版本比较，若作品事实、目标版本或目标存在性不一致，必须进入 `awaiting_author`，不得静默继续执行旧 snapshot。
 
 ## 4. AgentObservation
 
@@ -173,15 +179,23 @@ event_id: evt_xxx
 run_ref: run_xxx
 step_ref: step_xxx
 sequence: 7
-event_type: observation_recorded
+event_type: exploration_observed
 visibility: author
 summary: 已读取当前角色阵容，发现已有 3 个角色。
+author_narrative: 我先核对现有角色阵容，避免新反派和既有人设重复。
+author_narrative_source:
+  source_type: provider_output
+  provider_run_ref: prun_xxx
+  provider_call_ref: pcall_xxx
+  provider_output_ref: pout_xxx
+  source_hash: sha256:...
+  narrative_hash: sha256:...
 reason_codes: [character_roster_loaded]
 refs: [obs_xxx]
 emitted_at: ...
 ```
 
-作者可见事件禁止包含 raw prompt、chain-of-thought、API key、provider secret、未脱敏 memory 或完整 ToolRequest dump。
+46§9 工作详情运行中先显示同一 assistant turn 的结构性工作态骨架，避免作者发送后空等；该骨架只能由状态 chip、阶段轨道、工作详情入口等枚举/结构 UI 组成，不得代写模型推理。随后消费同一 ProviderExecution stream 内 `purpose=author_reasoning` 的 `author_narrative_delta`，provider chunk 到达即通过同一 `agent_event.provider_progress` 推动作者面 reasoning 文本增长；不得等 ProviderOutput 结束后一次性丢卡片。最终 `plan_drafted` / `plan_revised` / `exploration_observed` / `evaluation_made` 携带 source-bound `author_narrative` 后，才用结构化事件替换同 provider run 的临时 delta；普通 ProviderRun / ProviderEvent / ProviderOutput facts 仍只作为 developer detail 展开。作者可见事件禁止包含 raw prompt、chain-of-thought、provider private reasoning / thinking、API key、provider secret、未脱敏 memory、完整 ToolRequest dump 或 JSON tail。
 
 ## 6. AgentRunPolicy 与预算
 
@@ -306,9 +320,11 @@ provider streaming 不再作为 `complete` 之外的可选支路登记。后续 
 - CP4A：`NovelAgent.Provider.Execution.complete/2` 会把同一次 `Gateway.execute/4` 的 ProviderRun / ProviderOutput / ProviderEvent refs 附回 `Provider.Result`；writer / evaluator caller 已可从 final result 读取独立 `provider_call_ref`，不再靠测试 map 私有字段补 trace。
 - CP4B：`NovelAgent.Provider.Execution.dependency/1` 成为 tool/profile 默认 provider 依赖对象；Toolbox、AuthorizedToolExecutor、ToolAdapterRegistry、CreativeToolAdapter、CreativeProvider.Real、ProseQualityEvaluator、TurnExecutionService、ProseRevisionService 和 AgentRun creative profiles 已消费同一 dependency。存量裸函数测试注入仍可被解析，登记为后续清理项。
 - CP4C：DialogueGateway / Planner / DialoguePlanningService / conversation profile 公开入口已迁移到 provider execution dependency；显式 nil provider 会被拒绝，conversation frame planning、micro planning 与 finalization 通过同一 dependency 解析。旧一参函数输入形态仍存在，登记为 provider dependency 纯化债务。
-- CP4D / CP5 / CP6：`NovelApplication.ProviderActivityProjector` 已把同一次 ProviderExecution 的 ProviderRun / ProviderEvent / ProviderOutput facts 投影为 author-safe `agent_event.provider_progress`；conversation / prose drafting / character design / plot outline / character evolution / prose revision flows 在 AgentRun snapshot 上接入 projector。真实 Tauri `agent-provider-execution-stream-unified` 已证明普通对话进入 `conversation_turn_v1`，provider_started / request_prepared / request_dispatched / provider_chunk / response_received / provider_final_output 以 provider_progress 进入同一 assistant 工作轨迹，并携带 provider_run_ref / provider_call_ref / progress phase / chunk length metadata，不泄漏 raw prompt、system prompt、frame JSON、assistant_message 或 raw text delta。真实 Tauri `agent-provider-execution-error-author-safe` 已证明 provider_started / provider_error 也进入同一 author-safe 工作轨迹，payload 只暴露 status=error / output_type=empty / refs 等摘要，最终 TurnResult 不调用工具、不采纳、不写作品事实。真实 Tauri `agent-provider-execution-activity-restored` 已证明 session restore / reload 后 provider_progress 可从持久 AgentRun author-safe events 恢复到 `turn_result.agent_run.events`，并继续在同一 assistant 对话流“执行记录”中可见；同场景也证明 scoped ProviderRun activity API 返回原 work/session/turn 下的 provider_run_ref、provider_call_ref、planner/conversation purpose、events、output summary 与 usage totals，不重新调用 provider，也不泄漏 raw provider content；ProviderRun replay UI 的事件序列 / 输出摘要 / no-provider-recall boundary 已在同场景通过 fresh Tauri。
+- CP4D / CP5 / CP6：`NovelApplication.ProviderActivityProjector` 已把同一次 ProviderExecution 的 ProviderRun / ProviderEvent / ProviderOutput facts 投影为 developer visibility 的 `agent_event.provider_progress`；conversation / prose drafting / character design / plot outline / character evolution / prose revision flows 在 AgentRun snapshot 上接入 projector。真实 Tauri `agent-provider-execution-stream-unified` 已证明普通对话进入 `conversation_turn_v1`，provider_started / request_prepared / request_dispatched / provider_chunk / response_received / provider_final_output 以 developer provider_progress 进入同一 assistant 工作详情，并携带 provider_run_ref / provider_call_ref / progress phase / chunk length metadata，不泄漏 raw prompt、system prompt、frame JSON、assistant_message 或 raw text delta。真实 Tauri `agent-provider-execution-error-author-safe` 已证明 provider_started / provider_error 也进入 developer telemetry，payload 只暴露 status=error / output_type=empty / refs 等摘要，最终 TurnResult 不调用工具、不采纳、不写作品事实。session resume / show 首屏现在只恢复最近 transcript page 与每条 assistant 的 `agent_run` summary，不同步 hydrate author-safe events / provider_runs；更早 transcript 通过 scoped `GET /api/works/:work_id/sessions/:session_id/transcript?before_id=...` 按 interaction cursor 异步加载，并校验 work/session/cursor 归属。同一 assistant 对话流的“工作详情”默认收起，展开时通过 scoped `GET /api/works/:work_id/sessions/:session_id/turns/:turn_id/agent-run-activity` 异步读取原 work/session/turn 下的 AgentRun author-safe events、provider_run_ref、provider_call_ref、planner/conversation purpose、events、output summary 与 usage totals，不重新调用 provider，也不泄漏 raw provider content。`agent-session-transcript-lazy-page` 已进一步证明：旧 transcript page 加载出来的历史 assistant 仍只携带 `agent_run` summary，作者展开该旧 assistant 的“工作详情”时通过同一 scoped activity API 原地加载 ProviderRun replay，且加载旧页和展开旧详情都不重新调用 provider。ProviderRun replay UI 的事件序列 / 输出摘要 / no-provider-recall boundary 仍在同一 assistant 对话流内呈现。
+- ADR-0022 / 46§9 对上条普通 telemetry 约束作窄化扩展：`purpose=author_reasoning` 的 provider chunk 可投影 JSON tail 之前的 `author_narrative_delta`，用于作者面实时 reasoning；该 delta 仍必须在最终 ProviderOutput 中通过 streamed-prefix / source binding 验证，不得扩展到正文、工具或 provider private reasoning。
+- 历史 profile 纯化：`provider_progress_v1` 与 `readonly_batch_context_v1` 不再通过 fixed-step adapter 进入 AgentRun runtime；两个 profile 均声明自身 `next_step_planner/1`，`steps/1` 显式拒绝运行。生产 `AgentRunSequentialPlanner` 模块已删除，final step 可保留自身 `goal_satisfied` completion decision，避免终态裁决被 execute decision 覆盖。
 
-仍未完成：live vendor 真实矩阵和人工文学质量盲评；OpenAI-compatible / DeepSeek / LM Studio / Anthropic wire-level SSE adapter 与 ProviderExecution cancellation 已接入同一 ProviderExecution runtime；不再规划独立右侧 replay console，ProviderRun replay 已落在同一 assistant 对话流。
+仍未完成：完整 live vendor 真实矩阵和人工文学质量盲评；当前 live provider CP 按用户可用资源只覆盖本地 LM Studio 与 DeepSeek。LM Studio 已通过真实 Tauri `agent-provider-execution-stream-unified --provider lmstudio`，并由 HTTP log 证明同一 turn 发出 200 `POST /chat/completions`；DeepSeek runner 已接入同一入口，但依赖 `NOVEL_DEEPSEEK_API_KEY` 或 `DEEPSEEK_API_KEY`，当前缺 key 时只能登记为凭据阻塞。OpenAI-compatible / DeepSeek / LM Studio / Anthropic wire-level SSE adapter 与 ProviderExecution cancellation 已接入同一 ProviderExecution runtime；其他供应商等待真实凭据后另行登记，不再规划独立右侧 replay console，ProviderRun replay 已落在同一 assistant 对话流。
 
 后续必须保持：
 
@@ -384,7 +400,7 @@ ua01-agent-bounded-roster-to-character-design
 - `agent-replay-no-provider`（UA-CP0 replay policy）
 - `agent-work-isolation`
 
-UA-CP4 fresh Tauri summary 已补齐。UA-CP5 的 `agent-durable-resume-long-run-task` 已转 active/nightly 并通过真实 Tauri 验收，证明 durable run 关联 `LongRunTask`、backend restart 后 stale recovery 等待作者且不重复执行已完成 step。UA-CP6 的 `agent-provider-streaming-progress`、`agent-provider-cancel-honest-boundary`、`agent-readonly-batch-profile` 已转 active/nightly 并通过真实 Tauri 验收：provider progress 事件 author-safe 且不泄漏 raw prompt；cancel 进入 `cancelling`、请求 `provider_execution_cancel` 并最终落 `cancelled`；只读 batch 不调用 provider、不生成 artifact、不触发 adoption。`agent-natural-language-steer` 已证明运行中主输入框文本发送为同一 active `run_id` 的 `agent_command steer`，广播 goal version 2，且不产生第二个 `user_message`。`agent-prose-drafting-with-quality` 已证明正文草稿请求进入 `prose_drafting_with_quality_v1`，由 next-step planner 基于 context/quality/artifact observations 推进，工具 step 重新经过 Orchestrator gate，并生成 tentative `prose_fragment`，`steps=2` / `tool_calls=1` / `provider_calls=5`。`agent-plot-outline-with-context` 已证明章节大纲请求进入 `plot_outline_with_context_v1`，由 next-step planner 基于 context/artifact observations 推进，工具 step 重新经过 Orchestrator gate，并生成 tentative `outline_draft`，`steps=2` / `tool_calls=1` / `provider_calls=4`。`agent-character-evolution-with-context` 已证明已有角色状态更新进入 `character_evolution_with_context_v1`，由 next-step planner 基于 context/artifact observations 推进，工具 step 重新经过 Orchestrator gate，并生成 tentative `character_evolution_seed`，`memory_subtype=CURRENT_STATE`、`steps=2` / `tool_calls=1` / `provider_calls=4`。不得把当前 CP6 progress/cancel/read-only batch 写成 live vendor 真实矩阵已完成。
+UA-CP4 fresh Tauri summary 已补齐。UA-CP5 的 `agent-durable-resume-long-run-task` 已转 active/nightly 并通过真实 Tauri 验收，证明 durable run 关联 `LongRunTask`、backend restart 后 stale recovery 等待作者且不重复执行已完成 step。UA-CP6 的 `agent-provider-streaming-progress`、`agent-provider-cancel-honest-boundary`、`agent-readonly-batch-profile` 已转 active/nightly 并通过真实 Tauri 验收：provider progress 事件 author-safe 且不泄漏 raw prompt；cancel 进入 `cancelling`、请求 `provider_execution_cancel` 并最终落 `cancelled`；只读 batch profile 本身不调用内容 provider、不生成 artifact、不触发 adoption。`agent-natural-language-steer` 已证明运行中主输入框文本发送为同一 active `run_id` 的 `agent_command steer`，广播 goal version 2，页面保留本地作者消息锚点，且不产生第二个后端 `user_message`。当前普通 `user_message` 先进入 `profile_routing_v1`，由运行时 profile router 选择目标 profile，再切入目标 profile 的 observation-led next-step planner；profile routing 不批准工具执行，后续工具 step 仍重新经过 Orchestrator gate。当前预算口径包含一次 profile routing provider call：`agent-conversation-turn` 为 4 steps / 0 tools / 7 provider calls；`agent-prose-drafting-with-quality` 为 2 steps / 1 tool / 6 provider calls；`agent-plot-outline-with-context`、`agent-character-evolution-with-context`、`agent-world-building-with-context` 与 `agent-world-building-style-rule-with-context` 均为 2 steps / 1 tool / 5 provider calls；`agent-provider-streaming-progress` 为 2 provider calls；`agent-readonly-batch-profile` 为 1 provider call且无 artifact/write/adoption。不得把当前 CP6 progress/cancel/read-only batch 写成 live vendor 真实矩阵已完成。
 
 ## 13. 不变量
 

@@ -36,6 +36,33 @@ defmodule NovelWeb.WorkSessionsControllerTest do
     assert [%{"text" => "第一句"}] = body["transcript"]
   end
 
+  test "GET /api/works/:work_id/sessions/resume returns a paged transcript snapshot", %{
+    conn: conn,
+    work: work
+  } do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    for index <- 1..35 do
+      {:ok, _} =
+        MemoryLog.record(%{
+          workspace_id: work.id,
+          session_id: session.id,
+          turn_id: "turn-#{index}",
+          role: "user",
+          content: %{text: "第#{index}句"}
+        })
+    end
+
+    conn = get(conn, "/api/works/#{work.id}/sessions/resume")
+    body = json_response(conn, 200)
+
+    assert length(body["transcript"]) == 30
+    assert Enum.map(body["transcript"], & &1["text"]) == Enum.map(6..35, &"第#{&1}句")
+    assert body["transcript_page"]["returned_count"] == 30
+    assert body["transcript_page"]["has_more_before"] == true
+    assert is_binary(body["transcript_page"]["before_id"])
+  end
+
   test "GET /api/works/:work_id/sessions searches sessions", %{conn: conn, work: work} do
     {:ok, session} = WorkSessionRepo.create(%{work_id: work.id, title: "第三章节奏"})
 
@@ -154,6 +181,64 @@ defmodule NovelWeb.WorkSessionsControllerTest do
     conn = get(conn, "/api/works/#{work.id}/sessions/#{session.id}")
 
     assert %{"error" => "session_not_found"} = json_response(conn, 404)
+  end
+
+  test "GET /api/works/:work_id/sessions/:id/transcript returns older page", %{
+    conn: conn,
+    work: work
+  } do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+    for index <- 1..35 do
+      {:ok, _} =
+        MemoryLog.record(%{
+          workspace_id: work.id,
+          session_id: session.id,
+          turn_id: "turn-#{index}",
+          role: "user",
+          content: %{text: "第#{index}句"}
+        })
+    end
+
+    first_page_conn = get(conn, "/api/works/#{work.id}/sessions/resume")
+    first_page = json_response(first_page_conn, 200)
+    before_id = first_page["transcript_page"]["before_id"]
+
+    conn =
+      get(conn, "/api/works/#{work.id}/sessions/#{session.id}/transcript", %{
+        "before_id" => before_id,
+        "limit" => "30"
+      })
+
+    body = json_response(conn, 200)
+
+    assert Enum.map(body["transcript"], & &1["text"]) == Enum.map(1..5, &"第#{&1}句")
+    assert body["transcript_page"]["has_more_before"] == false
+    assert body["session"]["id"] == session.id
+  end
+
+  test "GET /api/works/:work_id/sessions/:id/transcript rejects cross-session cursor", %{
+    conn: conn,
+    work: work
+  } do
+    {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+    {:ok, other_session} = WorkSessionRepo.create(%{work_id: work.id, title: "其他会话"})
+
+    {:ok, cursor} =
+      MemoryLog.record(%{
+        workspace_id: work.id,
+        session_id: other_session.id,
+        turn_id: "turn-other",
+        role: "user",
+        content: %{text: "其他会话"}
+      })
+
+    conn =
+      get(conn, "/api/works/#{work.id}/sessions/#{session.id}/transcript", %{
+        "before_id" => cursor.id
+      })
+
+    assert %{"error" => "cursor_not_found"} = json_response(conn, 404)
   end
 
   test "POST /api/works/:work_id/sessions creates a session", %{conn: conn, work: work} do

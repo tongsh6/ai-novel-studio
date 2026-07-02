@@ -51,7 +51,7 @@ assertions:
     - parent user_message starts bounded AgentRun without sync_turn fallback
     - roster and character_design internal steps each cross allow_tool gate
     - character_roster and character_design tools both execute
-    - consumed budget is exactly two steps, two tool calls, and one provider call
+    - consumed budget is exactly two steps, two tool calls, and five provider calls, including the profile routing model call
     - generated character_seed remains tentative and requires author adoption
     - no production write or auto-adoption occurs
 

@@ -164,6 +164,7 @@ scripts/scenario_invariants/
 ├── run_i1_causal.exs        # I1 因果绑定检查
 ├── run_i2_variation.exs     # I2 差异化输入检查
 ├── run_i3_nonce.exs         # I3 种子贯通检查
+├── run_n_narr.exs           # N-NARR 作者过程叙事来源绑定检查
 └── run_all.sh               # 集成入口
 ```
 
@@ -174,6 +175,7 @@ artifacts/scenario-invariants/
 ├── i1.{md,json}
 ├── i2.{md,json}
 ├── i3.{md,json}
+├── n_narr.{md,json}
 └── summary.md
 ```
 

@@ -273,6 +273,7 @@ ADR-0005-execution-gate-order-v3.md
 | ADR-0019 | `ADR-0019-adoption-status-transition-v3.md` | Accepted | Adoption Status 转换矩阵 v3 | `foundation/30 §3.2.1`, `domain/22`, ADR-0001/0002/0010 | adoption 状态流转 enforcement slice |
 | ADR-0020 | `ADR-0020-prose-quality-finding-and-revision-candidate-boundary-v3.md` | Accepted | Prose Quality Finding 与 Revision Candidate 边界 v3 | `contracts/VS-00E`, `quality/31`, ADR-0010/0012/0017 | VS-00E CP1–CP3 prose 执行与质量闭环 slice |
 | ADR-0021 | `ADR-0021-agent-run-and-turn-boundary-v3.md` | Accepted | AgentRun 与 Turn 边界、单步 re-gate、活动流、打断和 LongRunTask 关系 | `contracts/UA-01`, ADR-0001/0002/0004/0012/0017/0020 | UA-01 CP0–CP3 bounded AgentRun；CP4 正文 profile 迁移进行中 |
+| ADR-0022 | `ADR-0022-agentic-loop-plan-reasoning-authorship-v3.md` | Proposed | Agentic Loop 计划可视化/版本化、评估→重规划回路、作者叙事作者权归模型（细化 ADR-0021） | `notes/2026-07-01-agentic-loop-reasoning-stream-ui.md`, `contracts/UA-01`, `engineering/scenario-invariants.md`, ADR-0021/0003/0004/0013/0014/0015 | `agentic-loop-plan-replan-reasoning` slice（46§9 UI 落地）；不变量 N-NARR |
 
 ---
 

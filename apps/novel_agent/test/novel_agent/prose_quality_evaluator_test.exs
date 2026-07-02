@@ -12,7 +12,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
   end
 
   defp findings_json(findings), do: Jason.encode!(%{"findings" => findings})
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   test "prompt is an evaluator prompt (not prose anchors) and never asks to rewrite" do
     test_pid = self()
@@ -57,7 +57,7 @@ defmodule NovelAgent.ProseQualityEvaluatorTest do
 
   test "accepts provider execution dependency" do
     provider_execution = %Execution{
-      complete_fn: fn _prompt ->
+      result_fn: fn _prompt ->
         {:ok,
          %ProviderResult{
            content: findings_json([]),

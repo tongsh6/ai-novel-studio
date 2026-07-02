@@ -154,7 +154,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
 
   defp revise_complete(agent \\ nil) do
     %Execution{
-      complete_fn: fn prompt ->
+      result_fn: fn prompt ->
         if agent, do: Agent.update(agent, &[prompt | &1])
 
         {:ok,
@@ -201,7 +201,7 @@ defmodule NovelApplication.VS00ECP3ProseRevisionTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        provider_execution: %Execution{complete_fn: complete}
+        provider_execution: %Execution{result_fn: complete}
       })
 
     turn_result

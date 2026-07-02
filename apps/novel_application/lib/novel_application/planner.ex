@@ -41,7 +41,7 @@ defmodule NovelApplication.Planner do
         context \\ nil,
         provider_execution \\ Execution.dependency(purpose: :conversation)
       ) do
-    complete_fn = complete_fn(provider_execution)
+    result_fn = result_fn(provider_execution)
     turn_id = Map.get(input, :turn_id) || allocate_turn_id()
     frame_id = Map.get(input, :frame_id) || allocate_frame_id()
     Logger.metadata(turn_id: turn_id, frame_id: frame_id)
@@ -51,7 +51,7 @@ defmodule NovelApplication.Planner do
 
     result =
       with_turn_context(turn_id, "form_frame", fn ->
-        call_provider(text, context, complete_fn)
+        call_provider(text, context, result_fn)
       end)
 
     case result do
@@ -105,7 +105,7 @@ defmodule NovelApplication.Planner do
         provider_execution \\ Execution.dependency(purpose: :conversation),
         context \\ nil
       ) do
-    complete_fn = complete_fn(provider_execution)
+    result_fn = result_fn(provider_execution)
     plan_id = "plan_#{System.unique_integer([:positive, :monotonic])}"
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:planner, :form_micro_plan, :start, %{})
@@ -113,11 +113,11 @@ defmodule NovelApplication.Planner do
     prompt = build_plan_prompt(frame, author_input, context)
 
     res =
-      case with_turn_context(frame.turn_id, "form_micro_plan", fn -> complete_fn.(prompt) end) do
+      case with_turn_context(frame.turn_id, "form_micro_plan", fn -> result_fn.(prompt) end) do
         {:ok, %{content: content}} ->
           content
           |> parse_json()
-          |> build_plan_or_retry(content, prompt, complete_fn, plan_id, frame)
+          |> build_plan_or_retry(content, prompt, result_fn, plan_id, frame)
 
         {:error, reason} ->
           {:error, reason}
@@ -266,10 +266,10 @@ defmodule NovelApplication.Planner do
         tool_result,
         provider_execution \\ Execution.dependency(purpose: :narration)
       ) do
-    complete_fn = complete_fn(provider_execution)
+    result_fn = result_fn(provider_execution)
     prompt = tool_narration_prompt(tool_result)
 
-    case LogContext.with_step("narrate_tool_result", fn -> complete_fn.(prompt) end) do
+    case LogContext.with_step("narrate_tool_result", fn -> result_fn.(prompt) end) do
       {:ok, %{content: content}} ->
         String.trim(content)
 
@@ -310,24 +310,24 @@ defmodule NovelApplication.Planner do
 
   # ── shared helpers (from VS-00) ──
 
-  defp complete_fn(provider_execution) do
-    case Execution.complete_fn(provider_execution) do
-      complete_fn when is_function(complete_fn, 1) ->
-        complete_fn
+  defp result_fn(provider_execution) do
+    case Execution.result_fn(provider_execution) do
+      result_fn when is_function(result_fn, 1) ->
+        result_fn
 
       _ ->
         fn _prompt -> {:error, :provider_execution_required} end
     end
   end
 
-  defp call_provider(text, context, complete_fn) do
+  defp call_provider(text, context, result_fn) do
     prompt = build_messages(text, context)
 
-    case complete_fn.(prompt) do
+    case result_fn.(prompt) do
       {:ok, %{content: content}} ->
         case parse_frame_json(content) do
           {:ok, parsed} -> {:ok, parsed}
-          {:error, _} -> parse_frame_json_retry(content, prompt, complete_fn)
+          {:error, _} -> parse_frame_json_retry(content, prompt, result_fn)
         end
 
       {:error, reason} ->
@@ -508,10 +508,10 @@ defmodule NovelApplication.Planner do
     end
   end
 
-  defp parse_frame_json_retry(failed_content, original_prompt, complete_fn) do
+  defp parse_frame_json_retry(failed_content, original_prompt, result_fn) do
     correction = build_correction_prompt(original_prompt, failed_content)
 
-    case complete_fn.(correction) do
+    case result_fn.(correction) do
       {:ok, %{content: retry_content}} ->
         case parse_frame_json(retry_content) do
           {:ok, parsed} -> {:ok, parsed}
@@ -523,10 +523,10 @@ defmodule NovelApplication.Planner do
     end
   end
 
-  defp parse_json_retry(failed_content, original_prompt, complete_fn) do
+  defp parse_json_retry(failed_content, original_prompt, result_fn) do
     correction = build_correction_prompt(original_prompt, failed_content)
 
-    case complete_fn.(correction) do
+    case result_fn.(correction) do
       {:ok, %{content: retry_content}} ->
         case parse_json(retry_content) do
           {:ok, parsed} -> {:ok, parsed}
@@ -593,13 +593,13 @@ defmodule NovelApplication.Planner do
     end
   end
 
-  defp build_plan_or_retry({:ok, parsed}, _content, _prompt, _complete_fn, plan_id, frame) do
+  defp build_plan_or_retry({:ok, parsed}, _content, _prompt, _result_fn, plan_id, frame) do
     plan = build_micro_plan(parsed, plan_id, frame)
     {:ok, plan}
   end
 
-  defp build_plan_or_retry({:error, _}, content, prompt, complete_fn, plan_id, frame) do
-    case parse_json_retry(content, prompt, complete_fn) do
+  defp build_plan_or_retry({:error, _}, content, prompt, result_fn, plan_id, frame) do
+    case parse_json_retry(content, prompt, result_fn) do
       {:ok, parsed} ->
         plan = build_micro_plan(parsed, plan_id, frame)
         {:ok, plan}

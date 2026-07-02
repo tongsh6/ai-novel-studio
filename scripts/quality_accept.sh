@@ -20,6 +20,7 @@ Usage:
   bash scripts/quality_accept.sh <scenario-id> --surface tauri
   bash scripts/quality_accept.sh <scenario-id> --provider slice_verify
   bash scripts/quality_accept.sh <scenario-id> --provider lmstudio
+  bash scripts/quality_accept.sh <scenario-id> --provider deepseek
   bash scripts/quality_accept.sh e2e-01-full-chain --provider lmstudio
   bash scripts/quality_accept.sh --tier pr-smoke
   bash scripts/quality_accept.sh --tier nightly --surface tauri
@@ -210,10 +211,10 @@ run_scenario() {
       artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/$scenario_id"
       ;;
     tauri_slice_verify)
-      if [[ "$scenario_provider" == "lmstudio" ]]; then
-        artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/${scenario_id}-tauri-lmstudio"
-      else
+      if [[ "$scenario_provider" == "slice_verify" ]]; then
         artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/${scenario_id}-tauri"
+      else
+        artifact_dir="$PROJECT_ROOT/artifacts/slice-verify/${scenario_id}-tauri-${scenario_provider}"
       fi
       ;;
     dogfood_run)

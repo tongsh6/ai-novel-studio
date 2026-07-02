@@ -468,21 +468,7 @@ defmodule NovelApplication.AgentRunFlows.PlotOutlineWithContext do
     end
   end
 
-  defp emit_micro_plan(snapshot, plan) do
-    emit_stage(
-      snapshot,
-      :plan_created,
-      "已根据观察制定下一步计划：#{plan.plan_goal.summary}",
-      ["micro_plan_created", "agentic_loop_step"],
-      [plan.plan_id],
-      %{
-        stage: :micro_plan_created,
-        plan_ref: plan.plan_id,
-        action_count: length(plan.proposed_actions),
-        target_tool_ref: tool_name(plan)
-      }
-    )
-  end
+  defp emit_micro_plan(_snapshot, _plan), do: :ok
 
   defp emit_gate_decision(snapshot, decision) do
     emit_stage(

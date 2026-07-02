@@ -45,14 +45,14 @@ assertions:
     - character evolution draft card remains visible as a tentative artifact
   network:
     - parent user_message receives bounded run_id before final TurnResult
-    - agent_event includes step_proposed for context, character_evolution execution, and completion decision
-    - agent_event includes plan_created, gate_decided, tool_started, tool_completed, and artifact observation
+    - agent_event includes next-step-selected plan_drafted for context and character_evolution execution, plus evaluation_made goal_satisfied completion decision
+    - agent_event includes evaluation_made, gate_decided, tool_started, tool_completed, and artifact observation
     - final TurnResult carries agent_run.run_id and tool_result.tool_name=character_evolution
     - pending artifact is character_evolution_seed and remains tentative
   data:
     - parent user_message starts bounded AgentRun without sync_turn fallback
     - character_evolution step is allow_tool before toolbox execution
-    - consumed_budget reports steps=2, tool_calls=1, provider_calls=4
+    - consumed_budget reports steps=2, tool_calls=1, provider_calls=5, including the profile routing model call
     - no adoption or production write occurs before author action
 
 anti_hooks:

@@ -22,7 +22,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "form_frame with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, provider_execution: %Execution{complete_fn: ProviderHelpers.lmstudio_complete_fn()}}
+      {:ok, provider_execution: %Execution{result_fn: ProviderHelpers.lmstudio_result_fn()}}
     end
 
     test "casual reply produces valid DialogueFrame", %{provider_execution: provider_execution} do
@@ -94,7 +94,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "form_micro_plan with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, provider_execution: %Execution{complete_fn: ProviderHelpers.lmstudio_complete_fn()}}
+      {:ok, provider_execution: %Execution{result_fn: ProviderHelpers.lmstudio_result_fn()}}
     end
 
     test "produces valid MicroPlan from real LLM", %{provider_execution: provider_execution} do
@@ -153,7 +153,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "full pipeline with real LLM" do
     setup do
       skip_unless_provider!()
-      {:ok, provider_execution: %Execution{complete_fn: ProviderHelpers.lmstudio_complete_fn()}}
+      {:ok, provider_execution: %Execution{result_fn: ProviderHelpers.lmstudio_result_fn()}}
     end
 
     test "handle_input reply-only path", %{provider_execution: provider_execution} do
@@ -234,16 +234,16 @@ defmodule NovelApplication.PlannerRealLLMTest do
   describe "provider error recovery" do
     setup do
       skip_unless_provider!()
-      {:ok, provider_execution: %Execution{complete_fn: ProviderHelpers.lmstudio_complete_fn()}}
+      {:ok, provider_execution: %Execution{result_fn: ProviderHelpers.lmstudio_result_fn()}}
     end
 
     test "Planner falls back when provider returns garbage" do
-      # Use a complete_fn that simulates a broken provider
+      # Use a result_fn that simulates a broken provider
       broken_fn = fn _prompt -> {:ok, %{content: "not valid json {{{"}} end
 
       {frame, _candidates} =
         Planner.form_frame(%{text: "测试降级", workspace_id: "ws-real"}, nil, %Execution{
-          complete_fn: broken_fn
+          result_fn: broken_fn
         })
 
       assert frame.schema_version == "3.0-draft"
@@ -258,7 +258,7 @@ defmodule NovelApplication.PlannerRealLLMTest do
         DialogueGateway.handle_input(
           %{text: "测试稳定性", workspace_id: "ws-real"},
           nil,
-          %Execution{complete_fn: broken_fn}
+          %Execution{result_fn: broken_fn}
         )
 
       assert match?({:ok, _, _, _, _}, result) or match?({:error, _}, result)

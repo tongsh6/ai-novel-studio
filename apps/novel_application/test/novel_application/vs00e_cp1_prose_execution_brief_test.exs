@@ -117,7 +117,7 @@ defmodule NovelApplication.VS00ECP1ProseExecutionBriefTest do
         decision: allow_decision(),
         context: context,
         author_input: %{text: "写正文首稿"},
-        provider_execution: %Execution{complete_fn: complete}
+        provider_execution: %Execution{result_fn: complete}
       })
 
     {turn_result, agent |> Agent.get(& &1) |> Enum.join("\n\n")}

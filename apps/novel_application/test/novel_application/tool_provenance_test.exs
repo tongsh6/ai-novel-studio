@@ -346,7 +346,7 @@ defmodule NovelApplication.ToolProvenanceTest do
       # reader 只对最新章（第02章）返回前文
       reader = fn _w, "第02章：宗门试炼" -> @prior end
 
-      complete_fn = fn prompt ->
+      result_fn = fn prompt ->
         Agent.update(prompts, &[prompt | &1])
 
         {:ok,
@@ -370,7 +370,7 @@ defmodule NovelApplication.ToolProvenanceTest do
           decision: allow_decision(),
           context: context,
           author_input: %{text: "接着往下写"},
-          provider_execution: %Execution{complete_fn: complete_fn},
+          provider_execution: %Execution{result_fn: result_fn},
           chapter_prose_reader: reader
         })
 
@@ -397,7 +397,7 @@ defmodule NovelApplication.ToolProvenanceTest do
     defp first_tool_prompt_with_word_count(word_count) do
       {:ok, prompts} = Agent.start_link(fn -> [] end)
 
-      complete_fn = fn prompt ->
+      result_fn = fn prompt ->
         Agent.update(prompts, &[prompt | &1])
 
         {:ok,
@@ -434,7 +434,7 @@ defmodule NovelApplication.ToolProvenanceTest do
         plan: plan,
         decision: allow_decision(),
         author_input: %{text: "写约800字的开篇"},
-        provider_execution: %Execution{complete_fn: complete_fn}
+        provider_execution: %Execution{result_fn: result_fn}
       })
 
       prompts |> Agent.get(&Enum.reverse/1) |> List.first()
@@ -443,7 +443,7 @@ defmodule NovelApplication.ToolProvenanceTest do
     defp first_tool_prompt(intent, chapter, author_text, reader) do
       {:ok, prompts} = Agent.start_link(fn -> [] end)
 
-      complete_fn = fn prompt ->
+      result_fn = fn prompt ->
         Agent.update(prompts, &[prompt | &1])
 
         {:ok,
@@ -460,7 +460,7 @@ defmodule NovelApplication.ToolProvenanceTest do
         plan: continuity_plan(intent, chapter),
         decision: allow_decision(),
         author_input: %{text: author_text},
-        provider_execution: %Execution{complete_fn: complete_fn},
+        provider_execution: %Execution{result_fn: result_fn},
         chapter_prose_reader: reader
       })
 
@@ -560,7 +560,7 @@ defmodule NovelApplication.ToolProvenanceTest do
           extra
         )
 
-      complete_fn = fn _prompt ->
+      result_fn = fn _prompt ->
         {:ok,
          %{
            content:
@@ -575,7 +575,7 @@ defmodule NovelApplication.ToolProvenanceTest do
       end
 
       Planner.form_micro_plan(plan_frame(), %{text: "写约800字的开篇"}, %Execution{
-        complete_fn: complete_fn
+        result_fn: result_fn
       })
     end
 

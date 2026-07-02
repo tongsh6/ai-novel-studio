@@ -24,6 +24,9 @@ defmodule NovelApplication.AgentObservationAssembler do
       "character_evolution" ->
         [artifact_observation(turn_result, run_id, step_id, "角色演化记忆草稿")]
 
+      "world_building" ->
+        [artifact_observation(turn_result, run_id, step_id, "世界设定草稿")]
+
       _ ->
         []
     end

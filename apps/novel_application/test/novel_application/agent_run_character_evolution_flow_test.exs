@@ -13,9 +13,13 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
   test "bounded character evolution run exposes context, strategy, tool execution, and finalization steps" do
     parent = self()
 
-    complete_fn = fn prompt ->
+    result_fn = fn prompt ->
       if String.contains?(prompt, "AgentRun 下一步规划器") do
-        {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+        {:ok,
+         %{
+           content:
+             NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+         }}
       else
         send(parent, {:provider_prompt, prompt})
 
@@ -49,7 +53,7 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
         :character_evolution_with_context,
         input,
         context(),
-        %Execution{complete_fn: complete_fn}
+        %Execution{result_fn: result_fn}
       )
 
     assert planned.run_attrs.profile_ref == CharacterEvolutionWithContext.profile_ref()
@@ -61,19 +65,33 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
              )
 
     assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :step_proposed, context_step}
-    assert context_step.summary =~ "组装角色演化上下文"
+    assert_receive {:agent_event, :plan_drafted, context_step}
+    assert context_step.summary =~ "读取角色演化上下文"
+    assert context_step.payload.target_tool_ref == "context_assemble"
+    assert is_list(context_step.payload.plan_steps)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      context_step.payload.author_narrative_source
+    )
+
     assert_receive {:agent_event, :goal_understood, context_event}, 500
     assert context_event.summary =~ "角色演化上下文"
-    assert_receive {:agent_event, :observation_recorded, context_observation}, 500
+    assert_receive {:agent_event, :exploration_observed, context_observation}, 500
     assert context_observation.summary =~ "已组装角色演化上下文"
-    assert_receive {:agent_event, :plan_created, context_decision}, 500
-    assert "agent_next_step_decided" in context_decision.reason_codes
+    assert_receive {:agent_event, :evaluation_made, context_decision}, 500
+    assert "agent_step_evaluated" in context_decision.reason_codes
 
-    assert_receive {:agent_event, :step_proposed, evolution_step}, 500
-    assert evolution_step.summary =~ "制定角色演化执行策略"
-    assert_receive {:agent_event, :plan_created, plan_event}, 500
-    assert plan_event.summary =~ "已根据观察制定下一步计划"
+    assert_receive {:agent_event, :plan_drafted, evolution_step}, 500
+    assert evolution_step.summary =~ "生成角色演化草稿"
+    assert evolution_step.payload.target_tool_ref == "character_evolution"
+    assert is_list(evolution_step.payload.plan_steps)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      evolution_step.payload.author_narrative_source
+    )
+
+    assert_receive {:agent_event, :evaluation_made, plan_event}, 500
+    assert "agent_step_evaluated" in plan_event.reason_codes
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
     assert gate_event.summary =~ "系统已完成下一步执行裁决"
     assert_receive {:agent_event, :tool_started, tool_started}, 500
@@ -84,14 +102,14 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
     assert provider_prompt =~ "林烬"
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "角色演化记忆草稿已生成"
-    assert_receive {:agent_event, :observation_recorded, tool_observation}, 500
+    assert_receive {:agent_event, :exploration_observed, tool_observation}, 500
     assert tool_observation.summary =~ "待采纳角色演化记忆草稿"
 
-    assert_receive {:agent_event, :observation_recorded, artifact_observation}, 500
+    assert_receive {:agent_event, :exploration_observed, artifact_observation}, 500
     assert artifact_observation.summary =~ "角色演化记忆草稿"
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
-    assert_receive {:agent_event, :step_proposed, final_step}, 500
-    assert final_step.summary =~ "确认角色演化目标"
+    assert_receive {:agent_event, :evaluation_made, evolution_decision}, 500
+    assert evolution_decision.payload.loop_decision_type == :goal_satisfied
     assert_receive {:agent_event, :run_completed, _}, 500
 
     assert {:ok, state} = AgentRunService.state(run_id)
@@ -127,37 +145,22 @@ defmodule NovelApplication.AgentRunCharacterEvolutionFlowTest do
   defp next_step_decision(prompt) do
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        %{
-          "decision_type" => "goal_satisfied",
-          "summary" => "已生成待采纳角色演化候选，本轮目标已经满足。",
-          "target_tool_ref" => nil,
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["goal_satisfied"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳角色演化候选，本轮目标已经满足。")
 
       String.contains?(prompt, "character_evolution_context /") ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "基于已读取的角色上下文生成角色演化草稿。",
-          "target_tool_ref" => "character_evolution",
-          "write_intent" => "tentative",
-          "risk_hint" => "low",
-          "reason_codes" => ["agentic_next_step", "character_evolution_context_consumed"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "基于已读取的角色上下文生成角色演化草稿。",
+          "character_evolution",
+          write_intent: "tentative",
+          reason_codes: ["agentic_next_step", "character_evolution_context_consumed"]
+        )
 
       true ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "先读取角色演化上下文。",
-          "target_tool_ref" => "context_assemble",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["agentic_next_step", "missing_character_evolution_context"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "先读取角色演化上下文。",
+          "context_assemble",
+          reason_codes: ["agentic_next_step", "missing_character_evolution_context"]
+        )
     end
   end
 

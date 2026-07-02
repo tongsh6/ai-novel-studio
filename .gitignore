@@ -91,3 +91,5 @@ erl_crash.dump
 .playwright-mcp/
 playwright/
 /tmp/
+.claude/
+.pnpm-store

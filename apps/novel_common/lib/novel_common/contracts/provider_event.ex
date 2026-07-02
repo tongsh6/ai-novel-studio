@@ -4,7 +4,10 @@ defmodule NovelCommon.Contracts.ProviderEvent do
 
   ProviderEvent is lower-level than AgentEvent. Application code may project it
   into author-safe AgentRun activity, but raw prompts, private reasoning, and
-  secrets must never be carried in author-visible provider events.
+  secrets must never be carried in author-visible provider events. The only
+  generated-text delta allowed at this level is an explicit author-facing
+  narrative field such as `author_narrative_delta` for `:author_reasoning`;
+  generic raw `content` / `text_delta` / `raw_output` keys remain forbidden.
   """
 
   @type event_type ::

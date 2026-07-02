@@ -9,8 +9,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     parent = self()
     {:ok, prompts} = Agent.start_link(fn -> [] end)
 
-    complete_fn = agentic_complete_fn(parent, prompts)
-    provider_execution = %Execution{complete_fn: complete_fn}
+    result_fn = agentic_result_fn(parent, prompts)
+    provider_execution = %Execution{result_fn: result_fn}
 
     input = %{
       text: "先看看当前已有角色，再帮我设计一个与主角形成镜像冲突的主要反派。",
@@ -43,11 +43,11 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
              )
 
     assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :step_proposed, step1}
+    assert_receive {:agent_event, :plan_drafted, step1}
     assert step1.refs != []
-    assert_receive {:agent_event, :observation_recorded, roster_event}
+    assert_receive {:agent_event, :exploration_observed, roster_event}
     assert roster_event.summary =~ "林烬"
-    assert_receive {:agent_event, :step_proposed, step2}
+    assert_receive {:agent_event, :plan_drafted, step2}
     assert step2.sequence > step1.sequence
     assert_receive {:provider_prompt, provider_prompt}, 500
     assert provider_prompt =~ "已完成观察"
@@ -76,8 +76,8 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
   test "steer updates the following character design step input" do
     parent = self()
 
-    complete_fn = agentic_complete_fn(parent, nil)
-    provider_execution = %Execution{complete_fn: complete_fn}
+    result_fn = agentic_result_fn(parent, nil)
+    provider_execution = %Execution{result_fn: result_fn}
 
     input = %{
       text: "先看看当前已有角色，再帮我设计一个主要反派。",
@@ -138,17 +138,25 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
     }
   end
 
-  defp agentic_complete_fn(parent, prompts) do
+  defp agentic_result_fn(parent, prompts) do
     fn prompt ->
       cond do
         String.contains?(prompt, "AgentRun 下一步规划器") ->
-          {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
 
         String.contains?(prompt, "JSON 数组") ->
           complete_character_design_prompt(parent, prompts, prompt)
 
         true ->
-          {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+          {:ok,
+           %{
+             content:
+               NovelApplication.TestAgenticLoopFixtures.reasoning_tail(next_step_decision(prompt))
+           }}
       end
     end
   end
@@ -162,37 +170,22 @@ defmodule NovelApplication.AgentRunCharacterDesignFlowTest do
   defp next_step_decision(prompt) do
     cond do
       String.contains?(prompt, "/ artifact_created:") ->
-        %{
-          "decision_type" => "goal_satisfied",
-          "summary" => "已生成待采纳角色候选，本轮目标已经满足。",
-          "target_tool_ref" => nil,
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["goal_satisfied"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳角色候选，本轮目标已经满足。")
 
       String.contains?(prompt, "/ character_roster:") ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "基于已读取的角色阵容设计新的主要反派。",
-          "target_tool_ref" => "character_design",
-          "write_intent" => "tentative",
-          "risk_hint" => "low",
-          "reason_codes" => ["roster_observation_consumed"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "基于已读取的角色阵容设计新的主要反派。",
+          "character_design",
+          write_intent: "tentative",
+          reason_codes: ["roster_observation_consumed"]
+        )
 
       true ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "先读取当前作品已确认角色阵容。",
-          "target_tool_ref" => "character_roster",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["missing_roster_observation"],
-          "confidence" => 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "先读取当前作品已确认角色阵容。",
+          "character_roster",
+          reason_codes: ["missing_roster_observation"]
+        )
     end
   end
 end

@@ -81,10 +81,10 @@ defmodule NovelPersistence.AgentRunLogTest do
                run_id: run_id,
                step_id: "step-log-1",
                sequence: 1,
-               event_type: "observation_recorded",
+               event_type: "exploration_observed",
                visibility: "author",
                summary: "已读取当前角色阵容。",
-               reason_codes: ["observation_recorded"],
+               reason_codes: ["exploration_observed"],
                refs: ["obs-log-1"],
                payload: %{}
              })
@@ -136,13 +136,13 @@ defmodule NovelPersistence.AgentRunLogTest do
 
     assert {:ok, _event} =
              AgentRunLog.insert_event(%{
-               id: "evt-provider-author",
+               id: "evt-provider-developer",
                run_id: run_id,
                step_id: "step-provider",
                sequence: 1,
                event_type: "provider_progress",
-               visibility: "author",
-               summary: "对话判断已开始调用创作模型。",
+               visibility: "developer",
+               summary: "provider_event:started",
                reason_codes: ["provider_execution_stream", "provider_started"],
                refs: ["provider_run:prun-1", "provider_call:pcall-1"],
                payload: %{
@@ -154,10 +154,35 @@ defmodule NovelPersistence.AgentRunLogTest do
 
     assert {:ok, _event} =
              AgentRunLog.insert_event(%{
+               id: "evt-plan-author",
+               run_id: run_id,
+               step_id: "step-plan",
+               sequence: 2,
+               event_type: "plan_drafted",
+               visibility: "author",
+               summary: "模型先读取当前作品上下文。",
+               reason_codes: ["agent_plan_drafted"],
+               refs: ["provider_run:prun-plan", "provider_call:pcall-plan"],
+               payload: %{
+                 "author_narrative" => "模型先读取当前作品上下文。",
+                 "author_narrative_source" => %{
+                   "source_type" => "provider_output",
+                   "provider_run_ref" => "prun-plan",
+                   "provider_call_ref" => "pcall-plan",
+                   "provider_output_ref" => "prun-plan",
+                   "source_hash" => "source-hash",
+                   "source_byte_range" => %{"start" => 0, "length" => 39},
+                   "narrative_hash" => "narrative-hash"
+                 }
+               }
+             })
+
+    assert {:ok, _event} =
+             AgentRunLog.insert_event(%{
                id: "evt-provider-internal",
                run_id: run_id,
                step_id: "step-provider",
-               sequence: 2,
+               sequence: 3,
                event_type: "provider_progress",
                visibility: "internal",
                summary: "raw provider detail",
@@ -166,7 +191,7 @@ defmodule NovelPersistence.AgentRunLogTest do
                payload: %{"raw_prompt" => "must not be restored to author"}
              })
 
-    assert [%{id: "evt-provider-author", payload: %{"provider_run_ref" => "prun-1"}}] =
+    assert [%{id: "evt-plan-author", payload: %{"author_narrative" => "模型先读取当前作品上下文。"}}] =
              AgentRunLog.list_author_events(run_id)
   end
 

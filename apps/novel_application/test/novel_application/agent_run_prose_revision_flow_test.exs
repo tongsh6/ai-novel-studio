@@ -34,7 +34,13 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
 
     provider = fn prompt ->
       if agent_next_step_prompt?(prompt) do
-        {:ok, %{content: Jason.encode!(revision_next_step_decision(prompt))}}
+        {:ok,
+         %{
+           content:
+             NovelApplication.TestAgenticLoopFixtures.reasoning_tail(
+               revision_next_step_decision(prompt)
+             )
+         }}
       else
         send(parent, {:revision_prompt, prompt})
 
@@ -72,7 +78,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
         :prose_revision_from_findings,
         input,
         nil,
-        %Execution{complete_fn: provider}
+        %Execution{result_fn: provider}
       )
 
     assert planned.run_attrs.profile_ref == ProseRevisionFromFindings.profile_ref()
@@ -86,26 +92,47 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
              )
 
     assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :step_proposed, source_step}
+    assert_receive {:agent_event, :plan_drafted, source_step}
     assert source_step.summary =~ "读取待修订草稿和质量发现"
+    assert source_step.payload.target_tool_ref == "revision_prepare"
+    assert is_list(source_step.payload.plan_steps)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      source_step.payload.author_narrative_source
+    )
+
     assert_receive {:agent_event, :goal_understood, context_event}, 500
     assert context_event.summary =~ "待修订草稿"
-    assert_receive {:agent_event, :observation_recorded, source_observation}, 500
+    assert_receive {:agent_event, :exploration_observed, source_observation}, 500
     assert source_observation.summary =~ "已读取待修订草稿"
-    assert_receive {:agent_event, :plan_created, source_decision}, 500
-    assert "agent_next_step_decided" in source_decision.reason_codes
+    assert_receive {:agent_event, :evaluation_made, source_decision}, 500
+    assert "agent_step_evaluated" in source_decision.reason_codes
 
-    assert_receive {:agent_event, :step_proposed, plan_step}, 500
-    assert plan_step.summary =~ "制定修订执行策略并完成授权判断"
-    assert_receive {:agent_event, :plan_created, plan_event}, 500
-    assert plan_event.summary =~ "修订执行计划"
+    assert_receive {:agent_event, :plan_drafted, plan_step}, 500
+    assert plan_step.summary =~ "制定修订执行策略"
+    assert plan_step.payload.target_tool_ref == "revision_plan"
+    assert is_list(plan_step.payload.plan_steps)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      plan_step.payload.author_narrative_source
+    )
+
+    assert_receive {:agent_event, :evaluation_made, plan_event}, 500
+    assert "agent_step_evaluated" in plan_event.reason_codes
     assert_receive {:agent_event, :gate_decided, gate_event}, 500
     assert gate_event.summary =~ "已通过修订工具执行授权"
-    assert_receive {:agent_event, :observation_recorded, gate_observation}, 500
+    assert_receive {:agent_event, :exploration_observed, gate_observation}, 500
     assert gate_observation.summary =~ "重新经过 Orchestrator"
 
-    assert_receive {:agent_event, :step_proposed, execute_step}, 500
-    assert execute_step.summary =~ "生成修订候选草稿"
+    assert_receive {:agent_event, :plan_drafted, execute_step}, 500
+    assert execute_step.summary =~ "生成正文修订候选"
+    assert execute_step.payload.target_tool_ref == "prose_writing"
+    assert is_list(execute_step.payload.plan_steps)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      execute_step.payload.author_narrative_source
+    )
+
     assert_receive {:agent_event, :tool_started, tool_started}, 500
     assert tool_started.summary =~ "正文写作能力"
     assert_receive {:revision_prompt, revision_prompt}, 500
@@ -113,11 +140,18 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
     assert revision_prompt =~ @bad_prose
     assert_receive {:agent_event, :tool_completed, tool_completed}, 500
     assert tool_completed.summary =~ "修订候选已生成"
-    assert_receive {:agent_event, :observation_recorded, execute_observation}, 500
+    assert_receive {:agent_event, :exploration_observed, execute_observation}, 500
     assert execute_observation.summary =~ "不自动采纳"
 
-    assert_receive {:agent_event, :step_proposed, final_step}, 500
+    assert_receive {:agent_event, :plan_drafted, final_step}, 500
     assert final_step.summary =~ "汇总修订候选给作者"
+    assert final_step.payload.target_tool_ref == "revision_finalize"
+    assert is_list(final_step.payload.plan_steps)
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      final_step.payload.author_narrative_source
+    )
+
     assert_receive {:agent_event, :artifact_created, artifact_event}, 500
     assert_receive {:agent_event, :run_completed, _}, 500
 
@@ -153,59 +187,38 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
 
     cond do
       String.contains?(observations, "/ artifact_created:") ->
-        %{
-          decision_type: "goal_satisfied",
-          summary: "已生成待采纳修订草稿，本轮目标已经满足。",
-          target_tool_ref: nil,
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["goal_satisfied", "tentative_revision_fragment_created"],
-          confidence: 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.done_next("已生成待采纳修订草稿，本轮目标已经满足。",
+          reason_codes: ["goal_satisfied", "tentative_revision_fragment_created"]
+        )
 
       String.contains?(observations, "已生成新的修订候选") ->
-        %{
-          decision_type: "execute_step",
-          summary: "汇总修订候选给作者确认。",
-          target_tool_ref: "revision_finalize",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "revision_candidate_ready"],
-          confidence: 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "汇总修订候选给作者确认。",
+          "revision_finalize",
+          reason_codes: ["agentic_next_step", "revision_candidate_ready"]
+        )
 
       String.contains?(observations, "重新经过 Orchestrator") ->
-        %{
-          decision_type: "execute_step",
-          summary: "基于修订计划生成正文修订候选。",
-          target_tool_ref: "prose_writing",
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "基于修订计划生成正文修订候选。",
+          "prose_writing",
           write_intent: "tentative",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "revision_plan_consumed"],
-          confidence: 1.0
-        }
+          reason_codes: ["agentic_next_step", "revision_plan_consumed"]
+        )
 
       String.contains?(observations, "已读取待修订草稿") ->
-        %{
-          decision_type: "execute_step",
-          summary: "制定修订执行策略并重新经过系统裁决。",
-          target_tool_ref: "revision_plan",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "revision_source_consumed"],
-          confidence: 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "制定修订执行策略并重新经过系统裁决。",
+          "revision_plan",
+          reason_codes: ["agentic_next_step", "revision_source_consumed"]
+        )
 
       true ->
-        %{
-          decision_type: "execute_step",
-          summary: "读取待修订草稿和质量发现。",
-          target_tool_ref: "revision_prepare",
-          write_intent: "none",
-          risk_hint: "low",
-          reason_codes: ["agentic_next_step", "missing_revision_source"],
-          confidence: 1.0
-        }
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "读取待修订草稿和质量发现。",
+          "revision_prepare",
+          reason_codes: ["agentic_next_step", "missing_revision_source"]
+        )
     end
   end
 
@@ -239,7 +252,7 @@ defmodule NovelApplication.AgentRunProseRevisionFlowTest do
         decision: allow_decision(),
         context: context(),
         author_input: %{text: "写第一章正文首稿"},
-        provider_execution: %Execution{complete_fn: complete}
+        provider_execution: %Execution{result_fn: complete}
       })
 
     turn_result

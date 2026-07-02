@@ -17,6 +17,10 @@ defmodule NovelApplication.ProviderActivityService do
     with work when not is_nil(work) <- WorkService.get(work_id),
          session when not is_nil(session) <- WorkSessionRepo.get_by_work(work_id, session_id) do
       agent_runs = AgentRunLog.list_by_parent_turn(work.id, session.id, turn_id)
+
+      events_by_run =
+        agent_runs |> Enum.map(& &1.id) |> AgentRunLog.list_author_events_by_run_ids()
+
       provider_runs = Enum.flat_map(agent_runs, &provider_runs_for_agent_run/1)
 
       {:ok,
@@ -25,7 +29,7 @@ defmodule NovelApplication.ProviderActivityService do
          session_id: session.id,
          turn_id: turn_id,
          provider_runs: provider_runs,
-         agent_runs: Enum.map(agent_runs, &agent_run_summary/1),
+         agent_runs: Enum.map(agent_runs, &agent_run_summary(&1, events_by_run)),
          totals: totals(provider_runs)
        }}
     else
@@ -38,14 +42,40 @@ defmodule NovelApplication.ProviderActivityService do
     end
   end
 
-  defp agent_run_summary(run) do
+  defp agent_run_summary(run, events_by_run) do
     %{
       run_id: run.id,
       run_mode: run.run_mode,
       profile_ref: run.profile_ref,
       status: run.status,
       phase: run.phase,
-      provider_run_count: length(ProviderRunLog.list_runs(run.id))
+      parent_turn_ref: run.parent_turn_ref,
+      long_run_task_ref: run.long_run_task_ref,
+      plan_ref: run.plan_ref,
+      plan_version: run.plan_version,
+      event_count: length(Map.get(events_by_run, run.id, [])),
+      provider_run_count: length(ProviderRunLog.list_runs(run.id)),
+      events: Enum.map(Map.get(events_by_run, run.id, []), &agent_event_summary(&1, run))
+    }
+  end
+
+  defp agent_event_summary(event, run) do
+    %{
+      event_id: event.id,
+      run_ref: event.run_id,
+      run_id: event.run_id,
+      step_ref: event.step_id,
+      sequence: event.sequence,
+      event_type: event.event_type,
+      visibility: event.visibility,
+      summary: event.summary,
+      reason_codes: event.reason_codes || [],
+      refs: event.refs || [],
+      payload: author_safe_event_payload(event.payload),
+      workspace_id: run.workspace_id,
+      work_id: run.work_id,
+      session_id: run.session_id,
+      emitted_at: timestamp_iso(event.inserted_at)
     }
   end
 
@@ -111,4 +141,63 @@ defmodule NovelApplication.ProviderActivityService do
   defp map_value(_map, _key), do: nil
 
   defp blank?(value), do: value in [nil, ""]
+
+  defp author_safe_event_payload(payload) when is_map(payload) do
+    payload
+    |> drop_unsafe_payload_keys()
+    |> stringify_atom_values()
+  end
+
+  defp author_safe_event_payload(_payload), do: %{}
+
+  defp drop_unsafe_payload_keys(payload) when is_map(payload) do
+    payload
+    |> Enum.reject(fn {key, _value} -> unsafe_payload_key?(key) end)
+    |> Map.new(fn {key, value} -> {key, drop_unsafe_payload_keys(value)} end)
+  end
+
+  defp drop_unsafe_payload_keys(values) when is_list(values),
+    do: Enum.map(values, &drop_unsafe_payload_keys/1)
+
+  defp drop_unsafe_payload_keys(value), do: value
+
+  defp unsafe_payload_key?(key) when is_atom(key), do: unsafe_payload_key?(Atom.to_string(key))
+
+  defp unsafe_payload_key?(key) when is_binary(key) do
+    normalized = key |> String.downcase() |> String.replace("-", "_")
+
+    normalized in [
+      "api_key",
+      "assistant_message",
+      "chain_of_thought",
+      "messages",
+      "provider_error_payload",
+      "raw_messages",
+      "raw_prompt",
+      "raw_provider_error",
+      "secret",
+      "system_prompt",
+      "turn_result"
+    ]
+  end
+
+  defp unsafe_payload_key?(_key), do: false
+
+  defp stringify_atom_values(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {key, stringify_atom_values(item)} end)
+  end
+
+  defp stringify_atom_values(value) when is_list(value),
+    do: Enum.map(value, &stringify_atom_values/1)
+
+  defp stringify_atom_values(value) when is_atom(value), do: Atom.to_string(value)
+  defp stringify_atom_values(value), do: value
+
+  defp timestamp_iso(nil), do: nil
+  defp timestamp_iso(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp timestamp_iso(%NaiveDateTime{} = value),
+    do: value |> DateTime.from_naive!("Etc/UTC") |> DateTime.to_iso8601()
+
+  defp timestamp_iso(value), do: value
 end

@@ -225,20 +225,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
     end
   end
 
-  defp emit_micro_plan(snapshot, plan) do
-    emit_stage(snapshot, %{
-      event_type: :plan_created,
-      summary: "已根据观察制定下一步计划：#{plan.plan_goal.summary}",
-      reason_codes: ["micro_plan_created", "agentic_loop_step"],
-      refs: [plan.plan_id],
-      payload: %{
-        stage: :micro_plan_created,
-        plan_ref: plan.plan_id,
-        action_count: length(plan.proposed_actions),
-        target_tool_ref: tool_name(plan)
-      }
-    })
-  end
+  defp emit_micro_plan(_snapshot, _plan), do: :ok
 
   defp emit_gate_decision(snapshot, decision) do
     emit_stage(snapshot, %{

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  findLiveProviderEvidence,
   findLmStudioEvidence,
   findNativeSliceEvidence,
   findSliceBehaviorEvidence,
@@ -84,6 +85,8 @@ describe("native Tauri slice verifier", () => {
     expect(nativeSliceIds).toContain("au05-canon-conflict-recovery");
     expect(nativeSliceIds).toContain("p1-chapter-plan-minimum");
     expect(nativeSliceIds).toContain("p1-chapter-draft-generation");
+    expect(nativeSliceIds).toContain("agent-world-building-with-context");
+    expect(nativeSliceIds).toContain("agent-world-building-style-rule-with-context");
     expect(nativeSliceIds).toContain("au08-reading-readonly-no-write");
     expect(nativeSliceIds).toContain("au08-reading-return-context");
     expect(nativeSliceIds).toContain("au04-confirm-before-execute");
@@ -123,30 +126,34 @@ describe("native Tauri slice verifier", () => {
         no_tool_called: true,
         no_auto_adoption: true,
         no_production_write: true,
+        ui_agent_immediate_feedback_visible: true,
         agent_stage_events_visible: true,
         context_step_visible: true,
         frame_step_visible: true,
         strategy_step_visible: true,
         finalize_step_visible: true,
-        context_observation_visible: true,
-        frame_observation_visible: true,
-        strategy_observation_visible: true,
+        context_result_visible: true,
+        frame_evaluation_visible: true,
+        strategy_decision_visible: true,
         ui_context_step_visible: true,
         ui_frame_step_visible: true,
         ui_strategy_step_visible: true,
         ui_finalize_step_visible: true,
-        planner_provider_activity_visible: true,
-        conversation_provider_activity_visible: true,
-        provider_started_projected: true,
-        provider_final_output_projected: true,
-        ui_planner_provider_visible: true,
-        ui_model_judgment_visible: true,
-        ui_system_gate_visible: true,
-        ui_provider_usage_visible: true,
+        ui_agentic_loop_plan_visible: true,
+        ui_agentic_loop_reasoning_visible: true,
+        ui_agentic_loop_result_visible: true,
+        author_reasoning_delta_event_count: 3,
+        author_reasoning_delta_payload_key: "author_narrative_delta",
+        author_reasoning_delta_before_first_plan: true,
+        author_reasoning_second_delta_before_first_plan: true,
+        ui_author_reasoning_delta_visible: true,
+        ui_author_reasoning_cumulative_delta_visible: true,
+        ui_author_reasoning_stream_sample_count: 3,
+        ui_author_reasoning_stream_grew: true,
         completed_step_count: 4,
         consumed_steps: 4,
         consumed_tool_calls: 0,
-        consumed_provider_calls: 6,
+        consumed_provider_calls: 7,
         ui_agent_panel_visible: true,
         ui_agent_completed_visible: true,
         log_sync_turn_count: 0,
@@ -163,9 +170,12 @@ describe("native Tauri slice verifier", () => {
     expect(findSliceBehaviorEvidence("agent-conversation-turn", records, evidence)).toMatchObject({
       slice_id: "agent-conversation-turn",
       assertions: expect.arrayContaining([
-        "context_frame_strategy_and_finalize_steps_were_author_visible",
-        "context_frame_and_strategy_observations_were_author_visible",
-        "planner_and_conversation_provider_activity_were_author_visible",
+        "planner_selected_context_frame_strategy_and_finalize_steps_were_author_visible",
+        "assistant_work_state_was_visible_immediately_after_send",
+        "context_frame_and_strategy_results_were_model_sourced_or_system_decisions",
+        "agentic_plan_reasoning_and_result_were_visible_to_author",
+        "author_reasoning_provider_deltas_streamed_before_first_plan",
+        "ui_reasoning_area_grew_from_multiple_provider_deltas",
       ]),
     });
 
@@ -176,6 +186,255 @@ describe("native Tauri slice verifier", () => {
     );
 
     expect(findNativeSliceEvidence("agent-conversation-turn", missingStageRecords)).toBeNull();
+
+    const missingStreamRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, ui_author_reasoning_stream_grew: false }
+        : record,
+    );
+
+    expect(findNativeSliceEvidence("agent-conversation-turn", missingStreamRecords)).toBeNull();
+  });
+
+  it("accepts agent steer replan evidence from the active-run main input", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-steer",
+        run_id: "run-steer",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-steer-replan",
+        parent_turn_id: "turn-steer",
+        run_id: "run-steer",
+        run_mode: "bounded",
+        command: "steer",
+        command_sent_from_main_input: true,
+        no_second_user_message_for_steer: true,
+        main_input_steer_placeholder_visible: true,
+        active_run_work_state_visible_after_steer: true,
+        main_input_steer_text_visible_after_submit: true,
+        command_ack_received: true,
+        command_target_bound_to_active_run: true,
+        no_cross_run_command: true,
+        plan_adjusted_event_type: "plan_adjusted",
+        plan_revised_event_type: "plan_revised",
+        plan_revised_author_narrative_source_type: "provider_output",
+        plan_revised_evaluation_plan_holds: false,
+        adjusted_goal_version: 2,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-steer-replan", records);
+
+    expect(evidence).toMatchObject({
+      turn_id: "turn-steer",
+      run_id: "run-steer",
+      command_source: "main_input",
+      adjusted_goal_version: 2,
+    });
+    expect(findSliceBehaviorEvidence("agent-steer-replan", records, evidence)).toMatchObject({
+      behavior:
+        "main_input_steer_updates_bounded_agent_run_goal_and_emits_model_sourced_plan_revised",
+      command_source: "main_input",
+      assertions: expect.arrayContaining([
+        "active_agent_run_switches_main_input_to_steering_placeholder",
+        "main_input_steer_text_stayed_visible_as_local_author_message",
+        "active_agent_run_work_state_remained_visible_after_main_input_steer",
+        "main_chat_input_text_was_sent_as_agent_command_steer",
+      ]),
+    });
+  });
+
+  it("rejects agent steer replan evidence without the active-run main input placeholder", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-steer",
+        run_id: "run-steer",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-steer-replan",
+        parent_turn_id: "turn-steer",
+        run_id: "run-steer",
+        run_mode: "bounded",
+        command: "steer",
+        command_sent_from_main_input: true,
+        no_second_user_message_for_steer: true,
+        command_ack_received: true,
+        command_target_bound_to_active_run: true,
+        no_cross_run_command: true,
+        plan_adjusted_event_type: "plan_adjusted",
+        plan_revised_event_type: "plan_revised",
+        plan_revised_author_narrative_source_type: "provider_output",
+        plan_revised_evaluation_plan_holds: false,
+        adjusted_goal_version: 2,
+      },
+    ];
+
+    expect(findNativeSliceEvidence("agent-steer-replan", records)).toBeNull();
+  });
+
+  it("requires AgentRun world building profile to create a tentative foreshadowing seed", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        run_id: "run-world",
+        run_mode: "bounded",
+      },
+      {
+        event: "orchestrator.decide.done",
+        decision_type: "allow_tool",
+      },
+      {
+        event: "toolbox.execute.done",
+        tool_name: "world_building",
+        tool_outcome: "succeeded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-world-building-with-context",
+        turn_id: "turn-world-final",
+        parent_turn_id: "turn-world-parent",
+        final_turn_id: "turn-world-final",
+        run_id: "run-world",
+        world_building_request_sent_from_real_workbench: true,
+        parent_fast_ack_before_final_turn_result: true,
+        run_mode: "bounded",
+        profile_ref: "world_building_with_context_v1",
+        final_turn_broadcast: true,
+        final_tool_name: "world_building",
+        final_tool_status: "succeeded",
+        pending_artifact_id: "artifact-world",
+        pending_artifact_type: "foreshadowing_seed",
+        expected_artifact_type: "foreshadowing_seed",
+        pending_artifact_requires_adoption: true,
+        pending_artifact_tentative: true,
+        pending_item_preserved_nonce: true,
+        no_auto_adoption: true,
+        no_production_write: true,
+        agent_stage_events_visible: true,
+        context_step_visible: true,
+        context_event_visible: true,
+        context_observation_visible: true,
+        strategy_step_visible: true,
+        plan_event_visible: true,
+        gate_event_visible: true,
+        world_step_visible: true,
+        tool_started_visible: true,
+        tool_completed_visible: true,
+        tool_observation_visible: true,
+        finalization_step_visible: true,
+        artifact_observation_visible: true,
+        artifact_event_visible: true,
+        ui_context_step_visible: true,
+        ui_strategy_step_visible: true,
+        ui_world_step_visible: true,
+        ui_finalization_step_visible: true,
+        completed_step_count: 2,
+        consumed_steps: 2,
+        consumed_tool_calls: 1,
+        consumed_provider_calls: 5,
+        ui_agent_panel_visible: true,
+        ui_agent_completed_visible: true,
+        ui_world_building_draft_visible: true,
+        ui_profile_selection_visible: true,
+        ui_profile_selection_source_visible: true,
+        ui_profile_selection_reason_visible: true,
+        ui_profile_selection_terms_visible: true,
+        ui_profile_selection_path_visible: true,
+        ui_execution_brief_path_visible: true,
+        log_sync_turn_count: 0,
+        log_allow_tool_count: 1,
+        log_world_building_tool_done: true,
+        world_building_nonce: "WORLD123",
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-world-building-with-context", records);
+    expect(evidence).toEqual({
+      slice_id: "agent-world-building-with-context",
+      turn_id: "turn-world-final",
+      turn_ids: ["turn-world-parent", "turn-world-final"],
+      parent_turn_id: "turn-world-parent",
+      final_turn_id: "turn-world-final",
+      run_id: "run-world",
+      profile_ref: "world_building_with_context_v1",
+      pending_artifact_id: "artifact-world",
+      pending_artifact_type: "foreshadowing_seed",
+      world_building_nonce: "WORLD123",
+      consumed_steps: 2,
+      consumed_tool_calls: 1,
+      consumed_provider_calls: 5,
+      ui_profile_selection_visible: true,
+      ui_profile_selection_terms_visible: true,
+      ui_profile_selection_path_visible: true,
+      ui_execution_brief_path_visible: true,
+      key_events: keyEventsForSlice("agent-world-building-with-context"),
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-world-building-with-context", records, evidence),
+    ).toMatchObject({
+      slice_id: "agent-world-building-with-context",
+      behavior: "bounded_agent_run_world_building_profile_generates_tentative_foreshadowing_seed",
+      assertions: expect.arrayContaining([
+        "world_building_profile_selection_causality_was_visible_to_author",
+        "world_building_tool_step_was_chosen_by_next_step_planner_and_reentered_orchestrator_gate",
+        "world_building_tool_produced_tentative_foreshadowing_seed",
+        "world_building_artifact_remained_unadopted_without_production_write",
+      ]),
+    });
+
+    const wrongArtifactRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? { ...record, pending_artifact_type: "world_setting" }
+        : record,
+    );
+
+    expect(
+      findNativeSliceEvidence("agent-world-building-with-context", wrongArtifactRecords),
+    ).toBeNull();
+
+    const styleRuleRecords = records.map((record) =>
+      record.event === "slice_verify.ui_state.done"
+        ? {
+            ...record,
+            slice_id: "agent-world-building-style-rule-with-context",
+            pending_artifact_id: "artifact-style",
+            pending_artifact_type: "style_rule_seed",
+            expected_artifact_type: "style_rule_seed",
+            world_building_nonce: "STYLE123",
+          }
+        : record,
+    );
+    const styleRuleEvidence = findNativeSliceEvidence(
+      "agent-world-building-style-rule-with-context",
+      styleRuleRecords,
+    );
+    expect(styleRuleEvidence).toMatchObject({
+      slice_id: "agent-world-building-style-rule-with-context",
+      pending_artifact_id: "artifact-style",
+      pending_artifact_type: "style_rule_seed",
+      world_building_nonce: "STYLE123",
+      key_events: keyEventsForSlice("agent-world-building-style-rule-with-context"),
+    });
+    expect(
+      findSliceBehaviorEvidence(
+        "agent-world-building-style-rule-with-context",
+        styleRuleRecords,
+        styleRuleEvidence,
+      ),
+    ).toMatchObject({
+      slice_id: "agent-world-building-style-rule-with-context",
+      behavior: "bounded_agent_run_world_building_profile_generates_tentative_style_rule_seed",
+      assertions: expect.arrayContaining([
+        "world_building_tool_produced_tentative_style_rule_seed",
+      ]),
+    });
   });
 
   it("requires middle provider execution progress for unified provider stream", () => {
@@ -188,10 +447,13 @@ describe("native Tauri slice verifier", () => {
         final_turn_id: "turn-provider-stream",
         run_id: "run-provider-stream",
         plain_input_sent_from_real_workbench: true,
+        ui_agent_immediate_feedback_visible: true,
         parent_fast_ack_before_final_turn_result: true,
         profile_ref: "conversation_turn_v1",
         final_turn_broadcast: true,
         final_turn_result_run_id: "run-provider-stream",
+        provider_activity_api_status: 200,
+        provider_activity_api_agent_run_count: 1,
         provider_progress_event_count: 30,
         provider_progress_reason_codes: [
           "provider_execution_stream",
@@ -202,7 +464,7 @@ describe("native Tauri slice verifier", () => {
           "provider_chunk",
           "provider_final_output",
         ],
-        provider_progress_visibility_author: true,
+        provider_progress_visibility_developer: true,
         provider_progress_has_step_ref: true,
         provider_started_projected: true,
         provider_final_output_projected: true,
@@ -214,14 +476,22 @@ describe("native Tauri slice verifier", () => {
         provider_execution_stream_projected: true,
         provider_progress_raw_content_leaked: false,
         provider_chunk_raw_content_leaked: false,
+        author_reasoning_delta_event_count: 3,
+        author_reasoning_delta_payload_key: "author_narrative_delta",
+        author_reasoning_delta_before_first_plan: true,
+        author_reasoning_second_delta_before_first_plan: true,
+        ui_author_reasoning_delta_visible: true,
+        ui_author_reasoning_cumulative_delta_visible: true,
+        ui_author_reasoning_stream_sample_count: 3,
+        ui_author_reasoning_stream_grew: true,
         ui_provider_execution_visible: true,
         ui_provider_execution_details_visible: true,
         ui_provider_execution_flow_visible: true,
         ui_agent_execution_brief_visible: true,
         provider_run_refs: ["prun-planner", "prun-conversation"],
         provider_call_refs: ["pcall-planner", "pcall-conversation"],
-        provider_purposes: ["planner", "conversation"],
-        consumed_provider_calls: 6,
+        provider_purposes: ["author_reasoning", "conversation"],
+        consumed_provider_calls: 7,
       },
     ];
 
@@ -236,11 +506,15 @@ describe("native Tauri slice verifier", () => {
       findSliceBehaviorEvidence("agent-provider-execution-stream-unified", records, evidence),
     ).toMatchObject({
       assertions: expect.arrayContaining([
+        "assistant_work_state_was_visible_immediately_after_send",
+        "provider_execution_developer_telemetry_loaded_from_scoped_agent_run_activity_api",
         "provider_execution_request_prepared_progress_was_projected",
         "provider_execution_request_dispatched_progress_was_projected",
         "provider_execution_response_received_progress_was_projected",
         "provider_execution_chunk_events_were_projected",
-        "provider_execution_chunk_payload_was_author_safe_metadata",
+        "provider_execution_chunk_payload_was_redacted_telemetry_metadata",
+        "author_reasoning_provider_deltas_streamed_before_first_plan",
+        "ui_reasoning_area_grew_from_multiple_provider_deltas",
         "provider_execution_flow_rendered_live_phase_summary_in_dialogue_flow",
       ]),
     });
@@ -271,6 +545,15 @@ describe("native Tauri slice verifier", () => {
     expect(
       findNativeSliceEvidence("agent-provider-execution-stream-unified", missingFlowSummary),
     ).toBeNull();
+
+    const missingReasoningStream = records.map((record) => ({
+      ...record,
+      author_reasoning_delta_event_count: 1,
+    }));
+
+    expect(
+      findNativeSliceEvidence("agent-provider-execution-stream-unified", missingReasoningStream),
+    ).toBeNull();
   });
 
   it("requires ProviderRun activity API evidence for restored provider execution activity", () => {
@@ -287,40 +570,41 @@ describe("native Tauri slice verifier", () => {
         final_turn_broadcast: true,
         final_turn_result_run_id: "run-provider-activity",
         restored_after_reload: true,
-        transcript_agent_run_events_restored: true,
-        transcript_provider_progress_event_count: 4,
-        transcript_provider_started_restored: true,
-        transcript_provider_final_output_restored: true,
-        transcript_provider_activity_raw_content_leaked: false,
-        transcript_provider_run_raw_content_leaked: false,
+        transcript_agent_run_summary_only: true,
+        transcript_agent_run_activity_loaded: false,
+        transcript_agent_run_event_count: 0,
+        transcript_provider_run_summary_count: 0,
+        agent_run_activity_api_status: 200,
+        agent_run_activity_api_run_count: 1,
+        agent_run_activity_api_event_count: 6,
+        agent_run_activity_api_provider_progress_event_count: 4,
+        agent_run_activity_api_started_restored: true,
+        agent_run_activity_api_final_output_restored: true,
+        agent_run_activity_api_provider_run_refs: ["prun-planner", "prun-conversation"],
+        agent_run_activity_api_provider_call_refs: ["pcall-planner", "pcall-conversation"],
+        agent_run_activity_api_raw_content_leaked: false,
+        restored_ui_details_initially_collapsed: true,
+        restored_ui_activity_loaded_after_expand: true,
         restored_ui_provider_execution_visible: true,
         restored_ui_provider_execution_details_visible: true,
         restored_ui_agent_execution_brief_visible: true,
+        restored_ui_provider_usage_breakdown_visible: true,
         restored_ui_agent_flow_visible: true,
         restored_ui_provider_run_replay_visible: true,
         restored_ui_provider_run_replay_boundary_visible: true,
         restored_ui_provider_run_replay_raw_content_leaked: false,
-        transcript_provider_run_summary_count: 6,
-        transcript_provider_run_refs: ["prun-planner", "prun-conversation"],
-        transcript_provider_call_refs: ["pcall-planner", "pcall-conversation"],
-        transcript_provider_run_summary_refs: ["prun-planner", "prun-conversation"],
-        transcript_provider_call_summary_refs: ["pcall-planner", "pcall-conversation"],
-        transcript_provider_run_purposes: ["planner", "conversation"],
         provider_run_activity_api_status: 200,
         provider_run_activity_api_count: 6,
         provider_run_activity_api_refs: ["prun-planner", "prun-conversation"],
         provider_run_activity_api_call_refs: ["pcall-planner", "pcall-conversation"],
-        provider_run_activity_api_purposes: ["planner", "conversation"],
+        provider_run_activity_api_purposes: ["author_reasoning", "conversation"],
         provider_run_activity_api_total_tokens: 42,
         provider_run_activity_api_raw_content_leaked: false,
         reload_resume_transcript_count: 2,
       },
     ];
 
-    const evidence = findNativeSliceEvidence(
-      "agent-provider-execution-activity-restored",
-      records,
-    );
+    const evidence = findNativeSliceEvidence("agent-provider-execution-activity-restored", records);
     expect(evidence).toMatchObject({
       slice_id: "agent-provider-execution-activity-restored",
       turn_id: "turn-provider-activity",
@@ -329,8 +613,9 @@ describe("native Tauri slice verifier", () => {
       provider_run_activity_api_count: 6,
       provider_run_activity_api_refs: ["prun-planner", "prun-conversation"],
       provider_run_activity_api_call_refs: ["pcall-planner", "pcall-conversation"],
-      provider_run_activity_api_purposes: ["planner", "conversation"],
+      provider_run_activity_api_purposes: ["author_reasoning", "conversation"],
       provider_run_activity_api_total_tokens: 42,
+      restored_ui_provider_usage_breakdown_visible: true,
       restored_ui_provider_run_replay_visible: true,
       restored_ui_provider_run_replay_boundary_visible: true,
     });
@@ -338,11 +623,15 @@ describe("native Tauri slice verifier", () => {
       findSliceBehaviorEvidence("agent-provider-execution-activity-restored", records, evidence),
     ).toMatchObject({
       slice_id: "agent-provider-execution-activity-restored",
-      behavior: "provider_execution_activity_restored_from_persisted_agent_run_events",
+      behavior: "provider_execution_activity_lazy_loaded_from_persisted_agent_run_events",
       provider_run_activity_api_count: 6,
       restored_ui_provider_run_replay_visible: true,
       assertions: expect.arrayContaining([
+        "session_restore_kept_agent_run_activity_summary_only",
+        "agent_run_activity_api_returned_author_safe_events_without_provider_recall",
+        "author_expanded_work_details_loaded_activity_inside_same_assistant_dialogue_flow",
         "provider_run_activity_api_returned_author_safe_usage_without_provider_recall",
+        "restored_provider_usage_breakdown_was_visible_to_author",
         "restored_provider_run_replay_rendered_event_sequence_and_output_summary",
         "restored_provider_run_replay_declared_no_provider_recall_boundary",
       ]),
@@ -354,6 +643,100 @@ describe("native Tauri slice verifier", () => {
     }));
     expect(
       findNativeSliceEvidence("agent-provider-execution-activity-restored", missingApiRecords),
+    ).toBeNull();
+  });
+
+  it("accepts session transcript lazy page evidence only after older page load", () => {
+    const records = [
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-session-transcript-lazy-page",
+        turn_id: "turn-latest",
+        turn_ids: ["turn-latest"],
+        work_id: "work-lazy",
+        session_id: "session-lazy",
+        sent_turn_count: 16,
+        persisted_first_page_count: 30,
+        persisted_first_page_has_more_before: true,
+        persisted_first_page_before_id_present: true,
+        older_transcript_api_status: 200,
+        older_transcript_api_count: 2,
+        older_transcript_api_first_message_visible: true,
+        older_assistant_turn_id: "turn-oldest",
+        older_transcript_agent_run_summary_only: true,
+        older_agent_run_activity_api_status: 200,
+        older_agent_run_activity_api_run_count: 1,
+        older_agent_run_activity_api_provider_progress_event_count: 4,
+        older_provider_run_activity_api_count: 6,
+        older_provider_run_activity_api_purposes: ["author_reasoning", "conversation"],
+        older_agent_run_activity_api_raw_content_leaked: false,
+        reload_resume_transcript_count: 30,
+        restored_latest_message_visible: true,
+        restored_oldest_message_hidden_before_load: true,
+        load_older_button_visible: true,
+        older_message_visible_after_load: true,
+        load_older_button_hidden_after_exhausted: true,
+        provider_recalled_during_load_older: false,
+        older_ui_details_initially_collapsed: true,
+        older_ui_activity_loaded_after_expand: true,
+        older_ui_provider_run_replay_boundary_visible: true,
+        older_ui_provider_run_replay_raw_content_leaked: false,
+        provider_recalled_during_older_activity_expand: false,
+      },
+    ];
+
+    const evidence = findNativeSliceEvidence("agent-session-transcript-lazy-page", records);
+    expect(evidence).toMatchObject({
+      slice_id: "agent-session-transcript-lazy-page",
+      turn_id: "turn-latest",
+      work_id: "work-lazy",
+      session_id: "session-lazy",
+      persisted_first_page_count: 30,
+      older_transcript_api_count: 2,
+      older_assistant_turn_id: "turn-oldest",
+      older_agent_run_activity_api_provider_progress_event_count: 4,
+      older_provider_run_activity_api_count: 6,
+      provider_recalled_during_load_older: false,
+      older_ui_activity_loaded_after_expand: true,
+      provider_recalled_during_older_activity_expand: false,
+    });
+    expect(
+      findSliceBehaviorEvidence("agent-session-transcript-lazy-page", records, evidence),
+    ).toMatchObject({
+      slice_id: "agent-session-transcript-lazy-page",
+      behavior: "session_transcript_restored_as_latest_page_and_older_page_loaded_on_author_action",
+      assertions: expect.arrayContaining([
+        "session_resume_returned_latest_transcript_page_only",
+        "older_transcript_page_was_loaded_by_author_visible_action",
+        "loading_older_transcript_did_not_recall_provider",
+        "older_assistant_activity_loaded_from_scoped_agent_run_activity_api",
+        "older_assistant_work_details_expanded_inside_same_dialogue_flow",
+        "expanding_older_assistant_activity_did_not_recall_provider",
+      ]),
+    });
+
+    const providerRecallRecords = records.map((record) => ({
+      ...record,
+      provider_recalled_during_load_older: true,
+    }));
+    expect(
+      findNativeSliceEvidence("agent-session-transcript-lazy-page", providerRecallRecords),
+    ).toBeNull();
+
+    const missingOlderActivityRecords = records.map((record) => ({
+      ...record,
+      older_agent_run_activity_api_status: 404,
+    }));
+    expect(
+      findNativeSliceEvidence("agent-session-transcript-lazy-page", missingOlderActivityRecords),
+    ).toBeNull();
+
+    const providerRecallOnExpandRecords = records.map((record) => ({
+      ...record,
+      provider_recalled_during_older_activity_expand: true,
+    }));
+    expect(
+      findNativeSliceEvidence("agent-session-transcript-lazy-page", providerRecallOnExpandRecords),
     ).toBeNull();
   });
 
@@ -6109,6 +6492,30 @@ describe("native Tauri slice verifier", () => {
       turn_ids: ["turn-real"],
       request_count: 1,
       status_codes: [200],
+      urls: ["http://localhost:1234/v1/chat/completions"],
+    });
+  });
+
+  it("matches real DeepSeek chat completion logs by turn id", () => {
+    const evidence = findLiveProviderEvidence(
+      "deepseek",
+      ["turn-deepseek"],
+      [
+        {
+          turn_id: "turn-deepseek",
+          provider: "deepseek",
+          request: { method: "POST", url: "https://api.deepseek.com/chat/completions" },
+          response: { status: 200 },
+        },
+      ],
+    );
+
+    expect(evidence).toEqual({
+      provider: "deepseek",
+      turn_ids: ["turn-deepseek"],
+      request_count: 1,
+      status_codes: [200],
+      urls: ["https://api.deepseek.com/chat/completions"],
     });
   });
 

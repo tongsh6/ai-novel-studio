@@ -4,10 +4,13 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   alias Ecto.Adapters.SQL.Sandbox
   alias NovelAgent.Provider.Execution
   alias NovelAgent.Provider.Result
-  alias NovelApplication.AgentRunSequentialPlanner
+  alias NovelApplication.AgentRunFlows.ConversationTurn
+  alias NovelApplication.AgentRunFlows.ProviderProgress
+  alias NovelApplication.AgentRunFlows.ReadonlyBatchContext
   alias NovelApplication.AgentRunService
   alias NovelApplication.DialoguePlanningService
   alias NovelCommon.Contracts.{ProviderEvent, ProviderOutput, ProviderRun}
+  alias NovelDomain.AgentNextStepDecision
   alias NovelDomain.AgentObservation
   alias NovelDomain.AgentStep
   alias NovelPersistence.{AgentRunLog, LongRunTaskLog, ProviderRunLog, Repo}
@@ -35,14 +38,14 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: AgentRunSequentialPlanner.from_steps([step]),
+               next_step_planner: sequential_steps([step]),
                event_sink: event_sink(parent)
              )
 
     assert_receive {:step_started, 1}
     assert_receive {:agent_event, :run_started, "AgentRun 已启动。"}
-    assert_receive {:agent_event, :step_proposed, "正在执行第 1 步。"}
-    assert_receive {:agent_event, :observation_recorded, "第 1 步观察。"}
+    assert_receive {:agent_event, :plan_drafted, "执行测试步骤 1。"}
+    assert_receive {:agent_event, :exploration_observed, "第 1 步观察。"}
     assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}
 
     assert {:ok, %{run: run}} = AgentRunService.state(run_id)
@@ -50,6 +53,43 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert run.phase == :stopped
     assert run.completed_step_refs == ["step_1"]
     assert run.pending_artifact_refs == ["as_1"]
+  end
+
+  test "plan_revised is emitted only from a failed plan_holds evaluation and consumes replan budget" do
+    parent = self()
+    run_id = unique_run_id()
+
+    step = fn _run, sequence ->
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_replanned"),
+         observations: [],
+         loop_status: :completed
+       }}
+    end
+
+    planner = fn run, sequence, _snapshot ->
+      {:execute, step, replan_decision(run, sequence), %{provider_call_count: 0}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    assert_receive {:agent_event_full, :plan_revised, event}, 500
+    assert "agent_plan_revised" in event.reason_codes
+    assert event.payload.evaluation_of_last.plan_holds == false
+    assert event.payload.evaluation_of_last.new_constraint == "测试前提不成立。"
+    assert event.payload.revision_reason == "测试前提不成立。"
+    assert event.payload.plan_revision.plan_version == 2
+
+    assert_receive {:agent_event_full, :run_completed, _event}, 500
+
+    assert {:ok, %{run: run}} = AgentRunService.state(run_id)
+    assert run.plan_version == 2
+    assert run.consumed_budget.replans == 1
   end
 
   test "bounded runtime persists run, step and author-safe event records" do
@@ -72,7 +112,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: AgentRunSequentialPlanner.from_steps([step]),
+               next_step_planner: sequential_steps([step]),
                event_sink: event_sink(parent)
              )
 
@@ -97,8 +137,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     event_types = AgentRunLog.list_events(run_id) |> Enum.map(& &1.event_type)
     assert "run_started" in event_types
-    assert "step_proposed" in event_types
-    assert "observation_recorded" in event_types
+    assert "plan_drafted" in event_types
+    assert "exploration_observed" in event_types
     assert "artifact_created" in event_types
     assert "run_completed" in event_types
 
@@ -131,44 +171,53 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
              )
 
-    assert_receive {:agent_event, :run_started, _}
-    assert_receive {:agent_event, :step_proposed, context_step}
-    assert context_step.summary =~ "组装创作上下文"
+    assert_receive {:agent_event, :run_started, started}
+    assert "profile_selected" in started.reason_codes
+
+    assert started.payload.profile_ref == ConversationTurn.profile_ref()
+
+    assert started.payload.profile_selection.profile_ref ==
+             ConversationTurn.profile_ref()
+
+    assert started.payload.profile_selection.source == "application_profile"
+    assert_receive {:agent_event, :plan_drafted, context_step}
+    assert context_step.summary =~ "组装当前作品"
+    assert_planner_step(context_step, "context_assemble")
 
     assert_receive {:agent_event, :goal_understood, context_stage}, 500
     assert "context_assembled" in context_stage.reason_codes
     assert context_stage.payload.stage == :context_assembled
 
-    assert_receive {:agent_event, :observation_recorded, context_event}, 500
+    assert_receive {:agent_event, :exploration_observed, context_event}, 500
     assert context_event.summary =~ "已组装本轮创作上下文"
 
-    assert_receive {:agent_event, :plan_created, context_decision}, 500
-    assert "agent_next_step_decided" in context_decision.reason_codes
+    assert_receive {:agent_event, :evaluation_made, context_decision}, 500
+    assert "agent_step_evaluated" in context_decision.reason_codes
     assert "agentic_next_step" in context_decision.reason_codes
 
-    assert_receive {:agent_event, :step_proposed, frame_step}, 500
+    assert_receive {:agent_event, :plan_drafted, frame_step}, 500
     assert frame_step.summary =~ "形成对话认知帧"
+    assert_planner_step(frame_step, "dialogue_frame")
 
-    assert_receive {:agent_event, :plan_created, frame_stage}, 500
-    assert "dialogue_frame_formed" in frame_stage.reason_codes
-    assert frame_stage.payload.stage == :dialogue_frame_formed
-    assert frame_stage.payload.needs_tool == false
-
-    assert_receive {:agent_event, :observation_recorded, frame_event}, 500
+    assert_receive {:agent_event, :exploration_observed, frame_event}, 500
     assert frame_event.summary =~ "casual_reply"
+    assert_receive {:agent_event, :evaluation_made, frame_decision}, 500
+    assert "agent_step_evaluated" in frame_decision.reason_codes
 
-    assert_receive {:agent_event, :step_proposed, strategy_step}, 500
+    assert_receive {:agent_event, :plan_drafted, strategy_step}, 500
     assert strategy_step.summary =~ "执行策略"
+    assert_planner_step(strategy_step, "strategy_gate")
 
     assert_receive {:agent_event, :gate_decided, gate_stage}, 500
     assert "reply_only_no_tool" in gate_stage.reason_codes
     assert gate_stage.payload.stage == :reply_only_gate
 
-    assert_receive {:agent_event, :observation_recorded, strategy_event}, 500
+    assert_receive {:agent_event, :exploration_observed, strategy_event}, 500
     assert strategy_event.summary =~ "无需工具"
 
-    assert_receive {:agent_event, :step_proposed, finalize_step}, 500
+    assert_receive {:agent_event, :plan_drafted, finalize_step}, 500
     assert finalize_step.summary =~ "生成本轮回应"
+    assert_planner_step(finalize_step, "response_finalize")
 
     assert_receive {:agent_event, :turn_result_ready, turn_event}, 500
     assert turn_event.payload.turn_result.agent_run.run_id == run_id
@@ -215,7 +264,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     planner_started_projection =
       Enum.find(provider_progress_events, fn event ->
-        "provider_started" in event.reason_codes and event.payload.purpose == "planner"
+        "provider_started" in event.reason_codes and event.payload.purpose == "author_reasoning"
       end)
 
     conversation_started_projection =
@@ -226,6 +275,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     conversation_chunk_projection =
       Enum.find(provider_progress_events, fn event ->
         "provider_chunk" in event.reason_codes and event.payload.purpose == "conversation"
+      end)
+
+    planner_chunk_projection =
+      Enum.find(provider_progress_events, fn event ->
+        "provider_chunk" in event.reason_codes and event.payload.purpose == "author_reasoning"
       end)
 
     conversation_final_projection =
@@ -245,13 +299,24 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     refute inspect(provider_progress_events) =~ "assistant_message"
 
     assert conversation_chunk_projection
-    assert conversation_chunk_projection.summary == "对话判断正在接收模型片段。"
+    assert conversation_chunk_projection.visibility == :developer
+    assert conversation_chunk_projection.summary == "provider_event:chunk"
     assert conversation_chunk_projection.payload.output_type == "text"
     assert conversation_chunk_projection.payload.chunk_index == 1
     assert conversation_chunk_projection.payload.chunk_content_length == 7
     assert conversation_chunk_projection.payload.accumulated_content_length == 7
     refute Map.has_key?(conversation_chunk_projection.payload, :content_length)
     refute inspect(conversation_chunk_projection.payload) =~ "收到你的测试消息"
+    refute Map.has_key?(conversation_chunk_projection.payload, :author_narrative_delta)
+
+    assert planner_chunk_projection
+    assert planner_chunk_projection.visibility == :author
+
+    assert planner_chunk_projection.summary ==
+             String.trim(planner_chunk_projection.payload.author_narrative_delta)
+
+    assert planner_chunk_projection.payload.author_narrative_delta =~ "先"
+    refute planner_chunk_projection.payload.author_narrative_delta =~ "evaluation_of_last"
 
     assert conversation_final_projection
     assert conversation_final_projection.payload.output_type == "text"
@@ -264,14 +329,14 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       wait_for(fn ->
         summaries = ProviderRunLog.list_usage_summaries(run_id)
 
-        if Enum.any?(summaries, &(&1.purpose == "planner")) and
+        if Enum.any?(summaries, &(&1.purpose == "author_reasoning")) and
              Enum.any?(summaries, &(&1.purpose == "conversation")) do
           summaries
         end
       end)
 
-    assert Enum.find(persisted_provider_runs, &(&1.provider_call_ref == "pcall-planner")).purpose ==
-             "planner"
+    assert Enum.find(persisted_provider_runs, &(&1.provider_call_ref == "pcall-author-reasoning")).purpose ==
+             "author_reasoning"
 
     assert %{
              purpose: "conversation",
@@ -334,7 +399,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     refute inspect(provider_progress_events) =~ "raw_prompt"
 
     assert error_projection
-    assert error_projection.summary =~ "调用创作模型失败"
+    assert error_projection.visibility == :developer
+    assert error_projection.summary == "provider_event:error"
     assert error_projection.payload.status == "error"
     assert error_projection.payload.output_type == "empty"
     assert error_projection.payload.provider_run_ref == "prun-conversation-error"
@@ -387,7 +453,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(
                base_run(run_id),
-               next_step_planner: AgentRunSequentialPlanner.from_steps([slow_step, fast_step]),
+               next_step_planner: sequential_steps([slow_step, fast_step]),
                event_sink: event_sink(parent)
              )
 
@@ -416,7 +482,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: AgentRunSequentialPlanner.from_steps([slow_step]),
+               next_step_planner: sequential_steps([slow_step]),
                event_sink: event_sink_full(parent)
              )
 
@@ -460,7 +526,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(attrs,
-               next_step_planner: AgentRunSequentialPlanner.from_steps([step, step]),
+               next_step_planner: sequential_steps([step, step]),
                event_sink: event_sink(parent)
              )
 
@@ -486,6 +552,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     attrs =
       base_run(run_id)
+      |> Map.put(:work_revision, 7)
+      |> Map.put(:target_revision_ref, "draft:target:1")
+      |> Map.put(:target_revision, 3)
       |> Map.put(:budget, %{
         max_steps: 1,
         max_tool_calls: 4,
@@ -495,7 +564,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_durable(attrs,
-               next_step_planner: AgentRunSequentialPlanner.from_steps([step, step]),
+               next_step_planner: sequential_steps([step, step]),
                event_sink: event_sink(parent)
              )
 
@@ -518,11 +587,118 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert task.completed_unit_refs == ["step_#{run_id}_1"]
     assert task.checkpoint_data["agent_run"]["run_id"] == run_id
     assert task.checkpoint_data["agent_run"]["status"] == "awaiting_author"
+    assert task.checkpoint_data["agent_run"]["work_revision"] == 7
+    assert task.checkpoint_data["agent_run"]["target_revision_ref"] == "draft:target:1"
+    assert task.checkpoint_data["agent_run"]["target_revision"] == 3
 
     assert {:ok, [recovered]} = AgentRunService.recover_durable("work_1", "sess_1")
     assert recovered.runtime_live? == true
     assert recovered.run.long_run_task_ref == task.id
     assert "runtime_live" in recovered.recovery_event.reason_codes
+  end
+
+  test "durable live recovery marks stale when requested goal version changed" do
+    parent = self()
+    run_id = unique_run_id()
+
+    step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+
+      {:ok,
+       %{step: step_struct(run_id, sequence, "step_#{run_id}_#{sequence}"), observations: []}}
+    end
+
+    attrs =
+      base_run(run_id)
+      |> Map.put(:work_id, "work_goal_version_stale")
+      |> Map.put(:session_id, "session_goal_version_stale")
+      |> Map.put(:parent_turn_ref, "turn_goal_version_stale")
+      |> Map.put(:origin_frame_ref, "frame_goal_version_stale")
+      |> Map.put(:budget, %{
+        max_steps: 1,
+        max_tool_calls: 4,
+        max_provider_calls: 3,
+        max_replans: 1
+      })
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_durable(attrs,
+               next_step_planner: sequential_steps([step, step]),
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:step_started, 1}
+    assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
+
+    assert {:ok, [recovered]} =
+             AgentRunService.recover_durable(
+               "work_goal_version_stale",
+               "session_goal_version_stale",
+               goal_version: 2
+             )
+
+    assert recovered.runtime_live? == true
+    assert recovered.run.status == :awaiting_author
+    assert recovered.long_run_task.checkpoint_data["stale_resume"] == true
+    assert recovered.long_run_task.checkpoint_data["stale_reason"] == "goal_version_mismatch"
+    assert recovered.long_run_task.checkpoint_data["step"] == "恢复目标版本已变化，等待作者确认"
+    assert "runtime_live" in recovered.recovery_event.reason_codes
+    assert "stale_resume" in recovered.recovery_event.reason_codes
+    assert "goal_version_mismatch" in recovered.recovery_event.reason_codes
+
+    assert AgentRunLog.get_run(run_id).failure_ref == "goal_version_mismatch"
+  end
+
+  test "durable live recovery marks stale when joined session changed" do
+    parent = self()
+    run_id = unique_run_id()
+
+    step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+
+      {:ok,
+       %{step: step_struct(run_id, sequence, "step_#{run_id}_#{sequence}"), observations: []}}
+    end
+
+    attrs =
+      base_run(run_id)
+      |> Map.put(:work_id, "work_live_session_stale")
+      |> Map.put(:session_id, "session_live_original")
+      |> Map.put(:parent_turn_ref, "turn_live_session_stale")
+      |> Map.put(:origin_frame_ref, "frame_live_session_stale")
+      |> Map.put(:budget, %{
+        max_steps: 1,
+        max_tool_calls: 4,
+        max_provider_calls: 3,
+        max_replans: 1
+      })
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_durable(attrs,
+               next_step_planner: sequential_steps([step, step]),
+               event_sink: event_sink(parent)
+             )
+
+    assert_receive {:step_started, 1}
+    assert_receive {:agent_event, :awaiting_author, "AgentRun 已达到预算上限。"}, 500
+
+    assert {:ok, [recovered]} =
+             AgentRunService.recover_durable(
+               "work_live_session_stale",
+               "session_live_after_reload"
+             )
+
+    assert recovered.runtime_live? == true
+    assert recovered.run.status == :awaiting_author
+    assert recovered.run.session_id == "session_live_original"
+    assert recovered.long_run_task.checkpoint_data["stale_resume"] == true
+    assert recovered.long_run_task.checkpoint_data["stale_reason"] == "session_ref_mismatch"
+    assert recovered.long_run_task.checkpoint_data["step"] == "恢复目标会话与运行记录不一致，等待作者确认"
+    assert "runtime_live" in recovered.recovery_event.reason_codes
+    assert "stale_resume" in recovered.recovery_event.reason_codes
+    assert "session_ref_mismatch" in recovered.recovery_event.reason_codes
+
+    assert AgentRunLog.get_run(run_id).failure_ref == "session_ref_mismatch"
   end
 
   test "durable checkpoint recovery waits for author when runtime is not live" do
@@ -544,7 +720,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step_stale_1"],
-            "checkpoint_version" => 1
+            "checkpoint_version" => 2
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -598,6 +774,246 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert AgentRunLog.get_run(run_id).failure_ref == "durable_runtime_not_live"
   end
 
+  test "durable checkpoint recovery marks stale when checkpoint version is missing" do
+    run_id = unique_run_id()
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: "work_checkpoint_version_missing",
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "恢复旧格式长任务",
+        scope_ref: "work_checkpoint_version_missing",
+        created_by: "agent_run",
+        parent_turn_ref: "turn_checkpoint_version_missing",
+        checkpoint_policy_ref: "agent_run_step_checkpoint_v1",
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "completed_step_refs" => ["step_checkpoint_version_missing_1"]
+          },
+          "progress" => 50,
+          "step" => "旧格式 AgentRun 检查点"
+        }
+      })
+
+    insert_durable_run_record(run_id, task.id, %{
+      work_id: "work_checkpoint_version_missing",
+      session_id: "session_checkpoint_version_missing",
+      parent_turn_ref: "turn_checkpoint_version_missing",
+      completed_step_refs: ["step_checkpoint_version_missing_1"]
+    })
+
+    assert {:ok, [recovered]} =
+             AgentRunService.recover_durable(
+               "work_checkpoint_version_missing",
+               "session_checkpoint_version_missing"
+             )
+
+    assert recovered.run.status == :awaiting_author
+    assert recovered.long_run_task.checkpoint_data["stale_reason"] == "checkpoint_version_missing"
+    assert recovered.long_run_task.checkpoint_data["step"] == "恢复检查点缺少版本信息，等待作者确认"
+    assert "checkpoint_version_missing" in recovered.recovery_event.reason_codes
+    assert AgentRunLog.get_run(run_id).failure_ref == "checkpoint_version_missing"
+  end
+
+  test "durable checkpoint recovery marks stale when checkpoint version mismatches runtime contract" do
+    run_id = unique_run_id()
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: "work_checkpoint_version_mismatch",
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "恢复未来格式长任务",
+        scope_ref: "work_checkpoint_version_mismatch",
+        created_by: "agent_run",
+        parent_turn_ref: "turn_checkpoint_version_mismatch",
+        checkpoint_policy_ref: "agent_run_step_checkpoint_v1",
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "completed_step_refs" => ["step_checkpoint_version_mismatch_1"],
+            "checkpoint_version" => 999
+          },
+          "progress" => 50,
+          "step" => "未来格式 AgentRun 检查点"
+        }
+      })
+
+    insert_durable_run_record(run_id, task.id, %{
+      work_id: "work_checkpoint_version_mismatch",
+      session_id: "session_checkpoint_version_mismatch",
+      parent_turn_ref: "turn_checkpoint_version_mismatch",
+      completed_step_refs: ["step_checkpoint_version_mismatch_1"]
+    })
+
+    assert {:ok, [recovered]} =
+             AgentRunService.recover_durable(
+               "work_checkpoint_version_mismatch",
+               "session_checkpoint_version_mismatch"
+             )
+
+    assert recovered.run.status == :awaiting_author
+
+    assert recovered.long_run_task.checkpoint_data["stale_reason"] ==
+             "checkpoint_version_mismatch"
+
+    assert recovered.long_run_task.checkpoint_data["step"] == "恢复检查点版本与当前运行语义不一致，等待作者确认"
+    assert "checkpoint_version_mismatch" in recovered.recovery_event.reason_codes
+    assert AgentRunLog.get_run(run_id).failure_ref == "checkpoint_version_mismatch"
+  end
+
+  test "durable checkpoint recovery marks stale when work revision changed" do
+    run_id = unique_run_id()
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: "work_revision_changed",
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "恢复作品版本已变化的长任务",
+        scope_ref: "work_revision_changed",
+        created_by: "agent_run",
+        parent_turn_ref: "turn_work_revision_changed",
+        checkpoint_policy_ref: "agent_run_step_checkpoint_v1",
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "work_revision" => 1,
+            "completed_step_refs" => ["step_work_revision_changed_1"],
+            "checkpoint_version" => 2
+          },
+          "progress" => 50,
+          "step" => "AgentRun 检查点"
+        }
+      })
+
+    insert_durable_run_record(run_id, task.id, %{
+      work_id: "work_revision_changed",
+      session_id: "session_work_revision_changed",
+      parent_turn_ref: "turn_work_revision_changed",
+      completed_step_refs: ["step_work_revision_changed_1"]
+    })
+
+    assert {:ok, [recovered]} =
+             AgentRunService.recover_durable(
+               "work_revision_changed",
+               "session_work_revision_changed",
+               work_revision: 2
+             )
+
+    assert recovered.run.status == :awaiting_author
+    assert recovered.long_run_task.checkpoint_data["stale_reason"] == "work_revision_mismatch"
+    assert recovered.long_run_task.checkpoint_data["step"] == "恢复时作品事实版本已变化，等待作者确认"
+    assert "work_revision_mismatch" in recovered.recovery_event.reason_codes
+    assert AgentRunLog.get_run(run_id).failure_ref == "work_revision_mismatch"
+  end
+
+  test "durable checkpoint recovery marks stale when target revision changed" do
+    run_id = unique_run_id()
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: "work_target_revision_changed",
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "恢复目标版本已变化的长任务",
+        scope_ref: "work_target_revision_changed",
+        created_by: "agent_run",
+        parent_turn_ref: "turn_target_revision_changed",
+        checkpoint_policy_ref: "agent_run_step_checkpoint_v1",
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "target_revision_ref" => "draft:target:revision",
+            "target_revision" => 4,
+            "completed_step_refs" => ["step_target_revision_changed_1"],
+            "checkpoint_version" => 2
+          },
+          "progress" => 50,
+          "step" => "AgentRun 检查点"
+        }
+      })
+
+    insert_durable_run_record(run_id, task.id, %{
+      work_id: "work_target_revision_changed",
+      session_id: "session_target_revision_changed",
+      parent_turn_ref: "turn_target_revision_changed",
+      completed_step_refs: ["step_target_revision_changed_1"]
+    })
+
+    assert {:ok, [recovered]} =
+             AgentRunService.recover_durable(
+               "work_target_revision_changed",
+               "session_target_revision_changed",
+               target_revision: 5
+             )
+
+    assert recovered.run.status == :awaiting_author
+    assert recovered.long_run_task.checkpoint_data["stale_reason"] == "target_revision_mismatch"
+    assert recovered.long_run_task.checkpoint_data["step"] == "恢复目标版本已变化，等待作者确认"
+    assert "target_revision_mismatch" in recovered.recovery_event.reason_codes
+    assert AgentRunLog.get_run(run_id).failure_ref == "target_revision_mismatch"
+  end
+
+  test "durable checkpoint recovery marks stale when target ref is missing" do
+    run_id = unique_run_id()
+
+    {:ok, task} =
+      LongRunTaskLog.create(%{
+        workspace_id: "work_target_missing",
+        task_type: "agent_run",
+        status: "PAUSED",
+        phase: "CHECKPOINT",
+        goal: "恢复目标已不存在的长任务",
+        scope_ref: "work_target_missing",
+        created_by: "agent_run",
+        parent_turn_ref: "turn_target_missing",
+        checkpoint_policy_ref: "agent_run_step_checkpoint_v1",
+        checkpoint_data: %{
+          "agent_run" => %{
+            "run_id" => run_id,
+            "goal_version" => 1,
+            "target_revision_ref" => "draft:target:missing",
+            "target_revision" => 1,
+            "completed_step_refs" => ["step_target_missing_1"],
+            "checkpoint_version" => 2
+          },
+          "progress" => 50,
+          "step" => "AgentRun 检查点"
+        }
+      })
+
+    insert_durable_run_record(run_id, task.id, %{
+      work_id: "work_target_missing",
+      session_id: "session_target_missing",
+      parent_turn_ref: "turn_target_missing",
+      completed_step_refs: ["step_target_missing_1"]
+    })
+
+    assert {:ok, [recovered]} =
+             AgentRunService.recover_durable(
+               "work_target_missing",
+               "session_target_missing",
+               target_ref_exists?: false
+             )
+
+    assert recovered.run.status == :awaiting_author
+    assert recovered.long_run_task.checkpoint_data["stale_reason"] == "target_ref_missing"
+    assert recovered.long_run_task.checkpoint_data["step"] == "恢复目标已不存在，等待作者确认"
+    assert "target_ref_missing" in recovered.recovery_event.reason_codes
+    assert AgentRunLog.get_run(run_id).failure_ref == "target_ref_missing"
+  end
+
   test "durable recovery falls back to active work run when joined session changed" do
     run_id = unique_run_id()
 
@@ -618,7 +1034,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
             "run_id" => run_id,
             "goal_version" => 1,
             "completed_step_refs" => ["step_session_changed_1"],
-            "checkpoint_version" => 1
+            "checkpoint_version" => 2
           },
           "progress" => 50,
           "step" => "AgentRun 检查点"
@@ -668,8 +1084,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert recovered.runtime_live? == false
     assert recovered.run.session_id == "session_original"
     assert recovered.run.long_run_task_ref == task.id
+    assert recovered.long_run_task.checkpoint_data["stale_resume"] == true
+    assert recovered.long_run_task.checkpoint_data["stale_reason"] == "session_ref_mismatch"
     assert "durable_recovered" in recovered.recovery_event.reason_codes
     assert "runtime_not_live" in recovered.recovery_event.reason_codes
+    assert "session_ref_mismatch" in recovered.recovery_event.reason_codes
   end
 
   test "no-progress policy stops repeated step signatures" do
@@ -689,7 +1108,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: AgentRunSequentialPlanner.from_steps([step, step]),
+               next_step_planner: sequential_steps([step, step]),
                event_sink: event_sink(parent)
              )
 
@@ -715,7 +1134,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
     assert {:ok, ^run_id} =
              AgentRunService.start_bounded(base_run(run_id),
-               next_step_planner: AgentRunSequentialPlanner.from_steps([slow_step]),
+               next_step_planner: sequential_steps([slow_step]),
                event_sink: event_sink(parent)
              )
 
@@ -731,6 +1150,66 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert_receive {:agent_event, :run_completed, "AgentRun 已完成。"}, 500
     assert {:ok, %{run: completed_run}} = AgentRunService.state(run_id)
     assert completed_run.status == :completed
+  end
+
+  test "steer promotes the next plan event into a single plan_revised event" do
+    parent = self()
+    run_id = unique_run_id()
+
+    slow_step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+      Process.sleep(40)
+      {:ok, %{step: step_struct(run_id, sequence, "step_#{sequence}"), observations: []}}
+    end
+
+    final_step = fn _run, sequence ->
+      send(parent, {:step_started, sequence})
+
+      {:ok,
+       %{
+         step: step_struct(run_id, sequence, "step_#{sequence}"),
+         observations: [],
+         loop_status: :completed
+       }}
+    end
+
+    planner = fn run, sequence, _snapshot ->
+      step_fun = if sequence == 1, do: slow_step, else: final_step
+      opts = if sequence == 2, do: [narrative_source: true], else: []
+
+      {:execute, wrap_test_step(step_fun, 2), test_execute_decision(run, sequence, opts),
+       %{provider_call_count: 0}}
+    end
+
+    assert {:ok, ^run_id} =
+             AgentRunService.start_bounded(base_run(run_id),
+               next_step_planner: planner,
+               event_sink: event_sink_full(parent)
+             )
+
+    assert_receive {:step_started, 1}
+    assert :ok = AgentRunService.steer(run_id, "改成更冷静的反派")
+
+    assert_receive {:agent_event_full, :plan_adjusted, _event}, 500
+    assert_receive {:agent_event_full, :plan_revised, event}, 500
+
+    assert "agent_plan_revised" in event.reason_codes
+    assert "steer_replan" in event.reason_codes
+    refute "agent_plan_drafted" in event.reason_codes
+    assert event.payload.evaluation_of_last.plan_holds == false
+    assert event.payload.evaluation_of_last.new_constraint == "改成更冷静的反派"
+    assert event.payload.plan_revision.plan_version == 2
+    assert event.payload.plan_revision.revision_reason == event.summary
+
+    assert_receive {:step_started, 2}
+    assert_receive {:agent_event_full, :run_completed, _event}, 500
+
+    assert {:ok, %{run: completed_run}} = AgentRunService.state(run_id)
+    assert completed_run.status == :completed
+    assert completed_run.goal.version == 2
+    assert completed_run.plan_version == 2
+    assert completed_run.consumed_budget.replans == 1
+    assert completed_run.interrupt_state.status == :none
   end
 
   test "character design flow reads roster then emits tentative artifact event" do
@@ -756,7 +1235,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
                event_sink: event_sink_with_payload(parent)
              )
 
-    assert_receive {:agent_event, :observation_recorded, "当前作品暂未读取到已确认角色。", _payload},
+    assert_receive {:agent_event, :exploration_observed, "当前作品暂未读取到已确认角色。", _payload},
                    500
 
     assert_receive {:agent_event, :artifact_created, "已生成待采纳候选。", payload}, 500
@@ -775,7 +1254,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   test "provider progress flow emits author-safe provider progress and provider budget" do
     parent = self()
 
-    complete_fn = fn prompt ->
+    result_fn = fn prompt ->
       send(parent, {:provider_called, prompt})
       {:ok, %{content: "provider-progress-output"}}
     end
@@ -799,11 +1278,16 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           end
         },
         nil,
-        %Execution{complete_fn: complete_fn}
+        %Execution{result_fn: result_fn}
       )
 
     assert spec.run_attrs.profile_ref == "provider_progress_v1"
     assert spec.run_attrs.budget.max_provider_calls == 1
+    assert is_function(spec.next_step_planner, 3)
+
+    assert_raise ArgumentError, "provider_progress_v1 requires next_step_planner/1", fn ->
+      ProviderProgress.steps(%{})
+    end
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(spec.run_attrs,
@@ -863,6 +1347,11 @@ defmodule NovelApplication.AgentRunRuntimeTest do
     assert spec.run_attrs.profile_ref == "readonly_batch_context_v1"
     assert spec.run_attrs.authority_scope.production_write == false
     assert spec.run_attrs.budget.max_provider_calls == 1
+    assert is_function(spec.next_step_planner, 3)
+
+    assert_raise ArgumentError, "readonly_batch_context_v1 requires next_step_planner/1", fn ->
+      ReadonlyBatchContext.steps(%{})
+    end
 
     assert {:ok, run_id} =
              AgentRunService.start_bounded(spec.run_attrs,
@@ -935,9 +1424,9 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   test "repeated roster request stops at no-progress without character design provider call" do
     parent = self()
 
-    complete_fn = fn prompt ->
+    result_fn = fn prompt ->
       if agent_next_step_prompt?(prompt) do
-        {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+        {:ok, %{content: next_step_decision(prompt)}}
       else
         send(parent, :provider_called)
         {:ok, %{content: Jason.encode!([single_item("repeat-antagonist")])}}
@@ -955,7 +1444,7 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           turn_id: "turn-progress"
         },
         nil,
-        %Execution{complete_fn: complete_fn}
+        %Execution{result_fn: result_fn}
       )
 
     assert {:ok, run_id} =
@@ -1056,8 +1545,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         if agent_next_step_prompt?(prompt) do
           provider_activity_success_result(
             prompt,
-            :planner,
-            Jason.encode!(next_step_decision(prompt))
+            :author_reasoning,
+            next_step_decision(prompt)
           )
         else
           provider_activity_success_result(prompt, :conversation, frame_json)
@@ -1073,8 +1562,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
         if agent_next_step_prompt?(prompt) do
           provider_activity_success_result(
             prompt,
-            :planner,
-            Jason.encode!(next_step_decision(prompt))
+            :author_reasoning,
+            next_step_decision(prompt)
           )
         else
           provider_activity_error_result()
@@ -1132,7 +1621,8 @@ defmodule NovelApplication.AgentRunRuntimeTest do
           output_type: :text,
           chunk_index: 1,
           content_length: 7,
-          accumulated_content_length: 7
+          accumulated_content_length: 7,
+          author_narrative_delta: author_reasoning_delta(purpose, content)
         }
       })
 
@@ -1212,16 +1702,30 @@ defmodule NovelApplication.AgentRunRuntimeTest do
      }}
   end
 
-  defp provider_refs_for_purpose(:planner), do: {"prun-planner", "pcall-planner"}
+  defp provider_refs_for_purpose(:author_reasoning),
+    do: {"prun-author-reasoning", "pcall-author-reasoning"}
+
   defp provider_refs_for_purpose(:conversation), do: {"prun-conversation", "pcall-conversation"}
+
+  defp author_reasoning_delta(:author_reasoning, content) when is_binary(content) do
+    content
+    |> String.split("{", parts: 2)
+    |> hd()
+    |> case do
+      "" -> nil
+      delta -> delta
+    end
+  end
+
+  defp author_reasoning_delta(_purpose, _content), do: nil
 
   defp fixed_json_provider(items) do
     json = Jason.encode!(items)
 
     %Execution{
-      complete_fn: fn prompt ->
+      result_fn: fn prompt ->
         if agent_next_step_prompt?(prompt) do
-          {:ok, %{content: Jason.encode!(next_step_decision(prompt))}}
+          {:ok, %{content: next_step_decision(prompt)}}
         else
           {:ok, %{content: json}}
         end
@@ -1235,115 +1739,127 @@ defmodule NovelApplication.AgentRunRuntimeTest do
   defp agent_next_step_prompt?(_prompt), do: false
 
   defp next_step_decision(prompt) do
-    cond do
-      String.contains?(prompt, "profile_ref: conversation_turn_v1") ->
-        conversation_next_step_decision(prompt)
+    decision =
+      cond do
+        String.contains?(prompt, "profile_ref: conversation_turn_v1") ->
+          conversation_next_step_decision(prompt)
 
-      String.contains?(prompt, "/ artifact_created:") ->
-        %{
-          "decision_type" => "goal_satisfied",
-          "summary" => "已生成待采纳角色候选，本轮目标已经满足。",
-          "target_tool_ref" => nil,
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["goal_satisfied"],
-          "confidence" => 1.0
-        }
+        String.contains?(prompt, "/ artifact_created:") ->
+          done_next("已生成待采纳角色候选，本轮目标已经满足。", ["goal_satisfied"])
 
-      String.contains?(prompt, "/ character_roster:") and
-          String.contains?(prompt, "重复读取角色阵容") ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "再次读取当前角色阵容，检查是否有新增信息。",
-          "target_tool_ref" => "character_roster",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["repeat_roster_probe"],
-          "confidence" => 1.0
-        }
+        String.contains?(prompt, "/ character_roster:") and
+            String.contains?(prompt, "重复读取角色阵容") ->
+          continue_next("再次读取当前角色阵容，检查是否有新增信息。", "character_roster", "none", [
+            "repeat_roster_probe"
+          ])
 
-      String.contains?(prompt, "/ character_roster:") ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "基于已读取的角色阵容设计新的主要反派。",
-          "target_tool_ref" => "character_design",
-          "write_intent" => "tentative",
-          "risk_hint" => "low",
-          "reason_codes" => ["roster_observation_consumed"],
-          "confidence" => 1.0
-        }
+        String.contains?(prompt, "/ character_roster:") ->
+          continue_next("基于已读取的角色阵容设计新的主要反派。", "character_design", "tentative", [
+            "roster_observation_consumed"
+          ])
 
-      true ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "先读取当前作品已确认角色阵容。",
-          "target_tool_ref" => "character_roster",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["missing_roster_observation"],
-          "confidence" => 1.0
-        }
+        true ->
+          continue_next("先读取当前作品已确认角色阵容。", "character_roster", "none", [
+            "missing_roster_observation"
+          ])
+      end
+
+    structured_next_step_decision(decision, prompt)
+  end
+
+  defp structured_next_step_decision(packet, prompt) do
+    plan_holds = not String.contains?(prompt, "NNARR_REPLAN_PLAN_HOLDS_FALSE")
+    new_constraint = if plan_holds, do: nil, else: "测试前提不成立。"
+
+    tail = %{
+      "evaluation_of_last" => %{
+        "advanced" => Map.get(Map.fetch!(packet, :decision), "type") != "no_progress",
+        "plan_holds" => plan_holds,
+        "new_constraint" => new_constraint
+      },
+      "decision" => decision_for_plan_holds(packet, plan_holds),
+      "next_action" => Map.fetch!(packet, :next_action),
+      "plan_revision" => plan_revision_for(plan_holds, new_constraint),
+      "reason_codes" => Map.get(packet, :reason_codes, []),
+      "confidence" => Map.get(packet, :confidence, 1.0)
+    }
+
+    Map.fetch!(packet, :reasoning) <> "\n" <> Jason.encode!(tail)
+  end
+
+  defp decision_for_plan_holds(packet, false) do
+    case Map.fetch!(packet, :decision) do
+      %{"type" => "continue"} -> %{"type" => "replan"}
+      decision -> decision
     end
   end
+
+  defp decision_for_plan_holds(packet, _plan_holds), do: Map.fetch!(packet, :decision)
+
+  defp continue_next(reasoning, target_tool_ref, write_intent, reason_codes) do
+    %{
+      reasoning: reasoning,
+      decision: %{"type" => "continue"},
+      next_action: %{
+        "target_tool_ref" => target_tool_ref,
+        "write_intent" => write_intent,
+        "risk_hint" => "low"
+      },
+      plan_revision: nil,
+      reason_codes: reason_codes,
+      confidence: 1.0
+    }
+  end
+
+  defp done_next(reasoning, reason_codes) do
+    %{
+      reasoning: reasoning,
+      decision: %{"type" => "done"},
+      next_action: %{"target_tool_ref" => nil, "write_intent" => "none", "risk_hint" => "low"},
+      plan_revision: nil,
+      reason_codes: reason_codes,
+      confidence: 1.0
+    }
+  end
+
+  defp plan_revision_for(false, revision_reason),
+    do: %{"plan_version" => 2, "revision_reason" => revision_reason}
+
+  defp plan_revision_for(_plan_holds, _revision_reason), do: nil
 
   defp conversation_next_step_decision(prompt) do
     observations = existing_observation_section(prompt)
 
     cond do
       String.contains?(observations, "已生成本轮回应") ->
-        %{
-          "decision_type" => "goal_satisfied",
-          "summary" => "已生成本轮回应，本轮目标已经满足。",
-          "target_tool_ref" => nil,
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["goal_satisfied", "conversation_turn_response_created"],
-          "confidence" => 1.0
-        }
+        done_next("已生成本轮回应，本轮目标已经满足。", [
+          "goal_satisfied",
+          "conversation_turn_response_created"
+        ])
 
       String.contains?(observations, "无需工具") ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "根据系统裁决生成本轮回应。",
-          "target_tool_ref" => "response_finalize",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["agentic_next_step", "conversation_strategy_consumed"],
-          "confidence" => 1.0
-        }
+        continue_next("根据系统裁决生成本轮回应。", "response_finalize", "none", [
+          "agentic_next_step",
+          "conversation_strategy_consumed"
+        ])
 
       String.contains?(observations, "对话认知帧") ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "基于对话认知帧完成执行策略与系统裁决。",
-          "target_tool_ref" => "strategy_gate",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["agentic_next_step", "dialogue_frame_consumed"],
-          "confidence" => 1.0
-        }
+        continue_next("基于对话认知帧完成执行策略与系统裁决。", "strategy_gate", "none", [
+          "agentic_next_step",
+          "dialogue_frame_consumed"
+        ])
 
       String.contains?(observations, "创作上下文") ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "基于已组装上下文形成对话认知帧。",
-          "target_tool_ref" => "dialogue_frame",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["agentic_next_step", "conversation_context_consumed"],
-          "confidence" => 1.0
-        }
+        continue_next("基于已组装上下文形成对话认知帧。", "dialogue_frame", "none", [
+          "agentic_next_step",
+          "conversation_context_consumed"
+        ])
 
       true ->
-        %{
-          "decision_type" => "execute_step",
-          "summary" => "先组装当前作品的创作上下文。",
-          "target_tool_ref" => "context_assemble",
-          "write_intent" => "none",
-          "risk_hint" => "low",
-          "reason_codes" => ["agentic_next_step", "missing_conversation_context"],
-          "confidence" => 1.0
-        }
+        continue_next("先组装当前作品的创作上下文。", "context_assemble", "none", [
+          "agentic_next_step",
+          "missing_conversation_context"
+        ])
     end
   end
 
@@ -1364,10 +1880,10 @@ defmodule NovelApplication.AgentRunRuntimeTest do
 
   defp reply_only_provider do
     %Execution{
-      complete_fn: fn prompt ->
+      result_fn: fn prompt ->
         content =
           if agent_next_step_prompt?(prompt) do
-            Jason.encode!(next_step_decision(prompt))
+            next_step_decision(prompt)
           else
             reply_only_frame_json()
           end
@@ -1389,6 +1905,178 @@ defmodule NovelApplication.AgentRunRuntimeTest do
       context_used: true,
       uncertainty: []
     })
+  end
+
+  defp sequential_steps(steps) when is_list(steps) do
+    fn run, sequence, _snapshot ->
+      case Enum.at(steps, sequence - 1) do
+        nil ->
+          {:complete, test_complete_decision(run, sequence), %{provider_call_count: 0}}
+
+        step_fun when is_function(step_fun) ->
+          {:execute, wrap_test_step(step_fun, length(steps)),
+           test_execute_decision(run, sequence), %{provider_call_count: 0}}
+      end
+    end
+  end
+
+  defp assert_planner_step(event, target_tool_ref) do
+    assert "agent_plan_drafted" in event.reason_codes
+    assert is_list(event.payload.plan_steps)
+    assert event.payload.author_narrative == event.summary
+
+    NovelApplication.TestAssertions.assert_provider_output_narrative_source(
+      event.payload.author_narrative_source
+    )
+
+    assert event.payload.target_tool_ref == target_tool_ref
+  end
+
+  defp wrap_test_step(step_fun, step_count) do
+    fn run, sequence, snapshot ->
+      step_fun
+      |> execute_test_step(run, sequence, snapshot)
+      |> maybe_complete_test_step(sequence, step_count)
+    end
+  end
+
+  defp execute_test_step(step_fun, run, sequence, snapshot) when is_function(step_fun, 3),
+    do: step_fun.(run, sequence, snapshot)
+
+  defp execute_test_step(step_fun, run, sequence, _snapshot) when is_function(step_fun, 2),
+    do: step_fun.(run, sequence)
+
+  defp maybe_complete_test_step({:ok, result}, sequence, step_count)
+       when is_map(result) and sequence >= step_count,
+       do: {:ok, Map.put(result, :loop_status, :completed)}
+
+  defp maybe_complete_test_step(result, _sequence, _step_count), do: result
+
+  defp test_execute_decision(run, sequence, opts \\ []) do
+    summary = "执行测试步骤 #{sequence}。"
+
+    attrs = %{
+      decision_id: "and_#{run.run_id}_#{sequence}_test_step",
+      run_ref: run.run_id,
+      sequence: sequence,
+      decision_type: :execute_step,
+      summary: summary,
+      target_tool_ref: first_allowed_tool(run),
+      write_intent: :none,
+      risk_hint: :low,
+      reason_codes: ["test_sequential_step"]
+    }
+
+    attrs =
+      if Keyword.get(opts, :narrative_source, false) do
+        Map.put(attrs, :narrative_source, provider_output_narrative_source(summary))
+      else
+        attrs
+      end
+
+    {:ok, decision} =
+      AgentNextStepDecision.new(attrs)
+
+    decision
+  end
+
+  defp provider_output_narrative_source(summary) do
+    %{
+      source_type: "provider_output",
+      provider_run_ref: "pr_test",
+      provider_call_ref: "pc_test",
+      provider_output_ref: "po_test",
+      source_hash: "source_hash",
+      source_byte_range: %{start: 0, length: byte_size(summary)},
+      narrative_hash: "narrative_hash"
+    }
+  end
+
+  defp replan_decision(run, sequence) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_#{run.run_id}_#{sequence}_replan",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :execute_step,
+        summary: "测试前提不成立，先按新约束执行下一步。",
+        target_tool_ref: first_allowed_tool(run),
+        write_intent: :none,
+        risk_hint: :low,
+        reason_codes: ["test_replan"],
+        evaluation_of_last: %{
+          advanced: true,
+          plan_holds: false,
+          new_constraint: "测试前提不成立。"
+        },
+        plan_revision: %{
+          plan_version: 2,
+          revision_reason: "测试前提不成立。"
+        }
+      })
+
+    decision
+  end
+
+  defp test_complete_decision(run, sequence) do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_#{run.run_id}_#{sequence}_test_complete",
+        run_ref: run.run_id,
+        sequence: sequence,
+        decision_type: :goal_satisfied,
+        summary: "测试 AgentRun 已完成。",
+        reason_codes: ["test_goal_satisfied"]
+      })
+
+    decision
+  end
+
+  defp first_allowed_tool(%{authority_scope: %{allowed_tools: [tool | _rest]}}), do: tool
+  defp first_allowed_tool(_run), do: "test_step"
+
+  defp insert_durable_run_record(run_id, long_run_task_ref, attrs) do
+    work_id = Map.fetch!(attrs, :work_id)
+    session_id = Map.fetch!(attrs, :session_id)
+    parent_turn_ref = Map.fetch!(attrs, :parent_turn_ref)
+    completed_step_refs = Map.get(attrs, :completed_step_refs, [])
+
+    assert {:ok, _record} =
+             AgentRunLog.upsert_run(%{
+               id: run_id,
+               workspace_id: Map.get(attrs, :workspace_id, work_id),
+               work_id: work_id,
+               session_id: session_id,
+               parent_turn_ref: parent_turn_ref,
+               origin_frame_ref: Map.get(attrs, :origin_frame_ref, "frame_#{parent_turn_ref}"),
+               run_mode: "durable",
+               profile_ref: Map.get(attrs, :profile_ref, "character_design_with_context_v1"),
+               status: Map.get(attrs, :status, "running"),
+               phase: Map.get(attrs, :phase, "executing"),
+               goal: %{"text" => Map.get(attrs, :goal_text, "恢复长任务"), "version" => 1},
+               goal_version: 1,
+               plan: %{},
+               run_policy: %{"allowed_tool_refs" => ["character_roster"]},
+               authority_scope: %{
+                 "production_write" => false,
+                 "allowed_tools" => ["character_roster"]
+               },
+               budget: %{
+                 "max_steps" => 2,
+                 "max_tool_calls" => 2,
+                 "max_provider_calls" => 1,
+                 "max_replans" => 1
+               },
+               consumed_budget: %{
+                 "steps" => length(completed_step_refs),
+                 "tool_calls" => length(completed_step_refs),
+                 "provider_calls" => 0,
+                 "replans" => 0
+               },
+               completed_step_refs: completed_step_refs,
+               interrupt_state: %{"status" => "none"},
+               long_run_task_ref: long_run_task_ref
+             })
   end
 
   defp unique_run_id do

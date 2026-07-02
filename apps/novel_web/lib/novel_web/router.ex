@@ -44,6 +44,12 @@ defmodule NovelWeb.Router do
     post("/works/:work_id/sessions/:id/archive", WorkSessionsController, :archive)
 
     get(
+      "/works/:work_id/sessions/:session_id/transcript",
+      WorkSessionsController,
+      :transcript
+    )
+
+    get(
       "/works/:work_id/sessions/:session_id/turns/:turn_id/replay",
       TraceReplayController,
       :show
@@ -51,6 +57,12 @@ defmodule NovelWeb.Router do
 
     get(
       "/works/:work_id/sessions/:session_id/turns/:turn_id/provider-runs",
+      ProviderActivityController,
+      :show
+    )
+
+    get(
+      "/works/:work_id/sessions/:session_id/turns/:turn_id/agent-run-activity",
       ProviderActivityController,
       :show
     )

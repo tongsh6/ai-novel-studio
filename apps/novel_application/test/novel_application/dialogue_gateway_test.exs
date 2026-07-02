@@ -20,7 +20,7 @@ defmodule NovelApplication.DialogueGatewayTest do
   }
   """
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   # ── VS-00 reply-only tests ──────────────────────────
 
@@ -73,7 +73,7 @@ defmodule NovelApplication.DialogueGatewayTest do
 
       {:ok, calls} = Agent.start_link(fn -> 0 end)
 
-      complete_fn = fn _prompt ->
+      result_fn = fn _prompt ->
         Agent.update(calls, &(&1 + 1))
         {:ok, %{content: execution_frame_json}}
       end
@@ -82,7 +82,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "继续聊，但先不要写正文，也不要改设定。", workspace_id: "ws-no-write"},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert Agent.get(calls, & &1) == 1
@@ -116,13 +116,13 @@ defmodule NovelApplication.DialogueGatewayTest do
       }
       """
 
-      complete_fn = fn _prompt -> {:ok, %{content: exploration_frame_json}} end
+      result_fn = fn _prompt -> {:ok, %{content: exploration_frame_json}} end
 
       {:ok, turn_result, trace, candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "我想写一个雨夜开场的悬疑故事，先聊聊气质。", workspace_id: "ws-chat"},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert turn_result.frame_summary.frame_type == :casual_reply
@@ -150,7 +150,7 @@ defmodule NovelApplication.DialogueGatewayTest do
 
     test "accepts provider execution dependency for conversation turns" do
       provider_execution = %Execution{
-        complete_fn: fn _prompt -> {:ok, %{content: @frame_json}} end
+        result_fn: fn _prompt -> {:ok, %{content: @frame_json}} end
       }
 
       {:ok, turn_result, trace, _candidates, _context} =
@@ -231,7 +231,7 @@ defmodule NovelApplication.DialogueGatewayTest do
 
       {:ok, agent} = Agent.start_link(fn -> 0 end)
 
-      complete_fn = fn _prompt ->
+      result_fn = fn _prompt ->
         call_index = Agent.get_and_update(agent, &{&1, &1 + 1})
 
         if call_index == 0 do
@@ -245,7 +245,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "继续聊这个方向", workspace_id: "ws-partial-frame"},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert turn_result.assistant_message.text =~ "宿命链"
@@ -322,13 +322,13 @@ defmodule NovelApplication.DialogueGatewayTest do
       }
       """
 
-      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+      result_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
 
       {:ok, _turn_result, _trace, candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "帮我想几个故事方向", workspace_id: "ws-1"},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert Enum.all?(candidates, &(Map.get(&1, :adoption_status, :not_adopted) == :not_adopted))
@@ -362,11 +362,11 @@ defmodule NovelApplication.DialogueGatewayTest do
       }
       """
 
-      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+      result_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
       input = %{text: "我想写赛博修仙，但还没想好方向。帮我想想怎么切入。", workspace_id: "ws-1"}
 
       {:ok, turn_result, trace, candidates, _context} =
-        DialogueGateway.handle_input(input, nil, provider_execution(complete_fn))
+        DialogueGateway.handle_input(input, nil, provider_execution(result_fn))
 
       assert turn_result.frame_summary.frame_type == :creative_exploration
       assert trace.decision_type == :exploration
@@ -390,13 +390,13 @@ defmodule NovelApplication.DialogueGatewayTest do
       }
       """
 
-      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+      result_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
 
       {:ok, turn_result, _trace, candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "赛博修仙怎么切入？帮我想几个方向。", workspace_id: "ws-1"},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert turn_result.frame_summary.frame_type == :creative_exploration
@@ -419,13 +419,13 @@ defmodule NovelApplication.DialogueGatewayTest do
       }
       """
 
-      complete_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
+      result_fn = fn _prompt -> {:ok, %{content: provider_reply}} end
 
       {:ok, turn_result, _trace, candidates, _context} =
         DialogueGateway.handle_input(
           %{text: "赛博修仙怎么切入？帮我想几个方向。", workspace_id: "ws-1"},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert turn_result.frame_summary.frame_type == :creative_exploration
@@ -577,7 +577,7 @@ defmodule NovelApplication.DialogueGatewayTest do
 
   describe "trace persister callback" do
     test "trace_persister is called with workspace_id and trace attrs after handle_input" do
-      complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
+      result_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
 
       {:ok, agent} = Agent.start_link(fn -> [] end)
       ws_id = "ws-trace-#{System.unique_integer([:positive, :monotonic])}"
@@ -591,7 +591,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "trace test", workspace_id: ws_id},
           nil,
-          provider_execution(complete_fn),
+          provider_execution(result_fn),
           persister
         )
 
@@ -609,7 +609,7 @@ defmodule NovelApplication.DialogueGatewayTest do
 
   describe "interaction recorder callback" do
     test "records user and assistant messages after successful handle_input" do
-      complete_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
+      result_fn = fn _prompt -> {:ok, %{content: @frame_json}} end
 
       {:ok, agent} = Agent.start_link(fn -> [] end)
       ws_id = "ws-memory-#{System.unique_integer([:positive, :monotonic])}"
@@ -623,7 +623,7 @@ defmodule NovelApplication.DialogueGatewayTest do
         DialogueGateway.handle_input(
           %{text: "记住这轮", workspace_id: ws_id},
           nil,
-          provider_execution(complete_fn),
+          provider_execution(result_fn),
           nil,
           recorder
         )

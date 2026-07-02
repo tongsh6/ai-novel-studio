@@ -20,7 +20,7 @@ defmodule NovelApplication.CreativeArtifactTest do
   alias NovelCommon.Contracts.ToolResult
   alias NovelDomain.TentativeArtifactSet
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
   describe "production capability registry" do
     test "does not include removed generic creative capability" do
@@ -35,7 +35,7 @@ defmodule NovelApplication.CreativeArtifactTest do
       removed_capability = "creative_" <> "generation"
       {:ok, prompt_agent} = Agent.start_link(fn -> [] end)
 
-      complete_fn = fn prompt ->
+      result_fn = fn prompt ->
         Agent.update(prompt_agent, &[prompt | &1])
         {:ok, %{content: plan_json("character_design")}}
       end
@@ -44,7 +44,7 @@ defmodule NovelApplication.CreativeArtifactTest do
                Planner.form_micro_plan(
                  frame("turn-planner"),
                  %{text: "生成角色"},
-                 provider_execution(complete_fn)
+                 provider_execution(result_fn)
                )
 
       prompts = Agent.get(prompt_agent, & &1)
@@ -257,8 +257,8 @@ defmodule NovelApplication.CreativeArtifactTest do
 
   describe "DialogueGateway tool execution path" do
     test "successful creative tool turn has no synthetic task_state_events" do
-      complete_fn =
-        sequenced_complete_fn([
+      result_fn =
+        sequenced_result_fn([
           frame_json(),
           plan_json("character_design"),
           Jason.encode!([single_item("gateway")]),
@@ -269,7 +269,7 @@ defmodule NovelApplication.CreativeArtifactTest do
         DialogueGateway.handle_input(
           %{text: "生成角色设定", workspace_id: "ws-gateway", generate_micro_plan: true},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert turn_result.tool_result.tool_name == "character_design"
@@ -305,8 +305,8 @@ defmodule NovelApplication.CreativeArtifactTest do
           "uncertainty" => []
         })
 
-      complete_fn =
-        sequenced_complete_fn([
+      result_fn =
+        sequenced_result_fn([
           exploratory_frame_json,
           plan_json("prose_writing"),
           Jason.encode!([single_item("opening-scene")]),
@@ -320,7 +320,7 @@ defmodule NovelApplication.CreativeArtifactTest do
             workspace_id: "ws-opening-scene"
           },
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert candidates == []
@@ -356,8 +356,8 @@ defmodule NovelApplication.CreativeArtifactTest do
           "uncertainty" => []
         })
 
-      complete_fn =
-        sequenced_complete_fn([
+      result_fn =
+        sequenced_result_fn([
           exploratory_frame_json,
           plan_json("plot_outline"),
           Jason.encode!([single_item("outline")]),
@@ -371,7 +371,7 @@ defmodule NovelApplication.CreativeArtifactTest do
             workspace_id: "ws-outline-planning"
           },
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert candidates == []
@@ -403,8 +403,8 @@ defmodule NovelApplication.CreativeArtifactTest do
 
       prompt_agent = start_supervised!({Agent, fn -> [] end})
 
-      complete_fn =
-        sequenced_complete_fn(
+      result_fn =
+        sequenced_result_fn(
           [
             frame_json,
             plan_json("prose_writing"),
@@ -423,7 +423,7 @@ defmodule NovelApplication.CreativeArtifactTest do
         DialogueGateway.handle_input(
           %{text: "继续", workspace_id: "ws-opening-context", session_id: "session-opening"},
           context_fetcher,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       prompts = Agent.get(prompt_agent, &Enum.reverse/1)
@@ -438,8 +438,8 @@ defmodule NovelApplication.CreativeArtifactTest do
     end
 
     test "provider failure is honest failed TurnResult with no card or actions" do
-      complete_fn =
-        sequenced_complete_fn([
+      result_fn =
+        sequenced_result_fn([
           frame_json(),
           plan_json("prose_writing"),
           "not json"
@@ -449,7 +449,7 @@ defmodule NovelApplication.CreativeArtifactTest do
         DialogueGateway.handle_input(
           %{text: "生成正文草稿", workspace_id: "ws-failed", generate_micro_plan: true},
           nil,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       assert turn_result.phase == "failed"
@@ -463,7 +463,7 @@ defmodule NovelApplication.CreativeArtifactTest do
 
   describe "Planner authoring intent recognition (P1 chapter expansion)" do
     test "maps continuation authoring_intent + target_chapter from plan json" do
-      complete_fn = fn _prompt ->
+      result_fn = fn _prompt ->
         {:ok, %{content: plan_json_with_intent("prose_writing", "continuation", "第01章：底层灵气账单")}}
       end
 
@@ -471,7 +471,7 @@ defmodule NovelApplication.CreativeArtifactTest do
                Planner.form_micro_plan(
                  frame("turn-cont"),
                  %{text: "接着第一章往下写"},
-                 provider_execution(complete_fn)
+                 provider_execution(result_fn)
                )
 
       action = hd(plan.proposed_actions)
@@ -480,7 +480,7 @@ defmodule NovelApplication.CreativeArtifactTest do
     end
 
     test "maps rewrite authoring_intent from plan json" do
-      complete_fn = fn _prompt ->
+      result_fn = fn _prompt ->
         {:ok, %{content: plan_json_with_intent("prose_writing", "rewrite", "第01章：底层灵气账单")}}
       end
 
@@ -488,7 +488,7 @@ defmodule NovelApplication.CreativeArtifactTest do
                Planner.form_micro_plan(
                  frame("turn-rw"),
                  %{text: "第一章太平了，推翻重写"},
-                 provider_execution(complete_fn)
+                 provider_execution(result_fn)
                )
 
       action = hd(plan.proposed_actions)
@@ -497,13 +497,13 @@ defmodule NovelApplication.CreativeArtifactTest do
     end
 
     test "defaults to nil authoring_intent when plan json omits it (new chapter)" do
-      complete_fn = fn _prompt -> {:ok, %{content: plan_json("prose_writing")}} end
+      result_fn = fn _prompt -> {:ok, %{content: plan_json("prose_writing")}} end
 
       assert {:ok, plan} =
                Planner.form_micro_plan(
                  frame("turn-new"),
                  %{text: "写新一章正文"},
-                 provider_execution(complete_fn)
+                 provider_execution(result_fn)
                )
 
       action = hd(plan.proposed_actions)
@@ -514,7 +514,7 @@ defmodule NovelApplication.CreativeArtifactTest do
     test "plan prompt lists accepted chapters from context for target resolution" do
       {:ok, prompt_agent} = Agent.start_link(fn -> [] end)
 
-      complete_fn = fn prompt ->
+      result_fn = fn prompt ->
         Agent.update(prompt_agent, &[prompt | &1])
         {:ok, %{content: plan_json("prose_writing")}}
       end
@@ -528,7 +528,7 @@ defmodule NovelApplication.CreativeArtifactTest do
                Planner.form_micro_plan(
                  frame("turn-ctx"),
                  %{text: "接着写"},
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  context
                )
 
@@ -543,8 +543,8 @@ defmodule NovelApplication.CreativeArtifactTest do
     test "continuation intent flows to pending artifact provenance with chapter context" do
       prompt_agent = start_supervised!({Agent, fn -> [] end})
 
-      complete_fn =
-        sequenced_complete_fn(
+      result_fn =
+        sequenced_result_fn(
           [
             frame_json(),
             plan_json_with_intent("prose_writing", "continuation", "第01章：底层灵气账单"),
@@ -567,7 +567,7 @@ defmodule NovelApplication.CreativeArtifactTest do
             generate_micro_plan: true
           },
           context_fetcher,
-          provider_execution(complete_fn)
+          provider_execution(result_fn)
         )
 
       # 计划 prompt（第 2 次 LLM 调用）带上作品章节列表，供 LLM 解析目标章
@@ -699,7 +699,7 @@ defmodule NovelApplication.CreativeArtifactTest do
     })
   end
 
-  defp sequenced_complete_fn(responses, prompt_agent \\ nil) do
+  defp sequenced_result_fn(responses, prompt_agent \\ nil) do
     {:ok, agent} = Agent.start_link(fn -> responses end)
 
     fn prompt ->

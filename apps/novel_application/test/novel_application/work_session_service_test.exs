@@ -36,6 +36,30 @@ defmodule NovelApplication.WorkSessionServiceTest do
       assert Enum.map(snapshot.transcript, & &1.role) == ["user", "assistant"]
     end
 
+    test "returns only the latest transcript page for long sessions", %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
+
+      for index <- 1..35 do
+        record(work.id, session.id, "turn-#{index}", "user", "第#{index}句")
+      end
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+
+      assert length(snapshot.transcript) == 30
+      assert Enum.map(snapshot.transcript, & &1.text) == Enum.map(6..35, &"第#{&1}句")
+      assert snapshot.transcript_page.returned_count == 30
+      assert snapshot.transcript_page.has_more_before == true
+
+      assert {:ok, older} =
+               WorkSessionService.transcript_page(work.id, session.id,
+                 before_id: snapshot.transcript_page.before_id,
+                 limit: 30
+               )
+
+      assert Enum.map(older.transcript, & &1.text) == Enum.map(1..5, &"第#{&1}句")
+      assert older.transcript_page.has_more_before == false
+    end
+
     test "extracts pending adoption from persisted assistant turn_result", %{work: work} do
       {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 
@@ -142,8 +166,8 @@ defmodule NovelApplication.WorkSessionServiceTest do
                  step_id: "step-provider",
                  sequence: 1,
                  event_type: "provider_progress",
-                 visibility: "author",
-                 summary: "对话判断已开始调用创作模型。",
+                 visibility: "developer",
+                 summary: "provider_event:started",
                  reason_codes: ["provider_execution_stream", "provider_started"],
                  refs: ["provider_run:prun-restored", "provider_call:pcall-restored"],
                  payload: %{
@@ -224,35 +248,79 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
       assert agent_run.run_id == run_id
       assert agent_run.profile_ref == "conversation_turn_v1"
+      assert agent_run.activity_loaded == false
+      refute Map.has_key?(agent_run, :events)
+      refute Map.has_key?(agent_run, :provider_runs)
+    end
 
-      assert [
-               %{
-                 event_id: "evt-provider-restored-started",
-                 event_type: "provider_progress",
-                 visibility: "author",
-                 payload: payload
-               }
-             ] = agent_run.events
+    test "restores AgentRun summaries for multiple transcript turns without hydrating events",
+         %{work: work} do
+      {:ok, session} = WorkSessionRepo.ensure_active_for_work(work.id)
 
-      assert payload["provider_run_ref"] == "prun-restored"
-      assert payload["provider_call_ref"] == "pcall-restored"
-      refute Map.has_key?(payload, "raw_prompt")
-      refute Map.has_key?(payload, "turn_result")
+      record(work.id, session.id, "turn-one", "assistant", "第一轮完成", %{
+        turn_id: "turn-one",
+        assistant_message: %{text: "第一轮完成"},
+        agent_run: %{run_id: "run-resume-one"}
+      })
 
-      assert [
-               %{
-                 provider_run_ref: "prun-restored",
-                 provider_call_ref: "pcall-restored",
-                 purpose: "conversation",
-                 status: "ok",
-                 output_type: "text",
-                 content_length: content_length,
-                 usage: %{"total_tokens" => 18}
-               }
-             ] = agent_run.provider_runs
+      record(work.id, session.id, "turn-two", "assistant", "第二轮完成", %{
+        turn_id: "turn-two",
+        assistant_message: %{text: "第二轮完成"},
+        agent_run: %{run_id: "run-resume-two"}
+      })
 
-      assert content_length == String.length("raw output must not be restored")
-      refute inspect(agent_run.provider_runs) =~ "raw output must not be restored"
+      for {run_id, turn_id, event_id, summary} <- [
+            {"run-resume-one", "turn-one", "evt-resume-one", "第一轮上下文已读取。"},
+            {"run-resume-two", "turn-two", "evt-resume-two", "第二轮上下文已读取。"}
+          ] do
+        assert {:ok, _run} =
+                 AgentRunLog.upsert_run(%{
+                   id: run_id,
+                   workspace_id: work.id,
+                   work_id: work.id,
+                   session_id: session.id,
+                   parent_turn_ref: turn_id,
+                   origin_frame_ref: "frame-#{turn_id}",
+                   run_mode: "bounded",
+                   profile_ref: "conversation_turn_v1",
+                   status: "completed",
+                   phase: "stopped",
+                   plan_ref: "ap-#{turn_id}",
+                   plan_version: 1
+                 })
+
+        assert {:ok, _event} =
+                 AgentRunLog.insert_event(%{
+                   id: event_id,
+                   run_id: run_id,
+                   step_id: "step-#{turn_id}",
+                   sequence: 1,
+                   event_type: "exploration_observed",
+                   visibility: "author",
+                   summary: summary,
+                   reason_codes: ["context_restored"],
+                   refs: [],
+                   payload: %{"turn_id" => turn_id}
+                 })
+      end
+
+      assert {:ok, snapshot} = WorkSessionService.resume(work.id)
+
+      agent_runs_by_turn =
+        snapshot.transcript
+        |> Map.new(fn entry ->
+          {entry.turn_id, entry.turn_result[:agent_run]}
+        end)
+
+      assert agent_runs_by_turn["turn-one"].run_id == "run-resume-one"
+      assert agent_runs_by_turn["turn-one"].profile_ref == "conversation_turn_v1"
+      assert agent_runs_by_turn["turn-one"].activity_loaded == false
+      refute Map.has_key?(agent_runs_by_turn["turn-one"], :events)
+
+      assert agent_runs_by_turn["turn-two"].run_id == "run-resume-two"
+      assert agent_runs_by_turn["turn-two"].profile_ref == "conversation_turn_v1"
+      assert agent_runs_by_turn["turn-two"].activity_loaded == false
+      refute Map.has_key?(agent_runs_by_turn["turn-two"], :events)
     end
 
     test "does not include archived sessions in the default resume list", %{work: work} do
@@ -306,8 +374,8 @@ defmodule NovelApplication.WorkSessionServiceTest do
                  step_id: "step-channel",
                  sequence: 1,
                  event_type: "provider_progress",
-                 visibility: "author",
-                 summary: "对话判断已开始调用创作模型。",
+                 visibility: "developer",
+                 summary: "provider_event:started",
                  reason_codes: ["provider_execution_stream", "provider_started"],
                  refs: ["provider_run:prun-channel", "provider_call:pcall-channel"],
                  payload: %{"provider_run_ref" => "prun-channel"}
@@ -325,8 +393,10 @@ defmodule NovelApplication.WorkSessionServiceTest do
 
       assert {:ok, snapshot} = WorkSessionService.resume(work.id)
       [entry] = snapshot.transcript
-      hydrated_agent_run = map_field(entry.turn_result, :agent_run)
-      assert [_] = map_field(hydrated_agent_run, :events)
+      summary_agent_run = map_field(entry.turn_result, :agent_run)
+      assert summary_agent_run[:activity_loaded] == false
+      refute map_has_key?(summary_agent_run, :events)
+      refute map_has_key?(summary_agent_run, :provider_runs)
     end
   end
 

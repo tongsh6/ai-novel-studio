@@ -16,11 +16,11 @@ defmodule NovelAgent.ProseQualityEvaluator do
   @spec evaluate(QualityEvaluationRequest.t(), Execution.dependency()) ::
           QualityEvaluationResult.t()
   def evaluate(%QualityEvaluationRequest{} = request, provider_execution) do
-    case Execution.complete_fn(provider_execution) do
-      complete_fn when is_function(complete_fn, 1) ->
+    case Execution.result_fn(provider_execution) do
+      result_fn when is_function(result_fn, 1) ->
         request
         |> build_prompt()
-        |> do_evaluate(complete_fn, _retry? = true)
+        |> do_evaluate(result_fn, _retry? = true)
 
       _ ->
         QualityEvaluationResult.error(%{
@@ -30,16 +30,16 @@ defmodule NovelAgent.ProseQualityEvaluator do
     end
   end
 
-  defp do_evaluate(prompt, complete_fn, retry?) do
-    case complete_fn.(prompt) do
+  defp do_evaluate(prompt, result_fn, retry?) do
+    case result_fn.(prompt) do
       {:ok, %ProviderResult{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, complete_fn, retry?)
+        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?)
 
       {:ok, %{content: content} = result} when is_binary(content) ->
-        parse_or_retry(content, provider_call_ref(result), prompt, complete_fn, retry?)
+        parse_or_retry(content, provider_call_ref(result), prompt, result_fn, retry?)
 
       {:ok, content} when is_binary(content) ->
-        parse_or_retry(content, nil, prompt, complete_fn, retry?)
+        parse_or_retry(content, nil, prompt, result_fn, retry?)
 
       {:error, error} ->
         QualityEvaluationResult.error(%{
@@ -52,7 +52,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
     end
   end
 
-  defp parse_or_retry(content, provider_call_ref, prompt, complete_fn, retry?) do
+  defp parse_or_retry(content, provider_call_ref, prompt, result_fn, retry?) do
     case parse_findings(content) do
       {:ok, findings} ->
         QualityEvaluationResult.ok(findings, provider_call_ref)
@@ -60,7 +60,7 @@ defmodule NovelAgent.ProseQualityEvaluator do
       :error when retry? ->
         prompt
         |> correction_prompt(content)
-        |> do_evaluate(complete_fn, false)
+        |> do_evaluate(result_fn, false)
 
       :error ->
         QualityEvaluationResult.error(%{

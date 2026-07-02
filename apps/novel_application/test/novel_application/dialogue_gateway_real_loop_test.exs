@@ -80,13 +80,13 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       ws_id = "ws-real-loop-#{System.unique_integer([:positive, :monotonic])}"
       fetcher = WorkspaceContext.context_fetcher()
       recorder = WorkspaceContext.interaction_recorder()
-      complete_fn = capturing_complete_fn()
+      result_fn = capturing_result_fn()
 
       assert {:ok, _turn_result, _trace, _candidates, _context} =
                DialogueGateway.handle_input(
                  %{text: "第一轮要记住：主角叫林烬。", workspace_id: ws_id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  nil,
                  recorder
                )
@@ -95,12 +95,12 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "第二轮：他现在叫什么？", workspace_id: ws_id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  nil,
                  recorder
                )
 
-      [first_messages, second_messages] = captured_prompts(complete_fn)
+      [first_messages, second_messages] = captured_prompts(result_fn)
 
       refute history_text(first_messages) =~ "第一轮要记住"
       assert String.contains?(second_context.conversation_summary, "user: 第一轮要记住：主角叫林烬。")
@@ -115,13 +115,13 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       ws_id = "ws-trace-loop-#{System.unique_integer([:positive, :monotonic])}"
       fetcher = WorkspaceContext.context_fetcher()
       trace_persister = WorkspaceContext.trace_persister()
-      complete_fn = capturing_complete_fn()
+      result_fn = capturing_result_fn()
 
       assert {:ok, turn_result, trace, _candidates, _context} =
                DialogueGateway.handle_input(
                  %{text: "请记录这轮 trace。", workspace_id: ws_id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  trace_persister,
                  nil
                )
@@ -161,14 +161,14 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       fetcher = WorkspaceContext.context_fetcher()
       trace_persister = WorkspaceContext.trace_persister()
 
-      complete_fn =
-        sequenced_complete_fn([@character_query_frame_json, @character_roster_plan_json])
+      result_fn =
+        sequenced_result_fn([@character_query_frame_json, @character_roster_plan_json])
 
       assert {:ok, turn_result, trace, _candidates, _context} =
                DialogueGateway.handle_input(
                  %{text: "查看当前角色列表", workspace_id: work.id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  trace_persister,
                  nil
                )
@@ -224,7 +224,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "第一轮", workspace_id: work.id, session_id: session.id},
                  nil,
-                 provider_execution(capturing_complete_fn()),
+                 provider_execution(capturing_result_fn()),
                  nil,
                  recorder
                )
@@ -247,13 +247,13 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
       recorder = WorkspaceContext.interaction_recorder()
-      complete_fn = capturing_complete_fn()
+      result_fn = capturing_result_fn()
 
       assert {:ok, _turn_result, _trace, _candidates, _context} =
                DialogueGateway.handle_input(
                  %{text: "第一轮要记住：主角叫林烬。", workspace_id: work.id, session_id: session.id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  nil,
                  recorder
                )
@@ -262,12 +262,12 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
                DialogueGateway.handle_input(
                  %{text: "第二轮：他现在叫什么？", workspace_id: work.id, session_id: session.id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  nil,
                  recorder
                )
 
-      [_first_messages, second_messages] = captured_prompts(complete_fn)
+      [_first_messages, second_messages] = captured_prompts(result_fn)
 
       assert second_context.conversation_summary =~ "user: 第一轮要记住：主角叫林烬。"
       assert second_context.conversation_summary =~ "assistant: 收到你的消息。"
@@ -294,18 +294,18 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       seed_interaction(work.id, history_session.id, "turn-history", "user", "历史会话旧设定：主角当时叫林烬")
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
-      complete_fn = capturing_complete_fn()
+      result_fn = capturing_result_fn()
 
       assert {:ok, turn_result, _trace, _candidates, context} =
                DialogueGateway.handle_input(
                  %{text: "主角现在的核心动机是什么？", workspace_id: work.id, session_id: active_session.id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  nil,
                  nil
                )
 
-      [messages] = captured_prompts(complete_fn)
+      [messages] = captured_prompts(result_fn)
       system = system_text(messages)
       history = history_text(messages)
 
@@ -336,18 +336,18 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       end)
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
-      complete_fn = capturing_complete_fn()
+      result_fn = capturing_result_fn()
 
       assert {:ok, _turn_result, _trace, _candidates, context} =
                DialogueGateway.handle_input(
                  %{text: "继续最新设定", workspace_id: work.id, session_id: session.id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  nil,
                  nil
                )
 
-      [messages] = captured_prompts(complete_fn)
+      [messages] = captured_prompts(result_fn)
       history_messages = historical_messages(messages)
 
       assert context.conversation_summary =~ "会话早期摘要"
@@ -368,18 +368,18 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
       memory = insert_memory!(work.id, "林瑶失踪与灵源矿区有关")
 
       fetcher = WorkspaceContext.context_fetcher_with_query()
-      complete_fn = capturing_complete_fn()
+      result_fn = capturing_result_fn()
 
       assert {:ok, turn_result, _trace, _candidates, context} =
                DialogueGateway.handle_input(
                  %{text: "林烬为什么要去灵源矿区？", workspace_id: work.id},
                  fetcher,
-                 provider_execution(complete_fn),
+                 provider_execution(result_fn),
                  nil,
                  nil
                )
 
-      [messages] = captured_prompts(complete_fn)
+      [messages] = captured_prompts(result_fn)
 
       assert context.memory_summary =~ "林瑶失踪与灵源矿区有关"
       assert String.contains?(system_text(messages), "## 相关记忆")
@@ -395,7 +395,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
     end
   end
 
-  defp capturing_complete_fn do
+  defp capturing_result_fn do
     {:ok, agent} = Agent.start_link(fn -> [] end)
 
     fn
@@ -408,7 +408,7 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
     end
   end
 
-  defp sequenced_complete_fn(responses) do
+  defp sequenced_result_fn(responses) do
     {:ok, agent} = Agent.start_link(fn -> responses end)
 
     fn
@@ -423,9 +423,9 @@ defmodule NovelApplication.DialogueGatewayRealLoopTest do
     end
   end
 
-  defp provider_execution(complete_fn), do: %Execution{complete_fn: complete_fn}
+  defp provider_execution(result_fn), do: %Execution{result_fn: result_fn}
 
-  defp captured_prompts(complete_fn), do: complete_fn.(:captured_prompts)
+  defp captured_prompts(result_fn), do: result_fn.(:captured_prompts)
 
   defp system_text(messages) do
     messages
