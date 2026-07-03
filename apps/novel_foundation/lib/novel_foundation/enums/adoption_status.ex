@@ -9,7 +9,15 @@ defmodule NovelFoundation.Enums.AdoptionStatus do
   Artifact adoption 7 态。canonical 来源 30-contract-glossary §3.2 + ADR-0001。映射到 status family 见 ADR-0002 §5。
   """
 
-  @values ["TENTATIVE", "ACCEPTED", "EDITED_ACCEPTED", "DISCARDED", "SUPERSEDED", "INVALIDATED", "ARCHIVED"]
+  @values [
+    "TENTATIVE",
+    "ACCEPTED",
+    "EDITED_ACCEPTED",
+    "DISCARDED",
+    "SUPERSEDED",
+    "INVALIDATED",
+    "ARCHIVED"
+  ]
 
   @type t :: String.t()
 

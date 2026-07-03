@@ -11,7 +11,7 @@ defmodule NovelAgent.Tools.CreativeToolAdapter do
   @spec execute(ToolRequest.t(), atom(), Execution.dependency(), module()) ::
           ToolResult.t()
   def execute(%ToolRequest{} = req, artifact_type, provider_execution, provider_module) do
-    result_id = "tr_#{System.unique_integer([:positive, :monotonic])}"
+    result_id = NovelFoundation.ID.unique("tr")
     now = DateTime.utc_now()
 
     case ToolOutputContract.normalize_artifact_type(artifact_type) do

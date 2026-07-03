@@ -53,7 +53,14 @@ defmodule NovelPersistence.Schemas.AgentRunStepRecord do
     |> validate_required(@required_fields)
     |> validate_number(:sequence, greater_than: 0)
     |> validate_number(:attempt, greater_than: 0)
-    |> validate_inclusion(:status, ["proposed", "running", "completed", "failed", "cancelled", "skipped"])
+    |> validate_inclusion(:status, [
+      "proposed",
+      "running",
+      "completed",
+      "failed",
+      "cancelled",
+      "skipped"
+    ])
     |> unique_constraint([:run_id, :sequence])
   end
 end

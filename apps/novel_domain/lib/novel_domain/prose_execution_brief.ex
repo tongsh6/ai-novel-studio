@@ -151,8 +151,8 @@ defmodule NovelDomain.ProseExecutionBrief do
         {%{"type" => "unspecified", "description" => description}, false, nil}
 
       true ->
-        {%{"type" => "deliberate_pause", "description" => "未给出场级目标变化，按缓冲场处理"},
-         true, "missing_target_change"}
+        {%{"type" => "deliberate_pause", "description" => "未给出场级目标变化，按缓冲场处理"}, true,
+         "missing_target_change"}
     end
   end
 

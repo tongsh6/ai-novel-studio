@@ -9,7 +9,18 @@ defmodule NovelFoundation.Enums.ScopeDependency do
   Slot 作用域依赖枚举。描述 slot 所依赖的业务范围。冻结于 ADR-0010 §5。
   """
 
-  @values ["work", "volume", "arc", "chapter", "scene", "draft", "style", "continuity", "reading_projection", "runtime"]
+  @values [
+    "work",
+    "volume",
+    "arc",
+    "chapter",
+    "scene",
+    "draft",
+    "style",
+    "continuity",
+    "reading_projection",
+    "runtime"
+  ]
 
   @type t :: String.t()
 

@@ -120,7 +120,7 @@ defmodule NovelApplication.DialoguePlanningService do
     text = Map.fetch!(input, :text)
     run_mode = run_mode_for_input(input)
 
-    run_id = "run_#{System.unique_integer([:positive, :monotonic])}"
+    run_id = NovelFoundation.ID.unique("run")
     {:ok, agent_plan} = agent_run_agent_plan(run_id, profile)
 
     attrs =
@@ -149,7 +149,7 @@ defmodule NovelApplication.DialoguePlanningService do
     }
   end
 
-  defp allocate_turn_id, do: "turn_#{System.unique_integer([:positive, :monotonic])}"
+  defp allocate_turn_id, do: NovelFoundation.ID.unique("turn")
 
   # ── profile 选择在 AgentRun 内作为第一轮模型裁决发生；这里不再用关键词预先裁决 ──
 

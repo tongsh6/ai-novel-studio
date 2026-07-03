@@ -14,7 +14,7 @@ defmodule NovelApplication.ReplayService do
   """
   @spec build_report(DecisionTrace.t()) :: ReplayReport.t()
   def build_report(%DecisionTrace{} = trace) do
-    replay_id = "replay_#{System.unique_integer([:positive, :monotonic])}"
+    replay_id = NovelFoundation.ID.unique("replay")
     missing_trace_refs = find_missing_refs(trace)
 
     %ReplayReport{

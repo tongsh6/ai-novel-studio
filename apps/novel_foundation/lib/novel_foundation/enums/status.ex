@@ -9,7 +9,16 @@ defmodule NovelFoundation.Enums.Status do
   Foundation 通用 status family，turn / task / artifact projection 共用。冻结于 ADR-0002 §2。
   """
 
-  @values ["READY", "WAITING_USER", "WAITING_SYSTEM", "RUNNING", "PAUSED", "DONE", "ERROR", "CANCELLED"]
+  @values [
+    "READY",
+    "WAITING_USER",
+    "WAITING_SYSTEM",
+    "RUNNING",
+    "PAUSED",
+    "DONE",
+    "ERROR",
+    "CANCELLED"
+  ]
 
   @type t :: String.t()
 

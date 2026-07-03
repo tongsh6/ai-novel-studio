@@ -315,7 +315,7 @@ defmodule NovelAgent.Provider.Execution do
   end
 
   defp provider_ref(prefix),
-    do: "#{prefix}-#{System.unique_integer([:positive, :monotonic])}"
+    do: NovelFoundation.ID.unique(prefix)
 
   defp existing_ref(map, key) when is_map(map) do
     case Map.get(map, key) || Map.get(map, Atom.to_string(key)) do

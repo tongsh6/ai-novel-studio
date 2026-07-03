@@ -106,7 +106,7 @@ defmodule NovelApplication.Planner do
         context \\ nil
       ) do
     result_fn = result_fn(provider_execution)
-    plan_id = "plan_#{System.unique_integer([:positive, :monotonic])}"
+    plan_id = NovelFoundation.ID.unique("plan")
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:planner, :form_micro_plan, :start, %{})
 
@@ -227,8 +227,7 @@ defmodule NovelApplication.Planner do
       |> Map.get("proposed_actions", [])
       |> Enum.map(fn a ->
         %{
-          action_id:
-            Map.get(a, "action_id", "act-#{System.unique_integer([:positive, :monotonic])}"),
+          action_id: Map.get(a, "action_id", NovelFoundation.ID.unique("act")),
           action_type: to_action_type(Map.get(a, "action_type", "clarification_request")),
           summary: Map.get(a, "summary", ""),
           target_ref: Map.get(a, "target_ref"),
@@ -712,7 +711,7 @@ defmodule NovelApplication.Planner do
       |> Enum.map(fn
         c when is_map(c) ->
           %CandidateDirection{
-            direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+            direction_id: NovelFoundation.ID.unique("dir"),
             title: c |> Map.get("title", "") |> to_string() |> String.trim(),
             pitch: c |> Map.get("pitch", "") |> to_string() |> String.trim(),
             tone_tags: Map.get(c, "tone_tags", []),
@@ -725,7 +724,7 @@ defmodule NovelApplication.Planner do
           text = String.trim(c)
 
           %CandidateDirection{
-            direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+            direction_id: NovelFoundation.ID.unique("dir"),
             title: text,
             pitch: text,
             tone_tags: [],
@@ -756,7 +755,7 @@ defmodule NovelApplication.Planner do
   defp fallback_candidates(frame_id) do
     [
       %CandidateDirection{
-        direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+        direction_id: NovelFoundation.ID.unique("dir"),
         title: "矛盾切入",
         pitch: "先抓住作品里最有冲突感的设定，让主角从压力中心进入故事。",
         tone_tags: ["冲突", "推进"],
@@ -764,7 +763,7 @@ defmodule NovelApplication.Planner do
         adoption_status: :not_adopted
       },
       %CandidateDirection{
-        direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+        direction_id: NovelFoundation.ID.unique("dir"),
         title: "人物切入",
         pitch: "从一个有强烈欲望或困境的角色出发，用他的选择带出世界观。",
         tone_tags: ["角色", "共情"],
@@ -772,7 +771,7 @@ defmodule NovelApplication.Planner do
         adoption_status: :not_adopted
       },
       %CandidateDirection{
-        direction_id: "dir_#{System.unique_integer([:positive, :monotonic])}",
+        direction_id: NovelFoundation.ID.unique("dir"),
         title: "世界规则切入",
         pitch: "先定义一个反常但有吸引力的世界规则，再让剧情围绕它展开。",
         tone_tags: ["世界观", "设定"],
@@ -831,8 +830,8 @@ defmodule NovelApplication.Planner do
   defp error_detail(reason) when is_binary(reason), do: reason
   defp error_detail(reason), do: inspect(reason)
 
-  defp allocate_turn_id, do: "turn_#{System.unique_integer([:positive, :monotonic])}"
-  defp allocate_frame_id, do: "frame_#{System.unique_integer([:positive, :monotonic])}"
+  defp allocate_turn_id, do: NovelFoundation.ID.unique("turn")
+  defp allocate_frame_id, do: NovelFoundation.ID.unique("frame")
 
   defp with_turn_context(turn_id, step, fun) do
     Process.put(:current_turn_id, turn_id)

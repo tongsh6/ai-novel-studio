@@ -481,7 +481,7 @@ defmodule NovelApplication.AdoptionWorkflow do
   # 取消确认：关闭 confirmation behavior（active: nil），artifact 仍 pending，不写库。
   defp build_cancel_confirmation_turn_result(source_turn_result, artifact, params) do
     source_turn_id = turn_id(source_turn_result)
-    turn_id = "turn_adopt_#{System.unique_integer([:positive, :monotonic])}"
+    turn_id = NovelFoundation.ID.unique("turn_adopt")
 
     %{
       schema_version: "3.0-draft",
@@ -553,7 +553,7 @@ defmodule NovelApplication.AdoptionWorkflow do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
     adopted_state_ref = adopted_state_ref(persisted, decision)
-    turn_id = "turn_adopt_#{System.unique_integer([:positive, :monotonic])}"
+    turn_id = NovelFoundation.ID.unique("turn_adopt")
     state_trace_refs = state_trace_refs(decision, artifact, persisted, turn_id, source_turn_id)
     state_trace_ref = primary_state_trace_ref(state_trace_refs)
 
@@ -723,7 +723,7 @@ defmodule NovelApplication.AdoptionWorkflow do
 
     %{
       schema_version: "3.0-draft",
-      turn_id: "turn_discard_#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: NovelFoundation.ID.unique("turn_discard"),
       parent_turn_id: source_turn_id,
       assistant_message: %{text: "已放弃该待采纳内容。"},
       ui_cards: [],
@@ -776,7 +776,7 @@ defmodule NovelApplication.AdoptionWorkflow do
 
     %{
       schema_version: "3.0-draft",
-      turn_id: "turn_adopt_#{System.unique_integer([:positive, :monotonic])}",
+      turn_id: NovelFoundation.ID.unique("turn_adopt"),
       parent_turn_id: source_turn_id,
       assistant_message: %{text: decision_message(decision)},
       ui_cards: [],
@@ -889,7 +889,7 @@ defmodule NovelApplication.AdoptionWorkflow do
     source_turn_id = turn_id(source_turn_result)
     artifact_id = artifact_field(artifact, :artifact_id)
     adopted_state_ref = adopted_state_ref(persisted, decision)
-    turn_id = "turn_edit_accept_#{System.unique_integer([:positive, :monotonic])}"
+    turn_id = NovelFoundation.ID.unique("turn_edit_accept")
 
     state_trace_refs =
       state_trace_refs(

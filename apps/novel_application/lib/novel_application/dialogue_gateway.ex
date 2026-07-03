@@ -255,7 +255,7 @@ defmodule NovelApplication.DialogueGateway do
 
   defp empty_context(_workspace_id), do: {:ok, nil, nil, nil, nil}
 
-  defp allocate_turn_id, do: "turn_#{System.unique_integer([:positive, :monotonic])}"
+  defp allocate_turn_id, do: NovelFoundation.ID.unique("turn")
 
   defp scope_turn_result(
          {:ok, turn_result, trace, candidates, context},
@@ -377,7 +377,7 @@ defmodule NovelApplication.DialogueGateway do
 
   defp interaction_entries(ws_id, session_id, turn_result, user_text) do
     turn_id =
-      Map.get(turn_result, :turn_id, "turn_#{System.unique_integer([:positive, :monotonic])}")
+      Map.get(turn_result, :turn_id, NovelFoundation.ID.unique("turn"))
 
     assistant_text = get_in(turn_result, [:assistant_message, :text]) || ""
 
@@ -675,7 +675,7 @@ defmodule NovelApplication.DialogueGateway do
 
   defp cancel_waiting_turn_result(%AuthorActionInput{} = action_input, source_turn_result) do
     source_turn_id = map_field(source_turn_result, :turn_id)
-    turn_id = "turn_#{System.unique_integer([:positive, :monotonic])}"
+    turn_id = NovelFoundation.ID.unique("turn")
     target_summary = cancel_target_summary(action_input)
     behavior_state = cancel_waiting_behavior_state(action_input, source_turn_result, turn_id)
     behavior_trace_refs = terminal_behavior_trace_refs(behavior_state, :close)
@@ -864,7 +864,7 @@ defmodule NovelApplication.DialogueGateway do
 
   defp candidate_turn_result(source_turn_result, chosen_candidate, %AdoptionDecision{} = decision) do
     adopted? = AdoptionDecision.adopted?(decision)
-    turn_id = "turn_#{System.unique_integer([:positive, :monotonic])}"
+    turn_id = NovelFoundation.ID.unique("turn")
     title = chosen_candidate_title(source_turn_result, chosen_candidate.candidate_id)
 
     %{

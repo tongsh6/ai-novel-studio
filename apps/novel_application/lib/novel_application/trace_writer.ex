@@ -353,7 +353,7 @@ defmodule NovelApplication.TraceWriter do
 
   defp author_safe_summary(_ref), do: nil
 
-  defp allocate_trace_id, do: "trace_#{System.unique_integer([:positive, :monotonic])}"
+  defp allocate_trace_id, do: NovelFoundation.ID.unique("trace")
 
   defp tool_trace_ref(%ToolRequest{} = req, %ToolResult{} = result, %OrchestratorDecision{} = d) do
     registry_snapshot = tool_registry_snapshot(req.tool_name)

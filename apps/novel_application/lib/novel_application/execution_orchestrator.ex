@@ -30,7 +30,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
 
   def decide(%DialogueFrame{} = frame, %MicroPlan{} = plan, opts) do
     binding = Keyword.get(opts, :confirmation_binding)
-    decision_id = "decision_#{System.unique_integer([:positive, :monotonic])}"
+    decision_id = NovelFoundation.ID.unique("decision")
     t0 = System.monotonic_time(:millisecond)
     LogEmit.emit(:orchestrator, :decide, :start, %{})
 
@@ -131,7 +131,7 @@ defmodule NovelApplication.ExecutionOrchestrator do
   defp open_behavior(decision_type, decision_id, frame, plan, reason) do
     action = hd(plan.proposed_actions)
     target = action[:target_ref]
-    behavior_id = "bh_#{System.unique_integer([:positive, :monotonic])}"
+    behavior_id = NovelFoundation.ID.unique("bh")
 
     behavior_type =
       if decision_type == :require_confirmation, do: :confirmation, else: :clarification

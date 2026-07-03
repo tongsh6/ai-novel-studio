@@ -625,5 +625,5 @@ defmodule NovelAgent.Provider.AdapterExecution do
   defp normalize_error_map(error) when is_map(error), do: error
   defp normalize_error_map(error), do: %{message: inspect(error), type: :provider_error}
 
-  defp provider_event_id, do: "pevt_#{System.unique_integer([:positive, :monotonic])}"
+  defp provider_event_id, do: NovelFoundation.ID.unique("pevt")
 end

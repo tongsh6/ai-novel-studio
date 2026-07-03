@@ -22,7 +22,7 @@ defmodule NovelApplication.AdoptionBoundary do
   @spec evaluate(CandidateSet.t(), map(), ToolResult.t() | nil, keyword() | map()) ::
           AdoptionDecision.t()
   def evaluate(%CandidateSet{} = candidate_set, chosen_candidate, _tool_result, opts) do
-    decision_id = "ad_#{System.unique_integer([:positive, :monotonic])}"
+    decision_id = NovelFoundation.ID.unique("ad")
     candidate_id = chosen_candidate[:candidate_id] || chosen_candidate["candidate_id"]
     candidate = find_candidate(candidate_set, candidate_id)
     decision_trace_ref = candidate_set.trace_ref || "decision_trace:#{decision_id}"
@@ -291,7 +291,7 @@ defmodule NovelApplication.AdoptionBoundary do
 
   defp build_projection_hint(turn_id, _decision_id) do
     %{
-      projection_hint_id: "ph_#{System.unique_integer([:positive, :monotonic])}",
+      projection_hint_id: NovelFoundation.ID.unique("ph"),
       turn_id: turn_id,
       projection_ref: "character_list",
       reason: :adopted_state_changed,

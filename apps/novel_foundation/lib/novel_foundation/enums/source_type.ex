@@ -9,7 +9,16 @@ defmodule NovelFoundation.Enums.SourceType do
   记忆来源类型枚举。每条 memory entry 必须标记来源类型。冻结于 05-memory-retention-and-retrieval.md §5.3。
   """
 
-  @values ["turn", "task_event", "artifact", "object_snapshot", "object_summary", "registry", "audit_event", "external_import"]
+  @values [
+    "turn",
+    "task_event",
+    "artifact",
+    "object_snapshot",
+    "object_summary",
+    "registry",
+    "audit_event",
+    "external_import"
+  ]
 
   @type t :: String.t()
 

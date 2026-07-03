@@ -36,7 +36,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
 
     brief =
       ProseExecutionBrief.new(%{
-        brief_id: "peb_#{System.unique_integer([:positive, :monotonic])}",
+        brief_id: NovelFoundation.ID.unique("peb"),
         created_at: DateTime.utc_now() |> DateTime.to_iso8601(),
         anchor: %{
           "target_unit" => "chapter",
@@ -72,8 +72,7 @@ defmodule NovelApplication.ProseExecutionBriefBuilder do
             "turn" => direction.foreshadowing_action,
             "consequence" => direction.information_release
           }),
-        "information_delta" =>
-          drop_blank(%{"reader_learns" => direction.information_release}),
+        "information_delta" => drop_blank(%{"reader_learns" => direction.information_release}),
         "emotion_transition" => drop_blank(%{"end" => direction.emotion})
       }
       |> drop_empty_values()

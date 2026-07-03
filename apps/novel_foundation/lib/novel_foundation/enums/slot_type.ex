@@ -9,7 +9,17 @@ defmodule NovelFoundation.Enums.SlotType do
   Intent slot 类型枚举。首批支持 9 种类型：text / enum_or_text / object_ref / object_ref_list / scope_ref / anchor_ref / range_ref / integer / boolean。冻结于 ADR-0010 §4。
   """
 
-  @values ["text", "enum_or_text", "object_ref", "object_ref_list", "scope_ref", "anchor_ref", "range_ref", "integer", "boolean"]
+  @values [
+    "text",
+    "enum_or_text",
+    "object_ref",
+    "object_ref_list",
+    "scope_ref",
+    "anchor_ref",
+    "range_ref",
+    "integer",
+    "boolean"
+  ]
 
   @type t :: String.t()
 

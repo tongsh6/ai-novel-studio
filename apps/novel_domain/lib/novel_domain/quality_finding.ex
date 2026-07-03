@@ -88,8 +88,10 @@ defmodule NovelDomain.QualityFinding do
         confidence: normalize_confidence(get_any(attrs, [:confidence, "confidence"])),
         evidence_spans: normalize_spans(get_any(attrs, [:evidence_spans, "evidence_spans"])),
         brief_field_refs: clean_list(get_any(attrs, [:brief_field_refs, "brief_field_refs"])),
-        suggested_revision: normalize_map(get_any(attrs, [:suggested_revision, "suggested_revision"])),
-        can_override: normalize_can_override(get_any(attrs, [:can_override, "can_override"]), action),
+        suggested_revision:
+          normalize_map(get_any(attrs, [:suggested_revision, "suggested_revision"])),
+        can_override:
+          normalize_can_override(get_any(attrs, [:can_override, "can_override"]), action),
         created_at: clean(get_any(attrs, [:created_at, "created_at"]))
       }
     end
@@ -164,7 +166,9 @@ defmodule NovelDomain.QualityFinding do
     end
   end
 
-  defp normalize_confidence(value) when is_float(value) and value >= 0.0 and value <= 1.0, do: value
+  defp normalize_confidence(value) when is_float(value) and value >= 0.0 and value <= 1.0,
+    do: value
+
   defp normalize_confidence(value) when is_integer(value) and value in 0..1, do: value / 1
   defp normalize_confidence(_value), do: nil
 
@@ -193,6 +197,8 @@ defmodule NovelDomain.QualityFinding do
 
   defp clean(_value), do: nil
 
-  defp clean_list(list) when is_list(list), do: list |> Enum.map(&clean/1) |> Enum.reject(&is_nil/1)
+  defp clean_list(list) when is_list(list),
+    do: list |> Enum.map(&clean/1) |> Enum.reject(&is_nil/1)
+
   defp clean_list(_list), do: []
 end

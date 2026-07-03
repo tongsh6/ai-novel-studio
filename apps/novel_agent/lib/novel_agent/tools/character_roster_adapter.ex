@@ -6,7 +6,7 @@ defmodule NovelAgent.Tools.CharacterRosterAdapter do
 
   @spec execute(ToolRequest.t(), term()) :: ToolResult.t()
   def execute(%ToolRequest{} = req, _provider_execution) do
-    result_id = "tr_#{System.unique_integer([:positive, :monotonic])}"
+    result_id = NovelFoundation.ID.unique("tr")
     characters = req.input |> Map.get("characters", []) |> normalize_characters()
 
     output = %{

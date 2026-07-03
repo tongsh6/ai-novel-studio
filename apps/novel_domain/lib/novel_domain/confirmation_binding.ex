@@ -119,7 +119,7 @@ defmodule NovelDomain.ConfirmationBinding do
 
   defp normalize_ref(_), do: nil
 
-  defp generate_id, do: "cb_#{System.unique_integer([:positive, :monotonic])}"
+  defp generate_id, do: NovelFoundation.ID.unique("cb")
 
   defp blank?(nil), do: true
   defp blank?(value) when is_binary(value), do: String.trim(value) == ""

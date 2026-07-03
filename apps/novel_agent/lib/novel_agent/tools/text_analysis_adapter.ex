@@ -8,7 +8,7 @@ defmodule NovelAgent.Tools.TextAnalysisAdapter do
   def execute(%ToolRequest{} = req, _provider_execution) do
     text = Map.get(req.input, "text", "")
     genre = Map.get(req.input, "genre", "")
-    result_id = "tr_#{System.unique_integer([:positive, :monotonic])}"
+    result_id = NovelFoundation.ID.unique("tr")
 
     analysis = %{
       word_count: count_words(text),

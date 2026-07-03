@@ -9,7 +9,14 @@ defmodule NovelFoundation.Enums.MemorySourceType do
   记忆来源类型枚举。区分记忆的权威来源——作者确认高于文档导入高于 AI 推断。冻结于 05-memory-retention-and-retrieval.md §7。
   """
 
-  @values ["AUTHOR_CONFIRMED", "AUTHOR_CREATED", "AI_EXTRACTED", "CHAPTER_EXTRACTED", "WORK_SETTING_IMPORTED", "SESSION_CONTEXT"]
+  @values [
+    "AUTHOR_CONFIRMED",
+    "AUTHOR_CREATED",
+    "AI_EXTRACTED",
+    "CHAPTER_EXTRACTED",
+    "WORK_SETTING_IMPORTED",
+    "SESSION_CONTEXT"
+  ]
 
   @type t :: String.t()
 

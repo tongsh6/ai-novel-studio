@@ -199,7 +199,7 @@ defmodule NovelWeb.WorkspaceChannel do
     work_id = socket.assigns[:work_id] || ws_id
     session_id = socket.assigns[:session_id] || Map.get(msg, "session_id")
     generate_plan = Map.get(msg, "generate_micro_plan", false)
-    turn_id = Map.get(msg, "turn_id") || "turn_#{System.unique_integer([:positive, :monotonic])}"
+    turn_id = Map.get(msg, "turn_id") || NovelFoundation.ID.unique("turn")
 
     case validate_candidate_selection(socket, Map.get(msg, "candidate_selection")) do
       {:error, reason} ->
@@ -242,7 +242,7 @@ defmodule NovelWeb.WorkspaceChannel do
     LogContext.put_turn(ws_id, work_id, source_turn_ref, session_id)
 
     action_input = %AuthorActionInput{
-      input_id: "in_#{System.unique_integer([:positive, :monotonic])}",
+      input_id: NovelFoundation.ID.unique("in"),
       source_turn_ref: source_turn_ref,
       action_id: action_params["action_id"],
       action_type: action_params["action_type"],

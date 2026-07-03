@@ -9,7 +9,19 @@ defmodule NovelFoundation.Enums.TaskPhase do
   Long-run task 流程阶段，11 个值固定。冻结于 ADR-0002 §4。CHECKPOINT 不得合并进 PAUSED。
   """
 
-  @values ["PLANNED", "ESTIMATED", "CONFIRMATION_REQUIRED", "CONFIRMED", "RUNNING", "CHECKPOINT", "RESUMING", "COMPLETED", "CANCELLED", "FAILED", "BRANCHED"]
+  @values [
+    "PLANNED",
+    "ESTIMATED",
+    "CONFIRMATION_REQUIRED",
+    "CONFIRMED",
+    "RUNNING",
+    "CHECKPOINT",
+    "RESUMING",
+    "COMPLETED",
+    "CANCELLED",
+    "FAILED",
+    "BRANCHED"
+  ]
 
   @type t :: String.t()
 

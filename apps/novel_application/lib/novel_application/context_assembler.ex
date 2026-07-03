@@ -258,7 +258,7 @@ defmodule NovelApplication.ContextAssembler do
 
       summary ->
         ref = %ContextSourceRef{
-          context_ref: "ctx_#{System.unique_integer([:positive, :monotonic])}",
+          context_ref: NovelFoundation.ID.unique("ctx"),
           source_type: type,
           source_id: id,
           summary: summary,

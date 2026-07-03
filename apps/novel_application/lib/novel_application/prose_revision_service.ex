@@ -79,7 +79,7 @@ defmodule NovelApplication.ProseRevisionService do
   """
   @spec plan_revision(map(), AuthorActionInput.t()) :: {:ok, map()} | {:error, String.t()}
   def plan_revision(source_turn_result, %AuthorActionInput{} = action_input) do
-    turn_id = "turn_rev_#{System.unique_integer([:positive, :monotonic])}"
+    turn_id = NovelFoundation.ID.unique("turn_rev")
     frame = revision_frame(source_turn_result, action_input, turn_id)
     plan = revision_plan(frame, action_input)
     {decision, behavior} = ExecutionOrchestrator.decide(frame, plan)
@@ -331,7 +331,7 @@ defmodule NovelApplication.ProseRevisionService do
     entry = CapabilityRegistry.get(@prose_tool)
 
     %ToolRequest{
-      tool_request_id: "tq_rev_#{System.unique_integer([:positive, :monotonic])}",
+      tool_request_id: NovelFoundation.ID.unique("tq_rev"),
       turn_id: frame.turn_id,
       frame_ref: frame.frame_id,
       plan_ref: plan.plan_id,

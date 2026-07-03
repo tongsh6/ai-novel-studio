@@ -429,8 +429,8 @@ defmodule NovelAgent.Provider.Gateway do
     end
   end
 
-  defp provider_run_id, do: "prun_#{System.unique_integer([:positive, :monotonic])}"
-  defp provider_call_ref, do: "pcall_#{System.unique_integer([:positive, :monotonic])}"
+  defp provider_run_id, do: NovelFoundation.ID.unique("prun")
+  defp provider_call_ref, do: NovelFoundation.ID.unique("pcall")
 
   defp emit_provider_execution_result(provider_name, model, execution, started) do
     duration = System.monotonic_time(:millisecond) - started

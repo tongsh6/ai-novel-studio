@@ -9,7 +9,17 @@ defmodule NovelFoundation.Enums.TurnPhase do
   Turn 流程阶段，9 个值固定。冻结于 ADR-0002 §3。
   """
 
-  @values ["RECEIVED", "ROUTED", "NEEDS_CLARIFICATION", "NEEDS_CONFIRMATION", "READY_TO_EXECUTE", "EXECUTING", "COMPLETED", "FAILED", "CANCELLED"]
+  @values [
+    "RECEIVED",
+    "ROUTED",
+    "NEEDS_CLARIFICATION",
+    "NEEDS_CONFIRMATION",
+    "READY_TO_EXECUTE",
+    "EXECUTING",
+    "COMPLETED",
+    "FAILED",
+    "CANCELLED"
+  ]
 
   @type t :: String.t()
 

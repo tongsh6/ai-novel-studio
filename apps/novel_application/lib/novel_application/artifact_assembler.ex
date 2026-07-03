@@ -17,14 +17,18 @@ defmodule NovelApplication.ArtifactAssembler do
           {:ok, TentativeArtifactSet.t()} | {:error, map()}
   def assemble(tool_result, turn_ref, provenance \\ %{})
 
-  def assemble(%ToolResult{status: :succeeded, output: output} = tool_result, turn_ref, provenance)
+  def assemble(
+        %ToolResult{status: :succeeded, output: output} = tool_result,
+        turn_ref,
+        provenance
+      )
       when is_map(output) do
     with {:ok, artifact_type} <-
            ToolOutputContract.normalize_artifact_type(output[:artifact_type]),
          {:ok, items} <- ToolOutputContract.validate_creative_items(output[:items]) do
       {:ok,
        %TentativeArtifactSet{
-         artifact_set_id: "as_#{System.unique_integer([:positive, :monotonic])}",
+         artifact_set_id: NovelFoundation.ID.unique("as"),
          artifact_type: artifact_type,
          items: items,
          source_turn_ref: turn_ref,

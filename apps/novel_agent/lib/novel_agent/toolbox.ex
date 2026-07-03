@@ -67,7 +67,7 @@ defmodule NovelAgent.Toolbox do
 
   defp failed(%ToolRequest{} = req, code, message) do
     %ToolResult{
-      tool_result_id: "tr_#{System.unique_integer([:positive, :monotonic])}",
+      tool_result_id: NovelFoundation.ID.unique("tr"),
       tool_request_ref: req.tool_request_id,
       tool_name: req.tool_name,
       status: :failed,

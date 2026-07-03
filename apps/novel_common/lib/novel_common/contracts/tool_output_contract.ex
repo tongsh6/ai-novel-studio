@@ -183,7 +183,8 @@ defmodule NovelCommon.Contracts.ToolOutputContract do
   # 把 provider 输出的叙事角色规范化到 NarrativeRole 契约枚举。
   # 接受 canonical 枚举值（大小写不敏感）与常见中文同义词；无法识别返回 nil
   # （角色不带主角标记，召回时诚实报缺口，不臆造主角）。
-  @spec normalize_narrative_role(term()) :: NovelCommon.Contracts.ToolOutputContract.narrative_role()
+  @spec normalize_narrative_role(term()) ::
+          NovelCommon.Contracts.ToolOutputContract.narrative_role()
   def normalize_narrative_role(value) when is_binary(value) do
     trimmed = value |> String.trim()
     upcased = String.upcase(trimmed)

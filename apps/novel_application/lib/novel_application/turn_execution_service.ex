@@ -279,7 +279,7 @@ defmodule NovelApplication.TurnExecutionService do
     entry = CapabilityRegistry.get(tool_name)
 
     %ToolRequest{
-      tool_request_id: "tq_#{System.unique_integer([:positive, :monotonic])}",
+      tool_request_id: NovelFoundation.ID.unique("tq"),
       turn_id: frame.turn_id,
       frame_ref: frame.frame_id,
       plan_ref: plan.plan_id,
