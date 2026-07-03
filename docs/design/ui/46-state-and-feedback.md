@@ -176,9 +176,9 @@ Clarification 等待态还必须解释“为什么需要这一步”，并在作
 
 发送后、模型叙事首个 delta 到达前，UI 必须立即显示同一 assistant turn 的结构性工作态骨架（例如状态 chip、阶段轨道、工作详情入口）。这类即时反馈只能表达“请求已进入工作态/准备中/进行中”等枚举状态，不能补写模型发现或推理内容。
 
-如果一个 active AgentRun 已锚在更早的 assistant turn，而作者又在主输入区补充方向，最新作者输入必须先作为本地作者消息留在 transcript 中；其后仍必须显示当前 run 的结构工作态，作为“系统正在处理这次请求”的位置锚点；这可以重复结构骨架，但不能重复或伪造模型叙事。该本地作者消息不等价于第二个后端 `user_message` / turn / run，外部验收必须同时证明页面有本地锚点且网络层没有第二个 `user_message`。
+如果一个 active AgentRun 已锚在更早的 assistant turn，而作者又在主输入区补充方向，最新作者输入必须先作为本地作者消息留在 transcript 中；其后仍必须显示当前 run 的结构工作态，作为“系统正在处理这次请求”的位置锚点；即使 run 随后进入 completed / failed / cancelled 终态，该位置锚点也必须保留到下一条作者输入或等价的最终回复接管位置。这可以重复结构骨架，但不能重复或伪造模型叙事。该本地作者消息不等价于第二个后端 `user_message` / turn / run，外部验收必须同时证明页面有本地锚点且网络层没有第二个 `user_message`。
 
-这里的“逐字流式”不是完成后一次性渲染卡片：`purpose=author_reasoning` 的 provider chunk 到达时，`author_narrative_delta` 必须沿同一 `agent_event.provider_progress` 实时进入 46§9 推理区；外部验收至少观察到多个 delta frame 推动同一 reasoning 文本增长。最终 source-bound `author_narrative` 只能替换临时流，不能作为首个作者可见过程叙事。
+这里的“逐字流式”不是完成后一次性渲染卡片：`purpose=author_reasoning` 的 provider chunk 到达时，`author_narrative_delta` 必须沿同一 `agent_event.provider_progress` 实时进入 46§9 推理区；推理区必须消费未压缩的完整 delta 流并持续累积文本，不能先经过“只保留最新 provider chunk”的详情列表压缩。外部验收至少观察到多个 delta frame 推动同一 reasoning 文本增长。最终 source-bound `author_narrative` 只能替换临时流，不能作为首个作者可见过程叙事。
 
 ### 9.2 层级结构
 

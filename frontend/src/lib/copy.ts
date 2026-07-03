@@ -303,7 +303,9 @@ export const WORKBENCH = {
   agentRunBriefLabel: "本轮执行摘要",
   agenticLoopStateTrackLabel: "状态轨道",
   agenticLoopPlanLabel: "计划",
+  agenticLoopPlanHint: "步骤描述为模型输出",
   agenticLoopReasoningLabel: "推理",
+  agenticLoopReasoningHint: "模型的原话，按发生顺序",
   agenticLoopResultLabel: "终态",
   agenticLoopPlanVersion: (version: number) => `v${version}`,
   agenticLoopTerminalLabels: {

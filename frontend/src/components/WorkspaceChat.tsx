@@ -2,7 +2,7 @@
 // Design: docs/design/ui/42-card-system.md §2 (card type to VS-05 mapping)
 // Design: docs/design/ui/46-state-and-feedback.md §9 (Agentic loop reasoning flow)
 // Prototype: novel-studio.pen → 41§3-main-workbench (ZOwOi), 46§9-agentic-loop-reasoning-flow (DM8gx)
-import { Fragment, useCallback, useEffect, useState, useRef } from "react";
+import { Fragment, useCallback, useEffect, useLayoutEffect, useState, useRef } from "react";
 import type { SyntheticEvent } from "react";
 import type { Channel } from "phoenix";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -842,8 +842,8 @@ function AgentRunDialogueFlow({
                   : ""}
               </span>
             )}
+            <span>{statusSummary}</span>
           </div>
-          <div className={styles.agenticLoopStatusText}>{statusSummary}</div>
         </div>
 
         <ol
@@ -875,6 +875,9 @@ function AgentRunDialogueFlow({
                     {planRevisionLabel(events, reasoningFlow.planVersion)}
                   </span>
                 )}
+                <span className={styles.agenticLoopSectionHint}>
+                  {WORKBENCH.agenticLoopPlanHint}
+                </span>
               </div>
               <ol className={styles.agenticLoopPlanSteps}>
                 {reasoningFlow.planSteps.map((step) => (
@@ -911,6 +914,9 @@ function AgentRunDialogueFlow({
             >
               <div className={styles.agenticLoopSectionHeader}>
                 <span>{WORKBENCH.agenticLoopReasoningLabel}</span>
+                <span className={styles.agenticLoopSectionHint}>
+                  {WORKBENCH.agenticLoopReasoningHint}
+                </span>
               </div>
               <ol className={styles.agenticLoopNarratives}>
                 {reasoningFlow.narrativeEvents.map((event) => (
@@ -1331,7 +1337,9 @@ export function WorkspaceChat() {
 
   const channelRef = useRef<Channel | null>(null);
   const socketRef = useRef<ReturnType<typeof createSocket> | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const chatAreaRef = useRef<HTMLDivElement>(null);
+  const chatPinnedToBottomRef = useRef(true);
+  const chatMessageCountRef = useRef(0);
   const resumeRestoredTranscriptRef = useRef(false);
   const connectionTokenRef = useRef(0);
   const openWorkRef = useRef<(work: WorkDto) => Promise<void>>(() => Promise.resolve());
@@ -1838,8 +1846,17 @@ export function WorkspaceChat() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  // 钉底跟随：流式 delta 高频到达时用即时滚动保持底边固定，避免反复重启的
+  // smooth 动画在换行时来回追赶；作者上翻阅读历史时不跟随，自己发消息时回底。
+  useLayoutEffect(() => {
+    const authorSentNewMessage =
+      messages.length > chatMessageCountRef.current && messages.at(-1)?.role === "user";
+    chatMessageCountRef.current = messages.length;
+    if (authorSentNewMessage) chatPinnedToBottomRef.current = true;
+    if (!chatPinnedToBottomRef.current) return;
+
+    const chatArea = chatAreaRef.current;
+    if (chatArea) chatArea.scrollTop = chatArea.scrollHeight;
   }, [messages, loading, agentEvents, agentRunStates]);
 
   const isReadOnlySessionView = readOnlySession !== null;
@@ -1881,10 +1898,7 @@ export function WorkspaceChat() {
     messages.map((msg) => turnResultAgentRunId(msg.turnResult)).filter((runId) => runId !== null),
   );
   const latestAgentRunEvents = latestAgentRun
-    ? selectAgentRunVisibleEvents(
-        agentEvents.filter((event) => event.run_ref === latestAgentRun.run_id),
-        AGENT_RUN_EVENT_VISIBLE_LIMIT,
-      )
+    ? agentEvents.filter((event) => event.run_ref === latestAgentRun.run_id)
     : [];
   const canPauseAgentRun =
     latestAgentRun?.status === "running" || latestAgentRun?.status === "pausing";
@@ -3607,7 +3621,16 @@ export function WorkspaceChat() {
         {/* 左侧对话与输入列 (Left Column) */}
         <div className={leftColumnClassName}>
           {/* 对话流区域 (Chat Area) */}
-          <div className={styles.chatArea}>
+          <div
+            className={styles.chatArea}
+            ref={chatAreaRef}
+            onScroll={() => {
+              const chatArea = chatAreaRef.current;
+              if (!chatArea) return;
+              chatPinnedToBottomRef.current =
+                chatArea.scrollHeight - chatArea.scrollTop - chatArea.clientHeight < 64;
+            }}
+          >
             {isReadOnlySessionView && (
               <div className={styles.readOnlySessionBanner}>
                 <div>
@@ -3680,10 +3703,7 @@ export function WorkspaceChat() {
                 hasPendingAnchor: pendingAgentRunAnchor !== null,
               });
               const anchoredAgentRunEvents = anchoredAgentRun
-                ? selectAgentRunVisibleEvents(
-                    agentEvents.filter((event) => event.run_ref === anchoredAgentRun.run_id),
-                    AGENT_RUN_EVENT_VISIBLE_LIMIT,
-                  )
+                ? agentEvents.filter((event) => event.run_ref === anchoredAgentRun.run_id)
                 : [];
               const anchoredRunIsLatest = latestAgentRun?.run_id === anchoredAgentRun?.run_id;
               const messageAgentRunFromState = messageAgentRunId
@@ -3700,12 +3720,9 @@ export function WorkspaceChat() {
                   ? { ...messageAgentRunFromState, ...messageAgentRunFromTurn }
                   : (messageAgentRunFromState ?? messageAgentRunFromTurn);
               const messageAgentRunEvents = messageAgentRunId
-                ? selectAgentRunVisibleEvents(
-                    mergeAgentRunEvents(
-                      agentRunEventsFromTurnResult(msg.turnResult),
-                      agentEvents.filter((event) => event.run_ref === messageAgentRunId),
-                    ),
-                    AGENT_RUN_EVENT_VISIBLE_LIMIT,
+                ? mergeAgentRunEvents(
+                    agentRunEventsFromTurnResult(msg.turnResult),
+                    agentEvents.filter((event) => event.run_ref === messageAgentRunId),
                   )
                 : [];
               const messageRunIsLatest = latestAgentRun?.run_id === messageAgentRunId;
@@ -3959,7 +3976,6 @@ export function WorkspaceChat() {
                   <AgentRunDialogueFlow run={null} events={[]} preparing />
                 </div>
               )}
-            <div ref={messagesEndRef} />
           </div>
 
           <Dialog.Root

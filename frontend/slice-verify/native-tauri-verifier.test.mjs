@@ -215,6 +215,8 @@ describe("native Tauri slice verifier", () => {
         no_second_user_message_for_steer: true,
         main_input_steer_placeholder_visible: true,
         active_run_work_state_visible_after_steer: true,
+        active_run_terminal_work_state_visible_after_steer: true,
+        terminal_status: "completed",
         main_input_steer_text_visible_after_submit: true,
         command_ack_received: true,
         command_target_bound_to_active_run: true,
@@ -243,9 +245,46 @@ describe("native Tauri slice verifier", () => {
         "active_agent_run_switches_main_input_to_steering_placeholder",
         "main_input_steer_text_stayed_visible_as_local_author_message",
         "active_agent_run_work_state_remained_visible_after_main_input_steer",
+        "active_agent_run_terminal_work_state_stayed_visible_after_main_input_steer",
         "main_chat_input_text_was_sent_as_agent_command_steer",
       ]),
     });
+  });
+
+  it("rejects main-input steer evidence when the terminal work state disappears after the latest user message", () => {
+    const records = [
+      {
+        event: "channel.user_message.done",
+        turn_id: "turn-steer",
+        run_id: "run-steer",
+        run_mode: "bounded",
+      },
+      {
+        event: "slice_verify.ui_state.done",
+        slice_id: "agent-natural-language-steer",
+        parent_turn_id: "turn-steer",
+        run_id: "run-steer",
+        run_mode: "bounded",
+        command: "steer",
+        command_sent_from_main_input: true,
+        no_second_user_message_for_steer: true,
+        main_input_steer_placeholder_visible: true,
+        active_run_work_state_visible_after_steer: true,
+        active_run_terminal_work_state_visible_after_steer: false,
+        terminal_status: "completed",
+        main_input_steer_text_visible_after_submit: true,
+        command_ack_received: true,
+        command_target_bound_to_active_run: true,
+        no_cross_run_command: true,
+        plan_adjusted_event_type: "plan_adjusted",
+        plan_revised_event_type: "plan_revised",
+        plan_revised_author_narrative_source_type: "provider_output",
+        plan_revised_evaluation_plan_holds: false,
+        adjusted_goal_version: 2,
+      },
+    ];
+
+    expect(findNativeSliceEvidence("agent-natural-language-steer", records)).toBeNull();
   });
 
   it("rejects agent steer replan evidence without the active-run main input placeholder", () => {

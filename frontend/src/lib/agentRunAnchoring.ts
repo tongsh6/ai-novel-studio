@@ -169,8 +169,7 @@ export function shouldRenderAnchoredAgentRunStatus<
   if (run === null) return false;
   if (!opts.agentRunIdsRenderedInTurns.has(run.run_id)) return true;
 
-  const runIsTerminal = TERMINAL_AGENT_RUN_STATUSES.has(run.status);
-  return opts.messageIsLatest && !runIsTerminal;
+  return opts.messageIsLatest;
 }
 
 export function shouldRenderStandaloneAgentRunStatus<

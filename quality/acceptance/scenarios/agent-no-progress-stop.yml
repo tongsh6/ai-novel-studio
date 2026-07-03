@@ -11,7 +11,7 @@ contract:
 
 invariants:
   - loop-stops-when-no-progress
-  - repeated-readonly-observation-does-not-call-provider
+  - repeated-readonly-observation-does-not-call-writer-provider
   - no-final-artifact-after-no-progress-stop
 
 setup:
@@ -36,7 +36,7 @@ assertions:
   data:
     - run state reaches awaiting_author with reason no_progress
     - consumed steps equals 2
-    - consumed provider calls equals 0
+    - consumed provider calls equals 3 (1 profile routing + 2 step planner; no creative writer call)
     - character_design tool does not execute
     - no final character TurnResult is broadcast
 

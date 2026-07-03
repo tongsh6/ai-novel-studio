@@ -89,7 +89,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
     if Map.get(tool_result, :status) == :failed do
       {:error, {:tool_failed, tool_name, Map.get(tool_result, :errors, [])}}
     else
-      turn_result = maybe_finalize(turn_result, run, sequence)
+      turn_result = maybe_finalize(turn_result, run, tool_name)
 
       {:ok,
        %{
@@ -303,7 +303,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
 
   defp tool_name(plan), do: plan.proposed_actions |> hd() |> Map.fetch!(:target_ref)
 
-  defp maybe_finalize(turn_result, run, 2) do
+  defp maybe_finalize(turn_result, run, "character_design") do
     AgentFinalizer.attach_run_summary(turn_result, %{
       run_id: run.run_id,
       run_mode: run.run_mode,
@@ -313,7 +313,7 @@ defmodule NovelApplication.AgentRunFlows.CharacterDesignWithContext do
     })
   end
 
-  defp maybe_finalize(turn_result, _run, _sequence), do: turn_result
+  defp maybe_finalize(turn_result, _run, _tool_name), do: turn_result
 
   defp provider_call_count("character_design"), do: 1
   defp provider_call_count(_tool_name), do: 0

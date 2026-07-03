@@ -27,6 +27,8 @@ user_flow:
   - send: steering text through the main chat input
   - verify: steering text remains visible in the transcript as the latest local author message
   - verify: active AgentRun work-state remains visible after the steering text is submitted
+  - wait_for: completed agent_run_state for the same run_id
+  - verify: completed AgentRun work-state remains visible after the latest steering author message
   - wait_for: agent_command ack, plan_adjusted event and adjusted agent_run_state for the same run_id
 
 evidence:
@@ -41,6 +43,7 @@ assertions:
   ui:
     - steering text remains visible as a local author-message anchor
     - active AgentRun work-state remains visible after main-input steering
+    - completed AgentRun work-state remains visible after the latest steering author message
   network:
     - main input steering text is sent as agent_command steer for the active run_id
     - no second channel user_message is sent for the steering text

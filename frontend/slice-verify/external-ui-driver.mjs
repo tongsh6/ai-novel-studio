@@ -21477,6 +21477,61 @@ async function driveAgentSteerReplan(page, options = {}) {
     30_000,
   );
 
+  const terminalStateFrame = await waitForNewFrame(
+    frameStart,
+    (frame) =>
+      frame.direction === "received" &&
+      frame.event === "agent_run_state" &&
+      frame.body?.run_id === runId &&
+      frame.body?.status === "completed",
+    "UA-01 steer run did not reach completed state",
+    90_000,
+  );
+
+  const activeRunTerminalWorkStateVisibleAfterSteer = await page
+    .waitForFunction(
+      ({ steerText }) => {
+        const rows = Array.from(
+          document.querySelectorAll('[class*="userMsg"], [class*="assistantMsg"]'),
+        ).map((element) => {
+          const className = String(element.className ?? "");
+          return {
+            role: className.includes("userMsg")
+              ? "user"
+              : className.includes("assistantMsg")
+                ? "assistant"
+                : null,
+            text: element.textContent ?? "",
+          };
+        });
+
+        let steerUserIndex = -1;
+        rows.forEach((row, index) => {
+          if (row.role === "user" && row.text.includes(steerText)) {
+            steerUserIndex = index;
+          }
+        });
+        if (steerUserIndex < 0) return false;
+
+        return rows
+          .slice(steerUserIndex + 1)
+          .some(
+            (row) =>
+              row.role === "assistant" &&
+              row.text.includes("创作执行") &&
+              (row.text.includes("当前创作请求已完成") || row.text.includes("当前：已完成")),
+          );
+      },
+      { steerText },
+      { timeout: 30_000 },
+    )
+    .then(() => true)
+    .catch(() => false);
+  assert(
+    activeRunTerminalWorkStateVisibleAfterSteer,
+    "UA-01 steer terminal AgentRun work state disappeared after the latest steer message",
+  );
+
   const visibleText = await page.locator("body").innerText();
   const agenticLoopEvidenceLayout = await focusLatestAgenticLoopEvidence(page);
   const framesAfterSteer = frames.slice(steerFrameStart);
@@ -21514,6 +21569,9 @@ async function driveAgentSteerReplan(page, options = {}) {
       main_input_steer_placeholder_visible: steerPlaceholderVisibleBeforeCommand,
       main_input_steer_placeholder_text: steerPlaceholderBeforeCommand,
       active_run_work_state_visible_after_steer: activeRunWorkStateVisibleAfterSteer,
+      active_run_terminal_work_state_visible_after_steer:
+        activeRunTerminalWorkStateVisibleAfterSteer,
+      terminal_status: terminalStateFrame.body?.status,
       main_input_steer_text_visible_after_submit: mainInputSteerTextVisibleAfterSubmit,
       no_second_user_message_for_steer: !secondUserMessageForSteer,
       command_ack_received: commandAckFrame.body?.response?.received === true,
@@ -21789,8 +21847,8 @@ async function driveAgentNoProgressStop(page) {
       frame.body?.run_id === runId &&
       frame.body?.status === "awaiting_author" &&
       Number(frame.body?.consumed_budget?.steps ?? 0) === 2 &&
-      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 0,
-    "UA-01 no-progress scenario did not broadcast stopped state without provider calls",
+      Number(frame.body?.consumed_budget?.provider_calls ?? 0) === 3,
+    "UA-01 no-progress scenario did not broadcast stopped state with planner-only provider calls",
     60_000,
   );
 

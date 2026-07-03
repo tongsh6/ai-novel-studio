@@ -129,7 +129,7 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
     ).toBe(true);
   });
 
-  it("does not duplicate an anchored completed run under the latest user message", () => {
+  it("keeps an anchored completed run under the latest user message as the current position anchor", () => {
     const run: AgentRunStateData = {
       run_id: "run_12",
       run_mode: "bounded",
@@ -142,6 +142,23 @@ describe("WorkspaceChat AgentRun message anchoring", () => {
       shouldRenderAnchoredAgentRunStatus(run, {
         agentRunIdsRenderedInTurns: new Set(["run_12"]),
         messageIsLatest: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not duplicate an anchored completed run under an older user message", () => {
+    const run: AgentRunStateData = {
+      run_id: "run_13",
+      run_mode: "bounded",
+      status: "completed",
+      phase: "completed",
+      parent_turn_ref: "turn_parent_13",
+    };
+
+    expect(
+      shouldRenderAnchoredAgentRunStatus(run, {
+        agentRunIdsRenderedInTurns: new Set(["run_13"]),
+        messageIsLatest: false,
       }),
     ).toBe(false);
   });

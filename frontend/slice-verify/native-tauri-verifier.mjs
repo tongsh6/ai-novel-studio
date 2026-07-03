@@ -5972,6 +5972,8 @@ function findUa01AgentSteerEvidence(records, sliceId) {
           record.no_second_user_message_for_steer === true &&
           record.main_input_steer_placeholder_visible === true &&
           record.active_run_work_state_visible_after_steer === true &&
+          record.active_run_terminal_work_state_visible_after_steer === true &&
+          record.terminal_status === "completed" &&
           record.main_input_steer_text_visible_after_submit === true
         : record.command_sent_from_real_button === true && record.steer_control_visible === true) &&
       record.command_ack_received === true &&
@@ -6037,6 +6039,10 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
   if (mainInputSteer && uiState.no_second_user_message_for_steer !== true) return null;
   if (mainInputSteer && uiState.main_input_steer_placeholder_visible !== true) return null;
   if (mainInputSteer && uiState.active_run_work_state_visible_after_steer !== true) return null;
+  if (mainInputSteer && uiState.active_run_terminal_work_state_visible_after_steer !== true) {
+    return null;
+  }
+  if (mainInputSteer && uiState.terminal_status !== "completed") return null;
   if (mainInputSteer && uiState.main_input_steer_text_visible_after_submit !== true) return null;
 
   return {
@@ -6056,6 +6062,7 @@ function ua01AgentSteerBehavior(turnIds, records, evidence, sliceId) {
           "active_agent_run_switches_main_input_to_steering_placeholder",
           "main_input_steer_text_stayed_visible_as_local_author_message",
           "active_agent_run_work_state_remained_visible_after_main_input_steer",
+          "active_agent_run_terminal_work_state_stayed_visible_after_main_input_steer",
           "main_chat_input_text_was_sent_as_agent_command_steer",
           sliceId === "agent-natural-language-steer"
             ? "natural_language_steer_did_not_create_second_user_message_or_run"
@@ -6107,7 +6114,7 @@ function findUa01AgentStopEvidence(records, sliceId) {
 
     return (
       Number(record.consumed_steps ?? 0) === 2 &&
-      Number(record.consumed_provider_calls ?? 0) === 0 &&
+      Number(record.consumed_provider_calls ?? 0) === 3 &&
       Number(record.roster_tool_count ?? 0) >= 2
     );
   });
@@ -6177,7 +6184,7 @@ function ua01AgentStopBehavior(turnIds, records, evidence, sliceId) {
   }
 
   if (Number(uiState.consumed_steps ?? 0) !== 2) return null;
-  if (Number(uiState.consumed_provider_calls ?? 0) !== 0) return null;
+  if (Number(uiState.consumed_provider_calls ?? 0) !== 3) return null;
   if (Number(uiState.roster_tool_count ?? 0) < 2) return null;
 
   return {

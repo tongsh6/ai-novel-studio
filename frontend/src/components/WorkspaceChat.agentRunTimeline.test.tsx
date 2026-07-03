@@ -288,6 +288,32 @@ describe("AgentRun reasoning flow", () => {
       "先读取当前作品上下文。",
     ]);
   });
+
+  it("reconstructs streaming reasoning from the full un-compacted chunk stream", () => {
+    const narrative = "作者的输入只有继续，我们需要先判断当前上下文是否足够，再决定下一步行动。";
+    const chunks = Array.from(narrative);
+    const streamed: AgentEventData[] = chunks.map((chunk, index) => ({
+      event_id: `evt_reasoning_chunk_${index + 1}`,
+      run_ref: "run_full_stream",
+      sequence: index + 1,
+      event_type: "provider_progress",
+      visibility: "author",
+      summary: chunk,
+      reason_codes: ["provider_execution_stream", "provider_chunk"],
+      payload: {
+        purpose: "author_reasoning",
+        provider_event_type: "chunk",
+        provider_run_ref: "prun_full_stream",
+        provider_call_ref: "pcall_full_stream",
+        author_narrative_delta: chunk,
+      },
+    }));
+
+    const flow = agentRunReasoningFlow(streamed);
+
+    expect(flow.narrativeEvents).toHaveLength(1);
+    expect(flow.narrativeEvents[0]?.narrative).toBe(narrative);
+  });
 });
 
 describe("AgentRun provider developer details", () => {
