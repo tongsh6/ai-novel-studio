@@ -10,6 +10,7 @@ defmodule NovelDomain.AgentNextStepDecision do
   @type decision_type :: :execute_step | :goal_satisfied | :await_author | :no_progress
   @type write_intent :: :none | :tentative
   @type risk_hint :: :low | :medium | :high
+  @type authoring_intent :: :none | :continuation | :rewrite
   @type evaluation_of_last :: %{
           advanced: boolean(),
           plan_holds: boolean(),
@@ -30,6 +31,9 @@ defmodule NovelDomain.AgentNextStepDecision do
           target_tool_ref: String.t() | nil,
           write_intent: write_intent(),
           risk_hint: risk_hint(),
+          authoring_intent: authoring_intent() | nil,
+          target_chapter: String.t() | nil,
+          requested_chapter_raw: String.t() | nil,
           reason_codes: [String.t()],
           observation_refs: [String.t()],
           evaluation_of_last: evaluation_of_last(),
@@ -46,6 +50,9 @@ defmodule NovelDomain.AgentNextStepDecision do
     :decision_type,
     :summary,
     :target_tool_ref,
+    :authoring_intent,
+    :target_chapter,
+    :requested_chapter_raw,
     write_intent: :none,
     risk_hint: :low,
     reason_codes: [],
@@ -59,6 +66,7 @@ defmodule NovelDomain.AgentNextStepDecision do
   @decision_types [:execute_step, :goal_satisfied, :await_author, :no_progress]
   @write_intents [:none, :tentative]
   @risk_hints [:low, :medium, :high]
+  @authoring_intents [:none, :continuation, :rewrite]
 
   @spec new(map() | keyword()) :: {:ok, t()} | {:error, [String.t()]}
   def new(attrs) do
@@ -81,6 +89,7 @@ defmodule NovelDomain.AgentNextStepDecision do
     |> validate_execution_target(decision)
     |> validate_write_intent(decision.write_intent)
     |> validate_risk_hint(decision.risk_hint)
+    |> validate_authoring_intent(decision.authoring_intent)
     |> validate_confidence(decision.confidence)
   end
 
@@ -93,6 +102,9 @@ defmodule NovelDomain.AgentNextStepDecision do
       target_tool_ref: decision.target_tool_ref,
       write_intent: decision.write_intent,
       risk_hint: decision.risk_hint,
+      authoring_intent: decision.authoring_intent,
+      target_chapter: decision.target_chapter,
+      requested_chapter_raw: decision.requested_chapter_raw,
       reason_codes: decision.reason_codes,
       observation_refs: decision.observation_refs,
       evaluation_of_last: decision.evaluation_of_last,
@@ -117,6 +129,9 @@ defmodule NovelDomain.AgentNextStepDecision do
     |> Map.update(:narrative_source, %{}, &normalize_map/1)
     |> Map.update(:confidence, 1.0, &normalize_confidence/1)
     |> Map.update(:target_tool_ref, nil, &normalize_optional_string/1)
+    |> Map.update(:authoring_intent, nil, &normalize_authoring_intent/1)
+    |> Map.update(:target_chapter, nil, &normalize_optional_string/1)
+    |> Map.update(:requested_chapter_raw, nil, &normalize_optional_string/1)
   end
 
   defp atomize_known(attrs),
@@ -131,6 +146,9 @@ defmodule NovelDomain.AgentNextStepDecision do
   defp known_key("target_tool_ref"), do: :target_tool_ref
   defp known_key("write_intent"), do: :write_intent
   defp known_key("risk_hint"), do: :risk_hint
+  defp known_key("authoring_intent"), do: :authoring_intent
+  defp known_key("target_chapter"), do: :target_chapter
+  defp known_key("requested_chapter_raw"), do: :requested_chapter_raw
   defp known_key("reason_codes"), do: :reason_codes
   defp known_key("observation_refs"), do: :observation_refs
   defp known_key("evaluation_of_last"), do: :evaluation_of_last
@@ -154,6 +172,12 @@ defmodule NovelDomain.AgentNextStepDecision do
   defp normalize_risk_hint("medium"), do: :medium
   defp normalize_risk_hint("high"), do: :high
   defp normalize_risk_hint(_), do: :low
+
+  defp normalize_authoring_intent(value) when value in @authoring_intents, do: value
+  defp normalize_authoring_intent("none"), do: :none
+  defp normalize_authoring_intent("continuation"), do: :continuation
+  defp normalize_authoring_intent("rewrite"), do: :rewrite
+  defp normalize_authoring_intent(_), do: nil
 
   defp normalize_strings(values) when is_list(values) do
     values
@@ -257,6 +281,11 @@ defmodule NovelDomain.AgentNextStepDecision do
 
   defp validate_risk_hint(errors, risk) when risk in @risk_hints, do: errors
   defp validate_risk_hint(errors, _risk), do: ["risk_hint is invalid" | errors]
+
+  defp validate_authoring_intent(errors, intent) when is_nil(intent) or intent in @authoring_intents,
+    do: errors
+
+  defp validate_authoring_intent(errors, _intent), do: ["authoring_intent is invalid" | errors]
 
   defp validate_confidence(errors, value) when is_float(value) and value >= 0.0 and value <= 1.0,
     do: errors

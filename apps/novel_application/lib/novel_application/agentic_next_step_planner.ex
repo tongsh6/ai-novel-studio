@@ -74,7 +74,7 @@ defmodule NovelApplication.AgenticNextStepPlanner do
 
     ## 目标完成信号
     #{completion_signals(run.profile_ref)}
-
+    #{authoring_intent_section(run.profile_ref, snapshot)}
     - 在决定下一步之前，先填写 evaluation_of_last：上一轮是否推进目标、当前计划前提是否仍成立、是否出现新约束。
     - evaluation_of_last.plan_holds=false 时，必须输出 plan_revision.revision_reason，并把 decision.type 设为 replan；replan 仍不批准执行，只能给出下一步建议，后续仍会 re-gate。
     - 根据作者目标、已有观察、stage_state_keys 和可选下一步能力选择最能推进目标的一步；不要按能力列表顺序机械推进。
@@ -102,7 +102,10 @@ defmodule NovelApplication.AgenticNextStepPlanner do
       "next_action": {
         "target_tool_ref": "allowed_tools 或 internal_observation_steps 中的一个；非 continue/replan 时为 null",
         "write_intent": "none" | "tentative",
-        "risk_hint": "low" | "medium" | "high"
+        "risk_hint": "low" | "medium" | "high",
+        "authoring_intent": "none" | "continuation" | "rewrite"（仅正文写作步按上方意图规则必填，其余为 null）,
+        "target_chapter": "作品章节列表中精确复制的标题；非正文步或不针对具体章时为 null",
+        "requested_chapter_raw": "作者原话点名的章节标识原样填写；没点名时为 null"
       },
       "plan_revision": {
         "plan_version": 2,
@@ -116,6 +119,53 @@ defmodule NovelApplication.AgenticNextStepPlanner do
     作者可见文字只能出现在第一段 reasoning 原文中；JSON tail 不能包含 summary、narrative、explanation、description 等叙事字段。
     """
   end
+
+  # 正文写作意图规则沿用 Planner 直连路径的同一套冻结语义（VS-00C WritingCoordinate）：
+  # 意图由 AI 判定，目标章由应用层按现有章节列表确定性解析；这里只让 step planner
+  # 在同一次调用里产出这三个字段，不新增 provider 调用。
+  defp authoring_intent_section("prose_drafting_with_quality_v1", snapshot) do
+    """
+
+    ## 正文写作意图与目标章（选择 prose_writing 时 next_action 必须按此填写）
+    - 作者想“写 / 生成”列表里某个具体章节的正文（含还没写正文的计划章，首次成稿）→ authoring_intent = "none"，target_chapter 精确复制该章标题
+    - 作者想在某个已有章节“接着往下写 / 继续 / 补一段 / 加场景” → authoring_intent = "continuation"，target_chapter 精确复制该章标题
+    - 作者想“推翻重写 / 改写 / 重新写”某个已有章节 → authoring_intent = "rewrite"，target_chapter 精确复制该章标题，risk_hint 用 "high"
+    - 写全新章节（不在列表里）→ authoring_intent = "none"，target_chapter = null
+    - 无法确定指向列表里哪一章时，target_chapter = null，不要猜一个不在列表里的标题
+    - requested_chapter_raw：只要作者原话点名了具体章节（如“第99章”），把原话里的章节标识原样填写（即使不在列表里也不要置 null）；只有“接着往下写/继续”这种没点名具体章时才为 null
+    #{accepted_chapters_lines(snapshot)}
+    """
+  end
+
+  defp authoring_intent_section(_profile_ref, _snapshot), do: ""
+
+  defp accepted_chapters_lines(snapshot) do
+    snapshot
+    |> stage_context_chapters()
+    |> case do
+      [] ->
+        "- （当前尚未读取作品章节列表；先执行 context_assemble 再选择 prose_writing）"
+
+      chapters ->
+        listed = Enum.map_join(chapters, "\n", &"- #{&1}")
+        "\n### 作品章节（target_chapter 必须从此列表精确复制；含已规划但还没写正文的章）\n#{listed}"
+    end
+  end
+
+  defp stage_context_chapters(snapshot) when is_map(snapshot) do
+    snapshot
+    |> Map.get(:stage_state, %{})
+    |> case do
+      %{context: %NovelDomain.DialogueContext{current_chapters: chapters}}
+      when is_list(chapters) ->
+        Enum.filter(chapters, &is_binary/1)
+
+      _ ->
+        []
+    end
+  end
+
+  defp stage_context_chapters(_snapshot), do: []
 
   defp internal_observation_steps("plot_outline_with_context_v1"), do: ["context_assemble"]
   defp internal_observation_steps("character_evolution_with_context_v1"), do: ["context_assemble"]
@@ -237,8 +287,14 @@ defmodule NovelApplication.AgenticNextStepPlanner do
   defp completion_signals("prose_revision_from_findings_v1"),
     do: "- 已有修订候选并已汇总给作者，或已有待采纳 revision prose_fragment。"
 
+  # 强制性措辞：真实模型曾在 artifact_created 后再次选择 prose_writing，产生作者
+  # 未请求的第二份候选并把 run 拖到预算耗尽（狗粮 2026-07-04 实锤）。
+  defp completion_signals("prose_drafting_with_quality_v1"),
+    do:
+      "- 已有 artifact_created 观察（待采纳正文候选已生成）→ 本轮目标已满足，decision 必须用 done；不得再次选择 prose_writing 生成第二份候选。"
+
   defp completion_signals(_profile_ref),
-    do: "- 已有待采纳候选、artifact_created 观察，或观察已经直接满足作者目标。"
+    do: "- 已有待采纳候选或 artifact_created 观察 → 本轮目标已满足，decision 用 done，不要再执行会产生新候选的能力。"
 
   defp observation_lines([]), do: "- （暂无观察）"
 
@@ -291,6 +347,9 @@ defmodule NovelApplication.AgenticNextStepPlanner do
         target_tool_ref: Map.get(action, "target_tool_ref"),
         write_intent: Map.get(action, "write_intent"),
         risk_hint: Map.get(action, "risk_hint"),
+        authoring_intent: Map.get(action, "authoring_intent"),
+        target_chapter: Map.get(action, "target_chapter"),
+        requested_chapter_raw: Map.get(action, "requested_chapter_raw"),
         reason_codes: Map.get(parsed, "reason_codes", []),
         observation_refs: Enum.map(observations, & &1.observation_id),
         evaluation_of_last: evaluation,

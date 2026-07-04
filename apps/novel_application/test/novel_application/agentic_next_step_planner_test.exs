@@ -191,4 +191,163 @@ defmodule NovelApplication.AgenticNextStepPlannerTest do
       0 -> Enum.reverse(acc)
     end
   end
+
+  test "prose profile prompt carries authoring intent rules and chapter list; decision carries writing coordinate fields" do
+    parent = self()
+
+    provider_execution = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:planner_prompt, prompt})
+
+        {:ok,
+         %{
+           content:
+             "作者要求接着第01章继续写，选择正文写作并按续写处理。\n" <>
+               Jason.encode!(%{
+                 evaluation_of_last: %{advanced: true, plan_holds: true, new_constraint: nil},
+                 decision: %{type: "continue"},
+                 next_action: %{
+                   target_tool_ref: "prose_writing",
+                   write_intent: "tentative",
+                   risk_hint: "low",
+                   authoring_intent: "continuation",
+                   target_chapter: "第01章：底层灵气账单",
+                   requested_chapter_raw: "第01章"
+                 },
+                 plan_revision: nil,
+                 reason_codes: ["agentic_next_step"],
+                 confidence: 0.9
+               })
+         }}
+      end
+    }
+
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-prose-authoring",
+        workspace_id: "ws-prose-authoring",
+        work_id: "work-prose-authoring",
+        session_id: "session-prose-authoring",
+        parent_turn_ref: "turn-prose-authoring",
+        origin_frame_ref: "frame-prose-authoring",
+        profile_ref: "prose_drafting_with_quality_v1",
+        goal: %{text: "接着第01章往下写一段正文", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]}
+      })
+
+    context = %NovelDomain.DialogueContext{
+      workspace_id: "ws-prose-authoring",
+      current_chapters: ["第01章：底层灵气账单", "第02章：旧服务器里的残诀"]
+    }
+
+    assert {:ok, decision} =
+             AgenticNextStepPlanner.next_decision(run, 2, [], provider_execution, %{
+               stage_sink: fn _event -> :ok end,
+               stage_state: %{context: context}
+             })
+
+    assert decision.target_tool_ref == "prose_writing"
+    assert decision.authoring_intent == :continuation
+    assert decision.target_chapter == "第01章：底层灵气账单"
+    assert decision.requested_chapter_raw == "第01章"
+
+    assert_receive {:planner_prompt, prompt}
+    assert prompt =~ "## 正文写作意图与目标章"
+    assert prompt =~ "authoring_intent = \"continuation\""
+    assert prompt =~ "### 作品章节"
+    assert prompt =~ "- 第01章：底层灵气账单"
+    assert prompt =~ "- 第02章：旧服务器里的残诀"
+    assert prompt =~ "\"requested_chapter_raw\""
+  end
+
+  test "non-prose profile prompt has no authoring intent section and fields default nil" do
+    parent = self()
+
+    provider_execution = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:planner_prompt, prompt})
+
+        {:ok,
+         %{
+           content:
+             "先读取当前作品上下文。\n" <>
+               Jason.encode!(%{
+                 evaluation_of_last: %{advanced: false, plan_holds: true, new_constraint: nil},
+                 decision: %{type: "continue"},
+                 next_action: %{
+                   target_tool_ref: "context_assemble",
+                   write_intent: "none",
+                   risk_hint: "low"
+                 },
+                 plan_revision: nil,
+                 reason_codes: ["agentic_next_step"],
+                 confidence: 0.8
+               })
+         }}
+      end
+    }
+
+    {:ok, run} = agent_run("conv-no-authoring")
+
+    assert {:ok, decision} =
+             AgenticNextStepPlanner.next_decision(run, 1, [], provider_execution, %{
+               stage_sink: fn _event -> :ok end
+             })
+
+    assert decision.authoring_intent == nil
+    assert decision.target_chapter == nil
+    assert decision.requested_chapter_raw == nil
+
+    assert_receive {:planner_prompt, prompt}
+    refute prompt =~ "## 正文写作意图与目标章"
+  end
+
+  test "prose profile prompt without assembled context points planner to context_assemble first" do
+    parent = self()
+
+    provider_execution = %Execution{
+      result_fn: fn prompt ->
+        send(parent, {:planner_prompt, prompt})
+
+        {:ok,
+         %{
+           content:
+             "先读取正文写作上下文。\n" <>
+               Jason.encode!(%{
+                 evaluation_of_last: %{advanced: false, plan_holds: true, new_constraint: nil},
+                 decision: %{type: "continue"},
+                 next_action: %{
+                   target_tool_ref: "context_assemble",
+                   write_intent: "none",
+                   risk_hint: "low"
+                 },
+                 plan_revision: nil,
+                 reason_codes: ["agentic_next_step"],
+                 confidence: 0.8
+               })
+         }}
+      end
+    }
+
+    {:ok, run} =
+      AgentRun.new(%{
+        run_id: "run-prose-no-context",
+        workspace_id: "ws-prose-no-context",
+        work_id: "work-prose-no-context",
+        session_id: "session-prose-no-context",
+        parent_turn_ref: "turn-prose-no-context",
+        origin_frame_ref: "frame-prose-no-context",
+        profile_ref: "prose_drafting_with_quality_v1",
+        goal: %{text: "接着往下写", version: 1},
+        authority_scope: %{production_write: false, allowed_tools: ["prose_writing"]}
+      })
+
+    assert {:ok, _decision} =
+             AgenticNextStepPlanner.next_decision(run, 1, [], provider_execution, %{
+               stage_sink: fn _event -> :ok end
+             })
+
+    assert_receive {:planner_prompt, prompt}
+    assert prompt =~ "当前尚未读取作品章节列表"
+  end
 end

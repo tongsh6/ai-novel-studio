@@ -41,11 +41,15 @@ defmodule NovelApplication.TestAgenticLoopFixtures do
       reasoning: reasoning,
       evaluation_of_last: Keyword.get(opts, :evaluation_of_last, evaluation_holds()),
       decision: %{"type" => Keyword.get(opts, :decision_type, "continue")},
-      next_action: %{
-        "target_tool_ref" => target_tool_ref,
-        "write_intent" => Keyword.get(opts, :write_intent, "none"),
-        "risk_hint" => Keyword.get(opts, :risk_hint, "low")
-      },
+      next_action:
+        Map.merge(
+          %{
+            "target_tool_ref" => target_tool_ref,
+            "write_intent" => Keyword.get(opts, :write_intent, "none"),
+            "risk_hint" => Keyword.get(opts, :risk_hint, "low")
+          },
+          Keyword.get(opts, :next_action_extra, %{})
+        ),
       plan_revision: Keyword.get(opts, :plan_revision),
       reason_codes: Keyword.get(opts, :reason_codes, ["agentic_next_step"]),
       confidence: Keyword.get(opts, :confidence, 1.0)

@@ -174,6 +174,118 @@ defmodule NovelApplication.AgentRunProseDraftingFlowTest do
     assert Enum.any?(turn_result.available_actions, &(&1.action_type == "revise_from_findings"))
   end
 
+  test "continuation decision injects prior prose into writer and marks pending artifact for append adoption" do
+    parent = self()
+    prior_prose = "他在第一夜数清了灵气账单上的每一笔亏空。"
+
+    writer = fn prompt ->
+      if String.contains?(prompt, "AgentRun 下一步规划器") do
+        {:ok,
+         %{
+           content:
+             NovelApplication.TestAgenticLoopFixtures.reasoning_tail(
+               continuation_next_step_decision(prompt)
+             )
+         }}
+      else
+        send(parent, {:writer_prompt, prompt})
+
+        {:ok,
+         %{
+           provider_call_id: "pc-agent-prose-cont-writer",
+           content:
+             Jason.encode!(%{
+               items: [
+                 %{
+                   item_id: "agent-prose-cont-item",
+                   title: "第01章：开端",
+                   body: "他把亏空的名字一笔一笔誊到旧账页背面。",
+                   rationale: "续写候选。"
+                 }
+               ],
+               self_report: %{
+                 assumptions: [],
+                 intended_reader_effect: "压迫感",
+                 used_context_refs: ["prose_execution_brief"],
+                 risk_flags: []
+               }
+             })
+         }}
+      end
+    end
+
+    evaluator = fn _prompt ->
+      {:ok, %{provider_call_ref: "pc-agent-prose-cont-eval", content: Jason.encode!(%{"findings" => []})}}
+    end
+
+    input = %{
+      text: "接着第01章：开端往下写一段正文，自然衔接前文。",
+      workspace_id: @work,
+      work_id: @work,
+      session_id: "session-agent-prose-cont",
+      turn_id: "turn-agent-prose-cont",
+      quality_provider_execution: %Execution{result_fn: evaluator},
+      chapter_prose_reader: fn _work_id, chapter ->
+        if chapter == "第01章：开端", do: prior_prose, else: ""
+      end,
+      chapter_summary_reader: %{},
+      character_reader: fn _work_id -> [] end
+    }
+
+    planned =
+      DialoguePlanningService.run_spec_for_profile(
+        :prose_drafting_with_quality,
+        input,
+        context(),
+        %Execution{result_fn: writer}
+      )
+
+    assert {:ok, run_id} =
+             AgentRunService.start_bounded(planned.run_attrs,
+               next_step_planner: planned.next_step_planner,
+               event_sink: fn event -> send(parent, {:agent_event, event.event_type, event}) end
+             )
+
+    assert_receive {:writer_prompt, writer_prompt}, 2_000
+    assert writer_prompt =~ prior_prose
+
+    assert_receive {:agent_event, :artifact_created, artifact_event}, 2_000
+    assert_receive {:agent_event, :run_completed, _}, 2_000
+
+    turn_result = artifact_event.payload.turn_result
+    assert turn_result.agent_run.run_id == run_id
+
+    assert [pending] = turn_result.adoption_state.pending
+    assert pending.artifact_type == :prose_fragment
+    assert pending.authoring_intent == :continuation
+    assert pending.target_chapter == "第01章：开端"
+  end
+
+  defp continuation_next_step_decision(prompt) do
+    cond do
+      String.contains?(prompt, "/ artifact_created:") ->
+        NovelApplication.TestAgenticLoopFixtures.done_next("续写候选已生成并复核，本轮目标已经满足。")
+
+      String.contains?(prompt, "prose_context /") ->
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "作者要求接着第01章继续写，按续写生成正文并复核。",
+          "prose_writing",
+          write_intent: "tentative",
+          next_action_extra: %{
+            "authoring_intent" => "continuation",
+            "target_chapter" => "第01章：开端",
+            "requested_chapter_raw" => "第01章"
+          }
+        )
+
+      true ->
+        NovelApplication.TestAgenticLoopFixtures.continue_next(
+          "先读取正文写作上下文。",
+          "context_assemble"
+        )
+    end
+  end
+
   defp next_step_decision(prompt) do
     cond do
       String.contains?(prompt, "/ artifact_created:") ->

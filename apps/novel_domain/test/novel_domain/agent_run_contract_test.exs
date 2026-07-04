@@ -230,4 +230,45 @@ defmodule NovelDomain.AgentRunContractTest do
 
     assert "target_tool_ref is required for execute_step" in errors
   end
+
+  test "AgentNextStepDecision carries optional writing coordinate fields for prose steps" do
+    {:ok, decision} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_prose_1",
+        run_ref: "run_1",
+        sequence: 2,
+        decision_type: :execute_step,
+        summary: "接着第01章继续写",
+        target_tool_ref: "prose_writing",
+        write_intent: "tentative",
+        authoring_intent: "continuation",
+        target_chapter: "第01章：开端",
+        requested_chapter_raw: "第01章"
+      })
+
+    assert decision.authoring_intent == :continuation
+    assert decision.target_chapter == "第01章：开端"
+    assert decision.requested_chapter_raw == "第01章"
+
+    summary = AgentNextStepDecision.author_safe_summary(decision)
+    assert summary.authoring_intent == :continuation
+    assert summary.target_chapter == "第01章：开端"
+
+    # 缺省与非法值都归 nil：非 prose 步与旧 stub 输出保持现状行为（overwrite 语义不被误触发）。
+    {:ok, plain} =
+      AgentNextStepDecision.new(%{
+        decision_id: "and_plain",
+        run_ref: "run_1",
+        sequence: 3,
+        decision_type: :execute_step,
+        summary: "读取上下文",
+        target_tool_ref: "context_assemble",
+        authoring_intent: "invented_intent",
+        target_chapter: "   "
+      })
+
+    assert plain.authoring_intent == nil
+    assert plain.target_chapter == nil
+    assert plain.requested_chapter_raw == nil
+  end
 end

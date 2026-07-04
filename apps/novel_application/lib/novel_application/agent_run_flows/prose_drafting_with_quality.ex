@@ -470,7 +470,12 @@ defmodule NovelApplication.AgentRunFlows.ProseDraftingWithQuality do
              summary: decision.summary,
              target_ref: tool_name,
              write_intent: decision.write_intent,
-             risk_hint: decision.risk_hint
+             risk_hint: decision.risk_hint,
+             # 写作坐标（VS-00C）：意图由 step planner AI 判定，随 action 进入
+             # TurnExecutionService 的续写前文注入、missing policy 与采纳 append 分流。
+             authoring_intent: decision.authoring_intent,
+             target_chapter: decision.target_chapter,
+             requested_chapter_raw: decision.requested_chapter_raw
            }
          ],
          required_capabilities: [tool_name]
