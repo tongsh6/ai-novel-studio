@@ -31,7 +31,7 @@
 |---|---|---|---|
 | T1 | prose 完成信号改强制性措辞 | done（88681d45） | `completion_signals("prose_drafting_with_quality_v1")`：artifact_created → 必须 done、不得二次 prose_writing；默认档措辞同步收紧。提示词级，效果未经真实长跑复验。 |
 | T2 | 狗粮 runner turn 绑定 | done（2f11ffd） | `sendAuthorMessage` 从 user_message ack 取 `turn_id`（parent_turn_ref），草稿/确认/大纲帧按 `turn_id`/`turn_id:agent:N` 前缀绑定，迟到僵尸帧不再误配。harness 级，未复验。 |
-| T3 | 决策：单 bounded run 单候选是否机器强制 | **待用户决策** | 选项 A：prose `max_tool_calls` 2→1（预算即强制，但预算耗尽终态仍是 `awaiting_author` 而非 `completed`，状态语义仍不诚实）；选项 B：`AgentRunPolicy` 新增候选/artifact 预算项，命中后 loop 以 `goal_satisfied` 诚实完成（需 contract pack 扩展）；选项 C：仅靠 T1 提示词纪律（零 contract 改动，地板模型下有残余概率）。 |
+| T3 | 决策：单 bounded run 单候选是否机器强制 | **已拍板选 B（2026-07-04），待实现** | 用户决定：候选预算上升为 `AgentRunPolicy` 契约项，命中后 loop 以 `goal_satisfied` 诚实完成（需 contract pack 扩展）。实现口径：预算作 backstop——正常路径不变（模型仍以 done 叙事收束，验收调用数口径不churn）；仅当候选已达预算而 planner 仍提议 execute_step 时，系统拒绝执行该步并以目标达成完成 run（类比 gate deny 的系统裁决，模型提议照实留痕）。 |
 | T4 | 加严确定性真实 Tauri 断言 | todo | 在 prose scenario verifier 断言：final `agent_run_state.status=completed`、`adoption_state.pending` 恰 1 份 `prose_fragment`、completed steps 中 `prose_writing` 恰 1 次。 |
 | T5 | 真实模型长跑复验 | blocked（等下一次经批准的狗粮） | 搭车验证 T1/T2：全程 0 次 runner retry、无 `awaiting_author`（预算耗尽）终态 run、无字数倒退。 |
 
@@ -46,3 +46,4 @@
 
 - 2026-07-04 — 狗粮长跑实锤竞态四重后果（见 §1），当场落 T1/T2 两项收紧；按用户纪律「狗粮是重型验证，不随意触发」，复验搭车下一次经批准的长跑，本 slice 不自行起跑。
 - 2026-07-04 — T3 机器强制方案（A/B/C）登记待用户决策：核心权衡是「预算强制的终态语义不诚实（A）」vs「contract 扩展成本（B）」vs「提示词纪律的残余概率（C）」。
+- 2026-07-04 — **用户拍板 T3 选 B**：候选预算上升为 `AgentRunPolicy` 契约项。实现取 backstop 语义（非 pre-planner 短路）：不改变正常完成路径与既有验收调用数口径，仅在候选达预算后 planner 仍提议 execute_step 时由系统裁决完成 run；候选计数复用既有 `AgentRun.pending_artifact_refs`（零 checkpoint/持久化形状变更）；`prose_drafting`/`character_design`/`plot_outline`/`character_evolution`/`world_building` 五个单候选创作 profile 设 1，conversation/revision/readonly/provider_progress 不设（revision 的 finalize 步在候选之后，不能被候选预算截断）。
