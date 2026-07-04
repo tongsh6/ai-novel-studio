@@ -80,7 +80,7 @@ function appendProgress(entry) {
 // 进入阅读模式触发 get_toc，取最新投影后返回工作台。
 async function readToc(page) {
   const before = frames.length;
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: "阅读", exact: true }).click();
   await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), null, {
     timeout: 15_000,
   });
@@ -125,10 +125,37 @@ function nextPendingChapter(toc, skippedTitles) {
   );
 }
 
-async function adoptPendingDraft(page, chapterTitle, fromIndex) {
+// 发送作者消息并取回本轮 turn_id（user_message ack 的 response.turn_id）。
+// 后续帧匹配用它绑定本轮：AgentRun 可能在作者采纳后仍执行后续 step 并迟到广播
+// turn_result（僵尸草稿帧），不绑定 turn 会把上一轮的迟到帧误认成本轮产出。
+async function sendAuthorMessage(page, instruction) {
+  const fromIndex = frames.length;
+  await page.locator(chatInputSelector).fill(instruction);
+  await page.getByRole("button", { name: /^发送$/ }).click();
+
+  const ack = await waitForFrame(
+    (f) =>
+      f.direction === "received" &&
+      f.event === "phx_reply" &&
+      f.body?.response?.received === true,
+    "No user_message ack after sending instruction",
+    30_000,
+    fromIndex,
+  );
+  return { fromIndex, turnId: ack.body?.response?.turn_id ?? null };
+}
+
+function frameBelongsToTurn(frame, turnId) {
+  if (!turnId) return true;
+  const frameTurn = String(frame.body?.turn_id ?? "");
+  return frameTurn === turnId || frameTurn.startsWith(`${turnId}:`);
+}
+
+async function adoptPendingDraft(page, chapterTitle, fromIndex, turnId = null) {
   const freshProse = (f) =>
     f.direction === "received" &&
     f.event === "turn_result" &&
+    frameBelongsToTurn(f, turnId) &&
     f.body?.tool_result?.tool_name === "prose_writing" &&
     f.body?.adoption_state?.pending?.[0]?.artifact_type === "prose_fragment";
 
@@ -140,12 +167,13 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
       freshProse(f) ||
       (f.direction === "received" &&
         f.event === "turn_result" &&
+        frameBelongsToTurn(f, turnId) &&
         f.body?.status === "needs_confirmation" &&
         (f.body?.available_actions ?? []).some(
           (action) => action.action_type === "confirm_before_execute",
         )),
     `No prose_fragment or confirmation turn_result for ${chapterTitle}`,
-    300_000,
+    600_000,
     fromIndex,
   );
 
@@ -159,19 +187,19 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
     draftFrame = await waitForFrame(
       freshProse,
       `No prose_fragment turn_result after confirmation for ${chapterTitle}`,
-      300_000,
+      600_000,
       fromIndex,
     );
   }
 
   const pending = draftFrame.body.adoption_state.pending[0];
 
-  await page.waitForFunction(() => document.body.innerText.includes("确认创建"), null, {
+  await page.waitForFunction(() => document.body.innerText.includes("保存为章节正文"), null, {
     timeout: 15_000,
   });
   // 同上：多卡堆积时 .first() 会点到旧 turn 的卡（其 accept 永远 needs_confirmation），
   // 本轮 artifact 永远等不到 resolved —— 必须点最新卡。
-  await page.getByRole("button", { name: "确认创建" }).last().click();
+  await page.getByRole("button", { name: "保存为章节正文" }).last().click();
 
   // accept 可能因目标章已有正文被采纳层判覆盖确认（needs_confirmation 的 action_result）；
   // runner 像真实作者一样点「确认执行」完成覆盖替换（overwrite-confirm 链）。
@@ -216,7 +244,7 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
     .waitForFunction(
       () =>
         ![...document.querySelectorAll("button")].some(
-          (btn) => (btn.textContent ?? "").trim() === "确认创建",
+          (btn) => (btn.textContent ?? "").trim() === "保存为章节正文",
         ),
       null,
       { timeout: 15_000 },
@@ -229,31 +257,29 @@ async function adoptPendingDraft(page, chapterTitle, fromIndex) {
 
 // 增量扩章：作者自然语言要求接续生成新一批章节计划并采纳（p1-plan-incremental 链）。
 async function planMoreChapters(page) {
-  const fromIndex = frames.length;
-  await page
-    .locator(chatInputSelector)
-    .fill(
-      "已有章节剧情推进得不错，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。",
-    );
-  await page.getByRole("button", { name: /^发送$/ }).click();
+  const { fromIndex, turnId } = await sendAuthorMessage(
+    page,
+    "已有章节剧情推进得不错，请接着已有章节继续生成后续剧情的章节大纲，从下一章接续编号，再生成一批新章节计划。",
+  );
 
   const outlineFrame = await waitForFrame(
     (f) =>
       f.direction === "received" &&
       f.event === "turn_result" &&
+      frameBelongsToTurn(f, turnId) &&
       f.body?.tool_result?.tool_name === "plot_outline" &&
       f.body?.tool_result?.output?.artifact_type === "outline_draft" &&
       Number(f.body?.adoption_state?.pending?.[0]?.payload?.chapter_count ?? 0) >= 5,
     "No incremental outline_draft turn_result while expanding the plan",
-    300_000,
+    600_000,
     fromIndex,
   );
   const pending = outlineFrame.body.adoption_state.pending[0];
 
-  await page.waitForFunction(() => document.body.innerText.includes("确认创建"), null, {
+  await page.waitForFunction(() => document.body.innerText.includes("保存到大纲"), null, {
     timeout: 15_000,
   });
-  await page.getByRole("button", { name: "确认创建" }).last().click();
+  await page.getByRole("button", { name: "保存到大纲" }).last().click();
 
   await waitForFrame(
     (f) =>
@@ -279,14 +305,12 @@ async function driveChapterTurn(page, chapter) {
       ? `请根据已采纳章节计划生成${chapter.title}：${summary}正文草稿，保持为待采纳草稿。`
       : `接着${chapter.title}往下写一段正文，自然衔接前文，推进本章情节。`;
 
-  const fromIndex = frames.length;
-  await page.locator(chatInputSelector).fill(instruction);
-  await page.getByRole("button", { name: /^发送$/ }).click();
-  return adoptPendingDraft(page, chapter.title, fromIndex);
+  const { fromIndex, turnId } = await sendAuthorMessage(page, instruction);
+  return adoptPendingDraft(page, chapter.title, fromIndex, turnId);
 }
 
 async function exportBook(page) {
-  await page.getByRole("button", { name: /\[阅读模式\]/ }).click();
+  await page.getByRole("button", { name: "阅读", exact: true }).click();
   await page.waitForFunction(() => document.body.innerText.includes("阅读模式"), null, {
     timeout: 15_000,
   });
@@ -392,7 +416,7 @@ const failures = [];
 try {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded", timeout: 30_000 });
   await page.locator(chatInputSelector).waitFor({ timeout: 30_000 });
-  await page.waitForFunction(() => document.body.innerText.includes("服务: 已连接"), null, {
+  await page.waitForFunction(() => document.body.innerText.includes("同步已连接"), null, {
     timeout: 30_000,
   });
 
